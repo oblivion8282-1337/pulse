@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Pulse Tray-Icon Mockup</title>
+<style>
+  :root{
+    --emerald:#10B981; --bg:#09090b; --panel:#18181b; --panel-2:#27272a;
+    --text:#e4e4e7; --muted:#71717a; --line:#3f3f46;
+    --red:#EF4444; --amber:#F59E0B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 Inter,-apple-system,'Segoe UI',Roboto,sans-serif;padding:32px 24px 80px}
+  h1{font-size:22px;margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:15px;margin:36px 0 4px;color:var(--text);font-weight:600;
+    border-top:1px solid var(--line);padding-top:22px}
+  .lead{color:var(--muted);max-width:680px;margin:0 0 8px}
+  .note{color:var(--muted);font-size:12.5px;margin-top:8px;max-width:680px}
+
+  .bar{background:var(--panel);border:1px solid #000;border-radius:8px;
+    padding:6px 12px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);overflow-x:auto;margin-top:10px}
+  .bar .clock{color:var(--text);font-size:12px;margin-left:auto;padding:0 4px}
+  .bar .tag{color:var(--muted);font-size:11px;padding:0 6px;border-right:1px solid var(--panel-2)}
+  .bar .ico{width:22px;height:22px;flex:none;cursor:pointer;position:relative}
+  .bar .ico:hover .tip{opacity:1;transform:translate(-50%,0)}
+  .tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translate(-50%,4px);
+    background:#000;border:1px solid var(--line);color:var(--text);
+    padding:5px 9px;border-radius:6px;font-size:11.5px;white-space:nowrap;
+    opacity:0;pointer-events:none;transition:.12s;z-index:5}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:18px;margin-top:14px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:10px;
+    background:var(--panel);border:1px solid var(--panel-2);border-radius:12px;padding:16px 10px}
+  .cell .label{font-size:12.5px;color:var(--text);font-weight:550;text-align:center}
+  .cell .sub{font-size:11px;color:var(--muted);text-align:center;margin-top:-4px}
+  .preview{width:80px;height:80px;position:relative}
+
+  .sizes{display:flex;align-items:flex-end;gap:20px;background:var(--panel);
+    border:1px solid var(--panel-2);border-radius:12px;padding:16px 20px;margin-top:10px}
+  .sizes .s{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .sizes .sz{color:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="mark" viewBox="0 0 100 100">
+      <rect width="100" height="100" rx="24" ry="24" fill="#10B981"/>
+      <circle cx="50" cy="50" r="40" fill="none" stroke="#FFFFFF" stroke-width="2.5" opacity="0.28"/>
+      <circle cx="50" cy="50" r="27" fill="none" stroke="#FFFFFF" stroke-width="3.5" opacity="0.55"/>
+      <circle cx="50" cy="50" r="14" fill="none" stroke="#FFFFFF" stroke-width="4" opacity="0.92"/>
+      <circle cx="50" cy="50" r="5.5" fill="#FFFFFF"/>
+    </symbol>
+    <!-- saubere Lucide-Symbole (nicht durchgestrichen) -->
+    <symbol id="mic" viewBox="0 0 24 24">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" fill="currentColor"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="headphones" viewBox="0 0 24 24">
+      <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<h1>Pulse — Tray-Status-Mockup</h1>
+<p class="lead">
+  Mikrofon und Kopfhörer zeigen den Status direkt in Rot, ohne roten Kreis drumherum;
+  nur die Zahl der ungelesenen Nachrichten sitzt weiterhin im roten Kreis.
+  Rot signalisiert „Achtung/Status", das Symbol die Bedeutung.
+</p>
+
+<h2>1. Echte Panel-Ansicht (22 px)</h2>
+<p class="note">Hover für Tooltip. So rendert Electron das Tray auf Linux.</p>
+<div class="bar">
+  <span class="tag">niri / waybar</span>
+  <div class="ico">
+    <svg viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+    <span class="tip">Pulse</span>
+  </div>
+  <div class="ico">
+    <svg viewBox="0 0 100 100" width="22" height="22">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g>
+    </svg>
+    <span class="tip">Pulse — Mikro stummgeschaltet</span>
+  </div>
+  <div class="ico">
+    <svg viewBox="0 0 100 100" width="22" height="22">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 25) scale(1.5)"><use href="#headphones"/></g>
+    </svg>
+    <span class="tip">Pulse — Deaffendiert</span>
+  </div>
+  <div class="ico">
+    <svg viewBox="0 0 100 100" width="22" height="22">
+      <use href="#mark"/>
+      <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+      <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+    </svg>
+    <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+  </div>
+  <div class="ico">
+    <svg viewBox="0 0 100 100" width="22" height="22">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(33 33) scale(1.4)"><use href="#mic"/></g>
+      <circle cx="86" cy="86" r="15" fill="#09090b" stroke="#EF4444" stroke-width="3"/>
+      <text x="86" y="91" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+    </svg>
+    <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+  </div>
+  <span class="clock">Do 03 Jul 08:14</span>
+</div>
+
+<h2>2. Detail (80 px)</h2>
+<div class="grid">
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80"><use href="#mark"/></svg></div>
+    <span class="label">Normal</span>
+    <span class="sub">kein Badge</span>
+  </div>
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g>
+    </svg></div>
+    <span class="label">Mikro stumm</span>
+    <span class="sub">Mikrofon (rot)</span>
+  </div>
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 25) scale(1.5)"><use href="#headphones"/></g>
+    </svg></div>
+    <span class="label">Deaffendiert</span>
+    <span class="sub">Kopfhörer (rot)</span>
+  </div>
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80">
+      <use href="#mark"/>
+      <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+      <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+    </svg></div>
+    <span class="label">Ungelesen</span>
+    <span class="sub">Zahl im Kreis</span>
+  </div>
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80">
+      <use href="#mark"/>
+      <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+      <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+    </svg></div>
+    <span class="label">Erwähnung</span>
+    <span class="sub">@ im Kreis</span>
+  </div>
+  <div class="cell">
+    <div class="preview"><svg viewBox="0 0 100 100" width="80" height="80">
+      <use href="#mark"/>
+      <g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(33 33) scale(1.4)"><use href="#mic"/></g>
+      <circle cx="87" cy="87" r="16" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+      <text x="87" y="93" text-anchor="middle" font-size="17" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+    </svg></div>
+    <span class="label">Stumm + Ungelesen</span>
+    <span class="sub">gestapelt (Mic + Zahl)</span>
+  </div>
+</div>
+
+<h2>3. Größen-Vergleich (Mikro stumm)</h2>
+<p class="note">
+  Bei echten Tray-Größen (16/22 px) ist das rote Mikrofon klein, aber klar vom
+  Pulse-Mark abgesetzt. Der Tooltip liefert die volle Klarheit. Ab 32 px wird
+  das Symbol gut lesbar.
+</p>
+<div class="sizes">
+  <div class="s"><svg viewBox="0 0 100 100" width="16" height="16"><use href="#mark"/><g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g></svg><span class="sz">16 px</span></div>
+  <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/><g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g></svg><span class="sz">22 px (Linux-Tray)</span></div>
+  <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/><g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g></svg><span class="sz">32 px</span></div>
+  <div class="s"><svg viewBox="0 0 100 100" width="48" height="48"><use href="#mark"/><g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g></svg><span class="sz">48 px</span></div>
+  <div class="s"><svg viewBox="0 0 100 100" width="80" height="80"><use href="#mark"/><g color="#EF4444" fill="#EF4444" stroke="#EF4444" transform="translate(32 32) scale(1.5)"><use href="#mic"/></g></svg><span class="sz">80 px (Detail)</span></div>
+</div>
+
+</body>
+</html>

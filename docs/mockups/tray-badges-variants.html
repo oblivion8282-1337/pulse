@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Pulse Tray-Status — Farbvarianten</title>
+<style>
+  :root{
+    --bg:#09090b; --panel:#18181b; --panel-2:#27272a;
+    --text:#e4e4e7; --muted:#71717a; --line:#3f3f46;
+    --green:#10B981; --red:#EF4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 Inter,-apple-system,'Segoe UI',Roboto,sans-serif;padding:32px 24px 80px}
+  h1{font-size:22px;margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:15px;margin:0 0 4px;color:var(--text);font-weight:600}
+  .lead{color:var(--muted);max-width:740px;margin:0 0 8px}
+  .lead strong{color:var(--text);font-weight:600}
+
+  .variant{margin-top:28px;padding:20px;background:var(--panel);
+    border:1px solid var(--panel-2);border-radius:14px}
+  .variant-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .swatch{width:16px;height:16px;border-radius:4px;border:1px solid #000;flex:none}
+  .variant-meta{color:var(--muted);font-size:12px;margin-left:auto}
+
+  .bar{background:#0c0c0e;border:1px solid #000;border-radius:8px;
+    padding:6px 12px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);overflow-x:auto;margin-top:10px}
+  .bar .clock{color:var(--text);font-size:12px;margin-left:auto;padding:0 4px}
+  .bar .tag{color:var(--muted);font-size:11px;padding:0 6px;border-right:1px solid var(--panel-2)}
+  .ico{width:22px;height:22px;flex:none;cursor:pointer;position:relative}
+  .ico:hover .tip{opacity:1;transform:translate(-50%,0)}
+  .tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translate(-50%,4px);
+    background:#000;border:1px solid var(--line);color:var(--text);
+    padding:5px 9px;border-radius:6px;font-size:11.5px;white-space:nowrap;
+    opacity:0;pointer-events:none;transition:.12s;z-index:5}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
+    gap:12px;margin-top:14px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:8px;
+    background:#0c0c0e;border:1px solid var(--panel-2);border-radius:10px;padding:14px 8px}
+  .cell .label{font-size:11.5px;color:var(--text);font-weight:550;text-align:center;line-height:1.3}
+  .cell .sub{font-size:10.5px;color:var(--muted);text-align:center;margin-top:-2px}
+  .preview{width:72px;height:72px;position:relative}
+
+  .sizes{display:flex;align-items:flex-end;gap:18px;background:#0c0c0e;
+    border:1px solid var(--panel-2);border-radius:10px;padding:14px 16px;margin-top:12px}
+  .s{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .sz{color:var(--muted);font-size:11px}
+
+  .legend{margin-top:32px;padding:18px;background:var(--panel);
+    border:1px solid var(--panel-2);border-radius:12px;font-size:13px;max-width:740px}
+  .legend .row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--panel-2)}
+  .legend .row:last-child{border:0}
+  .legend .row .name{font-weight:600;min-width:140px}
+  .legend code{background:var(--panel-2);padding:1px 6px;border-radius:4px;font-size:11.5px}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="mark" viewBox="0 0 100 100">
+      <rect width="100" height="100" rx="24" ry="24" fill="currentColor"/>
+      <circle cx="50" cy="50" r="40" fill="none" stroke="#FFFFFF" stroke-width="2.5" opacity="0.28"/>
+      <circle cx="50" cy="50" r="27" fill="none" stroke="#FFFFFF" stroke-width="3.5" opacity="0.55"/>
+      <circle cx="50" cy="50" r="14" fill="none" stroke="#FFFFFF" stroke-width="4" opacity="0.92"/>
+      <circle cx="50" cy="50" r="5.5" fill="#FFFFFF"/>
+    </symbol>
+    <!-- F: radiale Verläufe. userSpaceOnUse + absolute Koordinaten, weil <symbol>+<use>
+         mit url(#)-Lookup aus dem Shadow Tree heraus nicht zuverlässig rendert.
+         Deshalb: rect mit Gradient direkt im SVG, Kreise als gemeinsames Symbol. -->
+    <radialGradient id="grad-mute-subtle" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EF4444"/>
+      <stop offset="40" stop-color="#EF4444"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <radialGradient id="grad-mute-medium" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EF4444"/>
+      <stop offset="70" stop-color="#EF4444"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <radialGradient id="grad-mute-strong" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EF4444"/>
+      <stop offset="90" stop-color="#EF4444"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <radialGradient id="grad-deaf-subtle" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="40" stop-color="#3B82F6"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <radialGradient id="grad-deaf-medium" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="70" stop-color="#3B82F6"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <radialGradient id="grad-deaf-strong" cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="90" stop-color="#3B82F6"/>
+      <stop offset="100" stop-color="#10B981"/>
+    </radialGradient>
+    <!-- gemeinsame 4 innere Kreise (weiß) — als Symbol, weil hier kein url(#)-Lookup involviert ist -->
+    <symbol id="circles" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="40" fill="none" stroke="#fff" stroke-width="2.5" opacity="0.28"/>
+      <circle cx="50" cy="50" r="27" fill="none" stroke="#fff" stroke-width="3.5" opacity="0.55"/>
+      <circle cx="50" cy="50" r="14" fill="none" stroke="#fff" stroke-width="4" opacity="0.92"/>
+      <circle cx="50" cy="50" r="5.5" fill="#fff"/>
+    </symbol>
+  </defs>
+</svg>
+
+<h1>Pulse — Tray-Status, Farbvarianten</h1>
+<p class="lead">
+  <strong>Ungelesen / Erwähnung</strong>: Pulse-Mark bleibt
+  <strong style="color:var(--green)">grün</strong>, kleiner
+  <strong style="color:var(--red)">roter</strong> Badge-Kreis mit Zahl oder @.
+  <strong>Mikro stumm / Deaf</strong>: das
+  <strong>Mark selbst wechselt die Farbe</strong> — keine Symbole drauf, die Logofarbe IST der Status.
+</p>
+
+<!-- A: Orange + Blau -->
+<section class="variant" style="--mute:#F59E0B; --deaf:#3B82F6">
+  <div class="variant-head">
+    <span class="swatch" style="background:var(--mute)"></span>
+    <span class="swatch" style="background:var(--deaf)"></span>
+    <h2>A — Klassisch Kontrast</h2>
+    <span class="variant-meta">Mute #F59E0B (Orange) · Deaf #3B82F6 (Blau) · warm/kalt</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span><span class="sub">grün, kein Badge</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Mikro stumm</span><span class="sub">Mark orange</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Deaffendiert</span><span class="sub">Mark blau</span></div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg></div>
+      <span class="label">Ungelesen</span><span class="sub">grün + Badge 3</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Erwähnung</span><span class="sub">grün + Badge @</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg></div>
+      <span class="label">Stumm + Unread</span><span class="sub">orange + Badge 5</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Deaf + Mention</span><span class="sub">blau + Badge @</span>
+    </div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="16" height="16"><use href="#mark"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- B: Bernstein + Indigo -->
+<section class="variant" style="--mute:#D97706; --deaf:#6366F1">
+  <div class="variant-head">
+    <span class="swatch" style="background:var(--mute)"></span>
+    <span class="swatch" style="background:var(--deaf)"></span>
+    <h2>B — Gedämpft / professionell</h2>
+    <span class="variant-meta">Mute #D97706 (Bernstein-dunkel) · Deaf #6366F1 (Indigo) · eine Stufe tiefer als A</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span><span class="sub">grün, kein Badge</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Mikro stumm</span><span class="sub">Mark bernstein-dunkel</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Deaffendiert</span><span class="sub">Mark indigo</span></div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg></div>
+      <span class="label">Ungelesen</span><span class="sub">grün + Badge 3</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Erwähnung</span><span class="sub">grün + Badge @</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg></div>
+      <span class="label">Stumm + Unread</span><span class="sub">bernstein + Badge 5</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Deaf + Mention</span><span class="sub">indigo + Badge @</span>
+    </div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="16" height="16"><use href="#mark"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- C: Gelb + Violett -->
+<section class="variant" style="--mute:#EAB308; --deaf:#A855F7">
+  <div class="variant-head">
+    <span class="swatch" style="background:var(--mute)"></span>
+    <span class="swatch" style="background:var(--deaf)"></span>
+    <h2>C — Sonne / Mond</h2>
+    <span class="variant-meta">Mute #EAB308 (Gelb) · Deaf #A855F7 (Violett) · spielerischer, weniger „Alarm"</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span><span class="sub">grün, kein Badge</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Mikro stumm</span><span class="sub">Mark gelb</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Deaffendiert</span><span class="sub">Mark violett</span></div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg></div>
+      <span class="label">Ungelesen</span><span class="sub">grün + Badge 3</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Erwähnung</span><span class="sub">grün + Badge @</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg></div>
+      <span class="label">Stumm + Unread</span><span class="sub">gelb + Badge 5</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Deaf + Mention</span><span class="sub">violett + Badge @</span>
+    </div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="16" height="16"><use href="#mark"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- D: Rot + Blau -->
+<section class="variant" style="--mute:#EF4444; --deaf:#3B82F6">
+  <div class="variant-head">
+    <span class="swatch" style="background:var(--mute)"></span>
+    <span class="swatch" style="background:var(--deaf)"></span>
+    <h2>D — Mute in Rot</h2>
+    <span class="variant-meta">Mute #EF4444 (Rot) · Deaf #3B82F6 (Blau) · Achtung: Mute-Mark teilt sich die Farbe mit dem Unread-Badge</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span><span class="sub">grün, kein Badge</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Mikro stumm</span><span class="sub">Mark rot</span></div>
+    <div class="cell"><div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Deaffendiert</span><span class="sub">Mark blau</span></div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg></div>
+      <span class="label">Ungelesen</span><span class="sub">grün + Badge 3</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#EF4444" stroke="#09090b" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Erwähnung</span><span class="sub">grün + Badge @</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="82" text-anchor="middle" font-size="26" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg></div>
+      <span class="label">Stumm + Unread</span><span class="sub">rot + Badge 5</span>
+    </div>
+    <div class="cell">
+      <div class="preview"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="72" height="72">
+        <use href="#mark"/>
+        <circle cx="74" cy="74" r="24" fill="#09090b" stroke="#EF4444" stroke-width="5"/>
+        <text x="74" y="84" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg></div>
+      <span class="label">Deaf + Mention</span><span class="sub">blau + Badge @</span>
+    </div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="16" height="16"><use href="#mark"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg style="color:var(--mute)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg style="color:var(--deaf)" viewBox="0 0 100 100" width="32" height="32"><use href="#mark"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- F1: Verlauf subtil -->
+<section class="variant">
+  <div class="variant-head">
+    <span class="swatch" style="background:#EF4444"></span>
+    <span class="swatch" style="background:#3B82F6"></span>
+    <span class="swatch" style="background:#10B981"></span>
+    <h2>F1 — Verlauf subtil</h2>
+    <span class="variant-meta">Status innen 40% · grüner Rand 60% · Mute=Rot, Deaf=Blau</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-subtle)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22">
+        <rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/>
+        <use href="#circles"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/><use href="#circles"/></svg></div><span class="label">Mikro stumm</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-subtle)"/><use href="#circles"/></svg></div><span class="label">Deaffendiert</span></div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg viewBox="0 0 100 100" width="16" height="16"><rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/><use href="#circles"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/><use href="#circles"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-mute-subtle)"/><use href="#circles"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-subtle)"/><use href="#circles"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-subtle)"/><use href="#circles"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- F2: Verlauf mittel -->
+<section class="variant">
+  <div class="variant-head">
+    <span class="swatch" style="background:#EF4444"></span>
+    <span class="swatch" style="background:#3B82F6"></span>
+    <span class="swatch" style="background:#10B981"></span>
+    <h2>F2 — Verlauf mittel</h2>
+    <span class="variant-meta">Status innen 70% · grüner Rand 30% · Mute=Rot, Deaf=Blau</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-medium)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22">
+        <rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/>
+        <use href="#circles"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/><use href="#circles"/></svg></div><span class="label">Mikro stumm</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-medium)"/><use href="#circles"/></svg></div><span class="label">Deaffendiert</span></div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg viewBox="0 0 100 100" width="16" height="16"><rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/><use href="#circles"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/><use href="#circles"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-mute-medium)"/><use href="#circles"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-medium)"/><use href="#circles"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-medium)"/><use href="#circles"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<!-- F3: Verlauf stark -->
+<section class="variant">
+  <div class="variant-head">
+    <span class="swatch" style="background:#EF4444"></span>
+    <span class="swatch" style="background:#3B82F6"></span>
+    <span class="swatch" style="background:#10B981"></span>
+    <h2>F3 — Verlauf stark</h2>
+    <span class="variant-meta">Status innen 90% · grüner Saum 10% · Mute=Rot, Deaf=Blau</span>
+  </div>
+
+  <div class="bar">
+    <span class="tag">niri / waybar</span>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22"><use href="#mark"/></svg>
+      <span class="tip">Pulse — Normal</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Mikrofon stumm</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-strong)"/><use href="#circles"/></svg>
+      <span class="tip">Pulse — Deaffendiert</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">3</text>
+      </svg>
+      <span class="tip">Pulse — 3 ungelesene Nachrichten</span>
+    </div>
+    <div class="ico">
+      <svg style="color:var(--green)" viewBox="0 0 100 100" width="22" height="22">
+        <use href="#mark"/>
+        <circle cx="76" cy="76" r="22" fill="#EF4444" stroke="#09090b" stroke-width="4"/>
+        <text x="76" y="84" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">@</text>
+      </svg>
+      <span class="tip">Pulse — @Erwähnung</span>
+    </div>
+    <div class="ico">
+      <svg viewBox="0 0 100 100" width="22" height="22">
+        <rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/>
+        <use href="#circles"/>
+        <circle cx="76" cy="76" r="22" fill="#09090b" stroke="#EF4444" stroke-width="4"/>
+        <text x="76" y="83.5" text-anchor="middle" font-size="22" font-weight="700" fill="#fff" font-family="Inter,sans-serif">5</text>
+      </svg>
+      <span class="tip">Pulse — Mikro stumm · 5 ungelesen</span>
+    </div>
+    <span class="clock">Do 03 Jul 08:14</span>
+  </div>
+
+  <div class="grid">
+    <div class="cell"><div class="preview"><svg style="color:var(--green)" viewBox="0 0 100 100" width="72" height="72"><use href="#mark"/></svg></div><span class="label">Normal</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/><use href="#circles"/></svg></div><span class="label">Mikro stumm</span></div>
+    <div class="cell"><div class="preview"><svg viewBox="0 0 100 100" width="72" height="72"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-strong)"/><use href="#circles"/></svg></div><span class="label">Deaffendiert</span></div>
+  </div>
+
+  <div class="sizes">
+    <div class="s"><svg viewBox="0 0 100 100" width="16" height="16"><rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/><use href="#circles"/></svg><span class="sz">16 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/><use href="#circles"/></svg><span class="sz">22 px (Tray)</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-mute-strong)"/><use href="#circles"/></svg><span class="sz">32 px</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-strong)"/><use href="#circles"/></svg><span class="sz">22 px Deaf</span></div>
+    <div class="s"><svg viewBox="0 0 100 100" width="32" height="32"><rect width="100" height="100" rx="24" fill="url(#grad-deaf-strong)"/><use href="#circles"/></svg><span class="sz">32 px Deaf</span></div>
+  </div>
+</section>
+
+<div class="legend">
+  <h2>Legende</h2>
+  <div class="row"><span class="swatch" style="background:var(--green)"></span><span class="name">Grün</span><span>Normal · ungelesen · Erwähnung (mit Badge)</span></div>
+  <div class="row"><span class="swatch" style="background:var(--red)"></span><span class="name">Rot</span><span>Ausschließlich Badge für ungelesene Nachrichten / Erwähnung</span></div>
+  <div class="row"><span class="swatch" style="background:#F59E0B"></span><span class="name">Mute-Farbe</span><span>Mark wechselt komplett zu dieser Farbe, kein zusätzliches Symbol</span></div>
+  <div class="row"><span class="swatch" style="background:#3B82F6"></span><span class="name">Deaf-Farbe</span><span>dito für Deaf (kontrastiert zur Mute-Farbe)</span></div>
+  <p style="margin-top:14px;color:var(--muted);font-size:12px">
+    Hinweis Tooltip liefert immer die volle Klarheit — bei 16-22 px erkennt das Auge nur die Logofarbe.
+    <code>desktop/electron/main.ts</code> müsste dafür das Tray-Image bei Statuswechsel neu rendern (electron <code>tray.setImage()</code>).
+  </p>
+</div>
+
+</body>
+</html>

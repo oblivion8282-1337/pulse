@@ -420,19 +420,42 @@ class VoiceRoom {
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
+    this.#audioEls.deafened = this.deafened;
+    this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
+    this.#audioEls.setUserVolumes(settings.voice.userVolumes);
+    this.#audioEls.setMasterVolume(settings.voice.outputVolume);
+    this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
+    void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
+    this.#wireEvents(room);
+
+    // micEnabled synchron setzen (vor dem await) — sonst lesen Listener
+    // (TraySync, Buttons) transient connected=true + micEnabled=false und das
+    // Tray blitzt rot auf. Bei API-Fehler wird unten auf false zurückgesetzt.
+    const startMuted = opts.startMuted || opts.startDeafened;
+    this.micEnabled = !this.pttMode && !startMuted;
+
     await this.#devices.refresh(room);
 
     // Re-check again after devices.refresh() — same risk of a concurrent
     // connect that replaced this.#room during the await.
     if (gen !== this.#connectGen) return;
 
-    // Live on join (Discord-style), unless PTT mode keeps the mic muted — or
-    // the caller restores a muted/deafened state (voice-resume after a reload).
-    const startMuted = opts.startMuted || opts.startDeafened;
-    if (!this.pttMode && !startMuted) {
-      await this.setMicEnabled(true);
-    } else {
-      this.micEnabled = false;
+    // Eigentlicher Mic-Publish — `micEnabled` ist oben schon synchron gesetzt;
+    // wir machen hier nur das LiveKit-API + applyNoiseFilter/#attachLocalAnalyser
+    // und rollbacken `micEnabled` im Fehlerfall.
+    if (this.micEnabled) {
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true, this.#audioCaptureDefaults());
+        if (gen !== this.#connectGen) return;
+        await this.applyNoiseFilter();
+        this.#attachLocalAnalyser();
+      } catch (e) {
+        if (gen !== this.#connectGen) return;
+        this.micEnabled = false;
+        this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
+      }
+    } else if (startMuted || this.pttMode) {
+      // Bewusst stumm: nichts zu publishen.
     }
     // Re-check again after setMicEnabled() — same risk of a concurrent connect
     // that replaced this.#room during the await.
@@ -506,9 +529,13 @@ class VoiceRoom {
   async setMicEnabled(on: boolean): Promise<void> {
     const room = this.#room;
     if (!room) return;
+    // Optimistic UI: micEnabled synchron vor dem await setzen, sonst blitzt
+    // das Tray-Icon beim Mic-Toggle kurz rot auf (Listener sehen transient
+    // connected=true + micEnabled=false). Im catch auf den alten Wert zurück.
+    const prevMic = this.micEnabled;
+    this.micEnabled = on;
     try {
       await room.localParticipant.setMicrophoneEnabled(on, this.#audioCaptureDefaults());
-      this.micEnabled = on;
       if (on) {
         await this.applyNoiseFilter();
         this.#attachLocalAnalyser();
@@ -521,6 +548,7 @@ class VoiceRoom {
         else this.#localMic.detach();
       }
     } catch (e) {
+      this.micEnabled = prevMic;
       this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
     }
     this.#refreshParticipants();

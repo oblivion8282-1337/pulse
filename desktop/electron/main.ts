@@ -30,7 +30,7 @@ import { URL } from 'node:url';
 declare const __APP_VERSION__: string;
 import { MAX_STREAM_SLOTS, allSidecars, getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
-import { createTray } from './tray';
+import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
@@ -765,6 +765,35 @@ app.whenReady().then(() => {
       app.quit();
     }
   );
+
+  // Tray-Status vom Renderer. ipcMain.on (fire-and-forget); defensive Shape-
+  // Checks, weil ein kompromittierter Renderer sonst beliebige Tooltip-Strings
+  // einschleusen könnte.
+  ipcMain.on('tray:setStatus', (_e, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return;
+    const p = payload as Record<string, unknown>;
+    const bool = (k: string): boolean | undefined => {
+      const v = p[k];
+      return typeof v === 'boolean' ? v : undefined;
+    };
+    const num = (k: string): number | undefined => {
+      const v = p[k];
+      return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined;
+    };
+    applyTrayStatus({
+      muted: bool('muted'),
+      deafened: bool('deafened'),
+      unread: num('unread'),
+      mentions: num('mentions'),
+    });
+  });
+  // Rendered Tray-Image (data: URL) mit dynamischem Badge. invoke statt send,
+  // damit der Renderer die Promise-Abwicklung sauber über contextBridge bekommt.
+  ipcMain.handle('tray:setImage', (_e, dataUrl: unknown) => {
+    if (typeof dataUrl !== 'string') return false;
+    setTrayImageFromDataUrl(dataUrl);
+    return true;
+  });
 });
 
 // With close-to-tray, `window-all-closed` only fires after a real quit (when
