@@ -34,7 +34,7 @@ import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
-import { wireUpdater } from './updater';
+import { checkAndInstallUpdate, wireInAppUpdater } from './updater';
 import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
@@ -201,6 +201,35 @@ app.on('open-url', (event, url) => {
   event.preventDefault();
   handleDeepLink(url, () => mainWindow);
 });
+
+let splashWindow: BrowserWindow | null = null;
+
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 480,
+    height: 360,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    frame: false,
+    show: false,
+    title: 'Pulse Update',
+    icon: path.join(__dirname, '..', '..', 'build-resources', 'icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  splash.once('ready-to-show', () => splash.show());
+  splash.loadFile(path.join(__dirname, '..', '..', 'build-resources', 'update-splash.html'));
+
+  return splash;
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -709,11 +738,8 @@ app.on('second-instance', (_event, argv) => {
 // hold-to-talk. The in-window PTT in VoiceChannelView.svelte (@svelte-put/shortcut)
 // still works.
 
-app.whenReady().then(() => {
-  // Dev-run Dock icon (macOS): an unpackaged `electron .` shows the default
-  // Electron icon in the Dock. The packaged .app gets the Pulse icon from
-  // electron-builder (build-resources/icon.icns); for the dev run set it at
-  // runtime. No-op when packaged (icon comes from the bundle) or off-macOS.
+async function bootWithUpdateCheck(): Promise<void> {
+  // Dev-run Dock icon (macOS)
   if (process.platform === 'darwin' && !app.isPackaged && app.dock) {
     const iconPath = path.join(__dirname, '..', '..', 'build-resources', 'icon.png');
     try {
@@ -724,8 +750,7 @@ app.whenReady().then(() => {
     }
   }
 
-  // DIAG: jeder Renderer-/GPU-Crash mit Grund ins Log (sonst still). Hilft beim
-  // Debuggen der abgedockten Popup-Fenster.
+  // DIAG: Renderer-/GPU-Crash logging
   app.on('web-contents-created', (_e, contents) => {
     contents.on('render-process-gone', (_ev, details) => {
       console.error('[render-process-gone]', contents.getURL().slice(0, 80), JSON.stringify(details));
@@ -735,28 +760,38 @@ app.whenReady().then(() => {
   app.on('child-process-gone', (_e, details) => {
     console.error('[child-process-gone]', JSON.stringify(details));
   });
-  // Pulse ist eine Web-App im Fenster — Electrons Default-Menü (File/Edit/View/
-  // Window/Help) hat hier keinen Sinn. Komplett entfernen statt nur ausblenden.
+
+  // Kein Menü
   Menu.setApplicationMenu(null);
+
+  // Store init (nicht Fenster-abhängig)
   initStore();
   wireStore();
   wireInvitePull();
+
+  // Splash für Update-Check
+  splashWindow = createSplashWindow();
+
+  // Update-Check mit Progress-Callback an Splash
+  await checkAndInstallUpdate((progress) => {
+    splashWindow?.webContents.send('update-progress', progress);
+  });
+
+  // Splash schließen
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+
+  // Jetzt Haupt-App starten
   wireHost(() => mainWindow);
   wireSidecar();
   wireScreenShare();
   wireNotify(() => mainWindow);
-  // Display-sleep inhibitor — renderer toggles it while a watch-party / HQ
-  // stream is actively playing (`window.pulse.power.keepAwake`).
   wirePower();
-  // Native clipboard + dropped-file byte access — lets paste + drag-drop of
-  // images/files work in the sandboxed remote renderer (`window.pulse.clipboard`
-  // / `window.pulse.files`).
   wireClipboard();
-  // Auto-Update (Windows, gepackt) — no-op in dev / auf Linux.
-  wireUpdater(() => mainWindow);
-  // OS-global toggles (mute/deafen/disconnect/stream) so they fire while Pulse
-  // is unfocused. The renderer pushes the current bindings on boot + on rebind.
   wireGlobalShortcuts(() => mainWindow);
+
   createWindow();
   createTray(
     () => mainWindow,
@@ -766,9 +801,10 @@ app.whenReady().then(() => {
     }
   );
 
-  // Tray-Status vom Renderer. ipcMain.on (fire-and-forget); defensive Shape-
-  // Checks, weil ein kompromittierter Renderer sonst beliebige Tooltip-Strings
-  // einschleusen könnte.
+  // In-App-Updater für spätere manuelle Checks
+  wireInAppUpdater(() => mainWindow);
+
+  // Tray-Status IPC
   ipcMain.on('tray:setStatus', (_e, payload: unknown) => {
     if (!payload || typeof payload !== 'object') return;
     const p = payload as Record<string, unknown>;
@@ -787,14 +823,16 @@ app.whenReady().then(() => {
       mentions: num('mentions'),
     });
   });
-  // Rendered Tray-Image (data: URL) mit dynamischem Badge. invoke statt send,
-  // damit der Renderer die Promise-Abwicklung sauber über contextBridge bekommt.
+
+  // Tray-Image IPC
   ipcMain.handle('tray:setImage', (_e, dataUrl: unknown) => {
     if (typeof dataUrl !== 'string') return false;
     setTrayImageFromDataUrl(dataUrl);
     return true;
   });
-});
+}
+
+app.whenReady().then(() => void bootWithUpdateCheck());
 
 // With close-to-tray, `window-all-closed` only fires after a real quit (when
 // `isQuitting` is set and the window is destroyed). On non-darwin we still want
