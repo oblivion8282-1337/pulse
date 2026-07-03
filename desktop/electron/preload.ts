@@ -284,3 +284,14 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.invoke('tray:setImage', dataUrl),
   },
 });
+
+// Splash-Screen Update-Progress (nur für update-splash.html).
+// Exposed als `window.splash.onProgress(cb)` — der Splash-Screen nutzt dies,
+// um Update-Progress-Nachrichten vom Main-Prozess zu empfangen.
+contextBridge.exposeInMainWorld('splash', {
+  onProgress: (cb: (progress: unknown) => void): (() => void) => {
+    const handler = (_e: unknown, data: unknown): void => cb(data);
+    ipcRenderer.on('update-progress', handler);
+    return () => ipcRenderer.removeListener('update-progress', handler);
+  },
+});
