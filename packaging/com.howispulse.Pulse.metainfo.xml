@@ -31,6 +31,11 @@
     <content_attribute id="social-audio">intense</content_attribute>
   </content_rating>
   <releases>
+    <release version="0.1.24" date="2026-07-03">
+      <description>
+        <p>Einstellungen: neuer Schalter „beim Schließen beenden" (Desktop) + der Reiter „Erscheinungsbild" heißt jetzt „App".</p>
+      </description>
+    </release>
     <release version="0.1.23" date="2026-07-03">
       <description>
         <p>Electron 43 (Chromium 150): neuer DTX-Sprachschalter (Datensparmodus in Sprechpausen) ohne Resume-Knacksen, schnellere IPC- und Startzeit.</p>

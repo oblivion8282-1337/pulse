@@ -239,7 +239,14 @@ function createWindow(): void {
     // onMount callback, so any webContents.send here would be lost.
   });
   mainWindow.on('close', (e) => {
-    if (isQuitting) return;
+    // `quitOnClose` (User-Setting, „App"-Tab): Fenster-X beendet die App
+    // wirklich statt sie ins Tray zu minimieren. isQuitting setzen, damit der
+    // before-quit-Handler (Sidecar-Shutdown) sauber greift.
+    const quit = isQuitting || storeGet('quitOnClose') === true;
+    if (quit) {
+      isQuitting = true;
+      return;
+    }
     e.preventDefault();
     mainWindow?.hide();
   });
@@ -521,6 +528,10 @@ const ALLOWED_STORE_KEYS = new Set([
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
   'pulse.servers',
+  // Erster „gemischter" Key: Renderer toggelt ihn im „App"-Tab
+  // (window.pulse.store.set), der Main-Prozess liest ihn synchron im
+  // Fenster-close-Handler (quitOnClose → wirklich beenden statt Tray).
+  'quitOnClose',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für

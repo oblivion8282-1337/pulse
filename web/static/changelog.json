@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-03.4",
+      "date": "2026-07-03",
+      "style": "Sachlich",
+      "title": "Beim Schließen beenden (optional) + Reiter „App"",
+      "items": [
+        "Neu in den Einstellungen unter „App" (vormals „Erscheinungsbild"): ein Schalter legt fest, ob die Desktop-App beim Schließen des Fensters wirklich beendet wird oder weiterläuft. Standard: weiterlaufen (wie bisher).",
+        "Der Reiter „Erscheinungsbild" heißt jetzt „App"."
+      ]
+    },
+    {
       "id": "2026-07-03.3",
       "date": "2026-07-03",
       "style": "Sachlich",
