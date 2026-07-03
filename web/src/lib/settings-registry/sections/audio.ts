@@ -57,7 +57,7 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   voiceBitrateKbps: 128,
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
-  limiterEnabled: false,
+  limiterEnabled: true,
   spatialMode: 'off'
 };
 
