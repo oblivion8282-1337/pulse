@@ -104,9 +104,9 @@
     const progressText = document.getElementById('progressText');
     const progressContainer = document.getElementById('progressContainer');
 
-    // Status updates from main process
-    window.addEventListener('message', (event) => {
-      const { type, data } = event.data;
+    // Status updates from main process via IPC
+    window.splash.onProgress((payload) => {
+      const { type, version, percent, message } = payload as Record<string, unknown>;
 
       switch (type) {
         case 'checking':
@@ -118,12 +118,12 @@
 
         case 'downloading':
           title.textContent = 'Update wird geladen';
-          status.textContent = `Version ${data.version || ''}`;
+          status.textContent = `Version ${version || ''}`;
           progressContainer.classList.remove('indeterminate');
-          if (data.percent !== undefined) {
-            const percent = Math.round(data.percent);
-            progressBar.style.width = `${percent}%`;
-            progressText.textContent = `${percent}%`;
+          if (typeof percent === 'number') {
+            const pct = Math.round(percent);
+            progressBar.style.width = `${pct}%`;
+            progressText.textContent = `${pct}%`;
           }
           break;
 
@@ -136,7 +136,7 @@
 
         case 'ready':
           title.textContent = 'Update bereit';
-          status.textContent = `Version ${data.version || ''} — die App startet gleich`;
+          status.textContent = `Version ${version || ''} — die App startet gleich`;
           progressBar.style.width = '100%';
           progressText.textContent = '100%';
           break;
@@ -150,7 +150,7 @@
 
         case 'error':
           title.textContent = 'Fehler';
-          status.textContent = data?.message || 'Update fehlgeschlagen';
+          status.textContent = typeof message === 'string' ? message : 'Update fehlgeschlagen';
           progressBar.style.background = '#ef4444';
           progressContainer.classList.remove('indeterminate');
           progressText.textContent = '';
