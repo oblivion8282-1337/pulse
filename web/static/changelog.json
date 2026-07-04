@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-04.3",
+      "date": "2026-07-04",
+      "style": "Sachlich",
+      "title": "Update-Check funktioniert jetzt zuverlässig",
+      "items": [
+        "Der Windows-Update-Check beim Start ging manchmal verloren — die App hing dabei fest. Ursache war eine Race-Condition im Event-Listener, die behoben ist.",
+        "Fehler beim Update-Check werden jetzt in eine Log-Datei geschrieben (updater.log im App-Ordner), falls etwas schiefgeht.",
+        "Der kurze Splash-Screen beim Start schliesst sich bei 'Kein Update' schneller und ist weniger störend."
+      ]
+    },
+    {
       "id": "2026-07-04.2",
       "date": "2026-07-04",
       "style": "Sachlich",

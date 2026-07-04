@@ -769,15 +769,53 @@ async function bootWithUpdateCheck(): Promise<void> {
   wireStore();
   wireInvitePull();
 
-  // Splash für Update-Check
-  splashWindow = createSplashWindow();
+  // ── Update-Check mit optimierter UX ──
+  // Der Splash-Screen wird nur erstellt, wenn wir wirklich im Update-Check sind.
+  // In dev / auf Linux / ohne App-Package wird der Splash übersprungen.
+  const needsUpdateCheck = app.isPackaged && process.platform === 'win32';
 
-  // Update-Check mit Progress-Callback an Splash
-  await checkAndInstallUpdate((progress) => {
-    splashWindow?.webContents.send('update-progress', progress);
-  });
+  let updateHadError = false;
 
-  // Splash schließen
+  if (needsUpdateCheck) {
+    // Splash VOR dem Check erstellen (ready-to-show zeigt ihn an)
+    splashWindow = createSplashWindow();
+
+    // Warte kurz, damit der Splash-Screen Zeit hat zu laden
+    await new Promise(r => setTimeout(r, 100));
+
+    // Update-Check mit Progress-Callback an Splash
+    await checkAndInstallUpdate((progress) => {
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.webContents.send('update-progress', progress);
+      }
+
+      // UX-Improvement: Wenn "no-update" oder "error", Splash schneller schließen
+      if (progress.type === 'no-update') {
+        // 300ms Sichtbarkeit für "Kein Update verfügbar" — genügt für einen
+        // kurzen Flash, fühlt sich aber nicht an wie ein hängen
+        setTimeout(() => {
+          if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.close();
+            splashWindow = null;
+          }
+        }, 300);
+      } else if (progress.type === 'error') {
+        updateHadError = true;
+        // 1s Sichtbarkeit für Fehlermeldungen
+        setTimeout(() => {
+          if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.close();
+            splashWindow = null;
+          }
+        }, 1000);
+      }
+    });
+
+    // Wenn der Splash noch da ist (Update wurde gefunden), wird er erst nach
+    // quitAndInstall() geschlossen. Wenn kein Update da war, ist er schon weg.
+  }
+
+  // Splash aufräumen (falls noch da und nicht durch den Progress-Handler geschlossen)
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.close();
     splashWindow = null;
