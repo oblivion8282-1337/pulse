@@ -780,8 +780,17 @@ async function bootWithUpdateCheck(): Promise<void> {
     // Splash VOR dem Check erstellen (ready-to-show zeigt ihn an)
     splashWindow = createSplashWindow();
 
-    // Warte kurz, damit der Splash-Screen Zeit hat zu laden
-    await new Promise(r => setTimeout(r, 100));
+    // Warte auf dom-ready, damit das Splash-Fenster komplett geladen ist
+    // und der IPC-Handler registriert wurde, bevor wir Events senden
+    await new Promise<void>((resolve) => {
+      if (!splashWindow || splashWindow.isDestroyed()) {
+        resolve();
+        return;
+      }
+      splashWindow.webContents.once('dom-ready', () => resolve());
+      // Fallback: Falls dom-ready nicht feuert (extrem unwahrscheinlich), nach 500ms weiter
+      setTimeout(() => resolve(), 500);
+    });
 
     // Update-Check mit Progress-Callback an Splash
     await checkAndInstallUpdate((progress) => {

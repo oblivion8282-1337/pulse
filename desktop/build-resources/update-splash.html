@@ -91,70 +91,85 @@
     <div class="logo">P</div>
     <h1 id="title">Update wird geladen</h1>
     <p class="status" id="status">Bitte warten...</p>
-    <div class="progress-container" id="progressContainer">
+    <div class="progress-container indeterminate" id="progressContainer">
       <div class="progress-bar" id="progressBar"></div>
     </div>
-    <p class="progress-text" id="progressText">0%</p>
+    <p class="progress-text" id="progressText"></p>
   </div>
 
   <script>
-    const title = document.getElementById('title');
-    const status = document.getElementById('status');
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
-    const progressContainer = document.getElementById('progressContainer');
+    // Warte auf DOM-ready und dass window.splash verfügbar ist
+    document.addEventListener('DOMContentLoaded', () => {
+      const title = document.getElementById('title');
+      const status = document.getElementById('status');
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      const progressContainer = document.getElementById('progressContainer');
 
-    // Status updates from main process via IPC
-    window.splash.onProgress((payload) => {
-      const { type, version, percent, message } = payload as Record<string, unknown>;
+      // Fallback: Wenn window.splash nicht verfügbar ist, zeige zumindest den initialen Status
+      if (!window.splash) {
+        console.error('[splash] window.splash nicht verfügbar - preload nicht geladen?');
+        status.textContent = 'Initialisiere...';
+        return;
+      }
 
-      switch (type) {
-        case 'checking':
-          title.textContent = 'Update wird geprüft';
-          status.textContent = 'Bitte warten...';
-          progressContainer.classList.add('indeterminate');
-          progressText.textContent = '';
-          break;
+      // Status updates from main process via IPC
+      try {
+        window.splash.onProgress((payload) => {
+          const { type, version, percent, message } = payload as Record<string, unknown>;
 
-        case 'downloading':
-          title.textContent = 'Update wird geladen';
-          status.textContent = `Version ${version || ''}`;
-          progressContainer.classList.remove('indeterminate');
-          if (typeof percent === 'number') {
-            const pct = Math.round(percent);
-            progressBar.style.width = `${pct}%`;
-            progressText.textContent = `${pct}%`;
+          switch (type) {
+            case 'checking':
+              title.textContent = 'Update wird geprüft';
+              status.textContent = 'Bitte warten...';
+              progressContainer.classList.add('indeterminate');
+              progressText.textContent = '';
+              break;
+
+            case 'downloading':
+              title.textContent = 'Update wird geladen';
+              status.textContent = `Version ${version || ''}`;
+              progressContainer.classList.remove('indeterminate');
+              if (typeof percent === 'number') {
+                const pct = Math.round(percent);
+                progressBar.style.width = `${pct}%`;
+                progressText.textContent = `${pct}%`;
+              }
+              break;
+
+            case 'installing':
+              title.textContent = 'Update wird installiert';
+              status.textContent = 'Die App startet gleich neu...';
+              progressContainer.classList.add('indeterminate');
+              progressText.textContent = '';
+              break;
+
+            case 'ready':
+              title.textContent = 'Update bereit';
+              status.textContent = `Version ${version || ''} — die App startet gleich`;
+              progressBar.style.width = '100%';
+              progressText.textContent = '100%';
+              break;
+
+            case 'no-update':
+              title.textContent = 'Starte Pulse...';
+              status.textContent = 'Kein Update verfügbar';
+              progressContainer.classList.add('indeterminate');
+              progressText.textContent = '';
+              break;
+
+            case 'error':
+              title.textContent = 'Fehler';
+              status.textContent = typeof message === 'string' ? message : 'Update fehlgeschlagen';
+              progressBar.style.background = '#ef4444';
+              progressContainer.classList.remove('indeterminate');
+              progressText.textContent = '';
+              break;
           }
-          break;
-
-        case 'installing':
-          title.textContent = 'Update wird installiert';
-          status.textContent = 'Die App startet gleich neu...';
-          progressContainer.classList.add('indeterminate');
-          progressText.textContent = '';
-          break;
-
-        case 'ready':
-          title.textContent = 'Update bereit';
-          status.textContent = `Version ${version || ''} — die App startet gleich`;
-          progressBar.style.width = '100%';
-          progressText.textContent = '100%';
-          break;
-
-        case 'no-update':
-          title.textContent = 'Starte Pulse...';
-          status.textContent = 'Kein Update verfügbar';
-          progressContainer.classList.add('indeterminate');
-          progressText.textContent = '';
-          break;
-
-        case 'error':
-          title.textContent = 'Fehler';
-          status.textContent = typeof message === 'string' ? message : 'Update fehlgeschlagen';
-          progressBar.style.background = '#ef4444';
-          progressContainer.classList.remove('indeterminate');
-          progressText.textContent = '';
-          break;
+        });
+      } catch (err) {
+        console.error('[splash] Fehler beim Registrieren des Progress-Handlers:', err);
+        status.textContent = 'Fehler beim Laden';
       }
     });
   </script>
