@@ -52,11 +52,26 @@ files:
 # tray/…`, dann den Dev-Cwd-Fallback. Landet für alle Plattformen unter
 # `<resourcesPath>/tray/` (Win: neben app.asar im Install-Verz., macOS: in
 # Pulse.app/Contents/Resources/tray/, Linux: appDir/resources/tray/).
+#
+# Update-Splash-HTML (`main.ts::createSplashWindow`) braucht einen externen
+# Pfad ausserhalb des asar — `BrowserWindow.loadFile` mit relativen Pfaden aus
+# `__dirname` trifft im gepackten Build daneben (asar virtualisiert das
+# Working-Directory). Liegt nach dem Build unter
+# `<resourcesPath>/build-resources/update-splash.html` und wird in
+# `main.ts` ueber `process.resourcesPath` absolut angesprochen.
 extraResources:
   - from: build-resources/tray
     to: tray
     filter:
       - "*.png"
+  # Splash-HTML + Splash-Icon. Beides braucht das `BrowserWindow.loadFile`/
+  # `nativeImage.createFromPath` aus `createSplashWindow` (main.ts) zur Laufzeit
+  # ueber `process.resourcesPath`. Im asar versteckte Pfade wuerden zu
+  # ERR_FILE_NOT_FOUND fuehren.
+  - from: build-resources/update-splash.html
+    to: build-resources
+  - from: build-resources/icon.png
+    to: build-resources
 # Der HQ-Streaming-Sidecar ist plattform-spezifisch (Windows = Rust-.exe + FFmpeg-
 # DLLs, macOS = Rust-Binary + dylibs) und wird daher per `<platform>.extraResources`
 # gebündelt — NICHT top-level, sonst zöge electron-builder den Windows-Sidecar auch
@@ -128,6 +143,12 @@ nsis:
 # neben der Setup-.exe in release/. Der tatsächliche Upload macht NICHT
 # electron-builder (Build läuft mit `--publish never`), sondern der rsync-Step
 # in win-build.yml — diese URL muss exakt der nginx-Route /updates/win/ matchen.
+#
+# Lokaler Test: ueberschreibbar via CLI `electron-builder --win
+# --config.publish.url=http://localhost:8888/` (keine Edit-/Reset-Pflicht).
+publish:
+  provider: generic
+  url: https://howispulse.com/updates/win/
 # ── macOS ─────────────────────────────────────────────────────────────────────
 # Erzeugt eine .app in einem .dmg (Drag-Install) + ein .zip (Auto-Update-Artefakt
 # für Stufe B). Stand 2026-06-15 ist Stufe A aktiv = UNSIGNIERT: Gatekeeper verlangt
@@ -173,6 +194,3 @@ mac:
         - vfkit
 dmg:
   artifactName: Pulse-${version}-${arch}.dmg
-publish:
-  provider: generic
-  url: https://howispulse.com/updates/win/

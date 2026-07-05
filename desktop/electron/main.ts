@@ -34,7 +34,7 @@ import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
-import { checkAndInstallUpdate, wireInAppUpdater } from './updater';
+import { checkAndInstallUpdate, wireInAppUpdater, startPeriodicUpdateChecks } from './updater';
 import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
@@ -205,6 +205,13 @@ app.on('open-url', (event, url) => {
 let splashWindow: BrowserWindow | null = null;
 
 function createSplashWindow(): BrowserWindow {
+  // Splash-HTML und Icon liegen im gepackten Build NICHT im `__dirname` (asar
+  // virtualisiert das), sondern unter `process.resourcesPath` als extraResources
+  // (siehe electron-builder.yml). `closable: true` (statt false) — falls der
+  // Splash-Check haengt und das Promise nicht resolved, kann der User ihn
+  // wegklicken statt in einer weissen Flaeche gefangen zu sein; das close-
+  // Event setzt den Ref auf null, damit der Boot-Aftermath-Cleanup nicht
+  // versucht, ein geschlossenes Window zu nutzen.
   const splash = new BrowserWindow({
     width: 480,
     height: 360,
@@ -212,11 +219,11 @@ function createSplashWindow(): BrowserWindow {
     movable: false,
     minimizable: false,
     maximizable: false,
-    closable: false,
+    closable: true,
     frame: false,
     show: false,
     title: 'Pulse Update',
-    icon: path.join(__dirname, '..', '..', 'build-resources', 'icon.png'),
+    icon: path.join(process.resourcesPath, 'build-resources', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -225,8 +232,13 @@ function createSplashWindow(): BrowserWindow {
     },
   });
 
+  splash.on('closed', () => {
+    splashWindow = null;
+  });
   splash.once('ready-to-show', () => splash.show());
-  splash.loadFile(path.join(__dirname, '..', '..', 'build-resources', 'update-splash.html'));
+  splash.loadFile(
+    path.join(process.resourcesPath, 'build-resources', 'update-splash.html')
+  );
 
   return splash;
 }
@@ -850,6 +862,11 @@ async function bootWithUpdateCheck(): Promise<void> {
 
   // In-App-Updater für spätere manuelle Checks
   wireInAppUpdater(() => mainWindow);
+  // Periodischer Hintergrund-Re-Check (60 Min). stoppt sich selbst, wenn wir
+  // kein gepackter Windows-Build sind; die Cleanup-Funktion ist in dem Fall
+  // ein no-op (siehe updater.ts::startPeriodicUpdateChecks). Auf
+  // Modul-Scope, damit `before-quit` immer greifen kann.
+  stopPeriodicUpdateChecks = startPeriodicUpdateChecks();
 
   // Tray-Status IPC
   ipcMain.on('tray:setStatus', (_e, payload: unknown) => {
@@ -899,8 +916,14 @@ app.on('activate', () => {
 // Also flips `isQuitting` so the window's close-to-hide handler steps aside
 // for any quit path (tray menu, OS logout, programmatic `app.quit()`).
 let didShutdownSidecar = false;
+// Modul-Scope, damit `before-quit` ihn auch dann finden kann, wenn Quit
+// feuert bevor `bootWithUpdateCheck` den Timer ueberhaupt initialisiert hat.
+// Initial ein no-op — sobald der Timer wirklich laeuft, wird die Funktion
+// in `bootWithUpdateCheck` ueberschrieben.
+let stopPeriodicUpdateChecks: () => void = () => undefined;
 app.on('before-quit', (event) => {
   isQuitting = true;
+  stopPeriodicUpdateChecks();
   if (didShutdownSidecar) return;
   event.preventDefault();
   didShutdownSidecar = true;
