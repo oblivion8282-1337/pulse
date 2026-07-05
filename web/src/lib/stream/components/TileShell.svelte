@@ -248,7 +248,9 @@
             onclick={handleCatcherClick}
             ondblclick={handleCatcherDblClick}
             aria-hidden="true"
-            title={m.tile_shell_dblclick_fullscreen()}
+            title={isFullscreen
+              ? m.tile_shell_dblclick_exit()
+              : m.tile_shell_dblclick_fullscreen()}
           ></div>
         {/if}
 
