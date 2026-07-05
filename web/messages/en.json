@@ -2127,6 +2127,7 @@
   "verify_email_sign_in_link": "Sign in",
   "verify_email_sign_out_link": "Sign in with a different account",
   "verify_email_still_pending": "Not confirmed yet — click the link in the email and try again.",
+  "voice_channel_members_cam_on": "Webcam on",
   "voice_channel_members_cam_open": "Open webcam",
   "voice_channel_members_cam_open_label": "Open {name}'s webcam",
   "voice_channel_members_deafened": "Deafened",

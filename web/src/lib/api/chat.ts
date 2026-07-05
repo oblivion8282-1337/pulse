@@ -189,12 +189,53 @@ export const chatApi = {
   },
   /** Voice-Presence-Snapshot einer Community per REST. Für den aktiven
    *  Server kommt dasselbe live über den WS (`ready` + `voice_state`) —
-   *  dieser Endpoint deckt die nicht-aktiven Server-Sektionen ab. */
+   *  dieser Endpoint deckt die nicht-aktiven Server-Sektionen ab. Liefert
+   *  je Channel neben den User-IDs auch die Screen-Share-Streamer und die
+   *  User mit aktivierter Kamera (beides server-seitig via LiveKit-Webhooks
+   *  in Redis gepflegt). */
   guildVoiceState(
     guildId: string,
     route: { serverId?: string } = {}
-  ): Promise<{ voice_states: { channel_id: string; user_ids: string[] }[] }> {
+  ): Promise<{
+    voice_states: {
+      channel_id: string;
+      user_ids: string[];
+      streaming_user_ids: string[];
+      camera_user_ids: string[];
+    }[];
+  }> {
     return request(`/guilds/${guildId}/voice-state`, {}, route);
+  },
+  /** HQ-Stream-Snapshot einer Community per REST (GSR → MediaMTX → WHEP).
+   *  Spiegelt `stream_states` aus dem `ready`-Frame; `streams` fehlt bei
+   *  einslotigen Streams (Legacy-Shape). Dient dem Rail-Tooltip fremder
+   *  Server, um die LIVE-Badge neben der reinen Screen-Share zu füllen. */
+  guildStreamState(
+    guildId: string,
+    route: { serverId?: string } = {}
+  ): Promise<{
+    stream_states: {
+      channel_id: string;
+      user_ids: string[];
+      streams?: { user_id: string; slot?: number; label?: string | null }[];
+    }[];
+  }> {
+    return request(`/guilds/${guildId}/stream-state`, {}, route);
+  },
+  /** Watch-Party-Snapshot einer Community per REST. Eine Channel kann mehrere
+   *  Parties gleichzeitig halten → ein Eintrag pro aktiver Party. `host_user_id`
+   *  treibt die PARTY-Badge im Rail-Tooltip fremder Server. */
+  guildWatchState(
+    guildId: string,
+    route: { serverId?: string } = {}
+  ): Promise<{
+    watch_states: {
+      channel_id: string;
+      party_id: string;
+      state: { host_user_id: string } & Record<string, unknown>;
+    }[];
+  }> {
+    return request(`/guilds/${guildId}/watch-state`, {}, route);
   },
   createChannel(
     guildId: string,
