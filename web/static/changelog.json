@@ -5,11 +5,12 @@
       "id": "2026-07-05",
       "date": "2026-07-05",
       "style": "Sachlich",
-      "title": "Auto-Update funktioniert jetzt auch im laufenden Windows-Betrieb",
+      "title": "Windows-Update bringt sich jetzt selbst mit",
       "items": [
-        "Die Windows-Desktop-App prüft ab jetzt regelmäßig (alle 60 Minuten), ob ein Update vorliegt. Wird eines gefunden, erscheint unten rechts ein Hinweis mit einem Knopf zum sofortigen Neustart.",
-        "Der bisherige Auto-Check beim Start bleibt unverändert.",
-        "Versehentliche Rück-Installationen älterer Versionen werden jetzt blockiert."
+        "Beim Start prueft die Windows-App automatisch, ob ein Update vorliegt, laedt es herunter und startet sich anschliessend neu - ohne dass du etwas tun musst.",
+        "Waehrend die App laeuft, prueft sie zusaetzlich alle 60 Minuten im Hintergrund. Wird ein Update gefunden, erscheint unten rechts ein Hinweis mit einem Knopf zum sofortigen Neustart.",
+        "Das Update-Fenster beim Start zeigt jetzt das Pulse-Logo und einen animierten Fortschrittsbalken.",
+        "Versehentliche Rueck-Installationen aelterer Versionen werden blockiert."
       ]
     },
     {
