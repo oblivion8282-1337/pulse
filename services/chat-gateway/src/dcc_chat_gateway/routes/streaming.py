@@ -142,12 +142,18 @@ async def issue_stream_token(
     )
     bearer = _bearer_from_header(authorization)
     http = getattr(request.app.state, "media_svc_http", None)
+    # `label` is optional; only forward when the caller actually set one so the
+    # body matches what chat-gateway tests expect (no stray ``label: null``
+    # leaking into media-svc when the streamer didn't provide one).
+    token_body: dict[str, object] = {"protocol": payload.protocol, "slot": payload.slot}
+    if payload.label is not None:
+        token_body["label"] = payload.label
     try:
         resp = await _media_svc_request(
             "POST",
             f"/channels/{channel_id}/stream-token",
             bearer=bearer,
-            json_body={"protocol": payload.protocol, "slot": payload.slot, "label": payload.label},
+            json_body=token_body,
             http=http,
         )
     except httpx.HTTPError as exc:

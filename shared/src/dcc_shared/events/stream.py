@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import model_serializer
+
 from dcc_shared.events._base import _EventBase
 
 
@@ -26,6 +28,16 @@ class StreamDescriptor(_EventBase):
     user_id: str
     slot: int = 0
     label: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_none_fields(self, handler) -> dict[str, Any]:
+        # The wire-format contract is "label is omitted when unset" so legacy
+        # / portal-source cases stay byte-identical to the pre-slot schema
+        # (contract enforced by shared/tests/test_events.py). Folding this
+        # into the model itself means every caller (poller, routes, listener
+        # reply path, tests) gets the same shape without having to remember
+        # ``exclude_none=True`` at every dump site.
+        return {k: v for k, v in handler(self).items() if v is not None}
 
 
 class StreamStateSnapshot(_EventBase):

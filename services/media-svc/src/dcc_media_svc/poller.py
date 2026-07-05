@@ -165,6 +165,11 @@ async def _publish_event(
     from dcc_shared.events import StreamStateSnapshot
 
     snapshot = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
+    # Wire-format contract: `label` is omitted when unset, so legacy / portal
+    # cases stay byte-identical to the pre-slot schema (enforced by the
+    # StreamDescriptor `@model_serializer` — every dump site gets the same
+    # shape without `exclude_none=True` here; see shared/tests/test_events.py
+    # ::test_stream_state_snapshot_with_slots).
     data = snapshot.model_dump(mode="json")
     if not snapshot.streams:
         # Single-stream channels keep the legacy {channel_id, user_ids} shape.
