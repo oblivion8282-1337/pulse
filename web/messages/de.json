@@ -2135,6 +2135,7 @@
   "verify_email_sign_in_link": "Anmelden",
   "verify_email_sign_out_link": "Mit einem anderen Konto anmelden",
   "verify_email_still_pending": "Noch nicht bestätigt — klick den Link in der Mail und versuch es dann erneut.",
+  "voice_channel_members_cam_on": "Webcam an",
   "voice_channel_members_cam_open": "Webcam öffnen",
   "voice_channel_members_cam_open_label": "{name}s Webcam öffnen",
   "voice_channel_members_deafened": "Stummschaltung",

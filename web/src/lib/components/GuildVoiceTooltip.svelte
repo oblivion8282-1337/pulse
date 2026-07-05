@@ -24,12 +24,15 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { userCache, type UserSummary } from '$lib/stores/users.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { chatApi } from '$lib/api/chat';
   import { request } from '$lib/api/client';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     guildId,
@@ -46,7 +49,17 @@
     serverLabel?: string | null;
   } = $props();
 
-  type VoiceChannelRow = { id: string; name: string; userIds: string[] };
+  type VoiceChannelRow = {
+    id: string;
+    name: string;
+    userIds: string[];
+    /** LIVE = Screen-Share ∪ HQ-Stream (gleiche Union wie `VoiceChannelMembers`). */
+    streamingUserIds: string[];
+    /** User mit Webcam an (server-seitig via LiveKit-Webhook gepflegt). */
+    camUserIds: string[];
+    /** Watch-Party-Hosts in diesem Channel (mehrere Parties möglich). */
+    partyHostUserIds: string[];
+  };
 
   let isRemote = $derived(serverId !== null && serverId !== activeServer.serverId);
 
@@ -59,16 +72,38 @@
     const gid = guildId;
     void (async () => {
       try {
-        const [channels, vs] = await Promise.all([
+        // Drei unabhängige Reads parallel — liefert User, Screen-Share/Cam und
+        // HQ-Streamer/Watch-Party-Hosts. Alles VIEW_CHANNEL-gefiltert (Backend).
+        const [channels, vs, ss, ws] = await Promise.all([
           chatApi.listChannels(gid, { serverId: sid }),
-          chatApi.guildVoiceState(gid, { serverId: sid })
+          chatApi.guildVoiceState(gid, { serverId: sid }),
+          chatApi.guildStreamState(gid, { serverId: sid }),
+          chatApi.guildWatchState(gid, { serverId: sid })
         ]);
-        const occupied = new Map(vs.voice_states.map((s) => [s.channel_id, s.user_ids]));
+        const voiceByCh = new Map(vs.voice_states.map((s) => [s.channel_id, s]));
+        const hqByCh = new Map(ss.stream_states.map((s) => [s.channel_id, s.user_ids]));
+        const partyHostsByCh = new Map<string, string[]>();
+        for (const w of ws.watch_states) {
+          const arr = partyHostsByCh.get(w.channel_id) ?? [];
+          arr.push(w.state.host_user_id);
+          partyHostsByCh.set(w.channel_id, arr);
+        }
         const rows: VoiceChannelRow[] = [];
         for (const c of channels) {
           if (c.type !== 1) continue;
-          const userIds = occupied.get(c.id) ?? [];
-          if (userIds.length > 0) rows.push({ id: c.id, name: c.name, userIds });
+          const v = voiceByCh.get(c.id);
+          const userIds = v?.user_ids ?? [];
+          if (userIds.length === 0) continue;
+          rows.push({
+            id: c.id,
+            name: c.name,
+            userIds,
+            streamingUserIds: [
+              ...new Set([...(v?.streaming_user_ids ?? []), ...(hqByCh.get(c.id) ?? [])])
+            ],
+            camUserIds: v?.camera_user_ids ?? [],
+            partyHostUserIds: partyHostsByCh.get(c.id) ?? []
+          });
         }
         remoteChannels = rows;
         // Namen der fremden Server-User auflösen: deren IDs sind server-lokal,
@@ -100,7 +135,18 @@
     for (const c of channels) {
       if (c.type !== 1) continue;
       const userIds = voicePresence.usersIn(c.id);
-      if (userIds.length > 0) out.push({ id: c.id, name: c.name, userIds });
+      if (userIds.length === 0) continue;
+      out.push({
+        id: c.id,
+        name: c.name,
+        userIds,
+        // LIVE = Screen-Share ∪ HQ-Stream (spiegelt ChannelList.svelte).
+        streamingUserIds: [
+          ...new Set([...voicePresence.streamingIn(c.id), ...streamPresence.streamersIn(c.id)])
+        ],
+        camUserIds: voicePresence.cameraIn(c.id),
+        partyHostUserIds: watchPartyPresence.hostIdsIn(c.id)
+      });
     }
     return out;
   });
@@ -153,6 +199,9 @@
     <div class="bg-border h-px w-full" aria-hidden="true"></div>
     <div class="flex flex-col gap-2.5">
       {#each voiceChannels as ch (ch.id)}
+        {@const liveSet = new Set(ch.streamingUserIds)}
+        {@const camSet = new Set(ch.camUserIds)}
+        {@const partySet = new Set(ch.partyHostUserIds)}
         <div class="flex flex-col gap-1">
           <!-- Channel-Kopf -->
           <span
@@ -166,6 +215,9 @@
             {#each ch.userIds as id (id)}
               {@const avatarUrl = safeAvatarUrl(userCache.get(id)?.avatar_url)}
               {@const display = userCache.displayName(id)}
+              {@const isLive = liveSet.has(id)}
+              {@const isCam = camSet.has(id)}
+              {@const isParty = partySet.has(id)}
               <li class="flex items-center gap-2">
                 <Avatar.Root class="size-5 shrink-0">
                   {#if avatarUrl}
@@ -178,6 +230,32 @@
                   </Avatar.Fallback>
                 </Avatar.Root>
                 <span class="text-text-base truncate text-xs">{display}</span>
+                {#if isLive || isCam || isParty}
+                  <!-- Statische Indikator-Pills (nicht klickbar): der Tooltip
+                       verschwindet beim Verlassen des Icons, Klickziele darin
+                       sind unzuverlässig. Zum Mitmachen Community anklicken.
+                       Stil identisch zur Member-Liste (VoiceChannelMembers). -->
+                  <span class="ml-auto flex shrink-0 items-center gap-1">
+                    {#if isParty}
+                      <span
+                        class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
+                        title={m.voice_channel_members_watch_party_hosting()}
+                      >PARTY</span>
+                    {/if}
+                    {#if isLive}
+                      <span
+                        class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                        title={m.voice_channel_members_stream_sharing_screen()}
+                      >LIVE</span>
+                    {/if}
+                    {#if isCam}
+                      <span
+                        class="rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
+                        title={m.voice_channel_members_cam_on()}
+                      >CAM</span>
+                    {/if}
+                  </span>
+                {/if}
               </li>
             {/each}
           </ul>
