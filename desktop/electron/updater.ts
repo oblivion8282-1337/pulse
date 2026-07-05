@@ -62,40 +62,50 @@ function logToFile(message: string, data?: unknown): void {
 /**
  * Führt einen vollständigen Update-Check durch und installiert wenn nötig.
  * Gibt ein Promise zurück, das resolved wenn:
- * - Kein Update verfügbar
- * - Update heruntergeladen + installiert wurde (incl. Auto-Restart)
+ * - Kein Update verfügbar (updated=false) ODER
+ * - Update heruntergeladen + installiert wurde (updated=true; Installer läuft
+ *   dann via quitAndInstall innerhalb von ~1 s; die aufrufende Funktion
+ *   muss das Haupt-App-Setup überspringen, sonst blitzt das Fenster auf).
  *
  * Während des Prozesses wird `onProgress` mit Status-Updates aufgerufen.
  *
  * FIX für Bug #1 (Race-Condition): Alle Event-Listener werden VOR dem
  * checkForUpdates()-Aufruf registriert, damit keine Events verloren gehen.
  */
-export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback): Promise<void> {
-  // TEST-MODUS: Simuliert ein Update wenn PULSE_TEST_UPDATE=1
+export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback): Promise<{ updated: boolean }> {
+  // TEST-MODUS: Simuliert ein Update wenn PULSE_TEST_UPDATE=1. Alle Phasen
+  // sind via Env-Var ueberschreibbar (`PULSE_TEST_*_MS`), damit man den
+  // Splash live angucken kann ohne dass er in 5,5 s wieder weg ist.
   if (process.env.PULSE_TEST_UPDATE === '1') {
     console.log('[updater] TEST MODE: simulating update');
+    const checkMs = Number(process.env.PULSE_TEST_CHECK_MS) || 1500;
+    const downloadStepMs = Number(process.env.PULSE_TEST_DOWNLOAD_STEP_MS) || 800;
+    const installMs = Number(process.env.PULSE_TEST_INSTALL_MS) || 4000;
+    const readyMs = Number(process.env.PULSE_TEST_READY_MS) || 4000;
+    console.log(`[updater] test-phase durations: check=${checkMs}ms, downloadStep=${downloadStepMs}ms, install=${installMs}ms, ready=${readyMs}ms`);
+
     onProgress({ type: 'checking' });
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, checkMs));
 
     onProgress({ type: 'downloading', version: '0.1.27-test', percent: 0 });
     for (let i = 10; i <= 100; i += 10) {
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, downloadStepMs));
       onProgress({ type: 'downloading', version: '0.1.27-test', percent: i });
     }
 
     onProgress({ type: 'installing', version: '0.1.27-test' });
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, installMs));
 
     onProgress({ type: 'ready', version: '0.1.27-test' });
-    await new Promise(r => setTimeout(r, 1000));
-    // Nicht wirklich installieren im Test-Modus
-    return;
+    await new Promise(r => setTimeout(r, readyMs));
+    // Nicht wirklich installieren im Test-Modus, nur den updated-Flag setzen
+    return { updated: true };
   }
 
   // Nur gepackt + Windows: dev = kein Feed, Linux = Flatpak.
   if (!app.isPackaged || process.platform !== 'win32') {
     onProgress({ type: 'no-update' });
-    return;
+    return { updated: false };
   }
 
   // Lazy require (siehe originales updater.ts — Linux würde sonst crashen)
@@ -108,7 +118,7 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
   // Version als „latest" pusht, soll bestehende Clients NICHT zurückrollen.
   autoUpdater.allowDowngrade = false;
 
-  return new Promise<void>((resolve) => {
+  return new Promise<{ updated: boolean }>((resolve) => {
     // `finished` schützt gegen Doppelfeuern (spätere Events während cleanup
     // oder mehrere Listener auf demselben Event). `cleanup()` + `resolve()`
     // sind idempotent: finish() ist die einzige Tür.
@@ -128,13 +138,15 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
 
     /** Letzter Schritt jedes Pfads: progress melden, listener abräumen,
      *  Promise resolven. Idempotent — Doppel-Calls durch spätere Events
-     *  sind No-ops. */
-    const finish = (finalProgress: UpdateProgress): void => {
+     *  sind No-ops. `updated` ist true nur im `ready`-Pfad (Update wurde
+     *  heruntergeladen und der Installer wird gleich via quitAndInstall
+     *  gefeuert), in allen anderen Pfaden false. */
+    const finish = (finalProgress: UpdateProgress, updated: boolean): void => {
       if (finished) return;
       finished = true;
       onProgress(finalProgress);
       cleanup();
-      resolve();
+      resolve({ updated });
     };
 
     logToFile('Starting update check');
@@ -142,8 +154,14 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
 
     // ── FIX BUG #1: Alle Listener VOR checkForUpdates() registrieren ──
 
+    /** electron-updater schickt die neue Versionsnummer im `update-available`-
+     *  Event, NICHT in `download-progress`. Wir cachen sie hier, damit der
+     *  Splash auch waehrend des Downloads „Version X.Y.Z" anzeigen kann. */
+    let availableVersion: string | undefined;
+
     // Update verfügbar → Download startet automatisch (autoDownload=true)
     autoUpdater.once('update-available', (info) => {
+      availableVersion = info.version;
       logToFile('Update available', { version: info.version });
       console.log('[updater] update available', info.version);
     });
@@ -153,7 +171,9 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
       onProgress({
         type: 'downloading',
         percent: p.percent,
-        version: p.version ?? undefined,
+        // `p.version` ist im Standard-Event nicht gesetzt; Fallback auf die
+        // im `update-available`-Handler gecachte Version.
+        version: p.version ?? availableVersion,
       });
     });
 
@@ -168,7 +188,10 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
 
       // 2s Sichtbarkeit für "Update wird installiert"
       setTimeout(() => {
-        finish({ type: 'ready', version: info.version });
+        // `updated: true` — der Caller MUSS das Haupt-App-Setup überspringen,
+        // sonst blitzt das Hauptfenster fuer ~1 s auf, bevor quitAndInstall
+        // die App zum Installer schickt.
+        finish({ type: 'ready', version: info.version }, true);
 
         // 1s nach "bereit" hart installieren — der User hatte keine Wahl,
         // bewusst so (Hybrid mit abbrechbarem In-App-Toast ist eine
@@ -187,20 +210,20 @@ export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback):
     autoUpdater.once('error', (err) => {
       logToFile('Update error', { message: err?.message });
       console.error('[updater] error', err);
-      finish({ type: 'error', message: err?.message ?? 'Unbekannter Fehler' });
+      finish({ type: 'error', message: err?.message ?? 'Unbekannter Fehler' }, false);
     });
 
     autoUpdater.once('update-not-available', () => {
       logToFile('No update available');
       console.log('[updater] no update available');
-      finish({ type: 'no-update' });
+      finish({ type: 'no-update' }, false);
     });
 
     // ── ERST JETZT den Check starten ──
     void autoUpdater.checkForUpdates().catch((e) => {
       logToFile('Check failed', { message: e?.message });
       console.error('[updater] check failed', e);
-      finish({ type: 'error', message: e?.message ?? 'Check fehlgeschlagen' });
+      finish({ type: 'error', message: e?.message ?? 'Check fehlgeschlagen' }, false);
     });
   });
 }
