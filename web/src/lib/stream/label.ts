@@ -80,3 +80,77 @@ export function resolveSlotLabel(slot: number): StreamLabel {
     slot,
   );
 }
+
+// ── Per-slot custom labels (streamer-side only) ──────────────────────────
+//
+// Linux Wayland uses `capture_source = 'portal'` and the source is chosen
+// interactively in the xdg-desktop-portal dialog at capture time — GSR doesn't
+// report the choice back, so the catalog lookup always falls back to a generic
+// "Stream <N>". The streamer can give each slot a stable local name here; the
+// custom name is preferred over the catalog/portal fallback in
+// `resolveStreamLabel` but ONLY on the streamer side — the viewer picker still
+// sees whatever label the streamer sent to the backend at stream-start (so
+// syncing this to media-svc / chat-gateway is a separate, wider change).
+//
+// Persists in localStorage (key `pulse.stream.customLabel`) so the name sticks
+// across reloads and app restarts. Survives Electron-vs-browser (each has its
+// own localStorage; the streamer uses whichever they're logged into).
+//
+// These helpers are pure & non-reactive on purpose (label.ts is `.ts`, not
+// `.svelte.ts`) — the consumer keeps a `$state`-backed copy + bumps it on edit
+// to drive derived re-reads.
+
+const CUSTOM_STORAGE_KEY = 'pulse.stream.customLabel';
+const MAX_CUSTOM_LABEL = 40;
+
+export type CustomLabelMap = Record<string, string>; // serialized as JSON; keys are strings per JSON
+
+/** Read the persisted custom-label map. Returns `{}` if storage is unavailable
+ *  (SSR, tests, denied). Tolerant to malformed JSON — drops the whole map on
+ *  parse failure rather than throwing into a Svelte `$state` init. */
+export function loadCustomLabels(): CustomLabelMap {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(CUSTOM_STORAGE_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw) as unknown;
+    if (obj === null || typeof obj !== 'object') return {};
+    // Coerce — never trust localStorage shape.
+    const out: CustomLabelMap = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.length > 0 && v.length <= MAX_CUSTOM_LABEL) {
+        out[k] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Snapshot the in-memory map back to storage. Best-effort — quota / private
+ *  mode failures are swallowed (the in-memory `$state` copy survives the
+ *  session either way). */
+export function saveCustomLabels(labels: CustomLabelMap): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(labels));
+  } catch {
+    /* ignore — quota, disabled storage, etc. */
+  }
+}
+
+/** Look up the custom name for a slot. Returns `undefined` when unset or
+ *  blank — fall through to the catalog / portal fallback in that case. */
+export function getCustomLabel(labels: CustomLabelMap, slot: number): string | undefined {
+  const v = labels[String(slot)];
+  return v && v.trim() ? v : undefined;
+}
+
+/** Sanitize a user-entered label — trim, length-cap, drop empties. Used by
+ *  both the inline-edit input and any future bulk-import paths. */
+export function sanitizeCustomLabel(raw: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  return t.length > MAX_CUSTOM_LABEL ? t.slice(0, MAX_CUSTOM_LABEL) : t;
+}

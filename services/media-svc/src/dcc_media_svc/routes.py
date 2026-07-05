@@ -62,6 +62,8 @@ async def _publish_stream_event(
     from dcc_shared.events import StreamStateSnapshot
 
     snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
+    # `label` omission when unset is handled by the StreamDescriptor
+    # `@model_serializer` — see poller.py for the same comment.
     data = snap.model_dump(mode="json")
     if not snap.streams:
         data.pop("streams", None)

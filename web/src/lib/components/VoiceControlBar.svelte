@@ -93,6 +93,8 @@
   const iconCls = 'size-6 md:size-4';
 </script>
 
+<StreamStatusBar />
+
 <div
   class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-2 md:p-1.5"
   data-testid="voice-control-bar"
@@ -288,5 +290,3 @@
     </Tooltip.Provider>
   </div>
 </div>
-
-<StreamStatusBar />
