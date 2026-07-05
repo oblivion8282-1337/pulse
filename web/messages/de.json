@@ -2020,6 +2020,7 @@
   "tile_shell_chat": "Live-Chat",
   "tile_shell_chat_close": "Live-Chat schließen",
   "tile_shell_chat_open": "Live-Chat öffnen",
+  "tile_shell_dblclick_exit": "Doppelklick zum Verlassen",
   "tile_shell_dblclick_fullscreen": "Doppelklick für Vollbild",
   "tile_shell_detach": "In eigenem Fenster öffnen",
   "tile_shell_enable_audio": "Ton aktivieren",
