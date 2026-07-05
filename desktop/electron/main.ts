@@ -805,7 +805,7 @@ async function bootWithUpdateCheck(): Promise<void> {
     });
 
     // Update-Check mit Progress-Callback an Splash
-    await checkAndInstallUpdate((progress) => {
+    const { updated } = await checkAndInstallUpdate((progress) => {
       if (splashWindow && !splashWindow.isDestroyed()) {
         splashWindow.webContents.send('update-progress', progress);
       }
@@ -831,6 +831,17 @@ async function bootWithUpdateCheck(): Promise<void> {
         }, 1000);
       }
     });
+
+    // Wenn ein Update gefunden + heruntergeladen wurde, loest
+    // `quitAndInstall` die App innerhalb von ~1 s nach dem `ready`-Progress
+    // auf. Wir springen aus `bootWithUpdateCheck` zurueck OHNE die
+    // Haupt-App zu starten (Tray / BrowserWindow / Sidecar etc.) — sonst
+    // blitzt das Hauptfenster fuer ca. 1 s auf, bevor der Installer den
+    // Prozess wieder beendet. Der Splash schliesst sich automatisch mit
+    // dem App-Quit, der `before-quit`-Handler macht den Sidecar-Cleanup.
+    if (updated) {
+      return;
+    }
 
     // Wenn der Splash noch da ist (Update wurde gefunden), wird er erst nach
     // quitAndInstall() geschlossen. Wenn kein Update da war, ist er schon weg.

@@ -32,14 +32,10 @@
       width: 80px;
       height: 80px;
       margin: 0 auto 24px;
-      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 40px;
-      font-weight: bold;
-      box-shadow: 0 10px 40px rgba(59, 130, 246, 0.3);
+      background-image: url('./pulse-mark.svg');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
     }
 
     h1 {
@@ -88,7 +84,7 @@
 </head>
 <body>
   <div class="container">
-    <div class="logo">P</div>
+    <div class="logo"></div>
     <h1 id="title">Update wird geladen</h1>
     <p class="status" id="status">Bitte warten...</p>
     <div class="progress-container indeterminate" id="progressContainer">
@@ -116,7 +112,13 @@
       // Status updates from main process via IPC
       try {
         window.splash.onProgress((payload) => {
-          const { type, version, percent, message } = payload as Record<string, unknown>;
+          // `payload` kommt via contextBridge aus electron-updater — ist immer
+          // ein plain Object mit serialisierten Feldern. KEIN `as Record<...>`
+          // Cast hier: das ist TypeScript-Syntax, Browser-JS kennt das nicht
+          // und wirft SyntaxError, was den gesamten onProgress-Callback unnuetz
+          // macht. Vanilla-Destrukturieren reicht — undefined Properties werden
+          // im HTML mit `|| ''` / typeof-checks abgefangen.
+          const { type, version, percent, message } = payload;
 
           switch (type) {
             case 'checking':
@@ -129,11 +131,20 @@
             case 'downloading':
               title.textContent = 'Update wird geladen';
               status.textContent = `Version ${version || ''}`;
+              // `indeterminate` rausnehmen, damit die CSS-Animation stoppt
+              // und der `width`-Übergang echt zwischen den Prozentwerten
+              // animiert (0.3s ease).
               progressContainer.classList.remove('indeterminate');
               if (typeof percent === 'number') {
                 const pct = Math.round(percent);
-                progressBar.style.width = `${pct}%`;
-                progressText.textContent = `${pct}%`;
+                // Beim allerersten Download-Event ist percent oft 0 oder sehr
+                // klein — die Bar würde von 60 % (indeterminate) auf 0 %
+                // springen. Wir setzen den Style erst ab ~1 %, sodass der
+                // Übergang smooth aus indeterminate rausläuft.
+                if (pct >= 1) {
+                  progressBar.style.width = `${pct}%`;
+                }
+                progressText.textContent = `${pct} %`;
               }
               break;
 
@@ -148,7 +159,7 @@
               title.textContent = 'Update bereit';
               status.textContent = `Version ${version || ''} — die App startet gleich`;
               progressBar.style.width = '100%';
-              progressText.textContent = '100%';
+              progressText.textContent = '100 %';
               break;
 
             case 'no-update':
