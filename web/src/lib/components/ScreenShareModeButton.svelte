@@ -25,8 +25,8 @@
   import SquareIcon from '@lucide/svelte/icons/square';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { stream, runningStreamSlots, MAX_STREAM_SLOTS } from '$lib/stream/state.svelte';
-  import { gsr } from '$lib/stream/gsr';
+  import { stream, runningStreamSlots } from '$lib/stream/state.svelte';
+  import { nextFreeStreamSlot, stopSlot, stopAll } from '$lib/stream/slotControl.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
@@ -70,10 +70,7 @@
   let runningSlots = $derived(runningStreamSlots());
   let anyHqRunning = $derived(runningSlots.length > 0);
   // Niedrigster freier Slot — den startet das „+" als nächsten Stream.
-  let nextFreeSlot = $derived.by(() => {
-    for (let i = 0; i < MAX_STREAM_SLOTS; i++) if (!runningSlots.includes(i)) return i;
-    return -1;
-  });
+  let nextFreeSlot = $derived(nextFreeStreamSlot());
   // Rechte Hälfte ist „+" sobald ein Stream läuft und noch Platz ist; sonst ▾.
   let showPlus = $derived(mode === 'hq' && anyHqRunning && nextFreeSlot >= 0);
   // Linke Hälfte wird ein Stop-Auswahl-Dropdown, sobald MEHRERE Streams laufen.
@@ -90,17 +87,6 @@
     if (nextFreeSlot < 0) return;
     addDialogSlot = nextFreeSlot;
     addDialogOpen = true;
-  }
-
-  async function stopSlot(slot: number) {
-    try {
-      await gsr.stop(slot);
-    } catch {
-      /* WS-Broadcast holt den State eh nach */
-    }
-  }
-  async function stopAll() {
-    for (const slot of runningSlots) await stopSlot(slot);
   }
 
   // setScreenShare setzt isScreenSharing erst NACH dem await (getDisplayMedia);

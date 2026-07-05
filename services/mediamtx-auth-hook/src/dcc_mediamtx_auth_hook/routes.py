@@ -155,7 +155,8 @@ return 1
 
 
 async def _consume_token_and_mark_active(
-    redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str
+    redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str,
+    label: str | None = None,
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -170,12 +171,18 @@ async def _consume_token_and_mark_active(
     record. It is set with an EX TTL so a re-publish refreshes the self-heal
     window and overwrites ``path`` — media-svc's WHEP-URL lookup then always
     returns that slot's latest publish path (with its per-session nonce).
-    """
+    ``label`` (copied from the token record) is included when present so the
+    poller can surface it in ``stream:channel``/``stream:events`` without a
+    second lookup source."""
     settings = get_settings()
-    payload = json.dumps(
-        {"user_id": user_id, "started_at": datetime.now(UTC).isoformat(), "path": path},
-        separators=(",", ":"),
-    )
+    active: dict[str, Any] = {
+        "user_id": user_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "path": path,
+    }
+    if isinstance(label, str) and label:
+        active["label"] = label
+    payload = json.dumps(active, separators=(",", ":"))
     consumed = await redis.eval(  # type: ignore[arg-type]
         _LUA_CONSUME_AND_MARK,
         2,
@@ -239,9 +246,12 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
         # publisher-active record in one round-trip, so a Redis flap can't leave
         # a consumed token without an active record (which would 404 on WHEP).
         # A False return means a concurrent request already consumed the token
-        # (single-use) → deny, with nothing written.
+        # (single-use) → deny, with nothing written. ``label`` is copied from the
+        # token record into the active record (None/empty → omitted).
+        label_val = rec.get("label")
+        label = label_val if isinstance(label_val, str) and label_val else None
         if not await _consume_token_and_mark_active(
-            redis, req.credential, channel_id, path_user_id, path_slot, req.path
+            redis, req.credential, channel_id, path_user_id, path_slot, req.path, label
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
         log.info(

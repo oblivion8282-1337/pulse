@@ -51,13 +51,22 @@ def _user_ids(pairs: set[Pair]) -> list[str]:
     return sorted({uid for uid, _slot in pairs})
 
 
-def _stream_descriptors(pairs: set[Pair]) -> list[dict[str, Any]]:
-    """``[{"user_id", "slot": int}]`` for the channel-state ``streams`` list,
-    sorted by (user, slot) for stable comparison + output."""
-    return [
-        {"user_id": uid, "slot": int(slot)}
-        for uid, slot in sorted(pairs, key=lambda p: (p[0], int(p[1])))
-    ]
+def _stream_descriptors(
+    pairs: set[Pair], cid: str, label_of: dict[tuple[str, str, str], str]
+) -> list[dict[str, Any]]:
+    """``[{"user_id", "slot": int, "label"?}]`` for the channel-state ``streams``
+    list, sorted by (user, slot) for stable comparison + output. ``label`` is
+    pulled from the per-(channel,user,slot) map built earlier in the pass from
+    ``stream:active`` records; absent when the streamer's platform can't name the
+    source or the active record hasn't been written yet."""
+    out: list[dict[str, Any]] = []
+    for uid, slot in sorted(pairs, key=lambda p: (p[0], int(p[1]))):
+        entry: dict[str, Any] = {"user_id": uid, "slot": int(slot)}
+        label = label_of.get((cid, uid, slot))
+        if isinstance(label, str) and label:
+            entry["label"] = label
+        out.append(entry)
+    return out
 
 
 def _is_multi(pairs: set[Pair]) -> bool:
@@ -287,6 +296,21 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     else:
         prev_states = {}
 
+    # --- Read per-stream labels (set by the auth-hook on publish-auth) ----
+    # The poller attributes streams from the MediaMTX *path* (carrying only
+    # cid/uid/slot), so the human-readable label needs a second lookup: one MGET
+    # over every publisher's ``stream:active`` record. Absent/empty → no label
+    # (legacy clients fall back to a generic "Stream N" in the picker).
+    label_of: dict[tuple[str, str, str], str] = {}
+    all_pairs = [(cid, uid, slot) for cid, prs in publishers.items() for (uid, slot) in prs]
+    if all_pairs:
+        avals = await redis.mget(*[active_key(cid, uid, int(slot)) for cid, uid, slot in all_pairs])
+        for (cid, uid, slot), raw in zip(all_pairs, avals):
+            state = _parse_state(raw)
+            label = (state or {}).get("label")
+            if isinstance(label, str) and label:
+                label_of[(cid, uid, slot)] = label
+
     # --- Compute changes, then flush writes in one pipeline ---------------
     ttl = settings.channel_state_ttl_s
     async with redis.pipeline(transaction=False) as pipe:
@@ -316,7 +340,7 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             # ``streams`` is additive — only when a user runs slot ≥ 1, so a
             # single-stream channel keeps the legacy {user_ids, since} record.
             if multi:
-                new_state["streams"] = _stream_descriptors(prs)
+                new_state["streams"] = _stream_descriptors(prs, cid, label_of)
             pipe.set(
                 CHANNEL_STATE_KEY.format(channel_id=cid),
                 json.dumps(new_state, separators=(",", ":")),

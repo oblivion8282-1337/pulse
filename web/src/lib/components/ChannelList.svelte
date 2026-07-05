@@ -24,7 +24,7 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
-  import { openHqForUser } from '$lib/stream/hqTile';
+  import { chooseHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { readState } from '$lib/stores/readState.svelte';
@@ -631,7 +631,7 @@
             onLiveOpen={(uid) => {
               // Open whichever live source(s) this user actually has.
               if (streamers.includes(uid)) {
-                openHqForUser(c.id, uid);
+                chooseHqForUser(c.id, uid);
               }
               if (voiceStreamers.includes(uid)) {
                 // Screen-share keyed by LiveKit identity — only available

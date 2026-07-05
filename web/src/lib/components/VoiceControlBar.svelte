@@ -22,6 +22,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import ScreenShareModeButton from './ScreenShareModeButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
+  import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
   import { isCapacitorAndroid } from '$lib/platform/runtime';
   import { setAudioRoute, getAudioRoute } from '$lib/platform/audioRoute';
@@ -287,3 +288,5 @@
     </Tooltip.Provider>
   </div>
 </div>
+
+<StreamStatusBar />

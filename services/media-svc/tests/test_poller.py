@@ -9,7 +9,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from dcc_media_svc.poller import reconcile_once
-from dcc_media_svc.streamkeys import CHANNEL_STATE_KEY, STOPPING_KEY, STREAM_EVENTS_CHANNEL
+from dcc_media_svc.streamkeys import CHANNEL_STATE_KEY, STOPPING_KEY, STREAM_EVENTS_CHANNEL, active_key
 
 
 def _unique_cid() -> str:
@@ -264,6 +264,58 @@ async def test_user_two_slots_emits_streams(redis, pubsub):
         ]
     finally:
         await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
+async def test_two_slots_surface_labels_from_active_records(redis, pubsub):
+    """The poller reads each stream's ``label`` (written by the auth-hook into
+    ``stream:active``) and surfaces it in both ``stream:channel.streams`` and the
+    ``stream:events`` payload — the data the viewer picker renders. An absent
+    label → the descriptor carries no ``label`` key (legacy client fallback)."""
+    cid = _unique_cid()
+    # Seed the active records the auth-hook would have written on publish-auth:
+    # slot 0 carries a label, slot 1 doesn't (e.g. Linux portal — unknown source).
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "label": "Monitor 1",
+        }),
+    )
+    await redis.set(
+        active_key(cid, "55", 1),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-s1-{'cafebabe' * 4}",
+        }),
+    )
+    client = _FakeMediaMtxClient(
+        _paths(
+            (f"channel-{cid}-55-{'deadbeef' * 4}", True),  # slot 0
+            (f"channel-{cid}-55-s1-{'cafebabe' * 4}", True),  # slot 1
+        )
+    )
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["streams"] == [
+            {"user_id": "55", "slot": 0, "label": "Monitor 1"},
+            {"user_id": "55", "slot": 1},
+        ]
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev["streams"] == [
+            {"user_id": "55", "slot": 0, "label": "Monitor 1"},
+            {"user_id": "55", "slot": 1},
+        ]
+    finally:
+        await redis.delete(
+            CHANNEL_STATE_KEY.format(channel_id=cid),
+            active_key(cid, "55", 0),
+            active_key(cid, "55", 1),
+        )
 
 
 @pytest.mark.asyncio

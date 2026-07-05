@@ -18,10 +18,13 @@
 
 /** One live HQ stream: a `(user_id, slot)` pair. `slot` (0, 1, …) is the stable
  *  per-user stream index, so one user can run several streams at once (e.g. two
- *  monitors as separate tiles). */
+ *  monitors as separate tiles). `label` is an optional human-readable hint
+ *  (e.g. "Monitor 1", "Chrome") the streamer sent at start so a viewer facing
+ *  several of his streams can tell them apart in the picker. */
 export type StreamDescriptor = {
   user_id: string;
   slot: number;
+  label?: string;
 };
 
 export type StreamChannelState = {
@@ -34,14 +37,16 @@ export type StreamChannelState = {
   streams?: StreamDescriptor[];
 };
 
-/** Normalise a wire `streams` array to `{user_id: string, slot: number}[]`,
+/** Normalise a wire `streams` array to `{user_id: string, slot: number, label?}[]`,
  *  dropping malformed entries. */
 function normalizeStreams(streams: StreamDescriptor[] | undefined): StreamDescriptor[] {
   if (!Array.isArray(streams)) return [];
   const out: StreamDescriptor[] = [];
   for (const s of streams) {
     if (!s?.user_id) continue;
-    out.push({ user_id: String(s.user_id), slot: Number(s.slot ?? 0) || 0 });
+    const entry: StreamDescriptor = { user_id: String(s.user_id), slot: Number(s.slot ?? 0) || 0 };
+    if (typeof s.label === 'string' && s.label) entry.label = s.label;
+    out.push(entry);
   }
   return out;
 }

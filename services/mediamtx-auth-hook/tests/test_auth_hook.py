@@ -23,6 +23,7 @@ async def _put_token(
     nonce: str = "deadbeef" * 4,
     scope: str = "publish",
     slot: int = 0,
+    label: str | None = None,
     ttl: int = 3600,
 ):
     record = {
@@ -35,6 +36,8 @@ async def _put_token(
     }
     if slot:  # slot 0 omitted → legacy token shape (matches media-svc)
         record["slot"] = slot
+    if label:  # label omitted when empty → legacy token shape (matches media-svc)
+        record["label"] = label
     await redis.set(TOKEN_KEY.format(token=token), json.dumps(record, separators=(",", ":")), ex=ttl)
 
 
@@ -182,6 +185,26 @@ async def test_publish_slot1_writes_slotted_active_key(client, redis):
         assert await redis.exists(active_key(cid, uid, 0)) == 0
     finally:
         await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 1))
+
+
+@pytest.mark.asyncio
+async def test_publish_copies_label_into_active_record(client, redis):
+    """A token carrying a ``label`` (stamped by media-svc at issue) is copied into
+    the ``stream:active`` record on publish-auth — the single place the poller
+    reads it from to surface labels to viewers. A token without a label yields an
+    active record without one (legacy shape)."""
+    cid = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid, label="Chrome")
+    try:
+        r = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r.status_code == 200, r.text
+        rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
+        assert rec["label"] == "Chrome"
+        assert rec["user_id"] == uid
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
 
 
 @pytest.mark.asyncio

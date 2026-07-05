@@ -11,7 +11,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
-  import { openHqForUser } from '$lib/stream/hqTile';
+  import { chooseHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
@@ -98,11 +98,11 @@
   }
 
   function openLive(): void {
-    // Open whichever live source(s) this user actually has. HQ opens a tile per
-    // stream slot (handles the detach/popup case); screen-share takes the
-    // LiveKit identity.
+    // Open whichever live source(s) this user actually has. HQ pops a stream
+    // picker when the user runs several slots (else opens the single one
+    // directly); screen-share takes the LiveKit identity.
     if (isHqStreaming && p.userId) {
-      openHqForUser(channelId, p.userId);
+      chooseHqForUser(channelId, p.userId);
     }
     if (isScreenSharing) {
       openedTiles.open('screen', channelId, p.identity);
