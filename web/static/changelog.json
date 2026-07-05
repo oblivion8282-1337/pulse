@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-06",
+      "date": "2026-07-06",
+      "style": "Sachlich",
+      "title": "Server-Leiste: Tooltip zeigt, wer streamt, Party macht oder Cam an hat",
+      "items": [
+        "Wenn du in der linken Server-Leiste über eine Community fährst, zeigt der Tooltip jetzt neben jedem User kleine Hinweise: LIVE, PARTY oder CAM.",
+        "Das gilt für alle deine Server, nicht nur für die gerade offene Community."
+      ]
+    },
+    {
       "id": "2026-07-05",
       "date": "2026-07-05",
       "style": "Sachlich",
