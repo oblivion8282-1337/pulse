@@ -42,13 +42,15 @@ CHANNEL_PATH_PREFIX = "channel-"
 CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{32})$")
 
 # stream:token:<token>                   → JSON {channel_id, user_id, nonce, scope:"publish", protocol,
-#                                          created_at, slot? (omitted when 0)}
+#                                          created_at, slot? (omitted when 0), label? (omitted when empty)}
 #                                          issued by media-svc with TTL = TOKEN_TTL_S, consumed by the hook.
-# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path}
+# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?}
 #                                          written by the hook on a successful publish-auth (path carries the
-#                                          nonce so viewers can locate the live MediaMTX path). TTL self-heal.
+#                                          nonce so viewers can locate the live MediaMTX path). ``label`` is
+#                                          copied from the token record so the poller can surface it without
+#                                          a second lookup source. TTL self-heal.
 #                                          Build via ``active_key()`` — slot 0 drops the ``-s0`` suffix.
-# stream:channel:<cid>                   → JSON {user_ids: [str, ...], streams?: [{user_id, slot}], since: iso8601}
+# stream:channel:<cid>                   → JSON {user_ids: [str, ...], streams?: [{user_id, slot, label?}], since: iso8601}
 #                                          the public per-channel set of HQ streamers, owned by the poller.
 #                                          ``streams`` is additive + only present when a user runs slot ≥ 1.
 TOKEN_KEY = "stream:token:{token}"
@@ -65,7 +67,8 @@ STOPPING_KEY = "stream:stopping:channel-{channel_id}-{user_id}"
 # Pub/Sub channel — media-svc publishes per-channel stream-state changes here;
 # chat-gateway subscribes and re-broadcasts. Event payload (the *full* current
 # set after the change): {"channel_id": "<id>", "user_ids": ["<id>", ...],
-# "streams"?: [{"user_id", "slot"}]} — ``streams`` only when a user runs slot ≥ 1.
+# "streams"?: [{"user_id", "slot", "label"?}]} — ``streams`` only when a user
+# runs slot ≥ 1.
 STREAM_EVENTS_CHANNEL = "stream:events"
 
 
@@ -106,8 +109,9 @@ def stopping_key(channel_id: str, user_id: str, slot: int = 0) -> str:
 
 def streams_from_state(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Pull the additive ``streams`` list out of a ``stream:channel`` record,
-    normalised to ``[{"user_id": str, "slot": int}]`` and tolerant of legacy
-    records that have no ``streams`` key (→ ``[]``)."""
+    normalised to ``[{"user_id": str, "slot": int, "label"?: str}]`` and
+    tolerant of legacy records that have no ``streams`` key (→ ``[]``). ``label``
+    is carried only when present + non-empty so legacy records stay byte-identical."""
     out: list[dict[str, Any]] = []
     for d in state.get("streams") or []:
         if not isinstance(d, dict):
@@ -119,5 +123,9 @@ def streams_from_state(state: dict[str, Any]) -> list[dict[str, Any]]:
             slot = int(d.get("slot", 0))
         except (TypeError, ValueError):
             continue
-        out.append({"user_id": str(uid), "slot": slot})
+        entry: dict[str, Any] = {"user_id": str(uid), "slot": slot}
+        label = d.get("label")
+        if isinstance(label, str) and label:
+            entry["label"] = label
+        out.append(entry)
     return out

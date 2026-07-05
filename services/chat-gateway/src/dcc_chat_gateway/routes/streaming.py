@@ -54,6 +54,10 @@ class StreamTokenIn(BaseModel):
     # Which of the caller's stream slots to publish (0 == the default single
     # stream). Forwarded verbatim to media-svc, which owns the path/key shape.
     slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
+    # Optional human-readable label (e.g. "Monitor 1") for the viewer picker.
+    # Forwarded verbatim to media-svc, which bounds/strips + threads it through
+    # the token → active → poller → stream_state path.
+    label: Annotated[str | None, Field(default=None, max_length=80)] = None
 
 
 class StreamTokenOut(BaseModel):
@@ -143,7 +147,7 @@ async def issue_stream_token(
             "POST",
             f"/channels/{channel_id}/stream-token",
             bearer=bearer,
-            json_body={"protocol": payload.protocol, "slot": payload.slot},
+            json_body={"protocol": payload.protocol, "slot": payload.slot, "label": payload.label},
             http=http,
         )
     except httpx.HTTPError as exc:

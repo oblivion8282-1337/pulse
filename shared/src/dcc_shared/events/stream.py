@@ -15,10 +15,17 @@ class StreamDescriptor(_EventBase):
     """One live HQ stream: a ``(user_id, slot)`` pair. ``slot`` is the stable
     per-user stream index (0, 1, …) so one user can run several streams at once
     (e.g. two monitors as separate viewer tiles). Slot 0 == the single-stream
-    default."""
+    default.
+
+    ``label`` is an optional human-readable hint (e.g. ``"Monitor 1"``,
+    ``"Chrome"``) the streamer sends at start so a viewer facing several of his
+    streams can tell them apart in the picker. Omitted on legacy/single-stream
+    records and when the streamer's platform can't name the source (Linux
+    portal) — clients fall back to a generic ``"Stream N"``."""
 
     user_id: str
     slot: int = 0
+    label: str | None = None
 
 
 class StreamStateSnapshot(_EventBase):

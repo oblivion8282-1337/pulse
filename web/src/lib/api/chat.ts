@@ -438,11 +438,12 @@ export const chatApi = {
   getStreamToken(
     channelId: string,
     protocol: 'rtmp' = 'rtmp',
-    slot = 0
+    slot = 0,
+    label?: string
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
-      body: { protocol, slot }
+      body: { protocol, slot, ...(label ? { label } : {}) }
     });
   },
   /**

@@ -143,6 +143,12 @@ class StreamTokenIn(BaseModel):
     # Which of the caller's stream slots this token publishes. 0 == the default
     # single stream (legacy path/key shape); 1 == a second concurrent stream.
     slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
+    # Optional human-readable label (e.g. ``"Monitor 1"``, ``"Chrome"``) the
+    # streamer's client resolves from the chosen capture source. Surfaces in the
+    # viewer's stream picker so someone running several streams can tell them
+    # apart. Stripped + bounded here; empty/``None`` → omitted from the token
+    # record so the legacy single-stream shape stays byte-identical.
+    label: Annotated[str | None, Field(default=None, max_length=80)] = None
 
 
 class StreamTokenOut(BaseModel):
@@ -224,6 +230,12 @@ async def issue_stream_token(
     # legacy single-stream shape (the auth-hook reads a missing slot as 0).
     if slot:
         record["slot"] = slot
+    # Label rides the token record → the auth-hook copies it into
+    # ``stream:active`` on publish-auth → the poller surfaces it in
+    # ``stream:channel``/``stream:events``. Omitted when empty (legacy shape).
+    label = (payload.label or "").strip()
+    if label:
+        record["label"] = label
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),

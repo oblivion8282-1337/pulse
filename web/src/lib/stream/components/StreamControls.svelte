@@ -33,6 +33,7 @@
     isAppAudioMode,
     appFromAudioMode,
   } from '../settings.svelte';
+  import { resolveSlotLabel } from '../label';
 
   let {
     channelId = null,
@@ -107,7 +108,10 @@
     try {
       let tok;
       try {
-        tok = await chatApi.getStreamToken(channelId, 'rtmp', slot);
+        // Resolve the human-readable label (e.g. "Monitor 1", "Chrome") once at
+        // start so viewers' picker can name this stream without the GSR catalogs.
+        const label = resolveSlotLabel(slot).label;
+        tok = await chatApi.getStreamToken(channelId, 'rtmp', slot, label);
       } catch (e) {
         const msg =
           e instanceof ApiError
