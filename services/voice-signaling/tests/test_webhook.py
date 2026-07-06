@@ -479,6 +479,43 @@ async def test_webhook_join_does_not_extend_ttl_for_existing_member(webhook_clie
         await redis.delete(room_key(room))
 
 
+# ---- voice-pull revoke trigger on participant_left -----------------------
+
+
+@pytest.mark.asyncio
+async def test_webhook_fires_revoke_on_participant_left(webhook_client, monkeypatch):
+    """participant_left für einen Voice-Channel → _maybe_revoke_voice_pull
+    wird (mit channel_id + user_id) aufgerufen."""
+    import dcc_voice_signaling.routes.chat_gateway as cg
+
+    calls: list[tuple[str, str]] = []
+
+    async def _spy(_redis, cid, uid):
+        calls.append((cid, uid))
+
+    monkeypatch.setattr(cg, "_maybe_revoke_voice_pull", _spy)
+    body = _event_body("participant_left", "channel-77", "user-88")
+    r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+    assert r.status_code == 204
+    assert calls == [("77", "88")]
+
+
+@pytest.mark.asyncio
+async def test_webhook_does_not_fire_revoke_on_join(webhook_client, monkeypatch):
+    """participant_joined darf den Revoke-Trigger NICHT feuern."""
+    import dcc_voice_signaling.routes.chat_gateway as cg
+
+    calls: list[tuple[str, str]] = []
+
+    async def _spy(_redis, cid, uid):
+        calls.append((cid, uid))
+
+    monkeypatch.setattr(cg, "_maybe_revoke_voice_pull", _spy)
+    body = _event_body("participant_joined", "channel-77", "user-88")
+    await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+    assert calls == []
+
+
 async def _drain_one(pubsub, attempts: int = 50):
     """Poll the pubsub for one message (subscribe confirmation already skipped)."""
     import asyncio
