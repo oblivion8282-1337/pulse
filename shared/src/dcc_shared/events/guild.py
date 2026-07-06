@@ -17,7 +17,6 @@ from typing import Any, Literal
 
 from dcc_shared.events._base import _EventBase
 
-
 # ---- Channels --------------------------------------------------------------
 
 
@@ -33,6 +32,28 @@ class ChannelUpdatedEvent(_EventBase):
 
 class ChannelDeletedEvent(_EventBase):
     op: Literal["channel_deleted"] = "channel_deleted"
+    guild_id: str
+    channel_id: str
+
+
+class ChannelRevealedEvent(_EventBase):
+    """A previously-hidden channel became visible to this one user
+    (voice-pull grant). Delivered direct-to-user via ``user:events``;
+    carries the full channel dict so the client can insert it into its
+    channel list without a refetch. The ``channel: dict`` shape mirrors
+    ``ChannelCreatedEvent`` on purpose — same handler logic applies."""
+
+    op: Literal["channel_revealed"] = "channel_revealed"
+    channel: dict[str, Any]
+
+
+class ChannelHiddenEvent(_EventBase):
+    """Counterpart to ``ChannelRevealedEvent``: a voice-pull grant was
+    revoked (the user left the channel) and the channel must leave this
+    user's channel list. Direct-to-user via ``user:events``; mirrors the
+    ``ChannelDeletedEvent`` shape."""
+
+    op: Literal["channel_hidden"] = "channel_hidden"
     guild_id: str
     channel_id: str
 
