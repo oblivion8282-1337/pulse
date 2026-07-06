@@ -203,3 +203,47 @@ def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
         sources.append("screen_share")
         sources.append("screen_share_audio")
     return bool(sources), sources
+
+
+# Voice-pull leave marker — written by chat-gateway's pull endpoint; its
+# presence here means "this user was pulled into this channel, so tell
+# chat-gateway to revoke the temporary grant on leave". Synchron halten
+# mit chat-gateway voice_pull_cleanup._MARKER_KEY.
+_VOICE_PULL_MARKER = "voice_pull:channel-{channel_id}:user-{user_id}"
+
+
+async def _maybe_revoke_voice_pull(redis, channel_id: str, user_id: str) -> None:
+    """On ``participant_left``: if the user was voice-pulled into the
+    channel (Redis marker exists), tell chat-gateway to revoke the grant.
+
+    Cheap marker-EXISTS first so a normal (no-pull) leave costs one Redis
+    round-trip and no HTTP. Fire-and-forget — a lost/failed call is caught
+    by chat-gateway's voice-pull reaper backstop, so the webhook itself
+    never fails on this."""
+    global _http_client
+    settings = voice_routes.get_settings()
+    if not settings.chat_gateway_url or not settings.internal_service_secret:
+        return  # nothing to call, or nothing to authenticate with
+    try:
+        if not await redis.exists(_VOICE_PULL_MARKER.format(channel_id=channel_id, user_id=user_id)):
+            return
+    except Exception:  # noqa: BLE001 — Redis best-effort; reaper is the backstop
+        return
+    if _http_client is None:
+        return
+    url = settings.chat_gateway_url.rstrip("/") + "/internal/voice-pull-revoke"
+    try:
+        resp = await _http_client.post(
+            url,
+            json={"channel_id": int(channel_id), "user_id": int(user_id)},
+            headers={"X-Pulse-Internal-Secret": settings.internal_service_secret},
+        )
+        if resp.status_code >= 400:
+            log.warning(
+                "voice-pull revoke returned %s (cid=%s uid=%s)",
+                resp.status_code,
+                channel_id,
+                user_id,
+            )
+    except httpx.HTTPError as exc:
+        log.warning("voice-pull revoke call failed (cid=%s uid=%s): %s", channel_id, user_id, exc)
