@@ -342,7 +342,7 @@
                 {...props}
                 type="button"
                 class="block"
-                aria-label={m.guild_rail_direct_messages()}
+                aria-label={m.guild_rail_home()}
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
@@ -370,7 +370,7 @@
         {/snippet}
       </Tooltip.Trigger>
       <Tooltip.Content side="right">
-        {onHomeClick ? m.guild_rail_direct_messages() : 'Pulse'}
+        {onHomeClick ? m.guild_rail_home() : 'Pulse'}
       </Tooltip.Content>
     </Tooltip.Root>
 

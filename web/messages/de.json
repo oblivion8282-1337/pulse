@@ -792,7 +792,6 @@
   "guild_rail_delete_community_title": "Community löschen?",
   "guild_rail_delete_failed": "Community löschen fehlgeschlagen",
   "guild_rail_deleting": "Löschen…",
-  "guild_rail_direct_messages": "Direktnachrichten",
   "guild_rail_home_activity_dot": "Neues in Direktnachrichten oder Freundschaftsanfragen",
   "guild_rail_icon_remove_failed": "Bild entfernen fehlgeschlagen",
   "guild_rail_icon_removed": "Community-Bild entfernt",
@@ -2462,5 +2461,6 @@
   "friend_status_offline": "offline",
   "friend_badge_live": "Live",
   "friend_badge_party": "Party",
-  "friend_in_voice": "in #{channel} · {guild}"
+  "friend_in_voice": "in #{channel} · {guild}",
+  "guild_rail_home": "Home"
 }

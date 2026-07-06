@@ -28,9 +28,9 @@
   const TABS: { key: TabKey; label: () => string }[] = [
     { key: 'online', label: () => m.friends_tab_online() },
     { key: 'all', label: () => m.friends_tab_all() },
+    { key: 'add', label: () => m.friends_tab_add() },
     { key: 'pending', label: () => m.friends_tab_pending() },
-    { key: 'blocked', label: () => m.friends_tab_blocked() },
-    { key: 'add', label: () => m.friends_tab_add() }
+    { key: 'blocked', label: () => m.friends_tab_blocked() }
   ];
 
   const activeTab = $derived<TabKey>(

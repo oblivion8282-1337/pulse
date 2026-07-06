@@ -16,15 +16,18 @@ class DirectMessageStore {
   byId = $state<Record<string, DMChannel>>({});
   loaded = $state(false);
 
-  // Most-recently-active first. `last_message_id` is null for empty DMs, so
-  // those drop to the bottom (sorted by id as a tiebreaker).
+  // Most-recently-active first. DMs mit letzter Nachricht oben (neueste
+  // zuerst); DMs ohne Nachricht (last_message_id null) darunter, nach
+  // Erstellung (id) sortiert — eine frische leere DM rutscht so nicht vor
+  // aktive Threads.
   list = $derived(
     Object.values(this.byId).sort((a, b) => {
-      const aKey = a.last_message_id ?? a.id;
-      const bKey = b.last_message_id ?? b.id;
-      // Absteigend (neueste zuerst). compareSnowflakeId ist längen-bewusst →
-      // korrekt auch über die Dezimal-Stellen-Grenze (Number() verlöre > 2^53).
-      return compareSnowflakeId(bKey, aKey);
+      const aMsg = a.last_message_id;
+      const bMsg = b.last_message_id;
+      if (aMsg && bMsg) return compareSnowflakeId(bMsg, aMsg);
+      if (aMsg) return -1;
+      if (bMsg) return 1;
+      return compareSnowflakeId(b.id, a.id);
     })
   );
 
