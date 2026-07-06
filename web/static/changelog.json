@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-06.2",
+      "date": "2026-07-06",
+      "style": "Sachlich",
+      "title": "Startseite und Freunde-Liste überarbeitet",
+      "items": [
+        "Das Pulse-Symbol führt jetzt zur Freunde-Liste statt auf eine leere Seite, auch beim App-Start.",
+        "In der Freunde-Liste siehst du pro Freund den Status, in welchem Sprach-Channel er sitzt, und ob er streamt oder eine Watch-Party macht.",
+        "Die Direktnachrichten sortieren die neueste Unterhaltung nach oben."
+      ]
+    },
+    {
       "id": "2026-07-06",
       "date": "2026-07-06",
       "style": "Sachlich",
