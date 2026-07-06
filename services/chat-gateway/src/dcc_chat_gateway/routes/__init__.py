@@ -9,8 +9,8 @@ from dcc_chat_gateway.routes import (
     admin_backups,
     admin_members,
     admin_plugins,
-    audio_diagnostic,
     attachments,
+    audio_diagnostic,
     bans,
     blocks,
     capabilities,
@@ -48,6 +48,7 @@ from dcc_chat_gateway.routes import (
     stream_chat,
     streaming,
     users,
+    voice_pull,
     watch,
     watch_chat,
     ws,
@@ -82,6 +83,7 @@ router.include_router(role_members.router)
 router.include_router(server_info.router)
 router.include_router(sounds.router)
 router.include_router(permission_overwrites.router)
+router.include_router(voice_pull.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)
 router.include_router(streaming.router)

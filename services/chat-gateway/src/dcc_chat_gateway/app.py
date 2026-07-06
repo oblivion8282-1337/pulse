@@ -7,9 +7,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
-import httpx
 from redis.asyncio import Redis
 
 from dcc_chat_gateway import s3
@@ -30,6 +30,7 @@ from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
+from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ async def lifespan(app: FastAPI):
     reaper: asyncio.Task | None = None
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
+    voice_pull_reaper: asyncio.Task | None = None
     crl_poller: asyncio.Task | None = None
     cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
@@ -180,6 +182,12 @@ async def lifespan(app: FastAPI):
         # activity to ``idle`` (Etappe 3).
         idle_sweeper = asyncio.create_task(
             idle_sweeper_loop(redis), name="dcc-presence-idle-sweeper"
+        )
+        # Voice-pull reaper — backstop that revokes temporary visibility
+        # grants the participant_left webhook missed (or that the target
+        # never connected to). See voice_pull_cleanup.voice_pull_reaper_loop.
+        voice_pull_reaper = asyncio.create_task(
+            voice_pull_reaper_loop(settings, engine, redis), name="dcc-voice-pull-reaper"
         )
         # CRL poller — fetches revoked-cert list from Cloud every 30 s.
         # Without this task the ``auth:revoked:certs`` Redis set stays empty
@@ -276,7 +284,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, cloud_policy_task, jwks_retry, dropbox_sweep_task):
+            bg_tasks = (
+                supervisor, reaper, push_cleanup, idle_sweeper,
+                voice_pull_reaper, crl_poller, cloud_policy_task,
+                jwks_retry, dropbox_sweep_task,
+            )
+            for task in bg_tasks:
                 if task is not None:
                     task.cancel()
                     try:
@@ -319,6 +332,7 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     # clients; the FastAPI ``RequestValidationError`` fires before the
     # route handler runs, so we still see the unmodified raw payload.
     import json as _json
+
     import structlog as _sl
     from fastapi.exceptions import RequestValidationError
 

@@ -20,13 +20,26 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
+from pydantic import BaseModel
 
 from dcc_chat_gateway import config as chat_cfg
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.user_purge import purge_user
+from dcc_chat_gateway.voice_pull_cleanup import revoke_voice_pull
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+
+class VoicePullRevokeIn(BaseModel):
+    """Body for the voice-pull revoke call from voice-signaling.
+
+    voice-signaling fires this when a participant leaves a channel that
+    had an active voice-pull grant for them (detected via the Redis
+    ``voice_pull:channel-<cid>:user-<uid>`` marker in the webhook)."""
+
+    channel_id: int
+    user_id: int
 
 
 def _check_internal_secret(provided: str | None) -> None:
@@ -89,3 +102,30 @@ async def purge_user_endpoint(
         user_id,
         result["deleted_guild_ids"],
     )
+
+
+@router.post(
+    "/internal/voice-pull-revoke", response_model=dict[str, bool]
+)
+async def revoke_voice_pull_endpoint(
+    payload: VoicePullRevokeIn,
+    request: Request,
+    session: SessionDep,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> dict[str, bool]:
+    """Revoke a temporary voice-pull grant — called by voice-signaling
+    when the pulled user leaves the channel. Idempotent: a repeat call
+    (or a stale Redis marker) is a no-op because ``revoke_voice_pull``
+    only acts when a ``channel_voice_pulls`` row exists, so a permanent
+    user-overwrite can never be touched here."""
+    _check_internal_secret(x_pulse_internal_secret)
+    manager = getattr(request.app.state, "connection_manager", None)
+    redis = getattr(request.app.state, "redis", None)
+    revoked = await revoke_voice_pull(
+        session,
+        channel_id=payload.channel_id,
+        user_id=payload.user_id,
+        manager=manager,
+        redis=redis,
+    )
+    return {"revoked": revoked}

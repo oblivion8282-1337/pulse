@@ -13,6 +13,7 @@ implemented in ``permissions.assert_overwrite_within_editor_scope``.
 
 from __future__ import annotations
 
+from dcc_shared.events import ChannelPermissionsUpdatedEvent
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, select
 
@@ -27,7 +28,6 @@ from dcc_chat_gateway.permissions import (
 )
 from dcc_chat_gateway.schemas import OverwriteIn, OverwriteOut
 from dcc_chat_gateway.security import CurrentUser
-from dcc_shared.events import ChannelPermissionsUpdatedEvent
 
 router = APIRouter()
 
@@ -64,6 +64,30 @@ def _overwrite_dict(ow: PermissionOverwrite) -> dict[str, object]:
     }
 
 
+async def _publish_perms_event(
+    manager,
+    session,
+    channel_id: int,
+    guild_id: int,
+    overwrites: list[dict],
+) -> None:
+    """Publish ``channel_permissions_updated`` — the signal every socket
+    uses to invalidate its cached ``_ws_perms[channel_id]``. Takes the
+    manager directly so request-less callers (background reaper, internal
+    service-to-service revoke) can fan out the same invalidation."""
+    if manager is None:
+        return
+    restricted = await restricted_channel_ids(session, guild_id, [channel_id])
+    await manager.publish_guild_event(
+        ChannelPermissionsUpdatedEvent(
+            channel_id=str(channel_id),
+            guild_id=str(guild_id),
+            overwrites=overwrites,
+            restricted=channel_id in restricted,
+        )
+    )
+
+
 async def _publish(
     request: Request,
     session,
@@ -71,17 +95,13 @@ async def _publish(
     guild_id: int,
     overwrites: list[dict],
 ) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        restricted = await restricted_channel_ids(session, guild_id, [channel_id])
-        await mgr.publish_guild_event(
-            ChannelPermissionsUpdatedEvent(
-                channel_id=str(channel_id),
-                guild_id=str(guild_id),
-                overwrites=overwrites,
-                restricted=channel_id in restricted,
-            )
-        )
+    await _publish_perms_event(
+        getattr(request.app.state, "connection_manager", None),
+        session,
+        channel_id,
+        guild_id,
+        overwrites,
+    )
 
 
 async def _fetch_all_overwrites(
