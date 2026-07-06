@@ -7,7 +7,6 @@ here.
 """
 
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
-from dcc_chat_gateway.models.moderation import CachedUserProfile, ModAuditLog, Report
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_TEXT,
@@ -41,6 +40,7 @@ from dcc_chat_gateway.models.messages import (
     MessageMention,
     MessageReaction,
 )
+from dcc_chat_gateway.models.moderation import CachedUserProfile, ModAuditLog, Report
 from dcc_chat_gateway.models.notifications import WebPushSubscription
 from dcc_chat_gateway.models.plugin_activation import (
     GuildPlugin,
@@ -50,6 +50,7 @@ from dcc_chat_gateway.models.plugin_activation import (
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 from dcc_chat_gateway.models.sounds import GuildSoundOverride
 from dcc_chat_gateway.models.user_preferences import UserPreference
+from dcc_chat_gateway.models.voice_pull import ChannelVoicePull
 
 __all__ = [
     "CachedUserProfile",
@@ -67,6 +68,7 @@ __all__ = [
     "MENTION_TYPE_USER",
     "AdminAuditLog",
     "Channel",
+    "ChannelVoicePull",
     "ChatSettings",
     "DirectMessageChannel",
     "DropboxConfig",

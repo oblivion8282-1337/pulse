@@ -23,6 +23,9 @@ this registry.
     - ``friend_removed``
     - ``user_blocked`` / ``user_unblocked``
     - ``presence_status_changed`` (sender's own sockets, real status)
+    - ``voice_pull`` (target user pulled into a private voice channel)
+    - ``channel_revealed`` / ``channel_hidden`` (voice-pull grant
+      added/revoked — channel appears/leaves that one user's list)
 
 * ``guild:events`` (wide broadcast; listener filters by guild membership):
     - ``channel_created`` / ``channel_updated`` / ``channel_deleted``
@@ -94,7 +97,9 @@ from dcc_shared.events.friends import (
 from dcc_shared.events.guild import (
     ChannelCreatedEvent,
     ChannelDeletedEvent,
+    ChannelHiddenEvent,
     ChannelPermissionsUpdatedEvent,
+    ChannelRevealedEvent,
     ChannelUpdatedEvent,
     DropboxEntryCreatedEvent,
     DropboxEntryDeletedEvent,
@@ -127,6 +132,7 @@ from dcc_shared.events.voice import (
     VoiceDisconnectEvent,
     VoiceMoveEvent,
     VoiceOverrideEvent,
+    VoicePullEvent,
     VoiceStateSnapshot,
 )
 
@@ -165,6 +171,8 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "channel_created": ChannelCreatedEvent,
     "channel_updated": ChannelUpdatedEvent,
     "channel_deleted": ChannelDeletedEvent,
+    "channel_revealed": ChannelRevealedEvent,
+    "channel_hidden": ChannelHiddenEvent,
     "channel_permissions_updated": ChannelPermissionsUpdatedEvent,
     "guild_updated": GuildUpdatedEvent,
     "guild_deleted": GuildDeletedEvent,
@@ -193,6 +201,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "voice_disconnect": VoiceDisconnectEvent,
     "voice_move": VoiceMoveEvent,
     "voice_override": VoiceOverrideEvent,
+    "voice_pull": VoicePullEvent,
 }
 
 
@@ -231,7 +240,9 @@ __all__ = [
     # guild
     "ChannelCreatedEvent",
     "ChannelDeletedEvent",
+    "ChannelHiddenEvent",
     "ChannelPermissionsUpdatedEvent",
+    "ChannelRevealedEvent",
     "ChannelUpdatedEvent",
     "DropboxEntryCreatedEvent",
     "DropboxEntryDeletedEvent",
@@ -265,5 +276,6 @@ __all__ = [
     "VoiceDisconnectEvent",
     "VoiceMoveEvent",
     "VoiceOverrideEvent",
+    "VoicePullEvent",
     "VoiceStateSnapshot",
 ]

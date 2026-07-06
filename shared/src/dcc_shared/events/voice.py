@@ -75,3 +75,22 @@ class VoiceOverrideEvent(_EventBase):
     user_id: str
     muted: bool
     deafened: bool
+
+
+class VoicePullEvent(_EventBase):
+    """A channel manager "pulled" ``user_id`` into the private voice
+    channel ``channel_id``. Delivered direct-to-user via ``user:events``
+    (NOT ``voice:events``) because the target cannot VIEW_CHANNEL the
+    private channel yet, so the view-channel filter would drop it.
+
+    Cooperative, like ``voice_move``: the target's own client picks it
+    up and connects. A freshly-minted VIEW_CHANNEL|CONNECT user-overwrite
+    (tracked in ``channel_voice_pulls``) admits them; it is revoked again
+    when they leave the channel."""
+
+    op: Literal["voice_pull"] = "voice_pull"
+    user_id: str
+    channel_id: str
+    channel_name: str
+    guild_id: str
+    pulled_by: str
