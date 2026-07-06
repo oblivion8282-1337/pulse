@@ -31,6 +31,16 @@
       ]
     },
     {
+      "id": "2026-07-06.4",
+      "date": "2026-07-06",
+      "style": "Sachlich",
+      "title": "Bildschirm-Streams in hoher Qualität starten zuverlässiger",
+      "items": [
+        "Unter Windows erkennt Pulse vor dem Stream, welches Video-Format deine Grafikkarte unterstützt, und wählt automatisch ein passendes aus.",
+        "Auf Karten ohne AV1-Unterstützung startet der Stream dadurch zuverlässiger, statt ein Format zu versuchen, das die Karte nicht beherrscht."
+      ]
+    },
+    {
       "id": "2026-07-06.3",
       "date": "2026-07-06",
       "style": "Sachlich",
