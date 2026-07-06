@@ -63,3 +63,19 @@ export function moveToVoiceChannel(
     { method: 'POST', body: { target_channel_id: targetChannelId }, endpoint: 'voice' }
   );
 }
+
+/** Pull ``userId`` into the (typically private) voice channel
+ * ``channelId``. Grants them a temporary VIEW_CHANNEL|CONNECT grant and
+ * signals their client to connect (``voice_pull`` event). Requires
+ * MANAGE_PERMISSIONS on the channel; the grant auto-revokes when they
+ * leave. This is a chat-gateway route (not voice-signaling), hence
+ * ``endpoint: 'chat'``. */
+export function pullIntoVoiceChannel(
+  channelId: string,
+  userId: string
+): Promise<{ pulled: boolean }> {
+  return request<{ pulled: boolean }>(
+    `/channels/${channelId}/members/${userId}/voice-pull`,
+    { method: 'POST', endpoint: 'chat' }
+  );
+}

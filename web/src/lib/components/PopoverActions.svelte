@@ -14,6 +14,7 @@
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import ArrowRightLeftIcon from '@lucide/svelte/icons/arrow-right-left';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import BanIcon from '@lucide/svelte/icons/ban';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -58,6 +59,7 @@
   let kickConfirmArmed = $state(false);
   let banConfirmArmed = $state(false);
   let moveExpanded = $state(false);
+  let pullExpanded = $state(false);
 
   // Reset the armed-confirm when the popover closes so the next open
   // starts on the safe "Aus Community entfernen" / "Sperren" label.
@@ -66,6 +68,7 @@
       kickConfirmArmed = false;
       banConfirmArmed = false;
       moveExpanded = false;
+      pullExpanded = false;
     }
   });
 
@@ -119,6 +122,18 @@
       (c) => c.type === CHANNEL_TYPE_VOICE && c.id !== targetVoiceChannelId
     );
   });
+  // "pull into →" submenu: private (restricted) voice channels the local
+  // user can manage. Gated by guild-level MANAGE_PERMISSIONS (admins/owners
+  // hold it channel-wide). Works on any member — no voice precondition.
+  let canPull = $derived(
+    !!guildId && !isSelf && roles.hasGuildPermission(guildId!, Perm.MANAGE_PERMISSIONS)
+  );
+  let pullTargets = $derived.by(() => {
+    if (!canPull || !guildId) return [];
+    return (guilds.channelsByGuild[guildId] ?? []).filter(
+      (c) => c.type === CHANNEL_TYPE_VOICE && c.restricted === true
+    );
+  });
   let isForceMuted = $derived(
     !!targetVoiceChannelId && voicePresence.isForceMuted(targetVoiceChannelId, userId)
   );
@@ -139,6 +154,7 @@
       canMute,
       canDeafen,
       canDisconnectVoice,
+      canPull,
       canBan,
       isWorking: () => working,
       setWorking: (v) => (working = v),
@@ -241,6 +257,35 @@
               onclick={() => actions.moveVoice(ctx(), ch.id)}
               disabled={working}
               data-testid="popover-voice-move-target"
+            >
+              <Volume2Icon class="size-4 shrink-0" />
+              <span class="truncate">{ch.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+    {#if canPull && pullTargets.length > 0}
+      <button
+        type="button"
+        class={BTN_BASE}
+        onclick={() => (pullExpanded = !pullExpanded)}
+        disabled={working}
+        aria-expanded={pullExpanded}
+        data-testid="popover-voice-pull-btn"
+      >
+        <UserPlusIcon class="size-4" />
+        <span>{m.popover_actions_pull_voice()}</span>
+      </button>
+      {#if pullExpanded}
+        <div class="ml-3 flex flex-col gap-1 border-l border-border pl-2">
+          {#each pullTargets as ch (ch.id)}
+            <button
+              type="button"
+              class={BTN_BASE}
+              onclick={() => actions.pullIntoVoice(ctx(), ch.id)}
+              disabled={working}
+              data-testid="popover-voice-pull-target"
             >
               <Volume2Icon class="size-4 shrink-0" />
               <span class="truncate">{ch.name}</span>

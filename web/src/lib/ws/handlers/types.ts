@@ -101,6 +101,8 @@ export type ServerEvent =
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
+  | { op: 'channel_revealed'; channel: ChannelPayload }
+  | { op: 'channel_hidden'; guild_id: string; channel_id: string }
   | {
       op: 'channel_bump';
       guild_id: string;
@@ -160,6 +162,16 @@ export type ServerEvent =
       channel_id: string;
       user_id: string;
       target_channel_id: string;
+    }
+  | {
+      // A channel manager pulled ``user_id`` into a private voice channel.
+      // Cooperative, like voice_move: the target's own client connects.
+      op: 'voice_pull';
+      user_id: string;
+      channel_id: string;
+      channel_name: string;
+      guild_id: string;
+      pulled_by: string;
     }
   | {
       op: 'stream_state';
