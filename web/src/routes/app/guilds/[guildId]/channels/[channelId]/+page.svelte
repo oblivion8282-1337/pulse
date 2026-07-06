@@ -486,7 +486,7 @@
   onSelect={(g) => selectGuild(g.id)}
   onCreateClick={() => { createGuildMode = 'create'; creatingGuild = true; }}
   onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}
-  onHomeClick={() => { navDrawer.open = true; void goto('/app/@me'); }}
+  onHomeClick={() => { navDrawer.open = true; void goto('/app/friends'); }}
   onGuildDeleted={handleRemoteGuildDeleted}
 />
 

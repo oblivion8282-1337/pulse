@@ -260,7 +260,7 @@
   onJoinClick={() => goto('/app?add=join')}
   onHomeClick={async () => {
     navDrawer.open = !navDrawer.open;
-    await goto('/app/@me');
+    await goto('/app/friends');
   }}
 />
 
