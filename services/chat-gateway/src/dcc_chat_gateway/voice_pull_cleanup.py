@@ -108,9 +108,14 @@ async def revoke_voice_pull(
     return True
 
 
-async def _reap_once(engine: AsyncEngine, redis, grace_s: int) -> int:
+async def _reap_once(engine: AsyncEngine, redis, grace_s: int, manager=None) -> int:
     """Revoke grants whose target is no longer in the channel and whose
-    ``granted_at`` is older than ``grace_s``. Returns the count revoked."""
+    ``granted_at`` is older than ``grace_s``. Returns the count revoked.
+
+    ``manager`` is forwarded to ``revoke_voice_pull`` so a reaper-driven
+    cleanup also publishes ``channel_hidden`` — otherwise the client sidebar
+    keeps a stale entry until its next reconnect even though the server has
+    already withdrawn the grant."""
     if redis is None:
         return 0
     cutoff = datetime.now(UTC) - timedelta(seconds=grace_s)
@@ -135,13 +140,17 @@ async def _reap_once(engine: AsyncEngine, redis, grace_s: int) -> int:
             if still_present:
                 continue
             if await revoke_voice_pull(
-                session, channel_id=row.channel_id, user_id=row.user_id, redis=redis
+                session,
+                channel_id=row.channel_id,
+                user_id=row.user_id,
+                manager=manager,
+                redis=redis,
             ):
                 revoked += 1
     return revoked
 
 
-async def voice_pull_reaper_loop(settings, engine: AsyncEngine, redis) -> None:
+async def voice_pull_reaper_loop(settings, engine: AsyncEngine, redis, manager=None) -> None:
     """Sweep stale voice-pull grants on a fixed cadence."""
     interval_s = settings.voice_pull_reaper_interval_seconds
     grace_s = settings.voice_pull_reaper_grace_seconds
@@ -149,7 +158,7 @@ async def voice_pull_reaper_loop(settings, engine: AsyncEngine, redis) -> None:
     while True:
         await asyncio.sleep(interval_s)
         try:
-            n = await _reap_once(engine, redis, grace_s)
+            n = await _reap_once(engine, redis, grace_s, manager)
             if n:
                 log.info("voice_pull_reaper revoked %d stale grant(s)", n)
         except asyncio.CancelledError:

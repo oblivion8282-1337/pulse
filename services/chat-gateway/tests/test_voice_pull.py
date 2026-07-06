@@ -293,6 +293,20 @@ class _FakeRedis:
         return 1
 
 
+class _FakeManager:
+    """Captures publish_user_event / publish_guild_event for the reaper."""
+
+    def __init__(self) -> None:
+        self.user_events: list[tuple[int, str]] = []
+        self.guild_events: list[str] = []
+
+    async def publish_user_event(self, target, envelope):
+        self.user_events.append((int(target), getattr(envelope, "op", None)))
+
+    async def publish_guild_event(self, envelope):
+        self.guild_events.append(getattr(envelope, "op", None))
+
+
 @pytest.mark.asyncio
 async def test_reap_revokes_on_confirmed_absence(session_factory, engine):
     cid, uid = await _seed_pull_row(session_factory, stale=True)
@@ -300,6 +314,19 @@ async def test_reap_revokes_on_confirmed_absence(session_factory, engine):
     assert n == 1
     async with session_factory() as s:
         assert await s.get(ChannelVoicePull, (cid, uid)) is None
+
+
+@pytest.mark.asyncio
+async def test_reap_publishes_channel_hidden_with_manager(session_factory, engine):
+    """Reaper muss den Manager durchreichen, damit ein Cleanup auch beim
+    Client ankommt (channel_hidden + channel_permissions_updated) — sonst
+    bleibt der Channel in der Sidebar stehen, obwohl der Grant weg ist."""
+    cid, uid = await _seed_pull_row(session_factory, stale=True)
+    mgr = _FakeManager()
+    n = await _reap_once(engine, _FakeRedis(present=False), grace_s=0, manager=mgr)
+    assert n == 1
+    assert any(op == "channel_hidden" for _t, op in mgr.user_events)
+    assert "channel_permissions_updated" in mgr.guild_events
 
 
 @pytest.mark.asyncio
