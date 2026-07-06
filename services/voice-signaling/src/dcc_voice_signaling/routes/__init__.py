@@ -69,6 +69,7 @@ _init_http_client = _chat_gateway._init_http_client
 _close_http_client = _chat_gateway._close_http_client
 _chat_gateway_request = _chat_gateway._chat_gateway_request
 _bearer_from_header = _chat_gateway._bearer_from_header
+_maybe_revoke_voice_pull = _chat_gateway._maybe_revoke_voice_pull
 _require_voice_channel_member = _chat_gateway._require_voice_channel_member
 _resolve_channel_permissions = _chat_gateway._resolve_channel_permissions
 _publish_sources_for = _chat_gateway._publish_sources_for

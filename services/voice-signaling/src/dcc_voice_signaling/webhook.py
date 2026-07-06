@@ -347,6 +347,11 @@ async def livekit_webhook(request: Request) -> None:
         else:
             await _apply_leave(redis, room_name, user_id)
         await _publish_state(redis, room_name, channel_id)
+        if kind == "participant_left":
+            # Late import dodges the routes ↔ webhook load cycle.
+            from dcc_voice_signaling.routes.chat_gateway import _maybe_revoke_voice_pull
+
+            await _maybe_revoke_voice_pull(redis, channel_id, user_id)
         return
 
     if kind in ("track_published", "track_unpublished"):
