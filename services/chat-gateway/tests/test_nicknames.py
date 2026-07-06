@@ -195,3 +195,120 @@ async def test_empty_payload_is_noop(client, _auth_signer):
     )
     assert r.status_code == 200
     assert r.json()["nickname"] == "Stable"
+
+
+# --- hierarchy / owner protection (parity with kick_member) -----------------
+#
+# MANAGE_NICKNAMES alone is not enough — the owner is immune and a mod may
+# only rename members strictly below their own top role (Discord semantics).
+MANAGE_NICKNAMES = 1 << 11  # Permissions.MANAGE_NICKNAMES
+
+
+async def _grant_role(client, g, owner_token, name, permissions, *uids) -> dict:
+    """Owner creates a role (position = max+1, so later = higher) and
+    assigns it to ``uids``. Mirrors ``test_kick._grant_role``."""
+    role = (
+        await client.post(
+            f"/guilds/{g['id']}/roles",
+            json={"name": name, "permissions": str(permissions)},
+            headers=auth(owner_token),
+        )
+    ).json()
+    for uid in uids:
+        await client.put(
+            f"/guilds/{g['id']}/members/{uid}/roles/{role['id']}",
+            headers=auth(owner_token),
+        )
+    return role
+
+
+async def _add_member(client, g, owner_token, uid) -> None:
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid)},
+        headers=auth(owner_token),
+    )
+
+
+@pytest.mark.asyncio
+async def test_mod_cannot_rename_owner(client, _auth_signer):
+    """Owner is immune: a mod with MANAGE_NICKNAMES must not rebrand the
+    guild owner (mirrors kick_member's owner guard)."""
+    t_owner, uid_owner = await _register_user(_auth_signer)
+    t_mod, uid_mod = await _register_user(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "own"}, headers=auth(t_owner))
+    ).json()
+    await _add_member(client, g, t_owner, uid_mod)
+    await _grant_role(client, g, t_owner, "mod", MANAGE_NICKNAMES, uid_mod)
+    r = await client.patch(
+        f"/guilds/{g['id']}/members/{uid_owner}",
+        json={"nickname": "punked"},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_mod_cannot_rename_higher_member(client, _auth_signer):
+    """A mod can't rename a member whose top role sits strictly above
+    their own."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_mod, uid_mod = await _register_user(_auth_signer)
+    _, uid_senior = await _register_user(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "hi"}, headers=auth(t_owner))
+    ).json()
+    await _add_member(client, g, t_owner, uid_mod)
+    await _add_member(client, g, t_owner, uid_senior)
+    await _grant_role(client, g, t_owner, "mod", MANAGE_NICKNAMES, uid_mod)
+    await _grant_role(client, g, t_owner, "senior", 0, uid_senior)  # higher position
+    r = await client.patch(
+        f"/guilds/{g['id']}/members/{uid_senior}",
+        json={"nickname": "lowered"},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_mod_cannot_rename_peer_same_role(client, _auth_signer):
+    """Equal top role positions block the rename — two mods sharing one
+    role can't rebrand each other."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_a, uid_a = await _register_user(_auth_signer)
+    _, uid_b = await _register_user(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "peer"}, headers=auth(t_owner))
+    ).json()
+    await _add_member(client, g, t_owner, uid_a)
+    await _add_member(client, g, t_owner, uid_b)
+    await _grant_role(client, g, t_owner, "mod", MANAGE_NICKNAMES, uid_a, uid_b)
+    r = await client.patch(
+        f"/guilds/{g['id']}/members/{uid_b}",
+        json={"nickname": "spite"},
+        headers=auth(t_a),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_mod_can_rename_lower_member(client, _auth_signer):
+    """Strictly higher top role → rename succeeds. Target with no extra
+    roles sits at the @everyone baseline (position 0)."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_mod, uid_mod = await _register_user(_auth_signer)
+    _, uid_low = await _register_user(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "lo"}, headers=auth(t_owner))
+    ).json()
+    await _add_member(client, g, t_owner, uid_mod)
+    await _add_member(client, g, t_owner, uid_low)
+    await _grant_role(client, g, t_owner, "mod", MANAGE_NICKNAMES, uid_mod)
+    r = await client.patch(
+        f"/guilds/{g['id']}/members/{uid_low}",
+        json={"nickname": "renamed"},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["nickname"] == "renamed"

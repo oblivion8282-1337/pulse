@@ -504,17 +504,33 @@ async def patch_member(
     current: CurrentUser,
     request: Request,
 ):
-    """Update another member's per-guild profile. Currently only
-    nickname; requires ``MANAGE_NICKNAMES``. Callers patching their
-    own row should use ``PATCH .../@me`` — this route 400s on
-    ``user_id == current.id`` so the two paths don't share a gate."""
+    """Update another member's per-guild profile. Currently only the
+    nickname, which requires ``MANAGE_NICKNAMES``. Callers patching their
+    own row should use ``PATCH .../members/@me`` — this route 400s on
+    ``user_id == current.id`` so the two paths don't share a gate.
+
+    Restrictions mirror ``kick_member``: the guild owner is immune (only
+    they can change their own nickname, via ``@me``), and the caller must
+    outrank the target by role hierarchy — a mod cannot rename a member
+    with an equal or higher top role. Instance admins and the guild owner
+    bypass the hierarchy check.
+
+    The guard order is load-bearing: the self-check, guild fetch, and
+    ``require_member`` gate run before the owner guard and member fetch so
+    that a non-member cannot use this route as a cross-guild membership or
+    owner oracle."""
     if user_id == current.id:
         raise HTTPException(400, detail="use PATCH .../members/@me for self-edits")
-    # The caller must itself be a member of this guild before they can read or
-    # write another member's row — otherwise an empty body ({}) would leak the
-    # target's nickname/join time and act as a cross-guild membership oracle
-    # (mirrors get_member / the sibling routes).
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    # Membership gate before any target-specific lookup: an empty body ({})
+    # must not leak the target's nickname/join time, and a non-member must get
+    # the generic 403 here rather than a distinguishable owner-vs-not response
+    # from the owner guard below (mirrors get_member and the sibling routes).
     await require_member(session, guild_id, current.id)
+    if guild.owner_id == user_id:
+        raise HTTPException(403, detail="cannot rename the guild owner")
     member = await session.get(GuildMember, (guild_id, user_id))
     if member is None:
         raise HTTPException(404, detail="member not found")
@@ -522,6 +538,13 @@ async def patch_member(
         return member
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_NICKNAMES
+    )
+    await assert_actor_outranks(
+        session,
+        current,
+        guild,
+        user_id,
+        detail="cannot rename a member with an equal or higher role",
     )
     member.nickname = _normalise_nickname(payload.nickname)
     await session.commit()
