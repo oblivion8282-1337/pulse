@@ -44,7 +44,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
             primary
                 .supported_video_codecs()
                 .iter()
-                .map(|c| Value::String((*c).to_string()))
+                .map(|c| Value::String(c.clone()))
                 .collect(),
         ),
     );

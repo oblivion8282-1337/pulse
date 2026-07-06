@@ -36,20 +36,12 @@ impl Adapter {
         }
     }
 
-    /// Encoder-Codecs die der Vendor in Hardware unterstützt (FFmpeg-Encoder-Namen).
-    /// Hardcoded nach Vendor — die echte Probe via `avcodec_find_encoder_by_name`
-    /// kommt erst in Stage 7 (Encode-Pipeline). Bewusst konservativ: nur Codecs
-    /// die seit 2-3 Jahren in jeder Treiber-Generation drin sind.
-    pub fn supported_video_codecs(&self) -> Vec<&'static str> {
-        match self.vendor() {
-            // NVENC: H.264 (Kepler+), HEVC (Maxwell+), AV1 (Ada Lovelace+, RTX 40)
-            "nvidia" => vec!["h264", "hevc", "av1"],
-            // AMF: H.264 (GCN+), HEVC (Polaris+), AV1 (RDNA3+, RX 7000)
-            "amd" => vec!["h264", "hevc", "av1"],
-            // QSV: H.264 (alle), HEVC (Skylake+), AV1 (Arc/ARC-iGPU ab Meteor Lake)
-            "intel" => vec!["h264", "hevc", "av1"],
-            _ => vec![],
-        }
+    /// Encoder-Codecs die die GPU in Hardware wirklich unterstützt (FFmpeg-Codec-
+    /// Namen). Echte Open-Probe — siehe `codec_probe`. Selbst-korrigierend und
+    /// vorwärtskompatibel: meldet AV1 erst ab Ada (RTX 40+) / RDNA3 / Intel Arc,
+    /// und erkennt künftige Architekturen ohne Tabellenpflege.
+    pub fn supported_video_codecs(&self) -> Vec<String> {
+        super::codec_probe::supported_video_codecs(self)
     }
 }
 
