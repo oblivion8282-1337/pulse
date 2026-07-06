@@ -180,6 +180,13 @@ class Settings(BaseSettings):
     push_subscription_idle_days: int = 60
     cleanup_interval_seconds: int = 86400  # 24 h
 
+    # Voice-pull reaper — backstop that revokes grants the participant_left
+    # webhook missed (network blip) or that the target never connected to.
+    # The webhook path is authoritative; this only sweeps grants whose
+    # target is confirmed-absent (Redis) AND older than the grace window.
+    voice_pull_reaper_interval_seconds: int = 60
+    voice_pull_reaper_grace_seconds: int = 300
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:
