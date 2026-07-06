@@ -15,6 +15,20 @@ import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
 export function register(ctx: HandlerContext): void {
+  // Full local teardown for a channel the user no longer sees — used by
+  // channel_deleted (server removed it) and channel_hidden (voice-pull
+  // grant revoked). Guarded by guild membership so events for guilds the
+  // user has left are ignored.
+  function teardownChannel(guildId: string, channelId: string): void {
+    if (!guilds.byId[guildId]) return;
+    guilds.removeChannel(channelId);
+    ctx.unsubscribe(channelId);
+    messages.clearChannel(channelId);
+    channelPermissions.forget(channelId);
+    readState.forgetChannel(channelId);
+    ctx.fireChannelDeleted(guildId, channelId);
+  }
+
   registerWsHandler('channel_created', (evt) => {
     if (guilds.byId[evt.channel.guild_id]) guilds.addChannel(evt.channel);
   });
@@ -24,14 +38,19 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('channel_deleted', (evt) => {
-    if (guilds.byId[evt.guild_id]) {
-      guilds.removeChannel(evt.channel_id);
-      ctx.unsubscribe(evt.channel_id);
-      messages.clearChannel(evt.channel_id);
-      channelPermissions.forget(evt.channel_id);
-      readState.forgetChannel(evt.channel_id);
-      ctx.fireChannelDeleted(evt.guild_id, evt.channel_id);
-    }
+    teardownChannel(evt.guild_id, evt.channel_id);
+  });
+
+  // Voice-pull grant added: a previously-hidden channel is now visible to
+  // this one user. Same insert as channel_created (idempotent).
+  registerWsHandler('channel_revealed', (evt) => {
+    if (guilds.byId[evt.channel.guild_id]) guilds.addChannel(evt.channel);
+  });
+
+  // Voice-pull grant revoked (user left the channel): the channel leaves
+  // this user's view — same local teardown as channel_deleted.
+  registerWsHandler('channel_hidden', (evt) => {
+    teardownChannel(evt.guild_id, evt.channel_id);
   });
 
   registerWsHandler('permissions_updated', (evt) => {

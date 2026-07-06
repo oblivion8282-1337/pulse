@@ -60,6 +60,18 @@ export function register(ctx: HandlerContext): void {
     });
   });
 
+  registerWsHandler('voice_pull', (evt) => {
+    // A channel manager pulled us into a private voice channel. The
+    // VIEW_CHANNEL|CONNECT grant is already committed server-side, so we
+    // can just connect — voice.connect() disconnects any current room
+    // first, so a user in another channel is moved cleanly. The channel
+    // itself arrives separately via channel_revealed.
+    if (currentServerUserId() !== evt.user_id) return;
+    void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+      void voice.connect(evt.channel_id, evt.channel_name);
+    });
+  });
+
   registerWsHandler('voice_override', (evt) => {
     voicePresence.applyOverride(
       evt.channel_id,
