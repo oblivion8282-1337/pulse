@@ -187,7 +187,7 @@ async def lifespan(app: FastAPI):
         # grants the participant_left webhook missed (or that the target
         # never connected to). See voice_pull_cleanup.voice_pull_reaper_loop.
         voice_pull_reaper = asyncio.create_task(
-            voice_pull_reaper_loop(settings, engine, redis), name="dcc-voice-pull-reaper"
+            voice_pull_reaper_loop(settings, engine, redis, manager), name="dcc-voice-pull-reaper"
         )
         # CRL poller — fetches revoked-cert list from Cloud every 30 s.
         # Without this task the ``auth:revoked:certs`` Redis set stays empty
