@@ -2455,5 +2455,12 @@
   "dropbox_no_files_selected": "Keine Dateien ausgewählt.",
   "dropbox_clear_selection": "Auswahl aufheben",
   "dropbox_selection_count": "{count} ausgewählt",
-  "dropbox_select_entry": "Auswählen"
+  "dropbox_select_entry": "Auswählen",
+  "friend_status_online": "online",
+  "friend_status_idle": "abwesend",
+  "friend_status_dnd": "beschäftigt",
+  "friend_status_offline": "offline",
+  "friend_badge_live": "Live",
+  "friend_badge_party": "Party",
+  "friend_in_voice": "in #{channel} · {guild}"
 }
