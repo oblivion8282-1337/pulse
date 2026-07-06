@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-06.3",
+      "date": "2026-07-06",
+      "style": "Sachlich",
+      "title": "Spitznamen: Schutz für Besitzer und ranghöhere Mitglieder",
+      "items": [
+        "Wer das Recht hat, Spitznamen zu ändern, kann den Besitzer einer Community nicht mehr umbenennen — das geht nur noch, wenn man selbst der Besitzer ist.",
+        "Außerdem lässt sich niemand mehr umbenennen, dessen Rolle gleich hoch oder höher sitzt als die eigene — genauso wie beim Kicken oder Bannen."
+      ]
+    },
+    {
       "id": "2026-07-06.2",
       "date": "2026-07-06",
       "style": "Sachlich",
