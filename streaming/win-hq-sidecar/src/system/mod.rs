@@ -2,4 +2,5 @@
 //! Op-Handler in `ops/` rufen nur die `Result<…>`-Wrapper.
 
 pub mod audio_sessions;
+pub mod codec_probe;
 pub mod dxgi;
