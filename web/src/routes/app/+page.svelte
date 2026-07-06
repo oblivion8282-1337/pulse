@@ -47,9 +47,9 @@
       creating = true;
       return;
     }
-    // Auto-Connect-Ziel gewinnt gegen den Default-Redirect in den ersten
-    // Textkanal: der User will seinen gewählten Voice-Channel sofort sehen.
-    // Der eigentliche Voice-Join läuft unabhängig davon im Layout
+    // Auto-Connect-Ziel gewinnt gegen den Default-Landing (Freunde-Seite):
+    // der User will seinen gewählten Voice-Channel sofort sehen. Der
+    // eigentliche Voice-Join läuft unabhängig davon im Layout
     // (autoConnectIfConfigured) — hier geht es nur um die Ansicht.
     const auto = voiceAutoConnect.validTarget();
     if (auto?.guildId && guilds.list.some((g) => g.id === auto.guildId)) {
@@ -57,16 +57,7 @@
       void goto(`/app/guilds/${auto.guildId}/channels/${auto.channelId}`, { replaceState: true });
       return;
     }
-    const first = guilds.list[0];
-    if (first) {
-      void (async () => {
-        const channels = await guilds.loadChannels(first.id);
-        const text = channels.find((c) => c.type === 0);
-        if (text) {
-          await goto(`/app/guilds/${first.id}/channels/${text.id}`, { replaceState: true });
-        }
-      })();
-    }
+    void goto('/app/friends', { replaceState: true });
   });
 
   async function createGuild(name: string) {
@@ -108,7 +99,7 @@
   }}
   onCreateClick={() => { createMode = 'create'; creating = true; }}
   onJoinClick={() => { createMode = 'join'; creating = true; }}
-  onHomeClick={() => goto('/app/@me')}
+  onHomeClick={() => goto('/app/friends')}
 />
 
 <!-- DM-/Freunde-Liste auch ohne Community: ein community-loser User muss seine
