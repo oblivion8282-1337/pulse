@@ -23,7 +23,8 @@ this registry.
     - ``friend_removed``
     - ``user_blocked`` / ``user_unblocked``
     - ``presence_status_changed`` (sender's own sockets, real status)
-    - ``voice_pull`` (target user pulled into a private voice channel)
+    - ``voice_pull`` (target user brought into a voice channel — switch
+      or summon; delivered direct because the target may lack VIEW_CHANNEL)
     - ``channel_revealed`` / ``channel_hidden`` (voice-pull grant
       added/revoked — channel appears/leaves that one user's list)
 
@@ -130,7 +131,6 @@ from dcc_shared.events.presence import (
 from dcc_shared.events.stream import StreamDescriptor, StreamStateSnapshot, WatchStateSnapshot
 from dcc_shared.events.voice import (
     VoiceDisconnectEvent,
-    VoiceMoveEvent,
     VoiceOverrideEvent,
     VoicePullEvent,
     VoiceStateSnapshot,
@@ -199,7 +199,6 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "presence_status_changed": PresenceStatusChangedEvent,
     # ---- voice (admin overrides; the voice_state snapshot is bare)
     "voice_disconnect": VoiceDisconnectEvent,
-    "voice_move": VoiceMoveEvent,
     "voice_override": VoiceOverrideEvent,
     "voice_pull": VoicePullEvent,
 }
@@ -274,7 +273,6 @@ __all__ = [
     "WatchStateSnapshot",
     # voice
     "VoiceDisconnectEvent",
-    "VoiceMoveEvent",
     "VoiceOverrideEvent",
     "VoicePullEvent",
     "VoiceStateSnapshot",

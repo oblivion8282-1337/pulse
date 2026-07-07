@@ -10,7 +10,7 @@ import { toast } from 'svelte-sonner';
 import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
 import { friendsApi } from '$lib/api/friends';
-import { setVoiceOverride, disconnectFromVoice, moveToVoiceChannel, pullIntoVoiceChannel } from '$lib/api/voice';
+import { setVoiceOverride, disconnectFromVoice, moveIntoVoiceChannel } from '$lib/api/voice';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
@@ -31,10 +31,9 @@ export interface ActionCtx {
   canMute: boolean;
   canDeafen: boolean;
   canDisconnectVoice: boolean;
-  /** Local user can pull the target into a private voice channel they
-   *  manage (MANAGE_PERMISSIONS). Unlike the voice actions above, this
-   *  works regardless of whether the target is currently in voice. */
-  canPull: boolean;
+  /** Local user can bring the target into a voice channel (MOVE_MEMBERS).
+   *  Works whether or not the target is currently in voice. */
+  canMoveVoice: boolean;
   canBan: boolean;
   /** Component-local working flag; getter so handlers re-read the
    *  current value (re-entrancy guard). */
@@ -130,34 +129,17 @@ export async function disconnectVoice(ctx: ActionCtx): Promise<void> {
   }
 }
 
-export async function moveVoice(ctx: ActionCtx, targetChannelId: string): Promise<void> {
-  if (!ctx.canDisconnectVoice || !ctx.targetVoiceChannelId || ctx.isWorking()) return;
+export async function moveIntoVoice(ctx: ActionCtx, targetChannelId: string): Promise<void> {
+  if (!ctx.canMoveVoice || ctx.isSelf || ctx.isWorking()) return;
   if (targetChannelId === ctx.targetVoiceChannelId) return;
   ctx.setWorking(true);
   try {
-    await moveToVoiceChannel(ctx.targetVoiceChannelId, ctx.userId, targetChannelId);
+    await moveIntoVoiceChannel(targetChannelId, ctx.userId);
     toast.success(m.popover_actions_voice_moved({ displayName: ctx.displayName }));
     ctx.close();
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_voice_move_failed(), {
-      description: err instanceof Error ? err.message : String(err)
-    });
-  } finally {
-    ctx.setWorking(false);
-  }
-}
-
-export async function pullIntoVoice(ctx: ActionCtx, targetChannelId: string): Promise<void> {
-  if (!ctx.canPull || ctx.isSelf || ctx.isWorking()) return;
-  ctx.setWorking(true);
-  try {
-    await pullIntoVoiceChannel(targetChannelId, ctx.userId);
-    toast.success(m.popover_actions_voice_pulled({ displayName: ctx.displayName }));
-    ctx.close();
-    ctx.onAction?.();
-  } catch (err) {
-    toast.error(m.popover_actions_voice_pull_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {

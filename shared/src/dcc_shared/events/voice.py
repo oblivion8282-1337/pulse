@@ -49,23 +49,6 @@ class VoiceDisconnectEvent(_EventBase):
     user_id: str
 
 
-class VoiceMoveEvent(_EventBase):
-    """Admin relocated ``user_id`` from ``channel_id`` (source) to
-    ``target_channel_id`` (destination) within the same guild.
-
-    There is no server-side "move between rooms" — each voice channel is
-    its own LiveKit room. This event is the *signal*: the target's own
-    client picks it up and reconnects to the destination room with a
-    freshly-minted token (CONNECT permission for the destination is
-    enforced at that token-issue). Cooperative, like the soft-deafen
-    path — a client that ignores it simply stays put."""
-
-    op: Literal["voice_move"] = "voice_move"
-    channel_id: str
-    user_id: str
-    target_channel_id: str
-
-
 class VoiceOverrideEvent(_EventBase):
     """Admin force-mute / force-deafen toggle. The current values are
     the *resulting* state after the toggle, not a diff."""
@@ -78,15 +61,17 @@ class VoiceOverrideEvent(_EventBase):
 
 
 class VoicePullEvent(_EventBase):
-    """A channel manager "pulled" ``user_id`` into the private voice
-    channel ``channel_id``. Delivered direct-to-user via ``user:events``
-    (NOT ``voice:events``) because the target cannot VIEW_CHANNEL the
-    private channel yet, so the view-channel filter would drop it.
+    """A channel manager brought ``user_id`` into the voice channel
+    ``channel_id`` (a switch if they were connected elsewhere, a summon
+    otherwise). Delivered direct-to-user via ``user:events`` (NOT
+    ``voice:events``) because the target may lack VIEW_CHANNEL on the
+    channel (private channels), so the view-channel filter would drop it.
 
-    Cooperative, like ``voice_move``: the target's own client picks it
-    up and connects. A freshly-minted VIEW_CHANNEL|CONNECT user-overwrite
-    (tracked in ``channel_voice_pulls``) admits them; it is revoked again
-    when they leave the channel."""
+    Cooperative: the target's own client picks it up and connects
+    (``voice.connect`` switches rooms). A freshly-minted
+    VIEW_CHANNEL|CONNECT user-overwrite (tracked in
+    ``channel_voice_pulls``) admits them; it is revoked again when they
+    leave the channel."""
 
     op: Literal["voice_pull"] = "voice_pull"
     user_id: str

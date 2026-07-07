@@ -75,7 +75,7 @@
       canMute: false,
       canDeafen: false,
       canDisconnectVoice: false,
-      canPull: false,
+      canMoveVoice: false,
       canBan: false,
       isWorking: () => working,
       setWorking: (v) => (working = v),

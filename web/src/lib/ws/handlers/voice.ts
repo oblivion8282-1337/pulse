@@ -5,7 +5,6 @@
  * matching `voice-signaling/_livekit_update_participant` note in CLAUDE.md.
  */
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
-import { guilds } from '$lib/stores/guilds.svelte';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
@@ -37,35 +36,12 @@ export function register(ctx: HandlerContext): void {
     }
   });
 
-  registerWsHandler('voice_move', (evt) => {
-    // A mod relocated someone to another voice channel. If that's us, and
-    // we're connected to the source channel, switch our LiveKit room to
-    // the destination. There's no server-side room hop — each channel is
-    // its own LiveKit room, so the move is enforced client-side by
-    // reconnecting with a fresh token (CONNECT for the destination is
-    // checked server-side at token-issue, so a forbidden move just fails
-    // there and we stay put).
-    if (currentServerUserId() !== evt.user_id) return;
-    void import('$lib/voice/livekit.svelte').then(({ voice }) => {
-      if (voice.channelId !== evt.channel_id) return;
-      // Resolve the destination channel name for the connect() call (used
-      // for the join sound + UI label). Fall back to an empty string —
-      // connect() only needs the name cosmetically.
-      const targetGuildId = guilds.guildIdForChannel(evt.target_channel_id);
-      const targetName =
-        (targetGuildId
-          ? guilds.channelsByGuild[targetGuildId]?.find((c) => c.id === evt.target_channel_id)?.name
-          : undefined) ?? '';
-      void voice.connect(evt.target_channel_id, targetName);
-    });
-  });
-
   registerWsHandler('voice_pull', (evt) => {
-    // A channel manager pulled us into a private voice channel. The
+    // A channel manager brought us into a voice channel (a switch if we
+    // were connected elsewhere, a summon otherwise). The
     // VIEW_CHANNEL|CONNECT grant is already committed server-side, so we
     // can just connect — voice.connect() disconnects any current room
-    // first, so a user in another channel is moved cleanly. The channel
-    // itself arrives separately via channel_revealed.
+    // first. The channel itself arrives separately via channel_revealed.
     if (currentServerUserId() !== evt.user_id) return;
     void import('$lib/voice/livekit.svelte').then(({ voice }) => {
       void voice.connect(evt.channel_id, evt.channel_name);

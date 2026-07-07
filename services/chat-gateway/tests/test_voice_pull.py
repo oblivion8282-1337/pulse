@@ -86,7 +86,7 @@ def _overwrite_for(rows, uid) -> dict | None:
 async def test_pull_grants_view_connect_and_marker(client, _auth_signer, session_factory):
     t_owner, _, _, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
     r = await client.post(
-        f"/channels/{v['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     assert r.status_code == 200, r.text
 
@@ -106,6 +106,41 @@ async def test_pull_grants_view_connect_and_marker(client, _auth_signer, session
 
 
 @pytest.mark.asyncio
+async def test_move_into_private_channel_grants_access(client, _auth_signer):
+    """Bug-Reproducer: vor der Vereinheitlichung vergab das Verschieben
+    keinen Zugriff → ``GET /channels/{dest}`` lieferte für den
+    Verschobenen 404 (VIEW-Gate) → Token fiel durch → User strandete.
+    Nach dem Move muss der Channel für das Ziel abrufbar sein (200)."""
+    t_owner, _, t_other, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
+    before = await client.get(f"/channels/{v['id']}", headers=auth(t_other))
+    assert before.status_code == 404  # Ziel darf den privaten Channel nicht sehen
+    r = await client.post(
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    after = await client.get(f"/channels/{v['id']}", headers=auth(t_other))
+    assert after.status_code == 200  # Move hat VIEW gewährt → Channel sichtbar
+
+
+@pytest.mark.asyncio
+async def test_move_target_not_in_voice_still_works(client, _auth_signer, app, monkeypatch):
+    """Das Ziel muss nicht verbunden sein — der Move holt es auch aus dem
+    Nicht-Voice-Zustand in den Channel (summon, ehemals voice_pull)."""
+    posted: list[str] = []
+
+    async def _capture(_target, envelope):
+        posted.append(getattr(envelope, "op", None))
+
+    monkeypatch.setattr(app.state.connection_manager, "publish_user_event", _capture)
+    t_owner, _, _, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
+    r = await client.post(
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    assert "voice_pull" in posted and "channel_revealed" in posted
+
+
+@pytest.mark.asyncio
 async def test_pull_publishes_voice_pull_and_revealed(client, _auth_signer, app, monkeypatch):
     posted: list[tuple[int, str]] = []
 
@@ -116,7 +151,7 @@ async def test_pull_publishes_voice_pull_and_revealed(client, _auth_signer, app,
 
     t_owner, _, _, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
     await client.post(
-        f"/channels/{v['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     ops = {op for target, op in posted if target == uid_other}
     assert "voice_pull" in ops and "channel_revealed" in ops
@@ -129,7 +164,7 @@ async def test_pull_publishes_voice_pull_and_revealed(client, _auth_signer, app,
 async def test_pull_self_forbidden(client, _auth_signer):
     t_owner, uid_owner, _, _, _, v = await _make_private_voice_channel(client, _auth_signer)
     r = await client.post(
-        f"/channels/{v['id']}/members/{uid_owner}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_owner}/voice-move", headers=auth(t_owner)
     )
     assert r.status_code == 400
 
@@ -145,18 +180,18 @@ async def test_pull_text_channel_forbidden(client, _auth_signer):
         )
     ).json()
     r = await client.post(
-        f"/channels/{text['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{text['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     assert r.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_pull_requires_manage_permissions(client, _auth_signer):
-    """Ein normales Mitglied (ohne MANAGE_PERMISSIONS) darf niemanden
-    ziehen — nicht mal den Owner in den Channel."""
+async def test_move_requires_move_members(client, _auth_signer):
+    """Ein normales Mitglied (ohne MOVE_MEMBERS) darf niemanden in den
+    Channel verschieben — nicht mal den Owner."""
     _, uid_owner, t_other, _, _, v = await _make_private_voice_channel(client, _auth_signer)
     r = await client.post(
-        f"/channels/{v['id']}/members/{uid_owner}/voice-pull", headers=auth(t_other)
+        f"/channels/{v['id']}/members/{uid_owner}/voice-move", headers=auth(t_other)
     )
     assert r.status_code == 403
 
@@ -166,7 +201,7 @@ async def test_pull_target_not_member(client, _auth_signer):
     t_owner, _, _, _, _, v = await _make_private_voice_channel(client, _auth_signer)
     phantom = random.randint(2_000_000, 9_000_000)
     r = await client.post(
-        f"/channels/{v['id']}/members/{phantom}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{phantom}/voice-move", headers=auth(t_owner)
     )
     assert r.status_code == 404
 
@@ -195,7 +230,7 @@ async def test_revoke_removes_grant_and_hides(
 
     t_owner, _, _, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
     await client.post(
-        f"/channels/{v['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     r = await client.post(
         "/internal/voice-pull-revoke",
@@ -227,7 +262,7 @@ async def test_revoke_idempotent(
     monkeypatch.setattr(_isolate_chat_settings, "internal_service_secret", "s")
     t_owner, _, _, uid_other, _, v = await _make_private_voice_channel(client, _auth_signer)
     await client.post(
-        f"/channels/{v['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     body = {"channel_id": int(v["id"]), "user_id": uid_other}
     first = await client.post("/internal/voice-pull-revoke", json=body, headers=_internal("s"))
@@ -255,7 +290,7 @@ async def test_revoke_preserves_permanent_overwrite(
         headers=auth(t_owner),
     )
     await client.post(
-        f"/channels/{v['id']}/members/{uid_other}/voice-pull", headers=auth(t_owner)
+        f"/channels/{v['id']}/members/{uid_other}/voice-move", headers=auth(t_owner)
     )
     await client.post(
         "/internal/voice-pull-revoke",
