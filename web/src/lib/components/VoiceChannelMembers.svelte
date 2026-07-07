@@ -9,6 +9,7 @@
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
+  import { startUserDrag } from '$lib/voice/userDrag';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -95,6 +96,8 @@
           data-testid="voice-presence-member"
           data-user-id={uid}
           title={name}
+          draggable={true}
+          ondragstart={(e) => startUserDrag(e, uid)}
         >
           <span class="relative size-7 shrink-0" data-speaking={isSpeaking}>
             {#if isSpeaking}
