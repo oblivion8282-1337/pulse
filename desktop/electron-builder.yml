@@ -64,17 +64,18 @@ extraResources:
     to: tray
     filter:
       - "*.png"
-  # Splash-HTML + Splash-Icon + Splash-Logo. Beides braucht das
+  # Splash-HTML + Splash-Icon. Beides braucht das
   # `BrowserWindow.loadFile`/`nativeImage.createFromPath` aus
   # `createSplashWindow` (main.ts) zur Laufzeit ueber `process.resourcesPath`.
   # Im asar versteckte Pfade wuerden zu ERR_FILE_NOT_FOUND fuehren.
-  # `pulse-mark.svg` ist das Logo-Background-Image der update-splash.html
-  # (steht in <resourcesPath>/build-resources/pulse-mark.svg nach dem Build).
+  # Das Splash-Logo (Pulse-Mark) ist als SVG-data-URI direkt in die
+  # update-splash.html eingebettet — nicht als eigene Datei gepackt, weil
+  # electron-builder auf Windows-Runnern sonst reproduzierbar an
+  # `EBUSY: resource busy or locked` beim copyfile der .svg scheitert
+  # (Defender/SVG-Handler legen sich auf die frisch geschriebene SVG).
   - from: build-resources/update-splash.html
     to: build-resources
   - from: build-resources/icon.png
-    to: build-resources
-  - from: build-resources/pulse-mark.svg
     to: build-resources
 # Der HQ-Streaming-Sidecar ist plattform-spezifisch (Windows = Rust-.exe + FFmpeg-
 # DLLs, macOS = Rust-Binary + dylibs) und wird daher per `<platform>.extraResources`

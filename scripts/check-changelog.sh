@@ -18,7 +18,7 @@ set -euo pipefail
 # user-sichtbare Wirkung wird vom begleitenden Code-Commit (Model/Route)
 # angekündigt, der das Gate ohnehin auslöst. Ein reiner Migrations-Commit
 # (z.B. ein Revision-Hotfix) braucht keinen eigenen Eintrag.
-NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|(^|/)scripts/|(^|/)Dockerfile[^/]*$|\.toml$|(^|/)package\.json$|/tests/|(^|/)conftest\.py$|/alembic/|^web/static/changelog\.json$|^web/static/install\.sh$|(^|/)\.[a-z]+ignore$'
+NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|(^|/)scripts/|(^|/)Dockerfile[^/]*$|\.toml$|\.ya?ml$|(^|/)build-resources/|(^|/)package\.json$|/tests/|(^|/)conftest\.py$|/alembic/|^web/static/changelog\.json$|^web/static/install\.sh$|(^|/)\.[a-z]+ignore$'
 
 before="${1:-}"
 after="${2:-HEAD}"
