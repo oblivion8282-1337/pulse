@@ -1,14 +1,14 @@
 <!--
-  Click-to-open user profile card.
+  Right-click user profile card.
 
-  Wraps any trigger element and pops a floating card with the user's
+  Wraps any trigger element and opens a floating card on right-click with the user's
   avatar, display name, and quick actions (currently: "Nachricht senden").
   Designed as the canonical place for per-user actions — additional
   buttons (mention, view profile, give role…) land here later without
   touching the call sites.
 
-  Self-detection: the action list is hidden when the user clicks their
-  own row, so the popover gracefully degrades to a read-only profile
+  Self-detection: the action list is hidden when the user opens their
+  own card, so the popover gracefully degrades to a read-only profile
   card instead of letting them DM themselves (the server rejects that
   with a 400 anyway).
 
@@ -17,7 +17,7 @@
   dialog stays mounted here so it survives the popover closing.
 -->
 <script lang="ts">
-  import { Popover as PopoverPrimitive } from 'bits-ui';
+  import { ContextMenu as ContextMenuPrimitive } from 'bits-ui';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import NicknameDialog from './NicknameDialog.svelte';
@@ -88,17 +88,14 @@
   let displayNameStyle = $derived(nameStyle(userId, guildId ?? null));
 </script>
 
-<PopoverPrimitive.Root bind:open>
-  <PopoverPrimitive.Trigger>
+<ContextMenuPrimitive.Root bind:open>
+  <ContextMenuPrimitive.Trigger>
     {#snippet child({ props })}
       {@render children({ props })}
     {/snippet}
-  </PopoverPrimitive.Trigger>
-  <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Content
-      sideOffset={8}
-      side="left"
-      align="start"
+  </ContextMenuPrimitive.Trigger>
+  <ContextMenuPrimitive.Portal>
+    <ContextMenuPrimitive.Content
       class="ring-border bg-popover text-popover-foreground z-50 w-64 rounded-xl p-4 shadow-xl ring-1 outline-none backdrop-blur-xl data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0 data-open:zoom-in-95 data-closed:zoom-out-95"
       data-testid="user-profile-popover"
     >
@@ -161,13 +158,11 @@
       {/if}
 
       {#if extra}
-        <div class="mt-3">
-          {@render extra({ close })}
-        </div>
+        {@render extra({ close })}
       {/if}
-    </PopoverPrimitive.Content>
-  </PopoverPrimitive.Portal>
-</PopoverPrimitive.Root>
+    </ContextMenuPrimitive.Content>
+  </ContextMenuPrimitive.Portal>
+</ContextMenuPrimitive.Root>
 
 {#if reportDialogOpen}
   <ReportMessageDialog
