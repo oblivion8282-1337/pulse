@@ -153,7 +153,7 @@ test.describe.serial('DM (direct messages) E2E', () => {
 
     // Right-click to summon the per-row context menu, then "Nachricht senden".
     await bobRow.click({ button: 'right' });
-    await alicePage.getByTestId('member-dm-menu').click();
+    await alicePage.getByTestId('popover-dm-btn').click();
 
     await alicePage.waitForURL(/\/app\/@me\/\d+/, { timeout: 10_000 });
     dmUrlPath = new URL(alicePage.url()).pathname;
@@ -220,7 +220,7 @@ test.describe.serial('DM (direct messages) E2E', () => {
       .getByTestId('member-item')
       .and(alicePage.locator(`[data-user-id="${bobUserId}"]`));
     await bobRow.click({ button: 'right' });
-    await alicePage.getByTestId('member-dm-menu').click();
+    await alicePage.getByTestId('popover-dm-btn').click();
     await alicePage.waitForURL(new RegExp(dmUrlPath.replace(/\//g, '\\/')));
   });
 });

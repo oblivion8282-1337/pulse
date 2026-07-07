@@ -147,13 +147,13 @@
             class="flex min-w-0 flex-1 items-center gap-3 text-left"
             data-testid="friend-profile-trigger"
             onclick={(e) => {
+              // Bei Voice-/Stream-Aktivität auf Linksklick in die Community
+              // springen. Das Profil-Menü öffnet ausschließlich per Rechts-
+              // klick (der ContextMenu-Trigger liefert ``oncontextmenu`` via
+              // ``props``-Spread auf diesen Button).
               if (ctxGuild) {
                 e.stopPropagation();
                 void goto(`/app/guilds/${ctxGuild}/channels/_`);
-              } else {
-                // Mit Voice/Stream springen wir in die Community; sonst den
-                // bits-ui Popover.Trigger-Toggle (props.onclick) erhalten.
-                (props.onclick as ((e: MouseEvent) => void) | undefined)?.(e);
               }
             }}
           >

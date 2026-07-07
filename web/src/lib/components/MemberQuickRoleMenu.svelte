@@ -1,11 +1,12 @@
 <!--
   ContextMenu items for quickly toggling a member's roles.
 
-  Lives inside whatever ContextMenu.Root the caller already has — this
-  component renders only Items + a Sub menu, no wrapping Root/Trigger.
-  That lets the host (MemberList row) layer it under existing
-  ``UserProfilePopover`` clicks: left-click opens the profile, right-
-  click pops this menu.
+  Renders only a Sub menu (plus its CheckboxItems) — no wrapping
+  Root/Trigger — so the host drops it straight into an existing
+  ContextMenu.Content. Currently the sole caller is
+  ``UserProfilePopover``'s ``extra`` snippet (right-click member row →
+  popover → "Rollen verwalten"). ``MemberListItem`` gates the whole
+  snippet on ``canQuickRole`` so the Sub only mounts when editable.
 
   Visibility: hidden entirely when the caller lacks MANAGE_ROLES.
   Anti-escalation: each checkbox locks when the role grants bits the
@@ -59,8 +60,13 @@
     }
   }
 
-  // Lazy per-member role cache is primed by the host's
-  // `oncontextmenu` handler before the menu opens — see MemberList.
+  // Prime the lazy per-member role cache as soon as this sub-menu mounts
+  // (i.e. once the right-click profile menu opens and the caller can
+  // manage roles), so the checkboxes reflect the correct state at first
+  // render instead of flashing empty.
+  $effect(() => {
+    void memberRoles.ensure(guildId, userId).catch(() => undefined);
+  });
 </script>
 
 {#if canManage && assignable.length > 0}

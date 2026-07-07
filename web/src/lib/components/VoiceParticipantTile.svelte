@@ -281,7 +281,9 @@
     {/snippet}
   {#snippet extra()}
     {#if canAdjustVolume && p.userId}
-      <VoiceUserVolumeControl userId={p.userId} name={resolvedName} />
+      <div class="mt-3">
+        <VoiceUserVolumeControl userId={p.userId} name={resolvedName} />
+      </div>
     {/if}
   {/snippet}
 </UserProfilePopover>
