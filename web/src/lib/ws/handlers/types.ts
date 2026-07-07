@@ -158,14 +158,9 @@ export type ServerEvent =
       user_id: string;
     }
   | {
-      op: 'voice_move';
-      channel_id: string;
-      user_id: string;
-      target_channel_id: string;
-    }
-  | {
-      // A channel manager pulled ``user_id`` into a private voice channel.
-      // Cooperative, like voice_move: the target's own client connects.
+      // A channel manager brought ``user_id`` into a voice channel (a
+      // switch if they were connected elsewhere, a summon otherwise).
+      // Cooperative: the target's own client connects.
       op: 'voice_pull';
       user_id: string;
       channel_id: string;

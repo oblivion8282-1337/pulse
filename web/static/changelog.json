@@ -5,9 +5,10 @@
       "id": "2026-07-07",
       "date": "2026-07-07",
       "style": "Sachlich",
-      "title": "Mitglieder in private Sprach-Channels ziehen",
+      "title": "Mitglieder in Sprach-Channels verschieben",
       "items": [
-        "Community-Verwalter können ein anderes Mitglied direkt in einen privaten Sprach-Channel ziehen. Der Channel wird für die gezogene Person sichtbar und sie wird sofort verbunden. Sobald sie ihn wieder verlässt, verschwindet er für sie."
+        "Community-Verwalter können ein anderes Mitglied direkt in einen Sprach-Channel verschieben — auch in einen privaten, den die Person sonst nicht sehen dürfte. Der Channel wird für die verschobene Person sichtbar und sie wird sofort verbunden. Sobald sie ihn wieder verlässt, verschwindet er für sie wieder.",
+        "Das Verschieben funktioniert jetzt unabhängig davon, ob die Person gerade in einem anderen Sprach-Channel verbunden ist oder gar nicht."
       ]
     },
     {

@@ -249,11 +249,22 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "channel_id": "6",
         "user_id": "3",
     },
-    "voice_move": {
-        "op": "voice_move",
-        "channel_id": "6",
+    "voice_pull": {
+        "op": "voice_pull",
         "user_id": "3",
-        "target_channel_id": "7",
+        "channel_id": "6",
+        "channel_name": "General",
+        "guild_id": "1",
+        "pulled_by": "9",
+    },
+    "channel_revealed": {
+        "op": "channel_revealed",
+        "channel": {"id": "6", "guild_id": "1", "name": "v", "type": 1},
+    },
+    "channel_hidden": {
+        "op": "channel_hidden",
+        "guild_id": "1",
+        "channel_id": "6",
     },
     "voice_override": {
         "op": "voice_override",

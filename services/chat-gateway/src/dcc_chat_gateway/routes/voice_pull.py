@@ -1,24 +1,29 @@
-"""Voice-Pull — einen User in einen (privaten) Voice-Channel ziehen.
+"""Voice-Move — einen User in einen Sprach-Channel bringen (vereint).
 
-Ein Verwalter (``MANAGE_PERMISSIONS`` auf dem Channel) zieht einen anderen
-Guild-Member in einen Sprach-Channel: der Gezogene bekommt einen
-User-Overwrite ``VIEW_CHANNEL|CONNECT`` (damit er den Channel sehen + dem
-LiveKit-Room beitreten kann) plus eine Zeile in ``channel_voice_pulls``
-(die markiert diesen Overwrite als *temporär* — beim Verlassen wird er
-wieder entzogen, ein permanenter Admin-Grant bleibt unangetastet).
+Ein Verwalter (``MOVE_MEMBERS`` auf dem Ziel-Channel) bringt einen anderen
+Guild-Member in einen Sprach-Channel — verbunden oder nicht, öffentlich
+oder privat. Der Gebrachte bekommt einen User-Overwrite
+``VIEW_CHANNEL|CONNECT`` (damit er den Channel sehen + dem LiveKit-Room
+beitreten kann) plus eine Zeile in ``channel_voice_pulls`` (die diesen
+Overwrite als *temporär* markiert — beim Verlassen wird er wieder
+entzogen, ein permanenter Admin-Grant bleibt unangetastet).
 
-Der Gezogene wird *kooperativ* verbunden: dieser Endpoint publishht nur
-das ``voice_pull``-Signal auf ``user:events``; der Client des Gezogenen
-verbindet sich selbst (wie bei ``voice_move``). ``channel_revealed`` legt
-den Channel in seine Sidebar, ``channel_permissions_updated`` invalidiert
-die ``_ws_perms``-Caches, damit er anschließend die Channel-Events bekommt.
+Der Gebrachte wird *kooperativ* verbunden: dieser Endpoint publishht nur
+das ``voice_pull``-Signal auf ``user:events``; der Client des Gebrachten
+verbindet sich selbst und wechselt dabei ggf. den Raum (``voice.connect``
+trennt die alte Verbindung vorher). ``channel_revealed`` legt den Channel
+in seine Sidebar, ``channel_permissions_updated`` invalidiert die
+``_ws_perms``-Caches, damit er anschließend die Channel-Events bekommt.
 
-Warum ``user:events`` und nicht ``voice:events``: der Gezogene darf den
-privaten Channel zum Zeitpunkt des Pulls noch nicht sehen — der
+Warum ``user:events`` und nicht ``voice:events``: der Gebrachte darf den
+(privaten) Channel zum Zeitpunkt des Moves evtl. noch nicht sehen — der
 View-Channel-Filter auf ``voice:events`` würde das Signal droppen.
 
 Auto-Revoke (beim Verlassen) und der Reaper-Backstop liegen in
 ``routes/internal.py``; der Trigger in voice-signaling ``webhook.py``.
+Der interne Naming (Marker-Key, Tabelle, Revoke-Endpoint) bleibt
+``voice_pull`` — das ist ein Implementierungsdetail, der User sieht
+„verschieben".
 """
 
 from __future__ import annotations
@@ -63,7 +68,7 @@ class VoicePullResult(BaseModel):
 
 
 @router.post(
-    "/channels/{channel_id}/members/{user_id}/voice-pull",
+    "/channels/{channel_id}/members/{user_id}/voice-move",
     response_model=VoicePullResult,
 )
 async def voice_pull(
@@ -73,27 +78,29 @@ async def voice_pull(
     current: CurrentUser,
     request: Request,
 ):
-    """Pull ``user_id`` into the voice channel ``channel_id``.
+    """Bring ``user_id`` into the voice channel ``channel_id``.
 
-    Grants the target a temporary ``VIEW_CHANNEL|CONNECT`` user-overwrite
-    (tracked in ``channel_voice_pulls`` so the auto-revoke on leave knows
-    it's ours) and signals the target's client to connect. Puller needs
-    ``MANAGE_PERMISSIONS`` on the channel."""
+    Works whether the target is currently connected (then it's a channel
+    switch) or not (then it's a summon). Grants a temporary
+    ``VIEW_CHANNEL|CONNECT`` user-overwrite — tracked in
+    ``channel_voice_pulls`` so the auto-revoke on leave knows it's ours —
+    and signals the target's client to connect. Caller needs
+    ``MOVE_MEMBERS`` on the channel."""
     if user_id == current.id:
-        raise HTTPException(400, detail="cannot pull yourself")
+        raise HTTPException(400, detail="cannot move yourself")
 
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
     if channel.type != CHANNEL_TYPE_VOICE:
-        raise HTTPException(400, detail="voice-pull is only available for voice channels")
+        raise HTTPException(400, detail="voice-move is only available for voice channels")
 
-    # Puller must be able to manage the channel's permissions.
+    # Caller must be able to manage who joins this voice channel.
     await check_permission(
         session,
         current,
         channel.guild_id,
-        Permissions.MANAGE_PERMISSIONS,
+        Permissions.MOVE_MEMBERS,
         channel_id=channel_id,
     )
 

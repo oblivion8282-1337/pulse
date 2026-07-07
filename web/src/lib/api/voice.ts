@@ -48,34 +48,19 @@ export function disconnectFromVoice(
   );
 }
 
-/** Move the participant from ``channelId`` into ``targetChannelId`` (same
- * guild). Requires ``MOVE_MEMBERS`` in both channels. The move is
- * cooperative — the target's client reconnects to the destination room on
- * receiving the ``voice_move`` event; their CONNECT permission for the
- * destination is enforced at that token-issue. */
-export function moveToVoiceChannel(
-  channelId: string,
-  userId: string,
-  targetChannelId: string
-): Promise<{ moved: boolean }> {
-  return request<{ moved: boolean }>(
-    `/channels/${channelId}/members/${userId}/voice-move`,
-    { method: 'POST', body: { target_channel_id: targetChannelId }, endpoint: 'voice' }
-  );
-}
-
-/** Pull ``userId`` into the (typically private) voice channel
- * ``channelId``. Grants them a temporary VIEW_CHANNEL|CONNECT grant and
+/** Bring ``userId`` into the voice channel ``channelId`` — a channel
+ * switch if they're connected elsewhere, or a summon if they aren't.
+ * Grants a temporary VIEW_CHANNEL|CONNECT grant when they lack it and
  * signals their client to connect (``voice_pull`` event). Requires
- * MANAGE_PERMISSIONS on the channel; the grant auto-revokes when they
- * leave. This is a chat-gateway route (not voice-signaling), hence
+ * MOVE_MEMBERS on the channel; the grant auto-revokes when they leave.
+ * This is a chat-gateway route (not voice-signaling), hence
  * ``endpoint: 'chat'``. */
-export function pullIntoVoiceChannel(
+export function moveIntoVoiceChannel(
   channelId: string,
   userId: string
 ): Promise<{ pulled: boolean }> {
   return request<{ pulled: boolean }>(
-    `/channels/${channelId}/members/${userId}/voice-pull`,
+    `/channels/${channelId}/members/${userId}/voice-move`,
     { method: 'POST', endpoint: 'chat' }
   );
 }
