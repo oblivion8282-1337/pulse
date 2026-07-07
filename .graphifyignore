@@ -1,0 +1,28 @@
+# graphify: Code-only-Build. Docs/Bilder/Paper würden einen LLM-Backend
+# brauchen (semantischer Pass); ohne den bleibt der Build lokal + offline
+# (tree-sitter). Code-Rationale (# NOTE:/# WHY:) in .py/.ts bleibt erhalten —
+# nur die Markdown-Querverweise fallen weg. Package-Manifeste (pyproject.toml,
+# package.json, go.mod …) bleiben drin (lokal, wertvolle depends_on-Kanten).
+# Für einen späteren Docs-Pass:
+#   ANTHROPIC_API_KEY=… graphify extract ./docs --backend claude
+
+# Docs (graphify behandelt diese als semantische Quellen → LLM-Pflicht)
+*.md
+*.mdx
+*.qmd
+*.html
+*.txt
+*.rst
+*.yaml
+*.yml
+docs/
+
+# Bilder / Mockups
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.ico
+Mockups/
