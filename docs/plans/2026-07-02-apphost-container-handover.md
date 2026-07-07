@@ -2,7 +2,7 @@
 
 Übergabe-Dokument, um auf einer anderen Maschine nahtlos weiterzumachen.
 Branch: **`feat/apphost-container`** (2 Commits auf frischem main, NICHT gemergt).
-Voll-Plan: `docs/superpowers/plans/2026-06-29-apphost-packaging-onebutton-container.md` (Status-Header aktualisiert).
+Voll-Plan lag in `docs/superpowers/` (2026-07-07 ausgemistet); dieser Handover-Text + der Branch sind die verbleibende Quelle.
 
 ## Was heute passiert ist (2 Blöcke)
 
