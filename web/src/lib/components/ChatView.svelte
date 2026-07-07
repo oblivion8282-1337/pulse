@@ -443,9 +443,9 @@
           {#each items as item (item.key)}
             {#if item.kind === 'divider'}
               <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
-                <div class="h-px flex-1 bg-border"></div>
+                <div class="hairline flex-1 bg-border"></div>
                 <span class="bg-bg-input text-text-muted rounded-full px-3 py-0.5 text-xs font-semibold">{item.label}</span>
-                <div class="h-px flex-1 bg-border"></div>
+                <div class="hairline flex-1 bg-border"></div>
               </div>
             {:else}
               <MessageItem

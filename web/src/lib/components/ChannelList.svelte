@@ -375,8 +375,8 @@
     </AlertDialog.Content>
   </AlertDialog.Root>
 
-  <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
-    <div class="text-text-muted px-2.5 pb-1 pt-3 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
+  <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-3">
+    <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
     {#each textChannels as c (c.id)}
       {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
       {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}
@@ -465,9 +465,8 @@
     {/if}
 
     {#if dropboxChannels.length > 0}
-      <div class="text-text-muted flex items-center gap-2 px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">
-        {m.channel_list_dropbox_section()}
-      </div>
+      <div class="my-3 hairline bg-border" aria-hidden="true"></div>
+      <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_dropbox_section()}</div>
       {#each dropboxChannels as c (c.id)}
         {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
         <ContextMenu.Root>
@@ -527,8 +526,10 @@
       {/each}
     {/if}
 
-    <div class="text-text-muted px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">{m.channel_list_voice_channels()}</div>
-    {#each voiceChannels as c (c.id)}
+    {#if voiceChannels.length > 0}
+      <div class="my-3 hairline bg-border" aria-hidden="true"></div>
+      <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_voice_channels()}</div>
+      {#each voiceChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
@@ -720,7 +721,7 @@
         {/if}
       {/if}
     {/each}
-    {#if voiceChannels.length === 0}
+    {:else}
       <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_voice_channels()}</p>
     {/if}
   </nav>

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-07.5",
+      "date": "2026-07-07",
+      "style": "Sachlich",
+      "title": "Trennlinien zwischen Kanal-Gruppen",
+      "items": [
+        "In der Kanal-Liste sind die Gruppen (Text, Dropbox, Sprach) jetzt durch schmale Linien voneinander abgesetzt.",
+        "Die Trennlinien zwischen Tagen im Chatverlauf werden gleichmäßiger angezeigt."
+      ]
+    },
+    {
       "id": "2026-07-07.4",
       "date": "2026-07-07",
       "style": "Sachlich",

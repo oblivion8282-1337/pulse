@@ -299,6 +299,18 @@
   }
 }
 
+/* Hairline-Trenner, skalenrobust gegen Fractional-Display-Scale (Windows
+   125 %/150 %): eine 1px-Höhe-Linie muss bei 1.5 dppx auf 1.5 Device-Pixel
+   gerastert werden → je Y-Position 1 oder 2 dev-px → wirkt ungleich dick.
+   0.5px wird ab ~1.25 dppx konsistent zu 1 dev-px gerastert; auf 100 %
+   (1 dppx) greift der 1px-Default (sonst fiele 0.5px auf 0 → unsichtbar). */
+@utility hairline {
+  height: 1px;
+  @media (min-resolution: 1.25dppx) {
+    height: 0.5px;
+  }
+}
+
 /* ---------- Light = Default ---------- */
 :root {
   /* Safe-Area-Insets: in der Android-WebView (Capacitor-APK) liefert env()
