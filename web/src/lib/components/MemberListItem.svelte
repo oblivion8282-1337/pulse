@@ -2,6 +2,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
+  import { startUserDrag } from '$lib/voice/userDrag';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
   import { settings } from '$lib/stores/settings.svelte';
@@ -47,7 +48,6 @@
     // Keine farbige Rolle → Profilfarbe des Users (Profileinstellungen).
     return nameColor(member.user_id, null);
   });
-
 </script>
 
 <UserProfilePopover
@@ -73,6 +73,8 @@
       class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover {isOffline ? 'opacity-50' : ''}"
       data-testid="member-item"
       data-user-id={member.user_id}
+      draggable={true}
+      ondragstart={(e) => startUserDrag(e, member.user_id)}
     >
       <span class="relative size-8 shrink-0" data-speaking={isSpeaking}>
         {#if isSpeaking}

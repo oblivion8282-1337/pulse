@@ -14,6 +14,7 @@
   import { chooseHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
+  import { startUserDrag } from '$lib/voice/userDrag';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -141,6 +142,8 @@
         class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors data-[state=open]:ring-2 data-[state=open]:ring-primary/50"
         data-testid="voice-participant"
         data-identity={p.identity}
+        draggable={true}
+        ondragstart={(e) => startUserDrag(e, p.userId!)}
       >
         <div class="relative">
           <!-- Glow stays mounted; opacity fades in/out so the speaker

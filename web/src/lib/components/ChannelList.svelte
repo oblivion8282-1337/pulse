@@ -20,6 +20,9 @@
   import { voiceAutoConnect } from '$lib/voice/autoconnect.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
+  import { moveIntoVoiceChannel } from '$lib/api/voice';
+  import { carriesUser, droppedUserId } from '$lib/voice/userDrag';
+  import { userCache } from '$lib/stores/users.svelte';
   import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -148,6 +151,59 @@
   function onChannelDragEnd() {
     dragId = null;
     dragOverId = null;
+    userDragOverId = null;
+  }
+
+  // User → voice-channel drag-and-drop. A dedicated MIME (see userDrag.ts)
+  // keeps it strictly separate from the channel-reorder DnD above, so the two
+  // share one set of row handlers: a user payload moves a user into the
+  // channel, anything else falls through to reorder. `userDragOverId` drives
+  // the drop highlight on the voice channel currently under the pointer.
+  let userDragOverId = $state<string | null>(null);
+
+  function onVoiceDragOver(e: DragEvent, c: Channel) {
+    // ``carriesUser`` already proved ``dataTransfer`` is non-null.
+    if (carriesUser(e)) {
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = 'move';
+      userDragOverId = c.id;
+      return;
+    }
+    onChannelDragOver(e, c);
+  }
+
+  function onVoiceDragLeave(e: DragEvent, c: Channel) {
+    // Only clear when the pointer actually leaves the row — dragleave also
+    // fires when entering a child, so guard against relatedTarget inside us.
+    if (
+      userDragOverId === c.id &&
+      !(e.currentTarget as Element | null)?.contains(e.relatedTarget as Node | null)
+    ) {
+      userDragOverId = null;
+    }
+  }
+
+  async function onVoiceDrop(e: DragEvent, c: Channel) {
+    const uid = droppedUserId(e);
+    if (!uid) {
+      onChannelDrop(e, c); // not a user drop → channel reorder
+      return;
+    }
+    e.preventDefault();
+    userDragOverId = null;
+    if (uid === myId) {
+      // Dragging yourself = switch into that channel (same as clicking it).
+      selectChannel(c);
+      return;
+    }
+    try {
+      await moveIntoVoiceChannel(c.id, uid);
+      toast.success(m.popover_actions_voice_moved({ displayName: userCache.displayName(uid) }));
+    } catch (err) {
+      toast.error(m.popover_actions_voice_move_failed(), {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    }
   }
 
   // Invite button visibility — anyone with CREATE_INVITES (owner gets it
@@ -480,13 +536,16 @@
               {...props}
               class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
                 ? 'border-t-2 border-primary'
-                : ''} {dragId === c.id ? 'opacity-50' : ''}"
+                : ''} {dragId === c.id ? 'opacity-50' : ''} {userDragOverId === c.id
+                ? 'ring-2 ring-primary'
+                : ''}"
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
               draggable={canManageChannels}
               ondragstart={(e) => onChannelDragStart(e, c)}
-              ondragover={(e) => onChannelDragOver(e, c)}
-              ondrop={(e) => onChannelDrop(e, c)}
+              ondragover={(e) => onVoiceDragOver(e, c)}
+              ondragleave={(e) => onVoiceDragLeave(e, c)}
+              ondrop={(e) => onVoiceDrop(e, c)}
               ondragend={onChannelDragEnd}
               data-testid={`channel-${c.id}`}
             >
