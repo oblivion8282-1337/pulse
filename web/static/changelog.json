@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-07.4",
+      "date": "2026-07-07",
+      "style": "Sachlich",
+      "title": "HQ-Bildschirm-Streams starten zuverlässiger",
+      "items": [
+        "Spiele im exklusiven Vollbild wie CS2 lassen sich jetzt als HQ-Stream auswählen. Zuvor startete der Stream nicht, sobald die App im Vollbild lief.",
+        "Vor dem Stream erkennt Pulse, welches Video-Format deine Grafikkarte unterstützt (H.264, H.265, AV1), und wählt automatisch ein passendes aus. Auf Karten ohne AV1 startet der Stream dadurch zuverlässiger."
+      ]
+    },
+    {
       "id": "2026-07-07.3",
       "date": "2026-07-07",
       "style": "Sachlich",
@@ -28,16 +38,6 @@
       "items": [
         "Community-Verwalter können ein anderes Mitglied direkt in einen Sprach-Channel verschieben — auch in einen privaten, den die Person sonst nicht sehen dürfte. Der Channel wird für die verschobene Person sichtbar und sie wird sofort verbunden. Sobald sie ihn wieder verlässt, verschwindet er für sie wieder.",
         "Das Verschieben funktioniert jetzt unabhängig davon, ob die Person gerade in einem anderen Sprach-Channel verbunden ist oder gar nicht."
-      ]
-    },
-    {
-      "id": "2026-07-06.4",
-      "date": "2026-07-06",
-      "style": "Sachlich",
-      "title": "Bildschirm-Streams in hoher Qualität starten zuverlässiger",
-      "items": [
-        "Unter Windows erkennt Pulse vor dem Stream, welches Video-Format deine Grafikkarte unterstützt, und wählt automatisch ein passendes aus.",
-        "Auf Karten ohne AV1-Unterstützung startet der Stream dadurch zuverlässiger, statt ein Format zu versuchen, das die Karte nicht beherrscht."
       ]
     },
     {
