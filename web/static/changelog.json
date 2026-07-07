@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-07.2",
+      "date": "2026-07-07",
+      "style": "Sachlich",
+      "title": "Mitglieder per Drag-and-Drop in Sprach-Channels verschieben",
+      "items": [
+        "Du kannst ein Mitglied oder dich selbst jetzt direkt auf einen Sprach-Channel ziehen, um es dorthin zu verschieben — aus der Mitgliederliste, den Sprach-Kacheln oder der Sprach-Schiene links. Ziehst du dich selbst, verbindest du dich mit dem Channel.",
+        "Die Menüs zu einem Nutzer (Profil, Nachricht, stumm schalten und mehr) öffnen jetzt überall per Rechtsklick statt teils per Linksklick."
+      ]
+    },
+    {
       "id": "2026-07-07",
       "date": "2026-07-07",
       "style": "Sachlich",
