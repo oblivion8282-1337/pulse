@@ -5,6 +5,10 @@
 //! diese Crate.
 
 use anyhow::{Context, Result, anyhow};
+use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows_capture::monitor::Monitor;
 use windows_capture::window::Window;
 
@@ -52,7 +56,7 @@ impl CaptureSource {
                 // für Pulse-UI wo der User "Brave" oder "VS Code" eingeben kann.
                 let win = Window::from_contains_name(needle)
                     .map_err(|e| anyhow!("Window::from_contains_name({needle:?}): {e}"))?;
-                Ok(ResolvedTarget::Window(win))
+                resolve_window_or_monitor(win, needle)
             }
             CaptureSource::WindowByHwnd(hwnd) => {
                 // HWND-Bits zurück in den Pointer. `is_valid()` fängt ein
@@ -62,8 +66,58 @@ impl CaptureSource {
                 if !win.is_valid() {
                     return Err(anyhow!("Fenster (HWND {hwnd}) existiert nicht mehr"));
                 }
-                Ok(ResolvedTarget::Window(win))
+                resolve_window_or_monitor(win, &format!("HWND {hwnd}"))
             }
         }
     }
+}
+
+/// FSE-Fallback für Fenster-Quellen. Ein Spiel im **exklusiven Vollbild**
+/// (Fullscreen Exclusive) hält sein HWND oft als winzigen Sliver weit OFF-SCREEN
+/// (z. B. CS2: 158×26 bei (-21333,-21333)) — die echte Bild-Ausgabe läuft auf
+/// dem Monitor, nicht über das Fenster. WGC-Fenster-Capture eines solchen
+/// Slivers liefert nichts (kein Frame → Stream geht nicht live, Stop hängt).
+///
+/// Erkennen wir, dass das Fenster seinen Monitor **nicht mehr überschneidet**
+/// (komplett off-screen) → capturere transparent den Monitor. Monitor-Capture
+/// (Desktop Duplication API) übersteht exklusives Vollbild. Ein normales Fenster
+/// — auch randloses Vollbild, das den Monitor voll überschneidet — bleibt auf
+/// Fenster-Capture (DWM kompositet es, WGC capturet es fehlerfrei).
+///
+/// Bei Abfragefehlern (kein Monitor-/Fenster-Rect) → Fenster-Target (blockt nie).
+fn resolve_window_or_monitor(win: Window, label: &str) -> Result<ResolvedTarget> {
+    let Some(mon) = win.monitor() else {
+        return Ok(ResolvedTarget::Window(win));
+    };
+    let win_rect = win.rect().ok();
+    let mon_rect = monitor_rect_for(&win);
+    let offscreen = matches!((win_rect, mon_rect), (Some(w), Some(m)) if !rects_overlap(&w, &m));
+    if offscreen {
+        eprintln!(
+            "[source] Fenster ({label}) liegt off-screen (FSE/versteckt) → capturere Monitor \
+             statt Fenster (WGC kann das Fenster-Sliver nicht capturen)"
+        );
+        return Ok(ResolvedTarget::Monitor(mon));
+    }
+    Ok(ResolvedTarget::Window(win))
+}
+
+/// Monitor-Rechteck in Screen-Koordinaten (Position + Größe) via Win32.
+/// `windows_capture::Monitor` liefert nur Breite/Höhe, keine Position — für den
+/// Überschneidungs-Check brauchen wir die. `MONITOR_DEFAULTTONEAREST` liefert
+/// immer den nächstgelegenen Monitor, auch für ein off-screen-Fenster.
+fn monitor_rect_for(win: &Window) -> Option<RECT> {
+    let mut info =
+        MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    let hmon = unsafe { MonitorFromWindow(HWND(win.as_raw_hwnd()), MONITOR_DEFAULTTONEAREST) };
+    if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
+        Some(info.rcMonitor)
+    } else {
+        None
+    }
+}
+
+/// Achsenparallele Überschneidung zweier Rechtecke (Fläche > 0).
+fn rects_overlap(a: &RECT, b: &RECT) -> bool {
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
