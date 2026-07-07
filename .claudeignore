@@ -1,0 +1,7 @@
+# graphify-Outputs, die bei jedem `graphify update` neu geschrieben werden.
+# Ohne diesen Eintrag invalidieren sie Claude Codes Prompt-Cache → teure
+# Re-Uploads. GRAPH_REPORT.md bleibt lesbar (ändert sich nur selten).
+graphify-out/graph.json
+graphify-out/.graphify_analysis.json
+graphify-out/manifest.json
+graphify-out/cache/
