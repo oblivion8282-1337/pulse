@@ -10,6 +10,7 @@
  */
 
 import { gsr, type GsrEvent } from './gsr';
+import { m } from '$lib/paraglide/messages.js';
 
 const MAX_LOG_LINES = 50;
 
@@ -86,6 +87,45 @@ let unlisten: (() => void) | null = null;
 const wasRunning: Record<number, boolean> = {};
 
 /**
+ * How long ``starting`` may run before we give up and flip the slot to
+ * ``error``. The sidecar emits ``starting`` when it kicks the encoder off, then
+ * ``live`` (or fps ticks) once the publisher is detected server-side. If
+ * neither lands — encoder init failed silently, the RTMPS push never connected,
+ * the sidecar hung — the UI would otherwise sit on "Connecting…" forever with
+ * no clue. Generous: covers encoder warmup + RTMPS handshake + the ~3 s
+ * server-side poller that detects the publisher. See the matching startup
+ * watchdog in ``hqStreamManager.svelte.ts`` (viewer side).
+ */
+const START_TIMEOUT_MS = 20_000;
+const startTimers: Record<number, ReturnType<typeof setTimeout>> = {};
+
+function clearStartWatchdog(slot: number): void {
+  const t = startTimers[slot];
+  if (t !== undefined) {
+    clearTimeout(t);
+    delete startTimers[slot];
+  }
+}
+
+function armStartWatchdog(slot: number): void {
+  if (startTimers[slot] !== undefined) return; // already armed — don't reset the countdown
+  startTimers[slot] = setTimeout(() => {
+    delete startTimers[slot];
+    const s = streamForSlot(slot);
+    // Only fire if we're STILL waiting — a late `live`/`error`/`stopped` has
+    // already cleared the timer; this guards against a stray fires-after-clear.
+    if (s.state === 'starting') {
+      s.state = 'error';
+      s.error = m.stream_error_start_timeout();
+    }
+  }, START_TIMEOUT_MS);
+}
+
+function clearAllStartWatchdogs(): void {
+  for (const slot of Object.keys(startTimers)) clearStartWatchdog(Number(slot));
+}
+
+/**
  * Tell the backend our HQ stream stopped so viewers' "live" badge clears at
  * once instead of waiting for the ~3s MediaMTX poll (+ its disconnect lag).
  * Central chokepoint: every stop path (rocket toggle, dialog button, hotkey,
@@ -146,6 +186,7 @@ export async function initStream(): Promise<() => void> {
       unlisten();
       unlisten = null;
     }
+    clearAllStartWatchdogs();
     initialised = false;
   };
 }
@@ -155,6 +196,10 @@ function applyEvent(ev: GsrEvent): void {
   const slot = ev.slot ?? 0;
   const s = streamForSlot(slot);
   applyEventInner(s, ev);
+  // Arm the startup watchdog while we're still `starting`; clear it on any
+  // other state (`live`/`error`/`stopped`/`idle`) so a normal start never trips.
+  if (s.state === 'starting') armStartWatchdog(slot);
+  else clearStartWatchdog(slot);
   // Fire on the running→stopped edge only (once per stream session, per slot).
   if (wasRunning[slot] && !s.running) {
     wasRunning[slot] = false;

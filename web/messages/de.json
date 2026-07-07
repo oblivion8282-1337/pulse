@@ -1996,6 +1996,7 @@
   "stream_controls_error_token_fetch_failed": "Stream-Token konnte nicht geholt werden.",
   "stream_controls_state_error": "Fehler",
   "stream_controls_state_stopped": "Gestoppt",
+  "stream_error_start_timeout": "Stream-Start nach 20 Sekunden abgebrochen — Sidecar oder Netzwerk.",
   "stream_controls_toast_start_failed": "Stream konnte nicht gestartet werden",
   "stream_grid_hq_many_others": "{count} Leute streamen (HQ)",
   "stream_grid_hq_one_other": "{name} streamt (HQ)",

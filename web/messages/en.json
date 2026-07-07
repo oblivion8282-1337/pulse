@@ -1988,6 +1988,7 @@
   "stream_controls_error_token_fetch_failed": "Could not fetch stream token.",
   "stream_controls_state_error": "Error",
   "stream_controls_state_stopped": "Stopped",
+  "stream_error_start_timeout": "Stream did not start within 20 seconds — sidecar or network.",
   "stream_controls_toast_start_failed": "Failed to start stream",
   "stream_grid_hq_many_others": "{count} people are streaming (HQ)",
   "stream_grid_hq_one_other": "{name} is streaming (HQ)",
