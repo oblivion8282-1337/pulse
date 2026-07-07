@@ -23,6 +23,7 @@ import * as readline from 'node:readline';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { app } from 'electron';
+import { logSidecar } from './sidecar-log';
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -489,6 +490,7 @@ class SidecarManager {
       env: { ...process.env, PULSE_SELF_PID: String(process.pid) },
     }) as ChildProcessWithoutNullStreams;
     this.child = child;
+    logSidecar('lifecycle', `spawn pid=${child.pid ?? '?'} ${target.command}`);
 
     // Line-buffered stdout → parse one JSON object per line.
     this.rl = readline.createInterface({ input: child.stdout });
@@ -497,8 +499,11 @@ class SidecarManager {
     // Python tracebacks land on stderr; surface them with a clear prefix.
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
-      for (const l of chunk.split('\n')) {
-        if (l.trim()) console.error(`[gsr-sidecar] ${l}`);
+      for (const line of chunk.split('\n')) {
+        if (line.trim()) {
+          logSidecar('err', line);
+          console.error(`[gsr-sidecar] ${line}`);
+        }
       }
     });
 
@@ -508,6 +513,7 @@ class SidecarManager {
       // a respawned one) must not touch global state — that would clobber the new
       // child's readline and fail its pending requests.
       if (this.child !== child) return;
+      logSidecar('lifecycle', `spawn error: ${err.message}`);
       console.error('[gsr-sidecar] spawn error:', err);
       this.failAllPending(new Error(`gsr sidecar process error: ${err.message}`));
       this.cleanupChild();
@@ -517,6 +523,7 @@ class SidecarManager {
       if (this.child !== child) return; // stale child — ignore (see 'error' above)
       const reason =
         signal !== null ? `signal ${signal}` : code !== null ? `code ${code}` : 'unknown';
+      logSidecar('lifecycle', `exited (${reason})`);
       console.error(`[gsr-sidecar] exited (${reason})`);
       this.failAllPending(new Error(`gsr sidecar exited (${reason})`));
       this.cleanupChild();
@@ -528,6 +535,7 @@ class SidecarManager {
   private onStdoutLine(line: string): void {
     const text = line.trim();
     if (!text) return;
+    logSidecar('out', text);
     let msg: unknown;
     try {
       msg = JSON.parse(text);
