@@ -22,6 +22,7 @@
   import MemberActivityHeader from './MemberActivityHeader.svelte';
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import { VList } from 'virtua/svelte';
 
   let {
     guildId,
@@ -141,6 +142,47 @@
     ];
   });
 
+  // Flatten the grouped roster into a single windowed list for VList. Group
+  // headers become first-class rows so the virtual scroller can render only
+  // the visible slice instead of mounting one MemberListItem per member (the
+  // worst scaling cliff in the UI — O(n) regroup + render on every presence
+  // flip, which janks hard in 1000+ member guilds). `first` drops the top
+  // margin on the very first header to match the pre-virtualisation look.
+  type FlatItem =
+    | { kind: 'header'; key: string; label: string; first: boolean }
+    | { kind: 'member'; key: string; member: Member; isOffline: boolean };
+
+  let flatItems = $derived.by<FlatItem[]>(() => {
+    const out: FlatItem[] = [];
+    let first = true;
+    for (const group of groupedMembers) {
+      const gk = group.offline ? '__offline__' : (group.hoistId ?? '__none__');
+      out.push({
+        kind: 'header',
+        key: `h:${gk}`,
+        label: m.member_list_group_label({
+          label: group.offline
+            ? m.member_list_offline()
+            : (group.hoist ?? m.member_list_online()),
+          count: group.members.length
+        }),
+        first
+      });
+      first = false;
+      for (const mem of group.members) {
+        out.push({
+          kind: 'member',
+          key: `m:${mem.user_id}`,
+          member: mem,
+          isOffline: !!group.offline
+        });
+      }
+    }
+    return out;
+  });
+
+  const getKey = (item: FlatItem): string => item.key;
+
   // Per-guild aggregation across all voice channels: who's hosting a watch
   // party + who's HQ-streaming or screen-sharing. Drives the per-row badges
   // below the activity header.
@@ -251,34 +293,39 @@
 
   <MemberActivityHeader {guildId} />
 
-  <div class="flex-1 overflow-y-auto px-2.5 py-1">
+  <div class="flex-1 min-h-0 px-2.5 py-1">
     {#if loading}
       <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_loading()}</p>
     {:else if error}
       <p class="px-3 py-4 text-xs text-red-400">{error}</p>
+    {:else if flatItems.length === 0}
+      <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_empty()}</p>
     {:else}
-      {#each groupedMembers as group (group.offline ? '__offline__' : (group.hoistId ?? '__none__'))}
-        <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
-          {m.member_list_group_label({ label: group.offline ? m.member_list_offline() : (group.hoist ?? m.member_list_online()), count: group.members.length })}
-        </div>
-        {#each group.members as m (m.user_id)}
-          <MemberListItem
-            member={m}
-            {guildId}
-            isSpeaking={speakingIds.has(m.user_id)}
-            isPartyHost={partyHostIds.has(m.user_id)}
-            isStreaming={streamerIds.has(m.user_id)}
-            isOffline={!!group.offline}
-            {canQuickRole}
-            onActivityClick={openMemberActivity}
-            onPartyClick={openMemberParty}
-            {onClose}
-          />
-        {/each}
-      {/each}
-      {#if members.length === 0}
-        <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_empty()}</p>
-      {/if}
+      <VList data={flatItems} {getKey} style="height: 100%;">
+        {#snippet children(item)}
+          {#if item.kind === 'header'}
+            <div
+              class="text-text-muted px-3 pb-1 text-xs font-semibold uppercase tracking-wide {item.first ? '' : 'mt-3'}"
+            >
+              {item.label}
+            </div>
+          {:else}
+            {@const mem = item.member}
+            <MemberListItem
+              member={mem}
+              {guildId}
+              isSpeaking={speakingIds.has(mem.user_id)}
+              isPartyHost={partyHostIds.has(mem.user_id)}
+              isStreaming={streamerIds.has(mem.user_id)}
+              isOffline={item.isOffline}
+              {canQuickRole}
+              onActivityClick={openMemberActivity}
+              onPartyClick={openMemberParty}
+              {onClose}
+            />
+          {/if}
+        {/snippet}
+      </VList>
     {/if}
   </div>
 </aside>

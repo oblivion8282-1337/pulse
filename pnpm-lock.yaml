@@ -53,6 +53,9 @@ importers:
       marked:
         specifier: ^18.0.3
         version: 18.0.3
+      virtua:
+        specifier: ^0.49.2
+        version: 0.49.2(svelte@5.55.5)
     devDependencies:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
@@ -2268,6 +2271,26 @@ packages:
   verror@1.10.1:
     resolution: {integrity: sha512-veufcmxri4e3XSrT0xwfUR7kguIkaxBeosDg00yDWhk49wdwkSUrvvsm7nc75e1PUyvIeZj6nS8VQRYz2/S4Xg==}
     engines: {node: '>=0.6.0'}
+
+  virtua@0.49.2:
+    resolution: {integrity: sha512-aEp3+6cmIRjHUlQnWdgGXYMYtrIG26QnN9jJDZEE5LRhvo1Z9HzoJwLDgyVULUPWcSdCnZAroQm7raXJyTG0AA==}
+    peerDependencies:
+      react: '>=16.14.0'
+      react-dom: '>=16.14.0'
+      solid-js: '>=1.0'
+      svelte: '>=5.0'
+      vue: '>=3.2'
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      solid-js:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
 
   vite@8.0.11:
     resolution: {integrity: sha512-Jz1mxtUBR5xTT65VOdJZUUeoyLtqljmFkiUXhPTLZka3RDc9vpi/xXkyrnsdRcm2lIi3l3GPMnAidTsEGIj3Ow==}
@@ -4553,6 +4576,10 @@ snapshots:
       core-util-is: 1.0.2
       extsprintf: 1.4.1
     optional: true
+
+  virtua@0.49.2(svelte@5.55.5):
+    optionalDependencies:
+      svelte: 5.55.5
 
   vite@8.0.11(@types/node@22.19.18)(esbuild@0.28.0)(jiti@2.7.0):
     dependencies:
