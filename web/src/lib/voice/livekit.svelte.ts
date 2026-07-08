@@ -67,6 +67,14 @@ installH264HwHint();
  *  String.localeCompare (which resolves a fresh collator) on every comparison. */
 const NAME_COLLATOR = new Intl.Collator();
 
+/** Trailing-debounce window for #scheduleRefresh. LiveKit can fire
+ *  ActiveSpeakersChanged / ConnectionQualityChanged (and the ParticipantConnected +
+ *  TrackSubscribed×N burst) across consecutive macrotasks; rebuilding the full
+ *  participant array (sort + Svelte re-render of every tile) on each one re-renders
+ *  several times per second in lively rooms. 50 ms collapses a burst into one rebuild
+ *  — fast enough that a speaker change still feels instant. */
+const PARTICIPANT_REFRESH_DEBOUNCE_MS = 50;
+
 /** Static camera resolution map — width/height only; frameRate is dynamic and
  *  added at call-site from capabilities.camFpsMax. */
 const CAM_DIMS: Record<string, { width: number; height: number }> = {
@@ -253,10 +261,11 @@ class VoiceRoom {
   #noiseGateSetter: ((openDb: number) => void) | null = null;
   /** Live-tune handle for the post-gate makeup gain (null when no processor). */
   #makeupSetter: ((v: number) => void) | null = null;
-  /** True while a queueMicrotask-deferred #refreshParticipants is pending.
-   *  Coalesces bursts of LiveKit events (e.g. ParticipantConnected +
-   *  TrackSubscribed×N) into a single rebuild so Svelte re-renders once. */
-  #refreshScheduled = false;
+  /** Pending trailing-debounce timer for #refreshParticipants; null when idle.
+   *  Coalesces bursts of LiveKit events (ParticipantConnected + TrackSubscribed×N +
+   *  ConnectionQualityChanged×N) into a single rebuild so Svelte re-renders once.
+   *  Cleared in #teardown. */
+  #refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -1298,15 +1307,14 @@ class VoiceRoom {
   }
 
   /** Debounced wrapper: coalesces rapid bursts of LiveKit events into a single
-   *  rebuild. Multiple calls before the microtask drains resolve to one
+   *  rebuild. Multiple calls within the debounce window resolve to one
    *  `#refreshParticipants` invocation. */
   #scheduleRefresh(): void {
-    if (this.#refreshScheduled) return;
-    this.#refreshScheduled = true;
-    queueMicrotask(() => {
-      this.#refreshScheduled = false;
+    if (this.#refreshTimer !== null) return;
+    this.#refreshTimer = setTimeout(() => {
+      this.#refreshTimer = null;
       this.#refreshParticipants();
-    });
+    }, PARTICIPANT_REFRESH_DEBOUNCE_MS);
   }
 
   #refreshParticipants(): void {
@@ -1585,6 +1593,10 @@ class VoiceRoom {
   #teardown(): void {
     if (this.#teardownDone) return;
     this.#teardownDone = true;
+    if (this.#refreshTimer !== null) {
+      clearTimeout(this.#refreshTimer);
+      this.#refreshTimer = null;
+    }
     this.selfMonitor = false;
     this.#syncMonitor(); // stop + drop the monitor element
     this.#localMic.detach();
