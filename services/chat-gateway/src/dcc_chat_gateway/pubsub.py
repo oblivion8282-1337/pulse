@@ -85,6 +85,15 @@ class ConnectionManager(
     # turns one event into N `send_json` calls (with 5s timeouts each).
     MAX_CONNECTIONS_PER_USER = 10
 
+    # Max parallel WebSocket connections per source IP. Caps account-farming
+    # DoS (an attacker creating many accounts, each opening up to
+    # MAX_CONNECTIONS_PER_USER sockets). Keyed by the X-Forwarded-For client
+    # IP the WS endpoint resolves via ``client_ip.ws_client_ip`` — in prod the
+    # direct peer is Caddy for every connection, so the raw socket address
+    # would collapse all clients into one bucket. Tuned generously so a
+    # shared-NAT household/office of legitimate users is not collateral.
+    MAX_CONNECTIONS_PER_IP = 100
+
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
         self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
@@ -102,6 +111,14 @@ class ConnectionManager(
         # user_id → set of that user's open sockets. Used to cap one user's
         # concurrent connections (DoS mitigation).
         self._user_conns: dict[int, set[WebSocket]] = defaultdict(set)
+        # source IP → set of open sockets. Caps connections per real client IP
+        # (account-farming DoS across many accounts). Keyed by the XFF client IP
+        # the WS endpoint resolves via ``client_ip.ws_client_ip``. defaultdict is
+        # safe here — entries exist only via register()/remove_socket() under
+        # ``_lock``, so no resurrection-via-defaultdict risk like ``_ws_perms``.
+        self._ip_conns: dict[str, set[WebSocket]] = defaultdict(set)
+        # Reverse index for remove_socket: socket → the IP key it lives under.
+        self._ws_ip: dict[WebSocket, str] = {}
         self._ws_user: dict[WebSocket, AuthenticatedUser] = {}
         # Per-socket, per-channel cached resolved-permission bitfield. Filled
         # lazily by ``_resolve_channel_perms``; invalidated on relevant
@@ -236,14 +253,16 @@ class ConnectionManager(
         ws: WebSocket,
         user: AuthenticatedUser,
         guild_ids: Iterable[int] = (),
+        client_ip: str = "unknown",
     ) -> tuple[bool, bool]:
         """Add ``ws`` to the connection set. Returns ``(accepted, is_first)``.
 
-        ``accepted`` is False when the user already has
-        ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller must close the
-        websocket in that case. ``is_first`` is True when this socket is the
-        user's only live connection right after registration (i.e. the user
-        just transitioned from offline to online).
+        ``accepted`` is False when either the user already has
+        ``MAX_CONNECTIONS_PER_USER`` open sockets OR the source ``client_ip``
+        already has ``MAX_CONNECTIONS_PER_IP`` open sockets — the caller must
+        close the websocket in either case. ``is_first`` is True when this
+        socket is the user's only live connection right after registration
+        (i.e. the user just transitioned from offline to online).
 
         ``is_first`` is decided atomically under ``_lock`` together with the
         registration itself. Reading ``user_socket_count`` separately later
@@ -260,13 +279,22 @@ class ConnectionManager(
         moment the WS endpoint accepts the connection (the same list the
         ``ready`` frame is built from). Used by ``_invalidate_for_guild`` to
         pinpoint which sockets to bust — a role mutation on Server X must not
-        cold-clear caches for users only in Servers A, B, C."""
+        cold-clear caches for users only in Servers A, B, C.
+
+        ``client_ip`` is the resolved real client IP (XFF behind Caddy) used
+        for the per-IP connection cap; defaults to ``"unknown"`` for direct
+        callers / tests that don't pass it."""
         async with self._lock:
             user_set = self._user_conns[user.id]
             if len(user_set) >= self.MAX_CONNECTIONS_PER_USER:
                 return False, False
+            ip_set = self._ip_conns[client_ip]
+            if len(ip_set) >= self.MAX_CONNECTIONS_PER_IP:
+                return False, False
             is_first = len(user_set) == 0
             user_set.add(ws)
+            ip_set.add(ws)
+            self._ws_ip[ws] = client_ip
             self._ws_user[ws] = user
             self._connections.add(ws)
             self._ws_guilds[ws] = {int(g) for g in guild_ids}
@@ -311,6 +339,13 @@ class ConnectionManager(
                 self._user_conns[user.id].discard(ws)
                 if not self._user_conns[user.id]:
                     del self._user_conns[user.id]
+            ip = self._ws_ip.pop(ws, None)
+            if ip is not None:
+                ip_bucket = self._ip_conns.get(ip)
+                if ip_bucket is not None:
+                    ip_bucket.discard(ws)
+                    if not ip_bucket:
+                        del self._ip_conns[ip]
             self._ws_perms.pop(ws, None)
             self._ws_guilds.pop(ws, None)
             self._ws_blocks_out.pop(ws, None)

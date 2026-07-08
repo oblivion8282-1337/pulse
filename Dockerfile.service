@@ -70,5 +70,10 @@ USER app
 # non-auth services (just an empty dir).
 RUN mkdir -p uploads/avatars uploads/guild-icons
 EXPOSE 8000
-# shell form so ${SVC_PKG} expands; exec so uvicorn is PID 1 (clean signals)
-CMD exec uvicorn "${SVC_PKG}.app:app" --host 0.0.0.0 --port 8000
+# shell form so ${SVC_PKG} expands; exec so uvicorn is PID 1 (clean signals).
+# `--ws-max-size` caps inbound WS frames at 64 KiB — the chat-gateway exposes
+# the only WS endpoint and enforces its own 16 KiB application cap
+# (`_MAX_WS_FRAME_BYTES`); uvicorn's default of 16 MiB would buffer a huge
+# frame before the app check runs (memory-DoS). No-op for the HTTP-only
+# services (auth/voice/media/hook ignore it).
+CMD exec uvicorn "${SVC_PKG}.app:app" --host 0.0.0.0 --port 8000 --ws-max-size 65536

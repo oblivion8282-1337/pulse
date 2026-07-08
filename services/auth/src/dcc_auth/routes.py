@@ -395,7 +395,12 @@ async def login(
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
     settings = get_settings()
-    await _check_rate(request, "login", settings.rate_limit_login)
+    await _check_rate(
+        request,
+        "login",
+        settings.rate_limit_login,
+        account=payload.email_or_username.strip().lower(),
+    )
 
     # Mandatory-SSO: a self-host instance has no local login — identity comes
     # from howispulse.com (cert-login). Mirror the /register gate so credentials
@@ -792,7 +797,70 @@ def _peer_is_trusted(peer: str) -> bool:
     return any(addr in n for n in _trusted_networks_cache[1])
 
 
-async def _check_rate(request: Request, key: str, rule: str) -> None:
+def _parse_rule(rule: str) -> tuple[int, float]:
+    """'N/period' → (N, seconds). period in {second, minute, hour}."""
+    n_str, period = rule.split("/")
+    seconds = {"second": 1, "minute": 60, "hour": 3600}[period.rstrip("s")]
+    return int(n_str), seconds
+
+
+def _consume_token(
+    app,
+    namespace: str,
+    identifier: str,
+    n: int,
+    seconds: float,
+    now: float,
+    rule: str,
+) -> None:
+    """Sliding-window check for ONE (namespace, identifier) bucket.
+
+    Raises 429 if ``identifier`` already has ``n`` requests within ``seconds``
+    under ``namespace``. Sweeps stale identifiers and LRU-evicts at
+    ``_RATE_BUCKET_MAX_IPS`` so memory stays bounded regardless of window
+    length. Shared by the per-IP and per-account buckets — the ``namespace``
+    is what keeps them apart (``key`` vs ``key:account``).
+    """
+    bucket = app.state.rate_buckets.setdefault(namespace, {})
+    cutoff = now - seconds
+
+    # Sweep all stale entries to prevent unbounded memory growth.
+    stale = [k for k, ts in bucket.items() if not ts or ts[-1] <= cutoff]
+    for k in stale:
+        del bucket[k]
+
+    # The stale-sweep above only prunes identifiers whose last request fell
+    # outside the window. For long-window endpoints (e.g. 3/hour) a stream of
+    # unique identifiers (NAT/VPN churn) each keeps one in-window timestamp and
+    # is never swept, so the bucket can still grow without bound. Cap the number
+    # of tracked identifiers per endpoint and evict the least-recently-seen
+    # entries when exceeded — bounds memory regardless of window length without
+    # affecting active identifiers.
+    if len(bucket) >= _RATE_BUCKET_MAX_IPS and identifier not in bucket:
+        overflow = len(bucket) - _RATE_BUCKET_MAX_IPS + 1
+
+        def last_seen(entry: str) -> float:
+            ts = bucket[entry]
+            return ts[-1] if ts else 0.0
+
+        for stale_id in sorted(bucket, key=last_seen)[:overflow]:
+            del bucket[stale_id]
+
+    timestamps = bucket.setdefault(identifier, collections.deque())
+    while timestamps and timestamps[0] <= cutoff:
+        timestamps.popleft()
+
+    if len(timestamps) >= n:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"rate limit exceeded ({rule})",
+        )
+    timestamps.append(now)
+
+
+async def _check_rate(
+    request: Request, key: str, rule: str, account: str | None = None
+) -> None:
     """Lightweight rate-limit using a process-local sliding-window counter.
 
     `slowapi` is a fine library, but its Starlette middleware ties tightly
@@ -809,49 +877,34 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     window, avoiding the fixed-window burst-at-boundary vulnerability where a
     caller could send 2×N requests at a window edge. Expired entries are
     pruned on every access, bounding memory growth to active IPs only.
+
+    ``account``: if given, an ADDITIONAL per-account bucket (``key:account``)
+    is checked — this is what stops distributed brute-force / credential
+    stuffing where every attempt rides a fresh IP (the per-IP bucket never
+    fills). Uses the generic ``rate_limit_per_account``. Pass the normalised
+    account identifier (lower-cased needle / str(user_id)).
     """
-    # Parse "N/period" — period in {second, minute, hour}.
-    n_str, period = rule.split("/")
-    n = int(n_str)
-    seconds = {"second": 1, "minute": 60, "hour": 3600}[period.rstrip("s")]
-
-    bucket = request.app.state.rate_buckets.setdefault(key, {})
-    ip = _client_ip(request)
+    n, seconds = _parse_rule(rule)
     now = monotonic()
-    cutoff = now - seconds
-
-    # Sweep all stale IP entries to prevent unbounded memory growth.
-    stale_ips = [k for k, ts in bucket.items() if not ts or ts[-1] <= cutoff]
-    for k in stale_ips:
-        del bucket[k]
-
-    # The stale-sweep above only prunes IPs whose last request fell outside the
-    # window. For long-window endpoints (e.g. 3/hour) a stream of unique IPs
-    # (NAT/VPN churn) each keeps one in-window timestamp and is never swept, so
-    # the bucket can still grow without bound. Cap the number of tracked IPs per
-    # endpoint and evict the least-recently-seen entries when exceeded — this
-    # bounds memory regardless of window length without affecting active IPs.
-    if len(bucket) >= _RATE_BUCKET_MAX_IPS and ip not in bucket:
-        overflow = len(bucket) - _RATE_BUCKET_MAX_IPS + 1
-
-        def last_seen(entry_ip: str) -> float:
-            ts = bucket[entry_ip]
-            return ts[-1] if ts else 0.0
-
-        for stale_ip in sorted(bucket, key=last_seen)[:overflow]:
-            del bucket[stale_ip]
-
-    timestamps = bucket.setdefault(ip, collections.deque())
-    # Remove timestamps outside the sliding window.
-    while timestamps and timestamps[0] <= cutoff:
-        timestamps.popleft()
-
-    if len(timestamps) >= n:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"rate limit exceeded ({rule})",
+    _consume_token(request.app, key, _client_ip(request), n, seconds, now, rule)
+    if account:
+        a_rule = get_settings().rate_limit_per_account
+        a_n, a_seconds = _parse_rule(a_rule)
+        _consume_token(
+            request.app, f"{key}:account", account, a_n, a_seconds, now, a_rule
         )
-    timestamps.append(now)
+
+
+async def _check_account_rate(request: Request, key: str, account: str) -> None:
+    """Per-account-only check, for endpoints whose account identifier is known
+    only AFTER an initial per-IP ``_check_rate`` (``login_totp`` decodes user_id
+    from the mfa ticket; ``password_reset`` consumes the reset token first).
+    Uses the generic ``rate_limit_per_account``.
+    """
+    rule = get_settings().rate_limit_per_account
+    n, seconds = _parse_rule(rule)
+    now = monotonic()
+    _consume_token(request.app, f"{key}:account", account, n, seconds, now, rule)
 
 
 # Re-export rate limiter accessor used by tests to flush state.
