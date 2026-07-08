@@ -1,29 +1,24 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
-  import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
-  import { plainifyMentions } from './messageRender';
+  import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
+  import { plainifyMentions } from './messageRender';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
-  import { userCache } from '$lib/stores/users.svelte';
   import { typing } from '$lib/stores/typing.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { gateway, cloudGateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
-  import { safeAvatarUrl } from '$lib/avatar';
-  import { nameStyle, channelNameStyle } from '$lib/utils/nameColor';
+  import { channelNameStyle } from '$lib/utils/nameColor';
   import { m as pm } from '$lib/paraglide/messages.js';
-
-  type ChatItem =
-    | { kind: 'divider'; label: string; key: string }
-    | { kind: 'message'; message: Message; isContinuation: boolean; key: string };
 
   let {
     channel,
@@ -62,15 +57,12 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
 
-  // Computed once per render — symbol shown next to the name and used in the
-  // empty-state + input placeholder. Keeps the existing # prefix for guild
-  // channels so screenshot tests / habits stay stable.
+  // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs.
   let namePrefix = $derived(headerKind === 'dm' ? '@' : '#');
 
   let replyTarget = $state<Message | null>(null);
 
-  // Composer instance — the whole ChatView is a file drop zone (Discord-style)
-  // and forwards dropped files into the composer's pending-upload strip.
+  // ChatView ist eine Drop-Zone (Discord-Style) und reicht Dateien an den Composer durch.
   let composer = $state<MessageInput | undefined>();
   let dragActive = $state(false);
   let dragDepth = 0; // dragenter/leave fire per child — count to stay sane
@@ -107,21 +99,9 @@
     if (files.length) composer?.addExternalFiles(files);
   }
 
-  let scrollContainer = $state<HTMLDivElement | null>(null);
-  let contentEl = $state<HTMLDivElement | null>(null);
-  let lastCount = $state(0);
-  // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
-  // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
-  // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
-  // scroll-Event auszulösen, d.h. dieser Wert bleibt korrekt erhalten.
-  let pinnedToBottom = $state(true);
-
-  function handleScroll() {
-    const el = scrollContainer;
-    if (!el) return;
-    pinnedToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
-  }
   let memberListOpen = $state(false);
+  // Mitgliederliste: nur Desktop — auf Mobil komplett ausgeblendet.
+  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
 
   // Eigene Identität AUF DEM AKTIVEN SERVER (Cloud-id ≠ Self-Host-id). Für jeden
   // "ist das meine Nachricht?"-Vergleich gegen server-lokale IDs — siehe
@@ -129,218 +109,34 @@
   // Cloud-scoped (DM) → Cloud-User-ID (auth.user.id); sonst aktive-Server-ID.
   let myId = $derived(cloudScoped ? (auth.user?.id ?? null) : currentServerUserId());
 
-  $effect(() => {
-    const toQueue = messages
-      .filter((m) => !myId || m.author_id !== myId)
-      .map((m) => m.author_id);
-    untrack(() => {
-      for (const id of toQueue) userCache.queue(id);
-    });
-  });
-
-  // Reset the auto-scroll counter when the channel changes — otherwise the
-  // first WS push into a freshly switched channel doesn't look like an
-  // "initial load" and we miss the scroll-to-bottom.
+  // Laufenden Drag bei Kanalwechsel abbrechen — sonst bleibt das Drop-Overlay
+  // sichtbar, wenn der User während eines Drags den Kanal wechselt.
   $effect(() => {
     void channel?.id;
     untrack(() => {
-      lastCount = 0;
-      // Beim Kanalwechsel kleben wir wieder unten, bis der User selbst scrollt.
-      pinnedToBottom = true;
-      // Laufenden Drag abbrechen — sonst bleibt das Drop-Overlay sichtbar, wenn
-      // der User während eines Drags den Kanal wechselt (dragleave/drop feuert
-      // dann nicht mehr).
       dragActive = false;
       dragDepth = 0;
     });
   });
 
-  $effect(() => {
-    const count = messages.length;
-    if (count !== lastCount) {
-      const isInitialLoad = lastCount === 0;
-      // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
-      // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
-      // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
-      const shouldScroll = isInitialLoad || pinnedToBottom;
-      lastCount = count;
-      if (!shouldScroll) return;
-      void tick().then(() => {
-        const el = scrollContainer;
-        if (!el) return;
-        el.scrollTop = el.scrollHeight;
-      });
-    }
-  });
-
-  // Async-Inhalt (Avatare, Bilder, Link-Vorschauen, Embeds) lädt NACH dem
-  // ersten Scroll und wächst den Container — der „scroll to bottom" von oben
-  // landete sonst „in der Mitte". Solange der User unten klebt, bei jeder
-  // Höhenänderung des Inhalts erneut ans Ende ziehen.
-  $effect(() => {
-    const content = contentEl;
-    if (!content || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => {
-      const el = scrollContainer;
-      if (el && pinnedToBottom) el.scrollTop = el.scrollHeight;
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
-  });
-
-  function formatDividerLabel(date: Date, today: Date, yesterday: Date): string {
-    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    if (d.getTime() === today.getTime()) return pm.chat_view_today();
-    if (d.getTime() === yesterday.getTime()) return pm.chat_view_yesterday();
-    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-  }
-
-  let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
-
-  // Memoize buildItems to avoid full rebuild on simple appends.
-  let _cachedItems: ChatItem[] | null = null;
-  // Plain (non-reactive) — written from inside the `items` derived below.
-  // See the note on _lastMapMessageIds: `$state` here throws
-  // state_unsafe_mutation and blanks the message list.
-  let _lastItemsMessageCount = 0;
-  let _lastItemsLastMessageId = '';
-  // Calendar day the cached "Heute"/"Gestern" labels were computed for. If it
-  // rolls over (tab kept open past midnight), append-mode would leave stale
-  // labels on the existing dividers → force a full rebuild instead.
-  let _lastItemsDayKey = 0;
-
-  let items = $derived.by(() => {
-    const len = messages.length;
-    const lastId = len > 0 ? messages[len - 1].id : '';
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 86400000);
-    const dayKey = today.getTime();
-
-    // If only new messages were appended (tail unchanged), append only the new items.
-    if (
-      _cachedItems !== null &&
-      dayKey === _lastItemsDayKey &&
-      len > _lastItemsMessageCount &&
-      _lastItemsLastMessageId === (messages[_lastItemsMessageCount - 1]?.id ?? '')
-    ) {
-      // Append mode: only rebuild items for new messages at the end
-      const newItems: ChatItem[] = [];
-      for (let i = _lastItemsMessageCount; i < len; i++) {
-        const m = messages[i];
-        const prev = messages[i - 1];
-        const mDate = new Date(m.created_at);
-        const mDateStr = mDate.toDateString();
-        const prevDate = prev ? new Date(prev.created_at) : null;
-        const prevDateStr = prevDate ? prevDate.toDateString() : null;
-
-        if (!prevDate || mDateStr !== prevDateStr) {
-          newItems.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
-        }
-
-        const isContinuation =
-          !!prev &&
-          m.author_id === prev.author_id &&
-          mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
-          mDateStr === prevDateStr;
-
-        newItems.push({ kind: 'message', message: m, isContinuation, key: m.id });
-      }
-      _cachedItems = [..._cachedItems, ...newItems];
-    } else {
-      // Edit/delete/restructure: full rebuild
-      _cachedItems = buildItems(messages, today, yesterday);
-    }
-
-    _lastItemsMessageCount = len;
-    _lastItemsLastMessageId = lastId;
-    _lastItemsDayKey = dayKey;
-    return _cachedItems;
-  });
-
-  function buildItems(msgs: Message[], today: Date, yesterday: Date): ChatItem[] {
-    const result: ChatItem[] = [];
-    for (let i = 0; i < msgs.length; i++) {
-      const m = msgs[i];
-      const prev = msgs[i - 1];
-      const mDate = new Date(m.created_at);
-      const mDateStr = mDate.toDateString();
-      const prevDate = prev ? new Date(prev.created_at) : null;
-      const prevDateStr = prevDate ? prevDate.toDateString() : null;
-
-      // Date divider when day changes
-      if (!prevDate || mDateStr !== prevDateStr) {
-        result.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
-      }
-
-      // Continuation: same author, within 7 min, no divider separating them
-      const isContinuation =
-        !!prev &&
-        m.author_id === prev.author_id &&
-        mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
-        mDateStr === prevDateStr;
-
-      result.push({ kind: 'message', message: m, isContinuation, key: m.id });
-    }
-    return result;
-  }
-
+  // Reply-Banner-Vorschau für den Composer (Author + Snippet der Zitat-Nachricht).
+  // authorName/snippet werden auch in MessageList gebraucht — bewusst doppelt
+  // (klein), eine spätere Dedup in eine shared utility ist möglich.
   function authorName(m: Message): string {
-    // Eigene Nachrichten gegen ``myId`` matchen, NICHT gegen ``auth.user.id``:
-    // im Self-Host ist die eigene ``author_id`` die server-lokale ID (pairwise),
-    // nicht die Cloud-ID. ``myId`` ist DM→Cloud-ID, sonst die server-lokale ID
-    // (currentServerUserId). Ohne das fällt der eigene Name auf den leeren
-    // userCache durch → „…".
     if (auth.user && m.author_id === myId) {
       return auth.user.display_name ?? auth.user.username;
     }
     return userCache.displayName(m.author_id);
   }
-
-  function authorStyle(m: Message): string {
-    // Vorrang wie in der Mitgliederliste: Rollenfarbe der Community zuerst,
-    // sonst die Profilfarbe (ein- oder zweifarbig als Verlauf). nameStyle macht
-    // Self-Detection + Gradient-Rendering selbst.
-    return nameStyle(m.author_id, channel?.guild_id ?? null);
-  }
-
-  function avatarUrl(m: Message): string | null {
-    const raw = auth.user && m.author_id === myId
-      ? auth.user.avatar_url
-      : (userCache.get(m.author_id)?.avatar_url ?? null);
-    return safeAvatarUrl(raw);
-  }
-
-  // Mitgliederliste: nur Desktop — auf Mobil komplett ausgeblendet.
-  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
-
   function snippet(text: string): string {
     const t = text.replace(/\s+/g, ' ').trim();
     return t.length > 80 ? t.slice(0, 77) + '…' : t;
   }
-
-  function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
-    if (!m.reply_to_id) return null;
-    const parent = messageMap.get(m.reply_to_id);
-    if (!parent) {
-      // Parent isn't loaded (older than our window or deleted) — show a stub.
-      return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
-    }
-    return { id: parent.id, author: authorName(parent), snippet: snippet(plainifyMentions(parent.content)) };
-  }
-
   const replyBanner = $derived(
-    replyTarget ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) } : null
+    replyTarget
+      ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) }
+      : null
   );
-
-  function jumpToReply(parentId: string) {
-    const el = scrollContainer?.querySelector(`[data-message-id="${parentId}"]`);
-    if (el instanceof HTMLElement) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('ring-2', 'ring-primary');
-      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 1500);
-    }
-  }
 
   function handleSend(text: string, attachmentIds: string[]) {
     const target = replyTarget;
@@ -368,20 +164,6 @@
     if (names.length === 2) return pm.chat_view_typing_two({ a: names[0], b: names[1] });
     return pm.chat_view_typing_many();
   });
-
-  function canEditMessage(m: Message): boolean {
-    return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
-  }
-  function canDeleteMessage(m: Message): boolean {
-    if (!myId) return false;
-    if (m.id.startsWith('tmp-')) return false;
-    return m.author_id === myId || isOwner;
-  }
-  // Nur fremde Nachrichten melden (nicht die eigenen).
-  function canReportMessage(m: Message): boolean {
-    if (!myId) return false;
-    return m.author_id !== myId;
-  }
 </script>
 
 <section
@@ -427,55 +209,22 @@
   </header>
 
   <div class="relative flex min-h-0 flex-1">
-    <div
-      bind:this={scrollContainer}
-      onscroll={handleScroll}
-      class="flex-1 overflow-y-auto py-4"
-      data-testid="message-list"
-    >
-      <div bind:this={contentEl}>
-      {#if channel}
-        {#if messages.length === 0}
-          <p class="text-text-muted px-4 py-8 text-center text-sm">
-            {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
-          </p>
-        {:else}
-          {#each items as item (item.key)}
-            {#if item.kind === 'divider'}
-              <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
-                <div class="hairline flex-1 bg-border"></div>
-                <span class="bg-bg-input text-text-muted rounded-full px-3 py-0.5 text-xs font-semibold">{item.label}</span>
-                <div class="hairline flex-1 bg-border"></div>
-              </div>
-            {:else}
-              <MessageItem
-                message={item.message}
-                authorName={authorName(item.message)}
-                authorStyle={authorStyle(item.message)}
-                replyTo={replyMetaFor(item.message)}
-                avatarUrl={avatarUrl}
-                isContinuation={item.isContinuation}
-                canEdit={canEditMessage(item.message)}
-                canDelete={canDeleteMessage(item.message)}
-                canReport={canReportMessage(item.message)}
-                onReply={(m) => (replyTarget = m)}
-                onEditSubmit={onEditMessage}
-                onDelete={onDeleteMessage}
-                onToggleReaction={onToggleReaction}
-                onJumpToReply={jumpToReply}
-              />
-            {/if}
-          {/each}
-        {/if}
-      {/if}
-      </div>
-    </div>
+    <MessageList
+      {channel}
+      {messages}
+      {myId}
+      {namePrefix}
+      {isOwner}
+      onSetReplyTarget={(m) => (replyTarget = m)}
+      onEditMessage={onEditMessage}
+      onDeleteMessage={onDeleteMessage}
+      onToggleReaction={onToggleReaction}
+    />
 
     <!-- Inline auf md+ -->
     {#if channel && showMemberList && showMemberInline}
       <MemberList guildId={channel.guild_id} />
     {/if}
-
   </div>
 
   {#if channel}
