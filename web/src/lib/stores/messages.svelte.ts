@@ -21,7 +21,10 @@ class MessageStore {
     return this.byChannel[channelId] ?? [];
   }
 
-  private static readonly CAP = 500;
+  // Mit VList-Virtualisierung ist die DOM-Größe vom Store entkoppelt — das CAP
+  // schützt nur den Arbeitsspeicher. 5000 deckt selbst sehr tiefe Historie ab,
+  // die via Infinite-Scroll-Up nachgeladen wird; älteste werden geprunt.
+  private static readonly CAP = 5000;
   /** Max number of channels kept in the message cache at once. */
   private static readonly MAX_CACHED_CHANNELS = 15;
 
@@ -69,6 +72,33 @@ class MessageStore {
     // Populate the ID set for O(1) dedup during upsert.
     this.messageIds = { ...this.messageIds, [channelId]: new Set(sorted.map((m) => m.id)) };
     this.touch(channelId);
+  }
+
+  /** Prepend older history (Infinite-Scroll-Up). `msgs` sind älter als der
+   *  aktuelle älteste Eintrag. Dedupes by id, fügt id-sortiert vorne ein,
+   *  prunt auf CAP. Gibt true zurück falls etwas dazukam (Aufrufer nutzt
+   *  <limit um das Historie-Ende zu erkennen). */
+  prepend(channelId: string, msgs: Message[]): boolean {
+    if (!msgs.length) return false;
+    const list = this.byChannel[channelId] ?? [];
+    const ids = this.messageIds[channelId] ?? new Set(list.map((m) => m.id));
+    // id-sortiert + deduped in einem Durchgang.
+    const fresh = [...msgs]
+      .sort((a, b) => compareSnowflakeId(a.id, b.id))
+      .filter((m) => !ids.has(m.id));
+    if (!fresh.length) return false;
+    const trimmed = this.pruneToCap([...fresh, ...list]);
+    this.byChannel = { ...this.byChannel, [channelId]: trimmed };
+    for (const m of fresh) ids.add(m.id);
+    if (ids.size > trimmed.length) {
+      ids.clear();
+      for (const m of trimmed) ids.add(m.id);
+    }
+    this.messageIds = { ...this.messageIds, [channelId]: ids };
+    for (const m of fresh) {
+      if (!m.id.startsWith('tmp-') && m.nonce) this.confirmedNonces.add(m.nonce);
+    }
+    return true;
   }
 
   upsert(msg: Message): void {
