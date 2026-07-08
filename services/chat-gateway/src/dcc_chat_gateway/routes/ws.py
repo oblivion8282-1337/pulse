@@ -49,6 +49,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 
 from dcc_chat_gateway import __version__
+from dcc_chat_gateway.client_ip import ws_client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.credential_validator import CertClaims, resolve_user_identifier
 from dcc_chat_gateway.routes.cert_login import _safe_int_eq
@@ -180,7 +181,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
 
     app = websocket.app
     manager = app.state.connection_manager
-    accepted, is_first_socket = await manager.register(websocket, user)
+    # Resolve the real client IP (XFF behind Caddy) for the per-IP connection
+    # cap — without this every prod connection shares Caddy's address and the
+    # cap would block legitimate users collectively.
+    accepted, is_first_socket = await manager.register(
+        websocket, user, client_ip=ws_client_ip(websocket)
+    )
     if not accepted:
         # Connection cap reached — close before the client has done any work.
         await websocket.close(code=4009, reason="too many connections")

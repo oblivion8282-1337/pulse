@@ -135,7 +135,7 @@ _info "Uvicorns starten (mit --reload)"
 bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
 
 # chat-gateway (8002)
-bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
+bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
 
 # voice-signaling (8003) — braucht INTERNAL_SERVICE_SECRET, damit der
 # participant_left-Webhook den chat-gateway-Revoke-Endpoint authentifiziert

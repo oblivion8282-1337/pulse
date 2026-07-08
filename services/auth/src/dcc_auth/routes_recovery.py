@@ -34,7 +34,7 @@ from dcc_auth.models import (
     User,
 )
 from dcc_auth.recovery import generate_token, verify_token
-from dcc_auth.routes import _check_rate, _get_current_user
+from dcc_auth.routes import _check_account_rate, _check_rate, _get_current_user
 from dcc_auth.schemas import (
     EmailVerifyConfirmIn,
     MessageOut,
@@ -88,7 +88,12 @@ async def password_forgot(
     surfaced as a 500). Disabled/suspended accounts are treated as non-existent.
     """
     settings = get_settings()
-    await _check_rate(request, "password_forgot", settings.rate_limit_password_forgot)
+    await _check_rate(
+        request,
+        "password_forgot",
+        settings.rate_limit_password_forgot,
+        account=payload.email_or_username.strip().lower(),
+    )
 
     needle = payload.email_or_username.strip()
     user = (
@@ -155,6 +160,10 @@ async def password_reset(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
         )
+
+    # Per-account cap on top of the per-IP check above — bounds reset attempts
+    # against one account across rotating IPs.
+    await _check_account_rate(request, "password_reset", str(row.user_id))
 
     user = await session.get(User, row.user_id)
     if user is None or user.disabled or user.is_suspended:

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Header
@@ -104,6 +105,47 @@ async def _supervise_pubsub(manager: ConnectionManager) -> None:
             log.exception("pubsub restart failed; will retry")
 
 
+# MinIO default credentials are well-known (ship in the dev compose + .env.example)
+# — running them against a NON-LOCAL S3 endpoint lets anyone read/write the
+# attachments bucket. Local dev (endpoint on localhost) stays allowed + warns.
+_MINIO_DEFAULT_KEY = "minioadmin"
+_LOCAL_S3_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+
+
+def _s3_endpoint_is_local(url: str) -> bool:
+    """True wenn der S3-Endpoint auf einen lokalen Host zeigt (Dev-Setup)."""
+    return (urlsplit(url).hostname or "") in _LOCAL_S3_HOSTS
+
+
+def _enforce_s3_secret_guard(settings) -> None:  # noqa: ANN001
+    """Fail-fast bei MinIO-Default-Credentials gegen einen nicht-lokalen Endpoint.
+
+    ``minioadmin/minioadmin`` ist öffentlich bekannt (steht im dev-compose +
+    .env.example) — wer damit gegen ein NICHT lokales MinIO/S3 startet, erlaubt
+    jedem Lese-/Schreibzugriff auf den Attachments-Bucket. Lokales Dev (Endpoint
+    auf localhost) bleibt erlaubt und warnt nur. Analog zum LiveKit-devkey-Guard
+    in voice-signaling.
+    """
+    dev_creds = _MINIO_DEFAULT_KEY in (settings.s3_access_key, settings.s3_secret_key)
+    if not dev_creds:
+        return
+    local = _s3_endpoint_is_local(settings.s3_internal_endpoint) and _s3_endpoint_is_local(
+        settings.s3_public_endpoint
+    )
+    if local:
+        log.warning(
+            "using MinIO default credentials (minioadmin) — "
+            "set S3_ACCESS_KEY/S3_SECRET_KEY in production"
+        )
+        return
+    raise RuntimeError(
+        "MinIO default credentials (minioadmin/minioadmin) with a non-local S3 "
+        f"endpoint (internal={settings.s3_internal_endpoint!r}, "
+        f"public={settings.s3_public_endpoint!r}) — anyone could read/write the "
+        "attachments bucket. Set S3_ACCESS_KEY/S3_SECRET_KEY."
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -128,6 +170,8 @@ async def lifespan(app: FastAPI):
             "INTERNAL_SERVICE_SECRET is still the .env.example placeholder __CHANGE_ME__ — "
             "set a real secret (same value on auth-svc/voice-signaling) or leave it unset."
         )
+    # Fail-fast: MinIO-Default-Credentials gegen einen nicht-lokalen S3-Endpoint.
+    _enforce_s3_secret_guard(settings)
     # Resolve / auto-generate the Web-Push VAPID keypair. Logs the
     # *public* half (the browser needs it; not secret) on first call;
     # NEVER logs the private PEM. ``ensure_vapid`` is idempotent so

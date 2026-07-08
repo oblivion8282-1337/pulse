@@ -44,6 +44,7 @@ from dcc_auth.recovery import (
     verify_token,
 )
 from dcc_auth.routes import (
+    _check_account_rate,
     _check_rate,
     _client_ip,
     _get_current_user,
@@ -269,6 +270,10 @@ async def login_totp(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         ) from exc
+
+    # Per-account cap on top of the per-IP check above — stops a distributed
+    # attacker grinding one account's 6-digit TOTP across rotating IPs.
+    await _check_account_rate(request, "login_totp", str(user_id))
 
     # Lock the user row for the read-check-write on ``totp_last_counter`` inside
     # _consume_second_factor — without it, two concurrent /login/totp requests

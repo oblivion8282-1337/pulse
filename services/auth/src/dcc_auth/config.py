@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     # password ``/login`` bucket).
     rate_limit_webauthn_register: str = "10/minute"
     rate_limit_webauthn_login: str = "20/minute"
+
+    # Per-Account-Limit (zusätzlich zum per-IP): schützt EINEN Account gegen
+    # verteiltes Brute-Force / Credential-Stuffing über rotierende IPs — die
+    # per-IP-Drossel greift nicht, wenn jeder Versuch von einer neuen IP kommt.
+    # Wirkt auf login / login_totp / password_forgot / password_reset
+    # (Account-Key = needle bzw. user_id); das WebAuthn-passwordless-Pfad ist
+    # ausgenommen (user_id dort erst nach der kryptografischen Assertion-Verify
+    # bekannt, und nicht brute-force-bar).
+    rate_limit_per_account: str = "10/minute"
     # Account self-delete is irreversible and Hard-Delete on the chat side
     # (messages purged too). Keep the bucket *very* tight — a stolen access
     # token shouldn't be able to nuke an account before the user notices.
@@ -235,6 +244,7 @@ class Settings(BaseSettings):
         "rate_limit_relay_tls_check",
         "rate_limit_reachability_probe",
         "rate_limit_registry_token",
+        "rate_limit_per_account",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

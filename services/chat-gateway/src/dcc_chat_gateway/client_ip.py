@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ipaddress
 
-from fastapi import Request
+from fastapi import Request, WebSocket
 
 from dcc_chat_gateway.config import get_settings
 
@@ -42,8 +42,8 @@ def _peer_is_trusted(peer: str) -> bool:
     return any(addr in n for n in _trusted_networks_cache[1])
 
 
-def client_ip(request: Request) -> str:
-    """Client-IP für Rate-Limit-Keying.
+def _resolve_client_ip(peer: str, xff: str | None) -> str:
+    """Geteilte XFF-Logik für HTTP und WS.
 
     Peer vertrauenswürdig (trusted_proxies) → erster ``X-Forwarded-For``-Hop
     (in beiden Pulse-Deployments setzt der ÄUSSERSTE Proxy den Header auf die
@@ -52,12 +52,33 @@ def client_ip(request: Request) -> str:
     Sonst die Socket-Adresse — ein Direkt-Caller kann seinen Bucket nicht per
     Header wählen.
     """
-    client = request.client
-    peer = client.host if client else "unknown"
-    if _peer_is_trusted(peer):
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            first = xff.split(",")[0].strip()
-            if first:
-                return first
+    if _peer_is_trusted(peer) and xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
     return peer
+
+
+def _peer_host(addr: object | None) -> str:
+    """Best-effort ``.host`` extraction from a Starlette client tuple."""
+    return getattr(addr, "host", None) or "unknown"
+
+
+def client_ip(request: Request) -> str:
+    """Client-IP für HTTP-Rate-Limit-Keying (siehe Modul-Docstring)."""
+    return _resolve_client_ip(
+        _peer_host(request.client), request.headers.get("x-forwarded-for")
+    )
+
+
+def ws_client_ip(websocket: WebSocket) -> str:
+    """Client-IP für WebSocket per-IP-Limits.
+
+    Selbe trusted-proxy/XFF-Logik wie :func:`client_ip`, angewandt auf die
+    WS-Handshake-Header — in prod ist der direkte WS-Peer für jede Verbindung
+    Caddy, weshalb ohne XFF-Auswertung alle Clients in EINEM IP-Bucket
+    zusammenfielen und das per-IP-Limit wirkungslos wäre.
+    """
+    return _resolve_client_ip(
+        _peer_host(websocket.client), websocket.headers.get("x-forwarded-for")
+    )
