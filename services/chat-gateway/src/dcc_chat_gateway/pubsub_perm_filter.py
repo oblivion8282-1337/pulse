@@ -91,6 +91,21 @@ class _PermFilterMixin:
             return True
         return has_permission(value, Permissions.VIEW_CHANNEL)
 
+    def _drop_view_members_for_guild(self, guild_id: int) -> None:
+        """Drop every cached VIEW-member set keyed on ``guild_id`` (Hebel B).
+        Used when a role mutation recomputes who can view every channel in
+        the guild. Builds the key list first to avoid mutating the dict
+        during iteration."""
+        for key in [k for k in self._view_members_cache if k[0] == guild_id]:
+            del self._view_members_cache[key]
+
+    def _drop_view_members_for_channel(self, channel_id: int) -> None:
+        """Drop the cached VIEW-member set for ``channel_id`` (Hebel B).
+        Symmetric counterpart to ``_drop_view_members_for_guild`` — used
+        when a channel's permission overlay changes."""
+        for key in [k for k in self._view_members_cache if k[1] == channel_id]:
+            del self._view_members_cache[key]
+
     def _invalidate_for_guild(self, guild_id: int) -> None:
         """Drop cache entries that may have changed because of a guild-wide
         role mutation. Precise: only sockets whose user is a member of
@@ -103,10 +118,15 @@ class _PermFilterMixin:
                 cache = self._ws_perms.get(ws)
                 if cache is not None:
                     cache.clear()
+        self._drop_view_members_for_guild(guild_id)
 
     def _invalidate_for_channel(self, channel_id: int) -> None:
         for cache in self._ws_perms.values():
             cache.pop(channel_id, None)
+        # Hebel A+B: a perm change or delete invalidates the channel's identity
+        # and its resolved VIEW-member set.
+        self._channel_kind_cache.pop(channel_id, None)
+        self._drop_view_members_for_channel(channel_id)
 
     def _invalidate_for_member(self, user_id: int) -> None:
         for ws, user in list(self._ws_user.items()):
@@ -114,6 +134,11 @@ class _PermFilterMixin:
                 cache = self._ws_perms.get(ws)
                 if cache is not None:
                     cache.clear()
+        # Hebel B: this user's VIEW status may have changed in any channel, so
+        # the cached sets no longer reflect their membership — drop them all.
+        # Member-role changes are infrequent admin actions; the sets re-warm
+        # lazily on the next cold-socket broadcast.
+        self._view_members_cache.clear()
 
     def _apply_guild_membership_update(self, payload: dict) -> None:
         """Live-update ``_ws_guilds`` from guild-lifecycle events so the
@@ -149,6 +174,10 @@ class _PermFilterMixin:
                         cache = self._ws_perms.get(ws)
                         if cache is not None:
                             cache.clear()
+            # Hebel B: membership churn makes the guild's resolved VIEW-member
+            # sets stale — a newly-joined member must start receiving, a removed
+            # one must stop. Drop the guild's sets; they re-warm lazily.
+            self._drop_view_members_for_guild(gid)
         elif op == "guild_deleted":
             try:
                 gid = int(payload.get("guild_id", "0"))
@@ -158,6 +187,7 @@ class _PermFilterMixin:
                 return
             for guilds in self._ws_guilds.values():
                 guilds.discard(gid)
+            self._drop_view_members_for_guild(gid)
 
     def _maybe_invalidate(self, payload: dict) -> None:
         """Trigger cache invalidation when a guild:events envelope indicates
@@ -317,66 +347,82 @@ class _PermFilterMixin:
         if not (_INT64_MIN <= cid_int <= _INT64_MAX):
             log.warning("broadcast filter: channel_id %s out of int64 range — dropping", cid_int)
             return []
-        from dcc_chat_gateway.models import Channel, DirectMessageChannel
+        # Hebel A — resolve the channel's broadcast identity from cache so the
+        # hot fan-out path skips the DB entirely. guild_id (>0) marks a guild
+        # channel, -1 a DM (no permission overlay → passes unfiltered), 0 a
+        # deleted/unknown id. Cached in ``_channel_kind_cache``; invalidated on
+        # channel delete / perm change alongside ``_ws_perms``.
+        kind = self._channel_kind_cache.get(cid_int)
+        if kind is None:
+            kind = await self._resolve_channel_kind(cid_int)
+            self._channel_kind_cache[cid_int] = kind
+        if kind == 0:
+            return []
+        if kind == -1:
+            return targets
+        guild_id = kind
 
-        async with self._session_factory() as session:
-            ch = await session.get(Channel, cid_int)
-            if ch is None:
-                # Could be a DM, or a deleted/unknown id. DMs have no
-                # permission overlay so they pass through unfiltered;
-                # deleted/unknown channels broadcast to nobody.
-                dm = await session.get(DirectMessageChannel, cid_int)
-                if dm is None:
-                    return []
-                return targets
+        # Collect cold-cache, non-admin sockets (unchanged): a socket whose
+        # VIEW bit is already warm skips the batch resolution below. Global
+        # admins bypass VIEW_CHANNEL entirely — their flag lives in auth-svc /
+        # the JWT (invisible to members_who_can_view), so they are excluded
+        # here and resolved lazily by _resolve_channel_perms in the gather.
+        cache_miss_sockets: list = []
+        cache_miss_uids: list[int] = []
+        for ws in targets:
+            user = self._ws_user.get(ws)
+            if user is None:
+                continue
+            if user.is_admin:
+                continue
+            cache = self._ws_perms.get(ws)
+            if cache is not None and cid_int in cache:
+                continue  # already warm — skip
+            cache_miss_sockets.append(ws)
+            cache_miss_uids.append(user.id)
 
-            # Batch-resolve permissions for all cold-cache, non-admin sockets in
-            # a single set of 4 DB queries (guild + members + roles + overwrites),
-            # regardless of the number of cold sockets.  On a post-restart
-            # warm-up burst this avoids the N×5 query storm the per-socket
-            # asyncio.gather approach previously caused.
-            #
-            # Global admins bypass VIEW_CHANNEL checks entirely but
-            # members_who_can_view cannot see their admin flag (it lives in
-            # auth-svc / the JWT), so we exclude admin sockets from the batch
-            # and let _resolve_channel_perms handle them individually instead.
-            from dcc_chat_gateway.permissions import members_who_can_view
+        # Hebel B — resolve the VIEW-member set for (guild, channel) from cache
+        # so a burst of cold sockets (e.g. reconnect after a deploy) pays the
+        # full guild-member scan once, not once per broadcast. Cached in
+        # ``_view_members_cache``; invalidated on role / overwrite / membership
+        # changes alongside ``_ws_perms``.
+        if cache_miss_uids:
+            view_key = (guild_id, cid_int)
+            can_view_ids = self._view_members_cache.get(view_key)
+            if can_view_ids is None:
+                from dcc_chat_gateway.permissions import members_who_can_view
 
-            cache_miss_sockets: list = []
-            cache_miss_uids: list[int] = []
-            for ws in targets:
-                user = self._ws_user.get(ws)
-                if user is None:
-                    continue
-                if user.is_admin:
-                    # Admin perms are always grant-all; skip batch population —
-                    # _resolve_channel_perms handles them correctly.
-                    continue
-                cache = self._ws_perms.get(ws)
-                if cache is not None and cid_int in cache:
-                    continue  # already warm — skip
-                cache_miss_sockets.append(ws)
-                cache_miss_uids.append(user.id)
-
-            if cache_miss_uids:
-                # Reuse the already-open session rather than opening a second
-                # pool connection.  The channel lookup above has finished; the
-                # same session is idle and safe to reuse here.
-                can_view_ids = await members_who_can_view(
-                    session, ch.guild_id, cid_int
-                )
-                # Populate the cache for each cold non-admin socket so the
-                # gather below hits only the hot path.  Store VIEW_CHANNEL bit
-                # when allowed, 0 when denied — sufficient for can_view_channel().
-                for ws, uid in zip(cache_miss_sockets, cache_miss_uids):
-                    if ws in self._ws_user:
-                        allowed = uid in can_view_ids
-                        self._ws_perms.setdefault(ws, {})[cid_int] = (
-                            _VIEW_CHANNEL_BIT if allowed else 0
-                        )
+                async with self._session_factory() as session:
+                    can_view_ids = await members_who_can_view(
+                        session, guild_id, cid_int
+                    )
+                self._view_members_cache[view_key] = can_view_ids
+            # Populate the per-socket cache for each cold non-admin socket so
+            # the gather below hits only the hot path.  Store VIEW_CHANNEL bit
+            # when allowed, 0 when denied — sufficient for can_view_channel().
+            for ws, uid in zip(cache_miss_sockets, cache_miss_uids):
+                if ws in self._ws_user:
+                    allowed = uid in can_view_ids
+                    self._ws_perms.setdefault(ws, {})[cid_int] = (
+                        _VIEW_CHANNEL_BIT if allowed else 0
+                    )
 
         # All non-admin sockets are warm; admin sockets resolve lazily below.
         results = await asyncio.gather(
             *(self.can_view_channel(ws, cid_int) for ws in targets)
         )
         return [ws for ws, ok in zip(targets, results) if ok]
+
+    async def _resolve_channel_kind(self, cid_int: int) -> int:
+        """Resolve a channel id to its broadcast-filter identity: the owning
+        guild_id (>0), -1 for a DM (no permission overlay), or 0 for a
+        deleted/unknown id. Result is cached in ``_channel_kind_cache`` so the
+        hot fan-out path skips this DB round-trip entirely."""
+        from dcc_chat_gateway.models import Channel, DirectMessageChannel
+
+        async with self._session_factory() as session:
+            ch = await session.get(Channel, cid_int)
+            if ch is not None:
+                return ch.guild_id
+            dm = await session.get(DirectMessageChannel, cid_int)
+            return -1 if dm is not None else 0

@@ -145,6 +145,17 @@ class ConnectionManager(
         # Servers A, B, C. Same resurrection-via-defaultdict rule as
         # ``_ws_perms`` — plain dict, writers guard with ``ws in self._ws_user``.
         self._ws_guilds: dict[WebSocket, set[int]] = {}
+        # Hebel A — broadcast-filter channel identity cache: cid → owning
+        # guild_id (>0), -1 for a DM (no overlay → passes unfiltered), 0 for a
+        # deleted/unknown id. Avoids a DB ``session.get(Channel)`` + DM fallback
+        # on every single fan-out. Invalidated alongside ``_ws_perms`` (channel
+        # delete / perm change). Plain dict — bounded by the channel count.
+        self._channel_kind_cache: dict[int, int] = {}
+        # Hebel B — resolved VIEW_CHANNEL member set per (guild, channel):
+        # lets a burst of cold sockets (e.g. reconnect after a deploy) pay the
+        # full guild-member scan once, not once per broadcast. Invalidated
+        # alongside ``_ws_perms`` (role / overwrite / membership changes).
+        self._view_members_cache: dict[tuple[int, int], set[int]] = {}
         # Per-socket friend-system caches (Etappe 2 of the Voll-Discord
         # friend system). Filled lazily on first read by the helpers in
         # ``friend_events.py`` and live-updated from the friend/block
