@@ -1,7 +1,7 @@
-//! Echte Codec-Capability-Probe: öffnet je Vendor-Encoder minimal und prüft,
-//! ob der Open gelingt. Ersetzt die frühere Hardcode-Tabelle in `dxgi.rs`, die
-//! AV1 für JEDE NVIDIA-Karte gemeldet hat — Turing (RTX 20) kann aber kein
-//! AV1-NVENC, erst Ada (RTX 40+) kann es.
+//! NVIDIA-Codec-Capability-Probe: öffnet den NVENC-Encoder minimal und prüft,
+//! ob der Open gelingt. Löst das Hardcode-Problem, das AV1 für JEDE NVIDIA-Karte
+//! gemeldet hat — Turing (RTX 20) kann aber kein AV1-NVENC, erst Ada (RTX 40+).
+//! Nur NVIDIA nutzt die Probe; AMD + Intel bleiben hartcodiert (siehe unten).
 //!
 //! Spiegelt das open+forget-Muster aus `examples/probe_d3d12_amf.rs`: Software-
 //! NV12 ohne `hw_frames_ctx` — derselbe Input, den der CPU-Pfad
@@ -17,17 +17,18 @@
 //! tabelle → RTX 5090 / Blackwell / jede künftige AV1-fähige Architektur wird ohne
 //! Code-Änderung korrekt erkannt.
 //!
-//! **AMD: Probe via AMF, nicht d3d12va (Capability ≠ Stability).** Der AMD-Runtime-
-//! Pfad nutzt den nativen `*_d3d12va`-Encoder — AMF crasht beim *Encoden*
-//! (`SubmitInput`, Issue #455), darum umgeht d3d12va die AMF-Runtime. Die Probe
-//! testet trotzdem `*_amf`, weil AMF und d3d12va **über denselben HW-Encode-Engines
-//! liegen** und die Frage der Probe ist „hat die GPU den Engine für Codec X?"
-//! (Capability), nicht „welches API crasht nicht?" (Stability). AMF-Open reflektiert
-//! die HW-Capability (treiberseitige Engine-Enumeration) genauso wie NVENC: `av1_amf`
-//! öffnet nur auf RDNA3+, `av1_nvenc` nur auf Ada+. Der d3d12va-Encoder braucht für
-//! einen Open zwingend D3D12-Device + `hw_frames_ctx` (s. `encoder_d3d12.rs`) und
-//! lässt sich nicht wie hier minimal proben. Restrisiko: bricht die AMF-Runtime schon
-//! beim Open (schwerer Treiberdefekt), fällt die Probe konservativ auf `["h264"]`.
+//! **AMD + Intel: NICHT probe-gesteuert, sondern Hardcode `[h264, hevc, av1]`.** Die
+//! AMF-/QSV-Open-Probe (Capability ≠ Stability — AMF/d3d12va und QSV liegen über
+//! denselben HW-Encode-Engines) lieferte auf realer Hardware False Negative für HEVC
+//! und AV1: `*_amf`/`*_qsv` öffnen zuverlässig nur für H.264, die HEVC/AV1-Opens sind
+//! treiberseitig unzuverlässig schon vorm Encode. User sahen darum nur noch H.264,
+//! obwohl die Runtime-Pfade beide Codecs encoden (AMD via d3d12va, Intel via QSV).
+//! HEVC/AV1-Support ist generationsstabil (AMD Polaris+ HEVC / RDNA3+ AV1; Intel
+//! Skylake+ HEVC / Arc+ AV1) → die Hardcode-Liste spiegelt, was die Encoder-Pfade
+//! wirklich leisten. Restrisiko: ältere Intel-iGPUs ohne AV1-Engine sehen AV1 in der
+//! UI — das Frontend bietet ohnehin nur H.264 + AV1 (HEVC nie), und der AV1→H.264-
+//! Runtime-Fallback fängt es ab. NVIDIA bleibt probe-gesteuert (Turing-AV1-False-
+//! Positive war NVIDIA-spezifisch).
 
 use std::sync::OnceLock;
 
@@ -46,7 +47,7 @@ static PROBED: OnceLock<Vec<String>> = OnceLock::new();
 /// (`InitializeEncoder: dimensions less than the minimum supported value`) →
 /// kleinere Werte geben False Negative auf jeder NVIDIA-Karte (auch Ada, das
 /// HEVC+AV1 kann). 256 ist mod-8 (HEVC/AV1-Alignment) und sicher über die
-/// NVENC/AMF/QSV-Minima. Der Open allokiert keine Frames → die Größe ist gratis.
+/// NVENC-Minima. Der Open allokiert keine Frames → die Größe ist gratis.
 const PROBE_DIM: u32 = 256;
 
 /// Codecs die diese GPU wirklich hardware-seitig encoden kann. Unbekannter
@@ -55,23 +56,34 @@ const PROBE_DIM: u32 = 256;
 /// AV1-Option verschwindet aus dem UI.
 pub fn supported_video_codecs(adapter: &Adapter) -> Vec<String> {
     let vendor = adapter.vendor();
-    if vendor == "other" {
-        return Vec::new();
-    }
-    PROBED
-        .get_or_init(|| {
-            probe_inner(vendor).unwrap_or_else(|e| {
-                eprintln!("[codec-probe] Probing fehlgeschlagen ({e:#}) → nur h264");
-                vec!["h264".to_string()]
+    match vendor {
+        // NVIDIA: echte Open-Probe (selbstkorrigierend, vorwärtskompatibel) — der
+        // Turing-AV1-False-Positive (RTX 20 meldet AV1, kann's aber nicht) war
+        // NVIDIA-spezifisch, darum bleibt NVIDIA als einziger Vendor auf der Probe.
+        "nvidia" => PROBED
+            .get_or_init(|| {
+                probe_inner(vendor).unwrap_or_else(|e| {
+                    eprintln!("[codec-probe] Probing fehlgeschlagen ({e:#}) → nur h264");
+                    vec!["h264".to_string()]
+                })
             })
-        })
-        .clone()
+            .clone(),
+        // AMD + Intel: Hardcode wie vor der Probe-Einführung (Rationale s. Modul-
+        // Docstring). HEVC taucht in der UI nicht auf (Frontend bietet nur H.264 +
+        // AV1); die AV1→H.264-Runtime-Fallback fängt ältere Intel-iGPUs ohne AV1 ab.
+        "amd" | "intel" => vec![
+            "h264".to_string(),
+            "hevc".to_string(),
+            "av1".to_string(),
+        ],
+        _ => Vec::new(),
+    }
 }
 
 fn probe_inner(vendor: &str) -> anyhow::Result<Vec<String>> {
     ffmpeg::init()?;
-    // H.264 ist NVENC/AMF/QSV-Baseline bei jedem erkannten Vendor (Kepler+/GCN+/
-    // Intel-HD) → nicht probeben, spart eine geleckte NVENC-Session.
+    // H.264 ist NVENC-Baseline auf jeder NVIDIA-Karte (Kepler+) → nicht probeben,
+    // spart eine geleckte NVENC-Session.
     let mut codecs = vec!["h264".to_string()];
     for (codec, label) in [(VideoCodec::Hevc, "hevc"), (VideoCodec::Av1, "av1")] {
         if try_open(vendor, codec)? {
