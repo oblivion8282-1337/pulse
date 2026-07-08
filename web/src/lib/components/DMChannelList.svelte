@@ -67,8 +67,10 @@
         </span>
       {/if}
     </button>
+
+    <div class="my-3 hairline bg-border" aria-hidden="true"></div>
     <p
-      class="text-text-muted px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider"
+      class="text-text-muted px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
     >
       Direktnachrichten
     </p>
