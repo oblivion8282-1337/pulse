@@ -49,10 +49,16 @@ class _ListenerMixin:
         if not targets:
             return
 
-        async def _send(ws: WebSocket, env: dict = envelope) -> WebSocket | None:
+        # Encode the envelope ONCE. ``ws.send_json`` re-runs ``json.dumps``
+        # per socket, so an N-recipient broadcast paid N identical encodes —
+        # the dominant CPU cost in chat fan-out. Compact separators also make
+        # the wire frame slightly smaller.
+        text = json.dumps(envelope, separators=(",", ":"))
+
+        async def _send(ws: WebSocket) -> WebSocket | None:
             try:
                 await asyncio.wait_for(
-                    ws.send_json(env), timeout=self._SEND_TIMEOUT_SECONDS
+                    ws.send_text(text), timeout=self._SEND_TIMEOUT_SECONDS
                 )
                 return None
             except asyncio.CancelledError:
