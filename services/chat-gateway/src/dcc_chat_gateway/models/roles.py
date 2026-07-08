@@ -92,6 +92,11 @@ class MemberRole(Base):
     __table_args__ = (
         PrimaryKeyConstraint("guild_id", "user_id", "role_id"),
         Index("ix_member_roles_user", "guild_id", "user_id"),
+        # Backs the large-guild VIEW_CHANNEL path, which resolves
+        # ``WHERE guild_id = :g AND role_id IN (:overwrite_roles)`` — the
+        # existing indexes lead with ``(guild_id, user_id)`` and can't serve
+        # a leading-``role_id`` lookup.
+        Index("ix_member_roles_role", "guild_id", "role_id"),
     )
 
 

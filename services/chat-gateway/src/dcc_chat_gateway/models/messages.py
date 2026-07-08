@@ -66,7 +66,13 @@ class Message(Base):
     # semantics on flush and confuse the issue). All reads go through
     # ``mentions.mentions_for`` instead — same pattern as reactions.
 
-    __table_args__ = (Index("ix_messages_channel_id_desc", "channel_id", "id"),)
+    __table_args__ = (
+        Index("ix_messages_channel_id_desc", "channel_id", "id"),
+        # Backs the account-purge path (``DELETE WHERE author_id = :uid``) and
+        # ``GET /members/{id}``-style author lookups — otherwise a full table
+        # scan on the biggest table in the schema.
+        Index("ix_messages_author", "author_id"),
+    )
 
 
 class MessageMention(Base):
@@ -125,6 +131,9 @@ class MessageReaction(Base):
     __table_args__ = (
         PrimaryKeyConstraint("message_id", "user_id", "emoji"),
         Index("ix_message_reactions_message", "message_id"),
+        # ``user_id`` sits in the middle of the composite PK, so the PK can't
+        # serve a ``WHERE user_id = :uid`` purge — this index does.
+        Index("ix_message_reactions_user", "user_id"),
     )
 
 
