@@ -12,6 +12,11 @@
  */
 import { SpeakingDetector } from './speakingDetector';
 
+/** Min. interval between RMS samples. RAF runs at ~60 Hz but a "is this person
+ *  talking" boolean needs far less — SpeakingDetector does its own hold/decay.
+ *  Sampling at ~30 Hz halves the per-frame O(participants) Float32Array scan. */
+const REMOTE_SAMPLE_INTERVAL_MS = 33;
+
 type Entry = {
   source: MediaStreamAudioSourceNode;
   analyser: AnalyserNode;
@@ -26,6 +31,7 @@ export class RemoteSpeakingTracker {
   #entries = new Map<string, Entry>();
   #onChange: (identity: string, speaking: boolean) => void;
   #raf: number | null = null;
+  #lastSample = 0;
 
   constructor(onChange: (identity: string, speaking: boolean) => void) {
     this.#onChange = onChange;
@@ -84,11 +90,17 @@ export class RemoteSpeakingTracker {
   }
 
   #startLoop = (): void => {
-    for (const entry of this.#entries.values()) {
-      entry.analyser.getFloatTimeDomainData(entry.buf);
-      let sum = 0;
-      for (let i = 0; i < entry.buf.length; i++) sum += entry.buf[i] * entry.buf[i];
-      entry.detector.feed(Math.sqrt(sum / entry.buf.length));
+    // RAF ticks at ~60 Hz; only run the per-participant RMS scan at ~30 Hz —
+    // enough for a speaking boolean, half the CPU in large rooms.
+    const now = performance.now();
+    if (now - this.#lastSample >= REMOTE_SAMPLE_INTERVAL_MS) {
+      this.#lastSample = now;
+      for (const entry of this.#entries.values()) {
+        entry.analyser.getFloatTimeDomainData(entry.buf);
+        let sum = 0;
+        for (let i = 0; i < entry.buf.length; i++) sum += entry.buf[i] * entry.buf[i];
+        entry.detector.feed(Math.sqrt(sum / entry.buf.length));
+      }
     }
     this.#raf = requestAnimationFrame(this.#startLoop);
   };
