@@ -21,6 +21,8 @@
     replyTo,
     avatarUrl = () => null,
     isContinuation = false,
+    /** Kurzzeitiges Highlight (Ring) — z.B. nach jumpToReply. */
+    highlight = false,
     canEdit,
     canDelete,
     /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
@@ -38,6 +40,7 @@
     replyTo?: { id: string; author: string; snippet: string } | null;
     avatarUrl?: (m: Message) => string | null;
     isContinuation?: boolean;
+    highlight?: boolean;
     canEdit: boolean;
     canDelete: boolean;
     canReport?: boolean;
@@ -196,6 +199,8 @@
 {#if isContinuation}
   <div
     class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-0.5 transition-colors hover:bg-bg-hover"
+    class:ring-2={highlight}
+    class:ring-primary={highlight}
     data-testid="message-item"
     data-message-id={message.id}
     use:longpress={{ onLongPress: openSheet }}
@@ -211,6 +216,8 @@
 {:else}
   <div
     class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-1.5 transition-colors hover:bg-bg-hover"
+    class:ring-2={highlight}
+    class:ring-primary={highlight}
     data-testid="message-item"
     data-message-id={message.id}
     use:longpress={{ onLongPress: openSheet }}

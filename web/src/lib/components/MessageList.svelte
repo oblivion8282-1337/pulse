@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
   import type { Channel, Message } from '$lib/api/types';
@@ -36,19 +37,29 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
 
-  let scrollContainer = $state<HTMLDivElement | null>(null);
-  let contentEl = $state<HTMLDivElement | null>(null);
+  let vlist = $state<VListHandle>();
+  // Wrapper um <VList> — Viewport-Resize (Fenster/Mobile/Memberlist-Toggle)
+  // und async Content-Load (Bilder/Embeds) werden hierüber beobachtet.
+  let wrapperEl = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
   // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
   // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
   // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
   // scroll-Event auszulösen, d.h. dieser Wert bleibt korrekt erhalten.
   let pinnedToBottom = $state(true);
+  // Kurzzeitig zu highlightende Nachricht (z.B. nach jumpToReply).
+  let highlightId = $state<string | null>(null);
 
-  function handleScroll() {
-    const el = scrollContainer;
-    if (!el) return;
-    pinnedToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+  function handleVirtuaScroll(offset: number) {
+    if (!vlist) return;
+    const size = vlist.getScrollSize();
+    // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
+    if (size === 0) return;
+    pinnedToBottom = offset + vlist.getViewportSize() >= size - 80;
+  }
+
+  function pinToEnd() {
+    if (items.length > 0) vlist?.scrollToIndex(items.length - 1, { align: 'end' });
   }
 
   // Avatare/Namen fremder Autoren vorab in den Cache laden.
@@ -63,11 +74,13 @@
 
   // Reset beim Kanalwechsel — sonst sieht der erste WS-Push in einen frisch
   // gewechselten Channel nicht wie ein "initial load" aus → kein scroll-to-bottom.
+  // VList behält den internen Offset beim data-Tausch → explizit auf 0 setzen.
   $effect(() => {
     void channel?.id;
     untrack(() => {
       lastCount = 0;
       pinnedToBottom = true;
+      vlist?.scrollToIndex(0);
     });
   });
 
@@ -81,27 +94,26 @@
       const shouldScroll = isInitialLoad || pinnedToBottom;
       lastCount = count;
       if (!shouldScroll) return;
-      void tick().then(() => {
-        const el = scrollContainer;
-        if (!el) return;
-        el.scrollTop = el.scrollHeight;
-      });
+      void tick().then(() => pinToEnd());
     }
   });
 
   // Async-Inhalt (Avatare, Bilder, Link-Vorschauen, Embeds) lädt NACH dem
-  // ersten Scroll und wächst den Container — sonst landet "scroll to bottom"
-  // "in der Mitte". Solange der User unten klebt, bei jeder Höhenänderung
-  // erneut ans Ende ziehen.
+  // ersten Scroll und wächst die gemessenen Item-Höhen — sonst rutscht man
+  // "nach oben weg". Solange der User unten klebt, bei Viewport-Resize
+  // (ResizeObserver) UND bei nachgeladenem Content (capture-'load' für
+  // img/iframe) erneut ans Ende ziehen.
   $effect(() => {
-    const content = contentEl;
-    if (!content || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => {
-      const el = scrollContainer;
-      if (el && pinnedToBottom) el.scrollTop = el.scrollHeight;
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
+    const el = wrapperEl;
+    if (!el) return;
+    const onGrow = () => { if (pinnedToBottom) pinToEnd(); };
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
+    ro?.observe(el);
+    el.addEventListener('load', onGrow, true);
+    return () => {
+      ro?.disconnect();
+      el.removeEventListener('load', onGrow, true);
+    };
   });
 
   function formatDividerLabel(date: Date, today: Date, yesterday: Date): string {
@@ -110,6 +122,8 @@
     if (d.getTime() === yesterday.getTime()) return pm.chat_view_yesterday();
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   }
+
+  const getKey = (item: ChatItem): string => item.key;
 
   let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
 
@@ -218,13 +232,15 @@
     return { id: parent.id, author: authorName(parent), snippet: snippet(plainifyMentions(parent.content)) };
   }
 
+  // Virtualisierungssicher: index-basiert statt querySelector (das Ziel ist
+  // evtl. gar nicht gemountet). Highlight läuft reaktiv über `highlightId`,
+  // greift also automatisch sobald VList das Ziel nach dem Scroll mountet.
   function jumpToReply(parentId: string) {
-    const el = scrollContainer?.querySelector(`[data-message-id="${parentId}"]`);
-    if (el instanceof HTMLElement) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('ring-2', 'ring-primary');
-      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 1500);
-    }
+    const idx = items.findIndex((it) => it.kind === 'message' && it.message.id === parentId);
+    if (idx < 0 || !vlist) return;
+    vlist.scrollToIndex(idx, { align: 'center' });
+    highlightId = parentId;
+    setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
   function canEditMessage(m: Message): boolean {
@@ -241,20 +257,15 @@
   }
 </script>
 
-<div
-  bind:this={scrollContainer}
-  onscroll={handleScroll}
-  class="flex-1 overflow-y-auto py-4"
-  data-testid="message-list"
->
-  <div bind:this={contentEl}>
-    {#if channel}
-      {#if messages.length === 0}
-        <p class="text-text-muted px-4 py-8 text-center text-sm">
-          {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
-        </p>
-      {:else}
-        {#each items as item (item.key)}
+<div class="flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
+  {#if channel}
+    {#if messages.length === 0}
+      <p class="text-text-muted px-4 py-8 text-center text-sm">
+        {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
+      </p>
+    {:else}
+      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} style="height:100%">
+        {#snippet children(item)}
           {#if item.kind === 'divider'}
             <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
               <div class="hairline flex-1 bg-border"></div>
@@ -269,6 +280,7 @@
               replyTo={replyMetaFor(item.message)}
               avatarUrl={avatarUrl}
               isContinuation={item.isContinuation}
+              highlight={highlightId === item.message.id}
               canEdit={canEditMessage(item.message)}
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
@@ -279,8 +291,8 @@
               onJumpToReply={jumpToReply}
             />
           {/if}
-        {/each}
-      {/if}
+        {/snippet}
+      </VList>
     {/if}
-  </div>
+  {/if}
 </div>
