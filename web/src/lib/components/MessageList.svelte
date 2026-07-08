@@ -3,6 +3,8 @@
   import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
+  import { chatApi } from '$lib/api/chat';
+  import { messages as messageStore } from '$lib/stores/messages.svelte';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -13,6 +15,10 @@
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
     | { kind: 'message'; message: Message; isContinuation: boolean; key: string };
+
+  // Infinite-Scroll-Up: ab diesem Abstand zum oberen Rand ältere nachladen.
+  const LOAD_THRESHOLD = 600;
+  const OLDER_PAGE = 100; // Backend-Routen-Max für /messages
 
   let {
     channel,
@@ -37,6 +43,10 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
 
+  // Nur Guild-Channel paginieren — DMs haben selten tiefe Historie und laufen
+  // cloud-scoped (default route reicht für Guild; DM bräuchte Cloud-route).
+  const canPaginate = $derived(!!channel?.guild_id);
+
   let vlist = $state<VListHandle>();
   // Wrapper um <VList> — Viewport-Resize (Fenster/Mobile/Memberlist-Toggle)
   // und async Content-Load (Bilder/Embeds) werden hierüber beobachtet.
@@ -49,6 +59,9 @@
   let pinnedToBottom = $state(true);
   // Kurzzeitig zu highlightende Nachricht (z.B. nach jumpToReply).
   let highlightId = $state<string | null>(null);
+  // Infinite-Scroll-Up-State.
+  let hasMore = $state(true); // es könnte ältere Historie geben
+  let loadingOlder = $state(false);
 
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
@@ -56,19 +69,46 @@
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
     pinnedToBottom = offset + vlist.getViewportSize() >= size - 80;
+    if (
+      canPaginate &&
+      hasMore &&
+      !loadingOlder &&
+      messages.length > 0 &&
+      offset < LOAD_THRESHOLD
+    ) {
+      void loadOlder();
+    }
   }
 
   function pinToEnd() {
     if (items.length > 0) vlist?.scrollToIndex(items.length - 1, { align: 'end' });
   }
 
+  // Ältere Historie via ?before=<älteste-id> nachladen und vorne einfügen.
+  // VList `shift` hält die Scroll-Position (User bleibt auf seiner Nachricht).
+  async function loadOlder() {
+    if (!channel) return;
+    const oldest = messages[0]?.id;
+    if (!oldest) return;
+    loadingOlder = true;
+    try {
+      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE });
+      const added = messageStore.prepend(channel.id, older);
+      // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.
+      if (!added || older.length < OLDER_PAGE) hasMore = false;
+    } catch {
+      // Netzwerkfehler → still,Retry beim nächsten Scroll.
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
   // Avatare/Namen fremder Autoren vorab in den Cache laden.
   $effect(() => {
-    const toQueue = messages
-      .filter((m) => !myId || m.author_id !== myId)
-      .map((m) => m.author_id);
     untrack(() => {
-      for (const id of toQueue) userCache.queue(id);
+      for (const m of messages) {
+        if (!myId || m.author_id !== myId) userCache.queue(m.author_id);
+      }
     });
   });
 
@@ -80,6 +120,8 @@
     untrack(() => {
       lastCount = 0;
       pinnedToBottom = true;
+      hasMore = true;
+      loadingOlder = false;
       vlist?.scrollToIndex(0);
     });
   });
@@ -131,7 +173,8 @@
   // `$state`) — würden sie in einem `$derived` geschrieben, wirft Svelte
   // state_unsafe_mutation und leert die Liste. `_lastItemsDayKey` erzwingt bei
   // Tageswechsel (Tab über Mitternacht offen) einen Rebuild, da sonst die
-  // "Heute"/"Gestern"-Labels auf bestehenden Dividern veralten.
+  // "Heute"/"Gestern"-Labels auf bestehenden Dividern veralten. Ein Prepend
+  // (Infinite-Scroll-Up) verändert den Tail → löst sicher den Full-Rebuild aus.
   let _cachedItems: ChatItem[] | null = null;
   let _lastItemsMessageCount = 0;
   let _lastItemsLastMessageId = '';
@@ -264,7 +307,7 @@
         {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
       </p>
     {:else}
-      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} style="height:100%">
+      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={canPaginate} style="height:100%">
         {#snippet children(item)}
           {#if item.kind === 'divider'}
             <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
