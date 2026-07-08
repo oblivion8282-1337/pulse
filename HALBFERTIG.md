@@ -15,16 +15,19 @@
   `services/chat-gateway/.../routes/guilds.py:334`
   → UI ergänzt im Einladungen-Tab der Community-Einstellungen (`GuildInvitesEditor.svelte`),
   gegated auf MANAGE_INVITES; API `chatApi.addMemberById`.
-- **Stream-Anwesenheit erscheint verzögert** *(merkt man)* — Wer streamt, wird in anderen
+- **[ERLEDIGT 2026-07-08] Stream-Anwesenheit erscheint verzögert** *(merkt man)* — Wer streamt, wird in anderen
   Communitys erst beim nächsten Auto-Update sichtbar, nicht sofort beim Öffnen.
-  `services/chat-gateway/.../routes/streaming.py:179`
+  `services/chat-gateway/.../routes/streaming.py:179` → Sofortiger Event-Push über `stream:events`
+  (`pubsub_channel_handlers.py::handle_stream_events`) + REST-Resync `/guilds/{id}/stream-state`;
+  guild-übergreifend sichtbar via VIEW_CHANNEL-Filter.
 - **[ERLEDIGT 2026-06-17] Missbrauchsmeldungen gegen Instanzen: kein Admin-Bereich** *(merkt man)* — Nutzer können
   Beschwerden einreichen, aber der Cloud-Admin hatte keine Oberfläche zum Einsehen/Weiterleiten.
   `services/auth/.../routes_complaints.py:93ff` → Cloud-Admin-Bereich `AdminComplaints.svelte`
   (Tabs neu/in Bearbeitung/weitergeleitet/erledigt) gebaut. Siehe Großbaustelle 1 unten.
-- **Watch-Party-Anwesenheit ohne REST-Fallback** — Wer eine Watch-Party hält, erscheint in
+- **[ERLEDIGT 2026-07-08] Watch-Party-Anwesenheit ohne REST-Fallback** — Wer eine Watch-Party hält, erscheint in
   nicht-aktiven Sektionen evtl. erst nach dem nächsten WS-Push.
-  `services/chat-gateway/.../routes/watch.py:25`
+  `services/chat-gateway/.../routes/watch.py:25` → REST-Resync `GET /guilds/{id}/watch-state` vorhanden
+  (Pendant zu `/stream-state`); sofortiger Fan-out über `watch:events`.
 - **[ERLEDIGT 2026-06-16] `myGuildPermissions()` gebaut, nie aufgerufen** — Toter Code-Ballast.
   `web/src/lib/api/roles.ts:89` → Frontend-Methode entfernt (Backend-Endpunkt bleibt).
 
