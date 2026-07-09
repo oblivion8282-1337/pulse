@@ -1,0 +1,6 @@
+{
+  "name": "Pulse Server",
+  "main": "main.cjs",
+  "version": "0.1.0",
+  "desktopName": "com.howispulse.PulseServer.desktop"
+}

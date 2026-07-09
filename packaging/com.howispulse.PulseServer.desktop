@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Pulse Server
+GenericName=Self-Hosted Pulse Server
+Comment=Run your own Pulse server on this device
+Exec=pulse-server
+Icon=com.howispulse.PulseServer
+Terminal=false
+Categories=Network;Chat;
+Keywords=self-host;server;pulse;hosting;community;
+StartupNotify=true
+StartupWMClass=com.howispulse.PulseServer

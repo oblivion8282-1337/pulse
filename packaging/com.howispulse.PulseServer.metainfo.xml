@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.howispulse.PulseServer</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Pulse Server</name>
+  <summary>Run your own Pulse server on this device</summary>
+  <developer id="com.howispulse">
+    <name>Unicut Media</name>
+  </developer>
+  <description>
+    <p>
+      Pulse Server lets you host your own Pulse community server on this device
+      (Mac mini, NUC, Raspberry Pi). Log in with your Pulse account, start the
+      server, and share the address. Voice and streams connect directly via
+      WebRTC hole-punching — no port forwarding required on standard routers.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.howispulse.PulseServer.desktop</launchable>
+  <categories>
+    <category>Network</category>
+  </categories>
+  <url type="homepage">https://howispulse.com</url>
+  <provides>
+    <binary>pulse-server</binary>
+  </provides>
+</component>

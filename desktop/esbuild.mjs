@@ -20,7 +20,13 @@ await build({
   external: ['electron', 'electron-updater'],
   outdir: 'electron/dist',
   outExtension: { '.js': '.cjs' },
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    // Build-Mode: 'client' (Default, lädt howispulse.com) oder 'server'
+    // (Pulse Server-App — lädt lokales server.html, HostLifecycle im Lochungs-Modus).
+    // PULSE_BUILD_MODE=server wird im `build:electron:server`-Script gesetzt.
+    __APP_MODE__: JSON.stringify(process.env.PULSE_BUILD_MODE ?? 'client'),
+  },
   // Shrink the main-process bundle (less to parse on startup) but keep
   // identifiers intact so crash stack-traces stay readable.
   minifyWhitespace: true,
