@@ -483,16 +483,32 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
   hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
 
-  ipcMain.handle('host:start', () => hl.start());
-  ipcMain.handle('host:stop', () => hl.stop());
+  // Server-App: privilegierte Host-IPC (provision/start/stop/pair/unpair) nur
+  // vom lokalen server.html (file://) zulassen — NICHT von der during der
+  // Login-Phase geladenen howispulse.com-Seite (remote). Verhindert, dass eine
+  // kompromittierte Remote-Seite den Server provisioniert/startet. Im Client-
+  // Modus ohne Wirkung (SERVER_MODE=false → immer erlaubt; dort ruft die
+  // vertraute Web-App das Host-IPC auf, bis App-Hosting entfernt ist).
+  const localSenderOnly = (e: { sender?: { getURL?: () => string } }): boolean =>
+    !SERVER_MODE || (e.sender?.getURL?.().startsWith('file:') ?? false);
+
+  ipcMain.handle('host:start', (e) => {
+    if (!localSenderOnly(e)) return;
+    return hl.start();
+  });
+  ipcMain.handle('host:stop', (e) => {
+    if (!localSenderOnly(e)) return;
+    return hl.stop();
+  });
   ipcMain.handle('host:status', () => hl.getStatus());
   // UI-Gating: gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die
   // zeigt die App-Hosting-Karte den Setup-Hinweis statt des Start-Knopfs.
   ipcMain.handle('host:runtime', () => manager.runtimeAvailable());
   // Windows-Erststart-Assistent: WSL2 mit UAC-Elevation installieren. Nach
   // Erfolg ist meist ein Neustart nötig — die Karte erklärt das.
-  ipcMain.handle('host:setupWindows', async () => ({ ok: await installWsl() }));
-  ipcMain.handle('host:pair', async (_e, token: unknown) => {
+  ipcMain.handle('host:setupWindows', async (e) => (localSenderOnly(e) ? { ok: await installWsl() } : { ok: false }));
+  ipcMain.handle('host:pair', async (e, token: unknown) => {
+    if (!localSenderOnly(e)) return { paired: false, error: 'forbidden' };
     if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
     try {
       // Dev: gegen die lokale Dev-Cloud (Vite-Proxy → auth-svc) pairen statt
@@ -510,14 +526,16 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     }
   });
   ipcMain.handle('host:getPairing', () => sanitize(creds));
-  ipcMain.handle('host:unpair', () => {
+  ipcMain.handle('host:unpair', (e) => {
+    if (!localSenderOnly(e)) return;
     clearCreds(hostStore);
     creds = null;
   });
   // Login-basierte Auto-Provision (Server-App): findet die aktive Instanz des
   // eingeloggten Users, mintet + redeemt den Bootstrap-Token via Session-Cookie
   // — kein manuelles Token-Einfügen. ("einloggen, dann starten".)
-  ipcMain.handle('host:provision', async () => {
+  ipcMain.handle('host:provision', async (e) => {
+    if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
     const result = await provision(PROD_URL);
     if (result.ok) {
       creds = result.creds;
