@@ -7,8 +7,10 @@
   "desktopName": "com.howispulse.Pulse.desktop",
   "scripts": {
     "build:electron": "node esbuild.mjs",
+    "build:electron:server": "PULSE_BUILD_MODE=server node esbuild.mjs && cp electron/server.html electron/dist/server.html",
     "dev": "pnpm run build:electron && PULSE_DEV_URL=${PULSE_DEV_URL:-http://localhost:5173} electron .",
     "prod": "pnpm run build:electron && electron .",
+    "prod:server": "pnpm run build:electron:server && electron .",
     "start": "electron .",
     "dist:win": "pnpm run build:electron && electron-builder --win --publish never",
     "bundle:mac-sidecar": "cd ../streaming/mac-hq-sidecar && cargo build --release && bash scripts/bundle-dylibs.sh target/release/pulse-mac-hq-sidecar target/release/hq-sidecar",

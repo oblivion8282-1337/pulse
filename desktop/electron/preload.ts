@@ -263,6 +263,7 @@ contextBridge.exposeInMainWorld('pulse', {
     pair: (bootstrapToken: string): Promise<unknown> =>
       ipcRenderer.invoke('host:pair', bootstrapToken),
     getPairing: (): Promise<unknown> => ipcRenderer.invoke('host:getPairing'),
+    provision: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('host:provision'),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),

@@ -1,0 +1,78 @@
+# Flatpak manifest für die Pulse SERVER-App (Self-Hosting-Kontrollpanel).
+#
+# Vereinfachte Variante des Client-Flatpaks (com.howispulse.Pulse.yml): KEIN
+# GSR-Sidecar / FFmpeg / GPU-Screen-Recorder — der Server streamt nicht selbst
+# (der allinone-Container tut's). Nur Electron 43 + das Server-esbuild-Bundle
+# (PULSE_BUILD_MODE=server, enthält server.html) + Desktop-Integration.
+#
+# Build-Reihenfolge: ERST das Server-Bundle bauen (damit desktop/electron/dist
+# die Server-Variate enthält — main.cjs mit __APP_MODE__='server' + server.html):
+#   PULSE_BUILD_MODE=server pnpm --filter @dcc/desktop build:electron
+# DANN den Flatpak bauen:
+#   flatpak-builder --user --force-clean --install build/flatpak-server \
+#     packaging/com.howispulse.PulseServer.yml
+# Laufen:  flatpak run com.howispulse.PulseServer
+app-id: com.howispulse.PulseServer
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+# zypak ersetzt Chromiums setuid-Sandbox (in Flatpak unbrauchbar) durch bubblewrap.
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: pulse-server
+appstream-compose: false
+separate-locales: false
+
+finish-args:
+  # Display (X11/XWayland + Wayland, --ozone-platform-hint=auto im Launcher).
+  - --socket=x11
+  - --socket=wayland
+  - --share=ipc
+  # Login bei howispulse.com + Pulse-Cloud-API + Server-Netzwerk.
+  - --share=network
+  # Der Server-Container läuft im HOST-Podman (flatpak-spawn --host podman) —
+  # braucht den Flatpak-Session-Bus (wie das Client-App-Hosting).
+  - --talk-name=org.freedesktop.Flatpak
+  # Podman-Socket/-Daten auf dem Host für die Container-Verwaltung.
+  - --filesystem=host
+  # System-Tray + ggf. Notifications.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.portal.Desktop
+
+modules:
+  - name: pulse-server
+    buildsystem: simple
+    build-commands:
+      # Electron 43-Runtime (chrome-sandbox in Flatpak nutzlos — zypak übernimmt).
+      - install -d /app/electron
+      - cp -a electron/. /app/electron/
+      - rm -f /app/electron/chrome-sandbox
+      # Die Server-App (esbuild-Bundle, Server-Modus). package.json trägt
+      # desktopName → Wayland-app_id = com.howispulse.PulseServer.
+      - install -d /app/pulse-server
+      - install -m644 app-dist/main.cjs /app/pulse-server/main.cjs
+      - install -m644 app-dist/preload.cjs /app/pulse-server/preload.cjs
+      - install -m644 app-dist/server.html /app/pulse-server/server.html
+      - install -m644 packaging/pulse-server.package.json /app/pulse-server/package.json
+      - install -Dm644 icon.png /app/icon.png
+      # Launcher + Desktop-Integration
+      - install -Dm755 packaging/launcher-server.sh /app/bin/pulse-server
+      - install -Dm644 packaging/com.howispulse.PulseServer.desktop /app/share/applications/com.howispulse.PulseServer.desktop
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.howispulse.PulseServer.png
+      - install -Dm644 packaging/com.howispulse.PulseServer.metainfo.xml /app/share/metainfo/com.howispulse.PulseServer.metainfo.xml
+    sources:
+      - type: archive
+        url: https://github.com/electron/electron/releases/download/v43.0.0/electron-v43.0.0-linux-x64.zip
+        sha256: 53b5562e17ed87b728e01318fa4e7f9040709eafa8f2e09b327362e6abaf961c
+        dest: electron
+        # Electron-Release-Zip ist ein flacher Baum — strip-components 0 (sonst
+        # fehlen resources/default_app.asar + locales/*.pak → Exit 1 vor main.cjs).
+        strip-components: 0
+      - type: dir
+        path: ../desktop/electron/dist
+        dest: app-dist
+      - type: dir
+        path: ../packaging
+        dest: packaging
+      - type: file
+        path: ../desktop/electron/icon.png

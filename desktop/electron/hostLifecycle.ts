@@ -46,7 +46,14 @@ export class HostLifecycle {
   private _last: HostPhaseEvent = { phase: 'idle' };
   private _cbs: Array<(e: HostPhaseEvent) => void> = [];
   private readonly deps: HostDeps;
-  constructor(deps: HostDeps) { this.deps = deps; }
+  private readonly opts: { holePunch?: boolean };
+  constructor(
+    deps: HostDeps,
+    /** holePunch: Server-App — LiveKit/MediaMTX löst die Medien-Verbindung per
+     *  ICE/STUN selbst (Cone-NAT, bewiesen); das Erreichbarkeits-Gate + Port-
+     *  Mapping entfällt. Direkt zum Container-Start. */
+    opts: { holePunch?: boolean } = {},
+  ) { this.deps = deps; this.opts = opts; }
 
   onPhase(cb: (e: HostPhaseEvent) => void): void { this._cbs.push(cb); }
   getStatus(): HostPhaseEvent { return this._last; }
@@ -56,11 +63,30 @@ export class HostLifecycle {
     for (const cb of this._cbs) { try { cb(this._last); } catch { /* ignore */ } }
   }
 
+  /** Gemeinsamer Abschluss: Container starten (mit Progress) → going-live → live.
+   *  Wird sowohl im Lochungs-Modus (direkt) als auch nach erfolgreichem
+   *  Erreichbarkeits-/Mapping-Gate (outcome 'go') durchlaufen. */
+  private async _runBackend(): Promise<void> {
+    this._emit('preparing');
+    await this.deps.startBackend({
+      media: true,
+      onProgress: (step) => this._emit('preparing', { step }),
+    });
+    this._emit('going-live');
+    this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
+  }
+
   async start(): Promise<void> {
     try {
       const pre = (await this.deps.checkPrereqs?.()) ?? 'ok';
       if (pre !== 'ok') {
         this._emit(pre);
+        return;
+      }
+      // Lochungs-Modus (Server-App): Medien lochen sich per WebRTC-ICE selbst,
+      // kein Erreichbarkeits-Gate / Port-Mapping nötig — direkt zum Container.
+      if (this.opts.holePunch) {
+        await this._runBackend();
         return;
       }
       this._emit('checking-network');
@@ -84,13 +110,7 @@ export class HostLifecycle {
           this._emit('needs-your-help', { ports: map?.failedPorts ?? [] });
           return;
         case 'go':
-          this._emit('preparing');
-          await this.deps.startBackend({
-            media: true,
-            onProgress: (step) => this._emit('preparing', { step }),
-          });
-          this._emit('going-live');
-          this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
+          await this._runBackend();
           return;
       }
     } catch (err) {

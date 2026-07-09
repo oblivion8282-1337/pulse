@@ -28,6 +28,11 @@ import { URL } from 'node:url';
 // Injected by esbuild's `--define` at build time (see `esbuild.mjs`) so only
 // the version string is baked in, not the whole `package.json` object.
 declare const __APP_VERSION__: string;
+// Build-Mode (client | server), ebenfalls per esbuild-define (PULSE_BUILD_MODE).
+// 'server' = Pulse Server-App: lädt lokales server.html, HostLifecycle im
+// Lochungs-Modus, kein Client-Sidecar/Updater/DeepLink.
+declare const __APP_MODE__: 'client' | 'server';
+const SERVER_MODE = __APP_MODE__ === 'server';
 import { MAX_STREAM_SLOTS, allSidecars, getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -45,6 +50,7 @@ import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
 } from './localBackend/pairing';
+import { provision } from './serverProvision';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 
@@ -70,7 +76,7 @@ if (process.platform === 'linux' && !process.env.PULSE_PROP) {
 // migrate the existing config dir on first run (else `pulse-stream.json` with
 // the user's HQ-stream settings would silently appear empty).
 (function setupAppName(): void {
-  const newName = 'Pulse';
+  const newName = SERVER_MODE ? 'Pulse Server' : 'Pulse';
   const configHome = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
   const oldDir = path.join(configHome, '@dcc', 'desktop');
   const newDir = path.join(configHome, newName);
@@ -104,14 +110,16 @@ if (process.platform === 'linux' && !process.env.PULSE_PROP) {
 // handled by xdg-open). The Flatpak variant also needs
 // `x-scheme-handler/pulse` in the Flatpak manifest's `finish-args`. See TODOs
 // in the README / packaging manifest.
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('pulse', process.execPath, [
-      path.resolve(process.argv[1]),
-    ]);
+if (!SERVER_MODE) {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('pulse', process.execPath, [
+        path.resolve(process.argv[1]),
+      ]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient('pulse');
   }
-} else {
-  app.setAsDefaultProtocolClient('pulse');
 }
 
 const APP_VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
@@ -131,7 +139,7 @@ app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
 // Plasma …) zeigen kein App-Icon in der Taskleiste. Der Flatpak-Launcher gibt
 // dasselbe Flag mit; diese Zeile deckt Dev-Builds & nicht-Flatpak-Starts ab.
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('class', 'com.howispulse.Pulse');
+  app.commandLine.appendSwitch('class', SERVER_MODE ? 'com.howispulse.PulseServer' : 'com.howispulse.Pulse');
 }
 
 // Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
@@ -373,8 +381,35 @@ function createWindow(): void {
     }
   });
 
-  void mainWindow.loadURL(TARGET_URL);
-  if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  if (SERVER_MODE) {
+    // Server-App: schon gepaart → lokales server.html; sonst Login-Phase bei
+    // howispulse.com (normaler Pulse-Login), danach Wechsel auf server.html.
+    if (loadCreds({ get: storeGet, set: storeSet })) {
+      mainWindow.loadFile(path.join(__dirname, 'server.html'));
+    } else {
+      mainWindow.loadURL(PROD_URL);
+      startLoginWatch(mainWindow);
+    }
+  } else {
+    void mainWindow.loadURL(TARGET_URL);
+    if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+}
+
+/** Server-App: pollt den `pulse_session`-Login-Cookie und wechselt nach
+ *  erfolgreichem Login vom howispulse.com-Login auf das lokale server.html. */
+function startLoginWatch(win: BrowserWindow): void {
+  const timer = setInterval(async () => {
+    if (win.isDestroyed()) { clearInterval(timer); return; }
+    try {
+      const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: PROD_URL });
+      if (cookies.length) {
+        clearInterval(timer);
+        win.loadFile(path.join(__dirname, 'server.html'));
+      }
+    } catch { /* ignore — retry */ }
+  }, 1500);
+  win.once('closed', () => clearInterval(timer));
 }
 
 function _isAllowedOrigin(url: string): boolean {
@@ -445,7 +480,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     },
     relayUrl: () => (creds?.relaySubdomain ? `https://${creds.relaySubdomain}` : null),
   };
-  const hl = new HostLifecycle(deps);
+  const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
   hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
 
   ipcMain.handle('host:start', () => hl.start());
@@ -478,6 +513,18 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:unpair', () => {
     clearCreds(hostStore);
     creds = null;
+  });
+  // Login-basierte Auto-Provision (Server-App): findet die aktive Instanz des
+  // eingeloggten Users, mintet + redeemt den Bootstrap-Token via Session-Cookie
+  // — kein manuelles Token-Einfügen. ("einloggen, dann starten".)
+  ipcMain.handle('host:provision', async () => {
+    const result = await provision(PROD_URL);
+    if (result.ok) {
+      creds = result.creds;
+      saveCreds(hostStore, result.creds);
+      return { ok: true };
+    }
+    return { ok: false, error: result.error };
   });
 
   // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.
@@ -907,7 +954,21 @@ async function bootWithUpdateCheck(): Promise<void> {
   });
 }
 
-app.whenReady().then(() => void bootWithUpdateCheck());
+// Server-App-Boot: kein Update-Splash, kein Client-Sidecar/ScreenShare/Updater —
+// nur Host-IPC (Lochungs-Modus) + Fenster (server.html) + Tray + Basis-IPC.
+async function bootServer(): Promise<void> {
+  wireHost(() => mainWindow);
+  wireNotify(() => mainWindow);
+  wirePower();
+  wireClipboard();
+  createWindow();
+  createTray(
+    () => mainWindow,
+    () => { isQuitting = true; app.quit(); },
+  );
+}
+
+app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootWithUpdateCheck()));
 
 // With close-to-tray, `window-all-closed` only fires after a real quit (when
 // `isQuitting` is set and the window is destroyed). On non-darwin we still want

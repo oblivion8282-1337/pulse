@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulse Server</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f1115; color: #e6e8eb;
+           display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+    .card { width: 460px; max-width: 92vw; background: #171a21; border: 1px solid #262a33; border-radius: 14px;
+            padding: 30px; box-shadow: 0 12px 44px rgba(0,0,0,.45); }
+    h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
+    .sub { color: #8b93a1; font-size: 13px; margin-bottom: 22px; }
+    .row { margin-bottom: 16px; }
+    label { display: block; font-size: 12px; color: #8b93a1; margin-bottom: 6px; }
+    input { width: 100%; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e8eb; border-radius: 8px;
+            padding: 11px 12px; font-size: 14px; font-family: inherit; }
+    input:focus { outline: none; border-color: #3b82f6; }
+    button { width: 100%; border: none; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 600;
+             cursor: pointer; background: #3b82f6; color: #fff; font-family: inherit; transition: opacity .15s; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.secondary { background: #2a2f3a; color: #e6e8eb; }
+    button.danger { background: #7f2d2d; color: #fff; }
+    .status { display: flex; align-items: center; gap: 11px; padding: 14px 16px; background: #0f1115;
+              border: 1px solid #2a2f3a; border-radius: 10px; margin-bottom: 18px; font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #6b7280; flex-shrink: 0; transition: all .2s; }
+    .dot.live { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+    .dot.prep { background: #eab308; box-shadow: 0 0 8px rgba(234,179,8,.6); }
+    .dot.err { background: #ef4444; }
+    .addr { font-family: ui-monospace, monospace; font-size: 13px; background: #0f1115; border: 1px dashed #2a2f3a;
+            border-radius: 8px; padding: 11px; word-break: break-all; cursor: pointer; }
+    .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Pulse Server</h1>
+    <div class="sub">Selbst-gehosteter Pulse-Server auf diesem Gerät.</div>
+
+    <div class="status"><span id="dot" class="dot"></span><span id="statustext">Initialisiere …</span></div>
+
+    <div id="setupRow" class="row hidden">
+      <button id="btnSetup">Server einrichten</button>
+      <div class="hint">Du bist eingeloggt. Die Einrichtung findet deine freigegebene Instanz und verbindet dieses Gerät automatisch.</div>
+    </div>
+
+    <div id="pairRow" class="row hidden">
+      <label for="token">Bootstrap-Token (Fallback)</label>
+      <input id="token" type="password" placeholder="Token aus „Meine Instanzen" autocomplete="off" />
+      <div class="hint">Automatische Einrichtung fehlgeschlagen — minte das Token manuell in deinem Konto und füge es ein.</div>
+    </div>
+    <div id="btnPairRow" class="row hidden"><button id="btnPair" class="secondary">Gerät verbinden</button></div>
+
+    <div id="btnStartRow" class="row hidden"><button id="btnStart">Server starten</button></div>
+    <div id="btnStopRow" class="row hidden"><button id="btnStop" class="danger">Server stoppen</button></div>
+
+    <div id="addrRow" class="row hidden">
+      <label>Server-Adresse (zum Teilen)</label>
+      <div id="addr" class="addr" title="Klicken zum Kopieren"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const host = window.pulse && window.pulse.host;
+    let provisionFailed = false;
+
+    const PHASE_TEXT = {
+      idle: 'Bereit.', 'checking-network': 'Netzwerk wird geprüft …', 'opening-door': 'Router wird konfiguriert …',
+      preparing: 'Server wird gestartet …', 'going-live': 'Fast geschafft …', live: 'Server läuft.',
+      'needs-your-help': 'Manuelle Einrichtung nötig.', 'not-possible-here': 'Hier leider nicht möglich (CGNAT).',
+      'something-paused': 'Pause — bitte erneut versuchen.', 'needs-windows-setup': 'Windows braucht erst WSL2.',
+    };
+    const PREP = ['checking-network', 'opening-door', 'preparing', 'going-live'];
+    const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup'];
+
+    function setStatus(phase, detail) {
+      $('dot').className = 'dot ' + (phase === 'live' ? 'live' : PREP.includes(phase) ? 'prep' : ERR.includes(phase) ? 'err' : '');
+      let text = PHASE_TEXT[phase] ?? phase;
+      if (phase === 'preparing' && detail && detail.step) text += ' (' + detail.step + ')';
+      $('statustext').textContent = text;
+      $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
+      if (detail && detail.relayUrl) $('addr').textContent = detail.relayUrl;
+    }
+
+    async function refresh() {
+      if (!host) { $('statustext').textContent = 'Fehler: Host-Bridge nicht verfügbar.'; $('dot').className = 'dot err'; return; }
+      const runtimeOk = await host.runtimeAvailable().catch(() => false);
+      const pairing = await host.getPairing().catch(() => null);
+      const paired = !!(pairing && typeof pairing === 'object' && pairing.paired);
+      const st = await host.getStatus().catch(() => ({ phase: 'idle' }));
+      const phase = (st && st.phase) || 'idle';
+      setStatus(phase, st && st.detail);
+      const running = st && ['preparing', 'going-live', 'live'].includes(st.phase);
+
+      $('setupRow').classList.toggle('hidden', paired || running);
+      $('btnStartRow').classList.toggle('hidden', !paired || running);
+      $('btnStopRow').classList.toggle('hidden', !(st && st.phase === 'live'));
+      // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
+      $('pairRow').classList.toggle('hidden', paired || !provisionFailed);
+      $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed);
+
+      if (!paired && !running && phase === 'idle') {
+        $('statustext').textContent = provisionFailed ? 'Automatische Einrichtung fehlgeschlagen — Token-Fallback.' : 'Bereit zum Einrichten.';
+      }
+      if (!runtimeOk && !running) {
+        $('statustext').textContent = 'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.';
+        $('dot').className = 'dot err';
+      }
+    }
+
+    function bind() {
+      if (!host) return;
+      host.onPhase((e) => { setStatus(e.phase, e.detail); refresh(); });
+      $('btnSetup').onclick = async () => {
+        $('btnSetup').disabled = true; $('statustext').textContent = 'Einrichten …'; $('dot').className = 'dot prep';
+        const r = await host.provision();
+        $('btnSetup').disabled = false;
+        if (r && r.ok) { provisionFailed = false; }
+        else { provisionFailed = true; alert('Einrichtung fehlgeschlagen: ' + ((r && r.error) || 'unbekannt')); }
+        refresh();
+      };
+      $('btnPair').onclick = async () => {
+        const t = $('token').value.trim();
+        if (!t) return;
+        $('btnPair').disabled = true;
+        try { const r = await host.pair(t); if (r && r.error) alert('Verbinden fehlgeschlagen: ' + r.error); }
+        catch (e) { alert('Verbinden fehlgeschlagen: ' + e.message); }
+        finally { $('btnPair').disabled = false; refresh(); }
+      };
+      $('btnStart').onclick = async () => {
+        $('btnStart').disabled = true;
+        await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
+        $('btnStart').disabled = false; refresh();
+      };
+      $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
+      $('addr').onclick = () => { try { navigator.clipboard.writeText($('addr').textContent); } catch {} };
+    }
+
+    bind();
+    refresh();
+  </script>
+</body>
+</html>
