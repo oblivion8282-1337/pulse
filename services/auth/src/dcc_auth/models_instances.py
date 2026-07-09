@@ -305,3 +305,30 @@ class Complaint(Base):
     __table_args__ = (
         Index("ix_complaints_status_submitted_at", "status", "submitted_at"),
     )
+
+
+class InstanceDirectEndpoint(Base):
+    """Telefonbuch-Eintrag des Direktpfads (Plan 2026-07-09-direct-path-webrtc).
+
+    Die Server-App meldet per Heartbeat ihre aktuell erreichbare öffentliche
+    Adresse (STUN-ermittelt) + den DTLS-Zertifikat-Fingerabdruck ihres
+    direct-adapters. Clients fragen den Eintrag membership-gated ab, um eine
+    direkte WebRTC-Verbindung aufzubauen. Kein Inhalt, nur Erreichbarkeit —
+    ein Eintrag pro Instanz, jeder Heartbeat überschreibt.
+    """
+
+    __tablename__ = "instance_direct_endpoints"
+
+    instance_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("registered_instances.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # Liste von {"ip": str, "port": int, "protocol": "udp"} — max. Länge
+    # erzwingt das Schema im Heartbeat-Endpoint, nicht die DB.
+    candidates: Mapped[list] = mapped_column(_JsonbOrJson, nullable=False)
+    # z.B. "sha-256 AB:CD:…" — Format wie in der SDP-Fingerprint-Zeile.
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

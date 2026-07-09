@@ -549,6 +549,7 @@ from dcc_auth.models_instances import (  # noqa: E402, F401
     Complaint,
     InstanceApplication,
     InstanceBootstrapToken,
+    InstanceDirectEndpoint,
     RegisteredInstance,
     SuspendedInstance,
 )

@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     rate_limit_bootstrap_redeem: str = "10/minute"
     rate_limit_relay_tls_check: str = "60/minute"
     rate_limit_reachability_probe: str = "10/minute"
+    # Direktpfad-Telefonbuch (Plan 2026-07-09-direct-path-webrtc): Heartbeat
+    # kommt alle ~120 s pro Instanz; Lookup ist session-gated (Client-Öffnen).
+    rate_limit_directory_heartbeat: str = "10/minute"
+    rate_limit_directory_lookup: str = "30/minute"
+    # Eintrag gilt als "online", solange der letzte Heartbeat jünger ist.
+    directory_online_threshold_seconds: int = 300
     bootstrap_token_ttl_seconds: int = 1200
     # WebAuthn ceremonies. ``register`` covers the authenticated add-a-passkey
     # flow; ``login`` covers both the 2FA-second-step and the passwordless
@@ -243,6 +249,8 @@ class Settings(BaseSettings):
         "rate_limit_bootstrap_redeem",
         "rate_limit_relay_tls_check",
         "rate_limit_reachability_probe",
+        "rate_limit_directory_heartbeat",
+        "rate_limit_directory_lookup",
         "rate_limit_registry_token",
         "rate_limit_per_account",
     )
