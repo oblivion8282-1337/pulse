@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-09.1",
+      "date": "2026-07-09",
+      "style": "Sachlich",
+      "title": "Update-Fenster zeigt wieder den Fortschrittsbalken",
+      "intro": "Beim Start eines App-Updates unter Windows war das Vorbereitungs-Fenster komplett leer.",
+      "items": [
+        "Im Fenster ist jetzt wieder der Download-Balken mit Prozentangabe und der neuen Versionsnummer sichtbar."
+      ]
+    },
+    {
       "id": "2026-07-08.5",
       "date": "2026-07-08",
       "style": "Sachlich",
