@@ -28,6 +28,10 @@ finish-args:
   - --socket=x11
   - --socket=wayland
   - --share=ipc
+  # GPU-Zugriff — Electron/Chromium braucht ihn zum Rendern (auch des schmalen
+  # server.html); ohne --device=all crasht der GPU-Prozess im Flatpak → leeres
+  # Fenster. (Wie der Client-Flatpak; NVIDIA /dev/nvidia* braucht --device=all.)
+  - --device=all
   # Login bei howispulse.com + Pulse-Cloud-API + Server-Netzwerk.
   - --share=network
   # Der Server-Container läuft im HOST-Podman (flatpak-spawn --host podman) —
