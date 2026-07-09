@@ -975,6 +975,11 @@ async function bootWithUpdateCheck(): Promise<void> {
 // Server-App-Boot: kein Update-Splash, kein Client-Sidecar/ScreenShare/Updater —
 // nur Host-IPC (Lochungs-Modus) + Fenster (server.html) + Tray + Basis-IPC.
 async function bootServer(): Promise<void> {
+  // initStore() ZUERST: wireHost() liest beim Verdrahten die Pairing-Creds
+  // (loadCreds); ohne initStore() ist jeder storeGet/storeSet ein No-Op → die
+  // App vergisst ihr Pairing bei jedem Neustart und landet wieder im Login.
+  initStore();
+  wireStore();
   wireHost(() => mainWindow);
   wireNotify(() => mainWindow);
   wirePower();
