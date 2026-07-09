@@ -9,7 +9,9 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "7zip-bin",
+      "electron-winstaller"
     ]
   }
 }

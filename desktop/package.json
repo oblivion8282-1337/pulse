@@ -1,6 +1,6 @@
 {
   "name": "@dcc/desktop",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "private": true,
   "description": "Pulse desktop wrapper (Electron)",
   "main": "electron/dist/main.cjs",

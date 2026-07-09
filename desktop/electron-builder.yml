@@ -73,10 +73,18 @@ extraResources:
   # electron-builder auf Windows-Runnern sonst reproduzierbar an
   # `EBUSY: resource busy or locked` beim copyfile der .svg scheitert
   # (Defender/SVG-Handler legen sich auf die frisch geschriebene SVG).
+  #
+  # ACHTUNG (Bug-Fix 0.1.33): `to: build-resources` ohne Trailing-Slash
+  # wuerde electron-builder den Pfad als literalen Zieldatei-Namen
+  # interpretieren (Path existiert im Output noch nicht) — beide Files
+  # landeten auf demselben Zielnamen `build-resources`, last-writer-wins,
+  # der Splash konnte seine HTML nicht mehr laden und blieb weiss.
+  # Mit Trailing-Slash behandelt electron-builder den Pfad als Verzeichnis
+  # und legt beide Files unter `<resources>/build-resources/` ab.
   - from: build-resources/update-splash.html
-    to: build-resources
+    to: build-resources/
   - from: build-resources/icon.png
-    to: build-resources
+    to: build-resources/
 # Der HQ-Streaming-Sidecar ist plattform-spezifisch (Windows = Rust-.exe + FFmpeg-
 # DLLs, macOS = Rust-Binary + dylibs) und wird daher per `<platform>.extraResources`
 # gebündelt — NICHT top-level, sonst zöge electron-builder den Windows-Sidecar auch
