@@ -1,6 +1,6 @@
 # Plan: Direktpfad — Chat ohne Cloud im Datenweg (WebRTC-DataChannel)
 
-**Status:** in Arbeit (Phase 1) · **Datum:** 2026-07-09 · Entscheidung des Users:
+**Status:** Phasen 1–6 gebaut + verifiziert (lokal), ungemerged · **Datum:** 2026-07-09 · Entscheidung des Users:
 Direktpfad VOR dem Relay-TLS-Durchreichen (`2026-07-09-relay-tls-passthrough.md`, zurückgestellt).
 
 ## Ziel
@@ -55,12 +55,12 @@ direct-adapter                        Telefonbuch:
 
 | # | Inhalt | Ergebnis / Testbarkeit |
 |---|---|---|
-| 1 | **Cloud-Telefonbuch**: Migration `instance_direct_endpoints`, `POST /selfhost/directory/heartbeat` (Auth: Relay-Token-Hash, wie `relay_auth`), `GET /me/instances/{id}/direct-endpoint` (Session + Membership) | pytest auth-svc |
-| 2 | **Adapter-Grundgerüst** im Container: STUN-Discovery, Heartbeat-Sender, s6-Service. **Neue Dependency: `aiortc`** (Python-WebRTC; Rückfrage beim User — Alternative wäre Go/Pion = neue Sprache im Repo) | Heartbeat-Zeile erscheint im Telefonbuch |
-| 3 | **Signal-Relay**: Instanz hält WS zur Cloud (`/selfhost/directory/ws`, Auth wie Heartbeat); `POST /me/instances/{id}/direct-offer` (Client) → Cloud reicht durch → Antwort zurück (Long-Poll ≤10 s) | Offer/Answer-Roundtrip im Test |
-| 4 | **DataChannel⇄HTTP-Brücke** im Adapter + Framing | curl-Äquivalent über DataChannel gegen lokalen Container |
-| 5 | **Client-Weiche**: fetch/WS-Shim über DataChannel, Verbindungs-Cache (letzte bekannte Adresse), TOFU-Pinning | Browser-Test: Chat läuft, Netzwerk-Tab leer Richtung Relay |
-| 6 | **E2E-Beweis**: `tcpdump` — beim Chatten **0 Pakete** zu netcup (außer initialem Telefonbuch-Lookup) | Messskript `scratchpad/pfad-messung.sh`-Nachfolger |
+| 1 | ✅ **Cloud-Telefonbuch**: Migration 0041 `instance_direct_endpoints`, `POST /selfhost/directory/heartbeat` (Auth: Relay-Token-Hash), `GET /me/instances/{id}/direct-endpoint` (Session + Membership) | pytest 10/10 |
+| 2 | ✅ **Adapter-Grundgerüst** (Rust/webrtc-rs, User-Entscheidung): STUN-Discovery, persistentes DTLS-Cert, Heartbeat, s6-Service, Dockerfile-Stage | cargo test + Kreisschluss gegen Dev-Cloud |
+| 3 | ✅ **Signal-Relay**: `WS /selfhost/directory/ws` + `POST /me/instances/{id}/direct-offer` (409 offline / 504 timeout) | pytest 7/7 (inkl. WS-Roundtrip) |
+| 4 | ✅ **DataChannel⇄HTTP/WS-Brücke** im Adapter + Framing | echter Chromium: GET/POST/großer Body/WS durch den Kanal |
+| 5 | ✅ **Client-Weiche**: `transportFetch` in `api/client.ts`, `DirectWebSocket` im Gateway, Registry mit TOFU-Pinning | Browser-E2E gegen die **echten** Module; Fingerprint-Abweichung wird abgelehnt |
+| 6 | ✅ **Verkehrsmessung**: 20 Requests → 71 Pakete Direktpfad (UDP), **0 Nutzdaten-Pakete zur Cloud** (nur 7 Keepalive-/FIN-Pakete der bestehenden Signal-Verbindung) | tcpdump, Cloud vs. Backend sauber getrennt |
 
 Nach jeder Phase: Commit + kurzer Bericht + User-Bestätigung (Phasen-Workflow).
 
@@ -75,12 +75,29 @@ Nach jeder Phase: Commit + kurzer Bericht + User-Bestätigung (Phasen-Workflow).
 - Der Relay-`http`-Tunnel bleibt in dieser Ausbaustufe unverändert bestehen (Fallback +
   ACME-Zukunft) — er wird nur vom Normalfall zur Ausnahme.
 
-## Offene Entscheidungen
+## Erledigte Entscheidungen
 
-- **Phase 2, Adapter-Runtime:** Empfehlung `aiortc` (bleibt im Python-Stack, Last eines
-  Heim-Servers ist klein). Alternativen: Pion (Go) / webrtc-rs (Rust, Toolchain existiert
-  für die HQ-Sidecars). → User-Rückfrage vor Phase 2 (Repo-Regel: keine neuen Dependencies
-  ohne Freigabe).
-- Heartbeat-Intervall (Entwurf: 120 s; „online" = updated_at < 300 s).
-- Ob der Adapter im selben Zug die Medien-Signalisierung (LiveKit-Token-Flow) mitnimmt oder
-  die weiter über HTTP läuft (dann eben durch den DataChannel — automatisch mit erledigt).
+- **Adapter-Runtime: webrtc-rs (Rust)** — User-Entscheidung 2026-07-09.
+- Heartbeat 120 s, „online" = letzter Heartbeat < 300 s.
+- Medien-Signalisierung braucht nichts Eigenes: sie läuft über HTTP und damit automatisch
+  durch den DataChannel.
+
+## Fallstricke, die im Bau auftauchten (für die Nachwelt)
+
+1. **webrtc-rs gathert im Mux-Betrieb KEINE srflx-Kandidaten** (`agent_gather.rs`:
+   `UDPNetwork::Muxed(_) => continue`), und `set_nat_1to1_ips(.., Srflx)` sitzt in genau
+   diesem übersprungenen Arm — er ist wirkungslos. Lösung: `sdp::inject_srflx()` hängt den
+   Kandidaten der STUN-Adresse selbst an die Answer. Ohne das sieht ein Client im Internet
+   nur unerreichbare LAN-Adressen.
+2. **rustls-CryptoProvider** muss explizit gewählt werden (reqwest bringt `aws-lc-rs`,
+   webrtc bringt `ring`) — sonst panict der erste DTLS-Handschlag, nicht der Start.
+3. **ICE-IP-Filter ist Pflicht**: Docker-Bridges, CGNAT/Tailscale und IPv6 machten den
+   Verbindungsaufbau flatterhaft (dieselbe Klasse Bug wie der frühere WHEP-IPv6-Leak).
+
+## Noch offen
+
+- Deploy: Cloud-Migration 0041 + neues allinone-Image (Adapter) + Server-App-Rebuild.
+- **Changelog-Eintrag** vor dem Push auf `main` (Pflicht-Gate, Stil vom User wählen lassen).
+- Relay bleibt Fallback; seine TLS-Härtung ist `2026-07-09-relay-tls-passthrough.md`.
+- Test über echtes Internet (Client außerhalb des Heimnetzes) steht noch aus — bisher
+  wurde der srflx-Kandidat nur erzeugt und angeboten, aber im LAN-Test nicht *benutzt*.

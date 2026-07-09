@@ -7,6 +7,8 @@
  * Phase 4.5+ Scope.
  */
 
+import { getDirectConnection } from '$lib/direct/registry';
+import { DirectWebSocket } from '$lib/direct/websocket';
 import { currentAccessToken, request } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
@@ -51,6 +53,21 @@ export type GatewayConnectionOpts = {
   isCloud: boolean;
   /** Pfad inkl. führendem Slash. Cloud: '/api/ws/ws', Self-Host: '/ws'. */
   wsPath?: string;
+  /** Snowflake der Self-Host-Instanz — Voraussetzung für den Direktpfad. */
+  instanceId?: string | null;
+};
+
+/** Was diese Klasse von einem Socket braucht. Ein echtes `WebSocket` erfüllt
+ *  das ebenso wie `DirectWebSocket` (DataChannel-Fassade des Direktpfads);
+ *  die Konstanten OPEN/CLOSED sind bei beiden identisch nummeriert. */
+type SocketLike = {
+  readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  addEventListener(type: 'open', fn: (ev: Event) => void): void;
+  addEventListener(type: 'message', fn: (ev: MessageEvent) => void): void;
+  addEventListener(type: 'close', fn: (ev: CloseEvent) => void): void;
+  addEventListener(type: 'error', fn: (ev: Event) => void): void;
 };
 
 /** Re-Auth-Hook für Self-Host. Wird in Phase 4.3 vom Cert-Flow gesetzt. */
@@ -95,8 +112,9 @@ export class GatewayConnection {
   readonly hostname: string;
   readonly isCloud: boolean;
   private readonly wsPath: string;
+  private readonly instanceId: string | null;
 
-  private ws: WebSocket | null = null;
+  private ws: SocketLike | null = null;
   private attempt = 0;
   private subs = new Set<string>();
   // Watch-party channels this socket has joined (mount = join, unmount =
@@ -133,6 +151,7 @@ export class GatewayConnection {
     this.isCloud = opts.isCloud;
     // Cloud läuft über nginx-Proxy `/api/ws/ws`; Self-Host direkt auf `/ws`.
     this.wsPath = opts.wsPath ?? (opts.isCloud ? '/api/ws/ws' : '/ws');
+    this.instanceId = opts.instanceId ?? null;
 
     // Bind the global handler-context to whichever connection is *currently
     // dispatching* (the active server), not to `this` (the first connection
@@ -304,6 +323,20 @@ export class GatewayConnection {
     return `wss://${httpsHost}${this.wsPath}?token=${encodeURIComponent(token)}`;
   }
 
+  /** Direktpfad bevorzugen (WebRTC-DataChannel), sonst normales WebSocket.
+   *  Der Direktpfad greift nur bei Self-Host-Servern mit bekannter Instanz und
+   *  bereits stehender Verbindung — er baut hier keine neue auf, das erledigt
+   *  der erste HTTP-Request über `transportFetch`. */
+  private async _openSocket(token: string): Promise<SocketLike> {
+    if (!this.isCloud && this.instanceId) {
+      const conn = await getDirectConnection(this.instanceId).catch(() => null);
+      if (conn?.isOpen) {
+        return new DirectWebSocket(conn, `${this.wsPath}?token=${encodeURIComponent(token)}`);
+      }
+    }
+    return new WebSocket(this._wsUrl(token));
+  }
+
   private async _dial(): Promise<void> {
     this.state = 'connecting';
     if (this.isCloud && !loadTokens()) {
@@ -315,7 +348,7 @@ export class GatewayConnection {
       this.state = 'closed';
       return;
     }
-    const ws = new WebSocket(this._wsUrl(token));
+    const ws = await this._openSocket(token);
     this.ws = ws;
 
     return new Promise((resolve, reject) => {

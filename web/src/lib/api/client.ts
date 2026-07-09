@@ -21,6 +21,7 @@ import { serversStore, CLOUD_HOSTNAME } from './servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { safeParse, extractDetail } from './parse';
+import { transportFetch } from '$lib/direct/transport';
 import type { ServerEntry } from './servers.svelte';
 import type { Tokens } from './types';
 
@@ -312,7 +313,9 @@ export async function request<T>(
     init.credentials = 'omit';
   }
 
-  let resp = await fetch(url, init);
+  // Direktpfad-Weiche: Self-Host-Requests gehen über die WebRTC-Verbindung,
+  // sonst (und bei jedem Fehler dort) wie bisher über den Relay.
+  let resp = await transportFetch(server, url, init);
 
   if (resp.status === 401 && auth) {
     // Cloud → Token-Refresh + Retry. Self-Host → Re-Auth (await wenn der
@@ -327,7 +330,7 @@ export async function request<T>(
           const freshBearer = await bearerFor(server);
           if (freshBearer) {
             headers['Authorization'] = `Bearer ${freshBearer}`;
-            resp = await fetch(url, { ...init, headers });
+            resp = await transportFetch(server, url, { ...init, headers });
           } else {
             throw new SessionExpiredError(server!.id);
           }
