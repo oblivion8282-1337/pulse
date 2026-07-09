@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     # kommt alle ~120 s pro Instanz; Lookup ist session-gated (Client-Öffnen).
     rate_limit_directory_heartbeat: str = "10/minute"
     rate_limit_directory_lookup: str = "30/minute"
+    rate_limit_directory_offer: str = "20/minute"
     # Eintrag gilt als "online", solange der letzte Heartbeat jünger ist.
     directory_online_threshold_seconds: int = 300
     bootstrap_token_ttl_seconds: int = 1200
@@ -251,6 +252,7 @@ class Settings(BaseSettings):
         "rate_limit_reachability_probe",
         "rate_limit_directory_heartbeat",
         "rate_limit_directory_lookup",
+        "rate_limit_directory_offer",
         "rate_limit_registry_token",
         "rate_limit_per_account",
     )

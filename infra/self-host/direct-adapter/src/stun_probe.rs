@@ -47,6 +47,14 @@ async fn query_one(socket: &UdpSocket, server: &str) -> Result<SocketAddr> {
     Ok(SocketAddr::new(xor.ip, xor.port))
 }
 
+/// Discovery über einen Wegwerf-Socket (ephemerer Port): liefert die aktuelle
+/// öffentliche IP, wenn der Haupt-Socket bereits dem WebRTC-Mux gehört. Der
+/// PORT der Antwort ist für den Mux-Socket bedeutungslos — nur die IP zählt.
+pub async fn discover_public_ip_ephemeral(servers: &[String]) -> Result<SocketAddr> {
+    let socket = UdpSocket::bind(("0.0.0.0", 0)).await?;
+    discover_public_addr(&socket, servers).await
+}
+
 /// Fragt die STUN-Server der Reihe nach; erster Erfolg gewinnt.
 pub async fn discover_public_addr(socket: &UdpSocket, servers: &[String]) -> Result<SocketAddr> {
     let mut last_err = None;
