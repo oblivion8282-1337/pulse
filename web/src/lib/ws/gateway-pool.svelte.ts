@@ -31,6 +31,7 @@ class GatewayPool {
       serverId: entry.id,
       hostname: entry.hostname,
       isCloud: entry.isCloud,
+      instanceId: entry.instance_id,
     });
     this.#connections.set(serverId, conn);
     return conn;
