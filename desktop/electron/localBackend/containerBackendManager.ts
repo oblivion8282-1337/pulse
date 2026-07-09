@@ -48,6 +48,10 @@ const MEDIA_PORT_ARGS = [
   '-p', '7882-7892:7882-7892/udp',
   '-p', '1936:1936/tcp',
   '-p', '8189:8189/udp',
+  // Direktpfad-Adapter (WebRTC-DataChannel für Chat ohne Cloud im Datenweg,
+  // Plan 2026-07-09-direct-path-webrtc): STUN-Discovery + ICE laufen über
+  // genau diesen Port.
+  '-p', '7900:7900/udp',
 ];
 
 /** Rendert die kleine Container-Env: nur Pairing-Identität + Relay + TLS-Modus.
