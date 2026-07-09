@@ -22,7 +22,7 @@ function localIpv4(): string {
   return '0.0.0.0';
 }
 
-export const MEDIA_MAP_UDP = [7882, 7883, 7884, 7885, 7886, 7887, 7888, 7889, 7890, 7891, 7892, 8189, 3478];
+export const MEDIA_MAP_UDP = [7882, 7883, 7884, 7885, 7886, 7887, 7888, 7889, 7890, 7891, 7892, 8189, 3478, 7900];
 export const MEDIA_MAP_TCP = [7881, 1936];
 
 export type MapVerdict = 'mapped' | 'partial' | 'cgnat' | 'unsupported';

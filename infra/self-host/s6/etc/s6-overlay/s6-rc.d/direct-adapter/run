@@ -1,0 +1,11 @@
+#!/bin/sh
+# direct-adapter — Direktpfad der Server-App (STUN + Heartbeat, später WebRTC).
+# Ohne Relay-Token (VPS-Self-Host ohne Relay/App-Hosting) schläft die Unit —
+# gleicher Opt-out-Stil wie frpc/coturn.
+exec 2>&1
+. /etc/pulse/env.sh
+if [ -z "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
+    echo "[direct-adapter] kein Relay-Token — Direktpfad deaktiviert, sleeping" >&2
+    exec sleep infinity
+fi
+exec /usr/sbin/gosu pulse /usr/local/bin/pulse-direct-adapter

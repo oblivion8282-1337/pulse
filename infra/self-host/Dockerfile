@@ -121,6 +121,23 @@ COPY web/ web/
 COPY plugins/ plugins/
 RUN pnpm --filter @dcc/web build
 
+# ── Stage 2b ───────────────────────────────────────────────────────────────
+# direct-adapter (Rust): Direktpfad der Server-App — STUN-Discovery +
+# Telefonbuch-Heartbeat, später WebRTC-DataChannel⇄HTTP-Brücke.
+# Plan: docs/plans/2026-07-09-direct-path-webrtc.md.
+# build-essential/cmake/perl: aws-lc-sys (rustls-Krypto) kompiliert C.
+# ──────────────────────────────────────────────────────────────────────────
+FROM rust:1-slim-bookworm AS rust-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake perl pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY infra/self-host/direct-adapter/ .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --locked \
+    && cp target/release/direct-adapter /opt/pulse-direct-adapter
+
 # ── Stage 3 ────────────────────────────────────────────────────────────────
 # Binaries: s6-overlay, Caddy, LiveKit, MediaMTX (download + verify here so
 # the runtime stage stays free of build-tooling). Every tarball is verified
@@ -308,7 +325,8 @@ COPY --from=binaries /opt/livekit/livekit-server /usr/local/bin/livekit-server
 COPY --from=binaries /opt/mediamtx/mediamtx      /usr/local/bin/mediamtx
 COPY --from=binaries /opt/minio/minio            /usr/local/bin/minio
 COPY --from=binaries /opt/frp/frpc               /usr/local/bin/frpc
-RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio /usr/local/bin/frpc
+COPY --from=rust-build /opt/pulse-direct-adapter /usr/local/bin/pulse-direct-adapter
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio /usr/local/bin/frpc /usr/local/bin/pulse-direct-adapter
 
 # Python venv + service source from stage 1 — already at /opt/pulse, no path
 # rewrite needed (UV_PROJECT_ENVIRONMENT made the venv live at /opt/pulse/venv
