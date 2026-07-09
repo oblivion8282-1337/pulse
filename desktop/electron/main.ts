@@ -542,6 +542,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       saveCreds(hostStore, result.creds);
       return { ok: true };
     }
+    // Der Renderer zeigt den Text nur im alert() — ohne Log ist ein Fehlschlag
+    // nachträglich nicht diagnostizierbar. `error` trägt nie Token/Secrets.
+    console.error('[provision] fehlgeschlagen:', result.error);
     return { ok: false, error: result.error };
   });
 

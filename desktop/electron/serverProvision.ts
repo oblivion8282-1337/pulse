@@ -18,7 +18,7 @@ async function sessionCookie(cloudOrigin: string): Promise<string> {
   return cookies.length ? `pulse_session=${cookies[0].value}` : '';
 }
 
-function netJson(
+function netJsonOnce(
   method: string,
   url: string,
   cookie: string,
@@ -45,6 +45,29 @@ function netJson(
   });
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Wie `netJsonOnce`, wiederholt aber Transport-Fehler (Status 0 — kein HTTP
+ *  gesprochen). Der erste HTTPS-Request der Flatpak-App scheitert reproduzierbar
+ *  am TLS-Handshake (`ERR_SSL_PROTOCOL_ERROR`) und klappt beim Retry — sonst
+ *  müsste der User "Server einrichten" zweimal klicken. Ein Retry des Mints ist
+ *  unbedenklich: ein evtl. doch entstandener, uneingelöster Token wird vom
+ *  nächsten Mint ohnehin gelöscht. */
+async function netJson(
+  method: string,
+  url: string,
+  cookie: string,
+  body?: unknown,
+): Promise<{ status: number; json: unknown }> {
+  let last = { status: 0, json: null as unknown };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(300 * attempt);
+    last = await netJsonOnce(method, url, cookie, body);
+    if (last.status !== 0) return last;
+  }
+  return last;
+}
+
 export type ProvisionResult = { ok: true; creds: BootstrapCreds } | { ok: false; error: string };
 
 /** Findet die aktive Self-Host-Instanz des eingeloggten Users, mintet einen
@@ -59,6 +82,7 @@ export async function provision(cloudOrigin: string): Promise<ProvisionResult> {
     //    Pairing rotiert client_secret + Tunnel-Token und darf eine laufende
     //    VPS-Instanz desselben Users nie treffen.
     const list = await netJson('GET', `${cloudOrigin}/api/auth/me/instances`, cookie);
+    if (list.status === 0) return { ok: false, error: 'Cloud nicht erreichbar — Internetverbindung?' };
     if (list.status !== 200 || !Array.isArray(list.json)) {
       return { ok: false, error: `Instanzen nicht ladbar (HTTP ${list.status}). Eingeloggt + freigegeben?` };
     }
