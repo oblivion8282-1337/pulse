@@ -18,4 +18,4 @@ else
   set -- "$@" --ozone-platform="$PULSE_OZONE"
 fi
 
-exec zypak-wrapper /app/electron/electron --class=com.howispulse.PulseServer /app/pulse-server "$@"
+exec zypak-wrapper /app/electron/electron --class=com.howispulse.PulseServer --disable-gpu /app/pulse-server "$@"
