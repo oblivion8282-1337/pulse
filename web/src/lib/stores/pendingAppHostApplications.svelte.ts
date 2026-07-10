@@ -31,6 +31,12 @@ class PendingAppHostApplications {
     this._timer = setInterval(() => void this._poll(), POLL_MS);
   }
 
+  /** Sofort neu laden — vom `admin_application_pending`-WS-Ereignis gerufen,
+   *  damit der Admin nicht bis zum nächsten Poll-Tick warten muss. */
+  refresh(): void {
+    void this._poll();
+  }
+
   stop(): void {
     if (this._timer !== null) {
       clearInterval(this._timer);

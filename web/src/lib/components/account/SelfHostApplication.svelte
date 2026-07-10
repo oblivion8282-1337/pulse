@@ -8,7 +8,6 @@
   import { toast } from 'svelte-sonner';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { instancesApi, type InstanceApplication } from '$lib/api/instances';
-  import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
 
   // Form state — nur noch der Hostname; die Kontakt-E-Mail kommt server-seitig
@@ -74,19 +73,9 @@
   }
 </script>
 
+<!-- Kein eigener Kopf: Icon, Titel und Beschreibung liefert die umschließende
+     Sektion in SettingsSelfHost.svelte (sonst doppelte Überschrift). -->
 <div class="flex flex-col gap-5" data-testid="self-host-application">
-  <div class="flex items-start gap-3">
-    <span class="bg-bg-input text-text-muted flex size-9 shrink-0 items-center justify-center rounded-full">
-      <ServerIcon class="size-5" />
-    </span>
-    <div>
-      <h3 class="text-text-bright text-sm font-semibold">{m.self_host_application_heading()}</h3>
-      <p class="text-text-muted text-xs mt-0.5">
-        {m.self_host_application_intro()}
-      </p>
-    </div>
-  </div>
-
   <!-- Form -->
   <form onsubmit={(e) => { e.preventDefault(); void submit(); }}
         class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">

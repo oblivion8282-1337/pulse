@@ -54,3 +54,15 @@ VOICE_USER_STATE_TTL_SECONDS = 6 * 3600
 # entirely. Cross-instance via Redis so a multi-replica deploy still routes
 # correctly when the recipient is connected to a different gateway pod.
 USER_EVENTS_CHANNEL = "user:events"
+
+# Cloud-Admin-Benachrichtigungen (aktuell: neue Self-Host- und
+# App-Hosting-Anträge). **auth-svc** publiziert hier, chat-gateway fächert an
+# alle Sockets mit ``is_admin`` auf. Ohne diesen Kanal erfuhr ein Admin von
+# einem neuen Antrag erst beim nächsten 60-Sekunden-Poll seines Clients — oder
+# gar nicht, wenn kein Admin-Fenster offen war.
+#
+# Der Payload trägt **keine Antragsdaten**, nur „es gibt Neues": der Client
+# holt die Liste danach über seinen regulären, cookie-authentifizierten
+# Admin-Endpoint. So kann ein (fälschlich) mitlesender Nicht-Admin-Socket
+# nichts erfahren, was er nicht ohnehin dürfte.
+ADMIN_EVENTS_CHANNEL = "admin:events"

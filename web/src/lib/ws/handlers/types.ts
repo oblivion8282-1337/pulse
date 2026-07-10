@@ -280,6 +280,10 @@ export type ServerEvent =
   | { op: 'friend_request_declined'; data: { request_id: string } }
   | { op: 'friend_request_cancelled'; data: { request_id: string } }
   | { op: 'friend_removed'; data: { user_id: string } }
+  // Nur an Admin-Sockets zugestellt (chat-gateway filtert auf `is_admin`).
+  // Trägt bewusst keine Antragsdaten — der Client lädt die Liste danach über
+  // seinen Admin-Endpoint nach.
+  | { op: 'admin_application_pending'; kind: 'app_host' | 'instance' }
   | { op: 'user_blocked'; data: { user_id: string } }
   | { op: 'user_unblocked'; data: { user_id: string } }
   | {

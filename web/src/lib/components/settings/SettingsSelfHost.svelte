@@ -63,7 +63,7 @@
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">
-    {@render cardHeader(ServerIcon, m.self_host_server_title(), '')}
+    {@render cardHeader(ServerIcon, m.self_host_server_title(), m.self_host_application_intro())}
     {@render serverBody()}
   </section>
 </div>

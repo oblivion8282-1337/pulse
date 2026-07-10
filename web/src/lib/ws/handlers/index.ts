@@ -19,6 +19,7 @@ import * as watch from './watch';
 import * as friends from './friends';
 import * as ready from './ready';
 import * as error from './error';
+import * as admin from './admin';
 
 export type { HandlerContext } from './context';
 export type { ReadyContext } from './ready';
@@ -38,4 +39,5 @@ export function registerAllHandlers(
   watch.register();
   friends.register();
   error.register();
+  admin.register();
 }
