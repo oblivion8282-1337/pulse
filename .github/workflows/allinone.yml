@@ -48,8 +48,14 @@ permissions:
 
 jobs:
   build-publish:
+    # 180 statt 60: Der Rust-direct-adapter wird für arm64 unter QEMU emuliert —
+    # ein Cold-Cache-Build (erster Lauf nach Adapter-Änderung) braucht >60 min,
+    # und ein Timeout-Abbruch exportiert KEINEN Layer-Cache (Export läuft erst
+    # nach Build-Erfolg) → jeder Retry startet wieder bei null. Mit warmem
+    # Cache bleiben Läufe bei den üblichen ~10 min. Echter Fix wäre ein
+    # nativer arm64-Runner (ubuntu-24.04-arm) statt QEMU.
+    timeout-minutes: 180
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     env:
       # Self-Host-allinone-Registry (registry.howispulse.com). Leerer Secret →
       # Mirror-Schritte skippen (GHCR bleibt Source-of-Truth, CI bricht nicht).
