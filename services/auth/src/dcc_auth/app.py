@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
 
 from dcc_auth.cleanup import cleanup_loop
 from dcc_auth.config import get_settings
@@ -65,6 +66,20 @@ async def lifespan(app: FastAPI):
         cleanup_task = asyncio.create_task(
             cleanup_loop(settings, engine), name="dcc-auth-token-cleanup"
         )
+    # Redis-Client für die Optional-Pfade (Suspend-Listen-Cache,
+    # ``admin:events``-Benachrichtigungen). Die Konsumenten prüfen alle auf
+    # ``None`` und arbeiten ohne Redis weiter — deshalb ist ein Verbindungs-
+    # fehler hier kein Startfehler. Unter Tests (``skip_cleanup``) gar nicht
+    # erst verbinden: die Tests setzen ihren eigenen Client auf app.state.
+    app.state.redis = None
+    if not getattr(app.state, "skip_cleanup", False):
+        try:
+            client = Redis.from_url(settings.redis_url, decode_responses=True)
+            await client.ping()
+            app.state.redis = client
+        except Exception:  # noqa: BLE001
+            log.warning("redis unavailable — admin events + suspend cache disabled")
+            app.state.redis = None
     try:
         yield
     finally:
@@ -74,6 +89,8 @@ async def lifespan(app: FastAPI):
                 await cleanup_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
+        if app.state.redis is not None:
+            await app.state.redis.aclose()
 
 
 def create_app() -> FastAPI:

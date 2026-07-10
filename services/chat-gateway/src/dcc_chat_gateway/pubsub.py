@@ -23,6 +23,7 @@ from fastapi import WebSocket
 from redis.asyncio import Redis
 
 from dcc_chat_gateway.pubsub_channels import (
+    ADMIN_EVENTS_CHANNEL,
     CHANNEL_KEY,
     CHANNEL_PATTERN,
     GUILD_EVENTS_CHANNEL,
@@ -201,6 +202,7 @@ class ConnectionManager(
             STREAM_EVENTS_CHANNEL,
             WATCH_EVENTS_CHANNEL,
             USER_EVENTS_CHANNEL,
+            ADMIN_EVENTS_CHANNEL,
         )
         # Re-subscribe any plugin channels that were registered at startup.
         # This is idempotent (Redis ignores duplicate subscribes) and ensures
@@ -218,7 +220,7 @@ class ConnectionManager(
         # rather than wedging startup. No real traffic can be in the buffer
         # yet (nothing has published at lifespan-start), so we never drop a
         # message here.
-        acks_expected = 1 + 5 + len(self._plugin_channels)  # psubscribe + fixed + plugins
+        acks_expected = 1 + 6 + len(self._plugin_channels)  # psubscribe + fixed + plugins
         acks_seen = 0
         empty_polls = 0
         while acks_seen < acks_expected and empty_polls < 3:

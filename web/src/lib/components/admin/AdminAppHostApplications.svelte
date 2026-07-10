@@ -13,11 +13,22 @@
   import { m } from '$lib/paraglide/messages.js';
   import {
     adminAppHostApplicationsApi,
-    type AdminAppHostApplication
+    type AdminAppHostApplication,
+    type AppHostApplicationStatus
   } from '$lib/api/appHostApplications';
 
   // Eltern (AdminPanel-Cloud-Bereich) hält ggf. einen Pending-Badge-Count.
   let { onchange }: { onchange?: () => void } = $props();
+
+  // Tabs wie bei [[AdminInstances]] — dort sind es Instanz-Zustände
+  // (aktiv/gesperrt), hier Antrags-Zustände. Entschieden/erledigte Anträge
+  // waren bisher gar nicht einsehbar: die Liste zeigte nur 'pending'.
+  const tabs: { id: AppHostApplicationStatus; label: string }[] = [
+    { id: 'pending', label: m.self_host_application_status_pending() },
+    { id: 'approved', label: m.self_host_application_status_approved() },
+    { id: 'rejected', label: m.self_host_application_status_rejected() }
+  ];
+  let activeTab = $state<AppHostApplicationStatus>('pending');
 
   let apps = $state<AdminAppHostApplication[]>([]);
   let loading = $state(true);
@@ -47,12 +58,19 @@
     loading = true;
     loadError = null;
     try {
-      apps = await adminAppHostApplicationsApi.listApplications('pending');
+      apps = await adminAppHostApplicationsApi.listApplications(activeTab);
     } catch (e) {
       loadError = errMsg(e);
     } finally {
       loading = false;
     }
+  }
+
+  async function selectTab(id: AppHostApplicationStatus) {
+    if (id === activeTab) return;
+    activeTab = id;
+    apps = [];
+    await reload();
   }
 
   async function doApprove() {
@@ -98,12 +116,30 @@
   }
 </script>
 
+<!-- Tab-Bar (Markup gespiegelt von AdminInstances.svelte) -->
+<div class="mb-4 flex gap-1 border-b border-border">
+  {#each tabs as t (t.id)}
+    <button
+      type="button"
+      onclick={() => void selectTab(t.id)}
+      class="px-3 py-2 text-sm transition-colors border-b-2 -mb-px {activeTab === t.id
+        ? 'border-primary text-text-bright font-medium'
+        : 'border-transparent text-text-muted hover:text-text-base'}"
+      data-testid="app-host-tab-{t.id}"
+    >
+      {t.label}
+    </button>
+  {/each}
+</div>
+
 {#if loading}
   <p class="text-text-muted text-sm">{m.app_host_admin_loading()}</p>
 {:else if loadError}
   <p class="text-red-400 text-sm">{m.app_host_admin_load_error({ error: loadError })}</p>
 {:else if apps.length === 0}
-  <p class="text-text-muted text-sm">{m.app_host_admin_empty()}</p>
+  <p class="text-text-muted text-sm">
+    {activeTab === 'pending' ? m.app_host_admin_empty() : m.app_host_admin_empty_tab()}
+  </p>
 {:else}
   <div class="flex flex-col gap-2">
     {#each apps as app (app.id)}
@@ -121,24 +157,30 @@
             {new Date(app.created_at).toLocaleDateString('de-DE')}
           </p>
         </div>
-        <div class="flex gap-2">
-          <button
-            type="button"
-            onclick={() => { approveError = null; approveTarget = app; approveConfirmOpen = true; }}
-            disabled={!!busy[app.id]}
-            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors"
-          >
-            {m.app_host_admin_approve_btn()}
-          </button>
-          <button
-            type="button"
-            onclick={() => { rejectError = null; rejectTarget = app; rejectOpen = true; }}
-            disabled={!!busy[app.id]}
-            class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
-          >
-            {m.app_host_admin_reject_btn()}
-          </button>
-        </div>
+        <!-- Aktionen nur auf offenen Anträgen: ein entschiedener Antrag lässt
+             sich serverseitig nicht erneut genehmigen/ablehnen (409). -->
+        {#if app.status === 'pending'}
+          <div class="flex gap-2">
+            <button
+              type="button"
+              onclick={() => { approveError = null; approveTarget = app; approveConfirmOpen = true; }}
+              disabled={!!busy[app.id]}
+              class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors"
+            >
+              {m.app_host_admin_approve_btn()}
+            </button>
+            <button
+              type="button"
+              onclick={() => { rejectError = null; rejectTarget = app; rejectOpen = true; }}
+              disabled={!!busy[app.id]}
+              class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
+            >
+              {m.app_host_admin_reject_btn()}
+            </button>
+          </div>
+        {:else if app.rejection_reason}
+          <p class="text-text-muted text-xs italic">{app.rejection_reason}</p>
+        {/if}
       </div>
     {/each}
   </div>

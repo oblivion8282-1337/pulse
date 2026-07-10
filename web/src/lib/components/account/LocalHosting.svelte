@@ -26,6 +26,16 @@
     ['checking-network', 'opening-door', 'preparing', 'going-live'].includes(hostStore.phase)
   );
 
+  // Die Freischaltung ist der äußerste Gate — NICHT die Phase. `hostStore.phase`
+  // lebt nur im Electron-Hauptprozess (in-memory, überlebt keinen Neustart);
+  // hing dort eine alte Phase wie 'needs-your-help', überstimmte sie die
+  // Berechtigungsprüfung und servierte einem nicht freigeschalteten Konto eine
+  // Router-Anleitung. Ausnahme: ein bereits laufender Server bleibt bedienbar
+  // (sonst nähme ein Entzug der Freischaltung dem Owner den Stop-Knopf).
+  const locked = $derived(
+    auth.user?.self_host_enabled === false && !running && hostStore.phase !== 'live'
+  );
+
   const phaseLine = $derived.by(() => {
     switch (hostStore.phase) {
       case 'checking-network': return m.local_host_phase_checking_network();
@@ -86,25 +96,26 @@
 
 {#if isElectron()}
   <section class="flex flex-col gap-5" data-testid="local-hosting-section">
-    {#if hostStore.phase === 'idle'}
-      {#if auth.user?.self_host_enabled === false}
-        <div class="flex flex-col gap-3" data-testid="local-host-locked">
-          {#if myPendingApp}
-            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_pending_title()}</p>
-            <p class="text-text-muted text-sm">{m.local_host_locked_pending_body()}</p>
-          {:else if myLastRejected}
-            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_rejected_title()}</p>
-            <p class="text-text-muted text-sm">
-              {m.local_host_locked_rejected_body({ reason: myLastRejected.rejection_reason ?? '' })}
-            </p>
-            <div><AppHostApplicationDialog /></div>
-          {:else}
-            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
-            <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
-            <div><AppHostApplicationDialog /></div>
-          {/if}
-        </div>
-      {:else if hostStore.runtimeOk === false}
+    {#if locked}
+      <div class="flex flex-col gap-3" data-testid="local-host-locked">
+        {#if myPendingApp}
+          <p class="text-text-bright text-sm font-medium">{m.local_host_locked_pending_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_locked_pending_body()}</p>
+        {:else if myLastRejected}
+          <p class="text-text-bright text-sm font-medium">{m.local_host_locked_rejected_title()}</p>
+          <p class="text-text-muted text-sm">
+            {m.local_host_locked_rejected_body({ reason: myLastRejected.rejection_reason ?? '' })}
+          </p>
+          <div><AppHostApplicationDialog /></div>
+        {:else}
+          <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
+          <div><AppHostApplicationDialog /></div>
+        {/if}
+      </div>
+
+    {:else if hostStore.phase === 'idle'}
+      {#if hostStore.runtimeOk === false}
         <div class="flex flex-col gap-2" data-testid="local-host-no-runtime">
           <p class="text-text-bright text-sm font-medium">{m.local_host_runtime_missing_title()}</p>
           <p class="text-text-muted text-sm">{m.local_host_runtime_missing_body()}</p>

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.pubsub_channels import (
+    ADMIN_EVENTS_CHANNEL,
     STREAM_EVENTS_CHANNEL,
     USER_EVENTS_CHANNEL,
     VOICE_EVENTS_CHANNEL,
@@ -298,3 +299,30 @@ async def handle_chat_channel(
         raw_targets = list(manager._subs.get(channel_id, ()))
     targets = await manager._filter_by_view_channel(raw_targets, channel_id)
     await manager._fan_out(targets, envelope)
+
+
+@register_channel_handler(ADMIN_EVENTS_CHANNEL)
+async def handle_admin_events(
+    manager: "ConnectionManager", channel: str, msg: dict[str, Any]
+) -> None:
+    """Cloud-Admin-Benachrichtigungen (auth-svc publiziert, wir fächern auf).
+
+    Zustellung ausschließlich an Sockets mit ``is_admin`` — der Payload ist
+    zwar inhaltsleer („es gibt Neues"), aber schon die Existenz eines Antrags
+    ist eine Admin-Information. ``is_admin`` steht pro Socket im
+    ``AuthenticatedUser`` (siehe ``connect()``), es ist also kein DB-Zugriff
+    nötig.
+
+    Kein ``maybe_drop``-Schema: der Envelope ist bewusst minimal und wird nicht
+    an die strengen Chat-Event-Modelle gehalten.
+    """
+    payload = _payload_or_skip(manager, msg, ADMIN_EVENTS_CHANNEL)
+    if payload is None or "op" not in payload:
+        log.warning("admin:events malformed or missing op: %r", payload)
+        return
+    async with manager._lock:
+        targets = [ws for ws, u in manager._ws_user.items() if u.is_admin]
+    log.info(
+        "admin:events broadcast op=%s targets=%d", payload.get("op"), len(targets)
+    )
+    await manager._fan_out(targets, payload)

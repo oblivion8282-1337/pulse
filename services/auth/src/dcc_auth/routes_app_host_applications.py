@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from dcc_auth.admin_events import publish_application_pending
 from dcc_auth.browser_sessions import validate_session
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
@@ -153,6 +154,9 @@ async def submit_app_host_application(
     await db.flush()
     await db.commit()
     await db.refresh(app)
+    # Erst nach dem Commit: die Admins sollen nichts sehen, was ein
+    # zurückgerollter Antrag nie war.
+    await publish_application_pending(request, "app_host")
     return _app_to_out(app)
 
 
