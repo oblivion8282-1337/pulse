@@ -33,7 +33,7 @@ declare const __APP_VERSION__: string;
 // Lochungs-Modus, kein Client-Sidecar/Updater/DeepLink.
 declare const __APP_MODE__: 'client' | 'server';
 const SERVER_MODE = __APP_MODE__ === 'server';
-import { MAX_STREAM_SLOTS, allSidecars, getSidecar } from './sidecar';
+import { MAX_STREAM_SLOTS, allSidecars, getSidecar, resetSpawnTargetCache } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
@@ -661,6 +661,10 @@ const ALLOWED_STORE_KEYS = new Set([
   // (window.pulse.store.set), der Main-Prozess liest ihn synchron im
   // Fenster-close-Handler (quitOnClose → wirklich beenden statt Tray).
   'quitOnClose',
+  // Experimental-Tab (nur Linux-Desktop): schaltet den experimentellen
+  // Rust-Linux-Sidecar statt des Python-GSR-Sidecars ein. Renderer setzt ihn,
+  // resolveSidecarSpawn() (sidecar.ts) liest ihn beim nächsten Spawn.
+  'useRustSidecar',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
@@ -740,6 +744,16 @@ function wireStore(): void {
     }
     try {
       storeSet(key, value);
+      // Umschalten des experimentellen Rust-Sidecars: Spawn-Cache invalidieren
+      // und laufende (idle) Sidecar-Prozesse neu starten, damit die Umschaltung
+      // beim nächsten Stream greift — ohne Pulse-Neustart. Ein evtl. gerade
+      // laufender Test-Stream endet dabei (bewusste Nutzeraktion).
+      if (key === 'useRustSidecar') {
+        resetSpawnTargetCache();
+        void Promise.all(allSidecars().map((m) => m.shutdown())).catch((e) =>
+          console.error('[store] sidecar restart after useRustSidecar toggle failed:', e),
+        );
+      }
     } catch (e) {
       console.error('[store] store:set failed:', e);
     }
