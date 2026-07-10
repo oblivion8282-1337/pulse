@@ -34,6 +34,7 @@ declare const __APP_VERSION__: string;
 declare const __APP_MODE__: 'client' | 'server';
 const SERVER_MODE = __APP_MODE__ === 'server';
 import { MAX_STREAM_SLOTS, allSidecars, getSidecar, resetSpawnTargetCache } from './sidecar';
+import { onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
@@ -606,6 +607,9 @@ function wireSidecar(): void {
   // callback does NOT spawn the child (still lazy on the first `call()`).
   for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
     getSidecar(slot).onEvent((ev) => {
+      // Experimental-Version: bei Stream-Ende/Fehler die sidecar.log hochladen
+      // (no-op, wenn die Rust-Version aus ist — prüft den Store selbst).
+      onSidecarEventForUpload(ev, slot);
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('gsr:event', { ...ev, slot });
       }

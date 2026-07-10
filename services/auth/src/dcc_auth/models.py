@@ -558,3 +558,8 @@ from dcc_auth.models_instances import (  # noqa: E402, F401
 from dcc_auth.models_app_host import (  # noqa: E402, F401
     AppHostApplication,
 )
+
+# Experimental-Sidecar-Diagnose-Logs (migration 0042) — ausgelagert.
+from dcc_auth.models_experimental import (  # noqa: E402, F401
+    ExperimentalLog,
+)
