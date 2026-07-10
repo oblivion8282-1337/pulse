@@ -21,6 +21,9 @@ import * as path from 'node:path';
 let tray: Tray | null = null;
 /** Lazy-cached nativeImage instances, keyed by state name. */
 const icons = new Map<string, Electron.NativeImage>();
+/** 'server-' in der Server-App → lädt tray-server-*.png (Herzschlag) statt der
+ *  Client-Glyphe; gesetzt einmalig von createTray. */
+let iconPrefix = '';
 
 type Status = 'normal' | 'mute' | 'deaf';
 
@@ -42,7 +45,7 @@ function pickIconName(s: TrayStatus): Status {
 }
 
 function tooltipText(s: TrayStatus): string {
-  const parts: string[] = ['Pulse'];
+  const parts: string[] = [app.getName()];
   if (s.deafened) parts.push('Taub');
   else if (s.muted) parts.push('Mikro aus');
   else parts.push('Live');
@@ -52,7 +55,8 @@ function tooltipText(s: TrayStatus): string {
 }
 
 function loadIcon(name: Status): Electron.NativeImage {
-  const cached = icons.get(name);
+  const file = `tray-${iconPrefix}${name}`;
+  const cached = icons.get(file);
   if (cached) return cached;
   // Gepackte Builds: electron-builder packt `build-resources/tray/*.png`
   // als extraResources → liegen unter `process.resourcesPath + /tray/…`.
@@ -60,35 +64,37 @@ function loadIcon(name: Status): Electron.NativeImage {
   // `build-resources/tray/`. Der Resolver probiert alle plausiblen Pfade,
   // nimmt den ersten Treffer.
   const candidates = [
-    path.join(process.resourcesPath ?? '', 'tray', `tray-${name}@2x.png`),
-    path.join(process.resourcesPath ?? '', 'tray', `tray-${name}.png`),
-    path.join(__dirname, '..', '..', 'build-resources', 'tray', `tray-${name}@2x.png`),
-    path.join(__dirname, '..', '..', 'build-resources', 'tray', `tray-${name}.png`),
-    path.join(process.cwd(), 'build-resources', 'tray', `tray-${name}@2x.png`),
-    path.join(process.cwd(), 'build-resources', 'tray', `tray-${name}.png`),
+    path.join(process.resourcesPath ?? '', 'tray', `${file}@2x.png`),
+    path.join(process.resourcesPath ?? '', 'tray', `${file}.png`),
+    path.join(__dirname, '..', '..', 'build-resources', 'tray', `${file}@2x.png`),
+    path.join(__dirname, '..', '..', 'build-resources', 'tray', `${file}.png`),
+    path.join(process.cwd(), 'build-resources', 'tray', `${file}@2x.png`),
+    path.join(process.cwd(), 'build-resources', 'tray', `${file}.png`),
   ];
   for (const p of candidates) {
     const img = nativeImage.createFromPath(p);
     if (!img.isEmpty()) {
-      icons.set(name, img);
+      icons.set(file, img);
       return img;
     }
   }
   // Fallback: empty image (Electron shows nothing rather than the default Electron icon).
   const empty = nativeImage.createEmpty();
-  icons.set(name, empty);
+  icons.set(file, empty);
   return empty;
 }
 
 export function createTray(
   getWindow: () => BrowserWindow | null,
-  requestQuit: () => void
+  requestQuit: () => void,
+  opts: { variant?: 'client' | 'server' } = {}
 ): Tray {
+  iconPrefix = opts.variant === 'server' ? 'server-' : '';
   // Initial state = "normal" so we always have SOMETHING drawn, even before the
   // renderer pushes its first status update (avoids a brief Electron-default-icon flash).
   const icon = loadIcon('normal');
   tray = new Tray(icon);
-  tray.setToolTip('Pulse');
+  tray.setToolTip(app.getName());
 
   const showWindow = (): void => {
     const win = getWindow();
@@ -99,7 +105,7 @@ export function createTray(
   };
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Pulse anzeigen', click: showWindow },
+    { label: `${app.getName()} anzeigen`, click: showWindow },
     { type: 'separator' },
     { label: 'Beenden', click: requestQuit },
   ]);

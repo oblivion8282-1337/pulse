@@ -116,6 +116,10 @@ class InstanceOut(BaseModel):
     status: str
     registered_at: datetime
     registrar_username: str
+    # 'app_host'-Instanzen entstehen automatisch bei der App-Hosting-Approval —
+    # das Admin-UI blendet sie in "Self-Host-Instanzen" aus (sie leben im
+    # App-Hosting-Anträge-Tab). Ohne das Feld konnte es nicht unterscheiden.
+    origin: str = "vps"
 
 
 class RotateSecretOut(BaseModel):
@@ -430,6 +434,7 @@ async def list_instances(
             status=row.status,
             registered_at=row.registered_at,
             registrar_username=row.registrar.username,
+            origin=row.origin,
         )
         for row in rows
     ]

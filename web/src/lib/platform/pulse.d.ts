@@ -246,6 +246,10 @@ export interface PulseShortcutsApi {
 
 export interface PulseApi {
   platform: 'electron';
+  /** 'server' = Pulse Server-App (deren Login-Phase lädt die Web-App remote —
+   *  darüber brandet sich die Login-Seite anders). Optional: ältere Shells
+   *  liefern das Feld nicht → Client-Verhalten. */
+  appMode?: 'client' | 'server';
   appVersion: string;
   /** Host OS as Node's `process.platform` (`win32` | `darwin` | `linux` | …).
    *  Authoritative platform signal for the native-update check

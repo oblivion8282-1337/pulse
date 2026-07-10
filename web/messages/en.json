@@ -2467,5 +2467,15 @@
   "server_app_download_intro": "Your account is approved. Download the Pulse Server app and start your server in it — your computer becomes the server, no cloud and no VPS needed.",
   "server_app_download_linux_btn": "Download Server app for Linux",
   "server_app_download_linux_hint": "Installs as a Flatpak. Launch it from your application menu afterwards.",
-  "server_app_download_soon": "The Server app is not ready for your system yet. Windows and macOS are coming. On Linux you can already install it."
+  "server_app_download_soon": "The Server app is not ready for your system yet. Windows and macOS are coming. On Linux you can already install it.",
+  "login_server_app_badge": "Server app",
+  "login_server_app_title": "Pulse Server",
+  "login_server_app_sub": "Sign in with your Pulse account to start your own server.",
+  "app_host_admin_status_revoked": "Revoked",
+  "app_host_admin_revoke_btn": "Revoke",
+  "app_host_admin_revoking": "Revoking…",
+  "app_host_admin_revoke_title": "Revoke approval?",
+  "app_host_admin_revoke_body": "The account can no longer start a server. A running server is suspended and shuts itself down.",
+  "app_host_admin_revoke_reason_label": "Reason (optional)",
+  "app_host_admin_revoked_toast": "Revoked approval for {username}"
 }

@@ -58,11 +58,25 @@ modules:
       - install -m644 app-dist/preload.cjs /app/pulse-server/preload.cjs
       - install -m644 app-dist/server.html /app/pulse-server/server.html
       - install -m644 packaging/pulse-server.package.json /app/pulse-server/package.json
-      - install -Dm644 icon.png /app/icon.png
+      # Eigenes Icon (Herzschlag) — Client und Server-App lägen sonst mit
+      # identischem Symbol nebeneinander im Anwendungsmenü/Dock. Zweimal
+      # installiert: /app/icon.png (Alt-Referenzen) + /app/icon-server.png
+      # (main.cjs sucht `__dirname/../icon-server.png` im Server-Modus).
+      - install -Dm644 icon-server.png /app/icon.png
+      - install -Dm644 icon-server.png /app/icon-server.png
+      # Tray-Symbole: `tray.ts` probiert zuerst `process.resourcesPath/tray/…`,
+      # das im Flatpak auf /app/electron/resources zeigt. Ohne sie liefert
+      # nativeImage ein leeres Bild → der StatusNotifier zeigt ein
+      # Platzhalter-/Fehlersymbol statt gar nichts.
+      - install -Dm644 tray/tray-server-normal.png /app/electron/resources/tray/tray-server-normal.png
+      - install -Dm644 tray/tray-server-normal@2x.png /app/electron/resources/tray/tray-server-normal@2x.png
       # Launcher + Desktop-Integration
       - install -Dm755 packaging/launcher-server.sh /app/bin/pulse-server
       - install -Dm644 packaging/com.howispulse.PulseServer.desktop /app/share/applications/com.howispulse.PulseServer.desktop
-      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.howispulse.PulseServer.png
+      - install -Dm644 icon-server.png /app/share/icons/hicolor/512x512/apps/com.howispulse.PulseServer.png
+      # Skalierbares Icon zusätzlich — Anwendungsmenüs bevorzugen es gegenüber
+      # der 512er-PNG und rastern nicht sichtbar herunter.
+      - install -Dm644 packaging/com.howispulse.PulseServer.svg /app/share/icons/hicolor/scalable/apps/com.howispulse.PulseServer.svg
       - install -Dm644 packaging/com.howispulse.PulseServer.metainfo.xml /app/share/metainfo/com.howispulse.PulseServer.metainfo.xml
     sources:
       - type: archive
@@ -79,4 +93,7 @@ modules:
         path: ../packaging
         dest: packaging
       - type: file
-        path: ../desktop/electron/icon.png
+        path: ../desktop/electron/icon-server.png
+      - type: dir
+        path: ../desktop/build-resources/tray
+        dest: tray

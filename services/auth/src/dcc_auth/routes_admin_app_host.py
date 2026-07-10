@@ -137,7 +137,7 @@ async def list_app_host_applications(
     db: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
     status_filter: Annotated[
-        Literal["pending", "approved", "rejected", "all"] | None,
+        Literal["pending", "approved", "rejected", "revoked", "all"] | None,
         Query(alias="status"),
     ] = None,
 ) -> list[AdminAppHostApplicationOut]:

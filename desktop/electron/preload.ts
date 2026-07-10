@@ -29,11 +29,18 @@
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
+// esbuild-define (esbuild.mjs): 'client' | 'server' — dieselbe Weiche wie in
+// main.ts. Über die Bridge exponiert, damit die REMOTE geladene Web-App
+// (Login-Seite) weiß, dass sie in der Server-App steckt und sich anders
+// brandet (sonst sind Client- und Server-App-Login ununterscheidbar).
+declare const __APP_MODE__: 'client' | 'server';
+
 const gsrCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
   ipcRenderer.invoke('gsr:call', op, params, slot);
 
 contextBridge.exposeInMainWorld('pulse', {
   platform: 'electron' as const,
+  appMode: __APP_MODE__,
   appVersion: process.env.PULSE_APP_VERSION ?? '0.0.0',
   // Echtes Betriebssystem (`win32`/`darwin`/`linux`) statt UA-Raterei — die
   // Renderer-Plattform-Gates (runtime.ts) bleiben UA-basiert, aber der

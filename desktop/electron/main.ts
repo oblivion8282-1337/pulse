@@ -258,9 +258,11 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 600,
     show: false,
-    title: 'Pulse',
+    title: SERVER_MODE ? 'Pulse Server' : 'Pulse',
     // `dist/main.cjs` lives one level below `electron/`, where icon.png sits.
-    icon: path.join(__dirname, '..', 'icon.png'),
+    // Server-App: eigenes (violettes) Icon, sonst sind die beiden Fenster im
+    // Fensterwechsler nicht auseinanderzuhalten.
+    icon: path.join(__dirname, '..', SERVER_MODE ? 'icon-server.png' : 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -396,17 +398,35 @@ function createWindow(): void {
   }
 }
 
-/** Server-App: pollt den `pulse_session`-Login-Cookie und wechselt nach
- *  erfolgreichem Login vom howispulse.com-Login auf das lokale server.html. */
+/** Server-App: wechselt nach erfolgreichem Login vom howispulse.com-Login auf
+ *  das lokale server.html.
+ *
+ *  Primärsignal ist die SPA-Navigation nach /app — sie feuert im selben Moment
+ *  wie der Login-Erfolg. Der frühere 1,5-s-Cookie-Poll allein ließ die volle
+ *  Chat-Oberfläche bis zum nächsten Tick aufblitzen; er bleibt nur als Netz
+ *  für Wege ohne Navigation (z.B. Session war beim Start schon gültig). */
 function startLoginWatch(win: BrowserWindow): void {
+  let done = false;
+  const toServer = () => {
+    if (done || win.isDestroyed()) return;
+    done = true;
+    clearInterval(timer);
+    void win.loadFile(path.join(__dirname, 'server.html'));
+  };
+  const onNav = (_e: unknown, url: string) => {
+    try {
+      if (new URL(url).pathname.startsWith('/app')) toServer();
+    } catch { /* unparsebare URL → ignorieren */ }
+  };
+  win.webContents.on('did-navigate-in-page', onNav);
+  win.webContents.on('did-navigate', onNav);
+  // Poll-Fallback für Wege ohne Navigation (Session war beim Start schon gültig).
+  // `timer` wird erst asynchron (im Callback/`toServer`) gelesen → const genügt.
   const timer = setInterval(async () => {
     if (win.isDestroyed()) { clearInterval(timer); return; }
     try {
       const cookies = await session.defaultSession.cookies.get({ name: 'pulse_session', url: PROD_URL });
-      if (cookies.length) {
-        clearInterval(timer);
-        win.loadFile(path.join(__dirname, 'server.html'));
-      }
+      if (cookies.length) toServer();
     } catch { /* ignore — retry */ }
   }, 1500);
   win.once('closed', () => clearInterval(timer));
@@ -991,6 +1011,7 @@ async function bootServer(): Promise<void> {
   createTray(
     () => mainWindow,
     () => { isQuitting = true; app.quit(); },
+    { variant: 'server' },
   );
 }
 

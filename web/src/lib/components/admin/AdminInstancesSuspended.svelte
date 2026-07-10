@@ -18,7 +18,11 @@
     loading = true;
     loadError = null;
     try {
-      instances = await adminInstancesApi.listInstances('suspended');
+      // Gleicher UI-Filter wie im Aktiv-Tab: app_host-Instanzen leben im
+      // App-Hosting-Anträge-Tab, nicht hier.
+      instances = (await adminInstancesApi.listInstances('suspended')).filter(
+        (i) => i.origin !== 'app_host'
+      );
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
     } finally {

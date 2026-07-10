@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Pulse Server</title>
+  <desc>Pulse Server app mark — heartbeat line in emerald.</desc>
+  <rect width="512" height="512" rx="120" ry="120" fill="#10B981"/>
+  <path d="M 68 256 L 188 256 L 218 220 L 248 256 L 260 292 L 278 106 L 292 402 L 312 220 L 336 256 L 444 256"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-width="24"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

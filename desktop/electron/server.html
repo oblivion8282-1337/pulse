@@ -30,7 +30,15 @@
     .dot.prep { background: #eab308; box-shadow: 0 0 8px rgba(234,179,8,.6); }
     .dot.err { background: #ef4444; }
     .addr { font-family: ui-monospace, monospace; font-size: 13px; background: #0f1115; border: 1px dashed #2a2f3a;
-            border-radius: 8px; padding: 11px; word-break: break-all; cursor: pointer; }
+            border-radius: 8px; padding: 11px; word-break: break-all; cursor: pointer;
+            display: flex; align-items: center; gap: 10px; }
+    .addr:hover { border-color: #3d4552; }
+    .addr .text { flex: 1; min-width: 0; }
+    /* Kopier-Symbol als Inline-SVG — diese Datei zieht bewusst kein Icon-Paket. */
+    .addr .copy { flex-shrink: 0; width: 16px; height: 16px; stroke: #8b93a1; fill: none;
+                  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .addr:hover .copy { stroke: #d6dae2; }
+    .addr .done { flex-shrink: 0; font-size: 12px; color: #22c55e; white-space: nowrap; }
     .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
     .hidden { display: none; }
   </style>
@@ -59,7 +67,14 @@
 
     <div id="addrRow" class="row hidden">
       <label>Server-Adresse (zum Teilen)</label>
-      <div id="addr" class="addr" title="Klicken zum Kopieren"></div>
+      <div id="addr" class="addr" title="Klicken zum Kopieren">
+        <span id="addrText" class="text"></span>
+        <svg id="addrIcon" class="copy" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+          <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+        </svg>
+        <span id="addrDone" class="done hidden">Kopiert</span>
+      </div>
     </div>
   </div>
 
@@ -83,7 +98,7 @@
       if (phase === 'preparing' && detail && detail.step) text += ' (' + detail.step + ')';
       $('statustext').textContent = text;
       $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
-      if (detail && detail.relayUrl) $('addr').textContent = detail.relayUrl;
+      if (detail && detail.relayUrl) $('addrText').textContent = detail.relayUrl;
     }
 
     async function refresh() {
@@ -137,7 +152,20 @@
         $('btnStart').disabled = false; refresh();
       };
       $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
-      $('addr').onclick = () => { try { navigator.clipboard.writeText($('addr').textContent); } catch {} };
+      // Kurze Sicht-Rückmeldung: ohne sie ist nicht erkennbar, ob der Klick ankam.
+      let copyTimer = null;
+      $('addr').onclick = async () => {
+        try {
+          await navigator.clipboard.writeText($('addrText').textContent);
+          $('addrIcon').classList.add('hidden');
+          $('addrDone').classList.remove('hidden');
+          clearTimeout(copyTimer);
+          copyTimer = setTimeout(() => {
+            $('addrDone').classList.add('hidden');
+            $('addrIcon').classList.remove('hidden');
+          }, 1400);
+        } catch { /* Clipboard verweigert → Adresse bleibt markierbar */ }
+      };
     }
 
     bind();

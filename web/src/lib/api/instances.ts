@@ -97,6 +97,7 @@ export interface AdminInstance {
   status: string;
   registered_at: string;
   registrar_username: string;
+  origin: 'vps' | 'app_host';
 }
 
 /** Spiegelt RotateSecretOut. */

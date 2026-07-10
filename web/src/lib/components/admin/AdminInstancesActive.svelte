@@ -36,7 +36,12 @@
     loading = true;
     loadError = null;
     try {
-      instances = await adminInstancesApi.listInstances('active');
+      // app_host-Instanzen entstehen automatisch bei der App-Hosting-Approval
+      // und werden über den App-Hosting-Anträge-Tab verwaltet — hier wären sie
+      // Doppel-Einträge. Suspend per API bleibt möglich (nur UI-Filter).
+      instances = (await adminInstancesApi.listInstances('active')).filter(
+        (i) => i.origin !== 'app_host'
+      );
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
     } finally {
