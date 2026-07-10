@@ -41,6 +41,11 @@ on:
       - 'packaging/com.howispulse.Pulse.desktop'
       - 'packaging/com.howispulse.Pulse.metainfo.xml'
       - 'packaging/com.howispulse.Pulse.svg'
+      # Server-App teilt sich Repo + Signaturschlüssel mit dem Client.
+      - 'packaging/com.howispulse.PulseServer.yml'
+      - 'packaging/launcher-server.sh'
+      - 'packaging/com.howispulse.PulseServer.desktop'
+      - 'packaging/com.howispulse.PulseServer.metainfo.xml'
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:    # also allow manual republish from the Actions tab
 
@@ -137,6 +142,22 @@ jobs:
             --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak packaging/com.howispulse.Pulse.yml
 
+      # ── Server-App in dasselbe Repo ──
+      # Beide Manifeste kopieren `desktop/electron/dist` — das Server-Bundle
+      # überschreibt dort main.cjs (__APP_MODE__='server') und legt server.html
+      # dazu. Deshalb MUSS es nach dem Client-Build entstehen, sonst packt der
+      # Client-Flatpak die Server-Variante ein.
+      - name: build:electron:server
+        run: pnpm --filter @dcc/desktop build:electron:server
+
+      - name: Build & sign Flatpak (Server-App)
+        run: |
+          flatpak-builder --force-clean \
+            --user --install-deps-from=flathub \
+            --repo=build/repo \
+            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
+            build/flatpak-server packaging/com.howispulse.PulseServer.yml
+
       - name: Generate static deltas + prune old commits
         run: |
           flatpak build-update-repo \
@@ -151,6 +172,17 @@ jobs:
           [Flatpak Ref]
           Title=Pulse
           Name=com.howispulse.Pulse
+          Branch=master
+          Url=https://howispulse.com/flatpak/
+          Homepage=https://howispulse.com
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          GPGKey=$PUBKEY_B64
+          EOF
+          cat > build/repo/com.howispulse.PulseServer.flatpakref <<EOF
+          [Flatpak Ref]
+          Title=Pulse Server
+          Name=com.howispulse.PulseServer
           Branch=master
           Url=https://howispulse.com/flatpak/
           Homepage=https://howispulse.com
@@ -205,7 +237,8 @@ jobs:
       - name: Summary
         run: |
           echo "✓ Flatpak republished to https://howispulse.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
-          echo "  Install:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Client:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Server:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.PulseServer.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"
 
       # ── Tear down the imported signing key ──────────────────────────────

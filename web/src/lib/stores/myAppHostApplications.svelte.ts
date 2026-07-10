@@ -21,7 +21,6 @@
 
 import { appHostApplicationsApi, type AppHostApplication } from '$lib/api/appHostApplications';
 import { auth } from '$lib/stores/auth.svelte';
-import { hostStore } from '$lib/host/hostStore.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -195,10 +194,10 @@ class MyAppHostApplications {
           toast.success(m.app_host_approved_toast_title(), {
             description: m.app_host_approved_toast_body()
           });
-          // In-Session-Reload: das frisch gesetzte self_host_enabled ziehen +
-          // die gerade provisionierte Instanz laden, damit die Hosting-Karte
-          // ohne App-Neustart aus dem „gesperrt"-Zustand kommt.
-          void auth.refreshUser().then(() => hostStore.refreshInstances());
+          // In-Session-Reload: das frisch gesetzte self_host_enabled ziehen,
+          // damit die Karte ohne App-Neustart aus dem „gesperrt"-Zustand kommt
+          // und den Download zeigt.
+          void auth.refreshUser();
         } else if (app.status === 'rejected') {
           const reason = app.rejection_reason ? ` — ${app.rejection_reason}` : '';
           toast.error(m.app_host_rejected_toast_title(), {
