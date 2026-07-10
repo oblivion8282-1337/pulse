@@ -1,14 +1,15 @@
 <!--
   Self-Hoster-Tab in den Einstellungen.
   Zwei klar getrennte Karten:
-    1. App-Hosting  — Stufe 2, lokal auf dem Gerät (Electron-only, LocalHosting)
+    1. App-Hosting  — Stufe 2, eigenes Gerät via separater Server-App
+       (Antrag + Download: ServerAppDownload)
     2. Eigener Server — Stufe 3, dauerhaft auf einem VPS
        (SelfHostApplication + MyInstances)
 -->
 <script lang="ts">
   import type { Component } from 'svelte';
   import { onMount } from 'svelte';
-  import LocalHosting from '$lib/components/account/LocalHosting.svelte';
+  import ServerAppDownload from '$lib/components/account/ServerAppDownload.svelte';
   import SelfHostApplication from '$lib/components/account/SelfHostApplication.svelte';
   import MyInstances from '$lib/components/account/MyInstances.svelte';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
@@ -43,7 +44,7 @@
 {/snippet}
 
 {#snippet appBody()}
-  <LocalHosting />
+  <ServerAppDownload />
 {/snippet}
 
 {#snippet serverBody()}
@@ -57,9 +58,9 @@
     <p class="text-text-muted text-sm">{m.settings_self_host_description()}</p>
   </div>
 
-  <!-- App-Hosting (Stufe 2): läuft auf dem Gerät, lebt nur solange die App offen
-       ist. Vorerst AUSGEBLENDET (APP_HOSTING_ENABLED), bis die Geräte-Paketierung
-       auslieferbar ist — sonst würden User etwas anfragen, das nicht läuft. -->
+  <!-- App-Hosting (Stufe 2): gehostet wird in der separaten Server-App, hier
+       steht nur Antrag + Download. Der Schalter blendet den ganzen Weg aus,
+       solange kein Paket für die gängigen Systeme existiert. -->
   {#if APP_HOSTING_ENABLED}
     <section class={SECTION_CLASS} data-testid="self-host-app-section">
       {@render cardHeader(AppWindowIcon, m.local_host_title(), m.self_host_app_subtitle())}

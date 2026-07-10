@@ -2463,5 +2463,9 @@
   "friend_badge_live": "Live",
   "friend_badge_party": "Party",
   "friend_in_voice": "in #{channel} · {guild}",
-  "guild_rail_home": "Home"
+  "guild_rail_home": "Home",
+  "server_app_download_intro": "Dein Konto ist freigeschaltet. Lade die Pulse Server-App herunter und starte deinen Server darin — dein Rechner wird zum Server, ohne Cloud und ohne VPS.",
+  "server_app_download_linux_btn": "Server-App für Linux laden",
+  "server_app_download_linux_hint": "Installiert sich als Flatpak. Danach startest du sie aus deinem Anwendungsmenü.",
+  "server_app_download_soon": "Für dein System ist die Server-App noch nicht fertig. Windows und macOS folgen. Unter Linux kannst du sie schon installieren."
 }

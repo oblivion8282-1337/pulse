@@ -6,8 +6,8 @@
  * ``routes_admin_app_host.py`` (Admin).
  *
  * Approval setzt ``users.self_host_enabled=true`` in derselben Transaktion
- * → der Client muss danach polling/refresh triggern (LocalHosting prüft
- * das Flag live).
+ * → der Client muss danach `auth.refreshUser()` triggern (ServerAppDownload
+ * prüft das Flag live).
  *
  * Alle Endpoints sind cookie-auth'ed (``credentials:'include'``).
  */
