@@ -208,3 +208,77 @@ async def test_approve_requires_owner(
         f"/admin/app-host-applications/{app_id}/approve", headers=_auth(mod_token)
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_revoke_disables_flag_and_suspends_instance(
+    client, owner_token, applicant_id, session_factory
+):
+    """Rücknahme muss ALLE drei Wirkungen der Approval umkehren.
+
+    Ein bloßer Statuswechsel ließe den User weiterhosten: das Flag stünde noch,
+    und die auto-provisionierte Instanz liefe weiter.
+    """
+    app_id = await _seed_app_host(session_factory, user_id=applicant_id)
+    r = await client.post(
+        f"/admin/app-host-applications/{app_id}/approve", headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, r.text
+    instance_id = int(r.json()["instance_id"])
+
+    r = await client.post(
+        f"/admin/app-host-applications/{app_id}/revoke?reason=Missbrauch",
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        user = await s.get(User, applicant_id)
+        assert user.self_host_enabled is False
+        inst = await s.get(RegisteredInstance, instance_id)
+        assert inst.status == "suspended"
+        app = await s.get(AppHostApplication, app_id)
+        assert app.status == "revoked"
+        assert app.rejection_reason == "Missbrauch"
+
+    # Kill-Switch: die Instanz steht auf der öffentlichen Sperrliste.
+    r = await client.get("/.well-known/pulse-suspended-instances")
+    assert r.status_code == 200
+    assert str(instance_id) in r.json()["instance_ids"]
+
+
+@pytest.mark.asyncio
+async def test_revoke_only_on_approved(client, owner_token, applicant_id, session_factory):
+    """Ein offener Antrag ist nicht "zurücknehmbar" — dafür gibt es reject."""
+    app_id = await _seed_app_host(session_factory, user_id=applicant_id)
+    r = await client.post(
+        f"/admin/app-host-applications/{app_id}/revoke", headers=_auth(owner_token)
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_revoked_application_is_listable_and_user_may_reapply(
+    client, owner_token, applicant_id, session_factory
+):
+    app_id = await _seed_app_host(session_factory, user_id=applicant_id)
+    await client.post(
+        f"/admin/app-host-applications/{app_id}/approve", headers=_auth(owner_token)
+    )
+    await client.post(
+        f"/admin/app-host-applications/{app_id}/revoke", headers=_auth(owner_token)
+    )
+
+    r = await client.get(
+        "/admin/app-host-applications?status=revoked", headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, r.text
+    assert [a["id"] for a in r.json()] == [str(app_id)]
+
+    # Kein 'pending'-Antrag mehr offen → der Duplicate-Guard in
+    # submit_app_host_application (prüft NUR auf 'pending') lässt einen
+    # Neuantrag zu; ebenso der self_host_enabled-Guard, der jetzt false ist.
+    r = await client.get(
+        "/admin/app-host-applications?status=pending", headers=_auth(owner_token)
+    )
+    assert r.json() == []

@@ -13,6 +13,8 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
+  import ServerIcon from '@lucide/svelte/icons/server';
+  import { isServerApp } from '$lib/platform/runtime';
   import AppDownloadLinks from '$lib/components/AppDownloadLinks.svelte';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
@@ -42,6 +44,10 @@
   // (cursor-auto), damit man tippen kann.
   let radarX = $state(0);
   let radarY = $state(0);
+  // Einmalig beim Mount reicht: der appMode einer Electron-Shell ändert sich
+  // nie zur Laufzeit.
+  const serverApp = isServerApp();
+
   let radarActive = $state(false);
   // Über der Eingabe-Karte soll das Radar ganz verschwinden (seine äußeren
   // Ringe ragen sonst rund um die Karte hervor, während man tippt).
@@ -223,8 +229,11 @@
   }
 </script>
 
+<!-- serverApp: normaler Mauszeiger statt Radar-Gimmick. Die Server-App rendert
+     ohne GPU (--disable-gpu gegen das weiße Flatpak-Fenster) — die JS-verfolgte
+     Zeiger-Animation wird dort in Software gezeichnet und ruckelt sichtbar. -->
 <div
-  class="relative flex min-h-dvh overflow-hidden md:cursor-none"
+  class="relative flex min-h-dvh overflow-hidden {serverApp ? '' : 'md:cursor-none'}"
   use:cursorTrack={(x, y, active) => {
     radarX = x;
     radarY = y;
@@ -250,9 +259,11 @@
   <!-- Seitenweites Cursor-Radar (Desktop only). z-20: über dem Brand-Panel
        (z-10), aber hinter der Formular-Karte (z-30) → über der Karte erscheint
        der echte Cursor, das Radar verschwindet sauber dahinter. -->
-  <div class="pointer-events-none absolute inset-0 z-20 hidden overflow-hidden md:block">
-    <CursorRadar x={radarX} y={radarY} active={radarActive && !overCard} />
-  </div>
+  {#if !serverApp}
+    <div class="pointer-events-none absolute inset-0 z-20 hidden overflow-hidden md:block">
+      <CursorRadar x={radarX} y={radarY} active={radarActive && !overCard} />
+    </div>
+  {/if}
 
   <AuthBrandPanel
     bareBg
@@ -287,9 +298,30 @@
         use:cursorTrack={trackCard}
       >
         <header class="space-y-2 text-center">
-          <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-          <h1 class="text-card-foreground text-2xl font-semibold">{m.login_welcome_back()}</h1>
-          <p class="text-muted-foreground text-sm">{m.login_welcome_sub()}</p>
+          <img
+            src={serverApp ? '/pulse-server-mark.svg' : '/pulse-mark.svg'}
+            alt={serverApp ? 'Pulse Server' : 'Pulse'}
+            width="56"
+            height="56"
+            class="mx-auto size-14"
+          />
+          {#if serverApp}
+            <!-- Server-App-Login: gleiche Web-Seite, remote geladen — das Badge
+                 ist die einzige Stelle, an der man die beiden Apps beim
+                 Anmelden auseinanderhalten kann. -->
+            <span
+              class="bg-primary/15 text-primary mx-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+              data-testid="login-server-app-badge"
+            >
+              <ServerIcon class="size-3.5" />
+              {m.login_server_app_badge()}
+            </span>
+            <h1 class="text-card-foreground text-2xl font-semibold">{m.login_server_app_title()}</h1>
+            <p class="text-muted-foreground text-sm">{m.login_server_app_sub()}</p>
+          {:else}
+            <h1 class="text-card-foreground text-2xl font-semibold">{m.login_welcome_back()}</h1>
+            <p class="text-muted-foreground text-sm">{m.login_welcome_sub()}</p>
+          {/if}
         </header>
 
         <div class="space-y-1.5">

@@ -16,6 +16,8 @@
     type AdminAppHostApplication,
     type AppHostApplicationStatus
   } from '$lib/api/appHostApplications';
+  import AdminAppHostRevoke from './AdminAppHostRevoke.svelte';
+  import AdminAppHostReject from './AdminAppHostReject.svelte';
 
   // Eltern (AdminPanel-Cloud-Bereich) hält ggf. einen Pending-Badge-Count.
   let { onchange }: { onchange?: () => void } = $props();
@@ -26,7 +28,8 @@
   const tabs: { id: AppHostApplicationStatus; label: string }[] = [
     { id: 'pending', label: m.self_host_application_status_pending() },
     { id: 'approved', label: m.self_host_application_status_approved() },
-    { id: 'rejected', label: m.self_host_application_status_rejected() }
+    { id: 'rejected', label: m.self_host_application_status_rejected() },
+    { id: 'revoked', label: m.app_host_admin_status_revoked() }
   ];
   let activeTab = $state<AppHostApplicationStatus>('pending');
 
@@ -41,12 +44,12 @@
   let approving = $state(false);
   let approveError = $state<string | null>(null);
 
-  // Reject flow
-  let rejectTarget = $state<AdminAppHostApplication | null>(null);
-  let rejectOpen = $state(false);
-  let rejectReason = $state('');
-  let rejecting = $state(false);
-  let rejectError = $state<string | null>(null);
+  /** Nach Ablehnen/Rücknahme: Eintrag aus der Liste + Badge nachziehen.
+   *  (Der Antrag wechselt den Status und gehört damit in einen anderen Tab.) */
+  function removeFromList(appId: string) {
+    apps = apps.filter((a) => a.id !== appId);
+    onchange?.();
+  }
 
   function errMsg(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -95,25 +98,6 @@
     }
   }
 
-  async function doReject() {
-    const target = rejectTarget;
-    if (!target || !rejectReason.trim()) return;
-    rejecting = true;
-    rejectError = null;
-    try {
-      await adminAppHostApplicationsApi.rejectApplication(target.id, rejectReason.trim());
-      apps = apps.filter((a) => a.id !== target.id);
-      onchange?.();
-      toast.success(m.app_host_admin_rejected_toast({ username: target.applicant_username }));
-      rejectOpen = false;
-      rejectReason = '';
-      rejectTarget = null;
-    } catch (e) {
-      rejectError = errMsg(e);
-    } finally {
-      rejecting = false;
-    }
-  }
 </script>
 
 <!-- Tab-Bar (Markup gespiegelt von AdminInstances.svelte) -->
@@ -169,15 +153,14 @@
             >
               {m.app_host_admin_approve_btn()}
             </button>
-            <button
-              type="button"
-              onclick={() => { rejectError = null; rejectTarget = app; rejectOpen = true; }}
+            <AdminAppHostReject
+              {app}
               disabled={!!busy[app.id]}
-              class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
-            >
-              {m.app_host_admin_reject_btn()}
-            </button>
+              onrejected={() => removeFromList(app.id)}
+            />
           </div>
+        {:else if app.status === 'approved'}
+          <AdminAppHostRevoke {app} onrevoked={() => removeFromList(app.id)} />
         {:else if app.rejection_reason}
           <p class="text-text-muted text-xs italic">{app.rejection_reason}</p>
         {/if}
@@ -207,42 +190,6 @@
         <button type="button" onclick={doApprove} disabled={approving}
           class="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white font-medium hover:bg-emerald-500 disabled:opacity-60">
           {approving ? m.app_host_admin_approving() : m.app_host_admin_confirm_approve()}
-        </button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
-
-<!-- Reject Dialog -->
-<Dialog.Root bind:open={rejectOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="app-host-reject-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.app_host_admin_reject_title()}</Dialog.Title>
-        <Dialog.Description>{rejectTarget?.applicant_username}</Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="app-host-reject-reason">
-          {m.app_host_admin_reject_reason_label()}
-        </label>
-        <textarea
-          id="app-host-reject-reason"
-          bind:value={rejectReason}
-          rows="3"
-          maxlength="1000"
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-        ></textarea>
-        {#if rejectError}<p class="text-red-400 text-xs">{rejectError}</p>{/if}
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (rejectOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
-          {m.app_host_admin_cancel()}
-        </button>
-        <button type="button" onclick={doReject} disabled={rejecting || !rejectReason.trim()}
-          class="rounded-xl bg-red-600/80 px-4 py-2 text-sm text-white font-medium hover:bg-red-500 disabled:opacity-60">
-          {rejecting ? m.app_host_admin_rejecting() : m.app_host_admin_reject_btn()}
         </button>
       </div>
     </Dialog.Content>

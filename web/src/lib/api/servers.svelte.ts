@@ -326,9 +326,21 @@ class ServersStore {
           // Bereits gelistet → den geräteübergreifenden Notification-Modus
           // (Cloud = Quelle der Wahrheit) nachziehen, falls er hier abweicht.
           // Der Name kommt NICHT von hier — den bestimmt der Server-Admin.
-          if (existing.notification_mode !== inst.notification_mode) {
+          //
+          // Der Hostname sehr wohl: bei App-Host-Servern wechselt er vom
+          // synthetischen Platzhalter auf die Relay-Subdomain, sobald das
+          // Gerät gepaart ist. Ohne Nachziehen zeigt ein einmal gespeicherter
+          // Eintrag für immer auf den toten Platzhalter-Host.
+          const hostChanged = existing.instance_id === inst.id && existing.hostname !== normalized;
+          if (hostChanged || existing.notification_mode !== inst.notification_mode) {
             this.servers = this.servers.map((s) =>
-              s.id === existing.id ? { ...s, notification_mode: inst.notification_mode } : s,
+              s.id === existing.id
+                ? {
+                    ...s,
+                    hostname: hostChanged ? normalized : s.hostname,
+                    notification_mode: inst.notification_mode,
+                  }
+                : s,
             );
             mutated = true;
           }

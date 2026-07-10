@@ -18,7 +18,8 @@ import { cookieFetch } from './cookie-client';
 // Typen — gespiegelt von den Pydantic-Schemas
 // ---------------------------------------------------------------------------
 
-export type AppHostApplicationStatus = 'pending' | 'approved' | 'rejected';
+// 'revoked' = erteilte Freischaltung vom Admin zurückgenommen (Historie).
+export type AppHostApplicationStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
 export type AppHostPurpose = 'privat' | 'verein' | 'firma' | 'sonst';
 
 /** Spiegelt AppHostApplicationOut (User-Route). */
@@ -98,6 +99,16 @@ export const adminAppHostApplicationsApi = {
     return cookieFetch<AdminAppHostApplication>(
       `/admin/app-host-applications/${appId}/reject`,
       { method: 'POST', body: { reason } }
+    );
+  },
+
+  /** Erteilte Freischaltung zurücknehmen: Flag aus + App-Host-Instanzen des
+   *  Users suspendiert (Kill-Switch stoppt einen laufenden Container). */
+  revokeApplication(appId: string, reason?: string): Promise<void> {
+    const q = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    return cookieFetch<void>(
+      `/admin/app-host-applications/${appId}/revoke${q}`,
+      { method: 'POST' }
     );
   }
 };

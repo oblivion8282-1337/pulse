@@ -684,3 +684,37 @@ async def test_patch_preferences_requires_cookie(client, alice_instance):
         f"/me/instances/{alice_instance.id}/preferences", json={"label": "x"}
     )
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_me_instances_prefers_relay_subdomain(
+    client, alice_cookie, alice_instance, session_factory
+):
+    """App-Host-Instanzen: der Client muss die ERREICHBARE Adresse bekommen.
+
+    ``hostname`` ist bei ihnen ein synthetischer Platzhalter (``app-<id>.…``,
+    existiert nicht im DNS); erreichbar sind sie erst unter der beim Pairing
+    vergebenen Relay-Subdomain. Ohne diesen Vorrang baut der Client seine
+    Server-URL aus dem Platzhalter, landet auf einem toten Host und der
+    Cert-Login scheitert mit 401 (``cert_invalid``).
+    """
+    async with session_factory() as session:
+        inst = await session.get(RegisteredInstance, alice_instance.id)
+        inst.hostname = f"app-{alice_instance.id}.relay.example.com"
+        inst.origin = "app_host"
+        inst.relay_subdomain = "calm-thistle-98e3.relay.example.com"
+        await session.commit()
+
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["hostname"] == "calm-thistle-98e3.relay.example.com"
+
+
+@pytest.mark.asyncio
+async def test_me_instances_falls_back_to_hostname_without_subdomain(
+    client, alice_cookie, alice_instance
+):
+    """VPS-Instanzen (kein relay_subdomain) behalten ihren echten Hostname."""
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["hostname"] == "alice-instance.example.com"

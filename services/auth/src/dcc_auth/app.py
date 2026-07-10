@@ -18,6 +18,7 @@ from dcc_auth.routes_account import router as account_router
 from dcc_auth.routes_account_security import router as account_security_router
 from dcc_auth.routes_admin import router as admin_router
 from dcc_auth.routes_admin_app_host import router as admin_app_host_router
+from dcc_auth.routes_admin_app_host_revoke import router as admin_app_host_revoke_router
 from dcc_auth.routes_admin_instances import router as admin_instances_router
 from dcc_auth.routes_admin_backup import router as admin_backup_router
 from dcc_auth.routes_admin_smtp import router as admin_smtp_router
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(avatar_router)
     app.include_router(admin_router)
     app.include_router(admin_app_host_router)
+    app.include_router(admin_app_host_revoke_router)
     app.include_router(admin_instances_router)
     app.include_router(admin_smtp_router)
     app.include_router(admin_backup_router)

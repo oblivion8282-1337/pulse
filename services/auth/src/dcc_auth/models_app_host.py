@@ -47,7 +47,9 @@ class AppHostApplication(Base):
     )
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # pending | approved | rejected
+    # pending | approved | rejected | revoked
+    # 'revoked' = erteilte Freischaltung vom Admin zurückgenommen
+    # (routes_admin_app_host_revoke.py). Historie — der User darf neu beantragen.
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="pending"
     )

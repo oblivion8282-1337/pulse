@@ -24,6 +24,14 @@ export const isElectron = (): boolean =>
   typeof window !== 'undefined' && window.pulse?.platform === 'electron';
 
 /**
+ * True in der Pulse **Server-App** (Build-Mode 'server'). Deren Login-Phase
+ * lädt diese Web-App remote — die Login-Seite brandet sich darüber als
+ * Server-App, damit beide Apps unterscheidbar sind.
+ */
+export const isServerApp = (): boolean =>
+  isElectron() && window.pulse?.appMode === 'server';
+
+/**
  * True inside the Capacitor Android wrapper app (the APK that loads
  * howispulse.com remotely). Capacitor injects a native bridge whose
  * `isNativePlatform()` returns true there and never in a plain browser. This

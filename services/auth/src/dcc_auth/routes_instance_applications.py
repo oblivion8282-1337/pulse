@@ -169,7 +169,13 @@ def _instance_to_out(
 ) -> InstanceOut:
     return InstanceOut(
         id=str(inst.id),
-        hostname=inst.hostname,
+        # App-Host-Instanzen tragen als ``hostname`` nur einen synthetischen
+        # Platzhalter (``app-<id>.…``, bei der Approval vergeben, existiert im
+        # DNS nicht). Erreichbar sind sie unter der Relay-Subdomain, die erst
+        # beim Pairing entsteht. Der Client baut aus diesem Feld seine
+        # Server-URL — ohne den Fallback zeigt er auf einen toten Host und der
+        # Cert-Login scheitert mit 401 (``cert_invalid``).
+        hostname=inst.relay_subdomain or inst.hostname,
         client_id=inst.client_id,
         worker_id_chat=inst.worker_id_chat,
         worker_id_voice=inst.worker_id_voice,
