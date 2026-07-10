@@ -20,7 +20,9 @@ import { cookieFetch, renewSession, safeParse, extractDetail } from './cookie-cl
 // Typen — gespiegelt von den Pydantic-Schemas im Backend
 // ---------------------------------------------------------------------------
 
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
+// 'closed' = Instanz vom Owner gelöscht → Antrag ist Historie (kein roter
+// Punkt, kein Listeneintrag mehr — siehe routes_instance_delete.py).
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed';
 export type InstanceStatus = 'active' | 'suspended';
 
 /** Spiegelt InstanceApplicationOut (User-Route). */

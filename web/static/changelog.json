@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-10.2",
+      "date": "2026-07-10",
+      "style": "Sachlich",
+      "title": "Server löschen räumt jetzt vollständig auf",
+      "intro": "Wer einen selbst gehosteten Server löschte, behielt bisher Reste davon im Konto.",
+      "items": [
+        "Der rote Hinweispunkt am Profil verschwindet nach dem Löschen, statt dauerhaft auf einen nicht mehr existierenden Server zu zeigen.",
+        "Mitglieder des gelöschten Servers behalten keine tote Server-Kachel mehr in ihrer Liste.",
+        "Die Antragsliste zeigt erledigte Anträge nicht mehr als offen an."
+      ]
+    },
+    {
       "id": "2026-07-10.1",
       "date": "2026-07-10",
       "style": "Sachlich",

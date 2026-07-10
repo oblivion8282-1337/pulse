@@ -25,13 +25,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import (
+    InstanceApplication,
     InstanceBootstrapToken,
+    InstanceDirectEndpoint,
     RegisteredInstance,
     SuspendedInstance,
+    UserInstanceMembership,
 )
 from dcc_auth.routes_instance_applications import _require_user
 from dcc_auth.routes_suspended_instances import _get_redis, suspended_list_add
@@ -77,6 +80,31 @@ async def delete_my_instance(
     # gegen die gelöschte Instanz einlösen.
     await db.execute(
         delete(InstanceBootstrapToken).where(InstanceBootstrapToken.instance_id == iid)
+    )
+
+    # Mitgliedschaften ALLER User + Telefonbuch-Eintrag mitnehmen: die Instanz
+    # existiert für niemanden mehr. Ohne das behalten Mitglieder eine Server-
+    # Kachel ohne Server, und das Telefonbuch nennt eine Adresse, hinter der
+    # nichts mehr antwortet.
+    await db.execute(
+        delete(UserInstanceMembership).where(UserInstanceMembership.instance_id == iid)
+    )
+    await db.execute(
+        delete(InstanceDirectEndpoint).where(InstanceDirectEndpoint.instance_id == iid)
+    )
+
+    # Ursprungs-Antrag schließen: 'approved' zählt clientseitig als "wartet
+    # auf Einrichtung" (roter Punkt am UserFooter, myInstanceApplications).
+    # Ohne den Endstatus lebte der Punkt auf jedem neuen Gerät weiter, obwohl
+    # die Instanz weg ist. 'closed' ist bewusst KEIN 'rejected' — sonst
+    # bekäme der Owner nachträglich einen Ablehnungs-Toast.
+    await db.execute(
+        update(InstanceApplication)
+        .where(
+            InstanceApplication.approved_instance_id == iid,
+            InstanceApplication.status == "approved",
+        )
+        .values(status="closed")
     )
 
     if not was_suspended:

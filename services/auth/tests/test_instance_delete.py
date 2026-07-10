@@ -332,3 +332,83 @@ async def test_admin_actions_409_on_deleted(
         f"/admin/instances/{owner_instance.id}/rotate-secret", headers=headers
     )
     assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_delete_cleans_memberships_directory_and_application(
+    client, owner_cookie, other_cookie, owner_instance, session_factory
+):
+    """Löschung räumt ALLE abhängigen Zustände ab (Fund vom Extern-Test 2026-07-10):
+
+    Ohne den Cleanup behielten Mitglieder eine Server-Kachel ohne Server,
+    das Direktpfad-Telefonbuch nannte eine tote Adresse, und der genehmigte
+    Ursprungs-Antrag zeigte auf jedem Gerät weiter den roten
+    "einrichten"-Punkt (myInstanceApplications zählt status='approved').
+    """
+    from dcc_auth.models_instances import (
+        InstanceApplication,
+        InstanceDirectEndpoint,
+        UserInstanceMembership,
+    )
+
+    r = await client.get("/me", headers={"Cookie": owner_cookie})
+    owner_id = int(r.json()["id"])
+    r = await client.get("/me", headers={"Cookie": other_cookie})
+    other_id = int(r.json()["id"])
+
+    app_id = 10000000000000077
+    async with session_factory() as s:
+        s.add(
+            InstanceApplication(
+                id=app_id,
+                applicant_user_id=owner_id,
+                hostname=_HOSTNAME,
+                purpose="privat",
+                expected_users=5,
+                contact_email=_REG_OWNER["email"],
+                status="approved",
+                approved_instance_id=_INSTANCE_ID,
+            )
+        )
+        s.add(UserInstanceMembership(user_id=owner_id, instance_id=_INSTANCE_ID, role="owner"))
+        s.add(UserInstanceMembership(user_id=other_id, instance_id=_INSTANCE_ID, role="member"))
+        s.add(
+            InstanceDirectEndpoint(
+                instance_id=_INSTANCE_ID,
+                candidates=[{"ip": "203.0.113.7", "port": 7900, "protocol": "udp"}],
+                fingerprint="sha-256 AA:BB",
+            )
+        )
+        await s.commit()
+
+    r = await client.delete(
+        f"/me/instances/{owner_instance.id}", headers={"Cookie": owner_cookie}
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        memberships = (
+            (
+                await s.execute(
+                    select(UserInstanceMembership).where(
+                        UserInstanceMembership.instance_id == _INSTANCE_ID
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert memberships == []
+
+        endpoint = await s.get(InstanceDirectEndpoint, _INSTANCE_ID)
+        assert endpoint is None
+
+        application = await s.get(InstanceApplication, app_id)
+        assert application is not None
+        assert application.status == "closed"
+
+    # Der geschlossene Antrag zählt für den Owner nirgends mehr als
+    # approved — der rote Punkt stirbt server-abgeleitet auf jedem Gerät.
+    r = await client.get("/me/instance-applications", headers={"Cookie": owner_cookie})
+    assert r.status_code == 200
+    assert [a["status"] for a in r.json()] == ["closed"]

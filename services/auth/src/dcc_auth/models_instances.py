@@ -153,7 +153,9 @@ class InstanceApplication(Base):
     expected_users: Mapped[int] = mapped_column(nullable=False)
     contact_email: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # pending | approved | rejected
+    # pending | approved | rejected | closed
+    # 'closed' = die genehmigte Instanz wurde vom Owner gelöscht — der Antrag
+    # ist Historie und zählt nirgends mehr als "wartet auf Einrichtung".
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
     reviewed_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=True
