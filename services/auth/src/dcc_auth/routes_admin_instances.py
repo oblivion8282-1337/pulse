@@ -24,6 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from dcc_auth.admin_events import publish_application_decided
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import (
@@ -225,6 +226,7 @@ async def list_applications(
 @router.post("/instance-applications/{app_id}/approve", response_model=ApprovalOut)
 async def approve_application(
     app_id: int,
+    request: Request,
     session: SessionDep,
     actor: Annotated[User, Depends(_require_owner)],
 ):
@@ -330,6 +332,12 @@ async def approve_application(
             # re-lock the row and re-allocate.
             continue
 
+        # Erst nach dem Commit: der Antragsteller darf nichts erfahren, was ein
+        # zurückgerollter Vorgang nie war.
+        await publish_application_decided(
+            request, user_id=app_applicant_user_id, kind="instance", status="approved"
+        )
+
         return ApprovalOut(
             instance_id=str(instance_id),
             hostname=app_hostname,
@@ -354,6 +362,7 @@ async def approve_application(
 async def reject_application(
     app_id: int,
     body: RejectIn,
+    request: Request,
     session: SessionDep,
     actor: Annotated[User, Depends(_require_owner)],
 ):
@@ -369,10 +378,19 @@ async def reject_application(
             detail="application already approved; cannot reject",
         )
 
+    applicant_user_id = app_row.applicant_user_id
     app_row.status = "rejected"
     _stamp_review(app_row, actor)
     app_row.rejection_reason = body.rejection_reason
     await session.commit()
+
+    await publish_application_decided(
+        request,
+        user_id=applicant_user_id,
+        kind="instance",
+        status="rejected",
+        rejection_reason=body.rejection_reason,
+    )
 
 
 # --------------------------------------------------------------------------- #

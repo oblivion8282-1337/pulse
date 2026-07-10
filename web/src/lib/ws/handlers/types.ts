@@ -284,6 +284,16 @@ export type ServerEvent =
   // Trägt bewusst keine Antragsdaten — der Client lädt die Liste danach über
   // seinen Admin-Endpoint nach.
   | { op: 'admin_application_pending'; kind: 'app_host' | 'instance' }
+  // An den Antragsteller (user:events). Toast + roter Punkt kommen aus den
+  // Stores, die nach diesem Signal ihre Liste nachladen.
+  | {
+      op: 'application_decided';
+      data: {
+        kind: 'app_host' | 'instance';
+        status: 'approved' | 'rejected';
+        rejection_reason: string | null;
+      };
+    }
   | { op: 'user_blocked'; data: { user_id: string } }
   | { op: 'user_unblocked'; data: { user_id: string } }
   | {
