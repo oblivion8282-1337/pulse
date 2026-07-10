@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { app } from 'electron';
 import { logSidecar } from './sidecar-log';
+import { storeGet } from './store';
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,17 @@ function resolveSidecarSpawn(): SpawnTarget {
   if (_cachedSpawnTarget) return _cachedSpawnTarget;
   let target: SpawnTarget;
   if (process.platform === 'linux') {
-    target = { command: PYTHON_BIN, args: [resolveScriptPath()] };
+    // Experimenteller Rust-Linux-Sidecar statt des Python-GSR-Sidecars,
+    // umgeschaltet über die „Experimental"-Tab-Checkbox (Store-Key
+    // `useRustSidecar`). Default (Key fehlt/false) → unverändert Python, damit
+    // sich für alle anderen nichts ändert. Bei Umschalten invalidiert
+    // `resetSpawnTargetCache()` (main.ts) diesen Cache, sodass der nächste
+    // Spawn das richtige Binary auflöst.
+    if (storeGet('useRustSidecar') === true) {
+      target = { command: resolveLinuxRustBinaryPath(), args: [] };
+    } else {
+      target = { command: PYTHON_BIN, args: [resolveScriptPath()] };
+    }
   } else if (process.platform === 'win32') {
     target = { command: resolveBinaryPath(), args: [] };
   } else if (process.platform === 'darwin') {
@@ -97,6 +108,39 @@ function resolveSidecarSpawn(): SpawnTarget {
   }
   _cachedSpawnTarget = target;
   return target;
+}
+
+/** Invalidiert das memoisierte Spawn-Target. main.ts ruft das, wenn der
+ *  `useRustSidecar`-Store-Key umgeschaltet wird, damit der nächste Spawn das
+ *  Binary neu auflöst (Python ↔ Rust). */
+export function resetSpawnTargetCache(): void {
+  _cachedSpawnTarget = null;
+}
+
+/**
+ * Locate the experimental Rust Linux HQ sidecar binary (Linux only).
+ *
+ * Order:
+ *   1. `$PULSE_LINUX_HQ_SIDECAR` override (absolute path, dev-only) — der Rust-
+ *      Crate liegt außerhalb dieses Repos, daher kein Walk-up wie beim Python-
+ *      control.py; im Dev zeigt man mit dieser Var auf `…/target/release/…`.
+ *   2. Flatpak/packaged default `/app/bin/pulse-linux-hq-sidecar` (das
+ *      Flatpak-Cargo-Modul installiert das Binary dorthin).
+ */
+function resolveLinuxRustBinaryPath(): string {
+  const override = !app.isPackaged ? process.env.PULSE_LINUX_HQ_SIDECAR : undefined;
+  if (override) {
+    if (!fs.existsSync(override)) {
+      throw new Error(`PULSE_LINUX_HQ_SIDECAR points at a non-existent file: ${override}`);
+    }
+    return override;
+  }
+  const flatpakDefault = '/app/bin/pulse-linux-hq-sidecar';
+  if (fs.existsSync(flatpakDefault)) return flatpakDefault;
+  throw new Error(
+    'Could not locate the experimental Rust Linux sidecar (pulse-linux-hq-sidecar). ' +
+      'It ships at /app/bin/ in the Flatpak; in dev set $PULSE_LINUX_HQ_SIDECAR to the built binary.',
+  );
 }
 
 /**

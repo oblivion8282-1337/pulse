@@ -11,7 +11,9 @@
   import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import SettingsApps from './settings/SettingsApps.svelte';
+  import SettingsExperimental from './settings/SettingsExperimental.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -40,7 +42,8 @@
     | 'security'
     | 'privacy'
     | 'self-host'
-    | 'apps';
+    | 'apps'
+    | 'experimental';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -78,12 +81,20 @@
   // dort ist die App schon installiert, Download-Links wären sinnlos.
   const inBrowser = !isElectron() && !isCapacitorAndroid();
 
+  // linuxOnly: nur die Linux-Desktop-App (Flatpak). Der Experimental-Tab
+  // schaltet den Rust-Linux-Sidecar um — auf Windows/macOS laufen schon eigene
+  // Rust-Sidecars, im Browser gibt es keinen lokalen Sidecar. `window.pulse.os`
+  // ist Nodes `process.platform` aus dem Preload (autoritativ).
+  const isLinuxDesktop =
+    isElectron() && typeof window !== 'undefined' && window.pulse?.os === 'linux';
+
   const tabs: {
     id: SettingsTab;
     label: string;
     icon: typeof MicIcon;
     desktopOnly?: true;
     browserOnly?: true;
+    linuxOnly?: true;
   }[] = [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
@@ -95,11 +106,17 @@
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
-    { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true }
+    { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
+    { id: 'experimental', label: m.settings_dialog_tab_experimental(), icon: FlaskConicalIcon, linuxOnly: true }
   ];
 
   let visibleTabs = $derived(
-    tabs.filter((t) => (!t.desktopOnly || !viewport.isMobile) && (!t.browserOnly || inBrowser))
+    tabs.filter(
+      (t) =>
+        (!t.desktopOnly || !viewport.isMobile) &&
+        (!t.browserOnly || inBrowser) &&
+        (!t.linuxOnly || isLinuxDesktop)
+    )
   );
 
   let activeLabel = $derived(visibleTabs.find((t) => t.id === activeTab)?.label ?? '');
@@ -185,6 +202,8 @@
           <SettingsSelfHost />
         {:else if activeTab === 'apps'}
           <SettingsApps />
+        {:else if activeTab === 'experimental'}
+          <SettingsExperimental />
         {:else}
           <SettingsSecurity />
         {/if}
