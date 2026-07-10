@@ -18,6 +18,12 @@ app-id: com.howispulse.Pulse
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
+# SDK-Extensions für den experimentellen Rust-Linux-HQ-Sidecar-Build:
+# rust-stable = cargo/rustc, llvm18 = libclang für bindgen (ffmpeg-sys,
+# pipewire-sys, libspa-sys). Nur zur Build-Zeit; nichts davon landet im App.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm18
 # zypak: replaces Chromium's setuid sandbox (which can't work inside a Flatpak)
 # with a bubblewrap-based one. The launcher runs Electron via `zypak-wrapper`.
 base: org.electronjs.Electron2.BaseApp
@@ -182,6 +188,32 @@ modules:
         path: ../streaming/patches/0002-stub-vulkan-encoder.patch
       - type: patch
         path: ../streaming/patches/0003-portal-cursor-embedded.patch
+
+  # ── Experimenteller Rust-Linux-HQ-Sidecar (opt-in via Experimental-Tab) ──────
+  # Baut das Rust-Binary → /app/bin/pulse-linux-hq-sidecar (sidecar.ts wählt es,
+  # wenn der Store-Key useRustSidecar=true ist). Linkt gegen das oben gebaute
+  # ffmpeg-Modul via pkg-config (/app/lib/pkgconfig ist im default PKG_CONFIG_PATH).
+  # libEGL/libcuda werden zur LAUFZEIT per dlopen geladen (GL-Extension) — kein
+  # Build-Link. Offline-Cargo: linux-hq-sidecar-cargo-sources.json (via
+  # flatpak-cargo-generator aus Cargo.lock); Crates → cargo/vendor, config →
+  # cargo/config, daher CARGO_HOME auf <builddir>/cargo.
+  - name: pulse-linux-hq-sidecar
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm18/bin
+      env:
+        CARGO_HOME: /run/build/pulse-linux-hq-sidecar/cargo
+        LIBCLANG_PATH: /usr/lib/sdk/llvm18/lib
+    build-commands:
+      - cargo --offline build --release --verbose
+      - install -Dm755 target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
+    sources:
+      # Lokaler git-Checkout des Sidecar-Repos (committed Stand von main). Für
+      # die CI später auf `type: git, url: <github>, commit: <sha>` umstellen.
+      - type: git
+        path: ../../Linux_Rust_Sidecar
+        branch: main
+      - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
   - name: pulse
