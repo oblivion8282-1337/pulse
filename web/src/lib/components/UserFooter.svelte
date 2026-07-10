@@ -75,11 +75,10 @@
       pendingAppHostApplications.count > 0
   );
 
-  // Owner-Punkt: ein eigener Self-Host-Antrag wurde freigeschaltet und der User
-  // hat „Meine Instanzen" noch nicht angesehen → einrichten. Nur auf der Cloud
-  // relevant (dort lebt die Self-Host-Verwaltung).
-  // Eigener freigeschalteter Antrag (Self-Host ODER App-Hosting), auf diesem
-  // Gerät noch nicht angesehen → Punkt führt den User zu den Einstellungen.
+  // Owner-Punkt: ein eigener Antrag (Self-Host ODER App-Hosting) wurde
+  // freigeschaltet und auf diesem Gerät noch nicht angesehen → der Punkt führt
+  // den User zu den Einstellungen. Nur auf der Cloud relevant (dort lebt die
+  // Self-Host-Verwaltung).
   let showOwnerSetupBadge = $derived(
     (activeServer.current?.isCloud ?? false) &&
       (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
