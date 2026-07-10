@@ -105,6 +105,7 @@ fn monitor_lifecycle(pc: &Arc<RTCPeerConnection>) {
     tokio::spawn(async move {
         while let Some(st) = rx.recv().await {
             match st {
+                RTCPeerConnectionState::Connected => log_selected_pair(&pc).await,
                 RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed => {
                     let _ = pc.close().await;
                     return;
@@ -113,4 +114,70 @@ fn monitor_lifecycle(pc: &Arc<RTCPeerConnection>) {
             }
         }
     });
+}
+
+/// Adressen aus dem eigenen Netz (RFC1918 / link-local / loopback). Nur für die
+/// Klartext-Einordnung im Log — ein Client von außen hat keine davon.
+fn is_lan_address(addr: &str) -> bool {
+    match addr.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        Ok(IpAddr::V6(v6)) => v6.is_loopback(),
+        Err(_) => false,
+    }
+}
+
+/// Schreibt das gewählte ICE-Kandidatenpaar ins Log, sobald die Verbindung
+/// steht. Genau hier entscheidet sich, ob der Direktpfad wirklich über das
+/// Internet läuft: ist der Gegenpart **kein** LAN-Kandidat, hat der srflx-Weg
+/// (öffentliche Adresse, `sdp::inject_srflx`) getragen. Im LAN gewinnt dagegen
+/// immer der Host-Kandidat — der Beweis ist also nur ein Extern-Test wert.
+///
+/// Das Paar steht kurz nach `Connected` manchmal noch nicht bereit, deshalb ein
+/// paar kurze Versuche statt einer einzelnen Abfrage.
+async fn log_selected_pair(pc: &Arc<RTCPeerConnection>) {
+    let dtls = pc.sctp().transport();
+    let ice = dtls.ice_transport();
+    for _ in 0..10 {
+        if let Some(pair) = ice.get_selected_candidate_pair().await {
+            let weg = if is_lan_address(&pair.remote.address) {
+                "LAN (Host-Kandidat)"
+            } else {
+                "Internet (srflx trägt)"
+            };
+            println!(
+                "[direct-adapter] verbunden über {weg}: \
+                 lokal {}:{} [{}] <-> Gegenstelle {}:{} [{}]",
+                pair.local.address,
+                pair.local.port,
+                pair.local.typ,
+                pair.remote.address,
+                pair.remote.port,
+                pair.remote.typ,
+            );
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    eprintln!("[direct-adapter] verbunden, aber kein Kandidatenpaar abfragbar");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lan_adressen_werden_erkannt() {
+        for lan in ["192.168.178.42", "10.0.0.5", "172.16.0.1", "169.254.1.1", "127.0.0.1"] {
+            assert!(is_lan_address(lan), "{lan} sollte als LAN gelten");
+        }
+    }
+
+    #[test]
+    fn oeffentliche_adressen_gelten_als_internet() {
+        // u.a. eine typische Mobilfunk-Adresse (CGNAT) — sie ist aus Sicht des
+        // Servers eine Gegenstelle von außen, kein LAN-Kandidat.
+        for wan in ["100.64.12.7", "159.195.150.54", "8.8.8.8"] {
+            assert!(!is_lan_address(wan), "{wan} sollte als Internet gelten");
+        }
+    }
 }

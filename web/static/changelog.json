@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-10.1",
+      "date": "2026-07-10",
+      "style": "Sachlich",
+      "title": "Selbst gehostete Server laufen jetzt direkt",
+      "intro": "Bisher liefen Chat, Login und Verbindung zu einem selbst gehosteten Server über unsere Cloud. Ab jetzt verbindet sich dein Gerät direkt mit dem Server.",
+      "items": [
+        "Nachrichten und Anmeldung nehmen den kürzesten Weg: direkt zwischen deinem Gerät und dem Server. Das ist schneller.",
+        "Unsere Cloud vermittelt nur noch den Erstkontakt und weiß danach nicht mehr, was ausgetauscht wird.",
+        "Ist eine direkte Verbindung nicht möglich, wird automatisch der bisherige Weg genutzt. Du musst nichts einstellen."
+      ]
+    },
+    {
       "id": "2026-07-09.1",
       "date": "2026-07-09",
       "style": "Sachlich",
