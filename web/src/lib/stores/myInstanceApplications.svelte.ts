@@ -53,6 +53,12 @@ class MyInstanceApplications {
     void this._poll();
   }
 
+  /** Sofort neu laden — vom `application_decided`-WS-Ereignis gerufen, damit
+   *  Toast und roter Punkt nicht bis zum nächsten Poll-Tick warten. */
+  refresh(): void {
+    void this._poll();
+  }
+
   start(): void {
     if (this._running || typeof window === 'undefined') return;
     this._running = true;

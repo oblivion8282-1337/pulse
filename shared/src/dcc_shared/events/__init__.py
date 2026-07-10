@@ -82,6 +82,7 @@ from dcc_shared.events.chat import (
     WatchChatReactionData,
     WatchChatReactionEvent,
 )
+from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.community import (
     CommunityInviteReceivedEvent,
     CommunityInviteRemovedEvent,
@@ -157,6 +158,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "typing": TypingEvent,
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
+    "application_decided": ApplicationDecidedEvent,
     "friend_request_received": FriendRequestReceivedEvent,
     "friend_request_accepted": FriendRequestAcceptedEvent,
     "friend_request_declined": FriendRequestDeclinedEvent,
@@ -229,6 +231,7 @@ __all__ = [
     "WatchChatReactionData",
     "WatchChatReactionEvent",
     # friends
+    "ApplicationDecidedEvent",
     "FriendRemovedEvent",
     "FriendRequestAcceptedEvent",
     "FriendRequestCancelledEvent",

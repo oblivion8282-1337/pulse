@@ -17,6 +17,7 @@
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
+  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
@@ -174,6 +175,10 @@
     // Owner-Benachrichtigung: toastet, wenn ein eigener Antrag genehmigt/
     // abgelehnt wird. Interner Guard pollt nur bei offenem eigenen Antrag.
     myInstanceApplications.start();
+    // Dasselbe für App-Hosting-Anträge — app-weit, nicht erst wenn die
+    // Hosting-Karte gemountet ist: sonst gäbe es keinen roten Punkt, der den
+    // frisch freigeschalteten User überhaupt erst dorthin führt.
+    myAppHostApplications.start();
 
     // Channel-prefetch: now that Ready has populated guilds.byId, kick off
     // a `listChannels` for every guild in the background. Fire-and-forget

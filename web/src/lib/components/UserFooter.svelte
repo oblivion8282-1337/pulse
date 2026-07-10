@@ -10,6 +10,7 @@
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
+  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -77,8 +78,11 @@
   // Owner-Punkt: ein eigener Self-Host-Antrag wurde freigeschaltet und der User
   // hat „Meine Instanzen" noch nicht angesehen → einrichten. Nur auf der Cloud
   // relevant (dort lebt die Self-Host-Verwaltung).
+  // Eigener freigeschalteter Antrag (Self-Host ODER App-Hosting), auf diesem
+  // Gerät noch nicht angesehen → Punkt führt den User zu den Einstellungen.
   let showOwnerSetupBadge = $derived(
-    (activeServer.current?.isCloud ?? false) && myInstanceApplications.pendingSetup > 0
+    (activeServer.current?.isCloud ?? false) &&
+      (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
   );
 
   let showFooterDot = $derived(showInstanceBadge || showAppHostBadge || showOwnerSetupBadge);

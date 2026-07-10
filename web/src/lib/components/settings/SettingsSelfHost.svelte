@@ -2,11 +2,12 @@
   Self-Hoster-Tab in den Einstellungen.
   Zwei klar getrennte Karten:
     1. App-Hosting  — Stufe 2, lokal auf dem Gerät (Electron-only, LocalHosting)
-    2. Eigener Server (24/7) — Stufe 3, dauerhaft auf einem VPS
+    2. Eigener Server — Stufe 3, dauerhaft auf einem VPS
        (SelfHostApplication + MyInstances)
 -->
 <script lang="ts">
   import type { Component } from 'svelte';
+  import { onMount } from 'svelte';
   import LocalHosting from '$lib/components/account/LocalHosting.svelte';
   import SelfHostApplication from '$lib/components/account/SelfHostApplication.svelte';
   import MyInstances from '$lib/components/account/MyInstances.svelte';
@@ -14,6 +15,11 @@
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
   import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
+  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
+
+  // Der User ist da, wohin ihn der rote Punkt führen sollte → Punkt löschen.
+  // (Gegenstück zu MyInstances, das den Self-Host-Punkt quittiert.)
+  onMount(() => myAppHostApplications.acknowledge());
 
   const SECTION_CLASS =
     'border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4';

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from dcc_auth.admin_events import publish_application_decided
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.instance_provisioning import (
@@ -158,6 +159,7 @@ async def list_app_host_applications(
 )
 async def approve_app_host_application(
     app_id: str,
+    request: Request,
     db: SessionDep,
     actor: Annotated[User, Depends(_require_owner)],
 ) -> ApproveOut:
@@ -217,6 +219,12 @@ async def approve_app_host_application(
     await db.commit()
     await db.refresh(app)
 
+    # Erst nach dem Commit: der Antragsteller darf nichts erfahren, was ein
+    # zurückgerollter Vorgang nie war.
+    await publish_application_decided(
+        request, user_id=target_user.id, kind="app_host", status="approved"
+    )
+
     return ApproveOut(
         id=str(app.id),
         user_id=str(target_user.id),
@@ -234,6 +242,7 @@ async def approve_app_host_application(
 async def reject_app_host_application(
     app_id: str,
     payload: RejectPayload,
+    request: Request,
     db: SessionDep,
     actor: Annotated[User, Depends(_require_owner)],
 ) -> AdminAppHostApplicationOut:
@@ -272,6 +281,14 @@ async def reject_app_host_application(
 
     await db.commit()
     await db.refresh(app)
+
+    await publish_application_decided(
+        request,
+        user_id=app.user_id,
+        kind="app_host",
+        status="rejected",
+        rejection_reason=payload.reason,
+    )
 
     out = await _hydrate_applicant_usernames(db, [app])
     return out[0]

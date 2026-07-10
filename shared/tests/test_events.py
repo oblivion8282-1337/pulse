@@ -131,6 +131,10 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "op": "mention_added",
         "data": {"channel_id": "6", "message_id": "1", "guild_id": "5"},
     },
+    "application_decided": {
+        "op": "application_decided",
+        "data": {"kind": "app_host", "status": "approved", "rejection_reason": None},
+    },
     "friend_request_received": {
         "op": "friend_request_received",
         "data": {"request_id": "9", "from": "3"},
