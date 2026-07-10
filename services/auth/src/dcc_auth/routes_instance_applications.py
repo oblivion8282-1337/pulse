@@ -262,7 +262,7 @@ async def list_my_instance_applications(
     request: Request,
     db: SessionDep,
     status_filter: Annotated[
-        Literal["pending", "approved", "rejected", "all"] | None,
+        Literal["pending", "approved", "rejected", "closed", "all"] | None,
         Query(alias="status"),
     ] = None,
 ) -> list[InstanceApplicationOut]:

@@ -28,11 +28,14 @@
   async function reload() {
     listLoading = true;
     try {
-      // Genehmigte Anträge ausblenden: sie leben als Server unter „Meine
-      // Instanzen" weiter und würden hier sonst dauerhaft als erledigte Einträge
-      // herumstehen. Nur offene + abgelehnte (mit Begründung) sind hier relevant.
+      // Nur offene + abgelehnte (mit Begründung) sind hier relevant.
+      // Genehmigte leben als Server unter „Meine Instanzen" weiter,
+      // geschlossene ('closed' = Instanz wieder gelöscht) sind Historie —
+      // eine Ausblendungs-Liste würde jeden künftigen Endstatus fälschlich
+      // anzeigen (und das Fallback-Label beschriftet Unbekanntes als
+      // „abgelehnt"), deshalb Positiv-Filter.
       const all = await instancesApi.listMyApplications('all');
-      applications = all.filter((a) => a.status !== 'approved');
+      applications = all.filter((a) => a.status === 'pending' || a.status === 'rejected');
     } catch {
       // Nicht kritisch — Liste bleibt leer
     } finally {
