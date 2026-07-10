@@ -71,10 +71,42 @@ authHTTPExclude:
 paths:
   all_others:
 EOF
-    # The only reachable ICE host candidate is the public hostname — the
-    # container's interface IPs are internal bridge addrs. Appended after the
-    # heredoc because that block is quoted (no shell expansion).
-    printf 'webrtcAdditionalHosts: [%s]\n' "${PULSE_HOSTNAME}" >> /etc/mediamtx/mediamtx.yml
+    # ICE-Kandidaten: hier trennen sich VPS-Self-Host und App-Hosting.
+    # Angehängt nach dem Heredoc, weil der Block gequotet ist (keine Expansion).
+    if [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
+        # ---- App-Hosting (Server-App auf dem Gerät des Users, hinter Heim-NAT) ----
+        # Der Hostname zeigt hier auf den Relay (= die Cloud), NICHT auf dieses
+        # Gerät: ein Zuschauer schickte seine Videopakete an den falschen
+        # Rechner. Es gibt auch keine öffentliche Adresse, die man eintragen
+        # könnte — die Heim-IP wechselt. Also lässt MediaMTX sie sich per STUN
+        # selbst sagen (srflx-Kandidat) und locht damit durch das NAT, genau
+        # wie LiveKit (use_external_ip) und der direct-adapter.
+        #
+        # 0.0.0.0 statt :8189 bindet den ICE-Port auf IPv4. Mit Dual-Stack
+        # funkte MediaMTX an die IPv6-Adresse des Zuschauers, die kein Heim-
+        # Router von außen hereinlässt — 312 Pakete raus, 0 zurück (gemessen
+        # 2026-07-10). Derselbe IPv6-Fallstrick wie beim WHEP-Reconnect der Cloud.
+        #
+        # webrtcIPsFromInterfaces MUSS an bleiben: MediaMTX bricht sonst mit
+        # "at least one between 'webrtcIPsFromInterfaces' or
+        # 'webrtcAdditionalHosts' must be filled" ab — STUN allein zählt ihm
+        # nicht als Kandidatenquelle. Liefert zusätzlich den LAN-Kandidaten
+        # für Zuschauer im selben Netz.
+        sed -i -e 's|^webrtcLocalUDPAddress: :8189$|webrtcLocalUDPAddress: 0.0.0.0:8189|' \
+               -e 's|^webrtcIPsFromInterfaces: no$|webrtcIPsFromInterfaces: yes|' \
+            /etc/mediamtx/mediamtx.yml
+        {
+            printf 'webrtcICEServers2:\n'
+            for stun in ${PULSE_DIRECT_STUN_SERVERS:-stun.l.google.com:19302}; do
+                printf '  - url: stun:%s\n' "${stun}"
+            done
+        } >> /etc/mediamtx/mediamtx.yml
+    else
+        # ---- VPS-Self-Host: öffentlich erreichbar, der Hostname IST der Server ----
+        # Der einzige brauchbare Host-Kandidat ist der öffentliche Hostname —
+        # die Interface-IPs des Containers sind interne Bridge-Adressen.
+        printf 'webrtcAdditionalHosts: [%s]\n' "${PULSE_HOSTNAME}" >> /etc/mediamtx/mediamtx.yml
+    fi
 fi
 
 chown pulse:pulse /etc/mediamtx/mediamtx.yml
