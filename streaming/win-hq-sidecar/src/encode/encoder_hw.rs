@@ -19,10 +19,10 @@
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::{Dictionary, Packet, Rational, codec, format, ffi::*};
+use ffmpeg::{Packet, Rational, codec, format, ffi::*};
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, url_format_hint, vendor_encoder_opts};
+use super::encoder::{AudioStreamConfig, VideoCodec, open_output, vendor_encoder_opts};
 use super::hwctx::OwnedHwFrame;
 use super::mux_writer::MuxWriter;
 use crate::audio::CapturedAudio;
@@ -69,21 +69,9 @@ impl FfmpegHwEncoder {
     ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
-        let mut output = match url_format_hint(output_path) {
-            Some(fmt) => {
-                let mut opts = Dictionary::new();
-                // Netzwerk-Timeout (µs) — s. encoder.rs::create. Ohne das hängt
-                // ein toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze.
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-                format::output_as_with(&output_path, fmt, opts)
-                    .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))?
-            }
-            None => format::output(&output_path)
-                .with_context(|| format!("format::output({output_path})"))?,
-        };
+        // Output-Öffnung inkl. Protokoll-Optionen (RTMPS/SRT/WHIP) zentral in
+        // encoder.rs::open_output.
+        let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.ffmpeg_name(&cfg.vendor)?;
         let codec_descriptor = codec::encoder::find_by_name(codec_name)

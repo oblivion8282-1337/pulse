@@ -28,7 +28,7 @@ use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, I
 use windows::core::Interface;
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, url_format_hint};
+use super::encoder::{AudioStreamConfig, VideoCodec, open_output};
 use super::extradata::param_set_extradata;
 use super::mux_writer::MuxWriter;
 use crate::audio::CapturedAudio;
@@ -164,19 +164,9 @@ impl FfmpegD3d12Encoder {
         let (frames_ref, device) =
             create_d3d12_pool(adapter, cfg.dst_width, cfg.dst_height)?;
 
-        let mut output = match url_format_hint(output_path) {
-            Some(fmt) => {
-                let mut opts = Dictionary::new();
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-                format::output_as_with(&output_path, fmt, opts)
-                    .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))?
-            }
-            None => format::output(&output_path)
-                .with_context(|| format!("format::output({output_path})"))?,
-        };
+        // Output-Öffnung inkl. Protokoll-Optionen (RTMPS/SRT/WHIP) zentral in
+        // encoder.rs::open_output.
+        let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.d3d12va_name();
         let codec_descriptor = codec::encoder::find_by_name(codec_name)
