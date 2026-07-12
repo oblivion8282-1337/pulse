@@ -208,11 +208,12 @@ modules:
       - cargo --offline build --release --verbose
       - install -Dm755 target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
     sources:
-      # Lokaler git-Checkout des Sidecar-Repos (committed Stand von main). Für
-      # die CI später auf `type: git, url: <github>, commit: <sha>` umstellen.
+      # Sidecar-Repo von GitHub (CI-tauglich: der Bau-Server hat keinen lokalen
+      # Nachbar-Checkout). Commit fest pinnen — bei jedem Sidecar-Update hier den
+      # neuen SHA eintragen (und Cargo.lock-Änderungen → cargo-sources neu genn).
       - type: git
-        path: ../../Linux_Rust_Sidecar
-        branch: main
+        url: https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar.git
+        commit: 707fff31b5e03f0bd46a7b0c9b5a423ec1dabfef
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────

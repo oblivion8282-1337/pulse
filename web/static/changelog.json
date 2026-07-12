@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-12",
+      "date": "2026-07-12",
+      "style": "Sachlich",
+      "title": "Neue Technik für Bildschirmübertragung zum Ausprobieren (Linux)",
+      "intro": "Auf der Linux-Desktop-App könnt ihr die Bildschirmübertragung in hoher Qualität jetzt mit einer neuen, überarbeiteten Technik testen.",
+      "items": [
+        "In den Einstellungen findet ihr einen neuen Bereich „Experimentell\", in dem sich die neue Technik einschalten lässt.",
+        "Sie läuft parallel zur bisherigen und lässt sich jederzeit wieder ausschalten.",
+        "Rückmeldungen helfen uns, sie für alle stabil zu machen."
+      ]
+    },
+    {
       "id": "2026-07-10.3",
       "date": "2026-07-10",
       "style": "Sachlich",
