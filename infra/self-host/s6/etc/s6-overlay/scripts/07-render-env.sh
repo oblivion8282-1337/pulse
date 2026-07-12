@@ -32,8 +32,11 @@ MINIO_PASS=$(cat "${KEYS}/minio.password")
 # durch NAT lochen, es gibt also keinen Weg von außen zum Heimgerät.
 #
 # Deshalb: der Betreiber streamt über den Loopback des eigenen Rechners (der
-# Container veröffentlicht 1936). Streams FREMDER Mitglieder brauchen später
-# WHIP (WebRTC-Ingest, lochbar) — siehe Plan.
+# Container veröffentlicht 1936). Streams FREMDER Mitglieder laufen über WHIP
+# (WebRTC-Ingest, lochbar wie WHEP): MEDIAMTX_PUSH_PROTOCOL=whip unten lässt
+# media-svc für Gäste WHIP-URLs minten; der Owner (PULSE_INSTANCE_OWNER_ID)
+# bleibt auf dem bewährten RTMPS-Pfad. Plan:
+# docs/plans/2026-07-12-whip-guest-publish.md
 if [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
     MEDIAMTX_INGEST="127.0.0.1"
 else
@@ -107,6 +110,9 @@ export LIVEKIT_API_URL='http://127.0.0.1:7880'
 export MEDIAMTX_API_URL='http://127.0.0.1:9997/v3/paths/list'
 export MEDIAMTX_INGEST_HOST='${MEDIAMTX_INGEST}'
 export MEDIAMTX_PUBLIC_BASE='https://${PULSE_HOSTNAME}/whep'
+# Gäste-Publish per WHIP (WebRTC-Ingest, NAT-lochbar); Owner bleibt RTMPS —
+# siehe Kommentarblock oben.
+export MEDIAMTX_PUSH_PROTOCOL=whip
 
 # CORS — Cloud-Foundation needs to embed self-host endpoints
 export CORS_ALLOW_ORIGINS='${PULSE_CLOUD_ORIGIN},https://${PULSE_HOSTNAME}'

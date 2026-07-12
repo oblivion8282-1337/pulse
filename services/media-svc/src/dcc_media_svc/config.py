@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     mediamtx_rtmps_port: int = 1936
     mediamtx_srt_port: int = 8890
 
+    # Which push protocol this instance mints — the SERVER decides, overriding
+    # the client's requested protocol. "rtmp" (default, Cloud + reachable
+    # self-hosts) keeps the RTMPS ingest; "whip" makes publish ride the same
+    # WebRTC/ICE layer viewers already use (NAT hole-punching) — set by the
+    # app-hosted allinone image where guests can't reach TCP 1936 behind the
+    # host's NAT. The sidecar picks its muxer from the push_url scheme.
+    mediamtx_push_protocol: Literal["rtmp", "whip"] = "rtmp"
+
+    # Instance owner (app-host): the owner streams to their OWN machine, so
+    # they keep the proven loopback/direct RTMPS path even when the instance
+    # mints WHIP for guests. Empty (cloud / plain self-host) → no exemption.
+    # Already exported instance-wide by the allinone env renderer.
+    pulse_instance_owner_id: str = ""
+
     # Public WebRTC base for the WHEP playback URL (dev: local MediaMTX webrtc;
     # prod later: https://stream.unicutmedia.com).
     mediamtx_public_base: str = "http://localhost:8889"

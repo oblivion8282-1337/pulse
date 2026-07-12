@@ -82,6 +82,14 @@ Voice-Channel:
   Channel-Pfad (`ServerProfile.from_channel()`). `push_url` (von media-svc, mit
   Token drin) wird wenn gesetzt verbatim an GSR `-o` gereicht; sonst werden
   `mediamtx_endpoint` + `push_protocol` als Fallback genutzt.
+- **Push-Protokoll entscheidet der SERVER** (media-svc
+  `MEDIAMTX_PUSH_PROTOCOL`): Default `rtmp` → `rtmps://<host>:1936/...`-URL.
+  App-gehostete Instanzen minten für Gäste `whip` →
+  `https://<host>/whep/<pfad>/whip?token=…` (WebRTC-Ingest, locht NAT wie
+  WHEP; Owner bleibt RTMPS). Der Linux-Rust-Sidecar wählt den Muxer am
+  URL-Schema (`http(s)://` → ffmpeg-WHIP; AV1→H.264-Fallback, der
+  WHIP-Muxer von ffmpeg 8.1 kann kein AV1). Python-GSR- sowie Win/Mac-Sidecars
+  können (noch) kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
 
 `capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
 Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus

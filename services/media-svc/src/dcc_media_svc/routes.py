@@ -139,8 +139,10 @@ SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # SRT is disabled: UDP has no TLS layer so the stream token would be
-    # visible in cleartext in the SRT streamid field.  Use rtmps (the default).
+    # The client's protocol WISH — kept for wire-compat, but the SERVER decides
+    # the effective protocol (``settings.mediamtx_push_protocol``; app-hosted
+    # instances mint WHIP URLs). SRT stays disabled: UDP has no TLS layer so the
+    # stream token would be visible in cleartext in the SRT streamid field.
     protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
     # Which of the caller's stream slots this token publishes. 0 == the default
     # single stream (legacy path/key shape); 1 == a second concurrent stream.
@@ -187,9 +189,14 @@ def _push_url(path: str, protocol: str, token: str) -> str:
     RTMP: ``rtmps://host:port/<path>?user=pulse&pass=<token>`` —
           over TLS so the token isn't on the wire in cleartext; MediaMTX maps
           the query ``user``/``pass`` onto the authHTTP body.
+    WHIP: ``{mediamtx_public_base}/<path>/whip?token=<token>`` — WebRTC ingest,
+          mirrors the WHEP playback URL shape; the auth-hook reads the token
+          from the query exactly like it does for WHEP reads.
     SRT:  ``srt://host:port?streamid=publish:<path>:pulse:<token>``.
     """
     s = get_settings()
+    if protocol == "whip":
+        return f"{s.mediamtx_public_base}/{path}/whip?token={token}"
     if protocol == "srt":
         return (
             f"srt://{s.mediamtx_ingest_host}:{s.mediamtx_srt_port}"
@@ -213,6 +220,14 @@ async def issue_stream_token(
     settings = get_settings()
     redis = _get_redis(request)
     user_id = str(user.id)
+    # The server decides the push protocol: the client's request (pattern-locked
+    # to "rtmp") is a wish; app-hosted instances set MEDIAMTX_PUSH_PROTOCOL=whip
+    # so publishes ride the NAT-punching WebRTC layer instead of TCP 1936. The
+    # instance OWNER streams to their own machine and keeps the proven RTMPS
+    # loopback/direct path.
+    protocol = settings.mediamtx_push_protocol
+    if user_id == settings.pulse_instance_owner_id:
+        protocol = "rtmp"
     token = secrets.token_urlsafe(32)
     # Fresh nonce per token → fresh MediaMTX path per publish (see
     # ``streamkeys.py`` for why). 32 hex = 128 bits = offline path-guessing
@@ -225,7 +240,7 @@ async def issue_stream_token(
         "user_id": user_id,
         "nonce": nonce,
         "scope": "publish",
-        "protocol": payload.protocol,
+        "protocol": protocol,
         "created_at": int(time.time()),
     }
     # Slot 0 omits the field so the token record stays byte-identical to the
@@ -252,13 +267,13 @@ async def issue_stream_token(
         channel_id=channel_id,
         user_id=user.id,
         slot=slot,
-        protocol=payload.protocol,
+        protocol=protocol,
     )
     return StreamTokenOut(
         token=token,
         mediamtx_path=path,
-        push_protocol=payload.protocol,
-        push_url=_push_url(path, payload.protocol, token),
+        push_protocol=protocol,
+        push_url=_push_url(path, protocol, token),
         expires_in_s=settings.token_ttl_s,
     )
 

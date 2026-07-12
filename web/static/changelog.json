@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-12.2",
+      "date": "2026-07-12",
+      "style": "Sachlich",
+      "title": "Streamen auf App-gehosteten Servern jetzt für alle Mitglieder",
+      "intro": "Auf einem Server, der per Pulse Server-App zu Hause betrieben wird, konnten bisher nur die Betreiber selbst in hoher Qualität streamen. Das ist jetzt für alle Mitglieder möglich.",
+      "items": [
+        "Streams von Mitgliedern nehmen denselben Weg durchs Netz wie das Zuschauen und funktionieren deshalb ohne Router-Einstellungen.",
+        "Auf Linux braucht es dafür die neue Streaming-Technik aus dem Experimentell-Bereich; unter Windows und macOS folgt die Unterstützung später.",
+        "Wird AV1 auf einem solchen Server gewählt, schaltet die App automatisch auf H.264 um (technische Einschränkung des neuen Übertragungswegs)."
+      ]
+    },
+    {
       "id": "2026-07-12",
       "date": "2026-07-12",
       "style": "Sachlich",
