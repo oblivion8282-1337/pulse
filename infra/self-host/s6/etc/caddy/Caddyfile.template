@@ -124,11 +124,21 @@
     # spricht /api/media nie direkt an.
 
     # ------------------------------------------------------------------ #
-    # WHEP für MediaMTX HQ-Streaming (8889)                              #
+    # WHEP/WHIP für MediaMTX HQ-Streaming (8889)                         #
     # ------------------------------------------------------------------ #
     # handle_path strippt das /whep-Prefix (wie die Cloud-nginx mit
     # ``proxy_pass …:8889/``) — MediaMTX erwartet den Pfad ohne /whep.
     handle_path /whep/* {
+        reverse_proxy 127.0.0.1:8889
+    }
+
+    # WHIP/WHEP-Session-Ressourcen: MediaMTX baut die Location-URL des POSTs
+    # aus dem Pfad, den es selbst sieht — also OHNE /whep-Präfix. Das
+    # DELETE/PATCH des Publishers auf die Session-URL kommt deshalb präfixlos
+    # an und muss ebenfalls zu MediaMTX (sonst räumt die Session erst per
+    # ICE-Timeout ab). Lokal verifiziert 2026-07-12 (ffmpeg-WHIP → Dispose ok).
+    @mtxsession path_regexp ^/channel-[^/]+/(whip|whep)(/.*)?$
+    handle @mtxsession {
         reverse_proxy 127.0.0.1:8889
     }
 

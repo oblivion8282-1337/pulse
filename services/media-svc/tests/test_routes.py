@@ -154,6 +154,50 @@ async def test_stream_token_rejects_bad_protocol(client, auth_signer):
     assert r.status_code == 422
 
 
+@pytest.fixture
+def _whip_settings(_isolate_settings, monkeypatch):
+    """Instance minting WHIP for guests (app-host shape), owner 4242 exempt."""
+    import dcc_media_svc.routes as media_routes
+
+    whip = _isolate_settings.model_copy(
+        update={"mediamtx_push_protocol": "whip", "pulse_instance_owner_id": "4242"}
+    )
+    monkeypatch.setattr(media_routes, "get_settings", lambda: whip)
+    return whip
+
+
+@pytest.mark.asyncio
+async def test_stream_token_whip_for_guests(_whip_settings, client, auth_signer, redis):
+    """App-host instance: a guest gets a WHIP push URL (WebRTC ingest, NAT-punchable)
+    even though the client still requests the legacy ``rtmp`` protocol."""
+    access = auth_signer.issue_access(7, "guest")
+    cid = _unique_cid()
+    r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    path = body["mediamtx_path"]
+    token = body["token"]
+    assert body["push_protocol"] == "whip"
+    assert body["push_url"] == f"http://stream.test:8889/{path}/whip?token={token}"
+    rec = json.loads((await redis.get(TOKEN_KEY.format(token=token))).decode())
+    assert rec["protocol"] == "whip"
+    assert rec["scope"] == "publish"
+
+
+@pytest.mark.asyncio
+async def test_stream_token_whip_owner_keeps_rtmps(_whip_settings, client, auth_signer, redis):
+    """The instance owner streams to their own machine → proven RTMPS path stays."""
+    access = auth_signer.issue_access(4242, "owner")
+    cid = _unique_cid()
+    r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["push_protocol"] == "rtmp"
+    assert body["push_url"].startswith(f"rtmps://ingest.test:1936/{body['mediamtx_path']}")
+    rec = json.loads((await redis.get(TOKEN_KEY.format(token=body["token"]))).decode())
+    assert rec["protocol"] == "rtmp"
+
+
 @pytest.mark.asyncio
 async def test_stream_token_rejects_non_numeric_channel(client, auth_signer):
     access = auth_signer.issue_access(7, "bob")
