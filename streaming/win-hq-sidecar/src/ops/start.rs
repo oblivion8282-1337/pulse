@@ -52,7 +52,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .map(str::to_string)
         .ok_or_else(|| {
             anyhow!(
-                "channel.push_url ist auf Windows Pflicht (media-svc reicht die rtmps://-URL durch)"
+                "channel.push_url ist auf Windows Pflicht (media-svc reicht die rtmps://- bzw. WHIP-URL durch)"
             )
         })?;
 

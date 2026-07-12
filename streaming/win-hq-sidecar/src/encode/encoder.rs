@@ -149,33 +149,7 @@ impl FfmpegEncoder {
     ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
-        let mut output = match url_format_hint(output_path) {
-            Some(fmt) => {
-                // Für RTMPS: `tls_verify=0` setzen — Pulse-MediaMTX nutzt by-design
-                // ein self-signed Cert (siehe `streaming/server/mediamtx.yml.template`).
-                // Die echte Auth läuft per Stream-Token in der URL
-                // (`?user=pulse&pass=<token>`) → MediaMTX authHTTP-Hook → media-svc.
-                // TLS ist hier nur Token-Verschleierung, nicht Server-Verifikation.
-                // FFmpegs Schannel-Backend auf Windows ist strict-verify by default,
-                // was den Stream sonst nach dem TLS-Handshake mit „Writing encrypted
-                // data to socket failed" killt. Verifiziert mit `ffmpeg.exe
-                // -tls_verify 0` als Referenz (= identisches Verhalten).
-                let mut opts = Dictionary::new();
-                // Netzwerk-Timeout (µs). Ohne das blockiert ein toter Connect
-                // oder ein stockender RTMPS-TLS-Handshake den Worker-Thread
-                // praktisch unbegrenzt (FFmpeg-Default = kein Timeout) — und
-                // ein `stop()` während dieser Blockade fror den ganzen Sidecar
-                // ein. 10 s → ein hängender Connect/Write scheitert sauber.
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-                format::output_as_with(&output_path, fmt, opts)
-                    .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))?
-            }
-            None => format::output(&output_path)
-                .with_context(|| format!("format::output({output_path})"))?,
-        };
+        let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.ffmpeg_name(&cfg.vendor)?;
         let codec_descriptor = codec::encoder::find_by_name(codec_name)
@@ -445,6 +419,8 @@ impl FfmpegEncoder {
 ///
 /// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
 /// - `srt://`               → MPEG-TS (SRT-Standard)
+/// - `http(s)://`           → WHIP (WebRTC-Ingest; media-svc mintet solche
+///                            URLs für Gäste auf App-gehosteten Instanzen)
 /// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
 pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
     let lower = target.to_ascii_lowercase();
@@ -452,8 +428,61 @@ pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
         Some("flv")
     } else if lower.starts_with("srt://") {
         Some("mpegts")
+    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+        Some("whip")
     } else {
         None
+    }
+}
+
+/// Öffnet den Output-Kontext für die Push-URL — gemeinsame Stelle für alle
+/// drei Encoder-Pfade (CPU / NVENC-D3D11 / AMD-D3D12).
+///
+/// Für RTMPS: `tls_verify=0` — Pulse-MediaMTX nutzt by-design ein self-signed
+/// Cert; die echte Auth läuft per Stream-Token in der URL → authHTTP-Hook.
+/// FFmpegs Schannel-Backend ist strict-verify by default und killt den Stream
+/// sonst nach dem TLS-Handshake. `rw_timeout` (µs): ohne das blockiert ein
+/// toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze bei `stop()`.
+///
+/// Für WHIP: der Muxer macht sein eigenes I/O (ICE/DTLS/SRTP) — die
+/// AVIO-Optionen greifen dort nicht; stattdessen den Handshake begrenzen.
+/// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
+/// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
+pub(crate) fn open_output(output_path: &str) -> Result<format::context::Output> {
+    match url_format_hint(output_path) {
+        Some(fmt) => {
+            let mut opts = Dictionary::new();
+            if fmt == "whip" {
+                ensure_muxer_available(fmt)?;
+                opts.set("handshake_timeout", "10000");
+            } else {
+                opts.set("rw_timeout", "10000000");
+                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
+                    opts.set("tls_verify", "0");
+                }
+            }
+            format::output_as_with(&output_path, fmt, opts)
+                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))
+        }
+        None => format::output(&output_path)
+            .with_context(|| format!("format::output({output_path})")),
+    }
+}
+
+/// Probe: trägt das gelinkte FFmpeg den Muxer überhaupt? (WHIP existiert nur
+/// in Builds mit DTLS-Support, FFmpeg ≥ 8.0 + OpenSSL.)
+fn ensure_muxer_available(fmt: &'static str) -> Result<()> {
+    let name = std::ffi::CString::new(fmt).expect("static fmt name");
+    let found = unsafe {
+        !ffmpeg::ffi::av_guess_format(name.as_ptr(), std::ptr::null(), std::ptr::null()).is_null()
+    };
+    if found {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Muxer '{fmt}' fehlt im gelinkten FFmpeg — für WHIP wird FFmpeg ≥ 8.0 \
+             mit DTLS (OpenSSL) benötigt. Bitte FFmpeg-DLLs aktualisieren."
+        ))
     }
 }
 

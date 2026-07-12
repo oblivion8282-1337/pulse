@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-12.3",
+      "date": "2026-07-12",
+      "style": "Sachlich",
+      "title": "Streamen auf App-gehosteten Servern: Windows und macOS vorbereitet",
+      "items": [
+        "Die Bildschirmübertragung durch Mitglieder auf App-gehosteten Servern (bisher Linux) ist jetzt auch in den Windows- und macOS-Apps angelegt; sie wird mit deren nächsten Updates aktiv.",
+        "Ist die Übertragungstechnik auf einem Gerät nicht verfügbar, erscheint eine klare Meldung statt eines stillen Fehlers."
+      ]
+    },
+    {
       "id": "2026-07-12.2",
       "date": "2026-07-12",
       "style": "Sachlich",

@@ -298,12 +298,21 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             .recv_timeout(Duration::from_secs(5))
             .map_err(|e| anyhow!("never got first capture frame: {e}"))?;
 
-        let codec = params.override_codec.unwrap_or(match params.profile.codec {
+        let mut codec = params.override_codec.unwrap_or(match params.profile.codec {
             "h264" => VideoCodec::H264,
             "hevc" => VideoCodec::Hevc,
             "av1" => VideoCodec::Av1,
             _ => VideoCodec::H264,
         });
+        // WHIP-Ziel (App-gehostete Instanz): FFmpegs WHIP-Muxer trägt nur
+        // H.264-Video → ausweichen statt beim write_header hart zu scheitern
+        // (wie Linux/Mac-Sidecar).
+        if crate::encode::encoder::url_format_hint(&params.push_url) == Some("whip")
+            && !matches!(codec, VideoCodec::H264)
+        {
+            eprintln!("[stream-pipeline] Codec {codec:?} über WHIP nicht verfügbar → Fallback auf H264");
+            codec = VideoCodec::H264;
+        }
         let fps = params.override_fps.unwrap_or(params.profile.fps);
         let bitrate = params
             .override_bitrate_kbps

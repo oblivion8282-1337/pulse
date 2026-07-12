@@ -39,15 +39,37 @@ fn videotoolbox_encoder(codec: &str) -> &'static str {
     }
 }
 
-/// FLV for RTMP/RTMPS, MPEG-TS for SRT (same hint table as the Windows sidecar).
+/// FLV for RTMP/RTMPS, MPEG-TS for SRT, WHIP for http(s) (WebRTC ingest —
+/// media-svc mints `https://<host>/whep/<path>/whip?token=…` for guests on
+/// app-hosted instances). Same hint table as the Windows/Linux sidecars.
 fn url_format_hint(target: &str) -> Option<&'static str> {
     let lower = target.to_ascii_lowercase();
     if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
         Some("flv")
     } else if lower.starts_with("srt://") {
         Some("mpegts")
+    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+        Some("whip")
     } else {
         None
+    }
+}
+
+/// The linked FFmpeg only carries the WHIP muxer when built with DTLS support
+/// (FFmpeg ≥ 8.0 + OpenSSL/mbedTLS). Probe before opening so a missing muxer
+/// yields a clear message instead of a cryptic open failure.
+fn ensure_muxer_available(fmt: &'static str) -> Result<()> {
+    let name = std::ffi::CString::new(fmt).expect("static fmt name");
+    let found = unsafe {
+        !ffmpeg::ffi::av_guess_format(name.as_ptr(), std::ptr::null(), std::ptr::null()).is_null()
+    };
+    if found {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Muxer '{fmt}' fehlt im gelinkten FFmpeg — für WHIP wird FFmpeg ≥ 8.0 \
+             mit DTLS (OpenSSL) benötigt. Bitte FFmpeg aktualisieren."
+        ))
     }
 }
 
@@ -80,14 +102,33 @@ impl VideoEncoder {
     ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
-        // ── Output context (FLV over RTMPS) ──────────────────────────────────
-        let mut output = match url_format_hint(push_url) {
+        let format_hint = url_format_hint(push_url);
+
+        // WHIP target (app-hosted instance): FFmpeg's WHIP muxer carries only
+        // H.264 video — fall back instead of failing at write_header. Mirrors
+        // the Linux sidecar (ops/start.rs).
+        let codec_id = if format_hint == Some("whip") && codec_id != "h264" {
+            eprintln!("[encode] Codec '{codec_id}' über WHIP nicht verfügbar → Fallback auf h264");
+            "h264"
+        } else {
+            codec_id
+        };
+
+        // ── Output context (FLV/RTMPS, MPEG-TS/SRT oder WHIP/WebRTC) ─────────
+        let mut output = match format_hint {
             Some(fmt) => {
                 let mut opts = Dictionary::new();
-                opts.set("rw_timeout", "10000000"); // 10s — don't hang on a dead socket
-                if push_url.to_ascii_lowercase().starts_with("rtmps://") {
-                    // Pulse-MediaMTX uses a self-signed cert by design.
-                    opts.set("tls_verify", "0");
+                if fmt == "whip" {
+                    // WHIP does its own I/O (ICE/DTLS/SRTP) — the AVIO options
+                    // below don't apply; bound the handshake instead.
+                    ensure_muxer_available(fmt)?;
+                    opts.set("handshake_timeout", "10000");
+                } else {
+                    opts.set("rw_timeout", "10000000"); // 10s — don't hang on a dead socket
+                    if push_url.to_ascii_lowercase().starts_with("rtmps://") {
+                        // Pulse-MediaMTX uses a self-signed cert by design.
+                        opts.set("tls_verify", "0");
+                    }
                 }
                 format::output_as_with(&push_url, fmt, opts)
                     .with_context(|| format!("open output {fmt} → {}", redact(push_url)))?
