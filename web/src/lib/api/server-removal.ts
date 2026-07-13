@@ -5,9 +5,9 @@
  * Stores, aktiver Server) — gemeinsamer Pfad für „Instanz löschen" (MyInstances)
  * und den Sweep gelöschter Instanzen beim App-Start (deleted-instance-sweep.ts).
  *
- * ``leaveAndRemoveServer`` = der volle „Server entfernen"-Pfad der beiden
- * Kontextmenüs (GuildRail + ServerSidebar): Instanz-Austritt + Cloud-Membership-
- * Cleanup + lokales Aufräumen.
+ * ``leaveAndRemoveServer`` = der volle „Server verlassen"-Pfad des
+ * GuildRail-Kontextmenüs: Instanz-Austritt + Cloud-Membership-Cleanup +
+ * lokales Aufräumen. (Die frühere ServerSidebar ist entfernt.)
  */
 
 import { toast } from 'svelte-sonner';
@@ -79,12 +79,11 @@ export async function leaveAndRemoveServer(server: ServerEntry): Promise<LeaveSe
   return outcome;
 }
 
-/** Gemeinsamer Outcome-Toast für beide Entfernen-Einstiege. */
+/** Outcome-Toast fürs Verlassen. Der 'owner'-Fall wird vom Caller (GuildRail)
+ *  mit einem erklärenden Dialog behandelt, nicht hier. */
 export function notifyLeaveOutcome(outcome: LeaveServerOutcome, label: string): void {
   if (outcome === 'owns-communities') {
     toast.error(m.guild_rail_leave_owns_communities());
-  } else if (outcome === 'owner') {
-    toast.info(m.guild_rail_leave_owner_view_only({ label }));
   } else if (outcome === 'unreachable') {
     toast.warning(m.guild_rail_leave_unreachable({ label }));
   } else {

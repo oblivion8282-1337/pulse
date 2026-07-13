@@ -80,7 +80,7 @@
         cheatsheetOpen = !cheatsheetOpen;
       }),
       register('nav.settings', () => {
-        uiOverlays.settingsOpen = true;
+        uiOverlays.openSettings();
       }),
       register('nav.quickSwitcher', () => {
         uiOverlays.quickSwitcherOpen = !uiOverlays.quickSwitcherOpen;

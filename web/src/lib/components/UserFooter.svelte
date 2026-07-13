@@ -121,7 +121,7 @@
 </script>
 
 <AvatarUploadDialog bind:open={uploadOpen} />
-<SettingsDialog bind:open={uiOverlays.settingsOpen} />
+<SettingsDialog bind:open={uiOverlays.settingsOpen} initialTab={uiOverlays.settingsInitialTab} />
 
 {#snippet avatarBlock(sizeClass: string)}
   {#key avatarUrl}
@@ -157,7 +157,7 @@
     </DropdownMenu.Item>
   {/if}
   <DropdownMenu.Separator />
-  <DropdownMenu.Item onclick={() => (uiOverlays.settingsOpen = true)} data-testid="open-settings">
+  <DropdownMenu.Item onclick={() => uiOverlays.openSettings()} data-testid="open-settings">
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
   </DropdownMenu.Item>

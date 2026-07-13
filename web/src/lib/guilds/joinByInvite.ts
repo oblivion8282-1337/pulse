@@ -1,4 +1,5 @@
 import { goto } from '$app/navigation';
+import { m } from '$lib/paraglide/messages.js';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -34,11 +35,16 @@ function syncInstanceMembership(instanceId: string | null | undefined): void {
 
 /**
  * Ergebnis des Parsens eines Join-Inputs.
- * Genau eines von ``inviteCode`` ODER ``publicHandle`` ist gesetzt.
  */
-type ParsedInput =
+export type ParsedJoinInput =
   | { kind: 'invite'; code: string; host: string | null }
-  | { kind: 'public'; handle: string; host: string | null };
+  | { kind: 'public'; handle: string; host: string | null }
+  | { kind: 'host'; host: string };
+
+/** Nackte Hostadresse: optionales Schema, FQDN (≥2 Labels), optionaler Port,
+ *  KEIN Pfad. Bare Invite-Codes enthalten keinen Punkt → keine Kollision. */
+const _BARE_HOST_RE =
+  /^(https?:\/\/)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d+)?\/?$/i;
 
 /**
  * Zerlegt einen gepasteten Link oder bare Code in sein strukturiertes Format.
@@ -47,11 +53,14 @@ type ParsedInput =
  *  - Einladungslink: `<any>/invite/<code>[?host=<fqdn>]`
  *  - Öffentliche Community-Adresse: `<any>/c/<handle>[?host=<fqdn>]`
  *  - Bare Community-Handle: `c/<handle>` (kein Leading-Slash nötig)
+ *  - Nackte Hostadresse: `chat.firma.de` / `https://chat.firma.de` (kein Pfad)
+ *    → Universal-Beitrittsfeld: Server direkt ansprechen (Cert-Login ohne
+ *    Grant; verlangt der Server eine Einladung, fragt das UI nach dem Code)
  *  - Bare Invite-Code: alles andere (Fallback)
  *
  * ``host`` ist der bare FQDN aus ``?host=`` (oder null bei Cloud/bare Code).
  */
-function parseJoinInput(input: string): ParsedInput {
+export function parseJoinInput(input: string): ParsedJoinInput {
   const trimmed = input.trim();
 
   // Öffentliche Community-Adresse: <scheme://host>/c/<handle>[?...]
@@ -77,6 +86,16 @@ function parseJoinInput(input: string): ParsedInput {
       }
     }
     return { kind: 'public', handle, host };
+  }
+
+  // Nackte Hostadresse (vor dem Invite-Fallback, NACH /invite- und /c/-Links):
+  // eine Server-URL ohne Pfad ist nie ein Invite-Code (Codes haben keine Punkte).
+  // Der Cloud-Host ist keine "Adresse zum Beitreten" — er ist immer schon da;
+  // Durchfallen zum Code-Pfad erzeugt die normale "Code ungültig"-Meldung.
+  if (_BARE_HOST_RE.test(trimmed)) {
+    const bare = trimmed.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
+    const cloudHost = CLOUD_HOSTNAME.replace(/^https?:\/\//, '');
+    if (bare !== cloudHost) return { kind: 'host', host: bare };
   }
 
   // Einladungslink: <any>/invite/<code>[?host=<fqdn>]
@@ -185,6 +204,13 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
 
   if (parsed.kind === 'public') {
     return joinByPublicHandle(parsed.handle, parsed.host, confirmed);
+  }
+
+  if (parsed.kind === 'host') {
+    // Nackte Hostadressen laufen über den interaktiven Host-Flow des
+    // Join-Dialogs (joinByHost.ts — Pre-Check, Erstkontakt, ggf. Code-Nachfrage).
+    // Dieser Pfad hier ist fire-and-forget und kann das nicht abbilden.
+    throw new Error(m.join_input_host_use_dialog());
   }
 
   // --- Invite-Code-Pfad (unveränderte Logik) ---

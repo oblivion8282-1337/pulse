@@ -5,8 +5,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
-  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
-  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import JoinGuildStep from './JoinGuildStep.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   type Mode = 'choose' | 'create' | 'join';
@@ -35,7 +34,8 @@
     onCreate: (name: string) => void | Promise<void>;
     /** Join via a pasted invite link or a bare code. May throw — the dialog shows the error.
      *  ``confirmed`` wird durchgereicht, nachdem der User den Erstkontakt mit einem
-     *  neuen Self-Host bestätigt hat (Sicherheits-Gate). */
+     *  neuen Self-Host bestätigt hat (Sicherheits-Gate). Hostadressen behandelt
+     *  JoinGuildStep selbst (Universal-Beitrittsfeld). */
     onJoin: (linkOrCode: string, confirmed?: boolean) => void | Promise<void>;
   } = $props();
 
@@ -50,14 +50,12 @@
     wasOpen = open;
   });
   let name = $state('');
-  let inviteInput = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
 
   function reset() {
     mode = 'choose';
     name = '';
-    inviteInput = '';
     busy = false;
     error = null;
   }
@@ -87,55 +85,6 @@
       error = (err as Error)?.message || m.create_guild_dialog_create_failed();
       busy = false;
     }
-  }
-
-  // Erstkontakt-Bestätigung für neue, unbekannte Self-Hosts.
-  let confirmOpen = $state(false);
-  let confirmHost = $state('');
-  let pendingJoinInput = $state<string | null>(null);
-
-  async function runJoin(input: string, confirmed: boolean) {
-    busy = true;
-    error = null;
-    let succeeded = false;
-    try {
-      await onJoin(input, confirmed);
-      succeeded = true;
-      // success → the parent navigates to the new guild and this dialog unmounts.
-    } catch (err) {
-      if (err instanceof SelfHostContactConfirmRequired) {
-        confirmHost = err.hostname;
-        pendingJoinInput = input;
-        confirmOpen = true;
-        return;
-      }
-      error =
-        (err as { status?: number })?.status === 404
-          ? m.create_guild_dialog_invite_invalid()
-          : (err as Error)?.message || m.create_guild_dialog_join_failed();
-    } finally {
-      if (!succeeded) busy = false;
-    }
-  }
-
-  function submitJoin(e: SubmitEvent) {
-    e.preventDefault();
-    const trimmed = inviteInput.trim();
-    if (!trimmed || busy) return;
-    void runJoin(trimmed, false);
-  }
-
-  function onConfirmContact() {
-    const input = pendingJoinInput;
-    confirmOpen = false;
-    pendingJoinInput = null;
-    if (input) void runJoin(input, true);
-  }
-
-  function onCancelContact() {
-    confirmOpen = false;
-    pendingJoinInput = null;
-    busy = false;
   }
 
   const choiceBtnClass =
@@ -215,48 +164,7 @@
         </Dialog.Footer>
       </form>
     {:else}
-      <Dialog.Header>
-        <Dialog.Title>{m.create_guild_dialog_join_modal_title()}</Dialog.Title>
-        <Dialog.Description>{m.create_guild_dialog_join_description()}</Dialog.Description>
-      </Dialog.Header>
-      <form class="space-y-4" onsubmit={submitJoin}>
-        <div class="space-y-1.5">
-          <Label
-            for="join-guild-input"
-            class={fieldLabelClass}
-          >
-            {m.create_guild_dialog_invite_label()}
-          </Label>
-          <Input
-            id="join-guild-input"
-            type="text"
-            bind:value={inviteInput}
-            required
-            autocomplete="off"
-            placeholder={m.create_guild_dialog_invite_placeholder()}
-            data-testid="join-guild-input"
-          />
-        </div>
-        {#if error}
-          <Alert.Root variant="destructive" data-testid="join-guild-error">
-            <OctagonXIcon />
-            <Alert.Description>{error}</Alert.Description>
-          </Alert.Root>
-        {/if}
-        <Dialog.Footer>
-          <Button type="button" variant="ghost" onclick={back} disabled={busy}>{m.create_guild_dialog_back()}</Button>
-          <Button type="submit" disabled={busy} data-testid="join-guild-submit">
-            {busy ? m.create_guild_dialog_joining() : m.create_guild_dialog_join_submit()}
-          </Button>
-        </Dialog.Footer>
-      </form>
+      <JoinGuildStep {onJoin} onBack={back} />
     {/if}
   </Dialog.Content>
 </Dialog.Root>
-
-<SelfHostContactConfirmDialog
-  open={confirmOpen}
-  hostname={confirmHost}
-  onConfirm={onConfirmContact}
-  onCancel={onCancelContact}
-/>

@@ -1,3 +1,21 @@
+<script module lang="ts">
+  // Exportiert, damit Call-Sites (uiOverlays.openSettings) typsicher einen
+  // Ziel-Tab benennen können.
+  export type SettingsTab =
+    | 'profile'
+    | 'appearance'
+    | 'audio-video'
+    | 'screen-share'
+    | 'notifications'
+    | 'sounds'
+    | 'keyboard'
+    | 'security'
+    | 'privacy'
+    | 'self-host'
+    | 'apps'
+    | 'experimental';
+</script>
+
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import SettingsAppearance from './settings/SettingsAppearance.svelte';
@@ -31,19 +49,6 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  type SettingsTab =
-    | 'profile'
-    | 'appearance'
-    | 'audio-video'
-    | 'screen-share'
-    | 'notifications'
-    | 'sounds'
-    | 'keyboard'
-    | 'security'
-    | 'privacy'
-    | 'self-host'
-    | 'apps'
-    | 'experimental';
   type MobileView = 'list' | 'detail';
 
   let {
