@@ -11,16 +11,13 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
-  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Popover as PopoverPrimitive } from 'bits-ui';
   import { adminApi, type AdminUser } from '$lib/api/admin';
   import { auth } from '$lib/stores/auth.svelte';
-  import { safeAvatarUrl } from '$lib/avatar';
-  import ShieldIcon from '@lucide/svelte/icons/shield';
-  import BanIcon from '@lucide/svelte/icons/ban';
-  import ServerIcon from '@lucide/svelte/icons/server';
-  import MoreHorizontalIcon from '@lucide/svelte/icons/more-horizontal';
+  import AdminUserRow from './AdminUserRow.svelte';
+  import SearchIcon from '@lucide/svelte/icons/search';
+
+  type FilterMode = 'all' | 'admins' | 'disabled' | 'self_host';
 
   let users = $state<AdminUser[]>([]);
   let loading = $state(true);
@@ -28,11 +25,30 @@
   let hasMore = $state(false);
   let loadingMore = $state(false);
   let pendingId = $state<string | null>(null);
+  let query = $state('');
+  let filterMode = $state<FilterMode>('all');
+
+  const filters: { id: FilterMode; label: string }[] = [
+    { id: 'all', label: m.admin_users_filter_all() },
+    { id: 'admins', label: m.admin_users_filter_admins() },
+    { id: 'disabled', label: m.admin_users_filter_disabled() },
+    { id: 'self_host', label: m.admin_users_filter_self_host() }
+  ];
+
+  // Such-/Filter-Parameter fürs Backend. filter=all → weglassen (kein Filter).
+  function queryParams() {
+    const q = query.trim();
+    return {
+      ...(q ? { q } : {}),
+      ...(filterMode !== 'all' ? { filter: filterMode } : {})
+    };
+  }
 
   async function loadInitial() {
     loading = true;
+    error = null;
     try {
-      const rows = await adminApi.listUsers({ limit: 50 });
+      const rows = await adminApi.listUsers({ limit: 50, ...queryParams() });
       users = rows;
       hasMore = rows.length >= 50;
     } catch (e) {
@@ -48,7 +64,7 @@
     if (!cursor) return;
     loadingMore = true;
     try {
-      const more = await adminApi.listUsers({ before: cursor, limit: 50 });
+      const more = await adminApi.listUsers({ before: cursor, limit: 50, ...queryParams() });
       users = [...users, ...more];
       hasMore = more.length >= 50;
     } catch (e) {
@@ -60,18 +76,37 @@
     }
   }
 
+  // Tippen entprellen: erst 300 ms nach dem letzten Tastendruck neu laden, damit
+  // nicht jeder Buchstabe einen Request auslöst.
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  function onSearchInput() {
+    clearTimeout(debounce);
+    debounce = setTimeout(loadInitial, 300);
+  }
+
+  function selectFilter(id: FilterMode) {
+    if (filterMode === id) return;
+    filterMode = id;
+    void loadInitial();
+  }
+
+  function toggleSuccessMessage(field: 'is_admin' | 'disabled' | 'self_host_enabled') {
+    switch (field) {
+      case 'is_admin':
+        return m.admin_users_admin_status_updated();
+      case 'self_host_enabled':
+        return m.admin_users_self_host_updated();
+      default:
+        return m.admin_users_ban_updated();
+    }
+  }
+
   async function toggle(u: AdminUser, field: 'is_admin' | 'disabled' | 'self_host_enabled', next: boolean) {
     pendingId = u.id;
     try {
       const updated = await adminApi.patchUser(u.id, { [field]: next });
       users = users.map((x) => (x.id === u.id ? updated : x));
-      const msg =
-        field === 'is_admin'
-          ? m.admin_users_admin_status_updated()
-          : field === 'self_host_enabled'
-            ? m.admin_users_self_host_updated()
-            : m.admin_users_ban_updated();
-      toast.success(msg);
+      toast.success(toggleSuccessMessage(field));
     } catch (e) {
       // Errors from the safety nets (last admin, self-disable) bubble through
       // here with the server's German-friendly detail — surface it raw.
@@ -93,121 +128,49 @@
     </p>
   </div>
 
+  <!-- Suchfeld -->
+  <div class="relative mb-3">
+    <SearchIcon
+      class="text-text-muted pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
+    />
+    <input
+      type="search"
+      bind:value={query}
+      oninput={onSearchInput}
+      placeholder={m.admin_users_search_placeholder()}
+      class="border-border bg-bg-hover/40 text-text-base placeholder:text-text-muted focus:border-primary w-full rounded-lg border py-2 pr-3 pl-9 text-sm outline-none"
+      data-testid="admin-users-search"
+    />
+  </div>
+
+  <!-- Filter-Chips -->
+  <div class="mb-4 flex flex-wrap gap-1.5" data-testid="admin-users-filters">
+    {#each filters as f (f.id)}
+      <button
+        type="button"
+        onclick={() => selectFilter(f.id)}
+        class="rounded-full border px-3 py-1 text-xs transition-colors {filterMode === f.id
+          ? 'border-primary bg-primary/15 text-text-bright font-medium'
+          : 'border-border text-text-muted hover:text-text-base'}"
+        data-testid="admin-users-filter-{f.id}"
+      >
+        {f.label}
+      </button>
+    {/each}
+  </div>
+
   {#if error}
     <p class="text-red-400 text-sm">{m.admin_users_error({ message: error ?? '' })}</p>
   {:else if loading}
     <div class="text-text-muted text-sm">{m.admin_users_loading()}</div>
+  {:else if users.length === 0}
+    <div class="text-text-muted py-6 text-center text-sm" data-testid="admin-users-empty">
+      {m.admin_users_empty()}
+    </div>
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each users as u (u.id)}
-        {@const me = auth.user?.id === u.id}
-        <li class="flex items-center gap-3 p-3" data-testid="admin-user-row" data-user-id={u.id}>
-          <Avatar.Root class="size-8 shrink-0">
-            {#if safeAvatarUrl(u.avatar_url)}
-              <Avatar.Image src={safeAvatarUrl(u.avatar_url)!} alt={u.username} />
-            {/if}
-            <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-              {(u.display_name ?? u.username).slice(0, 1).toUpperCase()}
-            </Avatar.Fallback>
-          </Avatar.Root>
-
-          <div class="min-w-0 flex-1">
-            <div class="text-text-bright flex items-center gap-2 truncate text-sm font-medium">
-              {u.display_name ?? u.username}
-              {#if me}<span class="text-text-muted text-xs">{m.admin_users_you()}</span>{/if}
-            </div>
-            <div class="text-text-muted truncate text-xs">@{u.username} · {u.email}</div>
-          </div>
-
-          <div class="flex shrink-0 items-center gap-1">
-            {#if u.is_owner}
-              <span
-                class="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"
-                data-testid="badge-owner"
-              >
-                {m.admin_users_badge_owner()}
-              </span>
-            {:else if u.is_admin}
-              <span
-                class="bg-primary/15 text-primary rounded-md px-2 py-0.5 text-xs font-medium"
-                data-testid="badge-admin"
-              >
-                {m.admin_users_badge_admin()}
-              </span>
-            {/if}
-            {#if u.disabled}
-              <span
-                class="rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400"
-                data-testid="badge-disabled"
-              >
-                {m.admin_users_badge_disabled()}
-              </span>
-            {/if}
-            {#if u.self_host_enabled}
-              <span
-                class="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400"
-                data-testid="badge-selfhost"
-              >
-                {m.admin_users_badge_self_host()}
-              </span>
-            {/if}
-          </div>
-
-          <PopoverPrimitive.Root>
-            <PopoverPrimitive.Trigger>
-              {#snippet child({ props })}
-                <button
-                  {...props}
-                  class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
-                  aria-label={m.admin_users_actions_aria_label()}
-                  disabled={pendingId === u.id}
-                  data-testid="admin-user-actions"
-                >
-                  <MoreHorizontalIcon class="size-4" />
-                </button>
-              {/snippet}
-            </PopoverPrimitive.Trigger>
-            <PopoverPrimitive.Portal>
-              <PopoverPrimitive.Content
-                side="left"
-                sideOffset={8}
-                class="ring-border bg-popover z-50 flex w-56 flex-col gap-1 rounded-xl p-2 shadow-xl ring-1 outline-none"
-              >
-                <!-- Der Owner ist gegen Entmachten/Sperren geschützt (Backend
-                     400) → diese Aktionen für ihn gar nicht erst anbieten. -->
-                {#if !u.is_owner}
-                  <button
-                    type="button"
-                    class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
-                    onclick={() => toggle(u, 'is_admin', !u.is_admin)}
-                    data-testid="toggle-admin-btn"
-                  >
-                    <ShieldIcon class="size-4" />
-                    {u.is_admin ? m.admin_users_revoke_admin() : m.admin_users_make_admin()}
-                  </button>
-                  <button
-                    type="button"
-                    class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
-                    onclick={() => toggle(u, 'disabled', !u.disabled)}
-                    data-testid="toggle-disabled-btn"
-                  >
-                    <BanIcon class="size-4" />
-                    {u.disabled ? m.admin_users_unban() : m.admin_users_ban()}
-                  </button>
-                {/if}
-                <button
-                  type="button"
-                  class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
-                  onclick={() => toggle(u, 'self_host_enabled', !u.self_host_enabled)}
-                  data-testid="toggle-selfhost-btn"
-                >
-                  <ServerIcon class="size-4" />
-                  {u.self_host_enabled ? m.admin_users_self_host_revoke() : m.admin_users_self_host_grant()}
-                </button>
-              </PopoverPrimitive.Content>
-            </PopoverPrimitive.Portal>
-          </PopoverPrimitive.Root>
-        </li>
+        <AdminUserRow user={u} me={auth.user?.id === u.id} pending={pendingId === u.id} ontoggle={toggle} />
       {/each}
     </ul>
 
