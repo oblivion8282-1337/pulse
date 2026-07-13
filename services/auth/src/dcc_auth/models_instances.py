@@ -138,10 +138,14 @@ class UserInstanceMembership(Base):
 
 
 class InstanceApplication(Base):
-    """Application from a Self-Host operator requesting instance registration.
+    """Antrag auf Hosting-Freischaltung — VEREINT (Migration 0044) VPS- und
+    App-Host-Anträge in einer Tabelle; ``origin`` unterscheidet.
 
-    Workflow: operator submits → status='pending' → admin reviews →
-    approved (creates RegisteredInstance, sets approved_instance_id) or rejected.
+    Workflow: User stellt Antrag → status='pending' → Admin reviewt →
+    approved (VPS: legt RegisteredInstance an + approved_instance_id;
+    app_host: setzt self_host_enabled + provisioniert Relay-Instanz) oder
+    rejected. Vorbereitung auf Monetarisierung: „approved" wird später
+    „bezahlt" — ein Statusfeld, ein Antragsweg.
     """
 
     __tablename__ = "instance_applications"
@@ -152,16 +156,28 @@ class InstanceApplication(Base):
     applicant_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # Bei origin='app_host' liefert der User KEINEN Hostname — die Spalte bleibt
+    # NOT NULL und trägt dann den synthetischen Platzhalter
+    # ``app-<antrags-id>.<relay_base>`` (gleiches Muster wie die spätere
+    # Instanz in instance_provisioning.py). Gewählt statt Leer-Marker, weil so
+    # alle bestehenden Invarianten halten: NOT NULL, Eindeutigkeit pro Antrag
+    # (kein Dup-Guard-Konflikt), und der Wert kollidiert nie mit einer echten
+    # User-Domain (existiert nicht im DNS).
     hostname: Mapped[str] = mapped_column(Text, nullable=False)
     # privat | verein | firma | sonst
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
     expected_users: Mapped[int] = mapped_column(nullable=False)
     contact_email: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # pending | approved | rejected | closed
+    # pending | approved | rejected | closed | revoked
     # 'closed' = die genehmigte Instanz wurde vom Owner gelöscht — der Antrag
     # ist Historie und zählt nirgends mehr als "wartet auf Einrichtung".
+    # 'revoked' (nur app_host) = erteilte Freischaltung vom Admin zurückgenommen
+    # (routes_admin_app_host_revoke.py) — Historie, User darf neu beantragen.
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    # vps | app_host — Herkunft des Antrags (Migration 0044, vereintes
+    # Antragssystem; ersetzt die frühere app_host_applications-Tabelle).
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="vps")
     # ondelete="SET NULL": Review-Historie überlebt die Konto-Löschung des Admins.
     reviewed_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True

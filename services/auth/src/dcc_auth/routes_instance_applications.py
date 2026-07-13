@@ -1,31 +1,30 @@
 """User-facing Self-Hoster endpoints — Phase 2.2.
 
-POST   /me/instance-applications        -- Antrag einreichen
-GET    /me/instance-applications        -- eigene Anträge abrufen
 GET    /me/instances                    -- eigene registrierte Instanzen
 POST   /me/instances/{id}/env-file            -- fertige .env (inkl. frischem Secret)
+POST   /me/instances/{id}/bootstrap-token     -- One-Time-Installer-Token
+
+Die Antrags-Endpoints (``/me/instance-applications``) leben seit dem vereinten
+Antragssystem (Migration 0044) in ``routes_applications.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, delete, select
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
 
-from dcc_auth.admin_events import publish_application_pending
 from dcc_auth.bootstrap import generate_bootstrap_token, hash_bootstrap_token
 from dcc_auth.browser_sessions import validate_session
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.models_instances import (
-    InstanceApplication,
     InstanceBootstrapToken,
     RegisteredInstance,
     UserInstanceMembership,
@@ -35,11 +34,6 @@ from dcc_auth.security import hash_password
 from dcc_auth.snowflake import next_id
 
 router = APIRouter(tags=["self-host"])
-
-# FQDN: mindestens zwei Labels, nur lowercase+Ziffern+Bindestrich.
-# Label darf NICHT mit Bindestrich beginnen oder enden (RFC 1123).
-# TLD ≥2 Alpha.
-_FQDN_RE = re.compile(r"^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$")
 
 # ---------------------------------------------------------------------------
 # Auth helper
@@ -73,10 +67,19 @@ async def _require_user(request: Request, db) -> User:
 
 
 def _require_self_host_enabled(user: User) -> None:
-    """Cloud-Gate (④): blockt jeden Pfad, der dem Host echte Pairing-Credentials
-    gibt, wenn der User nicht freigeschaltet ist. MUSS auf JEDEM credential-
-    ausgebenden Endpoint sitzen (Bootstrap-Token-Mint UND env-file-Download),
-    sonst ist das Gate umgehbar — beide liefern austauschbare Cloud-Credentials."""
+    """Cloud-Gate (④) — sitzt BEWUSST nur auf ``generate_env_file``.
+
+    Entscheidung 2026-07-13 (der frühere Docstring verlangte das Gate auch auf
+    ``mint_bootstrap_token`` — das war veraltet, nicht der Code): Der
+    Bootstrap-Mint ist bereits über den Owner-Check (``registered_by ==
+    user.id``) plus eine vom Admin genehmigte, aktive Instanz gedeckt, und der
+    Redeem verweigert nicht-aktive Instanzen. Die Server-App nutzt den Mint
+    außerdem mit ``reset=true`` zur Crash-/Gerätewechsel-Recovery — ein
+    ``self_host_enabled``-Gate dort würde App-Host-Owner nach einem Admin-
+    Revoke+Re-Approve-Zyklus oder VPS-Owner (Flag greift bei denen nie)
+    aussperren. Das Flag bleibt nur für den env-File-Download nötig, weil der
+    jederzeit ein frisches ``client_secret`` rotieren kann (s. CLAUDE.md
+    „Self-Host-Approval-Flow")."""
     if not user.self_host_enabled:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="self-hosting not enabled")
 
@@ -84,33 +87,6 @@ def _require_self_host_enabled(user: User) -> None:
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
-
-
-class InstanceApplicationCreate(BaseModel):
-    hostname: str = Field(min_length=4, max_length=253)
-    # Das Formular erfasst nur noch den Hostname. Die restlichen Felder sind
-    # optional (für Alt-Clients / API-Nutzer noch akzeptiert): ``contact_email``
-    # wird sonst aus dem eingeloggten User abgeleitet (haben wir ohnehin),
-    # purpose/expected_users bekommen unauffällige Defaults.
-    purpose: Literal["privat", "verein", "firma", "sonst"] = "sonst"
-    expected_users: int = Field(default=1, ge=1, le=10000)
-    contact_email: EmailStr | None = None
-    notes: str | None = Field(default=None, max_length=2000)
-
-
-class InstanceApplicationOut(BaseModel):
-    id: str  # Snowflake-String-API
-    applicant_user_id: str
-    hostname: str
-    purpose: str
-    expected_users: int
-    contact_email: str
-    notes: str | None
-    status: str
-    reviewed_at: datetime | None
-    rejection_reason: str | None
-    approved_instance_id: str | None
-    created_at: datetime
 
 
 class InstanceOut(BaseModel):
@@ -145,25 +121,6 @@ class InstancePreferencesIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _app_to_out(app: InstanceApplication) -> InstanceApplicationOut:
-    return InstanceApplicationOut(
-        id=str(app.id),
-        applicant_user_id=str(app.applicant_user_id),
-        hostname=app.hostname,
-        purpose=app.purpose,
-        expected_users=app.expected_users,
-        contact_email=app.contact_email,
-        notes=app.notes,
-        status=app.status,
-        reviewed_at=app.reviewed_at,
-        rejection_reason=app.rejection_reason,
-        approved_instance_id=(
-            str(app.approved_instance_id) if app.approved_instance_id is not None else None
-        ),
-        created_at=app.created_at,
-    )
-
-
 def _instance_to_out(
     inst: RegisteredInstance, membership: UserInstanceMembership | None = None
 ) -> InstanceOut:
@@ -193,102 +150,6 @@ def _instance_to_out(
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/me/instance-applications",
-    response_model=InstanceApplicationOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def submit_instance_application(
-    payload: InstanceApplicationCreate,
-    request: Request,
-    db: SessionDep,
-) -> InstanceApplicationOut:
-    """Antrag auf Self-Host-Instanz-Registrierung einreichen."""
-    user = await _require_user(request, db)
-
-    # FQDN-Check: kein Single-Label, kein raw-IP, kein localhost.
-    hostname = payload.hostname.lower()
-    if not _FQDN_RE.match(hostname):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="hostname muss ein vollständiger Domain-Name (FQDN) sein",
-        )
-
-    # Duplicate-Check: pending-Antrag desselben Users für denselben Hostname.
-    dup_stmt = select(InstanceApplication).where(
-        and_(
-            InstanceApplication.applicant_user_id == user.id,
-            InstanceApplication.hostname == hostname,
-            InstanceApplication.status == "pending",
-        )
-    )
-    dup = (await db.execute(dup_stmt)).scalars().first()
-    if dup is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="du hast bereits einen offenen Antrag für diesen Hostname",
-        )
-
-    # Hostname-Konflikt: existiert der Hostname schon in registered_instances?
-    conflict_stmt = select(RegisteredInstance).where(
-        RegisteredInstance.hostname == hostname
-    )
-    conflict = (await db.execute(conflict_stmt)).scalars().first()
-    if conflict is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="dieser Hostname ist bereits registriert",
-        )
-
-    app = InstanceApplication(
-        id=next_id(),
-        applicant_user_id=user.id,
-        hostname=hostname,
-        purpose=payload.purpose,
-        expected_users=payload.expected_users,
-        # Antragsteller ist der eingeloggte User → seine E-Mail ist die Quelle.
-        # Ein explizit mitgeschicktes ``contact_email`` (Alt-Client) gewinnt.
-        contact_email=str(payload.contact_email) if payload.contact_email else user.email,
-        notes=payload.notes,
-        status="pending",
-    )
-    db.add(app)
-    await db.flush()
-    await db.commit()
-    await db.refresh(app)
-    # Erst nach dem Commit: die Admins sollen nichts sehen, was ein
-    # zurückgerollter Antrag nie war.
-    await publish_application_pending(request, "instance")
-    return _app_to_out(app)
-
-
-@router.get(
-    "/me/instance-applications",
-    response_model=list[InstanceApplicationOut],
-)
-async def list_my_instance_applications(
-    request: Request,
-    db: SessionDep,
-    status_filter: Annotated[
-        Literal["pending", "approved", "rejected", "closed", "all"] | None,
-        Query(alias="status"),
-    ] = None,
-) -> list[InstanceApplicationOut]:
-    """Eigene Anträge abrufen, optional nach Status gefiltert."""
-    user = await _require_user(request, db)
-
-    stmt = (
-        select(InstanceApplication)
-        .where(InstanceApplication.applicant_user_id == user.id)
-        .order_by(InstanceApplication.created_at.desc())
-    )
-    if status_filter and status_filter != "all":
-        stmt = stmt.where(InstanceApplication.status == status_filter)
-
-    rows = (await db.execute(stmt)).scalars().all()
-    return [_app_to_out(r) for r in rows]
 
 
 @router.get(

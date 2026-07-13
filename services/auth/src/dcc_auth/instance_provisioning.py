@@ -29,6 +29,17 @@ from dcc_auth.security import hash_password
 from dcc_auth.snowflake import next_id
 
 
+def app_host_placeholder_hostname(application_id: int) -> str:
+    """Synthetischer Hostname für App-Host-**Anträge** (vereintes Antragssystem,
+    Migration 0044). App-Host-User liefern keinen Hostname — die NOT-NULL-Spalte
+    ``instance_applications.hostname`` bekommt diesen Platzhalter im selben
+    Muster wie die spätere Instanz (``app-<id>.<relay_base>``). Eindeutig pro
+    Antrag (Snowflake), kollidiert nie mit echten Domains, existiert nicht im
+    DNS. Die Instanz bekommt bei der Approval ihren EIGENEN Platzhalter mit der
+    Instanz-ID (:func:`provision_app_host_instance`)."""
+    return f"app-{application_id}.{get_settings().pulse_relay_base_domain}"
+
+
 async def user_has_active_owner_instance(session: AsyncSession, user_id: int) -> bool:
     """True, wenn der User bereits eine aktive App-Host-Instanz besitzt.
 
