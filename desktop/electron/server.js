@@ -150,6 +150,9 @@ async function refresh() {
   $('supersededRow').classList.toggle('hidden', !superseded);
   $('autostartRow').classList.toggle('hidden', !paired || superseded);
   $('dataSection').classList.toggle('hidden', !paired || superseded);
+  // Aufgeben nur gepairt; im superseded-Zustand übernimmt der Zweitknopf
+  // "Lokale Daten löschen …" in der supersededRow denselben Flow.
+  $('giveUpSection').classList.toggle('hidden', !paired || superseded);
 
   if (paired && !superseded) {
     if (host.getAutostart) {
@@ -182,6 +185,7 @@ function bind() {
   // läuft für dieses Konto schon ein eingerichteter Server — Bestätigungs-
   // Dialog statt stiller Übernahme (reset entwertet dessen Zugang sofort).
   const doProvision = async (opts) => {
+    $('giveupHint').classList.add('hidden'); // alter Aufgabe-Hinweis ist ab jetzt obsolet
     $('btnSetup').disabled = true; $('statustext').textContent = 'Einrichten …'; $('dot').className = 'dot prep';
     const r = await host.provision(opts);
     $('btnSetup').disabled = false;
@@ -218,6 +222,35 @@ function bind() {
     $('btnStart').disabled = false; refresh();
   };
   $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
+  // "Server aufgeben": gemeinsames Overlay für den Danger-Knopf (Checkbox
+  // default AUS) und den superseded-Zweitknopf (Datenlöschung ist dort der
+  // Zweck → Checkbox vorbelegt AN; Cloud-Delete überspringt der Main-Prozess
+  // im superseded-Zustand selbst).
+  const openGiveUp = (dataChecked) => {
+    $('giveupData').checked = dataChecked;
+    $('giveupOverlay').classList.remove('hidden');
+  };
+  $('btnGiveUp').onclick = () => openGiveUp(false);
+  $('btnWipeLocal').onclick = () => openGiveUp(true);
+  $('btnGiveUpCancel').onclick = () => $('giveupOverlay').classList.add('hidden');
+  $('btnGiveUpConfirm').onclick = async () => {
+    $('btnGiveUpConfirm').disabled = true;
+    $('statustext').textContent = 'Server wird aufgegeben …'; $('dot').className = 'dot prep';
+    const r = await host.giveUp({ deleteData: $('giveupData').checked }).catch(() => null);
+    $('btnGiveUpConfirm').disabled = false;
+    $('giveupOverlay').classList.add('hidden');
+    provisionFailed = false;
+    await refresh();
+    $('statustext').textContent = 'Server aufgegeben.';
+    // Liegengebliebene Cloud-Löschung ehrlich melden (Client-Weg als Ausweg).
+    const cloudFailed = r && r.cloudDeleted === false;
+    $('giveupHint').classList.toggle('hidden', !cloudFailed);
+    if (cloudFailed) {
+      $('giveupHint').textContent =
+        'Die Registrierung in der Cloud konnte nicht gelöscht werden — melde dich im Pulse-Client an und lösche den Server unter Einstellungen → Self-Host → Meine Instanzen.';
+    }
+    if (r && r.dataDeleted === false) alert('Die lokalen Serverdaten konnten nicht gelöscht werden (Volume pulse-host-data).');
+  };
   $('btnReset').onclick = async () => {
     $('btnReset').disabled = true;
     await host.unpair().catch(() => {});

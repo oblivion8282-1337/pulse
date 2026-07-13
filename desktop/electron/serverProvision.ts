@@ -10,6 +10,7 @@
 // auch der howispulse.com-Login stattfand → Cookie ist dort gespeichert.
 import { net, session } from 'electron';
 import { classifyMintStatus, redeemBootstrap, type BootstrapCreds } from './localBackend/pairing';
+import { classifyDeleteStatus, type CloudDeleteVerdict } from './serverGiveUp';
 
 interface InstanceOut { id: string; status: string; origin?: string }
 
@@ -130,5 +131,23 @@ export async function provision(
     return { ok: true, creds: await redeemBootstrap(token, cloudOrigin) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** "Server aufgeben": Cloud-Registrierung löschen (Soft-Delete im Backend,
+ *  routes_instance_delete.py). Läuft wie provision() über den
+ *  pulse_session-Cookie — ohne gültige Session 'unauthorized', damit die UI
+ *  auf den Client-Weg (Einstellungen → Meine Instanzen) verweisen kann. */
+export async function deleteInstanceRegistration(
+  cloudOrigin: string,
+  instanceId: string,
+): Promise<CloudDeleteVerdict> {
+  try {
+    const cookie = await sessionCookie(cloudOrigin);
+    if (!cookie) return 'unauthorized';
+    const r = await netJson('DELETE', `${cloudOrigin}/api/auth/me/instances/${instanceId}`, cookie);
+    return classifyDeleteStatus(r.status);
+  } catch {
+    return 'error';
   }
 }

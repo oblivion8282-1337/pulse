@@ -53,7 +53,8 @@ import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
 } from './localBackend/pairing';
-import { provision } from './serverProvision';
+import { provision, deleteInstanceRegistration } from './serverProvision';
+import { runGiveUp } from './serverGiveUp';
 import { runSelfTest, classifySelfTest } from './localBackend/selfTest';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
@@ -722,6 +723,30 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       // Immer wieder hochfahren, wenn er vorher lief — auch nach Export-Fehler.
       if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
     }
+  });
+  // "Server aufgeben": vollständiger Aufgabe-Flow (Sequenz + Teil-Fehler-
+  // Semantik in serverGiveUp.ts — hier nur die echten Ops). Im superseded-
+  // Zustand sind die Creds bereits entwertet → Cloud-Löschung überspringen
+  // (der Zweitknopf dort räumt nur das Gerät auf).
+  ipcMain.handle('host:giveUp', async (e, opts?: unknown) => {
+    if (!localSenderOnly(e) || !creds) return { ok: false };
+    const deleteData = (opts as { deleteData?: boolean } | undefined)?.deleteData === true;
+    const skipCloud = hl.getStatus().phase === 'superseded';
+    const { cloudOrigin, instanceId } = creds;
+    return runGiveUp({ deleteData, skipCloud }, {
+      removeContainer: () => manager.removeContainer(),
+      deleteCloudRegistration: () => deleteInstanceRegistration(cloudOrigin, instanceId),
+      removeAutostart: () => {
+        storeSet('serverAutostart', false);
+        osApplyAutostart(false);
+      },
+      clearPairing: () => {
+        clearCreds(hostStore);
+        creds = null;
+        hl.resetToIdle();
+      },
+      removeDataVolume: () => manager.removeDataVolume(),
+    });
   });
 
   // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.

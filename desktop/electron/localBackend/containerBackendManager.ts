@@ -234,4 +234,27 @@ export class ContainerBackendManager {
     ).catch(() => null);
     return r?.code === 0 && r.stdout.trim() === 'true';
   }
+
+  /** "Server aufgeben": Container komplett entfernen (sauberer Stop zuerst,
+   *  dann rm -f — ein fehlender Container ist kein Fehler). Ohne das rm würde
+   *  `--restart unless-stopped` ihn beim nächsten Host-Boot wiederbeleben. */
+  async removeContainer(): Promise<void> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return;
+    await this.stop();
+    await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 }).catch(() => {});
+  }
+
+  /** Daten-Volume löschen (nur nach removeContainer — sonst "volume in use").
+   *  true bei Erfolg; ein bereits fehlendes Volume zählt als Erfolg. */
+  async removeDataVolume(): Promise<boolean> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return false;
+    const exists = await rtExec(rt, ['volume', 'inspect', DATA_VOLUME], { timeoutMs: 15_000 })
+      .catch(() => null);
+    if (exists?.code !== 0) return true; // schon weg — nichts zu tun
+    const r = await rtExec(rt, ['volume', 'rm', DATA_VOLUME], { timeoutMs: 60_000 })
+      .catch(() => null);
+    return r?.code === 0;
+  }
 }

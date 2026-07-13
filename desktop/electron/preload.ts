@@ -293,6 +293,10 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.on('host:exportStep', handler);
       return () => ipcRenderer.removeListener('host:exportStep', handler);
     },
+    // "Server aufgeben": Container+Cloud-Registrierung+Pairing entfernen,
+    // optional inkl. lokaler Daten (server.html-Bestätigungs-Overlay).
+    giveUp: (opts?: { deleteData?: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('host:giveUp', opts),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),

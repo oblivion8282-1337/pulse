@@ -243,6 +243,16 @@ export interface HostExportResult {
   canceled?: boolean;
 }
 
+/** Ergebnis von host.giveUp(). cloudDeleted null = bewusst übersprungen
+ *  (superseded-Zustand); false = liegengeblieben → UI verweist auf den
+ *  Client-Weg (Einstellungen → Self-Host → Meine Instanzen). */
+export interface HostGiveUpResult {
+  ok: boolean;
+  cloudDeleted: boolean | null;
+  dataDeleted: boolean | null;
+  errors: string[];
+}
+
 /** Host-Lifecycle-Bridge (③a/③c). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
 export interface PulseHostApi {
   /** Stack starten — triggert die Phasen-Sequenz (checking-network → … → live / Fehler-Phase). */
@@ -275,6 +285,9 @@ export interface PulseHostApi {
   exportData(): Promise<HostExportResult>;
   /** Export-Schritte abonnieren (stopping/exporting/restarting). */
   onExportStep(cb: (step: string) => void): () => void;
+  /** "Server aufgeben": Container + Cloud-Registrierung + Pairing entfernen,
+   *  optional inkl. lokaler Daten. Best-effort — Teilfehler im Ergebnis. */
+  giveUp(opts?: { deleteData?: boolean }): Promise<HostGiveUpResult>;
   /** Pairing-Credentials löschen. */
   unpair(): Promise<void>;
   /** Gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die zeigt die

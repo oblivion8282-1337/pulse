@@ -80,6 +80,7 @@
     <div id="supersededRow" class="row hidden">
       <div class="hint">Dieser Server wurde auf ein anderes Gerät umgezogen.</div>
       <button id="btnReset" class="secondary">Verstanden — Gerät zurücksetzen</button>
+      <div style="margin-top: 8px"><button id="btnWipeLocal" class="danger">Lokale Daten löschen …</button></div>
     </div>
 
     <div id="addrRow" class="row hidden">
@@ -118,6 +119,11 @@
       <div style="margin-top: 10px"><button id="btnExport" class="secondary">Alles exportieren</button></div>
       <div id="exportStatus" class="hint hidden"></div>
     </div>
+
+    <div id="giveUpSection" class="section hidden">
+      <button id="btnGiveUp" class="danger">Server aufgeben …</button>
+    </div>
+    <div id="giveupHint" class="hint warn hidden"></div>
   </div>
 
   <!-- Übernahme-Dialog: erscheint, wenn die Provisionierung meldet, dass für
@@ -128,6 +134,17 @@
       <div class="sub">Für dieses Konto läuft bereits ein eingerichteter Server. Übernehmen? Der bisherige Server verliert dauerhaft den Zugang.</div>
       <div class="row"><button id="btnTakeover" class="danger">Übernehmen</button></div>
       <div class="row" style="margin-bottom: 0"><button id="btnTakeoverCancel" class="secondary">Abbrechen</button></div>
+    </div>
+  </div>
+
+  <!-- Aufgabe-Dialog: ehrliche Konsequenzen + optionale lokale Datenlöschung. -->
+  <div id="giveupOverlay" class="overlay hidden">
+    <div class="card" style="width: 400px">
+      <h1>Server aufgeben?</h1>
+      <div class="sub">Dein Server wird dauerhaft gelöscht. Mitglieder verlieren den Zugang und der Server verschwindet aus ihren Listen.</div>
+      <label class="toggle" style="margin-bottom: 16px"><input id="giveupData" type="checkbox" /> Auch die lokalen Serverdaten auf diesem Gerät löschen (Nachrichten, Dateien — unwiderruflich)</label>
+      <div class="row"><button id="btnGiveUpConfirm" class="danger">Server dauerhaft aufgeben</button></div>
+      <div class="row" style="margin-bottom: 0"><button id="btnGiveUpCancel" class="secondary">Abbrechen</button></div>
     </div>
   </div>
 
