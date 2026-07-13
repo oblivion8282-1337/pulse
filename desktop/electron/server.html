@@ -65,6 +65,11 @@
     <div id="btnStartRow" class="row hidden"><button id="btnStart">Server starten</button></div>
     <div id="btnStopRow" class="row hidden"><button id="btnStop" class="danger">Server stoppen</button></div>
 
+    <div id="supersededRow" class="row hidden">
+      <div class="hint">Dieser Server wurde auf ein anderes Gerät umgezogen.</div>
+      <button id="btnReset" class="secondary">Verstanden — Gerät zurücksetzen</button>
+    </div>
+
     <div id="addrRow" class="row hidden">
       <label>Server-Adresse (zum Teilen)</label>
       <div id="addr" class="addr" title="Klicken zum Kopieren">
@@ -88,9 +93,10 @@
       preparing: 'Server wird gestartet …', 'going-live': 'Fast geschafft …', live: 'Server läuft.',
       'needs-your-help': 'Manuelle Einrichtung nötig.', 'not-possible-here': 'Hier leider nicht möglich (CGNAT).',
       'something-paused': 'Pause — bitte erneut versuchen.', 'needs-windows-setup': 'Windows braucht erst WSL2.',
+      superseded: 'Auf ein anderes Gerät umgezogen.',
     };
     const PREP = ['checking-network', 'opening-door', 'preparing', 'going-live'];
-    const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup'];
+    const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup', 'superseded'];
 
     function setStatus(phase, detail) {
       $('dot').className = 'dot ' + (phase === 'live' ? 'live' : PREP.includes(phase) ? 'prep' : ERR.includes(phase) ? 'err' : '');
@@ -103,25 +109,33 @@
 
     async function refresh() {
       if (!host) { $('statustext').textContent = 'Fehler: Host-Bridge nicht verfügbar.'; $('dot').className = 'dot err'; return; }
+      // Zustands-Abgleich zuerst: hebt die Phase auf 'live', falls der
+      // Container (--restart unless-stopped) über einen App-Neustart hinweg
+      // weiterlief — ohne das zeigt die UI fälschlich "Bereit"/"Server starten".
+      await host.refresh().catch(() => {});
       const runtimeOk = await host.runtimeAvailable().catch(() => false);
       const pairing = await host.getPairing().catch(() => null);
       const paired = !!(pairing && typeof pairing === 'object' && pairing.paired);
+      // getStatus() liefert immer ein Objekt (Snapshot bzw. catch-Fallback) —
+      // ab hier reicht die abgeleitete `phase`, kein `st &&`-Guard mehr nötig.
       const st = await host.getStatus().catch(() => ({ phase: 'idle' }));
-      const phase = (st && st.phase) || 'idle';
-      setStatus(phase, st && st.detail);
-      const running = st && ['preparing', 'going-live', 'live'].includes(st.phase);
+      const phase = st.phase || 'idle';
+      setStatus(phase, st.detail);
+      const running = ['preparing', 'going-live', 'live'].includes(phase);
+      const superseded = phase === 'superseded';
 
-      $('setupRow').classList.toggle('hidden', paired || running);
-      $('btnStartRow').classList.toggle('hidden', !paired || running);
-      $('btnStopRow').classList.toggle('hidden', !(st && st.phase === 'live'));
+      $('setupRow').classList.toggle('hidden', paired || running || superseded);
+      $('btnStartRow').classList.toggle('hidden', !paired || running || superseded);
+      $('btnStopRow').classList.toggle('hidden', phase !== 'live');
       // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
-      $('pairRow').classList.toggle('hidden', paired || !provisionFailed);
-      $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed);
+      $('pairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
+      $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
+      $('supersededRow').classList.toggle('hidden', !superseded);
 
       if (!paired && !running && phase === 'idle') {
         $('statustext').textContent = provisionFailed ? 'Automatische Einrichtung fehlgeschlagen — Token-Fallback.' : 'Bereit zum Einrichten.';
       }
-      if (!runtimeOk && !running) {
+      if (!runtimeOk && !running && !superseded) {
         $('statustext').textContent = 'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.';
         $('dot').className = 'dot err';
       }
@@ -152,6 +166,13 @@
         $('btnStart').disabled = false; refresh();
       };
       $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
+      $('btnReset').onclick = async () => {
+        $('btnReset').disabled = true;
+        await host.unpair().catch(() => {});
+        $('btnReset').disabled = false;
+        provisionFailed = false;
+        refresh();
+      };
       // Kurze Sicht-Rückmeldung: ohne sie ist nicht erkennbar, ob der Klick ankam.
       let copyTimer = null;
       $('addr').onclick = async () => {

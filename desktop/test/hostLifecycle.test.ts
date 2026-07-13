@@ -103,3 +103,46 @@ test('checkPrereqs ok → normaler Ablauf bis live', async () => {
   const phases = await phasesOf(fakeDeps({ checkPrereqs: async () => 'ok' }));
   assert.ok(phases.includes('live'));
 });
+
+// Zustands-Abgleich (markLive) + Ablöse-Erkennung (markSuperseded/resetToIdle)
+
+test('markLive: Container läuft, Phase ist idle → live mit relayUrl', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markLive('https://brave-otter.relay.howispulse.com');
+  const st = hl.getStatus();
+  assert.equal(st.phase, 'live');
+  assert.equal(st.detail?.relayUrl, 'https://brave-otter.relay.howispulse.com');
+});
+
+test('markLive: relayUrl null → detail.relayUrl undefined (kein "null" im UI)', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markLive(null);
+  assert.equal(hl.getStatus().detail?.relayUrl, undefined);
+});
+
+test('markLive: Phase ist NICHT idle (z.B. bereits live) → No-Op, überschreibt nichts', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markLive('https://a.relay.howispulse.com');
+  hl.markLive('https://b.relay.howispulse.com'); // zweiter Aufruf darf nicht mehr greifen
+  assert.equal(hl.getStatus().detail?.relayUrl, 'https://a.relay.howispulse.com');
+});
+
+test('markLive: Phase ist "superseded" → No-Op, stellt nicht fälschlich live her', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markSuperseded();
+  hl.markLive('https://x.relay.howispulse.com');
+  assert.equal(hl.getStatus().phase, 'superseded');
+});
+
+test('markSuperseded → Phase "superseded"', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markSuperseded();
+  assert.equal(hl.getStatus().phase, 'superseded');
+});
+
+test('resetToIdle nach superseded → zurück auf idle', () => {
+  const hl = new HostLifecycle(fakeDeps({}));
+  hl.markSuperseded();
+  hl.resetToIdle();
+  assert.equal(hl.getStatus().phase, 'idle');
+});

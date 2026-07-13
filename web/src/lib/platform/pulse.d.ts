@@ -176,7 +176,11 @@ export type HostPhase =
   | 'needs-your-help'
   | 'not-possible-here'
   | 'something-paused'
-  | 'needs-windows-setup';
+  | 'needs-windows-setup'
+  // Ablöse-Erkennung: periodischer Creds-Check fand ein eindeutiges 401 —
+  // ein Re-Bootstrap auf einem ANDEREN Gerät hat clientSecret rotiert.
+  // Terminal, bis der User "Gerät zurücksetzen" klickt (host:unpair).
+  | 'superseded';
 
 /** Phasen-Ereignis, das HostLifecycle via host:phase an den Renderer pusht. */
 export interface HostPhaseEvent {
@@ -215,6 +219,9 @@ export interface PulseHostApi {
   stop(): Promise<void>;
   /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
   getStatus(): Promise<HostPhaseEvent>;
+  /** Zustands-Abgleich mit dem echten Container (überlebt App-Neustarts
+   *  dank `--restart unless-stopped`) — hebt die Phase bei Bedarf auf 'live'. */
+  refresh(): Promise<HostPhaseEvent>;
   /** Phasen-Events abonnieren. Gibt eine Unsubscribe-Funktion zurück. */
   onPhase(cb: (e: HostPhaseEvent) => void): () => void;
   /** Cloud-Bootstrap-Token einlösen und Pairing-Credentials speichern. */

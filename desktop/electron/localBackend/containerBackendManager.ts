@@ -185,4 +185,19 @@ export class ContainerBackendManager {
       timeoutMs: 60_000,
     }).catch(() => {});
   }
+
+  /** Läuft der `pulse-host`-Container gerade (unabhängig davon, ob diese
+   *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
+   *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
+   *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
+  async isContainerRunning(): Promise<boolean> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return false;
+    const r = await rtExec(
+      rt,
+      ['inspect', CONTAINER_NAME, '--format', '{{.State.Running}}'],
+      { timeoutMs: 15_000 },
+    ).catch(() => null);
+    return r?.code === 0 && r.stdout.trim() === 'true';
+  }
 }

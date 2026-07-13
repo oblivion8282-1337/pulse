@@ -262,6 +262,10 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (opts: unknown): Promise<void> => ipcRenderer.invoke('host:start', opts),
     stop: (): Promise<void> => ipcRenderer.invoke('host:stop'),
     getStatus: (): Promise<unknown> => ipcRenderer.invoke('host:status'),
+    // Zustands-Abgleich: fragt den echten Containerstatus ab (überlebt App-
+    // Neustarts dank `--restart unless-stopped`) und hebt die Phase bei
+    // Bedarf auf 'live' — server.html ruft das bei jedem UI-Refresh.
+    refresh: (): Promise<unknown> => ipcRenderer.invoke('host:refresh'),
     onPhase: (cb: (e: unknown) => void): (() => void) => {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);
       ipcRenderer.on('host:phase', handler);

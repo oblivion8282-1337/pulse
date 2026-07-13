@@ -54,6 +54,12 @@ import {
 import { provision } from './serverProvision';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
+import { checkCredsSupersede } from './serverSupersede';
+
+/** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
+ *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
+ *  schnell genug, dass ein Zombie-Gerät binnen Minuten stoppt statt Tage. */
+const SUPERSEDE_CHECK_INTERVAL_MS = 10 * 60_000;
 
 // Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
 // Chromium default. The GSR HQ-stream excludes our own audio from desktop
@@ -504,6 +510,35 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
   hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
 
+  // Zustands-Abgleich: `hl`s `_last` lebt nur in-memory — nach einem App-
+  // Neustart weiß sie nichts vom Container, der dank `--restart unless-
+  // stopped` weiterlief. Fragt den echten Zustand ab und hebt die Phase auf
+  // 'live', wenn er läuft (markLive() ist selbst ein No-Op außerhalb 'idle',
+  // stört also weder eine laufende Sequenz noch 'superseded').
+  const syncLifecycleFromContainer = async (): Promise<void> => {
+    if (!SERVER_MODE) return;
+    const running = await manager.isContainerRunning().catch(() => false);
+    if (running) hl.markLive(deps.relayUrl());
+  };
+
+  // Ablöse-Erkennung: periodischer Creds-Check gegen den Registry-Token-Realm
+  // (serverSupersede.ts). Ein eindeutiges 401 heißt: ein Re-Bootstrap auf
+  // einem ANDEREN Gerät hat clientSecret rotiert — dieses Gerät ist Zombie.
+  // Netzwerkfehler/403/5xx sind fail-safe: keine Aktion.
+  const checkSupersedeOnce = async (): Promise<void> => {
+    if (!SERVER_MODE || !creds) return;
+    const verdict = await checkCredsSupersede(creds);
+    if (verdict !== 'superseded') return;
+    await manager.stop().catch(() => {}); // Creds bleiben erhalten (Diagnose)
+    hl.markSuperseded();
+  };
+
+  if (SERVER_MODE) {
+    void syncLifecycleFromContainer();
+    void checkSupersedeOnce();
+    setInterval(() => { void checkSupersedeOnce(); }, SUPERSEDE_CHECK_INTERVAL_MS).unref();
+  }
+
   // Server-App: privilegierte Host-IPC (provision/start/stop/pair/unpair) nur
   // vom lokalen server.html (file://) zulassen — NICHT von der during der
   // Login-Phase geladenen howispulse.com-Seite (remote). Verhindert, dass eine
@@ -522,6 +557,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     return hl.stop();
   });
   ipcMain.handle('host:status', () => hl.getStatus());
+  // server.html ruft das bei jedem UI-Refresh — Zustands-Abgleich ist ein
+  // No-Op außerhalb 'idle', also billig genug für jeden Aufruf.
+  ipcMain.handle('host:refresh', async () => {
+    await syncLifecycleFromContainer();
+    return hl.getStatus();
+  });
   // UI-Gating: gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die
   // zeigt die App-Hosting-Karte den Setup-Hinweis statt des Start-Knopfs.
   ipcMain.handle('host:runtime', () => manager.runtimeAvailable());
@@ -551,6 +592,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!localSenderOnly(e)) return;
     clearCreds(hostStore);
     creds = null;
+    // "Gerät zurücksetzen" nach einer Ablöse: der Container wurde schon vor
+    // 'superseded' gestoppt (checkSupersedeOnce) — nur die Phase muss zurück
+    // auf 'idle', sonst hängt die UI im Ablöse-Hinweis fest.
+    if (hl.getStatus().phase === 'superseded') hl.resetToIdle();
   });
   // Login-basierte Auto-Provision (Server-App): findet die aktive Instanz des
   // eingeloggten Users, mintet + redeemt den Bootstrap-Token via Session-Cookie
