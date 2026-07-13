@@ -57,7 +57,8 @@
   <p class="text-text-bright text-sm font-semibold">{m.invite_share_heading()}</p>
   {#if link}
     <div class="bg-bg-input border-border flex items-center gap-2 rounded-xl border p-2.5">
-      <code class="text-text-bright min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
+      <code class="text-text-bright min-w-0 flex-1 truncate font-mono text-xs"
+            data-testid="invite-share-link">{link}</code>
       <button
         type="button"
         onclick={() => void copy(link ?? '')}
