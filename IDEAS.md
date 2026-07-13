@@ -292,6 +292,8 @@ Memory `project_pulse_license_status.md` sagt: keine LICENSE-Datei da. → Lizen
 
 2. **Pulse-Network-Identity (`pulse.com`-SSO).** Konzept existiert (`IDENTITY_CONCEPT.md`). Ein Account über alle Self-Host-Instanzen (Minecraft-Modell). Self-Hoster aktiviert für 2€/Monat pro Instance → Avatar-Sync, Cross-Instance-DMs, Friend-Adds across Hosts. **Das ist der Moat den niemand replizieren kann ohne euren Identity-Server.** Sollte als Strategie-Anker behandelt werden, nicht nur als Feature.
 
+3. **Öffentliches Server-Verzeichnis als Opt-in (Entscheidung 2026-07-13: später).** Server bleiben default privat (nur Einladungslink); Betreiber können ihren Server später freiwillig listen lassen — denkbar als Bezahl-Feature oder Teil des Hosting-Abos. Bringt Moderationspflichten mit (Melde-/Prüfwesen), deshalb bewusst zurückgestellt, bis Nachfrage da ist. Passt als Baustein zu Phase 3 (Ökosystem).
+
 ### Phasen-Plan (Empfehlung)
 
 - **Phase 1 (jetzt):** AGPL-3.0 + CLA. AGPL schützt, CLA gibt Recht für spätere Dual-Lizenzen.
