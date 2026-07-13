@@ -32,8 +32,14 @@ function setStatus(phase, detail) {
     text = detail.step === 'update' ? 'Update wird installiert …' : text + ' (' + detail.step + ')';
   }
   $('statustext').textContent = text;
-  $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
-  if (detail && detail.relayUrl) $('addrText').textContent = detail.relayUrl;
+  // Live zeigt immer den Einladungs-Wegweiser (+ Selbsttest); die kopierbare
+  // Adresse nur bei Bestandsinstanzen mit Relay-Subdomain — neue App-Hosts
+  // haben keine mehr (Relay-Fallback abgeschafft, Beitritt läuft über
+  // Einladungslinks aus dem Pulse-Client).
+  const relayUrl = (detail && detail.relayUrl) || null;
+  $('addrRow').classList.toggle('hidden', phase !== 'live');
+  $('addrBox').classList.toggle('hidden', !relayUrl);
+  if (relayUrl) $('addrText').textContent = relayUrl;
   maybeSelfTest(phase);
 }
 

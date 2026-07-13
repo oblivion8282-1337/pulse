@@ -71,7 +71,14 @@ export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): 
     // Der Relay terminiert TLS — der Container routet nur HTTP intern.
     'PULSE_TLS_MODE=behind-proxy',
     'PULSE_HTTP_PORT=8080',
+    // Explizite Herkunfts-Markierung fürs Image: ersetzt die frühere
+    // "Relay-Token gesetzt = App-Host"-Heuristik — neue App-Host-Instanzen
+    // kommen ohne Relay-Creds (Relay-Fallback abgeschafft).
+    'PULSE_HOST_ORIGIN=app_host',
   ];
+  // Relay-Zeilen nur, wenn ALLE drei Werte da sind (Bestandsinstanzen) —
+  // leere PULSE_RELAY_*-Strings gälten im Image als "Relay konfiguriert";
+  // das Erkennungsmuster ist FEHLENDE Variablen.
   if (creds.relaySubdomain && creds.relayServerAddr && creds.relayTunnelToken) {
     lines.push(
       `PULSE_RELAY_SUBDOMAIN=${creds.relaySubdomain}`,

@@ -84,15 +84,21 @@
     </div>
 
     <div id="addrRow" class="row hidden">
-      <label>Server-Adresse (zum Teilen)</label>
-      <div id="addr" class="addr" title="Klicken zum Kopieren">
-        <span id="addrText" class="text"></span>
-        <svg id="addrIcon" class="copy" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-          <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-        </svg>
-        <span id="addrDone" class="done hidden">Kopiert</span>
+      <!-- Adresse nur für Bestandsinstanzen mit Relay-Subdomain — neue
+           App-Hosts kommen ohne (Relay-Fallback abgeschafft), dort bleibt
+           nur der Einladungs-Wegweiser. -->
+      <div id="addrBox" class="hidden">
+        <label>Server-Adresse (zum Teilen)</label>
+        <div id="addr" class="addr" title="Klicken zum Kopieren">
+          <span id="addrText" class="text"></span>
+          <svg id="addrIcon" class="copy" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+          </svg>
+          <span id="addrDone" class="done hidden">Kopiert</span>
+        </div>
       </div>
+      <div class="hint">So laden deine Freunde ein: Öffne den Pulse-Client, erstelle eine Community auf deinem Server und erzeuge dort einen Einladungslink (Leute einladen → Oder Link teilen).</div>
       <div id="selftestText" class="hint hidden"></div>
       <div id="selftestBtnRow" class="hidden" style="margin-top: 8px">
         <button id="btnRecheck" class="secondary">Erneut prüfen</button>
