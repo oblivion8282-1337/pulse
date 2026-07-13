@@ -53,9 +53,8 @@ import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
 } from './localBackend/pairing';
-import { provision, deleteInstanceRegistration } from './serverProvision';
+import { provision, deleteInstanceRegistration, fetchCloudStatus } from './serverProvision';
 import { runGiveUp } from './serverGiveUp';
-import { runSelfTest, classifySelfTest } from './localBackend/selfTest';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { checkCredsSupersede } from './serverSupersede';
@@ -517,7 +516,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     relayUrl: () => (creds?.relaySubdomain ? `https://${creds.relaySubdomain}` : null),
   };
   const hl = new HostLifecycle(deps, SERVER_MODE ? { holePunch: true } : {});
-  hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
+  hl.onPhase((e) => {
+    getWin()?.webContents.send('host:phase', e);
+    // Jeder 'live'-Übergang (Start ODER Boot-Zustands-Abgleich) startet den
+    // Cloud-Status-Poll; das Flag darin verhindert Doppel-Läufe.
+    if (e.phase === 'live') void pollCloudStatus();
+  });
 
   // Zustands-Abgleich: `hl`s `_last` lebt nur in-memory — nach einem App-
   // Neustart weiß sie nichts vom Container, der dank `--restart unless-
@@ -549,6 +553,27 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (!SERVER_MODE || hl.getStatus().phase !== 'live') return;
     const verdict = await manager.checkImageUpdate().catch(() => 'none' as const);
     if (verdict === 'update') await hl.applyUpdate();
+  };
+
+  // Cloud-Registrierungs-Status: sobald 'live' erreicht ist, den Directory-
+  // Heartbeat abfragen und das Ergebnis an die UI pushen — einmal sofort,
+  // dann alle 60s, bis er registriert ist (danach ändert sich nichts mehr).
+  // Ein Flag verhindert parallele Poller (mehrere 'live'-Übergänge).
+  let cloudStatusPolling = false;
+  const pollCloudStatus = async (): Promise<void> => {
+    if (!SERVER_MODE || !creds || cloudStatusPolling) return;
+    if (hl.getStatus().phase !== 'live') return;
+    cloudStatusPolling = true;
+    try {
+      while (hl.getStatus().phase === 'live') {
+        const registered = creds ? await fetchCloudStatus(creds.cloudOrigin, creds.instanceId) : null;
+        getWin()?.webContents.send('host:cloudStatus', { registered });
+        if (registered === true) return; // registriert bleibt registriert
+        await new Promise((r) => setTimeout(r, 60_000));
+      }
+    } finally {
+      cloudStatusPolling = false;
+    }
   };
 
   // Autostart-Abgleich: Schalter-Zustand lebt im Store, der OS-Zustand wird
@@ -669,12 +694,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     console.error('[provision] fehlgeschlagen:', result.error);
     return { ok: false, error: result.error };
   });
-  // Erreichbarkeits-Selbsttest (Diagnose-only, s. selfTest.ts): server.html
-  // stößt ihn beim Erreichen von 'live' + per "Erneut prüfen" an. Blockiert
-  // nichts — bei jedem Fehler kommt 'unavailable' zurück, nie ein throw.
-  ipcMain.handle('host:selfTest', async (e) => {
-    if (!localSenderOnly(e) || !creds) return classifySelfTest(null);
-    return runSelfTest({ probeUrl: probeUrl(creds) });
+  // "In der Cloud registriert & auffindbar" (serverCloudStatus.ts): fragt den
+  // Directory-Heartbeat der Instanz ab — ehrliches Signal, dass der Ausgang
+  // funktioniert und Freunde den Server finden. null bei jedem Fehler.
+  ipcMain.handle('host:cloudStatus', async (e) => {
+    if (!localSenderOnly(e) || !creds) return { registered: null };
+    return { registered: await fetchCloudStatus(creds.cloudOrigin, creds.instanceId) };
   });
   // Autostart-Schalter: Store ist die Wahrheit, OS-Zustand wird nachgezogen.
   ipcMain.handle('host:getAutostart', () => ({

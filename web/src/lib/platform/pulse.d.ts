@@ -221,13 +221,10 @@ export interface ProvisionResult {
   needsTakeoverConfirm?: boolean;
 }
 
-/** Ergebnis des Erreichbarkeits-Selbsttests (Diagnose-only, blockiert nichts).
- *  'unavailable' = Prüfung nicht möglich (Netz/Dienst) — neutral, kein Alarm. */
-export interface SelfTestResult {
-  status: 'ok' | 'blocked' | 'unavailable';
-  failedPorts: number[];
-  /** Klartext-Gruppen der betroffenen Ports (Voice/Streaming/Verbindungsaufbau). */
-  groups: string[];
+/** Cloud-Registrierungs-Status (Directory-Heartbeat). true = registriert &
+ *  auffindbar, false = läuft noch/offline, null = kein Signal (Netz/Session). */
+export interface HostCloudStatus {
+  registered: boolean | null;
 }
 
 /** "Deine Daten"-Karte: belegte Volume-Größe + Datum des letzten Exports. */
@@ -273,8 +270,10 @@ export interface PulseHostApi {
   /** Login-basierte Auto-Provision (Server-App). Ohne `confirmTakeover` pausiert
    *  sie mit `needsTakeoverConfirm`, wenn schon ein Server eingerichtet ist. */
   provision(opts?: { confirmTakeover?: boolean }): Promise<ProvisionResult>;
-  /** Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only). */
-  selfTest(): Promise<SelfTestResult>;
+  /** Cloud-Registrierungs-Status (Directory-Heartbeat) einmalig abfragen. */
+  cloudStatus(): Promise<HostCloudStatus>;
+  /** Cloud-Status-Updates abonnieren (60s-Poll aus dem Main-Prozess). */
+  onCloudStatus(cb: (r: HostCloudStatus) => void): () => void;
   /** Autostart beim Anmelden — Schalter-Zustand (Store ist die Wahrheit). */
   getAutostart(): Promise<{ enabled: boolean }>;
   /** Autostart setzen/entfernen (Win/Mac: Login-Items; Linux: XDG-Autostart). */

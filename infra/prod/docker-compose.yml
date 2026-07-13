@@ -409,7 +409,11 @@ services:
     labels: *pinned-labels
 
   livekit:
-    image: livekit/livekit-server:v1.11
+    # v1.13.3: Parität mit dem Self-Host-Image (App-Hosting braucht 1.13.1+ für
+    # skip_external_ip_validation hinter NAT). Cloud hat keinen NAT-Hairpin, aber
+    # gleiche Version = eine Fehlerquelle weniger. Protocol-16-kompatibel zum
+    # Client (2.18.9). Umgestellt 2026-07-13.
+    image: livekit/livekit-server:v1.13.3
     container_name: pulse_livekit
     restart: unless-stopped
     network_mode: host
