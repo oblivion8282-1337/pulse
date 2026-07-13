@@ -12,7 +12,6 @@
 -->
 <script lang="ts">
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
-  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { voice } from '$lib/voice/livekit.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -31,18 +30,20 @@
 
   let { channel }: { channel: Channel } = $props();
 
-  let myId = $derived(currentServerUserId());
-
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
-  // One entry per OPEN, live, non-self, non-detached HQ tile — keyed by the
-  // composite `<userId>:<slot>` id so a user's two streams get two anchors.
+  // One entry per OPEN, live, non-detached HQ tile — keyed by the composite
+  // `<userId>:<slot>` id so a user's two streams get two anchors.
+  //
+  // Der EIGENE Stream wird NICHT herausgefiltert: er erscheint nicht von selbst
+  // (die Auto-Öffnen-Logik in VoiceChannelView überspringt den eigenen Nutzer),
+  // aber wenn man seinen eigenen LIVE-Badge anklickt, öffnet sich die eigene
+  // Vorschau bewusst — genau wie bei fremden Streams. `isOpen` bleibt der Gate.
   let openHqTiles = $derived(
     streamPresence
       .streamsIn(channel.id)
       .filter(
         (s) =>
-          s.user_id !== myId &&
           !detachedStreams.has(channel.id, s.user_id, s.slot) &&
           openedTiles.isOpen('hq', channel.id, hqTileId(s.user_id, s.slot))
       )
