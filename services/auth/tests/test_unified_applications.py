@@ -212,6 +212,16 @@ async def test_admin_approve_app_host_via_unified_path(
         bob = await s.get(User, bob_id)
         assert bob.self_host_enabled is True
 
+    # Die Admin-Liste liefert approved_instance_id — der „Aktiv"-Tab mappt
+    # darüber die app_host-Instanz auf ihren Antrag (Revoke braucht die
+    # Antrags-ID, nicht die Instanz-ID).
+    r = await client.get(
+        "/admin/instance-applications?status=approved&origin=app_host", headers=owner_auth
+    )
+    assert r.status_code == 200, r.text
+    entry = next(a for a in r.json() if a["id"] == app_id)
+    assert entry["approved_instance_id"] == data["instance_id"]
+
 
 @pytest.mark.asyncio
 async def test_admin_reject_app_host_via_unified_path(client, bob_cookie, owner_auth):

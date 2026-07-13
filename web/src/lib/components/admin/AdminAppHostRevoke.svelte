@@ -1,9 +1,8 @@
 <!--
-  Admin: erteilte App-Hosting-Freischaltung zurücknehmen.
-
-  Eigene Komponente, damit AdminAppHostApplications unter der 250-Zeilen-Policy
-  bleibt. Trägt Knopf + Bestätigungsdialog + Aufruf; die Liste erfährt über
-  `onrevoked` davon und entfernt den Eintrag.
+  Admin: erteilte App-Hosting-Freischaltung zurücknehmen. Eingebettet in die
+  app_host-Zeile im Instanz-„Aktiv"-Tab (AdminInstancesActive) — trägt Knopf +
+  Bestätigungsdialog + Aufruf; der Aufrufer erfährt über `onrevoked` davon und
+  entfernt die Zeile.
 
   Wirkung serverseitig (routes_admin_app_host_revoke.py): `self_host_enabled`
   aus UND die auto-provisionierte App-Host-Instanz wird suspendiert — der

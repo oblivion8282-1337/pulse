@@ -80,6 +80,9 @@ export interface AdminApplication {
   contact_email: string;
   notes: string | null;
   network_check: NetworkCheck | null;
+  /** Bei genehmigten app_host-Anträgen die angelegte Instanz — der „Aktiv"-Tab
+   *  mappt darüber Instanz → Antrag (Revoke braucht die Antrags-ID). */
+  approved_instance_id: string | null;
   status: string;
   created_at: string;
   applicant_username: string;
