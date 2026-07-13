@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-13",
+      "date": "2026-07-13",
+      "style": "Sachlich",
+      "title": "Anzeigenamen bei Nachrichten wieder zuverlässig",
+      "items": [
+        "In Textkanälen fehlte bei manchen Mitgliedern der Name über neuen Nachrichten oder in nachgeladener älterer Historie. Namen und Profilbilder erscheinen jetzt wieder zuverlässig."
+      ]
+    },
+    {
       "id": "2026-07-12.3",
       "date": "2026-07-12",
       "style": "Sachlich",

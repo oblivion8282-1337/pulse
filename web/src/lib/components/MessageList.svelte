@@ -103,12 +103,16 @@
     }
   }
 
-  // Avatare/Namen fremder Autoren vorab in den Cache laden.
+  // Avatare/Namen fremder Autoren vorab in den Cache laden. Die Autor-IDs
+  // MÜSSEN außerhalb von untrack() gelesen werden — sonst hat der Effekt keine
+  // Dependency, läuft genau einmal (oft vor dem History-Load) und Autoren aus
+  // WS-Pushes/Scroll-Up-Historie bekommen nie einen Namen (Regression 2f4664d5).
   $effect(() => {
+    const toQueue = messages
+      .filter((m) => !myId || m.author_id !== myId)
+      .map((m) => m.author_id);
     untrack(() => {
-      for (const m of messages) {
-        if (!myId || m.author_id !== myId) userCache.queue(m.author_id);
-      }
+      for (const id of toQueue) userCache.queue(id);
     });
   });
 
