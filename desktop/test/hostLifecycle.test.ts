@@ -146,3 +146,36 @@ test('resetToIdle nach superseded → zurück auf idle', () => {
   hl.resetToIdle();
   assert.equal(hl.getStatus().phase, 'idle');
 });
+
+// Update-Recreate im Betrieb (applyUpdate)
+
+test('applyUpdate aus live: update-Step → preparing → live, Backend neu gestartet', async () => {
+  let starts = 0;
+  const events: HostPhaseEvent[] = [];
+  const hl = new HostLifecycle(fakeDeps({ startBackend: async () => { starts++; } }), { holePunch: true });
+  hl.onPhase((e) => events.push(e));
+  await hl.start();
+  assert.equal(starts, 1);
+  await hl.applyUpdate();
+  assert.equal(starts, 2);
+  const updateStep = events.find((e) => e.detail?.step === 'update');
+  assert.equal(updateStep?.phase, 'preparing');
+  assert.equal(events.at(-1)?.phase, 'live');
+});
+
+test('applyUpdate außerhalb von live → No-Op (kein Recreate im idle/superseded)', async () => {
+  let starts = 0;
+  const hl = new HostLifecycle(fakeDeps({ startBackend: async () => { starts++; } }));
+  await hl.applyUpdate();
+  assert.equal(starts, 0);
+  assert.equal(hl.getStatus().phase, 'idle');
+});
+
+test('applyUpdate: Backend-Fehler → something-paused (kein throw)', async () => {
+  const hl = new HostLifecycle(fakeDeps({
+    startBackend: async () => { throw new Error('boom'); },
+  }), { holePunch: true });
+  hl.markLive(null); // Container lief bereits (Zustands-Abgleich)
+  await hl.applyUpdate();
+  assert.equal(hl.getStatus().phase, 'something-paused');
+});

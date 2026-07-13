@@ -8,7 +8,7 @@
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f1115; color: #e6e8eb;
-           display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+           display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px 0; }
     .card { width: 460px; max-width: 92vw; background: #171a21; border: 1px solid #262a33; border-radius: 14px;
             padding: 30px; box-shadow: 0 12px 44px rgba(0,0,0,.45); }
     h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
@@ -18,6 +18,7 @@
     input { width: 100%; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e8eb; border-radius: 8px;
             padding: 11px 12px; font-size: 14px; font-family: inherit; }
     input:focus { outline: none; border-color: #3b82f6; }
+    input[type="checkbox"] { width: auto; accent-color: #3b82f6; }
     button { width: 100%; border: none; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 600;
              cursor: pointer; background: #3b82f6; color: #fff; font-family: inherit; transition: opacity .15s; }
     button:disabled { opacity: .5; cursor: default; }
@@ -41,6 +42,14 @@
     .addr .done { flex-shrink: 0; font-size: 12px; color: #22c55e; white-space: nowrap; }
     .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
     .hint.warn { color: #eab308; }
+    .toggle { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #e6e8eb;
+              margin-bottom: 0; cursor: pointer; }
+    details.hint { margin-top: 10px; }
+    details.hint summary { cursor: pointer; color: #8b93a1; }
+    details.hint ol { margin: 8px 0 0; padding-left: 18px; }
+    details.hint li { margin-bottom: 4px; }
+    .section { border-top: 1px solid #262a33; margin-top: 20px; padding-top: 18px; }
+    .section h2 { font-size: 14px; font-weight: 650; margin: 0 0 6px; }
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex;
                align-items: center; justify-content: center; }
     .hidden { display: none; }
@@ -88,6 +97,27 @@
         <button id="btnRecheck" class="secondary">Erneut prüfen</button>
       </div>
     </div>
+
+    <div id="autostartRow" class="row hidden">
+      <label class="toggle"><input id="autostartToggle" type="checkbox" /> Beim Anmelden automatisch starten</label>
+      <details class="hint">
+        <summary>Dauerbetrieb einrichten</summary>
+        <ol>
+          <li>Den Schalter oben aktivieren — die Server-App startet dann mit deiner Anmeldung.</li>
+          <li>Automatische Anmeldung deines Benutzerkontos in den Systemeinstellungen aktivieren, damit das Gerät ohne Zutun hochkommt.</li>
+          <li>Im BIOS/UEFI (bzw. bei Macs in den Energieeinstellungen) „Nach Stromausfall automatisch einschalten" aktivieren.</li>
+        </ol>
+      </details>
+    </div>
+
+    <div id="dataSection" class="section hidden">
+      <h2>Deine Daten</h2>
+      <div class="hint" style="margin-top: 0">Alle Nachrichten und Dateien deines Servers liegen auf diesem Gerät — nichts davon in der Cloud.</div>
+      <div id="dataSize" class="hint"></div>
+      <div id="dataBackup" class="hint"></div>
+      <div style="margin-top: 10px"><button id="btnExport" class="secondary">Alles exportieren</button></div>
+      <div id="exportStatus" class="hint hidden"></div>
+    </div>
   </div>
 
   <!-- Übernahme-Dialog: erscheint, wenn die Provisionierung meldet, dass für
@@ -101,160 +131,6 @@
     </div>
   </div>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const host = window.pulse && window.pulse.host;
-    let provisionFailed = false;
-
-    const PHASE_TEXT = {
-      idle: 'Bereit.', 'checking-network': 'Netzwerk wird geprüft …', 'opening-door': 'Router wird konfiguriert …',
-      preparing: 'Server wird gestartet …', 'going-live': 'Fast geschafft …', live: 'Server läuft.',
-      'needs-your-help': 'Manuelle Einrichtung nötig.', 'not-possible-here': 'Hier leider nicht möglich (CGNAT).',
-      'something-paused': 'Pause — bitte erneut versuchen.', 'needs-windows-setup': 'Windows braucht erst WSL2.',
-      superseded: 'Auf ein anderes Gerät umgezogen.',
-    };
-    const PREP = ['checking-network', 'opening-door', 'preparing', 'going-live'];
-    const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup', 'superseded'];
-
-    function setStatus(phase, detail) {
-      $('dot').className = 'dot ' + (phase === 'live' ? 'live' : PREP.includes(phase) ? 'prep' : ERR.includes(phase) ? 'err' : '');
-      let text = PHASE_TEXT[phase] ?? phase;
-      if (phase === 'preparing' && detail && detail.step) text += ' (' + detail.step + ')';
-      $('statustext').textContent = text;
-      $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
-      if (detail && detail.relayUrl) $('addrText').textContent = detail.relayUrl;
-      maybeSelfTest(phase);
-    }
-
-    // Erreichbarkeits-Selbsttest: läuft einmal pro Live-Phase automatisch an
-    // (plus manuell über "Erneut prüfen"). Reine Diagnose — blockiert nichts.
-    let selfTestStarted = false;
-    let selfTestRunning = false;
-    function maybeSelfTest(phase) {
-      if (phase !== 'live') { selfTestStarted = false; return; }
-      if (selfTestStarted) return;
-      selfTestStarted = true;
-      runSelfTest();
-    }
-    async function runSelfTest() {
-      if (!host || !host.selfTest || selfTestRunning) return;
-      selfTestRunning = true;
-      $('selftestText').classList.remove('hidden');
-      $('selftestText').classList.remove('warn');
-      $('selftestText').textContent = 'Erreichbarkeit wird geprüft …';
-      $('selftestBtnRow').classList.add('hidden');
-      const r = await host.selfTest().catch(() => null);
-      selfTestRunning = false;
-      if (!r || r.status === 'unavailable') {
-        // Netz-/Dienstfehler → neutral, kein Alarm (fail-safe).
-        $('selftestText').textContent = 'Prüfung nicht möglich.';
-        $('selftestBtnRow').classList.remove('hidden');
-      } else if (r.status === 'ok') {
-        $('selftestText').textContent = 'Von außen erreichbar.';
-      } else {
-        const groups = (r.groups && r.groups.length) ? ' — betroffen: ' + r.groups.join(', ') + '.' : '';
-        $('selftestText').classList.add('warn');
-        $('selftestText').textContent =
-          'Server läuft, ist aber von außen nicht oder nur teilweise erreichbar (vermutlich Firewall)' + groups;
-        $('selftestBtnRow').classList.remove('hidden');
-      }
-    }
-
-    async function refresh() {
-      if (!host) { $('statustext').textContent = 'Fehler: Host-Bridge nicht verfügbar.'; $('dot').className = 'dot err'; return; }
-      // Zustands-Abgleich zuerst: hebt die Phase auf 'live', falls der
-      // Container (--restart unless-stopped) über einen App-Neustart hinweg
-      // weiterlief — ohne das zeigt die UI fälschlich "Bereit"/"Server starten".
-      await host.refresh().catch(() => {});
-      const runtimeOk = await host.runtimeAvailable().catch(() => false);
-      const pairing = await host.getPairing().catch(() => null);
-      const paired = !!(pairing && typeof pairing === 'object' && pairing.paired);
-      // getStatus() liefert immer ein Objekt (Snapshot bzw. catch-Fallback) —
-      // ab hier reicht die abgeleitete `phase`, kein `st &&`-Guard mehr nötig.
-      const st = await host.getStatus().catch(() => ({ phase: 'idle' }));
-      const phase = st.phase || 'idle';
-      setStatus(phase, st.detail);
-      const running = ['preparing', 'going-live', 'live'].includes(phase);
-      const superseded = phase === 'superseded';
-
-      $('setupRow').classList.toggle('hidden', paired || running || superseded);
-      $('btnStartRow').classList.toggle('hidden', !paired || running || superseded);
-      $('btnStopRow').classList.toggle('hidden', phase !== 'live');
-      // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
-      $('pairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
-      $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
-      $('supersededRow').classList.toggle('hidden', !superseded);
-
-      if (!paired && !running && phase === 'idle') {
-        $('statustext').textContent = provisionFailed ? 'Automatische Einrichtung fehlgeschlagen — Token-Fallback.' : 'Bereit zum Einrichten.';
-      }
-      if (!runtimeOk && !running && !superseded) {
-        $('statustext').textContent = 'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.';
-        $('dot').className = 'dot err';
-      }
-    }
-
-    function bind() {
-      if (!host) return;
-      host.onPhase((e) => { setStatus(e.phase, e.detail); refresh(); });
-      // Übernahme-Warnung: meldet die Provisionierung needsTakeoverConfirm,
-      // läuft für dieses Konto schon ein eingerichteter Server — Bestätigungs-
-      // Dialog statt stiller Übernahme (reset entwertet dessen Zugang sofort).
-      const doProvision = async (opts) => {
-        $('btnSetup').disabled = true; $('statustext').textContent = 'Einrichten …'; $('dot').className = 'dot prep';
-        const r = await host.provision(opts);
-        $('btnSetup').disabled = false;
-        if (r && r.needsTakeoverConfirm) { $('takeoverOverlay').classList.remove('hidden'); }
-        else if (r && r.ok) { provisionFailed = false; }
-        else { provisionFailed = true; alert('Einrichtung fehlgeschlagen: ' + ((r && r.error) || 'unbekannt')); }
-        refresh();
-      };
-      $('btnSetup').onclick = () => doProvision();
-      $('btnTakeover').onclick = () => {
-        $('takeoverOverlay').classList.add('hidden');
-        doProvision({ confirmTakeover: true });
-      };
-      $('btnTakeoverCancel').onclick = () => { $('takeoverOverlay').classList.add('hidden'); refresh(); };
-      $('btnRecheck').onclick = () => runSelfTest();
-      $('btnPair').onclick = async () => {
-        const t = $('token').value.trim();
-        if (!t) return;
-        $('btnPair').disabled = true;
-        try { const r = await host.pair(t); if (r && r.error) alert('Verbinden fehlgeschlagen: ' + r.error); }
-        catch (e) { alert('Verbinden fehlgeschlagen: ' + e.message); }
-        finally { $('btnPair').disabled = false; refresh(); }
-      };
-      $('btnStart').onclick = async () => {
-        $('btnStart').disabled = true;
-        await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
-        $('btnStart').disabled = false; refresh();
-      };
-      $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
-      $('btnReset').onclick = async () => {
-        $('btnReset').disabled = true;
-        await host.unpair().catch(() => {});
-        $('btnReset').disabled = false;
-        provisionFailed = false;
-        refresh();
-      };
-      // Kurze Sicht-Rückmeldung: ohne sie ist nicht erkennbar, ob der Klick ankam.
-      let copyTimer = null;
-      $('addr').onclick = async () => {
-        try {
-          await navigator.clipboard.writeText($('addrText').textContent);
-          $('addrIcon').classList.add('hidden');
-          $('addrDone').classList.remove('hidden');
-          clearTimeout(copyTimer);
-          copyTimer = setTimeout(() => {
-            $('addrDone').classList.add('hidden');
-            $('addrIcon').classList.remove('hidden');
-          }, 1400);
-        } catch { /* Clipboard verweigert → Adresse bleibt markierbar */ }
-      };
-    }
-
-    bind();
-    refresh();
-  </script>
+  <script src="./server.js"></script>
 </body>
 </html>

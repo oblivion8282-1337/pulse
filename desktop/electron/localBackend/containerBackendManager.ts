@@ -82,6 +82,17 @@ export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): 
   return lines.join('\n') + '\n';
 }
 
+/** Reine Update-Entscheidung: unterschiedliche, nicht-leere Image-IDs →
+ *  Recreate nötig. Docker prefixt IDs mit "sha256:", Podman nicht — vor dem
+ *  Vergleich normalisieren. Unklare Eingaben (leer) → 'none' (fail-safe:
+ *  lieber ein Update verpassen als grundlos neu erzeugen). */
+export function updateVerdict(runningImageId: string, pulledImageId: string): 'update' | 'none' {
+  const norm = (s: string): string => s.trim().replace(/^sha256:/, '');
+  const a = norm(runningImageId);
+  const b = norm(pulledImageId);
+  return a && b && a !== b ? 'update' : 'none';
+}
+
 export class ContainerBackendManager {
   private rt: ContainerRuntime | null = null;
 
@@ -184,6 +195,29 @@ export class ContainerBackendManager {
     await rtExec(rt, ['stop', '-t', '20', CONTAINER_NAME], {
       timeoutMs: 60_000,
     }).catch(() => {});
+  }
+
+  /** Update-Check im Betrieb: Image pullen (der Registry-Login aus start()
+   *  ist im Auth-Store der Runtime persistiert) und die Image-ID des laufenden
+   *  Containers mit der des frisch gepullten Images vergleichen. Jeder Fehler
+   *  (offline, Registry down, Container weg) → 'none' — nächster Versuch beim
+   *  nächsten Intervall, kein Alarm. Dev-Image-Override (PULSE_HOST_IMAGE)
+   *  überspringt den Check komplett (kein Registry-Realm für Dev-Creds). */
+  async checkImageUpdate(): Promise<'update' | 'none'> {
+    const { image, local } = resolveImage();
+    if (local) return 'none';
+    const rt = await this.ensureRuntime();
+    if (!rt) return 'none';
+    const pull = await rtExec(rt, ['pull', image], { timeoutMs: 15 * 60_000 }).catch(() => null);
+    if (pull?.code !== 0) return 'none';
+    const running = await rtExec(
+      rt, ['inspect', CONTAINER_NAME, '--format', '{{.Image}}'], { timeoutMs: 15_000 },
+    ).catch(() => null);
+    const pulled = await rtExec(
+      rt, ['image', 'inspect', image, '--format', '{{.Id}}'], { timeoutMs: 15_000 },
+    ).catch(() => null);
+    if (running?.code !== 0 || pulled?.code !== 0) return 'none';
+    return updateVerdict(running.stdout, pulled.stdout);
   }
 
   /** Läuft der `pulse-host`-Container gerade (unabhängig davon, ob diese

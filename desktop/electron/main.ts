@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, ipcMain, session, desktopCapturer, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, shell, nativeImage } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -45,8 +45,10 @@ import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
-import { ContainerBackendManager } from './localBackend/containerBackendManager';
-import { wslReady, installWsl } from './localBackend/containerRuntime';
+import { ContainerBackendManager, resolveImage } from './localBackend/containerBackendManager';
+import { wslReady, installWsl, inFlatpak } from './localBackend/containerRuntime';
+import { volumeSizeBytes, exportVolume } from './localBackend/dataTools';
+import { applyAutostart } from './autostart';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
@@ -61,6 +63,11 @@ import { checkCredsSupersede } from './serverSupersede';
  *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
  *  schnell genug, dass ein Zombie-Gerät binnen Minuten stoppt statt Tage. */
 const SUPERSEDE_CHECK_INTERVAL_MS = 10 * 60_000;
+
+/** Update-Check-Intervall für den Dauerläufer-Container: 24 h — der Pull ist
+ *  nach dem ersten Mal nur ein Digest-Abgleich, aber häufiger bringt nichts
+ *  (Recreate unterbricht den Server kurz). Zusätzlich einmal beim App-Boot. */
+const CONTAINER_UPDATE_INTERVAL_MS = 24 * 60 * 60_000;
 
 // Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
 // Chromium default. The GSR HQ-stream excludes our own audio from desktop
@@ -534,10 +541,47 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     hl.markSuperseded();
   };
 
+  // Update-Check im Betrieb: Dauerläufer (Container überlebt App-Neustarts)
+  // bekämen sonst nie Patches — nur der "Server starten"-Klick pullte. Nur bei
+  // Phase 'live'; Pull-Fehler (offline) bleiben still bis zum nächsten Intervall.
+  const maybeUpdateContainer = async (): Promise<void> => {
+    if (!SERVER_MODE || hl.getStatus().phase !== 'live') return;
+    const verdict = await manager.checkImageUpdate().catch(() => 'none' as const);
+    if (verdict === 'update') await hl.applyUpdate();
+  };
+
+  // Autostart-Abgleich: Schalter-Zustand lebt im Store, der OS-Zustand wird
+  // hier idempotent nachgezogen (applyAutostart ist electron-frei → Deps hier).
+  const osApplyAutostart = (enabled: boolean): { ok: boolean } =>
+    applyAutostart(enabled, {
+      platform: process.platform,
+      setLoginItems: (openAtLogin) => app.setLoginItemSettings({ openAtLogin }),
+      flatpak: inFlatpak(),
+      execPath: process.execPath,
+      home: os.homedir(),
+    });
+
+  // Default AN beim ERSTEN Pairing (Server soll ohne Zutun dauerlaufen) —
+  // danach entscheidet nur noch der Schalter, nie wieder der Default.
+  const ensureAutostartDefault = (): void => {
+    if (!SERVER_MODE || storeGet('serverAutostart') !== undefined) return;
+    storeSet('serverAutostart', true);
+    osApplyAutostart(true);
+  };
+
   if (SERVER_MODE) {
-    void syncLifecycleFromContainer();
-    void checkSupersedeOnce();
+    // Boot-Sequenz: erst Zustands-Abgleich (Update-Check braucht Phase 'live'),
+    // dann Ablöse-Check, dann Update-Check.
+    void (async () => {
+      await syncLifecycleFromContainer();
+      await checkSupersedeOnce();
+      await maybeUpdateContainer();
+    })();
     setInterval(() => { void checkSupersedeOnce(); }, SUPERSEDE_CHECK_INTERVAL_MS).unref();
+    setInterval(() => { void maybeUpdateContainer(); }, CONTAINER_UPDATE_INTERVAL_MS).unref();
+    // Gepaart + Schalter an → OS-Autostart bei jedem Boot nachziehen (heilt
+    // z.B. eine von Hand gelöschte .desktop-Datei).
+    if (creds && storeGet('serverAutostart') === true) osApplyAutostart(true);
   }
 
   // Server-App: privilegierte Host-IPC (provision/start/stop/pair/unpair) nur
@@ -581,6 +625,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       const fresh = await redeemBootstrap(token, cloudOrigin);
       saveCreds(hostStore, fresh);
       creds = fresh;
+      ensureAutostartDefault();
       return { paired: true, status: sanitize(fresh) };
     } catch {
       // Generische Meldung — NIE eine aus dem Netz-/Fetch-Layer stammende
@@ -612,6 +657,7 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
     if (result.ok) {
       creds = result.creds;
       saveCreds(hostStore, result.creds);
+      ensureAutostartDefault();
       return { ok: true };
     }
     // Übernahme-Frage ist kein Fehler — Provisionierung pausiert nur, bis der
@@ -628,6 +674,54 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:selfTest', async (e) => {
     if (!localSenderOnly(e) || !creds) return classifySelfTest(null);
     return runSelfTest({ probeUrl: probeUrl(creds) });
+  });
+  // Autostart-Schalter: Store ist die Wahrheit, OS-Zustand wird nachgezogen.
+  ipcMain.handle('host:getAutostart', () => ({
+    enabled: storeGet('serverAutostart') === true,
+  }));
+  ipcMain.handle('host:setAutostart', (e, enabled: unknown) => {
+    if (!localSenderOnly(e)) return { ok: false };
+    const on = enabled === true;
+    storeSet('serverAutostart', on);
+    return osApplyAutostart(on);
+  });
+  // "Deine Daten"-Karte: belegte Volume-Größe + Datum des letzten Exports.
+  ipcMain.handle('host:dataInfo', async () => {
+    const lastBackupAt = (storeGet('pulse.host.lastBackupAt') as number | undefined) ?? null;
+    let sizeBytes: number | null = null;
+    const rt = await manager.runtime().catch(() => null);
+    if (rt && creds) {
+      const running = await manager.isContainerRunning().catch(() => false);
+      sizeBytes = await volumeSizeBytes(rt, resolveImage().image, running).catch(() => null);
+    }
+    return { sizeBytes, lastBackupAt };
+  });
+  // Export: Container stoppen (falls läuft) → Volume als tar in die vom User
+  // gewählte Datei streamen → Container wieder starten (nur wenn er lief).
+  // Schritte gehen als host:exportStep-Events an die Karte.
+  ipcMain.handle('host:exportData', async (e) => {
+    if (!localSenderOnly(e) || !creds) return { ok: false, error: 'forbidden' };
+    const win = getWin();
+    if (!win) return { ok: false, error: 'kein Fenster' };
+    const sel = await dialog.showSaveDialog(win, {
+      defaultPath: `pulse-server-backup-${new Date().toISOString().slice(0, 10)}.tar`,
+      filters: [{ name: 'TAR-Archiv', extensions: ['tar'] }],
+    });
+    if (sel.canceled || !sel.filePath) return { ok: false, canceled: true };
+    const rt = await manager.runtime().catch(() => null);
+    if (!rt) return { ok: false, error: 'Keine Container-Runtime gefunden.' };
+    const step = (s: string): void => getWin()?.webContents.send('host:exportStep', s);
+    const wasRunning = await manager.isContainerRunning().catch(() => false);
+    try {
+      if (wasRunning) { step('stopping'); await manager.stop(); }
+      step('exporting');
+      const result = await exportVolume(rt, resolveImage().image, sel.filePath);
+      if (result.ok) storeSet('pulse.host.lastBackupAt', Date.now());
+      return result;
+    } finally {
+      // Immer wieder hochfahren, wenn er vorher lief — auch nach Export-Fehler.
+      if (wasRunning) { step('restarting'); await hl.start().catch(() => {}); }
+    }
   });
 
   // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.

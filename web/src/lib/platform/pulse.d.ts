@@ -230,6 +230,19 @@ export interface SelfTestResult {
   groups: string[];
 }
 
+/** "Deine Daten"-Karte: belegte Volume-Größe + Datum des letzten Exports. */
+export interface HostDataInfo {
+  sizeBytes: number | null;
+  lastBackupAt: number | null;
+}
+
+/** Ergebnis von host.exportData(). canceled = Save-Dialog abgebrochen. */
+export interface HostExportResult {
+  ok: boolean;
+  error?: string;
+  canceled?: boolean;
+}
+
 /** Host-Lifecycle-Bridge (③a/③c). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
 export interface PulseHostApi {
   /** Stack starten — triggert die Phasen-Sequenz (checking-network → … → live / Fehler-Phase). */
@@ -252,6 +265,16 @@ export interface PulseHostApi {
   provision(opts?: { confirmTakeover?: boolean }): Promise<ProvisionResult>;
   /** Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only). */
   selfTest(): Promise<SelfTestResult>;
+  /** Autostart beim Anmelden — Schalter-Zustand (Store ist die Wahrheit). */
+  getAutostart(): Promise<{ enabled: boolean }>;
+  /** Autostart setzen/entfernen (Win/Mac: Login-Items; Linux: XDG-Autostart). */
+  setAutostart(enabled: boolean): Promise<{ ok: boolean }>;
+  /** "Deine Daten": belegte Volume-Größe + Datum des letzten Exports. */
+  dataInfo(): Promise<HostDataInfo>;
+  /** Alles exportieren (Save-Dialog → Container-Stopp → tar → Neustart). */
+  exportData(): Promise<HostExportResult>;
+  /** Export-Schritte abonnieren (stopping/exporting/restarting). */
+  onExportStep(cb: (step: string) => void): () => void;
   /** Pairing-Credentials löschen. */
   unpair(): Promise<void>;
   /** Gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die zeigt die

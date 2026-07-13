@@ -12,7 +12,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export interface ContainerRuntime {
@@ -71,6 +71,39 @@ export async function rtExec(
     });
     if (opts.stdin != null) child.stdin.write(opts.stdin);
     child.stdin.end();
+  });
+}
+
+/** Wie rtExec, aber stdout streamt direkt in eine Datei statt in einen String
+ *  — für den Daten-Export (Backup-tar kann Gigabytes groß sein; ein
+ *  String-Puffer würde den Main-Prozess sprengen). stderr bleibt gepuffert
+ *  (klein, nur für Fehlermeldungen). */
+export async function rtExecToFile(
+  rt: Pick<ContainerRuntime, 'argv' | 'env'>,
+  args: string[],
+  filePath: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<{ code: number; stderr: string }> {
+  const { argv } = rt;
+  return new Promise((resolve, reject) => {
+    const out = createWriteStream(filePath);
+    const child = spawn(argv[0], [...argv.slice(1), ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...(rt.env ? { env: { ...process.env, ...rt.env } } : {}),
+    });
+    let stderr = '';
+    const timer = opts.timeoutMs
+      ? setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
+      : null;
+    child.stdout.pipe(out);
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.on('error', (err) => { if (timer) clearTimeout(timer); out.close(); reject(err); });
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      // Erst wenn die Datei geschlossen ist, ist der tar-Inhalt geflusht.
+      out.close(() => resolve({ code: code ?? -1, stderr }));
+    });
   });
 }
 

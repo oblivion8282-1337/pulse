@@ -281,6 +281,18 @@ contextBridge.exposeInMainWorld('pulse', {
     // Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only) — server.html
     // ruft ihn bei Phase 'live' + über "Erneut prüfen".
     selfTest: (): Promise<unknown> => ipcRenderer.invoke('host:selfTest'),
+    // Autostart beim Anmelden (Schalter in server.html; Default AN beim Pairing).
+    getAutostart: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke('host:getAutostart'),
+    setAutostart: (enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('host:setAutostart', enabled),
+    // "Deine Daten": Volume-Größe + letztes Backup; Export mit Schritt-Events.
+    dataInfo: (): Promise<unknown> => ipcRenderer.invoke('host:dataInfo'),
+    exportData: (): Promise<unknown> => ipcRenderer.invoke('host:exportData'),
+    onExportStep: (cb: (step: string) => void): (() => void) => {
+      const handler = (_e: unknown, step: string): void => cb(step);
+      ipcRenderer.on('host:exportStep', handler);
+      return () => ipcRenderer.removeListener('host:exportStep', handler);
+    },
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),

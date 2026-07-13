@@ -57,6 +57,8 @@ modules:
       - install -m644 app-dist/main.cjs /app/pulse-server/main.cjs
       - install -m644 app-dist/preload.cjs /app/pulse-server/preload.cjs
       - install -m644 app-dist/server.html /app/pulse-server/server.html
+      # server.js: die aus server.html ausgelagerte UI-Logik (Größen-Policy).
+      - install -m644 app-dist/server.js /app/pulse-server/server.js
       - install -m644 packaging/pulse-server.package.json /app/pulse-server/package.json
       # Eigenes Icon (Herzschlag) — Client und Server-App lägen sonst mit
       # identischem Symbol nebeneinander im Anwendungsmenü/Dock. Zweimal

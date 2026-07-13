@@ -152,4 +152,20 @@ export class HostLifecycle {
   resetToIdle(): void {
     this._emit('idle');
   }
+
+  /** Update-Recreate im Betrieb: das neue Image ist bereits gepullt (Manager),
+   *  der bestehende Start-Pfad übernimmt das Recreate (rm -f + run + health —
+   *  das /data-Volume bleibt). Nur aus 'live' heraus; der 'update'-Step vor
+   *  dem eigentlichen Ablauf lässt die UI "Update wird installiert …" zeigen
+   *  statt eines generischen Neustarts. */
+  async applyUpdate(): Promise<void> {
+    if (this._last.phase !== 'live') return;
+    this._emit('preparing', { step: 'update' });
+    try {
+      await this._runBackend();
+    } catch (err) {
+      console.error('[host] Update-Fehler:', (err as Error).message);
+      this._emit('something-paused');
+    }
+  }
 }
