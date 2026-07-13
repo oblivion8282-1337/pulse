@@ -11,7 +11,6 @@
   filmstrip row underneath. Detached tiles don't appear as placeholders.
 -->
 <script lang="ts">
-  import RocketIcon from '@lucide/svelte/icons/rocket';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -29,8 +28,6 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
-  import { userCache } from '$lib/stores/users.svelte';
-  import { m } from '$lib/paraglide/messages.js';
 
   let { channel }: { channel: Channel } = $props();
 
@@ -134,26 +131,6 @@
     (cid, key) => openedTiles.close(key.kind, cid, key.identity)
   );
 
-  // Header label: show that *something* is HQ-streaming (rocket icon + label)
-  // when any HQ stream is live in the channel, regardless of whether the
-  // viewer has opened the tile yet — keeps the "X is HQ streaming" hint visible.
-  let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
-  let iAmHqStreaming = $derived(!!myId && hqStreamers.includes(myId));
-  let hqStreamersOther = $derived(hqStreamers.filter((uid) => uid !== myId));
-  let hqLabel = $derived.by(() => {
-    const others = hqStreamersOther.length;
-    if (iAmHqStreaming) {
-      if (others === 0) return m.stream_grid_hq_you_only();
-      if (others === 1)
-        return m.stream_grid_hq_you_and_one({ name: userCache.displayName(hqStreamersOther[0]) });
-      return m.stream_grid_hq_you_and_others({ count: others });
-    }
-    if (others === 1)
-      return m.stream_grid_hq_one_other({ name: userCache.displayName(hqStreamersOther[0]) });
-    return m.stream_grid_hq_many_others({ count: others });
-  });
-  let hqStreaming = $derived(hqStreamers.length > 0);
-
   // Stable tile keys in render order (parties · self-cam · HQ · screens · cams).
   let tileKeys = $derived([
     ...openParties.map((p) => `party:${p.party_id}`),
@@ -206,13 +183,6 @@
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
-  {#if hqStreaming}
-    <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
-      <RocketIcon class="size-4 text-red-500" />
-      <span class="text-text-bright">{hqLabel}</span>
-    </div>
-  {/if}
-
   <div
     class="grid min-h-0 flex-1 gap-2 {focusMode ? '' : 'auto-rows-fr'}"
     style={gridStyle}
