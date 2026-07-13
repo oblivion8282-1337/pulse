@@ -206,8 +206,17 @@ export const adminApi = {
   authStats(): Promise<AuthStats> {
     return request<AuthStats>('/admin/stats', { endpoint: 'auth' });
   },
-  listUsers(opts: { before?: string; limit?: number } = {}): Promise<AdminUser[]> {
+  listUsers(
+    opts: {
+      before?: string;
+      limit?: number;
+      q?: string;
+      filter?: 'admins' | 'disabled' | 'self_host';
+    } = {}
+  ): Promise<AdminUser[]> {
     const params = paginationParams(opts);
+    if (opts.q) params.set('q', opts.q);
+    if (opts.filter) params.set('filter', opts.filter);
     return request<AdminUser[]>(`/admin/users?${params}`, { endpoint: 'auth' });
   },
   patchUser(

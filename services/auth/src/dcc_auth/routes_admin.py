@@ -96,15 +96,35 @@ async def list_users(
     _actor: Annotated[User, Depends(_require_admin)],
     before: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    filter: Annotated[str | None, Query(pattern="^(admins|disabled|self_host)$")] = None,
 ):
     """Newest-first paginated list. Cursor: pass ``before=<last seen id>``.
 
     Snowflake IDs are time-ordered so this stays stable even with new
     registrations during paging.
+
+    ``q`` filtert case-insensitive über Username / Anzeigename / E-Mail
+    (Teilstring). ``filter`` schränkt auf eine Rolle ein: ``admins`` (Owner
+    zählt mit), ``disabled``, ``self_host``. Beide kombinieren sich mit der
+    Cursor-Pagination — ``before`` bleibt der Snowflake-Cursor.
     """
     stmt = select(User).order_by(User.id.desc()).limit(limit)
     if before is not None:
         stmt = stmt.where(User.id < before)
+    if q:
+        needle = f"%{q.strip()}%"
+        stmt = stmt.where(
+            User.username.ilike(needle)
+            | User.display_name.ilike(needle)
+            | User.email.ilike(needle)
+        )
+    if filter == "admins":
+        stmt = stmt.where(User.is_admin.is_(True))
+    elif filter == "disabled":
+        stmt = stmt.where(User.disabled.is_(True))
+    elif filter == "self_host":
+        stmt = stmt.where(User.self_host_enabled.is_(True))
     rows = (await session.execute(stmt)).scalars().all()
     return list(rows)
 
@@ -121,10 +141,15 @@ async def patch_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
 
     # Owner-Schutz: der Betreiber kann von niemandem (auch keinem Zweit-Admin)
-    # entmachtet (is_admin→false) oder gesperrt (disabled→true) werden. Sonst
+    # entmachtet (is_admin→false), gesperrt (disabled→true) oder in seinen
+    # Self-Host-Rechten beschnitten (self_host_enabled→false) werden. Sonst
     # könnte ein Admin den Owner ausschalten und sich selbst die Owner-Rechte
     # (Self-Host-/App-Host-Genehmigung) verschaffen.
-    if user.is_owner and (payload.is_admin is False or payload.disabled is True):
+    if user.is_owner and (
+        payload.is_admin is False
+        or payload.disabled is True
+        or payload.self_host_enabled is False
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="cannot demote or ban the owner"
         )

@@ -316,6 +316,13 @@ async def test_owner_cannot_be_demoted_or_banned(
     assert r.status_code == 400
     assert "owner" in r.json()["detail"]
 
+    # Auch das Self-Host-Recht des Owners ist unantastbar.
+    r = await client.patch(
+        f"/admin/users/{alice_id}", json={"self_host_enabled": False}, headers=headers
+    )
+    assert r.status_code == 400
+    assert "owner" in r.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_admin_view_exposes_is_owner(client, admin_token):
@@ -324,3 +331,62 @@ async def test_admin_view_exposes_is_owner(client, admin_token):
     rows = (await client.get("/admin/users", headers=headers)).json()
     alice = next(u for u in rows if u["username"] == "alice")
     assert alice["is_owner"] is True
+
+
+# ─── Userliste: Suche (q) + Rollenfilter ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_users_search_matches_name_and_email(client, admin_token):
+    """``q`` filtert case-insensitiv über Username / Anzeigename / E-Mail."""
+    await _register_user(client, username="carol", email="carol@example.com")
+    await _register_user(client, username="dave", email="dave@somewhere.org")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Teil des Usernamens, andere Groß-/Kleinschreibung.
+    rows = (await client.get("/admin/users?q=CAR", headers=headers)).json()
+    assert {u["username"] for u in rows} == {"carol"}
+
+    # Treffer über die E-Mail-Domain.
+    rows = (await client.get("/admin/users?q=somewhere", headers=headers)).json()
+    assert {u["username"] for u in rows} == {"dave"}
+
+    # Kein Treffer → leere Liste.
+    rows = (await client.get("/admin/users?q=zzz-none", headers=headers)).json()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_list_users_filter_by_role(client, admin_token, session_factory):
+    """``filter`` schränkt auf admins / disabled / self_host ein."""
+    await _register_user(client, username="carol", email="carol@example.com")
+    await _register_user(client, username="dave", email="dave@example.com")
+    async with session_factory() as s:
+        carol = (
+            await s.execute(select(User).where(User.username == "carol"))
+        ).scalar_one()
+        carol.disabled = True
+        dave = (
+            await s.execute(select(User).where(User.username == "dave"))
+        ).scalar_one()
+        dave.self_host_enabled = True
+        await s.commit()
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # admins → nur der Bootstrap-Owner alice (is_admin).
+    rows = (await client.get("/admin/users?filter=admins", headers=headers)).json()
+    assert {u["username"] for u in rows} == {"alice"}
+
+    rows = (await client.get("/admin/users?filter=disabled", headers=headers)).json()
+    assert {u["username"] for u in rows} == {"carol"}
+
+    rows = (await client.get("/admin/users?filter=self_host", headers=headers)).json()
+    assert {u["username"] for u in rows} == {"dave"}
+
+
+@pytest.mark.asyncio
+async def test_list_users_rejects_unknown_filter(client, admin_token):
+    """Ein unbekannter filter-Wert → 422 (Query-Pattern), kein stiller Fallthrough."""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    r = await client.get("/admin/users?filter=bogus", headers=headers)
+    assert r.status_code == 422
