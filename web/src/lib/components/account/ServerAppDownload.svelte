@@ -13,7 +13,6 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
-  import AppHostApplicationDialog from './AppHostApplicationDialog.svelte';
   import { isLinux } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -46,11 +45,13 @@
         <p class="text-text-muted text-sm">
           {m.local_host_locked_rejected_body({ reason: myLastRejected.rejection_reason ?? '' })}
         </p>
-        <div><AppHostApplicationDialog /></div>
+        <!-- Kein eigenes Formular mehr: der Antrag läuft über das vereinte
+             Antragsformular (SelfHostApplication, Sektion darunter). -->
+        <p class="text-text-muted text-sm">{m.local_host_apply_hint()}</p>
       {:else}
         <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
         <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
-        <div><AppHostApplicationDialog /></div>
+        <p class="text-text-muted text-sm">{m.local_host_apply_hint()}</p>
       {/if}
     </div>
   {:else}

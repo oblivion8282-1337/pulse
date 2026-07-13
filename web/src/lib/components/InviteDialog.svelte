@@ -2,6 +2,11 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import InviteFriendPicker from './InviteFriendPicker.svelte';
+  import InviteLinkShare from './InviteLinkShare.svelte';
+  import InviteByUsername from './InviteByUsername.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -17,6 +22,15 @@
   function onDialogClose() {
     onClose();
   }
+
+  // Link erstellen ist eine CREATE_INVITES-Aktion — ohne das Recht bleibt nur
+  // der Freunde-Picker (dessen Backend-Pfad eigene Gates hat).
+  const canCreateInvites = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.CREATE_INVITES)
+  );
+  // Nutzername-Einladungen sind Cloud-only (v1): das Anfragen-System ist
+  // Cloud-Social-Plane; auf Self-Host-Guilds deckt "Oder Link teilen" den Fall.
+  const isCloudGuild = $derived(activeServer.current?.isCloud === true);
 </script>
 
 <Dialog.Root {open} onOpenChange={(v) => { if (!v) onDialogClose(); }}>
@@ -29,6 +43,12 @@
     <div class="space-y-4">
       {#if guildId}
         <InviteFriendPicker {guildId} />
+        {#if canCreateInvites && isCloudGuild}
+          <InviteByUsername {guildId} />
+        {/if}
+        {#if canCreateInvites}
+          <InviteLinkShare {guildId} />
+        {/if}
       {:else}
         <p class="text-text-muted text-sm">{m.invite_dialog_no_guild()}</p>
       {/if}

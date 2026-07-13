@@ -8,7 +8,7 @@
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f1115; color: #e6e8eb;
-           display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+           display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px 0; }
     .card { width: 460px; max-width: 92vw; background: #171a21; border: 1px solid #262a33; border-radius: 14px;
             padding: 30px; box-shadow: 0 12px 44px rgba(0,0,0,.45); }
     h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
@@ -18,6 +18,7 @@
     input { width: 100%; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e8eb; border-radius: 8px;
             padding: 11px 12px; font-size: 14px; font-family: inherit; }
     input:focus { outline: none; border-color: #3b82f6; }
+    input[type="checkbox"] { width: auto; accent-color: #3b82f6; }
     button { width: 100%; border: none; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 600;
              cursor: pointer; background: #3b82f6; color: #fff; font-family: inherit; transition: opacity .15s; }
     button:disabled { opacity: .5; cursor: default; }
@@ -40,6 +41,17 @@
     .addr:hover .copy { stroke: #d6dae2; }
     .addr .done { flex-shrink: 0; font-size: 12px; color: #22c55e; white-space: nowrap; }
     .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
+    .hint.warn { color: #eab308; }
+    .toggle { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #e6e8eb;
+              margin-bottom: 0; cursor: pointer; }
+    details.hint { margin-top: 10px; }
+    details.hint summary { cursor: pointer; color: #8b93a1; }
+    details.hint ol { margin: 8px 0 0; padding-left: 18px; }
+    details.hint li { margin-bottom: 4px; }
+    .section { border-top: 1px solid #262a33; margin-top: 20px; padding-top: 18px; }
+    .section h2 { font-size: 14px; font-weight: 650; margin: 0 0 6px; }
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex;
+               align-items: center; justify-content: center; }
     .hidden { display: none; }
   </style>
 </head>
@@ -65,111 +77,83 @@
     <div id="btnStartRow" class="row hidden"><button id="btnStart">Server starten</button></div>
     <div id="btnStopRow" class="row hidden"><button id="btnStop" class="danger">Server stoppen</button></div>
 
+    <div id="supersededRow" class="row hidden">
+      <div class="hint">Dieser Server wurde auf ein anderes Gerät umgezogen.</div>
+      <button id="btnReset" class="secondary">Verstanden — Gerät zurücksetzen</button>
+      <div style="margin-top: 8px"><button id="btnWipeLocal" class="danger">Lokale Daten löschen …</button></div>
+    </div>
+
     <div id="addrRow" class="row hidden">
-      <label>Server-Adresse (zum Teilen)</label>
-      <div id="addr" class="addr" title="Klicken zum Kopieren">
-        <span id="addrText" class="text"></span>
-        <svg id="addrIcon" class="copy" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-          <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-        </svg>
-        <span id="addrDone" class="done hidden">Kopiert</span>
+      <!-- Adresse nur für Bestandsinstanzen mit Relay-Subdomain — neue
+           App-Hosts kommen ohne (Relay-Fallback abgeschafft), dort bleibt
+           nur der Einladungs-Wegweiser. -->
+      <div id="addrBox" class="hidden">
+        <label>Server-Adresse (zum Teilen)</label>
+        <div id="addr" class="addr" title="Klicken zum Kopieren">
+          <span id="addrText" class="text"></span>
+          <svg id="addrIcon" class="copy" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+          </svg>
+          <span id="addrDone" class="done hidden">Kopiert</span>
+        </div>
       </div>
+      <div class="hint">So laden deine Freunde ein: Öffne den Pulse-Client, erstelle eine Community auf deinem Server und erzeuge dort einen Einladungslink (Leute einladen → Oder Link teilen).</div>
+      <div id="selftestText" class="hint hidden"></div>
+      <div id="selftestBtnRow" class="hidden" style="margin-top: 8px">
+        <button id="btnRecheck" class="secondary">Erneut prüfen</button>
+      </div>
+    </div>
+
+    <div id="autostartRow" class="row hidden">
+      <label class="toggle"><input id="autostartToggle" type="checkbox" /> Beim Anmelden automatisch starten</label>
+      <details class="hint">
+        <summary>Dauerbetrieb einrichten</summary>
+        <ol>
+          <li>Den Schalter oben aktivieren — die Server-App startet dann mit deiner Anmeldung.</li>
+          <li>Automatische Anmeldung deines Benutzerkontos in den Systemeinstellungen aktivieren, damit das Gerät ohne Zutun hochkommt.</li>
+          <li>Im BIOS/UEFI (bzw. bei Macs in den Energieeinstellungen) „Nach Stromausfall automatisch einschalten" aktivieren.</li>
+        </ol>
+      </details>
+    </div>
+
+    <div id="dataSection" class="section hidden">
+      <h2>Deine Daten</h2>
+      <div class="hint" style="margin-top: 0">Alle Nachrichten und Dateien deines Servers liegen auf diesem Gerät — nichts davon in der Cloud.</div>
+      <div id="dataSize" class="hint"></div>
+      <div id="dataBackup" class="hint"></div>
+      <div style="margin-top: 10px"><button id="btnExport" class="secondary">Alles exportieren</button></div>
+      <div id="exportStatus" class="hint hidden"></div>
+    </div>
+
+    <div id="giveUpSection" class="section hidden">
+      <button id="btnGiveUp" class="danger">Server aufgeben …</button>
+    </div>
+    <div id="giveupHint" class="hint warn hidden"></div>
+  </div>
+
+  <!-- Übernahme-Dialog: erscheint, wenn die Provisionierung meldet, dass für
+       dieses Konto schon ein eingerichteter Server läuft (needsTakeoverConfirm). -->
+  <div id="takeoverOverlay" class="overlay hidden">
+    <div class="card" style="width: 400px">
+      <h1>Server übernehmen?</h1>
+      <div class="sub">Für dieses Konto läuft bereits ein eingerichteter Server. Übernehmen? Der bisherige Server verliert dauerhaft den Zugang.</div>
+      <div class="row"><button id="btnTakeover" class="danger">Übernehmen</button></div>
+      <div class="row" style="margin-bottom: 0"><button id="btnTakeoverCancel" class="secondary">Abbrechen</button></div>
     </div>
   </div>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const host = window.pulse && window.pulse.host;
-    let provisionFailed = false;
+  <!-- Aufgabe-Dialog: ehrliche Konsequenzen + optionale lokale Datenlöschung. -->
+  <div id="giveupOverlay" class="overlay hidden">
+    <div class="card" style="width: 400px">
+      <h1>Server aufgeben?</h1>
+      <div class="sub">Dein Server wird dauerhaft gelöscht. Mitglieder verlieren den Zugang und der Server verschwindet aus ihren Listen.</div>
+      <label class="toggle" style="margin-bottom: 16px"><input id="giveupData" type="checkbox" /> Auch die lokalen Serverdaten auf diesem Gerät löschen (Nachrichten, Dateien — unwiderruflich)</label>
+      <div class="row"><button id="btnGiveUpConfirm" class="danger">Server dauerhaft aufgeben</button></div>
+      <div class="row" style="margin-bottom: 0"><button id="btnGiveUpCancel" class="secondary">Abbrechen</button></div>
+    </div>
+  </div>
 
-    const PHASE_TEXT = {
-      idle: 'Bereit.', 'checking-network': 'Netzwerk wird geprüft …', 'opening-door': 'Router wird konfiguriert …',
-      preparing: 'Server wird gestartet …', 'going-live': 'Fast geschafft …', live: 'Server läuft.',
-      'needs-your-help': 'Manuelle Einrichtung nötig.', 'not-possible-here': 'Hier leider nicht möglich (CGNAT).',
-      'something-paused': 'Pause — bitte erneut versuchen.', 'needs-windows-setup': 'Windows braucht erst WSL2.',
-    };
-    const PREP = ['checking-network', 'opening-door', 'preparing', 'going-live'];
-    const ERR = ['needs-your-help', 'not-possible-here', 'something-paused', 'needs-windows-setup'];
-
-    function setStatus(phase, detail) {
-      $('dot').className = 'dot ' + (phase === 'live' ? 'live' : PREP.includes(phase) ? 'prep' : ERR.includes(phase) ? 'err' : '');
-      let text = PHASE_TEXT[phase] ?? phase;
-      if (phase === 'preparing' && detail && detail.step) text += ' (' + detail.step + ')';
-      $('statustext').textContent = text;
-      $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
-      if (detail && detail.relayUrl) $('addrText').textContent = detail.relayUrl;
-    }
-
-    async function refresh() {
-      if (!host) { $('statustext').textContent = 'Fehler: Host-Bridge nicht verfügbar.'; $('dot').className = 'dot err'; return; }
-      const runtimeOk = await host.runtimeAvailable().catch(() => false);
-      const pairing = await host.getPairing().catch(() => null);
-      const paired = !!(pairing && typeof pairing === 'object' && pairing.paired);
-      const st = await host.getStatus().catch(() => ({ phase: 'idle' }));
-      const phase = (st && st.phase) || 'idle';
-      setStatus(phase, st && st.detail);
-      const running = st && ['preparing', 'going-live', 'live'].includes(st.phase);
-
-      $('setupRow').classList.toggle('hidden', paired || running);
-      $('btnStartRow').classList.toggle('hidden', !paired || running);
-      $('btnStopRow').classList.toggle('hidden', !(st && st.phase === 'live'));
-      // Token-Fallback nur, wenn automatische Provisionierung fehl schlug.
-      $('pairRow').classList.toggle('hidden', paired || !provisionFailed);
-      $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed);
-
-      if (!paired && !running && phase === 'idle') {
-        $('statustext').textContent = provisionFailed ? 'Automatische Einrichtung fehlgeschlagen — Token-Fallback.' : 'Bereit zum Einrichten.';
-      }
-      if (!runtimeOk && !running) {
-        $('statustext').textContent = 'Kein Podman/Docker erkannt — Container-Runtime wird benötigt.';
-        $('dot').className = 'dot err';
-      }
-    }
-
-    function bind() {
-      if (!host) return;
-      host.onPhase((e) => { setStatus(e.phase, e.detail); refresh(); });
-      $('btnSetup').onclick = async () => {
-        $('btnSetup').disabled = true; $('statustext').textContent = 'Einrichten …'; $('dot').className = 'dot prep';
-        const r = await host.provision();
-        $('btnSetup').disabled = false;
-        if (r && r.ok) { provisionFailed = false; }
-        else { provisionFailed = true; alert('Einrichtung fehlgeschlagen: ' + ((r && r.error) || 'unbekannt')); }
-        refresh();
-      };
-      $('btnPair').onclick = async () => {
-        const t = $('token').value.trim();
-        if (!t) return;
-        $('btnPair').disabled = true;
-        try { const r = await host.pair(t); if (r && r.error) alert('Verbinden fehlgeschlagen: ' + r.error); }
-        catch (e) { alert('Verbinden fehlgeschlagen: ' + e.message); }
-        finally { $('btnPair').disabled = false; refresh(); }
-      };
-      $('btnStart').onclick = async () => {
-        $('btnStart').disabled = true;
-        await host.start({}).catch((e) => alert('Start fehlgeschlagen: ' + e.message));
-        $('btnStart').disabled = false; refresh();
-      };
-      $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
-      // Kurze Sicht-Rückmeldung: ohne sie ist nicht erkennbar, ob der Klick ankam.
-      let copyTimer = null;
-      $('addr').onclick = async () => {
-        try {
-          await navigator.clipboard.writeText($('addrText').textContent);
-          $('addrIcon').classList.add('hidden');
-          $('addrDone').classList.remove('hidden');
-          clearTimeout(copyTimer);
-          copyTimer = setTimeout(() => {
-            $('addrDone').classList.add('hidden');
-            $('addrIcon').classList.remove('hidden');
-          }, 1400);
-        } catch { /* Clipboard verweigert → Adresse bleibt markierbar */ }
-      };
-    }
-
-    bind();
-    refresh();
-  </script>
+  <script src="./server.js"></script>
 </body>
 </html>

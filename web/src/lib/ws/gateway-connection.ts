@@ -7,8 +7,12 @@
  * Phase 4.5+ Scope.
  */
 
-import { getDirectConnection } from '$lib/direct/registry';
+import { getDirectConnectionDetailed } from '$lib/direct/registry';
 import { DirectWebSocket } from '$lib/direct/websocket';
+import { isDirectOnly } from '$lib/direct/policy';
+import { DirectUnavailableError } from '$lib/direct/transport';
+import { serversStore } from '$lib/api/servers.svelte';
+import { directStatus } from '$lib/stores/directStatus.svelte';
 import { currentAccessToken, request } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
@@ -324,14 +328,24 @@ export class GatewayConnection {
   }
 
   /** Direktpfad bevorzugen (WebRTC-DataChannel), sonst normales WebSocket.
-   *  Der Direktpfad greift nur bei Self-Host-Servern mit bekannter Instanz und
-   *  bereits stehender Verbindung — er baut hier keine neue auf, das erledigt
-   *  der erste HTTP-Request über `transportFetch`. */
+   *
+   *  Direct-only (App-Host, origin='app_host'): KEIN Relay-WebSocket mehr —
+   *  scheitert der Direktpfad, wirft das hier einen DirectUnavailableError;
+   *  _dial setzt den State auf 'closed' (= bestehende Offline-Anzeige) und
+   *  plant den Backoff-Retry. VPS-Server fallen wie bisher auf ihr normales
+   *  WebSocket gegen den Hostname zurück. */
   private async _openSocket(token: string): Promise<SocketLike> {
     if (!this.isCloud && this.instanceId) {
-      const conn = await getDirectConnection(this.instanceId).catch(() => null);
-      if (conn?.isOpen) {
-        return new DirectWebSocket(conn, `${this.wsPath}?token=${encodeURIComponent(token)}`);
+      const result = await getDirectConnectionDetailed(this.instanceId).catch(() => null);
+      if (result?.ok && result.conn.isOpen) {
+        directStatus.clear(this.instanceId);
+        return new DirectWebSocket(result.conn, `${this.wsPath}?token=${encodeURIComponent(token)}`);
+      }
+      const entry = serversStore.find(this.serverId);
+      if (isDirectOnly(entry)) {
+        const reason = result && !result.ok ? result.reason : 'ice-failed';
+        directStatus.report(this.instanceId, reason);
+        throw new DirectUnavailableError(reason);
       }
     }
     return new WebSocket(this._wsUrl(token));
@@ -348,7 +362,17 @@ export class GatewayConnection {
       this.state = 'closed';
       return;
     }
-    const ws = await this._openSocket(token);
+    let ws: SocketLike;
+    try {
+      ws = await this._openSocket(token);
+    } catch (e) {
+      // Direct-only ohne Direktverbindung: kein Relay-Versuch. 'closed' +
+      // Backoff-Retry — die Registry merkt sich den Fehlschlag 60s, der
+      // Retry ist also billig, bis der Server wieder erreichbar ist.
+      this.state = 'closed';
+      if (this.wantConnected) this._scheduleReconnect();
+      throw e;
+    }
     this.ws = ws;
 
     return new Promise((resolve, reject) => {

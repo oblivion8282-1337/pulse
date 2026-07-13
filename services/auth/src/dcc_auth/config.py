@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # (Bootstrap liefert dann keine Relay-Felder; Verhalten wie ohne Relay).
     pulse_relay_base_domain: str = "relay.howispulse.com"
     pulse_relay_server_addr: str = ""
+    # Relay-Abbau für App-Hosting (Direktpfad = einziger Weg): bei false vergibt
+    # der Bootstrap-Redeem KEINE relay_subdomain / keinen Tunnel-Token mehr —
+    # auch wenn pulse_relay_server_addr gesetzt ist. Bestehende Instanzen
+    # behalten ihre Subdomain (kein Daten-Rückbau); die Response bleibt
+    # shape-stabil mit null-Werten. Default true = heutiges Verhalten.
+    pulse_relay_provision_enabled: bool = True
 
     # Instance role. Only the Cloud (``cloud``) may approve/suspend Self-Host
     # instances; every other deployment defaults to ``self-host`` and is locked

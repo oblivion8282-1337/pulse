@@ -1,9 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  redeemBootstrap, probeUrl, sanitize,
+  redeemBootstrap, probeUrl, sanitize, classifyMintStatus,
   loadCreds, saveCreds, clearCreds, HOST_CREDS_KEY, type BootstrapCreds,
 } from '../../electron/localBackend/pairing.ts';
+
+// Übernahme-Warnung: 403 beim Mint ohne reset = Bootstrap schon eingelöst.
+test('classifyMintStatus: 201 → ok, 403 → consumed, Rest → error', () => {
+  assert.equal(classifyMintStatus(201), 'ok');
+  assert.equal(classifyMintStatus(403), 'consumed');
+  assert.equal(classifyMintStatus(200), 'error'); // Endpoint antwortet 201, nie 200
+  assert.equal(classifyMintStatus(500), 'error');
+  assert.equal(classifyMintStatus(0), 'error'); // Transportfehler (netJson)
+});
 
 const SAMPLE = {
   instance_id: '123', owner_user_id: '7', hostname: 'mein-pc',

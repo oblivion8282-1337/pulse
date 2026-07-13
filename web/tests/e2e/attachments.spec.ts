@@ -60,8 +60,10 @@ test.describe.serial('attachments E2E', () => {
 
   test('register + create guild', async () => {
     await register(page, ALICE);
-    await page.getByTestId('empty-create-guild').click();
-    await page.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await page.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await page.getByTestId('guild-create').click();
     await page.getByTestId('create-guild-name').fill('Attachments-Test');
     await page.getByTestId('create-guild-submit').click();
     await page.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/);

@@ -1,8 +1,10 @@
 /**
  * Owner-Benachrichtigung für eigene App-Hosting-Anträge.
  *
- * Spiegel von [[myInstanceApplications]] für App-Hosting. Polling-basiert:
- * - Beim Submit registriert der AppHostApplicationDialog den Antrag.
+ * Spiegel von [[myInstanceApplications]] für App-Hosting. Läuft seit dem
+ * vereinten Antragssystem über die vereinten Pfade (origin='app_host').
+ * Polling-basiert:
+ * - Beim Submit registriert das vereinte Antragsformular den Antrag.
  * - Ohne offenen Antrag macht `_poll()` keinen Request (effizient).
  * - Übergang pending → approved/rejected toastet den User.
  *
@@ -19,7 +21,8 @@
  * Gleiches Muster wie [[myInstanceApplications]].
  */
 
-import { appHostApplicationsApi, type AppHostApplication } from '$lib/api/appHostApplications';
+import { instancesApi, type InstanceApplication } from '$lib/api/instances';
+import { serversStore } from '$lib/api/servers.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
@@ -35,7 +38,7 @@ class MyAppHostApplications {
    * Liste aller eigenen Anträge (für UI-Rendering im Dialog). Wird beim
    * `register()` und nach jedem Poll aktualisiert.
    */
-  applications = $state<AppHostApplication[]>([]);
+  applications = $state<InstanceApplication[]>([]);
   loading = $state(false);
 
   /** Genehmigte Freischaltungen, die auf diesem Gerät noch nicht angesehen
@@ -47,7 +50,7 @@ class MyAppHostApplications {
   private _running = false;
 
   /** Beim Einreichen aufrufen — markiert den Antrag als zu beobachten. */
-  register(app: AppHostApplication): void {
+  register(app: InstanceApplication): void {
     if (typeof window === 'undefined') return;
     // Liste sofort aktualisieren, damit das Dialog-UI den neuen Antrag zeigt.
     this.applications = [app, ...this.applications.filter((a) => a.id !== app.id)];
@@ -62,7 +65,7 @@ class MyAppHostApplications {
     if (!auth.user) return;
     this.loading = true;
     try {
-      this.applications = await appHostApplicationsApi.listMyApplications('all');
+      this.applications = await instancesApi.listMyApplications('all', 'app_host');
       this._recompute();
     } catch {
       /* transient → still ignorieren */
@@ -173,7 +176,7 @@ class MyAppHostApplications {
 
     let apps;
     try {
-      apps = await appHostApplicationsApi.listMyApplications('all');
+      apps = await instancesApi.listMyApplications('all', 'app_host');
     } catch {
       return; // transient → nächster Tick
     }
@@ -198,6 +201,9 @@ class MyAppHostApplications {
           // damit die Karte ohne App-Neustart aus dem „gesperrt"-Zustand kommt
           // und den Download zeigt.
           void auth.refreshUser();
+          // Die auto-provisionierte App-Host-Instanz sofort in die
+          // Server-Leiste ziehen (statt auf den nächsten Login zu warten).
+          void serversStore.hydrateFromBackend();
         } else if (app.status === 'rejected') {
           const reason = app.rejection_reason ? ` — ${app.rejection_reason}` : '';
           toast.error(m.app_host_rejected_toast_title(), {

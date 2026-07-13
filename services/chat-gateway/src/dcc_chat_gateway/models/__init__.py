@@ -15,6 +15,7 @@ from dcc_chat_gateway.models.channels import (
     DirectMessageChannel,
 )
 from dcc_chat_gateway.models.community_invites import CommunityInvite
+from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.dropbox import (
     DROPBOX_KIND_FILE,
     DROPBOX_KIND_FOLDER,
@@ -62,6 +63,7 @@ __all__ = [
     "DROPBOX_KIND_FILE",
     "DROPBOX_KIND_FOLDER",
     "CommunityInvite",
+    "CommunityInviteNotification",
     "MENTION_EVERYONE_TARGET_ID",
     "MENTION_TYPE_EVERYONE",
     "MENTION_TYPE_ROLE",

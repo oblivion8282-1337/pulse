@@ -437,3 +437,132 @@ async def test_delete_me_removes_avatar_file(
     )
     assert r.status_code == 204, r.text
     assert not avatar_file.exists()
+
+
+# ---- Instance owner path (Migration 0043) --------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_me_with_owned_instance_soft_deletes_it(
+    client, session_factory, chat_purge_calls
+):
+    """Ein Instanz-Besitzer kann sein Konto löschen (vorher: FK-Verletzung → 500).
+
+    Erwartung: Instanz-Zeile überlebt als ``status='deleted'`` mit
+    freigegebenem Hostname und ``registered_by=NULL`` (Worker-ID-Reservierung
+    + Kill-Switch); Membership + Bootstrap-Tokens verschwinden; der eigene
+    Antrag fällt mit dem Konto (CASCADE, personenbezogene Daten); ein
+    ``suspended_instances``-Eintrag (Kill-Switch) existiert.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_auth.models_instances import (
+        InstanceApplication,
+        InstanceBootstrapToken,
+        RegisteredInstance,
+        SuspendedInstance,
+        UserInstanceMembership,
+    )
+    from dcc_auth.snowflake import next_id
+
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    async with session_factory() as s:
+        user = (await s.execute(select(User))).scalar_one()
+        inst_id = next_id()
+        s.add(
+            RegisteredInstance(
+                id=inst_id,
+                hostname="pulse.alice.example.org",
+                client_id="inst-alice-1",
+                client_secret="x" * 32,
+                worker_id_chat=100,
+                worker_id_voice=100,
+                worker_id_media=100,
+                registered_by=user.id,
+            )
+        )
+        s.add(UserInstanceMembership(user_id=user.id, instance_id=inst_id))
+        s.add(
+            InstanceApplication(
+                id=next_id(),
+                applicant_user_id=user.id,
+                hostname="pulse.alice.example.org",
+                purpose="privat",
+                expected_users=5,
+                contact_email=REG["email"],
+                status="approved",
+                approved_instance_id=inst_id,
+            )
+        )
+        s.add(
+            InstanceBootstrapToken(
+                id=next_id(),
+                instance_id=inst_id,
+                token_hash="h" * 64,
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+        )
+        await s.commit()
+
+    r = await client.request(
+        "DELETE",
+        "/me",
+        json={"password": REG["password"], "confirm_username": REG["username"]},
+        headers=bearer,
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.execute(select(User))).scalars().all() == []
+        inst = (await s.execute(select(RegisteredInstance))).scalar_one()
+        assert inst.status == "deleted"
+        assert inst.hostname == f"deleted-{inst_id}.invalid"
+        assert inst.registered_by is None
+        assert (await s.execute(select(UserInstanceMembership))).scalars().all() == []
+        assert (await s.execute(select(InstanceBootstrapToken))).scalars().all() == []
+        assert (await s.execute(select(InstanceApplication))).scalars().all() == []
+        susp = (await s.execute(select(SuspendedInstance))).scalar_one()
+        assert susp.instance_id == inst_id
+
+
+@pytest.mark.asyncio
+async def test_delete_me_with_rejected_application_only(
+    client, session_factory, chat_purge_calls
+):
+    """Auch ein bloßer (abgelehnter) Antrag ohne Instanz blockierte die
+    Konto-Löschung über die applicant-FK — jetzt CASCADE."""
+    from dcc_auth.models_instances import InstanceApplication
+    from dcc_auth.snowflake import next_id
+
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    async with session_factory() as s:
+        user = (await s.execute(select(User))).scalar_one()
+        s.add(
+            InstanceApplication(
+                id=next_id(),
+                applicant_user_id=user.id,
+                hostname="pulse.bob.example.org",
+                purpose="privat",
+                expected_users=5,
+                contact_email=REG["email"],
+                status="rejected",
+                rejection_reason="test",
+            )
+        )
+        await s.commit()
+
+    r = await client.request(
+        "DELETE",
+        "/me",
+        json={"password": REG["password"], "confirm_username": REG["username"]},
+        headers=bearer,
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.execute(select(User))).scalars().all() == []
+        assert (await s.execute(select(InstanceApplication))).scalars().all() == []

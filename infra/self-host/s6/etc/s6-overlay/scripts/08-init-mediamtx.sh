@@ -73,7 +73,19 @@ paths:
 EOF
     # ICE-Kandidaten: hier trennen sich VPS-Self-Host und App-Hosting.
     # Angehängt nach dem Heredoc, weil der Block gequotet ist (keine Expansion).
-    if [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
+    #
+    # App-Hosting-Erkennung: explizit via PULSE_HOST_ORIGIN (app_host | vps,
+    # von der Desktop-Server-App in container.env gesetzt) mit Vorrang; die
+    # alte Token-Heuristik bleibt nur als Fallback für Bestands-Container —
+    # ohne Relay-Provisioning (PULSE_RELAY_PROVISION_ENABLED=false) gibt es
+    # keinen Token mehr, App-Host bleibt App-Host.
+    _is_app_host=false
+    case "${PULSE_HOST_ORIGIN:-}" in
+        app_host) _is_app_host=true ;;
+        vps) _is_app_host=false ;;
+        *) [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ] && _is_app_host=true ;;
+    esac
+    if [ "$_is_app_host" = true ]; then
         # ---- App-Hosting (Server-App auf dem Gerät des Users, hinter Heim-NAT) ----
         # Der Hostname zeigt hier auf den Relay (= die Cloud), NICHT auf dieses
         # Gerät: ein Zuschauer schickte seine Videopakete an den falschen

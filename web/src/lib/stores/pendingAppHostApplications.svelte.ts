@@ -9,7 +9,7 @@
  * server-seitig cloud-gegated + admin-gegated).
  */
 
-import { adminAppHostApplicationsApi } from '$lib/api/appHostApplications';
+import { adminInstancesApi } from '$lib/api/instances';
 import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
@@ -66,7 +66,7 @@ class PendingAppHostApplications {
     }
     let apps;
     try {
-      apps = await adminAppHostApplicationsApi.listApplications('pending');
+      apps = await adminInstancesApi.listApplications('pending', 'app_host');
     } catch {
       return; // transient / nicht Cloud / nicht Admin → nächster Tick
     }

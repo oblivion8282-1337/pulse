@@ -23,7 +23,6 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
   import LogInIcon from '@lucide/svelte/icons/log-in';
-  import ServerIcon from '@lucide/svelte/icons/server';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -33,6 +32,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
+  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   // Channels-by-guild map drives the guild-rail mention indicator. We
   // reach into the same store; the rail's `guilds` prop only has
   // top-level guild metadata, not their channel lists.
@@ -46,14 +46,15 @@
     type ServerEntry
   } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
+  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { directStatus } from '$lib/stores/directStatus.svelte';
+  import { directFailureMessageKey } from '$lib/direct/policy';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
-  import AddServerDialog from './sidebar/AddServerDialog.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
-  import ServerIconButton from './sidebar/ServerIconButton.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import UserFooter from './UserFooter.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
@@ -100,7 +101,7 @@
   // wartet. Flippt auf 0 (Kreis weg), sobald gelesen / aktioniert.
   let homeBadgeCount = $derived(
     readState.sumUnread(directMessages.list.map((dm) => dm.id)) +
-      friendRequests.incomingList.length
+      friendRequests.incomingList.length + communityInvites.count
   );
 
   let renameTarget = $state<Guild | null>(null);
@@ -219,9 +220,12 @@
   // dieser Spalte integriert mit Trennlinie davor. Designziel: eine
   // vertikale Sidebar, Discord-Style für Cloud-only-User mit kompaktem
   // Footer-Block, Self-Host-User sieht zusätzliche Server-Icons.
-  let addServerOpen = $state(false);
   let removeServerTarget = $state<ServerEntry | null>(null);
   let removeServerConfirmOpen = $state(false);
+  // Owner-Fall beim Verlassen (403 vom Instanz-Austritt): erklärender Dialog
+  // statt Toast — mit Absprung in die Self-Host-Einstellungen (Server löschen).
+  let ownerLeaveOpen = $state(false);
+  let ownerLeaveLabel = $state('');
   let infoServerTarget = $state<ServerEntry | null>(null);
   let infoServerOpen = $state(false);
 
@@ -259,7 +263,15 @@
     // ServerSidebar, damit beide Einstiege nie divergieren).
     try {
       const outcome = await leaveAndRemoveServer(removeServerTarget);
-      notifyLeaveOutcome(outcome, label);
+      if (outcome === 'owner') {
+        // Betreiber kann nicht "verlassen" — erklären + Weg zum Löschen zeigen
+        // (Owner-Info liegt clientseitig nicht vor, darum reagieren wir auf den
+        // 403-Outcome statt das Menü vorab umzubeschriften).
+        ownerLeaveLabel = label;
+        ownerLeaveOpen = true;
+      } else {
+        notifyLeaveOutcome(outcome, label);
+      }
     } catch (err) {
       toast.error(m.guild_rail_server_remove_failed(), { description: (err as Error).message });
     } finally {
@@ -438,6 +450,19 @@
                   <span class="text-text-muted text-xs">
                     {server.hostname.replace(/^https?:\/\//, '')}
                   </span>
+                  {#if server.pairwise_sub === null}
+                    <!-- Nie ein erfolgreicher Cert-Login (pairwise_sub kommt vom
+                         ersten Connect): genehmigte, aber nie eingerichtete
+                         Instanz — erklärt den toten Status-Dot. -->
+                    <span class="text-text-muted text-xs">{m.server_icon_not_set_up()}</span>
+                  {/if}
+                  {#if server.instance_id && directStatus.failures[server.instance_id]}
+                    <!-- Direct-only-Fehlzustand (App-Host ohne Relay-Fallback):
+                         offline / keine Direktverbindung / Identität geändert. -->
+                    <span class="text-xs text-red-400">
+                      {m[directFailureMessageKey(directStatus.failures[server.instance_id])]()}
+                    </span>
+                  {/if}
                 {/if}
               </Tooltip.Content>
             </Tooltip.Root>
@@ -635,27 +660,6 @@
 
     {/each}
 
-    <!-- "Server hinzufügen" ist bewusst abgesetzt ganz unten — es betrifft die
-         ganze App (neuer Self-Host/Cloud-Verbund), nicht eine einzelne
-         Community. Der flex-Spacer schiebt es ans Leisten-Ende. -->
-    <div class="min-h-2 flex-1 shrink-0" aria-hidden="true"></div>
-    <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            class="border-border text-text-muted hover:text-text-bright flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-transparent transition-all hover:rounded-xl hover:bg-bg-hover"
-            data-testid="server-add"
-            aria-label={m.guild_rail_add_server()}
-            onclick={() => (addServerOpen = true)}
-          >
-            <ServerIcon class="size-5" />
-          </button>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content side="right">{m.guild_rail_add_server()}</Tooltip.Content>
-    </Tooltip.Root>
   </Tooltip.Provider>
 
   <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-
@@ -666,8 +670,6 @@
     </div>
   {/if}
 </nav>
-
-<AddServerDialog open={addServerOpen} onClose={() => (addServerOpen = false)} />
 
 <AlertDialog.Root bind:open={removeServerConfirmOpen}>
   <AlertDialog.Content data-testid="remove-server-dialog">
@@ -681,6 +683,27 @@
       <AlertDialog.Cancel>{m.guild_rail_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action onclick={confirmServerRemove} data-testid="remove-server-confirm">
         {m.guild_rail_remove_action()}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Betreiber-Hinweis: Verlassen unmöglich, Löschen geht in den Einstellungen -->
+<AlertDialog.Root bind:open={ownerLeaveOpen}>
+  <AlertDialog.Content data-testid="owner-leave-dialog">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{m.guild_rail_owner_leave_title()}</AlertDialog.Title>
+      <AlertDialog.Description>
+        {m.guild_rail_owner_leave_body({ label: ownerLeaveLabel })}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>{m.guild_rail_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action
+        onclick={() => { ownerLeaveOpen = false; uiOverlays.openSettings('self-host'); }}
+        data-testid="owner-leave-open-settings"
+      >
+        {m.guild_rail_owner_leave_open_settings()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

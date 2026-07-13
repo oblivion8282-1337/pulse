@@ -8,6 +8,7 @@
  */
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
+import { communityInvites } from '$lib/stores/communityInvites.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { presence } from '$lib/stores/presence.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -33,6 +34,24 @@ export function register(): void {
       body: m.friends_handler_request_body(),
       messageId: evt.data.id,
       targetUrl: '/app/friends'
+    });
+  });
+
+  registerWsHandler('community_invite_received', (evt) => {
+    // Nutzername-Einladung in eine Community — gleiche Schiene wie eine
+    // Freundschaftsanfrage (Pending-Tab + Badge + Benachrichtigung).
+    communityInvites.add(evt.data);
+    userCache.queue(evt.data.inviter_user_id);
+    const u = userCache.get(evt.data.inviter_user_id);
+    const name = u?.display_name ?? u?.username ?? null;
+    fireInPageNotification({
+      kind: 'friend_request',
+      title: name
+        ? m.community_invite_notify_title({ name, guild: evt.data.guild_name })
+        : m.community_invite_notify_title_unknown({ guild: evt.data.guild_name }),
+      body: m.community_invite_notify_body(),
+      messageId: evt.data.id,
+      targetUrl: '/app/friends?tab=pending'
     });
   });
 

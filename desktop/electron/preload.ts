@@ -262,6 +262,10 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (opts: unknown): Promise<void> => ipcRenderer.invoke('host:start', opts),
     stop: (): Promise<void> => ipcRenderer.invoke('host:stop'),
     getStatus: (): Promise<unknown> => ipcRenderer.invoke('host:status'),
+    // Zustands-Abgleich: fragt den echten Containerstatus ab (überlebt App-
+    // Neustarts dank `--restart unless-stopped`) und hebt die Phase bei
+    // Bedarf auf 'live' — server.html ruft das bei jedem UI-Refresh.
+    refresh: (): Promise<unknown> => ipcRenderer.invoke('host:refresh'),
     onPhase: (cb: (e: unknown) => void): (() => void) => {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);
       ipcRenderer.on('host:phase', handler);
@@ -270,7 +274,29 @@ contextBridge.exposeInMainWorld('pulse', {
     pair: (bootstrapToken: string): Promise<unknown> =>
       ipcRenderer.invoke('host:pair', bootstrapToken),
     getPairing: (): Promise<unknown> => ipcRenderer.invoke('host:getPairing'),
-    provision: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('host:provision'),
+    provision: (
+      opts?: { confirmTakeover?: boolean },
+    ): Promise<{ ok: boolean; error?: string; needsTakeoverConfirm?: boolean }> =>
+      ipcRenderer.invoke('host:provision', opts),
+    // Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only) — server.html
+    // ruft ihn bei Phase 'live' + über "Erneut prüfen".
+    selfTest: (): Promise<unknown> => ipcRenderer.invoke('host:selfTest'),
+    // Autostart beim Anmelden (Schalter in server.html; Default AN beim Pairing).
+    getAutostart: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke('host:getAutostart'),
+    setAutostart: (enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('host:setAutostart', enabled),
+    // "Deine Daten": Volume-Größe + letztes Backup; Export mit Schritt-Events.
+    dataInfo: (): Promise<unknown> => ipcRenderer.invoke('host:dataInfo'),
+    exportData: (): Promise<unknown> => ipcRenderer.invoke('host:exportData'),
+    onExportStep: (cb: (step: string) => void): (() => void) => {
+      const handler = (_e: unknown, step: string): void => cb(step);
+      ipcRenderer.on('host:exportStep', handler);
+      return () => ipcRenderer.removeListener('host:exportStep', handler);
+    },
+    // "Server aufgeben": Container+Cloud-Registrierung+Pairing entfernen,
+    // optional inkl. lokaler Daten (server.html-Bestätigungs-Overlay).
+    giveUp: (opts?: { deleteData?: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('host:giveUp', opts),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),

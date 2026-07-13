@@ -112,12 +112,16 @@ async def redeem_bootstrap_token(
     new_secret = secrets.token_urlsafe(32)
     instance.client_secret = await asyncio.to_thread(hash_password, new_secret)
 
-    # ②a Relay-Provisionierung: nur wenn ein Relay-Server konfiguriert ist.
-    # Subdomain wird einmalig vergeben (stabil), der Tunnel-Token bei jedem
-    # Redeem rotiert (Klartext nur in der Antwort; DB hält nur den Hash).
+    # ②a Relay-Provisionierung: nur wenn ein Relay-Server konfiguriert ist UND
+    # das Provisioning nicht abgeschaltet wurde (PULSE_RELAY_PROVISION_ENABLED
+    # =false — Relay-Abbau für App-Hosting, Direktpfad ist dort der einzige
+    # Weg). Subdomain wird einmalig vergeben (stabil), der Tunnel-Token bei
+    # jedem Redeem rotiert (Klartext nur in der Antwort; DB hält nur den Hash).
+    # Bei abgeschaltetem Provisioning bleiben die Response-Felder null; eine
+    # evtl. vorhandene Bestands-Subdomain bleibt in der DB unangetastet.
     relay_subdomain: str | None = None
     relay_token_plain: str | None = None
-    if settings.pulse_relay_server_addr:
+    if settings.pulse_relay_provision_enabled and settings.pulse_relay_server_addr:
         if instance.relay_subdomain is None:
             instance.relay_subdomain = await allocate_relay_subdomain(
                 db, settings.pulse_relay_base_domain
@@ -157,6 +161,12 @@ async def redeem_bootstrap_token(
         cloud_origin=settings.pulse_oidc_issuer,
         admin_email=admin_email,
         relay_subdomain=relay_subdomain,
-        relay_server_addr=settings.pulse_relay_server_addr or None,
+        # Ohne Provisioning auch keine Server-Adresse — der Container soll die
+        # frpc-Unit gar nicht erst konfigurieren (sie schläft ohne die Vars).
+        relay_server_addr=(
+            settings.pulse_relay_server_addr
+            if settings.pulse_relay_provision_enabled and settings.pulse_relay_server_addr
+            else None
+        ),
         relay_tunnel_token=relay_token_plain,
     )

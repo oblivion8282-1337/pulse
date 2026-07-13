@@ -23,7 +23,6 @@
   import AdminSettingsTab from '$lib/components/admin/AdminSettingsTab.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
-  import { adminAppHostApplicationsApi } from '$lib/api/appHostApplications';
   import { adminInstancesApi } from '$lib/api/instances';
   import { adminComplaintsApi } from '$lib/api/complaints';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -87,7 +86,9 @@
   async function refreshBadges() {
     if (!isCloud || !isAdminHere) return;
     try {
-      instancesPending = (await adminInstancesApi.listApplications('pending')).length;
+      // origin='vps': der App-Host-Anteil steckt in pendingAppHostApplications
+      // (eigener Badge) — sonst zählte der Anträge-Badge doppelt.
+      instancesPending = (await adminInstancesApi.listApplications('pending', 'vps')).length;
     } catch {
       /* still — Badge bleibt einfach aus */
     }
@@ -99,7 +100,7 @@
     if (APP_HOSTING_ENABLED) {
       try {
         pendingAppHostApplications.count = (
-          await adminAppHostApplicationsApi.listApplications('pending')
+          await adminInstancesApi.listApplications('pending', 'app_host')
         ).length;
       } catch {
         /* still */
@@ -174,7 +175,7 @@
           <AdminMembers />
         {/if}
       {:else if activeTab === 'applications' && isCloud}
-        <AdminApplicationsTab onAppHostChange={refreshBadges} />
+        <AdminApplicationsTab />
       {:else if activeTab === 'complaints' && isCloud}
         <AdminComplaints />
       {:else if activeTab === 'settings'}

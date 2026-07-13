@@ -22,18 +22,27 @@ import { cookieFetch, renewSession, safeParse, extractDetail } from './cookie-cl
 
 // 'closed' = Instanz vom Owner gelöscht → Antrag ist Historie (kein roter
 // Punkt, kein Listeneintrag mehr — siehe routes_instance_delete.py).
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed';
+// 'revoked' = App-Host-Freischaltung vom Admin zurückgenommen (nur origin
+// 'app_host' — Historie, der User darf neu beantragen).
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed' | 'revoked';
+/** Antragsart im vereinten Antragssystem: VPS mit eigener Domain oder
+ *  App-Hosting von zuhause (Server-App, kein Hostname). */
+export type ApplicationOrigin = 'vps' | 'app_host';
+/** Ergebnis des beratenden Anschluss-Checks (lib/hosting/connectivityCheck). */
+export type NetworkCheck = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
 export type InstanceStatus = 'active' | 'suspended';
 
 /** Spiegelt InstanceApplicationOut (User-Route). */
 export interface InstanceApplication {
   id: string;
   applicant_user_id: string;
+  origin: ApplicationOrigin;
   hostname: string;
   purpose: string;
   expected_users: number;
   contact_email: string;
   notes: string | null;
+  network_check: NetworkCheck | null;
   status: ApplicationStatus;
   reviewed_at: string | null;
   rejection_reason: string | null;
@@ -63,14 +72,27 @@ export interface Instance {
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */
 export interface AdminApplication {
   id: string;
+  applicant_user_id: string;
+  origin: ApplicationOrigin;
   hostname: string;
   purpose: string;
   expected_users: number;
   contact_email: string;
   notes: string | null;
+  network_check: NetworkCheck | null;
   status: string;
   created_at: string;
   applicant_username: string;
+}
+
+/** Spiegelt AppHostApprovalOut — Approve-Antwort für origin 'app_host'
+ *  (kein client_secret; Pairing kommt später über den Bootstrap-Token). */
+export interface AppHostApproval {
+  id: string;
+  user_id: string;
+  self_host_enabled: boolean;
+  /** Auto-provisionierte Relay-Instanz; null, wenn der User schon eine hatte. */
+  instance_id: string | null;
 }
 
 /** Spiegelt ApprovalOut (EINMALIG — client_secret nur hier). */
@@ -119,21 +141,33 @@ export interface BootstrapToken {
 // ---------------------------------------------------------------------------
 
 export const instancesApi = {
-  /** Antrag auf Self-Host-Instanz einreichen. Es wird nur der Hostname erfasst —
-   *  die Kontakt-E-Mail leitet das Backend aus dem eingeloggten User ab. */
-  submitApplication(payload: { hostname: string }): Promise<InstanceApplication> {
+  /** Antrag auf Hosting-Freischaltung einreichen (vereintes Antragssystem).
+   *  VPS: hostname Pflicht. App-Host: kein Hostname, optional das Ergebnis des
+   *  beratenden Anschluss-Checks. Die Kontakt-E-Mail leitet das Backend aus
+   *  dem eingeloggten User ab. */
+  submitApplication(payload: {
+    origin?: ApplicationOrigin;
+    hostname?: string;
+    purpose?: 'privat' | 'verein' | 'firma' | 'sonst';
+    notes?: string | null;
+    network_check?: NetworkCheck | null;
+  }): Promise<InstanceApplication> {
     return cookieFetch<InstanceApplication>('/me/instance-applications', {
       method: 'POST',
       body: payload
     });
   },
 
-  /** Eigene Anträge abrufen (optional nach Status gefiltert). */
+  /** Eigene Anträge abrufen (nach Status/Art gefiltert). Das Backend liefert
+   *  ohne origin-Parameter nur VPS (Alt-Client-Kompatibilität) — deshalb hier
+   *  IMMER explizit senden, Default 'all'. */
   listMyApplications(
-    status: 'all' | ApplicationStatus = 'all'
+    status: 'all' | ApplicationStatus = 'all',
+    origin: 'all' | ApplicationOrigin = 'all'
   ): Promise<InstanceApplication[]> {
-    const qs = status !== 'all' ? `?status=${status}` : '';
-    return cookieFetch<InstanceApplication[]>(`/me/instance-applications${qs}`);
+    const params = new URLSearchParams({ origin });
+    if (status !== 'all') params.set('status', status);
+    return cookieFetch<InstanceApplication[]>(`/me/instance-applications?${params}`);
   },
 
   /** Eigene registrierte Instanzen (kein client_secret). */
@@ -238,18 +272,23 @@ export const instancesApi = {
 // ---------------------------------------------------------------------------
 
 export const adminInstancesApi = {
-  /** Anträge abrufen, gefiltert nach Status. */
+  /** Anträge abrufen, gefiltert nach Status und Art (beide Origins). */
   listApplications(
-    status: 'pending' | 'approved' | 'rejected' = 'pending'
+    status: 'pending' | 'approved' | 'rejected' | 'revoked' | 'closed' | 'all' = 'pending',
+    origin: 'all' | ApplicationOrigin = 'all'
   ): Promise<AdminApplication[]> {
-    return cookieFetch<AdminApplication[]>(`/admin/instance-applications?status=${status}`);
+    return cookieFetch<AdminApplication[]>(
+      `/admin/instance-applications?status=${status}&origin=${origin}`
+    );
   },
 
-  /** Antrag genehmigen — gibt client_secret EINMALIG zurück. */
-  approveApplication(appId: string): Promise<Approval> {
-    return cookieFetch<Approval>(`/admin/instance-applications/${appId}/approve`, {
-      method: 'POST'
-    });
+  /** Antrag genehmigen. Antwort ist origin-abhängig (Union): VPS liefert die
+   *  einmalig gezeigten Credentials, App-Host nur Flag + Instanz-ID. */
+  approveApplication(appId: string): Promise<Approval | AppHostApproval> {
+    return cookieFetch<Approval | AppHostApproval>(
+      `/admin/instance-applications/${appId}/approve`,
+      { method: 'POST' }
+    );
   },
 
   /** Antrag ablehnen. */
@@ -257,6 +296,17 @@ export const adminInstancesApi = {
     return cookieFetch<void>(`/admin/instance-applications/${appId}/reject`, {
       method: 'POST',
       body: { rejection_reason }
+    });
+  },
+
+  /** Erteilte App-Host-Freischaltung zurücknehmen: Flag aus + App-Host-
+   *  Instanzen des Users suspendiert (Kill-Switch stoppt einen laufenden
+   *  Container). Läuft über den eigenständigen (nicht-deprecated) Pfad —
+   *  einen vereinten Zwilling gibt es bewusst nicht. */
+  revokeAppHostApplication(appId: string, reason?: string): Promise<void> {
+    const q = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    return cookieFetch<void>(`/admin/app-host-applications/${appId}/revoke${q}`, {
+      method: 'POST'
     });
   },
 

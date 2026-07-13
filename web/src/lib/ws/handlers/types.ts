@@ -15,6 +15,7 @@ import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 import type { WatchChannelEntry, WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 import type { FriendRequest } from '$lib/stores/friendRequests.svelte';
+import type { CommunityInviteNotification } from '$lib/api/communityInvites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
 
@@ -83,6 +84,7 @@ export type ReadyEvent = {
   // ready frames in tests keep validating cleanly.
   friends?: { user_id: string; since: string }[];
   friend_requests_in?: FriendRequest[];
+  community_invites?: CommunityInviteNotification[];
   friend_requests_out?: FriendRequest[];
   blocked_user_ids?: string[];
   privacy?: PrivacySettings;
@@ -264,6 +266,7 @@ export type ServerEvent =
     }
   // ---- Etappe 4 friend system ------------------------------------------
   | { op: 'friend_request_received'; data: FriendRequest }
+  | { op: 'community_invite_received'; data: CommunityInviteNotification }
   | {
       op: 'friend_request_accepted';
       data: {

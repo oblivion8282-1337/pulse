@@ -10,7 +10,7 @@
   import CopyIcon from '@lucide/svelte/icons/copy';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { chatApi } from '$lib/api/chat';
-  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { inviteLink } from '$lib/guilds/inviteLink';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -84,14 +84,6 @@
   }
 
   onMount(load);
-
-  function inviteLink(code: string): string {
-    const origin = window.location.origin;
-    const srv = activeServer.current;
-    if (!srv || srv.isCloud) return `${origin}/invite/${code}`;
-    const host = srv.hostname.replace(/^https?:\/\//, '');
-    return `${origin}/invite/${code}?host=${encodeURIComponent(host)}`;
-  }
 
   async function copyLink(code: string) {
     try {

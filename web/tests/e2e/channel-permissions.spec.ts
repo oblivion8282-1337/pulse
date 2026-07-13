@@ -74,8 +74,10 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
     await register(alice, ALICE);
     await register(bob, BOB);
 
-    await alice.getByTestId('empty-create-guild').click();
-    await alice.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await alice.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await alice.getByTestId('guild-create').click();
     await alice.getByTestId('create-guild-name').fill('ChPerm Guild');
     await alice.getByTestId('create-guild-submit').click();
     await alice.waitForURL(/\/app\/guilds\/(\d+)\/channels\/(\d+)/);

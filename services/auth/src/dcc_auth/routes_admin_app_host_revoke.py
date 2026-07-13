@@ -30,11 +30,14 @@ from sqlalchemy import select
 
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
-from dcc_auth.models_app_host import AppHostApplication
-from dcc_auth.models_instances import RegisteredInstance, SuspendedInstance
+from dcc_auth.models_instances import (
+    InstanceApplication,
+    RegisteredInstance,
+    SuspendedInstance,
+)
 from dcc_auth.routes import _require_owner
 from dcc_auth.routes_admin import _audit
-from dcc_auth.routes_admin_app_host import _require_cloud
+from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.routes_suspended_instances import _get_redis, suspended_list_add
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(_require_cloud)])
@@ -57,8 +60,10 @@ async def revoke_app_host_application(
     except ValueError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Antrag nicht gefunden")
 
-    app = await db.get(AppHostApplication, aid, with_for_update=True)
-    if app is None:
+    app = await db.get(InstanceApplication, aid, with_for_update=True)
+    # Nur App-Host-Anträge sind revokebar — VPS-Instanzen suspendiert der Admin
+    # direkt über /admin/instances/{id} (404 statt 403 gegen Enumeration).
+    if app is None or app.origin != "app_host":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Antrag nicht gefunden")
     if app.status != "approved":
         raise HTTPException(
@@ -66,7 +71,7 @@ async def revoke_app_host_application(
             detail=f"nur genehmigte Anträge sind zurücknehmbar (ist '{app.status}')",
         )
 
-    target_user = await db.get(User, app.user_id)
+    target_user = await db.get(User, app.applicant_user_id)
     if target_user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User nicht gefunden")
 

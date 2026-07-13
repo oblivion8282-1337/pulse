@@ -13,12 +13,9 @@
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
-  import {
-    adminAppHostApplicationsApi,
-    type AdminAppHostApplication
-  } from '$lib/api/appHostApplications';
+  import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
 
-  let { app, onrevoked }: { app: AdminAppHostApplication; onrevoked: () => void } = $props();
+  let { app, onrevoked }: { app: AdminApplication; onrevoked: () => void } = $props();
 
   let open = $state(false);
   let reason = $state('');
@@ -30,7 +27,7 @@
     busy = true;
     error = null;
     try {
-      await adminAppHostApplicationsApi.revokeApplication(app.id, reason.trim() || undefined);
+      await adminInstancesApi.revokeAppHostApplication(app.id, reason.trim() || undefined);
       toast.success(m.app_host_admin_revoked_toast({ username: app.applicant_username }));
       open = false;
       reason = '';

@@ -554,10 +554,8 @@ from dcc_auth.models_instances import (  # noqa: E402, F401
     SuspendedInstance,
 )
 
-# App-Hosting-Anträge (migration 0035) — ausgelagert nach models_app_host.py
-from dcc_auth.models_app_host import (  # noqa: E402, F401
-    AppHostApplication,
-)
+# App-Hosting-Anträge leben seit Migration 0044 vereint in
+# InstanceApplication (origin='app_host') — models_app_host.py ist entfernt.
 
 # Experimental-Sidecar-Diagnose-Logs (migration 0042) — ausgelagert.
 from dcc_auth.models_experimental import (  # noqa: E402, F401

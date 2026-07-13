@@ -101,3 +101,34 @@ Nach jeder Phase: Commit + kurzer Bericht + User-Bestätigung (Phasen-Workflow).
 - Relay bleibt Fallback; seine TLS-Härtung ist `2026-07-09-relay-tls-passthrough.md`.
 - Test über echtes Internet (Client außerhalb des Heimnetzes) steht noch aus — bisher
   wurde der srflx-Kandidat nur erzeugt und angeboten, aber im LAN-Test nicht *benutzt*.
+
+
+## Relay-Fallback entfernt für app_host (Stand 2026-07-13)
+
+User-Entscheidung: Kein Relay-Fallback mehr für App-Hosting — Text/Login liefe
+sonst doch über die Cloud. Der Direktpfad ist für `origin='app_host'`-Instanzen
+der EINZIGE Weg; VPS-Self-Hosts und die Cloud bleiben unberührt.
+
+- **Client-Weiche** (`web/src/lib/direct/policy.ts`, pur): `isDirectOnly()`
+  greift nur bei explizitem `origin='app_host'` am `ServerEntry` (kommt aus
+  `GET /me/instances` via `hydrateFromBackend`; Alt-Einträge ohne origin
+  verhalten sich wie VPS). Scheitert der Direktpfad, gibt es drei erklärte
+  Fehlzustände statt eines stillen Fallbacks (`transportFetch` wirft
+  `DirectUnavailableError`, der Gateway-WS geht auf 'closed' + Backoff):
+  (a) Telefonbuch offline → „Server ist offline" (bestehende Offline-Anzeige),
+  (b) online aber ICE scheitert → „Keine Direktverbindung möglich …",
+  (c) Fingerprint-Wechsel → sichtbarer Vertrauens-Dialog
+  (`DirectTrustDialog.svelte`: „Neuer Identität vertrauen" = forgetPin +
+  Reconnect) statt console.warn. Zustand pro Instanz im
+  `directStatus`-Store, sichtbar im Server-Tooltip der Rail.
+- **Cloud-Flag** `PULSE_RELAY_PROVISION_ENABLED` (auth-svc, Default `true`):
+  bei `false` vergibt der Bootstrap-Redeem keine `relay_subdomain` und keinen
+  Tunnel-Token mehr (Response bleibt shape-stabil mit null; Bestands-
+  Subdomains bleiben in der DB — kein Daten-Rückbau).
+- **Container-Marker**: `PULSE_HOST_ORIGIN=app_host|vps` ersetzt die
+  „Relay-Token gesetzt = App-Hosting"-Heuristik in `07-render-env.sh` /
+  `08-init-mediamtx.sh` (explizite Env hat Vorrang, Heuristik bleibt Fallback
+  für Bestands-Container). Die Desktop-Server-App setzt die Env in
+  `container.env` (paralleler Desktop-Strang).
+- **Status**: Client-Logik pur + backend-getestet; der Ende-zu-Ende-Beweis
+  (App-Host ohne Relay von extern) ist ausdrücklich manuelle Verifikation.

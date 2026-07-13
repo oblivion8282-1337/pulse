@@ -3,17 +3,24 @@
 Vor dem Fix setzte ``approve`` nur ``self_host_enabled=true`` und der User landete
 auf der „Keine Instanz"-Karte. Jetzt legt die Genehmigung eine ``RegisteredInstance``
 (+ Owner-Membership) an, sodass der User sofort aus der App hosten kann.
+
+Seit dem vereinten Antragssystem (Migration 0044) laufen diese Tests über die
+DEPRECATED-Wrapper-Pfade ``/admin/app-host-applications/*`` — sie verifizieren
+damit gleichzeitig, dass die Wrapper das alte Verhalten exakt erhalten.
+Die vereinten Pfade deckt ``test_unified_applications.py`` ab.
 """
 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
-
 from dcc_auth.models import User
-from dcc_auth.models_app_host import AppHostApplication
-from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_auth.models_instances import (
+    InstanceApplication,
+    RegisteredInstance,
+    UserInstanceMembership,
+)
 from dcc_auth.snowflake import next_id
+from sqlalchemy import select
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -64,12 +71,20 @@ async def _user_id(session_factory, username: str) -> int:
 
 async def _seed_app_host(session_factory, *, user_id: int) -> int:
     async with session_factory() as s:
-        app = AppHostApplication(
-            id=next_id(), user_id=user_id, purpose="privat", status="pending"
+        app_id = next_id()
+        app = InstanceApplication(
+            id=app_id,
+            applicant_user_id=user_id,
+            origin="app_host",
+            hostname=f"app-{app_id}.relay.howispulse.com",
+            purpose="privat",
+            expected_users=1,
+            contact_email="applicant@dcc-test.example.com",
+            status="pending",
         )
         s.add(app)
         await s.commit()
-        return app.id
+        return app_id
 
 
 @pytest.fixture
@@ -237,7 +252,7 @@ async def test_revoke_disables_flag_and_suspends_instance(
         assert user.self_host_enabled is False
         inst = await s.get(RegisteredInstance, instance_id)
         assert inst.status == "suspended"
-        app = await s.get(AppHostApplication, app_id)
+        app = await s.get(InstanceApplication, app_id)
         assert app.status == "revoked"
         assert app.rejection_reason == "Missbrauch"
 

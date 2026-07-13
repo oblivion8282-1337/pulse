@@ -17,6 +17,7 @@
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
+  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import FriendList from '$lib/components/friends/FriendList.svelte';
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
@@ -84,7 +85,7 @@
           {@const isActive = activeTab === t.key}
           {@const badge =
             t.key === 'pending'
-              ? friendRequests.incomingList.length
+              ? friendRequests.incomingList.length + communityInvites.count
               : 0}
           <button
             type="button"

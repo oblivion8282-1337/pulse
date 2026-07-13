@@ -125,6 +125,9 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
     await admin.getByTestId('user-footer-trigger').click();
     await admin.getByTestId('open-admin').click();
     await admin.waitForURL(/\/app\/admin/);
+    // Plugins leben seit der Admin-Reiter-Struktur (9de03676) im
+    // Einstellungen-Tab — erst dorthin wechseln.
+    await admin.getByTestId('admin-tab-settings').click();
     await expect(admin.getByTestId('admin-plugins')).toBeVisible();
     // `hello` ist Bootstrap-System-Plugin und immer in der Allowlist.
     await expect(admin.getByTestId('admin-plugin-row-hello')).toBeVisible();
@@ -142,8 +145,10 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
-    // Reload bestätigt Server-Persistenz.
+    // Reload bestätigt Server-Persistenz. Nach dem Reload landet die
+    // Admin-Seite auf dem Übersicht-Tab → zurück zu Einstellungen.
     await admin.reload();
+    await admin.getByTestId('admin-tab-settings').click();
     await expect(
       admin.getByTestId('admin-plugin-toggle-tamagotchi')
     ).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
@@ -151,12 +156,11 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
 
   test('admin creates a guild for the guild-toggle tests', async () => {
     // Admin hat `allow_guild_creation`-Bypass via is_admin (Backend).
-    // `/app` (Root) zeigt das Empty-State-Panel mit `empty-create-guild`,
-    // wenn der User noch keinen Server hat — nicht zu verwechseln mit
-    // `/app/@me` (DM-Liste).
     await admin.goto('/app');
-    await admin.getByTestId('empty-create-guild').click();
-    await admin.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await admin.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await admin.getByTestId('guild-create').click();
     await admin.getByTestId('create-guild-name').fill(`Plug Guild ${ts}`);
     await admin.getByTestId('create-guild-submit').click();
     await admin.waitForURL(/\/app\/guilds\/(\d+)\/channels\/(\d+)/);

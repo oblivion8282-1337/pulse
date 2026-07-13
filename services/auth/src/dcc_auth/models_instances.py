@@ -65,8 +65,11 @@ class RegisteredInstance(Base):
     # Der Token-Klartext wird NIE persistiert (nur via Bootstrap-Response geliefert).
     relay_subdomain: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     relay_tunnel_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
-    registered_by: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    # ondelete="SET NULL": Konto-Löschung darf die Instanz-Zeile nicht hart
+    # mitreißen (Worker-ID-Reservierung + Kill-Switch, s. routes_instance_delete)
+    # — der Owner-Link fällt weg, die Zeile bleibt als 'deleted'-Leiche stehen.
+    registered_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -76,7 +79,7 @@ class RegisteredInstance(Base):
     )  # One-Shot-Markierung (siehe Migration 0036 + generate_env_file)
 
     # Relationships
-    registrar: Mapped["User"] = relationship("User", foreign_keys=[registered_by])
+    registrar: Mapped["User | None"] = relationship("User", foreign_keys=[registered_by])
     suspended_entry: Mapped["SuspendedInstance | None"] = relationship(
         "SuspendedInstance", back_populates="instance", uselist=False, cascade="all, delete-orphan"
     )
@@ -135,30 +138,54 @@ class UserInstanceMembership(Base):
 
 
 class InstanceApplication(Base):
-    """Application from a Self-Host operator requesting instance registration.
+    """Antrag auf Hosting-Freischaltung — VEREINT (Migration 0044) VPS- und
+    App-Host-Anträge in einer Tabelle; ``origin`` unterscheidet.
 
-    Workflow: operator submits → status='pending' → admin reviews →
-    approved (creates RegisteredInstance, sets approved_instance_id) or rejected.
+    Workflow: User stellt Antrag → status='pending' → Admin reviewt →
+    approved (VPS: legt RegisteredInstance an + approved_instance_id;
+    app_host: setzt self_host_enabled + provisioniert Relay-Instanz) oder
+    rejected. Vorbereitung auf Monetarisierung: „approved" wird später
+    „bezahlt" — ein Statusfeld, ein Antragsweg.
     """
 
     __tablename__ = "instance_applications"
 
     id: Mapped[int] = snowflake_pk()
+    # ondelete="CASCADE": Anträge sind personenbezogene Daten des Antragstellers
+    # — sie verschwinden mit dem Konto (DSGVO).
     applicant_user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # Bei origin='app_host' liefert der User KEINEN Hostname — die Spalte bleibt
+    # NOT NULL und trägt dann den synthetischen Platzhalter
+    # ``app-<antrags-id>.<relay_base>`` (gleiches Muster wie die spätere
+    # Instanz in instance_provisioning.py). Gewählt statt Leer-Marker, weil so
+    # alle bestehenden Invarianten halten: NOT NULL, Eindeutigkeit pro Antrag
+    # (kein Dup-Guard-Konflikt), und der Wert kollidiert nie mit einer echten
+    # User-Domain (existiert nicht im DNS).
     hostname: Mapped[str] = mapped_column(Text, nullable=False)
     # privat | verein | firma | sonst
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
     expected_users: Mapped[int] = mapped_column(nullable=False)
     contact_email: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # pending | approved | rejected | closed
+    # Ergebnis des client-seitigen Anschluss-Checks (Browser-STUN-Probe) beim
+    # App-Host-Antrag: ok | cgnat | symmetric | blocked | unknown. Rein
+    # informativ für den Admin (Chip im Pending-Tab) — KEINE Server-Logik
+    # daran. NULL = nicht geprüft (VPS-Anträge, Alt-Clients). Migration 0045.
+    network_check: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pending | approved | rejected | closed | revoked
     # 'closed' = die genehmigte Instanz wurde vom Owner gelöscht — der Antrag
     # ist Historie und zählt nirgends mehr als "wartet auf Einrichtung".
+    # 'revoked' (nur app_host) = erteilte Freischaltung vom Admin zurückgenommen
+    # (routes_admin_app_host_revoke.py) — Historie, User darf neu beantragen.
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    # vps | app_host — Herkunft des Antrags (Migration 0044, vereintes
+    # Antragssystem; ersetzt die frühere app_host_applications-Tabelle).
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="vps")
+    # ondelete="SET NULL": Review-Historie überlebt die Konto-Löschung des Admins.
     reviewed_by: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -275,8 +302,9 @@ class Complaint(Base):
         ForeignKey("registered_instances.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # ondelete="SET NULL": Beschwerde-Historie überlebt die Konto-Löschung des Ziels.
     target_user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     # Optional URL reference (e.g. link to offending content on the instance).

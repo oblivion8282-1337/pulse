@@ -32,6 +32,22 @@ test('renderContainerEnv: ohne Relay-Felder keine PULSE_RELAY_-Zeilen, Hostname 
   assert.match(env, /^PULSE_HOSTNAME=app-123\.relay\.howispulse\.com$/m);
 });
 
+test('renderContainerEnv: PULSE_HOST_ORIGIN=app_host immer gesetzt (mit und ohne Relay)', () => {
+  assert.match(renderContainerEnv(CREDS), /^PULSE_HOST_ORIGIN=app_host$/m);
+  assert.match(
+    renderContainerEnv({ ...CREDS, relaySubdomain: null, relayServerAddr: null, relayTunnelToken: null }),
+    /^PULSE_HOST_ORIGIN=app_host$/m,
+  );
+});
+
+test('renderContainerEnv: partielle Relay-Creds → KEINE Relay-Zeilen (nie leere Strings)', () => {
+  // Erkennungsmuster im Image ist FEHLENDE Variablen — ein leerer String
+  // gälte als "Relay konfiguriert" und würde frpc ins Leere starten lassen.
+  const env = renderContainerEnv({ ...CREDS, relayTunnelToken: null });
+  assert.equal(env.includes('PULSE_RELAY_'), false);
+  assert.equal(/^\w+=$/m.test(env), false); // keine Zeile mit leerem Wert
+});
+
 test('renderContainerEnv: adminEmail-Override und Platzhalter', () => {
   assert.match(renderContainerEnv(CREDS, 'ich@example.org'), /^PULSE_ADMIN_EMAIL=ich@example\.org$/m);
   assert.match(renderContainerEnv(CREDS), /^PULSE_ADMIN_EMAIL=admin@brave-otter-4f2a\.relay\.howispulse\.com$/m);

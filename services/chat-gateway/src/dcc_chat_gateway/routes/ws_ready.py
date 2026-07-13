@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from dcc_shared.permission_resolver import Override
 from fastapi import WebSocket
 from sqlalchemy import or_, select
 
@@ -67,7 +68,6 @@ from dcc_chat_gateway.permissions import (
     filter_viewable_channels_from_snapshot,
     resolve_guild_permissions_from_snapshot,
 )
-from dcc_shared.permission_resolver import Override
 from dcc_chat_gateway.presence_status import (
     STATUS_ONLINE,
     _mask,
@@ -345,6 +345,16 @@ async def build_and_send_ready_frame(
                 ).scalars()
             )
             privacy_row = await session.get(UserPrivacy, user.id)
+            # Einladungs-Benachrichtigungen (Nicht-Freunde-Einladungen per
+            # Nutzername) — gleiche Re-Sync-Schiene wie die Friend-Requests.
+            from dcc_chat_gateway.routes.member_invites import (
+                load_pending_invites_with_guild,
+            )
+
+            community_invites = [
+                o.model_dump(mode="json")
+                for o in await load_pending_invites_with_guild(session, user.id)
+            ]
             # ``can_send`` per DM = friendship + no block. We already have both
             # sets; intersect in-memory.
             dm_channels = []
@@ -376,6 +386,7 @@ async def build_and_send_ready_frame(
             req_in_rows = []
             req_out_rows = []
             privacy_row = None
+            community_invites = []
 
         # Peer presence: union of confirmed friends + all other guild members.
         # On self-host ``friend_set`` is empty so this reduces to guild-members-only,
@@ -525,6 +536,7 @@ async def build_and_send_ready_frame(
             for r in req_out_rows
         ]
         payload["blocked_user_ids"] = [str(u) for u in sorted(blocks_out_set)]
+        payload["community_invites"] = community_invites
         payload["privacy"] = privacy_dict
 
     await websocket.send_json(payload)

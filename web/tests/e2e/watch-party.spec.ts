@@ -304,9 +304,10 @@ test.describe.serial('Watch Party E2E', () => {
   });
 
   test('alice creates guild + voice channel; bob joins', async () => {
-    await expect(alicePage.getByTestId('empty-create-guild')).toBeVisible();
-    await alicePage.getByTestId('empty-create-guild').click();
-    await alicePage.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await alicePage.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await alicePage.getByTestId('guild-create').click();
     await alicePage.getByTestId('create-guild-name').fill('Watch Party Test');
     await alicePage.getByTestId('create-guild-submit').click();
     await alicePage.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/);

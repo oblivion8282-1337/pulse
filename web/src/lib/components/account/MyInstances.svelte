@@ -64,9 +64,10 @@
     // Owner hat seine Instanzen geöffnet → roten „einrichten"-Punkt löschen.
     myInstanceApplications.acknowledge();
     try {
-      // App-Host-Instanzen leben in der App-Hosting-Karte — der VPS-Flow
-      // ("Server einrichten"-Anleitung) ergibt für sie keinen Sinn.
-      instances = (await instancesApi.listMyInstances()).filter((i) => i.origin !== 'app_host');
+      // App-Host-Instanzen erscheinen als reduzierte Zeile (Status + Löschen):
+      // der VPS-Flow ("Server einrichten"-Terminal, .env) ergibt für sie keinen
+      // Sinn, aber der Löschweg muss im Client existieren.
+      instances = await instancesApi.listMyInstances();
     } catch {
       // Nicht kritisch
     } finally {
@@ -114,9 +115,14 @@
             <div class="min-w-0">
               <p class="text-text-bright text-sm font-medium truncate">{inst.hostname}</p>
               <p class="text-text-muted text-xs mt-0.5">
-                ID: {inst.client_id.slice(0, 12)}… ·
-                Workers: {inst.worker_id_chat}/{inst.worker_id_voice}/{inst.worker_id_media} ·
-                {new Date(inst.registered_at).toLocaleDateString('de-DE')}
+                {#if inst.origin === 'app_host'}
+                  {m.my_instances_apphost_label()} ·
+                  {new Date(inst.registered_at).toLocaleDateString('de-DE')}
+                {:else}
+                  ID: {inst.client_id.slice(0, 12)}… ·
+                  Workers: {inst.worker_id_chat}/{inst.worker_id_voice}/{inst.worker_id_media} ·
+                  {new Date(inst.registered_at).toLocaleDateString('de-DE')}
+                {/if}
               </p>
             </div>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 {statusClass(inst.status)}">
@@ -124,15 +130,19 @@
             </span>
           </div>
           <div class="flex flex-wrap gap-2 mt-1">
-            <button
-              type="button"
-              onclick={() => openSetup(inst)}
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors"
-              data-testid="instance-setup-btn-{inst.id}"
-            >
-              <TerminalIcon class="size-3.5" />
-              {m.instance_setup_button()}
-            </button>
+            {#if inst.origin !== 'app_host'}
+              <!-- Nur VPS: App-Hosts pairen über die Server-App, nicht über
+                   Installer-Befehl/.env. -->
+              <button
+                type="button"
+                onclick={() => openSetup(inst)}
+                class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors"
+                data-testid="instance-setup-btn-{inst.id}"
+              >
+                <TerminalIcon class="size-3.5" />
+                {m.instance_setup_button()}
+              </button>
+            {/if}
             <button
               type="button"
               onclick={() => openDelete(inst)}
@@ -158,7 +168,9 @@
     <AlertDialog.Header>
       <AlertDialog.Title>{m.my_instances_delete_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {m.my_instances_delete_description({ hostname: deleteTarget?.hostname ?? '' })}
+        {deleteTarget?.origin === 'app_host'
+          ? m.my_instances_apphost_delete_description()
+          : m.my_instances_delete_description({ hostname: deleteTarget?.hostname ?? '' })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>

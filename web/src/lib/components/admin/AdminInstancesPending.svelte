@@ -1,7 +1,9 @@
 <!--
-  Admin: Liste offener Self-Host-Anträge + Approve/Reject-Aktionen.
+  Admin: Liste offener Hosting-Anträge (BEIDE Arten: VPS + App-Host,
+  vereintes Antragssystem) + Approve/Reject über die vereinten Pfade.
   Approve öffnet einen Confirm-Dialog; bei Erfolg nur ein Toast (kein Secret —
-  der Eigentümer richtet den Server selbst über „Server einrichten" ein).
+  der VPS-Eigentümer richtet den Server über „Server einrichten" ein, der
+  App-Host bekommt Flag + auto-provisionierte Instanz).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -37,13 +39,27 @@
     return e instanceof Error ? e.message : String(e);
   }
 
+  // Anschluss-Check-Chip (nur Info, keine Logik daran): ok=grün,
+  // blocked/cgnat/symmetric=rot, unknown/nicht geprüft=neutral.
+  function netCheckLabel(v: AdminApplication['network_check']): string {
+    if (v === 'ok') return m.admin_net_check_ok();
+    if (v === 'blocked' || v === 'cgnat' || v === 'symmetric') return m.admin_net_check_bad();
+    return m.admin_net_check_unknown();
+  }
+
+  function netCheckClass(v: AdminApplication['network_check']): string {
+    if (v === 'ok') return 'bg-emerald-500/20 text-emerald-300';
+    if (v === 'blocked' || v === 'cgnat' || v === 'symmetric') return 'bg-red-500/20 text-red-300';
+    return 'bg-bg-hover text-text-muted';
+  }
+
   onMount(async () => { await reload(); });
 
   async function reload() {
     loading = true;
     loadError = null;
     try {
-      apps = await adminInstancesApi.listApplications('pending');
+      apps = await adminInstancesApi.listApplications('pending', 'all');
     } catch (e) {
       loadError = errMsg(e);
     } finally {
@@ -112,14 +128,34 @@
            data-testid="pending-app-{app.id}">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="text-text-bright text-sm font-medium">{app.hostname}</p>
+            <p class="text-text-bright text-sm font-medium">
+              {app.origin === 'app_host' ? app.applicant_username : app.hostname}
+            </p>
             <p class="text-text-muted text-xs mt-0.5">
               {app.applicant_username} · {app.contact_email}
+              {#if app.origin === 'app_host'}· {app.purpose}{/if}
             </p>
+            {#if app.origin === 'app_host' && app.notes}
+              <p class="text-text-base text-xs mt-1 italic">{app.notes}</p>
+            {/if}
           </div>
-          <p class="text-text-muted text-xs shrink-0">
-            {new Date(app.created_at).toLocaleDateString('de-DE')}
-          </p>
+          <div class="flex shrink-0 flex-col items-end gap-1">
+            <p class="text-text-muted text-xs">
+              {new Date(app.created_at).toLocaleDateString('de-DE')}
+            </p>
+            <div class="flex items-center gap-1.5">
+              <span class="border-border text-text-muted rounded-full border px-2 py-0.5 text-xs"
+                    data-testid="admin-app-origin-chip">
+                {app.origin === 'app_host' ? m.hosting_origin_app() : m.hosting_origin_vps()}
+              </span>
+              {#if app.origin === 'app_host'}
+                <span class="rounded-full px-2 py-0.5 text-xs font-medium {netCheckClass(app.network_check)}"
+                      data-testid="admin-net-check-chip">
+                  {m.admin_net_check_label()}: {netCheckLabel(app.network_check)}
+                </span>
+              {/if}
+            </div>
+          </div>
         </div>
         <div class="flex gap-2">
           <button
@@ -152,7 +188,9 @@
       <Dialog.Header>
         <Dialog.Title>{m.admin_instances_pending_confirm_title()}</Dialog.Title>
         <Dialog.Description>
-          {approveTarget?.hostname} — {approveTarget?.applicant_username}
+          {approveTarget?.origin === 'app_host'
+            ? `${m.hosting_apply_mode_app_title()} — ${approveTarget?.applicant_username}`
+            : `${approveTarget?.hostname} — ${approveTarget?.applicant_username}`}
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex justify-end gap-2 pt-2">
@@ -177,7 +215,11 @@
     <Dialog.Content class="max-w-sm" data-testid="reject-dialog">
       <Dialog.Header>
         <Dialog.Title>{m.admin_instances_pending_reject_title()}</Dialog.Title>
-        <Dialog.Description>{rejectTarget?.hostname}</Dialog.Description>
+        <Dialog.Description>
+          {rejectTarget?.origin === 'app_host'
+            ? rejectTarget?.applicant_username
+            : rejectTarget?.hostname}
+        </Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
         <label class="text-text-bright text-xs font-medium" for="reject-reason">{m.admin_instances_pending_reject_reason_label()}</label>
