@@ -126,11 +126,20 @@ modules:
       - --disable-sndio
       - --disable-xlib
       - --disable-cuda-llvm
-      - --enable-filter=amix
+      # amix: GSR (Desktop+Mikro-Mix). buffer/buffersink/hwmap/scale_vaapi: der
+      # Rust-Sidecar-VAAPI-Pfad (DMABUF→DRM_PRIME→hwmap→scale_vaapi-CSC) — ohne
+      # sie scheitert der AMD/Intel-Encode ("Filter fehlt").
+      - --enable-filter=amix,buffer,buffersink,hwmap,scale_vaapi
       - --enable-nvenc
       - --enable-ffnvcodec
       - --enable-libopus
       - --enable-vaapi
+      # libdrm ist Pflicht für den DRM-hwdevice-Kontext (AV_HWDEVICE_TYPE_DRM)
+      # des Rust-Sidecars: --disable-autodetect schaltet es sonst ab, und
+      # av_hwdevice_ctx_create(DRM) failt dann irreführend mit rc=-12 (ENOMEM).
+      # GSR braucht das nicht (nutzt AV_HWDEVICE_TYPE_VAAPI direkt) — deshalb
+      # fiel es dort nie auf.
+      - --enable-libdrm
       - --enable-vulkan
       - --enable-libx264
       - --enable-openssl
@@ -213,7 +222,7 @@ modules:
       # neuen SHA eintragen (und Cargo.lock-Änderungen → cargo-sources neu genn).
       - type: git
         url: https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar.git
-        commit: 597b53a1122acfbeb85bc4ec75f3cee7e7a15ff5
+        commit: 58fece995d7b7f805cff216857aec571d25594e6
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
