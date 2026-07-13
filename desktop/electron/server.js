@@ -32,7 +32,7 @@ function setStatus(phase, detail) {
     text = detail.step === 'update' ? 'Update wird installiert …' : text + ' (' + detail.step + ')';
   }
   $('statustext').textContent = text;
-  // Live zeigt immer den Einladungs-Wegweiser (+ Selbsttest); die kopierbare
+  // Live zeigt immer den Einladungs-Wegweiser + Cloud-Status; die kopierbare
   // Adresse nur bei Bestandsinstanzen mit Relay-Subdomain — neue App-Hosts
   // haben keine mehr (Relay-Fallback abgeschafft, Beitritt läuft über
   // Einladungslinks aus dem Pulse-Client).
@@ -40,40 +40,33 @@ function setStatus(phase, detail) {
   $('addrRow').classList.toggle('hidden', phase !== 'live');
   $('addrBox').classList.toggle('hidden', !relayUrl);
   if (relayUrl) $('addrText').textContent = relayUrl;
-  maybeSelfTest(phase);
+  maybeCloudStatus(phase);
 }
 
-// Erreichbarkeits-Selbsttest: läuft einmal pro Live-Phase automatisch an
-// (plus manuell über "Erneut prüfen"). Reine Diagnose — blockiert nichts.
-let selfTestStarted = false;
-let selfTestRunning = false;
-function maybeSelfTest(phase) {
-  if (phase !== 'live') { selfTestStarted = false; return; }
-  if (selfTestStarted) return;
-  selfTestStarted = true;
-  runSelfTest();
+// Cloud-Registrierungs-Status: einmal beim Erreichen von 'live' abfragen; der
+// Main-Prozess pollt danach alle 60s und pusht Updates (onCloudStatus). true =
+// registriert & auffindbar (grün), false = läuft noch (neutral), null = kein
+// Signal → nichts anzeigen (fail-safe).
+let cloudStatusStarted = false;
+function maybeCloudStatus(phase) {
+  if (phase !== 'live') { cloudStatusStarted = false; $('cloudStatusText').classList.add('hidden'); return; }
+  if (cloudStatusStarted || !host || !host.cloudStatus) return;
+  cloudStatusStarted = true;
+  host.cloudStatus().then(renderCloudStatus).catch(() => {});
 }
-async function runSelfTest() {
-  if (!host || !host.selfTest || selfTestRunning) return;
-  selfTestRunning = true;
-  $('selftestText').classList.remove('hidden');
-  $('selftestText').classList.remove('warn');
-  $('selftestText').textContent = 'Erreichbarkeit wird geprüft …';
-  $('selftestBtnRow').classList.add('hidden');
-  const r = await host.selfTest().catch(() => null);
-  selfTestRunning = false;
-  if (!r || r.status === 'unavailable') {
-    // Netz-/Dienstfehler → neutral, kein Alarm (fail-safe).
-    $('selftestText').textContent = 'Prüfung nicht möglich.';
-    $('selftestBtnRow').classList.remove('hidden');
-  } else if (r.status === 'ok') {
-    $('selftestText').textContent = 'Von außen erreichbar.';
+function renderCloudStatus(r) {
+  const registered = r && r.registered;
+  const el = $('cloudStatusText');
+  el.classList.remove('ok');
+  if (registered === true) {
+    el.classList.add('ok');
+    el.textContent = 'Dein Server ist in der Cloud registriert und für Freunde auffindbar.';
+    el.classList.remove('hidden');
+  } else if (registered === false) {
+    el.textContent = 'Registrierung bei der Cloud läuft …';
+    el.classList.remove('hidden');
   } else {
-    const groups = (r.groups && r.groups.length) ? ' — betroffen: ' + r.groups.join(', ') + '.' : '';
-    $('selftestText').classList.add('warn');
-    $('selftestText').textContent =
-      'Server läuft, ist aber von außen nicht oder nur teilweise erreichbar (vermutlich Firewall)' + groups;
-    $('selftestBtnRow').classList.remove('hidden');
+    el.classList.add('hidden'); // null → kein Signal, nichts anzeigen
   }
 }
 
@@ -181,6 +174,8 @@ async function refresh() {
 function bind() {
   if (!host) return;
   host.onPhase((e) => { setStatus(e.phase, e.detail); refresh(); });
+  // Cloud-Status-Updates aus dem Main-Prozess-Poll (60s bis registriert).
+  if (host.onCloudStatus) host.onCloudStatus(renderCloudStatus);
   if (host.onExportStep) {
     host.onExportStep((step) => {
       $('exportStatus').classList.remove('hidden');
@@ -206,7 +201,6 @@ function bind() {
     doProvision({ confirmTakeover: true });
   };
   $('btnTakeoverCancel').onclick = () => { $('takeoverOverlay').classList.add('hidden'); refresh(); };
-  $('btnRecheck').onclick = () => runSelfTest();
   $('btnExport').onclick = () => doExport();
   $('autostartToggle').onchange = async () => {
     const on = $('autostartToggle').checked;

@@ -11,6 +11,7 @@
 import { net, session } from 'electron';
 import { classifyMintStatus, redeemBootstrap, type BootstrapCreds } from './localBackend/pairing';
 import { classifyDeleteStatus, type CloudDeleteVerdict } from './serverGiveUp';
+import { classifyCloudStatus } from './serverCloudStatus';
 
 interface InstanceOut { id: string; status: string; origin?: string }
 
@@ -131,6 +132,25 @@ export async function provision(
     return { ok: true, creds: await redeemBootstrap(token, cloudOrigin) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** "In der Cloud registriert & auffindbar": fragt den Directory-Heartbeat der
+ *  Instanz ab (GET /me/instances/{id}/direct-endpoint, online-Feld). Wie
+ *  provision() über den pulse_session-Cookie. Liefert true (online), false
+ *  (Endpoint da, aber Heartbeat stale) oder null (Session-/Netz-/Serverfehler
+ *  bzw. noch kein Eintrag → fail-safe, UI zeigt nichts). */
+export async function fetchCloudStatus(
+  cloudOrigin: string,
+  instanceId: string,
+): Promise<boolean | null> {
+  try {
+    const cookie = await sessionCookie(cloudOrigin);
+    if (!cookie) return null;
+    const r = await netJson('GET', `${cloudOrigin}/api/auth/me/instances/${instanceId}/direct-endpoint`, cookie);
+    return classifyCloudStatus(r.status, r.json);
+  } catch {
+    return null;
   }
 }
 
