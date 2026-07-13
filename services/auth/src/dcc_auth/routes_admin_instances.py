@@ -433,7 +433,9 @@ async def list_instances(
             worker_id_media=row.worker_id_media,
             status=row.status,
             registered_at=row.registered_at,
-            registrar_username=row.registrar.username,
+            # registrar ist NULL, wenn der Owner sein Konto gelöscht hat
+            # (Migration 0043: SET NULL statt FK-Blockade).
+            registrar_username=row.registrar.username if row.registrar else "(Konto gelöscht)",
             origin=row.origin,
         )
         for row in rows

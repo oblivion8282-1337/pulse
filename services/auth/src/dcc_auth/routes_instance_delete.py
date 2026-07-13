@@ -70,6 +70,24 @@ async def delete_my_instance(
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
+    await soft_delete_instance(db, inst)
+    await db.commit()
+
+    # Cache der öffentlichen Suspend-Liste invalidieren, damit ein noch
+    # laufender Container den Kill-Switch beim nächsten Poll sieht.
+    redis = await _get_redis(request)
+    if redis is not None:
+        await suspended_list_add(redis, inst.id, _DELETE_REASON)
+
+
+async def soft_delete_instance(db, inst: RegisteredInstance) -> None:
+    """Instanz soft-deleten — Mutationen ohne Commit.
+
+    Wird vom Owner-Endpoint oben und von der Konto-Löschung
+    (routes_account.DELETE /me) geteilt. Der Aufrufer committet und ruft
+    danach ``suspended_list_add`` (Kill-Switch-Cache) für ``inst.id`` auf.
+    """
+    iid = inst.id
     was_suspended = inst.status == "suspended"
     inst.status = "deleted"
     # Hostname freigeben — Unique-Constraint bleibt erfüllt, Kollision mit
@@ -115,11 +133,3 @@ async def delete_my_instance(
                 reason=_DELETE_REASON,
             )
         )
-
-    await db.commit()
-
-    # Cache der öffentlichen Suspend-Liste invalidieren, damit ein noch
-    # laufender Container den Kill-Switch beim nächsten Poll sieht.
-    redis = await _get_redis(request)
-    if redis is not None:
-        await suspended_list_add(redis, iid, _DELETE_REASON)

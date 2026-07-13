@@ -35,7 +35,10 @@ from sqlalchemy import delete, func, select
 import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
 from dcc_auth.models import AdminAuditLog, User, WebAuthnCredential
+from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.routes import _check_rate, _get_current_user
+from dcc_auth.routes_instance_delete import _DELETE_REASON, soft_delete_instance
+from dcc_auth.routes_suspended_instances import _get_redis, suspended_list_add
 from dcc_auth.schemas import AccountDeleteIn
 from dcc_auth.security import verify_password
 from dcc_auth.snowflake import next_id
@@ -185,6 +188,27 @@ async def delete_me(
     except OSError as exc:
         log.info("avatar cleanup failed for user_id=%s: %s", user_id, exc)
 
+    # Eigene Instanzen (VPS + App-Host) soft-deleten, BEVOR die User-Zeile
+    # fällt: die Registry-Zeile überlebt per SET NULL (Worker-ID-Reservierung
+    # + Kill-Switch), aber Memberships/Tokens/Telefonbuch müssen wie bei der
+    # Owner-Löschung mit abgeräumt werden — geteilter Helper. Ohne diesen
+    # Schritt blieben Mitglieder-Kacheln und ein erreichbarer Zombie-Server
+    # zurück; vor Migration 0043 scheiterte das Konto-Löschen hier sogar hart
+    # an der FK-Verletzung.
+    owned_instances = (
+        await session.scalars(
+            select(RegisteredInstance)
+            .where(
+                RegisteredInstance.registered_by == user_id,
+                RegisteredInstance.status != "deleted",
+            )
+            .with_for_update()
+        )
+    ).all()
+    for inst in owned_instances:
+        await soft_delete_instance(session, inst)
+    deleted_instance_ids = [inst.id for inst in owned_instances]
+
     # Hard-delete. FK ON DELETE CASCADE handles the four child tables.
     await session.execute(delete(User).where(User.id == user_id))
 
@@ -202,4 +226,13 @@ async def delete_me(
     )
 
     await session.commit()
+
+    # Kill-Switch-Cache für gelöschte Instanzen invalidieren (nach dem Commit,
+    # analog delete_my_instance): ein noch laufender Container sieht sich beim
+    # nächsten Poll auf der Suspend-Liste und stellt den Betrieb ein.
+    if deleted_instance_ids:
+        redis = await _get_redis(request)
+        if redis is not None:
+            for iid in deleted_instance_ids:
+                await suspended_list_add(redis, iid, _DELETE_REASON)
     return None

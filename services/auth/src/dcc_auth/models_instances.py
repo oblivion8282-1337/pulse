@@ -65,8 +65,11 @@ class RegisteredInstance(Base):
     # Der Token-Klartext wird NIE persistiert (nur via Bootstrap-Response geliefert).
     relay_subdomain: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     relay_tunnel_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
-    registered_by: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    # ondelete="SET NULL": Konto-Löschung darf die Instanz-Zeile nicht hart
+    # mitreißen (Worker-ID-Reservierung + Kill-Switch, s. routes_instance_delete)
+    # — der Owner-Link fällt weg, die Zeile bleibt als 'deleted'-Leiche stehen.
+    registered_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -76,7 +79,7 @@ class RegisteredInstance(Base):
     )  # One-Shot-Markierung (siehe Migration 0036 + generate_env_file)
 
     # Relationships
-    registrar: Mapped["User"] = relationship("User", foreign_keys=[registered_by])
+    registrar: Mapped["User | None"] = relationship("User", foreign_keys=[registered_by])
     suspended_entry: Mapped["SuspendedInstance | None"] = relationship(
         "SuspendedInstance", back_populates="instance", uselist=False, cascade="all, delete-orphan"
     )
@@ -144,8 +147,10 @@ class InstanceApplication(Base):
     __tablename__ = "instance_applications"
 
     id: Mapped[int] = snowflake_pk()
+    # ondelete="CASCADE": Anträge sind personenbezogene Daten des Antragstellers
+    # — sie verschwinden mit dem Konto (DSGVO).
     applicant_user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     hostname: Mapped[str] = mapped_column(Text, nullable=False)
     # privat | verein | firma | sonst
@@ -157,8 +162,9 @@ class InstanceApplication(Base):
     # 'closed' = die genehmigte Instanz wurde vom Owner gelöscht — der Antrag
     # ist Historie und zählt nirgends mehr als "wartet auf Einrichtung".
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    # ondelete="SET NULL": Review-Historie überlebt die Konto-Löschung des Admins.
     reviewed_by: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -275,8 +281,9 @@ class Complaint(Base):
         ForeignKey("registered_instances.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # ondelete="SET NULL": Beschwerde-Historie überlebt die Konto-Löschung des Ziels.
     target_user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     # Optional URL reference (e.g. link to offending content on the instance).
