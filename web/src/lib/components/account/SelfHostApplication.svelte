@@ -14,7 +14,10 @@
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { instancesApi, type InstanceApplication } from '$lib/api/instances';
-  import type { NetworkCheckResult } from '$lib/hosting/connectivityCheck';
+  import {
+    networkCheckWireValue,
+    type HostingVerdict
+  } from '$lib/hosting/connectivityCheck';
   import ConnectivityCheckPanel from './ConnectivityCheckPanel.svelte';
   import { isMobile } from '$lib/platform/runtime';
   import ServerIcon from '@lucide/svelte/icons/server';
@@ -28,7 +31,9 @@
   let hostname = $state('');
   let purpose = $state<'privat' | 'verein' | 'firma' | 'sonst'>('privat');
   let message = $state('');
-  let netCheck = $state<NetworkCheckResult | null>(null);
+  // null = Probe läuft noch / kein Ergebnis (Submit erlaubt). 'cannot-host'
+  // blockt den Submit + zeigt die Warn-Box (im ConnectivityCheckPanel).
+  let netCheck = $state<HostingVerdict | null>(null);
   let submitting = $state(false);
   let formError = $state<string | null>(null);
 
@@ -57,10 +62,6 @@
     }
   }
 
-  /** Rote Ergebnisse blockieren den Submit — der Grund steht im Check-Panel,
-   *  als Alternative wird der VPS-Weg genannt. Bewusst kein Override. */
-  const NET_BLOCKING: NetworkCheckResult[] = ['blocked', 'cgnat', 'symmetric'];
-
   async function submit() {
     formError = null;
     if (mode === 'vps') {
@@ -68,15 +69,10 @@
         formError = m.self_host_application_hostname_required();
         return;
       }
-    } else {
-      if (netCheck === null) {
-        formError = m.net_check_required();
-        return;
-      }
-      if (NET_BLOCKING.includes(netCheck)) {
-        formError = m.net_check_vps_alternative();
-        return;
-      }
+    } else if (netCheck === 'cannot-host') {
+      // Defensiv — der Submit-Button ist in diesem Fall ohnehin disabled;
+      // die Warn-Box im Panel erklärt den Grund + die VPS-Alternative.
+      return;
     }
     submitting = true;
     try {
@@ -87,7 +83,7 @@
               origin: 'app_host',
               purpose,
               notes: message.trim() || null,
-              network_check: netCheck
+              network_check: netCheck ? networkCheckWireValue(netCheck) : null
             });
       // Antrag beobachten → Owner-Toast, sobald genehmigt/abgelehnt wird.
       if (mode === 'vps') myInstanceApplications.register(created.id);
@@ -201,7 +197,7 @@
 
     <button
       type="submit"
-      disabled={submitting}
+      disabled={submitting || (mode === 'app_host' && netCheck === 'cannot-host')}
       class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 self-end"
     >
       {submitting ? m.self_host_application_submitting() : m.self_host_application_submit()}
