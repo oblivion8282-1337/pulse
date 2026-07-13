@@ -72,6 +72,10 @@ class ApplicationOut(BaseModel):
     notes: str | None = None
     # Anschluss-Check-Ergebnis vom App-Host-Antrag (beratend, Chip im UI).
     network_check: str | None = None
+    # Bei genehmigten Anträgen die angelegte Instanz — der Admin-„Aktiv"-Tab
+    # mappt darüber eine app_host-Instanz auf ihren Antrag (Revoke braucht die
+    # Antrags-ID, nicht die Instanz-ID). NULL bei pending/rejected/idempotent.
+    approved_instance_id: str | None = None
     status: str
     created_at: datetime
     applicant_username: str
@@ -152,6 +156,11 @@ async def list_applications(
             contact_email=row.contact_email,
             notes=row.notes,
             network_check=row.network_check,
+            approved_instance_id=(
+                str(row.approved_instance_id)
+                if row.approved_instance_id is not None
+                else None
+            ),
             status=row.status,
             created_at=row.created_at,
             applicant_username=row.applicant.username,
