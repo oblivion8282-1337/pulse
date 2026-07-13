@@ -40,6 +40,9 @@
     .addr:hover .copy { stroke: #d6dae2; }
     .addr .done { flex-shrink: 0; font-size: 12px; color: #22c55e; white-space: nowrap; }
     .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
+    .hint.warn { color: #eab308; }
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex;
+               align-items: center; justify-content: center; }
     .hidden { display: none; }
   </style>
 </head>
@@ -80,6 +83,21 @@
         </svg>
         <span id="addrDone" class="done hidden">Kopiert</span>
       </div>
+      <div id="selftestText" class="hint hidden"></div>
+      <div id="selftestBtnRow" class="hidden" style="margin-top: 8px">
+        <button id="btnRecheck" class="secondary">Erneut prüfen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Übernahme-Dialog: erscheint, wenn die Provisionierung meldet, dass für
+       dieses Konto schon ein eingerichteter Server läuft (needsTakeoverConfirm). -->
+  <div id="takeoverOverlay" class="overlay hidden">
+    <div class="card" style="width: 400px">
+      <h1>Server übernehmen?</h1>
+      <div class="sub">Für dieses Konto läuft bereits ein eingerichteter Server. Übernehmen? Der bisherige Server verliert dauerhaft den Zugang.</div>
+      <div class="row"><button id="btnTakeover" class="danger">Übernehmen</button></div>
+      <div class="row" style="margin-bottom: 0"><button id="btnTakeoverCancel" class="secondary">Abbrechen</button></div>
     </div>
   </div>
 
@@ -105,6 +123,41 @@
       $('statustext').textContent = text;
       $('addrRow').classList.toggle('hidden', !(phase === 'live' && detail && detail.relayUrl));
       if (detail && detail.relayUrl) $('addrText').textContent = detail.relayUrl;
+      maybeSelfTest(phase);
+    }
+
+    // Erreichbarkeits-Selbsttest: läuft einmal pro Live-Phase automatisch an
+    // (plus manuell über "Erneut prüfen"). Reine Diagnose — blockiert nichts.
+    let selfTestStarted = false;
+    let selfTestRunning = false;
+    function maybeSelfTest(phase) {
+      if (phase !== 'live') { selfTestStarted = false; return; }
+      if (selfTestStarted) return;
+      selfTestStarted = true;
+      runSelfTest();
+    }
+    async function runSelfTest() {
+      if (!host || !host.selfTest || selfTestRunning) return;
+      selfTestRunning = true;
+      $('selftestText').classList.remove('hidden');
+      $('selftestText').classList.remove('warn');
+      $('selftestText').textContent = 'Erreichbarkeit wird geprüft …';
+      $('selftestBtnRow').classList.add('hidden');
+      const r = await host.selfTest().catch(() => null);
+      selfTestRunning = false;
+      if (!r || r.status === 'unavailable') {
+        // Netz-/Dienstfehler → neutral, kein Alarm (fail-safe).
+        $('selftestText').textContent = 'Prüfung nicht möglich.';
+        $('selftestBtnRow').classList.remove('hidden');
+      } else if (r.status === 'ok') {
+        $('selftestText').textContent = 'Von außen erreichbar.';
+      } else {
+        const groups = (r.groups && r.groups.length) ? ' — betroffen: ' + r.groups.join(', ') + '.' : '';
+        $('selftestText').classList.add('warn');
+        $('selftestText').textContent =
+          'Server läuft, ist aber von außen nicht oder nur teilweise erreichbar (vermutlich Firewall)' + groups;
+        $('selftestBtnRow').classList.remove('hidden');
+      }
     }
 
     async function refresh() {
@@ -144,14 +197,25 @@
     function bind() {
       if (!host) return;
       host.onPhase((e) => { setStatus(e.phase, e.detail); refresh(); });
-      $('btnSetup').onclick = async () => {
+      // Übernahme-Warnung: meldet die Provisionierung needsTakeoverConfirm,
+      // läuft für dieses Konto schon ein eingerichteter Server — Bestätigungs-
+      // Dialog statt stiller Übernahme (reset entwertet dessen Zugang sofort).
+      const doProvision = async (opts) => {
         $('btnSetup').disabled = true; $('statustext').textContent = 'Einrichten …'; $('dot').className = 'dot prep';
-        const r = await host.provision();
+        const r = await host.provision(opts);
         $('btnSetup').disabled = false;
-        if (r && r.ok) { provisionFailed = false; }
+        if (r && r.needsTakeoverConfirm) { $('takeoverOverlay').classList.remove('hidden'); }
+        else if (r && r.ok) { provisionFailed = false; }
         else { provisionFailed = true; alert('Einrichtung fehlgeschlagen: ' + ((r && r.error) || 'unbekannt')); }
         refresh();
       };
+      $('btnSetup').onclick = () => doProvision();
+      $('btnTakeover').onclick = () => {
+        $('takeoverOverlay').classList.add('hidden');
+        doProvision({ confirmTakeover: true });
+      };
+      $('btnTakeoverCancel').onclick = () => { $('takeoverOverlay').classList.add('hidden'); refresh(); };
+      $('btnRecheck').onclick = () => runSelfTest();
       $('btnPair').onclick = async () => {
         const t = $('token').value.trim();
         if (!t) return;

@@ -52,6 +52,7 @@ import {
   probeUrl, sanitize,
 } from './localBackend/pairing';
 import { provision } from './serverProvision';
+import { runSelfTest, classifySelfTest } from './localBackend/selfTest';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { checkCredsSupersede } from './serverSupersede';
@@ -600,18 +601,33 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // Login-basierte Auto-Provision (Server-App): findet die aktive Instanz des
   // eingeloggten Users, mintet + redeemt den Bootstrap-Token via Session-Cookie
   // — kein manuelles Token-Einfügen. ("einloggen, dann starten".)
-  ipcMain.handle('host:provision', async (e) => {
+  ipcMain.handle('host:provision', async (e, opts?: unknown) => {
     if (!localSenderOnly(e)) return { ok: false, error: 'forbidden' };
-    const result = await provision(PROD_URL);
+    // Übernahme-Bestätigung nur als exaktes true durchreichen — alles andere
+    // aus dem Renderer bleibt der vorsichtige Kein-reset-Pfad.
+    const confirmTakeover =
+      typeof opts === 'object' && opts !== null &&
+      (opts as { confirmTakeover?: unknown }).confirmTakeover === true;
+    const result = await provision(PROD_URL, { confirmTakeover });
     if (result.ok) {
       creds = result.creds;
       saveCreds(hostStore, result.creds);
       return { ok: true };
     }
+    // Übernahme-Frage ist kein Fehler — Provisionierung pausiert nur, bis der
+    // User im UI bestätigt oder abbricht.
+    if (result.needsTakeoverConfirm) return { ok: false, needsTakeoverConfirm: true };
     // Der Renderer zeigt den Text nur im alert() — ohne Log ist ein Fehlschlag
     // nachträglich nicht diagnostizierbar. `error` trägt nie Token/Secrets.
     console.error('[provision] fehlgeschlagen:', result.error);
     return { ok: false, error: result.error };
+  });
+  // Erreichbarkeits-Selbsttest (Diagnose-only, s. selfTest.ts): server.html
+  // stößt ihn beim Erreichen von 'live' + per "Erneut prüfen" an. Blockiert
+  // nichts — bei jedem Fehler kommt 'unavailable' zurück, nie ein throw.
+  ipcMain.handle('host:selfTest', async (e) => {
+    if (!localSenderOnly(e) || !creds) return classifySelfTest(null);
+    return runSelfTest({ probeUrl: probeUrl(creds) });
   });
 
   // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.

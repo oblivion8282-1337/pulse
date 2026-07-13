@@ -9,7 +9,7 @@
 // `net`-Requests u.U. nicht mitgehen). `net` nutzt die Default-Session, in der
 // auch der howispulse.com-Login stattfand → Cookie ist dort gespeichert.
 import { net, session } from 'electron';
-import { redeemBootstrap, type BootstrapCreds } from './localBackend/pairing';
+import { classifyMintStatus, redeemBootstrap, type BootstrapCreds } from './localBackend/pairing';
 
 interface InstanceOut { id: string; status: string; origin?: string }
 
@@ -68,12 +68,24 @@ async function netJson(
   return last;
 }
 
-export type ProvisionResult = { ok: true; creds: BootstrapCreds } | { ok: false; error: string };
+export type ProvisionResult =
+  | { ok: true; creds: BootstrapCreds }
+  | { ok: false; error: string; needsTakeoverConfirm?: boolean };
 
 /** Findet die aktive Self-Host-Instanz des eingeloggten Users, mintet einen
  *  Bootstrap-Token und löst ihn ein. Setzt einen gültigen `pulse_session`-Cookie
- *  voraus (User muss in der Electron-Session eingeloggt sein). */
-export async function provision(cloudOrigin: string): Promise<ProvisionResult> {
+ *  voraus (User muss in der Electron-Session eingeloggt sein).
+ *
+ *  Übernahme-Warnung: der Mint läuft zuerst OHNE reset — 403 heißt "Bootstrap
+ *  wurde schon einmal eingelöst", also läuft vermutlich ein eingerichteter
+ *  Server auf einem anderen Gerät. Statt ihn still zu entwerten (reset rotiert
+ *  client_secret sofort) pausiert die Provisionierung mit
+ *  `needsTakeoverConfirm` — erst der zweite Aufruf mit `confirmTakeover: true`
+ *  mintet mit reset. */
+export async function provision(
+  cloudOrigin: string,
+  opts: { confirmTakeover?: boolean } = {},
+): Promise<ProvisionResult> {
   try {
     const cookie = await sessionCookie(cloudOrigin);
     if (!cookie) return { ok: false, error: 'Nicht eingeloggt — bitte zuerst einloggen.' };
@@ -91,18 +103,25 @@ export async function provision(cloudOrigin: string): Promise<ProvisionResult> {
       return { ok: false, error: 'Keine aktive App-Host-Instanz. Beantrage App-Hosting-Freigabe in der Pulse-App.' };
     }
 
-    // 2. Bootstrap-Token minten (Endpoint antwortet 201) + redeemen. reset=true
-    //    ist der bewusste Recovery-Pfad des Backends: "Server einrichten" auf
-    //    einem neuen/neu installierten Gerät übernimmt die Instanz und entwertet
-    //    die Creds eines früheren Setups sofort — sonst 403 nach jedem ersten
-    //    erfolgreichen Redeem.
+    // 2. Bootstrap-Token minten (Endpoint antwortet 201) + redeemen. reset nur
+    //    nach bestätigter Übernahme (s. Docstring) — der frühere Immer-reset-Pfad
+    //    ließ ein bestehendes Gerät kommentarlos sterben.
+    const reset = opts.confirmTakeover === true;
     const mint = await netJson(
       'POST',
       `${cloudOrigin}/api/auth/me/instances/${inst.id}/bootstrap-token`,
       cookie,
-      { reset: true },
+      { reset },
     );
-    if (mint.status !== 201 || !mint.json) {
+    const verdict = classifyMintStatus(mint.status);
+    if (verdict === 'consumed' && !reset) {
+      return {
+        ok: false,
+        needsTakeoverConfirm: true,
+        error: 'Instanz bereits eingerichtet — Übernahme muss bestätigt werden.',
+      };
+    }
+    if (verdict !== 'ok' || !mint.json) {
       return { ok: false, error: `Bootstrap-Mint fehlgeschlagen (HTTP ${mint.status}).` };
     }
     const token = (mint.json as { token?: string }).token;

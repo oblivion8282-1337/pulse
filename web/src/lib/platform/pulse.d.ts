@@ -211,6 +211,25 @@ export interface PairResult {
   status?: PairingStatus;
 }
 
+/** Ergebnis von host.provision(). needsTakeoverConfirm: Bootstrap wurde schon
+ *  einmal eingelöst — es läuft vermutlich ein eingerichteter Server auf einem
+ *  anderen Gerät; Übernahme erst nach explizitem zweiten Aufruf mit
+ *  `{ confirmTakeover: true }`. */
+export interface ProvisionResult {
+  ok: boolean;
+  error?: string;
+  needsTakeoverConfirm?: boolean;
+}
+
+/** Ergebnis des Erreichbarkeits-Selbsttests (Diagnose-only, blockiert nichts).
+ *  'unavailable' = Prüfung nicht möglich (Netz/Dienst) — neutral, kein Alarm. */
+export interface SelfTestResult {
+  status: 'ok' | 'blocked' | 'unavailable';
+  failedPorts: number[];
+  /** Klartext-Gruppen der betroffenen Ports (Voice/Streaming/Verbindungsaufbau). */
+  groups: string[];
+}
+
 /** Host-Lifecycle-Bridge (③a/③c). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
 export interface PulseHostApi {
   /** Stack starten — triggert die Phasen-Sequenz (checking-network → … → live / Fehler-Phase). */
@@ -228,6 +247,11 @@ export interface PulseHostApi {
   pair(bootstrapToken: string): Promise<PairResult>;
   /** Gespeicherten Pairing-Status abrufen (keine Secrets). */
   getPairing(): Promise<PairingStatus>;
+  /** Login-basierte Auto-Provision (Server-App). Ohne `confirmTakeover` pausiert
+   *  sie mit `needsTakeoverConfirm`, wenn schon ein Server eingerichtet ist. */
+  provision(opts?: { confirmTakeover?: boolean }): Promise<ProvisionResult>;
+  /** Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only). */
+  selfTest(): Promise<SelfTestResult>;
   /** Pairing-Credentials löschen. */
   unpair(): Promise<void>;
   /** Gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die zeigt die

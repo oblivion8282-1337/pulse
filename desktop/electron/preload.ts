@@ -274,7 +274,13 @@ contextBridge.exposeInMainWorld('pulse', {
     pair: (bootstrapToken: string): Promise<unknown> =>
       ipcRenderer.invoke('host:pair', bootstrapToken),
     getPairing: (): Promise<unknown> => ipcRenderer.invoke('host:getPairing'),
-    provision: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('host:provision'),
+    provision: (
+      opts?: { confirmTakeover?: boolean },
+    ): Promise<{ ok: boolean; error?: string; needsTakeoverConfirm?: boolean }> =>
+      ipcRenderer.invoke('host:provision', opts),
+    // Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only) — server.html
+    // ruft ihn bei Phase 'live' + über "Erneut prüfen".
+    selfTest: (): Promise<unknown> => ipcRenderer.invoke('host:selfTest'),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),
