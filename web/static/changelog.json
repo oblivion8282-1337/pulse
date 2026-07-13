@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-13.7",
+      "date": "2026-07-13",
+      "style": "Sachlich",
+      "title": "Aufgeräumte Server-Verwaltung (Admin)",
+      "items": [
+        "Genehmigte Zuhause-Server erscheinen jetzt zusammen mit den übrigen Servern im \"Aktiv\"-Tab der Admin-Übersicht, mit einer Markierung \"VPS\" bzw. \"Zuhause\" — statt in einer separaten Liste."
+      ]
+    },
+    {
       "id": "2026-07-13.6",
       "date": "2026-07-13",
       "style": "Sachlich",

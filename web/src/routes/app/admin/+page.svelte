@@ -18,7 +18,7 @@
   import AdminOverview from '$lib/components/admin/AdminOverview.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
-  import AdminApplicationsTab from '$lib/components/admin/AdminApplicationsTab.svelte';
+  import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
   import AdminComplaints from '$lib/components/admin/AdminComplaints.svelte';
   import AdminSettingsTab from '$lib/components/admin/AdminSettingsTab.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
@@ -175,7 +175,10 @@
           <AdminMembers />
         {/if}
       {:else if activeTab === 'applications' && isCloud}
-        <AdminApplicationsTab />
+        <!-- Instanz-Verwaltung mit Pending/Aktiv/Gesperrt-Untertabs; seit der
+             Vereinheitlichung leben app_host-Instanzen samt Revoke im Aktiv-Tab
+             (kein separater App-Host-Freischaltungen-Block mehr). -->
+        <AdminInstances />
       {:else if activeTab === 'complaints' && isCloud}
         <AdminComplaints />
       {:else if activeTab === 'settings'}

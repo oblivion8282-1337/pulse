@@ -1,17 +1,28 @@
 <!--
-  Admin: Aktive Self-Host-Instanzen — Suspend + Secret-Rotation.
-  Secret wird EINMALIG nach Rotation im Dialog angezeigt.
+  Admin: Aktive Self-Host-Instanzen (VPS + App-Host, mit Herkunfts-Chip).
+  Aktion nach Herkunft: VPS → Suspend + Secret-Rotation (Secret EINMALIG nach
+  Rotation im Dialog). App-Host → "Freischaltung zurücknehmen" (Revoke) statt
+  Suspend; der Revoke läuft über den zugehörigen Antrag, den wir per
+  approved_instance_id auf die Instanz-Zeile mappen (Grants-Liste geladen).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { adminInstancesApi, type AdminInstance, type RotateSecretResult } from '$lib/api/instances';
-  import ClipboardIcon from '@lucide/svelte/icons/clipboard';
-  import CheckIcon from '@lucide/svelte/icons/check';
+  import {
+    adminInstancesApi,
+    type AdminInstance,
+    type AdminApplication,
+    type RotateSecretResult
+  } from '$lib/api/instances';
+  import AdminAppHostRevoke from './AdminAppHostRevoke.svelte';
+  import RotatedSecretDialog from './RotatedSecretDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let instances = $state<AdminInstance[]>([]);
+  // app_host-Instanz-ID → genehmigter Antrag (für den Revoke, der die
+  // Antrags-ID braucht). Gemappt über approved_instance_id.
+  let grantByInstance = $state<Record<string, AdminApplication>>({});
   let loading = $state(true);
   let loadError = $state<string | null>(null);
   let busy = $state<Record<string, boolean>>({});
@@ -28,7 +39,6 @@
   let rotateConfirmOpen = $state(false);
   let rotateResult = $state<RotateSecretResult | null>(null);
   let rotateDialogOpen = $state(false);
-  let copied = $state(false);
 
   onMount(async () => { await reload(); });
 
@@ -36,12 +46,17 @@
     loading = true;
     loadError = null;
     try {
-      // app_host-Instanzen entstehen automatisch bei der App-Hosting-Approval
-      // und werden über den App-Hosting-Anträge-Tab verwaltet — hier wären sie
-      // Doppel-Einträge. Suspend per API bleibt möglich (nur UI-Filter).
-      instances = (await adminInstancesApi.listInstances('active')).filter(
-        (i) => i.origin !== 'app_host'
-      );
+      // app_host-Instanzen erscheinen hier neben den VPS-Instanzen. Zusätzlich
+      // die genehmigten app_host-Anträge laden, um pro Instanz-Zeile den
+      // Revoke (braucht die Antrags-ID) über approved_instance_id anzubieten.
+      const [insts, grants] = await Promise.all([
+        adminInstancesApi.listInstances('active'),
+        adminInstancesApi.listApplications('approved', 'app_host')
+      ]);
+      instances = insts;
+      const map: Record<string, AdminApplication> = {};
+      for (const g of grants) if (g.approved_instance_id) map[g.approved_instance_id] = g;
+      grantByInstance = map;
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -49,12 +64,16 @@
     }
   }
 
+  function removeInstance(id: string): void {
+    instances = instances.filter((i) => i.id !== id);
+  }
+
   async function doSuspend() {
     if (!suspendTarget) return;
     suspending = true;
     try {
       await adminInstancesApi.suspendInstance(suspendTarget.id, suspendReason.trim() || undefined);
-      instances = instances.filter((i) => i.id !== suspendTarget!.id);
+      removeInstance(suspendTarget.id);
       toast.success(m.admin_instances_active_suspended({ hostname: suspendTarget.hostname }));
       suspendOpen = false;
       suspendReason = '';
@@ -92,17 +111,9 @@
     }
   }
 
-  async function copySecret() {
-    if (!rotateResult?.client_secret) return;
-    await navigator.clipboard.writeText(rotateResult.client_secret);
-    copied = true;
-    setTimeout(() => (copied = false), 2000);
-  }
-
   function onRotateClose() {
     rotateDialogOpen = false;
     rotateResult = null;
-    copied = false;
   }
 </script>
 
@@ -125,25 +136,37 @@
             </p>
             <p class="text-text-muted text-xs">{new Date(inst.registered_at).toLocaleDateString('de-DE')}</p>
           </div>
-          <span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300 shrink-0">{m.admin_instances_active_status_active()}</span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="border-border text-text-muted rounded-full border px-2 py-0.5 text-xs"
+                  data-testid="admin-instance-origin-chip">
+              {inst.origin === 'app_host' ? m.hosting_origin_app() : m.hosting_origin_vps()}
+            </span>
+            <span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">{m.admin_instances_active_status_active()}</span>
+          </div>
         </div>
         <div class="flex gap-2">
-          <button
-            type="button"
-            onclick={() => { rotateTarget = inst; rotateConfirmOpen = true; }}
-            disabled={!!busy[inst.id]}
-            class="rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright disabled:opacity-60 transition-colors"
-          >
-            {m.admin_instances_active_btn_rotate()}
-          </button>
-          <button
-            type="button"
-            onclick={() => { suspendTarget = inst; suspendReason = ''; suspendOpen = true; }}
-            disabled={!!busy[inst.id]}
-            class="rounded-lg bg-red-600/70 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
-          >
-            {m.admin_instances_active_btn_suspend()}
-          </button>
+          {#if inst.origin === 'app_host' && grantByInstance[inst.id]}
+            <!-- App-Host: Freischaltung zurücknehmen (Revoke über den Antrag)
+                 statt Suspend/Rotate. Kein Grant gefunden → Fallback unten. -->
+            <AdminAppHostRevoke app={grantByInstance[inst.id]} onrevoked={() => removeInstance(inst.id)} />
+          {:else}
+            <button
+              type="button"
+              onclick={() => { rotateTarget = inst; rotateConfirmOpen = true; }}
+              disabled={!!busy[inst.id]}
+              class="rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright disabled:opacity-60 transition-colors"
+            >
+              {m.admin_instances_active_btn_rotate()}
+            </button>
+            <button
+              type="button"
+              onclick={() => { suspendTarget = inst; suspendReason = ''; suspendOpen = true; }}
+              disabled={!!busy[inst.id]}
+              class="rounded-lg bg-red-600/70 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
+            >
+              {m.admin_instances_active_btn_suspend()}
+            </button>
+          {/if}
         </div>
       </div>
     {/each}
@@ -211,39 +234,5 @@
   </Dialog.Portal>
 </Dialog.Root>
 
-<!-- Neues Secret — kein auto-dismiss! -->
-<Dialog.Root
-  open={rotateDialogOpen}
-  onOpenChange={(v) => { if (!v) onRotateClose(); }}
->
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="rotate-secret-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_active_new_secret_title()}</Dialog.Title>
-      </Dialog.Header>
-      <div class="flex flex-col gap-3">
-        <p class="text-amber-300 text-sm font-medium">{rotateResult?.warning}</p>
-        <div class="bg-bg-input flex items-center gap-2 rounded-xl border border-border p-3">
-          <code class="text-text-bright flex-1 break-all text-xs select-all">
-            {rotateResult?.client_secret}
-          </code>
-          <button type="button" onclick={copySecret}
-            class="text-text-muted hover:text-text-bright shrink-0 rounded p-1">
-            {#if copied}
-              <CheckIcon class="size-4 text-emerald-400" />
-            {:else}
-              <ClipboardIcon class="size-4" />
-            {/if}
-          </button>
-        </div>
-      </div>
-      <div class="flex justify-end pt-2">
-        <button type="button" onclick={onRotateClose}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium">
-          {m.admin_instances_active_btn_acknowledged()}
-        </button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<!-- Neues Secret — kein auto-dismiss! (ausgelagert, Größen-Policy) -->
+<RotatedSecretDialog open={rotateDialogOpen} result={rotateResult} onClose={onRotateClose} />
