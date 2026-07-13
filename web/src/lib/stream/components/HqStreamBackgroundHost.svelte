@@ -20,24 +20,25 @@
   import { parseHqTileId } from '$lib/stream/hqTile';
   import { userCache } from '$lib/stores/users.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
-  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import WatchBackgroundFrame from '$lib/watch/WatchBackgroundFrame.svelte';
   import WhepPlayer from './WhepPlayer.svelte';
 
-  let myId = $derived(currentServerUserId());
-
-  // Every open, non-self, non-detached HQ stream-tile whose (user, slot) is
-  // currently live (otherwise the tile would sit as an error placeholder when
-  // the streamer goes offline). Source is `openedTiles` (opened via sidebar /
+  // Every open, non-detached HQ stream-tile whose (user, slot) is currently
+  // live (otherwise the tile would sit as an error placeholder when the
+  // streamer goes offline). Source is `openedTiles` (opened via sidebar /
   // voice-tile badges); `HqStreamKeepAlive` uses the same list to keep
   // connections alive. The tile id is `<userId>:<slot>`.
+  //
+  // Der eigene Stream ist bewusst NICHT ausgeschlossen: klickt man seinen
+  // eigenen LIVE-Badge, wird er über `openedTiles` geöffnet und hier gerendert
+  // (die eigene WHEP-Vorschau). Ohne Klick erscheint er nicht — auto-open in
+  // VoiceChannelView überspringt den eigenen Nutzer.
   let shown = $derived(
     openedTiles
       .entriesOfKind('hq')
       .map((e) => ({ tileId: e.id, channelId: e.channelId, ...parseHqTileId(e.id) }))
       .filter(
         (e) =>
-          e.userId !== myId &&
           !detachedStreams.has(e.channelId, e.userId, e.slot) &&
           streamPresence
             .streamsIn(e.channelId)
