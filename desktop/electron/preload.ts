@@ -278,9 +278,15 @@ contextBridge.exposeInMainWorld('pulse', {
       opts?: { confirmTakeover?: boolean },
     ): Promise<{ ok: boolean; error?: string; needsTakeoverConfirm?: boolean }> =>
       ipcRenderer.invoke('host:provision', opts),
-    // Erreichbarkeits-Selbsttest nach dem Start (Diagnose-only) — server.html
-    // ruft ihn bei Phase 'live' + über "Erneut prüfen".
-    selfTest: (): Promise<unknown> => ipcRenderer.invoke('host:selfTest'),
+    // "In der Cloud registriert & auffindbar" — Directory-Heartbeat-Abfrage.
+    // { registered: true|false|null }. server.html fragt bei Phase 'live' ab
+    // und lauscht zusätzlich auf onCloudStatus (60s-Poll aus dem Main-Prozess).
+    cloudStatus: (): Promise<unknown> => ipcRenderer.invoke('host:cloudStatus'),
+    onCloudStatus: (cb: (r: unknown) => void): (() => void) => {
+      const handler = (_e: unknown, r: unknown): void => cb(r);
+      ipcRenderer.on('host:cloudStatus', handler);
+      return () => ipcRenderer.removeListener('host:cloudStatus', handler);
+    },
     // Autostart beim Anmelden (Schalter in server.html; Default AN beim Pairing).
     getAutostart: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke('host:getAutostart'),
     setAutostart: (enabled: boolean): Promise<{ ok: boolean }> =>

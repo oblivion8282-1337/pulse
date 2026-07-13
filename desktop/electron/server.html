@@ -42,6 +42,7 @@
     .addr .done { flex-shrink: 0; font-size: 12px; color: #22c55e; white-space: nowrap; }
     .hint { font-size: 12px; color: #8b93a1; margin-top: 8px; line-height: 1.5; }
     .hint.warn { color: #eab308; }
+    .hint.ok { color: #22c55e; }
     .toggle { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #e6e8eb;
               margin-bottom: 0; cursor: pointer; }
     details.hint { margin-top: 10px; }
@@ -99,10 +100,10 @@
         </div>
       </div>
       <div class="hint">So laden deine Freunde ein: Öffne den Pulse-Client, erstelle eine Community auf deinem Server und erzeuge dort einen Einladungslink (Leute einladen → Oder Link teilen).</div>
-      <div id="selftestText" class="hint hidden"></div>
-      <div id="selftestBtnRow" class="hidden" style="margin-top: 8px">
-        <button id="btnRecheck" class="secondary">Erneut prüfen</button>
-      </div>
+      <!-- Cloud-Registrierungs-Status: ehrliches Signal (Directory-Heartbeat),
+           ersetzt den früheren Erreichbarkeits-Selbsttest (Fehlalarm-Maschine). -->
+      <div id="cloudStatusText" class="hint hidden"></div>
+      <div class="hint">Ob Freunde wirklich durchkommen, siehst du beim ersten Beitritt.</div>
     </div>
 
     <div id="autostartRow" class="row hidden">
