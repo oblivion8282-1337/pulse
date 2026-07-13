@@ -17,6 +17,7 @@ import { clockSync } from '$lib/watch/clockSync';
 import { presence } from '$lib/stores/presence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
+import { communityInvites } from '$lib/stores/communityInvites.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { privacy } from '$lib/stores/privacy.svelte';
 import { roles } from '$lib/stores/roles.svelte';
@@ -107,6 +108,7 @@ export function register(ctx: ReadyContext): void {
         incoming: evt.friend_requests_in ?? [],
         outgoing: evt.friend_requests_out ?? []
       });
+      communityInvites.seedAll(evt.community_invites ?? []);
       blocks.seedAll(evt.blocked_user_ids ?? []);
       if (evt.privacy) privacy.seed(evt.privacy);
       // Own presence status + the friend-presence status map come from the

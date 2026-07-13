@@ -17,6 +17,7 @@ from dcc_chat_gateway.routes import (
     cert_login,
     channels,
     community_invites,
+    member_invites,
     dms,
     dropbox,
     dropbox_admin,
@@ -72,6 +73,7 @@ router.include_router(channels.router)
 router.include_router(dms.router)
 router.include_router(friends.router)
 router.include_router(community_invites.router)
+router.include_router(member_invites.router)
 router.include_router(blocks.router)
 router.include_router(privacy.router)
 router.include_router(preferences.router)

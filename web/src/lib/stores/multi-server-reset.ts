@@ -31,6 +31,7 @@ import { channelPermissions } from './channelPermissions.svelte';
 import { directMessages } from './directMessages.svelte';
 import { drafts } from './drafts.svelte';
 import { friendRequests } from './friendRequests.svelte';
+import { communityInvites } from './communityInvites.svelte';
 import { friends } from './friends.svelte';
 import { guildSounds } from './guildSounds.svelte';
 import { guilds } from './guilds.svelte';
@@ -98,6 +99,7 @@ export function resetServerScopedStores(): void {
 export function resetSocialStores(): void {
   friends.clear();
   friendRequests.clear();
+  communityInvites.clear();
   blocks.clear();
   directMessages.clear();
   presence.clear();

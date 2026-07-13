@@ -21,6 +21,7 @@ _RULES: dict[str, tuple[int, float]] = {
     "create_guild": (10, 60.0),     # 10 guilds / minute
     "friend_request": (10, 3600.0), # 10 friend requests / hour
     "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
+    "member_invite": (10, 3600.0),  # 10 Nutzername-Einladungen / Stunde (pro Absender)
     "report": (10, 3600.0),         # 10 reports / hour
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
     "dropbox_mint": (30, 60.0),     # 30 dropbox upload-URL mints / minute

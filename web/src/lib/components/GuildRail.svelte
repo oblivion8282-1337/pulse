@@ -32,6 +32,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
+  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   // Channels-by-guild map drives the guild-rail mention indicator. We
   // reach into the same store; the rail's `guilds` prop only has
   // top-level guild metadata, not their channel lists.
@@ -98,7 +99,7 @@
   // wartet. Flippt auf 0 (Kreis weg), sobald gelesen / aktioniert.
   let homeBadgeCount = $derived(
     readState.sumUnread(directMessages.list.map((dm) => dm.id)) +
-      friendRequests.incomingList.length
+      friendRequests.incomingList.length + communityInvites.count
   );
 
   let renameTarget = $state<Guild | null>(null);
