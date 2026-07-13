@@ -21,11 +21,15 @@ ARG PYTHON_VERSION=3.13
 # below where upstream publishes checksums (see TODOs for the few that don't).
 ARG S6_OVERLAY_VERSION=3.2.0.2
 ARG CADDY_VERSION=2.8.4
-# v1.11.0 = protocol 16 (Cloud-Parität, prod nutzt livekit-server:v1.11). 1.8.4
-# war protocol 15 → der neuere livekit-client (2.18.9, protocol 16) brach die
-# WebRTC-Negotiation ab (/rtc/v1 404, "unsupported datachannel _data_track",
-# negotiation timeout) trotz erfolgreichem Signaling + UDP-ICE (F17).
-ARG LIVEKIT_VERSION=1.11.0
+# v1.13.3: braucht mediatransportutil >= a3417d38 für skip_external_ip_validation
+# + advertise_internal_ip (livekit.yaml.template) — ohne die verwirft LiveKit
+# hinter hairpin-losem NAT (Fritz!Box + rootless-podman/pasta) die per STUN
+# gefundene öffentliche IPv4 ("could not validate external IP") und kündigt
+# externen Gästen nur LAN-/IPv6-Kandidaten an → Voice/Streaming für Gäste tot.
+# Am echten App-Host verifiziert 2026-07-13 (Binary-Swap-Test). Protocol-16-
+# kompatibel zu livekit-client 2.18.9 (das frühere F17-Problem war ein ZU
+# ALTER Server 1.8.4 mit protocol 15, nicht ein zu neuer).
+ARG LIVEKIT_VERSION=1.13.3
 ARG MEDIAMTX_VERSION=1.17.1
 # MinIO — S3-compatible object store for message attachments. Pinned to the
 # SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
@@ -53,8 +57,8 @@ ARG SHA256_S6_X86_64=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a90
 ARG SHA256_S6_AARCH64=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
 ARG SHA256_CADDY_AMD64=a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65d3748c8
 ARG SHA256_CADDY_ARM64=93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05
-ARG SHA256_LIVEKIT_AMD64=3e76ed51ecdfefc3005e4257095dccd1ccc8f8b77517d9f2353de7906650b68b
-ARG SHA256_LIVEKIT_ARM64=6741466bc12e75544338292ab2c1c02c02f3c626568230b5548fffc53e5a87ff
+ARG SHA256_LIVEKIT_AMD64=7ac9372a229b3d31a716d63b5a9915ad2ffb7d28a8bacc5ba5fc33a2a475d8a3
+ARG SHA256_LIVEKIT_ARM64=b76fa445c625827999ab6a8cd2d30a64547cb3c9e7189b64ab1dd7444bc17159
 ARG SHA256_MEDIAMTX_AMD64=ee1cbcf8108dcb5fccf4c4e5a746846ea1c2055c099dd2fdb03391c519508829
 ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c7ad905a97b
 ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
