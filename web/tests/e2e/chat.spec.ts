@@ -104,9 +104,10 @@ test.describe.serial('Discord-Clone E2E', () => {
 
   test('Alice creates a guild and a channel', async () => {
     // Empty state shows "create guild" button.
-    await expect(alicePage.getByTestId('empty-create-guild')).toBeVisible();
-    await alicePage.getByTestId('empty-create-guild').click();
-    await alicePage.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await alicePage.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await alicePage.getByTestId('guild-create').click();
     await alicePage.getByTestId('create-guild-name').fill('Night Team');
     await alicePage.getByTestId('create-guild-submit').click();
 

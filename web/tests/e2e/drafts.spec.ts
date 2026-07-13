@@ -29,8 +29,10 @@ test('Entwurf überlebt Channel-Wechsel und Reload', async ({ page }) => {
     .catch(() => undefined);
 
   // Guild anlegen → App navigiert in den auto-erstellten #general.
-  await page.getByTestId('empty-create-guild').click();
-  await page.getByTestId('create-guild-choice').click();
+  // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+  // /app/friends, das Empty-State-Panel existiert dort nicht.
+  await page.locator('[data-testid^="guild-create-menu-"]').first().click();
+  await page.getByTestId('guild-create').click();
   await page.getByTestId('create-guild-name').fill('Drafts Guild');
   await page.getByTestId('create-guild-submit').click();
   await expect(page.getByTestId('active-channel-name')).toHaveText('general', {

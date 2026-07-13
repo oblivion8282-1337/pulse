@@ -26,24 +26,35 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /**
- * Direktes psql gegen die E2E-DB (localhost:5434/dcc_test, Passwort aus
- * der Repo-``.env``) — KEIN ``docker exec``: der Container-Name ist pro
- * Maschine verschieden (hier hieß er hart ``pulse_postgres`` und die Spec
- * fragte sogar die Dev-DB ``dcc`` statt ``dcc_test`` ab). ``execFileSync``
- * ohne Shell; die SQL-Interpolation bleibt auf generierte Usernamen begrenzt.
+ * psql gegen die E2E-DB (localhost:5434/dcc_test, Passwort aus der
+ * Repo-``.env``). Bevorzugt das lokale ``psql``-Binary (``execFileSync``
+ * ohne Shell); fehlt es auf der Maschine (ENOENT), fällt der Helper auf
+ * das ``docker exec``-Muster von admin.spec/plugins.spec zurück
+ * (Compose-Container ``dcc_night_postgres``). Die SQL-Interpolation
+ * bleibt auf generierte Usernamen begrenzt.
  */
 function testDbSql(sql: string): string {
   const envFile = readFileSync(resolve(ROOT, '.env'), 'utf-8');
   const pgPass = envFile.match(/^POSTGRES_PASSWORD=(.*)$/m)?.[1] ?? '';
-  return execFileSync(
-    'psql',
-    ['-h', 'localhost', '-p', '5434', '-U', 'dcc', '-d', 'dcc_test', '-tAc', sql],
-    {
-      encoding: 'utf-8',
-      env: { ...process.env, PGPASSWORD: pgPass },
-      stdio: ['ignore', 'pipe', 'pipe']
-    }
-  ).trim();
+  try {
+    return execFileSync(
+      'psql',
+      ['-h', 'localhost', '-p', '5434', '-U', 'dcc', '-d', 'dcc_test', '-tAc', sql],
+      {
+        encoding: 'utf-8',
+        env: { ...process.env, PGPASSWORD: pgPass },
+        stdio: ['ignore', 'pipe', 'pipe']
+      }
+    ).trim();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') throw e;
+    const docker = process.env.DOCKER_CMD ?? 'docker';
+    return execFileSync(
+      docker,
+      ['exec', '-i', 'dcc_night_postgres', 'psql', '-U', 'dcc', '-d', 'dcc_test', '-tAc', sql],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }
+    ).trim();
+  }
 }
 
 const usernameFor = (suffix: string) =>
@@ -89,8 +100,10 @@ test.describe('Dropbox / Ablage', () => {
     // Guild + dropbox channel — Testids wie in chat.spec.ts (frischer User
     // ohne Guilds → Empty-State-Knopf).
     await page.goto('/app');
-    await page.getByTestId('empty-create-guild').click();
-    await page.getByTestId('create-guild-choice').click();
+    // Rail-Plus-Menü statt Empty-State: /app landet seit 65a050f7 auf
+    // /app/friends, das Empty-State-Panel existiert dort nicht.
+    await page.locator('[data-testid^="guild-create-menu-"]').first().click();
+    await page.getByTestId('guild-create').click();
     await page.getByTestId('create-guild-name').fill('Dropbox Test Guild');
     await page.getByTestId('create-guild-submit').click();
     await page.waitForLoadState('networkidle');
