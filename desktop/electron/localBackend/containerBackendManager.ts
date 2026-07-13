@@ -71,7 +71,14 @@ export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): 
     // Der Relay terminiert TLS — der Container routet nur HTTP intern.
     'PULSE_TLS_MODE=behind-proxy',
     'PULSE_HTTP_PORT=8080',
+    // Explizite Herkunfts-Markierung fürs Image: ersetzt die frühere
+    // "Relay-Token gesetzt = App-Host"-Heuristik — neue App-Host-Instanzen
+    // kommen ohne Relay-Creds (Relay-Fallback abgeschafft).
+    'PULSE_HOST_ORIGIN=app_host',
   ];
+  // Relay-Zeilen nur, wenn ALLE drei Werte da sind (Bestandsinstanzen) —
+  // leere PULSE_RELAY_*-Strings gälten im Image als "Relay konfiguriert";
+  // das Erkennungsmuster ist FEHLENDE Variablen.
   if (creds.relaySubdomain && creds.relayServerAddr && creds.relayTunnelToken) {
     lines.push(
       `PULSE_RELAY_SUBDOMAIN=${creds.relaySubdomain}`,
@@ -80,6 +87,17 @@ export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): 
     );
   }
   return lines.join('\n') + '\n';
+}
+
+/** Reine Update-Entscheidung: unterschiedliche, nicht-leere Image-IDs →
+ *  Recreate nötig. Docker prefixt IDs mit "sha256:", Podman nicht — vor dem
+ *  Vergleich normalisieren. Unklare Eingaben (leer) → 'none' (fail-safe:
+ *  lieber ein Update verpassen als grundlos neu erzeugen). */
+export function updateVerdict(runningImageId: string, pulledImageId: string): 'update' | 'none' {
+  const norm = (s: string): string => s.trim().replace(/^sha256:/, '');
+  const a = norm(runningImageId);
+  const b = norm(pulledImageId);
+  return a && b && a !== b ? 'update' : 'none';
 }
 
 export class ContainerBackendManager {
@@ -184,5 +202,66 @@ export class ContainerBackendManager {
     await rtExec(rt, ['stop', '-t', '20', CONTAINER_NAME], {
       timeoutMs: 60_000,
     }).catch(() => {});
+  }
+
+  /** Update-Check im Betrieb: Image pullen (der Registry-Login aus start()
+   *  ist im Auth-Store der Runtime persistiert) und die Image-ID des laufenden
+   *  Containers mit der des frisch gepullten Images vergleichen. Jeder Fehler
+   *  (offline, Registry down, Container weg) → 'none' — nächster Versuch beim
+   *  nächsten Intervall, kein Alarm. Dev-Image-Override (PULSE_HOST_IMAGE)
+   *  überspringt den Check komplett (kein Registry-Realm für Dev-Creds). */
+  async checkImageUpdate(): Promise<'update' | 'none'> {
+    const { image, local } = resolveImage();
+    if (local) return 'none';
+    const rt = await this.ensureRuntime();
+    if (!rt) return 'none';
+    const pull = await rtExec(rt, ['pull', image], { timeoutMs: 15 * 60_000 }).catch(() => null);
+    if (pull?.code !== 0) return 'none';
+    const running = await rtExec(
+      rt, ['inspect', CONTAINER_NAME, '--format', '{{.Image}}'], { timeoutMs: 15_000 },
+    ).catch(() => null);
+    const pulled = await rtExec(
+      rt, ['image', 'inspect', image, '--format', '{{.Id}}'], { timeoutMs: 15_000 },
+    ).catch(() => null);
+    if (running?.code !== 0 || pulled?.code !== 0) return 'none';
+    return updateVerdict(running.stdout, pulled.stdout);
+  }
+
+  /** Läuft der `pulse-host`-Container gerade (unabhängig davon, ob diese
+   *  App-Instanz ihn selbst gestartet hat — `--restart unless-stopped`
+   *  überlebt App-/Host-Neustarts)? argv-Array, keine Shell-Interpolation.
+   *  `inspect` auf einen fehlenden Container liefert exit != 0 → false. */
+  async isContainerRunning(): Promise<boolean> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return false;
+    const r = await rtExec(
+      rt,
+      ['inspect', CONTAINER_NAME, '--format', '{{.State.Running}}'],
+      { timeoutMs: 15_000 },
+    ).catch(() => null);
+    return r?.code === 0 && r.stdout.trim() === 'true';
+  }
+
+  /** "Server aufgeben": Container komplett entfernen (sauberer Stop zuerst,
+   *  dann rm -f — ein fehlender Container ist kein Fehler). Ohne das rm würde
+   *  `--restart unless-stopped` ihn beim nächsten Host-Boot wiederbeleben. */
+  async removeContainer(): Promise<void> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return;
+    await this.stop();
+    await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 }).catch(() => {});
+  }
+
+  /** Daten-Volume löschen (nur nach removeContainer — sonst "volume in use").
+   *  true bei Erfolg; ein bereits fehlendes Volume zählt als Erfolg. */
+  async removeDataVolume(): Promise<boolean> {
+    const rt = await this.ensureRuntime();
+    if (!rt) return false;
+    const exists = await rtExec(rt, ['volume', 'inspect', DATA_VOLUME], { timeoutMs: 15_000 })
+      .catch(() => null);
+    if (exists?.code !== 0) return true; // schon weg — nichts zu tun
+    const r = await rtExec(rt, ['volume', 'rm', DATA_VOLUME], { timeoutMs: 60_000 })
+      .catch(() => null);
+    return r?.code === 0;
   }
 }

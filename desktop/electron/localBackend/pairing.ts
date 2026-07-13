@@ -76,6 +76,17 @@ export async function redeemBootstrap(
   };
 }
 
+/** Reine Entscheidung für die Übernahme-Warnung (serverProvision.ts): Mint
+ *  ohne reset antwortet 403, wenn der Bootstrap schon einmal eingelöst wurde
+ *  (routes_instance_applications.py) — dann läuft vermutlich ein eingerichteter
+ *  Server, und die Übernahme (reset=true entwertet dessen Creds sofort) braucht
+ *  eine explizite Bestätigung im UI statt stillem Überschreiben. */
+export function classifyMintStatus(status: number): 'ok' | 'consumed' | 'error' {
+  if (status === 201) return 'ok';
+  if (status === 403) return 'consumed';
+  return 'error';
+}
+
 export function probeUrl(c: BootstrapCreds): string {
   return `${c.cloudOrigin}/api/auth/selfhost/reachability/probe`;
 }

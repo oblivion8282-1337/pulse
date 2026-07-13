@@ -4,7 +4,12 @@
 export type HostPhase =
   | 'idle' | 'checking-network' | 'opening-door' | 'preparing'
   | 'going-live' | 'live' | 'needs-your-help' | 'not-possible-here' | 'something-paused'
-  | 'needs-windows-setup';
+  | 'needs-windows-setup'
+  // Ablöse-Erkennung: der periodische Creds-Check (main.ts) fand ein
+  // eindeutiges 401 gegen den Registry-Token-Realm — clientSecret wurde durch
+  // einen Re-Bootstrap auf einem ANDEREN Gerät rotiert. Terminal, bis der
+  // User "Gerät zurücksetzen" klickt (host:unpair → resetToIdle()).
+  | 'superseded';
 
 export interface HostPhaseEvent {
   phase: HostPhase;
@@ -122,5 +127,45 @@ export class HostLifecycle {
   async stop(): Promise<void> {
     try { await this.deps.stopBackend(); } catch { /* best-effort */ }
     this._emit('idle');
+  }
+
+  /** Zustands-Abgleich beim App-Start/-Refresh: `_last` lebt nur in-memory,
+   *  weiß also nach einem Electron-Neustart nichts vom Container, der dank
+   *  `--restart unless-stopped` weiterlief. Hebt die Phase direkt auf 'live',
+   *  OHNE die Sequenz (checking-network → … ) erneut zu durchlaufen — nur
+   *  wenn wir noch bei 'idle' stehen, sonst würde eine laufende Sequenz oder
+   *  ein bereits erkannter 'superseded'-Zustand überschrieben. */
+  markLive(relayUrl: string | null): void {
+    if (this._last.phase !== 'idle') return;
+    this._emit('live', { relayUrl: relayUrl ?? undefined });
+  }
+
+  /** Ablöse bestätigt (main.ts hat den Container bereits gestoppt) — Phase
+   *  terminal auf 'superseded' setzen, damit die UI den Hinweis + Reset-Knopf
+   *  zeigt statt weiter "Bereit"/"Server starten". */
+  markSuperseded(): void {
+    this._emit('superseded');
+  }
+
+  /** "Gerät zurücksetzen" nach einer Ablöse: nur die Phase zurück auf 'idle'
+   *  — kein weiterer Backend-Stop nötig, der lief bereits vor 'superseded'. */
+  resetToIdle(): void {
+    this._emit('idle');
+  }
+
+  /** Update-Recreate im Betrieb: das neue Image ist bereits gepullt (Manager),
+   *  der bestehende Start-Pfad übernimmt das Recreate (rm -f + run + health —
+   *  das /data-Volume bleibt). Nur aus 'live' heraus; der 'update'-Step vor
+   *  dem eigentlichen Ablauf lässt die UI "Update wird installiert …" zeigen
+   *  statt eines generischen Neustarts. */
+  async applyUpdate(): Promise<void> {
+    if (this._last.phase !== 'live') return;
+    this._emit('preparing', { step: 'update' });
+    try {
+      await this._runBackend();
+    } catch (err) {
+      console.error('[host] Update-Fehler:', (err as Error).message);
+      this._emit('something-paused');
+    }
   }
 }

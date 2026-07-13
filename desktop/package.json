@@ -7,7 +7,7 @@
   "desktopName": "com.howispulse.Pulse.desktop",
   "scripts": {
     "build:electron": "node esbuild.mjs",
-    "build:electron:server": "PULSE_BUILD_MODE=server node esbuild.mjs && cp electron/server.html electron/dist/server.html",
+    "build:electron:server": "PULSE_BUILD_MODE=server node esbuild.mjs && cp electron/server.html electron/server.js electron/dist/",
     "dev": "pnpm run build:electron && PULSE_DEV_URL=${PULSE_DEV_URL:-http://localhost:5173} electron .",
     "prod": "pnpm run build:electron && electron .",
     "prod:server": "pnpm run build:electron:server && electron .",
@@ -15,7 +15,7 @@
     "dist:win": "pnpm run build:electron && electron-builder --win --publish never",
     "bundle:mac-sidecar": "cd ../streaming/mac-hq-sidecar && cargo build --release && bash scripts/bundle-dylibs.sh target/release/pulse-mac-hq-sidecar target/release/hq-sidecar",
     "dist:mac": "pnpm run build:electron && pnpm run bundle:mac-sidecar && bash scripts/fetch-mac-podman.sh && electron-builder --mac --publish never",
-    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/hostLifecycle.test.ts test/localBackend/*.test.ts"
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/hostLifecycle.test.ts test/serverSupersede.test.ts test/serverGiveUp.test.ts test/autostart.test.ts test/localBackend/*.test.ts"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
