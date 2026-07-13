@@ -1,60 +1,43 @@
 /**
- * Anschluss-Check (Stufe 1, beratend) für den App-Host-Antragsweg.
+ * Anschluss-Check (Stufe 1) für den App-Host-Antragsweg — auf die EINZIGE
+ * wertvolle Aussage eingedampft (Entscheidung 2026-07-13, Variante B):
+ * Kann dieser Internetanschluss physikalisch NICHT von zuhause hosten
+ * (DS-Lite/CGNAT oder gar keine Direktverbindung)? Alles andere (Cone- vs.
+ * symmetrisches NAT, "geeignet", "unbekannt") ist für den User irrelevant —
+ * die Server-App locht sich in diesen Fällen selbst durch.
  *
- * Browser-STUN-Probe: EINE RTCPeerConnection fragt aus DEMSELBEN lokalen
- * Quell-Port bei ZWEI verschiedenen öffentlichen STUN-Servern die eigene
- * öffentliche Adresse ab (srflx-Kandidaten). Aus den Ergebnissen wird
- * klassifiziert, ob der Anschluss fürs Hosting von zuhause taugt:
+ * Browser-STUN-Probe: EINE RTCPeerConnection fragt bei ZWEI öffentlichen
+ * STUN-Servern die eigene öffentliche Adresse ab (srflx-Kandidaten). Zwei
+ * Server, damit ein einzelner Ausfall kein falsches 'cannot-host' vortäuscht.
  *
- *  - 'blocked'   — kein srflx: das Netzwerk lässt keine Direktverbindungen zu
- *                  (Firmen-Firewall, UDP geblockt).
- *  - 'cgnat'     — die öffentliche IP liegt im CGNAT-Bereich 100.64.0.0/10
- *                  (DS-Lite): eingehende Verbindungen sind unmöglich, nur
- *                  der Provider kann das ändern (Dual-Stack beantragen).
- *  - 'symmetric' — vom SELBEN lokalen Port sehen die zwei STUN-Server deutlich
- *                  VERSCHIEDENE öffentliche Ports: destination-abhängiges
- *                  Mapping = symmetrisches NAT, WebRTC-Lochung scheitert meist.
- *  - 'ok'        — vom selben lokalen Port sehen beide Server denselben (oder
- *                  einen nahen) Port: endpoint-unabhängiges Cone-NAT, die
- *                  Server-App kann sich selbst durchlochen.
- *  - 'unknown'   — Fehler/Timeout/nur IPv6: keine Aussage möglich (beratend —
- *                  der Antrag bleibt erlaubt).
+ *  - kein srflx (Gathering fertig) → 'cannot-host' (Netzwerk lässt keine
+ *    Direktverbindung zu: Firewall, UDP geblockt).
+ *  - srflx in 100.64.0.0/10        → 'cannot-host' (DS-Lite/CGNAT: eingehende
+ *    Verbindungen unmöglich, nur der Provider kann das ändern).
+ *  - sonst / Timeout / Fehler / kein WebRTC → 'ok' (kein Hindernis erkennbar;
+ *    beim geringsten Zweifel NICHT warnen).
  *
- * WICHTIG (Fix 2026-07-13): Symmetrisches NAT ist ein DESTINATION-abhängiges
- * Mapping — es lässt sich NUR erkennen, wenn beide STUN-Anfragen vom GLEICHEN
- * lokalen Quell-Port ausgehen. Die frühere Variante öffnete pro STUN-Server
- * eine eigene RTCPeerConnection (= eigener lokaler Port); der Router vergibt
- * dann auch bei Full-Cone-NAT zwei verschiedene öffentliche Ports — die Probe
- * stempelte damit JEDEN Anschluss fälschlich als 'symmetric' ab (inkl. der
- * bewiesenen Full-Cone-Fritz!Box). Deshalb: eine PC, gruppiert nach lokalem
- * Quell-Port (``base`` = relatedPort), Ports nur INNERHALB einer Gruppe
- * vergleichen.
- *
- * Die Klassifikation ist pur (testbar); die eigentliche RTC-Probe ist dünn
- * gehalten. Ergebnis wird als `network_check` mit dem Antrag gespeichert —
- * reine Info für den Admin, keine Server-Logik.
+ * Die Klassifikation ist pur (testbar); die RTC-Probe ist dünn gehalten.
+ * Das Ergebnis wird als `network_check` mit dem Antrag gespeichert.
  */
 
-export type NetworkCheckResult = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
+export type HostingVerdict = 'cannot-host' | 'ok';
 
-export interface SrflxCandidate {
-  ip: string;
-  port: number;
-  /** relatedPort — der lokale Quell-Port, aus dem dieser srflx entstand.
-   *  Nur srflx MIT GLEICHEM base sind für die Symmetrie-Frage vergleichbar. */
-  base: number;
+/**
+ * Wire-Wert fürs Backend-`network_check`-Feld (dessen Literal-Set bleibt
+ * unverändert). Der Admin-Chip rendert daraus "geeignet"/"ungeeignet";
+ * 'cannot-host' geht als 'cgnat' raus — der kanonische "kann nicht von
+ * zuhause hosten"-Verdict (der Chip behandelt cgnat/blocked/symmetric gleich).
+ */
+export function networkCheckWireValue(v: HostingVerdict): 'ok' | 'cgnat' {
+  return v === 'cannot-host' ? 'cgnat' : 'ok';
 }
 
-/** Zwei unabhängige Betreiber: ein einzelner Ausfall täuscht kein 'blocked'
- *  vor, und vom selben lokalen Port wird destination-abhängiges Port-Mapping
- *  (symmetrisches NAT) sichtbar. */
+/** Zwei unabhängige Betreiber: ein einzelner Ausfall täuscht kein
+ *  'cannot-host' vor (leere srflx-Liste). */
 const STUN_SERVERS = ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'];
 
 const PROBE_TIMEOUT_MS = 5000;
-
-/** Ports gelten als „nah", wenn sie ≤2 auseinanderliegen (Toleranz gegen
- *  minimale Port-Verschiebung mancher Cone-NATs). */
-const PORT_NEAR_DELTA = 2;
 
 /** 100.64.0.0/10 (RFC 6598, Carrier-Grade NAT). */
 export function isCgnatIp(ip: string): boolean {
@@ -66,79 +49,63 @@ export function isCgnatIp(ip: string): boolean {
 }
 
 /**
- * Pure Klassifikation aus den srflx-Kandidaten EINER Probe (eine PC, beide
- * STUN-Server). Vergleicht öffentliche Ports nur zwischen srflx mit gleichem
- * lokalen Quell-Port (``base``) — nur dort beweist ein Port-Unterschied
- * destination-abhängiges (symmetrisches) NAT.
+ * Pure Klassifikation aus den srflx-IPs EINER (fertig gegatherten) Probe:
+ * keine srflx → 'cannot-host'; eine CGNAT-IP → 'cannot-host'; sonst 'ok'.
+ * Nur aufrufen, wenn das Gathering natürlich endete (kein Timeout) — sonst
+ * würde eine langsame Probe fälschlich als geblockt gewertet.
  */
-export function classifySrflx(cands: SrflxCandidate[]): NetworkCheckResult {
-  if (cands.length === 0) return 'blocked';
-  if (cands.some((c) => isCgnatIp(c.ip))) return 'cgnat';
-
-  // Nur IPv4 bewerten — die Server-App locht über IPv4 (Fritz!Box blockt
-  // eingehendes IPv6). Nur-IPv6-srflx → keine belastbare Aussage.
-  const v4 = cands.filter((c) => c.ip.split('.').length === 4);
-  if (v4.length === 0) return 'unknown';
-
-  // Nach lokalem Quell-Port gruppieren (multi-homed / mehrere Interfaces
-  // liefern je eigene base — die dürfen NICHT gegeneinander verglichen werden).
-  const portsByBase = new Map<number, number[]>();
-  for (const c of v4) {
-    const arr = portsByBase.get(c.base) ?? [];
-    arr.push(c.port);
-    portsByBase.set(c.base, arr);
-  }
-
-  for (const ports of portsByBase.values()) {
-    const spread = Math.max(...ports) - Math.min(...ports);
-    if (spread > PORT_NEAR_DELTA) return 'symmetric';
-  }
+export function classifySrflx(ips: string[]): HostingVerdict {
+  if (ips.length === 0) return 'cannot-host';
+  if (ips.some((ip) => isCgnatIp(ip))) return 'cannot-host';
   return 'ok';
 }
 
-/** Sammelt srflx-Kandidaten aus EINER RTCPeerConnection gegen BEIDE
- *  STUN-Server (gleicher lokaler Quell-Port → symmetrie-tauglich). Dünn
- *  gehalten — die Logik steckt in classifySrflx. */
-async function gatherSrflx(urls: string[], timeoutMs: number): Promise<SrflxCandidate[]> {
+/** Sammelt srflx-IPs aus EINER RTCPeerConnection gegen BEIDE STUN-Server.
+ *  ``completed`` = das ICE-Gathering endete natürlich (null-Kandidat), NICHT
+ *  per Timeout — nur dann ist "keine srflx" belastbar (= geblockt). */
+async function gatherSrflx(
+  urls: string[],
+  timeoutMs: number
+): Promise<{ ips: string[]; completed: boolean }> {
   const pc = new RTCPeerConnection({ iceServers: urls.map((u) => ({ urls: u })) });
-  const found: SrflxCandidate[] = [];
+  const ips: string[] = [];
+  let completed = false;
   try {
-    const done = new Promise<void>((resolve) => {
+    await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, timeoutMs);
       pc.onicecandidate = (ev) => {
         if (!ev.candidate) {
+          completed = true;
           clearTimeout(timer);
           resolve();
           return;
         }
         const c = ev.candidate;
-        if (c.type === 'srflx' && c.address && c.port) {
-          // relatedPort = der lokale Quell-Port (base). Fehlt er (selten),
-          // 0 als gemeinsamer Bucket — auf Single-Interface-Geräten korrekt.
-          found.push({ ip: c.address, port: c.port, base: c.relatedPort ?? 0 });
-        }
+        if (c.type === 'srflx' && c.address) ips.push(c.address);
       };
     });
     pc.createDataChannel('probe');
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await done;
   } catch {
-    // Fehler → leere Liste; classifySrflx bewertet das.
+    // Fehler → completed bleibt false → runConnectivityCheck wertet 'ok'.
   } finally {
     pc.close();
   }
-  return found;
+  return { ips, completed };
 }
 
-/** Führt die Probe aus und klassifiziert. */
+/** Führt die Probe aus und klassifiziert. Timeout/Fehler/kein WebRTC → 'ok'
+ *  (im Zweifel NICHT warnen). */
 export async function runConnectivityCheck(
   timeoutMs: number = PROBE_TIMEOUT_MS
-): Promise<NetworkCheckResult> {
+): Promise<HostingVerdict> {
+  if (typeof RTCPeerConnection === 'undefined') return 'ok';
   try {
-    const cands = await gatherSrflx(STUN_SERVERS, timeoutMs);
-    return classifySrflx(cands);
+    const { ips, completed } = await gatherSrflx(STUN_SERVERS, timeoutMs);
+    if (!completed) return 'ok';
+    return classifySrflx(ips);
   } catch {
-    return 'unknown';
+    return 'ok';
   }
 }
