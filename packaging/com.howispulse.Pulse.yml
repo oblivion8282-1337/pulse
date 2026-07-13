@@ -222,7 +222,7 @@ modules:
       # neuen SHA eintragen (und Cargo.lock-Änderungen → cargo-sources neu genn).
       - type: git
         url: https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar.git
-        commit: 58fece995d7b7f805cff216857aec571d25594e6
+        commit: 7803d950bc9394cf9354af4cf6fc22dd0aa34e00
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
