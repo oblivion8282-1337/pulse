@@ -208,6 +208,67 @@ async def test_redeem_subdomain_stable_token_rotates(
 
 
 @pytest.mark.asyncio
+async def test_redeem_no_relay_when_provisioning_flag_off(
+    client, alice, alice_instance, session_factory, _isolate_settings, monkeypatch
+):
+    """PULSE_RELAY_PROVISION_ENABLED=false (Relay-Abbau für App-Hosting):
+    trotz konfiguriertem Relay-Server werden KEINE relay_subdomain / kein
+    Tunnel-Token vergeben — Response-Shape bleibt stabil mit null-Werten,
+    die DB bleibt ohne Relay-Spuren."""
+    import dcc_auth.routes_selfhost_bootstrap as _rb
+    monkeypatch.setattr(_rb, "get_settings", lambda: _isolate_settings)
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_server_addr", "relay.test:2333")
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_base_domain", "relay.test")
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_provision_enabled", False)
+
+    token = await _mint_token(client, alice["cookie"], alice_instance.id)
+    r = await client.post(
+        "/selfhost/bootstrap", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["relay_subdomain"] is None
+    assert data["relay_server_addr"] is None
+    assert data["relay_tunnel_token"] is None
+    # Kern-Credentials unverändert vorhanden (Konsumenten sind null-tolerant).
+    assert data["client_secret"]
+
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id)
+        assert inst.relay_subdomain is None
+        assert inst.relay_tunnel_token_hash is None
+
+
+@pytest.mark.asyncio
+async def test_flag_off_keeps_existing_subdomain(
+    client, alice, alice_instance, session_factory, _isolate_settings, monkeypatch
+):
+    """Bestehende Instanzen behalten ihre Subdomain (kein Daten-Rückbau) —
+    das Flag stoppt nur die NEU-Vergabe beim Redeem."""
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id)
+        inst.relay_subdomain = "brave-otter-4f2a.relay.test"
+        inst.relay_tunnel_token_hash = "deadbeef"
+        await s.commit()
+
+    import dcc_auth.routes_selfhost_bootstrap as _rb
+    monkeypatch.setattr(_rb, "get_settings", lambda: _isolate_settings)
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_server_addr", "relay.test:2333")
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_provision_enabled", False)
+
+    token = await _mint_token(client, alice["cookie"], alice_instance.id)
+    data = (await client.post("/selfhost/bootstrap",
+            headers={"Authorization": f"Bearer {token}"})).json()
+    # Antwort nennt keinen Relay mehr, aber die DB-Zeile bleibt unangetastet.
+    assert data["relay_subdomain"] is None
+    assert data["relay_tunnel_token"] is None
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id)
+        assert inst.relay_subdomain == "brave-otter-4f2a.relay.test"
+        assert inst.relay_tunnel_token_hash == "deadbeef"
+
+
+@pytest.mark.asyncio
 async def test_redeem_no_relay_when_disabled(client, alice, alice_instance):
     # Default: pulse_relay_server_addr == "" → keine Relay-Felder (heutiges Verhalten).
     token = await _mint_token(client, alice["cookie"], alice_instance.id)

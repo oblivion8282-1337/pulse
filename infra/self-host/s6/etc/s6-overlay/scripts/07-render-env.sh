@@ -25,7 +25,8 @@ MINIO_PASS=$(cat "${KEYS}/minio.password")
 # Ingest-Ziel für den RTMPS-Push des HQ-Sidecars.
 #
 # VPS-Self-Host: der öffentliche Hostname IST der Server → passt.
-# App-Hosting (Server-App hinter Heim-NAT, erkennbar am Relay-Token): der
+# App-Hosting (Server-App hinter Heim-NAT, erkennbar an PULSE_HOST_ORIGIN
+# bzw. als Fallback am Relay-Token — s. is_app_host unten): der
 # Hostname zeigt auf den Relay (= die Cloud). Der Relay tunnelt aber nur HTTP,
 # kein RTMPS — der Push landete bei der Cloud-MediaMTX, die das fremde Token
 # mit 401 ablehnte (gemessen 2026-07-10). RTMPS ist TCP und lässt sich nicht
@@ -37,7 +38,23 @@ MINIO_PASS=$(cat "${KEYS}/minio.password")
 # media-svc für Gäste WHIP-URLs minten; der Owner (PULSE_INSTANCE_OWNER_ID)
 # bleibt auf dem bewährten RTMPS-Pfad. Plan:
 # docs/plans/2026-07-12-whip-guest-publish.md
-if [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]; then
+
+# App-Hosting-Erkennung: explizit via PULSE_HOST_ORIGIN (app_host | vps) —
+# die Desktop-Server-App schreibt die Env in container.env. Fallback für
+# Bestands-Container ohne die Env: die alte Token-Heuristik ("Relay-Token
+# gesetzt = App-Hosting"). Die Heuristik trägt nicht mehr, sobald das Relay-
+# Provisioning abgeschaltet ist (PULSE_RELAY_PROVISION_ENABLED=false in der
+# Cloud) — neue App-Hosts bekommen dann keinen Token mehr, sind aber trotzdem
+# App-Hosts. Explizite Env hat darum IMMER Vorrang.
+is_app_host() {
+    case "${PULSE_HOST_ORIGIN:-}" in
+        app_host) return 0 ;;
+        vps) return 1 ;;
+    esac
+    [ -n "${PULSE_RELAY_TUNNEL_TOKEN:-}" ]
+}
+
+if is_app_host; then
     MEDIAMTX_INGEST="127.0.0.1"
 else
     MEDIAMTX_INGEST="${PULSE_HOSTNAME}"

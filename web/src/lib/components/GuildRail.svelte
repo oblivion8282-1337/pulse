@@ -47,6 +47,8 @@
   } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { directStatus } from '$lib/stores/directStatus.svelte';
+  import { directFailureMessageKey } from '$lib/direct/policy';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
@@ -453,6 +455,13 @@
                          ersten Connect): genehmigte, aber nie eingerichtete
                          Instanz — erklärt den toten Status-Dot. -->
                     <span class="text-text-muted text-xs">{m.server_icon_not_set_up()}</span>
+                  {/if}
+                  {#if server.instance_id && directStatus.failures[server.instance_id]}
+                    <!-- Direct-only-Fehlzustand (App-Host ohne Relay-Fallback):
+                         offline / keine Direktverbindung / Identität geändert. -->
+                    <span class="text-xs text-red-400">
+                      {m[directFailureMessageKey(directStatus.failures[server.instance_id])]()}
+                    </span>
                   {/if}
                 {/if}
               </Tooltip.Content>

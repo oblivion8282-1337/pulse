@@ -34,6 +34,10 @@ export type ServerEntry = {
                               // dem ready-Frame). NULL = keiner gesetzt → Fallback
                               // auf den Hostnamen.
   pairwise_sub: string | null;// Pro-Server-Pseudonym (NULL für Cloud — dort user_id direkt)
+  // Instanz-Herkunft aus GET /me/instances (hydrateFromBackend): 'app_host'
+  // = Direct-only (kein Relay-Fallback, s. lib/direct/policy.ts), 'vps' =
+  // klassischer Self-Host. null = unbekannt (Alt-Eintrag/Cloud) → wie vps.
+  origin?: 'vps' | 'app_host' | null;
   isCloud: boolean;           // true für howispulse.com (Hard-Default)
   notification_mode: 'all' | 'mentions' | 'none';
   added_at: number;           // Date.now() ms
@@ -93,6 +97,7 @@ function normalizeEntries(parsed: unknown): ServerEntry[] | null {
       ...e,
       // Default für Alt-Einträge ohne das Feld (vor diesem Build gespeichert).
       server_name: e.server_name ?? null,
+      origin: e.origin ?? null,
       isCloud: (e.hostname ?? '').toLowerCase() === CLOUD_HOSTNAME.toLowerCase(),
     };
   });
@@ -332,13 +337,20 @@ class ServersStore {
           // Gerät gepaart ist. Ohne Nachziehen zeigt ein einmal gespeicherter
           // Eintrag für immer auf den toten Platzhalter-Host.
           const hostChanged = existing.instance_id === inst.id && existing.hostname !== normalized;
-          if (hostChanged || existing.notification_mode !== inst.notification_mode) {
+          if (
+            hostChanged ||
+            existing.notification_mode !== inst.notification_mode ||
+            existing.origin !== inst.origin
+          ) {
             this.servers = this.servers.map((s) =>
               s.id === existing.id
                 ? {
                     ...s,
                     hostname: hostChanged ? normalized : s.hostname,
                     notification_mode: inst.notification_mode,
+                    // Herkunft nachziehen (Direct-only-Weiche braucht sie;
+                    // Alt-Einträge haben sie noch nicht).
+                    origin: inst.origin,
                   }
                 : s,
             );
@@ -355,6 +367,7 @@ class ServersStore {
             instance_id: inst.id,
             label: inst.hostname, // Default; der Anzeigename kommt vom Server-Admin
             server_name: null, // kommt beim ersten Connect aus dem ready-Frame
+            origin: inst.origin,
             pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
             isCloud: false,
             notification_mode: inst.notification_mode,

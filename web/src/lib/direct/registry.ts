@@ -15,6 +15,7 @@
  */
 
 import { DirectConnection, DirectFingerprintMismatch } from './connection';
+import type { DirectFailureReason } from './policy';
 
 const AUTH_BASE = '/api/auth';
 const RETRY_AFTER_MS = 60_000;
@@ -28,11 +29,15 @@ interface DirectoryEntry {
   online: boolean;
 }
 
+export type DirectDialResult =
+  | { ok: true; conn: DirectConnection }
+  | { ok: false; reason: DirectFailureReason };
+
 type State =
   | { kind: 'idle' }
-  | { kind: 'connecting'; promise: Promise<DirectConnection | null> }
+  | { kind: 'connecting'; promise: Promise<DirectDialResult> }
   | { kind: 'open'; conn: DirectConnection }
-  | { kind: 'failed'; until: number };
+  | { kind: 'failed'; until: number; reason: DirectFailureReason };
 
 const states = new Map<string, State>();
 
@@ -87,9 +92,10 @@ async function postOffer(instanceId: string, sdp: string): Promise<string> {
   return ((await r.json()) as { sdp: string }).sdp;
 }
 
-async function dial(instanceId: string): Promise<DirectConnection | null> {
+async function dial(instanceId: string): Promise<DirectDialResult> {
   const entry = await lookup(instanceId);
-  if (!entry) return null;
+  // Telefonbuch kennt keinen (aktuellen) Eintrag / meldet offline.
+  if (!entry) return { ok: false, reason: 'offline' };
 
   const pinned = readPin(instanceId);
   if (pinned && pinned !== entry.fingerprint.toUpperCase()) {
@@ -103,47 +109,66 @@ async function dial(instanceId: string): Promise<DirectConnection | null> {
     iceServers: ICE_SERVERS,
   });
   writePin(instanceId, entry.fingerprint.toUpperCase());
-  return conn;
+  return { ok: true, conn };
 }
 
 /**
- * Liefert die offene Direktverbindung — oder `null`, wenn es (noch) keine gibt.
- * Nie werfend: Aufrufer fallen auf den Relay zurück. Ausnahme ist der
- * Fingerprint-Konflikt, der bewusst als Fehlschlag gemerkt wird.
+ * Wie `getDirectConnection`, aber mit unterscheidbarem Fehlgrund — die
+ * Direct-only-Weiche (App-Host ohne Relay-Fallback) braucht die Trennung
+ * offline / ICE-Fehlschlag / Fingerprint-Konflikt für die erklärten
+ * Fehlerzustände. Nie werfend.
  */
-export async function getDirectConnection(
+export async function getDirectConnectionDetailed(
   instanceId: string | null,
-): Promise<DirectConnection | null> {
-  if (!instanceId || typeof RTCPeerConnection === 'undefined') return null;
+): Promise<DirectDialResult> {
+  if (!instanceId || typeof RTCPeerConnection === 'undefined') {
+    return { ok: false, reason: 'ice-failed' };
+  }
 
   const state = states.get(instanceId) ?? { kind: 'idle' };
   if (state.kind === 'open') {
-    if (state.conn.isOpen) return state.conn;
+    if (state.conn.isOpen) return { ok: true, conn: state.conn };
     states.delete(instanceId);
   } else if (state.kind === 'connecting') {
     return state.promise;
   } else if (state.kind === 'failed' && Date.now() < state.until) {
-    return null;
+    return { ok: false, reason: state.reason };
   }
 
   const promise = dial(instanceId)
-    .then((conn) => {
-      if (!conn) {
-        states.set(instanceId, { kind: 'failed', until: Date.now() + RETRY_AFTER_MS });
-        return null;
+    .then((result): DirectDialResult => {
+      if (!result.ok) {
+        states.set(instanceId, {
+          kind: 'failed',
+          until: Date.now() + RETRY_AFTER_MS,
+          reason: result.reason,
+        });
+        return result;
       }
-      conn.onClose(() => states.delete(instanceId));
-      states.set(instanceId, { kind: 'open', conn });
-      return conn;
+      result.conn.onClose(() => states.delete(instanceId));
+      states.set(instanceId, { kind: 'open', conn: result.conn });
+      return result;
     })
-    .catch((e) => {
-      states.set(instanceId, { kind: 'failed', until: Date.now() + RETRY_AFTER_MS });
-      if (e instanceof DirectFingerprintMismatch) console.warn('[direct] Fingerprint-Konflikt');
-      return null;
+    .catch((e): DirectDialResult => {
+      const reason: DirectFailureReason =
+        e instanceof DirectFingerprintMismatch ? 'fingerprint-mismatch' : 'ice-failed';
+      states.set(instanceId, { kind: 'failed', until: Date.now() + RETRY_AFTER_MS, reason });
+      return { ok: false, reason };
     });
 
   states.set(instanceId, { kind: 'connecting', promise });
   return promise;
+}
+
+/**
+ * Liefert die offene Direktverbindung — oder `null`, wenn es (noch) keine
+ * gibt. Nie werfend: VPS-Aufrufer fallen auf ihren Hostname zurück.
+ */
+export async function getDirectConnection(
+  instanceId: string | null,
+): Promise<DirectConnection | null> {
+  const result = await getDirectConnectionDetailed(instanceId);
+  return result.ok ? result.conn : null;
 }
 
 /** Test-/Logout-Hilfe: alle Verbindungen schließen. */

@@ -1,14 +1,29 @@
 /**
  * Die Weiche: Läuft eine Direktverbindung zum Ziel-Server, geht der Request
- * dort durch — sonst wie bisher per `fetch` über den Relay.
+ * dort durch — sonst per `fetch` über den Hostname (VPS: die eigene Domain;
+ * App-Host historisch: die Relay-Subdomain).
  *
- * Nur Self-Host-Server mit `instance_id` kommen in Frage; die Cloud selbst
- * wird nie gedirected (sie IST das Ziel). Ein Fehler im Direktpfad fällt
- * still auf den Relay zurück, damit ein Serverneustart keine Anfrage verliert.
+ * Direct-only (origin='app_host', s. policy.ts): KEIN stiller Relay-Fallback
+ * mehr — scheitert der Direktpfad, wirft die Weiche einen erklärten
+ * `DirectUnavailableError` (offline / keine Direktverbindung / Identität
+ * geändert) und meldet den Zustand an den directStatus-Store fürs UI.
+ * VPS-Server verhalten sich wie bisher (Hostname IST deren Weg).
  */
 
 import type { ServerEntry } from '$lib/api/servers.svelte';
-import { getDirectConnection } from './registry';
+import { m } from '$lib/paraglide/messages.js';
+import { directStatus } from '$lib/stores/directStatus.svelte';
+import { getDirectConnectionDetailed } from './registry';
+import { isDirectOnly, directFailureMessageKey, type DirectFailureReason } from './policy';
+
+/** Harter Fehlzustand eines Direct-only-Servers — trägt den Grund für UI-Logik
+ *  und bereits die lokalisierte Meldung als `message`. */
+export class DirectUnavailableError extends Error {
+  constructor(public readonly reason: DirectFailureReason) {
+    super(m[directFailureMessageKey(reason)]());
+    this.name = 'DirectUnavailableError';
+  }
+}
 
 /** Absolute Self-Host-URL → reiner Pfad (der Adapter hängt sein Backend davor). */
 function toPath(url: string): string {
@@ -31,13 +46,24 @@ export async function transportFetch(
   init: RequestInit,
 ): Promise<Response> {
   if (directEligible(server)) {
-    const conn = await getDirectConnection(server!.instance_id);
-    if (conn?.isOpen) {
+    const instanceId = server!.instance_id!;
+    const result = await getDirectConnectionDetailed(instanceId);
+    if (result.ok && result.conn.isOpen) {
       try {
-        return await conn.fetch(toPath(url), init);
+        const resp = await result.conn.fetch(toPath(url), init);
+        directStatus.clear(instanceId);
+        return resp;
       } catch {
-        // Verbindung starb mitten im Request → Relay-Versuch, nicht scheitern.
+        // Verbindung starb mitten im Request.
+        if (isDirectOnly(server)) {
+          directStatus.report(instanceId, 'ice-failed');
+          throw new DirectUnavailableError('ice-failed');
+        }
+        // VPS: Hostname-Versuch, nicht scheitern.
       }
+    } else if (!result.ok && isDirectOnly(server)) {
+      directStatus.report(instanceId, result.reason);
+      throw new DirectUnavailableError(result.reason);
     }
   }
   return fetch(url, init);

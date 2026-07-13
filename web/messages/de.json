@@ -2527,5 +2527,12 @@
   "community_invite_decline_error": "Ablehnen fehlgeschlagen.",
   "community_invite_notify_title": "{name} lädt dich in {guild} ein",
   "community_invite_notify_title_unknown": "Einladung in {guild}",
-  "community_invite_notify_body": "Annehmen oder ablehnen im Freunde-Bereich."
+  "community_invite_notify_body": "Annehmen oder ablehnen im Freunde-Bereich.",
+  "direct_error_offline": "Server ist offline.",
+  "direct_error_ice": "Keine Direktverbindung möglich — dein Netzwerk lässt sie vermutlich nicht zu.",
+  "direct_error_fingerprint": "Die Identität des Servers hat sich geändert. Verbindung angehalten.",
+  "direct_trust_title": "Server-Identität hat sich geändert",
+  "direct_trust_body": "Die Identität von {label} ist nicht mehr dieselbe wie beim letzten Mal. Wenn der Betreiber den Server neu eingerichtet oder umgezogen hat, ist das erwartbar. Wenn nicht, brich ab und frag beim Betreiber nach.",
+  "direct_trust_accept": "Neuer Identität vertrauen",
+  "direct_trust_cancel": "Abbrechen"
 }

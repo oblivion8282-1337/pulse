@@ -10,6 +10,7 @@
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
   import ChangelogGate from '$lib/components/ChangelogGate.svelte';
+  import DirectTrustDialog from '$lib/components/server/DirectTrustDialog.svelte';
   import TraySync from '$lib/tray/TraySync.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -234,6 +235,8 @@
 <ShortcutHost />
 
 <ChangelogGate />
+<!-- Fingerprint-Wechsel eines Direct-only-Servers (App-Host) → Vertrauens-Dialog -->
+<DirectTrustDialog />
 
 <!-- Renderloser Side-effect-Container: pusht Voice + Chat-Status in den
      Electron-Tray. No-op im Browser. -->

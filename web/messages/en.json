@@ -2527,5 +2527,12 @@
   "community_invite_decline_error": "Declining failed.",
   "community_invite_notify_title": "{name} invites you to {guild}",
   "community_invite_notify_title_unknown": "Invitation to {guild}",
-  "community_invite_notify_body": "Accept or decline in the friends area."
+  "community_invite_notify_body": "Accept or decline in the friends area.",
+  "direct_error_offline": "Server is offline.",
+  "direct_error_ice": "No direct connection possible — your network probably does not allow it.",
+  "direct_error_fingerprint": "The server's identity has changed. Connection halted.",
+  "direct_trust_title": "Server identity has changed",
+  "direct_trust_body": "The identity of {label} is no longer the same as last time. If the operator reinstalled or moved the server, this is expected. If not, cancel and check with the operator.",
+  "direct_trust_accept": "Trust the new identity",
+  "direct_trust_cancel": "Cancel"
 }

@@ -32,6 +32,7 @@ import { directMessages } from './directMessages.svelte';
 import { drafts } from './drafts.svelte';
 import { friendRequests } from './friendRequests.svelte';
 import { communityInvites } from './communityInvites.svelte';
+import { directStatus } from './directStatus.svelte';
 import { friends } from './friends.svelte';
 import { guildSounds } from './guildSounds.svelte';
 import { guilds } from './guilds.svelte';
@@ -100,6 +101,7 @@ export function resetSocialStores(): void {
   friends.clear();
   friendRequests.clear();
   communityInvites.clear();
+  directStatus.clearAll();
   blocks.clear();
   directMessages.clear();
   presence.clear();
