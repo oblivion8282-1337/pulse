@@ -30,7 +30,13 @@ ARG CADDY_VERSION=2.8.4
 # kompatibel zu livekit-client 2.18.9 (das frühere F17-Problem war ein ZU
 # ALTER Server 1.8.4 mit protocol 15, nicht ein zu neuer).
 ARG LIVEKIT_VERSION=1.13.3
-ARG MEDIAMTX_VERSION=1.17.1
+# 1.19.1: Parität mit der Cloud (die fährt den 1.19.1-pulse-Fork). App-Hosts
+# streamen über WHIP (WebRTC), nicht RTMP — der AV1-Temporal-Delimiter-Patch des
+# Cloud-Forks (RTMP-only, AMD-VAAPI) betrifft sie nicht, daher reicht Upstream
+# und bleibt sauber multi-arch. Bringt den pion/ice-WHEP-Reconnect-Fix + das
+# schnellere Track-Aufsetzen. Self-Host-mediamtx.yml (08-init-mediamtx.sh) nutzt
+# keine in 1.19 entfernten Keys (apiAllowAddresses & Co.) — geprüft 2026-07-13.
+ARG MEDIAMTX_VERSION=1.19.1
 # MinIO — S3-compatible object store for message attachments. Pinned to the
 # SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
 # Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
@@ -59,8 +65,8 @@ ARG SHA256_CADDY_AMD64=a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65
 ARG SHA256_CADDY_ARM64=93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05
 ARG SHA256_LIVEKIT_AMD64=7ac9372a229b3d31a716d63b5a9915ad2ffb7d28a8bacc5ba5fc33a2a475d8a3
 ARG SHA256_LIVEKIT_ARM64=b76fa445c625827999ab6a8cd2d30a64547cb3c9e7189b64ab1dd7444bc17159
-ARG SHA256_MEDIAMTX_AMD64=ee1cbcf8108dcb5fccf4c4e5a746846ea1c2055c099dd2fdb03391c519508829
-ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c7ad905a97b
+ARG SHA256_MEDIAMTX_AMD64=035ee04f91b1c7a0c02e13b2139ca2456e43b6bd6a80e3100e8c228556e07807
+ARG SHA256_MEDIAMTX_ARM64=97a277cf24153e168008c18da53fe84e8d364456e2d7b457dc0457666c32867b
 ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
 ARG SHA256_MINIO_ARM64=5c83cd2cf151717ba0243f73e1c7802ff36e272b67144bdd7f1f7d684fd6f03d
 # frp: upstream publiziert keine Checksums-Datei — re-hashed vom offiziellen Tarball.
