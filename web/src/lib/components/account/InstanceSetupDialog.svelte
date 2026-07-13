@@ -9,7 +9,9 @@
   import { untrack } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { ApiError } from '$lib/api/client';
   import { instancesApi, type Instance } from '$lib/api/instances';
+  import BootstrapConsumedPanel from './BootstrapConsumedPanel.svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -24,6 +26,11 @@
   let expiresAtMs = $state(0);
   let loading = $state(false);
   let error = $state(false);
+  // 403 beim Auto-Mint = Bootstrap wurde schon eingelöst → kein generischer
+  // Fehler, sondern der erklärte „bereits eingerichtet"-Zustand mit bewusstem
+  // Reset-Pfad (mint mit reset:true; der alte Server verliert den Zugang).
+  let consumed = $state(false);
+  let resetting = $state(false);
   let copied = $state(false);
   let aiCopied = $state(false);
   let showExplain = $state(false);
@@ -61,28 +68,41 @@
     return `${mm}:${ss.toString().padStart(2, '0')}`;
   }
 
-  async function mint() {
+  async function mint(reset = false) {
     if (!instance || loading) return;
     loading = true;
     error = false;
+    consumed = false;
     // Generations-Guard: ein mint(), das während des Awaits durch reset()
     // (Dialog geschlossen / andere Instanz) überholt wurde, darf seinen Token
     // NICHT mehr schreiben — sonst zeigt der wieder-geöffnete Dialog den
     // Bootstrap-Token der vorigen Instanz (falsche Credential).
     const gen = ++mintGen;
     try {
-      const res = await instancesApi.mintBootstrapToken(instance.id);
+      const res = await instancesApi.mintBootstrapToken(
+        instance.id,
+        reset ? { reset: true } : undefined
+      );
       if (gen !== mintGen) return;
       token = res.token;
       expiresAtMs = new Date(res.expires_at).getTime();
       nowMs = Date.now();
-    } catch {
+    } catch (e) {
       if (gen !== mintGen) return;
-      error = true;
       token = null;
+      if (e instanceof ApiError && e.status === 403) consumed = true;
+      else error = true;
     } finally {
-      if (gen === mintGen) loading = false;
+      if (gen === mintGen) {
+        loading = false;
+        resetting = false;
+      }
     }
+  }
+
+  function confirmReset() {
+    resetting = true;
+    void mint(true);
   }
 
   async function copy() {
@@ -102,8 +122,14 @@
     try {
       await instancesApi.downloadEnvFile(instance.id);
       toast.success(m.instance_setup_manual_downloaded());
-    } catch {
-      toast.error(m.instance_setup_error());
+    } catch (e) {
+      // 403 = One-Shot bereits verbraucht → spezifisch erklären statt
+      // generischem Fehler (der User würde sonst sinnlos erneut klicken).
+      if (e instanceof ApiError && e.status === 403) {
+        toast.error(m.instance_setup_env_forbidden());
+      } else {
+        toast.error(m.instance_setup_error());
+      }
     } finally {
       envDownloading = false;
     }
@@ -134,6 +160,8 @@
     token = null;
     expiresAtMs = 0;
     error = false;
+    consumed = false;
+    resetting = false;
     loading = false;
     showExplain = false;
     stopTicker();
@@ -173,6 +201,8 @@
 
         {#if loading && !token}
           <p class="text-text-muted">{m.instance_setup_loading()}</p>
+        {:else if consumed}
+          <BootstrapConsumedPanel {resetting} onreset={confirmReset} />
         {:else if error}
           <div class="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
             <p class="text-red-300 text-xs">{m.instance_setup_error()}</p>

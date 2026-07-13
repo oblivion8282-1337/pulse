@@ -21,6 +21,7 @@
  */
 
 import { instancesApi } from '$lib/api/instances';
+import { serversStore } from '$lib/api/servers.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
@@ -128,7 +129,9 @@ class MyInstanceApplications {
 
     let apps;
     try {
-      apps = await instancesApi.listMyApplications('all');
+      // origin='vps': App-Host-Anträge beobachtet [[myAppHostApplications]]
+      // (eigene Toast-Texte) — sonst würde beides doppelt benachrichtigen.
+      apps = await instancesApi.listMyApplications('all', 'vps');
     } catch {
       return; // transient → nächster Tick
     }
@@ -161,6 +164,9 @@ class MyInstanceApplications {
           toast.success(m.instance_app_approved_toast_title(), {
             description: m.instance_app_approved_toast_body({ hostname: app.hostname })
           });
+          // Die genehmigte Instanz sofort in die Server-Leiste ziehen —
+          // ohne das erschien sie erst nach Reload/Re-Login.
+          void serversStore.hydrateFromBackend();
         } else if (app.status === 'rejected') {
           const reason = app.rejection_reason ? ` — ${app.rejection_reason}` : '';
           toast.error(m.instance_app_rejected_toast_title(), {

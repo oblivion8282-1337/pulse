@@ -56,6 +56,9 @@ class InstanceApplicationCreate(BaseModel):
     expected_users: int = Field(default=1, ge=1, le=10000)
     contact_email: EmailStr | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    # Ergebnis des client-seitigen Anschluss-Checks (App-Host-Zweig, beratend).
+    # Wird nur gespeichert + dem Admin angezeigt — keine Server-Logik daran.
+    network_check: Literal["ok", "cgnat", "symmetric", "blocked", "unknown"] | None = None
 
 
 class InstanceApplicationOut(BaseModel):
@@ -67,6 +70,7 @@ class InstanceApplicationOut(BaseModel):
     expected_users: int
     contact_email: str
     notes: str | None
+    network_check: str | None
     status: str
     reviewed_at: datetime | None
     rejection_reason: str | None
@@ -89,6 +93,7 @@ def app_to_out(app: InstanceApplication) -> InstanceApplicationOut:
         expected_users=app.expected_users,
         contact_email=app.contact_email,
         notes=app.notes,
+        network_check=app.network_check,
         status=app.status,
         reviewed_at=app.reviewed_at,
         rejection_reason=app.rejection_reason,
@@ -204,6 +209,7 @@ async def submit_instance_application(
         # Ein explizit mitgeschicktes ``contact_email`` (Alt-Client) gewinnt.
         contact_email=str(payload.contact_email) if payload.contact_email else user.email,
         notes=payload.notes,
+        network_check=payload.network_check,
         status="pending",
     )
     db.add(app)

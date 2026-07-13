@@ -1,22 +1,37 @@
 <!--
-  Formular + Status-Liste für Self-Hoster-Anträge im Einstellungs-Dialog.
-  Endpoint: POST /me/instance-applications + GET /me/instance-applications
-  Cookie-Auth via instancesApi (credentials:'include').
+  Vereintes Antragsformular fürs Hosting (VPS + App-Host) im Einstellungs-
+  Dialog. Zwei Wege, EIN Antragssystem (origin unterscheidet):
+    - "Auf eigenem Server" (vps): Hostname-Feld wie bisher.
+    - "Zuhause mit der Server-App" (app_host): kein Hostname, dafür
+      Pflicht-Anschluss-Check (beratend gespeichert als network_check).
+  Auf Mobilgeräten wird der App-Host-Weg nicht angeboten (Einrichtung
+  braucht den Desktop) — stattdessen eine Hinweiszeile.
+  Endpoint: POST/GET /me/instance-applications (Cookie-Auth via instancesApi).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
+  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { instancesApi, type InstanceApplication } from '$lib/api/instances';
+  import type { NetworkCheckResult } from '$lib/hosting/connectivityCheck';
+  import ConnectivityCheckPanel from './ConnectivityCheckPanel.svelte';
+  import { isMobile } from '$lib/platform/runtime';
+  import ServerIcon from '@lucide/svelte/icons/server';
+  import HouseIcon from '@lucide/svelte/icons/house';
   import { m } from '$lib/paraglide/messages.js';
 
-  // Form state — nur noch der Hostname; die Kontakt-E-Mail kommt server-seitig
-  // aus dem eingeloggten User.
+  type Mode = 'vps' | 'app_host';
+  const mobile = isMobile();
+
+  let mode = $state<Mode>('vps');
   let hostname = $state('');
+  let purpose = $state<'privat' | 'verein' | 'firma' | 'sonst'>('privat');
+  let message = $state('');
+  let netCheck = $state<NetworkCheckResult | null>(null);
   let submitting = $state(false);
   let formError = $state<string | null>(null);
 
-  // List state
   let applications = $state<InstanceApplication[]>([]);
   let listLoading = $state(true);
 
@@ -27,14 +42,14 @@
   async function reload() {
     listLoading = true;
     try {
-      // Nur offene + abgelehnte (mit Begründung) sind hier relevant.
-      // Genehmigte leben als Server unter „Meine Instanzen" weiter,
-      // geschlossene ('closed' = Instanz wieder gelöscht) sind Historie —
-      // eine Ausblendungs-Liste würde jeden künftigen Endstatus fälschlich
-      // anzeigen (und das Fallback-Label beschriftet Unbekanntes als
-      // „abgelehnt"), deshalb Positiv-Filter.
-      const all = await instancesApi.listMyApplications('all');
-      applications = all.filter((a) => a.status === 'pending' || a.status === 'rejected');
+      // Nur offene + abgelehnte/zurückgenommene (mit Begründung) sind hier
+      // relevant. Genehmigte leben als Server weiter, 'closed' ist Historie —
+      // Positiv-Filter statt Ausblendungs-Liste (unbekannte Endstati würden
+      // sonst fälschlich angezeigt).
+      const all = await instancesApi.listMyApplications('all', 'all');
+      applications = all.filter(
+        (a) => a.status === 'pending' || a.status === 'rejected' || a.status === 'revoked'
+      );
     } catch {
       // Nicht kritisch — Liste bleibt leer
     } finally {
@@ -42,16 +57,45 @@
     }
   }
 
+  /** Rote Ergebnisse blockieren den Submit — der Grund steht im Check-Panel,
+   *  als Alternative wird der VPS-Weg genannt. Bewusst kein Override. */
+  const NET_BLOCKING: NetworkCheckResult[] = ['blocked', 'cgnat', 'symmetric'];
+
   async function submit() {
     formError = null;
-    if (!hostname.trim()) { formError = m.self_host_application_hostname_required(); return; }
+    if (mode === 'vps') {
+      if (!hostname.trim()) {
+        formError = m.self_host_application_hostname_required();
+        return;
+      }
+    } else {
+      if (netCheck === null) {
+        formError = m.net_check_required();
+        return;
+      }
+      if (NET_BLOCKING.includes(netCheck)) {
+        formError = m.net_check_vps_alternative();
+        return;
+      }
+    }
     submitting = true;
     try {
-      const created = await instancesApi.submitApplication({ hostname: hostname.trim() });
+      const created =
+        mode === 'vps'
+          ? await instancesApi.submitApplication({ hostname: hostname.trim() })
+          : await instancesApi.submitApplication({
+              origin: 'app_host',
+              purpose,
+              notes: message.trim() || null,
+              network_check: netCheck
+            });
       // Antrag beobachten → Owner-Toast, sobald genehmigt/abgelehnt wird.
-      myInstanceApplications.register(created.id);
+      if (mode === 'vps') myInstanceApplications.register(created.id);
+      else myAppHostApplications.register(created);
       toast.success(m.self_host_application_submitted_toast());
       hostname = '';
+      message = '';
+      netCheck = null;
       await reload();
     } catch (e) {
       formError = e instanceof Error ? e.message : String(e);
@@ -63,34 +107,93 @@
   function statusLabel(s: string): string {
     if (s === 'pending') return m.self_host_application_status_pending();
     if (s === 'approved') return m.self_host_application_status_approved();
+    if (s === 'revoked') return m.app_host_admin_status_revoked();
     return m.self_host_application_status_rejected();
   }
 
   function statusClass(s: string): string {
     if (s === 'approved') return 'bg-emerald-500/20 text-emerald-300';
-    if (s === 'rejected') return 'bg-red-500/20 text-red-300';
-    return 'bg-amber-500/20 text-amber-300';
+    if (s === 'pending') return 'bg-amber-500/20 text-amber-300';
+    return 'bg-red-500/20 text-red-300';
   }
+
+  const MODE_BTN =
+    'flex flex-1 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors';
 </script>
 
-<!-- Kein eigener Kopf: Icon, Titel und Beschreibung liefert die umschließende
-     Sektion in SettingsSelfHost.svelte (sonst doppelte Überschrift). -->
 <div class="flex flex-col gap-5" data-testid="self-host-application">
-  <!-- Form -->
   <form onsubmit={(e) => { e.preventDefault(); void submit(); }}
         class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
-    <div class="flex flex-col gap-1">
-      <label class="text-text-bright text-xs font-medium" for="sha-hostname">
-        {m.self_host_application_hostname_label()} <span class="text-text-muted font-normal">{m.self_host_application_hostname_hint()}</span>
-      </label>
-      <input
-        id="sha-hostname"
-        type="text"
-        bind:value={hostname}
-        placeholder="pulse.example.org"
-        class="bg-bg-input border-border text-text-bright placeholder:text-text-muted rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-      />
+    <!-- Art wählen -->
+    <p class="text-text-bright text-xs font-medium">{m.hosting_apply_mode_label()}</p>
+    <div class="flex flex-col gap-2 sm:flex-row">
+      <button type="button" onclick={() => (mode = 'vps')}
+        class="{MODE_BTN} {mode === 'vps'
+          ? 'border-primary bg-primary/10'
+          : 'border-border bg-bg-input/40 hover:bg-bg-hover'}"
+        data-testid="hosting-mode-vps">
+        <ServerIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
+        <span class="flex flex-col gap-0.5">
+          <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_vps_title()}</span>
+          <span class="text-text-muted text-xs">{m.hosting_apply_mode_vps_desc()}</span>
+        </span>
+      </button>
+      {#if !mobile}
+        <button type="button" onclick={() => (mode = 'app_host')}
+          class="{MODE_BTN} {mode === 'app_host'
+            ? 'border-primary bg-primary/10'
+            : 'border-border bg-bg-input/40 hover:bg-bg-hover'}"
+          data-testid="hosting-mode-app-host">
+          <HouseIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
+          <span class="flex flex-col gap-0.5">
+            <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_app_title()}</span>
+            <span class="text-text-muted text-xs">{m.hosting_apply_mode_app_desc()}</span>
+          </span>
+        </button>
+      {/if}
     </div>
+    {#if mobile}
+      <p class="text-text-muted text-xs">{m.hosting_apply_mobile_hint()}</p>
+    {/if}
+
+    {#if mode === 'vps'}
+      <div class="flex flex-col gap-1">
+        <label class="text-text-bright text-xs font-medium" for="sha-hostname">
+          {m.self_host_application_hostname_label()} <span class="text-text-muted font-normal">{m.self_host_application_hostname_hint()}</span>
+        </label>
+        <input
+          id="sha-hostname"
+          type="text"
+          bind:value={hostname}
+          placeholder="pulse.example.org"
+          class="bg-bg-input border-border text-text-bright placeholder:text-text-muted rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </div>
+    {:else}
+      <div class="flex flex-col gap-1">
+        <label class="text-text-bright text-xs font-medium" for="sha-purpose">
+          {m.app_host_apply_purpose_label()}
+        </label>
+        <select id="sha-purpose" bind:value={purpose}
+          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
+          <option value="privat">{m.app_host_apply_purpose_privat()}</option>
+          <option value="verein">{m.app_host_apply_purpose_verein()}</option>
+          <option value="firma">{m.app_host_apply_purpose_firma()}</option>
+          <option value="sonst">{m.app_host_apply_purpose_sonst()}</option>
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-text-bright text-xs font-medium" for="sha-message">
+          {m.app_host_apply_message_label()}
+          <span class="text-text-muted font-normal">{m.app_host_apply_message_optional()}</span>
+        </label>
+        <textarea id="sha-message" bind:value={message} rows="2" maxlength="2000"
+          placeholder={m.app_host_apply_message_placeholder()}
+          class="bg-bg-input border-border text-text-bright placeholder:text-text-muted resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+        ></textarea>
+      </div>
+      <ConnectivityCheckPanel onresult={(r) => (netCheck = r)} />
+    {/if}
 
     {#if formError}
       <p class="text-red-400 text-xs">{formError}</p>
@@ -105,24 +208,32 @@
     </button>
   </form>
 
-  <!-- Application list -->
+  <!-- Antragsliste (beide Arten) -->
   {#if !listLoading && applications.length > 0}
     <div class="flex flex-col gap-2">
       <h4 class="text-text-muted text-xs font-semibold uppercase tracking-wide">{m.self_host_application_my_applications()}</h4>
       {#each applications as app (app.id)}
         <div class="border-border bg-bg-input/30 flex items-start justify-between gap-3 rounded-xl border p-3">
           <div class="min-w-0">
-            <p class="text-text-bright text-sm font-medium truncate">{app.hostname}</p>
+            <p class="text-text-bright text-sm font-medium truncate">
+              {app.origin === 'app_host' ? m.hosting_apply_mode_app_title() : app.hostname}
+            </p>
             <p class="text-text-muted text-xs mt-0.5">
               {new Date(app.created_at).toLocaleDateString('de-DE')}
               · {app.purpose}
             </p>
           </div>
           <div class="flex flex-col items-end gap-1 shrink-0">
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusClass(app.status)}">
-              {statusLabel(app.status)}
-            </span>
-            {#if app.status === 'rejected' && app.rejection_reason}
+            <div class="flex items-center gap-1.5">
+              <span class="border-border text-text-muted rounded-full border px-2 py-0.5 text-xs"
+                    data-testid="application-origin-chip">
+                {app.origin === 'app_host' ? m.hosting_origin_app() : m.hosting_origin_vps()}
+              </span>
+              <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusClass(app.status)}">
+                {statusLabel(app.status)}
+              </span>
+            </div>
+            {#if (app.status === 'rejected' || app.status === 'revoked') && app.rejection_reason}
               <span class="text-text-muted text-xs max-w-40 text-right" title={app.rejection_reason}>
                 {app.rejection_reason.length > 60
                   ? app.rejection_reason.slice(0, 60) + '…'

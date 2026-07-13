@@ -23,7 +23,9 @@
 
   async function refreshPendingCount() {
     try {
-      const apps = await adminInstancesApi.listApplications('pending');
+      // Beide Antragsarten (vereintes Antragssystem) — der Badge zählt alles,
+      // was auf eine Entscheidung wartet.
+      const apps = await adminInstancesApi.listApplications('pending', 'all');
       pendingCount = apps.length;
     } catch {
       pendingCount = null; // Fehler still — Badge bleibt einfach aus.

@@ -78,7 +78,9 @@ class PendingInstanceApps {
     }
     let apps;
     try {
-      apps = await adminInstancesApi.listApplications('pending');
+      // origin='vps': der App-Host-Anteil hat sein eigenes Badge
+      // ([[pendingAppHostApplications]]) — sonst zählte beides doppelt.
+      apps = await adminInstancesApi.listApplications('pending', 'vps');
     } catch {
       // Transient (Netz) / nicht Cloud / nicht Admin → leise ignorieren,
       // der nächste Tick versucht es erneut.

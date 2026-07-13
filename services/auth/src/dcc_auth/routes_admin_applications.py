@@ -70,6 +70,8 @@ class ApplicationOut(BaseModel):
     expected_users: int
     contact_email: str
     notes: str | None = None
+    # Anschluss-Check-Ergebnis vom App-Host-Antrag (beratend, Chip im UI).
+    network_check: str | None = None
     status: str
     created_at: datetime
     applicant_username: str
@@ -149,6 +151,7 @@ async def list_applications(
             expected_users=row.expected_users,
             contact_email=row.contact_email,
             notes=row.notes,
+            network_check=row.network_check,
             status=row.status,
             created_at=row.created_at,
             applicant_username=row.applicant.username,

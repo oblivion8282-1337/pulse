@@ -169,6 +169,11 @@ class InstanceApplication(Base):
     expected_users: Mapped[int] = mapped_column(nullable=False)
     contact_email: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ergebnis des client-seitigen Anschluss-Checks (Browser-STUN-Probe) beim
+    # App-Host-Antrag: ok | cgnat | symmetric | blocked | unknown. Rein
+    # informativ für den Admin (Chip im Pending-Tab) — KEINE Server-Logik
+    # daran. NULL = nicht geprüft (VPS-Anträge, Alt-Clients). Migration 0045.
+    network_check: Mapped[str | None] = mapped_column(Text, nullable=True)
     # pending | approved | rejected | closed | revoked
     # 'closed' = die genehmigte Instanz wurde vom Owner gelöscht — der Antrag
     # ist Historie und zählt nirgends mehr als "wartet auf Einrichtung".

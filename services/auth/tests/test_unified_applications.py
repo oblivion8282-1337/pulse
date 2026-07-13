@@ -70,7 +70,12 @@ async def owner_auth(client, session_factory):
 async def test_submit_app_host_via_unified_path(client, bob_cookie):
     r = await client.post(
         "/me/instance-applications",
-        json={"origin": "app_host", "purpose": "privat", "notes": "vom Handy"},
+        json={
+            "origin": "app_host",
+            "purpose": "privat",
+            "notes": "vom Handy",
+            "network_check": "ok",
+        },
         headers={"Cookie": bob_cookie},
     )
     assert r.status_code == 201, r.text
@@ -82,6 +87,8 @@ async def test_submit_app_host_via_unified_path(client, bob_cookie):
     assert data["notes"] == "vom Handy"
     # contact_email aus dem eingeloggten User abgeleitet.
     assert data["contact_email"] == "uni_bob@dcc-test.example.com"
+    # Anschluss-Check-Ergebnis wird gespeichert und zurückgegeben (beratend).
+    assert data["network_check"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -181,6 +188,8 @@ async def test_admin_approve_app_host_via_unified_path(
     assert r.status_code == 200, r.text
     entry = next(a for a in r.json() if a["id"] == app_id)
     assert entry["origin"] == "app_host"
+    # network_check erscheint in der Admin-Liste (hier nicht mitgesendet → None).
+    assert entry["network_check"] is None
 
     r = await client.post(
         f"/admin/instance-applications/{app_id}/approve", headers=owner_auth

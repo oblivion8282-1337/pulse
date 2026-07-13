@@ -2,9 +2,10 @@
   Self-Hoster-Tab in den Einstellungen.
   Zwei klar getrennte Karten:
     1. App-Hosting  — Stufe 2, eigenes Gerät via separater Server-App
-       (Antrag + Download: ServerAppDownload)
-    2. Eigener Server — Stufe 3, dauerhaft auf einem VPS
-       (SelfHostApplication + MyInstances)
+       (nur noch Download/Status: ServerAppDownload — der ANTRAG läuft über
+       das vereinte Formular in Karte 2)
+    2. Eigener Server — vereintes Antragsformular (VPS + App-Host,
+       SelfHostApplication) + MyInstances
 -->
 <script lang="ts">
   import type { Component } from 'svelte';

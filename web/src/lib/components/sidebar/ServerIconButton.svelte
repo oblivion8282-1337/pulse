@@ -41,6 +41,12 @@
   // Angezeigter Name: persönlicher Name > Admin-Instanz-Name > Hostname.
   let displayName = $derived(serverDisplayName(server));
 
+  // „Noch nicht eingerichtet": Self-Host-Eintrag, auf dem nie ein Cert-Login
+  // gelang (pairwise_sub wird erst beim ersten erfolgreichen Connect gesetzt —
+  // hydrateFromBackend legt genehmigte Instanzen mit null an). So erklärt sich
+  // der tote Status-Dot einer genehmigten, aber nie aufgesetzten Instanz.
+  let notSetUp = $derived(!server.isCloud && server.pairwise_sub === null);
+
   function initials(label: string): string {
     return label
       .replace(/^https?:\/\//, '')
@@ -112,7 +118,11 @@
             </div>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content side="right">{displayName}</Tooltip.Content>
+        <Tooltip.Content side="right">
+          {displayName}{#if notSetUp}
+            <span class="text-text-muted"> — {m.server_icon_not_set_up()}</span>
+          {/if}
+        </Tooltip.Content>
       </Tooltip.Root>
     {/snippet}
   </ContextMenu.Trigger>
