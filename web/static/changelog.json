@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-13.2",
+      "date": "2026-07-13",
+      "style": "Sachlich",
+      "title": "Server-Verwaltung übersichtlicher",
+      "items": [
+        "Die Admin-Verwaltung ist in Reiter gegliedert (Nutzer, Anträge, Meldungen, Einstellungen, Protokoll).",
+        "Die Nutzerliste lässt sich jetzt durchsuchen und nach Admins, Gesperrten oder Self-Host filtern."
+      ]
+    },
+    {
       "id": "2026-07-13",
       "date": "2026-07-13",
       "style": "Sachlich",
