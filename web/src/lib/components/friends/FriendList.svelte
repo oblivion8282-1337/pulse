@@ -44,7 +44,7 @@
 
   const visible = $derived(
     onlineOnly
-      ? friends.list.filter((f) => presence.displayStatus(f.user_id) !== 'offline')
+      ? friends.list.filter((f) => presence.displayStatusForFriend(f.user_id) !== 'offline')
       : friends.list
   );
 
@@ -124,7 +124,7 @@
   {#each visible as f (f.user_id)}
     {@const u = userCache.get(f.user_id)}
     {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
-    {@const status = presence.displayStatus(f.user_id)}
+    {@const status = presence.displayStatusForFriend(f.user_id)}
     {@const vc = voiceByUser.get(f.user_id)}
     {@const stream = findChannel(streamPresence.byChannel, (ids) => ids.includes(f.user_id))}
     {@const party = findChannel(watchPartyPresence.byChannel, (parties) =>

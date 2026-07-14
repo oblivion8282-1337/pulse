@@ -102,6 +102,13 @@ export function dispatchingServerId(): string | null {
   return _dispatchingConn?.serverId ?? null;
 }
 
+/** True, wenn das gerade dispatchende Event von der CLOUD-Connection kommt.
+ *  Nutzt der Presence-Handler, um Cloud-Freundes-Präsenz (global, überlebt
+ *  Server-Wechsel) vom aktiven Server-Mitglieder-Set zu trennen. */
+export function dispatchingIsCloud(): boolean {
+  return _dispatchingConn?.isCloud ?? false;
+}
+
 /** Lokale (nicht-Wire) Stempel, die `_handle` aufs ready-Event setzt. Beim
  *  Cachen entfernen, damit ein späterer Replay sie aus der *dann*-aktuellen
  *  Wahrheit neu ableitet, nie aus einem veralteten Stempel. */

@@ -4,11 +4,15 @@
  */
 import { presence, type PresenceStatus, type OwnPresenceStatus } from '$lib/stores/presence.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
+import { dispatchingIsCloud } from '$lib/ws/gateway-connection';
 import { registerWsHandler } from '../handler-registry';
 
 export function register(): void {
   registerWsHandler('presence_update', (evt) => {
     presence.apply(evt.user_id, evt.online);
+    // Kommt das Update von der Cloud, ist es ein FREUND → auch den
+    // Cloud-Freundes-Topf pflegen (der einen Self-Host-Wechsel überlebt).
+    if (dispatchingIsCloud()) presence.applyFriend(evt.user_id, evt.online);
   });
 
   registerWsHandler('presence_status_changed', (evt) => {
@@ -23,6 +27,10 @@ export function register(): void {
     } else {
       // Peer envelope is already masked server-side (invisible → offline).
       presence.applyStatusChange(evt.data.user_id, evt.data.status as PresenceStatus);
+      // Von der Cloud = ein Freund → Freundes-Topf mitpflegen.
+      if (dispatchingIsCloud()) {
+        presence.applyFriendStatusChange(evt.data.user_id, evt.data.status as PresenceStatus);
+      }
     }
   });
 }

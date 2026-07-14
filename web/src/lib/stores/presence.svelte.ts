@@ -38,6 +38,17 @@ class PresenceStore {
    *  when invisible (where peers see ``offline``). */
   myStatus = $state<OwnPresenceStatus>('online');
 
+  // ── Cloud-Freundes-Präsenz (getrennt vom aktiven-Server-Set oben) ──────────
+  // Der obige ``onlineIds``/``statuses`` spiegelt den GERADE AKTIVEN Server
+  // (Mitgliederliste) und wird bei jedem ``ready`` neu geseedet. Freunde sind
+  // aber CLOUD-global und müssen einen Server-Wechsel überleben — ein Self-Host-
+  // ready darf ihre Präsenz nicht überschreiben (Bug 2026-07-14: „nur noch 2
+  // Freunde online"). Darum ein eigener Topf, den NUR Cloud-Events befüllen
+  // (seedFriends/applyFriend aus der Cloud-Connection). Die Freundesliste liest
+  // ``displayStatusForFriend``.
+  friendOnlineIds = $state<Set<string>>(new Set());
+  friendStatuses = $state<Record<string, PresenceStatus>>({});
+
   /** Seed the legacy online set from ``ready.online_user_ids``. Kept as a
    *  separate call from ``seedStatuses`` so the WS-handler order stays
    *  identical to the pre-Etappe-4 codepath. */
@@ -50,6 +61,20 @@ class PresenceStore {
   seedStatuses(map: Record<string, PresenceStatus>, ownStatus: OwnPresenceStatus): void {
     this.statuses = { ...map };
     this.myStatus = ownStatus;
+  }
+
+  /** Cloud-only: den Freundes-Online-Set aus dem Cloud-``ready``
+   *  (``online_user_ids``) neu setzen. Läuft NUR für die Cloud-Connection,
+   *  nie für einen Self-Host — so bleibt die Freundes-Präsenz beim
+   *  Server-Wechsel erhalten. */
+  seedFriends(userIds: string[]): void {
+    this.friendOnlineIds = new Set(userIds);
+  }
+
+  /** Cloud-only: die Freundes-Status-Map aus dem Cloud-``ready``
+   *  (``user_presence_statuses``) neu setzen. */
+  seedFriendStatuses(map: Record<string, PresenceStatus>): void {
+    this.friendStatuses = { ...map };
   }
 
   apply(userId: string, online: boolean): void {
@@ -69,6 +94,26 @@ class PresenceStore {
     if (status === 'offline') next.delete(userId);
     else next.add(userId);
     this.onlineIds = next;
+  }
+
+  /** Cloud-only Pendant zu ``apply`` für den Freundes-Set (presence_update
+   *  von der Cloud-Connection). */
+  applyFriend(userId: string, online: boolean): void {
+    const next = new Set(this.friendOnlineIds);
+    if (online) next.add(userId);
+    else next.delete(userId);
+    this.friendOnlineIds = next;
+  }
+
+  /** Cloud-only Pendant zu ``applyStatusChange`` für den Freundes-Set. */
+  applyFriendStatusChange(userId: string, status: PresenceStatus): void {
+    if (this.friendStatuses[userId] !== status) {
+      this.friendStatuses = { ...this.friendStatuses, [userId]: status };
+    }
+    const next = new Set(this.friendOnlineIds);
+    if (status === 'offline') next.delete(userId);
+    else next.add(userId);
+    this.friendOnlineIds = next;
   }
 
   /** Setter for the caller's own *real* status — used by the WS handler
@@ -122,9 +167,23 @@ class PresenceStore {
     return explicit;
   }
 
+  /** Status eines FREUNDES aus dem Cloud-Topf — für die Freundesliste. Gleiche
+   *  Semantik wie ``displayStatus`` (Socket = Wahrheit; explizites idle/dnd nur
+   *  obendrauf), aber gegen ``friendOnlineIds``/``friendStatuses``, die ein
+   *  Self-Host nicht anfasst. Kein Selbst-Sonderfall: man ist nie sein eigener
+   *  Freund. */
+  displayStatusForFriend(userId: string): PresenceStatus {
+    if (!this.friendOnlineIds.has(userId)) return 'offline';
+    const explicit = this.friendStatuses[userId];
+    if (explicit === undefined || explicit === 'offline') return 'online';
+    return explicit;
+  }
+
   clear(): void {
     this.onlineIds = new Set();
     this.statuses = {};
+    this.friendOnlineIds = new Set();
+    this.friendStatuses = {};
     this.myStatus = 'online';
   }
 }
