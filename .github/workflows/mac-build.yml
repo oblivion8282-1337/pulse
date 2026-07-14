@@ -1,0 +1,151 @@
+name: mac-build
+
+# Baut das macOS-DMG (Pulse-Desktop inkl. HQ-Streaming-Sidecar) und lädt es per
+# scp auf den Cloud-VPS, von wo nginx es unter
+# https://howispulse.com/downloads/Pulse-latest.dmg ausliefert (matcht MAC_DMG_URL
+# in web/src/lib/downloads/appDownloads.ts). Gleiches Deploy-Muster wie
+# win-build.yml / flatpak.yml — selbe VPS-SSH-Secrets.
+#
+# Stufe 1 (Stand 2026-07-14): UNSIGNIERT. Gatekeeper verlangt beim Erststart
+# Rechtsklick→Öffnen; macOS hat KEINEN Auto-Updater (updater.ts: manueller
+# Download). Signing/Notarization = späterer, kostenpflichtiger Schritt
+# (Stufe B in desktop/electron-builder.yml + docs/plans/2026-06-15-macos-client.md).
+#
+# WARUM FFmpeg HIER gebaut statt (wie Windows) vorgebaut gezogen wird:
+# Der Mac-Sidecar linkt gegen eine SELBSTGEBAUTE LGPL-FFmpeg (openssl statt Apple
+# SecureTransport — sonst droppt MediaMTX den RTMPS-Publish nach 10s; Details in
+# streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh). Ein fertiges LGPL-Prebuild
+# wie BtbN für Windows gibt es dafür nicht. macOS-dylibs tragen zudem ihren
+# absoluten Build-Pfad als install-name in sich; bundle-dylibs.sh liest den per
+# otool aus und kopiert von dort → eine vom VPS gezogene Dist müsste man auf den
+# EXAKT gleichen Pfad entpacken. Auf dem Runner selbst bauen hält alle absoluten
+# Pfade konsistent → bundle-dylibs.sh funktioniert unverändert. Der FFmpeg-Cache
+# macht den ~15-min-Kaltbau danach zu einem schnellen Restore.
+#
+# Läuft bei jedem main-Push, der den Desktop-Wrapper oder den Mac-Sidecar berührt.
+# Manuell auslösbar via "Run workflow".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'streaming/mac-hq-sidecar/**'
+      - '.github/workflows/mac-build.yml'
+  workflow_dispatch: {}
+
+# Parallele Pushes dürfen nicht auf dem Upload-Target rasen; laufenden Upload
+# zu Ende laufen lassen (wie win-build.yml / flatpak.yml).
+concurrency:
+  group: mac-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # macos-latest = Apple Silicon (arm64) → matcht das arm64-DMG + --enable-neon.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust-Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo-Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: streaming/mac-hq-sidecar
+
+      # FFmpeg-Build + der spätere Dylib-Bundle brauchen openssl@3 + opus Headers/
+      # Libs (VideoToolbox/AudioToolbox liefert macOS selbst). openssl@3 ist auf
+      # macos-latest meist vorinstalliert, opus nicht — idempotent nachziehen.
+      - name: FFmpeg-Build-Deps (Homebrew)
+        run: brew install openssl@3 opus
+
+      # ~/src/ffmpeg-openssl ist die private LGPL-FFmpeg-Installation, gegen die
+      # der Sidecar linkt (default PREFIX in build-ffmpeg.sh = $HOME/src/
+      # ffmpeg-openssl → auf dem Runner /Users/runner/src/ffmpeg-openssl). Cache
+      # nur Performance, nicht Korrektheit; keyed auf das Build-Script — ein
+      # FFmpeg-Bump (VER/configure-Flags) invalidiert ihn automatisch. Der stabile
+      # Runner-Home-Pfad hält die dylib-install-names über Restores hinweg gültig.
+      - name: FFmpeg-Cache
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/src/ffmpeg-openssl
+          key: mac-ffmpeg-openssl-${{ hashFiles('streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh') }}
+
+      # Nur bei Cache-Miss aus dem Quelltext bauen (~15 min). Der Guard macht den
+      # Restore-Fall zum No-Op — build-ffmpeg.sh selbst würde sonst immer neu bauen.
+      - name: FFmpeg bauen (LGPL, openssl, Cache-Miss)
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: bash streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # esbuild-Bundle → cargo build --release (Sidecar) → bundle-dylibs.sh
+      # (@loader_path-Rewrite + ad-hoc-Sign) → electron-builder --mac → DMG+ZIP in
+      # desktop/release/. `dist:mac` läuft mit `--publish never`; der Upload macht
+      # der scp-Step unten. PKG_CONFIG_PATH zeigt cargo auf die frisch gebaute
+      # FFmpeg (überschreibt den auf michaels Mac hardcodierten Pfad in
+      # streaming/mac-hq-sidecar/.cargo/config.toml — cargos [env] ist non-force,
+      # eine gesetzte Env gewinnt).
+      #
+      # Podman-Bündelung für App-Hosting entfernt (2026-07-14, App-Hosting
+      # geparkt) — analog zu win-build. Zum Reaktivieren: `bash scripts/
+      # fetch-mac-podman.sh` wieder in dist:mac + den resources-podman-mac-
+      # extraResource in electron-builder.yml (mac-Sektion) aufnehmen.
+      - name: DMG bauen (unsigniert)
+        run: |
+          export PKG_CONFIG_PATH="$HOME/src/ffmpeg-openssl/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/opus/lib/pkgconfig"
+          pnpm --filter @dcc/desktop run dist:mac
+
+      # Build-Artefakt als Fallback/Direktdownload (auch ohne erfolgreichen Upload).
+      - name: DMG als Workflow-Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-mac-dmg
+          path: desktop/release/Pulse-*.dmg
+          if-no-files-found: error
+
+      # DMG per scp auf den Cloud-VPS (dieselben SSH-Secrets wie win-build.yml /
+      # flatpak.yml). nginx serviert ~/pulse/downloads unter /downloads/.
+      - name: SSH für scp einrichten
+        # NUR von main aus hochladen — ein workflow_dispatch auf einem Branch
+        # (CI-Validierung) baut + archiviert nur, überschreibt aber nie das
+        # Live-DMG.
+        if: github.ref == 'refs/heads/main'
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Unter festem Dateinamen ablegen → stabiler Direktdownload, matcht
+      # MAC_DMG_URL (/downloads/Pulse-latest.dmg). Das Zielverzeichnis
+      # ~/pulse/downloads/ muss auf dem Server existieren (scp legt es nicht an).
+      - name: DMG nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
+        run: |
+          DMG=$(ls desktop/release/Pulse-*.dmg | head -n1)
+          scp -i ~/.ssh/id_ed25519 \
+            "$DMG" \
+            michael@159.195.150.54:pulse/downloads/Pulse-latest.dmg
+
+      - name: SSH-Key wieder entfernen
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

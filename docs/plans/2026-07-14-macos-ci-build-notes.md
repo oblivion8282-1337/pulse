@@ -67,6 +67,38 @@ prüfen.
   eingefrorene Kopie vom VPS). Sauberer/schneller, aber die Dist muss man einmal
   von Hand bauen + hochladen.
 
+## Entscheidung + Umsetzung (2026-07-14, `mac-build.yml` gebaut)
+**Weg A gewählt** — trotz „wie bei Windows" (= Weg B) am Anfang. Grund kam beim
+Lesen von `bundle-dylibs.sh`: Windows findet DLLs zur Laufzeit per **Dateiname**
+neben der .exe; macOS-dylibs tragen ihren **absoluten Build-Pfad als install-name**
+in sich. Der Sidecar linkt gegen `/Users/michael/src/ffmpeg-openssl/lib/…dylib`,
+genau dieser Pfad landet im Binary, `bundle-dylibs.sh` liest ihn per `otool -L`
+wieder aus und kopiert von dort. Auf einem Runner (`/Users/runner/…`) existiert der
+Pfad nicht → eine vom VPS gezogene Dist (Weg B) müsste man auf **exakt denselben
+absoluten Pfad** entpacken **und** alle `.pc`-Prefixe umschreiben. Weg A baut auf
+dem Runner selbst → alle absoluten Pfade konsistent, `bundle-dylibs.sh` läuft
+unverändert; der FFmpeg-Cache macht den ~15-min-Kaltbau danach zum schnellen
+Restore. Zusätzlich: kein manueller VPS-Upload — weder jetzt noch bei jedem
+FFmpeg-Bump.
+
+**Gebaut:**
+- `.github/workflows/mac-build.yml` — Klon von `win-build.yml`, `runs-on:
+  macos-latest` (arm64). Steps: Rust + Cargo-Cache → `brew install openssl@3 opus`
+  → FFmpeg-Cache (`~/src/ffmpeg-openssl`, keyed auf `build-ffmpeg.sh`) → FFmpeg
+  bauen nur bei Cache-Miss → pnpm/Node → `dist:mac` mit `PKG_CONFIG_PATH` auf die
+  frische FFmpeg (überschreibt den hardcodierten Pfad in `.cargo/config.toml`,
+  cargos `[env]` ist non-force) → Artefakt-Upload → scp `Pulse-*.dmg` nach
+  `…:pulse/downloads/Pulse-latest.dmg` nur auf `main`.
+- **Podman-Bündelung raus** (wie Windows): `bash scripts/fetch-mac-podman.sh` aus
+  `dist:mac` (`desktop/package.json`) + der `resources-podman-mac`-extraResource
+  aus `electron-builder.yml` (mac-Sektion). `fetch-mac-podman.sh` +
+  `resources-podman-mac/` bleiben liegen (Reaktivierung dokumentiert).
+
+**Noch offen / nach dem Merge:** Der Workflow läuft (wie win/flatpak) **nur auf
+main** → erst nach dem Merge verifizierbar. Erster Lauf baut FFmpeg kalt (~15 min).
+`~/pulse/downloads/` muss auf dem VPS existieren (scp legt es nicht an) — steht
+schon, das alte DMG liegt dort.
+
 ## Schon entschieden (aus der Session 2026-07-14)
 - **Stufe 1**: unsigniert, gratis (Repo ist **public** → macOS-Runner kostenlos).
   Signierung/Notarisierung = späterer, kostenpflichtiger Schritt (Apple Developer

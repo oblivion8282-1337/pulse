@@ -191,15 +191,10 @@ mac:
   extraResources:
     - from: ../streaming/mac-hq-sidecar/target/release/hq-sidecar
       to: hq-sidecar
-    # App-Hosting: gebündeltes Podman (podman + gvproxy + vfkit) — geladen von
-    # scripts/fetch-mac-podman.sh (Teil von dist:mac), SHA-gepinnt. vfkit behält
-    # seine Upstream-Signatur samt Virtualization-Entitlement (der --deep-Sign
-    # in afterPack fasst lose Resources-Binaries nicht an, s. hq-sidecar).
-    - from: resources-podman-mac
-      to: podman
-      filter:
-        - podman
-        - gvproxy
-        - vfkit
+    # Podman-Bündelung für App-Hosting entfernt (2026-07-14, App-Hosting
+    # geparkt) — analog zu win-build. Zum Reaktivieren: `bash scripts/
+    # fetch-mac-podman.sh` wieder in dist:mac (desktop/package.json) + hier den
+    # resources-podman-mac-extraResource (from: resources-podman-mac, to: podman,
+    # filter podman/gvproxy/vfkit) aufnehmen.
 dmg:
   artifactName: Pulse-${version}-${arch}.dmg
