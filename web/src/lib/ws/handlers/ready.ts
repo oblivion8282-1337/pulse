@@ -119,6 +119,11 @@ export function register(ctx: ReadyContext): void {
         evt.user_presence_statuses ?? {},
         evt.presence_status ?? 'online'
       );
+      // Cloud-global: den Freundes-Präsenz-Topf setzen. Getrennt vom
+      // aktiven-Server-Set (Zeile ~97, isActive) — ein Self-Host-ready darf die
+      // Freundes-Präsenz nicht überschreiben. Nur die Cloud befüllt ihn.
+      presence.seedFriends(evt.online_user_ids ?? []);
+      presence.seedFriendStatuses(evt.user_presence_statuses ?? {});
     }
 
     // Per-server admin + per-server user id are bound to the DISPATCHING
