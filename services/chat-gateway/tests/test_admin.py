@@ -290,3 +290,46 @@ async def test_patch_normal_stream_limits(client, admin_token):
         "/admin/permissions", json={"ns_bitrate_min_kbps": 9000}, headers=headers
     )
     assert r3.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_instance_name_broadcasts_live(client, admin_token, app):
+    """Regression 2026-07-14: eine Umbenennung muss SOFORT bei allen
+    verbundenen Mitgliedern ankommen (Live-Broadcast), nicht erst beim
+    nächsten ``ready``. Der ``permissions_updated``-Broadcast trägt den
+    Namen: gesetzt → der Name, zurückgesetzt → "", unverändert → None."""
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+
+    captured: list = []
+
+    async def _capture(envelope):
+        captured.append(envelope)
+
+    app.state.connection_manager.publish_guild_event = _capture
+
+    # (1) Setzen → Broadcast trägt den Namen.
+    r = await client.patch(
+        "/admin/permissions", json={"instance_name": "Mein Server"}, headers=headers
+    )
+    assert r.status_code == 200
+    assert captured, "kein Broadcast beim Umbenennen"
+    assert captured[-1].op == "permissions_updated"
+    assert captured[-1].instance_name == "Mein Server"
+
+    # (2) Zurücksetzen (leer) → Broadcast trägt "" (Adresse zeigen), nicht None.
+    captured.clear()
+    r = await client.patch(
+        "/admin/permissions", json={"instance_name": ""}, headers=headers
+    )
+    assert r.status_code == 200
+    assert captured[-1].instance_name == ""
+
+    # (3) Anderes Feld ändern, Name NICHT anfassen → instance_name bleibt None
+    #     (Feld unverändert), damit Clients ihren Namen nicht fälschlich leeren.
+    captured.clear()
+    r = await client.patch(
+        "/admin/permissions", json={"allow_guild_creation": False}, headers=headers
+    )
+    assert r.status_code == 200
+    assert captured[-1].instance_name is None

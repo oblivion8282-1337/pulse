@@ -287,6 +287,12 @@ async def patch_permissions(
             PermissionsUpdatedEvent(
                 allow_guild_creation=row.allow_guild_creation,
                 allow_member_invites=row.allow_member_invites,
+                # Nur mitschicken, wenn der Name sich änderte: "" = zurückgesetzt
+                # (Adresse zeigen), None = Feld unverändert. So aktualisieren
+                # verbundene Mitglieder den Server-Namen sofort, ohne Reload.
+                instance_name=(
+                    (row.instance_name or "") if "instance_name" in changes else None
+                ),
                 guild_sound_max_size_bytes=row.guild_sound_max_size_bytes,
                 hq_bitrate_min_kbps=row.hq_bitrate_min_kbps,
                 hq_bitrate_max_kbps=row.hq_bitrate_max_kbps,

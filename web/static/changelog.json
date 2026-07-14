@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-14.4",
+      "date": "2026-07-14",
+      "style": "Sachlich",
+      "title": "Server benennen und aufgeräumtes Rechtsklick-Menü",
+      "items": [
+        "Ein umbenannter Server erscheint jetzt sofort bei allen Mitgliedern mit dem neuen Namen — ohne Neuladen.",
+        "Rechtsklick auf einen Server zeigt normalen Mitgliedern nur noch die Benachrichtigungen; technische Details (Adresse, Status) bleiben dem Server-Admin vorbehalten.",
+        "Für Server-Admins: Der Server-Name steht jetzt ganz oben in den Einstellungen."
+      ]
+    },
+    {
       "id": "2026-07-14.3",
       "date": "2026-07-14",
       "style": "Sachlich",

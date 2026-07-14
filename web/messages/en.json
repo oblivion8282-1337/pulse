@@ -184,7 +184,7 @@
   "admin_server_name_title": "Server Name",
   "admin_server_name_description": "A display name for your server that everyone connected sees — instead of the address. Leave empty to show the address again.",
   "admin_server_name_label": "Display name",
-  "admin_server_name_placeholder": "e.g. Unicut Media",
+  "admin_server_name_placeholder": "e.g. My Server",
   "admin_server_name_loading": "Loading …",
   "admin_server_name_save": "Save",
   "admin_server_name_saving": "Saving …",

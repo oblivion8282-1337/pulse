@@ -212,6 +212,9 @@ export type ServerEvent =
       op: 'permissions_updated';
       allow_guild_creation: boolean;
       allow_member_invites: boolean;
+      // Self-Host-Anzeigename bei Umbenennung: "" = zurückgesetzt (Adresse
+      // zeigen), undefined = Feld unverändert.
+      instance_name?: string;
       guild_sound_max_size_bytes?: number;
       hq_bitrate_min_kbps?: number;
       hq_bitrate_max_kbps?: number;

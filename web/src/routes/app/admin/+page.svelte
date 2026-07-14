@@ -57,8 +57,11 @@
   let complaintsNew = $state(0);
   let applicationsBadge = $derived(instancesPending + pendingAppHostApplications.count);
 
+  // Reihenfolge: Übersicht → Einstellungen → Nutzer → (Cloud: Anträge,
+  // Meldungen) → Protokoll. Cloud-only-Reiter bleiben vor dem Protokoll.
   let tabs = $derived([
     { id: 'overview' as const, label: m.admin_tab_overview(), badge: 0 },
+    { id: 'settings' as const, label: m.admin_tab_settings(), badge: 0 },
     { id: 'users' as const, label: m.admin_tab_users(), badge: 0 },
     ...(isCloud
       ? [
@@ -66,7 +69,6 @@
           { id: 'complaints' as const, label: m.admin_tab_complaints(), badge: complaintsNew }
         ]
       : []),
-    { id: 'settings' as const, label: m.admin_tab_settings(), badge: 0 },
     { id: 'audit' as const, label: m.admin_tab_audit(), badge: 0 }
   ]);
 
