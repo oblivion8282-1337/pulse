@@ -43,6 +43,7 @@
   import GuildLimitsEditor from './GuildLimitsEditor.svelte';
   import GuildInvitesEditor from './GuildInvitesEditor.svelte';
   import ModQueue from '$lib/components/admin/ModQueue.svelte';
+  import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -88,6 +89,9 @@
         roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS) ||
         roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD))
   );
+
+  // Offene-Meldungen-Zähler für das Tab-Badge.
+  let modQueueOpen = $derived(guildId ? modQueueCounts.get(guildId) : 0);
 
   // Default to the first tab the caller is allowed to see when the dialog
   // first opens, so it never opens on a tab that's empty. Only initialize
@@ -310,6 +314,14 @@
             data-testid="settings-tab-modqueue"
           >
             <FlagIcon class="size-4" /> {m.guild_settings_dialog_tab_modqueue()}
+            {#if modQueueOpen > 0}
+              <span
+                class="ml-auto rounded-full bg-red-500/20 px-1.5 py-0.5 text-xs font-semibold text-red-400 tabular-nums"
+                data-testid="modqueue-tab-badge"
+              >
+                {modQueueOpen > 99 ? '99+' : modQueueOpen}
+              </span>
+            {/if}
           </button>
         {/if}
         {#if canManageGuild}

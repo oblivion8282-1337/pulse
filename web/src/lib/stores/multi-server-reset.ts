@@ -38,6 +38,7 @@ import { guildSounds } from './guildSounds.svelte';
 import { guilds } from './guilds.svelte';
 import { memberRoles } from './memberRoles.svelte';
 import { messages } from './messages.svelte';
+import { modQueueCounts } from './modQueueCounts.svelte';
 import { presence } from './presence.svelte';
 import { readState } from './readState.svelte';
 import { roles } from './roles.svelte';
@@ -79,6 +80,7 @@ export function resetServerScopedStores(): void {
   guildSounds.clear();
   channelPermissions.clear();
   memberRoles.clear();
+  modQueueCounts.clear();
   voicePresence.clear();
   streamPresence.clear();
   streamChat.clearAll();

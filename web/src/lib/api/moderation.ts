@@ -83,6 +83,15 @@ export async function createReport(
 }
 
 /**
+ * Anzahl offener Meldungen (new + triaged) einer Guild — Quelle fürs
+ * Moderator-Badge. Setzt MANAGE_MESSAGES OR BAN_MEMBERS OR MANAGE_GUILD voraus.
+ */
+export async function getModQueueCount(guildId: string): Promise<number> {
+  const r = await request<{ count: number }>(`/guilds/${guildId}/mod-queue/count`);
+  return r.count;
+}
+
+/**
  * Listet Reports in der Mod-Queue einer Guild.
  * Setzt MANAGE_MESSAGES OR BAN_MEMBERS OR MANAGE_GUILD voraus.
  */

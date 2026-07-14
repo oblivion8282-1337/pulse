@@ -246,6 +246,11 @@ export type ServerEvent =
       plugin_name: string;
       enabled: boolean;
     }
+  // Neue Moderations-Meldung in dieser Community. Nur an Moderator-Sockets
+  // zugestellt (chat-gateway filtert auf Mod-Rechte). Trägt bewusst keine
+  // PII (kein Melde-Text, keine Melder/Ziel-IDs) — nur reason_code für den
+  // Toast + guild_id fürs Badge.
+  | { op: 'report_new'; guild_id: string; report_id: string; reason_code: string }
   | { op: 'role_created'; role: RolePayload }
   | { op: 'role_updated'; role: RolePayload }
   | { op: 'role_deleted'; guild_id: string; role_id: string }
