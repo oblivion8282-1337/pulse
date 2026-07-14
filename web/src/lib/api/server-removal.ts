@@ -19,6 +19,7 @@ import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { leaveInstanceOn } from '$lib/api/add-server-flow';
 import { instancesApi } from '$lib/api/instances';
+import { fetchDeletedInstanceIds } from '$lib/api/deleted-instances';
 import { ApiError } from '$lib/api/client';
 
 export function removeServerLocally(serverId: string): void {
@@ -70,6 +71,15 @@ export async function leaveAndRemoveServer(server: ServerEntry): Promise<LeaveSe
     if (err instanceof ApiError && err.status === 409) return 'owns-communities';
     if (err instanceof ApiError && err.status === 403) return 'owner';
     outcome = 'unreachable';
+  }
+
+  // 'unreachable' ehrlich einordnen: ist die Instanz laut öffentlicher
+  // Löschliste ENDGÜLTIG gelöscht, gibt es kein "dort" mehr, bei dem eine
+  // Mitgliedschaft weiterbestehen könnte — die Warnung wäre irreführend.
+  // Dann normaler 'entfernt'-Toast. Liste nicht ladbar → konservativ warnen.
+  if (outcome === 'unreachable' && server.instance_id) {
+    const deleted = await fetchDeletedInstanceIds();
+    if (deleted?.has(server.instance_id)) outcome = 'left';
   }
 
   if (server.instance_id) {

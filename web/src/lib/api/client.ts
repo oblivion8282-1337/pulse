@@ -21,6 +21,7 @@ import { serversStore, CLOUD_HOSTNAME } from './servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { safeParse, extractDetail } from './parse';
+import { m } from '$lib/paraglide/messages.js';
 import { transportFetch } from '$lib/direct/transport';
 import type { ServerEntry } from './servers.svelte';
 import type { Tokens } from './types';
@@ -36,11 +37,16 @@ export class ApiError extends Error {
   }
 }
 
-/** Self-Host: Session-Token abgelaufen oder fehlt → Re-Auth nötig. */
+/** Self-Host: Session-Token abgelaufen oder fehlt → Re-Auth nötig.
+ *  message ist lokalisiert + trägt den Server-NAMEN (nicht die rohe
+ *  Listen-UUID) — sie schlägt über generische catch→toast-Pfade bis ins UI
+ *  durch und muss dort für Menschen lesbar sein. */
 export class SessionExpiredError extends Error {
   serverId: string;
   constructor(serverId: string) {
-    super(`session expired for server ${serverId}`);
+    const entry = serversStore.find(serverId);
+    const label = entry?.server_name ?? entry?.label ?? serverId;
+    super(m.session_expired_for_server({ label }));
     this.name = 'SessionExpiredError';
     this.serverId = serverId;
   }

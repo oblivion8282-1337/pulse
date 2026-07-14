@@ -17,6 +17,7 @@
 import { m } from '$lib/paraglide/messages.js';
 import { request, type RequestOpts } from './client';
 import { instancesApi } from './instances';
+import { persistDisclaimerAck } from './disclaimer-ack';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
@@ -188,13 +189,14 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
   return m.add_server_flow_cert_login_failed();
 }
 
-/** Setzt die zwei Disclaimer-Flags (hostname-keyed + serverId-keyed) im
- *  localStorage, damit der SelfHostDisclaimer-Banner nach dem Hinzufügen
- *  nicht erneut hochpoppt. Best-effort (Quota/Private-Browsing: silent). */
+/** Markiert den Disclaimer als bestätigt: hostname-Flag lokal (Erstkontakt-
+ *  Dialog) + serverId-Bestätigung lokal UND auf dem Server (geräteüber-
+ *  greifend, s. disclaimer-ack.ts) — der bewusste Confirm beim Hinzufügen
+ *  IST die Bestätigung, der Banner soll danach auf keinem Gerät hochpoppen. */
 export function markSelfHostDisclaimerSeen(hostname: string, serverId: string): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(`pulse.disclaimer_accepted_${hostname}`, '1');
-    window.localStorage.setItem(`pulse.disclaimer_seen_${serverId}`, '1');
   } catch { /* Quota/Private-Browsing: silent */ }
+  persistDisclaimerAck(serverId);
 }

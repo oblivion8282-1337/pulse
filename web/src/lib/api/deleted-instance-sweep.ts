@@ -17,7 +17,8 @@
 
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
-import { CLOUD_HOSTNAME, serversStore } from '$lib/api/servers.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
+import { fetchDeletedInstanceIds } from '$lib/api/deleted-instances';
 import { removeServerLocally } from '$lib/api/server-removal';
 import { preCheckServer } from '$lib/api/server-info';
 
@@ -26,24 +27,8 @@ export async function sweepDeletedServers(): Promise<void> {
   const candidates = serversStore.servers.filter((s) => !s.isCloud);
   if (candidates.length === 0) return;
 
-  let deleted: Set<string>;
-  try {
-    // ACHTUNG: keine Custom-Header (z.B. If-None-Match) ergänzen! Das machte
-    // aus dem Simple-Request einen Preflight (OPTIONS), und die globale
-    // CORSMiddleware der Cloud beantwortet Preflights fremder Origins mit 400,
-    // BEVOR das route-eigene `Access-Control-Allow-Origin: *` greift — der
-    // Sweep wäre auf allen Self-Host-Origins still tot.
-    const resp = await fetch(`${CLOUD_HOSTNAME}/.well-known/pulse-suspended-instances`);
-    if (!resp.ok) return;
-    const body = (await resp.json()) as { deleted_instance_ids?: unknown };
-    if (!Array.isArray(body.deleted_instance_ids)) return;
-    deleted = new Set(
-      body.deleted_instance_ids.filter((x): x is string => typeof x === 'string')
-    );
-  } catch {
-    return;
-  }
-  if (deleted.size === 0) return;
+  const deleted = await fetchDeletedInstanceIds();
+  if (!deleted || deleted.size === 0) return;
 
   for (const server of candidates) {
     let instanceId = server.instance_id;
