@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-14.2",
+      "date": "2026-07-14",
+      "style": "Sachlich",
+      "title": "Server-Liste repariert sich selbst",
+      "items": [
+        "Behoben: Nach dem Löschen und Neu-Einrichten eines eigenen Servers unter derselben Adresse konnte der Server aus der Liste verschwinden oder ein veralteter Eintrag zurückbleiben.",
+        "Die Server-Liste gleicht sich jetzt beim Start automatisch mit dem Konto ab und korrigiert veraltete Einträge."
+      ]
+    },
+    {
       "id": "2026-07-14",
       "date": "2026-07-14",
       "style": "Sachlich",
