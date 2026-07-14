@@ -99,15 +99,11 @@ win:
       filter:
         - pulse-win-hq-sidecar.exe
         - "*.dll"
-    # App-Hosting: gebündeltes Podman (podman.exe + gvproxy + win-sshproxy) —
-    # CI lädt es SHA-gepinnt nach resources-podman/ (win-build.yml), lokal ist
-    # der Ordner leer (Runtime-Detection fällt dann auf PATH-podman/-docker
-    # zurück). containerRuntime.ts sucht unter resourcesPath/podman/podman.exe;
-    # das Machine-Image (WSL2-Distro) lädt `podman machine init` beim Erststart.
-    - from: resources-podman
-      to: podman
-      filter:
-        - "*.exe"
+    # App-Hosting-Podman-Bündelung (resources-podman → podman) entfernt, weil
+    # App-Hosting geparkt ist (2026-07-14) — der Windows-Client hostet nicht
+    # mehr, das gebündelte Podman war totes Gewicht im Installer. Zum
+    # Reaktivieren den `resources-podman`-extraResource hier + den Podman-
+    # Download-Step in win-build.yml wieder aufnehmen.
   # Echtes Multi-Size-.ico (16–256px, aus electron/icon.png generiert) — wird in die
   # .exe eingebettet UND als App-Icon genutzt. WICHTIG: ein PNG hier reicht NICHT fürs
   # exe-Embedding via rcedit; es muss ein .ico sein.

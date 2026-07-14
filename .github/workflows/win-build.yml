@@ -77,23 +77,11 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
-      # App-Hosting (Phase 2): Podman SHA-gepinnt für den Installer bündeln.
-      # Nur die drei Binaries (podman.exe = Remote-Client, gvproxy + win-sshproxy
-      # = Machine-Netzwerk) — das WSL2-Machine-Image lädt `podman machine init`
-      # beim Erststart auf dem Zielgerät. Version zusammen mit dem SHA bumpen
-      # (re-hashen vom offiziellen Release-Zip).
-      - name: Podman für App-Hosting bündeln
-        shell: pwsh
-        run: |
-          $ver = '5.8.4'
-          $sha = 'dce234b1810d1cbe3ce2562cf961294f942b0fa886a61897a2926aab17885f90'
-          $zip = "$env:RUNNER_TEMP\podman-win.zip"
-          Invoke-WebRequest -Uri "https://github.com/containers/podman/releases/download/v$ver/podman-remote-release-windows_amd64.zip" -OutFile $zip
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          if ($actual -ne $sha) { throw "podman zip SHA mismatch: $actual" }
-          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\podman-extract"
-          Copy-Item "$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\podman.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\gvproxy.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\win-sshproxy.exe" -Destination desktop\resources-podman\
-          Get-ChildItem desktop\resources-podman\
+      # Podman-Bündelung für App-Hosting entfernt (2026-07-14, App-Hosting
+      # geparkt) — der Windows-Client hostet nicht mehr, das gebündelte Podman
+      # war totes Gewicht. Zum Reaktivieren: Podman-Download-Step (SHA-gepinnt
+      # nach desktop\resources-podman\) + den resources-podman-extraResource in
+      # electron-builder.yml (win-Sektion) wieder aufnehmen.
 
       # esbuild-Bundle + electron-builder → desktop/release/:
       #   Pulse-Setup-<version>.exe  (NSIS-Installer)
