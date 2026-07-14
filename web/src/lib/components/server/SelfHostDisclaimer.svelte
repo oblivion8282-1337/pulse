@@ -1,9 +1,11 @@
 <!--
   SelfHostDisclaimer — Phase 4.3.
 
-  Bei jedem App-Start sichtbar wenn der aktive Server NICHT Cloud ist UND
-  der User den Disclaimer für genau diesen serverId noch nicht weggeklickt
-  hat. localStorage-Key: `pulse.disclaimer_seen_<serverId>`.
+  Sichtbar wenn der aktive Server NICHT Cloud ist UND der User den Hinweis
+  für genau diesen Server noch nicht bestätigt hat. Die Bestätigung gilt
+  „einmal pro Server, geräteübergreifend": sie wird auf dem jeweiligen
+  Server gespeichert (user_preferences, s. $lib/api/disclaimer-ack) und
+  hier beim Server-Wechsel abgefragt; localStorage bleibt Fast-Path-Cache.
 
   Mini-Toast/Banner unterhalb des UpdateBanners. Schließbar per "Verstanden".
 -->
@@ -11,25 +13,49 @@
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
   import { Button } from '$lib/components/ui/button/index.js';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import {
+    disclaimerSeenLocally,
+    fetchDisclaimerAck,
+    markDisclaimerSeenLocally,
+    persistDisclaimerAck
+  } from '$lib/api/disclaimer-ack';
   import { m } from '$lib/paraglide/messages.js';
 
-  let dismissed = $state<Record<string, boolean>>({});
+  // serverId → Server-Antwort (true = bestätigt, false = zeigen).
+  // undefined = noch nicht abgefragt → Banner bleibt verborgen (kein Flackern
+  // während des Roundtrips).
+  let ackByServer = $state<Record<string, boolean>>({});
 
-  function seen(serverId: string): boolean {
-    if (dismissed[serverId]) return true;
-    if (typeof window === 'undefined') return true;
-    return window.localStorage.getItem(`pulse.disclaimer_seen_${serverId}`) === '1';
+  let active = $derived(activeServer.current);
+
+  $effect(() => {
+    const a = active;
+    if (!a || a.isCloud) return;
+    if (disclaimerSeenLocally(a.id)) return;
+    if (ackByServer[a.id] !== undefined) return;
+    void check(a.id);
+  });
+
+  async function check(serverId: string): Promise<void> {
+    const seen = await fetchDisclaimerAck(serverId);
+    // null (offline/Fehler) → zeigen: lieber einmal zu viel hinweisen als den
+    // Hinweis auf einem unbekannten Server zu verschlucken.
+    ackByServer = { ...ackByServer, [serverId]: seen === true };
+    // Server sagt "bestätigt" → nur den lokalen Cache setzen, kein Rück-PUT.
+    if (seen === true) markDisclaimerSeenLocally(serverId);
   }
 
   function dismiss(serverId: string): void {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(`pulse.disclaimer_seen_${serverId}`, '1');
-    }
-    dismissed = { ...dismissed, [serverId]: true };
+    persistDisclaimerAck(serverId);
+    ackByServer = { ...ackByServer, [serverId]: true };
   }
 
-  let active = $derived(activeServer.current);
-  let visible = $derived(!!active && !active.isCloud && !seen(active.id));
+  let visible = $derived(
+    !!active &&
+      !active.isCloud &&
+      !disclaimerSeenLocally(active.id) &&
+      ackByServer[active.id] === false
+  );
 </script>
 
 {#if visible && active}

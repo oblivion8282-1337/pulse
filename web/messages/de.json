@@ -1602,6 +1602,7 @@
   "self_host_disclaimer_notice_after": " — ein Self-Host-Server. Dort gelten andere Regeln.",
   "self_host_disclaimer_notice_before": "Du bist auf",
   "self_host_server_title": "Eigener Server",
+  "session_expired_for_server": "Verbindung zu {label} fehlgeschlagen — Anmeldung abgelaufen oder Server nicht erreichbar.",
   "server_deleted_by_operator": "{label} wurde vom Betreiber abgeschaltet und aus deiner Server-Liste entfernt.",
   "server_icon_button_notif_all": "Alle Benachrichtigungen",
   "server_icon_button_notif_mentions": "Nur Erwähnungen",

@@ -57,7 +57,10 @@
   <p class="text-text-bright text-sm font-semibold">{m.invite_share_heading()}</p>
   {#if link}
     <div class="bg-bg-input border-border flex items-center gap-2 rounded-xl border p-2.5">
-      <code class="text-text-bright min-w-0 flex-1 truncate font-mono text-xs"
+      <!-- break-all statt truncate: Self-Host-Links (?host=…) werden lang;
+           Umbrechen zeigt die volle URL und kann in KEINEM Container-Kontext
+           überlaufen (truncate hängt an min-width-Mechanik des Parents). -->
+      <code class="text-text-bright min-w-0 flex-1 break-all font-mono text-xs"
             data-testid="invite-share-link">{link}</code>
       <button
         type="button"
