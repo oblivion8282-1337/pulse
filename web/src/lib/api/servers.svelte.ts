@@ -308,7 +308,9 @@ class ServersStore {
   }
 
   /** Add-account-based Self-Host re-hydration: merged fehlende
-   *  Backend-Memberships in die gerätelokale Liste. Additiv + idempotent —
+   *  Backend-Memberships in die gerätelokale Liste und GLEICHT bestehende
+   *  Einträge an die Cloud an (hostname/instance_id/origin/Default-Label —
+   *  die Cloud-Membership ist die Autorität). Entfernt nie — additiv + idempotent —
    *  `keepOnlyCloud(true)` nach Logout löscht nur Self-Hosts; ohne diesen
    *  Re-Hydrate-Pfad wären sie nach Logout+Login weg, obwohl die Membership
    *  in `auth.user_instance_memberships` weiter existiert.
@@ -337,8 +339,17 @@ class ServersStore {
           // Gerät gepaart ist. Ohne Nachziehen zeigt ein einmal gespeicherter
           // Eintrag für immer auf den toten Platzhalter-Host.
           const hostChanged = existing.instance_id === inst.id && existing.hostname !== normalized;
+          // Umgekehrt die instance_id: gleicher Hostname, aber andere/fehlende
+          // ID = der Betreiber hat die Instanz unter derselben Adresse NEU
+          // registriert (Löschen + frisches Setup). Ohne Nachziehen bleibt die
+          // ID der ALTEN (gelöschten) Instanz stehen — der Sweep gelöschter
+          // Instanzen (deleted-instance-sweep.ts) entfernt dann einen LEBENDEN
+          // Server, und falsch verdrahtete Einträge werden unsweepbar
+          // (Vorfall 2026-07-14, pulse.unicutmedia.com).
+          const idChanged = existing.hostname === normalized && existing.instance_id !== inst.id;
           if (
             hostChanged ||
+            idChanged ||
             existing.notification_mode !== inst.notification_mode ||
             existing.origin !== inst.origin
           ) {
@@ -347,6 +358,13 @@ class ServersStore {
                 ? {
                     ...s,
                     hostname: hostChanged ? normalized : s.hostname,
+                    instance_id: idChanged ? inst.id : s.instance_id,
+                    // Default-Label mitheilen: label war nie ein User-Wunsch,
+                    // sondern der Hostname zum Add-Zeitpunkt. Nach einem
+                    // Hostname-Wechsel bliebe sonst für immer das alte
+                    // Platzhalter-/Relay-Label stehen. Custom-Labels
+                    // (label ≠ hostname) bleiben unangetastet.
+                    label: hostChanged && s.label === s.hostname ? normalized : s.label,
                     notification_mode: inst.notification_mode,
                     // Herkunft nachziehen (Direct-only-Weiche braucht sie;
                     // Alt-Einträge haben sie noch nicht).
