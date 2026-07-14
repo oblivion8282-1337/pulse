@@ -267,7 +267,13 @@
   userId={message.author_id}
   toCloud={isDirect}
   bind:open={reportOpen}
-  onClose={() => (reportOpen = false)}
+  onClose={() => {
+    reportOpen = false;
+    // Das Touch-Aktions-Sheet bleibt hinter dem Dialog offen (es schließt sich
+    // NICHT beim Öffnen — das würde die Dialog-Felder tot machen, bits-ui-
+    // Overlay-Race); erst wenn der Melden-Dialog zugeht, räumen wir es weg.
+    sheetOpen = false;
+  }}
 />
 
 <style>

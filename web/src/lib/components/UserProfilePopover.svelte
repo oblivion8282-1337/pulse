@@ -146,10 +146,7 @@
         <button
           type="button"
           class="text-text-muted hover:text-text-bright hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors"
-          onclick={() => {
-            reportDialogOpen = true;
-            close();
-          }}
+          onclick={() => (reportDialogOpen = true)}
           data-testid="user-profile-report-btn"
         >
           <FlagIcon class="size-3.5" />
@@ -170,7 +167,10 @@
     {userId}
     toCloud={!guildId}
     open={true}
-    onClose={() => (reportDialogOpen = false)}
+    onClose={() => {
+      reportDialogOpen = false;
+      close();
+    }}
   />
 {/if}
 
