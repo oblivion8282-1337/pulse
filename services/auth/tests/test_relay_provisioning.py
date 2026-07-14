@@ -68,6 +68,11 @@ async def alice_instance(session_factory, alice) -> RegisteredInstance:
             worker_id_media=112,
             status="active",
             registered_by=int(alice["id"]),
+            # Relay ist App-Host-only (2026-07-14): ein VPS bekommt beim
+            # Bootstrap-Redeem KEINE Subdomain mehr — sonst meldet
+            # /me/instances sie als Hostname und Clients laufen gegen einen
+            # toten Tunnel. Die Relay-Tests brauchen deshalb app_host.
+            origin="app_host",
         )
         session.add(inst)
         await session.commit()
@@ -179,6 +184,50 @@ async def test_redeem_assigns_relay_when_enabled(
         inst = await s.get(RegisteredInstance, alice_instance.id)
         assert inst.relay_subdomain == data["relay_subdomain"]
         assert inst.relay_tunnel_token_hash == hash_relay_token(data["relay_tunnel_token"])
+
+
+@pytest.mark.asyncio
+async def test_redeem_vps_gets_no_relay(
+    client, alice, session_factory, _isolate_settings, monkeypatch
+):
+    """Regression 2026-07-14: Relay ist App-Host-only. Ein VPS-Redeem darf
+    KEINE Subdomain/Token bekommen, auch wenn Relay-Server konfiguriert +
+    Provisioning eingeschaltet ist — /me/instances meldete die Subdomain
+    sonst als Hostname und Clients liefen gegen einen toten Tunnel."""
+    import dcc_auth.routes_selfhost_bootstrap as _rb
+    monkeypatch.setattr(_rb, "get_settings", lambda: _isolate_settings)
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_server_addr", "relay.test:2333")
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_base_domain", "relay.test")
+
+    async with session_factory() as session:
+        vps = RegisteredInstance(
+            id=20000000000000002,
+            hostname="vps-instance.example.com",
+            client_id=f"ci_{secrets.token_hex(8)}",
+            client_secret=_FAKE_HASH,
+            worker_id_chat=113,
+            worker_id_voice=114,
+            worker_id_media=115,
+            status="active",
+            registered_by=int(alice["id"]),
+            origin="vps",
+        )
+        session.add(vps)
+        await session.commit()
+
+    token = await _mint_token(client, alice["cookie"], 20000000000000002)
+    r = await client.post(
+        "/selfhost/bootstrap", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["relay_subdomain"] is None
+    assert data["relay_tunnel_token"] is None
+
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, 20000000000000002)
+        assert inst.relay_subdomain is None
+        assert inst.relay_tunnel_token_hash is None
 
 
 @pytest.mark.asyncio

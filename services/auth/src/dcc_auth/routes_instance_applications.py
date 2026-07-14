@@ -132,7 +132,16 @@ def _instance_to_out(
         # beim Pairing entsteht. Der Client baut aus diesem Feld seine
         # Server-URL — ohne den Fallback zeigt er auf einen toten Host und der
         # Cert-Login scheitert mit 401 (``cert_invalid``).
-        hostname=inst.relay_subdomain or inst.hostname,
+        #
+        # NUR für App-Hosts: ein VPS hat eine echte Adresse; eine (fälschlich
+        # oder historisch) vergebene Relay-Subdomain darf sie NIE verdrängen —
+        # Clients synchronisieren dieses Feld in ihre Server-Liste und
+        # verbänden sich sonst gegen einen toten Tunnel (Vorfall 2026-07-14).
+        hostname=(
+            (inst.relay_subdomain or inst.hostname)
+            if inst.origin == "app_host"
+            else inst.hostname
+        ),
         client_id=inst.client_id,
         worker_id_chat=inst.worker_id_chat,
         worker_id_voice=inst.worker_id_voice,

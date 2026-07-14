@@ -121,7 +121,15 @@ async def redeem_bootstrap_token(
     # evtl. vorhandene Bestands-Subdomain bleibt in der DB unangetastet.
     relay_subdomain: str | None = None
     relay_token_plain: str | None = None
-    if settings.pulse_relay_provision_enabled and settings.pulse_relay_server_addr:
+    # NUR App-Hosts: ein VPS hat eine echte eigene Adresse — bekommt er
+    # trotzdem eine Relay-Subdomain, meldet ``GET /me/instances`` sie als
+    # Hostname und Clients verbinden gegen einen toten Tunnel (Vorfall
+    # 2026-07-14, "Failed to fetch" nach Reload auf pulse.unicutmedia.com).
+    if (
+        instance.origin == "app_host"
+        and settings.pulse_relay_provision_enabled
+        and settings.pulse_relay_server_addr
+    ):
         if instance.relay_subdomain is None:
             instance.relay_subdomain = await allocate_relay_subdomain(
                 db, settings.pulse_relay_base_domain
