@@ -1479,6 +1479,8 @@
   "report_message_reason_harassment": "Harassment / Bullying",
   "report_message_reason_illegal": "Illegal Content",
   "report_message_reason_label": "Reason",
+  "report_to_cloud_hint": "There is no server moderator for direct messages, so this report goes to the Pulse operator team.",
+  "report_to_cloud_context_dm": "from a direct message",
   "report_message_reason_other": "Other",
   "report_message_reason_spam": "Spam / Advertising",
   "report_message_submit": "Report",

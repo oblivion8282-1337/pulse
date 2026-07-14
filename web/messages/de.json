@@ -1487,6 +1487,8 @@
   "report_message_reason_harassment": "Belästigung / Mobbing",
   "report_message_reason_illegal": "Illegale Inhalte",
   "report_message_reason_label": "Grund",
+  "report_to_cloud_hint": "Für Direktnachrichten gibt es keinen Server-Moderator — diese Meldung geht deshalb an das Pulse-Betreiberteam.",
+  "report_to_cloud_context_dm": "aus einer Direktnachricht",
   "report_message_reason_other": "Sonstiges",
   "report_message_reason_spam": "Spam / Werbung",
   "report_message_submit": "Melden",
