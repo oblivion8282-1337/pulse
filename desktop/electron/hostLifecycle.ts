@@ -11,11 +11,17 @@ export type HostPhase =
   // User "Gerät zurücksetzen" klickt (host:unpair → resetToIdle()).
   | 'superseded';
 
+/** Warum die Phase 'superseded' ist: 'rotated' = Re-Bootstrap auf einem anderen
+ *  Gerät hat clientSecret rotiert (Geräte-Umzug); 'deleted' = die Instanz wurde
+ *  auf der Cloud gelöscht — das Pairing ist wertlos, die UI bietet dann "Neu
+ *  einrichten" statt des Umzugs-Hinweises an. */
+export type SupersededReason = 'rotated' | 'deleted';
+
 export interface HostPhaseEvent {
   phase: HostPhase;
   /** step: Fortschritts-Schritt innerhalb von 'preparing' (login/pull/run/health)
    *  — der erste Pull lädt mehrere hundert MB, die UI soll das benennen können. */
-  detail?: { relayUrl?: string; ports?: number[]; step?: string };
+  detail?: { relayUrl?: string; ports?: number[]; step?: string; reason?: SupersededReason };
 }
 
 export type ReachVerdict = 'reachable' | 'needs-forwarding' | 'cgnat' | 'unknown';
@@ -142,9 +148,10 @@ export class HostLifecycle {
 
   /** Ablöse bestätigt (main.ts hat den Container bereits gestoppt) — Phase
    *  terminal auf 'superseded' setzen, damit die UI den Hinweis + Reset-Knopf
-   *  zeigt statt weiter "Bereit"/"Server starten". */
-  markSuperseded(): void {
-    this._emit('superseded');
+   *  zeigt statt weiter "Bereit"/"Server starten". `reason` steuert den
+   *  UI-Text: 'rotated' (Umzugs-Hinweis) vs. 'deleted' (Neu-einrichten). */
+  markSuperseded(reason: SupersededReason = 'rotated'): void {
+    this._emit('superseded', { reason });
   }
 
   /** "Gerät zurücksetzen" nach einer Ablöse: nur die Phase zurück auf 'idle'

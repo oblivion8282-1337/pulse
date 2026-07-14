@@ -12,7 +12,18 @@
     .card { width: 460px; max-width: 92vw; background: #171a21; border: 1px solid #262a33; border-radius: 14px;
             padding: 30px; box-shadow: 0 12px 44px rgba(0,0,0,.45); }
     h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
-    .sub { color: #8b93a1; font-size: 13px; margin-bottom: 22px; }
+    .sub { color: #8b93a1; font-size: 13px; margin-bottom: 12px; }
+    /* "Angemeldet als <Name> · Abmelden" — Identitäts-Zeile im Header. */
+    .ident { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+             color: #b8c0cc; margin-bottom: 20px; }
+    .ident .ident-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ident b { color: #e6e8eb; font-weight: 600; }
+    .ident .avatar { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+                     background: #2a2f3a; display: inline-flex; align-items: center;
+                     justify-content: center; font-size: 11px; color: #b8c0cc; }
+    .linkbtn { width: auto; background: none; color: #8b93a1; padding: 2px 4px; font-size: 12px;
+               font-weight: 500; flex-shrink: 0; }
+    .linkbtn:hover:not(:disabled) { color: #e6e8eb; text-decoration: underline; }
     .row { margin-bottom: 16px; }
     label { display: block; font-size: 12px; color: #8b93a1; margin-bottom: 6px; }
     input { width: 100%; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e8eb; border-radius: 8px;
@@ -61,6 +72,16 @@
     <h1>Pulse Server</h1>
     <div class="sub">Selbst-gehosteter Pulse-Server auf diesem Gerät.</div>
 
+    <!-- Identität: entweder "Angemeldet als <Name> · Abmelden" (gültige Session)
+         oder "Nicht angemeldet · Anmelden" (gepairt, aber Session/Token fehlen —
+         z.B. vor der Erst-Etablierung des durablen Logins). -->
+    <div id="identityRow" class="ident hidden">
+      <span id="identityAvatar" class="avatar hidden"></span>
+      <span class="ident-text"><span id="identityPrefix"></span> <b id="identityName"></b></span>
+      <button id="btnLogin" class="linkbtn hidden">Anmelden</button>
+      <button id="btnLogout" class="linkbtn hidden">Abmelden</button>
+    </div>
+
     <div class="status"><span id="dot" class="dot"></span><span id="statustext">Initialisiere …</span></div>
 
     <div id="setupRow" class="row hidden">
@@ -78,8 +99,12 @@
     <div id="btnStartRow" class="row hidden"><button id="btnStart">Server starten</button></div>
     <div id="btnStopRow" class="row hidden"><button id="btnStop" class="danger">Server stoppen</button></div>
 
+    <!-- Zwei Ablöse-Fälle (detail.reason): 'rotated' = auf anderes Gerät
+         umgezogen (Reset-Hinweis), 'deleted' = Instanz in der Cloud gelöscht
+         (Pairing wertlos → "Neu einrichten" führt direkt in den Einricht-Flow). -->
     <div id="supersededRow" class="row hidden">
-      <div class="hint">Dieser Server wurde auf ein anderes Gerät umgezogen.</div>
+      <div id="supersededHint" class="hint">Dieser Server wurde auf ein anderes Gerät umgezogen.</div>
+      <button id="btnReprovision" class="hidden">Neu einrichten</button>
       <button id="btnReset" class="secondary">Verstanden — Gerät zurücksetzen</button>
       <div style="margin-top: 8px"><button id="btnWipeLocal" class="danger">Lokale Daten löschen …</button></div>
     </div>
@@ -123,7 +148,10 @@
       <div class="hint" style="margin-top: 0">Alle Nachrichten und Dateien deines Servers liegen auf diesem Gerät — nichts davon in der Cloud.</div>
       <div id="dataSize" class="hint"></div>
       <div id="dataBackup" class="hint"></div>
-      <div style="margin-top: 10px"><button id="btnExport" class="secondary">Alles exportieren</button></div>
+      <div style="margin-top: 10px; display: flex; gap: 8px">
+        <button id="btnExport" class="secondary">Alles exportieren</button>
+        <button id="btnImport" class="secondary">Backup importieren …</button>
+      </div>
       <div id="exportStatus" class="hint hidden"></div>
     </div>
 
@@ -141,6 +169,16 @@
       <div class="sub">Für dieses Konto läuft bereits ein eingerichteter Server. Übernehmen? Der bisherige Server verliert dauerhaft den Zugang.</div>
       <div class="row"><button id="btnTakeover" class="danger">Übernehmen</button></div>
       <div class="row" style="margin-bottom: 0"><button id="btnTakeoverCancel" class="secondary">Abbrechen</button></div>
+    </div>
+  </div>
+
+  <!-- Import-Dialog: ehrliche Konsequenz (Bestand wird ERSETZT) vor der Dateiwahl. -->
+  <div id="importOverlay" class="overlay hidden">
+    <div class="card" style="width: 400px">
+      <h1>Backup importieren?</h1>
+      <div class="sub">Ersetzt alle aktuellen Serverdaten auf diesem Gerät durch den Inhalt der Backup-Datei (Nachrichten, Dateien — unwiderruflich). Der Server wird dafür kurz gestoppt.</div>
+      <div class="row"><button id="btnImportConfirm" class="danger">Backup-Datei wählen und importieren</button></div>
+      <div class="row" style="margin-bottom: 0"><button id="btnImportCancel" class="secondary">Abbrechen</button></div>
     </div>
   </div>
 

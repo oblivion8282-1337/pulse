@@ -27,8 +27,8 @@ node_modules/
 web/build/
 web/.svelte-kit/
 
-# electron-builder Windows-Artefakte (Pulse-<version>-portable.exe)
-desktop/release/
+# electron-builder Windows-Artefakte (Client-Setup + Server-Setup)
+desktop/release*/
 
 # Secrets / Env
 secrets/*

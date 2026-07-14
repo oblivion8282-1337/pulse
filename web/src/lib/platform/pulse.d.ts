@@ -282,6 +282,9 @@ export interface PulseHostApi {
   dataInfo(): Promise<HostDataInfo>;
   /** Alles exportieren (Save-Dialog → Container-Stopp → tar → Neustart). */
   exportData(): Promise<HostExportResult>;
+  /** Backup importieren (Open-Dialog → Container-Stopp → /data ersetzen →
+   *  Neustart). Bestätigung holt die UI vorher ein. */
+  importData(): Promise<HostExportResult>;
   /** Export-Schritte abonnieren (stopping/exporting/restarting). */
   onExportStep(cb: (step: string) => void): () => void;
   /** "Server aufgeben": Container + Cloud-Registrierung + Pairing entfernen,
@@ -295,6 +298,15 @@ export interface PulseHostApi {
   /** Windows-Erststart-Assistent: WSL2 mit Admin-Abfrage installieren
    *  (Phase 'needs-windows-setup'). Nach ok ist meist ein Neustart nötig. */
   setupWindows(): Promise<{ ok: boolean }>;
+  /** Eingeloggter Cloud-User (für die "Angemeldet als …"-Zeile). null bei
+   *  fehlender Session (gepairter Server ohne frischen Login). */
+  me(): Promise<{ username: string; displayName: string | null } | null>;
+  /** Anmelden: zum Login navigieren (Pairing bleibt), damit ein gepairter
+   *  Server ohne gültige Session eine Cloud-Session etablieren kann. */
+  login(): Promise<{ ok: boolean }>;
+  /** Abmelden: Session + durablen Token löschen und zurück zum Login navigieren
+   *  — danach kann sich ein anderer Account anmelden. Pairing bleibt. */
+  logout(): Promise<{ ok: boolean }>;
 }
 
 /** OS-global keyboard shortcuts (background toggles). The renderer hands main

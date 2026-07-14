@@ -40,6 +40,13 @@ pub struct RtcFactory {
     certificate: RTCCertificate,
     stun_urls: Vec<String>,
     public_ip: IpAddr,
+    /// LAN-IPs des VM-Hosts (Win/Mac podman machine) — als Host-Kandidaten in
+    /// jede Answer injiziert (`sdp::inject_extra_hosts`); ohne sie enthielte
+    /// die Answer im VM-Fall gar keine Kandidaten (ip_filter verwirft alles).
+    extra_host_ips: Vec<std::net::Ipv4Addr>,
+    /// Der gemuxte UDP-Port — Ziel-Port der injizierten Host-Kandidaten
+    /// (podman published ihn 1:1 auf dem VM-Host).
+    mux_port: u16,
 }
 
 impl RtcFactory {
@@ -52,13 +59,19 @@ impl RtcFactory {
         certificate: RTCCertificate,
         stun_servers: &[String],
         public_ip: IpAddr,
+        mut extra_host_ips: Vec<std::net::Ipv4Addr>,
+        mux_port: u16,
     ) -> Self {
+        // Defense-in-Depth: für injizierte Kandidaten gilt derselbe Filter wie
+        // fürs Gathering — ein Bug im Zulieferer (Server-App) darf keine
+        // Loopback-/Bridge-Adressen in die Answer drücken.
+        extra_host_ips.retain(|ip| is_useful_candidate_ip(IpAddr::V4(*ip)));
         let mut se = SettingEngine::default();
         se.set_udp_network(UDPNetwork::Muxed(UDPMuxDefault::new(UDPMuxParams::new(socket))));
         se.set_ip_filter(Box::new(is_useful_candidate_ip));
         let api = APIBuilder::new().with_setting_engine(se).build();
         let stun_urls = stun_servers.iter().map(|s| format!("stun:{s}")).collect();
-        Self { api, certificate, stun_urls, public_ip }
+        Self { api, certificate, stun_urls, public_ip, extra_host_ips, mux_port }
     }
 
     /// Beantwortet einen Client-Offer: PeerConnection + Brücke verdrahten,
@@ -87,7 +100,12 @@ impl RtcFactory {
             .local_description()
             .await
             .context("keine local description nach Gathering")?;
-        Ok(crate::sdp::inject_srflx(&local.sdp, self.public_ip))
+        // Reihenfolge zählt: erst die VM-Host-LAN-Kandidaten (stellen im
+        // VM-Fall überhaupt erst Host-Zeilen her), dann den srflx anhängen
+        // (der sich an Host-Zeilen verankert).
+        let with_hosts =
+            crate::sdp::inject_extra_hosts(&local.sdp, &self.extra_host_ips, self.mux_port);
+        Ok(crate::sdp::inject_srflx(&with_hosts, self.public_ip))
     }
 }
 

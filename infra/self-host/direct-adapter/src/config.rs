@@ -19,6 +19,12 @@ pub struct Config {
     pub data_path: String,
     pub stun_servers: Vec<String>,
     pub heartbeat_interval_secs: u64,
+    /// LAN-IPs des VM-Hosts (Win/Mac podman machine): der Container sieht nur
+    /// die VM-interne Adresse, die der ip_filter verwirft — ohne diese Liste
+    /// enthielte die Answer dort GAR KEINE Kandidaten. Die Server-App rendert
+    /// sie kommagetrennt in `PULSE_DIRECT_EXTRA_HOST_IPS`; sdp.rs synthetisiert
+    /// daraus Host-Kandidaten (auf Linux dedupliziert gegen die nativen).
+    pub extra_host_ips: Vec<std::net::Ipv4Addr>,
 }
 
 fn env_or(name: &str, default: &str) -> String {
@@ -43,6 +49,12 @@ impl Config {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+        // Unparsebare Einträge still verwerfen — eine kaputte IP darf den
+        // Adapter nicht am Start hindern (fail-open wie stun_servers).
+        let extra_host_ips = env_or("PULSE_DIRECT_EXTRA_HOST_IPS", "")
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
         Ok(Self {
             instance_id,
             relay_token,
@@ -52,6 +64,7 @@ impl Config {
             data_path: env_or("PULSE_DATA_PATH", "/data"),
             stun_servers,
             heartbeat_interval_secs: env_or("PULSE_DIRECT_HEARTBEAT_SECS", "120").parse()?,
+            extra_host_ips,
         })
     }
 }

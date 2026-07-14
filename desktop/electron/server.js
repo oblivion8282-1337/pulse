@@ -26,6 +26,9 @@ function dotClass(phase) {
 function setStatus(phase, detail) {
   $('dot').className = dotClass(phase);
   let text = PHASE_TEXT[phase] ?? phase;
+  if (phase === 'superseded' && detail && detail.reason === 'deleted') {
+    text = 'Server nicht mehr registriert.';
+  }
   if (phase === 'preparing' && detail && detail.step) {
     // 'update' kommt vom 24h-Update-Check des Main-Prozesses — eigener Text
     // statt eines generischen Neustarts.
@@ -70,6 +73,27 @@ function renderCloudStatus(r) {
   }
 }
 
+// "Angemeldet als <Name>": der eingeloggte Cloud-User (host.me() →
+// /api/auth/me über den Session-Cookie). Fehlt die Session (gepairter Server
+// ohne frischen Login), bleibt die Zeile ausgeblendet. Einmal beim Laden
+// aufgerufen — nach einem Logout+Neu-Login lädt server.html ohnehin frisch.
+async function loadIdentity() {
+  if (!host || !host.me) return;
+  const me = await host.me().catch(() => null);
+  const loggedIn = !!(me && me.username);
+  // displayName kann leer/whitespace-only sein → auf username zurückfallen.
+  const name = loggedIn ? ((me.displayName || '').trim() || me.username) : '';
+  $('identityPrefix').textContent = loggedIn ? 'Angemeldet als' : 'Nicht angemeldet.';
+  $('identityName').textContent = name;
+  $('identityAvatar').textContent = loggedIn ? (name[0] || '?').toUpperCase() : '';
+  $('identityAvatar').classList.toggle('hidden', !loggedIn);
+  $('btnLogout').classList.toggle('hidden', !loggedIn);
+  // "Anmelden" nur zeigen, wenn keine Session da ist (gepairter Server ohne
+  // durablen Login → damit sich die Identität überhaupt etablieren lässt).
+  $('btnLogin').classList.toggle('hidden', loggedIn);
+  $('identityRow').classList.remove('hidden');
+}
+
 // "Deine Daten": Größe + letztes Backup. Die Größenermittlung startet ggf.
 // einen Wegwerf-Container → nur einmal pro Pairing laden (dataInfoLoaded),
 // nicht bei jedem Phase-Event; Export/Reset setzen das Flag zurück.
@@ -100,8 +124,9 @@ async function loadDataInfo() {
 }
 
 const EXPORT_STEP_TEXT = {
-  stopping: 'Server wird für den Export gestoppt …',
+  stopping: 'Server wird kurz gestoppt …',
   exporting: 'Daten werden exportiert …',
+  importing: 'Backup wird importiert …',
   restarting: 'Server wird wieder gestartet …',
 };
 async function doExport() {
@@ -120,6 +145,28 @@ async function doExport() {
   } else {
     $('exportStatus').classList.add('warn');
     $('exportStatus').textContent = 'Export fehlgeschlagen: ' + ((r && r.error) || 'unbekannt');
+  }
+}
+
+// Import: ersetzt den Bestand durch die gewählte Backup-Datei (Overlay hat die
+// Konsequenz schon bestätigt; die Dateiwahl macht der Main-Prozess-Dialog).
+async function doImport() {
+  if (!host || !host.importData) return;
+  $('btnImport').disabled = true;
+  $('exportStatus').classList.remove('hidden');
+  $('exportStatus').classList.remove('warn');
+  $('exportStatus').textContent = 'Backup-Datei wählen …';
+  const r = await host.importData().catch((e) => ({ ok: false, error: e.message }));
+  $('btnImport').disabled = false;
+  if (r && r.ok) {
+    $('exportStatus').textContent = 'Backup importiert.';
+    dataInfoLoaded = false; // Größe hat sich geändert → neu laden
+    loadDataInfo();
+  } else if (r && r.canceled) {
+    $('exportStatus').classList.add('hidden');
+  } else {
+    $('exportStatus').classList.add('warn');
+    $('exportStatus').textContent = 'Import fehlgeschlagen: ' + ((r && r.error) || 'unbekannt');
   }
 }
 
@@ -147,6 +194,16 @@ async function refresh() {
   $('pairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
   $('btnPairRow').classList.toggle('hidden', paired || !provisionFailed || superseded);
   $('supersededRow').classList.toggle('hidden', !superseded);
+  if (superseded) {
+    // 'deleted' (Instanz in der Cloud gelöscht) → "Neu einrichten" als
+    // Primärweg; 'rotated' (Geräte-Umzug) → bisheriger Reset-Hinweis.
+    const deleted = !!(st.detail && st.detail.reason === 'deleted');
+    $('supersededHint').textContent = deleted
+      ? 'Dieser Server ist nicht mehr registriert — die Instanz wurde in der Cloud gelöscht. Du kannst dieses Gerät neu einrichten.'
+      : 'Dieser Server wurde auf ein anderes Gerät umgezogen.';
+    $('btnReprovision').classList.toggle('hidden', !deleted);
+    $('btnReset').classList.toggle('hidden', deleted);
+  }
   $('autostartRow').classList.toggle('hidden', !paired || superseded);
   $('dataSection').classList.toggle('hidden', !paired || superseded);
   // Aufgeben nur gepairt; im superseded-Zustand übernimmt der Zweitknopf
@@ -202,6 +259,13 @@ function bind() {
   };
   $('btnTakeoverCancel').onclick = () => { $('takeoverOverlay').classList.add('hidden'); refresh(); };
   $('btnExport').onclick = () => doExport();
+  // Import: erst das Bestätigungs-Overlay (Bestand wird ersetzt), dann Dateiwahl.
+  $('btnImport').onclick = () => $('importOverlay').classList.remove('hidden');
+  $('btnImportCancel').onclick = () => $('importOverlay').classList.add('hidden');
+  $('btnImportConfirm').onclick = () => {
+    $('importOverlay').classList.add('hidden');
+    doImport();
+  };
   $('autostartToggle').onchange = async () => {
     const on = $('autostartToggle').checked;
     const r = await host.setAutostart(on).catch(() => ({ ok: false }));
@@ -222,6 +286,19 @@ function bind() {
     $('btnStart').disabled = false; refresh();
   };
   $('btnStop').onclick = async () => { await host.stop().catch(() => {}); refresh(); };
+  // "Abmelden": Session-Cookie löschen + zurück zum Login (Main-Prozess
+  // navigiert das Fenster). Danach kann sich ein anderer Account anmelden;
+  // diese server.html wird dabei verlassen, daher kein Button-Reset im Erfolg.
+  $('btnLogout').onclick = async () => {
+    $('btnLogout').disabled = true;
+    await host.logout().catch(() => { $('btnLogout').disabled = false; });
+  };
+  // "Anmelden" (gepairter Server ohne Session): navigiert zum Login; server.html
+  // wird verlassen, danach lädt sie mit etablierter Identität neu.
+  $('btnLogin').onclick = async () => {
+    $('btnLogin').disabled = true;
+    await host.login().catch(() => { $('btnLogin').disabled = false; });
+  };
   // "Server aufgeben": gemeinsames Overlay für den Danger-Knopf (Checkbox
   // default AUS) und den superseded-Zweitknopf (Datenlöschung ist dort der
   // Zweck → Checkbox vorbelegt AN; Cloud-Delete überspringt der Main-Prozess
@@ -258,6 +335,16 @@ function bind() {
     provisionFailed = false;
     refresh();
   };
+  // "Neu einrichten" (gelöschte Instanz): totes Pairing lösen und direkt in
+  // den normalen Einricht-Flow (inkl. Übernahme-Warnung) — statt den User
+  // über "Server aufgeben" zu schicken, das nach Löschen klingt.
+  $('btnReprovision').onclick = async () => {
+    $('btnReprovision').disabled = true;
+    await host.unpair().catch(() => {});
+    $('btnReprovision').disabled = false;
+    provisionFailed = false;
+    await doProvision();
+  };
   // Kurze Sicht-Rückmeldung: ohne sie ist nicht erkennbar, ob der Klick ankam.
   let copyTimer = null;
   $('addr').onclick = async () => {
@@ -276,3 +363,4 @@ function bind() {
 
 bind();
 refresh();
+loadIdentity();

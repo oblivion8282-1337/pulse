@@ -20,6 +20,40 @@ async function sessionCookie(cloudOrigin: string): Promise<string> {
   return cookies.length ? `pulse_session=${cookies[0].value}` : '';
 }
 
+/** POST /session/renew mit dem durablen Bearer-Token → die Cloud setzt einen
+ *  frischen 30-Min-`pulse_session`-Cookie (Set-Cookie landet automatisch im
+ *  net-Cookie-Jar der Default-Session). Die Instanz-Endpoints sind cookie-only
+ *  (`_require_user` in routes_instance_applications.py — kein Bearer-Pfad),
+ *  deshalb prägen wir den Cookie neu, statt den Bearer direkt zu schicken. */
+function renewSessionCookie(cloudOrigin: string, bearer: string): Promise<void> {
+  return new Promise((resolve) => {
+    const req = net.request({ method: 'POST', url: `${cloudOrigin}/api/auth/session/renew` });
+    req.setHeader('Authorization', `Bearer ${bearer}`);
+    req.on('response', (res) => { res.on('data', () => {}); res.on('end', () => resolve()); });
+    req.on('error', () => resolve());
+    req.end();
+  });
+}
+
+/** Gültigen `pulse_session`-Cookie besorgen: ist einer da, direkt nutzen; sonst
+ *  per durablem Bearer-Token neu prägen (renewSessionCookie). '' = nicht
+ *  eingeloggt (kein Cookie + kein Token). `getBearer` kommt aus serverAuth
+ *  (createTokenGetter) und refresht den Access-Token bei Bedarf. */
+async function ensureSessionCookie(
+  cloudOrigin: string,
+  getBearer?: () => Promise<string | null>,
+): Promise<string> {
+  const existing = await sessionCookie(cloudOrigin);
+  if (existing) return existing;
+  if (!getBearer) return '';
+  const bearer = await getBearer();
+  if (!bearer) return '';
+  await renewSessionCookie(cloudOrigin, bearer);
+  // Nach dem Set-Cookie erneut lesen; schlug der Renew fehl, ist es weiter ''
+  // → der Aufrufer meldet dann "nicht eingeloggt".
+  return sessionCookie(cloudOrigin);
+}
+
 function netJsonOnce(
   method: string,
   url: string,
@@ -87,9 +121,10 @@ export type ProvisionResult =
 export async function provision(
   cloudOrigin: string,
   opts: { confirmTakeover?: boolean } = {},
+  getBearer?: () => Promise<string | null>,
 ): Promise<ProvisionResult> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return { ok: false, error: 'Nicht eingeloggt — bitte zuerst einloggen.' };
 
     // 1. Aktive App-Host-Instanz des Users finden. NUR origin=app_host — das
@@ -135,6 +170,31 @@ export async function provision(
   }
 }
 
+export interface MeInfo { username: string; displayName: string | null }
+
+/** Der aktuell eingeloggte Cloud-User (GET /api/auth/me über den
+ *  pulse_session-Cookie) — für die "Angemeldet als …"-Zeile der Server-App.
+ *  Wie provision() über die Electron-Default-Session, in der der
+ *  howispulse.com-Login stattfand. null bei fehlender Session (gepairter Server
+ *  ohne frischen Login / abgelaufener Cookie) oder Netz-/Serverfehler → die UI
+ *  blendet die Zeile dann einfach aus. */
+export async function fetchMe(
+  cloudOrigin: string,
+  getBearer?: () => Promise<string | null>,
+): Promise<MeInfo | null> {
+  try {
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
+    if (!cookie) return null;
+    const r = await netJson('GET', `${cloudOrigin}/api/auth/me`, cookie);
+    if (r.status !== 200 || !r.json || typeof r.json !== 'object') return null;
+    const u = r.json as { username?: unknown; display_name?: unknown };
+    if (typeof u.username !== 'string') return null;
+    return { username: u.username, displayName: typeof u.display_name === 'string' ? u.display_name : null };
+  } catch {
+    return null;
+  }
+}
+
 /** "In der Cloud registriert & auffindbar": fragt den Directory-Heartbeat der
  *  Instanz ab (GET /me/instances/{id}/direct-endpoint, online-Feld). Wie
  *  provision() über den pulse_session-Cookie. Liefert true (online), false
@@ -143,9 +203,10 @@ export async function provision(
 export async function fetchCloudStatus(
   cloudOrigin: string,
   instanceId: string,
+  getBearer?: () => Promise<string | null>,
 ): Promise<boolean | null> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return null;
     const r = await netJson('GET', `${cloudOrigin}/api/auth/me/instances/${instanceId}/direct-endpoint`, cookie);
     return classifyCloudStatus(r.status, r.json);
@@ -161,9 +222,10 @@ export async function fetchCloudStatus(
 export async function deleteInstanceRegistration(
   cloudOrigin: string,
   instanceId: string,
+  getBearer?: () => Promise<string | null>,
 ): Promise<CloudDeleteVerdict> {
   try {
-    const cookie = await sessionCookie(cloudOrigin);
+    const cookie = await ensureSessionCookie(cloudOrigin, getBearer);
     if (!cookie) return 'unauthorized';
     const r = await netJson('DELETE', `${cloudOrigin}/api/auth/me/instances/${instanceId}`, cookie);
     return classifyDeleteStatus(r.status);

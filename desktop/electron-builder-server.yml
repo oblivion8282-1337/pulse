@@ -1,0 +1,88 @@
+# electron-builder — Windows-NSIS-Installer für die Pulse SERVER-App.
+#
+# Gegenstück zum Client-Installer (electron-builder.yml), abgeleitet daraus.
+# Gleiche Electron-Runtime + esbuild-Server-Bundle (`build:electron:server`,
+# __APP_MODE__='server' + server.html/server.js), aber:
+#   - KEIN HQ-Streaming-Sidecar (der Server streamt nicht selbst — der
+#     allinone-Container tut's). Spart den Cargo-Build + ~300 MB.
+#   - Eigenes appId/productName/icon → installiert sich NEBEN den Client
+#     (beide nebeneinander lauffähig).
+#   - Eigenen Auto-Update-Feed `/updates/win-server/` (getrennt vom Client-
+#     Feed `/updates/win/`). updater.ts ruft kein setFeedURL — die URL kommt
+#     aus der hier generierten app-update.yml.
+#
+# `bootServer()` (main.ts) drahtet den Updater wie der Client (Start-Splash +
+# In-App-Periodic-Check), nur ohne Sidecar/ScreenShare/Deeplink. server.html
+# zeigt derzeit kein In-Session-Banner (v2) — Updates laden still + greifen beim
+# nächsten Quit/Boot-Splash.
+#
+# Bauen:  cd desktop && pnpm run dist:win:server
+#   → release-server/Pulse-Server-Setup-<version>.exe + latest.yml + .blockmap
+# CI (.github/workflows/win-build-server.yml) rsynct/scpt die drei Artefakte
+# nach howispulse.com/updates/win-server/ (analog win-build.yml).
+appId: com.howispulse.PulseServer
+productName: Pulse Server
+# Ad-hoc-macOS-Signatur (afterPack.cjs) greift nur für darwin — für win harmlos.
+afterPack: build-resources/afterPack.cjs
+directories:
+  output: release-server
+  # Branding-Assets für den NSIS-Wizard (Client-Bitmaps — eigene Server-Bitmaps
+  # out of scope v1; der Wizard sieht aus wie der Client, nur Text "Pulse Server").
+  buildResources: build-resources
+# In die app.asar: Server-esbuild-Bundle (main/preload/server.html/server.js) +
+# das Fenster-Icon (main.ts lädt `__dirname/../icon-server.png` im Server-Mode).
+# electron-updater steht in package.json unter dependencies → wird automatisch
+# samt Transitiv-Deps in die asar gezogen.
+files:
+  - electron/dist/**/*
+  - electron/icon-server.png
+  - package.json
+# Tray-Status-Icons (tray.ts lädt tray-server-*.png via process.resourcesPath/
+# tray/) + Update-Splash-HTML + Splash-Icon. Ziele als EXPLIZITE Dateinamen
+# (nicht `to: build-resources/`): der Trailing-Slash-Collapse (Client-Fix 0.1.33)
+# greift hier, weil icon-server.png außerhalb build-resources/ liegt — mit
+# Slashes kollabierten beide Files zu einer Datei `build-resources` (Splash
+# bliebe weiß). Explizite Pfade legen electron-builder als Verzeichnis + Datei an.
+extraResources:
+  - from: build-resources/tray
+    to: tray
+    filter:
+      - "*.png"
+  - from: build-resources/update-splash.html
+    to: build-resources/update-splash.html
+  - from: electron/icon-server.png
+    to: build-resources/icon-server.png
+win:
+  target: nsis
+  extraResources:
+    # App-Hosting: gebündeltes Podman (podman.exe + gvproxy + win-sshproxy) —
+    # der Server startet den allinone-Container via Host-Podman (gleich wie der
+    # Client). CI lädt es SHA-gepinnt nach resources-podman/, lokal via
+    # scripts/fetch-win-podman.ps1; ist der Ordner leer, fällt die Runtime-
+    # Detection auf PATH-podman/-docker zurück. KEIN hq-sidecar-Eintrag (Server
+    # streamt nicht selbst).
+    - from: resources-podman
+      to: podman
+      filter:
+        - "*.exe"
+  icon: build-resources/icon-server.ico
+  signAndEditExecutable: true
+# Assistierter NSIS-Wizard (per-User, kein UAC) — Spiegel des Client.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: Pulse-Server-Setup-${version}.exe
+  deleteAppDataOnUninstall: false
+# Auto-Update-Feed (generic) — EIGENER Feed für die Server-App, getrennt vom
+# Client-Feed /updates/win/. electron-builder schreibt daraus app-update.yml
+# (electron-updater liest sie zur Laufzeit) + latest.yml neben der Setup-.exe.
+# Build läuft mit `--publish never`; der Upload macht der scp-Step in
+# win-build-server.yml. Diese URL muss exakt der nginx-Route /updates/win-server/
+# matchen.
+publish:
+  provider: generic
+  url: https://howispulse.com/updates/win-server/

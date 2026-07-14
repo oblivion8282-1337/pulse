@@ -57,11 +57,22 @@ async fn main() -> Result<()> {
     }
 
     // Ab hier gehört der Socket dem WebRTC-Mux.
+    if !cfg.extra_host_ips.is_empty() {
+        // Win/Mac (podman machine): der Container sieht nur die VM-Adresse —
+        // diese Host-LAN-IPs kommen von der Server-App und werden als
+        // Host-Kandidaten in jede Answer injiziert (LAN-Clients).
+        println!(
+            "[direct-adapter] zusätzliche Host-Kandidaten (VM-Host-LAN): {}",
+            cfg.extra_host_ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ")
+        );
+    }
     let factory = Arc::new(rtc::RtcFactory::new(
         socket,
         ident.certificate.clone(),
         &cfg.stun_servers,
         initial.ip(),
+        cfg.extra_host_ips.clone(),
+        cfg.direct_port,
     ));
 
     let hb_cfg = cfg.clone();

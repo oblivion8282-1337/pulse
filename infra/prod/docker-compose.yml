@@ -375,6 +375,11 @@ services:
       # web-nginx.conf serviert ihn unter /updates/win/. Read-only; fehlender
       # Host-Ordner => Docker legt ihn leer an (=> /updates/win/* 404, harmlos).
       - ${HOME}/pulse/updates-win:/srv/updates-win:ro
+      # Windows-SERVER-App-Auto-Update-Feed (getrennt vom Client-Feed).
+      # win-build-server.yml scpt Pulse-Server-Setup-*.exe + latest.yml + .blockmap
+      # hierher; web-nginx.conf serviert ihn unter /updates/win-server/. Read-only;
+      # fehlender Host-Ordner => Docker legt ihn leer an (=> 404, harmlos).
+      - ${HOME}/pulse/updates-win-server:/srv/updates-win-server:ro
       # Direkt-Downloads (z.B. Android-APK-Testbuilds), per scp nach
       # ~/pulse/downloads/ gelegt; web-nginx.conf serviert sie unter /downloads/.
       # Bewusst getrennt vom Windows-Feed. Read-only; fehlender Ordner => 404.

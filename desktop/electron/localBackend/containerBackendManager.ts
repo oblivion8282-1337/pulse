@@ -14,11 +14,14 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 
 import type { BootstrapCreds } from './pairing.ts';
 import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
 import { waitFor, httpHealth } from './health.ts';
+import { startUdpRelay, type UdpRelay } from './udpRelay.ts';
+import { startTcpRelay, type TcpRelay } from './tcpRelay.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
@@ -54,9 +57,43 @@ const MEDIA_PORT_ARGS = [
   '-p', '7900:7900/udp',
 ];
 
-/** Rendert die kleine Container-Env: nur Pairing-Identität + Relay + TLS-Modus.
- *  Alles Weitere (DB, Secrets, Keys) erzeugt das Image selbst in /data. */
-export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): string {
+/** LAN-IPv4s des Hosts für den Direktpfad-Adapter. Unter Win/Mac läuft der
+ *  Container in der podman-machine-VM und sieht nur deren interne Adresse
+ *  (172.28.x — vom Adapter-ip_filter zu Recht verworfen) — seine ICE-Answer
+ *  wäre KANDIDATENLOS und LAN-/Same-Machine-Clients (Browser!) kämen nie
+ *  durch. Diese IPs werden als `PULSE_DIRECT_EXTRA_HOST_IPS` in die
+ *  Container-Env gerendert; podman published den Mux-Port (7900/udp) ja auf
+ *  genau diesen Host-Adressen. Auf Linux (Container sieht die LAN-IP selbst)
+ *  dedupliziert der Adapter. Ausgeschlossen: interne, link-local (169.254.x,
+ *  APIPA) und die podman/WSL-eigenen NAT-Interfaces (172.16-31.x — im LAN
+ *  unerreichbar; der Adapter-Filter würfe sie ohnehin weg).
+ *  Testbar über das injizierbare `ifaces`-Argument. */
+export function hostLanIpv4s(
+  ifaces: Record<string, { family: string; address: string; internal: boolean }[] | undefined> =
+    networkInterfaces() as never,
+): string[] {
+  const out: string[] = [];
+  for (const list of Object.values(ifaces)) {
+    for (const a of list ?? []) {
+      if (a.internal || a.family !== 'IPv4') continue;
+      const [o1, o2] = a.address.split('.').map(Number);
+      if (o1 === 169 && o2 === 254) continue; // link-local/APIPA
+      if (o1 === 172 && o2 >= 16 && o2 <= 31) continue; // WSL/podman-NAT
+      if (!out.includes(a.address)) out.push(a.address);
+    }
+  }
+  return out;
+}
+
+/** Rendert die kleine Container-Env: nur Pairing-Identität + Relay + TLS-Modus
+ *  + Direktpfad-LAN-IPs. Alles Weitere (DB, Secrets, Keys) erzeugt das Image
+ *  selbst in /data. `lanIps` kommt vom Aufrufer (hostLanIpv4s()) — als
+ *  Parameter, damit die Funktion pur/testbar bleibt. */
+export function renderContainerEnv(
+  creds: BootstrapCreds,
+  adminEmail?: string,
+  lanIps: string[] = [],
+): string {
   const hostname = creds.relaySubdomain ?? creds.hostname;
   const lines = [
     `PULSE_HOSTNAME=${hostname}`,
@@ -76,6 +113,12 @@ export function renderContainerEnv(creds: BootstrapCreds, adminEmail?: string): 
     // kommen ohne Relay-Creds (Relay-Fallback abgeschafft).
     'PULSE_HOST_ORIGIN=app_host',
   ];
+  // Direktpfad: LAN-IPs des Hosts für die ICE-Answer (s. hostLanIpv4s —
+  // ohne sie ist die Answer im podman-machine-Fall kandidatenlos). Nur
+  // rendern, wenn welche da sind (leerer Wert = Variable weglassen).
+  // Stichtag ist der Container-START: ändert sich die LAN-IP (DHCP), greift
+  // der nächste Start/Update-Recreate.
+  if (lanIps.length) lines.push(`PULSE_DIRECT_EXTRA_HOST_IPS=${lanIps.join(',')}`);
   // Relay-Zeilen nur, wenn ALLE drei Werte da sind (Bestandsinstanzen) —
   // leere PULSE_RELAY_*-Strings gälten im Image als "Relay konfiguriert";
   // das Erkennungsmuster ist FEHLENDE Variablen.
@@ -100,13 +143,58 @@ export function updateVerdict(runningImageId: string, pulledImageId: string): 'u
   return a && b && a !== b ? 'update' : 'none';
 }
 
+/** UDP-Ports, die der Host-Relay in die VM spiegeln muss (Win/Mac, s.
+ *  udpRelay.ts): 7900 = Direktpfad-ICE-Mux. Die LiveKit-Medienports
+ *  (7882-7892 etc.) sind bewusst NICHT dabei — LiveKit announced keine
+ *  Host-LAN-Kandidaten, ein Relay ohne Announce brächte nichts (Voice aus
+ *  dem LAN auf Win-Hosts = eigener Folgeschritt). */
+const RELAY_UDP_PORTS = [7900];
+
+/** TCP-Ports Host→VM (Win/Mac, s. tcpRelay.ts): 1936 = RTMPS-Ingest. Der
+ *  Instanz-Owner bekommt von media-svc bewusst eine `rtmps://localhost:1936`-
+ *  Push-URL — mit `--network host` liegt MediaMTX in der VM, nicht auf
+ *  Host-localhost, also überbrückt der Relay den Weg. */
+const RELAY_TCP_PORTS = [1936];
+
 export class ContainerBackendManager {
   private rt: ContainerRuntime | null = null;
+  private relay: UdpRelay | null = null;
+  private tcpRelay: TcpRelay | null = null;
 
   /** Runtime lazy erkennen + cachen (einmal gefunden, bleibt sie stehen). */
   private async ensureRuntime(): Promise<ContainerRuntime | null> {
     if (!this.rt) this.rt = await detectRuntime();
     return this.rt;
+  }
+
+  /** IP der podman-machine-VM (Win/Mac) — Ziel des UDP-Relays. null auf
+   *  Linux/Docker oder wenn die Abfrage scheitert (fail-soft: kein Relay). */
+  private async machineVmIp(rt: ContainerRuntime): Promise<string | null> {
+    if (rt.kind !== 'podman') return null;
+    if (process.platform !== 'win32' && process.platform !== 'darwin') return null;
+    const r = await rtExec(rt, ['machine', 'ssh', 'ip -4 addr show eth0'], {
+      timeoutMs: 20_000,
+    }).catch(() => null);
+    const m = r?.code === 0 ? /inet (\d+\.\d+\.\d+\.\d+)/.exec(r.stdout) : null;
+    return m ? m[1] : null;
+  }
+
+  /** Host-UDP-Relay in die VM starten (idempotent — läuft er, bleibt er).
+   *  Ohne VM (Linux/Docker) ein No-op — dort binden published Ports nativ.
+   *  Public, weil auch der Boot-Zustands-Abgleich (main.ts, Container lief
+   *  über den App-Neustart hinweg weiter) den Relay hochziehen muss. */
+  async ensureRelay(vmIp?: string | null): Promise<void> {
+    if (this.relay && this.tcpRelay) return;
+    const rt = await this.ensureRuntime();
+    if (!rt) return;
+    // start() reicht die schon ermittelte VM-IP durch (spart den zweiten
+    // machine-ssh-Call); der Boot-Abgleich ruft ohne Argument → selbst ermitteln.
+    const ip = vmIp ?? await this.machineVmIp(rt);
+    if (!ip) return;
+    // `??=`: ein partieller Neustart (nur ein Relay lief) zieht nur das fehlende
+    // nach, statt ein laufendes zu ersetzen.
+    this.relay ??= await startUdpRelay(RELAY_UDP_PORTS, ip).catch(() => null);
+    this.tcpRelay ??= await startTcpRelay(RELAY_TCP_PORTS, ip).catch(() => null);
   }
 
   /** Für das UI-Gating: gibt es überhaupt eine Runtime? (gecacht nach Erfolg) */
@@ -140,7 +228,7 @@ export class ContainerBackendManager {
     const dir = join(userData, 'pulse-host');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const envFile = join(dir, 'container.env');
-    writeFileSync(envFile, renderContainerEnv(creds, adminEmail), {
+    writeFileSync(envFile, renderContainerEnv(creds, adminEmail, hostLanIpv4s()), {
       encoding: 'utf8',
       mode: 0o600,
     });
@@ -167,7 +255,24 @@ export class ContainerBackendManager {
       }
     }
 
-    // 4. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
+    // 4. Netzwerk-Modus wählen. Win/Mac (podman machine): --network host, weil
+    //    rootless podman auf der WSL/Vfkit-VM eingehendes UDP NICHT über
+    //    published Ports in den Container leitet (TCP schon) — Direktpfad +
+    //    Voice bekämen nie ein Paket. Mit host-Networking bindet der Container
+    //    direkt auf der VM-Host-IP; von dort trägt der UDP-Relay (ensureRelay)
+    //    das Paket vom Windows/Mac-Host in die VM. Linux/Docker: klassisches
+    //    Port-Publishing (dort funktioniert UDP-Forwarding nativ).
+    const hostNet = rt.kind === 'podman'
+      && (process.platform === 'win32' || process.platform === 'darwin');
+    const vmIp = hostNet ? await this.machineVmIp(rt) : null;
+    if (hostNet && !vmIp) {
+      throw new Error('podman-machine-VM-IP nicht ermittelbar (host-Networking)');
+    }
+    const netArgs = hostNet
+      ? ['--network', 'host']
+      : ['-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`, ...MEDIA_PORT_ARGS];
+
+    // 5. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
     //    gepullte Images + Env-Änderungen mit; /data lebt im Named Volume).
     progress('run');
     await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 });
@@ -177,25 +282,36 @@ export class ContainerBackendManager {
       '--restart', 'unless-stopped',
       '--env-file', envFile,
       '-v', `${DATA_VOLUME}:/data`,
-      '-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`,
-      ...MEDIA_PORT_ARGS,
+      ...netArgs,
       image,
     ], { timeoutMs: 120_000 });
     if (run.code !== 0) {
       throw new Error(`container start failed (exit ${run.code}): ${run.stderr.slice(0, 400)}`);
     }
 
-    // 5. Health-Poll — Erststart braucht initdb + Migrationen (Image-Healthcheck
+    // 6. Health-Poll — Erststart braucht initdb + Migrationen (Image-Healthcheck
     //    rechnet mit 120s start-period; wir geben 240s). waitFor wirft bei Timeout.
+    //    host-Networking: 8080 liegt auf der VM-Host-IP; Publish: auf 127.0.0.1.
     progress('health');
+    const healthHost = hostNet ? vmIp : '127.0.0.1';
+    const healthPort = hostNet ? 8080 : HOST_HTTP_PORT;
     await waitFor(
-      () => httpHealth(`http://127.0.0.1:${HOST_HTTP_PORT}/api/chat/health`),
+      () => httpHealth(`http://${healthHost}:${healthPort}/api/chat/health`),
       240_000,
       3_000,
     );
+
+    // 7. Win/Mac: Host-Relay in die VM. Direktpfad-UDP (Browser klopft an die
+    //    LAN-IP) + RTMPS-TCP (Owner-Streaming auf localhost:1936) — beide
+    //    binden mit `--network host` nur in der VM, der Relay überbrückt sie.
+    await this.ensureRelay(vmIp);
   }
 
   async stop(): Promise<void> {
+    this.relay?.close();
+    this.relay = null;
+    this.tcpRelay?.close();
+    this.tcpRelay = null;
     const rt = await this.ensureRuntime();
     if (!rt) return;
     // -t 20: Postgres im Container sauber runterfahren lassen.

@@ -12,7 +12,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export interface ContainerRuntime {
@@ -103,6 +103,41 @@ export async function rtExecToFile(
       if (timer) clearTimeout(timer);
       // Erst wenn die Datei geschlossen ist, ist der tar-Inhalt geflusht.
       out.close(() => resolve({ code: code ?? -1, stderr }));
+    });
+  });
+}
+
+/** Gegenstück zu rtExecToFile: eine Datei streamt in die stdin des Kindes —
+ *  für den Daten-Import (Backup-tar kann Gigabytes groß sein; die
+ *  `opts.stdin`-String-Variante von rtExec würde den Main-Prozess sprengen).
+ *  stdout/stderr bleiben gepuffert (klein, nur Fehlermeldungen). */
+export async function rtExecFromFile(
+  rt: Pick<ContainerRuntime, 'argv' | 'env'>,
+  args: string[],
+  filePath: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<ExecResult> {
+  const { argv } = rt;
+  return new Promise((resolve, reject) => {
+    const src = createReadStream(filePath);
+    const child = spawn(argv[0], [...argv.slice(1), ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...(rt.env ? { env: { ...process.env, ...rt.env } } : {}),
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = opts.timeoutMs
+      ? setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
+      : null;
+    src.on('error', (err) => { if (timer) clearTimeout(timer); child.kill('SIGKILL'); reject(err); });
+    src.pipe(child.stdin);
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ code: code ?? -1, stdout, stderr });
     });
   });
 }
