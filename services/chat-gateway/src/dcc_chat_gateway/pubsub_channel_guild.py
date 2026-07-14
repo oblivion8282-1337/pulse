@@ -161,5 +161,12 @@ async def handle_guild_events(
             if (u := manager._ws_user.get(ws)) is not None
             and u.id in (a_id, b_id)
         ]
+    # ``report_new`` was pre-narrowed to guild members by
+    # _filter_targets_by_guild above; narrow further to the guild's
+    # moderators so a plain member can't learn a report exists.
+    elif op == "report_new":
+        targets = await manager._filter_by_moderator(
+            targets, str(payload.get("guild_id", ""))
+        )
     log.info("guild:events broadcast op=%s targets=%d", op, len(targets))
     await manager._fan_out(targets, payload)

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from dcc_shared.events import ReportNewEvent
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from dcc_chat_gateway import ratelimit
@@ -47,6 +48,7 @@ async def create_report(
     payload: ReportCreate,
     session: SessionDep,
     current: CurrentUser,
+    request: Request,
 ) -> ReportOut:
     """File a moderation report.
 
@@ -83,6 +85,24 @@ async def create_report(
     session.add(report)
     await session.commit()
     await session.refresh(report)
+
+    # Notify moderators of every affected guild (live badge + toast). The
+    # guild:events listener narrows delivery to mod-perm holders, and the
+    # envelope carries no PII (only reason_code + ids). Published AFTER commit
+    # so the report row is durable before any moderator can act on the push.
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is not None:
+        from dcc_chat_gateway.routes.mod_queue import guilds_for_report
+
+        for gid in await guilds_for_report(session, report):
+            await manager.publish_guild_event(
+                ReportNewEvent(
+                    guild_id=str(gid),
+                    report_id=str(report.id),
+                    reason_code=report.reason_code,
+                )
+            )
+
     # Response contract returns the literal "received" (a user-facing receipt
     # confirmation), NOT the internal moderation-queue status (which starts at
     # "new"). Keep these distinct — the frontend + tests rely on "received".

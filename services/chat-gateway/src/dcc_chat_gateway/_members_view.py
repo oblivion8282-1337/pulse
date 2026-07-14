@@ -12,6 +12,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from dcc_shared.permission_resolver import (
+    OVERWRITE_TARGET_ROLE,
+    OVERWRITE_TARGET_USER,
+    Override,
+    RoleSnapshot,
+    calculate_channel_permissions,
+    has_permission,
+)
+from dcc_shared.permissions import Permissions
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,15 +31,6 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
     Role,
 )
-from dcc_shared.permission_resolver import (
-    OVERWRITE_TARGET_ROLE,
-    OVERWRITE_TARGET_USER,
-    Override,
-    RoleSnapshot,
-    calculate_channel_permissions,
-    has_permission,
-)
-from dcc_shared.permissions import Permissions
 
 # Guilds with more members than this threshold use a SQL-aggregated base-
 # permission path to avoid loading the full member × role cross-product
@@ -296,5 +296,72 @@ async def members_who_can_view_large(
             value = user_ow.apply(value)
 
         if value & int(Permissions.VIEW_CHANNEL):
+            out.add(uid)
+    return out
+
+
+# Guild-level moderator bits — holding ANY one grants mod-queue access
+# (mirrors ``_MOD_PERMS`` in routes/mod_queue.py). No channel overlay: mod-queue
+# access is guild-scoped, so base permissions alone decide it.
+_MOD_BITS = int(
+    Permissions.MANAGE_MESSAGES | Permissions.BAN_MEMBERS | Permissions.MANAGE_GUILD
+)
+
+
+async def members_who_can_moderate(
+    session: AsyncSession,
+    guild: Guild,
+) -> set[int]:
+    """User-ids of guild members holding any of MANAGE_MESSAGES | BAN_MEMBERS |
+    MANAGE_GUILD at the guild level. Owner + ADMINISTRATOR pass trivially.
+
+    Used to narrow ``report_new`` fan-out to a guild's moderators. Resolves
+    base (guild-wide) permissions in Python — no channel overwrites, since
+    mod-queue access is guild-scoped, not per-channel; no SQL ``bit_or`` so it
+    runs identically under SQLite (tests) and Postgres. Reports are rare
+    (rate-limited), so the in-memory member scan is not a hot path. Global-admin
+    exclusion caveat applies identically (the auth-svc flag is invisible here);
+    the fan-out filter re-adds admin sockets from ``_ws_user``."""
+    guild_id = guild.id
+
+    member_ids = {
+        uid
+        for (uid,) in (
+            await session.execute(
+                select(GuildMember.user_id).where(GuildMember.guild_id == guild_id)
+            )
+        ).all()
+    }
+    if not member_ids:
+        return set()
+
+    perms_by_role: dict[int, int] = {}
+    everyone_perms = 0
+    for rid, perms, is_everyone in (
+        await session.execute(
+            select(Role.id, Role.permissions, Role.is_everyone).where(
+                Role.guild_id == guild_id
+            )
+        )
+    ).all():
+        perms_by_role[rid] = perms
+        if is_everyone:
+            everyone_perms = perms
+
+    role_perms_by_uid: dict[int, int] = {}
+    for uid, rid in (
+        await session.execute(
+            select(MemberRole.user_id, MemberRole.role_id).where(
+                MemberRole.guild_id == guild_id
+            )
+        )
+    ).all():
+        role_perms_by_uid[uid] = role_perms_by_uid.get(uid, 0) | perms_by_role.get(rid, 0)
+
+    admin_bit = int(Permissions.ADMINISTRATOR)
+    out: set[int] = set()
+    for uid in member_ids:
+        base = everyone_perms | role_perms_by_uid.get(uid, 0)
+        if uid == guild.owner_id or (base & admin_bit) or (base & _MOD_BITS):
             out.add(uid)
     return out

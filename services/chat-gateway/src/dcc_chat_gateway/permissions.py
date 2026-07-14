@@ -17,24 +17,6 @@ fan-out helpers live in ``_members_view`` to keep this file under the
 
 from __future__ import annotations
 
-from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from dcc_chat_gateway._members_view import (
-    _Ctx,
-    _LARGE_GUILD_THRESHOLD,
-    members_who_can_view_large as _members_who_can_view_large,
-    members_who_can_view_small as _members_who_can_view_small,
-)
-from dcc_chat_gateway.models import (
-    Guild,
-    GuildMember,
-    MemberRole,
-    PermissionOverwrite,
-    Role,
-)
-from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_shared.permission_resolver import (
     OVERWRITE_TARGET_ROLE,
     OVERWRITE_TARGET_USER,
@@ -45,6 +27,31 @@ from dcc_shared.permission_resolver import (
     has_permission,
 )
 from dcc_shared.permissions import Permissions
+from fastapi import HTTPException, status
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from dcc_chat_gateway._members_view import (
+    _LARGE_GUILD_THRESHOLD,
+    _Ctx,
+)
+from dcc_chat_gateway._members_view import (
+    members_who_can_moderate as _members_who_can_moderate,
+)
+from dcc_chat_gateway._members_view import (
+    members_who_can_view_large as _members_who_can_view_large,
+)
+from dcc_chat_gateway._members_view import (
+    members_who_can_view_small as _members_who_can_view_small,
+)
+from dcc_chat_gateway.models import (
+    Guild,
+    GuildMember,
+    MemberRole,
+    PermissionOverwrite,
+    Role,
+)
+from dcc_chat_gateway.security import AuthenticatedUser
 
 
 async def _load_context(
@@ -300,6 +307,21 @@ async def members_who_can_view(
     return await _members_who_can_view_large(session, guild, channel_id)
 
 
+async def members_who_can_moderate(
+    session: AsyncSession,
+    guild_id: int,
+) -> set[int]:
+    """User-ids of every guild member holding any of MANAGE_MESSAGES |
+    BAN_MEMBERS | MANAGE_GUILD at the guild level (owner + ADMINISTRATOR pass
+    trivially). Used to narrow ``report_new`` fan-out to a guild's moderators.
+
+    Same global-admin exclusion caveat as ``members_who_can_view``."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        return set()
+    return await _members_who_can_moderate(session, guild)
+
+
 async def filter_viewable_channels(
     session: AsyncSession,
     user: AuthenticatedUser,
@@ -448,6 +470,7 @@ __all__ = [
     "filter_viewable_channels",
     "filter_viewable_channels_from_snapshot",
     "has_permission",
+    "members_who_can_moderate",
     "members_who_can_view",
     "resolve_guild_permissions_from_snapshot",
     "resolve_permissions",
