@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-15.2",
+      "date": "2026-07-15",
+      "style": "Sachlich",
+      "title": "Meldungen aus Direktnachrichten kommen jetzt an",
+      "items": [
+        "Bisher liefen Meldungen aus Direktnachrichten ins Leere — es gibt dort keinen Server-Moderator, der sie sehen konnte.",
+        "Solche Meldungen gehen jetzt an das Pulse-Betreiberteam. Der Melden-Dialog weist darauf hin."
+      ]
+    },
+    {
       "id": "2026-07-15.1",
       "date": "2026-07-15",
       "style": "Sachlich",
