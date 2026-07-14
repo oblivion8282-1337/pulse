@@ -21,6 +21,11 @@
 </script>
 
 <div class="flex flex-col gap-6">
+  <!-- Server-Name ganz nach oben: das erste, was ein Self-Host-Admin einstellt
+       (den Namen, den alle sehen). Nur Self-Host. -->
+  {#if !isCloud}
+    <AdminServerName />
+  {/if}
   <!-- Registrierung, SMTP, Cloud-Backup laufen über die auth-svc-Identity-Plane
        (Cloud) und sind für einen Cert-Login-Admin auf einer Self-Host-Instanz
        weder erreichbar (403) noch sinnvoll. Auf Self-Host: eigene Varianten. -->
@@ -36,7 +41,6 @@
   {/if}
   <AdminPermissions />
   {#if !isCloud}
-    <AdminServerName />
     <AdminJoinControl />
   {/if}
   <AdminStreamLimits />

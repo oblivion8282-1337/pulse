@@ -469,9 +469,14 @@
           {/snippet}
         </ContextMenu.Trigger>
         <ContextMenu.Content>
-          <ContextMenu.Item onSelect={() => openServerInfo(server)}>
-            {m.guild_rail_server_info()}
-          </ContextMenu.Item>
+          <!-- Serverinfo (Adresse/Instanz-ID/WS-Status) ist Technik nur fürs
+               Betreiben — nur für Admins. Ein normaler User sieht bloß
+               Benachrichtigungen (+ Verlassen). -->
+          {#if isServerAdmin}
+            <ContextMenu.Item onSelect={() => openServerInfo(server)}>
+              {m.guild_rail_server_info()}
+            </ContextMenu.Item>
+          {/if}
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger>{m.guild_rail_notifications()}</ContextMenu.SubTrigger>
             <ContextMenu.SubContent>

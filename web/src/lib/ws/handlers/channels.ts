@@ -9,6 +9,8 @@
 import { guilds } from '$lib/stores/guilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { registerWsHandler } from '../handler-registry';
@@ -71,6 +73,13 @@ export function register(ctx: HandlerContext): void {
       cam_resolution_max: evt.cam_resolution_max,
       cam_fps_max: evt.cam_fps_max
     });
+    // Server-Name live nachziehen, wenn der Admin umbenannt hat — kein Reload
+    // nötig. "" = zurückgesetzt (Adresse zeigen); Feld fehlt = unverändert.
+    // Der Quell-Server ist auf dem Event gestempelt (_serverId), Fallback aktiv.
+    if (evt.instance_name !== undefined) {
+      const sid = (evt as { _serverId?: string })._serverId ?? activeServer.current?.id;
+      if (sid) serversStore.update(sid, { server_name: evt.instance_name || null });
+    }
   });
 
   registerWsHandler('channel_permissions_updated', (evt) => {

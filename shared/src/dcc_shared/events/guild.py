@@ -168,6 +168,10 @@ class PermissionsUpdatedEvent(_EventBase):
     op: Literal["permissions_updated"] = "permissions_updated"
     allow_guild_creation: bool | None = None
     allow_member_invites: bool | None = None
+    # Self-Host-Anzeigename. Damit eine Umbenennung sofort bei ALLEN
+    # verbundenen Mitgliedern ankommt (nicht erst beim nächsten ``ready``).
+    # ``""`` = zurückgesetzt (Adresse zeigen), ``None`` = Feld unverändert.
+    instance_name: str | None = None
     guild_sound_max_size_bytes: int | None = None
     # Global HQ-stream limits (best-effort, client-enforced).
     hq_bitrate_min_kbps: int | None = None
