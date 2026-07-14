@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-14.3",
+      "date": "2026-07-14",
+      "style": "Sachlich",
+      "title": "Self-Host rund geschliffen",
+      "items": [
+        "Behoben: Ein frisch eingerichteter eigener Server konnte nach einem Neuladen unter einer falschen Adresse angesprochen werden — Kanäle wirkten verschwunden (\"Failed to fetch\").",
+        "Der Hinweis \"hier gelten andere Regeln\" muss nur noch einmal pro Server bestätigt werden — auf allen Geräten.",
+        "Lange Einladungslinks sprengen den Dialog nicht mehr.",
+        "Fehlermeldungen bei nicht erreichbaren Servern sind jetzt verständlich und nennen den Servernamen.",
+        "Die Server-Liste holt einen fehlgeschlagenen Abgleich automatisch nach."
+      ]
+    },
+    {
       "id": "2026-07-14.2",
       "date": "2026-07-14",
       "style": "Sachlich",
