@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-15.1",
+      "date": "2026-07-15",
+      "style": "Sachlich",
+      "title": "Moderatoren sehen offene Meldungen sofort",
+      "items": [
+        "An jeder Community mit Moderationsrechten zeigt ein Zähler, wie viele Meldungen offen sind.",
+        "Trifft eine neue Meldung ein, erscheint sofort ein Hinweis — kein erneutes Öffnen der Mod-Ansicht nötig.",
+        "Der Zähler aktualisiert sich, sobald eine Meldung bearbeitet wird."
+      ]
+    },
+    {
       "id": "2026-07-14.6",
       "date": "2026-07-14",
       "style": "Sachlich",
