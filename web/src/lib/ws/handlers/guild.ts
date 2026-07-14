@@ -14,8 +14,30 @@ import {
   guildPluginActivation,
   setGuildPluginEnabled
 } from '$lib/plugins/guild-activation.svelte';
+import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
+import { toast } from 'svelte-sonner';
+import { m } from '$lib/paraglide/messages.js';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
+
+/** Reason-code → localised label for the report toast. Mirrors the mod-queue
+ *  reason badges; unknown codes fall back to the raw code. */
+function reportReasonLabel(code: string): string {
+  switch (code) {
+    case 'spam':
+      return m.mod_queue_reason_spam();
+    case 'harassment':
+      return m.mod_queue_reason_harassment();
+    case 'illegal':
+      return m.mod_queue_reason_illegal();
+    case 'csam':
+      return m.mod_queue_reason_csam();
+    case 'other':
+      return m.mod_queue_reason_other();
+    default:
+      return code;
+  }
+}
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('guild_updated', (evt) => {
@@ -86,6 +108,17 @@ export function register(ctx: HandlerContext): void {
     const cached = guildPluginActivation.enabledByGuild[evt.guild_id];
     if (cached === undefined) return;
     setGuildPluginEnabled(evt.guild_id, evt.plugin_name, evt.enabled);
+  });
+
+  // Neue Meldung in einer Community, in der wir moderieren. Die Zustellung ist
+  // serverseitig schon auf Mod-Sockets gefiltert — wir dürfen dem Event also
+  // vertrauen: Badge hochzählen + Toast zeigen. Kein Nachladen der Liste hier;
+  // ModQueue.svelte reagiert selbst auf den Zählerstand.
+  registerWsHandler('report_new', (evt) => {
+    modQueueCounts.increment(evt.guild_id);
+    toast.info(m.mod_report_new_toast_title(), {
+      description: m.mod_report_new_toast_body({ reason: reportReasonLabel(evt.reason_code) })
+    });
   });
 
   registerWsHandler('guild_sound_updated', (evt) => {

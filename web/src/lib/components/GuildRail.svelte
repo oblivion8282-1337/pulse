@@ -37,6 +37,7 @@
   // reach into the same store; the rail's `guilds` prop only has
   // top-level guild metadata, not their channel lists.
   import { roles } from '$lib/stores/roles.svelte';
+  import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
@@ -512,6 +513,12 @@
         {@const guildChannels = isActiveServer ? (guildsStore.channelsByGuild[g.id] ?? []) : []}
         {@const guildChannelIds = isActiveServer && !active ? guildChannels.map((c) => c.id) : []}
         {@const guildUnread = readState.sumUnread(guildChannelIds)}
+        {@const canModerate =
+          isActiveServer &&
+          (roles.hasGuildPermission(g.id, Perm.MANAGE_MESSAGES) ||
+            roles.hasGuildPermission(g.id, Perm.BAN_MEMBERS) ||
+            roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD))}
+        {@const modOpen = canModerate ? modQueueCounts.get(g.id) : 0}
         {@const iconSrc = guildIconSrc(g.icon_url, server.hostname)}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
@@ -549,6 +556,13 @@
                           aria-label={m.guild_rail_unread_mentions()}
                           data-testid="guild-mention-dot"
                         >{guildUnread > 99 ? '99+' : guildUnread}</span>
+                      {/if}
+                      {#if modOpen > 0}
+                        <span
+                          class="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-black ring-2 ring-bg-panel"
+                          aria-label={m.guild_rail_open_reports()}
+                          data-testid="guild-modqueue-dot"
+                        >{modOpen > 99 ? '99+' : modOpen}</span>
                       {/if}
                     </div>
                   {/snippet}

@@ -21,6 +21,8 @@ import { communityInvites } from '$lib/stores/communityInvites.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { privacy } from '$lib/stores/privacy.svelte';
 import { roles } from '$lib/stores/roles.svelte';
+import { Perm } from '$lib/permissions/bitfield';
+import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
@@ -86,6 +88,19 @@ export function register(ctx: ReadyContext): void {
       // roles — they only come from /guilds/{id}/roles or this frame).
       roles.seedFromReady(evt.guilds);
       guildSounds.seedFromReady(evt.guilds);
+      // Offene-Meldungen-Badge: für jede Community, in der wir moderieren, den
+      // Zähler laden. MUSS nach roles.seedFromReady laufen (hasGuildPermission
+      // braucht die frisch geseedeten Rollen). Nicht-Mod-Guilds werden nicht
+      // abgefragt (der Count-Endpoint würde 403en).
+      const modGuildIds = evt.guilds
+        .filter(
+          (g) =>
+            roles.hasGuildPermission(g.id, Perm.MANAGE_MESSAGES) ||
+            roles.hasGuildPermission(g.id, Perm.BAN_MEMBERS) ||
+            roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)
+        )
+        .map((g) => g.id);
+      void modQueueCounts.hydrate(modGuildIds);
       if (evt.voice_states) voicePresence.seed(evt.voice_states);
       voicePresence.seedOverrides(evt.voice_overrides ?? []);
       streamPresence.seed(evt.stream_states ?? []);

@@ -11,10 +11,10 @@
     resolveReport,
     triageReport,
     type Report,
-    type ReportStatus,
     type ActionType
   } from '$lib/api/moderation';
   import { userCache } from '$lib/stores/users.svelte';
+  import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
@@ -61,8 +61,7 @@
     loading = true;
     loadError = null;
     try {
-      const status: ReportStatus = tab;
-      reports = await listModQueue(guildId, status);
+      reports = await listModQueue(guildId, tab);
       for (const r of reports) {
         if (r.reporter_user_id) userCache.queue(r.reporter_user_id);
         if (r.target_user_id) userCache.queue(r.target_user_id);
@@ -75,6 +74,20 @@
   }
 
   $effect(() => { void load(activeTab); });
+
+  // Live-Nachladen: kommt per WS eine neue Meldung rein (Badge-Zähler steigt),
+  // während das Panel offen auf einem der offenen Tabs steht, die Liste
+  // auffrischen — ohne dass der Mod den Tab neu öffnen muss. Nur bei ECHTEM
+  // Anstieg reagieren (ein eigener resolve senkt den Zähler → kein Reload).
+  let lastSeenCount = $state(-1);
+  $effect(() => {
+    const c = guildId ? modQueueCounts.get(guildId) : 0;
+    const grew = lastSeenCount >= 0 && c > lastSeenCount;
+    lastSeenCount = c;
+    if (grew && (activeTab === 'new' || activeTab === 'triaged')) {
+      void load(activeTab);
+    }
+  });
 
   function openResolve(r: Report, type: 'resolved' | 'dismissed') {
     resolveTarget = r;
@@ -98,6 +111,7 @@
       );
       resolveDialogOpen = false;
       void load(activeTab);
+      void modQueueCounts.refresh(guildId);
     } catch (e) {
       toast.error(m.mod_queue_toast_error(), { description: e instanceof Error ? e.message : String(e) });
     } finally {
