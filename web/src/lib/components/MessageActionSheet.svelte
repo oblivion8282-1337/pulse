@@ -137,7 +137,7 @@
             type="button"
             class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-amber-400 active:bg-bg-hover"
             data-testid="sheet-action-report"
-            onclick={() => { onReport?.(); close(); }}
+            onclick={() => onReport?.()}
           >
             <FlagIcon class="size-5 shrink-0" />
             {m.message_action_sheet_report()}
