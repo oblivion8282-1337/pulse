@@ -23,6 +23,7 @@
   import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
   import ServerIcon from '@lucide/svelte/icons/server';
   import HouseIcon from '@lucide/svelte/icons/house';
+  import CloudIcon from '@lucide/svelte/icons/cloud';
   import { m } from '$lib/paraglide/messages.js';
 
   type Mode = 'vps' | 'app_host';
@@ -116,45 +117,60 @@
 
   const MODE_BTN =
     'flex flex-1 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors';
+
+  function modeBtnState(active: boolean): string {
+    return active
+      ? 'border-primary bg-primary/10'
+      : 'border-border bg-bg-input/40 hover:bg-bg-hover';
+  }
 </script>
 
 <div class="flex flex-col gap-5" data-testid="self-host-application">
   <form onsubmit={(e) => { e.preventDefault(); void submit(); }}
         class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
-    <!-- Art wählen — nur solange App-Hosting aktiv ist. Ist der Weg geparkt
-         (APP_HOSTING_ENABLED=false), bleibt bloß der VPS-Antrag; der Picker
-         entfällt komplett und mode bleibt auf 'vps'. -->
-    {#if APP_HOSTING_ENABLED}
-      <p class="text-text-bright text-xs font-medium">{m.hosting_apply_mode_label()}</p>
-      <div class="flex flex-col gap-2 sm:flex-row">
-        <button type="button" onclick={() => (mode = 'vps')}
-          class="{MODE_BTN} {mode === 'vps'
-            ? 'border-primary bg-primary/10'
-            : 'border-border bg-bg-input/40 hover:bg-bg-hover'}"
-          data-testid="hosting-mode-vps">
-          <ServerIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
+    <!-- Wo soll der Server laufen? Links "Auf eigenem Server" (aktiv), rechts
+         "Von Pulse gehostet" als ausgegrauter Teaser für ein künftiges Feature
+         (Pulse hostet den Server). Die App-Host-Kachel (eigenes Gerät) ist
+         geparkt und erscheint nur, wenn App-Hosting wieder aktiviert wird
+         (APP_HOSTING_ENABLED); mode bleibt sonst auf 'vps'. -->
+    <p class="text-text-bright text-xs font-medium">{m.hosting_apply_mode_label()}</p>
+    <div class="flex flex-col gap-2 sm:flex-row">
+      <button type="button" onclick={() => (mode = 'vps')}
+        class="{MODE_BTN} {modeBtnState(mode === 'vps')}"
+        data-testid="hosting-mode-vps">
+        <ServerIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
+        <span class="flex flex-col gap-0.5">
+          <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_vps_title()}</span>
+          <span class="text-text-muted text-xs">{m.hosting_apply_mode_vps_desc()}</span>
+        </span>
+      </button>
+      {#if APP_HOSTING_ENABLED && !mobile}
+        <button type="button" onclick={() => (mode = 'app_host')}
+          class="{MODE_BTN} {modeBtnState(mode === 'app_host')}"
+          data-testid="hosting-mode-app-host">
+          <HouseIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
           <span class="flex flex-col gap-0.5">
-            <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_vps_title()}</span>
-            <span class="text-text-muted text-xs">{m.hosting_apply_mode_vps_desc()}</span>
+            <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_app_title()}</span>
+            <span class="text-text-muted text-xs">{m.hosting_apply_mode_app_desc()}</span>
           </span>
         </button>
-        {#if !mobile}
-          <button type="button" onclick={() => (mode = 'app_host')}
-            class="{MODE_BTN} {mode === 'app_host'
-              ? 'border-primary bg-primary/10'
-              : 'border-border bg-bg-input/40 hover:bg-bg-hover'}"
-            data-testid="hosting-mode-app-host">
-            <HouseIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
-            <span class="flex flex-col gap-0.5">
-              <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_app_title()}</span>
-              <span class="text-text-muted text-xs">{m.hosting_apply_mode_app_desc()}</span>
-            </span>
-          </button>
-        {/if}
-      </div>
-      {#if mobile}
-        <p class="text-text-muted text-xs">{m.hosting_apply_mobile_hint()}</p>
       {/if}
+      <!-- Teaser: von Pulse gehostet — noch nicht implementiert, daher
+           ausgegraut + nicht klickbar. -->
+      <div class="{MODE_BTN} border-border bg-bg-input/20 cursor-not-allowed opacity-60"
+        aria-disabled="true" data-testid="hosting-mode-managed">
+        <CloudIcon class="text-text-muted mt-0.5 size-4 shrink-0" />
+        <span class="flex flex-col gap-0.5">
+          <span class="flex items-center gap-1.5">
+            <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_managed_title()}</span>
+            <span class="bg-bg-input text-text-muted rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">{m.hosting_apply_mode_managed_badge()}</span>
+          </span>
+          <span class="text-text-muted text-xs">{m.hosting_apply_mode_managed_desc()}</span>
+        </span>
+      </div>
+    </div>
+    {#if APP_HOSTING_ENABLED && mobile}
+      <p class="text-text-muted text-xs">{m.hosting_apply_mobile_hint()}</p>
     {/if}
 
     {#if mode === 'vps'}
