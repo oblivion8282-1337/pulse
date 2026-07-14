@@ -51,6 +51,9 @@ export interface ForwardResult {
 export interface AbuseReportInput {
   body: string;
   target_url?: string | null;
+  /** Gemeldeter Cloud-Nutzer (z.B. aus einer Direktnachricht-Meldung, die keinen
+   *  Community-Moderator hat und deshalb ans Betreiberteam geht). */
+  target_user_id?: string | null;
   submitter_email?: string | null;
 }
 

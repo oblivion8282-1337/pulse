@@ -331,6 +331,7 @@
               canEdit={canEditMessage(item.message)}
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
+              isDirect={!channel?.guild_id}
               onReply={onSetReplyTarget}
               onEditSubmit={onEditMessage}
               onDelete={onDeleteMessage}

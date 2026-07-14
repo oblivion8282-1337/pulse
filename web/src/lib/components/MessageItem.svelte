@@ -27,6 +27,9 @@
     canDelete,
     /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
     canReport = false,
+    /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
+     *  einen Community-Moderator (es gibt hier keinen). */
+    isDirect = false,
     onReply,
     onEditSubmit,
     onDelete,
@@ -44,6 +47,7 @@
     canEdit: boolean;
     canDelete: boolean;
     canReport?: boolean;
+    isDirect?: boolean;
     onReply: (m: Message) => void;
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
@@ -261,6 +265,7 @@
 <ReportMessageDialog
   messageId={message.id}
   userId={message.author_id}
+  toCloud={isDirect}
   bind:open={reportOpen}
   onClose={() => (reportOpen = false)}
 />

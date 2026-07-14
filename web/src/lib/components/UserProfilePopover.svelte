@@ -168,6 +168,7 @@
   <ReportMessageDialog
     kind="user"
     {userId}
+    toCloud={!guildId}
     open={true}
     onClose={() => (reportDialogOpen = false)}
   />

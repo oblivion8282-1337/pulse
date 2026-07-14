@@ -11,6 +11,8 @@
   import { toast } from 'svelte-sonner';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import { createReport, type ReasonCode } from '$lib/api/moderation';
+  import { submitAbuseReport } from '$lib/api/complaints';
+  import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -18,6 +20,7 @@
     userId,
     channelId,
     kind = 'message',
+    toCloud = false,
     open = $bindable(false),
     onClose
   }: {
@@ -27,6 +30,10 @@
     userId?: string;
     channelId?: string;
     kind?: 'message' | 'user' | 'channel';
+    /** Direktnachricht/Sozial-Kontext: es gibt keinen Community-Moderator, der
+     *  handeln könnte. Die Meldung geht dann als Beschwerde ans Betreiberteam
+     *  (auth-svc /reports → Admin-Complaints), gemeldet wird der Nutzer. */
+    toCloud?: boolean;
     open?: boolean;
     onClose: () => void;
   } = $props();
@@ -59,13 +66,26 @@
     if (!bodyValid || submitting) return;
     submitting = true;
     try {
-      await createReport({
-        target_message_id: messageId,
-        target_user_id: userId,
-        target_channel_id: channelId,
-        reason_code: reasonCode,
-        body
-      });
+      if (toCloud) {
+        // Kein Community-Moderator zuständig → Beschwerde ans Betreiberteam.
+        // Complaints kennen keinen reason_code + kein Nachrichten-Ziel; wir
+        // melden den Nutzer und hängen Grund + Kontext an den Text an.
+        await submitAbuseReport({
+          target_user_id: userId,
+          body: `${body}\n\n[${m.report_message_reason_label()}: ${REASON_LABELS[reasonCode]()}${
+            kind === 'message' ? `, ${m.report_to_cloud_context_dm()}` : ''
+          }]`,
+          submitter_email: auth.user?.email ?? null
+        });
+      } else {
+        await createReport({
+          target_message_id: messageId,
+          target_user_id: userId,
+          target_channel_id: channelId,
+          reason_code: reasonCode,
+          body
+        });
+      }
       toast.success(m.report_message_toast_success());
       body = '';
       reasonCode = 'spam';
@@ -94,6 +114,15 @@
     </Dialog.Header>
 
     <div class="flex flex-col gap-4 py-2">
+      {#if toCloud}
+        <p
+          class="text-text-muted bg-bg-input/60 rounded-lg px-3 py-2 text-xs"
+          data-testid="report-cloud-hint"
+        >
+          {m.report_to_cloud_hint()}
+        </p>
+      {/if}
+
       <!-- Reason Code -->
       <div class="flex flex-col gap-1.5">
         <label class="text-text-base text-sm font-medium" for="report-reason">
