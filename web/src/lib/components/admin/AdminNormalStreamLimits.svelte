@@ -59,7 +59,7 @@
     const fMin = Number(fpsMin);
     const fMax = Number(fpsMax);
 
-    if (![bMin, bMax].every((v) => Number.isFinite(v) && v >= 100 && v <= 32000)) {
+    if (![bMin, bMax].every((v) => Number.isFinite(v) && v >= 1000 && v <= 100000)) {
       toast.error(m.admin_normal_stream_limits_invalid_bitrate(), { description: m.admin_normal_stream_limits_invalid_bitrate_desc() });
       return;
     }
@@ -67,8 +67,8 @@
       toast.error(m.admin_normal_stream_limits_bitrate(), { description: m.admin_normal_stream_limits_min_above_max() });
       return;
     }
-    // Screen-share FPS ceiling is 240.
-    if (![fMin, fMax].every((v) => Number.isInteger(v) && v >= 1 && v <= 240)) {
+    // Screen-share FPS ceiling is 1000 (same wide band as HQ).
+    if (![fMin, fMax].every((v) => Number.isInteger(v) && v >= 1 && v <= 1000)) {
       toast.error(m.admin_normal_stream_limits_invalid_fps(), { description: m.admin_normal_stream_limits_invalid_fps_desc() });
       return;
     }
@@ -122,14 +122,14 @@
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
-            type="number" min="0.1" max="32" step="any"
+            type="number" min="1" max="100" step="any"
             bind:value={bitrateMinMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-bitrate-min" aria-label={m.admin_normal_stream_limits_bitrate_min_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
           <input
-            type="number" min="0.1" max="32" step="any"
+            type="number" min="1" max="100" step="any"
             bind:value={bitrateMaxMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-bitrate-max" aria-label={m.admin_normal_stream_limits_bitrate_max_label()}
@@ -146,14 +146,14 @@
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
-            type="number" min="1" max="240" step="1"
+            type="number" min="1" max="1000" step="1"
             bind:value={fpsMin}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-fps-min" aria-label={m.admin_normal_stream_limits_fps_min_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
           <input
-            type="number" min="1" max="240" step="1"
+            type="number" min="1" max="1000" step="1"
             bind:value={fpsMax}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-fps-max" aria-label={m.admin_normal_stream_limits_fps_max_label()}

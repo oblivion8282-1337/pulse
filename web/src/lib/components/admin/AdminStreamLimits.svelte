@@ -61,8 +61,8 @@
     const fMax = Number(fpsMax);
 
     // Mirror the backend bounds so the toast explains the problem before the
-    // round-trip. Bitrate 0.1–32 Mbit/s (100–32000 kbps), FPS 1–360.
-    if (![bMin, bMax].every((v) => Number.isFinite(v) && v >= 100 && v <= 32000)) {
+    // round-trip. Bitrate 1–100 Mbit/s (1000–100000 kbps), FPS 1–1000.
+    if (![bMin, bMax].every((v) => Number.isFinite(v) && v >= 1000 && v <= 100000)) {
       toast.error(m.admin_stream_limits_toast_bitrate_invalid(), { description: m.admin_stream_limits_toast_bitrate_invalid_desc() });
       return;
     }
@@ -70,7 +70,7 @@
       toast.error(m.admin_stream_limits_toast_bitrate_label(), { description: m.admin_stream_limits_toast_min_over_max() });
       return;
     }
-    if (![fMin, fMax].every((v) => Number.isInteger(v) && v >= 1 && v <= 360)) {
+    if (![fMin, fMax].every((v) => Number.isInteger(v) && v >= 1 && v <= 1000)) {
       toast.error(m.admin_stream_limits_toast_fps_invalid(), { description: m.admin_stream_limits_toast_fps_invalid_desc() });
       return;
     }
@@ -124,14 +124,14 @@
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
-            type="number" min="0.1" max="32" step="any"
+            type="number" min="1" max="100" step="any"
             bind:value={bitrateMinMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="hq-bitrate-min" aria-label={m.admin_stream_limits_bitrate_min_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_to()}</span>
           <input
-            type="number" min="0.1" max="32" step="any"
+            type="number" min="1" max="100" step="any"
             bind:value={bitrateMaxMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="hq-bitrate-max" aria-label={m.admin_stream_limits_bitrate_max_aria()}
@@ -148,14 +148,14 @@
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
-            type="number" min="1" max="360" step="1"
+            type="number" min="1" max="1000" step="1"
             bind:value={fpsMin}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="hq-fps-min" aria-label={m.admin_stream_limits_fps_min_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_to()}</span>
           <input
-            type="number" min="1" max="360" step="1"
+            type="number" min="1" max="1000" step="1"
             bind:value={fpsMax}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="hq-fps-max" aria-label={m.admin_stream_limits_fps_max_aria()}
