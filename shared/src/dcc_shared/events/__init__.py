@@ -63,6 +63,7 @@ they don't carry the discriminator the registry keys on.
 from __future__ import annotations
 
 from dcc_shared.events._base import _EventBase
+from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.chat import (
     ChannelBumpEvent,
     DmBumpEvent,
@@ -82,7 +83,6 @@ from dcc_shared.events.chat import (
     WatchChatReactionData,
     WatchChatReactionEvent,
 )
-from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.community import (
     CommunityInviteReceivedEvent,
     CommunityInviteRemovedEvent,
@@ -120,6 +120,7 @@ from dcc_shared.events.guild import (
     GuildUpdatedEvent,
     MemberRolesUpdatedEvent,
     PermissionsUpdatedEvent,
+    ReportNewEvent,
     RoleCreatedEvent,
     RoleDeletedEvent,
     RoleUpdatedEvent,
@@ -190,6 +191,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "permissions_updated": PermissionsUpdatedEvent,
     "guild_sound_updated": GuildSoundUpdatedEvent,
     "guild_plugins_changed": GuildPluginsChangedEvent,
+    "report_new": ReportNewEvent,
     "dropbox_entry_created": DropboxEntryCreatedEvent,
     "dropbox_entry_updated": DropboxEntryUpdatedEvent,
     "dropbox_entry_deleted": DropboxEntryDeletedEvent,
@@ -263,6 +265,7 @@ __all__ = [
     "GuildUpdatedEvent",
     "MemberRolesUpdatedEvent",
     "PermissionsUpdatedEvent",
+    "ReportNewEvent",
     "RoleCreatedEvent",
     "RoleDeletedEvent",
     "RoleUpdatedEvent",

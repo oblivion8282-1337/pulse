@@ -274,6 +274,10 @@ class _PermFilterMixin:
             "dropbox_entry_restored",
             "dropbox_entry_purged",
             "dropbox_quota_updated",
+            # New moderation report: pre-narrow to guild members here (cheap),
+            # then the mod-perm filter below (``_filter_by_moderator``) narrows
+            # further to only the guild's moderators.
+            "report_new",
         }
     )
 
@@ -308,6 +312,39 @@ class _PermFilterMixin:
         for ws in targets:
             guilds = self._ws_guilds.get(ws)
             if guilds is not None and gid in guilds:
+                out.append(ws)
+        return out
+
+    async def _filter_by_moderator(
+        self, targets: list[WebSocket], guild_id: str
+    ) -> list[WebSocket]:
+        """Drop targets whose user is not a moderator of ``guild_id``.
+
+        A moderator holds any of MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD
+        (or is the owner / ADMINISTRATOR). Global admins (auth-svc flag,
+        invisible to ``members_who_can_moderate``) are re-added from
+        ``_ws_user`` so a Pulse super-admin still gets the push. Used to gate
+        ``report_new`` so a plain member can't learn a report was filed.
+
+        Reports are rare (rate-limited 10/h/user), so this resolves the mod
+        member set fresh per event — no cache."""
+        if not targets or self._session_factory is None:
+            return targets
+        try:
+            gid = int(guild_id)
+        except (TypeError, ValueError):
+            # Unknown guild — drop rather than leak the report to all members.
+            return []
+        from dcc_chat_gateway.permissions import members_who_can_moderate
+
+        async with self._session_factory() as session:
+            mod_ids = await members_who_can_moderate(session, gid)
+        out: list[WebSocket] = []
+        for ws in targets:
+            user = self._ws_user.get(ws)
+            if user is None:
+                continue
+            if user.is_admin or user.id in mod_ids:
                 out.append(ws)
         return out
 

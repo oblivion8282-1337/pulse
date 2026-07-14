@@ -239,6 +239,12 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "plugin_name": "tamagotchi",
         "enabled": True,
     },
+    "report_new": {
+        "op": "report_new",
+        "guild_id": "5",
+        "report_id": "42",
+        "reason_code": "spam",
+    },
     "presence_update": {
         "op": "presence_update",
         "user_id": "3",

@@ -121,6 +121,24 @@ class GuildBanRemovedEvent(_EventBase):
     user_id: str
 
 
+# ---- Moderation ------------------------------------------------------------
+
+
+class ReportNewEvent(_EventBase):
+    """A new moderation report was filed in this guild — delivered only to
+    the guild's moderators (listener narrows to mod-perm holders).
+
+    Deliberately carries NO PII: no report body, no reporter/target ids.
+    ``reason_code`` is a fixed enum (spam | harassment | illegal | csam |
+    other) so the client can label the toast without a fetch; ``guild_id``
+    routes the open-reports badge; ``report_id`` lets the client dedupe."""
+
+    op: Literal["report_new"] = "report_new"
+    guild_id: str
+    report_id: str
+    reason_code: str
+
+
 # ---- Roles + role-member assignments ---------------------------------------
 
 

@@ -548,3 +548,131 @@ async def test_resolve_warn_records_without_enforcement(client, _auth_signer, se
     async with session_factory() as s:
         assert await s.get(GuildMember, (gid, uid_target)) is not None  # still a member
         assert await s.get(GuildBan, (gid, uid_target)) is None
+
+
+# ---------------------------------------------------------------------------
+# Open-reports count (badge source)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mod_queue_count_new_and_triaged(client, _auth_signer, session_factory):
+    """Count = new + triaged (open states); resolved/dismissed excluded."""
+    t_owner, uid_owner = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    ch_id = int(ch["id"])
+    reporter_uid = _uid()
+
+    r1 = await _seed_report(session_factory, reporter_uid, channel_id=ch_id)
+    await _seed_report(session_factory, reporter_uid, channel_id=ch_id)
+
+    # Initially both are "new" → count 2.
+    r = await client.get(f"/guilds/{g['id']}/mod-queue/count", headers=auth(t_owner))
+    assert r.status_code == 200, r.text
+    assert r.json()["count"] == 2
+
+    # Triage one → still open, count stays 2.
+    await client.post(f"/guilds/{g['id']}/mod-queue/{r1}/triage", headers=auth(t_owner))
+    r = await client.get(f"/guilds/{g['id']}/mod-queue/count", headers=auth(t_owner))
+    assert r.json()["count"] == 2
+
+    # Resolve one → count drops to 1.
+    await client.post(
+        f"/guilds/{g['id']}/mod-queue/{r1}/resolve",
+        json={"resolution": "resolved", "action_type": "other"},
+        headers=auth(t_owner),
+    )
+    r = await client.get(f"/guilds/{g['id']}/mod-queue/count", headers=auth(t_owner))
+    assert r.json()["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mod_queue_count_non_mod_403(client, _auth_signer):
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    t_user, uid_user = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_user, t_owner)
+
+    r = await client.get(f"/guilds/{g['id']}/mod-queue/count", headers=auth(t_user))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_mod_queue_count_cross_guild_isolation(client, _auth_signer, session_factory):
+    """A report scoped to guild B is not counted in guild A."""
+    t_owner_a, _ = await _token(_auth_signer)
+    t_owner_b, _ = await _token(_auth_signer)
+    g_a = await _make_guild(client, t_owner_a)
+    g_b = await _make_guild(client, t_owner_b)
+    ch_b = (
+        await client.post(
+            f"/guilds/{g_b['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=auth(t_owner_b),
+        )
+    ).json()
+    await _seed_report(session_factory, _uid(), channel_id=int(ch_b["id"]))
+
+    r = await client.get(f"/guilds/{g_a['id']}/mod-queue/count", headers=auth(t_owner_a))
+    assert r.json()["count"] == 0
+    r = await client.get(f"/guilds/{g_b['id']}/mod-queue/count", headers=auth(t_owner_b))
+    assert r.json()["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_guilds_for_report_user_in_multiple_guilds(
+    client, _auth_signer, session_factory
+):
+    """A user-only report resolves to every guild the target is a member of."""
+    from dcc_chat_gateway.models import Report
+    from dcc_chat_gateway.routes.mod_queue import guilds_for_report
+
+    t_owner_a, _ = await _token(_auth_signer)
+    t_owner_b, _ = await _token(_auth_signer)
+    g_a = await _make_guild(client, t_owner_a)
+    g_b = await _make_guild(client, t_owner_b)
+    _, uid_target = await _token(_auth_signer)
+    await _add_member(client, g_a["id"], uid_target, t_owner_a)
+    await _add_member(client, g_b["id"], uid_target, t_owner_b)
+
+    rid = await _seed_report(session_factory, _uid(), user_id=uid_target)
+    async with session_factory() as s:
+        report = await s.get(Report, rid)
+        guilds = await guilds_for_report(s, report)
+    assert guilds == {int(g_a["id"]), int(g_b["id"])}
+
+
+@pytest.mark.asyncio
+async def test_members_who_can_moderate_scoping(client, _auth_signer, session_factory):
+    """Owner + a member with a mod role are moderators; a plain member and an
+    outsider are not. This is what narrows report_new fan-out."""
+    from dcc_chat_gateway.permissions import Permissions, members_who_can_moderate
+
+    t_owner, uid_owner = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    gid = int(g["id"])
+
+    t_mod, uid_mod = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_mod, t_owner)
+    await _grant_role_with_perms(
+        client, g["id"], uid_mod, int(Permissions.BAN_MEMBERS), t_owner
+    )
+
+    t_plain, uid_plain = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_plain, t_owner)
+
+    _, uid_outsider = await _token(_auth_signer)
+
+    async with session_factory() as s:
+        mods = await members_who_can_moderate(s, gid)
+    assert uid_owner in mods
+    assert uid_mod in mods
+    assert uid_plain not in mods
+    assert uid_outsider not in mods

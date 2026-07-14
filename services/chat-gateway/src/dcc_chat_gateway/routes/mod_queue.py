@@ -23,15 +23,22 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, GuildMember, Message, Report
+from dcc_chat_gateway.models import Message, Report
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes.mod_queue_scope import (
+    _guild_scope_predicate,
+    _report_in_guild,
+    guilds_for_report,
+)
 from dcc_chat_gateway.schemas import SnowflakeId
 from dcc_chat_gateway.security import CurrentUser
-from dcc_chat_gateway.snowflake import next_id
+
+# Re-exported for report-creation push (routes/reports.py imports it here).
+__all__ = ["guilds_for_report", "router"]
 
 router = APIRouter()
 
@@ -66,6 +73,10 @@ class ResolveIn(BaseModel):
     target_kind: Literal["user", "channel", "role", "message"] | None = None
     target_id: SnowflakeId | None = None
     resolution_note: str | None = Field(default=None, max_length=2000)
+
+
+class ModQueueCount(BaseModel):
+    count: int
 
 
 class AuditLogItem(BaseModel):
@@ -103,8 +114,9 @@ def _report_to_out(r: Report) -> ReportItem:
 
 async def _has_any_mod_perm(session, current, guild_id: int) -> None:
     """403 if caller lacks *every* mod permission (needs any one of three)."""
-    from dcc_chat_gateway.permissions import resolve_permissions
     from dcc_shared.permission_resolver import has_permission
+
+    from dcc_chat_gateway.permissions import resolve_permissions
 
     bits = await resolve_permissions(session, current, guild_id)
     if not (
@@ -219,33 +231,9 @@ async def list_mod_queue(
     """
     await _has_any_mod_perm(session, current, guild_id)
 
-    # Subqueries for scope checks — avoids Python-side filtering.
-    channel_ids_in_guild = select(Channel.id).where(Channel.guild_id == guild_id).scalar_subquery()
-    msg_ids_in_guild = (
-        select(Message.id)
-        .join(Channel, Channel.id == Message.channel_id)
-        .where(Channel.guild_id == guild_id)
-        .scalar_subquery()
-    )
-    member_user_ids = (
-        select(GuildMember.user_id).where(GuildMember.guild_id == guild_id).scalar_subquery()
-    )
-
-    stmt = (
-        select(Report)
-        .where(
-            Report.status == queue_status,
-            or_(
-                Report.target_channel_id.in_(channel_ids_in_guild),
-                Report.target_message_id.in_(msg_ids_in_guild),
-                # user-only reports: user is a guild member and no channel/message target
-                (
-                    Report.target_user_id.in_(member_user_ids)
-                    & Report.target_channel_id.is_(None)
-                    & Report.target_message_id.is_(None)
-                ),
-            ),
-        )
+    stmt = select(Report).where(
+        Report.status == queue_status,
+        _guild_scope_predicate(guild_id),
     )
     if before is not None:
         stmt = stmt.where(Report.created_at < before)
@@ -254,51 +242,29 @@ async def list_mod_queue(
     return [_report_to_out(r) for r in rows]
 
 
-async def _report_in_guild(session: SessionDep, report: Report, guild_id: int) -> bool:
-    """True iff *any* of the report's targets belongs to ``guild_id``.
+@router.get("/guilds/{guild_id}/mod-queue/count", response_model=ModQueueCount)
+async def mod_queue_count(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> ModQueueCount:
+    """Number of *open* reports scoped to this guild (``new`` + ``triaged``).
 
-    Mirrors the OR-predicate in ``list_mod_queue``: checks every non-None target
-    independently and returns True as soon as one of them scopes to the guild.
-    Using an early-return chain (if channel → return) would cause divergence when
-    a report has both target_channel_id *and* target_message_id pointing to
-    different guilds — the list query would include the report for both guilds but
-    the old guard would only check the first field.
+    Drives the open-reports moderator badge. Same any-mod-perm gate + scoping
+    as ``list_mod_queue`` (shared ``_guild_scope_predicate``), so the badge
+    can't drift from the two open tabs a moderator sees.
     """
-    if report.target_channel_id is not None:
-        gid = await session.scalar(
-            select(Channel.guild_id).where(Channel.id == report.target_channel_id)
-        )
-        if gid == guild_id:
-            return True
+    await _has_any_mod_perm(session, current, guild_id)
 
-    if report.target_message_id is not None:
-        gid = await session.scalar(
-            select(Channel.guild_id)
-            .join(Message, Message.channel_id == Channel.id)
-            .where(Message.id == report.target_message_id)
+    count = await session.scalar(
+        select(func.count())
+        .select_from(Report)
+        .where(
+            Report.status.in_(("new", "triaged")),
+            _guild_scope_predicate(guild_id),
         )
-        if gid == guild_id:
-            return True
-
-    # user-only check: mirrors the `target_channel_id IS NULL AND
-    # target_message_id IS NULL` guard from list_mod_queue to avoid treating a
-    # cross-guild report (channel→guild A, user in guild B) as guild-B-scoped via
-    # the user branch alone.
-    if (
-        report.target_user_id is not None
-        and report.target_channel_id is None
-        and report.target_message_id is None
-    ):
-        member = await session.scalar(
-            select(GuildMember.user_id).where(
-                GuildMember.guild_id == guild_id,
-                GuildMember.user_id == report.target_user_id,
-            )
-        )
-        if member is not None:
-            return True
-
-    return False
+    )
+    return ModQueueCount(count=count or 0)
 
 
 async def _targets_self(session: SessionDep, report: Report, current_id: int) -> bool:
