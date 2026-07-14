@@ -614,16 +614,16 @@ class PermissionsPatch(BaseModel):
     # check happens in the route (a partial patch may set just one side, so
     # it must be validated against the stored row). Bitrate ceiling 32000
     # also respects the SmallInteger column (max 32767).
-    hq_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
-    hq_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
-    hq_fps_min: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
-    hq_fps_max: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
+    hq_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=1000, le=100000)] = None
+    hq_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=1000, le=100000)] = None
+    hq_fps_min: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
+    hq_fps_max: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
     hq_resolution_max: str | None = None
-    # Normal-stream limits — own band; FPS ceiling 240 (screen-share max).
-    ns_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
-    ns_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
-    ns_fps_min: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
-    ns_fps_max: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
+    # Normal-stream limits — own band; FPS ceiling 1000 (same wide band as HQ).
+    ns_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=1000, le=100000)] = None
+    ns_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=1000, le=100000)] = None
+    ns_fps_min: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
+    ns_fps_max: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
     ns_resolution_max: str | None = None
     # Webcam capture limits — FPS ceiling 60 (the camera path never exceeds it).
     cam_fps_max: Annotated[int | None, Field(default=None, ge=1, le=60)] = None
