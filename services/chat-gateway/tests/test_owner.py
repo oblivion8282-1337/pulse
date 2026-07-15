@@ -198,6 +198,9 @@ async def test_set_and_clear_community_limits(client, owner_token, session_facto
             "stream_bitrate_max_kbps": 50000,
             "stream_fps_max": 120,
             "stream_resolution_max": "4K",
+            "attachment_max_size_bytes": 52428800,
+            "attachment_max_count_per_message": 10,
+            "attachment_storage_quota_bytes": 5368709120,
         },
         headers=_auth(token),
     )
@@ -207,6 +210,9 @@ async def test_set_and_clear_community_limits(client, owner_token, session_facto
     assert body["stream_bitrate_max_kbps"] == 50000
     assert body["stream_fps_max"] == 120
     assert body["stream_resolution_max"] == "4K"
+    assert body["attachment_max_size_bytes"] == 52428800
+    assert body["attachment_max_count_per_message"] == 10
+    assert body["attachment_storage_quota_bytes"] == 5368709120
 
     # Clear back to inherit (null).
     r = await client.patch(

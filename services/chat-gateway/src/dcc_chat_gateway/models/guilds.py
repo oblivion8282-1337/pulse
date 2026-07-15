@@ -71,6 +71,14 @@ class Guild(Base):
     stream_bitrate_max_kbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stream_fps_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     stream_resolution_max: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Total live (non-deleted) chat-attachment storage cap for this community,
+    # in bytes. NULL = unlimited. Server-enforced at the upload-URL request
+    # (413 when used + new file would exceed it). The Cloud operator sets it;
+    # the biggest un-bypassable cost lever (attachments were previously
+    # unbounded in aggregate). Dropbox has its own separate quota.
+    attachment_storage_quota_bytes: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
 
     __table_args__ = (
         # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so
