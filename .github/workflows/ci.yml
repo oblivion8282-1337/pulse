@@ -5,9 +5,17 @@
 name: ci
 
 on:
+  # Reine Doku-Änderungen brauchen weder Tests noch Image-Build noch Deploy →
+  # ci wird auf BEIDEN Triggern übersprungen, wenn NUR diese Pfade betroffen
+  # sind. Sicher auch auf der PR-Seite, weil `backend`/`frontend` seit
+  # 2026-07-15 KEINE Branch-Protection-Pflicht-Checks mehr sind (nur noch
+  # `CLAAssistant` ist Pflicht, das läuft über `cla.yml`) — ein übersprungenes
+  # ci blockiert den PR also nicht.
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
 
 # Cancel older runs on the same ref when a newer push lands. Repo is
 # public so we have unlimited Actions minutes, but cancelling stale
