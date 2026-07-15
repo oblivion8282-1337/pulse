@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-16",
+      "date": "2026-07-16",
+      "style": "Sachlich",
+      "title": "Community-Verwaltung für Betreiber",
+      "items": [
+        "Betreiber haben eine neue Übersicht aller Communities und können einzelne Communities vorübergehend stilllegen oder endgültig löschen.",
+        "Pro Community lassen sich jetzt Grenzen setzen — maximale Sprach- und Stream-Qualität, Auflösung und Bildrate, ein Gesamt-Speicher-Kontingent samt Dateigrößen sowie die Zahl an Mitgliedern, Kanälen, Rollen und gleichzeitigen Streams.",
+        "Wird eine Community stillgelegt, sehen ihre Mitglieder einen klaren Hinweis statt einer Fehlermeldung."
+      ]
+    },
+    {
       "id": "2026-07-15.3",
       "date": "2026-07-15",
       "style": "Sachlich",
