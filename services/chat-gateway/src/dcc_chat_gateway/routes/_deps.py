@@ -3,8 +3,24 @@
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import select
 
-from dcc_chat_gateway.models import Channel, DirectMessageChannel, GuildMember
+from dcc_chat_gateway.models import Channel, DirectMessageChannel, Guild, GuildMember
+
+
+async def is_guild_suspended(session, guild_id: int) -> bool:
+    """True iff the community is platform-suspended (frozen by the operator).
+
+    A light PK-scoped scalar lookup. Used by the membership-only guards below
+    to fully freeze a suspended guild — including read access — which the
+    permission overlay (``permissions._load_context``) alone would leave
+    read-open (it only zeroes *permission* checks). These guards have no
+    ``is_admin`` context, so the freeze here applies to everyone; a global
+    admin who needs the content unfreezes first (or uses the owner tools)."""
+    suspended_at = (
+        await session.execute(select(Guild.suspended_at).where(Guild.id == guild_id))
+    ).scalar_one_or_none()
+    return suspended_at is not None
 
 
 async def require_cloud() -> None:
@@ -33,6 +49,8 @@ async def require_member(session, guild_id: int, user_id: int) -> None:
     member = await session.get(GuildMember, (guild_id, user_id))
     if member is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
+    if await is_guild_suspended(session, guild_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="community is suspended")
 
 
 async def channel_membership(session, channel_id: int, user_id: int) -> Channel | None:
@@ -41,6 +59,8 @@ async def channel_membership(session, channel_id: int, user_id: int) -> Channel 
         return None
     member = await session.get(GuildMember, (channel.guild_id, user_id))
     if member is None:
+        return None
+    if await is_guild_suspended(session, channel.guild_id):
         return None
     return channel
 
@@ -105,6 +125,10 @@ async def resolve_channel_or_raise(
         if member is None:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, detail="not a member of this guild"
+            )
+        if await is_guild_suspended(session, channel.guild_id):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, detail="community is suspended"
             )
         return ("guild", channel)
 

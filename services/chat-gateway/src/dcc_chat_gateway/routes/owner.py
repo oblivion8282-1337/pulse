@@ -11,6 +11,10 @@ Two concerns, both metadata-first and privacy-conscious:
   the Cloud with *metadata only* (name, owner, member count, storage bytes,
   created_at, public/handle). Never any chat content. This is the operator's
   "shop directory" for a platform opened to strangers.
+* ``POST /owner/communities/{id}/suspend`` + ``/unsuspend`` — freeze/unfreeze a
+  single community. A suspended community is inaccessible to its members (every
+  action 403s) while its data + memberships are preserved (reversible). Both
+  are audit-logged and broadcast a ``guild_updated`` so live clients re-gate.
 * ``GET /owner/reports/{report_id}/content`` — emergency access to the message
   a report targets, bypassing normal member-only visibility so the operator can
   act on a complaint. Media bytes are withheld (CSAM safety); every fetch is
@@ -19,9 +23,10 @@ Two concerns, both metadata-first and privacy-conscious:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.db import SessionDep
@@ -39,10 +44,62 @@ from dcc_chat_gateway.schemas import (
     CommunityOut,
     OwnerReportedAttachment,
     OwnerReportedContentOut,
+    SuspendCommunityIn,
 )
 from dcc_chat_gateway.security import OwnerUser
+from dcc_shared.events import GuildUpdatedEvent
 
 router = APIRouter(prefix="/owner")
+
+
+def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> CommunityOut:
+    """Assemble a ``CommunityOut`` from a guild plus its already-computed
+    member count + storage bytes. Shared by the list endpoint (batched
+    subqueries) and the suspend/unsuspend responses (per-row lookups)."""
+    return CommunityOut(
+        id=guild.id,
+        name=guild.name,
+        owner_id=guild.owner_id,
+        icon_url=guild.icon_url,
+        is_public=guild.is_public,
+        handle=guild.handle,
+        created_at=guild.created_at,
+        member_count=member_count,
+        storage_bytes=storage_bytes,
+        suspended=guild.suspended_at is not None,
+        suspended_reason=guild.suspension_reason,
+    )
+
+
+async def _community_out(session: SessionDep, guild: Guild) -> CommunityOut:
+    """Build the ``CommunityOut`` for a single guild — used by the suspend/
+    unsuspend responses so the frontend can update the row in place. Two small
+    scalar lookups (member count + live attachment bytes) mirror the batched
+    subqueries the list endpoint uses."""
+    member_count = (
+        await session.execute(
+            select(func.count()).where(GuildMember.guild_id == guild.id)
+        )
+    ).scalar_one()
+    storage_bytes = (
+        await session.execute(
+            select(func.coalesce(func.sum(MessageAttachment.size), 0))
+            .select_from(MessageAttachment)
+            .join(Channel, Channel.id == MessageAttachment.channel_id)
+            .where(Channel.guild_id == guild.id, MessageAttachment.deleted_at.is_(None))
+        )
+    ).scalar_one()
+    return _community_row(guild, member_count, storage_bytes)
+
+
+async def _broadcast_guild_updated(request: Request, guild: Guild) -> None:
+    """Best-effort ``guild_updated`` so connected members re-gate immediately
+    (the perm-filter busts its per-socket cache on this op). Never raises."""
+    from dcc_chat_gateway.routes.guilds import _guild_dict
+
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(GuildUpdatedEvent(guild=_guild_dict(guild)))
 
 
 @router.get("/communities", response_model=CommunityListOut)
@@ -93,23 +150,71 @@ async def list_communities(
 
     rows = (await session.execute(stmt)).all()
     communities = [
-        CommunityOut(
-            id=g.id,
-            name=g.name,
-            owner_id=g.owner_id,
-            icon_url=g.icon_url,
-            is_public=g.is_public,
-            handle=g.handle,
-            created_at=g.created_at,
-            member_count=member_count,
-            storage_bytes=storage_bytes,
-        )
+        _community_row(g, member_count, storage_bytes)
         for g, member_count, storage_bytes in rows
     ]
     # Only advertise a cursor when the page was full — a short page means we've
     # reached the end, so the client stops paging.
     next_before = str(communities[-1].id) if len(communities) == limit else None
     return CommunityListOut(communities=communities, next_before=next_before)
+
+
+@router.post("/communities/{guild_id}/suspend", response_model=CommunityOut)
+async def suspend_community(
+    guild_id: int,
+    payload: SuspendCommunityIn,
+    request: Request,
+    session: SessionDep,
+    actor: OwnerUser,
+) -> CommunityOut:
+    """Freeze a community. Members lose all access until it's unsuspended;
+    data + memberships are preserved (reversible, unlike a ban). Idempotent —
+    re-suspending just updates the reason."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community not found")
+
+    if guild.suspended_at is None:
+        guild.suspended_at = datetime.now(timezone.utc)
+    guild.suspension_reason = payload.reason
+    _audit(
+        session,
+        actor_id=actor.id,
+        action="owner.suspend_community",
+        target_id=guild.id,
+        payload={"reason": payload.reason},
+    )
+    await session.commit()
+    await session.refresh(guild)
+    await _broadcast_guild_updated(request, guild)
+    return await _community_out(session, guild)
+
+
+@router.post("/communities/{guild_id}/unsuspend", response_model=CommunityOut)
+async def unsuspend_community(
+    guild_id: int,
+    request: Request,
+    session: SessionDep,
+    actor: OwnerUser,
+) -> CommunityOut:
+    """Unfreeze a community — members regain their normal access. Idempotent."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community not found")
+
+    if guild.suspended_at is not None:
+        guild.suspended_at = None
+        guild.suspension_reason = None
+        _audit(
+            session,
+            actor_id=actor.id,
+            action="owner.unsuspend_community",
+            target_id=guild.id,
+        )
+        await session.commit()
+        await session.refresh(guild)
+        await _broadcast_guild_updated(request, guild)
+    return await _community_out(session, guild)
 
 
 @router.get("/reports/{report_id}/content", response_model=OwnerReportedContentOut)

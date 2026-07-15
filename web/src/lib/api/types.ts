@@ -55,6 +55,9 @@ export type Guild = {
    *  back-compat / mocked frames that pre-date the fields. */
   attachment_max_size_bytes?: number;
   attachment_max_count_per_message?: number;
+  /** Platform-frozen by the Cloud operator: the community is read-only and
+   *  every action is blocked server-side. Optional for back-compat frames. */
+  suspended?: boolean;
 };
 
 export type Channel = {

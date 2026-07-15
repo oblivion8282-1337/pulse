@@ -70,8 +70,9 @@ async def _load_context(
     A non-member context is returned with ``member=False`` and empty roles
     — the resolver then short-circuits to 0 (or grants all on admin/owner).
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
+    def _non_member_ctx() -> _Ctx:
+        # Zero (non-member) context: the resolver short-circuits every
+        # permission to 0 (or grants all on admin/owner via the flags).
         return _Ctx(
             user=user.id,
             admin=user.is_admin,
@@ -80,6 +81,17 @@ async def _load_context(
             roles=[],
             overwrites={},
         )
+
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        return _non_member_ctx()
+
+    # Platform-suspended community: frozen for everyone (including its own
+    # guild owner) except global admins/operators, who must still be able to
+    # inspect + unfreeze. Return a zero context so every permission — send,
+    # react, read, voice CONNECT, stream — resolves to 0.
+    if guild.suspended_at is not None and not user.is_admin:
+        return _non_member_ctx()
 
     is_owner = guild.owner_id == user.id
     member = await session.get(GuildMember, (guild_id, user.id))

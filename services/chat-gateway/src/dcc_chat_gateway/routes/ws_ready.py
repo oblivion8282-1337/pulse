@@ -201,6 +201,10 @@ async def build_and_send_ready_frame(
                     "icon_url": g.icon_url,
                     "created_at": g.created_at.isoformat(),
                     "owner_id": str(g.owner_id),
+                    # Platform-frozen by the operator: the client renders the
+                    # community read-only + shows a banner. Server-side gates
+                    # enforce it regardless (every action 403s).
+                    "suspended": g.suspended_at is not None,
                     "my_permissions": str(my_perms),
                     "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
                     "sound_overrides": sound_overrides_by_guild.get(g.id, []),

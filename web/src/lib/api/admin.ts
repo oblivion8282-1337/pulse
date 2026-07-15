@@ -206,6 +206,10 @@ export type Community = {
   created_at: string;
   member_count: number;
   storage_bytes: number;
+  /** Platform-frozen by the operator — members lose access until unsuspended. */
+  suspended: boolean;
+  /** Operator-only note (never shown to members); null when none/active. */
+  suspended_reason: string | null;
 };
 
 export type CommunityList = {
@@ -351,6 +355,21 @@ export const adminApi = {
     const params = paginationParams(opts);
     if (opts.q) params.set('q', opts.q);
     return request<CommunityList>(`/owner/communities?${params}`, { endpoint: 'chat' });
+  },
+  /** Freeze a community (owner-only). Members lose access until unsuspended. */
+  suspendCommunity(guildId: string, reason?: string): Promise<Community> {
+    return request<Community>(`/owner/communities/${guildId}/suspend`, {
+      method: 'POST',
+      endpoint: 'chat',
+      body: { reason: reason ?? null }
+    });
+  },
+  /** Unfreeze a community (owner-only). */
+  unsuspendCommunity(guildId: string): Promise<Community> {
+    return request<Community>(`/owner/communities/${guildId}/unsuspend`, {
+      method: 'POST',
+      endpoint: 'chat'
+    });
   },
 
   /** Self-Host-Backup-Status — gegen die aktive Instanz (chat-gateway). */

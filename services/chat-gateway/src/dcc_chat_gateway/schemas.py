@@ -837,10 +837,20 @@ class CommunityOut(BaseModel):
     created_at: datetime
     member_count: int
     storage_bytes: int
+    # Platform-suspension state. ``suspended`` is the frozen flag; the reason is
+    # operator-only context (never shown to members).
+    suspended: bool = False
+    suspended_reason: str | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
         return _id_str(v)
+
+
+class SuspendCommunityIn(BaseModel):
+    """Optional operator note when freezing a community. Not shown to members."""
+
+    reason: Annotated[str | None, Field(default=None, max_length=500)] = None
 
 
 class CommunityListOut(BaseModel):
