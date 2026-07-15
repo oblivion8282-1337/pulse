@@ -27,6 +27,7 @@ from sqlalchemy import delete, func, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_role_cap
 from dcc_chat_gateway.models import Guild, Role
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.role_hierarchy import highest_role_position
@@ -112,6 +113,8 @@ async def create_role(
         raise HTTPException(
             403, detail="cannot grant permissions you do not yourself have"
         )
+
+    await enforce_role_cap(session, guild_id)
 
     # New roles default to position = max + 1 so newest = highest, which is
     # the Discord-UI mental model.

@@ -36,6 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.membership import (
     add_member as add_instance_member,
     is_instance_locked,
@@ -168,6 +169,9 @@ async def join_public_community(
             await session.commit()
         channel_id = await _first_text_channel_id(session, guild_id)
         return PublicCommunityJoinOut(guild=guild_out, channel_id=channel_id)
+
+    # Community member cap (before staging the new membership).
+    await enforce_member_cap(session, guild_id)
 
     # New member. Stage the guild_members row, then re-check the ban list inside
     # the transaction before commit so a PUT /bans that committed between the

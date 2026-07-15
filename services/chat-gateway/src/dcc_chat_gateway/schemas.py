@@ -857,6 +857,11 @@ class CommunityOut(BaseModel):
     attachment_max_size_bytes: int = 26214400
     attachment_max_count_per_message: int = 4
     attachment_storage_quota_bytes: int | None = None
+    # Scale caps (NULL = unlimited).
+    max_members: int | None = None
+    max_channels: int | None = None
+    max_roles: int | None = None
+    max_concurrent_streams: int | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
@@ -887,6 +892,11 @@ class CommunityLimitsIn(BaseModel):
     attachment_storage_quota_bytes: Annotated[
         int | None, Field(default=None, ge=1024 * 1024)
     ] = None
+    # Scale caps. None = unlimited (always applied, like the quota).
+    max_members: Annotated[int | None, Field(default=None, ge=1, le=1_000_000)] = None
+    max_channels: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
+    max_roles: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
+    max_concurrent_streams: Annotated[int | None, Field(default=None, ge=0, le=10000)] = None
 
     @field_validator("stream_resolution_max")
     @classmethod

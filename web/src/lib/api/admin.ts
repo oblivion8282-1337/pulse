@@ -219,6 +219,11 @@ export type Community = {
   attachment_max_size_bytes: number;
   attachment_max_count_per_message: number;
   attachment_storage_quota_bytes: number | null;
+  /** Scale caps. null = unlimited. */
+  max_members: number | null;
+  max_channels: number | null;
+  max_roles: number | null;
+  max_concurrent_streams: number | null;
 };
 
 /** Owner-set per-community caps. Full set sent each save; quality/quota null
@@ -231,6 +236,10 @@ export type CommunityLimits = {
   attachment_max_size_bytes: number | null;
   attachment_max_count_per_message: number | null;
   attachment_storage_quota_bytes: number | null;
+  max_members: number | null;
+  max_channels: number | null;
+  max_roles: number | null;
+  max_concurrent_streams: number | null;
 };
 
 export type CommunityList = {

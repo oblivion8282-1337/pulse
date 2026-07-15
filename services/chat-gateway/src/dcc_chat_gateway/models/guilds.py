@@ -79,6 +79,18 @@ class Guild(Base):
     attachment_storage_quota_bytes: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
+    # Per-community scale caps (Boost). NULL = unlimited. Server-enforced with a
+    # count-check before the relevant insert. Members: the guild owner's own
+    # membership is exempt (always gets in). Roles: the auto-seeded @everyone
+    # role does not count. Set only by the Cloud operator.
+    max_members: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_channels: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    max_roles: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # Best-effort cap on concurrent live HQ streams in the community. NULL =
+    # unlimited. Checked at stream-token issuance against the (poller-maintained,
+    # eventually-consistent) live-stream state — catches steady-state over-limit;
+    # a rapid burst can briefly exceed it (documented).
+    max_concurrent_streams: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
 
     __table_args__ = (
         # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so

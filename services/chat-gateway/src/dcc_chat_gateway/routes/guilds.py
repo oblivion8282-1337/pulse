@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
     Channel,
     Guild,
@@ -398,6 +399,7 @@ async def add_member(
 
     if await is_user_banned(session, guild_id, payload.user_id):
         raise HTTPException(403, detail="user is banned from this server")
+    await enforce_member_cap(session, guild_id)
     member = GuildMember(guild_id=guild_id, user_id=payload.user_id)
     session.add(member)
     # Re-check the ban-list inside the transaction (post-INSERT, pre-

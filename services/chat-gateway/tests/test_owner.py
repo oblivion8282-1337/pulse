@@ -201,6 +201,10 @@ async def test_set_and_clear_community_limits(client, owner_token, session_facto
             "attachment_max_size_bytes": 52428800,
             "attachment_max_count_per_message": 10,
             "attachment_storage_quota_bytes": 5368709120,
+            "max_members": 500,
+            "max_channels": 50,
+            "max_roles": 30,
+            "max_concurrent_streams": 4,
         },
         headers=_auth(token),
     )
@@ -213,6 +217,10 @@ async def test_set_and_clear_community_limits(client, owner_token, session_facto
     assert body["attachment_max_size_bytes"] == 52428800
     assert body["attachment_max_count_per_message"] == 10
     assert body["attachment_storage_quota_bytes"] == 5368709120
+    assert body["max_members"] == 500
+    assert body["max_channels"] == 50
+    assert body["max_roles"] == 30
+    assert body["max_concurrent_streams"] == 4
 
     # Clear back to inherit (null).
     r = await client.patch(

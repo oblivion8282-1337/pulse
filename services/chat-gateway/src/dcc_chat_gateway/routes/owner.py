@@ -76,6 +76,10 @@ def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> Commu
         attachment_max_size_bytes=guild.attachment_max_size_bytes,
         attachment_max_count_per_message=guild.attachment_max_count_per_message,
         attachment_storage_quota_bytes=guild.attachment_storage_quota_bytes,
+        max_members=guild.max_members,
+        max_channels=guild.max_channels,
+        max_roles=guild.max_roles,
+        max_concurrent_streams=guild.max_concurrent_streams,
     )
 
 
@@ -254,6 +258,11 @@ async def set_community_limits(
         guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
     if payload.attachment_max_count_per_message is not None:
         guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
+    # Scale caps: nullable (null = unlimited) → always set.
+    guild.max_members = payload.max_members
+    guild.max_channels = payload.max_channels
+    guild.max_roles = payload.max_roles
+    guild.max_concurrent_streams = payload.max_concurrent_streams
     _audit(
         session,
         actor_id=actor.id,
@@ -267,6 +276,10 @@ async def set_community_limits(
             "attachment_max_size_bytes": payload.attachment_max_size_bytes,
             "attachment_max_count_per_message": payload.attachment_max_count_per_message,
             "attachment_storage_quota_bytes": payload.attachment_storage_quota_bytes,
+            "max_members": payload.max_members,
+            "max_channels": payload.max_channels,
+            "max_roles": payload.max_roles,
+            "max_concurrent_streams": payload.max_concurrent_streams,
         },
     )
     await session.commit()

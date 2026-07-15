@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_channel_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_VOICE,
@@ -97,6 +98,7 @@ async def create_channel(
     if guild is None:
         raise HTTPException(404, detail="guild not found")
     await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
+    await enforce_channel_cap(session, guild_id)
     # Display-string sink: must go through validate_name to harden
     # against path-traversal / bidi-spoofing / homograph phishing.
     try:

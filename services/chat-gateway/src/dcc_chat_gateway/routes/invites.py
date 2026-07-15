@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     Channel,
@@ -267,6 +268,10 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser, re
             guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
             channel_id=channel_id,
         )
+
+    # Community member cap — checked before consuming a use so a capped-out
+    # join doesn't burn an invite use.
+    await enforce_member_cap(session, invite.guild_id)
 
     # Atomically consume one use iff the invite is still valid. Reacting to
     # a 0-row result closes the TOCTOU window between the validity check and

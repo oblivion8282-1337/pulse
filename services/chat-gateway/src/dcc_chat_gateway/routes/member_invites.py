@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.models import (
@@ -245,6 +246,7 @@ async def accept_community_invite(
 
     actually_added = False
     if await session.get(GuildMember, (row.guild_id, current.id)) is None:
+        await enforce_member_cap(session, row.guild_id)
         session.add(GuildMember(guild_id=row.guild_id, user_id=current.id))
         actually_added = True
     row.status = "accepted"
