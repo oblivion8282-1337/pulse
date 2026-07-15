@@ -32,12 +32,12 @@ from typing import Iterable
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete as sa_delete, select, update
+from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
-from dcc_chat_gateway.models import ChatSettings, Guild, MessageAttachment
+from dcc_chat_gateway.models import Channel, ChatSettings, Guild, MessageAttachment
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
@@ -113,6 +113,36 @@ async def _limits_for_channel(
     )
 
 
+async def _enforce_storage_quota(
+    session: AsyncSession, guild_id: int, new_bytes: int
+) -> None:
+    """Reject the upload (413) if it would push the community over its total
+    attachment-storage quota. NULL quota = unlimited. Drift-free: sums the
+    live (non-deleted) attachment bytes on demand (same query as the owner
+    list). A small overshoot under concurrent uploads is accepted — this is a
+    cost cap, not a security boundary."""
+    guild = await session.get(Guild, guild_id)  # identity-mapped; no extra query
+    quota = guild.attachment_storage_quota_bytes if guild else None
+    if quota is None:
+        return
+    used = (
+        await session.execute(
+            select(func.coalesce(func.sum(MessageAttachment.size), 0))
+            .select_from(MessageAttachment)
+            .join(Channel, Channel.id == MessageAttachment.channel_id)
+            .where(
+                Channel.guild_id == guild_id,
+                MessageAttachment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    if used + new_bytes > quota:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"community storage quota exceeded ({used} + {new_bytes} > {quota} bytes)",
+        )
+
+
 def _storage_key(prefix: str, channel_id: int, attachment_id: int) -> str:
     """Unguessable key: prefix/<cid>/<aid>-<random>. Defence in depth — even
     with our auth-gated download-url endpoint, a leaked direct MinIO link
@@ -153,6 +183,11 @@ async def create_upload_url(
             status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"file too large ({payload.size} > {max_size} bytes)",
         )
+
+    # Community-wide total-storage cap (guild channels only; DMs are covered by
+    # the chat_settings DM limits, not a per-community quota).
+    if kind == "guild":
+        await _enforce_storage_quota(session, ch.guild_id, payload.size)
 
     # Count-limit is enforced on the *message* side at POST /messages, not
     # here — clients can upload more files than they'll send (e.g. dragged

@@ -145,6 +145,28 @@ async def test_upload_url_rejects_oversize(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_upload_url_enforces_total_storage_quota(
+    client, _auth_signer, mock_s3, session_factory
+):
+    from dcc_chat_gateway.models import Guild
+
+    (t1, _u1), _ = await register_two(_auth_signer)
+    gid, cid = await _make_guild_channel(client, t1)
+    # Tiny per-community total quota: 2000 bytes.
+    async with session_factory() as s:
+        g = await s.get(Guild, int(gid))
+        g.attachment_storage_quota_bytes = 2000
+        await s.commit()
+
+    # First 1 KB upload fits (0 + 1024 <= 2000) and leaves a pending row.
+    r1 = await _upload(client, t1, cid, size=1024)
+    assert r1.status_code == 201, r1.text
+    # Second upload would push the community over the quota (1024 + 1500 > 2000).
+    r2 = await _upload(client, t1, cid, size=1500)
+    assert r2.status_code == 413
+
+
+@pytest.mark.asyncio
 async def test_attach_files_blocked_without_attach_files(
     client, _auth_signer, mock_s3
 ):

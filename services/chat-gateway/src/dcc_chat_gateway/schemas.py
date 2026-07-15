@@ -852,6 +852,11 @@ class CommunityOut(BaseModel):
     stream_bitrate_max_kbps: int | None = None
     stream_fps_max: int | None = None
     stream_resolution_max: str | None = None
+    # Storage caps. size/count always have a value (non-nullable columns); the
+    # total quota is nullable (NULL = unlimited).
+    attachment_max_size_bytes: int = 26214400
+    attachment_max_count_per_message: int = 4
+    attachment_storage_quota_bytes: int | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
@@ -871,6 +876,17 @@ class CommunityLimitsIn(BaseModel):
     ] = None
     stream_fps_max: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
     stream_resolution_max: str | None = None
+    # Storage. size/count: None = leave unchanged (non-nullable columns).
+    # quota: None = unlimited (explicitly cleared). Bounds mirror GuildPatchIn.
+    attachment_max_size_bytes: Annotated[
+        int | None, Field(default=None, ge=1024, le=1024 * 1024 * 1024)
+    ] = None
+    attachment_max_count_per_message: Annotated[
+        int | None, Field(default=None, ge=1, le=50)
+    ] = None
+    attachment_storage_quota_bytes: Annotated[
+        int | None, Field(default=None, ge=1024 * 1024)
+    ] = None
 
     @field_validator("stream_resolution_max")
     @classmethod

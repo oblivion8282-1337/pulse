@@ -73,6 +73,9 @@ def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> Commu
         stream_bitrate_max_kbps=guild.stream_bitrate_max_kbps,
         stream_fps_max=guild.stream_fps_max,
         stream_resolution_max=guild.stream_resolution_max,
+        attachment_max_size_bytes=guild.attachment_max_size_bytes,
+        attachment_max_count_per_message=guild.attachment_max_count_per_message,
+        attachment_storage_quota_bytes=guild.attachment_storage_quota_bytes,
     )
 
 
@@ -244,6 +247,13 @@ async def set_community_limits(
     guild.stream_bitrate_max_kbps = payload.stream_bitrate_max_kbps
     guild.stream_fps_max = payload.stream_fps_max
     guild.stream_resolution_max = payload.stream_resolution_max
+    # Storage. Quota is nullable (null = unlimited) → always set. size/count are
+    # non-nullable columns → only overwrite when the form provided a value.
+    guild.attachment_storage_quota_bytes = payload.attachment_storage_quota_bytes
+    if payload.attachment_max_size_bytes is not None:
+        guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
+    if payload.attachment_max_count_per_message is not None:
+        guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
     _audit(
         session,
         actor_id=actor.id,
@@ -254,6 +264,9 @@ async def set_community_limits(
             "stream_bitrate_max_kbps": payload.stream_bitrate_max_kbps,
             "stream_fps_max": payload.stream_fps_max,
             "stream_resolution_max": payload.stream_resolution_max,
+            "attachment_max_size_bytes": payload.attachment_max_size_bytes,
+            "attachment_max_count_per_message": payload.attachment_max_count_per_message,
+            "attachment_storage_quota_bytes": payload.attachment_storage_quota_bytes,
         },
     )
     await session.commit()

@@ -215,14 +215,22 @@ export type Community = {
   stream_bitrate_max_kbps: number | null;
   stream_fps_max: number | null;
   stream_resolution_max: string | null;
+  /** Storage caps. size/count always set; total quota null = unlimited. */
+  attachment_max_size_bytes: number;
+  attachment_max_count_per_message: number;
+  attachment_storage_quota_bytes: number | null;
 };
 
-/** Owner-set per-community quality caps. Full set sent each save; null clears. */
+/** Owner-set per-community caps. Full set sent each save; quality/quota null
+ *  clears (inherit / unlimited). size/count always carry a value. */
 export type CommunityLimits = {
   voice_bitrate_max_kbps: number | null;
   stream_bitrate_max_kbps: number | null;
   stream_fps_max: number | null;
   stream_resolution_max: string | null;
+  attachment_max_size_bytes: number | null;
+  attachment_max_count_per_message: number | null;
+  attachment_storage_quota_bytes: number | null;
 };
 
 export type CommunityList = {
