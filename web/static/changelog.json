@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-15.3",
+      "date": "2026-07-15",
+      "style": "Sachlich",
+      "title": "Rund um Meldungen und Moderation",
+      "items": [
+        "Melden ist einfacher: die Beschreibung ist jetzt optional.",
+        "Wer aus einer Community ausgeschlossen, gekickt oder wieder zugelassen wird, bekommt dafür eine Nachricht — beim Aufheben einer Sperre mit einem Knopf zum direkten Wiedereintritt.",
+        "Wird deine Meldung bearbeitet, bekommst du eine Rückmeldung.",
+        "Für Moderatoren: aufgeräumte Melde-Übersicht mit klaren Aktionen."
+      ]
+    },
+    {
       "id": "2026-07-15.2",
       "date": "2026-07-15",
       "style": "Sachlich",

@@ -32,6 +32,10 @@ class ComplaintCreate(BaseModel):
     target_instance_id: int | None = None
     target_user_id: int | None = None
     submitter_email: EmailStr | None = None
+    # NOTE: the reporter's user-id is NEVER accepted from the request body — a
+    # spoofed value would let anyone inject an automated "Pulse" DM to an
+    # arbitrary user on resolve. It is derived server-side from the caller's
+    # access token in ``submit_report`` instead.
 
 
 class ComplaintOut(BaseModel):

@@ -10,7 +10,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-  import { createReport, type ReasonCode } from '$lib/api/moderation';
+  import { createReport, createOperatorReport, type ReasonCode } from '$lib/api/moderation';
   import { submitAbuseReport } from '$lib/api/complaints';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -19,6 +19,7 @@
     messageId,
     userId,
     channelId,
+    guildId,
     kind = 'message',
     toCloud = false,
     open = $bindable(false),
@@ -29,6 +30,9 @@
     messageId?: string;
     userId?: string;
     channelId?: string;
+    /** Community a user report was raised in — pins it to that community
+     *  instead of fanning out to every guild the target belongs to. */
+    guildId?: string;
     kind?: 'message' | 'user' | 'channel';
     /** Direktnachricht/Sozial-Kontext: es gibt keinen Community-Moderator, der
      *  handeln könnte. Die Meldung geht dann als Beschwerde ans Betreiberteam
@@ -59,29 +63,41 @@
   let submitting = $state(false);
 
   const bodyLen = $derived(body.length);
-  const bodyValid = $derived(bodyLen >= 10 && bodyLen <= 5000);
+  // Der Freitext ist optional — die Kategorie (reason_code) ist Pflicht und
+  // trägt das Wesentliche. Nur die Obergrenze wird erzwungen.
+  const bodyValid = $derived(bodyLen <= 5000);
   const isCsam = $derived(reasonCode === 'csam');
 
   async function submit() {
     if (!bodyValid || submitting) return;
     submitting = true;
     try {
-      if (toCloud) {
-        // Kein Community-Moderator zuständig → Beschwerde ans Betreiberteam.
-        // Complaints kennen keinen reason_code + kein Nachrichten-Ziel; wir
-        // melden den Nutzer und hängen Grund + Kontext an den Text an.
+      if (toCloud && messageId) {
+        // Gemeldete Direktnachricht → chat-gateway schnappschottet den
+        // Nachrichten-Text serverseitig (fälschungssicher) und legt die
+        // Betreiber-Beschwerde an; Bilder werden bewusst nicht übernommen.
+        await createOperatorReport({
+          target_message_id: messageId,
+          reason_code: reasonCode,
+          body
+        });
+      } else if (toCloud) {
+        // Nutzer-Meldung ohne konkrete Nachricht (z.B. aus dem Profil) → es
+        // gibt keinen Nachrichten-Snapshot; wir melden den Nutzer mit Grund.
+        const context = `[${m.report_message_reason_label()}: ${REASON_LABELS[reasonCode]()}]`;
         await submitAbuseReport({
           target_user_id: userId,
-          body: `${body}\n\n[${m.report_message_reason_label()}: ${REASON_LABELS[reasonCode]()}${
-            kind === 'message' ? `, ${m.report_to_cloud_context_dm()}` : ''
-          }]`,
+          body: body ? `${body}\n\n${context}` : context,
           submitter_email: auth.user?.email ?? null
+          // Melder-ID NICHT hier mitsenden — der Server leitet sie aus dem
+          // Auth-Token ab (Schutz vor gefälschtem Absender / DM-Injection).
         });
       } else {
         await createReport({
           target_message_id: messageId,
           target_user_id: userId,
           target_channel_id: channelId,
+          target_guild_id: guildId,
           reason_code: reasonCode,
           body
         });

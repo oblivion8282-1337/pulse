@@ -113,6 +113,11 @@ class Report(Base):
     target_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Explicit guild scope: set when a user is reported from a specific
+    # community's member list. Pins the report to THAT community instead of
+    # fanning out to every guild the target happens to be a member of. NULL
+    # for message/channel reports (scoped via those) and legacy user reports.
+    target_guild_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     reason_code: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -126,6 +131,17 @@ class Report(Base):
         DateTime(timezone=True), nullable=True
     )
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The enforcement action taken when the report was resolved (``ban`` |
+    # ``message_delete`` | …), or NULL for a plain resolve/dismiss. Lets the
+    # "closed" tab show the outcome per report without a join to the audit log.
+    resolution_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set when a moderator hands this report up to the platform operator
+    # (chat-gateway → auth-svc complaint). Guards against double-escalation
+    # and drives the "already escalated" state in the UI. The report stays
+    # open — escalation informs the operator, it doesn't close the case.
+    escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_reports_status_created", "status", "created_at"),

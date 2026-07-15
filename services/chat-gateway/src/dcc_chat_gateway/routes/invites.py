@@ -39,6 +39,35 @@ def _new_code() -> str:
     return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LEN))
 
 
+async def create_rejoin_invite(
+    session, guild_id: int, creator_id: int
+) -> str | None:
+    """Mint a single-use, 7-day invite so an unbanned user can rejoin with one
+    click (no need to obtain a fresh invite from a moderator). Returns the code,
+    or ``None`` if code allocation kept colliding (astronomically unlikely).
+
+    Runs its own commit(s) via the collision-retry loop — call it after the
+    parent transaction has already committed its own changes."""
+    expires_at = datetime.now(tz=UTC) + timedelta(days=7)
+    for _ in range(5):
+        invite = GuildInvite(
+            code=_new_code(),
+            guild_id=guild_id,
+            channel_id=None,
+            creator_id=creator_id,
+            expires_at=expires_at,
+            max_uses=1,
+        )
+        session.add(invite)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            continue
+        return invite.code
+    return None
+
+
 def _as_aware(dt: datetime | None) -> datetime | None:
     # Postgres TIMESTAMPTZ comes back tz-aware; the SQLite test backend returns
     # naive datetimes. Normalise so comparisons with an aware `now` never raise.

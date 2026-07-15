@@ -42,6 +42,25 @@ class VoicePullRevokeIn(BaseModel):
     user_id: int
 
 
+class ComplaintNotifyIn(BaseModel):
+    """Body for the complaint-notify call from auth-svc: the admin user-ids to
+    live-push a ``complaint_new`` to."""
+
+    admin_user_ids: list[int]
+
+
+class ModerationDmIn(BaseModel):
+    """Body for the moderation-DM call from auth-svc.
+
+    auth-svc fires this when the platform operator notifies a user about a
+    complaint outcome. ``from_user_id`` is the acting super-admin, ``to_user_id``
+    the reported user; the content is delivered as a gate-free one-way DM."""
+
+    from_user_id: int
+    to_user_id: int
+    content: str
+
+
 def _check_internal_secret(provided: str | None) -> None:
     """Constant-time compare against ``settings.internal_service_secret``.
 
@@ -129,3 +148,44 @@ async def revoke_voice_pull_endpoint(
         redis=redis,
     )
     return {"revoked": revoked}
+
+
+@router.post("/internal/complaint-notify", status_code=status.HTTP_204_NO_CONTENT)
+async def complaint_notify_endpoint(
+    payload: ComplaintNotifyIn,
+    request: Request,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Live-push a ``complaint_new`` to each admin so the operator's inbox
+    badge + open list update immediately (no 60s poll wait / no reload).
+    Best-effort — a dead manager/Redis just means the poll catches up later."""
+    _check_internal_secret(x_pulse_internal_secret)
+    from dcc_shared.events import ComplaintNewEvent
+
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is None:
+        return
+    for uid in payload.admin_user_ids:
+        await manager.publish_user_event(uid, ComplaintNewEvent())
+
+
+@router.post("/internal/moderation-dm", status_code=status.HTTP_204_NO_CONTENT)
+async def moderation_dm_endpoint(
+    payload: ModerationDmIn,
+    request: Request,
+    session: SessionDep,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Send a one-way admin→user DM on behalf of another service (auth-svc's
+    complaint-notify flow). Bypasses the friend-gate; see ``system_dm``."""
+    _check_internal_secret(x_pulse_internal_secret)
+    from dcc_chat_gateway.system_dm import send_moderation_dm
+
+    manager = getattr(request.app.state, "connection_manager", None)
+    await send_moderation_dm(
+        session,
+        manager,
+        from_user_id=payload.from_user_id,
+        to_user_id=payload.to_user_id,
+        content=payload.content,
+    )

@@ -304,3 +304,190 @@ async def test_higher_mod_can_ban_roleless_member(client, _auth_signer):
         headers=auth(s["t_a"]),
     )
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Direct-to-user notices on ban / kick / unban (+ rejoin invite)
+# ---------------------------------------------------------------------------
+
+
+def _capture_user_events(app):
+    """Patch the manager's publish_user_event to record (target_id, envelope)."""
+    captured: list[tuple[str, object]] = []
+    mgr = app.state.connection_manager
+
+    async def _fake(target_user_id, envelope):
+        captured.append((str(target_user_id), envelope))
+
+    mgr.publish_user_event = _fake  # type: ignore[method-assign]
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_ban_notifies_banned_user_with_reason(client, app, _auth_signer):
+    s = await _setup(client, _auth_signer)
+    captured = _capture_user_events(app)
+
+    r = await client.put(
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        json={"reason": "spam im voice"},
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 200
+
+    notices = [
+        (t, e) for (t, e) in captured if getattr(e, "op", None) == "guild_membership_revoked"
+    ]
+    assert len(notices) == 1
+    target, evt = notices[0]
+    assert target == str(s["uid_a"])
+    assert evt.kind == "ban"
+    assert evt.reason == "spam im voice"
+    assert evt.guild_name == "bantown"
+
+
+@pytest.mark.asyncio
+async def test_kick_notifies_kicked_user_without_reason(client, app, _auth_signer):
+    s = await _setup(client, _auth_signer)
+    captured = _capture_user_events(app)
+
+    r = await client.request(
+        "DELETE",
+        f"/guilds/{s['g']['id']}/members/{s['uid_a']}",
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 204
+
+    notices = [
+        e for (t, e) in captured if getattr(e, "op", None) == "guild_membership_revoked"
+    ]
+    assert len(notices) == 1
+    assert notices[0].kind == "kick"
+    assert notices[0].reason is None
+
+
+@pytest.mark.asyncio
+async def test_unban_mints_rejoin_invite_and_notifies(client, app, _auth_signer):
+    s = await _setup(client, _auth_signer)
+    await client.put(
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        json={"reason": None},
+        headers=auth(s["t_owner"]),
+    )
+    captured = _capture_user_events(app)
+
+    r = await client.request(
+        "DELETE",
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 204
+
+    lifted = [
+        e for (t, e) in captured if getattr(e, "op", None) == "guild_ban_lifted"
+    ]
+    assert len(lifted) == 1
+    code = lifted[0].invite_code
+    assert code
+
+    # The minted invite actually works: the unbanned user rejoins with it.
+    accept = await client.post(f"/invites/{code}/accept", headers=auth(s["t_a"]))
+    assert accept.status_code in (200, 201), accept.text
+    members = (
+        await client.get(
+            f"/guilds/{s['g']['id']}/members", headers=auth(s["t_owner"])
+        )
+    ).json()
+    assert any(m["user_id"] == str(s["uid_a"]) for m in members)
+
+
+# ---------------------------------------------------------------------------
+# Ban/kick send a durable PM from the acting admin (bypassing the friend-gate)
+# ---------------------------------------------------------------------------
+
+
+async def _dm_messages(session_factory, uid_a: int, uid_b: int):
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import DirectMessageChannel, Message
+
+    a, b = sorted((uid_a, uid_b))
+    async with session_factory() as sess:
+        dm = (
+            await sess.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == a,
+                    DirectMessageChannel.user_b_id == b,
+                )
+            )
+        ).scalars().first()
+        if dm is None:
+            return None, []
+        msgs = (
+            await sess.execute(
+                select(Message).where(Message.channel_id == dm.id)
+            )
+        ).scalars().all()
+        return dm, list(msgs)
+
+
+@pytest.mark.asyncio
+async def test_ban_sends_dm_from_admin_without_friendship(
+    client, _auth_signer, session_factory
+):
+    """The banned (non-friend) user gets a durable DM authored by the mod."""
+    s = await _setup(client, _auth_signer)
+    r = await client.put(
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        json={"reason": "spam im voice"},
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 200
+
+    _dm, msgs = await _dm_messages(session_factory, s["uid_owner"], s["uid_a"])
+    assert len(msgs) == 1
+    assert msgs[0].author_id == s["uid_owner"]
+    assert "ausgeschlossen" in msgs[0].content
+    assert "spam im voice" in msgs[0].content
+
+
+@pytest.mark.asyncio
+async def test_kick_sends_dm_from_admin(client, _auth_signer, session_factory):
+    s = await _setup(client, _auth_signer)
+    r = await client.request(
+        "DELETE",
+        f"/guilds/{s['g']['id']}/members/{s['uid_a']}",
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 204
+
+    _dm, msgs = await _dm_messages(session_factory, s["uid_owner"], s["uid_a"])
+    assert len(msgs) == 1
+    assert msgs[0].author_id == s["uid_owner"]
+    assert "entfernt" in msgs[0].content
+
+
+@pytest.mark.asyncio
+async def test_unban_sends_dm_with_rejoin_invite_link(
+    client, _auth_signer, session_factory
+):
+    """The unbanned user gets a durable PM containing a /invite/<code> link
+    (the client renders it as a one-click join card)."""
+    s = await _setup(client, _auth_signer)
+    await client.put(
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        json={"reason": None},
+        headers=auth(s["t_owner"]),
+    )
+    r = await client.request(
+        "DELETE",
+        f"/guilds/{s['g']['id']}/bans/{s['uid_a']}",
+        headers=auth(s["t_owner"]),
+    )
+    assert r.status_code == 204
+
+    _dm, msgs = await _dm_messages(session_factory, s["uid_owner"], s["uid_a"])
+    rejoin = [m for m in msgs if "/invite/" in m.content and "aufgehoben" in m.content]
+    assert len(rejoin) == 1
+    assert rejoin[0].author_id == s["uid_owner"]
+    assert "http" in rejoin[0].content

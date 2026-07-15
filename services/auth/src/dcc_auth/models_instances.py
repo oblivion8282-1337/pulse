@@ -310,6 +310,10 @@ class Complaint(Base):
     # Optional URL reference (e.g. link to offending content on the instance).
     target_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitter_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Cloud user-id of the reporter (when a logged-in user filed this). Lets the
+    # operator send an automated "your report was handled" DM back on resolve.
+    # Nullable: anonymous / public-form reports carry no user id.
+    submitter_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

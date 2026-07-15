@@ -15,6 +15,7 @@ import {
   setGuildPluginEnabled
 } from '$lib/plugins/guild-activation.svelte';
 import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
+import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { registerWsHandler } from '../handler-registry';
@@ -119,6 +120,13 @@ export function register(ctx: HandlerContext): void {
     toast.info(m.mod_report_new_toast_title(), {
       description: m.mod_report_new_toast_body({ reason: reportReasonLabel(evt.reason_code) })
     });
+  });
+
+  // Nur an Plattform-Admins gepusht: eine neue Betreiber-Beschwerde ist
+  // eingegangen. Zähler frisch laden (aktualisiert den gelben Icon-Punkt +
+  // toastet bei Zuwachs) — der Admin muss nicht mehr neu laden.
+  registerWsHandler('complaint_new', () => {
+    pendingComplaints.refresh();
   });
 
   registerWsHandler('guild_sound_updated', (evt) => {

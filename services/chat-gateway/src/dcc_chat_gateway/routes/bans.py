@@ -13,8 +13,16 @@ to know the schema.
 
 from __future__ import annotations
 
+from dcc_shared.events import (
+    GuildBanAddedEvent,
+    GuildBanLiftedEvent,
+    GuildBanRemovedEvent,
+    GuildMemberRemovedEvent,
+    GuildMembershipRevokedEvent,
+)
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,12 +39,8 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.system_dm import send_moderation_dm
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
-from dcc_shared.events import (
-    GuildBanAddedEvent,
-    GuildBanRemovedEvent,
-    GuildMemberRemovedEvent,
-)
 
 router = APIRouter()
 
@@ -86,6 +90,53 @@ async def _publish_member_removed(
         GuildMemberRemovedEvent(
             guild_id=str(guild_id), user_id=str(user_id)
         )
+    )
+
+
+async def _notify_membership_revoked(
+    request: Request,
+    user_id: int,
+    guild_id: int,
+    guild_name: str,
+    kind: str,
+    reason: str | None,
+) -> None:
+    """Direct-to-user notice that THIS user was banned/kicked. Goes over
+    ``user:events`` so it reaches them even though their membership is gone.
+    The reason is private to the recipient (never in the guild broadcast)."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is None:
+        return
+    await mgr.publish_user_event(
+        user_id,
+        GuildMembershipRevokedEvent(
+            guild_id=str(guild_id),
+            guild_name=guild_name,
+            kind=kind,  # type: ignore[arg-type]
+            reason=reason,
+        ),
+    )
+
+
+async def _notify_ban_lifted(
+    request: Request,
+    user_id: int,
+    guild_id: int,
+    guild_name: str,
+    invite_code: str,
+) -> None:
+    """Direct-to-user notice that a mod lifted this user's ban, carrying a
+    one-click rejoin invite."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is None:
+        return
+    await mgr.publish_user_event(
+        user_id,
+        GuildBanLiftedEvent(
+            guild_id=str(guild_id),
+            guild_name=guild_name,
+            invite_code=invite_code,
+        ),
     )
 
 
@@ -215,6 +266,19 @@ async def ban_user(
         # "member_removed" the target is already disconnected.
         await evict_user_from_guild_voice(session, guild_id, user_id)
         await _publish_member_removed(request, guild_id, user_id)
+        # Tell the banned user directly (with the reason) — otherwise the
+        # community just silently vanishes from their client.
+        await _notify_membership_revoked(
+            request, user_id, guild_id, guild.name, "ban", existing.reason
+        )
+        # Durable PM from the acting admin (bypasses the friend-gate).
+        dm_text = f"Du wurdest aus der Community „{guild.name}“ ausgeschlossen."
+        if existing.reason:
+            dm_text += f"\nGrund: {existing.reason}"
+        manager = getattr(request.app.state, "connection_manager", None)
+        await send_moderation_dm(
+            session, manager, from_user_id=current.id, to_user_id=user_id, content=dm_text
+        )
     await _publish_ban_event(
         request, "guild_ban_added", guild_id, user_id, reason=existing.reason
     )
@@ -251,4 +315,31 @@ async def unban_user(
         target_id=user_id,
     )
     await session.commit()
+
+    # Mint a one-click rejoin invite (single-use, 7 days) and tell the
+    # unbanned user directly — lifting a ban otherwise leaves them with no
+    # way back and no idea it happened. Local import avoids the bans↔invites
+    # cycle (invites.py imports is_user_banned from here).
+    from dcc_chat_gateway.routes.invites import create_rejoin_invite
+
+    invite_code = await create_rejoin_invite(session, guild_id, current.id)
     await _publish_ban_event(request, "guild_ban_removed", guild_id, user_id)
+    if invite_code is not None:
+        await _notify_ban_lifted(request, user_id, guild_id, guild.name, invite_code)
+        # Durable PM with the rejoin invite (from the acting admin). The client
+        # renders the /invite/<code> link as a one-click join card, so the user
+        # can return even after the toast is gone / if they were offline.
+        from dcc_chat_gateway.config import get_settings
+
+        invite_url = get_settings().app_base_url.rstrip("/") + f"/invite/{invite_code}"
+        manager = getattr(request.app.state, "connection_manager", None)
+        await send_moderation_dm(
+            session,
+            manager,
+            from_user_id=current.id,
+            to_user_id=user_id,
+            content=(
+                f"Deine Sperre in „{guild.name}“ wurde aufgehoben. "
+                f"Über diese Einladung kommst du wieder rein:\n{invite_url}"
+            ),
+        )

@@ -27,6 +27,10 @@ this registry.
       or summon; delivered direct because the target may lack VIEW_CHANNEL)
     - ``channel_revealed`` / ``channel_hidden`` (voice-pull grant
       added/revoked — channel appears/leaves that one user's list)
+    - ``guild_membership_revoked`` (you were banned/kicked — carries the
+      guild name + private ban reason so the client can tell you)
+    - ``guild_ban_lifted`` (your ban was lifted — carries a one-click
+      rejoin invite)
 
 * ``guild:events`` (wide broadcast; listener filters by guild membership):
     - ``channel_created`` / ``channel_updated`` / ``channel_deleted``
@@ -103,6 +107,7 @@ from dcc_shared.events.guild import (
     ChannelPermissionsUpdatedEvent,
     ChannelRevealedEvent,
     ChannelUpdatedEvent,
+    ComplaintNewEvent,
     DropboxEntryCreatedEvent,
     DropboxEntryDeletedEvent,
     DropboxEntryPurgedEvent,
@@ -110,10 +115,12 @@ from dcc_shared.events.guild import (
     DropboxEntryUpdatedEvent,
     DropboxQuotaUpdatedEvent,
     GuildBanAddedEvent,
+    GuildBanLiftedEvent,
     GuildBanRemovedEvent,
     GuildDeletedEvent,
     GuildMemberAddedEvent,
     GuildMemberRemovedEvent,
+    GuildMembershipRevokedEvent,
     GuildMemberUpdatedEvent,
     GuildPluginsChangedEvent,
     GuildSoundUpdatedEvent,
@@ -192,6 +199,9 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "guild_sound_updated": GuildSoundUpdatedEvent,
     "guild_plugins_changed": GuildPluginsChangedEvent,
     "report_new": ReportNewEvent,
+    "guild_membership_revoked": GuildMembershipRevokedEvent,
+    "guild_ban_lifted": GuildBanLiftedEvent,
+    "complaint_new": ComplaintNewEvent,
     "dropbox_entry_created": DropboxEntryCreatedEvent,
     "dropbox_entry_updated": DropboxEntryUpdatedEvent,
     "dropbox_entry_deleted": DropboxEntryDeletedEvent,
@@ -265,6 +275,9 @@ __all__ = [
     "GuildUpdatedEvent",
     "MemberRolesUpdatedEvent",
     "PermissionsUpdatedEvent",
+    "ComplaintNewEvent",
+    "GuildBanLiftedEvent",
+    "GuildMembershipRevokedEvent",
     "ReportNewEvent",
     "RoleCreatedEvent",
     "RoleDeletedEvent",

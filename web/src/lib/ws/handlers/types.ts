@@ -133,6 +133,20 @@ export type ServerEvent =
       reason?: string | null;
     }
   | { op: 'guild_ban_removed'; guild_id: string; user_id: string }
+  | { op: 'complaint_new' }
+  | {
+      op: 'guild_membership_revoked';
+      guild_id: string;
+      guild_name: string;
+      kind: 'ban' | 'kick';
+      reason?: string | null;
+    }
+  | {
+      op: 'guild_ban_lifted';
+      guild_id: string;
+      guild_name: string;
+      invite_code: string;
+    }
   | {
       op: 'guild_member_updated';
       guild_id: string;

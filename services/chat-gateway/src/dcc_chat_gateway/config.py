@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     # a mirror or internal proxy if they can't reach howispulse.com directly.
     pulse_cloud_origin: str = "https://howispulse.com"
 
+    # Public web-app origin (this instance's own). Used to build user-facing
+    # links inside messages — e.g. the rejoin invite in the unban DM, which the
+    # client renders as a join card. Shared ``APP_BASE_URL`` env with auth-svc's
+    # email links; prod sets it to the real origin, dev keeps the Vite origin.
+    app_base_url: str = "http://localhost:5173"
+
     # Path for the locally-generated Ed25519 session-signing key (DE 9).
     session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 

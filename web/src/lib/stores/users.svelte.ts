@@ -15,8 +15,21 @@ export type UserSummary = {
   profile_gradient_angle?: number | null;
 };
 
+/** Reserved system user-id. Backend authors automated moderation notices
+ *  (e.g. the reporter's "your report was handled" DM) as this id; we render it
+ *  as the neutral "Pulse" sender. Kept in sync with the backend's
+ *  ``PULSE_SYSTEM_USER_ID`` (0 — never a real snowflake). */
+export const SYSTEM_USER_ID = '0';
+
+const PULSE_SYSTEM_PROFILE: UserSummary = {
+  id: SYSTEM_USER_ID,
+  username: 'pulse',
+  display_name: 'Pulse',
+  avatar_url: null
+};
+
 class UserCacheStore {
-  byId = $state<Record<string, UserSummary>>({});
+  byId = $state<Record<string, UserSummary>>({ [SYSTEM_USER_ID]: PULSE_SYSTEM_PROFILE });
 
   private pending = new Set<string>();
   // Ids the server confirmed it has no record of (deleted / never existed).
@@ -119,7 +132,9 @@ class UserCacheStore {
   }
 
   clear(): void {
-    this.byId = {};
+    // Keep the "Pulse" system profile across server switches / sign-out so
+    // system DMs always render with a name.
+    this.byId = { [SYSTEM_USER_ID]: PULSE_SYSTEM_PROFILE };
     this.pending.clear();
     this.unknown.clear();
     if (this.debounceTimer) {

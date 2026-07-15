@@ -9,6 +9,7 @@
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
+  import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -84,7 +85,26 @@
       (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
   );
 
-  let showFooterDot = $derived(showInstanceBadge || showAppHostBadge || showOwnerSetupBadge);
+  // Offene Betreiber-Beschwerden: gleicher Scope (Cloud-Admin). Bekommt einen
+  // GELBEN Punkt (statt rot), damit sich „eine Meldung kam rein" optisch von
+  // den Antrags-Benachrichtigungen abhebt.
+  let showComplaintsBadge = $derived(
+    (activeServer.current?.isCloud ?? false) &&
+      (auth.user?.is_admin ?? false) &&
+      pendingComplaints.count > 0
+  );
+
+  let showFooterDot = $derived(
+    showInstanceBadge || showAppHostBadge || showOwnerSetupBadge || showComplaintsBadge
+  );
+
+  // Der Footer-Punkt wird GELB bei Beschwerden, sonst rot (Antrags-Benachrichtigungen).
+  let footerDotClass = $derived(showComplaintsBadge ? 'bg-amber-500' : 'bg-red-500');
+  let footerDotAria = $derived.by(() => {
+    if (showComplaintsBadge) return m.complaints_pending_badge({ count: pendingComplaints.count });
+    if (showInstanceBadge) return m.instance_apps_badge_aria();
+    return m.instance_app_setup_badge_aria();
+  });
 
   async function onSignOut() {
     const t = loadTokens();
@@ -136,9 +156,9 @@
       </Avatar.Root>
       {#if showFooterDot}
         <span
-          class="bg-red-500 ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full ring-2"
+          class="ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full ring-2 {footerDotClass}"
           data-testid="user-footer-dot"
-          aria-label={showInstanceBadge ? m.instance_apps_badge_aria() : m.instance_app_setup_badge_aria()}
+          aria-label={footerDotAria}
         ></span>
       {/if}
     </div>
@@ -180,6 +200,15 @@
           title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
         >
           {pendingAppHostApplications.count}
+        </span>
+      {/if}
+      {#if showComplaintsBadge}
+        <span
+          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-black"
+          data-testid="admin-complaints-pending-badge"
+          title={m.complaints_pending_badge({ count: pendingComplaints.count })}
+        >
+          {pendingComplaints.count}
         </span>
       {/if}
     </DropdownMenu.Item>

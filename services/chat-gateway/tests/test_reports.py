@@ -98,18 +98,23 @@ async def test_create_report_empty_targets_422(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_create_report_body_too_short_422(client, _auth_signer):
+async def test_create_report_body_optional(client, _auth_signer):
+    """The free-text body is optional — the reason_code carries the category.
+    A short body, or none at all, is accepted."""
     token, _ = await _token(_auth_signer)
-    r = await client.post(
+    short = await client.post(
         "/reports",
-        json={
-            "target_user_id": "111",
-            "reason_code": "other",
-            "body": "short",  # < 10 chars
-        },
+        json={"target_user_id": "111", "reason_code": "other", "body": "spam"},
         headers=auth(token),
     )
-    assert r.status_code == 422
+    assert short.status_code == 201, short.text
+
+    none = await client.post(
+        "/reports",
+        json={"target_user_id": "112", "reason_code": "spam"},
+        headers=auth(token),
+    )
+    assert none.status_code == 201, none.text
 
 
 @pytest.mark.asyncio
@@ -252,3 +257,127 @@ async def test_create_report_returns_id(client, _auth_signer):
     body = r.json()
     assert body["id"].isdigit()
     assert int(body["id"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# POST /operator-reports — DM report with server-side authoritative snapshot
+# ---------------------------------------------------------------------------
+
+
+async def _seed_dm_message(session_factory, author_id, other_id, *,
+                           content="hi", with_image=False):
+    from dcc_chat_gateway.models import (
+        DirectMessageChannel,
+        Message,
+        MessageAttachment,
+    )
+    from dcc_chat_gateway.snowflake import next_id as _nid
+
+    a, b = sorted((author_id, other_id))
+    dm_id, msg_id = _nid(), _nid()
+    async with session_factory() as s:
+        s.add(DirectMessageChannel(id=dm_id, user_a_id=a, user_b_id=b))
+        s.add(Message(id=msg_id, channel_id=dm_id, author_id=author_id, content=content))
+        if with_image:
+            s.add(MessageAttachment(
+                id=_nid(), message_id=msg_id, channel_id=dm_id,
+                uploader_id=author_id, storage_key=f"k{msg_id}",
+                mime="image/png", size=123,
+            ))
+        await s.commit()
+    return msg_id
+
+
+@pytest.mark.asyncio
+async def test_operator_report_snapshots_text_server_side(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    from dcc_chat_gateway.routes import reports as _r
+
+    calls = []
+
+    async def _fake(body, target_user_id, submitter_user_id=None):
+        calls.append((body, target_user_id, submitter_user_id))
+        return "42"
+
+    monkeypatch.setattr(_r, "escalate_report_to_operator", _fake)
+
+    t_reporter, uid_reporter = await _token(_auth_signer)
+    uid_author = _uid()
+    msg_id = await _seed_dm_message(
+        session_factory, uid_author, uid_reporter, content="du bist bloed"
+    )
+    r = await client.post(
+        "/operator-reports",
+        json={"target_message_id": str(msg_id), "reason_code": "harassment", "body": "bitte pruefen"},
+        headers=auth(t_reporter),
+    )
+    assert r.status_code == 201, r.text
+    assert len(calls) == 1
+    body, target, submitter = calls[0]
+    assert target == uid_author
+    assert submitter == uid_reporter
+    assert "du bist bloed" in body   # authoritative message text
+    assert "bitte pruefen" in body   # reporter's own description
+    assert "Belästigung" in body     # reason label
+
+
+@pytest.mark.asyncio
+async def test_operator_report_withholds_image(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    from dcc_chat_gateway.routes import reports as _r
+
+    calls = []
+
+    async def _fake(body, target_user_id, submitter_user_id=None):
+        calls.append(body)
+        return "1"
+
+    monkeypatch.setattr(_r, "escalate_report_to_operator", _fake)
+
+    t_reporter, uid_reporter = await _token(_auth_signer)
+    msg_id = await _seed_dm_message(
+        session_factory, _uid(), uid_reporter, content="", with_image=True
+    )
+    r = await client.post(
+        "/operator-reports",
+        json={"target_message_id": str(msg_id), "reason_code": "csam", "body": ""},
+        headers=auth(t_reporter),
+    )
+    assert r.status_code == 201, r.text
+    body = calls[0]
+    assert "nicht angezeigt" in body   # image withheld, only noted
+    assert "(kein Text)" in body       # no text content
+
+
+@pytest.mark.asyncio
+async def test_operator_report_non_participant_403(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    from dcc_chat_gateway.routes import reports as _r
+
+    async def _fake(*a, **k):
+        return "1"
+
+    monkeypatch.setattr(_r, "escalate_report_to_operator", _fake)
+
+    msg_id = await _seed_dm_message(session_factory, _uid(), _uid(), content="hi")
+    t_stranger, _ = await _token(_auth_signer)
+    r = await client.post(
+        "/operator-reports",
+        json={"target_message_id": str(msg_id), "reason_code": "spam", "body": ""},
+        headers=auth(t_stranger),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_operator_report_message_not_found_404(client, _auth_signer):
+    t, _ = await _token(_auth_signer)
+    r = await client.post(
+        "/operator-reports",
+        json={"target_message_id": "999888777", "reason_code": "spam", "body": ""},
+        headers=auth(t),
+    )
+    assert r.status_code == 404

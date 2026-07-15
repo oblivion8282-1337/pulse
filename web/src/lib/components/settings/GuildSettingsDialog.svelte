@@ -16,7 +16,6 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import UsersIcon from '@lucide/svelte/icons/users';
   import CrownIcon from '@lucide/svelte/icons/crown';
-  import BanIcon from '@lucide/svelte/icons/ban';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import FolderIcon from '@lucide/svelte/icons/folder';
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
@@ -35,7 +34,6 @@
   import RolesEditor from './RolesEditor.svelte';
   import MemberRoleAssignment from './MemberRoleAssignment.svelte';
   import OwnerTransferSection from './OwnerTransferSection.svelte';
-  import BansList from './BansList.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
   import GuildDropboxEditor from './GuildDropboxEditor.svelte';
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
@@ -57,7 +55,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'dropbox' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
+  type Tab = 'roles' | 'members' | 'sounds' | 'dropbox' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
   let tab = $state<Tab>('roles');
   let initialized = $state(false);
 
@@ -68,9 +66,6 @@
   let isOwner = $derived(!!guild && currentServerUserId() === guild.owner_id);
   let myPermissions = $derived(
     guildId ? roles.myGuildPerms[guildId] ?? '0' : '0'
-  );
-  let canBanMembers = $derived(
-    !!guildId && roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS)
   );
   // Sounds, Plugins, PublicAddress und AuditLog benutzen alle MANAGE_GUILD.
   // Sound-overrides reuse MANAGE_GUILD on the backend (server-rename /
@@ -100,9 +95,8 @@
     if (open && !initialized) {
       initialized = true;
       if (canManageRoles) tab = 'roles';
-      else if (canBanMembers) tab = 'bans';
-      else if (canManageGuild) tab = 'sounds';
       else if (canSeeModQueue) tab = 'modqueue';
+      else if (canManageGuild) tab = 'sounds';
       else if (isOwner) tab = 'ownership';
     } else if (!open) {
       // Reset the flag when the dialog closes so the next open reinitializes.
@@ -236,17 +230,6 @@
             <UsersIcon class="size-4" /> {m.guild_settings_dialog_tab_members()}
           </button>
         {/if}
-        {#if canBanMembers}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'bans'}
-            onclick={() => selectTab('bans')}
-            data-testid="settings-tab-bans"
-          >
-            <BanIcon class="size-4" /> {m.guild_settings_dialog_tab_bans()}
-          </button>
-        {/if}
         {#if canManageGuild}
           <button
             type="button"
@@ -360,8 +343,6 @@
           />
         {:else if tab === 'members' && canManageRoles}
           <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
-        {:else if tab === 'bans' && canBanMembers}
-          <BansList {guildId} />
         {:else if tab === 'sounds' && canManageGuild}
           <GuildSoundsEditor {guildId} />
         {:else if tab === 'dropbox' && canManageGuild}
