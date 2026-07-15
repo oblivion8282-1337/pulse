@@ -61,6 +61,16 @@ class Guild(Base):
         DateTime(timezone=True), nullable=True
     )
     suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per-community quality caps (Boost/Tarif foundation). NULL = inherit the
+    # instance-wide default (chat_settings singleton); a set value overrides it
+    # for THIS community — also higher than the default (= a paid boost). Set
+    # ONLY by the Cloud operator via /owner/communities/{id}/limits, never by the
+    # community's own owner. Applied as ceilings client-side (best-effort, like
+    # the instance caps) at stream/voice publish time.
+    voice_bitrate_max_kbps: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    stream_bitrate_max_kbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stream_fps_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    stream_resolution_max: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     __table_args__ = (
         # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so

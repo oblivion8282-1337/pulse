@@ -54,6 +54,11 @@ class GuildOut(BaseModel):
     created_at: datetime
     attachment_max_size_bytes: int
     attachment_max_count_per_message: int
+    # Per-community quality caps (null = inherit instance default).
+    voice_bitrate_max_kbps: int | None = None
+    stream_bitrate_max_kbps: int | None = None
+    stream_fps_max: int | None = None
+    stream_resolution_max: str | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
@@ -841,10 +846,36 @@ class CommunityOut(BaseModel):
     # operator-only context (never shown to members).
     suspended: bool = False
     suspended_reason: str | None = None
+    # Per-community quality caps (NULL = inherit the instance default). The
+    # owner edits these in the expandable community panel.
+    voice_bitrate_max_kbps: int | None = None
+    stream_bitrate_max_kbps: int | None = None
+    stream_fps_max: int | None = None
+    stream_resolution_max: str | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
         return _id_str(v)
+
+
+class CommunityLimitsIn(BaseModel):
+    """Owner-set per-community quality caps. Every field is a *ceiling* and
+    NULL means "inherit the instance default" — the form always sends the full
+    set, so NULL explicitly clears an override. ``stream_resolution_max`` uses
+    the HQ resolution vocabulary ('Native' = uncapped); it is mapped down to the
+    narrower screenshare/webcam ladders client-side."""
+
+    voice_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=16, le=256)] = None
+    stream_bitrate_max_kbps: Annotated[
+        int | None, Field(default=None, ge=1000, le=100000)
+    ] = None
+    stream_fps_max: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
+    stream_resolution_max: str | None = None
+
+    @field_validator("stream_resolution_max")
+    @classmethod
+    def _check_stream_resolution(cls, v: str | None) -> str | None:
+        return _check_resolution(v, ALLOWED_HQ_RESOLUTIONS, "stream_resolution_max")
 
 
 class SuspendCommunityIn(BaseModel):

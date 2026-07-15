@@ -12,10 +12,12 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import AdminCommunityDeleteDialog from './AdminCommunityDeleteDialog.svelte';
+  import AdminCommunityLimits from './AdminCommunityLimits.svelte';
   import { adminApi, type Community } from '$lib/api/admin';
   import { userCache } from '$lib/stores/users.svelte';
   import { formatBytes } from '$lib/utils/formatBytes';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
 
   let communities = $state<Community[]>([]);
   let loading = $state(true);
@@ -24,6 +26,8 @@
   let loadingMore = $state(false);
   let query = $state('');
   let pendingId = $state<string | null>(null);
+  // Which community's settings panel is expanded (aufklappen). One at a time.
+  let expandedId = $state<string | null>(null);
 
   // Löschen läuft über einen eigenständigen Dialog (AdminCommunityDeleteDialog)
   // mit Namen-Tippen-Abfrage — hier nur Ziel + Sichtbarkeit halten.
@@ -152,7 +156,8 @@
   {:else}
     <ul class="divide-border border-border bg-bg-hover/30 divide-y rounded-xl border">
       {#each communities as c (c.id)}
-        <li class="flex items-center gap-3 px-4 py-3" data-testid="admin-community-row">
+        <li class="px-4 py-3" data-testid="admin-community-row">
+        <div class="flex items-center gap-3">
           {#if c.icon_url}
             <img src={c.icon_url} alt="" class="size-9 shrink-0 rounded-xl object-cover" />
           {:else}
@@ -194,6 +199,15 @@
 
           <div class="flex shrink-0 items-center gap-2">
             <Button
+              variant={expandedId === c.id ? 'secondary' : 'outline'}
+              size="sm"
+              onclick={() => (expandedId = expandedId === c.id ? null : c.id)}
+              data-testid="admin-community-settings-toggle"
+              title={m.admin_communities_limits_toggle()}
+            >
+              <SlidersHorizontalIcon class="size-4" />
+            </Button>
+            <Button
               variant={c.suspended ? 'secondary' : 'outline'}
               size="sm"
               disabled={pendingId === c.id}
@@ -211,6 +225,11 @@
               {m.admin_communities_delete()}
             </Button>
           </div>
+        </div>
+
+        {#if expandedId === c.id}
+          <AdminCommunityLimits community={c} onSaved={replaceRow} />
+        {/if}
         </li>
       {/each}
     </ul>

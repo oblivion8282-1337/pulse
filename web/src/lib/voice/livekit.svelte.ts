@@ -29,6 +29,7 @@ import { RemoteAudioElements } from './audioElements';
 import { setVoiceMediaSession, clearVoiceMediaSession } from './mediaSession';
 import { settings, type SpatialMode } from '$lib/stores/settings.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { effectiveNsLimits, effectiveVoiceBitrateMaxKbps } from '$lib/stream/guildLimits';
 import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 import { AudioDevices } from './audioDevices.svelte';
 import { createSendProcessor, type SendProcessorHandle, type SendProcessorMode } from './noiseFilter';
@@ -739,15 +740,17 @@ class VoiceRoom {
     try {
       if (on) {
         const s = settings.screenShare;
-        // Enforce the admin-set normal-stream limits (best-effort, client-side
-        // — LiveKit/the SFU don't gate these). Clamp fps/bitrate into the band
-        // and cap the resolution to the ceiling before building the options.
-        const fps = Math.min(capabilities.nsFpsMax, Math.max(capabilities.nsFpsMin, s.fps));
+        // Enforce the effective normal-stream limits (best-effort, client-side
+        // — LiveKit/the SFU don't gate these). Effective = this community's
+        // per-guild override (Boost) ?? the admin-set instance default. Clamp
+        // fps/bitrate into the band and cap the resolution before building.
+        const ns = effectiveNsLimits(this.channelId);
+        const fps = Math.min(ns.fpsMax, Math.max(capabilities.nsFpsMin, s.fps));
         const bitrateMbps = Math.min(
-          capabilities.nsBitrateMaxKbps / 1000,
+          ns.bitrateMaxKbps / 1000,
           Math.max(capabilities.nsBitrateMinKbps / 1000, s.bitrateMbps)
         );
-        const resolution = clampNsResolution(s.resolution, capabilities.nsResolutionMax);
+        const resolution = clampNsResolution(s.resolution, ns.resolutionMax);
         const resMap: Record<string, VideoResolution> = {
           '1080p': { width: 1920, height: 1080, frameRate: fps },
           '720p': { width: 1280, height: 720, frameRate: fps },
@@ -1145,8 +1148,13 @@ class VoiceRoom {
   > {
     const a = settings.audio;
     const customProcessor = a.noiseSuppression !== 'off';
+    // Per-community voice-bitrate cap (Boost). null = uncapped (there is no
+    // instance-wide voice cap — only this per-guild override). Best-effort,
+    // client-side like the other quality caps.
+    const voiceCap = effectiveVoiceBitrateMaxKbps(this.channelId);
+    const voiceKbps = voiceCap ? Math.min(a.voiceBitrateKbps, voiceCap) : a.voiceBitrateKbps;
     return {
-      audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
+      audioPreset: { maxBitrate: voiceKbps * 1000 },
       forceStereo: a.stereo && !customProcessor,
       dtx: a.dtxEnabled,
       red: true

@@ -66,6 +66,12 @@ def _guild_dict(guild: Guild) -> dict[str, object]:
         "attachment_max_size_bytes": guild.attachment_max_size_bytes,
         "attachment_max_count_per_message": guild.attachment_max_count_per_message,
         "suspended": guild.suspended_at is not None,
+        # Per-community quality caps (null = inherit instance default). The
+        # client computes the effective cap = override ?? instance default.
+        "voice_bitrate_max_kbps": guild.voice_bitrate_max_kbps,
+        "stream_bitrate_max_kbps": guild.stream_bitrate_max_kbps,
+        "stream_fps_max": guild.stream_fps_max,
+        "stream_resolution_max": guild.stream_resolution_max,
     }
 
 

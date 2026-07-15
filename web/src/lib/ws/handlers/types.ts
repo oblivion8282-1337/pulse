@@ -36,6 +36,11 @@ export type GuildPayload = {
   owner_id: string;
   /** Platform-frozen by the Cloud operator. Optional for back-compat frames. */
   suspended?: boolean;
+  /** Per-community quality caps (null = inherit instance default). */
+  voice_bitrate_max_kbps?: number | null;
+  stream_bitrate_max_kbps?: number | null;
+  stream_fps_max?: number | null;
+  stream_resolution_max?: string | null;
 };
 
 export type ReactionEvent = {
@@ -60,6 +65,11 @@ export type ReadyGuild = {
   sound_overrides?: { sound_id: string; url: string }[];
   /** Platform-frozen by the Cloud operator; the client renders it read-only. */
   suspended?: boolean;
+  /** Per-community quality caps (null = inherit instance default). */
+  voice_bitrate_max_kbps?: number | null;
+  stream_bitrate_max_kbps?: number | null;
+  stream_fps_max?: number | null;
+  stream_resolution_max?: string | null;
 };
 
 export type ReadyEvent = {

@@ -25,6 +25,7 @@ import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs, type GsrWindo
 import { debounce, loadAll, saveAll } from './persistence';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { effectiveHqLimits } from '$lib/stream/guildLimits';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -491,19 +492,21 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
   if (apply) {
     const o = streamSettings.overrides;
     const cleaned: OverrideSet = {};
-    // Authoritative clamp point: enforce the admin-set global HQ limits here,
-    // right before the sidecar call. Best-effort (the server never sees these
-    // params) but covers every normal user. Only explicit values are clamped;
-    // a blank field falls through to the GSR profile default.
+    // Authoritative clamp point: enforce the effective HQ limits here, right
+    // before the sidecar call. Effective = this community's per-guild override
+    // (Boost) ?? the admin-set instance default. Best-effort (the server never
+    // sees these params) but covers every normal user. Only explicit values
+    // are clamped; a blank field falls through to the GSR profile default.
+    const hq = effectiveHqLimits(channelArg.channelId);
     if (o.codec) cleaned.codec = o.codec;
     if (typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0)
       cleaned.bitrate_kbps = Math.min(
-        capabilities.hqBitrateMaxKbps,
+        hq.bitrateMaxKbps,
         Math.max(capabilities.hqBitrateMinKbps, o.bitrate_kbps)
       );
     if (typeof o.fps === 'number' && o.fps > 0)
-      cleaned.fps = Math.min(capabilities.hqFpsMax, Math.max(capabilities.hqFpsMin, o.fps));
-    if (o.resolution) cleaned.resolution = clampResolution(o.resolution, capabilities.hqResolutionMax);
+      cleaned.fps = Math.min(hq.fpsMax, Math.max(capabilities.hqFpsMin, o.fps));
+    if (o.resolution) cleaned.resolution = clampResolution(o.resolution, hq.resolutionMax);
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;
