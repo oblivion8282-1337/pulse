@@ -154,14 +154,6 @@ class CertStore {
     this.cert = cert;
   }
 
-  /**
-   * Gibt das aktuelle Cert zurück oder `null`.
-   * Shorthand für UI-Komponenten die nicht auf den Store-State zugreifen wollen.
-   */
-  getCertOrNull(): IdentityCert | null {
-    return this.cert;
-  }
-
   get isExpiringSoon(): boolean {
     return this.cert !== null && isCertExpiringSoon(this.cert);
   }

@@ -340,12 +340,3 @@ export function runSignOutHooks(): void {
   for (const reg of sections.values()) reg.store.applySignOut();
   flushPersist();
 }
-
-/** Test/dev helper — wipes the registry. NOT exported via the barrel. */
-export function _resetRegistry(): void {
-  if (pendingTimer !== null) {
-    clearTimeout(pendingTimer);
-    pendingTimer = null;
-  }
-  sections.clear();
-}

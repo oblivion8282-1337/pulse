@@ -150,10 +150,6 @@ class ProfileStatementStore {
     this.statement = statement;
   }
 
-  getStatementOrNull(): ProfileStatement | null {
-    return this.statement;
-  }
-
   get isExpired(): boolean {
     return this.statement !== null && isStatementExpired(this.statement);
   }

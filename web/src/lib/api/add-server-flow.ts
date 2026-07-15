@@ -23,7 +23,7 @@ import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
 import type { AcceptInviteResult, InvitePreview } from './types';
 
-export type AddServerSuccess = {
+type AddServerSuccess = {
   entry: ServerEntry;
   invite: AcceptInviteResult | null;
   inviteError: string | null;

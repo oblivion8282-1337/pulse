@@ -79,14 +79,6 @@ export async function ensurePetLoaded(guildId: string): Promise<void> {
   }
 }
 
-/** Force-refresh — nach UI-Inkonsistenz / manueller Reload. */
-export async function refreshPet(guildId: string): Promise<void> {
-  if (!guildId) return;
-  deletePet(guildId);
-  markLoading(guildId, false);
-  await ensurePetLoaded(guildId);
-}
-
 /** Lokaler Optimistic-Patch (nach Klick auf einen Action-Button). Das
  *  Widget zeigt den geschätzten neuen State sofort; der Server-Broadcast
  *  überschreibt ihn mit dem authoritativen Wert. */

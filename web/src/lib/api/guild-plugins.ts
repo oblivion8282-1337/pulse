@@ -19,7 +19,7 @@ export type GuildPluginEntry = {
   enabled: boolean;
 };
 
-export type GuildPluginTogglePayload = {
+type GuildPluginTogglePayload = {
   enabled: boolean;
 };
 
