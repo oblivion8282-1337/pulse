@@ -59,10 +59,18 @@
       serverAdmin.isAdmin(activeServer.serverId) ||
       capabilities.allowGuildCreation
   );
-  // Vom Betreiber stillgelegt: die ganze Community ist eingefroren. Der Server
-  // blockt jeden Zugriff (Lesen/Senden 403) — wir zeigen dem Mitglied statt
-  // einer generischen Fehlermeldung eine klare „eingefroren"-Tafel.
-  let guildSuspended = $derived(!!activeGuild?.suspended);
+  // Admin/Betreiber des aktiven Servers? Cloud → auth.user.is_admin; Self-Host →
+  // serverAdmin aus dem Ready-Frame. Admins sind von einer Sperre serverseitig
+  // ausgenommen, daher sehen sie eine stillgelegte Community normal.
+  let isServerAdmin = $derived(
+    (activeServer.current?.isCloud ?? false)
+      ? (auth.user?.is_admin ?? false)
+      : serverAdmin.isAdmin(activeServer.serverId)
+  );
+  // Vom Betreiber stillgelegt: für normale Mitglieder ist die ganze Community
+  // eingefroren (Server blockt Lesen/Senden mit 403) — statt einer generischen
+  // Fehlermeldung zeigen wir eine klare „eingefroren"-Tafel. Admins ausgenommen.
+  let guildSuspended = $derived(!!activeGuild?.suspended && !isServerAdmin);
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null

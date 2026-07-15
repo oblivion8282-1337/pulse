@@ -24,6 +24,7 @@
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
+  import LockIcon from '@lucide/svelte/icons/lock';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -520,6 +521,10 @@
             roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD))}
         {@const modOpen = canModerate ? modQueueCounts.get(g.id) : 0}
         {@const iconSrc = guildIconSrc(g.icon_url, server.hostname)}
+        <!-- Vom Betreiber stillgelegt: für normale Mitglieder ausgegraut +
+             Schloss (weiterhin anklickbar → Hinweis-Tafel). Admins/Betreiber
+             sehen es normal — sie sind von der Sperre ausgenommen. -->
+        {@const suspendedLook = !!g.suspended && !isServerAdmin}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
             {#snippet child({ props })}
@@ -536,7 +541,9 @@
                       <button
                         {...props}
                         {...tipProps}
-                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
+                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
+                          ? 'opacity-40 grayscale'
+                          : ''}"
                         style={iconSrc
                           ? ''
                           : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
@@ -550,6 +557,15 @@
                           {initials(g.name)}
                         {/if}
                       </button>
+                      {#if suspendedLook}
+                        <span
+                          class="bg-bg-panel ring-bg-panel absolute -right-1 -bottom-1 inline-flex size-4 items-center justify-center rounded-full ring-2"
+                          aria-label={m.guild_rail_suspended()}
+                          data-testid="guild-suspended-lock"
+                        >
+                          <LockIcon class="text-text-muted size-2.5" />
+                        </span>
+                      {/if}
                       {#if guildUnread > 0}
                         <span
                           class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-bg-panel"
