@@ -57,31 +57,6 @@ export async function loadAll(): Promise<Record<string, unknown>> {
   }
 }
 
-/** Read one key. */
-export async function loadKey<T>(key: string): Promise<T | undefined> {
-  const store = electronStore();
-  if (store) {
-    try {
-      const v = await store.get(key);
-      return v as T | undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  if (typeof localStorage === 'undefined') return undefined;
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && key in parsed) {
-      return (parsed as Record<string, unknown>)[key] as T;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Write a batch of keys. Under Electron this uses the atomic `store:setAll`
  * IPC handler (one serialised write, no parallel rename races — finding 158).

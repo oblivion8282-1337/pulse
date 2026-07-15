@@ -1,8 +1,6 @@
 // NAT-PMP (RFC 6886) — reine Byte-Encode/Decode, keine I/O.
+// PCP (RFC 6887) reuses the NAT-PMP port (RFC 6887 §3), so no separate const.
 export const NATPMP_PORT = 5351;
-
-// PCP (RFC 6887) — reine Byte-Encode/Decode, keine I/O.
-export const PCP_PORT = 5351;
 
 export function ipv4MappedV6(ip: string): Buffer {
   const b = Buffer.alloc(16);

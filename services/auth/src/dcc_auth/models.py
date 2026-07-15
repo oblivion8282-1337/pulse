@@ -411,10 +411,11 @@ class SmtpSettings(Base):
     password is Fernet-encrypted at rest — key derived from the JWT private
     key, see ``dcc_auth.crypto``.
 
-    ``provider`` is one of the preset keys in ``dcc_auth.email_providers``
-    (``brevo`` / ``mailgun`` / ``resend`` / ``gmail`` / ``custom``). The
-    preset only seeds the UI defaults; the actual ``host``/``port``/``use_ssl``
-    columns are authoritative once the row is saved.
+    ``provider`` is one of the preset keys (``brevo`` / ``mailgun`` /
+    ``resend`` / ``gmail`` / ``custom``); the presets live in the admin UI
+    (``web/src/lib/admin/smtpProviders.ts``). The preset only seeds the UI
+    defaults; the actual ``host``/``port``/``use_ssl`` columns are
+    authoritative once the row is saved.
     """
 
     __tablename__ = "smtp_settings"

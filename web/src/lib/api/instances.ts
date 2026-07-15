@@ -30,7 +30,7 @@ export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'closed' |
 export type ApplicationOrigin = 'vps' | 'app_host';
 /** Ergebnis des beratenden Anschluss-Checks (lib/hosting/connectivityCheck). */
 export type NetworkCheck = 'ok' | 'cgnat' | 'symmetric' | 'blocked' | 'unknown';
-export type InstanceStatus = 'active' | 'suspended';
+type InstanceStatus = 'active' | 'suspended';
 
 /** Spiegelt InstanceApplicationOut (User-Route). */
 export interface InstanceApplication {

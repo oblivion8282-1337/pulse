@@ -1,7 +1,8 @@
 /**
- * SMTP provider presets surfaced in the admin UI. Mirrors
- * ``services/auth/src/dcc_auth/email_providers.py`` — keep both files in
- * sync when adding a provider (the backend enum-validates the key).
+ * SMTP provider presets surfaced in the admin UI. These presets live only
+ * here; the backend enum-validates the provider key via the ``SmtpProvider``
+ * literal in ``services/auth/src/dcc_auth/schemas.py`` — keep that literal in
+ * sync when adding a provider.
  *
  * Kept here (not inline in ``AdminSmtp.svelte``) so the component stays
  * under the 250-line Svelte size cap and so a future use case (e.g. a

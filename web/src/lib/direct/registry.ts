@@ -170,11 +170,3 @@ export async function getDirectConnection(
   const result = await getDirectConnectionDetailed(instanceId);
   return result.ok ? result.conn : null;
 }
-
-/** Test-/Logout-Hilfe: alle Verbindungen schließen. */
-export function closeAllDirect(): void {
-  for (const state of states.values()) {
-    if (state.kind === 'open') state.conn.close();
-  }
-  states.clear();
-}
