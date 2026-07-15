@@ -87,6 +87,92 @@ async def test_communities_search_filters_by_name(
     assert "Racing" not in names
 
 
+# ─── suspend / unsuspend + enforcement ───────────────────────────────────────
+
+
+async def _guild_with_channel(client, _auth_signer):
+    """Register a fresh user, create a guild (they become owner+member) and a
+    channel. Returns (member_token, guild_id, channel_id)."""
+    import uuid as _uuid
+
+    uid = abs(hash(_uuid.uuid4())) & ((1 << 31) - 1)
+    token = _auth_signer.issue_access(uid, f"u{uid}")
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    c = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general"},
+            headers=_auth(token),
+        )
+    ).json()
+    return token, g["id"], c["id"]
+
+
+@pytest.mark.asyncio
+async def test_suspend_requires_owner(client, admin_token):
+    token, _ = admin_token
+    r = await client.post("/owner/communities/123/suspend", json={}, headers=_auth(token))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_suspend_unknown_guild_404(client, owner_token):
+    token, _ = owner_token
+    r = await client.post(
+        "/owner/communities/999999/suspend", json={}, headers=_auth(token)
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_suspend_freezes_members_then_unsuspend_restores(
+    client, owner_token, _auth_signer
+):
+    member_token, gid, cid = await _guild_with_channel(client, _auth_signer)
+    owner_tok, _ = owner_token
+
+    # Baseline: the guild owner (a normal member) can post.
+    r = await client.post(
+        f"/channels/{cid}/messages", json={"content": "hi"}, headers=_auth(member_token)
+    )
+    assert r.status_code == 201, r.text
+
+    # Operator suspends → the community is frozen.
+    r = await client.post(
+        f"/owner/communities/{gid}/suspend",
+        json={"reason": "abuse under review"},
+        headers=_auth(owner_tok),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["suspended"] is True
+    assert body["suspended_reason"] == "abuse under review"
+
+    # Frozen: even the guild's own owner can't post OR read.
+    r = await client.post(
+        f"/channels/{cid}/messages", json={"content": "again"}, headers=_auth(member_token)
+    )
+    assert r.status_code == 403
+    r = await client.get(f"/channels/{cid}/messages", headers=_auth(member_token))
+    assert r.status_code == 403
+
+    # It still shows in the owner list flagged suspended.
+    listing = (await client.get("/owner/communities", headers=_auth(owner_tok))).json()
+    row = next(c for c in listing["communities"] if c["id"] == str(gid))
+    assert row["suspended"] is True
+
+    # Unsuspend → access restored.
+    r = await client.post(
+        f"/owner/communities/{gid}/unsuspend", headers=_auth(owner_tok)
+    )
+    assert r.status_code == 200
+    assert r.json()["suspended"] is False
+    r = await client.post(
+        f"/channels/{cid}/messages", json={"content": "back"}, headers=_auth(member_token)
+    )
+    assert r.status_code == 201, r.text
+
+
 # ─── /owner/reports/{id}/content ─────────────────────────────────────────────
 
 

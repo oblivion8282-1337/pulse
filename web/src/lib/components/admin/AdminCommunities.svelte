@@ -22,6 +22,7 @@
   let nextBefore = $state<string | null>(null);
   let loadingMore = $state(false);
   let query = $state('');
+  let pendingId = $state<string | null>(null);
 
   // Queue every owner id for name resolution as rows arrive. `displayName`
   // falls back to "…" until the batch fetch lands, then re-renders.
@@ -74,6 +75,32 @@
 
   function fmtDate(iso: string): string {
     return new Date(iso).toLocaleDateString();
+  }
+
+  function replaceRow(updated: Community) {
+    communities = communities.map((x) => (x.id === updated.id ? updated : x));
+  }
+
+  async function toggleSuspend(c: Community) {
+    if (!c.suspended && !confirm(m.admin_communities_suspend_confirm())) return;
+    pendingId = c.id;
+    try {
+      const updated = c.suspended
+        ? await adminApi.unsuspendCommunity(c.id)
+        : await adminApi.suspendCommunity(c.id);
+      replaceRow(updated);
+      toast.success(
+        updated.suspended
+          ? m.admin_communities_suspended_toast()
+          : m.admin_communities_unsuspended_toast()
+      );
+    } catch (e) {
+      toast.error(m.admin_communities_action_failed(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      pendingId = null;
+    }
   }
 
   onMount(loadInitial);
@@ -131,6 +158,13 @@
               >
                 {c.is_public ? m.admin_communities_public() : m.admin_communities_private()}
               </span>
+              {#if c.suspended}
+                <span
+                  class="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+                >
+                  {m.admin_communities_suspended_badge()}
+                </span>
+              {/if}
             </div>
             <div class="text-text-muted mt-0.5 truncate text-xs">
               {m.admin_communities_owner_label()}: {userCache.displayName(c.owner_id)}
@@ -142,6 +176,17 @@
             <div>{m.admin_communities_storage_label()}: {formatBytes(c.storage_bytes)}</div>
             <div>{m.admin_communities_created_label()}: {fmtDate(c.created_at)}</div>
           </div>
+
+          <Button
+            variant={c.suspended ? 'secondary' : 'destructive'}
+            size="sm"
+            class="shrink-0"
+            disabled={pendingId === c.id}
+            onclick={() => toggleSuspend(c)}
+            data-testid="admin-community-suspend-toggle"
+          >
+            {c.suspended ? m.admin_communities_unsuspend() : m.admin_communities_suspend()}
+          </Button>
         </li>
       {/each}
     </ul>

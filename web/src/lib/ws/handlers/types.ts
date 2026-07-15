@@ -34,6 +34,8 @@ export type GuildPayload = {
   name: string;
   icon_url: string | null;
   owner_id: string;
+  /** Platform-frozen by the Cloud operator. Optional for back-compat frames. */
+  suspended?: boolean;
 };
 
 export type ReactionEvent = {
@@ -56,6 +58,8 @@ export type ReadyGuild = {
   my_role_ids?: string[];
   roles?: RolePayload[];
   sound_overrides?: { sound_id: string; url: string }[];
+  /** Platform-frozen by the Cloud operator; the client renders it read-only. */
+  suspended?: boolean;
 };
 
 export type ReadyEvent = {

@@ -65,6 +65,7 @@ def _guild_dict(guild: Guild) -> dict[str, object]:
         "owner_id": str(guild.owner_id),
         "attachment_max_size_bytes": guild.attachment_max_size_bytes,
         "attachment_max_count_per_message": guild.attachment_max_count_per_message,
+        "suspended": guild.suspended_at is not None,
     }
 
 

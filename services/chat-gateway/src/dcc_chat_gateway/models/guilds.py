@@ -51,6 +51,16 @@ class Guild(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Platform-suspension by the Cloud operator (owner). When set, the whole
+    # community is frozen: members lose access (send/react/voice/stream/read)
+    # until it's unsuspended — the ``GuildMember`` rows are kept (reversible,
+    # unlike a ban). Only global admins/operators bypass the freeze so they can
+    # still inspect + unfreeze. NULL = active. ``suspension_reason`` is optional
+    # operator context, not shown to members.
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so

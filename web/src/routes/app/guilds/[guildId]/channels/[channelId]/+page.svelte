@@ -59,6 +59,10 @@
       serverAdmin.isAdmin(activeServer.serverId) ||
       capabilities.allowGuildCreation
   );
+  // Vom Betreiber stillgelegt: die ganze Community ist eingefroren. Der Server
+  // blockt jeden Zugriff (Lesen/Senden 403) — wir zeigen dem Mitglied statt
+  // einer generischen Fehlermeldung eine klare „eingefroren"-Tafel.
+  let guildSuspended = $derived(!!activeGuild?.suspended);
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null
@@ -534,6 +538,14 @@
     {#key activeChannel.id}
       <DropboxView channel={activeChannel} />
     {/key}
+  {:else if guildSuspended}
+    <section
+      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+      data-testid="community-suspended"
+    >
+      <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
+      <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
+    </section>
   {:else if loadError}
     <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
       <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
