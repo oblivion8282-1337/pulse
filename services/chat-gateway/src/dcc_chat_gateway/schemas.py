@@ -816,3 +816,84 @@ class AdminAuditLogEntry(BaseModel):
     @field_serializer("id", "actor_id", "target_id")
     def _ids_to_str(self, v: int | None) -> str | None:
         return _opt_id_str(v)
+
+
+# --- Owner (Cloud-operator) cloud-wide community oversight -------------------
+
+
+class CommunityOut(BaseModel):
+    """One community (guild) row in the owner's cloud-wide oversight list.
+
+    Metadata only — never any chat content. ``owner_id`` is a numeric id; the
+    Cloud username lives in auth-svc and is resolved on the frontend via the
+    existing user cache (keeps this list a single chat-gateway round-trip)."""
+
+    id: int
+    name: str
+    owner_id: int
+    icon_url: str | None
+    is_public: bool
+    handle: str | None
+    created_at: datetime
+    member_count: int
+    storage_bytes: int
+
+    @field_serializer("id", "owner_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
+
+
+class CommunityListOut(BaseModel):
+    communities: list[CommunityOut]
+    # Cursor for the next page: the id of the last row, or None when the page
+    # was not full (no more rows). Mirrors the admin users list pagination.
+    next_before: str | None = None
+
+
+class OwnerReportedAttachment(BaseModel):
+    """Attachment metadata on a reported message. No download URL — the bytes
+    are deliberately withheld (mirrors the CSAM-safety precedent in
+    ``routes/reports.py``); the owner sees *that* an attachment exists and its
+    shape, not its content."""
+
+    id: int
+    filename: str | None
+    mime: str | None
+    size: int
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class OwnerReportedContentOut(BaseModel):
+    """Emergency-access view of a report's target message, owner-only.
+
+    Bypasses normal member-only visibility so the Cloud operator can act on a
+    complaint. Every fetch is audit-logged server-side."""
+
+    report_id: int
+    reason_code: str
+    report_body: str
+    status: str
+    guild_id: int | None
+    channel_id: int | None
+    message_id: int | None
+    author_id: int | None = None
+    # Message fields — None when the report doesn't target a message (e.g. a
+    # user/channel report) or the message row no longer exists at all.
+    content: str | None = None
+    message_created_at: datetime | None = None
+    edited_at: datetime | None = None
+    # True when the message was soft-deleted (moderators may have already
+    # removed it) — the owner still sees the content for the record.
+    deleted: bool = False
+    attachments: list[OwnerReportedAttachment] = Field(default_factory=list)
+
+    @field_serializer("report_id")
+    def _ser_report_id(self, v: int) -> str:
+        return _id_str(v)
+
+    @field_serializer("guild_id", "channel_id", "message_id", "author_id")
+    def _ser_opt_ids(self, v: int | None) -> str | None:
+        return _opt_id_str(v)

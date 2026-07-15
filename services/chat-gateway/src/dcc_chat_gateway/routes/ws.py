@@ -136,10 +136,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             and _safe_int_eq(user_id, settings.pulse_instance_owner_id)
         )
         is_admin = bool(payload.get("admin", False)) or is_owner_admin
+        is_owner = not is_self_host and bool(payload.get("owner", False))
         user = AuthenticatedUser(
             id=user_id,
             username=payload.get("username", ""),
             is_admin=is_admin,
+            is_owner=is_owner,
             payload=payload,
             user_identifier=identifier,
             is_self_host=is_self_host,

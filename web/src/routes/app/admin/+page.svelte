@@ -20,6 +20,7 @@
   import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
   import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
   import AdminComplaints from '$lib/components/admin/AdminComplaints.svelte';
+  import AdminCommunities from '$lib/components/admin/AdminCommunities.svelte';
   import AdminSettingsTab from '$lib/components/admin/AdminSettingsTab.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
@@ -43,11 +44,21 @@
   let isAdminHere = $derived(
     isCloud ? (auth.user?.is_admin ?? false) : serverAdmin.isAdmin(serverId)
   );
+  // Owner (Betreiber) ist eine reine Cloud-Rolle — nur der eine Plattform-
+  // Betreiber. Schaltet den Communities-Reiter frei (cloud-weite Übersicht).
+  let isOwner = $derived(isCloud && (auth.user?.is_owner ?? false));
   let decided = $derived(isCloud ? auth.user !== null : serverAdmin.has(serverId));
 
   let ready = $state(false);
 
-  type MainTab = 'overview' | 'users' | 'applications' | 'complaints' | 'settings' | 'audit';
+  type MainTab =
+    | 'overview'
+    | 'users'
+    | 'communities'
+    | 'applications'
+    | 'complaints'
+    | 'settings'
+    | 'audit';
   let activeTab = $state<MainTab>('overview');
 
   // Tab-Badges: warten Anträge/Meldungen? Die jeweiligen Bereiche zählen intern
@@ -63,6 +74,9 @@
     { id: 'overview' as const, label: m.admin_tab_overview(), badge: 0 },
     { id: 'settings' as const, label: m.admin_tab_settings(), badge: 0 },
     { id: 'users' as const, label: m.admin_tab_users(), badge: 0 },
+    ...(isOwner
+      ? [{ id: 'communities' as const, label: m.admin_tab_communities(), badge: 0 }]
+      : []),
     ...(isCloud
       ? [
           { id: 'applications' as const, label: m.admin_tab_applications(), badge: applicationsBadge },
@@ -176,6 +190,8 @@
           <!-- Self-Host: instanzweite Member-Verwaltung statt der Cloud-User-Liste. -->
           <AdminMembers />
         {/if}
+      {:else if activeTab === 'communities' && isOwner}
+        <AdminCommunities />
       {:else if activeTab === 'applications' && isCloud}
         <!-- Instanz-Verwaltung mit Pending/Aktiv/Gesperrt-Untertabs; seit der
              Vereinheitlichung leben app_host-Instanzen samt Revoke im Aktiv-Tab

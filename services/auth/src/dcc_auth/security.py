@@ -135,6 +135,7 @@ class JwtSigner:
         username: str,
         *,
         is_admin: bool = False,
+        is_owner: bool = False,
         email_blocked: bool = False,
     ) -> str:
         now = int(time.time())
@@ -151,6 +152,12 @@ class JwtSigner:
         # the 99% case and makes the absence semantically equivalent to false.
         if is_admin:
             payload["admin"] = True
+        # ``owner`` = the single Cloud operator (auth-svc ``is_owner``). Stamped
+        # only when true (absence == false, like ``admin``) so chat-gateway can
+        # gate owner-only routes (cloud-wide community oversight, emergency
+        # reported-content access) without calling back into auth-svc.
+        if is_owner:
+            payload["owner"] = True
         # ``email_blocked`` carries the *resolved* email-verification gate
         # decision (SMTP configured AND the account still unverified). Stamped
         # only when the user is blocked, so absence == allowed. chat-gateway

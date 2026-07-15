@@ -35,6 +35,7 @@ from dcc_chat_gateway.routes import (
     messages,
     mod_queue,
     notifications,
+    owner,
     permission_overwrites,
     preferences,
     presence,
@@ -107,6 +108,7 @@ router.include_router(presence.router)
 router.include_router(reports.router)
 router.include_router(mod_queue.router)
 router.include_router(admin.router)
+router.include_router(owner.router)
 router.include_router(admin_backups.router)
 router.include_router(admin_members.router)
 router.include_router(admin_plugins.router)

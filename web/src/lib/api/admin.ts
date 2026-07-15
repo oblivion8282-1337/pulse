@@ -193,6 +193,27 @@ export type BackupStatus = {
   stale_threshold_seconds: number;
 };
 
+/** One community (guild) row in the owner's cloud-wide oversight list.
+ *  Metadata only — never any chat content. ``owner_id`` is resolved to a name
+ *  on the client via the user cache. */
+export type Community = {
+  id: string;
+  name: string;
+  owner_id: string;
+  icon_url: string | null;
+  is_public: boolean;
+  handle: string | null;
+  created_at: string;
+  member_count: number;
+  storage_bytes: number;
+};
+
+export type CommunityList = {
+  communities: Community[];
+  /** Cursor for the next page, or null when the last page was reached. */
+  next_before: string | null;
+};
+
 function paginationParams(opts: { before?: string; limit?: number }, defaultLimit = 50): URLSearchParams {
   const params = new URLSearchParams();
   if (opts.before) params.set('before', opts.before);
@@ -321,6 +342,17 @@ export const adminApi = {
       endpoint: 'chat'
     });
   },
+  // ---- owner (Cloud-operator) cloud-wide oversight ------------------------
+
+  /** Cloud-wide community list (owner-only). Metadata, never chat content. */
+  listCommunities(
+    opts: { before?: string; limit?: number; q?: string } = {}
+  ): Promise<CommunityList> {
+    const params = paginationParams(opts);
+    if (opts.q) params.set('q', opts.q);
+    return request<CommunityList>(`/owner/communities?${params}`, { endpoint: 'chat' });
+  },
+
   /** Self-Host-Backup-Status — gegen die aktive Instanz (chat-gateway). */
   selfHostBackups(): Promise<SelfHostBackupStatus> {
     return request<SelfHostBackupStatus>('/admin/self-host/backups', { endpoint: 'chat' });
