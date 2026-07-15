@@ -43,6 +43,11 @@
   );
   let attachSizeMB = $state(untrack(() => bytesToUnitStr(community.attachment_max_size_bytes, MB)));
   let attachCount = $state(untrack(() => community.attachment_max_count_per_message?.toString() ?? ''));
+  // Scale caps ('' = unlimited).
+  let maxMembers = $state(untrack(() => community.max_members?.toString() ?? ''));
+  let maxChannels = $state(untrack(() => community.max_channels?.toString() ?? ''));
+  let maxRoles = $state(untrack(() => community.max_roles?.toString() ?? ''));
+  let maxStreams = $state(untrack(() => community.max_concurrent_streams?.toString() ?? ''));
   let busy = $state(false);
 
   const RES_OPTIONS = ['Native', '4K', '1440p', '1080p', '720p', '480p'];
@@ -64,7 +69,11 @@
         stream_resolution_max: resolution || null,
         attachment_max_size_bytes: unitStrToBytes(attachSizeMB, MB),
         attachment_max_count_per_message: numOrNull(attachCount),
-        attachment_storage_quota_bytes: unitStrToBytes(storageQuotaGB, GB)
+        attachment_storage_quota_bytes: unitStrToBytes(storageQuotaGB, GB),
+        max_members: numOrNull(maxMembers),
+        max_channels: numOrNull(maxChannels),
+        max_roles: numOrNull(maxRoles),
+        max_concurrent_streams: numOrNull(maxStreams)
       });
       onSaved(updated);
       toast.success(m.admin_communities_limits_saved());
@@ -154,6 +163,50 @@
         type="number" min="1" max="50" bind:value={attachCount}
         class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-attach-count"
+      />
+    </label>
+  </div>
+
+  <h3 class="text-text-bright mt-4 text-sm font-semibold">
+    {m.admin_communities_limits_scale_title()}
+  </h3>
+  <p class="text-text-muted mt-0.5 mb-3 text-xs">{m.admin_communities_limits_scale_hint()}</p>
+
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_members()}</span>
+      <input
+        type="number" min="1" bind:value={maxMembers}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-max-members"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_channels()}</span>
+      <input
+        type="number" min="1" bind:value={maxChannels}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-max-channels"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_roles()}</span>
+      <input
+        type="number" min="1" bind:value={maxRoles}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-max-roles"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_streams()}</span>
+      <input
+        type="number" min="0" bind:value={maxStreams}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-max-streams"
       />
     </label>
   </div>

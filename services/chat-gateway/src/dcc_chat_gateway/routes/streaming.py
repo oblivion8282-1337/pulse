@@ -28,7 +28,7 @@ from sqlalchemy import select
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import channel_membership, require_member
 from dcc_chat_gateway.security import CurrentUser
@@ -122,6 +122,33 @@ def _media_svc_unavailable(exc: Exception) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, detail="media service unavailable")
 
 
+async def _enforce_concurrent_stream_cap(session, guild_id: int, mgr) -> None:
+    """Best-effort per-community cap on concurrent live HQ streams. NULL cap =
+    unlimited. Counts live streamers across the guild's voice channels from the
+    poller-maintained ``stream:channel:*`` Redis state. This state lags a
+    just-authorized stream (poller interval), so a rapid burst can briefly
+    exceed the cap — this catches the steady-state over-limit case, matching the
+    honor-system enforcement of the other quality caps. A truly atomic hard cap
+    would have to live in media-svc/auth-hook (documented)."""
+    guild = await session.get(Guild, guild_id)  # identity-mapped; no extra query
+    cap = guild.max_concurrent_streams if guild else None
+    if cap is None or mgr is None:
+        return
+    result = await session.execute(
+        select(Channel.id).where(
+            Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
+        )
+    )
+    channel_ids = [str(cid) for cid in result.scalars()]
+    states = await mgr.stream_states_for(channel_ids)
+    live = sum(len(s.get("user_ids") or []) for s in states)
+    if live >= cap:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"community concurrent-stream limit reached ({live}/{cap})",
+        )
+
+
 @router.post("/channels/{channel_id}/stream-token", response_model=StreamTokenOut)
 async def issue_stream_token(
     channel_id: int,
@@ -140,6 +167,8 @@ async def issue_stream_token(
         session, current, channel.guild_id, Permissions.STREAM,
         channel_id=channel_id,
     )
+    mgr = getattr(request.app.state, "connection_manager", None)
+    await _enforce_concurrent_stream_cap(session, channel.guild_id, mgr)
     bearer = _bearer_from_header(authorization)
     http = getattr(request.app.state, "media_svc_http", None)
     # `label` is optional; only forward when the caller actually set one so the
