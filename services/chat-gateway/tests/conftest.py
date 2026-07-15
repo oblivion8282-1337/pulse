@@ -320,6 +320,19 @@ async def admin_token(_auth_signer):
     return _auth_signer.issue_access(uid, f"admin{uid}", is_admin=True), uid
 
 
+@pytest_asyncio.fixture
+async def owner_token(_auth_signer):
+    """Like ``admin_token`` but the JWT also carries ``owner: true`` — the
+    single Cloud operator. Owner-gated routes only resolve the claim in cloud
+    mode (chat-gateway forces owner=False on self-host), so tests using this
+    must also request the ``cloud_mode`` fixture."""
+    uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    token = _auth_signer.issue_access(
+        uid, f"owner{uid}", is_admin=True, is_owner=True
+    )
+    return token, uid
+
+
 def make_auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 

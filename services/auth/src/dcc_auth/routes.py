@@ -129,7 +129,11 @@ async def _issue_tokens(
 ) -> TokensOut:
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
-        user.id, user.username, is_admin=user.is_admin, email_blocked=blocked
+        user.id,
+        user.username,
+        is_admin=user.is_admin,
+        is_owner=user.is_owner,
+        email_blocked=blocked,
     )
     refresh, jti, exp_ts = signer.issue_refresh(user.id)
     # ``last_used_at`` starts at issue time so the sessions list can sort

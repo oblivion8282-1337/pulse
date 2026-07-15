@@ -284,6 +284,12 @@ class AuthenticatedUser:
     user_identifier: str = ""
     # True iff the token was issued by the local Self-Host (DE 9 session-JWT).
     is_self_host: bool = field(default=False)
+    # True iff the Cloud operator (auth-svc ``is_owner``, JWT ``owner`` claim).
+    # Cloud-only — forced False for Self-Host tokens (their owner is a
+    # per-instance admin, not the platform owner). Gates cloud-wide community
+    # oversight + emergency reported-content access. Defaulted so the many test
+    # constructions that predate it keep working.
+    is_owner: bool = False
 
 
 async def _user_from_token(token: str | None) -> AuthenticatedUser:
@@ -329,10 +335,14 @@ async def _user_from_token(token: str | None) -> AuthenticatedUser:
         and _safe_int_eq(uid, settings.pulse_instance_owner_id)
     )
     is_admin = bool(payload.get("admin", False)) or is_owner_admin
+    # Owner = the Cloud operator only. Self-Host tokens never carry it (and even
+    # if one did, force False — Self-Host has no platform owner).
+    is_owner = not is_self_host and bool(payload.get("owner", False))
     return AuthenticatedUser(
         id=uid,
         username=payload.get("username", ""),
         is_admin=is_admin,
+        is_owner=is_owner,
         payload=payload,
         user_identifier=identifier,
         is_self_host=is_self_host,
@@ -382,3 +392,16 @@ async def require_admin(current: CurrentUser) -> AuthenticatedUser:
 
 
 AdminUser = Annotated[AuthenticatedUser, Depends(require_admin)]
+
+
+async def require_owner(current: CurrentUser) -> AuthenticatedUser:
+    """Gate Cloud-operator-only routes (cloud-wide community oversight,
+    emergency reported-content access). Stricter than ``require_admin``: only
+    the single ``is_owner`` account passes. Self-Host tokens never carry the
+    claim, so this is implicitly Cloud-only."""
+    if not current.is_owner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="owner only")
+    return current
+
+
+OwnerUser = Annotated[AuthenticatedUser, Depends(require_owner)]

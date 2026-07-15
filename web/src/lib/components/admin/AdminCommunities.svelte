@@ -1,0 +1,162 @@
+<!--
+  Owner-only cloud-wide community (guild) overview. Metadata only — never any
+  chat content. Lists every community on the Cloud with its owner, member count,
+  storage and created date, searchable + cursor-paginated. The owner_id is
+  resolved to a name via the shared user cache (single list round-trip on the
+  server; names filled in client-side). Gated to `auth.user.is_owner`; the
+  `/owner/*` endpoints 403 for anyone else.
+-->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { adminApi, type Community } from '$lib/api/admin';
+  import { userCache } from '$lib/stores/users.svelte';
+  import { formatBytes } from '$lib/utils/formatBytes';
+  import SearchIcon from '@lucide/svelte/icons/search';
+
+  let communities = $state<Community[]>([]);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+  let nextBefore = $state<string | null>(null);
+  let loadingMore = $state(false);
+  let query = $state('');
+
+  // Queue every owner id for name resolution as rows arrive. `displayName`
+  // falls back to "…" until the batch fetch lands, then re-renders.
+  function queueOwners(rows: Community[]) {
+    for (const c of rows) userCache.queue(c.owner_id);
+  }
+
+  async function loadInitial() {
+    loading = true;
+    error = null;
+    try {
+      const res = await adminApi.listCommunities({ limit: 50, q: query.trim() || undefined });
+      communities = res.communities;
+      nextBefore = res.next_before;
+      queueOwners(res.communities);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !nextBefore) return;
+    loadingMore = true;
+    try {
+      const res = await adminApi.listCommunities({
+        before: nextBefore,
+        limit: 50,
+        q: query.trim() || undefined
+      });
+      communities = [...communities, ...res.communities];
+      nextBefore = res.next_before;
+      queueOwners(res.communities);
+    } catch (e) {
+      toast.error(m.admin_communities_load_more_failed(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      loadingMore = false;
+    }
+  }
+
+  // Debounce typing: reload 300ms after the last keystroke.
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  function onSearchInput() {
+    clearTimeout(debounce);
+    debounce = setTimeout(loadInitial, 300);
+  }
+
+  function fmtDate(iso: string): string {
+    return new Date(iso).toLocaleDateString();
+  }
+
+  onMount(loadInitial);
+</script>
+
+<section class="border-border bg-bg-input rounded-2xl border p-5" data-testid="admin-communities">
+  <div class="mb-4">
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_communities_title()}</h2>
+    <p class="text-text-muted mt-0.5 text-xs">{m.admin_communities_description()}</p>
+  </div>
+
+  <div class="relative mb-4">
+    <SearchIcon
+      class="text-text-muted pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
+    />
+    <input
+      type="search"
+      bind:value={query}
+      oninput={onSearchInput}
+      placeholder={m.admin_communities_search_placeholder()}
+      class="border-border bg-bg-hover/40 text-text-base placeholder:text-text-muted focus:border-primary w-full rounded-lg border py-2 pr-3 pl-9 text-sm outline-none"
+      data-testid="admin-communities-search"
+    />
+  </div>
+
+  {#if error}
+    <p class="text-sm text-red-400">{m.admin_communities_error({ message: error ?? '' })}</p>
+  {:else if loading}
+    <div class="text-text-muted text-sm">{m.admin_communities_loading()}</div>
+  {:else if communities.length === 0}
+    <div class="text-text-muted py-6 text-center text-sm" data-testid="admin-communities-empty">
+      {m.admin_communities_empty()}
+    </div>
+  {:else}
+    <ul class="divide-border border-border bg-bg-hover/30 divide-y rounded-xl border">
+      {#each communities as c (c.id)}
+        <li class="flex items-center gap-3 px-4 py-3" data-testid="admin-community-row">
+          {#if c.icon_url}
+            <img src={c.icon_url} alt="" class="size-9 shrink-0 rounded-xl object-cover" />
+          {:else}
+            <div
+              class="bg-bg-hover text-text-muted flex size-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold"
+            >
+              {c.name.slice(0, 1).toUpperCase()}
+            </div>
+          {/if}
+
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-text-bright truncate text-sm font-medium">{c.name}</span>
+              <span
+                class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {c.is_public
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'text-text-muted bg-bg-hover'}"
+              >
+                {c.is_public ? m.admin_communities_public() : m.admin_communities_private()}
+              </span>
+            </div>
+            <div class="text-text-muted mt-0.5 truncate text-xs">
+              {m.admin_communities_owner_label()}: {userCache.displayName(c.owner_id)}
+              · {m.admin_communities_members({ count: c.member_count })}
+            </div>
+          </div>
+
+          <div class="text-text-muted hidden shrink-0 text-right text-xs sm:block">
+            <div>{m.admin_communities_storage_label()}: {formatBytes(c.storage_bytes)}</div>
+            <div>{m.admin_communities_created_label()}: {fmtDate(c.created_at)}</div>
+          </div>
+        </li>
+      {/each}
+    </ul>
+
+    {#if nextBefore}
+      <div class="mt-3 flex justify-center">
+        <Button
+          variant="secondary"
+          onclick={loadMore}
+          disabled={loadingMore}
+          data-testid="admin-communities-more"
+        >
+          {m.admin_communities_load_more()}
+        </Button>
+      </div>
+    {/if}
+  {/if}
+</section>
