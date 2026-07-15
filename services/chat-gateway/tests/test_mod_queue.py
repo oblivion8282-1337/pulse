@@ -676,3 +676,190 @@ async def test_members_who_can_moderate_scoping(client, _auth_signer, session_fa
     assert uid_mod in mods
     assert uid_plain not in mods
     assert uid_outsider not in mods
+
+
+# ---------------------------------------------------------------------------
+# Escalation — hand a report up to the platform operator (auth-svc complaint)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_escalate_files_complaint_and_stamps(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    """A mod escalates → auth-svc is called, escalated_at is stamped, report
+    stays open."""
+    from dcc_chat_gateway.routes import mod_queue as _mq
+
+    calls: list[tuple[str, int | None]] = []
+
+    async def _fake_escalate(body: str, target_user_id: int | None) -> str:
+        calls.append((body, target_user_id))
+        return "999"
+
+    monkeypatch.setattr(_mq, "escalate_report_to_operator", _fake_escalate)
+
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    t_member, uid_member = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_member, t_owner)
+    rid = await _seed_report(session_factory, _uid(), user_id=uid_member)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/escalate", headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["escalated_at"] is not None
+    assert body["status"] == "new"  # stays open
+    # auth-svc got the reported user + a context body
+    assert len(calls) == 1
+    assert calls[0][1] == uid_member
+    assert str(rid) in calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_escalate_is_idempotent_409(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    from dcc_chat_gateway.routes import mod_queue as _mq
+
+    async def _fake_escalate(body: str, target_user_id: int | None) -> str:
+        return "1"
+
+    monkeypatch.setattr(_mq, "escalate_report_to_operator", _fake_escalate)
+
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    _, uid_member = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_member, t_owner)
+    rid = await _seed_report(session_factory, _uid(), user_id=uid_member)
+
+    first = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/escalate", headers=auth(t_owner)
+    )
+    assert first.status_code == 200
+    second = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/escalate", headers=auth(t_owner)
+    )
+    assert second.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_escalate_non_mod_403(client, _auth_signer, session_factory):
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    t_user, uid_user = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_user, t_owner)
+    rid = await _seed_report(session_factory, _uid(), user_id=uid_user)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/escalate", headers=auth(t_user)
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_escalate_operator_unreachable_502_leaves_report_open(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    """auth-svc down → 502 and NO escalated_at, so the mod can retry."""
+    from dcc_chat_gateway.complaint_escalate import EscalationUnavailable
+    from dcc_chat_gateway.routes import mod_queue as _mq
+
+    async def _fake_escalate(body: str, target_user_id: int | None) -> str:
+        raise EscalationUnavailable("auth-svc down")
+
+    monkeypatch.setattr(_mq, "escalate_report_to_operator", _fake_escalate)
+
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    _, uid_member = await _token(_auth_signer)
+    await _add_member(client, g["id"], uid_member, t_owner)
+    rid = await _seed_report(session_factory, _uid(), user_id=uid_member)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/escalate", headers=auth(t_owner)
+    )
+    assert r.status_code == 502
+    # not stamped → still escalatable
+    listing = await client.get(
+        f"/guilds/{g['id']}/mod-queue", headers=auth(t_owner)
+    )
+    match = [x for x in listing.json() if x["id"] == str(rid)]
+    assert match and match[0]["escalated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_resolution_action_recorded_for_closed_tab(
+    client, _auth_signer, session_factory
+):
+    """resolution_action carries the chosen action (drives the 'Erledigt'-Tab
+    outcome); a dismiss records no action."""
+    t_owner, uid_owner = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+
+    rid1 = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
+    resolved = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid1}/resolve",
+        json={"resolution": "resolved", "action_type": "other"},
+        headers=auth(t_owner),
+    )
+    assert resolved.json()["resolution_action"] == "other"
+
+    rid2 = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
+    dismissed = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid2}/resolve",
+        json={"resolution": "dismissed", "action_type": "other"},
+        headers=auth(t_owner),
+    )
+    # A dismiss carries no enforcement action.
+    assert dismissed.json()["resolution_action"] is None
+
+
+@pytest.mark.asyncio
+async def test_user_report_with_target_guild_scopes_to_that_guild_only(
+    client, _auth_signer
+):
+    """A user reported from a community's member list (target_guild_id set)
+    appears ONLY in that community — not in every guild the target is in."""
+    t_owner, _ = await _token(_auth_signer)
+    g_a = await _make_guild(client, t_owner)
+    g_b = await _make_guild(client, t_owner)
+
+    t_target, uid_target = await _token(_auth_signer)
+    await _add_member(client, g_a["id"], uid_target, t_owner)
+    await _add_member(client, g_b["id"], uid_target, t_owner)
+
+    t_reporter, _ = await _token(_auth_signer)
+    created = await client.post(
+        "/reports",
+        json={
+            "target_user_id": str(uid_target),
+            "target_guild_id": g_a["id"],
+            "reason_code": "harassment",
+            "body": "",
+        },
+        headers=auth(t_reporter),
+    )
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+
+    in_a = await client.get(f"/guilds/{g_a['id']}/mod-queue", headers=auth(t_owner))
+    assert rid in {r["id"] for r in in_a.json()}
+
+    in_b = await client.get(f"/guilds/{g_b['id']}/mod-queue", headers=auth(t_owner))
+    assert rid not in {r["id"] for r in in_b.json()}
+
+    # Count badge follows the same scope.
+    cnt_a = (await client.get(f"/guilds/{g_a['id']}/mod-queue/count", headers=auth(t_owner))).json()
+    cnt_b = (await client.get(f"/guilds/{g_b['id']}/mod-queue/count", headers=auth(t_owner))).json()
+    assert cnt_a["count"] == 1
+    assert cnt_b["count"] == 0

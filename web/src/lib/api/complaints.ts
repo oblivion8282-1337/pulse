@@ -10,7 +10,7 @@
  * Backend: services/auth/src/dcc_auth/routes_complaints.py
  */
 
-import { AUTH_BASE, ApiError } from './client';
+import { AUTH_BASE, ApiError, getCloudBearer } from './client';
 import { cookieFetch, extractDetail, safeParse } from './cookie-client';
 
 // ---------------------------------------------------------------------------
@@ -64,9 +64,15 @@ export interface AbuseReportInput {
 export async function submitAbuseReport(
   payload: AbuseReportInput
 ): Promise<{ id: string; status: string }> {
+  // Attach the caller's cloud bearer WHEN logged in, so the server can record
+  // the reporter (server-derived — the reporter id is never sent in the body).
+  // Anonymous reports simply omit it; the endpoint stays public.
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const bearer = await getCloudBearer().catch(() => null);
+  if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
   const resp = await fetch(`${AUTH_BASE}/reports`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload)
   });
   if (resp.status === 201) {
@@ -105,6 +111,16 @@ export const adminComplaintsApi = {
     return cookieFetch(`/admin/complaints/${id}/resolve`, {
       method: 'POST',
       body: { resolution_note }
+    });
+  },
+
+  /** Dem gemeldeten Nutzer eine private Nachricht vom Betreiber schicken
+   *  (umgeht die Freundschafts-Sperre). Nur möglich, wenn die Beschwerde
+   *  einen Nutzer benennt. `sent` sagt, ob die DM tatsächlich rausging. */
+  notifyUser(id: string, message: string): Promise<{ sent: boolean; error: string | null }> {
+    return cookieFetch(`/admin/complaints/${id}/notify-user`, {
+      method: 'POST',
+      body: { message }
     });
   }
 };

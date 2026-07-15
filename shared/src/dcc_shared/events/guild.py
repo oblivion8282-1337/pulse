@@ -139,6 +139,42 @@ class ReportNewEvent(_EventBase):
     reason_code: str
 
 
+class ComplaintNewEvent(_EventBase):
+    """A new operator complaint (abuse report) arrived — delivered direct to
+    platform admins (via ``user:events``) so their inbox badge + open list
+    update live, without a reload. Carries NO PII (just the op) — the client
+    re-fetches the count/list itself."""
+
+    op: Literal["complaint_new"] = "complaint_new"
+
+
+class GuildMembershipRevokedEvent(_EventBase):
+    """Direct-to-user notice that THIS user was removed from a guild by a
+    moderator — a ban or a kick. Delivered via ``user:events`` so it reaches
+    the affected user even though they're no longer a member (guild-scoped
+    fan-out would never find them).
+
+    ``reason`` is only ever set for a ban and is PRIVATE to the recipient —
+    it is never part of the guild-wide ``guild_ban_added`` broadcast."""
+
+    op: Literal["guild_membership_revoked"] = "guild_membership_revoked"
+    guild_id: str
+    guild_name: str
+    kind: Literal["ban", "kick"]
+    reason: str | None = None
+
+
+class GuildBanLiftedEvent(_EventBase):
+    """Direct-to-user notice that a moderator lifted THIS user's ban. Carries a
+    freshly-minted single-use rejoin invite so the client can offer a one-click
+    "rejoin" — the unbanned user needn't hunt for a new invite."""
+
+    op: Literal["guild_ban_lifted"] = "guild_ban_lifted"
+    guild_id: str
+    guild_name: str
+    invite_code: str
+
+
 # ---- Roles + role-member assignments ---------------------------------------
 
 

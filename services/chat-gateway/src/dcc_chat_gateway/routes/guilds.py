@@ -6,6 +6,7 @@ from dcc_shared.events import (
     GuildDeletedEvent,
     GuildMemberAddedEvent,
     GuildMemberRemovedEvent,
+    GuildMembershipRevokedEvent,
     GuildMemberUpdatedEvent,
     GuildUpdatedEvent,
     _EventBase,
@@ -684,6 +685,33 @@ async def kick_member(
         target_id=user_id,
     )
     await _remove_guild_member(session, request, guild_id, user_id, member)
+    # Tell the kicked user directly — otherwise the community just silently
+    # vanishes from their client. No reason + no rejoin invite: a kick isn't a
+    # block, so they can re-join on their own. (Placed here, NOT in the shared
+    # ``_remove_guild_member`` helper, so a voluntary ``leave_guild`` stays
+    # silent.)
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_user_event(
+            user_id,
+            GuildMembershipRevokedEvent(
+                guild_id=str(guild_id),
+                guild_name=guild.name,
+                kind="kick",
+                reason=None,
+            ),
+        )
+    # Durable PM from the acting admin (bypasses the friend-gate). No reason
+    # and no "permanent" wording — a kick isn't a block.
+    from dcc_chat_gateway.system_dm import send_moderation_dm
+
+    await send_moderation_dm(
+        session,
+        mgr,
+        from_user_id=current.id,
+        to_user_id=user_id,
+        content=f"Du wurdest aus der Community „{guild.name}“ entfernt.",
+    )
 
 
 @router.get("/guilds/{guild_id}/members", response_model=list[MemberOut])

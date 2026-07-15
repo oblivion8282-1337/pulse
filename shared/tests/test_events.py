@@ -245,6 +245,20 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "report_id": "42",
         "reason_code": "spam",
     },
+    "guild_membership_revoked": {
+        "op": "guild_membership_revoked",
+        "guild_id": "5",
+        "guild_name": "laber",
+        "kind": "ban",
+        "reason": "spam",
+    },
+    "guild_ban_lifted": {
+        "op": "guild_ban_lifted",
+        "guild_id": "5",
+        "guild_name": "laber",
+        "invite_code": "abc123XY",
+    },
+    "complaint_new": {"op": "complaint_new"},
     "presence_update": {
         "op": "presence_update",
         "user_id": "3",

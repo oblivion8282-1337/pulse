@@ -15,8 +15,28 @@ import { roles } from '$lib/stores/roles.svelte';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
 import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
+import { toast } from 'svelte-sonner';
+import { m } from '$lib/paraglide/messages.js';
+import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
+
+/** "Wieder beitreten" aus dem Entbann-Hinweis: löst die mitgelieferte
+ *  Einladung über den kanonischen Beitritts-Fluss ein. Der hydratisiert die
+ *  Community aktiv in den Store (guilds.hydrate + Rollen + Sounds) und
+ *  navigiert hinein — anders als ein blankes ``acceptInvite``, das sich aufs
+ *  WS-Ereignis verlässt, das der frisch beigetretene Client evtl. gar nicht
+ *  mehr durchgereicht bekommt (Grund, warum die Community vorher ausblieb). */
+async function rejoinViaInvite(code: string, guildName: string): Promise<void> {
+  try {
+    await joinGuildByInvite(code);
+    toast.success(m.mod_unban_rejoin_success({ guild: guildName }));
+  } catch (e) {
+    toast.error(m.mod_unban_rejoin_failed(), {
+      description: e instanceof Error ? e.message : String(e)
+    });
+  }
+}
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('guild_member_removed', (evt) => {
@@ -80,6 +100,43 @@ export function register(ctx: HandlerContext): void {
   // "unknown op" warning doesn't fire.
   registerWsHandler('guild_ban_added', () => undefined);
   registerWsHandler('guild_ban_removed', () => undefined);
+
+  // Direkt an DICH gerichtet: du wurdest gebannt/gekickt. Die Community-
+  // Aufräumung läuft schon über `guild_member_removed`; hier nur der
+  // dauerhafte Hinweis, damit die Community nicht kommentarlos verschwindet.
+  registerWsHandler('guild_membership_revoked', (evt) => {
+    // Auto-dismiss: the durable record is the moderation DM in the user's
+    // inbox — the toast is just an immediate heads-up, so it shouldn't linger.
+    if (evt.kind === 'ban') {
+      const base = m.mod_ban_notice_body({ guild: evt.guild_name });
+      toast.error(m.mod_ban_notice_title(), {
+        description: evt.reason
+          ? `${base} ${m.mod_ban_notice_reason({ reason: evt.reason })}`
+          : base,
+        duration: 10000
+      });
+    } else {
+      toast.info(m.mod_kick_notice_title(), {
+        description: m.mod_kick_notice_body({ guild: evt.guild_name }),
+        duration: 10000
+      });
+    }
+  });
+
+  // Deine Sperre wurde aufgehoben → Hinweis mit Ein-Klick-„Wieder beitreten"
+  // (die mitgelieferte Einladung spart das Erbetteln einer neuen).
+  registerWsHandler('guild_ban_lifted', (evt) => {
+    toast.success(m.mod_unban_notice_title(), {
+      description: m.mod_unban_notice_body({ guild: evt.guild_name }),
+      // Generous but finite — long enough to notice + hit "rejoin", but it
+      // shouldn't stick around forever (there's no durable fallback here).
+      duration: 30000,
+      action: {
+        label: m.mod_unban_notice_rejoin(),
+        onClick: () => void rejoinViaInvite(evt.invite_code, evt.guild_name)
+      }
+    });
+  });
   // Nickname/Avatar-Änderung eines Mitglieds → Autocomplete-Cache verwerfen,
   // damit @-Vorschläge den neuen Namen zeigen (sonst stale bis Reconnect).
   registerWsHandler('guild_member_updated', (evt) => {

@@ -27,7 +27,9 @@ def _guild_scope_predicate(guild_id: int):
     A report is in scope when *any* of its targets belongs to this guild:
       - target_channel_id → channel's guild_id matches
       - target_message_id → message's channel's guild_id matches
-      - target_user_id only (no channel/message target) → user is a member
+      - target_guild_id → explicit community scope (member-list user report)
+      - target_user_id only (no channel/message/guild target) → user is a
+        member (legacy fan-out for reports raised without a guild context)
 
     Shared by ``list_mod_queue`` and ``mod_queue_count`` so the badge count
     can never drift from the list the moderator actually sees.
@@ -47,10 +49,12 @@ def _guild_scope_predicate(guild_id: int):
     return or_(
         Report.target_channel_id.in_(channel_ids_in_guild),
         Report.target_message_id.in_(msg_ids_in_guild),
+        Report.target_guild_id == guild_id,
         (
             Report.target_user_id.in_(member_user_ids)
             & Report.target_channel_id.is_(None)
             & Report.target_message_id.is_(None)
+            & Report.target_guild_id.is_(None)
         ),
     )
 
@@ -82,12 +86,18 @@ async def guilds_for_report(session: SessionDep, report: Report) -> set[int]:
         if gid is not None:
             guilds.add(gid)
 
-    # user-only report (no channel/message target) → every guild the target
-    # is a member of, mirroring the list-query's user-only branch.
+    if report.target_guild_id is not None:
+        guilds.add(report.target_guild_id)
+
+    # user-only report WITHOUT an explicit guild scope → every guild the target
+    # is a member of, mirroring the list-query's user-only branch. When
+    # target_guild_id is set (member-list report), the branch above already
+    # pinned it to that one community — no fan-out.
     if (
         report.target_user_id is not None
         and report.target_channel_id is None
         and report.target_message_id is None
+        and report.target_guild_id is None
     ):
         rows = await session.execute(
             select(GuildMember.guild_id).where(
@@ -125,14 +135,19 @@ async def _report_in_guild(session: SessionDep, report: Report, guild_id: int) -
         if gid == guild_id:
             return True
 
+    if report.target_guild_id == guild_id:
+        return True
+
     # user-only check: mirrors the `target_channel_id IS NULL AND
-    # target_message_id IS NULL` guard from list_mod_queue to avoid treating a
-    # cross-guild report (channel→guild A, user in guild B) as guild-B-scoped via
-    # the user branch alone.
+    # target_message_id IS NULL AND target_guild_id IS NULL` guard from
+    # list_mod_queue — avoids treating a cross-guild report (channel→guild A,
+    # user in guild B) as guild-B-scoped via the user branch alone, and skips
+    # the fan-out entirely once an explicit guild scope is present.
     if (
         report.target_user_id is not None
         and report.target_channel_id is None
         and report.target_message_id is None
+        and report.target_guild_id is None
     ):
         member = await session.scalar(
             select(GuildMember.user_id).where(

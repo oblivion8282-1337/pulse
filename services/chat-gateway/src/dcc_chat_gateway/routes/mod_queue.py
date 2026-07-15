@@ -26,8 +26,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.audit_log import write_audit_log
+from dcc_chat_gateway.complaint_escalate import (
+    EscalationUnavailable,
+    escalate_report_to_operator,
+)
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Message, Report
+from dcc_chat_gateway.models import Guild, Message, Report
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes.mod_queue_scope import (
     _guild_scope_predicate,
@@ -65,6 +69,8 @@ class ReportItem(BaseModel):
     resolver_user_id: str | None
     resolved_at: datetime | None
     resolution_note: str | None
+    resolution_action: str | None
+    escalated_at: datetime | None
 
 
 class ResolveIn(BaseModel):
@@ -109,6 +115,8 @@ def _report_to_out(r: Report) -> ReportItem:
         resolver_user_id=str(r.resolver_user_id) if r.resolver_user_id else None,
         resolved_at=r.resolved_at,
         resolution_note=r.resolution_note,
+        resolution_action=r.resolution_action,
+        escalated_at=r.escalated_at,
     )
 
 
@@ -350,6 +358,12 @@ async def resolve_report(
     report.resolver_user_id = current.id
     report.resolved_at = datetime.now(UTC)
     report.resolution_note = payload.resolution_note
+    # Record the enforcement action so the closed-reports view can show the
+    # outcome (banned / message deleted / …). Only meaningful on a resolve;
+    # a dismiss carries no action.
+    report.resolution_action = (
+        payload.action_type if payload.resolution == "resolved" else None
+    )
 
     await write_audit_log(
         session,
@@ -400,6 +414,96 @@ async def triage_report(
         report.status = "triaged"
         await session.commit()
         await session.refresh(report)
+    return _report_to_out(report)
+
+
+async def _escalation_target_user(session: SessionDep, report: Report) -> int | None:
+    """The user a report is *about*, for the operator's complaint context.
+
+    ``target_user_id`` directly, else the author of the reported message. A
+    channel-only report has no user target → None (the body still carries the
+    full context)."""
+    if report.target_user_id is not None:
+        return report.target_user_id
+    if report.target_message_id is not None:
+        return await session.scalar(
+            select(Message.author_id).where(Message.id == report.target_message_id)
+        )
+    return None
+
+
+def _compose_escalation_body(
+    report: Report, guild_name: str, moderator_id: int, target_user_id: int | None
+) -> str:
+    """Human-readable complaint text for the operator's inbox. Carries the
+    full context so the operator can act without cross-service lookups."""
+    return (
+        f"Eskaliert aus Community „{guild_name}“ durch Moderator {moderator_id}.\n"
+        f"Meldegrund: {report.reason_code}\n"
+        f"Gemeldeter Nutzer: {target_user_id if target_user_id is not None else '—'}\n"
+        f"Melder: {report.reporter_user_id}\n"
+        f"Meldungs-ID: {report.id}\n\n"
+        f"Ursprüngliche Meldung:\n{report.body}"
+    )
+
+
+@router.post(
+    "/guilds/{guild_id}/mod-queue/{report_id}/escalate",
+    response_model=ReportItem,
+)
+async def escalate_report(
+    guild_id: int,
+    report_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> ReportItem:
+    """Hand a report up to the platform operator's complaint inbox.
+
+    For cases a community moderator can't (or shouldn't) close alone — CSAM /
+    illegal content, platform-wide bans, complaints about the community itself.
+    Files a complaint in auth-svc with the full report context and stamps
+    ``escalated_at``. The report stays OPEN (escalation informs the operator, it
+    doesn't resolve the case). Idempotency: an already-escalated report → 409.
+
+    If auth-svc can't be reached, ``escalated_at`` is NOT written and the caller
+    gets a 502 — so the moderator knows to retry rather than assuming it landed.
+    """
+    await _has_any_mod_perm(session, current, guild_id)
+
+    report = await session.scalar(
+        select(Report).where(Report.id == report_id).with_for_update()
+    )
+    if report is None or not await _report_in_guild(session, report, guild_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
+    if report.escalated_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="report already escalated")
+
+    guild_name = await session.scalar(select(Guild.name).where(Guild.id == guild_id))
+    target_user_id = await _escalation_target_user(session, report)
+    body = _compose_escalation_body(
+        report, guild_name or str(guild_id), current.id, target_user_id
+    )
+
+    try:
+        complaint_id = await escalate_report_to_operator(body, target_user_id)
+    except EscalationUnavailable as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="could not reach the operator — try again later",
+        ) from exc
+
+    report.escalated_at = datetime.now(UTC)
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="report_escalated",
+        target_kind="user" if target_user_id is not None else None,
+        target_id=target_user_id,
+        payload={"report_id": str(report_id), "complaint_id": complaint_id},
+    )
+    await session.commit()
+    await session.refresh(report)
     return _report_to_out(report)
 
 

@@ -595,3 +595,313 @@ class TestListEnrichment:
         ).json()
         match = next(i for i in items if i["target_user_id"] == str(target.id))
         assert match["target_username"] == target.username
+
+
+# ---------------------------------------------------------------------------
+# Internal escalation endpoint: POST /internal/complaints
+# ---------------------------------------------------------------------------
+
+_INTERNAL_SECRET = "test-internal-secret-xyz"
+
+
+class TestInternalComplaints:
+    """chat-gateway hands a community report up to the operator inbox."""
+
+    async def test_creates_complaint_with_secret(
+        self, client, session_factory, _isolate_settings
+    ):
+        _isolate_settings.internal_service_secret = _INTERNAL_SECRET
+        target, _ = await _seed_user(session_factory)
+
+        r = await client.post(
+            "/internal/complaints",
+            json={
+                "body": "Eskaliert aus Community „X“ — Meldungs-ID 42",
+                "target_user_id": target.id,
+            },
+            headers={"X-Pulse-Internal-Secret": _INTERNAL_SECRET},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["status"] == "received"
+
+        from dcc_auth.models_instances import Complaint
+        from sqlalchemy import select
+
+        async with session_factory() as s:
+            rows = (
+                await s.execute(
+                    select(Complaint).where(Complaint.target_user_id == target.id)
+                )
+            ).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].status == "new"
+
+    async def test_no_secret_401(self, client, _isolate_settings):
+        _isolate_settings.internal_service_secret = _INTERNAL_SECRET
+        r = await client.post("/internal/complaints", json={"body": "x" * 12})
+        assert r.status_code == 401
+
+    async def test_wrong_secret_401(self, client, _isolate_settings):
+        _isolate_settings.internal_service_secret = _INTERNAL_SECRET
+        r = await client.post(
+            "/internal/complaints",
+            json={"body": "x" * 12},
+            headers={"X-Pulse-Internal-Secret": "wrong"},
+        )
+        assert r.status_code == 401
+
+    async def test_disabled_when_secret_unset_401(self, client, _isolate_settings):
+        _isolate_settings.internal_service_secret = None
+        r = await client.post(
+            "/internal/complaints",
+            json={"body": "x" * 12},
+            headers={"X-Pulse-Internal-Secret": "anything"},
+        )
+        assert r.status_code == 401
+
+
+class TestNotifyReportedUser:
+    """Operator sends a private DM to the reported user via chat-gateway."""
+
+    async def _seed_complaint(self, session_factory, *, target_user_id=None):
+        from dcc_auth.models_instances import Complaint
+        from dcc_auth.snowflake import next_id
+
+        cid = next_id()
+        async with session_factory() as s:
+            s.add(
+                Complaint(
+                    id=cid,
+                    body="reported direct message",
+                    target_user_id=target_user_id,
+                    status="new",
+                )
+            )
+            await s.commit()
+        return cid
+
+    async def test_notify_sends_dm_as_acting_admin(
+        self, client, session_factory, monkeypatch
+    ):
+        import dcc_auth.routes_complaints as rc
+
+        calls = []
+
+        async def _fake(from_id, to_id, content):
+            calls.append((from_id, to_id, content))
+            return True, None
+
+        monkeypatch.setattr(rc, "_send_operator_dm", _fake)
+
+        admin, token = await _seed_user(session_factory, is_admin=True)
+        target, _ = await _seed_user(session_factory)
+        cid = await self._seed_complaint(session_factory, target_user_id=target.id)
+
+        r = await client.post(
+            f"/admin/complaints/{cid}/notify-user",
+            json={"message": "Bitte unterlasse das."},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["sent"] is True
+        assert calls == [(admin.id, target.id, "Bitte unterlasse das.")]
+
+    async def test_notify_without_user_target_400(self, client, session_factory):
+        _admin, token = await _seed_user(session_factory, is_admin=True)
+        cid = await self._seed_complaint(session_factory, target_user_id=None)
+        r = await client.post(
+            f"/admin/complaints/{cid}/notify-user",
+            json={"message": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 400
+
+    async def test_notify_requires_admin(self, client, session_factory):
+        _user, token = await _seed_user(session_factory, is_admin=False)
+        target, _ = await _seed_user(session_factory)
+        cid = await self._seed_complaint(session_factory, target_user_id=target.id)
+        r = await client.post(
+            f"/admin/complaints/{cid}/notify-user",
+            json={"message": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 403
+
+
+class TestResolveNotifiesReporter:
+    """Resolving a complaint auto-DMs the reporter from the 'Pulse' system id."""
+
+    async def _seed_complaint(self, session_factory, *, submitter_user_id=None):
+        from dcc_auth.models_instances import Complaint
+        from dcc_auth.snowflake import next_id
+
+        cid = next_id()
+        async with session_factory() as s:
+            s.add(
+                Complaint(
+                    id=cid,
+                    body="reported direct message",
+                    submitter_user_id=submitter_user_id,
+                    status="new",
+                )
+            )
+            await s.commit()
+        return cid
+
+    async def test_resolve_dms_reporter_from_system_id(
+        self, client, session_factory, monkeypatch
+    ):
+        import dcc_auth.routes_complaints as rc
+
+        calls = []
+
+        async def _fake(from_id, to_id, content):
+            calls.append((from_id, to_id, content))
+            return True, None
+
+        monkeypatch.setattr(rc, "_send_operator_dm", _fake)
+
+        _admin, token = await _seed_user(session_factory, is_admin=True)
+        reporter, _ = await _seed_user(session_factory)
+        cid = await self._seed_complaint(
+            session_factory, submitter_user_id=reporter.id
+        )
+
+        r = await client.post(
+            f"/admin/complaints/{cid}/resolve",
+            json={"resolution_note": "handled"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert len(calls) == 1
+        from_id, to_id, content = calls[0]
+        assert from_id == rc.PULSE_SYSTEM_USER_ID
+        assert to_id == reporter.id
+        # The operator's note becomes the reporter's message.
+        assert content == "handled"
+
+    async def test_resolve_empty_note_sends_standard_thankyou(
+        self, client, session_factory, monkeypatch
+    ):
+        import dcc_auth.routes_complaints as rc
+
+        calls = []
+
+        async def _fake(from_id, to_id, content):
+            calls.append(content)
+            return True, None
+
+        monkeypatch.setattr(rc, "_send_operator_dm", _fake)
+
+        _admin, token = await _seed_user(session_factory, is_admin=True)
+        reporter, _ = await _seed_user(session_factory)
+        cid = await self._seed_complaint(
+            session_factory, submitter_user_id=reporter.id
+        )
+        r = await client.post(
+            f"/admin/complaints/{cid}/resolve",
+            json={"resolution_note": ""},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert calls == [rc._REPORTER_RESOLVED_DM]
+
+    async def test_resolve_without_reporter_sends_no_dm(
+        self, client, session_factory, monkeypatch
+    ):
+        import dcc_auth.routes_complaints as rc
+
+        calls = []
+
+        async def _fake(from_id, to_id, content):
+            calls.append((from_id, to_id, content))
+            return True, None
+
+        monkeypatch.setattr(rc, "_send_operator_dm", _fake)
+
+        _admin, token = await _seed_user(session_factory, is_admin=True)
+        cid = await self._seed_complaint(session_factory, submitter_user_id=None)
+
+        r = await client.post(
+            f"/admin/complaints/{cid}/resolve",
+            json={"resolution_note": "handled"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert calls == []
+
+
+class TestReporterIdIsServerDerived:
+    """submitter_user_id must come from the auth token, never the request body
+    (spoofing it would inject the automated resolve-DM at an arbitrary user)."""
+
+    async def _fetch_complaint(self, session_factory, cid):
+        from dcc_auth.models_instances import Complaint
+
+        async with session_factory() as s:
+            return await s.get(Complaint, int(cid))
+
+    async def test_body_supplied_reporter_id_is_ignored(self, client, session_factory):
+        victim, _ = await _seed_user(session_factory)
+        # No Authorization header + a spoofed submitter_user_id in the body.
+        r = await client.post(
+            "/reports",
+            json={
+                "target_user_id": "999",
+                "body": "spoof attempt xxxxxxxx",
+                "submitter_user_id": victim.id,  # attacker-controlled
+            },
+        )
+        assert r.status_code == 201, r.text
+        complaint = await self._fetch_complaint(session_factory, r.json()["id"])
+        assert complaint.submitter_user_id is None  # spoof rejected
+
+    async def test_reporter_id_derived_from_token(self, client, session_factory):
+        reporter, token = await _seed_user(session_factory)
+        r = await client.post(
+            "/reports",
+            json={"target_user_id": "999", "body": "legit report xxxx"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 201, r.text
+        complaint = await self._fetch_complaint(session_factory, r.json()["id"])
+        assert complaint.submitter_user_id == reporter.id
+
+    async def test_token_wins_over_spoofed_body(self, client, session_factory):
+        reporter, token = await _seed_user(session_factory)
+        victim, _ = await _seed_user(session_factory)
+        r = await client.post(
+            "/reports",
+            json={
+                "target_user_id": "999",
+                "body": "legit but spoofed body id",
+                "submitter_user_id": victim.id,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 201, r.text
+        complaint = await self._fetch_complaint(session_factory, r.json()["id"])
+        assert complaint.submitter_user_id == reporter.id  # token, not body
+
+
+class TestNewComplaintNotifiesAdmins:
+    """Creating a complaint fires the admin live-notify (best-effort)."""
+
+    async def test_submit_report_notifies_admins(
+        self, client, monkeypatch
+    ):
+        import dcc_auth.routes_complaints as rc
+
+        calls = []
+
+        async def _rec(session):
+            calls.append(True)
+
+        monkeypatch.setattr(rc, "_notify_admins_new_complaint", _rec)
+
+        r = await client.post(
+            "/reports",
+            json={"target_user_id": "999", "body": "reported content here"},
+        )
+        assert r.status_code == 201, r.text
+        assert calls == [True]

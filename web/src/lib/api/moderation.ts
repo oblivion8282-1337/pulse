@@ -35,12 +35,17 @@ export interface Report {
   resolver_user_id: string | null;
   resolved_at: string | null;
   resolution_note: string | null;
+  resolution_action: string | null;
+  escalated_at: string | null;
 }
 
 export interface ReportInput {
   target_message_id?: string;
   target_user_id?: string;
   target_channel_id?: string;
+  /** Pins a user report to the community it was raised in (member-list
+   *  report) so it doesn't fan out to every guild the target belongs to. */
+  target_guild_id?: string;
   reason_code: ReasonCode;
   body: string;
 }
@@ -77,6 +82,22 @@ export async function createReport(
   body: ReportInput
 ): Promise<{ id: string; status: string }> {
   return request<{ id: string; status: string }>('/reports', {
+    method: 'POST',
+    body
+  });
+}
+
+/**
+ * Meldet eine Direktnachricht ans Plattform-Betreiberteam. Der Server holt den
+ * Nachrichten-Text authentisch aus der DB (fälschungssicher) und legt eine
+ * Beschwerde an; Bilder/Anhänge werden bewusst NICHT übernommen (nur vermerkt).
+ */
+export async function createOperatorReport(body: {
+  target_message_id: string;
+  reason_code: ReasonCode;
+  body: string;
+}): Promise<{ id: string; status: string }> {
+  return request<{ id: string; status: string }>('/operator-reports', {
     method: 'POST',
     body
   });
@@ -124,6 +145,18 @@ export async function resolveReport(
  */
 export async function triageReport(guildId: string, reportId: string): Promise<Report> {
   return request<Report>(`/guilds/${guildId}/mod-queue/${reportId}/triage`, {
+    method: 'POST'
+  });
+}
+
+/**
+ * Reicht eine Meldung an den Plattform-Betreiber hoch (Beschwerde-Postfach).
+ * Für Fälle, die ein Community-Mod nicht allein lösen sollte (CSAM/illegal,
+ * plattformweiter Bann, Beschwerde über die Community selbst). Die Meldung
+ * bleibt offen. Bereits eskaliert → 409; Betreiber nicht erreichbar → 502.
+ */
+export async function escalateReport(guildId: string, reportId: string): Promise<Report> {
+  return request<Report>(`/guilds/${guildId}/mod-queue/${reportId}/escalate`, {
     method: 'POST'
   });
 }
