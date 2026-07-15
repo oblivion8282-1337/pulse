@@ -19,14 +19,37 @@
 # Zum Umstellen auf echte getaggte Releases: ":stable" aus dem edge-Zweig im
 # "Compute version + tags"-Step wieder entfernen.
 #
-# Build platforms: linux/amd64 + linux/arm64 (arm64 via QEMU emulation).
-# Cold build ~30 min, warm with gha-cache ~5 min.
+# ARCHITEKTUR (2026-07-15): Multi-Arch NATIV statt QEMU. Drei Jobs:
+#   prepare → berechnet Version + Tags einmal zentral.
+#   build   → Matrix: amd64 auf ubuntu-24.04, arm64 auf ubuntu-24.04-arm
+#             (echte ARM-Maschine, öffentliches Repo = gratis). Beide bauen
+#             OHNE Emulation und pushen per Digest (noch ohne Tag), parallel.
+#   merge   → klebt die zwei Digests zum Multi-Arch-Manifest unter den echten
+#             Tags + spiegelt nach registry.howispulse.com.
+# Effekt: Kaltbau von ~90 min (QEMU) auf ~15 min (nativ + parallel). Der frühere
+# 180-min-Timeout (für den emulierten arm64-Cold-Build) entfällt.
+#
+# PFAD-FILTER (2026-07-15): läuft nur, wenn wirklich Image-Inhalt betroffen ist
+# (Services/Shared/Web/Plugins/Self-Host-Dockerfile+Adapter/Lockfiles/dieser
+# Workflow). Docs-/Desktop-/Packaging-/Mac-Win-Sidecar-Änderungen starten den
+# Bau nicht mehr → weniger Läufe, weniger Abbruch-Chaos.
 
 name: allinone
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'services/**'
+      - 'shared/**'
+      - 'web/**'                 # Frontend steckt im allinone-Image!
+      - 'plugins/**'
+      - 'infra/self-host/**'     # Dockerfile + Rust-Direktpfad-Adapter
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/allinone.yml'
     tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
@@ -46,22 +69,17 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/oblivion8282-1337/pulse-allinone
+
 jobs:
-  build-publish:
-    # 180 statt 60: Der Rust-direct-adapter wird für arm64 unter QEMU emuliert —
-    # ein Cold-Cache-Build (erster Lauf nach Adapter-Änderung) braucht >60 min,
-    # und ein Timeout-Abbruch exportiert KEINEN Layer-Cache (Export läuft erst
-    # nach Build-Erfolg) → jeder Retry startet wieder bei null. Mit warmem
-    # Cache bleiben Läufe bei den üblichen ~10 min. Echter Fix wäre ein
-    # nativer arm64-Runner (ubuntu-24.04-arm) statt QEMU.
-    timeout-minutes: 180
+  # ── 1. Version + Tags einmal zentral berechnen ────────────────────────────
+  prepare:
     runs-on: ubuntu-24.04
-    env:
-      # Self-Host-allinone-Registry (registry.howispulse.com). Leerer Secret →
-      # Mirror-Schritte skippen (GHCR bleibt Source-of-Truth, CI bricht nicht).
-      # Setzen als Repository Secret, identisch zum REGISTRY_PUSH_TOKEN in der
-      # prod-.env auf dem netcup.
-      REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+    outputs:
+      pulse_version: ${{ steps.meta.outputs.pulse_version }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,10 +87,10 @@ jobs:
         id: meta
         env:
           INPUT_VERSION: ${{ inputs.release_version }}
+          IMAGE: ${{ env.IMAGE }}
         run: |
           set -euo pipefail
 
-          IMAGE="ghcr.io/oblivion8282-1337/pulse-allinone"
           SHORT_SHA="$(git rev-parse --short HEAD)"
 
           # Determine channel + version
@@ -146,9 +164,26 @@ jobs:
           echo "Tags:"
           echo "$TAGS" | sed 's/^/  - /'
 
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
+  # ── 2. Pro-Arch nativ bauen + per Digest pushen (parallel) ────────────────
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    # Nativ (kein QEMU) → 60 min reicht mit Abstand, auch cold. Ein Timeout-
+    # Abbruch exportiert keinen Cache; das ist bei nativen Läufen aber weit
+    # jenseits der realen Dauer.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
@@ -158,37 +193,90 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - name: Build + push by digest (${{ matrix.arch }})
+        id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: infra/self-host/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           build-args: |
-            PULSE_VERSION=${{ steps.meta.outputs.pulse_version }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+            PULSE_VERSION=${{ needs.prepare.outputs.pulse_version }}
           labels: |
             org.opencontainers.image.title=Pulse Self-Host
             org.opencontainers.image.description=Pulse all-in-one self-host container (chat + voice + HQ streaming)
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.meta.outputs.pulse_version }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.pulse_version }}
             org.opencontainers.image.licenses=AGPL-3.0-or-later
-          cache-from: type=gha,scope=allinone
-          # ignore-error: der GHA-Cache-Export flaket sporadisch
-          # ("error writing layer blob: not_found") NACH erfolgreichem Push und
-          # machte sonst den ganzen Job rot. Cache ist nur Speedup, nicht
-          # kritisch — Fehler dabei nicht mehr fatal.
-          cache-to: type=gha,mode=max,scope=allinone,ignore-error=true
+          # Push OHNE Tag, nur per Digest — der merge-Job klebt die Tags drauf.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # Cache PRO ARCH getrennt — sonst überschreiben amd64/arm64 sich.
+          cache-from: type=gha,scope=allinone-${{ matrix.arch }}
+          # ignore-error: der GHA-Cache-Export flaket sporadisch NACH dem Push
+          # ("error writing layer blob: not_found"). Cache ist nur Speedup.
+          cache-to: type=gha,mode=max,scope=allinone-${{ matrix.arch }},ignore-error=true
           provenance: false
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── 3. Multi-Arch-Manifest kleben + spiegeln ──────────────────────────────
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    env:
+      # Self-Host-allinone-Registry (registry.howispulse.com). Leerer Secret →
+      # Mirror-Schritte skippen (GHCR bleibt Source-of-Truth, CI bricht nicht).
+      REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest under the real tags
+        working-directory: /tmp/digests
+        env:
+          GHCR_TAGS: ${{ needs.prepare.outputs.tags }}
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          set -euo pipefail
+          # -t für jeden Tag, dann alle per-Arch-Digests als Quellen.
+          TAG_ARGS=()
+          while IFS= read -r t; do [ -n "$t" ] && TAG_ARGS+=(-t "$t"); done <<< "$GHCR_TAGS"
+          SRC_ARGS=()
+          for d in *; do [ -f "$d" ] && SRC_ARGS+=("${IMAGE}@sha256:${d}"); done
+          echo "::notice::Manifest aus ${#SRC_ARGS[@]} Arch(en) unter $(( ${#TAG_ARGS[@]} / 2 )) Tag(s)"
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${SRC_ARGS[@]}"
 
       # --- Mirror zur Self-Host-Registry (best-effort) ──────────────────────────
       # GHCR oben ist Source-of-Truth (MUST grün). Zusätzlich wird das Multi-Arch-
-      # Manifest (amd64+arm64) nach registry.howispulse.com kopiert — dort
-      # pullen Self-Host-User mit per-Instance-Credentials (token-auth via
-      # auth-svc). ``imagetools create`` kopiert Manifest+Blobs OHNE Rebuild.
-      # continue-on-error: bei netcup-Ausfall bleiben die GHCR-Tags trotzdem
-      # aktuell; Self-Host-User ziehen dann (solange der netcup down ist) nichts.
+      # Manifest (amd64+arm64) nach registry.howispulse.com kopiert — dort pullen
+      # Self-Host-User mit per-Instance-Credentials. ``imagetools create`` kopiert
+      # Manifest+Blobs OHNE Rebuild. continue-on-error: bei netcup-Ausfall bleiben
+      # die GHCR-Tags trotzdem aktuell.
       - name: Login to self-hosted registry
         if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
         uses: docker/login-action@v3
@@ -201,10 +289,8 @@ jobs:
         if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
         continue-on-error: true
         env:
-          # Via env statt Inline-${{ }} — Runner expandiert die Meta-Outputs in
-          # Env-Vars, das Skript liest Shell-Vars → keine Script-Injection.
-          GHCR_TAGS: ${{ steps.meta.outputs.tags }}
-          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+          GHCR_TAGS: ${{ needs.prepare.outputs.tags }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
         run: |
           set -euo pipefail
           SRC="ghcr.io/oblivion8282-1337/pulse-allinone:sha-${SHORT_SHA}"
