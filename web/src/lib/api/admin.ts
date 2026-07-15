@@ -371,6 +371,11 @@ export const adminApi = {
       endpoint: 'chat'
     });
   },
+  /** Permanently delete a community + everything in it. Global-admin gated on
+   *  the server (a platform admin may delete any guild). Irreversible. */
+  deleteCommunity(guildId: string): Promise<void> {
+    return request<void>(`/guilds/${guildId}`, { method: 'DELETE', endpoint: 'chat' });
+  },
 
   /** Self-Host-Backup-Status — gegen die aktive Instanz (chat-gateway). */
   selfHostBackups(): Promise<SelfHostBackupStatus> {

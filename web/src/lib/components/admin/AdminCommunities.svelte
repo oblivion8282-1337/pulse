@@ -11,6 +11,7 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import AdminCommunityDeleteDialog from './AdminCommunityDeleteDialog.svelte';
   import { adminApi, type Community } from '$lib/api/admin';
   import { userCache } from '$lib/stores/users.svelte';
   import { formatBytes } from '$lib/utils/formatBytes';
@@ -23,6 +24,11 @@
   let loadingMore = $state(false);
   let query = $state('');
   let pendingId = $state<string | null>(null);
+
+  // Löschen läuft über einen eigenständigen Dialog (AdminCommunityDeleteDialog)
+  // mit Namen-Tippen-Abfrage — hier nur Ziel + Sichtbarkeit halten.
+  let deleteTarget = $state<Community | null>(null);
+  let deleteOpen = $state(false);
 
   // Queue every owner id for name resolution as rows arrive. `displayName`
   // falls back to "…" until the batch fetch lands, then re-renders.
@@ -103,6 +109,15 @@
     }
   }
 
+  function openDelete(c: Community) {
+    deleteTarget = c;
+    deleteOpen = true;
+  }
+
+  function onCommunityDeleted(id: string) {
+    communities = communities.filter((x) => x.id !== id);
+  }
+
   onMount(loadInitial);
 </script>
 
@@ -177,16 +192,25 @@
             <div>{m.admin_communities_created_label()}: {fmtDate(c.created_at)}</div>
           </div>
 
-          <Button
-            variant={c.suspended ? 'secondary' : 'destructive'}
-            size="sm"
-            class="shrink-0"
-            disabled={pendingId === c.id}
-            onclick={() => toggleSuspend(c)}
-            data-testid="admin-community-suspend-toggle"
-          >
-            {c.suspended ? m.admin_communities_unsuspend() : m.admin_communities_suspend()}
-          </Button>
+          <div class="flex shrink-0 items-center gap-2">
+            <Button
+              variant={c.suspended ? 'secondary' : 'outline'}
+              size="sm"
+              disabled={pendingId === c.id}
+              onclick={() => toggleSuspend(c)}
+              data-testid="admin-community-suspend-toggle"
+            >
+              {c.suspended ? m.admin_communities_unsuspend() : m.admin_communities_suspend()}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onclick={() => openDelete(c)}
+              data-testid="admin-community-delete"
+            >
+              {m.admin_communities_delete()}
+            </Button>
+          </div>
         </li>
       {/each}
     </ul>
@@ -205,3 +229,10 @@
     {/if}
   {/if}
 </section>
+
+<AdminCommunityDeleteDialog
+  open={deleteOpen}
+  community={deleteTarget}
+  onClose={() => (deleteOpen = false)}
+  onDeleted={onCommunityDeleted}
+/>
