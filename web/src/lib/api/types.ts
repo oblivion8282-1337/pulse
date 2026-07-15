@@ -58,6 +58,12 @@ export type Guild = {
   /** Platform-frozen by the Cloud operator: the community is read-only and
    *  every action is blocked server-side. Optional for back-compat frames. */
   suspended?: boolean;
+  /** Per-community quality caps (Boost). null/absent = inherit the instance
+   *  default; the client clamps stream/voice publish to override ?? default. */
+  voice_bitrate_max_kbps?: number | null;
+  stream_bitrate_max_kbps?: number | null;
+  stream_fps_max?: number | null;
+  stream_resolution_max?: string | null;
 };
 
 export type Channel = {

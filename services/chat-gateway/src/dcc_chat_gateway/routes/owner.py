@@ -40,6 +40,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.routes.admin import _audit
 from dcc_chat_gateway.schemas import (
+    CommunityLimitsIn,
     CommunityListOut,
     CommunityOut,
     OwnerReportedAttachment,
@@ -68,6 +69,10 @@ def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> Commu
         storage_bytes=storage_bytes,
         suspended=guild.suspended_at is not None,
         suspended_reason=guild.suspension_reason,
+        voice_bitrate_max_kbps=guild.voice_bitrate_max_kbps,
+        stream_bitrate_max_kbps=guild.stream_bitrate_max_kbps,
+        stream_fps_max=guild.stream_fps_max,
+        stream_resolution_max=guild.stream_resolution_max,
     )
 
 
@@ -214,6 +219,46 @@ async def unsuspend_community(
         await session.commit()
         await session.refresh(guild)
         await _broadcast_guild_updated(request, guild)
+    return await _community_out(session, guild)
+
+
+@router.patch("/communities/{guild_id}/limits", response_model=CommunityOut)
+async def set_community_limits(
+    guild_id: int,
+    payload: CommunityLimitsIn,
+    request: Request,
+    session: SessionDep,
+    actor: OwnerUser,
+) -> CommunityOut:
+    """Set this community's per-community quality caps (Boost foundation).
+    Owner-only — deliberately NOT the MANAGE_GUILD ``patch_guild`` path, so a
+    community's own owner can't raise their own limits. The form always sends
+    the full set; NULL clears an override back to the instance default. A
+    ``guild_updated`` broadcast pushes the new caps to connected members so
+    their stream/voice publish re-clamps live."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="community not found")
+
+    guild.voice_bitrate_max_kbps = payload.voice_bitrate_max_kbps
+    guild.stream_bitrate_max_kbps = payload.stream_bitrate_max_kbps
+    guild.stream_fps_max = payload.stream_fps_max
+    guild.stream_resolution_max = payload.stream_resolution_max
+    _audit(
+        session,
+        actor_id=actor.id,
+        action="owner.set_community_limits",
+        target_id=guild.id,
+        payload={
+            "voice_bitrate_max_kbps": payload.voice_bitrate_max_kbps,
+            "stream_bitrate_max_kbps": payload.stream_bitrate_max_kbps,
+            "stream_fps_max": payload.stream_fps_max,
+            "stream_resolution_max": payload.stream_resolution_max,
+        },
+    )
+    await session.commit()
+    await session.refresh(guild)
+    await _broadcast_guild_updated(request, guild)
     return await _community_out(session, guild)
 
 

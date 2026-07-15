@@ -1,0 +1,116 @@
+<!--
+  Per-community quality-limit editor (Boost foundation), shown in the expanded
+  community row. Owner-only. Empty field = inherit the instance default; a value
+  overrides it for THIS community (higher too = boost). Saves the full set via
+  the owner-gated PATCH /owner/communities/{id}/limits; null clears an override.
+
+  Plain inline inputs (no bits-ui dialog) — safe in a re-rendering list.
+-->
+<script lang="ts">
+  import { untrack } from 'svelte';
+  import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { adminApi, type Community } from '$lib/api/admin';
+
+  let { community, onSaved }: { community: Community; onSaved: (c: Community) => void } =
+    $props();
+
+  // Form state as strings ('' = inherit/default). Stream bitrate is shown in
+  // Mbit/s (friendlier) and converted to kbps on save. Seeded once from the
+  // community (the panel remounts per expand, so initial-only is intentional —
+  // untrack marks that so we don't reset the owner's edits on a live update).
+  const kbpsToMbpsStr = (v: number | null) => (v == null ? '' : String(v / 1000));
+  const mbpsStrToKbps = (s: string) => {
+    const mbps = numOrNull(s);
+    return mbps == null ? null : Math.round(mbps * 1000);
+  };
+  let voice = $state(untrack(() => community.voice_bitrate_max_kbps?.toString() ?? ''));
+  let streamMbps = $state(untrack(() => kbpsToMbpsStr(community.stream_bitrate_max_kbps)));
+  let fps = $state(untrack(() => community.stream_fps_max?.toString() ?? ''));
+  let resolution = $state(untrack(() => community.stream_resolution_max ?? ''));
+  let busy = $state(false);
+
+  const RES_OPTIONS = ['Native', '4K', '1440p', '1080p', '720p', '480p'];
+
+  function numOrNull(s: string): number | null {
+    const t = s.trim();
+    if (t === '') return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async function save() {
+    busy = true;
+    try {
+      const updated = await adminApi.setCommunityLimits(community.id, {
+        voice_bitrate_max_kbps: numOrNull(voice),
+        stream_bitrate_max_kbps: mbpsStrToKbps(streamMbps),
+        stream_fps_max: numOrNull(fps),
+        stream_resolution_max: resolution || null
+      });
+      onSaved(updated);
+      toast.success(m.admin_communities_limits_saved());
+    } catch (e) {
+      toast.error(m.admin_communities_limits_save_failed(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      busy = false;
+    }
+  }
+</script>
+
+<div class="border-border bg-bg-hover/20 mt-1 rounded-xl border p-4" data-testid="admin-community-limits">
+  <h3 class="text-text-bright text-sm font-semibold">{m.admin_communities_limits_title()}</h3>
+  <p class="text-text-muted mt-0.5 mb-3 text-xs">{m.admin_communities_limits_hint()}</p>
+
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_voice_bitrate()}</span>
+      <input
+        type="number" min="16" max="256" bind:value={voice}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-voice"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_stream_bitrate()}</span>
+      <input
+        type="number" min="1" max="100" step="any" bind:value={streamMbps}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-bitrate"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_fps()}</span>
+      <input
+        type="number" min="1" max="1000" bind:value={fps}
+        placeholder={m.admin_communities_limits_placeholder_inherit()}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-fps"
+      />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_resolution()}</span>
+      <select
+        bind:value={resolution}
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        data-testid="community-limit-resolution"
+      >
+        <option value="">{m.admin_communities_limits_inherit()}</option>
+        {#each RES_OPTIONS as r (r)}
+          <option value={r}>{r === 'Native' ? m.admin_communities_limits_res_native() : r}</option>
+        {/each}
+      </select>
+    </label>
+  </div>
+
+  <div class="mt-3 flex justify-end">
+    <Button size="sm" onclick={save} disabled={busy} data-testid="community-limit-save">
+      {m.admin_communities_limits_save()}
+    </Button>
+  </div>
+</div>

@@ -173,6 +173,70 @@ async def test_suspend_freezes_members_then_unsuspend_restores(
     assert r.status_code == 201, r.text
 
 
+# ─── /owner/communities/{id}/limits ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_set_limits_requires_owner(client, admin_token):
+    token, _ = admin_token
+    r = await client.patch(
+        "/owner/communities/123/limits", json={}, headers=_auth(token)
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_set_and_clear_community_limits(client, owner_token, session_factory):
+    token, owner_uid = owner_token
+    gid = await _seed_guild(session_factory, owner_id=owner_uid, name="Boosted")
+
+    # Set overrides (incl. higher-than-default = a boost).
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={
+            "voice_bitrate_max_kbps": 256,
+            "stream_bitrate_max_kbps": 50000,
+            "stream_fps_max": 120,
+            "stream_resolution_max": "4K",
+        },
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["voice_bitrate_max_kbps"] == 256
+    assert body["stream_bitrate_max_kbps"] == 50000
+    assert body["stream_fps_max"] == 120
+    assert body["stream_resolution_max"] == "4K"
+
+    # Clear back to inherit (null).
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={
+            "voice_bitrate_max_kbps": None,
+            "stream_bitrate_max_kbps": None,
+            "stream_fps_max": None,
+            "stream_resolution_max": None,
+        },
+        headers=_auth(token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["voice_bitrate_max_kbps"] is None
+    assert body["stream_resolution_max"] is None
+
+
+@pytest.mark.asyncio
+async def test_set_limits_rejects_bad_resolution(client, owner_token, session_factory):
+    token, owner_uid = owner_token
+    gid = await _seed_guild(session_factory, owner_id=owner_uid)
+    r = await client.patch(
+        f"/owner/communities/{gid}/limits",
+        json={"stream_resolution_max": "8K"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422
+
+
 # ─── /owner/reports/{id}/content ─────────────────────────────────────────────
 
 

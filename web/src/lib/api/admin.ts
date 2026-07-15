@@ -210,6 +210,19 @@ export type Community = {
   suspended: boolean;
   /** Operator-only note (never shown to members); null when none/active. */
   suspended_reason: string | null;
+  /** Per-community quality caps. null = inherit the instance default. */
+  voice_bitrate_max_kbps: number | null;
+  stream_bitrate_max_kbps: number | null;
+  stream_fps_max: number | null;
+  stream_resolution_max: string | null;
+};
+
+/** Owner-set per-community quality caps. Full set sent each save; null clears. */
+export type CommunityLimits = {
+  voice_bitrate_max_kbps: number | null;
+  stream_bitrate_max_kbps: number | null;
+  stream_fps_max: number | null;
+  stream_resolution_max: string | null;
 };
 
 export type CommunityList = {
@@ -369,6 +382,15 @@ export const adminApi = {
     return request<Community>(`/owner/communities/${guildId}/unsuspend`, {
       method: 'POST',
       endpoint: 'chat'
+    });
+  },
+  /** Set this community's per-community quality caps (owner-only). Full set;
+   *  null clears an override back to the instance default. */
+  setCommunityLimits(guildId: string, limits: CommunityLimits): Promise<Community> {
+    return request<Community>(`/owner/communities/${guildId}/limits`, {
+      method: 'PATCH',
+      endpoint: 'chat',
+      body: limits
     });
   },
   /** Permanently delete a community + everything in it. Global-admin gated on
