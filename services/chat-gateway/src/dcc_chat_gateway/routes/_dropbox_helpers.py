@@ -396,8 +396,21 @@ def fresh_entry_id() -> int:
     return next_id()
 
 
-def storage_path_for(guild_id: int, parent_path: str, name: str) -> str:
+def storage_path_for(guild_id: int, entry_id: int) -> str:
     """Build the MinIO key for a file's primary storage (v1+).
+
+    Keyed by the entry's snowflake id, NOT by its path. A path-derived key
+    silently aliases as soon as an entry moves: rename/move rewrites
+    ``parent_path``/``name`` but cannot rewrite the bytes' location, so the row
+    would keep pointing at the old key while its logical path frees up — and the
+    next upload to that freed path would be handed the very same key, letting one
+    member overwrite (or, via the trash sweep, destroy) another member's file.
+    An id-derived key is unique by construction and path-independent, so moves
+    need not touch it at all.
+
+    The ``.o`` segment keeps new keys disjoint from the legacy path-derived ones
+    still in the table: ``validate_name`` rejects any name starting with a dot,
+    so no legacy key can contain this segment.
 
     Versioning puts historical versions under ``<base>_v<n>`` — see
     ``routes/dropbox.py::finish_upload`` where v1 is the initial and v>=2
@@ -405,7 +418,7 @@ def storage_path_for(guild_id: int, parent_path: str, name: str) -> str:
     referenced by the live row; old versions stay in place until the
     trash-sweep purges the row."""
 
-    return s3.dropbox_storage_path(guild_id, full_path(parent_path, name))
+    return s3.dropbox_storage_path(guild_id, f".o/{entry_id}")
 
 
 # Per-guild application-level locks for quota-mutating endpoints.

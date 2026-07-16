@@ -507,3 +507,86 @@ async def test_maybe_invalidate_guild_updated_scopes_by_guild(app, session_facto
     )
     assert manager._ws_perms[ws_a] == {}
     assert manager._ws_perms[ws_b] == {channel_2: val_b}
+
+
+# ---- guild-scoped fan-out: channel/role/guild metadata --------------------
+
+
+@pytest.mark.asyncio
+async def test_guild_metadata_events_never_reach_outsiders(app, session_factory):
+    """``_filter_targets_by_guild`` must drop non-members for every op that
+    carries guild metadata — not just membership churn.
+
+    Unscoped, these fan out to *every* connected socket, so any logged-in
+    account (member of nothing) could mirror the channel names/topics, role
+    permission bitfields and — via ``channel_permissions_updated`` — the full
+    overwrite list of every community on the instance. The frontend's own
+    membership filter is cosmetic; DevTools sees the raw frame.
+
+    The nested shapes matter: ``channel``/``role`` envelopes carry ``guild_id``
+    inside the dict and ``guild`` carries it as ``id``, so a filter reading only
+    the top-level key would silently pass these straight through.
+    """
+    manager = app.state.connection_manager
+    member_id, outsider_id = 8801, 8802
+    gid, cid = await _seed_guild_with_channel(session_factory, member_id)
+
+    ws_member, ws_outsider = _FakeWS("member"), _FakeWS("outsider")
+    await _register(manager, ws_member, member_id)
+    await _register(manager, ws_outsider, outsider_id)
+    await manager.set_guild_membership(ws_member, [gid])  # type: ignore[arg-type]
+    await manager.set_guild_membership(ws_outsider, [])  # type: ignore[arg-type]
+
+    targets = [ws_member, ws_outsider]
+    channel = {"id": str(cid), "guild_id": str(gid), "name": "secret-plans"}
+    role = {"id": str(next_id()), "guild_id": str(gid), "permissions": "8"}
+    payloads = [
+        {"op": "channel_created", "channel": channel},
+        {"op": "channel_updated", "channel": channel},
+        {"op": "channel_deleted", "guild_id": str(gid), "channel_id": str(cid)},
+        {
+            "op": "channel_permissions_updated",
+            "channel_id": str(cid),
+            "guild_id": str(gid),
+            "overwrites": [{"target_id": str(member_id), "allow": "1024"}],
+        },
+        {"op": "guild_updated", "guild": {"id": str(gid), "name": "g"}},
+        {"op": "guild_deleted", "guild_id": str(gid)},
+        {"op": "role_created", "role": role},
+        {"op": "role_updated", "role": role},
+        {"op": "role_deleted", "guild_id": str(gid), "role_id": role["id"]},
+        {"op": "member_roles_updated", "guild_id": str(gid), "user_id": str(member_id)},
+        {
+            "op": "guild_sound_updated",
+            "guild_id": str(gid),
+            "sound_id": str(next_id()),
+            "removed": False,
+        },
+    ]
+    for payload in payloads:
+        out = manager._filter_targets_by_guild(payload, targets)
+        assert ws_outsider not in out, f"{payload['op']} leaked to a non-member"
+        assert ws_member in out, f"{payload['op']} did not reach an actual member"
+
+
+@pytest.mark.asyncio
+async def test_guild_scoped_op_without_guild_id_is_dropped(app):
+    """A guild-scoped op whose guild can't be resolved must be dropped, not
+    broadcast. Failing open here is exactly what the scoped-op set exists to
+    prevent, so a malformed payload must not become an instance-wide fan-out."""
+    manager = app.state.connection_manager
+    ws = _FakeWS("any")
+    await _register(manager, ws, 8803)
+    assert manager._filter_targets_by_guild({"op": "role_created", "role": {}}, [ws]) == []
+
+
+@pytest.mark.asyncio
+async def test_presence_update_stays_unscoped(app):
+    """Counterpart guard: ``presence_update`` is cross-guild by design and
+    ``permissions_updated`` is an instance-wide admin toggle with no guild at
+    all. Neither may be swept into the guild-scoped set."""
+    manager = app.state.connection_manager
+    ws = _FakeWS("any")
+    await _register(manager, ws, 8804)
+    for op in ("presence_update", "permissions_updated"):
+        assert manager._filter_targets_by_guild({"op": op}, [ws]) == [ws]

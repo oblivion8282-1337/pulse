@@ -30,6 +30,35 @@ async def _register(client) -> dict:
     return r.json()
 
 
+async def _forgot_and_reset(client, monkeypatch, new_password: str):
+    """Run the forgot → reset flow, returning the ``/password/reset`` response.
+
+    The plaintext token only ever exists in the mail body, so spy on the
+    composer (no SMTP) instead of reading the DB, which stores it hashed.
+    """
+    from dcc_auth import routes_recovery
+
+    captured: dict[str, str] = {}
+    real_compose = routes_recovery.compose_password_reset_email
+
+    def _spy_compose(to, url):
+        captured["url"] = url
+        return real_compose(to, url)
+
+    monkeypatch.setattr(routes_recovery, "compose_password_reset_email", _spy_compose)
+
+    assert (
+        await client.post("/password/forgot", json={"email_or_username": REG["email"]})
+    ).status_code == 204
+    return await client.post(
+        "/password/reset",
+        json={
+            "token": captured["url"].rsplit("/", 1)[1],
+            "new_password": new_password,
+        },
+    )
+
+
 # ---- Password forgot/reset ---------------------------------------------
 
 
@@ -84,33 +113,8 @@ async def test_password_forgot_creates_token_and_invalidates_old(client, session
 async def test_password_reset_changes_password_and_revokes_refreshes(
     client, session_factory, monkeypatch
 ):
-    # Capture the issued plaintext via monkeypatching send_email — no SMTP.
-    captured: dict[str, str] = {}
-
-    from dcc_auth import routes_recovery
-
-    real_compose = routes_recovery.compose_password_reset_email
-
-    def _spy_compose(to, url):
-        captured["url"] = url
-        return real_compose(to, url)
-
-    monkeypatch.setattr(routes_recovery, "compose_password_reset_email", _spy_compose)
-
     tokens = await _register(client)
-    assert (
-        await client.post(
-            "/password/forgot", json={"email_or_username": REG["email"]}
-        )
-    ).status_code == 204
-
-    # Extract token from the URL the (mocked) sender saw.
-    token = captured["url"].rsplit("/", 1)[1]
-
-    r = await client.post(
-        "/password/reset",
-        json={"token": token, "new_password": "new-password-12345"},
-    )
+    r = await _forgot_and_reset(client, monkeypatch, "new-password-12345")
     assert r.status_code == 200, r.text
 
     # Old refresh dead.
@@ -132,6 +136,42 @@ async def test_password_reset_changes_password_and_revokes_refreshes(
         json={"email_or_username": REG["email"], "password": REG["password"]},
     )
     assert r_old.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_password_reset_kills_browser_sessions(
+    client, session_factory, monkeypatch
+):
+    """A reset must revoke browser sessions, not just refresh tokens.
+
+    A stolen ``pulse_session`` cookie would otherwise outlive the reset
+    indefinitely — ``validate_session`` slides ``expires_at`` forward on every
+    request — and could still mint a device cert via ``/credentials/issue``
+    unless ``revoke_until`` is raised. See ``routes_recovery.password_reset``.
+    """
+
+    await _register(client)
+    login_r = await client.post(
+        "/login", json={"email_or_username": REG["email"], "password": REG["password"]}
+    )
+    assert login_r.status_code == 200, login_r.text
+    sid = login_r.cookies["pulse_session"]
+    # The stolen cookie works before the reset.
+    assert (
+        await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
+    ).status_code == 200
+
+    r = await _forgot_and_reset(client, monkeypatch, "new-password-12345")
+    assert r.status_code == 200, r.text
+
+    # ... and is dead after it.
+    assert (
+        await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
+    ).status_code == 401, "session cookie survived a password reset"
+
+    async with session_factory() as s:
+        user = (await s.execute(select(User))).scalar_one()
+        assert user.revoke_until is not None, "reset left revoke_until unset"
 
 
 @pytest.mark.asyncio

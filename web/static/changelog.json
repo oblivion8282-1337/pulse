@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Sicherheit: Passwort-Zurücksetzen meldet überall ab",
+      "items": [
+        "Wer sein Passwort zurücksetzt, wird jetzt auf allen Geräten abgemeldet. Bisher blieben bereits angemeldete Browser-Sitzungen bestehen — auch fremde.",
+        "Namen von Kanälen und Rollen sowie Zugriffslisten einer Community werden nur noch an deren Mitglieder gesendet.",
+        "Auf selbst betriebenen Servern: Umbenennen einer Datei in der Ablage kann eine andere Datei nicht mehr überschreiben."
+      ]
+    },
+    {
       "id": "2026-07-16.3",
       "date": "2026-07-16",
       "style": "Sachlich",

@@ -150,7 +150,7 @@ async def mint_upload_url(
             raise HTTPException(409, detail=f"'{name}' already exists at this path")
 
         new_id = fresh_entry_id()
-        storage_key = storage_path_for(guild_id, parent, name)
+        storage_key = storage_path_for(guild_id, new_id)
 
         # Bind the reserved id to this minter + the declared upload
         # context. finish_upload refuses any call that doesn't match
@@ -300,7 +300,7 @@ async def _finish_upload_locked(
             409, detail="size mismatch with the mint"
         )
 
-    storage_key = storage_path_for(guild_id, parent, name)
+    storage_key = storage_path_for(guild_id, pending.id)
     try:
         head = await s3.head_object(storage_key)
     except Exception:  # noqa: BLE001 — MinIO 404 bubbles as ClientError
