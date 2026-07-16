@@ -34,7 +34,6 @@ import { request } from '../../web/src/lib/api/client';
 import { DEFAULT_PET, parsePet, levelForXp, XP_PER_ACTION, type PetState } from './store';
 import {
   clearAll,
-  deletePet,
   getPet,
   isLoading,
   markLoading,
