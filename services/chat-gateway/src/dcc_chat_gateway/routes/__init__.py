@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from dcc_chat_gateway.routes import (
     admin,
@@ -55,6 +55,7 @@ from dcc_chat_gateway.routes import (
     watch_chat,
     ws,
 )
+from dcc_chat_gateway.routes._dropbox_helpers import require_dropbox_available
 
 router = APIRouter()
 router.include_router(health.router)
@@ -99,10 +100,19 @@ router.include_router(cert_login.router)
 # Dropbox / Ablage — split across three files to stay under the
 # 350-line soft cap. dropbox.py exposes ``admin_router`` so callers
 # don't need a separate include for the PATCH /settings endpoint.
-router.include_router(dropbox.router)
-router.include_router(dropbox_uploads.router)
-router.include_router(dropbox_downloads.router)
-router.include_router(dropbox_admin.admin_router)
+#
+# The Cloud switches the whole feature off (``CLOUD_DROPBOX_ENABLED=false``,
+# the default): the Ablage accepts arbitrary file types, which hash-matching
+# cannot inspect — it would be the unscanned side door next to the
+# image-only message attachments. Gating every dropbox route from this one
+# place is deliberate; a gate on the mint route alone would still leave
+# listing/download of existing files reachable. Self-hosts are unaffected.
+# See docs/medien-speicher-und-scanning.md.
+_dropbox_gate = [Depends(require_dropbox_available)]
+router.include_router(dropbox.router, dependencies=_dropbox_gate)
+router.include_router(dropbox_uploads.router, dependencies=_dropbox_gate)
+router.include_router(dropbox_downloads.router, dependencies=_dropbox_gate)
+router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
 router.include_router(notifications.router)
 router.include_router(presence.router)
 router.include_router(reports.router)

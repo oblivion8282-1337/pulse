@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway import ratelimit, s3
+from dcc_chat_gateway import config as chat_config, ratelimit, s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
 from dcc_chat_gateway.models import Channel, ChatSettings, Guild, MessageAttachment
 from dcc_chat_gateway.permissions import (
@@ -83,9 +83,51 @@ _ALLOWED_MIME_RE = re.compile(
 
 
 def _validate_mime(mime: str) -> None:
-    """Raise 400 if the MIME type is not on the safe allowlist."""
+    """Raise 400 if the MIME type is not on the safe allowlist, or — on the
+    Cloud — falls outside the narrower ``CLOUD_ATTACHMENT_MIME_PREFIXES``.
+
+    The base allowlist blocks stored-XSS; the Cloud policy on top keeps the
+    upload surface aligned with what hash-matching can actually inspect (see
+    docs/medien-speicher-und-scanning.md). It lives inside this function
+    rather than at the call site so no future upload path can forget it.
+    Self-hosts are never restricted by it — their operator owns their content
+    (cert model).
+
+    The policy makes ``application/octet-stream`` unreachable under an
+    ``image/`` prefix, which is the point: it is the fallback the browser
+    uploader emits for unknown types and would otherwise let any file through
+    a MIME-based filter."""
     if not _ALLOWED_MIME_RE.match(mime):
         raise HTTPException(400, detail=f"unsupported mime type: {mime!r}")
+    settings = chat_config.get_settings()
+    if settings.pulse_instance_mode != "cloud":
+        return
+    prefixes = settings.cloud_attachment_mime_prefix_list
+    if prefixes and not any(mime.startswith(p) for p in prefixes):
+        raise HTTPException(
+            400,
+            detail=(
+                f"unsupported mime type: {mime!r} — this server accepts only "
+                + ", ".join(f"{p}*" for p in prefixes)
+            ),
+        )
+
+
+def _enforce_dm_attachment_policy(kind: str) -> None:
+    """Raise 403 when attachments are switched off for DMs on this instance.
+
+    Cloud-only: the DM path is the one surface we may not lawfully scan (the
+    ePrivacy derogation covers interpersonal communication and has lapsed), so
+    the Cloud does not offer an unscannable private upload channel at all.
+    Self-hosts are unaffected. Reversible via CLOUD_DM_ATTACHMENTS_ENABLED."""
+    settings = chat_config.get_settings()
+    if kind != "dm" or settings.pulse_instance_mode != "cloud":
+        return
+    if not settings.cloud_dm_attachments_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="attachments are disabled in direct messages on this server",
+        )
 
 
 # ─── Limit lookup ───────────────────────────────────────────────────────────
@@ -170,6 +212,7 @@ async def create_upload_url(
         )
     _validate_mime(payload.mime)
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+    _enforce_dm_attachment_policy(kind)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":
         await check_permission(

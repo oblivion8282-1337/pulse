@@ -19,6 +19,9 @@
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { channelNameStyle } from '$lib/utils/nameColor';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
 
   let {
     channel,
@@ -72,8 +75,35 @@
   // but a current shell exposes a native bridge that recovers them, so drop is
   // allowed when that bridge is present (older shells stay on the 📎 picker).
   // Browsers are always on.
+  // ─── Upload-Fläche (Instanz-Policy des zuständigen Servers) ───────────
+  // Pro Server lesen, nicht global: der Client hängt gleichzeitig an der Cloud
+  // und an Self-Hosts. DMs leben immer in der Cloud (`cloudScoped`), Guild-
+  // Kanäle beim aktiven Server. Fehlt der Eintrag noch (Fetch läuft), gilt
+  // permissiv — der Server lehnt notfalls selbst ab; kurz sichtbare Buttons
+  // sind besser als fälschlich versteckte.
+  const policyServerId = $derived(
+    cloudScoped ? (serversStore.cloudId() ?? '') : activeServer.serverId
+  );
+  const serverPolicy = $derived(serverCapabilities.get(policyServerId));
+  const attachmentsAllowed = $derived(
+    headerKind === 'dm' ? (serverPolicy?.dmAttachmentsEnabled ?? true) : true
+  );
+  /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
+   *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
+  const attachmentAccept = $derived(
+    (serverPolicy?.attachmentMimePrefixes ?? [])
+      .map((p) => (p.endsWith('/') ? `${p}*` : p))
+      .join(',')
+  );
+
+  // ``attachmentsAllowed`` gehört mit in den Guard: dieselbe Zone würde sonst
+  // Drag&Drop-Uploads durchlassen, obwohl die Büroklammer weg ist — die UI
+  // sähe gesperrt aus, wäre es aber nicht (der Server 403t dann erst).
   const dropAllowed = $derived(
-    !!channel && !composerDisabled && (!isElectron() || canRecoverDroppedFiles())
+    !!channel &&
+      !composerDisabled &&
+      attachmentsAllowed &&
+      (!isElectron() || canRecoverDroppedFiles())
   );
 
   function onZoneDragEnter(e: DragEvent) {
@@ -258,6 +288,8 @@
       onCancelReply={() => (replyTarget = null)}
       disabled={composerDisabled}
       disabledReason={composerDisabledReason}
+      {attachmentsAllowed}
+      {attachmentAccept}
     />
   {/if}
 </section>

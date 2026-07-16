@@ -7,6 +7,8 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import FolderIcon from '@lucide/svelte/icons/folder';
   import { m } from '$lib/paraglide/messages.js';
+  import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
 
   let {
     open = false,
@@ -18,11 +20,25 @@
     onCreate: (name: string, type: number) => void;
   } = $props();
 
+  // Die Ablage ist eine Instanz-Policy des aktiven Servers (die Cloud hat sie
+  // aus — sie nimmt beliebige Dateitypen, die kein Hash-Matching sehen kann).
+  // Fehlt der Capability-Eintrag noch, zeigen wir die Option: der Server
+  // 404't sie notfalls selbst, und fälschlich fehlende Optionen sind
+  // schwerer zu diagnostizieren als eine, die einmal ins Leere greift.
+  const dropboxAvailable = $derived(
+    serverCapabilities.get(activeServer.serverId)?.dropboxEnabled ?? true
+  );
+
   let name = $state('');
   // 0 = text, 1 = voice, 2 = dropbox (per-guild file storage).
   // The route page handles type=2 by routing to /dropbox/channel
   // instead of POST /channels.
   let type = $state<number>(0);
+
+  // Fällt die Ablage weg, während sie ausgewählt war → zurück auf Text.
+  $effect(() => {
+    if (!dropboxAvailable && type === 2) type = 0;
+  });
 
   function handleOpenChange(next: boolean) {
     if (!next) {
@@ -72,16 +88,18 @@
             <Volume2Icon class="size-4" />
             {m.create_channel_dialog_type_voice()}
           </Button>
-          <Button
-            type="button"
-            variant={type === 2 ? 'default' : 'secondary'}
-            class="justify-start gap-2"
-            onclick={() => (type = 2)}
-            data-testid="create-channel-type-dropbox"
-          >
-            <FolderIcon class="size-4" />
-            {m.create_channel_dialog_type_dropbox()}
-          </Button>
+          {#if dropboxAvailable}
+            <Button
+              type="button"
+              variant={type === 2 ? 'default' : 'secondary'}
+              class="justify-start gap-2"
+              onclick={() => (type = 2)}
+              data-testid="create-channel-type-dropbox"
+            >
+              <FolderIcon class="size-4" />
+              {m.create_channel_dialog_type_dropbox()}
+            </Button>
+          {/if}
         </div>
       </div>
       <div class="space-y-1.5">

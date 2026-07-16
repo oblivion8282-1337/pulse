@@ -21,6 +21,16 @@ import { chatApi } from '$lib/api/chat';
 type ServerCaps = {
   allowGuildCreation: boolean;
   allowMemberInvites: boolean;
+  /** Upload-Fläche dieses Servers (Instanz-Policy, env-getrieben).
+   * Die Cloud begrenzt sie auf das, was Hash-Matching sehen kann; Self-Hosts
+   * melden die permissiven Werte. Muss **pro Server** gelesen werden — ein
+   * Client hängt gleichzeitig an Cloud UND Self-Hosts, ein globaler Flag
+   * würde die Cloud-Regel auf fremde Server durchschlagen lassen.
+   * Reine UI-Hints; der jeweilige Server erzwingt dieselben Regeln selbst. */
+  dmAttachmentsEnabled: boolean;
+  dropboxEnabled: boolean;
+  /** Erlaubte MIME-Präfixe für Anhänge; leer = unbeschränkt. */
+  attachmentMimePrefixes: string[];
 };
 
 class ServerCapabilitiesStore {
@@ -45,6 +55,11 @@ class ServerCapabilitiesStore {
         [serverId]: {
           allowGuildCreation: c.allow_guild_creation,
           allowMemberInvites: c.allow_member_invites,
+          // ``?? true`` / ``?? []``: ältere Instanzen kennen die Felder nicht →
+          // unbeschränkt, damit ein Update der Cloud keine fremden Server gatet.
+          dmAttachmentsEnabled: c.dm_attachments_enabled ?? true,
+          dropboxEnabled: c.dropbox_enabled ?? true,
+          attachmentMimePrefixes: c.attachment_mime_prefixes ?? [],
         },
       };
     } catch {

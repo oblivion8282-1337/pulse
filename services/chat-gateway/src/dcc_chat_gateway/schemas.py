@@ -582,6 +582,26 @@ class PermissionsOut(BaseModel):
     cam_fps_max: int
 
 
+class CapabilitiesOut(PermissionsOut):
+    """``/capabilities`` = the admin-editable flags above **plus** this
+    instance's upload-surface policy.
+
+    Deliberately a subclass rather than extra fields on ``PermissionsOut``:
+    these three come from env (config.py), not from ``chat_settings``, so
+    ``/admin/permissions`` must NOT carry them — its PATCH cannot write them
+    and advertising them there would promise an admin toggle that isn't real.
+
+    UX hint only: routes/attachments.py and the dropbox router gate enforce
+    the same policy server-side regardless of what the client does with this.
+    Permissive defaults keep clients talking to an older instance (which omits
+    the fields) on today's behaviour."""
+
+    dm_attachments_enabled: bool = True
+    dropbox_enabled: bool = True
+    # Allowed MIME prefixes for message attachments; empty = unrestricted.
+    attachment_mime_prefixes: list[str] = []
+
+
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend
 # RESOLUTION_VALUES enum. 'Native' = no cap (source resolution).
 ALLOWED_HQ_RESOLUTIONS: frozenset[str] = frozenset(

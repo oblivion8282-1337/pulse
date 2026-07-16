@@ -17,15 +17,36 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import ChatSettings
-from dcc_chat_gateway.schemas import PermissionsOut
+from dcc_chat_gateway.schemas import CapabilitiesOut
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
 
 
-@router.get("/capabilities", response_model=PermissionsOut)
+def _upload_policy() -> dict[str, object]:
+    """Instance-level upload-surface policy, sourced from env (not the DB row).
+
+    Cloud-only restrictions; a self-host reports the permissive values because
+    the gates in attachments.py / the dropbox router never fire there. Purely
+    a UI hint — the server enforces the same rules independently."""
+    settings = chat_config.get_settings()
+    if settings.pulse_instance_mode != "cloud":
+        return {
+            "dm_attachments_enabled": True,
+            "dropbox_enabled": True,
+            "attachment_mime_prefixes": [],
+        }
+    return {
+        "dm_attachments_enabled": settings.cloud_dm_attachments_enabled,
+        "dropbox_enabled": settings.cloud_dropbox_enabled,
+        "attachment_mime_prefixes": settings.cloud_attachment_mime_prefix_list,
+    }
+
+
+@router.get("/capabilities", response_model=CapabilitiesOut)
 async def get_capabilities(session: SessionDep, _current: CurrentUser):
     row = await session.get(ChatSettings, 1)
     if row is None:
@@ -34,7 +55,7 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
         # ``allow_guild_creation`` to false keeps a missing row from
         # accidentally re-enabling "anyone can create a Server" on a
         # broken deploy.
-        return PermissionsOut(
+        return CapabilitiesOut(
             allow_guild_creation=False,
             allow_member_invites=True,
             locked=False,
@@ -51,5 +72,8 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             ns_resolution_max="native",
             cam_resolution_max="720p",
             cam_fps_max=30,
+            **_upload_policy(),
         )
-    return row
+    # The row carries the DB-backed flags; the upload policy comes from env, so
+    # it is merged on top rather than read via from_attributes.
+    return CapabilitiesOut.model_validate(row).model_copy(update=_upload_policy())

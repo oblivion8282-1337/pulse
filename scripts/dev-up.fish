@@ -122,6 +122,14 @@ sleep 0.5
 # PULSE_INSTANCE_ID (Cert-Modell) und crasht beim Start, auth-svc blockt zudem
 # POST /register.
 set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json PULSE_INSTANCE_MODE=cloud"
+# Upload-Fläche: die Prod-Cloud lässt in Kanälen nur Bilder zu, schaltet
+# DM-Anhänge ab und die Ablage ganz aus (restriktive Defaults in config.py,
+# siehe docs/medien-speicher-und-scanning.md). Lokal laufen wir aber
+# ebenfalls mit PULSE_INSTANCE_MODE=cloud — ohne diese Zeile wären Ablage
+# und DM-Anhänge in der Entwicklung tot und die E2E-Suites (dropbox.spec.ts)
+# würden reihenweise brechen, obwohl der Code in Ordnung ist. Dev bekommt
+# deshalb die permissiven Werte; Prod erbt die harten Defaults.
+set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES="
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
@@ -135,7 +143,7 @@ _info "Uvicorns starten (mit --reload)"
 bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
 
 # chat-gateway (8002)
-bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
+bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $upload_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --ws-max-size 65536 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
 
 # voice-signaling (8003) — braucht INTERNAL_SERVICE_SECRET, damit der
 # participant_left-Webhook den chat-gateway-Revoke-Endpoint authentifiziert

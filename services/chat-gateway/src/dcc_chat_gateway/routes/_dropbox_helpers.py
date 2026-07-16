@@ -13,7 +13,9 @@ import contextlib
 import unicodedata
 from datetime import datetime, timezone
 
-from dcc_chat_gateway import s3
+from fastapi import HTTPException
+
+from dcc_chat_gateway import config as chat_config, s3
 from dcc_chat_gateway.models import (
     DROPBOX_KIND_FILE,
     Channel,
@@ -33,6 +35,28 @@ from dcc_shared.events import (
     DropboxEntryUpdatedEvent,
     DropboxQuotaUpdatedEvent,
 )
+
+
+# Instance-level availability gate -------------------------------------
+
+
+def require_dropbox_available() -> None:
+    """Router-level gate: 404 the whole Ablage when the Cloud has it off.
+
+    Cloud-only. The Ablage takes arbitrary file types, which hash-matching
+    cannot inspect, so the Cloud does not offer it at all (default) — see
+    docs/medien-speicher-und-scanning.md. Self-hosts are never gated here;
+    their operator answers for their own content under the cert model.
+
+    404 rather than 403 so a disabled feature is indistinguishable from one
+    that was never there, matching the existing per-guild
+    ``dropbox disabled for this guild`` response. Re-arm with
+    ``CLOUD_DROPBOX_ENABLED=true``."""
+    settings = chat_config.get_settings()
+    if settings.pulse_instance_mode != "cloud":
+        return
+    if not settings.cloud_dropbox_enabled:
+        raise HTTPException(404, detail="dropbox is not available on this server")
 
 
 # Path + name validation -----------------------------------------------

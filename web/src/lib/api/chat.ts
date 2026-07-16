@@ -74,6 +74,13 @@ export type ServerCapabilities = {
   ns_resolution_max: string;
   cam_resolution_max: string;
   cam_fps_max: number;
+  /** Upload-surface policy of THIS server (instance-level, env-driven).
+   * Optional: an older instance omits them → treat as unrestricted.
+   * UI hint only — the server enforces the same rules regardless. */
+  dm_attachments_enabled?: boolean;
+  dropbox_enabled?: boolean;
+  /** Allowed MIME prefixes for message attachments; empty = unrestricted. */
+  attachment_mime_prefixes?: string[];
 };
 
 export const chatApi = {

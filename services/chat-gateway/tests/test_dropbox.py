@@ -1778,3 +1778,55 @@ async def test_guild_delete_purges_dropbox_objects(
     # Every MinIO object under dropbox/<gid>/ must be gone.
     dropbox_keys = [k for k in mock_s3.put if k.startswith(f"dropbox/{gid}/")]
     assert dropbox_keys == [], f"leftover dropbox objects: {dropbox_keys}"
+
+
+# ─── Cloud availability gate ────────────────────────────────────────────────
+# The Cloud switches the whole Ablage off (default): it accepts arbitrary file
+# types, which hash-matching cannot inspect. Router-level gate, so *every*
+# dropbox route 404s — not just the upload mint. Self-hosts are unaffected.
+# See docs/medien-speicher-und-scanning.md.
+
+
+@pytest.mark.asyncio
+async def test_dropbox_gate_off_on_cloud(client, _auth_signer, mock_s3, cloud_mode):
+    t, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, t)
+    gid = g["id"]
+    # Every surface is gone, not just the upload mint — otherwise existing
+    # files would stay listable and downloadable.
+    for method, path in (
+        ("get", f"/guilds/{gid}/dropbox/channel"),
+        ("get", f"/guilds/{gid}/dropbox/entries"),
+        ("get", f"/guilds/{gid}/dropbox/quota"),
+    ):
+        r = await getattr(client, method)(path, headers=auth(t))
+        assert r.status_code == 404, f"{method.upper()} {path} → {r.status_code}"
+
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={"name": "x.bin", "parent_path": "/", "size_bytes": 10,
+              "content_type": "application/octet-stream"},
+        headers=auth(t),
+    )
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_dropbox_gate_reversible_via_flag(
+    client, _auth_signer, mock_s3, cloud_mode
+):
+    """CLOUD_DROPBOX_ENABLED=true re-arms the feature without a code change."""
+    cloud_mode.cloud_dropbox_enabled = True
+    t, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, t)
+    r = await client.get(f"/guilds/{g['id']}/dropbox/channel", headers=auth(t))
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_dropbox_unaffected_on_self_host(client, _auth_signer, mock_s3):
+    """Default test mode is self-host — the gate must never fire there."""
+    t, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, t)
+    r = await client.get(f"/guilds/{g['id']}/dropbox/channel", headers=auth(t))
+    assert r.status_code == 200, r.text
