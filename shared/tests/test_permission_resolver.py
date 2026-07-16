@@ -193,17 +193,12 @@ def test_user_overwrite_beats_role_overwrite() -> None:
 
 
 def test_position_ties_are_stable_by_id() -> None:
-    """Two non-everyone roles with the same position must resolve in a
-    deterministic order. Python's ``list.sort`` is stable, so the
-    resolver keeps the input-list order intact whenever the sort key
-    ties — calling the resolver twice with the same context must
-    produce the *same* bitfield (otherwise a future change to the sort
-    key would silently flip permissions on edge cases). We also pin
-    that the result depends on the input ordering only (not on hash
-    iteration), by running both arrangements and asserting each is
-    individually reproducible. A future tightening to "secondary sort
-    by role.id" would make the two arrangements agree as well; that
-    invariant is left for that change to assert."""
+    """Two non-everyone roles with the same position must resolve the same
+    way regardless of the order they arrive in. The sort key's ``r.id``
+    tie-break pins that: the DB-backed contexts read ``member_roles()``
+    from queries without ORDER BY, so relying on input order would let an
+    unrelated query-plan change flip a channel permission with no config
+    change behind it."""
     a = RoleSnapshot(id=200, position=5, permissions=0, is_everyone=False)
     b = RoleSnapshot(id=201, position=5, permissions=0, is_everyone=False)
     forward = FakeContext(
@@ -217,17 +212,16 @@ def test_position_ties_are_stable_by_id() -> None:
             ),
         },
     )
-    # Reproducibility: identical context, identical output. Both the
-    # guild-level OR (which is order-independent) and the channel-level
-    # overwrite layering (which IS order-sensitive) must be stable.
-    first = calculate_channel_permissions(forward)
-    second = calculate_channel_permissions(forward)
-    assert first == second
-    # Guild-level perms are pure OR so even reordered input agrees.
     reversed_ctx = FakeContext(
         roles=[EVERYONE, b, a],
         overwrites=forward.overwrites,
     )
+    # `b` denies the bit and sorts last by id either way, so deny wins in both.
+    forward_perms = calculate_channel_permissions(forward)
+    reversed_perms = calculate_channel_permissions(reversed_ctx)
+    assert forward_perms == reversed_perms
+    assert not has_permission(reversed_perms, Permissions.MANAGE_MESSAGES)
+    # Guild-level perms are pure OR so even reordered input agrees.
     assert calculate_guild_permissions(forward) == calculate_guild_permissions(
         reversed_ctx
     )

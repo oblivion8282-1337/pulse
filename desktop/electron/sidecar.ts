@@ -551,6 +551,18 @@ class SidecarManager {
       }
     });
 
+    // Write errors (EPIPE on a child that died between `ensureSpawned()` and the
+    // `write()` in `call()`) arrive async on the stream, so the try/catch around
+    // the write never sees them — and an 'error' without a listener throws.
+    // Log-only on purpose: the 'exit' handler below (or the op timeout) already
+    // owns the pending request, and a child that closed only its stdin can still
+    // answer on stdout.
+    child.stdin.on('error', (err) => {
+      if (this.child !== child) return;
+      logSidecar('lifecycle', `stdin error: ${err.message}`);
+      console.error('[gsr-sidecar] stdin error:', err);
+    });
+
     child.on('error', (err) => {
       // A delayed handler from an already-replaced child (e.g. a Windows child
       // exiting late after a SIGKILL timeout while `this.child` already points at

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.2",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Rollen mit gleicher Position: Rechte bleiben stabil",
+      "items": [
+        "Wenn zwei Rollen dieselbe Position haben und sich ihre Kanal-Rechte widersprechen, wird das Ergebnis jetzt immer gleich aufgelöst. Vorher konnte dasselbe Recht ohne erkennbaren Grund zwischen erlaubt und verweigert wechseln.",
+        "Die Desktop-App meldet Schreibfehler zum HQ-Streaming-Helfer jetzt sauber, statt sie stillschweigend zu verlieren."
+      ]
+    },
+    {
       "id": "2026-07-17",
       "date": "2026-07-17",
       "style": "Sachlich",

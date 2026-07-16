@@ -172,9 +172,13 @@ def calculate_channel_permissions(ctx: PermissionContext) -> int:
         # ADMINISTRATOR bit was set; channel overwrites cannot revoke it.
         return GRANT_ALL_SAFE
 
-    roles = sorted(member_roles, key=lambda r: (not r.is_everyone, r.position))
+    roles = sorted(member_roles, key=lambda r: (not r.is_everyone, r.position, r.id))
     # @everyone first (it sorts as is_everyone=True → key=(False, position)
-    # which beats any normal role's (True, position) tuple).
+    # which beats any normal role's (True, position) tuple). `r.id` breaks
+    # position ties (sharing a position is allowed, see update_role_positions):
+    # without it the layering order — and thus the winner of two opposing
+    # overwrites — would ride on `member_roles()`, which the DB-backed contexts
+    # read from un-ORDERed queries.
 
     value = base
     for role in roles:
