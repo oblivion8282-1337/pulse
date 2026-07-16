@@ -463,3 +463,134 @@ async def test_reaper_drops_old_pending(
             await s.execute(select(MessageAttachment).where(MessageAttachment.id == int(aid)))
         ).scalar_one_or_none()
         assert gone is None
+
+
+# ─── Upload-surface policy (Cloud hardening) ────────────────────────────────
+# The Cloud narrows its upload surface to what hash-matching can inspect
+# (images). Self-hosts are untouched. See docs/medien-speicher-und-scanning.md
+# and config.py::cloud_attachment_mime_prefixes.
+
+
+@pytest.mark.asyncio
+async def test_upload_url_rejects_mime_off_the_base_allowlist(
+    client, _auth_signer, mock_s3
+):
+    """Base allowlist (stored-XSS guard) — applies on every instance."""
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    for mime in ("text/html", "image/svg+xml", "application/javascript"):
+        r = await _upload(client, t1, cid, mime=mime)
+        assert r.status_code == 400, f"{mime} should be rejected: {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_self_host_allows_video_and_archives(client, _auth_signer, mock_s3):
+    """The Cloud MIME policy must not leak into self-hosted instances."""
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    for mime in ("video/mp4", "application/zip", "application/octet-stream"):
+        r = await _upload(client, t1, cid, mime=mime)
+        assert r.status_code == 201, f"{mime} should pass on self-host: {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_cloud_guild_rejects_video_and_archives(
+    client, _auth_signer, mock_s3, cloud_mode
+):
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    for mime in ("video/mp4", "video/webm", "application/zip", "application/pdf"):
+        r = await _upload(client, t1, cid, mime=mime)
+        assert r.status_code == 400, f"{mime} should be rejected on cloud: {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_cloud_guild_rejects_octet_stream(
+    client, _auth_signer, mock_s3, cloud_mode
+):
+    """The loophole this policy exists to close: the browser uploader falls back
+    to octet-stream for unknown types, so a video declared as octet-stream would
+    slip through any video-only blocklist."""
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    r = await _upload(client, t1, cid, mime="application/octet-stream")
+    assert r.status_code == 400, r.text
+
+
+@pytest.mark.asyncio
+async def test_cloud_guild_allows_images(client, _auth_signer, mock_s3, cloud_mode):
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    for mime in ("image/png", "image/jpeg", "image/webp", "image/avif"):
+        r = await _upload(client, t1, cid, mime=mime)
+        assert r.status_code == 201, f"{mime} should pass on cloud: {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_cloud_mime_policy_is_reversible(
+    client, _auth_signer, mock_s3, cloud_mode
+):
+    """Clearing CLOUD_ATTACHMENT_MIME_PREFIXES re-arms the old behaviour
+    without a code change — the whole point of the flag."""
+    cloud_mode.cloud_attachment_mime_prefixes = ""
+    (t1, _u1), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    r = await _upload(client, t1, cid, mime="video/mp4")
+    assert r.status_code == 201, r.text
+
+
+async def _make_dm_channel(client, token_a, uid_b):
+    r = await client.post(
+        "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(token_a)
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_cloud_dm_attachments_are_forbidden(
+    client, _auth_signer, mock_s3, cloud_mode, friend_pair
+):
+    (t_a, uid_a), (_t_b, uid_b) = await register_two(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _make_dm_channel(client, t_a, uid_b)
+    r = await _upload(client, t_a, dm_id, mime="image/png")
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_cloud_dm_attachments_reversible_via_flag(
+    client, _auth_signer, mock_s3, cloud_mode, friend_pair
+):
+    cloud_mode.cloud_dm_attachments_enabled = True
+    (t_a, uid_a), (_t_b, uid_b) = await register_two(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _make_dm_channel(client, t_a, uid_b)
+    r = await _upload(client, t_a, dm_id, mime="image/png")
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_capabilities_reports_upload_policy_on_self_host(client, _auth_signer):
+    """Self-hosts advertise the permissive values — the Cloud policy must not
+    leak into an instance we don't answer for."""
+    t, _uid = await _register_user(_auth_signer)
+    r = await client.get("/capabilities", headers=auth(t))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["dm_attachments_enabled"] is True
+    assert body["dropbox_enabled"] is True
+    assert body["attachment_mime_prefixes"] == []
+
+
+@pytest.mark.asyncio
+async def test_capabilities_reports_upload_policy_on_cloud(
+    client, _auth_signer, cloud_mode
+):
+    t, _uid = await _register_user(_auth_signer)
+    r = await client.get("/capabilities", headers=auth(t))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["dm_attachments_enabled"] is False
+    assert body["dropbox_enabled"] is False
+    assert body["attachment_mime_prefixes"] == ["image/"]

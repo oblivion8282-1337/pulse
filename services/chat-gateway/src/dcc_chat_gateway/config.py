@@ -133,6 +133,31 @@ class Settings(BaseSettings):
     # Reserved value 0 = Cloud instance (DE 11 A.13).
     pulse_instance_id: int = 0
 
+    # ─── Cloud upload hardening ──────────────────────────────────────────
+    # The Cloud deliberately narrows its upload surface to what hash-matching
+    # (Arachnid Shield) can actually see: images. Videos, archives and
+    # ``application/octet-stream`` are invisible to a hash lookup, so an upload
+    # surface wider than the scanner is exactly the path an abuser would take.
+    # Rationale + legal background: docs/medien-speicher-und-scanning.md.
+    #
+    # All three flags apply ONLY when ``pulse_instance_mode == "cloud"``.
+    # Self-hosted instances are untouched by design: under the cert model they
+    # are isolated worlds whose operator answers for their own content, and we
+    # have no access to it.
+    #
+    # Defaults are restrictive so a fresh Cloud deploy is hardened without any
+    # .env change (same spirit as ``allow_guild_creation`` defaulting to false).
+    # Local dev + E2E re-enable them via scripts/dev-up.fish so the features
+    # stay exercised. To re-arm in production, set the env var — no code change:
+    #   CLOUD_DM_ATTACHMENTS_ENABLED=true
+    #   CLOUD_DROPBOX_ENABLED=true
+    #   CLOUD_ATTACHMENT_MIME_PREFIXES=          (empty = no extra restriction)
+    cloud_dm_attachments_enabled: bool = False
+    cloud_dropbox_enabled: bool = False
+    # CSV of allowed MIME prefixes on top of the base allowlist in
+    # routes/attachments.py. Empty string = no extra restriction.
+    cloud_attachment_mime_prefixes: str = "image/"
+
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert
     # carries this user_id becomes admin of this instance. 0 = nobody (no
@@ -205,6 +230,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def cloud_attachment_mime_prefix_list(self) -> list[str]:
+        """Extra MIME-prefix allowlist for Cloud uploads; empty = unrestricted.
+
+        Only meaningful when ``pulse_instance_mode == "cloud"`` — callers gate
+        on that first (see routes/attachments.py::_validate_mime)."""
+        return [p.strip() for p in self.cloud_attachment_mime_prefixes.split(",") if p.strip()]
 
 
 @lru_cache(maxsize=1)

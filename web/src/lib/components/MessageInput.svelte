@@ -30,7 +30,9 @@
     onCancelReply,
     disabled = false,
     disabledReason = '',
-    handleDrop = true
+    handleDrop = true,
+    attachmentsAllowed = true,
+    attachmentAccept = ''
   }: {
     channelId?: string | null;
     placeholder?: string;
@@ -54,9 +56,16 @@
     /** Optional explanatory text shown in the input's placeholder when
      *  ``disabled`` is true (otherwise unused). */
     disabledReason?: string;
+    /** False → this instance forbids attachments here (Cloud DMs). Removes the
+     *  paperclip AND the paste/drop paths — hiding only the button would leave
+     *  two working back doors into an endpoint the server 403s anyway. */
+    attachmentsAllowed?: boolean;
+    /** `accept` list for the file dialog (e.g. `image/*`); empty = anything.
+     *  Cosmetic pre-filter only — the server enforces the same allowlist. */
+    attachmentAccept?: string;
   } = $props();
 
-  const attachmentsEnabled = $derived(channelId !== null);
+  const attachmentsEnabled = $derived(channelId !== null && attachmentsAllowed);
 
   let text = $state('');
   let pickerOpen = $state(false);
@@ -106,7 +115,9 @@
   // current shell exposes a native bridge that recovers them, so drop is enabled
   // when that bridge is present. Older shells (no bridge) stay disabled.
   // `handleDrop` still lets a parent own the zone (ChatView). Browsers: always on.
-  const dropEnabled = $derived(handleDrop && (!isElectron() || canRecoverDroppedFiles()));
+  const dropEnabled = $derived(
+    handleDrop && attachmentsAllowed && (!isElectron() || canRecoverDroppedFiles())
+  );
 
   // Mention overlay owns the popup state; we just forward textarea events.
   let mentionOverlay: MentionTriggerOverlay | undefined = $state();
@@ -124,7 +135,10 @@
   );
 
   function addFiles(files: FileList | File[]): void {
-    if (!channelId) return; // attachmentsEnabled=false → ignore drops/pastes silently
+    // Single choke point for every entry path (picker, paste, drop, and the
+    // parent's `addExternalFiles`) — guarding here rather than at each call
+    // site is what keeps paste/drop from staying live once the button is gone.
+    if (!channelId || !attachmentsAllowed) return;
     for (const file of Array.from(files)) {
       const { row, abort } = startUpload(channelId, file, (next) => {
         pending = pending.map((p) => (p.localId === next.localId ? next : p));
@@ -310,6 +324,7 @@
       <input
         type="file"
         multiple
+        accept={attachmentAccept || undefined}
         bind:this={fileInput}
         onchange={onFilePick}
         class="sr-only"

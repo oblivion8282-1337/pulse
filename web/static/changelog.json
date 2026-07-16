@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-16.3",
+      "date": "2026-07-16",
+      "style": "Sachlich",
+      "title": "Anhänge in der Cloud",
+      "items": [
+        "In Textkanälen lassen sich ab sofort nur noch Bilder anhängen. Videos, PDFs und Archive werden nicht mehr angenommen.",
+        "In Direktnachrichten sind Anhänge nicht mehr möglich.",
+        "Die Datei-Ablage steht auf howispulse.com nicht mehr zur Verfügung. Bereits abgelegte Dateien sind damit ebenfalls nicht mehr abrufbar.",
+        "Hintergrund ist der Schutz vor illegalen Inhalten: nur Bilder lassen sich zuverlässig darauf prüfen.",
+        "Auf selbst betriebenen Servern ändert sich nichts — dort entscheidet der jeweilige Betreiber."
+      ]
+    },
+    {
       "id": "2026-07-16.2",
       "date": "2026-07-16",
       "style": "Sachlich",

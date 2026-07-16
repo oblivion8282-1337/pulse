@@ -69,6 +69,11 @@ def _isolate_chat_settings():
     # cloud-only guild-member JOIN).
     _TEST_SETTINGS.pulse_instance_mode = "self-host"
     _TEST_SETTINGS.pulse_instance_id = 100
+    # Cloud upload-surface flags: same leak hazard as the instance-mode fields
+    # above — tests that exercise the Cloud policy mutate them directly.
+    _TEST_SETTINGS.cloud_dm_attachments_enabled = False
+    _TEST_SETTINGS.cloud_dropbox_enabled = False
+    _TEST_SETTINGS.cloud_attachment_mime_prefixes = "image/"
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS
