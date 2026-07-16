@@ -67,11 +67,14 @@
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.create_channel_dialog_type_label()}</Label>
-        <div class="grid grid-cols-3 gap-2">
+        <!-- Spaltenzahl folgt den sichtbaren Optionen — fixes grid-cols-3 ließe ohne
+             die Ablage eine leere Zelle stehen. Klassen als Literale: Tailwind findet
+             zusammengebaute Namen beim Purgen nicht. -->
+        <div class={dropboxAvailable ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
           <Button
             type="button"
             variant={type === 0 ? 'default' : 'secondary'}
-            class="justify-start gap-2"
+            class="justify-center gap-2"
             onclick={() => (type = 0)}
             data-testid="create-channel-type-text"
           >
@@ -81,7 +84,7 @@
           <Button
             type="button"
             variant={type === 1 ? 'default' : 'secondary'}
-            class="justify-start gap-2"
+            class="justify-center gap-2"
             onclick={() => (type = 1)}
             data-testid="create-channel-type-voice"
           >
@@ -92,7 +95,7 @@
             <Button
               type="button"
               variant={type === 2 ? 'default' : 'secondary'}
-              class="justify-start gap-2"
+              class="justify-center gap-2"
               onclick={() => (type = 2)}
               data-testid="create-channel-type-dropbox"
             >
