@@ -21,7 +21,7 @@ services:
     # for AMD VAAPI (MediaMTX #5728); 1.17.1 fixes that but has its own
     # AMD-only freeze due to missing OBU_TEMPORAL_DELIMITER. The Pulse fork
     # injects them in the RTMP→stream path — see infra/mediamtx-fork/README.md.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
