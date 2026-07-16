@@ -1,5 +1,5 @@
 /**
- * Public API des Identity-Moduls (DE 11 A.1/A.2/A.6/Block 1.H).
+ * Public API des Identity-Moduls (DE 11 A.1/A.2/Block 1.H).
  *
  * Electron-Note:
  *   IndexedDB bleibt in Electron nur persistent wenn BrowserWindow mit
@@ -22,9 +22,6 @@ export { profileStatementStore, parseStatementClaims, isStatementExpired,
   wipeProfileStatement } from './profile-statement.svelte';
 
 export type { ProfileStatement, ProfileStatementClaims } from './profile-statement.svelte';
-
-export { isPrivateBrowsing, getPrivateBrowsingState,
-  resetPrivateBrowsingCache } from './private-browsing';
 
 export { runIssueFlow } from './issue-flow';
 export type { IssueFlowResult } from './issue-flow';

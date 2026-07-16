@@ -31,13 +31,6 @@ export function setPet(guildId: string, value: PetState): void {
   state.byGuild = { ...state.byGuild, [guildId]: value };
 }
 
-export function deletePet(guildId: string): void {
-  if (!guildId) return;
-  const copy = { ...state.byGuild };
-  delete copy[guildId];
-  state.byGuild = copy;
-}
-
 export function isLoading(guildId: string): boolean {
   return state.loadingByGuild.has(guildId);
 }
