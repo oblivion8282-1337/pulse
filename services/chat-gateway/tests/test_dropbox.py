@@ -439,6 +439,57 @@ async def test_move_folder_rewrites_descendant_parent_paths(
 
 
 @pytest.mark.asyncio
+async def test_renaming_frees_the_path_without_aliasing_the_object(
+    client, _auth_signer, mock_s3, session_factory
+):
+    """Re-using a freed path must never hand out a second entry's storage key.
+
+    Rename/move rewrites ``parent_path``/``name`` but cannot move the bytes, so
+    a path-derived key would leave the row pointing at the old location while
+    its logical path frees up. The clash check only looks at live rows *at the
+    path*, so the next upload there would be handed the very same key — letting
+    one member overwrite another's file (the row keeps the victim's name,
+    uploader and size but serves the attacker's bytes), and letting the trash
+    sweep destroy the victim's object when the attacker trashes their own row.
+    """
+
+    from dcc_chat_gateway.models import DropboxFile
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    victim = await _upload_finished_file(
+        client, token, gid, "report.pdf", b"victim-bytes", mock_s3
+    )
+
+    # Move it aside — "report.pdf" at root is now free.
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{victim['id']}",
+        json={"name": "report-old.pdf"},
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    # Re-occupy the freed path.
+    attacker = await _upload_finished_file(
+        client, token, gid, "report.pdf", b"attacker-bytes", mock_s3
+    )
+
+    async with session_factory() as s:
+        victim_row = await s.get(DropboxFile, int(victim["id"]))
+        attacker_row = await s.get(DropboxFile, int(attacker["id"]))
+        assert victim_row.storage_key != attacker_row.storage_key, (
+            "re-using a freed path aliased the moved entry's storage key — "
+            "the new upload can overwrite the older file's bytes"
+        )
+        # The victim's bytes are untouched and still reachable.
+        assert mock_s3.put[victim_row.storage_key] == b"victim-bytes"
+        assert mock_s3.put[attacker_row.storage_key] == b"attacker-bytes"
+
+
+@pytest.mark.asyncio
 async def test_move_folder_into_descendant_rejected(client, _auth_signer, mock_s3):
     """Cycle guard: ``A`` cannot be moved under one of its own
     descendants — that would orphan ``A``'s own children and turn
@@ -1605,7 +1656,6 @@ async def test_trash_sweep_purges_rows_past_retention(
     entry = await _upload_finished_file(
         client, token, gid, "old.bin", b"hello", mock_s3
     )
-    storage_key = "dropbox/{}/old.bin".format(gid)
 
     # Trash the entry, then backdate ``deleted_at`` past the default
     # 30-day retention window so the next sweep picks it up. The
@@ -1620,6 +1670,9 @@ async def test_trash_sweep_purges_rows_past_retention(
     async with session_factory() as s:
         row = await s.get(DropboxFile, int(entry["id"]))
         assert row is not None
+        # Read the key off the row rather than rebuilding it from the path —
+        # storage keys are id-derived precisely so they don't track the path.
+        storage_key = row.storage_key
         row.deleted_at = long_ago
         await s.commit()
     assert storage_key in mock_s3.put
@@ -1651,6 +1704,7 @@ async def test_sweep_purges_orphan_minio_objects(
     Regression for the bug where browser-close-after-mint, expired
     JWT, network drop, etc. left bytes in the bucket forever."""
 
+    from dcc_chat_gateway.models import DropboxFile
     from dcc_chat_gateway.routes import dropbox_admin
 
     token, _uid = await _user(_auth_signer)
@@ -1659,12 +1713,14 @@ async def test_sweep_purges_orphan_minio_objects(
     await _provision_dropbox(client, token, gid)
 
     # Two legitimate files (live, with rows) + one orphan (no row).
-    await _upload_finished_file(
-        client, token, gid, "legit.bin", b"alive", mock_s3
-    )
-    await _upload_finished_file(
-        client, token, gid, "also-legit.bin", b"also-alive", mock_s3
-    )
+    live = [
+        await _upload_finished_file(
+            client, token, gid, "legit.bin", b"alive", mock_s3
+        ),
+        await _upload_finished_file(
+            client, token, gid, "also-legit.bin", b"also-alive", mock_s3
+        ),
+    ]
     orphan_key = f"dropbox/{gid}/never-finished.bin"
     mock_s3.put[orphan_key] = b"never-called-finish-upload"
 
@@ -1672,13 +1728,17 @@ async def test_sweep_purges_orphan_minio_objects(
     monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
     await dropbox_admin._sweep_once(connection_manager=None)
 
-    # Orphans gone, live files preserved.
+    # Orphans gone, live files preserved. Keys come off the rows: they are
+    # id-derived, so the file's name is deliberately not part of them.
     assert orphan_key not in mock_s3.put
     assert orphan_key in mock_s3.deleted
-    assert any(
-        k.startswith(f"dropbox/{gid}/") and "legit.bin" in k
-        for k in mock_s3.put
-    ), "live file should NOT be deleted by orphan sweep"
+    async with session_factory() as s:
+        for e in live:
+            row = await s.get(DropboxFile, int(e["id"]))
+            assert row is not None
+            assert (
+                row.storage_key in mock_s3.put
+            ), "live file should NOT be deleted by orphan sweep"
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,8 @@ from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import GRANT_ALL_SAFE, Permissions
 from fastapi import WebSocket
 
+from dcc_chat_gateway.pubsub_guild_scope import GUILD_MEMBER_SCOPED_OPS, event_guild_id
+
 log = logging.getLogger(__name__)
 
 # Signed 64-bit bounds — channel ids live in a Postgres BIGINT column.
@@ -241,53 +243,17 @@ class _PermFilterMixin:
             if gid:
                 self._invalidate_for_guild(gid)
 
-    # ops on guild:events whose visibility should be scoped to guild
-    # members. Other ops on the same channel (role_*, guild_updated,
-    # etc.) keep the broadcast-everyone semantics they were built on
-    # — the frontend filters by guild membership in its handlers.
-    # ``channel_bump`` is scoped here so the (cold-cache) VIEW_CHANNEL
-    # resolve below only runs for the guild's own members, not for every
-    # globally-connected socket.
-    _GUILD_MEMBER_SCOPED_OPS = frozenset(
-        {
-            "guild_member_added",
-            "guild_member_removed",
-            "guild_member_updated",
-            "guild_ban_added",
-            "guild_ban_removed",
-            "channel_bump",
-            # Plugin-Toggle-Push (per-guild): nur Member sollen ihren
-            # ``guild-activation``-Cache invalidieren; Outsider haben
-            # gar keinen Slot für die Guild.
-            "guild_plugins_changed",
-            # Dropbox / Ablage events carry entry metadata + presigned
-            # GET URLs (for files). The bandwidth cost is negligible
-            # but the privacy cost matters — a member with
-            # ``@everyone`` ``VIEW_CHANNEL`` denied on the dropbox
-            # channel must not receive presigned URLs for files they
-            # can't see in the sidebar. Same channel-scope as
-            # ``channel_bump`` (see the gate below in
-            # pubsub_channel_guild.handle_guild_events).
-            "dropbox_entry_created",
-            "dropbox_entry_updated",
-            "dropbox_entry_deleted",
-            "dropbox_entry_restored",
-            "dropbox_entry_purged",
-            "dropbox_quota_updated",
-            # New moderation report: pre-narrow to guild members here (cheap),
-            # then the mod-perm filter below (``_filter_by_moderator``) narrows
-            # further to only the guild's moderators.
-            "report_new",
-        }
-    )
+    # Policy lives in ``pubsub_guild_scope`` — aliased here because the
+    # docstrings in guild_plugins / admin_plugins_publish point at this name.
+    _GUILD_MEMBER_SCOPED_OPS = GUILD_MEMBER_SCOPED_OPS
 
     def _filter_targets_by_guild(
         self, payload: dict, targets: list[WebSocket]
     ) -> list[WebSocket]:
-        """Filter ``targets`` to sockets whose user is in the event's
-        ``guild_id``. Used for member/ban events so non-members don't
-        receive (and can't sniff in DevTools) per-guild membership
-        churn for guilds they aren't in.
+        """Filter ``targets`` to sockets whose user is in the event's guild
+        (see ``_GUILD_MEMBER_SCOPED_OPS`` for which ops this covers), so
+        non-members don't receive — and can't sniff in DevTools — membership
+        churn, channel/role metadata or ACLs for guilds they aren't in.
 
         For the kicked/banned user themselves: this filter runs *before*
         ``_apply_guild_membership_update`` on ``guild_member_removed`` (see
@@ -302,12 +268,15 @@ class _PermFilterMixin:
         op = payload.get("op")
         if op not in self._GUILD_MEMBER_SCOPED_OPS:
             return targets
-        try:
-            gid = int(payload.get("guild_id", "0"))
-        except (TypeError, ValueError):
-            return targets
+        gid = event_guild_id(payload)
         if not gid:
-            return targets
+            # Every op in the set is guild-scoped by definition, and the
+            # schema check in ``handle_guild_events`` has already run, so an
+            # unresolvable guild means a malformed payload. Drop rather than
+            # fall back to broadcast-everyone — failing open here is what the
+            # set exists to prevent.
+            log.warning("guild-scoped op %r without resolvable guild_id", op)
+            return []
         out: list[WebSocket] = []
         for ws in targets:
             guilds = self._ws_guilds.get(ws)

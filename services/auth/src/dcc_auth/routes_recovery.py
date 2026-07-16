@@ -19,6 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from sqlalchemy import or_, select, update
 
+from dcc_auth.browser_sessions import revoke_all_for_user
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import (
@@ -181,6 +182,13 @@ async def password_reset(
         .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(UTC))
     )
+    # Browser sessions must die with them. A reset is what a user does *because*
+    # they think they're compromised, so a stolen ``pulse_session`` cookie has to
+    # stop working here — otherwise it outlives the reset indefinitely, since
+    # ``validate_session`` slides ``expires_at`` forward on every request. This
+    # also raises the ``revoke_until`` watermark that gates ``/credentials/issue``
+    # (see ``revoke_all_for_user``), so the session can't still mint a device cert.
+    await revoke_all_for_user(session, user.id)
     await session.commit()
     return MessageOut(detail="ok")
 
