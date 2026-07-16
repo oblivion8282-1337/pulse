@@ -29,6 +29,46 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:193
 /** Max time to wait for ICE gathering before POSTing the offer anyway. */
 const ICE_GATHERING_TIMEOUT_MS = 2000;
 
+/**
+ * Ask for STEREO Opus in the offer's fmtp line.
+ *
+ * Without this, Chrome offers `a=fmtp:111 minptime=10;useinbandfec=1` — no
+ * `stereo=1` — and per RFC 7587 the decoder then renders MONO. The publisher's
+ * stereo Opus packets arrive fine; the viewer just downmixes them. Measured
+ * 2026-07-16 against a left-only source (HLS: L −21 dB / R −293 dB): WHEP
+ * delivered L=R=0.0442, i.e. exactly `(L+R)/2`.
+ *
+ * `stereo=1` = "I want stereo rendered"; `sprop-stereo=1` = "expect stereo on
+ * the wire" (a hint that lets the decoder size itself right from the start).
+ * Both are receiver-side preferences and safe: a mono publisher stays mono,
+ * Opus signals the real channel count per packet.
+ *
+ * Why string surgery instead of `setCodecPreferences`: that API picks WHICH
+ * codec, not its fmtp parameters — there is no non-munging way to set this.
+ */
+function preferStereoOpus(sdp: string): string {
+  // Resolve Opus' payload type(s) from rtpmap rather than guessing from the
+  // fmtp params — the PT is dynamic (111 today, but that's not guaranteed).
+  const opusPts = new Set(
+    [...sdp.matchAll(/^a=rtpmap:(\d+) opus\/\d+(?:\/\d+)?$/gim)].map((m) => m[1]),
+  );
+  if (opusPts.size === 0) return sdp;
+
+  const lines = sdp.split('\r\n');
+  const patched = lines.map((line) => {
+    const m = /^a=fmtp:(\d+) (.*)$/.exec(line);
+    if (!m || !opusPts.has(m[1]) || /(?:^|;)stereo=/.test(m[2])) return line;
+    return `a=fmtp:${m[1]} ${m[2]};stereo=1;sprop-stereo=1`;
+  });
+  // Opus without any fmtp line at all: add one, else the preference is lost.
+  for (const pt of opusPts) {
+    if (patched.some((l) => l.startsWith(`a=fmtp:${pt} `))) continue;
+    const idx = patched.findIndex((l) => new RegExp(`^a=rtpmap:${pt} opus/`, 'i').test(l));
+    if (idx >= 0) patched.splice(idx + 1, 0, `a=fmtp:${pt} stereo=1;sprop-stereo=1`);
+  }
+  return patched.join('\r\n');
+}
+
 export class WhepError extends Error {
   /** HTTP status if the failure came from the WHEP POST, else 0. */
   status: number;
@@ -151,6 +191,13 @@ export async function connectWhep(
 
   try {
     const offer = await pc.createOffer();
+    // VOR setLocalDescription mungen — nicht danach. Die fmtp-Parameter der
+    // LOKALEN Description konfigurieren libwebrtcs Opus-DECODER; munget man
+    // erst den ausgehenden Body, sieht der Server zwar `stereo=1`, der eigene
+    // Decoder läuft aber weiter mono (2026-07-16 gemessen: getStats() meldete
+    // `minptime=10;useinbandfec=1` und L==R, obwohl Angebot UND Antwort
+    // `stereo=1` trugen).
+    offer.sdp = preferStereoOpus(offer.sdp ?? '');
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
     const sdp = pc.localDescription?.sdp ?? offer.sdp ?? '';
