@@ -12,9 +12,10 @@
  * `isCapacitorAndroid()`, so the `@capacitor/core` web proxy (which throws
  * "not implemented") is never actually invoked.
  *
- * Diagnose-Status: die Pipeline steht, hat aber KEINEN Auto-Trigger
- * (``maybeSendAudioDiagnostic`` wird aktuell nirgends gerufen — bewusst
- * „deaktiviert"). Scharfschalten = einen Aufruf an der Stelle der Wahl einbauen.
+ * Diagnose-Status: ``maybeSendAudioDiagnostic`` wird beim Voice-Join gefeuert
+ * (in ``livekit.svelte.ts``), nachdem das Routing gesetzt ist — es verifiziert
+ * das Ergebnis (Mode, Communication-Device, SCO-Status) für die „im Auto zu
+ * leise"-Diagnose. Nur unter Capacitor-Android aktiv, sonst No-op.
  */
 import { registerPlugin } from '@capacitor/core';
 import { request } from '$lib/api/client';
@@ -41,6 +42,7 @@ export type AudioDiagnostic = {
 interface AudioRoutePlugin {
   setRoute(opts: { route: AudioRoute }): Promise<void>;
   getRoute(): Promise<{ route: AudioRoute }>;
+  setVoiceActive(opts: { active: boolean }): Promise<void>;
   snapshot(): Promise<AudioDiagnostic>;
 }
 
@@ -53,6 +55,21 @@ export async function setAudioRoute(route: AudioRoute): Promise<void> {
     await plugin.setRoute({ route });
   } catch (e) {
     console.warn('[audioRoute] setRoute failed', e);
+  }
+}
+
+/**
+ * Signal a voice-channel join (`true`) or leave (`false`) to the native router.
+ * On join it forces `MODE_IN_COMMUNICATION` so voice routes to the phone-call
+ * channel (Bluetooth SCO) instead of the media channel (A2DP); on leave it
+ * releases the mode. No-op outside the Android wrapper.
+ */
+export async function setVoiceActive(active: boolean): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    await plugin.setVoiceActive({ active });
+  } catch (e) {
+    console.warn('[audioRoute] setVoiceActive failed', e);
   }
 }
 
@@ -87,9 +104,15 @@ export async function sendAudioDiagnostic(dump: AudioDiagnostic): Promise<void> 
   }
 }
 
-/** Convenience: snapshot + send. Currently NOT wired anywhere (deaktiviert) —
- *  call this from a chosen trigger point (e.g. voice-join) to activate. */
+/** Convenience: snapshot + send, but only when a Bluetooth output is present —
+ *  that is the "too quiet in the car" scenario we diagnose. Skipping the
+ *  non-BT case keeps the backend log focused instead of one entry per join.
+ *  Wired from the voice-join path in `livekit.svelte.ts` (fired once, after
+ *  routing settles). */
 export async function maybeSendAudioDiagnostic(): Promise<void> {
   const dump = await getAudioDiagnostic();
-  if (dump) await sendAudioDiagnostic(dump);
+  if (!dump) return;
+  const hasBluetooth = dump.outputDevices.some((d) => d.type.startsWith('BLUETOOTH'));
+  if (!hasBluetooth) return;
+  await sendAudioDiagnostic(dump);
 }
