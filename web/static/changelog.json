@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.5",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Aufgeräumte Kacheln, neues Aufnahme-Verfahren unter Linux",
+      "items": [
+        "Watch Partys tragen jetzt überall eine Filmklappe statt des Play-Symbols.",
+        "Der Knopf \"In den Fokus holen\" an den Video-Kacheln ist entfallen. Die Kacheln liegen damit immer gleichmäßig im Raster. Vollbild per Doppelklick funktioniert unverändert.",
+        "In Sprechpausen sendet Pulse jetzt immer weniger Daten. Das spart Bandbreite. Der Schalter dafür unter Sprache und Video entfällt.",
+        "Linux-App: Pulse nimmt den Bildschirm mit einem neuen, schnelleren Verfahren auf. Unter Einstellungen, Kompatibilität siehst du, welches gerade läuft, und kannst auf das bewährte zurückschalten."
+      ]
+    },
+    {
       "id": "2026-07-17.4",
       "date": "2026-07-17",
       "style": "Sehr zurückhaltend",
