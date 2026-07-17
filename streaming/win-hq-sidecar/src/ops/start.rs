@@ -221,11 +221,13 @@ fn parse_overrides(
     });
     let bitrate = o.get("bitrate_kbps").and_then(Value::as_u64).map(|n| n as u32);
     let fps = o.get("fps").and_then(Value::as_u64).map(|n| n as u32);
-    // Auflösungs-Map konsistent zum Linux-Sidecar (`gsr-sidecar/stream_controller.py`):
-    // "Native" → None (kein Downscale), sonst Standard-Streaming-Targets. Downscale-
-    // only — Upscale auf größere als Capture-Resolution geht über die Pipeline
-    // nicht (Pool ist auf Capture-Native allokiert).
+    // Auflösungs-Map konsistent zu den Linux-Sidecars: "Native" → None (kein
+    // Downscale), sonst eine BOX, in die `run_pipeline` aspektwahrend einpasst
+    // (`fit_within_box`) — Ultrawide wird also nicht auf 16:9 gestaucht.
+    // Upscale gibt es nie (Pool ist auf Capture-Native allokiert).
     let resolution = o.get("resolution").and_then(Value::as_str).and_then(|s| match s {
+        "4K" => Some((3840u32, 2160u32)),
+        "1440p" => Some((2560u32, 1440u32)),
         "1080p" => Some((1920u32, 1080u32)),
         "720p" => Some((1280u32, 720u32)),
         "480p" => Some((854u32, 480u32)),

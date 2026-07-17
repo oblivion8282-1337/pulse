@@ -111,24 +111,18 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         );
         return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
     }
-    // Downscale-Target mit Upscale-Schutz. Bei dst==src geht der Capture-Frame
-    // direkt in den Encoder; sonst skaliert der `D3D11Scaler` per
-    // `VideoProcessorBlt` auf der GPU davor.
+    // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
+    // kein Upscale, gerade Maße — deckt auch die NV12-Anforderung #7 ab). Bei
+    // dst==src geht der Capture-Frame direkt in den Encoder; sonst skaliert der
+    // `D3D11Scaler` per `VideoProcessorBlt` auf der GPU davor.
     let (dst_w, dst_h) = match params.override_resolution {
-        Some((w, h)) if w <= width && h <= height => (w, h),
-        Some((w, h)) => {
-            eprintln!(
-                "[pipeline-hw] resolution override {}x{} > capture {}x{} — ignored",
-                w, h, width, height
-            );
-            (width, height)
+        Some((box_w, box_h)) => {
+            crate::stream_controller::fit_within_box(width, height, box_w, box_h)
         }
-        None => (width, height),
+        // Native: nur die NV12-Gerade-Rundung (Fenster-Capture liefert
+        // beliebige Client-Größen), sonst unverändert.
+        None => (width & !1, height & !1),
     };
-    // NV12 (4:2:0-Chroma) verlangt gerade Breite/Höhe; Fenster-Capture liefert
-    // beliebige Client-Größen. Auf gerade abrunden, bevor die Dims in den
-    // VideoProcessor/Encoder gehen (#7).
-    let (dst_w, dst_h) = (dst_w & !1, dst_h & !1);
     eprintln!(
         "[pipeline-hw] capture {width}x{height} → encode {dst_w}x{dst_h}@{fps} on {} (vendor={vendor})",
         adapter.description

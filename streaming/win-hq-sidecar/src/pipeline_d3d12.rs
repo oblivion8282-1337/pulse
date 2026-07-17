@@ -85,21 +85,17 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         }
     };
 
-    // Downscale-Target mit Upscale-Schutz (max = Capture-Auflösung).
+    // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
+    // kein Upscale, gerade Maße — deckt auch die NV12-/hwframes-Pool-Anforderung
+    // #7 ab).
     let (dst_w, dst_h) = match params.override_resolution {
-        Some((w, h)) if w <= cap_w && h <= cap_h => (w, h),
-        Some((w, h)) => {
-            eprintln!(
-                "[pipeline-d3d12] resolution override {w}x{h} > capture {cap_w}x{cap_h} — ignored"
-            );
-            (cap_w, cap_h)
+        Some((box_w, box_h)) => {
+            crate::stream_controller::fit_within_box(cap_w, cap_h, box_w, box_h)
         }
-        None => (cap_w, cap_h),
+        // Native: nur die NV12-Gerade-Rundung (Fenster-Capture liefert
+        // beliebige Client-Größen), sonst unverändert.
+        None => (cap_w & !1, cap_h & !1),
     };
-    // NV12 (4:2:0-Chroma) + der NV12-hwframes-Pool verlangen gerade Breite/Höhe;
-    // Fenster-Capture liefert beliebige Client-Größen. Auf gerade abrunden,
-    // bevor die Dims in Converter + Encoder-Pool gehen (#7).
-    let (dst_w, dst_h) = (dst_w & !1, dst_h & !1);
     eprintln!(
         "[pipeline-d3d12] zero-copy: capture {cap_w}x{cap_h} → encode {dst_w}x{dst_h}@{fps} via {}",
         codec.d3d12va_name()
