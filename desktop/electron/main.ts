@@ -46,7 +46,7 @@ import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
-import { checkAndInstallUpdate, wireInAppUpdater, startPeriodicUpdateChecks } from './updater';
+import { startUpdater } from './updater';
 import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
@@ -230,47 +230,6 @@ app.on('open-url', (event, url) => {
   event.preventDefault();
   handleDeepLink(url, () => mainWindow);
 });
-
-let splashWindow: BrowserWindow | null = null;
-
-function createSplashWindow(): BrowserWindow {
-  // Splash-HTML und Icon liegen im gepackten Build NICHT im `__dirname` (asar
-  // virtualisiert das), sondern unter `process.resourcesPath` als extraResources
-  // (siehe electron-builder.yml). `closable: true` (statt false) — falls der
-  // Splash-Check haengt und das Promise nicht resolved, kann der User ihn
-  // wegklicken statt in einer weissen Flaeche gefangen zu sein; das close-
-  // Event setzt den Ref auf null, damit der Boot-Aftermath-Cleanup nicht
-  // versucht, ein geschlossenes Window zu nutzen.
-  const splash = new BrowserWindow({
-    width: 480,
-    height: 360,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    closable: true,
-    frame: false,
-    show: false,
-    title: 'Pulse Update',
-    icon: path.join(process.resourcesPath, 'build-resources', 'icon.png'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  splash.on('closed', () => {
-    splashWindow = null;
-  });
-  splash.once('ready-to-show', () => splash.show());
-  splash.loadFile(
-    path.join(process.resourcesPath, 'build-resources', 'update-splash.html')
-  );
-
-  return splash;
-}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -1077,7 +1036,7 @@ app.on('second-instance', (_event, argv) => {
 // hold-to-talk. The in-window PTT in VoiceChannelView.svelte (@svelte-put/shortcut)
 // still works.
 
-async function bootWithUpdateCheck(): Promise<void> {
+async function bootClient(): Promise<void> {
   // Dev-run Dock icon (macOS)
   if (process.platform === 'darwin' && !app.isPackaged && app.dock) {
     const iconPath = path.join(__dirname, '..', '..', 'build-resources', 'icon.png');
@@ -1108,79 +1067,10 @@ async function bootWithUpdateCheck(): Promise<void> {
   wireStore();
   wireInvitePull();
 
-  // ── Update-Check mit optimierter UX ──
-  // Der Splash-Screen wird nur erstellt, wenn wir wirklich im Update-Check sind.
-  // In dev / auf Linux / ohne App-Package wird der Splash übersprungen.
-  const needsUpdateCheck = app.isPackaged && process.platform === 'win32';
-
-  let updateHadError = false;
-
-  if (needsUpdateCheck) {
-    // Splash VOR dem Check erstellen (ready-to-show zeigt ihn an)
-    splashWindow = createSplashWindow();
-
-    // Warte auf dom-ready, damit das Splash-Fenster komplett geladen ist
-    // und der IPC-Handler registriert wurde, bevor wir Events senden
-    await new Promise<void>((resolve) => {
-      if (!splashWindow || splashWindow.isDestroyed()) {
-        resolve();
-        return;
-      }
-      splashWindow.webContents.once('dom-ready', () => resolve());
-      // Fallback: Falls dom-ready nicht feuert (extrem unwahrscheinlich), nach 500ms weiter
-      setTimeout(() => resolve(), 500);
-    });
-
-    // Update-Check mit Progress-Callback an Splash
-    const { updated } = await checkAndInstallUpdate((progress) => {
-      if (splashWindow && !splashWindow.isDestroyed()) {
-        splashWindow.webContents.send('update-progress', progress);
-      }
-
-      // UX-Improvement: Wenn "no-update" oder "error", Splash schneller schließen
-      if (progress.type === 'no-update') {
-        // 300ms Sichtbarkeit für "Kein Update verfügbar" — genügt für einen
-        // kurzen Flash, fühlt sich aber nicht an wie ein hängen
-        setTimeout(() => {
-          if (splashWindow && !splashWindow.isDestroyed()) {
-            splashWindow.close();
-            splashWindow = null;
-          }
-        }, 300);
-      } else if (progress.type === 'error') {
-        updateHadError = true;
-        // 1s Sichtbarkeit für Fehlermeldungen
-        setTimeout(() => {
-          if (splashWindow && !splashWindow.isDestroyed()) {
-            splashWindow.close();
-            splashWindow = null;
-          }
-        }, 1000);
-      }
-    });
-
-    // Wenn ein Update gefunden + heruntergeladen wurde, loest
-    // `quitAndInstall` die App innerhalb von ~1 s nach dem `ready`-Progress
-    // auf. Wir springen aus `bootWithUpdateCheck` zurueck OHNE die
-    // Haupt-App zu starten (Tray / BrowserWindow / Sidecar etc.) — sonst
-    // blitzt das Hauptfenster fuer ca. 1 s auf, bevor der Installer den
-    // Prozess wieder beendet. Der Splash schliesst sich automatisch mit
-    // dem App-Quit, der `before-quit`-Handler macht den Sidecar-Cleanup.
-    if (updated) {
-      return;
-    }
-
-    // Wenn der Splash noch da ist (Update wurde gefunden), wird er erst nach
-    // quitAndInstall() geschlossen. Wenn kein Update da war, ist er schon weg.
-  }
-
-  // Splash aufräumen (falls noch da und nicht durch den Progress-Handler geschlossen)
-  if (splashWindow && !splashWindow.isDestroyed()) {
-    splashWindow.close();
-    splashWindow = null;
-  }
-
-  // Jetzt Haupt-App starten
+  // Auto-Update läuft im Hintergrund (kein Boot-Splash mehr): die Haupt-App
+  // startet sofort, `startUpdater` (weiter unten) lädt ein Update still herunter
+  // und zeigt den „Update bereit"-Prompt im Hauptfenster-Renderer. Details:
+  // updater.ts.
   wireHost(() => mainWindow);
   wireSidecar();
   wireScreenShare();
@@ -1198,13 +1088,11 @@ async function bootWithUpdateCheck(): Promise<void> {
     }
   );
 
-  // In-App-Updater für spätere manuelle Checks
-  wireInAppUpdater(() => mainWindow);
-  // Periodischer Hintergrund-Re-Check (60 Min). stoppt sich selbst, wenn wir
-  // kein gepackter Windows-Build sind; die Cleanup-Funktion ist in dem Fall
-  // ein no-op (siehe updater.ts::startPeriodicUpdateChecks). Auf
-  // Modul-Scope, damit `before-quit` immer greifen kann.
-  stopPeriodicUpdateChecks = startPeriodicUpdateChecks();
+  // Auto-Update: registriert die Renderer-Events + IPC-Handler und startet den
+  // Boot- + periodischen Hintergrund-Check in EINEM Aufruf. Inert (Cleanup =
+  // no-op), wenn kein gepackter Windows-Build (siehe updater.ts::startUpdater).
+  // Die Cleanup-Funktion auf Modul-Scope, damit `before-quit` sie immer findet.
+  stopUpdater = startUpdater(() => mainWindow);
 
   // Tray-Status IPC
   ipcMain.on('tray:setStatus', (_e, payload: unknown) => {
@@ -1254,7 +1142,7 @@ async function bootServer(): Promise<void> {
   );
 }
 
-app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootWithUpdateCheck()));
+app.whenReady().then(() => void (SERVER_MODE ? bootServer() : bootClient()));
 
 // With close-to-tray, `window-all-closed` only fires after a real quit (when
 // `isQuitting` is set and the window is destroyed). On non-darwin we still want
@@ -1275,13 +1163,13 @@ app.on('activate', () => {
 // for any quit path (tray menu, OS logout, programmatic `app.quit()`).
 let didShutdownSidecar = false;
 // Modul-Scope, damit `before-quit` ihn auch dann finden kann, wenn Quit
-// feuert bevor `bootWithUpdateCheck` den Timer ueberhaupt initialisiert hat.
+// feuert bevor `bootClient` den Timer ueberhaupt initialisiert hat.
 // Initial ein no-op — sobald der Timer wirklich laeuft, wird die Funktion
-// in `bootWithUpdateCheck` ueberschrieben.
-let stopPeriodicUpdateChecks: () => void = () => undefined;
+// in `bootClient` ueberschrieben.
+let stopUpdater: () => void = () => undefined;
 app.on('before-quit', (event) => {
   isQuitting = true;
-  stopPeriodicUpdateChecks();
+  stopUpdater();
   if (didShutdownSidecar) return;
   event.preventDefault();
   didShutdownSidecar = true;

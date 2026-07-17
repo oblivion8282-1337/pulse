@@ -1,0 +1,23 @@
+# Lokaler Auto-Update-Test OHNE Image-Push (electron-updater dev config).
+#
+# Nur aktiv, wenn `PULSE_DEV_UPDATE=1` gesetzt ist (siehe electron/updater.ts:
+# forceDevUpdateConfig). electron-updater liest diese Datei dann statt des
+# gepackten `app-update.yml` und pollt den unten stehenden Feed — so läuft der
+# komplette Fluss (check → download → „Update bereit"-Prompt) unter `pnpm dev`.
+#
+# Test-Ablauf:
+#   1. `pnpm dist:win` einmal bauen → aus release/ die `latest.yml`,
+#      `Pulse-Setup-<v>.exe` + `.blockmap` in einen Ordner legen und die
+#      Version in package.json HÖHER stellen als die laufende (z.B. 0.1.99).
+#   2. In dem Ordner einen Static-Server starten:
+#        python -m http.server 8888
+#   3. Pulse im Dev-Modus mit aktivem Updater starten:
+#        cd desktop && PULSE_DEV_UPDATE=1 PULSE_UPDATE_INTERVAL_MS=30000 pnpm dev
+#      → nach ~4 s Boot-Check, „Update bereit"-Toast, „Neu starten" testet den
+#      echten Installer-Lauf.
+#
+# Der echte finale NSIS-Swap (quitAndInstall) lässt sich nur gegen einen
+# INSTALLIERTEN Build final verifizieren — dann denselben localhost-Feed nutzen.
+provider: generic
+url: http://localhost:8888/
+updaterCacheDirName: pulse-updater-dev

@@ -53,13 +53,7 @@ files:
 # `<resourcesPath>/tray/` (Win: neben app.asar im Install-Verz., macOS: in
 # Pulse.app/Contents/Resources/tray/, Linux: appDir/resources/tray/).
 #
-# Nur die Tray-Icons sind plattformübergreifend und daher top-level. Der
-# Update-Splash (update-splash.html + Splash-Icon) ist Windows-only
-# (`main.ts::createSplashWindow` läuft nur unter `app.isPackaged && win32`) und
-# liegt deshalb in der `win:`-Sektion — top-level würde electron-builder ihn in
-# den Mac-Build mergen, wo beide Splash-Files auf `build-resources/` zeigen und
-# der Hardlink mit `EEXIST … Resources/build-resources` scheitert (macOS-FS-
-# Verhalten; Windows lief mit derselben Config durch).
+# Nur die Tray-Icons sind plattformübergreifend und daher top-level.
 extraResources:
   - from: build-resources/tray
     to: tray
@@ -79,20 +73,6 @@ win:
       filter:
         - pulse-win-hq-sidecar.exe
         - "*.dll"
-    # Update-Splash — Windows-only (`main.ts::createSplashWindow`, gated auf
-    # `app.isPackaged && win32`). Beides braucht `BrowserWindow.loadFile` /
-    # `nativeImage.createFromPath` zur Laufzeit über `process.resourcesPath`; im
-    # asar versteckte Pfade → ERR_FILE_NOT_FOUND. Das Splash-Logo (Pulse-Mark)
-    # ist als SVG-data-URI in die update-splash.html eingebettet — nicht als
-    # eigene Datei gepackt, weil electron-builder auf Windows-Runnern sonst an
-    # `EBUSY` beim copyfile der .svg scheitert (Defender/SVG-Handler).
-    # Trailing-Slash bei `to:` ist Pflicht — ohne interpretiert electron-builder
-    # den Pfad als literalen Zieldateinamen, beide Files kollidieren auf
-    # `build-resources` (Bug-Fix 0.1.33).
-    - from: build-resources/update-splash.html
-      to: build-resources/
-    - from: build-resources/icon.png
-      to: build-resources/
     # App-Hosting-Podman-Bündelung (resources-podman → podman) entfernt, weil
     # App-Hosting geparkt ist (2026-07-14) — der Windows-Client hostet nicht
     # mehr, das gebündelte Podman war totes Gewicht im Installer. Zum
