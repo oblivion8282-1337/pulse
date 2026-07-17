@@ -227,9 +227,6 @@ class SettingsStore {
   setLimiterEnabled(v: boolean): void {
     this.#audio.set('limiterEnabled', v);
   }
-  setDtxEnabled(v: boolean): void {
-    this.#audio.set('dtxEnabled', v);
-  }
   setSpatialMode(v: SpatialMode): void {
     this.#audio.set('spatialMode', parseSpatialMode(v));
   }

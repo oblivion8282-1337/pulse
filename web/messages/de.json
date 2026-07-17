@@ -1783,8 +1783,6 @@
   "settings_audio_video_mic_clipping": "Mic-Eingang clippt — OS-Pegel reduzieren",
   "settings_audio_video_mic_ok": "Mic-Eingang ok",
   "settings_audio_video_microphone": "Mikrofon",
-  "settings_audio_video_dtx_description": "Sendet in Sprechpausen weniger Daten — spart Upload-Bandbreite, kann die Audioqualität leicht senken.",
-  "settings_audio_video_dtx_enable": "DTX aktivieren",
   "settings_audio_video_noise_suppression_description": "Schneidet Hintergrundgeräusche weg und macht Pausen zwischen Wörtern sauber.",
   "settings_audio_video_noise_suppression_label": "Rauschunterdrückung",
   "settings_audio_video_output_device_label": "Ausgabe",
