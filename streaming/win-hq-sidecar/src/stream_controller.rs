@@ -73,9 +73,10 @@ pub struct StartParams {
     pub override_codec: Option<VideoCodec>,
     pub override_bitrate_kbps: Option<u32>,
     pub override_fps: Option<u32>,
-    /// Downscale-Target (1920x1080, 1280x720, 854x480). `None` = capture-native.
-    /// Upscale wird nicht unterstützt — wenn target > capture-res, ignoriert die
-    /// Pipeline das (s. `run_pipeline`).
+    /// Auflösungs-BOX (z.B. 1920x1080), in die das Capture-Bild aspektwahrend
+    /// eingepasst wird (`fit_within_box`) — ein 21:9-Monitor wird bei "1080p"
+    /// also 1920x804, nicht auf 16:9 gestaucht. `None` = capture-native.
+    /// Upscale gibt es nie (Box größer als Capture → native Maße).
     pub override_resolution: Option<(u32, u32)>,
     /// Mauszeiger im Stream zeigen. Default `true` (entspricht GSRs `-cursor yes`).
     /// `false` → WGC `CursorCaptureSettings::WithoutCursor`.
@@ -335,20 +336,20 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             ..AudioStreamConfig::DEFAULT
         });
 
-        // dst_width/dst_height aus override (mit Upscale-Schutz: max = capture-native).
-        // Bei Match dst==src degeneriert swscale zu reinem Format-Convert; sonst
-        // triggert `FfmpegEncoder::create` automatisch den Downscale-Pfad.
+        // dst_width/dst_height: Capture aspektwahrend in die Override-Box einpassen
+        // (kein Upscale; Box ≥ Capture → native Maße). Bei dst==src degeneriert
+        // swscale zu reinem Format-Convert; sonst triggert `FfmpegEncoder::create`
+        // automatisch den Downscale-Pfad.
         let (dst_w, dst_h) = match params.override_resolution {
-            Some((w, h)) if w <= first.width && h <= first.height => (w, h),
-            Some((w, h)) => {
-                eprintln!(
-                    "[stream-pipeline] resolution override {}x{} > capture {}x{} — ignored",
-                    w, h, first.width, first.height
-                );
-                (first.width, first.height)
-            }
+            Some((box_w, box_h)) => fit_within_box(first.width, first.height, box_w, box_h),
             None => (first.width, first.height),
         };
+        if (dst_w, dst_h) != (first.width, first.height) {
+            eprintln!(
+                "[stream-pipeline] downscale {}x{} -> {}x{} (aspektwahrend)",
+                first.width, first.height, dst_w, dst_h
+            );
+        }
         let mut encoder = FfmpegEncoder::create(
             &EncoderConfig {
                 codec,
@@ -599,5 +600,42 @@ fn redact_token(url: &str) -> String {
         }
     }
     s
+}
+
+/// Capture-Maße aspektwahrend in eine Box einpassen — nie hochskalieren, Maße
+/// auf gerade Werte runden (4:2:0-Encoder-Anforderung). Gleiche Semantik wie
+/// `ResolutionRequest::target_for` im Linux-Rust-Sidecar; vorher wurde die Box
+/// wörtlich genommen und Ultrawide auf 16:9 gestaucht. Von allen drei
+/// Pipelines genutzt (CPU hier, `pipeline_hw`, `pipeline_d3d12`).
+pub(crate) fn fit_within_box(native_w: u32, native_h: u32, box_w: u32, box_h: u32) -> (u32, u32) {
+    let even = |n: u32| (n & !1).max(2);
+    let scale = f64::min(
+        box_w as f64 / native_w.max(1) as f64,
+        box_h as f64 / native_h.max(1) as f64,
+    )
+    .min(1.0); // kein Upscale
+    let w = (native_w as f64 * scale).round() as u32;
+    let h = (native_h as f64 * scale).round() as u32;
+    (even(w), even(h))
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::fit_within_box;
+
+    #[test]
+    fn fit_keeps_aspect_never_upscales() {
+        // 16:9-Quelle + passende Box → exakt die Box.
+        assert_eq!(fit_within_box(3840, 2160, 1920, 1080), (1920, 1080));
+        // 21:9-Ultrawide + 1080p-Box → volle Breite, Höhe aspektwahrend < 1080.
+        let (w, h) = fit_within_box(3440, 1440, 1920, 1080);
+        assert_eq!(w, 1920);
+        assert!(h < 1080 && h % 2 == 0, "aspektwahrend + gerade: {h}");
+        // Quelle kleiner als Box → native Maße (kein Upscale).
+        assert_eq!(fit_within_box(1280, 720, 1920, 1080), (1280, 720));
+        // Ungerade Ergebnisse werden auf gerade Maße gerundet.
+        let (_, h) = fit_within_box(2560, 1080, 1920, 1080);
+        assert_eq!(h % 2, 0);
+    }
 }
 
