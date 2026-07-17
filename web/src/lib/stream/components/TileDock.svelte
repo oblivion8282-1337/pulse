@@ -8,7 +8,7 @@
 
   Responsives Kollabieren (`wide`): in breiten Kacheln liegen alle Controls
   inline; in schmalen Grid-Kacheln bleiben nur Essentielles (Lautstärke +
-  Vollbild) sichtbar, der Rest (Stats/Chat/Detach/Fokus/Schließen) wandert in
+  Vollbild) sichtbar, der Rest (Stats/Chat/Detach/Schließen) wandert in
   ein ⋯-Menü. Lautstärke bleibt bewusst immer direkt erreichbar — sie ist die
   meistgenutzte Steuerung. `wide` ist im Vollbild immer true (Kachel ist groß).
 
@@ -24,8 +24,6 @@
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import ActivityIcon from '@lucide/svelte/icons/activity';
-  import FocusIcon from '@lucide/svelte/icons/focus';
-  import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import XIcon from '@lucide/svelte/icons/x';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import { m } from '$lib/paraglide/messages.js';
@@ -53,8 +51,6 @@
     controlsExtra,
     onDetach,
     showDetach = false,
-    onToggleFocus,
-    focused = false,
     isFullscreen = false,
     onToggleFullscreen,
     onHide
@@ -78,8 +74,6 @@
     controlsExtra?: Snippet;
     onDetach?: () => void;
     showDetach?: boolean;
-    onToggleFocus?: () => void;
-    focused?: boolean;
     isFullscreen?: boolean;
     onToggleFullscreen?: () => void;
     onHide?: () => void;
@@ -102,7 +96,7 @@
 
   // Welche Sekundär-Aktionen liegen vor → bestimmt, ob das ⋯-Menü im
   // Narrow-Modus überhaupt nötig ist.
-  const hasOverflow = $derived(hasStats || !!onToggleChat || showDetach || !!onToggleFocus || !!onHide);
+  const hasOverflow = $derived(hasStats || !!onToggleChat || showDetach || !!onHide);
 </script>
 
 {#snippet fullscreenBtn()}
@@ -217,18 +211,6 @@
           <ExternalLinkIcon class={ICON} />
         </button>
       {/if}
-      {#if onToggleFocus}
-        <button
-          type="button"
-          onclick={() => onToggleFocus?.()}
-          class={btn()}
-          aria-label={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
-          title={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
-          data-testid={`${testidPrefix}-focus-toggle`}
-        >
-          {#if focused}<LayoutGridIcon class={ICON} />{:else}<FocusIcon class={ICON} />{/if}
-        </button>
-      {/if}
       {@render fullscreenBtn()}
       {#if onHide}
         <button
@@ -280,17 +262,6 @@
               >
                 <MessageSquareIcon class={ICON} />
                 {chatOpen ? m.tile_shell_chat_close() : m.tile_shell_chat_open()}
-              </DropdownMenu.Item>
-            {/if}
-            {#if onToggleFocus}
-              <DropdownMenu.Item
-                onclick={() => onToggleFocus?.()}
-                data-testid={`${testidPrefix}-focus-toggle`}
-              >
-                {#if focused}<LayoutGridIcon class={ICON} />{:else}<FocusIcon
-                    class={ICON}
-                  />{/if}
-                {focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
               </DropdownMenu.Item>
             {/if}
             {#if showDetach}

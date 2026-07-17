@@ -41,10 +41,7 @@
     streamSlot = 0,
     name,
     canDetach = true,
-    canHide = true,
-    compact = false,
-    focused = false,
-    onToggleFocus
+    canHide = true
   }: {
     channelId: string;
     userId: string;
@@ -55,11 +52,6 @@
     canDetach?: boolean;
     /** Wenn false, kein Hide-Button — im Popup-Fenster sinnlos. */
     canHide?: boolean;
-    /** Filmstrip-Kachel im Fokus-Modus. */
-    compact?: boolean;
-    /** Diese Kachel ist die fokussierte (große). */
-    focused?: boolean;
-    onToggleFocus?: () => void;
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -196,9 +188,6 @@
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
-  {compact}
-  {focused}
-  {onToggleFocus}
   stats={statsPill}
 >
   {#snippet media()}

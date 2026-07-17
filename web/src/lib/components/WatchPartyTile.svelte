@@ -48,21 +48,9 @@
     /** Wenn false (Popup-Modus), kein Detach-Button — wir sind ja schon
      *  entkoppelt. */
     canDetach?: boolean;
-    /** Filmstrip-Kachel im Fokus-Modus. */
-    compact?: boolean;
-    /** Diese Kachel ist die fokussierte (große). */
-    focused?: boolean;
-    onToggleFocus?: () => void;
   }
 
-  let {
-    channelId,
-    party,
-    canDetach = true,
-    compact = false,
-    focused = false,
-    onToggleFocus
-  }: Props = $props();
+  let { channelId, party, canDetach = true }: Props = $props();
 
   // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
   let chatOpen = $state(false);
@@ -255,9 +243,6 @@
     if (!isHost) gateway.sendWatchLeave(channelId, partyId);
     watchBackground.closeParty(channelId, partyId);
   }}
-  {compact}
-  {focused}
-  {onToggleFocus}
 >
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">

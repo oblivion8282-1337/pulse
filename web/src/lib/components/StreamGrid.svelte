@@ -7,8 +7,7 @@
   floating corner window when the anchor is gone — that's how HQ streams,
   webcams, and screen share keep playing when you navigate away.
 
-  Layout: grid (equal tiles) OR focus mode — one tile large, the rest as a
-  filmstrip row underneath. Detached tiles don't appear as placeholders.
+  Layout: a grid of equal tiles. Detached tiles don't appear as placeholders.
 -->
 <script lang="ts">
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
@@ -22,7 +21,6 @@
   import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
   import { hqTileId } from '$lib/stream/hqTile';
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
-  import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
@@ -132,49 +130,19 @@
     (cid, key) => openedTiles.close(key.kind, cid, key.identity)
   );
 
-  // Stable tile keys in render order (parties · self-cam · HQ · screens · cams).
-  let tileKeys = $derived([
-    ...openParties.map((p) => `party:${p.party_id}`),
-    ...(showSelfCam ? ['selfcam'] : []),
-    ...openHqTiles.map((id) => `hq:${id}`),
-    ...openScreens.map((s) => `screen:${s.identity}`),
-    ...openCameras.map((c) => `cam:${c.identity}`)
-  ]);
-  let videoTileCount = $derived(tileKeys.length);
-
-  // --- Focus mode -------------------------------------------------------
-  // `focusedKey` lives in the `streamFocus` store (shared source for
-  // StreamGrid AND the background hosts, so the focus button works on a
-  // docked tile too). `focusMode` additionally checks that ≥2 tiles exist
-  // and the focused one is still present (otherwise fall back to grid).
-  let focusedKey = $derived(streamFocus.channelId === channel.id ? streamFocus.key : null);
-  let focusMode = $derived(
-    focusedKey !== null && videoTileCount > 1 && tileKeys.includes(focusedKey)
+  // Open tiles across all kinds (parties · self-cam · HQ · screens · cams) —
+  // drives the column heuristic below.
+  let videoTileCount = $derived(
+    openParties.length +
+      (showSelfCam ? 1 : 0) +
+      openHqTiles.length +
+      openScreens.length +
+      openCameras.length
   );
-
-  // Reset focus when the channel is "really" left (disconnect / switch to a
-  // different voice channel). On a pure navigate-away to a text channel /
-  // DM the focus is preserved — you return to the tile with the same focus.
-  $effect(() => {
-    channel.id;
-    return () => {
-      if (!inVoiceChannel(channel.id)) streamFocus.resetForChannel(channel.id);
-    };
-  });
-
-  /** Inline grid placement: the focused tile spans the top row. */
-  function cellStyle(key: string): string {
-    return focusMode && focusedKey === key ? 'grid-column: 1 / -1; grid-row: 1;' : '';
-  }
 
   // Inline grid-template — Tailwind class interpolation could leave a stale
   // `grid-cols-*`, so we set it as a style binding instead.
   let gridStyle = $derived.by(() => {
-    if (focusMode) {
-      const n = Math.max(1, videoTileCount - 1);
-      const strip = viewport.isMobile ? '4.75rem' : '6.5rem';
-      return `grid-template-columns: repeat(${n}, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) ${strip};`;
-    }
     // Mobile: always 1 column; multiple tiles share the height (auto-rows-fr).
     if (viewport.isMobile) return 'grid-template-columns: minmax(0, 1fr);';
     const cols =
@@ -185,59 +153,44 @@
 
 <div class="relative flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
   <div
-    class="grid min-h-0 flex-1 gap-2 {focusMode ? '' : 'auto-rows-fr'}"
+    class="grid min-h-0 flex-1 auto-rows-fr gap-2"
     style={gridStyle}
     data-testid="stream-grid"
-    data-focus-mode={focusMode}
   >
     {#each openParties as party (party.party_id)}
-      {@const key = `party:${party.party_id}`}
-      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <div
-          class="h-full w-full"
-          use:partyAnchor={{ channelId: channel.id, key: party.party_id }}
-          data-testid="watch-anchor"
-        ></div>
-      </div>
+      <div
+        class="h-full min-h-0 w-full min-w-0"
+        use:partyAnchor={{ channelId: channel.id, key: party.party_id }}
+        data-testid="watch-anchor"
+      ></div>
     {/each}
     {#if showSelfCam}
-      <div class="min-h-0 min-w-0" style={cellStyle('selfcam')}>
-        <div
-          class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, key: { identity: SELF_CAM_ID, kind: 'cam' } }}
-          data-testid="selfcam-anchor"
-        ></div>
-      </div>
+      <div
+        class="h-full min-h-0 w-full min-w-0"
+        use:lkAnchor={{ channelId: channel.id, key: { identity: SELF_CAM_ID, kind: 'cam' } }}
+        data-testid="selfcam-anchor"
+      ></div>
     {/if}
     {#each openHqTiles as tileId (tileId)}
-      {@const key = `hq:${tileId}`}
-      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <div
-          class="h-full w-full"
-          use:hqAnchor={{ channelId: channel.id, key: tileId }}
-          data-testid="hq-anchor"
-        ></div>
-      </div>
+      <div
+        class="h-full min-h-0 w-full min-w-0"
+        use:hqAnchor={{ channelId: channel.id, key: tileId }}
+        data-testid="hq-anchor"
+      ></div>
     {/each}
     {#each openScreens as st (st.identity)}
-      {@const key = `screen:${st.identity}`}
-      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <div
-          class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, key: { identity: st.identity, kind: 'screen' } }}
-          data-testid="screen-anchor"
-        ></div>
-      </div>
+      <div
+        class="h-full min-h-0 w-full min-w-0"
+        use:lkAnchor={{ channelId: channel.id, key: { identity: st.identity, kind: 'screen' } }}
+        data-testid="screen-anchor"
+      ></div>
     {/each}
     {#each openCameras as ct (ct.identity)}
-      {@const key = `cam:${ct.identity}`}
-      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <div
-          class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, key: { identity: ct.identity, kind: 'cam' } }}
-          data-testid="cam-anchor"
-        ></div>
-      </div>
+      <div
+        class="h-full min-h-0 w-full min-w-0"
+        use:lkAnchor={{ channelId: channel.id, key: { identity: ct.identity, kind: 'cam' } }}
+        data-testid="cam-anchor"
+      ></div>
     {/each}
   </div>
 

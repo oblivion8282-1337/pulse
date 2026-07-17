@@ -1,7 +1,7 @@
 <!--
   TileShell — gemeinsame Chrome für alle Video-Kacheln eines Voice-Channels
   (HQ-Stream, Screenshare, Webcam, Watch Party). Trägt Rahmen, Video-Fläche,
-  die Steuerleiste (`TileDock`), Stats-Overlay, Fullscreen, Detach/Hide/Fokus
+  die Steuerleiste (`TileDock`), Stats-Overlay, Fullscreen, Detach/Hide
   und die Chat-Slots. Die vier Tile-Komponenten liefern nur ihren Video-Inhalt
   + kind-spezifische Stücke als Snippets.
 
@@ -12,11 +12,6 @@
   2,5 s weg. Für die Watch-Party (iframe) ist die Leiste-darunter ideal: der
   alte Klick-Fänger über dem iframe (`staticHud`) entfällt, weil nichts mehr
   über dem Video liegt.
-
-  compact (Filmstrip-Kachel im Fokus-Modus): keine Leiste, das ganze Tile ist
-  ein Button der `onToggleFocus` feuert. Das `media`-Snippet liegt IMMER an
-  derselben Stelle im DOM — `compact`/Fokus-Wechsel tauscht nur die Chrome
-  darüber, nie das Video selbst (sonst WHEP-/LiveKit-Reconnect).
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -51,9 +46,6 @@
     onToggleChat,
     onDetach,
     onHide,
-    compact = false,
-    focused = false,
-    onToggleFocus,
     media,
     overlay,
     stats,
@@ -87,12 +79,6 @@
     onToggleChat?: () => void;
     onDetach?: () => void;
     onHide?: () => void;
-    /** Filmstrip-Kachel im Fokus-Modus: keine Leiste, ganzes Tile = Fokus. */
-    compact?: boolean;
-    /** Diese Kachel ist die fokussierte (große) im Fokus-Modus. */
-    focused?: boolean;
-    /** Gesetzt → Fokus-Umschalter sichtbar. compact: ganzes Tile feuert ihn. */
-    onToggleFocus?: () => void;
     media: Snippet;
     overlay?: Snippet;
     stats?: Snippet;
@@ -132,7 +118,7 @@
   const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.isMobile);
 
   function pokeHud(): void {
-    if (!isFullscreen || compact || staticHud) return;
+    if (!isFullscreen || staticHud) return;
     hudVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -170,8 +156,6 @@
     controlsExtra,
     onDetach,
     showDetach,
-    onToggleFocus,
-    focused,
     isFullscreen,
     onToggleFullscreen: toggleFs,
     onHide
@@ -220,66 +204,47 @@
       {@render media()}
       {@render overlay?.()}
 
-      {#if compact}
-        <!-- Filmstrip-Kachel: das ganze Tile ist ein Fokus-Button. -->
-        <button
-          type="button"
-          onclick={() => onToggleFocus?.()}
-          class="group absolute inset-0 flex items-end"
-          aria-label={m.tile_shell_focus_tile({ name })}
-          data-testid={`${testidPrefix}-focus`}
+      {#if !staticHud}
+        <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
+             Doppelklick → Fullscreen (Desktop), Tap → Leiste toggeln nur im
+             Vollbild (Mobile). -->
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div
+          class="absolute inset-0 cursor-pointer"
+          onclick={handleCatcherClick}
+          ondblclick={handleCatcherDblClick}
+          aria-hidden="true"
+          title={isFullscreen ? undefined : m.tile_shell_dblclick_fullscreen()}
+        ></div>
+      {/if}
+
+      <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
+      {#if showStats}
+        <div class="absolute left-2 top-2 {isFullscreen ? fadeClass : ''}">
+          {@render stats?.()}
+        </div>
+      {/if}
+
+      <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand.
+           NICHT bei der Watch-Party (staticHud) — dort würde das Overlay die
+           nativen iframe-Controls verdecken; die kriegt stattdessen die
+           solide Leiste darunter (siehe unten). -->
+      {#if isFullscreen && !staticHud}
+        <div
+          class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
         >
-          <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
-          <div
-            class="relative m-1 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white"
-          >
-            <KindIcon class="size-2.5 {kindIconColor}" />
-            <span class="max-w-24 truncate">{name}</span>
-          </div>
-        </button>
-      {:else}
-        {#if !staticHud}
-          <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
-               Doppelklick → Fullscreen (Desktop), Tap → Leiste toggeln nur im
-               Vollbild (Mobile). -->
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <div
-            class="absolute inset-0 cursor-pointer"
-            onclick={handleCatcherClick}
-            ondblclick={handleCatcherDblClick}
-            aria-hidden="true"
-            title={isFullscreen ? undefined : m.tile_shell_dblclick_fullscreen()}
-          ></div>
-        {/if}
+          <TileDock {...dockProps} overlay wide={dockWide} />
+        </div>
+      {/if}
 
-        <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
-        {#if showStats}
-          <div class="absolute left-2 top-2 {isFullscreen ? fadeClass : ''}">
-            {@render stats?.()}
-          </div>
-        {/if}
-
-        <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand.
-             NICHT bei der Watch-Party (staticHud) — dort würde das Overlay die
-             nativen iframe-Controls verdecken; die kriegt stattdessen die
-             solide Leiste darunter (siehe unten). -->
-        {#if isFullscreen && !staticHud}
-          <div
-            class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
-          >
-            <TileDock {...dockProps} overlay wide={dockWide} />
-          </div>
-        {/if}
-
-        {#if isFullscreen && chatOpen}
-          {@render chatOverlay?.()}
-        {/if}
-        {#if chatOpen && !isFullscreen && viewport.isMobile}
-          <!-- Mobile: Chat als Vollflächen-Overlay statt Seitenpanel. -->
-          <div class="absolute inset-0 z-20">
-            {@render chatPanel?.()}
-          </div>
-        {/if}
+      {#if isFullscreen && chatOpen}
+        {@render chatOverlay?.()}
+      {/if}
+      {#if chatOpen && !isFullscreen && viewport.isMobile}
+        <!-- Mobile: Chat als Vollflächen-Overlay statt Seitenpanel. -->
+        <div class="absolute inset-0 z-20">
+          {@render chatPanel?.()}
+        </div>
       {/if}
     </div>
 
@@ -287,14 +252,14 @@
          Vollbilds — aber die Watch-Party (staticHud) behält sie auch im
          Vollbild solide darunter, damit das iframe (leicht kleiner) seine
          nativen Controls frei darüber behält. -->
-    {#if !compact && (!isFullscreen || staticHud)}
+    {#if !isFullscreen || staticHud}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>
     {/if}
   </div>
 
-  {#if !compact && chatOpen && !isFullscreen && !viewport.isMobile}
+  {#if chatOpen && !isFullscreen && !viewport.isMobile}
     {@render chatPanel?.()}
   {/if}
 </div>
