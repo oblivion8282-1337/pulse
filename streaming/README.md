@@ -1,8 +1,18 @@
 # streaming/ — HQ-Screen-Streaming für Pulse
 
-Zwei Plattform-Sidecars, **gleiches stdio-JSON-RPC-Protokoll**: Linux nutzt GPU Screen Recorder (`gsr-sidecar/`,
-Python), Windows nutzt einen eigenen Rust-Sidecar (`win-hq-sidecar/`, WGC + WASAPI + ffmpeg-next). Beide pushen via
-RTMPS an MediaMTX → Viewer holen den Stream per WHEP.
+Mehrere Plattform-Sidecars, **gleiches stdio-JSON-RPC-Protokoll**. Alle pushen via RTMPS an MediaMTX → Viewer holen
+den Stream per WHEP.
+
+| Plattform | Sidecar | liegt in |
+|---|---|---|
+| **Linux (Standard)** | `pulse-linux-hq-sidecar` (Rust, PipeWire + VAAPI/NVENC) | **eigenem Repo** — [pulse-linux-hq-sidecar](https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar), per Commit in `packaging/com.howispulse.Pulse.yml` gepinnt |
+| **Linux (Fallback)** | GPU Screen Recorder | `gsr-sidecar/` (Python) |
+| Windows | WGC + WASAPI + ffmpeg-next | `win-hq-sidecar/` (Rust) |
+| macOS | ScreenCaptureKit + VideoToolbox | `mac-hq-sidecar/` (Rust) |
+
+Auf Linux wählt `desktop/electron/sidecar.ts::resolveLinuxSpawn()`: Rust zuerst, bei fehlendem Binary **automatisch**
+GSR. Der Kompatibilitäts-Tab zeigt, welcher Weg läuft, und erlaubt das erzwungene Zurückschalten
+(`useLegacyGsrSidecar`). Bis 2026-07-17 war es umgekehrt — Rust war ein Opt-in-Experiment.
 
 GSR-Teil ist vendored aus `~/Dokumente/GPU_Screen_Recorder/` (2026-05-11). Das **Original-Repo bleibt unangetastet** —
 es ist das bewährte Standalone-GSR-Setup mit Qt-UI und eigenem Flatpak; hier liegt nur die für Pulse gebrauchte

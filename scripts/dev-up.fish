@@ -198,14 +198,17 @@ else
     _warn "GSR-Binary fehlt — HQ-Stream-Button bleibt versteckt. (`streaming/bootstrap-gsr.fish` baut es.)"
 end
 
-# Experimenteller Rust-Linux-HQ-Sidecar (Experimental-Tab → useRustSidecar).
-# Die Dev-App findet ihn NUR über $PULSE_LINUX_HQ_SIDECAR (im Flatpak liegt er
-# unter /app/bin/). Nur setzen, wenn er gebaut ist — sonst bleibt der Toggle
-# eine No-op mit "Streaming-Binary nicht verfügbar". Repo liegt neben pulse/.
+# Rust-Linux-HQ-Sidecar = der Standard-Weg. Die Dev-App findet ihn NUR über
+# $PULSE_LINUX_HQ_SIDECAR (im Flatpak liegt er unter /app/bin/), weil der Crate
+# in einem eigenen Repo neben pulse/ liegt — kein Walk-up möglich.
+# Ist er nicht gebaut, fällt Pulse automatisch auf den GSR-Weg zurück; der
+# Kompatibilitäts-Tab zeigt das dann als Rückfall an.
 set -l rust_sidecar "$repo_root/../Linux_Rust_Sidecar/target/release/pulse-linux-hq-sidecar"
 if test -x $rust_sidecar
     set gsr_env "$gsr_env PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
-    _ok "" "Rust-Linux-Sidecar da (Experimental-Tab nutzbar)"
+    _ok "" "Rust-Linux-Sidecar da (Standard-Aufnahmeweg)"
+else
+    _info "Rust-Linux-Sidecar nicht gebaut — Dev nutzt den GSR-Fallback"
 end
 
 _info "Electron starten (→ localhost:5173)"
