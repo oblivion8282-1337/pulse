@@ -35,6 +35,11 @@ from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
 
 log = logging.getLogger(__name__)
 
+# How long a background task gets to act on its cancel before shutdown abandons
+# it. Fits inside Docker's 10s SIGTERM→SIGKILL window; every loop here cancels
+# within a tick, so hitting this means the task is genuinely wedged.
+_SHUTDOWN_TASK_TIMEOUT_S = 5
+
 # Backoff used by the pubsub supervisor between restart attempts.
 _SUPERVISOR_BACKOFF = [1.0, 2.0, 5.0, 10.0, 30.0]
 _SUPERVISOR_POLL_SECONDS = 5.0
@@ -334,12 +339,27 @@ async def lifespan(app: FastAPI):
                 jwks_retry, dropbox_sweep_task,
             )
             for task in bg_tasks:
-                if task is not None:
-                    task.cancel()
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                        pass
+                if task is None:
+                    continue
+                task.cancel()
+                # `asyncio.wait`, not `wait_for`: on timeout wait_for cancels the
+                # task and then awaits it — against a task that ignores cancels
+                # (the case this deadline exists for) it wedges just as hard as a
+                # bare await. `wait` only observes.
+                done, _pending = await asyncio.wait({task}, timeout=_SHUTDOWN_TASK_TIMEOUT_S)
+                if not done:
+                    # Log the name: a wedge here is otherwise invisible from outside.
+                    log.warning(
+                        "shutdown: background task %s ignored cancel for %ss — abandoning it",
+                        task.get_name(),
+                        _SHUTDOWN_TASK_TIMEOUT_S,
+                    )
+                    continue
+                # Retrieve the outcome so a crashed task doesn't surface as
+                # "exception was never retrieved" noise at loop close.
+                exc = None if task.cancelled() else task.exception()
+                if exc is not None:
+                    log.debug("shutdown: background task %s ended with %r", task.get_name(), exc)
             if manager is not None:
                 await manager.stop()
             if redis is not None:
