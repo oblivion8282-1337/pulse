@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.9",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Chat: Anzeigefehler in Nachrichten behoben",
+      "items": [
+        "Behoben: Nachrichten konnten sich überlappen — beim Eintreffen neuer Nachrichten und beim Löschen — und Inhalte oder Bilder blieben teils unsichtbar. Die Liste wird jetzt zuverlässig korrekt dargestellt."
+      ]
+    },
+    {
       "id": "2026-07-17.8",
       "date": "2026-07-17",
       "style": "Sachlich",
