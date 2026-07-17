@@ -15,7 +15,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import StopCircleIcon from '@lucide/svelte/icons/stop-circle';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import { toast } from 'svelte-sonner';
@@ -90,7 +90,7 @@
           aria-label={m.watch_party_start_button_start_label()}
           data-testid="watch-party-start-button"
         >
-          <PlayCircleIcon class="size-4" />
+          <ClapperboardIcon class="size-4" />
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>
@@ -139,7 +139,7 @@
             aria-label={m.watch_party_start_button_start_label()}
             data-testid="watch-party-start-button"
           >
-            <PlayCircleIcon class="size-4" />
+            <ClapperboardIcon class="size-4" />
           </Button>
         {/snippet}
       </Tooltip.Trigger>

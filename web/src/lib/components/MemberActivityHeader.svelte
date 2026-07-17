@@ -5,7 +5,7 @@
   einen Quick-Open-Link in die zugehörige Channel-Stream-Ansicht.
 -->
 <script lang="ts">
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import { goto } from '$app/navigation';
@@ -115,7 +115,7 @@
           data-testid="member-activity-party"
           data-channel-id={e.channel.id}
         >
-          <PlayCircleIcon class="text-primary mt-0.5 size-4 shrink-0" />
+          <ClapperboardIcon class="text-primary mt-0.5 size-4 shrink-0" />
           <div class="min-w-0 flex-1">
             <p class="text-text-bright truncate text-xs font-semibold">Watch Party</p>
             <p class="text-text-muted truncate text-[11px]" title={sourceLabel(e.state)}>
