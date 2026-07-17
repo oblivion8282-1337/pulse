@@ -314,7 +314,7 @@
       <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={canPaginate} style="height:100%">
         {#snippet children(item)}
           {#if item.kind === 'divider'}
-            <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
+            <div class="mx-5 py-4 flex items-center gap-3" data-testid="date-divider">
               <div class="hairline flex-1 bg-border"></div>
               <span class="bg-bg-input text-text-muted rounded-full px-3 py-0.5 text-xs font-semibold">{item.label}</span>
               <div class="hairline flex-1 bg-border"></div>
