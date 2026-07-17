@@ -51,11 +51,13 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 
 // ── Sidecar resolver ────────────────────────────────────────────────────────
 //
-// Three implementations of the same newline-JSON-over-stdio protocol live in
-// the repo:
+// Four implementations of the same newline-JSON-over-stdio protocol:
 //
-//   - Linux:   `streaming/gsr-sidecar/control.py` (Python, drives GSR + Wayland
-//              portal + PipeWire — see `streaming/README.md`).
+//   - Linux:   der Rust-Crate `pulse-linux-hq-sidecar` (Standard; lebt in einem
+//              EIGENEN Repo, per Commit im Flatpak-Manifest gepinnt und nach
+//              `/app/bin/` installiert) — mit
+//              `streaming/gsr-sidecar/control.py` (Python, GSR + Wayland-Portal
+//              + PipeWire — see `streaming/README.md`) als Auffangnetz.
 //   - Windows: `streaming/win-hq-sidecar/` (Rust, drives WGC + WASAPI +
 //              NVENC/AMF/QSV via FFmpeg — see `WINDOWS_HQ_SIDECAR.md`).
 //   - macOS:   `streaming/mac-hq-sidecar/` (Rust, drives ScreenCaptureKit +
@@ -75,26 +77,35 @@ interface SpawnTarget {
   args: string[];
 }
 
+/** Welcher Linux-Sidecar tatsächlich läuft — und warum. Der Renderer zeigt das
+ *  im Kompatibilitäts-Tab an: ein stiller Rückfall, den niemand sieht, ist nur
+ *  eine andere Sorte Blindflug.
+ *
+ *   - `rust`/`default`   → Normalfall.
+ *   - `gsr`/`forced`     → User hat bewusst auf GSR zurückgestellt.
+ *   - `gsr`/`fallback`   → Rust-Binary fehlt (alte Flatpak-Version, Dev ohne
+ *                          $PULSE_LINUX_HQ_SIDECAR, kaputter Build). `detail`
+ *                          trägt die Resolver-Fehlermeldung. */
+export interface LinuxBackendInfo {
+  kind: 'rust' | 'gsr';
+  reason: 'default' | 'forced' | 'fallback';
+  detail?: string;
+}
+
 /** Cached result of the first successful `resolveSidecarSpawn()` call.
  *  The resolved path never changes during a session; memoising it avoids
  *  repeated filesystem walks on Windows respawns (finding 159). */
 let _cachedSpawnTarget: SpawnTarget | null = null;
+/** Begleitinfo zu `_cachedSpawnTarget` auf Linux; wird nur gesetzt, wenn die
+ *  Auflösung wirklich geglückt ist (sonst meldeten wir einen Sidecar, den es
+ *  gar nicht gibt). */
+let _linuxBackend: LinuxBackendInfo | null = null;
 
 function resolveSidecarSpawn(): SpawnTarget {
   if (_cachedSpawnTarget) return _cachedSpawnTarget;
   let target: SpawnTarget;
   if (process.platform === 'linux') {
-    // Experimenteller Rust-Linux-Sidecar statt des Python-GSR-Sidecars,
-    // umgeschaltet über die „Experimental"-Tab-Checkbox (Store-Key
-    // `useRustSidecar`). Default (Key fehlt/false) → unverändert Python, damit
-    // sich für alle anderen nichts ändert. Bei Umschalten invalidiert
-    // `resetSpawnTargetCache()` (main.ts) diesen Cache, sodass der nächste
-    // Spawn das richtige Binary auflöst.
-    if (storeGet('useRustSidecar') === true) {
-      target = { command: resolveLinuxRustBinaryPath(), args: [] };
-    } else {
-      target = { command: PYTHON_BIN, args: [resolveScriptPath()] };
-    }
+    target = resolveLinuxSpawn();
   } else if (process.platform === 'win32') {
     target = { command: resolveBinaryPath(), args: [] };
   } else if (process.platform === 'darwin') {
@@ -110,15 +121,65 @@ function resolveSidecarSpawn(): SpawnTarget {
   return target;
 }
 
+/**
+ * Linux hat zwei Sidecars: den Rust-Crate (Standard) und den älteren
+ * Python/GSR-Weg als Auffangnetz.
+ *
+ * Reihenfolge:
+ *   1. Store-Key `useLegacyGsrSidecar` = true → GSR erzwungen (Notbremse im
+ *      Kompatibilitäts-Tab, falls der Rust-Weg zickt).
+ *   2. Sonst Rust — der Normalfall.
+ *   3. Rust-Binary nicht auffindbar → automatisch GSR. Ohne diesen Rückfall
+ *      verschwände HQ-Streaming wortlos, sobald das Binary fehlt (alte
+ *      Flatpak-Version, Dev-Rechner ohne gebauten Crate).
+ *
+ * Wirft nur, wenn BEIDE Wege fehlen — dann ist HQ hier wirklich nicht möglich
+ * und die UI blendet den Button aus (`stream.gsrAvailable = false`).
+ */
+function resolveLinuxSpawn(): SpawnTarget {
+  const forced = storeGet('useLegacyGsrSidecar') === true;
+  let fallbackDetail: string | undefined;
+  if (!forced) {
+    try {
+      const binary = resolveLinuxRustBinaryPath();
+      _linuxBackend = { kind: 'rust', reason: 'default' };
+      return { command: binary, args: [] };
+    } catch (e) {
+      fallbackDetail = e instanceof Error ? e.message : String(e);
+    }
+  }
+  // Erst auflösen, dann melden — schlägt auch GSR fehl, propagiert der Throw
+  // und `_linuxBackend` bleibt leer, statt einen Sidecar zu behaupten.
+  const script = resolveScriptPath();
+  _linuxBackend = forced
+    ? { kind: 'gsr', reason: 'forced' }
+    : { kind: 'gsr', reason: 'fallback', detail: fallbackDetail };
+  return { command: PYTHON_BIN, args: [script] };
+}
+
+/** Welcher Sidecar läuft (Linux) — für die Anzeige im Kompatibilitäts-Tab.
+ *  Löst bei Bedarf auf; `null` auf anderen Plattformen oder wenn gar kein
+ *  Sidecar auffindbar ist. */
+export function getLinuxBackend(): LinuxBackendInfo | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    resolveSidecarSpawn();
+  } catch {
+    return null;
+  }
+  return _linuxBackend;
+}
+
 /** Invalidiert das memoisierte Spawn-Target. main.ts ruft das, wenn der
- *  `useRustSidecar`-Store-Key umgeschaltet wird, damit der nächste Spawn das
- *  Binary neu auflöst (Python ↔ Rust). */
+ *  `useLegacyGsrSidecar`-Store-Key umgeschaltet wird, damit der nächste Spawn
+ *  das Binary neu auflöst (Rust ↔ Python). */
 export function resetSpawnTargetCache(): void {
   _cachedSpawnTarget = null;
+  _linuxBackend = null;
 }
 
 /**
- * Locate the experimental Rust Linux HQ sidecar binary (Linux only).
+ * Locate the Rust Linux HQ sidecar binary (Linux only, the default backend).
  *
  * Order:
  *   1. `$PULSE_LINUX_HQ_SIDECAR` override (absolute path, dev-only) — der Rust-
@@ -126,6 +187,9 @@ export function resetSpawnTargetCache(): void {
  *      control.py; im Dev zeigt man mit dieser Var auf `…/target/release/…`.
  *   2. Flatpak/packaged default `/app/bin/pulse-linux-hq-sidecar` (das
  *      Flatpak-Cargo-Modul installiert das Binary dorthin).
+ *
+ * Wirft, wenn nichts gefunden wird — `resolveLinuxSpawn()` fängt das und fällt
+ * auf GSR zurück.
  */
 function resolveLinuxRustBinaryPath(): string {
   const override = !app.isPackaged ? process.env.PULSE_LINUX_HQ_SIDECAR : undefined;
@@ -138,7 +202,7 @@ function resolveLinuxRustBinaryPath(): string {
   const flatpakDefault = '/app/bin/pulse-linux-hq-sidecar';
   if (fs.existsSync(flatpakDefault)) return flatpakDefault;
   throw new Error(
-    'Could not locate the experimental Rust Linux sidecar (pulse-linux-hq-sidecar). ' +
+    'Could not locate the Rust Linux sidecar (pulse-linux-hq-sidecar). ' +
       'It ships at /app/bin/ in the Flatpak; in dev set $PULSE_LINUX_HQ_SIDECAR to the built binary.',
   );
 }

@@ -13,7 +13,7 @@
     | 'privacy'
     | 'self-host'
     | 'apps'
-    | 'experimental';
+    | 'compatibility';
 </script>
 
 <script lang="ts">
@@ -29,9 +29,9 @@
   import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import SettingsApps from './settings/SettingsApps.svelte';
-  import SettingsExperimental from './settings/SettingsExperimental.svelte';
+  import SettingsCompatibility from './settings/SettingsCompatibility.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
-  import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
+  import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -112,7 +112,7 @@
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
-    { id: 'experimental', label: m.settings_dialog_tab_experimental(), icon: FlaskConicalIcon, linuxOnly: true }
+    { id: 'compatibility', label: m.settings_dialog_tab_compatibility(), icon: PlugZapIcon, linuxOnly: true }
   ];
 
   let visibleTabs = $derived(
@@ -207,8 +207,8 @@
           <SettingsSelfHost />
         {:else if activeTab === 'apps'}
           <SettingsApps />
-        {:else if activeTab === 'experimental'}
-          <SettingsExperimental />
+        {:else if activeTab === 'compatibility'}
+          <SettingsCompatibility />
         {:else}
           <SettingsSecurity />
         {/if}

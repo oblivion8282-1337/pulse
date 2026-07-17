@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (args: unknown, slot = 0) => gsrCall('start', args, slot),
     stop: (slot = 0) => gsrCall('stop', {}, slot),
 
+    /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
+     *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
+     *  Main-Prozess-Auskunft über die Pfadauflösung, keine Sidecar-Op. */
+    backend: () => ipcRenderer.invoke('gsr:backend'),
+
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —
      *  contextBridge allows calling a function the renderer passed in. */

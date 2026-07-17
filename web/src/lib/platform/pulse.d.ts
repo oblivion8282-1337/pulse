@@ -31,6 +31,18 @@ export interface PulseStoreApi {
   setAll(values: Record<string, unknown>): Promise<void>;
 }
 
+/** Welcher Linux-Sidecar läuft — und warum. Spiegelt `LinuxBackendInfo` in
+ *  `desktop/electron/sidecar.ts`.
+ *   - `rust`/`default`  → Normalfall.
+ *   - `gsr`/`forced`    → bewusst auf den älteren Weg zurückgestellt.
+ *   - `gsr`/`fallback`  → Rust-Binary fehlt, automatisch zurückgefallen;
+ *                         `detail` trägt die Resolver-Fehlermeldung. */
+export interface PulseLinuxBackend {
+  kind: 'rust' | 'gsr';
+  reason: 'default' | 'forced' | 'fallback';
+  detail?: string;
+}
+
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
@@ -46,6 +58,9 @@ export interface PulseGsrApi {
   start(args: unknown, slot?: number): Promise<unknown>;
   /** Stop the stream in the given slot (default 0). */
   stop(slot?: number): Promise<unknown>;
+  /** Welcher Linux-Sidecar läuft und warum. `null` auf anderen Plattformen
+   *  oder wenn gar kein Sidecar auffindbar ist. Startet nichts. */
+  backend(): Promise<PulseLinuxBackend | null>;
   /** Subscribe to sidecar events. Each event carries a `slot` field tagged by
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */

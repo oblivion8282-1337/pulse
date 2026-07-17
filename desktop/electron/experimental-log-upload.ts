@@ -1,10 +1,15 @@
 /**
- * Experimental-Sidecar Diagnose-Log-Upload.
+ * Diagnose-Log-Upload des Sidecars.
  *
  * Lädt bei Stream-Ende (und bei einem Stream-Fehler) die `sidecar.log` +
- * etwas Systeminfo an den Server hoch — ABER nur, wenn die experimentelle
- * Rust-Linux-Sidecar-Version aktiv ist (`useRustSidecar`-Store-Key = der
- * bewusste Opt-in des Users; der Hinweis dazu steht im Experimental-Tab).
+ * etwas Systeminfo an den Server hoch — ABER nur bei ausdrücklichem Opt-in
+ * (`uploadDiagnosticLogs`-Store-Key, default aus; Schalter im
+ * Kompatibilitäts-Tab).
+ *
+ * Der Opt-in hing früher am `useRustSidecar`-Toggle: solange Rust die bewusst
+ * gewählte Ausnahme war, WAR dieser Toggle die Einwilligung. Seit Rust der
+ * Standard ist, trägt er sie nicht mehr — sonst lüde jeder Linux-Nutzer
+ * ungefragt Logs hoch. Daher ein eigener Schalter.
  *
  * Der Log ist bereits token-redacted (der Sidecar redacted vor dem Loggen,
  * `sidecar-log.ts` redacted beim Tee nochmals). Wir laden nur den Schwanz der
@@ -34,7 +39,7 @@ const sawError = new Map<number, boolean>();
 
 /**
  * Im `gsr:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
- * `stopped`-Event den Upload — no-op, wenn die experimentelle Version aus ist.
+ * `stopped`-Event den Upload — no-op ohne Opt-in.
  */
 export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void {
   if (ev.ev === 'error') {
@@ -46,8 +51,8 @@ export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void
   const reason = sawError.get(slot) ? 'error' : 'stream_end';
   sawError.delete(slot);
 
-  // Nur die experimentelle Rust-Version lädt hoch (Opt-in).
-  if (storeGet('useRustSidecar') !== true) return;
+  // Nur mit ausdrücklichem Opt-in (default aus).
+  if (storeGet('uploadDiagnosticLogs') !== true) return;
 
   void uploadExperimentalLog(reason).catch((e) => {
     logSidecar(

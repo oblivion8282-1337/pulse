@@ -33,7 +33,13 @@ declare const __APP_VERSION__: string;
 // Lochungs-Modus, kein Client-Sidecar/Updater/DeepLink.
 declare const __APP_MODE__: 'client' | 'server';
 const SERVER_MODE = __APP_MODE__ === 'server';
-import { MAX_STREAM_SLOTS, allSidecars, getSidecar, resetSpawnTargetCache } from './sidecar';
+import {
+  MAX_STREAM_SLOTS,
+  allSidecars,
+  getLinuxBackend,
+  getSidecar,
+  resetSpawnTargetCache,
+} from './sidecar';
 import { onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -835,6 +841,12 @@ function wireSidecar(): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
+
+  // Welcher Linux-Sidecar läuft (rust/gsr) und warum — der Kompatibilitäts-Tab
+  // zeigt das an. Reine Pfadauflösung, startet nichts; `null` auf anderen
+  // Plattformen oder wenn gar kein Sidecar auffindbar ist (getLinuxBackend()
+  // wirft nicht — Auflösungsfehler sind dort bereits `null`).
+  ipcMain.handle('gsr:backend', () => getLinuxBackend());
 }
 
 // ── Settings persistence (E1c) ──────────────────────────────────────────────
@@ -870,10 +882,14 @@ const ALLOWED_STORE_KEYS = new Set([
   // (window.pulse.store.set), der Main-Prozess liest ihn synchron im
   // Fenster-close-Handler (quitOnClose → wirklich beenden statt Tray).
   'quitOnClose',
-  // Experimental-Tab (nur Linux-Desktop): schaltet den experimentellen
-  // Rust-Linux-Sidecar statt des Python-GSR-Sidecars ein. Renderer setzt ihn,
-  // resolveSidecarSpawn() (sidecar.ts) liest ihn beim nächsten Spawn.
-  'useRustSidecar',
+  // Kompatibilitäts-Tab (nur Linux-Desktop): Notbremse zurück auf den älteren
+  // Python/GSR-Sidecar. Default (Key fehlt/false) = Rust. Renderer setzt ihn,
+  // resolveLinuxSpawn() (sidecar.ts) liest ihn beim nächsten Spawn.
+  'useLegacyGsrSidecar',
+  // Diagnose-Logs des Linux-Sidecars hochladen. Eigener Opt-in, default aus —
+  // hing früher am Rust-Toggle; seit Rust der Standard ist, wäre das eine
+  // stille Telemetrie für jeden Linux-Nutzer gewesen.
+  'uploadDiagnosticLogs',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
@@ -953,14 +969,14 @@ function wireStore(): void {
     }
     try {
       storeSet(key, value);
-      // Umschalten des experimentellen Rust-Sidecars: Spawn-Cache invalidieren
+      // Umschalten zwischen Rust- und GSR-Sidecar: Spawn-Cache invalidieren
       // und laufende (idle) Sidecar-Prozesse neu starten, damit die Umschaltung
       // beim nächsten Stream greift — ohne Pulse-Neustart. Ein evtl. gerade
       // laufender Test-Stream endet dabei (bewusste Nutzeraktion).
-      if (key === 'useRustSidecar') {
+      if (key === 'useLegacyGsrSidecar') {
         resetSpawnTargetCache();
         void Promise.all(allSidecars().map((m) => m.shutdown())).catch((e) =>
-          console.error('[store] sidecar restart after useRustSidecar toggle failed:', e),
+          console.error('[store] sidecar restart after useLegacyGsrSidecar toggle failed:', e),
         );
       }
     } catch (e) {
