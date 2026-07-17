@@ -1775,8 +1775,6 @@
   "settings_audio_video_mic_clipping": "Mic input clipping — reduce OS gain",
   "settings_audio_video_mic_ok": "Mic input OK",
   "settings_audio_video_microphone": "Microphone",
-  "settings_audio_video_dtx_description": "Sends less data during speech pauses — saves upload bandwidth, may slightly reduce audio quality.",
-  "settings_audio_video_dtx_enable": "Enable DTX",
   "settings_audio_video_noise_suppression_description": "Removes background noise and cleans up pauses between words.",
   "settings_audio_video_noise_suppression_label": "Noise Suppression",
   "settings_audio_video_output_device_label": "Output",

@@ -28,7 +28,6 @@ export type AudioSettings = {
   stereo: boolean;
   inputMakeupGain: number;
   limiterEnabled: boolean;
-  dtxEnabled: boolean;
   spatialMode: SpatialMode;
 };
 
@@ -59,7 +58,6 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
   limiterEnabled: true,
-  dtxEnabled: true,
   spatialMode: 'off'
 };
 
@@ -114,7 +112,6 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       stereo: bool(a.stereo, d.stereo),
       inputMakeupGain: clampInputMakeup(a.inputMakeupGain),
       limiterEnabled: bool(a.limiterEnabled, d.limiterEnabled),
-      dtxEnabled: bool(a.dtxEnabled, d.dtxEnabled),
       spatialMode: parseSpatialMode(a.spatialMode)
     };
   }

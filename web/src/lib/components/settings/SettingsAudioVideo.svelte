@@ -375,25 +375,8 @@
     </div>
   </div>
 
-  <!-- ===== Feld: DTX & Push-to-Talk ===== -->
+  <!-- ===== Feld: Push-to-Talk ===== -->
   <div class="border-border flex flex-col gap-4 rounded-lg border p-4">
-    <div class="flex flex-col gap-2">
-      <label class="flex cursor-pointer items-center justify-between gap-3">
-        <span class="text-text-base text-sm">{m.settings_audio_video_dtx_enable()}</span>
-        <input
-          type="checkbox"
-          checked={settings.audio.dtxEnabled}
-          onchange={(e) => {
-            const on = (e.currentTarget as HTMLInputElement).checked;
-            settings.setDtxEnabled(on);
-            void voice.setDtxEnabled(on);
-          }}
-          class="accent-primary size-5 md:size-4"
-          data-testid="settings-dtx-toggle"
-        />
-      </label>
-      <p class="text-text-muted text-xs">{m.settings_audio_video_dtx_description()}</p>
-    </div>
     <label class="flex cursor-pointer items-center justify-between gap-3">
       <span class="text-text-base text-sm">{m.settings_audio_video_ptt_enable()}</span>
       <input
