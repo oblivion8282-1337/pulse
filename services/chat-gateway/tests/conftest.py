@@ -13,6 +13,7 @@ Strategy:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -33,6 +34,7 @@ os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://test")
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
+import dcc_chat_gateway.app as chat_app  # noqa: E402
 import dcc_chat_gateway.config as chat_cfg  # noqa: E402
 import dcc_chat_gateway.security as chat_security  # noqa: E402
 import dcc_chat_gateway.snowflake as chat_snow  # noqa: E402
@@ -88,6 +90,25 @@ def _isolate_chat_settings():
     chat_cfg.get_settings = original  # type: ignore[assignment]
     chat_cfg.get_settings.cache_clear()
     chat_security.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_cloud_polling(monkeypatch):
+    """Keep the lifespan's cloud pollers off the network.
+
+    Both loops poll ``settings.pulse_cloud_origin`` once immediately, and the
+    test settings keep the production default (https://howispulse.com — invite
+    links assert against it), so every ``TestClient(ws_app)`` would fire a real
+    HTTPS request at prod. The loops' own coverage (test_crl_poller.py,
+    test_cloud_policy_poller.py) calls the real functions directly, so it is
+    unaffected by this stub.
+    """
+
+    async def _inert(*_args, **_kwargs) -> None:
+        await asyncio.Event().wait()  # idle until the lifespan cancels us
+
+    monkeypatch.setattr(chat_app, "cloud_policy_poller_loop", _inert)
+    monkeypatch.setattr(chat_app, "crl_poller_loop", _inert)
 
 
 @pytest_asyncio.fixture
