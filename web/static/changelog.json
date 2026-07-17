@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.3",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Streams bleiben nach einem Verbindungsabriss abspielbar",
+      "items": [
+        "Wenn die Verbindung eines Streamers kurz abriss und sofort wieder aufbaute, konnte der Stream danach zwar als laufend angezeigt werden, ließ sich aber nicht mehr öffnen. Das passiert nicht mehr.",
+        "Beim Betreten eines Sprachkanals wurden interne Ereignisse doppelt verarbeitet. Bereinigt."
+      ]
+    },
+    {
       "id": "2026-07-17.2",
       "date": "2026-07-17",
       "style": "Sachlich",

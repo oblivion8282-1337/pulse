@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -24,6 +25,18 @@ class _FakeMediaMtxClient:
 
     async def get(self, url: str, params: dict | None = None) -> httpx.Response:
         return httpx.Response(200, json=self._body, request=httpx.Request("GET", url))
+
+
+_PAST = "2020-01-01T00:00:00+00:00"
+
+
+def _future() -> str:
+    """``started_at`` of a publish that raced in after this pass's snapshot."""
+    return (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+
+
+async def _seed_active(redis, key: str, uid: str, started_at: str) -> None:
+    await redis.set(key, json.dumps({"user_id": uid, "started_at": started_at, "path": "p"}))
 
 
 def _paths(*names_with_publisher: tuple[str, bool]) -> dict:
@@ -213,19 +226,13 @@ async def test_stale_cleanup_spares_fresh_publish_active_key(redis, pubsub):
     publish that raced in after this pass's MediaMTX snapshot (started_at in the
     future relative to the snapshot). That fresh key must survive so WHEP keeps
     serving the live stream."""
-    import datetime as _dt
-
     cid = _unique_cid()
     # Seed channel presence so the channel is "known" and goes stale.
     await redis.set(CHANNEL_STATE_KEY.format(channel_id=cid), json.dumps({"user_ids": ["7"], "since": "x"}))
     old_key = f"stream:active:channel-{cid}-7"
     fresh_key = f"stream:active:channel-{cid}-9"
-    # Old record: started_at well in the past → deleted.
-    await redis.set(old_key, json.dumps({"user_id": "7", "started_at": "2020-01-01T00:00:00+00:00", "path": "p"}))
-    # Fresh record: started_at in the future → its publish raced in after the
-    # snapshot; must be spared.
-    future = (_dt.datetime.now(_dt.UTC) + _dt.timedelta(seconds=60)).isoformat()
-    await redis.set(fresh_key, json.dumps({"user_id": "9", "started_at": future, "path": "p2"}))
+    await _seed_active(redis, old_key, "7", _PAST)
+    await _seed_active(redis, fresh_key, "9", _future())
     gone = _FakeMediaMtxClient(_paths(("all_others", False)))
     try:
         await reconcile_once(redis, gone)
@@ -233,6 +240,30 @@ async def test_stale_cleanup_spares_fresh_publish_active_key(redis, pubsub):
         assert await redis.exists(fresh_key) == 1
     finally:
         await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), old_key, fresh_key)
+
+
+@pytest.mark.asyncio
+async def test_partial_departure_spares_fresh_publish_active_key(redis, pubsub):
+    """Same TOCTOU guard as the stale-cleanup above, but on the partial-departure
+    path: uid 55 keeps the channel alive, so the departed pairs 7 and 9 are
+    cleaned up there instead. uid 9 re-published under a fresh nonce after the
+    snapshot and must survive."""
+    cid = _unique_cid()
+    await redis.set(
+        CHANNEL_STATE_KEY.format(channel_id=cid),
+        json.dumps({"user_ids": ["7", "9"], "since": "x"}),
+    )
+    stale_key = f"stream:active:channel-{cid}-7"
+    fresh_key = f"stream:active:channel-{cid}-9"
+    await _seed_active(redis, stale_key, "7", _PAST)
+    await _seed_active(redis, fresh_key, "9", _future())
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        assert await redis.exists(stale_key) == 0, "genuinely stale record must go"
+        assert await redis.exists(fresh_key) == 1, "fresh publish must be spared"
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), stale_key, fresh_key)
 
 
 @pytest.mark.asyncio
