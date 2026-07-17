@@ -16,8 +16,11 @@ import java.util.concurrent.Executor;
  * Routet die WebRTC-/Stream-Wiedergabe auf das gewünschte Ausgabegerät und lenkt
  * die Hardware-Lautstärketasten auf den Voice-Call-Stream.
  *
- * Zwei Probleme, die Android im {@link AudioManager#MODE_IN_COMMUNICATION} macht
- * (den Chromium bei aktivem WebRTC setzt):
+ * Den {@link AudioManager#MODE_IN_COMMUNICATION} setzen wir bei Voice-Join SELBST
+ * ({@link #setVoiceActive}) — NICHT (mehr) im Vertrauen darauf, dass Chromium das
+ * tut. Die System-WebView tut es bei reiner WebRTC-Wiedergabe unzuverlässig; ohne
+ * den Modus bleibt der Ton auf {@code STREAM_MUSIC} → im Auto über A2DP-Medien
+ * statt den Telefon-Kanal (BT-SCO). Zwei Probleme, die Android in diesem Modus macht:
  *  1. Default-Routing auf die HÖRMUSCHEL (earpiece) statt den lauten Medien-
  *     Lautsprecher — der Ton kommt „wie aus dem Telefon-Hörer".
  *  2. Die Hardware-Lautstärketasten steuern {@link AudioManager#STREAM_MUSIC},
@@ -136,11 +139,60 @@ public class SpeakerphoneRouter {
      *  das automatische Verhalten wieder her. */
     public void setRoute(int newRoute) {
         this.route = newRoute;
+        applyWithReassert();
+    }
+
+    /** {@link #apply()} sofort + zwei Mal kurz danach (150/500 ms), um einen
+     *  Chromium-Override direkt nach einem Mode-Switch / einer Geräte-Umschaltung
+     *  zu übersteuern. Gemeinsam von {@link #setRoute} und {@link #setVoiceActive}. */
+    private void applyWithReassert() {
         apply();
-        // Gegen den Chromium-Override direkt nach einem Mode-Switch / einer
-        // Geräte-Umschaltung noch zwei Mal kurz danach erneut durchsetzen.
         handler.postDelayed(this::apply, 150);
         handler.postDelayed(this::apply, 500);
+    }
+
+    /**
+     * Voice-Join/-Leave-Signal aus dem Web (via AudioRoute-Plugin). Der eigentliche
+     * Hebel gegen „Voice läuft im Auto über Medien (A2DP) statt Telefon (SCO)":
+     *
+     * Die gesamte SCO-Routing-Logik in {@link #apply()} wirkt nur in
+     * {@code MODE_IN_COMMUNICATION}. Wir haben bisher darauf gewartet, dass Chromium
+     * diesen Modus setzt — die Android-System-WebView tut das bei reiner WebRTC-
+     * *Wiedergabe* aber nicht zuverlässig, dann bleibt der Ton auf {@code STREAM_MUSIC}
+     * → im Auto über A2DP (leise, falscher Lautstärkeregler). Beim Join setzen wir
+     * den Modus deshalb SELBST und lassen {@link #apply()} auf BT-SCO routen; beim
+     * Leave geben wir Modus + Gerät wieder frei, sonst hängt das Telefon im Call-Modus.
+     */
+    public void setVoiceActive(boolean active) {
+        if (audioManager == null) return;
+        if (active) {
+            try {
+                if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) {
+                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "setMode(IN_COMMUNICATION) failed", e);
+            }
+            // Direkt setzen (nicht nur auf den modeListener verlassen): war der
+            // Modus schon COMMUNICATION, feuert setMode oben nicht → der Listener
+            // auch nicht, dann ist dies der einzige Pfad, der Stream + Routing setzt.
+            setVoiceVolumeStream();
+            applyWithReassert();
+        } else {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    audioManager.clearCommunicationDevice();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "clearCommunicationDevice failed", e);
+            }
+            try {
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+            } catch (Exception e) {
+                Log.w(TAG, "setMode(NORMAL) failed", e);
+            }
+            resetVolumeStream();
+        }
     }
 
     public int currentRoute() {

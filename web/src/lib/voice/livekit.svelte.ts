@@ -54,6 +54,7 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
+import { setVoiceActive, maybeSendAudioDiagnostic } from '$lib/platform/audioRoute';
 import { gsr } from '$lib/stream/gsr';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
 
@@ -267,6 +268,11 @@ class VoiceRoom {
    *  ConnectionQualityChanged×N) into a single rebuild so Svelte re-renders once.
    *  Cleared in #teardown. */
   #refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** One-shot timer for the post-join audio-routing diagnostic (Android). Cleared
+   *  in #teardown so a channel switch within the delay doesn't fire a stale (and
+   *  post-release, misleading) snapshot. */
+  #audioDiagTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -490,6 +496,17 @@ class VoiceRoom {
     // backgrounded / screen-locked (paired with the unmuted <audio> path in
     // RemoteAudioElements). No-op off mobile.
     setVoiceMediaSession(this.channelName);
+    // Android: force MODE_IN_COMMUNICATION now so voice routes to the phone-call
+    // channel (Bluetooth SCO) instead of the media channel (A2DP) — the "too quiet
+    // in the car" fix. No-op off Capacitor-Android. Cleared in #teardown on leave.
+    void setVoiceActive(true);
+    // Capture a routing snapshot once the OS has settled the route (~2.5s), to
+    // verify the SCO/mode result in the field. No-op off Capacitor-Android.
+    // Tracked so #teardown cancels it on a fast leave/channel-switch.
+    this.#audioDiagTimer = setTimeout(() => {
+      this.#audioDiagTimer = null;
+      void maybeSendAudioDiagnostic();
+    }, 2500);
     // Mobile: hold the screen awake so auto-lock can't suspend the mic, and watch
     // for foreground returns to recover a mic the OS muted while backgrounded.
     this.#ensureWakeLock();
@@ -1571,6 +1588,10 @@ class VoiceRoom {
       clearTimeout(this.#refreshTimer);
       this.#refreshTimer = null;
     }
+    if (this.#audioDiagTimer !== null) {
+      clearTimeout(this.#audioDiagTimer);
+      this.#audioDiagTimer = null;
+    }
     this.selfMonitor = false;
     this.#syncMonitor(); // stop + drop the monitor element
     this.#localMic.detach();
@@ -1579,6 +1600,9 @@ class VoiceRoom {
     this.#remoteSpeaking.clear();
     this.#audioEls.destroy();
     clearVoiceMediaSession();
+    // Android: release MODE_IN_COMMUNICATION + the comm device so the phone
+    // leaves call-mode after we hang up. No-op off Capacitor-Android.
+    void setVoiceActive(false);
     this.#releaseWakeLock?.();
     this.#releaseWakeLock = null;
     if (typeof document !== 'undefined') {

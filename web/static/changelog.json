@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.11",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Android: Voice im Auto nicht mehr zu leise",
+      "items": [
+        "Behoben: Beim Voice-Chat über Bluetooth im Auto wurde der Ton über den Medien-Kanal ausgegeben und war dadurch sehr leise. Voice läuft jetzt über den Telefon-Kanal — deutlich lauter und über den richtigen Lautstärkeregler steuerbar."
+      ]
+    },
+    {
       "id": "2026-07-17.10",
       "date": "2026-07-17",
       "style": "Sachlich",

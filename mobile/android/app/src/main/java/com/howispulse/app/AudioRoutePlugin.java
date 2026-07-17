@@ -48,6 +48,23 @@ public class AudioRoutePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Voice-Join/-Leave-Signal aus dem Web. Lässt den {@link SpeakerphoneRouter}
+     * den Comm-Modus aktiv halten, damit Voice über den Telefon-Kanal (BT-SCO)
+     * statt den Medien-Kanal (A2DP) läuft. Siehe {@link SpeakerphoneRouter#setVoiceActive}.
+     */
+    @PluginMethod
+    public void setVoiceActive(PluginCall call) {
+        boolean active = call.getBoolean("active", false);
+        SpeakerphoneRouter r = router();
+        if (r == null) {
+            call.reject("audio router unavailable");
+            return;
+        }
+        getActivity().runOnUiThread(() -> r.setVoiceActive(active));
+        call.resolve();
+    }
+
     @PluginMethod
     public void getRoute(PluginCall call) {
         SpeakerphoneRouter r = router();
