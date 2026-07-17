@@ -71,7 +71,8 @@ export function register(ctx: HandlerContext): void {
       ns_fps_max: evt.ns_fps_max,
       ns_resolution_max: evt.ns_resolution_max,
       cam_resolution_max: evt.cam_resolution_max,
-      cam_fps_max: evt.cam_fps_max
+      cam_fps_max: evt.cam_fps_max,
+      voice_bitrate_max_kbps: evt.voice_bitrate_max_kbps
     });
     // Server-Name live nachziehen, wenn der Admin umbenannt hat — kein Reload
     // nötig. "" = zurückgesetzt (Adresse zeigen); Feld fehlt = unverändert.

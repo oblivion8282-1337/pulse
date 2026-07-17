@@ -74,6 +74,9 @@ export type ServerCapabilities = {
   ns_resolution_max: string;
   cam_resolution_max: string;
   cam_fps_max: number;
+  /** Instanzweiter Voice-Deckel (kbps); optional, ältere Instanzen senden ihn
+   * nicht → Slider-Maximum gilt. */
+  voice_bitrate_max_kbps?: number;
   /** Upload-surface policy of THIS server (instance-level, env-driven).
    * Optional: an older instance omits them → treat as unrestricted.
    * UI hint only — the server enforces the same rules regardless. */

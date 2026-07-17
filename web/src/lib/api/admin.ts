@@ -82,6 +82,8 @@ export type Permissions = {
   /** Webcam capture ceiling (resolution stage + max fps). */
   cam_resolution_max: string;
   cam_fps_max: number;
+  /** Instanzweiter Voice-Bitrate-Deckel (kbps, 16–512). */
+  voice_bitrate_max_kbps: number;
 };
 
 export type SmtpProvider = 'brevo' | 'mailgun' | 'resend' | 'gmail' | 'custom';

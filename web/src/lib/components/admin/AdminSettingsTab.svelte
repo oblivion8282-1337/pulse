@@ -15,6 +15,7 @@
   import AdminJoinControl from './AdminJoinControl.svelte';
   import AdminStreamLimits from './AdminStreamLimits.svelte';
   import AdminNormalStreamLimits from './AdminNormalStreamLimits.svelte';
+  import AdminVoiceLimits from './AdminVoiceLimits.svelte';
   import AdminPlugins from './AdminPlugins.svelte';
 
   let { isCloud }: { isCloud: boolean } = $props();
@@ -45,5 +46,6 @@
   {/if}
   <AdminStreamLimits />
   <AdminNormalStreamLimits />
+  <AdminVoiceLimits />
   <AdminPlugins />
 </div>

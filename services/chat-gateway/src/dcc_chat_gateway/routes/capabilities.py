@@ -72,6 +72,7 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             ns_resolution_max="native",
             cam_resolution_max="720p",
             cam_fps_max=30,
+            voice_bitrate_max_kbps=128,
             **_upload_policy(),
         )
     # The row carries the DB-backed flags; the upload policy comes from env, so

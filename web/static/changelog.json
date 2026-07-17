@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-17.7",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Sprachqualität stellt jetzt der Server ein",
+      "items": [
+        "Der Regler für die Sprachqualität unter Sprache und Video entfällt. Kaum jemand hat ihn bewusst genutzt, und niedriger stellen als nötig wollte ihn niemand.",
+        "Stattdessen legt der Server-Admin die Sprachqualität zentral fest (Verwaltung, Abschnitt Sprachqualität, 16 bis 512 kbit/s). Alle senden mit diesem Wert.",
+        "Einzelne Communitys können einen eigenen, auch höheren Wert bekommen. Für alle ohne besondere Einstellung bleibt der Klang wie bisher."
+      ]
+    },
+    {
       "id": "2026-07-17.6",
       "date": "2026-07-17",
       "style": "Sachlich",

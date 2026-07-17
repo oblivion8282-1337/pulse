@@ -23,16 +23,12 @@ import {
 } from '$lib/settings-registry/sections/appearance';
 import {
   AUDIO_SECTION,
-  clampBitrate,
   clampGateDb,
   clampInputMakeup,
   parseSpatialMode,
   type AudioSettings,
   type NoiseSuppressionMode,
   type SpatialMode,
-  VOICE_BITRATE_MIN,
-  VOICE_BITRATE_MAX,
-  VOICE_BITRATE_STEREO_MIN,
   NOISE_GATE_DB_MIN,
   NOISE_GATE_DB_MAX,
   NOISE_GATE_DB_DEFAULT,
@@ -215,9 +211,6 @@ class SettingsStore {
   setNoiseGateThresholdDb(v: number): void {
     this.#audio.set('noiseGateThresholdDb', clampGateDb(v));
   }
-  setVoiceBitrateKbps(v: number): void {
-    this.#audio.set('voiceBitrateKbps', clampBitrate(v));
-  }
   setStereo(v: boolean): void {
     this.#audio.set('stereo', v);
   }
@@ -344,9 +337,6 @@ class SettingsStore {
 
 export const settings = new SettingsStore();
 export {
-  VOICE_BITRATE_MIN,
-  VOICE_BITRATE_MAX,
-  VOICE_BITRATE_STEREO_MIN,
   NOISE_GATE_DB_MIN,
   NOISE_GATE_DB_MAX,
   NOISE_GATE_DB_DEFAULT,

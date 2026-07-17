@@ -161,6 +161,7 @@ async def test_get_permissions_returns_defaults(client, admin_token):
         "ns_resolution_max": "native",
         "cam_resolution_max": "720p",
         "cam_fps_max": 30,
+        "voice_bitrate_max_kbps": 128,
     }
 
 
@@ -192,11 +193,31 @@ async def test_patch_permissions_records_audit(client, admin_token):
         "ns_resolution_max": "native",
         "cam_resolution_max": "720p",
         "cam_fps_max": 30,
+        "voice_bitrate_max_kbps": 128,
     }
     log = (await client.get("/admin/audit-log", headers=headers)).json()
     entry = next(e for e in log if e["action"] == "permissions.patch")
     assert entry["payload"]["allow_guild_creation"] == {"from": True, "to": False}
     assert entry["payload"]["allow_member_invites"] == {"from": True, "to": False}
+
+
+@pytest.mark.asyncio
+async def test_patch_voice_bitrate_cap(client, admin_token):
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+    # Senken wirkt und landet im Payload.
+    r = await client.patch(
+        "/admin/permissions", json={"voice_bitrate_max_kbps": 96}, headers=headers
+    )
+    assert r.status_code == 200
+    assert r.json()["voice_bitrate_max_kbps"] == 96
+    # Außerhalb der Grenzen (16-512) → Validierungsfehler, Wert unverändert.
+    r = await client.patch(
+        "/admin/permissions", json={"voice_bitrate_max_kbps": 600}, headers=headers
+    )
+    assert r.status_code == 422
+    r = await client.get("/admin/permissions", headers=headers)
+    assert r.json()["voice_bitrate_max_kbps"] == 96
 
 
 @pytest.mark.asyncio

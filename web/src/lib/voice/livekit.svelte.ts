@@ -1115,11 +1115,10 @@ class VoiceRoom {
   > {
     const a = settings.audio;
     const customProcessor = a.noiseSuppression !== 'off';
-    // Per-community voice-bitrate cap (Boost). null = uncapped (there is no
-    // instance-wide voice cap — only this per-guild override). Best-effort,
-    // client-side like the other quality caps.
-    const voiceCap = effectiveVoiceBitrateMaxKbps(this.channelId);
-    const voiceKbps = voiceCap ? Math.min(a.voiceBitrateKbps, voiceCap) : a.voiceBitrateKbps;
+    // Die Sprach-Bitrate BESTIMMT der Server (Guild-Override ?? Instanzwert) —
+    // es gibt bewusst keinen Nutzer-Regler mehr: niemand stellt Qualität
+    // freiwillig niedriger als vorgesehen (Entscheidung 2026-07-17).
+    const voiceKbps = effectiveVoiceBitrateMaxKbps(this.channelId);
     return {
       audioPreset: { maxBitrate: voiceKbps * 1000 },
       forceStereo: a.stereo && !customProcessor,

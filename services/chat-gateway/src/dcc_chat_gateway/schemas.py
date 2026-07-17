@@ -580,6 +580,9 @@ class PermissionsOut(BaseModel):
     # Global webcam capture limits (best-effort, client-enforced).
     cam_resolution_max: str
     cam_fps_max: int
+    # Instanzweiter Voice-Bitrate-Deckel (kbps); Guild-Override darf höher
+    # liegen ("Boost"). Client: Slider-Max + Publish-Clamp.
+    voice_bitrate_max_kbps: int
 
 
 class CapabilitiesOut(PermissionsOut):
@@ -653,6 +656,8 @@ class PermissionsPatch(BaseModel):
     # Webcam capture limits — FPS ceiling 60 (the camera path never exceeds it).
     cam_fps_max: Annotated[int | None, Field(default=None, ge=1, le=60)] = None
     cam_resolution_max: str | None = None
+    # Instanzweiter Voice-Deckel; 512 = Slider-Maximum (Opus endet real bei 510).
+    voice_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=16, le=512)] = None
 
     @field_validator("hq_resolution_max")
     @classmethod
@@ -895,7 +900,7 @@ class CommunityLimitsIn(BaseModel):
     the HQ resolution vocabulary ('Native' = uncapped); it is mapped down to the
     narrower screenshare/webcam ladders client-side."""
 
-    voice_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=16, le=256)] = None
+    voice_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=16, le=512)] = None
     stream_bitrate_max_kbps: Annotated[
         int | None, Field(default=None, ge=1000, le=100000)
     ] = None

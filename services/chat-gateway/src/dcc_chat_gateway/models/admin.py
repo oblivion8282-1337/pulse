@@ -100,6 +100,14 @@ class ChatSettings(Base):
     hq_resolution_max: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="Native"
     )
+    # Instanzweite Voice-Bitrate (kbps) — es gibt keinen Nutzer-Regler, dieser
+    # Wert IST die gesendete Opus-Bitrate. Auflösung im Client: Guild-Override
+    # (guilds.voice_bitrate_max_kbps) ?? dieser Wert; ein Override darf auch
+    # HÖHER liegen ("Boost"). Default 128 = bisheriges Default-Verhalten.
+    # Enforcement client-seitig (Publish-Pfad), wie alle Qualitäts-Caps.
+    voice_bitrate_max_kbps: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="128"
+    )
     # Global limits for the *normal* (browser LiveKit screen-share) path —
     # separate from the HQ caps above (per user request: own values). Bitrate
     # stored in kbps like the HQ ones (the UI shows Mbit/s). Resolution ceiling
