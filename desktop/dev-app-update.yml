@@ -5,19 +5,23 @@
 # gepackten `app-update.yml` und pollt den unten stehenden Feed — so läuft der
 # komplette Fluss (check → download → „Update bereit"-Prompt) unter `pnpm dev`.
 #
-# Test-Ablauf:
-#   1. `pnpm dist:win` einmal bauen → aus release/ die `latest.yml`,
-#      `Pulse-Setup-<v>.exe` + `.blockmap` in einen Ordner legen und die
-#      Version in package.json HÖHER stellen als die laufende (z.B. 0.1.99).
-#   2. In dem Ordner einen Static-Server starten:
-#        python -m http.server 8888
-#   3. Pulse im Dev-Modus mit aktivem Updater starten:
-#        cd desktop && PULSE_DEV_UPDATE=1 PULSE_UPDATE_INTERVAL_MS=30000 pnpm dev
-#      → nach ~4 s Boot-Check, „Update bereit"-Toast, „Neu starten" testet den
-#      echten Installer-Lauf.
+# Test-Ablauf (verifiziert, alles aus desktop/):
+#   1. Installer mit HÖHERER Version bauen — ohne package.json anzufassen (via
+#      extraMetadata), damit die laufende Dev-App „hinterher" ist:
+#        pnpm run build:electron \
+#          && pnpm exec electron-builder --win --publish never \
+#               -c.extraMetadata.version=0.1.99
+#      → release/Pulse-Setup-0.1.99.exe + latest.yml (+ .blockmap).
+#   2. Feed-Server starten (Node, Python-frei; serviert release/ auf :8888):
+#        node scripts/local-update-feed.mjs
+#   3. Pulse im Dev-Modus mit aktivem Updater starten (lädt den echten Renderer
+#      von howispulse.com, weil PULSE_DEV_URL ungesetzt bleibt):
+#        PULSE_DEV_UPDATE=1 PULSE_UPDATE_INITIAL_DELAY_MS=1500 pnpm exec electron .
+#      → Boot-Check, „Update bereit"-Toast; „Neu starten" fährt den echten,
+#        sichtbaren Installer-Lauf durch (installiert 0.1.99 nach %LOCALAPPDATA%).
 #
-# Der echte finale NSIS-Swap (quitAndInstall) lässt sich nur gegen einen
-# INSTALLIERTEN Build final verifizieren — dann denselben localhost-Feed nutzen.
+# Achtung: Schritt 3 mit Klick auf „Neu starten" installiert wirklich 0.1.99 —
+# danach ggf. deinstallieren + offiziellen Build neu ziehen (allowDowngrade=false).
 provider: generic
 url: http://localhost:8888/
 updaterCacheDirName: pulse-updater-dev
