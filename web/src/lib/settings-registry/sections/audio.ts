@@ -24,16 +24,11 @@ export type AudioSettings = {
   echoCancellation: boolean;
   noiseSuppression: NoiseSuppressionMode;
   noiseGateThresholdDb: number;
-  voiceBitrateKbps: number;
   stereo: boolean;
   inputMakeupGain: number;
   limiterEnabled: boolean;
   spatialMode: SpatialMode;
 };
-
-export const VOICE_BITRATE_MIN = 16;
-export const VOICE_BITRATE_MAX = 256;
-export const VOICE_BITRATE_STEREO_MIN = 32;
 
 export const NOISE_GATE_DB_MIN = -60;
 export const NOISE_GATE_DB_MAX = -20;
@@ -54,7 +49,6 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   echoCancellation: true,
   noiseSuppression: 'rnnoise_gated',
   noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
-  voiceBitrateKbps: 128,
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
   limiterEnabled: true,
@@ -63,11 +57,6 @@ export const DEFAULTS_AUDIO: AudioSettings = {
 
 export function parseSpatialMode(v: unknown): SpatialMode {
   return SPATIAL_MODES.includes(v as SpatialMode) ? (v as SpatialMode) : DEFAULTS_AUDIO.spatialMode;
-}
-
-export function clampBitrate(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULTS_AUDIO.voiceBitrateKbps;
-  return Math.min(VOICE_BITRATE_MAX, Math.max(VOICE_BITRATE_MIN, Math.round(v)));
 }
 
 export function clampGateDb(v: unknown): number {
@@ -108,7 +97,6 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
             ? 'rnnoise_gated'
             : d.noiseSuppression,
       noiseGateThresholdDb: clampGateDb(a.noiseGateThresholdDb),
-      voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
       stereo: bool(a.stereo, d.stereo),
       inputMakeupGain: clampInputMakeup(a.inputMakeupGain),
       limiterEnabled: bool(a.limiterEnabled, d.limiterEnabled),

@@ -23,13 +23,13 @@
   const MB = 1024 * 1024;
   const GB = 1024 * 1024 * 1024;
   const kbpsToMbpsStr = (v: number | null) => (v == null ? '' : String(v / 1000));
-  const mbpsStrToKbps = (s: string) => {
+  const mbpsStrToKbps = (s: unknown) => {
     const mbps = numOrNull(s);
     return mbps == null ? null : Math.round(mbps * 1000);
   };
   const bytesToUnitStr = (v: number | null, unit: number) =>
     v == null ? '' : String(Math.round((v / unit) * 100) / 100);
-  const unitStrToBytes = (s: string, unit: number) => {
+  const unitStrToBytes = (s: unknown, unit: number) => {
     const n = numOrNull(s);
     return n == null ? null : Math.round(n * unit);
   };
@@ -52,10 +52,12 @@
 
   const RES_OPTIONS = ['Native', '4K', '1440p', '1080p', '720p', '480p'];
 
-  function numOrNull(s: string): number | null {
-    const t = s.trim();
-    if (t === '') return null;
-    const n = Number(t);
+  // `type="number"`-Inputs binden nach dem Tippen eine ZAHL (der State startet
+  // als String aus toString()) — daher robust gegen beide Typen plus leer/null,
+  // sonst wirft `.trim()` "s.trim is not a function" und der Save bricht ab.
+  function numOrNull(s: unknown): number | null {
+    if (s === '' || s == null) return null;
+    const n = Number(s);
     return Number.isFinite(n) ? n : null;
   }
 
@@ -95,7 +97,7 @@
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_voice_bitrate()}</span>
       <input
-        type="number" min="16" max="256" bind:value={voice}
+        type="number" min="16" max="512" bind:value={voice}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
         class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-voice"

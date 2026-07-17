@@ -237,6 +237,8 @@ class PermissionsUpdatedEvent(_EventBase):
     # Global webcam capture limits.
     cam_resolution_max: str | None = None
     cam_fps_max: int | None = None
+    # Instanzweiter Voice-Bitrate-Deckel (kbps).
+    voice_bitrate_max_kbps: int | None = None
 
 
 class GuildSoundUpdatedEvent(_EventBase):

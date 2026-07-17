@@ -1,12 +1,5 @@
 <script lang="ts">
-  import {
-    settings,
-    VOICE_BITRATE_MIN,
-    VOICE_BITRATE_MAX,
-    VOICE_BITRATE_STEREO_MIN,
-    NOISE_GATE_DB_MIN,
-    NOISE_GATE_DB_MAX
-  } from '$lib/stores/settings.svelte';
+  import { settings, NOISE_GATE_DB_MIN, NOISE_GATE_DB_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { micTest } from '$lib/voice/micTest.svelte';
   import { isMobile } from '$lib/platform/runtime';
@@ -61,21 +54,6 @@
   function inputInt(e: Event): number | null {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     return isNaN(val) ? null : val;
-  }
-
-  // Live-display the slider value during drag (oninput), but only persist the
-  // final value on release (onchange) so we don't hammer localStorage per pixel.
-  let bitrateDisplay = $state(settings.audio.voiceBitrateKbps);
-  $effect(() => {
-    bitrateDisplay = settings.audio.voiceBitrateKbps;
-  });
-  function onBitrateInput(e: Event) {
-    const val = inputInt(e);
-    if (val !== null) bitrateDisplay = val;
-  }
-  function onBitrateChange(e: Event) {
-    const val = inputInt(e);
-    if (val !== null) settings.setVoiceBitrateKbps(val);
   }
 
   // Gate threshold: live-rebuild the gate node on drag (oninput, brief click —
@@ -143,16 +121,9 @@
     Math.round(Math.max(0, Math.min(1, (gateDbDisplay + 50) / 45)) * 100)
   );
   let gateOpen = $derived(!processorActive || micLevelPct >= gateMarkerPct);
-  let bitrateTooLowForStereo = $derived(settings.audio.voiceBitrateKbps < VOICE_BITRATE_STEREO_MIN);
-  let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
-  function bitrateLabelFor(kbps: number): string {
-    if (kbps < 24) return m.settings_audio_video_bitrate_label_very_low();
-    if (kbps < 32) return m.settings_audio_video_bitrate_label_sparse();
-    if (kbps <= 64) return m.settings_audio_video_bitrate_label_standard();
-    if (kbps <= 128) return m.settings_audio_video_bitrate_label_high();
-    return m.settings_audio_video_bitrate_label_very_high();
-  }
-  let bitrateLabel = $derived(bitrateLabelFor(bitrateDisplay));
+  // Die Sprach-Bitrate bestimmt der Server (kein Nutzer-Regler mehr) — Stereo
+  // hängt damit nur noch an der Rauschunterdrückung (mono-Worklet).
+  let stereoForced = $derived(processorActive);
 </script>
 
 <div class="flex flex-col gap-6" data-testid="settings-audio-video-panel">
@@ -250,25 +221,6 @@
         class="accent-primary size-5 md:size-4"
       />
     </label>
-
-    <!-- Sprachqualität (Bitrate) -->
-    <div class="flex flex-col gap-2">
-      <div class="flex items-center justify-between">
-        <span class="text-text-base text-sm">{m.settings_audio_video_voice_quality_label()}</span>
-        <span class="text-text-muted text-sm">{bitrateDisplay} kbit/s · {bitrateLabel}</span>
-      </div>
-      <input
-        type="range"
-        min={VOICE_BITRATE_MIN}
-        max={VOICE_BITRATE_MAX}
-        step="8"
-        value={settings.audio.voiceBitrateKbps}
-        oninput={onBitrateInput}
-        onchange={onBitrateChange}
-        class="accent-primary h-3 w-full md:h-auto"
-        data-testid="settings-voice-bitrate"
-      />
-    </div>
   </div>
 
   <!-- ===== Feld: Ausgabe ===== -->

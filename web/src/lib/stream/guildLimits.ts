@@ -60,10 +60,12 @@ export function effectiveNsLimits(channelId: string | null | undefined): {
   };
 }
 
-/** Per-community max voice (Opus) bitrate in kbps, or null when uncapped
- *  (there is no instance-wide voice cap — only this per-guild override). */
-export function effectiveVoiceBitrateMaxKbps(
-  channelId: string | null | undefined
-): number | null {
-  return guildForChannel(channelId)?.voice_bitrate_max_kbps ?? null;
+/** DIE Voice-(Opus-)Bitrate in kbps für den Kanal: Guild-Override ?? Instanz-
+ *  wert. Kein Nutzer-Regler — der Server bestimmt die Sprachqualität; ein
+ *  Override darf auch über dem Instanzwert liegen (Boost). DMs (kein Guild)
+ *  nutzen den Instanzwert. */
+export function effectiveVoiceBitrateMaxKbps(channelId: string | null | undefined): number {
+  return (
+    guildForChannel(channelId)?.voice_bitrate_max_kbps ?? capabilities.voiceBitrateMaxKbps
+  );
 }
