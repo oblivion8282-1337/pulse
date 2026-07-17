@@ -55,7 +55,10 @@ else
     exit 1
   fi
   echo "  Backend-Tests (~4 min)…"
-  REDIS_URL=redis://localhost:6380/1 PULSE_INSTANCE_MODE=cloud PULSE_INSTANCE_ID=0 \
+  # 127.0.0.1 statt localhost: unter Windows stallt localhost ~2 s pro neuer
+  # Redis-Verbindung (IPv6-::1-Fallback) → Suite kriecht. IPv4 ist sofort; auf
+  # Linux/CI ohnehin identisch.
+  REDIS_URL=redis://127.0.0.1:6380/1 PULSE_INSTANCE_MODE=cloud PULSE_INSTANCE_ID=0 \
     uv run --all-packages pytest -q --reruns 2 --only-rerun AssertionError --only-rerun RuntimeError \
     || { echo "✗ Backend-Tests ROT — Push abgebrochen. Erst grün ziehen." >&2; exit 1; }
   echo "  Frontend check + build…"

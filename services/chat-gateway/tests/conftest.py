@@ -49,7 +49,15 @@ from dcc_chat_gateway.db import Base, get_session  # noqa: E402
 # the JwtSigner emits).
 _TEST_SETTINGS = chat_cfg.Settings(
     database_url="sqlite+aiosqlite:///:memory:",
-    redis_url=os.environ.get("REDIS_URL", "redis://localhost:6380/0"),
+    # `localhost` resolviert unter Windows zuerst auf IPv6 ::1 und stallt dann
+    # ~2 s pro neuer Verbindung, bevor es auf IPv4 (127.0.0.1, wo Redis lauscht)
+    # zurückfällt. Dieser Cold-Connect reißt den 1-s-Redis-Ping-Timeout des
+    # /health-Endpoints (→ falsches „degraded") und bremst die ganze Suite.
+    # Auf IPv4 pinnen — no-op auf Linux/CI, wo localhost ohnehin sofort auf
+    # 127.0.0.1 auflöst.
+    redis_url=os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+        "localhost", "127.0.0.1"
+    ),
     auth_jwks_url="http://stub/jwks",
     database_schema="main",
     # A valid "approved self-host" config: non-zero instance id satisfies the
