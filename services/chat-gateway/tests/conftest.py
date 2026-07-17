@@ -457,6 +457,23 @@ def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update", "hello
         return m
 
 
+def ping_barrier(ws):
+    """Block until every op sent on ``ws`` so far has been processed.
+
+    ``subscribe`` answers only on failure, so a test that subscribes and then
+    publishes through another path (an HTTP POST, a second socket) races the
+    server: pub/sub is fire-and-forget, and a message published before the
+    subscribe handler has registered the socket is dropped — the test then
+    blocks in ``receive_json`` forever. The op loop awaits each handler in turn
+    (``routes/ws_ops.py``), so a ``pong`` proves every earlier op on this socket
+    is done. Call this between the subscribe and whatever triggers the message.
+    """
+    ws.send_json({"op": "ping"})
+    m = receive_skipping(ws)
+    if m.get("op") != "pong":
+        raise AssertionError(f"expected pong, got {m}")
+
+
 def skip_init_frames(ws):
     """Consume the hello + ready frames sent on every new WS connection.
 

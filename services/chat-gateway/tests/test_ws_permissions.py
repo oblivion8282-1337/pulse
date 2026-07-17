@@ -26,7 +26,7 @@ from dcc_shared.permission_resolver import (
     OVERWRITE_TARGET_USER,
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS, Permissions
-from .conftest import receive_skipping, skip_init_frames
+from .conftest import ping_barrier, receive_skipping, skip_init_frames
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -372,6 +372,7 @@ async def test_role_grants_view_back_unlocks_broadcast(ws_app, _auth_signer):
                 other_ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )
+                ping_barrier(other_ws)  # subscribe registered before we publish
                 tc.post(
                     f"/channels/{c['id']}/messages",
                     json={"content": "hi"},
