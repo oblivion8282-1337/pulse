@@ -62,6 +62,15 @@
   // Infinite-Scroll-Up-State.
   let hasMore = $state(true); // es könnte ältere Historie geben
   let loadingOlder = $state(false);
+  // VList `shift` MUSS pro Update stimmen, nicht statisch sein: true weist virtua
+  // an, die Längenänderung als *Prepend am Anfang* zu behandeln (Scroll-Position
+  // bleibt auf der aktuellen Nachricht). Für JEDE andere Änderung — neue
+  // Nachricht am Ende, Löschen — MUSS es false sein, sonst deutet virtua sie als
+  // Start-Mutation: der index-basierte Size-Cache verrutscht (Nachrichten
+  // überlappen) und falsche Items gelten als „unmeasured" → `visibility:hidden`,
+  // wodurch Inhalt/Bilder unsichtbar bleiben. Nur `loadOlder()` (der einzige
+  // Prepend-Pfad) schaltet es kurzzeitig true.
+  let prependShift = $state(false);
 
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
@@ -93,7 +102,13 @@
     loadingOlder = true;
     try {
       const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE });
+      // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
+      // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
+      // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
+      prependShift = true;
       const added = messageStore.prepend(channel.id, older);
+      await tick();
+      prependShift = false;
       // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.
       if (!added || older.length < OLDER_PAGE) hasMore = false;
     } catch {
@@ -311,7 +326,7 @@
         {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
       </p>
     {:else}
-      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={canPaginate} style="height:100%">
+      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={prependShift} style="height:100%">
         {#snippet children(item)}
           {#if item.kind === 'divider'}
             <div class="mx-5 py-4 flex items-center gap-3" data-testid="date-divider">
