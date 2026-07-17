@@ -24,7 +24,7 @@
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import VideoIcon from '@lucide/svelte/icons/video';
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
@@ -103,7 +103,7 @@
   } = $props();
 
   const KindIcon = $derived(
-    { hq: RocketIcon, screen: MonitorIcon, cam: VideoIcon, party: PlayCircleIcon }[kind]
+    { hq: RocketIcon, screen: MonitorIcon, cam: VideoIcon, party: ClapperboardIcon }[kind]
   );
   const kindIconColor = $derived(
     kind === 'hq' ? 'text-red-400' : kind === 'party' ? 'text-primary' : ''

@@ -12,7 +12,7 @@
   import MessageReactions from '$lib/components/MessageReactions.svelte';
   import EmojiPicker from '$lib/components/EmojiPicker.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import XIcon from '@lucide/svelte/icons/x';
   import { toast } from 'svelte-sonner';
@@ -128,7 +128,7 @@
   data-testid="watch-chat-panel"
 >
   <header class="flex h-14 items-center gap-2 border-b border-border px-3">
-    <PlayCircleIcon class="size-4 text-primary" />
+    <ClapperboardIcon class="size-4 text-primary" />
     <span class="text-text-bright truncate text-sm font-semibold">{m.watch_chat_panel_title()}</span>
     {#if onClose}
       <button

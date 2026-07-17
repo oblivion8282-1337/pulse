@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import { watchPartyPicker, type PartyPickEntry } from '$lib/watch/openParty.svelte';
   import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
@@ -73,7 +73,7 @@
             watchPartyPicker.close();
           }}
         >
-          <PlayCircleIcon class="text-primary size-4 shrink-0" />
+          <ClapperboardIcon class="text-primary size-4 shrink-0" />
           <span class="min-w-0 flex-1 truncate">{label(e)}</span>
         </button>
       {/each}
