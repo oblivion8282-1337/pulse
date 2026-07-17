@@ -22,7 +22,6 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
-  import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -121,9 +120,6 @@
         name={entry.name}
         identity={e.id}
         mirror={entry.mirror}
-        compact={false}
-        focused={streamFocus.isFocused(e.channelId, 'cam', e.id)}
-        onToggleFocus={() => streamFocus.toggle(e.channelId, 'cam', e.id)}
       />
     </WatchBackgroundFrame>
   {/if}
@@ -141,9 +137,6 @@
         audioTrack={entry.audioTrack}
         name={entry.name}
         identity={e.id}
-        compact={false}
-        focused={streamFocus.isFocused(e.channelId, 'screen', e.id)}
-        onToggleFocus={() => streamFocus.toggle(e.channelId, 'screen', e.id)}
       />
     </WatchBackgroundFrame>
   {/if}

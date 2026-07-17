@@ -18,9 +18,6 @@
     name,
     identity,
     mirror = false,
-    compact = false,
-    focused = false,
-    onToggleFocus,
     onHide
   }: {
     channelId: string;
@@ -29,11 +26,6 @@
     identity: string;
     /** Horizontal spiegeln — für die eigene Frontkamera-Vorschau. */
     mirror?: boolean;
-    /** Filmstrip-Kachel im Fokus-Modus. */
-    compact?: boolean;
-    /** Diese Kachel ist die fokussierte (große). */
-    focused?: boolean;
-    onToggleFocus?: () => void;
     /** Überschreibt das Standard-Schließen (openedTiles) — z.B. um die
      *  eigene Selbst-Vorschau auszublenden ohne die Kamera zu stoppen. */
     onHide?: () => void;
@@ -58,9 +50,6 @@
   {name}
   video={videoEl}
   onHide={onHide ?? (() => openedTiles.close('cam', channelId, identity))}
-  {compact}
-  {focused}
-  {onToggleFocus}
 >
   {#snippet media()}
     <!-- svelte-ignore a11y_media_has_caption -->

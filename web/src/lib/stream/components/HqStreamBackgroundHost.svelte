@@ -15,7 +15,6 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
-  import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { parseHqTileId } from '$lib/stream/hqTile';
   import { userCache } from '$lib/stores/users.svelte';
@@ -93,9 +92,6 @@
       name={tileName(e.channelId, e.userId, e.slot)}
       canDetach={true}
       canHide={true}
-      compact={false}
-      focused={streamFocus.isFocused(e.channelId, 'hq', e.tileId)}
-      onToggleFocus={() => streamFocus.toggle(e.channelId, 'hq', e.tileId)}
     />
   </WatchBackgroundFrame>
 {/each}
