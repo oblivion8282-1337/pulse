@@ -392,6 +392,8 @@ class VoiceRoom {
     this.#audioEls.setMasterVolume(settings.voice.outputVolume);
     this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
     void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
+    // Vor room.connect() verdrahten, sonst gehen Handshake-Events verloren.
+    // `.on()` dedupliziert nicht — genau einmal aufrufen.
     this.#wireEvents(room);
 
     try {
@@ -430,13 +432,14 @@ class VoiceRoom {
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
+    // Setter erneut anwenden (idempotent): die Settings können sich während des
+    // connect-await geändert haben.
     this.#audioEls.deafened = this.deafened;
     this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
     this.#audioEls.setUserVolumes(settings.voice.userVolumes);
     this.#audioEls.setMasterVolume(settings.voice.outputVolume);
     this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
     void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
-    this.#wireEvents(room);
 
     // micEnabled synchron setzen (vor dem await) — sonst lesen Listener
     // (TraySync, Buttons) transient connected=true + micEnabled=false und das

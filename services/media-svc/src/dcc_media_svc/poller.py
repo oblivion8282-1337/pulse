@@ -191,10 +191,8 @@ def _parse_state(raw: bytes | str | None) -> dict[str, Any] | None:
 def _active_created_after(raw: bytes | str | None, cutoff: datetime) -> bool:
     """True if a ``stream:active`` record's ``started_at`` is at/after ``cutoff``.
 
-    Used by the stale-cleanup to spare a record written by a fresh publish that
-    raced in *after* this reconcile pass took its MediaMTX snapshot. A record
-    with a missing/unparseable ``started_at`` is treated as old (returns False)
-    so genuinely-stale keys still self-heal."""
+    A record with a missing/unparseable ``started_at`` counts as old (False) so
+    genuinely-stale keys still self-heal."""
     state = _parse_state(raw)
     started_at = (state or {}).get("started_at")
     if not isinstance(started_at, str):
@@ -216,6 +214,28 @@ def _active_created_after(raw: bytes | str | None, cutoff: datetime) -> bool:
 # stream within ~one extra poll while still filtering single-poll blips.)
 _EMPTY_SNAPSHOT_GRACE_POLLS = 2
 _empty_snapshot_streak = 0
+
+
+async def _delete_active_sparing_fresh(
+    redis: Redis, keys: list[str], pass_start: datetime
+) -> None:
+    """Delete ``stream:active`` records, sparing ones a fresh publish just wrote.
+
+    A key absent from this pass's snapshot may already be live again under a new
+    nonce: the auth-hook writes the record at publish-auth time, before MediaMTX
+    reports the path ready. Deleting it is unrecoverable — later passes only
+    EXPIRE records for present pairs, and EXPIRE cannot resurrect a deleted key.
+    """
+    if not keys:
+        return
+    values = await redis.mget(*keys)
+    to_delete = [
+        k
+        for k, raw in zip(keys, values, strict=False)
+        if not _active_created_after(raw, pass_start)
+    ]
+    if to_delete:
+        await redis.delete(*to_delete)
 
 
 async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
@@ -318,6 +338,7 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
 
     # --- Compute changes, then flush writes in one pipeline ---------------
     ttl = settings.channel_state_ttl_s
+    departed_active_keys: list[str] = []
     async with redis.pipeline(transaction=False) as pipe:
         # (cid, new_uids, streams|None) for PUBLISH — streams only when multi.
         changed: list[tuple[str, list[str], list[dict[str, Any]] | None]] = []
@@ -353,14 +374,16 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             )
             for uid, slot in prs:
                 pipe.expire(active_key(cid, uid, int(slot)), ttl)
-            # Clean up stream:active keys for (user, slot) pairs that left this
-            # channel while at least one other stream stays (partial-departure).
-            # The full-channel-gone path is handled below in the stale-channel
-            # self-heal; here we only touch pairs no longer present.
-            for uid, slot in prev_pairs - prs:
-                pipe.delete(active_key(cid, uid, int(slot)))
+            # (user, slot) pairs that left while another stream stays
+            # (partial-departure); the full-channel-gone case is handled by the
+            # stale-channel self-heal below. Deleted after the pipeline flush —
+            # the guard needs to read the keys back.
+            departed_active_keys.extend(
+                active_key(cid, uid, int(slot)) for uid, slot in prev_pairs - prs
+            )
             changed.append((cid, new_uids, new_state.get("streams")))
         await pipe.execute()
+    await _delete_active_sparing_fresh(redis, departed_active_keys, pass_start)
 
     # Publish change events after the pipeline flush (outside the pipeline so
     # subscribers see the new state already written).
@@ -380,24 +403,10 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         # Also remove any stream:active:channel-<cid>-<uid> keys that linger
         # after the publisher disconnected — otherwise get_whep_url returns 200
         # with a stale path for a dead stream until the 6h TTL expires.
-        # TOCTOU guard: a new publisher can authenticate (auth-hook writes a
-        # fresh stream:active) in the window between our MediaMTX snapshot and
-        # this scan, before MediaMTX reports the path as ready. Skip deleting any
-        # record whose started_at is at/after this pass's start — that record
-        # belongs to a live, brand-new session, not a dead one.
         for cid in stale:
             pattern = f"stream:active:channel-{cid}-*"
             active_keys = [k async for k in redis.scan_iter(match=pattern, count=100)]
-            if not active_keys:
-                continue
-            values = await redis.mget(*active_keys)
-            to_delete = [
-                k
-                for k, raw in zip(active_keys, values, strict=False)
-                if not _active_created_after(raw, pass_start)
-            ]
-            if to_delete:
-                await redis.delete(*to_delete)
+            await _delete_active_sparing_fresh(redis, active_keys, pass_start)
         await asyncio.gather(*[_publish_event(redis, cid, []) for cid in stale])
         for cid in stale:
             log.info("stream_state_change", channel_id=cid, user_ids=[])
