@@ -282,7 +282,7 @@
 <div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="roles-editor">
   <aside class="w-full shrink-0 md:w-64">
     <div class="mb-2 flex items-center justify-between">
-      <h2 class="text-text-bright text-sm font-semibold">{m.roles_editor_roles_heading()}</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.roles_editor_roles_heading()}</h2>
       <Button size="icon-sm" variant="ghost" onclick={createRole} data-testid="role-create">
         <PlusIcon />
       </Button>

@@ -121,7 +121,7 @@
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onPartyClick(member.user_id); }}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onPartyClick(member.user_id); } }}
-            class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90 cursor-pointer"
+            class="rounded bg-primary px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground hover:bg-primary/90 cursor-pointer"
             data-testid="member-party-badge"
             aria-label={m.member_list_item_party_open_label({ name })}
             title={m.member_list_item_party_open_title()}
@@ -133,7 +133,7 @@
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onActivityClick(member.user_id); }}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
-            class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500 cursor-pointer"
+            class="rounded bg-red-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-red-500 cursor-pointer"
             data-testid="member-live-badge"
             aria-label={m.member_list_item_stream_open_label({ name })}
             title={m.member_list_item_stream_open_title()}

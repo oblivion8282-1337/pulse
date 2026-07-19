@@ -80,7 +80,7 @@
         {t.label}
         {#if t.id === 'pending' && pendingCount && pendingCount > 0}
           <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-semibold text-black align-middle"
+            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 text-2xs font-semibold text-black align-middle"
           >
             {pendingCount}
           </span>

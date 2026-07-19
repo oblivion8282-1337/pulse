@@ -254,7 +254,7 @@
   {#snippet statsPill()}
     {#if stats}
       <div
-        class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] tabular-nums text-white backdrop-blur-sm"
+        class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-2xs tabular-nums text-white backdrop-blur-sm"
         data-testid="screen-share-receive-stats"
         title={m.screen_share_tile_stats_tooltip({ codec: stats.codec, res: stats.res, fps: stats.fps, bitrate: stats.bitrate })}
       >

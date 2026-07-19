@@ -92,5 +92,5 @@
     oninput={onRange}
     data-testid="stream-av-offset-range"
   />
-  <p class="text-text-muted text-[11px]">{m.av_offset_hint()}</p>
+  <p class="text-text-muted text-2xs">{m.av_offset_hint()}</p>
 </div>

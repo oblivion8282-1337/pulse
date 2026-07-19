@@ -62,8 +62,8 @@
 
 <section class="flex flex-col gap-5" data-testid="guild-limits-editor">
   <div>
-    <h2 class="text-text-bright text-lg font-semibold">{m.guild_limits_title()}</h2>
-    <p class="text-text-muted text-sm">{m.guild_limits_subtitle()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.guild_limits_title()}</h2>
+    <p class="text-text-muted text-xs">{m.guild_limits_subtitle()}</p>
   </div>
 
   {#if !guild}

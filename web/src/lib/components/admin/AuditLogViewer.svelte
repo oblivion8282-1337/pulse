@@ -84,8 +84,8 @@
 <section class="flex flex-col gap-5" data-testid="audit-log-panel">
   <div class="flex items-center justify-between">
     <div>
-      <h2 class="text-text-bright text-lg font-semibold">{m.audit_log_title()}</h2>
-      <p class="text-text-muted text-sm">{m.audit_log_subtitle()}</p>
+      <h2 class="text-text-bright text-base font-semibold">{m.audit_log_title()}</h2>
+      <p class="text-text-muted text-xs">{m.audit_log_subtitle()}</p>
     </div>
     <Button
       variant="ghost"

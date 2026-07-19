@@ -233,7 +233,7 @@
 <div class="space-y-6" data-testid="channel-overrides">
   <header>
     <h2 class="text-text-bright text-base font-semibold">{m.channel_overrides_heading()}</h2>
-    <p class="text-text-muted text-sm">
+    <p class="text-text-muted text-xs">
       {m.channel_overrides_order_hint()}
     </p>
   </header>

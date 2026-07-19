@@ -168,7 +168,7 @@
         <span class="flex flex-col gap-0.5">
           <span class="flex items-center gap-1.5">
             <span class="text-text-bright text-sm font-medium">{m.hosting_apply_mode_managed_title()}</span>
-            <span class="bg-bg-input text-text-muted rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">{m.hosting_apply_mode_managed_badge()}</span>
+            <span class="bg-bg-input text-text-muted rounded-full px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide">{m.hosting_apply_mode_managed_badge()}</span>
           </span>
           <span class="text-text-muted text-xs">{m.hosting_apply_mode_managed_desc()}</span>
         </span>

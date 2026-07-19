@@ -33,8 +33,8 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-appearance-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_appearance_title()}</h2>
-    <p class="text-text-muted text-sm">{m.settings_appearance_subtitle()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_appearance_title()}</h2>
+    <p class="text-text-muted text-xs">{m.settings_appearance_subtitle()}</p>
   </div>
 
   <div class="flex flex-col gap-2">

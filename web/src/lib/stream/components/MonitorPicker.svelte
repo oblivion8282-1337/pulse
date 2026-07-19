@@ -81,7 +81,7 @@
     <div role="radiogroup" aria-label={m.monitor_picker_label()} class="flex flex-col gap-3">
       {#if streamSettings.available_monitors.length > 0}
         <div class="flex flex-col gap-1.5">
-          <span class="text-text-muted text-[0.65rem] font-semibold tracking-wide uppercase">
+          <span class="text-text-muted text-2xs font-semibold tracking-wide uppercase">
             {m.monitor_picker_group_displays()}
           </span>
           <div class="grid grid-cols-2 gap-2">
@@ -104,7 +104,7 @@
                   <span class="truncate text-xs font-medium">
                     {m.monitor_picker_option_label({ index: mon.index, name: mon.name })}
                   </span>
-                  <span class="text-text-muted truncate text-[0.65rem]">
+                  <span class="text-text-muted truncate text-2xs">
                     {mon.primary ? `${m.monitor_picker_option_primary()} · ` : ''}{mon.width
                       ? m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })
                       : ''}
@@ -118,7 +118,7 @@
 
       {#if streamSettings.available_windows.length > 0}
         <div class="flex flex-col gap-1.5">
-          <span class="text-text-muted text-[0.65rem] font-semibold tracking-wide uppercase">
+          <span class="text-text-muted text-2xs font-semibold tracking-wide uppercase">
             {m.monitor_picker_group_windows()}
           </span>
           <div class="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
@@ -141,7 +141,7 @@
                 <span class="flex min-w-0 flex-col">
                   <span class="truncate text-xs font-medium">{w.app}</span>
                   {#if w.title}
-                    <span class="text-text-muted truncate text-[0.65rem]">{w.title}</span>
+                    <span class="text-text-muted truncate text-2xs">{w.title}</span>
                   {/if}
                 </span>
               </button>

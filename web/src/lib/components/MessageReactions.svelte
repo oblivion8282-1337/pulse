@@ -244,7 +244,7 @@
                       <Avatar.Image src={userCache.get(uid)?.avatar_url ?? undefined} alt={displayNameFor(uid)} />
                     {/if}
                     <Avatar.Fallback
-                      class="text-[11px] font-semibold"
+                      class="text-2xs font-semibold"
                       style={avatarStyle(uid)}
                     >
                       {initialFor(uid)}
@@ -255,7 +255,7 @@
                     style={nameStyleFor(uid)}
                   >{displayNameFor(uid)}</span>
                   {#if me}
-                    <span class="text-text-muted ml-auto text-[10px] uppercase tracking-wide">
+                    <span class="text-text-muted ml-auto text-2xs uppercase tracking-wide">
                       {m.message_reactions_popover_you()}
                     </span>
                   {/if}

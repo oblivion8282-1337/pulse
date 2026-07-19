@@ -36,8 +36,8 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-security-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_security_title()}</h2>
-    <p class="text-text-muted text-sm">{m.settings_security_subtitle()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_security_title()}</h2>
+    <p class="text-text-muted text-xs">{m.settings_security_subtitle()}</p>
   </div>
 
   <section class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">

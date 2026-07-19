@@ -181,7 +181,7 @@
             <div class="flex items-center gap-2">
               <span class="text-text-bright truncate text-sm font-medium">{c.name}</span>
               <span
-                class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {c.is_public
+                class="rounded-full px-1.5 py-0.5 text-2xs font-medium {c.is_public
                   ? 'bg-success/15 text-success'
                   : 'text-text-muted bg-bg-hover'}"
               >
@@ -189,7 +189,7 @@
               </span>
               {#if c.suspended}
                 <span
-                  class="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                  class="rounded-full bg-destructive/15 px-1.5 py-0.5 text-2xs font-medium text-destructive"
                 >
                   {m.admin_communities_suspended_badge()}
                 </span>

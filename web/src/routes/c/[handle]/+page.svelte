@@ -106,11 +106,11 @@
           {preview?.guild.name ?? handle}
         </h1>
         {#if preview}
-          <p class="text-text-muted text-sm">
+          <p class="text-text-muted text-xs">
             {m.public_community_member_count({ count: preview.member_count })}
           </p>
         {:else}
-          <p class="text-text-muted text-sm">@{handle}</p>
+          <p class="text-text-muted text-xs">@{handle}</p>
         {/if}
       </div>
 

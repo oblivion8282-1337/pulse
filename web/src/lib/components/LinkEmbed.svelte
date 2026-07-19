@@ -58,7 +58,7 @@
       />
     {/if}
     <div class="min-w-0 flex-1">
-      <p class="text-text-muted truncate text-[11px] tracking-wide uppercase">{providerName}</p>
+      <p class="text-text-muted truncate text-2xs tracking-wide uppercase">{providerName}</p>
       {#if data.title}
         <p
           class="text-text-bright line-clamp-2 text-sm font-semibold"

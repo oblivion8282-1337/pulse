@@ -44,7 +44,7 @@
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
     <p
-      class="text-text-muted px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider"
+      class="text-text-muted px-3 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider"
     >
       Freunde
     </p>
@@ -60,7 +60,7 @@
       <span class="truncate">Freunde</span>
       {#if pendingCount > 0}
         <span
-          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
+          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
           data-testid="sidebar-friends-badge"
         >
           {pendingCount}
@@ -70,7 +70,7 @@
 
     <div class="my-3 hairline bg-border" aria-hidden="true"></div>
     <p
-      class="text-text-muted px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
+      class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider"
     >
       Direktnachrichten
     </p>
@@ -110,7 +110,7 @@
         </span>
         {#if unreadCount > 0}
           <span
-            class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+            class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white"
             data-testid="dm-unread-pill"
             data-unread-count={unreadCount}
             aria-label="ungelesen"

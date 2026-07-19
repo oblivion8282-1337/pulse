@@ -36,8 +36,8 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-apps-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_apps_heading()}</h2>
-    <p class="text-text-muted text-sm">{m.settings_apps_intro()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_apps_heading()}</h2>
+    <p class="text-text-muted text-xs">{m.settings_apps_intro()}</p>
   </div>
 
   <!-- Windows -->
@@ -68,7 +68,7 @@
         <p class="text-text-muted text-xs">{m.downloads_linux_step_terminal()}</p>
       </div>
     </div>
-    <code class="bg-bg-input block select-all break-all rounded-md px-2 py-1.5 font-mono text-[11px]">
+    <code class="bg-bg-input block select-all break-all rounded-md px-2 py-1.5 font-mono text-2xs">
       {LINUX_INSTALL_COMMAND}
     </code>
     <Button type="button" variant="secondary" size="sm" class="gap-1.5 self-start" onclick={copyCommand}>

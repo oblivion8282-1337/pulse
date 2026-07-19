@@ -59,7 +59,7 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-sounds-panel">
-  <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
+  <h2 class="text-text-bright text-base font-semibold">Sounds</h2>
 
   <section
     class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4"

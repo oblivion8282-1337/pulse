@@ -187,7 +187,7 @@
       {m.user_footer_server_admin()}
       {#if showInstanceBadge}
         <span
-          class="bg-red-500 ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white"
+          class="bg-red-500 ml-auto rounded-full px-1.5 py-0.5 text-2xs font-semibold text-white"
           data-testid="admin-pending-badge"
         >
           {pendingInstanceApps.count}
@@ -195,7 +195,7 @@
       {/if}
       {#if showAppHostBadge}
         <span
-          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-black"
+          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold text-black"
           data-testid="admin-app-host-pending-badge"
           title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
         >
@@ -204,7 +204,7 @@
       {/if}
       {#if showComplaintsBadge}
         <span
-          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-black"
+          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold text-black"
           data-testid="admin-complaints-pending-badge"
           title={m.complaints_pending_badge({ count: pendingComplaints.count })}
         >

@@ -99,7 +99,7 @@
         <span class="text-text-bright text-sm font-medium">{m.admin_backup_not_configured_title()}</span>
         <span class="text-text-muted text-xs leading-relaxed">
           {m.admin_backup_not_configured_body_pre()}<code
-            class="bg-bg-panel px-1 py-0.5 rounded text-[11px]"
+            class="bg-bg-panel px-1 py-0.5 rounded text-2xs"
             >infra/prod/DEPLOY.md</code
           >{m.admin_backup_not_configured_body_post()}
         </span>
@@ -145,14 +145,14 @@
         <span class="text-text-muted text-xs">
           {m.admin_backup_last_success()} {fmtAge(data!.age_seconds!)} ·
           <span class="text-text-base">{fmtTimestamp(data!.last_backup_at!)}</span>.
-          <code class="bg-bg-panel px-1 py-0.5 rounded text-[11px]">docker logs pulse_backup</code>
+          <code class="bg-bg-panel px-1 py-0.5 rounded text-2xs">docker logs pulse_backup</code>
           {m.admin_backup_stale_check_logs()}
         </span>
       </div>
     </div>
   {/if}
 
-  <p class="text-text-muted text-[11px] leading-relaxed mt-3">
+  <p class="text-text-muted text-2xs leading-relaxed mt-3">
     {m.admin_backup_footer_pre()}<code
       class="bg-bg-panel px-1 py-0.5 rounded">docker compose exec backup …</code
     >{m.admin_backup_footer_mid()}<code class="bg-bg-panel px-1 py-0.5 rounded"

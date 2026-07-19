@@ -184,7 +184,7 @@
     <span class="text-text-bright truncate text-sm font-semibold">{name}</span>
     {#if totalInVoice > 0}
       <span
-        class="bg-primary/15 text-primary ml-auto flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+        class="bg-primary/15 text-primary ml-auto flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold"
       >
         <Volume2Icon class="size-2.5" />
         {totalInVoice}
@@ -205,7 +205,7 @@
         <div class="flex flex-col gap-1">
           <!-- Channel-Kopf -->
           <span
-            class="text-text-muted flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide"
+            class="text-text-muted flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide"
           >
             <Volume2Icon class="size-3 shrink-0" />
             <span class="truncate">{ch.name}</span>
@@ -224,7 +224,7 @@
                     <Avatar.Image src={avatarUrl} alt="" />
                   {/if}
                   <Avatar.Fallback
-                    class="accent-gradient text-primary-foreground text-[9px] font-semibold"
+                    class="accent-gradient text-primary-foreground text-2xs font-semibold"
                   >
                     {display.slice(0, 1).toUpperCase()}
                   </Avatar.Fallback>
@@ -238,19 +238,19 @@
                   <span class="ml-auto flex shrink-0 items-center gap-1">
                     {#if isParty}
                       <span
-                        class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
+                        class="rounded bg-primary px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground"
                         title={m.voice_channel_members_watch_party_hosting()}
                       >PARTY</span>
                     {/if}
                     {#if isLive}
                       <span
-                        class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                        class="rounded bg-red-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                         title={m.voice_channel_members_stream_sharing_screen()}
                       >LIVE</span>
                     {/if}
                     {#if isCam}
                       <span
-                        class="rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
+                        class="rounded bg-primary/80 px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground"
                         title={m.voice_channel_members_cam_on()}
                       >CAM</span>
                     {/if}

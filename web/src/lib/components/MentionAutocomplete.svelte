@@ -236,7 +236,7 @@
             {#if item.avatar}
               <Avatar.Image src={item.avatar} alt={item.label} />
             {/if}
-            <Avatar.Fallback class="accent-gradient text-primary-foreground text-[10px] font-semibold">
+            <Avatar.Fallback class="accent-gradient text-primary-foreground text-2xs font-semibold">
               {item.label.slice(0, 1).toUpperCase()}
             </Avatar.Fallback>
           </Avatar.Root>
@@ -249,7 +249,7 @@
           <span class="truncate text-text-bright">@{item.label}</span>
         {:else}
           <span class="truncate text-text-bright">@{item.kind}</span>
-          <span class="text-text-muted ml-auto text-[10px]">{item.kind === 'everyone' ? 'alle Mitglieder' : 'alle online'}</span>
+          <span class="text-text-muted ml-auto text-2xs">{item.kind === 'everyone' ? 'alle Mitglieder' : 'alle online'}</span>
         {/if}
       </button>
     {/each}

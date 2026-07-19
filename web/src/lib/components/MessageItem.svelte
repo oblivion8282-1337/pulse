@@ -162,7 +162,7 @@
       class="text-text-bright w-full rounded-md border border-border bg-bg-input px-2 py-1 text-[15px] outline-none focus:border-primary"
       data-testid="message-edit-input"
     ></textarea>
-    <div class="text-text-muted mt-0.5 text-[10px]">
+    <div class="text-text-muted mt-0.5 text-2xs">
       {m.message_item_edit_hint()}
     </div>
   {:else}
@@ -170,7 +170,7 @@
       <div class="text-text-base break-words text-[15px]" data-testid="message-content">
         {@html html}
         {#if isEdited}
-          <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
+          <span class="text-text-muted text-2xs" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
         {/if}
       </div>
     {/if}
@@ -210,7 +210,7 @@
     use:longpress={{ onLongPress: openSheet }}
   >
     <div class="flex w-10 shrink-0 items-center justify-end">
-      <span class="text-text-muted hidden text-[10px] group-hover:block pointer-coarse:block">{time}</span>
+      <span class="text-text-muted hidden text-2xs group-hover:block pointer-coarse:block">{time}</span>
     </div>
     <div class="min-w-0 flex-1">
       {@render body()}

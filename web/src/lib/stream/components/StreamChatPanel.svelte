@@ -161,7 +161,7 @@
             <span class="font-semibold text-primary">
               {userCache.displayName(msg.author_id)}
             </span>
-            <span class="text-text-muted ml-1 text-[10px]">{fmtTime(msg.created_at)}</span>
+            <span class="text-text-muted ml-1 text-2xs">{fmtTime(msg.created_at)}</span>
             <p class="text-text-bright break-words">{msg.content}</p>
           </li>
         {/each}

@@ -91,6 +91,14 @@
      Die Stufen sind bewusst NICHT mehr aus einem Grundwert abgeleitet — die
      Verhältnisse waren dadurch zufällig. `--radius` bleibt als Rohwert für
      Fremdcode stehen. */
+  /* Kleinstschrift — eine Stufe UNTER `text-xs` (12px), für Zeitstempel, Marken
+     und Zähler. Der Bedarf war schon da: 84 Stellen setzten dafür eine
+     Pixel-Angabe neben der Skala, in vier verschiedenen Ausprägungen
+     (10px 53x, 11px 25x, 0.65rem 4x, 9px 2x). Unterscheidbar war davon nichts —
+     jetzt gibt es EINE Stufe, und sie steht in der Skala statt daneben. */
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-2xs--line-height: 1.4;
+
   --radius-sm: 0.375rem; /* 6px  — sehr kleine Elemente, Chips */
   --radius-md: 0.5rem; /* 8px  — Bedienelemente */
   --radius-lg: 0.625rem; /* 10px — Zwischenstufe */

@@ -125,7 +125,7 @@
                 {formatUserAgent(s.user_agent)}
                 {#if s.is_current}
                   <span
-                    class="ml-1 inline-flex items-center rounded bg-success/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-success md:px-1.5 md:py-0.5 md:text-[10px]"
+                    class="ml-1 inline-flex items-center rounded bg-success/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-success md:px-1.5 md:py-0.5 md:text-2xs"
                     data-testid="session-current-badge"
                   >
                     {m.sessions_section_current_badge()}
@@ -136,7 +136,7 @@
                 {m.sessions_section_session_meta({ signedIn: formatRelative(s.created_at), active: formatRelative(s.last_used_at ?? s.created_at) })}
               </span>
               {#if s.ip_hash_prefix}
-                <span class="text-text-muted font-mono text-xs uppercase tracking-wider md:text-[10px]">
+                <span class="text-text-muted font-mono text-xs uppercase tracking-wider md:text-2xs">
                   {m.sessions_section_source({ prefix: s.ip_hash_prefix })}
                 </span>
               {/if}

@@ -410,7 +410,7 @@
                 {/if}
                 {#if unreadCount > 0}
                   <span
-                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white"
                     data-testid="channel-mention-pill"
                     data-unread-count={unreadCount}
                     aria-label={m.channel_list_unread_mentions({ count: unreadCount })}
@@ -555,7 +555,7 @@
               <span class="ml-auto flex shrink-0 items-center gap-1.5">
                 {#if c.user_limit && c.user_limit > 0}
                   <span
-                    class="text-text-muted text-[11px] tabular-nums md:text-[10px]"
+                    class="text-text-muted text-2xs tabular-nums md:text-2xs"
                     title={m.channel_list_user_limit_title({ limit: c.user_limit })}
                     data-testid={`channel-user-limit-${c.id}`}
                   >{voicePresence.usersIn(c.id).length}/{c.user_limit}</span>
