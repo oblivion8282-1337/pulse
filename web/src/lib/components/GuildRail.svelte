@@ -541,7 +541,7 @@
                       <button
                         {...props}
                         {...tipProps}
-                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
+                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-xl text-xs font-bold text-white transition-all md:size-10 data-[active=true]:rounded-md data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
                           ? 'opacity-40 grayscale'
                           : ''}"
                         style={iconSrc
@@ -663,7 +663,7 @@
                    deckt die Zugänglichkeit ab. -->
               <button
                 {...props}
-                class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-md hover:bg-primary/10"
+                class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:bg-primary/10"
                 data-testid={`guild-create-menu-${server.id}`}
                 aria-label={canCreateHere
                   ? m.guild_rail_create_community()
