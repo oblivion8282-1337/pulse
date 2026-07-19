@@ -26,6 +26,7 @@ import {
 } from '$lib/api/dropbox';
 import type { Channel } from '$lib/api/types';
 import { m as pm } from '$lib/paraglide/messages.js';
+import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
 class DropboxViewModel {
   // ----- State -----
@@ -482,7 +483,11 @@ class DropboxViewModel {
   }
 
   async trashEntry(e: DropboxEntry) {
-    if (!confirm(pm.dropbox_confirm_delete({ name: e.name }))) return;
+    const ok = await confirmDialog({
+      description: pm.dropbox_confirm_delete({ name: e.name }),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await dropboxApi.deleteEntry(this.channel.guild_id, e.id);
       await this.refreshAll();

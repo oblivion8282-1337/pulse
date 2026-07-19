@@ -18,6 +18,7 @@
   import { formatBytes } from '$lib/utils/formatBytes';
   import SearchIcon from '@lucide/svelte/icons/search';
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let communities = $state<Community[]>([]);
   let loading = $state(true);
@@ -92,7 +93,13 @@
   }
 
   async function toggleSuspend(c: Community) {
-    if (!c.suspended && !confirm(m.admin_communities_suspend_confirm())) return;
+    if (!c.suspended) {
+      const ok = await confirmDialog({
+        description: m.admin_communities_suspend_confirm(),
+        destructive: true
+      });
+      if (!ok) return;
+    }
     pendingId = c.id;
     try {
       const updated = c.suspended

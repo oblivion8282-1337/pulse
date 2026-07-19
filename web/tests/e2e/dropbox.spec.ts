@@ -83,8 +83,9 @@ test.describe('Dropbox / Ablage', () => {
   test('create dropbox channel, upload, trash via DOM, restore via DOM', async ({
     page
   }) => {
-    // Confirm/alert dialogs spawned by trashing a file must be accepted.
-    page.on('dialog', (d) => void d.accept());
+    // Kein `page.on('dialog', …)` mehr: das Wegwerfen fragt seit der
+    // Design-Vereinheitlichung in der Oberfläche statt per Browser-Dialog.
+    // Bestätigt wird unten an der Fundstelle.
 
     const uname = await registerAndLogin(page, 'alice');
     // Admin-Flag für die Guild-Erstellung (allow_guild_creation ist default
@@ -165,6 +166,8 @@ test.describe('Dropbox / Ablage', () => {
     // Trash via the DOM — click the per-card trash button.
     const trashBtn = page.getByTestId(`dropbox-entry-trash-${entryId}`);
     await trashBtn.click();
+    // Bestätigungs-Abfrage (feedback/ConfirmDialog.svelte) annehmen.
+    await page.getByTestId('confirm-dialog-confirm').click();
 
     // File vanishes from the root listing.
     await expect(uploaded).toBeHidden({ timeout: 5_000 });

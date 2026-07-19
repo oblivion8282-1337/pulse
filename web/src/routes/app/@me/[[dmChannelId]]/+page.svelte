@@ -21,6 +21,7 @@
   import { toast } from 'svelte-sonner';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   // Global-Friends Stufe 1: DMs leben in der Cloud. Alle DM-REST-Calls werden
   // explizit gegen den Cloud-Server geroutet (sonst laufen sie bei aktivem
@@ -230,7 +231,11 @@
   }
 
   async function deleteMessage(msg: Message) {
-    if (!confirm(m.dm_page_delete_confirm())) return;
+    const ok = await confirmDialog({
+      description: m.dm_page_delete_confirm(),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await chatApi.deleteMessage(msg.id, cloudRoute);
     } catch (e) {

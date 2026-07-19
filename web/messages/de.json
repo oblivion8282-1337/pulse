@@ -2628,5 +2628,8 @@
   "direct_trust_body": "Die Identität von {label} ist nicht mehr dieselbe wie beim letzten Mal. Wenn der Betreiber den Server neu eingerichtet oder umgezogen hat, ist das erwartbar. Wenn nicht, brich ab und frag beim Betreiber nach.",
   "direct_trust_accept": "Neuer Identität vertrauen",
   "direct_trust_cancel": "Abbrechen",
-  "feedback_loading": "Wird geladen …"
+  "feedback_loading": "Wird geladen …",
+  "confirm_dialog_title": "Bist du sicher?",
+  "confirm_dialog_confirm": "Ja, fortfahren",
+  "confirm_dialog_cancel": "Abbrechen"
 }

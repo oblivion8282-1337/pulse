@@ -2628,5 +2628,8 @@
   "direct_trust_body": "The identity of {label} is no longer the same as last time. If the operator reinstalled or moved the server, this is expected. If not, cancel and check with the operator.",
   "direct_trust_accept": "Trust the new identity",
   "direct_trust_cancel": "Cancel",
-  "feedback_loading": "Loading …"
+  "feedback_loading": "Loading …",
+  "confirm_dialog_title": "Are you sure?",
+  "confirm_dialog_confirm": "Yes, continue",
+  "confirm_dialog_cancel": "Cancel"
 }

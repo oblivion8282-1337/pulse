@@ -27,6 +27,7 @@
   import DropboxRenameDialog from './dropbox/DropboxRenameDialog.svelte';
   import DropboxMoveDialog from './dropbox/DropboxMoveDialog.svelte';
   import { useDropboxView } from './dropbox/DropboxViewModel.svelte';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let { channel }: { channel: Channel } = $props();
 
@@ -78,9 +79,11 @@
     <DropboxTrashBanner
       trashCount={v.trashCount}
       onEmptyTrash={async () => {
-        if (!confirm(pm.dropbox_empty_trash_confirm({ count: v.trashCount }))) {
-          return;
-        }
+        const ok = await confirmDialog({
+          description: pm.dropbox_empty_trash_confirm({ count: v.trashCount }),
+          destructive: true
+        });
+        if (!ok) return;
         await v.emptyTrash();
       }}
     />

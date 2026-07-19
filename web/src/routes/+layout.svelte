@@ -10,6 +10,7 @@
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
   import ChangelogGate from '$lib/components/ChangelogGate.svelte';
+  import ConfirmDialog from '$lib/components/feedback/ConfirmDialog.svelte';
   import DirectTrustDialog from '$lib/components/server/DirectTrustDialog.svelte';
   import TraySync from '$lib/tray/TraySync.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -235,6 +236,8 @@
 <ShortcutHost />
 
 <ChangelogGate />
+<!-- Genau einmal: rendert alle Abfragen aus `feedback/confirm.svelte.ts`. -->
+<ConfirmDialog />
 <!-- Fingerprint-Wechsel eines Direct-only-Servers (App-Host) → Vertrauens-Dialog -->
 <DirectTrustDialog />
 
