@@ -6,14 +6,14 @@
 
     1. HEUTE          — die tatsächlich im Code gefundenen Klassenketten,
                         wörtlich übernommen (Belege im Bestandsaufnahme-Dokument).
-    2. ANGEPASST      — wie die Button-Komponente aussähe, wenn wir sie an die
-                        App angleichen (rounded-md statt rounded-full, solide
-                        destructive-Variante, flaches Primär).
-    3. SHADCN PUR     — die Button-Komponente, wie sie heute ausgeliefert ist.
+    2. ANGEPASST      — der Vorschlag, hier LOKAL als Klassenketten nachgebaut
+                        (rounded-md statt rounded-full, solide destructive-Variante,
+                        Verlauf als Primär).
+    3. KOMPONENTE     — `lib/components/ui/button/button.svelte`, live.
 
-  Wichtig: Spalte 2 ist hier LOKAL nachgebaut. Diese Seite fasst
-  `lib/components/ui/button/button.svelte` NICHT an — bis zur Entscheidung
-  ändert sich am Aussehen der App nichts.
+  Hinweis: Die Entscheidung ist gefallen und in der Komponente umgesetzt — Spalte 2
+  und 3 gleichen sich seitdem weitgehend. Spalte 1 zeigt weiter, was noch von Hand
+  gebaut ist und auf die Komponente umgestellt gehört.
 
   Grundlage: docs/2026-07-19-design-vereinheitlichung-bestandsaufnahme.md
 -->
@@ -34,7 +34,9 @@
     'disabled:pointer-events-none disabled:opacity-50';
   const h = 'h-8 px-3';
   const proposed = {
-    primary: `${base} ${h} bg-primary text-white hover:bg-primary/90`,
+    // Der Verlauf bleibt: 42 Buttons nutzen ihn, app.css weist ihn ausdrücklich
+    // als Primär-Behandlung aus. Die 21 flachen rohen Primär-Buttons wandern hierher.
+    primary: `${base} ${h} accent-gradient text-white shadow-[0_4px_14px_rgba(37,99,235,0.25)] hover:brightness-110`,
     secondary: `${base} ${h} bg-secondary text-secondary-foreground hover:bg-secondary/80`,
     outline: `${base} ${h} border-border bg-card hover:bg-muted`,
     ghost: `${base} ${h} hover:bg-bg-hover`,
@@ -136,8 +138,8 @@
     <h1 class="text-2xl font-semibold">Design-Vereinheitlichung — Vergleich</h1>
     <p class="text-text-muted max-w-3xl text-sm">
       Dieselben Schaltflächen in drei Fassungen. Spalte 2 ist der Vorschlag, die
-      Button-Komponente an die App anzugleichen; Spalte 3 die Komponente, wie sie heute
-      ausgeliefert wird. Diese Seite ändert nichts an der App — sie zeigt nur.
+      Button-Komponente an die App anzugleichen; Spalte 3 die Komponente, wie sie
+      aktuell aussieht. Diese Seite ändert nichts an der App — sie zeigt nur.
     </p>
   </header>
 
@@ -151,7 +153,7 @@
   <div class="grid grid-cols-3 gap-4 border-b border-border pb-2 text-sm font-semibold">
     <div>1 — Heute im Code</div>
     <div>2 — Komponente angepasst</div>
-    <div>3 — shadcn pur</div>
+    <div>3 — Komponente live</div>
   </div>
 
   {#each rows as row (row.title)}
