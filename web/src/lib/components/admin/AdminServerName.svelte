@@ -11,6 +11,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import SaveIcon from '@lucide/svelte/icons/save';
   import { adminApi } from '$lib/api/admin';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -71,12 +72,11 @@
   {:else}
     <label class="flex flex-col gap-1.5">
       <span class="text-text-base text-sm">{m.admin_server_name_label()}</span>
-      <input
+      <Input
         type="text"
-        maxlength="60"
+        maxlength={60}
         bind:value
         placeholder={m.admin_server_name_placeholder()}
-        class="bg-bg-hover text-text-bright rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-primary"
         data-testid="admin-server-name-input"
       />
     </label>

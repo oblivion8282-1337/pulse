@@ -7,7 +7,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { totpDisable } from '$lib/api/auth';
@@ -83,9 +83,9 @@
 
       <form onsubmit={submit} class="space-y-3">
         <div class="space-y-1.5">
-          <Label for="totp-disable-password" class="text-text-muted text-xs font-semibold uppercase">
+          <FieldLabel for="totp-disable-password" required class="text-text-muted text-xs font-semibold uppercase">
             {m.totp_disable_dialog_label_password()}
-          </Label>
+          </FieldLabel>
           <Input
             id="totp-disable-password"
             type="password"
@@ -98,12 +98,13 @@
 
         {#if useBackup}
           <div class="space-y-1.5">
-            <Label
+            <FieldLabel
               for="totp-disable-backup"
+              required
               class="text-text-muted text-xs font-semibold uppercase"
             >
               {m.totp_disable_dialog_label_backup_code()}
-            </Label>
+            </FieldLabel>
             <Input
               id="totp-disable-backup"
               type="text"
@@ -116,9 +117,9 @@
           </div>
         {:else}
           <div class="space-y-1.5">
-            <Label for="totp-disable-code" class="text-text-muted text-xs font-semibold uppercase">
+            <FieldLabel for="totp-disable-code" required class="text-text-muted text-xs font-semibold uppercase">
               {m.totp_disable_dialog_label_totp_code()}
-            </Label>
+            </FieldLabel>
             <Input
               id="totp-disable-code"
               type="text"

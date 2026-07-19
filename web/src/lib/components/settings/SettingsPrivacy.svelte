@@ -17,6 +17,7 @@
   import { friendsApi } from '$lib/api/friends';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   const FR_OPTIONS = [
     {
@@ -105,9 +106,8 @@
           {m.settings_privacy_show_in_search_desc()}
         </span>
       </span>
-      <input
-        type="checkbox"
-        class="mt-0.5 size-5 accent-[var(--brand)] md:size-4"
+      <Checkbox
+        class="mt-0.5"
         checked={privacy.current.show_in_search}
         onchange={(e) => setShowInSearch((e.currentTarget as HTMLInputElement).checked)}
         data-testid="privacy-show-in-search"

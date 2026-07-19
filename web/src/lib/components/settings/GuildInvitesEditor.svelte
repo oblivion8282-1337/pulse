@@ -20,6 +20,7 @@
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import { Input } from '$lib/components/ui/input/index.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -234,14 +235,14 @@
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div class="flex flex-1 flex-col gap-1.5">
           <Label for="addbyid-input">{m.guild_invites_addbyid_title()}</Label>
-          <input
+          <Input
             id="addbyid-input"
             type="text"
             inputmode="numeric"
             bind:value={addUserId}
             onkeydown={(e) => e.key === 'Enter' && addById()}
             placeholder={m.guild_invites_addbyid_placeholder()}
-            class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full rounded-md border px-3 py-2 text-sm"
+            class="w-full"
             data-testid="addbyid-input"
           />
         </div>

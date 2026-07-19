@@ -20,6 +20,7 @@
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import type { PulseLinuxBackend } from '$lib/platform/pulse';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let backend = $state<PulseLinuxBackend | null>(null);
   let useLegacy = $state(false);
@@ -125,9 +126,8 @@
 
     <!-- Notbremse zurück auf GSR -->
     <label class="border-border/60 flex items-start gap-3 border-t pt-3">
-      <input
-        type="checkbox"
-        class="accent-primary mt-0.5 size-4 shrink-0"
+      <Checkbox
+        class="mt-0.5 shrink-0"
         checked={useLegacy}
         disabled={!ready}
         onchange={onToggleLegacy}
@@ -147,9 +147,8 @@
   <!-- Diagnose-Logs: eigener Opt-in, bewusst als eigenes Feld -->
   <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
     <label class="flex items-start gap-3">
-      <input
-        type="checkbox"
-        class="accent-primary mt-0.5 size-4 shrink-0"
+      <Checkbox
+        class="mt-0.5 shrink-0"
         checked={uploadLogs}
         disabled={!ready}
         onchange={onToggleUpload}

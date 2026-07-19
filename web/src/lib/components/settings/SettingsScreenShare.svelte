@@ -4,6 +4,7 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { allowedNsResolutions, clampNsResolution } from '$lib/settings-registry/sections/screenShare';
   import { m } from '$lib/paraglide/messages.js';
+  import { Input } from '$lib/components/ui/input/index.js';
 
   const codecs: { value: ScreenShareCodec; label: string }[] = [
     { value: 'h264', label: 'H.264' },
@@ -96,14 +97,14 @@
       <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_framerate()}</span>
       <span class="text-text-muted text-sm">{m.settings_screenshare_fps_value({ fps: settings.screenShare.fps })}</span>
     </div>
-    <input
+    <Input
       type="number"
       min={fMin}
       max={fMax}
       step="1"
       value={settings.screenShare.fps}
       oninput={onFpsInput}
-      class="bg-bg-soft border-border-soft text-text-bright focus:border-primary w-full rounded-md border px-2 py-2 text-sm focus:outline-none md:w-24 md:py-1"
+      class="w-full md:w-24"
       data-testid="screenshare-fps-input"
     />
   </div>

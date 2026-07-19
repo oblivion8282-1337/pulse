@@ -2,7 +2,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
@@ -62,9 +62,9 @@
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
-        <Label for="rename-guild-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="rename-guild-name" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.rename_guild_dialog_name_label()}
-        </Label>
+        </FieldLabel>
         <Input
           id="rename-guild-name"
           type="text"

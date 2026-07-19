@@ -13,7 +13,7 @@
   import { ApiError } from '$lib/api/client';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { m } from '$lib/paraglide/messages.js';
@@ -74,9 +74,9 @@
 
   <form class="flex flex-col gap-3" onsubmit={submit}>
     <div class="space-y-1.5">
-      <Label for="cp-current" class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      <FieldLabel for="cp-current" required class="text-text-muted text-xs font-semibold uppercase tracking-wide">
         {m.change_password_current_label()}
-      </Label>
+      </FieldLabel>
       <Input
         id="cp-current"
         type="password"
@@ -88,9 +88,9 @@
     </div>
 
     <div class="space-y-1.5">
-      <Label for="cp-new" class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      <FieldLabel for="cp-new" required class="text-text-muted text-xs font-semibold uppercase tracking-wide">
         {m.change_password_new_label()}
-      </Label>
+      </FieldLabel>
       <Input
         id="cp-new"
         type="password"
@@ -103,9 +103,9 @@
     </div>
 
     <div class="space-y-1.5">
-      <Label for="cp-confirm" class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      <FieldLabel for="cp-confirm" required class="text-text-muted text-xs font-semibold uppercase tracking-wide">
         {m.change_password_confirm_label()}
-      </Label>
+      </FieldLabel>
       <Input
         id="cp-confirm"
         type="password"

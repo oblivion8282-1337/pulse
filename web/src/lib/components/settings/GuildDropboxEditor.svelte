@@ -9,6 +9,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import Switch from '$lib/components/form/Switch.svelte';
   import { dropboxApi, type DropboxConfig } from '$lib/api/dropbox';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { m } from '$lib/paraglide/messages.js';
@@ -108,22 +109,11 @@
         <Label class="text-sm font-medium">{m.dropbox_settings_enabled_label()}</Label>
         <p class="text-text-faint mt-1 text-xs">{m.dropbox_settings_enabled_desc()}</p>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
+      <Switch
+        bind:checked={enabled}
         aria-label={m.dropbox_settings_enabled_label()}
-        class="relative h-6 w-11 rounded-full transition {enabled
-          ? 'bg-primary'
-          : 'bg-bg-hover'}"
-        onclick={() => (enabled = !enabled)}
         data-testid="dropbox-enabled-toggle"
-      >
-        <span
-          class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition"
-          style="transform: translateX({enabled ? '20px' : '0'})"
-        ></span>
-      </button>
+      />
     </div>
 
     <div class="grid gap-4 sm:grid-cols-3">

@@ -11,6 +11,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { Button } from '$lib/components/ui/button';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { adminApi, type InstanceMember } from '$lib/api/admin';
@@ -199,9 +200,9 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="ban-reason">
+        <Label class="text-text-bright text-xs font-medium" for="ban-reason">
           Grund (optional)
-        </label>
+        </Label>
         <textarea
           id="ban-reason"
           bind:value={banReason}

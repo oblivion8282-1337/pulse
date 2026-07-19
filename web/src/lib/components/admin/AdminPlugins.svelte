@@ -22,6 +22,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Switch from '$lib/components/form/Switch.svelte';
   import {
     adminPluginsApi,
     type AdminPluginEntry
@@ -151,28 +152,21 @@
               </div>
             {/if}
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={row.in_allowlist}
-            aria-label={row.plugin_name}
-            disabled={isHello || busy[row.plugin_name]}
-            onclick={() => toggle(row.plugin_name)}
-            data-testid="admin-plugin-toggle-{row.plugin_name}"
-            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed
-                   {row.in_allowlist ? 'bg-primary' : 'bg-bg-hover'}
-                   {isHello ? 'opacity-60' : ''}"
-          >
-            <span
-              class="inline-block size-4 transform rounded-full bg-white transition-transform
-                     {row.in_allowlist ? 'translate-x-6' : 'translate-x-1'}"
-            ></span>
+          <span class="relative inline-flex shrink-0 items-center">
+            <Switch
+              checked={row.in_allowlist}
+              onCheckedChange={() => toggle(row.plugin_name)}
+              aria-label={row.plugin_name}
+              disabled={isHello || busy[row.plugin_name]}
+              data-testid="admin-plugin-toggle-{row.plugin_name}"
+              class={isHello ? 'opacity-60' : ''}
+            />
             {#if isHello}
               <LockIcon
                 class="text-text-muted pointer-events-none absolute right-1 size-3"
               />
             {/if}
-          </button>
+          </span>
         </div>
       {/each}
     </div>

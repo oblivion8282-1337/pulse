@@ -12,6 +12,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { adminComplaintsApi, type Complaint } from '$lib/api/complaints';
@@ -346,9 +347,9 @@
         </p>
       {/if}
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="forward-notice">
+        <Label class="text-text-bright text-xs font-medium" for="forward-notice">
           {m.admin_complaints_forward_notice_label()}
-        </label>
+        </Label>
         <textarea
           id="forward-notice"
           bind:value={forwardNotice}
@@ -383,9 +384,9 @@
         <Dialog.Title>{m.admin_complaints_resolve_title()}</Dialog.Title>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="resolve-note">
+        <Label class="text-text-bright text-xs font-medium" for="resolve-note">
           {m.admin_complaints_resolve_note_label()}
-        </label>
+        </Label>
         <textarea
           id="resolve-note"
           bind:value={resolveNote}
@@ -419,9 +420,9 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="notify-message">
+        <Label class="text-text-bright text-xs font-medium" for="notify-message">
           {m.admin_complaints_notify_message_label()}
-        </label>
+        </Label>
         <textarea
           id="notify-message"
           bind:value={notifyMessage}

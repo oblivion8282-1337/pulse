@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
   import { Label } from '$lib/components/ui/label/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import { streamSettings, persistSettings } from '../settings.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
@@ -55,9 +56,9 @@
   <div class="flex items-center justify-between gap-2">
     <Label for="av-offset">{m.av_offset_label()}</Label>
     <div class="flex items-center gap-1.5">
-      <input
+      <Input
         id="av-offset-num"
-        class="bg-bg-input text-text-base h-8 w-20 rounded-md px-2 text-right text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
+        class="w-20 text-right tabular-nums"
         type="number"
         min={MIN}
         max={MAX}

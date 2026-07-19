@@ -16,6 +16,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -208,9 +209,7 @@
                 <div class="text-xs text-warning">{lock.reason}</div>
               {/if}
             </div>
-            <input
-              type="checkbox"
-              class="size-4 accent-primary"
+            <Checkbox
               {checked}
               disabled={lock.locked || busy.has(key)}
               onchange={(ev) =>

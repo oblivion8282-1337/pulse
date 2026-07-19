@@ -11,6 +11,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import { parseSource } from '$lib/watch/source';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -72,12 +73,11 @@
       </Dialog.Description>
     </Dialog.Header>
     <div class="flex flex-col gap-2 py-2">
-      <input
+      <Input
         bind:value={url}
         onkeydown={handleKey}
         type="url"
         placeholder="https://youtu.be/..."
-        class="border-border bg-bg-elev focus:border-primary text-text-bright w-full rounded-md border px-2 py-1.5 text-sm outline-none"
         data-testid="watch-party-url-input"
       />
       <div class="text-xs">

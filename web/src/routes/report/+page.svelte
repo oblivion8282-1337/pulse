@@ -7,6 +7,9 @@
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import { ApiError } from '$lib/api/client';
   import { submitAbuseReport } from '$lib/api/complaints';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
@@ -97,25 +100,30 @@
 
       <form class="flex flex-col gap-5" onsubmit={submit} data-testid="report-form">
         <div class="flex flex-col gap-1.5">
-          <label class="text-sm font-medium" for="report-url">{m.report_abuse_url_label()}</label>
-          <input
+          <FieldLabel class="text-sm font-medium" for="report-url" required>
+            {m.report_abuse_url_label()}
+          </FieldLabel>
+          <Input
             id="report-url"
             type="text"
             bind:value={targetUrl}
-            maxlength="500"
+            maxlength={500}
+            aria-required="true"
             placeholder={m.report_abuse_url_placeholder()}
             data-testid="report-url-input"
-            class="border-border bg-background focus:ring-primary rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
           />
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-sm font-medium" for="report-body">{m.report_abuse_body_label()}</label>
+          <FieldLabel class="text-sm font-medium" for="report-body" required>
+            {m.report_abuse_body_label()}
+          </FieldLabel>
           <textarea
             id="report-body"
             bind:value={body}
             rows="6"
-            maxlength="5000"
+            maxlength={5000}
+            aria-required="true"
             placeholder={m.report_abuse_body_placeholder()}
             data-testid="report-body-input"
             class="border-border bg-background focus:ring-primary resize-none rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
@@ -123,16 +131,15 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-sm font-medium" for="report-email">
+          <Label class="text-sm font-medium" for="report-email">
             {m.report_abuse_email_label()}
-          </label>
-          <input
+          </Label>
+          <Input
             id="report-email"
             type="email"
             bind:value={email}
-            maxlength="320"
+            maxlength={320}
             placeholder={m.report_abuse_email_placeholder()}
-            class="border-border bg-background focus:ring-primary rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
           />
           <p class="text-muted-foreground text-xs">{m.report_abuse_email_hint()}</p>
         </div>

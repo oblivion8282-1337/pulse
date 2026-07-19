@@ -12,6 +12,7 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import { adminApi, type AdminUser } from '$lib/api/admin';
   import { auth } from '$lib/stores/auth.svelte';
   import AdminUserRow from './AdminUserRow.svelte';
@@ -136,12 +137,12 @@
     <SearchIcon
       class="text-text-muted pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
     />
-    <input
+    <Input
       type="search"
       bind:value={query}
       oninput={onSearchInput}
       placeholder={m.admin_users_search_placeholder()}
-      class="border-border bg-bg-hover/40 text-text-base placeholder:text-text-muted focus:border-primary w-full rounded-md border py-2 pr-3 pl-9 text-sm outline-none"
+      class="w-full py-2 pr-3 pl-9"
       data-testid="admin-users-search"
     />
   </div>

@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { adminApi, type Invite } from '$lib/api/admin';
@@ -125,7 +126,7 @@
           data-testid="invite-max-uses"
         />
         <label class="text-text-muted flex items-center gap-1 text-xs">
-          <input type="checkbox" bind:checked={unlimited} class="accent-primary" /> {m.admin_registration_invite_unlimited()}
+          <Checkbox bind:checked={unlimited} /> {m.admin_registration_invite_unlimited()}
         </label>
       </div>
     </div>

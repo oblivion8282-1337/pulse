@@ -11,7 +11,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { totpSetup, totpVerifySetup, type TotpSetup } from '$lib/api/auth';
@@ -19,6 +19,7 @@
   import { stripTotpFormatting, formatTotpDisplay } from '$lib/auth/format';
   import BackupCodesView from './BackupCodesView.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -156,9 +157,9 @@
       {:else if step === 'verify'}
         <form onsubmit={verify} class="space-y-3">
           <div class="space-y-1.5">
-            <Label for="totp-setup-code" class="text-text-muted text-xs font-semibold uppercase">
+            <FieldLabel for="totp-setup-code" required class="text-text-muted text-xs font-semibold uppercase">
               {m.totp_enable_dialog_code_label()}
-            </Label>
+            </FieldLabel>
             <Input
               id="totp-setup-code"
               type="text"
@@ -189,9 +190,7 @@
       {:else}
         <BackupCodesView codes={backupCodes} />
         <label class="text-text-base mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            class="size-5 accent-[var(--brand)] md:size-4"
+          <Checkbox
             bind:checked={saved}
             data-testid="totp-enable-saved-check"
           />

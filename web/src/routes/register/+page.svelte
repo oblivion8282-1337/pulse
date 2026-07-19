@@ -7,6 +7,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
@@ -135,9 +136,9 @@
       </header>
 
       <div class="space-y-1.5">
-        <Label for="reg-username" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="reg-username" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.register_label_username()}
-        </Label>
+        </FieldLabel>
         <Input
           id="reg-username"
           type="text"
@@ -151,9 +152,9 @@
       </div>
 
       <div class="space-y-1.5">
-        <Label for="reg-email" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="reg-email" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.register_label_email()}
-        </Label>
+        </FieldLabel>
         <Input
           id="reg-email"
           type="email"
@@ -188,9 +189,9 @@
       {/if}
 
       <div class="space-y-1.5">
-        <Label for="reg-password" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="reg-password" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.register_label_password()}
-        </Label>
+        </FieldLabel>
         <Input
           id="reg-password"
           type="password"

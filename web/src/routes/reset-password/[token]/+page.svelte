@@ -5,7 +5,7 @@
   import { ApiError } from '$lib/api/client';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
@@ -76,12 +76,13 @@
       </header>
 
       <div class="space-y-1.5">
-        <Label
+        <FieldLabel
           for="reset-password"
+          required
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
           {m.reset_password_label_new()}
-        </Label>
+        </FieldLabel>
         <Input
           id="reset-password"
           type="password"
@@ -94,12 +95,13 @@
       </div>
 
       <div class="space-y-1.5">
-        <Label
+        <FieldLabel
           for="reset-confirm"
+          required
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
           {m.reset_password_label_confirm()}
-        </Label>
+        </FieldLabel>
         <Input
           id="reset-confirm"
           type="password"

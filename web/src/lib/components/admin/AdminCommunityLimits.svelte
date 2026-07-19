@@ -11,6 +11,7 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import { adminApi, type Community } from '$lib/api/admin';
 
   let { community, onSaved }: { community: Community; onSaved: (c: Community) => void } =
@@ -96,28 +97,25 @@
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_voice_bitrate()}</span>
-      <input
+      <Input
         type="number" min="16" max="512" bind:value={voice}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-voice"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_stream_bitrate()}</span>
-      <input
+      <Input
         type="number" min="1" max="100" step="any" bind:value={streamMbps}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-bitrate"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_fps()}</span>
-      <input
+      <Input
         type="number" min="1" max="1000" bind:value={fps}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-fps"
       />
     </label>
@@ -144,26 +142,23 @@
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_storage_quota()}</span>
-      <input
+      <Input
         type="number" min="0" step="any" bind:value={storageQuotaGB}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-storage-quota"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_attach_size()}</span>
-      <input
+      <Input
         type="number" min="1" step="any" bind:value={attachSizeMB}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-attach-size"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_attach_count()}</span>
-      <input
+      <Input
         type="number" min="1" max="50" bind:value={attachCount}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-attach-count"
       />
     </label>
@@ -177,37 +172,33 @@
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_members()}</span>
-      <input
+      <Input
         type="number" min="1" bind:value={maxMembers}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-members"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_channels()}</span>
-      <input
+      <Input
         type="number" min="1" bind:value={maxChannels}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-channels"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_roles()}</span>
-      <input
+      <Input
         type="number" min="1" bind:value={maxRoles}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-roles"
       />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_max_streams()}</span>
-      <input
+      <Input
         type="number" min="0" bind:value={maxStreams}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-streams"
       />
     </label>

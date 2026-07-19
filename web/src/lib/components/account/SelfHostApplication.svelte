@@ -27,6 +27,9 @@
   import { m } from '$lib/paraglide/messages.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
 
   type Mode = 'vps' | 'app_host';
   const mobile = isMobile();
@@ -177,22 +180,22 @@
 
     {#if mode === 'vps'}
       <div class="flex flex-col gap-1">
-        <label class="text-text-bright text-xs font-medium" for="sha-hostname">
+        <FieldLabel class="text-text-bright text-xs font-medium" for="sha-hostname" required>
           {m.self_host_application_hostname_label()} <span class="text-text-muted font-normal">{m.self_host_application_hostname_hint()}</span>
-        </label>
-        <input
+        </FieldLabel>
+        <Input
           id="sha-hostname"
           type="text"
           bind:value={hostname}
+          aria-required="true"
           placeholder="pulse.example.org"
-          class="bg-bg-input border-border text-text-bright placeholder:text-text-muted rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         />
       </div>
     {:else}
       <div class="flex flex-col gap-1">
-        <label class="text-text-bright text-xs font-medium" for="sha-purpose">
+        <Label class="text-text-bright text-xs font-medium" for="sha-purpose">
           {m.app_host_apply_purpose_label()}
-        </label>
+        </Label>
         <select id="sha-purpose" bind:value={purpose}
           class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
           <option value="privat">{m.app_host_apply_purpose_privat()}</option>
@@ -202,10 +205,10 @@
         </select>
       </div>
       <div class="flex flex-col gap-1">
-        <label class="text-text-bright text-xs font-medium" for="sha-message">
+        <Label class="text-text-bright text-xs font-medium" for="sha-message">
           {m.app_host_apply_message_label()}
           <span class="text-text-muted font-normal">{m.app_host_apply_message_optional()}</span>
-        </label>
+        </Label>
         <textarea id="sha-message" bind:value={message} rows="2" maxlength="2000"
           placeholder={m.app_host_apply_message_placeholder()}
           class="bg-bg-input border-border text-text-bright placeholder:text-text-muted resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"

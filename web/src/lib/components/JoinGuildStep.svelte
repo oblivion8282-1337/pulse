@@ -13,6 +13,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
@@ -154,9 +155,9 @@
 </Dialog.Header>
 <form class="space-y-4" onsubmit={submit}>
   <div class="space-y-1.5">
-    <Label for="join-guild-input" class={fieldLabelClass}>
+    <FieldLabel for="join-guild-input" required class={fieldLabelClass}>
       {m.create_guild_dialog_invite_label()}
-    </Label>
+    </FieldLabel>
     <Input
       id="join-guild-input"
       type="text"

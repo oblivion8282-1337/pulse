@@ -9,6 +9,8 @@
 -->
 <script lang="ts">
   import { Label } from '$lib/components/ui/label/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import {
     streamSettings,
     CODEC_VALUES,
@@ -171,9 +173,9 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-bitrate">{m.overrides_editor_bitrate_label()}</Label>
-    <input
+    <Input
       id="ov-bitrate"
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
+      class="tabular-nums"
       type="number"
       min={bMin}
       max={bMax}
@@ -189,9 +191,9 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-fps">FPS</Label>
-    <input
+    <Input
       id="ov-fps"
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
+      class="tabular-nums"
       type="number"
       min={fMin}
       max={fMax}
@@ -207,9 +209,7 @@
  </div>
 
   <label class="flex cursor-pointer items-center gap-2 text-sm">
-    <input
-      type="checkbox"
-      class="size-4 accent-primary"
+    <Checkbox
       checked={streamSettings.show_cursor}
       onchange={onShowCursor}
       data-testid="stream-overrides-show-cursor"

@@ -19,6 +19,7 @@
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Input } from '$lib/components/ui/input/index.js';
 
   type Props = {
     enabled: boolean;
@@ -99,11 +100,11 @@
   >
     <FolderPlusIcon class="size-4" />
   </button>
-  <input
+  <Input
     type="text"
     placeholder={pm.dropbox_search_placeholder()}
     aria-label={pm.dropbox_search_placeholder()}
-    class="flex-1 rounded-md border border-border/40 bg-bg-hover/40 px-3 py-1.5 text-sm placeholder:text-text-faint focus:border-primary focus:outline-none"
+    class="flex-1"
     value={searchQuery}
     oninput={(e) => onSearchInput((e.currentTarget as HTMLInputElement).value)}
     data-testid="dropbox-search"

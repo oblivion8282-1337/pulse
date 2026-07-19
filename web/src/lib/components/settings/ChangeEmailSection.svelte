@@ -13,7 +13,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { m } from '$lib/paraglide/messages.js';
@@ -83,9 +83,9 @@
 
   <form class="flex flex-col gap-3" onsubmit={submit}>
     <div class="space-y-1.5">
-      <Label for="ce-new" class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      <FieldLabel for="ce-new" required class="text-text-muted text-xs font-semibold uppercase tracking-wide">
         {m.change_email_new_label()}
-      </Label>
+      </FieldLabel>
       <Input
         id="ce-new"
         type="email"
@@ -97,9 +97,9 @@
     </div>
 
     <div class="space-y-1.5">
-      <Label for="ce-pw" class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      <FieldLabel for="ce-pw" required class="text-text-muted text-xs font-semibold uppercase tracking-wide">
         {m.change_email_password_label()}
-      </Label>
+      </FieldLabel>
       <Input
         id="ce-pw"
         type="password"

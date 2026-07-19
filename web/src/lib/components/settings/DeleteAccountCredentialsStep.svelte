@@ -11,7 +11,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
@@ -58,9 +58,9 @@
 
 <form {onsubmit} class="space-y-3">
   <div class="space-y-1.5">
-    <Label for="delete-password" class="text-text-muted text-xs font-semibold uppercase">
+    <FieldLabel for="delete-password" required class="text-text-muted text-xs font-semibold uppercase">
       {m.delete_account_credentials_password_label()}
-    </Label>
+    </FieldLabel>
     <Input
       id="delete-password"
       type="password"
@@ -75,9 +75,9 @@
   {#if totpEnabled}
     {#if useBackup}
       <div class="space-y-1.5">
-        <Label for="delete-backup" class="text-text-muted text-xs font-semibold uppercase">
+        <FieldLabel for="delete-backup" required class="text-text-muted text-xs font-semibold uppercase">
           {m.delete_account_credentials_backup_code_label()}
-        </Label>
+        </FieldLabel>
         <Input
           id="delete-backup"
           type="text"
@@ -91,9 +91,9 @@
       </div>
     {:else}
       <div class="space-y-1.5">
-        <Label for="delete-code" class="text-text-muted text-xs font-semibold uppercase">
+        <FieldLabel for="delete-code" required class="text-text-muted text-xs font-semibold uppercase">
           {m.delete_account_credentials_totp_label()}
-        </Label>
+        </FieldLabel>
         <Input
           id="delete-code"
           type="text"

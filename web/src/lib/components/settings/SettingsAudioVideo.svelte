@@ -4,6 +4,7 @@
   import { micTest } from '$lib/voice/micTest.svelte';
   import { isMobile } from '$lib/platform/runtime';
   import { deviceDisplayName } from '$lib/voice/devices';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
   import { onDestroy, untrack } from 'svelte';
@@ -214,12 +215,10 @@
          im Kanal voice.selfMonitor, außerhalb micTest. -->
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-mic-monitor">
       <span class="text-text-base text-sm">{m.settings_audio_video_monitor_label()}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         role="switch"
         checked={voice.connected ? voice.selfMonitor : micTest.monitor}
         onchange={(e) => onMonitorChange((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-5 md:size-4"
       />
     </label>
   </div>
@@ -251,22 +250,18 @@
     <!-- Rauschunterdrückung -->
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-noise-suppression">
       <span class="text-text-base text-sm">{m.settings_audio_video_noise_suppression_label()}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         checked={settings.audio.noiseSuppression !== 'off'}
         onchange={(e) => onNoiseSuppressionChange((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-5 md:size-4"
       />
     </label>
 
     <!-- Echo-Unterdrückung -->
     <label class="flex cursor-pointer items-center justify-between gap-3">
       <span class="text-text-base text-sm">{m.settings_audio_video_echo_cancellation_label()}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         checked={settings.audio.echoCancellation}
         onchange={(e) => settings.setEchoCancellation((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-5 md:size-4"
         data-testid="settings-echo-cancellation"
       />
     </label>
@@ -274,11 +269,9 @@
     <!-- Empfangs-Lautstärke-Limiter -->
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-limiter">
       <span class="text-text-base text-sm">{m.settings_audio_video_limiter_label()}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         checked={settings.audio.limiterEnabled}
         onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; settings.setLimiterEnabled(on); voice.setLimiterEnabled(on); }}
-        class="accent-primary size-5 md:size-4"
       />
     </label>
 
@@ -290,8 +283,7 @@
         class:cursor-pointer={!spatialDisabled}
       >
         <span class="text-text-base text-sm">{m.settings_audio_video_spatial_label()}</span>
-        <input
-          type="checkbox"
+        <Checkbox
           role="switch"
           checked={settings.audio.spatialMode !== 'off'}
           disabled={spatialDisabled}
@@ -300,7 +292,6 @@
             settings.setSpatialMode(mode);
             voice.setSpatialMode(mode);
           }}
-          class="accent-primary size-5 md:size-4"
           data-testid="settings-spatial-toggle"
         />
       </label>
@@ -313,11 +304,9 @@
     <div class="flex flex-col gap-2">
       <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={stereoForced}>
         <span class="text-text-base text-sm">Stereo</span>
-        <input
-          type="checkbox"
+        <Checkbox
           checked={stereoForced ? false : settings.audio.stereo}
           onchange={(e) => settings.setStereo((e.currentTarget as HTMLInputElement).checked)}
-          class="accent-primary size-5 md:size-4"
           disabled={stereoForced}
           data-testid="settings-stereo"
         />
@@ -332,11 +321,9 @@
   <div class="border-border flex flex-col gap-4 rounded-xl border p-4">
     <label class="flex cursor-pointer items-center justify-between gap-3">
       <span class="text-text-base text-sm">{m.settings_audio_video_ptt_enable()}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         checked={settings.voice.pttMode}
         onchange={(e) => void voice.setPttMode((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-5 md:size-4"
         data-testid="settings-ptt-toggle"
       />
     </label>

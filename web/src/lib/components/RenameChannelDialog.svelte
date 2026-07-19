@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
@@ -133,9 +134,9 @@
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
-        <Label for="rename-channel-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="rename-channel-name" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.rename_channel_dialog_channel_name_label()}
-        </Label>
+        </FieldLabel>
         <Input
           id="rename-channel-name"
           type="text"

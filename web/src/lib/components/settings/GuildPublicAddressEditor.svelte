@@ -19,6 +19,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { chatApi } from '$lib/api/chat';
@@ -147,9 +148,8 @@
 
       <!-- Öffentlich-Toggle -->
       <label class="flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          class="mt-0.5 size-4 accent-primary"
+        <Checkbox
+          class="mt-0.5"
           bind:checked={isPublic}
           disabled={saving || (!handle && !isPublic)}
           data-testid="guild-public-toggle"
