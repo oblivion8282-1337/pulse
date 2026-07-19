@@ -1,10 +1,4 @@
-//! Stream-/server-profile + audio-mode table.
-//!
-//! Wire-compatible with `streaming/gsr-sidecar/profiles.py` and
-//! `streaming/win-hq-sidecar/src/profiles.rs` — the `list_profiles` response
-//! (names, codec/audio/container/bitrate/fps values, `needs_custom_build`,
-//! notes) has the exact same shape and the exact same strings on all three
-//! platforms, so the renderer (`web/src/lib/stream/`) is platform-blind.
+//! Encoder baseline values + push-target construction.
 //!
 //! `ServerProfile::from_channel` builds the push URL for the Pulse channel path
 //! — if media-svc already passed a `push_url` (token inside), it's used
@@ -15,20 +9,16 @@
 //! SRT:  srt://<host>:8890?streamid=publish:channel-<id>:<user>:<token>&pkt_size=1316
 //! ```
 
-use serde::Serialize;
+use serde_json::{Map, Value};
 
-/// Codec/bitrate/fps/container preset. Wire-compatible with `StreamProfile`
-/// from `gsr-sidecar/profiles.py`.
-#[derive(Debug, Clone, Serialize)]
+/// Codec/bitrate/fps/container baseline that unset overrides fall back to.
+#[derive(Debug, Clone)]
 pub struct StreamProfile {
-    pub name: &'static str,
     pub codec: &'static str,
     pub audio_codec: &'static str,
     pub container: &'static str,
     pub bitrate_kbps: u32,
     pub fps: u32,
-    pub needs_custom_build: bool,
-    pub notes: &'static str,
 }
 
 /// Push target — either verbatim from media-svc (`push_url`) or reconstructed
@@ -95,64 +85,26 @@ fn parse_endpoint(endpoint: &str) -> (String, Option<u16>) {
     }
 }
 
-// ── Static profile table ─────────────────────────────────────────────────────
+// ── Baseline values ──────────────────────────────────────────────────────────
 //
-// 1:1 from `gsr-sidecar/profiles.py`. Names + notes in German like the original,
-// so the settings modal in
-// `web/src/lib/components/settings/SettingsScreenShare.svelte` finds identical
-// strings on every platform.
+// The four-entry profile catalogue that used to live here was dropped on
+// 2026-07-19 together with the `list_profiles` op; these are exactly the values
+// of its former "Custom" entry, which is the only one the renderer ever asked
+// for. Full rationale in `streaming/win-hq-sidecar/src/profiles.rs`.
 
-pub const PROFILES: &[StreamProfile] = &[
-    StreamProfile {
-        name: "AV1 Effizient",
-        codec: "av1",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Halbe Bandbreite, gleiche Qualität. Browser muss AV1 können.",
-    },
-    StreamProfile {
-        name: "H.264 Standard",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Universelle Browser-Kompat, Audio in WebRTC.",
-    },
-    StreamProfile {
-        name: "H.264 Sparmodus",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Halbe Bandbreite, leicht pixeliger bei Bewegung.",
-    },
-    StreamProfile {
-        name: "Custom",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Override-Sektion in der UI nutzen.",
-    },
-];
+pub static BASELINE: StreamProfile = StreamProfile {
+    codec: "h264",
+    audio_codec: "opus",
+    container: "flv",
+    bitrate_kbps: 4000,
+    fps: 60,
+};
 
-#[allow(dead_code)]
-pub fn profile_by_name(name: &str) -> Option<&'static StreamProfile> {
-    PROFILES.iter().find(|p| p.name == name)
+/// The `profile` field from `start`/`build_argv` is a label only since the
+/// catalogue went away: it shows up in the diagnostic argv but no longer
+/// selects anything. Older renderers still send it — its absence is not an error.
+pub fn profile_label(params: &Map<String, Value>) -> &str {
+    params.get("profile").and_then(Value::as_str).unwrap_or("Custom")
 }
-
-/// Audio modes with the labels the renderer shows in the settings modal. The
-/// values map to SCK system-audio / AVCaptureSession microphone sources on
-/// macOS — translated in the capture stage.
-pub const AUDIO_MODES: &[&str] = &["Aus", "Desktop", "Mikrofon", "Desktop + Mikrofon"];
 
 pub const APP_LABEL_PREFIX: &str = "App: ";

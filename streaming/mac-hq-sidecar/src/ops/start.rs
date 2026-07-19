@@ -11,16 +11,12 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value};
 
 use crate::capture::{self, AudioScope};
-use crate::profiles::profile_by_name;
+use crate::profiles::{BASELINE, profile_label};
 use crate::stream_controller::{StartParams, StreamController};
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let profile_name = params
-        .get("profile")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("profile (Name) ist Pflicht"))?;
-    let profile = profile_by_name(profile_name)
-        .ok_or_else(|| anyhow!("Unknown stream profile: {profile_name}"))?;
+    let profile_name = profile_label(&params);
+    let profile = &BASELINE;
 
     let channel = params
         .get("channel")
@@ -85,7 +81,15 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 
     let (width, height) = resolve_resolution(overrides, display_index)?;
 
-    let argv = build_redacted_argv(&push_url, profile.name, &codec, fps, bitrate_kbps, width, height);
+    let argv = build_redacted_argv(
+        &push_url,
+        profile_name,
+        &codec,
+        fps,
+        bitrate_kbps,
+        width,
+        height,
+    );
 
     StreamController::singleton().start(
         StartParams {

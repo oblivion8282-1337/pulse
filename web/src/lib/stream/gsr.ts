@@ -48,26 +48,6 @@ export interface GsrGpuInfo {
   error?: string;
 }
 
-export interface GsrProfile {
-  name: string;
-  codec: string;
-  audio_codec: string;
-  container: string;
-  bitrate_kbps: number;
-  fps: number;
-  needs_custom_build: boolean;
-  notes: string;
-}
-export interface GsrListProfiles {
-  ok: boolean;
-  profiles: GsrProfile[];
-  /** Always `[]` — Pulse streams into a voice channel, there's no server
-   *  catalog. Kept for shape-compat with the sidecar response. */
-  servers: unknown[];
-  audio_modes: string[];
-  app_label_prefix: string;
-}
-
 export interface GsrListApplicationAudio {
   ok: boolean;
   applications?: string[];
@@ -187,10 +167,6 @@ export const gsr = {
   async gpuInfo(): Promise<GsrGpuInfo | null> {
     const b = bridge();
     return b ? ((await b.gpuInfo()) as GsrGpuInfo) : null;
-  },
-  async listProfiles(): Promise<GsrListProfiles | null> {
-    const b = bridge();
-    return b ? ((await b.listProfiles()) as GsrListProfiles) : null;
   },
   /** Enumerate display monitors. Windows-only in practice — on Linux the
    *  portal dialog handles source selection, so callers gate on `isWindows()`. */

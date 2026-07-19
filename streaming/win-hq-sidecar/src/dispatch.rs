@@ -38,7 +38,6 @@ fn dispatch(req: Request) -> (Response, bool) {
     let result: anyhow::Result<Map<String, Value>> = match req.op.as_str() {
         "health" => ops::health::handle(req.params),
         "gpu_info" => ops::gpu_info::handle(req.params),
-        "list_profiles" => ops::list_profiles::handle(req.params),
         "list_monitors" => ops::list_monitors::handle(req.params),
         "list_windows" => ops::list_windows::handle(req.params),
         "list_application_audio" => ops::list_application_audio::handle(req.params),

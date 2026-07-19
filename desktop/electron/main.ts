@@ -755,7 +755,6 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
 const ALLOWED_GSR_OPS = new Set([
   'health',
   'gpu_info',
-  'list_profiles',
   'list_monitors',
   'list_windows',
   'list_application_audio',

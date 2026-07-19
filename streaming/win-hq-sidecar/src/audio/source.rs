@@ -1,7 +1,8 @@
 //! `AudioSource` — was capturen wir.
 //!
-//! Übersetzung aus dem UI-Label-Set in `profiles.rs::AUDIO_MODES` macht der
-//! JSON-Layer (Stage 8, `start`-Op); diese Enum ist die maschinen-lesbare Form.
+//! Übersetzung aus dem UI-Label-Set ("Aus" / "Desktop" / "Mikrofon" /
+//! "Desktop + Mikrofon") macht der JSON-Layer (Stage 8, `start`-Op); diese Enum
+//! ist die maschinen-lesbare Form.
 
 /// Wo kommen die Samples her.
 #[derive(Debug, Clone)]

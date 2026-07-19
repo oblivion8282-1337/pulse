@@ -297,9 +297,10 @@ export async function loadCatalogs(): Promise<void> {
     // Monitors back the in-app picker on Windows + macOS (WGC / ScreenCaptureKit
     // have no portal dialog). On Linux the Wayland portal picks the source at
     // stream start, so skip the round-trip there.
-    // ``listProfiles`` is intentionally not fetched: the HQ panel is channel-mode
-    // only and forces ``profile_name='Custom'`` + ``use_overrides=true`` below, so
-    // the sidecar's profile catalog has no consumer.
+    // There is no profile catalog to fetch: the HQ panel is channel-mode only
+    // and forces ``profile_name='Custom'`` + ``use_overrides=true`` below. The
+    // sidecars keep a single baseline (h264/opus/flv, 4000 kbps, 60 fps) that
+    // unset override fields fall back to.
     const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
