@@ -118,10 +118,10 @@
           <ClapperboardIcon class="text-primary mt-0.5 size-4 shrink-0" />
           <div class="min-w-0 flex-1">
             <p class="text-text-bright truncate text-xs font-semibold">Watch Party</p>
-            <p class="text-text-muted truncate text-[11px]" title={sourceLabel(e.state)}>
+            <p class="text-text-muted truncate text-2xs" title={sourceLabel(e.state)}>
               {sourceLabel(e.state)}
             </p>
-            <p class="text-text-muted mt-0.5 truncate text-[10px]">
+            <p class="text-text-muted mt-0.5 truncate text-2xs">
               {m.member_activity_header_host_label()}: <span class="text-text-base">{hostName}</span> · #{e.channel.name}
             </p>
           </div>
@@ -148,7 +148,7 @@
             <p class="text-text-bright truncate text-xs font-semibold">
               {m.member_activity_header_user_streaming({ name })}
             </p>
-            <p class="text-text-muted truncate text-[10px]">#{e.channel.name}</p>
+            <p class="text-text-muted truncate text-2xs">#{e.channel.name}</p>
           </div>
           <button
             type="button"

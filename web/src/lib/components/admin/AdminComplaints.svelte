@@ -72,7 +72,7 @@
         {t.label}
         {#if t.id === 'open' && newCount && newCount > 0}
           <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 align-middle text-[10px] font-semibold text-black"
+            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 align-middle text-2xs font-semibold text-black"
           >
             {newCount}
           </span>

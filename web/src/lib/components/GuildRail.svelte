@@ -375,7 +375,7 @@
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
               <span
-                class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-bg-panel"
+                class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
                 aria-label={m.guild_rail_home_activity_dot()}
                 data-testid="home-unread-dot"
               >{homeBadgeCount > 99 ? '99+' : homeBadgeCount}</span>
@@ -413,7 +413,7 @@
                   <button
                     {...ctxProps}
                     {...tipProps}
-                    class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
+                    class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
                     data-active={isActiveServer}
                     onclick={() => activeServer.set(server.id)}
                     data-testid={`server-${server.id}`}
@@ -568,14 +568,14 @@
                       {/if}
                       {#if guildUnread > 0}
                         <span
-                          class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-bg-panel"
+                          class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
                           aria-label={m.guild_rail_unread_mentions()}
                           data-testid="guild-mention-dot"
                         >{guildUnread > 99 ? '99+' : guildUnread}</span>
                       {/if}
                       {#if modOpen > 0}
                         <span
-                          class="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-black ring-2 ring-bg-panel"
+                          class="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-2xs font-bold leading-none text-black ring-2 ring-bg-panel"
                           aria-label={m.guild_rail_open_reports()}
                           data-testid="guild-modqueue-dot"
                         >{modOpen > 99 ? '99+' : modOpen}</span>

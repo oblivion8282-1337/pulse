@@ -162,7 +162,7 @@
         <option value={r}>{r === 'Native' ? m.overrides_editor_resolution_native() : r}</option>
       {/each}
     </select>
-    <p class="text-text-muted text-[11px]">
+    <p class="text-text-muted text-2xs">
       {#if capabilities.hqResolutionMax !== 'Native'}
         {m.overrides_editor_resolution_capped({ max: capabilities.hqResolutionMax })}
       {:else}
@@ -186,7 +186,7 @@
       onblur={onBitrateBlur}
       data-testid="stream-overrides-bitrate"
     />
-    <p class="text-text-muted text-[11px]">{m.overrides_editor_bitrate_range({ min: bMin, max: bMax })}</p>
+    <p class="text-text-muted text-2xs">{m.overrides_editor_bitrate_range({ min: bMin, max: bMax })}</p>
   </div>
 
   <div class="flex flex-col gap-1.5">
@@ -204,7 +204,7 @@
       onblur={onFpsBlur}
       data-testid="stream-overrides-fps"
     />
-    <p class="text-text-muted text-[11px]">{m.overrides_editor_fps_range({ min: fMin, max: fMax })}</p>
+    <p class="text-text-muted text-2xs">{m.overrides_editor_fps_range({ min: fMin, max: fMax })}</p>
   </div>
  </div>
 

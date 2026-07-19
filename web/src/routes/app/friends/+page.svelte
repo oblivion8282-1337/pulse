@@ -99,7 +99,7 @@
             {t.label()}
             {#if badge > 0}
               <span
-                class="bg-rose-500 text-white ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
+                class="bg-rose-500 text-white ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
                 data-testid="pending-badge"
               >
                 {badge}

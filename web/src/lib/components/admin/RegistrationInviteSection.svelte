@@ -170,7 +170,7 @@
           <code class="text-text-bright truncate font-mono text-xs">{inv.code}</code>
           <span class="text-text-muted shrink-0 text-xs">{usesText(inv)}</span>
           <span
-            class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold {st.dead
+            class="shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold {st.dead
               ? 'bg-bg-hover text-text-muted'
               : 'bg-success/20 text-success'}"
           >{st.label}</span>

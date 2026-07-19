@@ -164,7 +164,7 @@
           <li class="group/msg text-sm leading-snug" data-testid="watch-chat-message">
             <div class="flex items-baseline gap-1">
               <span class="text-primary font-semibold">{userCache.displayName(msg.author_id)}</span>
-              <span class="text-text-muted text-[10px]">{fmtTime(msg.created_at)}</span>
+              <span class="text-text-muted text-2xs">{fmtTime(msg.created_at)}</span>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger>
                   {#snippet child({ props })}

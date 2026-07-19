@@ -272,7 +272,7 @@
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
             <span
-              class="text-text-muted ml-1 font-mono text-[10px]"
+              class="text-text-muted ml-1 font-mono text-2xs"
               title={m.voice_participant_tile_volume_title()}
               data-testid="voice-participant-volume-badge"
             >

@@ -62,7 +62,7 @@
 
     <!-- Listener (you), centre, facing up -->
     <div
-      class="bg-primary text-primary-foreground absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full text-[9px] leading-none font-semibold shadow-lg"
+      class="bg-primary text-primary-foreground absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full text-2xs leading-none font-semibold shadow-lg"
       style="left:{CENTER}px;top:{CENTER}px;width:{AVATAR + 8}px;height:{AVATAR + 8}px"
       title={localName}
     >
@@ -92,13 +92,13 @@
             </span>
           {/if}
         </span>
-        <span class="text-text-base max-w-16 truncate text-[11px]">{name}</span>
+        <span class="text-text-base max-w-16 truncate text-2xs">{name}</span>
       </div>
     {/each}
   </div>
 
   <div class="flex w-full flex-col gap-1.5" data-testid="spatial-sliders">
-    <label class="flex items-center gap-2 text-[11px]">
+    <label class="flex items-center gap-2 text-2xs">
       <span class="text-text-muted w-14 shrink-0">{m.spatial_spread()}</span>
       <input
         type="range"
@@ -111,7 +111,7 @@
       />
       <span class="text-text-muted w-11 shrink-0 text-right tabular-nums">{Math.round(spreadDeg)}°</span>
     </label>
-    <label class="flex items-center gap-2 text-[11px]">
+    <label class="flex items-center gap-2 text-2xs">
       <span class="text-text-muted w-14 shrink-0">{m.spatial_distance()}</span>
       <input
         type="range"

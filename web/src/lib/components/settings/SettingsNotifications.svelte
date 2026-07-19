@@ -109,8 +109,8 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-notifications-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_notifications_heading()}</h2>
-    <p class="text-text-muted text-sm">
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_notifications_heading()}</h2>
+    <p class="text-text-muted text-xs">
       {m.settings_notifications_subheading()}
     </p>
   </div>

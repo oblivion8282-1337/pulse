@@ -69,7 +69,7 @@
 <section class="space-y-4" data-testid="ownership-transfer">
   <header>
     <h2 class="text-text-bright text-base font-semibold">{m.owner_transfer_heading()}</h2>
-    <p class="text-text-muted text-sm">
+    <p class="text-text-muted text-xs">
       {m.owner_transfer_description()}
     </p>
   </header>

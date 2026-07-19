@@ -79,8 +79,8 @@
 
 <section class="space-y-4">
   <header class="space-y-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.bans_list_title()}</h2>
-    <p class="text-text-muted text-sm">
+    <h2 class="text-text-bright text-base font-semibold">{m.bans_list_title()}</h2>
+    <p class="text-text-muted text-xs">
       {m.bans_list_description()}
     </p>
   </header>

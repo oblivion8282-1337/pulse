@@ -277,7 +277,7 @@
   {#snippet nameExtra()}
     {#if isPassive}
       <span
-        class="rounded-full bg-red-500/30 px-2 py-1 text-[10px] font-semibold tracking-wider text-red-200 uppercase backdrop-blur-sm"
+        class="rounded-full bg-red-500/30 px-2 py-1 text-2xs font-semibold tracking-wider text-red-200 uppercase backdrop-blur-sm"
         title={m.watch_party_tile_live_badge_title()}
         data-testid="watch-party-live-badge"
       >

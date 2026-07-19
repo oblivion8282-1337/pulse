@@ -215,8 +215,8 @@
 
 <section class="flex flex-col gap-5" data-testid="mod-queue-panel">
   <div>
-    <h2 class="text-text-bright text-lg font-semibold">{m.mod_queue_title()}</h2>
-    <p class="text-text-muted text-sm">{m.mod_queue_subtitle()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.mod_queue_title()}</h2>
+    <p class="text-text-muted text-xs">{m.mod_queue_subtitle()}</p>
   </div>
 
   <!-- Tab-Bar -->

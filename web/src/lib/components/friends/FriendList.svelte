@@ -178,7 +178,7 @@
                 <span class="truncate">{u?.display_name ?? u?.username ?? '…'}</span>
                 {#if stream}
                   <span
-                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-400"
+                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
                   >
                     <span class="size-1.5 rounded-full bg-red-500"></span>
                     {m.friend_badge_live()}
@@ -186,7 +186,7 @@
                 {/if}
                 {#if party}
                   <span
-                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-400"
+                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
                   >
                     <span class="size-1.5 rounded-full bg-amber-400"></span>
                     {m.friend_badge_party()}

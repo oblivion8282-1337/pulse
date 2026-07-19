@@ -115,7 +115,7 @@
             <p class="text-foreground text-sm font-semibold">{m.downloads_linux_title()}</p>
             <p class="text-muted-foreground mt-2 text-xs">{m.downloads_linux_step_terminal()}</p>
             <code
-              class="bg-muted mt-1 block select-all break-all rounded-md px-2 py-1.5 font-mono text-[11px]"
+              class="bg-muted mt-1 block select-all break-all rounded-md px-2 py-1.5 font-mono text-2xs"
             >
               {LINUX_INSTALL_COMMAND}
             </code>

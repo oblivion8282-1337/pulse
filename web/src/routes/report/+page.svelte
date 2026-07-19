@@ -89,7 +89,7 @@
         class="border-border bg-muted/30 mt-6 rounded-2xl border p-6"
         data-testid="report-success"
       >
-        <h2 class="mb-2 text-lg font-semibold">{m.report_abuse_success_title()}</h2>
+        <h2 class="mb-2 text-base font-semibold">{m.report_abuse_success_title()}</h2>
         <p class="text-muted-foreground text-sm">{m.report_abuse_success_body()}</p>
         <Button class="mt-5" onclick={reset}>
           {m.report_abuse_another()}

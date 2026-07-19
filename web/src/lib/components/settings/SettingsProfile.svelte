@@ -183,7 +183,7 @@
 
 <div class="space-y-6 pr-2" data-testid="settings-profile">
   <header>
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_profile_title()}</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_profile_title()}</h2>
   </header>
 
   <!-- Display-Name + Profile-Color -->

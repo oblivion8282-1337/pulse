@@ -138,7 +138,7 @@
 {#snippet statsPill()}
   {#if phase === 'playing' && stats}
     <div
-      class="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen
+      class="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-2xs text-white backdrop-blur-sm {stats.frozen
         ? 'animate-pulse bg-destructive/80'
         : 'bg-black/55'}"
       data-testid="hq-stream-stats"
@@ -209,7 +209,7 @@
           {phase === 'retrying' ? m.whep_player_waiting_for_stream() : m.whep_player_connecting_to_stream()}
         </p>
         {#if detail && phase === 'retrying'}
-          <p class="max-w-sm text-center text-[11px] text-white/60">{detail}</p>
+          <p class="max-w-sm text-center text-2xs text-white/60">{detail}</p>
         {/if}
       </div>
     {:else if phase === 'error'}
@@ -218,7 +218,7 @@
       >
         <AlertTriangleIcon class="size-7" />
         <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
-        {#if detail}<p class="max-w-sm text-center text-[11px] text-destructive/70">{detail}</p>{/if}
+        {#if detail}<p class="max-w-sm text-center text-2xs text-destructive/70">{detail}</p>{/if}
       </div>
     {/if}
   {/snippet}

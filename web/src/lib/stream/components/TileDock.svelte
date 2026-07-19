@@ -153,7 +153,7 @@
         <!-- Im Narrow-Modus ausgeblendet (Platz), aber im DOM gehalten, damit
              die testid stabil bleibt. -->
         <span
-          class="w-9 text-right font-mono text-[11px] tabular-nums opacity-85 {wide ? '' : 'hidden'}"
+          class="w-9 text-right font-mono text-2xs tabular-nums opacity-85 {wide ? '' : 'hidden'}"
           data-testid={`${testidPrefix}-volume-percent`}
         >{volume}%</span>
       </div>

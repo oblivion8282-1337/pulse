@@ -78,8 +78,8 @@
 
 <section class="flex flex-col gap-5" data-testid="guild-plugins-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.guild_plugins_editor_title()}</h2>
-    <p class="text-text-muted text-sm">
+    <h2 class="text-text-bright text-base font-semibold">{m.guild_plugins_editor_title()}</h2>
+    <p class="text-text-muted text-xs">
       {m.guild_plugins_editor_description()}
     </p>
   </div>

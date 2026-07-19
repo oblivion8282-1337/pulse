@@ -167,8 +167,8 @@
 
 <div class="flex flex-col gap-5" data-testid="guild-sounds-editor">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.guild_sounds_heading()}</h2>
-    <p class="text-text-muted text-sm">
+    <h2 class="text-text-bright text-base font-semibold">{m.guild_sounds_heading()}</h2>
+    <p class="text-text-muted text-xs">
       {m.guild_sounds_description({ max: fmtBytes(capabilities.guildSoundMaxSizeBytes) })}
     </p>
   </div>

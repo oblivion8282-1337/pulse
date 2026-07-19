@@ -50,7 +50,7 @@
         {/if}
         {#if p.state === 'error'}
           <div
-            class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-[10px] font-semibold text-white"
+            class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-2xs font-semibold text-white"
             title={p.errorMessage ?? ''}
             data-testid="attachment-error"
           >

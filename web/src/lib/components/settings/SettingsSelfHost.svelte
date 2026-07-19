@@ -55,8 +55,8 @@
 
 <div class="flex flex-col gap-8" data-testid="settings-self-host-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">{m.settings_dialog_tab_self_host()}</h2>
-    <p class="text-text-muted text-sm">{m.settings_self_host_description()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_dialog_tab_self_host()}</h2>
+    <p class="text-text-muted text-xs">{m.settings_self_host_description()}</p>
   </div>
 
   <!-- App-Hosting (Stufe 2): gehostet wird in der separaten Server-App, hier

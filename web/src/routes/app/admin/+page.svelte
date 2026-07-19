@@ -170,7 +170,7 @@
               {t.label}
               {#if t.badge > 0}
                 <span
-                  class="inline-flex min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black"
+                  class="inline-flex min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-2xs font-semibold text-black"
                 >
                   {t.badge}
                 </span>

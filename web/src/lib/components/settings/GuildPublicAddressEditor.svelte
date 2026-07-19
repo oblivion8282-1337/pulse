@@ -114,7 +114,7 @@
 <div class="space-y-6">
   <div>
     <h2 class="text-text-bright text-base font-semibold">{m.guild_public_address_heading()}</h2>
-    <p class="text-text-muted mt-1 text-sm">{m.guild_public_address_description()}</p>
+    <p class="text-text-muted mt-1 text-xs">{m.guild_public_address_description()}</p>
   </div>
 
   {#if loading}

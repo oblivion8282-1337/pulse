@@ -146,8 +146,8 @@
 
 <section class="flex flex-col gap-5" data-testid="guild-invites-editor">
   <div>
-    <h2 class="text-text-bright text-lg font-semibold">{m.guild_invites_title()}</h2>
-    <p class="text-text-muted text-sm">{m.guild_invites_subtitle()}</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.guild_invites_title()}</h2>
+    <p class="text-text-muted text-xs">{m.guild_invites_subtitle()}</p>
   </div>
 
   <!-- Create form -->
@@ -230,7 +230,7 @@
     <div class="border-border flex flex-col gap-3 border-t pt-5" data-testid="guild-addbyid">
       <div>
         <h3 class="text-text-bright text-sm font-semibold">{m.guild_invites_addbyid_title()}</h3>
-        <p class="text-text-muted text-sm">{m.guild_invites_addbyid_subtitle()}</p>
+        <p class="text-text-muted text-xs">{m.guild_invites_addbyid_subtitle()}</p>
       </div>
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div class="flex flex-1 flex-col gap-1.5">

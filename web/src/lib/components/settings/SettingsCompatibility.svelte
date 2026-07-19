@@ -99,11 +99,11 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-compatibility-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright flex items-center gap-2 text-lg font-semibold">
+    <h2 class="text-text-bright flex items-center gap-2 text-base font-semibold">
       <PlugZapIcon class="size-5" />
       {m.settings_compat_heading()}
     </h2>
-    <p class="text-text-muted text-sm">{m.settings_compat_intro()}</p>
+    <p class="text-text-muted text-xs">{m.settings_compat_intro()}</p>
   </div>
 
   <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">

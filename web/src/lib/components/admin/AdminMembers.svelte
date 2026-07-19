@@ -138,7 +138,7 @@
                 {member.display_name || member.username}
                 {#if member.banned_at !== null}
                   <span
-                    class="ml-1 rounded bg-destructive/80 px-1.5 py-0.5 text-[10px] font-semibold text-white align-middle"
+                    class="ml-1 rounded bg-destructive/80 px-1.5 py-0.5 text-2xs font-semibold text-white align-middle"
                   >
                     GEBANNT
                   </span>

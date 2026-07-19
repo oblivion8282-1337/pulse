@@ -207,7 +207,7 @@
           <Tooltip.Content>
             {tooltipLabel}
             {#if mode === 'normal' && voice.isScreenSharing && publishStats}
-              <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
+              <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-2xs tabular-nums">
                 <div>{m.screen_share_mode_button_stats_encoder({ value: publishStats.encoderImpl || '—' })}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
                 <div>{m.screen_share_mode_button_stats_codec({ value: publishStats.codec })}</div>
                 <div>{m.screen_share_mode_button_stats_resolution({ value: publishStats.res })}</div>
@@ -303,7 +303,7 @@
       <Tooltip.Content>
         <div>{voice.isScreenSharing ? m.screen_share_mode_button_stop_sharing() : m.screen_share_mode_button_share_screen()}</div>
         {#if voice.isScreenSharing && publishStats}
-          <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
+          <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-2xs tabular-nums">
             <div>{m.screen_share_mode_button_stats_encoder({ value: publishStats.encoderImpl || '—' })}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
             <div>{m.screen_share_mode_button_stats_codec({ value: publishStats.codec })}</div>
             <div>{m.screen_share_mode_button_stats_resolution({ value: publishStats.res })}</div>
