@@ -109,7 +109,7 @@
           {@const set = isSet(e.perm)}
           {@const allowed = isEditorAllowed(e.perm)}
           <label
-            class="bg-bg-hover/40 flex cursor-pointer items-start justify-between gap-4 rounded-lg px-3 py-2 hover:bg-bg-hover"
+            class="bg-bg-hover/40 flex cursor-pointer items-start justify-between gap-4 rounded-md px-3 py-2 hover:bg-bg-hover"
             class:cursor-not-allowed={!allowed || disabled}
             class:opacity-50={!allowed || disabled}
           >

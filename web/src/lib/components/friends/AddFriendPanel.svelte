@@ -125,7 +125,7 @@
     {@const avatar = safeAvatarUrl(h.avatar_url)}
     {@const label = relationLabel(h.id)}
     <div
-      class="hover:bg-bg-hover flex items-center gap-3 rounded-lg px-2 py-2"
+      class="hover:bg-bg-hover flex items-center gap-3 rounded-md px-2 py-2"
       data-testid="search-hit"
       data-user-id={h.id}
     >

@@ -162,7 +162,7 @@
       {#each invites as inv (inv.code)}
         {@const st = status(inv)}
         <li
-          class="border-border flex items-center gap-2 rounded-lg border bg-bg-input px-3 py-2 text-sm"
+          class="border-border flex items-center gap-2 rounded-md border bg-bg-input px-3 py-2 text-sm"
           data-testid="invite-row"
           class:opacity-50={st.dead}
         >

@@ -88,7 +88,7 @@
     {#each invitableGuilds as guild (guild.id)}
       <button
         type="button"
-        class="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-primary text-text-base disabled:opacity-50"
+        class="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-primary text-text-base disabled:opacity-50"
         onclick={() => sendInvite(guild)}
         disabled={working}
         data-testid="invite-guild-btn"

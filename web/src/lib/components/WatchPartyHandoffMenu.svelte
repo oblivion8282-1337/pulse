@@ -43,7 +43,7 @@
   </button>
   {#if open}
     <div
-      class="absolute right-0 bottom-full mb-2 min-w-44 rounded-lg bg-black/90 p-1 text-sm text-white shadow-lg backdrop-blur-sm"
+      class="absolute right-0 bottom-full mb-2 min-w-44 rounded-xl bg-black/90 p-1 text-sm text-white shadow-lg backdrop-blur-sm"
       data-testid="watch-party-handoff-menu"
     >
       <button

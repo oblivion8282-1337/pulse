@@ -159,7 +159,7 @@
       bind:value={draft}
       onkeydown={onEditKey}
       rows="2"
-      class="text-text-bright w-full rounded-lg border border-border bg-bg-input px-2 py-1 text-[15px] outline-none focus:border-primary"
+      class="text-text-bright w-full rounded-md border border-border bg-bg-input px-2 py-1 text-[15px] outline-none focus:border-primary"
       data-testid="message-edit-input"
     ></textarea>
     <div class="text-text-muted mt-0.5 text-[10px]">

@@ -26,7 +26,7 @@
 
 {#if verdict === 'cannot-host'}
   <div
-    class="rounded-lg border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive"
+    class="rounded-xl border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive"
     data-testid="connectivity-check-warning"
   >
     <p>{m.net_check_cannot_host()}</p>

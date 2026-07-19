@@ -76,7 +76,7 @@
           max="4096"
           step="1"
           bind:value={sizeMB}
-          class="bg-bg-hover text-text-bright rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
+          class="bg-bg-hover text-text-bright rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           data-testid="dm-max-size-input"
         />
       </label>
@@ -89,7 +89,7 @@
           max="64"
           step="1"
           bind:value={count}
-          class="bg-bg-hover text-text-bright rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
+          class="bg-bg-hover text-text-bright rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           data-testid="dm-max-count-input"
         />
       </label>

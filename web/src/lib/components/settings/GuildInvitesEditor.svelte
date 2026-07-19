@@ -157,7 +157,7 @@
         <select
           id="invite-expiry"
           bind:value={expiryIdx}
-          class="bg-bg-input border-border text-text-base w-full rounded-lg border px-3 py-2 text-sm"
+          class="bg-bg-input border-border text-text-base w-full rounded-md border px-3 py-2 text-sm"
           data-testid="invite-expiry"
         >
           {#each EXPIRY_OPTIONS as opt, i (i)}
@@ -170,7 +170,7 @@
         <select
           id="invite-uses"
           bind:value={usesIdx}
-          class="bg-bg-input border-border text-text-base w-full rounded-lg border px-3 py-2 text-sm"
+          class="bg-bg-input border-border text-text-base w-full rounded-md border px-3 py-2 text-sm"
           data-testid="invite-uses"
         >
           {#each USES_OPTIONS as opt, i (i)}
@@ -241,7 +241,7 @@
             bind:value={addUserId}
             onkeydown={(e) => e.key === 'Enter' && addById()}
             placeholder={m.guild_invites_addbyid_placeholder()}
-            class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 text-sm"
+            class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full rounded-md border px-3 py-2 text-sm"
             data-testid="addbyid-input"
           />
         </div>

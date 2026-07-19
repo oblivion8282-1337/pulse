@@ -75,7 +75,7 @@
     </AlertDialog.Header>
 
     <p
-      class="text-text-bright break-all rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-center font-mono text-sm font-medium"
+      class="text-text-bright break-all rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-center font-mono text-sm font-medium"
       data-testid="self-host-contact-confirm-host"
     >
       {displayHost}

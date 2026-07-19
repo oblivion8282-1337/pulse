@@ -31,7 +31,7 @@
     {#each pending as p (p.localId)}
       <div class="relative">
         <div
-          class="bg-bg-hover flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border"
+          class="bg-bg-hover flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border border-border"
           data-testid="attachment-preview"
         >
           {#if p.previewUrl}
@@ -50,7 +50,7 @@
         {/if}
         {#if p.state === 'error'}
           <div
-            class="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/80 text-[10px] font-semibold text-white"
+            class="absolute inset-0 flex items-center justify-center rounded-md bg-destructive/80 text-[10px] font-semibold text-white"
             title={p.errorMessage ?? ''}
             data-testid="attachment-error"
           >

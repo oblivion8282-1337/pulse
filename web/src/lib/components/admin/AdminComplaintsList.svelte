@@ -341,7 +341,7 @@
         </Dialog.Description>
       </Dialog.Header>
       {#if forwardTarget && !forwardTarget.operator_email}
-        <p class="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+        <p class="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
           {m.admin_complaints_forward_no_operator_warn()}
         </p>
       {/if}

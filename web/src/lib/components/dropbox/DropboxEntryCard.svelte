@@ -58,7 +58,7 @@
   data-testid="dropbox-entry-{entry.id}"
 >
   <button
-    class="flex aspect-square w-full items-center justify-center rounded-lg bg-bg-hover/40 text-text-dim group-hover:bg-primary/5"
+    class="flex aspect-square w-full items-center justify-center rounded-md bg-bg-hover/40 text-text-dim group-hover:bg-primary/5"
     onclick={onOpen}
     data-testid="dropbox-entry-open-{entry.id}"
   >

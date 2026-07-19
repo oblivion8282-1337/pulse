@@ -129,7 +129,7 @@
               alt={m.totp_enable_dialog_qr_alt()}
               width="200"
               height="200"
-              class="border-border h-auto w-full max-w-[14rem] rounded-lg border bg-white p-2 md:w-52"
+              class="border-border h-auto w-full max-w-[14rem] rounded-md border bg-white p-2 md:w-52"
               data-testid="totp-qr"
             />
             <div class="flex flex-col gap-1 text-center">

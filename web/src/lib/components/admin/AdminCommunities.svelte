@@ -150,7 +150,7 @@
       bind:value={query}
       oninput={onSearchInput}
       placeholder={m.admin_communities_search_placeholder()}
-      class="border-border bg-bg-hover/40 text-text-base placeholder:text-text-muted focus:border-primary w-full rounded-lg border py-2 pr-3 pl-9 text-sm outline-none"
+      class="border-border bg-bg-hover/40 text-text-base placeholder:text-text-muted focus:border-primary w-full rounded-md border py-2 pr-3 pl-9 text-sm outline-none"
       data-testid="admin-communities-search"
     />
   </div>

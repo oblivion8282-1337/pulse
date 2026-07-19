@@ -139,7 +139,7 @@
       </div>
 
       {#if serverDisabled}
-        <p class="text-text-muted bg-bg-input/60 rounded-lg px-3 py-2 text-xs">
+        <p class="text-text-muted bg-bg-input/60 rounded-md px-3 py-2 text-xs">
           {m.settings_notifications_server_disabled()}
         </p>
       {:else if permission === 'unsupported'}
@@ -214,7 +214,7 @@
       <!-- The toggles above only fire OS popups once the browser permission is
            granted. Independent of web-push — this just unlocks the in-page
            (WS-driven) path. Shown only when not yet decided. -->
-      <div class="mt-1 flex items-center justify-between gap-3 rounded-lg bg-bg-input/60 px-3 py-2 text-sm">
+      <div class="mt-1 flex items-center justify-between gap-3 rounded-md bg-bg-input/60 px-3 py-2 text-sm">
         <span class="text-text-muted text-xs">{m.settings_notifications_permission_prompt()}</span>
         <Button
           size="xs"

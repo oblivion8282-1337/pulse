@@ -163,7 +163,7 @@
         {#each itemsFor(cat) as a (a.id)}
           {@const eff = effectiveBinding(settings.shortcuts, a.id)}
           {@const isDefault = !(a.id in settings.shortcuts.overrides)}
-          <div class="hover:bg-bg-hover rounded-lg px-2 py-1.5">
+          <div class="hover:bg-bg-hover rounded-md px-2 py-1.5">
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <p class="text-text-bright text-sm">{a.label}</p>

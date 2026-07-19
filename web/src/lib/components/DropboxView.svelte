@@ -106,7 +106,7 @@
   <div class="flex-1 overflow-y-auto px-5 py-4">
     {#if v.hasSelection && !v.viewTrash}
       <div
-        class="mb-3 flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+        class="mb-3 flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
         data-testid="dropbox-selection-bar"
       >
         <span class="font-medium">

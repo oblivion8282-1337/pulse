@@ -298,7 +298,7 @@
           ondragleave={() => (dragOverId = null)}
           ondragend={onDragEnd}
           ondrop={(e) => !r.is_everyone && onDrop(e, r.id)}
-          class="flex items-center gap-1 rounded-lg pr-1 transition-shadow"
+          class="flex items-center gap-1 rounded-xl pr-1 transition-shadow"
           class:ring-2={dragOverId === r.id}
           class:ring-primary={dragOverId === r.id}
           class:opacity-50={dragId === r.id}
@@ -306,7 +306,7 @@
         >
           <button
             type="button"
-            class="hover:bg-bg-hover flex-1 rounded-lg px-3 py-2 text-left text-sm transition-colors"
+            class="hover:bg-bg-hover flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors"
             class:bg-bg-hover={selectedRole?.id === r.id}
             onclick={() => trySelect(r.id)}
           >
@@ -419,7 +419,7 @@
 
       <PermissionToggleGrid bind:value={editPermissions} {editorPermissions} disabled={isSaving} />
 
-      <div class="mt-6 flex items-center justify-between gap-2 rounded-lg border border-border bg-bg-input/60 px-3 py-2">
+      <div class="mt-6 flex items-center justify-between gap-2 rounded-xl border border-border bg-bg-input/60 px-3 py-2">
         <span class="text-text-muted text-xs">
           {dirty ? m.roles_editor_unsaved_changes() : m.roles_editor_no_changes()}
         </span>

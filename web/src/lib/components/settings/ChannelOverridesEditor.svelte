@@ -299,7 +299,7 @@
 
   {#each overwrites as ow (owKey(ow))}
     {@const key = owKey(ow)}
-    <section class="rounded-lg border border-border p-4" data-testid={`override-${key}`}>
+    <section class="rounded-xl border border-border p-4" data-testid={`override-${key}`}>
       <header class="mb-3 flex items-center justify-between">
         <h3 class="text-text-bright text-sm font-semibold">{labelFor(ow)}</h3>
         <div class="flex gap-2">
