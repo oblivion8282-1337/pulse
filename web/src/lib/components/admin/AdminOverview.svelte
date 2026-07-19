@@ -12,6 +12,8 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   // Auf Self-Host (isCloud=false) gibt es keine auth.users — die auth-Stats
   // (User/Admin/Disabled-Count) kämen von der Cloud-auth und sind hier
@@ -45,7 +47,7 @@
   <h2 class="text-text-bright mb-4 text-base font-semibold">{m.admin_overview_title()}</h2>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_overview_stats_load_error({ error: error ?? '' })}</p>
+    <FieldError message={m.admin_overview_stats_load_error({ error: error ?? '' })} />
   {:else if chat}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {#if auth}
@@ -106,6 +108,6 @@
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_overview_loading()}</div>
+    <LoadingState label={m.admin_overview_loading()} />
   {/if}
 </section>

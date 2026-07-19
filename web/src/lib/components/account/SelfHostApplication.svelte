@@ -25,6 +25,7 @@
   import HouseIcon from '@lucide/svelte/icons/house';
   import CloudIcon from '@lucide/svelte/icons/cloud';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   type Mode = 'vps' | 'app_host';
   const mobile = isMobile();
@@ -212,9 +213,7 @@
       <ConnectivityCheckPanel onresult={(r) => (netCheck = r)} />
     {/if}
 
-    {#if formError}
-      <p class="text-destructive text-xs">{formError}</p>
-    {/if}
+    <FieldError message={formError} />
 
     <button
       type="submit"

@@ -18,6 +18,8 @@
   import ClockIcon from '@lucide/svelte/icons/clock';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let data = $state<BackupStatus | null>(null);
   let error = $state<string | null>(null);
@@ -83,9 +85,9 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm" data-testid="admin-backup-error">{m.admin_backup_error({ message: error! })}</p>
+    <FieldError message={m.admin_backup_error({ message: error! })} testId="admin-backup-error" />
   {:else if !data}
-    <div class="text-text-muted text-sm">{m.admin_backup_loading()}</div>
+    <LoadingState label={m.admin_backup_loading()} />
   {:else if view === 'not-configured'}
     <div
       class="flex items-start gap-3 rounded-xl bg-bg-hover/50 p-4"

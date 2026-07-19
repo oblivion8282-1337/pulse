@@ -15,6 +15,8 @@
   import { removeServerLocally } from '$lib/api/server-removal';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
@@ -96,9 +98,9 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.my_instances_loading()}</p>
+    <LoadingState label={m.my_instances_loading()} />
   {:else if instances.length === 0}
-    <p class="text-text-muted text-sm">{m.my_instances_empty()}</p>
+    <EmptyState message={m.my_instances_empty()} />
   {:else}
     <!-- Setup-Hinweis — nur wenn es überhaupt eine Instanz gibt -->
     <div class="border-border bg-bg-input/40 flex gap-2 rounded-xl border p-3">

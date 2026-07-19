@@ -13,6 +13,8 @@
   import RegistrationInviteSection from './RegistrationInviteSection.svelte';
   import SaveIcon from '@lucide/svelte/icons/save';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let current = $state<RegistrationMode | null>(null);
   let pick = $state<RegistrationMode>('open');
@@ -70,7 +72,7 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_registration_load_error({ error })}</p>
+    <FieldError message={m.admin_registration_load_error({ error })} />
   {:else if current !== null}
     <div class="flex flex-col gap-2">
       {#each Object.entries(labels) as [mode, info] (mode)}
@@ -105,6 +107,6 @@
       <RegistrationInviteSection />
     {/if}
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_registration_loading()}</div>
+    <LoadingState label={m.admin_registration_loading()} />
   {/if}
 </section>

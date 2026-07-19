@@ -7,6 +7,9 @@
   import { onMount } from 'svelte';
   import { adminApi, type SelfHostBackupStatus } from '$lib/api/admin';
   import DatabaseBackupIcon from '@lucide/svelte/icons/database-backup';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let status = $state<SelfHostBackupStatus | null>(null);
   let error = $state<string | null>(null);
@@ -51,9 +54,9 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">Lade…</p>
+    <LoadingState label="Lade…" />
   {:else if error}
-    <p class="text-destructive text-sm">Fehler: {error}</p>
+    <FieldError message="Fehler: {error}" />
   {:else if status && !status.enabled}
     <p class="text-text-muted text-sm">
       Backup ist deaktiviert oder das Verzeichnis fehlt (<code>{status.directory}</code>).
@@ -88,9 +91,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="text-text-muted text-sm">
-        Noch keine Snapshots — der erste läuft kurz nach dem Container-Start.
-      </p>
+      <EmptyState message="Noch keine Snapshots — der erste läuft kurz nach dem Container-Start." />
     {/if}
   {/if}
 </section>

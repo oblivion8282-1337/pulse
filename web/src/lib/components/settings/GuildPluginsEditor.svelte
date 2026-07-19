@@ -24,6 +24,8 @@
   } from '$lib/api/guild-plugins';
   import { setGuildPluginEnabled } from '$lib/plugins';
   import { m } from '$lib/paraglide/messages.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   const HELLO = 'hello';
 
@@ -82,11 +84,12 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.guild_plugins_editor_loading()}</p>
+    <LoadingState label={m.guild_plugins_editor_loading()} />
   {:else if loadError}
-    <p class="text-destructive text-sm" data-testid="guild-plugins-error">
-      {m.guild_plugins_editor_load_error({ message: loadError ?? '' })}
-    </p>
+    <FieldError
+      message={m.guild_plugins_editor_load_error({ message: loadError ?? '' })}
+      testId="guild-plugins-error"
+    />
   {:else if rows.length === 0}
     <div
       class="border-border bg-bg-input/40 flex flex-col items-center gap-2 rounded-2xl border p-6 text-center"

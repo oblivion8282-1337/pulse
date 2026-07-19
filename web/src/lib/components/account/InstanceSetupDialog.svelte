@@ -18,6 +18,7 @@
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { open = $bindable(false), instance }: { open?: boolean; instance: Instance | null } =
     $props();
@@ -200,7 +201,7 @@
         </p>
 
         {#if loading && !token}
-          <p class="text-text-muted">{m.instance_setup_loading()}</p>
+          <LoadingState label={m.instance_setup_loading()} />
         {:else if consumed}
           <BootstrapConsumedPanel {resetting} onreset={confirmReset} />
         {:else if error}

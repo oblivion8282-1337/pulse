@@ -18,6 +18,9 @@
   import AdminAppHostRevoke from './AdminAppHostRevoke.svelte';
   import RotatedSecretDialog from './RotatedSecretDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let instances = $state<AdminInstance[]>([]);
   // app_host-Instanz-ID → genehmigter Antrag (für den Revoke, der die
@@ -118,11 +121,11 @@
 </script>
 
 {#if loading}
-  <p class="text-text-muted text-sm">{m.admin_instances_active_loading()}</p>
+  <LoadingState label={m.admin_instances_active_loading()} />
 {:else if loadError}
-  <p class="text-destructive text-sm">{m.admin_instances_active_load_error({ error: loadError })}</p>
+  <FieldError message={m.admin_instances_active_load_error({ error: loadError })} />
 {:else if instances.length === 0}
-  <p class="text-text-muted text-sm">{m.admin_instances_active_empty()}</p>
+  <EmptyState message={m.admin_instances_active_empty()} />
 {:else}
   <div class="flex flex-col gap-2">
     {#each instances as inst (inst.id)}

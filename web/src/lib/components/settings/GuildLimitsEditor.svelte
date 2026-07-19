@@ -11,6 +11,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -66,7 +67,7 @@
   </div>
 
   {#if !guild}
-    <p class="text-text-muted text-sm">{m.guild_limits_loading()}</p>
+    <LoadingState label={m.guild_limits_loading()} />
   {:else}
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">

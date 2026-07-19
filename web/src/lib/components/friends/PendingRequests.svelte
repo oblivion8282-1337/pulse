@@ -17,6 +17,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { friendsApi } from '$lib/api/friends';
   import { safeAvatarUrl } from '$lib/avatar';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -66,9 +67,7 @@
       {m.pending_requests_incoming_heading({ count: friendRequests.incomingList.length })}
     </h2>
     {#if friendRequests.incomingList.length === 0}
-      <p class="text-text-muted px-1 py-3 text-sm" data-testid="pending-in-empty">
-        {m.pending_requests_incoming_empty()}
-      </p>
+      <EmptyState message={m.pending_requests_incoming_empty()} testId="pending-in-empty" />
     {/if}
     {#each friendRequests.incomingList as r (r.id)}
       {@const u = userCache.get(r.sender_id)}
@@ -118,9 +117,7 @@
       {m.pending_requests_outgoing_heading({ count: friendRequests.outgoingList.length })}
     </h2>
     {#if friendRequests.outgoingList.length === 0}
-      <p class="text-text-muted px-1 py-3 text-sm" data-testid="pending-out-empty">
-        {m.pending_requests_outgoing_empty()}
-      </p>
+      <EmptyState message={m.pending_requests_outgoing_empty()} testId="pending-out-empty" />
     {/if}
     {#each friendRequests.outgoingList as r (r.id)}
       {@const u = userCache.get(r.receiver_id)}

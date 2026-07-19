@@ -15,7 +15,6 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
-  import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import { listSessions, revokeSession, revokeOtherSessions } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import type { Session } from '$lib/api/types';
@@ -24,6 +23,8 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let sessions = $state<Session[]>([]);
   let loading = $state(true);
@@ -102,12 +103,9 @@
   </div>
 
   {#if loading}
-    <div class="text-text-muted flex items-center gap-2 text-xs">
-      <LoaderIcon class="size-4 animate-spin" />
-      <span>{m.sessions_section_loading()}</span>
-    </div>
+    <LoadingState label={m.sessions_section_loading()} />
   {:else if sessions.length === 0}
-    <div class="text-text-muted text-xs">{m.sessions_section_empty()}</div>
+    <EmptyState message={m.sessions_section_empty()} />
   {:else}
     <ul class="flex flex-col gap-2" data-testid="sessions-list">
       {#each sessions as s (s.id)}

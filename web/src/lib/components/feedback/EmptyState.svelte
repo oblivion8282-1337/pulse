@@ -26,6 +26,7 @@
     icon: Icon = undefined,
     density = 'compact',
     class: extraClass = '',
+    testId = undefined,
     children = undefined
   }: {
     message: string;
@@ -33,6 +34,8 @@
     icon?: Component<{ class?: string }>;
     density?: 'compact' | 'page';
     class?: string;
+    /** Wird als `data-testid` durchgereicht (Testids bleiben beim Umbau gleich). */
+    testId?: string;
     /** Optionale Aktion unter dem Text. */
     children?: Snippet;
   } = $props();
@@ -41,6 +44,7 @@
 {#if density === 'page'}
   <div
     class="text-text-muted flex flex-col items-center justify-center gap-3 px-4 py-10 text-center {extraClass}"
+    data-testid={testId}
   >
     {#if Icon}
       <Icon class="size-8 opacity-60" />
@@ -51,5 +55,10 @@
     {/if}
   </div>
 {:else}
-  <p class="text-text-muted px-3 py-2 text-xs {extraClass}">{message}</p>
+  <!-- `text-sm` wie LoadingState: der Bestand war knapp gespalten (10x sm gegen
+       7x xs), und zwei Zustände nebeneinander sollen nicht unterschiedlich gross
+       sein. Sitzt der leere Zustand in einer sehr engen Liste, kann die
+       Aufrufstelle über `class` nachjustieren — sparsam damit, sonst haben wir
+       die alte Streuung zurück. -->
+  <p class="text-text-muted px-3 py-2 text-sm {extraClass}" data-testid={testId}>{message}</p>
 {/if}

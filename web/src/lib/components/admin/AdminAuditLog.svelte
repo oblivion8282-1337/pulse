@@ -13,6 +13,9 @@
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   // Self-Host (isCloud=false): nur der chat-gateway-Audit von der Instanz; der
   // auth-svc-Audit liegt auf der Cloud und ist hier nicht zugänglich/leer.
@@ -95,11 +98,11 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_audit_log_error({ message: error ?? '' })}</p>
+    <FieldError message={m.admin_audit_log_error({ message: error ?? '' })} />
   {:else if loading && entries.length === 0}
-    <div class="text-text-muted text-sm">{m.admin_audit_log_loading()}</div>
+    <LoadingState label={m.admin_audit_log_loading()} />
   {:else if entries.length === 0}
-    <div class="text-text-muted text-sm">{m.admin_audit_log_empty()}</div>
+    <EmptyState message={m.admin_audit_log_empty()} />
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each entries as e (e.source + e.id)}

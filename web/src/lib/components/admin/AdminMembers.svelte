@@ -15,6 +15,9 @@
   import { adminApi, type InstanceMember } from '$lib/api/admin';
   import UsersIcon from '@lucide/svelte/icons/users';
   import BanIcon from '@lucide/svelte/icons/ban';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let members = $state<InstanceMember[]>([]);
   let loading = $state(true);
@@ -107,13 +110,11 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">Lade…</p>
+    <LoadingState label="Lade…" />
   {:else if error}
-    <p class="text-destructive text-sm">Fehler: {error}</p>
+    <FieldError message="Fehler: {error}" />
   {:else if members.length === 0}
-    <p class="text-text-muted text-sm">
-      Noch keine Mitglieder — Nutzer erscheinen hier nach dem ersten Cert-Login.
-    </p>
+    <EmptyState message="Noch keine Mitglieder — Nutzer erscheinen hier nach dem ersten Cert-Login." />
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each members as member (member.user_identifier)}
@@ -205,7 +206,7 @@
           maxlength="1000"
           class="bg-bg-input border-border text-text-bright resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if banError}<p class="text-destructive text-xs">{banError}</p>{/if}
+        <FieldError message={banError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button

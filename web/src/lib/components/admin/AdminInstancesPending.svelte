@@ -11,6 +11,9 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   // Eltern (AdminInstances) hält den Pending-Badge-Count — nach jeder
   // Approve/Reject-Aktion Bescheid geben, damit das Badge live stimmt.
@@ -116,11 +119,11 @@
 </script>
 
 {#if loading}
-  <p class="text-text-muted text-sm">{m.admin_instances_pending_loading()}</p>
+  <LoadingState label={m.admin_instances_pending_loading()} />
 {:else if loadError}
-  <p class="text-destructive text-sm">{m.admin_instances_pending_load_error({ error: loadError })}</p>
+  <FieldError message={m.admin_instances_pending_load_error({ error: loadError })} />
 {:else if apps.length === 0}
-  <p class="text-text-muted text-sm">{m.admin_instances_pending_empty()}</p>
+  <EmptyState message={m.admin_instances_pending_empty()} />
 {:else}
   <div class="flex flex-col gap-2">
     {#each apps as app (app.id)}
@@ -230,7 +233,7 @@
           maxlength="1000"
           class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if rejectError}<p class="text-destructive text-xs">{rejectError}</p>{/if}
+        <FieldError message={rejectError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick={() => (rejectOpen = false)}

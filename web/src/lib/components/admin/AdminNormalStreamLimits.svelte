@@ -12,6 +12,8 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   // Screen-share resolution ceiling options (descending; 'native' = no cap).
   const NS_RESOLUTIONS = ['native', '1080p', '720p', '480p'];
@@ -111,7 +113,7 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_normal_stream_limits_error({ error })}</p>
+    <FieldError message={m.admin_normal_stream_limits_error({ error })} />
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Bitrate -->
@@ -194,6 +196,6 @@
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_normal_stream_limits_loading()}</div>
+    <LoadingState label={m.admin_normal_stream_limits_loading()} />
   {/if}
 </section>

@@ -5,6 +5,7 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -281,7 +282,7 @@
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
     >
-      <p class="text-sm text-destructive" data-testid="load-error">{loadError}</p>
+      <FieldError message={loadError} testId="load-error" />
     </section>
   {:else if activeDM && synthChannel}
     <ChatView

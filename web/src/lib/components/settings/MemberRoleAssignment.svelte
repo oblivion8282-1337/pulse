@@ -25,6 +25,8 @@
   import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   function displayName(m: Member): string {
     return m.nickname ?? userCache.displayName(m.user_id);
@@ -148,7 +150,7 @@
       />
     </div>
     {#if loading}
-      <p class="text-text-muted text-sm">{m.member_role_assignment_loading()}</p>
+      <LoadingState label={m.member_role_assignment_loading()} />
     {:else}
       <ul class="max-h-[60vh] space-y-1 overflow-y-auto pr-1">
         {#each filteredMembers as mbr (mbr.user_id)}
@@ -168,7 +170,7 @@
           </li>
         {/each}
         {#if filteredMembers.length === 0}
-          <li class="text-text-muted px-3 py-2 text-sm">{m.member_role_assignment_no_results()}</li>
+          <li><EmptyState message={m.member_role_assignment_no_results()} /></li>
         {/if}
       </ul>
     {/if}
@@ -176,13 +178,11 @@
 
   <section class="min-w-0 flex-1 overflow-y-auto">
     {#if !selectedUserId}
-      <p class="text-text-muted text-sm">{m.member_role_assignment_select_member_hint()}</p>
+      <EmptyState message={m.member_role_assignment_select_member_hint()} />
     {:else if !memberRoleIds[selectedUserId]}
-      <p class="text-text-muted text-sm">{m.member_role_assignment_loading_roles()}</p>
+      <LoadingState label={m.member_role_assignment_loading_roles()} />
     {:else if assignableRoles.length === 0}
-      <p class="text-text-muted text-sm">
-        {m.member_role_assignment_no_assignable_roles()}
-      </p>
+      <EmptyState message={m.member_role_assignment_no_assignable_roles()} />
     {:else}
       {@const selMember = members.find((mbr) => mbr.user_id === selectedUserId)}
       <header class="mb-3">

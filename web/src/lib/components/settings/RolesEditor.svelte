@@ -21,6 +21,7 @@
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import PermissionToggleGrid from './PermissionToggleGrid.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   let {
     guildId,
@@ -442,7 +443,7 @@
         </div>
       </div>
     {:else}
-      <p class="text-text-muted text-sm">{m.roles_editor_empty_hint()}</p>
+      <EmptyState message={m.roles_editor_empty_hint()} />
     {/if}
   </section>
 </div>

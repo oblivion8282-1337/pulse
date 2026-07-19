@@ -11,6 +11,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { gateway } from '$lib/ws/connection';
   import { m } from '$lib/paraglide/messages.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -37,8 +38,8 @@
   {#if hydrated}
     {@render children?.()}
   {:else}
-    <div class="flex h-full w-full items-center justify-center text-text-muted text-sm">
-      {m.watch_popup_loading()}
+    <div class="flex h-full w-full items-center justify-center">
+      <LoadingState density="page" label={m.watch_popup_loading()} />
     </div>
   {/if}
 </div>

@@ -9,6 +9,9 @@
   import { userCache } from '$lib/stores/users.svelte';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -96,11 +99,11 @@
   </div>
 
   {#if loadError}
-    <p class="text-destructive text-sm" data-testid="audit-log-error">{m.audit_log_load_error({ message: loadError! })}</p>
+    <FieldError message={m.audit_log_load_error({ message: loadError! })} testId="audit-log-error" />
   {:else if loading}
-    <p class="text-text-muted text-sm">{m.audit_log_loading()}</p>
+    <LoadingState label={m.audit_log_loading()} />
   {:else if entries.length === 0}
-    <p class="text-text-muted text-sm">{m.audit_log_empty()}</p>
+    <EmptyState message={m.audit_log_empty()} />
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border" data-testid="audit-log-list">
       {#each entries as e (e.id)}

@@ -33,6 +33,9 @@
   import { idealTextColor, sanitizeProfileColor, sanitizeGradientAngle } from '$lib/utils/nameColor';
   import type { Snippet } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from './feedback/EmptyState.svelte';
+  import LoadingState from './feedback/LoadingState.svelte';
+  import FieldError from './feedback/FieldError.svelte';
 
   // Hard cap so a viral message doesn't render a thousand-row popover.
   // Discord uses 25; we err generous because reactions are cheap to
@@ -218,17 +221,15 @@
           </div>
 
           {#if loadError}
-            <p class="text-destructive px-1 py-2 text-xs" data-testid="reaction-popover-error">
-              {m.message_reactions_popover_load_error()}
-            </p>
+            <FieldError
+              message={m.message_reactions_popover_load_error()}
+              class="px-1 py-2"
+              testId="reaction-popover-error"
+            />
           {:else if loadingEmoji === r.emoji && !list}
-            <p class="text-text-muted px-1 py-3 text-center text-xs">
-              {m.admin_permissions_loading()}
-            </p>
+            <LoadingState label={m.admin_permissions_loading()} />
           {:else if list && list.user_ids.length === 0}
-            <p class="text-text-muted px-1 py-3 text-center text-xs">
-              {m.message_reactions_popover_empty()}
-            </p>
+            <EmptyState message={m.message_reactions_popover_empty()} />
           {:else if list}
             <ul class="flex max-h-64 flex-col gap-0.5 overflow-y-auto" data-testid="reaction-popover-list">
               {#each visibleUsers as uid (uid)}

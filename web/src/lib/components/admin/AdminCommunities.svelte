@@ -19,6 +19,9 @@
   import SearchIcon from '@lucide/svelte/icons/search';
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let communities = $state<Community[]>([]);
   let loading = $state(true);
@@ -153,13 +156,11 @@
   </div>
 
   {#if error}
-    <p class="text-sm text-destructive">{m.admin_communities_error({ message: error ?? '' })}</p>
+    <FieldError message={m.admin_communities_error({ message: error ?? '' })} />
   {:else if loading}
-    <div class="text-text-muted text-sm">{m.admin_communities_loading()}</div>
+    <LoadingState label={m.admin_communities_loading()} />
   {:else if communities.length === 0}
-    <div class="text-text-muted py-6 text-center text-sm" data-testid="admin-communities-empty">
-      {m.admin_communities_empty()}
-    </div>
+    <EmptyState message={m.admin_communities_empty()} testId="admin-communities-empty" />
   {:else}
     <ul class="divide-border border-border bg-bg-hover/30 divide-y rounded-xl border">
       {#each communities as c (c.id)}

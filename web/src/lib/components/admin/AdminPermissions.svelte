@@ -16,6 +16,8 @@
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
   import AdminCamLimits from './AdminCamLimits.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let current = $state<Permissions | null>(null);
   let busy = $state<{ allow_guild_creation: boolean; allow_member_invites: boolean }>({
@@ -116,7 +118,7 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_permissions_load_error({ error })}</p>
+    <FieldError message={m.admin_permissions_load_error({ error })} />
   {:else if current}
     <div class="flex flex-col gap-2">
       {@render toggleRow(
@@ -162,7 +164,7 @@
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_permissions_loading()}</div>
+    <LoadingState label={m.admin_permissions_loading()} />
   {/if}
 </section>
 
