@@ -212,7 +212,7 @@
         <FieldError message={banError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (banOpen = false)}>
+        <Button variant="ghost" onclick={() => (banOpen = false)}>
           Abbrechen
         </Button>
         <Button variant="destructive-solid" onclick={doBan} disabled={banning}>

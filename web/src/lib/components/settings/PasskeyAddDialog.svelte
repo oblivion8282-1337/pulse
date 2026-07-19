@@ -111,7 +111,7 @@
           </div>
           <Dialog.Footer>
             <Button
-              variant="secondary"
+              variant="ghost"
               type="button"
               onclick={() => (open = false)}
               disabled={busy}

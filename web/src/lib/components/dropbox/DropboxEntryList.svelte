@@ -158,8 +158,9 @@
                 <FolderIcon class="size-4" />
               </Button>
               <Button
-                variant="destructive"
+                variant="ghost"
                 size="icon-xs"
+                class="hover:text-destructive"
                 onclick={() => onTrash(e)}
                 data-testid="dropbox-entry-trash-{e.id}"
               >

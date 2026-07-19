@@ -198,7 +198,7 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (approveConfirmOpen = false)}>
+        <Button variant="ghost" onclick={() => (approveConfirmOpen = false)}>
           {m.admin_instances_pending_cancel()}
         </Button>
         <Button variant="success-solid" onclick={doApprove} disabled={approving}>
@@ -235,7 +235,7 @@
         <FieldError message={rejectError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (rejectOpen = false)}>
+        <Button variant="ghost" onclick={() => (rejectOpen = false)}>
           {m.admin_instances_pending_cancel()}
         </Button>
         <Button

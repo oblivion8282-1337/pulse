@@ -38,15 +38,21 @@
 					"bg-warning text-black hover:bg-warning/90 focus-visible:ring-warning/20 focus-visible:border-warning/40",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
+			// Jede Grösse ist auf Touch-Geräten eine Stufe grösser (~4px) und schrumpft
+			// erst ab `md` auf das Desktop-Mass. Das rettet den Mobile-Touch-Pass:
+			// vorher trugen die handgebauten Buttons dafür einzeln `py-2 md:py-1.5`,
+			// was beim Umstellen auf feste Höhen verlorenging. Hier gilt es jetzt
+			// systemweit — auch für die Buttons, die die Komponente schon vorher
+			// nutzten und den grösseren Trefferbereich nie hatten.
 			size: {
-				default: "h-9 gap-1.5 px-3.5 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
-				xs: "h-6 gap-1 px-2.5 text-xs in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-				sm: "h-8 gap-1 px-3 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-				lg: "h-10 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
-				icon: "size-9",
-				"icon-xs": "size-6 in-data-[slot=button-group]:rounded-md [&_svg:not([class*='size-'])]:size-3",
-				"icon-sm": "size-8 in-data-[slot=button-group]:rounded-md",
-				"icon-lg": "size-10",
+				default: "h-10 md:h-9 gap-1.5 px-3.5 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
+				xs: "h-7 md:h-6 gap-1 px-2.5 text-xs in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+				sm: "h-9 md:h-8 gap-1 px-3 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+				lg: "h-11 md:h-10 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+				icon: "size-10 md:size-9",
+				"icon-xs": "size-7 md:size-6 in-data-[slot=button-group]:rounded-md [&_svg:not([class*='size-'])]:size-3",
+				"icon-sm": "size-9 md:size-8 in-data-[slot=button-group]:rounded-md",
+				"icon-lg": "size-11 md:size-10",
 			},
 		},
 		defaultVariants: {

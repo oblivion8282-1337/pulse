@@ -213,7 +213,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
-            class="text-destructive"
+            class="hover:text-destructive"
             onclick={() => revoke(inv.code)}
             title={m.guild_invites_revoke()}
             data-testid="invite-revoke"

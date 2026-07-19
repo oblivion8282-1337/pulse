@@ -132,7 +132,7 @@
       </div>
 
       <Dialog.Footer>
-        <Button variant="secondary" onclick={() => onOpenChange(false)} disabled={busy}>
+        <Button variant="ghost" onclick={() => onOpenChange(false)} disabled={busy}>
           {m.avatar_upload_dialog_cancel()}
         </Button>
         <Button onclick={upload} disabled={!file || busy} data-testid="avatar-upload-confirm">

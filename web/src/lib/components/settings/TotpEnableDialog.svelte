@@ -148,7 +148,7 @@
           </p>
         {/if}
         <Dialog.Footer>
-          <Button variant="secondary" onclick={close} disabled={busy}>{m.totp_enable_dialog_cancel()}</Button>
+          <Button variant="ghost" onclick={close} disabled={busy}>{m.totp_enable_dialog_cancel()}</Button>
           <Button onclick={goToVerify} disabled={!setupData || busy} data-testid="totp-enable-next">
             {m.totp_enable_dialog_next()}
           </Button>

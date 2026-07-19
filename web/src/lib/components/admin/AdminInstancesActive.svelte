@@ -199,7 +199,7 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (suspendOpen = false)}>
+        <Button variant="ghost" onclick={() => (suspendOpen = false)}>
           {m.admin_instances_active_btn_cancel()}
         </Button>
         <Button variant="destructive-solid" onclick={doSuspend} disabled={suspending}>
@@ -223,7 +223,7 @@
         {m.admin_instances_active_rotate_warning()}
       </p>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (rotateConfirmOpen = false)}>
+        <Button variant="ghost" onclick={() => (rotateConfirmOpen = false)}>
           {m.admin_instances_active_btn_cancel()}
         </Button>
         <Button onclick={doRotate} disabled={rotating}>
