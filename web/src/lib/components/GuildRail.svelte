@@ -360,7 +360,7 @@
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-md md:size-9" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
               </button>
             {:else}
               <a
@@ -370,7 +370,7 @@
                 aria-label="Pulse"
                 data-testid="guild-home"
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-md md:size-9" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
               </a>
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
@@ -541,7 +541,7 @@
                       <button
                         {...props}
                         {...tipProps}
-                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-xl text-xs font-bold text-white transition-all md:size-10 data-[active=true]:rounded-md data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
+                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-md text-xs font-bold text-white transition-all md:size-10 data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)] {suspendedLook
                           ? 'opacity-40 grayscale'
                           : ''}"
                         style={iconSrc
