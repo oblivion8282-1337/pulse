@@ -136,6 +136,23 @@
   // Alle Abschnitte haben dieselbe Kopfzeile und dasselbe Dreispalten-Raster.
   const cols = 'grid grid-cols-3 items-start gap-4';
 
+  // Typografie — Zahlen aus dem Bestand.
+  const H2_TODAY = [
+    { area: 'Admin', cls: 'text-base font-semibold', n: 20, val: 'text-base' },
+    { area: 'Einstellungen', cls: 'text-lg font-semibold', n: 14, val: 'text-lg' },
+    { area: 'Rest', cls: 'text-xs font-semibold', n: 5, val: 'text-xs' },
+    { area: 'Einstellungen (Ausreisser)', cls: 'text-base font-semibold', n: 4, val: 'text-base' },
+    { area: 'Admin (Ausreisser)', cls: 'text-lg font-semibold', n: 2, val: 'text-lg' }
+  ];
+  const SCALE_PROPOSED = [
+    { role: 'Dialog-/Seitentitel', cls: 'text-lg font-semibold', val: 'text-lg · 18px' },
+    { role: 'Abschnitt (h2)', cls: 'text-base font-semibold', val: 'text-base · 16px' },
+    { role: 'Unterabschnitt (h3)', cls: 'text-sm font-semibold', val: 'text-sm · 14px' },
+    { role: 'Fliesstext', cls: 'text-sm', val: 'text-sm · 14px' },
+    { role: 'Hilfetext, Meta', cls: 'text-xs text-text-muted', val: 'text-xs · 12px' },
+    { role: 'Kleinstschrift (Marken, Zeitstempel)', cls: 'text-[11px] text-text-muted', val: 'text-[11px] · 11px' }
+  ];
+
   // Formulare — wörtlich aus dem Code.
   const INPUTS_TODAY = [
     { file: 'routes/app', cls: 'border-border bg-background focus:ring-primary rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none' },
@@ -315,6 +332,86 @@
     </div>
   </section>
 
+
+
+  <section class="space-y-3 border-t border-border pt-6">
+    {@render head(
+      'Typografie',
+      'Dieselbe Überschriftenebene ist je nach Bereich unterschiedlich gross — und zwar nicht ein bisschen: von 12px bis 18px. Dazu 88 Pixel-Angaben an der Skala vorbei.'
+    )}
+
+    <h3 class="text-text-bright pt-2 text-sm font-semibold">
+      Abschnittsüberschriften (h2) — 9 Kombinationen
+    </h3>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div class="border-border rounded-md border">
+        <div class="border-border text-rail border-b px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase">
+          Heute
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          {#each H2_TODAY as h (h.area + h.val)}
+            <div class="flex items-baseline justify-between gap-3">
+              <span class={h.cls}>Berechtigungen</span>
+              <span class="text-text-muted shrink-0 font-mono text-[10px]">
+                {h.area} · {h.val} · {h.n}x
+              </span>
+            </div>
+          {/each}
+          <p class="text-text-muted pt-1 text-xs">
+            Ein <code>&lt;h2&gt;</code> bei 12px ist kleiner als der Fliesstext darunter.
+          </p>
+        </div>
+      </div>
+      <div class="border-border rounded-md border">
+        <div class="border-border border-b px-3 py-2 font-mono text-[10.5px] font-bold tracking-wider uppercase">
+          Vorschlag — eine Rolle, eine Grösse
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          {#each SCALE_PROPOSED as r (r.role)}
+            <div class="flex items-baseline justify-between gap-3">
+              <span class={r.cls}>{r.role}</span>
+              <span class="text-text-muted shrink-0 font-mono text-[10px]">{r.val}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+
+    <h3 class="text-text-bright pt-4 text-sm font-semibold">
+      Die 88 Pixel-Angaben neben der Skala
+    </h3>
+    <div class="border-border bg-bg-chat rounded-md border p-4">
+      <div class="flex flex-wrap items-baseline gap-x-8 gap-y-3">
+        <span class="text-xs">text-xs — 12px (Skala)</span>
+        <span class="text-[11px]">text-[11px] — 25x</span>
+        <span class="text-[10px]">text-[10px] — 53x</span>
+        <span class="text-[9px]">text-[9px] — 2x</span>
+        <span class="text-[0.65rem]">text-[0.65rem] — 4x</span>
+      </div>
+      <p class="text-text-muted pt-3 text-xs">
+        Vier Ad-hoc-Stufen unterhalb der kleinsten Skalenstufe. Der Bedarf ist echt —
+        Zeitstempel und Marken brauchen etwas Kleineres als 12px. Nur brauchen sie nicht
+        <strong>vier</strong> verschiedene. Vorschlag: eine einzige Kleinstschrift
+        (11px), die 10px und 9px schlucken.
+      </p>
+    </div>
+
+    <h3 class="text-text-bright pt-4 text-sm font-semibold">Hilfetexte — 12px oder 14px?</h3>
+    <div class="border-border bg-bg-chat grid grid-cols-1 gap-4 rounded-md border p-4 md:grid-cols-2">
+      <div>
+        <p class="text-sm">Einstellung ändern</p>
+        <p class="text-text-muted text-xs">Erklärung dazu — text-xs, 119 Stellen</p>
+      </div>
+      <div>
+        <p class="text-sm">Einstellung ändern</p>
+        <p class="text-text-muted text-sm">Erklärung dazu — text-sm, 49 Stellen</p>
+      </div>
+      <p class="text-text-muted col-span-full text-xs">
+        Bei 14px ist der Hilfetext genauso gross wie der Text, den er erklärt — die
+        Rangfolge fehlt. Vorschlag: durchgehend 12px.
+      </p>
+    </div>
+  </section>
 
   <section class="space-y-3 border-t border-border pt-6">
     {@render head(
