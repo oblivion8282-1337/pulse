@@ -26,6 +26,9 @@
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import InboxIcon from '@lucide/svelte/icons/inbox';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
 
   // ── Spalte 2: Vorschlag "Komponente an App angepasst" ────────────────────
   // Bewusst als reine Klassenketten hier, nicht in der echten Komponente.
@@ -132,6 +135,21 @@
 
   // Alle Abschnitte haben dieselbe Kopfzeile und dasselbe Dreispalten-Raster.
   const cols = 'grid grid-cols-3 items-start gap-4';
+
+  // Formulare — wörtlich aus dem Code.
+  const INPUTS_TODAY = [
+    { file: 'routes/app', cls: 'border-border bg-background focus:ring-primary rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none' },
+    { file: 'EmojiPicker', cls: 'text-text-bright placeholder:text-text-muted w-full rounded-md border border-border bg-bg-chat px-2.5 py-1.5 text-sm outline-none focus:border-primary' },
+    { file: 'QuickSwitcher', cls: 'border-border text-text-bright placeholder:text-text-muted w-full border-b bg-transparent px-4 py-3 text-sm outline-none' },
+    { file: 'AdminCommunityLimits', cls: 'border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none' },
+    { file: 'SettingsScreenShare', cls: 'bg-bg-soft border-border-soft text-text-bright focus:border-primary w-full rounded-md border px-2 py-2 text-sm outline-none' }
+  ];
+  const CHECKBOXES_TODAY = [
+    { n: 8, label: 'ohne jede Gestaltung', cls: '' },
+    { n: 7, label: 'accent-[var(--brand)] size-5 md:size-4', cls: 'size-5 accent-[var(--brand)] md:size-4' },
+    { n: 5, label: 'accent-primary size-4', cls: 'size-4 accent-primary' },
+    { n: 2, label: 'nur size-4', cls: 'size-4' }
+  ];
 
   // Menüzeilen: wörtlich aus dem Code, je Datei die abweichenden Werte.
   // 30 Fundstellen, 16 verschiedene Ausprägungen für dieselbe Sache.
@@ -293,6 +311,124 @@
       <div class="flex items-center gap-2">
         <span class="bg-destructive size-4 rounded-full"></span>
         <span class="text-destructive text-sm">destructive (gab es)</span>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="space-y-3 border-t border-border pt-6">
+    {@render head(
+      'Formulare — was fehlt',
+      'Von 99 rohen Eingaben sind nur 42 überhaupt migrierbar. Für den Rest gibt es keine Komponente: 31 Kontrollkästchen, 11 Schieberegler, 6 Auswahlknöpfe, 5 Datei-Auswahlen, 4 Farbwähler. Der Baukasten hat nur Input und Label.'
+    )}
+
+    <h3 class="text-text-bright pt-2 text-sm font-semibold">
+      Kontrollkästchen — 31 Stück, 11 Ausprägungen
+    </h3>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div class="border-border rounded-md border">
+        <div class="border-border text-rail border-b px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase">
+          Heute
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          {#each CHECKBOXES_TODAY as c (c.label)}
+            <label class="flex items-center gap-2.5 text-sm">
+              <input type="checkbox" class={c.cls} checked />
+              <span class="flex-1">{c.label}</span>
+              <span class="text-text-muted font-mono text-[10px]">{c.n}x</span>
+            </label>
+          {/each}
+          <p class="text-text-muted pt-1 text-xs">
+            Die acht ohne Gestaltung sind rohe Browser-Kästchen — sie sehen auf jedem
+            Betriebssystem anders aus.
+          </p>
+        </div>
+      </div>
+      <div class="border-border rounded-md border">
+        <div class="border-border border-b px-3 py-2 font-mono text-[10.5px] font-bold tracking-wider uppercase">
+          Vorschlag
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          <div class="flex items-center gap-2.5 text-sm">
+            <span class="border-border bg-primary grid size-4 shrink-0 place-items-center rounded-[0.25rem] border">
+              <CheckIcon class="size-3 text-white" />
+            </span>
+            <span>ausgewählt</span>
+          </div>
+          <div class="flex items-center gap-2.5 text-sm">
+            <span class="border-border bg-bg-input grid size-4 shrink-0 place-items-center rounded-[0.25rem] border"></span>
+            <span>nicht ausgewählt</span>
+          </div>
+          <div class="flex items-center gap-2.5 text-sm opacity-50">
+            <span class="border-border bg-bg-input grid size-4 shrink-0 place-items-center rounded-[0.25rem] border"></span>
+            <span>deaktiviert</span>
+          </div>
+          <p class="text-text-muted pt-1 text-xs">
+            Eine Darstellung auf allen Plattformen, mit Fokusring und Tastaturbedienung.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="text-text-bright pt-4 text-sm font-semibold">
+      Schalter — 6 Stück, handgebaut, keine Komponente
+    </h3>
+    <div class="border-border bg-bg-chat flex flex-wrap items-center gap-8 rounded-md border p-4">
+      <div class="flex items-center gap-3">
+        <span class="bg-primary relative h-6 w-11 rounded-full">
+          <span class="absolute top-1 right-1 size-4 rounded-full bg-white"></span>
+        </span>
+        <span class="text-sm">an</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="bg-bg-hover relative h-6 w-11 rounded-full">
+          <span class="absolute top-1 left-1 size-4 rounded-full bg-white/70"></span>
+        </span>
+        <span class="text-sm">aus</span>
+      </div>
+      <p class="text-text-muted flex-1 text-xs">
+        Sechsmal in fünf Dateien nachgebaut. Sieht überall gleich aus — bis jemand eine
+        Kopie ändert.
+      </p>
+    </div>
+
+    <h3 class="text-text-bright pt-4 text-sm font-semibold">
+      Textfelder — 13 verschiedene Klassenketten
+    </h3>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div class="border-border rounded-md border">
+        <div class="border-border text-rail border-b px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase">
+          Heute <span class="text-text-muted">5 von 13</span>
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          {#each INPUTS_TODAY as i (i.file)}
+            <div>
+              <input class={i.cls} placeholder="Eingabe" />
+              <p class="text-text-muted pt-0.5 font-mono text-[9.5px]">{i.file}</p>
+            </div>
+          {/each}
+        </div>
+      </div>
+      <div class="border-border rounded-md border">
+        <div class="border-border border-b px-3 py-2 font-mono text-[10.5px] font-bold tracking-wider uppercase">
+          Vorhandene Input-Komponente
+        </div>
+        <div class="bg-bg-chat space-y-3 p-4">
+          <Input placeholder="Eingabe" />
+          <Input placeholder="deaktiviert" disabled />
+          <div class="space-y-1.5">
+            <Label>
+              Anzeigename
+              <span class="text-destructive" aria-hidden="true">*</span>
+            </Label>
+            <Input placeholder="Pflichtfeld" />
+            <FieldError message="Dieser Name ist schon vergeben." />
+          </div>
+          <p class="text-text-muted pt-1 text-xs">
+            Der Stern ist neu: heute gibt es <strong>45 Pflichtfelder</strong> und keine
+            einzige sichtbare Kennzeichnung.
+          </p>
+        </div>
       </div>
     </div>
   </section>
