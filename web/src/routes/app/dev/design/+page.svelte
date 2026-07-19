@@ -131,6 +131,15 @@
 
   // Alle Abschnitte haben dieselbe Kopfzeile und dasselbe Dreispalten-Raster.
   const cols = 'grid grid-cols-3 items-start gap-4';
+
+  // Radien-Staffel zur Ansicht. `surface` = Karte/Panel, `control` = Knopf darin.
+  // Heute stehen beide in keinem Verhältnis: der Knopf ist härter gerundet als
+  // alles um ihn herum, obwohl er das kleinste Element ist.
+  const RADIUS_VARIANTS = [
+    { title: 'Heute', note: 'zufällig', surface: '0.75rem', control: '0.32rem', recommended: false },
+    { title: 'Vorschlag', note: '8 / 12 / 16', surface: '0.75rem', control: '0.5rem', recommended: true },
+    { title: 'Weicher', note: '10 / 16 / 20', surface: '1rem', control: '0.625rem', recommended: false }
+  ];
 </script>
 
 <div class="mx-auto max-w-6xl space-y-10 p-6">
@@ -244,6 +253,69 @@
         <span class="bg-destructive size-4 rounded-full"></span>
         <span class="text-destructive text-sm">destructive (gab es)</span>
       </div>
+    </div>
+  </section>
+
+  <section class="space-y-3 border-t border-border pt-6">
+    {@render head(
+      'Radien-Staffel',
+      'Passt der Knopf zur Fläche, in der er sitzt? Heute nicht: der Knopf ist mit ~5px die härteste Form der Oberfläche, obwohl er das kleinste Element ist. Dieselbe Art Fläche kommt zudem in vier Stufen vor (12px 79x, 16px 56x, 8px 46x, 5px 30x).'
+    )}
+    <div class={cols}>
+      {#each RADIUS_VARIANTS as v (v.title)}
+        <div class="border-border rounded-md border">
+          <div
+            class="border-border flex items-baseline gap-2 border-b px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase"
+            class:font-bold={v.recommended}
+          >
+            <span class={v.recommended ? 'text-text-bright' : 'text-text-muted'}>{v.title}</span>
+            <span class="text-text-muted">{v.note}</span>
+          </div>
+          <div class="bg-bg-chat p-4">
+            <!-- Nachbau der Beitreten-Karte: Fläche mit Knopf darin. -->
+            <div
+              class="border-border bg-bg-panel flex flex-col items-center gap-3 border p-5 text-center"
+              style="border-radius: {v.surface}"
+            >
+              <div class="bg-bg-hover size-12 rounded-full"></div>
+              <div>
+                <p class="text-text-bright text-sm font-semibold">Beispiel-Community</p>
+                <p class="text-text-muted text-xs">128 Mitglieder</p>
+              </div>
+              <button
+                class="accent-gradient h-9 w-full px-3.5 text-sm font-semibold text-white"
+                style="border-radius: {v.control}"
+              >
+                Beitreten
+              </button>
+            </div>
+            <p class="text-text-muted mt-3 font-mono text-[10px]">
+              Fläche {v.surface} · Knopf {v.control}
+            </p>
+          </div>
+        </div>
+      {/each}
+    </div>
+    <p class="text-text-muted text-xs">
+      Zum Vergleich ganz nah beieinander — hier sieht man das Verhältnis am besten:
+    </p>
+    <div class="border-border bg-bg-chat flex flex-wrap items-end gap-6 rounded-md border p-4">
+      {#each RADIUS_VARIANTS as v (v.title)}
+        <div class="flex flex-col items-center gap-2">
+          <div
+            class="border-border bg-bg-panel grid size-24 place-items-center border"
+            style="border-radius: {v.surface}"
+          >
+            <button
+              class="accent-gradient h-8 px-3 text-xs font-semibold text-white"
+              style="border-radius: {v.control}"
+            >
+              Beitreten
+            </button>
+          </div>
+          <span class="text-text-muted font-mono text-[10px]">{v.title}</span>
+        </div>
+      {/each}
     </div>
   </section>
 </div>
