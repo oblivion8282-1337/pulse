@@ -11,18 +11,26 @@
   kein eigenes `{#if}` mehr:
 
       <FieldError message={error} />
+      <FieldError message={error} testId="profile-error" />
 -->
 <script lang="ts">
   let {
     message,
-    class: extraClass = ''
+    class: extraClass = '',
+    testId = undefined
   }: {
     /** Fehlertext. Leer/undefined → es wird nichts gerendert. */
     message?: string | null;
     class?: string;
+    /**
+     * Wird als `data-testid` durchgereicht. Nötig, weil die Hausregel verlangt,
+     * dass Testids beim Umbau identisch bleiben — ohne diese Prop müssten
+     * getestete Fehlerstellen handgebaut bleiben.
+     */
+    testId?: string;
   } = $props();
 </script>
 
 {#if message}
-  <p class="text-destructive text-sm {extraClass}" role="alert">{message}</p>
+  <p class="text-destructive text-sm {extraClass}" role="alert" data-testid={testId}>{message}</p>
 {/if}

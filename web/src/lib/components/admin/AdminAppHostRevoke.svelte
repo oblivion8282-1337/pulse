@@ -13,6 +13,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   let { app, onrevoked }: { app: AdminApplication; onrevoked: () => void } = $props();
 
@@ -70,7 +71,7 @@
           maxlength="500"
           class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if error}<p class="text-destructive text-xs">{error}</p>{/if}
+        <FieldError message={error} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick={() => (open = false)}

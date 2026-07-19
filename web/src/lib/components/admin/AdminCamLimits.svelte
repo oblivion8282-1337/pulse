@@ -11,6 +11,8 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   // Mirrors ALLOWED_CAM_RESOLUTIONS in the backend schema. Ascending for the UI.
   const CAM_RESOLUTIONS = ['480p', '720p', '1080p', '1440p'];
@@ -71,7 +73,7 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{error}</p>
+    <FieldError message={error} />
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Resolution ceiling -->
@@ -123,6 +125,6 @@
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_cam_limits_loading()}</div>
+    <LoadingState label={m.admin_cam_limits_loading()} />
   {/if}
 </section>

@@ -7,6 +7,7 @@
    */
   import { m } from '$lib/paraglide/messages.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import { goto } from '$app/navigation';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -132,7 +133,7 @@
 
     <div class="max-h-[50vh] overflow-y-auto p-2">
       {#if results.length === 0}
-        <p class="text-text-muted px-3 py-4 text-center text-sm">{m.quick_switcher_no_results()}</p>
+        <EmptyState message={m.quick_switcher_no_results()} />
       {:else}
         {#each results as r, i (r.key)}
           <button

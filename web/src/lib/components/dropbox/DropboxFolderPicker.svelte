@@ -16,6 +16,7 @@
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { dropboxApi, isFolder, type DropboxEntry } from '$lib/api/dropbox';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   type Props = {
     guildId: string;
@@ -182,8 +183,6 @@
   {/each}
 
   {#if rows.length === 0 && !loading.has('')}
-    <p class="text-text-faint px-3 py-2 text-xs">
-      {pm.dropbox_move_empty()}
-    </p>
+    <EmptyState message={pm.dropbox_move_empty()} />
   {/if}
 </div>

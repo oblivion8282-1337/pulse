@@ -27,6 +27,8 @@
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import CheckCircle2Icon from '@lucide/svelte/icons/check-circle-2';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let current = $state<SmtpSettings | null>(null);
   let provider = $state<SmtpProvider>('custom');
@@ -172,9 +174,9 @@
   </div>
 
   {#if loadError}
-    <p class="text-sm text-destructive">{m.admin_smtp_load_error({ error: loadError })}</p>
+    <FieldError message={m.admin_smtp_load_error({ error: loadError })} />
   {:else if current === null}
-    <div class="text-text-muted text-sm">{m.admin_smtp_loading()}</div>
+    <LoadingState label={m.admin_smtp_loading()} />
   {:else}
     <div class="flex flex-col gap-3">
       <div class="flex flex-col gap-1.5">

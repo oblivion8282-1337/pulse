@@ -16,6 +16,8 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let value = $state('');
   let saved = $state('');
@@ -63,9 +65,9 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{error}</p>
+    <FieldError message={error} />
   {:else if !loaded}
-    <div class="text-text-muted text-sm">{m.admin_server_name_loading()}</div>
+    <LoadingState label={m.admin_server_name_loading()} />
   {:else}
     <label class="flex flex-col gap-1.5">
       <span class="text-text-base text-sm">{m.admin_server_name_label()}</span>

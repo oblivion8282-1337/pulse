@@ -20,6 +20,9 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { goto } from '$app/navigation';
   import MemberActivityHeader from './MemberActivityHeader.svelte';
+  import EmptyState from './feedback/EmptyState.svelte';
+  import LoadingState from './feedback/LoadingState.svelte';
+  import FieldError from './feedback/FieldError.svelte';
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { VList } from 'virtua/svelte';
@@ -295,11 +298,11 @@
 
   <div class="flex-1 min-h-0 px-2.5 py-1">
     {#if loading}
-      <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_loading()}</p>
+      <LoadingState label={m.member_list_loading()} />
     {:else if error}
-      <p class="px-3 py-4 text-xs text-destructive">{error}</p>
+      <FieldError message={error} class="px-3 py-2" />
     {:else if flatItems.length === 0}
-      <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_empty()}</p>
+      <EmptyState message={m.member_list_empty()} />
     {:else}
       <VList data={flatItems} {getKey} style="height: 100%;">
         {#snippet children(item)}

@@ -12,6 +12,8 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { chatApi } from '$lib/api/chat';
   import MessageInput from '$lib/components/MessageInput.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import XIcon from '@lucide/svelte/icons/x';
   import { toast } from 'svelte-sonner';
@@ -147,11 +149,9 @@
     data-testid="stream-chat-messages"
   >
     {#if loading && messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">{m.stream_chat_panel_loading()}</p>
+      <LoadingState density="page" label={m.stream_chat_panel_loading()} />
     {:else if messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">
-        {m.stream_chat_panel_empty()}
-      </p>
+      <EmptyState density="page" message={m.stream_chat_panel_empty()} />
     {:else}
       <ul class="flex flex-col gap-1.5">
         {#each messages as msg (msg.id)}

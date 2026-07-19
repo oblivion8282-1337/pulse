@@ -15,6 +15,9 @@
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import type { Ban } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -83,11 +86,11 @@
   </header>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.bans_list_loading()}</p>
+    <LoadingState label={m.bans_list_loading()} />
   {:else if error}
-    <p class="text-sm text-destructive">{error}</p>
+    <FieldError message={error} />
   {:else if bans.length === 0}
-    <p class="text-text-muted text-sm">{m.bans_list_empty()}</p>
+    <EmptyState message={m.bans_list_empty()} />
   {:else}
     <ul class="divide-border divide-y rounded-lg border">
       {#each bans as ban (ban.user_id)}

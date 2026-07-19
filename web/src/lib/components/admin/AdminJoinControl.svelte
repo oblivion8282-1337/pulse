@@ -10,6 +10,8 @@
   import { toast } from 'svelte-sonner';
   import { adminApi } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let locked = $state<boolean | null>(null);
   let busy = $state(false);
@@ -48,9 +50,9 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_join_control_load_error({ error })}</p>
+    <FieldError message={m.admin_join_control_load_error({ error })} />
   {:else if locked === null}
-    <div class="text-text-muted text-sm">{m.admin_join_control_loading()}</div>
+    <LoadingState label={m.admin_join_control_loading()} />
   {:else}
     <label
       class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-bg-hover/30 p-4 hover:bg-bg-hover"

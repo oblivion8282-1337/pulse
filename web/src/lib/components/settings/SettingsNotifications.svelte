@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import {
     getPushPermissionState,
@@ -148,9 +149,7 @@
         </p>
       {/if}
 
-      {#if error}
-        <p class="text-destructive text-xs">{error}</p>
-      {/if}
+      <FieldError message={error} />
 
       {#if settings.notifications.browserPushEnabled && subs.length > 0}
         <p class="text-text-muted text-xs">

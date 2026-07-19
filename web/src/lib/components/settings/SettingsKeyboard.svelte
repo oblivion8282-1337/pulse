@@ -23,6 +23,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { onDestroy } from 'svelte';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
@@ -189,9 +190,7 @@
               </button>
             </div>
             {#if bindingError?.id === a.id}
-              <p class="text-destructive mt-1 pl-1 text-xs" role="alert">
-                {bindingError.message}
-              </p>
+              <FieldError message={bindingError.message} />
             {/if}
           </div>
         {/each}

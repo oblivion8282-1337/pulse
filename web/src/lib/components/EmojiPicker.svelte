@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
   import { EMOJIS, CATEGORY_ORDER, CATEGORY_LABELS, type EmojiCategory } from '$lib/emoji';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   const CATEGORY_REPRESENTATIVE = Object.fromEntries(
     CATEGORY_ORDER.map((c) => [c, EMOJIS.find((e) => e.category === c)?.emoji ?? '·'])
@@ -61,7 +62,7 @@
   <div class="max-h-72 overflow-y-auto">
     {#if isSearching}
       {#if searchHits.length === 0}
-        <p class="text-text-muted px-1 py-3 text-center text-xs">{m.emoji_picker_no_results()}</p>
+        <EmptyState message={m.emoji_picker_no_results()} />
       {:else}
         <div class="grid grid-cols-6 gap-1 md:grid-cols-8">
           {#each searchHits as e (e.emoji)}

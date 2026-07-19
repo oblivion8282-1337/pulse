@@ -13,6 +13,7 @@
   import { communityInvitesApi } from '$lib/api/communityInvites';
   import { ApiError } from '$lib/api/client';
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -73,7 +74,5 @@
       {sending ? m.member_invite_sending() : m.member_invite_send_btn()}
     </Button>
   </div>
-  {#if error}
-    <p class="text-destructive text-xs" data-testid="invite-by-username-error">{error}</p>
-  {/if}
+  <FieldError message={error} testId="invite-by-username-error" />
 </form>

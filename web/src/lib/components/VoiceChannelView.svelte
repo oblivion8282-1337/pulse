@@ -25,6 +25,7 @@
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import { untrack, onMount } from 'svelte';
   import type { Channel } from '$lib/api/types';
+  import FieldError from './feedback/FieldError.svelte';
 
   let { channel }: { channel: Channel } = $props();
 
@@ -242,9 +243,7 @@
         <div class="text-center">
           <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
           <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
-          {#if voice.error}
-            <p class="mt-2 text-sm text-destructive">{voice.error}</p>
-          {/if}
+          <FieldError message={voice.error} class="mt-2" />
           {#if !viewport.isMobile}
             <p class="text-text-muted text-sm">{m.voice_channel_view_join_hint()}</p>
             <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">{m.voice_channel_view_join_btn()}</Button>

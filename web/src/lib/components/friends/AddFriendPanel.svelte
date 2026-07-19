@@ -18,6 +18,9 @@
   import { blocks } from '$lib/stores/blocks.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -112,15 +115,11 @@
     autocomplete="off"
   />
   {#if searching}
-    <p class="text-text-muted px-1 text-xs">{m.add_friend_searching()}</p>
+    <LoadingState label={m.add_friend_searching()} />
   {/if}
-  {#if searchError}
-    <p class="px-1 text-xs text-destructive">{searchError}</p>
-  {/if}
+  <FieldError message={searchError} />
   {#if !searching && query.trim().length >= 2 && hits.length === 0 && !searchError}
-    <p class="text-text-muted px-1 py-2 text-sm" data-testid="add-friend-no-results">
-      {m.add_friend_no_results()}
-    </p>
+    <EmptyState message={m.add_friend_no_results()} testId="add-friend-no-results" />
   {/if}
   {#each hits as h (h.id)}
     {@const avatar = safeAvatarUrl(h.avatar_url)}

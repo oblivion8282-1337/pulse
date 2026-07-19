@@ -23,6 +23,7 @@
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   let {
     channelId,
@@ -293,9 +294,7 @@
   </div>
 
   {#if overwrites.length === 0}
-    <p class="text-text-muted rounded-lg border border-dashed border-border p-4 text-sm">
-      {m.channel_overrides_empty()}
-    </p>
+    <EmptyState message={m.channel_overrides_empty()} />
   {/if}
 
   {#each overwrites as ow (owKey(ow))}

@@ -9,6 +9,8 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { adminApi, type ChatSettings } from '$lib/api/admin';
   import SaveIcon from '@lucide/svelte/icons/save';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let current = $state<ChatSettings | null>(null);
@@ -63,7 +65,7 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_attachments_error({ message: error ?? '' })}</p>
+    <FieldError message={m.admin_attachments_error({ message: error ?? '' })} />
   {:else if current}
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="flex flex-col gap-1.5">
@@ -100,6 +102,6 @@
       </Button>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">{m.admin_attachments_loading()}</div>
+    <LoadingState label={m.admin_attachments_loading()} />
   {/if}
 </section>

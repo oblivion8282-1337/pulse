@@ -8,6 +8,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { ApiError } from '$lib/api/client';
   import { submitAbuseReport } from '$lib/api/complaints';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   let targetUrl = $state('');
   let body = $state('');
@@ -143,9 +144,7 @@
           {m.report_abuse_legal_hint()}
         </p>
 
-        {#if formError}
-          <p class="text-sm text-destructive" data-testid="report-error">{formError}</p>
-        {/if}
+        <FieldError message={formError} testId="report-error" />
 
         <div>
           <button

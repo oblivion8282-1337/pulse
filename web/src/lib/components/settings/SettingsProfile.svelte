@@ -29,6 +29,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { safeAvatarUrl } from '$lib/avatar';
   import AvatarUploadDialog from '$lib/components/AvatarUploadDialog.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   const DEFAULT_COLOR = '#9ca3af';
   const DEFAULT_SECONDARY = '#22d3ee';
@@ -243,9 +244,7 @@
       </span>
     </label>
 
-    {#if profileError}
-      <p class="text-destructive text-sm" data-testid="profile-error">{profileError}</p>
-    {/if}
+    <FieldError message={profileError} testId="profile-error" />
 
     <div class="flex justify-end">
       <Button
@@ -284,7 +283,7 @@
     </div>
 
     {#if usernameError}
-      <p class="text-destructive text-sm" data-testid="profile-username-error">{usernameError}</p>
+      <FieldError message={usernameError} testId="profile-username-error" />
       {#if usernameSuggestions.length}
         <div class="flex flex-wrap gap-2">
           {#each usernameSuggestions as s (s)}

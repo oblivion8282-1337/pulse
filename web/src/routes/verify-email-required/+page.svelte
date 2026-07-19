@@ -9,7 +9,7 @@
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import MailWarningIcon from '@lucide/svelte/icons/mail-warning';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
-  import Loader2Icon from '@lucide/svelte/icons/loader-2';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   // `ready` gates the card so we don't flash it before the hydrate/redirect
@@ -87,7 +87,7 @@
 
   <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
     {#if !ready}
-      <Loader2Icon class="text-primary size-7 motion-safe:animate-spin" />
+      <LoadingState density="page" />
     {:else}
       <div
         class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 text-center shadow-2xl"

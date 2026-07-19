@@ -20,6 +20,8 @@
   import LockIcon from '@lucide/svelte/icons/lock';
 
   import { m } from '$lib/paraglide/messages.js';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import {
     adminPluginsApi,
     type AdminPluginEntry
@@ -99,9 +101,9 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.admin_plugins_loading()}</p>
+    <LoadingState label={m.admin_plugins_loading()} />
   {:else if loadError}
-    <p class="text-destructive text-sm">{m.admin_plugins_load_error({ error: loadError ?? '' })}</p>
+    <FieldError message={m.admin_plugins_load_error({ error: loadError ?? '' })} />
   {:else if rows.length === 0}
     <div
       class="border-border bg-bg-hover/30 flex flex-col items-center gap-2 rounded-xl border p-6 text-center"

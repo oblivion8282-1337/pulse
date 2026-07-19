@@ -16,6 +16,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -119,8 +120,8 @@
       <span>{m.watch_popup_reattach_label()}</span>
     </button>
   {:else}
-    <div class="flex h-full w-full items-center justify-center text-sm text-text-muted">
-      {m.watch_popup_loading()}
+    <div class="flex h-full w-full items-center justify-center">
+      <LoadingState density="page" label={m.watch_popup_loading()} />
     </div>
   {/if}
 </div>

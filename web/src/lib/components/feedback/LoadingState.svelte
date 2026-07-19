@@ -26,12 +26,15 @@
   let {
     label = undefined,
     density = 'compact',
-    class: extraClass = ''
+    class: extraClass = '',
+    testId = undefined
   }: {
     /** Text neben dem Spinner. Fehlt er, bleibt nur der Spinner (mit aria-Label). */
     label?: string;
     density?: 'compact' | 'page';
     class?: string;
+    /** Wird als `data-testid` durchgereicht (Testids bleiben beim Umbau gleich). */
+    testId?: string;
   } = $props();
 
   // Nur wenn KEIN sichtbarer Text da ist, braucht es eine eigene Ansage. Sonst
@@ -43,6 +46,7 @@
   <div
     class="text-text-muted flex flex-col items-center justify-center gap-3 px-4 py-10 {extraClass}"
     role="status"
+    data-testid={testId}
   >
     <LoaderIcon class="size-7 motion-safe:animate-spin" aria-hidden="true" />
     {#if label}
@@ -55,6 +59,7 @@
   <div
     class="text-text-muted flex items-center gap-2 px-3 py-2 text-sm {extraClass}"
     role="status"
+    data-testid={testId}
   >
     <LoaderIcon class="size-4 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
     {#if label}

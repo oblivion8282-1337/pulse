@@ -28,6 +28,7 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   let {
     guildId,
@@ -216,7 +217,7 @@
         </li>
       {/each}
       {#if filtered.length === 0}
-        <li class="text-text-muted px-3 py-3 text-sm">{m.invite_friend_picker_no_results()}</li>
+        <li><EmptyState message={m.invite_friend_picker_no_results()} /></li>
       {/if}
     </ul>
 

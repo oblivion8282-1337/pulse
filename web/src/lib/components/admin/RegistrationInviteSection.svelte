@@ -15,6 +15,9 @@
   import CopyIcon from '@lucide/svelte/icons/copy';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let invites = $state<Invite[]>([]);
   let loading = $state(true);
@@ -149,11 +152,11 @@
 
   <!-- List -->
   {#if loading}
-    <p class="text-text-muted mt-3 text-sm">{m.admin_registration_invite_loading()}</p>
+    <LoadingState label={m.admin_registration_invite_loading()} />
   {:else if error}
-    <p class="mt-3 text-sm text-destructive">{m.admin_registration_invite_error({ error: error! })}</p>
+    <FieldError message={m.admin_registration_invite_error({ error: error! })} />
   {:else if invites.length === 0}
-    <p class="text-text-muted mt-3 text-sm">{m.admin_registration_invite_empty()}</p>
+    <EmptyState message={m.admin_registration_invite_empty()} />
   {:else}
     <ul class="mt-3 flex flex-col gap-1.5">
       {#each invites as inv (inv.code)}

@@ -24,6 +24,8 @@
   import { chatApi } from '$lib/api/chat';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -115,7 +117,7 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.guild_public_address_loading()}</p>
+    <LoadingState label={m.guild_public_address_loading()} />
   {:else}
     <div class="space-y-4">
       <!-- Handle-Eingabe -->
@@ -140,9 +142,7 @@
           />
         </div>
         <p class="text-text-muted text-xs">{m.guild_public_address_handle_hint()}</p>
-        {#if handleError}
-          <p class="text-destructive text-xs" data-testid="guild-handle-error">{handleError}</p>
-        {/if}
+        <FieldError message={handleError} testId="guild-handle-error" />
       </div>
 
       <!-- Öffentlich-Toggle -->

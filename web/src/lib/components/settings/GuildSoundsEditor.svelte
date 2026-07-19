@@ -36,6 +36,7 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guildSounds } from '$lib/stores/guildSounds.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -172,7 +173,7 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">{m.guild_sounds_loading()}</p>
+    <LoadingState label={m.guild_sounds_loading()} />
   {:else}
     {#each categories as cat (cat.key)}
       <section

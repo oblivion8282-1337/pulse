@@ -23,6 +23,7 @@
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import {
     streamSettings,
     persistSettings,
@@ -75,9 +76,7 @@
   </div>
 
   {#if streamSettings.available_monitors.length === 0 && streamSettings.available_windows.length === 0}
-    <p class="text-text-muted text-xs italic" data-testid="stream-monitor-empty">
-      {m.monitor_picker_empty()}
-    </p>
+    <EmptyState message={m.monitor_picker_empty()} testId="stream-monitor-empty" />
   {:else}
     <div role="radiogroup" aria-label={m.monitor_picker_label()} class="flex flex-col gap-3">
       {#if streamSettings.available_monitors.length > 0}

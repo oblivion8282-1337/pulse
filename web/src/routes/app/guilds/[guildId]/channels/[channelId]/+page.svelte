@@ -6,6 +6,7 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
   import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
@@ -561,7 +562,7 @@
     </section>
   {:else if loadError}
     <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-      <p class="text-sm text-destructive" data-testid="load-error">{loadError}</p>
+      <FieldError message={loadError} testId="load-error" />
       <Button
         onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
         data-testid="load-retry"

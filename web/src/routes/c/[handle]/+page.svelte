@@ -22,6 +22,7 @@
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   const handle = $derived(page.params.handle ?? '');
@@ -89,7 +90,7 @@
     data-testid="public-community-card"
   >
     {#if loading}
-      <p class="text-text-muted text-sm">{m.public_community_loading()}</p>
+      <LoadingState label={m.public_community_loading()} />
     {:else}
       <Avatar.Root class="size-20">
         {#if preview?.guild.icon_url}

@@ -18,6 +18,8 @@
   import PasskeyRow from './PasskeyRow.svelte';
   import PasskeyAddDialog from './PasskeyAddDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   const supported = webauthnSupported();
   let passkeys = $state<WebAuthnCredentialSummary[]>([]);
@@ -70,7 +72,7 @@
       {m.passkeys_section_unsupported()}
     </p>
   {:else if loading}
-    <p class="text-text-muted text-xs">{m.passkeys_section_loading()}</p>
+    <LoadingState label={m.passkeys_section_loading()} />
   {:else}
     {#if passkeys.length > 0}
       <ul class="flex flex-col gap-2">
@@ -79,7 +81,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="text-text-muted text-xs">{m.passkeys_section_empty()}</p>
+      <EmptyState message={m.passkeys_section_empty()} />
     {/if}
 
     <button

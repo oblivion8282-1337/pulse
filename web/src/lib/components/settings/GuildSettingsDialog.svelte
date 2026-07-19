@@ -44,6 +44,7 @@
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
 
   let {
     open = $bindable(false),
@@ -333,7 +334,7 @@
 
       <main class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
         {#if !guild}
-          <p class="text-text-muted text-sm">{m.guild_settings_dialog_community_not_found()}</p>
+          <EmptyState message={m.guild_settings_dialog_community_not_found()} />
         {:else if tab === 'roles' && canManageRoles}
           <RolesEditor
             {guildId}
@@ -362,9 +363,7 @@
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />
         {:else}
-          <p class="text-text-muted text-sm">
-            {m.guild_settings_dialog_no_permission()}
-          </p>
+          <EmptyState message={m.guild_settings_dialog_no_permission()} />
         {/if}
       </main>
     </div>

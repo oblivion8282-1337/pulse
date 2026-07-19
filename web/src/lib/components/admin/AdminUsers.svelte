@@ -16,6 +16,9 @@
   import { auth } from '$lib/stores/auth.svelte';
   import AdminUserRow from './AdminUserRow.svelte';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   type FilterMode = 'all' | 'admins' | 'disabled' | 'self_host';
 
@@ -160,13 +163,11 @@
   </div>
 
   {#if error}
-    <p class="text-destructive text-sm">{m.admin_users_error({ message: error ?? '' })}</p>
+    <FieldError message={m.admin_users_error({ message: error ?? '' })} />
   {:else if loading}
-    <div class="text-text-muted text-sm">{m.admin_users_loading()}</div>
+    <LoadingState label={m.admin_users_loading()} />
   {:else if users.length === 0}
-    <div class="text-text-muted py-6 text-center text-sm" data-testid="admin-users-empty">
-      {m.admin_users_empty()}
-    </div>
+    <EmptyState message={m.admin_users_empty()} testId="admin-users-empty" />
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each users as u (u.id)}

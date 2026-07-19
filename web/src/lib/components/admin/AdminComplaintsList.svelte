@@ -14,6 +14,9 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { adminComplaintsApi, type Complaint } from '$lib/api/complaints';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { adminApi } from '$lib/api/admin';
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
 
@@ -189,11 +192,11 @@
 </script>
 
 {#if loading}
-  <p class="text-text-muted text-sm">{m.admin_complaints_loading()}</p>
+  <LoadingState label={m.admin_complaints_loading()} />
 {:else if loadError}
-  <p class="text-destructive text-sm">{m.admin_complaints_load_error({ error: loadError })}</p>
+  <FieldError message={m.admin_complaints_load_error({ error: loadError })} />
 {:else if items.length === 0}
-  <p class="text-text-muted text-sm">{m.admin_complaints_empty()}</p>
+  <EmptyState message={m.admin_complaints_empty()} />
 {:else}
   <div class="flex flex-col gap-2">
     {#each items as c (c.id)}

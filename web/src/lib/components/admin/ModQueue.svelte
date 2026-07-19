@@ -20,6 +20,9 @@
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import BansList from '$lib/components/settings/BansList.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -235,11 +238,11 @@
   {#if activeTab === 'banned'}
     <BansList {guildId} />
   {:else if loading}
-    <p class="text-text-muted text-sm">{m.mod_queue_loading()}</p>
+    <LoadingState label={m.mod_queue_loading()} />
   {:else if loadError}
-    <p class="text-destructive text-sm" data-testid="modqueue-error">{m.mod_queue_load_error({ error: loadError })}</p>
+    <FieldError message={m.mod_queue_load_error({ error: loadError })} testId="modqueue-error" />
   {:else if reports.length === 0}
-    <p class="text-text-muted text-sm">{m.mod_queue_empty()}</p>
+    <EmptyState message={m.mod_queue_empty()} />
   {:else}
     <ul class="flex flex-col gap-2" data-testid="modqueue-list">
       {#each reports as r (r.id)}

@@ -10,7 +10,6 @@
   import { toast } from 'svelte-sonner';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
-  import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
   import { listCerts, revokeCert } from '$lib/api/credentials';
   import type { CredentialDevice } from '$lib/api/credentials';
@@ -19,6 +18,8 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
   let devices = $state<CredentialDevice[]>([]);
   let loading = $state(true);
@@ -123,12 +124,9 @@
   </div>
 
   {#if loading}
-    <div class="text-text-muted flex items-center gap-2 text-xs">
-      <LoaderIcon class="size-4 animate-spin" />
-      <span>{m.device_management_loading()}</span>
-    </div>
+    <LoadingState label={m.device_management_loading()} />
   {:else if devices.length === 0}
-    <div class="text-text-muted text-xs">{m.device_management_empty()}</div>
+    <EmptyState message={m.device_management_empty()} />
   {:else}
     <ul class="flex flex-col gap-2" data-testid="device-list">
       {#each devices as device (device.cert_id)}

@@ -11,6 +11,8 @@
   import MessageInput from '$lib/components/MessageInput.svelte';
   import MessageReactions from '$lib/components/MessageReactions.svelte';
   import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
@@ -151,11 +153,9 @@
     data-testid="watch-chat-messages"
   >
     {#if loading && messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">{m.watch_chat_panel_loading()}</p>
+      <LoadingState density="page" label={m.watch_chat_panel_loading()} />
     {:else if messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">
-        {m.watch_chat_panel_empty()}
-      </p>
+      <EmptyState density="page" message={m.watch_chat_panel_empty()} />
     {:else}
       <ul class="flex flex-col gap-1.5">
         {#each messages as msg (msg.id)}
