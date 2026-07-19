@@ -86,7 +86,7 @@
           {...props}
           variant="destructive"
           size="icon-sm"
-          class="size-9 md:size-8"
+          class="size-9 rounded-full md:size-8"
           aria-label={m.watch_party_start_button_start_label()}
           data-testid="watch-party-start-button"
         >
@@ -134,7 +134,7 @@
             {...props}
             variant="ghost"
             size="icon-sm"
-            class="size-9 md:size-8"
+            class="size-9 rounded-full md:size-8"
             onclick={() => (open = true)}
             aria-label={m.watch_party_start_button_start_label()}
             data-testid="watch-party-start-button"
