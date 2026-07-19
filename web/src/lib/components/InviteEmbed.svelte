@@ -170,7 +170,7 @@
         <div class="h-3 w-20 rounded bg-bg-hover animate-pulse"></div>
       </div>
     </div>
-    <div class="h-8 w-20 rounded-lg bg-bg-hover animate-pulse shrink-0"></div>
+    <div class="h-8 w-20 rounded-md bg-bg-hover animate-pulse shrink-0"></div>
   {:else if host}
     <Avatar.Root class="size-10 shrink-0">
       <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">

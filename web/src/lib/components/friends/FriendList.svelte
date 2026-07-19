@@ -136,7 +136,7 @@
       Object.values(parties).some((p) => p.host_user_id === f.user_id))}
     {@const ctxGuild = vc?.guildId ?? guilds.guildIdForChannel(stream ?? party ?? '')}
     <div
-      class="hover:bg-bg-hover group flex items-center gap-3 rounded-lg px-2 py-2"
+      class="hover:bg-bg-hover group flex items-center gap-3 rounded-md px-2 py-2"
       data-testid="friend-row"
       data-user-id={f.user_id}
     >

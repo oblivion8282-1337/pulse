@@ -116,7 +116,7 @@
     <div
       bind:this={viewport}
       onscroll={onScroll}
-      class="bg-bg-input/60 text-text-base h-40 overflow-y-auto rounded-lg border border-border p-2 font-mono text-[11px] leading-snug"
+      class="bg-bg-input/60 text-text-base h-40 overflow-y-auto rounded-xl border border-border p-2 font-mono text-[11px] leading-snug"
       data-testid="stream-log-viewport"
     >
       {#if session.lastLog.length === 0}

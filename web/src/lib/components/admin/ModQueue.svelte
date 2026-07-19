@@ -220,7 +220,7 @@
   </div>
 
   <!-- Tab-Bar -->
-  <div class="flex gap-1 rounded-lg bg-bg-input/40 p-1">
+  <div class="flex gap-1 rounded-xl bg-bg-input/40 p-1">
     {#each ([['open', m.mod_queue_tab_new()], ['closed', m.mod_queue_tab_resolved()], ['banned', m.mod_queue_tab_banned()]] as const) as [t, label] (t)}
       <button
         type="button"
@@ -339,7 +339,7 @@
         bind:value={banReason}
         rows="2"
         placeholder={m.mod_queue_ban_reason_placeholder()}
-        class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full resize-none rounded-lg border px-3 py-2 text-sm"
+        class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full resize-none rounded-md border px-3 py-2 text-sm"
         data-testid="modqueue-ban-reason"
       ></textarea>
     </div>

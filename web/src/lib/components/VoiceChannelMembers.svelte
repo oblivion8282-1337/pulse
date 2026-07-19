@@ -92,7 +92,7 @@
         <button
           {...props}
           type="button"
-          class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-base data-[state=open]:bg-bg-hover"
+          class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-base data-[state=open]:bg-bg-hover"
           data-testid="voice-presence-member"
           data-user-id={uid}
           title={name}

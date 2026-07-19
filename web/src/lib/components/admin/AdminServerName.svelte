@@ -76,7 +76,7 @@
         maxlength="60"
         bind:value
         placeholder={m.admin_server_name_placeholder()}
-        class="bg-bg-hover text-text-bright rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
+        class="bg-bg-hover text-text-bright rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-primary"
         data-testid="admin-server-name-input"
       />
     </label>

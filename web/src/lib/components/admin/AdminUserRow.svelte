@@ -109,7 +109,7 @@
         {#if !user.is_owner}
           <button
             type="button"
-            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
             onclick={() => ontoggle(user, 'is_admin', !user.is_admin)}
             data-testid="toggle-admin-btn"
           >
@@ -118,7 +118,7 @@
           </button>
           <button
             type="button"
-            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
             onclick={() => ontoggle(user, 'disabled', !user.disabled)}
             data-testid="toggle-disabled-btn"
           >
@@ -128,7 +128,7 @@
         {/if}
         <button
           type="button"
-          class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+          class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
           onclick={() => ontoggle(user, 'self_host_enabled', !user.self_host_enabled)}
           data-testid="toggle-selfhost-btn"
         >

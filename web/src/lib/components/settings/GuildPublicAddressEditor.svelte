@@ -162,7 +162,7 @@
 
       <!-- Kopierbare Adresse (nur sichtbar wenn Handle gesetzt) -->
       {#if publicUrl}
-        <div class="bg-bg-input border-border flex items-center gap-2 rounded-lg border px-3 py-2">
+        <div class="bg-bg-input border-border flex items-center gap-2 rounded-md border px-3 py-2">
           <GlobeIcon class="text-text-muted size-4 shrink-0" />
           <span
             class="text-text-bright min-w-0 flex-1 truncate font-mono text-sm"

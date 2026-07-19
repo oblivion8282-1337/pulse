@@ -38,7 +38,7 @@
     type="text"
     bind:value={query}
     placeholder={m.emoji_picker_search_placeholder()}
-    class="text-text-bright placeholder:text-text-muted w-full rounded-lg border border-border bg-bg-chat px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+    class="text-text-bright placeholder:text-text-muted w-full rounded-md border border-border bg-bg-chat px-2.5 py-1.5 text-sm outline-none focus:border-primary"
     aria-label={m.emoji_picker_search_label()}
     data-testid="emoji-picker-search"
   />

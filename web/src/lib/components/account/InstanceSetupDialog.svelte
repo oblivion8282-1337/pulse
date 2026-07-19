@@ -312,7 +312,7 @@
             href="{installBase}/self-host/guide"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-primary border-primary/40 hover:bg-primary/10 flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"
+            class="text-primary border-primary/40 hover:bg-primary/10 flex w-fit items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold"
             data-testid="instance-setup-manual-link"
           >
             <ExternalLinkIcon class="size-3.5" />

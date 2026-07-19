@@ -360,7 +360,7 @@
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-md md:size-9" />
               </button>
             {:else}
               <a
@@ -370,7 +370,7 @@
                 aria-label="Pulse"
                 data-testid="guild-home"
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-md md:size-9" />
               </a>
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
@@ -663,7 +663,7 @@
                    deckt die Zugänglichkeit ab. -->
               <button
                 {...props}
-                class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-lg hover:bg-primary/10"
+                class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-md hover:bg-primary/10"
                 data-testid={`guild-create-menu-${server.id}`}
                 aria-label={canCreateHere
                   ? m.guild_rail_create_community()

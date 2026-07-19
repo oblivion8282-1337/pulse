@@ -136,7 +136,7 @@
 
           {#if isOpen}
             <pre
-              class="bg-bg-panel text-text-base mt-2 max-h-48 overflow-auto rounded-lg p-3 text-xs"
+              class="bg-bg-panel text-text-base mt-2 max-h-48 overflow-auto rounded-md p-3 text-xs"
               data-testid="audit-payload"
             >{JSON.stringify(e.payload, null, 2)}</pre>
           {/if}

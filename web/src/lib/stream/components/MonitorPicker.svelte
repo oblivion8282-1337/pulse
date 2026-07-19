@@ -94,7 +94,7 @@
                 aria-checked={selected}
                 onclick={() => pick(value)}
                 data-testid="stream-monitor-tile"
-                class="flex min-w-0 items-start gap-2 rounded-lg border p-2.5 text-left transition-colors
+                class="flex min-w-0 items-start gap-2 rounded-md border p-2.5 text-left transition-colors
                   {selected
                   ? 'border-primary bg-primary/10 text-text-bright'
                   : 'border-border bg-bg-chat text-text-base hover:border-primary/50'}"
@@ -132,7 +132,7 @@
                 onclick={() => pick(value)}
                 data-testid="stream-window-tile"
                 title={w.title ? `${w.app} — ${w.title}` : w.app}
-                class="flex min-w-0 items-start gap-2 rounded-lg border p-2.5 text-left transition-colors
+                class="flex min-w-0 items-start gap-2 rounded-md border p-2.5 text-left transition-colors
                   {selected
                   ? 'border-primary bg-primary/10 text-text-bright'
                   : 'border-border bg-bg-chat text-text-base hover:border-primary/50'}"

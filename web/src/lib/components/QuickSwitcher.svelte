@@ -140,7 +140,7 @@
             type="button"
             onclick={() => select(r)}
             onmouseenter={() => (activeIdx = i)}
-            class="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors {activeIdx ===
+            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors {activeIdx ===
             i
               ? 'bg-bg-hover text-text-bright'
               : 'text-text-base'}"

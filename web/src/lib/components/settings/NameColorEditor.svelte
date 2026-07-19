@@ -77,7 +77,7 @@
   {#if useColor}
     <!-- Verlaufs-/Farbleiste mit Farb-Griffen an den Enden -->
     <div
-      class="ramp border-border relative h-10 w-full rounded-lg border"
+      class="ramp border-border relative h-10 w-full rounded-md border"
       style={useGradient
         ? `background-image: linear-gradient(to right, ${color1}, ${color2});`
         : `background-color: ${color1};`}
@@ -134,7 +134,7 @@
             <button
               type="button"
               onclick={() => (angle = d.deg)}
-              class="flex size-8 items-center justify-center rounded-lg border transition-colors {angle ===
+              class="flex size-8 items-center justify-center rounded-md border transition-colors {angle ===
               d.deg
                 ? 'border-primary bg-bg-hover text-text-bright'
                 : 'border-border text-text-muted hover:bg-bg-hover'}"

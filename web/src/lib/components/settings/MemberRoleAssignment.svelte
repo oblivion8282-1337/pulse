@@ -157,7 +157,7 @@
           <li>
             <button
               type="button"
-              class="hover:bg-bg-hover w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
+              class="hover:bg-bg-hover w-full rounded-md px-3 py-2 text-left text-sm transition-colors"
               class:bg-bg-hover={selectedUserId === mbr.user_id}
               onclick={() => selectMember(mbr.user_id)}
               data-testid={`member-row-${mbr.user_id}`}

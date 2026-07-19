@@ -145,7 +145,7 @@
         />
         <button
           type="button"
-          class="text-text-muted hover:text-text-bright hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors"
+          class="text-text-muted hover:text-text-bright hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors"
           onclick={() => (reportDialogOpen = true)}
           data-testid="user-profile-report-btn"
         >

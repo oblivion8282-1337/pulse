@@ -173,7 +173,7 @@
     />
 
     <ul
-      class="max-h-56 overflow-y-auto rounded-lg border border-border"
+      class="max-h-56 overflow-y-auto rounded-xl border border-border"
       data-testid="invite-picker-list"
     >
       {#each filtered as f (f.id)}

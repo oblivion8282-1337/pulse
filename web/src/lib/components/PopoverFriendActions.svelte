@@ -85,7 +85,7 @@
   }
 
   const btnBase =
-    'flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
+    'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
   const btnNormal = `${btnBase} hover:bg-bg-hover hover:text-primary text-text-base`;
   const btnDanger = `${btnBase} hover:bg-destructive/10 hover:text-destructive text-text-base`;
 </script>

@@ -99,7 +99,7 @@
       <input
         type="number" min="16" max="512" bind:value={voice}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-voice"
       />
     </label>
@@ -108,7 +108,7 @@
       <input
         type="number" min="1" max="100" step="any" bind:value={streamMbps}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-bitrate"
       />
     </label>
@@ -117,7 +117,7 @@
       <input
         type="number" min="1" max="1000" bind:value={fps}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-fps"
       />
     </label>
@@ -125,7 +125,7 @@
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_resolution()}</span>
       <select
         bind:value={resolution}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-resolution"
       >
         <option value="">{m.admin_communities_limits_inherit()}</option>
@@ -147,7 +147,7 @@
       <input
         type="number" min="0" step="any" bind:value={storageQuotaGB}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-storage-quota"
       />
     </label>
@@ -155,7 +155,7 @@
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_attach_size()}</span>
       <input
         type="number" min="1" step="any" bind:value={attachSizeMB}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-attach-size"
       />
     </label>
@@ -163,7 +163,7 @@
       <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_attach_count()}</span>
       <input
         type="number" min="1" max="50" bind:value={attachCount}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-attach-count"
       />
     </label>
@@ -180,7 +180,7 @@
       <input
         type="number" min="1" bind:value={maxMembers}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-members"
       />
     </label>
@@ -189,7 +189,7 @@
       <input
         type="number" min="1" bind:value={maxChannels}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-channels"
       />
     </label>
@@ -198,7 +198,7 @@
       <input
         type="number" min="1" bind:value={maxRoles}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-roles"
       />
     </label>
@@ -207,7 +207,7 @@
       <input
         type="number" min="0" bind:value={maxStreams}
         placeholder={m.admin_communities_limits_placeholder_inherit()}
-        class="border-border bg-bg-input text-text-base focus:border-primary rounded-lg border px-3 py-1.5 text-sm outline-none"
+        class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
         data-testid="community-limit-max-streams"
       />
     </label>

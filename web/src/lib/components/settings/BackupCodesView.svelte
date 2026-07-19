@@ -38,7 +38,7 @@
 
 <div class="flex flex-col gap-3" data-testid="backup-codes-view">
   <div
-    class="bg-bg-input/60 border-border grid grid-cols-2 gap-2 rounded-lg border p-4 font-mono text-sm md:gap-1.5 md:p-3"
+    class="bg-bg-input/60 border-border grid grid-cols-2 gap-2 rounded-xl border p-4 font-mono text-sm md:gap-1.5 md:p-3"
   >
     {#each codes as code (code)}
       <span class="text-text-bright select-all">{code}</span>

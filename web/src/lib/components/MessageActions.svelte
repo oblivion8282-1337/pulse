@@ -38,7 +38,7 @@
 </script>
 
 <div
-  class="bg-popover absolute -top-3 right-3 items-center gap-0.5 rounded-lg border border-border p-0.5 shadow-md backdrop-blur-xl
+  class="bg-popover absolute -top-3 right-3 items-center gap-0.5 rounded-xl border border-border p-0.5 shadow-md backdrop-blur-xl
          {pickerOpen ? 'flex' : 'hidden group-hover:flex'}"
   data-testid="message-actions"
 >

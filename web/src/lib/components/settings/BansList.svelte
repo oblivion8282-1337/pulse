@@ -92,7 +92,7 @@
   {:else if bans.length === 0}
     <EmptyState message={m.bans_list_empty()} />
   {:else}
-    <ul class="divide-border divide-y rounded-lg border">
+    <ul class="divide-border divide-y rounded-xl border">
       {#each bans as ban (ban.user_id)}
         <li class="flex items-center gap-3 p-3" data-testid="bans-entry" data-user-id={ban.user_id}>
           <div class="min-w-0 flex-1">

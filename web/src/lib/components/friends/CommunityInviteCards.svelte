@@ -62,7 +62,7 @@
       {@const u = userCache.get(inv.inviter_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <div
-        class="hover:bg-bg-hover flex items-center gap-3 rounded-lg px-2 py-2"
+        class="hover:bg-bg-hover flex items-center gap-3 rounded-md px-2 py-2"
         data-testid="community-invite-row"
         data-invite-id={inv.id}
       >

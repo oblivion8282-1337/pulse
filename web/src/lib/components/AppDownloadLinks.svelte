@@ -61,7 +61,7 @@
   }
 
   const linkClass =
-    'bg-secondary/60 text-secondary-foreground hover:bg-secondary flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors';
+    'bg-secondary/60 text-secondary-foreground hover:bg-secondary flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors';
 </script>
 
 {#if visible}

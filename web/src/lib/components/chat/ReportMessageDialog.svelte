@@ -133,7 +133,7 @@
     <div class="flex flex-col gap-4 py-2">
       {#if toCloud}
         <p
-          class="text-text-muted bg-bg-input/60 rounded-lg px-3 py-2 text-xs"
+          class="text-text-muted bg-bg-input/60 rounded-md px-3 py-2 text-xs"
           data-testid="report-cloud-hint"
         >
           {m.report_to_cloud_hint()}
@@ -148,7 +148,7 @@
         <select
           id="report-reason"
           bind:value={reasonCode}
-          class="bg-bg-input border-border text-text-base focus:border-primary w-full rounded-lg border px-3 py-2 text-sm outline-none"
+          class="bg-bg-input border-border text-text-base focus:border-primary w-full rounded-md border px-3 py-2 text-sm outline-none"
           data-testid="report-reason-select"
         >
           {#each Object.entries(REASON_LABELS) as [code, labelFn] (code)}
@@ -160,7 +160,7 @@
       <!-- CSAM-Sonderhinweis -->
       {#if isCsam}
         <div
-          class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3"
+          class="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3"
           data-testid="report-csam-banner"
         >
           <TriangleAlertIcon class="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -182,7 +182,7 @@
           rows="4"
           maxlength="5000"
           placeholder={m.report_message_body_placeholder()}
-          class="bg-bg-input border-border text-text-base placeholder:text-text-muted focus:border-primary w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none"
+          class="bg-bg-input border-border text-text-base placeholder:text-text-muted focus:border-primary w-full resize-none rounded-md border px-3 py-2 text-sm outline-none"
           data-testid="report-body-textarea"
         ></textarea>
         <div class="flex justify-end">

@@ -34,7 +34,7 @@
     class="mt-1 flex max-w-sm items-center gap-3 rounded-xl border border-border bg-bg-elev p-2 pr-3"
     data-testid="link-embed-loading"
   >
-    <div class="aspect-video w-28 shrink-0 animate-pulse rounded-lg bg-bg-hover"></div>
+    <div class="aspect-video w-28 shrink-0 animate-pulse rounded-md bg-bg-hover"></div>
     <div class="flex-1 space-y-1.5">
       <div class="h-2.5 w-16 animate-pulse rounded bg-bg-hover"></div>
       <div class="h-3.5 w-36 animate-pulse rounded bg-bg-hover"></div>
@@ -54,7 +54,7 @@
         src={thumb}
         alt=""
         loading="lazy"
-        class="aspect-video w-28 shrink-0 rounded-lg bg-bg-hover object-cover"
+        class="aspect-video w-28 shrink-0 rounded-md bg-bg-hover object-cover"
       />
     {/if}
     <div class="min-w-0 flex-1">
