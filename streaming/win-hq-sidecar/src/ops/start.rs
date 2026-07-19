@@ -21,17 +21,13 @@ use serde_json::{Map, Value};
 use crate::audio::AudioSource;
 use crate::capture::CaptureSource;
 use crate::encode::VideoCodec;
-use crate::profiles::{APP_LABEL_PREFIX, profile_by_name};
+use crate::profiles::{APP_LABEL_PREFIX, BASELINE, profile_label};
 use crate::stream_controller::{StartParams, StreamController};
 use crate::system::audio_sessions;
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let profile_name = params
-        .get("profile")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("profile (Name) ist Pflicht"))?;
-    let profile = profile_by_name(profile_name)
-        .ok_or_else(|| anyhow!("Unknown stream profile: {profile_name}"))?;
+    let profile_name = profile_label(&params);
+    let profile = &BASELINE;
 
     let channel = params
         .get("channel")
@@ -75,6 +71,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 
     let start_params = StartParams {
         profile,
+        profile_name: profile_name.to_string(),
         channel_id,
         token,
         push_url,

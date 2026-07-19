@@ -76,7 +76,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 |---|---|---|
 | `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ...}` |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
-| `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` |
+| `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
 | `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
@@ -200,7 +200,7 @@ die exe — Binary ist standalone, kein Python nötig.
 ```powershell
 cd streaming/win-hq-sidecar
 cargo build --release
-# Smoke (kein realer Stream — nur health/gpu_info/list_profiles/state):
+# Smoke (kein realer Stream — nur health/gpu_info/state):
 '{"op":"health","id":1}' | .\target\release\pulse-win-hq-sidecar.exe
 
 # Echter Smoke gegen lokales MediaMTX:

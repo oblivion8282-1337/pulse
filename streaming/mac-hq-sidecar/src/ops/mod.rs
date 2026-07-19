@@ -10,7 +10,6 @@
 //! |------------------------|-----------------|-----------------------------------------|
 //! | health                 | static caps     | VideoToolbox codec probe                |
 //! | gpu_info               | stub            | Metal device query                      |
-//! | list_profiles          | real            | ported from profiles.py                 |
 //! | list_monitors          | stub (`[]`)     | SCShareableContent.displays             |
 //! | list_application_audio | stub (`[]`)     | SCShareableContent.applications         |
 //! | build_argv             | real            | diagnostic argv (token-redacted)        |
@@ -23,7 +22,6 @@ pub mod gpu_info;
 pub mod health;
 pub mod list_application_audio;
 pub mod list_monitors;
-pub mod list_profiles;
 pub mod list_windows;
 pub mod start;
 pub mod state;

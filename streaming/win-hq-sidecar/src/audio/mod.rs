@@ -1,6 +1,6 @@
 //! Audio-Capture-Pipeline (Stage 6).
 //!
-//! Drei Quellen, vier UI-Modi (siehe `profiles.rs::AUDIO_MODES`):
+//! Drei Quellen, vier UI-Modi ("Aus", "Desktop", "Mikrofon", "Desktop + Mikrofon"):
 //!
 //! | UI-Mode               | Wire-Pfad                                        |
 //! |-----------------------|--------------------------------------------------|

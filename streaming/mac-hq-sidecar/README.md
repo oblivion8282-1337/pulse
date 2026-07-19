@@ -11,7 +11,7 @@ binary to spawn (already added — `resolveMacBinaryPath()`).
 > full pipeline runs: ScreenCaptureKit capture (display, BGRA + system audio) →
 > VideoToolbox `h264_videotoolbox` + libopus → FLV mux → RTMPS push. `start`/
 > `stop`/`state` drive it via the StreamController with `state`/`fps`/`stopped`
-> events; `health`/`gpu_info`/`list_profiles`/`list_monitors` answer (real
+> events; `health`/`gpu_info`/`list_monitors` answer (real
 > display enumeration). Verified at runtime: capture smoke = 60 frames/2s @30fps;
 > stdio `start→live→fps→stop` produces a valid **h264 + opus** file (ffprobe).
 > Built with Rust 1.96 against Homebrew FFmpeg 8.0.
@@ -62,7 +62,7 @@ always-realtime audio. The mux thread also `avio_flush`es after every packet.
 
 ### Codec capability (`caps.rs`)
 
-`list_profiles` / `health` advertise only codecs this machine can actually
+`health` advertises only the codecs this machine can actually
 hardware-encode. h264/hevc are the Apple-Silicon baseline; **av1** appears only
 when the linked FFmpeg ships an `av1_videotoolbox` encoder *and* a trial session
 opens on the silicon (M3+). FFmpeg 8.0.1 has none, so AV1 is hidden today — by
@@ -80,7 +80,6 @@ contract: `streaming/README.md`.
 |--------------------------|--------------|----------------------------------------------------|
 | `health`                 | real         | hardware codec probe (`caps.rs`)                   |
 | `gpu_info`               | stub         | Metal device query (`MTLCreateSystemDefaultDevice`)|
-| `list_profiles`          | real         | ported from `profiles.py` (identical strings)      |
 | `list_monitors`          | stub (`[]`)  | `SCShareableContent.displays` (or CoreGraphics)    |
 | `list_application_audio` | stub (`[]`)  | `SCShareableContent.applications`                  |
 | `build_argv`             | real         | diagnostic argv (token-redacted)                   |
@@ -151,8 +150,8 @@ RTMPS → rtmps://<host>:1936/channel-<cid>-<uid>-<nonce>?…token…
   for macOS arm64, bundle the dylibs next to the binary (analogue of
   `win-hq-sidecar/build.rs` copying the DLLs), and add them to
   `mac.extraResources` in `electron-builder.yml`.
-- **AV1 encode** — Apple-Silicon M3+ only; `list_profiles` already carries
-  `needs_custom_build`, gate the AV1 profile on the Metal family probe.
+- **AV1 encode** — Apple-Silicon M3+ only; gate the offered AV1 codec on the
+  Metal family probe (`caps.rs`).
 
 ## Testing without a real stream
 
@@ -160,6 +159,6 @@ Same trick as the other sidecars — pipe a request and read the response, but
 never send `{"op":"start"}` (that opens the capture + pushes for real):
 
 ```fish
-printf '{"op":"health","id":1}\n{"op":"list_profiles","id":2}\n' \
+printf '{"op":"health","id":1}\n{"op":"gpu_info","id":2}\n' \
   | ./target/release/pulse-mac-hq-sidecar
 ```

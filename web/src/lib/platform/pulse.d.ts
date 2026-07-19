@@ -46,7 +46,6 @@ export interface PulseLinuxBackend {
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
-  listProfiles(): Promise<unknown>;
   /** Enumerate display monitors (Windows + macOS — Linux uses the portal picker). */
   listMonitors(): Promise<unknown>;
   /** Enumerate capturable windows (macOS source picker). */

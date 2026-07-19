@@ -30,8 +30,9 @@ const OPUS_BITRATE_KBPS: u32 = 128;
 /// Uses the real hardware-capability probe ([`crate::caps`]): the exact encoder
 /// when this machine can encode the codec (so a gated AV1 profile produces real
 /// `av1_videotoolbox` on M3+), else a defensive fall back to h264 (universally
-/// available). `list_profiles` already filters offered codecs by the same
-/// probe, so in practice the requested codec is always supported here.
+/// available). `health` already reports the same probe to the renderer, which
+/// filters the codec picker by it — so in practice the requested codec is
+/// always supported here.
 fn videotoolbox_encoder(codec: &str) -> &'static str {
     match crate::caps::vt_encoder_name(codec) {
         Some(name) if crate::caps::supports_codec(codec) => name,

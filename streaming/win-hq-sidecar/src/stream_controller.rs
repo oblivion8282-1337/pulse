@@ -64,7 +64,11 @@ impl StreamSnapshot {
 /// `gsr-sidecar/control.py`).
 #[derive(Debug, Clone)]
 pub struct StartParams {
+    /// Encoder-Sockel für alle nicht gesetzten Overrides (`profiles::BASELINE`).
     pub profile: &'static StreamProfile,
+    /// Reines Etikett aus der `start`-Anfrage — taucht nur in der Diagnose-argv
+    /// auf und beeinflusst die Encoder-Konfiguration nicht.
+    pub profile_name: String,
     pub channel_id: String,
     pub token: String,
     pub push_url: String,
@@ -563,7 +567,7 @@ fn build_argv_redacted(params: &StartParams) -> Vec<String> {
     vec![
         "pulse-win-hq-sidecar.exe".to_string(),
         "--profile".into(),
-        params.profile.name.to_string(),
+        params.profile_name.clone(),
         "--codec".into(),
         params.profile.codec.to_string(),
         "--fps".into(),

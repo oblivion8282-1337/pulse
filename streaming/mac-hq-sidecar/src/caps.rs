@@ -1,14 +1,15 @@
 //! Encoder capability probe — which video codecs THIS machine can actually
 //! hardware-encode via VideoToolbox in the linked FFmpeg.
 //!
-//! Drives `list_profiles` (the renderer only ever shows codecs the hardware
-//! supports) and the `health` report. The point is to gate by *capability*,
-//! never by model name: Apple-Silicon always has h264 + hevc; AV1 lights up
-//! only when both (a) the linked FFmpeg ships an `av1_videotoolbox` encoder and
-//! (b) a real VideoToolbox session opens for it on this silicon (M3+). FFmpeg
-//! 8.0.1 has no `av1_videotoolbox`, so AV1 is hidden today — correctly, because
-//! we genuinely cannot encode it, not because "it's a Mac". An M3/M4 + an
-//! FFmpeg that adds the encoder will surface AV1 automatically, no code change.
+//! Drives the `health` report, off which the renderer filters its codec picker
+//! so it only ever offers what the hardware supports. The point is to gate by
+//! *capability*, never by model name: Apple-Silicon always has h264 + hevc; AV1
+//! lights up only when both (a) the linked FFmpeg ships an `av1_videotoolbox`
+//! encoder and (b) a real VideoToolbox session opens for it on this silicon
+//! (M3+). FFmpeg 8.0.1 has no `av1_videotoolbox`, so AV1 is hidden today —
+//! correctly, because we genuinely cannot encode it, not because "it's a Mac".
+//! An M3/M4 + an FFmpeg that adds the encoder will surface AV1 automatically,
+//! no code change.
 //!
 //! This mirrors the cross-platform intent (Linux GSR / Windows sidecar gate the
 //! same way against the actual GPU's NVENC/VA-API/AMF codec set).

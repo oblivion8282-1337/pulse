@@ -11,15 +11,11 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value, json};
 
-use crate::profiles::{ServerProfile, profile_by_name};
+use crate::profiles::{BASELINE, ServerProfile, profile_label};
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let profile_name = params
-        .get("profile")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("profile (Name) ist Pflicht"))?;
-    let profile = profile_by_name(profile_name)
-        .ok_or_else(|| anyhow!("Unknown stream profile: {profile_name}"))?;
+    let profile_name = profile_label(&params);
+    let profile = &BASELINE;
 
     let channel = params
         .get("channel")
@@ -55,7 +51,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let argv = vec![
         Value::String(binary.clone()),
         Value::String("--profile".to_string()),
-        Value::String(profile.name.to_string()),
+        Value::String(profile_name.to_string()),
         Value::String("--codec".to_string()),
         Value::String(profile.codec.to_string()),
         Value::String("--fps".to_string()),

@@ -1,9 +1,4 @@
-//! Stream-/Server-Profile + Audio-Mode-Tabelle.
-//!
-//! Wire-kompatibel mit `streaming/gsr-sidecar/profiles.py` — die `list_profiles`-
-//! Response (Namen, Codec-/Audio-/Container-/Bitrate-/FPS-Werte, `needs_custom_build`,
-//! Notes) hat exakt dieselbe Shape wie auf Linux, damit der Renderer (`web/src/lib/stream/`)
-//! plattform-blind ist.
+//! Encoder-Sockelwerte + Push-Ziel-Aufbau.
 //!
 //! `ServerProfile::from_channel` baut die Push-URL für den Pulse-Channel-Pfad —
 //! wenn media-svc bereits eine `push_url` mitgibt (Token drin), wird die verbatim
@@ -14,20 +9,16 @@
 //! SRT:  srt://<host>:8890?streamid=publish:channel-<id>:<user>:<token>&pkt_size=1316
 //! ```
 
-use serde::Serialize;
+use serde_json::{Map, Value};
 
-/// Codec/Bitrate/FPS/Container-Preset. Wire-kompatibel mit StreamProfile aus
-/// `gsr-sidecar/profiles.py`.
-#[derive(Debug, Clone, Serialize)]
+/// Codec/Bitrate/FPS/Container-Sockel, auf den nicht gesetzte Overrides fallen.
+#[derive(Debug, Clone)]
 pub struct StreamProfile {
-    pub name: &'static str,
     pub codec: &'static str,
     pub audio_codec: &'static str,
     pub container: &'static str,
     pub bitrate_kbps: u32,
     pub fps: u32,
-    pub needs_custom_build: bool,
-    pub notes: &'static str,
 }
 
 /// Push-Ziel — entweder verbatim aus media-svc (`push_url`) oder aus
@@ -97,63 +88,34 @@ fn parse_endpoint(endpoint: &str) -> (String, Option<u16>) {
     }
 }
 
-// ── Statische Profil-Tabelle ────────────────────────────────────────────────
+// ── Basiswerte ──────────────────────────────────────────────────────────────
 //
-// 1:1 aus `gsr-sidecar/profiles.py`. Namen + Notes auf Deutsch wie im Original,
-// damit das Settings-Modal in `web/src/lib/components/settings/SettingsScreenShare.svelte`
-// auf beiden Plattformen identische Strings findet.
+// Bis 2026-07-19 stand hier ein vierteiliger Profil-Katalog ("AV1 Effizient",
+// "H.264 Standard", "H.264 Sparmodus", "Custom") plus eine `list_profiles`-Op.
+// Der Katalog hatte nie einen Konsumenten: das HQ-Panel ist channel-mode-only
+// und setzt hart `profile_name='Custom'` + `use_overrides=true`
+// (`web/src/lib/stream/settings.svelte.ts`), holt `listProfiles` also gar nicht
+// erst. Zudem trugen alle vier Einträge dieselben 4000 kbps / 60 fps — die
+// Namen suggerierten Abstufungen, die es nie gab.
+//
+// Was bleibt, ist der Sockel: `buildStartArgs` schickt Overrides nur für
+// *ausgefüllte* Felder, ein leeres Feld fällt bewusst auf diesen Default
+// zurück. Die Werte sind exakt die des früheren "Custom"-Eintrags — dieselbe
+// Konfiguration, nur ohne die Attrappe drumherum.
 
-pub const PROFILES: &[StreamProfile] = &[
-    StreamProfile {
-        name: "AV1 Effizient",
-        codec: "av1",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Halbe Bandbreite, gleiche Qualität. Browser muss AV1 können.",
-    },
-    StreamProfile {
-        name: "H.264 Standard",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Universelle Browser-Kompat, Audio in WebRTC.",
-    },
-    StreamProfile {
-        name: "H.264 Sparmodus",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Halbe Bandbreite, leicht pixeliger bei Bewegung.",
-    },
-    StreamProfile {
-        name: "Custom",
-        codec: "h264",
-        audio_codec: "opus",
-        container: "flv",
-        bitrate_kbps: 4000,
-        fps: 60,
-        needs_custom_build: true,
-        notes: "Override-Sektion in der UI nutzen.",
-    },
-];
+pub static BASELINE: StreamProfile = StreamProfile {
+    codec: "h264",
+    audio_codec: "opus",
+    container: "flv",
+    bitrate_kbps: 4000,
+    fps: 60,
+};
 
-#[allow(dead_code)]
-pub fn profile_by_name(name: &str) -> Option<&'static StreamProfile> {
-    PROFILES.iter().find(|p| p.name == name)
+/// Das `profile`-Feld aus `start`/`build_argv` ist seit dem Wegfall des Katalogs
+/// ein reines Etikett: es landet in der Diagnose-argv, wählt aber nichts mehr
+/// aus. Ältere Renderer schicken es weiter mit — sein Fehlen ist kein Fehler.
+pub fn profile_label(params: &Map<String, Value>) -> &str {
+    params.get("profile").and_then(Value::as_str).unwrap_or("Custom")
 }
-
-/// Audio-Modi mit Labels die der Renderer im Settings-Modal anzeigt. Werte
-/// (Linux: `"default_output"` etc.) werden auf Windows in WASAPI-Endpoint-IDs
-/// übersetzt; das passiert in Stage 6 (audio capture).
-pub const AUDIO_MODES: &[&str] = &["Aus", "Desktop", "Mikrofon", "Desktop + Mikrofon"];
 
 pub const APP_LABEL_PREFIX: &str = "App: ";

@@ -6,7 +6,7 @@
  * Keep the exposed surface minimal but shaped so later stages can extend it
  * cleanly:
  *
- *   E1b: `pulse.gsr.*`        — sidecar bridge (health, gpuInfo, listProfiles,
+ *   E1b: `pulse.gsr.*`        — sidecar bridge (health, gpuInfo,
  *                               listApplicationAudio, buildArgv, start, stop,
  *                               onEvent) — implemented below
  *   E1c: `pulse.store.*`      — settings/token persistence (`get`/`getAll`/`set`),
@@ -78,7 +78,6 @@ contextBridge.exposeInMainWorld('pulse', {
   gsr: {
     health: () => gsrCall('health'),
     gpuInfo: () => gsrCall('gpu_info'),
-    listProfiles: () => gsrCall('list_profiles'),
     listMonitors: () => gsrCall('list_monitors'),
     listWindows: () => gsrCall('list_windows'),
     listApplicationAudio: () => gsrCall('list_application_audio'),
