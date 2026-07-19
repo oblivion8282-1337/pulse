@@ -54,7 +54,7 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-screen-share-panel">
-  <div class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_codec()}</span>
     <div class="flex flex-col gap-1.5">
       {#each codecs as c (c.value)}
@@ -71,9 +71,9 @@
         </label>
       {/each}
     </div>
-  </div>
+  </section>
 
-  <div class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_resolution()}</span>
     <div class="grid grid-cols-2 gap-1.5">
       {#each resolutions as r (r.value)}
@@ -90,9 +90,9 @@
         </label>
       {/each}
     </div>
-  </div>
+  </section>
 
-  <div class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <div class="flex items-center justify-between">
       <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_framerate()}</span>
       <span class="text-text-muted text-sm">{m.settings_screenshare_fps_value({ fps: settings.screenShare.fps })}</span>
@@ -107,9 +107,9 @@
       class="w-full md:w-24"
       data-testid="screenshare-fps-input"
     />
-  </div>
+  </section>
 
-  <div class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <div class="flex items-center justify-between">
       <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_bitrate()}</span>
       <span class="text-text-muted text-sm">{m.settings_screenshare_bitrate_value({ bitrate: settings.screenShare.bitrateMbps })}</span>
@@ -124,9 +124,9 @@
       class="accent-primary h-3 w-full md:h-auto"
       data-testid="screenshare-bitrate-slider"
     />
-  </div>
+  </section>
 
-  <div class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_content_hint()}</span>
     <div class="flex gap-3">
       <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
@@ -152,5 +152,5 @@
         <span class="text-text-base text-sm">{m.settings_screenshare_hint_detail()}</span>
       </label>
     </div>
-  </div>
+  </section>
 </div>
