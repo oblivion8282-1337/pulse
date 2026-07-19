@@ -89,7 +89,12 @@
     void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
   }
 
-  const btnCls = 'size-14 md:size-8';
+  // `rounded-full` ausdrücklich: Anruf-Steuerungen sind rund, das ist die
+  // Konvention aus jeder Telefon-Oberfläche und keine Abweichung vom Baukasten.
+  // Bis zur Design-Vereinheitlichung kam die Rundung unausgesprochen aus der
+  // Button-Komponente (die pauschal `rounded-full` war); seit die auf
+  // `rounded-md` steht, muss sie hier stehen, wo sie hingehört.
+  const btnCls = 'size-14 rounded-full md:size-8';
   const iconCls = 'size-6 md:size-4';
 </script>
 
