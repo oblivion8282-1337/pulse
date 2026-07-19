@@ -80,8 +80,13 @@
 
      Jetzt drei bewusste Ebenen mit erkennbarem Verhältnis:
        Bedienelemente (Knöpfe, Eingaben)   `rounded-md`   8px
-       Flächen (Karten, Panels, Listen)    `rounded-xl`  12px
-       Grosse Flächen (Dialoge)            `rounded-2xl` 16px
+       Flächen (Karten, Panels, Listen)    `rounded-xl`  10px
+       Grosse Flächen (Dialoge)            `rounded-2xl` 12px
+
+     Die Flächen-Stufen wurden nach Sichtprüfung von 12/16 auf 10/12 gesenkt —
+     die Knöpfe blieben, wo sie waren. Weiter runter geht nicht, ohne dass die
+     Flächen ihre Knöpfe einholen: dann sässe ein 8px-Knopf in einer 8px-Karte
+     und wirkte wieder wie aufgeklebt.
 
      Die Stufen sind bewusst NICHT mehr aus einem Grundwert abgeleitet — die
      Verhältnisse waren dadurch zufällig. `--radius` bleibt als Rohwert für
@@ -89,8 +94,8 @@
   --radius-sm: 0.375rem; /* 6px  — sehr kleine Elemente, Chips */
   --radius-md: 0.5rem; /* 8px  — Bedienelemente */
   --radius-lg: 0.625rem; /* 10px — Zwischenstufe */
-  --radius-xl: 0.75rem; /* 12px — Flächen */
-  --radius-2xl: 1rem; /* 16px — grosse Flächen, Dialoge */
+  --radius-xl: 0.625rem; /* 10px — Flächen */
+  --radius-2xl: 0.75rem; /* 12px — grosse Flächen, Dialoge */
   --radius-3xl: 1.5rem; /* 24px */
   --radius-4xl: 2rem; /* 32px */
 }
