@@ -16,6 +16,7 @@
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import XIcon from '@lucide/svelte/icons/x';
+  import { Button } from '$lib/components/ui/button';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -129,16 +130,17 @@
       {m.stream_chat_panel_header({ streamerName })}
     </span>
     {#if onClose}
-      <button
-        type="button"
-        class="ml-auto rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:p-1.5"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="ml-auto"
         onclick={onClose}
         aria-label={m.stream_chat_panel_close_aria()}
         title={m.stream_chat_panel_close_title()}
         data-testid="stream-chat-close"
       >
         <XIcon class="text-text-muted size-5 md:size-4" />
-      </button>
+      </Button>
     {/if}
   </header>
 

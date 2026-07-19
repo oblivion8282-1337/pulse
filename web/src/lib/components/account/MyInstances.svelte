@@ -18,6 +18,7 @@
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
+  import { Button } from '$lib/components/ui/button';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -135,25 +136,24 @@
             {#if inst.origin !== 'app_host'}
               <!-- Nur VPS: App-Hosts pairen über die Server-App, nicht über
                    Installer-Befehl/.env. -->
-              <button
-                type="button"
+              <Button
+                size="xs"
                 onclick={() => openSetup(inst)}
-                class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors"
                 data-testid="instance-setup-btn-{inst.id}"
               >
                 <TerminalIcon class="size-3.5" />
                 {m.instance_setup_button()}
-              </button>
+              </Button>
             {/if}
-            <button
-              type="button"
+            <Button
+              variant="destructive"
+              size="xs"
               onclick={() => openDelete(inst)}
-              class="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
               data-testid="instance-delete-btn-{inst.id}"
             >
               <Trash2Icon class="size-3.5" />
               {m.my_instances_delete_button()}
-            </button>
+            </Button>
           </div>
         </div>
       {/each}

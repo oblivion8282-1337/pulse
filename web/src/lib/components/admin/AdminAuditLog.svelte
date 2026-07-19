@@ -13,6 +13,7 @@
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -85,16 +86,16 @@
         {m.admin_audit_log_subtitle()}
       </p>
     </div>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       onclick={load}
-      class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
       aria-label={m.admin_audit_log_refresh_label()}
       disabled={loading}
       data-testid="admin-audit-refresh"
     >
       <RefreshCcwIcon class="size-4 {loading ? 'animate-spin' : ''}" />
-    </button>
+    </Button>
   </div>
 
   {#if error}

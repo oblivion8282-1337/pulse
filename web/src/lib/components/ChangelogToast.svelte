@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
+  import { Button } from '$lib/components/ui/button';
   import type { ChangelogEntry } from '$lib/changelog/types';
 
   let { entries = [], closeToast }: { entries?: ChangelogEntry[]; closeToast?: () => void } =
@@ -37,15 +38,16 @@
 >
   <div class="flex items-start justify-between gap-3">
     <p class="text-sm font-semibold">Was ist neu?</p>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="-m-1 shrink-0"
       onclick={() => closeToast?.()}
-      class="text-text-muted hover:text-text-bright -m-1 shrink-0 rounded p-1"
       aria-label="Schließen"
       data-testid="changelog-toast-close"
     >
       <XIcon class="size-4" />
-    </button>
+    </Button>
   </div>
 
   <div class="mt-2 space-y-4">

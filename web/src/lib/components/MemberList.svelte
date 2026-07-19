@@ -13,6 +13,7 @@
   import { presence } from '$lib/stores/presence.svelte';
   import { rolesApi } from '$lib/api/roles';
   import { Perm } from '$lib/permissions/bitfield';
+  import { Button } from '$lib/components/ui/button';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { chooseHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
@@ -284,13 +285,15 @@
       {m.member_list_header_count({ count: members.length })}
     </span>
     {#if onClose}
-      <button
-        class="rounded-full p-1.5 transition-colors hover:bg-bg-hover md:hidden"
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="md:hidden"
         onclick={onClose}
         aria-label={m.member_list_close()}
       >
         <XIcon class="text-text-muted size-4" />
-      </button>
+      </Button>
     {/if}
   </header>
 

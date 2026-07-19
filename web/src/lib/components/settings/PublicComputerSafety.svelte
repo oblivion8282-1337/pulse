@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
   import MonitorXIcon from '@lucide/svelte/icons/monitor-x';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -65,14 +66,15 @@
     </div>
   </div>
 
-  <button
-    type="button"
+  <Button
+    variant="destructive"
+    size="sm"
     onclick={() => (confirmOpen = true)}
-    class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-sm font-medium transition-colors"
+    class="self-start"
     data-testid="public-computer-wipe-btn"
   >
     {m.public_computer_safety_wipe_button()}
-  </button>
+  </Button>
 </section>
 
 <AlertDialog.Root bind:open={confirmOpen}>

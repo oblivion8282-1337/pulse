@@ -15,6 +15,7 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import AdminCamLimits from './AdminCamLimits.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -151,15 +152,14 @@
             aria-label={m.admin_permissions_sound_limit_aria()}
           />
           <span class="text-text-muted text-xs">KB</span>
-          <button
-            type="button"
+          <Button
+            size="xs"
             disabled={soundLimitBusy || soundLimitKb === '' || Math.round(current.guild_sound_max_size_bytes / 1024) === soundLimitKb}
             onclick={saveSoundLimit}
-            class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
             data-testid="sound-limit-save"
           >
             {m.admin_permissions_save_button()}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@
    * emits `cancel` / `commit` on dismiss or save.
    */
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type Props = {
     value: string;
@@ -30,18 +31,12 @@
       data-testid="dropbox-rename-input"
     />
     <div class="mt-4 flex justify-end gap-2">
-      <button
-        class="rounded-md px-3 py-1 text-sm hover:bg-bg-hover"
-        onclick={onCancel}
-      >
+      <Button variant="ghost" size="sm" onclick={onCancel}>
         {pm.dropbox_cancel()}
-      </button>
-      <button
-        class="rounded-md bg-primary px-3 py-1 text-sm font-medium text-white"
-        onclick={onCommit}
-      >
+      </Button>
+      <Button size="sm" onclick={onCommit}>
         {pm.dropbox_save()}
-      </button>
+      </Button>
     </div>
   </div>
 </div>

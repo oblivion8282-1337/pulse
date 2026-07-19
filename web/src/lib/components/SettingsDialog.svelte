@@ -48,6 +48,7 @@
   import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type MobileView = 'list' | 'detail';
 
@@ -174,15 +175,15 @@
     >
       <!-- Zurück-Button auf Mobile -->
       <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 sm:hidden">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onclick={() => (mobileView = 'list')}
-          class="flex items-center gap-1 rounded-lg p-2 text-base transition-colors hover:bg-bg-hover md:p-1 md:text-sm"
           aria-label={m.settings_dialog_back()}
         >
           <ChevronLeftIcon class="text-text-muted size-5 md:size-4" />
           <span class="text-text-muted text-base md:text-sm">{m.settings_dialog_title()}</span>
-        </button>
+        </Button>
         <span class="text-text-bright ml-1 text-sm font-semibold">{activeLabel}</span>
       </div>
 

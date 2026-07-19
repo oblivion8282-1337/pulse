@@ -26,6 +26,7 @@
   import CloudIcon from '@lucide/svelte/icons/cloud';
   import { m } from '$lib/paraglide/messages.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import { Button } from '$lib/components/ui/button';
 
   type Mode = 'vps' | 'app_host';
   const mobile = isMobile();
@@ -215,13 +216,13 @@
 
     <FieldError message={formError} />
 
-    <button
+    <Button
       type="submit"
+      class="self-end"
       disabled={submitting || (mode === 'app_host' && netCheck === 'cannot-host')}
-      class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 self-end"
     >
       {submitting ? m.self_host_application_submitting() : m.self_host_application_submit()}
-    </button>
+    </Button>
   </form>
 
   <!-- Antragsliste (beide Arten) -->

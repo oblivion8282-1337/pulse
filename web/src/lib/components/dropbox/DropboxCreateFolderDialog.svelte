@@ -7,6 +7,7 @@
    */
   import { onMount } from 'svelte';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type Props = {
     name: string;
@@ -47,22 +48,12 @@
       data-testid="dropbox-folder-name-input"
     />
     <div class="mt-4 flex justify-end gap-2">
-      <button
-        type="button"
-        class="rounded-md px-3 py-1 text-sm hover:bg-bg-hover"
-        onclick={onCancel}
-        data-testid="dropbox-folder-cancel"
-      >
+      <Button variant="ghost" size="sm" onclick={onCancel} data-testid="dropbox-folder-cancel">
         {pm.dropbox_cancel()}
-      </button>
-      <button
-        type="button"
-        class="rounded-md bg-primary px-3 py-1 text-sm font-medium text-white"
-        onclick={onCommit}
-        data-testid="dropbox-folder-create"
-      >
+      </Button>
+      <Button size="sm" onclick={onCommit} data-testid="dropbox-folder-create">
         {pm.dropbox_create()}
-      </button>
+      </Button>
     </div>
   </div>
 </div>

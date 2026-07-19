@@ -17,6 +17,7 @@
   import { formatBytes } from '$lib/utils/formatBytes';
   import { isFile, isFolder, type DropboxEntry } from '$lib/api/dropbox';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { fileIcon } from './fileIcon';
 
   type Props = {
@@ -97,18 +98,20 @@
     class="absolute right-1 top-1 flex gap-0.5 opacity-0 transition group-hover:opacity-100"
   >
     {#if !viewTrash}
-      <button
-        class="rounded p-1 hover:bg-bg-hover"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title={pm.dropbox_download_title()}
         onclick={onDownload}
         data-testid="dropbox-entry-download-{entry.id}"
       >
         <DownloadIcon class="size-3.5" />
-      </button>
+      </Button>
     {/if}
     {#if !viewTrash && isFile(entry)}
-      <button
-        class="rounded p-1 hover:bg-bg-hover"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title={entry.pinned ? pm.dropbox_unpin() : pm.dropbox_pin()}
         onclick={onTogglePin}
       >
@@ -117,40 +120,44 @@
         {:else}
           <PinIcon class="size-3.5" />
         {/if}
-      </button>
+      </Button>
     {/if}
     {#if viewTrash}
-      <button
-        class="rounded p-1 hover:bg-bg-hover"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title={pm.dropbox_restore_title()}
         onclick={onRestore}
         data-testid="dropbox-entry-restore-{entry.id}"
       >
         <Undo2Icon class="size-3.5" />
-      </button>
+      </Button>
     {:else}
-      <button
-        class="rounded p-1 hover:bg-bg-hover"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title={pm.dropbox_rename_title()}
         onclick={onRename}
       >
         <PencilIcon class="size-3.5" />
-      </button>
-      <button
-        class="rounded p-1 hover:bg-bg-hover"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title={pm.dropbox_move_title()}
         onclick={onMove}
       >
         <FolderIcon class="size-3.5" />
-      </button>
-      <button
-        class="rounded p-1 text-destructive hover:bg-destructive/20"
+      </Button>
+      <Button
+        variant="destructive"
+        size="icon-xs"
         title={pm.dropbox_delete_title()}
         onclick={onTrash}
         data-testid="dropbox-entry-trash-{entry.id}"
       >
         <TrashIcon class="size-3.5" />
-      </button>
+      </Button>
     {/if}
   </div>
   {#if entry.pinned}

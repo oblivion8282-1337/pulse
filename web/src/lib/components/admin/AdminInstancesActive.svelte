@@ -18,6 +18,7 @@
   import AdminAppHostRevoke from './AdminAppHostRevoke.svelte';
   import RotatedSecretDialog from './RotatedSecretDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -153,22 +154,22 @@
                  statt Suspend/Rotate. Kein Grant gefunden → Fallback unten. -->
             <AdminAppHostRevoke app={grantByInstance[inst.id]} onrevoked={() => removeInstance(inst.id)} />
           {:else}
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="xs"
               onclick={() => { rotateTarget = inst; rotateConfirmOpen = true; }}
               disabled={!!busy[inst.id]}
-              class="rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright disabled:opacity-60 transition-colors"
             >
               {m.admin_instances_active_btn_rotate()}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="destructive-solid"
+              size="xs"
               onclick={() => { suspendTarget = inst; suspendReason = ''; suspendOpen = true; }}
               disabled={!!busy[inst.id]}
-              class="rounded-lg bg-destructive/70 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive disabled:opacity-60 transition-colors"
             >
               {m.admin_instances_active_btn_suspend()}
-            </button>
+            </Button>
           {/if}
         </div>
       </div>
@@ -198,14 +199,12 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (suspendOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
+        <Button variant="outline" onclick={() => (suspendOpen = false)}>
           {m.admin_instances_active_btn_cancel()}
-        </button>
-        <button type="button" onclick={doSuspend} disabled={suspending}
-          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
+        </Button>
+        <Button variant="destructive-solid" onclick={doSuspend} disabled={suspending}>
           {suspending ? m.admin_instances_active_suspending() : m.admin_instances_active_btn_suspend()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>
@@ -224,14 +223,12 @@
         {m.admin_instances_active_rotate_warning()}
       </p>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (rotateConfirmOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
+        <Button variant="outline" onclick={() => (rotateConfirmOpen = false)}>
           {m.admin_instances_active_btn_cancel()}
-        </button>
-        <button type="button" onclick={doRotate} disabled={rotating}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
+        </Button>
+        <Button onclick={doRotate} disabled={rotating}>
           {m.admin_instances_active_btn_rotate_confirm()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

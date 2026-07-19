@@ -12,6 +12,7 @@
 <script lang="ts">
   import SpatialPositioner from './SpatialPositioner.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import XIcon from '@lucide/svelte/icons/x';
   import MoveIcon from '@lucide/svelte/icons/move';
 
@@ -97,15 +98,15 @@
       <MoveIcon class="size-3.5" />
       {m.spatial_window_title()}
     </span>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-xs"
       onclick={onClose}
-      class="text-text-muted hover:bg-bg-hover hover:text-text-base flex items-center justify-center rounded-md p-1"
       title={m.spatial_reattach()}
       aria-label={m.spatial_reattach()}
     >
       <XIcon class="size-4" />
-    </button>
+    </Button>
   </div>
 
   <div class="flex flex-1 items-center justify-center">

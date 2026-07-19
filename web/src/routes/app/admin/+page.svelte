@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { Button } from '$lib/components/ui/button';
   import { auth } from '$lib/stores/auth.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
@@ -139,15 +140,15 @@
     <header class="border-border bg-bg-panel/95 sticky top-0 z-10 border-b px-6 py-4 backdrop-blur">
       <div class="mx-auto flex max-w-4xl flex-col gap-3">
         <div class="flex items-center gap-3">
-          <button
-            type="button"
-            class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-lg p-1.5"
+          <Button
+            variant="ghost"
+            size="icon-sm"
             aria-label={m.admin_page_back()}
             onclick={() => goto('/app/@me')}
             data-testid="admin-back"
           >
             <ArrowLeftIcon class="size-4" />
-          </button>
+          </Button>
           <div>
             <h1 class="text-text-bright text-lg font-semibold">{m.admin_page_title()}</h1>
             <p class="text-text-muted text-xs">{m.admin_page_subtitle()}</p>

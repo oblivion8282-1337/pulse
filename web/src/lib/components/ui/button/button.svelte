@@ -20,6 +20,22 @@
 				// Gefahrenzone ("Konto löschen"). Bisher 15x von Hand nachgebaut.
 				"destructive-solid":
 					"bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 focus-visible:border-destructive/40",
+				// Erfolg und Warnung gespiegelt zu `destructive`: getönt für den
+				// Normalfall, gefüllt für die Haupthandlung. Gebraucht in der
+				// Moderation, wo "grün = genehmigen, gelb = eskalieren" eine
+				// Arbeitshilfe ist und nicht Zierde.
+				//
+				// `text-black` bei den gefüllten Fassungen ist KEIN Versehen: weiss
+				// erreicht auf --success/--warning im Dunkelmodus nur 2,5 bzw. 2,1
+				// zu 1 und ist damit unlesbar; schwarz liegt bei 8,3 bzw. 9,8.
+				success:
+					"bg-success/10 text-success hover:bg-success/20 dark:bg-success/20 dark:hover:bg-success/30 focus-visible:ring-success/20 focus-visible:border-success/40",
+				"success-solid":
+					"bg-success text-black hover:bg-success/90 focus-visible:ring-success/20 focus-visible:border-success/40",
+				warning:
+					"bg-warning/10 text-warning hover:bg-warning/20 dark:bg-warning/20 dark:hover:bg-warning/30 focus-visible:ring-warning/20 focus-visible:border-warning/40",
+				"warning-solid":
+					"bg-warning text-black hover:bg-warning/90 focus-visible:ring-warning/20 focus-visible:border-warning/40",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
 			size: {

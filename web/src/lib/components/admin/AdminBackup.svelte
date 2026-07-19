@@ -18,6 +18,7 @@
   import ClockIcon from '@lucide/svelte/icons/clock';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -72,16 +73,16 @@
         {m.admin_backup_description()}
       </p>
     </div>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       onclick={load}
       disabled={refreshing}
-      class="text-text-muted hover:text-text-bright rounded-lg p-1.5 hover:bg-bg-hover disabled:opacity-50"
       aria-label={m.admin_backup_refresh_label()}
       data-testid="admin-backup-refresh"
     >
       <RefreshIcon class="size-4 {refreshing ? 'animate-spin' : ''}" />
-    </button>
+    </Button>
   </div>
 
   {#if error}

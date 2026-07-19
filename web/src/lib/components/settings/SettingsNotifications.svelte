@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import {
@@ -215,15 +216,15 @@
            (WS-driven) path. Shown only when not yet decided. -->
       <div class="mt-1 flex items-center justify-between gap-3 rounded-lg bg-bg-input/60 px-3 py-2 text-sm">
         <span class="text-text-muted text-xs">{m.settings_notifications_permission_prompt()}</span>
-        <button
-          type="button"
+        <Button
+          size="xs"
           onclick={requestNotifyPermission}
           disabled={notifyBusy}
-          class="accent-gradient shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          class="shrink-0"
           data-testid="notifications-permission-request"
         >
           {notifyBusy ? '…' : m.settings_notifications_permission_allow()}
-        </button>
+        </Button>
       </div>
     {:else if !electron && notifyPermission === 'denied'}
       <p class="text-text-muted text-xs">{m.settings_notifications_permission_blocked()}</p>

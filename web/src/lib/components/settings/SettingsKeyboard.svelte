@@ -4,6 +4,7 @@
    * lib/shortcuts/actions.ts gruppiert nach Kategorie, mit Rebind-Knopf
    * pro Zeile (Pattern aus SettingsAudioVideo::startPttCapture).
    */
+  import { Button } from '$lib/components/ui/button/index.js';
   import {
     ACTIONS,
     ACTION_BY_ID,
@@ -142,14 +143,15 @@
         {m.settings_keyboard_unmirrorable_hint()}
       </p>
     </div>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="xs"
       onclick={resetAll}
-      class="text-text-muted hover:text-text-base hover:bg-bg-hover shrink-0 rounded-lg px-2 py-1.5 text-xs transition-colors md:py-1"
+      class="shrink-0"
       data-testid="shortcuts-reset-all"
     >
       {m.settings_keyboard_reset_all()}
-    </button>
+    </Button>
   </header>
 
   {#each CATEGORY_ORDER as cat (cat)}
@@ -167,27 +169,27 @@
                 <p class="text-text-bright text-sm">{a.label}</p>
                 <p class="text-text-muted text-xs">{a.description}</p>
               </div>
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="xs"
                 onclick={() => startCapture(a.id)}
-                class="text-text-bright bg-bg-input hover:bg-bg-hover2 min-w-fit rounded-md px-3 py-2 text-center font-mono text-xs transition-colors md:min-w-[6.5rem] md:py-1 {listeningId ===
-                a.id
-                  ? 'ring-2 ring-primary'
+                class="min-w-fit font-mono md:min-w-[6.5rem] {listeningId === a.id
+                  ? 'ring-primary ring-2'
                   : ''}"
                 data-testid="shortcut-binding-{a.id}"
               >
                 {listeningId === a.id ? m.settings_keyboard_press_key() : displayCombo(eff)}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 onclick={() => resetOne(a.id)}
                 disabled={isDefault}
-                class="text-text-muted hover:text-text-base hover:bg-bg-hover2 rounded-md p-2 transition-colors disabled:opacity-30 disabled:hover:bg-transparent md:p-1"
                 aria-label={m.settings_keyboard_reset_one()}
                 title={m.settings_keyboard_reset_one()}
               >
                 <RotateCcwIcon class="size-3.5" />
-              </button>
+              </Button>
             </div>
             {#if bindingError?.id === a.id}
               <FieldError message={bindingError.message} />

@@ -144,29 +144,31 @@
           </div>
 
           {#if !s.is_current}
-            <button
-              type="button"
+            <Button
+              variant="destructive"
+              size="xs"
               onclick={() => handleRevoke(s)}
               disabled={revokingId === s.id}
-              class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto md:py-1.5"
+              class="self-start sm:self-auto"
               data-testid="session-revoke"
             >
               {revokingId === s.id ? m.sessions_section_revoking() : m.sessions_section_revoke_this()}
-            </button>
+            </Button>
           {/if}
         </li>
       {/each}
     </ul>
 
     {#if otherCount > 0}
-      <button
-        type="button"
+      <Button
+        variant="destructive"
+        size="sm"
         onclick={() => (bulkOpen = true)}
-        class="text-destructive bg-destructive/10 hover:bg-destructive/20 mt-1 self-start rounded-md px-3 py-2 text-sm font-medium transition-colors md:py-1.5"
+        class="mt-1 self-start"
         data-testid="sessions-revoke-all"
       >
         {m.sessions_section_revoke_all_others()}
-      </button>
+      </Button>
     {/if}
   {/if}
 </section>

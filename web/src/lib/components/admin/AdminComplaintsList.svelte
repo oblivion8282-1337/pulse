@@ -13,6 +13,7 @@
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { adminComplaintsApi, type Complaint } from '$lib/api/complaints';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
@@ -274,54 +275,53 @@
         {#if view === 'open'}
           <div class="flex flex-wrap gap-2">
             {#if c.target_instance_id}
-              <button
-                type="button"
+              <Button
+                variant="warning-solid"
+                size="xs"
                 onclick={() => {
                   forwardTarget = c;
                   forwardNotice = '';
                   forwardOpen = true;
                 }}
-                class="rounded-lg bg-warning px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-warning/90 disabled:opacity-60"
               >
                 {m.admin_complaints_btn_forward()}
-              </button>
+              </Button>
             {/if}
             {#if c.target_user_id}
-              <button
-                type="button"
+              <Button
+                size="xs"
                 onclick={() => {
                   notifyTarget = c;
                   notifyMessage = '';
                   notifyOpen = true;
                 }}
-                class="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-60"
                 data-testid="complaint-notify-btn"
               >
                 {m.admin_complaints_btn_notify_user()}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="destructive-solid"
+                size="xs"
                 onclick={() => {
                   banTarget = c;
                   banOpen = true;
                 }}
-                class="rounded-lg bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-60"
                 data-testid="complaint-ban-btn"
               >
                 {m.admin_complaints_btn_ban_user()}
-              </button>
+              </Button>
             {/if}
-            <button
-              type="button"
+            <Button
+              variant="success-solid"
+              size="xs"
               onclick={() => {
                 resolveTarget = c;
                 resolveNote = '';
                 resolveOpen = true;
               }}
-              class="rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-success/90 disabled:opacity-60"
             >
               {m.admin_complaints_btn_resolve()}
-            </button>
+            </Button>
           </div>
         {/if}
       </div>
@@ -359,21 +359,16 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onclick={() => (forwardOpen = false)}
-          class="border-border text-text-base hover:bg-bg-hover rounded-xl border px-4 py-2 text-sm"
-        >
+        <Button variant="outline" onclick={() => (forwardOpen = false)}>
           {m.admin_complaints_cancel()}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="warning-solid"
           onclick={doForward}
           disabled={forwarding || !forwardNotice.trim()}
-          class="rounded-xl bg-warning px-4 py-2 text-sm font-medium text-black hover:bg-warning/90 disabled:opacity-60"
         >
           {m.admin_complaints_forward_submit()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>
@@ -401,21 +396,12 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onclick={() => (resolveOpen = false)}
-          class="border-border text-text-base hover:bg-bg-hover rounded-xl border px-4 py-2 text-sm"
-        >
+        <Button variant="outline" onclick={() => (resolveOpen = false)}>
           {m.admin_complaints_cancel()}
-        </button>
-        <button
-          type="button"
-          onclick={doResolve}
-          disabled={resolving}
-          class="rounded-xl bg-success px-4 py-2 text-sm font-medium text-black hover:bg-success/90 disabled:opacity-60"
-        >
+        </Button>
+        <Button variant="success-solid" onclick={doResolve} disabled={resolving}>
           {m.admin_complaints_resolve_submit()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>
@@ -446,21 +432,12 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onclick={() => (notifyOpen = false)}
-          class="border-border text-text-base hover:bg-bg-hover rounded-xl border px-4 py-2 text-sm"
-        >
+        <Button variant="outline" onclick={() => (notifyOpen = false)}>
           {m.admin_complaints_cancel()}
-        </button>
-        <button
-          type="button"
-          onclick={doNotify}
-          disabled={notifying || !notifyMessage.trim()}
-          class="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
-        >
+        </Button>
+        <Button onclick={doNotify} disabled={notifying || !notifyMessage.trim()}>
           {m.admin_complaints_notify_submit()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>
@@ -479,21 +456,12 @@
       </Dialog.Header>
       <p class="text-text-muted text-sm">{m.admin_complaints_ban_desc()}</p>
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onclick={() => (banOpen = false)}
-          class="border-border text-text-base hover:bg-bg-hover rounded-xl border px-4 py-2 text-sm"
-        >
+        <Button variant="outline" onclick={() => (banOpen = false)}>
           {m.admin_complaints_cancel()}
-        </button>
-        <button
-          type="button"
-          onclick={doBanUser}
-          disabled={banning}
-          class="rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60"
-        >
+        </Button>
+        <Button variant="destructive-solid" onclick={doBanUser} disabled={banning}>
           {banning ? m.admin_complaints_ban_submitting() : m.admin_complaints_ban_confirm()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

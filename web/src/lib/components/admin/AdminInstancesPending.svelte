@@ -10,6 +10,7 @@
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
@@ -161,22 +162,22 @@
           </div>
         </div>
         <div class="flex gap-2">
-          <button
-            type="button"
+          <Button
+            variant="success-solid"
+            size="xs"
             onclick={() => { approveTarget = app; approveConfirmOpen = true; }}
             disabled={!!busy[app.id]}
-            class="rounded-lg bg-success px-3 py-1.5 text-xs text-black font-medium hover:bg-success/90 disabled:opacity-60 transition-colors"
           >
             {m.admin_instances_pending_approve_btn()}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="destructive-solid"
+            size="xs"
             onclick={() => { rejectTarget = app; rejectOpen = true; }}
             disabled={!!busy[app.id]}
-            class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive disabled:opacity-60 transition-colors"
           >
             {m.admin_instances_pending_reject_btn()}
-          </button>
+          </Button>
         </div>
       </div>
     {/each}
@@ -197,14 +198,12 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (approveConfirmOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
+        <Button variant="outline" onclick={() => (approveConfirmOpen = false)}>
           {m.admin_instances_pending_cancel()}
-        </button>
-        <button type="button" onclick={doApprove} disabled={approving}
-          class="rounded-xl bg-success px-4 py-2 text-sm text-black font-medium hover:bg-success/90 disabled:opacity-60">
+        </Button>
+        <Button variant="success-solid" onclick={doApprove} disabled={approving}>
           {m.admin_instances_pending_confirm_approve()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>
@@ -236,14 +235,16 @@
         <FieldError message={rejectError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (rejectOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
+        <Button variant="outline" onclick={() => (rejectOpen = false)}>
           {m.admin_instances_pending_cancel()}
-        </button>
-        <button type="button" onclick={doReject} disabled={rejecting || !rejectReason.trim()}
-          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
+        </Button>
+        <Button
+          variant="destructive-solid"
+          onclick={doReject}
+          disabled={rejecting || !rejectReason.trim()}
+        >
           {rejecting ? m.admin_instances_pending_rejecting() : m.admin_instances_pending_reject_btn()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

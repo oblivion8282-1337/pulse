@@ -14,6 +14,7 @@
   import SpatialPositioner from './SpatialPositioner.svelte';
   import SpatialFloatingWindow from './SpatialFloatingWindow.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   let { size = 200 }: { size?: number } = $props();
 
@@ -39,13 +40,9 @@
     data-testid="spatial-detached-placeholder"
   >
     <p class="text-text-muted text-xs">{m.spatial_detached()}</p>
-    <button
-      type="button"
-      onclick={() => (floating = false)}
-      class="bg-bg-input hover:bg-bg-hover text-text-base rounded-md px-3 py-1 text-xs"
-    >
+    <Button variant="secondary" size="xs" onclick={() => (floating = false)}>
       {m.spatial_reattach()}
-    </button>
+    </Button>
   </div>
   <SpatialFloatingWindow onClose={() => (floating = false)} />
 {:else}
@@ -66,16 +63,16 @@
         {m.spatial_window_title()}
       </button>
       {#if !collapsed}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onclick={() => (floating = true)}
-          class="text-text-muted hover:bg-bg-hover hover:text-text-base flex items-center justify-center rounded-md p-1"
           title={m.spatial_detach()}
           aria-label={m.spatial_detach()}
           data-testid="spatial-detach"
         >
           <MaximizeIcon class="size-4" />
-        </button>
+        </Button>
       {/if}
     </div>
     {#if !collapsed}

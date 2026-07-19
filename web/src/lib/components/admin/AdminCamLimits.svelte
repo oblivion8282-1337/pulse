@@ -11,6 +11,7 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -113,15 +114,14 @@
       </div>
 
       <div class="mt-1 flex justify-end">
-        <button
-          type="button"
+        <Button
+          size="xs"
           disabled={busy || !dirty}
           onclick={save}
-          class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
           data-testid="cam-limits-save"
         >
           {busy ? m.admin_cam_limits_saving() : m.admin_cam_limits_save()}
-        </button>
+        </Button>
       </div>
     </div>
   {:else}

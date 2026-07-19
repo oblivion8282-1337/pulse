@@ -5,6 +5,7 @@
    * view-model still owns the commit.
    */
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import DropboxFolderPicker from './DropboxFolderPicker.svelte';
 
   type Props = {
@@ -58,22 +59,12 @@
       → {destLabel}
     </div>
     <div class="mt-3 flex justify-end gap-2">
-      <button
-        type="button"
-        class="rounded-md px-3 py-1 text-sm hover:bg-bg-hover"
-        onclick={onCancel}
-        data-testid="dropbox-move-cancel"
-      >
+      <Button variant="ghost" size="sm" onclick={onCancel} data-testid="dropbox-move-cancel">
         {pm.dropbox_cancel()}
-      </button>
-      <button
-        type="button"
-        class="rounded-md bg-primary px-3 py-1 text-sm font-medium text-white"
-        onclick={onCommit}
-        data-testid="dropbox-move-commit"
-      >
+      </Button>
+      <Button size="sm" onclick={onCommit} data-testid="dropbox-move-commit">
         {pm.dropbox_save()}
-      </button>
+      </Button>
     </div>
   </div>
 </div>

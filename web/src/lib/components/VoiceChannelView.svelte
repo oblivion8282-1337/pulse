@@ -196,14 +196,16 @@
     <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <div class="ml-auto flex items-center gap-1">
-      <button
-        class="rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="max-md:hidden"
         onclick={toggleMemberList}
         aria-label={m.voice_channel_view_toggle_member_list_aria()}
         data-testid="member-list-toggle"
       >
         <UsersIcon class="text-text-muted size-4" />
-      </button>
+      </Button>
     </div>
   </header>
 
