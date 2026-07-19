@@ -146,7 +146,7 @@
 
     <!-- Nav-Liste: immer sichtbar auf sm+; auf mobile nur wenn mobileView=list -->
     <nav
-      class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-48
+      class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-56
         {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
     >
       <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
