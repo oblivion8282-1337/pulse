@@ -142,7 +142,7 @@
                 type="button"
                 variant="default"
                 size="icon-sm"
-                class="relative size-8 rounded-r-none border-r border-border/40"
+                class="relative size-8 rounded-l-full rounded-r-none border-r border-border/40"
                 aria-label={m.screen_share_stop_pick()}
                 data-testid="screenshare-stop-menu-btn"
               >
@@ -180,7 +180,7 @@
                 type="button"
                 variant={isActive ? 'default' : 'ghost'}
                 size="icon-sm"
-                class="relative size-8 rounded-r-none border-r border-border/40"
+                class="relative size-8 rounded-l-full rounded-r-none border-r border-border/40"
                 onclick={doAction}
                 disabled={sharing}
                 aria-label={tooltipLabel}
@@ -229,7 +229,7 @@
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                class="h-8 w-5 rounded-l-none px-0"
+                class="h-8 w-5 rounded-l-none rounded-r-full px-0"
                 onclick={openAdd}
                 aria-label={m.screen_share_add_stream()}
                 data-testid="screenshare-add-btn"
@@ -249,7 +249,7 @@
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                class="h-8 w-5 rounded-l-none px-0"
+                class="h-8 w-5 rounded-l-none rounded-r-full px-0"
                 aria-label={m.screen_share_mode_button_select_mode()}
               >
                 <ChevronDownIcon class="size-3" />
