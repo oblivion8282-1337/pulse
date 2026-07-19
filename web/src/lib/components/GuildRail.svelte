@@ -360,7 +360,7 @@
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
-                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-xl md:size-10" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
               </button>
             {:else}
               <a
@@ -370,7 +370,7 @@
                 aria-label="Pulse"
                 data-testid="guild-home"
               >
-                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-xl md:size-10" />
+                <img src="/pulse-mark.svg" alt="" width="40" height="40" class="size-12 rounded-md md:size-10" />
               </a>
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
