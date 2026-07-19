@@ -15,6 +15,7 @@
   import BanIcon from '@lucide/svelte/icons/ban';
   import ServerIcon from '@lucide/svelte/icons/server';
   import MoreHorizontalIcon from '@lucide/svelte/icons/more-horizontal';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   type Field = 'is_admin' | 'disabled' | 'self_host_enabled';
 
@@ -107,34 +108,28 @@
         <!-- Der Owner ist gegen Entmachten/Sperren geschützt (Backend 400) →
              diese Aktionen für ihn gar nicht erst anbieten. -->
         {#if !user.is_owner}
-          <button
-            type="button"
-            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+          <MenuRow
             onclick={() => ontoggle(user, 'is_admin', !user.is_admin)}
             data-testid="toggle-admin-btn"
           >
             <ShieldIcon class="size-4" />
             {user.is_admin ? m.admin_users_revoke_admin() : m.admin_users_make_admin()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+          </MenuRow>
+          <MenuRow
             onclick={() => ontoggle(user, 'disabled', !user.disabled)}
             data-testid="toggle-disabled-btn"
           >
             <BanIcon class="size-4" />
             {user.disabled ? m.admin_users_unban() : m.admin_users_ban()}
-          </button>
+          </MenuRow>
         {/if}
-        <button
-          type="button"
-          class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+        <MenuRow
           onclick={() => ontoggle(user, 'self_host_enabled', !user.self_host_enabled)}
           data-testid="toggle-selfhost-btn"
         >
           <ServerIcon class="size-4" />
           {user.self_host_enabled ? m.admin_users_self_host_revoke() : m.admin_users_self_host_grant()}
-        </button>
+        </MenuRow>
       </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   </PopoverPrimitive.Root>

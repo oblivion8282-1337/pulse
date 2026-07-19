@@ -13,6 +13,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { streamPicker } from '$lib/stream/streamPicker.svelte';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   const open = $derived(streamPicker.entries !== null);
   const entries = $derived(streamPicker.entries ?? []);
@@ -37,9 +38,7 @@
          past the frame (same fix as WatchPartyPickerDialog). -->
     <div class="flex min-w-0 flex-col gap-1.5 py-1">
       {#each entries as e (e.slot)}
-        <button
-          type="button"
-          class="hover:bg-bg-hover flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors"
+        <MenuRow
           data-testid="stream-picker-item"
           data-slot={e.slot}
           title={e.label}
@@ -50,17 +49,16 @@
         >
           <MonitorIcon class="text-primary size-4 shrink-0" />
           <span class="min-w-0 flex-1 truncate">{e.label}</span>
-        </button>
+        </MenuRow>
       {/each}
-      <button
-        type="button"
-        class="hover:bg-bg-hover mt-1 flex w-full items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-left text-sm font-medium transition-colors"
+      <MenuRow
+        class="mt-1 border border-border/60"
         data-testid="stream-picker-all"
         onclick={openAll}
       >
         <MonitorIcon class="text-primary size-4 shrink-0" />
         <span>Alle ansehen</span>
-      </button>
+      </MenuRow>
     </div>
   </Dialog.Content>
 </Dialog.Root>

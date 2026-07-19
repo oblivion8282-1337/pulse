@@ -30,6 +30,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let {
     userId,
@@ -143,15 +144,14 @@
           onClose={close}
           {onAction}
         />
-        <button
-          type="button"
-          class="text-text-muted hover:text-text-bright hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors"
+        <MenuRow
+          class="mt-2"
           onclick={() => (reportDialogOpen = true)}
           data-testid="user-profile-report-btn"
         >
           <FlagIcon class="size-3.5" />
           {m.user_profile_report()}
-        </button>
+        </MenuRow>
       {/if}
 
       {#if extra}

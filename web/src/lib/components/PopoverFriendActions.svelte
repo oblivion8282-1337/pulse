@@ -26,6 +26,7 @@
   import * as actions from './popoverActions';
   import InviteToServerSubmenu from './InviteToServerSubmenu.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let {
     userId,
@@ -83,29 +84,20 @@
       onAction
     };
   }
-
-  const btnBase =
-    'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
-  const btnNormal = `${btnBase} hover:bg-bg-hover hover:text-primary text-text-base`;
-  const btnDanger = `${btnBase} hover:bg-destructive/10 hover:text-destructive text-text-base`;
 </script>
 
 <div class="mt-1 flex flex-col gap-1 border-t border-border pt-3">
   {#if isBlocked}
-    <button
-      type="button"
-      class={btnNormal}
+    <MenuRow
       onclick={() => actions.unblockUser(ctx())}
       disabled={working}
       data-testid="popover-unblock-btn"
     >
       <BanIcon class="size-4" />
       <span>{m.popover_friend_actions_unblock()}</span>
-    </button>
+    </MenuRow>
   {:else if isFriend}
-    <button
-      type="button"
-      class={btnNormal}
+    <MenuRow
       onclick={() => (inviteSubmenuOpen = !inviteSubmenuOpen)}
       disabled={working}
       data-testid="popover-invite-to-server-btn"
@@ -113,7 +105,7 @@
       <MailPlusIcon class="size-4" />
       <span class="flex-1">{m.popover_friend_actions_invite_to_community()}</span>
       <ChevronDownIcon class="size-3 transition-transform {inviteSubmenuOpen ? 'rotate-180' : ''}" />
-    </button>
+    </MenuRow>
     {#if inviteSubmenuOpen}
       <InviteToServerSubmenu
         friendUserId={userId}
@@ -121,98 +113,85 @@
         onDone={() => { inviteSubmenuOpen = false; onClose(); }}
       />
     {/if}
-    <button
-      type="button"
-      class={btnDanger}
+    <MenuRow
+      variant="danger"
       onclick={() => actions.removeFriend(ctx())}
       disabled={working}
       data-testid="popover-remove-friend-btn"
     >
       <UserMinusIcon class="size-4" />
       <span>{m.popover_friend_actions_remove_friend()}</span>
-    </button>
-    <button
-      type="button"
-      class={btnDanger}
+    </MenuRow>
+    <MenuRow
+      variant="danger"
       onclick={() => actions.blockUser(ctx())}
       disabled={working}
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
       <span>{m.popover_friend_actions_block()}</span>
-    </button>
+    </MenuRow>
   {:else if pendingOut}
-    <button
-      type="button"
-      class={btnNormal}
+    <MenuRow
       onclick={() => actions.cancelFriendRequest(ctx(), pendingOut!.id)}
       disabled={working}
       data-testid="popover-cancel-request-btn"
     >
       <XIcon class="size-4" />
       <span>{m.popover_friend_actions_cancel_request()}</span>
-    </button>
-    <button
-      type="button"
-      class={btnDanger}
+    </MenuRow>
+    <MenuRow
+      variant="danger"
       onclick={() => actions.blockUser(ctx())}
       disabled={working}
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
       <span>{m.popover_friend_actions_block()}</span>
-    </button>
+    </MenuRow>
   {:else if pendingIn}
-    <button
-      type="button"
-      class={btnNormal}
+    <MenuRow
       onclick={() => actions.acceptFriendRequest(ctx(), pendingIn!.id)}
       disabled={working}
       data-testid="popover-accept-request-btn"
     >
       <CheckIcon class="size-4" />
       <span>{m.popover_friend_actions_accept_request()}</span>
-    </button>
-    <button
-      type="button"
-      class={btnNormal}
+    </MenuRow>
+    <MenuRow
       onclick={() => actions.declineFriendRequest(ctx(), pendingIn!.id)}
       disabled={working}
       data-testid="popover-decline-request-btn"
     >
       <XIcon class="size-4" />
       <span>{m.popover_friend_actions_decline_request()}</span>
-    </button>
-    <button
-      type="button"
-      class={btnDanger}
+    </MenuRow>
+    <MenuRow
+      variant="danger"
       onclick={() => actions.blockUser(ctx())}
       disabled={working}
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
       <span>{m.popover_friend_actions_block()}</span>
-    </button>
+    </MenuRow>
   {:else}
-    <button
-      type="button"
-      class={btnNormal}
+    <MenuRow
       onclick={() => actions.sendFriendRequest(ctx())}
       disabled={working}
       data-testid="popover-add-friend-btn"
     >
       <UserPlusIcon class="size-4" />
       <span>{m.popover_friend_actions_send_friend_request()}</span>
-    </button>
-    <button
-      type="button"
-      class={btnDanger}
+    </MenuRow>
+    <MenuRow
+      variant="danger"
       onclick={() => actions.blockUser(ctx())}
       disabled={working}
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
       <span>{m.popover_friend_actions_block()}</span>
-    </button>
+    </MenuRow>
   {/if}
 </div>

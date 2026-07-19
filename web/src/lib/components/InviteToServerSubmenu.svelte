@@ -20,6 +20,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Guild } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let {
     friendUserId,
@@ -86,9 +87,7 @@
     </p>
   {:else}
     {#each invitableGuilds as guild (guild.id)}
-      <button
-        type="button"
-        class="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-primary text-text-base disabled:opacity-50"
+      <MenuRow
         onclick={() => sendInvite(guild)}
         disabled={working}
         data-testid="invite-guild-btn"
@@ -102,7 +101,7 @@
           </Avatar.Fallback>
         </Avatar.Root>
         <span class="truncate">{guild.name}</span>
-      </button>
+      </MenuRow>
     {/each}
   {/if}
 </div>
