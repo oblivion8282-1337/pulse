@@ -155,7 +155,7 @@
   </header>
 
   {#each CATEGORY_ORDER as cat (cat)}
-    <section>
+    <section class="border-border bg-bg-input/40 rounded-2xl border p-4">
       <h3 class="text-text-muted mb-2 text-xs font-semibold uppercase tracking-wide">
         {CATEGORY_LABELS[cat]}
       </h3>

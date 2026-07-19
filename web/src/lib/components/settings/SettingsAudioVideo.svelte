@@ -130,7 +130,7 @@
 
 <div class="flex flex-col gap-6" data-testid="settings-audio-video-panel">
   <!-- ===== Feld: Eingabe ===== -->
-  <div class="border-border flex flex-col gap-4 rounded-xl border p-4">
+  <div class="border-border bg-bg-input/40 flex flex-col gap-4 rounded-2xl border p-4">
     <!-- Eingabegerät + Pegelanzeige -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_input_device_label()}</span>
@@ -224,7 +224,7 @@
   </div>
 
   <!-- ===== Feld: Ausgabe ===== -->
-  <div class="border-border flex flex-col gap-4 rounded-xl border p-4">
+  <div class="border-border bg-bg-input/40 flex flex-col gap-4 rounded-2xl border p-4">
     <!-- Ausgabegerät -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
@@ -318,7 +318,7 @@
   </div>
 
   <!-- ===== Feld: Push-to-Talk ===== -->
-  <div class="border-border flex flex-col gap-4 rounded-xl border p-4">
+  <div class="border-border bg-bg-input/40 flex flex-col gap-4 rounded-2xl border p-4">
     <label class="flex cursor-pointer items-center justify-between gap-3">
       <span class="text-text-base text-sm">{m.settings_audio_video_ptt_enable()}</span>
       <Checkbox
