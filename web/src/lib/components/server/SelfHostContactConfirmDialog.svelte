@@ -64,7 +64,7 @@
   <AlertDialog.Content data-testid="self-host-contact-confirm-dialog">
     <AlertDialog.Header>
       <AlertDialog.Title>
-        <span class="flex items-center gap-2 text-amber-400">
+        <span class="flex items-center gap-2 text-warning">
           <ShieldAlertIcon class="size-5" />
           {m.self_host_contact_confirm_title()}
         </span>
@@ -75,7 +75,7 @@
     </AlertDialog.Header>
 
     <p
-      class="text-text-bright break-all rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center font-mono text-sm font-medium"
+      class="text-text-bright break-all rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-center font-mono text-sm font-medium"
       data-testid="self-host-contact-confirm-host"
     >
       {displayHost}

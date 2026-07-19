@@ -297,7 +297,7 @@
     {#if loading}
       <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_loading()}</p>
     {:else if error}
-      <p class="px-3 py-4 text-xs text-red-400">{error}</p>
+      <p class="px-3 py-4 text-xs text-destructive">{error}</p>
     {:else if flatItems.length === 0}
       <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_empty()}</p>
     {:else}

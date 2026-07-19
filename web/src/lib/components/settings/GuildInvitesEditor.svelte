@@ -185,7 +185,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">{m.guild_invites_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm">{loadError}</p>
+    <p class="text-destructive text-sm">{loadError}</p>
   {:else if invites.length === 0}
     <p class="text-text-muted text-sm">{m.guild_invites_empty()}</p>
   {:else}
@@ -209,7 +209,7 @@
           </button>
           <button
             type="button"
-            class="hover:bg-red-500/10 rounded-md p-1.5 text-red-400"
+            class="hover:bg-destructive/10 rounded-md p-1.5 text-destructive"
             onclick={() => revoke(inv.code)}
             title={m.guild_invites_revoke()}
             data-testid="invite-revoke"

@@ -156,7 +156,7 @@
     </div>
     {#if current?.configured}
       <span
-        class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400"
+        class="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs text-success"
         data-testid="smtp-status-configured"
       >
         <CheckCircle2Icon class="size-3" /> {m.admin_smtp_status_active()}
@@ -172,7 +172,7 @@
   </div>
 
   {#if loadError}
-    <p class="text-sm text-red-400">{m.admin_smtp_load_error({ error: loadError })}</p>
+    <p class="text-sm text-destructive">{m.admin_smtp_load_error({ error: loadError })}</p>
   {:else if current === null}
     <div class="text-text-muted text-sm">{m.admin_smtp_loading()}</div>
   {:else}
@@ -264,8 +264,8 @@
       {#if lastTestOk !== null}
         <div
           class="rounded-md border px-3 py-2 text-xs {lastTestOk
-            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-            : 'border-red-500/30 bg-red-500/10 text-red-300'}"
+            ? 'border-success/30 bg-success/10 text-success'
+            : 'border-destructive/30 bg-destructive/10 text-destructive'}"
           data-testid="smtp-test-result"
         >
           {#if lastTestOk}

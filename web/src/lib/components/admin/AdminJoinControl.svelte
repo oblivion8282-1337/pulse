@@ -48,7 +48,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_join_control_load_error({ error })}</p>
+    <p class="text-destructive text-sm">{m.admin_join_control_load_error({ error })}</p>
   {:else if locked === null}
     <div class="text-text-muted text-sm">{m.admin_join_control_loading()}</div>
   {:else}

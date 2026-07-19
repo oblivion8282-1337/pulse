@@ -65,13 +65,13 @@
   <div class="mb-4">
     <h2 class="text-text-bright text-base font-semibold">{m.admin_cam_limits_title()}</h2>
     <p class="text-text-muted text-xs mt-0.5">{m.admin_cam_limits_description()}</p>
-    <p class="text-amber-400/80 text-xs mt-1.5" data-testid="cam-limits-advisory">
+    <p class="text-warning/80 text-xs mt-1.5" data-testid="cam-limits-advisory">
       {m.admin_cam_limits_advisory()}
     </p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{error}</p>
+    <p class="text-destructive text-sm">{error}</p>
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Resolution ceiling -->

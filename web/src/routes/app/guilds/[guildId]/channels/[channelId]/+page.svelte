@@ -561,7 +561,7 @@
     </section>
   {:else if loadError}
     <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-      <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
+      <p class="text-sm text-destructive" data-testid="load-error">{loadError}</p>
       <Button
         onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
         data-testid="load-retry"

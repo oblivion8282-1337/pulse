@@ -178,7 +178,7 @@
             data-testid="guild-public-url-copy"
           >
             {#if copied}
-              <CheckIcon class="size-4 text-green-500" />
+              <CheckIcon class="size-4 text-success" />
             {:else}
               <CopyIcon class="size-4" />
             {/if}

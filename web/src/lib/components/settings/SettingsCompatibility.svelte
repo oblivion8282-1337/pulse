@@ -87,8 +87,8 @@
 
   /** Gelb nur beim ungewollten Rückfall — die bewusste GSR-Wahl ist kein Problem. */
   function toneFor(b: PulseLinuxBackend | null): string {
-    if (b?.reason === 'fallback') return 'bg-yellow-500';
-    if (b) return 'bg-emerald-500';
+    if (b?.reason === 'fallback') return 'bg-warning';
+    if (b) return 'bg-success';
     return 'bg-text-muted';
   }
 

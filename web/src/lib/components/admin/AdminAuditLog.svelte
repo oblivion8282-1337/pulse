@@ -95,7 +95,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_audit_log_error({ message: error ?? '' })}</p>
+    <p class="text-destructive text-sm">{m.admin_audit_log_error({ message: error ?? '' })}</p>
   {:else if loading && entries.length === 0}
     <div class="text-text-muted text-sm">{m.admin_audit_log_loading()}</div>
   {:else if entries.length === 0}

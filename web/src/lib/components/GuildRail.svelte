@@ -327,8 +327,8 @@
   // Status-Dot-Farbe für Self-Host-Server-Section-Header. Wird nur im
   // Ausnahmezustand gerendert (`open` zeigt keinen Dot), daher kein grüner Fall.
   function serverStateDotColor(state: string): string {
-    if (state === 'connecting' || state === 'starting' || state === 'updating') return 'bg-amber-500';
-    if (state === 'incompatible' || state === 'cors-blocked' || state === 'mfa-required') return 'bg-red-500';
+    if (state === 'connecting' || state === 'starting' || state === 'updating') return 'bg-warning';
+    if (state === 'incompatible' || state === 'cors-blocked' || state === 'mfa-required') return 'bg-destructive';
     return 'bg-gray-500';
   }
 </script>
@@ -461,7 +461,7 @@
                   {#if server.instance_id && directStatus.failures[server.instance_id]}
                     <!-- Direct-only-Fehlzustand (App-Host ohne Relay-Fallback):
                          offline / keine Direktverbindung / Identität geändert. -->
-                    <span class="text-xs text-red-400">
+                    <span class="text-xs text-destructive">
                       {m[directFailureMessageKey(directStatus.failures[server.instance_id])]()}
                     </span>
                   {/if}

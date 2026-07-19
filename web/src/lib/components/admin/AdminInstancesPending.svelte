@@ -48,8 +48,8 @@
   }
 
   function netCheckClass(v: AdminApplication['network_check']): string {
-    if (v === 'ok') return 'bg-emerald-500/20 text-emerald-300';
-    if (v === 'blocked' || v === 'cgnat' || v === 'symmetric') return 'bg-red-500/20 text-red-300';
+    if (v === 'ok') return 'bg-success/20 text-success';
+    if (v === 'blocked' || v === 'cgnat' || v === 'symmetric') return 'bg-destructive/20 text-destructive';
     return 'bg-bg-hover text-text-muted';
   }
 
@@ -118,7 +118,7 @@
 {#if loading}
   <p class="text-text-muted text-sm">{m.admin_instances_pending_loading()}</p>
 {:else if loadError}
-  <p class="text-red-400 text-sm">{m.admin_instances_pending_load_error({ error: loadError })}</p>
+  <p class="text-destructive text-sm">{m.admin_instances_pending_load_error({ error: loadError })}</p>
 {:else if apps.length === 0}
   <p class="text-text-muted text-sm">{m.admin_instances_pending_empty()}</p>
 {:else}
@@ -162,7 +162,7 @@
             type="button"
             onclick={() => { approveTarget = app; approveConfirmOpen = true; }}
             disabled={!!busy[app.id]}
-            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors"
+            class="rounded-lg bg-success px-3 py-1.5 text-xs text-black font-medium hover:bg-success/90 disabled:opacity-60 transition-colors"
           >
             {m.admin_instances_pending_approve_btn()}
           </button>
@@ -170,7 +170,7 @@
             type="button"
             onclick={() => { rejectTarget = app; rejectOpen = true; }}
             disabled={!!busy[app.id]}
-            class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
+            class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive disabled:opacity-60 transition-colors"
           >
             {m.admin_instances_pending_reject_btn()}
           </button>
@@ -199,7 +199,7 @@
           {m.admin_instances_pending_cancel()}
         </button>
         <button type="button" onclick={doApprove} disabled={approving}
-          class="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white font-medium hover:bg-emerald-500 disabled:opacity-60">
+          class="rounded-xl bg-success px-4 py-2 text-sm text-black font-medium hover:bg-success/90 disabled:opacity-60">
           {m.admin_instances_pending_confirm_approve()}
         </button>
       </div>
@@ -230,7 +230,7 @@
           maxlength="1000"
           class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if rejectError}<p class="text-red-400 text-xs">{rejectError}</p>{/if}
+        {#if rejectError}<p class="text-destructive text-xs">{rejectError}</p>{/if}
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick={() => (rejectOpen = false)}
@@ -238,7 +238,7 @@
           {m.admin_instances_pending_cancel()}
         </button>
         <button type="button" onclick={doReject} disabled={rejecting || !rejectReason.trim()}
-          class="rounded-xl bg-red-600/80 px-4 py-2 text-sm text-white font-medium hover:bg-red-500 disabled:opacity-60">
+          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
           {rejecting ? m.admin_instances_pending_rejecting() : m.admin_instances_pending_reject_btn()}
         </button>
       </div>

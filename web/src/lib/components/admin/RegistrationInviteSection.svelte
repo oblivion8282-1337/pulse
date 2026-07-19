@@ -151,7 +151,7 @@
   {#if loading}
     <p class="text-text-muted mt-3 text-sm">{m.admin_registration_invite_loading()}</p>
   {:else if error}
-    <p class="mt-3 text-sm text-red-400">{m.admin_registration_invite_error({ error: error! })}</p>
+    <p class="mt-3 text-sm text-destructive">{m.admin_registration_invite_error({ error: error! })}</p>
   {:else if invites.length === 0}
     <p class="text-text-muted mt-3 text-sm">{m.admin_registration_invite_empty()}</p>
   {:else}
@@ -168,7 +168,7 @@
           <span
             class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold {st.dead
               ? 'bg-bg-hover text-text-muted'
-              : 'bg-emerald-500/20 text-emerald-400'}"
+              : 'bg-success/20 text-success'}"
           >{st.label}</span>
           {#if inv.note}
             <span class="text-text-muted truncate text-xs">· {inv.note}</span>
@@ -186,7 +186,7 @@
             {#if !inv.revoked}
               <button
                 type="button"
-                class="text-text-muted rounded p-1 hover:text-red-400"
+                class="text-text-muted rounded p-1 hover:text-destructive"
                 title={m.admin_registration_invite_title_revoke()}
                 onclick={() => revoke(inv.code)}
                 data-testid="invite-revoke"

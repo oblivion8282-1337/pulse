@@ -52,7 +52,7 @@
   data-testid="public-computer-safety"
 >
   <div class="flex items-start gap-3">
-    <span class="bg-amber-500/15 text-amber-500 flex size-9 items-center justify-center rounded-full">
+    <span class="bg-warning/15 text-warning flex size-9 items-center justify-center rounded-full">
       <MonitorXIcon class="size-5" />
     </span>
     <div class="flex flex-col gap-0.5">

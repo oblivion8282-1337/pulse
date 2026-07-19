@@ -204,8 +204,8 @@
         {:else if consumed}
           <BootstrapConsumedPanel {resetting} onreset={confirmReset} />
         {:else if error}
-          <div class="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-            <p class="text-red-300 text-xs">{m.instance_setup_error()}</p>
+          <div class="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+            <p class="text-destructive text-xs">{m.instance_setup_error()}</p>
             <button
               type="button"
               onclick={() => void mint()}
@@ -233,7 +233,7 @@
                 class="text-text-muted hover:text-text-bright shrink-0 rounded-lg p-1.5 transition-colors disabled:opacity-40"
               >
                 {#if copied}
-                  <CheckIcon class="size-4 text-emerald-400" />
+                  <CheckIcon class="size-4 text-success" />
                 {:else}
                   <CopyIcon class="size-4" />
                 {/if}
@@ -241,7 +241,7 @@
             </div>
             <div class="flex items-center justify-between gap-2">
               {#if expired}
-                <p class="text-amber-300 text-xs">{m.instance_setup_expired()}</p>
+                <p class="text-warning text-xs">{m.instance_setup_expired()}</p>
               {:else}
                 <p class="text-text-muted text-xs">
                   {m.instance_setup_expires_in({ time: countdown })}
@@ -274,7 +274,7 @@
                 data-testid="instance-setup-ai-copy"
               >
                 {#if aiCopied}
-                  <CheckIcon class="size-3.5 text-emerald-400" />
+                  <CheckIcon class="size-3.5 text-success" />
                 {:else}
                   <CopyIcon class="size-3.5" />
                 {/if}
@@ -309,7 +309,7 @@
             <DownloadIcon class="size-4" />
             {envDownloading ? m.instance_setup_manual_downloading() : m.instance_setup_manual_download()}
           </button>
-          <p class="text-amber-300 text-xs">{m.instance_setup_manual_download_warning()}</p>
+          <p class="text-warning text-xs">{m.instance_setup_manual_download_warning()}</p>
 
           <p class="text-text-muted text-xs">{m.instance_setup_manual_steps()}</p>
           <a

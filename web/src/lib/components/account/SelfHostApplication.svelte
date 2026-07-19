@@ -110,9 +110,9 @@
   }
 
   function statusClass(s: string): string {
-    if (s === 'approved') return 'bg-emerald-500/20 text-emerald-300';
-    if (s === 'pending') return 'bg-amber-500/20 text-amber-300';
-    return 'bg-red-500/20 text-red-300';
+    if (s === 'approved') return 'bg-success/20 text-success';
+    if (s === 'pending') return 'bg-warning/20 text-warning';
+    return 'bg-destructive/20 text-destructive';
   }
 
   const MODE_BTN =
@@ -213,7 +213,7 @@
     {/if}
 
     {#if formError}
-      <p class="text-red-400 text-xs">{formError}</p>
+      <p class="text-destructive text-xs">{formError}</p>
     {/if}
 
     <button

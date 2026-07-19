@@ -139,7 +139,7 @@
   {#if phase === 'playing' && stats}
     <div
       class="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen
-        ? 'animate-pulse bg-red-700/80'
+        ? 'animate-pulse bg-destructive/80'
         : 'bg-black/55'}"
       data-testid="hq-stream-stats"
       data-frozen={stats.frozen}
@@ -153,7 +153,7 @@
         >
       {:else if stats.microStutters > 0}
         <span
-          class="ml-1 font-sans text-amber-300"
+          class="ml-1 font-sans text-warning"
           title={m.whep_player_microstutter_title()}
         >⚠ {stats.microStutters}</span>
       {/if}
@@ -214,11 +214,11 @@
       </div>
     {:else if phase === 'error'}
       <div
-        class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/65 text-red-200"
+        class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/65 text-destructive"
       >
         <AlertTriangleIcon class="size-7" />
         <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
-        {#if detail}<p class="max-w-sm text-center text-[11px] text-red-200/70">{detail}</p>{/if}
+        {#if detail}<p class="max-w-sm text-center text-[11px] text-destructive/70">{detail}</p>{/if}
       </div>
     {/if}
   {/snippet}

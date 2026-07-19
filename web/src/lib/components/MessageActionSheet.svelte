@@ -123,7 +123,7 @@
         {#if canDelete}
           <button
             type="button"
-            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-red-400 active:bg-bg-hover"
+            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-destructive active:bg-bg-hover"
             data-testid="sheet-action-delete"
             onclick={() => run(onDelete)}
           >
@@ -135,7 +135,7 @@
         {#if canReport}
           <button
             type="button"
-            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-amber-400 active:bg-bg-hover"
+            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-warning active:bg-bg-hover"
             data-testid="sheet-action-report"
             onclick={() => onReport?.()}
           >

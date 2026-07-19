@@ -60,7 +60,7 @@
 
 {#if visible && active}
   <div
-    class="mx-3 mt-2 flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-100"
+    class="mx-3 mt-2 flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-warning"
     data-testid="self-host-disclaimer-toast"
     role="note"
   >

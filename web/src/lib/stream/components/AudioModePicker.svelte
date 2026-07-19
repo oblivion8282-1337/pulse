@@ -226,7 +226,7 @@
         </div>
       {/if}
       {#if !selectedApp}
-        <p class="text-amber-400/90 text-xs">{m.audio_mode_picker_select_app_before_stream()}</p>
+        <p class="text-warning/90 text-xs">{m.audio_mode_picker_select_app_before_stream()}</p>
       {/if}
     </div>
     <!-- Windows: WASAPI process-loopback can exclude only ONE process tree, and

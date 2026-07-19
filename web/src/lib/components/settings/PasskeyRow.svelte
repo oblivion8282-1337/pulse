@@ -107,7 +107,7 @@
         type="button"
         onclick={saveRename}
         disabled={busy}
-        class="text-emerald-500 hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
+        class="text-success hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label={m.passkey_row_save_name()}
         data-testid="passkey-rename-save"
       >

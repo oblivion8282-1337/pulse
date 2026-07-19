@@ -53,7 +53,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">Lade…</p>
   {:else if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-destructive text-sm">Fehler: {error}</p>
   {:else if status && !status.enabled}
     <p class="text-text-muted text-sm">
       Backup ist deaktiviert oder das Verzeichnis fehlt (<code>{status.directory}</code>).

@@ -120,7 +120,7 @@
 {#if loading}
   <p class="text-text-muted text-sm">{m.admin_instances_active_loading()}</p>
 {:else if loadError}
-  <p class="text-red-400 text-sm">{m.admin_instances_active_load_error({ error: loadError })}</p>
+  <p class="text-destructive text-sm">{m.admin_instances_active_load_error({ error: loadError })}</p>
 {:else if instances.length === 0}
   <p class="text-text-muted text-sm">{m.admin_instances_active_empty()}</p>
 {:else}
@@ -141,7 +141,7 @@
                   data-testid="admin-instance-origin-chip">
               {inst.origin === 'app_host' ? m.hosting_origin_app() : m.hosting_origin_vps()}
             </span>
-            <span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">{m.admin_instances_active_status_active()}</span>
+            <span class="rounded-full bg-success/20 px-2 py-0.5 text-xs text-success">{m.admin_instances_active_status_active()}</span>
           </div>
         </div>
         <div class="flex gap-2">
@@ -162,7 +162,7 @@
               type="button"
               onclick={() => { suspendTarget = inst; suspendReason = ''; suspendOpen = true; }}
               disabled={!!busy[inst.id]}
-              class="rounded-lg bg-red-600/70 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
+              class="rounded-lg bg-destructive/70 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive disabled:opacity-60 transition-colors"
             >
               {m.admin_instances_active_btn_suspend()}
             </button>
@@ -200,7 +200,7 @@
           {m.admin_instances_active_btn_cancel()}
         </button>
         <button type="button" onclick={doSuspend} disabled={suspending}
-          class="rounded-xl bg-red-600/80 px-4 py-2 text-sm text-white font-medium hover:bg-red-500 disabled:opacity-60">
+          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
           {suspending ? m.admin_instances_active_suspending() : m.admin_instances_active_btn_suspend()}
         </button>
       </div>

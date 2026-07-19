@@ -45,7 +45,7 @@
   <h2 class="text-text-bright mb-4 text-base font-semibold">{m.admin_overview_title()}</h2>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_overview_stats_load_error({ error: error ?? '' })}</p>
+    <p class="text-destructive text-sm">{m.admin_overview_stats_load_error({ error: error ?? '' })}</p>
   {:else if chat}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {#if auth}

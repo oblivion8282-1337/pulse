@@ -159,11 +159,11 @@
       <!-- CSAM-Sonderhinweis -->
       {#if isCsam}
         <div
-          class="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3"
+          class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3"
           data-testid="report-csam-banner"
         >
-          <TriangleAlertIcon class="mt-0.5 size-4 shrink-0 text-red-400" />
-          <p class="text-xs text-red-400">
+          <TriangleAlertIcon class="mt-0.5 size-4 shrink-0 text-destructive" />
+          <p class="text-xs text-destructive">
             <strong>{m.report_message_csam_warning_bold()}</strong>
             {m.report_message_csam_warning_text()}
           </p>
@@ -187,7 +187,7 @@
         <div class="flex justify-end">
           <span
             class="text-xs {bodyLen > 5000
-              ? 'text-red-400'
+              ? 'text-destructive'
               : 'text-text-muted'}"
             data-testid="report-body-counter"
           >

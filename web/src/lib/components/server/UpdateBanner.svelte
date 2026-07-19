@@ -46,8 +46,8 @@
 
   function tone(state: string): string {
     if (state === 'mfa-required' || state === 'cors-blocked' || state === 'incompatible')
-      return 'bg-red-500/15 border-red-500/40 text-red-200';
-    return 'bg-amber-500/15 border-amber-500/40 text-amber-200';
+      return 'bg-destructive/15 border-destructive/40 text-destructive';
+    return 'bg-warning/15 border-warning/40 text-warning';
   }
 </script>
 

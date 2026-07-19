@@ -43,7 +43,7 @@
   <button
     type="button"
     onclick={() => { error = null; open = true; }}
-    class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 transition-colors"
+    class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive transition-colors"
     data-testid="app-host-revoke-{app.id}"
   >
     {m.app_host_admin_revoke_btn()}
@@ -70,7 +70,7 @@
           maxlength="500"
           class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if error}<p class="text-red-400 text-xs">{error}</p>{/if}
+        {#if error}<p class="text-destructive text-xs">{error}</p>{/if}
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick={() => (open = false)}
@@ -78,7 +78,7 @@
           {m.app_host_admin_cancel()}
         </button>
         <button type="button" onclick={doRevoke} disabled={busy}
-          class="rounded-xl bg-red-600/80 px-4 py-2 text-sm text-white font-medium hover:bg-red-500 disabled:opacity-60">
+          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
           {busy ? m.app_host_admin_revoking() : m.app_host_admin_revoke_btn()}
         </button>
       </div>

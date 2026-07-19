@@ -74,6 +74,6 @@
     </Button>
   </div>
   {#if error}
-    <p class="text-red-400 text-xs" data-testid="invite-by-username-error">{error}</p>
+    <p class="text-destructive text-xs" data-testid="invite-by-username-error">{error}</p>
   {/if}
 </form>

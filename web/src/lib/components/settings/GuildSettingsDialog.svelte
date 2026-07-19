@@ -299,7 +299,7 @@
             <FlagIcon class="size-4" /> {m.guild_settings_dialog_tab_modqueue()}
             {#if modQueueOpen > 0}
               <span
-                class="ml-auto rounded-full bg-red-500/20 px-1.5 py-0.5 text-xs font-semibold text-red-400 tabular-nums"
+                class="ml-auto rounded-full bg-destructive/20 px-1.5 py-0.5 text-xs font-semibold text-destructive tabular-nums"
                 data-testid="modqueue-tab-badge"
               >
                 {modQueueOpen > 99 ? '99+' : modQueueOpen}

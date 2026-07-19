@@ -13,19 +13,19 @@
   let confirm = $state(false);
 </script>
 
-<div class="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3"
+<div class="flex flex-col gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3"
      data-testid="instance-setup-consumed">
-  <p class="text-amber-200 text-xs font-semibold">{m.instance_setup_consumed_title()}</p>
+  <p class="text-warning text-xs font-semibold">{m.instance_setup_consumed_title()}</p>
   <p class="text-text-muted text-xs">{m.instance_setup_consumed_body()}</p>
   {#if confirm}
-    <p class="text-red-300 text-xs">{m.instance_setup_reset_confirm_body()}</p>
+    <p class="text-destructive text-xs">{m.instance_setup_reset_confirm_body()}</p>
     <div class="flex gap-2">
       <button type="button" onclick={() => (confirm = false)}
         class="rounded-lg border border-border px-3 py-1.5 text-xs text-text-base hover:bg-bg-hover">
         {m.admin_instances_pending_cancel()}
       </button>
       <button type="button" onclick={() => { confirm = false; onreset(); }} disabled={resetting}
-        class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-60"
+        class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive disabled:opacity-60"
         data-testid="instance-setup-reset-confirm">
         {m.instance_setup_reset_confirm_btn()}
       </button>

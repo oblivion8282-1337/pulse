@@ -101,7 +101,7 @@
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
     <span
-      class="size-2 shrink-0 rounded-full {voice.connecting ? 'bg-yellow-400' : 'bg-green-500'}"
+      class="size-2 shrink-0 rounded-full {voice.connecting ? 'bg-warning' : 'bg-success'}"
       aria-hidden="true"
     ></span>
     <span class="text-text-muted shrink-0">

@@ -218,7 +218,7 @@
           </div>
 
           {#if loadError}
-            <p class="text-red-400 px-1 py-2 text-xs" data-testid="reaction-popover-error">
+            <p class="text-destructive px-1 py-2 text-xs" data-testid="reaction-popover-error">
               {m.message_reactions_popover_load_error()}
             </p>
           {:else if loadingEmoji === r.emoji && !list}

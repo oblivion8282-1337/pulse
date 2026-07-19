@@ -115,7 +115,7 @@
     <p class="text-text-muted px-1 text-xs">{m.add_friend_searching()}</p>
   {/if}
   {#if searchError}
-    <p class="px-1 text-xs text-rose-400">{searchError}</p>
+    <p class="px-1 text-xs text-destructive">{searchError}</p>
   {/if}
   {#if !searching && query.trim().length >= 2 && hits.length === 0 && !searchError}
     <p class="text-text-muted px-1 py-2 text-sm" data-testid="add-friend-no-results">

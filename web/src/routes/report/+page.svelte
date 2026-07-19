@@ -144,7 +144,7 @@
         </p>
 
         {#if formError}
-          <p class="text-sm text-red-500" data-testid="report-error">{formError}</p>
+          <p class="text-sm text-destructive" data-testid="report-error">{formError}</p>
         {/if}
 
         <div>

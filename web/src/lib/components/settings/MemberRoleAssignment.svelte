@@ -205,7 +205,7 @@
               </div>
               <div class="text-text-muted text-xs">{m.member_role_assignment_position({ position: r.position })}</div>
               {#if lock.locked}
-                <div class="text-xs text-amber-500">{lock.reason}</div>
+                <div class="text-xs text-warning">{lock.reason}</div>
               {/if}
             </div>
             <input

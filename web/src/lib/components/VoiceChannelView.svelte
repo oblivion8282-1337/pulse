@@ -243,7 +243,7 @@
           <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
           <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
           {#if voice.error}
-            <p class="mt-2 text-sm text-red-400">{voice.error}</p>
+            <p class="mt-2 text-sm text-destructive">{voice.error}</p>
           {/if}
           {#if !viewport.isMobile}
             <p class="text-text-muted text-sm">{m.voice_channel_view_join_hint()}</p>
