@@ -7,6 +7,7 @@
   import MousePointerClickIcon from '@lucide/svelte/icons/mouse-pointer-click';
   import VideoIcon from '@lucide/svelte/icons/video';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   type CategoryView = {
     key: SoundCategoryKey;
@@ -72,9 +73,7 @@
           <span class="text-text-muted text-xs">{m.settings_sounds_master_enabled_hint()}</span>
         </span>
       </span>
-      <input
-        type="checkbox"
-        class="size-5 accent-[var(--brand)] md:size-4"
+      <Checkbox
         checked={settings.sounds.masterEnabled}
         onchange={(e) =>
           settings.setSoundsMasterEnabled((e.currentTarget as HTMLInputElement).checked)}
@@ -116,9 +115,8 @@
             <span class="text-text-muted text-xs">{cat.hint}</span>
           </span>
         </span>
-        <input
-          type="checkbox"
-          class="size-5 shrink-0 accent-[var(--brand)] md:size-4"
+        <Checkbox
+          class="shrink-0"
           checked={catSettings.enabled}
           disabled={!settings.sounds.masterEnabled}
           onchange={(e) =>

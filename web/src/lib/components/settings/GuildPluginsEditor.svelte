@@ -25,6 +25,7 @@
   import { setGuildPluginEnabled } from '$lib/plugins';
   import { m } from '$lib/paraglide/messages.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Switch from '$lib/components/form/Switch.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
 
   const HELLO = 'hello';
@@ -129,26 +130,22 @@
               {/if}
             </div>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={row.enabled}
-            aria-label={row.plugin_name}
-            disabled={isHello || busy[row.plugin_name]}
-            onclick={() => toggle(row.plugin_name)}
-            data-testid="guild-plugin-toggle-{row.plugin_name}"
-            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed
-                   {row.enabled ? 'bg-primary' : 'bg-bg-hover'}
-                   {isHello ? 'opacity-60' : ''}"
-          >
-            <span
-              class="inline-block size-4 transform rounded-full bg-white transition-transform
-                     {row.enabled ? 'translate-x-6' : 'translate-x-1'}"
-            ></span>
+          <!-- Schloss NEBEN dem Schalter statt darin: `Switch` nimmt keine
+               Kinder an, und das ist Absicht — ein Schalter ist ein Schalter.
+               Gleiche Lösung wie in `admin/AdminPlugins.svelte`. -->
+          <span class="relative inline-flex shrink-0 items-center">
+            <Switch
+              checked={row.enabled}
+              disabled={isHello || busy[row.plugin_name]}
+              onCheckedChange={() => toggle(row.plugin_name)}
+              aria-label={row.plugin_name}
+              data-testid="guild-plugin-toggle-{row.plugin_name}"
+              class={isHello ? 'opacity-60' : ''}
+            />
             {#if isHello}
               <LockIcon class="text-text-muted pointer-events-none absolute right-1 size-3" />
             {/if}
-          </button>
+          </span>
         </div>
       {/each}
     </div>

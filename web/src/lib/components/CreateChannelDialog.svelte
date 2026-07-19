@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import HashIcon from '@lucide/svelte/icons/hash';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import FolderIcon from '@lucide/svelte/icons/folder';
@@ -106,9 +107,9 @@
         </div>
       </div>
       <div class="space-y-1.5">
-        <Label for="create-channel-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+        <FieldLabel for="create-channel-name" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.create_channel_dialog_name_label()}
-        </Label>
+        </FieldLabel>
         <Input
           id="create-channel-name"
           type="text"

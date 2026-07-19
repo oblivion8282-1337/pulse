@@ -10,6 +10,7 @@
 <script lang="ts">
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   type Group = { title: string; entries: { perm: Permission; label: string; desc: string }[] };
 
@@ -120,9 +121,8 @@
                 <div class="mt-0.5 text-xs text-warning">{m.permission_toggle_grid_editor_missing_perm()}</div>
               {/if}
             </div>
-            <input
-              type="checkbox"
-              class="mt-1 size-4 accent-primary"
+            <Checkbox
+              class="mt-1"
               checked={set}
               disabled={!allowed || disabled}
               onchange={(ev) => toggle(e.perm, (ev.currentTarget as HTMLInputElement).checked)}

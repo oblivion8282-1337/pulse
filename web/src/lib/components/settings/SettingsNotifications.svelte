@@ -15,6 +15,7 @@
   import { listSubscriptions, type SubscriptionDescriptor } from '$lib/notifications/api';
   import { ApiError } from '$lib/api/client';
   import { isElectron } from '$lib/platform/runtime';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   // UI state.
   let permission = $state<'granted' | 'denied' | 'default' | 'unsupported'>('default');
@@ -173,9 +174,7 @@
         <span class="text-text-bright">{m.settings_notifications_on_mention_label()}</span>
         <span class="text-text-muted text-xs">{m.settings_notifications_on_mention_desc()}</span>
       </span>
-      <input
-        type="checkbox"
-        class="size-5 accent-[var(--brand)] md:size-4"
+      <Checkbox
         checked={settings.notifications.onMention}
         onchange={(e) => settings.setNotifyOnMention((e.currentTarget as HTMLInputElement).checked)}
         data-testid="notifications-on-mention"
@@ -187,9 +186,7 @@
         <span class="text-text-bright">{m.settings_notifications_on_dm_label()}</span>
         <span class="text-text-muted text-xs">{m.settings_notifications_on_dm_desc()}</span>
       </span>
-      <input
-        type="checkbox"
-        class="size-5 accent-[var(--brand)] md:size-4"
+      <Checkbox
         checked={settings.notifications.onDM}
         onchange={(e) => settings.setNotifyOnDM((e.currentTarget as HTMLInputElement).checked)}
         data-testid="notifications-on-dm"
@@ -201,9 +198,7 @@
         <span class="text-text-bright">{m.settings_notifications_on_friend_requests_label()}</span>
         <span class="text-text-muted text-xs">{m.settings_notifications_on_friend_requests_desc()}</span>
       </span>
-      <input
-        type="checkbox"
-        class="size-5 accent-[var(--brand)] md:size-4"
+      <Checkbox
         checked={settings.notifications.onFriendRequests}
         onchange={(e) => settings.setNotifyOnFriendRequests((e.currentTarget as HTMLInputElement).checked)}
         data-testid="notifications-on-friend-requests"

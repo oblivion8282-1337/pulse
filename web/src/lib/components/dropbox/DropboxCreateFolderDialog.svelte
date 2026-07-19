@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import { m as pm } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
 
   type Props = {
     name: string;
@@ -22,7 +23,7 @@
   // Svelte flags autofocus as a11y-unsafe (screen readers get jumped
   // past); the manual call lands focus only after the dialog has
   // rendered and the user already sees the input.
-  let inputEl: HTMLInputElement | undefined;
+  let inputEl = $state<HTMLInputElement | null>(null);
   onMount(() => inputEl?.focus());
 
   function onKey(e: KeyboardEvent) {
@@ -37,14 +38,14 @@
 >
   <div class="glass-panel w-96 rounded-2xl p-5 shadow-2xl">
     <h3 class="mb-3 text-sm font-semibold">{pm.dropbox_new_folder()}</h3>
-    <input
+    <Input
       type="text"
       {name}
-      bind:this={inputEl}
+      bind:ref={inputEl}
       oninput={(e) => onInput((e.currentTarget as HTMLInputElement).value)}
       onkeydown={onKey}
       placeholder={pm.dropbox_new_folder_placeholder()}
-      class="w-full rounded-md border border-border/40 bg-bg-input px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none"
+      class="font-mono"
       data-testid="dropbox-folder-name-input"
     />
     <div class="mt-4 flex justify-end gap-2">

@@ -10,6 +10,7 @@
    */
   import { gradientTextStyle, NAME_STYLE_PRESETS } from '$lib/utils/nameColor';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
   import ArrowDownRightIcon from '@lucide/svelte/icons/arrow-down-right';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
@@ -65,12 +66,7 @@
   <span class="text-text-base text-sm font-medium">{m.settings_profile_color_label()}</span>
 
   <label class="flex items-center gap-2 text-sm">
-    <input
-      type="checkbox"
-      bind:checked={useColor}
-      class="size-4"
-      data-testid="profile-color-toggle"
-    />
+    <Checkbox bind:checked={useColor} data-testid="profile-color-toggle" />
     {m.settings_profile_use_color()}
   </label>
 
@@ -117,12 +113,7 @@
     </div>
 
     <label class="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        bind:checked={useGradient}
-        class="size-4"
-        data-testid="profile-gradient-toggle"
-      />
+      <Checkbox bind:checked={useGradient} data-testid="profile-gradient-toggle" />
       {m.settings_profile_use_gradient()}
     </label>
 

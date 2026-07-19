@@ -9,7 +9,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
@@ -325,12 +325,13 @@
         </header>
 
         <div class="space-y-1.5">
-          <Label
+          <FieldLabel
             for="login-identifier"
+            required
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
             {m.login_label_identifier()}
-          </Label>
+          </FieldLabel>
           <Input
             id="login-identifier"
             type="text"
@@ -343,12 +344,13 @@
 
         <div class="space-y-1.5">
           <div class="flex items-baseline justify-between gap-2">
-            <Label
+            <FieldLabel
               for="login-password"
+              required
               class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
             >
               {m.login_label_password()}
-            </Label>
+            </FieldLabel>
             <a
               class="text-primary text-xs hover:underline"
               href="/forgot-password"

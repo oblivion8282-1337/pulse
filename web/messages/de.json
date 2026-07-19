@@ -2631,5 +2631,6 @@
   "feedback_loading": "Wird geladen …",
   "confirm_dialog_title": "Bist du sicher?",
   "confirm_dialog_confirm": "Ja, fortfahren",
-  "confirm_dialog_cancel": "Abbrechen"
+  "confirm_dialog_cancel": "Abbrechen",
+  "field_required": "Pflichtfeld"
 }

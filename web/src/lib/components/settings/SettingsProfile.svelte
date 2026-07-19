@@ -30,6 +30,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import AvatarUploadDialog from '$lib/components/AvatarUploadDialog.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   const DEFAULT_COLOR = '#9ca3af';
   const DEFAULT_SECONDARY = '#22d3ee';
@@ -231,11 +232,10 @@
     <!-- Sprech-Ring in Namensfarbe (aus dem Erscheinungsbild hierher gezogen,
          da es direkt zur eigenen Namensfarbe gehört). Geräte-lokal. -->
     <label class="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={settings.appearance.speakingRingNameColor}
         onchange={(e) => settings.setSpeakingRingNameColor(e.currentTarget.checked)}
-        class="mt-0.5 size-4 shrink-0"
+        class="mt-0.5 shrink-0"
         data-testid="profile-speaking-ring-toggle"
       />
       <span class="flex flex-col gap-0.5">

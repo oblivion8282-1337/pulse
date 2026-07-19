@@ -11,6 +11,7 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
@@ -62,9 +63,9 @@
       </Dialog.Header>
       <p class="text-text-muted text-sm">{m.app_host_admin_revoke_body()}</p>
       <div class="flex flex-col gap-2 pt-2">
-        <label class="text-text-bright text-xs font-medium" for="app-host-revoke-reason">
+        <Label class="text-text-bright text-xs font-medium" for="app-host-revoke-reason">
           {m.app_host_admin_revoke_reason_label()}
-        </label>
+        </Label>
         <textarea
           id="app-host-revoke-reason"
           bind:value={reason}

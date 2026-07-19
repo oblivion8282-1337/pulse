@@ -16,6 +16,7 @@
   import { RESOLUTION_VALUES } from '$lib/stream/settings.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -126,17 +127,17 @@
           <div class="text-text-muted text-xs mt-0.5">{m.admin_stream_limits_bitrate_hint()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number" min="1" max="100" step="any"
             bind:value={bitrateMinMbit}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="hq-bitrate-min" aria-label={m.admin_stream_limits_bitrate_min_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_to()}</span>
-          <input
+          <Input
             type="number" min="1" max="100" step="any"
             bind:value={bitrateMaxMbit}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="hq-bitrate-max" aria-label={m.admin_stream_limits_bitrate_max_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_mbit_unit()}</span>
@@ -150,17 +151,17 @@
           <div class="text-text-muted text-xs mt-0.5">{m.admin_stream_limits_fps_hint()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number" min="1" max="1000" step="1"
             bind:value={fpsMin}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="hq-fps-min" aria-label={m.admin_stream_limits_fps_min_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_to()}</span>
-          <input
+          <Input
             type="number" min="1" max="1000" step="1"
             bind:value={fpsMax}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="hq-fps-max" aria-label={m.admin_stream_limits_fps_max_aria()}
           />
           <span class="text-text-muted text-xs">{m.admin_stream_limits_fps_unit()}</span>

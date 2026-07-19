@@ -13,6 +13,7 @@
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -124,17 +125,17 @@
           <div class="text-text-muted text-xs mt-0.5">{m.admin_normal_stream_limits_bitrate_range()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number" min="1" max="100" step="any"
             bind:value={bitrateMinMbit}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="ns-bitrate-min" aria-label={m.admin_normal_stream_limits_bitrate_min_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
-          <input
+          <Input
             type="number" min="1" max="100" step="any"
             bind:value={bitrateMaxMbit}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="ns-bitrate-max" aria-label={m.admin_normal_stream_limits_bitrate_max_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_mbitps()}</span>
@@ -148,17 +149,17 @@
           <div class="text-text-muted text-xs mt-0.5">{m.admin_normal_stream_limits_fps_range()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number" min="1" max="1000" step="1"
             bind:value={fpsMin}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="ns-fps-min" aria-label={m.admin_normal_stream_limits_fps_min_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
-          <input
+          <Input
             type="number" min="1" max="1000" step="1"
             bind:value={fpsMax}
-            class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-20 text-right tabular-nums"
             data-testid="ns-fps-max" aria-label={m.admin_normal_stream_limits_fps_max_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_fps_unit()}</span>

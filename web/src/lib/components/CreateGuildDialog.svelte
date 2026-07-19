@@ -2,7 +2,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import JoinGuildStep from './JoinGuildStep.svelte';
@@ -134,12 +134,9 @@
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitCreate}>
         <div class="space-y-1.5">
-          <Label
-            for="create-guild-name"
-            class={fieldLabelClass}
-          >
+          <FieldLabel for="create-guild-name" required class={fieldLabelClass}>
             {m.create_guild_dialog_name_label()}
-          </Label>
+          </FieldLabel>
           <Input
             id="create-guild-name"
             type="text"

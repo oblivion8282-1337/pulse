@@ -13,6 +13,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
   import {
     adminApi,
     type SmtpProvider,
@@ -221,8 +222,7 @@
       </div>
 
       <label class="text-text-base flex cursor-pointer items-center gap-2 text-sm {lockedFields ? 'opacity-60' : ''}">
-        <input type="checkbox" bind:checked={useSsl} disabled={lockedFields}
-          class="accent-primary" data-testid="smtp-ssl" />
+        <Checkbox bind:checked={useSsl} disabled={lockedFields} data-testid="smtp-ssl" />
         {m.admin_smtp_ssl_label()}
       </label>
 

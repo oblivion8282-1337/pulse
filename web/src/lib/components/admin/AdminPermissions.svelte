@@ -16,6 +16,8 @@
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import Switch from '$lib/components/form/Switch.svelte';
   import AdminCamLimits from './AdminCamLimits.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -44,12 +46,17 @@
   async function toggle(field: 'allow_guild_creation' | 'allow_member_invites') {
     if (!current || busy[field]) return;
     busy[field] = true;
-    const next = !current[field];
+    const before = current;
+    const next = !before[field];
+    // Erst umlegen, bei einem Fehler zurückdrehen — wie in AdminPlugins.
+    // Der Schalter legt beim Klick seinen eigenen Stand um; bliebe `current`
+    // im Fehlerfall unverändert, stünde die Anzeige danach falsch.
+    current = { ...before, [field]: next };
     try {
-      const updated = await adminApi.patchPermissions({ [field]: next });
-      current = updated;
+      current = await adminApi.patchPermissions({ [field]: next });
       toast.success(m.admin_permissions_permission_updated());
     } catch (e) {
+      current = before;
       toast.error(m.admin_permissions_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
@@ -91,22 +98,14 @@
       <div class="text-text-bright text-sm font-medium">{title}</div>
       <div class="text-text-muted text-xs mt-0.5">{description}</div>
     </div>
-    <button
-      type="button"
-      role="switch"
-      aria-checked={current ? current[field] : false}
+    <Switch
+      checked={current ? current[field] : false}
+      onCheckedChange={() => toggle(field)}
       aria-label={title}
       disabled={!current || busy[field]}
-      onclick={() => toggle(field)}
       data-testid="perm-toggle-{field}"
-      class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-wait
-             {current?.[field] ? 'bg-primary' : 'bg-bg-hover'}"
-    >
-      <span
-        class="inline-block size-4 transform rounded-full bg-white transition-transform
-               {current?.[field] ? 'translate-x-6' : 'translate-x-1'}"
-      ></span>
-    </button>
+      class="disabled:cursor-wait"
+    />
   </div>
 {/snippet}
 
@@ -141,13 +140,13 @@
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number"
             min="4"
             max="5120"
             step="1"
             bind:value={soundLimitKb}
-            class="w-24 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-24 text-right tabular-nums"
             data-testid="sound-limit-input"
             aria-label={m.admin_permissions_sound_limit_aria()}
           />

@@ -9,6 +9,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import {
     adminInstancesApi,
     type AdminInstance,
@@ -187,9 +188,9 @@
         <Dialog.Description>{suspendTarget?.hostname}</Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="suspend-reason">
+        <Label class="text-text-bright text-xs font-medium" for="suspend-reason">
           {m.admin_instances_active_reason_label()} <span class="text-text-muted font-normal">({m.admin_instances_active_reason_optional()})</span>
-        </label>
+        </Label>
         <textarea
           id="suspend-reason"
           bind:value={suspendReason}

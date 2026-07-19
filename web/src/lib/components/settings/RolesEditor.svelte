@@ -22,6 +22,7 @@
   import PermissionToggleGrid from './PermissionToggleGrid.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let {
     guildId,
@@ -378,10 +379,8 @@
         <Label>{m.roles_editor_color_label()}</Label>
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               bind:checked={editColorEnabled}
-              class="size-4 accent-primary"
               data-testid="role-color-enabled"
             />
             {m.roles_editor_color_use()}
@@ -408,11 +407,11 @@
 
       <div class="mb-4 flex flex-wrap gap-4">
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" bind:checked={editHoist} class="size-4 accent-primary" />
+          <Checkbox bind:checked={editHoist} />
           {m.roles_editor_hoist_label()}
         </label>
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" bind:checked={editMentionable} class="size-4 accent-primary" />
+          <Checkbox bind:checked={editMentionable} />
           {m.roles_editor_mentionable_label()}
         </label>
       </div>

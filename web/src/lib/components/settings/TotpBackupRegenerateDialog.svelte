@@ -9,13 +9,14 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
+  import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { totpBackupRegenerate } from '$lib/api/auth';
   import { stripTotpFormatting } from '$lib/auth/format';
   import BackupCodesView from './BackupCodesView.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -84,9 +85,9 @@
       {#if phase === 'auth'}
         <form onsubmit={submit} class="space-y-3">
           <div class="space-y-1.5">
-            <Label for="totp-regen-password" class="text-text-muted text-xs font-semibold uppercase">
+            <FieldLabel for="totp-regen-password" required class="text-text-muted text-xs font-semibold uppercase">
               {m.totp_backup_regen_label_password()}
-            </Label>
+            </FieldLabel>
             <Input
               id="totp-regen-password"
               type="password"
@@ -97,9 +98,9 @@
             />
           </div>
           <div class="space-y-1.5">
-            <Label for="totp-regen-code" class="text-text-muted text-xs font-semibold uppercase">
+            <FieldLabel for="totp-regen-code" required class="text-text-muted text-xs font-semibold uppercase">
               {m.totp_backup_regen_label_current_code()}
-            </Label>
+            </FieldLabel>
             <Input
               id="totp-regen-code"
               type="text"
@@ -132,9 +133,7 @@
       {:else}
         <BackupCodesView {codes} />
         <label class="text-text-base mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            class="size-5 accent-[var(--brand)] md:size-4"
+          <Checkbox
             bind:checked={saved}
             data-testid="totp-regen-saved-check"
           />

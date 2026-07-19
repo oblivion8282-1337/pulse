@@ -15,6 +15,7 @@
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -80,13 +81,13 @@
           <div class="text-text-muted mt-0.5 text-xs">{m.admin_voice_limits_bitrate_hint()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <input
+          <Input
             type="number"
             min="16"
             max="512"
             step="8"
             bind:value={maxKbps}
-            class="w-24 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            class="w-24 text-right tabular-nums"
             data-testid="voice-bitrate-max"
             aria-label={m.admin_voice_limits_bitrate_label()}
           />

@@ -9,6 +9,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
@@ -224,7 +225,7 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-2">
-        <label class="text-text-bright text-xs font-medium" for="reject-reason">{m.admin_instances_pending_reject_reason_label()}</label>
+        <Label class="text-text-bright text-xs font-medium" for="reject-reason">{m.admin_instances_pending_reject_reason_label()}</Label>
         <textarea
           id="reject-reason"
           bind:value={rejectReason}

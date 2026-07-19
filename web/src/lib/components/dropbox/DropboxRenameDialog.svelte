@@ -6,6 +6,7 @@
    */
   import { m as pm } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input/index.js';
 
   type Props = {
     value: string;
@@ -23,11 +24,10 @@
 >
   <div class="glass-panel w-80 rounded-2xl p-5">
     <h3 class="mb-3 text-sm font-semibold">{pm.dropbox_rename_title()}</h3>
-    <input
+    <Input
       type="text"
       {value}
       oninput={(e) => onInput((e.currentTarget as HTMLInputElement).value)}
-      class="w-full rounded-md border border-border/40 bg-bg-input px-3 py-1.5 text-sm focus:border-primary focus:outline-none"
       data-testid="dropbox-rename-input"
     />
     <div class="mt-4 flex justify-end gap-2">

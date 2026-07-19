@@ -2631,5 +2631,6 @@
   "feedback_loading": "Loading …",
   "confirm_dialog_title": "Are you sure?",
   "confirm_dialog_confirm": "Yes, continue",
-  "confirm_dialog_cancel": "Cancel"
+  "confirm_dialog_cancel": "Cancel",
+  "field_required": "Required field"
 }

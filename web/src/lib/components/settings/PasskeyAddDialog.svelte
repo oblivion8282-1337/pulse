@@ -17,6 +17,7 @@
   import { registerPasskey, type WebAuthnCredentialSummary } from '$lib/api/webauthn';
   import BackupCodesView from './BackupCodesView.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   type Props = {
     open?: boolean;
@@ -126,9 +127,7 @@
       {:else}
         <BackupCodesView codes={backupCodes} />
         <label class="text-text-base mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            class="size-5 accent-[var(--brand)] md:size-4"
+          <Checkbox
             bind:checked={saved}
             data-testid="passkey-saved-check"
           />
