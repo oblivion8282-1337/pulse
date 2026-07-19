@@ -25,6 +25,7 @@
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import InboxIcon from '@lucide/svelte/icons/inbox';
+  import UsersIcon from '@lucide/svelte/icons/users';
 
   // ── Spalte 2: Vorschlag "Komponente an App angepasst" ────────────────────
   // Bewusst als reine Klassenketten hier, nicht in der echten Komponente.
@@ -131,6 +132,46 @@
 
   // Alle Abschnitte haben dieselbe Kopfzeile und dasselbe Dreispalten-Raster.
   const cols = 'grid grid-cols-3 items-start gap-4';
+
+  // Menüzeilen: wörtlich aus dem Code, je Datei die abweichenden Werte.
+  // 30 Fundstellen, 16 verschiedene Ausprägungen für dieselbe Sache.
+  const MENU_ROWS_TODAY = [
+    {
+      file: 'GuildSettingsDialog',
+      note: 'gap-2 · px-3 py-2 · rounded-md · sm',
+      cls: 'hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm'
+    },
+    {
+      file: 'MemberListItem',
+      note: 'gap-2.5 · px-3 py-2 · rounded-xl · Grundgrösse',
+      cls: 'hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors'
+    },
+    {
+      file: 'DMChannelList',
+      note: 'gap-3 · px-3 py-3 · rounded-xl · base',
+      cls: 'group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors hover:bg-bg-hover'
+    },
+    {
+      file: 'VoiceChannelMembers',
+      note: 'gap-2.5 · px-2.5 py-1.5 · rounded-md · sm',
+      cls: 'text-text-muted hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm'
+    },
+    {
+      file: 'MessageActionSheet',
+      note: 'gap-3 · px-4 · min-h-12 · KEIN Radius · 15px',
+      cls: 'flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] active:bg-bg-hover'
+    },
+    {
+      file: 'MentionAutocomplete',
+      note: 'gap-2.5 · px-3 py-2 · KEIN Radius · sm',
+      cls: 'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-bg-hover'
+    }
+  ];
+
+  // Vorschlag: eine Zeile, drei Zustände, zwei Dichten.
+  const MENU_ROW =
+    'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm ' +
+    'transition-colors hover:bg-bg-hover';
 
   // Radien-Staffel zur Ansicht. `surface` = Karte/Panel, `control` = Knopf darin.
   // Heute stehen beide in keinem Verhältnis: der Knopf ist härter gerundet als
@@ -254,6 +295,66 @@
         <span class="text-destructive text-sm">destructive (gab es)</span>
       </div>
     </div>
+  </section>
+
+  <section class="space-y-3 border-t border-border pt-6">
+    {@render head(
+      'Menüzeilen — die noch fehlende Komponente',
+      '30 Fundstellen, 16 verschiedene Ausprägungen für dieselbe Sache: eine klickbare Zeile mit Symbol und Text, linksbündig, volle Breite. Sie passen NICHT in die Button-Komponente, weil deren Grundlage `justify-center` erzwingt.'
+    )}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div class="border-border rounded-md border">
+        <div class="border-border text-rail border-b px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase">
+          Heute <span class="text-text-muted">6 von 16 Ausprägungen</span>
+        </div>
+        <div class="bg-bg-chat space-y-1 p-3">
+          {#each MENU_ROWS_TODAY as r (r.file)}
+            <div>
+              <button class={r.cls}>
+                <UsersIcon class="size-4 shrink-0" />
+                <span class="flex-1">Mitglieder</span>
+              </button>
+              <p class="text-text-muted px-1 pt-0.5 font-mono text-[9.5px]">
+                {r.file} — {r.note}
+              </p>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <div class="border-border rounded-md border">
+        <div class="border-border border-b px-3 py-2 font-mono text-[10.5px] font-bold tracking-wider uppercase">
+          Vorschlag <span class="text-text-muted">eine Zeile, drei Zustände</span>
+        </div>
+        <div class="bg-bg-chat space-y-1 p-3">
+          <button class={MENU_ROW}>
+            <UsersIcon class="size-4 shrink-0" />
+            <span class="flex-1">Mitglieder</span>
+          </button>
+          <button class="{MENU_ROW} bg-bg-hover">
+            <UsersIcon class="size-4 shrink-0" />
+            <span class="flex-1">Ausgewählt</span>
+          </button>
+          <button class="{MENU_ROW} text-destructive hover:bg-destructive/10">
+            <TrashIcon class="size-4 shrink-0" />
+            <span class="flex-1">Verlassen</span>
+          </button>
+          <div class="border-border my-2 border-t"></div>
+          <button class="{MENU_ROW} py-3 text-base">
+            <UsersIcon class="size-4 shrink-0" />
+            <span class="flex-1">Grosszügig (Touch)</span>
+          </button>
+          <p class="text-text-muted px-1 pt-2 font-mono text-[9.5px]">
+            gap-2.5 · px-3 py-2 · rounded-md · sm — plus Varianten „aktiv", „Gefahr", „grosszügig"
+          </p>
+        </div>
+      </div>
+    </div>
+    <p class="text-text-muted text-xs">
+      Die Unterschiede oben sind nicht sichtbar gemeint — sie sind einfach so entstanden. Vier
+      Symbolabstände, vier Innenabstände, drei Radien, drei Schriftgrössen. Nebeneinander sieht
+      man, dass keiner davon eine Absicht hatte.
+    </p>
   </section>
 
   <section class="space-y-3 border-t border-border pt-6">
