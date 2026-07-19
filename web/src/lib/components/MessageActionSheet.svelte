@@ -12,6 +12,7 @@
   import FlagIcon from '@lucide/svelte/icons/flag';
   import EmojiPicker from './EmojiPicker.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let {
     open = $bindable(false),
@@ -98,50 +99,48 @@
 
         <div class="my-1 border-t border-border"></div>
 
-        <button
-          type="button"
-          class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] active:bg-bg-hover"
+        <MenuRow
+          density="comfortable"
           data-testid="sheet-action-reply"
           onclick={() => run(onReply)}
         >
           <ReplyIcon class="text-text-muted size-5 shrink-0" />
           {m.message_action_sheet_reply()}
-        </button>
+        </MenuRow>
 
         {#if canEdit}
-          <button
-            type="button"
-            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] active:bg-bg-hover"
+          <MenuRow
+            density="comfortable"
             data-testid="sheet-action-edit"
             onclick={() => run(onEdit)}
           >
             <PencilIcon class="text-text-muted size-5 shrink-0" />
             {m.message_action_sheet_edit()}
-          </button>
+          </MenuRow>
         {/if}
 
         {#if canDelete}
-          <button
-            type="button"
-            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-destructive active:bg-bg-hover"
+          <MenuRow
+            variant="danger"
+            density="comfortable"
             data-testid="sheet-action-delete"
             onclick={() => run(onDelete)}
           >
             <Trash2Icon class="size-5 shrink-0" />
             {m.message_action_sheet_delete()}
-          </button>
+          </MenuRow>
         {/if}
 
         {#if canReport}
-          <button
-            type="button"
-            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-warning active:bg-bg-hover"
+          <MenuRow
+            variant="warning"
+            density="comfortable"
             data-testid="sheet-action-report"
             onclick={() => onReport?.()}
           >
             <FlagIcon class="size-5 shrink-0" />
             {m.message_action_sheet_report()}
-          </button>
+          </MenuRow>
         {/if}
       {/if}
     </div>

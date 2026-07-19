@@ -22,12 +22,9 @@
   import { Perm } from '$lib/permissions/bitfield';
   import * as actions from './popoverActions';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   const CHANNEL_TYPE_VOICE = 1;
-  const BTN_BASE =
-    'hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
-  const BTN_DANGER =
-    'hover:bg-destructive/10 hover:text-destructive text-text-base flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-destructive/10 data-[armed=true]:text-destructive';
 
   // ``popoverOpen`` mirrors the parent popover's ``open`` for confirm-
   // state reset. ``onOpenNickDialog`` is a callback because the dialog
@@ -158,32 +155,26 @@
 {#if !isSelf || canEditNickname}
   <div class="mt-4 flex flex-col gap-1">
     {#if !isSelf}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={() => actions.startDM(ctx())}
         disabled={working}
         data-testid="popover-dm-btn"
       >
         <MessageCircleIcon class="size-4" />
         <span>{working ? m.popover_actions_opening() : m.popover_actions_send_message()}</span>
-      </button>
+      </MenuRow>
     {/if}
     {#if canEditNickname}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={onOpenNickDialog}
         data-testid="popover-nickname-btn"
       >
         <PencilIcon class="size-4" />
         <span>{m.popover_actions_edit_nickname()}</span>
-      </button>
+      </MenuRow>
     {/if}
     {#if canMute}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={() => actions.toggleMute(ctx())}
         disabled={working}
         data-testid="popover-mute-btn"
@@ -195,12 +186,10 @@
           <MicOffIcon class="size-4" />
           <span>{m.popover_actions_mute()}</span>
         {/if}
-      </button>
+      </MenuRow>
     {/if}
     {#if canDeafen}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={() => actions.toggleDeafen(ctx())}
         disabled={working}
         title="Force-deafen is UI-only — the user can still hear on modified clients. Use Disconnect to fully remove them."
@@ -213,24 +202,20 @@
           <HeadphoneOffIcon class="size-4" />
           <span>{m.popover_actions_deafen()}</span>
         {/if}
-      </button>
+      </MenuRow>
     {/if}
     {#if canDisconnectVoice}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={() => actions.disconnectVoice(ctx())}
         disabled={working}
         data-testid="popover-voice-disconnect-btn"
       >
         <PhoneOffIcon class="size-4" />
         <span>{m.popover_actions_disconnect_voice()}</span>
-      </button>
+      </MenuRow>
     {/if}
     {#if canMoveVoice && moveTargets.length > 0}
-      <button
-        type="button"
-        class={BTN_BASE}
+      <MenuRow
         onclick={() => (moveExpanded = !moveExpanded)}
         disabled={working}
         aria-expanded={moveExpanded}
@@ -238,29 +223,26 @@
       >
         <ArrowRightLeftIcon class="size-4" />
         <span>{m.popover_actions_move_voice()}</span>
-      </button>
+      </MenuRow>
       {#if moveExpanded}
         <div class="ml-3 flex flex-col gap-1 border-l border-border pl-2">
           {#each moveTargets as ch (ch.id)}
-            <button
-              type="button"
-              class={BTN_BASE}
+            <MenuRow
               onclick={() => actions.moveIntoVoice(ctx(), ch.id)}
               disabled={working}
               data-testid="popover-voice-move-target"
             >
               <Volume2Icon class="size-4 shrink-0" />
               <span class="truncate">{ch.name}</span>
-            </button>
+            </MenuRow>
           {/each}
         </div>
       {/if}
     {/if}
     {#if canKick}
-      <button
-        type="button"
-        class={BTN_DANGER}
-        data-armed={kickConfirmArmed}
+      <MenuRow
+        variant="danger"
+        active={kickConfirmArmed}
         onclick={() => (kickConfirmArmed ? actions.kick(ctx()) : (kickConfirmArmed = true))}
         disabled={working}
         data-testid="popover-kick-btn"
@@ -273,13 +255,12 @@
             {m.popover_actions_kick()}
           {/if}
         </span>
-      </button>
+      </MenuRow>
     {/if}
     {#if canBan}
-      <button
-        type="button"
-        class={BTN_DANGER}
-        data-armed={banConfirmArmed}
+      <MenuRow
+        variant="danger"
+        active={banConfirmArmed}
         onclick={() => (banConfirmArmed ? actions.ban(ctx()) : (banConfirmArmed = true))}
         disabled={working}
         data-testid="popover-ban-btn"
@@ -292,7 +273,7 @@
             {m.popover_actions_ban()}
           {/if}
         </span>
-      </button>
+      </MenuRow>
     {/if}
   </div>
 {/if}

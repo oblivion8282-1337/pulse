@@ -18,6 +18,7 @@
   import UsersIcon from '@lucide/svelte/icons/users';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { channelNameStyle } from '$lib/utils/nameColor';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   type Result =
     | { kind: 'guild'; key: string; label: string; href: string }
@@ -136,14 +137,10 @@
         <EmptyState message={m.quick_switcher_no_results()} />
       {:else}
         {#each results as r, i (r.key)}
-          <button
-            type="button"
+          <MenuRow
             onclick={() => select(r)}
             onmouseenter={() => (activeIdx = i)}
-            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors {activeIdx ===
-            i
-              ? 'bg-bg-hover text-text-bright'
-              : 'text-text-base'}"
+            active={activeIdx === i}
             data-testid="quick-switcher-result"
           >
             {#if r.kind === 'guild'}
@@ -161,7 +158,7 @@
             {#if r.kind === 'channel'}
               <span class="text-text-muted ml-auto shrink-0 text-xs">{r.sublabel}</span>
             {/if}
-          </button>
+          </MenuRow>
         {/each}
       {/if}
     </div>

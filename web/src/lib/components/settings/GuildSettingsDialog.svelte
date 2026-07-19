@@ -45,6 +45,7 @@
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let {
     open = $bindable(false),
@@ -210,90 +211,72 @@
     </Dialog.Header>
 
     <div class="flex min-h-0 flex-1">
-      <nav class="border-border w-48 shrink-0 border-r bg-bg-input/40 p-2">
+      <nav class="border-border w-48 shrink-0 space-y-1 border-r bg-bg-input/40 p-2">
         {#if canManageRoles}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'roles'}
+          <MenuRow
+            active={tab === 'roles'}
             onclick={() => selectTab('roles')}
             data-testid="settings-tab-roles"
           >
             <ShieldIcon class="size-4" /> {m.guild_settings_dialog_tab_roles()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'members'}
+          </MenuRow>
+          <MenuRow
+            active={tab === 'members'}
             onclick={() => selectTab('members')}
             data-testid="settings-tab-members"
           >
             <UsersIcon class="size-4" /> {m.guild_settings_dialog_tab_members()}
-          </button>
+          </MenuRow>
         {/if}
         {#if canManageGuild}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'sounds'}
+          <MenuRow
+            active={tab === 'sounds'}
             onclick={() => selectTab('sounds')}
             data-testid="settings-tab-sounds"
           >
             <Volume2Icon class="size-4" /> {m.guild_settings_dialog_tab_sounds()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'dropbox'}
+          </MenuRow>
+          <MenuRow
+            active={tab === 'dropbox'}
             onclick={() => selectTab('dropbox')}
             data-testid="settings-tab-dropbox"
           >
             <FolderIcon class="size-4" /> {m.guild_settings_dialog_tab_dropbox()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'plugins'}
+          </MenuRow>
+          <MenuRow
+            active={tab === 'plugins'}
             onclick={() => selectTab('plugins')}
             data-testid="settings-tab-plugins"
           >
             <PuzzleIcon class="size-4" /> {m.guild_settings_dialog_tab_plugins()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'publicaddress'}
+          </MenuRow>
+          <MenuRow
+            active={tab === 'publicaddress'}
             onclick={() => selectTab('publicaddress')}
             data-testid="settings-tab-publicaddress"
           >
             <GlobeIcon class="size-4" /> {m.guild_settings_dialog_tab_publicaddress()}
-          </button>
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'limits'}
+          </MenuRow>
+          <MenuRow
+            active={tab === 'limits'}
             onclick={() => selectTab('limits')}
             data-testid="settings-tab-limits"
           >
             <PaperclipIcon class="size-4" /> {m.guild_settings_dialog_tab_limits()}
-          </button>
+          </MenuRow>
         {/if}
         {#if canCreateInvites}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'invites'}
+          <MenuRow
+            active={tab === 'invites'}
             onclick={() => selectTab('invites')}
             data-testid="settings-tab-invites"
           >
             <LinkIcon class="size-4" /> {m.guild_settings_dialog_tab_invites()}
-          </button>
+          </MenuRow>
         {/if}
         {#if canSeeModQueue}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'modqueue'}
+          <MenuRow
+            active={tab === 'modqueue'}
             onclick={() => selectTab('modqueue')}
             data-testid="settings-tab-modqueue"
           >
@@ -306,29 +289,25 @@
                 {modQueueOpen > 99 ? '99+' : modQueueOpen}
               </span>
             {/if}
-          </button>
+          </MenuRow>
         {/if}
         {#if canManageGuild}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'auditlog'}
+          <MenuRow
+            active={tab === 'auditlog'}
             onclick={() => selectTab('auditlog')}
             data-testid="settings-tab-auditlog"
           >
             <ScrollTextIcon class="size-4" /> {m.guild_settings_dialog_tab_auditlog()}
-          </button>
+          </MenuRow>
         {/if}
         {#if isOwner}
-          <button
-            type="button"
-            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
-            class:bg-bg-hover={tab === 'ownership'}
+          <MenuRow
+            active={tab === 'ownership'}
             onclick={() => selectTab('ownership')}
             data-testid="settings-tab-ownership"
           >
             <CrownIcon class="size-4" /> {m.guild_settings_dialog_tab_ownership()}
-          </button>
+          </MenuRow>
         {/if}
       </nav>
 

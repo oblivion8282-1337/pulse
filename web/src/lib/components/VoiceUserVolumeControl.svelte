@@ -14,6 +14,7 @@
   import { settings, USER_VOLUME_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let { userId, name }: { userId: string; name: string } = $props();
 
@@ -49,14 +50,13 @@
     aria-label={m.voice_user_volume_label({ name })}
     data-testid="voice-participant-volume-slider"
   />
-  <button
-    type="button"
+  <MenuRow
+    class="mt-2"
     disabled={volumePct === 100}
     onclick={() => applyVolumePct(100)}
-    class="text-text-base hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors disabled:opacity-40"
     data-testid="voice-participant-volume-reset"
   >
     <RotateCcwIcon class="size-3.5" />
     {m.voice_user_volume_reset()}
-  </button>
+  </MenuRow>
 </div>
