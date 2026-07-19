@@ -24,6 +24,7 @@
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { m } from '$lib/paraglide/messages.js';
   import { onDestroy } from 'svelte';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let listeningId = $state<ActionId | null>(null);
   /** Inline error shown after a rejected rebind — cleared on the next capture
@@ -46,7 +47,7 @@
     endCapture();
     bindingError = null;
     listeningId = id;
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = async (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const key = (e.key || '').toLowerCase();
@@ -82,19 +83,22 @@
         return;
       }
       const other = conflictWith(settings.shortcuts, combo, id);
+      // Tastenaufnahme in jedem Fall ZUERST beenden, dann erst fragen: der
+      // Dialog will die Tastatur selbst (Esc, Enter, Tab), und dieser
+      // keydown-Handler hängt noch mit `capture` davor — er würde sie ihm
+      // wegschnappen.
+      endCapture();
       if (other) {
-        const otherLabel = ACTION_BY_ID[other].label;
-        const ok = window.confirm(
-          m.settings_keyboard_conflict_confirm({ combo: displayCombo(combo), otherLabel })
-        );
-        if (!ok) {
-          endCapture();
-          return;
-        }
+        const ok = await confirmDialog({
+          description: m.settings_keyboard_conflict_confirm({
+            combo: displayCombo(combo),
+            otherLabel: ACTION_BY_ID[other].label
+          })
+        });
+        if (!ok) return;
         settings.unbindShortcut(other);
       }
       settings.setShortcutBinding(id, combo);
-      endCapture();
     };
     cleanupCapture = () => window.removeEventListener('keydown', onKey, true);
     window.addEventListener('keydown', onKey, true);
@@ -104,8 +108,12 @@
     settings.resetShortcut(id);
   }
 
-  function resetAll(): void {
-    if (!window.confirm(m.settings_keyboard_reset_all_confirm())) return;
+  async function resetAll(): Promise<void> {
+    const ok = await confirmDialog({
+      description: m.settings_keyboard_reset_all_confirm(),
+      destructive: true
+    });
+    if (!ok) return;
     settings.resetAllShortcuts();
   }
 

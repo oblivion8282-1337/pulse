@@ -29,6 +29,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let { onlineOnly = false }: { onlineOnly?: boolean } = $props();
 
@@ -100,7 +101,11 @@
   }
 
   async function unfriend(userId: string) {
-    if (!confirm(m.friend_list_unfriend_confirm())) return;
+    const ok = await confirmDialog({
+      description: m.friend_list_unfriend_confirm(),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await friendsApi.removeFriend(userId);
       friends.remove(userId);

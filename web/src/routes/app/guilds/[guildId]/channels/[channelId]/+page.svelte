@@ -39,6 +39,7 @@
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
@@ -465,7 +466,11 @@
   }
 
   async function deleteMessage(m: Message) {
-    if (!confirm(pm.channel_page_confirm_delete_message())) return;
+    const ok = await confirmDialog({
+      description: pm.channel_page_confirm_delete_message(),
+      destructive: true
+    });
+    if (!ok) return;
     try {
       await chatApi.deleteMessage(m.id);
       // WS broadcasts `message_delete`.

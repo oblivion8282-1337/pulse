@@ -17,6 +17,7 @@ import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { m } from '$lib/paraglide/messages.js';
+import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
 export interface ActionCtx {
   userId: string;
@@ -266,7 +267,11 @@ export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promi
 
 export async function removeFriend(ctx: ActionCtx): Promise<void> {
   if (ctx.isSelf || ctx.isWorking()) return;
-  if (!confirm(m.popover_actions_remove_friend_confirm({ displayName: ctx.displayName }))) return;
+  const ok = await confirmDialog({
+    description: m.popover_actions_remove_friend_confirm({ displayName: ctx.displayName }),
+    destructive: true
+  });
+  if (!ok) return;
   ctx.setWorking(true);
   try {
     await friendsApi.removeFriend(ctx.userId);
@@ -284,7 +289,11 @@ export async function removeFriend(ctx: ActionCtx): Promise<void> {
 
 export async function blockUser(ctx: ActionCtx): Promise<void> {
   if (ctx.isSelf || ctx.isWorking()) return;
-  if (!confirm(m.popover_actions_block_confirm({ displayName: ctx.displayName }))) return;
+  const ok = await confirmDialog({
+    description: m.popover_actions_block_confirm({ displayName: ctx.displayName }),
+    destructive: true
+  });
+  if (!ok) return;
   ctx.setWorking(true);
   try {
     const result = await friendsApi.blockUser(ctx.userId);
