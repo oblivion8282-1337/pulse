@@ -143,14 +143,14 @@
           </Button>
         {/if}
 
-        <button
-          type="button"
-          class="text-muted-foreground hover:text-card-foreground text-xs underline"
+        <Button
+          variant="link"
+          size="xs"
           onclick={() => auth.signOut()}
           data-testid="verify-required-signout"
         >
           {m.verify_email_sign_out_link()}
-        </button>
+        </Button>
       </div>
     {/if}
   </div>

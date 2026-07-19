@@ -62,11 +62,12 @@
            überlaufen (truncate hängt an min-width-Mechanik des Parents). -->
       <code class="text-text-bright min-w-0 flex-1 break-all font-mono text-xs"
             data-testid="invite-share-link">{link}</code>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="shrink-0"
         onclick={() => void copy(link ?? '')}
         aria-label={m.guild_invites_copy_link()}
-        class="text-text-muted hover:text-text-bright shrink-0 rounded-lg p-1.5 transition-colors"
         data-testid="invite-share-copy"
       >
         {#if copied}
@@ -74,7 +75,7 @@
         {:else}
           <CopyIcon class="size-4" />
         {/if}
-      </button>
+      </Button>
     </div>
   {:else}
     <Button

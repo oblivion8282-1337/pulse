@@ -9,6 +9,7 @@
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import { Button } from '$lib/components/ui/button';
 
   let instances = $state<AdminInstance[]>([]);
   let loading = $state(true);
@@ -66,14 +67,15 @@
             {inst.registrar_username} · {new Date(inst.registered_at).toLocaleDateString('de-DE')}
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="success-solid"
+          size="xs"
+          class="shrink-0"
           onclick={() => void unsuspend(inst)}
           disabled={!!busy[inst.id]}
-          class="rounded-lg bg-success px-3 py-1.5 text-xs text-black font-medium hover:bg-success/90 disabled:opacity-60 transition-colors shrink-0"
         >
           {busy[inst.id] ? m.admin_instances_suspended_unsuspending() : m.admin_instances_suspended_unsuspend_button()}
-        </button>
+        </Button>
       </div>
     {/each}
   </div>

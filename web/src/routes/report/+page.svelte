@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { ApiError } from '$lib/api/client';
   import { submitAbuseReport } from '$lib/api/complaints';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
@@ -87,13 +88,9 @@
       >
         <h2 class="mb-2 text-lg font-semibold">{m.report_abuse_success_title()}</h2>
         <p class="text-muted-foreground text-sm">{m.report_abuse_success_body()}</p>
-        <button
-          type="button"
-          onclick={reset}
-          class="bg-primary mt-5 rounded-xl px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-        >
+        <Button class="mt-5" onclick={reset}>
           {m.report_abuse_another()}
-        </button>
+        </Button>
       </div>
     {:else}
       <p class="text-muted-foreground mb-6 text-sm">{m.report_abuse_intro()}</p>
@@ -147,14 +144,9 @@
         <FieldError message={formError} testId="report-error" />
 
         <div>
-          <button
-            type="submit"
-            disabled={submitting}
-            data-testid="report-submit"
-            class="bg-primary rounded-xl px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
-          >
+          <Button type="submit" disabled={submitting} data-testid="report-submit">
             {submitting ? m.report_abuse_submitting() : m.report_abuse_submit()}
-          </button>
+          </Button>
         </div>
       </form>
     {/if}

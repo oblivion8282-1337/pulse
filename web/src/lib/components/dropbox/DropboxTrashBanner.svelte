@@ -16,6 +16,7 @@
    */
   import TrashIcon from '@lucide/svelte/icons/trash-2';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type Props = {
     /** Number of trashed entries. Empty-button auto-disables at 0. */
@@ -34,14 +35,15 @@
   <span class="font-medium" data-testid="dropbox-trash-banner-count">
     {pm.dropbox_trash_count_label({ count: trashCount })}
   </span>
-  <button
-    type="button"
-    class="ml-auto rounded-md border border-destructive/50 bg-destructive/10 px-3 py-1 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-40"
+  <Button
+    variant="destructive"
+    size="sm"
+    class="ml-auto"
     onclick={onEmptyTrash}
     disabled={trashCount === 0}
     title={pm.dropbox_empty_trash_title()}
     data-testid="dropbox-empty-trash-btn"
   >
     {pm.dropbox_empty_trash()}
-  </button>
+  </Button>
 </div>

@@ -10,6 +10,7 @@
   import type { AdminUser } from '$lib/api/admin';
   import { safeAvatarUrl } from '$lib/avatar';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import BanIcon from '@lucide/svelte/icons/ban';
   import ServerIcon from '@lucide/svelte/icons/server';
@@ -85,15 +86,16 @@
   <PopoverPrimitive.Root>
     <PopoverPrimitive.Trigger>
       {#snippet child({ props })}
-        <button
+        <Button
           {...props}
-          class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
+          variant="ghost"
+          size="icon-sm"
           aria-label={m.admin_users_actions_aria_label()}
           disabled={pending}
           data-testid="admin-user-actions"
         >
           <MoreHorizontalIcon class="size-4" />
-        </button>
+        </Button>
       {/snippet}
     </PopoverPrimitive.Trigger>
     <PopoverPrimitive.Portal>

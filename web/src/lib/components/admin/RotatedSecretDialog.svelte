@@ -7,6 +7,7 @@
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import type { RotateSecretResult } from '$lib/api/instances';
 
   let {
@@ -38,21 +39,19 @@
           <code class="text-text-bright flex-1 break-all text-xs select-all">
             {result?.client_secret}
           </code>
-          <button type="button" onclick={copySecret}
-            class="text-text-muted hover:text-text-bright shrink-0 rounded p-1">
+          <Button variant="ghost" size="icon-xs" onclick={copySecret} class="shrink-0">
             {#if copied}
               <CheckIcon class="size-4 text-success" />
             {:else}
               <ClipboardIcon class="size-4" />
             {/if}
-          </button>
+          </Button>
         </div>
       </div>
       <div class="flex justify-end pt-2">
-        <button type="button" onclick={onClose}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium">
+        <Button onclick={onClose}>
           {m.admin_instances_active_btn_acknowledged()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

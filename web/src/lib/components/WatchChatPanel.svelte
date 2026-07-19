@@ -17,6 +17,7 @@
   import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import XIcon from '@lucide/svelte/icons/x';
+  import { Button } from '$lib/components/ui/button';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -133,16 +134,17 @@
     <ClapperboardIcon class="size-4 text-primary" />
     <span class="text-text-bright truncate text-sm font-semibold">{m.watch_chat_panel_title()}</span>
     {#if onClose}
-      <button
-        type="button"
-        class="ml-auto rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:p-1.5"
+      <Button
+        variant="ghost"
+        size="icon"
+        class="ml-auto"
         onclick={onClose}
         aria-label={m.watch_chat_panel_close_aria()}
         title={m.watch_chat_panel_close_title()}
         data-testid="watch-chat-close"
       >
         <XIcon class="text-text-muted size-5 md:size-4" />
-      </button>
+      </Button>
     {/if}
   </header>
 

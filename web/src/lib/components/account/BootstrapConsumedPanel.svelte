@@ -6,6 +6,7 @@
   Eigene Komponente wegen der 250-Zeilen-Policy des Dialogs.
 -->
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button';
   import { m } from '$lib/paraglide/messages.js';
 
   let { resetting, onreset }: { resetting: boolean; onreset: () => void } = $props();
@@ -20,21 +21,26 @@
   {#if confirm}
     <p class="text-destructive text-xs">{m.instance_setup_reset_confirm_body()}</p>
     <div class="flex gap-2">
-      <button type="button" onclick={() => (confirm = false)}
-        class="rounded-lg border border-border px-3 py-1.5 text-xs text-text-base hover:bg-bg-hover">
+      <Button variant="outline" size="xs" onclick={() => (confirm = false)}>
         {m.admin_instances_pending_cancel()}
-      </button>
-      <button type="button" onclick={() => { confirm = false; onreset(); }} disabled={resetting}
-        class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive disabled:opacity-60"
+      </Button>
+      <Button
+        variant="destructive-solid"
+        size="xs"
+        onclick={() => { confirm = false; onreset(); }}
+        disabled={resetting}
         data-testid="instance-setup-reset-confirm">
         {m.instance_setup_reset_confirm_btn()}
-      </button>
+      </Button>
     </div>
   {:else}
-    <button type="button" onclick={() => (confirm = true)}
-      class="w-fit rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs font-medium hover:text-text-bright"
+    <Button
+      variant="outline"
+      size="xs"
+      class="w-fit"
+      onclick={() => (confirm = true)}
       data-testid="instance-setup-reset">
       {m.instance_setup_reset_btn()}
-    </button>
+    </Button>
   {/if}
 </div>

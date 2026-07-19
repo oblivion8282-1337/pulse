@@ -22,6 +22,7 @@
   import { toast } from 'svelte-sonner';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   let {
     channelId,
@@ -244,11 +245,9 @@
       <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
       <p class="text-text-bright text-sm font-medium">{m.screen_share_tile_detached_label()}</p>
       <p class="text-text-muted text-xs">{name}</p>
-      <button
-        type="button"
-        onclick={reattachDocPip}
-        class="bg-primary hover:bg-primary/90 mt-1 rounded-full px-3 py-1 text-xs font-semibold text-white"
-      >{m.screen_share_tile_reattach()}</button>
+      <Button size="xs" class="mt-1" onclick={reattachDocPip}>
+        {m.screen_share_tile_reattach()}
+      </Button>
     </div>
   </div>
 {:else}

@@ -16,6 +16,7 @@
   import { formatBytes } from '$lib/utils/formatBytes';
   import { isFile, isFolder, type DropboxEntry } from '$lib/api/dropbox';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { fileIcon } from './fileIcon';
 
   type Props = {
@@ -125,51 +126,45 @@
         <td class="text-right">
           <div class="flex justify-end gap-1">
             {#if viewTrash}
-              <button
-                class="rounded p-1 hover:bg-bg-hover"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onclick={() => onRestore(e)}
                 data-testid="dropbox-entry-restore-{e.id}"
               >
                 <Undo2Icon class="size-4" />
-              </button>
+              </Button>
             {:else}
-              <button
-                class="rounded p-1 hover:bg-bg-hover"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 title={pm.dropbox_download_title()}
                 onclick={() => onDownload(e)}
                 data-testid="dropbox-entry-download-{e.id}"
               >
                 <DownloadIcon class="size-4" />
-              </button>
-              <button
-                class="rounded p-1 hover:bg-bg-hover"
-                onclick={() => onTogglePin(e)}
-              >
+              </Button>
+              <Button variant="ghost" size="icon-xs" onclick={() => onTogglePin(e)}>
                 {#if e.pinned}
                   <PinOffIcon class="size-4" />
                 {:else}
                   <PinIcon class="size-4" />
                 {/if}
-              </button>
-              <button
-                class="rounded p-1 hover:bg-bg-hover"
-                onclick={() => onRename(e)}
-              >
+              </Button>
+              <Button variant="ghost" size="icon-xs" onclick={() => onRename(e)}>
                 <PencilIcon class="size-4" />
-              </button>
-              <button
-                class="rounded p-1 hover:bg-bg-hover"
-                onclick={() => onMove(e)}
-              >
+              </Button>
+              <Button variant="ghost" size="icon-xs" onclick={() => onMove(e)}>
                 <FolderIcon class="size-4" />
-              </button>
-              <button
-                class="rounded p-1 text-destructive hover:bg-destructive/20"
+              </Button>
+              <Button
+                variant="destructive"
+                size="icon-xs"
                 onclick={() => onTrash(e)}
                 data-testid="dropbox-entry-trash-{e.id}"
               >
                 <TrashIcon class="size-4" />
-              </button>
+              </Button>
             {/if}
           </div>
         </td>

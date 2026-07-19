@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
@@ -198,23 +199,16 @@
     </div>
 
     <Dialog.Footer>
-      <button
-        type="button"
-        onclick={onClose}
-        class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-4 py-2 text-sm transition-colors"
-        data-testid="report-cancel"
-      >
+      <Button variant="secondary" onclick={onClose} data-testid="report-cancel">
         {m.report_message_cancel()}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         onclick={submit}
         disabled={!bodyValid || submitting}
-        class="accent-gradient rounded-md px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         data-testid="report-submit"
       >
         {submitting ? m.report_message_submitting() : m.report_message_submit()}
-      </button>
+      </Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

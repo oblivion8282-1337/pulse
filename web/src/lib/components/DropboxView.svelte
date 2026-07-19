@@ -17,6 +17,7 @@
   import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import XIcon from '@lucide/svelte/icons/x';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import DropboxBreadcrumb from './dropbox/DropboxBreadcrumb.svelte';
   import DropboxQuotaGauge from './dropbox/DropboxQuotaGauge.svelte';
   import DropboxToolbar from './dropbox/DropboxToolbar.svelte';
@@ -111,30 +112,33 @@
         <span class="font-medium">
           {pm.dropbox_selection_count({ count: v.selectionCount })}
         </span>
-        <button
-          class="ml-auto flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+        <Button
+          size="xs"
+          class="ml-auto"
           onclick={() => v.downloadSelection()}
           data-testid="dropbox-download-selection"
         >
           <DownloadIcon class="size-3.5" />
           {pm.dropbox_download_selection()}
-        </button>
-        <button
-          class="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1.5 text-xs hover:bg-bg-hover"
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
           onclick={() => v.startBulkMove()}
           title={pm.dropbox_move_title()}
           data-testid="dropbox-move-selection"
         >
           <FolderInputIcon class="size-3.5" />
           {pm.dropbox_move_title()}
-        </button>
-        <button
-          class="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1.5 text-xs hover:bg-bg-hover"
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-xs"
           onclick={() => v.clearSelection()}
           title={pm.dropbox_clear_selection()}
         >
           <XIcon class="size-3.5" />
-        </button>
+        </Button>
       </div>
     {/if}
     {#if v.loading && v.entries.length === 0}

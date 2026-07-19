@@ -8,6 +8,7 @@
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import { plainifyMentions } from './messageRender';
+  import { Button } from '$lib/components/ui/button';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -224,14 +225,16 @@
         <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
       {/if}
       {#if showMemberList}
-        <button
-          class="ml-auto rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto max-md:hidden"
           onclick={() => (memberListOpen = !memberListOpen)}
           aria-label={pm.chat_view_toggle_member_list()}
           data-testid="member-list-toggle"
         >
           <UsersIcon class="text-text-muted size-4" />
-        </button>
+        </Button>
       {/if}
     {:else}
       <span class="text-text-muted text-sm">{pm.chat_view_select_channel()}</span>

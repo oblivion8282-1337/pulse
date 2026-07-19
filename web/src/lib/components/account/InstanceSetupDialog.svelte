@@ -13,6 +13,7 @@
   import { instancesApi, type Instance } from '$lib/api/instances';
   import BootstrapConsumedPanel from './BootstrapConsumedPanel.svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -207,14 +208,10 @@
         {:else if error}
           <div class="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3">
             <p class="text-destructive text-xs">{m.instance_setup_error()}</p>
-            <button
-              type="button"
-              onclick={() => void mint()}
-              class="flex items-center gap-1.5 rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs"
-            >
+            <Button variant="outline" size="xs" onclick={() => void mint()}>
               <RefreshCwIcon class="size-3.5" />
               {m.instance_setup_regenerate()}
-            </button>
+            </Button>
           </div>
         {:else if token}
           <!-- Befehl -->
@@ -226,19 +223,20 @@
                   : ''}"
                 data-testid="instance-setup-command">{command}</code
               >
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="shrink-0"
                 onclick={copy}
                 disabled={expired}
                 aria-label={m.instance_setup_copy()}
-                class="text-text-muted hover:text-text-bright shrink-0 rounded-lg p-1.5 transition-colors disabled:opacity-40"
               >
                 {#if copied}
                   <CheckIcon class="size-4 text-success" />
                 {:else}
                   <CopyIcon class="size-4" />
                 {/if}
-              </button>
+              </Button>
             </div>
             <div class="flex items-center justify-between gap-2">
               {#if expired}
@@ -248,14 +246,10 @@
                   {m.instance_setup_expires_in({ time: countdown })}
                 </p>
               {/if}
-              <button
-                type="button"
-                onclick={() => void mint()}
-                class="text-text-muted hover:text-text-bright flex items-center gap-1 text-xs"
-              >
+              <Button variant="ghost" size="xs" onclick={() => void mint()}>
                 <RefreshCwIcon class="size-3" />
                 {m.instance_setup_regenerate()}
-              </button>
+              </Button>
             </div>
           </div>
         {/if}
@@ -268,10 +262,10 @@
             </p>
             <p class="text-text-muted mb-2 text-xs">{m.instance_setup_ai_hint()}</p>
             <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="xs"
                 onclick={() => void copyAiPrompt()}
-                class="border-border bg-bg-hover hover:text-text-bright flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs"
                 data-testid="instance-setup-ai-copy"
               >
                 {#if aiCopied}
@@ -280,7 +274,7 @@
                   <CopyIcon class="size-3.5" />
                 {/if}
                 {m.instance_setup_ai_copy()}
-              </button>
+              </Button>
               <a
                 href="{installBase}/install/guide"
                 target="_blank"
@@ -300,16 +294,17 @@
           </p>
           <p class="text-text-muted text-xs">{m.instance_setup_manual_desc()}</p>
 
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="xs"
+            class="w-fit"
             onclick={() => void downloadEnv()}
             disabled={envDownloading}
-            class="bg-bg-hover border-border hover:text-text-bright flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-50"
             data-testid="instance-setup-env-download"
           >
             <DownloadIcon class="size-4" />
             {envDownloading ? m.instance_setup_manual_downloading() : m.instance_setup_manual_download()}
-          </button>
+          </Button>
           <p class="text-warning text-xs">{m.instance_setup_manual_download_warning()}</p>
 
           <p class="text-text-muted text-xs">{m.instance_setup_manual_steps()}</p>
@@ -339,13 +334,9 @@
 
         <!-- Erklärung -->
         <div>
-          <button
-            type="button"
-            onclick={() => (showExplain = !showExplain)}
-            class="text-text-muted hover:text-text-bright text-xs underline"
-          >
+          <Button variant="link" size="xs" onclick={() => (showExplain = !showExplain)}>
             {m.instance_setup_explain_toggle()}
-          </button>
+          </Button>
           {#if showExplain}
             <ul class="text-text-muted mt-2 flex list-disc flex-col gap-1 pl-4 text-xs">
               <li>{m.instance_setup_explain_1()}</li>
@@ -366,13 +357,9 @@
       </div>
 
       <div class="flex justify-end pt-2">
-        <button
-          type="button"
-          onclick={() => (open = false)}
-          class="bg-primary hover:bg-primary/90 rounded-xl px-4 py-2 text-sm font-medium text-white"
-        >
+        <Button onclick={() => (open = false)}>
           {m.instance_setup_close()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

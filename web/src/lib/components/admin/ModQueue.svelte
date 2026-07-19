@@ -20,6 +20,7 @@
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import BansList from '$lib/components/settings/BansList.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -276,47 +277,48 @@
           {#if activeTab === 'open'}
             <div class="flex flex-wrap gap-2">
               {#if r.target_user_id}
-                <button
-                  type="button"
+                <Button
+                  variant="destructive"
+                  size="xs"
                   onclick={() => openBan(r)}
                   disabled={actingId === r.id}
-                  class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
                   data-testid="modqueue-ban-btn"
                 >
                   {m.mod_queue_btn_ban()}
-                </button>
+                </Button>
               {/if}
               {#if r.target_message_id}
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="xs"
                   onclick={() => closeReport(r, 'resolved', 'message_delete', m.mod_queue_toast_deleted())}
                   disabled={actingId === r.id}
-                  class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
                   data-testid="modqueue-delete-btn"
                 >
                   {m.mod_queue_btn_delete_message()}
-                </button>
+                </Button>
               {/if}
               {#if !r.escalated_at}
-                <button
-                  type="button"
+                <Button
+                  variant="warning"
+                  size="xs"
                   onclick={() => openEscalate(r)}
                   disabled={actingId === r.id}
-                  class="rounded-md bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning/20 disabled:opacity-50"
                   data-testid="modqueue-escalate-btn"
                 >
                   {m.mod_queue_btn_escalate()}
-                </button>
+                </Button>
               {/if}
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
                 onclick={() => closeReport(r, 'dismissed', undefined, m.mod_queue_toast_dismissed())}
                 disabled={actingId === r.id}
-                class="text-text-muted hover:bg-bg-hover ml-auto rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
+                class="ml-auto"
                 data-testid="modqueue-dismiss-btn"
               >
                 {m.mod_queue_btn_dismiss()}
-              </button>
+              </Button>
             </div>
           {/if}
         </li>

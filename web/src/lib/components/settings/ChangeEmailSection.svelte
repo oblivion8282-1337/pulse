@@ -119,7 +119,7 @@
 
     <Button
       type="submit"
-      class="accent-gradient self-start text-white"
+      class="self-start"
       disabled={busy}
       data-testid="change-email-submit"
     >

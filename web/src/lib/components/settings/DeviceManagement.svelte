@@ -177,15 +177,16 @@
             </div>
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="destructive"
+            size="xs"
             onclick={() => (confirmDevice = device)}
             disabled={revokingId === device.cert_id}
-            class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto md:py-1.5"
+            class="self-start sm:self-auto"
             data-testid="device-revoke"
           >
             {revokingId === device.cert_id ? m.device_management_revoking() : m.device_management_revoke()}
-          </button>
+          </Button>
         </li>
       {/each}
     </ul>

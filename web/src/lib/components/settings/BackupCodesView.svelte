@@ -9,6 +9,7 @@
   import DownloadIcon from '@lucide/svelte/icons/download';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   let { codes }: { codes: string[] } = $props();
 
@@ -44,24 +45,14 @@
     {/each}
   </div>
   <div class="flex flex-wrap gap-2">
-    <button
-      type="button"
-      onclick={download}
-      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
-      data-testid="backup-codes-download"
-    >
+    <Button variant="secondary" size="xs" onclick={download} data-testid="backup-codes-download">
       <DownloadIcon class="size-3.5" />
       {m.backup_codes_view_download_txt()}
-    </button>
-    <button
-      type="button"
-      onclick={copyAll}
-      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
-      data-testid="backup-codes-copy"
-    >
+    </Button>
+    <Button variant="secondary" size="xs" onclick={copyAll} data-testid="backup-codes-copy">
       <CopyIcon class="size-3.5" />
       {m.backup_codes_view_copy_all()}
-    </button>
+    </Button>
   </div>
   <p class="text-text-muted text-xs">
     {m.backup_codes_view_hint()}

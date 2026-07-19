@@ -330,15 +330,15 @@
         class="sr-only"
         data-testid="attachment-file-input"
       />
-      <button
-        type="button"
-        class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
+      <Button
+        variant="ghost"
+        size="icon"
         aria-label={m.message_input_attach_file()}
         onclick={() => fileInput?.click()}
         data-testid="attachment-button"
       >
         <PaperclipIcon class="size-5" />
-      </button>
+      </Button>
     {/if}
     <textarea
       bind:this={textarea}
@@ -365,15 +365,15 @@
     <DropdownMenu.Root bind:open={pickerOpen}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <button
+          <Button
             {...props}
-            type="button"
-            class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
+            variant="ghost"
+            size="icon"
             aria-label={m.message_input_insert_emoji()}
             data-testid="emoji-button"
           >
             <SmilePlusIcon class="size-5" />
-          </button>
+          </Button>
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content

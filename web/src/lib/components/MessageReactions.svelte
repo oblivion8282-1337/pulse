@@ -33,6 +33,7 @@
   import { idealTextColor, sanitizeProfileColor, sanitizeGradientAngle } from '$lib/utils/nameColor';
   import type { Snippet } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import EmptyState from './feedback/EmptyState.svelte';
   import LoadingState from './feedback/LoadingState.svelte';
   import FieldError from './feedback/FieldError.svelte';
@@ -199,24 +200,23 @@
               <span class="text-text-muted text-xs font-mono">{r.count}</span>
             </div>
             {#if r.me}
-              <button
-                type="button"
-                class="text-text-muted hover:bg-bg-hover inline-flex items-center gap-1 rounded-md border border-border bg-bg-input px-2 py-1 text-xs"
+              <Button
+                variant="outline"
+                size="xs"
                 data-testid="reaction-popover-unreact"
                 onclick={() => handleToggleFromPopover(r.emoji, true)}
               >
                 <XIcon class="size-3" />
                 {m.message_reactions_popover_unreact()}
-              </button>
+              </Button>
             {:else}
-              <button
-                type="button"
-                class="bg-primary text-primary-foreground hover:opacity-90 rounded-md px-2 py-1 text-xs font-medium"
+              <Button
+                size="xs"
                 data-testid="reaction-popover-react"
                 onclick={() => handleToggleFromPopover(r.emoji, false)}
               >
                 {m.message_reactions_popover_react_with({ emoji: r.emoji })}
-              </button>
+              </Button>
             {/if}
           </div>
 

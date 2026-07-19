@@ -11,6 +11,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { adminApi, type InstanceMember } from '$lib/api/admin';
   import UsersIcon from '@lucide/svelte/icons/users';
@@ -152,18 +153,20 @@
           </div>
 
           {#if member.banned_at !== null}
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="xs"
               onclick={() => doUnban(member)}
               disabled={!!busy[member.user_identifier]}
               data-testid="member-unban"
-              class="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-base hover:bg-bg-hover disabled:opacity-60 transition-colors"
+              class="shrink-0"
             >
               Entbannen
-            </button>
+            </Button>
           {:else}
-            <button
-              type="button"
+            <Button
+              variant="destructive-solid"
+              size="xs"
               onclick={() => {
                 banTarget = member;
                 banReason = '';
@@ -172,11 +175,11 @@
               }}
               disabled={!!busy[member.user_identifier]}
               data-testid="member-ban"
-              class="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-destructive/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive disabled:opacity-60 transition-colors"
+              class="shrink-0"
             >
               <BanIcon class="size-3.5" />
               Bannen
-            </button>
+            </Button>
           {/if}
         </li>
       {/each}
@@ -209,21 +212,12 @@
         <FieldError message={banError} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onclick={() => (banOpen = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover"
-        >
+        <Button variant="outline" onclick={() => (banOpen = false)}>
           Abbrechen
-        </button>
-        <button
-          type="button"
-          onclick={doBan}
-          disabled={banning}
-          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm font-medium text-white hover:bg-destructive disabled:opacity-60"
-        >
+        </Button>
+        <Button variant="destructive-solid" onclick={doBan} disabled={banning}>
           {banning ? 'Banne…' : 'Bannen'}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

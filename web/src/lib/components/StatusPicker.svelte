@@ -12,6 +12,7 @@
   import { friendsApi } from '$lib/api/friends';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type StatusOption = {
     value: OwnPresenceStatus;
@@ -75,9 +76,10 @@
 <DropdownMenu.Root>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <button
+      <Button
         {...props}
-        class="hover:bg-bg-hover flex items-center gap-2 rounded-lg px-2 py-1 text-sm transition-colors disabled:opacity-50"
+        variant="ghost"
+        size="sm"
         disabled={busy}
         title={m.status_picker_change_title()}
         data-testid="status-picker-trigger"
@@ -85,7 +87,7 @@
       >
         <StatusDot status={presence.myStatus} class="size-3" />
         <span class="text-text-muted text-xs">{currentLabel}</span>
-      </button>
+      </Button>
     {/snippet}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content side="top" align="start" class="w-52">

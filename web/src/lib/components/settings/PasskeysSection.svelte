@@ -10,6 +10,7 @@
   import { toast } from 'svelte-sonner';
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import { Button } from '$lib/components/ui/button';
   import {
     listPasskeys,
     webauthnSupported,
@@ -84,15 +85,16 @@
       <EmptyState message={m.passkeys_section_empty()} />
     {/if}
 
-    <button
-      type="button"
+    <Button
+      variant="secondary"
+      size="xs"
+      class="self-start"
       onclick={() => (addOpen = true)}
-      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
       data-testid="passkeys-add"
     >
       <PlusIcon class="size-3.5" />
       {m.passkeys_section_add_button()}
-    </button>
+    </Button>
   {/if}
 </section>
 

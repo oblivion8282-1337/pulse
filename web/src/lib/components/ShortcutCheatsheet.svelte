@@ -15,6 +15,7 @@
   import { displayCombo } from '$lib/shortcuts/format';
   import { settings } from '$lib/stores/settings.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -69,13 +70,9 @@
     </div>
 
     <div class="mt-4 flex justify-end">
-      <button
-        type="button"
-        onclick={() => (open = false)}
-        class="text-text-bright bg-bg-input hover:bg-bg-hover2 rounded-md px-3 py-1.5 text-sm transition-colors"
-      >
+      <Button variant="secondary" size="sm" onclick={() => (open = false)}>
         {m.shortcut_cheatsheet_close()}
-      </button>
+      </Button>
     </div>
   </Dialog.Content>
 </Dialog.Root>

@@ -12,6 +12,7 @@
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
 
@@ -41,14 +42,14 @@
 </script>
 
 <div>
-  <button
-    type="button"
+  <Button
+    variant="destructive-solid"
+    size="xs"
     onclick={() => { error = null; open = true; }}
-    class="rounded-lg bg-destructive/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-destructive transition-colors"
     data-testid="app-host-revoke-{app.id}"
   >
     {m.app_host_admin_revoke_btn()}
-  </button>
+  </Button>
 </div>
 
 <Dialog.Root bind:open>
@@ -74,14 +75,12 @@
         <FieldError message={error} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onclick={() => (open = false)}
-          class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
+        <Button variant="outline" onclick={() => (open = false)}>
           {m.app_host_admin_cancel()}
-        </button>
-        <button type="button" onclick={doRevoke} disabled={busy}
-          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm text-white font-medium hover:bg-destructive disabled:opacity-60">
+        </Button>
+        <Button variant="destructive-solid" onclick={doRevoke} disabled={busy}>
           {busy ? m.app_host_admin_revoking() : m.app_host_admin_revoke_btn()}
-        </button>
+        </Button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

@@ -133,9 +133,9 @@
           </div>
         {/if}
 
-        <button
-          type="button"
-          class="text-primary hover:bg-bg-hover rounded px-2 py-1.5 text-xs hover:underline"
+        <Button
+          variant="link"
+          size="xs"
           onclick={() => {
             useBackup = !useBackup;
             error = null;
@@ -143,7 +143,7 @@
           data-testid="totp-disable-toggle"
         >
           {useBackup ? m.totp_disable_dialog_toggle_use_totp() : m.totp_disable_dialog_toggle_use_backup()}
-        </button>
+        </Button>
 
         {#if error}
           <Alert.Root variant="destructive" data-testid="totp-disable-error">

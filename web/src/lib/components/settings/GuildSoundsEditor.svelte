@@ -21,6 +21,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { Button } from '$lib/components/ui/button/index.js';
   import PlayIcon from '@lucide/svelte/icons/play';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -207,28 +208,29 @@
               </div>
 
               <div class="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onclick={() => play(id)}
                   title={m.guild_sounds_play_title()}
                   aria-label={m.guild_sounds_play_aria({ label: SOUNDS[id].label })}
-                  class="hover:bg-bg-hover text-text-muted hover:text-text-bright rounded-md p-1.5 transition-colors"
                   data-testid="guild-sounds-play-{id}"
                 >
                   <PlayIcon class="size-4" />
-                </button>
+                </Button>
 
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onclick={() => triggerUpload(id)}
                   disabled={isBusy}
                   title={m.guild_sounds_upload_title()}
                   aria-label={m.guild_sounds_upload_aria({ label: SOUNDS[id].label })}
-                  class="hover:bg-bg-hover text-text-muted hover:text-text-bright rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
+                  class="disabled:cursor-wait"
                   data-testid="guild-sounds-upload-{id}"
                 >
                   <UploadIcon class="size-4" />
-                </button>
+                </Button>
                 <input
                   bind:this={inputs[id]}
                   type="file"
@@ -239,17 +241,18 @@
                 />
 
                 {#if row}
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onclick={() => revert(id)}
                     disabled={isBusy}
                     title={m.guild_sounds_revert_title()}
                     aria-label={m.guild_sounds_revert_aria({ label: SOUNDS[id].label })}
-                    class="hover:bg-bg-hover text-text-muted hover:text-destructive rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
+                    class="hover:text-destructive disabled:cursor-wait"
                     data-testid="guild-sounds-revert-{id}"
                   >
                     <RotateCcwIcon class="size-4" />
-                  </button>
+                  </Button>
                 {/if}
               </div>
             </div>

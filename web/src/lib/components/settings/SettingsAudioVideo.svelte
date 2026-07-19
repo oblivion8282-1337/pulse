@@ -8,6 +8,7 @@
   import OutputVolumeControl from './OutputVolumeControl.svelte';
   import { onDestroy, untrack } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   // Standalone mic test: runs while this tab is open and we're NOT in a voice
   // channel, so the level meter moves and "hear yourself" works without joining.
@@ -341,14 +342,15 @@
     </label>
     <div class="flex items-center justify-between gap-3">
       <span class="text-text-base text-sm">{m.settings_audio_video_ptt_key_label()}</span>
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
         onclick={startPttCapture}
-        class="bg-bg-input text-text-bright hover:bg-bg-hover rounded-full border border-border px-3 py-2 text-sm uppercase transition-colors md:py-1.5"
+        class="uppercase"
         data-testid="settings-ptt-key"
       >
         {listeningForPttKey ? m.settings_audio_video_ptt_press_key() : settings.voice.pttKey}
-      </button>
+      </Button>
     </div>
   </div>
 </div>

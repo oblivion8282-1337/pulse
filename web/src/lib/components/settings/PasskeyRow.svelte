@@ -5,6 +5,7 @@
    * is cheap to re-enrol, and removing one isn't account-destructive).
    */
   import { toast } from 'svelte-sonner';
+  import { Button } from '$lib/components/ui/button/index.js';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -103,63 +104,65 @@
 
   <div class="flex shrink-0 items-center gap-1">
     {#if editing}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={saveRename}
         disabled={busy}
-        class="text-success hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
+        class="text-success"
         aria-label={m.passkey_row_save_name()}
         data-testid="passkey-rename-save"
       >
         <CheckIcon class="size-4" />
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={() => (editing = false)}
         disabled={busy}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label={m.passkey_row_cancel()}
       >
         <XIcon class="size-4" />
-      </button>
+      </Button>
     {:else if confirmDelete}
-      <button
-        type="button"
+      <Button
+        variant="destructive"
+        size="xs"
         onclick={remove}
         disabled={busy}
-        class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-2 py-2 text-xs font-medium transition-colors md:py-1"
         data-testid="passkey-delete-confirm"
       >
         {busy ? m.passkey_row_removing() : m.passkey_row_confirm_remove()}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={() => (confirmDelete = false)}
         disabled={busy}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label={m.passkey_row_cancel()}
       >
         <XIcon class="size-4" />
-      </button>
+      </Button>
     {:else}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={startEdit}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label={m.passkey_row_rename()}
         data-testid="passkey-rename"
       >
         <PencilIcon class="size-4" />
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={() => (confirmDelete = true)}
-        class="text-text-muted hover:text-destructive hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
+        class="hover:text-destructive"
         aria-label={m.passkey_row_delete()}
         data-testid="passkey-delete"
       >
         <Trash2Icon class="size-4" />
-      </button>
+      </Button>
     {/if}
   </div>
 </li>

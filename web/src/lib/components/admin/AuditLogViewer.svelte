@@ -9,6 +9,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -86,16 +87,16 @@
       <h2 class="text-text-bright text-lg font-semibold">{m.audit_log_title()}</h2>
       <p class="text-text-muted text-sm">{m.audit_log_subtitle()}</p>
     </div>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       onclick={() => load(true)}
       disabled={loading}
-      class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
       aria-label={m.audit_log_refresh_label()}
       data-testid="audit-log-refresh"
     >
       <RefreshCcwIcon class="size-4 {loading ? 'animate-spin' : ''}" />
-    </button>
+    </Button>
   </div>
 
   {#if loadError}

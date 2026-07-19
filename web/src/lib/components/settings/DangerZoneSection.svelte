@@ -9,6 +9,7 @@
    * kennen für die Confirm-Match-Logik.
    */
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+  import { Button } from '$lib/components/ui/button/index.js';
   import { auth } from '$lib/stores/auth.svelte';
   import DeleteAccountDialog from './DeleteAccountDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -35,14 +36,15 @@
       </div>
     </div>
 
-    <button
-      type="button"
+    <Button
+      variant="destructive-solid"
+      size="sm"
       onclick={() => (deleteOpen = true)}
-      class="bg-destructive hover:bg-destructive/90 self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-colors md:py-1.5"
+      class="self-start"
       data-testid="danger-zone-delete-account"
     >
       {m.danger_zone_section_delete_button()}
-    </button>
+    </Button>
   </section>
 
   <DeleteAccountDialog bind:open={deleteOpen} />

@@ -12,6 +12,7 @@
    * als `false` (= "not enabled").
    */
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
+  import { Button } from '$lib/components/ui/button/index.js';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -65,32 +66,32 @@
     </div>
 
     {#if !totpEnabled}
-      <button
-        type="button"
+      <Button
+        size="sm"
         onclick={() => (enableOpen = true)}
-        class="accent-gradient self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 md:py-1.5"
+        class="self-start"
         data-testid="security-enable-2fa"
       >
         {m.settings_security_enable_2fa()}
-      </button>
+      </Button>
     {:else}
       <div class="flex flex-wrap gap-2">
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="xs"
           onclick={() => (regenOpen = true)}
-          class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-regen-backup"
         >
           {m.settings_security_regen_backup_codes()}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="destructive"
+          size="xs"
           onclick={() => (disableOpen = true)}
-          class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-disable-2fa"
         >
           {m.settings_security_disable_2fa()}
-        </button>
+        </Button>
       </div>
     {/if}
   </section>

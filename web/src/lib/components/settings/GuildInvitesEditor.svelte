@@ -201,24 +201,25 @@
           <code class="text-text-bright shrink-0 font-mono text-sm">{inv.code}</code>
           <span class="text-text-muted text-xs">{fmtUses(inv)}</span>
           <span class="text-text-muted ml-auto text-xs">{fmtExpiry(inv.expires_at)}</span>
-          <button
-            type="button"
-            class="hover:bg-bg-hover text-text-muted hover:text-text-bright rounded-md p-1.5"
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onclick={() => copyLink(inv.code)}
             title={m.guild_invites_copy_link()}
             data-testid="invite-copy"
           >
             <CopyIcon class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="hover:bg-destructive/10 rounded-md p-1.5 text-destructive"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="text-destructive"
             onclick={() => revoke(inv.code)}
             title={m.guild_invites_revoke()}
             data-testid="invite-revoke"
           >
             <Trash2Icon class="size-4" />
-          </button>
+          </Button>
         </li>
       {/each}
     </ul>

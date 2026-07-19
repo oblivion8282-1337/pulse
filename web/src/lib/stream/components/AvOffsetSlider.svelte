@@ -17,6 +17,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { streamSettings, persistSettings } from '../settings.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   // Symmetrischer Bereich; ±500ms deckt jeden realistischen Lippensync-Rest ab.
   const MIN = -500;
@@ -68,14 +69,14 @@
       />
       <span class="text-text-muted text-xs">ms</span>
       {#if streamSettings.av_offset_ms !== 0}
-        <button
-          type="button"
-          class="text-text-muted hover:text-text-base text-xs underline underline-offset-2"
+        <Button
+          variant="link"
+          size="xs"
           onclick={() => set(0)}
           data-testid="stream-av-offset-reset"
         >
           {m.av_offset_reset()}
-        </button>
+        </Button>
       {/if}
     </div>
   </div>

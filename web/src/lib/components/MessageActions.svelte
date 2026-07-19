@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import ReplyIcon from '@lucide/svelte/icons/reply';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
@@ -44,16 +45,16 @@
   <DropdownMenu.Root bind:open={pickerOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
-        <button
+        <Button
           {...props}
-          type="button"
-          class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+          variant="ghost"
+          size="icon-sm"
           title={m.message_actions_add_reaction()}
           aria-label={m.message_actions_add_reaction()}
           data-testid="message-action-react"
         >
           <SmilePlusIcon class="size-4" />
-        </button>
+        </Button>
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content
@@ -66,53 +67,55 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 
-  <button
-    type="button"
-    class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+  <Button
+    variant="ghost"
+    size="icon-sm"
     title={m.message_actions_reply()}
     aria-label={m.message_actions_reply()}
     data-testid="message-action-reply"
     onclick={onReply}
   >
     <ReplyIcon class="size-4" />
-  </button>
+  </Button>
 
   {#if canEdit}
-    <button
-      type="button"
-      class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       title={m.message_actions_edit()}
       aria-label={m.message_actions_edit()}
       data-testid="message-action-edit"
       onclick={onEdit}
     >
       <PencilIcon class="size-4" />
-    </button>
+    </Button>
   {/if}
 
   {#if canDelete}
-    <button
-      type="button"
-      class="text-text-muted hover:bg-bg-hover hover:text-destructive rounded-md p-1.5"
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="hover:text-destructive"
       title={m.message_actions_delete()}
       aria-label={m.message_actions_delete()}
       data-testid="message-action-delete"
       onclick={onDelete}
     >
       <Trash2Icon class="size-4" />
-    </button>
+    </Button>
   {/if}
 
   {#if canReport}
-    <button
-      type="button"
-      class="text-text-muted hover:bg-bg-hover hover:text-warning rounded-md p-1.5"
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="hover:text-warning"
       title={m.message_actions_report()}
       aria-label={m.message_actions_report()}
       data-testid="message-action-report"
       onclick={onReport}
     >
       <FlagIcon class="size-4" />
-    </button>
+    </Button>
   {/if}
 </div>

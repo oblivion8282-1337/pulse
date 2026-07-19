@@ -15,6 +15,7 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
 
   type Crumb = {
     /** Display label. */
@@ -64,30 +65,31 @@
     Channel-name "chip" doubles as the Root button. When the user is
     already at root it still looks active (no movement to deliver).
   -->
-  <button
-    type="button"
-    class="flex items-center gap-1 rounded-md bg-bg-hover/60 px-2 py-1 text-sm font-medium text-text-base hover:bg-bg-hover"
+  <Button
+    variant="secondary"
+    size="sm"
     onclick={() => navigate(0)}
     data-testid="crumb-root"
     aria-label={pm.dropbox_back_root()}
   >
     <HashIcon class="size-3.5" />
     <span class="truncate">{channelName}</span>
-  </button>
+  </Button>
 
   {#each crumbs as c, i (c.idx)}
     <ChevronRightIcon class="size-3.5 shrink-0 text-text-faint" />
     {#if c.idx === -1}
       <span class="text-text-faint px-1 text-sm" aria-hidden="true">…</span>
     {:else}
-      <button
-        type="button"
-        class="shrink-0 rounded-md bg-bg-hover/60 px-2 py-1 text-sm hover:bg-bg-hover"
+      <Button
+        variant="secondary"
+        size="sm"
+        class="shrink-0"
         onclick={() => navigate(c.idx)}
         data-testid="crumb-{c.idx}"
       >
         {c.label}
-      </button>
+      </Button>
     {/if}
   {/each}
 </header>
