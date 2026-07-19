@@ -121,7 +121,7 @@
           {/if}
 
           <Dialog.Footer>
-            <Button variant="secondary" type="button" onclick={() => (open = false)} disabled={busy}>
+            <Button variant="ghost" type="button" onclick={() => (open = false)} disabled={busy}>
               {m.totp_backup_regen_cancel()}
             </Button>
             <Button type="submit" disabled={busy} data-testid="totp-regen-submit">

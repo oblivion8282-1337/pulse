@@ -199,7 +199,7 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="secondary" onclick={onClose} data-testid="report-cancel">
+      <Button variant="ghost" onclick={onClose} data-testid="report-cancel">
         {m.report_message_cancel()}
       </Button>
       <Button

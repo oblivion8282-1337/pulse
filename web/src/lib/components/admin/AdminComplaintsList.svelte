@@ -359,7 +359,7 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (forwardOpen = false)}>
+        <Button variant="ghost" onclick={() => (forwardOpen = false)}>
           {m.admin_complaints_cancel()}
         </Button>
         <Button
@@ -396,7 +396,7 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (resolveOpen = false)}>
+        <Button variant="ghost" onclick={() => (resolveOpen = false)}>
           {m.admin_complaints_cancel()}
         </Button>
         <Button variant="success-solid" onclick={doResolve} disabled={resolving}>
@@ -432,7 +432,7 @@
         ></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (notifyOpen = false)}>
+        <Button variant="ghost" onclick={() => (notifyOpen = false)}>
           {m.admin_complaints_cancel()}
         </Button>
         <Button onclick={doNotify} disabled={notifying || !notifyMessage.trim()}>
@@ -456,7 +456,7 @@
       </Dialog.Header>
       <p class="text-text-muted text-sm">{m.admin_complaints_ban_desc()}</p>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (banOpen = false)}>
+        <Button variant="ghost" onclick={() => (banOpen = false)}>
           {m.admin_complaints_cancel()}
         </Button>
         <Button variant="destructive-solid" onclick={doBanUser} disabled={banning}>

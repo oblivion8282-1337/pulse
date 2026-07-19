@@ -21,7 +21,7 @@
   {#if confirm}
     <p class="text-destructive text-xs">{m.instance_setup_reset_confirm_body()}</p>
     <div class="flex gap-2">
-      <Button variant="outline" size="xs" onclick={() => (confirm = false)}>
+      <Button variant="ghost" size="xs" onclick={() => (confirm = false)}>
         {m.admin_instances_pending_cancel()}
       </Button>
       <Button

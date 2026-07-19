@@ -75,7 +75,7 @@
         <FieldError message={error} />
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="outline" onclick={() => (open = false)}>
+        <Button variant="ghost" onclick={() => (open = false)}>
           {m.app_host_admin_cancel()}
         </Button>
         <Button variant="destructive-solid" onclick={doRevoke} disabled={busy}>

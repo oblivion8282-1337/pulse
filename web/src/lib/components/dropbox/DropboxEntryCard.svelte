@@ -150,8 +150,9 @@
         <FolderIcon class="size-3.5" />
       </Button>
       <Button
-        variant="destructive"
+        variant="ghost"
         size="icon-xs"
+        class="hover:text-destructive"
         title={pm.dropbox_delete_title()}
         onclick={onTrash}
         data-testid="dropbox-entry-trash-{entry.id}"

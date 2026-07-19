@@ -70,7 +70,7 @@
     </div>
 
     <div class="mt-4 flex justify-end">
-      <Button variant="secondary" size="sm" onclick={() => (open = false)}>
+      <Button variant="ghost" size="sm" onclick={() => (open = false)}>
         {m.shortcut_cheatsheet_close()}
       </Button>
     </div>
