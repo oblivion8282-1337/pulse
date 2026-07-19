@@ -54,6 +54,11 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-screen-share-panel">
+  <div class="flex flex-col gap-1">
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_screenshare_heading()}</h2>
+    <p class="text-text-muted text-xs">{m.settings_screenshare_subheading()}</p>
+  </div>
+
   <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_codec()}</span>
     <div class="flex flex-col gap-1.5">

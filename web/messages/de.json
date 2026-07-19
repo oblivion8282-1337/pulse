@@ -2632,5 +2632,7 @@
   "confirm_dialog_title": "Bist du sicher?",
   "confirm_dialog_confirm": "Ja, fortfahren",
   "confirm_dialog_cancel": "Abbrechen",
-  "field_required": "Pflichtfeld"
+  "field_required": "Pflichtfeld",
+  "settings_screenshare_heading": "Bildschirm teilen",
+  "settings_screenshare_subheading": "Wie dein Bild aussieht, wenn du deinen Bildschirm überträgst. Höhere Werte brauchen mehr Rechenleistung und eine bessere Leitung."
 }

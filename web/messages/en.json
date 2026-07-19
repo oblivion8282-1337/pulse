@@ -2632,5 +2632,7 @@
   "confirm_dialog_title": "Are you sure?",
   "confirm_dialog_confirm": "Yes, continue",
   "confirm_dialog_cancel": "Cancel",
-  "field_required": "Required field"
+  "field_required": "Required field",
+  "settings_screenshare_heading": "Screen sharing",
+  "settings_screenshare_subheading": "How your picture looks when you share your screen. Higher settings need more processing power and a better connection."
 }
