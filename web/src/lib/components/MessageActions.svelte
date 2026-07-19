@@ -93,7 +93,7 @@
   {#if canDelete}
     <button
       type="button"
-      class="text-text-muted hover:bg-bg-hover hover:text-red-400 rounded-md p-1.5"
+      class="text-text-muted hover:bg-bg-hover hover:text-destructive rounded-md p-1.5"
       title={m.message_actions_delete()}
       aria-label={m.message_actions_delete()}
       data-testid="message-action-delete"
@@ -106,7 +106,7 @@
   {#if canReport}
     <button
       type="button"
-      class="text-text-muted hover:bg-bg-hover hover:text-amber-400 rounded-md p-1.5"
+      class="text-text-muted hover:bg-bg-hover hover:text-warning rounded-md p-1.5"
       title={m.message_actions_report()}
       aria-label={m.message_actions_report()}
       data-testid="message-action-report"

@@ -66,7 +66,7 @@
     {/if}
     {#if user.disabled}
       <span
-        class="rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400"
+        class="rounded-md bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive"
         data-testid="badge-disabled"
       >
         {m.admin_users_badge_disabled()}
@@ -74,7 +74,7 @@
     {/if}
     {#if user.self_host_enabled}
       <span
-        class="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400"
+        class="rounded-md bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
         data-testid="badge-selfhost"
       >
         {m.admin_users_badge_self_host()}

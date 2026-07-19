@@ -117,7 +117,7 @@
               <div class="text-text-bright text-sm font-medium">{e.label}</div>
               <div class="text-text-muted text-xs">{e.desc}</div>
               {#if !allowed}
-                <div class="mt-0.5 text-xs text-amber-500">{m.permission_toggle_grid_editor_missing_perm()}</div>
+                <div class="mt-0.5 text-xs text-warning">{m.permission_toggle_grid_editor_missing_perm()}</div>
               {/if}
             </div>
             <input

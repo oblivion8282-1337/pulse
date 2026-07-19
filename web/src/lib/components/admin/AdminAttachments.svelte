@@ -63,7 +63,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_attachments_error({ message: error ?? '' })}</p>
+    <p class="text-destructive text-sm">{m.admin_attachments_error({ message: error ?? '' })}</p>
   {:else if current}
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="flex flex-col gap-1.5">

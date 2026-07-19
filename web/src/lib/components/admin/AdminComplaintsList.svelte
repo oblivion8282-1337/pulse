@@ -191,7 +191,7 @@
 {#if loading}
   <p class="text-text-muted text-sm">{m.admin_complaints_loading()}</p>
 {:else if loadError}
-  <p class="text-red-400 text-sm">{m.admin_complaints_load_error({ error: loadError })}</p>
+  <p class="text-destructive text-sm">{m.admin_complaints_load_error({ error: loadError })}</p>
 {:else if items.length === 0}
   <p class="text-text-muted text-sm">{m.admin_complaints_empty()}</p>
 {:else}
@@ -245,7 +245,7 @@
         <p class="text-text-base whitespace-pre-wrap break-words text-sm">{c.body}</p>
 
         {#if c.target_instance_id}
-          <p class="text-xs {c.operator_email ? 'text-text-muted' : 'text-amber-500'}">
+          <p class="text-xs {c.operator_email ? 'text-text-muted' : 'text-warning'}">
             {c.operator_email
               ? m.admin_complaints_operator({ email: c.operator_email })
               : m.admin_complaints_no_operator()}
@@ -278,7 +278,7 @@
                   forwardNotice = '';
                   forwardOpen = true;
                 }}
-                class="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-60"
+                class="rounded-lg bg-warning px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-warning/90 disabled:opacity-60"
               >
                 {m.admin_complaints_btn_forward()}
               </button>
@@ -302,7 +302,7 @@
                   banTarget = c;
                   banOpen = true;
                 }}
-                class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-60"
+                class="rounded-lg bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-60"
                 data-testid="complaint-ban-btn"
               >
                 {m.admin_complaints_btn_ban_user()}
@@ -315,7 +315,7 @@
                 resolveNote = '';
                 resolveOpen = true;
               }}
-              class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
+              class="rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-success/90 disabled:opacity-60"
             >
               {m.admin_complaints_btn_resolve()}
             </button>
@@ -338,7 +338,7 @@
         </Dialog.Description>
       </Dialog.Header>
       {#if forwardTarget && !forwardTarget.operator_email}
-        <p class="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+        <p class="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
           {m.admin_complaints_forward_no_operator_warn()}
         </p>
       {/if}
@@ -367,7 +367,7 @@
           type="button"
           onclick={doForward}
           disabled={forwarding || !forwardNotice.trim()}
-          class="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-60"
+          class="rounded-xl bg-warning px-4 py-2 text-sm font-medium text-black hover:bg-warning/90 disabled:opacity-60"
         >
           {m.admin_complaints_forward_submit()}
         </button>
@@ -409,7 +409,7 @@
           type="button"
           onclick={doResolve}
           disabled={resolving}
-          class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          class="rounded-xl bg-success px-4 py-2 text-sm font-medium text-black hover:bg-success/90 disabled:opacity-60"
         >
           {m.admin_complaints_resolve_submit()}
         </button>
@@ -487,7 +487,7 @@
           type="button"
           onclick={doBanUser}
           disabled={banning}
-          class="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
+          class="rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60"
         >
           {banning ? m.admin_complaints_ban_submitting() : m.admin_complaints_ban_confirm()}
         </button>

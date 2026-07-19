@@ -85,7 +85,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">{m.bans_list_loading()}</p>
   {:else if error}
-    <p class="text-sm text-red-400">{error}</p>
+    <p class="text-sm text-destructive">{error}</p>
   {:else if bans.length === 0}
     <p class="text-text-muted text-sm">{m.bans_list_empty()}</p>
   {:else}

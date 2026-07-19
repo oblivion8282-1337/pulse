@@ -84,7 +84,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">{m.guild_plugins_editor_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm" data-testid="guild-plugins-error">
+    <p class="text-destructive text-sm" data-testid="guild-plugins-error">
       {m.guild_plugins_editor_load_error({ message: loadError ?? '' })}
     </p>
   {:else if rows.length === 0}

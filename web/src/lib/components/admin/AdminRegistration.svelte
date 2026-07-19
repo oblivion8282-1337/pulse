@@ -70,7 +70,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_registration_load_error({ error })}</p>
+    <p class="text-destructive text-sm">{m.admin_registration_load_error({ error })}</p>
   {:else if current !== null}
     <div class="flex flex-col gap-2">
       {#each Object.entries(labels) as [mode, info] (mode)}

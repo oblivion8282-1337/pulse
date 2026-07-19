@@ -82,7 +82,7 @@
       />
       <div class="text-xs">
         {#if showParseError}
-          <span class="text-red-400" data-testid="watch-party-parse-error">
+          <span class="text-destructive" data-testid="watch-party-parse-error">
             {m.watch_party_start_button_url_unsupported()}
           </span>
         {:else if parsedLabel}

@@ -160,7 +160,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_users_error({ message: error ?? '' })}</p>
+    <p class="text-destructive text-sm">{m.admin_users_error({ message: error ?? '' })}</p>
   {:else if loading}
     <div class="text-text-muted text-sm">{m.admin_users_loading()}</div>
   {:else if users.length === 0}

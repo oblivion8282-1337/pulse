@@ -155,7 +155,7 @@
                 {device.device_label}
                 {#if isCurrent}
                   <span
-                    class="ml-1 inline-flex items-center rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-500 md:px-1.5 md:py-0.5 md:text-[10px]"
+                    class="ml-1 inline-flex items-center rounded bg-success/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-success md:px-1.5 md:py-0.5 md:text-[10px]"
                     data-testid="device-current-badge"
                   >
                     {m.device_management_current_badge()}
@@ -169,7 +169,7 @@
 
               {#if expiringSoon}
                 <span
-                  class="mt-0.5 inline-flex items-center gap-1 text-xs text-amber-500"
+                  class="mt-0.5 inline-flex items-center gap-1 text-xs text-warning"
                   data-testid="device-expiry-warning"
                 >
                   <ShieldAlertIcon class="size-3" />

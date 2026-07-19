@@ -101,7 +101,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">{m.admin_plugins_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm">{m.admin_plugins_load_error({ error: loadError ?? '' })}</p>
+    <p class="text-destructive text-sm">{m.admin_plugins_load_error({ error: loadError ?? '' })}</p>
   {:else if rows.length === 0}
     <div
       class="border-border bg-bg-hover/30 flex flex-col items-center gap-2 rounded-xl border p-6 text-center"
@@ -134,7 +134,7 @@
               {/if}
               {#if stale}
                 <span
-                  class="flex items-center gap-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-200"
+                  class="flex items-center gap-1 rounded-full bg-warning/20 px-1.5 py-0.5 text-xs text-warning"
                   title={m.admin_plugins_stale_title()}
                 >
                   <AlertTriangleIcon class="size-3" /> {m.admin_plugins_stale_badge()}

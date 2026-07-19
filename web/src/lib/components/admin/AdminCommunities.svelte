@@ -153,7 +153,7 @@
   </div>
 
   {#if error}
-    <p class="text-sm text-red-400">{m.admin_communities_error({ message: error ?? '' })}</p>
+    <p class="text-sm text-destructive">{m.admin_communities_error({ message: error ?? '' })}</p>
   {:else if loading}
     <div class="text-text-muted text-sm">{m.admin_communities_loading()}</div>
   {:else if communities.length === 0}
@@ -180,14 +180,14 @@
               <span class="text-text-bright truncate text-sm font-medium">{c.name}</span>
               <span
                 class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {c.is_public
-                  ? 'bg-emerald-500/15 text-emerald-400'
+                  ? 'bg-success/15 text-success'
                   : 'text-text-muted bg-bg-hover'}"
               >
                 {c.is_public ? m.admin_communities_public() : m.admin_communities_private()}
               </span>
               {#if c.suspended}
                 <span
-                  class="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+                  class="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
                 >
                   {m.admin_communities_suspended_badge()}
                 </span>

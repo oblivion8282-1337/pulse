@@ -42,7 +42,7 @@
   <section class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
     <div class="flex items-start gap-3">
       {#if totpEnabled}
-        <span class="bg-emerald-500/15 text-emerald-500 flex size-9 items-center justify-center rounded-full">
+        <span class="bg-success/15 text-success flex size-9 items-center justify-center rounded-full">
           <ShieldCheckIcon class="size-5" />
         </span>
       {:else}

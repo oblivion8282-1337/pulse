@@ -109,7 +109,7 @@
   {#if loading}
     <p class="text-text-muted text-sm">Lade…</p>
   {:else if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-destructive text-sm">Fehler: {error}</p>
   {:else if members.length === 0}
     <p class="text-text-muted text-sm">
       Noch keine Mitglieder — Nutzer erscheinen hier nach dem ersten Cert-Login.
@@ -135,7 +135,7 @@
                 {member.display_name || member.username}
                 {#if member.banned_at !== null}
                   <span
-                    class="ml-1 rounded bg-red-600/80 px-1.5 py-0.5 text-[10px] font-semibold text-white align-middle"
+                    class="ml-1 rounded bg-destructive/80 px-1.5 py-0.5 text-[10px] font-semibold text-white align-middle"
                   >
                     GEBANNT
                   </span>
@@ -171,7 +171,7 @@
               }}
               disabled={!!busy[member.user_identifier]}
               data-testid="member-ban"
-              class="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-red-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-60 transition-colors"
+              class="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-destructive/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive disabled:opacity-60 transition-colors"
             >
               <BanIcon class="size-3.5" />
               Bannen
@@ -205,7 +205,7 @@
           maxlength="1000"
           class="bg-bg-input border-border text-text-bright resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         ></textarea>
-        {#if banError}<p class="text-red-400 text-xs">{banError}</p>{/if}
+        {#if banError}<p class="text-destructive text-xs">{banError}</p>{/if}
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button
@@ -219,7 +219,7 @@
           type="button"
           onclick={doBan}
           disabled={banning}
-          class="rounded-xl bg-red-600/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
+          class="rounded-xl bg-destructive/80 px-4 py-2 text-sm font-medium text-white hover:bg-destructive disabled:opacity-60"
         >
           {banning ? 'Banne…' : 'Bannen'}
         </button>

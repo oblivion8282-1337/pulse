@@ -109,7 +109,7 @@
           class="whitespace-nowrap"
           data-testid="watch-party-menu-stop"
         >
-          <StopCircleIcon class="mr-2 size-4 shrink-0 text-red-500" />
+          <StopCircleIcon class="mr-2 size-4 shrink-0 text-destructive" />
           {myParties.length === 1
             ? m.watch_party_start_button_stop_label()
             : `${m.watch_party_start_button_stop_label()} · ${shortSource(p)}`}

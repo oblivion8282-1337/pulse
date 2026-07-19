@@ -49,7 +49,7 @@
 {#if loading}
   <p class="text-text-muted text-sm">{m.admin_instances_suspended_loading()}</p>
 {:else if loadError}
-  <p class="text-red-400 text-sm">{m.admin_instances_suspended_load_error({ error: loadError })}</p>
+  <p class="text-destructive text-sm">{m.admin_instances_suspended_load_error({ error: loadError })}</p>
 {:else if instances.length === 0}
   <p class="text-text-muted text-sm">{m.admin_instances_suspended_empty()}</p>
 {:else}
@@ -67,7 +67,7 @@
           type="button"
           onclick={() => void unsuspend(inst)}
           disabled={!!busy[inst.id]}
-          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors shrink-0"
+          class="rounded-lg bg-success px-3 py-1.5 text-xs text-black font-medium hover:bg-success/90 disabled:opacity-60 transition-colors shrink-0"
         >
           {busy[inst.id] ? m.admin_instances_suspended_unsuspending() : m.admin_instances_suspended_unsuspend_button()}
         </button>

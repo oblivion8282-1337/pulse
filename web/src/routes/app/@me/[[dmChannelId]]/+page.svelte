@@ -281,7 +281,7 @@
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
     >
-      <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
+      <p class="text-sm text-destructive" data-testid="load-error">{loadError}</p>
     </section>
   {:else if activeDM && synthChannel}
     <ChatView

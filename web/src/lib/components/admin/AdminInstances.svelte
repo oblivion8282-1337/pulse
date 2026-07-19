@@ -52,7 +52,7 @@
         {m.admin_instances_heading()}
         {#if pendingCount && pendingCount > 0}
           <span
-            class="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-black"
+            class="inline-flex min-w-5 items-center justify-center rounded-full bg-warning px-1.5 py-0.5 text-xs font-semibold text-black"
             title={m.admin_instances_pending_badge({ count: pendingCount })}
             data-testid="instances-pending-badge"
           >
@@ -80,7 +80,7 @@
         {t.label}
         {#if t.id === 'pending' && pendingCount && pendingCount > 0}
           <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black align-middle"
+            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-semibold text-black align-middle"
           >
             {pendingCount}
           </span>

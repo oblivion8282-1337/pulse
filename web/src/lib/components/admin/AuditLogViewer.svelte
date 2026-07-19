@@ -96,7 +96,7 @@
   </div>
 
   {#if loadError}
-    <p class="text-red-400 text-sm" data-testid="audit-log-error">{m.audit_log_load_error({ message: loadError! })}</p>
+    <p class="text-destructive text-sm" data-testid="audit-log-error">{m.audit_log_load_error({ message: loadError! })}</p>
   {:else if loading}
     <p class="text-text-muted text-sm">{m.audit_log_loading()}</p>
   {:else if entries.length === 0}

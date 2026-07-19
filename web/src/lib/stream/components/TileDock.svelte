@@ -163,7 +163,7 @@
       <button
         type="button"
         onclick={() => onEnableAudio?.()}
-        class="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 md:py-1"
+        class="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90 md:py-1"
         data-testid={`${testidPrefix}-unblock-audio`}
       >
         <VolumeXIcon class="size-3.5" />
@@ -217,8 +217,8 @@
           type="button"
           onclick={() => onHide?.()}
           class="{BTN_BASE} {overlay
-            ? 'text-white/90 hover:bg-red-600'
-            : 'text-text-muted hover:bg-red-600 hover:text-white'}"
+            ? 'text-white/90 hover:bg-destructive'
+            : 'text-text-muted hover:bg-destructive hover:text-white'}"
           aria-label={m.tile_shell_hide_tile()}
           title={m.tile_shell_hide()}
           data-testid={`${testidPrefix}-hide`}

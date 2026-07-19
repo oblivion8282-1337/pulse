@@ -89,7 +89,7 @@
           data-testid="community-invite-accept"
           title={m.community_invite_accept_title()}
         >
-          <CheckIcon class="size-4 text-emerald-400" />
+          <CheckIcon class="size-4 text-success" />
         </Button>
         <Button
           size="sm"
@@ -98,7 +98,7 @@
           data-testid="community-invite-decline"
           title={m.community_invite_decline_title()}
         >
-          <XIcon class="size-4 text-rose-400" />
+          <XIcon class="size-4 text-destructive" />
         </Button>
       </div>
     {/each}

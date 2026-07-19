@@ -83,7 +83,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm" data-testid="admin-backup-error">{m.admin_backup_error({ message: error! })}</p>
+    <p class="text-destructive text-sm" data-testid="admin-backup-error">{m.admin_backup_error({ message: error! })}</p>
   {:else if !data}
     <div class="text-text-muted text-sm">{m.admin_backup_loading()}</div>
   {:else if view === 'not-configured'}
@@ -107,7 +107,7 @@
       class="flex items-start gap-3 rounded-xl bg-bg-hover/50 p-4"
       data-testid="admin-backup-state-no-run"
     >
-      <ClockIcon class="text-amber-400 size-5 shrink-0 mt-0.5" />
+      <ClockIcon class="text-warning size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
         <span class="text-text-bright text-sm font-medium">{m.admin_backup_no_run_title()}</span>
         <span class="text-text-muted text-xs leading-relaxed">
@@ -117,12 +117,12 @@
     </div>
   {:else if view === 'healthy'}
     <div
-      class="flex items-start gap-3 rounded-xl bg-emerald-400/10 p-4"
+      class="flex items-start gap-3 rounded-xl bg-success/10 p-4"
       data-testid="admin-backup-state-healthy"
     >
-      <ShieldCheckIcon class="text-emerald-400 size-5 shrink-0 mt-0.5" />
+      <ShieldCheckIcon class="text-success size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
-        <span class="text-emerald-300 text-sm font-medium">{m.admin_backup_healthy_title()}</span>
+        <span class="text-success text-sm font-medium">{m.admin_backup_healthy_title()}</span>
         <span class="text-text-muted text-xs">
           {m.admin_backup_last_success()} {fmtAge(data!.age_seconds!)} ·
           <span class="text-text-base">{fmtTimestamp(data!.last_backup_at!)}</span>
@@ -131,12 +131,12 @@
     </div>
   {:else if view === 'stale'}
     <div
-      class="flex items-start gap-3 rounded-xl bg-red-400/10 p-4"
+      class="flex items-start gap-3 rounded-xl bg-destructive/10 p-4"
       data-testid="admin-backup-state-stale"
     >
-      <ShieldAlertIcon class="text-red-400 size-5 shrink-0 mt-0.5" />
+      <ShieldAlertIcon class="text-destructive size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
-        <span class="text-red-300 text-sm font-medium">
+        <span class="text-destructive text-sm font-medium">
           {m.admin_backup_stale_title({ hours: Math.round(data!.stale_threshold_seconds / 3600) })}
         </span>
         <span class="text-text-muted text-xs">

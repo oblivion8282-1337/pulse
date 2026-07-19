@@ -99,7 +99,7 @@
           data-testid="pending-accept-btn"
           title={m.pending_requests_accept_title()}
         >
-          <CheckIcon class="size-4 text-emerald-400" />
+          <CheckIcon class="size-4 text-success" />
         </Button>
         <Button
           size="sm"
@@ -108,7 +108,7 @@
           data-testid="pending-decline-btn"
           title={m.pending_requests_decline_title()}
         >
-          <XIcon class="size-4 text-rose-400" />
+          <XIcon class="size-4 text-destructive" />
         </Button>
       </div>
     {/each}

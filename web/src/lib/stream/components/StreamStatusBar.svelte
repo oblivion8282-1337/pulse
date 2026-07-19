@@ -178,7 +178,7 @@
         {/if}
         <button
           type="button"
-          class="{chipIconBtn} hover:bg-red-500/20 hover:text-red-400"
+          class="{chipIconBtn} hover:bg-destructive/20 hover:text-destructive"
           onclick={() => stopSlot(slot)}
           aria-label="Stream stoppen"
           data-testid="stream-status-stop"

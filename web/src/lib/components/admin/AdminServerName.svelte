@@ -63,7 +63,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{error}</p>
+    <p class="text-destructive text-sm">{error}</p>
   {:else if !loaded}
     <div class="text-text-muted text-sm">{m.admin_server_name_loading()}</div>
   {:else}

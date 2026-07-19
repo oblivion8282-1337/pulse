@@ -577,7 +577,7 @@
                   </span>
                 {/if}
                 {#if inVoiceChannel(c.id)}
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-success" title={m.channel_list_connected()}></span>
                 {/if}
               </span>
             </button>

@@ -70,7 +70,7 @@
         data-testid="invite-share-copy"
       >
         {#if copied}
-          <CheckIcon class="size-4 text-emerald-400" />
+          <CheckIcon class="size-4 text-success" />
         {:else}
           <CopyIcon class="size-4" />
         {/if}

@@ -160,12 +160,12 @@
             </div>
             {#each runningSlots as slot (slot)}
               <DropdownMenu.Item onclick={() => stopSlot(slot)} class="flex items-center gap-2">
-                <SquareIcon class="size-3.5 shrink-0 text-red-400" />
+                <SquareIcon class="size-3.5 shrink-0 text-destructive" />
                 <span class="flex-1">{m.screen_share_stop_stream_n({ n: slot + 1 })}</span>
               </DropdownMenu.Item>
             {/each}
             <DropdownMenu.Separator />
-            <DropdownMenu.Item onclick={stopAll} class="flex items-center gap-2 text-red-400">
+            <DropdownMenu.Item onclick={stopAll} class="flex items-center gap-2 text-destructive">
               <SquareIcon class="size-3.5 shrink-0" />
               <span class="flex-1">{m.screen_share_stop_all_streams()}</span>
             </DropdownMenu.Item>

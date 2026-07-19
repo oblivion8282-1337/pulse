@@ -237,7 +237,7 @@
   {:else if loading}
     <p class="text-text-muted text-sm">{m.mod_queue_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm" data-testid="modqueue-error">{m.mod_queue_load_error({ error: loadError })}</p>
+    <p class="text-destructive text-sm" data-testid="modqueue-error">{m.mod_queue_load_error({ error: loadError })}</p>
   {:else if reports.length === 0}
     <p class="text-text-muted text-sm">{m.mod_queue_empty()}</p>
   {:else}
@@ -261,7 +261,7 @@
             {/if}
             {#if r.escalated_at}
               <span
-                class="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"
+                class="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning"
                 data-testid="modqueue-escalated-badge"
               >{m.mod_queue_escalated_badge()}</span>
             {/if}
@@ -277,7 +277,7 @@
                   type="button"
                   onclick={() => openBan(r)}
                   disabled={actingId === r.id}
-                  class="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                  class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
                   data-testid="modqueue-ban-btn"
                 >
                   {m.mod_queue_btn_ban()}
@@ -299,7 +299,7 @@
                   type="button"
                   onclick={() => openEscalate(r)}
                   disabled={actingId === r.id}
-                  class="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                  class="rounded-md bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning/20 disabled:opacity-50"
                   data-testid="modqueue-escalate-btn"
                 >
                   {m.mod_queue_btn_escalate()}

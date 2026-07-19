@@ -77,8 +77,8 @@
 
   function statusClass(s: string): string {
     return s === 'active'
-      ? 'bg-emerald-500/20 text-emerald-300'
-      : 'bg-red-500/20 text-red-300';
+      ? 'bg-success/20 text-success'
+      : 'bg-destructive/20 text-destructive';
   }
 </script>
 
@@ -146,7 +146,7 @@
             <button
               type="button"
               onclick={() => openDelete(inst)}
-              class="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/10 transition-colors"
+              class="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
               data-testid="instance-delete-btn-{inst.id}"
             >
               <Trash2Icon class="size-3.5" />

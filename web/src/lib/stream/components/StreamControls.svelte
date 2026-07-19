@@ -91,11 +91,11 @@
   let stateColor = $derived.by(() => {
     switch (session.state) {
       case 'starting':
-        return 'text-amber-400';
+        return 'text-warning';
       case 'live':
-        return 'text-emerald-400';
+        return 'text-success';
       case 'error':
-        return 'text-red-400';
+        return 'text-destructive';
       default:
         return 'text-text-muted';
     }

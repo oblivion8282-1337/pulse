@@ -327,7 +327,7 @@
       <button
         type="button"
         onclick={stop}
-        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-red-600 md:p-1.5"
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-destructive md:p-1.5"
         aria-label={m.watch_party_tile_stop_aria()}
         title={m.watch_party_tile_stop_aria()}
         data-testid="watch-party-stop"

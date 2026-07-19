@@ -33,7 +33,7 @@
         <Dialog.Title>{m.admin_instances_active_new_secret_title()}</Dialog.Title>
       </Dialog.Header>
       <div class="flex flex-col gap-3">
-        <p class="text-amber-300 text-sm font-medium">{result?.warning}</p>
+        <p class="text-warning text-sm font-medium">{result?.warning}</p>
         <div class="bg-bg-input flex items-center gap-2 rounded-xl border border-border p-3">
           <code class="text-text-bright flex-1 break-all text-xs select-all">
             {result?.client_secret}
@@ -41,7 +41,7 @@
           <button type="button" onclick={copySecret}
             class="text-text-muted hover:text-text-bright shrink-0 rounded p-1">
             {#if copied}
-              <CheckIcon class="size-4 text-emerald-400" />
+              <CheckIcon class="size-4 text-success" />
             {:else}
               <ClipboardIcon class="size-4" />
             {/if}

@@ -64,7 +64,7 @@
   </div>
 
   {#if error}
-    <p class="text-sm text-red-400">{m.admin_voice_limits_error({ error: error ?? '' })}</p>
+    <p class="text-sm text-destructive">{m.admin_voice_limits_error({ error: error ?? '' })}</p>
   {:else if current}
     <div class="flex flex-col gap-2">
       <div

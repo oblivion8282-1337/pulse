@@ -116,7 +116,7 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">{m.admin_permissions_load_error({ error })}</p>
+    <p class="text-destructive text-sm">{m.admin_permissions_load_error({ error })}</p>
   {:else if current}
     <div class="flex flex-col gap-2">
       {@render toggleRow(

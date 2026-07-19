@@ -27,7 +27,7 @@
   const BTN_BASE =
     'hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
   const BTN_DANGER =
-    'hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400';
+    'hover:bg-destructive/10 hover:text-destructive text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-destructive/10 data-[armed=true]:text-destructive';
 
   // ``popoverOpen`` mirrors the parent popover's ``open`` for confirm-
   // state reset. ``onOpenNickDialog`` is a callback because the dialog

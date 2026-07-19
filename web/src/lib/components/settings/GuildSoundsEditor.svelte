@@ -244,7 +244,7 @@
                     disabled={isBusy}
                     title={m.guild_sounds_revert_title()}
                     aria-label={m.guild_sounds_revert_aria({ label: SOUNDS[id].label })}
-                    class="hover:bg-bg-hover text-text-muted hover:text-red-400 rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
+                    class="hover:bg-bg-hover text-text-muted hover:text-destructive rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
                     data-testid="guild-sounds-revert-{id}"
                   >
                     <RotateCcwIcon class="size-4" />

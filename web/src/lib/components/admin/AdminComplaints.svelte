@@ -47,7 +47,7 @@
         {m.admin_complaints_heading()}
         {#if newCount && newCount > 0}
           <span
-            class="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold text-white"
+            class="inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-xs font-semibold text-white"
             title={m.admin_complaints_new_badge({ count: newCount })}
             data-testid="complaints-new-badge"
           >
@@ -72,7 +72,7 @@
         {t.label}
         {#if t.id === 'open' && newCount && newCount > 0}
           <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 align-middle text-[10px] font-semibold text-white"
+            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 align-middle text-[10px] font-semibold text-white"
           >
             {newCount}
           </span>
