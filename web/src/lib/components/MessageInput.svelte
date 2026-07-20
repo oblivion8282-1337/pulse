@@ -347,7 +347,12 @@
          UNTER der Feldmitte (gemessen). Auf dem Handy (`items-center`, vorher
          32px) kippte es aus demselben Grund in die andere Richtung.
          `items-end` am Container bleibt: das ist richtig, sobald der Text
-         mehrzeilig wird und die Knöpfe unten stehen bleiben sollen. -->
+         mehrzeilig wird und die Knöpfe unten stehen bleiben sollen.
+
+         `leading-6` macht es exakt statt nur ungefähr: 24px Zeilenhöhe plus
+         2x6px Abstand ergeben genau die 36px des Kastens, die Zeile füllt ihn
+         also vollständig aus und sitzt zwangsläufig mittig. Mit der geerbten
+         Zeilenhöhe (22,5px) blieben 0,75px Versatz nach oben. -->
     <textarea
       bind:this={textarea}
       rows="1"
@@ -360,7 +365,7 @@
       onblur={() => mentionOverlay?.close()}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
@@ -393,10 +398,22 @@
         <EmojiPicker onPick={insertEmoji} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    <!-- Drei beabsichtigte Abweichungen von der Standard-Variante:
+         Grösse: `md:size-9` (36px) zieht mit Büroklammer und Emoji daneben
+         gleich, vorher war dieser eine Knopf 32px. `size-11` (44px) auf dem
+         Handy bleibt: dort ist es eine Trefferfläche, keine Optik.
+         Verlauf: `bg-none` löscht den Farbverlauf der Variante, `bg-primary`
+         setzt die einfarbige Fläche, `shadow-none` nimmt den Schlagschatten —
+         zusammen war das die lauteste Fläche im Feld, auch wenn es gar nichts
+         zu senden gab.
+         Gesperrt: die Basis blendet auf 50 % aus, was einen blassblauen Geist
+         ergab. `disabled:opacity-100` hebt das auf, erst dadurch werden
+         `disabled:bg-secondary`/`disabled:text-text-muted` sichtbar — eine
+         echte graue Fläche statt „halb da". Die drei gehören zusammen. -->
     <Button
       type="submit"
-      size="icon-sm"
-      class="size-11 md:size-8"
+      size="icon"
+      class="size-11 bg-none bg-primary shadow-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 md:size-9"
       disabled={sendDisabled}
       data-testid="message-send"
       aria-label={m.message_input_send()}
