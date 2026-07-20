@@ -1,14 +1,16 @@
 /**
- * Persistent log for the desktop sidecar (Linux GSR / Windows HQ) — a
- * diagnosable paper trail when a stream silently fails to go live.
+ * Persistent log for the desktop sidecar — a diagnosable paper trail when a
+ * stream silently fails to go live.
  *
  * The {@link SidecarManager} spawns whichever sidecar binary the platform
- * needs (Python on Linux, Rust on Windows) and both speak the same
- * newline-JSON protocol on stdio. This module captures that traffic —
- * `stdout` (the JSON-RPC events/responses: state transitions, fps, health,
- * error messages) and `stderr` (Rust panics / anyhow chains / Python
- * tracebacks) — plus lifecycle markers (spawn / exit / error), each line
- * timestamped and tagged `[out]` / `[err]` / `[lifecycle]`.
+ * needs (Rust on Linux/Windows/macOS, the Python GSR sidecar only as the Linux
+ * fallback) and all of them speak the same newline-JSON protocol on stdio.
+ * This module captures that traffic — `stdout` (the JSON-RPC events/responses:
+ * state transitions, fps, health, error messages; fps is thinned out, see
+ * `sidecar-log-noise.ts` for why) and `stderr` (Rust panics / anyhow chains /
+ * Python tracebacks — and, decisive for GPU cases, FFmpeg's own av_log lines,
+ * which surface nowhere else) — plus lifecycle markers (spawn / exit / error),
+ * each line timestamped and tagged `[out]` / `[err]` / `[lifecycle]`.
  *
  * It is the single chokepoint for ALL GPU vendors: on Windows the same Rust
  * sidecar runs the NVIDIA (NVENC), AMD (D3D12VA/AMF) and Intel/CPU paths —
@@ -26,6 +28,8 @@
 import { appendFileSync, existsSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
+
+import { createNoiseFilter } from './sidecar-log-noise';
 
 const FILE = 'sidecar.log';
 const OLD_FILE = 'sidecar.log.old';
@@ -45,6 +49,9 @@ function redact(line: string): string {
   for (const [re, repl] of SECRET_PATTERNS) out = out.replace(re, repl);
   return out;
 }
+
+/** fps-Ausdünnung (Begründung + Testbarkeit: `sidecar-log-noise.ts`). */
+const suppressAsNoise = createNoiseFilter();
 
 let cachedPath: string | null = null;
 function logPath(): string {
@@ -71,6 +78,7 @@ function rotateIfNeeded(): void {
 export function logSidecar(stream: 'out' | 'err' | 'lifecycle', line: string): void {
   const text = (line ?? '').trimEnd();
   if (!text.trim()) return;
+  if (suppressAsNoise(stream, text, Date.now())) return;
   try {
     rotateIfNeeded();
     appendFileSync(logPath(), `${new Date().toISOString()} [${stream}] ${redact(text)}\n`, 'utf8');
