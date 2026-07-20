@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20.4",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "Feinschliff im Nachrichtenfeld",
+      "items": [
+        "Der eingegebene Text sitzt jetzt mittig im Eingabefeld statt leicht nach unten versetzt.",
+        "Der Senden-Knopf ist so groß wie die Knöpfe daneben und einfarbig statt mit Farbverlauf. Solange nichts zu senden ist, zeigt er sich als graue Fläche statt halbdurchsichtig.",
+        "Auf schmalen Bildschirmen bleiben die Knöpfe bei mehrzeiligen Nachrichten unten stehen, statt auf halber Höhe zu schweben.",
+        "Zähler für ungelesene Nachrichten sind besser lesbar.",
+        "Behoben: In einem leeren Kanal fehlte ein Leerzeichen vor dem Kanalnamen.",
+        "Die Infofenster über den Community-Symbolen haben keinen Zipfel mehr."
+      ]
+    },
+    {
       "id": "2026-07-20.3",
       "date": "2026-07-20",
       "style": "Sachlich",
