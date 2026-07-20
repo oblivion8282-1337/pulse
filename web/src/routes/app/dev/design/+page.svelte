@@ -76,9 +76,12 @@
     // settings/SessionsSection.svelte:153
     dangerTint:
       'text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium md:py-1.5',
-    // VoiceParticipantTile.svelte:208 — hartkodiertes Rot statt Token
-    dangerHard:
-      'cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-red-500 active:scale-95',
+    // VoiceParticipantTile.svelte:208 — die LIVE-Marke: sieht aus wie ein
+    // Gefahren-Knopf, ist aber keiner (Rot heisst hier Aufnahme, nicht Fehler).
+    // Läuft seit 2026-07-20 über `--color-badge-live` und steht deshalb nur noch
+    // als Gegenbeispiel in dieser Reihe.
+    badgeLive:
+      'cursor-pointer rounded-md bg-badge-live px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-badge-live-hover active:scale-95',
     // dropbox/DropboxEntryCard.svelte:101 (11x identisch im Repo)
     iconA: 'rounded p-1 hover:bg-bg-hover',
     // MessageActions.svelte:96
@@ -122,11 +125,11 @@
     },
     {
       title: 'Löschen / Gefahr',
-      note: '3 Farbquellen: Token solide, Token getönt, hartkodiertes bg-red-600',
+      note: '2 Ausprägungen — Token solide und getönt; die LIVE-Marke sieht nur so aus und hat seit 2026-07-20 ein eigenes Token',
       today: [
         ['solide (Token)', today.dangerSolid],
         ['getönt (Token)', today.dangerTint],
-        ['bg-red-600 (fest)', today.dangerHard]
+        ['LIVE-Marke (eigenes Token)', today.badgeLive]
       ],
       proposed: proposed.danger,
       shadcn: 'destructive'

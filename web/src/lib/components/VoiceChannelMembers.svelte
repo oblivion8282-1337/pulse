@@ -166,7 +166,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="rounded bg-primary px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground hover:bg-primary/90"
+                  class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-party-hover"
                   data-testid="user-watch-party-badge"
                   title={m.voice_channel_members_watch_party_open()}
                   aria-label={m.voice_channel_members_watch_party_open_label({ name })}
@@ -180,7 +180,7 @@
                 >PARTY</span>
               {:else}
                 <span
-                  class="rounded bg-primary px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground"
+                  class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                   data-testid="user-watch-party-badge"
                   title={m.voice_channel_members_watch_party_hosting()}
                 >PARTY</span>
@@ -193,7 +193,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="rounded bg-red-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-red-500"
+                  class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-live-hover"
                   data-testid="user-streaming-badge"
                   title={m.voice_channel_members_stream_open()}
                   aria-label={m.voice_channel_members_stream_open_label({ name })}
@@ -207,7 +207,7 @@
                 >LIVE</span>
               {:else}
                 <span
-                  class="rounded bg-red-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                  class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                   data-testid="user-streaming-badge"
                   title={m.voice_channel_members_stream_sharing_screen()}
                 >LIVE</span>
@@ -217,7 +217,7 @@
               <span
                 role="button"
                 tabindex="0"
-                class="rounded bg-primary/80 px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground hover:bg-primary"
+                class="rounded bg-badge-cam px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-cam-hover"
                 data-testid="user-cam-badge"
                 title={m.voice_channel_members_cam_open()}
                 aria-label={m.voice_channel_members_cam_open_label({ name })}
