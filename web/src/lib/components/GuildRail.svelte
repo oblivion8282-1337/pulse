@@ -375,7 +375,7 @@
             {/if}
             {#if homeBadgeCount > 0 && !homeActive}
               <span
-                class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
+                class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
                 aria-label={m.guild_rail_home_activity_dot()}
                 data-testid="home-unread-dot"
               >{homeBadgeCount > 99 ? '99+' : homeBadgeCount}</span>
@@ -568,7 +568,7 @@
                       {/if}
                       {#if guildUnread > 0}
                         <span
-                          class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
+                          class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white ring-2 ring-bg-panel"
                           aria-label={m.guild_rail_unread_mentions()}
                           data-testid="guild-mention-dot"
                         >{guildUnread > 99 ? '99+' : guildUnread}</span>

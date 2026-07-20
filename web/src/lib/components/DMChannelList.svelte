@@ -110,14 +110,14 @@
         </span>
         {#if unreadCount > 0}
           <span
-            class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white"
+            class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
             data-testid="dm-unread-pill"
             data-unread-count={unreadCount}
             aria-label="ungelesen"
           >{unreadCount > 99 ? '99+' : unreadCount}</span>
         {:else if isUnread}
           <span
-            class="ml-auto size-2 shrink-0 rounded-full bg-red-500"
+            class="ml-auto size-2 shrink-0 rounded-full bg-badge-count"
             data-testid="dm-unread-dot"
             aria-label="ungelesen"
           ></span>

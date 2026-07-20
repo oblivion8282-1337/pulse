@@ -1742,7 +1742,6 @@
   "settings_audio_video_gate_label_very_sensitive": "very sensitive — almost everything passes through",
   "settings_audio_video_gate_threshold_hint": "Set the threshold below your voice but above the background noise.",
   "settings_audio_video_gate_threshold_label": "Gate Threshold",
-  "settings_audio_video_gate_threshold_title": "Gate threshold: {db} dB",
   "settings_audio_video_info_and": "and",
   "settings_audio_video_info_delayed_apply": "take effect the next time you join a voice channel.",
   "settings_audio_video_info_immediate": "take effect immediately.",

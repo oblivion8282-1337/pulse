@@ -84,6 +84,18 @@
      NICHT auf `--destructive` umbiegen: rot heisst hier Aufnahme, nicht Fehler
      (Rundfunk-Konvention), und dunkel stünde das Token auf #ef4444, was weisse
      Schrift auf 3,76:1 drückte. Die Hover-Töne dunkeln durchgehend ab. */
+  /* Zähler-Marken (ungelesene Nachrichten, offene Anträge) — gleiches Muster und
+     gleiche Begründung wie die Zustands-Marken oben, einschliesslich des
+     `--destructive`-Vorbehalts: weisse Ziffern brauchen in BEIDEN Modi eine
+     dunkle Fläche. Der Wert ist der der LIVE-Marke, es kommt also keine Farbe
+     dazu. Neu ist hier nur die Schwelle: 11px fett zählt als normaler Text, es
+     gilt 4,5:1 statt der 3:1 für Symbole — `bg-red-500` lag mit 3,76:1 darunter,
+     #dc2626 erreicht 4,83:1.
+
+     Auch die punktförmigen Varianten (ungelesen ohne Zahl) laufen darüber,
+     obwohl sie keinen Text tragen: sonst stünden in derselben Liste zwei
+     verschiedene Rottöne, je nachdem ob eine Zahl da ist. */
+  --color-badge-count: #dc2626;
   --color-badge-live: #dc2626;
   --color-badge-live-hover: #b91c1c;
   --color-badge-party: #2563eb;

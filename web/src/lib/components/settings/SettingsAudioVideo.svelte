@@ -165,12 +165,14 @@
             aria-hidden="true"
           ></div>
           {#if processorActive}
-            <!-- Gate-Schwelle (live aus settings.audio.noiseGateThresholdDb) -->
+            <!-- Gate-Schwelle (live aus settings.audio.noiseGateThresholdDb).
+                 Rein dekorativ, `aria-hidden` muss bleiben — den Wert trägt der
+                 sichtbare Text darunter. Ein `title` gehört hier nicht hin: hinter
+                 `pointer-events-none` bekommt ihn niemand zu sehen. -->
             <div
               class="border-red-500 pointer-events-none absolute inset-y-0 border-l-2"
               style:left="{gateMarkerPct}%"
               aria-hidden="true"
-              title={m.settings_audio_video_gate_threshold_title({ db: gateDbDisplay })}
             ></div>
           {/if}
         </div>

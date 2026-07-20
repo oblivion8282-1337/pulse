@@ -1750,7 +1750,6 @@
   "settings_audio_video_gate_label_very_sensitive": "sehr empfindlich — fast alles kommt durch",
   "settings_audio_video_gate_threshold_hint": "Schwelle so wählen, dass sie unter deiner Stimme, aber über dem Hintergrund liegt.",
   "settings_audio_video_gate_threshold_label": "Gate-Schwelle",
-  "settings_audio_video_gate_threshold_title": "Gate-Schwelle: {db} dB",
   "settings_audio_video_info_and": "und",
   "settings_audio_video_info_delayed_apply": "greifen erst, wenn du das nächste Mal einem Sprach-Kanal beitrittst.",
   "settings_audio_video_info_immediate": "wirken sofort.",
