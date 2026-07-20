@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20.5",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "HQ-Streaming: Startfehler auf AMD-Grafikkarten behoben (Linux)",
+      "items": [
+        "Behoben: Auf AMD-Grafikkarten vor der RX-9000-Serie konnte der Start eines HQ-Streams fehlschlagen. Ursache war ein komprimiertes Speicherformat, das der Video-Teil dieser Karten nicht lesen kann — es wird jetzt bei der Aufnahme gar nicht erst verwendet.",
+        "Rechner mit zwei Grafikkarten desselben Herstellers (etwa Prozessorgrafik plus Steckkarte): Beim Stream-Start werden jetzt beide Karten durchprobiert statt nur der ersten.",
+        "Das Streaming-Protokoll hält jetzt fest, welche Grafikkarte den Stream übernimmt. Das beschleunigt künftige Fehlersuche."
+      ]
+    },
+    {
       "id": "2026-07-20.4",
       "date": "2026-07-20",
       "style": "Sachlich",
