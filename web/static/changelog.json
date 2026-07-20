@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "Einheitlicheres Erscheinungsbild",
+      "items": [
+        "Knöpfe, Menüzeilen und Formulare sehen jetzt überall gleich aus. Zuvor hatten viele Stellen ihre eigene Variante.",
+        "Abgerundete Ecken folgen einer festen Staffel. Community-Symbole und das Pulse-Symbol springen beim Überfahren nicht mehr in der Form.",
+        "Sicherheitsabfragen erscheinen als Fenster in der App statt als schlichter Browser-Dialog.",
+        "Pflichtfelder in Formularen sind erstmals als solche gekennzeichnet.",
+        "Lade-, Leer- und Fehlerzustände sehen überall gleich aus.",
+        "Zähler für Meldungen und Beschwerden sind bernsteinfarben statt rot — Rot bleibt echten Fehlern vorbehalten.",
+        "Auf dem Handy sind kleine Schaltflächen wieder zuverlässig treffbar."
+      ]
+    },
+    {
       "id": "2026-07-17.11",
       "date": "2026-07-17",
       "style": "Sachlich",
