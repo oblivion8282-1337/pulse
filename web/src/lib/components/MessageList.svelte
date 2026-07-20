@@ -322,8 +322,13 @@
 <div class="flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
   {#if channel}
     {#if messages.length === 0}
+      <!-- `{' '}` statt eines Leerzeichens am Ende des Textbausteins: dort wäre es
+           bei der Durchsicht unsichtbar, fiele Formatierern zum Opfer und ginge
+           Übersetzern verloren. Genau so entstand „…Nachrichten in#general". -->
       <p class="text-text-muted px-4 py-8 text-center text-sm">
-        {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
+        {pm.chat_view_no_messages_prefix()}{' '}<strong class="text-text-bright"
+          >{namePrefix}{channel.name}</strong
+        >{pm.chat_view_no_messages_suffix()}
       </p>
     {:else}
       <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={prependShift} style="height:100%">
