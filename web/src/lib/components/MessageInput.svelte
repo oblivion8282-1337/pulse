@@ -340,6 +340,14 @@
         <PaperclipIcon class="size-5" />
       </Button>
     {/if}
+    <!-- `min-h-9` + `py-1.5`: Der Kasten ist damit so hoch wie die Knöpfe daneben
+         (36px) und führt seine Zeile selbst mittig. Vorher war er 24px hoch, und
+         weil die Reihe auf dem Desktop mit `items-end` unten ausrichtet, klebte
+         seine Unterkante an den Knöpfen — die Textzeile landete dadurch 5,3px
+         UNTER der Feldmitte (gemessen). Auf dem Handy (`items-center`, vorher
+         32px) kippte es aus demselben Grund in die andere Richtung.
+         `items-end` am Container bleibt: das ist richtig, sobald der Text
+         mehrzeilig wird und die Knöpfe unten stehen bleiben sollen. -->
     <textarea
       bind:this={textarea}
       rows="1"
@@ -352,7 +360,7 @@
       onblur={() => mentionOverlay?.close()}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-[1.5rem]"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
