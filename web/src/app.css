@@ -355,21 +355,42 @@
   --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
 
-  /* Glas-Palette */
+  /* Glas-Palette
+     Hell ist KEINE Spiegelung von dunkel. Bis 2026-07-20 waren Flächen und
+     Rahmen hier — wie im Dark-Block — weiss mit Transparenz. Im Dunkeln trennt
+     das, weil jede Schicht aufhellt; hier lief es ins Leere: der Untergrund war
+     schon fast weiss, der Rahmen kam auf 1,03:1 gegen die Fläche und war damit
+     rechnerisch unsichtbar (Schalter und Formularränder verschwanden ganz).
+
+     Deshalb ist die Konstruktion umgedreht: der Boden trägt Farbe, die
+     tragenden Flächen sind weiss, und Vertiefungen wie Ränder sind DUNKEL mit
+     Transparenz. Genau das Muster, das `--input` schon immer benutzte — es war
+     nur nie auf den Rest angewendet.
+
+     Die Werte sind am Dark-Mode geeicht statt an einer Zielzahl: dort hebt sich
+     eine Fläche mit 1,11:1 vom Boden ab, hier mit 1,23:1. Etwas mehr, weil
+     helle Oberflächen bei Tageslicht gelesen werden.
+
+     Der Weichzeichner bleibt bewusst stehen: im Dunkeln wirkt er, im Hellen hat
+     er nichts zu zeichnen (die blauen Schleier liegen bei jeder Bodentiefe
+     konstant um 1,13:1) und kostet dort auch nichts. */
   --bg-grad: linear-gradient(
     135deg in oklab,
-    #fcfcfd 0%,
-    #f9fafb 20%,
-    #f6f7f9 40%,
-    #f3f4f6 60%,
-    #f1f2f4 80%,
-    #f0f1f3 100%
+    #e9ecf2 0%,
+    #e8ebf1 20%,
+    #e7eaf1 40%,
+    #e6eaf0 60%,
+    #e5e9f0 80%,
+    #e4e8ef 100%
   );
-  --panel: rgba(255, 255, 255, 0.62);
-  --panel-2: rgba(255, 255, 255, 0.5);
-  --panel-solid: rgba(255, 255, 255, 0.85);
-  --panel-border: rgba(255, 255, 255, 0.55);
-  --panel-shadow: 0 10px 30px rgba(30, 40, 60, 0.07), 0 1px 3px rgba(30, 40, 60, 0.04);
+  --panel: #ffffff;
+  /* Eingabefelder (`bg-input`). Nur 3 % Vertiefung: bei 4,5 % rutscht
+     `--text-faint` darin auf 4,43:1 und damit unter die Lesbarkeitsschwelle.
+     Die Feld-Anmutung trägt ohnehin überwiegend der Rand (`--input`). */
+  --panel-2: rgba(17, 24, 39, 0.03);
+  --panel-solid: #ffffff;
+  --panel-border: rgba(17, 24, 39, 0.14);
+  --panel-shadow: 0 10px 30px rgba(30, 40, 60, 0.08), 0 1px 3px rgba(30, 40, 60, 0.05);
   --blob-1: rgba(37, 99, 235, 0.1);
   --blob-2: rgba(59, 130, 246, 0.08);
   --brand: #2563eb;
@@ -379,32 +400,39 @@
   --accent-grad-to: #3b82f6;
   --text: #111827;
   --text-dim: #4b5563;
-  --text-faint: #9ca3af;
-  --hover: rgba(37, 99, 235, 0.06);
+  /* War #9ca3af und lag damit bei 2,54:1 auf der Fläche — weit unter den 4,5:1
+     für Fliesstext. Im Dunkeln steht derselbe Wert bei 6,70:1, deshalb fiel es
+     nie auf. Betrifft Zeitstempel, Zähler und Platzhalter. */
+  --text-faint: #6b7280;
+  --hover: rgba(37, 99, 235, 0.07);
   --scrollbar-thumb: rgba(37, 99, 235, 0.22);
   --scrollbar-thumb-hover: rgba(37, 99, 235, 0.35);
 
   /* shadcn-Semantik */
   --background: transparent;
   --foreground: #111827;
-  --card: rgba(255, 255, 255, 0.62);
+  --card: #ffffff;
   --card-foreground: #111827;
-  --popover: rgba(255, 255, 255, 0.78);
+  --popover: rgba(255, 255, 255, 0.97);
   --popover-foreground: #111827;
   --primary: #2563eb;
   --primary-foreground: #ffffff;
-  --secondary: rgba(255, 255, 255, 0.55);
+  /* Eine weisse Sekundärfläche auf einer weissen Karte war nicht zu sehen. */
+  --secondary: rgba(17, 24, 39, 0.06);
   --secondary-foreground: #111827;
-  --muted: rgba(255, 255, 255, 0.5);
-  --muted-foreground: #9ca3af;
+  --muted: rgba(17, 24, 39, 0.04);
+  --muted-foreground: #6b7280;
   --accent: rgba(37, 99, 235, 0.1);
   --accent-foreground: #1e3a8a;
   --destructive: #dc2626;
-  /* Wie --destructive die kräftigere 600er-Stufe im hellen Modus. */
-  --success: #059669;
-  --warning: #d97706;
-  --border: rgba(255, 255, 255, 0.55);
-  --input: rgba(17, 24, 39, 0.1);
+  /* Auf die 700er-Stufe gesenkt: die 600er lagen auf weisser Fläche bei 3,77:1
+     (Erfolg) und 3,19:1 (Warnung), beide unter 4,5:1. `--destructive` bleibt
+     auf 600, es erreicht schon 4,83:1 — und ein dunkleres Rot würde die
+     Fehlerfarbe unnötig gegenüber dem Bestand verschieben. */
+  --success: #047857;
+  --warning: #b45309;
+  --border: rgba(17, 24, 39, 0.14);
+  --input: rgba(17, 24, 39, 0.14);
   --ring: rgba(37, 99, 235, 0.5);
   --chart-1: #2563eb;
   --chart-2: #22c55e;
@@ -412,13 +440,13 @@
   --chart-4: #ef4444;
   --chart-5: #8b5cf6;
   --radius: 0.4rem;
-  --sidebar: rgba(255, 255, 255, 0.62);
+  --sidebar: #ffffff;
   --sidebar-foreground: #111827;
   --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: rgba(37, 99, 235, 0.12);
   --sidebar-accent-foreground: #2563eb;
-  --sidebar-border: rgba(255, 255, 255, 0.55);
+  --sidebar-border: rgba(17, 24, 39, 0.14);
   --sidebar-ring: rgba(37, 99, 235, 0.5);
 }
 
