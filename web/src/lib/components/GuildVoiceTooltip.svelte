@@ -238,19 +238,19 @@
                   <span class="ml-auto flex shrink-0 items-center gap-1">
                     {#if isParty}
                       <span
-                        class="rounded bg-primary px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground"
+                        class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                         title={m.voice_channel_members_watch_party_hosting()}
                       >PARTY</span>
                     {/if}
                     {#if isLive}
                       <span
-                        class="rounded bg-red-600 px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                        class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                         title={m.voice_channel_members_stream_sharing_screen()}
                       >LIVE</span>
                     {/if}
                     {#if isCam}
                       <span
-                        class="rounded bg-primary/80 px-1.5 py-0.5 text-2xs font-bold leading-none text-primary-foreground"
+                        class="rounded bg-badge-cam px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
                         title={m.voice_channel_members_cam_on()}
                       >CAM</span>
                     {/if}

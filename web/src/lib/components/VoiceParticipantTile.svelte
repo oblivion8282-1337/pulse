@@ -205,7 +205,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
+                  class="cursor-pointer rounded-md bg-badge-live px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-live-hover active:scale-95"
                   data-testid="voice-participant-live-badge"
                   title={isHqStreaming && isScreenSharing
                     ? m.voice_participant_tile_open_hq_and_screen()
@@ -221,7 +221,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-bold leading-none text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
+                  class="cursor-pointer rounded-md bg-badge-party px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-party-hover active:scale-95"
                   data-testid="voice-participant-party-badge"
                   title={m.voice_participant_tile_open_watch_party()}
                   aria-label={m.voice_participant_tile_open_watch_party_aria({ name: resolvedName })}
@@ -233,7 +233,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-blue-500 active:scale-95"
+                  class="cursor-pointer rounded-md bg-badge-cam px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
                   data-testid="voice-participant-cam-badge"
                   title={m.voice_participant_tile_open_webcam()}
                   aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}

@@ -59,6 +59,37 @@
      verschiebt sich beim Migrieren optisch praktisch nichts. */
   --color-success: var(--success);
   --color-warning: var(--warning);
+  /* Zustands-Marken (LIVE / PARTY / CAM) — bewusst NICHT themenabhängig, stehen
+     deshalb nur hier im @theme und sind nicht in :root/.dark gedoppelt. Sie
+     tragen weisse Schrift, und dafür muss die Fläche in BEIDEN Modi dunkel
+     bleiben; ein Token, das im Dunkeln aufhellt, ist hier das Gegenteil einer
+     Verbesserung: `bg-primary` (PARTY) kam dunkel auf 3,68:1, `bg-primary/80`
+     (CAM) hell auf 3,63:1 — beide unter den 4,5:1 für Schrift. Nur das fest
+     verdrahtete `bg-red-600` der LIVE-Marke bestand, weil es sich nicht bewegte;
+     sein Wert ist deshalb unverändert übernommen.
+
+     Zweite Bedingung neben der Schrift: die Marke muss auch als FLÄCHE gegen
+     beide Popover-Gründe erkennbar bleiben (>= 3:1). Daran scheitert das
+     naheliegende, kräftigere Blau #1d4ed8 für PARTY (dunkel nur 2,67:1).
+
+     Gemessen, weisse Schrift / Fläche hell / Fläche dunkel:
+       party  5,17 · 5,13 · 3,46
+       live   4,83 · 4,79 · 3,70
+       cam    5,36 · 5,32 · 3,34
+
+     CAM bekommt Türkis statt Blau, weil es bisher an einer Stelle `bg-primary/80`
+     und an einer anderen `bg-blue-600` war — dieselbe Marke in zwei Farben, und
+     beide kaum von PARTY zu unterscheiden.
+
+     NICHT auf `--destructive` umbiegen: rot heisst hier Aufnahme, nicht Fehler
+     (Rundfunk-Konvention), und dunkel stünde das Token auf #ef4444, was weisse
+     Schrift auf 3,76:1 drückte. Die Hover-Töne dunkeln durchgehend ab. */
+  --color-badge-live: #dc2626;
+  --color-badge-live-hover: #b91c1c;
+  --color-badge-party: #2563eb;
+  --color-badge-party-hover: #1d4ed8;
+  --color-badge-cam: #0e7490;
+  --color-badge-cam-hover: #155e75;
   --color-accent-foreground: var(--accent-foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
