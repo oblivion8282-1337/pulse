@@ -98,7 +98,7 @@
       <div class="flex flex-col gap-1">
         <span class="text-text-bright text-sm font-medium">{m.admin_backup_not_configured_title()}</span>
         <span class="text-text-muted text-xs leading-relaxed">
-          {m.admin_backup_not_configured_body_pre()}<code
+          {m.admin_backup_not_configured_body_pre()}{' '}<code
             class="bg-bg-panel px-1 py-0.5 rounded text-2xs"
             >infra/prod/DEPLOY.md</code
           >{m.admin_backup_not_configured_body_post()}
@@ -153,9 +153,9 @@
   {/if}
 
   <p class="text-text-muted text-2xs leading-relaxed mt-3">
-    {m.admin_backup_footer_pre()}<code
+    {m.admin_backup_footer_pre()}{' '}<code
       class="bg-bg-panel px-1 py-0.5 rounded">docker compose exec backup …</code
-    >{m.admin_backup_footer_mid()}<code class="bg-bg-panel px-1 py-0.5 rounded"
+    >{m.admin_backup_footer_mid()}{' '}<code class="bg-bg-panel px-1 py-0.5 rounded"
       >infra/prod/backup/restore.md</code
     >{m.admin_backup_footer_post()}
   </p>
