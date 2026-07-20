@@ -187,7 +187,7 @@
       {m.user_footer_server_admin()}
       {#if showInstanceBadge}
         <span
-          class="bg-red-500 ml-auto rounded-full px-1.5 py-0.5 text-2xs font-semibold text-white"
+          class="bg-badge-count ml-auto rounded-full px-1.5 py-0.5 text-2xs font-semibold text-white"
           data-testid="admin-pending-badge"
         >
           {pendingInstanceApps.count}

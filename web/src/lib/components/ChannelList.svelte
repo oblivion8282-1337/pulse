@@ -410,14 +410,14 @@
                 {/if}
                 {#if unreadCount > 0}
                   <span
-                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-2xs font-bold leading-none text-white"
+                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
                     data-testid="channel-mention-pill"
                     data-unread-count={unreadCount}
                     aria-label={m.channel_list_unread_mentions({ count: unreadCount })}
                   >{unreadCount > 99 ? '99+' : unreadCount}</span>
                 {:else if isUnread}
                   <span
-                    class="size-2 shrink-0 rounded-full bg-red-500"
+                    class="size-2 shrink-0 rounded-full bg-badge-count"
                     data-testid="channel-unread-dot"
                     aria-label={m.channel_list_unread()}
                   ></span>

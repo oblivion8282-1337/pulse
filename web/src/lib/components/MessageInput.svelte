@@ -308,8 +308,11 @@
 
   <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
 
+  <!-- `items-end` ohne Breakpoint: die Knöpfe sollen bei der Schreibmarke stehen,
+       sobald der Text mehrzeilig wird. Bei einer Zeile ist es einerlei, weil der
+       Textkasten genauso hoch ist wie die Knöpfe (36px, siehe unten). -->
   <div
-    class="bg-bg-input relative flex items-center gap-1.5 border border-border px-3 py-3.5 shadow-[var(--panel-shadow)] backdrop-blur-sm md:items-end md:gap-2 md:px-4 md:py-3 dark:shadow-none
+    class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-3.5 shadow-[var(--panel-shadow)] backdrop-blur-sm md:gap-2 md:px-4 md:py-3 dark:shadow-none
            {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
     {#if isDragging}
@@ -342,12 +345,9 @@
     {/if}
     <!-- `min-h-9` + `py-1.5`: Der Kasten ist damit so hoch wie die Knöpfe daneben
          (36px) und führt seine Zeile selbst mittig. Vorher war er 24px hoch, und
-         weil die Reihe auf dem Desktop mit `items-end` unten ausrichtet, klebte
-         seine Unterkante an den Knöpfen — die Textzeile landete dadurch 5,3px
-         UNTER der Feldmitte (gemessen). Auf dem Handy (`items-center`, vorher
-         32px) kippte es aus demselben Grund in die andere Richtung.
-         `items-end` am Container bleibt: das ist richtig, sobald der Text
-         mehrzeilig wird und die Knöpfe unten stehen bleiben sollen.
+         weil die Reihe mit `items-end` unten ausrichtet, klebte seine Unterkante
+         an den Knöpfen — die Textzeile landete dadurch 5,3px UNTER der Feldmitte
+         (gemessen).
 
          `leading-6` macht es exakt statt nur ungefähr: 24px Zeilenhöhe plus
          2x6px Abstand ergeben genau die 36px des Kastens, die Zeile füllt ihn
