@@ -20,8 +20,7 @@ use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler}
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
 use windows_capture::settings::{
-    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+    ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
 };
 
 use super::source::{CaptureSource, ResolvedTarget};
@@ -223,25 +222,10 @@ fn run_capture(
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
 ) -> Result<()> {
-    let cursor = if cfg.include_cursor {
-        CursorCaptureSettings::WithCursor
-    } else {
-        CursorCaptureSettings::WithoutCursor
-    };
-    let border = if cfg.draw_border {
-        DrawBorderSettings::WithBorder
-    } else {
-        DrawBorderSettings::WithoutBorder
-    };
-    let min_interval = if cfg.max_fps == 60 {
-        MinimumUpdateIntervalSettings::Default
-    } else {
-        // `windows-capture` nimmt `std::time::Duration`. min update interval =
-        // 1/fps; bei 30fps z.B. ~33ms. Crate clampt das wenn nötig.
-        MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(
-            1.0 / cfg.max_fps as f64,
-        ))
-    };
+    // OS-Support-gated (Win10 kennt z.B. IsBorderRequired nicht) — s. capture/mod.rs.
+    let cursor = super::cursor_settings(cfg.include_cursor);
+    let border = super::border_settings(cfg.draw_border);
+    let min_interval = super::min_interval_settings(cfg.max_fps);
 
     let flags = HandlerFlags { tx, stop_rx, dropped };
 
