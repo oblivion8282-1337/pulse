@@ -23,8 +23,7 @@ use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler}
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
 use windows_capture::settings::{
-    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+    ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
 };
 
 use super::source::{CaptureSource, ResolvedTarget};
@@ -260,23 +259,10 @@ fn run_capture(
     pool_size: u32,
     dropped: Arc<AtomicU64>,
 ) -> Result<()> {
-    let cursor = if cfg.include_cursor {
-        CursorCaptureSettings::WithCursor
-    } else {
-        CursorCaptureSettings::WithoutCursor
-    };
-    let border = if cfg.draw_border {
-        DrawBorderSettings::WithBorder
-    } else {
-        DrawBorderSettings::WithoutBorder
-    };
-    let min_interval = if cfg.max_fps == 60 {
-        MinimumUpdateIntervalSettings::Default
-    } else {
-        MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(
-            1.0 / cfg.max_fps as f64,
-        ))
-    };
+    // OS-Support-gated (Win10 kennt z.B. IsBorderRequired nicht) — s. capture/mod.rs.
+    let cursor = super::cursor_settings(cfg.include_cursor);
+    let border = super::border_settings(cfg.draw_border);
+    let min_interval = super::min_interval_settings(cfg.max_fps);
     let flags = HwHandlerFlags { tx, stop_rx, pool_size, dropped };
 
     match target {

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20.6",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "HQ-Streaming: Startfehler unter Windows 10 behoben",
+      "items": [
+        "Behoben: Auf Windows 10 brach jeder HQ-Stream vor dem ersten Bild ab (Meldung zum Capture-Rahmen). Die App forderte eine Rahmen-Einstellung an, die es erst ab Windows 11 gibt — sie wird jetzt nur noch dort gesetzt, wo das System sie kennt. Auf Windows 10 gibt es den gelben Aufnahme-Rahmen ohnehin nicht, es geht also nichts verloren.",
+        "Gleiches Muster vorsorglich für zwei weitere Einstellungen abgesichert, darunter der Bildraten-Deckel, den erst Windows 11 24H2 kennt — damit bricht auch ein Stream mit reduzierter Bildrate auf älteren Systemen nicht mehr ab."
+      ]
+    },
+    {
       "id": "2026-07-20.5",
       "date": "2026-07-20",
       "style": "Sachlich",

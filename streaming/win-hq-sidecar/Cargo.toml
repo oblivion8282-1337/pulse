@@ -17,6 +17,7 @@ anyhow = "1"
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [
+    "Foundation_Metadata", # ApiInformation: WGC-Session-Properties OS-gated prüfen (capture/mod.rs)
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D_Fxc",
