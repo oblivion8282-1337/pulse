@@ -101,15 +101,26 @@ _ok "" "Container up"
 
 # --- Migrationen ------------------------------------------------------------
 
-_info "Alembic upgrade (auth + chat-gateway)"
-for svc in auth chat-gateway
-    pushd services/$svc >/dev/null
-    POSTGRES_HOST=localhost POSTGRES_PORT=5434 \
-        uv run alembic upgrade head >/dev/null 2>&1
-    or _die "alembic $svc failed"
-    popd >/dev/null
+# PULSE_DEV_SKIP_MIGRATIONS=1 überspringt diesen Block — für den Fall, dass die
+# Dev-DB NEUER ist als der Branch (auf einem Feature-Branch migriert, dann
+# zurückgewechselt): Alembic bricht mit "Can't locate revision identified by …"
+# ab, weil die Revisionsdatei hier fehlt. Älterer Code läuft gegen die neuere DB,
+# solange die Extra-Migrationen rein additiv sind (Spalten nullable oder mit
+# server_default). Vorher prüfen: eine NOT-NULL-Spalte ohne Default lässt die
+# Inserts des älteren Codes scheitern.
+if test "$PULSE_DEV_SKIP_MIGRATIONS" = 1
+    _warn "Alembic übersprungen (PULSE_DEV_SKIP_MIGRATIONS=1)"
+else
+    _info "Alembic upgrade (auth + chat-gateway)"
+    for svc in auth chat-gateway
+        pushd services/$svc >/dev/null
+        POSTGRES_HOST=localhost POSTGRES_PORT=5434 \
+            uv run alembic upgrade head >/dev/null 2>&1
+        or _die "alembic $svc failed — DB neuer als der Branch? Siehe PULSE_DEV_SKIP_MIGRATIONS in diesem Skript."
+        popd >/dev/null
+    end
+    _ok "" "DB aktuell"
 end
-_ok "" "DB aktuell"
 
 # --- Uvicorns ---------------------------------------------------------------
 

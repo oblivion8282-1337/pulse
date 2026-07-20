@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20.2",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "Tastenkürzel: nichts mehr vorbelegt, dafür auf allen Geräten",
+      "items": [
+        "Pulse belegt ab Werk keine Tastenkombinationen mehr. Die bisherigen Vorgaben kollidierten regelmässig mit Kürzeln des Betriebssystems, des Browsers oder anderer Programme.",
+        "Eigene Kürzel vergibst du unter Einstellungen, Tastatur. Wer dort bereits etwas geändert hatte, behält seine Belegung.",
+        "Neu: Die Belegung gehört zu deinem Konto und gilt auf allen Geräten, auf denen du angemeldet bist. Bisher galt sie nur im jeweiligen Browser.",
+        "Behoben: Die Sicherheitsabfrage im Tastatur-Tab öffnete hinter dem Einstellungs-Fenster und war nicht anklickbar."
+      ]
+    },
+    {
       "id": "2026-07-20",
       "date": "2026-07-20",
       "style": "Sachlich",
