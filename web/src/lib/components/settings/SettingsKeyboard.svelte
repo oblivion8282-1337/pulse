@@ -22,6 +22,7 @@
     canMirrorToGlobal
   } from '$lib/shortcuts/format';
   import { settings } from '$lib/stores/settings.svelte';
+  import { isElectron } from '$lib/platform/runtime';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { m } from '$lib/paraglide/messages.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
@@ -70,13 +71,14 @@
         endCapture();
         return;
       }
-      // Electron's globalShortcut accelerator parser only handles ASCII
-      // letters/digits, F1–F24, a small punctuation set, and a fixed list
-      // of named keys — so e.g. ß/ä/@/§/€ can never be mirrored to the
-      // OS-global shortcut, they'd silently no-op in the background.
-      // Refuse here with a clear message instead of saving a half-working
+      // Electron's globalShortcut parser only handles ASCII letters/digits,
+      // F1–F24, some punctuation and named keys — ß/ä/@/§/€ would silently
+      // no-op in the background, so refuse instead of saving a half-working
       // binding. See `lib/shortcuts/format.ts::canMirrorToGlobal`.
-      if (!canMirrorToGlobal(combo)) {
+      // The isElectron() guard is essential: browsers have no OS-global
+      // shortcuts, so there the check only costs keys. Worst hit would be
+      // AZERTY, whose unshifted number row (é/è/ç/à) is all Unicode letters.
+      if (isElectron() && !canMirrorToGlobal(combo)) {
         bindingError = {
           id,
           message: m.settings_keyboard_unmirrorable({ combo: displayCombo(combo) })
@@ -133,16 +135,7 @@
 
 <div class="space-y-6">
   <header class="flex items-baseline justify-between gap-3">
-    <div>
-      <h2 class="text-text-bright text-base font-semibold">{m.settings_keyboard_title()}</h2>
-      <p class="text-text-muted mt-1 text-xs">
-        {m.settings_keyboard_hint_before_esc()} <kbd class="font-mono">Esc</kbd> =
-        {m.settings_keyboard_hint_esc()}, <kbd class="font-mono">Backspace</kbd> = {m.settings_keyboard_hint_backspace()}.
-      </p>
-      <p class="text-text-muted mt-1 text-xs">
-        {m.settings_keyboard_unmirrorable_hint()}
-      </p>
-    </div>
+    <h2 class="text-text-bright text-base font-semibold">{m.settings_keyboard_title()}</h2>
     <Button
       variant="ghost"
       size="xs"
