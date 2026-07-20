@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-20.3",
+      "date": "2026-07-20",
+      "style": "Sachlich",
+      "title": "Heller Modus: sichtbare Kanten, lesbare Schrift",
+      "items": [
+        "Im hellen Modus waren Rahmen, Schalter und Auswahlkästchen praktisch unsichtbar — weiß auf weiß. Flächen heben sich jetzt voneinander ab, Bedienelemente sind erkennbar.",
+        "Graue Schrift wie Zeitstempel und Zähler war zu hell und ist jetzt deutlich lesbar. Dasselbe gilt für die grünen und bernsteinfarbenen Hinweise.",
+        "Die Einstellungen zeigen wieder eine klare Trennung zwischen Navigation und Inhalt.",
+        "Die Markierungen LIVE, PARTY und CAM hatten je nach Ort unterschiedliche Farben. Sie sind jetzt einheitlich, und CAM ist von PARTY unterscheidbar."
+      ]
+    },
+    {
       "id": "2026-07-20.2",
       "date": "2026-07-20",
       "style": "Sachlich",
