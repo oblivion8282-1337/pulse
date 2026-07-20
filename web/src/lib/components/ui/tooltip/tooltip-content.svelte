@@ -1,3 +1,24 @@
+<!--
+	Tooltip-Blase — OHNE Zipfel (2026-07-20 entfernt).
+
+	Der Zipfel war ein um 45 Grad gedrehtes Quadrat mit Füllung, aber ohne Rand.
+	Das fiel nicht auf, solange der Rand der Blase im hellen Modus auf `weiss 55 %`
+	stand und selbst unsichtbar war. Seit er dunkel ist, hing ein konturloser Fleck
+	an einer umrandeten Blase.
+
+	Nachrüsten ist mehr Aufwand als es aussieht — drei Dinge müssten gleichzeitig
+	stimmen:
+	  - Rand nur auf den zwei nach aussen zeigenden Kanten (welche zwei, hängt von
+	    der Seite ab), sonst zieht er einen Strich quer durch die Blase.
+	  - Rundung nur an der Spitze, sonst Kerben an der Naht.
+	  - `--border` ist DURCHSCHEINEND: als `border` läge er auf der eigenen Füllung
+	    statt auf dem Untergrund und käme 56 Helligkeitsstufen zu hell heraus
+	    (#dddee1 statt #c6cbd3 des Blasenrands). Zu lösen mit
+	    `background-clip: padding-box`.
+
+	Lösbar, aber dem Nutzen nicht angemessen — die Nähe zum Auslöser trägt die
+	Zuordnung ohnehin. Entscheidung mit dem Nutzer, nicht aus Bequemlichkeit.
+-->
 <script lang="ts">
 	import { Tooltip as TooltipPrimitive } from "bits-ui";
 	import { cn } from "$lib/utils.js";
@@ -8,14 +29,15 @@
 	let {
 		ref = $bindable(null),
 		class: className,
-		sideOffset = 0,
+		// 8 statt 0: Mit dem Zipfel (s. Kopf-Kommentar) entfiel der Abstand, den die
+		// Positionierung automatisch für seine Höhe einrechnete — die Blase klebte
+		// sonst am Auslöser. Gemessen: vorher 10 px, jetzt 8 px.
+		sideOffset = 8,
 		side = "top",
 		children,
-		arrowClasses,
 		portalProps,
 		...restProps
 	}: TooltipPrimitive.ContentProps & {
-		arrowClasses?: string;
 		portalProps?: WithoutChildrenOrChild<ComponentProps<typeof TooltipPortal>>;
 	} = $props();
 </script>
@@ -33,20 +55,5 @@
 		{...restProps}
 	>
 		{@render children?.()}
-		<TooltipPrimitive.Arrow>
-			{#snippet child({ props })}
-				<div
-					class={cn(
-						"size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-[2px] bg-popover fill-popover z-50",
-						"data-[side=top]:translate-x-1/2 data-[side=top]:translate-y-[calc(-50%+2px)]",
-						"data-[side=bottom]:-translate-x-1/2 data-[side=bottom]:-translate-y-[calc(-50%+1px)]",
-						"data-[side=right]:translate-x-[calc(50%+2px)] data-[side=right]:translate-y-1/2",
-						"data-[side=left]:-translate-y-[calc(50%-3px)]",
-						arrowClasses
-					)}
-					{...props}
-				></div>
-			{/snippet}
-		</TooltipPrimitive.Arrow>
 	</TooltipPrimitive.Content>
 </TooltipPortal>
