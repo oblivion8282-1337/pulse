@@ -87,19 +87,26 @@ async function addUpdatesPulseMock(page: Page): Promise<void> {
       subs.onReady?.({ version: v, autoRestart: ar });
     };
     (window as unknown as Record<string, unknown>).__updateFired = fired;
+    // Meldet, ob `+layout.svelte`s onMount die drei Subscriptions WIRKLICH
+    // registriert hat — s. `waitForUpdatesSubscriptions`.
+    (window as unknown as Record<string, unknown>).__updatesSubscribed = () =>
+      subs.onAvailable !== null && subs.onProgress !== null && subs.onReady !== null;
   });
 }
 
 /** Wartet darauf, dass `+layout.svelte`-onMount gelaufen ist und die drei
  *  Updates-Subscriptions registriert hat. Würde man die Events vorher feuern,
- *  wären die Callback-Slots im Mock null und die Events gingen verloren. */
+ *  wären die Callback-Slots im Mock null und die Events gingen verloren.
+ *
+ *  Prüft die Callback-Slots SELBST, nicht die Test-Hooks: die setzt
+ *  `addInitScript` schon vor jedem App-Code, `typeof __emitReady === 'function'`
+ *  war also sofort wahr und der Helfer wartete effektiv auf nichts. Die Tests
+ *  feuerten ihr Event dann im Rennen mit onMount — je nach Maschine/Timing vor
+ *  der Registrierung, das Event ging verloren und der Toast erschien nie. */
 async function waitForUpdatesSubscriptions(page: Page): Promise<void> {
   await page.waitForFunction(
-    () => {
-      const onReady = (window as { __emitReady?: (v: string, ar: boolean) => void }).__emitReady;
-      return typeof onReady === 'function';
-    },
-    { timeout: 5_000 }
+    () => (window as { __updatesSubscribed?: () => boolean }).__updatesSubscribed?.() === true,
+    { timeout: 10_000 }
   );
 }
 
