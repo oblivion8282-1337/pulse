@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-21",
+      "date": "2026-07-21",
+      "style": "Sachlich",
+      "title": "Bildschirmteilen unter Linux: Abbruch- und Wechsel-Fälle behoben",
+      "items": [
+        "Behoben: Wird das geteilte Fenster geschlossen, endet die Übertragung jetzt sauber, statt bei einem Standbild hängen zu bleiben.",
+        "Behoben: Das Beenden einer Übertragung bleibt nicht mehr stehen.",
+        "Behoben: Nach dem Ändern der Fenstergröße läuft das Bild weiter, statt einzufrieren.",
+        "Ton und Bild bleiben zuverlässiger synchron."
+      ],
+      "outro": "Die Änderungen stecken im Linux-Aufnahmeprogramm und erreichen dich mit dem nächsten Update der Desktop-App."
+    },
+    {
       "id": "2026-07-20.6",
       "date": "2026-07-20",
       "style": "Sachlich",
