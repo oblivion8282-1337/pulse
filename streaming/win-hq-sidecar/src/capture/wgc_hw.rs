@@ -99,7 +99,8 @@ impl WgcHwCapture {
     pub fn stop(&mut self) {
         let _ = self.stop_tx.send(());
         if let Some(h) = self.worker.take() {
-            let _ = h.join();
+            // Zeitlimit statt hartem `join()` — s. `super::join_or_detach`.
+            super::join_or_detach(h, "wgc-hw");
         }
     }
 

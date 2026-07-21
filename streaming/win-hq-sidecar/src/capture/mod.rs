@@ -28,6 +28,41 @@ use windows_capture::settings::{
     CursorCaptureSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
 };
 
+/// Zeitlimit fürs Joinen eines Capture-Workers beim Stoppen.
+const JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Capture-Worker auslaufen lassen — mit Zeitlimit, danach **detachen**.
+///
+/// Der Worker sieht sein Stop-Signal nur in `on_frame_arrived`. Liefert WGC nie
+/// einen Frame (totes oder minimiertes Target, verweigerte Permission,
+/// HDR-Edge-Case), kommt der Callback nie dran und ein unbegrenztes `join()`
+/// wartet für immer. Das traf ausgerechnet den Fehlerpfad: die Pipelines geben
+/// nach 5 s ohne ersten Frame auf und droppen die Capture — der Drop blockierte
+/// dann genau in der Situation, die der Timeout eigentlich melden soll, und die
+/// fertige Fehlermeldung erreichte den Renderer nie.
+///
+/// Nach Ablauf lassen wir den Thread laufen: der Per-Stream-Sidecar endet
+/// ohnehin gleich, `ExitProcess` räumt ihn ab (gleiche Überlegung wie der
+/// bewusst unterlassene Teardown in `pipeline_hw::run`).
+pub(crate) fn join_or_detach(handle: std::thread::JoinHandle<Result<(), String>>, label: &str) {
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    if std::thread::Builder::new()
+        .name("capture-joiner".into())
+        .spawn(move || {
+            let _ = handle.join();
+            let _ = done_tx.send(());
+        })
+        .is_err()
+    {
+        // Kein Thread frei — nicht warten. `handle` ist mit der Closure
+        // gedroppt, der Worker läuft damit detached weiter.
+        return;
+    }
+    if done_rx.recv_timeout(JOIN_TIMEOUT).is_err() {
+        eprintln!("[capture] {label}: Worker nach {JOIN_TIMEOUT:?} nicht beendet — detached");
+    }
+}
+
 /// Hat `GraphicsCaptureSession` auf DIESEM Windows die Property?
 ///
 /// Die Settings-Enums der Crate sind nicht abwärtskompatibel: jedes
