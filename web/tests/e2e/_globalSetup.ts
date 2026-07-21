@@ -285,7 +285,21 @@ export default async function globalSetup() {
     // Relay aktiv wie in Prod: Bootstrap-Redeems allozieren eine Relay-Subdomain
     // (electron-apphost.spec assert'et die Relay-URL in der Live-Karte). Reiner
     // String-Wert — getunnelt wird in Tests nichts Echtes.
-    PULSE_RELAY_SERVER_ADDR: 'howispulse.com:7000'
+    PULSE_RELAY_SERVER_ADDR: 'howispulse.com:7000',
+    // Cloud-Modus ist die Annahme der ganzen Suite (Bootstrap-Admin,
+    // `POST /register`, Cloud-Admin-Sektionen). Ohne das greift der Default
+    // `self-host` und der chat-gateway crasht im Lifespan (fehlende
+    // PULSE_INSTANCE_ID). Bisher musste man `PULSE_INSTANCE_MODE=cloud` von
+    // Hand vor den Befehl setzen; ein explizit gesetzter Wert gewinnt weiter.
+    PULSE_INSTANCE_MODE: process.env.PULSE_INSTANCE_MODE ?? 'cloud',
+    // Upload-Fläche wie in `scripts/dev-up.fish`: die Cloud-Defaults in
+    // `config.py` sind bewusst restriktiv (nur Bilder, keine DM-Anhänge, keine
+    // Ablage). Ohne diese drei Zeilen meldet `GET /capabilities`
+    // `dropbox_enabled: false`, der Ablage-Knopf im Kanal-Dialog wird gar nicht
+    // erst gerendert und `dropbox.spec.ts` läuft in einen Timeout.
+    CLOUD_DM_ATTACHMENTS_ENABLED: 'true',
+    CLOUD_DROPBOX_ENABLED: 'true',
+    CLOUD_ATTACHMENT_MIME_PREFIXES: ''
   };
 
   // Apply migrations + truncate so every test run starts clean.

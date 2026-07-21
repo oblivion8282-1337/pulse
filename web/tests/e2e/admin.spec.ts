@@ -71,6 +71,13 @@ function promoteToAdmin(username: string) {
 test.describe.serial('admin-panel E2E', () => {
   let page: Page;
 
+  /** Öffnet einen Reiter des Admin-Panels. Nötig, weil `+page.svelte` nur den
+   *  AKTIVEN Reiter rendert — und nach jedem `page.reload()` steht das Panel
+   *  wieder auf „Übersicht". */
+  async function openAdminTab(tab: string): Promise<void> {
+    await page.getByTestId(`admin-tab-${tab}`).click();
+  }
+
   test.beforeAll(async ({ browser }) => {
     const ctx = await browser.newContext();
     page = await ctx.newPage();
@@ -123,17 +130,23 @@ test.describe.serial('admin-panel E2E', () => {
     await page.getByTestId('open-admin').click();
     await page.waitForURL(/\/app\/admin/);
     await expect(page.getByTestId('admin-panel')).toBeVisible();
-    for (const id of [
-      'admin-overview',
-      'admin-attachments',
-      'admin-registration',
-      'admin-smtp',
-      'admin-instances',
-      'admin-complaints',
-      'admin-users',
-      'admin-audit-log'
-    ]) {
-      await expect(page.getByTestId(id)).toBeVisible();
+    // Das Panel ist eine Reiter-Schale (`+page.svelte` rendert NUR den aktiven
+    // Reiter) — jede Sektion also erst nach dem Klick auf ihren Reiter prüfen.
+    // Früher lagen alle Sektionen auf einer langen Seite; dieser Test hing noch
+    // an dem Stand und scheiterte an der ersten Sektion hinter einem Reiter.
+    const sectionsByTab: Record<string, string[]> = {
+      overview: ['admin-overview'],
+      settings: ['admin-attachments', 'admin-registration', 'admin-smtp'],
+      users: ['admin-users'],
+      applications: ['admin-instances'],
+      complaints: ['admin-complaints'],
+      audit: ['admin-audit-log']
+    };
+    for (const [tab, ids] of Object.entries(sectionsByTab)) {
+      await page.getByTestId(`admin-tab-${tab}`).click();
+      for (const id of ids) {
+        await expect(page.getByTestId(id)).toBeVisible();
+      }
     }
   });
 
@@ -148,6 +161,7 @@ test.describe.serial('admin-panel E2E', () => {
     expect(resp.status()).toBe(201);
 
     await page.reload();
+    await openAdminTab('complaints');
     // The "new" tab is the default; the freshly-filed report must show up.
     await expect(page.getByTestId('complaints-new-badge')).toBeVisible({ timeout: 5_000 });
     // Scope to the section so the prefix can't catch the portal dialogs.
@@ -169,6 +183,7 @@ test.describe.serial('admin-panel E2E', () => {
   });
 
   test('SMTP-Config PATCH flips the status badge to "Aktiv"', async () => {
+    await openAdminTab('settings');
     // Fresh DB: smtp_settings starts unconfigured → "Nicht eingerichtet".
     await expect(page.getByTestId('smtp-status-inactive')).toBeVisible();
     // Pick the Custom preset so host/port stay editable, fill creds.
@@ -193,16 +208,19 @@ test.describe.serial('admin-panel E2E', () => {
   });
 
   test('DM-limits PATCH persists', async () => {
+    await openAdminTab('settings');
     const sizeInput = page.getByTestId('dm-max-size-input');
     await expect(sizeInput).toHaveValue('25', { timeout: 5_000 });
     await sizeInput.fill('40');
     await page.getByTestId('dm-limits-save').click();
     // Toast confirms; refresh and verify the new value.
     await page.reload();
+    await openAdminTab('settings');
     await expect(page.getByTestId('dm-max-size-input')).toHaveValue('40', { timeout: 5_000 });
   });
 
   test('audit-log shows the DM-limits change', async () => {
+    await openAdminTab('audit');
     // The merged log fetches both auth+chat. After our PATCH there must
     // be at least one entry mentioning the dm_limits action.
     await page.getByTestId('admin-audit-refresh').click();
