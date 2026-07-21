@@ -38,6 +38,9 @@ export const Perm = {
   MUTE_MEMBERS: 1n << 34n,
   DEAFEN_MEMBERS: 1n << 35n,
   MOVE_MEMBERS: 1n << 36n,
+  // Darf eine Fernsteuerung anfragen (Host stimmt zusätzlich per Consent zu).
+  // Spiegel von dcc_shared/permissions.py::REMOTE_CONTROL — synchron halten.
+  REMOTE_CONTROL: 1n << 37n,
 
   ADMINISTRATOR: 1n << 51n
 } as const;

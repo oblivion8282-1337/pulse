@@ -110,6 +110,10 @@ CORE_OPS: frozenset[str] = frozenset({
     "watch_join",
     "watch_leave",
     "watch_handoff",
+    "remote_request",
+    "remote_respond",
+    "remote_signal",
+    "remote_end",
     "profile_statement",
 })
 
