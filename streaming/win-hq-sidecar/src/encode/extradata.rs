@@ -62,10 +62,18 @@ fn nal_payloads(data: &[u8]) -> Vec<(usize, usize)> {
         } else {
             data.len()
         };
-        // Trailing-0 des nächsten 4-Byte-Start-Codes abschneiden. SPS/PPS/VPS
-        // enden mit dem rbsp_stop_one_bit, also nie auf 0x00 — sicher.
-        if end > start && k + 1 < starts.len() && data[end - 1] == 0 {
-            end -= 1;
+        // Trailing-Zeros des nächsten Start-Codes abschneiden. Annex-B erlaubt
+        // VOR einem 4-Byte-Start-Code (`00 00 00 01`) beliebig viele Padding-
+        // Nullen zusätzlich zum führenden Extra-`00` — eine einzelne Null zu
+        // stripen reicht also nicht immer. SPS/PPS/VPS enden mit dem
+        // rbsp_stop_one_bit, also nie auf 0x00 — die Schleife kann hier sicher
+        // bis zum Nutzdaten-Ende durchlaufen. Nur vor einem folgenden Start-Code
+        // (`k + 1 < starts.len()`) relevant — am Ende des Buffers sind
+        // Trailing-Nullen echte Nutzdaten, keine Padding-Artefakte.
+        if k + 1 < starts.len() {
+            while end > start && data[end - 1] == 0 {
+                end -= 1;
+            }
         }
         if end > start {
             out.push((start, end));

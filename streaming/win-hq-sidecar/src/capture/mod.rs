@@ -112,6 +112,12 @@ pub(crate) fn border_settings(draw_border: bool) -> DrawBorderSettings {
 /// 24H2 (Build 26100) — davor liefert WGC ungedrosselt und der Pacing-Loop
 /// taktet selbst (das Intervall ist eine Optimierung, keine Korrektheit).
 pub(crate) fn min_interval_settings(max_fps: u32) -> MinimumUpdateIntervalSettings {
+    // Defensiv: 1.0/max_fps würde bei 0 als Duration::from_secs_f64(inf) panicken.
+    // Die eigentliche Validierung passiert beim Parsen der CLI-Args — dieser
+    // Helfer darf trotzdem nie selbst abstürzen.
+    if max_fps == 0 {
+        return MinimumUpdateIntervalSettings::Default;
+    }
     if max_fps == 60 {
         return MinimumUpdateIntervalSettings::Default;
     }

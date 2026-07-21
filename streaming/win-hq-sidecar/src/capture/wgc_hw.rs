@@ -56,9 +56,10 @@ pub struct WgcHwCapture {
     pub items: Receiver<HwCaptureItem>,
     stop_tx: Sender<()>,
     worker: Option<JoinHandle<Result<(), String>>>,
-    /// Kumulativ verworfene Capture-Frames (Pool erschöpft ODER Channel-
-    /// Backpressure). Vom Capture-Thread geschrieben, vom Pacing-Loop pro Tick
-    /// gelesen — ein Anstieg deutet auf Encode-/Push-Rückstau hin.
+    /// Kumulativ verworfene Capture-Frames (Pool erschöpft, Channel-
+    /// Backpressure ODER Größen-Mismatch nach Resize). Vom Capture-Thread
+    /// geschrieben, vom Pacing-Loop pro Tick gelesen — ein Anstieg deutet auf
+    /// Encode-/Push-Rückstau oder eine veränderte Quellgröße hin.
     dropped: Arc<AtomicU64>,
 }
 
@@ -133,7 +134,19 @@ struct HwFrameSink {
     pool_size: u32,
     hw: Option<Arc<HwContext>>,
     dropped: Arc<AtomicU64>,
+    /// Dimensionen des ersten Frames, gegen die jeder folgende Frame geprüft
+    /// wird (der Pool ist auf diese Größe gebaut, s. `on_frame_arrived`).
+    expected_dims: (u32, u32),
+    /// Aufeinanderfolgende Frames mit abweichenden Dimensionen seit dem
+    /// letzten passenden Frame. Karenz gegen kurze Resize-Serien — s.
+    /// `RESIZE_RESTART_THRESHOLD` in `wgc_d3d12.rs` (gleiche Bauart).
+    resize_mismatches: u32,
 }
+
+/// Aufeinanderfolgende Größen-Mismatches, bevor der Pool als endgültig
+/// veraltet gilt (~2s bei 60fps) und der Capture-Thread mit Fehler endet
+/// statt weiter stumm Frames zu verwerfen. Gleicher Wert wie in `wgc_d3d12.rs`.
+const RESIZE_RESTART_THRESHOLD: u32 = 120;
 
 struct HwHandlerFlags {
     tx: SyncSender<HwCaptureItem>,
@@ -153,6 +166,8 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             pool_size: ctx.flags.pool_size,
             hw: None,
             dropped: ctx.flags.dropped,
+            expected_dims: (0, 0),
+            resize_mismatches: 0,
         })
     }
 
@@ -172,6 +187,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         if self.hw.is_none() {
             let width = frame.width();
             let height = frame.height();
+            self.expected_dims = (width, height);
             let hw = HwContext::new(
                 frame.device().clone(),
                 frame.device_context().clone(),
@@ -197,12 +213,45 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         }
 
         let hw = self.hw.as_ref().unwrap();
+        // WGC kann die Größe mitten im Stream ändern → der Pool ist auf
+        // `expected_dims` gebaut. `CopySubresourceRegion` wird bei Mismatch im
+        // Release-Build still zum No-Op (kein Fehler, kein Frame) — deshalb
+        // hier explizit prüfen statt uns auf `copy_into_pool` zu verlassen.
+        let (w, h) = (frame.width(), frame.height());
+        if (w, h) != self.expected_dims {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            self.resize_mismatches += 1;
+            if self.resize_mismatches == 1 {
+                eprintln!(
+                    "[capture-hw] Frame-Größe geändert: erwartet {}x{}, bekommen {w}x{h} — verwerfe Frames bis der Pool neu aufgebaut ist",
+                    self.expected_dims.0, self.expected_dims.1
+                );
+            }
+            if self.resize_mismatches >= RESIZE_RESTART_THRESHOLD {
+                // Karenz gegen transiente Resize-Serien (Maus-Drag am
+                // Fensterrand) ausgeschöpft — der Pool passt dauerhaft nicht
+                // mehr, Session muss neu gestartet werden statt endlos ein
+                // Standbild zu liefern. `on_frame_arrived` gibt den Fehler
+                // zurück, der Worker-Thread endet damit, die Pipeline liest
+                // den String über `join_error` (Fix 1).
+                return Err(anyhow!(
+                    "capture size changed: {}x{} -> {w}x{h} — stream must be restarted",
+                    self.expected_dims.0,
+                    self.expected_dims.1
+                ));
+            }
+            return Ok(());
+        }
+        self.resize_mismatches = 0;
         let pool_frame = match hw.acquire_frame() {
             Ok(f) => f,
-            Err(_) => {
+            Err(e) => {
                 let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 30 == 0 {
-                    eprintln!("[capture-hw] pool exhausted: {n} frames dropped");
+                    // Fehlerstring mitloggen — sonst nicht von normaler
+                    // Backpressure (Pool kurzzeitig voll) unterscheidbar, wenn
+                    // die eigentliche Ursache ein dauerhafter Treiberfehler ist.
+                    eprintln!("[capture-hw] pool exhausted: {n} frames dropped, last error: {e:#}");
                 }
                 return Ok(());
             }

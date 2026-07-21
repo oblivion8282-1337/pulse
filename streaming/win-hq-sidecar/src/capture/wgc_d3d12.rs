@@ -114,7 +114,8 @@ impl WgcD3d12Capture {
         })
     }
 
-    /// Kumulativ verworfene Capture-Frames (kein freier Ring-Slot).
+    /// Kumulativ verworfene Capture-Frames (kein freier Ring-Slot ODER
+    /// Größen-Mismatch nach Resize).
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
@@ -125,6 +126,20 @@ impl WgcD3d12Capture {
             // Zeitlimit statt hartem `join()` — s. `super::join_or_detach`.
             super::join_or_detach(h, "wgc-d3d12");
         }
+    }
+
+    /// Worker-Thread joinen und dessen Ergebnis-String liefern: `Some(msg)`
+    /// bei Fehler/Panic, `None` bei cleanem Exit oder wenn der Handle schon
+    /// genommen wurde. Idempotent. Die Pipeline ruft das bei Channel-Disconnect
+    /// auf, damit die echte Root-Cause (WGC-Close ohne Frame / Bridge-Fehler /
+    /// Panic) nicht im JoinHandle verlorengeht — `recv_timeout`/`try_recv`
+    /// liefern sonst nur die wertlose „channel disconnected"-Meldung.
+    pub fn join_error(&mut self) -> Option<String> {
+        self.worker.take().and_then(|h| match h.join() {
+            Ok(Ok(())) => None,
+            Ok(Err(s)) => Some(s),
+            Err(_) => Some("capture thread panicked".into()),
+        })
     }
 }
 
@@ -172,7 +187,16 @@ struct D3d12FrameSink {
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
     bridge: Option<Bridge>,
+    /// Aufeinanderfolgende Frames mit Dimensionen != `Bridge::expected` seit
+    /// dem letzten passenden Frame. Karenz gegen kurze Resize-Serien (Maus-Drag
+    /// am Fensterrand) — erst bei `RESIZE_RESTART_THRESHOLD` geben wir auf.
+    resize_mismatches: u32,
 }
+
+/// Aufeinanderfolgende Größen-Mismatches, bevor wir den Ring als endgültig
+/// veraltet betrachten (~2s bei 60fps) und den Capture-Thread mit Fehler
+/// beenden statt weiter stumm Frames zu verwerfen.
+const RESIZE_RESTART_THRESHOLD: u32 = 120;
 
 impl GraphicsCaptureApiHandler for D3d12FrameSink {
     type Flags = SinkFlags;
@@ -185,6 +209,7 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             stop_rx: ctx.flags.stop_rx,
             dropped: ctx.flags.dropped,
             bridge: None,
+            resize_mismatches: 0,
         })
     }
 
@@ -216,7 +241,18 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             let handle_vals = bridge.handle_values().context("handle_values")?;
             let setup = D3d12CaptureItem::Setup { width, height, handles: handle_vals };
             self.bridge = Some(bridge);
-            if self.items_tx.send(setup).is_err() {
+            if let Err(err) = self.items_tx.send(setup) {
+                // Empfänger schon weg, bevor der Pacing-Loop die NT-Handles per
+                // `OpenSharedHandle` übernehmen konnte — ohne diesen Cleanup
+                // blieben die rohen Kernel-Handles (einer pro Ring-Slot) für
+                // immer offen (`err.0` liefert das nicht zugestellte Item zurück).
+                if let D3d12CaptureItem::Setup { handles, .. } = err.0 {
+                    for h in handles {
+                        unsafe {
+                            let _ = CloseHandle(HANDLE(h as *mut std::ffi::c_void));
+                        }
+                    }
+                }
                 capture_control.stop();
                 return Ok(());
             }
@@ -226,8 +262,32 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
         // WGC kann die Größe mitten im Stream ändern → der Ring passt dann
         // nicht mehr; solche Frames verwerfen (selten, z.B. Auflösungswechsel).
         if !bridge.dims_match(frame.width(), frame.height()) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            self.resize_mismatches += 1;
+            if self.resize_mismatches == 1 {
+                eprintln!(
+                    "[capture-d3d12] Frame-Größe geändert: erwartet {}x{}, bekommen {}x{} — verwerfe Frames bis der Ring neu aufgebaut ist",
+                    bridge.expected.0, bridge.expected.1, frame.width(), frame.height()
+                );
+            }
+            if self.resize_mismatches >= RESIZE_RESTART_THRESHOLD {
+                // Der Ring bleibt dauerhaft falsch dimensioniert (Resize hat
+                // sich stabilisiert, aber der Ring wurde nie neu gebaut) — die
+                // Session muss neu gestartet werden statt für immer stumm zu
+                // verwerfen. `on_frame_arrived` gibt den Fehler zurück, WGC
+                // beendet die Capture, der Worker-Thread endet damit; die
+                // Pipeline liest den String über `join_error` (s. `WgcD3d12Capture`).
+                return Err(anyhow!(
+                    "capture size changed: {}x{} -> {}x{} — stream must be restarted",
+                    bridge.expected.0,
+                    bridge.expected.1,
+                    frame.width(),
+                    frame.height()
+                ));
+            }
             return Ok(());
         }
+        self.resize_mismatches = 0;
         let src = frame.as_raw_texture();
 
         // Freien Ring-Slot holen; keiner frei → Frame verwerfen (Backpressure).

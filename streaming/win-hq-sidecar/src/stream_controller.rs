@@ -247,7 +247,14 @@ impl StreamController {
 
 fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let ctrl = StreamController::singleton();
-    let result = (|| -> Result<()> {
+    // `catch_unwind`: ein Panic in der Pipeline (statt eines `Err`) würde sonst
+    // an `worker_finished` VORBEI unwinden — kein `error`-Event, `running`
+    // bliebe für immer `true`, der Renderer sähe einen Stream, der wortlos in
+    // „starting"/„live" hängt. Der Linux-Sidecar hat diese Garantie über sein
+    // generisches `except`; hier stellt sie dieses Netz her. Die geleakten
+    // Pipeline-Objekte (`ManuallyDrop`) werden vom Unwind nicht angefasst —
+    // der Teardown-Crash-Schutz gilt also auch auf dem Panic-Pfad.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
         let adapter = select_adapter()?;
 
         // Encoder-Pfad nach Vendor:
@@ -274,10 +281,21 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             }
         }
         run_cpu_pipeline(params, stop_rx)
-    })();
+    }))
+    .unwrap_or_else(|payload| Err(anyhow!("pipeline worker panicked: {}", panic_message(&payload))));
 
     let error_msg = result.err().map(|e| format!("{e:#}"));
     ctrl.worker_finished(error_msg);
+}
+
+/// Panic-Payload → lesbarer Text. `panic!`-Payloads sind praktisch immer
+/// `&str` oder `String`; alles andere bekommt einen Platzhalter.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("<non-string panic payload>")
 }
 
 /// CPU-Encode-Pfad: WGC-CPU-Readback → swscale BGRA→NV12 → FFmpeg-Encoder
@@ -291,7 +309,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Software-NV12-Frames in den Encoder — die GPU lädt sie selbst hoch,
         // sie muss kein Display treiben. Auf Multi-GPU ist das die dGPU.
         let adapter = select_adapter()?;
-        let capture = WgcCapture::start(
+        let mut capture = WgcCapture::start(
             params.capture.clone(),
             CaptureConfig {
                 max_fps: params.override_fps.unwrap_or(params.profile.fps),
@@ -300,11 +318,28 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             },
         )?;
 
-        // Warmup-Frame für native Dimensions.
-        let first = capture
-            .frames
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|e| anyhow!("never got first capture frame: {e}"))?;
+        // Warmup-Frame für native Dimensions. Bei Disconnect den echten
+        // Capture-Fehler aus dem Worker ziehen (`join_error`) — sonst bleibt
+        // nur die wertlose „channel disconnected"-Meldung (s. pipeline_hw).
+        let first = match capture.frames.recv_timeout(Duration::from_secs(5)) {
+            Ok(f) => f,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return Err(anyhow!("never got first capture frame: timeout"));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let worker_err = capture.join_error();
+                return Err(anyhow!(
+                    "capture exit vor dem ersten Frame{}",
+                    worker_err
+                        .map(|s| format!(": {s}"))
+                        .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
+                ));
+            }
+        };
+        // Wall-clock-Zeitpunkt des Video-Origins (≈ first.qpc). Audio-Chunks
+        // ohne QPC ankern hieran — NICHT an `started` (liegt erst NACH der
+        // Encoder-Erzeugung, der Setup-Versatz würde zum konstanten A/V-Offset).
+        let origin_instant = Instant::now();
 
         let mut codec = params.override_codec.unwrap_or(match params.profile.codec {
             "h264" => VideoCodec::H264,
@@ -375,7 +410,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Ab hier NIE mehr droppen — Begründung + Mechanik: `pipeline_hw::run`.
         // Am Binding festgemacht (nicht erst per `mem::forget` am Ende), damit
         // die Zusage auch für jeden Fehler-Ausgang aus dem Pacing-Loop gilt.
-        let capture = std::mem::ManuallyDrop::new(capture);
+        let mut capture = std::mem::ManuallyDrop::new(capture);
         let audio_capture = std::mem::ManuallyDrop::new(audio_capture);
         let mut encoder = std::mem::ManuallyDrop::new(encoder);
 
@@ -399,9 +434,16 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             && first_qpc != 0;
         let origin_qpc = first_qpc;
         let mut newest_qpc = first_qpc;
-        encoder.set_audio_origin(started, if qpc_sync { Some(origin_qpc) } else { None });
+        // Anker muss zum tatsächlichen Video-Origin passen: mit QPC-Sync ist
+        // PTS 0 der erste Frame (origin_instant), ohne QPC-Sync die Wanduhr-
+        // Basis der Pacing-Loop (started).
+        encoder.set_audio_origin(
+            if qpc_sync { origin_instant } else { started },
+            if qpc_sync { Some(origin_qpc) } else { None },
+        );
         let mut last_frame: Option<CapturedFrame> = Some(first);
         let mut last_pts: i64 = -1;
+        let mut audio_dead = false;
         let mut frames_sent: u64 = 0;
         let mut next_tick = started;
         let mut last_fps_emit = started;
@@ -448,7 +490,14 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        return Err(anyhow!("capture channel disconnected"));
+                        // Echte Root-Cause aus dem Worker ziehen — s. pipeline_hw.
+                        let worker_err = capture.join_error();
+                        return Err(anyhow!(
+                            "capture channel disconnected mid-stream{}",
+                            worker_err
+                                .map(|s| format!(": {s}"))
+                                .unwrap_or_else(|| " (clean exit, keine Fehlermeldung)".into())
+                        ));
                     }
                 }
             }
@@ -458,11 +507,25 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             // `audio_cfg = None`, damit WASAPI weiter buffern kann.
             let t_audio = Instant::now();
             if let Some(ac) = audio_capture.as_ref() {
-                while let Ok(chunk) = ac.samples.try_recv() {
-                    // Audio-Fehler NICHT verschlucken (#3) — s. pipeline_hw.
-                    encoder
-                        .send_audio(&chunk)
-                        .map_err(|e| anyhow!("send_audio: {e:#}"))?;
+                loop {
+                    match ac.samples.try_recv() {
+                        // Audio-Fehler NICHT verschlucken (#3) — s. pipeline_hw.
+                        Ok(chunk) => encoder
+                            .send_audio(&chunk)
+                            .map_err(|e| anyhow!("send_audio: {e:#}"))?,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        // WASAPI-Worker gestorben (Gerät weg/invalidiert): der
+                        // Stream läuft video-only weiter — aber EINMAL sichtbar
+                        // melden statt für immer still zu verstummen.
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            if !audio_dead {
+                                audio_dead = true;
+                                eprintln!("[stream-pipeline] audio capture beendet — Stream läuft ohne Ton weiter");
+                                events::emit(json!({"ev": "log", "line": "Audio-Aufnahme abgebrochen (Gerät entfernt?) — Stream läuft ohne Ton weiter"}));
+                            }
+                            break;
+                        }
+                    }
                 }
             }
             let audio_drain = t_audio.elapsed();
@@ -560,7 +623,7 @@ pub(crate) fn emit_state(state: &str, running: bool, uptime_s: f64) {
 /// Pseudo-argv für die `start`-Response — wie auf Linux gibt's das nur zur
 /// Diagnose im Renderer, ohne den Stream-Key. Wenig informativ, aber shape-
 /// kompatibel zu `gsr-sidecar`'s argv-Form.
-fn build_argv_redacted(params: &StartParams) -> Vec<String> {
+pub(crate) fn build_argv_redacted(params: &StartParams) -> Vec<String> {
     vec![
         "pulse-win-hq-sidecar.exe".to_string(),
         "--profile".into(),

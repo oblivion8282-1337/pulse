@@ -9,6 +9,7 @@ use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
+use windows::Win32::UI::WindowsAndMessaging::IsIconic;
 use windows_capture::monitor::Monitor;
 use windows_capture::window::Window;
 
@@ -89,6 +90,15 @@ fn resolve_window_or_monitor(win: Window, label: &str) -> Result<ResolvedTarget>
     let Some(mon) = win.monitor() else {
         return Ok(ResolvedTarget::Window(win));
     };
+    // Minimierte Fenster liegen bei GetWindowRect auf der (-32000,-32000)-
+    // Sonderposition — ohne diesen Check griffe der offscreen-Erkennung unten
+    // fälschlich der FSE-Fallback und capturete den ganzen Monitor statt des
+    // Fensters (Privacy-Problem: User wollte EIN Fenster streamen).
+    if unsafe { IsIconic(HWND(win.as_raw_hwnd())) }.as_bool() {
+        return Err(anyhow!(
+            "Das gewählte Fenster ist minimiert — bitte wiederherstellen und erneut starten"
+        ));
+    }
     let win_rect = win.rect().ok();
     let mon_rect = monitor_rect_for(&win);
     let offscreen = matches!((win_rect, mon_rect), (Some(w), Some(m)) if !rects_overlap(&w, &m));
