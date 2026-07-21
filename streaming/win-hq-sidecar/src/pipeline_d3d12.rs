@@ -117,7 +117,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     });
 
     // ── Encoder (erzeugt D3D12-Device + UAV-fähigen NV12-Pool).
-    let mut encoder = FfmpegD3d12Encoder::create(
+    let encoder = FfmpegD3d12Encoder::create(
         &D3d12EncoderConfig {
             codec,
             src_width: cap_w,
@@ -137,7 +137,16 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         .iter()
         .map(|&h| open_shared_bgra(&device, h))
         .collect::<Result<_>>()?;
-    let mut converter = Nv12Converter::new(device, dst_w, dst_h)?;
+    let converter = Nv12Converter::new(device, dst_w, dst_h)?;
+
+    // Ab hier wird NICHTS mehr gedroppt — Begründung + Mechanik ausführlich in
+    // `pipeline_hw::run`. Am Binding statt per `mem::forget` am Funktionsende,
+    // damit die Zusage auch für die Fehler-Ausgänge gilt (Capture-Disconnect,
+    // Encoder-Fehler im Pacing-Loop) und nicht nur für den Erfolgspfad.
+    let capture = std::mem::ManuallyDrop::new(capture);
+    let audio_capture = std::mem::ManuallyDrop::new(audio_capture);
+    let mut encoder = std::mem::ManuallyDrop::new(encoder);
+    let mut converter = std::mem::ManuallyDrop::new(converter);
 
     // Auf den ersten echten Capture-Frame warten.
     let (mut current_slot, first_qpc): (usize, i64) = loop {
@@ -278,22 +287,11 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         }
     }
 
-    // Stream finalisieren (Trailer/RTMP-Close). Das Ergebnis wird ERST NACH
-    // den `mem::forget` propagiert: Encoder/Capture/Converter werden bewusst
-    // geleakt (Teardown-Crash, s.u.) — würde ein `finish()`-Fehler die
-    // `mem::forget` per `?` überspringen, würde der Encoder gedroppt →
-    // `avcodec_free_context` → Crash.
-    let finish_result = encoder.finish();
-
-    // Kein Teardown — s. `pipeline_hw::run`: die grafische Teardown-Sequenz
-    // lässt einen treiber-internen Threadpool-Timer dangling zurück
-    // (Use-after-free-Crash). `ExitProcess` räumt nach dem `stop` sauber auf.
-    std::mem::forget(capture);
-    std::mem::forget(audio_capture);
-    std::mem::forget(encoder);
-    std::mem::forget(converter);
-
-    finish_result?;
+    // Stream finalisieren (Trailer/RTMP-Close). Kein Teardown: Capture,
+    // Encoder und Converter sind `ManuallyDrop` (s.o.) — ohne das triggert die
+    // grafische Freigabe den Threadpool-Timer-UAF bzw. `avcodec_free_context`
+    // crasht. `ExitProcess` räumt nach dem `stop` sauber auf.
+    encoder.finish()?;
     Ok(())
 }
 

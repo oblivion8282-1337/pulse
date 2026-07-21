@@ -222,7 +222,10 @@ impl StreamController {
             // Linux-Sidecar (`if self._state != "error"`). Der `state`-Frame mit
             // `"error"` treibt den reaktiven Renderer-State (#5).
             emit_state("error", false, uptime);
-            events::emit(json!({"ev": "error", "message": msg}));
+            // Redigiert: scheitert der Push-Start, trägt die Fehlerkette die
+            // volle Ziel-URL inklusive Stream-Key — und Electron schreibt jede
+            // stdout-Zeile in eine persistente Log-Datei (s. `crate::redact`).
+            events::emit(json!({"ev": "error", "message": crate::redact::secrets(&msg)}));
         } else {
             emit_state("stopped", false, uptime);
             events::emit(json!({"ev": "stopped"}));
@@ -354,7 +357,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 first.width, first.height, dst_w, dst_h
             );
         }
-        let mut encoder = FfmpegEncoder::create(
+        let encoder = FfmpegEncoder::create(
             &EncoderConfig {
                 codec,
                 vendor: adapter.vendor().to_string(),
@@ -368,6 +371,13 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             audio_cfg,
             &params.push_url,
         )?;
+
+        // Ab hier NIE mehr droppen — Begründung + Mechanik: `pipeline_hw::run`.
+        // Am Binding festgemacht (nicht erst per `mem::forget` am Ende), damit
+        // die Zusage auch für jeden Fehler-Ausgang aus dem Pacing-Loop gilt.
+        let capture = std::mem::ManuallyDrop::new(capture);
+        let audio_capture = std::mem::ManuallyDrop::new(audio_capture);
+        let mut encoder = std::mem::ManuallyDrop::new(encoder);
 
         ctrl.set_state("live");
         emit_state("live", true, 0.0);
@@ -504,22 +514,9 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         }
 
         // Stream finalisieren (Trailer/RTMP-Close); `finish` gibt nichts frei.
-        // Das Ergebnis wird ERST NACH den `mem::forget` propagiert: ein
-        // `finish()`-Fehler (Netzwerk-Stall / broken pipe) darf die `mem::forget`
-        // NICHT per `?` überspringen — sonst werden capture/encoder gedroppt und
-        // die grafische Teardown-Sequenz triggert den Threadpool-Timer-UAF
-        // (0xC0000005). Gleiches Muster wie `pipeline_d3d12::run`.
-        let finish_result = encoder.finish();
-
-        // Kein `capture.stop()`/`ac.stop()`/Drop — s. ausführlicher Kommentar
-        // in `pipeline_hw::run`: die grafische Teardown-Sequenz lässt einen
-        // treiber-internen Threadpool-Timer dangling zurück (Use-after-free-
-        // Crash). Wir machen gar keinen Teardown; der Per-Stream-Sidecar endet
-        // gleich, `ExitProcess` terminiert alle Threads + räumt sauber auf.
-        std::mem::forget(capture);
-        std::mem::forget(audio_capture);
-        std::mem::forget(encoder);
-        finish_result?;
+        // capture/audio_capture/encoder sind `ManuallyDrop` (s.o.) und werden
+        // hier bewusst weder gestoppt noch freigegeben.
+        encoder.finish()?;
         Ok(())
     })()
 }
@@ -587,23 +584,8 @@ fn build_argv_redacted(params: &StartParams) -> Vec<String> {
         "--container".into(),
         params.profile.container.to_string(),
         "--out".into(),
-        redact_token(&params.push_url),
+        crate::redact::secrets(&params.push_url),
     ]
-}
-
-fn redact_token(url: &str) -> String {
-    let mut s = url.to_string();
-    for pat in ["pass=", "token=", "streamid=publish:"] {
-        if let Some(idx) = s.find(pat) {
-            let tail_start = idx + pat.len();
-            let tail_end = s[tail_start..]
-                .find(|c: char| c == '&' || c == ' ')
-                .map(|i| tail_start + i)
-                .unwrap_or(s.len());
-            s.replace_range(tail_start..tail_end, "***");
-        }
-    }
-    s
 }
 
 /// Capture-Maße aspektwahrend in eine Box einpassen — nie hochskalieren, Maße

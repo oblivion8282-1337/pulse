@@ -65,31 +65,13 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         Value::String("--out".to_string()),
         // Token-Redaction analog `streaming/gsr-sidecar/redact.py` — der Renderer
         // bekommt nie den Roh-Stream-Key zurück.
-        Value::String(redact_token_in_url(&target)),
+        Value::String(crate::redact::secrets(&target)),
     ];
 
     Ok(json_to_map(json!({
         "binary": binary,
         "argv": argv,
     })))
-}
-
-/// Maskiert `pass=`/`token=`/streamid-Tail in einer Push-URL. Bewusst grob —
-/// die Linux-Variante macht's mit regex; hier reicht's für Debug-Output.
-fn redact_token_in_url(url: &str) -> String {
-    let patterns = ["pass=", "token=", "streamid=publish:"];
-    let mut s = url.to_string();
-    for pat in patterns {
-        if let Some(idx) = s.find(pat) {
-            let tail_start = idx + pat.len();
-            let tail_end = s[tail_start..]
-                .find(|c: char| c == '&' || c == ' ')
-                .map(|i| tail_start + i)
-                .unwrap_or(s.len());
-            s.replace_range(tail_start..tail_end, "***");
-        }
-    }
-    s
 }
 
 fn json_to_map(v: Value) -> Map<String, Value> {

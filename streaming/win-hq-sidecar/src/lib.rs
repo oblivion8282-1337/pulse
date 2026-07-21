@@ -14,6 +14,7 @@ pub mod pipeline_d3d12;
 pub mod pipeline_hw;
 pub mod profiles;
 pub mod proto;
+pub mod redact;
 pub mod stream_controller;
 pub mod system;
 pub mod tick_monitor;

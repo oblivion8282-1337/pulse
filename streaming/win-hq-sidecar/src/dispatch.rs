@@ -50,6 +50,11 @@ fn dispatch(req: Request) -> (Response, bool) {
     let exit_after = req.op == "stop" && result.is_ok();
     match result {
         Ok(fields) => (Response::ok(id, fields), exit_after),
-        Err(e) => (Response::error(id, format!("{e:#}")), false),
+        // Redigiert: die Fehlerkette trägt bei Push-Fehlern die volle
+        // Ziel-URL inklusive Stream-Key (s. `crate::redact`).
+        Err(e) => (
+            Response::error(id, crate::redact::secrets(&format!("{e:#}"))),
+            false,
+        ),
     }
 }

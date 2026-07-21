@@ -116,10 +116,10 @@ impl WgcCapture {
     pub fn stop(&mut self) {
         let _ = self.stop_tx.send(());
         if let Some(handle) = self.worker.take() {
-            // Capture::start blockiert — der Stop-Signal-Pfad geht über die
-            // Handler-Callback (s. on_frame_arrived). Wenn das nicht zieht
-            // joinen wir hier hart, max paar Sekunden.
-            let _ = handle.join();
+            // Capture::start blockiert — der Stop-Signal-Pfad geht über den
+            // Handler-Callback (s. on_frame_arrived). Bleiben die Frames aus,
+            // zieht das Signal nie; deshalb mit Zeitlimit joinen statt hart.
+            super::join_or_detach(handle, "wgc");
         }
     }
 }

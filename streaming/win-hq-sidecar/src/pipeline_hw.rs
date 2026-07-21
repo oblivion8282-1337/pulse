@@ -147,7 +147,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Encoder. Der Scaler hat einen eigenen D3D11VA-Ziel-Pool (dst-res, BGRA,
     // +RENDER_TARGET) — der Encoder bindet dann diesen statt des Capture-Pools.
     // Bei dst==src bleibt `scaler` None und der Encoder bindet den Capture-Pool.
-    let mut scaler = if (dst_w, dst_h) != (width, height) {
+    let scaler = if (dst_w, dst_h) != (width, height) {
         Some(
             D3D11Scaler::new(
                 hw.device().clone(),
@@ -187,13 +187,41 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     };
     // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern beim
     // Öffnen "function not implemented". Dann auf H.264 zurückfallen statt failen.
-    let mut encoder = match (codec, make(codec)) {
+    let encoder = match (codec, make(codec)) {
         (VideoCodec::Av1, Err(e)) => {
             eprintln!("[pipeline-hw] av1 HW encoder nicht verfügbar ({e:#}) → Fallback H.264");
             make(VideoCodec::H264)?
         }
         (_, r) => r?,
     };
+
+    // ── Ab hier wird NICHTS mehr gedroppt ────────────────────────────────────
+    // Die *grafische* Teardown-Sequenz (WGC-FramePool/Session schließen,
+    // D3D11-Device + NVENC + Audio-Client freigeben, `nvEncodeAPI64.dll`
+    // entladen) lässt einen treiber-internen Threadpool-Timer dangling zurück —
+    // feuert der danach, springt er in freigegebenen Speicher → `0xC0000005`
+    // exec-Fault auf einem `TpWaitForTimer`-Thread (mit Audio zuverlässig
+    // reproduzierbar). Darum: gar kein Teardown. Capture-, Audio- und
+    // Encoder-Objekte bleiben am Leben, ihre Threads laufen weiter. Der
+    // Per-Stream-Sidecar endet unmittelbar nach dem `stop` (`dispatch`/`main` →
+    // Prozess-Exit); `ExitProcess` terminiert ALLE Threads abrupt, bevor
+    // irgendein Timer feuern kann, und gibt GPU-/COM-/Datei-Handles vollständig
+    // frei.
+    //
+    // `ManuallyDrop` am Binding statt `mem::forget` am Funktionsende: Letzteres
+    // deckte nur den Erfolgspfad ab. Jedes `?` im Pacing-Loop (Encoder-Fehler
+    // bei RTMP-Stall, Capture-Disconnect) lief daran vorbei und droppte doch —
+    // also genau der Crash, den die Konstruktion verhindern soll, und zwar
+    // BEVOR `worker_finished` das `error`-Event senden konnte (der Renderer sah
+    // einen toten Prozess statt einer Fehlermeldung). Am Binding gilt die
+    // Zusage für JEDEN Ausgang, auch für später hinzukommende.
+    let mut capture = std::mem::ManuallyDrop::new(capture);
+    // `_hw`: wird ab hier nicht mehr gelesen, muss aber gebunden bleiben —
+    // der Pool trägt die Frames, die noch durch den Loop laufen.
+    let _hw = std::mem::ManuallyDrop::new(hw);
+    let audio_capture = std::mem::ManuallyDrop::new(audio_capture);
+    let mut scaler = std::mem::ManuallyDrop::new(scaler);
+    let mut encoder = std::mem::ManuallyDrop::new(encoder);
 
     ctrl.set_state("live");
     super::stream_controller::emit_state("live", true, 0.0);
@@ -312,7 +340,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // den BGRA→NV12-Convert selbst).
         let mut convert = Duration::ZERO;
         if let Some(frame) = last_frame.as_mut() {
-            match &mut scaler {
+            match &mut *scaler {
                 // Downscale: GPU-Resize in einen frischen Ziel-Pool-Frame,
                 // dann den skalierten Frame encoden.
                 Some(s) => {
@@ -358,34 +386,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     }
 
     // Stream finalisieren: FLV-Trailer schreiben, RTMP sauber schließen. Das
-    // gibt nichts frei (`finish` nimmt `&mut self`). Das Ergebnis wird ERST NACH
-    // den `mem::forget` propagiert: ein `finish()`-Fehler (Netzwerk-Stall /
-    // broken pipe) darf die `mem::forget` NICHT per `?` überspringen — sonst
-    // werden capture/scaler/hw/encoder gedroppt und die grafische Teardown-
-    // Sequenz triggert den Threadpool-Timer-UAF (0xC0000005). Gleiches Muster
-    // wie `pipeline_d3d12::run`.
-    let finish_result = encoder.finish();
-
-    // KEIN `capture.stop()` / `ac.stop()` / Drop. Die *grafische* Teardown-
-    // Sequenz (WGC-FramePool/Session schließen, D3D11-Device + NVENC + Audio-
-    // Client freigeben, `nvEncodeAPI64.dll` entladen) ist genau das, was einen
-    // treiber-internen Threadpool-Timer dangling zurücklässt — feuert der
-    // danach, springt er in freigegebenen Speicher → `0xC0000005` exec-Fault
-    // auf einem `TpWaitForTimer`-Thread (mit Audio zuverlässig reproduzierbar).
-    //
-    // Darum: gar keinen Teardown. Capture-, Audio- und Encoder-Objekte bleiben
-    // am Leben (`mem::forget`), die Threads laufen weiter. Der Per-Stream-
-    // Sidecar endet unmittelbar nach diesem `stop` (`dispatch`/`main` →
-    // Prozess-Exit); `ExitProcess` terminiert ALLE Threads — Capture, WASAPI,
-    // Treiber-Threadpool — abrupt, bevor irgendein Timer feuern kann. Das OS
-    // gibt GPU-/COM-/Datei-Handles beim Prozess-Ende vollständig frei.
+    // gibt nichts frei (`finish` nimmt `&mut self`); capture/hw/scaler/encoder
+    // sind `ManuallyDrop` (s.o.) und werden weder gestoppt noch freigegeben.
+    // `last_frame` ist kein eigenes Binding oben, weil es im Loop neu zugewiesen
+    // wird (der alte Frame MUSS dabei in den Pool zurück); nur der allerletzte
+    // wird hier vom Teardown ausgenommen.
     std::mem::forget(last_frame);
-    std::mem::forget(capture);
-    std::mem::forget(scaler);
-    std::mem::forget(hw);
-    std::mem::forget(audio_capture);
-    std::mem::forget(encoder);
-    finish_result?;
+    encoder.finish()?;
     Ok(())
 }
 
