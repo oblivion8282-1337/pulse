@@ -134,7 +134,10 @@ export type GsrEventBody =
   | { ev: 'state'; state: 'idle' | 'starting' | 'live' | 'error' | 'stopped'; running: boolean; uptime_s: number }
   | { ev: 'fps'; fps: number; uptime_s: number }
   | { ev: 'log'; line: string }
-  | { ev: 'error'; message: string }
+  // `code` is an optional machine-readable tag (Windows sidecar; e.g.
+  // 'capture_size_changed' → the client auto-restarts the stream). The Linux
+  // sidecar doesn't send it yet — consumers must tolerate its absence.
+  | { ev: 'error'; message: string; code?: string }
   | { ev: 'stopped'; code?: number };
 
 /** A sidecar event, tagged by the Electron main process with the stream `slot`
