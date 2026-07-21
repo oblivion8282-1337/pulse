@@ -198,9 +198,11 @@ modules:
       - type: patch
         path: ../streaming/patches/0003-portal-cursor-embedded.patch
 
-  # ── Experimenteller Rust-Linux-HQ-Sidecar (opt-in via Experimental-Tab) ──────
-  # Baut das Rust-Binary → /app/bin/pulse-linux-hq-sidecar (sidecar.ts wählt es,
-  # wenn der Store-Key useRustSidecar=true ist). Linkt gegen das oben gebaute
+  # ── Rust-Linux-HQ-Sidecar (Standard-Aufnahmeweg seit 2026-07-17) ────────────
+  # Baut das Rust-Binary → /app/bin/pulse-linux-hq-sidecar. sidecar.ts nimmt es
+  # standardmässig; der Store-Key useLegacyGsrSidecar=true ist die Notbremse
+  # zurück auf den Python/GSR-Weg (Kompatibilitäts-Tab). Fehlt das Binary, fällt
+  # sidecar.ts automatisch auf GSR zurück. Linkt gegen das oben gebaute
   # ffmpeg-Modul via pkg-config (/app/lib/pkgconfig ist im default PKG_CONFIG_PATH).
   # libEGL/libcuda werden zur LAUFZEIT per dlopen geladen (GL-Extension) — kein
   # Build-Link. Offline-Cargo: linux-hq-sidecar-cargo-sources.json (via
@@ -222,7 +224,7 @@ modules:
       # neuen SHA eintragen (und Cargo.lock-Änderungen → cargo-sources neu genn).
       - type: git
         url: https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar.git
-        commit: 9f55d8e5177cf8640138dd3a8ab2e08313aa22bd
+        commit: bf708f3281dc9170a93585080e202f1ee473d96c
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
