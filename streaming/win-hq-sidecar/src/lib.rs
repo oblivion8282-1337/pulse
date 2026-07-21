@@ -15,6 +15,7 @@ pub mod pipeline_hw;
 pub mod profiles;
 pub mod proto;
 pub mod redact;
+pub mod remote;
 pub mod stream_controller;
 pub mod system;
 pub mod tick_monitor;

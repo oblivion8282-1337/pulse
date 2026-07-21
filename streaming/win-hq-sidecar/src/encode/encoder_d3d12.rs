@@ -321,6 +321,11 @@ impl FfmpegD3d12Encoder {
             }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+            // Modus-A-Tee: encodeten Frame zusätzlich in die Remote-Session.
+            // No-op (ein Atomic-Load) bei inaktiver Session; der RTMPS-Pfad
+            // (`mux.send`) bleibt byte-identisch. Der erste Keyframe wird nach
+            // `activate` (Mux ist dann `Some`) mit-geteet.
+            crate::remote::tee_packet(&packet, self.encoder_time_base);
             if let Some(mux) = self.mux.as_ref() {
                 mux.send(packet)?;
             }

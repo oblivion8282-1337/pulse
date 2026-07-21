@@ -61,6 +61,14 @@ pub enum Event {
     Log { line: String },
     Error { message: String },
     Stopped { code: Option<i32> },
+    /// Ausgehendes Remote-Control-Signaling (`kind = "answer"|"ice"`). `data` =
+    /// SDP (answer) bzw. JSON eines `RTCIceCandidateInit` (ice). Dokumentiert
+    /// die Wire-Shape; emittiert wird — wie die übrigen Events — via
+    /// `events::emit(json!{…})` in `remote.rs`.
+    RemoteSignal { kind: String, data: String },
+    /// Verbindungszustand der Remote-Session als String
+    /// (`"connected"`/`"failed"`/…) aus `on_state`.
+    RemoteState { state: String },
 }
 
 #[derive(Debug, Serialize)]

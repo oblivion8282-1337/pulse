@@ -386,6 +386,11 @@ impl FfmpegEncoder {
             }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+            // Modus-A-Tee: derselbe encodete Frame zusätzlich in die Remote-
+            // Session. No-op (ein Atomic-Load) bei inaktiver Session — der
+            // RTMPS-Pfad darunter bleibt byte-identisch. VOR `t_mux`, damit die
+            // Kopie nicht das Mux-Diagnose-Timing verfälscht.
+            crate::remote::tee_packet(&packet, self.encoder_time_base);
             let t_mux = std::time::Instant::now();
             self.mux.send(packet)?;
             mux_us += t_mux.elapsed().as_micros() as u64;

@@ -45,6 +45,9 @@ fn dispatch(req: Request) -> (Response, bool) {
         "start" => ops::start::handle(req.params),
         "stop" => ops::stop::handle(req.params),
         "state" => ops::state::handle(req.params),
+        "remote_start" => ops::remote_start::handle(req.params),
+        "remote_signal" => ops::remote_signal::handle(req.params),
+        "remote_stop" => ops::remote_stop::handle(req.params),
         unknown => Err(anyhow::anyhow!("unknown op: {unknown}")),
     };
     let exit_after = req.op == "stop" && result.is_ok();

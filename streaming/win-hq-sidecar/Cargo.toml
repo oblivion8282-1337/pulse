@@ -67,9 +67,25 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
     "software-scaling",    # swscale für BGRA→NV12-Konversion (CPU-Fallback)
 ] }
 
+# Remote-Control (Modus A): der plattformunabhängige WebRTC-Kern. Nimmt den
+# encodeten H.264-Bitstrom (Tee im Encoder) und schickt ihn zusätzlich per
+# WebRTC an den Controller. Hat selbst KEINE ffmpeg-/Windows-Dep.
+pulse-remote-webrtc = { path = "../pulse-remote-webrtc" }
+
+# tokio-Runtime für den WebRTC-Kern (async). "time" MUSS explizit dabei sein:
+# `Runtime::enable_all()` aktiviert nur kompilierte Features, und der
+# Timer-Treiber wird sonst nur über die Feature-Unification von webrtc ("full")
+# aktiv — darauf verlassen wir uns NICHT (fehlt der Timer, panickt die Runtime
+# erst zur Laufzeit). Explizit gelistet, was diese Runtime selbst braucht.
+# (Feature-Unification zieht webrtc's "full" ohnehin in den Baum — das schadet
+# `remote.rs` direkt nennt (Runtime + mpsc-Queue).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# `bytes::Bytes` für `RemoteSession::feed_frame` — transitiv via webrtc bereits
+# im Baum, hier als direkter Zugriff für den Tee.
+bytes = "1"
+
 # Stage 8+ deps — added in their respective stages.
-#
-# tokio           = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
 
 [dev-dependencies]
 # NUR für `examples/probe_vulkan_sps.rs` — Diagnose-Probe, die
