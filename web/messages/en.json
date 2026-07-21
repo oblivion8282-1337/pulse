@@ -2039,6 +2039,8 @@
   "stream_chat_panel_send_failed": "Message could not be sent",
   "stream_chat_panel_streamer_offline": "Streamer is currently offline",
   "stream_chat_panel_too_fast": "Too fast — please wait a moment",
+  "stream_auto_restart_failed": "Automatic restart failed — please start the stream again manually.",
+  "stream_auto_restart_toast": "Capture resolution changed — restarting stream…",
   "stream_controls_bridge_missing": "Bridge inactive — desktop app required.",
   "stream_controls_btn_start": "Start stream",
   "stream_controls_btn_starting": "Starting…",

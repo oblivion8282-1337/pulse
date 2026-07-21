@@ -236,7 +236,16 @@ impl StreamController {
             // Redigiert: scheitert der Push-Start, trägt die Fehlerkette die
             // volle Ziel-URL inklusive Stream-Key — und Electron schreibt jede
             // stdout-Zeile in eine persistente Log-Datei (s. `crate::redact`).
-            events::emit(json!({"ev": "error", "message": crate::redact::secrets(&msg)}));
+            let mut ev = json!({"ev": "error", "message": crate::redact::secrets(&msg)});
+            // Maschinenlesbarer Code statt Text-Matching im Client: bei einer
+            // geänderten Quellgröße startet der Renderer den Stream automatisch
+            // neu (`web/src/lib/stream/autoRestart.ts`). Feld ist additiv —
+            // der Linux-Sidecar schickt es (noch) nicht, der Reducer toleriert
+            // sein Fehlen.
+            if msg.contains(crate::capture::RESIZE_ERROR_MARKER) {
+                ev["code"] = json!("capture_size_changed");
+            }
+            events::emit(ev);
         } else {
             emit_state("stopped", false, uptime);
             events::emit(json!({"ev": "stopped"}));
@@ -525,7 +534,8 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                             }
                             if resize_mismatches >= RESIZE_RESTART_THRESHOLD {
                                 return Err(anyhow!(
-                                    "capture size changed: {}x{} -> {}x{} — stream must be restarted",
+                                    "{}: {}x{} -> {}x{} — stream must be restarted",
+                                    crate::capture::RESIZE_ERROR_MARKER,
                                     expected.0,
                                     expected.1,
                                     f.width,

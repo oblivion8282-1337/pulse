@@ -28,6 +28,14 @@ use windows_capture::settings::{
     CursorCaptureSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
 };
 
+/// Präfix der „Quellgröße hat sich geändert"-Fehlermeldung — an allen drei
+/// Abbruch-Stellen (wgc_hw / wgc_d3d12 / CPU-Pfad) UND in
+/// `stream_controller::worker_finished` benutzt, das daraus das
+/// maschinenlesbare `code: "capture_size_changed"` im error-Event ableitet.
+/// Der Client startet den Stream auf diesen Code hin automatisch neu —
+/// deshalb Konstante statt dreier Literale, die auseinanderdriften könnten.
+pub(crate) const RESIZE_ERROR_MARKER: &str = "capture size changed";
+
 /// Zeitlimit fürs Joinen eines Capture-Workers beim Stoppen.
 const JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 

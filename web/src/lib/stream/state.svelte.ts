@@ -191,6 +191,20 @@ export async function initStream(): Promise<() => void> {
   };
 }
 
+/**
+ * Mark a slot as (re)starting from OUTSIDE the sidecar event stream — used by
+ * the auto-restart path, which flips the UI to "Connecting…" before the fresh
+ * sidecar's own `starting` event lands. Arms the same startup watchdog as a
+ * sidecar-driven `starting`, so a restart that dies silently still surfaces
+ * as an error instead of hanging on "Connecting…" forever.
+ */
+export function markStarting(slot: number): void {
+  const s = streamForSlot(slot);
+  s.state = 'starting';
+  s.error = null;
+  armStartWatchdog(slot);
+}
+
 /** Project a single sidecar event into the reactive state of its slot. */
 function applyEvent(ev: GsrEvent): void {
   const slot = ev.slot ?? 0;
@@ -206,6 +220,14 @@ function applyEvent(ev: GsrEvent): void {
     notifyBackendStopped(slot);
   } else if (s.running) {
     wasRunning[slot] = true;
+  }
+  // Sidecar aborted because the capture source changed size (game switched to
+  // fullscreen 4:3 etc.) → restart the stream automatically instead of leaving
+  // the streamer on an error they can only fix by clicking Start again.
+  // Lazy import: state.svelte is imported everywhere, autoRestart pulls in the
+  // chat API — same cycle-avoidance pattern as notifyBackendStopped above.
+  if (ev.ev === 'error' && ev.code === 'capture_size_changed') {
+    void import('./autoRestart').then((mod) => mod.maybeAutoRestart(slot));
   }
 }
 

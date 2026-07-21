@@ -235,7 +235,8 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
                 // zurück, der Worker-Thread endet damit, die Pipeline liest
                 // den String über `join_error` (Fix 1).
                 return Err(anyhow!(
-                    "capture size changed: {}x{} -> {w}x{h} — stream must be restarted",
+                    "{}: {}x{} -> {w}x{h} — stream must be restarted",
+                    super::RESIZE_ERROR_MARKER,
                     self.expected_dims.0,
                     self.expected_dims.1
                 ));

@@ -278,7 +278,8 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
                 // beendet die Capture, der Worker-Thread endet damit; die
                 // Pipeline liest den String über `join_error` (s. `WgcD3d12Capture`).
                 return Err(anyhow!(
-                    "capture size changed: {}x{} -> {}x{} — stream must be restarted",
+                    "{}: {}x{} -> {}x{} — stream must be restarted",
+                    super::RESIZE_ERROR_MARKER,
                     bridge.expected.0,
                     bridge.expected.1,
                     frame.width(),

@@ -34,6 +34,7 @@
     appFromAudioMode,
   } from '../settings.svelte';
   import { resolveSlotLabel } from '../label';
+  import { recordStreamStart } from '../autoRestart';
 
   let {
     channelId = null,
@@ -141,6 +142,9 @@
         localError = r.error ?? m.stream_controls_error_start_failed();
         toast.error(m.stream_controls_toast_start_failed(), { description: localError });
       } else {
+        // Record the channelId for auto-restart-after-resize-change (autoRestart.ts
+        // has no other way to learn it).
+        recordStreamStart(slot, channelId);
         onStarted?.();
       }
     } catch (e) {
