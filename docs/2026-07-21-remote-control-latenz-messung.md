@@ -135,3 +135,59 @@ Configs nicht aktiviert, Port 8892 nicht freigegeben). Gegen MoQ für diesen Use
 Nebenprodukte des Slices: „Tastatur weiterreichen" in Watch-Partys, optionaler
 P2P-Low-Latency-Zuschaumodus (1–2 Viewer direkt, MediaMTX als Fallback),
 generischer P2P-DataChannel (Clipboard, Datei-Drop, Stats-Overlay).
+
+## 6. Nachtrag — Interop + NAT/TURN gemessen (2026-07-21)
+
+Referenz-Spike: `pulse-remote-spike` (webrtc-rs 0.17 + axum, gstreamer-NVENC → RTP
+→ Browser, DataChannel-Echo, selbstmeldende Viewer-Seite → headless verifizierbar).
+
+### 6.1 Transport/Interop — webrtc-rs ↔ Chromium
+
+Echte `RTCPeerConnection`: webrtc-rs beantwortet ein Chromium-Offer, DTLS/SRTP
+läuft, unser NVENC-RTP wird von Chromes WebRTC-Stack sauber depaketiert und mit
+**60 fps 1440p, 0 % Verlust** dekodiert; DataChannel-Echo trägt den Input-Kanal.
+Damit ist der Produktionspfad Sidecar → Electron-Viewer belegt.
+
+### 6.2 NAT — realer Consumer↔Consumer-Test (der wichtige Befund)
+
+Getestet zwischen **zwei realen Heim-Anschlüssen** (Dev-Maschine ↔ Rechner eines
+Dritten, jeweils hinter Consumer-Router) — der realistische Produktionsfall, nicht
+nur der Mobilfunk-Worst-Case:
+
+- **Direkt (nur STUN, kein TURN): GESCHEITERT.** Beide Seiten kannten ihre
+  öffentliche `srflx`-Adresse, die ICE-Checks scheiterten trotzdem → symmetrisches
+  NAT auf mindestens einer Seite (bei deutschen ISPs via DS-Lite/CGNAT verbreitet).
+- **Über TURN (coturn, Relay erzwungen): FUNKTIONIERT.** `relay/relay`,
+  60 fps 1440p, 0 % Verlust, ~90 ms RTT + ~90 ms Input-RTT (eingeschwungen).
+
+**Korrigierte Schlussfolgerung** (revidiert die optimistische Annahme aus der
+Planung, zwei Heim-Anschlüsse lochten sich „oft direkt"): Direkte P2P-Lochung ist
+zwischen Privatanschlüssen **nicht** verlässlich. TURN ist damit ein
+**Pflicht-Baustein für v1**, kein Randfall-Fallback — ein substantieller Anteil
+realer Verbindungen wird darüber laufen.
+
+Die ~90 ms sind eine **Obergrenze**: TURN zwang beide Netz-Beine über einen weit
+entfernten Server (Dev → Hetzner → Dritter) und Relay war erzwungen. Reale Hebel:
+
+- **Regionale TURN-Server** — nahe an den Nutzern → kurzer Umweg.
+- **ICE-Policy `All`** (direkt-first, TURN-Fallback) — Verbindungen, die direkt
+  können, fahren mit ~45–70 ms; nur die schwierigen zahlen den TURN-Aufschlag.
+
+### 6.3 Konsequenzen für v1
+
+- **TURN-Infrastruktur einplanen** (mehrere Regionen), nicht „ein coturn irgendwo".
+  Betriebs-/Kostenpunkt, jetzt belegt statt vermutet. Der Port 3478 der Test-Instanz
+  (LiveKit-eigenes coturn) zeigt: der Baustein läuft im Stack bereits.
+- **ICE-Policy `All`** im `RemoteController` (nicht das im Spike zum Beweis
+  erzwungene `Relay`).
+- **ICE-Kandidaten filtern**: Docker-Bridge-IPs (172.x) blähten das Gathering auf
+  → Interface-Filter in webrtc-rs.
+
+### 6.4 Damit sind alle drei Machbarkeits-Risiken gemessen
+
+1. Latenz-Klasse — NVENC 14 ms, glass-to-glass 45–90 ms (§2).
+2. Transport/Interop — webrtc-rs ↔ Chromium, 60 fps + Input (§6.1).
+3. NAT — direkt scheitert bei symmetrischem NAT, TURN trägt zuverlässig (§6.2).
+
+Offen bleibt nur der **Windows-Input-PoC** (`SendInput` mit `VIRTUALDESK` +
+Per-Monitor-DPI) — der letzte billige Risiko-Killer, danach beginnt R1.
