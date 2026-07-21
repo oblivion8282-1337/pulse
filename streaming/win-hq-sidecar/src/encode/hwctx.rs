@@ -235,9 +235,16 @@ impl HwContext {
     /// bekommen.
     pub fn frames_ref(&self) -> *mut AVBufferRef { self.frames_ref }
 
-    /// ID3D11DeviceContext für CopySubresourceRegion. Caller MUSS lock()/unlock()
-    /// drumherum halten.
-    pub fn device_context(&self) -> &ID3D11DeviceContext { &self.device_context }
+    /// ID3D11DeviceContext für CopySubresourceRegion.
+    ///
+    /// # Safety
+    /// Der immediate Context ist NICHT thread-safe; die `Sync`-Zusicherung
+    /// oben steht und fällt damit, dass jeder Befehl darauf zwischen `lock()`/
+    /// `unlock()` läuft. Als `unsafe fn`, damit diese Invariante nicht mehr
+    /// nur im Kommentar lebt: Der Caller bestätigt, dass er entweder den Lock
+    /// hält (GPU-Befehle) oder die Referenz nur klont (`AddRef` ist atomar,
+    /// z.B. für die Weitergabe an `D3D11Scaler::new`).
+    pub unsafe fn device_context(&self) -> &ID3D11DeviceContext { &self.device_context }
 
     pub fn lock(&self) {
         unsafe { EnterCriticalSection(self.lock_ptr) }

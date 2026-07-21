@@ -25,8 +25,13 @@ use crate::profiles::{APP_LABEL_PREFIX, BASELINE, profile_label};
 use crate::stream_controller::{StartParams, StreamController};
 use crate::system::audio_sessions;
 
-pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let profile_name = profile_label(&params);
+/// Parst die `start`/`build_argv`-Request-Shape zu fertigen `StartParams` —
+/// alles vor dem eigentlichen `StreamController::start()`-Aufruf, damit
+/// `build_argv` denselben Parse-Pfad durchläuft wie `start` (Wire-Parität zu
+/// Linux' `control.py`, wo `op_build_argv`/`op_start` dasselbe Body-Parsing
+/// teilen).
+pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartParams> {
+    let profile_name = profile_label(params);
     let profile = &BASELINE;
 
     let channel = params
@@ -52,10 +57,10 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             )
         })?;
 
-    let capture = parse_capture(&params)?;
-    let audio = parse_audio(&params);
+    let capture = parse_capture(params)?;
+    let audio = parse_audio(params);
     let (override_codec, override_bitrate, override_fps, override_resolution) =
-        parse_overrides(&params);
+        parse_overrides(params);
     // Mauszeiger im Stream — Default `true` (GSR-Default `-cursor yes`); fehlt
     // das Feld oder ist es kein Bool, bleibt's an.
     let show_cursor = params
@@ -64,12 +69,18 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .unwrap_or(true);
     // Konstanter A/V-Trim in ms (UI-Slider; >0 = Audio später). Fehlt das Feld
     // → 0 (neutral; dann greift ggf. der `PULSE_HQ_AV_OFFSET_MS`-Env-Fallback).
+    // Geclampt auf ±1000 ms (doppelter UI-Slider-Bereich, `AvOffsetSlider.svelte`
+    // MIN/MAX = ±500) — Defense-in-Depth gegen einen Renderer-Bug oder einen
+    // manuell zusammengebauten Request: ein extremer negativer Wert würde sonst
+    // den Audio-PTS-Anker so weit nach vorn verschieben, dass jedes Audio-Paket
+    // als "vor dem Streamstart" verworfen wird und die Spur dauerhaft stumm ist.
     let av_offset_ms = params
         .get("av_offset_ms")
         .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-        .unwrap_or(0) as i32;
+        .unwrap_or(0)
+        .clamp(-1000, 1000) as i32;
 
-    let start_params = StartParams {
+    Ok(StartParams {
         profile,
         profile_name: profile_name.to_string(),
         channel_id,
@@ -83,8 +94,11 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         override_resolution,
         show_cursor,
         av_offset_ms,
-    };
+    })
+}
 
+pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
+    let start_params = parse_start_params(&params)?;
     let argv = StreamController::singleton().start(start_params)?;
 
     let mut out = Map::new();
@@ -216,8 +230,20 @@ fn parse_overrides(
         "av1" => Some(VideoCodec::Av1),
         _ => None,
     });
-    let bitrate = o.get("bitrate_kbps").and_then(Value::as_u64).map(|n| n as u32);
-    let fps = o.get("fps").and_then(Value::as_u64).map(|n| n as u32);
+    // `.filter(|&n| n > 0)`: ein Override von 0 muss wie "nicht gesetzt"
+    // behandelt werden (→ Profil-Default greift). Ungefiltert läuft `fps: 0`
+    // bis in die Pacing-Berechnung durch (`Duration::from_secs_f64(1.0 / 0.0)`)
+    // und legt den Worker-Thread mit einem Panic lahm.
+    let bitrate = o
+        .get("bitrate_kbps")
+        .and_then(Value::as_u64)
+        .map(|n| n as u32)
+        .filter(|&n| n > 0);
+    let fps = o
+        .get("fps")
+        .and_then(Value::as_u64)
+        .map(|n| n as u32)
+        .filter(|&n| n > 0);
     // Auflösungs-Map konsistent zu den Linux-Sidecars: "Native" → None (kein
     // Downscale), sonst eine BOX, in die `run_pipeline` aspektwahrend einpasst
     // (`fit_within_box`) — Ultrawide wird also nicht auf 16:9 gestaucht.

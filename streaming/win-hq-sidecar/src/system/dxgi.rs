@@ -93,6 +93,13 @@ pub fn list_adapters() -> Result<Vec<Adapter>> {
         }
 
         if !seen.insert((desc.VendorId, desc.DeviceId)) {
+            // Sichtbar machen statt still verschlucken: bei zwei echten
+            // physischen GPUs desselben Modells (nicht nur Optimus-Dubletten)
+            // geht die zweite hier unter — im Diagnose-Log soll das auffallen.
+            eprintln!(
+                "[dxgi] Adapter übersprungen (Dedup nach vendor/device-id): {}",
+                utf16_to_string(&desc.Description)
+            );
             continue;
         }
 

@@ -199,9 +199,18 @@ impl AudioPipeline {
                 (Some(origin_qpc), q) if q != 0 => Some(
                     ((q as i64 - origin_qpc) as f64 / 10_000_000.0 * self.sample_rate as f64) as i64,
                 ),
+                // Instant-Fallback MIT Vorzeichen — `saturating_duration_since`
+                // wäre genau das `.max(0)`, das der Kommentar unten verbietet:
+                // Audio-Chunks von VOR dem Origin (WASAPI startet vor dem ersten
+                // Video-Frame und puffert) würden auf „gleichzeitig" gestaucht
+                // und die ganze Spur um den Setup-Versatz nach vorn geschoben.
                 _ => self.stream_origin.map(|origin| {
-                    (captured.captured_at.saturating_duration_since(origin).as_secs_f64()
-                        * self.sample_rate as f64) as i64
+                    let secs = if captured.captured_at >= origin {
+                        captured.captured_at.duration_since(origin).as_secs_f64()
+                    } else {
+                        -origin.duration_since(captured.captured_at).as_secs_f64()
+                    };
+                    (secs * self.sample_rate as f64) as i64
                 }),
             };
             if let Some(s) = anchored {

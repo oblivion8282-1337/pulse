@@ -83,6 +83,10 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             ));
         }
     };
+    // Wall-clock-Zeitpunkt des Video-Origins (≈ first_qpc). Audio-Chunks ohne
+    // QPC ankern hieran — NICHT an `started` (das liegt erst NACH der Encoder-
+    // Erzeugung; der Setup-Versatz würde zum konstanten A/V-Offset).
+    let origin_instant = Instant::now();
     let (hw, width, height, first, first_qpc) = match setup {
         HwCaptureItem::Setup { hw, width, height, first, first_qpc } => {
             (hw, width, height, first, first_qpc)
@@ -151,7 +155,9 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         Some(
             D3D11Scaler::new(
                 hw.device().clone(),
-                hw.device_context().clone(),
+                // Safety: nur ein Clone (atomarer COM-AddRef), kein GPU-Befehl —
+                // der Lock ist hier nicht nötig (s. `HwContext::device_context`).
+                unsafe { hw.device_context() }.clone(),
                 width,
                 height,
                 dst_w,
@@ -244,9 +250,15 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         && first_qpc != 0;
     let origin_qpc = first_qpc;
     let mut newest_qpc = first_qpc;
-    encoder.set_audio_origin(started, if qpc_sync { Some(origin_qpc) } else { None });
+    // Anker muss zum tatsächlichen Video-Origin passen: mit QPC-Sync ist PTS 0
+    // der erste Frame (origin_instant), ohne die Wanduhr-Basis der Loop.
+    encoder.set_audio_origin(
+        if qpc_sync { origin_instant } else { started },
+        if qpc_sync { Some(origin_qpc) } else { None },
+    );
     let mut last_frame: Option<OwnedHwFrame> = Some(first);
     let mut last_pts: i64 = -1;
+    let mut audio_dead = false;
     let mut frames_sent: u64 = 0;
     let mut next_tick = started;
     let mut last_fps_emit = started;
@@ -314,13 +326,26 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
         if let Some(ac) = audio_capture.as_ref() {
-            while let Ok(chunk) = ac.samples.try_recv() {
-                // Audio-Fehler NICHT verschlucken (#3): bricht die Audio-Spur
-                // weg, stockt der 2-Stream-Muxer (rw_timeout) und der Stream
-                // stirbt ohnehin — dann lieber mit klarer Fehlermeldung.
-                encoder
-                    .send_audio(&chunk)
-                    .map_err(|e| anyhow!("send_audio: {e:#}"))?;
+            loop {
+                match ac.samples.try_recv() {
+                    // Audio-Fehler NICHT verschlucken (#3): bricht die Audio-Spur
+                    // weg, stockt der 2-Stream-Muxer (rw_timeout) und der Stream
+                    // stirbt ohnehin — dann lieber mit klarer Fehlermeldung.
+                    Ok(chunk) => encoder
+                        .send_audio(&chunk)
+                        .map_err(|e| anyhow!("send_audio: {e:#}"))?,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    // WASAPI-Worker gestorben (Gerät weg/invalidiert): video-only
+                    // weiterlaufen, aber EINMAL sichtbar melden.
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if !audio_dead {
+                            audio_dead = true;
+                            eprintln!("[pipeline-hw] audio capture beendet — Stream läuft ohne Ton weiter");
+                            events::emit(json!({"ev": "log", "line": "Audio-Aufnahme abgebrochen (Gerät entfernt?) — Stream läuft ohne Ton weiter"}));
+                        }
+                        break;
+                    }
+                }
             }
         }
         let audio_drain = t_audio.elapsed();

@@ -14,7 +14,8 @@
 //! | list_monitors            | real       | Windows-only display picker |
 //! | list_windows             | real       | Windows-only window picker |
 //! | list_application_audio   | stub       | Stage 3 (`wasapi` process enum) |
-//! | build_argv               | stub       | Stage 4 (after encode pipeline shape settles) |
+//! | list_profiles            | real       | Wire-Parität zu Linux (kein eigener Katalog) |
+//! | build_argv               | real       | Teilt den Parse-Pfad mit `start` |
 //! | start                    | stub       | Stages 5-8 (capture + audio + encode + RTMPS) |
 //! | stop                     | stub       | Stage 8 |
 //! | state                    | stub       | Stage 8 |
@@ -24,6 +25,7 @@ pub mod gpu_info;
 pub mod health;
 pub mod list_application_audio;
 pub mod list_monitors;
+pub mod list_profiles;
 pub mod list_windows;
 pub mod start;
 pub mod state;

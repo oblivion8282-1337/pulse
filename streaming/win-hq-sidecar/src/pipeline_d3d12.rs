@@ -132,30 +132,63 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     )?;
 
     // ── Ring-Handles auf FFmpegs D3D12-Device öffnen + Converter bauen.
+    // Explizite Schleife statt `collect::<Result<_>>()`: Letzteres bricht beim
+    // ersten Fehler ab und ruft `open_shared_bgra` (das seinen Handle immer
+    // schließt) für die restlichen Einträge nie auf — deren NT-Handles blieben
+    // für die Prozess-Lebensdauer offen.
     let device = encoder.device();
-    let bgra_resources: Vec<ID3D12Resource> = handles
-        .iter()
-        .map(|&h| open_shared_bgra(&device, h))
-        .collect::<Result<_>>()?;
+    let mut bgra_resources: Vec<ID3D12Resource> = Vec::with_capacity(handles.len());
+    let mut open_err: Option<anyhow::Error> = None;
+    for &h in &handles {
+        if open_err.is_none() {
+            match open_shared_bgra(&device, h) {
+                Ok(r) => bgra_resources.push(r),
+                Err(e) => open_err = Some(e),
+            }
+        } else {
+            unsafe {
+                let _ = CloseHandle(HANDLE(h as *mut c_void));
+            }
+        }
+    }
+    if let Some(e) = open_err {
+        return Err(e);
+    }
     let converter = Nv12Converter::new(device, dst_w, dst_h)?;
 
     // Ab hier wird NICHTS mehr gedroppt — Begründung + Mechanik ausführlich in
     // `pipeline_hw::run`. Am Binding statt per `mem::forget` am Funktionsende,
     // damit die Zusage auch für die Fehler-Ausgänge gilt (Capture-Disconnect,
     // Encoder-Fehler im Pacing-Loop) und nicht nur für den Erfolgspfad.
-    let capture = std::mem::ManuallyDrop::new(capture);
+    let mut capture = std::mem::ManuallyDrop::new(capture);
     let audio_capture = std::mem::ManuallyDrop::new(audio_capture);
     let mut encoder = std::mem::ManuallyDrop::new(encoder);
     let mut converter = std::mem::ManuallyDrop::new(converter);
 
-    // Auf den ersten echten Capture-Frame warten.
+    // Auf den ersten echten Capture-Frame warten. Bei Disconnect den echten
+    // Capture-Fehler aus dem Worker ziehen (`join_error`) — sonst bleibt nur
+    // die wertlose „channel disconnected"-Meldung (s. pipeline_hw).
     let (mut current_slot, first_qpc): (usize, i64) = loop {
         match capture.items.recv_timeout(Duration::from_secs(5)) {
             Ok(D3d12CaptureItem::Frame { slot, qpc }) => break (slot, qpc),
             Ok(D3d12CaptureItem::Setup { .. }) => {}
-            Err(e) => return Err(anyhow!("never got first capture frame: {e}")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return Err(anyhow!("never got first capture frame: timeout"));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let worker_err = capture.join_error();
+                return Err(anyhow!(
+                    "capture exit vor dem ersten Frame{}",
+                    worker_err
+                        .map(|s| format!(": {s}"))
+                        .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
+                ));
+            }
         }
     };
+    // Wall-clock-Zeitpunkt des Video-Origins (≈ first_qpc) für den Audio-
+    // Anker ohne QPC — s. pipeline_hw.
+    let origin_instant = Instant::now();
 
     ctrl.set_state("live");
     emit_state("live", true, 0.0);
@@ -175,8 +208,13 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         && first_qpc != 0;
     let origin_qpc = first_qpc;
     let mut newest_qpc = first_qpc;
-    encoder.set_audio_origin(started, if qpc_sync { Some(origin_qpc) } else { None });
+    // Anker muss zum tatsächlichen Video-Origin passen — s. pipeline_hw.
+    encoder.set_audio_origin(
+        if qpc_sync { origin_instant } else { started },
+        if qpc_sync { Some(origin_qpc) } else { None },
+    );
     let mut last_pts: i64 = -1;
+    let mut audio_dead = false;
     let mut frames_sent: u64 = 0;
     let mut next_tick = started;
     let mut last_fps_emit = started;
@@ -219,7 +257,14 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
                 Ok(D3d12CaptureItem::Setup { .. }) => {}
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    return Err(anyhow!("capture channel disconnected"));
+                    // Echte Root-Cause aus dem Worker ziehen — s. pipeline_hw.
+                    let worker_err = capture.join_error();
+                    return Err(anyhow!(
+                        "capture channel disconnected mid-stream{}",
+                        worker_err
+                            .map(|s| format!(": {s}"))
+                            .unwrap_or_else(|| " (clean exit, keine Fehlermeldung)".into())
+                    ));
                 }
             }
         }
@@ -228,11 +273,23 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
         if let Some(ac) = audio_capture.as_ref() {
-            while let Ok(chunk) = ac.samples.try_recv() {
-                // Audio-Fehler NICHT verschlucken (#3) — s. pipeline_hw.
-                encoder
-                    .send_audio(&chunk)
-                    .map_err(|e| anyhow!("send_audio: {e:#}"))?;
+            loop {
+                match ac.samples.try_recv() {
+                    // Audio-Fehler NICHT verschlucken (#3) — s. pipeline_hw.
+                    Ok(chunk) => encoder
+                        .send_audio(&chunk)
+                        .map_err(|e| anyhow!("send_audio: {e:#}"))?,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    // WASAPI-Worker gestorben: video-only weiter, EINMAL melden.
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if !audio_dead {
+                            audio_dead = true;
+                            eprintln!("[pipeline-d3d12] audio capture beendet — Stream läuft ohne Ton weiter");
+                            events::emit(json!({"ev": "log", "line": "Audio-Aufnahme abgebrochen (Gerät entfernt?) — Stream läuft ohne Ton weiter"}));
+                        }
+                        break;
+                    }
+                }
             }
         }
         let audio_drain = t_audio.elapsed();

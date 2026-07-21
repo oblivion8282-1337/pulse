@@ -60,7 +60,19 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         line.clear();
-        let n = reader.read_line(&mut line)?;
+        // `match` statt `?`: ein I/O-Fehler auf stdin (z. B. Non-UTF8-Bytes →
+        // `InvalidData`) würde sonst direkt aus `main` propagieren und den
+        // Shutdown-Block unten (events::shutdown, writer.join, StreamController::
+        // stop → schreibt den FLV-Trailer) überspringen — ein laufender Stream
+        // bliebe ohne sauberen Teardown zurück. Stattdessen loggen + die Schleife
+        // verlassen, damit der Cleanup-Block garantiert läuft.
+        let n = match reader.read_line(&mut line) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("[hq-sidecar] stdin read error: {e}");
+                break;
+            }
+        };
         if n == 0 {
             break;
         }

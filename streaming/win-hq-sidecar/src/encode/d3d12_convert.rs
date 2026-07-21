@@ -95,6 +95,15 @@ impl Nv12Converter {
     /// alle Resources auf derselben GPU/demselben Device liegen). `dst_w`/
     /// `dst_h` ist die NV12-Zielauflösung (≤ Capture-Auflösung = Downscale).
     pub fn new(device: ID3D12Device, dst_w: u32, dst_h: u32) -> Result<Self> {
+        // Der Compute-Shader rechnet in 2x2-Luma-Blöcken (ein Thread pro Block,
+        // s. `SHADER_HLSL` oben) — bei ungeraden Zielmaßen würde der letzte
+        // Block über den Puffer hinausschreiben. Alle heutigen Aufrufer runden
+        // vorher ab (`fit_within_box`), aber der Konstruktor selbst prüfte das
+        // bislang nicht — hier als letzte Verteidigungslinie.
+        anyhow::ensure!(
+            dst_w % 2 == 0 && dst_h % 2 == 0,
+            "NV12 braucht gerade Zielmaße, bekam {dst_w}x{dst_h}"
+        );
         let shader = compile_shader()?;
         let root_sig = create_root_signature(&device)?;
         let pso = create_pso(&device, &root_sig, &shader)?;
