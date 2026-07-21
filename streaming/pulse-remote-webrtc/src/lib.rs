@@ -20,6 +20,8 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
+use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264};
 use webrtc::api::APIBuilder;
@@ -53,6 +55,7 @@ impl IceServer {
 type InputCb = Arc<dyn Fn(Bytes) + Send + Sync>;
 type IceCb = Arc<dyn Fn(String) + Send + Sync>;
 type StateCb = Arc<dyn Fn(String) + Send + Sync>;
+type KeyframeCb = Arc<dyn Fn() + Send + Sync>;
 
 /// Aufbau-Parameter einer Session. Die drei Callbacks müssen `Send + Sync` sein,
 /// weil webrtc-rs sie aus seinen eigenen Tasks aufruft.
@@ -67,6 +70,11 @@ pub struct SessionConfig {
     pub on_local_ice: IceCb,
     /// Verbindungszustand als String ("connected"/"failed"/...).
     pub on_state: StateCb,
+    /// Der Controller bittet per RTCP-PLI/FIR um ein Keyframe — beim
+    /// Verbindungsaufbau und nach Paketverlust. Der Sidecar forced daraufhin ein
+    /// IDR im Encoder; sonst wartet der Viewer bis zum nächsten GOP-Keyframe
+    /// (bis ~2 s → sichtbare Startverzögerung). Auf Linux nur geloggt.
+    pub on_keyframe_request: KeyframeCb,
 }
 
 pub struct RemoteSession {
@@ -119,10 +127,23 @@ impl RemoteSession {
         let sender = pc
             .add_track(Arc::clone(&video) as Arc<dyn TrackLocal + Send + Sync>)
             .await?;
-        // RTCP (PLI/NACK/REMB) lesen und verwerfen, sonst staut der Sender.
+        // RTCP vom Controller lesen: ein PLI (Picture Loss Indication) oder FIR
+        // (Full Intra Request) ist eine Keyframe-Bitte (Verbindungsstart / nach
+        // Paketverlust) → Callback, der Sidecar forced dann ein IDR. Die übrigen
+        // RTCP-Pakete (NACK/REMB) werden verworfen, MÜSSEN aber gelesen werden,
+        // sonst staut der Sender.
+        let keyframe_cb = config.on_keyframe_request.clone();
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 1500];
-            while sender.read(&mut buf).await.is_ok() {}
+            while let Ok((packets, _)) = sender.read_rtcp().await {
+                for pkt in &packets {
+                    let any = pkt.as_any();
+                    if any.downcast_ref::<PictureLossIndication>().is_some()
+                        || any.downcast_ref::<FullIntraRequest>().is_some()
+                    {
+                        keyframe_cb();
+                    }
+                }
+            }
         });
 
         // Lokale ICE-Kandidaten einzeln nach außen reichen (Trickle).

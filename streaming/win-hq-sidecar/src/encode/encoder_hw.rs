@@ -197,6 +197,13 @@ impl FfmpegHwEncoder {
     }
 
     fn send_avframe(&mut self, frame_ptr: *mut AVFrame) -> Result<()> {
+        // Force-IDR, wenn der Remote-Controller einen Keyframe angefordert hat
+        // (RTCP-PLI/FIR eines frisch beigetretenen Viewers). `take_…` konsumiert
+        // das Flag per Swap → genau EIN Aufruf pro Frame. `pict_type = I` auf dem
+        // Input-Frame verlangt vom Encoder eine IDR; NVENC honoriert das.
+        if crate::remote::take_keyframe_request() {
+            unsafe { (*frame_ptr).pict_type = AVPictureType::AV_PICTURE_TYPE_I };
+        }
         let t_send = std::time::Instant::now();
         unsafe {
             let ret = avcodec_send_frame(self.encoder.as_mut_ptr(), frame_ptr);

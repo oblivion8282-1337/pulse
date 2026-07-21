@@ -65,6 +65,9 @@ pub struct RemoteController {
     /// Schnelles Gate für den Encode-Thread. `Relaxed` reicht: ein verpasster
     /// Frame am Start/Stop-Rand ist folgenlos (Video, nächster Keyframe heilt).
     active: AtomicBool,
+    /// Vom PLI/FIR-Callback gesetzt (Controller braucht ein Keyframe), vom
+    /// Encode-Thread beim nächsten Frame konsumiert → IDR forcen.
+    force_keyframe: AtomicBool,
     inner: Mutex<Option<Active>>,
 }
 
@@ -76,6 +79,7 @@ impl RemoteController {
         INSTANCE.get_or_init(|| RemoteController {
             runtime: OnceLock::new(),
             active: AtomicBool::new(false),
+            force_keyframe: AtomicBool::new(false),
             inner: Mutex::new(None),
         })
     }
@@ -83,6 +87,19 @@ impl RemoteController {
     /// Encode-Thread-Gate. Ein einzelner relaxed Load — Null-Overhead-Pfad.
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
+    }
+
+    /// Vom PLI/FIR-Callback der Session gesetzt: der Controller braucht (jetzt)
+    /// ein Keyframe — beim Verbindungsstart und nach Paketverlust.
+    pub fn request_keyframe(&self) {
+        self.force_keyframe.store(true, Ordering::Relaxed);
+    }
+
+    /// Der Encode-Thread prüft dies VOR dem Encode: gibt `true` genau einmal
+    /// zurück, wenn ein Keyframe erbeten wurde (und setzt das Flag zurück). Ein
+    /// einzelner Atomic-Swap; bei nichts angefragt folgenloser `false`.
+    pub fn take_keyframe_request(&self) -> bool {
+        self.force_keyframe.swap(false, Ordering::Relaxed)
     }
 
     /// Eigene Multi-Thread-Runtime für webrtc-rs. Multi-Thread ist nötig, weil
@@ -126,6 +143,12 @@ impl RemoteController {
             }),
             on_state: Arc::new(|state: String| {
                 events::emit(json!({"ev": "remote_state", "state": state}));
+            }),
+            // PLI/FIR vom Controller → Keyframe-Flag setzen; der Encode-Thread
+            // forced beim nächsten Frame ein IDR (behebt Startverzögerung +
+            // Verlust-Recovery, statt bis zum nächsten GOP-Keyframe zu warten).
+            on_keyframe_request: Arc::new(|| {
+                RemoteController::singleton().request_keyframe();
             }),
         };
 
@@ -244,6 +267,14 @@ pub fn tee_packet(packet: &ffmpeg::Packet, encoder_time_base: ffmpeg::Rational) 
         data: Bytes::copy_from_slice(bytes),
         duration,
     });
+}
+
+/// **Keyframe-Gate** — aus dem Encode-Thread VOR dem Encode aufgerufen. Gibt
+/// `true` (genau einmal) zurück, wenn der Controller per PLI/FIR ein Keyframe
+/// erbeten hat; der Aufrufer forced dann ein IDR. Bei inaktiver Session oder
+/// ohne offene Anfrage ein folgenloser Atomic-Swap.
+pub fn take_keyframe_request() -> bool {
+    RemoteController::singleton().take_keyframe_request()
 }
 
 /// `ice_servers`-Array aus den `remote_start`-Params → `Vec<IceServer>`.

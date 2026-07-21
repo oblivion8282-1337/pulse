@@ -272,6 +272,12 @@ impl FfmpegD3d12Encoder {
     /// `pts` ist die wall-clock-abgeleitete PTS in Encoder-Timebase (1/fps).
     pub fn send_frame(&mut self, frame: &mut OwnedD3d12Frame, pts: i64) -> Result<()> {
         unsafe { (*frame.frame).pts = pts };
+        // Force-IDR bei Keyframe-Anforderung des Remote-Controllers (RTCP-PLI/FIR
+        // eines neuen Viewers). `take_…` konsumiert das Flag per Swap → genau EIN
+        // Aufruf pro Frame. `pict_type = I` verlangt vom d3d12va-Encoder eine IDR.
+        if crate::remote::take_keyframe_request() {
+            unsafe { (*frame.frame).pict_type = AVPictureType::AV_PICTURE_TYPE_I };
+        }
         let t_send = std::time::Instant::now();
         let ret = unsafe { avcodec_send_frame(self.encoder.as_mut_ptr(), frame.frame) };
         if ret < 0 {
