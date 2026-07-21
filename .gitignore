@@ -95,6 +95,15 @@ infra/prod/certs/
 # self-signed key generated on-host. Never commit the private key.
 streaming/server/certs/
 
+# Rust-Build-Cache der Fernsteuerungs-Crate (~1 GB, webrtc-rs zieht einen
+# riesigen Abhängigkeitsbaum). Die Crate bringt zwar ihre eigene `/target`-
+# .gitignore mit — die ist aber selbst versioniert und existiert nur auf dem
+# Feature-Branch. Auf `main` fehlt sie, der Cache taucht dort als untracked auf
+# und ein `git add -A` würde ihn stagen. Hier zentral, damit die Regel auf
+# JEDEM Branch gilt. (Das `/target-*` weiter unten ist etwas anderes und
+# greift bei verschachtelten Verzeichnissen nicht.)
+/streaming/pulse-remote-webrtc/target/
+
 # electron-packager output (Pulse-<platform>-<arch>{/,.zip})
 Pulse-*-*/
 Pulse-*-*.zip
