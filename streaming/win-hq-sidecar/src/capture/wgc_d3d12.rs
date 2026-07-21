@@ -135,11 +135,11 @@ impl WgcD3d12Capture {
     /// Panic) nicht im JoinHandle verlorengeht — `recv_timeout`/`try_recv`
     /// liefern sonst nur die wertlose „channel disconnected"-Meldung.
     pub fn join_error(&mut self) -> Option<String> {
-        self.worker.take().and_then(|h| match h.join() {
-            Ok(Ok(())) => None,
-            Ok(Err(s)) => Some(s),
-            Err(_) => Some("capture thread panicked".into()),
-        })
+        // Mit Zeitlimit — ein hängender WGC-Teardown darf den Fehlerpfad der
+        // Pipeline nicht blockieren (s. `super::join_result_or_detach`).
+        self.worker
+            .take()
+            .and_then(|h| super::join_result_or_detach(h, "wgc-d3d12"))
     }
 }
 

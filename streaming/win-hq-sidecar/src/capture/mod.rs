@@ -45,21 +45,44 @@ const JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// ohnehin gleich, `ExitProcess` räumt ihn ab (gleiche Überlegung wie der
 /// bewusst unterlassene Teardown in `pipeline_hw::run`).
 pub(crate) fn join_or_detach(handle: std::thread::JoinHandle<Result<(), String>>, label: &str) {
+    let _ = join_result_or_detach(handle, label);
+}
+
+/// Wie `join_or_detach`, liefert aber das Worker-Ergebnis: `Some(msg)` bei
+/// Fehler/Panic, `None` bei cleanem Exit ODER wenn der Join ins Zeitlimit
+/// läuft (dann ist die Fehlerursache nicht abholbar — der Timeout-Fall wird
+/// geloggt). Basis der `join_error()`-Methoden der drei Capture-Structs: die
+/// werden aus den Pipeline-Fehlerpfaden gerufen, und ein unbegrenztes `join()`
+/// dort würde exakt den Hänger wieder einbauen, den das Zeitlimit oben
+/// verhindern soll — die Pipeline bliebe mitten im Fehlerpfad stecken und das
+/// `error`-Event erreichte den Renderer nie.
+pub(crate) fn join_result_or_detach(
+    handle: std::thread::JoinHandle<Result<(), String>>,
+    label: &str,
+) -> Option<String> {
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     if std::thread::Builder::new()
         .name("capture-joiner".into())
         .spawn(move || {
-            let _ = handle.join();
-            let _ = done_tx.send(());
+            let result = match handle.join() {
+                Ok(Ok(())) => None,
+                Ok(Err(s)) => Some(s),
+                Err(_) => Some("capture thread panicked".into()),
+            };
+            let _ = done_tx.send(result);
         })
         .is_err()
     {
         // Kein Thread frei — nicht warten. `handle` ist mit der Closure
         // gedroppt, der Worker läuft damit detached weiter.
-        return;
+        return None;
     }
-    if done_rx.recv_timeout(JOIN_TIMEOUT).is_err() {
-        eprintln!("[capture] {label}: Worker nach {JOIN_TIMEOUT:?} nicht beendet — detached");
+    match done_rx.recv_timeout(JOIN_TIMEOUT) {
+        Ok(result) => result,
+        Err(_) => {
+            eprintln!("[capture] {label}: Worker nach {JOIN_TIMEOUT:?} nicht beendet — detached");
+            None
+        }
     }
 }
 
