@@ -38,6 +38,13 @@ fn main() -> anyhow::Result<()> {
             let stdout = io::stdout();
             let mut out = stdout.lock();
             while let Ok(value) = out_rx.recv() {
+                // `Null`-Sentinel (s. `events::request_exit`): alles davor ist
+                // geschrieben+geflusht (dieser Thread arbeitet den Kanal strikt
+                // in Reihenfolge ab) → Prozess jetzt beenden.
+                if value.is_null() {
+                    let _ = out.flush();
+                    std::process::exit(0);
+                }
                 let json = match serde_json::to_string(&value) {
                     Ok(s) => s,
                     Err(e) => {

@@ -15,6 +15,7 @@
 //! wieder (der Uplink reicht im Schnitt — es ist rein der Burst).
 
 use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result, anyhow};
@@ -43,6 +44,12 @@ unsafe impl Send for SendOutput {}
 pub struct MuxWriter {
     tx: Option<SyncSender<SendPacket>>,
     worker: Option<JoinHandle<Result<()>>>,
+    /// Fehlergrund des Writer-Threads, BEVOR sein JoinHandle eingesammelt ist.
+    /// Nötig, weil `send()` einen toten Writer nur als Kanal-Disconnect sieht —
+    /// und der Fehlerpfad der Pipeline `finish()` (das echte Join) nie
+    /// erreicht: Der User bekäme sonst bei jedem mid-stream Netzwerkabriss
+    /// nur „mux-writer thread is gone" statt der tatsächlichen Ursache.
+    fail_msg: Arc<Mutex<Option<String>>>,
 }
 
 impl MuxWriter {
@@ -51,6 +58,8 @@ impl MuxWriter {
     pub fn start(output: format::context::Output) -> Result<Self> {
         let (tx, rx) = sync_channel::<SendPacket>(QUEUE_CAPACITY);
         let out = SendOutput(output);
+        let fail_msg: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let fail_slot = Arc::clone(&fail_msg);
         let worker = thread::Builder::new()
             .name("mux-writer".into())
             .spawn(move || -> Result<()> {
@@ -58,6 +67,9 @@ impl MuxWriter {
                 for pkt in rx {
                     if let Err(e) = pkt.0.write_interleaved(&mut output) {
                         eprintln!("[mux-writer] write_interleaved failed: {e:#}");
+                        if let Ok(mut slot) = fail_slot.lock() {
+                            *slot = Some(format!("{e:#}"));
+                        }
                         return Err(e).context("mux-writer: write_interleaved");
                     }
                 }
@@ -73,7 +85,7 @@ impl MuxWriter {
                 Ok(())
             })
             .context("spawn mux-writer thread")?;
-        Ok(Self { tx: Some(tx), worker: Some(worker) })
+        Ok(Self { tx: Some(tx), worker: Some(worker), fail_msg })
     }
 
     /// Schiebt ein fertiges Packet (Stream-Index gesetzt, Timestamps in
@@ -82,9 +94,16 @@ impl MuxWriter {
     /// staut sich dann bis zum `rw_timeout`.
     pub fn send(&self, packet: Packet) -> Result<()> {
         match &self.tx {
-            Some(tx) => tx
-                .send(SendPacket(packet))
-                .map_err(|_| anyhow!("mux-writer thread is gone")),
+            Some(tx) => tx.send(SendPacket(packet)).map_err(|_| {
+                // Writer tot → echten Grund aus dem Slot ziehen (s. `fail_msg`).
+                let cause = self
+                    .fail_msg
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone())
+                    .unwrap_or_else(|| "thread beendet ohne hinterlegten Grund".into());
+                anyhow!("mux-writer failed: {cause}")
+            }),
             None => Err(anyhow!("mux-writer already finished")),
         }
     }

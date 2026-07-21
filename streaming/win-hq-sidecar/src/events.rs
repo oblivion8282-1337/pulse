@@ -34,6 +34,24 @@ pub fn emit(event: Value) {
     }
 }
 
+/// Beendet den Prozess GEORDNET nach allen bereits emittierten Events: schickt
+/// ein `Null`-Sentinel durch denselben Writer-Kanal; der Writer-Thread
+/// (`main.rs`) exitet, sobald er es erreicht — alles, was DERSELBE Thread
+/// vorher emittiert hat, ist dann garantiert geschrieben und geflusht (für
+/// andere Sender — z.B. eine parallel laufende Response des Dispatch-Threads —
+/// gilt das nicht; die verliert schlimmstenfalls ihr Rennen und Electron
+/// meldet den Op als Prozess-Exit-Fehler). Invariante: kein legitimes
+/// Event/Response ist je `Null` — alle `emit`-Aufrufe bauen `json!`-Objekte,
+/// `Response` serialisiert immer als Objekt. Genutzt nach einem Pipeline-Fehler: der
+/// Per-Stream-Sidecar hat danach nichts mehr zu tun, aber die per
+/// `ManuallyDrop` geleakten Capture-/Encoder-Objekte (inkl. NVENC-Session)
+/// lebten sonst weiter, bis irgendwann ein `stop` kommt — der Renderer schickt
+/// nach einem `error`-Event aber keins. `ExitProcess` räumt sie ab; der
+/// nächste Op spawnt via sidecar.ts einen frischen Prozess.
+pub fn request_exit() {
+    emit(Value::Null);
+}
+
 /// Dropped den EMITTER-internen Sender. Wird von `main.rs` zur Shutdown-Zeit
 /// gerufen — sonst hält der static OnceLock einen Sender-Clone die ganze
 /// Prozess-Lebenszeit fest, der writer-Thread sieht nie ein Disconnect, und

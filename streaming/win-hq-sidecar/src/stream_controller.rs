@@ -197,7 +197,11 @@ impl StreamController {
         if inner.snapshot.state != "error" {
             inner.snapshot.state = "stopped";
         }
-        inner.started_at = None;
+        // Finale Laufzeit festhalten (nur falls `worker_finished` sie nicht
+        // schon geschrieben und `started_at` genommen hat) — s. Kommentar dort.
+        if let Some(t) = inner.started_at.take() {
+            inner.snapshot.uptime_s = Some(t.elapsed().as_secs_f64());
+        }
         Ok(())
     }
 
@@ -205,14 +209,21 @@ impl StreamController {
     fn worker_finished(&self, error: Option<String>) {
         let mut inner = self.inner.lock().unwrap();
         // Uptime ablesen BEVOR `started_at` auf None gesetzt wird.
-        let uptime = inner
-            .started_at
-            .take()
-            .map(|t| t.elapsed().as_secs_f64())
-            .unwrap_or(0.0);
+        let measured = inner.started_at.take().map(|t| t.elapsed().as_secs_f64());
+        let uptime = measured.unwrap_or(0.0);
         inner.snapshot.running = false;
         inner.snapshot.state = if error.is_some() { "error" } else { "stopped" };
         inner.snapshot.fps = None;
+        // Finale Laufzeit in den Snapshot — der `state()`-Getter aktualisiert
+        // `uptime_s` nur bei gesetztem `started_at` (jetzt None); ohne das
+        // lieferte ein `state`-Op nach dem Ende einen stale Wert. NUR bei
+        // eigener Messung schreiben: kommt ein nach `STOP_JOIN_TIMEOUT`
+        // aufgegebener Worker doch noch hier an, hat `stop()` `started_at`
+        // schon genommen und den korrekten Wert geschrieben — den darf das
+        // 0.0-Fallback nicht überschreiben.
+        if let Some(u) = measured {
+            inner.snapshot.uptime_s = Some(u);
+        }
         drop(inner);
         if let Some(msg) = error {
             // Fehlerfall: NUR error-Events. KEIN nachfolgendes "stopped" — das
@@ -285,7 +296,14 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     .unwrap_or_else(|payload| Err(anyhow!("pipeline worker panicked: {}", panic_message(&payload))));
 
     let error_msg = result.err().map(|e| format!("{e:#}"));
+    let had_error = error_msg.is_some();
     ctrl.worker_finished(error_msg);
+    // Nach einem Fehler den Prozess geordnet beenden (Sentinel läuft HINTER
+    // den error-Events durch den Writer) — Begründung: `events::request_exit`.
+    // Beim regulären Ende übernimmt das der `stop`-Op (`exit_after`).
+    if had_error {
+        events::request_exit();
+    }
 }
 
 /// Panic-Payload → lesbarer Text. `panic!`-Payloads sind praktisch immer
@@ -444,6 +462,12 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         let mut last_frame: Option<CapturedFrame> = Some(first);
         let mut last_pts: i64 = -1;
         let mut audio_dead = false;
+        // Resize-Handling wie im HW-/D3D12-Pfad (`RESIZE_RESTART_THRESHOLD` in
+        // wgc_hw.rs/wgc_d3d12.rs, gleicher Wert): der CPU-Pfad filtert
+        // abweichende Maße hier im Loop (Encoder ist auf `expected` allokiert)
+        // — ohne Zähler wäre ein Fenster-Resize ein stilles Dauer-Standbild.
+        const RESIZE_RESTART_THRESHOLD: u32 = 120;
+        let mut resize_mismatches: u32 = 0;
         let mut frames_sent: u64 = 0;
         let mut next_tick = started;
         let mut last_fps_emit = started;
@@ -486,6 +510,28 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                             }
                             last_frame = Some(f);
                             captured += 1;
+                            resize_mismatches = 0;
+                        } else {
+                            // Größe hat sich geändert (Fenster-Resize/DPI):
+                            // Frame verwerfen, aber zählen + einmalig loggen;
+                            // nach der Karenz sauber beenden statt für immer
+                            // ein Standbild zu streamen.
+                            resize_mismatches += 1;
+                            if resize_mismatches == 1 {
+                                eprintln!(
+                                    "[stream-pipeline] capture size changed: {}x{} -> {}x{}",
+                                    expected.0, expected.1, f.width, f.height
+                                );
+                            }
+                            if resize_mismatches >= RESIZE_RESTART_THRESHOLD {
+                                return Err(anyhow!(
+                                    "capture size changed: {}x{} -> {}x{} — stream must be restarted",
+                                    expected.0,
+                                    expected.1,
+                                    f.width,
+                                    f.height
+                                ));
+                            }
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
