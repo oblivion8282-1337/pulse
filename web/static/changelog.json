@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-22.2",
+      "date": "2026-07-22",
+      "style": "Sachlich",
+      "title": "Bildschirmübertragung: bleibt nicht mehr auf „aktiv“ hängen, wenn sie unerwartet abbricht",
+      "items": [
+        "Behoben: Bricht die Übertragung unerwartet ab, endet sie jetzt sauber und lässt sich sofort neu starten — statt mit aktivem Symbol stehenzubleiben, ohne dass sich etwas beenden ließ.",
+        "Neu: Ein kurzer Hinweis meldet, wenn die Übertragung unerwartet endete."
+      ]
+    },
+    {
       "id": "2026-07-22",
       "date": "2026-07-22",
       "style": "Sachlich",
