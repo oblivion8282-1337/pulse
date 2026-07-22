@@ -20,7 +20,7 @@
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import { isElectron, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
-  import { gsr } from '../gsr';
+  import { stopSlot } from '../slotControl.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -52,11 +52,9 @@
 
   async function onClick() {
     if (iAmStreaming) {
-      try {
-        await gsr.stop();
-      } catch {
-        /* WS-Broadcast holt den State eh nach */
-      }
+      // Rocket is a toggle → stop directly. `stopSlot` also reconciles the fresh
+      // sidecar that emits no `stopped` after a crash (see slotControl.svelte).
+      await stopSlot(0);
       return;
     }
     uiOverlays.hqStreamDialogOpen = true;
