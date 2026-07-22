@@ -154,7 +154,26 @@ impl StreamController {
 
         let (stop_tx, stop_rx) = channel();
         let argv = build_argv_redacted(&params);
+        // Werte aus `params` lesen, BEVOR es in den Worker wandert.
+        let capture = params.capture.clone();
+        // Codec merken (Fernsteuerung braucht H.264). Der gewählte Codec — der
+        // WHIP-Fallback erzwingt später ggf. H.264, das lehnt hier höchstens
+        // konservativ ab (ein H.264-WHIP-Stream, dessen Wunsch-Codec ≠ H.264 war).
+        let is_h264 = params
+            .override_codec
+            .map(|c| matches!(c, VideoCodec::H264))
+            .unwrap_or_else(|| params.profile.codec == "h264");
 
+        // Worker ZUERST spawnen — der hält den ganzen Pipeline-State, wir behalten
+        // hier nur ein Stop-Signal + JoinHandle. Schlägt der Spawn fehl (`?`),
+        // bleibt KEIN halb-scharfer Zustand zurück (running/ACTIVE_SOURCE/
+        // ACTIVE_IS_H264 gesetzt, aber ohne Worker, der sie je wieder räumt).
+        let worker = thread::Builder::new()
+            .name("stream-pipeline".into())
+            .spawn(move || run_pipeline(params, stop_rx))
+            .context("spawn stream-pipeline thread")?;
+
+        // Erst nach erfolgreichem Spawn scharf schalten.
         inner.snapshot = StreamSnapshot {
             running: true,
             state: "starting",
@@ -164,24 +183,10 @@ impl StreamController {
         };
         inner.stop_tx = Some(stop_tx);
         inner.started_at = Some(Instant::now());
-        // Quelle für den Fernsteuerungs-Injektor hinterlegen (Koordinaten-Mapping).
-        *ACTIVE_SOURCE.lock().unwrap() = Some(params.capture.clone());
-        // Codec merken (Fernsteuerung braucht H.264). Der gewählte Codec — der
-        // WHIP-Fallback erzwingt später ggf. H.264, das lehnt hier höchstens
-        // konservativ ab (ein H.264-WHIP-Stream, dessen Wunsch-Codec ≠ H.264 war).
-        let is_h264 = params
-            .override_codec
-            .map(|c| matches!(c, VideoCodec::H264))
-            .unwrap_or_else(|| params.profile.codec == "h264");
-        ACTIVE_IS_H264.store(is_h264, std::sync::atomic::Ordering::Relaxed);
-
-        // Worker spawnen — der hält den ganzen Pipeline-State, wir behalten
-        // hier nur ein Stop-Signal + JoinHandle.
-        let worker = thread::Builder::new()
-            .name("stream-pipeline".into())
-            .spawn(move || run_pipeline(params, stop_rx))
-            .context("spawn stream-pipeline thread")?;
         inner.worker = Some(worker);
+        // Quelle für den Fernsteuerungs-Injektor hinterlegen (Koordinaten-Mapping).
+        *ACTIVE_SOURCE.lock().unwrap() = Some(capture);
+        ACTIVE_IS_H264.store(is_h264, std::sync::atomic::Ordering::Relaxed);
 
         // state-Event sofort emittieren, ohne den Mutex gehalten zu haben.
         drop(inner);

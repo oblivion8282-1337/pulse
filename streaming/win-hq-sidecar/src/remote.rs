@@ -124,8 +124,12 @@ impl RemoteController {
     /// Baut eine neue Session aus den `remote_start`-Params (ICE/TURN) und
     /// startet den Feed-Task. Fehler, wenn schon eine Session läuft.
     pub fn start_session(&self, params: &Map<String, Value>) -> Result<()> {
-        let mut guard = self.inner.lock().unwrap();
-        if guard.is_some() {
+        // Nur kurz prüfen — den `inner`-Lock NICHT über das async Setup unten
+        // halten: ein webrtc-Callback, der `inner` lockt, während der Dispatch-
+        // Thread in `block_on(RemoteSession::new)` steht, würde sonst deadlocken.
+        // `start_session` läuft allein im Dispatch-Thread, daher ist die
+        // Prüf-dann-Setz-Lücke unkritisch (niemand sonst schreibt `inner`).
+        if self.inner.lock().unwrap().is_some() {
             return Err(anyhow!("remote session already active; stop it first"));
         }
 
@@ -174,7 +178,8 @@ impl RemoteController {
         let feed_session = Arc::clone(&session);
         let feed_task = rt.spawn(feed_loop(feed_session, frame_rx));
 
-        *guard = Some(Active { session, frame_tx, feed_task, injector });
+        // Jetzt (nach dem async Setup) den Lock kurz nehmen und eintragen.
+        *self.inner.lock().unwrap() = Some(Active { session, frame_tx, feed_task, injector });
         // Erst NACH dem vollständigen Setup scharf schalten — vorher greift der
         // Tee nicht (is_active == false), der Encode-Thread bleibt unberührt.
         self.active.store(true, Ordering::Release);

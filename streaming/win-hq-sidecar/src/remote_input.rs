@@ -312,14 +312,26 @@ impl InputInjector {
     fn inject_button(&self, btn: u8, down: bool) -> Result<(), String> {
         let (flag, mouse_data) = button_event(btn, down)
             .ok_or_else(|| format!("unbekannte Maustaste: {btn}"))?;
+        // Senden UND Tracken unter EINEM Lock-Hold, mit Poison-Check darin: sonst
+        // kann `disable()` zwischen dem physischen Druck und dem Track laufen,
+        // die (noch leere) Menge freigeben und die Taste bleibt am Host hängen.
+        let mut state = self.state.lock().unwrap();
+        if state.poisoned {
+            return Ok(());
+        }
         send_mouse(0, 0, mouse_data, flag);
-        track_pressed(&mut self.state.lock().unwrap().buttons, btn, down);
+        track_pressed(&mut state.buttons, btn, down);
         Ok(())
     }
 
     fn inject_key(&self, scan: u16, down: bool) {
+        // Siehe `inject_button`: atomar gegen `disable()`/`release_all()`.
+        let mut state = self.state.lock().unwrap();
+        if state.poisoned {
+            return;
+        }
         send_key(scan, down);
-        track_pressed(&mut self.state.lock().unwrap().keys, scan, down);
+        track_pressed(&mut state.keys, scan, down);
     }
 
     /// Injektor stilllegen (Session-Ende / Verbindungsverlust): weiteren Input
