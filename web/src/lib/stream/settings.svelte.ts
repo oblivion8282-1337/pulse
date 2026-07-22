@@ -52,9 +52,10 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'av1', label: 'AV1' },
 ];
 
-// GSR scales to exactly the chosen size. 'Native' means "don't scale" — the
-// safe default (no upscaling). 4K/1440p are offered for high-res monitors; on a
-// smaller monitor picking them just upscales (more bandwidth, no detail).
+// Eine Stufe ist eine BOX, in die das Bild aspektwahrend eingepasst wird — NIE
+// hochskaliert (`fit_within_box` im Sidecar), 'Native' = gar nicht skalieren.
+// Eine Box größer als die Quelle bewirkt darum nichts; welche Stufen für die
+// gewählte Quelle wirklich verkleinern, filtert `resolution.ts` für die UI.
 export const RESOLUTION_VALUES: ReadonlyArray<string> = [
   'Native',
   '4K',

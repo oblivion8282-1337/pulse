@@ -95,7 +95,7 @@
           <MonitorPicker streamSlot={slot} />
           <Separator />
         {/if}
-        <OverridesEditor />
+        <OverridesEditor streamSlot={slot} />
 
         <Separator />
         <AudioModePicker />
