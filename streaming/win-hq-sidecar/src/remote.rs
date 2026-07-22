@@ -35,6 +35,7 @@ use tokio::sync::mpsc;
 use pulse_remote_webrtc::{IceServer, RemoteSession, SessionConfig};
 
 use crate::events;
+use crate::remote_input::InputInjector;
 
 /// Tiefe der Frame-Queue zwischen Encode-Thread und Feed-Task. Klein gehalten:
 /// bei einem Feed-Stall ist Aktualität wichtiger als Vollständigkeit — ältere
@@ -56,6 +57,9 @@ struct Active {
     frame_tx: mpsc::Sender<RemoteFrame>,
     /// Der Task, der die Queue leert und `feed_frame` aufruft.
     feed_task: tokio::task::JoinHandle<()>,
+    /// Input-Injektor — eine Referenz lebt zusätzlich im `on_input`-Callback.
+    /// Beim Stop rufen wir `release_all()` (keine hängenden Tasten/Klicks).
+    injector: Arc<InputInjector>,
 }
 
 pub struct RemoteController {
@@ -127,12 +131,16 @@ impl RemoteController {
 
         let ice_servers = parse_ice_servers(params);
         let (frame_tx, frame_rx) = mpsc::channel::<RemoteFrame>(FRAME_QUEUE_CAPACITY);
+        // Injektor an die Quelle des laufenden Streams binden (Koordinaten-Mapping).
+        // Eine Referenz geht in den `on_input`-Callback (webrtc-Task), eine bleibt
+        // in `Active` für das Release-all beim Stop.
+        let injector = Arc::new(InputInjector::for_active_stream());
         let config = SessionConfig {
             ice_servers,
-            // M2c: hier SendInput-Injektion. In M2b nur loggen (kein GUI-Effekt).
-            on_input: Arc::new(|data: Bytes| {
-                eprintln!("[remote] input {} bytes (M2c: hier SendInput)", data.len());
-            }),
+            on_input: {
+                let inj = Arc::clone(&injector);
+                Arc::new(move |data: Bytes| inj.handle(&data))
+            },
             // Lokaler ICE-Kandidat → als Event raus, das Signaling relayt ihn.
             on_local_ice: Arc::new(|json_candidate: String| {
                 events::emit(json!({
@@ -162,7 +170,7 @@ impl RemoteController {
         let feed_session = Arc::clone(&session);
         let feed_task = rt.spawn(feed_loop(feed_session, frame_rx));
 
-        *guard = Some(Active { session, frame_tx, feed_task });
+        *guard = Some(Active { session, frame_tx, feed_task, injector });
         // Erst NACH dem vollständigen Setup scharf schalten — vorher greift der
         // Tee nicht (is_active == false), der Encode-Thread bleibt unberührt.
         self.active.store(true, Ordering::Release);
@@ -208,6 +216,9 @@ impl RemoteController {
         self.active.store(false, Ordering::Release);
         let active = self.inner.lock().unwrap().take();
         if let Some(active) = active {
+            // Alles Gedrückte freigeben, BEVOR die Session verschwindet — sonst
+            // bliebe nach dem Ende eine Taste/Maustaste im Host „hängen".
+            active.injector.release_all();
             // frame_tx droppen → Feed-Loop sieht `None` und endet.
             drop(active.frame_tx);
             let _ = self.runtime().block_on(active.session.close());

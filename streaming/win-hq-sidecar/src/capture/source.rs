@@ -6,10 +6,13 @@
 
 use anyhow::{Context, Result, anyhow};
 use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, IsIconic, WINDOWPLACEMENT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowPlacement, GetWindowRect, IsIconic, WINDOWPLACEMENT,
+};
 use windows_capture::monitor::Monitor;
 use windows_capture::window::Window;
 
@@ -63,6 +66,74 @@ impl ResolvedTarget {
     pub fn is_window(&self) -> bool {
         matches!(self, ResolvedTarget::Window(_))
     }
+
+    /// Stabiler Handle zum Auflösen des Quell-Rects zur Injektionszeit
+    /// (Fernsteuerung). Das aufgelöste `ResolvedTarget` hält bei Monitor-Capture
+    /// keinen HMONITOR und bei Fenster-Capture einen nicht-`Send` `Window`, ist
+    /// also nicht über Thread-Grenzen weiterreichbar — der Injektor braucht aber
+    /// nur die reinen Handle-Bits (HMONITOR/HWND), aus denen er das aktuelle
+    /// Rechteck jedes Mal frisch liest (Fenster bewegen sich).
+    pub fn inject_target(&self) -> InjectTarget {
+        match self {
+            ResolvedTarget::Monitor { monitor, .. } => {
+                InjectTarget::Monitor(monitor.as_raw_hmonitor() as isize)
+            }
+            ResolvedTarget::Window(window) => InjectTarget::Window(window.as_raw_hwnd() as isize),
+        }
+    }
+}
+
+/// Stabiler Verweis auf die Capture-Quelle für die Input-Injektion — nur die
+/// Handle-Bits, `Send`+`Copy`, von jedem Thread nutzbar. Das Rechteck wird
+/// **live** gelesen (`screen_rect`), nicht beim Session-Start eingefroren.
+#[derive(Debug, Clone, Copy)]
+pub enum InjectTarget {
+    /// HMONITOR-Bits — Rechteck via `GetMonitorInfoW`.
+    Monitor(isize),
+    /// HWND-Bits — Rechteck via `DwmGetWindowAttribute(EXTENDED_FRAME_BOUNDS)`.
+    Window(isize),
+}
+
+impl InjectTarget {
+    /// Aktuelles Quell-Rechteck in physischen Screen-Koordinaten, oder `None`,
+    /// wenn der Handle nicht mehr auflösbar ist (Monitor abgesteckt / Fenster
+    /// zu). Der Aufrufer verwirft dann die absolute Bewegung (nichts zu mappen).
+    pub fn screen_rect(&self) -> Option<RECT> {
+        match *self {
+            InjectTarget::Monitor(hmon) => {
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                let ok = unsafe {
+                    GetMonitorInfoW(HMONITOR(hmon as *mut std::ffi::c_void), &mut info)
+                };
+                ok.as_bool().then_some(info.rcMonitor)
+            }
+            InjectTarget::Window(hwnd) => {
+                let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+                // DWM-Frame-Bounds, NICHT GetWindowRect: WGC captured exakt die
+                // DWM-komponierte Fläche; `GetWindowRect` liefert bei modernen
+                // Fenstern das um den unsichtbaren Resize-Rand größere Rechteck
+                // → systematischer Klick-Versatz von ~7 px. Fällt auf
+                // `GetWindowRect` zurück, falls DWM den Wert verweigert.
+                let mut rect = RECT::default();
+                let dwm = unsafe {
+                    DwmGetWindowAttribute(
+                        hwnd,
+                        DWMWA_EXTENDED_FRAME_BOUNDS,
+                        &mut rect as *mut RECT as *mut std::ffi::c_void,
+                        std::mem::size_of::<RECT>() as u32,
+                    )
+                };
+                if dwm.is_ok() {
+                    return Some(rect);
+                }
+                let mut rect = RECT::default();
+                unsafe { GetWindowRect(hwnd, &mut rect) }.ok().map(|_| rect)
+            }
+        }
+    }
 }
 
 /// Sichtbarkeits-Zustand der Quelle, pro Frame vom `MaskGate` ausgewertet.
@@ -111,6 +182,13 @@ impl SourceGuard {
         } else {
             MaskVerdict::Show
         }
+    }
+
+    /// Ist die bewachte Quelle gerade sichtbar (nicht minimiert/geschlossen)?
+    /// Der Input-Injektor verwirft absolute Bewegungen, solange sie es nicht ist
+    /// — der Controller sieht dann Schwarzbild und darf nicht blind klicken.
+    pub fn is_source_visible(&self) -> bool {
+        matches!(self.probe(), MaskVerdict::Show)
     }
 }
 

@@ -19,6 +19,17 @@ use std::thread;
 use pulse_win_hq_sidecar::{dispatch, events};
 
 fn main() -> anyhow::Result<()> {
+    // Per-Monitor-DPI-Awareness als ERSTES setzen (vor jeder Fenster-/Monitor-
+    // Abfrage). Zwei Gründe: (1) die Input-Injektion der Fernsteuerung trifft nur
+    // dann bei gemischter Skalierung präzise (sonst virtualisiert Windows die
+    // Koordinaten-APIs → systematischer Klick-Versatz, M0-Erkenntnis); (2) die
+    // Capture-/FSE-Logik in `capture/source.rs` rechnet ohnehin in physischen
+    // Pixeln — DPI-aware macht diese Rechtecke konsistent physisch. Fehlschlag
+    // ist nicht fatal (ältere Windows / bereits gesetzt): loggen und weiter.
+    if let Err(e) = pulse_win_hq_sidecar::remote_input::set_dpi_awareness() {
+        eprintln!("[hq-sidecar] Per-Monitor-DPI-Awareness nicht gesetzt: {e}");
+    }
+
     // Diagnose-Schalter: `PULSE_HQ_FFMPEG_DEBUG=1` hebt das FFmpeg-Log-Level auf
     // Debug — nötig um hinter „Writing encrypted data to socket failed" den
     // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)

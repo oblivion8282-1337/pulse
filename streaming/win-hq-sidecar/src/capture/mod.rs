@@ -18,7 +18,7 @@ pub mod wgc;
 pub mod wgc_d3d12;
 pub mod wgc_hw;
 
-pub use source::CaptureSource;
+pub use source::{CaptureSource, InjectTarget, SourceGuard};
 pub use wgc_d3d12::{D3d12CaptureItem, WgcD3d12Capture};
 pub use wgc_hw::{HwCaptureItem, WgcHwCapture};
 

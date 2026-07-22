@@ -32,7 +32,7 @@ NAT/TURN) — Details: `docs/2026-07-21-remote-control-latenz-messung.md`.
 | M2a | webrtc-Kern `streaming/pulse-remote-webrtc` | ✅ headless verifiziert (Chromium-Interop) + baut auf Windows |
 | M2b | Sidecar-Tee + `RemoteController` (`win-hq-sidecar`) | ✅ kompiliert auf Windows, Tests grün — Verhaltens-Test offen |
 | Fix | Keyframe auf RTCP-PLI/FIR (Startverzögerung) | lib ✅ / Sidecar ✅ kompiliert — Wirkung am Stream offen |
-| M2c | Input-Wire-Protokoll v1 | ✅ spezifiziert (User-entschieden) — Implementierung offen |
+| M2c | Input-Wire-Protokoll v1 | ✅ spezifiziert + implementiert (`src/remote_input.rs`, 15 Unit-Tests) — Verhaltens-Test am Stream offen |
 
 ## Aufgaben auf Windows (Reihenfolge)
 
@@ -95,11 +95,16 @@ Wenn es baut: HQ-Stream starten, mit einem Controller (Browser) verbinden.
 
 ## Danach (noch nicht gebaut)
 
-- **M2c** — Input-Injektion: den `on_input`-Callback in `src/remote.rs`
-  (aktuell nur `eprintln`) an `SendInput` hängen (M0-Code als Vorlage). Braucht
-  ZUERST einen **Input-Wire-Protokoll-Entwurf** (was der Controller über den
-  DataChannel schickt: Maus absolut/delta, Klick, Scroll, Key-Scancodes; JSON
-  oder binär; reliable/unreliable). Mit dem User abstimmen wie M1.
+- **M2c** — Input-Injektion: ✅ **erledigt** (Windows-Session 2026-07-22).
+  `src/remote_input.rs` = Parser (`InputFrame::parse`, rein) + `SendInput`-
+  Injektor (`InputInjector`); im `on_input`-Callback in `src/remote.rs` verdrahtet
+  (kein `eprintln` mehr), `release_all()` bei jedem Session-Stop. Quelle fürs
+  Koordinaten-Mapping kommt aus `stream_controller::active_capture_source()`
+  (bei `start` gesetzt), Fenster-Rect via `DWMWA_EXTENDED_FRAME_BOUNDS`. DPI-
+  Awareness wird in `main.rs` gesetzt. 15 Unit-Tests (Parser + Mapping). Wire-
+  Spec: `docs/plans/2026-07-22-remote-control-input-wire-protokoll.md`. **Was
+  NICHT ohne echten Stream/Controller getestet ist:** ob die injizierten Events
+  im Ziel korrekt landen — das ist Teil von Aufgabe 3.
 - **M2d** (zurückgestellt) — Modus B: steuern ohne aktiven Stream (Encoder/Mux
   entkoppeln, on-demand-Capture). Größter Umbau.
 - **M3** — Frontend (Linux-verifizierbar): Client-`remote:*`-Ops, Controller-

@@ -90,6 +90,18 @@ pub struct StartParams {
     pub av_offset_ms: i32,
 }
 
+/// Die Capture-Quelle des gerade laufenden Streams — vom Input-Injektor der
+/// Fernsteuerung gelesen, um absolute Maus-Koordinaten aufs Quell-Rechteck zu
+/// mappen. Gesetzt bei `start`, geleert wenn der Worker endet. `None` = kein
+/// aktiver Stream → der Injektor kann nicht mappen und verwirft absolute
+/// Bewegungen (relative/Klicks/Tasten laufen weiter).
+static ACTIVE_SOURCE: Mutex<Option<CaptureSource>> = Mutex::new(None);
+
+/// Capture-Quelle des laufenden Streams (Klon), oder `None`.
+pub fn active_capture_source() -> Option<CaptureSource> {
+    ACTIVE_SOURCE.lock().unwrap().clone()
+}
+
 pub struct StreamController {
     inner: Mutex<Inner>,
 }
@@ -141,6 +153,8 @@ impl StreamController {
         };
         inner.stop_tx = Some(stop_tx);
         inner.started_at = Some(Instant::now());
+        // Quelle für den Fernsteuerungs-Injektor hinterlegen (Koordinaten-Mapping).
+        *ACTIVE_SOURCE.lock().unwrap() = Some(params.capture.clone());
 
         // Worker spawnen — der hält den ganzen Pipeline-State, wir behalten
         // hier nur ein Stop-Signal + JoinHandle.
@@ -192,6 +206,9 @@ impl StreamController {
         // Worker hat im Erfolgsfall schon einen `stopped`-Event emittiert;
         // hier ist nur Aufräumen. Nicht "error" überschreiben — worker_finished
         // kann diesen State während des join-Windows setzen.
+        // Quelle abmelden (auch falls der Worker nach Timeout aufgegeben wurde
+        // und `worker_finished` nicht mehr lief) — idempotent.
+        *ACTIVE_SOURCE.lock().unwrap() = None;
         let mut inner = self.inner.lock().unwrap();
         inner.snapshot.running = false;
         if inner.snapshot.state != "error" {
@@ -216,6 +233,8 @@ impl StreamController {
             .as_ref()
             .is_some_and(|m| m.contains(crate::capture::SOURCE_CLOSED_MARKER));
         let error = if source_closed { None } else { error };
+        // Quelle abmelden — ohne laufenden Stream gibt es nichts zu mappen.
+        *ACTIVE_SOURCE.lock().unwrap() = None;
         let mut inner = self.inner.lock().unwrap();
         // Uptime ablesen BEVOR `started_at` auf None gesetzt wird.
         let measured = inner.started_at.take().map(|t| t.elapsed().as_secs_f64());
