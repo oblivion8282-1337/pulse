@@ -23,11 +23,7 @@
 import { remoteSession, type RemoteRole, type RemoteWebrtc } from './session.svelte';
 import type { RemoteSignalKind } from '$lib/ws/gateway-senders';
 import { helloFrame } from './input';
-
-// TURN ist Pflicht (Consumer↔Consumer scheitert direkt, s. Handoff); die
-// regionalen coturn-Server kommen später vom Server (wie das WHEP-Token).
-// Bis dahin nur STUN — reicht für gleiches-Netz-/Server-reflexive-Fälle.
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+import { getIceServers } from './iceConfig';
 
 class RemoteControllerWebrtc implements RemoteWebrtc {
   /** Empfangener Host-Bildschirm — die Viewer-UI hängt ihn an ein `<video>`. */
@@ -37,18 +33,12 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
 
   #pc: RTCPeerConnection | null = null;
   #input: RTCDataChannel | null = null;
-  #iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
-
-  /** ICE-Server setzen (z.B. TURN vom Server), bevor eine Session startet. */
-  setIceServers(servers: RTCIceServer[]): void {
-    this.#iceServers = servers;
-  }
 
   async start(_sessionId: string, role: RemoteRole): Promise<void> {
     if (role !== 'controller') return; // Host-Rolle fährt der Sidecar (Scheibe 6)
     this.stop(); // defensiv gegen eine hängende Vorsession
     try {
-      const pc = new RTCPeerConnection({ iceServers: this.#iceServers });
+      const pc = new RTCPeerConnection({ iceServers: getIceServers() });
       this.#pc = pc;
       // Wir empfangen nur Video (der Host teet den H.264-Bildschirm). Kein Audio.
       pc.addTransceiver('video', { direction: 'recvonly' });

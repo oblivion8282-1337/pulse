@@ -16,9 +16,7 @@
 
 import { remoteSession, type RemoteRole, type RemoteWebrtc } from './session.svelte';
 import type { RemoteSignalKind } from '$lib/ws/gateway-senders';
-
-// TURN kommt später vom Server (wie beim Controller); bis dahin nur STUN.
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+import { getIceServers } from './iceConfig';
 
 /** Das vom Sidecar emittierte Event, das uns interessiert. */
 type SidecarEvent = { ev?: string; kind?: string; data?: string; state?: string };
@@ -37,7 +35,7 @@ class RemoteHostBridge implements RemoteWebrtc {
     }
     // Sidecar-Events abgreifen: Answer/ICE zurück an den Controller, Zustand melden.
     this.#unsub = gsr.onEvent((raw) => this.#onSidecar(raw as SidecarEvent));
-    void gsr.remoteStart({ ice_servers: ICE_SERVERS });
+    void gsr.remoteStart({ ice_servers: getIceServers() });
   }
 
   handleSignal(kind: RemoteSignalKind, data: string): void {
