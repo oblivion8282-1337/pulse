@@ -41,6 +41,7 @@ from dcc_chat_gateway.routes import (
     presence,
     privacy,
     public_community,
+    remote_ice,
     reactions,
     reports,
     role_members,
@@ -96,6 +97,7 @@ router.include_router(watch_chat.router)
 router.include_router(watch.router)
 router.include_router(attachments.router)
 router.include_router(capabilities.router)
+router.include_router(remote_ice.router)
 router.include_router(cert_login.router)
 # Dropbox / Ablage — split across three files to stay under the
 # 350-line soft cap. dropbox.py exposes ``admin_router`` so callers

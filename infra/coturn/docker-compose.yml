@@ -1,0 +1,16 @@
+# coturn TURN-Server für die Pulse-Fernsteuerung (M3).
+#
+# `network_mode: host`: der Relay braucht die ganze UDP-Port-Range (49152-65535)
+# direkt am Host — die einzeln zu mappen ist unpraktikabel (gleiche Überlegung
+# wie bei LiveKit/MediaMTX, s. Haupt-Compose). Läuft eigenständig, nicht im
+# `pulse`-Stack.
+name: pulse-coturn
+
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ['-c', '/etc/coturn/turnserver.conf']

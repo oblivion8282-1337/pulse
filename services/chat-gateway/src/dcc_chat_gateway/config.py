@@ -56,6 +56,17 @@ class Settings(BaseSettings):
 
     snowflake_worker_id_chat: int = Field(default=2, ge=0, le=1023)
 
+    # Fernsteuerung (remote control, M3) — ICE-Server für die P2P-WebRTC.
+    # STUN ist immer dabei; TURN ist netzübergreifend Pflicht. Der Client holt
+    # die Liste über GET /remote/ice-servers und bekommt bei gesetztem
+    # ``turn_secret`` **zeitlich begrenzte** HMAC-Credentials (coturn
+    # ``use-auth-secret`` / TURN-REST-API) — kein Dauer-Passwort im Client.
+    # Leeres ``turn_url``/``turn_secret`` → nur STUN (dev / gleiches LAN).
+    stun_url: str = "stun:stun.l.google.com:19302"
+    turn_url: str = ""  # z.B. "turn:turn.howispulse.com:3478"
+    turn_secret: str = ""  # geteilt mit coturn (static-auth-secret)
+    turn_ttl_s: int = 300
+
     # Guild-icon uploads (owner-only). Resized to 256px webp, served via
     # /api/chat/guild-icons/<guild_id>.webp (cache-buster ?v=… in icon_url).
     guild_icon_upload_dir: str = "./uploads/guild-icons"

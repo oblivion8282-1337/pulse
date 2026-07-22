@@ -16,6 +16,7 @@
 
 import { gateway } from '$lib/ws/connection';
 import type { RemoteSignalKind } from '$lib/ws/gateway-senders';
+import { refreshIceServers } from './iceConfig';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'connecting' | 'active';
 export type RemoteRole = 'controller' | 'host';
@@ -119,7 +120,15 @@ class RemoteSessionStore {
       return;
     }
     this.phase = 'connecting';
-    this.#webrtc?.start(sessionId, this.role);
+    // Frische ICE-Server (inkl. kurzlebiger TURN-Creds) holen, DANN starten —
+    // beide Seiten (Controller + Host-Sidecar) lesen `getIceServers()` beim
+    // Start. Wird die Session währenddessen beendet, nicht mehr starten.
+    const role = this.role;
+    void refreshIceServers().finally(() => {
+      if (this.phase === 'connecting' && this.role === role) {
+        this.#webrtc?.start(sessionId, role);
+      }
+    });
   }
 
   _signal(sessionId: string, kind: RemoteSignalKind, data: string): void {

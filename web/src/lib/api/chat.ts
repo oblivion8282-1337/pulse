@@ -515,6 +515,11 @@ export const chatApi = {
       `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
     );
   },
+  /** ICE-Server (STUN + ggf. TURN mit kurzlebigen Creds) für die Fernsteuerung.
+   *  Kurz vor jeder Session holen — die TURN-Credentials laufen ab (`ttl_s`). */
+  getRemoteIceServers(): Promise<{ ice_servers: RTCIceServer[]; ttl_s: number }> {
+    return request<{ ice_servers: RTCIceServer[]; ttl_s: number }>(`/remote/ice-servers`);
+  },
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State
   // pro Streamer in `streamChat.svelte.ts`).
   /** Post a message into a streamer's live chat. 410 if the stream isn't active. */

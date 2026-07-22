@@ -76,8 +76,14 @@ Electron-Dev gegen lokales Vite, das aufs Test-Backend zeigt:
   direkt, Messung 2026-07-21). Naht ist gelegt: `web/src/lib/remote/iceConfig.ts`
   → `setIceServers([...STUN, {urls:'turn:…', username, credential}])` **vor**
   Session-Start setzen. Beide Seiten (Controller + Host-Sidecar) lesen von dort.
-- **Zielarchitektur** (noch zu bauen): coturn-Server (regional) + ein Backend-
-  Endpoint, der **zeitlich begrenzte HMAC-Creds** ausgibt (coturn `use-auth-secret`,
-  analog zum WHEP-Token-Minting). Der Client holt sie beim Session-Start und ruft
-  `setIceServers`. Offene Infra-Entscheidungen: wo läuft coturn (netcup-Prod-VPS?
-  eigene Box?), Realm/Secret, Ports (3478/5349 + Relay-Range) + UFW.
+- **Gebaut** (2026-07-22): der ganze TURN-Weg außer dem laufenden Server:
+  - Backend-Endpoint `GET /remote/ice-servers` (chat-gateway,
+    `routes/remote_ice.py`) — STUN immer, TURN mit **zeitlich begrenzten
+    HMAC-Creds** bei gesetztem `TURN_URL`/`TURN_SECRET`.
+  - Client holt die Liste beim Session-Start (`iceConfig.refreshIceServers` →
+    `setIceServers`, im Store vor `webrtc.start`).
+  - coturn-Deploy: `infra/coturn/` (`turnserver.conf` + `docker-compose.yml` +
+    `README.md` mit UFW-Ports + `.env`-Verdrahtung).
+  - **Zu tun (Ops):** coturn auf einem VPS hochziehen (`use-auth-secret`, Secret
+    erzeugen), UFW öffnen, `TURN_URL`/`TURN_SECRET` in die chat-gateway-`.env`.
+    Ohne das liefert der Endpoint nur STUN — fürs LAN-Erste reicht das.
