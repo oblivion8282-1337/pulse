@@ -164,16 +164,12 @@ impl StreamController {
             .map(|c| matches!(c, VideoCodec::H264))
             .unwrap_or_else(|| params.profile.codec == "h264");
 
-        // Worker ZUERST spawnen — der hält den ganzen Pipeline-State, wir behalten
-        // hier nur ein Stop-Signal + JoinHandle. Schlägt der Spawn fehl (`?`),
-        // bleibt KEIN halb-scharfer Zustand zurück (running/ACTIVE_SOURCE/
-        // ACTIVE_IS_H264 gesetzt, aber ohne Worker, der sie je wieder räumt).
-        let worker = thread::Builder::new()
-            .name("stream-pipeline".into())
-            .spawn(move || run_pipeline(params, stop_rx))
-            .context("spawn stream-pipeline thread")?;
-
-        // Erst nach erfolgreichem Spawn scharf schalten.
+        // Zustand VOR dem Spawn scharf schalten: ein sofort scheiternder Worker
+        // ruft `worker_finished` auf, das ACTIVE_SOURCE/ACTIVE_IS_H264 räumt —
+        // setzten wir sie ERST danach, überschriebe `start` diesen Reset und
+        // liesse einen stale H.264-Flag ohne laufenden Stream zurück. Schlägt der
+        // Spawn selbst fehl, nehmen wir im Err-Zweig alles zurück (kein
+        // halb-scharfer Zustand, kein „running" ohne Worker).
         inner.snapshot = StreamSnapshot {
             running: true,
             state: "starting",
@@ -183,10 +179,27 @@ impl StreamController {
         };
         inner.stop_tx = Some(stop_tx);
         inner.started_at = Some(Instant::now());
-        inner.worker = Some(worker);
         // Quelle für den Fernsteuerungs-Injektor hinterlegen (Koordinaten-Mapping).
         *ACTIVE_SOURCE.lock().unwrap() = Some(capture);
         ACTIVE_IS_H264.store(is_h264, std::sync::atomic::Ordering::Relaxed);
+
+        let worker = match thread::Builder::new()
+            .name("stream-pipeline".into())
+            .spawn(move || run_pipeline(params, stop_rx))
+        {
+            Ok(w) => w,
+            Err(e) => {
+                // Spawn fehlgeschlagen → den eben scharf geschalteten Zustand
+                // vollständig zurücknehmen.
+                inner.snapshot = StreamSnapshot::idle();
+                inner.stop_tx = None;
+                inner.started_at = None;
+                *ACTIVE_SOURCE.lock().unwrap() = None;
+                ACTIVE_IS_H264.store(false, std::sync::atomic::Ordering::Relaxed);
+                return Err(e).context("spawn stream-pipeline thread");
+            }
+        };
+        inner.worker = Some(worker);
 
         // state-Event sofort emittieren, ohne den Mutex gehalten zu haben.
         drop(inner);
