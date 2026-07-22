@@ -59,3 +59,21 @@ export function sendPluginOp(send: SendRaw, op: string, payload?: Record<string,
   }
   return send({ op, ...(payload ?? {}) } as unknown as ClientEvent);
 }
+
+// ── Fernsteuerung (remote control, M3) ──────────────────────────────────────
+export type RemoteSignalKind = 'offer' | 'answer' | 'ice';
+
+export function sendRemoteRequest(send: SendRaw, channelId: string, hostUserId: string): boolean {
+  return send({ op: 'remote_request', channel_id: channelId, host_user_id: hostUserId });
+}
+export function sendRemoteRespond(send: SendRaw, sessionId: string, accept: boolean): boolean {
+  return send({ op: 'remote_respond', session_id: sessionId, accept });
+}
+export function sendRemoteSignal(
+  send: SendRaw, sessionId: string, kind: RemoteSignalKind, data: string,
+): boolean {
+  return send({ op: 'remote_signal', session_id: sessionId, kind, data });
+}
+export function sendRemoteEnd(send: SendRaw, sessionId: string): boolean {
+  return send({ op: 'remote_end', session_id: sessionId });
+}

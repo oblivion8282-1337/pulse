@@ -343,6 +343,12 @@ export type ServerEvent =
   // Ephemeral "user is typing" signal for a text channel / DM. No persistence;
   // the client tracks a short TTL per (channel, user) and shows "… schreibt".
   | { op: 'typing'; channel_id: string; user_id: string }
+  // Fernsteuerung (remote control) — Signaling-Relay (M1/M3). Der Gateway trägt
+  // nur SDP/ICE + den Consent-Handshake; Video/Input laufen P2P.
+  | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
+  | { op: 'remote_response'; session_id: string; accepted: boolean }
+  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: string }
+  | { op: 'remote_ended'; session_id: string; reason: string }
   | { op: 'error'; code: number; msg: string };
 
 export type ClientEvent =
@@ -374,6 +380,11 @@ export type ClientEvent =
   | { op: 'watch_handoff'; channel_id: string; party_id: string; target_user_id?: string }
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
+  // Fernsteuerung — Outbound-Ops (M3, s. ws_remote_handlers.py).
+  | { op: 'remote_request'; channel_id: string; host_user_id: string }
+  | { op: 'remote_respond'; session_id: string; accept: boolean }
+  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: string }
+  | { op: 'remote_end'; session_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
   // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —

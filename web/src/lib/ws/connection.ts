@@ -80,6 +80,14 @@ export const gateway = {
   sendTyping: (cid: string) => _active().sendTyping(cid),
   sendPluginOp: (op: string, payload?: Record<string, unknown>) =>
     _active().sendPluginOp(op, payload),
+  // Fernsteuerung (remote control, M3)
+  sendRemoteRequest: (cid: string, hostUserId: string) =>
+    _active().sendRemoteRequest(cid, hostUserId),
+  sendRemoteRespond: (sessionId: string, accept: boolean) =>
+    _active().sendRemoteRespond(sessionId, accept),
+  sendRemoteSignal: (sessionId: string, kind: 'offer' | 'answer' | 'ice', data: string) =>
+    _active().sendRemoteSignal(sessionId, kind, data),
+  sendRemoteEnd: (sessionId: string) => _active().sendRemoteEnd(sessionId),
   // State (reaktiv im Sinne von Re-Read pro Zugriff)
   get state() { return _active().state; },
   get helloMeta() { return _active().helloMeta; },

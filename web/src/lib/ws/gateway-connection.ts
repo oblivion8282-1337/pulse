@@ -646,6 +646,17 @@ export class GatewayConnection {
   sendPluginOp = (op: string, payload?: Record<string, unknown>): boolean =>
     senders.sendPluginOp(this._raw, op, payload);
 
+  // Fernsteuerung (remote control, M3) — Signaling-Ops.
+  sendRemoteRequest = (channelId: string, hostUserId: string): boolean =>
+    senders.sendRemoteRequest(this._raw, channelId, hostUserId);
+  sendRemoteRespond = (sessionId: string, accept: boolean): boolean =>
+    senders.sendRemoteRespond(this._raw, sessionId, accept);
+  sendRemoteSignal = (
+    sessionId: string, kind: senders.RemoteSignalKind, data: string,
+  ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
+  sendRemoteEnd = (sessionId: string): boolean =>
+    senders.sendRemoteEnd(this._raw, sessionId);
+
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);
 
   private _sendRaw(evt: ClientEvent): boolean {
