@@ -76,6 +76,17 @@
       : '',
   );
   let selectedApp = $derived(appFromAudioMode(streamSettings.audio_mode) || streamSettings.audio_app);
+  // Auswahl-Knöpfe = laufende Audio-Sitzungen PLUS die aktuell gewählte App,
+  // falls die gerade keine hat. Nötig seit die Fenster-Auswahl den Ton
+  // automatisch mitsetzt: `list_application_audio` zählt nur Anwendungen mit
+  // aktiver Audio-Sitzung auf, ein gerade stilles Spiel steht also nicht drin —
+  // ohne diese Ergänzung wäre kein Knopf hervorgehoben und die Vorauswahl
+  // unsichtbar, obwohl sie gesetzt ist (und beim Start auch greift).
+  let appPills = $derived(
+    selectedApp && !streamSettings.available_audio_apps.includes(selectedApp)
+      ? [selectedApp, ...streamSettings.available_audio_apps]
+      : streamSettings.available_audio_apps,
+  );
   let availableForAdd = $derived(
     streamSettings.available_audio_apps.filter(
       (a) => !streamSettings.excluded_apps.includes(a) && a !== PULSE_SELF_NODE_NAME,
@@ -206,13 +217,13 @@
           Refresh
         </Button>
       </div>
-      {#if streamSettings.available_audio_apps.length === 0}
+      {#if appPills.length === 0}
         <p class="text-text-muted text-xs italic">
           {m.audio_mode_picker_no_running_apps()}
         </p>
       {:else}
         <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-app-pills">
-          {#each streamSettings.available_audio_apps as app (app)}
+          {#each appPills as app (app)}
             <Button
               type="button"
               size="xs"

@@ -381,6 +381,48 @@ export function setCaptureSourceForSlot(slot: number, value: string): void {
 }
 
 /**
+ * Ton passend zur gewählten Quelle vorauswählen: Bildschirm → Systemton,
+ * Fenster → Ton genau dieser Anwendung.
+ *
+ * Bewusst eine feste Kopplung ohne Ausnahmen — wer ein Fenster teilt, meint
+ * fast immer dessen Ton, und die Auswahl steht sichtbar im Dialog, bevor der
+ * Stream startet. Wer etwas anderes will (oder gar keinen Ton), stellt es
+ * danach um; das überlebt, weil hier NUR beim aktiven Klick auf eine Quelle
+ * aufgerufen wird — nicht aus `resolveSlotCaptureSource`, das beim Öffnen des
+ * Dialogs läuft und sonst jedes Mal die gespeicherte Ton-Wahl überschriebe.
+ *
+ * Der Prozessname passt ohne Übersetzung: `list_windows` liefert `app`
+ * ("chrome.exe"), die Audio-Seite erwartet `App: chrome.exe`. Dass die App
+ * gerade still ist, stört nicht — der Sidecar löst den Namen beim Start über
+ * alle laufenden Prozesse auf, nicht nur über aktive Audio-Sitzungen.
+ * Ohne ermittelbaren Prozessnamen bleibt der Ton unangetastet.
+ *
+ * **Zweiter Stream-Slot → Ton aus.** Zwei gleichzeitige Streams würden sonst
+ * denselben Ton doppelt übertragen; der Zuschauer, der beide Kacheln offen
+ * hat, hört alles zweimal. Der Ton ist eine EINZIGE, geteilte Einstellung für
+ * beide Slots (s. `buildStartArgs`) — „aus" gilt hier also global, nicht nur
+ * für Slot 1. In der Praxis passt das, weil der erste Stream typischerweise
+ * schon läuft (ein laufender Stream übernimmt spätere Änderungen nicht mehr).
+ * Wer den Ton doch am zweiten Stream will, stellt ihn danach wieder ein.
+ */
+export function applyAudioForCaptureSource(value: string, slot = 0): void {
+  if (slot !== 0) {
+    streamSettings.audio_mode = 'Aus';
+    return;
+  }
+  if (value.startsWith(MONITOR_CAPTURE_PREFIX)) {
+    streamSettings.audio_mode = 'Desktop';
+    return;
+  }
+  if (!value.startsWith(WINDOW_CAPTURE_PREFIX)) return;
+  const id = Number(value.slice(WINDOW_CAPTURE_PREFIX.length));
+  const app = streamSettings.available_windows.find((w) => w.id === id)?.app?.trim();
+  if (!app) return;
+  streamSettings.audio_app = app;
+  streamSettings.audio_mode = APP_AUDIO_PREFIX + app;
+}
+
+/**
  * Windows + macOS: resolve one slot's capture source to a concrete target from
  * the enumerated sources. A persisted choice wins if it still matches a live
  * window (`window:<id>`) or monitor (`Monitor: <n>`); otherwise default to

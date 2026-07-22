@@ -31,6 +31,7 @@
     refreshWindows,
     captureSourceForSlot,
     setCaptureSourceForSlot,
+    applyAudioForCaptureSource,
     MONITOR_CAPTURE_PREFIX,
     WINDOW_CAPTURE_PREFIX,
   } from '../settings.svelte';
@@ -50,6 +51,10 @@
 
   function pick(value: string) {
     setCaptureSourceForSlot(slot, value);
+    // Ton an die Quelle koppeln (Bildschirm → System, Fenster → dessen App;
+    // zweiter Slot → aus). Nur hier, beim bewussten Klick auf eine Quelle —
+    // Begründung in `applyAudioForCaptureSource`.
+    applyAudioForCaptureSource(value, slot);
     persistSettings();
   }
 
@@ -66,10 +71,17 @@
 <div class="flex flex-col gap-2" data-testid="stream-monitor-picker">
   <div class="flex items-center justify-between">
     <Label>{m.monitor_picker_label()}</Label>
+    <!-- `translate-y-0.5` (2 px): optische Korrektur, kein Layout-Fix.
+         „Refresh" ist 12 px, „Quelle" 14 px — mittig ausgerichtet sitzen die
+         Kästen exakt gleich, die Schriftlinie der kleineren Schrift aber
+         höher. Der Versatz gleicht das aus (am Bildschirm nachjustiert).
+         Nicht über `items-baseline` gelöst: das schöbe „Quelle" nach unten
+         und bräche die Linie zu „Video" in der rechten Spalte. -->
     <Button
       type="button"
       size="xs"
       variant="ghost"
+      class="translate-y-0.5"
       onclick={onRefresh}
       disabled={refreshing}
       aria-label={m.monitor_picker_refresh_aria()}
@@ -126,7 +138,12 @@
           <span class="text-text-muted text-2xs font-semibold tracking-wide uppercase">
             {m.monitor_picker_group_windows()}
           </span>
-          <div class="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
+          <!-- Höhe großzügiger als früher (11rem): der Deckel erzwang bei einer
+               üblichen Fensterzahl einen Scrollbalken INNERHALB des ohnehin
+               scrollenden Dialogs — verschachteltes Scrollen, an dem das
+               Mausrad regelmäßig hängenblieb. Seit die Quellenauswahl in einer
+               eigenen Spalte steht, ist die Höhe da. -->
+          <div class="grid max-h-[22rem] grid-cols-2 gap-2 overflow-y-auto pr-1">
             {#each streamSettings.available_windows as w (w.id)}
               {@const value = `${WINDOW_CAPTURE_PREFIX}${w.id}`}
               {@const selected = captureSource === value}
