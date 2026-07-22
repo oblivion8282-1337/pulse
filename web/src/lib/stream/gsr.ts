@@ -78,6 +78,11 @@ export interface GsrWindow {
   id: number;
   title: string;
   app: string;
+  /** Human-readable application name from the executable's version resource
+   *  (Windows `FileDescription` — what Task Manager shows). Absent when the
+   *  binary has no version block (common for games) or on other platforms;
+   *  `windowName.ts` falls back to a prettified `app`. */
+  app_display?: string;
   width: number;
   height: number;
 }

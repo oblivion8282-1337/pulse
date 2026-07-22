@@ -34,6 +34,7 @@
     MONITOR_CAPTURE_PREFIX,
     WINDOW_CAPTURE_PREFIX,
   } from '../settings.svelte';
+  import { windowDisplayName, windowSubtitle, ambiguousNames } from '../windowName';
 
   // Which stream slot this picker selects the source for (0 = primary stream,
   // 1 = the second stream / second monitor). `slot` is a reserved Svelte
@@ -42,6 +43,10 @@
 
   let refreshing = $state(false);
   let captureSource = $derived(captureSourceForSlot(slot));
+  // Anzeigenamen, die mehrfach vorkommen (drei Terminal-Fenster o.ä.) — für
+  // die zeigt die Kachel den Titel statt der Auflösung, sonst wären sie
+  // ununterscheidbar.
+  let ambiguous = $derived(ambiguousNames(streamSettings.available_windows));
 
   function pick(value: string) {
     setCaptureSourceForSlot(slot, value);
@@ -125,13 +130,15 @@
             {#each streamSettings.available_windows as w (w.id)}
               {@const value = `${WINDOW_CAPTURE_PREFIX}${w.id}`}
               {@const selected = captureSource === value}
+              {@const name = windowDisplayName(w)}
+              {@const subtitle = windowSubtitle(w, ambiguous.has(name))}
               <button
                 type="button"
                 role="radio"
                 aria-checked={selected}
                 onclick={() => pick(value)}
                 data-testid="stream-window-tile"
-                title={w.title ? `${w.app} — ${w.title}` : w.app}
+                title={w.title ? `${name} — ${w.title}` : name}
                 class="flex min-w-0 items-start gap-2 rounded-md border p-2.5 text-left transition-colors
                   {selected
                   ? 'border-primary bg-primary/10 text-text-bright'
@@ -139,9 +146,9 @@
               >
                 <AppWindowIcon class="mt-0.5 size-4 shrink-0 {selected ? 'text-primary' : 'text-text-muted'}" />
                 <span class="flex min-w-0 flex-col">
-                  <span class="truncate text-xs font-medium">{w.app}</span>
-                  {#if w.title}
-                    <span class="text-text-muted truncate text-2xs">{w.title}</span>
+                  <span class="truncate text-xs font-medium">{name}</span>
+                  {#if subtitle}
+                    <span class="text-text-muted truncate text-2xs">{subtitle}</span>
                   {/if}
                 </span>
               </button>
