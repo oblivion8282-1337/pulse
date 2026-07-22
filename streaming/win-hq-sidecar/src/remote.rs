@@ -150,6 +150,10 @@ impl RemoteController {
                 }));
             }),
             on_state: Arc::new(|state: String| {
+                // Backstop: bei terminalem WebRTC-Zustand Input freigeben + Tee
+                // stilllegen, falls der Renderer kein `remote_stop` mehr schickt
+                // (Browser-Crash). Der volle Teardown folgt über remote_stop/Exit.
+                RemoteController::singleton().note_connection_state(&state);
                 events::emit(json!({"ev": "remote_state", "state": state}));
             }),
             // PLI/FIR vom Controller → Keyframe-Flag setzen; der Encode-Thread
@@ -214,17 +218,49 @@ impl RemoteController {
     /// endet), PeerConnection schließen, Task abbrechen. Idempotent.
     pub fn stop_session(&self) -> Result<()> {
         self.active.store(false, Ordering::Release);
+        self.force_keyframe.store(false, Ordering::Relaxed); // kein Leak in die nächste Session
         let active = self.inner.lock().unwrap().take();
         if let Some(active) = active {
-            // Alles Gedrückte freigeben, BEVOR die Session verschwindet — sonst
-            // bliebe nach dem Ende eine Taste/Maustaste im Host „hängen".
-            active.injector.release_all();
+            // Injektor stilllegen (poison ZUERST, dann Freigabe) BEVOR die Session
+            // verschwindet — sonst re-injiziert eine späte Key-Down-Nachricht nach
+            // dem Freigeben, oder eine Taste bliebe im Host „hängen".
+            active.injector.disable();
             // frame_tx droppen → Feed-Loop sieht `None` und endet.
             drop(active.frame_tx);
             let _ = self.runtime().block_on(active.session.close());
             active.feed_task.abort();
         }
         Ok(())
+    }
+
+    /// Nur Input freigeben + Tee stilllegen — OHNE `close()`/`block_on`, also aus
+    /// JEDEM Kontext sicher (webrtc-rs-Task, Exit-Pfad). Der volle Teardown ist
+    /// `stop_session`; dies ist der Backstop, der garantiert keine Taste hängen
+    /// lässt, auch wenn `stop_session` nicht mehr läuft.
+    fn release_input_now(&self) {
+        self.force_keyframe.store(false, Ordering::Relaxed);
+        if let Ok(guard) = self.inner.lock() {
+            if let Some(active) = guard.as_ref() {
+                active.injector.disable();
+            }
+        }
+        self.active.store(false, Ordering::Release);
+    }
+
+    /// Vom `on_state`-Callback. `failed`/`closed` sind terminal → Input sofort
+    /// freigeben (Backstop). `disconnected` ist transient (ICE erholt sich oft) →
+    /// bewusst ignoriert; der Controller-Grace + ein späteres `failed` fangen es.
+    pub fn note_connection_state(&self, state: &str) {
+        if matches!(state, "failed" | "closed") {
+            self.release_input_now();
+        }
+    }
+
+    /// Für Prozess-Exit-Pfade (stdin-EOF / Fehler-Exit): gibt Input frei, ohne auf
+    /// `close()` zu warten. SendInput-Key-Downs sind globaler OS-Zustand und
+    /// überleben den Prozesstod — ohne das bliebe eine Taste nach dem Exit gedrückt.
+    pub fn release_on_exit(&self) {
+        self.release_input_now();
     }
 
     /// Schiebt einen encodeten Frame in die Queue. Non-blocking: volle Queue →

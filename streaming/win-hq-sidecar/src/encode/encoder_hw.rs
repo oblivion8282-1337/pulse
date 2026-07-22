@@ -201,8 +201,16 @@ impl FfmpegHwEncoder {
         // (RTCP-PLI/FIR eines frisch beigetretenen Viewers). `take_…` konsumiert
         // das Flag per Swap → genau EIN Aufruf pro Frame. `pict_type = I` auf dem
         // Input-Frame verlangt vom Encoder eine IDR; NVENC honoriert das.
-        if crate::remote::take_keyframe_request() {
-            unsafe { (*frame_ptr).pict_type = AVPictureType::AV_PICTURE_TYPE_I };
+        //
+        // WICHTIG: pro Frame ZUERST auf NONE. Im Native-Pfad wird derselbe
+        // `last_frame` bei statischem Bild wiederholt gesendet — ohne Reset bliebe
+        // `I` kleben und jeder duplizierte Frame würde IDR (Bitraten-Explosion).
+        unsafe {
+            (*frame_ptr).pict_type = if crate::remote::take_keyframe_request() {
+                AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                AVPictureType::AV_PICTURE_TYPE_NONE
+            };
         }
         let t_send = std::time::Instant::now();
         unsafe {

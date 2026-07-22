@@ -54,6 +54,10 @@ fn main() -> anyhow::Result<()> {
                 // in Reihenfolge ab) → Prozess jetzt beenden.
                 if value.is_null() {
                     let _ = out.flush();
+                    // Fehler-Exit-Pfad (request_exit): eine noch aktive Remote-
+                    // Session würde sonst gedrückte Tasten am Host hängen lassen —
+                    // freigeben, bevor der Prozess stirbt (nur Freigabe, kein close).
+                    pulse_win_hq_sidecar::remote::RemoteController::singleton().release_on_exit();
                     std::process::exit(0);
                 }
                 let json = match serde_json::to_string(&value) {
@@ -132,7 +136,9 @@ fn main() -> anyhow::Result<()> {
     drop(out_tx);
     let _ = writer.join();
 
-    // Falls noch ein Stream läuft, stoppen.
+    // Eine noch aktive Remote-Session beenden (gibt gedrückte Tasten frei),
+    // dann den Stream stoppen.
+    let _ = pulse_win_hq_sidecar::remote::RemoteController::singleton().stop_session();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

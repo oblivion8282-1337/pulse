@@ -97,9 +97,20 @@ pub struct StartParams {
 /// Bewegungen (relative/Klicks/Tasten laufen weiter).
 static ACTIVE_SOURCE: Mutex<Option<CaptureSource>> = Mutex::new(None);
 
+/// Ist der laufende Stream H.264? Die Fernsteuerung teet den encodeten Bitstrom
+/// in einen **hart auf H.264 verhandelten** WebRTC-Track — ein HEVC/AV1-Stream
+/// würde beim Controller als kaputtes Bild ankommen. `remote_start` lehnt dann ab.
+/// Gesetzt bei `start` (aus dem gewählten Codec), geleert am Worker-Ende.
+static ACTIVE_IS_H264: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Capture-Quelle des laufenden Streams (Klon), oder `None`.
 pub fn active_capture_source() -> Option<CaptureSource> {
     ACTIVE_SOURCE.lock().unwrap().clone()
+}
+
+/// Läuft gerade ein H.264-Stream (Voraussetzung für die Fernsteuerung)?
+pub fn active_stream_is_h264() -> bool {
+    ACTIVE_IS_H264.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 pub struct StreamController {
@@ -155,6 +166,14 @@ impl StreamController {
         inner.started_at = Some(Instant::now());
         // Quelle für den Fernsteuerungs-Injektor hinterlegen (Koordinaten-Mapping).
         *ACTIVE_SOURCE.lock().unwrap() = Some(params.capture.clone());
+        // Codec merken (Fernsteuerung braucht H.264). Der gewählte Codec — der
+        // WHIP-Fallback erzwingt später ggf. H.264, das lehnt hier höchstens
+        // konservativ ab (ein H.264-WHIP-Stream, dessen Wunsch-Codec ≠ H.264 war).
+        let is_h264 = params
+            .override_codec
+            .map(|c| matches!(c, VideoCodec::H264))
+            .unwrap_or_else(|| params.profile.codec == "h264");
+        ACTIVE_IS_H264.store(is_h264, std::sync::atomic::Ordering::Relaxed);
 
         // Worker spawnen — der hält den ganzen Pipeline-State, wir behalten
         // hier nur ein Stop-Signal + JoinHandle.
@@ -209,6 +228,7 @@ impl StreamController {
         // Quelle abmelden (auch falls der Worker nach Timeout aufgegeben wurde
         // und `worker_finished` nicht mehr lief) — idempotent.
         *ACTIVE_SOURCE.lock().unwrap() = None;
+        ACTIVE_IS_H264.store(false, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
         inner.snapshot.running = false;
         if inner.snapshot.state != "error" {
@@ -235,6 +255,7 @@ impl StreamController {
         let error = if source_closed { None } else { error };
         // Quelle abmelden — ohne laufenden Stream gibt es nichts zu mappen.
         *ACTIVE_SOURCE.lock().unwrap() = None;
+        ACTIVE_IS_H264.store(false, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
         // Uptime ablesen BEVOR `started_at` auf None gesetzt wird.
         let measured = inner.started_at.take().map(|t| t.elapsed().as_secs_f64());

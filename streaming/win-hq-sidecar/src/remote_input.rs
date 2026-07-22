@@ -322,6 +322,17 @@ impl InputInjector {
         track_pressed(&mut self.state.lock().unwrap().keys, scan, down);
     }
 
+    /// Injektor stilllegen (Session-Ende / Verbindungsverlust): weiteren Input
+    /// **ignorieren** und dann alles Gedrückte freigeben. Wie `poison`, aber OHNE
+    /// das `input_error`-Event — ein normales Ende ist kein Protokollfehler.
+    /// Das Poison-Flag wird ZUERST gesetzt, damit eine noch im SCTP-Puffer
+    /// wartende Key-Down-Nachricht nach dem `release_all()` keine Taste
+    /// re-injiziert (Re-Press-Race beim Stop).
+    pub fn disable(&self) {
+        self.state.lock().unwrap().poisoned = true;
+        self.release_all();
+    }
+
     /// Alles Gedrückte freigeben. Bei jedem Session-Ende aufrufen — sonst bleibt
     /// nach einem Disconnect eine Taste/Maustaste im Host „hängen".
     pub fn release_all(&self) {

@@ -275,8 +275,14 @@ impl FfmpegD3d12Encoder {
         // Force-IDR bei Keyframe-Anforderung des Remote-Controllers (RTCP-PLI/FIR
         // eines neuen Viewers). `take_…` konsumiert das Flag per Swap → genau EIN
         // Aufruf pro Frame. `pict_type = I` verlangt vom d3d12va-Encoder eine IDR.
-        if crate::remote::take_keyframe_request() {
-            unsafe { (*frame.frame).pict_type = AVPictureType::AV_PICTURE_TYPE_I };
+        // Pro Frame ZUERST auf NONE zurücksetzen (Defense-in-Depth gegen einen
+        // wiederverwendeten Frame-Puffer — sonst bliebe `I` kleben, All-IDR).
+        unsafe {
+            (*frame.frame).pict_type = if crate::remote::take_keyframe_request() {
+                AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                AVPictureType::AV_PICTURE_TYPE_NONE
+            };
         }
         let t_send = std::time::Instant::now();
         let ret = unsafe { avcodec_send_frame(self.encoder.as_mut_ptr(), frame.frame) };

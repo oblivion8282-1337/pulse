@@ -367,10 +367,17 @@ impl FfmpegEncoder {
         // Aufruf pro Frame. `pict_type = I` auf dem Input-Frame verlangt vom
         // Encoder (AMF/QSV) eine IDR. Kein `ffi::*`-Glob in dieser Datei → voll
         // qualifiziert, wie das benachbarte `ffmpeg::ffi::av_frame_make_writable`.
-        if crate::remote::take_keyframe_request() {
-            unsafe {
-                (*frame.as_mut_ptr()).pict_type = ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_I;
-            }
+        //
+        // WICHTIG: pro Frame ZUERST auf NONE zurücksetzen. `encoder_frame` wird
+        // wiederverwendet — ohne den Reset bliebe `I` nach der ersten PLI kleben
+        // und JEDER Frame würde IDR (Bitraten-Explosion auf dem Hauptstream).
+        unsafe {
+            let pict = if crate::remote::take_keyframe_request() {
+                ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_NONE
+            };
+            (*frame.as_mut_ptr()).pict_type = pict;
         }
 
         let t_send = std::time::Instant::now();

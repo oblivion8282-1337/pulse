@@ -16,6 +16,7 @@
 //! `remote_signal{kind:offer|answer|ice}`-Relay des chat-gateways.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -168,10 +169,18 @@ impl RemoteSession {
         }));
 
         // Input-DataChannel: der Controller eröffnet ihn; jede Nachricht → Callback.
+        // NUR der erste als `input` beschriftete Kanal steuert — ein zweiter
+        // (bösartiger) Kanal darf den Injektor nicht mitbenutzen (Wire-Spec: EIN
+        // Kanal, ein Handschlag). `input_bound` verriegelt das per Swap.
         let input_cb = config.on_input.clone();
+        let input_bound = Arc::new(AtomicBool::new(false));
         pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
             let input_cb = input_cb.clone();
+            let input_bound = input_bound.clone();
             Box::pin(async move {
+                if dc.label() != "input" || input_bound.swap(true, Ordering::Relaxed) {
+                    return;
+                }
                 dc.on_message(Box::new(move |msg: DataChannelMessage| {
                     input_cb(msg.data);
                     Box::pin(async {})
