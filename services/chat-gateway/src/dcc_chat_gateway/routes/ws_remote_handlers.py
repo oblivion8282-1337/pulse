@@ -141,15 +141,16 @@ async def handle_respond(
             {"op": "remote_response", "session_id": session_id, "accepted": False},
         )
         return
-    # The tab that accepted is the authoritative host peer for signal forwarding
-    # (the request fanned out to every tab; this one owns the session now).
-    sess.host_socket = websocket
+    # Activate FIRST (atomic, only the first pending→active transition wins),
+    # THEN claim this socket as the authoritative host peer. Order matters: a
+    # second host tab accepting the same invite — or the session vanishing in
+    # the await window (controller disconnected) — must NOT reassign
+    # `host_socket` away from the tab that already owns the live session.
     if not await mgr.remote_activate(session_id):
-        # The session vanished in the await window above (e.g. the controller
-        # disconnected) — don't tell the host it's live, or it hangs in
-        # 'connecting' waiting for a peer that is gone.
         await _err(websocket, 4053, "no such session")
         return
+    # The request fanned out to every tab; this one owns the session now.
+    sess.host_socket = websocket
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)

@@ -109,9 +109,14 @@ class _RemoteRegistryMixin:
             return sess
 
     async def remote_activate(self, session_id: str) -> bool:
+        """Activate a session — but only the FIRST pending→active transition wins.
+        Returns ``False`` if the session vanished OR is already active, so a
+        second host tab accepting the same invite can't hijack an established
+        session (its ``host_socket``/signalling path stays with the tab that
+        accepted first)."""
         async with self._lock:
             sess = self._remote_sessions.get(session_id)
-            if sess is None:
+            if sess is None or sess.state != "pending":
                 return False
             sess.state = "active"
             return True

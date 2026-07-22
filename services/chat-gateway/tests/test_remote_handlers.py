@@ -261,6 +261,42 @@ async def test_other_host_tabs_told_to_dismiss(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_second_tab_accept_does_not_hijack_active_session(ws_app, _auth_signer):
+    """Two host tabs both accept the same invite: the first wins, and a second
+    (racing) accept on the now-active session is rejected 4053 WITHOUT stealing
+    host_socket — the first tab's signalling to the controller must survive."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_a, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_b:
+                for ws in (ctrl_ws, host_a, host_b):
+                    skip_init_frames(ws)
+                ctrl_ws.send_json(
+                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                )
+                sid = _drain_for(host_a, "remote_request")["session_id"]
+                _drain_for(host_b, "remote_request")
+                # host_a accepts first → session active, host_a is the host peer.
+                host_a.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                assert _drain_for(host_a, "remote_response")["accepted"] is True
+                _drain_for(ctrl_ws, "remote_response")
+                # host_b races an accept on the now-active session → 4053, no hijack.
+                host_b.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                assert _drain_for(host_b, "error")["code"] == 4053
+                # host_a's signalling still reaches the controller (host_socket intact).
+                host_a.send_json(
+                    {"op": "remote_signal", "session_id": sid, "kind": "answer", "data": {"sdp": "v=0"}}
+                )
+                sig = _drain_for(ctrl_ws, "remote_signal")
+                assert sig["kind"] == "answer" and sig["data"] == {"sdp": "v=0"}
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_pending_disconnect_dismisses_all_host_tabs(ws_app, _auth_signer):
     """Controller drops while the request is still pending → EVERY host tab is
     told to dismiss its consent dialog, not just the representative socket that
