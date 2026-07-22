@@ -26,7 +26,7 @@ use windows_capture::settings::{
     ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
 };
 
-use super::source::{CaptureSource, ResolvedTarget};
+use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 use super::wgc::CaptureConfig;
 use crate::encode::{HwContext, OwnedHwFrame};
 
@@ -141,6 +141,14 @@ struct HwFrameSink {
     /// letzten passenden Frame. Karenz gegen kurze Resize-Serien — s.
     /// `RESIZE_RESTART_THRESHOLD` in `wgc_d3d12.rs` (gleiche Bauart).
     resize_mismatches: u32,
+    /// Privacy-Mask beim Fenster→Monitor-Fallback (s. `source::SourceGuard`).
+    mask: MaskGate,
+    /// Schwarze Ersatz-Quelltextur; lazy beim ersten Frame gebaut, nur wenn
+    /// ein Guard existiert (`super::black_bgra_texture`).
+    black: Option<ID3D11Texture2D>,
+    /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
+    /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
+    is_window: bool,
 }
 
 /// Aufeinanderfolgende Größen-Mismatches, bevor der Pool als endgültig
@@ -153,6 +161,8 @@ struct HwHandlerFlags {
     stop_rx: Receiver<()>,
     pool_size: u32,
     dropped: Arc<AtomicU64>,
+    guard: Option<SourceGuard>,
+    is_window: bool,
 }
 
 impl GraphicsCaptureApiHandler for HwFrameSink {
@@ -168,6 +178,9 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             dropped: ctx.flags.dropped,
             expected_dims: (0, 0),
             resize_mismatches: 0,
+            mask: MaskGate::new(ctx.flags.guard),
+            black: None,
+            is_window: ctx.flags.is_window,
         })
     }
 
@@ -182,6 +195,14 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         }
         // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
         let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
+
+        // Privacy-Mask (Fenster→Monitor-Fallback): Quell-Fenster nicht auf dem
+        // Schirm → schwarze Ersatztextur statt der WGC-Frame kopieren. Gilt
+        // auch für den allerersten Frame — beim Start aus Pulse heraus ist das
+        // Spiel gerade IMMER minimiert. `?` = Fenster geschlossen (Spiel
+        // beendet) → Worker endet mit Marker, `worker_finished` macht daraus
+        // einen sauberen Stop.
+        let masked = self.mask.frame_masked()?;
 
         // Erste Frame: HwContext bauen + Setup + erster Pool-Frame.
         if self.hw.is_none() {
@@ -199,9 +220,12 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             )
             .context("HwContext::new")?;
             let hw = Arc::new(hw);
+            if self.mask.has_guard() {
+                self.black = Some(super::black_bgra_texture(frame.device(), width, height)?);
+            }
             let mut pool_frame = hw.acquire_frame().context("acquire first pool frame")?;
             pool_frame.set_pts(0);
-            copy_into_pool(&hw, frame.as_raw_texture(), &pool_frame)?;
+            copy_into_pool(&hw, self.source_texture(frame, masked), &pool_frame)?;
             let setup =
                 HwCaptureItem::Setup { width, height, hw: hw.clone(), first: pool_frame, first_qpc: qpc };
             self.hw = Some(hw);
@@ -257,7 +281,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
                 return Ok(());
             }
         };
-        copy_into_pool(hw, frame.as_raw_texture(), &pool_frame)?;
+        copy_into_pool(hw, self.source_texture(frame, masked), &pool_frame)?;
         match self.tx.try_send(HwCaptureItem::Frame { frame: pool_frame, qpc }) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
@@ -272,7 +296,26 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
+        // Fenster-Target zerstört (App beendet) → sauberer Stop via Marker;
+        // Begründung s. `wgc.rs::on_closed`.
+        if self.is_window {
+            return Err(super::source_closed_err());
+        }
         Ok(())
+    }
+}
+
+impl HwFrameSink {
+    /// Quelltextur dieses Frames: bei aktiver Privacy-Mask die schwarze
+    /// Ersatztextur, sonst die WGC-Frame-Textur. `masked` kann nur `true`
+    /// sein, wenn ein Guard existiert — dann hat der erste Frame `black`
+    /// gebaut.
+    fn source_texture<'a>(&'a self, frame: &'a Frame, masked: bool) -> &'a ID3D11Texture2D {
+        if masked {
+            self.black.as_ref().unwrap()
+        } else {
+            frame.as_raw_texture()
+        }
     }
 }
 
@@ -314,10 +357,17 @@ fn run_capture(
     let cursor = super::cursor_settings(cfg.include_cursor);
     let border = super::border_settings(cfg.draw_border);
     let min_interval = super::min_interval_settings(cfg.max_fps);
-    let flags = HwHandlerFlags { tx, stop_rx, pool_size, dropped };
+    let flags = HwHandlerFlags {
+        tx,
+        stop_rx,
+        pool_size,
+        dropped,
+        guard: target.guard(),
+        is_window: target.is_window(),
+    };
 
     match target {
-        ResolvedTarget::Monitor(monitor) => {
+        ResolvedTarget::Monitor { monitor, .. } => {
             let settings = Settings::new(
                 monitor,
                 cursor,

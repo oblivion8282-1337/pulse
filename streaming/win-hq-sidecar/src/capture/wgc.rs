@@ -23,7 +23,7 @@ use windows_capture::settings::{
     ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
 };
 
-use super::source::{CaptureSource, ResolvedTarget};
+use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 
 /// Ein einzelner Capture-Frame als CPU-Buffer.
 #[derive(Debug)]
@@ -156,6 +156,11 @@ struct FrameSink {
     tx: std::sync::mpsc::SyncSender<CapturedFrame>,
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
+    /// Privacy-Mask beim Fenster→Monitor-Fallback (s. `source::SourceGuard`).
+    mask: MaskGate,
+    /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
+    /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
+    is_window: bool,
 }
 
 /// `Flags`-Payload — `windows-capture` reicht den 1:1 an `new()` durch.
@@ -163,6 +168,8 @@ struct HandlerFlags {
     tx: std::sync::mpsc::SyncSender<CapturedFrame>,
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
+    guard: Option<SourceGuard>,
+    is_window: bool,
 }
 
 impl GraphicsCaptureApiHandler for FrameSink {
@@ -174,6 +181,8 @@ impl GraphicsCaptureApiHandler for FrameSink {
             tx: ctx.flags.tx,
             stop_rx: ctx.flags.stop_rx,
             dropped: ctx.flags.dropped,
+            mask: MaskGate::new(ctx.flags.guard),
+            is_window: ctx.flags.is_window,
         })
     }
 
@@ -189,20 +198,32 @@ impl GraphicsCaptureApiHandler for FrameSink {
         // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = nicht verfügbar.
         let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
 
-        let buf = frame.buffer().context("Frame::buffer")?;
-        let width = buf.width();
-        let height = buf.height();
+        // `?` = Quell-Fenster geschlossen (Spiel beendet): der Capture-Worker
+        // endet mit dem Marker, die Pipeline liest ihn über `join_error`,
+        // `worker_finished` mappt ihn auf einen SAUBEREN Stop (kein error).
+        let captured = if self.mask.frame_masked()? {
+            // Privacy-Mask: Quell-Fenster ist nicht auf dem Schirm → schwarzer
+            // Frame statt Desktop-Pixel (zeroed BGRA = Schwarz). `vec![0; n]`
+            // ist calloc-billig; die WGC-Pixel werden gar nicht erst angefasst.
+            let width = frame.width();
+            let height = frame.height();
+            let bgra = vec![0u8; width as usize * height as usize * 4];
+            CapturedFrame { width, height, bgra, qpc }
+        } else {
+            let buf = frame.buffer().context("Frame::buffer")?;
+            let width = buf.width();
+            let height = buf.height();
 
-        // `FrameBuffer::as_nopadding_buffer` returns the de-padded slice; the
-        // `&mut Vec<u8>` is scratch the crate uses internally if it needs to
-        // de-stride. We materialise into a fresh Vec via `.to_vec()` because
-        // the slice's lifetime is tied to `buf`. NVIDIA hat einen parallelen
-        // Zero-Copy-Pfad in `wgc_hw.rs` der das vermeidet; hier ist der CPU-
-        // Pfad für AMD/Intel/Downscale.
-        let mut scratch: Vec<u8> = Vec::new();
-        let bgra = buf.as_nopadding_buffer(&mut scratch).to_vec();
-
-        let captured = CapturedFrame { width, height, bgra, qpc };
+            // `FrameBuffer::as_nopadding_buffer` returns the de-padded slice; the
+            // `&mut Vec<u8>` is scratch the crate uses internally if it needs to
+            // de-stride. We materialise into a fresh Vec via `.to_vec()` because
+            // the slice's lifetime is tied to `buf`. NVIDIA hat einen parallelen
+            // Zero-Copy-Pfad in `wgc_hw.rs` der das vermeidet; hier ist der CPU-
+            // Pfad für AMD/Intel/Downscale.
+            let mut scratch: Vec<u8> = Vec::new();
+            let bgra = buf.as_nopadding_buffer(&mut scratch).to_vec();
+            CapturedFrame { width, height, bgra, qpc }
+        };
 
         match self.tx.try_send(captured) {
             Ok(()) => {}
@@ -221,8 +242,15 @@ impl GraphicsCaptureApiHandler for FrameSink {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
-        // Capture-Item ist weg (Fenster geschlossen, Monitor abgesteckt). Sender
-        // schließt durch Drop von Self.
+        // Capture-Item ist weg. Beim FENSTER-Target heißt das: die App wurde
+        // beendet → mit Marker enden, `worker_finished` macht daraus einen
+        // sauberen Stop (statt „channel disconnected (clean exit)"-Fehler).
+        // Der Guard deckt diesen Fall NICHT — er läuft im Frame-Callback, und
+        // nach dem Item-Close kommt kein Frame mehr. Monitor-Target
+        // (abgestecktes Display) behält das alte Verhalten.
+        if self.is_window {
+            return Err(super::source_closed_err());
+        }
         Ok(())
     }
 }
@@ -241,10 +269,16 @@ fn run_capture(
     let border = super::border_settings(cfg.draw_border);
     let min_interval = super::min_interval_settings(cfg.max_fps);
 
-    let flags = HandlerFlags { tx, stop_rx, dropped };
+    let flags = HandlerFlags {
+        tx,
+        stop_rx,
+        dropped,
+        guard: target.guard(),
+        is_window: target.is_window(),
+    };
 
     match target {
-        ResolvedTarget::Monitor(monitor) => {
+        ResolvedTarget::Monitor { monitor, .. } => {
             let settings = Settings::new(
                 monitor,
                 cursor,

@@ -22,7 +22,13 @@ pub use source::CaptureSource;
 pub use wgc_d3d12::{D3d12CaptureItem, WgcD3d12Capture};
 pub use wgc_hw::{HwCaptureItem, WgcHwCapture};
 
+use anyhow::{Context as _, Result, anyhow};
 use windows::Foundation::Metadata::ApiInformation;
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11_BIND_SHADER_RESOURCE, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    ID3D11Device, ID3D11Texture2D,
+};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::core::HSTRING;
 use windows_capture::settings::{
     CursorCaptureSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
@@ -35,6 +41,59 @@ use windows_capture::settings::{
 /// Der Client startet den Stream auf diesen Code hin automatisch neu —
 /// deshalb Konstante statt dreier Literale, die auseinanderdriften könnten.
 pub(crate) const RESIZE_ERROR_MARKER: &str = "capture size changed";
+
+/// Präfix der „Quell-Fenster wurde geschlossen"-Meldung — von den drei
+/// Capture-Handlern geworfen, wenn der Privacy-Guard (`source::SourceGuard`)
+/// ein geschlossenes Quell-Fenster meldet (Spiel beendet). ANDERS als der
+/// Resize-Marker mappt `stream_controller::worker_finished` das NICHT auf ein
+/// error-Event, sondern auf den sauberen Stop-Pfad (`{"ev":"stopped",
+/// "reason":"source_closed"}`) — Spiel zu → Stream zu ist gewolltes Verhalten,
+/// kein Fehler.
+pub(crate) const SOURCE_CLOSED_MARKER: &str = "capture source closed";
+
+/// Der Fehler, mit dem ein Capture-Handler den Worker beendet, wenn die Quelle
+/// weg ist — einzige Erzeugungsstelle des Markers.
+pub(crate) fn source_closed_err() -> anyhow::Error {
+    anyhow!("{SOURCE_CLOSED_MARKER}")
+}
+
+/// Schwarze BGRA-Textur in Capture-Größe — Ersatz-Quelltextur für den
+/// Privacy-Mask-Pfad (`source::SourceGuard`): ist das ursprünglich gewählte
+/// Fenster minimiert/geschlossen, kopieren die GPU-Pfade statt der WGC-Frame
+/// diese Textur in den Encoder-Pool. So fließen weiter Frames (Stream bleibt
+/// live, geht auch live, wenn der User beim Start noch in Pulse ist und das
+/// Spiel deshalb minimiert ist) — nur eben schwarz statt Desktop.
+///
+/// Einmal pro Session erzeugt (Default-Usage, nie beschrieben); zeroed BGRA
+/// = Schwarz nach jeder NV12-Konversion (Alpha wird überall verworfen).
+pub(crate) fn black_bgra_texture(
+    device: &ID3D11Device,
+    width: u32,
+    height: u32,
+) -> Result<ID3D11Texture2D> {
+    let desc = D3D11_TEXTURE2D_DESC {
+        Width: width,
+        Height: height,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+    };
+    let zeros = vec![0u8; width as usize * height as usize * 4];
+    let init = D3D11_SUBRESOURCE_DATA {
+        pSysMem: zeros.as_ptr() as *const _,
+        SysMemPitch: width * 4,
+        SysMemSlicePitch: 0,
+    };
+    let mut tex: Option<ID3D11Texture2D> = None;
+    unsafe { device.CreateTexture2D(&desc, Some(&init), Some(&mut tex)) }
+        .context("CreateTexture2D(black mask)")?;
+    tex.ok_or_else(|| anyhow!("Black-Mask-Textur NULL"))
+}
 
 /// Zeitlimit fürs Joinen eines Capture-Workers beim Stoppen.
 const JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);

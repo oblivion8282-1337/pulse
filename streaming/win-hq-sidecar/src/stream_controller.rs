@@ -207,6 +207,15 @@ impl StreamController {
 
     /// Vom Worker-Thread aufgerufen wenn die Pipeline beendet (regular oder Fehler).
     fn worker_finished(&self, error: Option<String>) {
+        // „Quell-Fenster geschlossen" (Spiel beendet) läuft technisch über den
+        // Fehler-Kanal des Capture-Workers, ist aber GEWOLLTES Verhalten —
+        // auf den sauberen Stop-Pfad mappen statt ein error-Event zu zeigen.
+        // `reason` im stopped-Event lässt den Renderer erklären, WARUM der
+        // Stream endete (Toast statt Fehlerbanner).
+        let source_closed = error
+            .as_ref()
+            .is_some_and(|m| m.contains(crate::capture::SOURCE_CLOSED_MARKER));
+        let error = if source_closed { None } else { error };
         let mut inner = self.inner.lock().unwrap();
         // Uptime ablesen BEVOR `started_at` auf None gesetzt wird.
         let measured = inner.started_at.take().map(|t| t.elapsed().as_secs_f64());
@@ -248,7 +257,11 @@ impl StreamController {
             events::emit(ev);
         } else {
             emit_state("stopped", false, uptime);
-            events::emit(json!({"ev": "stopped"}));
+            let mut ev = json!({"ev": "stopped"});
+            if source_closed {
+                ev["reason"] = json!("source_closed");
+            }
+            events::emit(ev);
         }
     }
 
@@ -310,6 +323,10 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     // Nach einem Fehler den Prozess geordnet beenden (Sentinel läuft HINTER
     // den error-Events durch den Writer) — Begründung: `events::request_exit`.
     // Beim regulären Ende übernimmt das der `stop`-Op (`exit_after`).
+    // WICHTIG: `had_error` deckt auch den source_closed-Fall ab (Spiel
+    // beendet → `SOURCE_CLOSED_MARKER`-Err aus der Capture): worker_finished
+    // mappt den zwar auf einen SAUBEREN Stop, aber ein `stop`-Op kommt nie —
+    // ohne diesen Exit bliebe der Prozess für immer stehen.
     if had_error {
         events::request_exit();
     }

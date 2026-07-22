@@ -138,7 +138,10 @@ export type GsrEventBody =
   // 'capture_size_changed' → the client auto-restarts the stream). The Linux
   // sidecar doesn't send it yet — consumers must tolerate its absence.
   | { ev: 'error'; message: string; code?: string }
-  | { ev: 'stopped'; code?: number };
+  // `reason` is an optional machine-readable tag (Windows sidecar; e.g.
+  // 'source_closed' → the shared window was closed, the sidecar ended the
+  // stream on its own). Absent on plain user stops and on Linux.
+  | { ev: 'stopped'; code?: number; reason?: string };
 
 /** A sidecar event, tagged by the Electron main process with the stream `slot`
  *  it came from (0 = primary stream, 1 = a second concurrent stream). `slot` is

@@ -9,6 +9,7 @@
  * stack listeners. It is safe to call in a plain browser; it bails early.
  */
 
+import { toast } from 'svelte-sonner';
 import { gsr, type GsrEvent } from './gsr';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -228,6 +229,12 @@ function applyEvent(ev: GsrEvent): void {
   // chat API — same cycle-avoidance pattern as notifyBackendStopped above.
   if (ev.ev === 'error' && ev.code === 'capture_size_changed') {
     void import('./autoRestart').then((mod) => mod.maybeAutoRestart(slot));
+  }
+  // Sidecar ended the stream on its own because the shared window was closed
+  // (game quit). The slot state is already reset by the `stopped` handler —
+  // this only tells the streamer WHY, so the end doesn't look like a glitch.
+  if (ev.ev === 'stopped' && ev.reason === 'source_closed') {
+    toast.info(m.stream_stopped_source_closed());
   }
 }
 
