@@ -25,6 +25,9 @@
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
   import StreamPickerDialog from '$lib/components/StreamPickerDialog.svelte';
+  import RemoteConsentDialog from '$lib/remote/components/RemoteConsentDialog.svelte';
+  import RemoteHostBanner from '$lib/remote/components/RemoteHostBanner.svelte';
+  import RemoteControllerViewer from '$lib/remote/components/RemoteControllerViewer.svelte';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
@@ -299,6 +302,12 @@
 <!-- Globaler Stream-Auswahl-Dialog (wenn ein User mehrere HQ-Streams hat und ein
      Viewer aufs LIVE-Badge klickt). Ein Stream → öffnet direkt. -->
 <StreamPickerDialog />
+
+<!-- Fernsteuerung (M3): Consent-Dialog + Host-Banner + Controller-Viewer.
+     Alle store-getrieben (remoteSession), rendern nichts, wenn keine Session. -->
+<RemoteConsentDialog />
+<RemoteHostBanner />
+<RemoteControllerViewer />
 
 <!-- Keeps HQ stream connections alive across navigation (audio keeps
      playing, video is back instantly on return). Renders nothing. -->

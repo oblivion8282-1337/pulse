@@ -25,6 +25,7 @@
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
   import StreamChatPanel from './StreamChatPanel.svelte';
+  import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
   import TileShell from './TileShell.svelte';
   import { detachedStreams } from '../detach.svelte';
   import { openedTiles } from '../openedTiles.svelte';
@@ -219,6 +220,13 @@
         <AlertTriangleIcon class="size-7" />
         <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
         {#if detail}<p class="max-w-sm text-center text-2xs text-destructive/70">{detail}</p>{/if}
+      </div>
+    {/if}
+    {#if phase === 'playing'}
+      <!-- Fernsteuerung anfragen (M3) — der Streamer ist der Host. Der Button
+           gated sich selbst (Recht/nicht-man-selbst) und rendert sonst nichts. -->
+      <div class="pointer-events-auto absolute bottom-2 left-2">
+        <RemoteRequestButton {channelId} hostUserId={userId} />
       </div>
     {/if}
   {/snippet}
