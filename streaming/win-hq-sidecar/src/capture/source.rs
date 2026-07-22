@@ -7,7 +7,8 @@
 use anyhow::{Context, Result, anyhow};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST, MonitorFromRect,
+    MonitorFromWindow,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, IsIconic, WINDOWPLACEMENT};
 use windows_capture::monitor::Monitor;
@@ -232,13 +233,19 @@ impl CaptureSource {
 ///
 /// Bei Abfragefehlern (kein Monitor-/Fenster-Rect) → Fenster-Target (blockt nie).
 fn resolve_window_or_monitor(win: Window, label: &str) -> Result<ResolvedTarget> {
+    // Minimiert? → eigener Pfad. Er bestimmt Monitor + Abdeckung aus der
+    // WIEDERHERGESTELLTEN Position, nicht aus `win.monitor()`/`GetWindowRect` —
+    // die zeigen bei einem minimierten Fenster auf die Off-Screen-Sonderposition
+    // und liefern (v.a. Multi-Monitor) den falschen Monitor. Deshalb VOR dem
+    // `win.monitor()`-Early-Return: dessen `MONITOR_DEFAULTTONULL` kann bei
+    // minimiert `None` sein und würde fälschlich in Fenster-Capture zurückfallen.
+    if unsafe { IsIconic(HWND(win.as_raw_hwnd())) }.as_bool() {
+        return resolve_minimized(win, label);
+    }
     let Some(mon) = win.monitor() else {
         return Ok(ResolvedTarget::Window(win));
     };
     let mon_rect = monitor_rect_for(&win);
-    if unsafe { IsIconic(HWND(win.as_raw_hwnd())) }.as_bool() {
-        return resolve_minimized(win, mon, mon_rect, label);
-    }
     let win_rect = win.rect().ok();
     let offscreen = matches!((win_rect, mon_rect), (Some(w), Some(m)) if !rects_overlap(&w, &m));
     if offscreen {
@@ -275,31 +282,39 @@ const FULLSCREEN_COVERAGE_PCT: f64 = 98.0;
 /// dagegen richtig: dort wäre der Monitor-Fallback ein Privacy-Unfall (User
 /// wollte EIN Fenster streamen, bekäme den ganzen Desktop).
 ///
-/// `GetWindowRect` kann die Fälle nicht trennen — minimierte Fenster melden
-/// beide die Sonderposition ≈(-32000,-32000) mit Stummel-Größe.
-/// `GetWindowPlacement::rcNormalPosition` liefert dagegen das Rechteck im
-/// *wiederhergestellten* Zustand und bleibt während der Minimierung gültig:
-/// Vollbild-Spiel → voller Monitor, normales Fenster → sein kleines Rechteck.
+/// `GetWindowRect`/`MonitorFromWindow` können die Fälle nicht trennen — ein
+/// minimiertes Fenster meldet die Off-Screen-Sonderposition ≈(-32000,-32000)
+/// mit Stummel-Größe, und `MonitorFromWindow` liefert dort den falschen Monitor
+/// (Multi-Monitor: die Abdeckung fiele fälschlich unter die Schwelle und ein
+/// echtes Vollbild-Spiel bekäme den „bitte wiederherstellen"-Fehler).
+///
+/// Deshalb wird ALLES aus `GetWindowPlacement::rcNormalPosition` abgeleitet —
+/// dem Rechteck im *wiederhergestellten* Zustand, das während der Minimierung
+/// gültig bleibt und in echten Bildschirmkoordinaten liegt: der Monitor per
+/// `MonitorFromRect` (nicht `…FromWindow`), die Abdeckung gegen genau diesen
+/// Monitor, und — greift der Fallback — auch das Capture-Target ist genau
+/// dieser Monitor (nicht `win.monitor()`).
 ///
 /// Bei unbekanntem Rechteck (Abfragefehler) → Fehler, nicht Monitor-Capture:
 /// im Zweifel lieber nicht mehr streamen als der User erwartet.
-fn resolve_minimized(
-    win: Window,
-    mon: Monitor,
-    mon_rect: Option<RECT>,
-    label: &str,
-) -> Result<ResolvedTarget> {
-    let restored = placement_normal_rect(HWND(win.as_raw_hwnd()));
-    let covers_monitor = matches!(
-        (restored, mon_rect),
-        (Some(r), Some(m)) if coverage_pct(&r, &m) >= FULLSCREEN_COVERAGE_PCT
-    );
-    if covers_monitor {
+fn resolve_minimized(win: Window, label: &str) -> Result<ResolvedTarget> {
+    // Alles aus der WIEDERHERGESTELLTEN Position: Monitor per `MonitorFromRect`
+    // auf `rcNormalPosition` (nicht `…FromWindow` auf der Off-Screen-Minimiert-
+    // Position), Abdeckung gegen genau diesen Monitor. Trifft es zu, ist dieser
+    // Monitor auch das Capture-Target — nicht der potenziell falsche aus
+    // `win.monitor()`.
+    let fullscreen_monitor = placement_normal_rect(HWND(win.as_raw_hwnd())).and_then(|r| {
+        let hmon = unsafe { MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST) };
+        let mon_rect = monitor_rect_by_handle(hmon)?;
+        (coverage_pct(&r, &mon_rect) >= FULLSCREEN_COVERAGE_PCT)
+            .then(|| Monitor::from_raw_hmonitor(hmon.0))
+    });
+    if let Some(monitor) = fullscreen_monitor {
         eprintln!(
             "[source] Fenster ({label}) ist minimiert, füllt wiederhergestellt aber den Monitor \
-             (Vollbild-App nach Fokus-Verlust) → capturere Monitor statt Fenster"
+             (Vollbild-App nach Fokus-Verlust) → capturere diesen Monitor statt Fenster"
         );
-        return Ok(guarded_monitor(mon, &win));
+        return Ok(guarded_monitor(monitor, &win));
     }
     Err(anyhow!(
         "Das gewählte Fenster ist minimiert — bitte wiederherstellen und erneut starten"
@@ -324,22 +339,93 @@ fn coverage_pct(win: &RECT, mon: &RECT) -> f64 {
     if mon_area <= 0.0 { 0.0 } else { iw * ih / mon_area * 100.0 }
 }
 
-/// Monitor-Rechteck in Screen-Koordinaten (Position + Größe) via Win32.
-/// `windows_capture::Monitor` liefert nur Breite/Höhe, keine Position — für den
-/// Überschneidungs-Check brauchen wir die. `MONITOR_DEFAULTTONEAREST` liefert
-/// immer den nächstgelegenen Monitor, auch für ein off-screen-Fenster.
-fn monitor_rect_for(win: &Window) -> Option<RECT> {
+/// Monitor-Rechteck (Screen-Koordinaten) eines HMONITOR via `GetMonitorInfoW`.
+fn monitor_rect_by_handle(hmon: HMONITOR) -> Option<RECT> {
     let mut info =
         MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    unsafe { GetMonitorInfoW(hmon, &mut info) }
+        .as_bool()
+        .then_some(info.rcMonitor)
+}
+
+/// Monitor-Rechteck des Bildschirms unter einem (nicht-minimierten) Fenster.
+/// `MONITOR_DEFAULTTONEAREST` liefert immer den nächstgelegenen Monitor, auch
+/// für ein off-screen-Fenster (FSE-Sliver-Erkennung). NICHT für minimierte
+/// Fenster benutzen — dort ist die Fensterposition die Off-Screen-Sonderstelle
+/// (s. `resolve_minimized`, das über `rcNormalPosition` geht).
+fn monitor_rect_for(win: &Window) -> Option<RECT> {
     let hmon = unsafe { MonitorFromWindow(HWND(win.as_raw_hwnd()), MONITOR_DEFAULTTONEAREST) };
-    if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
-        Some(info.rcMonitor)
-    } else {
-        None
-    }
+    monitor_rect_by_handle(hmon)
 }
 
 /// Achsenparallele Überschneidung zweier Rechtecke (Fläche > 0).
 fn rects_overlap(a: &RECT, b: &RECT) -> bool {
     a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{coverage_pct, rects_overlap, FULLSCREEN_COVERAGE_PCT};
+    use windows::Win32::Foundation::RECT;
+
+    fn rect(l: i32, t: i32, r: i32, b: i32) -> RECT {
+        RECT { left: l, top: t, right: r, bottom: b }
+    }
+
+    // Ein 2560x1440-Monitor bei (0,0) und ein zweiter rechts daneben bei (2560,0).
+    fn mon1() -> RECT {
+        rect(0, 0, 2560, 1440)
+    }
+    fn mon2() -> RECT {
+        rect(2560, 0, 5120, 1440)
+    }
+
+    #[test]
+    fn fullscreen_game_covers_its_monitor() {
+        // rcNormalPosition eines Vollbild-Spiels = voller Monitor → 100 %,
+        // klar über der Schwelle → Monitor-Fallback greift.
+        assert_eq!(coverage_pct(&mon1(), &mon1()), 100.0);
+        assert!(coverage_pct(&mon1(), &mon1()) >= FULLSCREEN_COVERAGE_PCT);
+    }
+
+    #[test]
+    fn game_on_second_monitor_checked_against_its_own_monitor() {
+        // Spiel füllt Monitor 2 → gegen Monitor 2 gerechnet 100 % (der Fix:
+        // wir bestimmen den Monitor aus rcNormalPosition, nicht aus der
+        // Minimiert-Position).
+        assert!(coverage_pct(&mon2(), &mon2()) >= FULLSCREEN_COVERAGE_PCT);
+    }
+
+    #[test]
+    fn wrong_monitor_would_reject_a_real_fullscreen_game() {
+        // DER BUG: das Spiel liegt auf Monitor 2, aber gegen Monitor 1 gerechnet
+        // (was MonitorFromWindow auf der Off-Screen-Minimiert-Position lieferte)
+        // ergibt 0 % → ein echtes Vollbild-Spiel bekäme fälschlich den
+        // "bitte wiederherstellen"-Fehler. Genau das verhindert der Fix.
+        assert_eq!(coverage_pct(&mon2(), &mon1()), 0.0);
+        assert!(coverage_pct(&mon2(), &mon1()) < FULLSCREEN_COVERAGE_PCT);
+    }
+
+    #[test]
+    fn normal_window_stays_below_threshold() {
+        // Ein normales 1350x1226-Fenster deckt den 2560x1440-Monitor nur zu
+        // ~45 % ab → kein Monitor-Fallback (Privacy: es bliebe Fenster-Capture
+        // bzw. der actionable Fehler).
+        let win = rect(200, 100, 1550, 1326);
+        let cov = coverage_pct(&win, &mon1());
+        assert!(cov < FULLSCREEN_COVERAGE_PCT, "coverage war {cov}");
+    }
+
+    #[test]
+    fn coverage_clamps_negative_overlap_to_zero() {
+        // Rechtecke ohne Überschneidung → 0 %, nie negativ.
+        assert_eq!(coverage_pct(&rect(-500, -500, -100, -100), &mon1()), 0.0);
+    }
+
+    #[test]
+    fn rects_overlap_basics() {
+        assert!(rects_overlap(&rect(0, 0, 100, 100), &rect(50, 50, 150, 150)));
+        assert!(!rects_overlap(&rect(0, 0, 100, 100), &rect(100, 0, 200, 100))); // kantenbündig
+        assert!(!rects_overlap(&rect(0, 0, 100, 100), &rect(200, 200, 300, 300)));
+    }
 }
