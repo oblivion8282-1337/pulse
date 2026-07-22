@@ -26,7 +26,7 @@
   import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
-  import { stream, streamForSlot } from '../state.svelte';
+  import { stream, streamForSlot, markStopped } from '../state.svelte';
   import {
     buildStartArgs,
     streamSettings,
@@ -162,6 +162,9 @@
       // every stop path (this dialog button, the rocket toggle, the hotkey,
       // a voice-channel switch), so there's nothing to notify here.
       await gsr.stop(slot);
+      // Reconcile locally — a stop after a crash hits a fresh sidecar that
+      // emits no `stopped` event, so the UI would otherwise stay stuck "live".
+      markStopped(slot);
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);
     } finally {

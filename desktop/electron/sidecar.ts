@@ -24,6 +24,10 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { app } from 'electron';
 import { logSidecar } from './sidecar-log';
+import {
+  createStreamLifecycleTracker,
+  type StreamLifecycleTracker,
+} from './sidecar-crash-detector';
 import { storeGet } from './store';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -419,6 +423,10 @@ class SidecarManager {
   private readonly pending = new Map<number, PendingRequest>();
   private eventCb: EventCallback | null = null;
   private _shuttingDown: Promise<void> | null = null;
+  /** Watches the CURRENT child's event stream so the `exit` handler can tell a
+   *  silent native crash (renderer left stuck "live") from a normal end. Fresh
+   *  instance per spawn. Pure logic in `sidecar-crash-detector.ts`. */
+  private lifecycle: StreamLifecycleTracker = createStreamLifecycleTracker();
 
   /** Register the event callback (set once by main.ts → relays to the renderer).
    *  Does NOT spawn the sidecar; spawning stays lazy on first `call()`. */
@@ -598,6 +606,8 @@ class SidecarManager {
       env: { ...process.env, PULSE_SELF_PID: String(process.pid) },
     }) as ChildProcessWithoutNullStreams;
     this.child = child;
+    // Fresh child → fresh stream-lifecycle tracking (crash-detector, see `exit`).
+    this.lifecycle = createStreamLifecycleTracker();
     logSidecar('lifecycle', `spawn pid=${child.pid ?? '?'} ${target.command}`);
 
     // Line-buffered stdout → parse one JSON object per line.
@@ -645,6 +655,21 @@ class SidecarManager {
         signal !== null ? `signal ${signal}` : code !== null ? `code ${code}` : 'unknown';
       logSidecar('lifecycle', `exited (${reason})`);
       console.error(`[gsr-sidecar] exited (${reason})`);
+      // Silent native crash: the child was streaming (WGC/D3D11/NVENC can crash
+      // in native FFI past Rust's catch_unwind) and exited WITHOUT ever emitting
+      // a `stopped`/`error`/`state:false` — so the renderer would sit forever on
+      // "live" (rocket lit, no way to stop). We didn't ask it to quit
+      // (`_shuttingDown` is null on a stop op / EOF / app quit). Synthesise a
+      // terminal event so the slot resets and the streamer learns why. A normal
+      // stop already emitted `stopped` (childSawTerminal) → no double-fire.
+      if (this.lifecycle.shouldSynthesiseStopOnExit(this._shuttingDown !== null)) {
+        logSidecar('lifecycle', `crash mid-stream (${reason}) → synth stopped`);
+        try {
+          this.eventCb?.({ ev: 'stopped', reason: 'sidecar_exit' });
+        } catch (err) {
+          console.error('[gsr-sidecar] synth-stopped callback threw:', err);
+        }
+      }
       this.failAllPending(new Error(`gsr sidecar exited (${reason})`));
       this.cleanupChild();
     });
@@ -671,6 +696,7 @@ class SidecarManager {
 
     // Event (`{"ev":..}`, no id) → forward to the registered callback.
     if (typeof obj.ev === 'string' && obj.id === undefined) {
+      this.lifecycle.note(obj);
       try {
         this.eventCb?.(obj);
       } catch (err) {

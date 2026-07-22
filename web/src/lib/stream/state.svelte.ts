@@ -236,6 +236,26 @@ function applyEvent(ev: GsrEvent): void {
   if (ev.ev === 'stopped' && ev.reason === 'source_closed') {
     toast.info(m.stream_stopped_source_closed());
   }
+  // Sidecar process died mid-stream without reporting an end (native crash);
+  // Electron synthesised this `stopped` so the slot un-sticks from "live". The
+  // `stopped` handler already reset running/state — this tells the streamer why.
+  if (ev.ev === 'stopped' && ev.reason === 'sidecar_exit') {
+    toast.error(m.stream_stopped_sidecar_exit());
+  }
+}
+
+/**
+ * Force a slot to the stopped state from OUTSIDE the sidecar event stream —
+ * called right after a `stop` op resolves. The Windows respawn-on-stop model
+ * shuts the sidecar down after `stop`, so a stop issued when the stream already
+ * died (e.g. after a crash) hits a FRESH sidecar that reports "no running
+ * stream" and emits NO `stopped` event — without this the UI would stay stuck
+ * on "live" forever. Routed through `applyEvent` so it shares the exact same
+ * reducer + backend-notify edge as a real `stopped` event (idempotent: a
+ * second stop on an already-stopped slot is a harmless no-op).
+ */
+export function markStopped(slot: number): void {
+  applyEvent({ ev: 'stopped', slot } as GsrEvent);
 }
 
 function applyEventInner(s: StreamSession, ev: GsrEvent): void {
