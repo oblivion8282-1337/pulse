@@ -28,6 +28,7 @@
   import RemoteConsentDialog from '$lib/remote/components/RemoteConsentDialog.svelte';
   import RemoteHostBanner from '$lib/remote/components/RemoteHostBanner.svelte';
   import RemoteControllerViewer from '$lib/remote/components/RemoteControllerViewer.svelte';
+  import RemoteErrorToast from '$lib/remote/components/RemoteErrorToast.svelte';
   import '$lib/remote/webrtc'; // Rollen-Dispatcher an den Store haengen (M3)
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
@@ -309,6 +310,7 @@
 <RemoteConsentDialog />
 <RemoteHostBanner />
 <RemoteControllerViewer />
+<RemoteErrorToast />
 
 <!-- Keeps HQ stream connections alive across navigation (audio keeps
      playing, video is back instantly on return). Renders nothing. -->

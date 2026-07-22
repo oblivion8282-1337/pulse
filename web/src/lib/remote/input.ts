@@ -108,21 +108,25 @@ export function mapButton(jsButton: number): WireButton | undefined {
 }
 
 /**
- * JS-Wheel-Delta → Windows-Wheel-Einheiten (120 = eine Raste), Vorzeichen
- * gedreht: JS `deltaY > 0` = zum Nutzer hin (nach unten), Windows `dv > 0` =
- * vom Nutzer weg (nach oben). Pixel-Modus (`deltaMode 0`) wird best-effort auf
- * 120er-Schritte gebracht (~100 px ≈ eine Raste, Chromium); Zeilen-/Seiten-Modus
- * (1/2) gilt bereits als ganze Raste(n).
+ * JS-Wheel-Delta → Windows-Wheel-Einheiten (120 = eine Raste). Pixel-Modus
+ * (`deltaMode 0`) wird best-effort auf 120er-Schritte gebracht (~100 px ≈ eine
+ * Raste, Chromium); Zeilen-/Seiten-Modus (1/2) gilt bereits als ganze Raste(n).
+ *
+ * `flip` (Default `true`) für die **vertikale** Achse: JS `deltaY > 0` = zum
+ * Nutzer hin (runter), Windows `dv > 0` = vom Nutzer weg (hoch) → Vorzeichen
+ * drehen. **Horizontal** (`flip = false`): JS `deltaX > 0` (rechts) und
+ * Windows-`HWHEEL > 0` (rechts) stimmen überein → NICHT drehen.
  */
-export function wheelToUnits(delta: number, deltaMode: number): number {
+export function wheelToUnits(delta: number, deltaMode: number, flip = true): number {
   if (delta === 0) return 0;
+  const dir = flip ? -1 : 1;
   if (deltaMode === 0) {
-    // Pixel → Rasten (mind. eine, Richtung erhalten), dann gedreht.
+    // Pixel → Rasten (mind. eine, Richtung erhalten).
     const notches = Math.max(1, Math.round(Math.abs(delta) / 100)) * Math.sign(delta);
-    return -notches * 120;
+    return dir * notches * 120;
   }
   // Zeilen (1) / Seiten (2): jede Einheit ist eine Raste.
-  return -Math.round(delta) * 120;
+  return dir * Math.round(delta) * 120;
 }
 
 /**

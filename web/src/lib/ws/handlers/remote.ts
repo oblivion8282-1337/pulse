@@ -20,4 +20,5 @@ export function register(): void {
   registerWsHandler('remote_ended', (evt) =>
     remoteSession._ended(evt.session_id, evt.reason),
   );
+  registerWsHandler('remote_canceled', (evt) => remoteSession._dismissIncoming(evt.session_id));
 }

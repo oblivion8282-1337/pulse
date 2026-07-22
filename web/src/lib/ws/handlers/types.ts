@@ -349,6 +349,9 @@ export type ServerEvent =
   | { op: 'remote_response'; session_id: string; accepted: boolean }
   | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: string }
   | { op: 'remote_ended'; session_id: string; reason: string }
+  // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
+  // offenen Consent-Dialog (kein WebRTC lief hier).
+  | { op: 'remote_canceled'; session_id: string }
   | { op: 'error'; code: number; msg: string };
 
 export type ClientEvent =

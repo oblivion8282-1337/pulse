@@ -28,10 +28,12 @@ const dispatcher: RemoteWebrtc = {
     implFor(remoteSession.role).handleSignal(kind, data);
   },
   stop(): void {
-    // Beide stoppen ist idempotent — sicher, egal welche Rolle lief, und deckt
-    // auch einen Teardown ab, bevor die Rolle überhaupt feststand.
-    remoteController.stop();
-    remoteHostBridge.stop();
+    // Nur die Impl der aktuellen Rolle stoppen (kein spurioses `remoteStop` an
+    // einen Sidecar, der gar keine Host-Session fährt). Ist die Rolle (noch)
+    // unbekannt — Teardown, bevor sie feststand —, vorsichtshalber beide.
+    const role = remoteSession.role;
+    if (role === null || role === 'controller') remoteController.stop();
+    if (role === null || role === 'host') remoteHostBridge.stop();
   },
 };
 

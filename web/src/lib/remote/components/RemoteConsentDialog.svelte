@@ -18,9 +18,27 @@
   let open = $derived(remoteSession.phase === 'incoming');
   let peerName = $derived(userCache.displayName(remoteSession.peerUserId ?? ''));
 
+  // Wurde in DIESER Anfrage schon geklickt? Nach „Erlauben" bleibt die Phase
+  // kurz `incoming` (bis das Echo kommt) — ohne dieses Flag würde ein Escape in
+  // dem Fenster ein zusätzliches `deny()` feuern (Host sendet dann accept UND
+  // deny). Beim Öffnen einer neuen Anfrage zurückgesetzt.
+  let acted = $state(false);
+  $effect(() => {
+    if (open) acted = false;
+  });
+
+  function accept(): void {
+    acted = true;
+    remoteSession.accept();
+  }
+  function deny(): void {
+    acted = true;
+    remoteSession.deny();
+  }
+
   function onOpenChange(next: boolean): void {
     // Über Escape/Backdrop geschlossen, ohne zu entscheiden → ablehnen.
-    if (!next && remoteSession.phase === 'incoming') remoteSession.deny();
+    if (!next && !acted && remoteSession.phase === 'incoming') remoteSession.deny();
   }
 </script>
 
@@ -45,10 +63,10 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => remoteSession.deny()} data-testid="remote-consent-deny">
+      <Button variant="outline" onclick={deny} data-testid="remote-consent-deny">
         {m.remote_consent_deny()}
       </Button>
-      <Button onclick={() => remoteSession.accept()} data-testid="remote-consent-allow">
+      <Button onclick={accept} data-testid="remote-consent-allow">
         {m.remote_consent_allow()}
       </Button>
     </Dialog.Footer>

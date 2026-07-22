@@ -109,6 +109,11 @@ class RemoteSessionStore {
   }
 
   _response(sessionId: string, accepted: boolean): void {
+    // Eine Response ist nur zu erwarten, solange wir wirklich darauf warten:
+    // Controller in 'requesting', Host in 'incoming'. Ein Duplikat/verspätetes
+    // Echo im 'active'/'connecting'-Zustand würde sonst `start()` erneut auslösen
+    // (reißt die laufende PC ab) oder eine tote Session wiederbeleben.
+    if (this.phase !== 'requesting' && this.phase !== 'incoming') return;
     // Der Controller kennt seine sessionId erst hier (der Server vergibt sie).
     if (this.sessionId !== null && sessionId !== this.sessionId) return;
     if (this.role === null) return;
@@ -122,10 +127,11 @@ class RemoteSessionStore {
     this.phase = 'connecting';
     // Frische ICE-Server (inkl. kurzlebiger TURN-Creds) holen, DANN starten —
     // beide Seiten (Controller + Host-Sidecar) lesen `getIceServers()` beim
-    // Start. Wird die Session währenddessen beendet, nicht mehr starten.
+    // Start. Wird die Session währenddessen beendet ODER durch eine neue ersetzt,
+    // nicht mehr starten (sessionId + role prüfen, nicht nur die Phase).
     const role = this.role;
     void refreshIceServers().finally(() => {
-      if (this.phase === 'connecting' && this.role === role) {
+      if (this.phase === 'connecting' && this.sessionId === sessionId && this.role === role) {
         this.#webrtc?.start(sessionId, role);
       }
     });
@@ -139,6 +145,14 @@ class RemoteSessionStore {
   _ended(sessionId: string, _reason: string): void {
     if (sessionId !== this.sessionId) return;
     this.#teardown();
+  }
+
+  /** Eine andere Host-Tab hat die Anfrage schon beantwortet — nur den offenen
+   *  Consent-Dialog dieser Tab schließen (kein WebRTC lief hier). */
+  _dismissIncoming(sessionId: string): void {
+    if (this.phase === 'incoming' && this.role === 'host' && sessionId === this.sessionId) {
+      this.#reset();
+    }
   }
 
   _error(code: number, msg: string): void {
@@ -166,7 +180,12 @@ class RemoteSessionStore {
   #watchErrors(): void {
     this.#unwatchErrors();
     this.#errUnsub = gateway.on((evt) => {
-      if (evt.op === 'error') this._error(evt.code, evt.msg);
+      // NUR die Fernsteuerungs-Fehlercodes (4050–4059) — sonst würde ein
+      // beliebiger anderer `error`-Frame (fehlgeschlagener Chat-Send, Rate-Limit)
+      // im langen Warte-auf-Consent-Fenster die Anfrage fälschlich abbrechen.
+      if (evt.op === 'error' && evt.code >= 4050 && evt.code <= 4059) {
+        this._error(evt.code, evt.msg);
+      }
     });
   }
 

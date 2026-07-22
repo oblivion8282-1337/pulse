@@ -85,6 +85,7 @@ class RemoteInputCapture {
     this.#rafId = 0;
     this.#resetMove();
     if (this.pointerLocked) document.exitPointerLock();
+    this.pointerLocked = false; // der pointerlockchange-Listener ist schon weg
     this.#video = null;
   }
 
@@ -110,6 +111,7 @@ class RemoteInputCapture {
     const scale = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
     const contentW = v.videoWidth * scale;
     const contentH = v.videoHeight * scale;
+    if (contentW <= 0 || contentH <= 0) return null; // 0-Größe → sonst NaN-Koordinaten
     const offX = (r.width - contentW) / 2;
     const offY = (r.height - contentH) / 2;
     const u = (e.clientX - r.left - offX) / contentW;
@@ -167,6 +169,10 @@ class RemoteInputCapture {
     const btn = mapButton(e.button);
     if (btn === undefined) return;
     e.preventDefault();
+    // `preventDefault` unterdrückt den Default-Fokus des Klicks → das Video
+    // müssen wir selbst fokussieren, sonst greift die Tastatur-Erfassung im
+    // Absolut-Modus nie (sie gated auf `activeElement === Video`).
+    if (down) this.#video?.focus();
     remoteController.sendInput(mouseButton(btn, down));
   }
 
@@ -177,8 +183,8 @@ class RemoteInputCapture {
   #onWheel = (e: WheelEvent): void => {
     if (!this.#shouldSend(e)) return;
     e.preventDefault();
-    const dv = wheelToUnits(e.deltaY, e.deltaMode);
-    const dh = wheelToUnits(e.deltaX, e.deltaMode);
+    const dv = wheelToUnits(e.deltaY, e.deltaMode); // vertikal: Vorzeichen drehen
+    const dh = wheelToUnits(e.deltaX, e.deltaMode, false); // horizontal: nicht drehen
     if (dv !== 0 || dh !== 0) remoteController.sendInput(mouseWheel(dv, dh));
   };
 

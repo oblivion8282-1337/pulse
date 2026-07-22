@@ -25,6 +25,10 @@ import type { RemoteSignalKind } from '$lib/ws/gateway-senders';
 import { helloFrame } from './input';
 import { getIceServers } from './iceConfig';
 
+// Wie lange ein `disconnected`-Zustand toleriert wird, bevor die Session
+// aufgegeben wird — ICE erholt sich meist innerhalb weniger Sekunden.
+const DISCONNECT_GRACE_MS = 8000;
+
 class RemoteControllerWebrtc implements RemoteWebrtc {
   /** Empfangener Host-Bildschirm — die Viewer-UI hängt ihn an ein `<video>`. */
   stream = $state<MediaStream | null>(null);
@@ -33,6 +37,21 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
 
   #pc: RTCPeerConnection | null = null;
   #input: RTCDataChannel | null = null;
+  #disconnectGrace: ReturnType<typeof setTimeout> | null = null;
+
+  #armDisconnectGrace(): void {
+    if (this.#disconnectGrace) return;
+    this.#disconnectGrace = setTimeout(() => {
+      this.#disconnectGrace = null;
+      // Immer noch getrennt nach der Frist → aufgeben.
+      if (this.#pc?.connectionState === 'disconnected') remoteSession.end();
+    }, DISCONNECT_GRACE_MS);
+  }
+
+  #clearDisconnectGrace(): void {
+    if (this.#disconnectGrace) clearTimeout(this.#disconnectGrace);
+    this.#disconnectGrace = null;
+  }
 
   async start(_sessionId: string, role: RemoteRole): Promise<void> {
     if (role !== 'controller') return; // Host-Rolle fährt der Sidecar (Scheibe 6)
@@ -63,9 +82,18 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
         if (e.candidate) remoteSession.sendSignal('ice', JSON.stringify(e.candidate.toJSON()));
       };
       pc.onconnectionstatechange = () => {
+        if (pc !== this.#pc) return; // späte Events einer abgelösten PC ignorieren
         const s = pc.connectionState;
-        if (s === 'connected') remoteSession.markActive();
-        else if (s === 'failed' || s === 'disconnected' || s === 'closed') remoteSession.end();
+        if (s === 'connected') {
+          this.#clearDisconnectGrace();
+          remoteSession.markActive();
+        } else if (s === 'failed' || s === 'closed') {
+          remoteSession.end();
+        } else if (s === 'disconnected') {
+          // Transient — ICE erholt sich oft nach einem kurzen Blip. Erst nach der
+          // Gnadenfrist aufgeben, statt die ganze Session sofort abzureißen.
+          this.#armDisconnectGrace();
+        }
       };
 
       // Trickle: Offer SOFORT schicken, nicht auf ICE-Gathering warten.
@@ -115,6 +143,7 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
   }
 
   stop(): void {
+    this.#clearDisconnectGrace();
     this.inputOpen = false;
     this.stream = null;
     this.#input = this.#closeQuietly(this.#input);

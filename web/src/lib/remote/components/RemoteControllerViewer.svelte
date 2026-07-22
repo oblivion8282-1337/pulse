@@ -26,13 +26,17 @@
   let connecting = $derived(remoteSession.phase === 'connecting' || !remoteController.stream);
   let videoEl = $state<HTMLVideoElement | null>(null);
 
-  // Stream ans <video> hängen und die Input-Capture ankoppeln (löst beim Unmount).
+  // Input-Capture NUR ans Element binden (nicht an den Stream) — sonst würde ein
+  // Track-Wechsel den Effekt neu ausführen und den Pointer-Lock abwerfen.
   $effect(() => {
     const el = videoEl;
     if (!el) return;
-    el.srcObject = remoteController.stream;
     remoteInput.attach(el);
     return () => remoteInput.detach();
+  });
+  // srcObject separat aktualisieren, wenn Stream/Element sich ändern.
+  $effect(() => {
+    if (videoEl) videoEl.srcObject = remoteController.stream;
   });
 </script>
 
