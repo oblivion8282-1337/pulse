@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-22.3",
+      "date": "2026-07-22",
+      "style": "Sachlich",
+      "title": "Bildschirmübertragung: Vollbild-Spiele lassen sich wieder zuverlässig auswählen",
+      "items": [
+        "Behoben: Beim Übertragen eines Vollbild-Spiels kam teils die Meldung, das Fenster sei minimiert und müsse wiederhergestellt werden — obwohl das im laufenden Betrieb gar nicht möglich war. Die Übertragung startet jetzt direkt, auch bei mehreren Bildschirmen."
+      ]
+    },
+    {
       "id": "2026-07-22.2",
       "date": "2026-07-22",
       "style": "Sachlich",
