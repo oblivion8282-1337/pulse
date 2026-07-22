@@ -37,6 +37,16 @@
     onStarted,
   }: { channelId?: string | null; streamSlot?: number; onStarted?: () => void } = $props();
 
+  // Hat diese Plattform eine In-App-Quellenauswahl? Windows (WGC) und macOS
+  // (SCK) ja — dort wählt der User Bildschirm/Fenster hier im Dialog. Linux
+  // nicht: die Quelle bestimmt der Wayland-Portal-Dialog erst beim Start.
+  //
+  // Das entscheidet zugleich über das Layout: nur mit Quellenauswahl lohnt die
+  // zweite Spalte. Sie war der Grund, warum der Dialog auf Windows so lang
+  // wurde — Quellenraster PLUS alle Einstellungen untereinander in einer
+  // 672-px-Spalte. Ohne Auswahl (Linux) bleibt alles wie bisher einspaltig.
+  const hasSourcePicker = isWindows() || isMac();
+
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
 
@@ -46,7 +56,7 @@
     // the explicit values). Capture source: Linux uses the Wayland portal;
     // Windows + macOS resolve a concrete monitor in `loadCatalogs()` (a
     // persisted choice is honoured), so don't clobber it here.
-    if (!isWindows() && !isMac()) setCaptureSourceForSlot(slot, 'portal');
+    if (!hasSourcePicker) setCaptureSourceForSlot(slot, 'portal');
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
@@ -90,19 +100,29 @@
         {m.stream_panel_no_channel_hint()}
       </p>
     {:else}
+      {#snippet settingsColumn()}
+        <div class="flex min-w-0 flex-col gap-4">
+          <OverridesEditor streamSlot={slot} />
+          <Separator />
+          <AudioModePicker />
+          {#if hasSourcePicker}
+            <Separator />
+            <AvOffsetSlider />
+          {/if}
+        </div>
+      {/snippet}
+
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
-        {#if isWindows() || isMac()}
-          <MonitorPicker streamSlot={slot} />
-          <Separator />
-        {/if}
-        <OverridesEditor streamSlot={slot} />
-
-        <Separator />
-        <AudioModePicker />
-
-        {#if isWindows() || isMac()}
-          <Separator />
-          <AvOffsetSlider />
+        {#if hasSourcePicker}
+          <!-- Quelle links, Einstellungen rechts. Umbruch auf eine Spalte
+               unterhalb von `lg` — in einem schmalen Fenster wären zwei
+               Spalten enger als die ursprüngliche eine. -->
+          <div class="grid gap-4 lg:grid-cols-2 lg:gap-6">
+            <MonitorPicker streamSlot={slot} />
+            {@render settingsColumn()}
+          </div>
+        {:else}
+          {@render settingsColumn()}
         {/if}
 
         <Separator />

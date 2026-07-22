@@ -161,9 +161,13 @@
 </script>
 
 <div class="flex flex-col gap-3" data-testid="stream-overrides-editor">
+ <!-- `h-6` = Höhe der Kopfzeile der Quellenauswahl links; die wird dort vom
+      Refresh-Knopf (Button size="xs") aufgespannt. Ohne die feste Höhe säße
+      „Video" rund 4 px höher als „Quelle", weil hier kein Knopf danebensteht. -->
+ <div class="flex h-6 items-center"><Label>Video</Label></div>
  <div class="grid gap-3 sm:grid-cols-2">
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-codec">Codec</Label>
+    <Label for="ov-codec" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">Codec</Label>
     <select
       id="ov-codec"
       class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
@@ -178,7 +182,7 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-resolution">{m.overrides_editor_resolution_label()}</Label>
+    <Label for="ov-resolution" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">{m.overrides_editor_resolution_label()}</Label>
     <select
       id="ov-resolution"
       class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
@@ -203,7 +207,7 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-bitrate">{m.overrides_editor_bitrate_label()}</Label>
+    <Label for="ov-bitrate" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">{m.overrides_editor_bitrate_label()}</Label>
     <Input
       id="ov-bitrate"
       class="tabular-nums"
@@ -221,7 +225,7 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-fps">FPS</Label>
+    <Label for="ov-fps" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">FPS</Label>
     <Input
       id="ov-fps"
       class="tabular-nums"
