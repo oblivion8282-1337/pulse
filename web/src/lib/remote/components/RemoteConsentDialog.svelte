@@ -63,10 +63,10 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={deny} data-testid="remote-consent-deny">
+      <Button variant="outline" onclick={deny} disabled={acted} data-testid="remote-consent-deny">
         {m.remote_consent_deny()}
       </Button>
-      <Button onclick={accept} data-testid="remote-consent-allow">
+      <Button onclick={accept} disabled={acted} data-testid="remote-consent-allow">
         {m.remote_consent_allow()}
       </Button>
     </Dialog.Footer>

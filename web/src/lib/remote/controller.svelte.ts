@@ -38,6 +38,11 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
   #pc: RTCPeerConnection | null = null;
   #input: RTCDataChannel | null = null;
   #disconnectGrace: ReturnType<typeof setTimeout> | null = null;
+  // ICE-Kandidaten, die VOR dem Answer eintreffen, puffern: `addIceCandidate`
+  // wirft ohne gesetzte Remote-Description. Ohne das gehen bei TURN-only /
+  // wenigen Kandidaten frühe Kandidaten verloren → Verbindung kommt nicht zu.
+  #remoteDescSet = false;
+  #pendingIce: RTCIceCandidateInit[] = [];
 
   #armDisconnectGrace(): void {
     if (this.#disconnectGrace) return;
@@ -59,6 +64,8 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
     try {
       const pc = new RTCPeerConnection({ iceServers: getIceServers() });
       this.#pc = pc;
+      this.#remoteDescSet = false;
+      this.#pendingIce = [];
       // Wir empfangen nur Video (der Host teet den H.264-Bildschirm). Kein Audio.
       pc.addTransceiver('video', { direction: 'recvonly' });
 
@@ -112,8 +119,25 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
     try {
       if (kind === 'answer') {
         await pc.setRemoteDescription({ type: 'answer', sdp: data });
+        this.#remoteDescSet = true;
+        // Gepufferte Kandidaten jetzt nachreichen (Reihenfolge unter ICE egal).
+        const queued = this.#pendingIce;
+        this.#pendingIce = [];
+        for (const cand of queued) {
+          try {
+            await pc.addIceCandidate(cand);
+          } catch (e) {
+            console.warn('[remote] gepufferten ICE-Kandidaten verwerfen', e);
+          }
+        }
       } else if (kind === 'ice') {
-        await pc.addIceCandidate(JSON.parse(data) as RTCIceCandidateInit);
+        const cand = JSON.parse(data) as RTCIceCandidateInit;
+        // Vor dem Answer puffern, sonst wirft addIceCandidate.
+        if (!this.#remoteDescSet) {
+          this.#pendingIce.push(cand);
+          return;
+        }
+        await pc.addIceCandidate(cand);
       }
       // 'offer' erreicht den Controller nie (er ist der Offerer).
     } catch (e) {
@@ -146,6 +170,8 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
     this.#clearDisconnectGrace();
     this.inputOpen = false;
     this.stream = null;
+    this.#remoteDescSet = false;
+    this.#pendingIce = [];
     this.#input = this.#closeQuietly(this.#input);
     this.#pc = this.#closeQuietly(this.#pc);
   }

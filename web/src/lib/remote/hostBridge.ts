@@ -19,8 +19,9 @@ import { runningStreamSlots } from '$lib/stream/state.svelte';
 import type { RemoteSignalKind } from '$lib/ws/gateway-senders';
 import { getIceServers } from './iceConfig';
 
-/** Das vom Sidecar emittierte Event, das uns interessiert. */
-type SidecarEvent = { ev?: string; kind?: string; data?: string; state?: string };
+/** Das vom Sidecar emittierte Event, das uns interessiert. Der Main-Prozess
+ *  taggt jedes Event mit seinem `slot` (ein Sidecar-Prozess pro Slot). */
+type SidecarEvent = { ev?: string; kind?: string; data?: string; state?: string; slot?: number };
 
 class RemoteHostBridge implements RemoteWebrtc {
   #unsub: (() => void) | null = null;
@@ -85,6 +86,9 @@ class RemoteHostBridge implements RemoteWebrtc {
   }
 
   #onSidecar(ev: SidecarEvent): void {
+    // Nur Events vom Slot, auf dem unsere Remote-Session läuft — ein anderer
+    // parallel streamender Slot darf uns nicht ins Signaling funken.
+    if (ev.slot !== undefined && ev.slot !== this.#slot) return;
     if (ev.ev === 'remote_signal' && ev.kind && ev.data !== undefined) {
       // Der Sidecar erzeugt Answer + eigene ICE-Kandidaten → an den Controller.
       remoteSession.sendSignal(ev.kind as RemoteSignalKind, ev.data);

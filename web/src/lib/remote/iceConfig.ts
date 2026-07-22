@@ -38,6 +38,8 @@ export async function refreshIceServers(): Promise<void> {
     const res = await chatApi.getRemoteIceServers();
     setIceServers(res.ice_servers);
   } catch {
-    /* Server nicht erreichbar / kein TURN konfiguriert → STUN-Default behalten. */
+    // Nicht erreichbar / kein TURN → auf den STUN-Default zurücksetzen, statt
+    // (evtl. abgelaufene) Creds vom letzten Refresh weiterzuschleppen.
+    setIceServers(STUN_ONLY);
   }
 }

@@ -29,6 +29,7 @@ import {
   mouseWheel,
   scancodeFor,
   wheelToUnits,
+  type WireButton,
 } from './input';
 
 /** Puffer-Schwelle: darüber werden Moves verworfen (Wire-Spec: 64 KiB). */
@@ -48,6 +49,14 @@ class RemoteInputCapture {
   #hasRel = false;
   #rafId = 0;
 
+  // Was wir dem Host als „gedrückt" gemeldet haben — damit ein Release IMMER
+  // ankommt (auch übers Letterbox losgelassen / nach Fokusverlust) und beim
+  // Fenster-Blur alles Gehaltene freigegeben wird. Sonst bleibt eine Taste/Maus
+  // am Host hängen (das matchende Up-Event wird gefiltert oder gar nicht mehr
+  // zugestellt).
+  #pressedButtons = new Set<WireButton>();
+  #pressedKeys = new Set<number>();
+
   /** An das Viewer-`<video>` hängen. Idempotent (löst eine alte Bindung). */
   attach(video: HTMLVideoElement): void {
     this.detach();
@@ -65,6 +74,9 @@ class RemoteInputCapture {
     add(video, 'contextmenu', this.#onContextMenu as EventListener);
     add(window, 'keydown', this.#onKeyDown as EventListener);
     add(window, 'keyup', this.#onKeyUp as EventListener);
+    // Fenster verliert den Fokus (Alt-Tab) → das keyup kommt evtl. nie an, also
+    // alles Gehaltene sofort am Host freigeben.
+    add(window, 'blur', this.#onBlur);
     add(document, 'pointerlockchange', this.#onLockChange);
   }
 
@@ -84,6 +96,7 @@ class RemoteInputCapture {
     if (this.#rafId) cancelAnimationFrame(this.#rafId);
     this.#rafId = 0;
     this.#resetMove();
+    this.#releaseAll(); // nichts gedrückt zurücklassen (best effort; Host löst beim Ende ohnehin)
     if (this.pointerLocked) document.exitPointerLock();
     this.pointerLocked = false; // der pointerlockchange-Listener ist schon weg
     this.#video = null;
@@ -165,15 +178,26 @@ class RemoteInputCapture {
   #onDown = (e: MouseEvent): void => this.#onButton(e, true);
   #onUp = (e: MouseEvent): void => this.#onButton(e, false);
   #onButton(e: MouseEvent, down: boolean): void {
-    if (!this.#shouldSend(e)) return;
+    if (!this.#active()) return;
     const btn = mapButton(e.button);
     if (btn === undefined) return;
-    e.preventDefault();
-    // `preventDefault` unterdrückt den Default-Fokus des Klicks → das Video
-    // müssen wir selbst fokussieren, sonst greift die Tastatur-Erfassung im
-    // Absolut-Modus nie (sie gated auf `activeElement === Video`).
-    if (down) this.#video?.focus();
-    remoteController.sendInput(mouseButton(btn, down));
+    if (down) {
+      // Down nur übers Videobild (kein Klick im Letterbox) bzw. im Lock-Modus.
+      if (!this.pointerLocked && this.#toAbs(e) === null) return;
+      e.preventDefault();
+      // `preventDefault` unterdrückt den Default-Fokus des Klicks → das Video
+      // müssen wir selbst fokussieren, sonst greift die Tastatur-Erfassung im
+      // Absolut-Modus nie (sie gated auf `activeElement === Video`).
+      this.#video?.focus();
+      this.#pressedButtons.add(btn);
+      remoteController.sendInput(mouseButton(btn, true));
+    } else {
+      // Up IMMER senden, wenn wir das Down geschickt haben — auch wenn übers
+      // Letterbox/außerhalb losgelassen wird. Sonst hält der Host die Taste.
+      if (!this.#pressedButtons.delete(btn)) return;
+      e.preventDefault();
+      remoteController.sendInput(mouseButton(btn, false));
+    }
   }
 
   #onContextMenu = (e: MouseEvent): void => {
@@ -196,15 +220,39 @@ class RemoteInputCapture {
   #onKeyDown = (e: KeyboardEvent): void => this.#onKey(e, true);
   #onKeyUp = (e: KeyboardEvent): void => this.#onKey(e, false);
   #onKey(e: KeyboardEvent, down: boolean): void {
-    if (!this.#engaged()) return;
     const scan = scancodeFor(e.code);
     if (scan === undefined) return;
-    e.preventDefault(); // Taste nicht zusätzlich den Browser auslösen lassen
-    remoteController.sendInput(keyFrame(scan, down));
+    if (down) {
+      if (!this.#engaged()) return;
+      e.preventDefault(); // Taste nicht zusätzlich den Browser auslösen lassen
+      // Auto-Repeat NICHT als neues Down streamen (unbegrenzter Traffic über den
+      // reliablen Kanal) — der Host hält die Taste ohnehin gedrückt.
+      if (e.repeat || this.#pressedKeys.has(scan)) return;
+      this.#pressedKeys.add(scan);
+      remoteController.sendInput(keyFrame(scan, true));
+    } else {
+      // Up IMMER senden, wenn wir das Down geschickt haben — auch nach
+      // Fokusverlust (sonst bleibt der Modifier am Host hängen).
+      if (!this.#pressedKeys.delete(scan)) return;
+      e.preventDefault();
+      remoteController.sendInput(keyFrame(scan, false));
+    }
   }
+
+  /** Alles am Host freigeben, was wir als gedrückt gemeldet haben. */
+  #releaseAll(): void {
+    for (const btn of this.#pressedButtons) remoteController.sendInput(mouseButton(btn, false));
+    for (const scan of this.#pressedKeys) remoteController.sendInput(keyFrame(scan, false));
+    this.#pressedButtons.clear();
+    this.#pressedKeys.clear();
+  }
+
+  #onBlur = (): void => this.#releaseAll();
 
   #onLockChange = (): void => {
     this.pointerLocked = document.pointerLockElement === this.#video;
+    // Moduswechsel: kein stale Rel/Abs-Delta über die Kante flushen.
+    this.#resetMove();
   };
 }
 
