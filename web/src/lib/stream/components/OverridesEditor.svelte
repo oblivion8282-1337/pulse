@@ -17,10 +17,16 @@
     gpuHasAv1,
     allowedResolutions,
     clampResolution,
+    captureSourceForSlot,
     persistSettings,
   } from '../settings.svelte';
+  import { sourceSize, resolutionOptions } from '../resolution';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { m } from '$lib/paraglide/messages.js';
+
+  // Slot, dessen Quelle die Auflösungs-Stufen filtert. Von außen `streamSlot`,
+  // weil `slot` ein reservierter Svelte-Attributname ist (wie `MonitorPicker`).
+  let { streamSlot: slot = 0 }: { streamSlot?: number } = $props();
 
   // Only offer codecs this machine's GPU can actually encode. AV1 needs the
   // sidecar's reported `video_codecs` to include it (RTX 40xx, newer Intel/AMD,
@@ -37,7 +43,21 @@
   let bMax = $derived(capabilities.hqBitrateMaxKbps);
   let fMin = $derived(capabilities.hqFpsMin);
   let fMax = $derived(capabilities.hqFpsMax);
-  let resOptions = $derived(allowedResolutions(capabilities.hqResolutionMax));
+  // Größe der gewählten Quelle (null = unbekannt, z.B. Linux-Portal); bestimmt
+  // Filterung und Beschriftung der Auflösungs-Stufen — s. `resolution.ts`.
+  let srcSize = $derived(
+    sourceSize(captureSourceForSlot(slot), {
+      monitors: streamSettings.available_monitors,
+      windows: streamSettings.available_windows,
+    }),
+  );
+  let resOptions = $derived(
+    resolutionOptions(
+      allowedResolutions(capabilities.hqResolutionMax),
+      srcSize,
+      m.overrides_editor_resolution_native(),
+    ),
+  );
 
   function onCodec(e: Event) {
     const v = (e.currentTarget as HTMLSelectElement).value || 'h264';
@@ -120,11 +140,19 @@
   let codecValue = $derived(streamSettings.overrides.codec ?? 'h264');
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
-  // Clamp the *displayed* resolution to the admin ceiling so the select never
-  // shows a now-disallowed value (e.g. 'Native' after the admin caps to 1080p).
-  let resValue = $derived(
-    clampResolution(streamSettings.overrides.resolution ?? 'Native', capabilities.hqResolutionMax)
-  );
+  // Der *angezeigte* Wert muss in der Optionsliste vorkommen — sonst zeigt das
+  // Select einen Wert an, den es nicht mehr gibt. Zwei Gründe, warum er fehlen
+  // kann: das Admin-Limit (deckelt auf z.B. 1080p) und der Quellen-Filter
+  // (gespeichert '4K', Quelle 1440p). Dann fällt die Anzeige auf 'Native' —
+  // ehrlich, denn beides sendet dieselbe Größe. Gespeichert bleibt der alte
+  // Wert: wechselt der User auf einen 4K-Monitor, ist seine Wahl wieder da.
+  let resValue = $derived.by(() => {
+    const clamped = clampResolution(
+      streamSettings.overrides.resolution ?? 'Native',
+      capabilities.hqResolutionMax,
+    );
+    return resOptions.some((o) => o.value === clamped) ? clamped : 'Native';
+  });
 
   function onShowCursor(e: Event) {
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
@@ -158,17 +186,20 @@
       onchange={onResolution}
       data-testid="stream-overrides-resolution"
     >
-      {#each resOptions as r (r)}
-        <option value={r}>{r === 'Native' ? m.overrides_editor_resolution_native() : r}</option>
+      {#each resOptions as r (r.value)}
+        <option value={r.value}>{r.label}</option>
       {/each}
     </select>
-    <p class="text-text-muted text-2xs">
-      {#if capabilities.hqResolutionMax !== 'Native'}
+    <!-- Bei bekannter Quellgröße sagen die Beschriftungen schon alles — der
+         allgemeine Hinweis entfällt dann. Die Admin-Deckelung wird immer
+         gezeigt, sie erklärt eine Einschränkung von außen. -->
+    {#if capabilities.hqResolutionMax !== 'Native'}
+      <p class="text-text-muted text-2xs">
         {m.overrides_editor_resolution_capped({ max: capabilities.hqResolutionMax })}
-      {:else}
-        {m.overrides_editor_resolution_hint()}
-      {/if}
-    </p>
+      </p>
+    {:else if !srcSize}
+      <p class="text-text-muted text-2xs">{m.overrides_editor_resolution_hint()}</p>
+    {/if}
   </div>
 
   <div class="flex flex-col gap-1.5">
