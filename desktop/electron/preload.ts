@@ -88,6 +88,15 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (args: unknown, slot = 0) => gsrCall('start', args, slot),
     stop: (slot = 0) => gsrCall('stop', {}, slot),
 
+    // Fernsteuerung (M3), Host-Seite: der Sidecar fährt die Host-WebRTC (M2b) +
+    // die Input-Injektion (M2c). Alles auf Slot 0 (der Tee hängt am laufenden
+    // Stream). Answer/ICE des Sidecars kommen als `remote_signal`-Events über
+    // `onEvent` zurück, `remote_state` meldet den Verbindungszustand.
+    remoteStart: (params: unknown) => gsrCall('remote_start', params, 0),
+    remoteSignal: (kind: string, data: string) =>
+      gsrCall('remote_signal', { kind, data }, 0),
+    remoteStop: () => gsrCall('remote_stop', {}, 0),
+
     /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
      *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
      *  Main-Prozess-Auskunft über die Pfadauflösung, keine Sidecar-Op. */

@@ -28,6 +28,7 @@
   import RemoteConsentDialog from '$lib/remote/components/RemoteConsentDialog.svelte';
   import RemoteHostBanner from '$lib/remote/components/RemoteHostBanner.svelte';
   import RemoteControllerViewer from '$lib/remote/components/RemoteControllerViewer.svelte';
+  import '$lib/remote/webrtc'; // Rollen-Dispatcher an den Store haengen (M3)
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';

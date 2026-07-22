@@ -57,6 +57,12 @@ export interface PulseGsrApi {
   start(args: unknown, slot?: number): Promise<unknown>;
   /** Stop the stream in the given slot (default 0). */
   stop(slot?: number): Promise<unknown>;
+  /** Fernsteuerung (M3), Host-Seite — der Sidecar fährt die Host-WebRTC + Input-
+   *  Injektion. `remoteStart` mit den ICE-Servern; Answer/ICE kommen als
+   *  `remote_signal`-Events über `onEvent` zurück. Alles auf Slot 0. */
+  remoteStart(params: unknown): Promise<unknown>;
+  remoteSignal(kind: string, data: string): Promise<unknown>;
+  remoteStop(): Promise<unknown>;
   /** Welcher Linux-Sidecar läuft und warum. `null` auf anderen Plattformen
    *  oder wenn gar kein Sidecar auffindbar ist. Startet nichts. */
   backend(): Promise<PulseLinuxBackend | null>;

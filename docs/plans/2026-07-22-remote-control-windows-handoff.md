@@ -107,9 +107,21 @@ Wenn es baut: HQ-Stream starten, mit einem Controller (Browser) verbinden.
   im Ziel korrekt landen — das ist Teil von Aufgabe 3.
 - **M2d** (zurückgestellt) — Modus B: steuern ohne aktiven Stream (Encoder/Mux
   entkoppeln, on-demand-Capture). Größter Umbau.
-- **M3** — Frontend (Linux-verifizierbar): Client-`remote:*`-Ops, Controller-
-  WebRTC, Consent-Dialog, Viewer-Fenster, `window.pulse.remote.*`, Electron-
-  Signaling-Bridge (stdio↔WS). Mockup: Artifact vom 2026-07-21.
+- **M3** — Frontend: ✅ **gebaut** (2026-07-22), in 6 typgeprüften Scheiben unter
+  `web/src/lib/remote/`:
+  1. `input.ts` — Wire-Encoder (Gegenstück zu `remote_input.rs`).
+  2. `session.svelte.ts` + `ws/handlers/remote.ts` + `gateway-senders`/`connection` —
+     Signaling-Zustandsmaschine (anfragen/consent/signal/end).
+  3. `controller.svelte.ts` — Controller-WebRTC (Offerer, Trickle-ICE, Video +
+     Input-DataChannel).
+  4. `capture.svelte.ts` — Input-Capture (Pointer-Lock, Letterbox, Coalescing).
+  5. `components/Remote{ConsentDialog,HostBanner,ControllerViewer,RequestButton}.svelte` —
+     UI, global in `app/+layout` + Button im `WhepPlayer`.
+  6. `hostBridge.ts` + `webrtc.ts` (Rollen-Dispatcher) + Electron `gsr.remote*`
+     (preload/main-Allowlist) — Host-Seite reicht ans Sidecar durch.
+  **Offen:** der echte **2-Geräte-Verhaltens-Test** (Bild kommt an, Klicks landen)
+  — hier nicht simulierbar; TURN-Server (Pflicht) noch nicht vom Server bezogen
+  (aktuell nur STUN im Code).
 
 ## Offene Entscheidungen / Notizen
 

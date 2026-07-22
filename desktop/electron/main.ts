@@ -761,6 +761,10 @@ const ALLOWED_GSR_OPS = new Set([
   'build_argv',
   'start',
   'stop',
+  // Fernsteuerung (M3): Host-Seite fährt der Sidecar (RemoteController, M2b).
+  'remote_start',
+  'remote_signal',
+  'remote_stop',
 ]);
 
 /** Clamp a renderer-supplied slot to a valid stream slot (0..MAX_STREAM_SLOTS-1).

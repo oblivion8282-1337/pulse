@@ -133,7 +133,5 @@ class RemoteControllerWebrtc implements RemoteWebrtc {
 }
 
 export const remoteController = new RemoteControllerWebrtc();
-// Beim ersten Import an den Store hängen — die Controller-Rolle ist damit
-// aktiv (Video empfangen + Input senden). Die Host-Rolle registriert Scheibe 6
-// separat (Sidecar-Brücke).
-remoteSession.attachWebrtc(remoteController);
+// Das Anhängen an den Store macht der Rollen-Dispatcher (`webrtc.ts`, Scheibe 6)
+// — er routet zwischen dieser Controller-Impl und der Host-Sidecar-Brücke.
