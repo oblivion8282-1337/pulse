@@ -17,6 +17,7 @@
  * Pure + side-effect-free so it's cheap to call inside a `$derived`.
  */
 import type { GsrMonitor, GsrWindow } from './gsr';
+import { windowDisplayName } from './windowName';
 import {
   MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
@@ -58,10 +59,10 @@ export function resolveStreamLabel(
   if (src.startsWith(WINDOW_CAPTURE_PREFIX)) {
     const id = Number(src.slice(WINDOW_CAPTURE_PREFIX.length));
     const win = catalogs.windows.find((w) => w.id === id);
-    // Prefer the terse app name (recognisable); fall back to the window title.
-    const name = win?.app?.trim() || win?.title?.trim();
-    if (name) return { label: name, icon: 'app' };
-    return { label: 'Window', icon: 'app' };
+    // Same readable name the source picker shows — viewers see this as the
+    // stream's name, so "Google Chrome" beats "chrome.exe" (see windowName.ts).
+    const name = win ? windowDisplayName(win) : '';
+    return { label: name || 'Window', icon: 'app' };
   }
 
   return fallback;
