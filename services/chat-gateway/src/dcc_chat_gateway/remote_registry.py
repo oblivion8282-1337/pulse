@@ -141,6 +141,18 @@ class _RemoteRegistryMixin:
         async with self._lock:
             return self._remote_sessions.pop(session_id, None)
 
+    async def remote_end_if_pending(self, session_id: str) -> RemoteSession | None:
+        """Atomically pop a session only if it is still ``pending``. Returns the
+        removed session, or ``None`` if it is already active or gone. Lets a
+        decline race safely against a concurrent accept — a decline can never
+        tear down a session another host tab just activated (mirror of
+        ``remote_activate``, which only lets the first pending→active win)."""
+        async with self._lock:
+            sess = self._remote_sessions.get(session_id)
+            if sess is None or sess.state != "pending":
+                return None
+            return self._remote_sessions.pop(session_id)
+
     def remote_sessions_for_socket(self, socket: Any) -> list[RemoteSession]:
         """Sessions in which ``socket`` is either peer — for disconnect cleanup."""
         return [

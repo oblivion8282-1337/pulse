@@ -86,6 +86,23 @@ async def test_user_sockets_lookup():
 
 
 @pytest.mark.asyncio
+async def test_end_if_pending_only_pops_pending():
+    reg = _Reg()
+    # A pending session is popped and returned.
+    sess = await reg.remote_create("chan", "10", _Sock(), "20", _Sock())
+    removed = await reg.remote_end_if_pending(sess.session_id)
+    assert removed is sess
+    assert reg.remote_get(sess.session_id) is None
+    # An ACTIVE session is left untouched (a decline can't tear it down).
+    sess2 = await reg.remote_create("chan", "11", _Sock(), "20", _Sock())
+    await reg.remote_activate(sess2.session_id)
+    assert await reg.remote_end_if_pending(sess2.session_id) is None
+    assert reg.remote_get(sess2.session_id).state == "active"
+    # An unknown session → None, no crash.
+    assert await reg.remote_end_if_pending("nope") is None
+
+
+@pytest.mark.asyncio
 async def test_user_has_session_for_both_peers():
     reg = _Reg()
     assert reg.remote_user_has_session("10") is False

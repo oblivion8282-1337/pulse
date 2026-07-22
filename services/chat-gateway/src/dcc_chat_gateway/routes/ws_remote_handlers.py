@@ -139,27 +139,33 @@ async def handle_respond(
     if sess.state != "pending":
         await _err(websocket, 4053, "session already answered")
         return
-    mgr.remote_cancel_timeout(session_id)
-    # The invite fanned out to every host tab; the moment one tab answers, tell
-    # the *others* to dismiss their consent dialog (stale otherwise).
-    await _dismiss_other_host_tabs(mgr, sess, answered=websocket)
+    # EVERY side effect (dismiss/notify/teardown) must happen only AFTER this tab
+    # atomically wins the answer — otherwise, in a concurrent double-answer, a
+    # losing tab's `_dismiss_other_host_tabs` broadcast could reach and reset the
+    # winning tab (orphaning a live session). Accept wins via `remote_activate`
+    # (pending→active CAS), decline via `remote_end_if_pending` (pop-if-pending);
+    # the loser gets 4053 and touches nothing.
     if not accept:
-        await mgr.remote_end(session_id)
+        removed = await mgr.remote_end_if_pending(session_id)
+        if removed is None:
+            await _err(websocket, 4053, "session already answered")
+            return
+        mgr.remote_cancel_timeout(session_id)
+        await _dismiss_other_host_tabs(mgr, removed, answered=websocket)
         await send_to_socket(
-            sess.controller_socket,
+            removed.controller_socket,
             {"op": "remote_response", "session_id": session_id, "accepted": False},
         )
         return
-    # Activate FIRST (atomic, only the first pending→active transition wins),
-    # THEN claim this socket as the authoritative host peer. Order matters: a
-    # second host tab accepting the same invite — or the session vanishing in
-    # the await window (controller disconnected) — must NOT reassign
-    # `host_socket` away from the tab that already owns the live session.
     if not await mgr.remote_activate(session_id):
         await _err(websocket, 4053, "no such session")
         return
-    # The request fanned out to every tab; this one owns the session now.
+    mgr.remote_cancel_timeout(session_id)
+    # This socket now owns the live session (authoritative host peer for signal
+    # forwarding). Only the winner dismisses the other tabs → no tab can dismiss
+    # the winner.
     sess.host_socket = websocket
+    await _dismiss_other_host_tabs(mgr, sess, answered=websocket)
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
