@@ -35,7 +35,7 @@ const clampU16 = (n: number): number => Math.max(0, Math.min(65535, Math.round(n
 const clampI16 = (n: number): number => Math.max(-32768, Math.min(32767, Math.round(n)));
 
 /** Legt einen `len`-Byte-Frame mit Opcode in Byte 0 an und liefert Buffer + View (little-endian setzt der Aufrufer). */
-function frame(len: number, opcode: number): [Uint8Array, DataView] {
+function frame(len: number, opcode: number): [Uint8Array<ArrayBuffer>, DataView] {
   const buf = new Uint8Array(len);
   const dv = new DataView(buf.buffer);
   buf[0] = opcode;
@@ -43,12 +43,12 @@ function frame(len: number, opcode: number): [Uint8Array, DataView] {
 }
 
 /** `0x00` Hello — MUSS die erste Nachricht auf dem DataChannel sein. */
-export function helloFrame(version = PROTOCOL_VERSION): Uint8Array {
+export function helloFrame(version = PROTOCOL_VERSION): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0x00, version & 0xff]);
 }
 
 /** `0x01` MouseMoveAbs — x/y auf 0..65535 normiert (Aufrufer rechnet Letterbox raus). */
-export function mouseMoveAbs(x: number, y: number): Uint8Array {
+export function mouseMoveAbs(x: number, y: number): Uint8Array<ArrayBuffer> {
   const [buf, dv] = frame(5, 0x01);
   dv.setUint16(1, clampU16(x), true);
   dv.setUint16(3, clampU16(y), true);
@@ -56,7 +56,7 @@ export function mouseMoveAbs(x: number, y: number): Uint8Array {
 }
 
 /** `0x02` MouseMoveRel — relatives Pixel-Delta (Pointer-Lock). */
-export function mouseMoveRel(dx: number, dy: number): Uint8Array {
+export function mouseMoveRel(dx: number, dy: number): Uint8Array<ArrayBuffer> {
   const [buf, dv] = frame(5, 0x02);
   dv.setInt16(1, clampI16(dx), true);
   dv.setInt16(3, clampI16(dy), true);
@@ -64,12 +64,12 @@ export function mouseMoveRel(dx: number, dy: number): Uint8Array {
 }
 
 /** `0x03` MouseButton — `btn` = Wire-Code (s. `mapButton`), `down` = gedrückt. */
-export function mouseButton(btn: WireButton, down: boolean): Uint8Array {
+export function mouseButton(btn: WireButton, down: boolean): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0x03, btn & 0xff, down ? 1 : 0]);
 }
 
 /** `0x04` MouseWheel — Wheel-Einheiten (120 = eine Raste), Windows-Vorzeichen. */
-export function mouseWheel(deltaV: number, deltaH: number): Uint8Array {
+export function mouseWheel(deltaV: number, deltaH: number): Uint8Array<ArrayBuffer> {
   const [buf, dv] = frame(5, 0x04);
   dv.setInt16(1, clampI16(deltaV), true);
   dv.setInt16(3, clampI16(deltaH), true);
@@ -77,7 +77,7 @@ export function mouseWheel(deltaV: number, deltaH: number): Uint8Array {
 }
 
 /** `0x05` Key — voller Scancode Set 1 (Extended als `0xE0xx`), `down` = gedrückt. */
-export function keyFrame(scan: number, down: boolean): Uint8Array {
+export function keyFrame(scan: number, down: boolean): Uint8Array<ArrayBuffer> {
   const [buf, dv] = frame(4, 0x05);
   dv.setUint16(1, scan & 0xffff, true);
   buf[3] = down ? 1 : 0;
