@@ -46,7 +46,7 @@ use windows_capture::settings::{
     ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
 };
 
-use super::source::{CaptureSource, ResolvedTarget};
+use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 use super::wgc::CaptureConfig;
 
 /// Ring-Größe: so viele teilbare BGRA-Texturen, dass der Capture-Thread Frame
@@ -97,6 +97,8 @@ impl WgcD3d12Capture {
             free_rx,
             stop_rx,
             dropped: dropped.clone(),
+            guard: target.guard(),
+            is_window: target.is_window(),
         };
         let worker = thread::Builder::new()
             .name("wgc-d3d12-capture".into())
@@ -156,6 +158,8 @@ struct SinkFlags {
     free_rx: Receiver<usize>,
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
+    guard: Option<SourceGuard>,
+    is_window: bool,
 }
 
 /// Ein Ring-Slot: teilbare D3D11-BGRA-Textur + ihr Keyed-Mutex.
@@ -173,6 +177,9 @@ struct Bridge {
     fence_value: u64,
     ring: Vec<RingSlot>,
     expected: (u32, u32),
+    /// Schwarze Ersatz-Quelltextur für den Privacy-Mask-Pfad; nur gebaut,
+    /// wenn ein `SourceGuard` existiert (s. `super::black_bgra_texture`).
+    black: Option<ID3D11Texture2D>,
 }
 
 // Die COM-Objekte + der `HANDLE` werden ausschließlich auf dem WGC-Capture-
@@ -187,6 +194,11 @@ struct D3d12FrameSink {
     stop_rx: Receiver<()>,
     dropped: Arc<AtomicU64>,
     bridge: Option<Bridge>,
+    /// Privacy-Mask beim Fenster→Monitor-Fallback (s. `source::SourceGuard`).
+    mask: MaskGate,
+    /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
+    /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
+    is_window: bool,
     /// Aufeinanderfolgende Frames mit Dimensionen != `Bridge::expected` seit
     /// dem letzten passenden Frame. Karenz gegen kurze Resize-Serien (Maus-Drag
     /// am Fensterrand) — erst bei `RESIZE_RESTART_THRESHOLD` geben wir auf.
@@ -209,6 +221,8 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             stop_rx: ctx.flags.stop_rx,
             dropped: ctx.flags.dropped,
             bridge: None,
+            mask: MaskGate::new(ctx.flags.guard),
+            is_window: ctx.flags.is_window,
             resize_mismatches: 0,
         })
     }
@@ -225,6 +239,13 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
         // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
         let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
 
+        // Privacy-Mask (Fenster→Monitor-Fallback): Quell-Fenster nicht auf dem
+        // Schirm → schwarze Ersatztextur statt der WGC-Frame in den Slot
+        // kopieren (s. `copy_into_slot`). `?` = Fenster geschlossen (Spiel
+        // beendet) → Worker endet mit Marker, `worker_finished` macht daraus
+        // einen sauberen Stop.
+        let masked = self.mask.frame_masked()?;
+
         // Erste Frame: Ring + Sync-State aus WGCs D3D11-Device bauen, `Setup`
         // mit allen NT-Handles schicken.
         if self.bridge.is_none() {
@@ -235,6 +256,7 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
                 frame.device_context().clone(),
                 width,
                 height,
+                self.mask.has_guard(),
             )
             .context("Bridge::build")?;
             // NT-Handles vor dem Move in `self.bridge` einsammeln.
@@ -307,7 +329,7 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             }
         };
 
-        match bridge.copy_into_slot(slot, src) {
+        match bridge.copy_into_slot(slot, src, masked) {
             Ok(()) => {
                 if self
                     .items_tx
@@ -323,6 +345,11 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
+        // Fenster-Target zerstört (App beendet) → sauberer Stop via Marker;
+        // Begründung s. `wgc.rs::on_closed`.
+        if self.is_window {
+            return Err(super::source_closed_err());
+        }
         Ok(())
     }
 }
@@ -334,6 +361,7 @@ impl Bridge {
         ctx: ID3D11DeviceContext,
         width: u32,
         height: u32,
+        want_mask: bool,
     ) -> Result<Self> {
         let device5: ID3D11Device5 = device.cast().context("cast ID3D11Device5")?;
         let ctx4: ID3D11DeviceContext4 = ctx.cast().context("cast ID3D11DeviceContext4")?;
@@ -379,6 +407,12 @@ impl Bridge {
             ring.push(RingSlot { texture, mutex });
         }
 
+        let black = if want_mask {
+            Some(super::black_bgra_texture(&device, width, height)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             ctx,
             ctx4,
@@ -387,6 +421,7 @@ impl Bridge {
             fence_value: 0,
             ring,
             expected: (width, height),
+            black,
         })
     }
 
@@ -413,7 +448,15 @@ impl Bridge {
 
     /// Kopiert die WGC-Quelltextur in den Ring-Slot und wartet (CPU), bis die
     /// GPU-Kopie fertig ist — danach darf der D3D12-Converter den Slot lesen.
-    fn copy_into_slot(&mut self, slot: usize, src: &ID3D11Texture2D) -> Result<()> {
+    /// `masked` ersetzt die Quelle durch die schwarze Ersatztextur
+    /// (Privacy-Mask, s. `source::SourceGuard`).
+    fn copy_into_slot(&mut self, slot: usize, src: &ID3D11Texture2D, masked: bool) -> Result<()> {
+        let src = if masked {
+            // masked ⇒ Guard existiert ⇒ `build(want_mask=true)` hat sie erzeugt.
+            self.black.as_ref().ok_or_else(|| anyhow!("Mask ohne Ersatztextur"))?
+        } else {
+            src
+        };
         let ring_slot = &self.ring[slot];
         unsafe {
             ring_slot
@@ -476,7 +519,7 @@ fn run_capture(target: ResolvedTarget, cfg: CaptureConfig, flags: SinkFlags) -> 
     let min_interval = super::min_interval_settings(cfg.max_fps);
 
     match target {
-        ResolvedTarget::Monitor(monitor) => {
+        ResolvedTarget::Monitor { monitor, .. } => {
             let settings = Settings::new(
                 monitor,
                 cursor,
