@@ -41,7 +41,6 @@ fn dispatch(req: Request) -> (Response, bool) {
         "list_monitors" => ops::list_monitors::handle(req.params),
         "list_windows" => ops::list_windows::handle(req.params),
         "list_application_audio" => ops::list_application_audio::handle(req.params),
-        "list_profiles" => ops::list_profiles::handle(req.params),
         "build_argv" => ops::build_argv::handle(req.params),
         "start" => ops::start::handle(req.params),
         "stop" => ops::stop::handle(req.params),
