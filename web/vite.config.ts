@@ -14,7 +14,18 @@ export default defineConfig({
     paraglideVitePlugin({
       project: './project.inlang',
       outdir: './src/lib/paraglide',
-      strategy: ['localStorage', 'preferredLanguage', 'baseLocale']
+      strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
+      // Eine Datei pro Sprache statt einer pro Nachricht. Der Default
+      // ('message-modules') erzeugte 2630 Einzelmodule; da `messages.js` sie
+      // per `export *` sammelt und praktisch jede Komponente daraus
+      // importiert, holte der Browser im DEV-Modus alle 2630 einzeln — der
+      // Grund, warum das Electron-Dev-Fenster ewig zum Laden brauchte (der
+      // Prod-Build bündelt sie, war deshalb nie betroffen). Paraglide
+      // empfiehlt diese Struktur selbst für große Projekte im Dev.
+      // MUSS mit dem `--output-structure`-Flag in `package.json`
+      // (`paraglide:compile`) übereinstimmen — das läuft in `predev`/`check`
+      // und würde sonst wieder Einzelmodule schreiben.
+      outputStructure: 'locale-modules'
     })
   ],
   build: {
@@ -40,6 +51,13 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '127.0.0.1',
+    watch: {
+      // `pnpm build` schreibt nach `web/build/` — im Watcher löste jeder
+      // Produktions-Build dort Datei-Ereignisse und damit ein volles
+      // Neuladen der laufenden Dev-Sitzung aus (`page reload build/index.html`).
+      // Build-Ausgaben gehören nie in den Dev-Watcher.
+      ignored: ['**/build/**', '**/.svelte-kit/output/**']
+    },
     proxy: {
       '/api/auth': {
         target: 'http://127.0.0.1:8001',
