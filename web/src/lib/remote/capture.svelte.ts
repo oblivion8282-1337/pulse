@@ -178,10 +178,10 @@ class RemoteInputCapture {
   #onDown = (e: MouseEvent): void => this.#onButton(e, true);
   #onUp = (e: MouseEvent): void => this.#onButton(e, false);
   #onButton(e: MouseEvent, down: boolean): void {
-    if (!this.#active()) return;
     const btn = mapButton(e.button);
     if (btn === undefined) return;
     if (down) {
+      if (!this.#active()) return;
       // Down nur übers Videobild (kein Klick im Letterbox) bzw. im Lock-Modus.
       if (!this.pointerLocked && this.#toAbs(e) === null) return;
       e.preventDefault();
