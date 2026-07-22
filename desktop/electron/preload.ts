@@ -92,10 +92,12 @@ contextBridge.exposeInMainWorld('pulse', {
     // die Input-Injektion (M2c). Alles auf Slot 0 (der Tee hängt am laufenden
     // Stream). Answer/ICE des Sidecars kommen als `remote_signal`-Events über
     // `onEvent` zurück, `remote_state` meldet den Verbindungszustand.
-    remoteStart: (params: unknown) => gsrCall('remote_start', params, 0),
-    remoteSignal: (kind: string, data: string) =>
-      gsrCall('remote_signal', { kind, data }, 0),
-    remoteStop: () => gsrCall('remote_stop', {}, 0),
+    // `slot` = der Stream-Slot, auf dem der Host tatsächlich streamt (jeder Slot
+    // ist ein eigener Sidecar-Prozess; der Tee hängt an DESSEN Encoder). Default 0.
+    remoteStart: (params: unknown, slot = 0) => gsrCall('remote_start', params, slot),
+    remoteSignal: (kind: string, data: string, slot = 0) =>
+      gsrCall('remote_signal', { kind, data }, slot),
+    remoteStop: (slot = 0) => gsrCall('remote_stop', {}, slot),
 
     /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
      *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
