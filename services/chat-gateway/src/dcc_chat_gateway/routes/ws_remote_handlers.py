@@ -130,6 +130,15 @@ async def handle_respond(
     if sess is None or sess.host_user_id != str(user.id):
         await _err(websocket, 4053, "no such session")
         return
+    # Only a still-pending session may be answered. A second respond of EITHER
+    # polarity — a second host tab, or the same tab changing its mind after
+    # accepting — must NOT tear down or re-notify an already-active session
+    # (decline would otherwise `remote_end` a live session; both would fan out a
+    # stale `remote_canceled`). Bail before any side effect so accept and decline
+    # are symmetric with the activate guard below.
+    if sess.state != "pending":
+        await _err(websocket, 4053, "session already answered")
+        return
     mgr.remote_cancel_timeout(session_id)
     # The invite fanned out to every host tab; the moment one tab answers, tell
     # the *others* to dismiss their consent dialog (stale otherwise).

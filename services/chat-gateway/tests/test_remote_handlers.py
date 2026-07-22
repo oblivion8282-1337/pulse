@@ -297,6 +297,38 @@ async def test_second_tab_accept_does_not_hijack_active_session(ws_app, _auth_si
 
 
 @pytest.mark.asyncio
+async def test_respond_on_active_session_rejected(ws_app, _auth_signer):
+    """A second respond of EITHER polarity on an already-active session is
+    rejected 4053 and does NOT tear it down — a decline must not kill a live
+    session, a second accept must not hijack it. The live signalling survives."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                ctrl_ws.send_json(
+                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                )
+                sid = _drain_for(host_ws, "remote_request")["session_id"]
+                host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                assert _drain_for(host_ws, "remote_response")["accepted"] is True
+                _drain_for(ctrl_ws, "remote_response")
+                # Decline the now-active session → 4053, session must survive.
+                host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": False})
+                assert _drain_for(host_ws, "error")["code"] == 4053
+                # Signalling still forwards (session intact, host_socket unchanged).
+                host_ws.send_json(
+                    {"op": "remote_signal", "session_id": sid, "kind": "answer", "data": {"sdp": "v=0"}}
+                )
+                assert _drain_for(ctrl_ws, "remote_signal")["kind"] == "answer"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_pending_disconnect_dismisses_all_host_tabs(ws_app, _auth_signer):
     """Controller drops while the request is still pending → EVERY host tab is
     told to dismiss its consent dialog, not just the representative socket that
