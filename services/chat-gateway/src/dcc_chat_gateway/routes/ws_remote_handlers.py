@@ -144,7 +144,12 @@ async def handle_respond(
     # The tab that accepted is the authoritative host peer for signal forwarding
     # (the request fanned out to every tab; this one owns the session now).
     sess.host_socket = websocket
-    await mgr.remote_activate(session_id)
+    if not await mgr.remote_activate(session_id):
+        # The session vanished in the await window above (e.g. the controller
+        # disconnected) — don't tell the host it's live, or it hangs in
+        # 'connecting' waiting for a peer that is gone.
+        await _err(websocket, 4053, "no such session")
+        return
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
@@ -241,5 +246,11 @@ async def cleanup_remote_on_disconnect(websocket: WebSocket, manager) -> None:
                     "reason": "peer_disconnected",
                 },
             )
+            # A pending session's invite is still up on EVERY host tab (only the
+            # representative socket is `host_socket`); tell the rest to dismiss,
+            # else their consent dialog hangs (a later accept hits 4053, which
+            # the host frontend ignores in the 'incoming' phase).
+            if removed.state != "active":
+                await _dismiss_other_host_tabs(manager, removed, answered=websocket)
         except Exception:  # noqa: BLE001
             log.exception("remote disconnect cleanup failed for session %s", sess.session_id)

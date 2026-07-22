@@ -12,6 +12,14 @@ coturn validiert das selbst aus demselben ``static-auth-secret`` — der Server
 muss die einzelnen Credentials nicht speichern. TTL kurz halten
 (``turn_ttl_s``, Default 300 s): der Client holt die Liste kurz vor jeder
 Session.
+
+**Single-Pod-Kopplung:** TURN-Creds gibt es nur, wenn der User Peer einer
+laufenden Fernsteuerungs-Session ist — und die Session liegt im **in-process**
+Registry (``remote_registry``, wie ``watch_registry``). Diese HTTP-Route muss
+also **denselben Gateway-Pod** treffen wie der WebSocket des Users, sonst findet
+``remote_user_has_session`` nichts und TURN bleibt aus (STUN kommt weiter). Heute
+gegeben (ein Container); ein Multi-Pod-Deploy bräuchte hier ein Redis-Relay
+analog zum SDP/ICE-Weiterreichen.
 """
 
 from __future__ import annotations
