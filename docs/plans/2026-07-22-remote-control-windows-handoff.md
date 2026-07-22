@@ -11,15 +11,28 @@ NAT/TURN) — Details: `docs/2026-07-21-remote-control-latenz-messung.md`.
 
 **Branch:** `feat/remote-control-windows` (dieser). Nichts nach `main` gemergt.
 
+> **Nachtrag Windows-Session 2026-07-22:** Aufgaben 1+2 sind erledigt. M0
+> bestanden (Δ 0 px auf 3 Monitoren; Einschränkung: alle 100 % Skalierung —
+> Mixed-DPI real noch nicht ausgeübt, nur `PER_MONITOR_AWARE_V2` gesetzt).
+> M2b + Fix kompilieren auf Windows **ohne einen einzigen Fix** (`cargo check
+> --all-targets` sauber, 9 Tests grün); keine der unten erwarteten Fix-Stellen
+> ist eingetreten. Branch auf main (4b81de95, v0.1.39) rebased — ein trivialer
+> `lib.rs`-Modulkonflikt (`redact` vs `remote`, beide behalten). Das
+> Input-Wire-Protokoll v1 ist mit dem User entschieden:
+> `docs/plans/2026-07-22-remote-control-input-wire-protokoll.md` — damit ist
+> M2c startklar. Aufgabe 3 (Verhaltens-Test) bleibt offen, sie braucht den
+> M3-Controller.
+
 ## Meilenstein-Stand
 
 | | Was | Stand |
 |---|---|---|
-| M0 | Windows-Input-PoC (`streaming/win-input-poc/`) | startklar, noch nicht auf Windows gelaufen |
+| M0 | Windows-Input-PoC (`streaming/win-input-poc/`) | ✅ bestanden auf Windows (Δ 0 px, 3 Monitore; Mixed-DPI offen) |
 | M1 | `remote:*`-WS-Slice + `REMOTE_CONTROL`-Bit (chat-gateway) | ✅ verifiziert (14 Tests + Consent-Review), Linux |
-| M2a | webrtc-Kern `streaming/pulse-remote-webrtc` | ✅ headless verifiziert (Chromium-Interop) |
-| M2b | Sidecar-Tee + `RemoteController` (`win-hq-sidecar`) | **Draft — Windows-cargo-check offen** |
-| Fix | Keyframe auf RTCP-PLI/FIR (Startverzögerung) | lib ✅ / Sidecar **Draft** |
+| M2a | webrtc-Kern `streaming/pulse-remote-webrtc` | ✅ headless verifiziert (Chromium-Interop) + baut auf Windows |
+| M2b | Sidecar-Tee + `RemoteController` (`win-hq-sidecar`) | ✅ kompiliert auf Windows, Tests grün — Verhaltens-Test offen |
+| Fix | Keyframe auf RTCP-PLI/FIR (Startverzögerung) | lib ✅ / Sidecar ✅ kompiliert — Wirkung am Stream offen |
+| M2c | Input-Wire-Protokoll v1 | ✅ spezifiziert (User-entschieden) — Implementierung offen |
 
 ## Aufgaben auf Windows (Reihenfolge)
 
