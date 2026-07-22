@@ -131,6 +131,9 @@ async def handle_respond(
         await _err(websocket, 4053, "no such session")
         return
     mgr.remote_cancel_timeout(session_id)
+    # The invite fanned out to every host tab; the moment one tab answers, tell
+    # the *others* to dismiss their consent dialog (stale otherwise).
+    await _dismiss_other_host_tabs(mgr, sess, answered=websocket)
     if not accept:
         await mgr.remote_end(session_id)
         await send_to_socket(
@@ -145,6 +148,15 @@ async def handle_respond(
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
+
+
+async def _dismiss_other_host_tabs(mgr, sess, *, answered) -> None:
+    """Tell every host tab except the one that answered to drop the pending
+    consent prompt for this session."""
+    frame = {"op": "remote_canceled", "session_id": sess.session_id}
+    for hs in mgr.remote_user_sockets(sess.host_user_id):
+        if hs is not answered:
+            await send_to_socket(hs, frame)
 
 
 async def handle_signal(

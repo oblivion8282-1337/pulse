@@ -230,6 +230,37 @@ async def test_remote_disconnect_notifies_peer(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_other_host_tabs_told_to_dismiss(ws_app, _auth_signer):
+    """The invite fans out to every host tab; when one answers, the others get
+    a ``remote_canceled`` so their consent dialog dismisses (accept + decline)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            # Two host tabs (same user, two sockets) + the controller.
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_a, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_b:
+                for ws in (ctrl_ws, host_a, host_b):
+                    skip_init_frames(ws)
+
+                ctrl_ws.send_json(
+                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                )
+                sid = _drain_for(host_a, "remote_request")["session_id"]
+                _drain_for(host_b, "remote_request")
+
+                # Tab A accepts → tab B is told to dismiss its (now stale) prompt.
+                host_a.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                cancel = _drain_for(host_b, "remote_canceled")
+                assert cancel["session_id"] == sid
+                # The accepting tab gets its own remote_response, not a cancel.
+                assert _drain_for(host_a, "remote_response")["accepted"] is True
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:

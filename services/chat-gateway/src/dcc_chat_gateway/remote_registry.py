@@ -119,6 +119,17 @@ class _RemoteRegistryMixin:
     def remote_get(self, session_id: str) -> RemoteSession | None:
         return self._remote_sessions.get(session_id)
 
+    def remote_user_has_session(self, user_id: int | str) -> bool:
+        """Is ``user_id`` a peer (host or controller) of any current session?
+        Used to gate TURN-credential issuance: only a user actually in a
+        remote-control session (which already passed the REMOTE_CONTROL check)
+        may mint relay credentials."""
+        uid = str(user_id)
+        return any(
+            sess.host_user_id == uid or sess.controller_user_id == uid
+            for sess in self._remote_sessions.values()
+        )
+
     async def remote_end(self, session_id: str) -> RemoteSession | None:
         """Remove the session and return it (or ``None`` if already gone), so
         the caller can notify the other peer."""

@@ -86,6 +86,21 @@ async def test_user_sockets_lookup():
 
 
 @pytest.mark.asyncio
+async def test_user_has_session_for_both_peers():
+    reg = _Reg()
+    assert reg.remote_user_has_session("10") is False
+    sess = await reg.remote_create("chan", "10", _Sock(), "20", _Sock())
+    # Host and controller both count as being in a session; a bystander doesn't.
+    assert reg.remote_user_has_session("10") is True  # host
+    assert reg.remote_user_has_session(20) is True  # controller, int id coerced
+    assert reg.remote_user_has_session("30") is False
+    # Ending the session clears it for both.
+    await reg.remote_end(sess.session_id)
+    assert reg.remote_user_has_session("10") is False
+    assert reg.remote_user_has_session("20") is False
+
+
+@pytest.mark.asyncio
 async def test_pending_timeout_notifies_controller_and_drops():
     reg = _Reg()
     ctrl_ws = _Sock()

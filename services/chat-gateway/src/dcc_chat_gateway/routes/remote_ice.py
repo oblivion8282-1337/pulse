@@ -21,7 +21,7 @@ import hashlib
 import hmac
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.security import CurrentUser
@@ -42,11 +42,27 @@ def _credential_for(secret: str, user_id: str, expiry: int) -> tuple[str, str]:
     return username, base64.b64encode(digest).decode()
 
 
+def _user_in_remote_session(request: Request, user_id: int) -> bool:
+    """Whether the caller is a peer of a live remote-control session (host or
+    controller). Missing manager (tests / not wired) ⇒ ``False`` — TURN creds
+    are then withheld, STUN is still served."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    check = getattr(mgr, "remote_user_has_session", None)
+    return bool(check(user_id)) if callable(check) else False
+
+
 @router.get("/remote/ice-servers")
-async def remote_ice_servers(user: CurrentUser) -> dict[str, object]:
+async def remote_ice_servers(request: Request, user: CurrentUser) -> dict[str, object]:
     settings = chat_config.get_settings()
     servers: list[dict[str, object]] = [{"urls": settings.stun_url}]
-    if settings.turn_url and settings.turn_secret:
+    # TURN relays real media — only hand out (short-lived) relay credentials to a
+    # user who is actually in a remote-control session, so the endpoint can't be
+    # abused as an open TURN-credential vendor by any authenticated account.
+    if (
+        settings.turn_url
+        and settings.turn_secret
+        and _user_in_remote_session(request, user.id)
+    ):
         username, credential = ephemeral_turn_credential(
             settings.turn_secret, str(user.id), settings.turn_ttl_s
         )
