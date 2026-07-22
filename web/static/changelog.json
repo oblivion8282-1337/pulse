@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-22",
+      "date": "2026-07-22",
+      "style": "Sachlich",
+      "title": "Bildschirm- und Fensterübertragung: Vollbild-Spiele, Ton-Vorauswahl und aufgeräumte Auswahl",
+      "items": [
+        "Behoben: Spiele im Vollbild ließen sich nicht mehr übertragen. Die Auswahl schlug fehl, weil das Spiel beim Wechsel zu Pulse minimiert wird.",
+        "Neu: Wird ein Fenster übertragen, ist nie der Desktop zu sehen. Ist das Fenster minimiert, bleibt das Bild schwarz.",
+        "Neu: Wird das übertragene Fenster geschlossen, endet die Übertragung von selbst.",
+        "Neu: Die Fensterauswahl zeigt lesbare Programmnamen und die Auflösung statt Dateinamen. Systemfenster erscheinen nicht mehr.",
+        "Neu: Die Auflösungsliste zeigt nur Stufen, die wirklich verkleinern — samt der Größe, die tatsächlich übertragen wird.",
+        "Neu: Der Ton wird zur Quelle passend vorgewählt: Bildschirm → Systemton, Fenster → Ton dieses Programms.",
+        "Verbessert: Der Einstellungsdialog nutzt die Breite und ist dadurch deutlich kürzer.",
+        "Behoben: Die Übertragung startet nach einem Auflösungswechsel der Quelle automatisch neu, statt mit einer Fehlermeldung stehen zu bleiben."
+      ]
+    },
+    {
       "id": "2026-07-21",
       "date": "2026-07-21",
       "style": "Sachlich",
