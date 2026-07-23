@@ -110,6 +110,10 @@ CORE_OPS: frozenset[str] = frozenset({
     "watch_join",
     "watch_leave",
     "watch_handoff",
+    "watch_queue_add",
+    "watch_queue_remove",
+    "watch_queue_move",
+    "watch_queue_advance",
     "profile_statement",
 })
 

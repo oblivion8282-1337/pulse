@@ -76,6 +76,14 @@ export const gateway = {
   sendWatchLeave: (cid: string, pid: string) => _active().sendWatchLeave(cid, pid),
   sendWatchHandoff: (cid: string, pid: string, target?: string) =>
     _active().sendWatchHandoff(cid, pid, target),
+  watchQueueAdd: (cid: string, pid: string, url: string) =>
+    _active().watchQueueAdd(cid, pid, url),
+  watchQueueRemove: (cid: string, pid: string, itemId: string) =>
+    _active().watchQueueRemove(cid, pid, itemId),
+  watchQueueMove: (cid: string, pid: string, itemId: string, index: number) =>
+    _active().watchQueueMove(cid, pid, itemId, index),
+  watchQueueAdvance: (cid: string, pid: string, itemId?: string) =>
+    _active().watchQueueAdvance(cid, pid, itemId),
   sendActivity: () => _active().sendActivity(),
   sendTyping: (cid: string) => _active().sendTyping(cid),
   sendPluginOp: (op: string, payload?: Record<string, unknown>) =>

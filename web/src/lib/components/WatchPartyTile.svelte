@@ -1,10 +1,11 @@
 <!--
   WatchPartyTile — eine aktive Watch-Party in einem Voice-Channel.
 
-  Native Player-Chrome ist für alle aktiv — sonst gibt's keinen Lautstärke-
-  Slider / Qualitäts-Picker / Fullscreen-Button (wir können in einem
-  iframe-Player nicht selektiv nur play/pause ausblenden). Trade-off:
-  Viewer kann lokal pausieren/seeken; das broadcasted aber nichts.
+  YouTube-Zuschauer bekommen einen read-only Player (`interactive=false` →
+  controls:0), damit NUR der Host die Wiedergabe steuert. Der dabei entfallende
+  Lautstärke-Regler wird übers TileShell-HUD ersetzt, ein Klick-Fänger über dem
+  iframe schluckt Video-Klicks (YouTube pausiert sonst auch ohne Chrome). Der
+  Host behält die volle native Steuerung. Twitch/Native folgen später.
 
   Die gesamte Host/Viewer-Sync-Orchestrierung (Drift-Korrektur, Heartbeat,
   Broadcast-Debounce, Programmatic-Sync-Guard) lebt im PartyController
@@ -23,6 +24,7 @@
   import ReplaceIcon from '@lucide/svelte/icons/replace';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
+  import WatchQueuePanel from './WatchQueuePanel.svelte';
   import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
   import WatchSourceDialog from './WatchSourceDialog.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -52,8 +54,18 @@
 
   let { channelId, party, canDetach = true }: Props = $props();
 
-  // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
+  // Rechtes Seitenpanel: Chat ODER Warteschlange, nie beide gleichzeitig
+  // (teilen sich den Slot). Die beiden Toggles schliessen sich gegenseitig.
   let chatOpen = $state(false);
+  let queueOpen = $state(false);
+  function toggleChat(): void {
+    chatOpen = !chatOpen;
+    if (chatOpen) queueOpen = false;
+  }
+  function toggleQueue(): void {
+    queueOpen = !queueOpen;
+    if (queueOpen) chatOpen = false;
+  }
   let myId = $derived(currentServerUserId());
   // party_id is invariant for a tile instance (the grid keys tiles by it).
   // $derived (not a plain const) keeps it reactive-clean for the send helpers.
@@ -77,12 +89,40 @@
   const isYouTube = $derived(party.source.type === 'youtube');
   const autoplay = $derived(isPassive || party.is_playing);
 
+  // Zuschauer eines YouTube-Videos bekommen einen read-only Player (Punkt 2):
+  // keine native Wiedergabe-Steuerung, nur Zusehen. Fokus YouTube — Twitch und
+  // Native folgen demselben Muster später.
+  const viewerReadonly = $derived(!isHost && isYouTube);
+
   const controller = new PartyController(
     () => channelId,
     () => party,
     () => isHost,
     () => isPassive
   );
+
+  // Eigenes Lautstärke-Control für den read-only Zuschauer-Player: der native
+  // YT-Regler fehlt bei controls:0, also reicht die Kachel die Lautstärke über
+  // den Controller an den Player durch (0–100). Der Host nutzt weiter den
+  // nativen Regler seiner vollen Chrome.
+  let viewerVolume = $state(100);
+  let volBeforeMute = 100;
+  // Slider-Anzeige und Player immer im Gleichschritt setzen.
+  function setViewerVolume(percent: number): void {
+    viewerVolume = percent;
+    controller.setVolume(percent);
+  }
+  function onViewerVolume(e: Event): void {
+    setViewerVolume(Number((e.currentTarget as HTMLInputElement).value));
+  }
+  function onViewerMute(): void {
+    if (viewerVolume > 0) {
+      volBeforeMute = viewerVolume;
+      setViewerVolume(0);
+    } else {
+      setViewerVolume(volBeforeMute || 100);
+    }
+  }
   function handleReady(handle: PlayerHandle): void {
     controller.onReady(handle);
     // The player handle is a plain field, not reactive — assigning it does NOT
@@ -196,6 +236,12 @@
   // aktualisieren — sonst bleibt das alte Video stehen.
   const sourceKey = $derived(JSON.stringify(party.source));
 
+  // Der Player liest `interactive`/`controls` nur beim Mount → ein Handoff
+  // (isHost flippt) muss den Player komplett neu mounten, damit ein neuer Host
+  // die native Steuerung bekommt bzw. ein degradierter Ex-Host sie verliert.
+  // sourceKey deckt den Quellenwechsel ab, isHost den Rollenwechsel.
+  const playerKey = $derived(sourceKey + ':' + isHost);
+
   // Viewer-Hinweis, wenn der Host live das Video wechselt — sonst wirkt der
   // kurze Player-Reload wie ein Bug. Nicht für den Host selbst, nicht beim
   // ersten Mount.
@@ -230,8 +276,13 @@
   staticHud
   name={sourceLabel}
   nameTestid="watch-party-source-label"
+  volume={viewerReadonly ? viewerVolume : undefined}
+  onVolumeChange={viewerReadonly ? onViewerVolume : undefined}
+  onToggleMute={viewerReadonly ? onViewerMute : undefined}
   {chatOpen}
-  onToggleChat={() => (chatOpen = !chatOpen)}
+  onToggleChat={toggleChat}
+  {queueOpen}
+  onToggleQueue={toggleQueue}
   onDetach={canDetach ? handleDetach : undefined}
   onHide={() => {
     // Explizites Schließen der Kachel per X: ein Zuschauer verlässt damit die
@@ -246,13 +297,14 @@
 >
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">
-      <!-- Quellenwechsel = neuer Player: sourceKey erzwingt ein Remount, weil
-           die Player ihre Quelle nur beim Mount lesen (siehe sourceKey oben). -->
-      {#key sourceKey}
+      <!-- Remount bei Quellen- ODER Rollenwechsel: die Player lesen Quelle und
+           `interactive` nur beim Mount (siehe playerKey oben). -->
+      {#key playerKey}
         {#if party.source.type === 'youtube'}
           <YouTubePlayer
             source={party.source}
             autoplay={autoplay}
+            interactive={isHost}
             onReady={handleReady}
             onEvent={handleEvent}
           />
@@ -272,6 +324,17 @@
           />
         {/if}
       {/key}
+      {#if viewerReadonly}
+        <!-- Klick-Fänger: YouTube pausiert auch ohne sichtbare Steuerung bei
+             einem Klick aufs Video. Dieses Overlay schluckt solche Klicks, damit
+             nur der Host die Wiedergabe steuert. Vollbild bleibt über den Knopf
+             in der Leiste erreichbar. -->
+        <div
+          class="absolute inset-0 z-10"
+          data-testid="watch-party-viewer-lock"
+          aria-hidden="true"
+        ></div>
+      {/if}
     </div>
   {/snippet}
   {#snippet nameExtra()}
@@ -338,6 +401,9 @@
   {/snippet}
   {#snippet chatPanel()}
     <WatchChatPanel {channelId} {partyId} onClose={() => (chatOpen = false)} />
+  {/snippet}
+  {#snippet queuePanel()}
+    <WatchQueuePanel {channelId} {partyId} {party} onClose={() => (queueOpen = false)} />
   {/snippet}
 </TileShell>
 

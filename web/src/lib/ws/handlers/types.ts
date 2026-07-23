@@ -372,6 +372,16 @@ export type ClientEvent =
   | { op: 'watch_join'; channel_id: string; party_id: string }
   | { op: 'watch_leave'; channel_id: string; party_id: string }
   | { op: 'watch_handoff'; channel_id: string; party_id: string; target_user_id?: string }
+  | { op: 'watch_queue_add'; channel_id: string; party_id: string; source_url: string }
+  | { op: 'watch_queue_remove'; channel_id: string; party_id: string; item_id: string }
+  | {
+      op: 'watch_queue_move';
+      channel_id: string;
+      party_id: string;
+      item_id: string;
+      index: number;
+    }
+  | { op: 'watch_queue_advance'; channel_id: string; party_id: string; item_id?: string }
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).

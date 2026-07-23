@@ -52,6 +52,39 @@ export function sendWatchHandoff(
   });
 }
 
+// ── Queue ────────────────────────────────────────────────────────────────
+// Anyone in the channel may enqueue; remove/move/advance are gated server-side.
+export function watchQueueAdd(
+  send: SendRaw, channelId: string, partyId: string, sourceUrl: string,
+): boolean {
+  return send({
+    op: 'watch_queue_add', channel_id: channelId, party_id: partyId, source_url: sourceUrl
+  });
+}
+export function watchQueueRemove(
+  send: SendRaw, channelId: string, partyId: string, itemId: string,
+): boolean {
+  return send({
+    op: 'watch_queue_remove', channel_id: channelId, party_id: partyId, item_id: itemId
+  });
+}
+export function watchQueueMove(
+  send: SendRaw, channelId: string, partyId: string, itemId: string, index: number,
+): boolean {
+  return send({
+    op: 'watch_queue_move', channel_id: channelId, party_id: partyId, item_id: itemId, index
+  });
+}
+/** Promote a queued video to now-playing. No `itemId` = the first item
+ *  (auto-advance when the current video ends); an id = play it now. Host only. */
+export function watchQueueAdvance(
+  send: SendRaw, channelId: string, partyId: string, itemId?: string,
+): boolean {
+  return send({
+    op: 'watch_queue_advance', channel_id: channelId, party_id: partyId, item_id: itemId
+  });
+}
+
 export function sendPluginOp(send: SendRaw, op: string, payload?: Record<string, unknown>): boolean {
   if (!op.includes(':')) {
     console.warn('[ws] sendPluginOp: op must be namespaced (e.g. "plugin:action"), got', op);

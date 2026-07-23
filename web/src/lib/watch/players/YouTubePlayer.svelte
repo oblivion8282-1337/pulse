@@ -2,11 +2,15 @@
   YouTube IFrame Player API wrapper.
 
   Loads https://www.youtube.com/iframe_api once per session (module-level
-  promise); subsequent instances reuse the loaded `window.YT`. Native player
-  chrome is always enabled so both host and viewer get volume / quality /
-  fullscreen. Viewer-side play/pause/seek don't broadcast (host-only) and
-  the WatchPartyTile holds a `viewerPaused` flag so heartbeats don't fight
-  the viewer's local pause.
+  promise); subsequent instances reuse the loaded `window.YT`.
+
+  `interactive` gates the native player chrome: the HOST gets the full YouTube
+  controls (play/pause/seek + volume/quality/fullscreen), a VIEWER gets a
+  read-only player (`controls: 0` + `disablekb: 1`) so only the host steers
+  playback. The viewer's lost volume/fullscreen is handed back via the tile's
+  own HUD; a click-catcher over the iframe (in WatchPartyTile) stops a bare
+  video-click from pausing. `interactive` is mount-time only — a handoff
+  remounts the player (WatchPartyTile keys the player on the host role).
 
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
@@ -67,11 +71,14 @@
      * its playing state — leverages the user-activation from the create/join
      * click so host + viewer don't have to press play manually. */
     autoplay?: boolean;
+    /** Host = full native controls; viewer = read-only player. Mount-time only
+     * (see file header) — the tile remounts on a host handoff. */
+    interactive?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, autoplay = false, onReady, onEvent }: Props = $props();
+  let { source, autoplay = false, interactive = true, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
 
@@ -80,6 +87,7 @@
     // mount-time only — read without tracking so a later is_playing flip
     // doesn't tear down and rebuild the player.
     const startPlaying = untrack(() => autoplay);
+    const canControl = untrack(() => interactive);
     let player: YTPlayer | undefined;
     let disposed = false;
     // CyTube's `pauseSeekRaceCondition` (player/youtube.coffee): calling
@@ -100,7 +108,10 @@
           videoId: source.embed_id,
           playerVars: {
             autoplay: startPlaying ? 1 : 0,
-            controls: 1,
+            // Viewer = read-only: no control bar, no keyboard shortcuts. The
+            // host keeps the full native chrome. See file header.
+            controls: canControl ? 1 : 0,
+            disablekb: canControl ? 0 : 1,
             modestbranding: 1,
             rel: 0,
             start: source.start_seconds ?? 0,
@@ -153,6 +164,9 @@
                 onEvent?.({ type: 'play', position: t });
               } else if (e.data === YT.PlayerState.PAUSED) {
                 onEvent?.({ type: 'pause', position: t });
+              } else if (e.data === YT.PlayerState.ENDED) {
+                // Host promotes the next queued video (WatchPartyTile).
+                onEvent?.({ type: 'ended' });
               }
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

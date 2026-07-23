@@ -22,6 +22,7 @@
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import ListVideoIcon from '@lucide/svelte/icons/list-video';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import ActivityIcon from '@lucide/svelte/icons/activity';
   import XIcon from '@lucide/svelte/icons/x';
@@ -48,6 +49,8 @@
     hasStats = false,
     chatOpen = false,
     onToggleChat,
+    queueOpen = false,
+    onToggleQueue,
     controlsExtra,
     onDetach,
     showDetach = false,
@@ -71,6 +74,8 @@
     hasStats?: boolean;
     chatOpen?: boolean;
     onToggleChat?: () => void;
+    queueOpen?: boolean;
+    onToggleQueue?: () => void;
     controlsExtra?: Snippet;
     onDetach?: () => void;
     showDetach?: boolean;
@@ -96,7 +101,9 @@
 
   // Welche Sekundär-Aktionen liegen vor → bestimmt, ob das ⋯-Menü im
   // Narrow-Modus überhaupt nötig ist.
-  const hasOverflow = $derived(hasStats || !!onToggleChat || showDetach || !!onHide);
+  const hasOverflow = $derived(
+    hasStats || !!onToggleChat || !!onToggleQueue || showDetach || !!onHide
+  );
 </script>
 
 {#snippet fullscreenBtn()}
@@ -186,6 +193,19 @@
           <ActivityIcon class={ICON} />
         </button>
       {/if}
+      {#if onToggleQueue}
+        <button
+          type="button"
+          onclick={() => onToggleQueue?.()}
+          class={btn(queueOpen)}
+          aria-label={queueOpen ? m.watch_queue_close() : m.watch_queue_open()}
+          aria-pressed={queueOpen}
+          title={m.watch_queue_title()}
+          data-testid={`${testidPrefix}-queue-toggle`}
+        >
+          <ListVideoIcon class={ICON} />
+        </button>
+      {/if}
       {#if onToggleChat}
         <button
           type="button"
@@ -253,6 +273,15 @@
               >
                 <ActivityIcon class={ICON} />
                 {statsVisible.on ? m.tile_shell_stats_hide() : m.tile_shell_stats_show()}
+              </DropdownMenu.Item>
+            {/if}
+            {#if onToggleQueue}
+              <DropdownMenu.Item
+                onclick={() => onToggleQueue?.()}
+                data-testid={`${testidPrefix}-queue-toggle`}
+              >
+                <ListVideoIcon class={ICON} />
+                {queueOpen ? m.watch_queue_close() : m.watch_queue_open()}
               </DropdownMenu.Item>
             {/if}
             {#if onToggleChat}

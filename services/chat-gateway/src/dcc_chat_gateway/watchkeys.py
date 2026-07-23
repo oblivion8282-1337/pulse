@@ -24,7 +24,17 @@ State shape (all snowflake-ish ids as strings):
     "is_playing":   bool,
     "updated_at":   int unix ms,
     "started_at":   int unix ms,
+    "queue":        [{"id": "<qid>", "source": {...},
+                     "submitted_by": "<uid>", "submitted_at": int ms}, ...],
   }
+
+The queue lets anyone in the channel line up the next videos; the host
+moderates order + removal. Because *several* users can enqueue at once (unlike
+the host-only control ops), the queue mutations run through an optimistic
+WATCH/MULTI retry (:func:`mutate_queue`) so concurrent adds can't clobber each
+other on the read-modify-write of the shared state JSON. (Python json handles
+an empty ``queue`` as ``[]``; a Lua/cjson round-trip would mis-serialise it as
+``{}``.)
 """
 
 from __future__ import annotations
@@ -34,12 +44,19 @@ import os
 import time
 
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 from dcc_shared.events import WatchStateSnapshot
 
 WATCH_STATE_KEY = "watch:channel-{channel_id}"
 WATCH_EVENTS_CHANNEL = "watch:events"
 WATCH_TTL_SECONDS = 6 * 3600
+
+# Cap on queued-up videos per party — generous, just a flood guard.
+MAX_QUEUE_ITEMS = 100
+# WATCH/MULTI retry budget for a contended queue mutation. Contention is only
+# between the rare simultaneous enqueues, so a handful of tries is plenty.
+_QUEUE_WATCH_RETRIES = 5
 
 # Hard cap on concurrent watch parties in a single voice channel. Keeps one
 # channel's grid from being flooded; same order of magnitude as HQ-stream tiles.
@@ -265,3 +282,138 @@ async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:
         WATCH_EVENTS_CHANNEL,
         json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
     )
+
+
+# ── Queue ────────────────────────────────────────────────────────────────────
+#
+# The queue is a ``queue`` list inside the party state. Every mutation is a
+# read-modify-write under WATCH/MULTI so simultaneous enqueues from different
+# users don't clobber each other. The ``mutate`` callbacks return an error-code
+# string to abort the write (surfaced to the caller) or ``None`` on success.
+
+
+async def _mutate_queue(redis: Redis, channel_id: str, party_id: str, mutate) -> object:
+    """Optimistic read-modify-write of one party's state.
+
+    ``mutate(state) -> str | None`` edits ``state`` in place; a returned string
+    is an error code that aborts the write. Returns the new state dict on
+    success (and publishes it, paired with the write), the error code on abort,
+    or ``None`` if the party is gone. ``"CONTENDED"`` if the retry budget is
+    exhausted (never seen in practice — enqueue contention is tiny)."""
+    key = WATCH_STATE_KEY.format(channel_id=channel_id)
+    pid = str(party_id)
+    async with redis.pipeline() as pipe:
+        for _ in range(_QUEUE_WATCH_RETRIES):
+            try:
+                await pipe.watch(key)
+                state = _parse_state(await pipe.hget(key, pid))
+                if state is None:
+                    await pipe.unwatch()
+                    return None
+                err = mutate(state)
+                if err is not None:
+                    await pipe.unwatch()
+                    return err
+                pipe.multi()
+                pipe.hset(key, pid, json.dumps(state, separators=(",", ":")))
+                pipe.expire(key, WATCH_TTL_SECONDS)
+                await pipe.execute()
+                snapshot = WatchStateSnapshot(
+                    channel_id=str(channel_id), party_id=pid, state=state
+                )
+                await redis.publish(
+                    WATCH_EVENTS_CHANNEL,
+                    json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
+                )
+                return state
+            except WatchError:
+                continue
+    return "CONTENDED"
+
+
+def _find_index(queue: list, qid: str) -> int:
+    return next((i for i, it in enumerate(queue) if str(it.get("id")) == qid), -1)
+
+
+async def queue_add(redis: Redis, channel_id: str, party_id: str, item: dict) -> object:
+    """Append a ``{id, source, submitted_by, submitted_at}`` item. Anyone in the
+    channel may enqueue — the membership/VIEW check is the handler's job."""
+
+    def mutate(state: dict) -> str | None:
+        queue = state.setdefault("queue", [])
+        if len(queue) >= MAX_QUEUE_ITEMS:
+            return "FULL"
+        queue.append(item)
+        return None
+
+    return await _mutate_queue(redis, channel_id, party_id, mutate)
+
+
+async def queue_remove(
+    redis: Redis, channel_id: str, party_id: str, qid: str, requester_id: str
+) -> object:
+    """Drop one queued item. Allowed for the host (moderation) or the user who
+    submitted it. ``FORBIDDEN`` otherwise, ``NOTFOUND`` if the id is gone."""
+
+    def mutate(state: dict) -> str | None:
+        queue = state.setdefault("queue", [])
+        idx = _find_index(queue, qid)
+        if idx < 0:
+            return "NOTFOUND"
+        is_host = requester_id == str(state.get("host_user_id"))
+        if not is_host and str(queue[idx].get("submitted_by")) != requester_id:
+            return "FORBIDDEN"
+        queue.pop(idx)
+        return None
+
+    return await _mutate_queue(redis, channel_id, party_id, mutate)
+
+
+async def queue_move(
+    redis: Redis, channel_id: str, party_id: str, qid: str, new_index: int, requester_id: str
+) -> object:
+    """Reorder a queued item (host only). ``new_index`` is 0-based and clamped
+    into range."""
+
+    def mutate(state: dict) -> str | None:
+        if requester_id != str(state.get("host_user_id")):
+            return "FORBIDDEN"
+        queue = state.setdefault("queue", [])
+        idx = _find_index(queue, qid)
+        if idx < 0:
+            return "NOTFOUND"
+        item = queue.pop(idx)
+        queue.insert(max(0, min(new_index, len(queue))), item)
+        return None
+
+    return await _mutate_queue(redis, channel_id, party_id, mutate)
+
+
+async def queue_advance(
+    redis: Redis, channel_id: str, party_id: str, requester_id: str, qid: str = "", *,
+    now_ms_val: int | None = None,
+) -> object:
+    """Promote a queued item to the live source (host only). ``qid`` empty =
+    the first item (auto-advance when a video ends); a specific id = play it
+    now, skipping ahead. The item leaves the queue; playback resets to its
+    start. ``EMPTY`` if nothing is queued, ``NOTFOUND`` for an unknown id."""
+
+    now = now_ms_val if now_ms_val is not None else now_ms()
+
+    def mutate(state: dict) -> str | None:
+        if requester_id != str(state.get("host_user_id")):
+            return "FORBIDDEN"
+        queue = state.setdefault("queue", [])
+        if not queue:
+            return "EMPTY"
+        idx = 0 if not qid else _find_index(queue, qid)
+        if idx < 0:
+            return "NOTFOUND"
+        item = queue.pop(idx)
+        state["source"] = item.get("source")
+        state["position"] = 0.0
+        state["is_playing"] = True
+        state["updated_at"] = now
+        return None
+
+    return await _mutate_queue(redis, channel_id, party_id, mutate)
