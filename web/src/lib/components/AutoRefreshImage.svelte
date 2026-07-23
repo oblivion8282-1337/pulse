@@ -13,11 +13,21 @@
   Presigned URLs expire after ~30 min; a fetch that comes back 403 triggers a
   one-shot re-sign via the refresh endpoint, then a single re-fetch.
 
+  The decoded blob is kept in a shared, ref-counted cache (`blobCache.ts`)
+  keyed by attachment id + variant. The message list is virtualised, so the
+  same image is unmounted and re-mounted repeatedly while scrolling; without
+  the cache each remount re-fetched and the image blinked out in between.
+
+  This component does NOT decide how big it is — the caller reserves the box
+  (see `MessageAttachments`) and `klass` makes both states fill it, so the
+  placeholder → image swap causes zero layout shift.
+
   Usage:
     <AutoRefreshImage attachmentId={a.id} src={a.thumb_url} alt={a.filename} thumb />
 -->
 <script lang="ts">
   import { chatApi } from '$lib/api/chat';
+  import { acquire, release, store } from '$lib/attachments/blobCache';
 
   let {
     attachmentId,
@@ -34,50 +44,58 @@
     class?: string;
   } = $props();
 
+  // Variant matters: full image and thumbnail are different bytes for the
+  // same attachment id and must not share a cache slot.
+  const cacheKey = $derived(`${attachmentId}:${thumb ? 't' : 'f'}`);
+
   let objectUrl = $state<string | null>(null);
   let failed = $state(false);
-
-  function revoke() {
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
-  }
 
   async function fetchInto(url: string): Promise<Response> {
     return fetch(url, { credentials: 'omit' });
   }
 
-  // Load (and reload when the parent feeds a fresh src). The cleanup return
-  // revokes the previous object-URL so we don't leak blobs as messages scroll.
+  // Load (and reload when the parent feeds a fresh src). A cache hit resolves
+  // synchronously, so a remount shows the image in the very first frame.
   $effect(() => {
+    const key = cacheKey;
     const initial = src;
     let cancelled = false;
+    let held = false;
     failed = false;
 
-    (async () => {
-      let resp: Response;
+    async function load(): Promise<void> {
       try {
-        resp = await fetchInto(initial);
+        let resp = await fetchInto(initial);
         if (resp.status === 403) {
           // Presigned URL expired → re-sign once and retry.
           const fresh = await chatApi.refreshAttachmentDownloadUrl(attachmentId);
-          const next = (thumb ? fresh.thumb_url : fresh.url) ?? initial;
-          resp = await fetchInto(next);
+          resp = await fetchInto((thumb ? fresh.thumb_url : fresh.url) ?? initial);
         }
         if (!resp.ok) throw new Error(`attachment ${resp.status}`);
-        const blob = await resp.blob();
-        if (cancelled) return;
-        revoke();
-        objectUrl = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(await resp.blob());
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = store(key, url);
+        held = true;
       } catch {
         if (!cancelled) failed = true;
       }
-    })();
+    }
+
+    // Über die lokale Variable, nicht über `objectUrl` zurücklesen — ein Read
+    // des eigenen $state im Effekt würde ihn von sich selbst abhängig machen.
+    const cached = acquire(key);
+    objectUrl = cached;
+    held = cached !== null;
+    if (!cached) void load();
 
     return () => {
       cancelled = true;
-      revoke();
+      objectUrl = null;
+      if (held) release(key);
     };
   });
 </script>
@@ -89,6 +107,7 @@
        neutral placeholder box instead of a broken-image glyph. -->
   <span class="bg-bg-hover text-text-muted flex items-center justify-center {klass}" aria-label={alt}>·</span>
 {:else}
-  <!-- In flight — a dim placeholder keeps the layout from jumping. -->
+  <!-- In flight. Same `klass` as the <img>, so it occupies exactly the box the
+       caller reserved and the swap moves nothing. -->
   <span class="bg-bg-hover/40 block {klass}" aria-hidden="true"></span>
 {/if}
