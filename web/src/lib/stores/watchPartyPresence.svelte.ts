@@ -37,6 +37,15 @@ export function isPassiveSource(s: WatchSource): boolean {
   return s.type === 'twitch_live';
 }
 
+/** One video lined up in the party's queue. Anyone in the channel may enqueue;
+ *  the host moderates order + removal (backend: watchkeys.queue_*). */
+export type WatchQueueItem = {
+  id: string;
+  source: WatchSource;
+  submitted_by: string;
+  submitted_at: number;
+};
+
 export type WatchPartyState = {
   /** Snowflake identifying this party within its channel. */
   party_id: string;
@@ -49,6 +58,9 @@ export type WatchPartyState = {
   /** Unix epoch ms — viewers extrapolate `position + (now - updated_at)/1000` while playing. */
   updated_at: number;
   started_at: number;
+  /** Videos lined up next. Absent on states that predate the queue feature —
+   *  treat as empty. When the current video ends the host promotes queue[0]. */
+  queue?: WatchQueueItem[];
 };
 
 /** Wire shape for the `ready.watch_states` / REST list. `state: null` is only

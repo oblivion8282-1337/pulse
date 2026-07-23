@@ -44,6 +44,8 @@
     onEnableAudio,
     chatOpen = false,
     onToggleChat,
+    queueOpen = false,
+    onToggleQueue,
     onDetach,
     onHide,
     media,
@@ -52,7 +54,8 @@
     nameExtra,
     controlsExtra,
     chatPanel,
-    chatOverlay
+    chatOverlay,
+    queuePanel
   }: {
     kind: TileKind;
     /** data-testid des äußeren Containers (kind-spezifisch, kein Schema). */
@@ -77,6 +80,11 @@
     onEnableAudio?: () => void;
     chatOpen?: boolean;
     onToggleChat?: () => void;
+    /** Watch Party: gleicher Seitenpanel-Slot wie der Chat, aber für die
+     *  Warteschlange. Chat + Queue schliessen sich gegenseitig aus (der Aufrufer
+     *  regelt das), es liegt also immer nur eins rechts. */
+    queueOpen?: boolean;
+    onToggleQueue?: () => void;
     onDetach?: () => void;
     onHide?: () => void;
     media: Snippet;
@@ -86,6 +94,7 @@
     controlsExtra?: Snippet;
     chatPanel?: Snippet;
     chatOverlay?: Snippet;
+    queuePanel?: Snippet;
   } = $props();
 
   const KindIcon = $derived(
@@ -153,6 +162,8 @@
     hasStats: !!stats,
     chatOpen,
     onToggleChat,
+    queueOpen,
+    onToggleQueue,
     controlsExtra,
     onDetach,
     showDetach,
@@ -246,6 +257,11 @@
           {@render chatPanel?.()}
         </div>
       {/if}
+      {#if queueOpen && !isFullscreen && viewport.isMobile}
+        <div class="absolute inset-0 z-20">
+          {@render queuePanel?.()}
+        </div>
+      {/if}
     </div>
 
     <!-- Solide Steuerleiste UNTER dem Video. Normalerweise nur außerhalb des
@@ -261,5 +277,8 @@
 
   {#if chatOpen && !isFullscreen && !viewport.isMobile}
     {@render chatPanel?.()}
+  {/if}
+  {#if queueOpen && !isFullscreen && !viewport.isMobile}
+    {@render queuePanel?.()}
   {/if}
 </div>

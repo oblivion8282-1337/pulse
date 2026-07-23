@@ -51,6 +51,8 @@ export type PlayerEvent =
   | { type: 'play'; position: number }
   | { type: 'pause'; position: number }
   | { type: 'seek'; position: number }
+  // Video reached its end — the host promotes the next queued item.
+  | { type: 'ended' }
   | { type: 'error'; reason: string };
 
 export interface PlayerHandle {

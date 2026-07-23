@@ -226,6 +226,11 @@ export class PartyController {
       if (e.type === 'play') this.#scheduleBroadcast('play', e.position);
       else if (e.type === 'pause') this.#scheduleBroadcast('pause', e.position);
       else if (e.type === 'seek') this.#scheduleBroadcast('seek', e.position);
+      else if (e.type === 'ended') {
+        // Video zu Ende: das nächste Warteschlangen-Video nachrücken. Ist die
+        // Schlange leer, bleibt die Party stehen (Server antwortet EMPTY).
+        gateway.watchQueueAdvance(this.getChannelId(), this.getParty().party_id);
+      }
       return;
     }
     if (this.getIsPassive()) return;
@@ -238,6 +243,13 @@ export class PartyController {
     const now = Date.now();
     if ((e.type === 'play' || e.type === 'pause') && now < this.#syncingUntil) return;
     if (e.type === 'play' && this.#player) this.#syncHard(this.#player, this.getParty());
+  }
+
+  /** Lautstärke 0–100 direkt am Player setzen. Für das Viewer-Volume-Control
+   * im Tile: der read-only Player (controls:0) hat keinen nativen Regler mehr,
+   * also reicht die Kachel die Lautstärke hierüber durch. No-op vor onReady. */
+  setVolume(percent: number): void {
+    this.#player?.setVolume(Math.max(0, Math.min(100, percent)));
   }
 
   dispose(): void {

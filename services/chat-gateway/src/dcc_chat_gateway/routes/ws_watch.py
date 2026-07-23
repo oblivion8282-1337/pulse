@@ -380,6 +380,7 @@ async def handle_heartbeat(
     await watchkeys.write_party(redis, cid, state)
 
 
+
 async def cleanup_on_disconnect(
     websocket: WebSocket,
     user: AuthenticatedUser,

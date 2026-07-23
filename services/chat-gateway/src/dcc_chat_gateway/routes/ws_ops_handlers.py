@@ -36,7 +36,7 @@ from dcc_chat_gateway.presence_status import (
     set_presence_status,
     update_activity,
 )
-from dcc_chat_gateway.routes import watch_handoff, ws_watch
+from dcc_chat_gateway.routes import watch_handoff, ws_watch, ws_watch_queue
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.ws_op_send import handle_send
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
@@ -217,6 +217,28 @@ async def handle_watch_source_change(ctx: WSOpContext, msg: dict[str, Any]) -> N
 @register_ws_op("watch_heartbeat")
 async def handle_watch_heartbeat(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_watch.handle_heartbeat(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("watch_queue_add")
+async def handle_watch_queue_add(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch_queue.handle_queue_add(
+        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
+    )
+
+
+@register_ws_op("watch_queue_remove")
+async def handle_watch_queue_remove(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch_queue.handle_queue_remove(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("watch_queue_move")
+async def handle_watch_queue_move(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch_queue.handle_queue_move(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("watch_queue_advance")
+async def handle_watch_queue_advance(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch_queue.handle_queue_advance(ctx.websocket, ctx.user, msg)
 
 
 @register_ws_op("ping")

@@ -639,6 +639,14 @@ export class GatewayConnection {
   };
   sendWatchHandoff = (channelId: string, partyId: string, targetUserId?: string): boolean =>
     senders.sendWatchHandoff(this._raw, channelId, partyId, targetUserId);
+  watchQueueAdd = (channelId: string, partyId: string, sourceUrl: string): boolean =>
+    senders.watchQueueAdd(this._raw, channelId, partyId, sourceUrl);
+  watchQueueRemove = (channelId: string, partyId: string, itemId: string): boolean =>
+    senders.watchQueueRemove(this._raw, channelId, partyId, itemId);
+  watchQueueMove = (channelId: string, partyId: string, itemId: string, index: number): boolean =>
+    senders.watchQueueMove(this._raw, channelId, partyId, itemId, index);
+  watchQueueAdvance = (channelId: string, partyId: string, itemId?: string): boolean =>
+    senders.watchQueueAdvance(this._raw, channelId, partyId, itemId);
   sendActivity(): boolean { return this._sendRaw({ op: 'activity' }); }
   /** Ephemeral "I'm typing" signal for a text channel / DM. Fire-and-forget;
    *  the caller (composer) debounces so this isn't sent on every keystroke. */
