@@ -3,7 +3,8 @@ modules so we don't have to duplicate path-normalisation, quota mutation
 and event-publish logic.
 
 Split out from ``routes/dropbox.py`` to keep each file under the
-350-line soft cap (PLAN.md §12.1).
+350-line soft cap (PLAN.md §12.1). The *permission* side — who may use the
+Ablage at all and how much room they get — lives in ``_dropbox_policy.py``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from dcc_chat_gateway import config as chat_config, s3
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.models import (
     DROPBOX_KIND_FILE,
     Channel,
@@ -26,7 +27,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
 from dcc_chat_gateway.snowflake import next_id
-from sqlalchemy import select
 from dcc_shared.events import (
     DropboxEntryCreatedEvent,
     DropboxEntryDeletedEvent,
@@ -35,28 +35,6 @@ from dcc_shared.events import (
     DropboxEntryUpdatedEvent,
     DropboxQuotaUpdatedEvent,
 )
-
-
-# Instance-level availability gate -------------------------------------
-
-
-def require_dropbox_available() -> None:
-    """Router-level gate: 404 the whole Ablage when the Cloud has it off.
-
-    Cloud-only. The Ablage takes arbitrary file types, which hash-matching
-    cannot inspect, so the Cloud does not offer it at all (default) — see
-    docs/medien-speicher-und-scanning.md. Self-hosts are never gated here;
-    their operator answers for their own content under the cert model.
-
-    404 rather than 403 so a disabled feature is indistinguishable from one
-    that was never there, matching the existing per-guild
-    ``dropbox disabled for this guild`` response. Re-arm with
-    ``CLOUD_DROPBOX_ENABLED=true``."""
-    settings = chat_config.get_settings()
-    if settings.pulse_instance_mode != "cloud":
-        return
-    if not settings.cloud_dropbox_enabled:
-        raise HTTPException(404, detail="dropbox is not available on this server")
 
 
 # Path + name validation -----------------------------------------------

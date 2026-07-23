@@ -6,10 +6,6 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
-  import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
-  import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
-  import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -28,7 +24,6 @@
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
-  import ShieldIcon from '@lucide/svelte/icons/shield';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   // `compact`: nur das Avatar-Symbol, kein Name + kein Chip-Hintergrund — für
@@ -46,65 +41,16 @@
 
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
 
-  // Admin ist PRO Server (vgl. routes/app/admin/+page.svelte): Cloud →
-  // auth.user.is_admin (auth /me); Self-Host → der is_admin aus dem ready-Frame
-  // dieses Servers (Cert-Login-User haben dort kein auth /me). Ohne diese
-  // Unterscheidung bleibt der Server-Admin-Eintrag für Self-Host-Admins
-  // versteckt, weil ihr Cloud-Account kein is_admin trägt.
-  let canAdminHere = $derived(
-    activeServer.current?.isCloud
-      ? (auth.user?.is_admin ?? false)
-      : serverAdmin.isAdmin(activeServer.current?.id ?? '')
-  );
-
-  // Badge für offene Self-Host-Anträge: nur sinnvoll, wenn der aktive Server
-  // die Cloud ist (die Instanz-Verwaltung lebt nur dort) und der User dort
-  // Admin ist. Auf einem Self-Host zeigt „Server-Admin" das lokale Panel, das
-  // keine Instanz-Anträge kennt — dann kein Badge.
-  let showInstanceBadge = $derived(
-    (activeServer.current?.isCloud ?? false) &&
-      (auth.user?.is_admin ?? false) &&
-      pendingInstanceApps.count > 0
-  );
-
-  // App-Hosting-Anträge: gleicher Scope wie Instanz-Anträge — Cloud-only,
-  // Admin-only. Count wird durch den Store getrieben (Polling) + durch
-  // manuelle Refreshes nach Approve/Reject (AdminPanel).
-  let showAppHostBadge = $derived(
-    (activeServer.current?.isCloud ?? false) &&
-      (auth.user?.is_admin ?? false) &&
-      pendingAppHostApplications.count > 0
-  );
-
-  // Owner-Punkt: ein eigener Antrag (Self-Host ODER App-Hosting) wurde
+  // Avatar-Punkt: ein EIGENER Antrag (Self-Host ODER App-Hosting) wurde
   // freigeschaltet und auf diesem Gerät noch nicht angesehen → der Punkt führt
-  // den User zu den Einstellungen. Nur auf der Cloud relevant (dort lebt die
-  // Self-Host-Verwaltung).
+  // den User über das Menü zu den Einstellungen. Ein User-Hinweis, kein
+  // Admin-Alert — die Admin-Benachrichtigungen sitzen jetzt am eigenen
+  // Server-Admin-Button (ServerAdminButton.svelte). Nur auf der Cloud relevant
+  // (dort lebt die Self-Host-Verwaltung).
   let showOwnerSetupBadge = $derived(
     (activeServer.current?.isCloud ?? false) &&
       (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
   );
-
-  // Offene Betreiber-Beschwerden: gleicher Scope (Cloud-Admin). Bekommt einen
-  // GELBEN Punkt (statt rot), damit sich „eine Meldung kam rein" optisch von
-  // den Antrags-Benachrichtigungen abhebt.
-  let showComplaintsBadge = $derived(
-    (activeServer.current?.isCloud ?? false) &&
-      (auth.user?.is_admin ?? false) &&
-      pendingComplaints.count > 0
-  );
-
-  let showFooterDot = $derived(
-    showInstanceBadge || showAppHostBadge || showOwnerSetupBadge || showComplaintsBadge
-  );
-
-  // Der Footer-Punkt wird GELB bei Beschwerden, sonst rot (Antrags-Benachrichtigungen).
-  let footerDotClass = $derived(showComplaintsBadge ? 'bg-amber-500' : 'bg-red-500');
-  let footerDotAria = $derived.by(() => {
-    if (showComplaintsBadge) return m.complaints_pending_badge({ count: pendingComplaints.count });
-    if (showInstanceBadge) return m.instance_apps_badge_aria();
-    return m.instance_app_setup_badge_aria();
-  });
 
   async function onSignOut() {
     const t = loadTokens();
@@ -154,11 +100,11 @@
           {initial}
         </Avatar.Fallback>
       </Avatar.Root>
-      {#if showFooterDot}
+      {#if showOwnerSetupBadge}
         <span
-          class="ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full ring-2 {footerDotClass}"
+          class="ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full bg-red-500 ring-2"
           data-testid="user-footer-dot"
-          aria-label={footerDotAria}
+          aria-label={m.instance_app_setup_badge_aria()}
         ></span>
       {/if}
     </div>
@@ -181,38 +127,6 @@
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
   </DropdownMenu.Item>
-  {#if canAdminHere}
-    <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
-      <ShieldIcon class="size-4" />
-      {m.user_footer_server_admin()}
-      {#if showInstanceBadge}
-        <span
-          class="bg-badge-count ml-auto rounded-full px-1.5 py-0.5 text-2xs font-semibold text-white"
-          data-testid="admin-pending-badge"
-        >
-          {pendingInstanceApps.count}
-        </span>
-      {/if}
-      {#if showAppHostBadge}
-        <span
-          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold text-black"
-          data-testid="admin-app-host-pending-badge"
-          title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
-        >
-          {pendingAppHostApplications.count}
-        </span>
-      {/if}
-      {#if showComplaintsBadge}
-        <span
-          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold text-black"
-          data-testid="admin-complaints-pending-badge"
-          title={m.complaints_pending_badge({ count: pendingComplaints.count })}
-        >
-          {pendingComplaints.count}
-        </span>
-      {/if}
-    </DropdownMenu.Item>
-  {/if}
   <DropdownMenu.Separator />
   <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
     <LogOutIcon class="size-4" />

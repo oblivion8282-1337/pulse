@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 from dcc_chat_gateway.models import Channel, Guild, GuildMember, Role
 
 
@@ -27,7 +28,12 @@ async def _cap_and_count(
     session: AsyncSession, guild_id: int, cap_attr: str, count_stmt
 ) -> None:
     guild = await session.get(Guild, guild_id)
-    cap = getattr(guild, cap_attr) if guild else None
+    if guild is None:
+        return
+    # Wirksamer Wert, nicht die Rohspalte: hat die Community sich selbst enger
+    # gesetzt als der Betreiber es verlangt, gilt ihr Wert (er kann nie höher
+    # sein — beim Speichern geklemmt).
+    cap = effective(guild, LIMITS_BY_KEY[cap_attr])
     if cap is None:
         return
     current = (await session.execute(count_stmt)).scalar_one()

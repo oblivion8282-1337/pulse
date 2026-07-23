@@ -44,6 +44,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     validate_name,
     with_quota_lock,
 )
+from dcc_chat_gateway.routes._dropbox_policy import DropboxGuild, new_dropbox_config
 from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxChannelCreateIn,
     DropboxChannelOut,
@@ -77,6 +78,15 @@ async def _get_or_create_dropbox_channel(
     existing = (await session.execute(stmt)).scalars().first()
     if existing is not None:
         return existing, False
+    # Neu-Erstellung respektiert den Community-Master-Schalter: hat die
+    # Community-Leitung die Ablage abgeschaltet (Config existiert mit
+    # enabled=false), darf kein neuer Kanal entstehen — sonst stünde ein Kanal
+    # da, den niemand nutzen kann (die Nutzungs-Routen 404/403en auf enabled).
+    # Ein bereits vorhandener Kanal (oben) wird davon nicht berührt: der bleibt
+    # sichtbar, nur deaktiviert.
+    cfg = await session.get(DropboxConfig, guild_id)
+    if cfg is not None and not cfg.enabled:
+        raise HTTPException(409, detail="dropbox is disabled for this community")
     pos_stmt = select(func.coalesce(func.max(Channel.position), -1)).where(
         Channel.guild_id == guild_id
     )
@@ -92,9 +102,7 @@ async def _get_or_create_dropbox_channel(
     return channel, True
 
 
-async def _get_or_create_config_locked(
-    session, guild_id: int
-) -> DropboxConfig:
+async def _get_or_create_config_locked(session, guild: Guild) -> DropboxConfig:
     """Read-or-create the per-guild config with a row-level lock.
 
     Used by quota-mutating endpoints so concurrent uploads can't both
@@ -104,13 +112,13 @@ async def _get_or_create_config_locked(
     cfg = (
         await session.execute(
             select(DropboxConfig)
-            .where(DropboxConfig.guild_id == guild_id)
+            .where(DropboxConfig.guild_id == guild.id)
             .with_for_update()
         )
     ).scalars().first()
     if cfg is not None:
         return cfg
-    cfg = DropboxConfig(guild_id=guild_id)
+    cfg = new_dropbox_config(guild)
     session.add(cfg)
     await session.flush()
     return cfg
@@ -132,6 +140,7 @@ async def _get_config_unlocked(session, guild_id: int) -> DropboxConfig | None:
 )
 async def ensure_dropbox_channel(
     guild_id: Annotated[int, Path(ge=1)],
+    guild: DropboxGuild,
     session: SessionDep,
     current: CurrentUser,
     request: Request,
@@ -140,9 +149,6 @@ async def ensure_dropbox_channel(
     first access. Requires MANAGE_CHANNELS — creating the channel is a
     structural decision made by an admin, not a side-effect of browsing."""
 
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_CHANNELS
     )
@@ -153,7 +159,7 @@ async def ensure_dropbox_channel(
     # silently re-enable dropbox for every guild that ever touched this
     # endpoint).
     if created:
-        cfg = await _get_or_create_config_locked(session, guild_id)
+        cfg = await _get_or_create_config_locked(session, guild)
         await session.commit()
         await session.refresh(channel)
         await session.refresh(cfg)
@@ -196,6 +202,7 @@ async def ensure_dropbox_channel(
 )
 async def create_dropbox_channel(
     guild_id: Annotated[int, Path(ge=1)],
+    guild: DropboxGuild,
     payload: DropboxChannelCreateIn,
     session: SessionDep,
     current: CurrentUser,
@@ -222,7 +229,7 @@ async def create_dropbox_channel(
         session, guild_id, name=name
     )
     if created:
-        cfg = await _get_or_create_config_locked(session, guild_id)
+        cfg = await _get_or_create_config_locked(session, guild)
         await session.commit()
         await session.refresh(channel)
         await session.refresh(cfg)

@@ -51,6 +51,7 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -164,7 +165,14 @@ async def _enforce_storage_quota(
     list). A small overshoot under concurrent uploads is accepted — this is a
     cost cap, not a security boundary."""
     guild = await session.get(Guild, guild_id)  # identity-mapped; no extra query
-    quota = guild.attachment_storage_quota_bytes if guild else None
+    # Wirksamer Wert: hat die Community sich selbst enger gesetzt, gilt ihrer;
+    # sonst die Obergrenze des Betreibers (beim Speichern geklemmt, kann also
+    # nie darüber liegen).
+    quota = (
+        effective(guild, LIMITS_BY_KEY["attachment_storage_quota_bytes"])
+        if guild
+        else None
+    )
     if quota is None:
         return
     used = (

@@ -95,8 +95,16 @@
   // convention (see PLAN.md + 2026-06 design chat), but the data model
   // allows multiple — the sidebar just renders whichever exist, sorted
   // by position like text + voice.
+  //
+  // Sperrt der Betreiber die Ablage für diese Community (Server-Einstellungen
+  // → Communitys), verschwindet die Sektion: der Server 404't ohnehin jede
+  // Ablage-Route, und ein Kanal, der beim Klick ins Leere läuft, ist
+  // schlechter als keiner. Die Dateien selbst bleiben unangetastet und sind
+  // nach dem Freischalten wieder da.
   let dropboxChannels = $derived(
-    channels.filter((c) => c.type === 2).sort((a, b) => a.position - b.position)
+    guild?.dropbox_allowed
+      ? channels.filter((c) => c.type === 2).sort((a, b) => a.position - b.position)
+      : []
   );
 
   // Pro-Guild Plugin-Aktivierungen laden, sobald wir wissen, welche Guild

@@ -122,7 +122,7 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
     await admin.evaluate(() => localStorage.clear());
     await login(admin, ADMIN.username, ADMIN.password);
 
-    await admin.getByTestId('user-footer-trigger').click();
+    // Server-Admin ist jetzt ein direkter Sidebar-Button (kein Menü-Eintrag).
     await admin.getByTestId('open-admin').click();
     await admin.waitForURL(/\/app\/admin/);
     // Plugins leben seit der Admin-Reiter-Struktur (9de03676) im

@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-23.3",
+      "date": "2026-07-23",
+      "style": "Sachlich",
+      "title": "Community-Verwaltung: eigene Grenzen und ein neuer Admin-Zugang",
+      "items": [
+        "Die Leitung einer Community kann Qualität, Dateigrößen und Größenlimits jetzt selbst einstellen — im neuen Bereich „Limits“ der Community-Einstellungen. Der Serverbetreiber gibt den Rahmen vor; höher als dessen Vorgabe geht nicht.",
+        "Beim HQ-Streamen lassen sich nur noch Auflösung, Bildrate und Bitrate wählen, die auch tatsächlich ankommen. Zu hohe Werte wurden vorher stillschweigend heruntergesetzt.",
+        "Der Server-Admin-Bereich ist jetzt über ein Schild-Symbol unten in der Server-Leiste erreichbar, statt über das Konto-Menü.",
+        "Für Serverbetreiber: die Grenzen je Community sind nach Gruppen geordnet und zeigen den geltenden Standardwert im Feld an. Der gemeinsame Dateibereich (Ablage) lässt sich pro Community freischalten."
+      ]
+    },
+    {
       "id": "2026-07-23.2",
       "date": "2026-07-23",
       "style": "Sachlich",

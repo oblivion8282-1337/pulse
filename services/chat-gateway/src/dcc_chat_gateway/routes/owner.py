@@ -38,6 +38,8 @@ from dcc_chat_gateway.models import (
     MessageAttachment,
     Report,
 )
+from dcc_chat_gateway.guild_limits import clamp_to_ceilings
+from dcc_chat_gateway.routes._dropbox_policy import clamp_dropbox_quota_to_ceiling
 from dcc_chat_gateway.routes.admin import _audit
 from dcc_chat_gateway.schemas import (
     CommunityLimitsIn,
@@ -73,13 +75,18 @@ def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> Commu
         stream_bitrate_max_kbps=guild.stream_bitrate_max_kbps,
         stream_fps_max=guild.stream_fps_max,
         stream_resolution_max=guild.stream_resolution_max,
-        attachment_max_size_bytes=guild.attachment_max_size_bytes,
-        attachment_max_count_per_message=guild.attachment_max_count_per_message,
+        # Das Betreiber-Panel zeigt OBERGRENZEN. Bei diesen beiden liegt der
+        # Wert der Community in der Altspalte, die Obergrenze in der neuen
+        # (0057) — hier also bewusst die ``_ceiling``-Spalten.
+        attachment_max_size_bytes=guild.attachment_max_size_ceiling_bytes,
+        attachment_max_count_per_message=guild.attachment_max_count_ceiling,
         attachment_storage_quota_bytes=guild.attachment_storage_quota_bytes,
         max_members=guild.max_members,
         max_channels=guild.max_channels,
         max_roles=guild.max_roles,
         max_concurrent_streams=guild.max_concurrent_streams,
+        dropbox_allowed=guild.dropbox_allowed,
+        dropbox_quota_bytes=guild.dropbox_quota_bytes,
     )
 
 
@@ -254,15 +261,29 @@ async def set_community_limits(
     # Storage. Quota is nullable (null = unlimited) → always set. size/count are
     # non-nullable columns → only overwrite when the form provided a value.
     guild.attachment_storage_quota_bytes = payload.attachment_storage_quota_bytes
-    if payload.attachment_max_size_bytes is not None:
-        guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
-    if payload.attachment_max_count_per_message is not None:
-        guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
+    # Bei diesen zwei Limits ist die Altspalte der Wert der Community — der
+    # Betreiber setzt hier die OBERGRENZE (0057). Vorher schrieben beide Ebenen
+    # dieselbe Zelle, womit MANAGE_GUILD die Vorgabe überschreiben konnte.
+    guild.attachment_max_size_ceiling_bytes = payload.attachment_max_size_bytes
+    guild.attachment_max_count_ceiling = payload.attachment_max_count_per_message
     # Scale caps: nullable (null = unlimited) → always set.
     guild.max_members = payload.max_members
     guild.max_channels = payload.max_channels
     guild.max_roles = payload.max_roles
     guild.max_concurrent_streams = payload.max_concurrent_streams
+    # Feature permission, non-nullable column → only overwrite when sent.
+    if payload.dropbox_allowed is not None:
+        guild.dropbox_allowed = payload.dropbox_allowed
+    # Ablage ceiling: nullable (NULL = instance standard) → always applied.
+    # Lowering it must bite immediately, so an existing community config that
+    # now sits above the new ceiling is pulled down with it — otherwise the
+    # cap would only apply to communities that hadn't opened their Ablage yet.
+    guild.dropbox_quota_bytes = payload.dropbox_quota_bytes
+    await clamp_dropbox_quota_to_ceiling(session, guild)
+    # Eine gesenkte Obergrenze muss sofort beißen: ohne das Nachziehen behielte
+    # jede Community ihren zu hohen Wert, bis sie zufällig selbst noch einmal
+    # speichert. Gibt die angepassten Limits zurück (fürs Audit-Log).
+    clamped = clamp_to_ceilings(guild)
     _audit(
         session,
         actor_id=actor.id,
@@ -280,6 +301,9 @@ async def set_community_limits(
             "max_channels": payload.max_channels,
             "max_roles": payload.max_roles,
             "max_concurrent_streams": payload.max_concurrent_streams,
+            "dropbox_allowed": payload.dropbox_allowed,
+            "dropbox_quota_bytes": payload.dropbox_quota_bytes,
+            "clamped_community_values": clamped,
         },
     )
     await session.commit()

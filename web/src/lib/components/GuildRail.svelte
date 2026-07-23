@@ -59,6 +59,7 @@
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import UserFooter from './UserFooter.svelte';
+  import ServerAdminButton from './ServerAdminButton.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
@@ -697,13 +698,15 @@
 
   </Tooltip.Provider>
 
-  <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-
-       Symbol (Desktop hat ihn im Sidebar-Footer mit Name). -->
-  {#if viewport.isMobile}
-    <div class="mt-auto shrink-0 pt-1">
+  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): das Server-Admin-
+       Symbol (nur für Admins) und – auf Mobil – das eigene Avatar-Symbol
+       (Desktop hat den User im Sidebar-Footer mit Name). -->
+  <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
+    <ServerAdminButton />
+    {#if viewport.isMobile}
       <UserFooter compact />
-    </div>
-  {/if}
+    {/if}
+  </div>
 </nav>
 
 <AlertDialog.Root bind:open={removeServerConfirmOpen}>

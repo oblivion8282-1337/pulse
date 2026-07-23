@@ -91,6 +91,65 @@ class Guild(Base):
     # eventually-consistent) live-stream state — catches steady-state over-limit;
     # a rapid burst can briefly exceed it (documented).
     max_concurrent_streams: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # May this community use the Ablage (dropbox) at all? The *permission*
+    # layer, set ONLY by the instance operator via /owner/communities/{id}/
+    # limits. Deliberately separate from ``dropbox_configs.enabled``, which is
+    # the community's own on/off switch (MANAGE_GUILD) — without this column an
+    # operator ban would be reversible by the very owner it targets. Effective
+    # availability = instance default (CLOUD_DROPBOX_ENABLED, Cloud only)
+    # AND this flag AND the community's own ``enabled``.
+    #
+    # Defaults to False for existing rows too (migration 0056): the Ablage takes
+    # arbitrary file types that no hash-match can inspect, so it is opt-in per
+    # community — same spirit as ``allow_guild_creation``.
+    dropbox_allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    # Operator ceiling for this community's Ablage storage, in bytes.
+    # NULL = the instance standard (``DEFAULT_DROPBOX_QUOTA_BYTES``, 1 GiB).
+    #
+    # The community keeps its own ``dropbox_configs.total_quota_bytes`` and may
+    # pick a SMALLER value; on save it is clamped to this ceiling. Without this
+    # column that setting is MANAGE_GUILD-editable and therefore unbounded.
+    #
+    # Distinct from ``attachment_storage_quota_bytes``, which counts chat
+    # attachments only — the Ablage has always had its own pot.
+    dropbox_quota_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # ---- Werte der Community (Migration 0057) -------------------------------
+    # Gegenstück zu den Obergrenzen darüber: was die Community-Leitung
+    # (MANAGE_GUILD) für sich selbst gewählt hat. Beim Speichern auf die
+    # Obergrenze geklemmt — siehe ``guild_limits.py``, das die Paarungen an
+    # einer Stelle führt. NULL = nicht gesetzt, dann gilt die Obergrenze.
+    community_voice_bitrate_kbps: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    community_stream_bitrate_kbps: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    community_stream_fps: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    community_stream_resolution: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+    community_max_members: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    community_max_channels: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    community_max_roles: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    community_max_concurrent_streams: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    community_attachment_storage_quota_bytes: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    # Umgekehrter Fall: bei diesen beiden IST die Spalte oben schon der Wert der
+    # Community (sie wird an der Upload-Schranke gelesen und war immer
+    # MANAGE_GUILD-editierbar), also fehlte hier die Obergrenze.
+    attachment_max_size_ceiling_bytes: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    attachment_max_count_ceiling: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
 
     __table_args__ = (
         # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so

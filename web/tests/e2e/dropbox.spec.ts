@@ -109,6 +109,16 @@ test.describe('Dropbox / Ablage', () => {
     await page.getByTestId('create-guild-submit').click();
     await page.waitForLoadState('networkidle');
 
+    // Die Ablage muss der Betreiber pro Community freischalten
+    // (``guilds.dropbox_allowed``, Migration 0056, Standard aus) — ohne das
+    // rendert der Dialog die dritte Option gar nicht. Hier per SQL statt über
+    // das Admin-Panel: dieser Spec prüft die Ablage selbst, nicht den Schalter
+    // (der hängt in den Backend-Tests, ``test_dropbox.py``). Reload, damit der
+    // Client die Community mit dem neuen Flag frisch aus dem ready-Frame zieht.
+    testDbSql(`UPDATE chat.guilds SET dropbox_allowed=true WHERE name='Dropbox Test Guild'`);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
     await page.click('[data-testid="channel-create"]');
     await page.click('[data-testid="create-channel-type-dropbox"]');
     await page.fill('[data-testid="create-channel-name"]', 'ablage');

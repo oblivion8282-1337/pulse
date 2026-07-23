@@ -21,12 +21,18 @@
     persistSettings,
   } from '../settings.svelte';
   import { sourceSize, resolutionOptions } from '../resolution';
+  import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   // Slot, dessen Quelle die Auflösungs-Stufen filtert. Von außen `streamSlot`,
   // weil `slot` ein reservierter Svelte-Attributname ist (wie `MonitorPicker`).
-  let { streamSlot: slot = 0 }: { streamSlot?: number } = $props();
+  // `channelId` = der Ziel-Voice-Kanal; über ihn kennen wir die wirksamen
+  // Grenzen DIESER Community (nicht nur die Instanz-Defaults).
+  let { channelId = null, streamSlot: slot = 0 }: {
+    channelId?: string | null;
+    streamSlot?: number;
+  } = $props();
 
   // Only offer codecs this machine's GPU can actually encode. AV1 needs the
   // sidecar's reported `video_codecs` to include it (RTX 40xx, newer Intel/AMD,
@@ -37,12 +43,17 @@
     ),
   );
 
-  // Admin-set global limits (live via the capabilities store). The bitrate
-  // field works in kbps; the admin store holds kbps too.
+  // Wirksame Grenzen DIESER Community (Wert der Community ?? Instanz-Default),
+  // nicht die Instanz-Werte direkt: sonst böte der Editor eine Auswahl an, die
+  // der Stream-Start (`buildStartArgs`) hinterher still wegklemmt — genau die
+  // verwirrende Diskrepanz. Die Obergrenzen kommen von hier, die Untergrenzen
+  // bleiben instanzweit (ein Min ist keine Community-Grenze). Live, weil
+  // `effectiveHqLimits` den reaktiven Guild-Store liest.
+  let hq = $derived(effectiveHqLimits(channelId));
   let bMin = $derived(capabilities.hqBitrateMinKbps);
-  let bMax = $derived(capabilities.hqBitrateMaxKbps);
+  let bMax = $derived(hq.bitrateMaxKbps);
   let fMin = $derived(capabilities.hqFpsMin);
-  let fMax = $derived(capabilities.hqFpsMax);
+  let fMax = $derived(hq.fpsMax);
   // Größe der gewählten Quelle (null = unbekannt, z.B. Linux-Portal); bestimmt
   // Filterung und Beschriftung der Auflösungs-Stufen — s. `resolution.ts`.
   let srcSize = $derived(
@@ -53,7 +64,7 @@
   );
   let resOptions = $derived(
     resolutionOptions(
-      allowedResolutions(capabilities.hqResolutionMax),
+      allowedResolutions(hq.resolutionMax),
       srcSize,
       m.overrides_editor_resolution_native(),
     ),
@@ -149,7 +160,7 @@
   let resValue = $derived.by(() => {
     const clamped = clampResolution(
       streamSettings.overrides.resolution ?? 'Native',
-      capabilities.hqResolutionMax,
+      hq.resolutionMax,
     );
     return resOptions.some((o) => o.value === clamped) ? clamped : 'Native';
   });
@@ -197,9 +208,9 @@
     <!-- Bei bekannter Quellgröße sagen die Beschriftungen schon alles — der
          allgemeine Hinweis entfällt dann. Die Admin-Deckelung wird immer
          gezeigt, sie erklärt eine Einschränkung von außen. -->
-    {#if capabilities.hqResolutionMax !== 'Native'}
+    {#if hq.resolutionMax !== 'Native'}
       <p class="text-text-muted text-2xs">
-        {m.overrides_editor_resolution_capped({ max: capabilities.hqResolutionMax })}
+        {m.overrides_editor_resolution_capped({ max: hq.resolutionMax })}
       </p>
     {:else if !srcSize}
       <p class="text-text-muted text-2xs">{m.overrides_editor_resolution_hint()}</p>
