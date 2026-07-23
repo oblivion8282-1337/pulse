@@ -194,6 +194,9 @@ class SettingsStore {
     this.#appearance.set('theme', v);
     setMode(v);
   }
+  setStreamParticipantsCollapsed(v: boolean): void {
+    this.#appearance.set('streamParticipantsCollapsed', v);
+  }
 
   // --- audio setters ---
   setInputDevice(id: string, label: string): void {

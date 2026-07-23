@@ -11,13 +11,18 @@ export type AppearanceSettings = {
   /** Sprech-Ring (der pulsierende Ring beim Reden) in der Namensfarbe statt
    *  der Standard-Akzentfarbe. Default false (= Standard-Lila). */
   speakingRingNameColor: boolean;
+  /** Teilnehmer-Leiste unter dem Stream-Grid zugeklappt. Default false — wer
+   *  nichts umstellt, sieht den bisherigen Zustand. Gilt geräteweit, nicht
+   *  pro Kanal: der Platzbedarf hängt am Fenster, nicht am Kanal. */
+  streamParticipantsCollapsed: boolean;
 };
 
 const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 export const DEFAULTS_APPEARANCE: AppearanceSettings = {
   theme: 'system',
-  speakingRingNameColor: false
+  speakingRingNameColor: false,
+  streamParticipantsCollapsed: false
 };
 
 function parseTheme(v: unknown): ThemePreference {
@@ -32,7 +37,8 @@ export const APPEARANCE_SECTION: SectionConfig<AppearanceSettings> = {
     const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<AppearanceSettings>;
     return {
       theme: parseTheme(p.theme),
-      speakingRingNameColor: p.speakingRingNameColor === true
+      speakingRingNameColor: p.speakingRingNameColor === true,
+      streamParticipantsCollapsed: p.streamParticipantsCollapsed === true
     };
   }
 };
