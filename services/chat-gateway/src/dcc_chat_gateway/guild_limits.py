@@ -30,6 +30,14 @@ from dcc_chat_gateway.models import Guild
 DEFAULT_ATTACHMENT_MAX_SIZE_BYTES = 26214400  # 25 MiB
 DEFAULT_ATTACHMENT_MAX_COUNT = 4
 
+#: Kapazität der Ziel-Spalte je Zahlentyp. Rein der DB-Rahmen — semantische
+#: Grenzen zieht die Betreiber-Obergrenze. Ohne diesen Deckel liefe ein
+#: ungeklemmter Wert (Obergrenze NULL = unbegrenzt) in die Spalte und würde als
+#: ``NumericValueOutOfRange`` zum 500 statt zu einem sauberen 422.
+_SMALLINT_MAX = 32767
+_INT_MAX = 2147483647
+_BIGINT_MAX = 9223372036854775807
+
 
 @dataclass(frozen=True)
 class LimitSpec:
@@ -47,6 +55,14 @@ class LimitSpec:
     #: Auflösungen sind eine Leiter, keine Zahl — sie werden über den Index in
     #: ``RESOLUTION_LADDER`` verglichen (kleiner Index = höhere Auflösung).
     is_resolution: bool = False
+    #: Obergrenze des Spaltentyps (siehe ``coerce_value``). Default deckt die
+    #: ``Integer``-Spalten; ``SmallInteger``/``BigInteger`` setzen es explizit.
+    value_max: int = _INT_MAX
+    #: Ob ``value_attr`` per NULL geleert werden darf. Die community-eigenen
+    #: Spalten sind nullable (NULL = „nimm die Obergrenze"); die zwei umgekehrt
+    #: gepaarten Specs schreiben aber in NOT-NULL-Spalten — dort ist NULL keine
+    #: gültige Eingabe (sonst 500 aus der DB statt 422).
+    value_nullable: bool = True
 
 
 #: Von hoch nach niedrig. 'Native' = ungedeckelt und deshalb ganz oben.
@@ -54,11 +70,16 @@ RESOLUTION_LADDER = ["Native", "4K", "1440p", "1080p", "720p", "480p"]
 
 
 LIMITS: tuple[LimitSpec, ...] = (
-    LimitSpec("voice_bitrate_kbps", "voice_bitrate_max_kbps", "community_voice_bitrate_kbps"),
+    LimitSpec(
+        "voice_bitrate_kbps",
+        "voice_bitrate_max_kbps",
+        "community_voice_bitrate_kbps",
+        value_max=_SMALLINT_MAX,
+    ),
     LimitSpec(
         "stream_bitrate_kbps", "stream_bitrate_max_kbps", "community_stream_bitrate_kbps"
     ),
-    LimitSpec("stream_fps", "stream_fps_max", "community_stream_fps"),
+    LimitSpec("stream_fps", "stream_fps_max", "community_stream_fps", value_max=_SMALLINT_MAX),
     LimitSpec(
         "stream_resolution",
         "stream_resolution_max",
@@ -66,17 +87,21 @@ LIMITS: tuple[LimitSpec, ...] = (
         is_resolution=True,
     ),
     LimitSpec("max_members", "max_members", "community_max_members"),
-    LimitSpec("max_channels", "max_channels", "community_max_channels"),
-    LimitSpec("max_roles", "max_roles", "community_max_roles"),
+    LimitSpec(
+        "max_channels", "max_channels", "community_max_channels", value_max=_SMALLINT_MAX
+    ),
+    LimitSpec("max_roles", "max_roles", "community_max_roles", value_max=_SMALLINT_MAX),
     LimitSpec(
         "max_concurrent_streams",
         "max_concurrent_streams",
         "community_max_concurrent_streams",
+        value_max=_SMALLINT_MAX,
     ),
     LimitSpec(
         "attachment_storage_quota_bytes",
         "attachment_storage_quota_bytes",
         "community_attachment_storage_quota_bytes",
+        value_max=_BIGINT_MAX,
     ),
     # Umgekehrte Paarung: hier ist die alte Spalte der Wert, die Obergrenze
     # kam mit 0057 dazu.
@@ -85,16 +110,45 @@ LIMITS: tuple[LimitSpec, ...] = (
         "attachment_max_size_ceiling_bytes",
         "attachment_max_size_bytes",
         instance_default=DEFAULT_ATTACHMENT_MAX_SIZE_BYTES,
+        value_max=_BIGINT_MAX,
+        value_nullable=False,
     ),
     LimitSpec(
         "attachment_max_count_per_message",
         "attachment_max_count_ceiling",
         "attachment_max_count_per_message",
         instance_default=DEFAULT_ATTACHMENT_MAX_COUNT,
+        value_max=_SMALLINT_MAX,
+        value_nullable=False,
     ),
 )
 
 LIMITS_BY_KEY = {spec.key: spec for spec in LIMITS}
+
+
+def coerce_value(spec: LimitSpec, value: object) -> int | str | None:
+    """Prüft einen eingehenden Community-Wert vor dem Schreiben und wirft
+    ``ValueError`` bei Unsinn.
+
+    ``GuildLimitsPatch.limits`` ist ein offenes ``dict[str, int|str|None]`` ohne
+    Feldgrenzen — ohne diese Schranke liefe ein zu großer Wert (bei unbegrenzter
+    Obergrenze überspringt ``clamp_to_ceilings`` das Klemmen) in die Zahlenspalte
+    und ein String liefe in ``_exceeds`` in ein nacktes ``int(...)``; beides
+    endet als 500 statt als sauberer 422. ``None`` löscht den eigenen Wert."""
+    if value is None:
+        if not spec.value_nullable:
+            raise ValueError(f"{spec.key}: kann nicht geleert werden (Pflichtwert)")
+        return None
+    if spec.is_resolution:
+        if not isinstance(value, str) or value not in RESOLUTION_LADDER:
+            raise ValueError(f"{spec.key}: unbekannte Auflösung {value!r}")
+        return value
+    # bool ist in Python ein int-Subtyp — vor der int-Prüfung abfangen.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{spec.key}: erwartet eine ganze Zahl, nicht {value!r}")
+    if value < 0 or value > spec.value_max:
+        raise ValueError(f"{spec.key}: {value} liegt außerhalb 0..{spec.value_max}")
+    return value
 
 
 def ceiling_of(guild: Guild, spec: LimitSpec) -> int | str | None:

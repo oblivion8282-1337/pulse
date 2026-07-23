@@ -197,13 +197,26 @@
     const unpin = () => { pinnedToBottom = false; };
     // Nur nach oben: ein Rad-Tick nach unten führt ohnehin ans Ende.
     const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) unpin(); };
+    // Touch braucht denselben Richtungsfilter wie das Rad. Ein richtungsloses
+    // `touchmove`-unpin würde auch am unteren Anschlag (Rubber-Band, Long-Press,
+    // Text-Drag) entpinnen — ohne folgendes Scroll-Delta greift der Self-Heal
+    // nicht und die nächste Nachricht scrollt nicht mehr automatisch nach.
+    // Finger nach unten (= ältere Nachrichten) entspricht `deltaY < 0`.
+    let touchStartY = 0;
+    const onTouchStart = (e: TouchEvent) => { touchStartY = e.touches[0]?.clientY ?? 0; };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? touchStartY;
+      if (y - touchStartY > 8) unpin();
+    };
     el.addEventListener('wheel', onWheel, { passive: true, capture: true });
-    el.addEventListener('touchmove', unpin, { passive: true, capture: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
     return () => {
       ro?.disconnect();
       el.removeEventListener('load', onGrow, true);
       el.removeEventListener('wheel', onWheel, true);
-      el.removeEventListener('touchmove', unpin, true);
+      el.removeEventListener('touchstart', onTouchStart, true);
+      el.removeEventListener('touchmove', onTouchMove, true);
     };
   });
 

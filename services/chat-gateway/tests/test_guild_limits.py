@@ -75,6 +75,44 @@ def test_ceiling_zero_is_a_real_limit_not_unlimited():
     assert g.community_max_concurrent_streams == 0
 
 
+def test_coerce_value_rejects_out_of_column_range():
+    spec = gl.LIMITS_BY_KEY["max_concurrent_streams"]  # SmallInteger
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, 99_999_999)  # sprengte SmallInteger → wäre 500
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, -1)
+    assert gl.coerce_value(spec, 3) == 3
+    assert gl.coerce_value(spec, None) is None  # löscht den eigenen Wert
+
+
+def test_coerce_value_rejects_wrong_type():
+    spec = gl.LIMITS_BY_KEY["max_members"]
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, "abc")  # int("abc") in _exceeds wäre sonst 500
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, True)  # bool ist kein gültiger Zahlwert
+
+
+def test_coerce_value_resolution_must_be_on_the_ladder():
+    spec = gl.LIMITS_BY_KEY["stream_resolution"]
+    assert gl.coerce_value(spec, "1080p") == "1080p"
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, "8K")
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, 1080)  # Zahl in ein Auflösungsfeld
+
+
+def test_coerce_value_rejects_null_on_not_null_column():
+    # Die zwei umgekehrt gepaarten Specs schreiben in NOT-NULL-Spalten — NULL
+    # wäre dort ein 500 beim Commit, nicht ein sauberer 422.
+    spec = gl.LIMITS_BY_KEY["attachment_max_size_bytes"]
+    assert spec.value_nullable is False
+    with pytest.raises(ValueError):
+        gl.coerce_value(spec, None)
+    # Eine nullbare Community-Spalte darf sehr wohl geleert werden.
+    assert gl.coerce_value(gl.LIMITS_BY_KEY["stream_fps"], None) is None
+
+
 def test_effective_prefers_community_value_then_ceiling():
     g = Guild(id=1, name="g", owner_id=1)
     spec = gl.LIMITS_BY_KEY["stream_fps"]
@@ -131,6 +169,43 @@ async def test_community_value_above_ceiling_is_clamped_visibly(
     body = r.json()
     assert "voice_bitrate_kbps" in body["clamped"]
     assert body["limits"]["voice_bitrate_kbps"]["value"] == 128
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_value_is_422_not_500(client, session_factory, _auth_signer):
+    token, _uid, gid = await _owned_guild(session_factory, _auth_signer)
+    # Keine Obergrenze gesetzt (unbegrenzt) → clamp greift nicht; ohne Bounds
+    # liefe der Riesenwert in die SmallInteger-Spalte und würde zum 500.
+    r = await client.patch(
+        f"/guilds/{gid}/limits",
+        json={"limits": {"max_concurrent_streams": 99_999_999}},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_non_numeric_value_is_422_not_500(client, session_factory, _auth_signer):
+    token, _uid, gid = await _owned_guild(session_factory, _auth_signer)
+    r = await client.patch(
+        f"/guilds/{gid}/limits",
+        json={"limits": {"max_members": "abc"}},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_null_on_not_null_limit_is_422_not_500(client, session_factory, _auth_signer):
+    # attachment_max_size_bytes ist eine NOT-NULL-Spalte — ``null`` darf hier
+    # nicht bis zum Commit durchrutschen (wäre sonst ein 500).
+    token, _uid, gid = await _owned_guild(session_factory, _auth_signer)
+    r = await client.patch(
+        f"/guilds/{gid}/limits",
+        json={"limits": {"attachment_max_size_bytes": None}},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422, r.text
 
 
 @pytest.mark.asyncio
