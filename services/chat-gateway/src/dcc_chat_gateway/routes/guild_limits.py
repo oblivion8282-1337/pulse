@@ -78,7 +78,15 @@ async def patch_guild_limits(
     if unknown:
         raise HTTPException(422, detail=f"unknown limits: {sorted(unknown)}")
 
-    for key, value in payload.limits.items():
+    try:
+        cleaned = {
+            key: limits.coerce_value(limits.LIMITS_BY_KEY[key], value)
+            for key, value in payload.limits.items()
+        }
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+    for key, value in cleaned.items():
         setattr(guild, limits.LIMITS_BY_KEY[key].value_attr, value)
 
     clamped = limits.clamp_to_ceilings(guild)

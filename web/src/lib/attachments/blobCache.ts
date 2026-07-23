@@ -76,9 +76,20 @@ export function release(key: string): void {
   evictParked();
 }
 
-/** Drop everything (sign-out / account switch — blobs may be private). */
+/** Drop the cache (sign-out / account switch — blobs may be private, and this
+ *  also runs on every server switch via the store reset).
+ *
+ *  Only entries nobody is displaying (refs === 0) are revoked here. An entry
+ *  with refs > 0 is a live `<img src>`: on a server switch the store reset
+ *  fires while the old message list is still mounted, so revoking it would
+ *  flash a broken image. Those ride the normal lifecycle instead — once their
+ *  component unmounts, `release` parks and `evictParked` revokes them, so
+ *  nothing leaks. */
 export function clearBlobCache(): void {
-  for (const entry of entries.values()) URL.revokeObjectURL(entry.url);
-  entries.clear();
+  for (const [key, entry] of [...entries]) {
+    if (entry.refs > 0) continue;
+    URL.revokeObjectURL(entry.url);
+    entries.delete(key);
+  }
   parked.length = 0;
 }
