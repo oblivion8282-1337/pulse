@@ -22,9 +22,12 @@ export function stopWatchParty(send: SendRaw, channelId: string, partyId: string
 }
 export function sendWatchControl(
   send: SendRaw, channelId: string, partyId: string,
-  action: 'play' | 'pause' | 'seek', position: number,
+  action: 'play' | 'pause' | 'seek', position: number, sourceEpoch?: number,
 ): boolean {
-  return send({ op: 'watch_control', channel_id: channelId, party_id: partyId, action, position });
+  return send({
+    op: 'watch_control', channel_id: channelId, party_id: partyId, action, position,
+    source_epoch: sourceEpoch,
+  });
 }
 export function changeWatchSource(
   send: SendRaw, channelId: string, partyId: string, sourceUrl: string,
@@ -34,9 +37,12 @@ export function changeWatchSource(
   });
 }
 export function sendWatchHeartbeat(
-  send: SendRaw, channelId: string, partyId: string, position: number,
+  send: SendRaw, channelId: string, partyId: string, position: number, sourceEpoch?: number,
 ): boolean {
-  return send({ op: 'watch_heartbeat', channel_id: channelId, party_id: partyId, position });
+  return send({
+    op: 'watch_heartbeat', channel_id: channelId, party_id: partyId, position,
+    source_epoch: sourceEpoch,
+  });
 }
 export function sendWatchJoin(send: SendRaw, channelId: string, partyId: string): boolean {
   return send({ op: 'watch_join', channel_id: channelId, party_id: partyId });

@@ -31,8 +31,11 @@ State shape (all snowflake-ish ids as strings):
 The queue lets anyone in the channel line up the next videos; the host
 moderates order + removal. Because *several* users can enqueue at once (unlike
 the host-only control ops), the queue mutations run through an optimistic
-WATCH/MULTI retry (:func:`mutate_queue`) so concurrent adds can't clobber each
-other on the read-modify-write of the shared state JSON. (Python json handles
+WATCH/MULTI retry (:func:`mutate_party`) so concurrent adds can't clobber each
+other on the read-modify-write of the shared state JSON. The host-only control
+ops (play/pause/seek/source/heartbeat) share that same path — a plain
+``write_party`` of a pre-read snapshot would drop a viewer's concurrent enqueue.
+(Python json handles
 an empty ``queue`` as ``[]``; a Lua/cjson round-trip would mis-serialise it as
 ``{}``.)
 """
@@ -292,14 +295,21 @@ async def delete_party(redis: Redis, channel_id: str, party_id: str) -> None:
 # string to abort the write (surfaced to the caller) or ``None`` on success.
 
 
-async def _mutate_queue(redis: Redis, channel_id: str, party_id: str, mutate) -> object:
+async def mutate_party(redis: Redis, channel_id: str, party_id: str, mutate) -> object:
     """Optimistic read-modify-write of one party's state.
 
     ``mutate(state) -> str | None`` edits ``state`` in place; a returned string
     is an error code that aborts the write. Returns the new state dict on
     success (and publishes it, paired with the write), the error code on abort,
     or ``None`` if the party is gone. ``"CONTENDED"`` if the retry budget is
-    exhausted (never seen in practice — enqueue contention is tiny)."""
+    exhausted (never seen in practice — contention is tiny).
+
+    Used for **both** queue mutations and host writes (play/pause/seek/source/
+    heartbeat). Host writes MUST go through here rather than a plain
+    :func:`write_party` of a pre-read snapshot: the snapshot's ``queue`` would
+    otherwise clobber a viewer's concurrent enqueue (lost update). Reading the
+    state fresh inside the WATCH — and only touching the fields the callback
+    edits — keeps the two write paths from stepping on each other."""
     key = WATCH_STATE_KEY.format(channel_id=channel_id)
     pid = str(party_id)
     async with redis.pipeline() as pipe:
@@ -346,7 +356,7 @@ async def queue_add(redis: Redis, channel_id: str, party_id: str, item: dict) ->
         queue.append(item)
         return None
 
-    return await _mutate_queue(redis, channel_id, party_id, mutate)
+    return await mutate_party(redis, channel_id, party_id, mutate)
 
 
 async def queue_remove(
@@ -366,7 +376,7 @@ async def queue_remove(
         queue.pop(idx)
         return None
 
-    return await _mutate_queue(redis, channel_id, party_id, mutate)
+    return await mutate_party(redis, channel_id, party_id, mutate)
 
 
 async def queue_move(
@@ -386,7 +396,7 @@ async def queue_move(
         queue.insert(max(0, min(new_index, len(queue))), item)
         return None
 
-    return await _mutate_queue(redis, channel_id, party_id, mutate)
+    return await mutate_party(redis, channel_id, party_id, mutate)
 
 
 async def queue_advance(
@@ -414,6 +424,10 @@ async def queue_advance(
         state["position"] = 0.0
         state["is_playing"] = True
         state["updated_at"] = now
+        # New source → new epoch. Heartbeats/controls the host measured against
+        # the OLD clip carry the old epoch and are dropped server-side, so a
+        # stale position can't stamp itself onto the freshly-reset clip.
+        state["source_epoch"] = int(state.get("source_epoch") or 0) + 1
         return None
 
-    return await _mutate_queue(redis, channel_id, party_id, mutate)
+    return await mutate_party(redis, channel_id, party_id, mutate)

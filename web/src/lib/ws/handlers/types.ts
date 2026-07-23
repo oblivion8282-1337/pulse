@@ -366,8 +366,17 @@ export type ClientEvent =
       party_id: string;
       action: 'play' | 'pause' | 'seek';
       position: number;
+      /** Source epoch the position was measured against — the server drops the
+       *  op if the clip has since been swapped (advance/source_change). */
+      source_epoch?: number;
     }
-  | { op: 'watch_heartbeat'; channel_id: string; party_id: string; position: number }
+  | {
+      op: 'watch_heartbeat';
+      channel_id: string;
+      party_id: string;
+      position: number;
+      source_epoch?: number;
+    }
   | { op: 'watch_source_change'; channel_id: string; party_id: string; source_url: string }
   | { op: 'watch_join'; channel_id: string; party_id: string }
   | { op: 'watch_leave'; channel_id: string; party_id: string }

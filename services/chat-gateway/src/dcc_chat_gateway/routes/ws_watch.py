@@ -62,6 +62,26 @@ def _party_id(value: object) -> str | None:
     return s if s.isdigit() else None
 
 
+def _epoch(value: object) -> int | None:
+    """Source-epoch a heartbeat/control was measured against. ``None`` when the
+    client omits it (legacy client / pre-epoch party) → the freshness guard is
+    skipped for that op rather than dropping everything."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stale_epoch(state: dict, epoch: int | None) -> bool:
+    """True when a control/heartbeat was measured against a source epoch the
+    party has since moved past (advance/source_change bumped it). ``epoch is
+    None`` (legacy client / pre-epoch party) never counts as stale — the
+    freshness guard is skipped for that op rather than dropping everything."""
+    return epoch is not None and int(state.get("source_epoch") or 0) != epoch
+
+
 def _redis(websocket: WebSocket):
     return getattr(websocket.app.state, "redis", None)
 
@@ -72,6 +92,18 @@ def _manager(websocket: WebSocket):
 
 async def _err(websocket: WebSocket, code: int, msg: str) -> None:
     await websocket.send_json({"op": "error", "code": code, "msg": msg})
+
+
+async def _emit_mutate_error(websocket: WebSocket, result: object) -> None:
+    """Shared error mapping for :func:`watchkeys.mutate_party` results, used by
+    the host-only control ops (:func:`handle_control`, :func:`handle_source_change`).
+    ``None`` = the party is gone, ``"NOT_HOST"`` = a handoff landed before the
+    write committed. Any other result (success, a different error code) is the
+    caller's to handle."""
+    if result is None:
+        await _err(websocket, 4016, "no active watch party")
+    elif result == "NOT_HOST":
+        await _err(websocket, 4015, "only the host can control")
 
 
 async def handle_start(
@@ -130,6 +162,10 @@ async def handle_start(
         "is_playing": True,
         "updated_at": ts,
         "started_at": ts,
+        # Bumped on every source swap (advance/source_change). Heartbeats and
+        # controls echo the epoch they measured against so the server can drop
+        # ones that belong to a since-replaced clip.
+        "source_epoch": 0,
     }
     await watchkeys.write_party(redis, cid, state)
     hosted_parties.add((cid, pid))
@@ -277,17 +313,25 @@ async def handle_control(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_party(redis, cid, pid)
-    if state is None:
-        await _err(websocket, 4016, "no active watch party")
-        return
-    if str(state.get("host_user_id")) != str(user.id):
-        await _err(websocket, 4015, "only the host can control")
-        return
-    state["position"] = float(position)
-    state["is_playing"] = action != "pause"
-    state["updated_at"] = watchkeys.now_ms()
-    await watchkeys.write_party(redis, cid, state)
+    epoch = _epoch(msg.get("source_epoch"))
+
+    def _apply(state: dict) -> str | None:
+        # Re-check the host inside the WATCH — a handoff could have landed
+        # between the client sending this and the write committing.
+        if str(state.get("host_user_id")) != str(user.id):
+            return "NOT_HOST"
+        # Stale-source guard: this control was measured against a clip that has
+        # since been replaced (advance/source_change bumped the epoch). Drop it
+        # so its position/playback can't apply to the new clip.
+        if _stale_epoch(state, epoch):
+            return "STALE"
+        state["position"] = float(position)
+        state["is_playing"] = action != "pause"
+        state["updated_at"] = watchkeys.now_ms()
+        return None
+
+    result = await watchkeys.mutate_party(redis, cid, pid, _apply)
+    await _emit_mutate_error(websocket, result)
 
 
 async def handle_source_change(
@@ -317,6 +361,9 @@ async def handle_source_change(
     if redis is None:
         await _err(websocket, 4017, "watch service unavailable")
         return
+    # Cheap pre-check: gate the host + party existence before the (possibly
+    # DB-hitting) native permission check below. The authoritative host re-check
+    # happens inside the atomic write.
     state = await watchkeys.read_party(redis, cid, pid)
     if state is None:
         await _err(websocket, 4016, "no active watch party")
@@ -338,11 +385,21 @@ async def handle_source_change(
             if not has_permission(perms, Permissions.MANAGE_CHANNELS):
                 await _err(websocket, 4003, "missing permission: MANAGE_CHANNELS")
                 return
-    state["source"] = source
-    state["position"] = float(source.get("start_seconds") or 0)
-    state["is_playing"] = True
-    state["updated_at"] = watchkeys.now_ms()
-    await watchkeys.write_party(redis, cid, state)
+
+    def _apply(st: dict) -> str | None:
+        if str(st.get("host_user_id")) != str(user.id):
+            return "NOT_HOST"
+        st["source"] = source
+        st["position"] = float(source.get("start_seconds") or 0)
+        st["is_playing"] = True
+        st["updated_at"] = watchkeys.now_ms()
+        # New source → new epoch (see handle_start / queue_advance): stale
+        # heartbeats/controls for the old clip get dropped by their guard.
+        st["source_epoch"] = int(st.get("source_epoch") or 0) + 1
+        return None
+
+    result = await watchkeys.mutate_party(redis, cid, pid, _apply)
+    await _emit_mutate_error(websocket, result)
 
 
 async def handle_heartbeat(
@@ -369,15 +426,27 @@ async def handle_heartbeat(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_party(redis, cid, pid)
-    if state is None or str(state.get("host_user_id")) != str(user.id):
-        return
     ts = watchkeys.now_ms()
-    if ts - int(state.get("updated_at") or 0) < _HEARTBEAT_DEBOUNCE_MS:
-        return
-    state["position"] = float(position)
-    state["updated_at"] = ts
-    await watchkeys.write_party(redis, cid, state)
+    epoch = _epoch(msg.get("source_epoch"))
+
+    def _apply(state: dict) -> str | None:
+        # Host + debounce + epoch evaluated against the state as seen inside the
+        # WATCH, so a heartbeat can't resurrect a queue item by writing back a
+        # stale snapshot (lost update). Best-effort: any abort code is ignored.
+        if str(state.get("host_user_id")) != str(user.id):
+            return "SKIP"
+        # Stale-source guard: a heartbeat measured against the previous clip
+        # (its position belongs to that video) must not stamp itself onto the
+        # freshly-reset new clip — the "second clip starts in the middle" bug.
+        if _stale_epoch(state, epoch):
+            return "SKIP"
+        if ts - int(state.get("updated_at") or 0) < _HEARTBEAT_DEBOUNCE_MS:
+            return "SKIP"
+        state["position"] = float(position)
+        state["updated_at"] = ts
+        return None
+
+    await watchkeys.mutate_party(redis, cid, pid, _apply)
 
 
 

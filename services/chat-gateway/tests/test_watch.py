@@ -1526,6 +1526,46 @@ async def test_heartbeat_rejects_out_of_range_position(redis):
         await redis.delete(f"watch:channel-{cid}")
 
 
+@pytest.mark.asyncio
+async def test_heartbeat_drops_stale_source_epoch(redis):
+    """A heartbeat carrying an OLD source epoch (measured against a since-
+    replaced clip) must NOT stamp its position onto the new clip — the "second
+    queued clip starts in the middle" bug. A matching / absent epoch applies."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    # Party is now on its second clip (epoch 1), freshly reset to position 0.
+    await _seed_party(
+        redis,
+        cid,
+        _state(host="111", position=0.0, source_epoch=1, updated_at=watchkeys.now_ms() - 60_000),
+    )
+    ws = _ErrWS(redis, _reg_mgr())
+    user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
+    base = {"channel_id": cid, "party_id": _PID}
+    try:
+        # Stale beat from the old clip (epoch 0) at position 200 → dropped.
+        await ws_watch.handle_heartbeat(ws, user, {**base, "position": 200.0, "source_epoch": 0})
+        assert (await _read_party(redis, cid))["position"] == 0.0
+
+        # Current-epoch beat applies.
+        await ws_watch.handle_heartbeat(ws, user, {**base, "position": 7.0, "source_epoch": 1})
+        assert (await _read_party(redis, cid))["position"] == 7.0
+
+        # Legacy client (no epoch) is not penalised — guard skipped. Re-seed with
+        # an old updated_at so the heartbeat debounce doesn't mask the result.
+        await _seed_party(
+            redis,
+            cid,
+            _state(host="111", position=0.0, source_epoch=1, updated_at=watchkeys.now_ms() - 60_000),
+        )
+        await ws_watch.handle_heartbeat(ws, user, {**base, "position": 9.0})
+        assert (await _read_party(redis, cid))["position"] == 9.0
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
 # =============================================================================
 # 5. Host-sticky grace timer (registry) — schedule / cancel / expire
 # =============================================================================

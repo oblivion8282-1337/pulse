@@ -164,3 +164,58 @@ async def test_empty_queue_serialises_as_array(redis, party):
     # Python WATCH/MULTI path avoids).
     raw = await redis.hget(f"watch:channel-{cid}", pid)
     assert '"queue":[]' in raw.decode()
+
+
+@pytest.mark.asyncio
+async def test_advance_bumps_source_epoch(redis, party):
+    """Promoting a queued clip is a source swap → the epoch increments. The
+    host tags heartbeats with it; the server drops stale-clip positions."""
+    cid, pid = party
+    await wk.queue_add(redis, cid, pid, _item("1", "A", OTHER))
+    state = await wk.queue_advance(redis, cid, pid, HOST)
+    assert isinstance(state, dict)
+    assert state["source_epoch"] == 1  # seeded without the field (0) → bumped
+
+    await wk.queue_add(redis, cid, pid, _item("2", "B", OTHER))
+    state2 = await wk.queue_advance(redis, cid, pid, HOST)
+    assert state2["source_epoch"] == 2
+
+
+@pytest.mark.asyncio
+async def test_host_write_does_not_clobber_concurrent_enqueue(redis, party):
+    """Lost-update guard: a host write (play/pause/seek/heartbeat) goes through
+    ``mutate_party`` — the same WATCH/MULTI path as the queue — so an enqueue
+    that commits between the host op's read and its write is NOT dropped.
+
+    We drive the race deterministically: on the host mutate's first pass a
+    competing enqueue lands via a *separate* connection, which invalidates the
+    WATCH and forces a retry; the retry must observe the queued item."""
+    import redis as redis_sync  # sync client, present in the same package
+
+    cid, pid = party
+    other = redis_sync.Redis.from_url(_REDIS_URL, decode_responses=False)
+    injected = {"done": False}
+
+    def apply(state: dict) -> None:
+        # First pass only: enqueue through another connection *after* our
+        # WATCH-read but *before* our MULTI commits → WatchError → retry.
+        if not injected["done"]:
+            injected["done"] = True
+            raw = other.hget(f"watch:channel-{cid}", pid)
+            s = json.loads(raw)
+            s.setdefault("queue", []).append(_item("99", "VID", OTHER))
+            other.hset(f"watch:channel-{cid}", pid, json.dumps(s))
+        state["position"] = 42.0  # the host write itself
+        return None
+
+    try:
+        result = await wk.mutate_party(redis, cid, pid, apply)
+    finally:
+        other.close()
+
+    assert injected["done"]  # the race actually fired
+    assert isinstance(result, dict)  # not CONTENDED / None
+    assert result["position"] == 42.0  # host write applied
+    # The concurrent enqueue survived — the whole point of routing host writes
+    # through the optimistic path instead of a plain snapshot write_party.
+    assert [i["id"] for i in await _queue(redis, cid, pid)] == ["99"]
