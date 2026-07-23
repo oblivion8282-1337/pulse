@@ -15,7 +15,16 @@ import pytest
 from dcc_chat_gateway import s3 as s3_mod
 
 # Reuse the shared mock + helpers from the sibling test module.
-from .test_dropbox import _create_guild, _provision_dropbox, _S3Mock, _user  # noqa: E402
+# ``_dropbox_unlocked_by_default`` ist ein autouse-Fixture und muss deshalb im
+# Namensraum DIESES Moduls stehen, damit es hier ebenfalls greift — sonst
+# starten die Communities gesperrt (Migration 0056) und jede Route 404't.
+from .test_dropbox import (  # noqa: E402
+    _create_guild,
+    _dropbox_unlocked_by_default,  # noqa: F401 — autouse fixture
+    _provision_dropbox,
+    _S3Mock,
+    _user,
+)
 
 
 def auth(token: str) -> dict[str, str]:

@@ -1,55 +1,101 @@
 <!--
-  Per-guild attachment limits (MANAGE_GUILD). Edits the two columns on the
-  Guild row via PATCH /guilds/{id}; enforcement lives in the backend
-  (attachments.py). Size is shown in MB; stored as bytes.
+  Die Community stellt ihre eigenen Grenzen ein (MANAGE_GUILD).
+
+  Fährt PATCH /guilds/{id}/limits — dieselben Limits wie das Betreiber-Panel,
+  aber jeder Wert wird serverseitig auf die Vorgabe des Betreibers geklemmt.
+  Der Platzhalter jedes Feldes nennt diese Vorgabe, damit sichtbar ist, in
+  welchem Rahmen man sich bewegt. Leer = „nimm die Vorgabe".
+
+  Gruppierung wie im Betreiber-Panel: Qualität, Dateien & Speicher, Größe.
 -->
 <script lang="ts">
   import { toast } from 'svelte-sonner';
-  import { chatApi } from '$lib/api/chat';
-  import { guilds } from '$lib/stores/guilds.svelte';
+  import { chatApi, type GuildLimits } from '$lib/api/chat';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import GuildLimitRow from './GuildLimitRow.svelte';
+  import { toDisplay, toWire, type LimitKind } from './guildLimitUnits';
 
   let { guildId }: { guildId: string } = $props();
 
-  const MB = 1024 * 1024;
-  const DEFAULT_SIZE_BYTES = 26214400; // 25 MiB — matches the server default
-  const DEFAULT_COUNT = 10;
+  // Feldtabelle: Schlüssel (muss zum Backend passen) + Einheit, in Gruppen.
+  type Field = { key: string; kind: LimitKind; label: () => string };
+  const GROUPS: { title: string; fields: Field[] }[] = [
+    {
+      title: m.guild_limits_group_quality(),
+      fields: [
+        { key: 'voice_bitrate_kbps', kind: 'raw', label: m.guild_limits_field_voice_bitrate_kbps },
+        { key: 'stream_bitrate_kbps', kind: 'mbps', label: m.guild_limits_field_stream_bitrate_kbps },
+        { key: 'stream_fps', kind: 'raw', label: m.guild_limits_field_stream_fps },
+        { key: 'stream_resolution', kind: 'resolution', label: m.guild_limits_field_stream_resolution }
+      ]
+    },
+    {
+      title: m.guild_limits_group_files(),
+      fields: [
+        { key: 'attachment_max_size_bytes', kind: 'mb', label: m.guild_limits_field_attachment_max_size_bytes },
+        { key: 'attachment_max_count_per_message', kind: 'raw', label: m.guild_limits_field_attachment_max_count_per_message },
+        { key: 'attachment_storage_quota_bytes', kind: 'gb', label: m.guild_limits_field_attachment_storage_quota_bytes }
+      ]
+    },
+    {
+      title: m.guild_limits_group_scale(),
+      fields: [
+        { key: 'max_members', kind: 'raw', label: m.guild_limits_field_max_members },
+        { key: 'max_channels', kind: 'raw', label: m.guild_limits_field_max_channels },
+        { key: 'max_roles', kind: 'raw', label: m.guild_limits_field_max_roles },
+        { key: 'max_concurrent_streams', kind: 'raw', label: m.guild_limits_field_max_concurrent_streams }
+      ]
+    }
+  ];
+  const FIELDS = GROUPS.flatMap((g) => g.fields);
 
-  const guild = $derived(guilds.byId[guildId]);
-  // Buffers, seeded from the guild and re-seeded if it changes underneath us.
-  let sizeMb = $state(25);
-  let count = $state(10);
+  let data = $state<GuildLimits | null>(null);
+  // Anzeige-Werte je Schlüssel ('' = nichts gesetzt).
+  let inputs = $state<Record<string, string>>({});
   let busy = $state(false);
-  let seededFor = $state<string | null>(null);
+
+  // Felder aus dem eigenen Wert der Community seeden (nicht aus dem wirksamen —
+  // leer soll „erbt die Vorgabe" heißen, nicht die Vorgabe als eigenen Wert
+  // einfrieren). Beim Laden UND nach dem Speichern, da der Server dort die
+  // geklemmten Werte zurückgibt.
+  function seed(res: GuildLimits): void {
+    inputs = Object.fromEntries(
+      FIELDS.map((f) => [f.key, toDisplay(res.limits[f.key]?.value ?? null, f.kind)])
+    );
+  }
 
   $effect(() => {
-    const g = guild;
-    if (!g || seededFor === g.id) return;
-    seededFor = g.id;
-    sizeMb = Math.round((g.attachment_max_size_bytes ?? DEFAULT_SIZE_BYTES) / MB);
-    count = g.attachment_max_count_per_message ?? DEFAULT_COUNT;
+    void guildId;
+    data = null;
+    chatApi
+      .getGuildLimits(guildId)
+      .then((res) => {
+        data = res;
+        seed(res);
+      })
+      .catch((e) =>
+        toast.error(m.guild_limits_save_failed(), {
+          description: e instanceof Error ? e.message : String(e)
+        })
+      );
   });
 
-  const dirty = $derived(
-    !!guild &&
-      (sizeMb * MB !== (guild.attachment_max_size_bytes ?? DEFAULT_SIZE_BYTES) ||
-        count !== (guild.attachment_max_count_per_message ?? DEFAULT_COUNT))
-  );
-
   async function save() {
-    if (!guild || busy || !dirty) return;
+    if (busy) return;
     busy = true;
     try {
-      const updated = await chatApi.patchGuild(guildId, {
-        attachment_max_size_bytes: Math.round(sizeMb * MB),
-        attachment_max_count_per_message: count
-      });
-      guilds.updateGuild(updated);
-      toast.success(m.guild_limits_saved());
+      const payload = Object.fromEntries(
+        FIELDS.map((f) => [f.key, toWire(inputs[f.key] ?? '', f.kind)])
+      );
+      const res = await chatApi.patchGuildLimits(guildId, payload);
+      data = res;
+      // Nach dem Klemmen die Felder auf die tatsächlich gespeicherten Werte
+      // zurücksetzen, sonst zeigt das Feld weiter den abgelehnten Wunsch.
+      seed(res);
+      if (res.clamped.length) toast.warning(m.guild_limits_clamped());
+      else toast.success(m.guild_limits_saved());
     } catch (e) {
       toast.error(m.guild_limits_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
@@ -66,46 +112,30 @@
     <p class="text-text-muted text-xs">{m.guild_limits_subtitle()}</p>
   </div>
 
-  {#if !guild}
+  {#if !data}
     <LoadingState label={m.guild_limits_loading()} />
   {:else}
-    <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-1.5">
-        <Label for="guild-limit-size">{m.guild_limits_max_size()}</Label>
-        <div class="flex items-center gap-2">
-          <Input
-            id="guild-limit-size"
-            type="number"
-            min={1}
-            max={1024}
-            bind:value={sizeMb}
-            disabled={busy}
-            class="w-32"
-            data-testid="guild-limit-size"
-          />
-          <span class="text-text-muted text-sm">MB</span>
+    {#each GROUPS as group (group.title)}
+      <div class="flex flex-col gap-3">
+        <h3 class="text-text-bright text-sm font-semibold">{group.title}</h3>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {#each group.fields as field (field.key)}
+            <GuildLimitRow
+              label={field.label()}
+              kind={field.kind}
+              ceiling={data.limits[field.key]?.ceiling ?? null}
+              testid={`guild-limit-${field.key}`}
+              bind:value={inputs[field.key]}
+            />
+          {/each}
         </div>
       </div>
+    {/each}
 
-      <div class="flex flex-col gap-1.5">
-        <Label for="guild-limit-count">{m.guild_limits_max_count()}</Label>
-        <Input
-          id="guild-limit-count"
-          type="number"
-          min={1}
-          max={50}
-          bind:value={count}
-          disabled={busy}
-          class="w-32"
-          data-testid="guild-limit-count"
-        />
-      </div>
-
-      <div class="flex justify-end">
-        <Button onclick={save} disabled={busy || !dirty} data-testid="guild-limits-save">
-          {busy ? m.guild_limits_saving() : m.guild_limits_save()}
-        </Button>
-      </div>
+    <div class="flex justify-end">
+      <Button onclick={save} disabled={busy} data-testid="guild-limits-save">
+        {busy ? m.guild_limits_saving() : m.guild_limits_save()}
+      </Button>
     </div>
   {/if}
 </section>

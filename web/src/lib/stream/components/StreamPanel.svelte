@@ -102,7 +102,7 @@
     {:else}
       {#snippet settingsColumn()}
         <div class="flex min-w-0 flex-col gap-4">
-          <OverridesEditor streamSlot={slot} />
+          <OverridesEditor {channelId} streamSlot={slot} />
           <Separator />
           <AudioModePicker />
           {#if hasSourcePicker}

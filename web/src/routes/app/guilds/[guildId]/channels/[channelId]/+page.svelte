@@ -371,30 +371,44 @@
 
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
-    // Type=2 (Dropbox / Ablage) is special — there's at most one per
-    // guild. POST /guilds/{id}/dropbox/channel is idempotent: it
-    // creates with the user-supplied name on first call, hands back
-    // the existing channel on subsequent calls (admin renames via
-    // PATCH instead of creating a new one).
-    if (type === 2) {
-      const ch = await dropboxApi.createDropboxChannel(activeGuild.id, name);
-      guilds.addChannel({
-        id: ch.id,
-        guild_id: ch.guild_id,
-        name: ch.name,
-        type: ch.type,
-        position: ch.position,
-        topic: null,
-        created_at: new Date().toISOString()
-      });
+    try {
+      // Type=2 (Dropbox / Ablage) is special — there's at most one per
+      // guild. POST /guilds/{id}/dropbox/channel is idempotent: it
+      // creates with the user-supplied name on first call, hands back
+      // the existing channel on subsequent calls (admin renames via
+      // PATCH instead of creating a new one).
+      let newChannelId: string;
+      if (type === 2) {
+        const ch = await dropboxApi.createDropboxChannel(activeGuild.id, name);
+        guilds.addChannel({
+          id: ch.id,
+          guild_id: ch.guild_id,
+          name: ch.name,
+          type: ch.type,
+          position: ch.position,
+          topic: null,
+          created_at: new Date().toISOString()
+        });
+        newChannelId = ch.id;
+      } else {
+        const ch = await chatApi.createChannel(activeGuild.id, { name, type });
+        guilds.addChannel(ch);
+        newChannelId = ch.id;
+      }
       creatingChannel = false;
-      await goto(`/app/guilds/${activeGuild.id}/channels/${ch.id}`);
-      return;
+      await goto(`/app/guilds/${activeGuild.id}/channels/${newChannelId}`);
+    } catch (e) {
+      // 409 vom Ablage-Endpoint = die Community hat ihre Ablage abgeschaltet
+      // (Sicherheitsnetz — der Dialog blendet die Option normalerweise aus,
+      // aber ein Klick vor dem Nachladen des Schalters landet hier).
+      const status = (e as { status?: number })?.status;
+      toast.error(
+        type === 2 && status === 409
+          ? pm.channel_page_dropbox_disabled()
+          : pm.channel_page_create_failed(),
+        { description: e instanceof Error ? e.message : String(e) }
+      );
     }
-    const ch = await chatApi.createChannel(activeGuild.id, { name, type });
-    guilds.addChannel(ch);
-    creatingChannel = false;
-    await goto(`/app/guilds/${activeGuild.id}/channels/${ch.id}`);
   }
 
   async function onChannelDeleted(deletedId: string) {
@@ -604,4 +618,10 @@
   onJoin={joinGuild}
 />
 
-<CreateChannelDialog open={creatingChannel} onClose={() => (creatingChannel = false)} onCreate={createChannel} />
+<CreateChannelDialog
+  open={creatingChannel}
+  guildId={activeGuild?.id ?? ''}
+  dropboxAllowed={activeGuild?.dropbox_allowed ?? false}
+  onClose={() => (creatingChannel = false)}
+  onCreate={createChannel}
+/>

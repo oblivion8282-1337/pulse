@@ -226,6 +226,12 @@ export type Community = {
   max_channels: number | null;
   max_roles: number | null;
   max_concurrent_streams: number | null;
+  /** Feature permission (not a cap): may this community use the Ablage?
+   *  Locked by default — the community's own admin cannot lift it. */
+  dropbox_allowed: boolean;
+  /** Ceiling for Ablage storage in bytes. null = the instance standard (1 GiB).
+   *  Separate pot from attachment_storage_quota_bytes (chat attachments). */
+  dropbox_quota_bytes: number | null;
 };
 
 /** Owner-set per-community caps. Full set sent each save; quality/quota null
@@ -242,6 +248,10 @@ export type CommunityLimits = {
   max_channels: number | null;
   max_roles: number | null;
   max_concurrent_streams: number | null;
+  /** Feature permission. Omit/null = leave unchanged. */
+  dropbox_allowed?: boolean | null;
+  /** Ablage storage ceiling. null = clear the override (instance standard). */
+  dropbox_quota_bytes: number | null;
 };
 
 export type CommunityList = {

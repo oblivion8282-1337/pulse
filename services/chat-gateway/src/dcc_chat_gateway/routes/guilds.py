@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
     Channel,
@@ -67,12 +68,15 @@ def _guild_dict(guild: Guild) -> dict[str, object]:
         "attachment_max_size_bytes": guild.attachment_max_size_bytes,
         "attachment_max_count_per_message": guild.attachment_max_count_per_message,
         "suspended": guild.suspended_at is not None,
-        # Per-community quality caps (null = inherit instance default). The
-        # client computes the effective cap = override ?? instance default.
-        "voice_bitrate_max_kbps": guild.voice_bitrate_max_kbps,
-        "stream_bitrate_max_kbps": guild.stream_bitrate_max_kbps,
-        "stream_fps_max": guild.stream_fps_max,
-        "stream_resolution_max": guild.stream_resolution_max,
+        # Wirksame Grenzen: Wert der Community, sonst Obergrenze des Betreibers.
+        # Der Client klemmt beim Senden gegen genau diese Zahlen — ihm die
+        # Obergrenze zu schicken, wo die Community sich selbst kleiner gesetzt
+        # hat, würde die eigene Einstellung wirkungslos machen.
+        **effective_wire_limits(guild),
+        # Feature permission — the client hides the Ablage (channel-create
+        # option + section) when the operator hasn't unlocked it. Server-side
+        # enforcement is the router gate; this only keeps the UI honest.
+        "dropbox_allowed": guild.dropbox_allowed,
     }
 
 
@@ -215,6 +219,10 @@ async def patch_guild(
         guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
     if payload.attachment_max_count_per_message is not None:
         guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
+    # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
+    # Klemmen könnte MANAGE_GUILD hier die Vorgabe des Betreibers überschreiben
+    # (genau die Lücke, die Migration 0057 geschlossen hat).
+    clamp_to_ceilings(guild)
 
     # ---- Public-address fields ------------------------------------------
     # Resolve the handle the guild will have AFTER this patch (None = unchanged).

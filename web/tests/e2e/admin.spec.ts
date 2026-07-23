@@ -107,11 +107,9 @@ test.describe.serial('admin-panel E2E', () => {
   });
 
   test('non-admin does not see the Server-Admin entry', async () => {
-    await page.getByTestId('user-footer-trigger').click();
-    // The "Server-Admin" item must NOT be in the dropdown for a regular user.
+    // Server-Admin is a standalone sidebar button now (no longer a menu entry)
+    // — it must not render at all for a regular user.
     await expect(page.getByTestId('open-admin')).toHaveCount(0);
-    // Close the dropdown by pressing Escape.
-    await page.keyboard.press('Escape');
   });
 
   test('admin promotion makes the entry appear after re-login', async () => {
@@ -122,7 +120,7 @@ test.describe.serial('admin-panel E2E', () => {
     await page.evaluate(() => localStorage.clear());
     await login(page, ALICE.username, ALICE.password);
 
-    await page.getByTestId('user-footer-trigger').click();
+    // Der Server-Admin-Button steht jetzt direkt in der Sidebar (kein Menü).
     await expect(page.getByTestId('open-admin')).toBeVisible();
   });
 

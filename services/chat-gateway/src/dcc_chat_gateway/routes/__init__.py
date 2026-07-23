@@ -26,6 +26,7 @@ from dcc_chat_gateway.routes import (
     friends,
     guild_icons,
     guild_plugins,
+    guild_limits,
     guilds,
     health,
     instance_membership,
@@ -55,7 +56,10 @@ from dcc_chat_gateway.routes import (
     watch_chat,
     ws,
 )
-from dcc_chat_gateway.routes._dropbox_helpers import require_dropbox_available
+from dcc_chat_gateway.routes._dropbox_policy import (
+    require_dropbox_available,
+    require_guild_dropbox_allowed,
+)
 
 router = APIRouter()
 router.include_router(health.router)
@@ -108,7 +112,17 @@ router.include_router(cert_login.router)
 # place is deliberate; a gate on the mint route alone would still leave
 # listing/download of existing files reachable. Self-hosts are unaffected.
 # See docs/medien-speicher-und-scanning.md.
-_dropbox_gate = [Depends(require_dropbox_available)]
+#
+# Second gate, per community: the operator unlocks the Ablage for a community
+# in /owner/communities/{id}/limits (``guilds.dropbox_allowed``, default off).
+# Every route below lives under /guilds/{guild_id}/dropbox/..., so the
+# dependency can read the id straight from the path. Both gates 404 so a
+# locked feature looks the same as one that was never there. Routes that need
+# the guild row itself take ``DropboxGuild`` and get the one the gate loaded.
+_dropbox_gate = [
+    Depends(require_dropbox_available),
+    Depends(require_guild_dropbox_allowed),
+]
 router.include_router(dropbox.router, dependencies=_dropbox_gate)
 router.include_router(dropbox_uploads.router, dependencies=_dropbox_gate)
 router.include_router(dropbox_downloads.router, dependencies=_dropbox_gate)
@@ -123,6 +137,7 @@ router.include_router(admin_backups.router)
 router.include_router(admin_members.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)
+router.include_router(guild_limits.router)
 router.include_router(mention_search.router)
 router.include_router(users.router)
 router.include_router(internal.router)

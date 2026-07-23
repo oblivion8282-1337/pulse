@@ -32,6 +32,7 @@ from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import channel_membership, require_member
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +132,9 @@ async def _enforce_concurrent_stream_cap(session, guild_id: int, mgr) -> None:
     honor-system enforcement of the other quality caps. A truly atomic hard cap
     would have to live in media-svc/auth-hook (documented)."""
     guild = await session.get(Guild, guild_id)  # identity-mapped; no extra query
-    cap = guild.max_concurrent_streams if guild else None
+    cap = (
+        effective(guild, LIMITS_BY_KEY["max_concurrent_streams"]) if guild else None
+    )
     if cap is None or mgr is None:
         return
     result = await session.execute(

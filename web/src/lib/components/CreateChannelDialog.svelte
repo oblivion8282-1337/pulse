@@ -10,25 +10,68 @@
   import { m } from '$lib/paraglide/messages.js';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { dropboxApi } from '$lib/api/dropbox';
 
   let {
     open = false,
+    guildId = '',
+    dropboxAllowed = false,
     onClose,
     onCreate
   }: {
     open?: boolean;
+    /** Aktive Community — für das Nachladen des Community-Master-Schalters. */
+    guildId?: string;
+    /** Hat der Server-Betreiber die Ablage für DIESE Community freigegeben?
+     *  Gesperrt ist der Normalfall — anders als die Instanz-Policy unten wird
+     *  hier nicht ins Blaue gezeigt, weil ein Nein hier eine bewusste
+     *  Einzelentscheidung ist und nicht ein noch nicht geladener Wert. */
+    dropboxAllowed?: boolean;
     onClose: () => void;
     onCreate: (name: string, type: number) => void;
   } = $props();
 
-  // Die Ablage ist eine Instanz-Policy des aktiven Servers (die Cloud hat sie
-  // aus — sie nimmt beliebige Dateitypen, die kein Hash-Matching sehen kann).
-  // Fehlt der Capability-Eintrag noch, zeigen wir die Option: der Server
-  // 404't sie notfalls selbst, und fälschlich fehlende Optionen sind
-  // schwerer zu diagnostizieren als eine, die einmal ins Leere greift.
+  // Drei Ebenen, alle müssen zustimmen:
+  //   1. Instanz-Policy des aktiven Servers (die Cloud kann die Ablage ganz
+  //      abschalten — sie nimmt beliebige Dateitypen, die kein Hash-Matching
+  //      sehen kann). Fehlt der Capability-Eintrag noch, zeigen wir die
+  //      Option: der Server 404't sie notfalls selbst.
+  //   2. Freigabe für diese Community durch den Betreiber (Server-
+  //      Einstellungen → Communitys). Die Community-Leitung kann das nicht
+  //      selbst umlegen.
+  //   3. Der eigene Master-Schalter der Community (Community-Einstellungen →
+  //      Ablage). Hat die Leitung ihre Ablage abgeschaltet, soll man auch
+  //      keinen neuen Kanal anlegen können. Der wird beim Öffnen frisch
+  //      geladen (unten), damit er nie veraltet ist.
+  let communityDropboxEnabled = $state(true);
   const dropboxAvailable = $derived(
-    serverCapabilities.get(activeServer.serverId)?.dropboxEnabled ?? true
+    (serverCapabilities.get(activeServer.serverId)?.dropboxEnabled ?? true) &&
+      dropboxAllowed &&
+      communityDropboxEnabled
   );
+
+  $effect(() => {
+    // Nur laden, wenn Instanz + Betreiber die Ablage überhaupt zulassen —
+    // sonst zeigt der Dialog die Option ohnehin nicht. Optimistischer Default
+    // true: der deaktivierte Fall ist selten, so flackert nichts im Normalfall.
+    if (!open || !dropboxAllowed || !guildId) {
+      communityDropboxEnabled = true;
+      return;
+    }
+    let cancelled = false;
+    dropboxApi
+      .getQuota(guildId)
+      .then((cfg) => {
+        if (!cancelled) communityDropboxEnabled = cfg.enabled;
+      })
+      .catch(() => {
+        // 404 = noch keine Config = Ablage verfügbar (Default beim Erstanlegen).
+        if (!cancelled) communityDropboxEnabled = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   let name = $state('');
   // 0 = text, 1 = voice, 2 = dropbox (per-guild file storage).

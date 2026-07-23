@@ -19,6 +19,21 @@ export type GuildSettings = {
   is_public: boolean;
 };
 
+/** Ein Limit aus Sicht der Community-Leitung: eigener Wert, Obergrenze des
+ *  Betreibers, wirksamer Wert. Auflösungen sind Zeichenketten, sonst Zahlen. */
+export type GuildLimitValue = {
+  value: number | string | null;
+  ceiling: number | string | null;
+  effective: number | string | null;
+};
+
+export type GuildLimits = {
+  limits: Record<string, GuildLimitValue>;
+  /** Schlüssel der Limits, die beim Speichern auf die Obergrenze
+   *  zurückgeholt wurden — die Oberfläche sagt, was angepasst wurde. */
+  clamped: string[];
+};
+
 /** Response von `GET /c/{handle}` — öffentliche Community-Vorschau.
  *  Spiegelt `PublicCommunityPreviewOut` aus dem Backend. */
 export type PublicCommunityPreview = {
@@ -113,6 +128,23 @@ export const chatApi = {
     }
   ): Promise<Guild> {
     return request<Guild>(`/guilds/${id}`, { method: 'PATCH', body: payload });
+  },
+  /** Die eigenen Grenzen der Community lesen — je Limit Wert, Obergrenze des
+   *  Betreibers und wirksamer Wert. MANAGE_GUILD. */
+  getGuildLimits(id: string): Promise<GuildLimits> {
+    return request<GuildLimits>(`/guilds/${id}/limits`);
+  },
+  /** Community-Werte setzen. Nur genannte Schlüssel werden angefasst, ``null``
+   *  löscht den eigenen Wert. Antwort trägt ``clamped`` mit den Limits, die auf
+   *  die Obergrenze zurückgeholt wurden. */
+  patchGuildLimits(
+    id: string,
+    limits: Record<string, number | string | null>
+  ): Promise<GuildLimits> {
+    return request<GuildLimits>(`/guilds/${id}/limits`, {
+      method: 'PATCH',
+      body: { limits }
+    });
   },
   deleteGuild(id: string): Promise<void> {
     return request<void>(`/guilds/${id}`, { method: 'DELETE' });

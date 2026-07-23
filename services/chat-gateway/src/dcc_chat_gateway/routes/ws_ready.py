@@ -77,6 +77,7 @@ from dcc_chat_gateway.presence_status import (
     set_presence_status,
 )
 from dcc_chat_gateway.security import AuthenticatedUser
+from dcc_chat_gateway.guild_limits import effective_wire_limits
 
 log = logging.getLogger(__name__)
 
@@ -205,12 +206,12 @@ async def build_and_send_ready_frame(
                     # community read-only + shows a banner. Server-side gates
                     # enforce it regardless (every action 403s).
                     "suspended": g.suspended_at is not None,
-                    # Per-community quality caps (null = inherit instance
-                    # default). Read at stream/voice publish time to clamp.
-                    "voice_bitrate_max_kbps": g.voice_bitrate_max_kbps,
-                    "stream_bitrate_max_kbps": g.stream_bitrate_max_kbps,
-                    "stream_fps_max": g.stream_fps_max,
-                    "stream_resolution_max": g.stream_resolution_max,
+                    # Wirksame Grenzen (Wert der Community, sonst Obergrenze
+                    # des Betreibers). Read at stream/voice publish time to clamp.
+                    **effective_wire_limits(g),
+                    # Ablage-Freigabe des Betreibers — der Client blendet
+                    # Kanal-Sektion und Anlege-Option danach aus.
+                    "dropbox_allowed": g.dropbox_allowed,
                     "my_permissions": str(my_perms),
                     "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
                     "sound_overrides": sound_overrides_by_guild.get(g.id, []),

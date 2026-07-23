@@ -29,6 +29,11 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     publish_purge_event,
     publish_quota_event,
 )
+from dcc_chat_gateway.routes._dropbox_policy import (
+    DropboxGuild,
+    dropbox_quota_ceiling,
+    new_dropbox_config,
+)
 from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxConfigOut,
     DropboxConfigPatch,
@@ -46,6 +51,7 @@ admin_router = APIRouter(tags=["dropbox-admin"])
 )
 async def patch_settings(
     guild_id: Annotated[int, Path(ge=1)],
+    guild: DropboxGuild,
     payload: DropboxConfigPatch,
     session: SessionDep,
     current: CurrentUser,
@@ -53,11 +59,16 @@ async def patch_settings(
 ) -> DropboxConfigOut:
     """Admin-only settings update.
 
-    Coherence check:
+    Coherence checks:
       - if ``total_quota_bytes`` shrinks below ``used_bytes`` we refuse
         rather than silently rejecting every future upload — a quota
         shrink should be a deliberate, visible action (raise it back up
-        first, free space, then lower)."""
+        first, free space, then lower).
+      - a requested quota is clamped to the operator's ceiling
+        (``guilds.dropbox_quota_bytes``, default 1 GiB). Clamping rather than
+        erroring: the community asked for "as much as possible", and the
+        response carries the value that was actually stored, so the editor
+        shows the truth right after saving."""
 
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_GUILD
@@ -65,7 +76,7 @@ async def patch_settings(
 
     cfg = await session.get(DropboxConfig, guild_id)
     if cfg is None:
-        cfg = DropboxConfig(guild_id=guild_id)
+        cfg = new_dropbox_config(guild)
         session.add(cfg)
         await session.flush()
 
@@ -85,7 +96,9 @@ async def patch_settings(
                     "free space first or raise the cap back up"
                 ),
             )
-        cfg.total_quota_bytes = int(payload.total_quota_bytes)
+        cfg.total_quota_bytes = min(
+            int(payload.total_quota_bytes), dropbox_quota_ceiling(guild)
+        )
 
     await session.commit()
     await session.refresh(cfg)

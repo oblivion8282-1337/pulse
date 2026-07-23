@@ -64,6 +64,11 @@ export type Guild = {
   stream_bitrate_max_kbps?: number | null;
   stream_fps_max?: number | null;
   stream_resolution_max?: string | null;
+  /** Has the instance operator unlocked the Ablage for this community?
+   *  Locked by default; only /owner/communities/{id}/limits can change it.
+   *  Absent in back-compat / mocked frames — treated as locked, matching the
+   *  server, which 404s every dropbox route until it is unlocked. */
+  dropbox_allowed?: boolean;
 };
 
 export type Channel = {

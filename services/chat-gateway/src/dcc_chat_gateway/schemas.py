@@ -12,6 +12,7 @@ from pydantic import (
     Field,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 
@@ -54,15 +55,71 @@ class GuildOut(BaseModel):
     created_at: datetime
     attachment_max_size_bytes: int
     attachment_max_count_per_message: int
-    # Per-community quality caps (null = inherit instance default).
+    # Wirksame Grenzen dieser Community — Wert der Community, sonst Obergrenze
+    # des Betreibers (``guild_limits.effective``). Die Feldnamen tragen noch
+    # ``_max_``, weil genau das der Client seit jeher liest; was sich geändert
+    # hat, ist nur, WORAUS der Wert entsteht.
     voice_bitrate_max_kbps: int | None = None
     stream_bitrate_max_kbps: int | None = None
     stream_fps_max: int | None = None
     stream_resolution_max: str | None = None
+    # Feature permission: has the operator unlocked the Ablage here? Members
+    # read it to hide the UI; the server enforces it in the dropbox router gate.
+    dropbox_allowed: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_effective(cls, data: object) -> object:
+        """Aus dem ORM-Objekt die wirksamen Werte ziehen statt der Rohspalten.
+
+        Bewusst hier und nicht in den Routen: ``GuildOut`` wird an mehreren
+        Stellen aus einem ``Guild`` gebaut, und eine Route, die es künftig
+        vergisst, würde dem Client stillschweigend die Obergrenze des
+        Betreibers als seinen eigenen Wert unterschieben."""
+        from dcc_chat_gateway.guild_limits import effective_wire_limits
+
+        if not hasattr(data, "voice_bitrate_max_kbps"):
+            return data  # dict / bereits aufgelöst
+        resolved = {
+            field: getattr(data, field)
+            for field in cls.model_fields
+            if hasattr(data, field)
+        }
+        # Wirksame Qualitätsgrenzen unter ihren Wire-Namen — dieselbe Quelle wie
+        # ``_guild_dict`` und der ready-Frame, damit die Feld↔Limit-Paarungen an
+        # genau einer Stelle (``guild_limits``) gepflegt werden.
+        resolved.update(effective_wire_limits(data))
+        return resolved
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
         return _id_str(v)
+
+
+class GuildLimitValue(BaseModel):
+    """Ein Limit aus Sicht der Community-Leitung.
+
+    ``value`` = der eigene Wert (None = keiner gesetzt), ``ceiling`` = die
+    Obergrenze des Betreibers (None = unbegrenzt), ``effective`` = was
+    tatsächlich gilt. Auflösungen sind Zeichenketten, alles andere Zahlen."""
+
+    value: int | str | None = None
+    ceiling: int | str | None = None
+    effective: int | str | None = None
+
+
+class GuildLimitsOut(BaseModel):
+    limits: dict[str, GuildLimitValue]
+    #: Schlüssel der Limits, die beim Speichern auf die Obergrenze
+    #: zurückgeholt wurden — die Oberfläche sagt dem Nutzer, was angepasst wurde.
+    clamped: list[str] = []
+
+
+class GuildLimitsPatch(BaseModel):
+    """Teilweise Aktualisierung: nur genannte Schlüssel werden angefasst,
+    ausdrückliches ``null`` löscht den eigenen Wert."""
+
+    limits: dict[str, int | str | None]
 
 
 class GuildPatchIn(BaseModel):
@@ -879,14 +936,23 @@ class CommunityOut(BaseModel):
     stream_resolution_max: str | None = None
     # Storage caps. size/count always have a value (non-nullable columns); the
     # total quota is nullable (NULL = unlimited).
-    attachment_max_size_bytes: int = 26214400
-    attachment_max_count_per_message: int = 4
+    # Obergrenzen (NULL = Instanz-Standard). Waren bis 0057 die Werte selbst,
+    # weshalb sie damals nicht-nullable mit Zahl-Default standen.
+    attachment_max_size_bytes: int | None = None
+    attachment_max_count_per_message: int | None = None
     attachment_storage_quota_bytes: int | None = None
     # Scale caps (NULL = unlimited).
     max_members: int | None = None
     max_channels: int | None = None
     max_roles: int | None = None
     max_concurrent_streams: int | None = None
+    # Feature permission (not a cap): may this community use the Ablage?
+    # False = the whole dropbox 404s for its members, regardless of what the
+    # community's own admin has toggled.
+    dropbox_allowed: bool = False
+    # Operator ceiling for Ablage storage. NULL = the instance standard (1 GiB).
+    # Separate pot from attachment_storage_quota_bytes (chat attachments).
+    dropbox_quota_bytes: int | None = None
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
@@ -922,6 +988,14 @@ class CommunityLimitsIn(BaseModel):
     max_channels: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
     max_roles: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
     max_concurrent_streams: Annotated[int | None, Field(default=None, ge=0, le=10000)] = None
+    # Feature permission, not a cap: None = leave unchanged (non-nullable
+    # column), so an older client that doesn't send the field can't silently
+    # revoke the Ablage for a community it just edited the bitrate of.
+    dropbox_allowed: bool | None = None
+    # Ablage storage ceiling. Nullable column (NULL = instance standard), so —
+    # like the quality caps — the form always sends it and NULL clears the
+    # override. Floor of 1 MiB mirrors attachment_storage_quota_bytes.
+    dropbox_quota_bytes: Annotated[int | None, Field(default=None, ge=1024 * 1024)] = None
 
     @field_validator("stream_resolution_max")
     @classmethod
