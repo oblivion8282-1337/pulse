@@ -86,6 +86,23 @@
     </div>
   </div>
 
+  <div class="flex flex-col gap-2">
+    <button
+      type="button"
+      onclick={() =>
+        settings.setStreamParticipantsCollapsed(!settings.appearance.streamParticipantsCollapsed)}
+      class="rounded-2xl border p-3 text-center text-sm font-medium transition-colors {settings
+        .appearance.streamParticipantsCollapsed
+        ? 'border-primary bg-bg-hover text-text-bright'
+        : 'border-border text-text-base hover:bg-bg-hover'}"
+      data-testid="appearance-stream-participants"
+      aria-pressed={settings.appearance.streamParticipantsCollapsed}
+    >
+      {m.settings_appearance_stream_participants_label()}
+    </button>
+    <p class="text-text-muted text-xs">{m.settings_appearance_stream_participants_hint()}</p>
+  </div>
+
   {#if isElectron()}
     <div class="flex flex-col gap-2">
       <button

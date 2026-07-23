@@ -1735,6 +1735,8 @@
   "settings_appearance_theme_system_hint": "Follows your system settings",
   "settings_appearance_theme_system_label": "System",
   "settings_appearance_title": "App",
+  "settings_appearance_stream_participants_hint": "Hides the participant bar below a running stream so the video gets more room. Can also be toggled directly on the bar using the arrow.",
+  "settings_appearance_stream_participants_label": "Hide participants while streaming",
   "settings_audio_video_echo_cancellation_label": "Echo Cancellation",
   "settings_audio_video_gate_label_loud_only": "loud only — whispers are muted",
   "settings_audio_video_gate_label_normal_volume": "normal speaking volume",
@@ -2629,5 +2631,8 @@
   "confirm_dialog_cancel": "Cancel",
   "field_required": "Required field",
   "settings_screenshare_heading": "Screen sharing",
-  "settings_screenshare_subheading": "How your picture looks when you share your screen. Higher settings need more processing power and a better connection."
+  "settings_screenshare_subheading": "How your picture looks when you share your screen. Higher settings need more processing power and a better connection.",
+  "stream_grid_participants_collapse_aria": "Hide participants",
+  "stream_grid_participants_collapsed_hint": "{count} participants · hidden",
+  "stream_grid_participants_expand_aria": "Show participants"
 }

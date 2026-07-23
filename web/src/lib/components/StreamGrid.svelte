@@ -23,10 +23,23 @@
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
+  import { m } from '$lib/paraglide/messages.js';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
 
   let { channel }: { channel: Channel } = $props();
+
+  // Zugeklappt-Zustand der Teilnehmer-Zeile — geräteweit persistiert.
+  let participantsCollapsed = $derived(settings.appearance.streamParticipantsCollapsed);
+  let participantsToggleLabel = $derived(
+    participantsCollapsed
+      ? m.stream_grid_participants_expand_aria()
+      : m.stream_grid_participants_collapse_aria()
+  );
 
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
@@ -194,12 +207,41 @@
     {/each}
   </div>
 
-  <div
-    class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1"
-    data-testid="voice-participants"
-  >
-    {#each voice.participants as p (p.identity)}
-      <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
-    {/each}
+  <!-- Teilnehmer-Zeile. Der Pfeil sitzt in BEIDEN Zuständen rechts an
+       derselben Stelle — er darf beim Umschalten nicht springen. Zugeklappt
+       bleibt die Zeile als schmaler Streifen stehen: sie trägt den Pfeil (der
+       sonst mit dem verschwände, was er ausblendet) und nennt weiter, wie
+       viele Leute im Kanal sind. -->
+  <div class="flex shrink-0 items-center gap-2 px-1" data-testid="voice-participants-row">
+    <div
+      class="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-3 py-1"
+      data-testid="voice-participants"
+    >
+      {#if participantsCollapsed}
+        <span class="text-text-faint w-full text-left text-xs" data-testid="voice-participants-hint">
+          {m.stream_grid_participants_collapsed_hint({ count: voice.participants.length })}
+        </span>
+      {:else}
+        {#each voice.participants as p (p.identity)}
+          <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+        {/each}
+      {/if}
+    </div>
+    <Button
+      variant="ghost"
+      size="icon"
+      class="shrink-0"
+      onclick={() => settings.setStreamParticipantsCollapsed(!participantsCollapsed)}
+      aria-expanded={!participantsCollapsed}
+      aria-label={participantsToggleLabel}
+      title={participantsToggleLabel}
+      data-testid="voice-participants-toggle"
+    >
+      {#if participantsCollapsed}
+        <ChevronUpIcon class="text-text-muted size-4" />
+      {:else}
+        <ChevronDownIcon class="text-text-muted size-4" />
+      {/if}
+    </Button>
   </div>
 </div>

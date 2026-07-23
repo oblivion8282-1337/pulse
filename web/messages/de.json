@@ -1743,6 +1743,8 @@
   "settings_appearance_theme_system_hint": "Folgt deinen Systemeinstellungen",
   "settings_appearance_theme_system_label": "System",
   "settings_appearance_title": "App",
+  "settings_appearance_stream_participants_hint": "Blendet die Teilnehmer-Leiste unter einem laufenden Stream aus, damit das Bild mehr Platz bekommt. Lässt sich auch direkt an der Leiste über den Pfeil umschalten.",
+  "settings_appearance_stream_participants_label": "Teilnehmer beim Streamen ausblenden",
   "settings_audio_video_echo_cancellation_label": "Echo-Unterdrückung",
   "settings_audio_video_gate_label_loud_only": "nur lautes — Flüstern wird stumm",
   "settings_audio_video_gate_label_normal_volume": "normale Sprachlautstärke",
@@ -2629,5 +2631,8 @@
   "confirm_dialog_cancel": "Abbrechen",
   "field_required": "Pflichtfeld",
   "settings_screenshare_heading": "Bildschirm teilen",
-  "settings_screenshare_subheading": "Wie dein Bild aussieht, wenn du deinen Bildschirm überträgst. Höhere Werte brauchen mehr Rechenleistung und eine bessere Leitung."
+  "settings_screenshare_subheading": "Wie dein Bild aussieht, wenn du deinen Bildschirm überträgst. Höhere Werte brauchen mehr Rechenleistung und eine bessere Leitung.",
+  "stream_grid_participants_collapse_aria": "Teilnehmer ausblenden",
+  "stream_grid_participants_collapsed_hint": "{count} Teilnehmer · ausgeblendet",
+  "stream_grid_participants_expand_aria": "Teilnehmer einblenden"
 }
