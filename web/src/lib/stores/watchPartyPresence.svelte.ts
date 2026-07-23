@@ -58,6 +58,10 @@ export type WatchPartyState = {
   /** Unix epoch ms — viewers extrapolate `position + (now - updated_at)/1000` while playing. */
   updated_at: number;
   started_at: number;
+  /** Bumped on every source swap (advance/source_change). The host echoes it in
+   *  heartbeats/controls so the server drops ones measured against a since-
+   *  replaced clip. Absent on states predating the epoch — treat as 0. */
+  source_epoch?: number;
   /** Videos lined up next. Absent on states that predate the queue feature —
    *  treat as empty. When the current video ends the host promotes queue[0]. */
   queue?: WatchQueueItem[];

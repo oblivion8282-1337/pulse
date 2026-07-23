@@ -66,12 +66,13 @@ export const gateway = {
     _active().sendVoiceSelfState(cid, m, d),
   startWatchParty: (cid: string, url: string) => _active().startWatchParty(cid, url),
   stopWatchParty: (cid: string, pid: string) => _active().stopWatchParty(cid, pid),
-  sendWatchControl: (cid: string, pid: string, a: 'play' | 'pause' | 'seek', p: number) =>
-    _active().sendWatchControl(cid, pid, a, p),
+  sendWatchControl: (
+    cid: string, pid: string, a: 'play' | 'pause' | 'seek', p: number, epoch?: number
+  ) => _active().sendWatchControl(cid, pid, a, p, epoch),
   changeWatchSource: (cid: string, pid: string, url: string) =>
     _active().changeWatchSource(cid, pid, url),
-  sendWatchHeartbeat: (cid: string, pid: string, p: number) =>
-    _active().sendWatchHeartbeat(cid, pid, p),
+  sendWatchHeartbeat: (cid: string, pid: string, p: number, epoch?: number) =>
+    _active().sendWatchHeartbeat(cid, pid, p, epoch),
   sendWatchJoin: (cid: string, pid: string) => _active().sendWatchJoin(cid, pid),
   sendWatchLeave: (cid: string, pid: string) => _active().sendWatchLeave(cid, pid),
   sendWatchHandoff: (cid: string, pid: string, target?: string) =>

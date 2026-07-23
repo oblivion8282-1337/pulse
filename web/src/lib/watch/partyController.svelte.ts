@@ -32,7 +32,9 @@ export class PartyController {
   #viewerPaused = false;
   #syncingUntil = 0;
   #stopHeartbeat: (() => void) | undefined;
-  #pending: { action: 'play' | 'pause' | 'seek'; position: number } | undefined;
+  #pending:
+    | { action: 'play' | 'pause' | 'seek'; position: number; epoch?: number }
+    | undefined;
   #broadcastTimer: number | undefined;
   /** True while the window/tab is hidden. Drift correction is suspended in this
    * state — the browser freezes background media, so seeking the player every
@@ -93,6 +95,12 @@ export class PartyController {
 
   onReady(handle: PlayerHandle): void {
     this.#player = handle;
+    // A source change (or handoff) remounts the player; the running heartbeat
+    // closure still holds the destroyed OLD handle and would keep reporting the
+    // previous clip's time. Drop it so the syncHeartbeat() that handleReady
+    // fires right after this rebinds the heartbeat to THIS player.
+    this.#stopHeartbeat?.();
+    this.#stopHeartbeat = undefined;
     // A freshly mounted HOST player loads at the source's start_seconds (the
     // YT `start` var / video currentTime), NOT at the party's live position.
     // The host is the authority and is never drift-corrected, so without
@@ -169,6 +177,16 @@ export class PartyController {
     if (!this.#viewerPaused) this.#syncSoft(p, cur);
   }
 
+  /** Stop the host heartbeat immediately — call the instant the source starts
+   * swapping (before the player remounts), so no beat measured against the old,
+   * about-to-be-destroyed player can slip through with the NEW epoch during the
+   * async new-player load. The next player's handleReady → onReady → syncHeartbeat
+   * rebinds it to the fresh player. No-op for viewers (they never heartbeat). */
+  suspendHeartbeat(): void {
+    this.#stopHeartbeat?.();
+    this.#stopHeartbeat = undefined;
+  }
+
   /** Drive from a $effect: starts/stops the host heartbeat based on role. */
   syncHeartbeat(): void {
     // Reactive getters first (same reason as syncViewer): the effect must keep
@@ -184,7 +202,10 @@ export class PartyController {
     }
     if (this.#stopHeartbeat) return;
     this.#stopHeartbeat = startHeartbeat((pos) => {
-      gateway.sendWatchHeartbeat(this.getChannelId(), this.getParty().party_id, pos);
+      const party = this.getParty();
+      // Tag the beat with the source epoch it was measured against — the server
+      // drops it if the clip was swapped in the meantime (stale-source guard).
+      gateway.sendWatchHeartbeat(this.getChannelId(), party.party_id, pos, party.source_epoch);
       this.#maybeDetectLive();
     }, p);
   }
@@ -217,7 +238,10 @@ export class PartyController {
     if (!p || !this.getIsHost() || this.getIsPassive()) return;
     const target = Math.max(0, p.getCurrentTime() - seconds);
     p.seek(target);
-    gateway.sendWatchControl(this.getChannelId(), this.getParty().party_id, 'seek', target);
+    const party = this.getParty();
+    gateway.sendWatchControl(
+      this.getChannelId(), party.party_id, 'seek', target, party.source_epoch
+    );
   }
 
   onEvent(e: PlayerEvent): void {
@@ -271,7 +295,10 @@ export class PartyController {
     if (action !== 'none') this.#syncingUntil = Date.now() + SYNC_QUIET_MS;
   }
   #scheduleBroadcast(action: 'play' | 'pause' | 'seek', position: number): void {
-    this.#pending = { action, position };
+    // Capture the epoch NOW (at the event), not at fire time — the debounced
+    // send must carry the epoch of the clip the action was performed on, even
+    // if a source swap slips in during the debounce window.
+    this.#pending = { action, position, epoch: this.getParty().source_epoch };
     if (this.#broadcastTimer !== undefined) clearTimeout(this.#broadcastTimer);
     this.#broadcastTimer = window.setTimeout(() => {
       if (this.#pending) {
@@ -279,7 +306,8 @@ export class PartyController {
           this.getChannelId(),
           this.getParty().party_id,
           this.#pending.action,
-          this.#pending.position
+          this.#pending.position,
+          this.#pending.epoch
         );
         this.#pending = undefined;
       }

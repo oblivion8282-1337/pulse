@@ -623,12 +623,16 @@ export class GatewayConnection {
   stopWatchParty = (channelId: string, partyId: string): boolean =>
     senders.stopWatchParty(this._raw, channelId, partyId);
   sendWatchControl = (
-    channelId: string, partyId: string, action: 'play' | 'pause' | 'seek', position: number
-  ): boolean => senders.sendWatchControl(this._raw, channelId, partyId, action, position);
+    channelId: string, partyId: string, action: 'play' | 'pause' | 'seek', position: number,
+    sourceEpoch?: number
+  ): boolean =>
+    senders.sendWatchControl(this._raw, channelId, partyId, action, position, sourceEpoch);
   changeWatchSource = (channelId: string, partyId: string, sourceUrl: string): boolean =>
     senders.changeWatchSource(this._raw, channelId, partyId, sourceUrl);
-  sendWatchHeartbeat = (channelId: string, partyId: string, position: number): boolean =>
-    senders.sendWatchHeartbeat(this._raw, channelId, partyId, position);
+  sendWatchHeartbeat = (
+    channelId: string, partyId: string, position: number, sourceEpoch?: number
+  ): boolean =>
+    senders.sendWatchHeartbeat(this._raw, channelId, partyId, position, sourceEpoch);
   sendWatchJoin = (channelId: string, partyId: string): boolean => {
     this.watchJoins.add(`${channelId} ${partyId}`);
     return senders.sendWatchJoin(this._raw, channelId, partyId);

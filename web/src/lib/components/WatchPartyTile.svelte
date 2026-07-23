@@ -247,9 +247,15 @@
   // ersten Mount.
   let prevSourceKey: string | undefined;
   $effect(() => {
-    if (prevSourceKey !== undefined && prevSourceKey !== sourceKey && !isHost) {
+    const changed = prevSourceKey !== undefined && prevSourceKey !== sourceKey;
+    if (changed && !isHost) {
       toast.info(m.watch_party_tile_source_changed());
     }
+    // Kill the host heartbeat the moment the source changes — the player is
+    // about to remount ({#key} below), and a beat from the old (soon-destroyed)
+    // player must not land with the already-bumped epoch. Rebinds on the new
+    // player's handleReady. No-op for viewers.
+    if (changed) controller.suspendHeartbeat();
     prevSourceKey = sourceKey;
   });
 
