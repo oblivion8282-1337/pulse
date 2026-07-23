@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-23.2",
+      "date": "2026-07-23",
+      "style": "Sachlich",
+      "title": "Textkanäle: ruhiges Scrollen",
+      "items": [
+        "Nachrichten mit Bildern belegen ihren Platz sofort. Vorher klappte ein Bild erst auf, wenn es geladen war, und der Verlauf darüber sprang dabei um mehrere hundert Pixel.",
+        "Hochscrollen mit dem Mausrad wird nicht mehr zurückgezogen. In Kanälen mit vielen Bildern blieb die Liste vorher teilweise ganz stehen.",
+        "Beim Absenden einer Nachricht bleibt der Verlauf darüber ruhig stehen.",
+        "Bereits geladene Bilder werden beim Scrollen nicht erneut geholt, sie erscheinen sofort wieder."
+      ]
+    },
+    {
       "id": "2026-07-23",
       "date": "2026-07-23",
       "style": "Sachlich",

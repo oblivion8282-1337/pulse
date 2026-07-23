@@ -11,6 +11,14 @@
 
   Sizes are capped via CSS — a giant screenshot doesn't blow up the
   message column. The Lightbox is the route to actual-size viewing.
+
+  Layout reservation (important): the message list is virtualised, and virtua
+  measures an item's height the moment it mounts. A media element that only
+  gets its height once the bytes arrive therefore reports ~0px first and its
+  real height later — the list's total height then jumps by hundreds of pixels
+  while the user scrolls, which yanks the scroll position around. So the box
+  is sized up front from the stored `width`/`height` (the composer records them
+  on upload) and the media fills it.
 -->
 <script lang="ts">
   import type { Attachment } from '$lib/api/types';
@@ -46,6 +54,18 @@
     if (mime === 'application/pdf') return 'pdf';
     return 'other';
   }
+
+  /** Inline `style` that pins an image's box before a single byte has loaded:
+   *  intrinsic width (shrunk by `max-w-md` / a narrow column) plus the source
+   *  aspect ratio, so the height is known from the first layout pass.
+   *  Returns '' for pre-dimension attachments — those keep the old behaviour
+   *  rather than getting a guessed, possibly wrong, box. */
+  function reserveBox(a: Attachment): string {
+    const w = a.width ?? 0;
+    const h = a.height ?? 0;
+    if (w <= 0 || h <= 0) return '';
+    return `width:${w}px;aspect-ratio:${w} / ${h};`;
+  }
 </script>
 
 {#if attachments.length > 0}
@@ -53,9 +73,11 @@
     {#each attachments as a (a.id)}
       {@const k = kind(a.mime)}
       {#if k === 'image'}
+        {@const box = reserveBox(a)}
         <button
           type="button"
-          class="block w-fit max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
+          class="block max-h-96 w-fit max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
+          style={box}
           onclick={() => openLightbox(a)}
           data-testid="attachment-image"
           aria-label={m.message_attachments_open_image({ filename: a.filename ?? m.message_attachments_unnamed() })}
@@ -65,15 +87,20 @@
             src={a.thumb_url ?? a.url}
             alt={a.filename ?? ''}
             thumb={a.thumb_url !== null && a.thumb_url !== undefined}
-            class="block max-h-96 w-auto object-cover"
+            class={box ? 'block size-full object-cover' : 'block max-h-96 w-auto object-cover'}
           />
         </button>
       {:else if k === 'video'}
+        <!-- `preload="metadata"` means the intrinsic size lands late; without a
+             reserved box the element starts at the 300×150 default and resizes
+             once metadata arrives. Uploads carry no dimensions for video, so
+             16/9 is the fallback ratio (the element letterboxes anything else). -->
         <video
           src={a.url}
           controls
           preload="metadata"
-          class="block max-h-96 w-fit max-w-md rounded-xl border border-border"
+          class="block max-h-96 w-full max-w-md rounded-xl border border-border"
+          style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
           data-testid="attachment-video"
         >
           <track kind="captions" />

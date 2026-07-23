@@ -93,6 +93,23 @@
     if (items.length > 0) vlist?.scrollToIndex(items.length - 1, { align: 'end' });
   }
 
+  // Zwei Frames warten, nicht nur `tick()`: nach dem tick steht die neue Zeile
+  // zwar im DOM, ist aber noch UNGEMESSEN — virtua kennt nur die Schätzung, und
+  // ein Scroll darauf verschiebt den Verlauf darüber um die Differenz, bis der
+  // ResizeObserver einen Frame später korrigiert (sichtbares Zucken, bei
+  // Bildnachrichten dreistellig). Nach zwei Frames ist gemessen und das Ziel
+  // exakt; die Zeile ist solange ohnehin `visibility:hidden`.
+  function pinToEndWhenMeasured() {
+    const forChannel = channel?.id;
+    void tick().then(() =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (channel?.id === forChannel) pinToEnd();
+        })
+      )
+    );
+  }
+
   // Ältere Historie via ?before=<älteste-id> nachladen und vorne einfügen.
   // VList `shift` hält die Scroll-Position (User bleibt auf seiner Nachricht).
   async function loadOlder() {
@@ -154,8 +171,7 @@
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
       const shouldScroll = isInitialLoad || pinnedToBottom;
       lastCount = count;
-      if (!shouldScroll) return;
-      void tick().then(() => pinToEnd());
+      if (shouldScroll) pinToEndWhenMeasured();
     }
   });
 
@@ -171,9 +187,23 @@
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
+    // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
+    // zwar SOFORT, nicht erst wenn das daraus folgende scroll-Event
+    // `pinnedToBottom` neu berechnet. Ohne das kann ein Bild, das genau in
+    // diesem Fenster fertig lädt, `pinToEnd()` auslösen und den gerade
+    // begonnenen Hochroll-Versuch wieder nach unten reißen. Die Korrektur ist
+    // selbstheilend: bleibt der User doch unten, setzt der Scroll-Handler
+    // `pinnedToBottom` im selben Zug wieder auf true.
+    const unpin = () => { pinnedToBottom = false; };
+    // Nur nach oben: ein Rad-Tick nach unten führt ohnehin ans Ende.
+    const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) unpin(); };
+    el.addEventListener('wheel', onWheel, { passive: true, capture: true });
+    el.addEventListener('touchmove', unpin, { passive: true, capture: true });
     return () => {
       ro?.disconnect();
       el.removeEventListener('load', onGrow, true);
+      el.removeEventListener('wheel', onWheel, true);
+      el.removeEventListener('touchmove', unpin, true);
     };
   });
 
@@ -331,7 +361,29 @@
         >{pm.chat_view_no_messages_suffix()}
       </p>
     {:else}
-      <VList data={items} {getKey} bind:this={vlist} onscroll={handleVirtuaScroll} shift={prependShift} style="height:100%">
+      <!-- `itemSize` = Höhen-Schätzung für ungemessene Zeilen (~eine kurze
+           Textnachricht). Ohne den Wert leitet virtua sie aus dem ab, was beim
+           Öffnen zufällig sichtbar ist — unten in einer Bilderstrecke z.B.
+           332px, und JEDE neue Nachricht belegt dann für einen Frame diese
+           332px, bevor sie auf ihre echte Höhe schrumpft: der sichtbare Sprung
+           beim Absenden. Fest gesetzt bleibt der Fehler unter einer Textzeile.
+
+           `bufferSize` = wie viele Pixel über/unter dem Sichtfenster schon
+           gerendert werden. Der Standard (200px) liegt knapp unter zwei
+           Mausrad-Rastungen: eine Zeile wird dann erst gemessen, wenn sie oben
+           schon halb sichtbar ist — und weil virtua nur für VOLLSTÄNDIG
+           oberhalb liegende Zeilen gegenkorrigiert, ruckt sie sichtbar. Mit
+           ~800px ist sie vermessen, lange bevor sie den Rand erreicht. -->
+      <VList
+        data={items}
+        {getKey}
+        bind:this={vlist}
+        onscroll={handleVirtuaScroll}
+        shift={prependShift}
+        itemSize={48}
+        bufferSize={800}
+        style="height:100%"
+      >
         {#snippet children(item)}
           {#if item.kind === 'divider'}
             <div class="mx-5 py-4 flex items-center gap-3" data-testid="date-divider">

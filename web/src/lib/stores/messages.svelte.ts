@@ -1,6 +1,7 @@
 import type { Message, ReactionAggregate } from '$lib/api/types';
 import { dispatchingUserId } from './currentServerUser';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { clearBlobCache } from '$lib/attachments/blobCache';
 
 class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
@@ -359,12 +360,16 @@ class MessageStore {
     }
   }
 
+  /** Full wipe — sign-out and server-switch only (`clearChannel` handles the
+   *  per-channel WS-reconnect path). Drops the decoded attachment blobs with
+   *  it: they belong to the account/server we are leaving. */
   clear(): void {
     this.byChannel = {};
     this.loadedChannels = {};
     this.messageIds = {};
     this.confirmedNonces.clear();
     this.accessOrder = [];
+    clearBlobCache();
   }
 }
 
