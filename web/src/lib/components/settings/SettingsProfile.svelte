@@ -17,7 +17,7 @@
     DEFAULT_GRADIENT_ANGLE,
   } from '$lib/utils/nameColor';
   import NameColorEditor from '$lib/components/settings/NameColorEditor.svelte';
-  import { me } from '$lib/api/auth';
+  import { me, deleteAvatar } from '$lib/api/auth';
   import { changeUsername, updateProfile, type UsernameChangeResponse } from '$lib/api/credentials';
   import { ApiError } from '$lib/api/client';
   import { forceProfileRefresh } from '$lib/identity/profile-refresh.svelte';
@@ -36,7 +36,35 @@
   const DEFAULT_SECONDARY = '#22d3ee';
 
   let avatarOpen = $state(false);
+  let avatarRemoving = $state(false);
   const avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
+
+  // Profilbild löschen — hierher gezogen aus dem User-Menü (der Footer bietet
+  // das jetzt nicht mehr an, es gehört zum Profil-Tab). Aktualisiert auth.user
+  // + userCache, damit das Bild sofort überall verschwindet.
+  async function onRemoveAvatar() {
+    if (avatarRemoving) return;
+    avatarRemoving = true;
+    try {
+      await deleteAvatar();
+      if (auth.user) {
+        auth.setUser({ ...auth.user, avatar_url: null });
+        userCache.seed([
+          {
+            id: auth.user.id,
+            username: auth.user.username,
+            display_name: auth.user.display_name ?? null,
+            avatar_url: null,
+          },
+        ]);
+      }
+      toast.success(m.user_footer_avatar_removed());
+    } catch (e) {
+      toast.error(m.user_footer_avatar_remove_error(), { description: (e as Error).message });
+    } finally {
+      avatarRemoving = false;
+    }
+  }
   const avatarInitial = $derived(
     (auth.user?.display_name || auth.user?.username || '?').charAt(0).toUpperCase()
   );
@@ -204,9 +232,21 @@
           </Avatar.Fallback>
         </Avatar.Root>
       {/key}
-      <Button variant="outline" onclick={() => (avatarOpen = true)} data-testid="profile-avatar-change-btn">
-        {m.user_footer_change_avatar()}
-      </Button>
+      <div class="flex flex-wrap gap-2">
+        <Button variant="outline" onclick={() => (avatarOpen = true)} data-testid="profile-avatar-change-btn">
+          {m.user_footer_change_avatar()}
+        </Button>
+        {#if avatarUrl}
+          <Button
+            variant="outline"
+            onclick={onRemoveAvatar}
+            disabled={avatarRemoving}
+            data-testid="profile-avatar-remove-btn"
+          >
+            {m.settings_profile_avatar_remove()}
+          </Button>
+        {/if}
+      </div>
     </div>
 
     <div class="flex flex-col gap-2">

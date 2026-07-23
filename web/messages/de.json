@@ -1926,6 +1926,7 @@
   "settings_profile_display_name_placeholder": "Anzeigename",
   "settings_profile_old_name_reserved": "Alter Name 30 Tage reserviert.",
   "settings_profile_public_profile_description": "Anzeigename wird neben deinem Benutzernamen gezeigt. Farbe wirkt in Member-Listen.",
+  "settings_profile_avatar_remove": "Profilbild löschen",
   "settings_profile_public_profile_heading": "Öffentliches Profil",
   "settings_profile_save_button": "Profil speichern",
   "settings_profile_saved": "Profil gespeichert",

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-23.4",
+      "date": "2026-07-23",
+      "style": "Sachlich",
+      "title": "Profilbild: verwaltet über die Einstellungen",
+      "items": [
+        "Das Profilbild ändert und löscht man jetzt im Profil-Tab der Einstellungen. Der Knopf „Profilbild löschen“ erscheint dort neben „Profilbild ändern“, sobald ein Bild gesetzt ist.",
+        "Das Menü hinter dem eigenen Profilbild unten links zeigt dafür nur noch Einstellungen und Abmelden."
+      ]
+    },
+    {
       "id": "2026-07-23.3",
       "date": "2026-07-23",
       "style": "Sachlich",

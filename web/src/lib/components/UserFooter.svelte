@@ -1,28 +1,22 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-  import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
-  import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import { logout } from '$lib/api/auth';
-  import { deleteAvatar } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
   import { safeAvatarUrl } from '$lib/avatar';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import AvatarUploadDialog from './AvatarUploadDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import StatusPicker from './StatusPicker.svelte';
-  import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
-  import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
@@ -30,8 +24,6 @@
   // die mobile GuildRail, wo der eigene User unten in der Server-Spalte sitzt.
   // Default = volle Variante (Name + Chip) im Sidebar-Footer auf Desktop.
   let { compact = false }: { compact?: boolean } = $props();
-
-  let uploadOpen = $state(false);
 
   let displayName = $derived(
     auth.user ? (auth.user.display_name ?? auth.user.username) : ''
@@ -64,29 +56,8 @@
     messages.clear();
     await goto('/login', { replaceState: true });
   }
-
-  async function onRemoveAvatar() {
-    try {
-      await deleteAvatar();
-      if (auth.user) {
-        auth.setUser({ ...auth.user, avatar_url: null });
-        userCache.seed([
-          {
-            id: auth.user.id,
-            username: auth.user.username,
-            display_name: auth.user.display_name ?? null,
-            avatar_url: null
-          }
-        ]);
-      }
-      toast.success(m.user_footer_avatar_removed());
-    } catch (e) {
-      toast.error(m.user_footer_avatar_remove_error(), { description: (e as Error).message });
-    }
-  }
 </script>
 
-<AvatarUploadDialog bind:open={uploadOpen} />
 <SettingsDialog bind:open={uiOverlays.settingsOpen} initialTab={uiOverlays.settingsInitialTab} />
 
 {#snippet avatarBlock(sizeClass: string)}
@@ -112,17 +83,9 @@
 {/snippet}
 
 {#snippet menuItems()}
-  <DropdownMenu.Item onclick={() => (uploadOpen = true)} data-testid="avatar-change-btn">
-    <ImagePlusIcon class="size-4" />
-    {m.user_footer_change_avatar()}
-  </DropdownMenu.Item>
-  {#if auth.user?.avatar_url}
-    <DropdownMenu.Item onclick={onRemoveAvatar} data-testid="avatar-remove-btn">
-      <Trash2Icon class="size-4" />
-      {m.user_footer_remove_avatar()}
-    </DropdownMenu.Item>
-  {/if}
-  <DropdownMenu.Separator />
+  <!-- Profilbild ändern/löschen wohnt jetzt ausschließlich im Profil-Tab der
+       Einstellungen — hier bewusst nur noch Einstellungen + Abmelden, damit das
+       Menü schlank bleibt und nichts doppelt anbietet. -->
   <DropdownMenu.Item onclick={() => uiOverlays.openSettings()} data-testid="open-settings">
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
