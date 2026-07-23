@@ -1918,6 +1918,7 @@
   "settings_profile_display_name_placeholder": "Display name",
   "settings_profile_old_name_reserved": "Old name reserved for 30 days.",
   "settings_profile_public_profile_description": "Display name appears next to your username. Color shows in member lists.",
+  "settings_profile_avatar_remove": "Delete profile picture",
   "settings_profile_public_profile_heading": "Public Profile",
   "settings_profile_save_button": "Save profile",
   "settings_profile_saved": "Profile saved",
