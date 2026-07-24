@@ -13,6 +13,15 @@ on:
   pull_request_target:
     types: [opened, closed, synchronize]
 
+# Mehrere Pushes auf denselben PR loesen je einen Lauf aus; nur der letzte
+# zaehlt. Die Gruppe traegt den Event-Namen, damit Signatur-Kommentare eine
+# EIGENE Gruppe haben — sonst koennte ein neuer Push den Lauf abbrechen, der
+# gerade die Unterschrift nach signatures/version1/cla.json schreibt.
+# cancel-in-progress deshalb auch nur fuer die PR-Events, nie fuer Kommentare.
+concurrency:
+  group: cla-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
 permissions:
   actions: write
   contents: write
