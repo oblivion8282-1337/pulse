@@ -7,10 +7,18 @@
   `interactive` gates the native player chrome: the HOST gets the full YouTube
   controls (play/pause/seek + volume/quality/fullscreen), a VIEWER gets a
   read-only player (`controls: 0` + `disablekb: 1`) so only the host steers
-  playback. The viewer's lost volume/fullscreen is handed back via the tile's
-  own HUD; a click-catcher over the iframe (in WatchPartyTile) stops a bare
-  video-click from pausing. `interactive` is mount-time only — a handoff
+  playback. The viewer's lost volume/fullscreen/captions are handed back via the
+  tile's own HUD; a click-catcher over the iframe (in WatchPartyTile) stops a
+  bare video-click from pausing. `interactive` is mount-time only — a handoff
   remounts the player (WatchPartyTile keys the player on the host role).
+
+  Captions run through YouTube's "module" API (see #captions below) — the one
+  piece of lost chrome that needs real work to give back, because a viewer whose
+  YouTube/browser preference has subtitles ON otherwise cannot switch them off.
+  We deliberately do NOT pass `cc_load_policy`: forcing captions off at mount
+  can keep YouTube from loading the captions module at all, which would also
+  take away the tile's CC control. The viewer's own preference stays the
+  starting point; the control is the escape hatch.
 
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
@@ -60,6 +68,7 @@
   import { untrack } from 'svelte';
   import type { WatchSourceYouTube } from '$lib/stores/watchPartyPresence.svelte';
   import type { PlayerEvent, PlayerHandle } from '../sync';
+  import { createCaptionsControl } from './youtubeCaptions';
 
   // Ambient YT types we touch — too narrow a slice to pull in @types/youtube.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +109,7 @@
     // one. seek() before PLAYING is safe (CyTube seeks in its lead-in path).
     let firstPlayingSeen = false;
     let pendingPause = false;
+    const captions = createCaptionsControl(() => player);
 
     void loadApi()
       .then((YT) => {
@@ -136,6 +146,10 @@
                 getDuration: () => Number(player?.getDuration() ?? 0),
                 setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
                 setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
+                hasCaptionSupport: captions.isAvailable,
+                getCaptionTracks: captions.getCaptionTracks,
+                getActiveCaptionTrack: captions.getActiveCaptionTrack,
+                setCaptionTrack: captions.setCaptionTrack,
                 destroy: () => {
                   try {
                     player?.destroy();
@@ -168,6 +182,13 @@
                 // Host promotes the next queued video (WatchPartyTile).
                 onEvent?.({ type: 'ended' });
               }
+            },
+            // Fires when the player loads/unloads a module — for us, when the
+            // captions module (and with it the track list) becomes available.
+            // Only ever fires AFTER playback started, so the tile's CC control
+            // appears a moment into the video, not at mount.
+            onApiChange: () => {
+              onEvent?.({ type: 'captions_changed' });
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             onError: (e: any) => {

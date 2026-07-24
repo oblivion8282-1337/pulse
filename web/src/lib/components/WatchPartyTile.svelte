@@ -2,10 +2,11 @@
   WatchPartyTile — eine aktive Watch-Party in einem Voice-Channel.
 
   YouTube-Zuschauer bekommen einen read-only Player (`interactive=false` →
-  controls:0), damit NUR der Host die Wiedergabe steuert. Der dabei entfallende
-  Lautstärke-Regler wird übers TileShell-HUD ersetzt, ein Klick-Fänger über dem
-  iframe schluckt Video-Klicks (YouTube pausiert sonst auch ohne Chrome). Der
-  Host behält die volle native Steuerung. Twitch/Native folgen später.
+  controls:0), damit NUR der Host die Wiedergabe steuert. Was dabei an nativer
+  Chrome wegfällt und persönlich (nicht Party-weit) ist, gibt die Kachel übers
+  TileShell-HUD zurück: Lautstärke und Untertitel-Auswahl. Ein Klick-Fänger über
+  dem iframe schluckt Video-Klicks (YouTube pausiert sonst auch ohne Chrome).
+  Der Host behält die volle native Steuerung. Twitch/Native folgen später.
 
   Die gesamte Host/Viewer-Sync-Orchestrierung (Drift-Korrektur, Heartbeat,
   Broadcast-Debounce, Programmatic-Sync-Guard) lebt im PartyController
@@ -25,6 +26,7 @@
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import WatchQueuePanel from './WatchQueuePanel.svelte';
+  import WatchCaptionsMenu from './WatchCaptionsMenu.svelte';
   import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
   import WatchSourceDialog from './WatchSourceDialog.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -41,6 +43,7 @@
   import TwitchPlayer from '$lib/watch/players/TwitchPlayer.svelte';
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
+  import { CaptionsState } from '$lib/watch/captionsState.svelte';
   import { PartyController } from '$lib/watch/partyController.svelte';
   import type { PlayerEvent, PlayerHandle } from '$lib/watch/sync';
 
@@ -135,7 +138,24 @@
     controller.syncHeartbeat();
     controller.syncViewer();
   }
+  // Untertitel des Zuschauer-Players: derselbe Weg wie die Lautstärke oben —
+  // `controls:0` nimmt ihm den CC-Knopf, die Kachel gibt ihn zurück. Rein
+  // lokal, nicht synchronisiert. Details in CaptionsState.
+  const captions = new CaptionsState(controller);
+
   function handleEvent(e: PlayerEvent): void {
+    // YouTube meldet seine Untertitel-Spuren erst nach dem Wiedergabestart
+    // (onApiChange) — das Control taucht also kurz nach dem Video auf.
+    if (e.type === 'captions_changed') {
+      captions.refresh();
+      return;
+    }
+    // Netz gegen ein verpasstes captions_changed: onApiChange feuert nur EINMAL,
+    // kurz nach dem Player-Start. War der Player-Handle in dem Moment noch nicht
+    // im Controller (Reihenfolge onReady/onApiChange ist nicht garantiert), las
+    // refresh() eine leere Spurliste — und ein zweites Event kommt nie. Beim
+    // Wiedergabestart deshalb nachsehen, solange wir keine Spuren haben.
+    if (e.type === 'play' && captions.tracks.length === 0) captions.refresh();
     controller.onEvent(e);
   }
 
@@ -251,11 +271,17 @@
     if (changed && !isHost) {
       toast.info(m.watch_party_tile_source_changed());
     }
-    // Kill the host heartbeat the moment the source changes — the player is
-    // about to remount ({#key} below), and a beat from the old (soon-destroyed)
-    // player must not land with the already-bumped epoch. Rebinds on the new
-    // player's handleReady. No-op for viewers.
-    if (changed) controller.suspendHeartbeat();
+    if (changed) {
+      // Kill the host heartbeat the moment the source changes — the player is
+      // about to remount ({#key} below), and a beat from the old (soon-destroyed)
+      // player must not land with the already-bumped epoch. Rebinds on the new
+      // player's handleReady. No-op for viewers.
+      controller.suspendHeartbeat();
+      // Die Spuren des alten Videos gelten nicht mehr; der neue Player meldet
+      // seine eigenen per captions_changed. Die Sprachwahl des Zuschauers
+      // überlebt das (siehe CaptionsState).
+      captions.reset();
+    }
     prevSourceKey = sourceKey;
   });
 
@@ -369,6 +395,13 @@
     {/if}
   {/snippet}
   {#snippet controlsExtra()}
+    {#if viewerReadonly && captions.tracks.length > 0}
+      <WatchCaptionsMenu
+        tracks={captions.tracks}
+        active={captions.active}
+        onSelect={(lang) => captions.select(lang)}
+      />
+    {/if}
     {#if isHost}
       {#if isYouTube}
         <button

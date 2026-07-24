@@ -764,4 +764,202 @@ test.describe.serial('Watch Party E2E', () => {
     });
     expect(out).toEqual({ plain: true, host: false, passive: false, paused: false });
   });
+
+  test('youtube captions control: reads tracks, toggles, survives a dead module', async () => {
+    // A viewer gets controls:0 and therefore no native CC button; the tile's
+    // control drives this module instead. YouTube's track/tracklist options are
+    // UNDOCUMENTED, so the contract that matters here is the defensive one:
+    // before the captions module is loaded, and if the player ever throws,
+    // every call degrades to "no tracks / off" instead of exploding — the tile
+    // then simply shows no control.
+    const out = await alicePage.evaluate(async () => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/players/youtubeCaptions.ts')) as {
+        createCaptionsControl: (get: () => unknown) => {
+          isAvailable: () => boolean;
+          getCaptionTracks: () => { languageCode: string; label: string }[];
+          getActiveCaptionTrack: () => string | null;
+          setCaptionTrack: (l: string | null) => void;
+        };
+      };
+      // Minimal fake of the YT player's module API.
+      let modules: string[] = [];
+      let track: Record<string, unknown> = {};
+      let throwing = false;
+      const player = {
+        getOptions: () => {
+          if (throwing) throw new Error('module gone');
+          return modules;
+        },
+        getOption: (m: string, o: string) => {
+          if (m !== 'captions') return undefined;
+          if (o === 'tracklist') {
+            return [
+              { languageCode: 'de', displayName: 'Deutsch' },
+              { languageCode: 'en', languageName: 'English' },
+              // No code → dropped; it can't be selected.
+              { displayName: 'Broken' }
+            ];
+          }
+          return o === 'track' ? track : undefined;
+        },
+        setOption: (m: string, o: string, v: Record<string, unknown>) => {
+          if (m === 'captions' && o === 'track') track = v;
+        }
+      };
+      const c = mod.createCaptionsControl(() => player);
+
+      // Before onApiChange: module not loaded → nothing on offer, no throw.
+      const beforeLoad = {
+        available: c.isAvailable(),
+        tracks: c.getCaptionTracks().length,
+        active: c.getActiveCaptionTrack()
+      };
+      c.setCaptionTrack('de'); // must be a no-op, not an error
+      const noOpApplied = JSON.stringify(track);
+
+      modules = ['captions'];
+      const tracks = c.getCaptionTracks();
+      c.setCaptionTrack('de');
+      const afterOn = c.getActiveCaptionTrack();
+      c.setCaptionTrack(null); // empty object = YouTube's "captions off"
+      const afterOff = { active: c.getActiveCaptionTrack(), raw: JSON.stringify(track) };
+
+      throwing = true;
+      const afterThrow = {
+        available: c.isAvailable(),
+        tracks: c.getCaptionTracks().length,
+        active: c.getActiveCaptionTrack()
+      };
+      c.setCaptionTrack('de'); // still must not throw
+
+      return { beforeLoad, noOpApplied, tracks, afterOn, afterOff, afterThrow };
+    });
+    expect(out.beforeLoad).toEqual({ available: false, tracks: 0, active: null });
+    expect(out.noOpApplied, 'no track set before the module exists').toBe('{}');
+    expect(out.tracks).toEqual([
+      { languageCode: 'de', label: 'Deutsch' },
+      { languageCode: 'en', label: 'English' }
+    ]);
+    expect(out.afterOn).toBe('de');
+    expect(out.afterOff).toEqual({ active: null, raw: '{}' });
+    expect(out.afterThrow).toEqual({ available: false, tracks: 0, active: null });
+  });
+
+  test('captions state: the viewer choice carries over to the next video', async () => {
+    // Switching the source remounts the player, which comes back on YouTube's
+    // default — i.e. subtitles ON again for a viewer whose account prefers
+    // them. Without the carry-over they'd have to switch them off for every
+    // single video in the queue.
+    const out = await alicePage.evaluate(async () => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/captionsState.svelte.ts')) as {
+        CaptionsState: new (p: unknown) => {
+          tracks: { languageCode: string; label: string }[];
+          active: string | null;
+          refresh: () => void;
+          select: (l: string | null) => void;
+          reset: () => void;
+        };
+      };
+      let available: { languageCode: string; label: string }[] = [];
+      let playerActive: string | null = 'de'; // YouTube's default for this viewer
+      let moduleUp = true;
+      const port = {
+        isAvailable: () => moduleUp,
+        getCaptionTracks: () => available,
+        getActiveCaptionTrack: () => playerActive,
+        setCaptionTrack: (l: string | null) => {
+          playerActive = l;
+        }
+      };
+      const s = new mod.CaptionsState(port);
+
+      // Video 1: captions module reports two tracks; YT starts on 'de'.
+      available = [
+        { languageCode: 'de', label: 'Deutsch' },
+        { languageCode: 'en', label: 'English' }
+      ];
+      s.refresh();
+      const initial = { active: s.active, tracks: s.tracks.length };
+
+      s.select(null); // viewer switches subtitles off
+      const chosen = { active: s.active, player: playerActive };
+
+      // Source change: tile resets, new player mounts, YT defaults back to 'de'.
+      s.reset();
+      const afterReset = { active: s.active, tracks: s.tracks.length };
+      playerActive = 'de';
+      s.refresh();
+      const video2 = { active: s.active, player: playerActive };
+
+      // Viewer now picks English; next video only offers German → the wish
+      // can't be honoured, so YouTube's default for that video stands.
+      s.select('en');
+      s.reset();
+      playerActive = 'de';
+      available = [{ languageCode: 'de', label: 'Deutsch' }];
+      s.refresh();
+      const video3 = { active: s.active, player: playerActive };
+
+      // Video 4 = der gemeldete Fehlerfall: automatische Untertitel laufen,
+      // aber YouTube listet sie NICHT (leere tracklist). Ohne die synthetische
+      // Spur bliebe das Menü leer, die Kachel blendete es aus — und der
+      // Zuschauer säße genau vor den Untertiteln fest, um die es hier geht.
+      s.select('de'); // Wunsch = 'de', damit die Übertragung unten nichts kippt
+      s.reset();
+      available = [];
+      playerActive = 'de';
+      // Erst ein refresh, BEVOR das Captions-Modul geladen ist. Das darf den
+      // einmaligen Lesevorgang nicht verbrauchen — sonst bliebe der echte
+      // Startzustand ('de' läuft) für immer unbekannt.
+      moduleUp = false;
+      s.refresh();
+      const tooEarly = { active: s.active, tracks: s.tracks.length };
+      moduleUp = true;
+      s.refresh();
+      const auto = { active: s.active, tracks: s.tracks.map((t) => t.languageCode) };
+      const autoLabelled = s.tracks[0]?.label ?? '';
+      s.select(null);
+      // Abschalten darf den Eintrag NICHT entfernen — sonst gäbe es keinen Weg
+      // zurück, sobald jemand einmal ausgeschaltet hat.
+      const autoOff = { active: s.active, tracks: s.tracks.length, player: playerActive };
+      s.refresh();
+      const autoAfterRefresh = { active: s.active, tracks: s.tracks.length };
+
+      return {
+        initial, chosen, afterReset, video2, video3,
+        tooEarly, auto, autoLabelled, autoOff, autoAfterRefresh
+      };
+    });
+    expect(out.initial).toEqual({ active: 'de', tracks: 2 });
+    expect(out.chosen).toEqual({ active: null, player: null });
+    expect(out.afterReset, 'no stale tracks between videos').toEqual({ active: null, tracks: 0 });
+    expect(out.video2, '"off" carries over instead of snapping back to de').toEqual({
+      active: null,
+      player: null
+    });
+    expect(out.video3, 'a language the video lacks leaves YouTube in charge').toEqual({
+      active: 'de',
+      player: 'de'
+    });
+    expect(out.tooEarly, 'a refresh before the module loads reveals nothing').toEqual({
+      active: null,
+      tracks: 0
+    });
+    expect(out.auto, 'auto captions are offered even though YouTube lists none').toEqual({
+      active: 'de',
+      tracks: ['de']
+    });
+    expect(out.autoLabelled, 'the synthetic entry gets a readable name').not.toBe('de');
+    expect(out.autoOff, 'switching off keeps the way back').toEqual({
+      active: null,
+      tracks: 1,
+      player: null
+    });
+    expect(out.autoAfterRefresh, 'a later refresh must not resurrect the old state').toEqual({
+      active: null,
+      tracks: 1
+    });
+  });
 });
