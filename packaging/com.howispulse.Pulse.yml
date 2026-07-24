@@ -100,7 +100,9 @@ modules:
   # by hardware". Build our own. Spec lifted from the official GSR Flathub manifest.
   - name: ffmpeg
     config-opts:
-      - --enable-gpl
+      # --enable-version3 ist Pflicht fuer OpenSSL 3 (Apache-2.0 vertraegt sich
+      # mit v3, nicht mit v2). --enable-gpl brauchen wir nicht — Begruendung
+      # weiter unten bei libx264.
       - --enable-version3
       - --enable-shared
       - --disable-static
@@ -141,8 +143,21 @@ modules:
       # fiel es dort nie auf.
       - --enable-libdrm
       - --enable-vulkan
-      - --enable-libx264
       - --enable-openssl
+      # BEWUSST KEIN --enable-libx264 (und deshalb auch kein --enable-gpl, das
+      # nur dafuer da war: x264 ist GPL-2.0+, FFmpeg verweigert das Linken ohne
+      # den Schalter. Ohne x264 hat --enable-gpl keine Wirkung mehr — verifiziert
+      # per Symbol-Diff, libavcodec/libavfilter/libavformat sind mit und ohne
+      # identisch. FFmpeg ist damit LGPLv3 statt GPLv3):
+      # x264 ist ein reiner Software-H.264-Encoder OHNE AVC-Patentlizenz — ihn
+      # mitzuliefern macht uns zum Distributor einer eigenen AVC-Implementierung.
+      # Encodiert wird bei uns ausschliesslich per h264_nvenc/h264_vaapi bzw.
+      # av1_*, deren Lizenz beim GPU-Hersteller liegt. Genutzt wurde x264 ohnehin
+      # nie: GSR greift nur im `-encoder cpu`-Modus darauf zu, den unser argv
+      # (stream_controller.py) nicht setzt, und der Rust-Sidecar kennt nur die
+      # vier HW-Encoder. Verifiziert 2026-07-24: Build ohne x264 liefert
+      # bit-identische libav*-Symbole. Beim Abgleich mit dem gsr-streamer-
+      # Manifest (von dem dieser Stack stammt) NICHT versehentlich zurückholen.
     cleanup:
       - /share/ffmpeg/examples
     sources:
@@ -162,20 +177,6 @@ modules:
             url: https://github.com/FFmpeg/nv-codec-headers.git
             tag: n13.0.19.0
             commit: e844e5b26f46bb77479f063029595293aa8f812d
-      - name: libx264
-        config-opts:
-          - --disable-cli
-          - --enable-shared
-          - --disable-opencl
-          - --disable-bashcompletion
-          - --enable-strip
-        no-autogen: true
-        make-install-args:
-          - PREFIX=${FLATPAK_DEST}
-        sources:
-          - type: git
-            url: https://code.videolan.org/videolan/x264.git
-            commit: b35605ace3ddf7c1a5d67a2eb553f034aef41d55
 
   # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub + portal-cursor EMBEDDED) ──
   # The Vulkan-encoder stub is harmless — Pulse uses NVENC/VAAPI, never Vulkan encode.
