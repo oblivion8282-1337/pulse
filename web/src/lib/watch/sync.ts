@@ -53,7 +53,18 @@ export type PlayerEvent =
   | { type: 'seek'; position: number }
   // Video reached its end — the host promotes the next queued item.
   | { type: 'ended' }
+  // The player's caption support appeared or changed (YouTube: onApiChange).
+  // The tile re-reads the track list and shows/hides its CC control.
+  | { type: 'captions_changed' }
   | { type: 'error'; reason: string };
+
+/** One selectable subtitle/caption track of the current media. */
+export interface CaptionTrack {
+  /** Language code as the player reports it ('de', 'en', 'en-US', …). */
+  languageCode: string;
+  /** Human-readable name from the player ('Deutsch', 'English (auto)'). */
+  label: string;
+}
 
 export interface PlayerHandle {
   play(): void;
@@ -70,6 +81,22 @@ export interface PlayerHandle {
   setPlaybackRate(rate: number): void;
   /** Set output volume, 0-100. Each player normalises internally. */
   setVolume(percent: number): void;
+  /** Selectable subtitle tracks, empty when the player has none (yet).
+   *
+   * The three caption methods are OPTIONAL: only a player that both exposes a
+   * caption API and hides its native control bar needs them (today: YouTube in
+   * viewer mode). Native `<video>` and Twitch keep their own chrome, so their
+   * viewers already have a CC button and these stay unimplemented — the tile
+   * renders no caption control when `getCaptionTracks` is absent. */
+  hasCaptionSupport?(): boolean;
+  /** Selectable tracks. May be EMPTY while captions are running: YouTube omits
+   * auto-generated ones here — see youtubeCaptions.ts. */
+  getCaptionTracks?(): CaptionTrack[];
+  /** Language code of the active track, or null when captions are off. Only
+   * trustworthy before the first {@link setCaptionTrack} — see CaptionsState. */
+  getActiveCaptionTrack?(): string | null;
+  /** Activate a track by language code; null turns captions off. */
+  setCaptionTrack?(languageCode: string | null): void;
   destroy(): void;
 }
 

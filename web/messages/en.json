@@ -2306,6 +2306,8 @@
   "watch_party_tile_now_controlling": "You're now controlling the Watch Party",
   "watch_party_tile_popup_blocked": "Popup blocked",
   "watch_party_tile_popup_blocked_description": "Please allow pop-up windows for Pulse and try again.",
+  "watch_party_tile_captions_aria": "Subtitles",
+  "watch_party_tile_captions_off": "Off",
   "watch_party_tile_change_source_aria": "Switch video",
   "watch_party_tile_rewind30_aria": "Skip back 30 seconds",
   "watch_party_tile_source_changed": "The host switched the video",

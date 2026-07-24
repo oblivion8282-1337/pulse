@@ -16,6 +16,7 @@ import {
   LiveDetector,
   shouldResyncOnForeground,
   startHeartbeat,
+  type CaptionTrack,
   type PlayerEvent,
   type PlayerHandle
 } from '$lib/watch/sync';
@@ -274,6 +275,31 @@ export class PartyController {
    * also reicht die Kachel die Lautstärke hierüber durch. No-op vor onReady. */
   setVolume(percent: number): void {
     this.#player?.setVolume(Math.max(0, Math.min(100, percent)));
+  }
+
+  /** Ist die Untertitel-Steuerung des Players einsatzbereit? Vorher sagen die
+   * drei Getter unten nichts aus. Wie beim Volume-Control gilt: der read-only
+   * Zuschauer-Player (controls:0) hat keinen nativen CC-Knopf mehr, also reicht
+   * die Kachel das hierüber durch. */
+  isAvailable(): boolean {
+    return this.#player?.hasCaptionSupport?.() ?? false;
+  }
+
+  /** Untertitel-Spuren des laufenden Videos. Kann leer sein, WÄHREND
+   * Untertitel laufen — YouTube listet automatisch erzeugte nicht auf. */
+  getCaptionTracks(): CaptionTrack[] {
+    return this.#player?.getCaptionTracks?.() ?? [];
+  }
+
+  /** Sprachcode der aktiven Spur, oder null wenn Untertitel aus sind. */
+  getActiveCaptionTrack(): string | null {
+    return this.#player?.getActiveCaptionTrack?.() ?? null;
+  }
+
+  /** Spur per Sprachcode aktivieren; null schaltet Untertitel ab. Rein lokal —
+   * bewusst NICHT synchronisiert: jeder Zuschauer entscheidet für sich. */
+  setCaptionTrack(languageCode: string | null): void {
+    this.#player?.setCaptionTrack?.(languageCode);
   }
 
   dispose(): void {
