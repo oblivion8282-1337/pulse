@@ -70,8 +70,11 @@ Urheberrechtes bedürfen der schriftlichen Zustimmung des jeweiligen Autors bzw.
 Erstellers. Downloads und Kopien dieser Seite sind nur für den privaten, nicht
 kommerziellen Gebrauch gestattet.
 
-> Hinweis: Die Pulse-Software selbst steht unter der AGPL-3.0; dies betrifft den
-> Quellcode, nicht die Betreiber-Inhalte dieser Website.
+> Hinweis: Die Pulse-Software selbst ist source-available — der Quellcode ist
+> einsehbar, die Nutzung ist lizenziert (Client-Komponenten unter PolyForm
+> Perimeter 1.0.0, Server-Komponenten unter PolyForm Free Trial 1.0.0). Die
+> Nutzung dieses Dienstes als Endnutzer ist davon unberührt und kostenfrei.
+> Dies betrifft den Quellcode, nicht die Betreiber-Inhalte dieser Website.
 
 ---
 

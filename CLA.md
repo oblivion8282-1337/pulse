@@ -40,9 +40,11 @@ derivative works.
 
 You understand and agree that this license expressly includes the right for
 the Maintainer to license the Project, including Your Contributions, under
-multiple and different license terms — in particular both the GNU Affero
-General Public License and one or more separate commercial licenses (dual
-licensing).
+multiple and different license terms — including source-available licenses,
+open source licenses, and one or more separate commercial licenses (dual
+licensing) — and to change the license terms that apply to future versions of
+the Project. The Project is currently distributed under the terms described in
+the LICENSE file at the repository root.
 
 ## 3. Grant of Patent License
 

@@ -1,0 +1,12 @@
+GPL-3.0-or-later
+
+These patch files modify gpu-screen-recorder
+(https://repo.dec05eba.com/gpu-screen-recorder), which is licensed under the
+GNU General Public License v3.0 or later. As derivative works of GPL-licensed
+source they are themselves GPL-licensed, and they are NOT covered by the
+PolyForm licences that apply to the rest of this repository.
+
+The recorder itself is not contained in this repository. It is fetched at
+build time and bundled into the Linux package as a separate program.
+
+Repository-wide licensing overview: ../../LICENSE

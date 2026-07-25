@@ -1,7 +1,7 @@
 # CLA Assistant Lite — verlangt von externen Contributors eine einmalige
 # Unterschrift unter CLA.md, bevor ihr Pull Request gemergt werden kann.
 # Der Lizenz-Grant im CLA hält die Option auf Dual-Licensing offen
-# (AGPL-3.0 für alle + optionale separate Kommerzlizenz).
+# (source-available für alle + optionale separate Kommerzlizenz).
 #
 # Signaturen landen in signatures/version1/cla.json auf main. Repo-Owner und
 # Bots sind über die allowlist ausgenommen — die müssen nicht signieren.

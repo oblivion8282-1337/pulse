@@ -16,7 +16,16 @@ Voice über LiveKit (WebRTC/Opus). HQ-Screen-Streaming bindet den vendored GPU S
 Drei Transportpfade, getrennt: HTTPS/WSS → FastAPI-Services · WebRTC → LiveKit (Voice + Browser-Screenshare)
 · WHEP/WebRTC → MediaMTX (GSR-HQ-Streams). Details `PLAN.md` §1.
 
-`~/Dokumente/GPU_Screen_Recorder/` ist **READ-ONLY** (Original) — `streaming/` ist eine vendored Kopie (2026-05-11), nur die wird modifiziert.
+`~/Dokumente/GPU_Screen_Recorder/` ist **READ-ONLY** (Original). `streaming/` enthält **keine** GSR-Kopie mehr, sondern Pulse-eigene Sidecars + drei Patches (`streaming/patches/`); GSR selbst wird zur Build-Zeit vom Upstream geklont.
+
+## Lizenz — source-available, zwei Bereiche (seit 2026-07-25)
+
+Pulse ist **nicht Open Source**. Verbindlich ist `LICENSE` im Root; die Aufteilung:
+- **Server** (`services/`, `shared/`, `infra/`) = **PolyForm Free Trial 1.0.0** — 32 Tage Evaluierung, danach kommerzielle Lizenz nötig. Das ist der Hebel fürs bezahlte Self-Hosting (Freischaltung + monatliche Servicegebühr).
+- **Client** (`web/`, `desktop/`, `mobile/`, `streaming/`, `plugins/`, `packaging/`, `Logo/`, `scripts/`) = **PolyForm Perimeter 1.0.0** — frei nutzbar + weitergebbar, nur Konkurrenzprodukte verboten. **Muss frei bleiben**, sonst wären auch Cloud-Nutzer lizenzpflichtig — das würde das eigene Cloud-Geschäft treffen.
+- **`streaming/patches/` bleibt GPL-3.0** (abgeleitet von GSR, gehört uns nicht) — nicht umlizenzieren.
+- Vorher AGPL-3.0; alles bis 2026-07-25 Veröffentlichte bleibt AGPL. Bei neuen Lizenz-Aussagen **alle** Stellen synchron halten: `LICENSE*`, Verzeichnis-`LICENSE`s, `README.md`, `CLA.md`, beide `packaging/*.metainfo.xml`, das OCI-Label in `allinone.yml`, `web/src/lib/legal/impressum.md`.
+- **Keine AGPL/GPL-Dependencies mehr aufnehmen** — kollidiert jetzt hart (Beispiel: die Cap-Encoder-Crates in `WINDOWS_HQ_SIDECAR.md`). FFmpeg ist überall LGPL und **dynamisch** gelinkt; das muss so bleiben.
 
 ## Tech-Stack — die Stolpersteine
 

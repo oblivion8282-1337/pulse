@@ -25,7 +25,7 @@ Ein System = ein späterer Bezahl-Checkout, keine doppelte Pflege, keine Feature
   ersetzt** („approved" = „bezahlt"), die Maschinerie (Instanz anlegen, Credentials, Suspend,
   Widerruf) bleibt identisch.
 - Verkauft werden die **Cloud-Dienste** (Identität/Cert-Login, Relay-Subdomain, Direktpfad-Telefonbuch,
-  Registry/Updates), nicht die AGPL-Software. `ALLOW_LOCAL_ACCOUNTS` bleibt der versiegelte Escape-Hatch.
+  Registry/Updates), nicht die Software selbst. `ALLOW_LOCAL_ACCOUNTS` bleibt der versiegelte Escape-Hatch.
 - `origin` (`vps` | `app_host`) ist der künftige **Preis-Diskriminator** (App-Host verbraucht mehr
   Cloud-Ressourcen: Relay, Telefonbuch, Fallback-Bandbreite).
 - **Suspend-Semantik entschieden (User, 2026-07-13): sofort hart aus.** Zahlung endet = Instanz
