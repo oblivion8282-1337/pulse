@@ -191,3 +191,49 @@ entfernten Server (Dev → Hetzner → Dritter) und Relay war erzwungen. Reale H
 
 Offen bleibt nur der **Windows-Input-PoC** (`SendInput` mit `VIRTUALDESK` +
 Per-Monitor-DPI) — der letzte billige Risiko-Killer, danach beginnt R1.
+
+## 7. Verworfene Fremd-Stacks + Plattform-Realität (Vor-Untersuchung 2026-07-02)
+
+Übernommen aus dem abgelösten Konzeptpapier vom 2026-07-02. Der dort skizzierte
+Weg (Steuerung als Erweiterung des LiveKit-Screenshares) wurde **nicht** gebaut —
+stattdessen der eigene P2P-Kern `streaming/pulse-remote-webrtc`. Was hier steht,
+ist die Absage an fremde Stacks; sie gilt unverändert und muss nicht erneut
+recherchiert werden.
+
+### 7.1 Warum Eigenbau statt Moonlight/Sunshine/Parsec
+
+- **Sunshine** ist ein Standalone-Daemon mit eigenem Protokoll-Stack (NVHTTP-Pairing
+  → RTSP → 3 UDP-Streams mit ENet), **keine Library**. Integration hieße, einen
+  kompletten zweiten Streaming-Stack neben GSR→MediaMTX mitzuschleppen, der
+  funktional dasselbe tut — nur der Input-Rückkanal wäre neu.
+- **Moonlight hat keinen Browser-Client** (moonlight-chrome im Juni 2025 archiviert,
+  kein WASM-Nachfolger) → bricht Web-First: nur Electron-Nutzer könnten zusehen oder
+  steuern. `moonlight-common-c` einzubetten bräuchte zusätzlich einen gepinnten
+  ENet-Fork + FFmpeg-HW-Decode + eigenes Rendering als Client-Sidecar.
+- **Parsec-SDK** ist praktisch tot (öffentliche SDK-Doku liefert 410 seit der
+  Unity-Übernahme). **RustDesk** nutzt kein WebRTC, sondern ein eigenes
+  Relay-Protokoll (Open-Core) — passt nicht.
+- **Selkies** (WebRTC-Remote-Desktop auf GStreamer) ist als Referenzarchitektur
+  lesenswert, nicht als Einbau-Modul.
+
+> **Lizenz-Nachtrag (2026-07-25):** Das Ursprungspapier hielt die Lizenz für
+> unkritisch („GPL-3.0 ist mit unserem AGPL-3.0 kombinierbar"). **Das gilt nicht
+> mehr.** Seit der Umstellung auf source-available (PolyForm Free Trial für den
+> Server, Perimeter für den Client) ist Sunshines GPL-3.0 ein **harter Blocker** —
+> zusätzlich zum architektonischen. Siehe CLAUDE.md, Abschnitt „Lizenz".
+
+### 7.2 Plattform-Realität der Input-Injektion
+
+| Plattform | Status |
+|---|---|
+| Windows | `SendInput` — solide für Desktop-Control. UAC/elevated Fenster brauchen Elevation-Matching. Spiele mit Raw-Input/Kernel-Anticheat: geht **nicht** (Parsec löst das mit signiertem Kernel-HID-Treiber — außer Reichweite). |
+| Linux X11 | XTest — trivial, Standardweg seit Jahrzehnten. |
+| macOS | `CGEventPost` + einmaliger Accessibility/TCC-Consent — solide. |
+| Wayland | GNOME/KDE produktionsreif (xdg-desktop-portal `RemoteDesktop` + libei/EIS). **niri hat keinen RemoteDesktop-Support** (niri#390, offen seit 2024) — nur Drittanbieter-Bridge (`xdg-desktop-portal-generic`) oder uinput-Fallback (Rechte- und Non-ASCII-Probleme). Größte Baustelle, sobald der Host nicht mehr nur Windows ist. |
+
+### 7.3 Zwei Anspruchsklassen, sauber getrennt
+
+- **Discord/TeamViewer-Klasse** („Freund übernimmt kurz die Maus im Stream") — gut
+  machbar, das ist der Scope von v1.
+- **Parsec-Klasse** (Gaming, < 50 ms, Raw-Input, Kernel-Treiber) — ist es nicht,
+  bewusst außerhalb des Scopes.
