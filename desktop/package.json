@@ -2,6 +2,7 @@
   "name": "@dcc/desktop",
   "version": "0.1.41",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Pulse desktop wrapper (Electron)",
   "main": "electron/dist/main.cjs",
   "desktopName": "com.howispulse.Pulse.desktop",

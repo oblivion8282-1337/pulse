@@ -296,7 +296,7 @@ Memory `project_pulse_license_status.md` sagt: keine LICENSE-Datei da. → Lizen
 
 ### Phasen-Plan (Empfehlung)
 
-- **Phase 1 (jetzt):** AGPL-3.0 + CLA. AGPL schützt, CLA gibt Recht für spätere Dual-Lizenzen.
+- **Phase 1 (erledigt 2026-07-25):** source-available + CLA. Client = PolyForm Perimeter 1.0.0, Server = PolyForm Free Trial 1.0.0 (vorher AGPL-3.0 — die erlaubte jedem, gratis selbst zu betreiben, damit war Self-Hosting als bezahlter Dienst nicht durchsetzbar). CLA gibt weiterhin das Recht für separate Kommerzlizenzen.
 - **Phase 2 (~50 zahlende Server-Owner Hosted):** Cloud-Add-ons launchen, beginnend mit Mobile-Push-Relay. Niedriger Preis, geringe Engineering-Last, validiert Zahlungsbereitschaft.
 - **Phase 3 (Cloud-Add-ons profitabel):** Pulse-Network-Identity ausrollen. Punkt an dem Pulse vom „Discord-Klon den eine Person betreibt" zum „eigenständiges Ökosystem" wird.
 - **Phase 4 (echte Enterprise-Anfragen):** SSO/Audit/SLA-Tier nur reaktiv bauen, nicht spekulativ.

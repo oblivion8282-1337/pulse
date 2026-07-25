@@ -265,7 +265,9 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 > **Phase 3 (aufgeschoben):** Stripe-Billing + ein cloud-seitiger Lizenzcheck über
 > den bestehenden cert/phone-home-Kanal werden später an den `status=="active"`-Check
 > im Realm-Endpoint gekoppelt (Stelle im Code markiert). Diese Registry ist Verteilung
-> + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben extrahierbar (AGPL).
+> + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben technisch extrahierbar.
+> Der Schutz ist lizenzrechtlich: Server-Betrieb über die 32-Tage-Evaluierung hinaus
+> braucht eine kommerzielle Lizenz (PolyForm Free Trial, siehe `LICENSE`).
 
 ## Operating
 

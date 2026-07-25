@@ -60,7 +60,15 @@ Aber: server-spezifisches `aud` zwingt den User, `pulse.com` beim Login den Ziel
 
 **Privacy vs. Replay-Schutz.** Threading-Optionen, noch offen: Bindung an den Server-Public-Key statt an einen geloggten Namen · DPoP-artige Proof-of-Possession · `pulse.com` bindet, behält aber kein Log. **Vor dem Bau zu klären.**
 
-## Lizenz: AGPL-3.0 + Marke (2026-05-21)
+## Lizenz: AGPL-3.0 + Marke (2026-05-21) — ÜBERHOLT, siehe Nachtrag
+
+> **Nachtrag 2026-07-25: Die AGPL-Entscheidung wurde revidiert.** Pulse ist jetzt
+> **source-available**: Client-Komponenten unter PolyForm Perimeter 1.0.0, Server-
+> Komponenten unter PolyForm Free Trial 1.0.0. Grund: AGPL erlaubt jedem, Pulse
+> gratis selbst zu betreiben und einen Lizenzcheck herauszupatchen — das Self-Hosting
+> als bezahlter Dienst war damit nicht durchsetzbar. Verbindlich ist `LICENSE` im
+> Repo-Root. Die Marken-Überlegungen unten gelten unverändert; der Abschnitt bleibt
+> als Entscheidungs-Historie stehen.
 
 Pulse hatte bisher **keine Lizenz** → de facto All Rights Reserved → die Selfhost-Story stand rechtlich auf Sand. Entschieden: **AGPL-3.0.**
 

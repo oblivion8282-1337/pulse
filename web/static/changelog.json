@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-25",
+      "date": "2026-07-25",
+      "style": "Sachlich",
+      "title": "Neue Lizenz für Pulse",
+      "items": [
+        "Der Quellcode von Pulse bleibt öffentlich einsehbar, die Nutzung ist ab sofort lizenziert. Pulse ist damit source-available statt Open Source.",
+        "Für dich ändert sich nichts: Pulse in der App oder im Browser zu nutzen bleibt kostenlos — egal ob über die Pulse Cloud oder auf einem fremden Server.",
+        "Wer einen eigenen Pulse-Server betreiben möchte, braucht dafür künftig eine Freischaltung und zahlt eine monatliche Servicegebühr. Darin enthalten sind die laufenden Updates.",
+        "Bereits veröffentlichte Versionen bleiben unter ihrer bisherigen Lizenz verfügbar."
+      ]
+    },
+    {
       "id": "2026-07-24.2",
       "date": "2026-07-24",
       "style": "Sachlich",
