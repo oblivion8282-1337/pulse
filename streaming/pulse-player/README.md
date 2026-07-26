@@ -82,7 +82,9 @@ Ehrlich benannt, damit niemand danach sucht:
 ```
 src/
 ├── main.rs        Einstiegspunkt: Fensterschleife (winit) + Tokio-Laufzeit
-├── app.rs         Fenster- und Sitzungsverwaltung, Request-Behandlung
+├── app/           Fenster- und Sitzungsverwaltung
+│   ├── mod.rs     Sitzungen anlegen/schliessen, winit-Ereignisse
+│   └── requests.rs  was die einzelnen RPC-Operationen bedeuten
 ├── rpc.rs         stdio-Transport (stdin lesen, stdout schreiben)
 ├── proto.rs       Protokolltypen, Optionen, Grenzen
 ├── whep.rs        WHEP-Aushandlung, liefert rohe RTP-Pakete
@@ -91,6 +93,9 @@ src/
 │   ├── mod.rs     H.264 (ueber das rtp-Crate) und Opus
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
 ├── decode.rs      FFmpeg, Hardware zuerst
+├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
+├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
+├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit
 ├── render/        wgpu-Darstellung
 │   ├── mod.rs     Texturen, Uniform-Werte, Zeichnen
 │   ├── setup.rs   Geraet, Pipeline, Wahl des Oberflaechenformats

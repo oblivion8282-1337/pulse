@@ -197,14 +197,17 @@ pub async fn run(
                 }
             }
 
-            media.note_dimensions(stats.width, stats.height);
-            stats.media = media.stats();
             stats.packets_received = buffer.received;
             stats.packets_lost = buffer.lost;
             stats.packets_reordered = buffer.reordered;
             stats.packets_duplicate = buffer.duplicates;
             stats.buffered_packets = buffer.buffered() as u64;
         }
+
+        // Einmal je Durchgang, nicht je Spur: beides haengt nicht am Puffer,
+        // und `media.stats()` nimmt jedes Mal die Sperre des Ausgabe-Rings.
+        media.note_dimensions(stats.width, stats.height);
+        stats.media = media.stats();
 
         let _ = events.try_send(SessionEvent::Stats(stats));
     };

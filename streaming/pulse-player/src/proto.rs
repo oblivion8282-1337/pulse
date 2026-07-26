@@ -123,6 +123,21 @@ impl PlayerOptions {
         );
     }
 
+    /// Ob ueberhaupt ein Feld gesetzt ist. Dient dazu, einen Patch zu
+    /// erkennen, der aus einem unbekannten Schluessel entstanden ist.
+    pub fn any_set(&self) -> bool {
+        self.jitter_ms.is_some()
+            || self.deband.is_some()
+            || self.dither.is_some()
+            || self.zoom.is_some()
+            || self.pan_x.is_some()
+            || self.pan_y.is_some()
+            || self.volume.is_some()
+            || self.av_offset_ms.is_some()
+            || self.paused.is_some()
+            || self.hwdec.is_some()
+    }
+
     /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn),
     /// Jitter-Puffer auf dem gemessenen unteren Ende mit etwas Reserve.
     pub fn defaults() -> Self {

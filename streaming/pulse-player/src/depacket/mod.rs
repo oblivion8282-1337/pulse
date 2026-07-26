@@ -14,6 +14,14 @@ use webrtc::rtp::packetizer::Depacketizer;
 
 use crate::whep::Codec;
 
+/// Obergrenze fuer eine im Aufbau befindliche Zugriffseinheit.
+///
+/// Der AV1-Pfad hat sein eigenes Pendant (`av1::MAX_TEMPORAL_UNIT_BYTES`); hier
+/// gilt dasselbe fuer H.264. Ohne die Grenze laesst ein Sender, der nie ein
+/// Marker-Bit setzt, den Speicher volllaufen — die Einheit wird ja nur beim
+/// Marker freigegeben.
+const MAX_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
+
 /// Zusammensetzer fuer genau einen Track.
 pub enum Assembler {
     Av1(av1::Av1Assembler),
@@ -32,6 +40,16 @@ impl Assembler {
                 dropped: false,
             },
             Codec::Opus => Self::Opus,
+        }
+    }
+
+    /// Aktuelle Groesse der im Aufbau befindlichen Einheit — fuer Tests und
+    /// Diagnose.
+    #[cfg(test)]
+    pub fn buffered_len(&self) -> usize {
+        match self {
+            Self::H264 { unit, .. } => unit.len(),
+            _ => 0,
         }
     }
 
@@ -60,6 +78,12 @@ impl Assembler {
                     // Startcodes; anhaengen reicht.
                     Ok(nal) => unit.extend_from_slice(&nal),
                     Err(_) => *dropped = true,
+                }
+                if unit.len() > MAX_ACCESS_UNIT_BYTES {
+                    // Der Marker ist offenbar verlorengegangen. Verwerfen ist
+                    // besser als weiterwachsen.
+                    unit.clear();
+                    *dropped = true;
                 }
                 if !marker {
                     return None;
@@ -99,6 +123,25 @@ mod tests {
         assert!(a.push(&nal, false).is_none(), "ohne Marker keine Einheit");
         let out = a.push(&nal, true).expect("Marker schliesst die Einheit ab");
         assert!(out.len() > nal.len(), "beide Pakete muessen drin sein");
+    }
+
+    /// Regression: ohne Marker-Bit waechst die H.264-Einheit unbegrenzt.
+    /// Der AV1-Pfad hat dafuer eine Obergrenze, der H.264-Pfad hatte keine —
+    /// ein Sender, der nie ein Marker-Bit setzt, haette den Speicher
+    /// leerlaufen lassen.
+    #[test]
+    fn h264_einheit_waechst_nicht_unbegrenzt() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        let nal = Bytes::from_static(&[0x41; 4096]);
+        // Deutlich mehr als die Obergrenze einspeisen, nie ein Marker.
+        for _ in 0..20_000 {
+            assert!(a.push(&nal, false).is_none());
+        }
+        assert!(
+            a.buffered_len() <= MAX_ACCESS_UNIT_BYTES,
+            "Einheit waechst unbegrenzt: {} Bytes",
+            a.buffered_len()
+        );
     }
 
     #[test]

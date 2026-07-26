@@ -150,7 +150,13 @@ impl Av1Assembler {
             self.poisoned = true;
         }
 
-        let mut idx = 0u8;
+        // Bewusst breiter als das 2-Bit-Feld `W`: bei W=0 traegt jedes Element
+        // ein eigenes Laengenfeld, ein Paket kann also beliebig viele
+        // enthalten. Mit einem u8 lief der Zaehler ab 256 Elementen ueber —
+        // im Debug-Build eine Panik, im Release ein stiller Wraparound, der
+        // die Fortsetzungspruefung `idx != 1` durcheinanderbringt.
+        let mut idx: u32 = 0;
+        let w = u32::from(w);
         while !rest.is_empty() {
             idx += 1;
             let is_last = w != 0 && idx == w;
@@ -340,6 +346,22 @@ mod tests {
         let mut p3 = vec![0b0001_0000];
         p3.extend_from_slice(&[header, 0xCC]);
         assert!(a.push(&p3, true).is_some(), "Assembler muss sich erholen");
+    }
+
+    /// Regression: `idx` zaehlt die OBU-Elemente eines Pakets. Bei W=0 traegt
+    /// jedes Element ein eigenes Laengenfeld, also kann ein Paket beliebig
+    /// viele enthalten — mit einem u8-Zaehler laeuft das ab 256 Elementen
+    /// ueber (Debug: Panik, Release: stiller Wraparound, der die
+    /// Fortsetzungslogik `idx != 1` durcheinanderbringt).
+    #[test]
+    fn viele_elemente_lassen_den_zaehler_nicht_ueberlaufen() {
+        let mut a = Av1Assembler::new();
+        let mut pkt = vec![0b0000_0000]; // Z=0 Y=0 W=0
+        // 300 Elemente der Laenge 0 — LEB128(0) ist ein einzelnes Nullbyte.
+        pkt.extend(std::iter::repeat_n(0u8, 300));
+        // Darf weder panischen noch etwas Kaputtes ausliefern.
+        let out = a.push(&pkt, true);
+        assert!(out.is_none(), "leere Elemente ergeben keine Einheit");
     }
 
     #[test]
