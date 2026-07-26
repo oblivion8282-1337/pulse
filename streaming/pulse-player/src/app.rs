@@ -101,6 +101,38 @@ impl App {
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
             },
 
+            // Aufnahme-Operationen laufen alle nach demselben Muster: Befehl
+            // in die Sitzung schicken, auf die Antwort warten, Ergebnis als
+            // RPC-Antwort schreiben. Das Warten muss im Tokio-Kontext
+            // passieren — die Fensterschleife darf nicht blockieren.
+            "record" => {
+                let path = match req.path.clone() {
+                    Some(p) => p,
+                    None => return self.stdout.send(&Response::err(id, "path fehlt")),
+                };
+                self.session_reply(id, req.session, |reply| SessionCommand::Record {
+                    path,
+                    reply,
+                });
+            }
+
+            "stop_record" => {
+                self.session_reply(id, req.session, |reply| SessionCommand::StopRecord { reply });
+            }
+
+            "clip" => {
+                let path = match req.path.clone() {
+                    Some(p) => p,
+                    None => return self.stdout.send(&Response::err(id, "path fehlt")),
+                };
+                let seconds = req.seconds.unwrap_or(30.0);
+                self.session_reply_with(id, req.session, |reply| SessionCommand::Clip {
+                    path,
+                    seconds,
+                    reply,
+                });
+            }
+
             "shutdown" => {
                 self.stdout.send(&Response::bare(id));
                 event_loop.exit();
@@ -131,6 +163,68 @@ impl App {
     /// Statistik plus alles, was nicht in der Sitzung selbst gezaehlt wird.
     /// `surface_format` ist bewusst dabei: nur damit ist von aussen belegbar,
     /// dass mehr als 8 bit ausgegeben werden.
+    /// Schickt einen Befehl mit Rueckmeldung in die Sitzung und beantwortet
+    /// den Request mit dem Ergebnis. Fuer Befehle ohne Nutzdaten.
+    fn session_reply<F>(&self, id: Option<i64>, session: Option<u64>, make: F)
+    where
+        F: FnOnce(tokio::sync::oneshot::Sender<Result<(), String>>) -> SessionCommand,
+    {
+        let Some(tx) = self.command_sender(id, session) else { return };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let stdout = self.stdout.clone();
+        let cmd = make(reply_tx);
+        self.runtime.spawn(async move {
+            if tx.send(cmd).await.is_err() {
+                return stdout.send(&Response::err(id, "Sitzung antwortet nicht"));
+            }
+            match reply_rx.await {
+                Ok(Ok(())) => stdout.send(&Response::bare(id)),
+                Ok(Err(e)) => stdout.send(&Response::err(id, e)),
+                Err(_) => stdout.send(&Response::err(id, "Sitzung beendet")),
+            }
+        });
+    }
+
+    /// Wie [`Self::session_reply`], aber die Antwort traegt eine Zahl
+    /// (geschriebene Einheiten).
+    fn session_reply_with<F>(&self, id: Option<i64>, session: Option<u64>, make: F)
+    where
+        F: FnOnce(tokio::sync::oneshot::Sender<Result<u64, String>>) -> SessionCommand,
+    {
+        let Some(tx) = self.command_sender(id, session) else { return };
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let stdout = self.stdout.clone();
+        let cmd = make(reply_tx);
+        self.runtime.spawn(async move {
+            if tx.send(cmd).await.is_err() {
+                return stdout.send(&Response::err(id, "Sitzung antwortet nicht"));
+            }
+            match reply_rx.await {
+                Ok(Ok(units)) => {
+                    stdout.send(&Response::ok(id, serde_json::json!({ "units": units })))
+                }
+                Ok(Err(e)) => stdout.send(&Response::err(id, e)),
+                Err(_) => stdout.send(&Response::err(id, "Sitzung beendet")),
+            }
+        });
+    }
+
+    /// Loest die Sitzung auf und beantwortet den Request selbst, wenn sie
+    /// fehlt — dann gibt es nichts zu senden.
+    fn command_sender(
+        &self,
+        id: Option<i64>,
+        session: Option<u64>,
+    ) -> Option<mpsc::Sender<SessionCommand>> {
+        match session.and_then(|s| self.sessions.get(&s)) {
+            Some(s) => Some(s.commands.clone()),
+            None => {
+                self.stdout.send(&Response::err(id, "unbekannte Sitzung"));
+                None
+            }
+        }
+    }
+
     fn stats_json(&self, session: &Session) -> serde_json::Value {
         let mut v = serde_json::to_value(session.stats).unwrap_or_default();
         if let Some(obj) = v.as_object_mut() {

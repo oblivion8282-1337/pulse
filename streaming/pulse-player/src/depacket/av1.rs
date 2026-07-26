@@ -41,7 +41,9 @@ const OBU_TYPE_TEMPORAL_DELIMITER: u8 = 2;
 /// wenn der Marker-Bit-Strom kaputt ist (z. B. bei schwerem Verlust).
 const MAX_TEMPORAL_UNIT_BYTES: usize = 32 * 1024 * 1024;
 
-fn read_leb128(buf: &[u8]) -> Option<(u32, usize)> {
+/// Auch vom Mitschnitt gebraucht: [`crate::recorder`] zerlegt denselben
+/// (bereits mit Groessenfeldern versehenen) Strom, um Keyframes zu finden.
+pub(crate) fn read_leb128(buf: &[u8]) -> Option<(u32, usize)> {
     let mut value: u64 = 0;
     for (i, &b) in buf.iter().enumerate().take(8) {
         value |= u64::from(b & 0x7f) << (i * 7);

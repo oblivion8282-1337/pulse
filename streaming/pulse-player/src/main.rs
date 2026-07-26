@@ -15,10 +15,13 @@
 //! stdout gehoert dem JSON-RPC. Diagnose geht ausschliesslich nach stderr.
 
 mod app;
+mod audio;
 mod decode;
 mod depacket;
 mod jitter;
+mod mediasink;
 mod proto;
+mod recorder;
 mod render;
 mod rpc;
 mod session;

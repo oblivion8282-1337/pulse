@@ -429,6 +429,12 @@ export interface PulsePlayerApi {
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
    *  von aussen belegbar, welcher Decoder und welche Bittiefe anliegen. */
   stats(session: number): Promise<PulsePlayerResult>;
+  /** Mitschnitt starten. Zielpfad bestimmt der Hauptprozess, er steht als
+   *  `path` in der Antwort. */
+  record(session: number): Promise<PulsePlayerResult>;
+  stopRecord(session: number): Promise<PulsePlayerResult>;
+  /** Letzte `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
+  clip(session: number, seconds?: number): Promise<PulsePlayerResult>;
   onEvent(cb: (ev: unknown) => void): () => void;
 }
 

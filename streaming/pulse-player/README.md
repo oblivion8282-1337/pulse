@@ -44,28 +44,31 @@ nicht einsehbar.
 - **Zoom und Pan** aus dem dekodierten Vollbild, nicht aus einem bereits
   herunterskalierten Fensterinhalt.
 - **Standbild ohne Verbindungsabbruch** (`paused`): die Sitzung laeuft weiter.
+- **Tonausgabe**: Opus wird dekodiert, auf die Rate des Ausgabegeraets gebracht
+  und ueber cpal ausgegeben. `volume` wirkt inklusive Verstaerkung ueber 100 %,
+  `av_offset_ms` als Ziel-Fuellstand des Ausgabepuffers. Laesst sich kein Geraet
+  oeffnen, laeuft die Wiedergabe stumm weiter statt zu scheitern.
+- **Mitschnitt ohne Neukodierung** (`record`/`stop_record`): der ankommende
+  Bitstrom wird direkt nach Matroska gemuxt — Bild und Ton in einer Datei.
+- **Clip der letzten Sekunden** (`clip`): ein Ringpuffer haelt 60 s vor, auch
+  wenn nicht aufgenommen wird. Der Schnitt beginnt am letzten Keyframe davor,
+  sonst waere der Anfang unbrauchbar.
 - **Ehrliche Statistik**: empfangene, verlorene, umsortierte und doppelte Pakete,
   dekodierte und verworfene Frames, Pufferfuellstand, gewaehlter Decoder,
-  Hardware ja/nein, Oberflaechenformat.
+  Hardware ja/nein, Oberflaechenformat, dazu Ton-Unterlaeufe und Puffer-Stand
+  sowie Aufnahmezustand und verfuegbare Clip-Sekunden.
 
 ## Was er noch NICHT kann
 
 Ehrlich benannt, damit niemand danach sucht:
 
-- **Keine eigene Tonausgabe.** Opus wird empfangen und depacketisiert, aber
-  nicht dekodiert oder ausgegeben; `volume` und `av_offset_ms` werden
-  entgegengenommen und noch nicht angewendet. Der Weg dafuer ist vorbereitet
-  (`cpal` liegt in den Abhaengigkeiten, FFmpeg kann Opus dekodieren).
-
-  **Der Nutzer hoert trotzdem Ton.** Die Electron-Integration laesst den
-  bestehenden Browser-Pfad (`hqStreams` samt Web-Audio-Graph) unveraendert
-  weiterlaufen und ersetzt nur das Bild — das `<video>` wird lediglich nicht
-  mehr angezeigt. Bild und Ton kommen dann ueber zwei getrennte
-  WHEP-Sitzungen, was bis zur eigenen Tonausgabe ein bewusster Kompromiss ist:
-  doppelte Verbindung, und die Lippensynchronitaet zwischen beiden Wegen ist
-  ungeprueft. Genau das gehoert beim ersten Test mit echtem Stream angesehen.
-- **Kein Clip-Mitschnitt und kein Standbild-Export.** Beides ist billig, sobald
-  die Frames durchlaufen, aber noch nicht gebaut.
+- **Keine echte A/V-Synchronisierung.** Bild und Ton laufen getrennt: das Bild
+  wird gezeigt, sobald es dekodiert ist, der Ton so schnell, wie das Geraet ihn
+  abholt. `av_offset_ms` verschiebt nur den Fuellstand des Ausgabepuffers. Eine
+  saubere Kopplung braeuchte eine gemeinsame Uhr aus den RTP-Zeitstempeln
+  (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
+  auseinanderlaeuft, ist ungemessen.
+- **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
 - **Kein zero-copy.** Die cuvid-Decoder liefern in den Hauptspeicher, von dort
   wird in GPU-Texturen hochgeladen. Ein direkter Weg NVDEC -> Vulkan-Textur
   braeuchte `hw_frames_ctx` samt Interop.
@@ -162,7 +165,8 @@ Drittanbieter-Seite im Web.
 1. Gegen einen echten Stream testen — zuerst AV1, dort ist das Risiko am
    groessten. Dabei gleich die Lippensynchronitaet pruefen: Bild kommt aus
    diesem Player, Ton weiterhin aus dem Browser-Pfad.
-2. Tonausgabe.
+2. Lippensynchronitaet messen: Ton laeuft jetzt durch den Player, aber die
+   Synchronisierung ist eine Puffer-Naeherung, keine Zeitstempel-Kopplung.
 3. Die Render-Etappe messen: Glass-to-Glass durch diesen Player gegen den
    `<video>`-Weg. Das ist die Zahl, die in
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung

@@ -112,3 +112,51 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
     }
   });
 }
+
+/**
+ * Startet einen Mitschnitt. Der Zielpfad wird vom Hauptprozess bestimmt —
+ * der Renderer darf keinen vorgeben, sonst waere das ein Schreibzugriff an
+ * beliebige Stelle. Liefert den Pfad zurueck oder `null` bei Fehlschlag.
+ */
+export async function startRecording(session: number): Promise<string | null> {
+  try {
+    const res = await api()?.record(session);
+    if (!res?.ok) {
+      console.warn('[player] Aufnahme fehlgeschlagen:', res?.error);
+      return null;
+    }
+    return typeof res.path === 'string' ? res.path : null;
+  } catch (e) {
+    console.warn('[player] Aufnahme warf:', e);
+    return null;
+  }
+}
+
+export async function stopRecording(session: number): Promise<boolean> {
+  try {
+    const res = await api()?.stopRecord(session);
+    if (!res?.ok) console.warn('[player] Stopp fehlgeschlagen:', res?.error);
+    return res?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sichert die letzten `seconds` Sekunden aus dem Ringpuffer des Players.
+ * Der Schnitt beginnt am letzten Keyframe davor, der Clip wird also etwas
+ * laenger als angefordert.
+ */
+export async function saveClip(session: number, seconds = 30): Promise<string | null> {
+  try {
+    const res = await api()?.clip(session, seconds);
+    if (!res?.ok) {
+      console.warn('[player] Clip fehlgeschlagen:', res?.error);
+      return null;
+    }
+    return typeof res.path === 'string' ? res.path : null;
+  } catch (e) {
+    console.warn('[player] Clip warf:', e);
+    return null;
+  }
+}

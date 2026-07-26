@@ -125,6 +125,15 @@ contextBridge.exposeInMainWorld('pulse', {
       playerCall('set_option', { session, options }),
     stats: (session: number) => playerCall('stats', { session }),
 
+    /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
+     *  kommt als `path` in der Antwort zurueck. */
+    record: (session: number): Promise<unknown> => ipcRenderer.invoke('player:record', session),
+    stopRecord: (session: number): Promise<unknown> =>
+      ipcRenderer.invoke('player:stopRecord', session),
+    /** Die letzten `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
+    clip: (session: number, seconds = 30): Promise<unknown> =>
+      ipcRenderer.invoke('player:clip', session, seconds),
+
     /** Zustandsereignisse (`player:state`). Liefert eine Abmelde-Funktion. */
     onEvent: (cb: (ev: unknown) => void): (() => void) => {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);

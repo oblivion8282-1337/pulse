@@ -84,6 +84,35 @@ export function resolvePlayerBinary(): string | null {
   return candidates.find((p) => fs.existsSync(p)) ?? null;
 }
 
+
+/**
+ * Zielverzeichnis fuer Mitschnitte. Bewusst **nicht** vom Renderer gewaehlt:
+ * ein frei uebergebener Pfad waere ein Schreibzugriff an beliebige Stelle.
+ * Der Renderer loest nur aus, der Hauptprozess bestimmt wohin.
+ */
+function recordingDir(): string {
+  const base = (() => {
+    try {
+      return app.getPath('videos');
+    } catch {
+      return app.getPath('userData');
+    }
+  })();
+  const dir = path.join(base, 'Pulse');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Zeitstempel-Dateiname, kollisionsfrei und sortierbar. */
+function recordingPath(kind: 'aufnahme' | 'clip'): string {
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
+    `_${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`;
+  return path.join(recordingDir(), `pulse-${kind}-${stamp}.mkv`);
+}
+
 class PlayerManager {
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: readline.Interface | null = null;
@@ -226,6 +255,22 @@ class PlayerManager {
         if (err) fail(err);
       });
     });
+  }
+
+  /** Startet einen Mitschnitt; der Zielpfad wird hier bestimmt, nicht drueben. */
+  async startRecording(session: number): Promise<PlayerMessage> {
+    const target = recordingPath('aufnahme');
+    const res = await this.call('record', { session, path: target });
+    return res.ok === false ? res : { ...res, path: target };
+  }
+
+  /** Sichert die letzten `seconds` Sekunden aus dem Ringpuffer. */
+  async saveClip(session: number, seconds: number): Promise<PlayerMessage> {
+    const target = recordingPath('clip');
+    // Grenzen hier UND im Player — der Renderer ist nicht vertrauenswuerdig.
+    const bounded = Math.min(Math.max(Number(seconds) || 30, 1), 60);
+    const res = await this.call('clip', { session, path: target, seconds: bounded });
+    return res.ok === false ? res : { ...res, path: target };
   }
 
   /**

@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use crate::decode::{DecodedFrame, VideoDecoder};
 use crate::depacket::Assembler;
 use crate::jitter::{JitterBuffer, Release};
+use crate::mediasink::{MediaSink, MediaStats};
 use crate::proto::PlayerOptions;
 use crate::whep::{self, Codec, RtpArrival};
 
@@ -34,6 +35,9 @@ pub struct SessionStats {
     pub width: u32,
     pub height: u32,
     pub ten_bit_source: bool,
+    /// Ton- und Aufnahme-Zaehler.
+    #[serde(flatten)]
+    pub media: MediaStats,
 }
 
 /// Was der Fenster-Thread von einer Sitzung zu sehen bekommt.
@@ -48,6 +52,16 @@ pub enum SessionEvent {
 /// Steuerbefehle an eine laufende Sitzung.
 pub enum SessionCommand {
     Options(Box<PlayerOptions>),
+    /// Laufende Aufnahme starten/stoppen bzw. die letzten Sekunden sichern.
+    /// Die Antwort geht direkt an den Aufrufer zurueck, damit die
+    /// RPC-Antwort das Ergebnis tragen kann.
+    Record { path: String, reply: tokio::sync::oneshot::Sender<Result<(), String>> },
+    StopRecord { reply: tokio::sync::oneshot::Sender<Result<(), String>> },
+    Clip {
+        path: String,
+        seconds: f64,
+        reply: tokio::sync::oneshot::Sender<Result<u64, String>>,
+    },
     Stop,
 }
 
@@ -78,6 +92,10 @@ pub async fn run(
     let mut buffers: HashMap<Codec, JitterBuffer> = HashMap::new();
     let mut assemblers: HashMap<Codec, Assembler> = HashMap::new();
     let mut decoder: Option<VideoDecoder> = None;
+    let mut media = MediaSink::new();
+    media.apply_options(&options);
+    // Gemeinsame Zeitbasis fuer den Mitschnitt: Millisekunden seit Sitzungsstart.
+    let started = Instant::now();
     let mut stats =
         SessionStats { jitter_target_ms: target.as_millis() as u64, ..Default::default() };
     let mut announced_playing = false;
@@ -88,9 +106,19 @@ pub async fn run(
         tokio::select! {
             cmd = commands.recv() => match cmd {
                 Some(SessionCommand::Stop) | None => break "closed".to_string(),
+                Some(SessionCommand::Record { path, reply }) => {
+                    let _ = reply.send(media.start_recording(&path));
+                }
+                Some(SessionCommand::StopRecord { reply }) => {
+                    let _ = reply.send(media.stop_recording());
+                }
+                Some(SessionCommand::Clip { path, seconds, reply }) => {
+                    let _ = reply.send(media.save_clip(&path, seconds));
+                }
                 Some(SessionCommand::Options(patch)) => {
                     options.apply(&patch);
                     options.clamp();
+                    media.apply_options(&options);
                     if let Some(ms) = options.jitter_ms {
                         let t = Duration::from_millis(u64::from(ms));
                         stats.jitter_target_ms = ms.into();
@@ -134,8 +162,12 @@ pub async fn run(
                 };
                 let Some(unit) = unit else { continue };
 
-                // Audio wird derzeit nicht ausgegeben (siehe README, offener
-                // Punkt); die Einheiten werden verworfen statt aufzulaufen.
+                // Jede Einheit geht an den Medien-Sink: Ton wird dort
+                // dekodiert und ausgegeben, und beide Spuren laufen in den
+                // Ringpuffer fuer Aufnahme und Clip.
+                let ts_ms = started.elapsed().as_millis() as i64;
+                media.handle_unit(*codec, &unit, ts_ms);
+
                 if !codec.is_video() {
                     continue;
                 }
@@ -165,6 +197,8 @@ pub async fn run(
                 }
             }
 
+            media.note_dimensions(stats.width, stats.height);
+            stats.media = media.stats();
             stats.packets_received = buffer.received;
             stats.packets_lost = buffer.lost;
             stats.packets_reordered = buffer.reordered;
