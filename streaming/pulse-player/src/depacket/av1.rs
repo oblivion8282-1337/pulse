@@ -39,6 +39,12 @@ const OBU_TYPE_TEMPORAL_DELIMITER: u8 = 2;
 
 /// Obergrenze fuer eine Zugriffseinheit. Schuetzt gegen unbegrenztes Wachsen,
 /// wenn der Marker-Bit-Strom kaputt ist (z. B. bei schwerem Verlust).
+///
+/// Gilt fuer `unit` **und** `partial` zusammen: ein Sender, der `Y=1` nie
+/// zurueckzieht (oder ein mitten in einem Fragment-Lauf verlorenes Marker-Bit),
+/// laesst sonst allein `partial` volllaufen, waehrend `unit` bei 0 bleibt.
+/// Zweiter Grund: `append_obu_with_size` schreibt die Fragmentlaenge als `u32`
+/// ins Groessenfeld — ohne Deckel waere ab 4 GiB eine stille Kuerzung moeglich.
 const MAX_TEMPORAL_UNIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// Auch vom Mitschnitt gebraucht: [`crate::recorder`] zerlegt denselben
@@ -190,7 +196,7 @@ impl Av1Assembler {
             self.flush_partial();
         }
 
-        if self.unit.len() > MAX_TEMPORAL_UNIT_BYTES {
+        if self.unit.len() + self.partial.len() > MAX_TEMPORAL_UNIT_BYTES {
             self.reset();
             self.poisoned = true;
         }
@@ -325,6 +331,39 @@ mod tests {
         assert_eq!(&out[..], &[header, 2, 0xAA, 0xBB]);
     }
 
+    /// Derselbe Zweig, aber fragmentiert — bisher nur im Ein-Paket-Fall
+    /// geprueft. Gegen echte Daten laesst er sich nicht testen, weil der
+    /// `Av1Payloader` des `rtp`-Crates das Size-Bit ausnahmslos strippt
+    /// (`obu.header & !OBU_HAS_SIZE_BIT`); das RTP-Format erlaubt aber auch
+    /// Elemente MIT Groessenfeld, ein anderer Sender darf sie also schicken.
+    /// Kritisch ist, dass das Groessenfeld beim Zusammensetzen ueber die
+    /// Paketgrenze weder verdoppelt noch neu berechnet wird.
+    #[test]
+    fn vorhandenes_groessenfeld_ueberlebt_fragmentierung() {
+        let mut a = Av1Assembler::new();
+        let header = (6u8 << 3) | OBU_HAS_SIZE_BIT;
+        // Ein OBU mit eigenem Groessenfeld (200 Byte Nutzlast), getrennt
+        // mitten im Groessenfeld-Nachbarn: erstes Paket traegt nur Header
+        // plus Laengenbyte.
+        let nutzlast = vec![0x5Cu8; 200];
+        let mut vollstaendig = vec![header];
+        vollstaendig.extend_from_slice(&leb(200));
+        vollstaendig.extend_from_slice(&nutzlast);
+
+        let mut p1 = vec![0b0101_0000]; // Z=0 Y=1 W=1
+        p1.extend_from_slice(&vollstaendig[..3]);
+        assert!(a.push(&p1, false).is_none());
+
+        let mut p2 = vec![0b1101_0000]; // Z=1 Y=1 W=1
+        p2.extend_from_slice(&vollstaendig[3..100]);
+        assert!(a.push(&p2, false).is_none());
+
+        let mut p3 = vec![0b1001_0000]; // Z=1 Y=0 W=1
+        p3.extend_from_slice(&vollstaendig[100..]);
+        let out = a.push(&p3, true).expect("Einheit fertig");
+        assert_eq!(out.as_ref(), vollstaendig.as_slice(), "Groessenfeld unveraendert durchreichen");
+    }
+
     /// Erwartete Fortsetzung fehlt => Einheit wird verworfen statt kaputt
     /// ausgeliefert.
     #[test]
@@ -378,6 +417,33 @@ mod tests {
         assert!(a.push(&p2, true).is_none(), "nach Luecke keine Teil-Einheit");
     }
 
+    /// Regression: die Obergrenze verglich nur `unit`, ein Fragment-Lauf
+    /// sammelt aber in `partial` — bei dauerhaft gesetztem `Y` (Sender kaputt
+    /// oder Marker mitten im Lauf verloren) blieb `unit` bei 0, waehrend
+    /// `partial` unbegrenzt wuchs. Gemessen: 82 MB bei einer Grenze von 32 MB.
+    #[test]
+    fn fragment_lauf_ohne_marker_waechst_nicht_unbegrenzt() {
+        let mut a = Av1Assembler::new();
+        let mut erstes = vec![0b0101_0000u8]; // Z=0 Y=1 W=1: Fragment beginnt
+        erstes.push(6u8 << 3);
+        erstes.extend(std::iter::repeat_n(0xAAu8, 4095));
+        assert!(a.push(&erstes, false).is_none());
+
+        // Fortsetzung um Fortsetzung, nie ein Marker.
+        let mut weiter = vec![0b1101_0000u8]; // Z=1 Y=1 W=1
+        weiter.extend(std::iter::repeat_n(0xAAu8, 4095));
+        for _ in 0..20_000 {
+            assert!(a.push(&weiter, false).is_none());
+        }
+
+        assert!(
+            a.unit.len() + a.partial.len() <= MAX_TEMPORAL_UNIT_BYTES,
+            "waechst unbegrenzt: unit={} partial={}",
+            a.unit.len(),
+            a.partial.len()
+        );
+    }
+
     // =========================================================================
     // Rundlauf gegen echte AV1-Daten.
     //
@@ -394,7 +460,7 @@ mod tests {
     // Fixture wie `recorder.rs`). Erzeugen:
     // `ffmpeg -f lavfi -i "testsrc2=s=320x180:r=30:d=2" -c:v libsvtav1 \
     //    -preset 12 -f obu fixture.obu`
-    pub(in crate::depacket::av1) mod roundtrip {
+    mod roundtrip {
         use super::*;
         use rtp::codecs::av1::Av1Payloader;
         use rtp::packetizer::Payloader;
@@ -469,10 +535,9 @@ mod tests {
 
         /// 1:1-Kopie von `rtp` 0.17.2s `codecs::av1::leb128::{encode_leb128,
         /// put_leb128}` -- bewusst NICHT der Fix, sondern die exakte (kaputte)
-        /// Vorlage. Wichtig: `decode_leb128` aus demselben Crate ist NICHT die
-        /// Umkehrung davon (die liest korrektes Standard-LEB128, s. Fund
-        /// unten) -- die einzig sichere Umkehr-Richtung ist ein Nachschlagen
-        /// gegen diese Vorwaerts-Funktion selbst.
+        /// Vorlage. Nur als Pruefgegenstand fuer
+        /// [`len_from_buggy_crate_wire`]; im Rundlauf selbst wird sie nicht
+        /// gebraucht.
         fn crate_put_leb128_bytes(n: u32) -> Vec<u8> {
             let mut encoded = {
                 let mut val = n;
@@ -498,21 +563,31 @@ mod tests {
             out
         }
 
-        /// Liest ein Laengenfeld, das mit `rtp` 0.17.2s kaputtem
-        /// `put_leb128` geschrieben wurde: Byte-Grenzen ueber das
-        /// Continuation-Bit finden (das haelt die Vorlage korrekt ein),
-        /// den eigentlichen WERT aber per Nachschlagetabelle gegen
-        /// `crate_put_leb128_bytes` rekonstruieren statt zu dekodieren --
-        /// s. Doku dort, warum Dekodieren hier nicht funktioniert.
-        fn buggy_crate_read_len(buf: &[u8]) -> (usize, usize) {
+        /// Liest ein Laengenfeld, das mit `rtp` 0.17.2s kaputtem `put_leb128`
+        /// geschrieben wurde, und liefert `(Wert, Feldlaenge in Bytes)`.
+        ///
+        /// Der Bug besteht aus zwei gegeneinander verschobenen Stufen, also
+        /// kehrt das Lesen genau diese zwei Stufen um:
+        /// 1. `put_leb128` serialisiert den u32 aus `encode_leb128` in
+        ///    7-Bit-Schritten (`>>= 7`) -- zurueck: die 7-Bit-Nutzlasten der
+        ///    Draht-Bytes little-endian wieder zu diesem u32 zusammensetzen.
+        /// 2. `encode_leb128` hatte die LEB128-Gruppen aber in ganze
+        ///    8-Bit-Byte-Slots gepackt (`<<= 8`) -- zurueck: die
+        ///    Big-Endian-Bytes dieses u32 sind wieder standardkonformes
+        ///    LEB128 und damit fuer [`read_leb128`] lesbar.
+        ///
+        /// Die Feldlaenge selbst steht am Continuation-Bit: das setzt die
+        /// Vorlage korrekt auf allen Bytes ausser dem letzten.
+        fn len_from_buggy_crate_wire(buf: &[u8]) -> (usize, usize) {
             let n = buf.iter().take_while(|&&b| b & 0x80 != 0).count() + 1;
-            let wire = &buf[..n];
-            for candidate in 0u32..=200_000 {
-                if crate_put_leb128_bytes(candidate) == wire {
-                    return (candidate as usize, n);
-                }
+            let mut packed: u64 = 0;
+            for (i, &b) in buf[..n].iter().enumerate() {
+                packed |= u64::from(b & 0x7f) << (7 * i);
             }
-            panic!("keine Laenge <=200000 ergibt diese Bytes: {wire:02x?} -- Bug-Nachbau falsch oder Fragment zu gross");
+            let be = packed.to_be_bytes();
+            let first = be.iter().position(|&b| b != 0).unwrap_or(be.len() - 1);
+            let (value, _) = read_leb128(&be[first..]).expect("Vorlage schreibt hoechstens 5 Byte");
+            (value as usize, n)
         }
 
         /// FUND: `rtp` 0.17.2s `codecs::av1::leb128::encode_leb128` packt jede
@@ -533,7 +608,7 @@ mod tests {
         /// Baut die Nutzlast so um, dass ihre Laengenfelder wieder
         /// standardkonformes LEB128 tragen, damit der (korrekte) Depacketizer
         /// sie lesen kann.
-        pub(in crate::depacket::av1) fn fix_rtp_crate_leb128_bug(payload: &Bytes) -> Bytes {
+        fn fix_rtp_crate_leb128_bug(payload: &Bytes) -> Bytes {
             let aggr = payload[0];
             let w = u32::from((aggr & 0b0011_0000) >> 4);
             let mut rest = &payload[1..];
@@ -547,12 +622,112 @@ mod tests {
                     out.put_slice(rest);
                     break;
                 }
-                let (len, n) = buggy_crate_read_len(rest);
+                let (len, n) = len_from_buggy_crate_wire(rest);
                 write_leb128(&mut out, len as u32);
                 out.put_slice(&rest[n..n + len]);
                 rest = &rest[n + len..];
             }
             out.freeze()
+        }
+
+        /// Haelt den Bug-Nachbau ehrlich: [`len_from_buggy_crate_wire`] muss die
+        /// exakte Umkehrung von [`crate_put_leb128_bytes`] sein. Ginge das
+        /// auseinander, wuerde der Rundlauf mit falsch reparierten Laengen
+        /// laufen und trotzdem gruen aussehen, solange sich Schreiben und Lesen
+        /// nur gegenseitig konsistent irren.
+        #[test]
+        fn bug_nachbau_ist_exakt_umkehrbar() {
+            for v in [0u32, 1, 127, 128, 129, 474, 1000, 16383, 16384, 100_000, 2_097_151] {
+                let wire = crate_put_leb128_bytes(v);
+                assert_eq!(
+                    len_from_buggy_crate_wire(&wire),
+                    (v as usize, wire.len()),
+                    "Wert {v}, Draht {wire:02x?}"
+                );
+            }
+            // Der Bug selbst, festgenagelt: ab 128 weicht die Vorlage von
+            // Standard-LEB128 ab (und braucht ein Byte mehr als ihr eigenes
+            // `leb128_size` reserviert -- daher reisst der Payloader auch die MTU).
+            assert_eq!(crate_put_leb128_bytes(127), leb(127), "unter 128 noch korrekt");
+            assert_eq!(crate_put_leb128_bytes(474), vec![0x83, 0xb4, 0x03]);
+            assert_eq!(leb(474), vec![0xda, 0x03], "so waere es richtig");
+        }
+
+        /// Baut einen OBU-Strom mit Groessenfeldern aus
+        /// `(Typ, Extension-Byte, Nutzlast)` — dieselbe Form, die
+        /// [`split_temporal_units`] aus dem Fixture holt und die der
+        /// Assembler zurueckliefern muss.
+        fn synth_unit(obus: &[(u8, Option<u8>, Vec<u8>)]) -> Vec<u8> {
+            let mut out = Vec::new();
+            for (typ, ext, nutzlast) in obus {
+                let mut header = (typ << 3) | OBU_HAS_SIZE_BIT;
+                if ext.is_some() {
+                    header |= OBU_HAS_EXTENSION_BIT;
+                }
+                out.push(header);
+                out.extend(ext.iter().copied());
+                out.extend_from_slice(&leb(nutzlast.len() as u32));
+                out.extend_from_slice(nutzlast);
+            }
+            out
+        }
+
+        fn assert_rundlauf(unit: &[u8], mtu: usize, label: &str) -> Vec<u8> {
+            let packets = packetize(unit, mtu);
+            let mut assembler = Av1Assembler::new();
+            let mut out = None;
+            for (payload, marker) in &packets {
+                out = assembler.push(payload, *marker);
+            }
+            let out = out.unwrap_or_else(|| panic!("{label}: Einheit unvollstaendig (mtu={mtu})"));
+            assert_eq!(out.as_ref(), unit, "{label}: weicht ab (mtu={mtu})");
+            packets.iter().map(|(p, _)| p[0]).collect()
+        }
+
+        /// Deckungsluecke des Fixture-Rundlaufs: `libsvtav1` legt hier nie mehr
+        /// als drei OBUs in eine Zugriffseinheit, also setzt der Payloader nie
+        /// `W=0` (gemessen: `W=0 beobachtet=false` bei jeder MTU). Genau dann
+        /// traegt aber **jedes** Element ein Laengenfeld, auch das letzte —
+        /// ein eigener Zweig in `push`, den bisher nur handgebaute Pakete
+        /// getroffen haben.
+        #[test]
+        fn w_null_aus_echtem_payloader() {
+            let unit = synth_unit(&[
+                (1, None, vec![0x11; 10]),  // SEQUENCE_HEADER
+                (3, None, vec![0x22; 10]),  // FRAME_HEADER
+                (4, None, vec![0x33; 200]), // TILE_GROUP
+                (4, None, vec![0x44; 200]),
+                (4, None, vec![0x55; 200]),
+            ]);
+
+            let aggr = assert_rundlauf(&unit, 1200, "W0");
+            assert_eq!(aggr.len(), 1, "alles in ein Paket, sonst kommt W=0 nicht zustande");
+            assert_eq!((aggr[0] & 0b0011_0000) >> 4, 0, "Payloader muss hier W=0 setzen");
+
+            // Und derselbe Strom fragmentiert, damit W=0 auf den Z/Y-Pfad trifft.
+            for mtu in [300usize, 100, 30, 12] {
+                assert_rundlauf(&unit, mtu, "W0-fragmentiert");
+            }
+        }
+
+        /// Zweite Deckungsluecke: das Testmaterial hat keine Extension-Header
+        /// (`testsrc2` hat keine Temporal-/Spatial-Layer), also blieb der
+        /// 2-Byte-Header-Pfad in `append_obu_with_size` gegen echte Pakete
+        /// ungetestet. Kritisch ist der Fragment-Fall: der Payloader schreibt
+        /// das Extension-Byte bei `obu_offset <= 1` erneut, ein Fragment kann
+        /// also genau zwischen Header und Extension-Byte getrennt werden.
+        #[test]
+        fn extension_header_ueber_paketgrenzen() {
+            let unit = synth_unit(&[
+                (1, Some(0x10), vec![0x11; 5]),
+                (6, Some(0x50), vec![0xAB; 400]),
+                (4, Some(0x30), vec![0xCD; 400]),
+            ]);
+            // 4 Byte MTU laesst pro Paket kaum mehr als Header plus Extension
+            // uebrig und trifft damit die Trennung mitten im OBU-Kopf.
+            for mtu in [1200usize, 300, 100, 20, 8, 5, 4] {
+                assert_rundlauf(&unit, mtu, "Extension");
+            }
         }
 
         /// Kernstueck: pro MTU jede Zugriffseinheit des Fixture-Stroms durch
@@ -777,101 +952,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod explore {
-    use super::*;
-    use rtp::codecs::av1::Av1Payloader;
-    use rtp::packetizer::Payloader;
-
-    fn leb(v: u32) -> Vec<u8> {
-        let mut b = BytesMut::new();
-        write_leb128(&mut b, v);
-        b.to_vec()
-    }
-
-    /// (typ, ext_byte: Option<u8>, payload)
-    fn synth_unit(obus: &[(u8, Option<u8>, Vec<u8>)]) -> Vec<u8> {
-        let mut out = Vec::new();
-        for (t, ext, pl) in obus {
-            let mut header = t << 3 | OBU_HAS_SIZE_BIT;
-            if ext.is_some() {
-                header |= OBU_HAS_EXTENSION_BIT;
-            }
-            out.push(header);
-            if let Some(e) = ext {
-                out.push(*e);
-            }
-            out.extend_from_slice(&leb(pl.len() as u32));
-            out.extend_from_slice(pl);
-        }
-        out
-    }
-
-    fn packetize(unit: &[u8], mtu: usize) -> Vec<(Bytes, bool)> {
-        let mut p = Av1Payloader::default();
-        let payloads = p.payload(mtu, &Bytes::copy_from_slice(unit)).expect("payload");
-        let n = payloads.len();
-        payloads
-            .into_iter()
-            .enumerate()
-            .map(|(i, b)| (super::tests::roundtrip::fix_rtp_crate_leb128_bug(&b), i + 1 == n))
-            .collect()
-    }
-
-    fn run(label: &str, unit: &[u8], mtu: usize) {
-        let pkts = packetize(unit, mtu);
-        let ws: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b0011_0000) >> 4).collect();
-        let zs: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b1000_0000) >> 7).collect();
-        let ys: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b0100_0000) >> 6).collect();
-        let mut a = Av1Assembler::new();
-        let mut out = None;
-        for (p, m) in &pkts {
-            out = a.push(p, *m);
-        }
-        let ok = out.as_deref() == Some(unit);
-        eprintln!(
-            "{label} mtu={mtu} pakete={} W={ws:?} Z={zs:?} Y={ys:?} -> ok={ok} (got {:?} bytes, want {})",
-            pkts.len(),
-            out.as_ref().map(|o| o.len()),
-            unit.len()
-        );
-    }
-
-    #[test]
-    fn probe() {
-        // 5 kleine OBUs in ein Paket -> W=0 erzwungen
-        let five = synth_unit(&[
-            (1, None, vec![0x11; 10]),
-            (3, None, vec![0x22; 10]),
-            (4, None, vec![0x33; 10]),
-            (4, None, vec![0x44; 10]),
-            (4, None, vec![0x55; 10]),
-        ]);
-        run("W0-5obus", &five, 1200);
-        run("W0-5obus-frag", &five, 30);
-        run("W0-5obus-frag2", &five, 12);
-
-        // Extension-Header
-        let ext = synth_unit(&[(1, None, vec![0x11; 5]), (6, Some(0x50), vec![0xAB; 400])]);
-        for mtu in [1200usize, 300, 100, 20, 8, 5, 4] {
-            run("ext", &ext, mtu);
-        }
-
-        // Extension-Header, viele -> W=0 mit ext
-        let extmany = synth_unit(&[
-            (1, Some(0x10), vec![0x11; 200]),
-            (3, Some(0x20), vec![0x22; 200]),
-            (4, Some(0x30), vec![0x33; 200]),
-            (4, Some(0x40), vec![0x44; 200]),
-        ]);
-        for mtu in [1200usize, 700, 300, 100, 20] {
-            run("extmany", &extmany, mtu);
-        }
-
-        // Nur ein OBU, sehr gross -> viele Mittelfragmente
-        let big = synth_unit(&[(6, None, vec![0x7A; 5000])]);
-        for mtu in [1200usize, 100, 20, 4] {
-            run("big", &big, mtu);
-        }
-    }
-}
