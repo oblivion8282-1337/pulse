@@ -97,6 +97,21 @@ impl Renderer {
         }
     }
 
+    /// Ob das verhandelte Oberflaechenformat LINEARE Werte erwartet.
+    ///
+    /// Nicht Theorie, sondern gemessen (2026-07-26, KWin 6.7.3): derselbe
+    /// Strom in zwei Fenstern, einziger Unterschied das Format. Der
+    /// `Bgra8Unorm`-Puffer sah richtig aus, der `Rgba16Float`-Puffer flau —
+    /// also deutet der Compositor fp16 als lineares Licht (scRGB) und Unorm
+    /// als sRGB-kodiert. Der Shader rechnet in gamma-kodiertem R'G'B', weil
+    /// das Video so vorliegt; fuer fp16 muss deshalb umgerechnet werden.
+    ///
+    /// `*UnormSrgb` ist hier bewusst NICHT dabei: dort kodiert die Hardware
+    /// beim Schreiben selbst, eine zusaetzliche Umrechnung waere doppelt.
+    fn surface_is_linear(&self) -> bool {
+        matches!(self.config.format, wgpu::TextureFormat::Rgba16Float)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -261,7 +276,12 @@ impl Renderer {
                 flag(planes.layout == PixelLayout::BiPlanar420),
                 sample_scale(planes.wide, planes.layout),
             ],
-            output: [0.0, flag(matrix == ColorMatrix::Bt601), 0.0, 0.0],
+            output: [
+                flag(self.surface_is_linear()),
+                flag(matrix == ColorMatrix::Bt601),
+                0.0,
+                0.0,
+            ],
         }
     }
 

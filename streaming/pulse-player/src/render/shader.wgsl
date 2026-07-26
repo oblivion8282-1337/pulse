@@ -15,7 +15,8 @@ struct Uniforms {
     // x = 10-bit-Quelle, y = voller Wertebereich, z = biplanar (NV12/P010),
     // w = Skalierungsfaktor der Abtastwerte (s. render::sample_scale)
     flags: vec4<f32>,
-    // y = BT.601 statt BT.709 (x/z/w frei)
+    // x = Ausgabe erwartet LINEARE Werte (s. render::surface_is_linear),
+    // y = BT.601 statt BT.709 (z/w frei)
     output: vec4<f32>,
 };
 
@@ -132,6 +133,18 @@ fn deband(uv: vec2<f32>, center: vec3<f32>, strength: f32) -> vec3<f32> {
     return mix(center, avg, flat * strength);
 }
 
+// sRGB-EOTF: gamma-kodierte Werte in lineares Licht.
+//
+// Nur fuer Oberflaechen, die lineares Licht erwarten — auf dieser Maschine
+// `Rgba16Float`. Ohne die Umrechnung wendet der Compositor die sRGB-Kurve ein
+// zweites Mal an, die Mitten steigen und der Kontrast faellt: das Bild wirkt
+// flau. Am 2026-07-26 im Zwei-Fenster-Vergleich belegt.
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let low = c / 12.92;
+    let high = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(high, low, c <= vec3<f32>(0.04045));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Zoom/Pan: aus dem dekodierten Vollbild ausschneiden, nicht aus einem
@@ -153,5 +166,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         rgb = rgb + n / levels;
     }
 
-    return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Ganz zum Schluss: alles davor (Matrix, Deband, Dither) ist im
+    // gamma-kodierten Raum gedacht, dort liegen die sichtbaren Stufen.
+    if (u.output.x > 0.5) {
+        rgb = srgb_to_linear(rgb);
+    }
+    return vec4<f32>(rgb, 1.0);
 }

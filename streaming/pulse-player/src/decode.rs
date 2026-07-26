@@ -119,7 +119,18 @@ pub enum ColorMatrix {
 }
 
 /// Ohne Angabe gilt die uebliche Regel: SD ist BT.601, HD ist BT.709.
+///
+/// `PULSE_PLAYER_MATRIX=601|709` nagelt die Wahl fest — Gegenstueck zu
+/// `PULSE_PLAYER_SURFACE`, damit sich Matrix und Oberflaechenformat als
+/// Fehlerursache einzeln ausschliessen lassen.
 fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
+    if let Ok(raw) = std::env::var("PULSE_PLAYER_MATRIX") {
+        match raw.trim() {
+            "601" => return ColorMatrix::Bt601,
+            "709" => return ColorMatrix::Bt709,
+            _ => {}
+        }
+    }
     use ffmpeg::color::Space;
     match space {
         Space::BT470BG | Space::SMPTE170M | Space::SMPTE240M => ColorMatrix::Bt601,

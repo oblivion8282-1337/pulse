@@ -16,9 +16,21 @@ use super::uniforms::UNIFORM_BYTES;
 
 /// Bevorzugte Oberflaechenformate, absteigend nach Praezision.
 /// Rgb10a2Unorm entspricht dem `AB30` der Scanout-Ebene, Rgba16Float dem `AB4H`.
+///
+/// **Rgb10a2Unorm steht bewusst vor Rgba16Float**, obwohl fp16 mehr Bits hat.
+/// Gemessen am 2026-07-26 (KWin 6.7.3, derselbe Strom in zwei Fenstern, einzig
+/// das Format unterschiedlich): der fp16-Puffer wird als **lineares Licht**
+/// gedeutet, der Unorm-Puffer als sRGB-kodiert. Da der Shader gamma-kodierte
+/// Werte liefert, wirkte fp16 sichtbar flau, waehrend 8-bit-Unorm richtig
+/// aussah. Beides ist inzwischen bedienbar (s. `Renderer::surface_is_linear`),
+/// aber der Unorm-Weg ist der unempfindlichere: er kommt ohne Umrechnung aus
+/// und traegt mit 10 bit trotzdem mehr als Chromiums 8.
+///
+/// Fuer 8-bit-Quellen — und GSR liefert NV12, also 8 bit — bringt fp16
+/// ohnehin keine zusaetzliche Bildinformation, nur Kopfstand beim Farbraum.
 const FORMAT_PREFERENCE: [wgpu::TextureFormat; 4] = [
-    wgpu::TextureFormat::Rgba16Float,
     wgpu::TextureFormat::Rgb10a2Unorm,
+    wgpu::TextureFormat::Rgba16Float,
     wgpu::TextureFormat::Bgra8Unorm,
     wgpu::TextureFormat::Rgba8Unorm,
 ];
@@ -45,8 +57,39 @@ pub struct GpuSetup {
     pub wide_textures: bool,
 }
 
+/// Erlaubt, die Formatwahl von aussen festzunageln: `PULSE_PLAYER_SURFACE`
+/// = `rgba16f` | `rgb10a2` | `bgra8` | `bgra8srgb`.
+///
+/// Diagnosehilfe, kein Feature. Wie ein Compositor ein Oberflaechenformat
+/// deutet — ob er die Werte als sRGB-kodiert oder als lineares Licht nimmt —
+/// steht nirgends verlaesslich und ist von aussen nur durch Vergleich zu
+/// klaeren. Am 2026-07-26 wurde das zweimal falsch geraten (erst zu flau,
+/// dann zu dunkel); mit dieser Variable laesst sich derselbe Strom in zwei
+/// Fenstern nebeneinander stellen, statt ein drittes Mal zu vermuten.
+fn format_override() -> Option<wgpu::TextureFormat> {
+    let raw = std::env::var("PULSE_PLAYER_SURFACE").ok()?;
+    let format = match raw.trim().to_ascii_lowercase().as_str() {
+        "rgba16f" => wgpu::TextureFormat::Rgba16Float,
+        "rgb10a2" => wgpu::TextureFormat::Rgb10a2Unorm,
+        "bgra8" => wgpu::TextureFormat::Bgra8Unorm,
+        "bgra8srgb" => wgpu::TextureFormat::Bgra8UnormSrgb,
+        other => {
+            eprintln!("pulse-player: PULSE_PLAYER_SURFACE={other} unbekannt — ignoriert");
+            return None;
+        }
+    };
+    Some(format)
+}
+
 /// Nimmt das praeziseste angebotene Format; als letzter Ausweg irgendeines.
 fn pick_format(offered: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+    if let Some(forced) = format_override() {
+        if offered.contains(&forced) {
+            eprintln!("pulse-player: Oberflaechenformat erzwungen: {forced:?}");
+            return Some(forced);
+        }
+        eprintln!("pulse-player: {forced:?} wird nicht angeboten — normale Wahl");
+    }
     FORMAT_PREFERENCE
         .iter()
         .copied()
@@ -218,10 +261,22 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 mod tests {
     use super::*;
 
+    /// Bietet der Compositor alles an, faellt die Wahl auf 10-bit-Unorm —
+    /// NICHT auf fp16, obwohl das mehr Bits haette.
+    ///
+    /// Das ist die Lehre aus dem Zwei-Fenster-Vergleich vom 2026-07-26: fp16
+    /// wird als lineares Licht gedeutet und braucht eine Umrechnung, die
+    /// leicht falsch herum passiert (sie ist es zweimal). Rgb10a2Unorm traegt
+    /// 10 bit — mehr als Chromiums 8, worum es beim Player geht — und kommt
+    /// ohne diese Falle aus. Wer die Reihenfolge wieder umdreht, holt sich das
+    /// flaue Bild zurueck.
     #[test]
-    fn formatpraeferenz_bevorzugt_hohe_praezision() {
-        // Ein Compositor, der alles anbietet, muss fp16 bekommen.
-        assert_eq!(pick_format(&FORMAT_PREFERENCE), Some(wgpu::TextureFormat::Rgba16Float));
+    fn formatpraeferenz_nimmt_zehn_bit_unorm_vor_fp16() {
+        assert_eq!(pick_format(&FORMAT_PREFERENCE), Some(wgpu::TextureFormat::Rgb10a2Unorm));
+
+        // Ohne 10-bit bleibt fp16 die praezisere Wahl vor 8 bit.
+        let no10 = [wgpu::TextureFormat::Bgra8Unorm, wgpu::TextureFormat::Rgba16Float];
+        assert_eq!(pick_format(&no10), Some(wgpu::TextureFormat::Rgba16Float));
 
         // Bietet er nur 8-bit an, faellt die Wahl dorthin — aber erst dann.
         let only8 = [wgpu::TextureFormat::Bgra8Unorm];
