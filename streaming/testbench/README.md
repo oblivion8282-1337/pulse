@@ -140,6 +140,24 @@ Zwei Dinge über die absoluten Zahlen: `testsrc2` ist ein **schwerer Sonderfall*
 Bildpunkt. VMAF um 25 ist dort normal und sagt nichts über Bildschirminhalt.
 Vergleiche zwischen Einstellungen sind damit belastbar, absolute Urteile nicht.
 
+## Die Kette aufteilen
+
+`dump-latency.py` misst den letzten Posten, der lange nur erschlossen war: von
+der Anzeige bis zum Encoder-Eingang. Es braucht einen Lauf mit **beidem** —
+`--quality` (schreibt den Mitschnitt) und `--e2e` (zeigt das Zeitmuster):
+
+```bash
+./real-harness.py --secs 14 --fps 60 --kbps 4000 --quality --e2e --label z
+./dump-latency.py --ref ref-z.raw --epoch <Epoche aus dem Player-Log>
+```
+
+Es funktioniert, weil zwei Uhrzeiten zusammentreffen: im Bild steht, wann es
+gemalt wurde, in der `.pts`-Liste steht (zweite Spalte, vom Sender), wann genau
+dieses Bild beim Encoder ankam.
+
+Damit sind alle Posten der Kette direkt gemessen statt geschätzt, und der Rest
+ist eine einfache Subtraktion.
+
 ## Was damit gefunden wurde (2026-07-26)
 
 Der Ton bündelte das Bild. FLV ist eine einzige Zeitleiste, der Muxer gibt ein

@@ -17,10 +17,13 @@ Drei Entscheidungen, die nicht offensichtlich sind:
   Position nicht selbst setzen, Vollbild auf einem bestimmten Ausgang aber schon.
   Weil nicht feststeht, welchen Bildschirm der Sender aufnimmt, wird jeder
   bemalt.
-* **Ganz nach hinten** (`WindowStaysOnBottomHint`). Sonst läge das Muster über
-  dem Player-Fenster; ein verdecktes Fenster bekommt vom Compositor womöglich
-  keine Bildtakte mehr und die Ausgabe würde stehenbleiben — die Messung hätte
-  sich selbst kaputtgemacht.
+* **Durchsichtig und ganz nach vorn.** Zuerst lag das Fenster ganz hinten, mit
+  schwarzer Fläche. Das ging, solange nichts anderes auf dem Bildschirm lief —
+  sobald für eine Qualitäts- oder Bitratenmessung ein Video abgespielt wurde,
+  verdeckte dieses das Muster und die Sonde fand nichts mehr. Umgekehrt hätte
+  eine deckende Fläche vorn den Bildinhalt verdeckt und die Bitrate auf nahezu
+  null gedrückt. Durchsichtig mit undurchsichtigen Balken löst beides: der
+  Inhalt bleibt sichtbar, die Uhr auch. Mausklicks gehen hindurch.
 * **Zwölf Kopien des Balkens.** Das Player-Fenster verdeckt einen Teil des
   Musters, und wo es liegt, ist unbekannt. Der Player probiert die zwölf Stellen
   durch und nimmt die erste unverdeckte.
@@ -60,18 +63,17 @@ class PatternWindow(QWidget):
         # Bedienung nicht stören, es soll nur sichtbar sein.
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnBottomHint
+            | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        # Schwarzer Hintergrund EINMAL über die Palette, nicht in jedem
-        # Durchgang: das Füllen der ganzen Fläche auf drei Bildschirmen kostete
-        # so viel Leistung, dass die Messung ihre eigene Last mitmaß (Dekodieren
-        # stieg von 1,6 auf 4,8 ms, die Aufnahme fiel auf 30 Bilder).
-        self.setAutoFillBackground(True)
-        pal = self.palette()
-        pal.setColor(self.backgroundRole(), QColor(0, 0, 0))
-        self.setPalette(pal)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Klicks gehen durch — sonst waere der halbe Bildschirm blockiert.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # KEIN Füllen der ganzen Fläche: das kostete auf drei Bildschirmen so
+        # viel Leistung, dass die Messung ihre eigene Last mitmaß (Dekodieren
+        # stieg von 1,6 auf 4,8 ms, die Aufnahme fiel auf 30 Bilder). Gezeichnet
+        # werden nur die Balken.
         # 8 ms Raster. Der Zähler wird beim Zeichnen aus der Uhr gelesen, ist
         # also immer exakt; das Raster bestimmt nur, wie alt der angezeigte Wert
         # höchstens ist. Nachgemessen am 2026-07-26: mit 2 ms wurde die
@@ -97,6 +99,13 @@ class PatternWindow(QWidget):
         counter = int(time.time() * 1000 - self.epoch_ms) & 0xFFFF
         bits = MARKER + [(counter >> (COUNTER_BITS - 1 - i)) & 1 for i in range(COUNTER_BITS)]
         p = QPainter(self)
+        # Deckend zeichnen statt zu überlagern. Nötig ist es beim heutigen
+        # Aufbau nicht — jeder Klotz wird in jedem Durchgang vollflächig neu
+        # gefüllt, ein Wechsel von 1 auf 0 überschreibt also dieselbe Fläche.
+        # Es steht als Absicherung da, falls je halbdurchsichtig oder mit
+        # weichen Kanten gezeichnet wird: dann blieben ohne diesen Modus auf
+        # einem durchsichtigen Fenster Reste stehen.
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         white, black = QColor(255, 255, 255), QColor(0, 0, 0)
         for x0, y0 in POSITIONS:
             if x0 + BAR_W > self.width() or y0 + BLOCK > self.height():

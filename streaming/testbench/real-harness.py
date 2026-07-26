@@ -116,9 +116,18 @@ def main() -> int:
         content_log = open(HERE / f"content-{tag}.log", "w")
         screens = int(os.environ.get("PULSE_SCREENS", "3"))
         for i in range(screens):
+            # Zusammen mit dem Zeitmuster NICHT im Vollbild: ein
+            # Vollbild-Fenster legt KWin auch ueber ein "immer oben"-Fenster,
+            # das Muster ist dann weg. Am 2026-07-27 nachgemessen, nachdem das
+            # Muster durchsichtig und nach vorn gewandert war und die Vermutung
+            # nahelag, der Umweg sei nun ueberfluessig: 61 Bilder ohne Muster,
+            # also keine einzige Ablesung. Im Fenster bleiben von den zwoelf
+            # Balken genug frei.
+            geom = ["--fullscreen", f"--fs-screen={i}"] if not args.e2e else [
+                "--geometry=55%x55%", f"--screen={i}"]
             players_content.append(subprocess.Popen(
-                ["mpv", "--no-audio", "--loop-file=inf", "--fullscreen",
-                 f"--fs-screen={i}", "--no-osc", "--no-input-default-bindings",
+                ["mpv", "--no-audio", "--loop-file=inf", *geom,
+                 "--no-osc", "--no-input-default-bindings",
                  "--profile=low-latency", str(args.content)],
                 stdout=content_log, stderr=content_log,
             ))
