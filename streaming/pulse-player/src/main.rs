@@ -18,6 +18,7 @@ mod app;
 mod audio;
 mod decode;
 mod depacket;
+mod dump;
 mod jitter;
 mod mediasink;
 mod proto;
@@ -33,6 +34,18 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use app::{App, UserEvent};
 
 fn main() -> Result<()> {
+    // Muss VOR dem ersten TLS-Aufbau stehen. Der Abhaengigkeitsbaum enthaelt
+    // zwei rustls-Krypto-Provider (`ring` ueber webrtc-rs' dtls, `aws-lc-rs`
+    // ueber reqwest/hyper-rustls). Bei mehr als einem waehlt rustls nicht
+    // selbst, sondern panickt — und zwar erst beim ersten `https://`-Request,
+    // also mitten im WHEP-Aufbau in einem Tokio-Worker. Das sah wie ein
+    // haengendes "Verbinde mit dem Stream" aus, weil nur der Task starb.
+    // `aws-lc-rs`, weil reqwest ihn ohnehin zieht und er in
+    // THIRD-PARTY-NOTICES.md schon gefuehrt wird.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow::anyhow!("rustls-CryptoProvider bereits installiert"))?;
+
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();

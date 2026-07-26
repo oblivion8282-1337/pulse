@@ -46,6 +46,12 @@ webrtc = "0.17"
 # Folge: aws-lc-rs/aws-lc-sys ist Teil des Baums (ISC, Apache-2.0, MIT,
 # BSD-3-Clause — alle permissiv) und gehoert in THIRD-PARTY-NOTICES.md.
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+# Bereits transitiv im Baum (0.23.42, ueber webrtc UND reqwest) — hier nur
+# explizit gemacht, damit `main()` den Krypto-Provider selbst waehlen kann.
+# Noetig, weil ueber beide Wege ZWEI Provider hereinkommen (`ring` via dtls,
+# `aws-lc-rs` via hyper-rustls): rustls raet dann nicht, sondern panickt beim
+# ersten TLS-Aufbau. Siehe `main.rs`.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 bytes = "1"
 
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---

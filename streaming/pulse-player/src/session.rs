@@ -25,6 +25,20 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2);
 /// angezeigt, nicht ausgewertet, und jedes Ereignis weckt den Fenster-Thread.
 const STATS_INTERVAL: Duration = Duration::from_millis(250);
 
+/// Wie lange eine Sitzung hoechstens braucht, um das erste Bild zu zeigen.
+///
+/// Das ist ein Auffangnetz fuer JEDE Ursache, nicht fuer eine bestimmte. Die
+/// Einzeltimeouts in `whep.rs` (15 s HTTP, 2 s ICE-Sammeln) decken nur ab, was
+/// sie kennen; beobachtet am 2026-07-26 wurde ein Fall, in dem der WHEP-Aufbau
+/// gar nicht erst bei MediaMTX ankam — die Sitzung wartete danach still und
+/// unbegrenzt auf RTP, und die Kachel im Renderer stand dauerhaft auf
+/// "verbinde". Ohne Obergrenze ist jeder unbekannte Aufbaufehler ein Haenger.
+///
+/// Grosszuegiger als die Summe der Einzelschritte (Aufbau ~1 s, Warten auf den
+/// Einstiegspunkt ~1 s gemessen), damit ein langsamer, aber funktionierender
+/// Start nicht faelschlich abgebrochen wird.
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -101,6 +115,8 @@ pub async fn run(
     // je einen eigenen Puffer.
     let mut buffers: HashMap<Codec, JitterBuffer> = HashMap::new();
     let mut assemblers: HashMap<Codec, Assembler> = HashMap::new();
+    // Leer, solange `PULSE_PLAYER_DUMP_RTP` nicht gesetzt ist (s. `dump`).
+    let mut dumps: HashMap<Codec, Option<crate::dump::RtpDump>> = HashMap::new();
     let mut decoder: Option<VideoDecoder> = None;
     let mut media = MediaSink::new();
     media.apply_options(&options);
@@ -113,10 +129,12 @@ pub async fn run(
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    let reason = loop {
+    // `failed` unterscheidet "Fenster zu" von "kaputt": nur beim zweiten faellt
+    // der Renderer auf das <video>-Element zurueck.
+    let (reason, failed) = loop {
         tokio::select! {
             cmd = commands.recv() => match cmd {
-                Some(SessionCommand::Stop) | None => break "closed".to_string(),
+                Some(SessionCommand::Stop) | None => break ("closed".to_string(), false),
                 Some(SessionCommand::Record { path, reply }) => {
                     let answer = media
                         .start_recording(&path)
@@ -175,7 +193,11 @@ pub async fn run(
             },
 
             arrival = rtp_rx.recv() => {
-                let Some(arrival) = arrival else { break "track beendet".to_string() };
+                // Enden die Tracks, BEVOR je ein Bild kam, ist das ein
+                // gescheiterter Aufbau und kein regulaeres Ende.
+                let Some(arrival) = arrival else {
+                    break ("track beendet".to_string(), !announced_playing);
+                };
                 let codec = arrival.codec;
                 buffers
                     .entry(codec)
@@ -186,12 +208,29 @@ pub async fn run(
             _ = ticker.tick() => {}
         }
 
+        // Auffangnetz gegen jede Art von haengendem Aufbau. Greift nur bis zum
+        // ersten Bild; danach ist ein stiller Strom Sache des Senders.
+        if !announced_playing && started.elapsed() > FIRST_FRAME_TIMEOUT {
+            break (
+                format!(
+                    "kein Bild nach {} s — Verbindung kam nicht zustande",
+                    FIRST_FRAME_TIMEOUT.as_secs()
+                ),
+                true,
+            );
+        }
+
         // Faellige Pakete freigeben und zu Zugriffseinheiten zusammensetzen.
         let now = Instant::now();
         for (codec, buffer) in buffers.iter_mut() {
             let assembler = assemblers
                 .entry(*codec)
                 .or_insert_with(|| Assembler::for_codec(*codec));
+            // Genau einmal je Spur versuchen: `from_env` legt die Datei an,
+            // ein Aufruf pro Durchlauf wuerde sie staendig neu leeren.
+            dumps
+                .entry(*codec)
+                .or_insert_with(|| crate::dump::RtpDump::from_env(codec.as_str()));
 
             for release in buffer.poll(now) {
                 let unit = match release {
@@ -202,6 +241,11 @@ pub async fn run(
                     }
                     Release::Packet(p) => {
                         let marker = p.header.marker;
+                        // Diagnose vor der Verarbeitung: der Mitschnitt soll
+                        // zeigen, was ANKOMMT, nicht was wir daraus machen.
+                        if let Some(d) = dumps.get(codec).and_then(Option::as_ref) {
+                            d.write(&p.payload, marker);
+                        }
                         assembler.push(&p.payload, marker)
                     }
                 };
@@ -232,17 +276,26 @@ pub async fn run(
                     },
                 };
 
-                let emitted =
-                    emit_frames(dec, &unit, &mut stats, &mut announced_playing, &events).await;
-                if emitted.is_err() {
+                match emit_frames(dec, &unit, &mut stats, &mut announced_playing, &events).await {
+                    Ok(()) => {}
                     // Der Fenster-Thread ist weg — die Sitzung hat keinen
-                    // Abnehmer mehr.
-                    whep_session.close().await;
-                    return;
+                    // Abnehmer mehr. Kein Fehler, nur Ende.
+                    Err(EmitError::NoConsumer) => {
+                        whep_session.close().await;
+                        return;
+                    }
+                    Err(EmitError::Decoder(reason)) => {
+                        let _ = events
+                            .send(SessionEvent::Ended {
+                                reason: format!("Decoder: {reason}"),
+                                failed: true,
+                            })
+                            .await;
+                        whep_session.close().await;
+                        return;
+                    }
                 }
             }
-
-
         }
 
         media.note_dimensions(stats.width, stats.height);
@@ -284,25 +337,31 @@ pub async fn run(
         }
     }
     whep_session.close().await;
-    let _ = events.send(SessionEvent::Ended { reason, failed: false }).await;
+    let _ = events.send(SessionEvent::Ended { reason, failed }).await;
 }
 
 /// Dekodiert eine Zugriffseinheit und schiebt die fertigen Bilder nach vorne.
 /// `Err(())` heisst: der Fenster-Thread nimmt nichts mehr an, die Sitzung endet.
+/// Warum das Ausliefern von Bildern abgebrochen ist. Die beiden Faelle
+/// verlangen Gegensaetzliches: beim wegfallenden Abnehmer ist die Sitzung
+/// ordnungsgemaess zu Ende (das Fenster wurde geschlossen), beim defekten
+/// Decoder muss ein Fehler nach draussen — sonst haengt die Kachel im
+/// Renderer fuer immer im Zustand "verbinde".
+enum EmitError {
+    /// Der Fenster-Thread nimmt nichts mehr an.
+    NoConsumer,
+    /// Der Decoder ist endgueltig hin (s. `decode::VideoDecoder::decode`).
+    Decoder(String),
+}
+
 async fn emit_frames(
     dec: &mut VideoDecoder,
     unit: &[u8],
     stats: &mut SessionStats,
     announced_playing: &mut bool,
     events: &mpsc::Sender<SessionEvent>,
-) -> Result<(), ()> {
-    let frames = match dec.decode(unit) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("pulse-player: Decode: {e:#}");
-            return Ok(());
-        }
-    };
+) -> Result<(), EmitError> {
+    let frames = dec.decode(unit).map_err(|e| EmitError::Decoder(format!("{e:#}")))?;
 
     for f in frames {
         stats.frames_decoded += 1;
@@ -327,7 +386,9 @@ async fn emit_frames(
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 stats.frames_skipped += 1;
             }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return Err(()),
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                return Err(EmitError::NoConsumer)
+            }
         }
     }
     Ok(())

@@ -26,6 +26,52 @@ fn is_hardware(name: &str) -> bool {
     ["cuvid", "qsv", "vaapi"].iter().any(|tag| name.contains(tag))
 }
 
+/// Aufeinanderfolgende abgelehnte Einheiten, ab denen der Decoder als defekt
+/// gilt. Bei 60 fps ist das eine halbe Sekunde.
+const ERROR_LIMIT: u32 = 30;
+
+/// Wie viele Einheiten auf einen Einstiegspunkt gewartet wird, bevor die
+/// Sitzung aufgibt. Bei 60 fps sind das zehn Sekunden.
+///
+/// Es MUSS eine Grenze geben: kommt nie ein Keyframe, waere stilles Warten
+/// wieder genau das Verhalten, das eine Kachel dauerhaft in "verbinde"
+/// stehen laesst — nur mit einer anderen Ursache.
+const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 600;
+
+/// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
+const MAX_REBUILDS: u32 = 2;
+
+/// Was nach einer abgelehnten Einheit zu tun ist.
+///
+/// Der Unterschied ist der Kern der Sache: **einzelne** Ablehnungen sind
+/// normal — nach einer Paketluecke ist die naechste Einheit unvollstaendig,
+/// bis ein Keyframe kommt, und die darf die Wiedergabe nicht beenden. Ein
+/// **dauerhaft toter** Decoder sieht an der Stelle aber genau gleich aus.
+/// Beobachtet am 2026-07-26: beim zweiten Oeffnen einer Sitzung meldete
+/// `av1_cuvid` fuer jedes Paket `CUDA_ERROR_UNKNOWN`. Weil jeder Fehler
+/// einzeln als "kaputter Frame" durchging, blieb das Bild schwarz, ohne dass
+/// irgendwo ein Fehler ankam. Erst die Unterscheidung nach Haeufigkeit macht
+/// den Unterschied sichtbar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorAction {
+    /// Vereinzelt — weitermachen.
+    Ignore,
+    /// Anhaltend — Decoder neu aufbauen.
+    Rebuild,
+    /// Auch nach Neuaufbau kaputt — Sitzung beenden.
+    GiveUp,
+}
+
+fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
+    if consecutive_errors < ERROR_LIMIT {
+        ErrorAction::Ignore
+    } else if rebuilds < MAX_REBUILDS {
+        ErrorAction::Rebuild
+    } else {
+        ErrorAction::GiveUp
+    }
+}
+
 /// Kandidaten in Reihenfolge der Bevorzugung. Am Ende stehen immer die
 /// Software-Decoder; der jeweils letzte ist der generische Name, weil die
 /// bevorzugte Bibliothek (z. B. `libdav1d`) nicht in jedem Build steckt.
@@ -55,6 +101,37 @@ pub struct DecodedFrame {
     pub ten_bit: bool,
     /// Voller Wertebereich (`pc`) statt begrenztem (`tv`).
     pub full_range: bool,
+    /// Welche YUV-Matrix der Strom verlangt.
+    pub matrix: ColorMatrix,
+}
+
+/// Die beiden YUV-Matrizen, die in der Praxis vorkommen.
+///
+/// Nicht kosmetisch: BT.601-Daten durch die BT.709-Matrix zu schicken
+/// entsaettigt und verschiebt die Farben sichtbar — das Bild wirkt flau.
+/// Gemessen am 2026-07-26 meldet der GSR-Stream `BT470BG`, also BT.601,
+/// obwohl 1440p sonst BT.709 nahelegt. Deshalb wird die Angabe des Stroms
+/// befolgt und nicht aus der Aufloesung geraten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMatrix {
+    Bt601,
+    Bt709,
+}
+
+/// Ohne Angabe gilt die uebliche Regel: SD ist BT.601, HD ist BT.709.
+fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
+    use ffmpeg::color::Space;
+    match space {
+        Space::BT470BG | Space::SMPTE170M | Space::SMPTE240M => ColorMatrix::Bt601,
+        Space::BT709 => ColorMatrix::Bt709,
+        _ => {
+            if height <= 576 {
+                ColorMatrix::Bt601
+            } else {
+                ColorMatrix::Bt709
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +147,17 @@ pub struct VideoDecoder {
     /// Name des tatsaechlich gewaehlten Decoders (fuer Diagnose und Statistik).
     pub name: String,
     pub hardware: bool,
+    /// Fuer den Neuaufbau: welcher Codec urspruenglich verlangt war.
+    codec: Codec,
+    /// Abgelehnte Einheiten in Folge; jede angenommene setzt zurueck.
+    consecutive_errors: u32,
+    /// Bisherige Neuaufbauten (s. [`classify`]).
+    rebuilds: u32,
+    /// Solange gesetzt, wird jede Einheit verworfen, die kein Einstiegspunkt
+    /// ist. Siehe [`VideoDecoder::decode`].
+    awaiting_keyframe: bool,
+    /// Wie viele Einheiten dabei bisher verworfen wurden.
+    skipped_before_keyframe: u64,
 }
 
 impl VideoDecoder {
@@ -90,7 +178,16 @@ impl VideoDecoder {
                         "pulse-player: Decoder {name} ({})",
                         if hardware { "Hardware" } else { "Software" }
                     );
-                    return Ok(Self { decoder, name: name.to_string(), hardware });
+                    return Ok(Self {
+                        decoder,
+                        name: name.to_string(),
+                        hardware,
+                        codec,
+                        consecutive_errors: 0,
+                        rebuilds: 0,
+                        awaiting_keyframe: true,
+                        skipped_before_keyframe: 0,
+                    });
                 }
                 Err(e) => last_err = Some(e),
             }
@@ -108,15 +205,95 @@ impl VideoDecoder {
     }
 
     /// Schiebt eine Zugriffseinheit hinein und holt alle fertigen Bilder ab.
+    ///
+    /// Vor dem ersten Einstiegspunkt wird alles verworfen. Das ist keine
+    /// Vorsichtsmassnahme, sondern notwendig: wer in einen laufenden Strom
+    /// einsteigt, bekommt zunaechst nur Differenzbilder — bei AV1 sogar ohne
+    /// den Sequence-Header, der Aufloesung und Farbtiefe ueberhaupt erst
+    /// festlegt. Gemessen am 2026-07-26 an einem echten GSR-Stream: ueber 463
+    /// Pakete kamen ausschliesslich `TEMPORAL_DELIMITER` und `FRAME` an, kein
+    /// einziger Sequence-Header. `av1_cuvid` las daraus eine Bittiefe von 16
+    /// (die es in AV1 nicht gibt) und riss den CUDA-Kontext mit; `libdav1d`
+    /// meldete an denselben Daten "Error parsing OBU data". Der Browser macht
+    /// an dieser Stelle dasselbe wie wir jetzt: verwerfen und warten.
+    ///
+    /// `Err` heisst: der Decoder ist endgueltig hin und auch ein Neuaufbau hat
+    /// nicht geholfen. Der Aufrufer muss die Sitzung dann beenden — stillem
+    /// Weiterlaufen entspraeche ein dauerhaft schwarzes Bild.
     pub fn decode(&mut self, data: &[u8]) -> Result<Vec<DecodedFrame>> {
+        if self.awaiting_keyframe {
+            if !crate::recorder::is_keyframe(self.codec, data) {
+                self.skipped_before_keyframe += 1;
+                if self.skipped_before_keyframe > MAX_UNITS_WITHOUT_KEYFRAME {
+                    bail!(
+                        "kein Einstiegspunkt nach {} Einheiten — der Sender schickt \
+                         zu selten ein Vollbild",
+                        self.skipped_before_keyframe
+                    );
+                }
+                return Ok(Vec::new());
+            }
+            // Diese Zahl beantwortet, wie lange ein Zuschauer auf das erste
+            // Bild wartet, und damit, ob das Keyframe-Intervall des Senders
+            // taugt. Deshalb wird sie gemeldet, auch wenn sie 0 ist.
+            eprintln!(
+                "pulse-player: Einstiegspunkt gefunden, {} Einheiten davor verworfen",
+                self.skipped_before_keyframe
+            );
+            self.awaiting_keyframe = false;
+        }
+
         let packet = ffmpeg::codec::packet::Packet::copy(data);
-        // Ein Fehler beim Einspeisen ist meist ein kaputter Frame nach einer
-        // Luecke — das darf die Sitzung nicht beenden.
         if let Err(e) = self.decoder.send_packet(&packet) {
-            eprintln!("pulse-player: send_packet: {e}");
+            self.consecutive_errors += 1;
+            // Nur den ersten melden: bei einem toten Decoder waeren es sonst
+            // Dutzende gleicher Zeilen pro Sekunde.
+            if self.consecutive_errors == 1 {
+                eprintln!("pulse-player: send_packet: {e}");
+            }
+            match classify(self.consecutive_errors, self.rebuilds) {
+                ErrorAction::Ignore => {}
+                ErrorAction::Rebuild => self.rebuild(&e.to_string())?,
+                ErrorAction::GiveUp => bail!(
+                    "Decoder {} nimmt seit {} Einheiten keine Pakete mehr an ({e})",
+                    self.name,
+                    self.consecutive_errors
+                ),
+            }
             return Ok(Vec::new());
         }
+        self.consecutive_errors = 0;
         Ok(self.drain())
+    }
+
+    /// Ersetzt den Decoder durch einen frischen Software-Decoder.
+    ///
+    /// Bewusst **immer** Software: wenn ein Decoder anhaltend jedes Paket
+    /// ablehnt, ist der Hardware-Pfad der wahrscheinlichste Schuldige (beim
+    /// beobachteten Fall ein zerschossener CUDA-Kontext). Ein zweiter Anlauf
+    /// auf derselben Hardware wuerde denselben Fehler wiederholen. Software
+    /// kostet CPU, liefert aber ein Bild.
+    ///
+    /// Nach dem Tausch fehlt dem neuen Decoder der Referenzrahmen; bis zum
+    /// naechsten Keyframe bleiben Einheiten unbrauchbar. Der Zaehler startet
+    /// deshalb bei null, sonst gaebe genau diese Anlaufphase sofort auf.
+    fn rebuild(&mut self, cause: &str) -> Result<()> {
+        self.rebuilds += 1;
+        eprintln!(
+            "pulse-player: Decoder {} lehnt dauerhaft ab ({cause}) — \
+             Neuaufbau {}/{MAX_REBUILDS} als Software",
+            self.name, self.rebuilds
+        );
+        let fresh = Self::new(self.codec, Some(false))?;
+        self.decoder = fresh.decoder;
+        self.name = fresh.name;
+        self.hardware = fresh.hardware;
+        self.consecutive_errors = 0;
+        // Ein frischer Decoder hat weder Sequence-Header noch Referenzbild —
+        // er braucht denselben Einstiegspunkt wie beim Sitzungsbeginn.
+        self.awaiting_keyframe = true;
+        self.skipped_before_keyframe = 0;
+        Ok(())
     }
 
     fn drain(&mut self) -> Vec<DecodedFrame> {
@@ -147,6 +324,21 @@ fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
         }
     };
 
+    // Einmalig: was der Strom ueber seine Farben SAGT. Ohne diese Zeile bleibt
+    // jede Farbabweichung Ratesache — genau das ist am 2026-07-26 zweimal
+    // passiert (erst zu flau, nach der Gegenmassnahme zu dunkel).
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        eprintln!(
+            "pulse-player: Farbe: format={:?} range={:?} space={:?} transfer={:?} primaries={:?}",
+            frame.format(),
+            frame.color_range(),
+            frame.color_space(),
+            frame.color_transfer_characteristic(),
+            frame.color_primaries(),
+        );
+    });
+
     let width = frame.width();
     let height = frame.height();
     let mut planes = Vec::with_capacity(planes_n);
@@ -173,6 +365,7 @@ fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
         strides,
         ten_bit,
         full_range: matches!(frame.color_range(), ffmpeg::color::Range::JPEG),
+        matrix: matrix_of(frame.color_space(), height),
     })
 }
 
@@ -197,6 +390,117 @@ mod tests {
             !list.iter().any(|n| n.contains("cuvid") || n.contains("vaapi")),
             "Hardware darf abschaltbar sein: {list:?}"
         );
+    }
+
+    /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit
+    /// nach einer Paketluecke) und duerfen nichts ausloesen.
+    #[test]
+    fn einzelne_fehler_werden_ignoriert() {
+        assert_eq!(classify(1, 0), ErrorAction::Ignore);
+        assert_eq!(classify(ERROR_LIMIT - 1, 0), ErrorAction::Ignore);
+    }
+
+    /// Anhaltende Ablehnung heisst kaputter Decoder — der Neuaufbau ist der
+    /// Unterschied zwischen "faengt sich" und "bleibt schwarz".
+    #[test]
+    fn anhaltende_fehler_loesen_neuaufbau_aus() {
+        assert_eq!(classify(ERROR_LIMIT, 0), ErrorAction::Rebuild);
+        assert_eq!(classify(ERROR_LIMIT * 3, MAX_REBUILDS - 1), ErrorAction::Rebuild);
+    }
+
+    /// Irgendwann muss Schluss sein: sonst baut der Player endlos neu auf und
+    /// der Nutzer sieht weiter nichts, ohne je einen Fehler zu bekommen.
+    #[test]
+    fn nach_den_versuchen_wird_aufgegeben() {
+        assert_eq!(classify(ERROR_LIMIT, MAX_REBUILDS), ErrorAction::GiveUp);
+    }
+
+    /// Die Angabe des Stroms schlaegt jede Vermutung — auch wenn sie der
+    /// Aufloesung widerspricht. Genau dieser Fall trat auf: 1440p mit
+    /// BT470BG-Kennung, wo man BT.709 erwarten wuerde.
+    #[test]
+    fn matrix_folgt_der_angabe_des_stroms() {
+        use ffmpeg::color::Space;
+        assert_eq!(matrix_of(Space::BT470BG, 1440), ColorMatrix::Bt601);
+        assert_eq!(matrix_of(Space::SMPTE170M, 2160), ColorMatrix::Bt601);
+        assert_eq!(matrix_of(Space::BT709, 240), ColorMatrix::Bt709);
+    }
+
+    /// Ohne Angabe bleibt nur die uebliche Regel nach Bildhoehe.
+    #[test]
+    fn ohne_angabe_entscheidet_die_bildhoehe() {
+        use ffmpeg::color::Space;
+        assert_eq!(matrix_of(Space::Unspecified, 480), ColorMatrix::Bt601);
+        assert_eq!(matrix_of(Space::Unspecified, 576), ColorMatrix::Bt601);
+        assert_eq!(matrix_of(Space::Unspecified, 720), ColorMatrix::Bt709);
+        assert_eq!(matrix_of(Space::Unspecified, 1440), ColorMatrix::Bt709);
+    }
+
+    /// Der Kern des Befunds vom 2026-07-26: eine AV1-Einheit aus Temporal
+    /// Delimiter und Frame — genau das, was ein Zuschauer beim Einstieg mitten
+    /// im Strom bekommt — darf NICHT in den Decoder. Ohne Sequence-Header
+    /// zerbricht er daran.
+    #[test]
+    fn einheit_ohne_sequence_header_wird_verworfen() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        // OBU_FRAME (Typ 6) mit Groessenfeld, wie ihn der Depacketizer baut.
+        let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
+        let out = d.decode(&frame).expect("verwerfen ist kein Fehler");
+        assert!(out.is_empty(), "vor dem Einstiegspunkt darf nichts herauskommen");
+        assert_eq!(d.skipped_before_keyframe, 1);
+        assert!(d.awaiting_keyframe, "es fehlt weiterhin ein Einstiegspunkt");
+    }
+
+    /// Sobald ein Sequence-Header dabei ist, wird eingespeist.
+    #[test]
+    fn sequence_header_beendet_das_warten() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        // OBU_SEQUENCE_HEADER (Typ 1) mit Groessenfeld.
+        let seq = [0x0Au8, 0x02, 0x00, 0x00];
+        let _ = d.decode(&seq);
+        assert!(!d.awaiting_keyframe, "Sequence-Header ist der Einstiegspunkt");
+    }
+
+    /// Ewiges Warten waere wieder eine haengende Kachel — nur mit anderer
+    /// Ursache. Nach der Grenze muss ein Fehler kommen.
+    #[test]
+    fn ewiges_warten_endet_mit_fehler() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
+        for _ in 0..MAX_UNITS_WITHOUT_KEYFRAME {
+            assert!(d.decode(&frame).is_ok(), "innerhalb der Grenze wird nur verworfen");
+        }
+        // Kein `expect_err`: `DecodedFrame` traegt kein `Debug`, und es nur
+        // fuer eine Testmeldung anzuhaengen waere der falsche Preis.
+        let Err(err) = d.decode(&frame) else {
+            panic!("nach der Grenze muss ein Fehler kommen");
+        };
+        assert!(format!("{err:#}").contains("Einstiegspunkt"), "Meldung: {err:#}");
+    }
+
+    /// Nach einem Neuaufbau fehlt dem neuen Decoder alles — er muss wieder
+    /// auf einen Einstiegspunkt warten, sonst bekommt er denselben Muell wie
+    /// sein Vorgaenger.
+    #[test]
+    fn neuaufbau_wartet_erneut_auf_einstiegspunkt() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        d.awaiting_keyframe = false;
+        d.skipped_before_keyframe = 7;
+        d.rebuild("Test").expect("Neuaufbau");
+        assert!(d.awaiting_keyframe, "nach dem Neuaufbau fehlt der Einstiegspunkt wieder");
+        assert_eq!(d.skipped_before_keyframe, 0, "Zaehler gehoert zum neuen Anlauf");
+    }
+
+    /// Der Neuaufbau muss auf Software gehen — waere Hardware erlaubt, liefe
+    /// er in denselben defekten CUDA-Kontext zurueck.
+    #[test]
+    fn neuaufbau_landet_auf_software() {
+        let mut d = VideoDecoder::new(Codec::H264, Some(false)).expect("Software-Decoder");
+        d.consecutive_errors = ERROR_LIMIT;
+        d.rebuild("Test").expect("Neuaufbau");
+        assert!(!d.hardware, "Neuaufbau muss Software sein, ist {}", d.name);
+        assert_eq!(d.consecutive_errors, 0, "Zaehler muss fuer die Anlaufphase zurueckgesetzt sein");
+        assert_eq!(d.rebuilds, 1);
     }
 
     /// Der Software-Weg muss auf jeder Maschine funktionieren — ohne den

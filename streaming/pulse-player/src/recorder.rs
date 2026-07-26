@@ -81,7 +81,14 @@ struct Unit {
 ///
 /// AV1: enthaelt einen Sequence-Header (OBU-Typ 1).
 /// H.264: enthaelt SPS (NAL 7) oder eine IDR-Einheit (NAL 5).
-fn is_keyframe(codec: Codec, data: &[u8]) -> bool {
+///
+/// Auch von [`crate::decode`] gebraucht, und dort aus demselben Grund wie
+/// hier: mitten in einen laufenden Strom einzusteigen ergibt keinen
+/// verwertbaren Zustand. Beim Mitschnitt begaenne die Datei mit Bildmuell,
+/// beim Decoder zerbricht das Parsen (gemessen 2026-07-26: `av1_cuvid` las
+/// aus einem Frame ohne Sequence-Header eine Bittiefe von 16, die es in AV1
+/// gar nicht gibt).
+pub(crate) fn is_keyframe(codec: Codec, data: &[u8]) -> bool {
     match codec {
         Codec::Av1 => scan_av1_for_sequence_header(data),
         Codec::H264 => scan_annexb_for_idr(data),

@@ -207,14 +207,29 @@ async fn negotiate(
 
     // Nicht-Trickle: warten, bis der Offer alle Kandidaten traegt. Der Timeout
     // begrenzt den Worst Case, wenn ein STUN-Server nicht antwortet.
+    let started = std::time::Instant::now();
     let mut gathering = pc.gathering_complete_promise().await;
-    let _ = tokio::time::timeout(ICE_GATHERING_TIMEOUT, gathering.recv()).await;
+    let complete = tokio::time::timeout(ICE_GATHERING_TIMEOUT, gathering.recv()).await.is_ok();
 
     let sdp = pc
         .local_description()
         .await
         .ok_or_else(|| anyhow!("keine local description nach dem Gathering"))?
         .sdp;
+
+    // Ein Offer ohne Kandidaten nimmt der Server zwar an, aber die Verbindung
+    // kommt nie zustande — MediaMTX meldet dann nur "deadline exceeded while
+    // waiting connection", was wie ein Serverfehler aussieht. Diese Zeile
+    // macht von aussen unterscheidbar, ob es am Sammeln lag.
+    let candidates = sdp.lines().filter(|l| l.starts_with("a=candidate:")).count();
+    eprintln!(
+        "pulse-player: ICE gesammelt: {candidates} Kandidaten in {} ms{}",
+        started.elapsed().as_millis(),
+        if complete { "" } else { " (ABGEBROCHEN — Zeit abgelaufen)" }
+    );
+    if candidates == 0 {
+        bail!("keine ICE-Kandidaten gesammelt — die Verbindung koennte nicht zustande kommen");
+    }
 
     let res = http
         .post(whep_url)

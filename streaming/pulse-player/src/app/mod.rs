@@ -20,7 +20,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
-use crate::decode;
+use crate::decode::{self, ColorMatrix};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
 use crate::rpc::StdoutWriter;
@@ -42,6 +42,8 @@ struct Session {
     decoder: String,
     hardware: bool,
     full_range: bool,
+    /// Welche YUV-Matrix der laufende Strom verlangt.
+    matrix: ColorMatrix,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
     state: SessionState,
@@ -100,10 +102,27 @@ impl App {
         let (ev_tx, mut ev_rx) = mpsc::channel(8);
         let proxy = self.proxy.clone();
         self.runtime.spawn(async move {
+            let mut announced_end = false;
             while let Some(event) = ev_rx.recv().await {
+                announced_end |= matches!(&event, SessionEvent::Ended { .. });
                 if proxy.send_event(UserEvent::Session { id, event }).is_err() {
                     return;
                 }
+            }
+            // Der Kanal ist zu, ohne dass `session::run` sein Ende gemeldet
+            // hat — der Task ist also gestorben, statt zurueckzukehren (Panik).
+            // Ohne diese Ersatzmeldung bliebe die Sitzung ewig in `connecting`:
+            // der Renderer wartet auf `state`, der Rueckfall auf das
+            // <video>-Element haengt an `failed` und griffe nie. Genau so
+            // verhielt sich der fehlende rustls-Krypto-Provider (s. `main.rs`).
+            if !announced_end {
+                let _ = proxy.send_event(UserEvent::Session {
+                    id,
+                    event: SessionEvent::Ended {
+                        reason: "Sitzung unerwartet beendet".to_string(),
+                        failed: true,
+                    },
+                });
             }
         });
         let opts = options.clone();
@@ -122,6 +141,7 @@ impl App {
                 decoder: String::new(),
                 hardware: false,
                 full_range: false,
+                matrix: ColorMatrix::Bt709,
                 pending: None,
                 state: SessionState::Connecting,
             },
@@ -161,6 +181,7 @@ impl App {
                     // eintreffender Range-Wechsel auf das eingefrorene alte
                     // Bild angewendet — sichtbar falsche Farben.
                     session.full_range = frame.full_range;
+                    session.matrix = frame.matrix;
                     session.pending = Some(frame);
                     session.window.request_redraw();
                 }
@@ -227,7 +248,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Some(frame) = session.pending.take() {
                     renderer.upload(&frame);
                 }
-                if let Err(e) = renderer.render(&session.options, session.full_range) {
+                if let Err(e) = renderer.render(&session.options, session.full_range, session.matrix) {
                     eprintln!("pulse-player: Darstellung: {e:#}");
                 }
             }

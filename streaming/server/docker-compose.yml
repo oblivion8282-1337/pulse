@@ -17,10 +17,18 @@
 
 services:
   mediamtx:
-    # Pinned to 1.17.1 (Pulse fork): v1.18.0 broke AV1-over-Enhanced-RTMP→WebRTC
-    # for AMD VAAPI (MediaMTX #5728); 1.17.1 fixes that but has its own
-    # AMD-only freeze due to missing OBU_TEMPORAL_DELIMITER. The Pulse fork
-    # injects them in the RTMP→stream path — see infra/mediamtx-fork/README.md.
+    # Pinned to 1.19.1 (Pulse fork), identisch zu infra/prod. Der Fork spritzt
+    # OBU_TEMPORAL_DELIMITER in den RTMP→stream-Pfad, weil AMD VAAPI keine
+    # sendet — siehe infra/mediamtx-fork/README.md.
+    #
+    # ACHTUNG beim Versions-Bump: der TAG allein sagt nichts darueber, was
+    # laeuft. Am 2026-07-26 stand hier bereits 1.19.1-pulse, waehrend lokal
+    # beide Tags auf denselben Digest eines 1.17.1-Images zeigten — der
+    # Container meldete `v1.17.1-dirty`. Die 1.17.1 hat einen ICE-Fehler
+    # (`deadline exceeded while waiting connection`, pion/ice, in 1.18+
+    # behoben), der WHEP-Verbindungen sporadisch scheitern laesst. Nach einem
+    # Bump also `docker logs streaming-mediamtx | head -1` pruefen, nicht den
+    # Tag glauben.
     image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse
     container_name: streaming-mediamtx
     restart: unless-stopped

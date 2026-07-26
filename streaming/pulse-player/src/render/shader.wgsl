@@ -13,8 +13,10 @@ struct Uniforms {
     // x = Deband-Staerke, y = Dither an/aus, z = Anzahl Ausgabestufen, w = Zeit
     params: vec4<f32>,
     // x = 10-bit-Quelle, y = voller Wertebereich, z = biplanar (NV12/P010),
-// w = Skalierungsfaktor der Abtastwerte (s. render::sample_scale)
+    // w = Skalierungsfaktor der Abtastwerte (s. render::sample_scale)
     flags: vec4<f32>,
+    // y = BT.601 statt BT.709 (x/z/w frei)
+    output: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -41,21 +43,36 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     return out;
 }
 
-// BT.709, der Farbraum jedes praxisrelevanten Bildschirm-Streams.
+// YUV nach RGB. WELCHE Matrix, sagt der Strom (`output.y`) — nicht wir.
+//
+// Die Annahme "Bildschirm-Streams sind immer BT.709" war falsch: der gemessene
+// GSR-Stream meldet am 2026-07-26 `BT470BG`, also BT.601, obwohl er 1440p ist.
+// Mit der falschen Matrix bleibt das Bild dekodierbar, wirkt aber entsaettigt
+// und verwaschen — ein Fehler, den man leicht dem Encoder anlastet.
+// `cb`/`cr` statt `u`/`v`, weil `u` sonst den Uniform-Block verdecken wuerde.
 fn yuv_to_rgb(yuv: vec3<f32>, full_range: bool) -> vec3<f32> {
     var y = yuv.x;
-    var u = yuv.y - 0.5;
-    var v = yuv.z - 0.5;
+    var cb = yuv.y - 0.5;
+    var cr = yuv.z - 0.5;
     if (!full_range) {
         // Begrenzter Bereich: Y 16..235, Chroma 16..240 (auf 8-bit bezogen).
         y = (y - 16.0 / 255.0) * (255.0 / 219.0);
-        u = u * (255.0 / 224.0);
-        v = v * (255.0 / 224.0);
+        cb = cb * (255.0 / 224.0);
+        cr = cr * (255.0 / 224.0);
     }
+    if (u.output.y > 0.5) {
+        // BT.601 (ITU-R BT.470BG / SMPTE 170M)
+        return vec3<f32>(
+            y + 1.4020 * cr,
+            y - 0.3441 * cb - 0.7141 * cr,
+            y + 1.7720 * cb,
+        );
+    }
+    // BT.709
     return vec3<f32>(
-        y + 1.5748 * v,
-        y - 0.1873 * u - 0.4681 * v,
-        y + 1.8556 * u,
+        y + 1.5748 * cr,
+        y - 0.1873 * cb - 0.4681 * cr,
+        y + 1.8556 * cb,
     );
 }
 
@@ -128,7 +145,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     if (u.params.y > 0.5) {
         // Dithering: Rauschen unterhalb einer Ausgabestufe, damit die
-        // Quantisierung keine harten Kanten erzeugt.
+        // Quantisierung keine harten Kanten erzeugt. Bewusst noch im
+        // gamma-kodierten Raum — dort liegen die sichtbaren Stufen, und dort
+        // entspricht eine Ausgabestufe tatsaechlich `1/levels`.
         let levels = max(u.params.z, 2.0);
         let n = hash23(vec3<f32>(in.pos.xy, u.params.w)) - 0.5;
         rgb = rgb + n / levels;
