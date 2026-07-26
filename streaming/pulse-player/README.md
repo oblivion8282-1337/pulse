@@ -70,7 +70,9 @@ Ehrlich benannt, damit niemand danach sucht:
 
 ```
 src/
-├── main.rs        Fensterschleife (winit) + stdio-JSON-RPC
+├── main.rs        Einstiegspunkt: Fensterschleife (winit) + Tokio-Laufzeit
+├── app.rs         Fenster- und Sitzungsverwaltung, Request-Behandlung
+├── rpc.rs         stdio-Transport (stdin lesen, stdout schreiben)
 ├── proto.rs       Protokolltypen, Optionen, Grenzen
 ├── whep.rs        WHEP-Aushandlung, liefert rohe RTP-Pakete
 ├── jitter.rs      Umsortieren nach Sequenznummer + zeitgesteuerte Freigabe
@@ -79,7 +81,9 @@ src/
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
 ├── decode.rs      FFmpeg, Hardware zuerst
 ├── render/        wgpu-Darstellung
-│   ├── mod.rs     Oberflaechenformat, Texturen, Zeichnen
+│   ├── mod.rs     Texturen, Uniform-Werte, Zeichnen
+│   ├── setup.rs   Geraet, Pipeline, Wahl des Oberflaechenformats
+│   ├── uniforms.rs  Uniform-Block als Bytes
 │   └── shader.wgsl  YUV->RGB, Deband, Dither, Zoom
 └── session.rs     verbindet alles je Sitzung
 ```

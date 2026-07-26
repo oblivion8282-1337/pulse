@@ -230,9 +230,14 @@ class PlayerManager {
 
   /**
    * Sauber herunterfahren. Erst `shutdown` ueber das Protokoll, dann stdin
-   * schliessen, zuletzt SIGTERM. Wird an `before-quit` gehaengt — genau wie
-   * beim Capture-Sidecar, und damit vertraeglich mit electron-updater, der
-   * an `quit` haengt.
+   * schliessen, dann SIGTERM, zuletzt SIGKILL.
+   *
+   * Wird NICHT ueber einen eigenen `before-quit`-Listener aufgerufen, sondern
+   * gebuendelt mit den Capture-Sidecars im bestehenden Handler in `main.ts`
+   * (`Promise.all([...allSidecars(), playerManager.shutdown()])`). Sonst liefe
+   * der Player-Prozess an der dortigen Zeitbegrenzung vorbei. Bleibt damit
+   * vertraeglich mit electron-updater, der an `quit` haengt, nicht an
+   * `before-quit`.
    */
   async shutdown(): Promise<void> {
     const child = this.child;
