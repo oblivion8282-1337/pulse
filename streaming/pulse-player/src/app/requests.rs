@@ -257,6 +257,11 @@ impl App {
             // ohne die Zahl sieht eine Kette mit 144 dekodierten und 60
             // gezeichneten Bildern voellig gesund aus.
             obj.insert("frames_never_drawn".into(), session.frames_never_drawn.into());
+            // Latenz-Posten fuer den Pruefstand: dekodieren und
+            // Netz-bis-Schirm, beide als Mittel und Ausschlag je Fenster.
+            obj.insert("decode_avg_us".into(), session.stats.decode_avg_us().into());
+            obj.insert("glass_avg_us".into(), session.phases.age_avg_us.into());
+            obj.insert("glass_max_us".into(), session.phases.age_max_us_last.into());
             obj.insert(
                 "acquire_misses".into(),
                 session.renderer.as_ref().map_or(0, render::Renderer::acquire_misses).into(),

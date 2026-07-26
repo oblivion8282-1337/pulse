@@ -72,12 +72,27 @@ pub struct SessionStats {
     pub frames_skipped: u64,
     pub buffered_packets: u64,
     pub jitter_target_ms: u64,
+    /// Latenz-Posten des Dekodierens: Summe und Anzahl (Mittel wird erst bei
+    /// der Ausgabe gebildet, damit die Rohwerte nicht durch Rundung wandern)
+    /// sowie der Ausschlag. Zuruecksetzen tut das Statistik-Fenster.
+    pub decode_sum_us: u64,
+    pub decode_count: u64,
+    pub decode_max_us: u64,
     pub width: u32,
     pub height: u32,
     pub ten_bit_source: bool,
     /// Ton- und Aufnahme-Zaehler.
     #[serde(flatten)]
     pub media: MediaStats,
+}
+
+impl SessionStats {
+    /// Mittel des Dekodierens im letzten vollen Fenster, in Mikrosekunden.
+    /// `0` bis das erste Bild dekodiert wurde — an zwei Stellen gebraucht
+    /// (Log-Zeile, `stats`-Antwort), deshalb hier gebuendelt.
+    pub fn decode_avg_us(&self) -> u64 {
+        if self.decode_count > 0 { self.decode_sum_us / self.decode_count } else { 0 }
+    }
 }
 
 /// Bezugspunkt der Raten-Messung (s. [`RATE_INTERVAL`]).
@@ -279,20 +294,23 @@ pub async fn run(
                 .or_insert_with(|| crate::dump::RtpDump::from_env(codec.as_str()));
 
             for release in buffer.poll(now) {
-                let unit = match release {
+                let (unit, unit_arrived) = match release {
                     Release::Gap { .. } => {
                         assembler.on_gap();
                         stats.frames_dropped += 1;
                         continue;
                     }
-                    Release::Packet(p) => {
+                    // Die Ankunftszeit reist mit: sie ist der Startpunkt der
+                    // gemessenen Latenz und gehoert zu genau DIESER Einheit,
+                    // nicht zum neuesten eingetroffenen Paket.
+                    Release::Packet(p, arrived) => {
                         let marker = p.header.marker;
                         // Diagnose vor der Verarbeitung: der Mitschnitt soll
                         // zeigen, was ANKOMMT, nicht was wir daraus machen.
                         if let Some(d) = dumps.get(codec).and_then(Option::as_ref) {
                             d.write(&p.payload, marker);
                         }
-                        assembler.push(&p.payload, marker)
+                        (assembler.push(&p.payload, marker), Some(arrived))
                     }
                 };
                 let Some(unit) = unit else { continue };
@@ -322,7 +340,9 @@ pub async fn run(
                     },
                 };
 
-                match emit_frames(dec, &unit, &mut stats, &mut announced_playing, &events).await {
+                match emit_frames(dec, &unit, unit_arrived, &mut stats, &mut announced_playing, &events)
+                    .await
+                {
                     Ok(()) => {}
                     // Der Fenster-Thread ist weg — die Sitzung hat keinen
                     // Abnehmer mehr. Kein Fehler, nur Ende.
@@ -397,6 +417,12 @@ pub async fn run(
             arrival_gap_max = 0;
             arrival_gaps_over_5ms = 0;
             let _ = events.try_send(SessionEvent::Stats(stats));
+            // Die drei Dekodier-Posten gelten JE FENSTER, nicht kumulativ —
+            // sonst wuerde der Mittelwert ueber die ganze Sitzung glatt gebuegelt
+            // und der Ausschlag blieb fuer immer stehen.
+            stats.decode_sum_us = 0;
+            stats.decode_count = 0;
+            stats.decode_max_us = 0;
         }
     };
 
@@ -430,13 +456,28 @@ enum EmitError {
 async fn emit_frames(
     dec: &mut VideoDecoder,
     unit: &[u8],
+    arrived: Option<Instant>,
     stats: &mut SessionStats,
     announced_playing: &mut bool,
     events: &mpsc::Sender<SessionEvent>,
 ) -> Result<(), EmitError> {
+    // Dauer des Dekodierens getrennt gemessen: sie ist der eine Posten der
+    // Latenzkette, den DIESES Programm allein verantwortet. Gemessen wird der
+    // ganze Aufruf, also Einspeisen UND Abholen — bei ffmpeg laeuft das
+    // Dekodieren in eigenen Threads, ein Bild kann also erst beim naechsten
+    // Aufruf herausfallen. Der Wert ist damit die Verzoegerung der Kette, nicht
+    // die reine Rechenzeit eines Bildes; genau das ist die interessante Groesse.
+    let before = Instant::now();
     let frames = dec.decode(unit).map_err(|e| EmitError::Decoder(format!("{e:#}")))?;
+    if !frames.is_empty() {
+        let us = before.elapsed().as_micros() as u64;
+        stats.decode_sum_us += us;
+        stats.decode_count += 1;
+        stats.decode_max_us = stats.decode_max_us.max(us);
+    }
 
-    for f in frames {
+    for mut f in frames {
+        f.arrived = arrived;
         stats.frames_decoded += 1;
         stats.width = f.width;
         stats.height = f.height;

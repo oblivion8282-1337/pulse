@@ -157,6 +157,10 @@ pub struct DecodedFrame {
     pub full_range: bool,
     /// Welche YUV-Matrix der Strom verlangt.
     pub matrix: ColorMatrix,
+    /// Wann das Paket eintraf, das die Zugriffseinheit dieses Bildes
+    /// abschloss. Traegt die Latenzmessung bis zum gezeichneten Bild; `None`,
+    /// wenn das Bild nicht aus einem Netzpaket stammt (Tests).
+    pub arrived: Option<std::time::Instant>,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
     pool: PlanePool,
 }
@@ -447,6 +451,7 @@ fn convert(
     }
 
     Some(DecodedFrame {
+        arrived: None,
         width,
         height,
         format: layout,

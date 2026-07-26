@@ -65,9 +65,29 @@ struct PhaseTimes {
     gap_min_us_last: u64,
     gap_max_us_last: u64,
     gap_late_last: u64,
+    /// Alter des Bildes beim Ausgeben, gerechnet ab Ankunft des Pakets, das
+    /// seine Zugriffseinheit abschloss. Das ist der Teil der Ende-zu-Ende-Kette,
+    /// der in diesem Programm liegt: Jitter-Wartezeit + Zusammensetzen +
+    /// Dekodieren + Hochladen + Ausgeben.
+    age_sum_us: u64,
+    age_count: u64,
+    age_max_us: u64,
+    age_avg_us: u64,
+    age_max_us_last: u64,
 }
 
 impl PhaseTimes {
+    /// Alter eines gerade ausgegebenen Bildes vermerken. Bilder ohne
+    /// Ankunftszeit (Tests) zaehlen nicht mit, statt die Messung mit Nullen zu
+    /// verwaessern.
+    fn note_age(&mut self, arrived: Option<std::time::Instant>) {
+        let Some(a) = arrived else { return };
+        let us = a.elapsed().as_micros() as u64;
+        self.age_sum_us += us;
+        self.age_count += 1;
+        self.age_max_us = self.age_max_us.max(us);
+    }
+
     /// `expected_gap` = Soll-Abstand aus der gemessenen Bildrate der Quelle.
     fn note(
         &mut self,
@@ -95,6 +115,13 @@ impl PhaseTimes {
             self.gap_min_us_last = self.gap_min_us;
             self.gap_max_us_last = self.gap_max_us;
             self.gap_late_last = self.gap_late;
+            if self.age_count > 0 {
+                self.age_avg_us = self.age_sum_us / self.age_count;
+                self.age_max_us_last = self.age_max_us;
+            }
+            self.age_sum_us = 0;
+            self.age_count = 0;
+            self.age_max_us = 0;
             self.upload_sum = 0;
             self.render_sum = 0;
             self.count = 0;
@@ -331,7 +358,9 @@ impl App {
             return Vec::new();
         }
         let upload_started = std::time::Instant::now();
+        let mut frame_arrived = None;
         if let Some(frame) = pending.take() {
+            frame_arrived = frame.arrived;
             renderer.upload(&frame);
         }
         let upload_took = upload_started.elapsed();
@@ -381,6 +410,7 @@ impl App {
             .fps
             .filter(|f| *f > 0)
             .map(|f| std::time::Duration::from_micros(1_000_000 / f));
+        phases.note_age(frame_arrived);
         phases.note(upload_took, render_started.elapsed(), expected_gap);
         pass.map(|p| p.actions).unwrap_or_default()
     }
@@ -419,6 +449,7 @@ impl App {
                 "hochladen {:.1} ms, ausgeben {:.1} ms, ",
                 "Abstand {:.1}-{:.1} ms ({} zu spaet), ",
                 "Ankunft max {:.1} ms ({} ueber 5 ms), ",
+                "dekodieren {:.1}/{:.1} ms, Netz-bis-Schirm {:.1}/{:.1} ms, ",
                 "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}"
             ),
             id,
@@ -433,6 +464,11 @@ impl App {
             session.phases.gap_late_last,
             st.arrival_gap_max_us as f64 / 1000.0,
             st.arrival_gaps_over_5ms,
+            // Mittel und Ausschlag je Fenster, beide in ms.
+            st.decode_avg_us() as f64 / 1000.0,
+            st.decode_max_us as f64 / 1000.0,
+            session.phases.age_avg_us as f64 / 1000.0,
+            session.phases.age_max_us_last as f64 / 1000.0,
             st.kbps.map_or_else(|| "?".to_string(), |v| v.to_string()),
             st.packets_lost,
             st.buffered_packets,

@@ -1,0 +1,6 @@
+# Messartefakte der Laeufe — jeder Lauf schreibt sie neu
+*.log
+samples-*.json
+!profiles/*.json
+# Vorkodierte Referenz-Vorlage (32 MB, per README erzeugbar)
+synth10.mkv

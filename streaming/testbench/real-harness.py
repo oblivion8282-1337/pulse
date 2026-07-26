@@ -73,6 +73,7 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=144)
     ap.add_argument("--audio", default="Desktop", help='"Desktop" oder "Aus"')
     ap.add_argument("--bits", type=int, default=10)
+    ap.add_argument("--kbps", type=int, default=25000)
     ap.add_argument("--label", default="")
     args = ap.parse_args()
 
@@ -94,7 +95,7 @@ def main() -> int:
             channel={"id": CID, "token": pub, "push_url": push},
             capture="portal",
             audio={"mode": args.audio},
-            overrides={"codec": "av1", "fps": args.fps, "bitrate_kbps": 25000,
+            overrides={"codec": "av1", "fps": args.fps, "bitrate_kbps": args.kbps,
                        "bit_depth": args.bits},
         )
         if not res.get("ok"):
@@ -127,7 +128,8 @@ def main() -> int:
         return 1
     print(f"[{tag}] {len(useful)} Proben")
     for name in ("fps", "kbps", "frames_never_drawn", "arrival_gap_max_us",
-                 "arrival_gaps_over_5ms", "packets_lost", "frames_dropped"):
+                 "arrival_gaps_over_5ms", "packets_lost", "frames_dropped",
+                 "decode_avg_us", "glass_avg_us", "glass_max_us"):
         vals = [float(s.get(name, 0) or 0) for s in useful]
         if any(vals):
             print(f"  {name:24s} min {min(vals):9.1f}  mittel {sum(vals)/len(vals):9.1f}  max {max(vals):9.1f}")

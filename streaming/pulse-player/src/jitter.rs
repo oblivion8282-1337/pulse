@@ -36,7 +36,11 @@ const RESYNC_DISTANCE: u64 = 3000;
 const MAX_LATE_STREAK: u32 = 8;
 
 pub enum Release {
-    Packet(Packet),
+    /// Faelliges Paket samt seiner ANKUNFTSZEIT. Die Zeit reist mit, weil sie
+    /// der Anfang der Latenzkette ist: erst am fertig gezeichneten Bild laesst
+    /// sich sagen, wie lange es vom Eintreffen bis auf den Schirm gebraucht hat
+    /// — inklusive der Wartezeit, die dieser Puffer selbst verursacht.
+    Packet(Packet, Instant),
     /// Mindestens ein Paket ist endgueltig verloren; die angefangene
     /// Zugriffseinheit ist damit unbrauchbar.
     ///
@@ -208,7 +212,8 @@ impl JitterBuffer {
 
             if first == next {
                 self.next = Some(next + 1);
-                out.push(Release::Packet(entry.remove().packet));
+                let e = entry.remove();
+                out.push(Release::Packet(e.packet, e.arrived));
                 continue;
             }
 
@@ -239,7 +244,7 @@ mod tests {
     fn seqs(rel: &[Release]) -> Vec<u16> {
         rel.iter()
             .filter_map(|r| match r {
-                Release::Packet(p) => Some(p.header.sequence_number),
+                Release::Packet(p, _) => Some(p.header.sequence_number),
                 Release::Gap { .. } => None,
             })
             .collect()
