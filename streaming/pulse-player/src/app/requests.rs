@@ -261,6 +261,13 @@ impl App {
             // Netz-bis-Schirm, beide als Mittel und Ausschlag je Fenster.
             obj.insert("decode_avg_us".into(), session.stats.decode_avg_us().into());
             obj.insert("glass_avg_us".into(), session.phases.age_avg_us.into());
+            // Ende-zu-Ende nur, wenn die Sonde laeuft — ein 0 im Normalbetrieb
+            // waere eine Zahl, die Genauigkeit vorspiegelt.
+            if let Some(p) = session.probe.as_ref() {
+                obj.insert("e2e_avg_us".into(), p.avg_us().into());
+                obj.insert("e2e_max_us".into(), p.max_us().into());
+                obj.insert("e2e_misses".into(), p.misses().into());
+            }
             obj.insert("glass_max_us".into(), session.phases.age_max_us_last.into());
             obj.insert(
                 "acquire_misses".into(),

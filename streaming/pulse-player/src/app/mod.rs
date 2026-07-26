@@ -157,6 +157,10 @@ struct Session {
     matrix: ColorMatrix,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
+    /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
+    /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
+    /// kostet nichts.
+    probe: Option<crate::probe::LatencyProbe>,
     /// Wie viele Bilder hier ueberschrieben wurden, bevor sie gezeichnet
     /// werden konnten. Das ist der EINZIGE Ort, an dem ein Bild lautlos
     /// verschwinden kann, und er war bis 2026-07-26 ungezaehlt — bei 144 fps
@@ -299,6 +303,7 @@ impl App {
                 full_range: false,
                 matrix: ColorMatrix::Bt709,
                 pending: None,
+                probe: crate::probe::LatencyProbe::from_env(),
                 frames_never_drawn: 0,
                 phases: PhaseTimes::default(),
                 last_frame_at: None,
@@ -338,6 +343,7 @@ impl App {
             pending,
             frames_never_drawn,
             phases,
+            probe,
             ..
         } = session;
         let Some(renderer) = renderer.as_mut() else { return Vec::new() };
@@ -361,6 +367,10 @@ impl App {
         let mut frame_arrived = None;
         if let Some(frame) = pending.take() {
             frame_arrived = frame.arrived;
+            // Vor dem Hochladen: die Sonde braucht die Ebenen im Hauptspeicher.
+            if let Some(p) = probe.as_mut() {
+                p.note(&frame);
+            }
             renderer.upload(&frame);
         }
         let upload_took = upload_started.elapsed();
@@ -438,6 +448,19 @@ impl App {
             let secs = d.as_secs_f64().max(0.001);
             ((presented.saturating_sub(session.presented_at_last_log)) as f64 / secs).round() as u64
         });
+        // Fenster der Sonde im GLEICHEN Rhythmus abschliessen wie das Log —
+        // sonst gehoerten Mittelwert und Zeitpunkt nicht zusammen.
+        if let Some(p) = session.probe.as_mut() {
+            p.roll();
+        }
+        let probe_line = session.probe.as_ref().map(|p| {
+            format!(
+                ", Ende-zu-Ende {:.1}/{:.1} ms ({} ohne Muster)",
+                p.avg_us() as f64 / 1000.0,
+                p.max_us() as f64 / 1000.0,
+                p.misses()
+            )
+        });
         let st = &session.stats;
         // `concat!` statt Zeilenfortsetzungen: mit `\` am Zeilenende ist beim
         // Schreiben dieser Datei schon einmal eine einzige lange Zeile mit
@@ -474,6 +497,12 @@ impl App {
             st.buffered_packets,
             st.frames_skipped,
         );
+        // Getrennte Zeile statt eines weiteren Platzhalters in der grossen:
+        // die Sonde laeuft nur im Pruefstand, und die Zeile oben soll im
+        // Normalbetrieb unveraendert bleiben (der Pruefstand liest sie).
+        if let Some(line) = probe_line {
+            eprintln!("pulse-player: Sitzung {id}{line}");
+        }
         session.last_log = Some(now);
         session.presented_at_last_log = presented;
     }

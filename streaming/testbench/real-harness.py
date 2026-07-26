@@ -74,12 +74,34 @@ def main() -> int:
     ap.add_argument("--audio", default="Desktop", help='"Desktop" oder "Aus"')
     ap.add_argument("--bits", type=int, default=10)
     ap.add_argument("--kbps", type=int, default=25000)
+    ap.add_argument("--e2e", action="store_true",
+                    help="Ende-zu-Ende messen: Zeitmuster anzeigen und im Player zurücklesen")
     ap.add_argument("--label", default="")
     args = ap.parse_args()
 
     tag = args.label or f"echt-{args.audio.lower()}"
     send_log = open(HERE / f"send-{tag}.log", "w")
     player_log = open(HERE / f"player-{tag}.log", "w")
+
+    # Ende-zu-Ende: gemeinsame Epoche fuer Muster und Sonde. Beide rechnen in
+    # Millisekunden seit DIESEM Zeitpunkt — ohne gemeinsamen Nullpunkt waere die
+    # Differenz sinnlos.
+    pattern = None
+    player_env: dict[str, str] = {}
+    if args.e2e:
+        epoch = str(int(time.time() * 1000))
+        pattern_log = open(HERE / f"pattern-{tag}.log", "w")
+        pattern = subprocess.Popen(
+            [sys.executable, str(HERE / "latency-pattern.py")],
+            env={**os.environ, "PULSE_LATENCY_EPOCH_MS": epoch},
+            stdout=pattern_log, stderr=pattern_log,
+        )
+        time.sleep(2.0)  # Fenster aufbauen lassen
+        if pattern.poll() is not None:
+            print("Zeitmuster startete nicht — siehe pattern-Log", file=sys.stderr)
+            return 1
+        player_env = {"PULSE_PLAYER_LATENCY_PROBE": "1",
+                      "PULSE_PLAYER_LATENCY_EPOCH_MS": epoch}
 
     path, pub, rd = mint_tokens()
     whep = f"http://localhost:8889/{path}/whep?token={rd}"
@@ -103,7 +125,7 @@ def main() -> int:
             return 1
         time.sleep(4.0)  # Publish + Auth abwarten
 
-        player = Player(player_log)
+        player = Player(player_log, player_env)
         res = player.call("open", url=whep, title=f"Pruefstand {tag}")
         if not res.get("ok"):
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
@@ -119,6 +141,12 @@ def main() -> int:
         if player is not None:
             player.stop()
         sender.stop()
+        if pattern is not None:
+            pattern.terminate()
+            try:
+                pattern.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pattern.kill()
         send_log.close()
         player_log.close()
 
@@ -129,7 +157,8 @@ def main() -> int:
     print(f"[{tag}] {len(useful)} Proben")
     for name in ("fps", "kbps", "frames_never_drawn", "arrival_gap_max_us",
                  "arrival_gaps_over_5ms", "packets_lost", "frames_dropped",
-                 "decode_avg_us", "glass_avg_us", "glass_max_us"):
+                 "decode_avg_us", "glass_avg_us", "glass_max_us",
+                 "e2e_avg_us", "e2e_max_us", "e2e_misses"):
         vals = [float(s.get(name, 0) or 0) for s in useful]
         if any(vals):
             print(f"  {name:24s} min {min(vals):9.1f}  mittel {sum(vals)/len(vals):9.1f}  max {max(vals):9.1f}")

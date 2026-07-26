@@ -72,6 +72,43 @@ Abstand 0.6-5.8 ms (0 zu spaet), Ankunft max 5.6 ms
 Bildzahl, Bitrate und Paketverlust allein sagen darüber **nichts** — die sahen
 während des ganzen Ruckelns tadellos aus.
 
+## Ende zu Ende messen
+
+```bash
+./real-harness.py --secs 22 --fps 60 --kbps 4000 --e2e --label <name>
+```
+
+`--e2e` startet zusätzlich `latency-pattern.py`: auf jedem Bildschirm ein
+Vollbild-Fenster (ganz nach hinten gestellt) mit einem Balken aus schwarzen und
+weißen Klötzen, der die Millisekunden seit einer gemeinsamen Epoche kodiert. Der
+Player liest ihn aus der Luma-Ebene des dekodierten Bildes zurück und rechnet
+`jetzt − abgelesene Zeit`.
+
+Das Bild trägt die Uhrzeit also selbst — nötig, weil der Weg über FLV, RTMP,
+MediaMTX und WebRTC führt und jede Station Zeitstempel umschreibt. Was im Bild
+steht, übersteht alle davon. Kein Bildschirmfoto, keine Texterkennung, keine
+Fensterposition, kein Handgriff.
+
+Im Player-Log:
+
+```
+pulse-player: Sitzung 1, Ende-zu-Ende 96.1/104.0 ms (0 ohne Muster)
+```
+
+Die letzte Zahl ist die Kontrolle: **„ohne Muster" muss 0 sein**. Steht dort
+etwas anderes, war der Balken verdeckt oder das Muster lief auf einem Bildschirm,
+den der Sender nicht aufnimmt — dann ist der Mittelwert nur über die restlichen
+Bilder gebildet.
+
+Zwei Dinge, die man wissen muss, um die Zahl nicht zu überschätzen:
+
+* Sie ist eine **Obergrenze**. Der Anzeigeverzug des messenden Fensters steckt
+  mit drin (Qt malt, der Compositor zeigt es einen Bildtakt später).
+* Das Muster-Fenster **erzeugt Last**. Beim ersten Aufbau war das grob genug, um
+  die Messung zu verfälschen (Dekodieren 1,6 → 4,8 ms, Aufnahme auf 30 Bilder).
+  Deshalb wird nur der Bereich der Balken neu gezeichnet, nicht die Fläche, und
+  das Raster ist 8 ms — feiner gemessen wurde die Zahl schlechter, nicht besser.
+
 ## Was damit gefunden wurde (2026-07-26)
 
 Der Ton bündelte das Bild. FLV ist eine einzige Zeitleiste, der Muxer gibt ein

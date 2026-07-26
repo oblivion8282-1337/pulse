@@ -1,0 +1,293 @@
+//! Ende-zu-Ende-Latenz: die Uhrzeit aus dem Bild zurücklesen.
+//!
+//! Der Prüfstand malt mit `streaming/testbench/latency-pattern.py` einen Balken
+//! aus schwarzen und weißen Klötzen auf den Bildschirm, der die Millisekunden
+//! seit einer gemeinsamen Epoche kodiert. Hier wird er aus der Luma-Ebene des
+//! dekodierten Bildes gelesen; die Differenz zur aktuellen Uhrzeit ist die
+//! Latenz über die GANZE Kette — Aufnahme, Encoder, Netz, MediaMTX, Jitter,
+//! Decoder, Fenster.
+//!
+//! Warum dieser Umweg und nicht ein Zeitstempel im Bitstrom: der Weg führt über
+//! FLV, RTMP, MediaMTX und WebRTC. Jede Station schreibt Zeitstempel um. Was im
+//! BILD steht, überlebt alle davon unverändert.
+//!
+//! Nur aktiv mit `PULSE_PLAYER_LATENCY_PROBE=1`; im Normalbetrieb kostet es
+//! keinen Handschlag (die Sitzung legt gar keine Sonde an).
+//!
+//! Nicht offensichtlich: gemessen wird gegen die Uhr, die das MALENDE Programm
+//! benutzt, also `SystemTime` (CLOCK_REALTIME) auf derselben Maschine — nicht
+//! `Instant`. Ein Sprung der Systemuhr während der Messung würde sie verfälschen;
+//! dafür ist sie überhaupt erst über Prozessgrenzen hinweg vergleichbar.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::decode::DecodedFrame;
+
+// ── Musterformat — MUSS mit `latency-pattern.py` übereinstimmen ──────────────
+const BLOCK: usize = 32;
+const MARKER: [u8; 8] = [1, 0, 1, 1, 0, 0, 1, 0];
+const COUNTER_BITS: usize = 16;
+const POS_X: [usize; 3] = [64, 880, 1696];
+const POS_Y: [usize; 4] = [64, 400, 800, 1200];
+
+/// Über dieser Latenz gilt ein Ablesen als Unsinn (verdeckter Balken, zufällig
+/// passendes Bildschirmmuster, Umlauf des Zählers). 2 s ist weit jenseits allem,
+/// was diese Kette je braucht, und weit unter den 65,5 s des Umlaufs.
+const MAX_PLAUSIBLE_MS: u64 = 2_000;
+
+#[derive(Default)]
+pub struct LatencyProbe {
+    epoch_ms: u64,
+    /// Zuletzt erfolgreiche Stelle — beim nächsten Bild zuerst probiert. Ohne
+    /// das würde jedes Bild alle zwölf Stellen durchgehen, obwohl sich der Ort
+    /// praktisch nie ändert.
+    hit: Option<(usize, usize)>,
+    sum_us: u64,
+    count: u64,
+    max_us: u64,
+    avg_us: u64,
+    max_us_last: u64,
+    /// Bilder, in denen kein gültiger Balken zu finden war. Gehört in die
+    /// Ausgabe: eine Messung über zwei von hundert Bildern wäre keine.
+    misses: u64,
+    misses_last: u64,
+}
+
+impl LatencyProbe {
+    /// Sonde nur anlegen, wenn beide Umgebungsvariablen gesetzt sind. Ohne
+    /// Epoche wäre jede Zahl erfunden — deshalb kein Standardwert.
+    pub fn from_env() -> Option<Self> {
+        if std::env::var("PULSE_PLAYER_LATENCY_PROBE").as_deref() != Ok("1") {
+            return None;
+        }
+        let epoch_ms = std::env::var("PULSE_PLAYER_LATENCY_EPOCH_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())?;
+        eprintln!("pulse-player: Latenz-Sonde aktiv (Epoche {epoch_ms})");
+        Some(Self { epoch_ms, ..Default::default() })
+    }
+
+    /// Ein Bild auswerten. Wird unmittelbar vor dem Hochladen gerufen, weil die
+    /// Ebenen danach dem Renderer gehören.
+    pub fn note(&mut self, frame: &DecodedFrame) {
+        let Some(counter) = self.read_counter(frame) else {
+            self.misses += 1;
+            return;
+        };
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        // Beide Seiten rechnen in Millisekunden seit derselben Epoche; der
+        // Zähler ist auf 16 bit beschnitten, die Differenz also modulo 65536.
+        let elapsed = now_ms.saturating_sub(self.epoch_ms) & 0xFFFF;
+        let latency_ms = elapsed.wrapping_sub(counter as u64) & 0xFFFF;
+        if latency_ms > MAX_PLAUSIBLE_MS {
+            // Unglaubwürdig: entweder ein Fehltreffer im Bildinhalt oder der
+            // Balken war verdeckt. Die Stelle verwerfen, damit das nächste Bild
+            // neu sucht, statt dauerhaft Unsinn zu liefern.
+            self.hit = None;
+            self.misses += 1;
+            return;
+        }
+        let us = latency_ms * 1000;
+        self.sum_us += us;
+        self.count += 1;
+        self.max_us = self.max_us.max(us);
+    }
+
+    /// Fenster abschließen: Mittel bilden, Zähler leeren. Wird im selben
+    /// Sekundenrhythmus gerufen wie die übrigen Messwerte.
+    pub fn roll(&mut self) {
+        if self.count > 0 {
+            self.avg_us = self.sum_us / self.count;
+            self.max_us_last = self.max_us;
+        }
+        self.misses_last = self.misses;
+        self.sum_us = 0;
+        self.count = 0;
+        self.max_us = 0;
+        self.misses = 0;
+    }
+
+    pub fn avg_us(&self) -> u64 {
+        self.avg_us
+    }
+    pub fn max_us(&self) -> u64 {
+        self.max_us_last
+    }
+    pub fn misses(&self) -> u64 {
+        self.misses_last
+    }
+
+    /// Zähler an der gemerkten oder an einer der zwölf Stellen lesen.
+    fn read_counter(&mut self, frame: &DecodedFrame) -> Option<u16> {
+        if let Some((x, y)) = self.hit {
+            if let Some(v) = read_bar(frame, x, y) {
+                return Some(v);
+            }
+        }
+        for y in POS_Y {
+            for x in POS_X {
+                if let Some(v) = read_bar(frame, x, y) {
+                    self.hit = Some((x, y));
+                    return Some(v);
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Luma eines Bildpunkts, 8 oder 10 bit, immer auf 0..=255 gebracht.
+fn luma_at(frame: &DecodedFrame, x: usize, y: usize) -> Option<u8> {
+    let stride = *frame.strides.first()?;
+    let plane = frame.planes.first()?;
+    if frame.ten_bit {
+        // P010: 16-bit-Wörter, die zehn Bit sitzen OBEN.
+        let off = y * stride + x * 2;
+        let hi = *plane.get(off + 1)?;
+        Some(hi)
+    } else {
+        Some(*plane.get(y * stride + x)?)
+    }
+}
+
+/// Einen Balken an (x0, y0) lesen: erst das Erkennungsmuster prüfen, dann die
+/// sechzehn Zählerbits. `None`, sobald etwas nicht passt.
+fn read_bar(frame: &DecodedFrame, x0: usize, y0: usize) -> Option<u16> {
+    let cy = y0 + BLOCK / 2;
+    if cy >= frame.height as usize {
+        return None;
+    }
+    let bits = MARKER.len() + COUNTER_BITS;
+    if x0 + bits * BLOCK > frame.width as usize {
+        return None;
+    }
+    // Mitte des Klotzes ablesen: die Ränder verwischt der Encoder, die Mitte
+    // bleibt auch bei 4000 kbps eindeutig schwarz oder weiß.
+    let bit_at = |i: usize| -> Option<u8> {
+        let v = luma_at(frame, x0 + i * BLOCK + BLOCK / 2, cy)?;
+        // Grenzwerte statt einer Mitte bei 128: dazwischen liegt kein gültiger
+        // Wert, und ein grauer Punkt bedeutet "das ist nicht unser Balken".
+        match v {
+            0..=70 => Some(0),
+            180..=255 => Some(1),
+            _ => None,
+        }
+    };
+    for (i, want) in MARKER.iter().enumerate() {
+        if bit_at(i)? != *want {
+            return None;
+        }
+    }
+    let mut counter: u16 = 0;
+    for i in 0..COUNTER_BITS {
+        counter = (counter << 1) | bit_at(MARKER.len() + i)? as u16;
+    }
+    Some(counter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Baut ein Bild, das an (x0, y0) genau den Balken des Musters traegt.
+    fn frame_with_bar(x0: usize, y0: usize, counter: u16, ten_bit: bool) -> DecodedFrame {
+        let (w, h) = (2560usize, 1440usize);
+        let bpp = if ten_bit { 2 } else { 1 };
+        let stride = w * bpp;
+        let mut plane = vec![0u8; stride * h];
+        let bits: Vec<u8> = MARKER
+            .iter()
+            .copied()
+            .chain((0..COUNTER_BITS).map(|i| ((counter >> (COUNTER_BITS - 1 - i)) & 1) as u8))
+            .collect();
+        for (i, bit) in bits.iter().enumerate() {
+            if *bit == 0 {
+                continue;
+            }
+            for y in y0..y0 + BLOCK {
+                for x in x0 + i * BLOCK..x0 + (i + 1) * BLOCK {
+                    let off = y * stride + x * bpp;
+                    if ten_bit {
+                        plane[off] = 0xC0;
+                        plane[off + 1] = 0xFF; // obere acht Bit = weiss
+                    } else {
+                        plane[off] = 0xFF;
+                    }
+                }
+            }
+        }
+        DecodedFrame::for_test(w as u32, h as u32, vec![plane], vec![stride], ten_bit)
+    }
+
+    #[test]
+    fn liest_den_zaehler_an_jeder_vorgesehenen_stelle() {
+        for y in POS_Y {
+            for x in POS_X {
+                let f = frame_with_bar(x, y, 40_000, false);
+                assert_eq!(read_bar(&f, x, y), Some(40_000), "Stelle {x},{y}");
+            }
+        }
+    }
+
+    #[test]
+    fn liest_auch_zehn_bit() {
+        let f = frame_with_bar(64, 64, 1234, true);
+        assert_eq!(read_bar(&f, 64, 64), Some(1234));
+    }
+
+    #[test]
+    fn schwarzes_bild_ist_kein_balken() {
+        // Ein Bild ohne Muster darf NICHTS liefern — sonst meldete die Sonde
+        // eine erfundene Latenz, was schlimmer waere als keine Zahl.
+        let f = DecodedFrame::for_test(2560, 1440, vec![vec![0u8; 2560 * 1440]], vec![2560], false);
+        assert_eq!(read_bar(&f, 64, 64), None);
+    }
+
+    #[test]
+    fn grauer_punkt_gilt_nicht_als_bit() {
+        let mut f = frame_with_bar(64, 64, 7, false);
+        // Erstes Klotz-Zentrum auf Grau setzen: das Erkennungsmuster verlangt
+        // dort eine 1, Grau ist keine.
+        let stride = f.strides[0];
+        f.planes[0][(64 + BLOCK / 2) * stride + 64 + BLOCK / 2] = 128;
+        assert_eq!(read_bar(&f, 64, 64), None);
+    }
+
+    #[test]
+    fn zaehler_ohne_muster_wird_nicht_geraten() {
+        let f = frame_with_bar(64, 64, 999, false);
+        // Daneben liegt kein Balken.
+        assert_eq!(read_bar(&f, 880, 400), None);
+    }
+
+    #[test]
+    fn unglaubwuerdige_latenz_verwirft_die_stelle() {
+        let mut probe = LatencyProbe { hit: Some((64, 64)), ..Default::default() };
+        // Zaehler 0 bei einer Epoche von 1970 ergibt eine absurde Differenz.
+        probe.note(&frame_with_bar(64, 64, 0, false));
+        assert_eq!(probe.count, 0, "darf nicht mitzaehlen");
+        assert_eq!(probe.misses, 1);
+        assert!(probe.hit.is_none(), "Stelle muss verworfen sein");
+    }
+
+    /// Die Formate der beiden Seiten muessen zusammenpassen; laeuft eine
+    /// Konstante auseinander, liest die Sonde stumm nichts mehr.
+    #[test]
+    fn musterformat_stimmt_mit_dem_python_teil_ueberein() {
+        let py = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../testbench/latency-pattern.py"),
+        )
+        .expect("latency-pattern.py");
+        assert!(py.contains(&format!("BLOCK = {BLOCK}")), "BLOCK");
+        assert!(py.contains(&format!("COUNTER_BITS = {COUNTER_BITS}")), "COUNTER_BITS");
+        assert!(
+            py.contains("MARKER = [1, 0, 1, 1, 0, 0, 1, 0]"),
+            "MARKER"
+        );
+        assert!(py.contains("(64, 880, 1696)"), "Spalten");
+        assert!(py.contains("(64, 400, 800, 1200)"), "Zeilen");
+    }
+}

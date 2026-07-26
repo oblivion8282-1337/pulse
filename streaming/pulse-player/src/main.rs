@@ -22,6 +22,7 @@ mod dump;
 mod jitter;
 mod mediasink;
 mod overlay;
+mod probe;
 mod proto;
 mod recorder;
 mod render;

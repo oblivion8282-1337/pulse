@@ -165,6 +165,32 @@ pub struct DecodedFrame {
     pool: PlanePool,
 }
 
+#[cfg(test)]
+impl DecodedFrame {
+    /// Bild aus fertigen Ebenen bauen — nur fuer Tests (die Latenz-Sonde muss
+    /// gegen ein Bild mit bekanntem Inhalt geprueft werden koennen).
+    pub fn for_test(
+        width: u32,
+        height: u32,
+        planes: Vec<Vec<u8>>,
+        strides: Vec<usize>,
+        ten_bit: bool,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            format: PixelLayout::Planar420,
+            planes,
+            strides,
+            ten_bit,
+            full_range: false,
+            matrix: ColorMatrix::Bt709,
+            arrived: None,
+            pool: PlanePool::default(),
+        }
+    }
+}
+
 impl Drop for DecodedFrame {
     fn drop(&mut self) {
         self.pool.give_back(std::mem::take(&mut self.planes));

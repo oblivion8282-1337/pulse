@@ -75,8 +75,9 @@ def start_push(path: str, token: str, audio: bool, log, extra: list[str] | None 
 
 
 class Player:
-    def __init__(self, log) -> None:
-        env = {**os.environ, "PULSE_PLAYER_STATS_LOG": "1", "RUST_LOG": "info"}
+    def __init__(self, log, env_extra: dict | None = None) -> None:
+        env = {**os.environ, "PULSE_PLAYER_STATS_LOG": "1", "RUST_LOG": "info",
+               **(env_extra or {})}
         self.p = subprocess.Popen(
             [str(PLAYER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=log, env=env, text=True, bufsize=1,
