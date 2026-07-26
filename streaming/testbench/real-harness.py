@@ -31,8 +31,9 @@ SIDECAR = Path(os.environ.get(
 class Sidecar:
     """stdio-JSON-RPC wie der Player — gleiches Protokoll, andere Richtung."""
 
-    def __init__(self, log) -> None:
-        env = {**os.environ, "PULSE_PORTAL_REUSE": "1", "RUST_LOG": "info"}
+    def __init__(self, log, env_extra: dict | None = None) -> None:
+        env = {**os.environ, "PULSE_PORTAL_REUSE": "1", "RUST_LOG": "info",
+               **(env_extra or {})}
         self.p = subprocess.Popen(
             [str(SIDECAR)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=log, env=env, text=True, bufsize=1,
@@ -74,6 +75,10 @@ def main() -> int:
     ap.add_argument("--audio", default="Desktop", help='"Desktop" oder "Aus"')
     ap.add_argument("--bits", type=int, default=10)
     ap.add_argument("--kbps", type=int, default=25000)
+    ap.add_argument("--quality", action="store_true",
+                    help="Bildqualitaet: Rohmitschnitt im Sender + Aufnahme im Player")
+    ap.add_argument("--content", type=Path, default=None,
+                    help="Video, das waehrend der Messung als Bildinhalt laeuft")
     ap.add_argument("--e2e", action="store_true",
                     help="Ende-zu-Ende messen: Zeitmuster anzeigen und im Player zurücklesen")
     ap.add_argument("--label", default="")
@@ -103,12 +108,36 @@ def main() -> int:
         player_env = {"PULSE_PLAYER_LATENCY_PROBE": "1",
                       "PULSE_PLAYER_LATENCY_EPOCH_MS": epoch}
 
+    # Bildinhalt: ohne bewegtes Bild sagt eine Qualitaetsmessung nichts. Auf
+    # JEDEM Bildschirm eine Wiedergabe, weil nicht feststeht, welchen der Sender
+    # aufnimmt (dieselbe Ueberlegung wie beim Zeitmuster).
+    players_content: list[subprocess.Popen] = []
+    if args.content is not None:
+        content_log = open(HERE / f"content-{tag}.log", "w")
+        screens = int(os.environ.get("PULSE_SCREENS", "3"))
+        for i in range(screens):
+            players_content.append(subprocess.Popen(
+                ["mpv", "--no-audio", "--loop-file=inf", "--fullscreen",
+                 f"--fs-screen={i}", "--no-osc", "--no-input-default-bindings",
+                 "--profile=low-latency", str(args.content)],
+                stdout=content_log, stderr=content_log,
+            ))
+        time.sleep(3.0)
+
+    sender_env: dict[str, str] = {}
+    ref_path = HERE / f"ref-{tag}.raw"
+    if args.quality:
+        # Der Mitschnitt ist unkomprimiert (gut 660 MB je Sekunde bei 1440p60) —
+        # er gehoert auf die SSD, und die Bildzahl bleibt klein.
+        sender_env["PULSE_DUMP_RAW"] = str(ref_path)
+        sender_env["PULSE_DUMP_RAW_FRAMES"] = "180"
+
     path, pub, rd = mint_tokens()
     whep = f"http://localhost:8889/{path}/whep?token={rd}"
     push = f"rtmps://localhost:1936/{path}?token={pub}"
     print(f"[{tag}] Pfad {path}")
 
-    sender = Sidecar(send_log)
+    sender = Sidecar(send_log, sender_env)
     player = None
     samples: list[dict] = []
     try:
@@ -131,6 +160,22 @@ def main() -> int:
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
             return 1
         sid = res["session"]
+        rec_path = HERE / f"rec-{tag}.mkv"
+        if args.quality:
+            # Auf das erste Bild WARTEN, nicht schaetzen: `record` lehnt vorher
+            # ab ("noch kein Bild empfangen"), weil es den Codec des Stroms
+            # kennen muss, um den Container zu waehlen. Ein fester Vorlauf war
+            # zu kurz und die Aufnahme fiel still aus.
+            for _ in range(60):
+                st = player.call("stats", session=sid)
+                if st.get("ok") and (st.get("frames_decoded") or 0) > 0:
+                    break
+                time.sleep(0.25)
+            rr = player.call("record", session=sid, path=str(rec_path))
+            if not rr.get("ok"):
+                print(f"Aufnahme abgelehnt: {rr}", file=sys.stderr)
+                return 1
+            print(f"Aufnahme laeuft: {rr.get('path', rec_path)}")
         end = time.monotonic() + args.secs
         while time.monotonic() < end:
             time.sleep(1.0)
@@ -139,7 +184,19 @@ def main() -> int:
                 samples.append(s)
     finally:
         if player is not None:
+            if args.quality:
+                try:
+                    player.call("stop_record", session=sid)
+                except Exception as e:
+                    print(f"stop_record: {e}", file=sys.stderr)
             player.stop()
+        for c in players_content:
+            c.terminate()
+        for c in players_content:
+            try:
+                c.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                c.kill()
         sender.stop()
         if pattern is not None:
             pattern.terminate()
@@ -149,6 +206,10 @@ def main() -> int:
                 pattern.kill()
         send_log.close()
         player_log.close()
+
+    if args.quality:
+        print(f"\nVergleich starten mit:\n  ./compare-quality.py --ref {ref_path} "
+              f"--rec {HERE / f'rec-{tag}.mkv'}")
 
     useful = samples[2:]
     if not useful:

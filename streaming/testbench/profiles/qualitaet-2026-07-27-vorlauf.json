@@ -1,0 +1,34 @@
+{
+  "id": "qualitaet-2026-07-27-vorlauf",
+  "vergleich_gegen": "variante-2026-07-26-nvenc-ohne-vorlauf.json — dort wurde der Latenzgewinn gemessen, hier sein Preis",
+  "gemessen_am": "2026-07-27",
+  "frage": "Kostet das Abschalten des NVENC-Vorlaufs (zerolatency=1, delay=0) Bildqualitaet?",
+
+  "verfahren": {
+    "referenz": "Der Sender schreibt mit PULSE_DUMP_RAW den Encoder-EINGANG verlustfrei mit (P010, 180 Bilder, 1,99 GB). Damit ist erstmals 'gegen das Original' messbar statt nur 'Variante gegen Variante'.",
+    "empfang": "Der Player nimmt mit seiner `record`-Operation den EMPFANGENEN Bitstrom auf, ohne Neukodierung.",
+    "zuordnung": "Ueber die Bildinhalte: das erste Bild der Aufnahme wird gegen die ersten 120 Referenzbilder gehalten, die kleinste mittlere Abweichung gewinnt (gefunden bei Abweichung 2,4-3,0 — eine falsche Zuordnung laege um Groessenordnungen darueber). Zeitstempel taugen nicht: beide Seiten haben eigene Uhren mit unbekanntem Versatz.",
+    "metriken": "libvmaf (Modell vmaf_v0.6.1) samt PSNR und SSIM als eingebaute Merkmale, 100 Bilder je Lauf",
+    "inhalt": "testsrc2 in 2560x1440, per mpv auf allen Bildschirmen in Endlosschleife. Bewusst ein SCHWERER Fall: Rauschen und Kanten ueberall. Bei 4000 kbps auf 1440p60 sind das 0,018 bit je Bildpunkt, die absoluten Werte sind entsprechend niedrig. Fuer VERGLEICHE ist das richtig, als Aussage ueber die Qualitaet auf einem Desktop nicht."
+  },
+
+  "ergebnis": {
+    "paar_1": {
+      "mit_vorlauf":  { "vmaf": 24.234, "psnr_y": 24.833, "ssim": 0.923, "kbps": 4109 },
+      "ohne_vorlauf": { "vmaf": 24.472, "psnr_y": 23.413, "ssim": 0.907, "kbps": 4104 }
+    },
+    "paar_2": {
+      "mit_vorlauf":  { "vmaf": 27.054, "psnr_y": 24.115, "ssim": 0.921, "kbps": 4031 },
+      "ohne_vorlauf": { "vmaf": 25.926, "psnr_y": 23.498, "ssim": 0.911, "kbps": 4029 }
+    },
+    "befund": "Ein kleiner, aber in BEIDEN Paaren gleichgerichteter Verlust: PSNR -0,6 bis -1,4 dB, SSIM -0,010 bis -0,016. VMAF schwankt um +-1 und entscheidet nichts. Zusaetzlich streuen die Einzelbilder deutlich weiter (kleinstes VMAF 11,7 statt 13,1) — passend dazu, dass die Ratensteuerung ohne Vorlauf nicht mehr ausgleichen kann.",
+    "belastbarkeit": "Die Bitraten der Paare stimmen auf 5 kbit/s ueberein, der Inhalt war also gleich schwer — die Abweichung ist damit nicht mit 'anderer Inhalt' erklaerbar. Was bleibt: die verglichenen Bilder sind nicht dieselben (die Schleife laeuft in beliebiger Phase), deshalb sind Einzelwerte auf 0,5 dB nicht belastbar, die RICHTUNG ueber zwei Paare hinweg aber schon."
+  },
+
+  "abwaegung": "10 ms Latenz gegen etwa 1 dB PSNR. Auf Bildschirminhalt (viel Flaeche, wenig Bewegung) duerfte der Verlust kleiner ausfallen als auf diesem Rauschmuster; nachgemessen ist das nicht. Der Vorlauf bleibt abgeschaltet — rueckholbar mit PULSE_NVENC_LOW_DELAY=0, und diese Datei haelt fest, was die Entscheidung kostet.",
+
+  "gefundene_fehler_im_messwerkzeug": [
+    "Das Format des Rueckuebertragungs-Rahmens wurde bei JEDEM Bild auf 'unbestimmt' gesetzt. Ab dem zweiten Bild traegt der Rahmen schon Speicher, und dann passt die Beschreibung nicht mehr zum Inhalt: geschrieben wurden 4.608.000 Bytes (ein yuv420p-Bild) statt 11.059.200, danach Abbruch mit 'Ebene 2 fehlt'. Der Mitschnitt bestand aus EINEM Bild.",
+    "Die Aufnahme im Player wurde nach festem Vorlauf angefordert und still abgelehnt ('noch kein Bild empfangen' — der Container haengt am Codec, der erst mit dem ersten Bild bekannt ist). Jetzt wird auf das erste dekodierte Bild gewartet."
+  ]
+}

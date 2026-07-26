@@ -109,6 +109,37 @@ Zwei Dinge, die man wissen muss, um die Zahl nicht zu überschätzen:
   Deshalb wird nur der Bereich der Balken neu gezeichnet, nicht die Fläche, und
   das Raster ist 8 ms — feiner gemessen wurde die Zahl schlechter, nicht besser.
 
+## Bildqualität messen
+
+```bash
+./real-harness.py --secs 12 --fps 60 --kbps 4000 --quality --content synth10.mkv --label <name>
+./compare-quality.py --ref ref-<name>.raw --rec rec-<name>.mkv --frames 100
+```
+
+`--quality` schaltet zwei Mitschnitte ein und spielt Bildinhalt ab:
+
+* **Referenz** — der Sender schreibt mit `PULSE_DUMP_RAW` verlustfrei mit, was er
+  dem Encoder *hineingibt*. Damit ist „gegen das Original" messbar statt nur
+  „Variante gegen Variante". Unkomprimiert: gut **660 MB je Sekunde**, Grenze
+  180 Bilder (rund 2 GB). Auf eine SSD, nicht nach `/tmp` — das ist
+  Arbeitsspeicher.
+* **Empfang** — der Player nimmt den empfangenen Bitstrom auf, ohne Neukodierung.
+* **Inhalt** — `--content` spielt ein Video auf *allen* Bildschirmen in
+  Endlosschleife (mpv). Ohne bewegtes Bild sagt eine Qualitätsmessung nichts, und
+  welchen Bildschirm der Sender aufnimmt, steht nicht fest.
+
+`compare-quality.py` ordnet die beiden Seiten über die **Bildinhalte** zu (das
+erste Bild der Aufnahme gegen die ersten Referenzbilder, kleinste mittlere
+Abweichung gewinnt) und misst dann VMAF, PSNR und SSIM. Zeitstempel taugen dafür
+nicht: beide Seiten haben eigene Uhren mit unbekanntem Versatz. Die gemeldete
+Abweichung der Zuordnung ist die Kontrolle — Werte um 2 bis 3 sind gut, ein
+zweistelliger Wert bedeutet, dass die Zahlen darunter wertlos sind.
+
+Zwei Dinge über die absoluten Zahlen: `testsrc2` ist ein **schwerer Sonderfall**
+(Rauschen und Kanten überall), und 4000 kbps bei 1440p60 sind 0,018 bit je
+Bildpunkt. VMAF um 25 ist dort normal und sagt nichts über Bildschirminhalt.
+Vergleiche zwischen Einstellungen sind damit belastbar, absolute Urteile nicht.
+
 ## Was damit gefunden wurde (2026-07-26)
 
 Der Ton bündelte das Bild. FLV ist eine einzige Zeitleiste, der Muxer gibt ein

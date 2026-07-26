@@ -4,3 +4,8 @@ samples-*.json
 !profiles/*.json
 # Vorkodierte Referenz-Vorlage (32 MB, per README erzeugbar)
 synth10.mkv
+
+# Mitschnitte der Qualitaetsmessung (GB-gross bzw. Lauf-Artefakte)
+*.raw
+*.pts
+rec-*.mkv
