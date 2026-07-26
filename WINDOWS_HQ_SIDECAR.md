@@ -47,12 +47,19 @@ Nicht weiter verfolgt in dieser Recherche.
 
 ## Rust-Sidecar (Option 3) — die Detail-Analyse
 
-### Stack (verifiziert per Recherche 2026-05-19, alles MIT/LGPL — Pulse-Lizenz unverändert)
+### Stack (verifiziert per Recherche 2026-05-19, alles MIT/LGPL)
+
+> **Lizenz-Update 2026-07-25:** Pulse ist seit diesem Datum nicht mehr AGPL,
+> sondern source-available (Client unter PolyForm Perimeter, Server unter
+> PolyForm Free Trial — siehe `LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md`
+> im Repo-Root). Die MIT/LGPL-Einordnung der unten gelisteten Drittanbieter-
+> Komponenten bleibt davon unberührt; Details + Nachweispflichten jetzt in
+> `THIRD-PARTY-NOTICES.md` + `web/src/lib/legal/drittanbieter.md`.
 
 - **Capture:** `windows-capture` 2.0 (NiiightmareXD, MIT, 478★, frisch Apr 2026) — WGC + DXGI-DDA-Fallback in **einer** Crate, kein separates `windows-record` nötig. ⚠️ Adapter-Selector fehlt (Issue #191) → für Optimus selbst per `IDXGIFactory6::EnumAdapterByGpuPreference` vorgeschaltet. Eingebauter `MediaTranscoder`-Encoder ignorieren (kein NVENC-Adapter-Wahl, kein AV1).
 - **Per-App-Audio:** `wasapi` 0.23 (HEnquist, MIT, v0.23 Apr 2026, 83★) — hat `AudioClient::new_application_loopback_client(pid, include_tree)` direkt im API plus `record_application.rs`-Beispiel (113 LOC) und `processes.rs`-Beispiel (20 LOC) für anti-cheat-sichere App-Enum via `IAudioSessionManager2`. **Korrigiert die alte „~500 Z. selber schreiben"-Annahme** — 80% geschenkt. Risiko: niedriger Bus-Faktor (83★, eventuell selber patchen+upstreamen müssen = ~1-2 PT Puffer).
 - **Encode:** `ffmpeg-next` 8.1 (WTFPL Wrapper, 1.9k★, maintenance-only aber stabil) + BtbN `ffmpeg-n8.x-latest-win64-lgpl-shared` DLLs (~50 MB). Encoder per Name (`h264_nvenc`/`h264_amf`/`h264_qsv` + AV1-Varianten). RustDesk-`hwcodec` ist Existenzbeweis dass der Weg trägt. Alternative `rsmpeg` (MIT, 870★, FFmpeg 8) wenn Zero-Copy-GPU-Pipelines wichtiger werden — beide gleichwertig produktionsreif.
-- **Mux+Push:** FFmpeg FLV-Mux + RTMPS frei Haus (`format::output("rtmps://…")` → FFmpeg macht TLS via SChannel selbst). ⚠️ **Opus-in-FLV-Patch aus `streaming/patches/` muss auf den BtbN-Build mit drauf** — alternativ Audio in AAC (FFmpegs eingebauter AAC-Encoder ist LGPL-OK).
+- **Mux+Push:** FFmpeg FLV-Mux + RTMPS frei Haus (`format::output("rtmps://…")` → FFmpeg macht TLS via SChannel selbst). Zum Zeitpunkt dieser Recherche unklar, ob Opus in FLV ohne Patch läuft — **inzwischen belegt: kein Patch nötig.** Der gebaute `win-hq-sidecar` muxt Opus direkt über den stock-BtbN-FFmpeg-Build (`profiles.rs:38-39`, `stream_controller.rs:408`) — kein Fallback auf AAC. `streaming/patches/` patcht ausschließlich `gpu-screen-recorder`-Quellcode (Linux/Flatpak), nicht FFmpeg — die ursprüngliche Annahme, der Patch müsse auf den FFmpeg-Build übertragen werden, hat sich als unnötig erwiesen (moderne FFmpeg-Versionen unterstützen Opus-in-FLV nativ).
 - **Protokoll:** `serde_json` + Tokio, port von `streaming/gsr-sidecar/control.py` 1:1. Selbe Ops (`health`/`gpu_info`/`list_application_audio`/`build_argv`/`start`/`stop`/`state`; `list_profiles` 2026-07-19 entfallen, siehe `streaming/README.md`) + Events (`state`/`fps`/`log`/`error`/`stopped`). `desktop/electron/sidecar.ts` braucht nur Plattform-Branch (PYTHON_BIN + scriptPath → BINARY_PATH).
 
 ### Cargo.toml-Skelett
@@ -96,7 +103,7 @@ Bus-Faktor verbessert sich deutlich: 4 von 6 Komponenten auf gewartete Upstream-
 ### Die zwei realen Risiko-Ecken
 
 1. **D3D11-Texture → NVENC ohne CPU-Roundtrip.** `ffmpeg-next` exposed `AV_PIX_FMT_D3D11` aber HW-Frames-Context-Verkabelung erfordert `unsafe`-Sprünge in `ffmpeg-sys-next`. RustDesk-`hwcodec` als Vorbild. Fallback: System-RAM-NV12 (-20-30% Encode-Perf, läuft aber).
-2. **Opus-in-FLV.** Pulse's FLV-Whitelist-Patch (`streaming/patches/`) muss auf BtbN-Build mit (entweder selber FFmpeg-LGPL bauen wie's der Flatpak-CI tut, oder Audio→AAC encoden).
+2. **Opus-in-FLV.** ~~Pulse's FLV-Whitelist-Patch (`streaming/patches/`) muss auf BtbN-Build mit~~ — hat sich in der Umsetzung als nicht nötig erwiesen. `streaming/patches/` patcht `gpu-screen-recorder` (Linux-only), nicht FFmpeg; der gebaute Windows-Sidecar muxt Opus direkt über den unveränderten BtbN-FFmpeg-Build.
 
 ### Weitere Edge-Cases die garantiert wehtun werden
 
@@ -115,7 +122,7 @@ CLAUDE.md's `❌ electron-builder` ist **Linux-Kontext-spezifisch** (Flatpak-Man
 
 **Distribution-Pfad für ersten Wurf** (vor electron-builder-Integration): Zip + PowerShell-Bootstrap analog `streaming/bootstrap-gsr.fish`, entpackt nach `%LOCALAPPDATA%\Pulse\hq-sidecar\`. Minimaler Aufwand, gleiche mentale Map wie Linux.
 
-**Lizenz-Modell:** Pulse bleibt closed (kein LICENSE-File), FFmpeg-DLLs werden **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen), Source-Mirror der gepinnten FFmpeg-Version irgendwo auf `howispulse.com/legal/`. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
+**Lizenz-Modell:** Stand 2026-07-25 ist Pulse source-available (`LICENSE`/`LICENSE-CLIENT.md`/`LICENSE-SERVER.md`, PolyForm Perimeter/Free Trial) — die zum Zeitpunkt dieser Recherche noch gültige „Pulse bleibt closed (kein LICENSE-File)"-Annahme ist damit überholt. FFmpeg-DLLs werden weiterhin **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen). Die geplante Drittanbieter-Lizenzseite existiert jetzt unter `/drittanbieter` (Quelle `web/src/lib/legal/drittanbieter.md`, Entwickler-Gegenstück `THIRD-PARTY-NOTICES.md` im Repo-Root) — sie verlinkt auf die unveränderte, öffentliche FFmpeg-Quelle statt einen eigenen Source-Mirror zu hosten. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
 
 ## Linux-Build-vs-Test-Realität
 
