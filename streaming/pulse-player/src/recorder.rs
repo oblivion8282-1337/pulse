@@ -293,6 +293,20 @@ impl Recorder {
     }
 }
 
+/// Auffangnetz: eine laufende Aufnahme wird auch dann sauber abgeschlossen,
+/// wenn die Sitzung ohne ausdrueckliches `stop_record` endet — Kanalwechsel,
+/// geschlossene Kachel, beendete App. Ohne den Trailer fehlt der Datei die
+/// Index-/Abschlussinformation, und je nach Abspieler ist sie unbrauchbar.
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        let Some(writer) = self.active.take() else { return };
+        match writer.finish() {
+            Ok(()) => eprintln!("pulse-player: Aufnahme beim Beenden abgeschlossen"),
+            Err(e) => eprintln!("pulse-player: Aufnahme konnte nicht abgeschlossen werden: {e:#}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

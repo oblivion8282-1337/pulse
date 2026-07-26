@@ -148,11 +148,16 @@ impl App {
         let Some(session) = self.sessions.get_mut(&id) else { return };
         match event {
             SessionEvent::Frame(frame) => {
-                session.full_range = frame.full_range;
+
                 // Bei Pause bleibt das zuletzt gezeigte Bild stehen, die
                 // Verbindung laeuft aber weiter — beim Fortsetzen ist man
                 // sofort wieder live.
                 if !session.options.paused.unwrap_or(false) {
+                    // Farbbereich zusammen mit dem Frame uebernehmen, den wir
+                    // tatsaechlich zeigen. Sonst wuerde ein waehrend der Pause
+                    // eintreffender Range-Wechsel auf das eingefrorene alte
+                    // Bild angewendet — sichtbar falsche Farben.
+                    session.full_range = frame.full_range;
                     session.pending = Some(frame);
                     session.window.request_redraw();
                 }

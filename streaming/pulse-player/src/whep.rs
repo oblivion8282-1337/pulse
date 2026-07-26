@@ -87,6 +87,34 @@ pub struct RtpArrival {
     pub arrived: Instant,
 }
 
+/// Entfernt Stream-Tokens aus einem Text, bevor er irgendwo hingeht, wo ihn
+/// jemand sehen kann.
+///
+/// Notwendig, weil `reqwest` bei Transportfehlern die **vollstaendige** URL an
+/// die Fehlermeldung haengt (`" for url ({url})"`) — samt `?token=`. Ueber
+/// `{e:#}` landete die in der Sitzungs-Fehlermeldung, von dort im
+/// `player:state`-Ereignis und schliesslich sichtbar im Fehler-Overlay der
+/// Kachel. Das Read-Token ist channel- und nutzergebunden, aber
+/// mehrfach verwendbar: wer den Screenshot sieht, kann mitschauen.
+///
+/// Projektregel: niemals Stream-Keys oder Tokens loggen.
+pub fn redact_tokens(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(pos) = rest.find("token=") {
+        let (before, after) = rest.split_at(pos + "token=".len());
+        out.push_str(before);
+        // Wert bis zum naechsten Trenner verwerfen.
+        let end = after
+            .find(|c: char| c == '&' || c == '"' || c == ')' || c == ' ' || c == '\'')
+            .unwrap_or(after.len());
+        out.push_str("<entfernt>");
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub struct WhepSession {
     pc: Arc<RTCPeerConnection>,
     resource_url: Option<String>,
@@ -196,7 +224,9 @@ async fn negotiate(
         .body(sdp)
         .send()
         .await
-        .context("WHEP-Server nicht erreichbar")?;
+        // NICHT `.context(...)`: das wuerde den reqwest-Fehler als Ursache
+        // anhaengen, und der traegt die volle URL inklusive Token.
+        .map_err(|e| anyhow!("WHEP-Server nicht erreichbar: {}", redact_tokens(&e.to_string())))?;
 
     let status = res.status();
     if !status.is_success() {
@@ -268,6 +298,29 @@ mod tests {
         assert_eq!(Codec::from_mime("video/AV1"), Some(Codec::Av1));
         assert_eq!(Codec::from_mime("audio/opus"), Some(Codec::Opus));
         assert_eq!(Codec::from_mime("video/VP9"), None);
+    }
+
+    #[test]
+    fn tokens_werden_aus_fehlertexten_entfernt() {
+        let leak = "error sending request for url (https://howispulse.com/whep/x?token=geheim123)";
+        let safe = redact_tokens(leak);
+        assert!(!safe.contains("geheim123"), "Token steht noch drin: {safe}");
+        assert!(safe.contains("token=<entfernt>"), "{safe}");
+        // Der Rest der Meldung muss erhalten bleiben, sonst ist sie wertlos.
+        assert!(safe.contains("howispulse.com"), "{safe}");
+    }
+
+    #[test]
+    fn redaktion_faengt_mehrere_vorkommen_und_parameter_danach() {
+        let s = redact_tokens("a?token=abc&x=1 und b?token=def)");
+        assert!(!s.contains("abc") && !s.contains("def"), "{s}");
+        assert!(s.contains("x=1"), "Folgeparameter duerfen nicht verlorengehen: {s}");
+    }
+
+    #[test]
+    fn text_ohne_token_bleibt_unveraendert() {
+        let s = "ganz normale Meldung";
+        assert_eq!(redact_tokens(s), s);
     }
 
     #[test]

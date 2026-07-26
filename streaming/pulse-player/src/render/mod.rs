@@ -81,7 +81,11 @@ impl Renderer {
     /// Stufenzahl des Ausgabeformats (2^Bits pro Kanal) fuer das Dither.
     fn output_levels(&self) -> f32 {
         match self.config.format {
-            wgpu::TextureFormat::Rgba16Float => 65536.0,
+            // fp16 ist Fliesskomma: die Mantisse traegt nahe 1.0 rund 11 Bit, nicht
+            // 16. Mit 65536 Stufen waere das Dither-Rauschen so schwach, dass es
+            // das Banding der spaeteren Quantisierung durch den Compositor nicht
+            // mehr aufbricht.
+            wgpu::TextureFormat::Rgba16Float => 2048.0,
             wgpu::TextureFormat::Rgb10a2Unorm => 1024.0,
             _ => 256.0,
         }
@@ -228,7 +232,10 @@ impl Renderer {
                 opts.deband.unwrap_or(0.0),
                 flag(opts.dither.unwrap_or(true)),
                 self.output_levels(),
-                self.start.elapsed().as_secs_f32(),
+                // Modulo, damit die f32-Aufloesung nicht mit der Laufzeit zerfaellt:
+                // nach ~18 h liegt der Abstand zweier darstellbarer Werte ueber
+                // einem Frameintervall, das Rauschmuster wuerde einfrieren.
+                (self.start.elapsed().as_secs_f64() % 3600.0) as f32,
             ],
             flags: [
                 flag(planes.ten_bit),

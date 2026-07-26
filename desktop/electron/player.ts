@@ -171,6 +171,17 @@ class PlayerManager {
       this.emit({ ev: 'player:state', state: 'failed', error: 'Player-Prozess beendet' });
     });
 
+    // EPIPE-Fehler beim Schreiben auf einen gerade gestorbenen Kindprozess
+    // kommen ASYNCHRON und werden vom try/catch um `write()` nicht gefangen.
+    // Ohne Listener wirft Node sie unbehandelt — und das reisst den ganzen
+    // Main-Prozess mit, nicht nur den Player. `sidecar.ts` hat denselben
+    // Handler aus genau diesem Grund. Nur loggen: der 'exit'-Handler und die
+    // Zeitueberschreitung raeumen die offenen Anfragen bereits auf.
+    child.stdin.on('error', (err) => {
+      if (this.child !== child) return;
+      console.error('[pulse-player] stdin-Fehler:', err);
+    });
+
     child.on('error', (err) => {
       console.error('[pulse-player] Start fehlgeschlagen:', err);
       this.startFailed = true;

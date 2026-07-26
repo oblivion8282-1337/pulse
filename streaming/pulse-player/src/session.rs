@@ -15,7 +15,7 @@ use crate::depacket::Assembler;
 use crate::jitter::{JitterBuffer, Release};
 use crate::mediasink::{MediaSink, MediaStats};
 use crate::proto::PlayerOptions;
-use crate::whep::{self, Codec, RtpArrival};
+use crate::whep::{self, redact_tokens, Codec, RtpArrival};
 
 /// Wie oft der Jitter-Puffer auf faellige Pakete geprueft wird, wenn gerade
 /// nichts hereinkommt. Feiner als die kleinste sinnvolle Zielzeit.
@@ -80,7 +80,7 @@ pub async fn run(
         Ok(s) => s,
         Err(e) => {
             let _ = events
-                .send(SessionEvent::Ended { reason: format!("{e:#}"), failed: true })
+                .send(SessionEvent::Ended { reason: redact_tokens(&format!("{e:#}")), failed: true })
                 .await;
             return;
         }
@@ -212,6 +212,15 @@ pub async fn run(
         let _ = events.try_send(SessionEvent::Stats(stats));
     };
 
+    // Eine laufende Aufnahme ausdruecklich abschliessen, damit der
+    // Matroska-Trailer geschrieben wird. `Recorder` hat dafuer zusaetzlich ein
+    // `Drop`-Netz; hier steht es explizit, weil die Absicht sonst nicht
+    // erkennbar waere.
+    if media.is_recording() {
+        if let Err(e) = media.stop_recording() {
+            eprintln!("pulse-player: Aufnahme beim Sitzungsende: {e}");
+        }
+    }
     whep_session.close().await;
     let _ = events.send(SessionEvent::Ended { reason, failed: false }).await;
 }

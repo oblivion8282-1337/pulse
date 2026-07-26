@@ -133,6 +133,10 @@ impl MediaSink {
         self.recorder.start(Path::new(path)).map_err(|e| format!("{e:#}"))
     }
 
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_recording()
+    }
+
     pub fn stop_recording(&mut self) -> Result<(), String> {
         self.recorder.stop().map_err(|e| format!("{e:#}"))
     }
