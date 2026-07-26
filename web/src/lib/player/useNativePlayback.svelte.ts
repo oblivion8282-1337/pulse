@@ -35,9 +35,14 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
    *  kann Overlay/HUD unveraendert weiterverwenden, egal welcher Weg aktiv ist. */
   readonly phase: StreamPhase;
   readonly detail: string;
+  /** Die laufende Sitzung — Traeger der Messwerte und der Fernsteuerung
+   *  (Lautstaerke, Fenster nach vorne). `null`, solange keine laeuft. */
+  readonly session: NativePlayerSession | null;
 } {
   let nativeAvailable = $state(false);
   let nativeFailed = $state(false);
+  /** Der Stream ist 8 bit → kein eigenes Fenster (s. `NativePlayerSession`). */
+  let nativeSkipped = $state(false);
 
   $effect(() => {
     void loadPlayerSettings();
@@ -45,7 +50,11 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
   });
 
   const active = $derived(
-    isElectron() && nativeAvailable && playerSettings.useNativePlayer && !nativeFailed
+    isElectron() &&
+      nativeAvailable &&
+      playerSettings.useNativePlayer &&
+      !nativeFailed &&
+      !nativeSkipped
   );
 
   let session = $state<NativePlayerSession | null>(null);
@@ -62,6 +71,12 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
   // bleibt die Kachel bis zum naechsten Mount beim <video>-Weg (derselbe
   // Stream neu ueber den Player zu versuchen wuerde denselben Fehler nur
   // wiederholen, z.B. ein zu altes Binary oder ein kaputter Codec-Pfad).
+  // 8-bit-Stream: still auf den `<video>`-Weg zurueck. Bewusst OHNE Warnung —
+  // das ist der Normalfall und kein Fehler.
+  $effect(() => {
+    if (session?.skipped) nativeSkipped = true;
+  });
+
   $effect(() => {
     if (session?.phase === 'failed') {
       console.warn(
@@ -94,6 +109,9 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
     },
     get detail() {
       return detail;
+    },
+    get session() {
+      return session;
     },
   };
 }

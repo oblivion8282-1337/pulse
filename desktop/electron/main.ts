@@ -818,7 +818,7 @@ function wireSidecar(): void {
  */
 // `record`/`clip` fehlen hier bewusst: die tragen einen Dateipfad und laufen
 // deshalb ueber eigene Kanaele, bei denen der Hauptprozess das Ziel bestimmt.
-const ALLOWED_PLAYER_OPS = new Set(['health', 'open', 'close', 'set_option', 'stats']);
+const ALLOWED_PLAYER_OPS = new Set(['health', 'open', 'close', 'set_option', 'stats', 'focus']);
 
 function wirePlayer(): void {
   // Registrieren startet den Prozess NICHT — der Start bleibt lazy bis zum

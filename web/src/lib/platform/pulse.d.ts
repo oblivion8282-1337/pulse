@@ -429,6 +429,10 @@ export interface PulsePlayerApi {
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
    *  von aussen belegbar, welcher Decoder und welche Bittiefe anliegen. */
   stats(session: number): Promise<PulsePlayerResult>;
+  /** Fenster nach vorne holen. Unter Wayland darf sich ein Fenster nicht selbst
+   *  nach vorne zwingen — der Compositor entscheidet, die Antwort sagt nur, dass
+   *  die Bitte angekommen ist. */
+  focus(session: number): Promise<PulsePlayerResult>;
   /** Mitschnitt starten. Zielpfad bestimmt der Hauptprozess, er steht als
    *  `path` in der Antwort. */
   record(session: number): Promise<PulsePlayerResult>;

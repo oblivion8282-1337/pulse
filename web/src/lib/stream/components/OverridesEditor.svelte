@@ -20,6 +20,7 @@
     captureSourceForSlot,
     persistSettings,
   } from '../settings.svelte';
+  import { stream } from '../state.svelte';
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -169,6 +170,25 @@
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
     persistSettings();
   }
+
+  // 10 bit gibt es nur, wo es auch ankommt: die Karte muss es encodieren können
+  // (`stream.tenBitAvailable`, heute nur der Linux-Rust-Sidecar) UND der Codec
+  // muss AV1 sein — 10-bit-H.264 wäre `High 10`, das kein Browser dekodiert.
+  // Die Zeile wird ausgeblendet statt deaktiviert, wenn die Karte es gar nicht
+  // kann: eine graue Option, die auf dieser Maschine nie angeht, ist nur
+  // Rätselraten. Bei falschem Codec bleibt sie sichtbar, aber gesperrt — dort
+  // ist die Ursache behebbar und der Hinweis nennt sie.
+  let tenBitUsable = $derived(codecValue === 'av1');
+  let tenBitOn = $derived(streamSettings.overrides.bit_depth === 10 && tenBitUsable);
+
+  function onTenBit(e: Event) {
+    const on = (e.currentTarget as HTMLInputElement).checked;
+    streamSettings.overrides = {
+      ...streamSettings.overrides,
+      bit_depth: on ? 10 : undefined,
+    };
+    persistSettings();
+  }
 </script>
 
 <div class="flex flex-col gap-3" data-testid="stream-overrides-editor">
@@ -262,4 +282,25 @@
     />
     <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
   </label>
+
+  {#if stream.tenBitAvailable}
+    <div class="flex flex-col gap-1">
+      <label
+        class="flex items-center gap-2 text-sm"
+        class:cursor-pointer={tenBitUsable}
+        class:opacity-60={!tenBitUsable}
+      >
+        <Checkbox
+          checked={tenBitOn}
+          disabled={!tenBitUsable}
+          onchange={onTenBit}
+          data-testid="stream-overrides-ten-bit"
+        />
+        <span class="text-text-base">{m.overrides_editor_ten_bit()}</span>
+      </label>
+      <p class="text-text-muted text-2xs">
+        {tenBitUsable ? m.overrides_editor_ten_bit_hint() : m.overrides_editor_ten_bit_needs_av1()}
+      </p>
+    </div>
+  {/if}
 </div>

@@ -153,6 +153,14 @@ class StreamTokenIn(BaseModel):
     # apart. Stripped + bounded here; empty/``None`` → omitted from the token
     # record so the legacy single-stream shape stays byte-identical.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Sendet der Streamer mit 10 bit Farbtiefe? Fährt denselben Weg wie
+    # ``label`` (Token-Record → auth-hook → ``stream:active``) und wird dem
+    # Zuschauer in der WHEP-Antwort gemeldet: nur der native Player kann mehr
+    # als 8 bit darstellen, und ohne diesen Hinweis wüsste der Zuschauer die
+    # Tiefe erst NACH dem Dekodieren — also erst, nachdem er sich für einen
+    # Wiedergabeweg entschieden hat. Fehlt das Feld (ältere Clients), gilt
+    # 8 bit.
+    ten_bit: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -174,6 +182,10 @@ class StreamStateOut(BaseModel):
 
 class WhepOut(BaseModel):
     whep_url: str
+    # Sendet dieser Stream mit 10 bit? Aus dem ``stream:active``-Record. Der
+    # Zuschauer entscheidet daran, ob er den nativen Player nimmt (nur der
+    # kann mehr als 8 bit ausgeben) oder das ``<video>``-Element.
+    ten_bit: bool = False
 
 
 def _get_redis(request: Request) -> Redis:
@@ -253,6 +265,10 @@ async def issue_stream_token(
     label = (payload.label or "").strip()
     if label:
         record["label"] = label
+    # Wie ``label``: nur bei True mitschreiben, damit der Record im Normalfall
+    # byte-identisch zur alten Form bleibt.
+    if payload.ten_bit:
+        record["ten_bit"] = True
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),
@@ -386,7 +402,10 @@ async def get_whep_url(
             winner = await redis.get(cache_key)
             read_token = (winner.decode() if isinstance(winner, bytes) else winner) or candidate
     base = s.mediamtx_public_base.rstrip("/")
-    return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")
+    return WhepOut(
+        whep_url=f"{base}/{path}/whep?token={read_token}",
+        ten_bit=data.get("ten_bit") is True,
+    )
 
 
 @router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
@@ -422,11 +441,14 @@ async def stop_stream(
     uid = str(user.id)
     targets = [slot] if slot is not None else list(range(_SLOT_MAX + 1))
 
+    # Gepipelined statt einzeln: bis zu 4 Slots waren bis zu 8 sequentielle
+    # Round-Trips für einen einzigen Stop-Klick. Dasselbe Muster begründet der
+    # Poller für sich schon ("reduces O(N) sequential round-trips to O(1)").
+    pipe = redis.pipeline()
     for s in targets:
-        await redis.set(
-            stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s
-        )
-        await redis.delete(active_key(channel_id, uid, s))
+        pipe.set(stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s)
+        pipe.delete(active_key(channel_id, uid, s))
+    await pipe.execute()
 
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
     remaining_uids: list[str] = []

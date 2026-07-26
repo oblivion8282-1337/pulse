@@ -59,6 +59,11 @@ class StreamTokenIn(BaseModel):
     # Forwarded verbatim to media-svc, which bounds/strips + threads it through
     # the token → active → poller → stream_state path.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Streamt der Client mit 10 bit Farbtiefe? Wird nur weitergereicht;
+    # media-svc fädelt es über Token-Record → auth-hook → ``stream:active``
+    # bis in die WHEP-Antwort, aus der der Zuschauer seinen Wiedergabeweg
+    # ableitet (nur der native Player kann mehr als 8 bit ausgeben).
+    ten_bit: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -71,6 +76,8 @@ class StreamTokenOut(BaseModel):
 
 class WhepOut(BaseModel):
     whep_url: str
+    # Von media-svc durchgereicht: sendet dieser Stream mit 10 bit?
+    ten_bit: bool = False
 
 
 # --- media-svc client (thin; tests monkeypatch these two) -------------------
@@ -180,6 +187,10 @@ async def issue_stream_token(
     token_body: dict[str, object] = {"protocol": payload.protocol, "slot": payload.slot}
     if payload.label is not None:
         token_body["label"] = payload.label
+    # Wie ``label`` nur bei Bedarf mitschicken, damit der Body im Normalfall
+    # unverändert bleibt.
+    if payload.ten_bit:
+        token_body["ten_bit"] = True
     try:
         resp = await _media_svc_request(
             "POST",

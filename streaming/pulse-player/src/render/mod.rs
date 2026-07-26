@@ -17,6 +17,7 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
 use crate::decode::{ColorMatrix, DecodedFrame, PixelLayout};
+use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::PlayerOptions;
 use uniforms::Uniforms;
 
@@ -51,6 +52,18 @@ pub struct Renderer {
     frames_presented: u64,
     /// Ob 16-bit-Norm-Texturen erlaubt sind (s. `setup::GpuSetup`).
     wide_textures: bool,
+    /// Name des Oberflaechenformats fuer die Statistik (s. `surface_format`).
+    surface_format_name: String,
+    /// Wiederverwendete Puffer fuer `narrow_plane_into` (eine je Ebene).
+    narrow_scratch: [Vec<u8>; 3],
+    /// Durchgaenge, in denen die Oberflaeche kein Bild hergab (`Outdated`,
+    /// `Lost`, `Occluded`, `Timeout`). Das Bild war dann schon aus `pending`
+    /// entnommen und ist verloren, ohne irgendwo zu erscheinen — genau die
+    /// Luecke, die `frames_never_drawn` nicht abdeckt. 0 heisst: Swapchain
+    /// gesund.
+    /// `Cell`, damit `acquire` weiter `&self` nimmt: `render` haelt zu diesem
+    /// Zeitpunkt schon eine unveraenderliche Leihe auf `planes`.
+    acquire_misses: std::cell::Cell<u64>,
     start: std::time::Instant,
 }
 
@@ -61,6 +74,7 @@ impl Renderer {
         height: u32,
     ) -> Result<Self> {
         let gpu = setup::create(window, width, height).await?;
+        let surface_format_name = format!("{:?}", gpu.config.format);
         Ok(Self {
             device: gpu.device,
             queue: gpu.queue,
@@ -74,14 +88,20 @@ impl Renderer {
             bind_group: None,
             frames_presented: 0,
             wide_textures: gpu.wide_textures,
+            surface_format_name,
+            narrow_scratch: Default::default(),
+            acquire_misses: std::cell::Cell::new(0),
             start: std::time::Instant::now(),
         })
     }
 
     /// Name des tatsaechlich verhandelten Oberflaechenformats — geht in die
     /// Statistik, damit im Zweifel belegbar ist, dass mehr als 8 bit anliegen.
-    pub fn surface_format(&self) -> String {
-        format!("{:?}", self.config.format)
+    ///
+    /// Einmal beim Anlegen gebildet, nicht je Abfrage: das Format steht nach der
+    /// Verhandlung fest, und die Statistik wird pro Bild gelesen.
+    pub fn surface_format(&self) -> &str {
+        &self.surface_format_name
     }
 
     /// Stufenzahl des Ausgabeformats (2^Bits pro Kanal) fuer das Dither.
@@ -125,6 +145,10 @@ impl Renderer {
         self.frames_presented
     }
 
+    pub fn acquire_misses(&self) -> u64 {
+        self.acquire_misses.get()
+    }
+
     /// Laedt ein dekodiertes Bild in die GPU-Texturen.
     pub fn upload(&mut self, frame: &DecodedFrame) {
         let needs_new = self.planes.as_ref().is_none_or(|p| {
@@ -164,8 +188,15 @@ impl Renderer {
             let Some(idx) = plane_idx else { continue };
             let Some(source) = frame.planes.get(idx) else { continue };
             // Ohne 16-bit-Texturen die Quelle verkleinern statt abzustuerzen.
-            let converted = narrow.then(|| narrow_plane(source, frame.format));
-            let data: &[u8] = converted.as_deref().unwrap_or(source);
+            if narrow {
+                // In einen wiederverwendeten Puffer, nicht in einen frischen:
+                // dieser Pfad laeuft pro Ebene und Bild, und die Ebenen sind
+                // megabytegross (s. `narrow_plane`).
+                let scratch = &mut self.narrow_scratch[idx.min(2)];
+                narrow_plane_into(source, frame.format, scratch);
+            }
+            let data: &[u8] =
+                if narrow { &self.narrow_scratch[idx.min(2)] } else { source };
             let stride =
                 if narrow { frame.strides[idx] / 2 } else { frame.strides[idx] };
             let bytes_per_sample: u32 = if narrow { 1 } else { bytes_per_sample };
@@ -293,21 +324,41 @@ impl Renderer {
             Cst::Success(t) | Cst::Suboptimal(t) => Ok(Some(t)),
             // Groesse/Zustand veraltet: neu konfigurieren, dann weiter.
             Cst::Outdated | Cst::Lost => {
+                self.acquire_misses.set(self.acquire_misses.get() + 1);
                 self.surface.configure(&self.device, &self.config);
                 Ok(None)
             }
             // Verdeckt oder Zeitueberschreitung: nichts zu zeichnen.
-            Cst::Occluded | Cst::Timeout => Ok(None),
+            Cst::Occluded | Cst::Timeout => {
+                self.acquire_misses.set(self.acquire_misses.get() + 1);
+                Ok(None)
+            }
             Cst::Validation => Err(anyhow!("Oberflaeche abgelehnt (Validation)")),
         }
     }
 
+    /// Das GPU-Geraet — das Overlay zeichnet in dieselbe Oberflaeche und legt
+    /// darauf seine eigenen Puffer an.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn surface_texture_format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
     /// Zeichnet den zuletzt hochgeladenen Frame mit den aktuellen Einstellungen.
+    ///
+    /// `overlay` wird NACH dem Bild in dieselbe Oberflaechen-Textur gezeichnet
+    /// (mit `LoadOp::Load`), bevor sie praesentiert wird — die Bedienoberflaeche
+    /// liegt also im selben 10-bit-Puffer und kostet keinen zweiten Durchgang
+    /// durch den Compositor.
     pub fn render(
         &mut self,
         opts: &PlayerOptions,
         full_range: bool,
         matrix: ColorMatrix,
+        overlay: Option<&mut OverlayPass<'_>>,
     ) -> Result<()> {
         let Some(planes) = self.planes.as_ref() else { return Ok(()) };
 
@@ -377,10 +428,47 @@ impl Renderer {
             pass.set_viewport(vx, vy, vw, vh, 0.0, 1.0);
             pass.draw(0..3, 0..1);
         }
+        // Bedienoberflaeche darueber, in dieselbe Textur. Die ausgeloesten
+        // Aktionen gibt der Aufrufer weiter — der Renderer kennt weder Sitzung
+        // noch Fenster.
+        if let Some(op) = overlay {
+            let size = (self.config.width, self.config.height);
+            op.actions = op.overlay.paint(
+                op.window,
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &view,
+                size,
+                op.is_fullscreen,
+                op.stats,
+            );
+        }
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
         self.frames_presented += 1;
         Ok(())
+    }
+}
+
+/// Was der Renderer braucht, um das Overlay mitzuzeichnen — und der Rueckkanal
+/// fuer die ausgeloesten Aktionen (`actions` ist nach dem Aufruf gefuellt).
+pub struct OverlayPass<'a> {
+    pub overlay: &'a mut Overlay,
+    pub window: &'a winit::window::Window,
+    pub is_fullscreen: bool,
+    pub stats: &'a StatsView<'a>,
+    pub actions: Vec<OverlayAction>,
+}
+
+impl<'a> OverlayPass<'a> {
+    pub fn new(
+        overlay: &'a mut Overlay,
+        window: &'a winit::window::Window,
+        is_fullscreen: bool,
+        stats: &'a StatsView<'a>,
+    ) -> Self {
+        Self { overlay, window, is_fullscreen, stats, actions: Vec::new() }
     }
 }
 
@@ -414,18 +502,26 @@ fn fit_viewport(win_w: f32, win_h: f32, src_w: f32, src_h: f32) -> (f32, f32, f3
 /// * `YUV420P10LE` (planar, kommt von libdav1d/Software-Decode) legt sie in
 ///   die **unteren** Bits, Wertebereich 0..1023. Als Unorm gelesen waere das
 ///   um Faktor ~64 zu dunkel.
-fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
+fn narrow_plane_into(source: &[u8], layout: PixelLayout, out: &mut Vec<u8>) {
     // Planar (YUV420P10LE) legt die 10 Bit in die UNTEREN Bits, Wertebereich
     // 0..1023 -> zwei Bit abschneiden. P010 legt sie in die OBEREN, dort ist
     // das hohe Byte schon der richtige 8-bit-Wert.
     let planar = layout == PixelLayout::Planar420;
-    source
-        .chunks_exact(2)
-        .map(|w| {
-            let v = u16::from_le_bytes([w[0], w[1]]);
-            if planar { (v >> 2) as u8 } else { (v >> 8) as u8 }
-        })
-        .collect()
+    // `clear` behaelt die Kapazitaet — nach dem ersten Bild wird hier nichts
+    // mehr angefordert.
+    out.clear();
+    out.reserve(source.len() / 2);
+    out.extend(source.chunks_exact(2).map(|w| {
+        let v = u16::from_le_bytes([w[0], w[1]]);
+        if planar { (v >> 2) as u8 } else { (v >> 8) as u8 }
+    }));
+}
+
+#[cfg(test)]
+fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
+    let mut out = Vec::new();
+    narrow_plane_into(source, layout, &mut out);
+    out
 }
 
 /// Faktor fuer die Abtastwerte, abhaengig davon, wie die Daten in der TEXTUR

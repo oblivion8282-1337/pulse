@@ -1,7 +1,12 @@
 # pulse-player — nativer HQ-Stream-Player
 
 Zeigt einen HQ-Stream (WHEP von MediaMTX) in einem **eigenen Fenster** an, statt
-ihn durch Chromiums Compositor zu schicken. Gesteuert wird er von Electron ueber
+ihn durch Chromiums Compositor zu schicken. Das Fenster oeffnet **ohne
+Aktivierung** (`with_active(false)`): Pulses Tastenkuerzel hoeren am Fenster der
+Web-App zu und wirken nicht mehr, sobald ein anderes Fenster den Tastatur-Fokus
+hat — beim Zuschauen soll man weiter in Pulse tippen koennen. Wer die Bedienung
+im Fenster benutzt, nimmt ihm den Fokus zwangslaeufig; ein Klick zurueck in
+Pulse stellt ihn wieder her. Gesteuert wird er von Electron ueber
 dasselbe stdio-JSON-RPC wie die HQ-Capture-Sidecars.
 
 **Er ist additiv.** Browser-Nutzer und jede Installation ohne dieses Binary
@@ -37,6 +42,26 @@ nicht einsehbar.
   `Rgba16Float`, dann `Rgb10a2Unorm`, sonst 8 bit. Das tatsaechlich verhandelte
   Format steht in `stats.surface_format` — damit ist von aussen belegbar, was
   anliegt.
+- **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt
+  Verstaerkung ueber 100 %, Stumm, Vollbild (Knopf, Doppelklick, Esc) und ein
+  Statistik-Feld (Auflösung, Bilder/s, Bitrate, Decoder samt Hardware-Angabe,
+  **Ausgabeformat**, verworfene und uebersprungene Bilder, Paketverlust,
+  Pufferstand, Ton-Aussetzer). Blendet sich nach drei Sekunden ohne
+  Mausbewegung aus. Ob ohne neues Bild ueberhaupt ein Durchgang noetig ist,
+  entscheidet `Overlay::wants_redraw` VOR dem egui-Aufbau — an GRUENDEN
+  (Eingabe liegt an, neue Zahlen, Ausblenden), NICHT am Zustand `visible`: mit
+  „sichtbar" als Grund hielt sich die Schleife selbst am Leben, weil jede
+  Ausgabe den naechsten Durchlauf ausloest (gemessen 2500-3400 Ausgaben je
+  Sekunde bei 144 ankommenden Bildern). Ob das Overlay in einem Durchgang
+  MITgezeichnet wird, haengt dagegen an `visible` — sonst verschwaende es,
+  sobald wieder Bilder flossen. Eingaben fordern **keinen** eigenen Durchgang
+  an, solange Bilder fliessen (`FRAME_FLOW_WINDOW` in `app`): das naechste Bild
+  zeichnet das Overlay mit, bei 144 fps also spaetestens nach 7 ms. Sonst
+  bekaeme jede Mausbewegung ihren eigenen Durchgang — gemessen bis zu 900 je
+  Sekunde, die Abtastrate der Maus. Was hier bedient wird, geht durch dieselbe Stelle wie
+  ein `set_option` per RPC; eine Aenderung der Lautstaerke meldet der Player
+  zusaetzlich als `player:option`-Ereignis nach vorne, damit Pulse den Wert je
+  Streamer behalten kann.
 - **Debanding** im Shader. Wirkt auch bei 8-bit-Quellen und ist damit der
   staerkste Bildhebel, ohne die Encode-Kette anzufassen.
 - **Einstellbarer Jitter-Puffer.** Die Fernsteuerungs-Messung ergab, dass 5-15 ms

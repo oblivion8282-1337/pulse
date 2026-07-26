@@ -25,6 +25,13 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2);
 /// angezeigt, nicht ausgewertet, und jedes Ereignis weckt den Fenster-Thread.
 const STATS_INTERVAL: Duration = Duration::from_millis(250);
 
+/// Fenster fuer Bildrate und Bitrate. Bewusst ein VIELFACHES von
+/// [`STATS_INTERVAL`] und hier berechnet, nicht beim Anzeigen: wer die Rate aus
+/// zwei Abfragen eines fremden Taktes bildet, misst mal 3, mal 4 Intervalle und
+/// zeigt bei voellig gleichmaessigem Strom Schwankungen von ueber 30 %. Genau
+/// das war der Fall, als Overlay und App das selbst rechneten.
+const RATE_INTERVAL: Duration = Duration::from_millis(1000);
+
 /// Wie lange eine Sitzung hoechstens braucht, um das erste Bild zu zeigen.
 ///
 /// Das ist ein Auffangnetz fuer JEDE Ursache, nicht fuer eine bestimmte. Die
@@ -43,6 +50,13 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
     pub packets_received: u64,
+    /// Angekommene Nutzlast-Bytes (Bild + Ton).
+    pub bytes_received: u64,
+    /// Gemessene Bildrate und Bitrate ueber [`RATE_INTERVAL`] — hier gerechnet,
+    /// damit alle Anzeigen dieselbe Zahl zeigen (s. Konstanten-Doku). `None`,
+    /// bis das erste Fenster voll ist.
+    pub fps: Option<u64>,
+    pub kbps: Option<u64>,
     pub packets_lost: u64,
     pub packets_reordered: u64,
     pub packets_duplicate: u64,
@@ -59,6 +73,13 @@ pub struct SessionStats {
     /// Ton- und Aufnahme-Zaehler.
     #[serde(flatten)]
     pub media: MediaStats,
+}
+
+/// Bezugspunkt der Raten-Messung (s. [`RATE_INTERVAL`]).
+struct RateRef {
+    at: Instant,
+    frames: u64,
+    bytes: u64,
 }
 
 /// Was der Fenster-Thread von einer Sitzung zu sehen bekommt.
@@ -126,6 +147,7 @@ pub async fn run(
         SessionStats { jitter_target_ms: target.as_millis() as u64, ..Default::default() };
     let mut announced_playing = false;
     let mut last_stats = Instant::now();
+    let mut rate_ref = RateRef { at: Instant::now(), frames: 0, bytes: 0 };
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -307,6 +329,7 @@ pub async fn run(
         // Prozess zufaellig — die Zahlen stammten also mal von der Video-, mal
         // von der Tonspur, ohne dass das erkennbar war.
         stats.packets_received = buffers.values().map(|b| b.received).sum();
+        stats.bytes_received = buffers.values().map(|b| b.bytes_received).sum();
         stats.packets_lost = buffers.values().map(|b| b.lost).sum();
         stats.packets_reordered = buffers.values().map(|b| b.reordered).sum();
         stats.packets_duplicate = buffers.values().map(|b| b.duplicates).sum();
@@ -317,6 +340,28 @@ pub async fn run(
         // ausgeloest, also ueber 1000-mal pro Sekunde. Jedes Ereignis weckt den
         // Fenster-Thread, der mit `ControlFlow::Wait` sonst schlafen wuerde —
         // nur um ein Zahlenfeld zu ueberschreiben.
+        // Raten ueber ein festes Fenster nachziehen. Laeuft unabhaengig vom
+        // Melde-Takt: die Felder behalten zwischen zwei Fenstern ihren Wert.
+        if rate_ref.at.elapsed() >= RATE_INTERVAL {
+            let secs = rate_ref.at.elapsed().as_secs_f64();
+            if stats.frames_decoded >= rate_ref.frames {
+                stats.fps = Some(
+                    ((stats.frames_decoded - rate_ref.frames) as f64 / secs).round() as u64,
+                );
+            }
+            if stats.bytes_received >= rate_ref.bytes {
+                stats.kbps = Some(
+                    ((stats.bytes_received - rate_ref.bytes) as f64 * 8.0 / secs / 1000.0).round()
+                        as u64,
+                );
+            }
+            rate_ref = RateRef {
+                at: Instant::now(),
+                frames: stats.frames_decoded,
+                bytes: stats.bytes_received,
+            };
+        }
+
         if last_stats.elapsed() >= STATS_INTERVAL {
             last_stats = Instant::now();
             // Erst hier abfragen: `media.stats()` nimmt die Sperre des

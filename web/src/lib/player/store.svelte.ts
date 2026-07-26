@@ -18,9 +18,18 @@
  * nativen Weg WILL; der Keep-Alive weiss nur, wann eine Kachel weg ist.
  */
 import { chatApi } from '$lib/api/chat';
+import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
+import { getStreamVolume, setStreamVolume } from '$lib/stream/streamVolume';
 import { loadAll, saveAll } from '$lib/stream/persistence';
-import type { PulsePlayerResult } from '$lib/platform/pulse.d';
-import { closePlayer, onPlayerEvent, openPlayer, playerStats, type PlayerStateEvent } from './client';
+import {
+  closePlayer,
+  focusPlayer,
+  onPlayerEvent,
+  onPlayerOptionEvent,
+  openPlayer,
+  setPlayerOptions,
+  type PlayerStateEvent,
+} from './client';
 
 // ── Einstellung (Default aus — experimentell, noch ohne Tonausgabe) ────────
 
@@ -46,8 +55,6 @@ export function setUseNativePlayer(v: boolean): void {
 
 // ── Sitzung ─────────────────────────────────────────────────────────────────
 
-const STATS_POLL_MS = 1000;
-
 export class NativePlayerSession {
   readonly channelId: string;
   readonly userId: string;
@@ -55,11 +62,19 @@ export class NativePlayerSession {
 
   phase = $state<PlayerStateEvent['state']>('connecting');
   error = $state<string | null>(null);
-  stats = $state<PulsePlayerResult | null>(null);
+  /** Der Stream ist 8 bit — dafuer lohnt das eigene Fenster nicht, die Kachel
+   *  bleibt beim `<video>`-Weg. KEIN Fehler: es wird nie ein Fenster geoeffnet,
+   *  und der Aufrufer (`useNativePlayback`) schaltet still zurueck. */
+  skipped = $state(false);
+
+  // Bewusst KEINE Messwerte hier: Bildrate, Bitrate und alles andere zeigt das
+  // Overlay IM Fenster (`streaming/pulse-player/src/overlay.rs`), das die Zahlen
+  // ohne Umweg hat. Eine Abfrage von hier aus waere eine JSON-RPC-Runde durch
+  // zwei Prozesse je Sekunde und Kachel — fuer Werte, die niemand anzeigt.
 
   #session: number | null = null;
   #unlisten: (() => void) | null = null;
-  #statsTimer: ReturnType<typeof setInterval> | undefined;
+  #unlistenOptions: (() => void) | null = null;
   #disposed = false;
 
   constructor(channelId: string, userId: string, slot = 0, title?: string) {
@@ -67,6 +82,7 @@ export class NativePlayerSession {
     this.userId = userId;
     this.slot = slot;
     this.#unlisten = onPlayerEvent((ev) => this.#onEvent(ev));
+    this.#unlistenOptions = onPlayerOptionEvent((ev) => this.#onOptionEvent(ev));
     void this.#open(title);
   }
 
@@ -75,9 +91,29 @@ export class NativePlayerSession {
     this.phase = 'connecting';
     this.error = null;
     try {
-      const { whep_url } = await chatApi.getWhepUrl(this.channelId, this.userId, this.slot);
+      const { whep_url, ten_bit } = await chatApi.getWhepUrl(
+        this.channelId,
+        this.userId,
+        this.slot,
+      );
       if (this.#disposed) return;
-      const session = await openPlayer(whep_url, { title });
+      // Der einzige Grund fuer das eigene Fenster ist mehr als 8 bit — genau
+      // das kann Chromiums Puffer nicht (siehe streaming/pulse-player/README).
+      // Sendet der Streamer 8 bit, bleibt alles wie bisher IN der App. Diese
+      // Frage lohnt den Umweg ueber die WHEP-Antwort, weil die Bittiefe sonst
+      // erst nach dem Dekodieren bekannt waere — also erst, wenn das Fenster
+      // schon offen ist.
+      if (ten_bit !== true) {
+        this.skipped = true;
+        return;
+      }
+      // Der Player gibt den Ton aus, nicht die App — sonst liefe er doppelt
+      // (s. `ManagedHqStream.nativeAudio`). Mit der Lautstärke starten, die für
+      // diesen Streamer gespeichert ist, damit das Fenster nicht laut aufgeht.
+      const session = await openPlayer(whep_url, {
+        title,
+        options: { volume: getStreamVolume(this.userId) / 100 },
+      });
       if (this.#disposed) {
         if (session !== null) void closePlayer(session);
         return;
@@ -88,7 +124,7 @@ export class NativePlayerSession {
         return;
       }
       this.#session = session;
-      this.#armStatsPoll();
+      this.#setAudioOwner(true);
     } catch (e) {
       if (this.#disposed) return;
       this.phase = 'failed';
@@ -103,31 +139,53 @@ export class NativePlayerSession {
     if (ev.session !== undefined && ev.session !== this.#session) return;
     this.phase = ev.state;
     if (ev.error) this.error = ev.error;
-    if (ev.state === 'closed' || ev.state === 'failed') this.#clearStatsPoll();
+    if (ev.state === 'closed' || ev.state === 'failed') {
+      // Fenster weg → der Ton muss zurück in die App, sonst ist der Stream
+      // stumm (die Kachel fällt gleichzeitig auf den `<video>`-Weg zurück).
+      this.#setAudioOwner(false);
+    }
   }
 
-  #armStatsPoll(): void {
-    this.#clearStatsPoll();
-    this.#statsTimer = setInterval(() => void this.#pollStats(), STATS_POLL_MS);
+  /**
+   * Im FENSTER geregelt: Wert übernehmen, damit er die Sitzung überlebt.
+   *
+   * Bewusst über den Manager: der hält den angezeigten Wert und schreibt ihn je
+   * Streamer fort (`streamVolume.ts`). Zurück ins Fenster geht dabei nichts —
+   * sonst entstünde eine Schleife aus Meldung und Antwort.
+   */
+  #onOptionEvent(ev: { session: number; volume?: number }): void {
+    if (this.#disposed || ev.session !== this.#session || ev.volume === undefined) return;
+    const percent = Math.round(ev.volume * 100);
+    const mgr = hqStreams.get(this.channelId, this.userId, this.slot);
+    if (mgr) mgr.setVolume(percent);
+    else setStreamVolume(this.userId, percent);
   }
 
-  async #pollStats(): Promise<void> {
-    if (this.#disposed || this.#session === null) return;
-    const s = await playerStats(this.#session);
-    if (this.#disposed) return;
-    this.stats = s;
+  /** Lautstärke ins Fenster (0-100 wie in der App, Verstärkung über 100 %
+   *  eingeschlossen — der Player rechnet in 0..1+). */
+  setVolume(percent: number): void {
+    if (this.#session === null) return;
+    void setPlayerOptions(this.#session, { volume: percent / 100 });
   }
 
-  #clearStatsPoll(): void {
-    clearInterval(this.#statsTimer);
-    this.#statsTimer = undefined;
+  /** Fenster nach vorne holen (Knopf in der Kachel). */
+  focus(): void {
+    if (this.#session === null) return;
+    void focusPlayer(this.#session);
+  }
+
+  /** Wer gibt den Ton aus — Fenster oder App? Genau einer von beiden. */
+  #setAudioOwner(native: boolean): void {
+    hqStreams.get(this.channelId, this.userId, this.slot)?.setNativeAudio(native);
   }
 
   close(): void {
     this.#disposed = true;
-    this.#clearStatsPoll();
+    this.#setAudioOwner(false);
     this.#unlisten?.();
     this.#unlisten = null;
+    this.#unlistenOptions?.();
+    this.#unlistenOptions = null;
     if (this.#session !== null) void closePlayer(this.#session);
     this.#session = null;
   }

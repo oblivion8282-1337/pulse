@@ -1370,6 +1370,9 @@
   "overrides_editor_resolution_label": "Resolution",
   "overrides_editor_resolution_native": "Original",
   "overrides_editor_show_cursor": "Show cursor in stream",
+  "overrides_editor_ten_bit": "10-bit colour depth",
+  "overrides_editor_ten_bit_hint": "Smoother gradients, less banding. Viewers in the desktop app then watch the stream in a separate window — only there can more than 8 bits be displayed. In the browser it plays as before.",
+  "overrides_editor_ten_bit_needs_av1": "Requires the AV1 codec — with H.264, viewers in the browser could not play the stream.",
   "owner_transfer_button_busy": "Transferring…",
   "owner_transfer_button_idle": "Transfer ownership",
   "owner_transfer_confirm_hint": "Type \"{name}\" exactly to enable the transfer.",
@@ -2677,5 +2680,6 @@
   "settings_screenshare_subheading": "How your picture looks when you share your screen. Higher settings need more processing power and a better connection.",
   "stream_grid_participants_collapse_aria": "Hide participants",
   "stream_grid_participants_collapsed_hint": "{count} participants · hidden",
-  "stream_grid_participants_expand_aria": "Show participants"
+  "stream_grid_participants_expand_aria": "Show participants",
+  "native_panel_focus_window": "Bring window to front"
 }

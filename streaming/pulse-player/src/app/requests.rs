@@ -51,6 +51,20 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fenster nach vorne holen. Das Fenster wertet selbst KEINE
+            // Eingaben aus (die Bedienung sitzt in der Pulse-App), es kann
+            // aber hinter ihr liegen — dann fuehrt der Knopf in der Kachel
+            // hierher. Ob der Compositor dem Wunsch folgt, entscheidet er;
+            // unter Wayland darf ein Fenster sich nicht selbst nach vorne
+            // zwingen, deshalb ist das eine Bitte, keine Garantie.
+            "focus" => match req.session.and_then(|s| self.sessions.get(&s)) {
+                Some(session) => {
+                    session.window.focus_window();
+                    self.stdout.send(&Response::bare(id));
+                }
+                None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
@@ -115,16 +129,31 @@ impl App {
     fn set_option(&mut self, req: &Request) -> Result<(), String> {
         let session_id = req.session.ok_or("session fehlt")?;
         let patch = build_patch(req)?;
-        let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
+        if !self.sessions.contains_key(&session_id) {
+            return Err("unbekannte Sitzung".into());
+        }
+        self.apply_options(session_id, patch);
+        Ok(())
+    }
 
+    /// Optionen auf eine Sitzung anwenden — der EINE Weg dorthin, gleich ob der
+    /// Wunsch per RPC kam oder aus der Bedienoberflaeche im Fenster
+    /// (`app::apply_overlay_action`). Unbekannte Sitzungen werden still
+    /// uebergangen; die Pruefung gehoert zum Aufrufer, der eine Antwort schuldet.
+    pub(super) fn apply_options(&mut self, session_id: u64, patch: PlayerOptions) {
+        let Some(session) = self.sessions.get_mut(&session_id) else { return };
         session.options.apply(&patch);
         session.options.clamp();
+        // Der Schieber im Fenster muss zeigen, was wirklich anliegt — auch wenn
+        // die Aenderung von aussen kam.
+        if let (Some(overlay), Some(volume)) = (session.overlay.as_mut(), patch.volume) {
+            overlay.set_volume(volume);
+        }
         session.window.request_redraw();
         let tx = session.commands.clone();
         self.runtime.spawn(async move {
             let _ = tx.send(SessionCommand::Options(Box::new(patch))).await;
         });
-        Ok(())
     }
 
     /// Schickt einen Befehl mit Rueckmeldung in die Sitzung und beantwortet den
@@ -217,12 +246,20 @@ impl App {
                 session
                     .renderer
                     .as_ref()
-                    .map_or_else(|| "n/a".to_string(), |r| r.surface_format())
+                    .map_or_else(|| "n/a".to_string(), |r| r.surface_format().to_string())
                     .into(),
             );
             obj.insert(
                 "frames_presented".into(),
                 session.renderer.as_ref().map_or(0, render::Renderer::frames_presented).into(),
+            );
+            // Lautlos verworfene Bilder (s. `Session::frames_never_drawn`) —
+            // ohne die Zahl sieht eine Kette mit 144 dekodierten und 60
+            // gezeichneten Bildern voellig gesund aus.
+            obj.insert("frames_never_drawn".into(), session.frames_never_drawn.into());
+            obj.insert(
+                "acquire_misses".into(),
+                session.renderer.as_ref().map_or(0, render::Renderer::acquire_misses).into(),
             );
         }
         v

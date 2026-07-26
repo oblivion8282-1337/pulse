@@ -68,6 +68,11 @@ pub struct JitterBuffer {
     target: Duration,
     // --- Zaehler fuer die Diagnose ---
     pub received: u64,
+    /// Rohe Nutzlast-Bytes aller angekommenen Pakete. Grundlage der Bitrate —
+    /// die laesst sich sonst nirgends ablesen: der Zaehlerstand allein sagt
+    /// nichts ueber die Datenmenge, und aus der Paketzahl geschaetzt waere sie
+    /// bei gemischten Paketgroessen (Keyframe gegen Zwischenbild) falsch.
+    pub bytes_received: u64,
     pub lost: u64,
     pub reordered: u64,
     pub duplicates: u64,
@@ -84,6 +89,7 @@ impl JitterBuffer {
             forced_gap: None,
             target,
             received: 0,
+            bytes_received: 0,
             lost: 0,
             reordered: 0,
             duplicates: 0,
@@ -145,6 +151,7 @@ impl JitterBuffer {
 
     pub fn push(&mut self, packet: Packet, arrived: Instant) {
         self.received += 1;
+        self.bytes_received += packet.payload.len() as u64;
         let seq = self.extend(packet.header.sequence_number);
 
         match self.next {

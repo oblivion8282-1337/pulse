@@ -36,6 +36,10 @@ export interface GsrHealth {
     video_codecs?: string[];
     capture_options?: string[];
     has_flv_patch?: boolean;
+    /** Kann diese Karte 10 bit je Farbkanal encodieren? Nur der Linux-Rust-
+     *  Sidecar meldet das Feld (NVENC + AV1); Python/Windows/macOS lassen es
+     *  weg → `undefined` heißt "nein", nie "unbekannt, probier's mal". */
+    ten_bit?: boolean;
   };
 }
 

@@ -68,6 +68,15 @@ wgpu = "29"
 raw-window-handle = "0.6"
 pollster = "0.4"
 
+# --- Bedienoberflaeche IM Fenster (Lautstaerke, Vollbild, Statistik) ---
+# Alle drei MIT OR Apache-2.0 (geprueft 2026-07-26), also lizenzkonform.
+# Die Versionen muessen zu wgpu/winit passen: egui-wgpu 0.35 verlangt
+# `wgpu ^29.0` und `winit ^0.30.13` — genau unsere. Beim Anheben von wgpu
+# oder winit MUSS egui im gleichen Schritt mitwandern, sonst bricht der Build.
+egui = "0.35"
+egui-wgpu = "0.35"
+egui-winit = { version = "0.35", default-features = false }
+
 # --- Audio-Ausgabe ---
 cpal = "0.17"
 

@@ -89,6 +89,17 @@ export async function setPlayerOptions(
   }
 }
 
+/** Fenster nach vorne holen — der Knopf in der Kachel. Scheitern ist kein
+ *  Fehlerfall (Wayland laesst ein Fenster sich nicht selbst nach vorne
+ *  zwingen), deshalb still. */
+export async function focusPlayer(session: number): Promise<void> {
+  try {
+    await api()?.focus(session);
+  } catch (e) {
+    console.warn('[player] focus warf:', e);
+  }
+}
+
 export async function playerStats(session: number): Promise<PulsePlayerResult | null> {
   try {
     const res = await api()?.stats(session);
@@ -110,6 +121,27 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
     if (ev?.ev === 'player:state' && typeof ev.state === 'string') {
       cb(ev as PlayerStateEvent);
     }
+  });
+}
+
+/** Eine im FENSTER geänderte Option (heute nur die Lautstärke). Der Player
+ *  meldet das von sich aus, damit die App den Wert behalten kann — sonst wäre
+ *  ein Regeln im Fenster beim nächsten Öffnen wieder weg. */
+export interface PlayerOptionEvent {
+  session: number;
+  volume?: number;
+}
+
+export function onPlayerOptionEvent(cb: (ev: PlayerOptionEvent) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; session?: unknown; volume?: unknown };
+    if (ev?.ev !== 'player:option' || typeof ev.session !== 'number') return;
+    cb({
+      session: ev.session,
+      volume: typeof ev.volume === 'number' ? ev.volume : undefined,
+    });
   });
 }
 

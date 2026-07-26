@@ -124,6 +124,10 @@ contextBridge.exposeInMainWorld('pulse', {
     setOptions: (session: number, options: unknown) =>
       playerCall('set_option', { session, options }),
     stats: (session: number) => playerCall('stats', { session }),
+    /** Fenster nach vorne holen (das Fenster selbst wertet keine Eingaben aus,
+     *  die Bedienung sitzt in der App). Unter Wayland eine Bitte an den
+     *  Compositor, keine Garantie. */
+    focus: (session: number) => playerCall('focus', { session }),
 
     /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
      *  kommt als `path` in der Antwort zurueck. */

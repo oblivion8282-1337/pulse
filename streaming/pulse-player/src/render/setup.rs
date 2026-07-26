@@ -154,8 +154,34 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
             .unwrap_or(wgpu::PresentMode::Fifo),
         alpha_mode: caps.alpha_modes[0],
         view_formats: vec![],
-        desired_maximum_frame_latency: 1,
+        // Drei Swapchain-Bilder, nicht zwei: wgpu macht daraus
+        // `min_image_count(latency + 1)`
+        // (`wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:192`, nachgelesen).
+        //
+        // Mit zwei Bildern kann der Fenster-Thread Bild N+1 nicht vorbereiten,
+        // solange der Compositor Bild N haelt — `get_current_texture` wartet.
+        // Die Schleifendauer war dadurch Rechenzeit PLUS Wartezeit bis zur
+        // naechsten Bildwiederholung, also 7-11 ms statt der gemessenen ~4 ms
+        // Rechenzeit; bei 144 gesendeten Bildern kamen so nur 90-140 auf den
+        // Schirm, mit unregelmaessigen Abstaenden. Gemessen am 2026-07-26 an
+        // einem 144-fps-Stream: `Bilder/s 144`, `Paketverlust 0`, aber viele
+        // Bilder wurden ueberschrieben, bevor sie gezeichnet werden konnten.
+        //
+        // Nebenwirkung, die man kennen muss: `Mailbox` BRAUCHT ein drittes Bild,
+        // um ueberhaupt Mailbox zu sein (mit zwei entartet es zu Fifo). Der
+        // Preis ist bis zu eine Bildwiederholung mehr Verzug — bei 144 Hz rund
+        // 7 ms, bei 60 Hz rund 16 ms. Wer Latenz ueber Bildrate stellt, setzt
+        // hier wieder 1.
+        desired_maximum_frame_latency: 2,
     };
+    // Ausgabe-Takt mitloggen, nicht raten: `Mailbox` gibt sofort aus und
+    // verwirft ueberzaehlige Bilder, `Fifo` wartet auf den Bildschirmtakt. Bei
+    // hohen Bildraten entscheidet das mit darueber, ob 144 gesendete Bilder
+    // auch 144-mal auf dem Schirm landen — und es steht sonst nirgends.
+    eprintln!(
+        "pulse-player: Ausgabe-Takt {:?} (angeboten: {:?}), max. Bildverzug {}",
+        config.present_mode, caps.present_modes, config.desired_maximum_frame_latency
+    );
     surface.configure(&device, &config);
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

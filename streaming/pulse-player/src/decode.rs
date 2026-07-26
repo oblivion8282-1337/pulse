@@ -89,6 +89,60 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<&'static str> {
     out
 }
 
+/// Vorrat wiederverwendbarer Ebenen-Puffer.
+///
+/// **Warum es das gibt.** Ohne Vorrat holte jedes Bild frische Puffer in
+/// Bildgroesse — 5,5 MB bei 8 bit, 11 MB bei 10 bit, also bis 660 MB/s bei
+/// 60 Bildern. Teuer ist dabei nicht die Datenmenge, sondern die Anforderung
+/// selbst: Bloecke dieser Groesse holt der Allokator direkt vom
+/// Betriebssystem, und jede Speicherseite muss beim ersten Beruehren
+/// eingerichtet werden (bei 11 MB rund 2700 Stueck pro Bild).
+///
+/// Die Puffer kehren im `Drop` des Bildes zurueck — also auf dem Thread, der
+/// es zuletzt gehalten hat. Deshalb ein geteilter Vorrat mit Sperre und nicht
+/// ein Feld im Decoder: der Rueckweg fuehrt ueber eine Thread-Grenze.
+#[derive(Clone, Default)]
+pub struct PlanePool(std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
+
+/// Obergrenze des Vorrats. Mehr als ein paar Bilder koennen nie gleichzeitig
+/// unterwegs sein (Kanal + gehaltenes Bild); ohne Grenze wuerde ein Stau
+/// Speicher dauerhaft binden, statt ihn zurueckzugeben.
+const POOL_MAX: usize = 8;
+
+impl PlanePool {
+    /// Einen Puffer mit mindestens `needed` Bytes Platz holen — leer, aber mit
+    /// erhaltener Kapazitaet, wenn er aus dem Vorrat kommt.
+    fn take(&self, needed: usize) -> Vec<u8> {
+        let mut buf = match self.0.lock() {
+            Ok(mut pool) => pool.pop().unwrap_or_default(),
+            // Vergiftete Sperre (Panik in einem anderen Thread): ohne Vorrat
+            // weitermachen ist besser als das Bild fallen zu lassen.
+            Err(_) => Vec::new(),
+        };
+        buf.clear();
+        buf.reserve(needed);
+        buf
+    }
+
+    /// Wie viele Puffer gerade im Vorrat liegen — nur fuer die Tests, damit die
+    /// Obergrenze pruefbar ist, ohne sie ueber Umwege zu erschliessen.
+    #[cfg(test)]
+    fn stock(&self) -> usize {
+        self.0.lock().map(|p| p.len()).unwrap_or(0)
+    }
+
+    fn give_back(&self, mut buffers: Vec<Vec<u8>>) {
+        let Ok(mut pool) = self.0.lock() else { return };
+        for mut buf in buffers.drain(..) {
+            if pool.len() >= POOL_MAX {
+                return;
+            }
+            buf.clear();
+            pool.push(buf);
+        }
+    }
+}
+
 /// Ein dekodiertes Bild in der Form, die der Renderer erwartet.
 pub struct DecodedFrame {
     pub width: u32,
@@ -103,6 +157,14 @@ pub struct DecodedFrame {
     pub full_range: bool,
     /// Welche YUV-Matrix der Strom verlangt.
     pub matrix: ColorMatrix,
+    /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
+    pool: PlanePool,
+}
+
+impl Drop for DecodedFrame {
+    fn drop(&mut self) {
+        self.pool.give_back(std::mem::take(&mut self.planes));
+    }
 }
 
 /// Die beiden YUV-Matrizen, die in der Praxis vorkommen.
@@ -169,6 +231,9 @@ pub struct VideoDecoder {
     awaiting_keyframe: bool,
     /// Wie viele Einheiten dabei bisher verworfen wurden.
     skipped_before_keyframe: u64,
+    /// Vorrat fuer die Ebenen-Puffer (s. [`PlanePool`]). Ueberlebt den
+    /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
+    plane_pool: PlanePool,
 }
 
 impl VideoDecoder {
@@ -198,6 +263,7 @@ impl VideoDecoder {
                         rebuilds: 0,
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
+                        plane_pool: PlanePool::default(),
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -311,7 +377,7 @@ impl VideoDecoder {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::video::Video::empty();
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            if let Some(f) = convert(&frame) {
+            if let Some(f) = convert(&frame, &self.plane_pool) {
                 out.push(f);
             }
         }
@@ -321,7 +387,10 @@ impl VideoDecoder {
 
 /// Uebersetzt ein FFmpeg-Bild in unsere schlanke Form. Nicht unterstuetzte
 /// Pixelformate liefern `None`, statt still etwas Falsches zu zeigen.
-fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
+fn convert(
+    frame: &ffmpeg::util::frame::video::Video,
+    pool: &PlanePool,
+) -> Option<DecodedFrame> {
     use ffmpeg::format::Pixel;
 
     let (layout, ten_bit, planes_n) = match frame.format() {
@@ -341,12 +410,17 @@ fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         eprintln!(
-            "pulse-player: Farbe: format={:?} range={:?} space={:?} transfer={:?} primaries={:?}",
+            "pulse-player: Farbe: format={:?} range={:?} space={:?} transfer={:?} primaries={:?}, Zeilenabstand {}",
             frame.format(),
             frame.color_range(),
             frame.color_space(),
             frame.color_transfer_characteristic(),
             frame.color_primaries(),
+            // Entscheidet, ob wgpu beim Hochladen den schnellen Pfad nimmt: der
+            // greift nur bei einem auf 256 Byte ausgerichteten Abstand, sonst
+            // wird ZEILENWEISE kopiert (bei 1080p waeren das 1620 Kleinkopien
+            // je Bild). Kostet nichts, beantwortet die Frage im Log.
+            frame.stride(0),
         );
     });
 
@@ -364,7 +438,11 @@ fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
             eprintln!("pulse-player: Ebene {i} zu kurz ({} < {needed})", data.len());
             return None;
         }
-        planes.push(data[..needed].to_vec());
+        // Aus dem Vorrat statt frisch: `clear` + `extend_from_slice` behaelt die
+        // Kapazitaet, es wird also nach dem ersten Bild nichts mehr angefordert.
+        let mut buf = pool.take(needed);
+        buf.extend_from_slice(&data[..needed]);
+        planes.push(buf);
         strides.push(stride);
     }
 
@@ -377,7 +455,48 @@ fn convert(frame: &ffmpeg::util::frame::video::Video) -> Option<DecodedFrame> {
         ten_bit,
         full_range: matches!(frame.color_range(), ffmpeg::color::Range::JPEG),
         matrix: matrix_of(frame.color_space(), height),
+        pool: pool.clone(),
     })
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    /// Der Zweck des Vorrats: nach dem ersten Bild darf kein Speicher mehr
+    /// angefordert werden. Geprueft wird genau das — der zurueckgegebene Puffer
+    /// kommt mit seiner Kapazitaet wieder heraus.
+    #[test]
+    fn puffer_kehrt_mit_kapazitaet_zurueck() {
+        let pool = PlanePool::default();
+        let mut buf = pool.take(4096);
+        buf.extend_from_slice(&[7u8; 4096]);
+        let kapazitaet = buf.capacity();
+        pool.give_back(vec![buf]);
+
+        let wieder = pool.take(4096);
+        assert!(wieder.is_empty(), "Inhalt muss geleert sein, sonst haengt Bildmuell an");
+        assert!(
+            wieder.capacity() >= kapazitaet,
+            "Kapazitaet verloren ({} < {kapazitaet}) — dann allokiert jedes Bild neu",
+            wieder.capacity()
+        );
+    }
+
+    /// Ohne Obergrenze wuerde ein Stau Speicher dauerhaft binden.
+    #[test]
+    fn vorrat_ist_begrenzt() {
+        let pool = PlanePool::default();
+        pool.give_back((0..POOL_MAX + 5).map(|_| vec![0u8; 8]).collect());
+        assert_eq!(pool.stock(), POOL_MAX, "Vorrat muss bei {POOL_MAX} deckeln");
+    }
+
+    #[test]
+    fn take_liefert_auch_ohne_vorrat() {
+        let pool = PlanePool::default();
+        let buf = pool.take(1024);
+        assert!(buf.capacity() >= 1024, "leerer Vorrat muss frisch anfordern");
+    }
 }
 
 #[cfg(test)]

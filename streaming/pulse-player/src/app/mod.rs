@@ -21,10 +21,56 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use crate::decode::{self, ColorMatrix};
+use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
 use crate::rpc::StdoutWriter;
 use crate::session::{self, SessionCommand, SessionEvent, SessionStats};
+
+/// Wie frisch das letzte Bild sein muss, damit Eingaben KEINEN eigenen
+/// Durchgang anfordern.
+///
+/// Fliessen Bilder, wird das Overlay mit dem naechsten ohnehin neu gezeichnet —
+/// bei 144 fps also spaetestens nach 7 ms, beim Schieben eines Reglers
+/// unmerklich. Ohne diese Bremse fordert jede Mausbewegung ihren eigenen
+/// Durchgang an: gemessen bis zu 900 je Sekunde (Abtastrate der Maus), also ein
+/// Vielfaches der Bildwiederholrate fuer nichts.
+///
+/// 50 ms heisst: ab etwa 20 Bildern je Sekunde uebernimmt der Bildfluss. Kommen
+/// weniger (Standbild, Verbindungsabbruch), muessen Eingaben weiter selbst
+/// zeichnen — sonst reagierte die Bedienung im Standbild nicht mehr.
+const FRAME_FLOW_WINDOW: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Wie lange die beiden Abschnitte eines Durchgangs brauchen, gemittelt ueber
+/// jeweils eine Sekunde. Mikrosekunden, weil bei 144 fps das ganze Budget nur
+/// 6900 davon betraegt.
+#[derive(Default)]
+struct PhaseTimes {
+    upload_sum: u64,
+    render_sum: u64,
+    count: u64,
+    since: Option<std::time::Instant>,
+    /// Letztes vollstaendiges Fenster — das wird angezeigt.
+    upload_avg_us: u64,
+    render_avg_us: u64,
+}
+
+impl PhaseTimes {
+    fn note(&mut self, upload: std::time::Duration, render: std::time::Duration) {
+        let since = self.since.get_or_insert_with(std::time::Instant::now);
+        self.upload_sum += upload.as_micros() as u64;
+        self.render_sum += render.as_micros() as u64;
+        self.count += 1;
+        if since.elapsed() >= std::time::Duration::from_secs(1) && self.count > 0 {
+            self.upload_avg_us = self.upload_sum / self.count;
+            self.render_avg_us = self.render_sum / self.count;
+            self.upload_sum = 0;
+            self.render_sum = 0;
+            self.count = 0;
+            self.since = Some(std::time::Instant::now());
+        }
+    }
+}
 
 /// Ereignisse, die von aussen in die Fenster-Schleife getragen werden.
 pub enum UserEvent {
@@ -36,6 +82,10 @@ pub enum UserEvent {
 struct Session {
     window: Arc<Window>,
     renderer: Option<render::Renderer>,
+    /// Bedienoberflaeche IM Fenster. `None`, wenn sie sich nicht aufbauen liess
+    /// — dann laeuft das Bild ohne Bedienung weiter, statt die Sitzung zu
+    /// verlieren (Fernsteuerung per RPC funktioniert ohnehin).
+    overlay: Option<Overlay>,
     commands: mpsc::Sender<SessionCommand>,
     options: PlayerOptions,
     stats: SessionStats,
@@ -46,10 +96,35 @@ struct Session {
     matrix: ColorMatrix,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
+    /// Wie viele Bilder hier ueberschrieben wurden, bevor sie gezeichnet
+    /// werden konnten. Das ist der EINZIGE Ort, an dem ein Bild lautlos
+    /// verschwinden kann, und er war bis 2026-07-26 ungezaehlt — bei 144 fps
+    /// genau die Zahl, die fehlt, wenn Decode und Anzeige auseinanderlaufen.
+    frames_never_drawn: u64,
+    /// Zeitmessung der beiden Abschnitte auf dem Fenster-Thread (s.
+    /// [`PhaseTimes`]). Ohne sie waere bei zu wenigen gezeichneten Bildern nicht
+    /// entscheidbar, ob das Hochladen oder das Warten auf die Ausgabe bremst —
+    /// und die beiden verlangen voellig verschiedene Gegenmassnahmen.
+    phases: PhaseTimes,
+    /// Wann das letzte Bild eintraf. Entscheidet, ob Eingaben einen eigenen
+    /// Durchgang brauchen (s. [`FRAME_FLOW_WINDOW`]).
+    last_frame_at: Option<std::time::Instant>,
+    /// Bezugspunkt der Statistik-Zeile (s. `App::stats_log`).
+    last_log: Option<std::time::Instant>,
+    presented_at_last_log: u64,
     state: SessionState,
 }
 
 pub struct App {
+    /// Schreibt einmal je Sekunde eine Statistik-Zeile auf stderr, wenn
+    /// `PULSE_PLAYER_STATS_LOG` gesetzt ist.
+    ///
+    /// Hinter einem Schalter, nicht dauerhaft an: eine Zeile je Sekunde und
+    /// Sitzung sind in einem ausgelieferten Build 3600 Zeilen je Stunde in
+    /// Pulses Log. Fuer die Fehlersuche ist genau das aber das Werkzeug — die
+    /// Zahlen liegen sonst nur im Overlay, und wer beim Zuschauen die Maus
+    /// bewegt, veraendert die Messung (das Zeichnen des Overlays kostet selbst).
+    stats_log: bool,
     sessions: HashMap<u64, Session>,
     by_window: HashMap<WindowId, u64>,
     next_id: u64,
@@ -61,6 +136,7 @@ pub struct App {
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>, runtime: tokio::runtime::Handle) -> Self {
         Self {
+            stats_log: std::env::var_os("PULSE_PLAYER_STATS_LOG").is_some(),
             sessions: HashMap::new(),
             by_window: HashMap::new(),
             next_id: 1,
@@ -81,7 +157,12 @@ impl App {
         let title = req.title.clone().unwrap_or_else(|| "Pulse — HQ-Stream".into());
         let attrs = Window::default_attributes()
             .with_title(title)
-            .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
+            .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
+            // NICHT aktivieren: das Fenster soll den Tastatur-Fokus nicht
+            // wegnehmen. Pulses Tastenkuerzel hoeren am Fenster der Web-App zu
+            // und wirken nicht mehr, sobald ein anderes Fenster aktiv ist —
+            // beim Zuschauen will man weiter in Pulse tippen koennen.
+            .with_active(false);
         let window = Arc::new(event_loop.create_window(attrs)?);
         if req.fullscreen.unwrap_or(false) {
             window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
@@ -90,6 +171,19 @@ impl App {
         let size = window.inner_size();
         let renderer =
             pollster::block_on(render::Renderer::new(window.clone(), size.width, size.height))?;
+        // Overlay in DASSELBE Oberflaechenformat zeichnen wie das Bild.
+        let overlay = match Overlay::new(
+            renderer.device(),
+            renderer.surface_texture_format(),
+            &window,
+            options.volume.unwrap_or(1.0),
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                eprintln!("pulse-player: Bedienoberflaeche nicht verfuegbar: {e:#}");
+                None
+            }
+        };
 
         let id = self.next_id;
         self.next_id += 1;
@@ -135,6 +229,7 @@ impl App {
             Session {
                 window,
                 renderer: Some(renderer),
+                overlay,
                 commands: cmd_tx,
                 options,
                 stats: SessionStats::default(),
@@ -143,11 +238,177 @@ impl App {
                 full_range: false,
                 matrix: ColorMatrix::Bt709,
                 pending: None,
+                frames_never_drawn: 0,
+                phases: PhaseTimes::default(),
+                last_frame_at: None,
+                last_log: None,
+                presented_at_last_log: 0,
                 state: SessionState::Connecting,
             },
         );
+        // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
+        // undefinierten Inhalt, bis der Strom laeuft — und die Bedienoberflaeche
+        // waere nicht auffindbar, weil sie ohne Durchgang nie erscheint.
+        if let Some(session) = self.sessions.get(&id) {
+            session.window.request_redraw();
+        }
         self.emit_state(id, SessionState::Connecting, None);
         Ok(id)
+    }
+
+    /// Ein Durchgang: Bild hochladen, zeichnen, Overlay darueber. Gibt zurueck,
+    /// was der Nutzer im Fenster ausgeloest hat — angewandt wird es erst danach
+    /// (`apply_overlay_action`), weil dafuer die Sitzung erneut geliehen wird.
+    fn draw(&mut self, id: u64) -> Vec<OverlayAction> {
+        let Some(session) = self.sessions.get_mut(&id) else { return Vec::new() };
+        // Feldweise leihen: Renderer und Overlay brauchen beide `&mut`, sind
+        // aber getrennte Felder — ueber Methoden waere das dem Borrow-Checker
+        // nicht vermittelbar.
+        let Session {
+            window,
+            renderer,
+            overlay,
+            options,
+            stats,
+            decoder,
+            hardware,
+            full_range,
+            matrix,
+            pending,
+            frames_never_drawn,
+            phases,
+            ..
+        } = session;
+        let Some(renderer) = renderer.as_mut() else { return Vec::new() };
+        // Nur zeichnen, wenn es etwas Neues gibt.
+        //
+        // Vorher gab die Schleife auch ohne neues Bild aus — gemessen 2500-mal
+        // je Sekunde bei 144 ankommenden Bildern, also 17-mal dasselbe Bild.
+        // Das kostete dauerhaft einen halben Kern und erklaerte die Kernlast,
+        // die zunaechst nach teuren Bildern aussah. `ControlFlow::Wait` hilft
+        // dagegen nichts: die Anforderungen kamen aus dem Zeichnen selbst.
+        let has_frame = pending.is_some();
+        // Zwei verschiedene Fragen, die vorher eine waren:
+        //   * `wants_redraw` = gibt es einen GRUND, ohne neues Bild zu zeichnen
+        //   * `visible`      = soll das Overlay in DIESEM Durchgang mitgezeichnet
+        //                      werden (sonst verschwaende es beim Bildwechsel)
+        let overlay_wants = overlay.as_ref().is_some_and(|o| o.wants_redraw());
+        if !has_frame && !overlay_wants {
+            return Vec::new();
+        }
+        let upload_started = std::time::Instant::now();
+        if let Some(frame) = pending.take() {
+            renderer.upload(&frame);
+        }
+        let upload_took = upload_started.elapsed();
+
+        // Nur wenn das Overlay diesen Durchgang wirklich zeichnet, lohnt sich
+        // ueberhaupt Arbeit fuer die Anzeige — sonst faellt hier alles weg.
+        let want_overlay =
+            overlay.as_ref().is_some_and(|o| o.visible() || o.wants_redraw());
+        let surface_format =
+            if want_overlay { renderer.surface_format().to_string() } else { String::new() };
+        let frames_presented = renderer.frames_presented();
+        let acquire_misses = renderer.acquire_misses();
+        let view = StatsView {
+            width: stats.width,
+            height: stats.height,
+            decoder,
+            hardware: *hardware,
+            surface_format: &surface_format,
+            fps: stats.fps,
+            kbps: stats.kbps,
+            frames_presented,
+            never_drawn: *frames_never_drawn,
+            upload_us: phases.upload_avg_us,
+            render_us: phases.render_avg_us,
+            acquire_misses,
+            frames_dropped: stats.frames_dropped,
+            frames_skipped: stats.frames_skipped,
+            packets_lost: stats.packets_lost,
+            buffered_packets: stats.buffered_packets,
+            jitter_target_ms: stats.jitter_target_ms,
+            ten_bit_source: stats.ten_bit_source,
+            audio_active: stats.media.audio_active,
+            audio_underruns: stats.media.audio_underruns,
+            recording: stats.media.recording,
+        };
+        let mut pass = overlay
+            .as_mut()
+            .filter(|_| want_overlay)
+            .map(|o| render::OverlayPass::new(o, window, window.fullscreen().is_some(), &view));
+        let render_started = std::time::Instant::now();
+        if let Err(e) = renderer.render(options, *full_range, *matrix, pass.as_mut()) {
+            eprintln!("pulse-player: Darstellung: {e:#}");
+        }
+        phases.note(upload_took, render_started.elapsed());
+        pass.map(|p| p.actions).unwrap_or_default()
+    }
+
+    /// Eine Zeile mit allen Zahlen, hoechstens einmal je Sekunde und Sitzung.
+    ///
+    /// Getrieben von den Statistik-Ereignissen der Sitzung (alle 250 ms), NICHT
+    /// vom Zeichnen: bliebe die Anzeige stehen, waere genau dann keine Zeile
+    /// mehr da, wenn man sie am dringendsten braucht.
+    fn log_stats_if_due(&mut self, id: u64) {
+        if !self.stats_log {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let Some(session) = self.sessions.get_mut(&id) else { return };
+        let elapsed = session.last_log.map(|t| now.duration_since(t));
+        if elapsed.is_some_and(|d| d < std::time::Duration::from_secs(1)) {
+            return;
+        }
+        let presented = session.renderer.as_ref().map_or(0, render::Renderer::frames_presented);
+        let misses = session.renderer.as_ref().map_or(0, render::Renderer::acquire_misses);
+        // Beim ersten Aufruf gibt es keinen Bezugspunkt — dann nur die
+        // Zaehlerstaende, keine erfundene Rate.
+        let drawn = elapsed.map(|d| {
+            let secs = d.as_secs_f64().max(0.001);
+            ((presented.saturating_sub(session.presented_at_last_log)) as f64 / secs).round() as u64
+        });
+        let st = &session.stats;
+        eprintln!(
+            "pulse-player: Sitzung {id}: dekodiert {}/s, gezeichnet {}/s, nie gezeichnet {},              ohne Oberflaeche {}, hochladen {:.1} ms, ausgeben {:.1} ms, {} kbit/s,              Paketverlust {}, Puffer {} Pakete, uebersprungen {}",
+            st.fps.map_or_else(|| "?".to_string(), |v| v.to_string()),
+            drawn.map_or_else(|| "?".to_string(), |v| v.to_string()),
+            session.frames_never_drawn,
+            misses,
+            session.phases.upload_avg_us as f64 / 1000.0,
+            session.phases.render_avg_us as f64 / 1000.0,
+            st.kbps.map_or_else(|| "?".to_string(), |v| v.to_string()),
+            st.packets_lost,
+            st.buffered_packets,
+            st.frames_skipped,
+        );
+        session.last_log = Some(now);
+        session.presented_at_last_log = presented;
+    }
+
+    /// Setzt um, was im Fenster bedient wurde.
+    fn apply_overlay_action(&mut self, id: u64, action: OverlayAction) {
+        match action {
+            OverlayAction::Volume(volume) => {
+                // Denselben Weg wie die RPC-Operation nehmen, damit es nur EINE
+                // Stelle gibt, die Optionen anwendet.
+                self.apply_options(id, PlayerOptions { volume: Some(volume), ..Default::default() });
+                // Nach vorne melden: die App haelt die Lautstaerke je Streamer
+                // dauerhaft, und ohne diese Meldung waere ein Regeln im Fenster
+                // beim naechsten Oeffnen wieder weg.
+                self.stdout.send(&Event::new(
+                    "player:option",
+                    serde_json::json!({ "session": id, "volume": volume }),
+                ));
+            }
+            OverlayAction::Fullscreen(on) => {
+                let Some(session) = self.sessions.get(&id) else { return };
+                session.window.set_fullscreen(
+                    on.then(|| winit::window::Fullscreen::Borderless(None)),
+                );
+                session.window.request_redraw();
+            }
+        }
     }
 
     fn emit_state(&self, id: u64, state: SessionState, error: Option<&str>) {
@@ -175,18 +436,55 @@ impl App {
                 // Bei Pause bleibt das zuletzt gezeigte Bild stehen, die
                 // Verbindung laeuft aber weiter — beim Fortsetzen ist man
                 // sofort wieder live.
-                if !session.options.paused.unwrap_or(false) {
-                    // Farbbereich zusammen mit dem Frame uebernehmen, den wir
-                    // tatsaechlich zeigen. Sonst wuerde ein waehrend der Pause
-                    // eintreffender Range-Wechsel auf das eingefrorene alte
-                    // Bild angewendet — sichtbar falsche Farben.
-                    session.full_range = frame.full_range;
-                    session.matrix = frame.matrix;
-                    session.pending = Some(frame);
+                if session.options.paused.unwrap_or(false) {
+                    return;
+                }
+                // Wartet noch ein ungezeichnetes Bild, dann zeichne es JETZT,
+                // statt es zu verwerfen: winit fasst mehrere `request_redraw`
+                // eines Durchlaufs zu EINEM Zeichnen zusammen, treffen also
+                // zwei Bilder im selben Durchlauf ein, ueberlebte vorher nur
+                // das zweite. Gemessen gingen so bei 144 ankommenden Bildern
+                // rund 95 je Sekunde verloren, obwohl ein Durchgang nur 0,4 ms
+                // braucht.
+                //
+                // Das passiert VOR der Uebernahme der Farbwerte des neuen
+                // Bildes — sonst wuerde das alte Bild mit fremdem Wertebereich
+                // oder fremder Matrix gezeichnet (sichtbar falsche Farben, s.
+                // die Pause-Begruendung oben).
+                if self.sessions.get(&id).is_some_and(|s| s.pending.is_some()) {
+                    let actions = self.draw(id);
+                    for action in actions {
+                        self.apply_overlay_action(id, action);
+                    }
+                    // Kommt der Player trotzdem nicht mit (sehr hohe Bildrate,
+                    // langsame GPU), bleibt das Verwerfen der Ausweg — dann
+                    // aber gezaehlt.
+                    if let Some(session) = self.sessions.get_mut(&id) {
+                        if session.pending.is_some() {
+                            session.frames_never_drawn += 1;
+                        }
+                    }
+                }
+                let Some(session) = self.sessions.get_mut(&id) else { return };
+                session.last_frame_at = Some(std::time::Instant::now());
+                session.full_range = frame.full_range;
+                session.matrix = frame.matrix;
+                session.pending = Some(frame);
+                session.window.request_redraw();
+            }
+            SessionEvent::Stats(stats) => {
+                session.stats = stats;
+                self.log_stats_if_due(id);
+                let Some(session) = self.sessions.get_mut(&id) else { return };
+                if let Some(overlay) = session.overlay.as_mut() {
+                    overlay.mark_stats_dirty();
+                }
+                // Nur dann: bei ausgeblendetem Overlay traegt ein Neuzeichnen
+                // nichts bei, und das Bild treibt seine Durchgaenge selbst.
+                if session.overlay.as_ref().is_some_and(Overlay::wants_redraw) {
                     session.window.request_redraw();
                 }
             }
-            SessionEvent::Stats(stats) => session.stats = stats,
             SessionEvent::Playing { decoder, hardware } => {
                 session.decoder = decoder;
                 session.hardware = hardware;
@@ -227,6 +525,23 @@ impl ApplicationHandler<UserEvent> for App {
         event: WindowEvent,
     ) {
         let Some(&id) = self.by_window.get(&window_id) else { return };
+        if let Some(session) = self.sessions.get_mut(&id) {
+            // egui zuerst sehen lassen: es braucht auch Groessen- und
+            // Skalierungswechsel. Sein `consumed` wird bewusst NICHT beachtet —
+            // die drei Faelle unten (Schliessen, Groesse, Zeichnen) gehoeren
+            // uns, egui reklamiert nur Zeiger- und Tastenereignisse.
+            let repaint = session
+                .overlay
+                .as_mut()
+                .is_some_and(|o| o.on_window_event(&session.window, &event));
+            // Nur wenn gerade KEINE Bilder fliessen — sonst zeichnet das
+            // naechste Bild das Overlay ohnehin mit (s. `FRAME_FLOW_WINDOW`).
+            let frames_flowing =
+                session.last_frame_at.is_some_and(|t| t.elapsed() < FRAME_FLOW_WINDOW);
+            if repaint && !frames_flowing {
+                session.window.request_redraw();
+            }
+        }
         match event {
             WindowEvent::CloseRequested => {
                 // Der Nutzer hat das Fenster geschlossen — nach vorne melden,
@@ -243,13 +558,9 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                let Some(session) = self.sessions.get_mut(&id) else { return };
-                let Some(renderer) = session.renderer.as_mut() else { return };
-                if let Some(frame) = session.pending.take() {
-                    renderer.upload(&frame);
-                }
-                if let Err(e) = renderer.render(&session.options, session.full_range, session.matrix) {
-                    eprintln!("pulse-player: Darstellung: {e:#}");
+                let actions = self.draw(id);
+                for action in actions {
+                    self.apply_overlay_action(id, action);
                 }
             }
             _ => {}

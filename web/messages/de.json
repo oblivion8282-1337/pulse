@@ -1378,6 +1378,9 @@
   "overrides_editor_resolution_label": "Auflösung",
   "overrides_editor_resolution_native": "Original",
   "overrides_editor_show_cursor": "Mauszeiger im Stream zeigen",
+  "overrides_editor_ten_bit": "10 Bit Farbtiefe",
+  "overrides_editor_ten_bit_hint": "Feinere Farbverläufe, weniger Streifenbildung. Zuschauer in der Desktop-App sehen den Stream dann in einem eigenen Fenster — nur dort sind mehr als 8 Bit darstellbar. Im Browser läuft er wie bisher.",
+  "overrides_editor_ten_bit_needs_av1": "Braucht den Codec AV1 — mit H.264 könnten Zuschauer im Browser den Stream nicht abspielen.",
   "owner_transfer_button_busy": "Übertrage…",
   "owner_transfer_button_idle": "Eigentümer wechseln",
   "owner_transfer_confirm_hint": "Gib \"{name}\" exakt ein, um die Übertragung zu aktivieren.",
@@ -2677,5 +2680,6 @@
   "settings_screenshare_subheading": "Wie dein Bild aussieht, wenn du deinen Bildschirm überträgst. Höhere Werte brauchen mehr Rechenleistung und eine bessere Leitung.",
   "stream_grid_participants_collapse_aria": "Teilnehmer ausblenden",
   "stream_grid_participants_collapsed_hint": "{count} Teilnehmer · ausgeblendet",
-  "stream_grid_participants_expand_aria": "Teilnehmer einblenden"
+  "stream_grid_participants_expand_aria": "Teilnehmer einblenden",
+  "native_panel_focus_window": "Fenster nach vorne holen"
 }

@@ -34,7 +34,7 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import AppWindowIcon from '@lucide/svelte/icons/app-window';
+  import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
   import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
 
   let {
@@ -97,17 +97,31 @@
   // Anzeige-Zustand: im nativen Modus spiegelt der Overlay den Sitzungsstatus
   // des Players statt des Browser-Managers (dessen `mgr.phase` weiterläuft,
   // ist hier aber nicht das, was der Viewer gerade sieht).
+  // Wer den Ton ausgibt, setzt die Sitzung selbst (sie ueberlebt den Unmount
+  // dieser Kachel). Hier NOCHMAL, weil `ensure()` eine BESTEHENDE Sitzung
+  // zurueckgeben kann, waehrend der Manager frisch ist — dann hat die Sitzung
+  // ihr `open()` schon hinter sich und wuerde nie mehr stummschalten.
+  $effect(() => {
+    mgr?.setNativeAudio(useNative && native.phase === 'playing');
+  });
+
   const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
   const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
   const stats = $derived(mgr?.stats ?? null);
   const audioBlocked = $derived(mgr?.audioBlocked ?? false);
   const volume = $derived(mgr?.volume ?? 100);
 
+  // Der Schieber schreibt weiter auf `mgr` — dort haengt die Persistenz je
+  // Streamer und der angezeigte Wert. Gibt das Fenster den Ton aus, ist `mgr`
+  // stummgeschaltet (`nativeAudio`), also muss der Wert zusaetzlich dorthin.
   function handleVolume(e: Event) {
-    mgr?.setVolume(Number((e.currentTarget as HTMLInputElement).value));
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    mgr?.setVolume(v);
+    native.session?.setVolume(v);
   }
   function toggleMute() {
     mgr?.toggleMute();
+    if (mgr) native.session?.setVolume(mgr.volume);
   }
   function enableAudio() {
     void mgr?.enableAudio();
@@ -207,16 +221,14 @@
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
-  stats={statsPill}
+  stats={useNative ? undefined : statsPill}
 >
   {#snippet media()}
     {#if useNative}
-      <!-- Bild laeuft im eigenen nativen Fenster (pulse-player); der Ton kommt
-           weiterhin aus dem Web-Audio-Graphen von `mgr`, siehe oben. -->
-      <div class="flex h-full w-full flex-col items-center justify-center gap-2 bg-black text-white/70">
-        <AppWindowIcon class="size-8" />
-        <p class="text-xs">{m.whep_player_native_window()}</p>
-      </div>
+      <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
+           dann das Cockpit: Lautstaerke/Chat liefert die TileShell, die
+           Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
+      <NativeWindowPanel session={native.session} />
     {:else}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
