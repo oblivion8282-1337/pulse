@@ -34,6 +34,8 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import AppWindowIcon from '@lucide/svelte/icons/app-window';
+  import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
 
   let {
     channelId,
@@ -66,20 +68,37 @@
     mgr = hqStreams.ensure(channelId, userId, streamSlot);
   });
 
+  // Nativer HQ-Player (Electron, experimentell — `streaming/pulse-player/`):
+  // ersetzt nur das BILD. Der Ton kommt unveraendert aus `mgr` weiter (dessen
+  // Video-Element ist immer stumm, siehe hqStreamManager.svelte.ts) — die
+  // Browser-WHEP-Verbindung laeuft also so oder so, unabhaengig davon, ob wir
+  // ihr Video anzeigen. Logik ausgelagert (Groessen-Policy): siehe
+  // `useNativePlayback.svelte.ts`.
+  const native = useNativePlayback(() => ({
+    channelId,
+    userId,
+    slot: streamSlot,
+    title: name
+  }));
+  const useNative = $derived(native.active);
+
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
   // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
+  // Kein Attach, solange der native Player das Bild zeigt.
   $effect(() => {
     const m = mgr;
     const el = videoEl;
-    if (!m || !el) return;
+    if (!m || !el || useNative) return;
     void m.stream; // tracken → Re-Attach bei (Wieder-)Verbindung
     m.attachVideo(el);
     return () => m.detachVideo(el);
   });
 
-  // Anzeige-Zustand spiegelt den Manager.
-  const phase = $derived(mgr?.phase ?? 'connecting');
-  const detail = $derived(mgr?.detail ?? '');
+  // Anzeige-Zustand: im nativen Modus spiegelt der Overlay den Sitzungsstatus
+  // des Players statt des Browser-Managers (dessen `mgr.phase` weiterläuft,
+  // ist hier aber nicht das, was der Viewer gerade sieht).
+  const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
+  const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
   const stats = $derived(mgr?.stats ?? null);
   const audioBlocked = $derived(mgr?.audioBlocked ?? false);
   const volume = $derived(mgr?.volume ?? 100);
@@ -191,13 +210,22 @@
   stats={statsPill}
 >
   {#snippet media()}
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      bind:this={videoEl}
-      autoplay
-      playsinline
-      class="h-full w-full bg-black object-contain"
-    ></video>
+    {#if useNative}
+      <!-- Bild laeuft im eigenen nativen Fenster (pulse-player); der Ton kommt
+           weiterhin aus dem Web-Audio-Graphen von `mgr`, siehe oben. -->
+      <div class="flex h-full w-full flex-col items-center justify-center gap-2 bg-black text-white/70">
+        <AppWindowIcon class="size-8" />
+        <p class="text-xs">{m.whep_player_native_window()}</p>
+      </div>
+    {:else}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        autoplay
+        playsinline
+        class="h-full w-full bg-black object-contain"
+      ></video>
+    {/if}
   {/snippet}
   {#snippet overlay()}
     {#if phase === 'connecting' || phase === 'retrying'}

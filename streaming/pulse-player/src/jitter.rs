@@ -1,0 +1,282 @@
+//! Jitter-Puffer: sortiert RTP-Pakete und gibt sie zeitgesteuert frei.
+//!
+//! Warum selbst gebaut statt Chromium/`SampleBuilder` zu benutzen: die
+//! Latenzmessung in `docs/2026-07-21-remote-control-latenz-messung.md` hat
+//! ergeben, dass **5-15 ms Puffer** auf einer gesunden Strecke reichen
+//! (Sweep ueber 5/20/40 ms, alle sauber). Chromiums WebRTC-Puffer laesst sich
+//! nicht dorthin zwingen — `playoutDelayHint` ist ein Hinweis, keine Vorgabe.
+//! Ein eigener Puffer macht diese Messung erst nutzbar und ist damit der
+//! direkteste Latenzhebel im ganzen Player.
+//!
+//! Verhalten:
+//! * Pakete werden nach **erweiterter** Sequenznummer sortiert (16-bit-Ueberlauf
+//!   wird mitgezaehlt, sonst springt der Puffer bei jedem Wrap zurueck).
+//! * Ein Paket wird freigegeben, sobald es `target` lang liegt **oder** alle
+//!   Vorgaenger da sind.
+//! * Reisst eine Luecke laenger als `target` auf, wird sie als [`Release::Gap`]
+//!   gemeldet und uebersprungen — lieber ein verworfener Frame als ein
+//!   stehender Puffer.
+
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
+
+use webrtc::rtp::packet::Packet;
+
+/// Obergrenze fuer zwischengespeicherte Pakete. Greift nur, wenn der Strom
+/// pathologisch ist (Dauerverlust); verhindert unbegrenzten Speicherzuwachs.
+const MAX_BUFFERED: usize = 2048;
+
+/// Ab wie vielen Sequenznummern Abstand ein Sprung als Neustart des Stroms
+/// gilt statt als Luecke (z. B. nach Republish).
+const RESYNC_DISTANCE: u64 = 3000;
+
+pub enum Release {
+    Packet(Packet),
+    /// Mindestens ein Paket ist endgueltig verloren; die angefangene
+    /// Zugriffseinheit ist damit unbrauchbar.
+    ///
+    /// `missing` wird heute nur in Tests und Logs gelesen — es bleibt im Typ,
+    /// weil die Anzahl in die Diagnose gehoert, sobald der Stats-Ausbau kommt.
+    Gap {
+        #[allow(dead_code)]
+        missing: u64,
+    },
+}
+
+struct Entry {
+    packet: Packet,
+    arrived: Instant,
+}
+
+pub struct JitterBuffer {
+    entries: BTreeMap<u64, Entry>,
+    /// Naechste erwartete erweiterte Sequenznummer.
+    next: Option<u64>,
+    /// Letzte gesehene rohe 16-bit-Sequenznummer (fuer die Ueberlauf-Erkennung).
+    last_raw: Option<u16>,
+    /// Wie viele Ueberlaeufe bereits gezaehlt wurden.
+    cycles: u64,
+    target: Duration,
+    // --- Zaehler fuer die Diagnose ---
+    pub received: u64,
+    pub lost: u64,
+    pub reordered: u64,
+    pub duplicates: u64,
+}
+
+impl JitterBuffer {
+    pub fn new(target: Duration) -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            next: None,
+            last_raw: None,
+            cycles: 0,
+            target,
+            received: 0,
+            lost: 0,
+            reordered: 0,
+            duplicates: 0,
+        }
+    }
+
+    pub fn set_target(&mut self, target: Duration) {
+        self.target = target;
+    }
+
+    /// Nur von den Tests gebraucht; gehoert trotzdem zur Oberflaeche des Puffers.
+    #[allow(dead_code)]
+    pub fn target(&self) -> Duration {
+        self.target
+    }
+
+    /// Aktueller Fuellstand — geht als `buffered` in die Statistik.
+    pub fn buffered(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Rechnet die rohe 16-bit-Sequenznummer in eine monoton wachsende um.
+    fn extend(&mut self, raw: u16) -> u64 {
+        if let Some(last) = self.last_raw {
+            // Rueckwaertssprung um mehr als ein halbes Fenster = Ueberlauf.
+            if last > 0xC000 && raw < 0x4000 {
+                self.cycles += 1;
+            } else if last < 0x4000 && raw > 0xC000 && self.cycles > 0 {
+                // spaet eintreffendes Paket von VOR dem Ueberlauf
+                return (self.cycles - 1) << 16 | u64::from(raw);
+            }
+        }
+        self.last_raw = Some(raw);
+        self.cycles << 16 | u64::from(raw)
+    }
+
+    pub fn push(&mut self, packet: Packet, arrived: Instant) {
+        self.received += 1;
+        let seq = self.extend(packet.header.sequence_number);
+
+        match self.next {
+            None => self.next = Some(seq),
+            Some(next) => {
+                if seq < next {
+                    // Zu spaet — die Einheit ist bereits raus.
+                    self.reordered += 1;
+                    return;
+                }
+                // Grosser Vorwaertssprung: der Sender hat neu begonnen.
+                if seq > next + RESYNC_DISTANCE {
+                    self.entries.clear();
+                    self.next = Some(seq);
+                }
+            }
+        }
+
+        if self.entries.insert(seq, Entry { packet, arrived }).is_some() {
+            self.duplicates += 1;
+        }
+
+        if self.entries.len() > MAX_BUFFERED {
+            // Aeltestes hart freigeben, damit der Puffer nicht davonlaeuft.
+            if let Some(&oldest) = self.entries.keys().next() {
+                self.next = Some(oldest);
+            }
+        }
+    }
+
+    /// Gibt alles frei, was faellig ist. `now` wird uebergeben statt intern
+    /// geholt, damit der Ablauf testbar bleibt.
+    pub fn poll(&mut self, now: Instant) -> Vec<Release> {
+        let mut out = Vec::new();
+        loop {
+            let Some(next) = self.next else { return out };
+            let Some(entry) = self.entries.first_entry() else { return out };
+            let first = *entry.key();
+
+            if first == next {
+                self.next = Some(next + 1);
+                out.push(Release::Packet(entry.remove().packet));
+                continue;
+            }
+
+            // Luecke. Warten, solange das aelteste wartende Paket noch nicht
+            // ueber die Zielzeit hinaus liegt — das fehlende kann noch kommen.
+            if now.duration_since(entry.get().arrived) < self.target {
+                return out;
+            }
+
+            let missing = first - next;
+            self.lost += missing;
+            self.next = Some(first);
+            out.push(Release::Gap { missing });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkt(seq: u16) -> Packet {
+        let mut p = Packet::default();
+        p.header.sequence_number = seq;
+        p
+    }
+
+    fn seqs(rel: &[Release]) -> Vec<u16> {
+        rel.iter()
+            .filter_map(|r| match r {
+                Release::Packet(p) => Some(p.header.sequence_number),
+                Release::Gap { .. } => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reihenfolge_bleibt_erhalten() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        for s in [1u16, 2, 3] {
+            j.push(pkt(s), t0);
+        }
+        assert_eq!(seqs(&j.poll(t0)), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn vertauschte_pakete_werden_sortiert() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(1), t0);
+        j.push(pkt(3), t0);
+        // 3 darf noch nicht raus — 2 fehlt und die Zielzeit ist nicht um.
+        assert_eq!(seqs(&j.poll(t0)), vec![1]);
+        j.push(pkt(2), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![2, 3]);
+    }
+
+    #[test]
+    fn luecke_wird_nach_zielzeit_uebersprungen() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(1), t0);
+        j.push(pkt(3), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![1]);
+
+        let later = t0 + Duration::from_millis(25);
+        let rel = j.poll(later);
+        assert!(
+            matches!(rel.first(), Some(Release::Gap { missing: 1 })),
+            "fehlendes Paket muss als Luecke gemeldet werden"
+        );
+        assert_eq!(seqs(&rel), vec![3]);
+        assert_eq!(j.lost, 1);
+    }
+
+    #[test]
+    fn sequenznummern_ueberlauf() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(65534), t0);
+        j.push(pkt(65535), t0);
+        j.push(pkt(0), t0);
+        j.push(pkt(1), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![65534, 65535, 0, 1], "Wrap darf nicht zurueckspringen");
+    }
+
+    #[test]
+    fn duplikate_werden_gezaehlt_nicht_doppelt_geliefert() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(1), t0);
+        j.push(pkt(1), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![1]);
+        assert_eq!(j.duplicates, 1);
+    }
+
+    #[test]
+    fn zu_spaete_pakete_werden_verworfen() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(5), t0);
+        j.poll(t0);
+        j.push(pkt(4), t0); // kommt nach der Freigabe
+        assert!(seqs(&j.poll(t0)).is_empty());
+        assert_eq!(j.reordered, 1);
+    }
+
+    #[test]
+    fn grosser_sprung_synchronisiert_neu() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(1), t0);
+        j.poll(t0);
+        // Republish: Sequenz beginnt weit entfernt neu
+        j.push(pkt(9000), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![9000], "Neustart darf nicht blockieren");
+    }
+
+    #[test]
+    fn zielzeit_ist_zur_laufzeit_aenderbar() {
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        assert_eq!(j.target(), Duration::from_millis(20));
+        j.set_target(Duration::from_millis(5));
+        assert_eq!(j.target(), Duration::from_millis(5));
+    }
+}

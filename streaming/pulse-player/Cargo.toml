@@ -1,0 +1,72 @@
+[package]
+name = "pulse-player"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Nativer HQ-Stream-Player fuer Pulse (WHEP -> Decode -> eigenes Fenster)"
+publish = false
+
+# ---------------------------------------------------------------------------
+# LIZENZ — bitte vor dem Hinzufuegen einer Dependency lesen.
+#
+# Pulse ist source-available (PolyForm Perimeter fuer den Client). GPL-Code
+# darf NICHT in dieses Binary gelinkt werden; das kollidiert hart mit der
+# Client-Lizenz. Erlaubt sind MIT / Apache-2.0 / BSD / ISC / WTFPL sowie LGPL
+# NUR dynamisch gelinkt und als getrennt austauschbare Datei ausgeliefert.
+#
+# FFmpeg: in ausgelieferten Builds MUSS eine LGPL-Konfiguration verwendet
+# werden (wie win-hq-sidecar via FFMPEG_DIR und mac-hq-sidecar via
+# scripts/build-ffmpeg.sh). Die System-FFmpeg vieler Distributionen ist mit
+# --enable-gpl gebaut und deshalb NUR fuer die lokale Entwicklung geeignet.
+# Siehe THIRD-PARTY-NOTICES.md und streaming/pulse-player/README.md.
+# ---------------------------------------------------------------------------
+
+[dependencies]
+# --- stdio-JSON-RPC + Fehlerbehandlung ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+
+# --- Laufzeit ---
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "io-std",
+    "io-util",
+] }
+
+# --- WHEP / WebRTC (gleiche Version wie der Fernsteuerungs-Spike) ---
+webrtc = "0.17"
+# rustls, NICHT native-tls: webrtc-rs bringt ueber `dtls` ohnehin verpflichtend
+# rustls mit. Ein zweiter TLS-Stack (OpenSSL) daneben waere reine Doppelung —
+# mehr Angriffsflaeche, groesseres Paket, zwei Lizenztexte statt einem.
+# Folge: aws-lc-rs/aws-lc-sys ist Teil des Baums (ISC, Apache-2.0, MIT,
+# BSD-3-Clause — alle permissiv) und gehoert in THIRD-PARTY-NOTICES.md.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+bytes = "1"
+
+# --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "software-resampling",
+    "software-scaling",
+] }
+
+# --- Fenster + GPU-Darstellung ---
+winit = "0.30"
+wgpu = "29"
+raw-window-handle = "0.6"
+pollster = "0.4"
+
+# --- Audio-Ausgabe ---
+cpal = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
