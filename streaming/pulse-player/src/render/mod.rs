@@ -234,7 +234,7 @@ impl Renderer {
                 flag(planes.ten_bit),
                 flag(full_range),
                 flag(planes.layout == PixelLayout::BiPlanar420),
-                0.0,
+                sample_scale(planes.ten_bit, planes.layout),
             ],
         }
     }
@@ -320,5 +320,39 @@ impl Renderer {
         surface_texture.present();
         self.frames_presented += 1;
         Ok(())
+    }
+}
+
+/// Faktor, mit dem ein als `*16Unorm` gelesener Abtastwert multipliziert
+/// werden muss, um wieder in [0,1] zu liegen.
+///
+/// Der Unterschied ist leicht zu uebersehen und entscheidet ueber richtiges
+/// gegen fast schwarzes Bild:
+/// * `P010LE` (biplanar, kommt von NVDEC) legt die 10 Bit in die **oberen**
+///   Bits eines 16-bit-Wortes. Als Unorm gelesen stimmt der Wert bereits.
+/// * `YUV420P10LE` (planar, kommt von libdav1d/Software-Decode) legt sie in
+///   die **unteren** Bits, Wertebereich 0..1023. Als Unorm gelesen waere das
+///   um Faktor ~64 zu dunkel.
+fn sample_scale(ten_bit: bool, layout: PixelLayout) -> f32 {
+    if ten_bit && layout == PixelLayout::Planar420 {
+        f32::from(u16::MAX) / 1023.0
+    } else {
+        1.0
+    }
+}
+
+#[cfg(test)]
+mod scale_tests {
+    use super::*;
+
+    #[test]
+    fn zehn_bit_planar_wird_hochskaliert_biplanar_nicht() {
+        // YUV420P10LE: Werte 0..1023 in den unteren Bits -> muss skaliert werden.
+        let planar = sample_scale(true, PixelLayout::Planar420);
+        assert!((planar - 65535.0 / 1023.0).abs() < 0.01, "planar: {planar}");
+        // P010LE: Werte liegen bereits in den oberen Bits -> unveraendert.
+        assert!((sample_scale(true, PixelLayout::BiPlanar420) - 1.0).abs() < f32::EPSILON);
+        // 8 bit: nie skalieren.
+        assert!((sample_scale(false, PixelLayout::Planar420) - 1.0).abs() < f32::EPSILON);
     }
 }

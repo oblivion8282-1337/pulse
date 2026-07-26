@@ -12,7 +12,8 @@ struct Uniforms {
     crop: vec4<f32>,
     // x = Deband-Staerke, y = Dither an/aus, z = Anzahl Ausgabestufen, w = Zeit
     params: vec4<f32>,
-    // x = 10-bit-Quelle, y = voller Wertebereich, z = biplanar (NV12/P010), w = ungenutzt
+    // x = 10-bit-Quelle, y = voller Wertebereich, z = biplanar (NV12/P010),
+// w = Skalierungsfaktor der Abtastwerte (s. render::sample_scale)
     flags: vec4<f32>,
 };
 
@@ -71,7 +72,9 @@ fn sample_yuv(uv: vec2<f32>) -> vec3<f32> {
         cb = textureSampleLevel(tex_u, samp, uv, 0.0).r;
         cr = textureSampleLevel(tex_v, samp, uv, 0.0).r;
     }
-    return vec3<f32>(luma, cb, cr);
+    // Skalierung fuer 10-bit-Quellen, die ihre Werte in den unteren Bits
+    // ablegen (planar). Bei P010 und 8 bit ist der Faktor 1.
+    return vec3<f32>(luma, cb, cr) * u.flags.w;
 }
 
 fn hash23(p: vec3<f32>) -> f32 {

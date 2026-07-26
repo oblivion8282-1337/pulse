@@ -84,43 +84,49 @@ impl MediaSink {
     }
 
     fn play_audio(&mut self, packet: &[u8]) {
-        if self.audio_failed {
+        if !self.ensure_audio() {
             return;
         }
-        if self.audio.is_none() {
-            match AudioOutput::new() {
-                Ok(out) => {
-                    out.set_volume(self.volume);
-                    out.set_offset_ms(self.offset_ms);
-                    match OpusDecoder::new(out.sample_rate, out.channels) {
-                        Ok(dec) => {
-                            eprintln!(
-                                "pulse-player: Tonausgabe {} Hz, {} Kanaele",
-                                out.sample_rate, out.channels
-                            );
-                            self.opus = Some(dec);
-                            self.audio = Some(out);
-                        }
-                        Err(e) => {
-                            eprintln!("pulse-player: Opus-Decoder: {e:#} — bleibt stumm");
-                            self.audio_failed = true;
-                            return;
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("pulse-player: keine Tonausgabe: {e:#} — bleibt stumm");
-                    self.audio_failed = true;
-                    return;
-                }
-            }
-        }
-
         let (Some(dec), Some(out)) = (self.opus.as_mut(), self.audio.as_ref()) else { return };
         match dec.decode(packet) {
             Ok(pcm) => out.push(pcm),
             Err(e) => eprintln!("pulse-player: Opus-Decode: {e:#}"),
         }
+    }
+
+    /// Oeffnet Geraet und Decoder beim ersten Tonpaket. `false` heisst: der
+    /// Player bleibt stumm — einmal gescheitert wird nicht erneut versucht.
+    fn ensure_audio(&mut self) -> bool {
+        if self.audio_failed {
+            return false;
+        }
+        if self.audio.is_some() {
+            return true;
+        }
+
+        let out = match AudioOutput::new() {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("pulse-player: keine Tonausgabe: {e:#} — bleibt stumm");
+                self.audio_failed = true;
+                return false;
+            }
+        };
+        out.set_volume(self.volume);
+        out.set_offset_ms(self.offset_ms);
+
+        let dec = match OpusDecoder::new(out.sample_rate, out.channels) {
+            Ok(dec) => dec,
+            Err(e) => {
+                eprintln!("pulse-player: Opus-Decoder: {e:#} — bleibt stumm");
+                self.audio_failed = true;
+                return false;
+            }
+        };
+        eprintln!("pulse-player: Tonausgabe {} Hz, {} Kanaele", out.sample_rate, out.channels);
+        self.opus = Some(dec);
+        self.audio = Some(out);
+        true
     }
 
     pub fn start_recording(&mut self, path: &str) -> Result<(), String> {

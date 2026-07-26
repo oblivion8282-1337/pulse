@@ -42,6 +42,65 @@ struct Shared {
     dropped: u64,
 }
 
+/// Geraete-Callback. Laeuft im Echtzeit-Kontext: nicht blockieren, nicht
+/// allokieren — nur aus dem Ring kopieren und bei Unterlauf Stille auffuellen.
+fn fill_output(shared: &Mutex<Shared>, out: &mut [f32]) {
+    let Ok(mut s) = shared.lock() else {
+        out.fill(0.0);
+        return;
+    };
+    // Erst anlaufen lassen, wenn der Zielfuellstand da ist — sonst startet die
+    // Wiedergabe direkt mit Unterlauf.
+    if s.ring.len() < s.target_fill {
+        out.fill(0.0);
+        return;
+    }
+    let volume = s.volume;
+    let written = s.ring.len().min(out.len());
+    for (slot, v) in out.iter_mut().zip(s.ring.drain(..written)) {
+        *slot = (v * volume).clamp(-1.0, 1.0);
+    }
+    out[written..].fill(0.0);
+    if written < out.len() {
+        s.underruns += 1;
+    }
+}
+
+/// Nimmt Befehle entgegen, bis der Sender weg ist oder `Stop` kommt.
+/// `per_ms` = Samples je Millisekunde ueber alle Kanaele.
+fn pump_commands(
+    rx: &std::sync::mpsc::Receiver<AudioCommand>,
+    shared: &Mutex<Shared>,
+    per_ms: usize,
+) {
+    while let Ok(cmd) = rx.recv() {
+        let Ok(mut s) = shared.lock() else { break };
+        match cmd {
+            AudioCommand::Pcm(samples) => {
+                let total = s.ring.len() + samples.len();
+                if total > MAX_RING_SAMPLES {
+                    // Aelteste Daten weg — die sind ohnehin zu spaet.
+                    let drop_n = (total - MAX_RING_SAMPLES).min(s.ring.len());
+                    s.ring.drain(..drop_n);
+                    s.dropped += drop_n as u64;
+                }
+                s.ring.extend(samples);
+            }
+            AudioCommand::Volume(v) => s.volume = v,
+            AudioCommand::OffsetMs(ms) => {
+                // Positiv = Ton spaeter = mehr Vorlauf im Ring.
+                s.target_fill = (ms.max(0) as usize) * per_ms;
+                if ms < 0 {
+                    // Negativ = Ton frueher: vorhandenen Vorlauf kappen.
+                    let n = ((-ms) as usize * per_ms).min(s.ring.len());
+                    s.ring.drain(..n);
+                }
+            }
+            AudioCommand::Stop => break,
+        }
+    }
+}
+
 /// Griff auf die laufende Ausgabe. Beim Fallenlassen endet der Thread.
 pub struct AudioOutput {
     tx: std::sync::mpsc::Sender<AudioCommand>,
@@ -76,42 +135,21 @@ impl AudioOutput {
 
         let cb_shared = Arc::clone(&shared);
         let thread_shared = Arc::clone(&shared);
+        let per_ms = (sample_rate as usize * channels as usize) / 1000;
 
         // Der Stream lebt auf diesem Thread und stirbt mit ihm.
         std::thread::Builder::new()
             .name("pulse-player-audio".into())
             .spawn(move || {
-                let stream = match device.build_output_stream(
+                let stream = device.build_output_stream(
                     &config,
                     move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                        let Ok(mut s) = cb_shared.lock() else {
-                            out.fill(0.0);
-                            return;
-                        };
-                        // Erst anlaufen lassen, wenn der Zielfuellstand da ist —
-                        // sonst startet die Wiedergabe direkt mit Unterlauf.
-                        if s.ring.len() < s.target_fill {
-                            out.fill(0.0);
-                            return;
-                        }
-                        let volume = s.volume;
-                        let mut written = 0;
-                        for slot in out.iter_mut() {
-                            match s.ring.pop_front() {
-                                Some(v) => {
-                                    *slot = (v * volume).clamp(-1.0, 1.0);
-                                    written += 1;
-                                }
-                                None => *slot = 0.0,
-                            }
-                        }
-                        if written < out.len() {
-                            s.underruns += 1;
-                        }
+                        fill_output(&cb_shared, out);
                     },
                     |err| eprintln!("pulse-player: Audio-Stream: {err}"),
                     None,
-                ) {
+                );
+                let stream = match stream {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("pulse-player: Ausgabestrom liess sich nicht bauen: {e}");
@@ -122,35 +160,7 @@ impl AudioOutput {
                     eprintln!("pulse-player: Ausgabe startet nicht: {e}");
                     return;
                 }
-
-                while let Ok(cmd) = rx.recv() {
-                    let Ok(mut s) = thread_shared.lock() else { break };
-                    match cmd {
-                        AudioCommand::Pcm(samples) => {
-                            let total = s.ring.len() + samples.len();
-                            if total > MAX_RING_SAMPLES {
-                                // Aelteste Daten weg — die sind ohnehin zu spaet.
-                                let drop_n = (total - MAX_RING_SAMPLES).min(s.ring.len());
-                                s.ring.drain(..drop_n);
-                                s.dropped += drop_n as u64;
-                            }
-                            s.ring.extend(samples);
-                        }
-                        AudioCommand::Volume(v) => s.volume = v,
-                        AudioCommand::OffsetMs(ms) => {
-                            // Positiv = Ton spaeter = mehr Vorlauf im Ring.
-                            let per_ms = (sample_rate as usize * channels as usize) / 1000;
-                            s.target_fill = (ms.max(0) as usize) * per_ms;
-                            if ms < 0 {
-                                // Negativ = Ton frueher: vorhandenen Vorlauf kappen.
-                                let drop = (-ms) as usize * per_ms;
-                                let n = drop.min(s.ring.len());
-                                s.ring.drain(..n);
-                            }
-                        }
-                        AudioCommand::Stop => break,
-                    }
-                }
+                pump_commands(&rx, &thread_shared, per_ms);
             })
             .context("Audio-Thread liess sich nicht starten")?;
 
@@ -229,13 +239,13 @@ impl OpusDecoder {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::audio::Audio::empty();
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            let converted = self.to_device_format(&frame)?;
+            let converted = self.resample_for_device(&frame)?;
             out.extend_from_slice(&converted);
         }
         Ok(out)
     }
 
-    fn to_device_format(&mut self, frame: &ffmpeg::util::frame::audio::Audio) -> Result<Vec<f32>> {
+    fn resample_for_device(&mut self, frame: &ffmpeg::util::frame::audio::Audio) -> Result<Vec<f32>> {
         use ffmpeg::util::format::sample::{Sample, Type};
 
         let target_layout =

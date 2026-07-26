@@ -834,32 +834,31 @@ function wirePlayer(): void {
   // Aufnahme: der Renderer loest nur aus. Zielpfad und Laengenbegrenzung
   // bestimmt der Hauptprozess (s. player.ts) — ein renderer-gewaehlter Pfad
   // waere ein Schreibzugriff an beliebige Stelle.
-  ipcMain.handle('player:record', async (_e, session: unknown) => {
-    if (typeof session !== 'number') return { ok: false, error: 'session fehlt' };
-    try {
-      return await playerManager.startRecording(session);
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  });
+  //
+  // Alle drei teilen dieselbe Absicherung: Sitzung pruefen und jeden Fehler
+  // abfangen, damit im Renderer immer ein {ok:false} ankommt statt einer
+  // geworfenen IPC-Ausnahme.
+  const handleRecording = (
+    channel: string,
+    run: (session: number, arg: unknown) => Promise<Record<string, unknown>>,
+  ): void => {
+    ipcMain.handle(channel, async (_e, session: unknown, arg: unknown) => {
+      if (typeof session !== 'number') return { ok: false, error: 'session fehlt' };
+      try {
+        return await run(session, arg);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    });
+  };
 
-  ipcMain.handle('player:stopRecord', async (_e, session: unknown) => {
-    if (typeof session !== 'number') return { ok: false, error: 'session fehlt' };
-    try {
-      return await playerManager.call('stop_record', { session });
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle('player:clip', async (_e, session: unknown, seconds: unknown) => {
-    if (typeof session !== 'number') return { ok: false, error: 'session fehlt' };
-    try {
-      return await playerManager.saveClip(session, Number(seconds) || 30);
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  });
+  handleRecording('player:record', (session) => playerManager.startRecording(session));
+  handleRecording('player:stopRecord', (session) =>
+    playerManager.call('stop_record', { session }),
+  );
+  handleRecording('player:clip', (session, seconds) =>
+    playerManager.saveClip(session, Number(seconds) || 30),
+  );
 
   ipcMain.handle('player:call', async (_e, op: string, params: unknown) => {
     if (!ALLOWED_PLAYER_OPS.has(op)) {
