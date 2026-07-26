@@ -65,28 +65,44 @@ nicht einsehbar.
   Hardware ja/nein, Oberflaechenformat, dazu Ton-Unterlaeufe und Puffer-Stand
   sowie Aufnahmezustand und verfuegbare Clip-Sekunden.
 
-## OFFENER FEHLER: AV1-Wiedergabe funktioniert nicht
+## AV1-Rundlauf-Test gegen echte Daten: Depacketizer ist sauber
 
-Ein Rundlauf-Test (echter AV1-Strom ueber den `Av1Payloader` des `rtp`-Crates
-in RTP-Pakete zerlegt, durch unseren Assembler zurueck) zeigt, dass
-`depacket/av1.rs` echte Stroeme **nicht korrekt zusammensetzt** — die erste
-Zugriffseinheit kommt bereits unvollstaendig an, bei jeder getesteten MTU.
+`depacket/av1.rs` hat einen Rundlauf-Test (echter AV1-Strom ueber den
+`Av1Payloader` des `rtp`-Crates in RTP-Pakete zerlegt, durch unseren
+`Av1Assembler` zurueck, gegen mehrere MTUs inkl. Fragmentierung und
+Paketverlust). Ein frueherer Versuch hatte hier faelschlich einen
+"OFFENER FEHLER: AV1-Wiedergabe funktioniert nicht" vermerkt und die Tests
+`#[ignore]`d — das war eine **Fehldiagnose**.
 
-Die acht Unit-Tests mit handgebauten Paketen reichten nicht: sie treffen
-offenbar nicht die Kombination aus W-Feld und Fortsetzung, die ein echter
-Payloader erzeugt.
+Die tatsaechliche Ursache: `rtp` 0.17.2s
+`codecs::av1::leb128::{encode_leb128,put_leb128}` (nur fuer den
+`Av1Payloader` benutzt, NICHT fuer unseren Depacketizer) kodiert jedes
+Laengenfeld >=128 fehlerhaft — die Funktion packt jede 7-Bit-LEB128-Gruppe in
+ein volles 8-Bit-Byte-Slot (`<<= 8`), liest beim Serialisieren aber mit `>>= 7`
+wieder aus; die Fehlausrichtung erzeugt ein zusaetzliches Muellbyte statt
+gueltigem Standard-LEB128 (`put_leb128(474)` schreibt z. B. 3 Byte
+`[0x83,0xb4,0x03]` statt der korrekten 2 Byte `[0xda,0x03]`). Der Rundlauf-Test
+fuetterte unseren (korrekten, standardkonformen) Assembler also mit bereits
+kaputten Testdaten und meldete den Fehler des Generators als Fehler des
+Depacketizers.
+
+`depacket/av1.rs::tests::roundtrip` baut das jetzt in
+`fix_rtp_crate_leb128_bug()` per Nachschlagetabelle gegen eine 1:1-Kopie von
+`encode_leb128`/`put_leb128` zurecht (nur die Laengenfeld-Bytes werden
+korrigiert, die eigentliche Fragmentierungs-Entscheidung des Payloaders bleibt
+unangetastet und damit weiter der Pruefgegenstand). Mit dem Fix laufen alle
+Rundlauf-Tests gruen — inkl. Ende-zu-Ende-Dekodierung per `ffprobe` (gleiche
+Bildanzahl wie das Original) und Paketverlust-Erholung. `Av1Payloader` wird in
+Pulse aktuell nirgends produktiv zum Senden genutzt (nur als Dev-Dependency
+hier), der Bug hat also keinen bekannten Praxis-Impact — ist aber ein fuer
+sich stehender, reproduzierbarer Fehler in einer Abhaengigkeit.
 
 Reproduktion:
 ```
 ffmpeg -f lavfi -i "testsrc2=s=320x180:r=30:d=2" -c:v libsvtav1 -preset 12 \
   -f obu fixture.obu
-PULSE_PLAYER_AV1_FIXTURE=fixture.obu cargo test depacket -- --ignored
+PULSE_PLAYER_AV1_FIXTURE=fixture.obu cargo test depacket::av1
 ```
-
-Die beiden Tests sind als `#[ignore]` markiert, damit der Testlauf gruen
-bleibt — **nicht**, weil der Fehler geklaert waere. AV1 ist der Standard-Codec
-(`settings.svelte.ts` waehlt ihn, sobald die GPU ihn encodieren kann); bis das
-behoben ist, taugt der Player praktisch nur fuer H.264.
 
 ## Was er noch NICHT kann
 

@@ -445,12 +445,114 @@ mod tests {
         /// Zerlegt eine Zugriffseinheit mit dem echten `rtp`-Payloader in
         /// RTP-Nutzlasten und setzt das Marker-Bit auf das letzte Paket --
         /// so wie ein echter Sender es fuer das Ende einer Einheit setzt.
+        ///
+        /// `rtp` 0.17.2 hat einen eigenstaendigen Bug in seinem AV1-LEB128-
+        /// Encoder (siehe `fix_rtp_crate_leb128_bug` unten): jedes explizite
+        /// Element-Laengenfeld >=128 wird nicht-standardkonform geschrieben.
+        /// Ohne den Fix wuerde dieser Test also einen Fehler im *Generator*
+        /// als Fehler im Depacketizer melden. Der Fix korrigiert nur die
+        /// Laengenfeld-Bytes, laesst die eigentliche Fragmentierungs-
+        /// Entscheidung (welches Byte in welches Paket, Z/Y, W) des
+        /// Payloaders unveraendert -- die bleibt damit weiter der echte
+        /// Pruefgegenstand.
         fn packetize(unit: &[u8], mtu: usize) -> Vec<(Bytes, bool)> {
             let mut p = Av1Payloader::default();
             let payloads =
                 p.payload(mtu, &Bytes::copy_from_slice(unit)).expect("Payloader darf nicht fehlschlagen");
             let n = payloads.len();
-            payloads.into_iter().enumerate().map(|(i, b)| (b, i + 1 == n)).collect()
+            payloads
+                .into_iter()
+                .enumerate()
+                .map(|(i, b)| (fix_rtp_crate_leb128_bug(&b), i + 1 == n))
+                .collect()
+        }
+
+        /// 1:1-Kopie von `rtp` 0.17.2s `codecs::av1::leb128::{encode_leb128,
+        /// put_leb128}` -- bewusst NICHT der Fix, sondern die exakte (kaputte)
+        /// Vorlage. Wichtig: `decode_leb128` aus demselben Crate ist NICHT die
+        /// Umkehrung davon (die liest korrektes Standard-LEB128, s. Fund
+        /// unten) -- die einzig sichere Umkehr-Richtung ist ein Nachschlagen
+        /// gegen diese Vorwaerts-Funktion selbst.
+        fn crate_put_leb128_bytes(n: u32) -> Vec<u8> {
+            let mut encoded = {
+                let mut val = n;
+                let mut b: u32 = 0;
+                loop {
+                    b |= val & 0x7f;
+                    val >>= 7;
+                    if val != 0 {
+                        b |= 0x80;
+                        b <<= 8;
+                    } else {
+                        break;
+                    }
+                }
+                b
+            };
+            let mut out = Vec::new();
+            while encoded >= 0x80 {
+                out.push((0x80 | (encoded & 0x7f)) as u8);
+                encoded >>= 7;
+            }
+            out.push(encoded as u8);
+            out
+        }
+
+        /// Liest ein Laengenfeld, das mit `rtp` 0.17.2s kaputtem
+        /// `put_leb128` geschrieben wurde: Byte-Grenzen ueber das
+        /// Continuation-Bit finden (das haelt die Vorlage korrekt ein),
+        /// den eigentlichen WERT aber per Nachschlagetabelle gegen
+        /// `crate_put_leb128_bytes` rekonstruieren statt zu dekodieren --
+        /// s. Doku dort, warum Dekodieren hier nicht funktioniert.
+        fn buggy_crate_read_len(buf: &[u8]) -> (usize, usize) {
+            let n = buf.iter().take_while(|&&b| b & 0x80 != 0).count() + 1;
+            let wire = &buf[..n];
+            for candidate in 0u32..=200_000 {
+                if crate_put_leb128_bytes(candidate) == wire {
+                    return (candidate as usize, n);
+                }
+            }
+            panic!("keine Laenge <=200000 ergibt diese Bytes: {wire:02x?} -- Bug-Nachbau falsch oder Fragment zu gross");
+        }
+
+        /// FUND: `rtp` 0.17.2s `codecs::av1::leb128::encode_leb128` packt jede
+        /// 7-Bit-Gruppe in ein volles 8-Bit-Byte-Slot eines `u32` (schiebt mit
+        /// `<<= 8`), aber `put_leb128` liest das Ergebnis anschliessend mit
+        /// `>>= 7` wieder aus -- die Fehlausrichtung zwischen 8-Bit-Packung und
+        /// 7-Bit-Auslesung erzeugt fuer JEDEN Wert >=128 ein zusaetzliches
+        /// Muellbyte statt eines gueltigen LEB128 (`put_leb128(474)` schreibt
+        /// z. B. `[0x83, 0xb4, 0x03]` statt der korrekten 2 Byte `[0xda, 0x03]`
+        /// -- reproduzierbar per Hand nachgerechnet, s. Testbericht). Betrifft
+        /// jedes explizite Element-Laengenfeld (nicht-letzte Elemente bei
+        /// W in {1,2,3}, ALLE Elemente bei W=0) mit Laenge >=128 -- bei echtem
+        /// Videomaterial praktisch immer der Fall. `Av1Payloader` selbst wird
+        /// in Pulse aktuell nirgends produktiv genutzt (nur als Dev-Dependency
+        /// hier), daher kein bekannter Praxis-Impact -- aber ein fuer sich
+        /// stehender, reproduzierbarer Bug in einer Abhaengigkeit.
+        ///
+        /// Baut die Nutzlast so um, dass ihre Laengenfelder wieder
+        /// standardkonformes LEB128 tragen, damit der (korrekte) Depacketizer
+        /// sie lesen kann.
+        fn fix_rtp_crate_leb128_bug(payload: &Bytes) -> Bytes {
+            let aggr = payload[0];
+            let w = u32::from((aggr & 0b0011_0000) >> 4);
+            let mut rest = &payload[1..];
+            let mut out = BytesMut::new();
+            out.put_u8(aggr);
+            let mut idx = 0u32;
+            while !rest.is_empty() {
+                idx += 1;
+                let is_last = w != 0 && idx == w;
+                if is_last {
+                    out.put_slice(rest);
+                    break;
+                }
+                let (len, n) = buggy_crate_read_len(rest);
+                write_leb128(&mut out, len as u32);
+                out.put_slice(&rest[n..n + len]);
+                rest = &rest[n + len..];
+            }
+            out.freeze()
         }
 
         /// Kernstueck: pro MTU jede Zugriffseinheit des Fixture-Stroms durch
@@ -459,11 +561,7 @@ mod tests {
         /// Kleine MTUs (bis 20 Byte) zwingen den Z/Y-Fragmentierungspfad --
         /// laut Auftrag die fehleranfaelligste Stelle.
         #[test]
-        #[ignore = "zeigt einen OFFENEN Fehler: der Depacketizer setzt echte \
-                AV1-Stroeme nicht korrekt zusammen. Mit \
-                `cargo test -- --ignored` und gesetztem \
-                PULSE_PLAYER_AV1_FIXTURE nachvollziehbar."]
-    fn rundlauf_gegen_echten_av1_strom() {
+        fn rundlauf_gegen_echten_av1_strom() {
             let Some(data) = fixture() else {
                 eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
                 return;
@@ -496,161 +594,6 @@ mod tests {
                     assert_eq!(out.as_ref(), unit.as_slice(), "Einheit {idx} weicht ab (mtu={mtu})");
                 }
                 eprintln!("mtu={mtu}: W=0 beobachtet={saw_w0}, W>0 beobachtet={saw_w_gt0}");
-            }
-        }
-
-        #[test]
-        fn debug_compare_against_original() {
-            let Some(data) = fixture() else { return };
-            let units = split_temporal_units(&data);
-            let unit = &units[1];
-
-            // obu0 (type=6, wire-size=4070 = NUR payload) manuell aus dem
-            // Original extrahieren: header(1) + leb128(4070) + payload(4070).
-            let h0 = unit[0];
-            let ext0 = h0 & OBU_HAS_EXTENSION_BIT != 0;
-            let mut pos = 1 + usize::from(ext0);
-            let (wire_size0, n0) = read_leb128(&unit[pos..]).unwrap();
-            pos += n0;
-            eprintln!("obu0: header_byte={h0:02x} ext={ext0} wire_size(payload-only)={wire_size0} leb_bytes={n0} payload_start={pos}");
-            let obu0_payload = &unit[pos..pos + wire_size0 as usize];
-            eprintln!("obu0 payload len={}", obu0_payload.len());
-            eprintln!("obu0 payload letzte 20 Bytes: {:02x?}", &obu0_payload[obu0_payload.len() - 20..]);
-
-            let obu1_start = pos + wire_size0 as usize;
-            eprintln!("obu1 header_byte={:02x} ab offset {obu1_start}", unit[obu1_start]);
-            eprintln!("obu1 erste 20 Bytes ab header: {:02x?}", &unit[obu1_start..obu1_start + 20]);
-
-            // Jetzt Paket 3 (mtu=1200) dagegenhalten.
-            let packets = packetize(unit, 1200);
-            let (pkt3, _) = &packets[3];
-            eprintln!("pkt3 (ohne aggr byte) erste 20 Bytes: {:02x?}", &pkt3[1..21]);
-
-            // Wo im obu0-payload endet das, was in pkt0..pkt2 bereits
-            // "verbraucht" wurde (1198 + 1199 + 1199 laut Payloader-Logik,
-            // NICHT laut unserem Depacketizer)?
-            eprintln!(
-                "obu0 payload[1196..1200] (erwartete Naht bei ~1198): {:02x?}",
-                &obu0_payload[1195..1205]
-            );
-
-            // Suche die vermutete Naht (obu0_payload[3596..3604]) als
-            // Byte-Sequenz irgendwo in pkt3 -- unabhaengig von jeder
-            // Laengenfeld-Interpretation.
-            let needle = &obu0_payload[3596..3604];
-            eprintln!("gesuchte Naht-Bytes (obu0_payload[3596..3604]): {needle:02x?}");
-            if let Some(off) = pkt3_find(&packets[3].0, needle) {
-                eprintln!("gefunden in pkt3 bei Offset {off}");
-            } else {
-                eprintln!("NICHT in pkt3 gefunden");
-            }
-            // Und Kontrolle: pkt0/pkt1/pkt2 gegen die erwarteten Payload-Slices.
-            for (i, (expected_start, expected_end)) in
-                [(0usize, 1198usize), (1198, 2397), (2397, 3596)].into_iter().enumerate()
-            {
-                let (pkt, _) = &packets[i];
-                let body = if i == 0 { &pkt[2..] } else { &pkt[1..] }; // pkt0 hat header-Byte + payload
-                let expected = &obu0_payload[expected_start..expected_end];
-                eprintln!(
-                    "pkt{i}: body.len()={} erwartet={} gleich={}",
-                    body.len(),
-                    expected.len(),
-                    body == expected
-                );
-            }
-        }
-
-        fn pkt3_find(hay: &[u8], needle: &[u8]) -> Option<usize> {
-            hay.windows(needle.len()).position(|w| w == needle)
-        }
-
-        #[test]
-        fn debug_hexdump_pkt3() {
-            let Some(data) = fixture() else { return };
-            let units = split_temporal_units(&data);
-            let unit = &units[1];
-            let packets = packetize(unit, 1200);
-            let (payload, _) = &packets[3];
-            eprintln!("pkt3 len={}", payload.len());
-            for chunk in payload[..40.min(payload.len())].chunks(16) {
-                eprintln!("{}", chunk.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "));
-            }
-            // manuelle Analyse wie im Assembler:
-            let aggr = payload[0];
-            let rest = &payload[1..];
-            eprintln!("aggr={aggr:08b}");
-            let leb = read_leb128(rest);
-            eprintln!("read_leb128(rest[0..]) = {leb:?}");
-            eprintln!("rest[0..10] = {:?}", &rest[..10]);
-        }
-
-        #[test]
-        fn debug_raw_scan() {
-            let Some(data) = fixture() else { return };
-            let mut j = 0usize;
-            let mut obu_i = 0;
-            let mut td_count = 0;
-            while j < data.len() && obu_i < 60 {
-                let h = data[j];
-                let t = (h & OBU_TYPE_MASK) >> 3;
-                let ext = h & OBU_HAS_EXTENSION_BIT != 0;
-                let has_size = h & OBU_HAS_SIZE_BIT != 0;
-                if !has_size {
-                    eprintln!("obu {obu_i} at {j}: KEIN Groessenfeld, breche ab");
-                    break;
-                }
-                let mut pos = j + 1 + usize::from(ext);
-                let Some((size, n)) = read_leb128(&data[pos..]) else {
-                    eprintln!("obu {obu_i} at {j}: leb128 kaputt");
-                    break;
-                };
-                pos += n;
-                if t == OBU_TYPE_TEMPORAL_DELIMITER {
-                    td_count += 1;
-                }
-                eprintln!("obu {obu_i}: type={t} at offset={j} size={size} header_payload_start={pos}");
-                j = pos + size as usize;
-                obu_i += 1;
-            }
-            eprintln!("TDs gesehen in ersten {obu_i} OBUs: {td_count}");
-        }
-
-        #[test]
-        fn debug_einheit_1() {
-            let Some(data) = fixture() else { return };
-            let units = split_temporal_units(&data);
-            for idx in 0..3 {
-                let unit = &units[idx];
-                eprintln!("--- Einheit {idx}, {} Bytes ---", unit.len());
-                let packets = packetize(unit, 1200);
-                for (i, (payload, marker)) in packets.iter().enumerate() {
-                    let aggr = payload[0];
-                    let z = aggr & 0b1000_0000 != 0;
-                    let y = aggr & 0b0100_0000 != 0;
-                    let w = (aggr & 0b0011_0000) >> 4;
-                    let n = aggr & 0b0000_1000 != 0;
-                    eprintln!(
-                        "  pkt {i}: len={} Z={z} Y={y} W={w} N={n} marker={marker}",
-                        payload.len()
-                    );
-                }
-                // manuell durch den obu-parser der ersten paar Bytes der Einheit
-                let mut j = 0;
-                let mut obu_i = 0;
-                while j < unit.len() {
-                    let h = unit[j];
-                    let t = (h & OBU_TYPE_MASK) >> 3;
-                    let ext = h & OBU_HAS_EXTENSION_BIT != 0;
-                    let has_size = h & OBU_HAS_SIZE_BIT != 0;
-                    let mut pos = j + 1 + usize::from(ext);
-                    let Some((size, n)) = read_leb128(&unit[pos..]) else { break };
-                    pos += n;
-                    eprintln!(
-                        "  obu {obu_i}: type={t} ext={ext} has_size={has_size} size={size} at offset={j}"
-                    );
-                    j = pos + size as usize;
-                    obu_i += 1;
-                }
             }
         }
 
@@ -772,11 +715,7 @@ mod tests {
         /// Groessenfelder wuerden den Decoder typischerweise mitten im
         /// Strom aussteigen lassen (weniger Bilder als das Original).
         #[test]
-        #[ignore = "zeigt einen OFFENEN Fehler: der Depacketizer setzt echte \
-                AV1-Stroeme nicht korrekt zusammen. Mit \
-                `cargo test -- --ignored` und gesetztem \
-                PULSE_PLAYER_AV1_FIXTURE nachvollziehbar."]
-    fn rekonstruktion_decodiert_gleich_viele_bilder() {
+        fn rekonstruktion_decodiert_gleich_viele_bilder() {
             let Ok(fixture_path) = std::env::var("PULSE_PLAYER_AV1_FIXTURE") else {
                 eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
                 return;
