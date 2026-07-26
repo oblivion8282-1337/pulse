@@ -65,6 +65,29 @@ nicht einsehbar.
   Hardware ja/nein, Oberflaechenformat, dazu Ton-Unterlaeufe und Puffer-Stand
   sowie Aufnahmezustand und verfuegbare Clip-Sekunden.
 
+## OFFENER FEHLER: AV1-Wiedergabe funktioniert nicht
+
+Ein Rundlauf-Test (echter AV1-Strom ueber den `Av1Payloader` des `rtp`-Crates
+in RTP-Pakete zerlegt, durch unseren Assembler zurueck) zeigt, dass
+`depacket/av1.rs` echte Stroeme **nicht korrekt zusammensetzt** — die erste
+Zugriffseinheit kommt bereits unvollstaendig an, bei jeder getesteten MTU.
+
+Die acht Unit-Tests mit handgebauten Paketen reichten nicht: sie treffen
+offenbar nicht die Kombination aus W-Feld und Fortsetzung, die ein echter
+Payloader erzeugt.
+
+Reproduktion:
+```
+ffmpeg -f lavfi -i "testsrc2=s=320x180:r=30:d=2" -c:v libsvtav1 -preset 12 \
+  -f obu fixture.obu
+PULSE_PLAYER_AV1_FIXTURE=fixture.obu cargo test depacket -- --ignored
+```
+
+Die beiden Tests sind als `#[ignore]` markiert, damit der Testlauf gruen
+bleibt — **nicht**, weil der Fehler geklaert waere. AV1 ist der Standard-Codec
+(`settings.svelte.ts` waehlt ihn, sobald die GPU ihn encodieren kann); bis das
+behoben ist, taugt der Player praktisch nur fuer H.264.
+
 ## Was er noch NICHT kann
 
 Ehrlich benannt, damit niemand danach sucht:

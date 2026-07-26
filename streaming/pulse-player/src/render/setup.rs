@@ -33,6 +33,16 @@ pub struct GpuSetup {
     pub bind_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
     pub uniform_buf: wgpu::Buffer,
+    /// Ob 16-bit-Norm-Texturen benutzt werden duerfen.
+    ///
+    /// `R16Unorm`/`Rg16Unorm` sind in wgpu **kein** Kernformat, sondern hinter
+    /// `TEXTURE_FORMAT_16BIT_NORM` gegated. Ohne angefordertes Feature liefert
+    /// `create_texture` einen Geraetefehler, und der fuehrt in wgpus
+    /// Standardbehandlung zum Absturz — ausgeloest vom ersten 10-bit-Frame,
+    /// also genau im Anwendungsfall, fuer den dieser Player gebaut wurde.
+    /// Fehlt das Feature, muss der Aufrufer 10-bit-Quellen auf 8 bit
+    /// herunterrechnen statt abzustuerzen.
+    pub wide_textures: bool,
 }
 
 /// Nimmt das praeziseste angebotene Format; als letzter Ausweg irgendeines.
@@ -59,8 +69,27 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         })
         .await
         .context("keine passende GPU gefunden")?;
+    // 16-bit-Norm-Texturen nur anfordern, wenn die GPU sie kann — ein
+    // unerfuellbares `required_features` laesst `request_device` scheitern.
+    let wide_textures =
+        adapter.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
+    if !wide_textures {
+        eprintln!(
+            "pulse-player: GPU ohne TEXTURE_FORMAT_16BIT_NORM — 10-bit-Quellen \
+             werden auf 8 bit heruntergerechnet"
+        );
+    }
+    let required_features = if wide_textures {
+        wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
+    } else {
+        wgpu::Features::empty()
+    };
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor { label: Some("pulse-player"), ..Default::default() })
+        .request_device(&wgpu::DeviceDescriptor {
+            label: Some("pulse-player"),
+            required_features,
+            ..Default::default()
+        })
         .await
         .context("GPU-Geraet liess sich nicht oeffnen")?;
 
@@ -159,7 +188,17 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    Ok(GpuSetup { device, queue, surface, config, pipeline, bind_layout, sampler, uniform_buf })
+    Ok(GpuSetup {
+        device,
+        queue,
+        surface,
+        config,
+        pipeline,
+        bind_layout,
+        sampler,
+        uniform_buf,
+        wide_textures,
+    })
 }
 
 fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {

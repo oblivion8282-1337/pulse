@@ -65,6 +65,13 @@ pollster = "0.4"
 # --- Audio-Ausgabe ---
 cpal = "0.17"
 
+[dev-dependencies]
+# Nur fuer den AV1-Rundlauf-Test (depacket/av1.rs): echter RTP-Payloader, um
+# den selbstgeschriebenen Depacketizer gegen die Gegenseite zu pruefen.
+# Bereits transitiv ueber `webrtc` im Baum (0.17.2) -- hier nur explizit
+# gemacht, kein neuer Dependency-Baum.
+rtp = "0.17"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

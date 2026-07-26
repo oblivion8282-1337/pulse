@@ -32,6 +32,9 @@ struct Planes {
     height: u32,
     layout: PixelLayout,
     ten_bit: bool,
+    /// Ob die TEXTUREN 16 bit tragen. Bei `false` liegen die Daten trotz
+    /// 10-bit-Quelle als 8 bit darin — der Shader darf dann nicht skalieren.
+    wide: bool,
 }
 
 pub struct Renderer {
@@ -46,6 +49,8 @@ pub struct Renderer {
     planes: Option<Planes>,
     bind_group: Option<wgpu::BindGroup>,
     frames_presented: u64,
+    /// Ob 16-bit-Norm-Texturen erlaubt sind (s. `setup::GpuSetup`).
+    wide_textures: bool,
     start: std::time::Instant,
 }
 
@@ -68,6 +73,7 @@ impl Renderer {
             planes: None,
             bind_group: None,
             frames_presented: 0,
+            wide_textures: gpu.wide_textures,
             start: std::time::Instant::now(),
         })
     }
@@ -111,6 +117,7 @@ impl Renderer {
                 || p.height != frame.height
                 || p.layout != frame.format
                 || p.ten_bit != frame.ten_bit
+                || p.wide != (frame.ten_bit && self.wide_textures)
         });
         if needs_new {
             self.planes = Some(self.create_planes(frame));
@@ -137,10 +144,16 @@ impl Renderer {
             ],
         };
 
+        let narrow = frame.ten_bit && !self.wide_textures;
         for (tex, w, h, plane_idx) in targets {
             let Some(idx) = plane_idx else { continue };
-            let Some(data) = frame.planes.get(idx) else { continue };
-            let stride = frame.strides[idx];
+            let Some(source) = frame.planes.get(idx) else { continue };
+            // Ohne 16-bit-Texturen die Quelle verkleinern statt abzustuerzen.
+            let converted = narrow.then(|| narrow_plane(source, frame.format));
+            let data: &[u8] = converted.as_deref().unwrap_or(source);
+            let stride =
+                if narrow { frame.strides[idx] / 2 } else { frame.strides[idx] };
+            let bytes_per_sample: u32 = if narrow { 1 } else { bytes_per_sample };
             // verschraenktes UV traegt zwei Komponenten je Bildpunkt
             let components: u32 =
                 if frame.format == PixelLayout::BiPlanar420 && idx == 1 { 2 } else { 1 };
@@ -167,14 +180,17 @@ impl Renderer {
     }
 
     fn create_planes(&self, frame: &DecodedFrame) -> Planes {
-        let single = if frame.ten_bit {
+        // 16-bit-Texturen nur, wenn die GPU sie erlaubt. Sonst werden die
+        // Quelldaten beim Hochladen auf 8 bit heruntergerechnet.
+        let wide = frame.ten_bit && self.wide_textures;
+        let single = if wide {
             wgpu::TextureFormat::R16Unorm
         } else {
             wgpu::TextureFormat::R8Unorm
         };
         let chroma_format = match frame.format {
             PixelLayout::Planar420 => single,
-            PixelLayout::BiPlanar420 if frame.ten_bit => wgpu::TextureFormat::Rg16Unorm,
+            PixelLayout::BiPlanar420 if wide => wgpu::TextureFormat::Rg16Unorm,
             PixelLayout::BiPlanar420 => wgpu::TextureFormat::Rg8Unorm,
         };
         let chroma_w = frame.width.div_ceil(2);
@@ -187,6 +203,7 @@ impl Renderer {
             height: frame.height,
             layout: frame.format,
             ten_bit: frame.ten_bit,
+            wide: wide,
         }
     }
 
@@ -241,7 +258,7 @@ impl Renderer {
                 flag(planes.ten_bit),
                 flag(full_range),
                 flag(planes.layout == PixelLayout::BiPlanar420),
-                sample_scale(planes.ten_bit, planes.layout),
+                sample_scale(planes.wide, planes.layout),
             ],
         }
     }
@@ -340,8 +357,29 @@ impl Renderer {
 /// * `YUV420P10LE` (planar, kommt von libdav1d/Software-Decode) legt sie in
 ///   die **unteren** Bits, Wertebereich 0..1023. Als Unorm gelesen waere das
 ///   um Faktor ~64 zu dunkel.
-fn sample_scale(ten_bit: bool, layout: PixelLayout) -> f32 {
-    if ten_bit && layout == PixelLayout::Planar420 {
+fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
+    // Planar (YUV420P10LE) legt die 10 Bit in die UNTEREN Bits, Wertebereich
+    // 0..1023 -> zwei Bit abschneiden. P010 legt sie in die OBEREN, dort ist
+    // das hohe Byte schon der richtige 8-bit-Wert.
+    let planar = layout == PixelLayout::Planar420;
+    source
+        .chunks_exact(2)
+        .map(|w| {
+            let v = u16::from_le_bytes([w[0], w[1]]);
+            if planar { (v >> 2) as u8 } else { (v >> 8) as u8 }
+        })
+        .collect()
+}
+
+/// Faktor fuer die Abtastwerte, abhaengig davon, wie die Daten in der TEXTUR
+/// liegen — NICHT davon, was die Quelle war.
+///
+/// `wide_texture` heisst: die Textur traegt 16 bit. Wurde eine 10-bit-Quelle
+/// beim Hochladen auf 8 bit heruntergerechnet (GPU ohne
+/// `TEXTURE_FORMAT_16BIT_NORM`), darf nicht skaliert werden — sonst waere das
+/// Bild um Faktor 64 zu hell.
+fn sample_scale(wide_texture: bool, layout: PixelLayout) -> f32 {
+    if wide_texture && layout == PixelLayout::Planar420 {
         f32::from(u16::MAX) / 1023.0
     } else {
         1.0
@@ -351,6 +389,23 @@ fn sample_scale(ten_bit: bool, layout: PixelLayout) -> f32 {
 #[cfg(test)]
 mod scale_tests {
     use super::*;
+
+    #[test]
+    fn heruntergerechnete_planes_werden_nicht_skaliert() {
+        // Ohne 16-bit-Texturen liegen die Daten als 8 bit in der Textur —
+        // dann waere jede Skalierung falsch.
+        assert!((sample_scale(false, PixelLayout::Planar420) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn narrow_plane_rechnet_je_layout_richtig_herunter() {
+        // Planar: Werte in den unteren Bits, 0..1023 -> zwei Bit abschneiden.
+        let planar = narrow_plane(&[0x00, 0x01, 0xFF, 0x03], PixelLayout::Planar420);
+        assert_eq!(planar, vec![(0x0100u16 >> 2) as u8, (0x03FFu16 >> 2) as u8]);
+        // P010: Werte in den oberen Bits -> hohes Byte ist der 8-bit-Wert.
+        let p010 = narrow_plane(&[0x00, 0x40, 0x00, 0xFF], PixelLayout::BiPlanar420);
+        assert_eq!(p010, vec![0x40, 0xFF]);
+    }
 
     #[test]
     fn zehn_bit_planar_wird_hochskaliert_biplanar_nicht() {

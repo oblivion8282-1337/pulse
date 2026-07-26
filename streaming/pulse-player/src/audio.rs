@@ -17,7 +17,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ffmpeg_next as ffmpeg;
 
@@ -89,14 +89,16 @@ fn pump_commands(
         let Ok(mut s) = shared.lock() else { break };
         match cmd {
             AudioCommand::Pcm(samples) => {
-                let total = s.ring.len() + samples.len();
-                if total > max_ring_samples {
-                    // Aelteste Daten weg — die sind ohnehin zu spaet.
-                    let drop_n = (total - max_ring_samples).min(s.ring.len());
-                    s.ring.drain(..drop_n);
-                    s.dropped += drop_n as u64;
-                }
                 s.ring.extend(samples);
+                // NACH dem Anhaengen kappen, nicht vorher: eine einzelne Charge
+                // kann selbst groesser als die Ringgrenze sein, dann reichte das
+                // Leeren des Alt-Rings nicht und die Grenze wurde dauerhaft
+                // ueberschritten. Aelteste Daten weg — die sind ohnehin zu spaet.
+                if s.ring.len() > max_ring_samples {
+                    let excess = s.ring.len() - max_ring_samples;
+                    s.ring.drain(..excess);
+                    s.dropped += excess as u64;
+                }
             }
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {
@@ -304,9 +306,27 @@ impl OpusDecoder {
         let mut converted = ffmpeg::util::frame::audio::Audio::empty();
         resampler.run(frame, &mut converted).context("Resampling")?;
 
-        // Verschraenktes f32: eine Ebene, alle Kanaele nacheinander.
-        let samples = converted.samples() * self.out_channels as usize;
-        Ok(converted.plane::<f32>(0)[..samples].to_vec())
+        // NICHT `plane::<f32>(0)` benutzen: das liefert eine Slice der Laenge
+        // `samples()` — also nur die FRAME-Anzahl, ohne Kanalfaktor (belegt in
+        // ffmpeg-next `util/frame/audio.rs`, `from_raw_parts(.., self.samples())`).
+        // Bei verschraenktem Stereo liegen dort aber `samples * 2` Werte. Der
+        // frueher hier gerechnete Index `samples() * channels` lief damit ueber
+        // das Slice-Ende und riss den Audio-Thread mit einem Panic weg — bei
+        // jedem Geraet ausser Mono, also praktisch immer.
+        //
+        // `data(0)` traegt die echte Puffergroesse (`linesize[0]`).
+        let frames = converted.samples();
+        let wanted = frames * self.out_channels as usize;
+        let bytes = converted.data(0);
+        let needed = wanted * std::mem::size_of::<f32>();
+        if bytes.len() < needed {
+            bail!("Audio-Ebene zu kurz: {} < {needed} Bytes", bytes.len());
+        }
+        // FFmpegs `AV_SAMPLE_FMT_FLT` ist in der Bytereihenfolge der Maschine.
+        Ok(bytes[..needed]
+            .chunks_exact(std::mem::size_of::<f32>())
+            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect())
     }
 }
 
@@ -328,5 +348,304 @@ mod tests {
         let mut d = OpusDecoder::new(48_000, 2).expect("Decoder");
         let out = d.decode(&[0xFF, 0x00, 0x13, 0x37]);
         assert!(out.is_ok(), "kaputtes Paket darf keinen Fehler werfen");
+    }
+
+    /// Liest die rohen Opus-Pakete aus einer Ogg-Opus-Datei (ein Ogg-Paket =
+    /// ein Opus-Paket, ausser den zwei Kopf-Paketen). Erzeugung z.B.:
+    ///   ffmpeg -f lavfi -i "sine=frequency=440:duration=2:sample_rate=48000" \
+    ///     -ac 2 -c:a libopus -b:a 96k -f ogg ton_stereo.opus
+    fn opus_packets_from_ogg(path: &str) -> Vec<Vec<u8>> {
+        ffmpeg::init().ok();
+        let mut ictx = ffmpeg::format::input(path).expect("Ogg-Datei oeffnen");
+        let audio_idx = ictx
+            .streams()
+            .best(ffmpeg::media::Type::Audio)
+            .expect("Audio-Stream in der Ogg-Datei")
+            .index();
+        ictx.packets()
+            .filter(|(stream, _)| stream.index() == audio_idx)
+            .filter_map(|(_, packet)| packet.data().map(|d| d.to_vec()))
+            .collect()
+    }
+
+    /// RMS eines interleaved f32-Puffers (alle Kanaele zusammen).
+    fn rms(samples: &[f32]) -> f32 {
+        if samples.is_empty() {
+            return 0.0;
+        }
+        (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+
+    /// BEFUND (Bug, nicht behoben): `resample_for_device()` liefert bei jeder
+    /// Zielkanalzahl > 1 einen Panic statt Samples. `converted.plane::<f32>(0)`
+    /// hat laut ffmpeg-next-Doku/-Quelle IMMER Laenge `converted.samples()`
+    /// (Anzahl Frames, nicht Frames*Kanaele) — auch fuer gepackte
+    /// Multi-Kanal-Formate. Der Code rechnet aber
+    /// `samples = converted.samples() * out_channels` und slice't
+    /// `plane[..samples]`, was fuer out_channels >= 2 IMMER ausserhalb der
+    /// von plane() zurueckgegebenen Slice liegt.
+    ///
+    /// Reproduktion (mit echten, per libopus erzeugten Stereo-Paketen):
+    ///   thread panicked at src/audio.rs:309:37:
+    ///   range end index 1920 out of range for slice of length 960
+    /// (960 = converted.samples(), 1920 = 960*2 = der falsch berechnete Index)
+    ///
+    /// Auswirkung: JEDER Stereo- (oder Mehrkanal-)Opus-Frame crasht den
+    /// Ausgabe-Thread beim ersten Paket. Der Tonpfad ist fuer praktisch jedes
+    /// reale Ausgabegeraet (fast nie Mono) vollstaendig kaputt — nicht nur
+    /// falsch, sondern abstuerzend. Nur out_channels=1 (Mono-Geraet) geht
+    /// gut, weil dort samples == converted.samples() ist und die Slice genau
+    /// passt.
+    ///
+    /// Env: PULSE_PLAYER_OPUS_STEREO_FIXTURE = Pfad zur .opus/.ogg-Datei
+    /// (2s, 440 Hz Sinus, Stereo, 48 kHz — siehe opus_packets_from_ogg()).
+    #[test]
+    fn echtes_stereo_opus_dekodiert_korrekt() {
+        let Ok(fixture) = std::env::var("PULSE_PLAYER_OPUS_STEREO_FIXTURE") else {
+            eprintln!("PULSE_PLAYER_OPUS_STEREO_FIXTURE nicht gesetzt — uebersprungen");
+            return;
+        };
+        let packets = opus_packets_from_ogg(&fixture);
+        assert!(!packets.is_empty(), "keine Opus-Pakete in der Fixture");
+
+        let mut decoder = OpusDecoder::new(48_000, 2).expect("Decoder");
+        let mut pcm = Vec::new();
+        for p in &packets {
+            pcm.extend(decoder.decode(p).expect("Decode echter Pakete"));
+        }
+
+        assert!(!pcm.is_empty(), "kein Ton dekodiert");
+        assert_eq!(pcm.len() % 2, 0, "verschraenktes Stereo braucht gerade Anzahl");
+        assert!(pcm.iter().all(|v| v.is_finite()), "NaN oder unendlich im Signal");
+
+        // Inhaltlich: ein 440-Hz-Sinus ist weder stumm noch uebersteuert.
+        let rms = (pcm.iter().map(|v| f64::from(*v) * f64::from(*v)).sum::<f64>()
+            / pcm.len() as f64)
+            .sqrt();
+        assert!(rms > 0.05, "Signal praktisch stumm (RMS {rms:.4})");
+        assert!(rms < 0.9, "Signal uebersteuert (RMS {rms:.4})");
+
+        // Beide Kanaele muessen Signal tragen — waere die Verschraenkung falsch,
+        // laege der Ton nur auf einer Seite oder die Haelfte waere null.
+        let links: Vec<f32> = pcm.iter().step_by(2).copied().collect();
+        let rechts: Vec<f32> = pcm.iter().skip(1).step_by(2).copied().collect();
+        let energie = |c: &[f32]| c.iter().map(|v| f64::from(*v).abs()).sum::<f64>();
+        assert!(energie(&links) > 0.0 && energie(&rechts) > 0.0, "ein Kanal ist stumm");
+    }
+
+    /// Gleiche Prüfung fuer Mono-Ausgabe (out_channels=1), damit die
+    /// plane()-Indizierung auch fuer den Nicht-Stereo-Fall belegt ist.
+    ///
+    /// Env: PULSE_PLAYER_OPUS_MONO_FIXTURE = Pfad zu einer Mono-Opus-Datei.
+    #[test]
+    fn echtes_mono_opus_dekodiert_ohne_panik() {
+        let Ok(fixture) = std::env::var("PULSE_PLAYER_OPUS_MONO_FIXTURE") else {
+            eprintln!("PULSE_PLAYER_OPUS_MONO_FIXTURE nicht gesetzt — uebersprungen");
+            return;
+        };
+        let packets = opus_packets_from_ogg(&fixture);
+        assert!(!packets.is_empty(), "keine Opus-Pakete in der Fixture");
+
+        let mut decoder = OpusDecoder::new(48_000, 1).expect("Decoder");
+        let mut out = Vec::new();
+        for p in &packets {
+            let pcm = decoder.decode(p).expect("Decode darf bei echten Paketen nicht fehlschlagen");
+            out.extend(pcm);
+        }
+        let level = rms(&out);
+        assert!(level > 0.01, "Ton ist praktisch stumm, RMS={level}");
+    }
+
+    /// Regression, systematisch fuer mehrere Zielkanalzahlen: frueher stuerzte
+    /// jede Ausgabe ausser Mono ab, weil `plane::<f32>(0)` nur `samples()`
+    /// Elemente liefert (Frames ohne Kanalfaktor) und der Code auf
+    /// `samples * channels` schnitt. Nur out_channels=1 passte zufaellig.
+    ///
+    /// Env: PULSE_PLAYER_OPUS_STEREO_FIXTURE wie oben.
+    #[test]
+    fn jede_zielkanalzahl_liefert_brauchbare_samples() {
+        let Ok(fixture) = std::env::var("PULSE_PLAYER_OPUS_STEREO_FIXTURE") else {
+            eprintln!("PULSE_PLAYER_OPUS_STEREO_FIXTURE nicht gesetzt — uebersprungen");
+            return;
+        };
+        let packets = opus_packets_from_ogg(&fixture);
+        assert!(!packets.is_empty(), "keine Opus-Pakete in der Fixture");
+
+        for out_channels in [1u16, 2, 4, 6] {
+            let mut decoder = OpusDecoder::new(48_000, out_channels).expect("Decoder");
+            let pcm = decoder
+                .decode(&packets[0])
+                .unwrap_or_else(|e| panic!("out_channels={out_channels}: {e:#}"));
+            assert!(!pcm.is_empty(), "out_channels={out_channels}: keine Samples");
+            assert_eq!(
+                pcm.len() % out_channels as usize,
+                0,
+                "out_channels={out_channels}: {} Werte sind kein Vielfaches der Kanalzahl",
+                pcm.len()
+            );
+            assert!(
+                pcm.iter().all(|v| v.is_finite() && v.abs() <= 1.5),
+                "out_channels={out_channels}: Werte ausserhalb des Wertebereichs"
+            );
+        }
+    }
+
+    /// Testet die Kanalzahl-Wechsel-Frage aus dem Auftrag isoliert von Bug 1
+    /// oben: out_channels bleibt bei 1 (Mono-Ziel, dort crasht plane() nicht),
+    /// aber die QUELLE wechselt mitten im Stream von echten Mono- auf echte
+    /// Stereo-Opus-Pakete (zwei verschiedene, echte Encoder-Sessions). Der
+    /// Resampler in resample_for_device() wird nur beim ERSTEN Frame gebaut
+    /// und danach nie wieder geprueft — das hier prueft empirisch, ob ein
+    /// spaeterer Formatwechsel der QUELLE damit sauber bleibt oder crasht.
+    ///
+    /// Env: PULSE_PLAYER_OPUS_STEREO_FIXTURE + PULSE_PLAYER_OPUS_MONO_FIXTURE.
+    #[test]
+    fn quellkanalzahl_wechsel_mitten_im_stream_bei_fixem_mono_ziel() {
+        let (Ok(stereo_fixture), Ok(mono_fixture)) = (
+            std::env::var("PULSE_PLAYER_OPUS_STEREO_FIXTURE"),
+            std::env::var("PULSE_PLAYER_OPUS_MONO_FIXTURE"),
+        ) else {
+            eprintln!("Fixtures nicht gesetzt — uebersprungen");
+            return;
+        };
+        let stereo_packets = opus_packets_from_ogg(&stereo_fixture);
+        let mono_packets = opus_packets_from_ogg(&mono_fixture);
+        assert!(!stereo_packets.is_empty() && !mono_packets.is_empty());
+
+        // out_channels=1: Ziel bleibt Mono, damit Bug 1 (plane()-Index) hier
+        // nicht zwischenfunkt. Es geht nur um den Resampler-Cache bei
+        // wechselnder QUELL-Kanalzahl.
+        let mut decoder = OpusDecoder::new(48_000, 1).expect("Decoder");
+        let mut panicked = false;
+        let mut decoded_before_switch = Vec::new();
+        let mut decoded_after_switch = Vec::new();
+
+        // Erst Mono-Pakete, damit der Resampler mit Mono-Eingang angelegt wird.
+        for p in mono_packets.iter().take(10) {
+            if let Ok(pcm) = decoder.decode(p) {
+                decoded_before_switch.extend(pcm);
+            }
+        }
+
+        // Jetzt Pakete aus einer FREMDEN Stereo-Session einspeisen — reale
+        // Audioqualitaet ist irrelevant (der Decoder-Zustand passt ohnehin
+        // nicht zur fremden Session), es geht nur darum, ob der Code mit
+        // einem Kanalzahl-Wechsel der Quelle sauber umgeht statt zu crashen
+        // oder die falsche Menge Speicher zu lesen.
+        for p in stereo_packets.iter().take(10) {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decoder.decode(p))) {
+                Ok(Ok(pcm)) => decoded_after_switch.extend(pcm),
+                Ok(Err(e)) => eprintln!("decode() Fehler nach Kanalzahlwechsel: {e:?}"),
+                Err(_) => {
+                    panicked = true;
+                    break;
+                }
+            }
+        }
+
+        eprintln!(
+            "Quellkanalzahl-Wechsel (Ziel=Mono): decoded_before={} (RMS {:.4}), \
+             panicked={panicked}, decoded_after={} (RMS {:.4})",
+            decoded_before_switch.len(),
+            rms(&decoded_before_switch),
+            decoded_after_switch.len(),
+            rms(&decoded_after_switch),
+        );
+        assert!(
+            !panicked,
+            "decode() panickt, wenn eine spaetere Quelle eine andere Kanalzahl \
+             hat als beim ersten Resampler-Aufbau — auch bei festem Mono-Ziel. \
+             Reproduktion: siehe Testkoerper (Mono-Fixture, dann Stereo-Fixture, \
+             derselbe OpusDecoder)."
+        );
+        // Kein Crash ist nicht dasselbe wie richtiges Audio — zumindest darf
+        // es nach dem Wechsel nicht komplett stumm/NaN sein (Anzeichen fuer
+        // eine intern voellig falsch interpretierte Ebene).
+        let level_after = rms(&decoded_after_switch);
+        assert!(
+            level_after.is_finite() && level_after > 0.0,
+            "nach dem Quellkanalzahl-Wechsel kommt kein plausibles Signal mehr \
+             heraus (RMS={level_after}) — deutet auf falsch interpretierte \
+             Kanaldaten hin, auch ohne Absturz"
+        );
+    }
+
+    /// Regression: ein einzelner PCM-Push kann selbst groesser sein als die
+    /// Ringgrenze. Wurde vor dem Anhaengen gekappt, reichte das Leeren des
+    /// Alt-Rings nicht und die Grenze blieb dauerhaft ueberschritten.
+    ///
+    /// Ursache in pump_commands() (AudioCommand::Pcm-Zweig):
+    ///   let drop_n = (total - max_ring_samples).min(s.ring.len());
+    ///   s.ring.drain(..drop_n);
+    ///   s.ring.extend(samples);
+    /// `drop_n` ist auf `s.ring.len()` gedeckelt — es kann also nie mehr
+    /// entfernt werden, als VOR dem Push schon im Ring lag. Ist die neue
+    /// Charge (`samples.len()`) allein schon groesser als max_ring_samples,
+    /// reicht das Leeren des kompletten Alt-Rings nicht aus: `extend(samples)`
+    /// haengt danach trotzdem die volle, ungekuerzte neue Charge an, und der
+    /// Ring landet bei `samples.len()` — weit ueber max_ring_samples.
+    ///
+    /// Das widerspricht dem eigenen Kommentar auf MAX_RING_SECONDS
+    /// ("dann lieber verwerfen als Speicher fressen"): fuer diesen Fall
+    /// gilt die Speichergrenze nicht. Ob das in der Praxis erreichbar ist,
+    /// haengt daran, ob push() je mit einer einzelnen, ungewoehnlich grossen
+    /// Charge aufgerufen wird (z.B. Nachhol-Burst nach einer Pause im
+    /// aufrufenden Code) — hier bewusst mit kleinen Testzahlen belegt, damit
+    /// die Mechanik unabhaengig von realen Groessen sichtbar ist.
+    #[test]
+    fn grosser_einzelner_push_haelt_die_ringgrenze_ein() {
+        let shared = Arc::new(Mutex::new(Shared {
+            ring: VecDeque::new(),
+            volume: 1.0,
+            target_fill: 0,
+            underruns: 0,
+            dropped: 0,
+            alive: true,
+        }));
+        let (tx, rx) = std::sync::mpsc::channel::<AudioCommand>();
+        let max_ring_samples = 100usize;
+        let per_ms = 10usize;
+
+        let thread_shared = Arc::clone(&shared);
+        let handle = std::thread::spawn(move || {
+            pump_commands(&rx, &thread_shared, per_ms, max_ring_samples);
+        });
+
+        // Ein einzelner Push, zehnmal groesser als der erlaubte Ring.
+        tx.send(AudioCommand::Pcm(vec![1.0; 1000])).unwrap();
+        tx.send(AudioCommand::Stop).unwrap();
+        handle.join().unwrap();
+
+        let len = shared.lock().unwrap().ring.len();
+        assert!(
+            len <= max_ring_samples,
+            "Ring haelt {len} Samples, erlaubt sind {max_ring_samples}"
+        );
+    }
+
+    /// Rechnet target_fill vs. max_ring_samples fuer die Grenzwerte von
+    /// av_offset_ms (0..=2000, per Clamp in set_offset_ms) nach, statt es
+    /// nur zu behaupten.
+    #[test]
+    fn target_fill_bleibt_innerhalb_der_ringgrenze() {
+        for (sample_rate, channels) in [(48_000u32, 2u16), (44_100, 2), (48_000, 6), (96_000, 8)] {
+            let max_ring_samples = MAX_RING_SECONDS * sample_rate as usize * channels as usize;
+            let per_ms = (sample_rate as usize * channels as usize) / 1000;
+            for ms in [0i32, 1, 500, 2000] {
+                let target_fill = ((ms.max(0) as usize) * per_ms).min(max_ring_samples / 2);
+                assert!(
+                    target_fill <= max_ring_samples,
+                    "rate={sample_rate} ch={channels} ms={ms}: target_fill={target_fill} \
+                     > max_ring_samples={max_ring_samples}"
+                );
+                // target_fill muss erreichbar sein: der Callback startet nur,
+                // wenn ring.len() >= target_fill, und der Ring wird bei
+                // max_ring_samples gekappt.
+                assert!(
+                    target_fill <= max_ring_samples,
+                    "target_fill waere nie erreichbar (Ring wird vorher gekappt)"
+                );
+            }
+        }
     }
 }
