@@ -394,7 +394,7 @@ mod tests {
     // Fixture wie `recorder.rs`). Erzeugen:
     // `ffmpeg -f lavfi -i "testsrc2=s=320x180:r=30:d=2" -c:v libsvtav1 \
     //    -preset 12 -f obu fixture.obu`
-    mod roundtrip {
+    pub(in crate::depacket::av1) mod roundtrip {
         use super::*;
         use rtp::codecs::av1::Av1Payloader;
         use rtp::packetizer::Payloader;
@@ -533,7 +533,7 @@ mod tests {
         /// Baut die Nutzlast so um, dass ihre Laengenfelder wieder
         /// standardkonformes LEB128 tragen, damit der (korrekte) Depacketizer
         /// sie lesen kann.
-        fn fix_rtp_crate_leb128_bug(payload: &Bytes) -> Bytes {
+        pub(in crate::depacket::av1) fn fix_rtp_crate_leb128_bug(payload: &Bytes) -> Bytes {
             let aggr = payload[0];
             let w = u32::from((aggr & 0b0011_0000) >> 4);
             let mut rest = &payload[1..];
@@ -773,6 +773,105 @@ mod tests {
             let orig_count = count_frames(std::path::Path::new(&fixture_path));
             let recon_count = count_frames(&recon_path);
             assert_eq!(recon_count, orig_count, "Rekonstruktion hat andere Bildanzahl als das Original");
+        }
+    }
+}
+
+#[cfg(test)]
+mod explore {
+    use super::*;
+    use rtp::codecs::av1::Av1Payloader;
+    use rtp::packetizer::Payloader;
+
+    fn leb(v: u32) -> Vec<u8> {
+        let mut b = BytesMut::new();
+        write_leb128(&mut b, v);
+        b.to_vec()
+    }
+
+    /// (typ, ext_byte: Option<u8>, payload)
+    fn synth_unit(obus: &[(u8, Option<u8>, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (t, ext, pl) in obus {
+            let mut header = t << 3 | OBU_HAS_SIZE_BIT;
+            if ext.is_some() {
+                header |= OBU_HAS_EXTENSION_BIT;
+            }
+            out.push(header);
+            if let Some(e) = ext {
+                out.push(*e);
+            }
+            out.extend_from_slice(&leb(pl.len() as u32));
+            out.extend_from_slice(pl);
+        }
+        out
+    }
+
+    fn packetize(unit: &[u8], mtu: usize) -> Vec<(Bytes, bool)> {
+        let mut p = Av1Payloader::default();
+        let payloads = p.payload(mtu, &Bytes::copy_from_slice(unit)).expect("payload");
+        let n = payloads.len();
+        payloads
+            .into_iter()
+            .enumerate()
+            .map(|(i, b)| (super::tests::roundtrip::fix_rtp_crate_leb128_bug(&b), i + 1 == n))
+            .collect()
+    }
+
+    fn run(label: &str, unit: &[u8], mtu: usize) {
+        let pkts = packetize(unit, mtu);
+        let ws: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b0011_0000) >> 4).collect();
+        let zs: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b1000_0000) >> 7).collect();
+        let ys: Vec<u8> = pkts.iter().map(|(p, _)| (p[0] & 0b0100_0000) >> 6).collect();
+        let mut a = Av1Assembler::new();
+        let mut out = None;
+        for (p, m) in &pkts {
+            out = a.push(p, *m);
+        }
+        let ok = out.as_deref() == Some(unit);
+        eprintln!(
+            "{label} mtu={mtu} pakete={} W={ws:?} Z={zs:?} Y={ys:?} -> ok={ok} (got {:?} bytes, want {})",
+            pkts.len(),
+            out.as_ref().map(|o| o.len()),
+            unit.len()
+        );
+    }
+
+    #[test]
+    fn probe() {
+        // 5 kleine OBUs in ein Paket -> W=0 erzwungen
+        let five = synth_unit(&[
+            (1, None, vec![0x11; 10]),
+            (3, None, vec![0x22; 10]),
+            (4, None, vec![0x33; 10]),
+            (4, None, vec![0x44; 10]),
+            (4, None, vec![0x55; 10]),
+        ]);
+        run("W0-5obus", &five, 1200);
+        run("W0-5obus-frag", &five, 30);
+        run("W0-5obus-frag2", &five, 12);
+
+        // Extension-Header
+        let ext = synth_unit(&[(1, None, vec![0x11; 5]), (6, Some(0x50), vec![0xAB; 400])]);
+        for mtu in [1200usize, 300, 100, 20, 8, 5, 4] {
+            run("ext", &ext, mtu);
+        }
+
+        // Extension-Header, viele -> W=0 mit ext
+        let extmany = synth_unit(&[
+            (1, Some(0x10), vec![0x11; 200]),
+            (3, Some(0x20), vec![0x22; 200]),
+            (4, Some(0x30), vec![0x33; 200]),
+            (4, Some(0x40), vec![0x44; 200]),
+        ]);
+        for mtu in [1200usize, 700, 300, 100, 20] {
+            run("extmany", &extmany, mtu);
+        }
+
+        // Nur ein OBU, sehr gross -> viele Mittelfragmente
+        let big = synth_unit(&[(6, None, vec![0x7A; 5000])]);
+        for mtu in [1200usize, 100, 20, 4] {
+            run("big", &big, mtu);
         }
     }
 }
