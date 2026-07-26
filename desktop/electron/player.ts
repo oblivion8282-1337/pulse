@@ -110,7 +110,9 @@ function recordingPath(kind: 'aufnahme' | 'clip'): string {
   const stamp =
     `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
     `_${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`;
-  return path.join(recordingDir(), `pulse-${kind}-${stamp}.mkv`);
+  // Endung ist nur ein Vorschlag: der Player setzt sie passend zum Codec
+  // (AV1 -> mkv, H.264 -> ts) und meldet den benutzten Pfad zurueck.
+  return path.join(recordingDir(), `pulse-${kind}-${stamp}.ts`);
 }
 
 class PlayerManager {
@@ -268,11 +270,17 @@ class PlayerManager {
     });
   }
 
-  /** Startet einen Mitschnitt; der Zielpfad wird hier bestimmt, nicht drueben. */
+  /**
+   * Startet einen Mitschnitt. Das Verzeichnis bestimmt der Hauptprozess, die
+   * **Endung** der Player: AV1 muss nach Matroska, H.264 nach MPEG-TS (siehe
+   * `streaming/pulse-player/src/recorder.rs`). Deshalb gewinnt der Pfad aus
+   * der Antwort — der hier gebaute ist nur der Vorschlag.
+   */
   async startRecording(session: number): Promise<PlayerMessage> {
     const target = recordingPath('aufnahme');
     const res = await this.call('record', { session, path: target });
-    return res.ok === false ? res : { ...res, path: target };
+    if (res.ok === false) return res;
+    return { ...res, path: typeof res.path === 'string' ? res.path : target };
   }
 
   /** Sichert die letzten `seconds` Sekunden aus dem Ringpuffer. */
@@ -281,7 +289,8 @@ class PlayerManager {
     // Grenzen hier UND im Player — der Renderer ist nicht vertrauenswuerdig.
     const bounded = Math.min(Math.max(Number(seconds) || 30, 1), 60);
     const res = await this.call('clip', { session, path: target, seconds: bounded });
-    return res.ok === false ? res : { ...res, path: target };
+    if (res.ok === false) return res;
+    return { ...res, path: typeof res.path === 'string' ? res.path : target };
   }
 
   /**

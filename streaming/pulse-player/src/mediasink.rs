@@ -132,8 +132,16 @@ impl MediaSink {
         true
     }
 
-    pub fn start_recording(&mut self, path: &str) -> Result<(), String> {
-        self.recorder.start(Path::new(path)).map_err(|e| format!("{e:#}"))
+    pub fn note_ten_bit(&mut self, ten_bit: bool) {
+        self.recorder.note_ten_bit(ten_bit);
+    }
+
+    /// Liefert den tatsaechlich benutzten Pfad — die Endung haengt am Codec.
+    pub fn start_recording(&mut self, path: &str) -> Result<String, String> {
+        self.recorder
+            .start(Path::new(path))
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|e| format!("{e:#}"))
     }
 
     pub fn is_recording(&self) -> bool {

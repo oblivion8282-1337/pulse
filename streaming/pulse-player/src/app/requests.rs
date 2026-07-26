@@ -66,7 +66,10 @@ impl App {
                     id,
                     req.session,
                     |reply| SessionCommand::Record { path, reply },
-                    move |()| Response::bare(id),
+                    // Die Nutzlast traegt den tatsaechlich benutzten Pfad: die
+                    // Endung richtet sich nach dem Codec (AV1 -> mkv,
+                    // H.264 -> ts), kann also von der angefragten abweichen.
+                    move |data| Response::ok(id, data),
                 ),
             },
 
@@ -74,7 +77,7 @@ impl App {
                 id,
                 req.session,
                 |reply| SessionCommand::StopRecord { reply },
-                move |()| Response::bare(id),
+                move |_| Response::bare(id),
             ),
 
             "clip" => match req.path.clone() {
@@ -85,7 +88,7 @@ impl App {
                         id,
                         req.session,
                         |reply| SessionCommand::Clip { path, seconds, reply },
-                        move |units| Response::ok(id, serde_json::json!({ "units": units })),
+                        move |data| Response::ok(id, data),
                     )
                 }
             },

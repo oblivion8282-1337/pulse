@@ -49,7 +49,14 @@ nicht einsehbar.
   `av_offset_ms` als Ziel-Fuellstand des Ausgabepuffers. Laesst sich kein Geraet
   oeffnen, laeuft die Wiedergabe stumm weiter statt zu scheitern.
 - **Mitschnitt ohne Neukodierung** (`record`/`stop_record`): der ankommende
-  Bitstrom wird direkt nach Matroska gemuxt — Bild und Ton in einer Datei.
+  Bitstrom wird direkt gemuxt — Bild und Ton in einer Datei. Container je
+  Codec, und das ist gemessen und nicht gewaehlt: **H.264 nach MPEG-TS**
+  (nimmt Annex B nativ; Matroska verlangt dort `avcC` und Laengen-Praefixe und
+  lehnt ab), **AV1 nach Matroska** (MPEG-TS traegt AV1 nicht, dort landet der
+  Strom als `bin_data`; Matroska braucht den AV1CodecConfigurationRecord als
+  `extradata`, der aus dem Sequence-Header des Stroms gebaut wird). Der
+  benutzte Pfad kommt in der Antwort zurueck — die Endung kann von der
+  angefragten abweichen.
 - **Clip der letzten Sekunden** (`clip`): ein Ringpuffer haelt 60 s vor, auch
   wenn nicht aufgenommen wird. Der Schnitt beginnt am letzten Keyframe davor,
   sonst waere der Anfang unbrauchbar.
@@ -124,6 +131,27 @@ Acht Unit-Tests decken das ab (einzelne OBUs, Fragmentierung, W=0 gegen W>0,
 Temporal Delimiter, vorhandene Groessenfelder, verlorene Fortsetzungen).
 **Gegen einen echten AV1-Stream ist es nicht geprueft** — das ist der erste
 Punkt fuer den naechsten Testlauf.
+
+### Mitschnitt: gegen echte Daten geprueft
+
+Zwei Tests fahren einen echten Bitstrom durch den Rekorder und lesen die
+erzeugte Datei wieder ein — sie pruefen Spur, Dauer und Dekodierbarkeit, nicht
+nur die Dateigroesse. Sie brauchen eine Rohdatei und laufen sonst nicht:
+
+```
+ffmpeg -f lavfi -i testsrc2=s=640x360:r=30:d=3 -c:v libx264 \
+  -bsf:v h264_mp4toannexb -f h264 fixture.h264
+ffmpeg -f lavfi -i testsrc2=s=320x180:r=30:d=2 -c:v libsvtav1 \
+  -preset 12 -f obu fixture.obu
+
+PULSE_PLAYER_H264_FIXTURE=fixture.h264 cargo test h264_annexb -- --nocapture
+PULSE_PLAYER_AV1_FIXTURE=fixture.obu   cargo test av1_obus   -- --nocapture
+```
+
+Diese Tests haben drei Fehler aufgedeckt, die kein Codelesen gefunden haette:
+Matroska lehnte H.264 ohne `extradata` ab, AV1 landete in MPEG-TS als
+unlesbares `bin_data`, und die Zeitstempel wurden nicht in die Zeitbasis des
+Muxers umgerechnet — 90 Bilder landeten in 49 ms statt in drei Sekunden.
 
 ## Bauen und testen
 

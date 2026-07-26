@@ -56,19 +56,22 @@ pub enum SessionEvent {
     Ended { reason: String, failed: bool },
 }
 
+/// Rueckkanal fuer Aufnahme-Befehle: entweder die Nutzlast der RPC-Antwort
+/// oder eine Fehlermeldung.
+pub type MediaReply = tokio::sync::oneshot::Sender<Result<serde_json::Value, String>>;
+
 /// Steuerbefehle an eine laufende Sitzung.
 pub enum SessionCommand {
     Options(Box<PlayerOptions>),
     /// Laufende Aufnahme starten/stoppen bzw. die letzten Sekunden sichern.
     /// Die Antwort geht direkt an den Aufrufer zurueck, damit die
     /// RPC-Antwort das Ergebnis tragen kann.
-    Record { path: String, reply: tokio::sync::oneshot::Sender<Result<(), String>> },
-    StopRecord { reply: tokio::sync::oneshot::Sender<Result<(), String>> },
-    Clip {
-        path: String,
-        seconds: f64,
-        reply: tokio::sync::oneshot::Sender<Result<u64, String>>,
-    },
+    /// Antwort ist die JSON-Nutzlast der RPC-Antwort — bei `record` und `clip`
+    /// steht dort der tatsaechlich benutzte Pfad, dessen Endung sich nach dem
+    /// Codec richtet (AV1 braucht Matroska, H.264 MPEG-TS).
+    Record { path: String, reply: MediaReply },
+    StopRecord { reply: MediaReply },
+    Clip { path: String, seconds: f64, reply: MediaReply },
     Stop,
 }
 
@@ -115,10 +118,13 @@ pub async fn run(
             cmd = commands.recv() => match cmd {
                 Some(SessionCommand::Stop) | None => break "closed".to_string(),
                 Some(SessionCommand::Record { path, reply }) => {
-                    let _ = reply.send(media.start_recording(&path));
+                    let answer = media
+                        .start_recording(&path)
+                        .map(|used| serde_json::json!({ "path": used }));
+                    let _ = reply.send(answer);
                 }
                 Some(SessionCommand::StopRecord { reply }) => {
-                    let _ = reply.send(media.stop_recording());
+                    let _ = reply.send(media.stop_recording().map(|()| serde_json::Value::Null));
                 }
                 Some(SessionCommand::Clip { path, seconds, reply }) => {
                     // Einsammeln ist ein Speicherkopiervorgang und darf hier
@@ -129,11 +135,15 @@ pub async fn run(
                     match media.clip_snapshot(seconds) {
                         Ok(data) => {
                             tokio::task::spawn_blocking(move || {
-                                let result = crate::recorder::write_clip(
-                                    std::path::Path::new(&path),
-                                    &data,
-                                )
-                                .map_err(|e| format!("{e:#}"));
+                                let result =
+                                    crate::recorder::write_clip(std::path::Path::new(&path), &data)
+                                        .map(|(units, used)| {
+                                            serde_json::json!({
+                                                "units": units,
+                                                "path": used.to_string_lossy(),
+                                            })
+                                        })
+                                        .map_err(|e| format!("{e:#}"));
                                 let _ = reply.send(result);
                             });
                         }
@@ -228,6 +238,7 @@ pub async fn run(
         }
 
         media.note_dimensions(stats.width, stats.height);
+        media.note_ten_bit(stats.ten_bit_source);
 
         // Ueber ALLE Puffer summieren, nicht je Codec ueberschreiben: Bild und
         // Ton haben eigene Sequenznummernkreise und damit eigene Puffer. Vorher
