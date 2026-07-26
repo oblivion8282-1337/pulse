@@ -125,7 +125,11 @@ impl AudioOutput {
         let config: cpal::StreamConfig = supported.into();
 
         let shared = Arc::new(Mutex::new(Shared {
-            ring: VecDeque::new(),
+            // Volle Kapazitaet im Voraus: sonst allokiert der Fuetter-Thread
+            // beim Wachsen des Rings, waehrend er die Sperre haelt, auf die der
+            // Geraete-Callback wartet. Das ist die klassische
+            // Prioritaetsumkehr und aeussert sich als Knacksen.
+            ring: VecDeque::with_capacity(MAX_RING_SAMPLES),
             volume: 1.0,
             target_fill: 0,
             underruns: 0,

@@ -30,6 +30,9 @@ pub struct SessionStats {
     pub packets_duplicate: u64,
     pub frames_decoded: u64,
     pub frames_dropped: u64,
+    /// Bilder, die verworfen wurden, weil die Darstellung nicht mitkam.
+    /// Anders als `frames_dropped` (Paketverlust) ist das kein Netzproblem.
+    pub frames_skipped: u64,
     pub buffered_packets: u64,
     pub jitter_target_ms: u64,
     pub width: u32,
@@ -253,7 +256,20 @@ async fn emit_frames(
                 SessionEvent::Playing { decoder: dec.name.clone(), hardware: dec.hardware };
             let _ = events.send(event).await;
         }
-        events.send(SessionEvent::Frame(Box::new(f))).await.map_err(|_| ())?;
+        // Bewusst `try_send` statt `send().await`: das hier ist Live-Wiedergabe.
+        // Kommt der Fenster-Thread nicht mit, ist das NEUESTE Bild richtig und
+        // ein aufgestauter Rueckstand falsch — mit einem blockierenden Send
+        // haetten sich Frames im Kanal gesammelt und die Latenz waere
+        // mitgewachsen, statt dass Bilder uebersprungen werden. Der
+        // Rueckstau haette sich ausserdem bis in den Jitter-Puffer
+        // fortgepflanzt, weil die Schleife dann kein RTP mehr abholt.
+        match events.try_send(SessionEvent::Frame(Box::new(f))) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                stats.frames_skipped += 1;
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return Err(()),
+        }
     }
     Ok(())
 }

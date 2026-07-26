@@ -103,41 +103,41 @@ pub struct PlayerOptions {
     pub hwdec: Option<bool>,
 }
 
-impl PlayerOptions {
-    /// Uebernimmt nur die gesetzten Felder aus `patch`.
-    pub fn apply(&mut self, patch: &PlayerOptions) {
-        macro_rules! take {
-            ($($f:ident),+ $(,)?) => { $( if patch.$f.is_some() { self.$f = patch.$f; } )+ };
+/// Erzeugt [`PlayerOptions::apply`] und [`PlayerOptions::any_set`] aus **einer**
+/// Feldliste. Beide muessen dieselben Felder kennen; standen sie getrennt da,
+/// hiess eine neue Option, zwei Stellen zu pflegen — und wer `any_set`
+/// vergisst, bekommt fuer die neue Option ein stilles `ok: true` ohne Wirkung.
+macro_rules! umschaltbare_felder {
+    ($($f:ident),+ $(,)?) => {
+        impl PlayerOptions {
+            /// Uebernimmt nur die gesetzten Felder aus `patch`.
+            pub fn apply(&mut self, patch: &PlayerOptions) {
+                $( if patch.$f.is_some() { self.$f = patch.$f; } )+
+            }
+
+            /// Ob ueberhaupt ein Feld gesetzt ist. Dient dazu, einen Patch zu
+            /// erkennen, der aus einem unbekannten Schluessel entstanden ist.
+            pub fn any_set(&self) -> bool {
+                [$(self.$f.is_some()),+].into_iter().any(|gesetzt| gesetzt)
+            }
         }
-        take!(
-            jitter_ms,
-            deband,
-            dither,
-            zoom,
-            pan_x,
-            pan_y,
-            volume,
-            av_offset_ms,
-            paused,
-            hwdec,
-        );
-    }
+    };
+}
 
-    /// Ob ueberhaupt ein Feld gesetzt ist. Dient dazu, einen Patch zu
-    /// erkennen, der aus einem unbekannten Schluessel entstanden ist.
-    pub fn any_set(&self) -> bool {
-        self.jitter_ms.is_some()
-            || self.deband.is_some()
-            || self.dither.is_some()
-            || self.zoom.is_some()
-            || self.pan_x.is_some()
-            || self.pan_y.is_some()
-            || self.volume.is_some()
-            || self.av_offset_ms.is_some()
-            || self.paused.is_some()
-            || self.hwdec.is_some()
-    }
+umschaltbare_felder!(
+    jitter_ms,
+    deband,
+    dither,
+    zoom,
+    pan_x,
+    pan_y,
+    volume,
+    av_offset_ms,
+    paused,
+    hwdec,
+);
 
+impl PlayerOptions {
     /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn),
     /// Jitter-Puffer auf dem gemessenen unteren Ende mit etwas Reserve.
     pub fn defaults() -> Self {

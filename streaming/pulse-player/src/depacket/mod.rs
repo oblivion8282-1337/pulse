@@ -88,8 +88,7 @@ impl Assembler {
                 if !marker {
                     return None;
                 }
-                let bad = *dropped;
-                *dropped = false;
+                let bad = std::mem::take(dropped);
                 let out = unit.split().freeze();
                 (!bad && !out.is_empty()).then_some(out)
             }

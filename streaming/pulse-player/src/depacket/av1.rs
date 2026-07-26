@@ -141,7 +141,7 @@ impl Av1Assembler {
         let (&aggr, mut rest) = payload.split_first()?;
         let z = aggr & 0b1000_0000 != 0;
         let y = aggr & 0b0100_0000 != 0;
-        let w = (aggr & 0b0011_0000) >> 4;
+        let w = u32::from((aggr & 0b0011_0000) >> 4);
 
         // Fortsetzung erwartet, aber keine geliefert (oder umgekehrt) =>
         // dazwischen fehlt etwas.
@@ -156,7 +156,6 @@ impl Av1Assembler {
         // im Debug-Build eine Panik, im Release ein stiller Wraparound, der
         // die Fortsetzungspruefung `idx != 1` durcheinanderbringt.
         let mut idx: u32 = 0;
-        let w = u32::from(w);
         while !rest.is_empty() {
             idx += 1;
             let is_last = w != 0 && idx == w;

@@ -93,7 +93,11 @@ impl App {
         self.next_id += 1;
 
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
-        let (ev_tx, mut ev_rx) = mpsc::channel(256);
+        // Klein gehalten: Frames werden mit `try_send` eingestellt und bei
+        // vollem Kanal verworfen. Ein grosser Puffer wuerde bei langsamer
+        // Darstellung Latenz aufbauen statt Bilder zu ueberspringen — bei
+        // 60 fps waeren 256 Eintraege ueber vier Sekunden Rueckstand.
+        let (ev_tx, mut ev_rx) = mpsc::channel(8);
         let proxy = self.proxy.clone();
         self.runtime.spawn(async move {
             while let Some(event) = ev_rx.recv().await {
