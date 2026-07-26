@@ -159,7 +159,12 @@ impl App {
     /// Schickt allen Sitzungen `Stop` und gibt ihnen kurz Zeit, sauber
     /// abzubauen. Best effort mit Zeitschranke: ein haengender Abbau darf das
     /// Beenden nicht blockieren.
-    fn stop_all_sessions(&mut self) {
+    ///
+    /// MUSS auf JEDEM Weg gerufen werden, der die Fensterschleife verlaesst —
+    /// auch bei geschlossenem stdin. Sonst wird die Tokio-Laufzeit
+    /// fallengelassen, die Sitzungs-Tasks werden am Await-Punkt abgebrochen und
+    /// das `DELETE` an die WHEP-Resource bleibt aus.
+    pub(super) fn stop_all_sessions(&mut self) {
         let senders: Vec<_> = self.sessions.values().map(|s| s.commands.clone()).collect();
         if senders.is_empty() {
             return;

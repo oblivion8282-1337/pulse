@@ -187,7 +187,14 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Request(req) => self.handle_request(*req, event_loop),
-            UserEvent::StdinClosed => event_loop.exit(),
+            UserEvent::StdinClosed => {
+                // Gleicher Abbau wie bei der `shutdown`-Operation: stdin kann
+                // auch ohne sie wegfallen (Electron stuerzt ab, Prozess wird
+                // beendet), und dann muessen die Sitzungen genauso sauber
+                // schliessen.
+                self.stop_all_sessions();
+                event_loop.exit();
+            }
             UserEvent::Session { id, event } => self.on_session_event(id, event),
         }
     }
