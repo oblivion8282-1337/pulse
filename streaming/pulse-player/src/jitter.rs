@@ -30,6 +30,11 @@ const MAX_BUFFERED: usize = 2048;
 /// gilt statt als Luecke (z. B. nach Republish).
 const RESYNC_DISTANCE: u64 = 3000;
 
+/// Wie viele Pakete in Folge als "Nachzuegler von vor dem Ueberlauf" gedeutet
+/// werden duerfen, bevor der Strom als neu gestartet gilt. Echte Nachzuegler
+/// kommen vereinzelt; bleibt es dabei, ist es kein Nachzuegler mehr.
+const MAX_LATE_STREAK: u32 = 8;
+
 pub enum Release {
     Packet(Packet),
     /// Mindestens ein Paket ist endgueltig verloren; die angefangene
@@ -56,6 +61,10 @@ pub struct JitterBuffer {
     last_raw: Option<u16>,
     /// Wie viele Ueberlaeufe bereits gezaehlt wurden.
     cycles: u64,
+    /// Wie viele Pakete in Folge als Nachzuegler gedeutet wurden.
+    late_streak: u32,
+    /// Beim Ueberlauf uebersprungene Pakete, die `poll` noch melden muss.
+    forced_gap: Option<u64>,
     target: Duration,
     // --- Zaehler fuer die Diagnose ---
     pub received: u64,
@@ -71,6 +80,8 @@ impl JitterBuffer {
             next: None,
             last_raw: None,
             cycles: 0,
+            late_streak: 0,
+            forced_gap: None,
             target,
             received: 0,
             lost: 0,
@@ -101,8 +112,31 @@ impl JitterBuffer {
             if last > 0xC000 && raw < 0x4000 {
                 self.cycles += 1;
             } else if last < 0x4000 && raw > 0xC000 && self.cycles > 0 {
-                // spaet eintreffendes Paket von VOR dem Ueberlauf
-                return (self.cycles - 1) << 16 | u64::from(raw);
+                // Sieht aus wie ein spaet eintreffendes Paket von VOR dem
+                // Ueberlauf — aber nur ein paar Mal hintereinander.
+                //
+                // Der fruehe `return` schreibt `last_raw` bewusst NICHT fort:
+                // ein Nachzuegler darf den Bezugspunkt nicht verschieben,
+                // sonst wuerde das naechste regulaere Paket faelschlich als
+                // weiterer Ueberlauf gezaehlt. Genau dadurch rastete die
+                // Bedingung aber dauerhaft ein, wenn ein Sender nach einem
+                // Ueberlauf mit hoher zufaelliger Sequenz neu startete
+                // (RFC 3550 gibt sie zufaellig vor, rund ein Viertel liegt
+                // ueber 0xC000): jedes Paket landete unter `next` und wurde
+                // als "zu spaet" verworfen — bei 1000 Paketen/s rund zwoelf
+                // Sekunden ohne Bild und Ton. Der Resynchronisierungs-Ausweg
+                // in `push` steht hinter der Verwerfung und wurde nie erreicht.
+                //
+                // Echte Nachzuegler kommen vereinzelt, ein neuer Strom
+                // dauerhaft. Nach ein paar Treffern in Folge behandeln wir es
+                // deshalb als Neustart und lassen `push` resynchronisieren.
+                self.late_streak += 1;
+                if self.late_streak <= MAX_LATE_STREAK {
+                    return (self.cycles - 1) << 16 | u64::from(raw);
+                }
+                self.late_streak = 0;
+            } else {
+                self.late_streak = 0;
             }
         }
         self.last_raw = Some(raw);
@@ -135,7 +169,19 @@ impl JitterBuffer {
 
         if self.entries.len() > MAX_BUFFERED {
             // Aeltestes hart freigeben, damit der Puffer nicht davonlaeuft.
+            // Die dabei uebersprungenen Sequenznummern MUESSEN als Luecke
+            // gemeldet werden: sonst sieht `poll` danach `first == next` und
+            // liefert ein regulaeres Paket, der Assembler bekommt kein
+            // `on_gap()` und klebt Fragmente ueber die Luecke zu einer
+            // korrupten Zugriffseinheit zusammen.
             if let Some(&oldest) = self.entries.keys().next() {
+                if let Some(next) = self.next {
+                    if oldest > next {
+                        let missing = oldest - next;
+                        self.lost += missing;
+                        self.forced_gap = Some(missing);
+                    }
+                }
                 self.next = Some(oldest);
             }
         }
@@ -145,6 +191,9 @@ impl JitterBuffer {
     /// geholt, damit der Ablauf testbar bleibt.
     pub fn poll(&mut self, now: Instant) -> Vec<Release> {
         let mut out = Vec::new();
+        if let Some(missing) = self.forced_gap.take() {
+            out.push(Release::Gap { missing });
+        }
         loop {
             let Some(next) = self.next else { return out };
             let Some(entry) = self.entries.first_entry() else { return out };
@@ -238,6 +287,41 @@ mod tests {
         j.push(pkt(0), t0);
         j.push(pkt(1), t0);
         assert_eq!(seqs(&j.poll(t0)), vec![65534, 65535, 0, 1], "Wrap darf nicht zurueckspringen");
+    }
+
+    /// Regression: nach einem Sequenznummern-Ueberlauf darf ein Neustart des
+    /// Stroms mit hoher zufaelliger Startsequenz nicht dauerhaft als
+    /// "spaetes Paket von vor dem Ueberlauf" fehlgedeutet werden.
+    ///
+    /// RFC 3550 gibt die Startsequenz zufaellig vor; in rund einem Viertel der
+    /// Faelle liegt sie ueber 0xC000. Traf das zusammen, wurde jedes Paket des
+    /// neuen Stroms verworfen, bis die Sequenz sich hochgezaehlt hatte — bei
+    /// 1000 Paketen/s rund zwoelf Sekunden ohne Bild und Ton. Der
+    /// Resynchronisierungs-Ausweg stand hinter der Verwerfung und wurde nie
+    /// erreicht.
+    #[test]
+    fn neustart_nach_ueberlauf_blockiert_nicht() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+
+        // Luckenlos ueber den Ueberlauf laufen, damit `next` auch wirklich
+        // hinter den Wrap wandert (ohne das ist die Vorbedingung nicht da).
+        for raw in (0xFFF0u16..=0xFFFF).chain(0x0000..=0x0100) {
+            j.push(pkt(raw), t0);
+            j.poll(t0);
+        }
+
+        // Neustart des Senders mit hoher Startsequenz.
+        let mut angenommen = 0;
+        for i in 0..40u16 {
+            j.push(pkt(0xFF00_u16.wrapping_add(i)), t0);
+            angenommen += seqs(&j.poll(t0)).len();
+        }
+        assert!(
+            angenommen > 0,
+            "Neustart mit hoher Sequenz wurde vollstaendig verworfen ({} von 40)",
+            angenommen
+        );
     }
 
     #[test]

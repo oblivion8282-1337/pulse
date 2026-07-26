@@ -105,9 +105,7 @@ pub fn redact_tokens(text: &str) -> String {
         let (before, after) = rest.split_at(pos + "token=".len());
         out.push_str(before);
         // Wert bis zum naechsten Trenner verwerfen.
-        let end = after
-            .find(|c: char| c == '&' || c == '"' || c == ')' || c == ' ' || c == '\'')
-            .unwrap_or(after.len());
+        let end = after.find(['&', '"', ')', ' ', '\'']).unwrap_or(after.len());
         out.push_str("<entfernt>");
         rest = &after[end..];
     }

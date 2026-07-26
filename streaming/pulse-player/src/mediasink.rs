@@ -27,6 +27,9 @@ pub struct MediaStats {
     pub audio_active: bool,
     pub recording: bool,
     pub recorded_units: u64,
+    /// Eine Aufnahme ist unterwegs gescheitert (Schreibfehler). Ohne das
+    /// saehe es aus, als haette nie jemand gestartet.
+    pub recording_failed: bool,
     /// Wie viele Sekunden Vergangenheit fuer einen Clip bereitstehen.
     pub clip_buffer_seconds: u64,
 }
@@ -141,20 +144,25 @@ impl MediaSink {
         self.recorder.stop().map_err(|e| format!("{e:#}"))
     }
 
-    pub fn save_clip(&mut self, path: &str, seconds: f64) -> Result<u64, String> {
-        self.recorder.clip(Path::new(path), seconds).map_err(|e| format!("{e:#}"))
+    /// Sammelt den Clip ein. Geschrieben wird er ausserhalb der
+    /// Sitzungsschleife (s. `recorder::write_clip`).
+    pub fn clip_snapshot(&self, seconds: f64) -> Result<crate::recorder::ClipData, String> {
+        self.recorder.clip_snapshot(seconds).map_err(|e| format!("{e:#}"))
     }
 
     pub fn stats(&self) -> MediaStats {
-        let (underruns, dropped, buffered) =
-            self.audio.as_ref().map_or((0, 0, 0), AudioOutput::counters);
+        let (underruns, dropped, buffered, alive) =
+            self.audio.as_ref().map_or((0, 0, 0, false), AudioOutput::counters);
         MediaStats {
             audio_underruns: underruns,
             audio_dropped: dropped,
             audio_buffered: buffered as u64,
-            audio_active: self.audio.is_some(),
+            // Nicht `is_some()`: der Griff bleibt bestehen, auch wenn der
+            // Ausgabe-Thread laengst weg ist.
+            audio_active: alive,
             recording: self.recorder.is_recording(),
             recorded_units: self.recorder.written_units,
+            recording_failed: self.recorder.failed,
             clip_buffer_seconds: self.recorder.buffered_seconds(),
         }
     }

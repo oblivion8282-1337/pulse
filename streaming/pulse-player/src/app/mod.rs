@@ -152,7 +152,6 @@ impl App {
         let Some(session) = self.sessions.get_mut(&id) else { return };
         match event {
             SessionEvent::Frame(frame) => {
-
                 // Bei Pause bleibt das zuletzt gezeigte Bild stehen, die
                 // Verbindung laeuft aber weiter — beim Fortsetzen ist man
                 // sofort wieder live.

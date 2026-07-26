@@ -21,9 +21,16 @@ use anyhow::{anyhow, Context as _, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ffmpeg_next as ffmpeg;
 
-/// Obergrenze des Rings. Laeuft die Wiedergabe davon, ist der Ton ohnehin
-/// verloren — dann lieber verwerfen als unbegrenzt Speicher fressen.
-const MAX_RING_SAMPLES: usize = 48_000 * 2 * 4; // ~4 s Stereo bei 48 kHz
+/// Wie viel Ton der Ring hoechstens vorhaelt. Laeuft die Wiedergabe davon,
+/// ist er ohnehin verloren — dann lieber verwerfen als Speicher fressen.
+///
+/// Bewusst als ZEIT und nicht als feste Samplezahl: `av_offset_ms` darf bis
+/// 2000 ms Vorlauf verlangen, und der Zielfuellstand skaliert mit Rate und
+/// Kanalzahl des Geraets. Eine feste Zahl fuer 48 kHz Stereo lag darunter,
+/// sobald ein Mehrkanal- oder Hochraten-Geraet im Spiel war — der Ring wurde
+/// dann unter den Zielfuellstand gekappt, der Callback gab nie etwas aus und
+/// es blieb dauerhaft still, ohne Meldung.
+const MAX_RING_SECONDS: usize = 6;
 
 /// Steuerbefehle an den Ausgabe-Thread.
 enum AudioCommand {
@@ -40,6 +47,10 @@ struct Shared {
     target_fill: usize,
     underruns: u64,
     dropped: u64,
+    /// Solange der Ausgabe-Thread laeuft. Faellt er weg (vergiftete Sperre,
+    /// Geraetefehler), meldete die Statistik sonst weiter "Ton aktiv",
+    /// waehrend nichts mehr ankommt.
+    alive: bool,
 }
 
 /// Geraete-Callback. Laeuft im Echtzeit-Kontext: nicht blockieren, nicht
@@ -72,15 +83,16 @@ fn pump_commands(
     rx: &std::sync::mpsc::Receiver<AudioCommand>,
     shared: &Mutex<Shared>,
     per_ms: usize,
+    max_ring_samples: usize,
 ) {
     while let Ok(cmd) = rx.recv() {
         let Ok(mut s) = shared.lock() else { break };
         match cmd {
             AudioCommand::Pcm(samples) => {
                 let total = s.ring.len() + samples.len();
-                if total > MAX_RING_SAMPLES {
+                if total > max_ring_samples {
                     // Aelteste Daten weg — die sind ohnehin zu spaet.
-                    let drop_n = (total - MAX_RING_SAMPLES).min(s.ring.len());
+                    let drop_n = (total - max_ring_samples).min(s.ring.len());
                     s.ring.drain(..drop_n);
                     s.dropped += drop_n as u64;
                 }
@@ -89,7 +101,10 @@ fn pump_commands(
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {
                 // Positiv = Ton spaeter = mehr Vorlauf im Ring.
-                s.target_fill = (ms.max(0) as usize) * per_ms;
+                // Nie ueber die Ringgroesse hinaus: der Callback gibt erst
+                // aus, wenn der Zielfuellstand erreicht ist. Laege der ueber
+                // dem, was der Ring haelt, bliebe es dauerhaft still.
+                s.target_fill = ((ms.max(0) as usize) * per_ms).min(max_ring_samples / 2);
                 if ms < 0 {
                     // Negativ = Ton frueher: vorhandenen Vorlauf kappen.
                     let n = ((-ms) as usize * per_ms).min(s.ring.len());
@@ -129,14 +144,23 @@ impl AudioOutput {
             // beim Wachsen des Rings, waehrend er die Sperre haelt, auf die der
             // Geraete-Callback wartet. Das ist die klassische
             // Prioritaetsumkehr und aeussert sich als Knacksen.
-            ring: VecDeque::with_capacity(MAX_RING_SAMPLES),
+            ring: VecDeque::new(),
             volume: 1.0,
             target_fill: 0,
             underruns: 0,
             dropped: 0,
+            alive: true,
         }));
+        let max_ring_samples =
+            MAX_RING_SECONDS * sample_rate as usize * channels as usize;
         let (tx, rx) = std::sync::mpsc::channel::<AudioCommand>();
 
+        // Volle Kapazitaet im Voraus: sonst allokiert der Fuetter-Thread beim
+        // Wachsen des Rings, waehrend er die Sperre haelt, auf die der
+        // Geraete-Callback wartet — Prioritaetsumkehr, hoerbar als Knacksen.
+        if let Ok(mut s) = shared.lock() {
+            s.ring.reserve(max_ring_samples);
+        }
         let cb_shared = Arc::clone(&shared);
         let thread_shared = Arc::clone(&shared);
         let per_ms = (sample_rate as usize * channels as usize) / 1000;
@@ -164,7 +188,11 @@ impl AudioOutput {
                     eprintln!("pulse-player: Ausgabe startet nicht: {e}");
                     return;
                 }
-                pump_commands(&rx, &thread_shared, per_ms);
+                pump_commands(&rx, &thread_shared, per_ms, max_ring_samples);
+                // Egal warum die Schleife endet: ab hier kommt nichts mehr an.
+                if let Ok(mut s) = thread_shared.lock() {
+                    s.alive = false;
+                }
             })
             .context("Audio-Thread liess sich nicht starten")?;
 
@@ -186,12 +214,14 @@ impl AudioOutput {
         let _ = self.tx.send(AudioCommand::OffsetMs(ms.clamp(-2000, 2000)));
     }
 
-    /// (Unterlaeufe, verworfene Samples, aktueller Fuellstand) fuer die Statistik.
-    pub fn counters(&self) -> (u64, u64, usize) {
+    /// (Unterlaeufe, verworfene Samples, Fuellstand, laeuft noch) fuer die
+    /// Statistik. Bei vergifteter Sperre gilt die Ausgabe als tot — dann
+    /// stimmt nichts mehr, und das soll man sehen.
+    pub fn counters(&self) -> (u64, u64, usize, bool) {
         self.shared
             .lock()
-            .map(|s| (s.underruns, s.dropped, s.ring.len()))
-            .unwrap_or((0, 0, 0))
+            .map(|s| (s.underruns, s.dropped, s.ring.len(), s.alive))
+            .unwrap_or((0, 0, 0, false))
     }
 }
 

@@ -202,6 +202,9 @@ pub struct Recorder {
     dimensions: Option<(u32, u32)>,
     video_codec: Option<Codec>,
     pub written_units: u64,
+    /// Eine Aufnahme ist unterwegs gescheitert. Wird nach vorne gemeldet,
+    /// damit es nicht so aussieht, als haette nie jemand gestartet.
+    pub failed: bool,
 }
 
 impl Recorder {
@@ -232,7 +235,18 @@ impl Recorder {
         if let Some(writer) = self.active.as_mut() {
             if let Err(e) = writer.write(&unit) {
                 eprintln!("pulse-player: Aufnahme abgebrochen: {e:#}");
-                self.active = None;
+                // Datei trotzdem ordentlich abschliessen. Wuerde der Writer
+                // nur gedroppt, faehrt ffmpeg-next zwar `avio_close`, aber
+                // KEIN `av_write_trailer` — ohne Trailer fehlen Index und
+                // Segmentgroesse, und die Pakete in der Interleave-Queue von
+                // libavformat gehen verloren. Das bereits Aufgenommene bleibt
+                // so wenigstens abspielbar.
+                if let Some(writer) = self.active.take() {
+                    if let Err(e) = writer.finish() {
+                        eprintln!("pulse-player: Abschluss nach Fehler: {e:#}");
+                    }
+                }
+                self.failed = true;
             } else {
                 self.written_units += 1;
             }
@@ -251,6 +265,7 @@ impl Recorder {
         }
         self.active = Some(self.make_writer(path)?);
         self.written_units = 0;
+        self.failed = false;
         Ok(())
     }
 
@@ -259,12 +274,20 @@ impl Recorder {
         writer.finish()
     }
 
-    /// Schreibt die letzten `seconds` Sekunden aus dem Ring.
+    /// Sammelt die letzten `seconds` Sekunden aus dem Ring ein, **ohne zu
+    /// schreiben**.
+    ///
+    /// Bewusst getrennt vom Schreiben: das Schreiben laeuft synchron gegen die
+    /// Platte und dauerte bei 60 s Bitstrom lange genug, dass die
+    /// Sitzungsschleife stillstand — der RTP-Kanal (1024 Pakete, bei rund
+    /// 1000 Paketen/s also etwa eine Sekunde Reserve) lief voll und der Strom
+    /// bekam einen sichtbaren Aussetzer. Das Einsammeln hier ist ein
+    /// Speicherkopiervorgang, das Schreiben passiert danach ausserhalb.
     ///
     /// Beginnt beim letzten Keyframe **vor** dem gewuenschten Startpunkt —
     /// sonst waere der Anfang unbrauchbar. Der Clip wird dadurch etwas
     /// laenger als angefordert.
-    pub fn clip(&mut self, path: &Path, seconds: f64) -> Result<u64> {
+    pub fn clip_snapshot(&self, seconds: f64) -> Result<ClipData> {
         let Some(last) = self.ring.back() else { bail!("nichts im Puffer") };
         let start_ms = last.ts_ms - (seconds.max(0.1) * 1000.0) as i64;
 
@@ -275,22 +298,39 @@ impl Recorder {
             .or_else(|| self.ring.iter().position(|u| u.codec.is_video() && u.keyframe))
             .ok_or_else(|| anyhow!("kein Keyframe im Puffer — noch zu frueh"))?;
 
-        let mut writer = self.make_writer(path)?;
-        let mut count = 0u64;
-        for unit in self.ring.iter().skip(begin) {
-            writer.write(unit)?;
-            count += 1;
-        }
-        writer.finish()?;
-        Ok(count)
+        let video = self.video_info()?;
+        Ok(ClipData { units: self.ring.iter().skip(begin).cloned().collect(), video })
+    }
+
+    fn video_info(&self) -> Result<(Codec, u32, u32)> {
+        let (Some(codec), Some((width, height))) = (self.video_codec, self.dimensions) else {
+            bail!("noch kein Bild empfangen — erst nach dem ersten Frame moeglich");
+        };
+        Ok((codec, width, height))
     }
 
     fn make_writer(&self, path: &Path) -> Result<Writer> {
-        let (Some(codec), Some((width, height))) = (self.video_codec, self.dimensions) else {
-            bail!("noch kein Bild empfangen — Aufnahme erst nach dem ersten Frame moeglich");
-        };
-        Writer::create(path, Some((codec, width, height)), true)
+        Writer::create(path, Some(self.video_info()?), true)
     }
+}
+
+/// Eingesammelter Clip, bereit zum Schreiben ausserhalb der Sitzungsschleife.
+pub struct ClipData {
+    units: Vec<Unit>,
+    video: (Codec, u32, u32),
+}
+
+/// Schreibt einen zuvor eingesammelten Clip. Blockiert — gehoert deshalb auf
+/// einen Blocking-Thread, nicht in die Sitzungsschleife.
+pub fn write_clip(path: &Path, data: &ClipData) -> Result<u64> {
+    let mut writer = Writer::create(path, Some(data.video), true)?;
+    let mut count = 0u64;
+    for unit in &data.units {
+        writer.write(unit)?;
+        count += 1;
+    }
+    writer.finish()?;
+    Ok(count)
 }
 
 /// Auffangnetz: eine laufende Aufnahme wird auch dann sauber abgeschlossen,
@@ -355,6 +395,6 @@ mod tests {
     fn clip_ohne_puffer_wird_abgelehnt() {
         let mut r = Recorder::default();
         r.note_dimensions(1920, 1080);
-        assert!(r.clip(Path::new("/tmp/pulse-player-test.mkv"), 5.0).is_err());
+        assert!(r.clip_snapshot(5.0).is_err());
     }
 }

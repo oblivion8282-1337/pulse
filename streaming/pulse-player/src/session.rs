@@ -21,6 +21,10 @@ use crate::whep::{self, redact_tokens, Codec, RtpArrival};
 /// nichts hereinkommt. Feiner als die kleinste sinnvolle Zielzeit.
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
+/// Wie oft die Statistik nach vorne geht. Bewusst grob: die Zahlen werden
+/// angezeigt, nicht ausgewertet, und jedes Ereignis weckt den Fenster-Thread.
+const STATS_INTERVAL: Duration = Duration::from_millis(250);
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -102,6 +106,7 @@ pub async fn run(
     let mut stats =
         SessionStats { jitter_target_ms: target.as_millis() as u64, ..Default::default() };
     let mut announced_playing = false;
+    let mut last_stats = Instant::now();
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -116,7 +121,26 @@ pub async fn run(
                     let _ = reply.send(media.stop_recording());
                 }
                 Some(SessionCommand::Clip { path, seconds, reply }) => {
-                    let _ = reply.send(media.save_clip(&path, seconds));
+                    // Einsammeln ist ein Speicherkopiervorgang und darf hier
+                    // laufen; das Schreiben geht auf einen Blocking-Thread.
+                    // Synchron hier haette die Schleife stillgestanden, der
+                    // RTP-Kanal waere uebergelaufen und der Strom haette einen
+                    // sichtbaren Aussetzer bekommen.
+                    match media.clip_snapshot(seconds) {
+                        Ok(data) => {
+                            tokio::task::spawn_blocking(move || {
+                                let result = crate::recorder::write_clip(
+                                    std::path::Path::new(&path),
+                                    &data,
+                                )
+                                .map_err(|e| format!("{e:#}"));
+                                let _ = reply.send(result);
+                            });
+                        }
+                        Err(e) => {
+                            let _ = reply.send(Err(e));
+                        }
+                    }
                 }
                 Some(SessionCommand::Options(patch)) => {
                     options.apply(&patch);
@@ -200,19 +224,35 @@ pub async fn run(
                 }
             }
 
-            stats.packets_received = buffer.received;
-            stats.packets_lost = buffer.lost;
-            stats.packets_reordered = buffer.reordered;
-            stats.packets_duplicate = buffer.duplicates;
-            stats.buffered_packets = buffer.buffered() as u64;
+
         }
 
-        // Einmal je Durchgang, nicht je Spur: beides haengt nicht am Puffer,
-        // und `media.stats()` nimmt jedes Mal die Sperre des Ausgabe-Rings.
         media.note_dimensions(stats.width, stats.height);
-        stats.media = media.stats();
 
-        let _ = events.try_send(SessionEvent::Stats(stats));
+        // Ueber ALLE Puffer summieren, nicht je Codec ueberschreiben: Bild und
+        // Ton haben eigene Sequenznummernkreise und damit eigene Puffer. Vorher
+        // gewann der zuletzt iterierte, und die HashMap-Reihenfolge ist pro
+        // Prozess zufaellig — die Zahlen stammten also mal von der Video-, mal
+        // von der Tonspur, ohne dass das erkennbar war.
+        stats.packets_received = buffers.values().map(|b| b.received).sum();
+        stats.packets_lost = buffers.values().map(|b| b.lost).sum();
+        stats.packets_reordered = buffers.values().map(|b| b.reordered).sum();
+        stats.packets_duplicate = buffers.values().map(|b| b.duplicates).sum();
+        stats.buffered_packets = buffers.values().map(|b| b.buffered() as u64).sum();
+
+        // --- Fund C: Statistik nicht bei jedem Schleifendurchlauf senden ---
+        // Der Durchlauf wird von JEDEM RTP-Paket und zusaetzlich vom 2-ms-Ticker
+        // ausgeloest, also ueber 1000-mal pro Sekunde. Jedes Ereignis weckt den
+        // Fenster-Thread, der mit `ControlFlow::Wait` sonst schlafen wuerde —
+        // nur um ein Zahlenfeld zu ueberschreiben.
+        if last_stats.elapsed() >= STATS_INTERVAL {
+            last_stats = Instant::now();
+            // Erst hier abfragen: `media.stats()` nimmt die Sperre des
+            // Audio-Ringpuffers, auf die auch der Geraete-Callback wartet.
+            // Bei jedem Durchlauf waere das ueber 1000-mal pro Sekunde.
+            stats.media = media.stats();
+            let _ = events.try_send(SessionEvent::Stats(stats));
+        }
     };
 
     // Eine laufende Aufnahme ausdruecklich abschliessen, damit der
