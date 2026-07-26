@@ -53,21 +53,55 @@ struct PhaseTimes {
     /// Letztes vollstaendiges Fenster — das wird angezeigt.
     upload_avg_us: u64,
     render_avg_us: u64,
+    /// Wann zuletzt ausgegeben wurde — Grundlage der ABSTAENDE.
+    last_present: Option<std::time::Instant>,
+    gap_min_us: u64,
+    gap_max_us: u64,
+    /// Abstaende von mehr als dem Doppelten des Sollwerts. Genau das sieht man
+    /// als Ruckeln: die Summe je Sekunde kann stimmen, waehrend einzelne Bilder
+    /// doppelt so lange stehen und andere sich draengeln.
+    gap_late: u64,
+    /// Fertige Werte des letzten Fensters.
+    gap_min_us_last: u64,
+    gap_max_us_last: u64,
+    gap_late_last: u64,
 }
 
 impl PhaseTimes {
-    fn note(&mut self, upload: std::time::Duration, render: std::time::Duration) {
-        let since = self.since.get_or_insert_with(std::time::Instant::now);
+    /// `expected_gap` = Soll-Abstand aus der gemessenen Bildrate der Quelle.
+    fn note(
+        &mut self,
+        upload: std::time::Duration,
+        render: std::time::Duration,
+        expected_gap: Option<std::time::Duration>,
+    ) {
+        let now = std::time::Instant::now();
+        if let Some(prev) = self.last_present {
+            let gap = now.duration_since(prev).as_micros() as u64;
+            self.gap_min_us = if self.gap_min_us == 0 { gap } else { self.gap_min_us.min(gap) };
+            self.gap_max_us = self.gap_max_us.max(gap);
+            if expected_gap.is_some_and(|e| gap > (e.as_micros() as u64).saturating_mul(2)) {
+                self.gap_late += 1;
+            }
+        }
+        self.last_present = Some(now);
+        let since = self.since.get_or_insert(now);
         self.upload_sum += upload.as_micros() as u64;
         self.render_sum += render.as_micros() as u64;
         self.count += 1;
         if since.elapsed() >= std::time::Duration::from_secs(1) && self.count > 0 {
             self.upload_avg_us = self.upload_sum / self.count;
             self.render_avg_us = self.render_sum / self.count;
+            self.gap_min_us_last = self.gap_min_us;
+            self.gap_max_us_last = self.gap_max_us;
+            self.gap_late_last = self.gap_late;
             self.upload_sum = 0;
             self.render_sum = 0;
             self.count = 0;
-            self.since = Some(std::time::Instant::now());
+            self.gap_min_us = 0;
+            self.gap_max_us = 0;
+            self.gap_late = 0;
+            self.since = Some(now);
         }
     }
 }
@@ -341,7 +375,13 @@ impl App {
         if let Err(e) = renderer.render(options, *full_range, *matrix, pass.as_mut()) {
             eprintln!("pulse-player: Darstellung: {e:#}");
         }
-        phases.note(upload_took, render_started.elapsed());
+        // Soll-Abstand aus der gemessenen Bildrate der Quelle — nicht aus einer
+        // angenommenen: die Rate bestimmt der Sender.
+        let expected_gap = stats
+            .fps
+            .filter(|f| *f > 0)
+            .map(|f| std::time::Duration::from_micros(1_000_000 / f));
+        phases.note(upload_took, render_started.elapsed(), expected_gap);
         pass.map(|p| p.actions).unwrap_or_default()
     }
 
@@ -369,14 +409,30 @@ impl App {
             ((presented.saturating_sub(session.presented_at_last_log)) as f64 / secs).round() as u64
         });
         let st = &session.stats;
+        // `concat!` statt Zeilenfortsetzungen: mit `\` am Zeilenende ist beim
+        // Schreiben dieser Datei schon einmal eine einzige lange Zeile mit
+        // Leerraum-Ketten entstanden, die im Log als klaffende Luecken auftauchte.
         eprintln!(
-            "pulse-player: Sitzung {id}: dekodiert {}/s, gezeichnet {}/s, nie gezeichnet {},              ohne Oberflaeche {}, hochladen {:.1} ms, ausgeben {:.1} ms, {} kbit/s,              Paketverlust {}, Puffer {} Pakete, uebersprungen {}",
+            concat!(
+                "pulse-player: Sitzung {}: dekodiert {}/s, gezeichnet {}/s, ",
+                "nie gezeichnet {}, ohne Oberflaeche {}, ",
+                "hochladen {:.1} ms, ausgeben {:.1} ms, ",
+                "Abstand {:.1}-{:.1} ms ({} zu spaet), ",
+                "Ankunft max {:.1} ms ({} ueber 5 ms), ",
+                "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}"
+            ),
+            id,
             st.fps.map_or_else(|| "?".to_string(), |v| v.to_string()),
             drawn.map_or_else(|| "?".to_string(), |v| v.to_string()),
             session.frames_never_drawn,
             misses,
             session.phases.upload_avg_us as f64 / 1000.0,
             session.phases.render_avg_us as f64 / 1000.0,
+            session.phases.gap_min_us_last as f64 / 1000.0,
+            session.phases.gap_max_us_last as f64 / 1000.0,
+            session.phases.gap_late_last,
+            st.arrival_gap_max_us as f64 / 1000.0,
+            st.arrival_gaps_over_5ms,
             st.kbps.map_or_else(|| "?".to_string(), |v| v.to_string()),
             st.packets_lost,
             st.buffered_packets,

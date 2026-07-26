@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use crate::audio::{AudioOutput, OpusDecoder};
+use crate::audio::AudioOutput;
 use crate::proto::PlayerOptions;
 use crate::recorder::Recorder;
 use crate::whep::Codec;
@@ -37,7 +37,6 @@ pub struct MediaStats {
 #[derive(Default)]
 pub struct MediaSink {
     audio: Option<AudioOutput>,
-    opus: Option<OpusDecoder>,
     /// Ton einmal gescheitert => nicht bei jedem Paket neu versuchen.
     audio_failed: bool,
     recorder: Recorder,
@@ -86,14 +85,20 @@ impl MediaSink {
         }
     }
 
+    /// Tonpaket weitergeben — OHNE es hier zu dekodieren.
+    ///
+    /// Der Aufrufer ist die Sitzungsschleife, die auch RTP abholt,
+    /// depacketisiert und Bilder dekodiert. Opus hier zu dekodieren und
+    /// umzurechnen hielt sie alle 20 ms an: gemessen 42-44 Aussetzer je Sekunde
+    /// mit Luecken bis 24 ms, waehrend derselbe Stream ohne Ton auf maximal
+    /// 11 ms Abstand und NULL Aussetzer kam. Jetzt macht das der Ton-Thread
+    /// (s. `AudioCommand::Packet`).
     fn play_audio(&mut self, packet: &[u8]) {
         if !self.ensure_audio() {
             return;
         }
-        let (Some(dec), Some(out)) = (self.opus.as_mut(), self.audio.as_ref()) else { return };
-        match dec.decode(packet) {
-            Ok(pcm) => out.push(pcm),
-            Err(e) => eprintln!("pulse-player: Opus-Decode: {e:#}"),
+        if let Some(out) = self.audio.as_ref() {
+            out.push_packet(packet);
         }
     }
 
@@ -118,16 +123,7 @@ impl MediaSink {
         out.set_volume(self.volume);
         out.set_offset_ms(self.offset_ms);
 
-        let dec = match OpusDecoder::new(out.sample_rate, out.channels) {
-            Ok(dec) => dec,
-            Err(e) => {
-                eprintln!("pulse-player: Opus-Decoder: {e:#} — bleibt stumm");
-                self.audio_failed = true;
-                return false;
-            }
-        };
         eprintln!("pulse-player: Tonausgabe {} Hz, {} Kanaele", out.sample_rate, out.channels);
-        self.opus = Some(dec);
         self.audio = Some(out);
         true
     }

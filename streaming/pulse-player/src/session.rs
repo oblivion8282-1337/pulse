@@ -52,6 +52,11 @@ pub struct SessionStats {
     pub packets_received: u64,
     /// Angekommene Nutzlast-Bytes (Bild + Ton).
     pub bytes_received: u64,
+    /// Groesster Abstand zweier ankommender VIDEO-RTP-Pakete und die Zahl der
+    /// Abstaende ueber 5 ms, je Melde-Fenster. Trennt „das Netz liefert in
+    /// Schueben" von „der Player macht Schuebe daraus".
+    pub arrival_gap_max_us: u64,
+    pub arrival_gaps_over_5ms: u64,
     /// Gemessene Bildrate und Bitrate ueber [`RATE_INTERVAL`] — hier gerechnet,
     /// damit alle Anzeigen dieselbe Zahl zeigen (s. Konstanten-Doku). `None`,
     /// bis das erste Fenster voll ist.
@@ -148,6 +153,10 @@ pub async fn run(
     let mut announced_playing = false;
     let mut last_stats = Instant::now();
     let mut rate_ref = RateRef { at: Instant::now(), frames: 0, bytes: 0 };
+    // Ankunfts-Diagnose (s. der Video-Zweig unten).
+    let mut last_video_arrival: Option<Instant> = None;
+    let mut arrival_gap_max = 0u64;
+    let mut arrival_gaps_over_5ms = 0u64;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -221,6 +230,21 @@ pub async fn run(
                     break ("track beendet".to_string(), !announced_playing);
                 };
                 let codec = arrival.codec;
+                // Ankunfts-Abstand der VIDEO-Pakete, so früh wie möglich
+                // gemessen. Das ist die Zahl, die entscheidet, wo die Buendel
+                // entstehen: kommen die Pakete selbst schon in Schueben, ist es
+                // das Netz (Sender oder MediaMTX); kommen sie gleichmaessig und
+                // erst die Bilder in Schueben, macht der Player sie.
+                if codec != Codec::Opus {
+                    if let Some(prev) = last_video_arrival {
+                        let gap = arrival.arrived.duration_since(prev).as_micros() as u64;
+                        arrival_gap_max = arrival_gap_max.max(gap);
+                        if gap > 5_000 {
+                            arrival_gaps_over_5ms += 1;
+                        }
+                    }
+                    last_video_arrival = Some(arrival.arrived);
+                }
                 buffers
                     .entry(codec)
                     .or_insert_with(|| JitterBuffer::new(target))
@@ -368,6 +392,10 @@ pub async fn run(
             // Audio-Ringpuffers, auf die auch der Geraete-Callback wartet.
             // Bei jedem Durchlauf waere das ueber 1000-mal pro Sekunde.
             stats.media = media.stats();
+            stats.arrival_gap_max_us = arrival_gap_max;
+            stats.arrival_gaps_over_5ms = arrival_gaps_over_5ms;
+            arrival_gap_max = 0;
+            arrival_gaps_over_5ms = 0;
             let _ = events.try_send(SessionEvent::Stats(stats));
         }
     };

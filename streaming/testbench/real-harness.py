@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Prüfstand mit dem ECHTEN Sender (Linux-Rust-Sidecar) statt ffmpeg.
+
+Wie ``harness.py``, aber die Quelle ist unsere eigene Aufnahme-und-Encode-Kette.
+Der Wayland-Dialog erscheint nur beim ERSTEN Lauf: ``PULSE_PORTAL_REUSE=1``
+speichert das Restore-Token des Portals, danach startet der Sender ohne Klick.
+
+    ./real-harness.py --secs 15
+    ./real-harness.py --secs 15 --audio Aus     # Gegenprobe ohne Ton
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from harness import CID, HERE, Player, mint_tokens
+
+SIDECAR = Path(os.environ.get(
+    "PULSE_LINUX_HQ_SIDECAR",
+    Path.home() / "Dokumente/Linux_Rust_Sidecar/target/release/pulse-linux-hq-sidecar",
+))
+
+
+class Sidecar:
+    """stdio-JSON-RPC wie der Player — gleiches Protokoll, andere Richtung."""
+
+    def __init__(self, log) -> None:
+        env = {**os.environ, "PULSE_PORTAL_REUSE": "1", "RUST_LOG": "info"}
+        self.p = subprocess.Popen(
+            [str(SIDECAR)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=log, env=env, text=True, bufsize=1,
+        )
+        self.next_id = 1
+
+    def call(self, op: str, timeout: float = 90.0, **kw) -> dict:
+        rid = self.next_id
+        self.next_id += 1
+        self.p.stdin.write(json.dumps({"op": op, "id": rid, **kw}) + "\n")
+        self.p.stdin.flush()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = self.p.stdout.readline()
+            if not line:
+                raise RuntimeError("Sender hat stdout geschlossen")
+            msg = json.loads(line)
+            if msg.get("id") == rid:      # Antwort
+                return msg
+            # alles andere sind Events ({"ev": ...}) — mitschreiben, nicht warten
+        raise TimeoutError(f"keine Antwort auf {op}")
+
+    def stop(self) -> None:
+        try:
+            self.call("stop", timeout=15)
+        except Exception:
+            pass
+        self.p.send_signal(signal.SIGTERM)
+        try:
+            self.p.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            self.p.kill()
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--secs", type=float, default=15.0)
+    ap.add_argument("--fps", type=int, default=144)
+    ap.add_argument("--audio", default="Desktop", help='"Desktop" oder "Aus"')
+    ap.add_argument("--bits", type=int, default=10)
+    ap.add_argument("--label", default="")
+    args = ap.parse_args()
+
+    tag = args.label or f"echt-{args.audio.lower()}"
+    send_log = open(HERE / f"send-{tag}.log", "w")
+    player_log = open(HERE / f"player-{tag}.log", "w")
+
+    path, pub, rd = mint_tokens()
+    whep = f"http://localhost:8889/{path}/whep?token={rd}"
+    push = f"rtmps://localhost:1936/{path}?token={pub}"
+    print(f"[{tag}] Pfad {path}")
+
+    sender = Sidecar(send_log)
+    player = None
+    samples: list[dict] = []
+    try:
+        res = sender.call(
+            "start",
+            channel={"id": CID, "token": pub, "push_url": push},
+            capture="portal",
+            audio={"mode": args.audio},
+            overrides={"codec": "av1", "fps": args.fps, "bitrate_kbps": 25000,
+                       "bit_depth": args.bits},
+        )
+        if not res.get("ok"):
+            print(f"start fehlgeschlagen: {res}", file=sys.stderr)
+            return 1
+        time.sleep(4.0)  # Publish + Auth abwarten
+
+        player = Player(player_log)
+        res = player.call("open", url=whep, title=f"Pruefstand {tag}")
+        if not res.get("ok"):
+            print(f"open fehlgeschlagen: {res}", file=sys.stderr)
+            return 1
+        sid = res["session"]
+        end = time.monotonic() + args.secs
+        while time.monotonic() < end:
+            time.sleep(1.0)
+            s = player.call("stats", session=sid)
+            if s.get("ok"):
+                samples.append(s)
+    finally:
+        if player is not None:
+            player.stop()
+        sender.stop()
+        send_log.close()
+        player_log.close()
+
+    useful = samples[2:]
+    if not useful:
+        print("keine Messwerte", file=sys.stderr)
+        return 1
+    print(f"[{tag}] {len(useful)} Proben")
+    for name in ("fps", "kbps", "frames_never_drawn", "arrival_gap_max_us",
+                 "arrival_gaps_over_5ms", "packets_lost", "frames_dropped"):
+        vals = [float(s.get(name, 0) or 0) for s in useful]
+        if any(vals):
+            print(f"  {name:24s} min {min(vals):9.1f}  mittel {sum(vals)/len(vals):9.1f}  max {max(vals):9.1f}")
+    (HERE / f"samples-{tag}.json").write_text(json.dumps(useful, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

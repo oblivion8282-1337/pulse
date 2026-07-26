@@ -35,6 +35,16 @@ const MAX_RING_SECONDS: usize = 6;
 /// Steuerbefehle an den Ausgabe-Thread.
 enum AudioCommand {
     Pcm(Vec<f32>),
+    /// Rohes Opus-Paket. Dekodiert und umgerechnet wird es auf DIESEM Thread,
+    /// nicht beim Aufrufer — der Aufrufer ist die Sitzungsschleife, die auch
+    /// die Bilder bearbeitet.
+    ///
+    /// Gemessen am 2026-07-26 (144-fps-Stream, 1440p10): mit Ton entstanden
+    /// 42-44 Aussetzer je Sekunde mit Luecken bis 24 ms, ohne Ton NULL und der
+    /// groesste Abstand lag bei 11 ms. Die 44 entsprachen dem Opus-Takt (ein
+    /// Paket je 20 ms) — jedes Paket hielt die Bildverarbeitung an, solange es
+    /// dekodiert und von 48000 auf die Geraeterate umgerechnet wurde.
+    Packet(Vec<u8>),
     Volume(f32),
     OffsetMs(i32),
     Stop,
@@ -84,10 +94,45 @@ fn pump_commands(
     shared: &Mutex<Shared>,
     per_ms: usize,
     max_ring_samples: usize,
+    // Fuer den Decoder, der hier lebt: Zielrate und Kanalzahl des Geraets.
+    sample_rate: u32,
+    channels: u16,
 ) {
+    // Der Decoder lebt HIER, nicht beim Aufrufer, und wird beim ersten Paket
+    // angelegt (das Geraet steht zu diesem Zeitpunkt schon).
+    let mut decoder: Option<OpusDecoder> = None;
+    let mut decoder_failed = false;
     while let Ok(cmd) = rx.recv() {
+        // Dekodieren VOR der Sperre: auf dieselbe Sperre wartet der
+        // Geraete-Callback, und ein Decode unter ihr wuerde ihn ausbremsen —
+        // aus einem Bildruckler wuerde ein Tonaussetzer.
+        let cmd = match cmd {
+            AudioCommand::Packet(bytes) => {
+                if decoder.is_none() && !decoder_failed {
+                    match OpusDecoder::new(sample_rate, channels) {
+                        Ok(d) => decoder = Some(d),
+                        Err(e) => {
+                            eprintln!("pulse-player: Opus-Decoder: {e:#} — bleibt stumm");
+                            decoder_failed = true;
+                        }
+                    }
+                }
+                let Some(dec) = decoder.as_mut() else { continue };
+                match dec.decode(&bytes) {
+                    Ok(pcm) => AudioCommand::Pcm(pcm),
+                    Err(e) => {
+                        eprintln!("pulse-player: Opus-Decode: {e:#}");
+                        continue;
+                    }
+                }
+            }
+            other => other,
+        };
         let Ok(mut s) = shared.lock() else { break };
         match cmd {
+            // Oben in fertiges PCM verwandelt — hier kann es nicht mehr
+            // auftreten.
+            AudioCommand::Packet(_) => {}
             AudioCommand::Pcm(samples) => {
                 s.ring.extend(samples);
                 // NACH dem Anhaengen kappen, nicht vorher: eine einzelne Charge
@@ -190,7 +235,7 @@ impl AudioOutput {
                     eprintln!("pulse-player: Ausgabe startet nicht: {e}");
                     return;
                 }
-                pump_commands(&rx, &thread_shared, per_ms, max_ring_samples);
+                pump_commands(&rx, &thread_shared, per_ms, max_ring_samples, sample_rate, channels);
                 // Egal warum die Schleife endet: ab hier kommt nichts mehr an.
                 if let Ok(mut s) = thread_shared.lock() {
                     s.alive = false;
@@ -201,11 +246,13 @@ impl AudioOutput {
         Ok(Self { tx, shared, sample_rate, channels })
     }
 
-    pub fn push(&self, samples: Vec<f32>) {
-        if samples.is_empty() {
+    /// Rohes Opus-Paket zur Wiedergabe geben. Kehrt sofort zurueck — Dekodieren
+    /// und Umrechnen passieren auf dem Ton-Thread (s. [`AudioCommand::Packet`]).
+    pub fn push_packet(&self, packet: &[u8]) {
+        if packet.is_empty() {
             return;
         }
-        let _ = self.tx.send(AudioCommand::Pcm(samples));
+        let _ = self.tx.send(AudioCommand::Packet(packet.to_vec()));
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -608,7 +655,9 @@ mod tests {
 
         let thread_shared = Arc::clone(&shared);
         let handle = std::thread::spawn(move || {
-            pump_commands(&rx, &thread_shared, per_ms, max_ring_samples);
+            // Rate und Kanalzahl sind hier belanglos — der Test schickt fertiges
+            // PCM, der Decoder wird nie angelegt.
+            pump_commands(&rx, &thread_shared, per_ms, max_ring_samples, 48_000, 2);
         });
 
         // Ein einzelner Push, zehnmal groesser als der erlaubte Ring.
