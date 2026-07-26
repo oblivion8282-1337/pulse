@@ -318,6 +318,11 @@ pub struct Recorder {
     /// Eine Aufnahme ist unterwegs gescheitert. Wird nach vorne gemeldet,
     /// damit es nicht so aussieht, als haette nie jemand gestartet.
     pub failed: bool,
+    /// Solange noch kein Video-Keyframe geschrieben wurde. Eine Aufnahme, die
+    /// mitten in einer GOP beginnt, faengt sonst mit Inter-Frames ohne
+    /// Referenzbild an — der Anfang ist dann Bildmuell, obwohl die Datei
+    /// formal gueltig ist. Der Clip-Pfad achtet darauf schon.
+    awaiting_keyframe: bool,
     /// AV1-Sequence-Header aus dem Strom — Grundlage der Muxer-Konfiguration.
     av1_seq_header: Option<Vec<u8>>,
     /// Bittiefe des Bildes, fuer denselben Zweck.
@@ -357,6 +362,18 @@ impl Recorder {
         }
         let unit = Unit { ts_ms, codec, keyframe: is_keyframe(codec, data), data: data.to_vec() };
 
+        // Erst ab dem ersten Keyframe schreiben — sonst beginnt die Datei mit
+        // Bildern, die kein Decoder auflösen kann.
+        if self.awaiting_keyframe && self.active.is_some() {
+            if unit.codec.is_video() && unit.keyframe {
+                self.awaiting_keyframe = false;
+            } else {
+                self.ring.push_back(unit);
+                self.trim_ring(ts_ms);
+                return;
+            }
+        }
+
         if let Some(writer) = self.active.as_mut() {
             if let Err(e) = writer.write(&unit) {
                 eprintln!("pulse-player: Aufnahme abgebrochen: {e:#}");
@@ -378,6 +395,10 @@ impl Recorder {
         }
 
         self.ring.push_back(unit);
+        self.trim_ring(ts_ms);
+    }
+
+    fn trim_ring(&mut self, ts_ms: i64) {
         let cutoff = ts_ms - (RING_SECONDS * 1000) as i64;
         while self.ring.front().is_some_and(|u| u.ts_ms < cutoff) {
             self.ring.pop_front();
@@ -395,6 +416,7 @@ impl Recorder {
         self.active = Some(self.make_writer(&target)?);
         self.written_units = 0;
         self.failed = false;
+        self.awaiting_keyframe = true;
         Ok(target)
     }
 
@@ -518,6 +540,25 @@ mod tests {
         assert!(is_keyframe(Codec::H264, &sps), "SPS (NAL 7)");
         let inter = [0, 0, 1, 0x41, 0x9A];
         assert!(!is_keyframe(Codec::H264, &inter), "NAL 1 ist keiner");
+    }
+
+    /// Regression: eine Aufnahme, die mitten in einer GOP startet, darf nicht
+    /// mit Inter-Frames beginnen.
+    #[test]
+    fn aufnahme_beginnt_erst_beim_keyframe() {
+        let mut r = Recorder::default();
+        r.note_dimensions(640, 360);
+        let inter = [0u8, 0, 1, 0x41, 0x9A]; // NAL 1, kein Keyframe
+        let key = [0u8, 0, 1, 0x65, 0x88]; // NAL 5 (IDR)
+        r.push(Codec::H264, &key, 0); // Codec bekannt machen
+        r.start(Path::new("/tmp/pulse-player-keyframe-gate")).expect("startet");
+
+        r.push(Codec::H264, &inter, 10);
+        r.push(Codec::H264, &inter, 20);
+        assert_eq!(r.written_units, 0, "Inter-Frames vor dem Keyframe geschrieben");
+
+        r.push(Codec::H264, &key, 30);
+        assert!(r.written_units > 0, "ab dem Keyframe muss geschrieben werden");
     }
 
     #[test]
@@ -719,6 +760,37 @@ mod tests {
         );
         let seconds = input.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE);
         eprintln!("AV1 geschrieben: {out} ({seconds:.3} s, {} Einheiten)", units.len());
+    }
+
+    /// Regression: der Jitter-Puffer kann mehrere Einheiten in einem `poll`
+    /// freigeben; die bekommen dann denselben Millisekunden-Zeitstempel. Der
+    /// Matroska-Muxer ist strikt (kein `AVFMT_TS_NONSTRICT`) und lehnt zwei
+    /// Pakete derselben Spur mit gleichem `dts` ab — die laufende Aufnahme
+    /// waere mitten drin abgebrochen.
+    #[test]
+    fn gleiche_zeitstempel_brechen_die_aufnahme_nicht_ab() {
+        let Ok(fixture) = std::env::var("PULSE_PLAYER_AV1_FIXTURE") else {
+            eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
+            return;
+        };
+        ffmpeg::init().ok();
+        let data = std::fs::read(&fixture).expect("Fixture lesbar");
+        let units = split_obu(&data);
+        assert!(units.len() > 5);
+
+        let out = "/tmp/pulse-player-dupts";
+        let mut r = Recorder::default();
+        r.note_dimensions(320, 180);
+        r.push(Codec::Av1, &units[0], 0);
+        let used = r.start(Path::new(out)).expect("Aufnahme startet");
+        // ALLE Einheiten mit demselben Zeitstempel — der Extremfall.
+        for u in &units {
+            r.push(Codec::Av1, u, 0);
+        }
+        assert!(!r.failed, "Aufnahme ist bei gleichen Zeitstempeln abgebrochen");
+        r.stop().expect("Aufnahme schliesst ab");
+        let input = ffmpeg::format::input(&used).expect("Datei lesbar");
+        assert!(input.streams().best(ffmpeg::media::Type::Video).is_some());
     }
 
     #[test]

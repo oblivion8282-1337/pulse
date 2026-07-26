@@ -38,7 +38,22 @@ pub fn spawn_stdin_reader(proxy: EventLoopProxy<UserEvent>) {
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
         for line in stdin.lock().lines() {
-            let Ok(line) = line else { break };
+            let line = match line {
+                Ok(l) => l,
+                // Ungueltiges UTF-8 ist eine kaputte Zeile, kein Grund den
+                // Player zu beenden — vorher brach die Schleife hier ab und
+                // `StdinClosed` fuhr die ganze Anwendung herunter, entgegen
+                // dem Versprechen im Kommentar darueber.
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    eprintln!("pulse-player: unlesbare Zeile uebersprungen: {e}");
+                    continue;
+                }
+                // Alles andere ist ein echter Ein-/Ausgabefehler: stdin ist weg.
+                Err(e) => {
+                    eprintln!("pulse-player: stdin beendet: {e}");
+                    break;
+                }
+            };
             let line = line.trim();
             if line.is_empty() {
                 continue;

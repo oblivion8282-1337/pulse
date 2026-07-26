@@ -156,6 +156,14 @@ pub async fn run(
                     options.apply(&patch);
                     options.clamp();
                     media.apply_options(&options);
+                    // `hwdec` gilt laut proto.rs als zur Laufzeit umschaltbar.
+                    // Der Decoder wird aber nur einmal angelegt — ohne dieses
+                    // Verwerfen antwortete `set_option` mit `ok: true`, ohne
+                    // dass sich etwas aenderte. Der naechste Frame legt ihn mit
+                    // der neuen Einstellung neu an.
+                    if patch.hwdec.is_some() {
+                        decoder = None;
+                    }
                     if let Some(ms) = options.jitter_ms {
                         let t = Duration::from_millis(u64::from(ms));
                         stats.jitter_target_ms = ms.into();

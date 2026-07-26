@@ -95,6 +95,13 @@ impl App {
 
             "shutdown" => {
                 self.stdout.send(&Response::bare(id));
+                // Sitzungen zuerst beenden. Sonst wird beim Verlassen der
+                // Fensterschleife die Tokio-Laufzeit fallengelassen und die
+                // Sitzungs-Tasks werden am Await-Punkt abgebrochen — das
+                // `DELETE` an die WHEP-Resource bleibt aus und sie verwaist
+                // beim Server bis zum ICE-Timeout. `close`/Fenster-Schliessen
+                // machen das schon richtig, `shutdown` fehlte es.
+                self.stop_all_sessions();
                 event_loop.exit();
             }
 
@@ -146,6 +153,32 @@ impl App {
                 Ok(Err(e)) => stdout.send(&Response::err(id, e)),
                 Err(_) => stdout.send(&Response::err(id, "Sitzung beendet")),
             }
+        });
+    }
+
+    /// Schickt allen Sitzungen `Stop` und gibt ihnen kurz Zeit, sauber
+    /// abzubauen. Best effort mit Zeitschranke: ein haengender Abbau darf das
+    /// Beenden nicht blockieren.
+    fn stop_all_sessions(&mut self) {
+        let senders: Vec<_> = self.sessions.values().map(|s| s.commands.clone()).collect();
+        if senders.is_empty() {
+            return;
+        }
+        self.sessions.clear();
+        self.by_window.clear();
+        self.runtime.block_on(async move {
+            for tx in senders {
+                // Zustellen ist billig; das eigentliche Warten kommt danach.
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(200),
+                    tx.send(SessionCommand::Stop),
+                )
+                .await;
+            }
+            // Den Sitzungen Zeit fuer `whep_session.close()` geben (schliesst
+            // die PeerConnection und schickt das DELETE). Zeitschranke, damit
+            // ein haengender Abbau das Beenden nicht blockiert.
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         });
     }
 

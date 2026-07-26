@@ -139,10 +139,24 @@ const registry = new Map<string, NativePlayerSession>();
 const keyOf = (channelId: string, userId: string, slot: number): string => `${channelId}:${userId}:${slot}`;
 
 export const nativePlayerSessions = {
-  /** Bestehende Sitzung holen oder neu anlegen (idempotent). */
+  /**
+   * Bestehende Sitzung holen oder neu anlegen (idempotent).
+   *
+   * Eine bereits gescheiterte oder geschlossene Sitzung wird dabei NICHT
+   * wiederverwendet, sondern verworfen und ersetzt. Ohne das blieb eine tote
+   * Sitzung dauerhaft in der Registry: der naechste Mount bekam sie zurueck,
+   * setzte sofort wieder `nativeFailed` und die Kachel hing endgueltig im
+   * `<video>`-Rueckfall fest — obwohl der Rueckfall ausdruecklich nur bis zum
+   * naechsten Mount gelten soll.
+   */
   ensure(channelId: string, userId: string, slot = 0, title?: string): NativePlayerSession {
     const k = keyOf(channelId, userId, slot);
     let s = registry.get(k);
+    if (s && (s.phase === 'failed' || s.phase === 'closed')) {
+      void s.close();
+      registry.delete(k);
+      s = undefined;
+    }
     if (!s) {
       s = new NativePlayerSession(channelId, userId, slot, title);
       registry.set(k, s);
