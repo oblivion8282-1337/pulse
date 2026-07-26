@@ -52,10 +52,18 @@ nicht einsehbar.
 
 Ehrlich benannt, damit niemand danach sucht:
 
-- **Keine Tonausgabe.** Opus wird empfangen und depacketisiert, aber nicht
-  dekodiert oder ausgegeben; `volume` und `av_offset_ms` werden entgegengenommen
-  und noch nicht angewendet. Der Weg dafuer ist vorbereitet (`cpal` liegt in den
-  Abhaengigkeiten, FFmpeg kann Opus dekodieren).
+- **Keine eigene Tonausgabe.** Opus wird empfangen und depacketisiert, aber
+  nicht dekodiert oder ausgegeben; `volume` und `av_offset_ms` werden
+  entgegengenommen und noch nicht angewendet. Der Weg dafuer ist vorbereitet
+  (`cpal` liegt in den Abhaengigkeiten, FFmpeg kann Opus dekodieren).
+
+  **Der Nutzer hoert trotzdem Ton.** Die Electron-Integration laesst den
+  bestehenden Browser-Pfad (`hqStreams` samt Web-Audio-Graph) unveraendert
+  weiterlaufen und ersetzt nur das Bild — das `<video>` wird lediglich nicht
+  mehr angezeigt. Bild und Ton kommen dann ueber zwei getrennte
+  WHEP-Sitzungen, was bis zur eigenen Tonausgabe ein bewusster Kompromiss ist:
+  doppelte Verbindung, und die Lippensynchronitaet zwischen beiden Wegen ist
+  ungeprueft. Genau das gehoert beim ersten Test mit echtem Stream angesehen.
 - **Kein Clip-Mitschnitt und kein Standbild-Export.** Beides ist billig, sobald
   die Frames durchlaufen, aber noch nicht gebaut.
 - **Kein zero-copy.** Die cuvid-Decoder liefern in den Hauptspeicher, von dort
@@ -151,7 +159,9 @@ Drittanbieter-Seite im Web.
 
 ## Naechste Schritte
 
-1. Gegen einen echten Stream testen — zuerst AV1, dort ist das Risiko am groessten.
+1. Gegen einen echten Stream testen — zuerst AV1, dort ist das Risiko am
+   groessten. Dabei gleich die Lippensynchronitaet pruefen: Bild kommt aus
+   diesem Player, Ton weiterhin aus dem Browser-Pfad.
 2. Tonausgabe.
 3. Die Render-Etappe messen: Glass-to-Glass durch diesen Player gegen den
    `<video>`-Weg. Das ist die Zahl, die in
