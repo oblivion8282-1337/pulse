@@ -46,18 +46,6 @@ from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.session_tokens import validate_session_token
 
 
-def _safe_int_eq(value, expected: int) -> bool:
-    """Return ``int(value) == expected``; False on conversion error.
-
-    Inlined hier statt aus ``routes.cert_login`` importiert — das hätte einen
-    Circular-Import (security ← cert_login → admin → security) erzeugt.
-    """
-    try:
-        return int(value) == expected
-    except (TypeError, ValueError):
-        return False
-
-
 @dataclass
 class _JwksEntry:
     keys_by_kid: dict[str, Any]
@@ -325,16 +313,14 @@ async def _user_from_token(token: str | None) -> AuthenticatedUser:
     identifier = (
         str(payload.get("pairwise_sub") or uid) if is_self_host else str(uid)
     )
-    # Admin-Flag: cert-claim (Cloud) ODER owner-self-host-match. Ohne
-    # diesen OR-Pfad war der registrierende Self-Host-Owner (dessen
-    # auth-svc.is_admin=false ist) auf der WS- und HTTP-Seite kein Admin,
-    # obwohl cert_login den Session-Token korrekt mit admin=True mintet.
-    is_owner_admin = (
-        is_self_host
-        and bool(settings.pulse_instance_owner_id)
-        and _safe_int_eq(uid, settings.pulse_instance_owner_id)
-    )
-    is_admin = bool(payload.get("admin", False)) or is_owner_admin
+    # Admin kommt ausschliesslich aus dem ``admin``-Claim, den cert_login beim
+    # Ausstellen des Session-Tokens setzt. Der frueher hier stehende zweite
+    # Vergleich (uid gegen PULSE_INSTANCE_OWNER_ID) konnte nie zutreffen: auf
+    # einem Self-Host ist ``uid`` die synthetische ID aus
+    # ``_decode_self_host_session_token``, nicht die rohe Cloud-User-ID — die
+    # ist hier gar nicht mehr vorhanden. Toter Zweig, entfernt 2026-07-27;
+    # dieselbe Stelle gab es in routes/ws.py.
+    is_admin = bool(payload.get("admin", False))
     # Owner = the Cloud operator only. Self-Host tokens never carry it (and even
     # if one did, force False — Self-Host has no platform owner).
     is_owner = not is_self_host and bool(payload.get("owner", False))

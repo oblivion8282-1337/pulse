@@ -52,7 +52,6 @@ from dcc_chat_gateway import __version__
 from dcc_chat_gateway.client_ip import ws_client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.credential_validator import CertClaims, resolve_user_identifier
-from dcc_chat_gateway.routes.cert_login import _safe_int_eq
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -136,16 +135,21 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 else str(user_id)
             )
         is_self_host = settings.pulse_instance_mode == "self-host"
-        # Admin-Flag: cert-claim (Cloud) ODER owner-self-host-match. Vorher
-        # nur cert-claim → Self-Host-Owner kam mit is_admin=False rein, obwohl
-        # cert_login den Session-Token korrekt auf admin=True setzt. Folge:
-        # ready-frame zeigte is_admin=False, + Community war gegatet.
-        is_owner_admin = (
-            is_self_host
-            and bool(settings.pulse_instance_owner_id)
-            and _safe_int_eq(user_id, settings.pulse_instance_owner_id)
-        )
-        is_admin = bool(payload.get("admin", False)) or is_owner_admin
+        # Admin kommt AUSSCHLIESSLICH aus dem ``admin``-Claim, den cert_login
+        # beim Ausstellen des Session-Tokens setzt (Vergleich Cert-User gegen
+        # PULSE_INSTANCE_OWNER_ID). Hier gab es dieselbe Rechnung ein zweites
+        # Mal — sie konnte aber nie zutreffen: auf einem Self-Host ist
+        # ``payload["sub"]`` die SYNTHETISCHE ID
+        # (``synthesize_self_host_user_id`` ueber den pairwise-Identifier,
+        # s. security._decode_self_host_session_token), nicht die rohe
+        # Cloud-User-ID, gegen die verglichen wurde. Die rohe ID steht an
+        # dieser Stelle gar nicht mehr zur Verfuegung, der Zweig war also tot
+        # und sein Kommentar irrefuehrend (entfernt 2026-07-27).
+        #
+        # Praktische Folge, die man kennen muss: faellt der ``admin``-Claim
+        # aus, gibt es hier KEIN Auffangnetz — die Ursache ist dann immer im
+        # Cert-Login zu suchen, nicht hier.
+        is_admin = bool(payload.get("admin", False))
         is_owner = not is_self_host and bool(payload.get("owner", False))
         user = AuthenticatedUser(
             id=user_id,
