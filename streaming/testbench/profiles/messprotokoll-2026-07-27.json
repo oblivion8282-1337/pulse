@@ -1,7 +1,7 @@
 {
  "id": "messprotokoll-2026-07-27",
  "gemessen_am": "2026-07-27",
- "stand": "Messprotokoll geklaert, Vergleiche neu erhoben. Ursachensuche offen.",
+ "stand": "Messprotokoll geklaert. ALLE Live-Messungen dieses Abends sind ungueltig — der Bildschirm war aus bzw. der Bildinhalt unkontrolliert. Gueltige Vergleiche stehen noch aus.",
  "warum_das_wichtigste_ergebnis_das_protokoll_ist": "Fast alle Aussagen dieses Tages stammten aus 8-Sekunden-Laeufen = 6 Proben (der Pruefstand nimmt eine Probe je Sekunde und verwirft die ersten zwei). Damit war die Streuung zwischen Wiederholungen GROESSER als der gesuchte Effekt. Mehrere Aussagen wurden dadurch nacheinander behauptet und wieder eingezogen.",
  "protokoll": {
   "lauflaenge_s": 30,
@@ -51,9 +51,36 @@
   "'Keyframes verursachen die Spitzen' — keine Periodizitaet im Zeitverlauf; die schlechten Sekunden treten in PHASEN auf, nicht im 2-Sekunden-Takt."
  ],
  "offen": [
-  "Was schaltet zwischen gutem und schlechtem Betriebszustand um? Erster Lauf einer Serie war auffaellig oft schlecht (kalte GPU?) — ein Korrelationslauf mit Taktmitschrift traf zufaellig einen guten Lauf, These ungeprueft.",
-  "Warum liefert av1_10bit nur 138,5 statt 144 fps? 4 % der Bilder entstehen nicht.",
-  "Ursache der Paketpausen liegt VOR dem Player (Sender oder MediaMTX) — laut Messstellen-Kommentar in session.rs. Naechster Schritt: split-latency.py.",
-  "Bildqualitaet der drei Varianten ist in dieser Runde noch nicht gemessen."
- ]
+  "Dreiervergleich unter gueltigen Bedingungen — abgebrochen, noch nicht erhoben.",
+  "Bildqualitaet der drei Varianten (offline, davon unberuehrt).",
+  "Warum liefert der Aufbau rund 4 % weniger Bilder als angefordert?",
+  "Ursache der Paketpausen liegt laut session.rs-Kommentar VOR dem Player."
+ ],
+ "der_teuerste_fehler": {
+  "was": "Die Monitore waren waehrend der Messungen ausgeschaltet.",
+  "folge": "Der Compositor liefert dann keine neuen Bilder; die Aufnahme sieht ein stehendes Bild. AV1 fiel auf 43 kbit/s, H.264 zeigte weiter ~25000 — der fuellt seine Zielrate auch mit Stillstand auf. Die Datenrate allein verraet den Fehler also NICHT.",
+  "wie_es_auffiel": "Der Nutzer sagte es. Ich haette es an 43 kbit/s sehen muessen.",
+  "erklaert_rueckwirkend": [
+   "die 'Stillstaende' (3,6 % / 1,2 % / 0 %) — nichts zu senden, nicht kaputt",
+   "die 'Bimodalitaet' guter und schlechter Laeufe — Schirm an oder aus",
+   "die angeblichen 269 fps bei AV1 10 Bit — leere Bildhuelsen, 58 kbit/s",
+   "die GPU-Last von 10 % (mit Inhalt: 65 %)"
+  ],
+  "vorbeugung": "streaming/testbench/mit-bildschirm.sh — DPMS an + Leerlauf-Uhr zuruecksetzen",
+  "verlaesslicher_zeuge": "NICHT die Datenrate, sondern `e2e_misses` aus `--e2e`: findet der Player das Zeitmuster im dekodierten Bild nicht, kommt kein echtes Bild an."
+ },
+ "zweiter_fehler_messaufbau_verfaelscht_die_messgroesse": {
+  "was": "real-harness.py spielt den Inhalt per Vorgabe auf ALLEN drei Schirmen ab.",
+  "grund_im_code": "'weil nicht feststeht, welchen Bildschirm der Sender aufnimmt'",
+  "messung": "drei Wiedergaben 71,3 ms Ende-zu-Ende, EINE Wiedergabe 40,8 ms",
+  "folge": "Der Aufbau erzeugte 30 ms Latenz — fast die Haelfte der gemessenen Kette.",
+  "gpu_last_blieb_gleich": "65 % vs 64,9 % — die Videos werden in Hardware dekodiert",
+  "abhilfe_heute": "PULSE_SCREENS=1",
+  "offen": "Vorgabe auf 1 aendern. Der urspruengliche Grund ist hinfaellig: eine Wiedergabe wirkt unabhaengig davon, auf welchem Schirm sie laeuft (nachgemessen, alle drei Positionen ergaben dieselbe Datenrate)."
+ },
+ "erste_gueltige_zahl": {
+  "bedingungen": "AV1 10 Bit, 144 fps, Spielmaterial, eine Wiedergabe, Schirme wach",
+  "ende_zu_ende_ms": 40.8,
+  "hinweis": "NICHT mit den 17,4 ms der Nacht vergleichbar — dort ohne Zeitmuster, ohne Rueckleseprobe und ohne parallele Wiedergabe."
+ }
 }
