@@ -237,17 +237,28 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    „Mirror to registry.howispulse.com"). GHCR bleibt Source-of-Truth — schlägt der
    Mirror fehl, laufen die GHCR-Tags trotzdem.
 
-8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; alte
-   Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
+8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; kurze
+   Downtime, ok für `:edge`/`:stable`. **Zwei Schritte** — erst alte Tags samt
+   ihrer Kind-Manifeste weg (`registry-prune.py`), dann die Blobs freigeben:
    ```sh
-   17 4 * * 0  docker stop pulse_registry; docker run --rm \
-     -v pulse_pulse_registry:/var/lib/registry \
-     -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
-     registry:2.8.3 garbage-collect /etc/docker/registry/config.yml; \
+   17 4 * * 0  docker stop pulse_registry; \
+     docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+       -v ~/pulse/infra/prod/registry-prune.py:/prune.py:ro \
+       python:3-alpine python /prune.py --behalte-sha 5 --apply >> …/registry-gc.log 2>&1; \
+     docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+       -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
+       registry:2.8.3 garbage-collect /etc/docker/registry/config.yml >> …/registry-gc.log 2>&1; \
      docker start pulse_registry
    ```
    Das Volume heißt `pulse_pulse_registry`, nicht `pulse_registry` — Compose prefixt
    mit dem Projektnamen (`name: pulse`); der falsche Name GC't ein leeres Frisch-Volume.
+
+   **Warum zwei Schritte:** Ohne `--delete-untagged` (s. Warnung unten) räumt die GC
+   allein nichts mehr auf — jede überschriebene Revision hält ihre Blobs weiter fest.
+   Das Prune-Skript löscht deshalb gezielt Tags **samt Index und Kind-Manifesten**;
+   erst danach findet die GC die Blobs als unreferenziert. Es schützt dabei alles,
+   was ein behaltener Tag noch braucht (mehrere Tags zeigen oft auf denselben Index —
+   `:edge` und `:stable` regelmäßig). Trockenlauf ohne `--apply`.
 
    > ⚠️ **NIEMALS `--delete-untagged`.** Bei Multi-Arch-Images hängen die
    > Pro-Architektur-Manifeste nur am Index und tragen selbst **keinen Tag** —
