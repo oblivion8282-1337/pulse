@@ -31,19 +31,40 @@ import {
   type PlayerStateEvent,
 } from './client';
 
-// ── Einstellung (Default aus — experimentell, noch ohne Tonausgabe) ────────
+// ── Einstellungen (beide ohne UI, s. `pulse-stream.json`) ──────────────────
 
 export const playerSettings = $state({
+  /** Erlaubnis fuer das eigene Fenster ueberhaupt. Default aus. */
   useNativePlayer: false,
+  /**
+   * Nur 10-bit-Streams ins eigene Fenster lassen — der Zustand bis 2026-07-28.
+   *
+   * Damals war mehr als 8 bit der EINZIGE bekannte Vorteil, und der Rueckfall
+   * ins `<video>` kostete scheinbar nichts. Inzwischen ist gemessen, dass er
+   * doch etwas kostet, und zwar unabhaengig von der Bittiefe: ueber dieselbe
+   * echte Leitung und an EINEM Sendedurchlauf lag der native Weg 30-47 ms vorn
+   * (H.264 8 bit), und vor allem lief die Browser-Latenz IM Lauf weg
+   * (177 -> 232 ms in rund 20 s, in drei von drei Laeufen), waehrend der native
+   * Weg flach blieb. Dazu die GPU: Chromium nutzt auf Linux/NVIDIA kein NVDEC,
+   * dieser Player schon.
+   *
+   * Deshalb steht das Tor jetzt fuer jeden Codec und jede Bittiefe offen. Der
+   * Schalter bleibt als Rueckweg — ein Schalter ohne Rueckweg ist eine
+   * Festlegung, keine Einstellung.
+   */
+  onlyTenBit: false,
   loaded: false,
 });
 
-/** Einmalig: persistierte Einstellung laden. Idempotent. */
+/** Einmalig: persistierte Einstellungen laden. Idempotent. */
 export async function loadPlayerSettings(): Promise<void> {
   if (playerSettings.loaded) return;
   const data = await loadAll();
   if (typeof data.useNativePlayer === 'boolean') {
     playerSettings.useNativePlayer = data.useNativePlayer;
+  }
+  if (typeof data.nativePlayerOnlyTenBit === 'boolean') {
+    playerSettings.onlyTenBit = data.nativePlayerOnlyTenBit;
   }
   playerSettings.loaded = true;
 }
@@ -51,6 +72,11 @@ export async function loadPlayerSettings(): Promise<void> {
 export function setUseNativePlayer(v: boolean): void {
   playerSettings.useNativePlayer = v;
   void saveAll({ useNativePlayer: v });
+}
+
+export function setNativePlayerOnlyTenBit(v: boolean): void {
+  playerSettings.onlyTenBit = v;
+  void saveAll({ nativePlayerOnlyTenBit: v });
 }
 
 // ── Sitzung ─────────────────────────────────────────────────────────────────
@@ -97,13 +123,16 @@ export class NativePlayerSession {
         this.slot,
       );
       if (this.#disposed) return;
-      // Der einzige Grund fuer das eigene Fenster ist mehr als 8 bit — genau
-      // das kann Chromiums Puffer nicht (siehe streaming/pulse-player/README).
-      // Sendet der Streamer 8 bit, bleibt alles wie bisher IN der App. Diese
-      // Frage lohnt den Umweg ueber die WHEP-Antwort, weil die Bittiefe sonst
-      // erst nach dem Dekodieren bekannt waere — also erst, wenn das Fenster
-      // schon offen ist.
-      if (ten_bit !== true) {
+      // Bis 2026-07-28 endete jeder 8-bit-Stream hier: mehr als 8 bit galt als
+      // der einzige Grund fuer das eigene Fenster. Gemessen sind inzwischen zwei
+      // weitere, die von der Bittiefe unabhaengig sind — Latenz und GPU
+      // (Begruendung samt Zahlen bei `playerSettings.onlyTenBit`). Der Rueckweg
+      // bleibt als Einstellung erhalten.
+      //
+      // Die Bittiefe reist trotzdem weiter in der WHEP-Antwort mit: waere sie
+      // erst nach dem Dekodieren bekannt, muesste das Fenster schon offen sein,
+      // um die Frage ueberhaupt stellen zu koennen.
+      if (playerSettings.onlyTenBit && ten_bit !== true) {
         this.skipped = true;
         return;
       }

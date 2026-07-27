@@ -41,7 +41,10 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
 } {
   let nativeAvailable = $state(false);
   let nativeFailed = $state(false);
-  /** Der Stream ist 8 bit → kein eigenes Fenster (s. `NativePlayerSession`). */
+  /** Der Stream passt nicht zur Einstellung `onlyTenBit` → kein eigenes
+   *  Fenster (s. `NativePlayerSession`). Seit 2026-07-28 nur noch, wenn diese
+   *  Einstellung ausdruecklich gesetzt ist; sonst gehen alle Codecs und
+   *  Bittiefen ins Fenster. */
   let nativeSkipped = $state(false);
 
   $effect(() => {
