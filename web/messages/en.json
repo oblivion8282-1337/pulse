@@ -2676,8 +2676,8 @@
   "stream_grid_participants_collapsed_hint": "{count} participants · hidden",
   "stream_grid_participants_expand_aria": "Show participants",
   "instance_setup_env_consumed_title": "File has already been downloaded",
-  "instance_setup_env_consumed_body": "For security the .env is only handed out once. If you have misplaced it, you can re-issue it here.",
+  "instance_setup_env_consumed_body": "For security the .env is only handed out once — that also applies if the quick installer already set the server up. If you have misplaced it, you can re-issue it here.",
   "instance_setup_env_reissue_btn": "Re-issue file…",
-  "instance_setup_env_reissue_confirm_body": "The new file contains a new password. A server still running with the old one loses access immediately and must be given the new file. Continue?",
+  "instance_setup_env_reissue_confirm_body": "The new file contains a new password. A server still running with the old one loses access immediately. Afterwards replace the file on the server (/opt/pulse/pulse.env, or ~/.pulse/pulse.env without root) and restart the container. Continue?",
   "instance_setup_env_reissue_confirm_btn": "Re-issue"
 }

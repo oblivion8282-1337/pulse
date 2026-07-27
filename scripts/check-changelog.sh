@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Changelog-Gate (CI): blockt einen Deploy, wenn er Code/Verhalten ändert, aber
-# web/static/changelog.json nicht mit aktualisiert wurde. So ist garantiert,
-# dass jeder Push auf main, der die App verändert, einen Changelog-Eintrag hat
+# Changelog-Erinnerung (CI): meldet, wenn ein Push Code/Verhalten ändert, aber
+# web/static/changelog.json nicht mit aktualisiert wurde
 # (Pflege-Regeln: CLAUDE.md → "Changelog").
+#
+# WARNUNG, KEIN GATE. Seit 2026-06-28 endet JEDER Pfad mit exit 0, damit
+# Hotfixes nicht blockieren — der Name "Gate" hielt sich danach noch eine Weile
+# in Kommentaren und in CLAUDE.md und war schlicht falsch (korrigiert
+# 2026-07-27). Der ``images``-Job hängt zwar an diesem Job, aber der schlägt nie
+# fehl; der Deploy läuft also in jedem Fall. Ein fehlender Eintrag ist eine
+# redaktionelle Nachlässigkeit, kein technischer Fehler.
 #
 # Usage: check-changelog.sh <before-sha> <after-sha>
 #   In ci.yml mit ${{ github.event.before }} und ${{ github.sha }} aufgerufen.

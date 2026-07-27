@@ -2676,8 +2676,8 @@
   "stream_grid_participants_collapsed_hint": "{count} Teilnehmer · ausgeblendet",
   "stream_grid_participants_expand_aria": "Teilnehmer einblenden",
   "instance_setup_env_consumed_title": "Datei wurde bereits heruntergeladen",
-  "instance_setup_env_consumed_body": "Aus Sicherheitsgründen gibt es die .env nur einmal. Wenn du sie verlegt hast, kannst du sie hier neu ausstellen.",
+  "instance_setup_env_consumed_body": "Aus Sicherheitsgründen gibt es die .env nur einmal — das gilt auch, wenn der Schnellinstaller den Server bereits eingerichtet hat. Wenn du sie verlegt hast, kannst du sie hier neu ausstellen.",
   "instance_setup_env_reissue_btn": "Datei neu ausstellen…",
-  "instance_setup_env_reissue_confirm_body": "Die neue Datei enthält ein neues Passwort. Ein Server, der noch mit der alten läuft, verliert damit sofort seinen Zugang und muss die neue Datei bekommen. Fortfahren?",
+  "instance_setup_env_reissue_confirm_body": "Die neue Datei enthält ein neues Passwort. Ein Server, der noch mit der alten läuft, verliert sofort seinen Zugang. Ersetze danach die Datei auf dem Server (/opt/pulse/pulse.env, ohne Root ~/.pulse/pulse.env) und starte den Container neu. Fortfahren?",
   "instance_setup_env_reissue_confirm_btn": "Neu ausstellen"
 }
