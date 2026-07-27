@@ -1,0 +1,81 @@
+# Simplifier-Gates
+
+Diese vier Skripte erzwingen eine einzige Regel:
+
+> Nach jeder abgeschlossenen Code-Änderung läuft der `code-simplifier`-Agent
+> über die geänderten Dateien, danach werden die relevanten Tests wieder grün
+> gezogen — **erst dann** darf committet bzw. der Turn beendet werden.
+
+Die Tests sind dabei die eigentliche Kontrolle: Ob die Vereinfachung etwas
+gebrochen hat, beantwortet pytest / `pnpm check` + build, kein zweiter
+Review-Agent.
+
+Betrifft nur, was Claude über das Tool tut. Manuelle Commits am Terminal laufen
+ungehindert durch.
+
+## Die vier Teile
+
+| Datei | Rolle |
+|---|---|
+| `require-simplifier.sh` | PreToolUse-Hook (Bash) — blockt `git commit` |
+| `stop-require-simplifier.sh` | Stop-Hook — blockt das Turn-Ende |
+| `simplify-changed-hash.sh` | Inhalts-Hash der geänderten App-Dateien |
+| `simplify-stamp.sh` | setzt beide Stempel = „Simplifier gelaufen, Checks grün" |
+
+Verdrahtet sind die beiden Hooks in `.claude/settings.json`.
+
+**Warum zwei Gates.** Das Commit-Gate allein käme zu spät: Nicht jede Änderung
+mündet sofort in einen Commit. Das Stop-Gate zieht den Simplifier ans Ende
+*jeder* Änderung.
+
+## Der Ablauf
+
+```
+1) code-simplifier über die geänderten Dateien
+2) Tests/Checks erneut grün ziehen
+3) bash .claude/hooks/simplify-stamp.sh
+4) committen / Turn beenden
+```
+
+## Die Stempel
+
+`simplify-stamp.sh` schreibt **zwei** Marken nach `.git/` — nie getrackt, pro
+Klon lokal:
+
+- `.simplify-stamp` — `git write-tree` des **Index** → gegen das Commit-Gate
+- `.simplify-stamp-stop` — Inhalts-Hash der geänderten Dateien → gegen das
+  Stop-Gate
+
+Zwei Marken, weil die Gates zu unterschiedlichen Zeitpunkten fragen: Beim
+Commit zählt der gestagte Stand, beim Turn-Ende der Stand im Arbeitsverzeichnis
+(inklusive noch ungestagter und neuer Dateien).
+
+Der Hash-Vergleich macht das Stop-Gate **schleifenfrei**: Sobald gestempelt ist,
+stimmt der Hash und der nächste Stop geht durch. Ändert der Simplifier nichts,
+genügt das blosse Stempeln.
+
+## Was ausgenommen ist
+
+Beide Gates teilen denselben Filter — er spiegelt die Ausnahmen der
+Größen-Policy aus `PLAN.md` §12.1:
+
+- Nur `.py .ts .tsx .js .jsx .mjs .cjs .svelte .rs .go` zählen überhaupt
+- Ausgenommen: `tests/`, `*.spec.*`, `*.test.*`, `*/alembic/versions/`,
+  `*/components/ui/` (vendored)
+- Damit fallen reine Doku-, Config- und Changelog-Änderungen von selbst heraus
+
+**Den Filter in `require-simplifier.sh` und `simplify-changed-hash.sh`
+synchron halten** — laufen sie auseinander, blockt ein Gate, was das andere
+durchlässt, und der Widerspruch ist von aussen kaum zu sehen.
+
+## Fail-open
+
+Fehlt git oder python3, erlauben beide Gates statt zu blockieren. Ein
+Randfall in der Werkzeugkette soll nie den Arbeitsfluss festsetzen — die Regel
+ist eine Qualitätsroutine, keine Sicherheitsgrenze.
+
+## Wenn das Gate nicht greift
+
+Stop-Hooks werden erst **nach** einem Turn aktiv. Auf einer frischen Maschine
+greift der Gate deshalb nicht sofort: einmal `/hooks` öffnen oder die Session
+neu starten.
