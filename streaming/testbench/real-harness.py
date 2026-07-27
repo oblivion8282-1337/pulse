@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from gpuload import GpuLoad
 from harness import CID, HERE, Player, mint_tokens
 
 SIDECAR = Path(os.environ.get(
@@ -153,7 +154,13 @@ def main() -> int:
     sender = Sidecar(send_log, sender_env)
     player = None
     samples: list[dict] = []
+    # GPU-Last IMMER mitschreiben, nicht auf Zuruf: die Encoder-Schalter, die
+    # keine Latenz kosten (preset, multipass, AQ), kosten genau hier — eine
+    # Messreihe ohne diese Achse waere nur halb aussagekraeftig, und ein
+    # Schalter, den man vergessen kann, wird vergessen.
+    gpu = GpuLoad(HERE / f"gpu-{tag}.log")
     try:
+        gpu.__enter__()
         res = sender.call(
             "start",
             channel={"id": CID, "token": pub, "push_url": push},
@@ -196,6 +203,7 @@ def main() -> int:
             if s.get("ok"):
                 samples.append(s)
     finally:
+        gpu.__exit__()
         if player is not None:
             if args.quality:
                 try:
@@ -236,6 +244,7 @@ def main() -> int:
         vals = [float(s.get(name, 0) or 0) for s in useful]
         if any(vals):
             print(f"  {name:24s} min {min(vals):9.1f}  mittel {sum(vals)/len(vals):9.1f}  max {max(vals):9.1f}")
+    print(gpu.summary())
     (HERE / f"samples-{tag}.json").write_text(json.dumps(useful, indent=1))
     return 0
 
