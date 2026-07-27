@@ -253,6 +253,21 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    Das Volume heißt `pulse_pulse_registry`, nicht `pulse_registry` — Compose prefixt
    mit dem Projektnamen (`name: pulse`); der falsche Name GC't ein leeres Frisch-Volume.
 
+   **Log-Rotation** (täglich, Host-Crontab): Beide Cron-Logs (`pulse-update.log`,
+   `registry-gc.log`) werden per `>>` geschrieben und wuchsen unbegrenzt — der
+   Update-Cron läuft alle zwei Minuten. `rotate-logs.sh` kappt alle `*.log` in
+   diesem Verzeichnis auf die letzten 2000 Zeilen:
+   ```sh
+   23 4 * * *  ~/pulse/infra/prod/rotate-logs.sh >> ~/pulse/infra/prod/rotate-logs.log 2>&1
+   ```
+   Kein `logrotate` — das verlangt eine Datei unter `/etc/logrotate.d` und damit
+   root; `sudo` will auf diesem Server ein Passwort, unbeaufsichtigt läuft das
+   also nicht. Das Skript kappt **in-place** (gleiche Inode) statt umzubenennen:
+   die Schreiber halten O_APPEND, ein Umbenennen ließe einen gerade laufenden Job
+   unsichtbar in die alte Datei weiterschreiben. Gegen einen gleichzeitigen
+   Schreiber getestet (400 Zeilen während der Rotation): keine Null-Bytes, keine
+   beschädigte Zeile, alle Zeilen erhalten.
+
    **Warum zwei Schritte:** Ohne `--delete-untagged` (s. Warnung unten) räumt die GC
    allein nichts mehr auf — jede überschriebene Revision hält ihre Blobs weiter fest.
    Das Prune-Skript löscht deshalb gezielt Tags **samt Index und Kind-Manifesten**;
