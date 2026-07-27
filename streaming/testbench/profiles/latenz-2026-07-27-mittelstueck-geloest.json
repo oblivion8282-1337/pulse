@@ -55,11 +55,23 @@
     "unversehrtheit": "Bild einwandfrei (Einzelbild aus der Aufnahme geprueft), 60 fps stabil, keine verworfenen Bilder, kein Paketverlust, 103 Tests gruen."
   },
 
+  "der_dritte_fund_war_der_notierte_naechste_hebel": {
+    "ausgangspunkt": "Das Profil hatte notiert: Mikrofonweg 9,2 ms gegen Desktop 22 ms Ton-Rueckstand, dort liege der naechste Hebel. Stimmte.",
+    "zwei_widerlegte_vermutungen_davor": [
+      "Die Batch-Groesse (das PipeWire-Raster) sei im Desktop-Modus groeber. NEIN — direkt gemessen (neue Meldung im Sidecar): in BEIDEN Modi 2,7 ms. Die angeforderte Groesse sagt ohnehin nichts, PipeWire darf sie ueberstimmen.",
+      "Eine Latenz-Anforderung am Null-Sink helfe. NEIN — ueber je fuenf Laeufe 21,3 gegen 22,5 ms (s. oben)."
+    ],
+    "die_wirkliche_ursache": "Die Ton-Zeitlinie wird EINMAL an der Wanduhr verankert und zaehlt danach nur Samples. Korrigiert wurde erst ab 100 ms — die Schwelle faengt den AUSSETZER, nicht den RUECKSTAND. Ein einmaliger Haenger von 25 ms bleibt damit bis zum Streamende stehen. Direkt gemessen: die Zeitlinie startet bei 2 bis 4 ms, springt nach wenigen Sekunden auf 27 bis 29 ms und bleibt dort. Im Mikrofonweg bleibt sie bei 3 bis 6 ms — daher der Unterschied.",
+    "aenderung": "Zweite, kleinere Schwelle: 15 ms, aber erst nach 150 Batches am Stueck (gut 0,4 s). Zaehler setzt zurueck, sobald der Rueckstand weg ist. Drei Unit-Tests.",
+    "ergebnis": "Ton-Rueckstand am Muxer 34,2 -> 2,3 ms. Ende zu Ende 33,5 -> 17,4 ms (60 fps), 31,2 -> 17,7 (144). Ton unversehrt (2860 Pakete, Abstand 5,0 ms, groesste Luecke 17 ms, kein Rueckwaertssprung).",
+    "nebenwirkung_beobachtet": "Nach dem Aufholen laeuft die Zeitlinie 5 bis 15 ms VOR der Wanduhr (der Sink liefert seinen Rueckstau nach). Der Ton liegt damit beim Zuschauer um diesen Betrag hinter dem Bild statt 27 ms davor — klar besser, aber nicht null. Wer weiter will: den Rueckstau beim Aufholen verwerfen statt ihn nachzuliefern."
+  },
+
   "bilanz_der_nacht": {
-    "60_fps": "99,8 -> 33,5 ms",
-    "144_fps": "62,5 -> 31,2 ms",
-    "280_fps": "676 -> 95,5 ms",
-    "zwei_aenderungen": "max_interleave_delta 100 -> 10 ms (Sidecar) und AV_CODEC_FLAG_LOW_DELAY (Player). Beide klein, beide gemessen, keine Verhaltensaenderung sonst."
+    "60_fps": "99,8 -> 17,4 ms",
+    "144_fps": "62,5 -> 17,7 ms",
+    "280_fps": "676 -> 98 bis 249 ms, stark schwankend — dort ist die AUFNAHME am Anschlag, eigener Faden",
+    "drei_aenderungen": "max_interleave_delta 100 -> 10 ms (Sidecar), AV_CODEC_FLAG_LOW_DELAY (Player), Aufholen des anhaltenden Ton-Rueckstands (Sidecar). Alle drei klein, alle drei gemessen, keine Verhaltensaenderung sonst."
   },
 
   "offen": {
