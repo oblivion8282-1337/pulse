@@ -285,9 +285,15 @@ jobs:
           username: pulse-ci
           password: ${{ secrets.REGISTRY_PUSH_TOKEN }}
 
+      # KEIN continue-on-error mehr (2026-07-27). Vorher wurde ein Spiegel-
+      # Fehler doppelt verschluckt — `continue-on-error` plus `|| exit 0` —, der
+      # Workflow blieb gruen und niemand erfuhr davon. Zu diesem Zeitpunkt sind
+      # die GHCR-Tags bereits gesetzt (Schritt oben), ein Fehlschlag hier
+      # gefaehrdet sie also nicht; er soll nur SICHTBAR sein. Ein kaputter
+      # Spiegel faellt sonst erst beim Self-Hoster auf, und genau das ist am
+      # 2026-07-26 passiert (s. infra/prod/DEPLOY.md, GC-Cron).
       - name: Mirror to registry.howispulse.com
         if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
-        continue-on-error: true
         env:
           GHCR_TAGS: ${{ needs.prepare.outputs.tags }}
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
@@ -304,7 +310,22 @@ jobs:
           echo "::notice::Mirror ${TAG_COUNT} tag(s) → registry.howispulse.com"
           echo "Source: $SRC"
           echo "$REG_TAGS" | sed '/^$/d; s/^/  → /'
-          docker buildx imagetools create "${ARGS[@]}" "$SRC" || {
-            echo "::warning::registry.howispulse.com mirror fehlgeschlagen — GHCR-Tags trotzdem gelandet."
-            exit 0
-          }
+          docker buildx imagetools create "${ARGS[@]}" "$SRC"
+
+          # NACHPRUEFEN, nicht hoffen. `imagetools create` kann den Index
+          # schreiben und trotzdem unvollstaendig sein — dann loest der Tag auf,
+          # der Pull scheitert aber am fehlenden Kind-Manifest ("content at
+          # .../manifests/sha256:... not found"). Genau dieses Fehlerbild hatte
+          # ein Self-Hoster am 2026-07-27, damals durch den GC ausgeloest.
+          # Beide Architekturen muessen aufloesen, sonst ist der Spiegel kaputt.
+          while IFS= read -r t; do
+            [ -n "$t" ] || continue
+            echo "Pruefe $t"
+            OUT="$(docker buildx imagetools inspect "$t")" || {
+              echo "::error::Spiegel $t laesst sich nicht aufloesen"; exit 1; }
+            for arch in amd64 arm64; do
+              printf '%s\n' "$OUT" | grep -q "linux/${arch}" || {
+                echo "::error::Spiegel $t hat kein linux/${arch}"; exit 1; }
+            done
+          done <<< "$REG_TAGS"
+          echo "::notice::Spiegel geprueft — alle Tags loesen mit amd64+arm64 auf."
