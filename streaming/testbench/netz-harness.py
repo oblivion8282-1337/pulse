@@ -127,14 +127,27 @@ def netem_weg() -> None:
                    stderr=subprocess.DEVNULL, check=False)
 
 
-def lauf(profil: str, secs: float, label: str, nur_empfang: bool) -> dict | None:
+def lauf(profil: str, secs: float, label: str, nur_empfang: bool,
+         echt: bool = False) -> dict | None:
+    """Ein Prueflauf unter einem Stoerprofil.
+
+    `echt` schaltet vom Referenzsender (Datei) auf den echten Sidecar mit
+    Zeitmuster um. Das ist noetig, sobald die ENDE-ZU-ENDE-Latenz die Frage ist:
+    eine konstante Laufzeit verschiebt weder Ankunftsabstaende noch die Zeit vom
+    Netz bis zum Schirm — mit dem Referenzsender ist sie schlicht unsichtbar.
+    Kostet dafuer einen wachen Bildschirm und den Portal-Zugriff.
+    """
     tag = f"netz-{label}"
+    if echt:
+        befehl = [str(HERE / "mit-bildschirm.sh"), sys.executable,
+                  str(HERE / "real-harness.py"), "--secs", str(secs),
+                  "--fps", "60", "--kbps", "4000", "--e2e", "--label", tag]
+    else:
+        befehl = [sys.executable, str(HERE / "harness.py"),
+                  "--secs", str(secs), "--label", tag]
     netem_setzen(PROFILE[profil], nur_empfang)
     try:
-        r = subprocess.run(
-            [sys.executable, str(HERE / "harness.py"), "--secs", str(secs), "--label", tag],
-            capture_output=True, text=True, timeout=secs + 180,
-        )
+        r = subprocess.run(befehl, capture_output=True, text=True, timeout=secs + 240)
         if r.returncode != 0:
             print(f"  [{profil}] Prueflauf fehlgeschlagen:\n{r.stderr[-500:]}", file=sys.stderr)
             return None
@@ -172,6 +185,8 @@ def auswerten(profil: str, proben: list[dict]) -> dict:
         "verloren": max((s.get("packets_lost", 0) for s in p), default=0),
         "umsortiert": max((s.get("packets_reordered", 0) for s in p), default=0),
         "bilder_verworfen": max((s.get("frames_dropped", 0) for s in p), default=0),
+        "e2e_ms": med("e2e_avg_us", 1000),
+        "e2e_misses": sum(s.get("e2e_misses", 0) for s in p),
         "zustand": p[-1].get("state", "?"),
         "bilder_gesamt": max((s.get("frames_decoded", 0) for s in p), default=0),
     }
@@ -199,6 +214,8 @@ def main() -> int:
     ap.add_argument("--wdh", type=int, default=1, help="Wiederholungen je Profil")
     ap.add_argument("--nur-empfang", action="store_true",
                     help="Stoerung nur auf den Weg MediaMTX -> Player, Push bleibt sauber")
+    ap.add_argument("--echt", action="store_true",
+                    help="echter Sidecar + Zeitmuster statt Referenzsender (misst Ende zu Ende)")
     args = ap.parse_args()
 
     profile = sorted(PROFILE) if args.alle else [args.profil]
@@ -211,7 +228,7 @@ def main() -> int:
     try:
         for profil in profile:
             for i in range(args.wdh):
-                e = lauf(profil, args.secs, f"{profil}-{i + 1}", args.nur_empfang)
+                e = lauf(profil, args.secs, f"{profil}-{i + 1}", args.nur_empfang, args.echt)
                 if e is None:
                     print(f"{profil}-{i + 1}: kein Ergebnis")
                     continue
@@ -221,7 +238,7 @@ def main() -> int:
                 status = "ok" if not maengel else "MANGEL: " + ", ".join(maengel)
                 print(f"{profil:14s} #{i + 1}  fps {e['fps_median']:6.1f}  "
                       f"decode {e['decode_ms']:5.2f} ms  glass {e['glass_ms']:6.2f} ms  "
-                      f"Ankunft {e['ankunft_max_ms']:7.2f} ms  verloren {e['verloren']:3d}  "
+                      f"e2e {e['e2e_ms']:7.2f} ms  verloren {e['verloren']:3d}  "
                       f"Stillstaende {e['stillstaende']}  {status}")
     finally:
         netem_weg()

@@ -1,0 +1,44 @@
+{
+ "id": "latenz-2026-07-28-verortung",
+ "gemessen_am": "2026-07-28 (Nacht)",
+ "frage": "Wo entstehen die Millisekunden, die ueber die echte Leitung zusaetzlich anfallen — in unserer Kette oder dahinter?",
+ "werkzeug": "netz-harness.py --echt (echter Sidecar + Zeitmuster) mit tc-netem auf der Schleife",
+
+ "erst_eine_korrektur": {
+  "was_falsch_war": "Die Akte `fern-2026-07-27-echte-leitung.json` rechnet mit 26,7 ms Laufzeit und kommt so auf 'rund 100 ms unerklaert'. Das unterschaetzt die Laufzeit um die Haelfte.",
+  "warum": "Sender UND Player laufen auf derselben Maschine; der Strom geht zum Server HIN und wieder ZURUECK. Bei 53,3 ms Umlaufzeit sind das zweimal 26,7 = 53,4 ms reine Laufzeit, nicht 26,7.",
+  "richtig": "Erwartbar waeren 16,2 (lokale Kette) + 53,4 (zwei Strecken) = rund 70 ms. Gemessen 143. Unerklaert also rund 73 ms, nicht 100.",
+  "lehre": "Bei einem Aufbau, bei dem Quelle und Senke am selben Ort sitzen, zaehlt die Laufzeit doppelt. Klingt trivial, ist mir trotzdem durchgegangen."
+ },
+
+ "das_verfahren": "Dieselbe Kette lokal fahren und die Laufzeit kuenstlich auflegen — einmal NUR auf den Empfangsweg (MediaMTX -> Player, per tc-Filter auf den Medienport), einmal auf beide Wege. Bleibt die Latenz die Summe ihrer Teile, ist die Kette unschuldig; waechst sie ueberproportional, liegt es an ihr.",
+
+ "messwerte_je_drei_laeufe": {
+  "lokal_ungestoert": {"e2e_ms": [16.02, 16.33], "ausreisser": 32.77,
+   "hinweis": "Der Ausreisser ist der bekannte Ton-Rueckstand beim Start (11,6-33,7 ms je nach Zustand des PipeWire-Graphen), nicht Rauschen."},
+  "nur_empfangsweg_plus_26_7ms": {"e2e_ms": [42.88, 43.35, 43.77], "glass_ms": 4.03},
+  "beide_wege_plus_26_7ms": {"e2e_ms": [106.63, 105.91, 115.42], "glass_ms": 14.7}
+ },
+
+ "befund_1_der_empfangsweg_ist_sauber": {
+  "rechnung": "16,2 + 26,7 = 42,9 erwartet, 43,0-43,8 gemessen",
+  "aussage": "Der Player addiert eine Laufzeit EXAKT linear — keine Millisekunde mehr. Auch seine eigene Zeit vom Netz bis zum Schirm bleibt unveraendert bei 4,03 ms.",
+  "folge": "Der Empfangsweg scheidet als Erklaerung aus. Das war die eigentliche Frage an den Player, und die Antwort ist: er ist es nicht."
+ },
+
+ "befund_2_der_sendeweg_verstaerkt": {
+  "rechnung": "43,0 + 26,7 = 69,7 erwartet, 106,6 gemessen",
+  "aussage": "Der Sendeweg kostet 63,6 ms fuer 26,7 ms Laufzeit — also 36,9 ms MEHR, als ihm gegeben wurde. Faktor 2,4.",
+  "nebenbefund": "Die Zeit des Players vom Netz bis zum Schirm steigt dabei von 4,0 auf 14,7 ms. Da der Empfangsweg hier UNGESTOERT ist, kann das nicht an ihm liegen — es ist die veraenderte Taktung des Senders, die beim Player als Buendelung ankommt.",
+  "verdaechtiger": "Der RTMP-Push ueber TCP. Bei 53,4 ms Umlaufzeit verhaelt sich TCP grundlegend anders als auf der Schleife, und der FLV-Muxer gibt Pakete nach seiner eigenen Ordnung frei. NICHT weiter eingegrenzt.",
+  "einschraenkung": "In diesen Laeufen traten 4-231 verlorene Pakete auf; die Stoerung an der Wurzel trifft auch den Push. Die Groessenordnung des Befundes traegt das, eine Nachkommastelle nicht."
+ },
+
+ "was_bleibt": {
+  "rest": "143 (echte Leitung) minus 106,6 (lokales Modell mit derselben Laufzeit) = rund 36 ms.",
+  "kandidaten": "MediaMTX auf einem entfernten Rechner statt auf der Schleife, und die Eigenschaften der echten Strecke jenseits der reinen Laufzeit. Nicht eingegrenzt.",
+  "wie_weiter": "Paketmitschnitt am Server, wie split-latency.py es lokal getan hat — dafuer genuegt Docker-Zugriff, kein Host-sudo (im Container ist man root, NET_RAW ist Docker-Standard)."
+ },
+
+ "die_wichtigste_folgerung": "Der groesste eingrenzbare Posten liegt im SENDER, nicht im Player. Wer die Latenz ueber echte Leitungen senken will, faengt beim Sendeweg an — und das ist derselbe RTMP-Weg, um den sich die SRT- und WHIP-Frage dreht. Der Player selbst ist an dieser Stelle nachweislich unschuldig."
+}

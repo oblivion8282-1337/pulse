@@ -49,6 +49,7 @@
  },
 
  "die_rechnung": {
+  "ACHTUNG_KORRIGIERT": "Diese Rechnung ist FALSCH und steht nur noch als Beleg. Sie setzt die Laufzeit einfach an; tatsaechlich zaehlt sie DOPPELT, weil Sender und Player auf derselben Maschine laufen und der Strom zum Server hin und zurueck geht. Richtig: 16,2 + 53,4 = rund 70 ms erwartbar, also rund 73 ms unerklaert statt 100. Aufgeloest in latenz-2026-07-28-verortung.json.",
   "lokale_kette": 16.3,
   "laufzeit_einfach": 26.7,
   "erwartbar": 43,
@@ -57,6 +58,7 @@
   "gemessen_srt": 307,
   "unerklaert_srt": 264
  },
+ "spaeter_verortet": "latenz-2026-07-28-verortung.json — der Empfangsweg addiert Laufzeit exakt linear (unschuldig), der SENDEWEG kostet das 2,4-fache dessen, was ihm gegeben wird. Rund 36 ms bleiben serverseitig offen.",
 
  "ausgeschlossen_NUR_FUER_RTMPS": [
   {"verdaechtiger": "Laufzeit der Leitung", "befund": "53,3 ms, 0 % Verlust, Schwankung 0,43 ms", "erklaert": "26,7 ms, mehr nicht"},
