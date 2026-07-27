@@ -275,12 +275,20 @@ mod tests {
 
     /// Die Formate der beiden Seiten muessen zusammenpassen; laeuft eine
     /// Konstante auseinander, liest die Sonde stumm nichts mehr.
+    ///
+    /// Zeigt auf `pattern_format.py`, seit die Konstanten dort gebuendelt sind
+    /// (vorher standen sie in `latency-pattern.py` und drei weiteren Dateien
+    /// wortgleich). Genau dieser Test hat den Umzug am 2026-07-28 bemerkt --
+    /// er ist die einzige Klammer zwischen der Rust- und der Python-Seite des
+    /// Musterformats, und ohne ihn waere die Sonde stumm ausgefallen, sobald
+    /// eine Seite sich bewegt. Wandert die Datei erneut, ist DIESER Pfad
+    /// nachzuziehen und nicht der Test abzuschalten.
     #[test]
     fn musterformat_stimmt_mit_dem_python_teil_ueberein() {
         let py = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../testbench/latency-pattern.py"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../testbench/pattern_format.py"),
         )
-        .expect("latency-pattern.py");
+        .expect("pattern_format.py");
         assert!(py.contains(&format!("BLOCK = {BLOCK}")), "BLOCK");
         assert!(py.contains(&format!("COUNTER_BITS = {COUNTER_BITS}")), "COUNTER_BITS");
         assert!(

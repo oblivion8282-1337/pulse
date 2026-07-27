@@ -335,7 +335,10 @@ pub async fn run(
                         if let Some(d) = dumps.get(codec).and_then(Option::as_ref) {
                             d.write(&p.payload, marker);
                         }
-                        (assembler.push(&p.payload, marker), Some(arrived))
+                        (
+                            assembler.push(p.header.sequence_number, &p.payload, marker),
+                            Some(arrived),
+                        )
                     }
                 };
                 let Some(unit) = unit else { continue };

@@ -456,18 +456,71 @@ mod tests {
     // Eigenbau oben), aber der Payloader allein reicht als Gegenstueck fuer
     // einen Rundlauf-Test.
     //
-    // Laufen nur mit `PULSE_PLAYER_AV1_FIXTURE` (roher OBU-Strom, dieselbe
-    // Fixture wie `recorder.rs`). Erzeugen:
-    // `ffmpeg -f lavfi -i "testsrc2=s=320x180:r=30:d=2" -c:v libsvtav1 \
-    //    -preset 12 -f obu fixture.obu`
+    // Die Fixture ist ein roher OBU-Strom (dieselbe Sorte wie in `recorder.rs`)
+    // und erzeugt sich selbst nach `target/av1-fixture.obu`, sofern ffmpeg mit
+    // libsvtav1 vorhanden ist. Fehlt ffmpeg, ueberspringen sich die Tests mit
+    // Meldung. `PULSE_PLAYER_AV1_FIXTURE=<pfad>` setzt eigenes Material ein.
     mod roundtrip {
         use super::*;
         use rtp::codecs::av1::Av1Payloader;
         use rtp::packetizer::Payloader;
 
+        /// Pfad zur Fixture — vorgegeben oder selbst erzeugt.
+        ///
+        /// **Warum sie erzeugt wird.** Bis zum 2026-07-28 lief dieser ganze
+        /// Block nur, wenn jemand `PULSE_PLAYER_AV1_FIXTURE` gesetzt hatte;
+        /// ohne die Variable meldete `cargo test` neun gruene Tests, die in
+        /// Wahrheit sofort zurueckkehrten. Ein Test, der sich stillschweigend
+        /// ueberspringt, ist keiner — gerade hier nicht, wo es um den
+        /// riskantesten Teil des Players geht. Jetzt baut er sich sein Material
+        /// selbst und ueberspringt nur noch, wenn ffmpeg fehlt.
+        ///
+        /// `OnceLock`, weil `cargo test` die Tests nebenlaeufig faehrt: ohne das
+        /// erzeugten mehrere gleichzeitig dieselbe Datei.
+        fn fixture_path() -> Option<std::path::PathBuf> {
+            static CACHE: std::sync::OnceLock<Option<std::path::PathBuf>> =
+                std::sync::OnceLock::new();
+            let p = CACHE.get_or_init(erzeuge_fixture).clone();
+            if p.is_none() {
+                eprintln!("uebersprungen: keine AV1-Fixture (ffmpeg mit libsvtav1 noetig)");
+            }
+            p
+        }
+
+        fn erzeuge_fixture() -> Option<std::path::PathBuf> {
+            if let Ok(p) = std::env::var("PULSE_PLAYER_AV1_FIXTURE") {
+                return Some(std::path::PathBuf::from(p));
+            }
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+            let ziel = dir.join("av1-fixture.obu");
+            if std::fs::metadata(&ziel).is_ok_and(|m| m.len() > 0) {
+                return Some(ziel);
+            }
+            let _ = std::fs::create_dir_all(&dir);
+            // Erst nebenan schreiben, dann umbenennen: sonst hinterliesse ein
+            // abgebrochener ffmpeg-Lauf eine halbe Datei, die beim naechsten Mal
+            // als gueltige Fixture gilt.
+            let temp = dir.join("av1-fixture.obu.teil");
+            let status = std::process::Command::new("ffmpeg")
+                .args([
+                    "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2",
+                    "-c:v", "libsvtav1", "-preset", "12", "-f", "obu",
+                ])
+                .arg(&temp)
+                .status()
+                .ok()?;
+            if !status.success() {
+                eprintln!("ffmpeg konnte keine AV1-Fixture erzeugen (libsvtav1 vorhanden?)");
+                return None;
+            }
+            std::fs::rename(&temp, &ziel).ok()?;
+            Some(ziel)
+        }
+
         fn fixture() -> Option<Vec<u8>> {
-            let path = std::env::var("PULSE_PLAYER_AV1_FIXTURE").ok()?;
-            Some(std::fs::read(path).expect("Fixture lesbar"))
+            let p = fixture_path()?;
+            Some(std::fs::read(&p).unwrap_or_else(|e| panic!("Fixture {}: {e}", p.display())))
         }
 
         /// Zerlegt den rohen OBU-Strom in Zugriffseinheiten: Grenze ist ein
@@ -737,10 +790,7 @@ mod tests {
         /// laut Auftrag die fehleranfaelligste Stelle.
         #[test]
         fn rundlauf_gegen_echten_av1_strom() {
-            let Some(data) = fixture() else {
-                eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
-                return;
-            };
+            let Some(data) = fixture() else { return };
             let units = split_temporal_units(&data);
             assert!(units.len() > 10, "zu wenige Zugriffseinheiten: {}", units.len());
 
@@ -788,6 +838,103 @@ mod tests {
                 .expect("Fixture muss mindestens eine so fragmentierte Einheit enthalten")
         }
 
+        /// Zerlegt eine Zugriffseinheit in ihre einzelnen OBUs. Moeglich, weil
+        /// die Einheiten aus `split_temporal_units` ihre Groessenfelder noch
+        /// tragen (sie stammen aus dem `-f obu`-Strom, nicht aus RTP).
+        fn split_obus(unit: &[u8]) -> Vec<&[u8]> {
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < unit.len() {
+                let header = unit[i];
+                if header & OBU_HAS_SIZE_BIT == 0 {
+                    break;
+                }
+                let mut pos = i + 1 + usize::from(header & OBU_HAS_EXTENSION_BIT != 0);
+                let Some((size, n)) = read_leb128(&unit[pos..]) else { break };
+                pos += n;
+                let end = pos + size as usize;
+                if end > unit.len() {
+                    break;
+                }
+                out.push(&unit[i..end]);
+                i = end;
+            }
+            out
+        }
+
+        /// Schliesst die letzte Deckungsluecke von `append_obu_with_size`: den
+        /// Zweig "Groessenfeld schon vorhanden".
+        ///
+        /// Der `Av1Payloader` des `rtp`-Crates erreicht ihn prinzipiell nie, weil
+        /// er das Bit ausnahmslos strippt (`obu.header & !OBU_HAS_SIZE_BIT`) —
+        /// gegen echte Daten war er deshalb ungetestet, obwohl das RTP-Format
+        /// Elemente MIT Groessenfeld ausdruecklich zulaesst und ein anderer
+        /// Sender sie schicken darf. Bisher deckten ihn nur zwei handgebaute
+        /// Pakete mit erfundenen Nutzlasten ab.
+        ///
+        /// Material sind hier echte OBUs aus der Fixture: echte Header, echte
+        /// Groessen (auch mehrbyte-LEB128), echter Aufbau einer Zugriffseinheit.
+        /// Nur die Paketierung ist eigen — es gibt keinen fremden Payloader, der
+        /// das Groessenfeld stehen laesst. Geprueft wird auf Byte-Gleichheit:
+        /// ein doppelt gesetztes oder neu berechnetes Groessenfeld faellt sofort
+        /// auf.
+        #[test]
+        fn echte_obus_mit_groessenfeld_bleiben_byte_gleich() {
+            let Some(data) = fixture() else { return };
+            let units = split_temporal_units(&data);
+            assert!(!units.is_empty(), "Fixture muss Zugriffseinheiten enthalten");
+
+            let mut mehrbyte_gesehen = false;
+            let mut obus_gesamt = 0usize;
+
+            for (i, unit) in units.iter().enumerate() {
+                let obus = split_obus(unit);
+                assert!(!obus.is_empty(), "Einheit {i} liess sich nicht in OBUs zerlegen");
+                obus_gesamt += obus.len();
+                mehrbyte_gesehen |= obus.iter().any(|o| o.len() >= 128 + 2);
+
+                // (a) Ein OBU je Paket, W=1, keine Fortsetzung.
+                let mut a = Av1Assembler::new();
+                let mut out = None;
+                for (k, obu) in obus.iter().enumerate() {
+                    let mut pkt = vec![0b0001_0000u8]; // Z=0 Y=0 W=1
+                    pkt.extend_from_slice(obu);
+                    out = a.push(&pkt, k + 1 == obus.len());
+                }
+                assert_eq!(
+                    out.as_deref(),
+                    Some(unit.as_slice()),
+                    "Einheit {i}: W=1 je OBU muss byte-gleich rauskommen"
+                );
+
+                // (b) Alle OBUs in EINEM Paket mit W=0 — dann traegt jedes
+                // Element ein eigenes Laengenfeld, das der Assembler lesen muss,
+                // waehrend die OBUs ihr eigenes Groessenfeld behalten. Zwei
+                // Laengenangaben uebereinander, genau der verwechslungsanfaellige
+                // Fall.
+                let mut a = Av1Assembler::new();
+                let mut pkt = vec![0b0000_0000u8]; // Z=0 Y=0 W=0
+                for obu in &obus {
+                    let mut leb = BytesMut::new();
+                    write_leb128(&mut leb, obu.len() as u32);
+                    pkt.extend_from_slice(&leb);
+                    pkt.extend_from_slice(obu);
+                }
+                assert_eq!(
+                    a.push(&pkt, true).as_deref(),
+                    Some(unit.as_slice()),
+                    "Einheit {i}: W=0 mit erhaltenen Groessenfeldern muss byte-gleich rauskommen"
+                );
+            }
+
+            assert!(obus_gesamt >= units.len(), "je Einheit mindestens ein OBU");
+            assert!(
+                mehrbyte_gesehen,
+                "Fixture enthaelt keinen OBU ueber 128 Byte — dann bliebe der \
+                 Mehrbyte-LEB128-Pfad ungetestet und der Test waere wertlos"
+            );
+        }
+
         /// Paketverlust wie ihn die echte Pipeline behandelt: der
         /// Jitter-Puffer (`jitter.rs`) erkennt die Sequenznummer-Luecke und
         /// ruft `on_gap()`, BEVOR das naechste Paket ankommt (s.
@@ -796,10 +943,7 @@ mod tests {
         /// erholt sich fuer die naechste Einheit.
         #[test]
         fn paketverlust_mit_gap_meldung_verwirft_einheit_und_erholt_sich() {
-            let Some(data) = fixture() else {
-                eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
-                return;
-            };
+            let Some(data) = fixture() else { return };
             let units = split_temporal_units(&data);
             let mtu = 100;
             let (unit_idx, packets) = first_fragmented(&units, mtu, 3);
@@ -836,20 +980,22 @@ mod tests {
             );
         }
 
-        /// Isoliert die interne Z/Y-Fortsetzungspruefung OHNE externe
-        /// Luecken-Meldung -- also einen (hypothetischen) Aufrufer, der sich
-        /// nicht wie `jitter.rs` auf RTP-Sequenznummern verlaesst, sondern
-        /// nur Pakete durchreicht. Dokumentiert, ob Z/Y allein einen
-        /// verlorenen *mittleren* Fragment-Teil erkennt: das ueberlebende
-        /// Fortsetzungspaket traegt in diesem Fall selbst Z=1, weil es aus
-        /// Senderperspektive tatsaechlich eine Fortsetzung ist -- nur eben
-        /// nicht die, die der Assembler zuletzt gesehen hat.
+        /// Haelt fest, was `Av1Assembler` ALLEIN nicht kann — und begruendet
+        /// damit, warum die Sequenzpruefung eine Stufe hoeher noetig ist.
+        ///
+        /// Faellt ein MITTLERES Fragment weg, traegt das ueberlebende
+        /// Fortsetzungspaket selbst `Z=1`: aus Senderperspektive ist es
+        /// tatsaechlich eine Fortsetzung, nur nicht die, die der Assembler
+        /// zuletzt gesehen hat. Die Z/Y-Pruefung kann das prinzipiell nicht
+        /// erkennen — das RTP-Format fuer AV1 fuehrt keinen Fragmentzaehler.
+        ///
+        /// Der Test ist bewusst als **Festnagelung** geschrieben, nicht als
+        /// Wunsch: schlaegt er fehl, weil der Assembler die Luecke ploetzlich
+        /// doch erkennt, ist das eine gute Nachricht — dann gehoert diese
+        /// Begruendung und die Doku in `depacket/mod.rs` angepasst.
         #[test]
-        fn mittleres_fragment_ohne_gap_meldung_dokumentiert_verhalten() {
-            let Some(data) = fixture() else {
-                eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
-                return;
-            };
+        fn mittleres_fragment_allein_nicht_erkennbar_daher_sequenzpruefung() {
+            let Some(data) = fixture() else { return };
             let units = split_temporal_units(&data);
             let mtu = 100;
             let (unit_idx, packets) = first_fragmented(&units, mtu, 3);
@@ -861,26 +1007,69 @@ mod tests {
                 }
             }
 
-            // Paket 1 (mittleres Fragment) wird stillschweigend uebersprungen --
-            // KEIN on_gap()-Aufruf, anders als im Test oben.
+            // Paket 1 (mittleres Fragment) faellt weg -- KEIN on_gap().
             assembler.push(&packets[0].0, packets[0].1);
             let mut out = None;
             for (payload, marker) in &packets[2..] {
                 out = assembler.push(payload, *marker);
             }
 
-            match out {
-                None => eprintln!(
-                    "mittleres Fragment ohne Gap-Meldung: Assembler hat verworfen (Z/Y hat die Luecke erkannt)"
-                ),
-                Some(bytes) => {
-                    let matches_original = bytes.as_ref() == units[unit_idx].as_slice();
-                    eprintln!(
-                        "mittleres Fragment ohne Gap-Meldung: Assembler hat {} Byte ausgeliefert, identisch mit Original={matches_original}",
-                        bytes.len()
-                    );
+            let bytes = out.expect(
+                "Erwartet: der Assembler ALLEIN merkt nichts und liefert aus. \
+                 Liefert er nichts, hat sich das Verhalten verbessert -- dann \
+                 Doku in depacket/mod.rs und diesen Test anpassen.",
+            );
+            assert_ne!(
+                bytes.as_ref(),
+                units[unit_idx].as_slice(),
+                "Ohne die fehlenden Bytes kann die Einheit nicht dem Original entsprechen"
+            );
+        }
+
+        /// Und der Gegenbeweis: durch den ECHTEN Zusammensetzer (der die
+        /// Sequenznummern prueft) kommt bei demselben Verlust nichts heraus.
+        ///
+        /// Das ist die Absicherung des Wegs, den `session.rs` benutzt, und sie
+        /// haengt NICHT daran, dass der Jitter-Puffer die Luecke meldet: hier
+        /// wird bewusst kein `on_gap()` gerufen, nur die Sequenznummer
+        /// uebersprungen.
+        #[test]
+        fn mittleres_fragment_faengt_die_sequenzpruefung() {
+            let Some(data) = fixture() else { return };
+            let units = split_temporal_units(&data);
+            let mtu = 100;
+            let (unit_idx, packets) = first_fragmented(&units, mtu, 3);
+
+            let mut a = crate::depacket::Assembler::for_codec(crate::whep::Codec::Av1);
+            let mut seq: u16 = 1;
+            for unit in &units[..unit_idx] {
+                for (payload, marker) in packetize(unit, mtu) {
+                    a.push(seq, &payload, marker);
+                    seq = seq.wrapping_add(1);
                 }
             }
+
+            a.push(seq, &packets[0].0, packets[0].1);
+            seq = seq.wrapping_add(2); // das mittlere Fragment fehlt
+            let mut out = None;
+            for (payload, marker) in &packets[2..] {
+                out = a.push(seq, payload, *marker);
+                seq = seq.wrapping_add(1);
+            }
+            assert!(out.is_none(), "Einheit mit Luecke darf nicht ausgeliefert werden");
+
+            // Und die naechste Einheit muss wieder sauber durchgehen.
+            let Some(next_unit) = units.get(unit_idx + 1) else { return };
+            let mut out = None;
+            for (payload, marker) in packetize(next_unit, mtu) {
+                out = a.push(seq, &payload, marker);
+                seq = seq.wrapping_add(1);
+            }
+            assert_eq!(
+                out.as_deref(),
+                Some(next_unit.as_slice()),
+                "nach der Luecke muss sich der Zusammensetzer erholen"
+            );
         }
 
         /// Ende-zu-Ende-Nachweis: rekonstruierten Strom (Temporal Delimiter
@@ -891,10 +1080,7 @@ mod tests {
         /// Strom aussteigen lassen (weniger Bilder als das Original).
         #[test]
         fn rekonstruktion_decodiert_gleich_viele_bilder() {
-            let Ok(fixture_path) = std::env::var("PULSE_PLAYER_AV1_FIXTURE") else {
-                eprintln!("uebersprungen: PULSE_PLAYER_AV1_FIXTURE nicht gesetzt");
-                return;
-            };
+            let Some(fixture_path) = fixture_path() else { return };
             let data = std::fs::read(&fixture_path).expect("Fixture lesbar");
             let units = split_temporal_units(&data);
             let mtu = 300;

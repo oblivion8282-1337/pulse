@@ -167,8 +167,26 @@ impl JitterBuffer {
                     return;
                 }
                 // Grosser Vorwaertssprung: der Sender hat neu begonnen.
+                //
+                // Die wartenden Pakete sind damit wertlos — ihr Wegwerfen MUSS
+                // aber als Luecke gemeldet werden, aus demselben Grund wie beim
+                // Ueberlauf unten: sonst sieht `poll` danach `first == next`,
+                // liefert ein regulaeres Paket, der Assembler bekommt kein
+                // `on_gap()` und klebt eine angefangene Einheit an den neuen
+                // Strom. Die Z/Y-Pruefung im AV1-Zusammensetzer faengt davon nur
+                // die Faelle, in denen gerade ein Fragment offen war; standen
+                // bereits fertige OBUs in der Einheit, wandern die
+                // stillschweigend in das erste Bild nach dem Sprung.
+                //
+                // Die Zahl darf hier NICHT `seq - next` sein: bei einem
+                // Neustart des Senders ist das eine Fantasiezahl (deshalb ja
+                // der Resync). Gemeldet wird, was tatsaechlich weggeworfen
+                // wurde — auch 0, denn der Zweck ist die Meldung selbst.
                 if seq > next + RESYNC_DISTANCE {
+                    let verworfen = self.entries.len() as u64;
                     self.entries.clear();
+                    self.lost += verworfen;
+                    *self.forced_gap.get_or_insert(0) += verworfen;
                     self.next = Some(seq);
                 }
             }
@@ -288,6 +306,33 @@ mod tests {
         );
         assert_eq!(seqs(&rel), vec![3]);
         assert_eq!(j.lost, 1);
+    }
+
+    /// Regression: Der Resync bei einem grossen Vorwaertssprung wirft wartende
+    /// Pakete weg und setzt `next` neu — beides muss als Luecke herauskommen.
+    ///
+    /// Fehlte die Meldung, sah `poll` danach `first == next`, lieferte ein
+    /// regulaeres Paket, und der Zusammensetzer klebte eine angefangene Einheit
+    /// an den neuen Strom. Die beiden anderen Ueberspring-Wege (Zielzeit,
+    /// Ueberlauf) melden seit jeher; dieser dritte tat es nicht.
+    #[test]
+    fn resync_meldet_die_weggeworfenen_pakete_als_luecke() {
+        let t0 = Instant::now();
+        let mut j = JitterBuffer::new(Duration::from_millis(20));
+        j.push(pkt(1), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![1]);
+        // Wartendes Paket, das der Resync gleich wegwirft.
+        j.push(pkt(3), t0);
+
+        // Sprung ueber RESYNC_DISTANCE hinaus: der Sender hat neu begonnen.
+        j.push(pkt(9000), t0);
+        let rel = j.poll(t0);
+        assert!(
+            matches!(rel.first(), Some(Release::Gap { .. })),
+            "Resync muss eine Luecke melden"
+        );
+        assert_eq!(seqs(&rel), vec![9000], "danach laeuft der neue Strom regulaer");
+        assert_eq!(j.lost, 1, "das weggeworfene wartende Paket zaehlt als verloren");
     }
 
     #[test]
