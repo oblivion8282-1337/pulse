@@ -34,20 +34,20 @@ from vmaf_common import encode_cmd, measure_vmaf, read_header, run_ffmpeg
 # Name -> zusaetzliche Encoder-Optionen. Leer = heutiger Stand des Sidecars
 # (tune=ll, rc=cbr, zerolatency, delay=0, kein preset -> ffmpeg-Default p4).
 VARIANTEN: list[tuple[str, list[str]]] = [
-    ("p1", ["-preset", "p1"]),
     ("p2", ["-preset", "p2"]),
-    ("p3", ["-preset", "p3"]),
-    ("heute_p4", []),
-    ("p5", ["-preset", "p5"]),
-    ("p6", ["-preset", "p6"]),
-    ("p7", ["-preset", "p7"]),
+    ("bf3", ["-preset", "p2", "-bf", "3"]),
+    ("bf3_bref", ["-preset", "p2", "-bf", "3", "-b_ref_mode", "middle"]),
+    ("bf3_zl0", ["-preset", "p2", "-bf", "3",
+                 "-zerolatency", "0", "-delay", "2147483647"]),
+    ("lookahead", ["-preset", "p2", "-rc-lookahead", "30"]),
+    ("ohne_zerolat", ["-preset", "p2", "-zerolatency", "0", "-delay", "2147483647"]),
 ]
 
 
 def encode(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
-           extra: list[str], out: Path, frames: int) -> float:
+           extra: list[str], out: Path, frames: int, codec: str = "av1_nvenc") -> float:
     """Kodiert und liefert die reine Encode-Dauer in Sekunden."""
-    cmd = encode_cmd(ref, pix_fmt, w, h, fps, kbps, frames, out, post=extra)
+    cmd = encode_cmd(ref, pix_fmt, w, h, fps, kbps, frames, out, post=extra, codec=codec)
     start = time.monotonic()
     run_ffmpeg(cmd, f"Encode ({' '.join(extra) or 'heute'})")
     return time.monotonic() - start
@@ -60,6 +60,9 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--frames", type=int, default=500)
     ap.add_argument("--nur", default="", help="nur diese Varianten (Komma-Liste)")
+    # H.264 erbt seit 2026-07-27 dasselbe `preset=p2` wie AV1 (vendor_opts
+    # verzweigt nach Hersteller, nicht nach Codec) — gemessen war es dort nie.
+    ap.add_argument("--codec", default="av1_nvenc", help="av1_nvenc oder h264_nvenc")
     args = ap.parse_args()
 
     pix_fmt, w, h = read_header(args.ref.with_suffix(".pts"))
@@ -75,8 +78,12 @@ def main() -> int:
             if gewaehlt and name not in gewaehlt:
                 continue
             out = Path(td) / f"{name}.mkv"
-            dauer = encode(args.ref, pix_fmt, w, h, args.fps, args.kbps, extra,
-                           out, args.frames)
+            try:
+                dauer = encode(args.ref, pix_fmt, w, h, args.fps, args.kbps, extra,
+                               out, args.frames, args.codec)
+            except SystemExit as e:
+                print(f"{name:18s} {'vom Encoder abgelehnt':>36s}  ({e})")
+                continue
             m = measure_vmaf(out, args.ref, pix_fmt, w, h, args.fps, args.frames)
             print(f"{name:18s} {m['vmaf']:8.3f} {m['psnr_y']:8.3f} "
                   f"{m['float_ssim']:8.4f} {dauer:9.2f} {echtzeit / dauer:11.1f}")

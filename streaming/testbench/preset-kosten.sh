@@ -18,6 +18,7 @@
 set -u
 QUELLE=${1:?Quellvideo fehlt}
 SEKUNDEN=${2:-20}
+CODEC=${3:-av1_nvenc}
 
 TMP=$(mktemp -d)
 DMON_PID=""
@@ -36,7 +37,7 @@ for groesse in 2560:1440 3840:2160; do
     sleep 1
     fps=$(ffmpeg -hide_banner -loglevel error -stats -hwaccel cuda \
           -hwaccel_output_format cuda -stream_loop -1 -i "$QUELLE" -t "$SEKUNDEN" \
-          -vf "scale_cuda=$groesse" -c:v av1_nvenc -preset "$preset" -tune ll -rc cbr \
+          -vf "scale_cuda=$groesse" -c:v "$CODEC" -preset "$preset" -tune ll -rc cbr \
           -b:v 10000k -maxrate 10000k -g 120 -zerolatency 1 -delay 0 \
           -f null - 2>&1 | grep -oE 'fps=[ ]*[0-9.]+' | tail -1 | grep -oE '[0-9.]+')
     kill "$DMON_PID" 2>/dev/null

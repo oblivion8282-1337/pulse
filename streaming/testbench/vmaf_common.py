@@ -35,8 +35,8 @@ def run_ffmpeg(cmd: list[str], was: str) -> None:
 
 def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
                 frames: int, out: Path, *, pre: list[str] = (),
-                post: list[str] = ()) -> list[str]:
-    """Gemeinsames av1_nvenc-Kommando. `pre` sitzt vor `-c:v` (Skalierungsfilter),
+                post: list[str] = (), codec: str = "av1_nvenc") -> list[str]:
+    """Gemeinsames NVENC-Kommando. `pre` sitzt vor `-c:v` (Skalierungsfilter),
     `post` dahinter vor der Ausgabedatei (Preset/Variante) — Reihenfolge bewusst
     getrennt, weil beide Sweeps sie an unterschiedlicher Stelle brauchen."""
     return [
@@ -44,7 +44,7 @@ def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
         "-f", "rawvideo", "-pix_fmt", pix_fmt, "-s", f"{w}x{h}", "-r", str(fps),
         "-i", str(ref), "-frames:v", str(frames),
         *pre,
-        "-c:v", "av1_nvenc", "-tune", "ll", "-rc", "cbr",
+        "-c:v", codec, "-tune", "ll", "-rc", "cbr",
         "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k",
         "-b_ref_mode", "0", "-zerolatency", "1", "-delay", "0", "-g", str(fps * 2),
         *post,
