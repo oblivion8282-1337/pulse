@@ -56,6 +56,7 @@ from dcc_chat_gateway.routes.cert_login import _safe_int_eq
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
+from dcc_chat_gateway.suspend_poller import read_state as read_suspend_state
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +95,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # close()-before-accept() into an HTTP 403, which drops the close code and
     # leaves the client unable to tell the reject reasons apart.
     await websocket.accept()
+
+    # Ist DIESE Instanz gesperrt oder geloescht, endet hier auch jede BESTEHENDE
+    # Verbindung. Der Cert-Login blockt schon neue Sitzungen, aber ein bereits
+    # offener Socket lebt sonst weiter, bis der Client von sich aus neu
+    # verbindet. Zustand aus Redis, gefuellt vom Sperr-Poller; ohne Redis gilt
+    # "nicht gesperrt" (fail-open, s. suspend_poller.py).
+    if await read_suspend_state(getattr(websocket.app.state, "redis", None)):
+        await websocket.close(code=4003, reason="instance suspended")
+        return
 
     try:
         payload = await decode_token(token)

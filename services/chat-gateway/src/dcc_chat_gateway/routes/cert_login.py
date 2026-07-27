@@ -72,6 +72,7 @@ from dcc_chat_gateway.session_tokens import (
     issue_session_token,
     store_session_token,
 )
+from dcc_chat_gateway.suspend_poller import raise_if_suspended
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -506,6 +507,14 @@ async def cert_login_verify(
         instance_mode=settings.pulse_instance_mode,
         instance_id=settings.pulse_instance_id,
     )
+
+    # 5a-bis. Ist DIESE Instanz von der Cloud gesperrt oder geloescht? Dann hier
+    #     Schluss — kein Session-Token mehr. Bestehende Sitzungen laufen binnen
+    #     SESSION_TTL_SECONDS (5 Min) aus, weil der Client danach neu anmelden
+    #     muss. Der Zustand kommt aus Redis, gefuellt vom Sperr-Poller
+    #     (``suspend_poller.py``); ist Redis oder die Cloud weg, gilt "nicht
+    #     gesperrt" — ein Cloud-Ausfall darf keinen Self-Host aussperren.
+    await raise_if_suspended(redis)
 
     # 5b. Self-host admin bootstrap: the cert-holder whose Cloud user_id matches
     #     this instance's configured owner becomes admin. The cert carries the
