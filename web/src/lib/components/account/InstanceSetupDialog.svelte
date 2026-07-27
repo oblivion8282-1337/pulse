@@ -66,11 +66,15 @@
   let expired = $derived(token !== null && expiresAtMs > 0 && remainingMs <= 0);
   let countdown = $derived(formatRemaining(remainingMs));
 
+  // Ab einer Stunde mit Stunden-Teil: die Token-Gültigkeit liegt bei 2 h, und
+  // reines mm:ss zeigte dafür „120:00" — das liest niemand als zwei Stunden.
   function formatRemaining(ms: number): string {
     const total = Math.floor(ms / 1000);
-    const mm = Math.floor(total / 60);
+    const hh = Math.floor(total / 3600);
+    const mm = Math.floor(total / 60) % 60;
     const ss = total % 60;
-    return `${mm}:${ss.toString().padStart(2, '0')}`;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
   }
 
   async function mint(reset = false) {
