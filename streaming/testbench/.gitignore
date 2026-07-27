@@ -10,10 +10,13 @@ synth10.mkv
 *.pts
 rec-*.mkv
 
-# Artefakte des Browser-gegen-nativ-Vergleichs. `*.png` bewusst pauschal: in
-# diesem Verzeichnis ist JEDES Bild ein Messartefakt (Bildschirmfotos ueber alle
-# Schirme, je ~13 MB), und eine engere Regel hat beim ersten Commit prompt ein
-# Pruefbild durchgelassen.
-*.png
-vergleich-*.json
-chrome-profil/
+# Artefakte des Browser-gegen-nativ-Vergleichs. Der fuehrende Schrägstrich ist
+# NOETIG: er verankert die Regel auf dieser Ebene. Ohne ihn greift sie auch in
+# `profiles/`, und die Ausnahme `!profiles/*.json` steht weiter oben, kann also
+# nicht mehr gegenhalten — eine Messakte namens `vergleich-*.json` waere damit
+# stillschweigend nicht eingecheckt worden (genau so passiert, 2026-07-28).
+# `*.png` pauschal, weil in diesem Verzeichnis jedes Bild ein Messartefakt ist
+# (Bildschirmfotos ueber alle Schirme, je ~13 MB).
+/*.png
+/vergleich-*.json
+/chrome-profil/

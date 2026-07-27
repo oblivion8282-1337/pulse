@@ -40,14 +40,33 @@ Danach:
   `grep -oE "dekodieren [0-9./]+ ms, Netz-bis-Schirm [0-9./]+ ms"`
 * **Alles übrige** aus `samples-<name>.json` (jede Ein-Sekunden-Probe roh).
 
+Beides — Ende-zu-Ende und Bildqualität gegen das Original — stand hier lange als
+Lücke und ist seit dem 2026-07-26/27 gebaut: das Zeitmuster (`latency-pattern.py`
+→ `probe.rs`) und der Vergleich gegen den verlustfreien Encoder-Eingang
+(`PULSE_DUMP_RAW` → `compare-quality.py`).
+
+## Zwei weitere Sorten Akte
+
+Nicht jede Datei hier ist eine Messung mit Vorher/Nachher.
+
+* **`rueckname-*.json`** hält fest, welche Aussagen zurückgenommen wurden, warum
+  sie falsch waren und was stattdessen gilt. Grund: Behauptungen, die nur im
+  Gespräch fielen und nirgends widerrufen sind, kommen später als scheinbar
+  gesichertes Wissen zurück. Wer eine Messreihe liest, sollte die zugehörige
+  Rücknahme daneben finden — die Messakten verweisen deshalb per
+  `setzt_voraus` darauf.
+* **`messprotokoll-*.json`** hält das Verfahren fest statt eines Ergebnisses:
+  Lauflänge, Wiederholungen, ab welcher Streuung eine Größe belastbar ist, und
+  welche Größen man **nicht mitteln darf**.
+
 ## Was heute noch fehlt
 
-* **Ende-zu-Ende.** Zwei Posten der Kette sind unbeobachtet: Aufnahme bis
-  Encoder-Eingang (der Sender verwirft die Aufnahmezeit) und die Laufzeit durch
-  MediaMTX. Der Rest ist gemessen. Eine echte Ende-zu-Ende-Zahl braucht eine
-  gemeinsame Uhr — entweder ein Zeitstempel, der im Bitstrom mitreist, oder eine
-  physische Messung: ein maschinenlesbares Muster auf dem Bildschirm, das im
-  Player-Fenster verzögert wieder auftaucht, beides in einem Bildschirmfoto.
-* **Bildqualität gegen das Original.** Dafür muss der Sender das aufgenommene
-  Bild verlustfrei mitschreiben können; ohne diese Referenz sind nur Varianten
-  untereinander vergleichbar. VMAF, PSNR, SSIM und XPSNR stehen bereit.
+* **Die Serverseite der Latenz.** Über die echte Leitung sind rund 100 ms
+  unerklärt (`fern-2026-07-27-echte-leitung.json`). Leitung, Upload-Stau,
+  Jitter-Puffer und TCP-Rückstau sind ausgeschlossen; MediaMTX-Durchlauf und
+  WebRTC-Ausgang sind der einzige unbetrachtete Abschnitt. Trennbar mit einem
+  Paketmitschnitt am Server — dafür genügt Docker-Zugriff, kein Host-`sudo`.
+* **Für SRT ist gar nichts eingegrenzt** — dort sind es 264 unerklärte
+  Millisekunden, und geprüft ist nur der SRT-eigene Puffer (der es nicht ist).
+* **Das Weglaufen der Browser-Latenz** (`vergleich-2026-07-27-browser-gegen-nativ.json`):
+  reproduzierbar in drei von drei Läufen, Ursache nicht untersucht.

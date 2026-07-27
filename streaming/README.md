@@ -120,6 +120,16 @@ Voice-Channel:
   URL-Schema (`http(s)://` → ffmpeg-WHIP; AV1→H.264-Fallback, der
   WHIP-Muxer von ffmpeg 8.1 kann kein AV1). Python-GSR- sowie Win/Mac-Sidecars
   können (noch) kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
+  - **Die AV1-Sperre liegt an ffmpegs Muxer, nicht an WHIP** (nachgeprüft
+    2026-07-28, damit es niemand aus dem Satz oben falsch schließt): `whip.c`
+    trägt `.p.video_codec = AV_CODEC_ID_H264` und genau einen Payload-Typ (106),
+    in 8.1 **und** im aktuellen master — es lohnt also nicht, auf ein Update zu
+    warten. Ein konkurrierender Muxer mit AV1/HEVC/VP9 (nativewaves, auf Basis
+    von libdatachannel) liegt seit November 2023 unangenommen im Patchsystem.
+    WHIP selbst trägt AV1 problemlos; unser Player empfängt es über WHEP in
+    10 bit, und mit `webrtc-rs` liegt im Baum bereits ein vollständiger
+    WebRTC-Baukasten — ein eigener Sendeweg wäre also kein Codec-Verzicht,
+    sondern nur Arbeit.
 
 `capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
 Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus

@@ -1,0 +1,46 @@
+{
+ "id": "vergleich-2026-07-27-browser-gegen-nativ",
+ "gemessen_am": "2026-07-27 (Nacht)",
+ "setzt_voraus": "rueckname-2026-07-27-abend.json",
+ "frage": "Wie schnell ist der Weg, den Pulse heute benutzt (WHEP ins <video>), gegen den nativen Player — ueber dieselbe echte Leitung?",
+
+ "warum_es_das_bisher_nicht_gab": "Jede Latenzzahl des Players war mit dem Player selbst erhoben. Ohne den Normalweg daneben fehlt der Bezugspunkt: man weiss dann nicht, ob der native Weg schneller ist oder nur anders. Die Sonde sitzt IM Player (probe.rs) und liest den Balken aus dem dekodierten Bild — im Browser gibt es diesen Zugriff nicht.",
+
+ "aufbau": {
+  "werkzeug": "streaming/testbench/vergleich-browser-nativ.py",
+  "vorgabe": "2560x1440, 60 fps, 4000 kbps, H.264 8 bit, Ton Desktop, Ziel Hetzner",
+  "beide_an_EINEM_sendedurchlauf": "Erst der Browser gemessen, dann der native Player, derselbe Sender laeuft durch. Zwei getrennte Laeufe haetten die Streuung ueber die echte Leitung (85,8 bis 143 ms) als Ergebnis ausgegeben.",
+  "drei_schirme": "Quelle (Zeitmuster, wird aufgenommen), Wiedergabe (Browser im Vollbild, also 1:1), dritter frei fuer das Player-Fenster — sonst nimmt der Sender das Player-Fenster mit auf.",
+  "browser_messung": "Physisch: ein Bildschirmfoto ueber Quell- und Wiedergabe-Schirm enthaelt den Live-Balken und den verzoegerten Balken im selben Augenblick; decode-shot.py liest beide zurueck.",
+  "warum_pattern_one": "latency-pattern.py bemalt JEDEN Schirm. Seine Balken laegen dann exakt ueber den uebertragenen — beide unlesbar. pattern-one.py bemalt nur den Quell-Schirm."
+ },
+
+ "ergebnisse": {
+  "bn1": {"browser_median": 192.5, "browser_verlauf": [177, 177, 176, 167, 208, 216, 223, 232], "nativ_median": 130.2, "nativ_min": 121.8, "nativ_max": 138.4},
+  "bn2": {"browser_median": 251.5, "browser_verlauf": [168, 192, 224, 232, 247, 257, 241, 263, 265, 248, 255, 264, 280, 263], "nativ_median": 104.6, "nativ_min": 103.4, "nativ_max": 119.8},
+  "bn3": {"browser_median": 136.0, "browser_verlauf": [127, 136, 127, 129, 121, 127, 136, 120, 136, 145, 136, 144, 152, 160], "nativ_median": 97.1, "nativ_min": 96.3, "nativ_max": 115.9}
+ },
+
+ "kernbefund": {
+  "was": "Die Browser-Latenz WAECHST im Lauf, der native Player bleibt flach.",
+  "drift_ueber_rund_20_sekunden": {"bn1": "177 -> 232 (+55 ms)", "bn2": "168 -> 263 (+95 ms)", "bn3": "127 -> 160 (+33 ms)"},
+  "nativ_dagegen": "121,8-138,4 / 103,4-119,8 / 96,3-115,9 — flach ueber den gesamten Lauf",
+  "in_allen_drei_laeufen": true,
+  "folge_fuer_den_median": "Der Browser-Median haengt davon ab, WIE LANGE gemessen wurde. Das erklaert die grosse Spanne (136 bis 251,5) zwischen den Laeufen; es ist kein Rauschen.",
+  "folge_fuer_den_nutzer": "Je laenger jemand zuschaut, desto weiter faellt er zurueck. In einer App, in der nebenher gesprochen wird, ist das unangenehmer als die absolute Hoehe.",
+  "ursache": "NICHT untersucht. Naheliegend waere, dass Chromiums Wiedergabe keinen Rueckstand nachfuehrt — das ist eine Vermutung, kein Befund."
+ },
+
+ "fairer_vergleich_vor_dem_weglaufen": {
+  "browser_startwerte": [177, 168, 127],
+  "nativ_mediane": [130.2, 104.6, 97.1],
+  "differenz": "30 bis 47 ms zugunsten des nativen Wegs"
+ },
+
+ "einschraenkung_die_mitgelesen_werden_MUSS": "Die beiden Zahlen sind nicht bis auf die Millisekunde vergleichbar, weil sie zwangslaeufig mit verschiedenen Verfahren entstehen: Der Player liest den Balken aus seinem eigenen dekodierten Bild und misst bis kurz vor die Anzeige. Die Browser-Zahl kommt aus einem Bildschirmfoto und enthaelt zusaetzlich Compositor und Anzeigeverzug des Monitors. Ein Teil der 30-47 ms ist also Messverfahren, nicht Player — wieviel, ist unbekannt. Das WEGLAUFEN ist davon voellig unberuehrt, weil es eine Veraenderung innerhalb desselben Messverfahrens ist.",
+
+ "offen": [
+  "Laeuft die Browser-Latenz unbegrenzt weiter oder bleibt sie irgendwo stehen? Dafuer braucht es einen Lauf ueber zwei bis drei Minuten.",
+  "Wieviel der 30-47 ms Grundunterschied ist Messverfahren? Trennbar, indem der native Player zusaetzlich per Foto gemessen wird — dann sind beide Zahlen gleich erhoben."
+ ]
+}
