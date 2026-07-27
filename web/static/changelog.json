@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-27",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Gelöschte Server beenden den Zugang",
+      "items": [
+        "Wird ein Server gelöscht, endet der Zugang darauf jetzt innerhalb einer Minute. Bisher lief ein gelöschter Server unbemerkt weiter."
+      ]
+    },
+    {
       "id": "2026-07-25",
       "date": "2026-07-25",
       "style": "Sachlich",
