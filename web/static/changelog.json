@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-27.3",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Mehr Zeit für die Server-Einrichtung",
+      "items": [
+        "Der Einrichtungsbefehl für einen eigenen Server war 20 Minuten gültig. Das reichte oft nicht, wenn bei der Installation etwas dazwischenkam.",
+        "Jetzt sind es zwei Stunden. Der Befehl bleibt einmalig verwendbar, und „Neu generieren“ entwertet einen alten weiterhin sofort."
+      ]
+    },
+    {
       "id": "2026-07-27.2",
       "date": "2026-07-27",
       "style": "Sachlich",
