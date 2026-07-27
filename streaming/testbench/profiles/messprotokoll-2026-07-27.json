@@ -1,0 +1,59 @@
+{
+ "id": "messprotokoll-2026-07-27",
+ "gemessen_am": "2026-07-27",
+ "stand": "Messprotokoll geklaert, Vergleiche neu erhoben. Ursachensuche offen.",
+ "warum_das_wichtigste_ergebnis_das_protokoll_ist": "Fast alle Aussagen dieses Tages stammten aus 8-Sekunden-Laeufen = 6 Proben (der Pruefstand nimmt eine Probe je Sekunde und verwirft die ersten zwei). Damit war die Streuung zwischen Wiederholungen GROESSER als der gesuchte Effekt. Mehrere Aussagen wurden dadurch nacheinander behauptet und wieder eingezogen.",
+ "protokoll": {
+  "lauflaenge_s": 30,
+  "wiederholungen": 3,
+  "belastbar_ab": {
+   "decode": "3 %",
+   "fps": "3 %",
+   "bild_zu_glas": "15 %"
+  },
+  "nicht_mitteln": "Ankunft und Bild-zu-Glas sind BIMODAL: ein Lauf ist ueberwiegend gut ODER ueberwiegend schlecht, nicht ein bisschen von beidem. Mittelwerte mitteln dann ueber zwei Betriebszustaende. Verteilung/Perzentile nutzen."
+ },
+ "belastbare_befunde": {
+  "decode_ms": {
+   "av1_10bit": 2.69,
+   "av1_8bit": 2.07,
+   "h264_8bit": 1.4,
+   "streuung": "unter 1 %, ueber alle Sitzungen stabil"
+  },
+  "gelieferte_fps_bei_144_angefordert": {
+   "av1_10bit": 138.5,
+   "av1_8bit": 142.2,
+   "h264_8bit": 144.1,
+   "hinweis": "av1_10bit-Streuung 0,05 — das ist eine Wand, kein Rauschen"
+  },
+  "anteil_sauberer_sekunden_paketabstand_unter_10ms": {
+   "h264_8bit": "86 %",
+   "av1_10bit": "31 %",
+   "av1_8bit": "0 %"
+  },
+  "stillstaende_sekunden_ohne_bild": {
+   "av1_10bit": "3,6 %",
+   "av1_8bit": "1,2 %",
+   "h264_8bit": "0 %"
+  },
+  "gpu_sm_prozent": {
+   "av1_10bit": 9.97,
+   "av1_8bit": 6.33,
+   "h264_8bit": 7.53
+  },
+  "kosten_10_bit": "rund 3,5 ms Bild-zu-Glas gegenueber 8 Bit; vom Nutzer als vertretbar entschieden"
+ },
+ "widerlegt": [
+  "'H.264 ist live 15 ms langsamer als AV1' (bild-2026-07-27-h264.json) — in allen Neumessungen ist H.264 SCHNELLER. Alter Wert stammt aus je einer Einzelmessung.",
+  "'AV1 buendelt, H.264 nicht' — am p95 sind alle gleich (~34 ms). Erst die VERTEILUNG trennt sie (s.o.). p95 war die falsche Kennzahl.",
+  "'Bei 144 fps setzt eine Schwelle ein' — aus 8-Sekunden-Laeufen, nicht reproduzierbar.",
+  "'Boden von 11 ms = Zustellungstakt' — arrival_gap_max ist ein MAXIMUM je Sekunde zwischen RTP-PAKETEN, kein Takt und nicht zwischen Bildern.",
+  "'Keyframes verursachen die Spitzen' — keine Periodizitaet im Zeitverlauf; die schlechten Sekunden treten in PHASEN auf, nicht im 2-Sekunden-Takt."
+ ],
+ "offen": [
+  "Was schaltet zwischen gutem und schlechtem Betriebszustand um? Erster Lauf einer Serie war auffaellig oft schlecht (kalte GPU?) — ein Korrelationslauf mit Taktmitschrift traf zufaellig einen guten Lauf, These ungeprueft.",
+  "Warum liefert av1_10bit nur 138,5 statt 144 fps? 4 % der Bilder entstehen nicht.",
+  "Ursache der Paketpausen liegt VOR dem Player (Sender oder MediaMTX) — laut Messstellen-Kommentar in session.rs. Naechster Schritt: split-latency.py.",
+  "Bildqualitaet der drei Varianten ist in dieser Runde noch nicht gemessen."
+ ]
+}
