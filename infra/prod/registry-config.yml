@@ -29,4 +29,10 @@ storage:
   filesystem:
     rootdirectory: /var/lib/registry
   delete:
-    enabled: true # nötig für `garbage-collect --delete-untagged` (wöchentlicher Host-Cron)
+    enabled: true # nötig für den wöchentlichen `garbage-collect`-Host-Cron
+# ⚠️ Der GC-Cron darf NICHT `--delete-untagged` benutzen. Bei Multi-Arch-Images
+# hängen die Pro-Architektur-Manifeste nur am Index und tragen selbst KEINEN
+# Tag; registry:2.8.3 hält sie damit für Müll. Am 2026-07-26 um 04:17 hat das
+# ALLE 91 Tags zerstört — 89 Indexe blieben stehen, kein einziges Kind-Manifest
+# überlebte, und Self-Hoster bekamen beim Pull
+# `manifests/sha256:… not found`. Siehe DEPLOY.md, Abschnitt GC-Cron.

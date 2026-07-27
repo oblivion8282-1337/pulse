@@ -238,16 +238,54 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    Mirror fehl, laufen die GHCR-Tags trotzdem.
 
 8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; alte
-   ungetaggte Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
+   Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
    ```sh
    17 4 * * 0  docker stop pulse_registry; docker run --rm \
      -v pulse_pulse_registry:/var/lib/registry \
      -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
-     registry:2.8.3 garbage-collect --delete-untagged /etc/docker/registry/config.yml; \
+     registry:2.8.3 garbage-collect /etc/docker/registry/config.yml; \
      docker start pulse_registry
    ```
    Das Volume heißt `pulse_pulse_registry`, nicht `pulse_registry` — Compose prefixt
    mit dem Projektnamen (`name: pulse`); der falsche Name GC't ein leeres Frisch-Volume.
+
+   > ⚠️ **NIEMALS `--delete-untagged`.** Bei Multi-Arch-Images hängen die
+   > Pro-Architektur-Manifeste nur am Index und tragen selbst **keinen Tag** —
+   > `registry:2.8.3` hält sie damit für Müll und löscht sie, während der
+   > getaggte Index stehen bleibt und ins Leere zeigt.
+   >
+   > **Am 2026-07-26 um 04:17 ist genau das passiert und hat ALLE 91 Tags
+   > zerstört** (`:edge`, `:stable` und alle 87 `sha-*`). Übrig blieben 89 Indexe
+   > und **null** Kind-Manifeste; die Registry schrumpfte auf 33 MB. Self-Hoster
+   > bekamen beim Pull:
+   > `failed to copy: httpReadSeeker: failed open: content at …/manifests/sha256:… not found`.
+   >
+   > **Wiederherstellen** (GHCR ist unversehrt, es ist die Source-of-Truth) —
+   > kopiert Index **und** Kinder zurück, dauert rund eine Minute:
+   > ```sh
+   > docker buildx imagetools create \
+   >   -t registry.howispulse.com/pulse-allinone:edge \
+   >   -t registry.howispulse.com/pulse-allinone:stable \
+   >   ghcr.io/oblivion8282-1337/pulse-allinone:edge
+   > ```
+   >
+   > **Prüfen, ob es wieder passieren würde** — ein Trockenlauf sagt es sofort:
+   > ```sh
+   > docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+   >   -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
+   >   registry:2.8.3 garbage-collect --dry-run … | grep -c "manifest eligible for deletion"
+   > ```
+   > Ohne `--delete-untagged`: **0**. Mit: die Zahl der Kind-Manifeste (nach der
+   > Wiederherstellung am 2026-07-27 waren es 2 — der Cron hätte das frische
+   > Image am nächsten Sonntag erneut zerlegt).
+   >
+   > **Preis dieser Entscheidung:** ungetaggte Manifeste aus überschriebenen Tags
+   > bleiben samt ihrer Blobs liegen, der Platz wächst also. Das ist bewusst in
+   > Kauf genommen (472 GB frei). Wer wirklich aufräumen will, löscht **alte
+   > `sha-*`-Tags samt ihrer Kind-Manifeste** gezielt über die Registry-API
+   > (`DELETE /v2/pulse-allinone/manifests/<digest>`, erst die Kinder, dann den
+   > Index) und lässt danach ein normales `garbage-collect` laufen. Nicht gebaut,
+   > aber der richtige Weg.
 
 9. **Hetzner-Test umstellen** (`pulse.unicutmedia.com`, einzelner allinone hinter
    Host-Caddy): mit den vorhandenen Instanz-Creds einloggen + Container auf die neue
