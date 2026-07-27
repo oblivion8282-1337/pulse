@@ -46,6 +46,22 @@
     }
   ],
 
+  "der_zweite_fund_war_der_groessere": {
+    "wie_er_auffiel": "Nach dem Muxer-Deckel ging die Kette immer noch nicht auf: alle Posten EINZELN gemessen ergaben 41 ms, Ende zu Ende meldete 83. Statt die Luecke wegzuerklaeren, wurde jeder Posten noch einmal einzeln nachgemessen — auch die, die schon als geklaert galten.",
+    "ursache": "Der Decoder gab die Bilder VIER BILDER zu spaet heraus. FFmpeg setzt fuer die NVDEC-Decoder `ulMaxDisplayDelay = 4` und schaltet das nur ab, wenn AV_CODEC_FLAG_LOW_DELAY gesetzt ist (cuvid.c); Software-Decoder halten ueber Frame-Threading ebenso zurueck. Fuer eine Datei ist das richtig, fuer einen Live-Strom falsch — Bildreihenfolge gibt es hier nicht, der Sender schickt keine B-Bilder.",
+    "warum_es_so_lange_unsichtbar_war": "Die eigene Statistik des Players versteckt genau diesen Posten: `session.rs` gibt jedem herausfallenden Bild die Ankunftszeit der GERADE eingespeisten Einheit (`f.arrived = arrived`). Haelt der Decoder Bilder zurueck, bekommt ein altes Bild einen zu neuen Stempel — `glass` meldete brav 3,4 ms und mass die eigene Wartezeit nicht mit. Wer nur auf diese Zahl schaut, sucht den Fehler ewig woanders.",
+    "aenderung": "AV_CODEC_FLAG_LOW_DELAY beim Oeffnen des Decoders (streaming/pulse-player/src/decode.rs)",
+    "ende_zu_ende_ms": { "60_fps": "82,3 -> 33,5", "144_fps": "52,7 -> 31,2", "280_fps": "301 -> 95,5" },
+    "unversehrtheit": "Bild einwandfrei (Einzelbild aus der Aufnahme geprueft), 60 fps stabil, keine verworfenen Bilder, kein Paketverlust, 103 Tests gruen."
+  },
+
+  "bilanz_der_nacht": {
+    "60_fps": "99,8 -> 33,5 ms",
+    "144_fps": "62,5 -> 31,2 ms",
+    "280_fps": "676 -> 95,5 ms",
+    "zwei_aenderungen": "max_interleave_delta 100 -> 10 ms (Sidecar) und AV_CODEC_FLAG_LOW_DELAY (Player). Beide klein, beide gemessen, keine Verhaltensaenderung sonst."
+  },
+
   "offen": {
     "der_rueckstand_selbst": "Der Deckel begrenzt, was der Ton-Rueckstand kostet — er beseitigt ihn nicht. Der Mikrofonweg (der den Null-Sink des Routers NICHT durchlaeuft) haelt nur 9,2 ms gegenueber 22 im Desktop-Modus. Dort liegt der naechste Hebel, wert sind es etwa 10 weitere Millisekunden.",
     "280_fps": "301 ms bleiben schlecht. Das ist der bereits bekannte eigene Faden: dort ist die AUFNAHME am Anschlag (Compositor meldet max_framerate 279), nicht der Muxer.",

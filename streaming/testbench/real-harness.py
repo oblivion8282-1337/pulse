@@ -139,7 +139,11 @@ def main() -> int:
         # Der Mitschnitt ist unkomprimiert (gut 660 MB je Sekunde bei 1440p60) —
         # er gehoert auf die SSD, und die Bildzahl bleibt klein.
         sender_env["PULSE_DUMP_RAW"] = str(ref_path)
-        sender_env["PULSE_DUMP_RAW_FRAMES"] = "180"
+        # 180 Bilder sind rund 2 GB und decken nur die ERSTEN drei Sekunden ab.
+        # Fuer die Frage "waechst ein Posten im Lauf der Zeit?" reicht das
+        # nicht — dafuer laesst sich die Grenze von aussen anheben (600 Bilder
+        # sind gut 6,5 GB, das gehoert auf eine SSD und nicht nach /tmp).
+        sender_env["PULSE_DUMP_RAW_FRAMES"] = os.environ.get("PULSE_DUMP_RAW_FRAMES", "180")
 
     path, pub, rd = mint_tokens()
     whep = f"http://localhost:8889/{path}/whep?token={rd}"

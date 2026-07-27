@@ -305,8 +305,26 @@ impl VideoDecoder {
     fn try_open(name: &str) -> Result<ffmpeg::decoder::Video> {
         let codec = ffmpeg::decoder::find_by_name(name)
             .ok_or_else(|| anyhow!("Decoder {name} nicht vorhanden"))?;
-        ffmpeg::codec::context::Context::new_with_codec(codec)
-            .decoder()
+        let mut ctx = ffmpeg::codec::context::Context::new_with_codec(codec);
+        // AV_CODEC_FLAG_LOW_DELAY — fuer eine Live-Wiedergabe nicht optional.
+        //
+        // Ohne dieses Flag gibt FFmpeg den NVDEC-Decodern eine Anzeige-
+        // verzoegerung von VIER Bildern mit (`ulMaxDisplayDelay = 4` in
+        // cuvid.c, nur bei gesetztem Flag 0); Software-Decoder halten ueber
+        // Frame-Threading ebenfalls Bilder zurueck. Beides ist fuer eine Datei
+        // richtig und fuer einen Live-Strom falsch: es kostet bei 60 fps rund
+        // 60 ms, ohne irgendetwas zu verbessern — Bildreihenfolge gibt es hier
+        // nicht, der Sender schickt keine B-Bilder.
+        //
+        // Gefunden am 2026-07-27, weil die Kette nicht aufging: alle Posten
+        // einzeln gemessen ergaben 41 ms, Ende zu Ende meldete 83. Die Luecke
+        // war in der Statistik unsichtbar, weil `session.rs` jedem
+        // herausfallenden Bild die Ankunftszeit der GERADE eingespeisten
+        // Einheit gibt — haelt der Decoder Bilder zurueck, bekommt ein altes
+        // Bild einen zu neuen Stempel und `glass` misst die eigene Wartezeit
+        // nicht mit.
+        ctx.set_flags(ffmpeg::codec::Flags::LOW_DELAY);
+        ctx.decoder()
             .video()
             .with_context(|| format!("Decoder {name} liess sich nicht oeffnen"))
     }
