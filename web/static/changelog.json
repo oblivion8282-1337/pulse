@@ -18,7 +18,8 @@
       "title": "Server-Zugangsdatei lässt sich neu ausstellen",
       "items": [
         "Die .env-Datei für einen eigenen Server gab es bisher genau einmal. Ging sie verloren, war ein kompletter neuer Antrag nötig.",
-        "Sie lässt sich jetzt neu ausstellen. Ein Server, der noch mit der alten Datei läuft, verliert dabei seinen Zugang und muss die neue bekommen — die App weist vor dem Bestätigen darauf hin."
+        "Sie lässt sich jetzt neu ausstellen. Ein Server, der noch mit der alten Datei läuft, verliert dabei seinen Zugang und muss die neue bekommen — die App weist vor dem Bestätigen darauf hin.",
+        "Wurde der Server schon mit dem Schnellinstaller eingerichtet, weist die App jetzt vorher darauf hin — bisher konnte ein Download die funktionierenden Zugangsdaten unbemerkt ersetzen."
       ]
     },
     {

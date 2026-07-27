@@ -120,10 +120,14 @@ jobs:
       - name: Build
         run: pnpm --filter @dcc/web build
 
-  # Changelog-Gate: jeder Deploy, der Code/Verhalten ändert, MUSS einen Eintrag
-  # in web/static/changelog.json mitbringen (s. scripts/check-changelog.sh +
-  # CLAUDE.md → "Changelog"). Blockt sonst den images-Job → kein stiller Deploy
-  # ohne "Was ist neu?"-Eintrag.
+  # Changelog-Erinnerung: ein Deploy, der Code/Verhalten ändert, SOLL einen
+  # Eintrag in web/static/changelog.json mitbringen (s. scripts/check-changelog.sh
+  # + CLAUDE.md → "Changelog").
+  #
+  # Der Job WARNT nur, er blockt nicht: check-changelog.sh endet seit 2026-06-28
+  # in jedem Pfad mit exit 0, damit Hotfixes durchkommen. `images` hängt zwar an
+  # diesem Job, aber der schlägt nie fehl — der Deploy läuft in jedem Fall.
+  # (Der frühere Kommentar behauptete das Gegenteil; korrigiert 2026-07-27.)
   changelog:
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

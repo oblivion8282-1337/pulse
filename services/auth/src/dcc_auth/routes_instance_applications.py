@@ -17,9 +17,14 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
-from dcc_auth.bootstrap import generate_bootstrap_token, hash_bootstrap_token
+from dcc_auth.bootstrap import (
+    bootstrap_redeemed,
+    drop_unredeemed_tokens,
+    generate_bootstrap_token,
+    hash_bootstrap_token,
+)
 from dcc_auth.browser_sessions import validate_session
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
@@ -223,7 +228,12 @@ async def join_instance_membership(
     try:
         iid = int(instance_id)
     except ValueError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+        # ``from None`` an allen diesen Stellen: eine nicht-numerische ID ist
+        # erwartetes Verhalten, kein Fehlerfall — ein angehaengter Traceback
+        # waere nur Log-Laerm.
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
+        ) from None
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
@@ -256,7 +266,9 @@ async def leave_instance_membership(
     try:
         iid = int(instance_id)
     except ValueError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
+        ) from None
     existing = await db.get(UserInstanceMembership, (user.id, iid))
     if existing is None:
         return
@@ -286,7 +298,9 @@ async def update_instance_preferences(
     try:
         iid = int(instance_id)
     except ValueError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
+        ) from None
     membership = await db.get(UserInstanceMembership, (user.id, iid))
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
@@ -357,23 +371,34 @@ async def generate_env_file(
     try:
         iid = int(instance_id)
     except ValueError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
+        ) from None
 
     inst = await db.get(RegisteredInstance, iid, with_for_update=True)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
-    # One-shot-Markierung (siehe Docstring) — Credential-Rotation als
-    # Side-Channel auf den Bootstrap-Token-One-Shot sperren. Der explizite
-    # Reset des Owners hebt sie auf.
-    if inst.env_file_downloaded_at is not None and not (payload and payload.reset):
+    # „Schon versorgt" heisst: ueber DIESEN Weg (env_file_downloaded_at) ODER
+    # ueber den Schnellinstaller (eingeloestes Bootstrap-Token). Beide liefern
+    # dieselben Credentials und rotieren dasselbe Secret — der zweite Weg macht
+    # den ersten tot. Frueher zaehlte hier nur der eigene Weg, ein Download nach
+    # abgebrochenem Installer-Lauf rotierte deshalb wortlos die Zugangsdaten
+    # weg, die schon auf dem Server lagen (s. bootstrap.bootstrap_redeemed).
+    schon_selbst_geladen = inst.env_file_downloaded_at is not None
+    bereits_versorgt = schon_selbst_geladen or await bootstrap_redeemed(db, iid)
+    if bereits_versorgt and not (payload and payload.reset):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail=(
-                "Env-File bereits heruntergeladen — neu ausstellen ist moeglich, "
+                "Dieser Server wurde bereits eingerichtet — neu ausstellen ist moeglich, "
                 "der bisher laufende Server verliert dabei seinen Zugang"
             ),
         )
+
+    # Jede Credential-Ausgabe entwertet noch offene Installer-Tokens, sonst
+    # erschlaegt ein spaet eingeloestes Token die gerade verteilte Datei.
+    await drop_unredeemed_tokens(db, iid)
 
     new_secret = secrets.token_urlsafe(32)
     inst.client_secret = await asyncio.to_thread(hash_password, new_secret)
@@ -436,7 +461,9 @@ async def mint_bootstrap_token(
     try:
         iid = int(instance_id)
     except ValueError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
+        ) from None
 
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
@@ -446,28 +473,13 @@ async def mint_bootstrap_token(
     # blockiert weitere Mints — außer beim expliziten Reset (s. Docstring).
     # Audit-Spur bleibt in der Token-Tabelle (Redeem setzt nur consumed_at,
     # löscht nicht; auch der Reset löscht nur uneingelöste Tokens).
-    already_consumed = (
-        await db.execute(
-            select(InstanceBootstrapToken.id)
-            .where(
-                InstanceBootstrapToken.instance_id == iid,
-                InstanceBootstrapToken.consumed_at.is_not(None),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if already_consumed is not None and not (payload and payload.reset):
+    if await bootstrap_redeemed(db, iid) and not (payload and payload.reset):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Bootstrap bereits eingelöst — für weitere Server neuen Antrag stellen",
         )
 
-    await db.execute(
-        delete(InstanceBootstrapToken).where(
-            InstanceBootstrapToken.instance_id == iid,
-            InstanceBootstrapToken.consumed_at.is_(None),
-        )
-    )
+    await drop_unredeemed_tokens(db, iid)
 
     token = generate_bootstrap_token()
     ttl = settings.bootstrap_token_ttl_seconds
