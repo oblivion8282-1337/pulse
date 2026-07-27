@@ -236,13 +236,24 @@ export const instancesApi = {
    * Fertige `.env` (inkl. frisch erzeugtem client_secret) als Download-Blob.
    * POST, weil jeder Aufruf das Secret serverseitig rotiert — ein erneuter
    * Download entwertet das vorherige Secret. Secret wird NIE geloggt.
+   *
+   * Der erste Download ist frei, jeder weitere braucht `reset: true` (sonst
+   * 403). Das ist der bewusste Recovery-Pfad bei verlorener Datei; ein damit
+   * bereits laufender Server verliert dabei seinen Zugang.
    */
-  async downloadEnvFile(instanceId: string): Promise<void> {
+  async downloadEnvFile(instanceId: string, opts?: { reset?: boolean }): Promise<void> {
     const endpoint = `${AUTH_BASE}/me/instances/${instanceId}/env-file`;
-    let resp = await fetch(endpoint, { method: 'POST', credentials: 'include' });
+    const init: RequestInit = { method: 'POST', credentials: 'include' };
+    // Ohne `reset` bleibt der Body leer — die Route nimmt beides an, und ein
+    // leerer Aufruf soll die One-Shot-Sperre gar nicht erst anfassen können.
+    if (opts?.reset) {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify({ reset: true });
+    }
+    let resp = await fetch(endpoint, init);
     // Abgelaufener Cookie → renewen + einmal retry (s. cookieFetch).
     if (resp.status === 401 && (await renewSession())) {
-      resp = await fetch(endpoint, { method: 'POST', credentials: 'include' });
+      resp = await fetch(endpoint, init);
     }
     if (!resp.ok) {
       const text = await resp.text();
