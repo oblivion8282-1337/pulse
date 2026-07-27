@@ -63,10 +63,11 @@ class UserCacheStore {
     const ids = [...this.pending].slice(0, 100);
     ids.forEach((id) => this.pending.delete(id));
     this.debounceTimer = null;
+    // Auf einem Self-Host kennt die Cloud-Auth die per-Instanz-IDs nicht →
+    // Namen vom Self-Host (endpoint 'chat') holen statt von der Cloud. Auch
+    // fuers Fehler-Log unten gebraucht, daher vor dem try berechnet.
+    const onSelfHost = activeServer.current ? !activeServer.current.isCloud : false;
     try {
-      // Auf einem Self-Host kennt die Cloud-Auth die per-Instanz-IDs nicht →
-      // Namen vom Self-Host (endpoint 'chat') holen statt von der Cloud.
-      const onSelfHost = activeServer.current ? !activeServer.current.isCloud : false;
       const result = await request<UserSummary[]>(
         `/users?ids=${ids.join(',')}`,
         { endpoint: onSelfHost ? 'chat' : 'auth' }
@@ -93,8 +94,12 @@ class UserCacheStore {
             returned.add(u.id);
           }
           unresolved = unresolved.filter((id) => !returned.has(id));
-        } catch {
+        } catch (err) {
           // transient — bleibt retrybar (nicht tombstonen)
+          console.warn(
+            `[users] Cloud-Nachschlag für ${unresolved.length} unbekannte ID(s) fehlgeschlagen`,
+            err
+          );
           unresolved = [];
         }
       }
@@ -102,8 +107,24 @@ class UserCacheStore {
       // *successful* response — a network failure leaves them un-tombstoned
       // (retryable) via the empty-list assignment above / the outer catch.
       for (const id of unresolved) this.unknown.add(id);
-    } catch {
-      // silent — display fallback until next attempt
+    } catch (err) {
+      // Frueher stumm. Das war die teuerste Zeile der Datei: schlaegt dieser
+      // eine Request fehl, zeigt die Oberflaeche bei JEDEM fremden Autor nur
+      // noch „…" — ohne Log, ohne Toast, ohne Spur. Genau so ist der Fehler
+      // 2026-07-27 auf einem Self-Host aufgetreten und war von aussen nicht
+      // zuzuordnen. Die Namen kommen ueber diesen REST-Aufruf, die Nachrichten
+      // selbst ueber die WebSocket-Verbindung — er kann also allein brechen,
+      // ohne dass sonst etwas auffaellt.
+      //
+      // Bewusst nur ein Log, kein Toast: der Aufruf laeuft im Hintergrund und
+      // wiederholt sich beim naechsten Rendern; eine Meldung pro Versuch waere
+      // Laerm. Die Endpunkt-Angabe unterscheidet Self-Host (chat) von Cloud
+      // (auth) — das ist die Information, die bei der Zuordnung fehlte.
+      console.warn(
+        `[users] Namen für ${ids.length} ID(s) nicht ladbar ` +
+          `(endpoint=${onSelfHost ? 'chat' : 'auth'}) — Anzeige bleibt bei „…"`,
+        err
+      );
     }
     // If more were added during the flush, schedule another round.
     if (this.pending.size > 0) {

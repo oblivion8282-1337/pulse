@@ -67,6 +67,7 @@ from dcc_chat_gateway.membership import (
     public_community_grants_access,
 )
 from dcc_chat_gateway.models import CachedUserProfile
+from dcc_chat_gateway.owner_admin_log import log_owner_admin_decision
 from dcc_chat_gateway.session_tokens import (
     SESSION_TTL_SECONDS,
     issue_session_token,
@@ -349,10 +350,13 @@ def _decode_challenge_token(token: str) -> dict:
             algorithms=[_CHALLENGE_ALG],
             options={"require": ["exp", "iat", "purpose", "cert_id", "nonce"]},
         )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=410, detail="challenge_expired")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="challenge_invalid")
+    # ``from exc`` aendert die Antwort an den Client NICHT — es haengt den
+    # Ursprungsfehler nur ins Server-Traceback. Genau der fehlte bisher, wenn
+    # ein Cert-Login unerklaerlich scheiterte.
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=410, detail="challenge_expired") from exc
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="challenge_invalid") from exc
     if claims.get("purpose") != _CHALLENGE_PURPOSE:
         raise HTTPException(status_code=401, detail="challenge_invalid")
     return claims
@@ -479,8 +483,8 @@ async def cert_login_verify(
     try:
         nonce_raw = _b64url_decode(challenge_claims["nonce"])
         signature = _b64url_decode(body.signature)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=401, detail="signature_invalid")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=401, detail="signature_invalid") from exc
     if not verify_challenge_signature(nonce_raw, signature, cert_claims.device_pubkey):
         raise HTTPException(status_code=401, detail="signature_invalid")
 
@@ -525,6 +529,7 @@ async def cert_login_verify(
         and bool(settings.pulse_instance_owner_id)
         and _safe_int_eq(cert_claims.user_id, settings.pulse_instance_owner_id)
     )
+    log_owner_admin_decision(settings, cert_claims.user_id, is_owner_admin)
 
     # 5c. Instance-wide ban gate (F11c). A Cloud-admin can ban a user on this
     #     Self-Host instance (banned_at on the cached profile) → deny the
