@@ -48,17 +48,29 @@ def redis_set(key: str, value: str, ttl: int = 900) -> None:
     )
 
 
-def mint_tokens() -> tuple[str, str, str]:
-    """(mediamtx-Pfad, publish-token, read-token)."""
+def token_payloads() -> tuple[str, str, str, dict, dict]:
+    """(mediamtx-Pfad, publish-token, read-token, publish-payload, read-payload).
+
+    Das Schema, das ``mint_tokens`` unten (lokales ``redis-cli``) UND
+    ``fern-harness.py::mint_remote`` (SSH-Batch in die Redis eines entfernten
+    Containers) teilen — nur wie die beiden Payloads gespeichert werden,
+    unterscheidet sich zwischen den beiden.
+    """
     nonce = secrets.token_hex(16)
     pub, rd = secrets.token_hex(16), secrets.token_hex(16)
-    now = datetime.now(UTC).isoformat()
-    base = {"channel_id": CID, "user_id": UID, "nonce": nonce, "created_at": now}
-    redis_set(f"stream:token:{pub}",
-              json.dumps({**base, "scope": "publish", "protocol": "rtmps", "ten_bit": True}))
-    redis_set(f"stream:token:{rd}",
-              json.dumps({**base, "scope": "read", "protocol": "webrtc"}))
-    return f"channel-{CID}-{UID}-{nonce}", pub, rd
+    base = {"channel_id": CID, "user_id": UID, "nonce": nonce,
+            "created_at": datetime.now(UTC).isoformat()}
+    pub_payload = {**base, "scope": "publish", "protocol": "rtmps", "ten_bit": True}
+    rd_payload = {**base, "scope": "read", "protocol": "webrtc"}
+    return f"channel-{CID}-{UID}-{nonce}", pub, rd, pub_payload, rd_payload
+
+
+def mint_tokens() -> tuple[str, str, str]:
+    """(mediamtx-Pfad, publish-token, read-token)."""
+    path, pub, rd, pub_payload, rd_payload = token_payloads()
+    redis_set(f"stream:token:{pub}", json.dumps(pub_payload))
+    redis_set(f"stream:token:{rd}", json.dumps(rd_payload))
+    return path, pub, rd
 
 
 def start_push(path: str, token: str, audio: bool, log, extra: list[str] | None = None) -> subprocess.Popen:

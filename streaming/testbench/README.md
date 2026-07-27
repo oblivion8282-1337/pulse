@@ -43,6 +43,8 @@ Zwei Sender stehen zur Wahl, und der Unterschied ist der Witz an der Sache:
 ./harness.py --secs 12 --noaudio       # Gegenprobe ohne Ton
 ./real-harness.py --secs 14 --fps 200  # echter Sender
 ./real-harness.py --fps 60 --audio Aus
+./fern-harness.py --secs 30 --e2e      # echter Server statt lokaler Schleife
+./vergleich-browser-nativ.py --proben 14   # Normalweg gegen nativen Player
 ```
 
 Ausgabe je Lauf: `player-<label>.log`, `send-<label>.log` bzw.
@@ -157,6 +159,55 @@ dieses Bild beim Encoder ankam.
 
 Damit sind alle Posten der Kette direkt gemessen statt geschätzt, und der Rest
 ist eine einfache Subtraktion.
+
+## Über die echte Leitung messen
+
+`fern-harness.py` fährt denselben Ablauf gegen einen entfernten Server statt
+gegen die lokale Schleife. Das ist der einzige Aufbau, der misst, was ein Nutzer
+erlebt — und der Unterschied ist keine Feinheit: dieselbe Kette lag lokal bei
+16,3 ms und über die echte Leitung bei 143, bei nur 26,7 ms Laufzeit.
+
+```bash
+./fern-harness.py --secs 30 --fps 60 --kbps 4000 --e2e --label fern1
+./fern-harness.py --proto srt --codec h264 --bits 8 --label srt1
+```
+
+Die Token legt es per `ssh` + `docker exec … redis-cli` direkt in die Redis des
+Zielcontainers; media-svc ist nicht im Spiel, die Push-Adresse baut der
+Prüfstand selbst. Genau deshalb kann er auch Wege fahren, die media-svc gar
+nicht ausgibt — `--proto srt` etwa. Server, Zugang und Ports stehen in
+`PULSE_FERN_*`.
+
+Zwei Dinge, die man vorher wissen muss:
+
+* **SRT trägt kein AV1.** MPEG-TS hat dafür keine reguläre Zuordnung, ffmpeg
+  schreibt es als „private data stream", MediaMTX erkennt es nicht — beim
+  Zuschauer kommt nur Ton an. SRT-Läufe brauchen `--codec h264`.
+* **Der SRT-Puffer erklärt die SRT-Latenz nicht.** Von 120 auf 40 ms gesenkt
+  änderte am 2026-07-27 vier Millisekunden von rund 305. Die Ursache liegt
+  woanders und ist offen.
+
+## Normalweg gegen nativen Player
+
+`vergleich-browser-nativ.py` misst beide Wege an **einem** Sendedurchlauf. Der
+Browser bekommt die Latenz nicht aus einer Sonde, sondern physisch: ein Foto
+über Quell- und Wiedergabe-Schirm enthält beide Balken im selben Augenblick.
+
+```bash
+./vergleich-browser-nativ.py --proben 14 --label bn1
+```
+
+Drei Schirme mit Rollen — Quelle (Zeitmuster, wird aufgenommen), Wiedergabe
+(Browser im Vollbild, also 1:1) und einer frei für das Player-Fenster. Dafür
+gibt es `pattern-one.py`: das normale `latency-pattern.py` bemalt **jeden**
+Schirm, seine Balken lägen dann exakt über den übertragenen und beide wären
+unlesbar.
+
+**Die beiden Zahlen sind nicht bis auf die Millisekunde vergleichbar** — die
+Foto-Messung enthält Compositor und Anzeigeverzug, die Sonde des Players nicht.
+Aussagekräftig ist der Verlauf INNERHALB eines Laufs; so fiel auf, dass die
+Browser-Latenz im Lauf wächst (177 → 232 ms), während der native Player flach
+bleibt.
 
 ## Was damit gefunden wurde (2026-07-26)
 

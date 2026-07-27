@@ -31,20 +31,15 @@ import sys
 from pathlib import Path
 
 import numpy as np
-
-BLOCK = 32
-MARKER = [1, 0, 1, 1, 0, 0, 1, 0]
-COUNTER_BITS = 16
-POSITIONS = [(x, y) for y in (64, 400, 800, 1200) for x in (64, 880, 1696)]
+from pattern_format import BLOCK, BLOCKS, MARKER, POSITIONS
 
 
 def read_bar(luma: np.ndarray, x0: int, y0: int) -> int | None:
     cy = y0 + BLOCK // 2
-    bits = len(MARKER) + COUNTER_BITS
-    if cy >= luma.shape[0] or x0 + bits * BLOCK > luma.shape[1]:
+    if cy >= luma.shape[0] or x0 + BLOCKS * BLOCK > luma.shape[1]:
         return None
     out = []
-    for i in range(bits):
+    for i in range(BLOCKS):
         v = int(luma[cy, x0 + i * BLOCK + BLOCK // 2])
         if v <= 70:
             out.append(0)

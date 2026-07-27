@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WHEP-Normalweg</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  video { display: block; width: 100vw; height: 100vh; object-fit: fill; background: #000; }
+  #err { position: fixed; left: 8px; top: 8px; color: #f55; font: 14px monospace; }
+</style>
+<video id="v" autoplay playsinline muted></video>
+<div id="err"></div>
+<script>
+// Nachbau von web/src/lib/stream/whep.ts — bewusst dieselbe Abfolge, damit der
+// Vergleich den ECHTEN Normalweg misst: Chromiums WebRTC-Empfang, Chromiums
+// Jitter-Puffer, <video>-Element. Nur ohne SvelteKit drumherum.
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
+const GATHER_TIMEOUT_MS = 2000;
+
+function preferStereoOpus(sdp) {
+  const pts = new Set([...sdp.matchAll(/^a=rtpmap:(\d+) opus\/\d+(?:\/\d+)?$/gim)].map(m => m[1]));
+  if (!pts.size) return sdp;
+  const lines = sdp.split('\r\n').map(line => {
+    const m = /^a=fmtp:(\d+) (.*)$/.exec(line);
+    if (!m || !pts.has(m[1]) || /(?:^|;)stereo=/.test(m[2])) return line;
+    return `a=fmtp:${m[1]} ${m[2]};stereo=1;sprop-stereo=1`;
+  });
+  return lines.join('\r\n');
+}
+
+async function waitForIce(pc) {
+  if (pc.iceGatheringState === 'complete') return;
+  await new Promise(res => {
+    const done = () => { pc.removeEventListener('icegatheringstatechange', check); res(); };
+    const check = () => { if (pc.iceGatheringState === 'complete') done(); };
+    pc.addEventListener('icegatheringstatechange', check);
+    setTimeout(done, GATHER_TIMEOUT_MS);
+  });
+}
+
+async function main() {
+  const url = new URLSearchParams(location.search).get('whep');
+  if (!url) { document.getElementById('err').textContent = '?whep= fehlt'; return; }
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  const stream = new MediaStream();
+  pc.addEventListener('track', e => {
+    stream.addTrack(e.track);
+    document.getElementById('v').srcObject = stream;
+  });
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+
+  const offer = await pc.createOffer();
+  offer.sdp = preferStereoOpus(offer.sdp);
+  await pc.setLocalDescription(offer);
+  await waitForIce(pc);
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sdp' },
+    body: pc.localDescription.sdp,
+  });
+  if (res.status !== 201) {
+    document.getElementById('err').textContent = 'WHEP ' + res.status;
+    return;
+  }
+  await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+  window.__whepReady = true;
+}
+main().catch(e => { document.getElementById('err').textContent = String(e); });
+</script>

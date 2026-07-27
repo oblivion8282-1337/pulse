@@ -9,3 +9,11 @@ synth10.mkv
 *.raw
 *.pts
 rec-*.mkv
+
+# Artefakte des Browser-gegen-nativ-Vergleichs. `*.png` bewusst pauschal: in
+# diesem Verzeichnis ist JEDES Bild ein Messartefakt (Bildschirmfotos ueber alle
+# Schirme, je ~13 MB), und eine engere Regel hat beim ersten Commit prompt ein
+# Pruefbild durchgelassen.
+*.png
+vergleich-*.json
+chrome-profil/

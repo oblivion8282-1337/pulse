@@ -39,26 +39,22 @@ import os
 import sys
 import time
 
+from pattern_format import BAR_W, BLOCK, COUNTER_BITS, MARKER, POSITIONS
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
-# ── Musterformat — MUSS mit `pulse-player/src/probe.rs` übereinstimmen ────────
-BLOCK = 32                      # Kantenlänge eines Klotzes in Bildpunkten
-MARKER = [1, 0, 1, 1, 0, 0, 1, 0]   # Erkennungsmuster vor dem Zähler
-COUNTER_BITS = 16               # Zähler in Millisekunden, läuft nach 65,5 s um
-BLOCKS = len(MARKER) + COUNTER_BITS
-BAR_W = BLOCKS * BLOCK
-# Zwölf Stellen, an denen ein Balken steht (linke obere Ecke, in Bildpunkten des
-# jeweiligen Bildschirms). Passt bis 2560x1440.
-POSITIONS = [(x, y) for y in (64, 400, 800, 1200) for x in (64, 880, 1696)]
-
 
 class PatternWindow(QWidget):
-    def __init__(self, epoch_ms: int) -> None:
+    """Auch von `pattern-one.py` verwendet (dort per ``importlib`` nachgeladen,
+    weil der Bindestrich im Dateinamen einen normalen Import verhindert) — nur
+    der Fenstertitel unterscheidet sich zwischen "auf jedem Bildschirm" und
+    "auf genau einem"."""
+
+    def __init__(self, epoch_ms: int, title: str = "Pulse Latenz-Muster") -> None:
         super().__init__()
         self.epoch_ms = epoch_ms
-        self.setWindowTitle("Pulse Latenz-Muster")
+        self.setWindowTitle(title)
         # Nach hinten, kein Rahmen, kein Eingabe-Fokus: das Fenster soll die
         # Bedienung nicht stören, es soll nur sichtbar sein.
         self.setWindowFlags(
