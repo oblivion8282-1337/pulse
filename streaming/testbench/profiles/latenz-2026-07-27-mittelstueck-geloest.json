@@ -1,0 +1,65 @@
+{
+  "id": "latenz-2026-07-27-mittelstueck-geloest",
+  "vergleich_gegen": "latenz-2026-07-27-mittelstueck.json",
+  "gemessen_am": "2026-07-27 (Nacht)",
+  "frage": "Wo genau sitzen die 65 ms des Mittelstuecks — und lassen sie sich abstellen?",
+
+  "antwort_kurz": "Weder in MediaMTX noch im Empfangsweg. Sie sassen im eigenen Sender: der FLV-Muxer hielt jedes Bild fest, bis Ton mit passendem Zeitstempel vorlag. Deckel von 100 auf 10 ms gesenkt — Ende zu Ende 99,8 auf 82,3 ms bei 60 fps.",
+
+  "beide_verdaechtigen_ausgeschlossen": {
+    "verfahren": "Paketmitschnitt auf der Schleife (tcpdump, TCP 1936 hinein / UDP 8189 heraus). Beide Seiten sind verschluesselt, die ZEITSTRUKTUR ueberlebt aber. Entscheidend war, dem Sender fuenfmal eine 120-ms-Pause aufzuzwingen (SIGSTOP/SIGCONT): ein gleichfoermiger Strom wiederholt sich alle 40 ms, jede Korrelation ist dort mehrdeutig — der erste Versuch lief genau in diese Falle (Kreuzkorrelation sagte 0 ms bei Spitzen auf jedem Vielfachen von 40).",
+    "mediamtx_ms": "unter 1 (alle fuenf Pausen erscheinen am Ausgang in derselben Millisekunde, +0/+1)",
+    "empfangsweg_player_ms": 0.04,
+    "empfangsweg_verfahren": "Neue Ankunfts-Diagnose im Player (PULSE_PLAYER_ARRIVAL_GAP_LOG_MS) meldet den Ankunfts-Stempel in WANDUHRZEIT — nur so ist er mit tcpdump vergleichbar. 16 zugeordnete Luecken, Median 0,04 ms vom Draht bis zum Stempel.",
+    "unabhaengig_bestaetigt": "Zwei Agenten haben parallel den Quelltext gelesen: MediaMTX 1.19.1 (RTMP-Ingest bis WebRTC-Ausgang, inkl. pion-Interceptors) und webrtc-rs 0.17.2 (Empfangsweg bis zum Stempel). Beide fanden keine einzige Stelle, die eine feste Zeit wartet — passend zur Messung."
+  },
+
+  "die_ursache": {
+    "mechanik": "av_interleaved_write_frame gibt ein Videopaket erst frei, wenn aus JEDEM anderen Strom ein Paket mit mindestens so grossem Zeitstempel vorliegt. Der Rueckstand des Tons ist damit 1:1 Bild-Latenz.",
+    "belege": [
+      "Gegenprobe ohne Ton: Ende zu Ende 98,4 -> 65,7 ms (derselbe Aufbau, nur --audio Aus).",
+      "Direkte Messung im Sender (neue Sonde PULSE_MUX_LATENCY_LOG=1, bildet den Interleaver nach): Haltezeit 33,5 ms — deckungsgleich mit den 33 ms aus der Gegenprobe. Zwei unabhaengige Wege, dieselbe Zahl."
+    ],
+    "der_rueckstand_ist_nicht_konstant": "Ueber zehn Laeufe mit identischer Einstellung zwischen 11,6 und 33,7 ms, im Mittel 22. Er haengt davon ab, wie der PipeWire-Graph beim Start gerade steht. Deshalb beweist ein einzelner Vorher/Nachher-Vergleich hier NICHTS — genau daran ist mein erster vermeintlicher Fix gescheitert (s. unten)."
+  },
+
+  "behoben": {
+    "aenderung": "DEFAULT_INTERLEAVE_US 100_000 -> 10_000 (Linux-Sidecar, src/encode/mod.rs, Commit eb0e7ad)",
+    "ende_zu_ende_ms": { "60_fps": "99,8 -> 82,3", "144_fps": "62,5 -> 52,7", "280_fps": "676 -> 301" },
+    "wiederholbarkeit": "Drei Laeufe neu: 82,5 / 82,6 / 82,7 ms. Drei Laeufe vorher: 99,2 / 98,2 / 102,0. Die Latenz wird also nicht nur kleiner, sondern auch GLEICHMAESSIGER — sie haengt nicht mehr am zufaelligen Ton-Rueckstand.",
+    "unversehrtheit": "Kein einziger Schreibfehler bei 60/144/280 fps. Ton lueckenlos: 2463 Pakete, Abstand 5,0 ms, groesste Luecke 17 ms, keine ueber 50 ms.",
+    "warum_nicht_kleiner": "1 us starb sofort, 2 ms starb bei 280 fps (gemessen 2026-07-26). 10 ms lief bei 280 fps dreimal ueber 16 s fehlerfrei. 3 ms und 1 ms brachten bei 60 fps nichts mehr (82,9 bzw. 79,6 ms) — es gibt keinen Grund, naeher an die Kante zu gehen."
+  },
+
+  "geprueft_und_verworfen": [
+    {
+      "vermutung": "Der Null-Sink des Routers (Desktop-Ton) fordert keine niedrige Latenz an und laeuft deshalb im groben Graph-Raster (1024 = 21,3 ms).",
+      "versuch": "node.latency am Sink gesetzt",
+      "ergebnis": "Ueber je fuenf Laeufe 21,3 mit gegen 22,5 ms ohne — kein Unterschied. Aenderung zurueckgenommen.",
+      "lehre": "Der erste Einzelvergleich hatte 33,5 -> 21,4 ms gezeigt und sah nach einem Treffer aus. Das war Rauschen. Bei einer Groesse, die von sich aus zwischen 12 und 34 ms schwankt, braucht es Wiederholungen — sonst misst man sich einen Erfolg herbei."
+    },
+    {
+      "vermutung": "Das grobe PipeWire-Raster ist die Ursache.",
+      "versuch": "clock.force-quantum 240 (5 ms) fuer den ganzen Graphen",
+      "ergebnis": "Haltezeit 30,1 statt 33,5 ms — und zusammen mit der Sink-Anforderung sogar 36,3. Kein Hebel.",
+      "was_es_bedeutet": "Der Rueckstand kommt nicht aus der Rastergroesse."
+    }
+  ],
+
+  "offen": {
+    "der_rueckstand_selbst": "Der Deckel begrenzt, was der Ton-Rueckstand kostet — er beseitigt ihn nicht. Der Mikrofonweg (der den Null-Sink des Routers NICHT durchlaeuft) haelt nur 9,2 ms gegenueber 22 im Desktop-Modus. Dort liegt der naechste Hebel, wert sind es etwa 10 weitere Millisekunden.",
+    "280_fps": "301 ms bleiben schlecht. Das ist der bereits bekannte eigene Faden: dort ist die AUFNAHME am Anschlag (Compositor meldet max_framerate 279), nicht der Muxer.",
+    "restkette": "Bei 60 fps stehen jetzt 82,3 ms. Davon Anzeige->Encoder 18,7 · Encoder 2,9 · Player 3,2 · MediaMTX und Empfang zusammen unter 1. Der Rest gehoert weiter dem Sendeweg."
+  },
+
+  "werkzeug_neu": [
+    "streaming/testbench/split-latency.py — liest einen tcpdump-Mitschnitt und stellt Ein- gegen Ausgang. Muss BEIDE IP-Familien lesen: ffmpeg loest localhost zu ::1 auf, der ICE-Ausgang liegt auf 127.0.0.1. Wer nur IPv4 liest, sieht eine ganze Seite nicht (mir passiert: 0 Pakete hinein).",
+    "pulse-player: PULSE_PLAYER_ARRIVAL_GAP_LOG_MS=<ms> meldet Ankunftsluecken mit der Wanduhr.",
+    "Linux-Sidecar: PULSE_MUX_LATENCY_LOG=1 meldet den Ton-Rueckstand im Muxer."
+  ],
+
+  "fallen_fuer_den_naechsten": [
+    "Der Bildschirm muss WACH sein. Schlafen die Monitore, nimmt der Sender ein schwarzes Bild auf, das Zeitmuster ist weg und Ende zu Ende meldet '0.0 ms (60 ohne Muster)'. Kostete mich mehrere Laeufe, bis ich ein Einzelbild aus der Aufnahme angesehen habe. systemd-inhibit --what=idle:sleep waehrend der Messreihe.",
+    "Der Portal-Dialog kann AUSBLEIBEN statt zu erscheinen: der Berechtigungsspeicher (flatpak permission-list screencast) sammelt Eintraege an, die auf ein FENSTER zeigen; ist das Fenster weg, scheitert die Wiederherstellung stumm ('Fenster-ID kann nicht gefunden werden' im Portal-Log) und der Sender endet sofort. Alte Eintraege loeschen und einen BILDSCHIRM waehlen, nicht ein Fenster. Half zusaetzlich: systemctl --user restart plasma-xdg-desktop-portal-kde xdg-desktop-portal."
+  ]
+}

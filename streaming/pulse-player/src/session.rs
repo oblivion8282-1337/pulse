@@ -6,7 +6,7 @@
 //! Decoder-Wahl; hier ist beides sichtbar und zur Laufzeit einstellbar.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
@@ -169,6 +169,18 @@ pub async fn run(
     let mut last_stats = Instant::now();
     let mut rate_ref = RateRef { at: Instant::now(), frames: 0, bytes: 0 };
     // Ankunfts-Diagnose (s. der Video-Zweig unten).
+    //
+    // `PULSE_PLAYER_ARRIVAL_GAP_LOG_MS` meldet jede Ankunftsluecke ab dieser
+    // Groesse mit der WANDUHR. Der Zweck ist die Zuordnung zu einem
+    // Paketmitschnitt: tcpdump stempelt in Wanduhrzeit, der Player rechnet
+    // sonst nur in `Instant`. Erst beides zusammen ergibt, wie lange ein Paket
+    // vom Draht bis hierher braucht — der letzte ungemessene Abschnitt der
+    // Kette. Eine kuenstliche Sendepause erzeugt die noetige, unverwechselbare
+    // Luecke; ohne sie ist der Strom zu gleichfoermig, um Punkte zuzuordnen.
+    let arrival_gap_log_us: Option<u64> = std::env::var("PULSE_PLAYER_ARRIVAL_GAP_LOG_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|ms| ms * 1000);
     let mut last_video_arrival: Option<Instant> = None;
     let mut arrival_gap_max = 0u64;
     let mut arrival_gaps_over_5ms = 0u64;
@@ -256,6 +268,19 @@ pub async fn run(
                         arrival_gap_max = arrival_gap_max.max(gap);
                         if gap > 5_000 {
                             arrival_gaps_over_5ms += 1;
+                        }
+                        if arrival_gap_log_us.is_some_and(|min| gap >= min) {
+                            // Wanduhr des Stempels, nicht von jetzt: zwischen
+                            // Ankunft und dieser Zeile liegt die Schleife.
+                            let wall = SystemTime::now() - arrival.arrived.elapsed();
+                            let ms = wall
+                                .duration_since(UNIX_EPOCH)
+                                .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+                            eprintln!(
+                                "pulse-player: Ankunftsluecke {:.1} ms, erstes Paket danach \
+                                 um {ms:.3}",
+                                gap as f64 / 1000.0,
+                            );
                         }
                     }
                     last_video_arrival = Some(arrival.arrived);
