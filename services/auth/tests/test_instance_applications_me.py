@@ -452,6 +452,79 @@ async def test_env_file_blocked_after_first_download(
 
 
 @pytest.mark.asyncio
+async def test_env_file_reissue_liefert_neues_secret(
+    client, alice_cookie, alice_instance
+):
+    """``reset=true`` hebt die One-Shot-Sperre auf und rotiert das Secret.
+
+    Der Recovery-Pfad bei verlorener Datei (2026-07-27). Wichtig ist nicht nur,
+    DASS ein zweiter Download klappt, sondern dass er ein ANDERES Secret
+    liefert — sonst waere die Rotation kaputt und zwei Server koennten
+    gleichzeitig mit demselben Geheimnis laufen.
+    """
+
+    def secret_of(resp) -> str:
+        line = next(
+            ln
+            for ln in resp.text.splitlines()
+            if ln.startswith("PULSE_CLOUD_CLIENT_SECRET=")
+        )
+        return line.split("=", 1)[1]
+
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r1.status_code == 200
+
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+        json={"reset": True},
+    )
+    assert r2.status_code == 200, r2.text
+    assert secret_of(r2) != secret_of(r1)
+
+    # Ohne das Flag bleibt es gesperrt — der Reset ist ein bewusster Schritt,
+    # kein Zustand, in den die Instanz nach einmal Reset dauerhaft faellt.
+    r3 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r3.status_code == 403, r3.text
+
+
+@pytest.mark.asyncio
+async def test_env_file_reissue_false_bleibt_gesperrt(
+    client, alice_cookie, alice_instance
+):
+    """``reset=false`` explizit im Body darf die Sperre NICHT aufheben."""
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r1.status_code == 200
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+        json={"reset": False},
+    )
+    assert r2.status_code == 403, r2.text
+
+
+@pytest.mark.asyncio
+async def test_env_file_reissue_nur_fuer_owner(client, bob_cookie, alice_instance):
+    """Der Reset darf kein Schlupfloch um den Owner-Check sein — Bob bekommt
+    404 wie ueberall sonst (Existence-Leak-Schutz)."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": bob_cookie},
+        json={"reset": True},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_snippet_404_for_other_user(client, bob_cookie, alice_instance):
     """Bob bekommt 404 für Alices Instanz (kein 403 wegen Existence-Leak)."""
     r = await client.post(

@@ -974,7 +974,7 @@
   "instance_setup_manual_download": "Download .env",
   "instance_setup_manual_downloading": "Generating …",
   "instance_setup_manual_downloaded": ".env downloaded — keep it safe.",
-  "instance_setup_manual_download_warning": "Contains your client_secret. Each download generates a new one and invalidates the previous.",
+  "instance_setup_manual_download_warning": "Contains your client_secret. Keep the file safe — you can re-issue it if it is lost, but a server running with the old one will lose access.",
   "instance_setup_manual_steps": "Compose files and all steps:",
   "instance_setup_manual_link": "Guide to manual installation (Docker Compose)",
   "instance_setup_close": "Close",
@@ -2619,7 +2619,6 @@
   "instance_setup_reset_btn": "Reset access…",
   "instance_setup_reset_confirm_body": "The previously set up server immediately loses its access and can no longer connect. Continue?",
   "instance_setup_reset_confirm_btn": "Reset",
-  "instance_setup_env_forbidden": "The .env file has already been downloaded. For security it is only available once — a new file requires a new application.",
   "server_icon_not_set_up": "Not set up yet",
   "join_input_host_use_dialog": "This is a server address — use the join field to join the server.",
   "join_host_invite_required": "This server requires an invite. Enter your invite code.",
@@ -2675,5 +2674,10 @@
   "settings_screenshare_subheading": "How your picture looks when you share your screen. Higher settings need more processing power and a better connection.",
   "stream_grid_participants_collapse_aria": "Hide participants",
   "stream_grid_participants_collapsed_hint": "{count} participants · hidden",
-  "stream_grid_participants_expand_aria": "Show participants"
+  "stream_grid_participants_expand_aria": "Show participants",
+  "instance_setup_env_consumed_title": "File has already been downloaded",
+  "instance_setup_env_consumed_body": "For security the .env is only handed out once. If you have misplaced it, you can re-issue it here.",
+  "instance_setup_env_reissue_btn": "Re-issue file…",
+  "instance_setup_env_reissue_confirm_body": "The new file contains a new password. A server still running with the old one loses access immediately and must be given the new file. Continue?",
+  "instance_setup_env_reissue_confirm_btn": "Re-issue"
 }

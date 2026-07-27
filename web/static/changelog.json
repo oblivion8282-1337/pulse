@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-27.2",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Server-Zugangsdatei lässt sich neu ausstellen",
+      "items": [
+        "Die .env-Datei für einen eigenen Server gab es bisher genau einmal. Ging sie verloren, war ein kompletter neuer Antrag nötig.",
+        "Sie lässt sich jetzt neu ausstellen. Ein Server, der noch mit der alten Datei läuft, verliert dabei seinen Zugang und muss die neue bekommen — die App weist vor dem Bestätigen darauf hin."
+      ]
+    },
+    {
       "id": "2026-07-27",
       "date": "2026-07-27",
       "style": "Sachlich",
