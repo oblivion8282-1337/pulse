@@ -1,0 +1,73 @@
+{
+  "id": "bild-2026-07-27-av1",
+  "gemessen_am": "2026-07-27",
+  "frage": "Lohnt sich ein Qualitaets-Profil fuer AV1 — und was kostet es an Latenz und GPU?",
+  "antwort_kurz": "Nein. Die Bitrate ist der Hebel, nicht der Encoder. Die einzige Einstellung mit nennenswertem Gewinn (+4,9 VMAF) kostet das Fuenfzehnfache an Latenz.",
+
+  "zuerst_war_das_messwerkzeug_kaputt": {
+    "fehler_1": "Beim Dekodieren der Aufnahme fehlte `-fps_mode passthrough`. Der Mitschnitt ist Matroska mit Zeitbasis 1/1000, ffmpeg leitet daraus r_frame_rate=1000/1 ab und vervielfacht jedes Bild rund siebzehnfach. PSNR 17,6 statt 24,1 dB.",
+    "fehler_2": "Die Zuordnung nahm einen FESTEN Versatz an. Referenz und Aufnahme laufen nicht im Gleichschritt: das erste Bildpaar passte auf 28,9 dB, das hundertste auf 19,5. Jetzt Bild fuer Bild, monoton.",
+    "folge": "Die Qualitaetszahlen vom 2026-07-27 frueh sind NICHT belastbar. Insbesondere ist 'der abgeschaltete Encoder-Vorlauf kostet 0,6 bis 1,4 dB PSNR' falsch — neu gemessen +0,01 dB. Der Latenzgewinn der Nacht war umsonst zu haben.",
+    "lehre": "Beide Fehler blieben mit `testsrc2` unsichtbar und fielen beim ERSTEN Lauf mit echtem Spielmaterial auf."
+  },
+
+  "methode": {
+    "warum_offline": "Im Live-Weg nimmt jeder Lauf einen anderen Ausschnitt auf; diese Schwankung (VMAF 33,7/35,9/36,3 bei identischer Einstellung) ist groesser als der gesuchte Effekt. Ein vermeintlicher Fund von +5,9 VMAF schrumpfte ueber vier Laeufe auf +1,1.",
+    "offline": "Ein echter Rohmitschnitt des Encoder-Eingangs (600 Bilder aufgenommener Bildschirminhalt), offline mit jeder Einstellung neu kodiert, jede gegen ihr eigenes Original.",
+    "kontrolle": "Dieselbe Einstellung zweimal ergibt auf drei Nachkommastellen identische Werte. Jeder Unterschied ist damit echt.",
+    "material": "~/Videos/OBS/spiel_02.mp4 (dichtes Laub, feine Details) und Desktop.mp4, beide 1440p60 AV1 bei rund 30 Mbit/s. 8 bit — damit laesst sich der Vorteil von 10 bit NICHT zeigen."
+  },
+
+  "bitrate_schlaegt_encoder": {
+    "spiel_1440p60_vmaf": { "2000": 20.6, "4000": 32.1, "8000": 43.5, "10000": 48.4 },
+    "encoder_gewinn_p6_aq_multipass": { "2000": -0.6, "4000": 1.4, "8000": 3.2, "10000": 2.1 },
+    "was_es_bedeutet": "Von 4000 auf 10000 kbps sind +16,3 VMAF. Alles, was der Encoder hergibt, sind +1,4 beim Standard-Regler. Unter etwa sechs Punkten sieht ein Mensch im direkten Nebeneinander typischerweise nichts."
+  },
+
+  "desktop_dreht_das_vorzeichen": {
+    "heute": { "vmaf": 95.76, "psnr": 48.66 },
+    "p6_aq_multipass": { "vmaf": 94.89, "psnr": 44.36 },
+    "was_es_bedeutet": "Bei ruhigem Bildschirminhalt ist bei VMAF 96 nichts zu holen, und die adaptive Quantisierung SCHADET (-4,3 dB). Das ist der Inhalt der Fernsteuerung — ein Profil, das dort AQ anschaltet, macht das Bild schlechter."
+  },
+
+  "die_starke_variante": {
+    "was": "preset=p6, spatial-aq, aq-strength=8, bf=3, b_ref_mode=middle, zerolatency=0, delay=INT_MAX",
+    "qualitaet": "+4,89 VMAF und +0,52 dB gegenueber heute (Spiel, 4000 kbps) — der groesste gemessene Gewinn.",
+    "latenz": "Ende zu Ende 249 und 341 ms gegen 17,0 ms heute. Also das Fuenfzehn- bis Zwanzigfache.",
+    "sie_laeuft_nicht_ohne_weiteres": "Mit dem heutigen Interleave-Deckel (10 ms) stirbt der Stream sofort: 'Packets are not in the proper order with respect to DTS'. Sie braucht einen Deckel von 2 s.",
+    "die_ursache_ist_NICHT_die_umsortierung": "av1_nvenc sortiert gar nicht um — pts und dts sind in jeder Variante gleich (in MP4 geprueft, nicht nur in Matroska, das gar keine getrennten dts fuehrt). AV1 kennt keine B-Frames im H.264-Sinn; NVENC bildet -bf auf die Referenzstruktur ab. Isoliert gemessen ist `delay` der Ausloeser, nicht `bf` und nicht `zerolatency`: mit `bf=3` allein laeuft der Stream fehlerfrei.",
+    "der_mechanismus": "FLV ist EINE Zeitleiste. Haelt der Encoder das Bild zurueck, schreibt der Muxer den Ton vorher, und das verzoegerte Bild kommt mit aelterem Zeitstempel nach. Belegt: mit `delay=INT_MAX` und 100-ms-Deckel laeuft es, mit 10 ms stirbt es, und OHNE TON laeuft es auch mit 10 ms."
+  },
+
+  "aufteilung_der_zusatzlatenz": {
+    "heute": "17,0 ms",
+    "nur_zerolatency_aus_plus_delay": "47,6 ms (+30 — passend zu den zwei Bildern Encoder-Vorlauf, die am 2026-07-26 abgeschaltet wurden)",
+    "volle_starke_variante": "249 bis 341 ms",
+    "offen": "Woher die restlichen rund 200 bis 290 ms kommen, ist NICHT aufgeteilt. Vermutung: NVENC puffert mit bf=3 eine ganze Mini-Gruppe. Ungemessen."
+  },
+
+  "die_billige_variante": {
+    "was": "bf=3, b_ref_mode=middle — zerolatency bleibt an, Deckel bleibt bei 10 ms",
+    "latenz": "18,2 / 18,6 / 19,0 ms gegen 17,0 heute, also +1,6 ms",
+    "qualitaet": "+1,9 VMAF beim Spiel, -0,2 beim Desktop",
+    "urteil": "Laeuft stabil und kostet fast nichts, bringt aber auch nichts Sichtbares."
+  },
+
+  "gpu_last_1440p60": {
+    "p2": "4,0 %", "heute_p4": "5,6 bis 6,8 %", "p6_aq": "7,2 bis 8,6 %", "p6_aq_multipass": "9,7 %",
+    "was_es_bedeutet": "Bei dieser Aufloesung ist GPU-Last keine Grenze. Sie wird erst bei 4K oder sehr hohen Bildraten scharf — dort ist NICHT gemessen."
+  },
+
+  "empfehlung": [
+    "Encoder-Einstellungen unveraendert lassen. Ein Profil, dessen bessere Seite man nicht sieht, ist eine Attrappe.",
+    "Der Hebel ist die Bitrate. Ist die bei 10 Mbit/s gedeckelt, ist der naechste Hebel die AUFLOESUNG: 1080p bei 10 Mbit/s hat mehr als die doppelte Bitrate je Bildpunkt. NICHT GEMESSEN, aber der naechste sinnvolle Versuch.",
+    "rc-lookahead ist wirkungslos, solange zerolatency=1 gesetzt ist (identische Zahlen auf drei Nachkommastellen). Ein Lookahead-Schalter waere eine Attrappe."
+  ],
+
+  "nicht_gemessen": [
+    "AMD/Intel (VAAPI) — es steht nur eine NVIDIA-Karte zur Verfuegung.",
+    "4K und 144 fps, also genau der Bereich, in dem die GPU-Achse scharf wird.",
+    "Aufloesung gegen Bitrate.",
+    "Ob 10 bit gegenueber 8 bit etwas bringt — das Testmaterial ist 8 bit."
+  ]
+}
