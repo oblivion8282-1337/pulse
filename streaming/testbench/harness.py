@@ -25,6 +25,8 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -37,6 +39,8 @@ PLAYER = Path(os.environ.get(
     Path(__file__).resolve().parents[1] / "pulse-player/target/release/pulse-player",
 ))
 REDIS = "redis://localhost:6380/0"
+# API des lokalen MediaMTX — nur um abzuwarten, ob ein Pfad bereit ist.
+MEDIAMTX_API = "http://localhost:9997/v3/paths/list"
 CID = "100000000000000001"
 UID = "200000000000000002"
 
@@ -84,6 +88,37 @@ def start_push(path: str, token: str, audio: bool, log, extra: list[str] | None 
         cmd.append("-an")
     cmd += ["-f", "flv", "-tls_verify", "0", f"rtmps://localhost:1936/{path}?token={token}"]
     return subprocess.Popen(cmd, stdout=log, stderr=log)
+
+
+def warte_auf_strom(path: str, push: subprocess.Popen, timeout: float = 45.0) -> bool:
+    """Wartet, bis MediaMTX den Pfad als bereit meldet.
+
+    Vorher stand hier ein festes ``sleep(3)``. Das reichte auf der ungestoerten
+    Schleife und **nur dort**: sobald `netz-harness.py` 26,7 ms Laufzeit auflegt,
+    braucht der RTMPS-Aufbau rund fuenf Sekunden laenger, der Player oeffnet WHEP
+    zu frueh, MediaMTX antwortet `no stream is available` — und die Messung sieht
+    aus, als haette der Player unter Last versagt. Am 2026-07-28 genau so
+    passiert; fast jeder gestoerte Lauf lieferte "keine Messwerte", und der
+    Grund lag im Pruefstand, nicht im Player.
+
+    Gefragt wird die MediaMTX-API statt laenger zu schlafen: eine feste Wartezeit
+    ist immer entweder zu kurz oder Zeitverschwendung.
+    """
+    ende = time.monotonic() + timeout
+    while time.monotonic() < ende:
+        if push.poll() is not None:
+            print("Sender ist gestorben — siehe push-Log", file=sys.stderr)
+            return False
+        try:
+            with urllib.request.urlopen(MEDIAMTX_API, timeout=2) as r:
+                daten = json.load(r)
+            if any(p.get("name") == path and p.get("ready") for p in daten.get("items", [])):
+                return True
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+            pass  # MediaMTX noch nicht erreichbar — weiter warten
+        time.sleep(0.5)
+    print(f"Strom wurde in {timeout:.0f}s nicht bereit — siehe push-Log", file=sys.stderr)
+    return False
 
 
 class Player:
@@ -144,9 +179,7 @@ def main() -> int:
     print(f"[{tag}] Pfad {path}")
 
     push = start_push(path, pub, audio, push_log, args.extra.split() if args.extra else None)
-    time.sleep(3.0)  # Publish + Auth abwarten
-    if push.poll() is not None:
-        print("Sender ist sofort gestorben — siehe push-Log", file=sys.stderr)
+    if not warte_auf_strom(path, push):
         return 1
 
     player = Player(player_log)

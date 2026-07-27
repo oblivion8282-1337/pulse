@@ -421,6 +421,31 @@ impl VideoDecoder {
         Ok(())
     }
 
+    /// Nach einem Paketverlust wieder auf einen Einstiegspunkt warten.
+    ///
+    /// **Das ist kein Komfort, sondern ein Absturzschutz.** Der Jitter-Puffer
+    /// meldet eine Luecke, der Zusammensetzer verwirft die angefangene Einheit —
+    /// aber die NAECHSTE Einheit ist ein Differenzbild, dessen Referenzbild nie
+    /// angekommen ist. Genau das darf ein Decoder nicht sehen.
+    ///
+    /// Gemessen am 2026-07-28 mit 1 % kuenstlichem Paketverlust auf dem
+    /// Empfangsweg: `libnvcuvid` **stuerzt ab** (`segfault ... in
+    /// libnvcuvid.so`), der ganze Player-Prozess ist weg — kein Standbild, kein
+    /// Fehler, kein Log. Die Sperre gab es bereits fuer den Sitzungsbeginn und
+    /// den Decoder-Neuaufbau; nur der haeufigste Fall, gewoehnlicher
+    /// Paketverlust im Betrieb, war nicht abgedeckt.
+    ///
+    /// Der Zaehler startet bei null, damit eine Luecke kurz vor dem naechsten
+    /// Keyframe nicht faelschlich als "der Sender schickt keine Vollbilder"
+    /// gewertet wird.
+    pub fn on_gap(&mut self) {
+        if self.awaiting_keyframe {
+            return; // schon scharf, Zaehler nicht zuruecksetzen
+        }
+        self.awaiting_keyframe = true;
+        self.skipped_before_keyframe = 0;
+    }
+
     fn drain(&mut self) -> Vec<DecodedFrame> {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::video::Video::empty();

@@ -46,6 +46,16 @@ const RATE_INTERVAL: Duration = Duration::from_millis(1000);
 /// Start nicht faelschlich abgebrochen wird.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// Mindestabstand zwischen zwei Vollbild-Anforderungen.
+///
+/// 200 ms sind laenger als jede plausible Umlaufzeit (die echte Teststrecke
+/// misst 53 ms) — die Antwort auf eine Anforderung ist also da, bevor die
+/// naechste rausgeht. Kuerzer waere schaedlich: ein Verlust erzeugt meist
+/// mehrere Luecken kurz hintereinander, und jede Anforderung kostet den Sender
+/// ein volles Bild. Ohne Bremse traefe der Player die Leitung, die schon
+/// ueberlastet ist, mit zusaetzlicher Last.
+const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(200);
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -184,6 +194,15 @@ pub async fn run(
     let mut last_video_arrival: Option<Instant> = None;
     let mut arrival_gap_max = 0u64;
     let mut arrival_gaps_over_5ms = 0u64;
+    // Vollbild-Anforderung nach Verlust (s. `whep::WhepSession::request_keyframe`).
+    // Die Kennung kommt aus dem ersten Videopaket; vorher gibt es nichts
+    // anzufordern.
+    let mut video_ssrc: Option<u32> = None;
+    // Gedrosselt, weil ein Verlust typischerweise MEHRERE Luecken hintereinander
+    // erzeugt: ohne Bremse ginge fuer jede eine eigene Anforderung raus, der
+    // Sender wuerde Vollbild um Vollbild schicken und damit genau die Bitrate
+    // sprengen, die den Verlust verursacht hat.
+    let mut last_keyframe_request = Instant::now() - KEYFRAME_REQUEST_INTERVAL;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -284,6 +303,9 @@ pub async fn run(
                         }
                     }
                     last_video_arrival = Some(arrival.arrived);
+                    // Fuer die Vollbild-Anforderung nach einem Verlust: die
+                    // Kennung des Videostroms steht nur im Paket selbst.
+                    video_ssrc = Some(arrival.packet.header.ssrc);
                 }
                 buffers
                     .entry(codec)
@@ -322,6 +344,22 @@ pub async fn run(
                 let (unit, unit_arrived) = match release {
                     Release::Gap { .. } => {
                         assembler.on_gap();
+                        // Und der Decoder muss ebenfalls neu einsteigen: die
+                        // naechste vollstaendige Einheit ist ein Differenzbild
+                        // ohne sein Referenzbild, und darauf reagiert
+                        // `libnvcuvid` mit einem Segfault (2026-07-28 mit 1 %
+                        // kuenstlichem Verlust reproduziert).
+                        if let Some(d) = decoder.as_mut() {
+                            d.on_gap();
+                        }
+                        // Und beim Sender ein Vollbild anfordern, sonst dauert
+                        // das Warten bis zum naechsten regulaeren Keyframe.
+                        if let Some(ssrc) = video_ssrc {
+                            if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
+                                last_keyframe_request = Instant::now();
+                                whep_session.request_keyframe(ssrc).await;
+                            }
+                        }
                         stats.frames_dropped += 1;
                         continue;
                     }

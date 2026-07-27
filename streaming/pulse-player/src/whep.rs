@@ -120,6 +120,33 @@ pub struct WhepSession {
 }
 
 impl WhepSession {
+    /// Fordert beim Sender sofort ein Vollbild an (RTCP Picture Loss Indication).
+    ///
+    /// **Warum das noetig ist.** Nach einem Paketverlust darf der Decoder erst
+    /// weiterarbeiten, wenn ein Einstiegspunkt kommt — sonst bekommt er ein
+    /// Differenzbild ohne Referenzbild, und `libnvcuvid` stuerzt daran ab
+    /// (2026-07-28 gemessen). Ohne Rueckkanal heisst "warten" aber: bis zum
+    /// naechsten regulaeren Keyframe des Senders, also bei einem
+    /// Zwei-Sekunden-Abstand bis zu zwei Sekunden Schwarz. Mit 1 % Verlust
+    /// gemessen: 1-5 Bilder je Sekunde, drei bis fuenf Sekunden ohne Bild in
+    /// einem 20-Sekunden-Lauf.
+    ///
+    /// Mit der Anforderung schrumpft die Wartezeit auf eine Umlaufzeit plus die
+    /// Reaktionszeit des Encoders. Das ist der Unterschied zwischen "es haengt
+    /// kurz" und "es ist weg" — und fuer eine spaetere Fernsteuerung der
+    /// Unterschied zwischen brauchbar und unbrauchbar.
+    ///
+    /// Fehler werden geschluckt: eine nicht zugestellte Anforderung ist kein
+    /// Grund, die Wiedergabe abzubrechen — der naechste regulaere Keyframe
+    /// kommt ohnehin.
+    pub async fn request_keyframe(&self, media_ssrc: u32) {
+        use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+        let pli = PictureLossIndication { sender_ssrc: 0, media_ssrc };
+        if let Err(e) = self.pc.write_rtcp(&[Box::new(pli)]).await {
+            eprintln!("pulse-player: Vollbild-Anforderung nicht zustellbar: {e}");
+        }
+    }
+
     /// Baut die Sitzung ab. Idempotent — mehrfaches Aufrufen ist harmlos.
     pub async fn close(&mut self) {
         let _ = self.pc.close().await;

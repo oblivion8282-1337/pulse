@@ -19,4 +19,5 @@ rec-*.mkv
 # (Bildschirmfotos ueber alle Schirme, je ~13 MB).
 /*.png
 /vergleich-*.json
+/netz-ergebnisse.json
 /chrome-profil/
