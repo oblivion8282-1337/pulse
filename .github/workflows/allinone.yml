@@ -277,13 +277,35 @@ jobs:
       # Self-Host-User mit per-Instance-Credentials. ``imagetools create`` kopiert
       # Manifest+Blobs OHNE Rebuild. continue-on-error: bei netcup-Ausfall bleiben
       # die GHCR-Tags trotzdem aktuell.
+      # Mit Wiederholung, und der Grund ist hausgemacht: der Token-Endpunkt für
+      # diese Registry liegt hinter howispulse.com (auth-svc), und derselbe
+      # main-Push, der diesen Workflow auslöst, baut auch die Cloud-Images. Der
+      # Update-Cron auf dem Server zieht sie im Zwei-Minuten-Takt und erneuert
+      # die Container — wer genau dann ein Token holen will, bekommt 502 vom
+      # Proxy. Am 2026-07-27 ist der erste Lauf nach dem Merge exakt daran
+      # gescheitert (`dial tcp …:80: connection refused` in Caddys Log), während
+      # Registry und Spiegel völlig in Ordnung waren.
+      #
+      # Bewusst als Schleife in der Shell statt über eine Retry-Action: das wäre
+      # eine weitere Fremd-Action in der Lieferkette für fünf Zeilen bash. Das
+      # Secret kommt über die Umgebung und `--password-stdin`, landet also nicht
+      # in der Kommandozeile.
       - name: Login to self-hosted registry
         if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
-        uses: docker/login-action@v3
-        with:
-          registry: registry.howispulse.com
-          username: pulse-ci
-          password: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+        env:
+          TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for versuch in 1 2 3 4 5; do
+            if printf '%s' "$TOKEN" \
+               | docker login registry.howispulse.com -u pulse-ci --password-stdin; then
+              exit 0
+            fi
+            echo "::warning::Login-Versuch ${versuch} fehlgeschlagen — 30 s warten (laeuft gerade ein Deploy?)"
+            sleep 30
+          done
+          echo "::error::Login an registry.howispulse.com nach 5 Versuchen fehlgeschlagen."
+          exit 1
 
       # KEIN continue-on-error mehr (2026-07-27). Vorher wurde ein Spiegel-
       # Fehler doppelt verschluckt — `continue-on-error` plus `|| exit 0` —, der
