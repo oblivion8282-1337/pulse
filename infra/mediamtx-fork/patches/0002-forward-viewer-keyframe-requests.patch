@@ -1,0 +1,279 @@
+# Let a viewer's key frame request reach the publisher, and make the
+# unconditional key frame clock switchable.
+#
+# The problem, measured on a real line (2026-07-28):
+#
+# MediaMTX asks every WebRTC publisher for a key frame every two seconds,
+# from a hardwired ticker (inbound_track.go), whether anybody needs one or
+# not. For an encoder running intra refresh — where the refresh is spread
+# across many frames instead of arriving as one big key frame — that clock
+# puts the bursts straight back in: roughly one arrival gap per second at
+# the viewer, against 0.2 with the clock effectively disabled.
+#
+# Turning the clock off alone is not a fix, it is a worse bug. A viewer
+# that loses a packet can only re-sync at a key frame, and it does ask for
+# one — but the request died in outbound_track.go, where incoming RTCP was
+# unmarshalled and thrown away. Observed consequence: after nine lost
+# packets the picture froze permanently while data kept arriving, until
+# the peer connection gave up.
+#
+# So this patch builds the missing return path and only then makes the
+# clock optional:
+#
+# 1. stream.Stream gains SetOnKeyFrameRequest/RequestKeyFrame. The Stream
+#    is the one object publisher and readers already share, so it is the
+#    natural bridge; Path is too thin (Name/SafeConf/Remove*) and there is
+#    no other channel between the two sessions.
+# 2. outbound_track.go inspects the RTCP it already reads and forwards
+#    PictureLossIndication / FullIntraRequest to PeerConnection.OnKeyFrameRequest.
+# 3. peer_connection.go carries that callback and gains RequestKeyFrame(),
+#    which pokes its inbound video tracks.
+# 4. inbound_track.go gains a throttled RequestKeyFrame() (at most one per
+#    300 ms, so a hundred viewers on a lossy minute cost one key frame, not
+#    a hundred) and reads the ticker period from PULSE_KEYFRAME_INTERVAL.
+#    Unset keeps upstream's 2s behaviour, "0"/"off" disables the ticker.
+# 5. servers/webrtc/session.go wires both ends: the publishing session
+#    registers its connection as the path's key frame handler and clears it
+#    on the way out; the reading session points its connection at the
+#    stream's request method.
+#
+# Why an environment variable rather than a config key: it keeps the patch
+# off conf schema, validation and docs, which are the parts most likely to
+# conflict on the next upstream bump. An unconfigured deployment behaves
+# exactly like upstream.
+#
+# When to drop this fork: as soon as upstream forwards receiver PLIs to
+# publishers and lets the key frame interval be configured. Both are
+# reasonable upstream features; this patch is the shape we would propose.
+#
+diff --git a/internal/protocols/webrtc/inbound_track.go b/internal/protocols/webrtc/inbound_track.go
+index e6ae29d..6014b80 100644
+--- a/internal/protocols/webrtc/inbound_track.go
++++ b/internal/protocols/webrtc/inbound_track.go
+@@ -1,6 +1,8 @@
+ package webrtc
+ 
+ import (
++	"os"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/bluenviron/gortsplib/v5/pkg/rtpreceiver"
+@@ -16,8 +18,43 @@ const (
+ 	keyFrameInterval  = 2 * time.Second
+ 	mimeTypeMultiopus = "audio/multiopus"
+ 	mimeTypeL16       = "audio/L16"
++
++	// Pulse: floor between two key frame requests caused by readers. Every
++	// reader that loses sync asks, so without this a hundred viewers on a
++	// lossy minute would ask a hundred times and the publisher would answer
++	// with a hundred key frames — exactly the burst we are removing.
++	keyFrameRequestMinInterval = 300 * time.Millisecond
+ )
+ 
++// pulseKeyFrameInterval returns the period of the unconditional key frame
++// ticker. Zero means "no ticker": ask only when a reader actually needs one.
++//
++// Why this is switchable at all: upstream asks the publisher for a key frame
++// every two seconds no matter what. For an encoder running intra refresh
++// (where the refresh is spread across many frames instead of arriving as one
++// big key frame) that clock puts the bursts right back in — measured as
++// roughly one arrival gap per second on a real line. With the ticker off and
++// requests forwarded from readers, the stream stays smooth AND recovers,
++// because a reader that loses sync says so.
++//
++// Read from the environment rather than the config file so the patch does not
++// have to touch conf schema, docs and validation. Unset keeps upstream
++// behaviour, so an un-configured deployment is unchanged.
++func pulseKeyFrameInterval() time.Duration {
++	v, ok := os.LookupEnv("PULSE_KEYFRAME_INTERVAL")
++	if !ok {
++		return keyFrameInterval
++	}
++	if v == "0" || v == "off" {
++		return 0
++	}
++	d, err := time.ParseDuration(v)
++	if err != nil || d < 0 {
++		return keyFrameInterval
++	}
++	return d
++}
++
+ func inboundTrackTWCCExtensionID(params webrtc.RTPParameters) uint8 {
+ 	for _, ext := range params.HeaderExtensions {
+ 		if ext.URI == twccExtensionURI {
+@@ -256,6 +293,33 @@ type InboundTrack struct {
+ 	twccExtID             uint8
+ 	inboundRTPPacketsLost *counterdumper.Dumper
+ 	rtpReceiver           *rtpreceiver.Receiver
++
++	// Pulse: throttle for reader-driven key frame requests.
++	keyFrameMutex sync.Mutex
++	lastKeyFrame  time.Time
++}
++
++// RequestKeyFrame asks the publisher for a key frame right now (Pulse).
++// Throttled, and a no-op on audio tracks.
++func (t *InboundTrack) RequestKeyFrame() {
++	if t.track.Kind() != webrtc.RTPCodecTypeVideo {
++		return
++	}
++
++	t.keyFrameMutex.Lock()
++	now := time.Now()
++	if !t.lastKeyFrame.IsZero() && now.Sub(t.lastKeyFrame) < keyFrameRequestMinInterval {
++		t.keyFrameMutex.Unlock()
++		return
++	}
++	t.lastKeyFrame = now
++	t.keyFrameMutex.Unlock()
++
++	t.writeRTCP([]rtcp.Packet{ //nolint:errcheck
++		&rtcp.PictureLossIndication{
++			MediaSSRC: uint32(t.track.SSRC()),
++		},
++	})
+ }
+ 
+ func (t *InboundTrack) initialize() {
+@@ -346,9 +410,12 @@ func (t *InboundTrack) start() {
+ 	}()
+ 
+ 	// send period key frame requests
+-	if t.track.Kind() == webrtc.RTPCodecTypeVideo {
++	// Pulse: the period is configurable and zero switches the ticker off
++	// entirely — then key frames are only requested when a reader asks
++	// (see RequestKeyFrame).
++	if interval := pulseKeyFrameInterval(); interval > 0 && t.track.Kind() == webrtc.RTPCodecTypeVideo {
+ 		go func() {
+-			keyframeTicker := time.NewTicker(keyFrameInterval)
++			keyframeTicker := time.NewTicker(interval)
+ 			defer keyframeTicker.Stop()
+ 
+ 			for range keyframeTicker.C {
+diff --git a/internal/protocols/webrtc/outbound_track.go b/internal/protocols/webrtc/outbound_track.go
+index 4ed30f8..ad2282c 100644
+--- a/internal/protocols/webrtc/outbound_track.go
++++ b/internal/protocols/webrtc/outbound_track.go
+@@ -67,10 +67,23 @@ func (t *OutboundTrack) setup(p *PeerConnection) error {
+ 				return
+ 			}
+ 
+-			_, err2 = rtcp.Unmarshal(buf[:n])
++			pkts, err2 := rtcp.Unmarshal(buf[:n])
+ 			if err2 != nil {
+ 				panic(err2)
+ 			}
++
++			// Pulse: a reader that lost sync asks for a key frame here.
++			// Upstream discards these packets, so the request died at this
++			// line and the reader stayed frozen forever whenever the
++			// publisher was not emitting periodic key frames. Hand it on.
++			if p.OnKeyFrameRequest != nil && t.isVideo() {
++				for _, pkt := range pkts {
++					switch pkt.(type) {
++					case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
++						p.OnKeyFrameRequest()
++					}
++				}
++			}
+ 		}
+ 	}()
+ 
+diff --git a/internal/protocols/webrtc/peer_connection.go b/internal/protocols/webrtc/peer_connection.go
+index 98ea2bd..6ff505f 100644
+--- a/internal/protocols/webrtc/peer_connection.go
++++ b/internal/protocols/webrtc/peer_connection.go
+@@ -166,6 +166,11 @@ type PeerConnection struct {
+ 	OutboundDataChannels  []*OutboundDataChannel
+ 	Log                   logger.Writer
+ 
++	// OnKeyFrameRequest is called when a reader on this connection asks for a
++	// key frame (Pulse). Set on reading connections; the server forwards it to
++	// the publisher of the same path.
++	OnKeyFrameRequest func()
++
+ 	wr               *webrtc.PeerConnection
+ 	ctx              context.Context
+ 	ctxCancel        context.CancelFunc
+@@ -894,6 +899,15 @@ func (co *PeerConnection) InboundTracks() []*InboundTrack {
+ 	return co.inboundTracks
+ }
+ 
++// RequestKeyFrame asks the publisher on this connection for a key frame (Pulse).
++// Called on publishing connections when a reader of the same path lost sync.
++// The tracks throttle, so a burst of requests costs at most one key frame.
++func (co *PeerConnection) RequestKeyFrame() {
++	for _, track := range co.inboundTracks {
++		track.RequestKeyFrame()
++	}
++}
++
+ // StartReading starts reading incoming tracks.
+ func (co *PeerConnection) StartReading() {
+ 	select {
+diff --git a/internal/servers/webrtc/session.go b/internal/servers/webrtc/session.go
+index bcd285f..816aa9d 100644
+--- a/internal/servers/webrtc/session.go
++++ b/internal/servers/webrtc/session.go
+@@ -466,6 +466,11 @@ func (s *session) runPublish(req *initialRequestReq) (int, error) {
+ 
+ 	subStream = res2.SubStream
+ 
++	// Pulse: readers of this path can now ask us for a key frame. Cleared on
++	// the way out so a later reader does not poke a dead connection.
++	subStream.Stream.SetOnKeyFrameRequest(pc.RequestKeyFrame)
++	defer subStream.Stream.SetOnKeyFrameRequest(nil)
++
+ 	pc.StartReading()
+ 
+ 	select {
+@@ -522,6 +527,9 @@ func (s *session) runRead(req *initialRequestReq) (int, error) {
+ 		STUNGatherTimeout:     time.Duration(s.stunGatherTimeout),
+ 		Publish:               true,
+ 		Log:                   s,
++		// Pulse: when this reader loses sync it asks for a key frame; pass the
++		// request through to whoever publishes this path.
++		OnKeyFrameRequest: res.Stream.RequestKeyFrame,
+ 	}
+ 
+ 	r := &stream.Reader{Parent: s}
+diff --git a/internal/stream/stream.go b/internal/stream/stream.go
+index d9a6253..7895c0e 100644
+--- a/internal/stream/stream.go
++++ b/internal/stream/stream.go
+@@ -284,6 +284,33 @@ type Stream struct {
+ 	lastSystemTime    time.Time
+ 
+ 	hasReaders chan struct{}
++
++	// Pulse: bridge from readers to the publisher for key frame requests.
++	// A reader that lost sync can only recover at a key frame, but only the
++	// publisher can produce one. The Stream is the single object both sides
++	// already share, so it carries the request across.
++	keyFrameMutex     sync.Mutex
++	onKeyFrameRequest func()
++}
++
++// SetOnKeyFrameRequest registers the publisher's key frame handler (Pulse).
++// Passing nil clears it, which readers then treat as "nobody can help".
++func (s *Stream) SetOnKeyFrameRequest(cb func()) {
++	s.keyFrameMutex.Lock()
++	defer s.keyFrameMutex.Unlock()
++	s.onKeyFrameRequest = cb
++}
++
++// RequestKeyFrame asks the publisher for a key frame (Pulse).
++// Safe to call from any reader at any time; a stream without a publisher that
++// can honour the request simply ignores it.
++func (s *Stream) RequestKeyFrame() {
++	s.keyFrameMutex.Lock()
++	cb := s.onKeyFrameRequest
++	s.keyFrameMutex.Unlock()
++	if cb != nil {
++		cb()
++	}
+ }
+ 
+ // Initialize initializes a Stream.
