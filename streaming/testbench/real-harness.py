@@ -87,7 +87,7 @@ def main() -> int:
                     help="Ende-zu-Ende messen: Zeitmuster anzeigen und im Player zurücklesen")
     ap.add_argument("--keyframe-on-gap", action="store_true",
                     help="bei jeder gemeldeten Luecke ein Vollbild anfordern — bildet den Rueckkanal nach, den es noch nicht gibt")
-    ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt"],
+    ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt", "whip"],
                     help="Transportweg zum lokalen MediaMTX (srt nur mit --codec h264)")
     ap.add_argument("--label", default="")
     args = ap.parse_args()
@@ -163,6 +163,11 @@ def main() -> int:
     # es nicht) — `--proto srt` ist also nur mit `--codec h264` sinnvoll.
     if args.proto == "srt":
         push = f"srt://localhost:8890?streamid=publish:{path}:pulse:{pub}&pkt_size=1316"
+    elif args.proto == "whip":
+        # Eigener WebRTC-Sendeweg des Sidecars — der einzige, auf dem eine
+        # Vollbild-Anforderung des Zuschauers den Encoder erreicht. Ton laeuft
+        # dort noch nicht (Scheibe 1), der Sender meldet das und sendet weiter.
+        push = f"http://localhost:8889/{path}/whip?token={pub}"
     else:
         push = f"rtmps://localhost:1936/{path}?token={pub}"
     print(f"[{tag}] Pfad {path}")

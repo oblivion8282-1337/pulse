@@ -24,3 +24,4 @@ rec-*.mkv
 
 # Paketmitschnitt des PLI-Tests (mehrere MB je Lauf)
 /pli.pcap
+/wpli.pcap

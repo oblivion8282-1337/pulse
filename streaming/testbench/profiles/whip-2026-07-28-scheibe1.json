@@ -1,0 +1,36 @@
+{
+ "id": "whip-2026-07-28-scheibe1",
+ "gemessen_am": "2026-07-28 (Nachmittag)",
+ "frage": "Traegt ein eigener WebRTC-Sendeweg — und erreicht die Vollbild-Anforderung damit den Encoder?",
+
+ "was_gebaut_wurde": "`whip.rs` im Linux-Sidecar: WHIP-Handschlag (Angebot, Kandidaten sammeln, ein POST, Antwort setzen), ein Video-Track zum Fuettern, und ein Faden, der das zurueckkommende RTCP liest und bei PLI/FIR `encode::request_keyframe()` ruft. Dazu die Verdrahtung in die Encode-Pipeline: `open_encoder` herausgeloest (beide Wege teilen sich denselben Encoder-Aufbau), `Ausgabe`-Unterscheidung zwischen Muxer und WHIP. Ton laeuft auf diesem Weg noch nicht.",
+
+ "ergebnis_bei_realistischem_verlust": {
+  "vorgabe": "0,2 % Verlust nur auf dem Medienweg, H.264 8 bit, 60 fps, 4000 kbps, ohne Ton auf BEIDEN Seiten (Kontrolle, s.u.), 18-20 s je Lauf",
+  "alter_weg_rtmps": {"stillstaende": [9, 3, 6], "fps_median": [0, 31, 21]},
+  "neuer_weg_whip": {"stillstaende": [0, 1, 0], "fps_median": [60, 10, 21], "e2e_ms": [47.4, 48.1, 47.7]},
+  "aussage": "Sekunden ganz ohne Bild gehen von 3-9 auf 0-1. Die Bildrate bleibt schwankend (10 bis 60) — das Bild ist also da, aber nicht durchgehend fluessig."
+ },
+
+ "die_kontrolle_die_noetig_war": "Der erste Vergleich war unsauber: die WHIP-Laeufe hatten keinen Ton (Scheibe 1 kann noch keinen), die RTMPS-Vergleichslaeufe schon. Das ist ein Unterschied, der nicht der neuen Sache zugeschrieben werden darf. Mit `--audio Aus` auf beiden Seiten nachgemessen — die Verbesserung bleibt.",
+
+ "latenz": "47,4 bis 48,1 ms gegen 48,7 ms auf dem RTMPS-Weg, also praktisch gleich. Der erwartete Gewinn (der Sendeweg kostet ueber eine echte Leitung das 2,4-fache seiner Laufzeit) kann hier NICHT sichtbar werden: auf der Schleife gibt es keine Laufzeit, an der sich das zeigen wuerde. Der Vergleich gehoert ueber die echte Leitung wiederholt.",
+
+ "ein_eigener_fehler_unterwegs": {
+  "symptom": "Der Sender meldete bei JEDEM Verlustgrad — 0,2 %, 0,5 %, 3 %, 8 % — genau EINE Vollbild-Anforderung. Das sah aus, als wuerde MediaMTX nichts weiterreichen.",
+  "wie_gefunden": "Paketmitschnitt auf der Schleife statt Schlussfolgerung aus dem Verhalten: `52378 -> 8189 PLI 61` (der Player fordert an), `8189 -> 38603 PLI 10` (MediaMTX gibt weiter an unseren Sender). Zehn kamen an, gezaehlt wurde eine.",
+  "ursache": "`while let Ok(..) = sender.read_rtcp().await` — ein einziger Lesefehler verliess die Schleife fuer immer. Behoben: Fehler werden gezaehlt, erst nach fuenf am Stueck endet der Faden.",
+  "zweiter_fehler_daneben": "Die Meldung selbst log nur die erste und dann jede zwanzigste Anforderung — damit sahen 1 und 19 identisch aus, und genau diese Unterscheidung war die Frage. Jetzt wird jede gemeldet.",
+  "lehre": "Beide Male haette die Schlussfolgerung 'der Server macht es nicht' auf der Hand gelegen. Beide Male lag es bei uns. Auf die Leitung sehen, nicht auf das Verhalten schliessen."
+ },
+
+ "was_NICHT_verstanden_ist": {
+  "die_zahl_11": "Nach der Behebung kommen 11 Anforderungen je 18-Sekunden-Lauf an — bei 0,2 % Verlust GENAUSO wie bei 3 %. Eine verlustgetriebene Groesse waere das nicht; das sieht nach einer festen Taktung aus (18/11 = rund 1,6 s). Vermutlich fordert MediaMTX fuer seinen automatisch gestarteten HLS-Muxer periodisch an, und die 61 Anforderungen des Players werden NICHT durchgereicht.",
+  "folge": "Die gemessene Verbesserung ist real und reproduzierbar, ihre Ursache aber NICHT sauber zugeordnet. Sie koennte ebensogut daran liegen, dass der WHIP-Weg die Pakete anders taktet als der Umweg ueber FLV und dessen Zerlegung in RTP.",
+  "wie_zu_klaeren": "Die periodische Quelle abschalten (HLS in MediaMTX aus) und erneut messen. Bleiben dann null Anforderungen und die Verbesserung trotzdem, liegt es am Transport; verschwindet sie, an den Anforderungen."
+ },
+
+ "bei_3_prozent_hilft_es_nicht": "9 von 15 Sekunden ohne Bild, Bildrate 0 — wie auf dem alten Weg. Passt zu allem bisher Gemessenen: ab dieser Groessenordnung werden die angeforderten Vollbilder selbst zerschossen.",
+
+ "offen_fuer_scheibe_2": "AV1 geht ueber diesen Weg noch nicht — der `Av1Payloader` von `rtp` 0.17.2 schreibt Laengenfelder ab 128 falsch. Eigener Paketierer noetig. Ausserdem fehlt der Ton."
+}
