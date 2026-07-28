@@ -21,3 +21,6 @@ rec-*.mkv
 /vergleich-*.json
 /netz-ergebnisse.json
 /chrome-profil/
+
+# Paketmitschnitt des PLI-Tests (mehrere MB je Lauf)
+/pli.pcap
