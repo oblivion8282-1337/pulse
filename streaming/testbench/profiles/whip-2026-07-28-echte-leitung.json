@@ -22,5 +22,9 @@
 
  "was_daraus_folgt": "Der eigene Sendeweg lohnt auch fuer normale Zuschauer, nicht nur fuer die Fernsteuerung. Damit sind die naechsten Scheiben begruendet: ein eigener AV1-Paketierer (AV1 ist die Vorgabe, und der von `webrtc-rs` schreibt Laengenfelder ab 128 falsch) und der Ton als zweite Spur. Ohne beides bleibt der Weg ein Beweis und wird kein Feature.",
 
- "einschraenkung": "Drei Laeufe je Weg. Fuer die Richtung reicht das deutlich — der Unterschied von 12,4 ms ist ein Vielfaches der Streuung von 1,0 bzw. 6,0. Fuer eine Nachkommastelle nicht."
+ "einschraenkung": "Drei Laeufe je Weg. Fuer die Richtung reicht das deutlich — der Unterschied von 12,4 ms ist ein Vielfaches der Streuung von 1,0 bzw. 6,0. Fuer eine Nachkommastelle nicht.",
+
+ "RICHTIGGESTELLT_AM_2026_07_28_ABEND": "Der Satz darueber stimmt nicht. Der alte Weg hat zwei Zustaende (rund 100 und rund 119 ms), und diese drei Laeufe fielen alle in den langsamen — die Streuung von 6,0 ms war die INNERHALB eines Zustands, nicht die gesamte. Die 12,4 ms sind damit kein Vorsprung des neuen Wegs, sondern der Abstand zum schlechteren der beiden Zustaende. Ohne Ton ist der neue Weg gegen den schnellen Zustand rund 4 ms langsamer. Mit Ton — dem Fall, den es beim Zuschauer gibt — bleiben 5,4 ms Vorsprung. Voll belegt samt Ursache der zwei Zustaende in `whip-2026-07-28-mit-ton.json`.",
+
+ "auch_richtiggestellt": "Der `nebenbefund_zum_ton` (Ton koste den alten Weg rund 25 ms) verglich zwei verschiedene Tage. In derselben Sitzung gemessen sind es 9,6 ms."
 }
