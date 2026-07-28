@@ -85,6 +85,8 @@ def main() -> int:
                     help="Video, das waehrend der Messung als Bildinhalt laeuft")
     ap.add_argument("--e2e", action="store_true",
                     help="Ende-zu-Ende messen: Zeitmuster anzeigen und im Player zurücklesen")
+    ap.add_argument("--keyframe-on-gap", action="store_true",
+                    help="bei jeder gemeldeten Luecke ein Vollbild anfordern — bildet den Rueckkanal nach, den es noch nicht gibt")
     ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt"],
                     help="Transportweg zum lokalen MediaMTX (srt nur mit --codec h264)")
     ap.add_argument("--label", default="")
@@ -211,11 +213,32 @@ def main() -> int:
                 return 1
             print(f"Aufnahme laeuft: {rr.get('path', rec_path)}")
         end = time.monotonic() + args.secs
+        naechste_probe = time.monotonic() + 1.0
+        letzte_anforderung = 0.0
+        letzte_drops = 0
+        # Fein abfragen, aber weiterhin nur eine Probe je Sekunde ablegen: die
+        # Vollbild-Anforderung muss kurz nach der Luecke kommen, nicht am Ende
+        # der Sekunde. Mit 1-Hz-Abfrage waere die gemessene Wirkung allein durch
+        # den Prueftakt gedaempft.
+        takt = 0.05 if args.keyframe_on_gap else 1.0
         while time.monotonic() < end:
-            time.sleep(1.0)
+            time.sleep(takt)
             s = player.call("stats", session=sid)
-            if s.get("ok"):
+            if not s.get("ok"):
+                continue
+            if args.keyframe_on_gap:
+                # `frames_dropped` zaehlt gemeldete Luecken. Steigt der Zaehler,
+                # hat der Zuschauer gerade den Anschluss verloren — genau dann
+                # wuerde ein echter Rueckkanal ein Vollbild anfordern.
+                drops = s.get("frames_dropped", 0)
+                jetzt = time.monotonic()
+                if drops > letzte_drops and jetzt - letzte_anforderung >= 0.2:
+                    letzte_anforderung = jetzt
+                    sender.call("keyframe", timeout=10)
+                letzte_drops = drops
+            if time.monotonic() >= naechste_probe:
                 samples.append(s)
+                naechste_probe += 1.0
     finally:
         gpu.__exit__()
         if player is not None:
