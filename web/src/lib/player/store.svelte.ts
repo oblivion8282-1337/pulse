@@ -51,6 +51,20 @@ export const playerSettings = $state({
    * Deshalb steht das Tor jetzt fuer jeden Codec und jede Bittiefe offen. Der
    * Schalter bleibt als Rueckweg — ein Schalter ohne Rueckweg ist eine
    * Festlegung, keine Einstellung.
+   *
+   * **Bedingung, die dazugehoert und beim Oeffnen NICHT gemessen war** (am
+   * 2026-07-28 nachgeholt, `verlust-2026-07-28-browser-gegen-nativ.json`): Die
+   * Ueberlegenheit gilt fuer eine SAUBERE Leitung. Unter 1 % Paketverlust dreht
+   * es sich um — der Browser verschlechtert sich gleichmaessig auf rund 85 ms,
+   * der native Weg wird unberechenbar (Mediane 369 / 38 / 190 ms ueber drei
+   * identische Laeufe, Ausschlag in jedem Lauf zwischen 366 und 539 ms). Grund:
+   * nach jeder Luecke wartet der Decoder auf den naechsten Einstiegspunkt, und
+   * der kommt nur alle zwei Sekunden; Chromium dekodiert stattdessen weiter.
+   *
+   * Heute ohne Folgen, weil `useNativePlayer` per Vorgabe aus ist und keine
+   * Oberflaeche hat. Aber: **als Vorgabe fuer Zuschauer taugt der native Weg
+   * nicht, solange das so ist.** Wer den Schalter je zur Vorgabe machen will,
+   * muss vorher das Verhalten bei Verlust loesen.
    */
   onlyTenBit: false,
   loaded: false,

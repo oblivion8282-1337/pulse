@@ -43,7 +43,7 @@ import sys
 import time
 from pathlib import Path
 
-from harness import HERE, Player
+from harness import HERE, Player, mint_tokens
 
 _spec = importlib.util.spec_from_file_location("fh", HERE / "fern-harness.py")
 _fh = importlib.util.module_from_spec(_spec)
@@ -101,6 +101,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--proben", type=int, default=10)
     ap.add_argument("--quelle-x", type=int, default=2560)
     ap.add_argument("--wiedergabe-x", type=int, default=0)
+    ap.add_argument("--lokal", action="store_true",
+                    help="gegen den lokalen MediaMTX statt gegen den entfernten Server — "
+                         "noetig, sobald eine Stoerung aufgelegt werden soll, denn nur dort "
+                         "laesst sich der Medienweg per tc filtern")
     ap.add_argument("--ohne-drosselung", action="store_true",
                     help="Chromiums Hintergrund-Drosselung abschalten")
     ap.add_argument("--label", default="bn")
@@ -126,10 +130,15 @@ def main() -> int:
         print("Muster startete nicht — siehe pattern-Log", file=sys.stderr)
         return 1
 
-    path, pub, rd = _fh.mint_remote()
-    whep = f"https://{_fh.HOST}/whep/{path}/whep?token={rd}"
-    push = _fh.push_url(path, pub, "rtmps", 120)
-    print(f"[{tag}] Pfad {path}")
+    if args.lokal:
+        path, pub, rd = mint_tokens()
+        whep = f"http://localhost:8889/{path}/whep?token={rd}"
+        push = f"rtmps://localhost:1936/{path}?token={pub}"
+    else:
+        path, pub, rd = _fh.mint_remote()
+        whep = f"https://{_fh.HOST}/whep/{path}/whep?token={rd}"
+        push = _fh.push_url(path, pub, "rtmps", 120)
+    print(f"[{tag}] Pfad {path}  ({'lokal' if args.lokal else _fh.HOST})")
 
     sender = _fh.Sidecar(send_log, {})
     browser = None
