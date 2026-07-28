@@ -85,6 +85,8 @@ def main() -> int:
                     help="Video, das waehrend der Messung als Bildinhalt laeuft")
     ap.add_argument("--e2e", action="store_true",
                     help="Ende-zu-Ende messen: Zeitmuster anzeigen und im Player zurücklesen")
+    ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt"],
+                    help="Transportweg zum lokalen MediaMTX (srt nur mit --codec h264)")
     ap.add_argument("--label", default="")
     args = ap.parse_args()
 
@@ -151,7 +153,16 @@ def main() -> int:
 
     path, pub, rd = mint_tokens()
     whep = f"http://localhost:8889/{path}/whep?token={rd}"
-    push = f"rtmps://localhost:1936/{path}?token={pub}"
+    # `--proto srt` wechselt den Transportweg, ohne sonst etwas zu aendern —
+    # gedacht als Einzelvariablen-Test. Am 2026-07-28 gebraucht, um den
+    # H.264-Latenzaufschlag zwischen FLV-Muxer und MediaMTX aufzuteilen:
+    # dieselbe Aufnahme, derselbe Encoder, nur RTMPS/FLV gegen SRT/MPEG-TS.
+    # ACHTUNG: MPEG-TS traegt kein AV1 (landet als `bin_data`, MediaMTX erkennt
+    # es nicht) — `--proto srt` ist also nur mit `--codec h264` sinnvoll.
+    if args.proto == "srt":
+        push = f"srt://localhost:8890?streamid=publish:{path}:pulse:{pub}&pkt_size=1316"
+    else:
+        push = f"rtmps://localhost:1936/{path}?token={pub}"
     print(f"[{tag}] Pfad {path}")
 
     sender = Sidecar(send_log, sender_env)
