@@ -1,0 +1,38 @@
+{
+ "id": "verlust-2026-07-28-keyframe-abstand",
+ "gemessen_am": "2026-07-28 (Vormittag)",
+ "frage": "Hilft ein kuerzerer Keyframe-Abstand gegen das Verlustverhalten des nativen Players?",
+ "antwort": "NEIN. Vierfach haeufigere Vollbilder bringen von 12 auf 9 Stillstaende je 19 Sekunden. Das Bild bleibt unbrauchbar.",
+
+ "warum_geprueft": "Es war der einzige Hebel, der dem Sender in dieser Kette bleibt: Nachlieferung gibt es nicht, und die Vollbild-Anforderung erreicht den Encoder ueber RTMP nicht (s. verlust-2026-07-28-erholung.json). Also der billigste Versuch zuerst.",
+
+ "aufbau": {
+  "schalter": "Neu im Linux-Sidecar: `PULSE_KEYFRAME_SECONDS` (Vorgabe 2,0 wie bisher). Vorher stand der Abstand fest im Code.",
+  "wirkung_belegt": "Wartezeit des Players auf den ersten Einstiegspunkt: 106 Einheiten bei 2,0 s, 15 bei 0,5 s. Der Schalter greift also — nachgewiesen, nicht angenommen.",
+  "messung": "netz-harness.py --profil verlust --echt --nur-empfang, 1 % Verlust nur auf dem Medienweg, 20 s, drei Wiederholungen je Abstand."
+ },
+
+ "ergebnisse": {
+  "stillstaende_je_19s_lauf": {
+   "2.0s": [15, 12, 9],
+   "1.0s": [10, 8, 13],
+   "0.5s": [8, 9, 9]
+  },
+  "bildrate": "0 bis 2 in ALLEN Laeufen, unabhaengig vom Abstand",
+  "verlorene_pakete": "87 bis 139 je Lauf — vergleichbar ueber alle Abstaende, die Stoerung war also gleich"
+ },
+
+ "warum_es_nicht_helfen_KANN": {
+  "rechnung": "Bei 4000 kbps und 1200 Byte je Paket sind es rund 417 Pakete je Sekunde. 1 % Verlust ergibt rund 4,2 Luecken je Sekunde. Ein Keyframe alle 2 s bietet 0,5 Erholungspunkte je Sekunde — auf jeden Erholungspunkt kommen also gut acht Luecken. Selbst bei 0,5 s sind es noch zwei.",
+  "schwelle": "Damit Vollbilder die Luecken ueberholen, muessten sie haeufiger kommen als 4,2 mal je Sekunde — also alle 240 ms oder oefter. Das ist praktisch jedes vierte bis siebte Bild ein Vollbild und zerstoert die Bildqualitaet, fuer die die Bitrate da ist.",
+  "schluss": "Der Hebel ist nicht zu klein, er ist der falsche. Solange der Player nach JEDER Luecke alles verwirft, gewinnt keine Keyframe-Rate, die man ernsthaft fahren will."
+ },
+
+ "was_das_fuer_die_loesung_heisst": {
+  "erledigt": "Von den drei Wegen aus Aufgabe 14 ist der zweite (kuerzerer Keyframe-Abstand) damit gemessen und ausgeschieden.",
+  "bleibt_1": "Weiterdekodieren statt warten, wie es Chromium tut. Das ist der Weg, der die Sache wirklich loesen wuerde — und genau der, der am 2026-07-28 den libnvcuvid-Segfault ausgeloest hat. Er braucht also einen Decoder, der fehlende Referenzen aushaelt (Software/libdav1d als Rueckfall bei erkanntem Verlust waere der naheliegende Versuch).",
+  "bleibt_2": "Ein Sendeweg, ueber den die Vollbild-Anforderung den Encoder erreicht (WHIP/direkt). Loest es vollstaendig — die Erholung dauert dann eine Umlaufzeit statt bis zum naechsten regulaeren Vollbild. Faellt fuer die Fernsteuerung ohnehin an."
+ },
+
+ "der_schalter_bleibt": "`PULSE_KEYFRAME_SECONDS` bleibt drin, Vorgabe unveraendert 2,0. Er kostet nichts, ist belegt wirksam, und der Abstand ist eine Groesse, die man bei anderen Fragen (Einstiegszeit eines neuen Zuschauers) ohnehin drehen will. Seine Kosten bei der Bildqualitaet sind NICHT gemessen — das waere erst noetig, wenn die Vorgabe sich aendern soll. Da sie das nach dieser Messung nicht tut, bleibt es offen."
+}
