@@ -292,6 +292,11 @@ pub struct VideoDecoder {
     skipped_before_keyframe: u64,
     /// Bis wann das Bild nach einer Luecke als unsauber gilt (s. [`on_gap`]).
     unsauber_bis: Option<std::time::Instant>,
+    /// Wie viele Vollbilder bisher ankamen, und wann das letzte kam —
+    /// gemeldet, weil der Abstand verraet, ob sich zwei Keyframe-Quellen
+    /// ueberlagern (Sender-Takt plus Server-Uhr).
+    keyframes: u64,
+    letztes_keyframe: Option<std::time::Instant>,
     /// Vorrat fuer die Ebenen-Puffer (s. [`PlanePool`]). Ueberlebt den
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
@@ -325,6 +330,8 @@ impl VideoDecoder {
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
                         unsauber_bis: None,
+                        keyframes: 0,
+                        letztes_keyframe: None,
                         plane_pool: PlanePool::default(),
                     });
                 }
@@ -382,8 +389,24 @@ impl VideoDecoder {
         // Vollbild WIRKLICH da ist — nicht nach einer geschaetzten Zeit. Der
         // Zeitdeckel in `on_gap` bleibt nur als Notausgang, damit ein
         // ausbleibendes Vollbild das Bild nicht fuer immer sperrt.
-        if self.unsauber_bis.is_some() && crate::recorder::is_keyframe(self.codec, data) {
+        if crate::recorder::is_keyframe(self.codec, data) {
             self.unsauber_bis = None;
+            // Abstand der ankommenden Vollbilder melden. Beantwortet zwei
+            // Fragen, die man sonst nur raten kann: ob der Sender ueberhaupt
+            // welche schickt, und ob sich ZWEI Quellen ueberlagern — der
+            // eigene Takt des Senders und die Uhr im Server erzeugen sonst
+            // unbemerkt doppelt so viele Stoesse wie noetig.
+            let jetzt = std::time::Instant::now();
+            self.keyframes += 1;
+            let abstand = self
+                .letztes_keyframe
+                .map(|t: std::time::Instant| format!("{:.0} ms", jetzt.duration_since(t).as_millis()))
+                .unwrap_or_else(|| "erstes".to_string());
+            self.letztes_keyframe = Some(jetzt);
+            eprintln!(
+                "pulse-player: Vollbild #{} empfangen, Abstand {abstand}",
+                self.keyframes
+            );
         }
         if self.awaiting_keyframe {
             if !crate::recorder::is_keyframe(self.codec, data) {
