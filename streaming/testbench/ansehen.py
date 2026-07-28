@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -46,23 +47,59 @@ def main() -> int:
     # schlaegt.
     ap.add_argument("--lokal", action="store_true",
                     help="ueber den lokalen MediaMTX statt ueber den Testserver")
+    # Auffangnetz: ein zweiter, winziger Strom, in dem JEDES Bild ein Vollbild
+    # ist. Der Player zeigt ihn, solange der Hauptstrom nichts liefert.
+    #
+    # Hier erzeugt ihn ffmpeg mit einem Testbild statt der Bildschirmaufnahme —
+    # absichtlich: Erstens braeuchte eine zweite Aufnahme einen zweiten
+    # Portal-Zugriff (im Produkt speist EIN Zugriff beide Encoder, das ist der
+    # Umbau im Sidecar). Zweitens ist ein deutlich anderes Bild fuer den Test
+    # das bessere Werkzeug — man sieht auf den Millimeter genau, wann
+    # umgeschaltet wird.
+    ap.add_argument("--netz", action="store_true",
+                    help="Auffangnetz mitlaufen lassen (ffmpeg-Testbild, alles Vollbilder)")
     args = ap.parse_args()
 
-    if args.lokal:
-        path, pub, rd = mint_tokens()
-        whep = f"http://localhost:8889/{path}/whep?token={rd}"
-        push = (f"http://localhost:8889/{path}/whip?token={pub}" if args.proto == "whip"
-                else f"rtmps://localhost:1936/{path}?token={pub}")
-    else:
-        path, pub, rd = _fern.mint_remote()
-        whep = f"https://{_fern.HOST}/whep/{path}/whep?token={rd}"
-        push = _fern.push_url(path, pub, args.proto, 120)
+    def _adressen(proto: str) -> tuple[str, str, str]:
+        """(whep, push, publish-token) fuer einen frischen Pfad."""
+        if args.lokal:
+            p, pub_, rd_ = mint_tokens()
+            whep_ = f"http://localhost:8889/{p}/whep?token={rd_}"
+            push_ = (f"http://localhost:8889/{p}/whip?token={pub_}" if proto == "whip"
+                     else f"rtmps://localhost:1936/{p}?token={pub_}")
+        else:
+            p, pub_, rd_ = _fern.mint_remote()
+            whep_ = f"https://{_fern.HOST}/whep/{p}/whep?token={rd_}"
+            push_ = _fern.push_url(p, pub_, proto, 120)
+        return whep_, push_, pub_
+
+    whep, push, pub = _adressen(args.proto)
+    netz_whep = netz_push = None
+    if args.netz:
+        # RTMPS auch dann, wenn der Hauptstrom per WHIP geht: ffmpeg soll hier
+        # nichts weiter beweisen als "es kommt ein Bild an".
+        netz_whep, netz_push, _ = _adressen("rtmps")
 
     sender = Sidecar(open(HERE / "ansehen-sender.log", "w"))
     player = None
+    netz = None
     try:
         if not sender_starten(sender, args, pub, push):
             return 1
+        if netz_push:
+            netz = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-re",
+                 "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=10",
+                 "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+                 # -g 1: JEDES Bild ein Vollbild. Das ist der ganze Witz des
+                 # Netzes — es gibt keinen Einstiegspunkt, auf den man warten
+                 # muesste, jedes ankommende Bild ist einer.
+                 "-g", "1", "-b:v", "600k", "-pix_fmt", "yuv420p",
+                 "-f", "flv", "-tls_verify", "0", netz_push],
+                stdout=open(HERE / "ansehen-netz.log", "w"),
+                stderr=subprocess.STDOUT,
+            )
+            print("Auffangnetz laeuft (640x360, 10 fps, nur Vollbilder)")
         print(f"Sender laeuft ({args.proto}, {args.codec} {args.bits} bit, "
               f"{args.fps} fps, {args.kbps} kbps) — warte auf den Server ...")
         time.sleep(5.0)
@@ -71,7 +108,8 @@ def main() -> int:
         # Stumm: der Ton des Fensters liefe sonst ueber die Desktop-Aufnahme
         # zurueck in den Strom — eine Rueckkopplung, die sich aufschaukelt.
         # Wer den Ton beurteilen will, nimmt `--audio Aus` und hoert direkt.
-        res = player.call("open", url=whep, title="Pulse", options={"volume": 0.0})
+        res = player.call("open", url=whep, title="Pulse", options={"volume": 0.0},
+                          **({"fallback_url": netz_whep} if netz_whep else {}))
         if not res.get("ok"):
             print(f"Player-Start fehlgeschlagen: {res}", file=sys.stderr)
             return 1
@@ -106,6 +144,12 @@ def main() -> int:
         if player:
             player.stop()
         sender.stop()
+        if netz:
+            netz.terminate()
+            try:
+                netz.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                netz.kill()
     return 0
 
 

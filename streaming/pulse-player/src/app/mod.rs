@@ -198,6 +198,16 @@ pub struct App {
     stdout: StdoutWriter,
 }
 
+/// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
+/// unterdrückt bleibt.
+///
+/// Grosszuegiger als ein Bildabstand: Bei 60 fps kaeme sonst schon eine
+/// einzelne verspaetete Ankunft als Umschaltung durch, und das Bild spraenge
+/// zwischen scharf und grob hin und her. 400 ms sind kurz genug, dass ein
+/// echter Aussetzer sofort aufgefangen wird, und lang genug, dass normales
+/// Zappeln nichts ausloest.
+const FALLBACK_GRACE: std::time::Duration = std::time::Duration::from_millis(400);
+
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>, runtime: tokio::runtime::Handle) -> Self {
         Self {
@@ -209,6 +219,78 @@ impl App {
             runtime,
             stdout: StdoutWriter::new(),
         }
+    }
+
+    /// Hauptstrom und Auffangnetz nebeneinander laufen lassen, in EIN Fenster.
+    ///
+    /// Beide Sitzungen melden unter derselben Kennung, also zeigt der Renderer
+    /// unverändert, was ihn erreicht. Die Auswahl passiert davor:
+    ///
+    /// * Der Hauptstrom geht durch, und jedes seiner Bilder stempelt die Uhr
+    ///   `zuletzt_haupt`.
+    /// * Vom Netz gehen NUR Bilder durch, und nur wenn diese Uhr älter ist als
+    ///   [`FALLBACK_GRACE`]. Seine Zustandsmeldungen werden verworfen: Ein
+    ///   `failed` des Netzes darf die Sitzung nicht beenden, und ein `playing`
+    ///   des Netzes darf nicht als "der Stream läuft" durchgehen.
+    ///
+    /// Endet der Hauptstrom, wird auch das Netz gestoppt — sonst liefe es
+    /// weiter und hielte ein Fenster am Leben, das niemand mehr füttert.
+    fn spawn_with_fallback(
+        &self,
+        url: String,
+        fallback_url: String,
+        options: PlayerOptions,
+        ev_tx: mpsc::Sender<SessionEvent>,
+        cmd_rx: mpsc::Receiver<SessionCommand>,
+    ) {
+        let zuletzt_haupt = Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
+
+        let (haupt_tx, mut haupt_rx) = mpsc::channel::<SessionEvent>(8);
+        let (netz_tx, mut netz_rx) = mpsc::channel::<SessionEvent>(8);
+        let (netz_cmd_tx, netz_cmd_rx) = mpsc::channel::<SessionCommand>(4);
+
+        // Hauptstrom: unverändert durchreichen, Bilder stempeln.
+        let uhr = zuletzt_haupt.clone();
+        let weiter = ev_tx.clone();
+        self.runtime.spawn(async move {
+            while let Some(event) = haupt_rx.recv().await {
+                if matches!(event, SessionEvent::Frame(_)) {
+                    *uhr.lock().unwrap() = Some(std::time::Instant::now());
+                } else if matches!(event, SessionEvent::Ended { .. }) {
+                    let _ = netz_cmd_tx.send(SessionCommand::Stop).await;
+                }
+                if weiter.send(event).await.is_err() {
+                    break;
+                }
+            }
+            // Fenster zu oder Sitzung vorbei: das Netz mit beenden.
+            let _ = netz_cmd_tx.send(SessionCommand::Stop).await;
+        });
+
+        // Netz: nur Bilder, nur wenn der Hauptstrom gerade nichts liefert.
+        let uhr = zuletzt_haupt.clone();
+        self.runtime.spawn(async move {
+            while let Some(event) = netz_rx.recv().await {
+                let SessionEvent::Frame(_) = event else { continue };
+                let frisch = uhr
+                    .lock()
+                    .unwrap()
+                    .is_some_and(|t| t.elapsed() < FALLBACK_GRACE);
+                if frisch {
+                    continue;
+                }
+                if ev_tx.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let netz_opts = options.clone();
+        self.runtime
+            .spawn(async move { session::run(url, vec![], options, haupt_tx, cmd_rx).await });
+        self.runtime.spawn(async move {
+            session::run(fallback_url, vec![], netz_opts, netz_tx, netz_cmd_rx).await
+        });
     }
 
     fn open(&mut self, req: Request, event_loop: &ActiveEventLoop) -> Result<u64> {
@@ -285,8 +367,19 @@ impl App {
             }
         });
         let opts = options.clone();
-        self.runtime
-            .spawn(async move { session::run(url, vec![], opts, ev_tx, cmd_rx).await });
+        match req.fallback_url.clone() {
+            None => {
+                self.runtime
+                    .spawn(async move { session::run(url, vec![], opts, ev_tx, cmd_rx).await });
+            }
+            Some(fallback) => {
+                // Zwei Sitzungen, EIN Fenster: beide melden unter derselben
+                // Kennung, deshalb landet ihr Bild in derselben Anzeige. Was
+                // gezeigt wird, entscheidet der Filter unten — nicht der
+                // Renderer, der davon nichts wissen muss.
+                self.spawn_with_fallback(url, fallback, opts, ev_tx, cmd_rx);
+            }
+        }
 
         self.by_window.insert(window.id(), id);
         self.sessions.insert(

@@ -21,6 +21,19 @@ pub struct Request {
     /// WHEP-URL inklusive `?token=` (wird unveraendert durchgereicht).
     #[serde(default)]
     pub url: Option<String>,
+    /// Auffangnetz: ein zweiter, sehr kleiner Strom, in dem JEDES Bild ein
+    /// Vollbild ist. Er wird im selben Fenster gezeigt, solange der Hauptstrom
+    /// kein Bild liefert — beim Beitritt und nach Paketverlust.
+    ///
+    /// Warum das gebraucht wird: Im Intra-Refresh-Betrieb hat der Hauptstrom
+    /// keine Vollbilder mehr. Wer einsteigt oder den Faden verliert, muss
+    /// einen vollen Auffrisch-Durchlauf (~2 s) abwarten, bis sein Bild wieder
+    /// stimmt — und saehe in dieser Zeit Schwarz oder Muell. Ein
+    /// angefordertes Vollbild wuerde das abkuerzen, ginge aber an ALLE
+    /// Zuschauer und stoert jeden, der gerade zuschaut. Das Netz laesst die
+    /// Kosten beim Verursacher.
+    #[serde(default)]
+    pub fallback_url: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
     /// Index aus `list_monitors`; ohne Angabe entscheidet der Compositor.
