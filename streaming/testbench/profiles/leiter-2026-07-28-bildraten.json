@@ -1,0 +1,45 @@
+{
+ "id": "leiter-2026-07-28-bildraten",
+ "gemessen_am": "2026-07-28 (Abend und Nacht)",
+ "frage": "Traegt der geloeste Sendeweg (WHIP + Intra-Refresh) ueber die GANZE Bildratenleiter — 25 bis 300 fps, fuer AV1 10 bit, AV1 8 bit und H.264?",
+ "stand": "Ja, ab 60 fps. Alle drei Varianten liegen von 60 bis 300 fps bei 0,00-0,63 Ankunftsluecken je Sekunde; die meisten Laeufe sind exakt null. Die 25-fps-Zeile ist ein MESSARTEFAKT, kein Ruckeln (Begruendung unten). Der eigentliche Ertrag dieser Runde ist aber ein Werkzeugfehler, der die erste H.264-Leiter vollstaendig entwertet hatte.",
+
+ "aufbau": "streaming/testbench/ruckel-fern.py, echte Leitung zum Hetzner-Testserver. Je Bildrate zwei Laeufe a 30 s, nur WHIP. Bewegtbild (bewegt-<fps>.mkv) auf dem aufgenommenen Schirm, Zeitmuster fuer Ende-zu-Ende, Ton aus, kein Mitschnitt. 3000 kbps, 2560x1440, aufgenommen wird DP-2 (max_framerate 279 — auf einem 144-Hz-Schirm sind 240/300 fps physisch nicht aufnehmbar). Schalter: PULSE_WHIP_IGNORE_PLI=1, PULSE_ENCODER_OPTS=intra-refresh=1,forced-idr=1, PULSE_KEYFRAME_SECONDS=10, --keyframe-nach-open.",
+
+ "ergebnis_luecken_je_sekunde": {
+  "hinweis": "je Bildrate die beiden Laeufe; 'Luecken' = Ankunftsabstaende ueber 25 ms",
+  "av1_10bit": {"25": "24,57 / 24,37 (Artefakt)", "60": "0,07 / 0,57", "120": "0,00 / 0,07", "144": "0,03 / 0,00", "240": "0,00 / 0,00", "300": "0,00 / 0,00"},
+  "av1_8bit": {"25": "24,00 / 24,03 (Artefakt)", "60": "0,13 / 0,17", "120": "0,00 / 0,00", "144": "0,00 / 0,00", "240": "0,00 / 0,03", "300": "0,07 / 0,00"},
+  "h264_8bit": {"25": "24,23 / 23,60 (Artefakt)", "60": "0,63 / 0,17", "120": "0,00 / 0,00", "144": "0,03 / 0,00", "240": "0,00 / 0,00", "300": "0,03 / 0,00"}
+ },
+
+ "ergebnis_ende_zu_ende_ms": {
+  "hinweis": "Mittelwert je Lauf. NICHT ueber Codecs hinweg vergleichen — s. 'messfallen'.",
+  "av1_10bit": {"60": "78,1 / 78,1", "120": "77,1 / 78,6", "144": "nicht erfasst", "240": "76,9 / 81,6 (Kontrolllauf)", "300": "81,3 / 79,5"},
+  "av1_8bit": {"60": "77,1 / 76,6", "120": "75,7 / 75,8", "144": "75,9 / 75,3", "240": "81,6 / 83,6", "300": "1823 / 1832 — siehe offene Punkte"},
+  "h264_8bit": {"60": "91,4 / 88,5", "120": "81,4 / 106,1", "144": "80,2 / 79,4", "240": "79,6 / 102,0", "300": "110,5 / 79,8"}
+ },
+
+ "der_eigentliche_fund_ein_werkzeugfehler": {
+  "was_falsch_war": "Der Prüfstand meldete einen Sender als 'gestartet', sobald die Antwort auf `start` da war. Die kommt aber SOFORT: stream_controller.rs::start wirft nur einen Worker-Faden an, Portal-Verhandlung, Encoder-Aufbau und Push passieren danach. Zusaetzlich warf real-harness.py::Sidecar.call die Ereigniszeilen weg — genau die, in denen der Sender sagt, warum er aufhoert.",
+  "folge_1_falsche_messwerte": "Die erste H.264-Leiter (sechs Laeufe, 18:58-19:06) steht komplett als '0,0 Luecken/s' in den Messdateien, obwohl der Sender NIE ein Bild encodiert hat — er scheiterte jedes Mal an der Portal-Verhandlung. Ein Totalausfall lieferte also die BESTE denkbare Zahl. Aufgefallen ist es nur an einer unabhaengigen Groesse: nvidia-smi meldete enc = 0,0 % und der Sender gab keine NVENC-Eigenmeldung ab, waehrend jede AV1-Zeile beides hatte. Diese Dateien sind geloescht und durch echte Laeufe ersetzt (enc steigt jetzt sauber 2,2 % bei 25 fps auf 23,4 % bei 300 fps).",
+  "folge_2_der_dialog_ging_zu": "portal-grant.py wartete ebenfalls auf die Antwort, schlief dann zwei Sekunden und rief `stop`. Ein `stop` setzt im Sidecar das Abbruch-Flag der Portal-Verhandlung (capture/portal.rs) — der Dialog ging dem Nutzer nach zwei Sekunden zu, jedes Mal. Das sah drei Anlaeufe lang nach einem kaputten KDE-Portal aus (Fehlspur: 'Invalid screen', 'target not found' aus PipeWire — beides Folgen der abgeraeumten Session, nicht ihre Ursache). Die 15-Minuten-Frist des Werkzeugs hing am falschen Ereignis und war wirkungslos.",
+  "behoben": "Verbindlich ist jetzt der ZUSTAND `live`, nicht die Antwort: gemeinsam.py::sender_starten und portal-grant.py warten darauf und melden sonst einen Fehler. Sidecar hebt die Ereignisse auf (Feld `ereignisse`) und hat mit warte_auf_zustand() eine Frist, die auch bei voelliger Stille des Senders greift (eigener Lesefaden statt readline im Aufrufer)."
+ },
+
+ "messfallen": [
+  "Die 25-fps-Zeile misst nichts: die Lueckenschwelle ist fest 25 ms, der Bildabstand betraegt bei 25 fps aber 40 ms — jedes einzelne Bild zaehlt als Luecke. Daher ~24/s bei 'typisch 38-40 ms' in ALLEN drei Varianten. Kein Ruckeln, ein Schwellwert.",
+  "Die Ende-zu-Ende-Werte der drei Varianten sind NICHT untereinander vergleichbar: die AV1-Leitern liefen gegen 18:30-19:00, die H.264-Leiter gegen 21:00. Die Leitung schwankt ueber Minuten — deshalb misst ruckel-fern.py Sendewege sonst ABWECHSELND. Fuer eine belastbare Codec-Gegenueberstellung fehlt eine Serie mit abwechselnden Codecs.",
+  "'NVENC eigene Meldung fps' aus nvidia-smi ist ein Mittel ueber das ganze Messfenster inklusive Anlauf, keine Bildrate: bei 60 fps meldete es 38-43, waehrend der Sender selbst durchgehend 60-61 Bilder je Sekunde protokollierte. Als Lebendkontrolle taugt es (0 heisst wirklich nichts encodiert), als Ratenmessung nicht.",
+  "Der Pruefstand braucht den mediamtx-auth-hook auf :8005. Nach einer Neuanmeldung laufen nur die Container — der Push stirbt dann nach ~5 s mit 'Connection reset by peer', im MediaMTX-Log steht 'authentication failed ... connection refused'."
+ ],
+
+ "offene_punkte": [
+  "AV1 8 bit bei 300 fps: Ende zu Ende 1823/1832 ms bei 18 verlorenen Paketen — das ist der bekannte eigene Faden 'ab ~280 fps ist die AUFNAHME am Anschlag' (Compositor meldet max_framerate 279). Die Luecken sind dort trotzdem null; es staut, es ruckelt nicht. H.264 zeigt bei 300 fps nichts dergleichen (110,5 / 79,8 ms).",
+  "H.264 zeigt als einzige Variante Paketverlust: 51 verlorene und 30 verworfene Bilder im 120-fps-Lauf, kleinere Zahlen bei 144/240/300. Ob das am Codec-Pfad oder an der Leitung zu dieser Uhrzeit liegt, entscheidet erst eine abwechselnde Serie.",
+  "Der Ausreisser der alten Leiter (av110 bei 240 fps, 167,6/166,1 ms) ist NICHT reproduzierbar: Kontrolllauf derselben Einstellung 76,9 und 81,6 ms. Der Wert bleibt als Einzelfall stehen, taugt aber nicht als Aussage.",
+  "AV1 10 bit bei 144 fps hat keine Ende-zu-Ende-Werte (Lauf von 18:42, Zeitmuster nicht erfasst)."
+ ],
+
+ "dateien": "ruckel-leiter-{av110,av18,h2648}-<fps>.json, kontrolle-av110-240.json; Vorakte ruckeln-2026-07-28-geloest.json"
+}

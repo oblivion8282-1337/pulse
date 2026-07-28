@@ -37,8 +37,18 @@ def laden(datei: str):
     return modul
 
 
-def sender_starten(sender, args, token: str, push_url: str) -> bool:
-    """Den Sender mit den Werten aus ``args`` anwerfen; meldet, ob es geklappt hat.
+def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.0) -> bool:
+    """Den Sender anwerfen und warten, bis er WIRKLICH sendet.
+
+    Die Antwort auf ``start`` sagt nur, dass der Worker-Faden angeworfen wurde
+    (``stream_controller.rs::start`` spawnt und gibt sofort zurueck) — Portal,
+    Encoder und Push kommen alle erst danach. Wer hier nach ``res["ok"]``
+    zurueckkehrt, misst im Zweifel einen Sender, der nie ein Bild encodiert
+    hat, und schreibt „0,0 Luecken/s" in die Messdatei. Genau das ist am
+    2026-07-28 der ganzen H.264-Bildratenleiter passiert.
+
+    Deshalb ist ``live`` die Bedingung. ``warte_s`` gross setzen, wenn der
+    Portal-Dialog aufgehen soll (er blockt, bis der Nutzer klickt).
 
     Der Fehlerfall wird gemeldet statt geworfen, damit die Aufrufer ihre
     Aufraeum-Kette (``finally``) unveraendert behalten — dort haengt bei
@@ -52,7 +62,17 @@ def sender_starten(sender, args, token: str, push_url: str) -> bool:
         overrides={"codec": args.codec, "fps": args.fps,
                    "bitrate_kbps": args.kbps, "bit_depth": args.bits},
     )
-    if res.get("ok"):
-        return True
-    print(f"Sender-Start fehlgeschlagen: {res}", file=sys.stderr)
-    return False
+    if not res.get("ok"):
+        print(f"Sender-Start fehlgeschlagen: {res}", file=sys.stderr)
+        return False
+    zustand = sender.warte_auf_zustand({"live", "error", "stopped"}, timeout=warte_s)
+    if zustand is None:
+        print(f"Sender meldete binnen {warte_s:.0f} s keinen Zustand — "
+              f"steht der Portal-Dialog offen?", file=sys.stderr)
+        return False
+    if zustand.get("state") != "live":
+        grund = [e.get("message") for e in sender.ereignisse if e.get("ev") == "error"]
+        print(f"Sender ging nicht auf Sendung (state={zustand.get('state')})"
+              + (f": {grund[-1]}" if grund else ""), file=sys.stderr)
+        return False
+    return True

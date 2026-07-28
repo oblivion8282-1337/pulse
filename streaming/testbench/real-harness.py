@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -30,7 +32,16 @@ SIDECAR = Path(os.environ.get(
 
 
 class Sidecar:
-    """stdio-JSON-RPC wie der Player — gleiches Protokoll, andere Richtung."""
+    """stdio-JSON-RPC wie der Player — gleiches Protokoll, andere Richtung.
+
+    Die Ereignisse (``{"ev": …}``) werden AUFGEHOBEN, nicht weggeworfen. Sie
+    sind die einzige Stelle, an der der Sender sagt, warum er aufhoert: die
+    Antwort auf ``start`` kommt sofort und sagt nur, dass der Worker-Faden
+    angeworfen wurde (``stream_controller.rs::start`` spawnt und gibt zurueck).
+    Wer nur die Antwort auswertet, haelt jeden gescheiterten Lauf fuer gelungen
+    — genau so sind am 2026-07-28 sechs H.264-Laeufe als „0,0 Luecken/s" in die
+    Messdateien gewandert, obwohl der Sender nie encodiert hat.
+    """
 
     def __init__(self, log, env_extra: dict | None = None) -> None:
         env = {**os.environ, "PULSE_PORTAL_REUSE": "1", "RUST_LOG": "info",
@@ -40,6 +51,31 @@ class Sidecar:
             stderr=log, env=env, text=True, bufsize=1,
         )
         self.next_id = 1
+        self.ereignisse: list[dict] = []
+        # Wie weit `warte_auf_zustand` die Liste schon durchgesehen hat: sonst
+        # liefert ein zweiter Aufruf wieder den ALTEN Zustand.
+        self._geprueft = 0
+        # Eigener Lesefaden statt `readline()` im Aufrufer: nur so ist eine
+        # Frist auch dann wirksam, wenn der Sender GAR NICHTS mehr schickt
+        # (haengende Portal-Verhandlung). Vorher lief die Frist nur zwischen
+        # zwei Zeilen — bei Stille wartete der Aufrufer unbegrenzt.
+        self._zeilen: queue.Queue = queue.Queue()
+        threading.Thread(target=self._lesen, daemon=True).start()
+
+    def _lesen(self) -> None:
+        for zeile in self.p.stdout:
+            try:
+                self._zeilen.put(json.loads(zeile))
+            except json.JSONDecodeError:
+                pass                      # Fremdausgabe (libEGL o.ae.)
+        self._zeilen.put(None)            # stdout zu
+
+    def _naechste(self, frist: float) -> dict | None:
+        """Naechste JSON-Zeile, oder None bei Fristablauf/geschlossenem stdout."""
+        try:
+            return self._zeilen.get(timeout=max(frist, 0.0))
+        except queue.Empty:
+            return None
 
     def call(self, op: str, timeout: float = 90.0, **kw) -> dict:
         rid = self.next_id
@@ -47,15 +83,34 @@ class Sidecar:
         self.p.stdin.write(json.dumps({"op": op, "id": rid, **kw}) + "\n")
         self.p.stdin.flush()
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            line = self.p.stdout.readline()
-            if not line:
-                raise RuntimeError("Sender hat stdout geschlossen")
-            msg = json.loads(line)
+        while True:
+            msg = self._naechste(deadline - time.monotonic())
+            if msg is None:
+                if self.p.poll() is not None:
+                    raise RuntimeError("Sender hat stdout geschlossen")
+                raise TimeoutError(f"keine Antwort auf {op}")
             if msg.get("id") == rid:      # Antwort
                 return msg
-            # alles andere sind Events ({"ev": ...}) — mitschreiben, nicht warten
-        raise TimeoutError(f"keine Antwort auf {op}")
+            self.ereignisse.append(msg)
+
+    def warte_auf_zustand(self, zustaende: set[str], timeout: float) -> dict | None:
+        """Auf das erste ``state``-Ereignis aus ``zustaende`` warten.
+
+        Liefert das Ereignis, oder None wenn die Frist ablaeuft bzw. der Sender
+        stirbt. Die Frist darf grosszuegig sein: waehrend der Portal-Dialog
+        offen steht, schickt der Sender minutenlang nichts.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            while self._geprueft < len(self.ereignisse):  # beim `call` eingesammelt
+                msg = self.ereignisse[self._geprueft]
+                self._geprueft += 1
+                if msg.get("ev") == "state" and msg.get("state") in zustaende:
+                    return msg
+            msg = self._naechste(deadline - time.monotonic())
+            if msg is None:
+                return None
+            self.ereignisse.append(msg)
 
     def stop(self) -> None:
         try:

@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """Portal-Quelle EINMAL auswählen lassen und das Restore-Token sichern.
 
-Warum es das getrennt braucht: `real-harness.py` und die Serien-Werkzeuge
-rufen den Sender mit dem RPC-Vorgabe-Timeout von 90 Sekunden. Der
-Portal-Dialog blockiert genau diesen Aufruf — wer nicht binnen anderthalb
-Minuten klickt, dessen Dialog wird vom Prüfstand selbst abgeräumt, und im Log
-steht nur ein wortloses `state=Stopped`. Am 2026-07-28 hat das drei Anläufe
-gekostet, weil es wie ein Portal-Fehler aussah.
+Warum es das getrennt braucht: der Dialog blockiert, bis der Nutzer klickt,
+und darf in dieser Zeit von nichts abgeräumt werden. Genau das ist die Falle,
+die am 2026-07-28 einen ganzen Abend gekostet hat — und sie lag NICHT im
+Portal, sondern hier: `start` antwortet SOFORT (der Sender wirft nur seinen
+Worker-Faden an, `stream_controller.rs::start`), die erste Fassung hielt das
+für „fertig", schlief zwei Sekunden und rief `stop`. Ein `stop` setzt im
+Sidecar das Abbruch-Flag der Portal-Verhandlung (`capture/portal.rs`) — der
+Dialog ging dem Nutzer nach zwei Sekunden unter den Händen zu. Die
+15-Minuten-Frist hing am falschen Ereignis und war wirkungslos.
 
-Hier ist der Timeout 15 Minuten, sonst passiert nichts: Aufnahme kurz starten,
-Token liegt danach in `~/.local/state/pulse/portal-restore-token`, fertig.
+Verbindlich ist deshalb der ZUSTAND: warten, bis der Sender `live` meldet
+(oder aufgibt). Token liegt danach in
+`~/.local/state/pulse/portal-restore-token`, fertig.
 
     ./portal-grant.py
 """
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -42,7 +45,6 @@ def main() -> int:
     try:
         res = sender.call(
             "start",
-            timeout=900.0,
             channel={"id": CID, "token": pub,
                      "push_url": f"rtmps://localhost:1936/{path}?token={pub}"},
             capture="portal",
@@ -51,7 +53,16 @@ def main() -> int:
         )
         if not res.get("ok"):
             print(f"Sender meldet: {res}", file=sys.stderr)
-        time.sleep(2.0)
+        # 15 Minuten fuer den Klick — hier, am Zustand, wirkt die Frist auch.
+        zustand = sender.warte_auf_zustand({"live", "error", "stopped"}, timeout=900.0)
+        if zustand is None:
+            print("Sender meldete binnen 15 Minuten nichts.", file=sys.stderr)
+        elif zustand.get("state") != "live":
+            print(f"Sender ging nicht auf Sendung: {zustand}", file=sys.stderr)
+        else:
+            # Kurz laufen lassen: das Token schreibt der Sidecar waehrend der
+            # Verhandlung, aber ein sofortiges `stop` traefe den Aufbau.
+            time.sleep(2.0)
     finally:
         sender.stop()
         log.close()
