@@ -1,0 +1,26 @@
+{
+ "id": "whip-2026-07-28-echte-leitung",
+ "gemessen_am": "2026-07-28 (Nachmittag)",
+ "frage": "Spart der eigene WebRTC-Sendeweg ueber eine ECHTE Leitung Latenz — dort, wo der Aufschlag des alten Sendewegs ueberhaupt entstehen kann?",
+
+ "warum_diese_messung_noetig_war": "Lokal lagen beide Wege gleichauf (47,4 gegen 48,7 ms), und das musste so sein: der Aufschlag des Sendewegs haengt an der Laufzeit, und auf der Schleife gibt es keine. Erst ueber eine echte Strecke ist die Frage ueberhaupt stellbar. Von der Antwort haengt ab, ob der eigene Sendeweg auch fuer normale Zuschauer lohnt oder nur fuer die Fernsteuerung.",
+
+ "aufbau": "fern-harness.py gegen die Hetzner-Testinstanz, 2560x1440, 60 fps, 4000 kbps, H.264 8 bit, Zeitmuster an. OHNE TON auf beiden Seiten — der WHIP-Weg kann noch keinen, und mit Ton nur auf einer Seite waere der Vergleich wertlos. Je drei Laeufe zu 25 s.",
+
+ "ergebnis": {
+  "rtmps": {"laeufe_ms": [116.8, 116.1, 122.1], "median": 116.8, "spanne": 6.0},
+  "whip": {"laeufe_ms": [105.3, 104.3, 104.4], "median": 104.4, "spanne": 1.0},
+  "unterschied_ms": 12.4
+ },
+
+ "zwei_befunde": {
+  "schneller": "12,4 ms weniger. Das ist ein Teil des Aufschlags, den der alte Sendeweg ueber eine echte Strecke erzeugt (gemessen am 2026-07-28: er kostet das 2,4-fache seiner Laufzeit, rund 37 ms). NICHT der ganze — die frueheren 37 ms wurden unter anderen Bedingungen erhoben (AV1 10 bit, mit Ton, kuenstliche Laufzeit). Die beiden Zahlen sind derselben Richtung, aber nicht derselben Messung.",
+  "ruhiger": "Die Spanne faellt von 6,0 auf 1,0 ms. Ueber drei Laeufe liegt der neue Weg zwischen 104,3 und 105,3 — der alte zwischen 116,1 und 122,1. Fuer eine spaetere Fernsteuerung zaehlt das mindestens so viel wie der Mittelwert: eine schwankende Verzoegerung ist beim Steuern unangenehmer als eine gleichmaessig groessere."
+ },
+
+ "nebenbefund_zum_ton": "Derselbe RTMPS-Weg mit Ton lag am 2026-07-27 bei 143,4 und 137,6 ms, ohne Ton jetzt bei 116,8. Der Ton kostet auf dem alten Weg also rund 25 ms — was zur bekannten Ursache passt: der FLV-Muxer gibt ein Bild erst frei, wenn Ton mit passendem Zeitstempel vorliegt. Auf dem WHIP-Weg gibt es diese Kopplung nicht; ob der dortige Ton (noch nicht gebaut) etwas kostet, ist damit NICHT vorweggenommen.",
+
+ "was_daraus_folgt": "Der eigene Sendeweg lohnt auch fuer normale Zuschauer, nicht nur fuer die Fernsteuerung. Damit sind die naechsten Scheiben begruendet: ein eigener AV1-Paketierer (AV1 ist die Vorgabe, und der von `webrtc-rs` schreibt Laengenfelder ab 128 falsch) und der Ton als zweite Spur. Ohne beides bleibt der Weg ein Beweis und wird kein Feature.",
+
+ "einschraenkung": "Drei Laeufe je Weg. Fuer die Richtung reicht das deutlich — der Unterschied von 12,4 ms ist ein Vielfaches der Streuung von 1,0 bzw. 6,0. Fuer eine Nachkommastelle nicht."
+}

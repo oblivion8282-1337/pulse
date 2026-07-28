@@ -85,6 +85,11 @@ def mint_remote() -> tuple[str, str, str]:
 
 
 def push_url(path: str, token: str, proto: str, srt_latency_ms: int) -> str:
+    if proto == "whip":
+        # Eigener WebRTC-Sendeweg des Sidecars. Der Weg durch Caddy ist derselbe
+        # wie beim Zuschauen: `handle_path /whep/*` streift das Praefix ab, und
+        # MediaMTX sieht `/<pfad>/whip`. Ton laeuft darueber noch nicht.
+        return f"https://{HOST}/whep/{path}/whip?token={token}"
     if proto == "srt":
         return (f"srt://{HOST}:{SRT_PORT}?streamid=publish:{path}:pulse:{token}"
                 f"&pkt_size=1316&latency={srt_latency_ms * 1000}")
@@ -101,7 +106,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--audio", default="Desktop", help='"Desktop" oder "Aus"')
     ap.add_argument("--e2e", action="store_true",
                     help="Zeitmuster anzeigen und im Player zurücklesen")
-    ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt"])
+    ap.add_argument("--proto", default="rtmps", choices=["rtmps", "srt", "whip"])
     ap.add_argument("--srt-latency-ms", type=int, default=120,
                     help="SRT-Puffer. Voreinstellung 120 wie bei SRT selbst; "
                          "am 2026-07-27 gemessen, dass 40 praktisch nichts ändert "
