@@ -1,0 +1,34 @@
+{
+ "id": "verlust-2026-07-28-decode-through",
+ "gemessen_am": "2026-07-28 (Mittag)",
+ "frage": "Der Absturz von libnvcuvid — liegt er wirklich bei NVIDIA? Und hilft Weiterdekodieren wie bei Chromium?",
+ "anlass": "Mein Vorschlag war, den Absturz zu UMGEHEN (Software-Decode). Der Nutzer hat gefragt, ob es nicht mehr Sinn ergibt, ihn zu untersuchen. Das war richtig — die Ursache lag im eigenen Code.",
+
+ "befund_1_die_ursache_lag_bei_UNS": {
+  "was_fehlte": "`avcodec_flush_buffers` (in ffmpeg-next: `decoder.flush()`) wurde NIRGENDS gerufen — weder nach einem abgelehnten Paket noch nach einer Paketluecke. Der Decoder arbeitete also auf dem Zustand weiter, in dem er gerade gescheitert war; bei `cuvid` steht dahinter ein CUDA-Kontext.",
+  "belege": "Mit `flush` an beiden Stellen: NULL Segfaults ueber alle folgenden Laeufe, auch in der Betriebsart, die den Absturz zuvor zuverlaessig ausgeloest hat (Weiterdekodieren ohne Warten auf einen Einstiegspunkt).",
+  "einordnung": "Die Annahme 'die fremde Bibliothek ist schuld' war ungeprueft. Ein Segfault in einer Bibliothek, die man selbst falsch bedient, ist der eigene Fehler.",
+  "regression_geprueft": "Der regulaere Weg ist unveraendert: ungestoert 60 Bilder/s und 16-28 ms, unter 1 % Verlust dieselben 8-15 Stillstaende wie vor der Aenderung. Das `flush` kostet also nichts."
+ },
+
+ "befund_2_weiterdekodieren_hilft_NICHT": {
+  "idee": "Chromium wartet nach einer Luecke nicht, sondern behaelt das alte Referenzbild und rechnet die folgenden Differenzbilder darauf. Das gibt Artefakte, aber ein Bild — und Chromium liegt unter Verlust deshalb vorn (85 ms gleichmaessig gegen 38-369 unberechenbar).",
+  "umgesetzt_als": "`PULSE_PLAYER_DECODE_THROUGH=1` — nach einer Luecke NICHT auf den Einstiegspunkt warten und ausdruecklich NICHT leeren (ein geleerter Decoder hat gar keine Referenz mehr; damit blieb die Bildrate bei 0).",
+  "messwerte": {
+   "bildrate": [50, 57, 55],
+   "stillstaende": [7, 1, 3],
+   "e2e_misses": [239, 526, 656],
+   "e2e_ms": "196 / 1637 / 1745 — und ueber viele Sekunden EXAKT derselbe Wert"
+  },
+  "warum_es_trotzdem_scheitert": "Die Bildrate sieht mit 55-58 gesund aus, das Bild ist es nicht. Ein konstanter Ende-zu-Ende-Wert ueber viele Sekunden heisst, dass die Sonde denselben EINGEFRORENEN Balken immer wieder liest — der Bildbereich steht still. Dazu 239 bis 656 Faelle, in denen sie gar nichts findet. Weiterdekodieren auf einer kaputten Referenz erzeugt keine Verschleierung, sondern stehengebliebene Bildbereiche bei gesund aussehender Bildrate.",
+  "urteil": "Ausgeschieden. Der Schalter bleibt als Beleg im Code, Vorgabe aus."
+ },
+
+ "die_messfalle": "Dieser Lauf ist das beste Beispiel dafuer, warum die Bildrate hier nichts taugt: 57 Bilder je Sekunde bei einem Bild, das sich seit anderthalb Sekunden nicht bewegt. Wer nur `fps` betrachtet, haette 'Problem geloest' gemeldet. Die Zahl, die es aufdeckt, ist `e2e_misses` zusammen mit einem festklebenden Ende-zu-Ende-Wert.",
+
+ "was_daraus_folgt": {
+  "erledigt": "Von den drei Wegen aus Aufgabe 14 sind jetzt ZWEI gemessen und ausgeschieden: kuerzerer Keyframe-Abstand (kann rechnerisch nicht helfen) und Weiterdekodieren (liefert stehende Bilder).",
+  "bleibt": "Ein Sendeweg, ueber den die Vollbild-Anforderung den Encoder erreicht (WHIP/direkt). Dann dauert die Erholung eine Umlaufzeit statt bis zum naechsten regulaeren Vollbild. Das ist derselbe Umbau, den die Fernsteuerung ohnehin verlangt — er ist damit kein Extra-Aufwand, sondern vorgezogener.",
+  "offen_geblieben": "Warum Chromium es besser kann, ist NICHT verstanden. Es kann fehlende Referenzen genausowenig erfinden. Moeglich waere, dass seine Verschleierung feiner arbeitet (nur die betroffenen Bloecke stehen statt ganzer Bereiche). Das liesse sich nur an echten Bildern beurteilen, nicht an Zahlen."
+ }
+}

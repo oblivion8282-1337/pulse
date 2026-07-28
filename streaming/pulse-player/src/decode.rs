@@ -376,6 +376,12 @@ impl VideoDecoder {
             if self.consecutive_errors == 1 {
                 eprintln!("pulse-player: send_packet: {e}");
             }
+            // Nach einem abgelehnten Paket den Decoder leeren, bevor das
+            // naechste hineingeht. Ohne das arbeitet er auf dem Zustand weiter,
+            // in dem er gerade gescheitert ist — bei `cuvid` steht dahinter ein
+            // CUDA-Kontext, und genau dort wurde am 2026-07-28 ein Segfault
+            // beobachtet. Fehlte bisher komplett.
+            self.decoder.flush();
             match classify(self.consecutive_errors, self.rebuilds) {
                 ErrorAction::Ignore => {}
                 ErrorAction::Rebuild => self.rebuild(&e.to_string())?,
@@ -439,6 +445,32 @@ impl VideoDecoder {
     /// Keyframe nicht faelschlich als "der Sender schickt keine Vollbilder"
     /// gewertet wird.
     pub fn on_gap(&mut self) {
+        // Weiterdekodieren statt warten (Versuch, hinter
+        // `PULSE_PLAYER_DECODE_THROUGH=1`).
+        //
+        // Chromium tut genau das und liegt deshalb unter Paketverlust vorn:
+        // 85 ms gleichmaessig gegen 38-369 ms unberechenbar (2026-07-28). Es
+        // kann kein fehlendes Referenzbild erfinden — es behaelt das ALTE und
+        // rechnet die folgenden Differenzbilder darauf. Das gibt Artefakte,
+        // aber ein Bild.
+        //
+        // Deshalb hier ausdruecklich NICHT leeren: ein geleerter Decoder hat gar
+        // keine Referenz mehr und kann dann gar nichts rechnen. Am 2026-07-28
+        // gemessen — mit `flush` an dieser Stelle blieb die Bildrate bei 0,
+        // obwohl kein Absturz mehr auftrat.
+        if std::env::var("PULSE_PLAYER_DECODE_THROUGH").as_deref() == Ok("1") {
+            return;
+        }
+
+        // Regulaerer Weg: auf einen Einstiegspunkt warten. Dann den Decoder
+        // LEEREN, nicht nur aufhoeren ihn zu fuettern.
+        //
+        // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
+        // einer Luecke haelt der Decoder Referenzen auf Bilder, die nie
+        // ankommen. `flush` wirft den Zustand weg, sodass der naechste
+        // Einstiegspunkt auf einen sauberen Decoder trifft statt auf einen halb
+        // gefuellten.
+        self.decoder.flush();
         if self.awaiting_keyframe {
             return; // schon scharf, Zaehler nicht zuruecksetzen
         }
