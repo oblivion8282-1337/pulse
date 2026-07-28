@@ -41,6 +41,12 @@ VARIANTEN: list[tuple[str, list[str]]] = [
                  "-zerolatency", "0", "-delay", "2147483647"]),
     ("lookahead", ["-preset", "p2", "-rc-lookahead", "30"]),
     ("ohne_zerolat", ["-preset", "p2", "-zerolatency", "0", "-delay", "2147483647"]),
+    # Intra-Refresh statt periodischer Keyframes — der Ruckel-Fix vom
+    # 2026-07-28 (Keyframe-Bursts serialisieren auf der Leitung). Hier steht
+    # die QUALITAETS-Seite der Abwaegung: verteilte Intra-Zeilen kosten
+    # laufend Bits, sparen aber die IDR-Spitzen.
+    ("intraref", ["-preset", "p2", "-intra-refresh", "1", "-forced-idr", "1",
+                  "-g", "600"]),
 ]
 
 
