@@ -68,7 +68,7 @@ def lies(pfad: Path, quelle_x: int, wiedergabe_x: int) -> int | None:
     return None
 
 
-def starte_browser(whep: str, wiedergabe_x: int) -> subprocess.Popen:
+def starte_browser(whep: str, wiedergabe_x: int, ohne_drosselung: bool = False) -> subprocess.Popen:
     """Chromium im Vollbild auf dem Wiedergabe-Schirm.
 
     ``--ozone-platform=x11`` ist nicht kosmetisch: Ein Wayland-Client darf seine
@@ -82,6 +82,13 @@ def starte_browser(whep: str, wiedergabe_x: int) -> subprocess.Popen:
         f"--window-position={wiedergabe_x},0", "--window-size=2560,1440",
         "--start-fullscreen", "--new-window",
         f"--user-data-dir={HERE}/chrome-profil", f"--app={seite}",
+        # Chromium drosselt Fenster, die es fuer verdeckt oder unbeachtet haelt.
+        # Im Messaufbau laeuft der Browser neben einem Terminal und ist nie das
+        # aktive Fenster — eine gedrosselte Wiedergabe faellt fortlaufend
+        # zurueck und saehe wie ein Fehler des Browser-WEGS aus, waere aber
+        # einer der Messbedingungen. Deshalb abschaltbar und beides messbar.
+        *(["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"]
+          if ohne_drosselung else []),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -94,6 +101,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--proben", type=int, default=10)
     ap.add_argument("--quelle-x", type=int, default=2560)
     ap.add_argument("--wiedergabe-x", type=int, default=0)
+    ap.add_argument("--ohne-drosselung", action="store_true",
+                    help="Chromiums Hintergrund-Drosselung abschalten")
     ap.add_argument("--label", default="bn")
     return ap.parse_args()
 
@@ -138,7 +147,7 @@ def main() -> int:
             return 1
         time.sleep(6.0)
 
-        browser = starte_browser(whep, args.wiedergabe_x)
+        browser = starte_browser(whep, args.wiedergabe_x, args.ohne_drosselung)
         print("[browser] gestartet, warte auf Bild ...")
         time.sleep(12.0)
         for i in range(args.proben):
