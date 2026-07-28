@@ -31,7 +31,8 @@
  "was_das_fuer_die_loesung_heisst": {
   "erledigt": "Von den drei Wegen aus Aufgabe 14 ist der zweite (kuerzerer Keyframe-Abstand) damit gemessen und ausgeschieden.",
   "bleibt_1": "Weiterdekodieren statt warten, wie es Chromium tut. Das ist der Weg, der die Sache wirklich loesen wuerde — und genau der, der am 2026-07-28 den libnvcuvid-Segfault ausgeloest hat. Er braucht also einen Decoder, der fehlende Referenzen aushaelt (Software/libdav1d als Rueckfall bei erkanntem Verlust waere der naheliegende Versuch).",
-  "bleibt_2": "Ein Sendeweg, ueber den die Vollbild-Anforderung den Encoder erreicht (WHIP/direkt). Loest es vollstaendig — die Erholung dauert dann eine Umlaufzeit statt bis zum naechsten regulaeren Vollbild. Faellt fuer die Fernsteuerung ohnehin an."
+  "bleibt_2_RICHTIGGESTELLT_2026_07_28_ABEND": "Ueber MediaMTX gibt es diesen Weg nicht: der Server reicht kein Leser-PLI an den Publisher weiter, sondern schickt ein eigenes im festen 2-Sekunden-Takt. Der eigene WHIP-Sendeweg verdoppelt damit nur die Vollbild-Rate — was bei 0,2 Prozent Verlust reicht und bei 1 Prozent nicht. Die vollstaendige Loesung bleibt dem direkten Weg der Fernsteuerung vorbehalten. Belege in `verlust-2026-07-28-av1-und-eine-korrektur.json`.",
+  "bleibt_2_urspruenglich": "Ein Sendeweg, ueber den die Vollbild-Anforderung den Encoder erreicht (WHIP/direkt). Loest es vollstaendig — die Erholung dauert dann eine Umlaufzeit statt bis zum naechsten regulaeren Vollbild. Faellt fuer die Fernsteuerung ohnehin an."
  },
 
  "der_schalter_bleibt": "`PULSE_KEYFRAME_SECONDS` bleibt drin, Vorgabe unveraendert 2,0. Er kostet nichts, ist belegt wirksam, und der Abstand ist eine Groesse, die man bei anderen Fragen (Einstiegszeit eines neuen Zuschauers) ohnehin drehen will. Seine Kosten bei der Bildqualitaet sind NICHT gemessen — das waere erst noetig, wenn die Vorgabe sich aendern soll. Da sie das nach dieser Messung nicht tut, bleibt es offen."

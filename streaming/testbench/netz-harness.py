@@ -50,6 +50,12 @@ from harness import HERE
 PROFILE: dict[str, list[str]] = {
     "klar": [],
     "verzoegerung": ["delay", "26.7ms"],
+    # 0,2 % ist der Bereich, in dem echte Leitungen liegen — die Teststrecke zum
+    # Hetzner-Server verlor 6-7 Pakete je 30-Sekunden-Lauf, also rund 0,05 %.
+    # Ein Profil dafuer zu haben ist wichtig, weil sich die Wirkung der
+    # Vollbild-Anforderung genau hier entscheidet: bei 0,2 % traegt sie, bei
+    # 1 % halbiert sie nur noch (verlust-2026-07-28-vollbild-auf-zuruf.json).
+    "verlust_leicht": ["loss", "0.2%"],
     "verlust": ["loss", "1%"],
     "verlust_stark": ["loss", "5%"],
     "umsortierung": ["delay", "5ms", "reorder", "25%", "50%"],
@@ -128,7 +134,8 @@ def netem_weg() -> None:
 
 
 def lauf(profil: str, secs: float, label: str, nur_empfang: bool,
-         echt: bool = False) -> dict | None:
+         echt: bool = False, weitere: list[str] | None = None,
+         tag_zusatz: str = "") -> dict | None:
     """Ein Prueflauf unter einem Stoerprofil.
 
     `echt` schaltet vom Referenzsender (Datei) auf den echten Sidecar mit
@@ -136,12 +143,21 @@ def lauf(profil: str, secs: float, label: str, nur_empfang: bool,
     eine konstante Laufzeit verschiebt weder Ankunftsabstaende noch die Zeit vom
     Netz bis zum Schirm — mit dem Referenzsender ist sie schlicht unsichtbar.
     Kostet dafuer einen wachen Bildschirm und den Portal-Zugriff.
+
+    `weitere` reicht Sender-Einstellungen an `real-harness.py` durch (Codec,
+    Bittiefe, Transportweg). Nur mit `--echt` sinnvoll: der Referenzsender
+    spielt eine feste Datei ab und kennt nichts davon.
     """
-    tag = f"netz-{label}"
+    # Der Zusatz gehoert in den Namen, nicht nur in die Ausgabe: ohne ihn
+    # schreiben zwei Durchgaenge mit verschiedenen Sender-Einstellungen ihre
+    # Protokolle uebereinander, und hinterher fehlt genau das Log, in dem die
+    # Antwort steht. Am 2026-07-28 einmal passiert.
+    tag = "-".join(t for t in ("netz", tag_zusatz, label) if t)
     if echt:
         befehl = [str(HERE / "mit-bildschirm.sh"), sys.executable,
                   str(HERE / "real-harness.py"), "--secs", str(secs),
-                  "--fps", "60", "--kbps", "4000", "--e2e", "--label", tag]
+                  "--fps", "60", "--kbps", "4000", "--e2e", "--label", tag,
+                  *(weitere or [])]
     else:
         befehl = [sys.executable, str(HERE / "harness.py"),
                   "--secs", str(secs), "--label", tag]
@@ -216,7 +232,32 @@ def main() -> int:
                     help="Stoerung nur auf den Weg MediaMTX -> Player, Push bleibt sauber")
     ap.add_argument("--echt", action="store_true",
                     help="echter Sidecar + Zeitmuster statt Referenzsender (misst Ende zu Ende)")
+    ap.add_argument("--proto", choices=["rtmps", "srt", "whip"],
+                    help="Transportweg des Senders (nur mit --echt)")
+    ap.add_argument("--codec", help="av1 oder h264 (nur mit --echt)")
+    ap.add_argument("--bits", help="8 oder 10 (nur mit --echt)")
+    ap.add_argument("--keyframe-on-gap", action="store_true",
+                    help="Vollbild bei jeder gemeldeten Luecke anfordern (nur mit --echt)")
     args = ap.parse_args()
+
+    # Dieselben drei Werte gehen zweimal weg: als Schalter an den Sender und als
+    # Namenszusatz ins Protokoll.
+    weitere: list[str] = []
+    teile: list[str] = []
+    for name in ("proto", "codec", "bits"):
+        wert = getattr(args, name)
+        if wert:
+            weitere += [f"--{name}", wert]
+            teile.append(wert)
+    if args.keyframe_on_gap:
+        weitere.append("--keyframe-on-gap")
+        # MUSS in den Namen: der Vergleich mit und ohne diesen Schalter ist
+        # genau der, um den es dabei geht — ohne Unterscheidung im Namen
+        # ueberschreibt der zweite Durchgang die Protokolle des ersten.
+        teile.append("kfgap")
+    tag_zusatz = "-".join(teile)
+    if weitere and not args.echt:
+        ap.error("Sender-Einstellungen wirken nur mit --echt")
 
     profile = sorted(PROFILE) if args.alle else [args.profil]
     # Handler, damit ein Abbruch per Strg-C die Schleife nicht mit gesetzter
@@ -228,7 +269,8 @@ def main() -> int:
     try:
         for profil in profile:
             for i in range(args.wdh):
-                e = lauf(profil, args.secs, f"{profil}-{i + 1}", args.nur_empfang, args.echt)
+                e = lauf(profil, args.secs, f"{profil}-{i + 1}", args.nur_empfang,
+                         echt=args.echt, weitere=weitere, tag_zusatz=tag_zusatz)
                 if e is None:
                     print(f"{profil}-{i + 1}: kein Ergebnis")
                     continue

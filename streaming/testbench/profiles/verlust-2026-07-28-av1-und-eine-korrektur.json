@@ -1,0 +1,41 @@
+{
+ "id": "verlust-2026-07-28-av1-und-eine-korrektur",
+ "gemessen_am": "2026-07-28 (spaeter Abend)",
+ "frage": "Haelt der neue Sendeweg auch mit AV1 unter Verlust — und woher kommt der Vorteil eigentlich?",
+
+ "die_korrektur_zuerst": {
+  "was_ich_behauptet_habe": "In `whip-2026-07-28-scheibe1.json` steht, MediaMTX reiche die Vollbild-Anforderung des Zuschauers an unseren Sender weiter, drossle sie aber auf rund eine je 1,6 Sekunden.",
+  "was_stimmt": "MediaMTX reicht sie ueberhaupt nicht weiter. In der gesamten Quelle von 1.19.1 gibt es GENAU EINE Stelle, die ein PLI erzeugt (`internal/protocols/webrtc/inbound_track.go`), und die ist ein Taktgeber: `keyFrameInterval = 2 * time.Second`, fest verdrahtet, mit dem Kommentar 'send periodic key frame requests'. Eine Weiterleitung eines Leser-PLI an den Publisher existiert nicht — auch nicht unter anderem Namen (nach `keyframerequest`/`forcekeyframe`/`FullIntraRequest` gesucht, nichts).",
+  "warum_ich_darauf_hereingefallen_bin": "Der Paketmitschnitt zeigte 56 Anforderungen vom Player zu MediaMTX und 11 von MediaMTX zu unserem Sender. Das SIEHT aus wie 'weitergereicht und gedrosselt'. Es war ein Zufall zweier unabhaengiger Zahlen: 11 in 18 s ist genau der 2-Sekunden-Takt. Der Beleg dafuer, dass es keine Reaktion ist, lag schon vor: die Zahl blieb bei 0,2 %, 0,5 %, 3 % und 8 % Verlust exakt gleich. Eine Reaktion haette sich mit dem Verlust aendern muessen. Ich habe diese Konstanz gesehen und als 'Drosselung' gedeutet, statt sie als das zu lesen, was sie ist — eine Uhr.",
+  "die_lehre": "Auf die Leitung sehen war richtig und hat den ersten Fehler gefunden. Es reichte aber nicht: aus zwei Zahlen auf einen Mechanismus zu schliessen bleibt Deutung. Erst der Quelltext der Gegenstelle hat es entschieden — und der lag die ganze Zeit greifbar, weil wir MediaMTX ohnehin als Fork bauen.",
+  "was_daraus_folgt": "'Vollbild auf Zuruf' gibt es ueber MediaMTX NICHT. Was es gibt, ist 'Vollbild im 2-Sekunden-Takt des Servers' — und weil unser Encoder ohnehin alle 2 s eines setzt, verdoppelt das die Rate auf rund eines je Sekunde. Die vollstaendige Loesung (Erholung binnen einer Umlaufzeit), die in `verlust-2026-07-28-keyframe-abstand.json` unter 'bleibt_2' steht, ist auf diesem Weg damit NICHT erreicht. Sie bleibt fuer den direkten Weg der Fernsteuerung, wo kein MediaMTX dazwischensteht."
+ },
+
+ "messung_av1_unter_verlust": {
+  "aufbau": "netz-harness.py --nur-empfang --echt, AV1 10 bit, 60 fps, 4000 kbps, Ton an, 20 s je Lauf, lokaler MediaMTX. Stoerung nur auf dem Medienweg MediaMTX -> Player (Port 8189), der Push bleibt sauber.",
+  "stillstaende_je_lauf": {
+   "0_2_prozent_rtmps_2s": [8, 4, 5, 1, 9, 7],
+   "0_2_prozent_whip_2s_mit_antwort": [1, 2, 3, 1, 0, 1],
+   "0_2_prozent_whip_2s_OHNE_antwort": [7, 7, 6],
+   "0_2_prozent_rtmps_1s": [8, 2, 2, 6, 0, 7, 0],
+   "1_prozent_rtmps_2s": [13, 14, 7],
+   "1_prozent_whip_2s_mit_antwort": [10, 9, 1]
+  },
+  "laeufe_ohne_mangel": "RTMPS 2 s: 1 von 6 · WHIP mit Antwort: 6 von 6 · WHIP ohne Antwort: 0 von 3 · RTMPS 1 s: 4 von 7"
+ },
+
+ "der_trennschnitt": {
+  "wozu": "Nach der Korrektur oben war offen, ob der Vorteil des neuen Wegs von den Vollbildern kommt oder vom Transportweg selbst. Dafuer gibt es jetzt `PULSE_WHIP_IGNORE_PLI=1` im Sidecar: das RTCP wird weiter gelesen (sonst staut der Sender), aber nicht beantwortet.",
+  "ergebnis": "Ohne Antwort faellt der neue Weg von 6 von 6 auf 0 von 3, Stillstaende 6-7 statt 0-3 — also auf das Niveau des alten. Der Vorteil unter Verlust haengt vollstaendig an den Vollbildern, nicht am Transport.",
+  "gegenprobe_von_der_anderen_seite": "Derselbe Schluss von der anderen Richtung: dem ALTEN Weg einen 1-Sekunden-Abstand geben (`PULSE_KEYFRAME_SECONDS=1.0`) hebt ihn von 1 von 6 auf 4 von 7. Der Grossteil des Unterschieds ist also Vollbild-RATE, nicht Sendeweg.",
+  "was_offen_bleibt": "Ob ein Rest-Vorteil des Transports existiert. WHIP mit Antwort erreicht 6 von 6, RTMPS mit 1 s nur 4 von 7 — das koennte ein echter Unterschied sein oder Streuung. Die Laeufe schwanken stark (verlorene Pakete zwischen 16 und 209 bei gleicher Einstellung, netems Verlust kommt in Schueben), und sieben Laeufe entscheiden das nicht. NICHT als belegt lesen."
+ },
+
+ "warum_die_zwei_verlustgrade_verschieden_ausgehen": "Bei 0,2 % traegt die Verdopplung der Vollbild-Rate, bei 1 % nicht (10, 9, 1 Stillstaende). Das ist kein Widerspruch zu `verlust-2026-07-28-keyframe-abstand.json`, das befand 'kuerzerer Abstand hilft nicht' — jene Messung lief bei 1 %. Ihre eigene Rechnung sagt die Grenze voraus: 1 % Verlust ergibt rund 4,2 Luecken je Sekunde, 0,2 % nur rund 0,8. Ein Vollbild je Sekunde ueberholt das eine und nicht das andere. Beide Messungen stimmen; sie messen verschiedene Bereiche.",
+
+ "wo_der_native_player_damit_steht": {
+  "gut_genug_im_realistischen_bereich": "Bei 0,2 % — dem Vierfachen dessen, was die echte Teststrecke verliert — laeuft der neue Weg in 6 von 6 Laeufen ohne Stillstands-Mangel.",
+  "nicht_geloest": "Die Bildrate bleibt selbst in den mangelfreien Laeufen sprunghaft (Median 9 bis 60 ueber die Laeufe). Das Bild ist da, aber nicht durchgehend fluessig. Und ab 1 % Verlust hilft nichts davon.",
+  "der_eigentliche_hebel_bleibt_derselbe": "Weiterdekodieren statt nach jeder Luecke alles zu verwerfen — der Weg, den Chromium geht. Er braucht einen Decoder, der fehlende Referenzen aushaelt. Daran hat sich nichts geaendert."
+ }
+}
