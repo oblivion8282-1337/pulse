@@ -203,6 +203,20 @@ pub async fn run(
     // Sender wuerde Vollbild um Vollbild schicken und damit genau die Bitrate
     // sprengen, die den Verlust verursacht hat.
     let mut last_keyframe_request = Instant::now() - KEYFRAME_REQUEST_INTERVAL;
+    // Gar nicht erst anfordern, sondern sich von der wandernden Auffrischung
+    // sauber waschen lassen (Versuch, hinter `PULSE_PLAYER_NO_KEYFRAME_REQUEST=1`;
+    // gehoert zu `PULSE_PLAYER_DECODE_THROUGH`).
+    //
+    // Grund: Ein angefordertes Vollbild ist selbst ein Schwall aus 25-35
+    // Paketen. Bei 5 % Verlust kommt es nur mit ~28 % Wahrscheinlichkeit heil
+    // an — drei von vier Rettungsversuchen scheitern und werfen dabei erneut
+    // Last auf die Leitung, die den Verlust verursacht hat. Am 2026-07-28
+    // gemessen: 33 Anforderungen in 15 s, danach war die Verbindung tot,
+    // waehrend derselbe Verlust im Keyframe-Betrieb spurlos vorbeiging.
+    // Bei Intra-Refresh braucht es die Anforderung theoretisch nicht: nach
+    // einem vollen Durchlauf (~2 s) ist jeder Bildteil einmal erneuert.
+    let ohne_anforderung =
+        std::env::var("PULSE_PLAYER_NO_KEYFRAME_REQUEST").as_deref() == Ok("1");
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -361,7 +375,7 @@ pub async fn run(
                             // Und beim Sender ein Vollbild anfordern, sonst
                             // dauert das Warten bis zum naechsten regulaeren
                             // Keyframe.
-                            if let Some(ssrc) = video_ssrc {
+                            if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                                 if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
                                     last_keyframe_request = Instant::now();
                                     whep_session.request_keyframe(ssrc).await;

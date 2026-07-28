@@ -31,12 +31,20 @@ fn is_hardware(name: &str) -> bool {
 const ERROR_LIMIT: u32 = 30;
 
 /// Wie viele Einheiten auf einen Einstiegspunkt gewartet wird, bevor die
-/// Sitzung aufgibt. Bei 60 fps sind das zehn Sekunden.
+/// Sitzung aufgibt. Bei 60 fps sind das zwanzig Sekunden.
 ///
 /// Es MUSS eine Grenze geben: kommt nie ein Keyframe, waere stilles Warten
 /// wieder genau das Verhalten, das eine Kachel dauerhaft in "verbinde"
 /// stehen laesst — nur mit einer anderen Ursache.
-const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 600;
+///
+/// 600 (zehn Sekunden) war zu knapp und hat am 2026-07-28 drei Sitzungen
+/// gekostet: unter anhaltendem Paketverlust kommt ein angefordertes Vollbild
+/// oft selbst beschaedigt an (25-35 Pakete, bei 5 % Verlust ~28 %
+/// Ueberlebenswahrscheinlichkeit), die Uhr lief ab und der Player gab auf,
+/// waehrend die Leitung sich kurz darauf erholte. Die Meldung benannte die
+/// Ursache korrekt ("der Sender schickt zu selten ein Vollbild") — sie ging
+/// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
+const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
 
 /// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
 const MAX_REBUILDS: u32 = 2;
