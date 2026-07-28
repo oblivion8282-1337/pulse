@@ -344,20 +344,28 @@ pub async fn run(
                 let (unit, unit_arrived) = match release {
                     Release::Gap { .. } => {
                         assembler.on_gap();
-                        // Und der Decoder muss ebenfalls neu einsteigen: die
-                        // naechste vollstaendige Einheit ist ein Differenzbild
-                        // ohne sein Referenzbild, und darauf reagiert
-                        // `libnvcuvid` mit einem Segfault (2026-07-28 mit 1 %
-                        // kuenstlichem Verlust reproduziert).
-                        if let Some(d) = decoder.as_mut() {
-                            d.on_gap();
-                        }
-                        // Und beim Sender ein Vollbild anfordern, sonst dauert
-                        // das Warten bis zum naechsten regulaeren Keyframe.
-                        if let Some(ssrc) = video_ssrc {
-                            if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
-                                last_keyframe_request = Instant::now();
-                                whep_session.request_keyframe(ssrc).await;
+                        // Nur eine BILD-Luecke geht den Video-Decoder etwas an.
+                        //
+                        // Diese Schleife laeuft ueber ALLE Spuren, auch ueber
+                        // Opus. Ohne die Abfrage stellte eine Tonluecke den
+                        // Video-Decoder auf "warte auf Einstiegspunkt" und
+                        // forderte ein Vollbild an — bei Verlust, der beide
+                        // Spuren trifft, riss also der Ton das Bild mit. Am
+                        // 2026-07-28 beim Nachmessen der Verlust-Erholung
+                        // aufgefallen, eingebaut wenige Stunden zuvor mit dem
+                        // Absturzschutz.
+                        if codec.is_video() {
+                            if let Some(d) = decoder.as_mut() {
+                                d.on_gap();
+                            }
+                            // Und beim Sender ein Vollbild anfordern, sonst
+                            // dauert das Warten bis zum naechsten regulaeren
+                            // Keyframe.
+                            if let Some(ssrc) = video_ssrc {
+                                if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
+                                    last_keyframe_request = Instant::now();
+                                    whep_session.request_keyframe(ssrc).await;
+                                }
                             }
                         }
                         stats.frames_dropped += 1;

@@ -56,6 +56,8 @@ impl Codec {
         }
     }
 
+    /// Traegt diese Spur Bild? Entscheidet, ob eine Luecke den Video-Decoder
+    /// etwas angeht — eine Tonluecke tut das NICHT.
     pub fn is_video(self) -> bool {
         matches!(self, Self::H264 | Self::Av1)
     }
@@ -224,6 +226,47 @@ pub async fn connect(
 }
 
 /// Offer erzeugen, ICE sammeln, an den WHEP-Endpunkt schicken, Answer setzen.
+/// Meldet, welche RTCP-Rueckmeldungen der Server tatsaechlich zugesagt hat.
+///
+/// **Warum das eine eigene Zeile wert ist.** Ob verlorene Pakete nachgefordert
+/// werden koennen (`nack`) und ob ein Vollbild anforderbar ist (`nack pli`),
+/// entscheidet sich in der ANTWORT des Servers — der Player kann beides
+/// anbieten und trotzdem nichts davon bekommen. Der Unterschied ist im Betrieb
+/// gewaltig: ohne `nack` ist jedes verlorene Paket endgueltig verloren, und bei
+/// 1 % Verlust fallen dann rund 20 Zugriffseinheiten je Sekunde aus.
+///
+/// Am 2026-07-28 stand genau diese Frage offen und war NICHT beantwortbar: der
+/// Player initialisiert keinen Logger, `RUST_LOG` laeuft also ins Leere, und
+/// die ausgehandelte Beschreibung war nirgends sichtbar. Dieselbe Ueberlegung
+/// wie bei der ICE-Kandidaten-Zeile darueber — eine Zeile, die eine sonst
+/// unbeantwortbare Frage beantwortet, ist ihren Platz wert.
+fn melde_rueckkanal(answer: &str) {
+    let (nack, pli, rtx) = rueckkanal_flags(answer);
+    eprintln!(
+        "pulse-player: Rueckkanal — nack {} / pli {} / rtx {}",
+        if nack { "ja" } else { "NEIN" },
+        if pli { "ja" } else { "NEIN" },
+        if rtx { "ja" } else { "NEIN" },
+    );
+}
+
+/// Wertet aus, welche RTCP-Rueckmeldungen die SDP-Antwort zusagt:
+/// `(nack, nack pli, rtx)`. Reine Stringauswertung ohne Seiteneffekte —
+/// von `melde_rueckkanal` getrennt, damit sie sich ohne stderr-Capture
+/// direkt testen laesst.
+fn rueckkanal_flags(answer: &str) -> (bool, bool, bool) {
+    let hat = |was: &str| {
+        answer
+            .lines()
+            .any(|l| l.starts_with("a=rtcp-fb:") && l.split_once(' ').is_some_and(|(_, r)| r == was))
+    };
+    // RTX ist der eigentliche Traeger der Nachlieferung: ohne einen zweiten
+    // Payload-Typ `rtx/90000` schickt der Server das Paket nicht noch einmal,
+    // selbst wenn er `nack` zusagt.
+    let rtx = answer.lines().any(|l| l.contains("rtx/"));
+    (hat("nack"), hat("nack pli"), rtx)
+}
+
 async fn negotiate(
     pc: &Arc<RTCPeerConnection>,
     http: &reqwest::Client,
@@ -282,6 +325,7 @@ async fn negotiate(
     if !answer.contains("v=") {
         bail!("WHEP-Antwort war kein gueltiges SDP");
     }
+    melde_rueckkanal(&answer);
     pc.set_remote_description(RTCSessionDescription::answer(answer)?)
         .await
         .context("set_remote_description")?;
@@ -361,6 +405,21 @@ mod tests {
     fn text_ohne_token_bleibt_unveraendert() {
         let s = "ganz normale Meldung";
         assert_eq!(redact_tokens(s), s);
+    }
+
+    #[test]
+    fn rueckkanal_erkennt_nack_pli_rtx() {
+        let answer = "v=0\r\n\
+                       a=rtcp-fb:96 nack\r\n\
+                       a=rtcp-fb:96 nack pli\r\n\
+                       a=rtpmap:97 rtx/90000\r\n";
+        assert_eq!(rueckkanal_flags(answer), (true, true, true));
+    }
+
+    #[test]
+    fn rueckkanal_ohne_zusagen() {
+        let answer = "v=0\r\na=rtpmap:96 H264/90000\r\n";
+        assert_eq!(rueckkanal_flags(answer), (false, false, false));
     }
 
     #[test]

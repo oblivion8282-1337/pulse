@@ -1,0 +1,48 @@
+{
+ "id": "verlust-2026-07-28-erholung",
+ "gemessen_am": "2026-07-28 (frueher Morgen)",
+ "frage": "Warum wird bei Paketverlust kein einziges Paket nachgeliefert — und was laesst sich dagegen tun?",
+ "anschluss_an": "netz-2026-07-28-stoerprofile.json (dort blieb dies der wichtigste offene Punkt)",
+
+ "befund_kurz": "In dieser Kette ist Paketverlust NICHT reparierbar. Weder durch Nachforderung noch durch Vollbild-Anforderung. Der einzige Hebel ist der Keyframe-Abstand des Senders, und der liegt bei zwei Sekunden.",
+
+ "1_was_ausgehandelt_wird": {
+  "wie_gemessen": "Neue Diagnosezeile in `whep.rs::melde_rueckkanal`, die die ANTWORT des Servers auswertet. Vorher war das nicht feststellbar: der Player initialisiert keinen Logger, `RUST_LOG` laeuft ins Leere, und die ausgehandelte Beschreibung war nirgends sichtbar.",
+  "ergebnis": "nack ja / pli ja / rtx NEIN",
+  "deutung": "MediaMTX sagt Nachforderung und Vollbild-Anforderung zu, bietet aber keinen RTX-Payload-Typ an."
+ },
+
+ "2_ob_etwas_nachkommt": {
+  "verfahren": "Pufferzeit von 20 auf 400 ms erhoeht und gemessen, ob die Erholung mitwaechst. Eine Nachlieferung muss ankommen, BEVOR der Puffer die Luecke fuer endgueltig erklaert — waechst die Erholung mit dem Puffer, gibt es sie; bleibt sie flach, gibt es sie nicht.",
+  "messwerte": [
+   {"puffer_ms": 60, "verworfen_von_netem": 401, "verloren": 281, "doppelt": 0, "verspaetet": 0, "bilder": 20},
+   {"puffer_ms": 150, "verworfen_von_netem": 459, "verloren": 457, "doppelt": 0, "verspaetet": 0, "bilder": 39},
+   {"puffer_ms": 400, "verworfen_von_netem": 619, "verloren": 583, "doppelt": 0, "verspaetet": 0, "bilder": 33}
+  ],
+  "ergebnis": "NULL doppelte und NULL verspaetete Pakete bei jeder Puffergroesse. Der Puffer zwanzigfach vergroessert aendert nichts.",
+  "schluss": "Es kommt nie etwas nach. Die Zusage `nack` in der Antwort bedeutet nicht, dass MediaMTX fuer WHEP-Leser tatsaechlich erneut sendet.",
+  "messfalle": "Ein vierter Lauf (Puffer 20 ms) zeigte null Verlust und volle Bildrate — dort hatte die Stoerung nur 17 Pakete getroffen statt rund 400. Ohne die Bilanz aus `tc -s qdisc` (verworfene Pakete je Lauf) waere daraus 'kleiner Puffer ist besser' geworden. Die Behandlung IMMER nachweisen, nicht annehmen."
+ },
+
+ "3_warum_die_vollbild_anforderung_nicht_hilft": "Sie ist gebaut und wird gesendet, endet aber zwangslaeufig bei MediaMTX: ueber RTMP gibt es keinen Rueckweg zum Encoder. Ein Zuschauer kann in dieser Kette kein Vollbild anfordern, egal was die Beschreibung zusagt.",
+
+ "4_der_einzige_verbliebene_hebel": {
+  "was": "Der Keyframe-Abstand des Senders. Im Linux-Sidecar `encoder.set_gop(fps * 2)` — also zwei Sekunden.",
+  "folge": "Jeder unreparierbare Bildverlust kostet bis zu zwei Sekunden Bild. Gemessen: bei 1 % Verlust 1 Bild je Sekunde und sechs bis acht Sekunden ohne Bild in einem 20-Sekunden-Lauf.",
+  "optionen_mit_kosten": [
+   "Kuerzerer Abstand (z.B. 1 s): halbiert den schlimmsten Fall, kostet Bitrate.",
+   "Intra-Refresh statt ganzer Keyframes: verteilt die Kosten gleichmaessig, NVENC kann es. Nicht gemessen.",
+   "Direkter Sendeweg (WHIP): dann erreicht die Vollbild-Anforderung den Encoder und die Erholung dauert eine Umlaufzeit statt zwei Sekunden. Derselbe Umbau, den auch das Fernsteuerungs-Ziel verlangt."
+  ],
+  "nicht_entschieden": "Welche Option genommen wird, ist eine Abwaegung mit Bitrate und Aufwand — gehoert dem Nutzer, nicht mir."
+ },
+
+ "nebenbefund_eigener_fehler": {
+  "was": "Der Absturzschutz von wenigen Stunden zuvor stellte den VIDEO-Decoder auch bei einer TON-Luecke zurueck und forderte ein Vollbild an.",
+  "warum": "Die Freigabe-Schleife laeuft ueber alle Spuren, auch ueber Opus. Bei Verlust, der beide Spuren trifft, riss der Ton damit das Bild mit.",
+  "behoben": "`Codec::ist_video()`-Abfrage vor beidem.",
+  "ehrlich": "Die Behebung hat die Messwerte NICHT verbessert (weiterhin 1 Bild je Sekunde) — der Bildverlust allein reicht aus. Sie ist trotzdem richtig: bei einseitigem Verlust auf der Tonspur waere sonst grundlos das Bild ausgefallen."
+ },
+
+ "was_damit_beantwortet_ist": "Die Frage aus dem Stoerprofil-Befund ('die eigentliche Rettung waere NACK/RTX') ist beantwortet, und die Antwort ist ein Nein. Diese Kette kann Verlust nicht reparieren. Das ist keine Eigenschaft des Players — er fordert korrekt an und wartet korrekt — sondern eine des Weges."
+}
