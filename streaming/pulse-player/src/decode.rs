@@ -49,6 +49,27 @@ const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
 /// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
 const MAX_REBUILDS: u32 = 2;
 
+/// Wie lange das Bild nach einer Luecke als unsauber gilt — also die Dauer
+/// eines vollen Auffrisch-Durchlaufs beim Sender.
+///
+/// Der Sender leitet sie aus seinem Keyframe-Abstand ab (`intraRefreshCnt =
+/// gopLength - 1`, Vorgabe 2 s). Der Zuschauer kann sie NICHT aus dem
+/// Datenstrom lesen: H.264 traegt dafuer eine Markierung, AV1 hat keine, und
+/// NVIDIAs AV1-Konfiguration kennt das Feld gar nicht erst. Statt daran zu
+/// scheitern, wird die Zeit einfach abgewartet — sie ist bekannt.
+///
+/// Zu kurz gewaehlt zeigt man Artefakte, zu lang ein Standbild, das laenger
+/// steht als noetig. Die Vorgabe passt zur Sender-Vorgabe; weicht die ab,
+/// setzt `PULSE_PLAYER_REFRESH_MS` sie nach.
+fn refresh_dauer() -> std::time::Duration {
+    let ms = std::env::var("PULSE_PLAYER_REFRESH_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| (100..=10_000).contains(ms))
+        .unwrap_or(2000);
+    std::time::Duration::from_millis(ms)
+}
+
 /// Was nach einer abgelehnten Einheit zu tun ist.
 ///
 /// Der Unterschied ist der Kern der Sache: **einzelne** Ablehnungen sind
@@ -269,6 +290,8 @@ pub struct VideoDecoder {
     awaiting_keyframe: bool,
     /// Wie viele Einheiten dabei bisher verworfen wurden.
     skipped_before_keyframe: u64,
+    /// Bis wann das Bild nach einer Luecke als unsauber gilt (s. [`on_gap`]).
+    unsauber_bis: Option<std::time::Instant>,
     /// Vorrat fuer die Ebenen-Puffer (s. [`PlanePool`]). Ueberlebt den
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
@@ -301,6 +324,7 @@ impl VideoDecoder {
                         rebuilds: 0,
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
+                        unsauber_bis: None,
                         plane_pool: PlanePool::default(),
                     });
                 }
@@ -354,6 +378,13 @@ impl VideoDecoder {
     /// nicht geholfen. Der Aufrufer muss die Sitzung dann beenden — stillem
     /// Weiterlaufen entspraeche ein dauerhaft schwarzes Bild.
     pub fn decode(&mut self, data: &[u8]) -> Result<Vec<DecodedFrame>> {
+        // Die Anzeigesperre nach einer Luecke endet, sobald das angeforderte
+        // Vollbild WIRKLICH da ist — nicht nach einer geschaetzten Zeit. Der
+        // Zeitdeckel in `on_gap` bleibt nur als Notausgang, damit ein
+        // ausbleibendes Vollbild das Bild nicht fuer immer sperrt.
+        if self.unsauber_bis.is_some() && crate::recorder::is_keyframe(self.codec, data) {
+            self.unsauber_bis = None;
+        }
         if self.awaiting_keyframe {
             if !crate::recorder::is_keyframe(self.codec, data) {
                 self.skipped_before_keyframe += 1;
@@ -453,25 +484,35 @@ impl VideoDecoder {
     /// Keyframe nicht faelschlich als "der Sender schickt keine Vollbilder"
     /// gewertet wird.
     pub fn on_gap(&mut self) {
-        // Weiterdekodieren statt warten (Versuch, hinter
-        // `PULSE_PLAYER_DECODE_THROUGH=1`).
+        // Weiterdekodieren und die Anzeige anhalten, bis das angeforderte
+        // Vollbild da ist. Die Sperre versteckt die Zerfledderung — sie
+        // ERSETZT das Vollbild NICHT.
         //
-        // Chromium tut genau das und liegt deshalb unter Paketverlust vorn:
-        // 85 ms gleichmaessig gegen 38-369 ms unberechenbar (2026-07-28). Es
-        // kann kein fehlendes Referenzbild erfinden — es behaelt das ALTE und
-        // rechnet die folgenden Differenzbilder darauf. Das gibt Artefakte,
-        // aber ein Bild.
+        // Genau das war der Irrtum vom 2026-07-28: Die Annahme, ein Strom mit
+        // wandernder Auffrischung repariere sich binnen eines Durchlaufs von
+        // selbst, sodass niemand mehr etwas anfordern muesste. Am laufenden
+        // Stream widerlegt — nach einem Aussetzer liefert `av1_cuvid` weiter
+        // 60 Bilder je Sekunde, aber immer dasselbe. Das Bild fror ein und
+        // BLIEB eingefroren, waehrend jede Kennzahl gesund aussah. Wer sich
+        // auf die Zaehler verlaesst, haelt das fuer einen Erfolg.
         //
-        // Deshalb hier ausdruecklich NICHT leeren: ein geleerter Decoder hat gar
-        // keine Referenz mehr und kann dann gar nichts rechnen. Am 2026-07-28
-        // gemessen — mit `flush` an dieser Stelle blieb die Bildrate bei 0,
-        // obwohl kein Absturz mehr auftrat.
-        if std::env::var("PULSE_PLAYER_DECODE_THROUGH").as_deref() == Ok("1") {
+        // Der Decoder wird dabei NICHT geleert: ein geleerter Decoder hat gar
+        // keine Referenz mehr und kann nichts mehr rechnen. Am 2026-07-28
+        // gemessen — mit `flush` an dieser Stelle blieb die Bildrate bei 0.
+        if std::env::var("PULSE_PLAYER_GAP_WAIT_KEYFRAME").as_deref() != Ok("1") {
+            let bis = std::time::Instant::now() + refresh_dauer();
+            // Eine laengere Stoerung erzeugt viele Luecken hintereinander —
+            // immer die spaeteste gewinnt, sonst gaebe die erste den Takt vor.
+            self.unsauber_bis = Some(match self.unsauber_bis {
+                Some(alt) if alt > bis => alt,
+                _ => bis,
+            });
             return;
         }
 
-        // Regulaerer Weg: auf einen Einstiegspunkt warten. Dann den Decoder
-        // LEEREN, nicht nur aufhoeren ihn zu fuettern.
+        // Alter Weg (`PULSE_PLAYER_GAP_WAIT_KEYFRAME=1`): auf einen
+        // Einstiegspunkt warten. Dann den Decoder LEEREN, nicht nur aufhoeren
+        // ihn zu fuettern.
         //
         // Das fehlte bisher, und es ist der Verdacht fuer den Segfault: nach
         // einer Luecke haelt der Decoder Referenzen auf Bilder, die nie
@@ -484,6 +525,25 @@ impl VideoDecoder {
         }
         self.awaiting_keyframe = true;
         self.skipped_before_keyframe = 0;
+    }
+
+    /// Darf das, was gerade herausfaellt, gezeigt werden?
+    ///
+    /// Nach einer Luecke rechnet der Decoder auf einem Referenzbild weiter,
+    /// dem Teile fehlen — die Bilder sind brauchbar zum Weiterrechnen, aber
+    /// nicht zum Anschauen. Wer sie trotzdem anzeigt, sieht Bildmuell; wer
+    /// stattdessen gar nichts schickt, laesst das letzte gute Bild stehen.
+    /// Letzteres ist die bessere Antwort — und die einzige, die keine
+    /// Anforderung an den Sender braucht.
+    pub fn ist_sauber(&mut self) -> bool {
+        match self.unsauber_bis {
+            None => true,
+            Some(bis) if std::time::Instant::now() >= bis => {
+                self.unsauber_bis = None;
+                true
+            }
+            Some(_) => false,
+        }
     }
 
     fn drain(&mut self) -> Vec<DecodedFrame> {

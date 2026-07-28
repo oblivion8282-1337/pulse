@@ -215,6 +215,20 @@ pub async fn run(
     // waehrend derselbe Verlust im Keyframe-Betrieb spurlos vorbeiging.
     // Bei Intra-Refresh braucht es die Anforderung theoretisch nicht: nach
     // einem vollen Durchlauf (~2 s) ist jeder Bildteil einmal erneuert.
+    // Anfordern ist Pflicht, nicht Kosmetik — am 2026-07-28 am laufenden
+    // Stream WIDERLEGT, dass es auch ohne ginge:
+    //
+    // Die Annahme war, ein Strom mit wandernder Auffrischung repariere sich
+    // binnen eines Durchlaufs von selbst, weil jeder Bildteil einmal erneuert
+    // wird. Am Zuschauer passiert das nicht. Nach einem Aussetzer liefert
+    // `av1_cuvid` weiter 60 Bilder je Sekunde — aber immer dasselbe. Das Bild
+    // fror ein und blieb eingefroren, waehrend jede Kennzahl gesund aussah
+    // (dekodiert 60/s, gezeichnet 60/s, Netz-bis-Schirm 4 ms). Zweimal
+    // reproduziert.
+    //
+    // Der Preis bleibt bestehen und ist nicht hier zu loesen: Die Anforderung
+    // geht an ALLE Zuschauer. Dagegen hilft das Auffangnetz
+    // (`fallback_url`), nicht das Weglassen der Anforderung.
     let ohne_anforderung =
         std::env::var("PULSE_PLAYER_NO_KEYFRAME_REQUEST").as_deref() == Ok("1");
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
@@ -564,12 +578,23 @@ async fn emit_frames(
         stats.decode_max_us = stats.decode_max_us.max(us);
     }
 
+    // Waehrend der Reparatur nach einer Luecke rechnet der Decoder auf einem
+    // unvollstaendigen Referenzbild weiter. Das ist gewollt — nur ANSEHEN darf
+    // man das Ergebnis nicht. Wird nichts geschickt, bleibt das letzte gute
+    // Bild im Fenster stehen; nach einem Auffrisch-Durchlauf stimmt das Bild
+    // wieder und es geht scharf weiter.
+    let vorzeigbar = dec.ist_sauber();
+
     for mut f in frames {
         f.arrived = arrived;
         stats.frames_decoded += 1;
         stats.width = f.width;
         stats.height = f.height;
         stats.ten_bit_source = f.ten_bit;
+        if !vorzeigbar {
+            stats.frames_dropped += 1;
+            continue;
+        }
         if !*announced_playing {
             *announced_playing = true;
             let event =
