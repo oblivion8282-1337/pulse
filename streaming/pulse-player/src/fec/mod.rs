@@ -22,6 +22,7 @@
 //! sich ohne eine Zeile Rechenlogik beantworten.
 
 pub mod flexfec03;
+pub mod gegenprobe;
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,6 +86,9 @@ pub fn aufsammeln(transport: Arc<RTCDtlsTransport>) {
                     while let Ok(paket) = strom.read_rtp(&mut puffer).await {
                         if paket.header.payload_type == FLEXFEC_PAYLOAD_TYPE {
                             anzahl += 1;
+                            if gegenprobe::eingeschaltet() {
+                                gegenprobe::paritaetspaket(&paket.payload);
+                            }
                         } else {
                             // Ein anderer nicht zugeordneter Strom. Zaehlen
                             // statt stillschweigend mitrechnen: sonst
@@ -100,6 +104,9 @@ pub fn aufsammeln(transport: Arc<RTCDtlsTransport>) {
                         "pulse-player: Paritaetsstrom ssrc={ssrc} beendet, \
                          {anzahl} Pakete gelesen, {fremd} fremde verworfen"
                     );
+                    if gegenprobe::eingeschaltet() {
+                        gegenprobe::bilanz();
+                    }
                 });
             }
             tokio::time::sleep(SUCHINTERVALL).await;

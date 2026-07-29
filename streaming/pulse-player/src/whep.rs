@@ -35,6 +35,7 @@ use webrtc::rtp_transceiver::rtp_codec::{
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
 use webrtc::rtp_transceiver::{RTCPFeedback, RTCRtpTransceiverInit};
 use webrtc::track::track_remote::TrackRemote;
+use webrtc::util::Marshal;
 
 /// Fester Standard-STUN wie im Browser-Client. Bei host-networking-MediaMTX
 /// meist unnoetig, hilft aber hinter NAT und schadet nie.
@@ -477,6 +478,7 @@ async fn pump_track(track: Arc<TrackRemote>, tx: mpsc::Sender<RtpArrival>) {
         return;
     };
     eprintln!("pulse-player: Track {mime} ({clock_rate} Hz) laeuft an");
+    let gegenprobe_an = crate::fec::gegenprobe::eingeschaltet();
 
     loop {
         let packet = match track.read_rtp().await {
@@ -486,6 +488,19 @@ async fn pump_track(track: Arc<TrackRemote>, tx: mpsc::Sender<RtpArrival>) {
                 return;
             }
         };
+        // Fuer die Gegenprobe braucht der Paritaets-Rechner die Bytes, so wie
+        // sie ueber die Leitung kamen. `marshal` baut sie aus dem geparsten
+        // Paket wieder auf — dass das byte-gleich ist, ist eine der Annahmen,
+        // die die Gegenprobe mitprueft: waere es das nicht, wichen die
+        // zurueckgerechneten Pakete ab.
+        if gegenprobe_an && codec.is_video() {
+            if let Ok(bytes) = packet.marshal() {
+                crate::fec::gegenprobe::medienpaket(
+                    packet.header.sequence_number,
+                    bytes.to_vec(),
+                );
+            }
+        }
         let arrival = RtpArrival { codec, clock_rate, packet, arrived: Instant::now() };
         if tx.send(arrival).await.is_err() {
             return; // Verbraucher ist weg
