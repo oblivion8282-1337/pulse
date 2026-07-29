@@ -21,6 +21,7 @@
 //! ist die Frage, an der der Ansatz haette scheitern koennen, und sie laesst
 //! sich ohne eine Zeile Rechenlogik beantworten.
 
+pub mod empfaenger;
 pub mod flexfec03;
 pub mod gegenprobe;
 
@@ -52,6 +53,53 @@ pub fn eingeschaltet() -> bool {
     std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1")
 }
 
+/// Startet den Paritaets-Empfang und liefert den Kanal, ueber den der
+/// Video-Track seine Pakete meldet.
+///
+/// Zwei Aufgaben statt einer: die eine sucht und liest den Paritaetsstrom
+/// (er taucht erst auf, wenn sein erstes Paket eintrifft), die andere haelt
+/// den Empfaenger und bekommt beide Seiten ueber Kanaele. So braucht es
+/// keinen geteilten Zustand zwischen den Aufgaben.
+pub fn starten(
+    transport: Arc<RTCDtlsTransport>,
+    tx: tokio::sync::mpsc::Sender<crate::whep::RtpArrival>,
+    codec: crate::whep::Codec,
+    clock_rate: u32,
+) -> tokio::sync::mpsc::Sender<(u16, Vec<u8>)> {
+    let (medien_tx, mut medien_rx) = tokio::sync::mpsc::channel::<(u16, Vec<u8>)>(256);
+    let (par_tx, mut par_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+
+    aufsammeln(transport, Some(par_tx));
+
+    tokio::spawn(async move {
+        let mut empfaenger = empfaenger::Empfaenger::neu(codec, clock_rate, tx);
+        let mut letzte_meldung = 0u64;
+        loop {
+            tokio::select! {
+                Some((seq, bytes)) = medien_rx.recv() => {
+                    empfaenger.medienpaket(seq, bytes).await;
+                }
+                Some(nutzlast) = par_rx.recv() => {
+                    empfaenger.paritaetspaket(&nutzlast).await;
+                    if empfaenger.repariert > 0 && empfaenger.repariert != letzte_meldung
+                        && empfaenger.repariert % 10 == 0
+                    {
+                        letzte_meldung = empfaenger.repariert;
+                        eprintln!(
+                            "pulse-player: Paritaet reparierte {} Pakete \
+                             ({} unreparierbar)",
+                            empfaenger.repariert, empfaenger.unreparierbar
+                        );
+                    }
+                }
+                else => break,
+            }
+        }
+    });
+
+    medien_tx
+}
+
 /// Sammelt die Paritaetspakete der Sitzung ein.
 ///
 /// Laeuft, bis die Verbindung abgebaut wird — `read_rtp` bricht dann mit einem
@@ -63,7 +111,10 @@ pub fn eingeschaltet() -> bool {
 /// bekommt nur ein `read_rtp`), und die Paritaet waere in beiden Haelften
 /// unbrauchbar. Der Fehler faellt nicht auf: beide Seiten zaehlen munter
 /// Pakete, nur eben die Haelfte.
-pub fn aufsammeln(transport: Arc<RTCDtlsTransport>) {
+pub fn aufsammeln(
+    transport: Arc<RTCDtlsTransport>,
+    weiter: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+) {
     static GESTARTET: AtomicBool = AtomicBool::new(false);
     if GESTARTET.swap(true, Ordering::SeqCst) {
         return;
@@ -79,6 +130,7 @@ pub fn aufsammeln(transport: Arc<RTCDtlsTransport>) {
                 let Some(strom) = transport.undeclared_stream(ssrc).await else {
                     continue;
                 };
+                let weiter = weiter.clone();
                 tokio::spawn(async move {
                     let mut puffer = vec![0u8; LESEPUFFER];
                     let mut anzahl: u64 = 0;
@@ -88,6 +140,13 @@ pub fn aufsammeln(transport: Arc<RTCDtlsTransport>) {
                             anzahl += 1;
                             if gegenprobe::eingeschaltet() {
                                 gegenprobe::paritaetspaket(&paket.payload);
+                            }
+                            if let Some(w) = &weiter {
+                                // Voll heisst: der Empfaenger kommt nicht mit.
+                                // Wegwerfen ist dann richtig — ein spaet
+                                // verarbeitetes Paritaetspaket repariert
+                                // ohnehin nichts mehr.
+                                let _ = w.try_send(paket.payload.to_vec());
                             }
                         } else {
                             // Ein anderer nicht zugeordneter Strom. Zaehlen

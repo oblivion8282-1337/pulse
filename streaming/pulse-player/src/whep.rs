@@ -310,10 +310,20 @@ pub async fn connect(
     pc.on_track(Box::new(move |track, receiver, _transceiver| {
         let tx = tx.clone();
         Box::pin(async move {
-            if fec_an {
-                crate::fec::aufsammeln(receiver.transport());
-            }
-            tokio::spawn(pump_track(track, tx));
+            // Nur am VIDEO-Track: dort liegt der geschuetzte Strom, und nur
+            // dort sind Codec und Taktrate bekannt, die ein repariertes Paket
+            // fuer den Empfangsweg braucht.
+            let capability = track.codec().capability;
+            let medien_tx = match Codec::from_mime(&capability.mime_type) {
+                Some(codec) if fec_an && codec.is_video() => Some(crate::fec::starten(
+                    receiver.transport(),
+                    tx.clone(),
+                    codec,
+                    capability.clock_rate,
+                )),
+                _ => None,
+            };
+            tokio::spawn(pump_track(track, tx, medien_tx));
         })
     }));
 
@@ -469,7 +479,11 @@ fn resolve_resource_url(whep_url: &str, location: &str) -> Option<String> {
 
 /// Liest RTP von einem Track und schiebt die Pakete unveraendert weiter.
 /// Endet, wenn der Track schliesst oder der Empfaenger weg ist.
-async fn pump_track(track: Arc<TrackRemote>, tx: mpsc::Sender<RtpArrival>) {
+async fn pump_track(
+    track: Arc<TrackRemote>,
+    tx: mpsc::Sender<RtpArrival>,
+    fec_medien: Option<mpsc::Sender<(u16, Vec<u8>)>>,
+) {
     let capability = track.codec().capability;
     let mime = capability.mime_type;
     let clock_rate = capability.clock_rate;
@@ -493,12 +507,18 @@ async fn pump_track(track: Arc<TrackRemote>, tx: mpsc::Sender<RtpArrival>) {
         // Paket wieder auf — dass das byte-gleich ist, ist eine der Annahmen,
         // die die Gegenprobe mitprueft: waere es das nicht, wichen die
         // zurueckgerechneten Pakete ab.
-        if gegenprobe_an && codec.is_video() {
+        if (gegenprobe_an || fec_medien.is_some()) && codec.is_video() {
             if let Ok(bytes) = packet.marshal() {
-                crate::fec::gegenprobe::medienpaket(
-                    packet.header.sequence_number,
-                    bytes.to_vec(),
-                );
+                let seq = packet.header.sequence_number;
+                if gegenprobe_an {
+                    crate::fec::gegenprobe::medienpaket(seq, bytes.to_vec());
+                }
+                if let Some(m) = &fec_medien {
+                    // Voll heisst: der Paritaets-Empfaenger haengt. Wegwerfen
+                    // ist dann richtig — der Bildstrom selbst darf davon nicht
+                    // ausgebremst werden.
+                    let _ = m.try_send((seq, bytes.to_vec()));
+                }
             }
         }
         let arrival = RtpArrival { codec, clock_rate, packet, arrived: Instant::now() };
