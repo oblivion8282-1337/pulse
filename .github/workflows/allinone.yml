@@ -208,7 +208,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.pulse_version }}
-            org.opencontainers.image.licenses=LicenseRef-PolyForm-Free-Trial-1.0.0
+            org.opencontainers.image.licenses=LicenseRef-Proprietary-Pulse-Server-1.0
           # Push OHNE Tag, nur per Digest — der merge-Job klebt die Tags drauf.
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           # Cache PRO ARCH getrennt — sonst überschreiben amd64/arm64 sich.
