@@ -19,6 +19,7 @@ mod audio;
 mod decode;
 mod depacket;
 mod dump;
+mod fec;
 mod jitter;
 mod mediasink;
 mod overlay;

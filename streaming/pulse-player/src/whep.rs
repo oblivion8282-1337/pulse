@@ -29,7 +29,9 @@ use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::rtp_transceiver::rtp_codec::RTPCodecType;
+use webrtc::rtp_transceiver::rtp_codec::{
+    RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
+};
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
 use webrtc::rtp_transceiver::{RTCPFeedback, RTCRtpTransceiverInit};
 use webrtc::track::track_remote::TrackRemote;
@@ -193,6 +195,47 @@ fn nack_intervall() -> Duration {
 /// sonst verhandelt der Player sie gar nicht erst und der Rueckkanal bleibt
 /// stumm — sie stehen sonst in `configure_nack`.
 ///
+/// Nutzlasttyp, unter dem der Player Paritaetspakete anbietet. Muss mit dem
+/// des Servers uebereinstimmen (`pulseFlexFECPayloadType` im MediaMTX-Patch
+/// `0003-flexfec-on-whep.patch`).
+const FLEXFEC_PAYLOAD_TYPE: u8 = 110;
+
+/// Bietet FlexFEC-03 in der Verhandlung an — sonst erzeugt der Server keines.
+///
+/// Der Paritaets-Erzeuger im MediaMTX-Fork haengt an der SDP-Aushandlung: pions
+/// Interceptor steigt sofort wieder aus, wenn die Spur keine FEC-Kennung
+/// bekommen hat (`encoder_interceptor.go`, Pruefung auf
+/// `PayloadTypeForwardErrorCorrection == 0`). Wer den Schalter am Server
+/// umlegt, ohne dass der Zuschauer hier etwas anbietet, bekommt schweigend
+/// denselben Strom wie vorher.
+///
+/// `flexfec-03` ist der Entwurfsstand, den auch Chromium spricht; pion nennt
+/// das an seiner Voreinstellung ausdruecklich. Die Angabe `repair-window`
+/// uebernimmt denselben Wert, den pion in `ConfigureFlexFEC03` setzt.
+///
+/// **Das hier ist nur die Anmeldung, noch keine Reparatur.** Der Player
+/// verhandelt damit die Paritaetspakete und bekommt sie zugestellt; sie
+/// auszuwerten ist der naechste Schritt.
+fn flexfec_anbieten(media: &mut MediaEngine) -> Result<()> {
+    media
+        .register_codec(
+            RTCRtpCodecParameters {
+                capability: RTCRtpCodecCapability {
+                    mime_type: "video/flexfec-03".to_owned(),
+                    clock_rate: 90000,
+                    channels: 0,
+                    sdp_fmtp_line: "repair-window=10000000".to_owned(),
+                    rtcp_feedback: vec![],
+                },
+                payload_type: FLEXFEC_PAYLOAD_TYPE,
+                ..Default::default()
+            },
+            RTPCodecType::Video,
+        )
+        .context("FlexFEC-Codec konnte nicht registriert werden")?;
+    Ok(())
+}
+
 /// Messakte: `testbench/profiles/nack-2026-07-29-stufe3.json`.
 fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
     for parameter in ["", "pli"] {
@@ -223,6 +266,12 @@ pub async fn connect(
     media
         .register_default_codecs()
         .context("Standard-Codecs konnten nicht registriert werden")?;
+    // Noch hinter einem Schalter: das Angebot veraendert das SDP, und der
+    // Empfaenger dafuer ist erst im Bau. Ohne die Variable verhaelt sich der
+    // Player wie bisher.
+    if std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1") {
+        flexfec_anbieten(&mut media)?;
+    }
     let registry = interceptors_mit_zuegigem_nack(&mut media)?;
     let api = APIBuilder::new()
         .with_media_engine(media)
@@ -252,9 +301,17 @@ pub async fn connect(
         .await
         .context("Audio-Transceiver")?;
 
-    pc.on_track(Box::new(move |track, _receiver, _transceiver| {
+    // Der Paritaetsstrom taucht in keinem `on_track` auf — er gehoert zu
+    // keiner angemeldeten Spur. Erreichbar ist er nur ueber den
+    // DTLS-Transport, und an den kommt man erst ueber einen Empfaenger, den
+    // es hier bereits gibt.
+    let fec_an = crate::fec::eingeschaltet();
+    pc.on_track(Box::new(move |track, receiver, _transceiver| {
         let tx = tx.clone();
         Box::pin(async move {
+            if fec_an {
+                crate::fec::aufsammeln(receiver.transport());
+            }
             tokio::spawn(pump_track(track, tx));
         })
     }));

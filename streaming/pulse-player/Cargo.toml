@@ -92,3 +92,16 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+# Eigener Zweig von webrtc-rs, gepinnt: er macht die Stroeme sichtbar, deren
+# SSRC zu keiner angemeldeten Spur passt. Genau dort liegen die
+# FlexFEC-Paritaetspakete — die Bibliothek entschluesselt und speichert sie
+# bereits (`undeclared_media_processor` legt sie ab, BEVOR sie die Zuordnung
+# versucht, und raeumt sie bei Fehlschlag nicht weg), aber Karte und Zugriff
+# sind `pub(crate)`. Der Zweig fuegt zwei lesende Methoden hinzu, sonst nichts:
+# kein `accept()`, also kein Wettlauf mit der bibliothekseigenen Schleife.
+#
+# Delta gegen v0.17.2: 24 Zeilen in `webrtc/src/dtls_transport/mod.rs`.
+# Faellt weg, sobald das Original etwas Gleichwertiges hat.
+[patch.crates-io]
+webrtc = { path = "../../../webrtc-rs-pulse/webrtc" }
