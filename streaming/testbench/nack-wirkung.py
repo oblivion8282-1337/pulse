@@ -68,7 +68,16 @@ def rtcp_typ(nutzlast: bytes) -> tuple[int, int] | None:
     return (pt, nutzlast[0] & 0x1F) if 64 <= (pt & 0x7F) <= 95 else None
 
 
-def auswerten(pcap: Path) -> dict:
+def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
+    """Zaehlt Nachforderungen und Nachlieferungen in einem Mitschnitt.
+
+    Ohne `server_ip` wird die Richtung am Medienport erkannt (lokaler Aufbau,
+    MediaMTX auf `lo`). Mit `server_ip` an der Gegenstelle — noetig, sobald es
+    ueber die echte Leitung geht: der Testserver veroeffentlicht seinen
+    WebRTC-Port nicht unter der lokalen Nummer, und ein Portfilter ginge dort
+    ins Leere.
+    """
+    ziel = bytes(int(x) for x in server_ip.split(".")) if server_ip else None
     roh = pcap.read_bytes()
     magic = struct.unpack("<I", roh[:4])[0]
     if magic not in (0xA1B2C3D4, 0xA1B23C4D):
@@ -124,11 +133,21 @@ def auswerten(pcap: Path) -> dict:
         if not ist_rtp_oder_rtcp(nutz):    # STUN/DTLS aussortieren
             continue
 
+        # Richtung: ueber die Gegenstellen-IP, sonst ueber den Medienport.
+        if ziel is not None:
+            zum_server = pkt[14 + 16:14 + 20] == ziel
+            vom_server = pkt[14 + 12:14 + 16] == ziel
+        else:
+            zum_server = dport == MEDIA_PORT
+            vom_server = sport == MEDIA_PORT
+        if not (zum_server or vom_server):
+            continue
+
         if erste_zeit is None:
             erste_zeit = zeit
         letzte_zeit = zeit
 
-        if dport == MEDIA_PORT:            # Player -> Server (Rueckkanal)
+        if zum_server:                     # Player -> Server (Rueckkanal)
             if (t := rtcp_typ(nutz)) is not None:
                 pt, fmt = t
                 if pt == 205 and fmt == 1:
@@ -140,8 +159,6 @@ def auswerten(pcap: Path) -> dict:
                     rtcp_sonst += 1
             continue
 
-        if sport != MEDIA_PORT:            # nicht unser Medienweg
-            continue
         if rtcp_typ(nutz) is not None:     # RTCP vom Server — hier uninteressant
             continue
 

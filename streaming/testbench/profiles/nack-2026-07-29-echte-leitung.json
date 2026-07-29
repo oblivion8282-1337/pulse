@@ -1,0 +1,38 @@
+{
+ "id": "nack-2026-07-29-echte-leitung",
+ "gemessen_am": "2026-07-29 (Abend)",
+ "frage": "Reicht der Jitter-Puffer, damit eine Nachlieferung ueber die ECHTE Leitung noch rechtzeitig kommt?",
+ "stand": "Die Umlaufzeit zum Testserver betraegt 61 ms — dreimal so viel wie der Jitter-Puffer haelt. Eine Nachlieferung kann dort mit den heutigen 20 ms NIE rechtzeitig sein, egal wie zuegig nachgefordert wird. Die Strecke selbst verlor waehrend der Messung nichts; die WIRKUNG von NACK ist hier deshalb nicht messbar.",
+ "werkzeug": "fern-nack.py (neu). Wie nack-wirkung.py, aber gegen den echten Server: Token per SSH in die Redis des Containers, ffmpeg-Push per RTMPS, Player gegen die entfernte WHEP-Adresse, tcpdump auf der Schnittstelle, ueber die der Server erreicht wird. Bewusst der REFERENZSENDER statt des echten Sidecars (wie in fern-harness.py) — fuer den Empfangsweg braucht es weder Portal noch wachen Bildschirm, und eine vorkodierte Datei ist reproduzierbar. Die Richtungserkennung laeuft ueber die Gegenstellen-IP, nicht ueber einen Port: der Container veroeffentlicht seinen WebRTC-Port nicht unter der lokalen Nummer.",
+ "DIE_ENTSCHEIDENDE_ZAHL": {
+  "umlaufzeit": "59,4 / 61,0 / 65,8 ms (min/mittel/max ueber 30 Pings, 0 % Verlust).",
+  "was_daraus_folgt": "Eine Nachlieferung braucht mindestens eine volle Umlaufzeit — die Nachforderung hin, das Paket zurueck. Also fruehestens 59 ms, typisch 61, plus die Wartezeit auf das naechste Sendeintervall (0-10 ms seit dem Fix). Der Jitter-Puffer haelt 20 ms. Ueber diese Strecke kann NACK damit PRINZIPIELL nicht rechtzeitig sein, unabhaengig von jeder Einstellung auf unserer Seite. Das ist keine Messung mehr, sondern Laufzeit.",
+  "was_ein_puffer_leisten_muesste": "Gut 70 ms, also mehr als das Dreifache des heutigen Werts. Bei einer Ende-zu-Ende-Zeit von rund 17 ms lokal ist das ein erheblicher Aufschlag — als DAUERHAFTER Puffer.",
+  "der_ausweg_bleibt_derselbe": "Ein Puffer, der NUR bei erkannter Luecke wartet, zahlt die 70 ms genau dann, wenn sonst das Bild stehen wuerde. Fuer die geplante Fernsteuerung ist das die einzige vertretbare Form; ein dauerhaft tieferer Puffer waere dort ein schlechter Tausch."
+ },
+ "DIE_STRECKE_VERLIERT_NICHTS": {
+  "lauf_2": "30 s, 11591 RTP-Pakete: 0 NACKs, 0 Wiederholungen, player_packets_lost 0,0, fps 58,8 bei Soll 60.",
+  "lauf_3": "40 s, 15641 RTP-Pakete: 0 NACKs, 0 Wiederholungen, player_packets_lost 0,0, fps 59,1.",
+  "einordnung": "Deckt sich mit der frueheren Beobachtung (6-7 Pakete je 30-Sekunden-Lauf, rund 0,05 %) und unterbietet sie. Solange die Bitrate passt, gibt es auf dieser Strecke nichts nachzufordern — die NACK-Frage ist im heutigen Betrieb akademisch.",
+  "GRENZE_DER_AUSSAGE": "Das gilt fuer DIESE Strecke, an diesem Abend, ueber WLAN. Es ist keine Aussage ueber Nutzerleitungen allgemein. Wer Verlustrobustheit beurteilen will, braucht eine Strecke, die tatsaechlich verliert."
+ },
+ "DER_ERSTE_LAUF_WAR_UEBERLASTUNG_KEIN_VERLUST": {
+  "was_passierte": "Lauf 1 lief mit der 25000-kbps-Vorlage (144 fps) und meldete 1062 Nachforderungen, 213 Wiederholungen und eine Verspaetung von auffaellig konstanten 451,3 ms. Das sah nach einer Messung aus.",
+  "warum_es_keine_war": "player_fps lag bei 64,8 statt 144. Der Downstream dieser Teststrecke betraegt 10 Mbit (vom Nutzer bestaetigt; eine aeltere Notiz sagte 12 — das war zu hoch gegriffen). Ein 25-Mbit-Strom passt dort nicht hindurch. Was verloren ging, war Stau am Engpass, nicht Uebertragungsfehler — und die 451 ms sind Warteschlange, nicht Nachforderungs-Laufzeit. NACK repariert so etwas prinzipiell nicht: die Pakete sind nicht verlorengegangen, sie kamen nie durch.",
+  "erkannt_woran": "Zwei unabhaengige Zeichen: die Lebendkontrolle schlug an (NACKs deckten nur 13 von 25 s ab), und die Bildrate lag bei 45 % des Solls. Mit passender Bitrate verschwand beides.",
+  "lehre": "Verlust und Ueberlastung sehen in den Zaehlern gleich aus und brauchen verschiedene Gegenmittel. Die Bildrate gegen das Soll ist die billigste Unterscheidung — sie war schon im Werkzeug, ich haette sie nur lesen muessen."
+ },
+ "zusammen_mit_der_lokalen_messung": "Lokal (nack-2026-07-29-stufe3.json) hat der Fix am Sendeintervall den Paketverlust aus Player-Sicht auf ein Dreizehntel gedrueckt und die Bildrate von 100-112 auf 140-141 gehoben. Das bleibt richtig und wertvoll: es wirkt genau dort, wo die Umlaufzeit klein ist — im selben Netz, im LAN, bei einem nahen Server. Ueber eine Strecke mit 61 ms Umlaufzeit traegt es nicht mehr. Beide Aussagen widersprechen sich nicht, sie gelten fuer verschiedene Entfernungen.",
+ "offen": [
+  "Der adaptive Puffer (nur bei erkannter Luecke warten) ist entworfen, nicht gebaut. Er ist der einzige Weg, auf dem NACK ueber eine echte Strecke etwas beitragen koennte.",
+  "FEC/Paritaet gewinnt damit an Gewicht: sie braucht KEINEN Rueckkanal und keine Wartezeit, also auch keine Umlaufzeit. Genau die beiden Punkte, an denen NACK hier scheitert. Vor einer Entscheidung darueber sollte aber geklaert sein, ob auf realen Nutzerleitungen ueberhaupt nennenswert verloren geht — auf dieser nicht.",
+  "Eine Teststrecke, die verliert, OHNE den Sendeweg mitzustoeren. Kuenstlicher Verlust auf der gemeinsamen Schnittstelle scheidet aus (dann ist offen, wer schwaechelt). Weg: Verlust nur auf dem EINGANGSWEG per ifb-Umleitung — dann bleibt der Push sauber und es entsteht eine schlechte Zuschauerleitung bei echter Umlaufzeit. Das ist der realistische Pruefstand, der bisher fehlt."
+ ],
+ "LEITUNGSBUDGET": "Downstream 10 Mbit. Messungen gegen diesen Server muessen deutlich darunter bleiben — 3000 kbps bei 60 fps laufen sauber (fps 58,8 und 59,1 bei Soll 60, null Verlust). Wer hoeher geht, misst den Engpass statt den Player, und die Zahlen sehen dabei wie eine Verlustmessung aus.",
+ "WAS_DARAUS_NICHT_FOLGT": "Dass Verlustrobustheit nicht gebraucht wird. Eine erste Fassung dieser Akte nannte die NACK-Frage 'im heutigen Betrieb akademisch' — das ist eine falsche Rahmung und wurde vom Nutzer zu Recht beanstandet. Diese Teststrecke ist ein Glücksfall, kein Massstab: Nutzer sitzen im WLAN mit schwachem Empfang, im Mobilfunk, an ueberlasteten Anschluessen. Dort ist Verlust der Normalfall — und genau diese Zuschauer verlieren den Strom heute dauerhaft, weil Intra-Refresh sich nicht selbst heilt (decoder-2026-07-29-intra-refresh.json). Die 61 ms sind ein Argument FUER mehr Robustheit: sie zeigen, dass NACK allein bei entfernten Zuschauern nicht traegt.",
+ "was_gebraucht_wird": {
+  "adaptiver_puffer": "Wartet nur bei erkannter Luecke. Dann wirkt NACK auch ueber Entfernung, und die rund 70 ms fallen nur an, wenn sonst das Bild stehen wuerde. Entworfen, nicht gebaut.",
+  "fec": "Repariert ohne Rueckkanal und ohne Wartezeit, also unabhaengig von der Umlaufzeit — stark genau dort, wo NACK schwach ist. Die beiden ergaenzen sich: NACK zahlt nur der Betroffene, FEC hilft allen sofort.",
+  "der_engpass_ist_die_messbarkeit": "Beide Maßnahmen sind ohne eine Strecke, die tatsaechlich verliert, nicht zu bewerten. Das ist jetzt der Engpass — nicht die Frage nach dem Bedarf."
+ }
+}
