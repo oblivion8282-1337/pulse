@@ -20,6 +20,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use super::flexfec03::{kopf_lesen, zurueckrechnen, Medienpaket};
 
@@ -32,7 +33,11 @@ const VORRAT: usize = 512;
 const MELDEABSTAND: u64 = 50;
 
 struct Pruefstand {
-    medien: BTreeMap<u16, Vec<u8>>,
+    medien: BTreeMap<u16, (Vec<u8>, Instant)>,
+    /// Wie lange die Paritaet dem LETZTEN Paket ihrer Gruppe nachlaeuft, in
+    /// Mikrosekunden. Das ist die Groesse, die entscheidet, ob eine Reparatur
+    /// den Jitter-Puffer noch rechtzeitig erreicht.
+    nachlauf_us: Vec<u64>,
     gruppen_geprueft: u64,
     pakete_gleich: u64,
     pakete_abweichend: u64,
@@ -47,6 +52,7 @@ fn pruefstand() -> &'static Mutex<Pruefstand> {
     PRUEFSTAND.get_or_init(|| {
         Mutex::new(Pruefstand {
             medien: BTreeMap::new(),
+            nachlauf_us: Vec::new(),
             gruppen_geprueft: 0,
             pakete_gleich: 0,
             pakete_abweichend: 0,
@@ -67,7 +73,7 @@ pub fn eingeschaltet() -> bool {
 /// kamen — die Rechnung des Verfahrens bezieht sich auf genau die.
 pub fn medienpaket(sequenz: u16, bytes: Vec<u8>) {
     let mut p = pruefstand().lock().unwrap();
-    p.medien.insert(sequenz, bytes);
+    p.medien.insert(sequenz, (bytes, Instant::now()));
     while p.medien.len() > VORRAT {
         let Some(&aeltester) = p.medien.keys().next() else { break };
         p.medien.remove(&aeltester);
@@ -94,11 +100,25 @@ pub fn paritaetspaket(nutzlast: &[u8]) {
     // wirklich, gibt es keinen Sollwert zum Vergleichen.
     let mut gruppe: Vec<Medienpaket> = Vec::with_capacity(kopf.geschuetzte_sequenzen.len());
     for &seq in &kopf.geschuetzte_sequenzen {
-        let Some(bytes) = p.medien.get(&seq) else {
+        let Some((bytes, _)) = p.medien.get(&seq) else {
             p.gruppen_unvollstaendig += 1;
             return;
         };
         gruppe.push(Medienpaket { sequenz: seq, bytes: bytes.clone() });
+    }
+
+    // Nachlauf: wie lange nach dem letzten geschuetzten Paket trifft die
+    // Reserve ein? Der Jitter-Puffer beginnt seine Geduld mit der Ankunft des
+    // ersten Pakets NACH der Luecke — die Reparatur muss also innerhalb dieser
+    // Frist da sein, sonst ist die Einheit laengst verworfen.
+    let jetzt = Instant::now();
+    if let Some(spaeteste) = kopf
+        .geschuetzte_sequenzen
+        .iter()
+        .filter_map(|s| p.medien.get(s).map(|(_, t)| *t))
+        .max()
+    {
+        p.nachlauf_us.push(jetzt.duration_since(spaeteste).as_micros() as u64);
     }
 
     let mut gleich = 0u64;
@@ -161,6 +181,7 @@ pub fn paritaetspaket(nutzlast: &[u8]) {
              {} Gruppen unvollstaendig",
             p.gruppen_geprueft, p.pakete_gleich, p.pakete_abweichend, p.gruppen_unvollstaendig
         );
+        nachlauf_melden(&p);
     }
 }
 
@@ -178,5 +199,29 @@ pub fn bilanz() {
         p.pakete_abweichend,
         p.gruppen_unvollstaendig,
         p.kopf_fehler
+    );
+
+    nachlauf_melden(&p);
+}
+
+/// Die Verteilung des Nachlaufs. Getrennt, weil sie an zwei Stellen gebraucht
+/// wird: laufend (die Bilanz kommt nur bei sauberem Streamende, und genau das
+/// bleibt beim Abbruch der Sitzung aus) und abschliessend.
+fn nachlauf_melden(p: &Pruefstand) {
+    if p.nachlauf_us.is_empty() {
+        return;
+    }
+    let mut werte = p.nachlauf_us.clone();
+    werte.sort_unstable();
+    let bei = |anteil: f64| werte[((werte.len() - 1) as f64 * anteil) as usize] as f64 / 1000.0;
+    eprintln!(
+        "pulse-player: NACHLAUF der Paritaet (ms nach dem letzten geschuetzten \
+         Paket): Median {:.1}, 90 % unter {:.1}, 99 % unter {:.1}, Maximum {:.1} \
+         — aus {} Gruppen",
+        bei(0.5),
+        bei(0.9),
+        bei(0.99),
+        bei(1.0),
+        werte.len()
     );
 }
