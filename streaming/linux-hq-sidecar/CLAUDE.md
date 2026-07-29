@@ -1,7 +1,12 @@
-# CLAUDE.md — pulse-linux-hq-sidecar
+# CLAUDE.md — Linux-HQ-Sidecar
 
-Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Repo
-(`/home/michael/Dokumente/Linux_Rust_Sidecar/`).
+Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
+(`streaming/linux-hq-sidecar/` im Pulse-Repo).
+
+**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`, jetzt
+Archiv). Dort stehen die Commits mit den Messbegründungen zu den Latenz- und
+Encoder-Werten; wer wissen will, warum eine Zahl so gesetzt ist, findet die
+Herleitung in der Historie des Archivs. Übernommen wurde `ba9cc48`.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
