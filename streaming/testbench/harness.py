@@ -31,7 +31,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 HERE = Path(__file__).parent
-SOURCE = HERE / "synth10.mkv"
+# Ueberschreibbar, weil die STRUKTUR der Vorlage das Ergebnis veraendert:
+# `synth10.mkv` ist mit av1_nvenc-Datei-Defaults kodiert und enthaelt
+# Alt-Ref-Bilder (rund die Haelfte aller Zugriffseinheiten sind reine
+# "zeige vorhandenes Bild"-Header). Der Live-Sidecar kodiert mit
+# `zerolatency=1`/`delay=0`/`b_ref_mode=0` und erzeugt sie nicht. Wer Befunde
+# auf den Livebetrieb uebertragen will, braucht eine Vorlage mit den
+# Live-Einstellungen — sonst misst er die Vorlage statt den Player.
+SOURCE = Path(os.environ.get("PULSE_HARNESS_SOURCE", HERE / "synth10.mkv"))
 # Pfade ueber die Umgebung ueberschreibbar — der Sidecar liegt in einem
 # EIGENEN Repo, dessen Ort je Maschine abweicht.
 PLAYER = Path(os.environ.get(
@@ -163,6 +170,14 @@ def main() -> int:
     ap.add_argument("--secs", type=float, default=15.0)
     ap.add_argument("--label", default="")
     ap.add_argument("--extra", default="", help="zusaetzliche ffmpeg-Ausgabeoptionen")
+    # Der Decoder-Weg muss von aussen festnagelbar sein: am 2026-07-29 stirbt
+    # der Player unter Paketverlust reproduzierbar mit SIGSEGV in libnvcuvid
+    # (vier von vier Laeufen, Backtrace ueber avcodec_send_packet). Ob das an
+    # NVIDIAs Decoder haengt oder an unserer Einspeisung, ist nur mit der
+    # Gegenprobe zu trennen — und ohne diesen Schalter braucht sie einen
+    # Umbau des Players.
+    ap.add_argument("--hwdec", choices=("auto", "hw", "sw"), default="auto",
+                    help="Decoder erzwingen: hw = nur GPU, sw = nur Software")
     args = ap.parse_args()
     audio = not args.noaudio
 
@@ -185,7 +200,8 @@ def main() -> int:
     player = Player(player_log)
     samples: list[dict] = []
     try:
-        res = player.call("open", url=whep, title=f"Pruefstand {tag}")
+        optionen = {"auto": {}, "hw": {"hwdec": True}, "sw": {"hwdec": False}}[args.hwdec]
+        res = player.call("open", url=whep, title=f"Pruefstand {tag}", options=optionen)
         if not res.get("ok"):
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
             return 1

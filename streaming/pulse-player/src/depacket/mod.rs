@@ -224,4 +224,52 @@ mod tests {
         assert!(a.push(seq(), &nal, true).is_none(), "nach Luecke keine Teil-Einheit");
         assert!(a.push(seq(), &nal, true).is_some(), "danach wieder normal");
     }
+
+    /// Diagnose, kein Regressionstest: schickt einen echten RTP-Mitschnitt
+    /// durch den Assembler und schreibt die entstehenden Einheiten heraus,
+    /// damit `testbench/obu-schnitt.py` sie einzeln auf OBU-Syntax pruefen
+    /// kann. Bewusst KEIN Nachbau der Pruefung hier — das Werkzeug drueben
+    /// ist gegen echte Stroeme geprueft, ein zweiter Parser waere eine
+    /// zweite Fehlerquelle.
+    ///
+    /// Hintergrund: Am 2026-07-29 meldete `libdav1d` 87 Mal "Error parsing
+    /// OBU data" in einem Lauf OHNE jede Stoerung, alle nach dem
+    /// Einstiegspunkt. Entweder liefert der Assembler kaputte Einheiten,
+    /// oder die Meldung ist harmlos — aus dem Log allein nicht zu trennen.
+    ///
+    /// Laeuft nur mit `PULSE_PLAYER_DUMP_IN`; ohne die Variable **schlaegt er
+    /// fehl** statt still gruen zu melden. Ein uebersprungener Test, der wie
+    /// ein bestandener aussieht, hat hier schon einmal neun Rundlauf-Tests
+    /// monatelang wirkungslos gemacht.
+    #[test]
+    #[ignore = "Diagnose gegen einen echten Mitschnitt; braucht PULSE_PLAYER_DUMP_IN"]
+    fn echter_mitschnitt_ergibt_syntaktisch_heile_einheiten() {
+        let quelle = std::env::var("PULSE_PLAYER_DUMP_IN")
+            .expect("PULSE_PLAYER_DUMP_IN muss auf ein .rtpdump zeigen");
+        let ziel = std::env::var("PULSE_PLAYER_UNITS_OUT")
+            .unwrap_or_else(|_| "/tmp/einheiten.bin".to_string());
+        let roh = std::fs::read(&quelle).expect("Mitschnitt lesbar");
+        let pakete = crate::dump::read_dump(&roh);
+        assert!(!pakete.is_empty(), "Mitschnitt {quelle} enthaelt keine Pakete");
+
+        let mut a = Assembler::for_codec(Codec::Av1);
+        let mut seq = folge(0);
+        let mut raus = Vec::new();
+        let mut einheiten = 0usize;
+        for (payload, marker) in &pakete {
+            // Der Mitschnitt fuehrt die Sequenznummer nicht mit. Im
+            // ungestoerten Lauf ist sie lueckenlos, deshalb hier fortlaufend
+            // — die Sequenzpruefung des Assemblers wird damit bewusst
+            // neutralisiert, geprueft wird das ZUSAMMENSETZEN.
+            if let Some(unit) = a.push(seq(), &Bytes::from(payload.clone()), *marker) {
+                einheiten += 1;
+                raus.extend_from_slice(&(unit.len() as u32).to_le_bytes());
+                raus.push(0);
+                raus.extend_from_slice(&unit);
+            }
+        }
+        std::fs::write(&ziel, &raus).expect("Einheiten schreibbar");
+        eprintln!("{} Pakete -> {einheiten} Einheiten nach {ziel}", pakete.len());
+        assert!(einheiten > 0, "keine einzige Einheit zusammengesetzt");
+    }
 }

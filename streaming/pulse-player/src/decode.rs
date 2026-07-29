@@ -763,6 +763,68 @@ mod tests {
         assert_eq!(matrix_of(Space::Unspecified, 1440), ColorMatrix::Bt709);
     }
 
+    /// Diagnose zum Befund vom 2026-07-29: 87 Mal "Error parsing OBU data" in
+    /// einem Lauf OHNE Stoerung (null Luecken, null Paketverlust). Assembler
+    /// und Einheiten sind bereits entlastet — dieselben Einheiten als Datei an
+    /// libdav1d gegeben ergeben NULL Fehler. Uebrig bleibt die Einspeisung:
+    /// der Player reicht jede Einheit einzeln herein, und der Depacketizer
+    /// laesst dabei den Temporal Delimiter weg, den RTP nicht uebertraegt.
+    ///
+    /// Dieser Test faehrt genau den Player-Weg und vergleicht beide Varianten.
+    /// `PULSE_PLAYER_UNITS_IN` zeigt auf die Datei, die
+    /// `depacket::tests::echter_mitschnitt_ergibt_syntaktisch_heile_einheiten`
+    /// schreibt; `PULSE_PLAYER_ADD_TD=1` stellt jeder Einheit einen Temporal
+    /// Delimiter voran. Die Fehlerzeilen kommen aus FFmpeg selbst, also mit
+    /// `-- --nocapture` laufen lassen und zaehlen.
+    #[test]
+    #[ignore = "Diagnose; braucht PULSE_PLAYER_UNITS_IN"]
+    fn einheiten_durch_den_echten_decoder_weg() {
+        let quelle = std::env::var("PULSE_PLAYER_UNITS_IN")
+            .expect("PULSE_PLAYER_UNITS_IN muss auf die Einheiten-Datei zeigen");
+        let mit_td = std::env::var("PULSE_PLAYER_ADD_TD").as_deref() == Ok("1");
+        let roh = std::fs::read(&quelle).expect("Einheiten lesbar");
+
+        // Beide Wege pruefbar: der Befund entscheidet sich daran, ob nur der
+        // Software-Rueckfall betroffen ist oder auch der Normalbetrieb.
+        let hw = std::env::var("PULSE_PLAYER_TEST_HW").as_deref() == Ok("1");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(hw)).expect("Decoder");
+        // Gleiches Format wie ein .rtpdump (4-Byte-LE-Laenge + 1 Fuellbyte +
+        // Nutzlast) — `echter_mitschnitt_ergibt_syntaktisch_heile_einheiten`
+        // schreibt es genau so, das zweite Feld bleibt hier ungenutzt.
+        let mut rein = 0usize;
+        let mut bilder = 0usize;
+        let mut verworfen = 0usize;
+        for (unit, _) in crate::dump::read_dump(&roh) {
+            let mut einheit = Vec::new();
+            if mit_td {
+                // OBU_TEMPORAL_DELIMITER (Typ 2) mit Groessenfeld, Laenge 0.
+                einheit.extend_from_slice(&[0x12, 0x00]);
+            }
+            einheit.extend_from_slice(&unit);
+            // Kennzeichnung VOR dem Einspeisen: FFmpegs Fehlerzeilen gehen auf
+            // demselben Weg nach stderr, stehen also unmittelbar hinter der
+            // Einheit, die sie ausgeloest hat. Nur so wird aus einer blossen
+            // Anzahl eine Zuordnung — die Fehler kommen aus der Bibliothek und
+            // nicht als Rueckgabewert, sie sind sonst keiner Einheit zuzuordnen.
+            eprintln!(
+                "EINHEIT {rein} laenge={} typ={}",
+                unit.len(),
+                unit.first().map_or(99, |b| (b >> 3) & 0x0F)
+            );
+            rein += 1;
+            match d.decode(&einheit) {
+                Ok(fs) if fs.is_empty() => verworfen += 1,
+                Ok(fs) => bilder += fs.len(),
+                Err(e) => panic!("Decoder endgueltig hin nach {rein} Einheiten: {e}"),
+            }
+        }
+        eprintln!(
+            "TD vorangestellt: {mit_td} | {rein} Einheiten rein, {bilder} Bilder raus, \
+             {verworfen} ohne Ausgabe"
+        );
+        assert!(bilder > 0, "kein einziges Bild dekodiert");
+    }
+
     /// Der Kern des Befunds vom 2026-07-26: eine AV1-Einheit aus Temporal
     /// Delimiter und Frame — genau das, was ein Zuschauer beim Einstieg mitten
     /// im Strom bekommt — darf NICHT in den Decoder. Ohne Sequence-Header
