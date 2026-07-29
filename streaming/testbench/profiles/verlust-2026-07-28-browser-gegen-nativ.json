@@ -1,0 +1,34 @@
+{
+ "id": "verlust-2026-07-28-browser-gegen-nativ",
+ "gemessen_am": "2026-07-28 (Vormittag)",
+ "frage": "Wie verhaelt sich der Browser-Weg unter demselben Paketverlust wie der native Player?",
+
+ "warum_diese_messung_noetig_war": "Am 2026-07-28 wurde das Tor geoeffnet: H.264 und AV1 8 bit gehen seitdem ins native Fenster. Begruendet war das mit Latenz und GPU — beides gemessen. NICHT gemessen war, wie sich die beiden Wege unter Paketverlust zueinander verhalten. Da der native Player einen festen Puffer von 20 ms hat und Chromium seinen selbst nachregelt, war das eine offene Flanke genau an der Entscheidung.",
+
+ "aufbau": "vergleich-browser-nativ.py --lokal --ohne-drosselung, beide Wege an EINEM Sendedurchlauf. Stoerung per tc-netem nur auf dem Medienweg (UDP von Port 8189), der Push bleibt sauber. Gegen den LOKALEN MediaMTX, weil sich nur dort der Empfangsweg filtern laesst.",
+
+ "ergebnisse": {
+  "ohne_stoerung": {"browser_ms": 64.0, "browser_spanne": [33, 89], "nativ_ms": 44.8, "nativ_spanne": [44.5, 45.4]},
+  "mit_1_prozent_verlust": [
+   {"lauf": 1, "browser_ms": 88.5, "browser_max": 113, "nativ_ms": 368.8, "nativ_max": 539.0},
+   {"lauf": 2, "browser_ms": 68.0, "browser_max": 80, "nativ_ms": 38.2, "nativ_max": 473.0},
+   {"lauf": 3, "browser_ms": 88.0, "browser_max": 96, "nativ_ms": 190.5, "nativ_max": 365.8}
+  ]
+ },
+
+ "befund": {
+  "browser": "Verschlechtert sich GLEICHMAESSIG: von 64 auf rund 85 ms, groesster Ausschlag 113. Ueber drei Laeufe eng beieinander (88,5 / 68,0 / 88,0).",
+  "nativ": "Wird UNBERECHENBAR: Mediane 368,8 / 38,2 / 190,5 ueber drei identische Laeufe. Der Ausschlag liegt in JEDEM Lauf zwischen 366 und 539 ms.",
+  "kein_mittelwert_bilden": "Die nativen Werte sind nicht normalverteilt, sondern zweigipflig — mal laeuft es fast sauber durch (38 ms), mal bricht es ein. Ein Mittel ueber die drei Laeufe waere eine Zahl, die keinen einzigen Zustand beschreibt.",
+  "mechanik": "Passt zur bekannten Ursache: nach JEDER Luecke wartet der Decoder auf den naechsten Einstiegspunkt, und der Sender schickt alle zwei Sekunden einen. Trifft eine Luecke kurz vor dem Keyframe, kostet sie wenig; trifft sie kurz danach, kostet sie fast zwei Sekunden. Chromium wartet nicht, sondern dekodiert weiter und regelt seinen Puffer nach."
+ },
+
+ "folge_fuer_die_entscheidung": {
+  "was_gilt": "Ohne Stoerung ist der native Weg besser — schneller (44,8 gegen 64 ms) und viel ruhiger (0,9 ms Spanne gegen 56). MIT Stoerung ist er deutlich schlechter.",
+  "heute_kein_akutes_problem": "`useNativePlayer` ist per Vorgabe AUS und hat keine Oberflaeche. Betroffen ist nur, wer den Schalter von Hand setzt.",
+  "aber": "Als Standardweg fuer Zuschauer taugt der native Player NICHT, solange das Verhalten bei Verlust so ist. Wer auf einer schlechten Leitung sitzt, faehrt mit dem Browser besser. Das gehoert entschieden, BEVOR der Schalter je zur Vorgabe wird.",
+  "was_es_braeuchte": "Entweder eine Fehlerverschleierung wie im Browser (weiterdekodieren statt warten — geht nur, wenn der Decoder nicht abstuerzt, s. den libnvcuvid-Segfault), oder einen kuerzeren Keyframe-Abstand beim Sender, oder einen Sendeweg, ueber den die Vollbild-Anforderung den Encoder erreicht."
+ },
+
+ "einschraenkung": "Drei Laeufe je Zustand. Fuer die Richtung reicht das — der Unterschied ist ein Vielfaches, nicht ein paar Prozent. Fuer eine belastbare Kennzahl des nativen Wegs unter Verlust reicht es nicht, dafuer muesste die Zweigipfligkeit selbst vermessen werden."
+}

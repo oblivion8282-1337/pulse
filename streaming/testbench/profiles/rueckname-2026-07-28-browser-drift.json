@@ -1,0 +1,33 @@
+{
+ "id": "rueckname-2026-07-28-browser-drift",
+ "gemessen_am": "2026-07-28 (Vormittag)",
+ "art": "Rueckname — der Kernbefund einer eigenen Messakte faellt",
+ "betrifft": "vergleich-2026-07-27-browser-gegen-nativ.json, Abschnitt `kernbefund`",
+
+ "zurueckgenommen": {
+  "behauptet": "Die Browser-Latenz WAECHST im Lauf (177 -> 232, 168 -> 263, 127 -> 160 ms), der native Player bleibt flach. Folge fuer den Nutzer: je laenger jemand zuschaut, desto weiter faellt er zurueck.",
+  "warum_falsch": "Zu kurzes Beobachtungsfenster. Alle drei Laeufe dauerten rund zwanzig Sekunden und erfassten damit nur den ANSTIEG. Ueber zwei Minuten zeigt sich, dass er nach rund vierzig Sekunden endet.",
+  "richtig_ist": "Der Browser-Weg steigt EINMAL um rund 40 ms und bleibt dann stehen. Gemessen ueber 80 Proben (rund zwei Minuten): erste 25 Proben Median 127 ms, Proben 45 bis 75 Median 160 ms — dazwischen der Anstieg, danach flach. Kein Weglaufen, sondern ein begrenzter Aufschlag nach einer Einschwingzeit.",
+  "wer_es_bemerkt_hat": "Der Nutzer. Sein Einwand war, dass ihm in stundenlangem Betrieb nie etwas aufgefallen ist — was bei 55 ms je zwanzig Sekunden unmoeglich waere. Der Widerspruch zwischen Messung und Betriebserfahrung hat auf den Messfehler gezeigt."
+ },
+
+ "was_stehen_bleibt": {
+  "der_abstand": "Der native Player ist schneller, und das deutlich: im langen Lauf 98,2 ms (Spanne 97,4-107,1) gegen 160 ms im eingeschwungenen Browser-Zustand. Rund 60 ms Unterschied.",
+  "die_stabilitaet": "Der native Player schwankt ueber zwei Minuten um 10 ms, der Browser-Weg um 55. Das war der zweite Teil der Beobachtung und der haelt stand.",
+  "einschraenkung_bleibt": "Die beiden Zahlen entstehen mit verschiedenen Verfahren (Foto gegen Sonde im dekodierten Bild); ein Teil des Abstands ist Messverfahren."
+ },
+
+ "das_messgeraet_wurde_geprueft": {
+  "verfahren": "`nulltest-foto.py`: dasselbe LIVE laufende Muster auf beide Schirme malen und dieselbe Bilderserie aufnehmen. Die wahre Differenz ist dann null; was gemessen wird, ist der Fehler des Verfahrens.",
+  "ergebnis": "0 bis 1 ms ueber 14 Proben, keine Wanderung (erste Haelfte +1,0, zweite +0,0).",
+  "schluss": "Das Foto erfasst beide Schirme praktisch gleichzeitig. Der beobachtete Anstieg war also ECHT — nur die Deutung als unbegrenztes Weglaufen war falsch."
+ },
+
+ "offene_beobachtungen": {
+  "chromium_drosselt": "Chromium bremst Fenster, die es fuer verdeckt oder unbeachtet haelt. Im Messaufbau ist der Browser nie das aktive Fenster. `--ohne-drosselung` schaltet das ab (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`); der Anstieg bleibt auch dann, ist also nicht die Ursache. Der Schalter gehoert trotzdem in jede Messung, sonst misst man Messbedingungen mit.",
+  "der_schwanz": "Die letzten fuenf Proben des langen Laufs springen auf 360 / 200 / 256 / 248 / 247 ms. Nicht untersucht — moeglicherweise der Abbau am Ende des Laufs.",
+  "eine_asymmetrie_im_werkzeug": "Waehrend der Browser gemessen wird, laufen Bildschirmfotos (je mehrere MB); waehrend der native Player gemessen wird, nicht. Der Browser wird also unter zusaetzlicher Last gemessen. Ob das etwas ausmacht, ist NICHT geprueft — es waere die naechste Gegenprobe."
+ },
+
+ "lehre": "Dieselbe Falle wie am 2026-07-27, nur andersherum: dort waren es zu WENIGE Proben, hier ein zu KURZES Fenster. Beide Male reichte die Beobachtung nicht bis dorthin, wo sich das Verhalten aendert. Ein Verlauf, der in einem Fenster monoton aussieht, ist nicht monoton — er ist unbeobachtet."
+}

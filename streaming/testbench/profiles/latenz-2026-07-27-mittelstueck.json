@@ -1,0 +1,54 @@
+{
+  "id": "latenz-2026-07-27-mittelstueck",
+  "vergleich_gegen": "baseline-2026-07-26-e2e.json",
+  "gemessen_am": "2026-07-27",
+  "frage": "Woraus besteht das Mittelstueck der Latenzkette — die Zeit zwischen 'Paket verlaesst den Sender' und 'Paket erreicht den Player'?",
+
+  "erst_einmal_vollstaendig_aufgeteilt": {
+    "hinweis": "Der Aufnahme-Anteil war im Ausgangsprofil nur AUS DER SKALIERUNG ueber zwei Bildraten erschlossen. Jetzt ist er direkt gemessen: der Sender schreibt zu jedem Bild die Wanduhr in die pts-Liste, im mitgeschriebenen Bild steht das Zeitmuster. `dump-latency.py` liest beides.",
+    "anzeige_bis_encoder_eingang_ms": 18.7,
+    "streuung_ms": "11 bis 29, 180 Bilder, keine Ausfaelle",
+    "encoder_ms": 2.9,
+    "player_ankunft_bis_schirm_ms": 3.2,
+    "ende_zu_ende_ms": 90.2,
+    "mittelstueck_ms": 65.4,
+    "bemerkung": "Auf der Schleife ist die Netzlaufzeit selbst vernachlaessigbar. Das Mittelstueck ist also im Wesentlichen MediaMTX plus der Empfangsweg im Player bis zum Ankunfts-Stempel."
+  },
+
+  "geprueft_und_ausgeschlossen": [
+    {
+      "vermutung": "Der Ausgabepuffer von libavformat (32 KB) haelt bei 4000 kbit/s rund 64 ms Inhalt fest.",
+      "versuch": "flush_packets = 1, also jedes Paket sofort auf die Leitung",
+      "ergebnis": "86,9 statt 82,5 ms — kein Gewinn, eher schlechter. Aenderung zurueckgenommen.",
+      "was_es_bedeutet": "libavformat schreibt hier bereits durch."
+    },
+    {
+      "vermutung": "Irgendwo puffert etwas eine feste DATENMENGE; dann muesste die Verzoegerung bei hoeherer Bitrate sinken.",
+      "versuch": "Gleicher Aufbau bei 4010 gegen 13273 kbit/s tatsaechlicher Bitrate (bewegter Bildinhalt, sonst produziert der Encoder nur 70 kbit/s und der Versuch waere wertlos)",
+      "ergebnis": "94,7 gegen 87,2 ms. Nur 7,5 ms bei 3,3-facher Datenmenge; ein 32-KB-Puffer haette rund 45 ms hergeben muessen.",
+      "was_es_bedeutet": "Das Mittelstueck ist eine feste ZEIT, keine Datenmenge. Das schliesst alle Puffer aus, die in Bytes gemessen werden."
+    },
+    {
+      "vermutung": "Nagle-Algorithmus plus verzoegerte Bestaetigungen auf der TCP-Strecke (klassische feste 40 ms).",
+      "versuch": "tcp_nodelay = 1 auf dem RTMPS-Ausgang",
+      "ergebnis": "91,2 gegen 94,9 ms — 3,6 ms Gewinn.",
+      "was_es_bedeutet": "Nicht die Ursache, aber ein echter kleiner Gewinn zum Nulltarif. BEHALTEN (PULSE_TCP_NODELAY=0 schaltet zurueck)."
+    },
+    {
+      "vermutung": "Die Warteschlange zum Schreib-Thread im Sender (32 Pakete) steht dauerhaft voll.",
+      "versuch": "Warteschlange auf 1 verkleinert (PULSE_MUX_QUEUE)",
+      "ergebnis": "100,7 statt 96,0 ms — deutlich schlechter.",
+      "was_es_bedeutet": "Die Warteschlange steht nicht voll; sie kleiner zu machen blockiert nur die Encode-Schleife."
+    }
+  ],
+
+  "was_uebrig_bleibt": "MediaMTX selbst (RTMP auspacken, in RTP umpacken, eigene Ausgabe) und der Empfangsweg im Player bis zum Ankunfts-Stempel (pion: Entschluesselung, interne Puffer). Beide sind mit den heutigen Mitteln nicht getrennt messbar.",
+
+  "naechster_schritt": "Paketmitschnitt auf der Schleife: der Sender stempelt, wann er ein KEYFRAME-Paket schreibt (die sind alle 2 s und als Buendel im Mitschnitt eindeutig zu erkennen), tcpdump zeichnet den UDP-Ausgang von MediaMTX (Port 8189) auf. Die Differenz der Buendel-Zeitpunkte ist MediaMTX' Anteil, der Rest gehoert dem Empfangsweg. Ohne diese Trennung ist jede weitere Aenderung geraten — und vier geratene Hypothesen sind heute schon gescheitert.",
+
+  "nebenbefunde": [
+    "Ein zweiter Zuschauer ueber den RTMP-Ausgang von MediaMTX (zum Vergleich der beiden Ausgaenge) kam nicht zustande: ffmpeg scheitert schon im TLS-Handschlag ('Error in the push function'), der Auth-Haken wird gar nicht erst gefragt. Nicht weiter verfolgt, weil die direkte Messung der Sende-Seite mehr hergibt. Das Skript wurde wieder entfernt.",
+    "Das Zeitmuster ist jetzt ein DURCHSICHTIGES Fenster ganz vorn statt eines schwarzen ganz hinten. Vorher schlossen sich Qualitaets- und Latenzmessung gegenseitig aus: der abgespielte Bildinhalt verdeckte das Muster, eine deckende Flaeche vorn haette den Inhalt verdeckt und die Bitrate auf 70 kbit/s gedrueckt.",
+    "Wiederholbarkeit: zwei Laeufe mit identischer Konfiguration ergaben 96,006 und 96,049 ms. Unterschiede unter etwa 3 ms sind trotzdem nicht deutbar — ueber laengere Zeit schwanken die Laeufe staerker als innerhalb eines Laufs."
+  ]
+}

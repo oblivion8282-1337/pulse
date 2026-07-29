@@ -1,0 +1,48 @@
+{
+  "id": "bild-2026-07-27-h264",
+  "gemessen_am": "2026-07-27",
+  "stand": "UNVOLLSTAENDIG — Arbeit wurde unterbrochen. Was fehlt, steht unter `offen`.",
+  "frage": "Gilt fuer H.264 dasselbe wie fuer AV1 — und was kostet der Codec-Wechsel?",
+  "anlass": "`preset=p2` wurde am 2026-07-27 fuer NVIDIA gesetzt. `vendor_opts` verzweigt nach HERSTELLER, nicht nach Codec — H.264 erbt die Einstellung also mit, gemessen war sie dort nie.",
+
+  "presets_genauso_flach_wie_bei_av1": {
+    "spanne_p1_bis_p7_vmaf": {"spiel_4000": 0.46, "spiel_10000": 0.84, "desktop_4000": 0.27, "desktop_10000": 0.19},
+    "p2_gegen_p4_vmaf": {"spiel_4000": -0.36, "spiel_10000": -0.75, "desktop_4000": -0.27, "desktop_10000": -0.19},
+    "urteil": "p2 liegt bei H.264 DURCHGEHEND leicht unter p4 (anders als bei AV1, wo es mal drueber lag) — aber immer unter einem VMAF-Punkt, also unsichtbar. Die Vererbung von p2 auf H.264 ist damit vertretbar.",
+    "durchsatz": "p2 ist 1,6-fach schneller als p4 (1440p: 518 gegen 325 Bilder/s, 4K: 244 gegen 152). Der Vorteil ist groesser als bei AV1 (1,43-fach)."
+  },
+
+  "stellschrauben_verhalten_sich_ANDERS_als_bei_av1": {
+    "spatial_aq_SCHADET": "23,30 -> 19,68 VMAF, also -3,6 (Spiel, 4000 kbps). Alle AQ-Varianten landen bei ~19,7. Bei AV1 war AQ auf Spielmaterial neutral. AQ gehoert bei H.264 also AUS — auch in einem Qualitaetsprofil.",
+    "lookahead": "wirkungslos (23,263 gegen 23,300, im Rauschen) — wie bei AV1, weil zerolatency=1 die Vorausschau abschaltet.",
+    "zerolatency_aus_allein": "wirkungslos auf die Qualitaet (23,263).",
+    "b_frames_mit_zerolatency_an": "KATASTROPHAL: VMAF 8,86 statt 23,30 (PSNR 24,9 statt 26,5, SSIM 0,806 statt 0,900). Der Encoder muss B-Frames ausgeben, ohne die Umsortierung zu duerfen, die sie nuetzlich macht. GEPRUEFT, dass es kein Messfehler ist: die Bild-Zuordnung stimmt (Aufnahmebild 5 passt auf Referenzbild 5, Versatz null).",
+    "b_ref_mode_middle": "wird vom Encoder ABGELEHNT (Invalid argument), sobald zerolatency=1 gesetzt ist.",
+    "b_frames_mit_zerolatency_aus": "BESTE H.264-Variante: 26,73 gegen 23,30, also +3,4 VMAF. Anders als bei AV1 (wo -bf gar keine Umsortierung ausloest) ist das bei H.264 ein echter Hebel — die Latenzkosten sind aber NICHT gemessen."
+  },
+
+  "codec_vergleich_der_eigentliche_befund": {
+    "vmaf_gleiche_bilder_gleiche_bitrate": {
+      "spiel_4000": {"av1": 33.08, "h264": 23.62, "vorsprung_av1": 9.46},
+      "spiel_10000": {"av1": 48.30, "h264": 46.07, "vorsprung_av1": 2.24},
+      "desktop_4000": {"av1": 95.50, "h264": 94.34, "vorsprung_av1": 1.16}
+    },
+    "was_es_bedeutet": "Der Vorsprung von AV1 ist bei knapper Bitrate RIESIG und schrumpft mit mehr Bits — das klassische Muster moderner Codecs. Beim UI-Standard von 4000 kbps sind es fast zehn Punkte, eine ganz andere Groessenordnung als alles, was Encoder-Einstellungen hergeben (dort 1 bis 2).",
+    "gpu": "H.264 kostet MEHR als AV1, bei 4K deutlich: 244 gegen 477 Bilder/s bei p2. Auf Blackwell ist die AV1-Einheit schneller.",
+    "latenz_live": "H.264 41,2 und 40,9 ms gegen AV1 25,8 ms (1440p60, 4000 kbps, Encoder-Block bei beiden 5,0 %). H.264 ist Ende zu Ende rund 15 ms LANGSAMER — UNERKLAERT, s. offen."
+  },
+
+  "offen": [
+    "WARUM ist H.264 live 15 ms langsamer als AV1, obwohl der Encoder-Block bei beiden 5 % zeigt? Verdacht: der Decoder-Weg im Player (h264_cuvid gegen av1_cuvid) oder die Depacketisierung. Nicht aufgeteilt — genau die Art Luecke, die am 2026-07-27 schon einmal zum Decoder-Vorlauf gefuehrt hat.",
+    "Latenzkosten der besten H.264-Variante (bf=3 mit zerolatency aus) sind nicht gemessen. Bei AV1 kostete die entsprechende Variante 249 bis 341 ms.",
+    "Ob der Stream mit B-Frames ueberhaupt durch unsere FLV-Kette kommt (bei AV1 starb er am `delay`-Puffer, s. bild-2026-07-27-av1.json).",
+    "H.264 bei 144 fps und 4K live.",
+    "Ob AQ bei H.264 auch auf Desktop-Material schadet (nur Spielmaterial gemessen)."
+  ],
+
+  "was_daraus_schon_folgt": [
+    "`preset=p2` ist auch fuer H.264 vertretbar — unter einem VMAF-Punkt Verlust bei 1,6-fachem Durchsatz.",
+    "`spatial-aq` darf bei H.264 NICHT gesetzt werden. Falls je ein Qualitaetsprofil AQ einschaltet, muss es codec-abhaengig sein.",
+    "Ein ULL-Profil, das auf H.264 umschaltet, kostet bei 4000 kbps fast zehn VMAF-Punkte UND ist live langsamer UND kostet mehr GPU. Nach heutigem Stand spricht nichts fuer H.264 ausser Kompatibilitaet."
+  ]
+}

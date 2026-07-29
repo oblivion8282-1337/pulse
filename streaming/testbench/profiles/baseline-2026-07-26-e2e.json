@@ -1,0 +1,55 @@
+{
+  "id": "baseline-2026-07-26-e2e",
+  "rolle": "AUSGANGSPROFIL, Ende-zu-Ende-Teil — nicht aendern, nicht ueberschreiben. Ergaenzt baseline-2026-07-26.json um die Kette als Ganzes.",
+  "vergleich_gegen": "baseline-2026-07-26.json (gleiche Vorgabe, gleiche Maschine)",
+  "gemessen_am": "2026-07-26",
+
+  "vorgabe": {
+    "aufloesung": "2560x1440",
+    "codec": "av1",
+    "bit_tiefe": 10,
+    "bitrate_kbps": 4000,
+    "ton": "Desktop",
+    "hinweis_bitrate": "Der Bildinhalt ist waehrend dieser Messung fast schwarz (nur das Zeitmuster bewegt sich), die tatsaechliche Bitrate liegt deshalb bei 70-90 kbit/s statt an der Grenze. Fuer die LATENZ ist das unerheblich, fuer einen Qualitaetsvergleich waere es untauglich."
+  },
+
+  "verfahren": {
+    "name": "Zeitmuster im Bild",
+    "beschreibung": "streaming/testbench/latency-pattern.py malt auf jeden Bildschirm einen Balken aus schwarzen und weissen Kloetzen, der die Millisekunden seit einer gemeinsamen Epoche kodiert. Der Player liest ihn aus der Luma-Ebene des DEKODIERTEN Bildes zurueck (src/probe.rs, PULSE_PLAYER_LATENCY_PROBE=1) und rechnet jetzt minus abgelesene Zeit.",
+    "warum_so": "Der Weg fuehrt ueber FLV, RTMP, MediaMTX und WebRTC — jede Station schreibt Zeitstempel um. Was im BILD steht, uebersteht alle davon. Kein Bildschirmfoto, keine Texterkennung, keine Fensterposition noetig, laeuft ohne Handgriff.",
+    "aufruf": "./real-harness.py --secs 22 --fps 60 --kbps 4000 --e2e --label <name>"
+  },
+
+  "messwerte": {
+    "ende_zu_ende_ms": { "60_fps": 96.1, "144_fps": 66.7 },
+    "fehlablesungen": 0,
+    "aufschluesselung_60_fps": {
+      "encoder_zwei_bilder": 33.3,
+      "aufnahme_ein_bild": 16.7,
+      "player_ankunft_bis_schirm": 3.4,
+      "rest_konstant": 42.7
+    },
+    "aufschluesselung_144_fps": {
+      "encoder_zwei_bilder": 13.9,
+      "aufnahme_ein_bild": 6.9,
+      "player_ankunft_bis_schirm": 3.4,
+      "rest_konstant": 42.5
+    },
+    "beleg_der_aufschluesselung": "Die Differenz der Ende-zu-Ende-Zeiten zwischen 60 und 144 fps betraegt 29,4 ms. Encoder (2 Bilder) erklaert 19,4 ms davon, ein weiterer Bildabstand 9,8 ms — zusammen 29,2 ms. Der Rest ist bei beiden Bildraten gleich gross (42,7 bzw. 42,5 ms). Diese Uebereinstimmung ist die Begruendung fuer die Aufteilung: gemessen sind Encoder und Player-Anteil direkt, der Aufnahme-Anteil folgt aus der Skalierung.",
+    "decode_ms": 2.5,
+    "hinweis_decode": "Hoeher als die 1,6 ms des Basisprofils, weil das Muster-Fenster Last erzeugt. Es ist kein Ruecklauf, sondern der Preis des Messverfahrens."
+  },
+
+  "grenzen_der_messung": {
+    "obergrenze": "Die Zahl ist eine OBERGRENZE fuer die Latenz des Streams. Im Fixposten steckt der Anzeigeverzug des messenden Fensters selbst (Qt malt, der Compositor zeigt es einen bis mehrere Bildtakte spaeter: 3,6 ms auf dem 280-Hz-Schirm, 6,9 ms auf den 144-Hz-Schirmen). Die echte Stream-Latenz ist also etwas kleiner als 96 ms.",
+    "nicht_zu_beheben_durch_haeufigeres_zeichnen": "Nachgemessen: Zeichenraster von 8 ms auf 2 ms verkuerzt machte die Zahl SCHLECHTER (98,4 statt 96,1 ms) und liess die Aufnahme auf 6 Bilder je Sekunde einbrechen. Die zusaetzliche Last kostet mehr, als die feinere Aufloesung bringt.",
+    "noch_nicht_getrennt": "Der Fixposten von 42,5 ms enthaelt MediaMTX (FLV auspacken, in RTP umpacken, eigene Puffer), den Empfangsweg von pion bis zum Ankunfts-Stempel und den genannten Anzeigeverzug. Um MediaMTX allein zu messen, muesste eine gemeinsame Kennung von Sender und Player verglichen werden — der RTP-Zeitstempel traegt einen zufaelligen Ursprung, taugt dafuer also nicht ohne Kalibrierung."
+  },
+
+  "befunde": [
+    "Der Encoder haelt zwei Bilder Vorlauf und ist damit der groesste einzelne Posten (33,3 ms bei 60 fps). Der Windows-Sidecar setzt fuer denselben Encoder zerolatency=1 und delay=0, dieser hier nicht.",
+    "Die Aufnahme kostet einen weiteren Bildabstand.",
+    "Der Fixposten von 42,5 ms ist der zweitgroesste Brocken und liegt vollstaendig AUSSERHALB unseres Encoders — dort lohnt der zweite Blick (MediaMTX-Puffer).",
+    "Der Player selbst ist mit 3,4 ms von Ankunft bis Schirm der kleinste Posten der Kette."
+  ]
+}

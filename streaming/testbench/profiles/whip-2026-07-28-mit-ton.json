@@ -1,0 +1,42 @@
+{
+ "id": "whip-2026-07-28-mit-ton",
+ "gemessen_am": "2026-07-28 (Abend)",
+ "frage": "Wie stehen der alte und der neue Sendeweg zueinander, wenn beide Ton fuehren — also so, wie ein Nutzer sie erlebt?",
+
+ "was_dafuer_gebaut_wurde": "Ton auf dem WHIP-Weg: eine EIGENE Opus-Spur in derselben Peer-Verbindung (`whip.rs`), ein eigenstaendiger libopus-Encoder ohne Container (`AudioEncoder::create_standalone`) und eine Verzweigung `TonSenke::{Mux,Whip}`, an der sich der Ton-Faden entscheidet, wohin er schreibt. Die Tonspur wird IMMER angeboten, auch bei stummem Stream — WHIP kennt keine Nachverhandlung, eine spaeter angemeldete Spur verlangte einen neuen Sitzungsaufbau. Bestaetigt auf beiden Seiten: Sender meldet `Audio: Desktop -> Opus`, Player meldet `Track audio/opus (48000 Hz) laeuft an`.",
+
+ "aufbau": "fern-harness.py gegen die Hetzner-Testinstanz, 2560x1440, 60 fps, 4000 kbps, H.264 8 bit, Zeitmuster an, 25 s je Lauf. Alle vier Felder in derselben Sitzung erhoben — das ist hier keine Formalie, s. `warum_die_fruehere_zahl_falsch_war`.",
+
+ "ergebnis_die_vier_felder": {
+  "rtmps_ohne_ton": {"laeufe_ms": [100.4, 100.4, 100.7], "median": 100.4, "spanne": 0.3},
+  "rtmps_mit_ton": {"laeufe_ms": [108.5, 110.0, 115.8], "median": 110.0, "spanne": 7.3},
+  "whip_ohne_ton": {"laeufe_ms": [104.4, 104.0, 104.4], "median": 104.4, "spanne": 0.4},
+  "whip_mit_ton": {"laeufe_ms": [104.7, 104.2, 104.6], "median": 104.6, "spanne": 0.5}
+ },
+
+ "was_der_ton_kostet": {
+  "alter_weg": "+9,6 ms — und die Spanne springt von 0,3 auf 7,3 ms. Beides passt zur bekannten Ursache: FLV ist EINE Zeitleiste, der Muxer gibt ein Bild erst frei, wenn Ton mit passendem Zeitstempel vorliegt. Der Rueckstand des Tons ist damit 1:1 Bild-Latenz, und er schwankt (12-34 ms ueber zehn Laeufe, je nach Zustand des PipeWire-Graphen beim Start). Der Deckel `max_interleave_delta=10ms` begrenzt, was das kostet, hebt es aber nicht auf.",
+  "neuer_weg": "+0,2 ms, also nichts. Zwei getrennte RTP-Spuren koennen sich strukturell nicht gegenseitig aufhalten. Das war die Erwartung; jetzt ist sie gemessen.",
+  "damit_fuer_den_nutzer": "Mit Ton — dem einzigen Fall, den es beim Zuschauer gibt — ist der neue Weg 5,4 ms schneller und rund 15-mal gleichmaessiger."
+ },
+
+ "warum_die_fruehere_zahl_falsch_war": {
+  "was_dort_stand": "`whip-2026-07-28-echte-leitung.json` nennt 12,4 ms Vorsprung fuer den neuen Weg (RTMPS 116,8 gegen WHIP 104,4, beide ohne Ton).",
+  "was_daran_nicht_stimmt": "Der Wert selbst ist richtig gemessen, aber er ist KEINE Konstante. Der alte Weg hat zwei Zustaende, und jene drei Laeufe fielen alle in den langsamen. Ueber 17 Laeufe ohne Ton am selben Tag: zehn liegen bei 99,7-101,3 ms, sieben bei 116,1-122,1 ms. Dazwischen nichts. Der neue Weg liegt in ALLEN 13 Laeufen des Tages zwischen 104,0 und 106,8.",
+  "richtiggestellt": "Ohne Ton ist der neue Weg gegen den schnellen Zustand des alten rund 4 ms LANGSAMER und gegen den langsamen rund 14 ms schneller. Er ist dafuer der einzige, der immer dieselbe Zahl liefert.",
+  "die_lehre": "Ein Mittelwert ueber eine zweigipflige Groesse beschreibt keinen einzigen echten Lauf. Wer nur drei Laeufe zieht, zieht womoeglich dreimal denselben Zustand — und haelt ihn fuer den Normalfall. Deshalb wurde hier abwechselnd gemessen (RTMPS, WHIP, RTMPS, WHIP), nicht blockweise: nur so faellt auf, dass die Streuung an einem der beiden Wege haengt und nicht an der Leitung."
+ },
+
+ "woher_die_zwei_zustaende_kommen": {
+  "beleg": "Waehrend vier RTMPS-Laeufen wurde die Sende-Warteschlange der TCP-Verbindung mitgeschrieben (`ss -tin dst :1936`, alle 200 ms). Ein Lauf fiel in den langsamen Zustand (116,1 ms), drei in den schnellen (99,7-100,2).",
+  "zahlen": {
+   "langsam": "Warteschlange im Mittel 32,6 kB, Spitze 536 kB, RTT 61,5 ms. Verlauf ruckartig: 57, 3, 41, 70, 7, 51, 92, 5 kB.",
+   "schnell": "Warteschlange im Mittel 28,2 kB, Spitze 45-53 kB, RTT 56,8-57,3 ms. Verlauf metronomisch zwischen 25 und 34 kB."
+  },
+  "deutung": "Der langsame Zustand ist eine TCP-Verbindung im Ausbesserungsbetrieb: ein verlorenes Segment haelt alles dahinter auf, bis es nachgeliefert ist, danach kommt der Rueckstau als Schwall. Der Ueberschuss von 4,4 kB entspricht bei 4000 kbps rund 8,8 ms, dazu 4,2 ms hoehere Umlaufzeit — zusammen rund 13 der beobachteten 16 ms. Der Zustand stellt sich in der ersten Sekunde ein und bleibt dann den ganzen Lauf ueber stehen (Verlauf: 129, 116, 122, 117, 123, ... gegen 110, 101, 102, 101, 101, ...).",
+  "warum_das_strukturell_ist": "Ein Echtzeitstrom ueber einen zuverlaessigen Bytestrom kann einen einmal entstandenen Rueckstand nicht aufholen — es gibt nichts zu ueberspringen, alles muss ankommen. Der neue Weg hat diese Kopplung nicht: ein verlorenes RTP-Paket haelt die folgenden nicht auf. Das ist kein Einstellungswert, an dem man drehen koennte.",
+  "nicht_geprueft": "Ob der langsame Zustand haeufiger wird, je schlechter die Leitung ist. Heute trat er in 7 von 17 Laeufen auf; ein Zusammenhang mit Tageszeit oder Auslastung wurde NICHT untersucht."
+ },
+
+ "einschraenkungen": "Alles H.264 8 bit — AV1 geht ueber den neuen Weg noch nicht (eigener Paketierer noetig). Je drei Laeufe pro Feld fuer die Ton-Frage; die Zweigipfligkeit stuetzt sich auf 17 bzw. 13 Laeufe. Nur eine Strecke (dieser Rechner zum Hetzner-Testserver, rund 27 ms einfach)."
+}

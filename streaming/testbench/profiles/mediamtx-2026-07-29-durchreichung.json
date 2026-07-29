@@ -1,0 +1,33 @@
+{
+  "id": "mediamtx-2026-07-29-durchreichung",
+  "frage": "Reicht MediaMTX RTP durch, oder paketisiert er neu? Davon haengt ab, WO eine Paritaets-Schicht (FEC) ueberhaupt sitzen kann.",
+
+  "warum_aus_EINEM_mitschnitt_beantwortbar": "Sender und Player laufen beide auf derselben Maschine. Der ausgehende Strom (wir -> MediaMTX) und der eingehende (MediaMTX -> wir) laufen also ueber dieselbe Schnittstelle und stehen in derselben Aufnahme. SRTP verschluesselt nur die Nutzlast — SSRC, Sequenznummer und Zeitstempel stehen im Klartext im RTP-Kopf.",
+
+  "aufbau": "tcpdump auf enp39s0, Filter auf die Server-IP, WHIP-Push und WHEP-Empfang gleichzeitig. AV1 10 bit, 1440p60, 4000 kbps, 30 s. Auswertung: rtp-durchreichung.py (neu an diesem Tag).",
+
+  "ergebnis": {
+    "hin_ssrc": [610751361, 677722384],
+    "her_ssrc": [813248393, 1334449140],
+    "ssrc_gleich": false,
+    "groessenverteilung_video": {
+      "klasse_1200_1299_hin_prozent": 85.5,
+      "klasse_1200_1299_her_prozent": 85.5,
+      "gesamtabweichung_prozentpunkte": 0.5
+    },
+    "paketschnitt_gleich": true
+  },
+
+  "befund": "MediaMTX schneidet NICHT neu. Er reicht die Nutzlast paketweise durch und schreibt nur die Kopfdaten um (SSRC, Sequenznummer). Die Groessenverteilung ist auf beiden Seiten deckungsgleich.",
+
+  "folgen_fuer_fec": [
+    "Paritaet des SENDERS erreicht den Zuschauer nicht: sie bezieht sich auf Sequenznummern, die hinter MediaMTX neu vergeben sind, und ein eigener FEC-Strom waere ein Track, den MediaMTX nicht kennt.",
+    "Ein FEC-Erzeuger IN MediaMTX sitzt dagegen richtig — er sieht dieselben Paketgrenzen, die unser Encoder gewaehlt hat. Genau so umgesetzt in 0003-flexfec-on-whep.patch."
+  ],
+
+  "MESSFALLE_die_mich_erwischt_hat": "Der erste Durchgang meldete 34651 gegen 29234 'RTP-Pakete' mit zwoelf SSRCs, die je genau EIN Paket trugen — RTCP-Empfangsberichte, die als Medienpakete gezaehlt wurden. Ursache: Bei RTP ist das oberste Bit des zweiten Bytes das Marker-Bit, bei RTCP gehoert es zum Pakettyp. Wer erst mit `& 0x7F` maskiert und dann auf 200-207 prueft, macht aus RTCP 200/201/206 die Werte 72/73/78 — die Pruefung greift nie. Im Werkzeug festgehalten.",
+
+  "ZWEITE_FALLE": "Eine andere SSRC beweist NICHT, dass neu paketisiert wird — ein SFU schreibt die Kennung ueblicherweise um und leitet die Nutzlast trotzdem unveraendert weiter. Der erste Auswertungslauf zog genau diesen falschen Schluss. Erst die Groessenverteilung entscheidet, und sie braucht einen UNGEKAPPTEN Mitschnitt (`tcpdump -s 0`): bei `-s 120` vergleicht man zwei Mal die Kappgrenze und haelt das fuer Uebereinstimmung.",
+
+  "werkzeug": "rtp-durchreichung.py <pcap> --fern-ip <ip>; nutzt den pcap-Leser des Repos (pcap_rtcp.pakete), nicht tshark"
+}

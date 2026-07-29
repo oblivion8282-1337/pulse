@@ -1,0 +1,34 @@
+{
+  "id": "nack-2026-07-29-puffergeduld",
+  "frage": "Traegt NACK ueber die echte Leitung, wenn der Jitter-Puffer lange genug wartet?",
+  "vorgeschichte": "Am selben Tag gemessen (nack-2026-07-29-echte-leitung.json): MediaMTX liefert nach, aber keine einzige Nachlieferung traf frueher als 61 ms ein, waehrend die Geduld des Puffers auf 20 ms stand. Die Schlussfolgerung 'NACK traegt nicht' war damit unvollstaendig — sie galt fuer DIESE Einstellung, nicht fuer das Verfahren.",
+
+  "was_jitter_ms_wirklich_ist": "KEIN Vorhalt. `jitter.rs::poll` gibt ein Paket sofort frei, wenn kein Vorgaenger fehlt; der Wert ist ausschliesslich die Wartezeit BEI EINER LUECKE. Im verlustfreien Betrieb kostet ein hoeherer Wert deshalb strukturell nichts. Das ist der Grund, warum dieser Hebel ueberhaupt gangbar ist — ein echter Vorhalt waere fuer die geplante Fernsteuerung unzulaessig.",
+
+  "aufbau": {
+    "strecke": "Hetzner-Testserver ueber KABEL (enp39s0). Am Kabel liegt der Eigenverlust bei 9-34 Paketen auf rund 20000, also zu wenig zum Messen — deshalb gesetzte Stoerung.",
+    "stoerung": "2 % Verlust, ausschliesslich auf dem EMPFANGSWEG. Umgesetzt ueber ifb0: `tc qdisc add dev enp39s0 handle ffff: ingress` + `mirred egress redirect dev ifb0` mit Filter auf die Server-IP, netem am ifb0. Der Uplink bleibt dadurch unberuehrt — die Falle, die bei der lo-Variante in `netz-harness.py` dokumentiert ist (Stoerung an der Wurzel trifft den Push mit, dann ist offen wer schwaechelt).",
+    "medien": "AV1 10 bit, 2560x1440, 60 fps, 4000 kbps, WHIP",
+    "laeufe": "4 x 45 s, abwechselnd 20/100/20/100 — nicht blockweise, weil die Leitung ueber Minuten schwankt",
+    "umlaufzeit": "60 ms (ping waehrend der Messung)"
+  },
+
+  "ergebnis": {
+    "j20-1": {"endgueltig_verloren": 552, "luecken": 2717, "fps_median": 52.0},
+    "j100-1": {"endgueltig_verloren": 236, "luecken": 2100, "fps_median": 57.0},
+    "j20-2": {"endgueltig_verloren": 600, "luecken": 2485, "fps_median": 51.0},
+    "j100-2": {"endgueltig_verloren": 335, "luecken": 1464, "fps_median": 58.0},
+    "mittel_20ms": {"endgueltig_verloren": 576, "luecken": 2601, "fps_median": 51.5},
+    "mittel_100ms": {"endgueltig_verloren": 285, "luecken": 1782, "fps_median": 57.5}
+  },
+
+  "befund": "Der endgueltige Paketverlust HALBIERT sich (576 -> 285), die Luecken gehen um 31 % zurueck, die Bildrate steigt von 51,5 auf 57,5. Beide Paare zeigen dieselbe Richtung, kein Ausreisser. Die Netzstoerung war unveraendert 2 % — was sich aendert, ist allein, ob die Nachlieferung noch angenommen wird.",
+
+  "was_daraus_folgt": "NACK war die ganze Zeit bezahlt und nicht genutzt. Der Rueckkanal funktioniert, die Nachlieferungen kamen an, sie wurden nur verworfen.",
+
+  "was_daraus_NICHT_folgt": "Dass FEC unnoetig waere. Bei 2 % bleiben trotz der laengeren Geduld 1782 Luecken. NACK skaliert ausserdem mit der Entfernung: je groesser die Umlaufzeit, desto laenger muss der Puffer warten, und irgendwann ist das nicht mehr zumutbar. Parität wirkt ohne Rueckfrage und ohne Wartezeit.",
+
+  "NOCH_OFFEN_vor_der_uebernahme": "Was die laengere Geduld im STOERFALL an Ende-zu-Ende-Zeit kostet, ist NICHT gemessen — diese Laeufe hatten kein Zeitmuster (--e2e). Ohne Luecke kostet sie nachweislich nichts, aber bei einer Luecke wartet der Player jetzt bis zu 100 statt 20 ms. Erst danach sollte `proto.rs::defaults` von 20 auf den gewaehlten Wert wandern.",
+
+  "werkzeug": "fern-harness.py --jitter-ms <ms> (neu an diesem Tag)"
+}

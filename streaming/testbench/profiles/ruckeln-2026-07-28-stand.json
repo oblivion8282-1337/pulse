@@ -1,0 +1,56 @@
+{
+ "id": "ruckeln-2026-07-28-stand",
+ "gemessen_am": "2026-07-28 (Nacht)",
+ "frage": "Warum ist der Bildabstand beim Zuschauer nicht konstant 16,7 ms, obwohl Bildrate und Paketverlust tadellos sind?",
+ "stand": "OFFEN. Zwei Verdaechtige gemessen und ausgeschieden, ein dritter Befund unerwartet und noch nicht eingeordnet.",
+
+ "wie_es_auffiel": "Nicht durch eine Messung, sondern durchs Hinsehen: der Nutzer hat den Stream ueber den Hetzner-Server angesehen und Ruckeln gemeldet, waehrend alle Kennzahlen gut aussahen. Das ist der Grund, warum es dieses Profil gibt — die bisherigen Messungen zaehlen Bilder und Stillstaende, und beides war in Ordnung.",
+
+ "was_gesichert_ist": {
+  "der_player_ist_unschuldig": "Lokal, gleiche Einstellung (AV1 10 bit, 60 fps, 4000 kbps, Ton an): `Abstand 13,9-18,7 ms` bei einem Sollwert von 16,7, NULL verspaetete Bilder, `Ankunft max 17,4 ms` — also nie mehr als ein Bildabstand ohne Paket. Aufnahme, Encoder, Dekodieren und Ausgabe koennen es. Ueber die Leitung wird daraus `Abstand 0,6-70 ms`.",
+  "wie_die_ausgabe_arbeitet": "`SessionEvent::Frame` loest unmittelbar `request_redraw` aus, Ausgabemodus ist `Mailbox`. Es gibt keinen Zielzeitpunkt, keinen Takt und keinen Puffer (`Puffer 0 Pakete`). Der angezeigte Abstand ist damit exakt der Abstand, in dem fertige Bilder verfuegbar werden — der Player spiegelt die Ungleichheit, erzeugt sie nicht, glaettet sie aber auch nicht.",
+  "die_luecken_entstehen_auf_dem_weg": "Gemessen mit `PULSE_PLAYER_ARRIVAL_GAP_LOG_MS=25` ueber 94 s: 204 Ankunftsluecken ueber 25 ms, also 2,2 je Sekunde, typisch 35 ms (zwei Bildabstaende), groesste 74 ms. KEIN Takt — der Abstand zwischen zwei Luecken schwankt zwischen 26 und 1723 ms.",
+  "sie_wachsen_mit_der_datenrate": {
+   "1000_kbps": "0,9 Luecken/s, typisch 25,8 ms, groesste 29,4",
+   "2000_kbps": "2,1 Luecken/s, typisch 28,0 ms, groesste 39,7",
+   "4000_kbps": "2,2 Luecken/s, typisch 35,3 ms, groesste 73,7",
+   "lokal_4000_kbps": "KEINE"
+  }
+ },
+
+ "ausgeschieden": {
+  "keyframes": {
+   "vermutung": "Alle zwei Sekunden ein Vollbild — ein Vielfaches eines Differenzbildes gross — verstopft kurz die Leitung. Die Logzeilen sahen danach aus: jede zweite Sekunde hatte zwei verspaetete Bilder, und der Sender lieferte 154 Vollbilder in 302 s, also eines je 1,96 s.",
+   "gegenprobe": "Keyframe-Abstand auf 10 s, PLI ignoriert — EIN Vollbild statt 154. Ergebnis: nicht besser, sondern schlechter (jede Sekunde ein Ausreisser von 45-60 ms statt jede zweite).",
+   "was_ich_falsch_gemacht_habe": "Ich habe aus sechs Logzeilen ein abwechselndes Muster gelesen und es fuer einen Takt gehalten. Die Zeilen nennen Minimum und Maximum JE SEKUNDE — daraus laesst sich gar nicht ablesen, wie oft ein Ausreisser vorkommt. Erst das Luecken-Protokoll mit Zeitstempeln hat gezeigt, dass es rund zweimal je Sekunde und voellig unregelmaessig passiert."
+  },
+  "der_eigene_pacer": {
+   "vermutung": "Ein Bild geht als Schwall raus (die Paketierung schreibt alle Pakete ohne Pause). Verteilt man sie ueber einen Teil des Bildabstands, sollten die Warteschlangen unterwegs sie nicht mehr unterschiedlich breitziehen.",
+   "gebaut_als": "`whip/pacer.rs` — eigener Faden auf der WHIP-Laufzeit, verteilt die Pakete eines Bildes ueber 80 % des Bildabstands. `PULSE_WHIP_PACING=1` schaltet ihn ein.",
+   "gegenprobe": "Vier Laeufe ueber die echte Leitung, ABWECHSELND (aus/an/aus/an), Ankunftsluecken je Sekunde: ohne 1,6 und 1,8 — mit 19,6 und 16,9. Also rund zehnmal schlechter, reproduzierbar.",
+   "ursache_gemessen": "Der Pacer verfehlt sein eigenes Ziel um zwei Drittel: Soll 7,9 ms je Bild, tatsaechlich 13,1. `tokio::time::sleep` kann Abstaende unter 2 ms nicht halten und rundet grob auf. Statt eines gleichmaessigen Stroms entsteht ein neues, unregelmaessiges Muster.",
+   "nebenbefund": "Die Bilder sind sehr verschieden gross — im Protokoll 1 bis 12 Pakete, je nachdem ob sich auf dem Bildschirm etwas bewegt. Ein fester Anteil des Bildabstands passt deshalb nicht auf alle Bilder.",
+   "urteil": "Diese Fassung ist ausgeschieden und steht standardmaessig auf AUS. Das Konzept ist damit NICHT widerlegt — wer es noch einmal angeht, braucht absolute Zeitpunkte (`sleep_until`) oder einen eigenen Faden mit feinerem Zeitgeber statt `sleep` je Paket."
+  }
+ },
+
+ "der_unerwartete_befund": {
+  "was": "Der ALTE Weg (RTMPS) ist ueber die echte Leitung deutlich schlechter als der neue, nicht besser. Abwechselnd gemessen, AV1 10 bit, 4000 kbps: RTMPS 10,3 / 12,4 / 11,2 / 11,6 Luecken je Sekunde mit Spitzen bis 191 ms — WHIP 3,8 / 2,8 / 3,0 / 2,3 mit Spitzen bis 70 ms. Mit bewegtem Bild (Zeitmuster) dasselbe Bild, dazu Verzoegerung 105 gegen 74 ms.",
+  "warum_das_wichtig_ist": "Der Eindruck war, dass der bisherige Weg glatt laeuft. Die Messung sagt das Gegenteil. Entweder taeuscht der Eindruck, oder die Messung erfasst etwas anderes als das, was man sieht — beides muss geklaert werden, bevor daraus eine Entscheidung wird.",
+  "noch_nicht_geprueft": "Ob es am Bildinhalt liegt. Bei stehendem Bildschirm sind die Bilder 1-2 Pakete gross, dann gibt es gar keinen Schwall; bei bewegtem Bild 8-12. Die Laeufe mit Zeitmuster (dauernde Bewegung) zeigen dasselbe Verhaeltnis, aber es sind zu wenige, um es festzuschreiben."
+ },
+
+ "was_als_naechstes_zu_pruefen_waere": [
+  "Warum RTMPS schlechter misst, als er sich anfuehlt — der Weg dorthin fuehrt ueber MediaMTX, das dort die RTP-Pakete verschickt statt wir. Wie MediaMTX/pion das tut, ist noch nicht angesehen.",
+  "Ob die Restschwankung der Leitung selbst (bei 1000 kbps bleibt rund eine Luecke je Sekunde von 26 ms) mit der Ping-Schwankung uebereinstimmt — Median 53,3, Spitzen 64,7 ms.",
+  "Ein Ausgabe-Takt im Player. Er wuerde die Schwankung unsichtbar machen, kostet aber Verzoegerung in Hoehe der Schwankung. Fuer die spaetere Fernsteuerung ist das KEIN gangbarer Weg (dort ist ein Ruckler ebenso schaedlich wie Verzoegerung), fuer Zuschauer schon."
+ ],
+
+ "messfallen_aus_diesem_abend": [
+  "Blockweise messen taeuscht. Die Reihenfolge aus/an/aus/an hat den Pacer-Befund erst belastbar gemacht.",
+  "Min/Max je Sekunde sagt nichts ueber die HAEUFIGKEIT. Dafuer braucht es Einzelereignisse mit Zeitstempel.",
+  "8000 kbps waren zu viel fuer die Leitung: Sender und Player laufen auf DERSELBEN Maschine, die Leitung traegt den Strom also hoch UND runter. Bei 8000 stieg der Paketverlust auf 71 je Lauf, bei 4000 auf 5. Ein Teil des zuerst beobachteten Ruckelns war schlicht das.",
+  "Pythons Ausgabe ist gepuffert, wenn sie in eine Datei geht — bei `timeout`-Abbruch fehlt sie ganz. `python3 -u` verwenden.",
+  "Ein fester Vorlauf vor dem Oeffnen des Players geht sporadisch schief: der Pfad auf dem Server ist noch nicht bereit, der Player bleibt still, und die Messung liefert stumm Nullen statt eines Fehlers. Auf ein echtes Bild warten, nicht auf Sekunden."
+ ]
+}

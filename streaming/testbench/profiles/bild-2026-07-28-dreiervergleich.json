@@ -1,0 +1,70 @@
+{
+ "id": "bild-2026-07-28-dreiervergleich",
+ "gemessen_am": "2026-07-28 (Nacht)",
+ "frage": "Wie stehen AV1 10 bit, AV1 8 bit und H.264 8 bit auf den drei Achsen zueinander — unter GUELTIGEN Bedingungen?",
+ "vorgeschichte": "Dieser Vergleich war seit dem 2026-07-27 offen. Der erste Anlauf war ungueltig, weil die Monitore waehrend der Messung ausgingen und die Aufnahme ein Standbild sah (s. messprotokoll-2026-07-27.json).",
+ "gueltigkeit": {
+  "abnahme": "e2e_misses = 0 in ALLEN neun Laeufen — der Player hat das Zeitmuster in jedem Bild gefunden, es kam also echtes bewegtes Bild an.",
+  "gegenprobe_gpu": "GPU-Last 56-59 %. Bei eingefrorenem Bild waren es am 2026-07-27 rund 10 % — die Zahl trennt die beiden Zustaende zuverlaessig, die Datenrate tut das NICHT.",
+  "bildrate": "exakt 60 in allen Laeufen",
+  "protokoll": "30 s je Lauf, drei Wiederholungen je Variante, Bildschirm ueber mit-bildschirm.sh wachgehalten"
+ },
+ "vorgabe": "2560x1440, 60 fps, 4000 kbps, Ton Desktop, lokale Schleife, Zeitmuster an",
+ "ergebnis_60fps": {
+  "av1_10bit": {
+   "e2e_ms": 18.6,
+   "spanne": [
+    16.4,
+    19.8
+   ],
+   "decode_ms": 3.17,
+   "gpu_sm_prozent": 59,
+   "kbps": 3650
+  },
+  "av1_8bit": {
+   "e2e_ms": 15.3,
+   "spanne": [
+    15.1,
+    15.3
+   ],
+   "decode_ms": 2.12,
+   "gpu_sm_prozent": 56,
+   "kbps": 3550
+  },
+  "h264_8bit": {
+   "e2e_ms": 48.7,
+   "spanne": [
+    47.3,
+    60.7
+   ],
+   "decode_ms": 1.42,
+   "gpu_sm_prozent": 57,
+   "kbps": 4045
+  }
+ },
+ "der_befund": {
+  "was": "H.264 ist Ende zu Ende rund 33 ms LANGSAMER als AV1 — obwohl es schneller DEKODIERT (1,42 gegen 2,12 ms).",
+  "warum_das_zaehlt": "Die Decodierzeit ist die Achse, auf der H.264 gewinnt, und sie ist die kleinste. Wer nur sie misst, kommt zum umgekehrten Schluss.",
+  "kosten_10_bit": "3,3 ms Ende zu Ende und 1,05 ms Decodierzeit gegenueber AV1 8 bit, bei 3 Prozentpunkten mehr GPU. Deutlich weniger als die 33 ms, die H.264 kostet."
+ },
+ "die_ursache_eingegrenzt": {
+  "beobachtung": "33,4 ms bei 60 fps sind exakt ZWEI Bildabstaende — dieselbe Signatur wie der Encoder-Vorlauf, der am 2026-07-26 bei AV1 gefunden und abgeschaltet wurde.",
+  "gegenprobe_bei_144fps": {
+   "av1_8bit_ms": 15.5,
+   "h264_8bit_ms": 22.4,
+   "differenz_ms": 6.9
+  },
+  "auswertung": "Bei 144 fps schrumpft der Aufschlag auf 6,9 ms = ein Bildabstand. Ein FESTER Posten haette beide Male 33 ms gekostet. Der Aufschlag ist also bildproportional, sitzt damit in der Ausgabe-Taktung des Encoders und nicht in einer festen Stufe der Kette.",
+  "was_es_NICHT_ist": "`zerolatency=1` und `delay=0` sind gesetzt — `vendor_opts` verzweigt nach Hersteller, nicht nach Codec, beide Codecs bekommen sie also. Die naheliegendste Erklaerung ist damit ausgeschlossen.",
+  "offen": "Warum H.264 trotz dieser Optionen Bilder zurueckhaelt. Zu pruefen im Sidecar-Repo (B-Frames? NVENC-Voreinstellungen, die sich je Codec unterscheiden?). Der Player ist NICHT der Ort — er dekodiert H.264 am schnellsten von allen drei Varianten.",
+  "weiter_eingegrenzt_am_2026_07_28": {
+   "encoder_ausgeschlossen": "Die Selbstmeldung des Encoders ist bei ALLEN drei Varianten identisch: avg 1,88 ms (AV1 8 bit 1,882 / H.264 1,884 / AV1 10 bit 1,882). Der Encoder haelt also nichts zurueck — der Aufschlag entsteht NACH ihm.",
+   "ton_ausgeschlossen": "H.264 ohne Ton (--audio Aus): 46,9 ms gegen 48,7 mit Ton. Die Verschraenkung von Bild und Ton im Muxer ist es nicht.",
+   "player_ausgeschlossen": "Zeit vom Netz bis zum Schirm: H.264 2,04 ms, AV1 2,69 ms. Der Player ist mit H.264 sogar SCHNELLER; er haelt nichts zurueck.",
+   "bleibt": "Die Strecke zwischen Encoder-Ausgang und Ankunft beim Player: FLV-Muxer, RTMPS, MediaMTX, WebRTC-Ausgang. Innerhalb dieser Strecke nicht weiter getrennt.",
+   "naechster_schritt": "Gegenprobe mit dem Referenzsender: eine vorkodierte H.264-Datei per ffmpeg -c copy pushen. Zeigt sie denselben Aufschlag, liegt es an MediaMTX oder am FLV-Weg; zeigt sie ihn nicht, am Muxen unseres Senders. `harness.py` hat die Quelle heute fest verdrahtet (synth10.mkv, AV1) — dafuer braucht es einen Schalter."
+  }
+ },
+ "dritte_achse_bildqualitaet": "In dieser Reihe NICHT neu erhoben. Die offline-Messungen vom 2026-07-27 (bild-2026-07-27-av1.json, bild-2026-07-27-h264.json) sind vom Bildschirm-Fehler unberuehrt, weil sie kein laufendes Bild brauchen: AV1 fuehrt bei 4000 kbps um 9,5 VMAF, bei 10000 nur noch um 2,2; spatial-aq schadet H.264 deutlich (23,30 -> 19,68 VMAF) und ist bei AV1 neutral.",
+ "folgerung": "Auf allen drei Achsen zusammen ist AV1 die richtige Vorgabe, und zwar deutlicher als bisher angenommen: bessere Bildqualitaet bei gleicher Bitrate, gleiche GPU-Last und 33 ms weniger Latenz bei 60 fps. H.264 bleibt der Rueckfallweg fuer Hardware ohne AV1-Encoder — sein Latenzaufschlag ist ein eigener, loesbar aussehender Faden."
+}

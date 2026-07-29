@@ -1,0 +1,141 @@
+{
+ "id": "fern-2026-07-27-echte-leitung",
+ "gemessen_am": "2026-07-27 (Abend/Nacht)",
+ "setzt_voraus": "rueckname-2026-07-27-abend.json — mehrere Aussagen dieses Abends sind dort eingezogen; diese Akte wurde danach geschrieben.",
+ "frage": "Was misst die Kette ueber eine ECHTE Leitung statt ueber die lokale Schleife — und wo entsteht der Unterschied?",
+ "warum_das_zaehlt": "Alle bisherigen Latenzzahlen des Players stammen von der lokalen Schleife. Dort gibt es per Konstruktion keine Laufzeit, keine Schwankung und keinen Verlust. Der Unterschied ist keine Feinheit: dieselbe Kette liegt lokal bei 16,3 ms und ueber die Leitung bei 116-143. Die Nachtarbeit vom 26./27. (99,8 auf 17,4 ms) bleibt richtig, betrifft aber einen Posten, der im Betrieb nur ein Bruchteil des Ganzen ist.",
+ "aufbau": {
+  "werkzeug": "streaming/testbench/fern-harness.py (Empfaenger ist der native Player)",
+  "ziel": "Hetzner-Testinstanz pulse.unicutmedia.com (all-in-one-Container)",
+  "vorgabe": "2560x1440, 60 fps, 4000 kbps, Ton Desktop, Zeitmuster an (--e2e)",
+  "abnahme": "e2e_misses in JEDEM verwerteten Lauf 0 — das Zeitmuster wurde also in jedem Bild gefunden",
+  "srt_besonderheit": "MediaMTX lauscht fuer SRT auf 7890 statt 8890, weil der Container 8890/udp nicht veroeffentlicht und Nachveroeffentlichen ein Neuerstellen des Containers hiesse. 7890 (LiveKit-Bereich) ist aussen offen und innen leer."
+ },
+ "leitung": {
+  "ruhe": "53,3 ms Umlauf (min 52,7 / max 54,7 / mdev 0,43), 0 % Verlust ueber 60 Pakete",
+  "unter_last": "54,5 ms (max 63,3 / mdev 2,68), 0 % Verlust — waehrend eines laufenden 4000-kbps-Streams",
+  "folgerung": "Die Leitung staut unter Last messbar, aber nur um gut 1 ms im Mittel und 10 im Spitzenwert. Von den unerklaerten 100 ms erklaert das nichts.",
+  "einfache_strecke": 26.7
+ },
+ "ergebnisse": {
+  "rtmps_av1_10bit": {
+   "laeufe": [
+    116.6,
+    130.1,
+    85.8
+   ],
+   "hinweis": "Streuung ueber erfolgreiche Laeufe ist gross (85,8 bis 130,1). Ein Einzellauf taugt hier NICHT als Vergleichsgrundlage.",
+   "ankunftsluecke_median": [
+    39.4,
+    47.1
+   ],
+   "ankunftsluecke_max": [
+    185.4,
+    221.8
+   ],
+   "decode_ms": 3.49
+  },
+  "rtmps_h264_8bit": {
+   "laeufe": [
+    143.4,
+    137.6
+   ],
+   "ankunftsluecke_median": [
+    30.8,
+    91.8
+   ],
+   "ankunftsluecke_max": [
+    185.8,
+    127.0
+   ],
+   "decode_ms": 1.43
+  },
+  "srt_h264_8bit_puffer_120ms": {
+   "laeufe": [
+    307.4,
+    306.8,
+    306.6
+   ],
+   "streuung": "0,8 ms ueber drei Laeufe — die reproduzierbarste Messung des ganzen Abends",
+   "ankunftsluecke_median": [
+    20.7,
+    20.8,
+    21.1
+   ],
+   "ankunftsluecke_max": [
+    25.3,
+    27.7,
+    34.2
+   ],
+   "decode_ms": 1.43
+  },
+  "srt_h264_8bit_puffer_40ms": {
+   "laeufe": [
+    303.0,
+    306.9
+   ],
+   "folgerung": "Der SRT-eigene Puffer erklaert die rund 305 ms NICHT — von 120 auf 40 gesenkt aendert vier Millisekunden."
+  }
+ },
+ "die_rechnung": {
+  "ACHTUNG_KORRIGIERT": "Diese Rechnung ist FALSCH und steht nur noch als Beleg. Sie setzt die Laufzeit einfach an; tatsaechlich zaehlt sie DOPPELT, weil Sender und Player auf derselben Maschine laufen und der Strom zum Server hin und zurueck geht. Richtig: 16,2 + 53,4 = rund 70 ms erwartbar, also rund 73 ms unerklaert statt 100. Aufgeloest in latenz-2026-07-28-verortung.json.",
+  "lokale_kette": 16.3,
+  "laufzeit_einfach": 26.7,
+  "erwartbar": 43,
+  "gemessen_rtmps": 143,
+  "unerklaert_rtmps": 100,
+  "gemessen_srt": 307,
+  "unerklaert_srt": 264
+ },
+ "spaeter_verortet": "latenz-2026-07-28-verortung.json — der Empfangsweg addiert Laufzeit exakt linear (unschuldig), der SENDEWEG kostet das 2,4-fache dessen, was ihm gegeben wird. Rund 36 ms bleiben serverseitig offen.",
+ "ausgeschlossen_NUR_FUER_RTMPS": [
+  {
+   "verdaechtiger": "Laufzeit der Leitung",
+   "befund": "53,3 ms, 0 % Verlust, Schwankung 0,43 ms",
+   "erklaert": "26,7 ms, mehr nicht"
+  },
+  {
+   "verdaechtiger": "Volllaufende Upload-Leitung",
+   "befund": "unter Last +1,1 ms im Mittel, +10 im Spitzenwert",
+   "erklaert": "nichts"
+  },
+  {
+   "verdaechtiger": "Jitter-Puffer des Players",
+   "befund": "fest 20 ms, 0 gepufferte Pakete — lokal wie fern identisch",
+   "erklaert": "nichts"
+  },
+  {
+   "verdaechtiger": "Rueckstau im TCP-Socket des Senders",
+   "befund": "ss -tinm waehrend des Laufs: Warteschlange klein, unacked 1-10, cwnd 227, keine Neuuebertragungen. TCP misst die Umlaufzeit selbst mit 65-66 ms gegen 53,3 per ICMP.",
+   "erklaert": "hoechstens 12 ms"
+  }
+ ],
+ "nicht_eingegrenzt": "Fuer SRTs 264 unerklaerte Millisekunden ist ausser dem SRT-Puffer NICHTS geprueft. Der TCP-Befund kann dort nicht gelten (UDP). Der Ping-Befund traegt fuer beide, weil er die Leitung misst und nicht das Protokoll.",
+ "offen": {
+  "serverseite": "Einziger unbetrachteter Abschnitt: MediaMTX-Durchlauf und WebRTC-Ausgang. Lokal wurde derselbe Abschnitt mit unter 1 ms gemessen — aber ohne Laufzeit und ohne Ueberlastregelung auf dem Ausgangsweg, beides ueber die echte Leitung anders.",
+  "wie_zu_trennen": "Paketmitschnitt am Server, wie split-latency.py es lokal getan hat. Kein Host-sudo noetig: im Container ist man root, NET_RAW ist Docker-Standard, ein Wegwerf-Container in derselben Netzwerk-Umgebung genuegt.",
+  "pendeln": "In fern1 pendelt die Latenz sekuendlich zwischen rund 96 und 124 ms, sehr regelmaessig. Ursache unbekannt."
+ },
+ "abbrueche": {
+  "rtmps": "4 von 13 Versuchen starben mit `write_interleaved fehlgeschlagen: End of file` — Verbindung weg, Stream vorbei, kein Wiederaufsetzen.",
+  "srt": "1 von 6 Versuchen (H.264).",
+  "WARNUNG": "Die Ursache ist NICHT untersucht. Es kann die Leitung sein, der Server, oder eine Eigenheit des Pruefstands, der Sitzungen schnell hintereinander auf- und abbaut. Aus diesem Verhaeltnis darf ohne Trennung KEINE Aussage ueber Zuverlaessigkeit abgeleitet werden."
+ },
+ "srt_traegt_kein_av1": {
+  "symptom": "Erster SRT-Lauf lieferte nur Ton, 0 Bilder dekodiert, Zustand blieb auf `connecting`.",
+  "ursache": "MPEG-TS hat fuer AV1 keine regulaere Zuordnung. Sender-Meldung: `[mpegts] Stream 0, codec av1, is muxed as a private data stream and may not be recognized upon reading.` MediaMTX erkennt es dann nicht.",
+  "folge": "SRT-Vergleiche muessen auf H.264 gefahren werden — sonst vergleicht man Transport und Codec gleichzeitig. Dieselbe Beschraenkung wie bei ffmpegs WHIP-Muxer, nur eine Ebene tiefer."
+ },
+ "bewertung_srt": "Haelt seine Zusage bei der Gleichmaessigkeit: Ankunftsluecken 20,8 ms im Median und 25-34 im Maximum, gegen 30,8 und 185,8 bei RTMPS. Kostet dafuer mehr als das Doppelte an Latenz und traegt kein AV1. Fuer den AV1-Hauptweg damit vorerst raus; als Gegenprobe bei der Ursachensuche weiter nuetzlich.",
+ "srt_nachtrag_2026_07_28": {
+  "was": "Derselbe Sender, derselbe Codec (H.264 8 bit), nur SRT statt RTMPS — aber auf der LOKALEN Schleife, also ohne jede Laufzeit.",
+  "messwerte_ms": [
+   188.9,
+   203.0,
+   190.4
+  ],
+  "vergleich": "RTMPS/FLV lokal mit demselben Aufbau: 48,7 ms. Ueber die echte Leitung lag SRT bei rund 305 ms.",
+  "folgerung": "Die rund 300 ms des SRT-Wegs sind NICHT das Netz. Schon ohne Laufzeit kostet SRT rund 190 ms, also das Vierfache von RTMPS. Damit ist die offene Frage aus dieser Akte ('fuer SRTs 264 unerklaerte Millisekunden ist nichts eingegrenzt') zur Haelfte beantwortet: der Loewenanteil sitzt im SRT/MPEG-TS-Weg selbst, nicht dahinter.",
+  "warum_gemessen": "Eigentlich als Einzelvariablen-Test gedacht, um den H.264-Latenzaufschlag zwischen FLV-Muxer und MediaMTX aufzuteilen. Dafuer taugt er nicht — SRT bringt einen eigenen, viel groesseren Posten mit. Als Befund ueber SRT ist er trotzdem eindeutig."
+ }
+}

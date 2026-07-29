@@ -1,0 +1,32 @@
+{
+  "id": "allintra-2026-07-29",
+  "frage": "Was wuerde es kosten, NUR Vollbilder zu senden? Der Nutzer fragte danach, weil das den ganzen Wiedereinstiegs-Komplex erledigen wuerde.",
+
+  "warum_die_frage_reizvoll_ist": "Jedes Bild waere ein eigener Einstiegspunkt. Damit faellt alles weg, woran wir zwei Tage gearbeitet haben: Vollbild auf Anforderung, PLI-Rueckkanal, MAX_UNITS_WITHOUT_KEYFRAME, die LTR-Frage, das Auffangnetz. Ein Paketverlust zerstoert genau ein Bild, das naechste ist wieder sauber.",
+
+  "aufbau": "sweep-offline.py, Referenz ref-basis-desktop.raw (echter Desktop-Rohmitschnitt des Encoder-Eingangs, p010le 2560x1440), 500 Bilder, 60 fps, av1_nvenc mit den Live-Einstellungen des Sidecars. Jede Variante bekommt DIESELBEN Bilder — die Inhaltsschwankung faellt damit weg. Variante 'allintra' = `-g 1`.",
+
+  "bei_gleicher_bitrate_4000": {
+    "heute_keyframe_alle_2s": {"vmaf": 95.713, "psnr": 48.382, "ssim": 0.9982},
+    "intra_refresh": {"vmaf": 96.138, "psnr": 50.699, "ssim": 0.9984},
+    "nur_vollbilder": {"vmaf": 39.317, "psnr": 28.448, "ssim": 0.9283}
+  },
+
+  "wieviel_bitrate_braucht_allintra": {
+    "4000": {"vmaf": 39.317, "psnr": 28.448},
+    "10000": {"vmaf": 59.890, "psnr": 31.334},
+    "20000": {"vmaf": 75.384, "psnr": 34.622},
+    "40000": {"vmaf": 87.045, "psnr": 38.871},
+    "80000": {"vmaf": 93.352, "psnr": 43.037}
+  },
+
+  "befund": "Rund die VIERZIGFACHE Bitrate. Bei 80 Mbit/s — dem Zwanzigfachen — ist All-Intra immer noch schlechter als der heutige Weg mit 4 Mbit/s (93,4 gegen 95,7 VMAF; 43,0 gegen 48,4 dB). Die letzten Verdopplungen bringen +6 VMAF und +4 dB, fuer den Gleichstand fehlt danach noch etwa eine weitere: rund 160 Mbit/s. Als Ersatz fuer den normalen Strom ist das erledigt, und zwar nicht knapp.",
+
+  "warum": "Desktop-Inhalt steht groesstenteils still und komprimiert ueber P-Bilder fast umsonst. Jedes Bild neu zu uebertragen wirft genau diesen Vorteil weg.",
+
+  "nebenbefund_intra_refresh": "Intra-Refresh ist bei gleicher Bitrate nicht schlechter als der heutige Weg, sondern BESSER (+0,4 VMAF, +2,3 dB PSNR). Das bestaetigt den Befund vom 2026-07-28 an einem anderen Inhalt.",
+
+  "was_die_messung_STUETZT": "Das Auffangnetz (909fb2fe). Die Kosten fallen mit der Pixelzahl: 640x360 hat ein Sechzehntel der Pixel von 1440p, dieselben 4 Mbit/s wirken dort wie 64 Mbit/s. Ein kleiner Nur-Vollbild-Strom ist also bezahlbar — die Idee funktioniert als Zweitstrom, nie als Hauptweg.",
+
+  "vorbehalt": "Gemessen ist CBR, weil der Live-Weg CBR faehrt. Mit CQ/VBR saehe All-Intra etwas besser aus; an der Groessenordnung aendert das nichts."
+}

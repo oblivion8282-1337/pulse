@@ -1,0 +1,106 @@
+{
+  "id": "fec-2026-07-29-interleaving",
+  "datum": "2026-07-29",
+  "frage": "Bringt ein groesserer Interleave-Abstand die Paritaet gegen Buendelverlust zum Tragen?",
+
+  "ausgangslage": {
+    "befund_vortag": "Bei Buendelverlust bringt FlexFEC 10+2 nichts (3,0 -> 3,5 s ohne Bild).",
+    "damalige_erklaerung_FALSCH": "pion teile die Gruppe in zwei Haelften, daher laegen benachbarte Pakete in derselben Gruppe.",
+    "richtige_erklaerung": "pion verteilt BEREITS interleaved (flexfec_coverage.go:89: 'Media packet X will be covered by FEC packet X % N'). Der Interleave-Abstand ist exakt numFecPackets, bei 10+2 also 2. Ein Buendel von zwei Paketen ist damit reparierbar, ab drei trifft es zwangslaeufig dieselbe Gruppe - und XOR loest nur eine Unbekannte."
+  },
+
+  "hebel": {
+    "aenderung": "PULSE_FLEXFEC_MEDIA=20 + PULSE_FLEXFEC_FEC=4 statt 10+2",
+    "kein_patch_noetig": "Beide Variablen existieren seit 0003-flexfec-on-whep.patch. Am MediaMTX-Fork und am Empfaenger ist NICHTS zu aendern.",
+    "overhead_unveraendert": "20 %",
+    "gruppengroesse_unveraendert": 5,
+    "interleave_abstand": "2 -> 4"
+  },
+
+  "beleg_der_umstellung": {
+    "verfahren": "Neue Messgroesse STREUUNG in gegenprobe.rs::abstand_melden - kleinster Abstand zwischen zwei geschuetzten Sequenznummern je Gruppe, am echten Strom gelesen statt aus fremdem Quelltext geglaubt.",
+    "20+4": "Abstand 4 in 13808 von 13808 Gruppen",
+    "10+2": "Abstand 2 in 13810 von 13810 Gruppen",
+    "rueckrechnung": "0 Abweichungen in allen Laeufen; damit ist auch der ZWEITE Maskenblock belegt (ab 16 Medienpaketen unvermeidlich, vorher nie an echtem Material gelaufen)"
+  },
+
+  "messung": {
+    "profil": "buendel_fern = delay 26.7ms + loss gemodel 2% 40% 100% 0%",
+    "vorlage": "live-vorlage.mkv (PFLICHT, s. fallstricke)",
+    "decoder": "Hardware (av1_cuvid)",
+    "dauer_je_lauf_s": 20,
+    "wiederholungen": 3,
+    "stoerung_belegt": "4,7-5,4 % tatsaechlich verworfen, aus den tc-Zaehlern gelesen",
+
+    "ergebnis": {
+      "20+4_paritaet_an":  {"fps": [108, 114, 109], "fps_median": 109, "verlust": [963, 776, 1033], "verlust_median": 963,  "sekunden_schwarz": [0, 0, 0], "luecken_median": 12},
+      "10+2_paritaet_an":  {"fps": [90, 103, 98],   "fps_median": 98,  "verlust": [1511, 1337, 1418], "verlust_median": 1418, "sekunden_schwarz": [0, 0, 0], "luecken_median": 13},
+      "10+2_paritaet_aus": {"fps": [91, 91, 93],    "fps_median": 91,  "verlust": [1487, 1457, 1741], "verlust_median": 1487, "sekunden_schwarz": [1, 1, 0], "luecken_median": 14}
+    },
+
+    "auswertung": {
+      "20+4_gegen_10+2": "endgueltiger Verlust -32 % (963 gegen 1418), Bildrate +11 (109 gegen 98)",
+      "20+4_gegen_ohne_paritaet": "Verlust -35 %, Bildrate +18 (109 gegen 91)",
+      "10+2_gegen_ohne_paritaet": "Verlust -5 %, Bildrate +7 - im Rauschen, bestaetigt den Vortagsbefund",
+      "trennschaerfe": "Die Verlustwerte von 20+4 (776-1033) und 10+2 (1337-1511) ueberlappen ueber drei Laeufe NICHT."
+    }
+  },
+
+  "fallstricke": [
+    {
+      "falle": "Dieselbe Serie ueber das reine `buendel`-Profil (ohne Laufzeit) zeigt GAR KEINEN Unterschied - 142 fps, null Sekunden schwarz in allen neun Laeufen, auch ganz ohne Paritaet.",
+      "grund": "Ueber die Schleife betraegt die Umlaufzeit ~0, NACK holt jedes verlorene Paket sofort nach, fuer Vorwaertskorrektur bleibt nichts zu tun.",
+      "konsequenz": "Die Paritaet ist lokal nur mit aufgezwungener Laufzeit beurteilbar. Neues Profil `buendel_fern`."
+    },
+    {
+      "falle": "Mit der VOREINGESTELLTEN Vorlage synth10.mkv sah 20+4 wie ein schwerer Defekt aus: dreimal 'keine Messwerte', Durchsatz auf ein Drittel, 87 'Error parsing OBU data', SIGSEGV in libnvcuvid. Daraus war bereits 'der FEC-Empfaenger drosselt' abgeleitet.",
+      "grund": "synth10.mkv traegt Alt-Ref-Struktur aus av1_nvenc-Datei-Defaults; der Live-Sidecar erzeugt die nie.",
+      "konsequenz": "Mit live-vorlage.mkv: kein Abbruch, null OBU-Fehler, Durchsatz gleichauf. Alles Artefakt. Dieselbe Falle war bereits dokumentiert - und schnappte trotzdem erneut zu, weil synth10.mkv die Voreinstellung ist."
+    },
+    {
+      "falle": "Eine erste A/B-Serie fuhr viermal dieselbe Einstellung, weil die Umgebung als PULSE_FLEXFEC_MEDIA='10 2' und PULSE_FLEXFEC_FEC='' ankam und beide auf die Vorgabe zurueckfielen.",
+      "konsequenz": "Aufgefallen NUR an der neuen STREUUNG-Messgroesse. Eine Umstellung ist erst belegt, wenn ihre Wirkung im Messwert sichtbar ist - nicht, wenn der Befehl abgesetzt wurde."
+    }
+  ],
+
+  "messung_echte_leitung": {
+    "warum": "Die Messung oben lief lokal mit KUENSTLICHER Laufzeit. Der Vortagsbefund ('10+2 bringt bei Buendeln nichts') stammt dagegen vom Hetzner-Testserver. Erst die echte Strecke macht beide Zahlen vergleichbar.",
+    "aufbau": {
+      "strecke": "Kabel zum Hetzner-Testserver, Umlaufzeit 58,9 ms",
+      "server": "mediamtx.fec im Container `pulse`, Wrapper-Varianten fec-10-2 / fec-20-4, zwischen den Laeufen umgeschaltet",
+      "sender": "NEU: fern-referenz.py — vorkodierte Datei per RTMPS, KEIN Sidecar. Ein A/B mit dem Sidecar traegt Bildschirminhalt, Portal und einen lastabhaengigen Encoder als Stoergroessen mit.",
+      "vorlage": "fern-4000.mkv, 2560x1440@60, 4000 kbit/s — an den eigenen Uplink angepasst, sonst misst man dessen Stau",
+      "stoerung": "NEU: fern-stoerung.sh — Buendelverlust LOKAL auf den eingehenden Verkehr (ifb0), gefiltert auf die Server-Adresse. Nicht am Server, dort laufen fremde Dienste.",
+      "stoerung_belegt": "400 Pings: 6 % Verlust, 24 verworfen; je Lauf 1233-1439 von ~26000 Paketen",
+      "wiederholungen": 3
+    },
+
+    "ergebnis_seherlebnis": {
+      "20+4_paritaet_an":  {"fps_median": [48, 49, 48], "verlust": [352, 330, 310]},
+      "10+2_paritaet_an":  {"fps_median": [50, 50, 50], "verlust": [338, 350, 282]},
+      "10+2_paritaet_aus": {"fps_median": [48, 46, 48], "verlust": [322, 373, 355]},
+      "befund": "KEIN Unterschied nachweisbar — weder 20+4 gegen 10+2 noch Paritaet gegen keine Paritaet. Alle drei Gruppen ueberlappen vollstaendig."
+    },
+
+    "ergebnis_reparaturen": {
+      "20+4": {"reparierte_pakete": 170, "gruppen": 748, "nachlauf_median_ms": 0.4, "nachlauf_99_ms": 54.8},
+      "10+2": {"reparierte_pakete": 50,  "gruppen": 223, "nachlauf_median_ms": 0.2, "nachlauf_99_ms": 184.5},
+      "befund": "Der Interleave-Vorteil IST da und ist gross: 20+4 repariert 170 gegen 50 Pakete, Faktor 3,4. Er schlaegt nur nicht auf das Seherlebnis durch."
+    },
+
+    "deutung": {
+      "kern": "Beides stimmt gleichzeitig: der groessere Abstand repariert nachweislich mehr (Faktor 3,4), und trotzdem aendert sich fuer den Zuschauer ueber DIESE Strecke nichts.",
+      "wahrscheinlicher_grund": "Von ~1400 gestoerten Paketen bleiben nur ~330 endgueltig verloren — den grossen Rest holt NACK. Was die Paritaet zusaetzlich rettet (120 Pakete mehr), geht daneben unter. Bei 4000 kbps/60 fps laufen rund 870 Pakete/s; lokal waren es mit 25000 kbps/144 fps das Fuenf- bis Sechsfache, und dort war der Effekt gross.",
+      "NICHT_belegt": "Dass der Effekt bei hoher Bitrate ueber die ECHTE Leitung auftritt. Lokal ja, fern nur bei 4000 kbps geprueft — und der eigene Uplink verbietet dort die hohe Bitrate.",
+      "entwarnung_nachlauf": "Die Sorge, der groessere Abstand komme zu spaet, ist AUSGERAEUMT: Median 0,4 ms, 90 % unter 17,1 ms, und im 99-%-Quantil sogar besser als 10+2. Der spaetere Gruppenschluss kostet praktisch nichts."
+    }
+  },
+
+  "offen": [
+    "Der Interleave-Gewinn ist ueber die echte Leitung bei 4000 kbps nachweisbar (Faktor 3,4 mehr Reparaturen), aber ohne sichtbare Wirkung. Bei welcher Bitrate/Paketrate er sichtbar wird, ist NICHT bestimmt.",
+    "Ob 20+4 als Vorgabe taugt, ist damit noch nicht entschieden — er schadet nicht (Nachlauf unauffaellig, Overhead gleich) und hilft messbar, aber der Nutzen ist streckenabhaengig.",
+    "Verhaeltnis 20+4 ist nicht optimiert, nur der naechste Schritt auf der Leiter. Groesserer Abstand kostet spaetere Reparatur.",
+    "Kosten der 20 % bei knapper Zuschauerleitung weiterhin ungemessen.",
+    "Browser bekommen nichts davon (handeln flexfec-03 nicht aus)."
+  ]
+}

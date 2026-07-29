@@ -1,0 +1,161 @@
+{
+ "id": "decoder-2026-07-29-intra-refresh",
+ "gemessen_am": "2026-07-29 (vormittags)",
+ "frage": "Baut der Decoder nach einem Paketverlust die Intra-Refresh-Streifen wieder ein — heilt sich der Strom also ohne Vollbild selbst? Und ist der Software-Decoder der Ausweg, falls av1_cuvid es nicht tut?",
+ "stand": "BEANTWORTET, und zwar mit NEIN fuer beide Decoder. Ein EINZIGES verworfenes Bild toetet den Intra-Refresh-Strom dauerhaft. Der Decoder ist damit das Tor — und es ist zu fuer 'Intra-Refresh heilt nach Verlust'. Es ist NICHT zu fuer Wege, die den Verlust verhindern (NACK/RTX, FEC, Zeitstufen) oder eine noch vorhandene Referenz nutzen (LTR); die widerlegt dieser Test ausdruecklich nicht.",
+
+ "warum_offline": "Die Frage ist eine DECODER-Eigenschaft, keine Systemeigenschaft. Der Netz-Pruefstand (netz-harness.py) misst Systemverhalten und braucht sudo, MediaMTX, Auth-Hook und einen wachen Bildschirm. Offline reicht: Strom kodieren, eine Zugriffseinheit verwerfen, dekodieren, Bilder vergleichen — Sekunden statt Messreihe, und beliebig oft exakt gleich.",
+
+ "aufbau": {
+  "werkzeuge_neu": "obu-schnitt.py (trennt AV1-OBU an den Temporal Delimitern in Zugriffseinheiten, verwirft gezielt welche — bildet nach, was depacket/mod.rs::Assembler bei Paketverlust tut) + heilung.py (PSNR je Bild gegen das Original UND Aenderung zum Vorbild, unterscheidet also 'eingefroren' von 'laeuft, aber falsch').",
+  "material": "testsrc2 1280x720, 60 fps, 5 s (300 Bilder), p010le (10 bit), av1_nvenc, 4000 kbps.",
+  "encoder_wie_live": "tune=ll, rc=cbr, b_ref_mode=0, preset=p2, zerolatency=1, delay=0 — exakt die Werte aus encode/opts.rs des Linux-Sidecars. Intra-Refresh-Strom zusaetzlich mit intra-refresh=1, forced-idr=1, g=600; Vergleichsstrom mit g=60 (Keyframes).",
+  "verlust": "Zugriffseinheit 150 komplett verworfen (8969 Byte), also genau ein Bild — der guenstigste denkbare Fall.",
+  "dekodiert_mit": "ffmpeg -fps_mode passthrough -pix_fmt yuv420p10le -f rawvideo, je einmal -c:v av1_cuvid und -c:v libdav1d."
+ },
+
+ "kontrollen_vor_dem_ergebnis": [
+  "Werkzeug-Rundlauf: obu-schnitt.py ohne --weg liefert eine byte-gleiche Kopie der Eingabe (cmp).",
+  "Referenz belastbar: av1_cuvid und libdav1d liefern fuer den HEILEN Strom byte-gleiche Ausgabe (cmp ueber 300 Bilder). Damit ist jeder gemessene Unterschied echt und kein Decoder-Rundungseffekt.",
+  "Struktur geprueft: der Intra-Refresh-Strom enthaelt genau 1 Keyframe (am Anfang), der Vergleichsstrom 5 — der Schalter wirkt also wirklich.",
+  "Ein Zwischenergebnis wurde VERWORFEN, weil es ein Werkzeugfehler war: der erste Durchlauf der ffmpeg-Schalter meldete '0 Bilder' fuer alle sechs Kombinationen. Ursache waren kaputte Dateinamen aus der Shell-Schleife, nicht das Verhalten der Decoder. Nachgeprueft statt geglaubt."
+ ],
+
+ "ergebnis_die_zahlen": {
+  "intra_refresh_av1_cuvid": {
+   "ausgegebene_bilder": "299 von 300 — nur das verworfene fehlt, KEINE Fehlermeldung",
+   "bild_nach_dem_verlust": "steht komplett: alle 148 folgenden Bilder sind byte-identisch mit ihrem Vorgaenger",
+   "psnr_gegen_original": "24,4 dB direkt nach dem Verlust, danach 21,6-24,4 bis zum Ende (Mittel 23,8)",
+   "erholung": "NIE — kein einziges Bild kommt je wieder ueber 40 dB"
+  },
+  "intra_refresh_libdav1d": {
+   "ausgegebene_bilder": "151 von 300 — nach dem Verlust kommt GAR NICHTS mehr",
+   "meldung": "'Error submitting packet to decoder: Invalid data found' fuer praktisch jedes folgende Paket",
+   "bewertung": "Der Software-Decoder ist nicht der Ausweg. Er ist nur ehrlicher: er taeuscht keinen Betrieb vor."
+  },
+  "gegenprobe_keyframes_alle_60_bilder_av1_cuvid": {
+   "ausgegebene_bilder": "299 von 300",
+   "bild_nach_dem_verlust": "steht 28 Bilder lang (150 bis 178)",
+   "erholung": "ab Bild 179 wieder 100,0 dB — also BYTE-PERFEKT, exakt am naechsten Keyframe, und bleibt es bis zum Ende",
+   "bedeutung": "Das ist die entscheidende Kontrolle. Der Decoder ist nicht generell kaputt und faellt nach einem Verlust auch nicht in einen Fehlerzustand — er heilt zuverlaessig. Nur eben ausschliesslich an einem echten Keyframe, nie an Intra-Streifen."
+  }
+ },
+
+ "geprueft_und_wirkungslos": {
+  "ffmpeg_flags": "-flags +output_corrupt und -err_detect ignore_err aendern bei BEIDEN Decodern exakt nichts (299 bzw. 151 Bilder, unveraendert gegenueber dem Lauf ohne Zusatz). Der naheliegende Gedanke 'dann gib die beschaedigten Bilder eben trotzdem aus, dann werden die Streifen sichtbar' traegt nicht.",
+  "error_resilient_mode": "Erledigt, ohne Messung noetig: der Begriff kommt in nvEncodeAPI.h KEIN EINZIGES MAL vor. Anders als bei LTR ist hier nicht FFmpeg die Sperre — NVENC hat den Schalter gar nicht. Damit ist auch der zweite der beiden billigen Verdaechtigen vom 2026-07-28 abgeraeumt."
+ },
+
+ "was_der_encoder_koennte_und_ffmpeg_nicht_durchlaesst": "Nachgeschlagen am selben Tag, gehoert zur Einordnung: av1_nvenc bietet in FFmpeg genau EINEN einschlaegigen Schalter, intra-refresh. NV_ENC_CONFIG_AV1 in nvEncodeAPI.h (ab Zeile 2077) hat dagegen enableLTR, enableTemporalSVC, numTemporalLayers, intraRefreshPeriod und intraRefreshCnt. Dasselbe Muster wie schon bei LTR: die Hardware kann mehr, als FFmpeg durchreicht. Neu daran ist, dass numTemporalLayers ein DRITTES Argument fuer denselben Umbau liefert — Zeitstufen sind fuer Verlustrobustheit etwas anderes als fuer die Aufloesungsfrage, unter der sie am 2026-07-29 nachts zu frueh abgeschrieben wurden (dort ging es um Ersatz fuer das Auffangnetz).",
+
+ "nebenbefund_messfalle": "Ein Datei-Encode mit av1_nvenc-Defaults enthielt 149 VERSTECKTE Bilder (Alt-Ref-Struktur: ein FRAME_HDR allein in der Zugriffseinheit heisst 'zeige ein vorhandenes Bild'). Die erste verworfene Einheit war so eine 5-Byte-Anzeigeanweisung — es ging gar kein Referenzbild verloren, und der Test waere als 'kein Problem' durchgegangen. Mit den Live-Einstellungen des Sidecars (b_ref_mode=0, zerolatency=1, delay=0) verschwinden sie und eine Zugriffseinheit ist genau ein Bild. WER MIT DEFAULT-ENCODES MISST, MISST EINE ANDERE STRUKTUR ALS DIE, DIE LIVE LAEUFT. obu-schnitt.py meldet die Einheitengroesse deshalb mit und warnt bei zweistelligen Werten.",
+
+ "uebertragbarkeit": {
+  "stuetzt": "Der Offline-Befund reproduziert exakt, was am 2026-07-28 LIVE gemessen wurde (av1_cuvid dekodiert 60/s und zeigt dabei immer dasselbe Bild, zweimal reproduziert) — zwei unabhaengige Wege, gleiches Ergebnis. Und er erklaert es zum ersten Mal.",
+  "unterschiede_zum_player": "Der Player speist Zugriffseinheiten einzeln ueber decode() ein statt ueber den obu-Demuxer, und er setzt AV_CODEC_FLAG_LOW_DELAY. Fuer die Frage 'verwirft cuvid Bilder mit fehlenden Referenzen' ist beides ohne Belang; wer eine feinere Aussage braucht, sollte den Weg im Player selbst nachbauen."
+ },
+
+ "konsequenz": [
+  "Intra-Refresh bleibt als BETRIEBSART wertvoll (butterweich, Urteil des Nutzers vom 2026-07-28, und offline sogar bis +3 dB besser bei Desktop-Inhalt) — aber es ist KEIN Heilmechanismus. Es braucht zwingend einen Partner, der Verluste gar nicht erst durchkommen laesst.",
+  "Damit steigt das Gewicht von Schicht 1 (NACK/RTX) und Schicht 2 (FEC/Paritaet, die Idee des Nutzers) von 'Ergaenzung' auf 'Voraussetzung'.",
+  "Schicht 3 der Vier-Schichten-Liste vom 2026-07-29 ist erledigt und negativ. Schicht 4 (Vollbild auf Anforderung) bleibt damit vorerst der einzige Anker nach einem Verlust — genau der Zustand, den die Betriebsart eigentlich vermeiden sollte.",
+  "Offen: antwortet MediaMTX ueberhaupt auf NACK, oder wirft es die Nachforderungen weg wie vorher die PLIs (dieselbe Code-Ecke, outbound_track.go)? Erster Prueflauf am 2026-07-29 gefahren, Ergebnis siehe nachtrag_nack_stufe1 — die Frage ist damit NICHT beantwortet, aber eine falsche Annahme in unserem Code ist widerlegt. Zweite offene Frage unabhaengig davon: bei einem Jitter-Puffer von 5-15 ms gegen die Umlaufzeit zum Server kaeme eine Nachlieferung womoeglich generell zu spaet. Beides gehoert gemessen, nicht angenommen."
+ ],
+
+ "nachtrag_nack_stufe1": {
+  "gemessen_am": "2026-07-29, direkt im Anschluss",
+  "frage": "Sagt MediaMTX den Rueckkanal fuer Paket-Nachlieferung ueberhaupt zu?",
+  "lauf": "harness.py --secs 10 --label nack-stufe1 gegen den lokalen MediaMTX (pulse-mediamtx:1.19.1-pulse-pli); Auth-Hook auf :8005 dafuer gestartet.",
+  "ergebnis_der_aushandlung": "pulse-player: Rueckkanal — nack ja / pli ja / rtx NEIN",
+  "unser_player_sendet_wirklich": "Bestaetigt am Quelltext: webrtc-0.17.2 register_default_interceptors ruft configure_nack, das BEIDE registriert — Generator (fordert an) und Responder. Die Kette ist auf unserer Seite also vollstaendig, es bleibt nicht bei der Zusage.",
+  "WIDERLEGTE_ANNAHME_IM_EIGENEN_CODE": "whep.rs::rueckkanal_flags traegt den Kommentar 'RTX ist der eigentliche Traeger der Nachlieferung: ohne einen zweiten Payload-Typ rtx/90000 schickt der Server das Paket nicht noch einmal, selbst wenn er nack zusagt.' DAS IST FALSCH. pion (die Bibliothek, auf der MediaMTX aufsetzt) liefert in nack/responder_interceptor.go::resendPackets das ORIGINALPAKET unveraendert zurueck — stream.rtpWriter.Write(p.Header(), p.Payload()), also derselbe Strom, dieselbe Sequenznummer, kein RTX beteiligt. RFC-4588-RTX ist EIN Weg der Nachlieferung, nicht der einzige. 'rtx NEIN' ist damit KEIN Ausschluss, und Stufe 1 beantwortet die eigentliche Frage nicht. Der Kommentar im Player gehoert korrigiert.",
+  "indiz_aber_kein_beweis": "Im MediaMTX-Binary sind ResponderInterceptor.BindLocalStream (die Seite, die zum Zuschauer sendet) UND interceptor/internal/rtpbuffer (der Sendepuffer, aus dem nachgeliefert wird) enthalten. Das spricht dafuer, dass der Responder benutzt wird — beweist es aber nicht: Go entfernt Methoden, die ein Interface erfuellen, auch dann nicht zuverlaessig, wenn sie ungenutzt sind. Nicht als Ergebnis lesen.",
+  "konsequenz": "Die Frage 'liefert MediaMTX nach?' ist offen und nur durch Messung zu klaeren (Stufe 2): Lauf unter kuenstlichem Verlust mit Paketmitschnitt, und die Kontrollzahl ist die Zahl WIEDERHOLTER Sequenznummern auf dem Medienstrom — nicht die SDP-Zusage. Direkt danach Stufe 3, die eigentlich entscheidende: kommen die Nachlieferungen frueh genug, um vor der Anzeige eingesetzt zu werden? Eine zu spaete Nachlieferung sieht in jeder Statistik aus wie eine gelungene."
+ },
+
+ "nachtrag_nack_stufe2": {
+  "gemessen_am": "2026-07-29, im Anschluss an Stufe 1",
+  "frage": "Liefert MediaMTX verlorene Pakete TATSAECHLICH nach — oder sagt es das nur zu?",
+  "werkzeug": "nack-wirkung.py (neu): tcpdump auf lo waehrend eines Laufs unter kuenstlichem Verlust, dann Zaehlung von NACKs (Player->Server, RTCP 205/FMT 1) und WIEDERHOLTEN RTP-Sequenznummern (Server->Player). Beides ist trotz SRTP/SRTCP lesbar — verschluesselt wird die Nutzlast, die Kopfzeilen bleiben klar.",
+
+  "ANTWORT": "JA, MediaMTX liefert nach — trotz 'rtx NEIN'. Damit ist die Annahme aus Stufe 1 nicht nur theoretisch, sondern gemessen widerlegt: die Nachlieferung laeuft als Wiederholung des ORIGINALPAKETS auf demselben Strom, genau wie pions responder_interceptor.go es vorgibt. RFC-4588-RTX ist dafuer nicht noetig.",
+
+  "die_drei_laeufe": {
+   "kontrolle_ohne_stoerung": "56651 RTP-Pakete, 0 NACKs, 0 Wiederholungen, Lauf sauber durch (144 fps, kein Verlust, '1 von 1 Laeufen ohne Mangel'). DIE ENTSCHEIDENDE KONTROLLE — sie schliesst ein Erfassungs-Artefakt auf der Loopback-Schnittstelle aus, wo tcpdump ein Paket sonst leicht doppelt zeigt.",
+   "verlust_5_prozent": "10253 RTP-Pakete, 22 NACKs, 505 Wiederholungen (~5 %, also genau die eingestellte Verlustrate), alle auf dem Video-SSRC.",
+   "verlust_1_prozent_nur_empfangsweg": "2621 RTP-Pakete, 2 NACKs, 4 Wiederholungen."
+  },
+  "warum_das_belastbar_ist": "Wiederholungen treten NUR bei eingestelltem Verlust auf, ihre Menge folgt der Verlustrate, und sie folgen immer auf NACKs. Der Kontrolllauf hat bei mehr als der fuenffachen Paketmenge exakt null.",
+
+  "ZWEI_WERKZEUGFEHLER_AUF_DEM_WEG": [
+   "Der erste Durchlauf meldete 505 Wiederholungen bei ueber TAUSEND SSRCs — ein WHEP-Strom hat zwei. Ursache: die Auswertung las STUN- und DTLS-Pakete als RTP (sie teilen sich denselben Port). 2663 Fremdpakete lieferten Phantom-Sequenznummern und Phantom-SSRCs. Behoben ueber die Versionsbits (RFC 7983): RTP und RTCP tragen in den oberen zwei Bit eine 2, STUN eine 0. Nach der Korrektur meldet DERSELBE Mitschnitt 2 SSRCs — und die 505 Wiederholungen bleiben, sie lagen von Anfang an auf dem Video-SSRC. Das Ergebnis war also zufaellig richtig und die Begruendung falsch; ohne die Gegenpruefung waere beides ununterscheidbar gewesen.",
+   "Der erste Verlust-Lauf legte die Stoerung an die WURZEL von lo und traf damit den RTMPS-Push mit — die dokumentierte Falle aus netem_setzen und [[pulse-messmethodik-fallen]]. netz-harness.py braucht dafuer --nur-empfang, und das ist KEIN Default. nack-wirkung.py reicht den Schalter jetzt fest durch."
+  ],
+  "lebendkontrolle_nachgeruestet": "Das Werkzeug faellte anfangs ein Urteil ueber einen Lauf, in dem der Player nie ein Bild dekodiert hatte ('kein Ergebnis' in der netz-harness-Ausgabe). Es verweigert das Urteil jetzt in zwei Faellen: mehr als 4 SSRCs (Parser liest Fremdverkehr) und Lauf ohne Messwerte. Derselbe Merksatz wie am 2026-07-28: ein Messwerkzeug, das bei Totalausfall eine Zahl liefert, ist schlimmer als keins.",
+
+  "UNGEPLANTER_FUND_PLAYER_STUERZT_AB": {
+   "befund": "Der Player stirbt unter Paketverlust reproduzierbar mit SIGSEGV in libnvcuvid.so.610.43.03 — VIER von vier Verlust-Laeufen (5 %, 1 %, 1 % nur-Empfang, und ein direkter netz-harness-Lauf), belegt durch dmesg und vier Coredumps. Der Kontrolllauf ohne Stoerung laeuft durch.",
+   "verlauf": "Immer dasselbe Muster: Sitzung baut auf, 'Einstiegspunkt gefunden, N Einheiten davor verworfen', erste Farbmeldung — dann bricht stdout ab. Der Prueflauf meldet das als 'Player hat stdout geschlossen'.",
+   "bekannt_aber_nicht_erledigt": "whep.rs::request_keyframe beschreibt genau diesen Absturz im Kommentar (Stand 2026-07-28) und nennt die Vollbild-Anforderung als Gegenmassnahme. Die greift hier NICHT — es wurden PLIs gesendet (1 bis 10 je Lauf) und er stuerzt trotzdem.",
+   "nicht_geprueft": "Ob das eine Regression der Nacht vom 28./29. ist (Binary vom 29.07. 00:07, drei Commits davor) oder am dichten Pruefmaterial liegt (synth10.mkv: 144 fps, 25 Mbit/s — deutlich dichter als die 60-fps-Laeufe vom 28.07.). NICHT ohne Messung behaupten. Naheliegender naechster Schritt: derselbe Lauf mit dem Software-Decoder (hwdec=false) — laeuft er durch, ist der Absturz eindeutig cuvid-spezifisch und es gibt einen Notausgang.",
+   "bedeutung": "Das ist ein Blocker VOR NACK und FEC. Solange ein Verlust den Player toetet, ist es zweitrangig, ob Pakete nachgeliefert werden.",
+
+   "A_B_GEGENPROBE_DER_ABSTURZ_IST_CUVID_SPEZIFISCH": {
+    "aufbau": "Identischer Lauf, identische Stoerung (1 % Verlust, nur Empfangsweg), einziger Unterschied der Decoder. Dafuer nimmt harness.py jetzt --hwdec {auto,hw,sw} und reicht es als PlayerOptions.hwdec an `open` durch — kein Umbau des Players noetig, die Option gab es im Protokoll schon.",
+    "hardware_av1_cuvid": "SIGSEGV, Coredump um 12:01:15. Log endet nach 'Einstiegspunkt gefunden, 40 Einheiten davor verworfen'.",
+    "software_libdav1d": "KEIN Coredump. Der Player beendet sich sauber ('Track video/AV1 beendet: buffer: closed') und meldet stattdessen wiederholt 'Error parsing OBU data'.",
+    "schluss": "Bei identischen Eingangsdaten stirbt der eine Decoder und der andere lehnt sie ab. Der Absturz liegt damit in libnvcuvid, nicht in unserer Ablaufsteuerung — reparieren koennen wir ihn nicht, nur vermeiden, dass solche Daten hineingehen. Der Software-Decoder ist ein funktionierender Notausgang: im ungestoerten Kontrolllauf 126 fps im Mittel (Spitze 149) gegen 144 der GPU, also langsamer, aber brauchbar.",
+    "WAS_DABEI_AUFFIEL_UND_NOCH_OFFEN_IST": "Der Kontrolllauf OHNE jede Stoerung meldet ebenfalls 87 'Error parsing OBU data'. Unser Player speist also auch im Normalbetrieb Einheiten ein, die ein strenger Decoder zurueckweist — nicht nur nach Paketverlust. Ob das dieselbe Ursache hat wie der Absturz, ist NICHT geklaert: ohne Stoerung stuerzt cuvid ja gerade nicht ab (56651 Pakete sauber durch).",
+    "HARMLOSE_ERKLAERUNG_GEPRUEFT_UND_WIDERLEGT": "Erster Verdacht war die Anlaufphase — Einheiten vor dem Sequence-Header. Das ist FALSCH, aus zwei unabhaengigen Gruenden. (1) Am Code: `decode.rs::decode` verwirft alles vor dem Einstiegspunkt mit `return` VOR `send_packet`; was der Decoder nie sieht, kann er nicht bemaengeln. (2) Am Log: der Einstiegspunkt steht in Zeile 11, der erste Parse-Fehler in Zeile 14, der letzte in Zeile 122 von 124. Die Fehler verteilen sich also ueber den GESAMTEN laufenden Betrieb. Damit ist das kein Anlauf-Artefakt, sondern ein Verdacht auf einen Defekt in unserer Zusammensetzung — und zwar einer, der JEDEN Zuschauer trifft, nicht nur den mit schlechter Leitung."
+   }
+  },
+
+  "offen_stufe_3": "Kommen die Nachlieferungen frueh genug, um vor der Anzeige eingesetzt zu werden? Der Jitter-Puffer steht auf 20 ms (proto.rs::defaults), die Umlaufzeit ueber die Schleife ist nahe null — lokal ist die Frage also gar nicht zu beantworten. Sie braucht die echte Leitung (fern-harness.py, Hetzner) und als Kontrollgroesse den Abstand zwischen Verlust und eingetroffener Wiederholung, verglichen mit der Puffertiefe."
+ },
+
+ "nachtrag_die_87_parsefehler": {
+  "gemessen_am": "2026-07-29, im Anschluss an die A/B-Gegenprobe",
+  "frage": "Woher kommen 87 'Error parsing OBU data' in einem Lauf OHNE jede Stoerung?",
+  "stand": "EINGEKREIST, nicht geloest. Vier Verdaechtige geprueft, drei davon WIDERLEGT. Wichtigster Fortschritt: der Fehler ist jetzt in fuenf Sekunden im Test reproduzierbar — ohne Netz, ohne Server, ohne Portal, exakt 87 Stueck.",
+
+  "was_der_lauf_sagt": "144-146 fps, frames_dropped 0, packets_lost 0 ueber alle sechs Proben. Es gibt in diesem Lauf also weder Luecken noch Verlust — und trotzdem 87 Fehler.",
+
+  "WIDERLEGT": {
+   "anlaufphase": "Erste Vermutung war 'Einheiten vor dem Sequence-Header'. Falsch: decode() verwirft die vor send_packet (der Decoder sieht sie nie), und im Log steht der Einstiegspunkt in Zeile 11, der erste Fehler in Zeile 14, der letzte in Zeile 122 von 124 — die Fehler ziehen sich durch den GESAMTEN Betrieb.",
+   "kaputte_einheiten_aus_dem_assembler": "Der echte Assembler ueber den echten Mitschnitt (22268 Pakete -> 1141 Einheiten, neuer Test depacket::tests::echter_mitschnitt_ergibt_syntaktisch_heile_einheiten): NULL syntaktisch kaputte Einheiten. Jede einzelne parst sauber als OBU-Folge.",
+   "der_inhalt_der_einheiten": "Dieselben 1141 Einheiten als Datei an libdav1d gegeben: NULL Fehler. Der Inhalt ist also in Ordnung — es liegt an der Art der Einspeisung, nicht an den Bytes.",
+   "fehlender_temporal_delimiter": "Naheliegendste Erklaerung, weil RTP den TD nicht uebertraegt und in den 1141 Einheiten kein einziger vorkommt. Geprueft ueber den ECHTEN Decoder-Weg (neuer Test decode::tests::einheiten_durch_den_echten_decoder_weg, PULSE_PLAYER_ADD_TD=1): mit vorangestelltem TD kommen exakt DIESELBEN 87 Fehler. Widerlegt.",
+   "luecken_und_on_gap": "Der Assembler verwirft nach on_gap angefangene Einheiten, was theoretisch Bruchstuecke erzeugen koennte. Faellt aus: der Lauf hat null Luecken und null Paketverlust."
+  },
+
+  "AUFGELOEST_ES_SIND_NICHT_87_FEHLER_SONDERN_DREI_EREIGNISSE": {
+   "befund": "Die Zuordnung jedes Fehlers zu seiner Einheit (Kennzeichnung vor dem Einspeisen, weil FFmpegs Meldungen aus der Bibliothek kommen und nicht als Rueckgabewert) ergibt DREI zusammenhaengende Bloecke von exakt 29 Einheiten: 116-144, 530-558, 1112-1140. Und ERROR_LIMIT in decode.rs steht auf 30.",
+   "der_ablauf": "Der Decoder faellt in einen Fehlerzustand und lehnt danach ALLES ab. Nach 30 aufeinanderfolgenden Ablehnungen greift der Schutz und baut ihn neu auf; danach wartet er wieder auf einen Einstiegspunkt. Im Log wortwoertlich: 'Neuaufbau 1/2' nach Block 1 (danach 17 Einheiten verworfen), 'Neuaufbau 2/2' nach Block 2 (35 verworfen), und beim dritten Block ist MAX_REBUILDS erschoepft: 'Decoder endgueltig hin' — die Sitzung waere im Echtbetrieb gestorben.",
+   "KORREKTUR": "In der ersten Fassung dieser Akte stand, der Abbruch am Ende sei das abgeschnittene Ende des Mitschnitts. FALSCH. Es ist der dritte Fehlerzyklus. Die Randnotiz weiter unten ist damit hinfaellig."
+  },
+
+  "UND_ES_TRIFFT_NUR_DEN_SOFTWARE_DECODER": {
+   "gegenprobe": "Derselbe Test, dieselben 1141 Einheiten, nur PULSE_PLAYER_TEST_HW=1: av1_cuvid laeuft SAUBER DURCH — 1123 Bilder aus 1141 Einheiten, 18 ohne Ausgabe (das sind die vor dem Einstiegspunkt), null Fehler, null Neuaufbauten.",
+   "bedeutung_gedreht": "Der Normalbetrieb (GPU) ist NICHT betroffen — die 87 Meldungen entstehen ausschliesslich auf dem Software-Weg. Dafuer ist der Befund dort schwerwiegender als gedacht: der Software-Rueckfall, der heute Vormittag als Notausgang gegen den cuvid-Absturz empfohlen wurde, stirbt selbst nach drei Zyklen. Als Absicherung taugt er in diesem Zustand NICHT.",
+   "die_beiden_decoder_widersprechen_sich": "Dieselben Einheiten: cuvid akzeptiert sie, dav1d weist sie zurueck. Als DATEI akzeptiert dav1d sie ebenfalls (0 Fehler) — dort gruppiert FFmpegs AV1-Parser den Strom aber nach eigenen Regeln neu, statt unsere RTP-Marker-Grenzen zu uebernehmen. Wer recht hat, ist damit noch nicht entschieden; moeglich ist beides (unsere Zerschneidung ist falsch, oder dav1d ist strenger als noetig)."
+  },
+
+  "struktur_der_einheiten": "563 der 1141 Einheiten bestehen NUR aus einem 3-Byte-FRAME_HDR ('zeige ein vorhandenes Bild'), 187 aus drei FRAMEs, 185 aus zweien, 198 aus einem, 8 aus SEQ_HDR+FRAME. Im Fehlerbereich wechseln sich 3-Byte-FRAME_HDR und grosse FRAMEs ab. Das ist Alt-Ref-Struktur — und sie stammt aus der Pruefdatei synth10.mkv, die mit Datei-Defaults kodiert ist, NICHT mit den zerolatency-Werten des Sidecars. Ob der Livebetrieb dieselbe Struktur hat, ist damit offen und gehoert vor jeder Bewertung geklaert.",
+
+  "AUFLOESUNG_ES_WAR_DIE_PRUEFVORLAGE": {
+   "befund": "Beide Befunde des Tages sind Artefakte von synth10.mkv. Mit einer Vorlage, die mit den ENCODER-EINSTELLUNGEN DES SIDECARS kodiert ist (zerolatency=1, delay=0, b_ref_mode=0, tune=ll, rc=cbr, preset=p2), verschwinden sie vollstaendig.",
+   "parsefehler": "synth10.mkv: 87 je Lauf plus 2 Decoder-Neuaufbauten. Live-kodierte Vorlage: NULL Fehler, NULL Neuaufbauten.",
+   "absturz_A_B_mit_wiederholungen": "Identischer Aufbau, 1 % Verlust auf dem Empfangsweg, Hardware-Decoder, nur die Vorlage getauscht. synth10.mkv: 5 Abstuerze in 5 Laeufen (4 am Vormittag, 1 als Gegenprobe danach). Live-kodierte Vorlage: 0 Abstuerze in 3 Laeufen. Bewusst wiederholt statt einmal gemessen — bei 0-von-1 waere die Aussage wertlos gewesen.",
+   "die_ursache": "Datei-Defaults von av1_nvenc erzeugen eine Alt-Ref-Struktur: rund die Haelfte aller Zugriffseinheiten sind reine 3-Byte-Header nach dem Muster 'zeige ein vorhandenes Bild', die Bilder selbst liegen versteckt in frueheren Einheiten. Der Live-Sidecar erzeugt das nie. Dieselbe Struktur war schon am Vormittag bei der Decoder-Messung aufgefallen (149 versteckte Bilder von 300) — dass die HAUPT-Pruefvorlage denselben Mangel hat, ist mir dabei entgangen.",
+   "was_dennoch_stehenbleibt": "Der Software-Decoder VERTRAEGT diese Struktur nicht, der Hardware-Decoder schon (1123 Bilder aus 1141 Einheiten, fehlerfrei). Wer libdav1d als Rueckfall einsetzt, hat bei einem Alt-Ref-Strom nach drei Zyklen keine Sitzung mehr. Fuer unseren eigenen Sender ist das folgenlos; fuer einen fremden Sender waere es das nicht.",
+   "KONSEQUENZ_FUER_DEN_PRUEFSTAND": "Nicht der Player war zu reparieren, sondern die Vorlage. Neu: live-vorlage.py erzeugt eine Vorlage mit den Sidecar-Einstellungen (Werte aus encode/opts.rs::vendor_opts, dort nachzuziehen wenn sie sich aendern), und harness.py nimmt sie ueber PULSE_HARNESS_SOURCE entgegen. synth10.mkv bleibt liegen, ist aber fuer Aussagen ueber den Livebetrieb untauglich.",
+   "OFFEN": "Welche frueheren Messungen mit synth10.mkv sind davon beruehrt? Die Ruckel- und Latenzreihen liefen ueber den ECHTEN Sidecar (real-harness.py) und sind nicht betroffen. Alles, was ueber harness.py als Referenzsender lief, gehoert daraufhin angesehen — insbesondere die Verlust-Profile netz-2026-07-28-stoerprofile.json und verlust-2026-07-28-*.json."
+  },
+
+  "neue_dauerhafte_werkzeuge": "Zwei Diagnosetests im Player, beide #[ignore] und beide so gebaut, dass sie ohne ihre Env-Variable FEHLSCHLAGEN statt still gruen zu melden (die Falle, die hier neun Rundlauf-Tests monatelang wirkungslos gemacht hat): depacket::tests::echter_mitschnitt_ergibt_syntaktisch_heile_einheiten (PULSE_PLAYER_DUMP_IN -> schreibt die Einheiten heraus) und decode::tests::einheiten_durch_den_echten_decoder_weg (PULSE_PLAYER_UNITS_IN, optional PULSE_PLAYER_ADD_TD=1). Die OBU-Pruefung selbst macht bewusst obu-schnitt.py — ein zweiter Parser waere eine zweite Fehlerquelle. Regulaere Suite unveraendert gruen: 110 bestanden, 2 ignoriert.",
+
+  "randnotiz_ZURUECKGENOMMEN": "Hier stand: der Abbruch am Ende sei das abgeschnittene Ende des Mitschnitts. Das war eine Vermutung ohne Pruefung und ist falsch — es ist der dritte Fehlerzyklus (s. AUFGELOEST_...). Bleibt als widerlegte Annahme stehen, nicht geloescht."
+ },
+
+ "dateien": "Werkzeuge: obu-schnitt.py, heilung.py, nack-wirkung.py (alle streaming/testbench/). Mitschnitte: nack-stufe2.pcap, nack-kontrolle-klar.pcap, nack-1prozent-sauber.pcap samt zugehoerigen .json. Die Zwischendateien der Decoder-Messung (obu-Stroeme, rohe YUV-Ausgaben) sind bewusst NICHT abgelegt — rund 2,5 GB, und aus den Befehlen in 'aufbau' in unter einer Minute reproduzierbar."
+}
