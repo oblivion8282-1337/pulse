@@ -25,6 +25,17 @@ NAMEN = {(206, 1): "PLI", (206, 4): "FIR", (205, 1): "NACK"}
 
 def _pakete(pfad: Path):
     """(quell_port, ziel_port, udp_nutzlast) je UDP-Paket."""
+    for _, _, sport, dport, nutz in pakete(pfad):
+        yield sport, dport, nutz
+
+
+def pakete(pfad: Path):
+    """(quell_ip, ziel_ip, quell_port, ziel_port, udp_nutzlast) je UDP-Paket.
+
+    Die Adressen braucht, wer die RICHTUNG unterscheiden muss statt nur die
+    Ports — etwa `rtp-durchreichung.py`, das den Hin- gegen den Rueckweg zu
+    einem entfernten Server haelt.
+    """
     daten = pfad.read_bytes()
     if len(daten) < 24:
         return
@@ -50,7 +61,9 @@ def _pakete(pfad: Path):
         if ip[9] != 17 or len(ip) < ihl + 8:   # 17 = UDP
             continue
         sport, dport = struct.unpack(">HH", ip[ihl:ihl + 4])
-        yield sport, dport, ip[ihl + 8:]
+        src = ".".join(str(b) for b in ip[12:16])
+        dst = ".".join(str(b) for b in ip[16:20])
+        yield src, dst, sport, dport, ip[ihl + 8:]
 
 
 def feedback_zaehlen(pfad: Path) -> dict[tuple[int, int, str], int]:
