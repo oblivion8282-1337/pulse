@@ -86,5 +86,24 @@
   "INTERPRETATIONSFALLE": "Bei 10 % zaehlt der Lauf OHNE Paritaet WENIGER Luecken (759 gegen 1671). Das ist nicht besser, sondern das Gegenteil: wo nichts laeuft, gibt es keine Luecken zu zaehlen. Die Lueckenzahl taugt nur, solange ueberhaupt Bilder ankommen — bricht die Bildrate ein, ist 'Sekunden ohne Bild' die Groesse, die zaehlt.",
   "widerlegte_erwartung": "Ich hatte erwartet, dass der Nutzen bei 10 % einbricht, weil haeufiger zwei Pakete derselben Fuenfergruppe fehlen. Das passiert auch (656 endgueltig verlorene gegen 297 bei 5 %), reicht aber nicht, um den Gewinn aufzuzehren. Die Grenze von XOR liegt hoeher als angenommen; die Reed-Solomon-Frage ist damit weniger dringend.",
   "aufbau": "je Rate zwei A/B-Paare a 30 s, sonst identisch zum 2-%-Aufbau (Puffergeduld 100 ms, AV1 10 bit 1440p60, Stoerung nur auf dem Empfangsweg)"
- }
+ },
+ "buendelverlust_die_grenze": {
+  "aufbau": "netem loss gemodel 2% 40% 100% 0% (Gilbert-Elliott): p=2 % gut->schlecht, r=40 % zurueck, im schlechten Zustand faellt alles. Anteil schlecht 4,8 %, mittlere Buendellaenge 1/r = 2,5 Pakete. Mit ping kontrolliert: 5,7 % Verlust. Zwei A/B-Paare a 30 s, sonst identisch.",
+  "mittel_ohne": {
+   "verloren": 316.0,
+   "luecken": 1014.0,
+   "fps_median": 59.5,
+   "sekunden_ohne_bild": 3.0
+  },
+  "mittel_mit": {
+   "verloren": 354.5,
+   "luecken": 1100.0,
+   "fps_median": 59.0,
+   "sekunden_ohne_bild": 3.5
+  },
+  "befund": "Bei gebuendeltem Verlust bringt die Paritaet NICHTS — sie ist sogar minimal schlechter, obwohl sie 80-100 Pakete repariert hat. Was sie rettet, wiegt die 20 % zusaetzliche Last nicht auf. Zum Vergleich derselbe mittlere Verlust unkorreliert: Sekunden ohne Bild 5,5 -> 2,5.",
+  "ursache": "Die Buendel sind im Mittel 2,5 Pakete lang, die Gruppen fuenf Pakete gross und ZUSAMMENHAENGEND. Ein Buendel trifft damit fast immer zwei Pakete derselben Gruppe, und XOR loest nur eine Unbekannte.",
+  "NAECHSTER_SCHRITT_und_er_ist_billig": "Nicht zwingend Reed-Solomon. FlexFEC heisst 'flexibel', weil die Bitmaske BELIEBIGE Muster erlaubt — die geschuetzten Pakete muessen nicht aufeinanderfolgen. Schuetzt eine Gruppe jedes fuenfte Paket statt fuenf benachbarte, verteilt sich ein Buendel von 2-3 Paketen auf verschiedene Gruppen und jedes einzelne ist reparierbar. Dieselbe XOR-Rechnung, andere Gruppierung. Unser Empfaenger braucht dafuer KEINE Aenderung, er wertet die Maske ohnehin allgemein aus; zu aendern waere nur die Abdeckung im Erzeuger (pions ProtectionCoverage teilt offenbar schlicht in Bloecke — ungeprueft, ob es Interleaving kann)."
+ },
+ "MESSFALLE_netem_korrelation": "`netem loss 5% 50%` (die Korrelationsangabe) verwirft NACHWEISLICH GAR NICHTS: 200 Pings, 0 % Verlust, waehrend `loss 5%` im selben Aufbau sauber 4 % verwirft. Eine erste Buendel-Messreihe darueber lieferte 60 fps, null Verluste, null Luecken in BEIDEN Betriebsarten — und sah damit nach 'Buendelverlust ist unproblematisch' aus. Sie hat eine ungestoerte Leitung gemessen. Einziger Widerspruch in den Daten: der Player meldete 10 reparierte Pakete, obwohl angeblich nichts verloren ging. Fuer Buendel IMMER `loss gemodel` nehmen und die Wirkung vorher mit ping belegen."
 }
