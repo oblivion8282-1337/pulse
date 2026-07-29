@@ -54,13 +54,20 @@ def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.
     Aufraeum-Kette (``finally``) unveraendert behalten — dort haengt bei
     ``zeigen.py`` das Abraeumen der ``tc``-Regel dran.
     """
+    overrides = {"codec": args.codec, "fps": args.fps,
+                 "bitrate_kbps": args.kbps, "bit_depth": args.bits}
+    # Nur die Werkzeuge, die den Schalter haben, schicken ihn mit — und ein
+    # leerer Wert bleibt draussen: der Sidecar liest Unbekanntes als `Native`
+    # (`ResolutionRequest::parse`), meldet das aber nicht als Fehler.
+    if getattr(args, "aufloesung", None):
+        overrides["resolution"] = args.aufloesung
+
     res = sender.call(
         "start",
         channel={"id": CID, "token": token, "push_url": push_url},
         capture="portal",
         audio={"mode": args.audio},
-        overrides={"codec": args.codec, "fps": args.fps,
-                   "bitrate_kbps": args.kbps, "bit_depth": args.bits},
+        overrides=overrides,
     )
     if not res.get("ok"):
         print(f"Sender-Start fehlgeschlagen: {res}", file=sys.stderr)
