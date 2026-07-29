@@ -73,6 +73,10 @@ def auswerten(pcap: Path) -> dict:
     magic = struct.unpack("<I", roh[:4])[0]
     if magic not in (0xA1B2C3D4, 0xA1B23C4D):
         raise SystemExit(f"unbekanntes pcap-Magic {magic:08x}")
+    # Mikro- oder Nanosekunden-Aufloesung, am Magic erkennbar. Wird fuer den
+    # ANKUNFTSABSTAND gebraucht (s. unten) — ohne den ist "liefert nach" nur
+    # die halbe Antwort.
+    teiler = 1e6 if magic == 0xA1B2C3D4 else 1e9
 
     pos, n = 24, len(roh)
     rtp_hin = 0            # RTP-Pakete Server -> Player
@@ -82,9 +86,27 @@ def auswerten(pcap: Path) -> dict:
     wiederholt: list[tuple[int, int]] = []   # (ssrc, seq)
     letzte: dict[int, deque] = {}
     gesehen: dict[int, set] = {}
+    # Wann die Luecke sichtbar wurde (= Ankunft des NACHFOLGERS der fehlenden
+    # Nummer) und wann die Wiederholung eintraf. Die Differenz ist die Zahl,
+    # an der sich alles entscheidet: der Jitter-Puffer haelt nur `jitter_ms`
+    # (Vorgabe 20) auf, danach ist die Einheit weg. Eine Nachlieferung, die
+    # spaeter kommt, ist zwar messbar, aber wirkungslos — und sieht in jeder
+    # Zaehlstatistik aus wie eine gelungene.
+    luecke_gesehen: dict[tuple[int, int], float] = {}
+    verspaetung: list[float] = []
+    # LEBENDKONTROLLE. Am 2026-07-29 wurde aus Mitschnitten gemessen, deren
+    # Player nach zwei Sekunden abgestuerzt war — die NACKs deckten 2,3 von
+    # 20 Sekunden ab, der Rest des Mitschnitts war MediaMTX, das ins Leere
+    # sendet. Die Verspaetungswerte daraus waren wertlos, sahen aber aus wie
+    # eine Messung. Deckt der NACK-Zeitraum nicht den groessten Teil des
+    # Laufs ab, ist die Auswertung ungueltig.
+    nack_zeiten: list[float] = []
+    erste_zeit: float | None = None
+    letzte_zeit: float | None = None
 
     while pos + 16 <= n:
-        _sec, _sub, incl, _orig = struct.unpack("<IIII", roh[pos:pos + 16])
+        sec, sub, incl, _orig = struct.unpack("<IIII", roh[pos:pos + 16])
+        zeit = sec + sub / teiler
         pos += 16
         pkt = roh[pos:pos + incl]
         pos += incl
@@ -102,11 +124,16 @@ def auswerten(pcap: Path) -> dict:
         if not ist_rtp_oder_rtcp(nutz):    # STUN/DTLS aussortieren
             continue
 
+        if erste_zeit is None:
+            erste_zeit = zeit
+        letzte_zeit = zeit
+
         if dport == MEDIA_PORT:            # Player -> Server (Rueckkanal)
             if (t := rtcp_typ(nutz)) is not None:
                 pt, fmt = t
                 if pt == 205 and fmt == 1:
                     nacks += 1
+                    nack_zeiten.append(zeit)
                 elif pt == 206 and fmt == 1:
                     plis += 1
                 else:
@@ -125,13 +152,34 @@ def auswerten(pcap: Path) -> dict:
         menge = gesehen.setdefault(ssrc, set())
         if seq in menge:
             wiederholt.append((ssrc, seq))
+            if (start := luecke_gesehen.pop((ssrc, seq), None)) is not None:
+                verspaetung.append((zeit - start) * 1000.0)
         else:
+            # Sprung nach vorn = eine oder mehrere Nummern fehlen. Der
+            # Zeitpunkt wird gemerkt, damit eine spaetere Wiederholung
+            # dagegen gehalten werden kann.
+            if fenster:
+                zuletzt = fenster[-1]
+                fehlend = (seq - zuletzt - 1) & 0xFFFF
+                if fehlend < 100:
+                    for versatz in range(1, fehlend + 1):
+                        luecke_gesehen.setdefault((ssrc, (zuletzt + versatz) & 0xFFFF), zeit)
             menge.add(seq)
             fenster.append(seq)
             if len(fenster) > FENSTER:
                 menge.discard(fenster.popleft())
 
+    verspaetung.sort()
+    dauer = (letzte_zeit - erste_zeit) if (erste_zeit and letzte_zeit) else 0.0
+    nack_spanne = (nack_zeiten[-1] - nack_zeiten[0]) if len(nack_zeiten) > 1 else 0.0
+    # Ein NACK-Zeitraum unter 60 % der Laufdauer heisst: der Player hat
+    # irgendwann aufgehoert nachzufordern. Bei gleichmaessiger Stoerung ueber
+    # den ganzen Lauf gibt es dafuer keinen guten Grund.
+    lebend = dauer > 0 and nack_spanne / dauer >= 0.6
     return {
+        "mitschnitt_dauer_s": round(dauer, 1),
+        "nack_zeitraum_s": round(nack_spanne, 1),
+        "nack_deckt_lauf_ab": lebend,
         "rtp_pakete_server_zu_player": rtp_hin,
         "nacks_player_zu_server": nacks,
         "plis_player_zu_server": plis,
@@ -140,6 +188,12 @@ def auswerten(pcap: Path) -> dict:
         "beispiele": [{"ssrc": s, "seq": q} for s, q in wiederholt[:5]],
         "anzahl_ssrcs": len(letzte),
         "ssrcs": sorted(letzte)[:8],
+        # Die eigentliche Frage: nuetzt die Nachlieferung etwas?
+        "verspaetung_zugeordnet": len(verspaetung),
+        "verspaetung_ms_min": round(verspaetung[0], 2) if verspaetung else None,
+        "verspaetung_ms_median": round(verspaetung[len(verspaetung) // 2], 2) if verspaetung else None,
+        "verspaetung_ms_max": round(verspaetung[-1], 2) if verspaetung else None,
+        "rechtzeitig_bei_20ms_puffer": sum(1 for v in verspaetung if v <= 20.0),
     }
 
 
@@ -208,6 +262,20 @@ def main() -> int:
         print("KEIN URTEIL: der Prueflauf lieferte keine Messwerte. Es floss zwar")
         print("             Verkehr, aber ohne laufende Wiedergabe sagen die Zahlen")
         print("             nichts ueber den Normalbetrieb. Lauf erst zum Laufen bringen.")
+    elif nacks == 0 and args.profil != "klar":
+        # Unter eingestelltem Verlust MUSS nachgefordert werden. Null NACKs
+        # heisst, der Player kam nie in Fahrt — am 2026-07-29 einmal
+        # passiert, und die Auswertung meldete trotzdem Verspaetungswerte,
+        # die zu allem anderen im Widerspruch standen.
+        print(f"KEIN URTEIL: null Nachforderungen trotz Profil '{args.profil}'. Der")
+        print("             Player kam nicht in Fahrt — was hier als Wiederholung")
+        print("             gezaehlt wird, gehoert zu keiner Nachforderung.")
+    elif nacks > 1 and not ergebnis["nack_deckt_lauf_ab"]:
+        print(f"KEIN URTEIL: die NACKs decken nur {ergebnis['nack_zeitraum_s']} s von")
+        print(f"             {ergebnis['mitschnitt_dauer_s']} s ab — der Player hat")
+        print("             mittendrin aufgehoert nachzufordern (Absturz?). Danach")
+        print("             sendet der Server ins Leere; die Wiederholungen dort sind")
+        print("             keine Antworten auf Nachforderungen.")
     elif nacks == 0:
         print("URTEIL: unser Player hat GAR NICHT nachgefordert — der Test sagt nichts")
         print("        ueber MediaMTX. Erst klaeren, warum keine NACKs entstehen.")

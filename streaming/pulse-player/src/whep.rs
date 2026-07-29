@@ -19,17 +19,19 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::sync::mpsc;
-use webrtc::api::interceptor_registry::register_default_interceptors;
+use webrtc::api::interceptor_registry::{configure_rtcp_reports, configure_twcc_receiver_only};
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::interceptor::nack::generator::Generator;
+use webrtc::interceptor::nack::responder::Responder;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTPCodecType;
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
-use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
+use webrtc::rtp_transceiver::{RTCPFeedback, RTCRtpTransceiverInit};
 use webrtc::track::track_remote::TrackRemote;
 
 /// Fester Standard-STUN wie im Browser-Client. Bei host-networking-MediaMTX
@@ -159,6 +161,54 @@ impl WhepSession {
     }
 }
 
+/// Wie oft der Player fehlende Pakete nachfordert. Vorgabe 10 ms;
+/// `PULSE_PLAYER_NACK_INTERVAL_MS=100` stellt das Verhalten der Bibliothek
+/// wieder her, damit der Vergleich ohne neuen Build moeglich bleibt.
+fn nack_intervall() -> Duration {
+    let ms = std::env::var("PULSE_PLAYER_NACK_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| (1..=1000).contains(ms))
+        .unwrap_or(10);
+    Duration::from_millis(ms)
+}
+
+/// Baut die Interceptor-Registry selbst, statt `register_default_interceptors`
+/// zu nehmen — **nur wegen des NACK-Sendeintervalls.**
+///
+/// **Warum das den Umweg wert ist.** Der Nachforderer der Bibliothek sammelt
+/// erkannte Luecken und schickt sie im Takt; die Vorgabe steht auf 100 ms
+/// (`interceptor-0.17.2`, `nack/generator/mod.rs:64`) und ist ueber
+/// `register_default_interceptors` nicht erreichbar. Am 2026-07-29 gemessen
+/// (zwei Laeufe, 1 % Verlust, je ueber 550 zugeordnete Nachlieferungen): keine
+/// einzige traf frueher als 101,8 bzw. 109,6 ms ein — eine so scharfe
+/// Untergrenze bei genau einem Sendeintervall ist dessen direkter Abdruck.
+/// Der Jitter-Puffer haelt 20 ms, also war **keine** der 1121 Nachlieferungen
+/// rechtzeitig. MediaMTX liefert nach; es kam nur nie etwas davon an.
+///
+/// Nachgebaut wird genau das, was die Sammelfunktion tut (`configure_nack`,
+/// `configure_rtcp_reports`, `configure_twcc_receiver_only`) — mit dem
+/// einzigen Unterschied, dass der Generator ein eigenes Intervall bekommt.
+/// Die beiden `nack`-Rueckmeldungen muessen dabei von Hand in die MediaEngine,
+/// sonst verhandelt der Player sie gar nicht erst und der Rueckkanal bleibt
+/// stumm — sie stehen sonst in `configure_nack`.
+///
+/// Messakte: `testbench/profiles/nack-2026-07-29-stufe3.json`.
+fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
+    for parameter in ["", "pli"] {
+        media.register_feedback(
+            RTCPFeedback { typ: "nack".to_owned(), parameter: parameter.to_owned() },
+            RTPCodecType::Video,
+        );
+    }
+
+    let mut registry = Registry::new();
+    registry.add(Box::new(Responder::builder()));
+    registry.add(Box::new(Generator::builder().with_interval(nack_intervall())));
+    registry = configure_rtcp_reports(registry);
+    configure_twcc_receiver_only(registry, media).context("TWCC-Interceptor")
+}
+
 /// Stellt eine recvonly-WHEP-Sitzung her und schiebt fertige Frames in `tx`.
 ///
 /// Kehrt zurueck, sobald die SDP-Aushandlung durch ist; die Frames laufen
@@ -173,9 +223,7 @@ pub async fn connect(
     media
         .register_default_codecs()
         .context("Standard-Codecs konnten nicht registriert werden")?;
-    let mut registry = Registry::new();
-    registry = register_default_interceptors(registry, &mut media)
-        .context("Interceptor-Registry fehlgeschlagen")?;
+    let registry = interceptors_mit_zuegigem_nack(&mut media)?;
     let api = APIBuilder::new()
         .with_media_engine(media)
         .with_interceptor_registry(registry)

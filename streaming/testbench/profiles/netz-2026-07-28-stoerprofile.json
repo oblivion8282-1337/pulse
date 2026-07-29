@@ -3,7 +3,6 @@
  "gemessen_am": "2026-07-28 (Nacht)",
  "frage": "Haelt der Player durch, wenn das Netz nicht sauber ist?",
  "werkzeug": "streaming/testbench/netz-harness.py (tc netem auf der Schleife, Referenzsender aus Datei)",
-
  "der_fund": {
   "was": "Paketverlust brachte den Player nicht ins Stocken, sondern zum ABSTURZ.",
   "beleg": "`segfault ... in libnvcuvid.so.610.43.03` im Kernlog, fuenf Mal reproduziert. Der Prozess war weg — kein Standbild, keine Fehlermeldung, kein Log-Eintrag. Von aussen sah es aus wie ein haengender Pruefstand.",
@@ -11,33 +10,55 @@
   "behoben": "`VideoDecoder::on_gap()`, gerufen an derselben Stelle wie `Assembler::on_gap()` (session.rs, Zweig `Release::Gap`). Danach null Abstuerze in allen Wiederholungen.",
   "warum_es_lange_unsichtbar_war": "Auf der lokalen Schleife geht kein Paket verloren. Der Fehler war also nicht selten — er war unerreichbar, solange nur dort gemessen wurde."
  },
-
  "ergebnisse": {
-  "klar": {"fps": 144.0, "stillstaende": 0, "urteil": "ok", "laeufe": 3},
-  "verzoegerung_26_7ms": {"fps": 144.0, "stillstaende": 0, "urteil": "ok", "laeufe": 3,
-   "hinweis": "Eine konstante Laufzeit stoert den Player NICHT. Sie verschiebt auch die Ankunftsabstaende nicht — mit diesem Pruefstand (ohne Zeitmuster) ist sie deshalb gar nicht sichtbar."},
-  "verlust_1_prozent": {"fps": "0-1", "stillstaende": "3-9 von 19 s", "urteil": "kein Absturz mehr, aber unbrauchbares Bild", "laeufe": 3},
-  "verlust_5_prozent": {"urteil": "kein Bild", "laeufe": 2},
-  "umsortierung": {"urteil": "kein Bild, Zustand bleibt auf connecting", "laeufe": 2}
+  "klar": {
+   "fps": 144.0,
+   "stillstaende": 0,
+   "urteil": "ok",
+   "laeufe": 3
+  },
+  "verzoegerung_26_7ms": {
+   "fps": 144.0,
+   "stillstaende": 0,
+   "urteil": "ok",
+   "laeufe": 3,
+   "hinweis": "Eine konstante Laufzeit stoert den Player NICHT. Sie verschiebt auch die Ankunftsabstaende nicht — mit diesem Pruefstand (ohne Zeitmuster) ist sie deshalb gar nicht sichtbar."
+  },
+  "verlust_1_prozent": {
+   "fps": "0-1",
+   "stillstaende": "3-9 von 19 s",
+   "urteil": "kein Absturz mehr, aber unbrauchbares Bild",
+   "laeufe": 3
+  },
+  "verlust_5_prozent": {
+   "urteil": "kein Bild",
+   "laeufe": 2
+  },
+  "umsortierung": {
+   "urteil": "kein Bild, Zustand bleibt auf connecting",
+   "laeufe": 2
+  }
  },
-
  "warum_verlust_so_teuer_ist": "Die neue Sperre ist notwendig, aber sie kostet: bei 1 % Verlust und rund 2000 Paketen je Sekunde entstehen etwa 20 Luecken je Sekunde, und nach JEDER wartet der Decoder auf den naechsten Einstiegspunkt. Bei einem Keyframe-Abstand von zwei Sekunden verbringt er die meiste Zeit mit Warten. Der Absturz ist weg, die Erholung ist schlecht.",
-
  "vollbild_anforderung": {
   "gebaut": "`WhepSession::request_keyframe` schickt eine RTCP Picture Loss Indication, gedrosselt auf 200 ms (ein Verlust erzeugt mehrere Luecken; ungebremst wuerde der Player die ohnehin ueberlastete Leitung mit Vollbild-Anforderungen zusetzen).",
   "wirkung_im_test": "KEINE, und das ist erklaerbar: der Pruefstand sendet eine vorkodierte Datei per ffmpeg, die kann kein Vollbild auf Zuruf erzeugen. Darueber hinaus gibt es ueber RTMP keinen Rueckweg vom Server zum Encoder — die Anforderung endet zwangslaeufig bei MediaMTX.",
   "warum_trotzdem_drin": "Sie ist korrektes WebRTC-Verhalten, kostet nichts und greift sofort, falls der Sendeweg je direkt wird (WHIP). NICHT als geloest verbuchen: dass sie beim echten Sidecar ankommt, ist UNGEPRUEFT."
  },
-
  "offen_und_wichtig": {
   "nack": "Die eigentliche Rettung fuer diese Architektur waere Nachforderung verlorener Pakete (NACK/RTX) — anders als eine Vollbild-Anforderung muss die NICHT bis zum Encoder, MediaMTX hat die Pakete noch. `register_default_interceptors` ist im Player registriert, NACK sollte also ausgehandelt werden; gemessen wurde aber KEINE einzige Wiederherstellung (469-504 verlorene Pakete blieben verloren). Ob MediaMTX RTX fuer WHEP-Leser beherrscht, ist ungeprueft. Das ist der naechste Faden, und er ist der wichtigste.",
   "reihenfolge_bei_verlust": "Der Jitter-Puffer wartet nur `target` (20 ms) auf ein fehlendes Paket. Eine Nachlieferung, die laenger braucht, kommt zu spaet — Puffer und Nachforderung muessen zusammen betrachtet werden."
  },
-
  "messfallen_dieser_reihe": [
   "`netem` an der WURZEL von `lo` trifft auch den RTMP-Push: der Sender meldete `lag of 5.489s` und die Bildrate fiel auf 98 — dann ist offen, wer schwaechelt. Deshalb `--nur-empfang`: eine prio-Warteschlange, in die nur die Medienpakete von MediaMTX gefiltert werden.",
   "Der MEDIENFLUSS laeuft ueber IPv4 (127.0.0.1), obwohl MediaMTX die WHEP-Sitzung als `[::1]` protokolliert. Signalisierung und Medien nehmen verschiedene Familien — dieselbe Falle wie bei split-latency.py. Zwei tc-Filter noetig, und JEDER braucht eine eigene Prioritaet, sonst lehnt der Kern ab.",
   "`netem`-Schwankung ist KEIN Netzmodell: sie wuerfelt je Paket eine eigene Verzoegerung und vertauscht bei 2000 Paketen je Sekunde fast alles. 2569-2802 'verlorene' Pakete ohne eingestellten Verlust. Nur als Extremfall lesen.",
   "Der Pruefstand wartete fest 3 s auf den Publish. Mit Laufzeit reicht das nicht, der Player oeffnet zu frueh, MediaMTX antwortet `no stream is available` — und es sieht aus, als haette der Player versagt. Ersetzt durch Warten auf die MediaMTX-API."
- ]
+ ],
+ "nachtrag_2026_07_29": {
+  "zwei_aussagen_dieser_akte_sind_ueberholt": "Nachgemessen am Folgetag, Belege in nack-2026-07-29-stufe3.json und decoder-2026-07-29-intra-refresh.json.",
+  "1_nack": "Hier steht: 'gemessen wurde KEINE einzige Wiederherstellung'. Das galt fuer die PLAYER-STATISTIK und stimmt dort. Auf Paketebene liefert MediaMTX sehr wohl nach (505 Wiederholungen bei 5 % Verlust, 0 in der Nullkontrolle ueber 56651 Pakete). Sie kommen nur zu spaet: median 171 ms gegen 20 ms Puffer, 2 von 257 rechtzeitig. Ursache ist das 100-ms-Vorgabeintervall des NACK-Generators in webrtc-rs, das wir ungefragt uebernehmen. Die Vermutung dieser Akte ('eine Nachlieferung, die laenger braucht, kommt zu spaet') war also richtig — sie ist jetzt gemessen statt geraten.",
+  "2_die_messwerte_selbst": "Alle Laeufe dieser Reihe nutzten den Referenzsender mit synth10.mkv. Diese Vorlage ist mit av1_nvenc-DATEI-Defaults kodiert und traegt Alt-Ref-Struktur, die der Live-Sidecar nie erzeugt. Genau daran haengt der hier beschriebene Absturz: mit einer live-kodierten Vorlage 0 Abstuerze in 3 Laeufen, mit synth10.mkv 5 in 5. Die Zeilen 'verlust_1_prozent: unbrauchbares Bild' und 'verlust_5_prozent: kein Bild' sind deshalb NICHT auf den Livebetrieb uebertragbar und gehoeren mit live-vorlage.py wiederholt, bevor jemand daraus etwas ableitet.",
+  "was_bestehen_bleibt": "Die Messfallen dieser Akte (netem an der Wurzel von lo, IPv4-Medienfluss trotz IPv6-Signalisierung, netem-Schwankung als untaugliches Netzmodell) sind unabhaengig von der Vorlage und gelten unveraendert. Ebenso der Befund, dass eine konstante Laufzeit den Player nicht stoert."
+ }
 }
