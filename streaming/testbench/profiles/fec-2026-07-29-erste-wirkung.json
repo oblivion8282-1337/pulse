@@ -1,42 +1,90 @@
 {
-  "id": "fec-2026-07-29-erste-wirkung",
-  "frage": "Traegt eine Paritaets-Schicht (FlexFEC) ueber die echte Leitung?",
-
-  "aufbau": {
-    "erzeuger": "MediaMTX-Fork, 0003-flexfec-on-whep.patch, PULSE_FLEXFEC=1 mit 10+2 (20 % Reserve). Auf dem Hetzner-Testserver per Binaertausch.",
-    "empfaenger": "pulse-player, PULSE_PLAYER_FLEXFEC=1, webrtc-rs-Zweig mit oeffentlichem Zugriff auf nicht zugeordnete Stroeme.",
-    "strecke": "Kabel zum Hetzner-Testserver, 2 % gesetzter Verlust NUR auf dem Empfangsweg (ifb0), Umlaufzeit 60 ms",
-    "medien": "AV1 10 bit, 1440p60, 4000 kbps, WHIP, Jitter-Geduld 100 ms",
-    "laeufe": "4 x 45 s, abwechselnd ohne/mit"
+ "id": "fec-2026-07-29-erste-wirkung",
+ "frage": "Traegt eine Paritaets-Schicht (FlexFEC) ueber die echte Leitung?",
+ "aufbau": {
+  "erzeuger": "MediaMTX-Fork, 0003-flexfec-on-whep.patch, PULSE_FLEXFEC=1 mit 10+2 (20 % Reserve). Auf dem Hetzner-Testserver per Binaertausch.",
+  "empfaenger": "pulse-player, PULSE_PLAYER_FLEXFEC=1, webrtc-rs-Zweig mit oeffentlichem Zugriff auf nicht zugeordnete Stroeme.",
+  "strecke": "Kabel zum Hetzner-Testserver, 2 % gesetzter Verlust NUR auf dem Empfangsweg (ifb0), Umlaufzeit 60 ms",
+  "medien": "AV1 10 bit, 1440p60, 4000 kbps, WHIP, Jitter-Geduld 100 ms",
+  "laeufe": "4 x 45 s, abwechselnd ohne/mit"
+ },
+ "ergebnis": {
+  "ohne_1": {
+   "verloren": 229,
+   "luecken": 1652,
+   "fps_median": 59.0
   },
-
-  "ergebnis": {
-    "ohne_1": {"verloren": 229, "luecken": 1652, "fps_median": 59.0},
-    "mit_1": {"verloren": 202, "luecken": 1155, "fps_median": 60.0},
-    "ohne_2": {"verloren": 198, "luecken": 1260, "fps_median": 59.0},
-    "mit_2": {"verloren": 201, "luecken": 863, "fps_median": 59.0},
-    "mittel_ohne": {"verloren": 213.5, "luecken": 1456.0, "fps_median": 59.0},
-    "mittel_mit": {"verloren": 201.5, "luecken": 1009.0, "fps_median": 59.5}
+  "mit_1": {
+   "verloren": 202,
+   "luecken": 1155,
+   "fps_median": 60.0
   },
-
-  "befund": "Luecken -31 %, beide Paare dieselbe Richtung. Der Empfaenger meldete im selben Aufbau 130 reparierte Pakete bei 0 unreparierbaren.",
-
-  "WICHTIG_zur_einordnung": "Diese Laeufe hatten die Puffergeduld bereits auf 100 ms, NACK war also schon wirksam. Die 31 % sind der Zugewinn OBENDRAUF, nicht der Gesamteffekt einer Verlustschicht.",
-
-  "was_sich_NICHT_aendert": "Die Zahl der verlorenen Pakete (213,5 gegen 201,5). Kein Widerspruch: mit Paritaet fliessen 20 % mehr Daten ueber eine Leitung mit 2 % Verlust, es gehen also absolut mehr Pakete verloren. Dass die Luecken trotzdem um ein Drittel sinken, IST der Effekt der Reparatur.",
-
-  "warum_die_bildrate_kaum_reagiert": "Sie lag mit gesetzter Puffergeduld schon bei 59 von 60. Der Gewinn zeigt sich in der Gleichmaessigkeit, nicht im Durchsatz.",
-
-  "zeitliche_machbarkeit": "Die Paritaet laeuft ihrer Gruppe im Median 0,2 ms nach, zu 99 % unter 18,5 ms (1785 Gruppen). Eine NACK-Nachlieferung braucht ueber dieselbe Strecke 61 ms — die Paritaet ist also IMMER schneller. Ausreisser bis 112 ms bleiben, deshalb bleiben Nachfordern und Vollbild als Rueckfall noetig.",
-
-  "richtigkeit_des_rechenkerns": "3000 Rueckrechnungen gegen ECHTE Paritaetspakete des Servers, alle byte-gleich (siehe Commit 621b221a). Damit sind zugleich belegt: die Lesart des Kopfformats, dass marshal() die Bytes wie empfangen wieder aufbaut, und dass die TWCC-Kopfzeilenerweiterung die Rechnung nicht stoert.",
-
-  "nebenbefund": "10+2 heisst nicht, dass beide Paritaetspakete dieselben zehn Medienpakete abdecken — pion teilt die Gruppe auf, jedes schuetzt eine Haelfte. Reparierbar ist ein Verlust je fuenf Paketen, und zwei, solange sie in verschiedenen Haelften liegen.",
-
-  "offen": [
-    "Verhalten bei hoeherem Verlust (5 %, 10 %) und bei Buendelverlust — XOR loest nur eine Unbekannte je Gruppe, genau dort liegt die Grenze gegenueber Reed-Solomon.",
-    "Kosten: die 20 % Reserve kommen obendrauf (Nutzerentscheidung). Was das bei einem Zuschauer auf knapper Leitung anrichtet, ist NICHT gemessen — Ueberlast erzeugt selbst Verlust.",
-    "Browser-Zuschauer bekommen weiterhin nichts davon: sie handeln flexfec-03 nicht aus.",
-    "Verhaeltnis 10+2 ist ungeprueft uebernommen (Sunshine-Vorgabe). Ob 5+2 oder 20+2 hier besser traegt, ist offen."
-  ]
+  "ohne_2": {
+   "verloren": 198,
+   "luecken": 1260,
+   "fps_median": 59.0
+  },
+  "mit_2": {
+   "verloren": 201,
+   "luecken": 863,
+   "fps_median": 59.0
+  },
+  "mittel_ohne": {
+   "verloren": 213.5,
+   "luecken": 1456.0,
+   "fps_median": 59.0
+  },
+  "mittel_mit": {
+   "verloren": 201.5,
+   "luecken": 1009.0,
+   "fps_median": 59.5
+  }
+ },
+ "befund": "Luecken -31 %, beide Paare dieselbe Richtung. Der Empfaenger meldete im selben Aufbau 130 reparierte Pakete bei 0 unreparierbaren.",
+ "WICHTIG_zur_einordnung": "Diese Laeufe hatten die Puffergeduld bereits auf 100 ms, NACK war also schon wirksam. Die 31 % sind der Zugewinn OBENDRAUF, nicht der Gesamteffekt einer Verlustschicht.",
+ "was_sich_NICHT_aendert": "Die Zahl der verlorenen Pakete (213,5 gegen 201,5). Kein Widerspruch: mit Paritaet fliessen 20 % mehr Daten ueber eine Leitung mit 2 % Verlust, es gehen also absolut mehr Pakete verloren. Dass die Luecken trotzdem um ein Drittel sinken, IST der Effekt der Reparatur.",
+ "warum_die_bildrate_kaum_reagiert": "Sie lag mit gesetzter Puffergeduld schon bei 59 von 60. Der Gewinn zeigt sich in der Gleichmaessigkeit, nicht im Durchsatz.",
+ "zeitliche_machbarkeit": "Die Paritaet laeuft ihrer Gruppe im Median 0,2 ms nach, zu 99 % unter 18,5 ms (1785 Gruppen). Eine NACK-Nachlieferung braucht ueber dieselbe Strecke 61 ms — die Paritaet ist also IMMER schneller. Ausreisser bis 112 ms bleiben, deshalb bleiben Nachfordern und Vollbild als Rueckfall noetig.",
+ "richtigkeit_des_rechenkerns": "3000 Rueckrechnungen gegen ECHTE Paritaetspakete des Servers, alle byte-gleich (siehe Commit 621b221a). Damit sind zugleich belegt: die Lesart des Kopfformats, dass marshal() die Bytes wie empfangen wieder aufbaut, und dass die TWCC-Kopfzeilenerweiterung die Rechnung nicht stoert.",
+ "nebenbefund": "10+2 heisst nicht, dass beide Paritaetspakete dieselben zehn Medienpakete abdecken — pion teilt die Gruppe auf, jedes schuetzt eine Haelfte. Reparierbar ist ein Verlust je fuenf Paketen, und zwei, solange sie in verschiedenen Haelften liegen.",
+ "offen": [
+  "Buendelverlust (netem 'loss X% Y%' mit Korrelation) — bisher nur unabhaengiger Zufallsverlust. Genau dort liegt die Grenze von XOR.",
+  "Kosten: die 20 % Reserve kommen obendrauf (Nutzerentscheidung). Was das bei einem Zuschauer auf knapper Leitung anrichtet, ist NICHT gemessen — Ueberlast erzeugt selbst Verlust.",
+  "Browser-Zuschauer bekommen weiterhin nichts davon: sie handeln flexfec-03 nicht aus.",
+  "Verhaeltnis 10+2 ist ungeprueft uebernommen (Sunshine-Vorgabe). Ob 5+2 oder 20+2 hier besser traegt, ist offen."
+ ],
+ "hoehere_verlustraten_nachgemessen": {
+  "5_prozent": {
+   "mittel_ohne": {
+    "verloren": 359.0,
+    "luecken": 1370.5,
+    "fps_median": 58.5,
+    "sekunden_ohne_bild": 5.5
+   },
+   "mittel_mit": {
+    "verloren": 297.5,
+    "luecken": 1020.5,
+    "fps_median": 59.0,
+    "sekunden_ohne_bild": 2.5
+   }
+  },
+  "10_prozent": {
+   "mittel_ohne": {
+    "verloren": 577.0,
+    "luecken": 759.0,
+    "fps_median": 0.0,
+    "sekunden_ohne_bild": 20
+   },
+   "mittel_mit": {
+    "verloren": 656.5,
+    "luecken": 1671.5,
+    "fps_median": 57.5,
+    "sekunden_ohne_bild": 9
+   }
+  },
+  "befund": "Bei 5 % halbieren sich die Sekunden ohne Bild (5,5 -> 2,5). Bei 10 % ist der Unterschied nicht mehr graduell: OHNE Paritaet ist die Sitzung praktisch tot (Bildrate im Median 0, zwei Drittel der Messzeit ohne Bild), MIT laeuft sie mit 57-58 fps. Erklaerung passt zum Keyframe-Befund vom 2026-07-28: ein Keyframe sind 25-35 Pakete, bei 10 % Verlust ueberlebt so ein Buendel praktisch nie vollstaendig, der Player findet keinen Einstiegspunkt. Die Paritaet repariert genug Einzelverluste, dass die Keyframes wieder durchkommen.",
+  "INTERPRETATIONSFALLE": "Bei 10 % zaehlt der Lauf OHNE Paritaet WENIGER Luecken (759 gegen 1671). Das ist nicht besser, sondern das Gegenteil: wo nichts laeuft, gibt es keine Luecken zu zaehlen. Die Lueckenzahl taugt nur, solange ueberhaupt Bilder ankommen — bricht die Bildrate ein, ist 'Sekunden ohne Bild' die Groesse, die zaehlt.",
+  "widerlegte_erwartung": "Ich hatte erwartet, dass der Nutzen bei 10 % einbricht, weil haeufiger zwei Pakete derselben Fuenfergruppe fehlen. Das passiert auch (656 endgueltig verlorene gegen 297 bei 5 %), reicht aber nicht, um den Gewinn aufzuzehren. Die Grenze von XOR liegt hoeher als angenommen; die Reed-Solomon-Frage ist damit weniger dringend.",
+  "aufbau": "je Rate zwei A/B-Paare a 30 s, sonst identisch zum 2-%-Aufbau (Puffergeduld 100 ms, AV1 10 bit 1440p60, Stoerung nur auf dem Empfangsweg)"
+ }
 }
