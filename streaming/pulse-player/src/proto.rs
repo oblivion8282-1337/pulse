@@ -71,10 +71,15 @@ pub struct Request {
 /// deshalb ist jedes Feld optional und wird einzeln angewendet.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PlayerOptions {
-    /// Ziel-Fuellstand des Jitter-Puffers in Millisekunden.
-    /// Messung aus `docs/2026-07-21-remote-control-latenz-messung.md`: 5-15 ms
-    /// reichen auf einer gesunden Strecke. Chromiums WebRTC-Puffer laesst sich
-    /// nicht dorthin zwingen — das ist einer der Gruende fuer diesen Player.
+    /// Geduld des Jitter-Puffers BEI EINER LUECKE, in Millisekunden — **kein
+    /// Fuellstand und kein Vorhalt**: ohne Luecke gibt `jitter.rs::poll` sofort
+    /// frei. Der Wert entscheidet allein, wie lange auf ein fehlendes Paket
+    /// gewartet wird, bevor die Luecke gemeldet wird; er muss deshalb ueber der
+    /// Umlaufzeit liegen, sonst kommt jede NACK-Nachlieferung zu spaet.
+    /// Vorgabe und Begruendung: [`JITTER_MS_VORGABE`].
+    ///
+    /// Chromiums WebRTC-Puffer laesst sich nicht so einstellen — das ist einer
+    /// der Gruende fuer diesen Player.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jitter_ms: Option<u32>,
 
@@ -150,12 +155,36 @@ umschaltbare_felder!(
     hwdec,
 );
 
+/// Geduld des Jitter-Puffers bei einer Luecke, in Millisekunden.
+///
+/// An EINER Stelle, weil `session.rs` denselben Wert als Rueckfall braucht,
+/// wenn der Aufrufer das Feld nicht setzt. Zwei getrennte Zahlen hiessen: die
+/// Puffergeduld haengt davon ab, ueber welchen Weg die Sitzung geoeffnet wurde.
+pub const JITTER_MS_VORGABE: u32 = 100;
+
 impl PlayerOptions {
-    /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn),
-    /// Jitter-Puffer auf dem gemessenen unteren Ende mit etwas Reserve.
+    /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn).
+    ///
+    /// **`jitter_ms` ist KEIN Vorhalt.** `jitter.rs::poll` gibt ohne Luecke
+    /// sofort frei; der Wert ist allein die Wartezeit BEI einer Luecke. Er
+    /// stand bis 2026-07-29 auf 20 ms, waehrend eine NACK-Nachlieferung ueber
+    /// die echte Leitung rund 61 ms braucht — jede Nachlieferung traf also ein
+    /// und wurde als zu spaet verworfen. Gemessen ueber Hetzner, mit
+    /// Zeitmuster und je zwei Laeufen:
+    ///
+    /// * ungestoert kostet die groessere Geduld NICHTS (104,8 gegen 104,7 ms),
+    /// * unter Buendelverlust +16 ms Ende zu Ende (103,8 -> 119,8), dafuer
+    ///   volle Bildrate (56 -> 60) und weniger endgueltiger Verlust (150 -> 136),
+    /// * ein Rueckstand baut sich NICHT auf (erste gegen letzte fuenf Sekunden
+    ///   -2,6 ms) — die Fehlerklasse „Rueckstand wird nie aufgeholt" liegt hier
+    ///   nicht vor.
+    ///
+    /// Messakten `profiles/nack-2026-07-29-{puffergeduld,was-die-geduld-kostet}.json`.
+    /// Ungeprueft: ob 100 der beste Wert ist (70/80 nie gemessen) und ob er bei
+    /// deutlich laengeren Strecken an die gemessene Umlaufzeit gehoerte.
     pub fn defaults() -> Self {
         Self {
-            jitter_ms: Some(20),
+            jitter_ms: Some(JITTER_MS_VORGABE),
             deband: Some(0.6),
             dither: Some(true),
             zoom: Some(1.0),
@@ -274,7 +303,7 @@ mod tests {
         base.apply(&patch);
         assert_eq!(base.deband, Some(0.0));
         // unveraendert geblieben, obwohl im Patch nicht enthalten
-        assert_eq!(base.jitter_ms, Some(20));
+        assert_eq!(base.jitter_ms, Some(JITTER_MS_VORGABE));
         assert_eq!(base.volume, Some(1.0));
     }
 

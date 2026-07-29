@@ -161,7 +161,12 @@ pub async fn run(
         }
     };
 
-    let target = Duration::from_millis(u64::from(options.jitter_ms.unwrap_or(20)));
+    // Der Rueckfallwert muss mit `PlayerOptions::defaults` uebereinstimmen —
+    // sonst haengt die Puffergeduld davon ab, ob der Aufrufer das Feld gesetzt
+    // hat, und eine Messung trifft je nach Weg einen anderen Wert.
+    let target = Duration::from_millis(u64::from(
+        options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
+    ));
     // Video und Audio haben eigene Sequenznummernkreise und brauchen deshalb
     // je einen eigenen Puffer.
     let mut buffers: HashMap<Codec, JitterBuffer> = HashMap::new();

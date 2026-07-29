@@ -1,0 +1,48 @@
+{
+  "id": "nack-2026-07-29-was-die-geduld-kostet",
+  "datum": "2026-07-29",
+  "frage": "Was kostet die groessere Puffergeduld (100 statt 20 ms) an Ende-zu-Ende-Zeit — und baut sich unter Stoerung ein Rueckstand auf, der nie aufgeholt wird?",
+
+  "warum": {
+    "vorgeschichte": "Die Geduld des Jitter-Puffers stand auf 20 ms, eine NACK-Nachlieferung braucht ueber die echte Leitung rund 61 ms. Jede Nachlieferung kam also an und wurde als zu spaet verworfen. Mit 100 ms: endgueltig verlorene Pakete 576 -> 285, Bildrate 51,5 -> 57,5 (Messakte nack-2026-07-29-puffergeduld.json).",
+    "was_fehlte": "Diese Laeufe hatten kein Zeitmuster, also war die Gegenrechnung offen: was die laengere Geduld im Stoerfall an Verzoegerung kostet. Fuer reines Zuschauen waere das nachrangig, fuer die geplante Fernsteuerung nicht.",
+    "zweite_frage": "Ob ein einmal entstandener Rueckstand aufgeholt wird. Dieselbe Fehlerklasse ist in dieser Messreihe schon ZWEIMAL aufgetreten (Ton-Zeitleiste 2026-07-27, Decoder-Vorlauf 2026-07-27) und sah beide Male zunaechst gesund aus."
+  },
+
+  "aufbau": {
+    "strecke": "Hetzner-Testserver, Umlaufzeit 58,9 ms",
+    "sender": "echter Linux-Sidecar, AV1 10 bit, 2560x1440@60, 4000 kbps, RTMPS",
+    "verfahren": "Zeitmuster — das Bild traegt die Uhrzeit als Klotzmuster (latency-pattern.py), der Player liest sie aus der Luma-Ebene zurueck (probe.rs). Zeitstempel im Bitstrom taugen nicht, weil FLV/RTMP/MediaMTX/WebRTC sie umschreiben.",
+    "stoerung": "fern-stoerung.sh, Buendelverlust (Gilbert-Elliott) lokal auf den eingehenden Verkehr; 310-425 Pakete je Lauf verworfen",
+    "wiederholungen": 2,
+    "wirkungskontrolle": "jitter_target_ms aus der Player-Statistik gelesen — 20 bzw. 100 sind nachweislich angekommen. Ohne diese Kontrolle waere eine wirkungslose Uebergabe als 'kein Unterschied' durchgegangen."
+  },
+
+  "ergebnis": {
+    "ohne_stoerung": {
+      "geduld_20_ms": {"e2e_ms": [104.8, 104.9]},
+      "geduld_100_ms": {"e2e_ms": [104.8, 104.6]},
+      "befund": "IDENTISCH. Die Geduld kostet im ungestoerten Betrieb NICHTS — sie ist kein Vorhalt, sondern greift nur bei einer Luecke. Damit ist die naheliegendste Sorge ausgeraeumt."
+    },
+    "mit_stoerung": {
+      "geduld_20_ms":  {"e2e_ms": [104.3, 103.4], "e2e_median": 103.8, "fps": 56, "verlust": 150},
+      "geduld_100_ms": {"e2e_ms": [119.5, 120.0], "e2e_median": 119.8, "fps": 60, "verlust": 136},
+      "befund": "+16 ms Ende zu Ende, dafuer volle Bildrate (56 -> 60) und weniger endgueltiger Verlust (150 -> 136)."
+    },
+    "rueckstand": {
+      "verfahren": "Median der ersten fuenf gegen die letzten fuenf Sekunden je Lauf",
+      "geduld_100_unter_stoerung": "-2,6 ms",
+      "geduld_20_unter_stoerung": "-10,6 ms (Anlaufwert im ersten Lauf, nicht Drift)",
+      "ohne_stoerung": "-0,3 / -0,7 ms",
+      "befund": "KEIN Aufbau eines Rueckstands. Die Verzoegerung bleibt ueber 25 s stabil, statt zu wachsen — die Fehlerklasse 'Rueckstand wird nie aufgeholt' liegt hier NICHT vor."
+    }
+  },
+
+  "bilanz": "Der Preis ist scharf umrissen: null im Normalbetrieb, +16 ms waehrend einer Stoerung, kein Nachwirken. Dagegen stehen vier Bilder je Sekunde und spuerbar weniger Aussetzer genau dann, wenn es klemmt.",
+
+  "offen": [
+    "Uebernahme als Vorgabe (proto.rs::defaults, heute 20) ist eine Produktentscheidung des Nutzers und NICHT vollzogen.",
+    "Ob 100 der beste Wert ist, ist ungeprueft — er stammt aus der Ueberlegung 'muss ueber 61 ms Umlaufzeit liegen'. Werte dazwischen (70, 80) sind nicht gemessen.",
+    "Bei deutlich laengeren Strecken (Umlaufzeit weit ueber 61 ms) reicht auch 100 nicht; ein an die gemessene Umlaufzeit gekoppelter Wert waere die naheliegende Ausbaustufe, ist aber nicht gebaut."
+  ]
+}

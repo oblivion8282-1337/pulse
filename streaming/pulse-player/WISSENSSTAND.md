@@ -54,7 +54,15 @@ Das deckt sich mit der gemessenen Ende-zu-Ende-Zeit von 17,4 ms bei
 
 **Konsequenz, die ich am 2026-07-29 zunächst übersehen hatte:** Der Puffer ist
 bereits adaptiv. Ein höherer Wert kostet im störungsfreien Betrieb nichts.
-(**VERMUTET** in dieser Schärfe — aus dem Code abgeleitet, nicht gemessen.)
+
+**Inzwischen GEMESSEN, nicht mehr vermutet** (Hetzner, Zeitmuster, je zwei
+Läufe, Messakte `profiles/nack-2026-07-29-was-die-geduld-kostet.json`): ohne
+Störung sind 20 und 100 ms **identisch** (104,8 gegen 104,7 ms). Unter
+Bündelverlust kostet die größere Geduld **+16 ms** (103,8 → 119,8) und bringt
+dafür die volle Bildrate (56 → 60) sowie weniger endgültigen Verlust
+(150 → 136). Ein Rückstand baut sich **nicht** auf (erste gegen letzte fünf
+Sekunden −2,6 ms). Die Vorgabe steht seitdem auf 100
+(`proto.rs::JITTER_MS_VORGABE`); die 17,4 ms oben stammen aus der Zeit mit 20.
 
 ### Verlust-Verhalten: zwei Wege, der ältere ist abgeschaltet
 

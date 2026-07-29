@@ -186,8 +186,10 @@ fn nack_intervall() -> Duration {
 /// (zwei Laeufe, 1 % Verlust, je ueber 550 zugeordnete Nachlieferungen): keine
 /// einzige traf frueher als 101,8 bzw. 109,6 ms ein — eine so scharfe
 /// Untergrenze bei genau einem Sendeintervall ist dessen direkter Abdruck.
-/// Der Jitter-Puffer haelt 20 ms, also war **keine** der 1121 Nachlieferungen
-/// rechtzeitig. MediaMTX liefert nach; es kam nur nie etwas davon an.
+/// Der Jitter-Puffer hielt damals 20 ms, also war **keine** der 1121
+/// Nachlieferungen rechtzeitig. MediaMTX liefert nach; es kam nur nie etwas
+/// davon an. (Genau deshalb steht [`crate::proto::JITTER_MS_VORGABE`] seit dem
+/// 2026-07-29 auf 100 ms — die Nachlieferungen kommen jetzt an.)
 ///
 /// Nachgebaut wird genau das, was die Sammelfunktion tut (`configure_nack`,
 /// `configure_rtcp_reports`, `configure_twcc_receiver_only`) — mit dem
