@@ -260,9 +260,25 @@ fn rueckkanal_flags(answer: &str) -> (bool, bool, bool) {
             .lines()
             .any(|l| l.starts_with("a=rtcp-fb:") && l.split_once(' ').is_some_and(|(_, r)| r == was))
     };
-    // RTX ist der eigentliche Traeger der Nachlieferung: ohne einen zweiten
-    // Payload-Typ `rtx/90000` schickt der Server das Paket nicht noch einmal,
-    // selbst wenn er `nack` zusagt.
+    // RTX (RFC 4588) ist EIN Weg der Nachlieferung, nicht der einzige: das
+    // wiederholte Paket reist dort auf einem eigenen Payload-Typ `rtx/90000`
+    // mit eigener Zaehlung, damit es die laufende Sequenznummerierung nicht
+    // stoert. Der andere Weg ist, schlicht das Originalpaket unveraendert
+    // noch einmal zu senden — und genau den geht pion, auf dem MediaMTX
+    // aufsetzt (`nack/responder_interceptor.go::resendPackets` schreibt
+    // `p.Header(), p.Payload()` zurueck).
+    //
+    // **`rtx NEIN` heisst deshalb NICHT "keine Nachlieferung".** Hier stand
+    // bis zum 2026-07-29 das Gegenteil, und es hat eine Messung fast beendet,
+    // bevor sie anfing. Nachgemessen (Mitschnitt, wiederholte
+    // Sequenznummern gezaehlt): MediaMTX sagt `rtx NEIN` und liefert
+    // trotzdem nach — 505 Wiederholungen bei 5 % Verlust, 4 bei 1 %, und in
+    // der Nullkontrolle ueber 56651 Paketen ohne Stoerung exakt null.
+    // Volles Protokoll: `testbench/profiles/decoder-2026-07-29-intra-refresh.json`.
+    //
+    // Die Zeile bleibt trotzdem gemeldet: sie sagt, WELCHEN der beiden Wege
+    // die Gegenstelle anbietet, und das ist bei einer fremden Gegenstelle
+    // nicht dasselbe wie "ob ueberhaupt".
     let rtx = answer.lines().any(|l| l.contains("rtx/"));
     (hat("nack"), hat("nack pli"), rtx)
 }
