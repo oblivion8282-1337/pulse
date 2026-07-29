@@ -69,6 +69,29 @@ PROFILE: dict[str, list[str]] = {
     # "so ist das Internet".
     "schwankung": ["delay", "26.7ms", "5ms", "distribution", "normal"],
     "echte_leitung": ["delay", "26.7ms", "3ms", "distribution", "normal", "loss", "0.2%"],
+    # BUENDELVERLUST (Gilbert-Elliott). Der Fall, den gleichmaessiger Verlust
+    # nicht abbildet und der ueber die Wirkung der Paritaet entscheidet: FlexFEC
+    # verteilt interleaved, eine Gruppe ueberlebt genau EIN fehlendes Paket.
+    # Liegen die Verluste in Klumpen, treffen sie dieselbe Gruppe mehrfach.
+    # Die vier Werte sind p, r, 1-h, 1-k — Uebergang gut→schlecht, schlecht→gut,
+    # Verlust im schlechten, Verlust im guten Zustand.
+    #
+    # ACHTUNG, hier steht eine Falle: `loss 5% 50%` (die KORRELATIONS-Schreibweise)
+    # verwirft GAR NICHTS — 200 Pings, 0 % Verlust, waehrend `loss 5%` sauber 4 %
+    # verwirft. Am 2026-07-29 hat eine erste Buendelreihe darueber 60 fps und null
+    # Verluste in beiden Betriebsarten gemeldet und sah nach "Buendel sind
+    # unproblematisch" aus. Deshalb `gemodel` und deshalb die Wirkungskontrolle
+    # in `lauf()`, die die tatsaechlich verworfenen Pakete aus `tc` ausliest.
+    "buendel": ["loss", "gemodel", "2%", "40%", "100%", "0%"],
+    # Buendelverlust MIT Laufzeit. Ohne die ist die Frage nach der Paritaet
+    # lokal gar nicht zu stellen: ueber die Schleife betraegt die Umlaufzeit
+    # ~0, NACK holt jedes verlorene Paket sofort nach, und die Paritaet hat
+    # nichts mehr zu reparieren. Am 2026-07-29 gemessen — bei reinem `buendel`
+    # sind 20+4, 10+2 und GAR KEINE Paritaet ununterscheidbar (142 fps, null
+    # Sekunden schwarz in allen neun Laeufen). Erst die 26,7 ms je Richtung
+    # (halbe gemessene Umlaufzeit zum Hetzner-Testserver) machen NACK so
+    # traege, dass sich Vorwaertskorrektur ueberhaupt auszahlen kann.
+    "buendel_fern": ["delay", "26.7ms", "loss", "gemodel", "2%", "40%", "100%", "0%"],
 }
 
 
@@ -128,6 +151,37 @@ def netem_setzen(args: list[str], nur_empfang: bool) -> None:
                         "flowid", "1:3"], check=True)
 
 
+def netem_wirkung() -> tuple[int, int]:
+    """(gesendete, verworfene) Pakete der netem-Warteschlange.
+
+    **Die einzige ehrliche Kontrolle, dass die Stoerung ueberhaupt wirkt.** Eine
+    `netem`-Angabe, die der Kern annimmt, muss nichts tun: `loss 5% 50%` wird
+    anstandslos gesetzt und verwirft dann null Pakete (2026-07-29). Wer das nicht
+    merkt, liest den ungestoerten Lauf als Ergebnis der Stoerung — und bei einer
+    Schutzschicht wie der Paritaet sieht das aus wie "bringt nichts".
+    Gegen `ping` zu pruefen taugt hier nicht: mit `--nur-empfang` haengt die
+    Stoerung an einem Filter auf den Medien-Port, ICMP laeuft daran vorbei.
+    Die Zaehler von `tc` messen dagegen genau den Verkehr, um den es geht.
+    """
+    r = subprocess.run(["tc", "-s", "qdisc", "show", "dev", "lo"],
+                       capture_output=True, text=True, check=False)
+    # Der netem-Block ist der einzige, der uns interessiert; seine Statistik
+    # steht in der Zeile nach seiner Kennung.
+    zeilen = r.stdout.splitlines()
+    for i, z in enumerate(zeilen):
+        if "netem" not in z or i + 1 >= len(zeilen):
+            continue
+        stat = zeilen[i + 1].split()
+        # Format: `Sent <bytes> bytes <pkts> pkt (dropped <n>, overlimits ...)`.
+        # Gezaehlt werden PAKETE, nicht Bytes — die verworfenen sind ebenfalls
+        # Pakete, und ein Anteil aus Bytes durch Pakete waere eine Fantasiezahl.
+        if "pkt" in stat and "(dropped" in stat:
+            gesendet = int(stat[stat.index("pkt") - 1])
+            verworfen = int(stat[stat.index("(dropped") + 1].rstrip(","))
+            return gesendet, verworfen
+    return 0, 0
+
+
 def netem_weg() -> None:
     subprocess.run(["sudo", "tc", "qdisc", "del", "dev", "lo", "root"],
                    stderr=subprocess.DEVNULL, check=False)
@@ -135,7 +189,7 @@ def netem_weg() -> None:
 
 def lauf(profil: str, secs: float, label: str, nur_empfang: bool,
          echt: bool = False, weitere: list[str] | None = None,
-         tag_zusatz: str = "") -> dict | None:
+         tag_zusatz: str = "", hwdec: str = "auto") -> dict | None:
     """Ein Prueflauf unter einem Stoerprofil.
 
     `echt` schaltet vom Referenzsender (Datei) auf den echten Sidecar mit
@@ -160,21 +214,44 @@ def lauf(profil: str, secs: float, label: str, nur_empfang: bool,
                   *(weitere or [])]
     else:
         befehl = [sys.executable, str(HERE / "harness.py"),
-                  "--secs", str(secs), "--label", tag]
+                  "--secs", str(secs), "--label", tag, "--hwdec", hwdec]
     netem_setzen(PROFILE[profil], nur_empfang)
+    gesendet = verworfen = 0
+    gescheitert = False
     try:
         r = subprocess.run(befehl, capture_output=True, text=True, timeout=secs + 240)
         if r.returncode != 0:
             print(f"  [{profil}] Prueflauf fehlgeschlagen:\n{r.stderr[-500:]}", file=sys.stderr)
-            return None
+            gescheitert = True
     finally:
+        # VOR dem Abraeumen ablesen — mit der Warteschlange verschwinden auch
+        # ihre Zaehler.
+        if PROFILE[profil]:
+            gesendet, verworfen = netem_wirkung()
         netem_weg()
+
+    # Die Wirkung IMMER melden, auch nach einem Fehlschlag: gerade dann ist die
+    # erste Frage, ob die Stoerung ueberhaupt anlag oder ob etwas anderes
+    # schiefging.
+    if PROFILE[profil]:
+        anteil = 100.0 * verworfen / gesendet if gesendet else 0.0
+        print(f"  [{profil}] Stoerung wirkte auf {gesendet} Pakete, "
+              f"{verworfen} verworfen ({anteil:.2f} %)")
+        if "loss" in PROFILE[profil] and verworfen == 0:
+            print(f"  [{profil}] WARNUNG: Verlustprofil, aber NULL verworfene Pakete — "
+                  f"die Messung zeigt den ungestoerten Fall", file=sys.stderr)
+
+    if gescheitert:
+        return None
 
     pfad = HERE / f"samples-{tag}.json"
     if not pfad.exists():
         return None
     proben = json.loads(pfad.read_text())
-    return auswerten(profil, proben)
+    ergebnis = auswerten(profil, proben)
+    ergebnis["netem_gesendet"] = gesendet
+    ergebnis["netem_verworfen"] = verworfen
+    return ergebnis
 
 
 def auswerten(profil: str, proben: list[dict]) -> dict:
@@ -238,6 +315,12 @@ def main() -> int:
     ap.add_argument("--bits", help="8 oder 10 (nur mit --echt)")
     ap.add_argument("--keyframe-on-gap", action="store_true",
                     help="Vollbild bei jeder gemeldeten Luecke anfordern (nur mit --echt)")
+    # Unter Buendelverlust stirbt der Player reproduzierbar mit SIGSEGV in
+    # libnvcuvid (2026-07-29, drei von drei Laeufen, Backtrace ueber
+    # avcodec_send_packet). `sw` weicht dem aus und macht Messreihen unter
+    # Verlust ueberhaupt erst moeglich — die Abstuerze sind ein eigener Faden.
+    ap.add_argument("--hwdec", choices=("auto", "hw", "sw"), default="auto",
+                    help="Decoder erzwingen (nur ohne --echt)")
     args = ap.parse_args()
 
     # Dieselben drei Werte gehen zweimal weg: als Schalter an den Sender und als
@@ -270,7 +353,8 @@ def main() -> int:
         for profil in profile:
             for i in range(args.wdh):
                 e = lauf(profil, args.secs, f"{profil}-{i + 1}", args.nur_empfang,
-                         echt=args.echt, weitere=weitere, tag_zusatz=tag_zusatz)
+                         echt=args.echt, weitere=weitere, tag_zusatz=tag_zusatz,
+                         hwdec=args.hwdec)
                 if e is None:
                     print(f"{profil}-{i + 1}: kein Ergebnis")
                     continue
