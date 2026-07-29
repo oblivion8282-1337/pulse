@@ -1,8 +1,9 @@
 # Third-Party Notices
 
-Pulse's own client code is licensed under `LICENSE-CLIENT.md` (PolyForm
-Perimeter 1.0.0), the server code under `LICENSE-SERVER.md` (PolyForm Free
-Trial 1.0.0) — see `LICENSE` for which parts fall under which license. The
+Pulse's own client code is licensed under `LICENSE-CLIENT.md` (Pulse Client
+License 1.0), the server code under `LICENSE-SERVER.md` (Pulse Server License
+1.0) — see `LICENSE` for which parts fall under which license. Both permit use
+and reading the source, but not modification, redistribution or reuse. The
 HQ-screen-streaming path additionally bundles or dynamically links a small
 number of third-party open-source components. This file is the developer/
 distributor-facing counterpart to the user-facing page at
@@ -72,11 +73,11 @@ Pulse's own binary. The three patches Pulse applies to it
 `0002-stub-vulkan-encoder.patch`, `0003-portal-cursor-embedded.patch`) modify
 only `gpu-screen-recorder`'s own source and are themselves licensed
 GPL-3.0-or-later as derivative works — see `streaming/patches/LICENSE`, which
-is explicitly carved out from the PolyForm licenses covering the rest of this
+is explicitly carved out from the Pulse licenses covering the rest of this
 repository.
 
 `pulse-linux-hq-sidecar` lives in its own repository and is Pulse's own
-client-side code (falls under the Client/Perimeter license, not this notice
+client-side code (falls under the Pulse Client License, not this notice
 file); its own transitive Cargo dependency tree was not audited as part of
 this pass.
 

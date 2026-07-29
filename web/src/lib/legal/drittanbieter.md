@@ -7,8 +7,9 @@
 > [`LICENSE-SERVER.md`](https://github.com/oblivion8282-1337/pulse/blob/main/LICENSE-SERVER.md)
 > im Quellcode-Repository.
 
-Der Pulse-Client selbst steht unter der PolyForm-Perimeter-Lizenz (siehe
-`LICENSE-CLIENT.md` im Repository). Einige seiner Bestandteile für das
+Der Pulse-Client selbst steht unter der Pulse Client License 1.0 (siehe
+`LICENSE-CLIENT.md` im Repository) — nutzen und einsehen erlaubt, ändern und
+weitergeben nicht. Einige seiner Bestandteile für das
 HQ-Bildschirm-Streaming stammen jedoch von Drittanbietern und bringen eigene
 Lizenzbedingungen mit. Für **LGPL-lizenzierte Komponenten** (FFmpeg) erfüllen
 wir die Lizenzpflichten wie folgt:
