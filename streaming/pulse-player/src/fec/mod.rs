@@ -21,6 +21,8 @@
 //! ist die Frage, an der der Ansatz haette scheitern koennen, und sie laesst
 //! sich ohne eine Zeile Rechenlogik beantworten.
 
+pub mod flexfec03;
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
