@@ -1,0 +1,57 @@
+{
+ "id": "ruckeln-2026-07-28-geloest",
+ "gemessen_am": "2026-07-28 (Abend)",
+ "frage": "Warum ruckelt der Stream ueber die echte Leitung, obwohl alle Kennzahlen gut aussehen — und wie wird er butterweich?",
+ "stand": "GELOEST auf dem neuen Sendeweg: WHIP + Intra-Refresh = 0,2 Luecken/s ueber die echte Leitung (RTMPS: 7-12). Ursachen fuer BEIDE Wege attribuiert, mit Paketmitschnitt belegt.",
+ "aufbau": "Neu fuer diese Messreihe, alles in streaming/testbench/: bewegtes Messbild (bewegtbild.py, AV1-Vorlage, mpv maximiert unter den Zeitbalken), lautloses Tonsignal mit Sekunden-Beeps (tonsignal.py, Null-Sink), Ton/A/V-Auswertung aus dem Player-Mitschnitt (ton-auswertung.py), Serien-Laeufer mit abwechselnden Laeufen (ruckel-fern.py), Uplink/Downlink-Attribution per tcpdump (fern-split.py). AV1 10 bit, 60 fps, 3000 kbps (12-Mbit-Leitung traegt hoch UND runter — 8000 war die Falle vom Vorabend), Hetzner-Testserver.",
+
+ "ergebnis_die_zahlen": {
+  "serie1_rtmps_gegen_whip_abwechselnd_3_paare_60s": {
+   "rtmps": "7,0 / 7,5 / 8,4 Luecken/s ueber 25 ms, typisch 26-29 ms, max bis 59",
+   "whip": "0,9 / 1,1 / 1,3 Luecken/s, typisch 27 ms, max bis 38",
+   "beide": "null Paketverlust, null Ton-Paketverlust"
+  },
+  "whip_mit_intra_refresh_statt_keyframes": {
+   "ankunftsebene_ohne_decoder": "0,69 und 0,02 Luecken/s — und die 0,69 sind KOMPLETT die ersten 0,4 s (31 Luecken im Anlauf, danach 45 s null)",
+   "mit_laufendem_decoder_3_saubere_laeufe": "0,20 / 0,24 / 0,27 Luecken/s, typisch 26 ms, max 28; Ende zu Ende 77-78 ms Mittel (Keyframe-Betrieb: 80-81), e2e-Maximum 101-121 statt 147-191",
+   "schalter": "PULSE_ENCODER_OPTS=intra-refresh=1,forced-idr=1 + PULSE_WHIP_IGNORE_PLI=1 + PULSE_KEYFRAME_SECONDS=10 + einmaliges Vollbild nach Beitritt (ruckel-fern.py --keyframe-nach-open)"
+  }
+ },
+
+ "ursachen_attribuiert": {
+  "rtmps": "Das Ruckeln entsteht auf dem EIGENEN UPLINK, im TCP. Paketmitschnitt (fern-split-rtmps1.json): 252 Uplink-Luecken in 39 s; von 323 Zuschauer-Luecken haben 306 einen Uplink-Partner, nur 17 entstehen hinter dem Server. Der Takt (~8/s, Abstand median 120 ms, Groesse ~= RTT, Phase NICHT keyframe-gebunden) ist TCP-Stau-und-Burst unterm Socket. Deshalb aendert auch Direktschreiben im Muxer nichts (A/B ruckel-muxab.json: 8,3-11,0 gegen 9,8-12,2 — Rauschen).",
+  "whip_mit_keyframes": "Die ~1/s-Restluecken sind KEYFRAME-SERIALISIERUNG: phasenstarr zum 2-s-Keyframe-Takt (Haeufung in einem 250-ms-Topf der Phase mod 2 s), Groesse 27 ms = 25-40-kB-Keyframe auf 12 Mbit. Paketmitschnitt (fern-split-whip1.json): Uplink glatt (9 Luecken), 81 von 89 Zuschauer-Luecken entstehen auf der Ausliefer-Strecke — der Burst serialisiert dort.",
+  "mediamtx_asymmetrie": "Strukturell am Quelltext belegt (1.19.1): RTMPS-Ingest wird je BILD neu paketiert und in einer engen Schleife ohne Pacing rausgeschrieben (from_stream.go), WHIP-Ingest reicht jedes RTP-Paket EINZELN durch (to_stream.go, RTPPackets=[pkt]) — der neue Weg erhaelt das Sender-Spacing, der alte burstet serverseitig zusaetzlich."
+ },
+
+ "gsr_befund": "GSRs Sendeweg (Vergleich, weil er dem Nutzer fluessiger vorkam): av_write_frame OHNE Interleave-Queue (encoder.c: 'dont use it!'), Opus 20 ms, kein Pacing. Der Ton kann das Bild dort NIE festhalten — die Stufe, an der wir mit max_interleave_delta gekaempft haben, existiert bei GSR nicht. Als PULSE_MUX_DIRECT=1 in den Linux-Sidecar uebernommen (mux_writer.rs); fuer die LUECKEN nachweislich irrelevant (A/B oben), als Architektur-Vereinfachung fuer spaeter interessant. Zweiter Faktor des GSR-Eindrucks: dort schaute der Nutzer im BROWSER zu, dessen Jitter-Puffer glaettet auf Kosten von Latenz; unser Player zeichnet auf Ankunft und zeigt jede Leitungsschwankung.",
+
+ "ton_und_av": {
+  "uebertragungsfehler": "Null verlorene Ton-Pakete in allen Laeufen beider Wege (Soll 200/s exakt getroffen). Keine stummen Stellen. Der Ton BUENDELT aber genauso an wie das Bild (RTMPS: 166 Ankunfts-Buendelungen ueber 25 ms in 25 s; WHIP: 95) — gleiche Ursache, gleicher Weg.",
+  "av_versatz": "Ton hinter Bild, je Lauf stabil; Spannen 16-59 ms. ACHTUNG Messgrenze: der Anker driftet mit der Laufzeit der Signalquelle (~70 ppm — Serie 1 zeigte +25 auf +85 ms ueber 12 Minuten, die frisch gestartete muxab-Serie wieder +6 bis +28). Absolute Werte nur mit frischem Anker vergleichen; innerhalb eines Laufs ist die Messung davon unberuehrt.",
+  "offener_fund": "In serie1-4-rtmps springt der Versatz mitten im Lauf um +40 ms und BLEIBT — die bekannte Klasse 'Rueckstand wird nie aufgeholt', diesmal auf dem Empfangsweg beobachtet. Noch nicht verortet."
+ },
+
+ "was_ausgeschieden_ist": {
+  "sender_interleave_queue": "A/B abwechselnd (ruckel-muxab.json): kein Unterschied in Luecken UND kein e2e-Gewinn — der 10-ms-Deckel hatte den Latenzanteil schon erledigt.",
+  "eigener_pacer": "bleibt ausgeschieden (Vorakte ruckeln-2026-07-28-stand.json); nach der Attribution ist auch klar warum: die Buendelung entsteht bei RTMPS unterm Socket und bei WHIP auf der Ausliefer-Strecke — an beiden Stellen kommt ein Sender-Pacer zu frueh."
+ },
+
+ "offene_punkte": [
+  "Recorder + Intra-Refresh: record startet ohne IDR meist nicht (wartet auf Keyframe), und der eine Lauf, in dem es lief (intraref2-0), zeigte einen stetig wachsenden e2e bis ~2 s bei glatten 60 fps — Wechselwirkung im Aufnahme-/Anzeigepfad, eigener Task. Solange blockiert das auch die VMAF-Qualitaetsmessung des Intra-Refresh-Betriebs ueber den Stream; offline-Vergleich (sweep-offline.py) als Ausweichweg.",
+  "ERLEDIGT noch am selben Abend — Bildqualitaet Intra-Refresh gegen Keyframes, offline an identischen Bildern (sweep-offline.py, 3000 kbps, je 500 Bilder): Spiel-Inhalt gleichauf (VMAF 26,88 gegen 26,79), Desktop-Inhalt DEUTLICH besser (VMAF 95,70 gegen 94,74, PSNR 49,28 gegen 46,21 — plus 3 dB). Ohne IDR-Spitzen verteilt der Ratecontroller die Bits gleichmaessig; die Abwaegung hat keine Gegenseite.",
+  "Produktisierung: MediaMTX-Fork sendet PLI als 2-s-Uhr (inbound_track.go) — fuer Intra-Refresh-Betrieb braucht es 'PLI nur bei Beitritt/Verlust' oder eine gedrosselte IDR-Antwort im Sender; heute ueberbrueckt der Pruefstand das mit PULSE_WHIP_IGNORE_PLI=1 + Vollbild-Op nach Beitritt.",
+  "Die restlichen 0,2 Luecken/s: Verdacht Leitungs-Grundschwankung plus Testaufbau (Zuschauer haengt an derselben 12-Mbit-Leitung, der Strom laeuft hoch UND runter).",
+  "RTMPS bleibt strukturell ruckelig (TCP) — Entscheidung, ob der HQ-Push auf WHIP als Standard wechselt, steht beim Nutzer aus."
+ ],
+
+ "messfallen_dieses_abends": [
+  "mpv mit --vo=dmabuf-wayland auf NVIDIA laedt NICHT (hwdec-Fehler, Prozess endet still) — eine Messreihe lief dadurch versehentlich ohne Bewegtbild. Seitdem prueft die Auswertung den mpv-Log; Standard-VO + --hwdec=auto (Vulkan) traegt.",
+  "Der Player-Mitschnitt hat Zeitbasis 1/1000 — ffmpeg haelt das fuer 1000 fps und dupliziert beim Dekodieren jedes Bild ~16-fach. Ohne -fps_mode passthrough liest man eingefrorene Balken und diagnostiziert Geisterfehler.",
+  "PTS-Abstaende im Mitschnitt sind ANKUNFT, nicht Verlust: 674 vermeintliche 'Ton-Luecken' waren Buendelung; der Verlust-Beweis ist die Paketzahl gegen 200/s.",
+  "nvidia-smi dmon 'sm %' ist Aktivitaetszeit, nicht Auslastung — 55 % fuer das Zeitmuster-Fenster sahen nach Eigenlast-Katastrophe aus und waren keine (Encoder-Latenz unveraendert 1,7-1,9 ms).",
+  "av1_nvenc-Dateien scheitern am NVDEC-Rueckweg in mpv ('No sequence header available') — die Bewegtbild-Vorlage ist deshalb libsvtav1."
+ ],
+
+ "dateien": "ruckel-serie1.json, ruckel-muxab.json, ruckel-intraref.json, ruckel-intraref2.json, fern-split-rtmps1.json, fern-split-whip1.json, ton-serie1-*.json"
+}

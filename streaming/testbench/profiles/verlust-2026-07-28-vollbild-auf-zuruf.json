@@ -1,0 +1,38 @@
+{
+ "id": "verlust-2026-07-28-vollbild-auf-zuruf",
+ "gemessen_am": "2026-07-28 (Nachmittag)",
+ "frage": "Wieviel bringt eine Vollbild-Anforderung tatsaechlich — bevor der Transport dafuer gebaut wird?",
+
+ "warum_so_gemessen": "Der richtige Weg waere ein Sender, der die RTCP-Anforderung des Zuschauers selbst empfaengt; das setzt einen eigenen WebRTC-Sendeweg voraus. Statt den zu bauen und danach zu messen, wurde nur die Gegenstelle gebaut (Force-IDR + Operation `keyframe` auf der stdio-Schnittstelle) und die Anforderung im Pruefstand ausgeloest: der Player meldet eine Luecke ueber `frames_dropped`, der Pruefstand ruft die Operation, gebremst auf 200 ms wie beim echten Rueckkanal. Damit steht der Bau auf einer Zahl statt auf einer Erwartung.",
+
+ "aufbau": "real-harness.py --keyframe-on-gap, 60 fps, 4000 kbps, AV1 10 bit, Zeitmuster an, lokaler MediaMTX. Stoerung nur auf dem Medienweg (tc-Filter auf Port 8189). 20 s je Lauf. Bei aktiver Anforderung wird alle 50 ms abgefragt statt jede Sekunde — sonst waere die gemessene Wirkung allein durch den Prueftakt gedaempft.",
+
+ "ergebnisse": {
+  "verlust_0_2_prozent": {
+   "ohne_anforderung": {"stillstaende_von_17": [9, 9, 7], "fps_median": [0, 0, 21]},
+   "mit_anforderung": {"stillstaende_von_17": [1, 5, 0], "fps_median": [60, 13, 60],
+                       "e2e_ms": [26.5, 22.9, 24.0]}
+  },
+  "verlust_1_prozent": {
+   "ohne_anforderung": {"stillstaende": "8/8, 14/17, 9/9 — also rund 94 % der Sekunden", "fps_median": 0},
+   "mit_anforderung": {"stillstaende_von_17": [7, 0, 8, 10, 13, 9], "fps_median": [2, 60, 2, 0, 0, 0]}
+  }
+ },
+
+ "befund": {
+  "bei_realistischem_verlust_loest_es_die_sache": "0,2 % Verlust: von 7-9 Stillstaenden auf 0-1 und von 0 auf 60 Bilder je Sekunde. Zum Vergleich, was 0,2 % bedeutet: die echte Teststrecke zum Hetzner-Server verlor 6-7 Pakete je 30-Sekunden-Lauf, also rund 0,05 %.",
+  "bei_1_prozent_halbiert_es_nur": "Von rund 94 % stillstehenden Sekunden auf rund 53 %. Sechs Laeufe: 7, 0, 8, 10, 13, 9 von 17. Der eine perfekte Lauf ist ein Glucksfall, nicht die Regel — das ausdruecklich, weil er allein ein falsches Bild gaebe.",
+  "warum_die_reichweite_begrenzt_ist": "Ein Vollbild ist um ein Vielfaches groesser als ein Differenzbild und verteilt sich auf entsprechend viele Pakete. Bei 1 % Verlust wird ein grosser Teil der angeforderten Vollbilder selbst zerschossen — und dann war die Anforderung umsonst. Das erklaert beide Beobachtungen: dass es bei 0,2 % traegt und bei 1 % nur noch halb. Die genaue Vollbild-Groesse wurde NICHT gemessen, die Erklaerung ist insofern hergeleitet und nicht belegt."
+ },
+
+ "was_das_fuer_den_bau_heisst": {
+  "der_mechanismus_stimmt": "Vollbild auf Zuruf ist der richtige Hebel — als einziger der drei geprueften. Kuerzerer Keyframe-Abstand und Weiterdekodieren sind gemessen und ausgeschieden.",
+  "der_transport_lohnt": "Fuer den Bereich, in dem echte Leitungen liegen (weit unter 1 %), stellt er normale Wiedergabe wieder her. Damit ist der eigene WebRTC-Sendeweg begruendet — und MediaMTX reicht die Anforderung nachweislich durch (verlust-2026-07-28-pli-weiterleitung.json).",
+  "was_er_NICHT_loest": "Schlechte Leitungen. Dort bleibt die Nachlieferung verlorener Pakete (NACK/RTX) der fehlende Baustein, und die liefert MediaMTX heute nicht."
+ },
+
+ "was_jetzt_im_code_steht": {
+  "sidecar": "`request_keyframe()` setzt ein Flag, `send_hw` setzt daraufhin `pict_type = I` auf dem naechsten Bild und IMMER wieder zurueck (der Frame stammt aus einem Pool — ohne das Zuruecksetzen bliebe `I` kleben und jedes Bild waere ein Vollbild). Ausgeloest ueber die neue Operation `keyframe`.",
+  "unabhaengiger_nutzen": "Ein neu dazukommender Zuschauer wartet heute bis zu zwei Sekunden auf sein erstes Bild. Mit einer erzwingbaren Anforderung waere das sofort — dafuer braucht es keinen neuen Transport, nur einen Aufruf an der richtigen Stelle."
+ }
+}

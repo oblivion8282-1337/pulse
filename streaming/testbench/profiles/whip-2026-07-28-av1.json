@@ -1,0 +1,35 @@
+{
+ "id": "whip-2026-07-28-av1",
+ "gemessen_am": "2026-07-28 (Abend)",
+ "frage": "Was bringt der eigene Sendeweg in der Betriebseinstellung — AV1 10 bit mit Ton, ueber die echte Leitung?",
+
+ "was_dafuer_gebaut_wurde": "Ein eigener AV1-Paketierer im Linux-Sidecar (`whip/av1.rs`). Noetig, weil der `Av1Payloader` von `rtp` 0.17.2 Laengenfelder ab 128 falsch schreibt — praezisiert gegenueber der bisherigen Notiz: die LESENDE Haelfte des Crates ist korrekt, nur `put_leb128` kodiert doppelt (474 wird zu `83 B4 03` statt `DA 03`; das Crate selbst liest daraus 55811). Alles unter 128 stimmt, deshalb faellt ein fluechtiger Test nicht darauf herein. Die Bildspur ist damit codec-abhaengig: H.264 laesst webrtc-rs paketieren, AV1 laeuft ueber `TrackLocalStaticRTP` mit eigenen Sequenznummern und Zeitstempeln.",
+
+ "aufbau": "fern-harness.py gegen die Hetzner-Testinstanz, 2560x1440, 60 fps, 4000 kbps, AV1 10 bit, Ton an, Zeitmuster an, 25 s je Lauf. ABWECHSELND gemessen (RTMPS, WHIP, RTMPS, ...), nicht blockweise — der alte Weg ist zweigipflig, und blockweises Messen verdeckt das (s. `whip-2026-07-28-mit-ton.json`).",
+
+ "ergebnis": {
+  "rtmps": {"laeufe_ms": [93.5, 93.3, 98.1], "median": 93.5, "spanne": 4.8},
+  "whip": {"laeufe_ms": [74.8, 75.0, 74.4], "median": 74.8, "spanne": 0.6},
+  "unterschied_ms": 18.7
+ },
+
+ "leitungskontrolle": "Waehrend aller sechs Laeufe lief ein Ping mit (434 Proben ueber 217 s): Median 53,3 ms, Hoechstwert 64,7, kein Ausschlag ueber 70, kein Verlust. Die Leitung war also nicht ueberlastet. Die Kontrolle lief mit, weil zeitgleich an einem anderen Rechner Windows-Updates geladen wurden — und weil die abwechselnde Reihenfolge einen Stoerer ohnehin auf beide Wege gleich verteilt haette.",
+
+ "was_das_heisst": {
+  "18_7_ms_und_achtmal_ruhiger": "In der Einstellung, die tatsaechlich ausgeliefert wird, ist der neue Weg 18,7 ms schneller. Die Spanne faellt von 4,8 auf 0,6 ms.",
+  "nur_21_ms_ueber_der_physik": "Die Strecke selbst kostet 53,4 ms Umlauf. Von den 74,8 ms Ende zu Ende gehoeren also nur rund 21 ms allem, was nicht Lichtgeschwindigkeit ist — Aufnahme, Encoder, Server, Netzweg, Dekodieren, Anzeige zusammen. Das ist die Zahl, die fuer die spaetere Fernsteuerung zaehlt.",
+  "av1_ist_auf_beiden_wegen_schneller_als_h264": "Zum Vergleich am selben Abend, H.264 8 bit mit Ton: RTMPS 110,0 und WHIP 104,6 ms. AV1 liegt auf beiden Wegen deutlich darunter. Das passt zum bekannten, noch ungeklaerten H.264-Aufschlag (eigener Faden).",
+  "der_vorsprung_ist_bei_av1_groesser": "18,7 gegen 5,4 ms bei H.264. Warum, ist NICHT untersucht. Es waere voreilig, das dem Paketierer zuzuschreiben."
+ },
+
+ "wie_der_paketierer_geprueft_ist": {
+  "zehn_tests": "Rundlauf byte-gleich bei sieben MTU-Groessen (1200 bis 8 Byte, also ueber jede Zerteilungsgrenze), Laengenfelder gegen von Hand geschriebene Bytes, Z/Y paarweise ueber Fragmente, N nur im ersten Paket, Zeittrenner und Kachellisten entfernt, Groessenfeld gestrippt.",
+  "die_vorlage_ist_entkoppelt": "Die Test-OBUs schreiben ihre Laengenfelder von Hand statt mit der zu pruefenden Funktion. Sonst pruefte der Rundlauf sie gegen sich selbst: ein falscher Schreiber erzeugte eine falsche Vorlage, die der gleich falsche Leser wieder aufloeste, und der Test bliebe gruen.",
+  "gegenprobe": "Mit dem Fehler des Crates absichtlich eingebaut fallen 5 der 10 Tests, darunter der Rundlauf.",
+  "und_gegen_echte_gegenstellen": "Der ueberzeugendste Beleg ist die Messung selbst: das Zeitmuster wird aus der DEKODIERTEN Luma-Ebene zurueckgelesen, nachdem der Strom durch MediaMTX gelaufen ist. Ein falsches Laengenfeld gaebe gar kein Bild."
+ },
+
+ "eine_falle_die_zuschlug": "Der erste 'AV1'-Lauf lief still als H.264: in `ops/start.rs` stand noch eine Sperre aus der ersten Scheibe, die AV1 auf WHIP nach H.264 umbog (und damit 10 bit auf 8 bit) — sie galt dem ffmpeg-Muxer, den es auf diesem Weg nicht mehr gibt. Aufgefallen nur, weil der Player seine Spur meldet ('Track video/H264'). Ohne diese Meldung waere eine Messreihe entstanden, die 'AV1 ueber WHIP' heisst und keines von beidem ist.",
+
+ "einschraenkungen": "Drei Laeufe je Weg. Nur eine Strecke. Verhalten bei Paketverlust ist fuer AV1 auf diesem Weg NICHT gemessen — die Vollbild-Anforderung wirkt zwar codec-unabhaengig, aber ein AV1-Vollbild hat eine andere Groesse als ein H.264-Vollbild, und genau davon hing die Reichweite ab."
+}

@@ -1,0 +1,85 @@
+"""Bausteine, die sich die Ansicht-Werkzeuge teilen.
+
+``ansehen.py``, ``verzoegerung.py`` und ``zeigen.py`` werfen alle denselben
+Sender auf dieselbe Weise an und muessen alle dieselben Skripte nachladen, deren
+Name einen Bindestrich traegt. Beides steht deshalb hier EINMAL — sonst gibt es
+drei Fassungen davon, wie ein Sender gestartet wird, und sie laufen
+auseinander, sobald sich am Aufruf etwas aendert.
+
+Absichtlich NICHT hier: die Argumente der drei. Sie sehen nur aehnlich aus —
+die Voreinstellungen fuer die Bitrate unterscheiden sich, ``zeigen.py`` kennt
+kein SRT und hat eine eigene Option. Ein gemeinsamer Parser mit einem Schalter
+je Abweichung waere schwerer zu lesen als drei kurze Bloecke.
+
+Kein Programm, nur ein Modul: die drei Werkzeuge bleiben einzeln aufrufbar.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+
+from harness import CID, HERE
+
+
+def laden(datei: str):
+    """Modul mit Bindestrich im Namen laden.
+
+    ``fern-harness.py``, ``netz-harness.py`` und ``real-harness.py`` sind als
+    Programme benannt, nicht als Module — ein ``import`` waere ein
+    Syntaxfehler. Die Bausteine daraus hier nachzubauen waere schlimmer: dann
+    gaebe es zwei Fassungen davon, wie ein Sender gestartet und eine Stoerung
+    gesetzt wird, und sie wuerden auseinanderlaufen.
+    """
+    spec = importlib.util.spec_from_file_location(datei.replace("-", "_"), HERE / f"{datei}.py")
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
+def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.0) -> bool:
+    """Den Sender anwerfen und warten, bis er WIRKLICH sendet.
+
+    Die Antwort auf ``start`` sagt nur, dass der Worker-Faden angeworfen wurde
+    (``stream_controller.rs::start`` spawnt und gibt sofort zurueck) — Portal,
+    Encoder und Push kommen alle erst danach. Wer hier nach ``res["ok"]``
+    zurueckkehrt, misst im Zweifel einen Sender, der nie ein Bild encodiert
+    hat, und schreibt „0,0 Luecken/s" in die Messdatei. Genau das ist am
+    2026-07-28 der ganzen H.264-Bildratenleiter passiert.
+
+    Deshalb ist ``live`` die Bedingung. ``warte_s`` gross setzen, wenn der
+    Portal-Dialog aufgehen soll (er blockt, bis der Nutzer klickt).
+
+    Der Fehlerfall wird gemeldet statt geworfen, damit die Aufrufer ihre
+    Aufraeum-Kette (``finally``) unveraendert behalten — dort haengt bei
+    ``zeigen.py`` das Abraeumen der ``tc``-Regel dran.
+    """
+    overrides = {"codec": args.codec, "fps": args.fps,
+                 "bitrate_kbps": args.kbps, "bit_depth": args.bits}
+    # Nur die Werkzeuge, die den Schalter haben, schicken ihn mit — und ein
+    # leerer Wert bleibt draussen: der Sidecar liest Unbekanntes als `Native`
+    # (`ResolutionRequest::parse`), meldet das aber nicht als Fehler.
+    if getattr(args, "aufloesung", None):
+        overrides["resolution"] = args.aufloesung
+
+    res = sender.call(
+        "start",
+        channel={"id": CID, "token": token, "push_url": push_url},
+        capture="portal",
+        audio={"mode": args.audio},
+        overrides=overrides,
+    )
+    if not res.get("ok"):
+        print(f"Sender-Start fehlgeschlagen: {res}", file=sys.stderr)
+        return False
+    zustand = sender.warte_auf_zustand({"live", "error", "stopped"}, timeout=warte_s)
+    if zustand is None:
+        print(f"Sender meldete binnen {warte_s:.0f} s keinen Zustand — "
+              f"steht der Portal-Dialog offen?", file=sys.stderr)
+        return False
+    if zustand.get("state") != "live":
+        grund = [e.get("message") for e in sender.ereignisse if e.get("ev") == "error"]
+        print(f"Sender ging nicht auf Sendung (state={zustand.get('state')})"
+              + (f": {grund[-1]}" if grund else ""), file=sys.stderr)
+        return False
+    return True

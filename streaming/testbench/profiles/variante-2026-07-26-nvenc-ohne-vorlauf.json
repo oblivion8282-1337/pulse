@@ -1,0 +1,27 @@
+{
+  "id": "variante-2026-07-26-nvenc-ohne-vorlauf",
+  "vergleich_gegen": "baseline-2026-07-26.json + baseline-2026-07-26-e2e.json",
+  "gemessen_am": "2026-07-26",
+  "aenderung": "Linux-NVENC bekommt `zerolatency=1` und `delay=0` (src/encode/opts.rs). Der Windows-Sidecar setzt beides fuer denselben ffmpeg-Encoder seit immer; dass es auf Linux fehlte, war ein Versehen. Abschaltbar ueber PULSE_NVENC_LOW_DELAY=0.",
+  "vorgabe": "unveraendert: 2560x1440, 60 fps, AV1, 10 bit, 4000 kbps, Ton an",
+
+  "ergebnis": {
+    "encode_latenz_ms": { "vorher": 33.39, "nachher": 2.88, "gewinn": 30.51 },
+    "ende_zu_ende_ms": {
+      "vorher": 96.1,
+      "nachher": 86.0,
+      "gewinn": 10.1,
+      "proben_vorher": [96.1, 96.1, 96.1],
+      "proben_nachher": [82.0, 89.2, 86.0, 83.8, 88.7]
+    },
+    "unveraendert": "Dekodieren 2,4 ms, Ankunft bis Schirm 3,7 ms, Bildrate 60, keine Verluste, keine Fehlablesungen der Sonde. Keine Warnung des Encoders (die Optionen werden angenommen, nicht ignoriert)."
+  },
+
+  "der_wichtige_befund": "Am Encoder sind 30,5 ms gewonnen, beim Zuschauer kommen nur 10 an. Etwa 20 ms werden dahinter WIEDER AUFGEZEHRT. Das passt zu einer Station, die nach ZEITSTEMPELN ausgibt und nicht nach Ankunft: ein Bild, das frueher eintrifft, wartet dort entsprechend laenger. Verdaechtig ist MediaMTX (FLV auspacken, in RTP umpacken, eigene Puffer) — dasselbe, was auch den Fixposten von 42,5 ms im Ausgangsprofil ausmacht. Der naechste Hebel liegt also dort und nicht mehr an unserem Encoder.",
+
+  "streuung": "Die neue Einstellung streut deutlicher von Lauf zu Lauf (82-89 ms) als der Ausgangszustand (96,1 dreimal auf 0,1 ms). Erklaerbar dadurch, dass der Encoder jetzt im Aufruf selbst arbeitet, statt seinen Ausstoss auf ein festes Bildraster zu legen — der gleichmaessige Vorlauf hat die Streuung mit versteckt. Fuer die Gleichmaessigkeit der Ausgabe ist das ohne Folgen (null zu spaete Ausgaben, unveraendert).",
+
+  "korrektur_am_messverfahren": "Der Zeitstempel der Encode-Messung sass zuerst NACH `avcodec_send_frame`. Mit abgeschaltetem Vorlauf liefert NVENC das Paket im selben Aufruf, die Rechenzeit steckt also darin — die Messung meldete 0,0 ms und sah nach vollkommener Latenzfreiheit aus. Der Stempel sitzt jetzt davor. Im alten Zustand war der Unterschied unerheblich (33,33 gegen 33,39 ms), weil dort das Warten dominierte; beide Zahlen dieses Vergleichs sind mit dem korrigierten Stempel gemessen.",
+
+  "offenes_risiko": "Der Einfluss auf die BILDQUALITAET ist nicht gemessen. `zerolatency` kann die Kompressionseffizienz kosten, und bei 4000 kbps auf 1440p ist der Spielraum klein. Dafuer fehlt weiterhin eine verlustfreie Referenzaufnahme im Sender (s. baseline-2026-07-26.json, Abschnitt bildqualitaet). Die Messung mit dem Zeitmuster taugt dafuer NICHT: der Bildinhalt ist dabei fast schwarz, die Bitrate liegt bei 70 kbit/s statt an der Grenze."
+}

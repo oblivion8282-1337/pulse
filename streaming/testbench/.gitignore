@@ -1,0 +1,41 @@
+# Messartefakte der Laeufe — jeder Lauf schreibt sie neu
+*.log
+samples-*.json
+!profiles/*.json
+# Vorkodierte Referenz-Vorlage (32 MB, per README erzeugbar)
+synth10.mkv
+
+# Mitschnitte der Qualitaetsmessung (GB-gross bzw. Lauf-Artefakte)
+*.raw
+*.pts
+rec-*.mkv
+
+# Artefakte des Browser-gegen-nativ-Vergleichs. Der fuehrende Schrägstrich ist
+# NOETIG: er verankert die Regel auf dieser Ebene. Ohne ihn greift sie auch in
+# `profiles/`, und die Ausnahme `!profiles/*.json` steht weiter oben, kann also
+# nicht mehr gegenhalten — eine Messakte namens `vergleich-*.json` waere damit
+# stillschweigend nicht eingecheckt worden (genau so passiert, 2026-07-28).
+# `*.png` pauschal, weil in diesem Verzeichnis jedes Bild ein Messartefakt ist
+# (Bildschirmfotos ueber alle Schirme, je ~13 MB).
+/*.png
+/vergleich-*.json
+/netz-ergebnisse.json
+/chrome-profil/
+
+# Rohdaten der Messlaeufe. UMGEKEHRT gedacht als der Rest dieser Datei: nicht
+# einzelne Namen ausschliessen, sondern alles — Werkzeuge sind `.py`/`.sh`, und
+# Ergebnisse gehoeren als Messakte nach `profiles/`. Alles andere in diesem
+# Verzeichnis ist Artefakt eines Laufs und regenerierbar.
+#
+# Warum umgekehrt: die Einzelnamen-Liste ist zweimal zu kurz gewesen. Am
+# 2026-07-29 rutschten so 98 Dateien in einen Commit, darunter Vorlagen und
+# Tonsignale bis 110 MB — GitHub lehnte den Push ab (Grenze 100 MB je Datei).
+# Der fuehrende Schraegstrich verankert jede Regel auf DIESER Ebene, damit
+# `profiles/` unberuehrt bleibt.
+/*.pcap
+/*.json
+/*.mkv
+/*.wav
+/*.mp4
+/*.obu
+/*.y4m

@@ -1,0 +1,49 @@
+{
+ "id": "rueckname-2026-07-27-abend",
+ "gemessen_am": "2026-07-27 (Abend/Nacht)",
+ "art": "Rueckname — keine Messung, sondern das Einziehen falscher Aussagen",
+ "warum_eine_eigene_akte": "Diese Aussagen standen nie in einer Datei, sondern nur im Gespraech. Genau deshalb gehoeren sie festgehalten: was nirgends widerrufen ist, kommt beim naechsten Mal als scheinbar gesichertes Wissen zurueck. Die Akten zu den Messungen dieses Abends bauen darauf auf und wurden NACH dieser Liste geschrieben, nicht davor.",
+
+ "zurueckgenommen": [
+  {
+   "behauptet": "SRT ist auf dem Hetzner-Testserver nicht aktiviert.",
+   "warum_falsch": "Ich hatte in der MediaMTX-Konfiguration nach einer `srt:`-Zeile gegrept, keine gefunden und daraus geschlossen, der Dienst sei aus. Tatsaechlich ist `srt: yes` die VOREINSTELLUNG von MediaMTX — eine Konfiguration, die nichts dazu sagt, hat SRT an.",
+   "richtig_ist": "SRT lief die ganze Zeit auf Port 8890 im Container. Unerreichbar war es von aussen, weil der Container 8890/udp nicht veroeffentlicht (`docker port pulse` zeigt 30 Ports, 8890 ist keiner davon).",
+   "wie_festgestellt": "Direkt am laufenden Container: /proc/net/udp zeigte 8890 als belegt, BEVOR MediaMTX neu gestartet wurde.",
+   "lehre": "Das Fehlen einer Zeile in einer Konfiguration ist keine Aussage ueber den Zustand. Voreinstellungen nachsehen oder am laufenden Dienst pruefen."
+  },
+  {
+   "behauptet": "Der WHIP-Weg kostet uns AV1 — wer die Ton-Kopplung loswerden will, verliert den Codec.",
+   "warum_falsch": "Zu eng geschlossen. Die Sperre liegt in ffmpegs WHIP-Muxer, nicht im Verfahren WHIP.",
+   "richtig_ist": "whip.c traegt `.p.video_codec = AV_CODEC_ID_H264` und einen Payload-Typ (106) — in Zweig 8.1 UND im aktuellen master, es lohnt also nicht, auf ein Update zu warten. WHIP selbst traegt AV1 problemlos; unser eigener Player empfaengt es ueber WHEP in 10 bit. Mit `webrtc = 0.17` liegt im Baum bereits ein vollstaendiger WebRTC-Baukasten. Ein eigener Sendeweg waere Arbeit, aber kein Codec-Verzicht.",
+   "wie_festgestellt": "Dreifach: Direkttest gegen das installierte ffmpeg 8.1.2 (`whip muxer supports only codec h264 for type video`), Quelltext des 8.1er-Zweigs, Quelltext von master. Ausserdem gefunden: ein konkurrierender Muxer mit AV1/HEVC/VP9 (nativewaves, libdatachannel) liegt seit November 2023 unangenommen im ffmpeg-Patchsystem.",
+   "lehre": "Eine Beschraenkung immer der konkreten Komponente zuschreiben, nicht dem Verfahren. Sonst wird aus 'dieses Bauteil kann es nicht' faelschlich 'dieser Weg ist versperrt'."
+  },
+  {
+   "behauptet": "SRT loest ein Problem der Leitungsqualitaet, das wir nicht messen koennen — fuer uns momentan kein Thema.",
+   "warum_falsch": "Nach dem Pruefstand geurteilt statt nach dem Produkt. Auf der lokalen Schleife KANN SRT nichts zeigen, weil dort nichts verlorengeht — aber die Schleife ist nicht der Zweck der Software. Der Nutzer wies zurecht darauf hin, dass echte Nutzer ueber echte Leitungen senden werden.",
+   "richtig_ist": "Ueber die echte Leitung messbar und relevant: SRT liefert deutlich gleichmaessiger (Ankunftsluecke Median 20,8 ms, Maximum 25-34) als RTMPS (Median 30,8, Maximum 185,8). Es kostet dafuer Latenz (rund 305 gegen 143 ms) und traegt kein AV1.",
+   "wie_festgestellt": "fern-harness.py gegen den Hetzner-Server, je drei Laeufe pro Weg, gleicher Codec (H.264) auf beiden Seiten.",
+   "lehre": "Wenn ein Messaufbau eine Eigenschaft nicht zeigen kann, ist das eine Aussage ueber den Aufbau — nicht ueber die Eigenschaft."
+  },
+  {
+   "behauptet": "Die Tabelle der ausgeschlossenen Verdaechtigen fuer die unerklaerte Latenz gilt fuer beide Transportwege.",
+   "warum_falsch": "So hingeschrieben, aber nur fuer RTMPS erhoben. Der TCP-Befund kann fuer SRT gar nicht gelten — SRT faehrt auf UDP, dort gibt es keinen TCP-Socket.",
+   "richtig_ist": "Fuer SRTs rund 264 unerklaerte Millisekunden ist NICHTS eingegrenzt ausser dem SRT-eigenen Puffer (120 gegen 40 ms: vier Millisekunden Unterschied, also nicht die Ursache). Der Ping-Befund traegt fuer beide, weil er die Leitung misst und nicht das Protokoll.",
+   "lehre": "Beim Zusammenfassen den Geltungsbereich mitschreiben. Eine Tabelle ohne Geltungsbereich wird als allgemein gelesen."
+  }
+ ],
+
+ "eigene_vermutung_widerlegt": {
+  "vermutung": "Die unerklaerte Latenz bei RTMPS entsteht durch Rueckstau im TCP-Socket des Senders: bei 27 ms Laufzeit verhaelt sich TCP anders als bei null, ein Neuversand kostet eine volle Umlaufzeit.",
+  "ergebnis": "Widerlegt. `ss -tinm` waehrend eines Laufs: Sendewarteschlange klein, unacked 1-10 Pakete, cwnd 227 (also nicht ueberlastbegrenzt), keine Neuuebertragungen ausgewiesen.",
+  "nebenbefund": "TCP misst die Umlaufzeit selbst mit 65-66 ms, ICMP mit 53,3 — zwoelf Millisekunden Unterschied auf dem Datenweg. Real, aber klein.",
+  "warum_das_hier_steht": "Damit die Vermutung nicht in einem halben Jahr als neue Idee wiederkehrt. Sie ist plausibel und falsch."
+ },
+
+ "unveraendert_gueltig": [
+  "Die Nachtarbeit vom 26. auf den 27. (Muxer-Deckel, Decoder-Vorlauf, Ton-Rueckstand) steht: 99,8 auf 17,4 ms bei 60 fps. Sie wurde ueber Wiederholungsserien belegt, nicht ueber Einzelmessungen, und ist vom Bildschirm-Fehler des Abends nicht betroffen.",
+  "Die offline erhobenen Bildqualitaets-Befunde zu H.264 und AV1 (spatial-aq, B-Frames, Preset-Leiter) sind unberuehrt — sie brauchen keinen laufenden Bildschirm.",
+  "Die Aussagen im Repo waren korrekt. `streaming/README.md` sagte richtig, dass ffmpegs WHIP-Muxer kein AV1 kann; dort wurde nur ergaenzt, dass das auch fuer master gilt und dass die Sperre am Muxer haengt, nicht am Verfahren."
+ ]
+}

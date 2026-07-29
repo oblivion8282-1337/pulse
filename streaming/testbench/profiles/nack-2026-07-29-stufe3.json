@@ -1,0 +1,68 @@
+{
+ "id": "nack-2026-07-29-stufe3",
+ "gemessen_am": "2026-07-29 (Nachmittag)",
+ "frage": "Kommen die Nachlieferungen frueh genug, um vor der Anzeige eingesetzt zu werden?",
+ "stand": "GELOEST. Die Nachlieferungen kamen zu spaet, weil der Player nur alle 100 ms nachforderte — eine Vorgabe der Bibliothek, die wir ungefragt uebernommen hatten. Mit 10 ms: Verspaetung 18 ms statt 100+, Paketverlust aus Player-Sicht auf ein Dreizehntel, Bildrate von 100-112 auf 140-141 (Soll 144). Umgesetzt in whep.rs::interceptors_mit_zuegigem_nack.",
+ "die_zahlen": {
+  "verlust_5_prozent": "505 Wiederholungen, 257 davon einer konkreten Luecke zuzuordnen. Verspaetung min 7,3 / median 171,3 / max 332,0 ms. Rechtzeitig bei 20-ms-Puffer: 2 von 257.",
+  "verlust_1_prozent": "4 Wiederholungen, alle zuzuordnen. Verspaetung 134,6 bis 194,8 ms, median 174,5. Rechtzeitig: 0 von 4.",
+  "kontrolle_ohne_stoerung": "56651 Pakete, 0 NACKs, 0 Wiederholungen — die Messung schlaegt also nicht ohne Anlass aus.",
+  "wie_gemessen": "Zeitpunkt, an dem die Luecke sichtbar wurde (Ankunft des NACHFOLGERS der fehlenden Nummer), gegen die Ankunft der Wiederholung. Beides aus demselben tcpdump-Mitschnitt, also EINE Uhr — kein Versatz zwischen zwei Zeitquellen. Ausgewertet mit nack-wirkung.py an den Mitschnitten der Stufe-2-Laeufe; es war kein neuer Lauf noetig."
+ },
+ "DIE_URSACHE_LIEGT_BEI_UNS": {
+  "befund": "Der NACK-Generator von webrtc-rs sammelt erkannte Luecken und schickt sie in einem Intervall. Die Vorgabe steht in interceptor-0.17.2 (nack/generator/mod.rs:64) auf Duration::from_millis(100). Unser Player uebernimmt sie ungefragt — register_default_interceptors baut den Generator ohne with_interval.",
+  "passt_zur_messung": "Bis zu 100 ms Wartezeit auf das naechste Intervall, dann Umlaufzeit und Serverzeit, bei einem Teil offenbar ein zweiter Zyklus. Median 171 ms fuegt sich; ueber die lokale Schleife, wo die Umlaufzeit nahe null ist, kann die Verspaetung praktisch nur daher kommen.",
+  "der_hebel": "GeneratorBuilder::with_interval existiert (mod.rs:48). Der Player muesste den Generator selbst bauen statt register_default_interceptors zu nehmen — das ist der einzige nicht-triviale Teil daran.",
+  "NICHT_GEMESSEN": "Ob ein kuerzeres Intervall die Verspaetung wirklich auf die Umlaufzeit drueckt. Das ist die naechste Messung, und sie ist billig: Intervall setzen, dieselbe Auswertung nochmal."
+ },
+ "was_das_fuer_die_echte_leitung_heisst": "Auch mit sofortiger Nachforderung kostet eine Nachlieferung mindestens EINE UMLAUFZEIT. Zum Hetzner-Testserver sind das rund 53 ms (der Wert, aus dem netz-harness.py sein Verzoegerungsprofil ableitet). Ein 20-ms-Puffer kann das nie auffangen. Wer NACK dort wirken lassen will, braucht einen Puffer groesser als die Umlaufzeit — oder einen, der NUR bei erkannter Luecke kurz wartet. Die Abwaegung ist damit beziffert und keine Geschmacksfrage mehr: rund 55 ms zusaetzliche Verzoegerung im Verlustfall gegen ein Bild, das sonst steht.",
+ "AUFGERAEUMT_EIN_WIDERSPRUCH_ZU_2026_07_28": {
+  "alte_aussage": "netz-2026-07-28-stoerprofile.json haelt fest: 'gemessen wurde aber KEINE einzige Wiederherstellung (469-504 verlorene Pakete blieben verloren). Ob MediaMTX RTX fuer WHEP-Leser beherrscht, ist ungeprueft.'",
+  "aufloesung": "Beide Messungen stimmen, sie messen an verschiedenen Stellen. Am 28.07. wurde die PLAYER-STATISTIK gelesen — dort zaehlt eine Luecke als Verlust, auch wenn das Paket spaeter noch eintrifft. Am 29.07. wurde der PAKETMITSCHNITT gezaehlt — dort sind die Wiederholungen sichtbar. MediaMTX liefert nach UND der Player kann nichts damit anfangen; das ist kein Widerspruch, sondern genau der Befund. Die alte Akte nennt den Grund sogar schon: 'Der Jitter-Puffer wartet nur target (20 ms) auf ein fehlendes Paket. Eine Nachlieferung, die laenger braucht, kommt zu spaet.' Das war richtig geraten und ist jetzt gemessen.",
+  "lehre": "Eine Statistik, die auf einer Verarbeitungsstufe gefuehrt wird, beantwortet keine Frage ueber die Stufe davor. 'Der Player sieht keine Wiederherstellung' und 'der Server liefert nichts nach' sehen in der Ausgabe gleich aus und sind verschiedene Dinge."
+ },
+ "vorbehalt_pruefvorlage": "Die zugrunde liegenden Laeufe stammen aus den Stufe-2-Mitschnitten und liefen mit synth10.mkv — der Vorlage, die sich am selben Tag als nicht repraesentativ herausgestellt hat (s. decoder-2026-07-29-intra-refresh.json). Fuer DIESE Frage ist das ohne Belang: gemessen wird der Zeitabstand zwischen Luecke und Wiederholung auf Paketebene, und der haengt am NACK-Intervall und der Umlaufzeit, nicht am Bitstrom-Inhalt. Die Kontrolle ohne Stoerung (0 Wiederholungen) gilt unabhaengig davon.",
+ "naechste_schritte": [
+  "NACK-Intervall im Player setzen (eigener GeneratorBuilder statt register_default_interceptors, with_interval existiert) und dieselbe Auswertung wiederholen. Pruefbare Erwartung: die Untergrenze faellt von ~100 ms auf die Umlaufzeit. Faellt sie nicht, ist die Erklaerung falsch — die Untergrenze ist der Indikator, nicht der Median.",
+  "Danach ERST die Puffer-Frage, und dann mit Zahlen: bleibt der Puffer bei 20 ms, nuetzt NACK nichts. Wie tief er sein muesste, sagt die dann gemessene Untergrenze plus die echte Umlaufzeit (Hetzner rund 53 ms).",
+  "Der Hetzner-Lauf ist SINNVOLL ERST DANACH. Heute wuerde er zwei Verzoegerungen zugleich messen (unser 100-ms-Raster und die echte Umlaufzeit) und koennte sie nicht trennen — dieselbe Falle wie netem an der Wurzel von lo."
+ ],
+ "werkzeug": "nack-wirkung.py, erweitert um die Verspaetungsmessung (verspaetung_ms_min/median/max und rechtzeitig_bei_20ms_puffer). Die Zeitstempel waren zwischenzeitlich aus dem Werkzeug entfernt worden, weil sie ungenutzt waren — fuer diese Frage sind sie der Kern.",
+ "WARNUNG_MESSGRUNDLAGE_UNTAUGLICH": {
+  "gefunden_am": "2026-07-29, auf Nachfrage des Nutzers ob die Schlussfolgerung traegt",
+  "was": "Die NACK-Pakete im Mitschnitt erstrecken sich ueber 2,3 s (5 %) bzw. 0,1 s (1 %) — die Laeufe dauerten 20 s. Der Player hat also nur am Anfang nachgefordert und dann nicht mehr, weil er abgestuerzt ist. Es sind genau die synth10.mkv-Laeufe, deren Vorlage sich am selben Tag als nicht repraesentativ erwiesen hat.",
+  "folge": "Nach dem Absturz sendet MediaMTX weiter, ohne dass jemand empfaengt. Was die Auswertung danach als 'Wiederholung' zaehlt, muss keine Antwort auf ein NACK sein. Das erklaert vermutlich auch, warum nur 257 von 505 Wiederholungen einer Luecke zuzuordnen waren — die Haelfte passte nicht ins Modell, und ich habe nicht untersucht warum.",
+  "mein_fehler": "In dieser Akte stand: 'Fuer DIESE Frage ist das ohne Belang: gemessen wird der Zeitabstand auf Paketebene.' Voreilig. Ein Mitschnitt aus einem abgestuerzten Lauf ist kein Normalbetrieb, egal auf welcher Ebene gemessen wird.",
+  "was_BELEGT_bleibt": "Zwei Dinge tragen unabhaengig davon: (1) MediaMTX liefert ueberhaupt nach — die Nullkontrolle ohne Stoerung ueber 56651 Pakete zeigt null Wiederholungen, der Effekt ist also echt und nicht der Aufbau. (2) Der NACK-Generator feuert im 100-ms-Raster: 19 von 21 Abstaenden zwischen 90 und 110 ms, Median 100,1. Das deckt sich mit der Vorgabe in interceptor-0.17.2 (nack/generator/mod.rs:64).",
+  "was_NICHT_belegt_ist": "Die Verspaetung von median 171 ms und damit die ganze Aussage 'Nachlieferungen kommen zu spaet'. Zusaetzlich passte die Zahl ohnehin nicht zur Erklaerung: ein 100-ms-Raster gibt hoechstens 100 ms Wartezeit, nicht 171. Diese Luecke hatte ich mit 'offenbar ein zweiter Zyklus' zugeschrieben statt sie als Widerspruch zu behandeln.",
+  "so_gehts_richtig": "Messung wiederholen mit live-vorlage.py als Quelle (PULSE_HARNESS_SOURCE), damit der Player den Lauf uebersteht. Und als Lebendkontrolle in die Auswertung aufnehmen: erstreckt sich der NACK-Zeitraum ueber den GANZEN Lauf? Tut er das nicht, ist die Messung ungueltig — genau diese Kontrolle fehlte."
+ },
+ "MESSUNG_SAUBER_WIEDERHOLT": {
+  "gemessen_am": "2026-07-29, nach Rueckfrage des Nutzers ob die Schlussfolgerung traegt",
+  "aufbau": "PULSE_HARNESS_SOURCE=/tmp/live40.mkv (40 s, live-vorlage.py mit Sidecar-Einstellungen), 1 % Verlust NUR auf dem Empfangsweg, 25 s je Lauf, zwei Wiederholungen.",
+  "lebendkontrolle_bestanden": "NACK-Zeitraum 24,6 von 24,7 s bzw. 24,8 von 24,9 s — der Player lief durch und forderte ueber den ganzen Lauf nach. Genau diese Kontrolle fehlte beim ersten Anlauf und ist jetzt fest im Werkzeug (nack_deckt_lauf_ab; unter 60 % verweigert es das Urteil).",
+  "lauf_A": "69716 RTP-Pakete, 247 NACKs, 1483 Wiederholungen, 557 zugeordnet. Verspaetung min 101,8 / median 161,6 / max 274,7 ms. Rechtzeitig bei 20-ms-Puffer: 0.",
+  "lauf_B": "249 NACKs, 1475 Wiederholungen, 564 zugeordnet. Verspaetung min 109,6 / median 169,1 / max 289,6 ms. Rechtzeitig: 0.",
+  "DER_ENTSCHEIDENDE_BEFUND": "Die UNTERGRENZE liegt bei rund 100 ms — in zwei Laeufen kam keine einzige von 1121 Nachlieferungen schneller als 101,8 bzw. 109,6 ms an. Eine so scharfe untere Schranke bei genau einem Sendeintervall ist kein Zufall: sie ist der direkte Abdruck des 100-ms-Rasters, in dem der NACK-Generator feuert (unabhaengig nachgezaehlt: 19 von 21 Abstaenden zwischen 90 und 110 ms, Median 100,1). Ueber die lokale Schleife, wo die Umlaufzeit nahe null ist, kann die Verzoegerung praktisch nur daher kommen.",
+  "was_die_verteilung_zusaetzlich_sagt": "Die Werte liegen NICHT zwischen 0 und 100 ms, wie ein reines Warten auf das naechste Intervall ergaebe, sondern zwischen 100 und 290. Es kommt also rund ein volles Intervall obendrauf. Naheliegend, aber NICHT geprueft: der Generator meldet eine frisch erkannte Luecke nicht im laufenden, sondern erst im naechsten Intervall — ueblich, um Umsortierung nicht als Verlust zu behandeln. Wer das belegen will, muss in den Generator schauen, nicht auf die Zahlen."
+ },
+ "DIE_BEHEBUNG": {
+  "was_geaendert": "whep.rs baut die Interceptor-Registry jetzt selbst statt register_default_interceptors zu nehmen — nur, um dem NACK-Generator ein eigenes Sendeintervall geben zu koennen (with_interval ist ueber die Sammelfunktion nicht erreichbar). Nachgebaut wird genau das, was sie tut; die beiden nack-Rueckmeldungen muessen dabei von Hand in die MediaEngine, sonst verhandelt der Player den Rueckkanal gar nicht erst. Vorgabe 10 ms, ueber PULSE_PLAYER_NACK_INTERVAL_MS aenderbar (=100 stellt das alte Verhalten her).",
+  "A_B_je_zwei_laeufe": {
+   "aufbau": "live-vorlage.py als Quelle, 1 % Verlust nur auf dem Empfangsweg, 25 s je Lauf, nur das Intervall getauscht.",
+   "paketverlust_aus_player_sicht": "100 ms: 304,8 und 321,2 — 10 ms: 25,2 und 22,6. Faktor 13.",
+   "bildrate": "100 ms: 99,6 und 112,3 (schwankend) — 10 ms: 140,6 und 140,7 (Soll 144, und stabil).",
+   "verspaetung_der_nachlieferung": "100 ms: min 100,1 / 101,8 / 109,6 ueber drei Laeufe — 10 ms: min 18,0, median 18,4, max 18,7. Rechtzeitig bei 20-ms-Puffer: 0 von 557 gegen 22 von 22."
+  },
+  "die_erwartung_war_falsifizierbar_und_hat_gehalten": "Vorhergesagt war, dass die UNTERGRENZE faellt (nicht der Median) — sie ist der Abdruck des Sendeintervalls. Gemessen: von rund 100 ms auf 18 ms. Waere sie geblieben, waere die Erklaerung widerlegt gewesen.",
+  "unabhaengig_gegengeprueft": "Die NACK-Abstaende im Paketmitschnitt selbst: 100,0 ms bei der alten Einstellung, 10,0-10,1 ms bei der neuen. Der Schalter wirkt also nachweislich und nicht nur der Erwartung nach.",
+  "der_preis": "Zehnfacher NACK-Verkehr (2239 statt 247 Pakete in 25 s, also rund 90/s). Gegen ~2800 Medienpakete je Sekunde vernachlaessigbar; NACK-Pakete sind winzig.",
+  "OFFEN_UND_NICHT_GEPRUEFT": "Bei 10 ms werden nur noch 22 Verspaetungen zugeordnet statt 557. Vermutung: die Nachlieferung trifft so schnell ein, dass die Luecke nie als Sprung nach vorn sichtbar wird — dann registriert die Auswertung sie gar nicht erst. Das waere der guenstigste Fall, ist aber NICHT belegt. Wer es wissen will, muss die Zuordnung anders bauen (etwa ueber die NACK-Inhalte statt ueber Sprungerkennung)."
+ },
+ "EIN_KAPUTTER_LAUF_UND_WAS_ER_LEHRT": {
+  "was": "Ein 100-ms-Lauf des zweiten Durchgangs enthielt NULL NACKs, meldete aber Verspaetungswerte von 19,7 ms — die zu allem anderen im Widerspruch standen und wie ein 10-ms-Ergebnis aussahen.",
+  "erkannt_woran": "An der unabhaengigen Gegenprobe: NACK-Abstaende direkt im Mitschnitt gezaehlt. Alle anderen Laeufe zeigten sauber 100,0 bzw. 10,0 ms, dieser gar keine NACKs.",
+  "luecke_in_der_eigenen_kontrolle": "Die Lebendkontrolle prueft, ob der NACK-Zeitraum den Lauf abdeckt — sie setzt aber nacks > 1 voraus und griff bei NULL NACKs deshalb nicht. Behoben: unter eingestelltem Verlust verweigert das Werkzeug jetzt auch dann das Urteil, wenn gar nicht nachgefordert wurde.",
+  "lehre": "Eine Lebendkontrolle muss den Fall 'gar nichts passiert' mit abdecken, nicht nur 'zu wenig passiert'. Sonst ist ausgerechnet der Totalausfall die Luecke."
+ }
+}

@@ -1,0 +1,90 @@
+{
+  "id": "baseline-2026-07-26",
+  "rolle": "AUSGANGSPROFIL — nicht aendern, nicht ueberschreiben. Jede Variante bekommt eine eigene Datei und wird gegen dieses Profil verglichen.",
+  "gemessen_am": "2026-07-26",
+  "maschine": {
+    "gpu": "NVIDIA RTX 5080",
+    "os": "CachyOS (Arch), Linux 7.1.4",
+    "compositor": "KWin (Wayland)",
+    "ffmpeg": "n8.1.2",
+    "sender": "pulse-linux-hq-sidecar @ 4c1dc7c + Latenzmessung",
+    "player": "pulse-player @ 3b8548ee + Latenzmessung"
+  },
+
+  "vorgabe": {
+    "aufloesung": "2560x1440 (native Bildschirmauflaeung)",
+    "fps": 60,
+    "codec": "av1",
+    "bit_tiefe": 10,
+    "bitrate_kbps": 4000,
+    "ton": "Desktop"
+  },
+
+  "sender_einstellungen": {
+    "encoder": "av1_nvenc",
+    "tune": "ll",
+    "rc": "cbr",
+    "preset": "ungesetzt → ffmpeg-Default p4",
+    "b_ref_mode": "0",
+    "bf": "ungesetzt → 0",
+    "coder": "cabac",
+    "bit_rate": 4000000,
+    "max_bit_rate": 4000000,
+    "rc_buffer_size": "ungesetzt (kein VBV-Puffer)",
+    "gop": "fps * 2 = 120 (Keyframe alle 2 s)",
+    "spatial_aq": "ungesetzt",
+    "multipass": "ungesetzt",
+    "rc_lookahead": "ungesetzt",
+    "delay": "ungesetzt  ← siehe befund_encode_latenz",
+    "zerolatency": "ungesetzt  ← siehe befund_encode_latenz",
+    "eingangsformat": "P010LE (CUDA-Pool), aus BGRx per GL-Shader",
+    "farbe": "BT.709, begrenzter Bereich (MPEG/tv), primaries BT.709",
+    "container": "flv über rtmps",
+    "max_interleave_delta_us": 100000,
+    "opus_paket_ms": 5,
+    "pipewire_node_latency": "240/48000"
+  },
+
+  "empfangs_einstellungen": {
+    "transport": "WHEP (WebRTC) von MediaMTX",
+    "decoder": "av1_cuvid (Hardware)",
+    "jitter_ziel_ms": 20,
+    "ausgabe_format": "Rgb10a2Unorm",
+    "vsync": "Mailbox, 3 Bilder Kette"
+  },
+
+  "messwerte": {
+    "hinweis": "Mittel und Ausschlag je Ein-Sekunden-Fenster, 23 Fenster, Aufbauphase verworfen.",
+    "encode_latenz_ms": {
+      "mittel": 33.33,
+      "max": 34.99,
+      "bemerkung": "Einschieben ins avcodec_send_frame bis zum Paket mit demselben pts. EXAKT zwei Bildabstaende — bei 144 fps gemessen 13.889 ms = 2 x 6.944. Also Pipeline-Tiefe von zwei Bildern, keine feste Zeit."
+    },
+    "decode_latenz_ms": { "mittel": 1.58, "max": 2.3 },
+    "netz_bis_schirm_ms": {
+      "mittel": 2.2,
+      "max": 2.9,
+      "ausschlag_einzeln": 14.2,
+      "bemerkung": "Ankunft des abschliessenden RTP-Pakets bis Bild ausgegeben: Jitter-Wartezeit + Zusammensetzen + Dekodieren + Hochladen + Ausgeben."
+    },
+    "ende_zu_ende_ms": null,
+    "ende_zu_ende_offen": "Nicht gemessen. Es fehlen zwei Posten: Aufnahme bis Encoder-Eingang (der Sender verwirft die Aufnahmezeit, pipewire_stream.rs setzt pts 0) und die Laufzeit durch MediaMTX. Beides braucht entweder eine gemeinsame Uhr im Bitstrom oder eine physische Messung (Bildschirm-Muster, Vergleich Original gegen Fenster).",
+    "gleichmaessigkeit": {
+      "ausgabe_abstand_ms": "14.5-18.9",
+      "zu_spaet_je_sekunde": 0,
+      "ankunft_abstand_max_ms": "16.7-19.2",
+      "bemerkung": "Ein Bildabstand bei 60 fps sind 16.7 ms — die Ankunft liegt also auf dem Boden."
+    },
+    "bitrate_kbps": { "mittel": 3490, "max": 4077, "bemerkung": "CBR 4000 auf ueberwiegend statischem Bildschirminhalt." },
+    "verluste": { "pakete": 0, "nie_gezeichnete_bilder": 0 }
+  },
+
+  "bildqualitaet": {
+    "stand": "noch nicht gemessen",
+    "verfahren": "VMAF (Modell /usr/share/model/vmaf_v0.6.1.json), zusaetzlich PSNR/SSIM/XPSNR — alle in ffmpeg n8.1.2 vorhanden.",
+    "was_fehlt": "Eine verlustfreie Referenz des AUFGENOMMENEN Bildes. Der Sender schreibt sie heute nicht heraus; ohne sie ist nur 'Variante A gegen Variante B' moeglich, nicht 'gegen das Original'.",
+    "vorarbeit": "docs/2026-07-19-hq-encoder-qualitaet-messung.md — H.264, 4000 kbps: p6+multipass+AQ brachten +0.85 VMAF, mit allem +1.84, bei 40-50 % weniger Durchsatz. AV1 war dort ausdruecklich ausgeklammert."
+  },
+
+  "befund_encode_latenz": "Die zwei Bilder Vorlauf sind der groesste einzelne Posten der Kette und bei 60 fps teurer als alles andere zusammen. Der Windows-Sidecar setzt fuer denselben Encoder zerolatency=1 und delay=0, der Linux-Sidecar nicht (nur tune=ll). Das ist der erste Versuch wert — aber gegen dieses Profil gemessen, nicht auf Zuruf."
+}

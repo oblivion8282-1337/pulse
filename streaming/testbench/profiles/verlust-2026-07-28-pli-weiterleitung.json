@@ -1,0 +1,37 @@
+{
+ "id": "verlust-2026-07-28-pli-weiterleitung",
+ "gemessen_am": "2026-07-28 (Mittag)",
+ "frage": "Leitet MediaMTX eine Vollbild-Anforderung vom Zuschauer an den Sender weiter — und koennte der Sender sie ueberhaupt beantworten?",
+ "warum": "Nachdem kuerzerer Keyframe-Abstand und Weiterdekodieren gemessen und ausgeschieden sind, ist das der letzte verbliebene Weg. Er entscheidet, ob Paketverlust NUR auf dem Direktweg der Fernsteuerung reparierbar waere oder auch fuer normale Zuschauer.",
+
+ "1_mediamtx_leitet_weiter": {
+  "verfahren": "ffmpeg veroeffentlicht per WHIP am lokalen MediaMTX, unser Player holt per WHEP, auf dem Medienweg liegen 3 % Verlust. Paketmitschnitt auf der Schleife, RTCP-Feedback ausgezaehlt.",
+  "ergebnis": {
+   "8189 -> Sender": "PLI 14",
+   "Player -> 8189": "PLI 2, NACK 3"
+  },
+  "deutung": "MediaMTX schickt die Anforderung an den WHIP-Sender weiter — und erzeugt sogar eigene dazu (14 gegen 2). Der Weg ist offen.",
+  "nebenbefund": "Der Player sendet NACKs (3). Das bestaetigt die frueher gemessene Lage: NACK wird ausgehandelt und geschickt, aber MediaMTX liefert nichts nach (kein RTX). Nachforderung bleibt tot, Vollbild-Anforderung nicht."
+ },
+
+ "2_unser_sender_kann_es_nicht": {
+  "befund": "Der Linux-Sidecar liest KEIN RTCP und kann KEIN Vollbild erzwingen. Es gibt weder eine Empfangsstelle noch ein Force-IDR — der Encoder laeuft rein nach GOP.",
+  "auch_nicht_ueber_ffmpeg": "ffmpegs WHIP-Muxer waere kein Ausweg: er hat keinen Rueckkanal zur Anwendung, und er kann ohnehin kein AV1 (in 8.1 und master geprueft, nur H.264).",
+  "korrektur": "Meine Aussage 'es bleibt nur der Sendeweg' war unvollstaendig. Es fehlt nicht nur der Transport, sondern auch die Faehigkeit des Encoders, auf Zuruf ein Vollbild zu liefern."
+ },
+
+ "3_das_stueck_existiert_bereits": {
+  "wo": "Auf dem Branch `feat/remote-control-windows`: `streaming/pulse-remote-webrtc/src/lib.rs` liest eingehendes RTCP, erkennt PLI und FIR und ruft einen Callback (`on_keyframe_request`); `streaming/win-hq-sidecar/src/encode/encoder.rs` erzwingt daraufhin ein IDR.",
+  "einschraenkung": "Gebaut fuer WINDOWS und fuer den DIREKTWEG der Fernsteuerung. Der Linux-Sidecar hat nichts davon.",
+  "bedeutung": "Der Entwurf ist also erprobt, nicht bloss vorstellbar. Was fehlt, ist die Uebertragung auf den Linux-Sender und auf den Veroeffentlichungsweg."
+ },
+
+ "der_zusammenhang_der_die_sache_entscheidet": "Fuer AV1 ueber WHIP braucht es ohnehin einen EIGENEN WebRTC-Sender, weil ffmpegs Muxer kein AV1 kann. Ein eigener Sender liest RTCP von sich aus — genau das tut `pulse-remote-webrtc` schon. Beide offenen Punkte, AV1 ueber WHIP und die Vollbild-Anforderung, loesen sich damit an derselben Stelle. Und dieselbe Stelle ist es, die die Fernsteuerung ohnehin verlangt.",
+
+ "was_damit_belegt_ist": [
+  "Der Weg ist offen: MediaMTX reicht die Anforderung durch (gemessen, nicht vermutet).",
+  "Der Sender kann sie heute nicht beantworten (im Code geprueft).",
+  "Das fehlende Stueck ist im Projekt bereits gebaut, nur an anderer Stelle und fuer eine andere Plattform.",
+  "Nicht gemessen: wie stark die Erholung dadurch tatsaechlich besser wird. Das geht erst, wenn ein Sender antwortet."
+ ]
+}

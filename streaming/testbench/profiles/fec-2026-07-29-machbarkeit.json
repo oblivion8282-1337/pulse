@@ -1,0 +1,30 @@
+{
+ "id": "fec-2026-07-29-machbarkeit",
+ "gemessen_am": "2026-07-29 (Abend)",
+ "frage": "Koennen unsere Bausteine FEC — und wenn nicht, was fehlt wo?",
+ "stand": "GEPRUEFT am Quelltext und am ausgelieferten Binaerprogramm. Ergebnis: HEUTE kann in unserer Kette NIEMAND FEC. Der Weg ist aber nicht zu, und die beiden Enden sind ungleich teuer.",
+ "art_der_pruefung": "Keine Messung, sondern Quelltext- und Binaerpruefung: Modulliste der Crates, Codec-Registrierung, und welche Interceptor-Pakete im MediaMTX-Binaerprogramm tatsaechlich einkompiliert sind (Go-Symbole). Das beantwortet 'kann es das', nicht 'wie gut waere es'.",
+
+ "die_kette": {
+  "sender_linux_sidecar": "webrtc-rs 0.17 (Cargo.toml:61) — dieselbe Bibliothek wie der Player. Kein FEC-Modul, kein FEC im eigenen Code.",
+  "server_mediamtx": "Setzt auf pion auf, und PION HAT FLEXFEC VOLLSTAENDIG (pkg/flexfec: Encoder, Decoder, Coverage — in 0.1.41 und 0.1.45). MediaMTX kompiliert es aber NICHT ein: im Binaerprogramm finden sich nur pion/interceptor/pkg/{nack,report,stats,twcc}. Zum Vergleich 54 nack-Symbole gegen praktisch keine flexfec-Symbole. Der Code liegt bereit und wird nicht registriert.",
+  "empfaenger_pulse_player": "webrtc-rs 0.17. Das interceptor-Crate hat Module fuer nack, report, stats, twcc — KEINES fuer FEC. `video/ulpfec` wird in der MediaEngine zwar als Codec DEKLARIERT (Payload-Typ 116, media_engine/mod.rs:367), aber nirgends verarbeitet: ausserhalb der Codec-Liste kommt der Begriff im ganzen Baum nicht vor. Der Player wuerde FEC also aushandeln und die Pakete dann verwerfen.",
+  "browser_zuschauer": "Chromium beherrscht FEC von Haus aus. Solange der Server keines sendet, ist das ohne Wirkung — aber es entscheidet mit, ob ein Eigenbau oder der Standard der richtige Weg ist."
+ },
+
+ "WAS_ES_KOSTEN_WUERDE": {
+  "mediamtx_der_kleinere_teil": "Den FlexFEC-Encoder aus pion registrieren. Der Code existiert, es ist ein Fork-Patch — und einen Fork gibt es bereits (infra/mediamtx-fork), inklusive Erfahrung mit genau dieser Art Eingriff (PLI-Weiterleitung).",
+  "player_der_groessere_teil": "webrtc-rs hat keinen FlexFEC-Decoder. pions Fassung ist in Go geschrieben und muesste nach Rust portiert werden. Das ist der eigentliche Aufwand.",
+  "eigenbau_als_alternative": "Uns gehoeren beide Enden, ein einfacheres XOR-Schema waere schneller gebaut. Preis: Browser-Zuschauer haetten nichts davon, weil sie nur den Standard verstehen."
+ },
+
+ "DIE_ENTSCHEIDENDE_NUANCE": "Das Problem ist zu einem guten Teil UNSER EIGENES. Ein Browser-Zuschauer puffert grosszuegig und kann Nachforderungen deshalb auch ueber Entfernung nutzen — bei ihm greift NACK. Unser nativer Player haelt bewusst nur 20 ms (Messung fuer die geplante Fernsteuerung) und kann eine Nachlieferung nach 61 ms Umlaufzeit nicht mehr einsetzen. FEC ist damit weniger 'ein fehlendes Feature der Kette' als vielmehr der Preis fuer den kleinen Puffer. Wer den Puffer bei erkannter Luecke kurz wachsen laesst, bekommt NACK zurueck — ohne jede zusaetzliche Bandbreite und ohne Portierarbeit.",
+
+ "empfehlung_zur_reihenfolge": [
+  "Erst den adaptiven Puffer bauen: er kostet keine Bandbreite, keine Portierung und keinen Fork-Patch, und er macht das bereits funktionierende NACK ueber Entfernung wirksam. Danach ist messbar, wieviel Verlust ueberhaupt uebrig bleibt.",
+  "FEC erst danach entscheiden — und dann mit der Zahl, wieviel nach NACK noch durchrutscht. Heute waere es eine Investition ohne Messgrundlage.",
+  "In beiden Faellen fehlt weiterhin eine Teststrecke, die tatsaechlich verliert (s. nack-2026-07-29-echte-leitung.json). Ohne sie ist keine der beiden Maßnahmen zu bewerten."
+ ],
+
+ "nicht_geprueft": "Ob MediaMTX FEC-Pakete, die ein Sender selbst erzeugt, unveraendert an den Zuschauer durchreichen wuerde. Waere das so, koennte der Encoder im Sidecar sitzen und der Fork-Patch entfiele. Der Sidecar kann heute allerdings ebenfalls kein FEC, der Punkt ist also nachrangig."
+}
