@@ -1,0 +1,62 @@
+[package]
+name = "pulse-linux-hq-sidecar"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-only"
+description = "Pulse Linux HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, mirrors streaming/gsr-sidecar/control.py and the win/mac Rust sidecars. FFmpeg als Bibliothek (VAAPI/NVENC), PipeWire-Capture."
+
+[[bin]]
+name = "pulse-linux-hq-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+# Diagnose-Logging auf stderr (Pulse tee't das in sidecar.log). Stufen +
+# Modul-Targets, gesteuert über $PULSE_HQ_LOG (wie RUST_LOG). Siehe src/logging.rs.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+] }
+
+# FFmpeg als Bibliothek (ab Phase 2: TLS-Probe; Phase 4+: Encode/Mux/RTMPS).
+# Gegen das System-FFmpeg (pkg-config) gelinkt — Arch n8.1.2 mit
+# --enable-gnutls --enable-libdrm --enable-nvenc --enable-vulkan.
+# KEIN `build`-Feature (würde FFmpeg aus Source bauen). `filter` kommt dazu,
+# sobald scale_vaapi für den BGRA→NV12-Convert gebraucht wird (Phase 5).
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "filter",              # scale_vaapi (BGRx→NV12 CSC) für den VAAPI-Import
+    "software-resampling",
+    "software-scaling",
+] }
+
+# Capture (Phase 6): xdg-desktop-portal ScreenCast + PipeWire-DMABUF.
+# ashpd ist async (zbus) — wir scopen einen tokio-Runtime nur für die
+# Portal-Verhandlung, danach läuft der PipeWire-Mainloop synchron.
+ashpd = { version = "0.10", default-features = false, features = ["tokio"] }
+# v0_3_33: PropertyFlags::DONT_FIXATE für die DMABUF-Modifier-Verhandlung
+# (System-PipeWire ist 1.6.7, weit drüber).
+pipewire = { version = "0.10", features = ["v0_3_33"] }
+libspa = { version = "0.10", features = ["v0_3_33"] }
+drm-fourcc = "2.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+libc = "0.2"
+# EGL-dlopen für eglQueryDmaBufModifiersEXT (Modifier-Liste fürs EnumFormat,
+# wie GSR) — kein Link-Time-Dep auf libEGL.
+libloading = "0.8"
+
+[profile.release]
+opt-level = 3
+# fat-LTO: der heiße Pfad (Frame-Drain → Import → Encode) läuft pro Frame bei
+# bis zu 1000fps — cross-crate-Inlining lohnt, Build-Zeit ist uns egal.
+lto = "fat"
+codegen-units = 1
+strip = true
