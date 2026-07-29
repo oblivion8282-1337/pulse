@@ -111,6 +111,12 @@ def parse_args() -> argparse.Namespace:
                     help="SRT-Puffer. Voreinstellung 120 wie bei SRT selbst; "
                          "am 2026-07-27 gemessen, dass 40 praktisch nichts ändert "
                          "— die ~300 ms des SRT-Wegs kommen NICHT von hier.")
+    ap.add_argument("--jitter-ms", type=int, default=None,
+                    help="Geduld des Jitter-Puffers BEI EINER LUECKE (Vorgabe 20). "
+                         "Kein Vorhalt: ohne Luecke gibt `jitter.rs::poll` sofort "
+                         "frei. Ueber die echte Leitung dauert eine "
+                         "NACK-Nachlieferung rund 61 ms — unter diesem Wert ist "
+                         "jede Nachlieferung zu spaet und wird verworfen.")
     ap.add_argument("--label", default="fern")
     return ap.parse_args()
 
@@ -167,7 +173,10 @@ def main() -> int:
         time.sleep(6.0)
 
         player = Player(player_log, player_env)
-        res = player.call("open", url=whep, title=f"Fern {tag}", timeout=30)
+        auf = {"url": whep, "title": f"Fern {tag}"}
+        if args.jitter_ms is not None:
+            auf["options"] = {"jitter_ms": args.jitter_ms}
+        res = player.call("open", timeout=30, **auf)
         if not res.get("ok"):
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
             return 1
