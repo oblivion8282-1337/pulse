@@ -24,7 +24,8 @@ use std::time::Instant;
 
 use super::flexfec03::{kopf_lesen, zurueckrechnen, Medienpaket};
 
-/// Wie viele Medienpakete vorgehalten werden. Eine Gruppe umfasst zehn, die
+/// Wie viele Medienpakete vorgehalten werden. Eine Gruppe umfasst
+/// `PULSE_FLEXFEC_MEDIA / PULSE_FLEXFEC_FEC` Pakete (heute fuenf), die
 /// Paritaet kann aber nachlaufen — 512 deckt jede Verzoegerung ab, die nicht
 /// ohnehin ein Fehler waere.
 const VORRAT: usize = 512;
@@ -38,6 +39,14 @@ struct Pruefstand {
     /// Mikrosekunden. Das ist die Groesse, die entscheidet, ob eine Reparatur
     /// den Jitter-Puffer noch rechtzeitig erreicht.
     nachlauf_us: Vec<u64>,
+    /// Der KLEINSTE Abstand zwischen zwei geschuetzten Sequenznummern je
+    /// Gruppe. Diese Zahl allein entscheidet, was ein Buendelverlust anrichtet:
+    /// XOR loest genau eine Unbekannte je Gruppe, also ist ein Buendel dieser
+    /// Laenge noch reparierbar und eines darueber nicht mehr. pion verteilt
+    /// interleaved (`X % numFecPackets`), der Abstand ist damit die Zahl der
+    /// Paritaetspakete — hier wird das am echten Strom nachgemessen statt aus
+    /// fremdem Quelltext geglaubt.
+    mindestabstand: BTreeMap<u16, u64>,
     gruppen_geprueft: u64,
     pakete_gleich: u64,
     pakete_abweichend: u64,
@@ -53,6 +62,7 @@ fn pruefstand() -> &'static Mutex<Pruefstand> {
         Mutex::new(Pruefstand {
             medien: BTreeMap::new(),
             nachlauf_us: Vec::new(),
+            mindestabstand: BTreeMap::new(),
             gruppen_geprueft: 0,
             pakete_gleich: 0,
             pakete_abweichend: 0,
@@ -95,6 +105,19 @@ pub fn paritaetspaket(nutzlast: &[u8]) {
     };
 
     let mut p = pruefstand().lock().unwrap();
+
+    // Der Abstand steht im KOPF und braucht kein einziges Medienpaket — also
+    // vor der Vollstaendigkeitspruefung erfassen. Sonst zaehlt nur, was
+    // zufaellig komplett vorlag, und das ist bei hohem Durchsatz die
+    // Minderheit.
+    if let Some(kleinster) = kopf
+        .geschuetzte_sequenzen
+        .windows(2)
+        .map(|w| w[1].wrapping_sub(w[0]))
+        .min()
+    {
+        *p.mindestabstand.entry(kleinster).or_insert(0) += 1;
+    }
 
     // Nur vollstaendige Gruppen taugen: fehlt eines der geschuetzten Pakete
     // wirklich, gibt es keinen Sollwert zum Vergleichen.
@@ -182,6 +205,7 @@ pub fn paritaetspaket(nutzlast: &[u8]) {
             p.gruppen_geprueft, p.pakete_gleich, p.pakete_abweichend, p.gruppen_unvollstaendig
         );
         nachlauf_melden(&p);
+        abstand_melden(&p);
     }
 }
 
@@ -202,11 +226,32 @@ pub fn bilanz() {
     );
 
     nachlauf_melden(&p);
+    abstand_melden(&p);
 }
 
-/// Die Verteilung des Nachlaufs. Getrennt, weil sie an zwei Stellen gebraucht
-/// wird: laufend (die Bilanz kommt nur bei sauberem Streamende, und genau das
-/// bleibt beim Abbruch der Sitzung aus) und abschliessend.
+/// Die Streuung der Gruppen. Sagt voraus, was ein Buendelverlust anrichtet:
+/// bis zu diesem Abstand trifft ein Buendel je Gruppe hoechstens ein Paket und
+/// ist damit vollstaendig reparierbar, darueber nicht mehr.
+fn abstand_melden(p: &Pruefstand) {
+    if p.mindestabstand.is_empty() {
+        return;
+    }
+    let verteilung: Vec<String> = p
+        .mindestabstand
+        .iter()
+        .map(|(abstand, anzahl)| format!("{abstand}: {anzahl}x"))
+        .collect();
+    eprintln!(
+        "pulse-player: STREUUNG der Paritaetsgruppen (kleinster Abstand \
+         zwischen zwei geschuetzten Sequenznummern) — {}",
+        verteilung.join(", ")
+    );
+}
+
+/// Die Verteilung des Nachlaufs. Getrennt von `abstand_melden`, weil beide an
+/// zwei Stellen gebraucht werden: laufend (die Bilanz kommt nur bei sauberem
+/// Streamende, und genau das bleibt beim Abbruch der Sitzung aus) und
+/// abschliessend.
 fn nachlauf_melden(p: &Pruefstand) {
     if p.nachlauf_us.is_empty() {
         return;
