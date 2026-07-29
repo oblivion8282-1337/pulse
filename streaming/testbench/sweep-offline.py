@@ -47,6 +47,11 @@ VARIANTEN: list[tuple[str, list[str]]] = [
     # laufend Bits, sparen aber die IDR-Spitzen.
     ("intraref", ["-preset", "p2", "-intra-refresh", "1", "-forced-idr", "1",
                   "-g", "600"]),
+    # Nur Vollbilder (`-g 1`): jedes Bild ist ein eigener Einstiegspunkt, damit
+    # faellt der ganze Wiedereinstiegs-Komplex weg (Vollbild auf Anforderung,
+    # PLI-Rueckkanal, `MAX_UNITS_WITHOUT_KEYFRAME`). Bezahlt wird das in Bits —
+    # wie viel, ist genau die Frage, die dieser Eintrag beantwortet.
+    ("allintra", ["-preset", "p2", "-g", "1"]),
 ]
 
 
