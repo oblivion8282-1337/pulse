@@ -16,8 +16,8 @@ ist aber eingeschränkt. Je nach Repository-Bereich gelten zwei Lizenzen:
 
 | Bereich | Lizenz | |
 |---|---|---|
-| `services/`, `shared/`, `infra/` | **PolyForm Free Trial 1.0.0** | Server-Betrieb über 32 Tage hinaus braucht eine kommerzielle Lizenz |
-| `web/`, `desktop/`, `mobile/`, `streaming/`, `plugins/`, `packaging/` | **PolyForm Perimeter 1.0.0** | Frei nutzbar und weitergebbar; verboten ist nur ein Konkurrenzprodukt |
+| `services/`, `shared/`, `infra/` | **Pulse Server License 1.0** | Quelle einsehbar; Server-Betrieb über 32 Tage hinaus braucht eine kommerzielle Lizenz |
+| `web/`, `desktop/`, `mobile/`, `streaming/`, `plugins/`, `packaging/` | **Pulse Client License 1.0** | Frei nutzbar, Quelle einsehbar; Ändern, Weitergeben und Wiederverwenden verboten |
 
 **Pulse zu benutzen kostet nichts.** Wer sich per Web-, Desktop- oder Mobile-App
 mit einem Pulse-Server verbindet — auch mit howispulse.com — braucht keine

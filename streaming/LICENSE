@@ -1,7 +1,7 @@
-Pulse client component — PolyForm Perimeter 1.0.0
+Pulse client component — Pulse Client License 1.0
 
-Everything in this directory is licensed under the PolyForm Perimeter
-License 1.0.0 (full text: ../LICENSE-CLIENT.md), WITH ONE EXCEPTION:
+Everything in this directory is licensed under the Pulse Client License 1.0
+(full text: ../LICENSE-CLIENT.md), WITH ONE EXCEPTION:
 
     streaming/patches/    GPL-3.0-or-later
 
@@ -9,8 +9,9 @@ Those files are patches against gpu-screen-recorder, a GPL-3.0 program. They
 are derivative works of GPL-licensed source and remain under the GPL. See
 streaming/patches/LICENSE.
 
-For everything else in this directory you may use, modify and redistribute
-freely, including commercially. The only prohibited use is providing a
-product that competes with Pulse.
+For everything else in this directory you may use it freely, including
+commercially, and you may read and audit its source. You may NOT modify it,
+create derivative works from it, redistribute it, republish it, or reuse its
+code in another project.
 
 Repository-wide licensing overview: ../LICENSE

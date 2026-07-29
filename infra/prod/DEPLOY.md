@@ -331,7 +331,7 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 > im Realm-Endpoint gekoppelt (Stelle im Code markiert). Diese Registry ist Verteilung
 > + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben technisch extrahierbar.
 > Der Schutz ist lizenzrechtlich: Server-Betrieb über die 32-Tage-Evaluierung hinaus
-> braucht eine kommerzielle Lizenz (PolyForm Free Trial, siehe `LICENSE`).
+> braucht eine kommerzielle Lizenz (Pulse Server License 1.0, siehe `LICENSE`).
 
 ## Operating
 

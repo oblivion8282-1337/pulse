@@ -3,79 +3,73 @@ Required Notice: Copyright (c) 2026 Oblivion Pictures — Michael de Meyer (http
 This license applies to the Pulse client components. See `LICENSE` in the
 repository root for which parts of Pulse are covered by which license.
 
-You may use and redistribute these components freely. You may not use them to
-provide a product that competes with Pulse.
+You may use these components and you may read their source. You may not modify
+them, create derivative works from them, or redistribute them.
 
 ---
 
-# PolyForm Perimeter License 1.0.0
+# Pulse Client License 1.0
 
-<https://polyformproject.org/licenses/perimeter/1.0.0>
+**All rights reserved, except as expressly granted below.**
 
-## Acceptance
+## Permissions
 
-In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
+**Use.** Running the Pulse web app, desktop app or mobile app — including to
+connect to the hosted service at https://howispulse.com or to any Pulse server
+you are entitled to use — is permitted, free of charge, for any purpose,
+commercial or private. No license needs to be purchased to use Pulse as an end
+user.
 
-## Copyright License
+**Reading the source.** Viewing, reading, studying and auditing the source code
+is permitted, including building and running it locally for the sole purpose of
+examining how it works, and reporting what you find.
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+## Prohibitions
 
-## Distribution License
+Everything not granted above is reserved. In particular, you may **not**:
 
-The licensor grants you an additional copyright license to distribute copies of the software.  Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+* modify the software, or create derivative or adapted works from it;
+* copy, publish, distribute, sublicense or sell the software or any part of it,
+  in source or compiled form;
+* republish it, in whole or in part, in any other repository or distribution
+  channel;
+* remove or alter copyright, license or attribution notices.
 
-## Notices
+Permission to read the source is **not** permission to reuse it. Taking code
+from this repository into another project is prohibited regardless of how much
+is taken, whether it is altered, whether the result is given away free of
+charge, and whether or not the result competes with Pulse.
 
-You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software.  For example:
+## Contributions
 
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+Contributions are accepted only under the Contributor License Agreement in
+`CLA.md`. Submitting a contribution grants you no additional rights to the
+software.
 
-## Changes and New Works License
+## Third-party components
 
-The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
+Parts of this repository are not owned by the copyright holder and keep their
+original licenses. They are listed in `LICENSE` and are unaffected by this
+document — most notably `streaming/patches/`, which is GPL-3.0-or-later.
 
-## Patent License
+Dependencies resolved at build time (Python, Node and Rust packages, FFmpeg)
+carry their own licenses and are not relicensed by this document.
 
-The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
+## Prior versions
 
-## Noncompete
+Versions published before 2026-07-25 were released under the GNU Affero General
+Public License v3.0. Versions published from 2026-07-25 until the date of this
+document were released under the PolyForm Perimeter License 1.0.0. Both remain
+available under those terms. This document governs all subsequent versions.
 
-Any purpose is a permitted purpose, except for providing to others any product that competes with the software.
+## No warranty
 
-## Competition
+The software is provided "as is", without warranty of any kind, express or
+implied. The copyright holder is not liable for any claim, damages or other
+liability arising from the software or its use.
 
-If you use this software to market a product as a substitute for the functionality or value of the software, it competes with the software. A product may compete regardless how it is designed or deployed. For example, a product may compete even if it provides its functionality via any kind of interface (including services, libraries or plug-ins), even if it is ported to a different platforms or programming languages, and even if it is provided free of charge.
+## Enquiries
 
-## Fair Use
-
-You may have "fair use" rights for the software under the law. These terms do not limit them.
-
-## No Other Rights
-
-These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else.  These terms do not imply any other licenses.
-
-## Patent Defense
-
-If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
-
-## Violations
-
-The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice.  Otherwise, all your licenses end immediately.
-
-## No Liability
-
-***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
-
-## Definitions
-
-The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
-
-A **product** can be a good or service, or a combination of them.
-
-**You** refers to the individual or entity agreeing to these terms.
-
-**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization.  **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise.  Control can be direct or indirect.
-
-**Your licenses** are all the licenses granted to you for the software under these terms.
-
-**Use** means anything you do with the software requiring one of your licenses.
+Any use beyond the permissions above — including modification, redistribution
+or reuse in another project — requires a separate written license from the
+copyright holder. Enquiries: https://howispulse.com
