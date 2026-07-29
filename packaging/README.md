@@ -15,6 +15,33 @@
 packaging/build.fish        # build:electron, then flatpak-builder --user --install
 flatpak run com.howispulse.Pulse
 ```
+
+> **`build.fish` REPLACES the installed app.** It ends in `--user --install`, so it
+> overwrites whatever is installed and repoints the installation's origin at
+> `.flatpak-builder/cache` — a local directory. From then on `flatpak update`
+> pulls from that cache instead of the published repo, which looks exactly like a
+> real update but isn't. Happened on 2026-07-29: a verification build silently
+> replaced the working install, the next `flatpak update` picked up the
+> intermediate state, and the app came up with a white screen.
+>
+> **To only verify that the manifest builds, do not install:**
+> ```fish
+> pnpm --filter @dcc/desktop build:electron
+> flatpak-builder --force-clean --repo=/tmp/pulse-verify-repo \
+>     build/flatpak packaging/com.howispulse.Pulse.yml
+> ```
+> Inspect the result under `build/flatpak/files/` — the sidecar binary lands in
+> `bin/`, the Electron bundle in `pulse/`. Throw the repo away afterwards.
+>
+> Getting a botched install back on the published channel:
+> ```fish
+> flatpak uninstall --user com.howispulse.Pulse    # WITHOUT --delete-data
+> flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref
+> ```
+> App data under `~/.var/app/com.howispulse.Pulse/` survives that (it holds
+> `pulse-stream.json` with the streaming settings). Check afterwards that
+> `flatpak list --columns=application,origin` shows `pulse-origin`, not
+> `pulse1-origin`.
 First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and builds FFmpeg + GSR from source — ~15-30 min.
 
 ## Distribution — self-updating Flatpak repo
@@ -116,6 +143,6 @@ ever touch the `pulse` module's `archive` source, keep it at `0`.
 - `com.howispulse.Pulse.yml` — the manifest
 - `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
 - `com.howispulse.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
-- `build.fish` — local build + `--user --install` (dev box)
+- `build.fish` — local build + `--user --install` (dev box). **Replaces the installed app and repoints its origin at the local cache** — see the warning above; for a build-only check use `--repo=` into a throwaway directory.
 - `gen-signing-key.fish` — one-time: create the repo signing key in `packaging/.gpg/`
 - `publish.fish` — build into the signed OSTree repo + push it to the VPS (release flow)
