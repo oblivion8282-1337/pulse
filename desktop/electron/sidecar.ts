@@ -57,11 +57,13 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 //
 // Four implementations of the same newline-JSON-over-stdio protocol:
 //
-//   - Linux:   der Rust-Crate `pulse-linux-hq-sidecar` (Standard; lebt in einem
-//              EIGENEN Repo, per Commit im Flatpak-Manifest gepinnt und nach
-//              `/app/bin/` installiert) — mit
-//              `streaming/gsr-sidecar/control.py` (Python, GSR + Wayland-Portal
-//              + PipeWire — see `streaming/README.md`) als Auffangnetz.
+//   - Linux:   der Rust-Crate `pulse-linux-hq-sidecar` (Standard; liegt seit
+//              2026-07-29 im Baum unter `streaming/linux-hq-sidecar/`, das
+//              Flatpak-Manifest baut ihn per `type: dir` nach `/app/bin/` —
+//              es gibt KEINEN gepinnten Commit mehr, den man nachziehen muss)
+//              — mit `streaming/gsr-sidecar/control.py` (Python, GSR +
+//              Wayland-Portal + PipeWire — see `streaming/README.md`) als
+//              Auffangnetz.
 //   - Windows: `streaming/win-hq-sidecar/` (Rust, drives WGC + WASAPI +
 //              NVENC/AMF/QSV via FFmpeg — see `WINDOWS_HQ_SIDECAR.md`).
 //   - macOS:   `streaming/mac-hq-sidecar/` (Rust, drives ScreenCaptureKit +

@@ -5,7 +5,7 @@ den Stream per WHEP.
 
 | Plattform | Sidecar | liegt in |
 |---|---|---|
-| **Linux (Standard)** | `pulse-linux-hq-sidecar` (Rust, PipeWire + VAAPI/NVENC) | **eigenem Repo** — [pulse-linux-hq-sidecar](https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar), per Commit in `packaging/com.howispulse.Pulse.yml` gepinnt |
+| **Linux (Standard)** | `pulse-linux-hq-sidecar` (Rust, PipeWire + VAAPI/NVENC) | `linux-hq-sidecar/` (Rust) — seit 2026-07-29 im Baum, Flatpak baut ihn per `type: dir` |
 | **Linux (Fallback)** | GPU Screen Recorder | `gsr-sidecar/` (Python) |
 | Windows | WGC + WASAPI + ffmpeg-next | `win-hq-sidecar/` (Rust) |
 | macOS | ScreenCaptureKit + VideoToolbox | `mac-hq-sidecar/` (Rust) |
