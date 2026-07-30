@@ -36,6 +36,12 @@ async function login(page: Page, u: { username: string; password: string }) {
   await page.getByTestId('login-password').fill(u.password);
   await page.getByTestId('login-submit').click();
   await page.waitForURL(/\/app/);
+  // `waitForURL` kehrt zurück, sobald sich die Adresse ändert — die Oberfläche
+  // ist dann noch nicht aufgebaut. Wer direkt danach klickt, trifft eine Leiste,
+  // die gleich darauf vom `ready`-Frame neu gerendert wird. `register` hat diese
+  // Wartezeit zufällig (der Onboarding-Klick mit 2,5 s Zeitfenster), `login`
+  // hatte sie nicht — daher war jeder login-basierte Test racy.
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
 /** Erstellt einen Invite-Code per API auf der Seite von `page` (hat Token im localStorage). */
@@ -132,7 +138,15 @@ test.describe.serial('Invite Flow E2E', () => {
     await login(bobPage, BOB);
     // Neuen Invite-Code erstellen (der erste war single-use und von Cara verbraucht)
     const bobCode = await createInviteCode(alicePage, guildId);
-    await bobPage.locator('[data-testid^="guild-create-menu-"]').first().click();
+    // Das Öffnen wird wiederholt, bis das Menü offen BLEIBT. Ein einzelner
+    // Klick reicht nicht: trifft ihn ein Neu-Rendern der Leiste, verschwindet
+    // das eben geöffnete Menü wieder und `guild-join` erscheint nie — der
+    // Test lief dann in den vollen Zeitablauf an einer Zeile, die gar nicht
+    // die Ursache war.
+    await expect(async () => {
+      await bobPage.locator('[data-testid^="guild-create-menu-"]').first().click();
+      await expect(bobPage.getByTestId('guild-join')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await bobPage.getByTestId('guild-join').click();
     await bobPage.getByTestId('join-guild-input').fill(bobCode);
     await bobPage.getByTestId('join-guild-submit').click();

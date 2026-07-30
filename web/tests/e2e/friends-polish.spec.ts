@@ -218,15 +218,26 @@ test.describe('Privacy settings', () => {
     await expect(toggle).toBeChecked();
     await toggle.click();
     await expect(toggle).not.toBeChecked();
-    // Optimistic — verify via REST that the change was persisted.
-    const privacy = await page.evaluate(async () => {
-      const token = localStorage.getItem('dcc.tokens.access');
-      const r = await fetch('/api/chat/me/privacy', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      return r.json();
-    });
-    expect((privacy as { show_in_search: boolean }).show_in_search).toBe(false);
+    // Der Schalter ist OPTIMISTISCH: die Oberfläche kippt sofort, das PATCH geht
+    // erst danach raus. Ein einmaliges Zurücklesen gewann deshalb ein Rennen
+    // gegen den eigenen Schreibvorgang und meldete den alten Wert. Gepollt wird,
+    // bis der Server den neuen Stand führt — die Aussage („wurde wirklich
+    // gespeichert") bleibt dieselbe, nur ohne Rennen.
+    await expect
+      .poll(
+        async () => {
+          const privacy = await page.evaluate(async () => {
+            const token = localStorage.getItem('dcc.tokens.access');
+            const r = await fetch('/api/chat/me/privacy', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            return r.json();
+          });
+          return (privacy as { show_in_search: boolean }).show_in_search;
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(false);
 
     // Restore.
     await toggle.click();

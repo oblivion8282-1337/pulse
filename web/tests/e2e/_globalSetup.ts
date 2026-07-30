@@ -12,6 +12,7 @@ import { ChildProcess, spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { E2E_AUTH_PORT, E2E_CHAT_PORT, E2E_WEB_PORT, E2E_BASE_URL } from './_ports';
 
 /**
  * Detect the container runtime once at setup time. The repo's
@@ -196,11 +197,11 @@ function killPort(port: number, knownTestPids: Set<number>) {
 
 /**
  * Hard-fail if a port is still occupied after the kill pass. The e2e suite
- * starts its own auth/chat-gateway on 8001/8002 wired to the dcc_test DB.
- * killPort deliberately spares the user's own dev servers, and startService
- * runs with stdio:'ignore' which *swallows* the EADDRINUSE — so a dev stack
- * left running on these ports would silently shadow the test services and
- * the whole suite would run against (and pollute) the dcc dev database.
+ * starts its own auth/chat-gateway (see `_ports.ts`) wired to the dcc_test DB.
+ * killPort only reaps this suite's own leftovers, and startService runs with
+ * stdio:'ignore' which *swallows* the EADDRINUSE — so anything else bound here
+ * would silently shadow the test services and the whole suite would run
+ * against (and pollute) whatever database that process is using.
  * Fail loudly with an actionable message instead.
  */
 function assertPortFree(port: number): void {
@@ -217,10 +218,12 @@ function assertPortFree(port: number): void {
   if (held) {
     throw new Error(
       `Port ${port} is already in use (PID ${held.split(/\s+/).join(', ')}).\n` +
-        `The e2e suite starts its own auth/chat-gateway on 8001/8002 against the\n` +
-        `dcc_test database. A process already bound here — most likely your local\n` +
-        `dev stack — would silently shadow them, and the suite would run against\n` +
-        `the dcc dev DB instead. Stop the dev stack before running e2e.`
+        `The e2e suite starts its own auth/chat-gateway here, against the dcc_test\n` +
+        `database, and this PID is not one of ours (see the pid file). Whatever it\n` +
+        `is, it would shadow the test services and the suite would run against\n` +
+        `that process's database instead.\n` +
+        `Kill it, or move the suite: PULSE_E2E_AUTH_PORT / PULSE_E2E_CHAT_PORT /\n` +
+        `PULSE_E2E_VOICE_PORT / PULSE_E2E_WEB_PORT (see web/tests/e2e/_ports.ts).`
     );
   }
 }
@@ -269,10 +272,10 @@ export default async function globalSetup() {
     POSTGRES_DB: 'dcc_test',
     DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/dcc_test`,
     REDIS_URL: 'redis://localhost:6380/1',
-    AUTH_JWKS_URL: 'http://127.0.0.1:8001/.well-known/jwks.json',
+    AUTH_JWKS_URL: `http://127.0.0.1:${E2E_AUTH_PORT}/.well-known/jwks.json`,
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),
-    CORS_ALLOW_ORIGINS: 'http://127.0.0.1:5173,http://localhost:5173',
+    CORS_ALLOW_ORIGINS: `${E2E_BASE_URL},http://localhost:${E2E_WEB_PORT}`,
     // Default register limit (5/min) gets hit when the suite runs all three
     // specs back-to-back — chat + invite + watch-party register 6+ users
     // from 127.0.0.1 within one minute. Loosen to keep the suite reliable;
@@ -316,22 +319,22 @@ export default async function globalSetup() {
   try {
     lastPids = new Set(JSON.parse(readFileSync(pidFile, 'utf8')) as number[]);
   } catch { /* no prior run or file missing — nothing to clean up */ }
-  killPort(8001, lastPids);
-  killPort(8002, lastPids);
+  killPort(E2E_AUTH_PORT, lastPids);
+  killPort(E2E_CHAT_PORT, lastPids);
   if (lastPids.size > 0) {
     await new Promise((r) => setTimeout(r, 500)); // brief settle after kill
   }
 
-  // Pre-flight: the ports must be free now. If not (a dev stack is running),
-  // abort with a clear message rather than silently testing the wrong DB.
-  assertPortFree(8001);
-  assertPortFree(8002);
+  // Pre-flight: the ports must be free now. If not, abort with a clear message
+  // rather than silently testing the wrong DB.
+  assertPortFree(E2E_AUTH_PORT);
+  assertPortFree(E2E_CHAT_PORT);
 
-  startService('dcc-auth', baseEnv, 8001, resolve(ROOT, 'services/auth'));
-  startService('dcc-chat-gateway', baseEnv, 8002, resolve(ROOT, 'services/chat-gateway'));
+  startService('dcc-auth', baseEnv, E2E_AUTH_PORT, resolve(ROOT, 'services/auth'));
+  startService('dcc-chat-gateway', baseEnv, E2E_CHAT_PORT, resolve(ROOT, 'services/chat-gateway'));
 
-  await waitFor('http://127.0.0.1:8001/health');
-  await waitFor('http://127.0.0.1:8002/health');
+  await waitFor(`http://127.0.0.1:${E2E_AUTH_PORT}/health`);
+  await waitFor(`http://127.0.0.1:${E2E_CHAT_PORT}/health`);
 
   // Update pid file with the freshly-spawned test-server PIDs for teardown.
   writeFileSync(pidFile, JSON.stringify(procs.map((p) => p.pid).filter(Boolean)));

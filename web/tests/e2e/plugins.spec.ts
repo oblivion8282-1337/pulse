@@ -63,6 +63,12 @@ async function login(page: Page, identifier: string, password: string) {
   await page.getByTestId('login-password').fill(password);
   await page.getByTestId('login-submit').click();
   await page.waitForURL(/\/app/);
+  // `waitForURL` kehrt zurück, sobald sich die Adresse ändert — die Oberfläche
+  // ist dann noch nicht aufgebaut. Wer direkt danach klickt, trifft eine Leiste,
+  // die gleich darauf vom `ready`-Frame neu gerendert wird. `register` hat diese
+  // Wartezeit zufällig (der Onboarding-Klick mit 2,5 s Zeitfenster), `login`
+  // hatte sie nicht — daher war jeder login-basierte Test racy.
+  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 15_000 });
 }
 
 function promoteToAdmin(username: string) {
