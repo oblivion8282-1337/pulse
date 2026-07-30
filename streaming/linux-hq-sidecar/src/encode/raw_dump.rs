@@ -49,6 +49,8 @@ pub struct RawDump {
     width: u32,
     height: u32,
     remaining: u64,
+    /// Noch zu verwerfende Bilder, bevor der Mitschnitt beginnt (s. `from_env`).
+    skip: u64,
     written: u64,
     path: PathBuf,
 }
@@ -67,6 +69,34 @@ impl RawDump {
             .and_then(|v| v.parse::<u64>().ok())
             .filter(|v| *v > 0)
             .unwrap_or(DEFAULT_FRAMES);
+        // Bilder, die vor dem Mitschnitt verworfen werden — der ANFANG des
+        // Messfensters, wie `PULSE_DUMP_RAW_FRAMES` seine Länge ist.
+        //
+        // **Grund: der Anlauf gehört nicht in die Messung.** Encoder-Init,
+        // erster Keyframe und die Bilder, in denen die Ratenkontrolle noch
+        // einschwingt, machen jede Einstellung schlechter aussehen, als sie
+        // ist. Die Latenz- und GPU-Fenster des Prüfstands schneiden diesen
+        // Anlauf ohnehin weg; ohne den Vorlauf hier würde das Bildfenster als
+        // einziges mitten hineinfallen und mit den anderen zwei Achsen nicht
+        // mehr denselben Abschnitt beschreiben.
+        //
+        // **Was der Vorlauf NICHT ist:** eine Hilfe für die Bild-Zuordnung.
+        // Mitschnitt und Encoder bekommen im selben Schleifendurchgang dasselbe
+        // Bild (`stream_controller`: `dump.note(…)` direkt vor
+        // `enc.send_hw(…)`), die Zuordnung läuft also über die REIHENFOLGE und
+        // ist exakt `vorlauf + k` — unabhängig davon, ob der pts Lücken hat.
+        // Der Verdacht, Lücken würden den Versatz driften lassen, war falsch;
+        // die tatsächliche Ursache der unbrauchbaren Qualitätszahlen (VMAF
+        // 15,5 / 47,5 / 41,7 für dieselbe Einstellung) lag im Vergleich selbst,
+        // s. `streaming/testbench/vmaf_common.py::measure_vmaf`.
+        //
+        // Ohne diesen Vorlauf kostete dieselbe Aussage übrigens das Vierfache
+        // an Mitschnitt: man müsste von Bild 0 an durchschreiben, um beim
+        // eingeschwungenen Abschnitt anzukommen.
+        let skip = std::env::var("PULSE_DUMP_RAW_SKIP")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
         let data = BufWriter::with_capacity(
             8 << 20,
             File::create(&path).with_context(|| format!("Mitschnitt anlegen: {}", path.display()))?,
@@ -83,7 +113,8 @@ impl RawDump {
         }
         tracing::info!(
             target: "stream",
-            pfad = %path.display(), bilder = frames, breite = width, hoehe = height, fps,
+            pfad = %path.display(), bilder = frames, vorlauf = skip,
+            breite = width, hoehe = height, fps,
             "Rohmitschnitt aktiv (Encoder-Eingang, unkomprimiert)"
         );
         Ok(Some(Self {
@@ -93,6 +124,7 @@ impl RawDump {
             width,
             height,
             remaining: frames,
+            skip,
             written: 0,
             path,
         }))
@@ -106,6 +138,10 @@ impl RawDump {
     /// `hw` muss ein gültiger HW-Frame sein (derselbe, der an den Encoder geht).
     pub unsafe fn note(&mut self, hw: *mut AVFrame, pts: i64) -> Result<()> {
         if self.remaining == 0 {
+            return Ok(());
+        }
+        if self.skip > 0 {
+            self.skip -= 1;
             return Ok(());
         }
         unsafe {

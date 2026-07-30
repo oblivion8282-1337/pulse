@@ -1,0 +1,265 @@
+{
+  "was": "AMD-VAAPI av1, Phase bild",
+  "maschine": "AMD Radeon 780M (Phoenix, VCN 4.0), Mesa 26.1.5, FFmpeg 8.1.2",
+  "aufnahme": "Portal/PipeWire 2560x1440, bewegtbild.py als Inhalt",
+  "ziel": "Datei (kein RTMPS) — nur Encoder-Fragen, s. datei-harness.py",
+  "fps": 60,
+  "sekunden_je_lauf": 25,
+  "runden": 3,
+  "verschraenkt": true,
+  "begonnen": "2026-07-30T03:51:02",
+  "laeufe": [
+    {
+      "label": "av1-alt-r1",
+      "codec": "av1",
+      "opts": "async_depth=3",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 33.68,
+      "latenz_ms_ausschlag": 53.37,
+      "latenz_proben": 19,
+      "duplikate": 1,
+      "bytes": 12408397,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.72,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 8.66,
+        "compute_ns": 1708236779,
+        "enc_util_pct": 18.99,
+        "enc_ns": 3745323787,
+        "gpu_busy_pct_mittel": 48.3,
+        "leistung_w_mittel": 12.58,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3165.4,
+      "csc_us_je_bild": 1443.7,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 4
+      },
+      "bild": {
+        "vmaf": 99.011,
+        "psnr_y": 52.896,
+        "float_ssim": 0.999,
+        "vmaf_min": 3.501,
+        "paare": 181.0
+      },
+      "variante": "alt",
+      "runde": 1
+    },
+    {
+      "label": "av1-vorgabe-r1",
+      "codec": "av1",
+      "opts": "(Vorgabe)",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 4.66,
+      "latenz_ms_ausschlag": 11.27,
+      "latenz_proben": 19,
+      "duplikate": 92,
+      "bytes": 12495335,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.72,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 7.56,
+        "compute_ns": 1491358927,
+        "enc_util_pct": 18.53,
+        "enc_ns": 3653393021,
+        "gpu_busy_pct_mittel": 47.9,
+        "leistung_w_mittel": 11.02,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3087.7,
+      "csc_us_je_bild": 1260.4,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 5
+      },
+      "bild": {
+        "vmaf": 98.93,
+        "psnr_y": 52.943,
+        "float_ssim": 0.999,
+        "vmaf_min": 29.665,
+        "paare": 181.0
+      },
+      "variante": "vorgabe",
+      "runde": 1
+    },
+    {
+      "label": "av1-alt-r2",
+      "codec": "av1",
+      "opts": "async_depth=3",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 33.61,
+      "latenz_ms_ausschlag": 53.79,
+      "latenz_proben": 19,
+      "duplikate": 0,
+      "bytes": 12525482,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.71,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 8.04,
+        "compute_ns": 1585298622,
+        "enc_util_pct": 18.8,
+        "enc_ns": 3706262102,
+        "gpu_busy_pct_mittel": 47.3,
+        "leistung_w_mittel": 11.1,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3134.0,
+      "csc_us_je_bild": 1340.5,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 1
+      },
+      "bild": {
+        "vmaf": 98.942,
+        "psnr_y": 52.51,
+        "float_ssim": 0.999,
+        "vmaf_min": 26.748,
+        "paare": 181.0
+      },
+      "variante": "alt",
+      "runde": 2
+    },
+    {
+      "label": "av1-vorgabe-r2",
+      "codec": "av1",
+      "opts": "(Vorgabe)",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 5.34,
+      "latenz_ms_ausschlag": 9.28,
+      "latenz_proben": 19,
+      "duplikate": 5,
+      "bytes": 12398651,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.71,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 8.35,
+        "compute_ns": 1645470710,
+        "enc_util_pct": 18.53,
+        "enc_ns": 3652702701,
+        "gpu_busy_pct_mittel": 49.0,
+        "leistung_w_mittel": 11.47,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3088.7,
+      "csc_us_je_bild": 1391.4,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 7
+      },
+      "bild": {
+        "vmaf": 99.015,
+        "psnr_y": 53.033,
+        "float_ssim": 0.999,
+        "vmaf_min": 54.43,
+        "paare": 181.0
+      },
+      "variante": "vorgabe",
+      "runde": 2
+    },
+    {
+      "label": "av1-alt-r3",
+      "codec": "av1",
+      "opts": "async_depth=3",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 33.65,
+      "latenz_ms_ausschlag": 55.61,
+      "latenz_proben": 19,
+      "duplikate": 88,
+      "bytes": 12541761,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.72,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 7.94,
+        "compute_ns": 1565163707,
+        "enc_util_pct": 18.77,
+        "enc_ns": 3702439322,
+        "gpu_busy_pct_mittel": 47.6,
+        "leistung_w_mittel": 11.21,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3129.2,
+      "csc_us_je_bild": 1322.8,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 0
+      },
+      "bild": {
+        "vmaf": 99.459,
+        "psnr_y": 53.131,
+        "float_ssim": 0.999,
+        "vmaf_min": 96.515,
+        "paare": 180.0
+      },
+      "variante": "alt",
+      "runde": 3
+    },
+    {
+      "label": "av1-vorgabe-r3",
+      "codec": "av1",
+      "opts": "(Vorgabe)",
+      "binaer": "4004008@1785376182",
+      "fps_soll": 60,
+      "live": true,
+      "latenz_ms_median": 6.28,
+      "latenz_ms_ausschlag": 10.56,
+      "latenz_proben": 19,
+      "duplikate": 7,
+      "bytes": 12486184,
+      "unbekannte_optionen": [],
+      "gpu": {
+        "fenster_s": 19.72,
+        "proben": 79,
+        "clients_gemeinsam": 2,
+        "clients_wechsel": 0,
+        "compute_util_pct": 12.6,
+        "compute_ns": 2485565838,
+        "enc_util_pct": 20.3,
+        "enc_ns": 4004473032,
+        "gpu_busy_pct_mittel": 50.8,
+        "leistung_w_mittel": 11.63,
+        "takt_mhz_mittel": 800.0
+      },
+      "vcn_us_je_bild": 3384.4,
+      "csc_us_je_bild": 2100.7,
+      "bild_zuordnung": {
+        "versatz_bilder": 480,
+        "pts_luecken": 6
+      },
+      "bild": {
+        "vmaf": 98.973,
+        "psnr_y": 52.787,
+        "float_ssim": 0.999,
+        "vmaf_min": 9.722,
+        "paare": 181.0
+      },
+      "variante": "vorgabe",
+      "runde": 3
+    }
+  ]
+}
