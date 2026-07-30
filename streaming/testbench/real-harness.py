@@ -27,7 +27,7 @@ from harness import CID, HERE, Player, mint_tokens
 
 SIDECAR = Path(os.environ.get(
     "PULSE_LINUX_HQ_SIDECAR",
-    Path.home() / "Dokumente/Linux_Rust_Sidecar/target/release/pulse-linux-hq-sidecar",
+    HERE.parent / "linux-hq-sidecar/target/release/pulse-linux-hq-sidecar",
 ))
 
 
