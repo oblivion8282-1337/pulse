@@ -211,7 +211,17 @@ Bildabstand, 16,7 ms bei 60 fps.
 Gesetzt wurde er trotzdem **nicht** — das gehört auf eine AMD-Maschine gemessen,
 und `PULSE_ENCODER_OPTS=async_depth=1` macht das jetzt ohne Neubau möglich.
 
-### Was Schritt 3 als Nächstes braucht
+### Schritt 3 ist erledigt — Fortsetzung in einem eigenen Dokument
+
+Am selben Tag auf einer **Radeon 780M** nachgeholt:
+`docs/plans/2026-07-30-amd-windows-messung.md`. Die drei Punkte unten sind damit
+beantwortet, und eine Erwartung von oben hat sich nicht bestätigt: der
+d3d12va-Zweig trägt AV1 auf AMD **gar nicht** (unbrauchbarer Bitstrom), und der
+größte Posten war nicht der Encoder-Vorlauf, sondern dass AV1 mangels
+Alternative auf der CPU-Pipeline lief — 113 % einer CPU-Kerne. Der erwartete
+Bildabstand aus `async_depth` ist dagegen genau eingetroffen: 19,2 → 7,1 ms.
+
+### Was Schritt 3 als Nächstes brauchte
 
 1. Eine Windows-Maschine mit AMD-Karte. `PULSE_ENC_LATENCY_LOG=1` +
    `PULSE_ENCODER_OPTS=async_depth=1|2|4` auf dem d3d12va-Pfad, dann `usage` und
