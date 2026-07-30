@@ -3,6 +3,16 @@ import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { defineConfig } from 'vite';
 
+// Proxy-Ziele des Dev-Servers. Vorgabe sind die Ports des Dev-Stacks
+// (`scripts/dev-up.fish`); die E2E-Suite startet ihren EIGENEN Vite mit
+// gesetzten Variablen, damit sie auf ihre eigenen Dienste zeigt statt auf den
+// laufenden Dev-Stack — sonst testete sie gegen die Dev-Datenbank statt gegen
+// `dcc_test`. Die Portgruppe steht in `web/tests/e2e/_ports.ts`.
+const AUTH_PORT = process.env.PULSE_API_AUTH_PORT || '8001';
+const CHAT_PORT = process.env.PULSE_API_CHAT_PORT || '8002';
+const VOICE_PORT = process.env.PULSE_API_VOICE_PORT || '8003';
+const WEB_PORT = Number(process.env.PULSE_WEB_PORT) || 5173;
+
 export default defineConfig({
   plugins: [
     tailwindcss(),
@@ -49,8 +59,14 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
+    port: WEB_PORT,
     host: '127.0.0.1',
+    // NIE still auf den nächsten freien Port ausweichen. Der Port wird von
+    // außen fest adressiert — Playwright über `baseURL`, die Electron-Dev-App
+    // über `PULSE_DEV_URL`, `dev-up.fish` über seine Bereitschaftsprüfung.
+    // Weicht Vite auf 5174 aus, lädt keiner von ihnen mehr etwas, und der
+    // Fehler steht nirgends. Belegt ist der Port lieber laut als heimlich.
+    strictPort: true,
     watch: {
       // `pnpm build` schreibt nach `web/build/` — im Watcher löste jeder
       // Produktions-Build dort Datei-Ereignisse und damit ein volles
@@ -60,22 +76,22 @@ export default defineConfig({
     },
     proxy: {
       '/api/auth': {
-        target: 'http://127.0.0.1:8001',
+        target: `http://127.0.0.1:${AUTH_PORT}`,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/auth/, '')
       },
       '/api/chat': {
-        target: 'http://127.0.0.1:8002',
+        target: `http://127.0.0.1:${CHAT_PORT}`,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/chat/, '')
       },
       '/api/voice': {
-        target: 'http://127.0.0.1:8003',
+        target: `http://127.0.0.1:${VOICE_PORT}`,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/voice/, '')
       },
       '/api/ws': {
-        target: 'ws://127.0.0.1:8002',
+        target: `ws://127.0.0.1:${CHAT_PORT}`,
         ws: true,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/ws/, '')

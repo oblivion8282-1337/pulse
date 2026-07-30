@@ -107,7 +107,12 @@ test.describe('Dropbox / Ablage', () => {
     await page.getByTestId('guild-create').click();
     await page.getByTestId('create-guild-name').fill('Dropbox Test Guild');
     await page.getByTestId('create-guild-submit').click();
-    await page.waitForLoadState('networkidle');
+    // Auf die fertige Community warten, nicht auf `networkidle`. Letzteres sagt
+    // nur „gerade fließt nichts mehr" und nichts über den Zustand der Anwendung:
+    // scheiterte das Anlegen, lief der Test trotzdem weiter, das SQL unten traf
+    // null Zeilen, und gestorben ist er 30 s später an `channel-create` — einer
+    // Zeile, die mit der Ursache nichts zu tun hat.
+    await page.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/, { timeout: 15_000 });
 
     // Die Ablage muss der Betreiber pro Community freischalten
     // (``guilds.dropbox_allowed``, Migration 0056, Standard aus) — ohne das
