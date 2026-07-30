@@ -222,6 +222,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
     // auf Wall-clock wenn qpc_sync aus / origin_qpc==0. Kill: PULSE_HQ_NO_AV_OFFSET=1.
     let qpc_sync = !crate::env::flag("PULSE_HQ_NO_AV_OFFSET") && first_qpc != 0;
     let origin_qpc = first_qpc;
+    crate::syncprobe::video_origin(origin_qpc);
     let mut newest_qpc = first_qpc;
     // Anker muss zum tatsächlichen Video-Origin passen — s. pipeline_hw.
     encoder.set_audio_origin(
@@ -266,6 +267,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
                     let _ = capture.free_tx.send(old);
                     if qpc != 0 {
                         newest_qpc = qpc;
+                        crate::syncprobe::video_frame_age(qpc);
                     }
                     captured += 1;
                 }

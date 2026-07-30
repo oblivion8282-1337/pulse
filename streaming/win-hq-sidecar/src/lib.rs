@@ -17,5 +17,6 @@ pub mod profiles;
 pub mod proto;
 pub mod redact;
 pub mod stream_controller;
+pub mod syncprobe;
 pub mod system;
 pub mod tick_monitor;

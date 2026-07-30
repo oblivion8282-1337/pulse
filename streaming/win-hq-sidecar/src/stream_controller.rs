@@ -486,6 +486,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Kill-Switch: PULSE_HQ_NO_AV_OFFSET=1.
         let qpc_sync = !crate::env::flag("PULSE_HQ_NO_AV_OFFSET") && first_qpc != 0;
         let origin_qpc = first_qpc;
+        crate::syncprobe::video_origin(origin_qpc);
         let mut newest_qpc = first_qpc;
         // Anker muss zum tatsächlichen Video-Origin passen: mit QPC-Sync ist
         // PTS 0 der erste Frame (origin_instant), ohne QPC-Sync die Wanduhr-
