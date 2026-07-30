@@ -3,17 +3,18 @@
 Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 (`streaming/linux-hq-sidecar/` im Pulse-Repo).
 
-**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`, jetzt
-Archiv). Übernommen wurde `ba9cc48` als sauberer Schnitt ohne Historien-Import.
+**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`).
+Übernommen wurde `ba9cc48` als sauberer Schnitt ohne Historien-Import; das
+Quell-Repo ist am 2026-07-30 gelöscht. **Vor dem Import-Commit gibt es hier
+also keine Historie** — `git log`/`git blame` enden dort, das ist kein Fehler.
 
-**Warum eine Zahl so gesetzt ist:** zuerst
-`docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md` im Pulse-Repo — die
-Messbegründungen aus der Archiv-Historie (Latenzkette, Encoder-Werte, Puffer-
-Größen und vor allem die **geprüft-und-verworfenen** Versuche) sind dort
-extrahiert. Nur wenn die volle Commit-Nachricht gebraucht wird, ins Archiv;
-das Register am Ende des Dokuments nennt die Hashes. Werte, die nach dem Umzug
-gewandert sind (AMD-Encoder-Arbeit), tragen ihre Begründung im Code-Kommentar —
-der gilt.
+**Warum eine Zahl so gesetzt ist**, zwei Quellen, sonst keine:
+1. `docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md` im Pulse-Repo — die
+   Messbegründungen aus der alten Historie (Latenzkette, Encoder-Werte,
+   Puffergrößen und vor allem die **geprüft-und-verworfenen** Versuche).
+2. Der Code-Kommentar an der Stelle selbst. Für Werte, die nach dem Umzug
+   gewandert sind (AMD-Encoder-Arbeit), ist **er** die gültige Begründung —
+   das Dokument beschreibt den Stand `ba9cc48`.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`

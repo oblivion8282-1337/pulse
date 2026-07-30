@@ -1,13 +1,14 @@
 # Linux-HQ-Sidecar: Messbegründungen aus der Repo-Historie
 
 **Zweck:** Der Rust-Linux-Sidecar lag bis 2026-07-29 in einem eigenen Repo
-([`pulse-linux-hq-sidecar`](https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar), archiviert)
-und wurde als **sauberer Schnitt ohne Historien-Import** nach `streaming/linux-hq-sidecar/`
-übernommen. Die 44 Commit-Nachrichten dort trugen die Begründungen für die Encoder-, Puffer-
-und Zeitstempel-Werte — im Hauptrepo steht davon nur ein Import-Commit.
+(`pulse-linux-hq-sidecar`) und wurde als **sauberer Schnitt ohne Historien-Import** nach
+`streaming/linux-hq-sidecar/` übernommen. Die 44 Commit-Nachrichten dort trugen die
+Begründungen für die Encoder-, Puffer- und Zeitstempel-Werte — im Hauptrepo steht davon nur
+ein Import-Commit.
 
-Dieses Dokument zieht diese Begründungen her, damit sie eine Datei sind statt einer
-Repo-Abhängigkeit. Es ist ein **Archiv-Auszug, kein Design-Dokument**: die Werte hier waren
+**Das Quell-Repo ist am 2026-07-30 gelöscht.** Dieses Dokument ist damit die einzige
+verbliebene Quelle für diese Begründungen; es wurde vor dem Löschen daraus gezogen. Es ist ein
+**Auszug, kein Design-Dokument**: die Werte hier waren
 zum Stand `ba9cc48` (2026-07-27) gültig. Wo der Code seither weitergezogen ist
 (AMD-Encoder-Arbeit ab 2026-07-29), steht die aktuelle Begründung **im Code-Kommentar** —
 der gilt, nicht dieses Dokument.
@@ -281,10 +282,14 @@ Alle standardmäßig aus und dann kostenlos:
   Track ließe den Interleave-Muxer 10 s puffern.
 - **Die Aufnahme selbst bleibt 8 bit** (der Compositor liefert XRGB8888), auch im 10-bit-Pfad.
 
-## 10. Register: Thema → Archiv-Commit
+## 10. Register: Thema → ursprünglicher Commit
 
-Für den Fall, dass die volle Nachricht doch gebraucht wird. Repo:
-`oblivion8282-1337/pulse-linux-hq-sidecar` (archiviert, read-only).
+**Herkunftsangabe, kein Link.** Das Quell-Repo `oblivion8282-1337/pulse-linux-hq-sidecar` ist
+gelöscht, die Hashes lassen sich nirgends mehr auflösen. Sie stehen hier, weil sie die
+Zuordnung Thema → ursprüngliche Nachricht festhalten: falls doch einmal ein alter Klon
+auftaucht (oder jemand einen hat), ist damit sofort klar, wo nachzuschlagen wäre. Für die
+Frage „warum steht der Wert so" reichen die Abschnitte oben — sie sind der ganze Inhalt dieser
+Commits.
 
 | Commit | Datum | Thema |
 |---|---|---|
