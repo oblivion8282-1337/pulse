@@ -32,9 +32,28 @@ use ffmpeg::{Dictionary, codec, format};
 /// 144 fps und starb bei 280 fps. 10 ms hält Abstand zu dieser Kante, und
 /// darunter (3 ms, 1 ms) brachte es bei 60 fps nichts mehr.
 ///
+/// **Der Deckel gilt erst, wenn beide Spuren laufen** — gesetzt wird er deshalb
+/// nicht hier, sondern vom `MuxWriter`, sobald er von jeder Spur ein Paket
+/// gesehen hat. Beim Start ist genau das der Unterschied: solange nur Bild
+/// anliegt, wartet der Muxer mit dem ffmpeg-Vorgabewert (10 s) auf den Ton.
+/// Mit dem engen Deckel ab der ersten Sekunde gab er stattdessen nach 10 ms
+/// Bilder frei, und das erste Tonpaket kam damit zu spaet — der Stream starb
+/// beim Start (2026-07-30 gegen die Produktion gemessen:
+/// „Packets are not in the proper order with respect to DTS", 6 ms nach `live`).
+///
 /// Über `PULSE_MUX_INTERLEAVE_US` veränderbar, damit der Kompromiss messbar
 /// bleibt statt geraten zu werden.
 const DEFAULT_INTERLEAVE_US: i64 = 10_000;
+
+/// Der Deckel aus der Umgebung, sonst [`DEFAULT_INTERLEAVE_US`]. Der `MuxWriter`
+/// setzt ihn, sobald jede Spur geliefert hat.
+pub fn interleave_delta_us() -> i64 {
+    std::env::var("PULSE_MUX_INTERLEAVE_US")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_INTERLEAVE_US)
+}
 
 /// Für URL-Schemes ohne Extension wählt FFmpegs Auto-Detect kein Format —
 /// wir mappen die unterstützten Streaming-Protokolle hier explizit.
@@ -70,7 +89,7 @@ pub fn url_format_hint(target: &str) -> Option<&'static str> {
 /// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
 /// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
 pub fn open_output(output_path: &str) -> Result<format::context::Output> {
-    let mut output = match url_format_hint(output_path) {
+    match url_format_hint(output_path) {
         Some(fmt) => {
             let mut opts = Dictionary::new();
             if fmt == "whip" {
@@ -93,31 +112,10 @@ pub fn open_output(output_path: &str) -> Result<format::context::Output> {
                 }
             }
             format::output_as_with(&output_path, fmt, opts)
-                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))?
+                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))
         }
         None => format::output(&output_path)
-            .with_context(|| format!("format::output({output_path})"))?,
-    };
-    set_interleave_delta(&mut output);
-    Ok(output)
-}
-
-/// Setzt `max_interleave_delta` am Format-Kontext (s. Konstante).
-///
-/// Warum direkt am Feld und nicht im Wörterbuch oben: das Wörterbuch von
-/// `output_as_with` geht an `avio_open2`, nimmt also nur PROTOKOLL-Optionen
-/// (`rw_timeout`, `tls_verify`, `tcp_nodelay`). `max_interleave_delta` gehört
-/// dem Format-Kontext und würde dort stillschweigend verworfen.
-fn set_interleave_delta(output: &mut format::context::Output) {
-    let us: i64 = std::env::var("PULSE_MUX_INTERLEAVE_US")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(DEFAULT_INTERLEAVE_US);
-    // SAFETY: der Kontext gehört uns und ist frisch geöffnet; das Feld ist ein
-    // einfacher i64 im `AVFormatContext`, kein Besitzwechsel.
-    unsafe {
-        (*output.as_mut_ptr()).max_interleave_delta = us;
+            .with_context(|| format!("format::output({output_path})")),
     }
 }
 

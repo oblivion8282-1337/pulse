@@ -385,12 +385,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Encoder-Erzeugung, der Setup-Versatz würde zum konstanten A/V-Offset).
         let origin_instant = Instant::now();
 
-        let mut codec = params.override_codec.unwrap_or(match params.profile.codec {
-            "h264" => VideoCodec::H264,
-            "hevc" => VideoCodec::Hevc,
-            "av1" => VideoCodec::Av1,
-            _ => VideoCodec::H264,
-        });
+        let mut codec = params.override_codec.unwrap_or_else(|| VideoCodec::from_slug(params.profile.codec));
         // WHIP-Ziel (App-gehostete Instanz): FFmpegs WHIP-Muxer trägt nur
         // H.264-Video → ausweichen statt beim write_header hart zu scheitern
         // (wie Linux/Mac-Sidecar).
@@ -703,7 +698,23 @@ pub(crate) fn build_argv_redacted(params: &StartParams) -> Vec<String> {
         "--profile".into(),
         params.profile_name.clone(),
         "--codec".into(),
-        params.profile.codec.to_string(),
+        // Den GEWAEHLTEN Codec melden, nicht den des Profils.
+        //
+        // Bis 2026-07-30 stand hier `params.profile.codec` — waehrend `--fps`
+        // und `--bitrate` zwei Zeilen weiter den Override respektieren. Wer
+        // AV1 waehlte, bekam in der Antwort und damit im Log `--codec h264` zu
+        // sehen und hielt einen AV1-Lauf fuer einen H.264-Lauf. Genau daran
+        // ist am 2026-07-30 eine Auswertung falsch abgebogen.
+        //
+        // Auch das bleibt aber der GEWUENSCHTE Codec: die Rueckfaelle
+        // (WHIP kann kein AV1, AV1 verlaesst den d3d12va-Pfad) greifen erst
+        // spaeter. Was wirklich lief, sagt die Zeile "Encoder offen" aus
+        // `encode/`, und die ist die verbindliche.
+        params
+            .override_codec
+            .map(|c| c.slug())
+            .unwrap_or(params.profile.codec)
+            .to_string(),
         "--fps".into(),
         params
             .override_fps

@@ -39,12 +39,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     let ctrl = StreamController::singleton();
 
     let fps = params.override_fps.unwrap_or(params.profile.fps);
-    let codec = params.override_codec.unwrap_or(match params.profile.codec {
-        "h264" => VideoCodec::H264,
-        "hevc" => VideoCodec::Hevc,
-        "av1" => VideoCodec::Av1,
-        _ => VideoCodec::H264,
-    });
+    let codec = params.override_codec.unwrap_or_else(|| VideoCodec::from_slug(params.profile.codec));
     let bitrate = params
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);

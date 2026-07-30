@@ -20,12 +20,13 @@
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
+use ffmpeg::{Packet, Rational, codec, format, frame, software::scaling};
 
 use super::audio::AudioPipeline;
 use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
-use super::output::{apply_encoder_opts_override, open_output, warn_unknown_opts};
+use super::opts::vendor_encoder_opts;
+use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
 
@@ -75,6 +76,29 @@ impl VideoCodec {
             ("intel", VideoCodec::Av1) => "av1_qsv",
             _ => return Err(anyhow!("no HW encoder for vendor={vendor} codec={self:?}")),
         })
+    }
+
+    /// Umkehrung von [`slug`](Self::slug): der Kurzname aus dem `start`-Request.
+    /// Unbekanntes faellt auf H.264 zurueck, wie an allen drei Aufrufstellen
+    /// zuvor einzeln ausgeschrieben.
+    pub fn from_slug(s: &str) -> Self {
+        match s {
+            "hevc" => VideoCodec::Hevc,
+            "av1" => VideoCodec::Av1,
+            _ => VideoCodec::H264,
+        }
+    }
+
+    /// Kurzname wie im `start`-Request (`"h264"`/`"hevc"`/`"av1"`) — die
+    /// Rueckrichtung zu `parse_overrides`. Gebraucht fuer die argv-Zeile der
+    /// `start`-Antwort, die sonst den Codec des PROFILS meldet statt den
+    /// gewaehlten.
+    pub fn slug(self) -> &'static str {
+        match self {
+            VideoCodec::H264 => "h264",
+            VideoCodec::Hevc => "hevc",
+            VideoCodec::Av1 => "av1",
+        }
     }
 
     /// FFmpeg-Encoder-Name für den nativen D3D12VA-Pfad (AMD-GPU-Pfad). Die
@@ -200,6 +224,14 @@ impl FfmpegEncoder {
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}' (vendor={})", cfg.vendor))?;
+        super::log_encoder_open(
+            codec_name,
+            &cfg.vendor,
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+        );
         stream.set_parameters(&opened);
 
         // Audio-Pipeline VOR write_header anlegen — sie addiert einen Stream
@@ -447,54 +479,4 @@ pub(crate) fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, heigh
         let dst = y * stride;
         data[dst..dst + row_bytes].copy_from_slice(&bgra[src..src + row_bytes]);
     }
-}
-
-/// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
-/// (Low-Latency, CBR) — pro Encoder mehr durchstimmen wenn die echten
-/// Quality-Tradeoffs sichtbar sind.
-///
-/// `codec` wird für die eine Option gebraucht, die es nicht bei jedem Codec
-/// desselben Vendors gibt (Begründung an der Stelle selbst). Jeder gesetzte
-/// Schlüssel wird vor dem Open gegen die Optionstabelle des Encoders geprüft
-/// (`output::warn_unknown_opts`) — ein Schlüssel, den der Encoder nicht kennt,
-/// wird von ffmpeg still verworfen.
-pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary<'static> {
-    let mut opts = Dictionary::new();
-    match vendor {
-        "nvidia" => {
-            // NVENC-Presets: p1 (fastest) … p7 (slowest+best). Für Live-Stream
-            // ist Throughput wichtiger als Last-bit-Quality → `p2` ist der
-            // sweet-spot, sehr schnell und kaum schlechter als p4 im Screen-
-            // Content. `tune=ull` (ultra-low-latency) statt nur `ll` damit
-            // B-Frames und VBV-Lookahead komplett aus sind.
-            opts.set("preset", "p2");
-            opts.set("tune", "ull");
-            opts.set("rc", "cbr");
-            opts.set("zerolatency", "1");
-            opts.set("delay", "0");
-        }
-        "amd" => {
-            opts.set("usage", "transcoding");
-            opts.set("quality", "balanced");
-            opts.set("rc", "cbr");
-        }
-        "intel" => {
-            opts.set("preset", "medium");
-            // Lookahead aus (Latenz). Die Option gibt es bei `h264_qsv` und
-            // `hevc_qsv` — bei `av1_qsv` NICHT (2026-07-30 gegen die
-            // Optionstabellen des mitgelieferten FFmpeg n8.1 geprüft). Bis dahin
-            // stand sie unbedingt hier und wurde bei jedem AV1-QSV-Stream still
-            // verworfen; folgenlos (der Default ist ohnehin `false`), aber es
-            // war eine Anweisung ohne Wirkung — und sie hätte die neue
-            // Unbekannt-Warnung bei jedem gesunden AV1-Stream feuern lassen.
-            // Eine Warnung, die im gesunden Fall feuert, erzieht dazu,
-            // Warnungen zu überlesen.
-            if !matches!(codec, VideoCodec::Av1) {
-                opts.set("look_ahead", "0");
-            }
-        }
-        _ => {}
-    }
-    apply_encoder_opts_override(&mut opts);
-    opts
 }

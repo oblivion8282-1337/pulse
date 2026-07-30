@@ -211,6 +211,14 @@ impl FfmpegD3d12Encoder {
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}'"))?;
+        super::log_encoder_open(
+            codec_name,
+            "amd/d3d12va",
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+        );
 
         // Audio-Pipeline VOR write_header (addiert einen Stream zum Output).
         let audio = match audio_cfg {

@@ -22,7 +22,8 @@ use ffmpeg_next as ffmpeg;
 use ffmpeg::{Packet, Rational, codec, format, ffi::*};
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, vendor_encoder_opts};
+use super::encoder::{AudioStreamConfig, VideoCodec};
+use super::opts::vendor_encoder_opts;
 use super::hwctx::OwnedHwFrame;
 use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
@@ -119,6 +120,14 @@ impl FfmpegHwEncoder {
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open hw encoder '{codec_name}' (vendor={})", cfg.vendor))?;
+        super::log_encoder_open(
+            codec_name,
+            &cfg.vendor,
+            cfg.dst_w,
+            cfg.dst_h,
+            cfg.fps,
+            cfg.bitrate_kbps,
+        );
         stream.set_parameters(&opened);
 
         let mut audio = match audio_cfg {

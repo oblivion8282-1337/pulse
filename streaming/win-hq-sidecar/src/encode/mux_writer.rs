@@ -14,7 +14,7 @@
 //! stabil, die Queue leert sich in den ~1,85 s bis zum nächsten Keyframe
 //! wieder (der Uplink reicht im Schnitt — es ist rein der Burst).
 
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -22,11 +22,115 @@ use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Packet, format};
 
+use super::output::interleave_delta_us;
+
 /// Queue-Tiefe. Muss einen Keyframe-Burst absorbieren (~150 ms Socket-Stall ≈
 /// 18 Video-Frames bei 120 fps + Audio). 256 ≈ 2 s Video bei 120 fps —
 /// großzügig; bei einem echten >2 s-Netzwerk-Ausfall greift Backpressure
 /// (Producer-`send` blockiert), was der `rw_timeout` (10 s) sauber auflöst.
 const QUEUE_CAPACITY: usize = 256;
+
+/// Schaltet `max_interleave_delta` von der ffmpeg-Vorgabe auf den engen Wert
+/// um, sobald JEDE Spur mindestens ein Paket geliefert hat.
+///
+/// **Warum nicht gleich beim Oeffnen** (s. `output.rs::interleave_delta_us`):
+/// der Deckel sagt dem Muxer, wie lange er auf eine hungernde Spur wartet, bevor
+/// er ohne sie ausgibt. Beim Start hungert der Ton immer — WASAPI braucht seinen
+/// Moment, und der Ton-pts wird ausserdem erst am ersten Bild verankert. Mit dem
+/// engen Deckel gab der Muxer nach 10 ms die ersten Bilder frei; das erste
+/// Tonpaket trug danach einen kleineren dts und wurde abgelehnt. Ergebnis:
+/// Stream tot, 6 ms nach `live` (2026-07-30 gegen die Produktion gemessen).
+///
+/// Mit der ffmpeg-Vorgabe (10 s) wartet der Muxer beim Start auf den Ton — das
+/// alte, funktionierende Verhalten. Sobald beide Spuren laufen, ist die Sorge
+/// gegenstandslos und der enge Deckel greift.
+struct InterleaveGate {
+    /// Bit je Stream-Index, der schon geliefert hat.
+    seen: u64,
+    /// Anzahl Streams im Container (1 = video-only → sofort scharf).
+    stream_count: u32,
+    armed: bool,
+}
+
+impl InterleaveGate {
+    fn new(stream_count: u32) -> Self {
+        Self { seen: 0, stream_count: stream_count.max(1), armed: false }
+    }
+
+    fn before_write(&mut self, pkt: &Packet, output: &mut format::context::Output) {
+        if self.armed {
+            return;
+        }
+        // Stream-Indizes liegen hier immer bei 0/1; die Maske deckt 64 ab, alles
+        // darueber wird auf das letzte Bit gefaltet (kann nicht vorkommen, aber
+        // ein Shift-Overflow waere ein Panic im Muxer-Thread).
+        self.seen |= 1u64 << pkt.stream().min(63);
+        if self.seen.count_ones() < self.stream_count {
+            return;
+        }
+        self.armed = true;
+        let us = interleave_delta_us();
+        // SAFETY: der Kontext gehoert diesem Thread; das Feld ist ein einfacher
+        // i64 im `AVFormatContext`, kein Besitzwechsel.
+        unsafe {
+            (*output.as_mut_ptr()).max_interleave_delta = us;
+        }
+        eprintln!("[mux-writer] alle Spuren laufen — max_interleave_delta = {us} us");
+    }
+}
+
+/// Hat der Muxer das Paket wegen der Reihenfolge abgelehnt (EINVAL)?
+///
+/// Eine solche Zurueckweisung ist NICHT toedlich: FLV ist eine einzige
+/// Tag-Zeitleiste; kommt ein Paket mit kleinerem dts als das zuletzt
+/// geschriebene, lehnt der Muxer es mit EINVAL ab. Bis 2026-07-30 riss das den
+/// ganzen Stream ab — aus einem einzelnen verspaeteten Tonpaket wurde ein toter
+/// Stream, und der Zuschauer sah nichts mehr. Das ist die falsche Reaktion auf
+/// einen Schluckauf von Millisekunden: das Paket ist ohnehin nicht mehr
+/// einsortierbar, wegwerfen kostet einen Bruchteil einer Sekunde Ton.
+///
+/// Gezaehlt und gemeldet wird es trotzdem — haeuft es sich, stimmt etwas
+/// Grundsaetzliches (zu enger `max_interleave_delta`, s. `output.rs`), und das
+/// soll sichtbar sein statt still weggeraeumt.
+fn is_out_of_order(e: &ffmpeg::Error) -> bool {
+    matches!(e, ffmpeg::Error::Other { errno } if *errno == ffmpeg::error::EINVAL)
+}
+
+/// Schreibt die Queue leer, bis der Sender faellt (= EOF). Der Trailer bleibt
+/// dem Aufrufer.
+fn write_loop(
+    rx: Receiver<SendPacket>,
+    output: &mut format::context::Output,
+    fail_slot: &Mutex<Option<String>>,
+) -> Result<()> {
+    let mut gate = InterleaveGate::new(output.nb_streams());
+    let mut dropped: u64 = 0;
+    for pkt in rx {
+        gate.before_write(&pkt.0, output);
+        if let Err(e) = pkt.0.write_interleaved(output) {
+            // Reihenfolge-Zurueckweisung ist nicht toedlich — Begruendung an
+            // `is_out_of_order`.
+            if is_out_of_order(&e) {
+                dropped += 1;
+                if dropped == 1 || dropped.is_multiple_of(100) {
+                    eprintln!(
+                        "[mux-writer] Paket ausserhalb der Reihenfolge verworfen ({dropped} bisher) — Stream laeuft weiter"
+                    );
+                }
+                continue;
+            }
+            eprintln!("[mux-writer] write_interleaved failed: {e:#}");
+            if let Ok(mut slot) = fail_slot.lock() {
+                *slot = Some(format!("{e:#}"));
+            }
+            return Err(e).context("mux-writer: write_interleaved");
+        }
+    }
+    if dropped > 0 {
+        eprintln!("[mux-writer] insgesamt {dropped} Pakete ausserhalb der Reihenfolge");
+    }
+    Ok(())
+}
 
 /// `ffmpeg::Packet` ist nicht `Send` (ffmpeg-next markiert es konservativ
 /// nicht). Die Thread-Übergabe hier ist trotzdem sound: der Packet wird auf
@@ -64,15 +168,7 @@ impl MuxWriter {
             .name("mux-writer".into())
             .spawn(move || -> Result<()> {
                 let mut output = out.0;
-                for pkt in rx {
-                    if let Err(e) = pkt.0.write_interleaved(&mut output) {
-                        eprintln!("[mux-writer] write_interleaved failed: {e:#}");
-                        if let Ok(mut slot) = fail_slot.lock() {
-                            *slot = Some(format!("{e:#}"));
-                        }
-                        return Err(e).context("mux-writer: write_interleaved");
-                    }
-                }
+                write_loop(rx, &mut output, &fail_slot)?;
                 // Channel geschlossen = EOF → Trailer schreiben (RTMP/TLS
                 // sauber zu). Der anschließende Drop von `output` ist reines
                 // Userspace-/Netzwerk-Aufräumen (AVFormatContext-Free +
