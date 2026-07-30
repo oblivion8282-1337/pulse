@@ -2,6 +2,48 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-30",
+      "date": "2026-07-30",
+      "style": "Sachlich",
+      "title": "HQ-Streaming: deutlich geringere Verzögerung",
+      "items": [
+        "Der Bildschirm-Stream erreicht Zuschauer jetzt rund 80 Millisekunden schneller. Vorher wurde jedes Bild zurückgehalten, bis der Ton nachkam.",
+        "Das Bild läuft gleichmäßiger, weil es nicht mehr in Schüben ausgeliefert wird.",
+        "Die Grafikkarte hat beim Streamen rund 40 Prozent weniger zu tun, bei gleicher Bildqualität."
+      ],
+      "outro": "Gilt für Linux mit NVIDIA-Grafikkarte. Für AMD folgt dasselbe in einem nächsten Schritt."
+    },
+    {
+      "id": "2026-07-27.3",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Mehr Zeit für die Server-Einrichtung",
+      "items": [
+        "Der Einrichtungsbefehl für einen eigenen Server war 20 Minuten gültig. Das reichte oft nicht, wenn bei der Installation etwas dazwischenkam.",
+        "Jetzt sind es zwei Stunden. Der Befehl bleibt einmalig verwendbar, und „Neu generieren“ entwertet einen alten weiterhin sofort."
+      ]
+    },
+    {
+      "id": "2026-07-27.2",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Server-Zugangsdatei lässt sich neu ausstellen",
+      "items": [
+        "Die .env-Datei für einen eigenen Server gab es bisher genau einmal. Ging sie verloren, war ein kompletter neuer Antrag nötig.",
+        "Sie lässt sich jetzt neu ausstellen. Ein Server, der noch mit der alten Datei läuft, verliert dabei seinen Zugang und muss die neue bekommen — die App weist vor dem Bestätigen darauf hin.",
+        "Wurde der Server schon mit dem Schnellinstaller eingerichtet, weist die App jetzt vorher darauf hin — bisher konnte ein Download die funktionierenden Zugangsdaten unbemerkt ersetzen."
+      ]
+    },
+    {
+      "id": "2026-07-27",
+      "date": "2026-07-27",
+      "style": "Sachlich",
+      "title": "Gelöschte Server beenden den Zugang",
+      "items": [
+        "Wird ein Server gelöscht, endet der Zugang darauf jetzt innerhalb einer Minute. Bisher lief ein gelöschter Server unbemerkt weiter."
+      ]
+    },
+    {
       "id": "2026-07-25",
       "date": "2026-07-25",
       "style": "Sachlich",

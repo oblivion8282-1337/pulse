@@ -238,6 +238,11 @@ set -euo pipefail
 HEADER
     printf 'IMAGE=%q\n' "$IMAGE"
     printf 'CONTAINER=%q\n' "$CONTAINER"
+    # Eigener Log-Pfad, damit das Skript ihn selbst kappen kann (s. BODY).
+    # Nur die Cron-Variante schreibt dorthin; unter systemd geht alles nach
+    # journald (das begrenzt sich selbst) und die Datei existiert nie — das
+    # Kappen ist dann ein No-op.
+    printf 'LOG=%q\n' "${PULSE_DIR}/pulse-update.log"
     printf 'RUN_ARGS=('
     printf '%q ' "${RUN_ARGS[@]}"
     printf ')\n'
@@ -251,6 +256,35 @@ HEADER
         printf 'REG_PASS=%q\n' "$CLIENT_SECRET" ;;
     esac
     cat <<'BODY'
+
+# Das eigene Log kappen — auf JEDEM Ausgang, deshalb per trap.
+#
+# Ohne das waechst die Datei unbegrenzt: der Updater laeuft alle fuenf Minuten,
+# und sobald die Instanz in der Cloud geloescht oder gesperrt ist, scheitert
+# schon der Registry-Login (403 "instance is not available") — dann schreibt
+# jeder Lauf eine Zeile, fuer immer. Rund 17 KB am Tag auf einem fremden
+# Rechner, auf dem niemand nachsieht. Genau die frueh abbrechenden Pfade sind
+# die lauten, deshalb trap statt einer Zeile am Ende.
+#
+# In-place gekappt (gleiche Inode), nicht per Umbenennen: der Cron haelt die
+# Datei mit O_APPEND offen, waehrend dieses Skript laeuft. Ein Umbenennen
+# liesse die laufende Ausgabe in der alten Datei verschwinden.
+# Erst ab 4000 Zeilen kappen, dann auf 2000 — nicht bei jedem Ueberschreiten.
+# Ohne diesen Abstand traefe die Grenze nach dem ersten Kappen bei JEDEM Lauf
+# wieder zu (2000 + eine neue Zeile) und das Skript schriebe alle fuenf Minuten
+# 2000 Zeilen neu, fuer nichts.
+_trim_log() {
+  [ -f "${LOG:-}" ] || return 0
+  local zeilen tmp
+  zeilen="$(wc -l < "$LOG" 2>/dev/null || echo 0)"
+  [ "${zeilen:-0}" -gt 4000 ] 2>/dev/null || return 0
+  tmp="$(mktemp 2>/dev/null)" || return 0
+  if tail -n 2000 "$LOG" > "$tmp" 2>/dev/null; then
+    cat "$tmp" > "$LOG" 2>/dev/null || true
+  fi
+  rm -f "$tmp"
+}
+trap _trim_log EXIT
 
 if [ -n "${REG_PASS:-}" ]; then
   docker login "$REGISTRY" -u "$REG_USER" -p "$REG_PASS" >/dev/null 2>&1 \

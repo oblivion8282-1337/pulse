@@ -35,6 +35,8 @@ on:
       - 'desktop/electron/**'
       - 'desktop/package.json'
       - 'streaming/gsr-sidecar/**'
+      - 'streaming/linux-hq-sidecar/**'
+      - 'packaging/linux-hq-sidecar-cargo-sources.json'
       - 'streaming/patches/**'
       - 'packaging/com.howispulse.Pulse.yml'
       - 'packaging/launcher.sh'

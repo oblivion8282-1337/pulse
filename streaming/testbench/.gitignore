@@ -22,6 +22,20 @@ rec-*.mkv
 /netz-ergebnisse.json
 /chrome-profil/
 
-# Paketmitschnitt des PLI-Tests (mehrere MB je Lauf)
-/pli.pcap
-/wpli.pcap
+# Rohdaten der Messlaeufe. UMGEKEHRT gedacht als der Rest dieser Datei: nicht
+# einzelne Namen ausschliessen, sondern alles — Werkzeuge sind `.py`/`.sh`, und
+# Ergebnisse gehoeren als Messakte nach `profiles/`. Alles andere in diesem
+# Verzeichnis ist Artefakt eines Laufs und regenerierbar.
+#
+# Warum umgekehrt: die Einzelnamen-Liste ist zweimal zu kurz gewesen. Am
+# 2026-07-29 rutschten so 98 Dateien in einen Commit, darunter Vorlagen und
+# Tonsignale bis 110 MB — GitHub lehnte den Push ab (Grenze 100 MB je Datei).
+# Der fuehrende Schraegstrich verankert jede Regel auf DIESER Ebene, damit
+# `profiles/` unberuehrt bleibt.
+/*.pcap
+/*.json
+/*.mkv
+/*.wav
+/*.mp4
+/*.obu
+/*.y4m

@@ -982,7 +982,7 @@
   "instance_setup_manual_download": ".env herunterladen",
   "instance_setup_manual_downloading": "Wird erzeugt …",
   "instance_setup_manual_downloaded": ".env heruntergeladen — sicher aufbewahren.",
-  "instance_setup_manual_download_warning": "Enthält dein client_secret. Bei jedem Download wird ein neues erzeugt und das vorherige ungültig.",
+  "instance_setup_manual_download_warning": "Enthält dein client_secret. Bewahr die Datei sicher auf — du kannst sie bei Verlust neu ausstellen, aber dann verliert ein damit laufender Server seinen Zugang.",
   "instance_setup_manual_steps": "Compose-Dateien und alle Schritte:",
   "instance_setup_manual_link": "Anleitung für die manuelle Installation (Docker Compose)",
   "instance_setup_close": "Schließen",
@@ -2624,7 +2624,6 @@
   "instance_setup_reset_btn": "Zugang zurücksetzen…",
   "instance_setup_reset_confirm_body": "Der bisher eingerichtete Server verliert damit sofort seinen Zugang und kann sich nicht mehr verbinden. Fortfahren?",
   "instance_setup_reset_confirm_btn": "Zurücksetzen",
-  "instance_setup_env_forbidden": "Die .env-Datei wurde bereits heruntergeladen. Aus Sicherheitsgründen gibt es sie nur einmal — für eine neue Datei brauchst du einen neuen Antrag.",
   "server_icon_not_set_up": "Noch nicht eingerichtet",
   "join_input_host_use_dialog": "Das ist eine Serveradresse — nutze das Beitreten-Feld, um dem Server beizutreten.",
   "join_host_invite_required": "Dieser Server verlangt eine Einladung. Gib deinen Einladungscode ein.",
@@ -2681,5 +2680,10 @@
   "stream_grid_participants_collapse_aria": "Teilnehmer ausblenden",
   "stream_grid_participants_collapsed_hint": "{count} Teilnehmer · ausgeblendet",
   "stream_grid_participants_expand_aria": "Teilnehmer einblenden",
-  "native_panel_focus_window": "Fenster nach vorne holen"
+  "native_panel_focus_window": "Fenster nach vorne holen",
+  "instance_setup_env_consumed_title": "Datei wurde bereits heruntergeladen",
+  "instance_setup_env_consumed_body": "Aus Sicherheitsgründen gibt es die .env nur einmal — das gilt auch, wenn der Schnellinstaller den Server bereits eingerichtet hat. Wenn du sie verlegt hast, kannst du sie hier neu ausstellen.",
+  "instance_setup_env_reissue_btn": "Datei neu ausstellen…",
+  "instance_setup_env_reissue_confirm_body": "Die neue Datei enthält ein neues Passwort. Ein Server, der noch mit der alten läuft, verliert sofort seinen Zugang. Ersetze danach die Datei auf dem Server (/opt/pulse/pulse.env, ohne Root ~/.pulse/pulse.env) und starte den Container neu. Fortfahren?",
+  "instance_setup_env_reissue_confirm_btn": "Neu ausstellen"
 }

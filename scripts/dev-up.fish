@@ -209,12 +209,13 @@ else
     _warn "GSR-Binary fehlt — HQ-Stream-Button bleibt versteckt. (`streaming/bootstrap-gsr.fish` baut es.)"
 end
 
-# Rust-Linux-HQ-Sidecar = der Standard-Weg. Die Dev-App findet ihn NUR über
-# $PULSE_LINUX_HQ_SIDECAR (im Flatpak liegt er unter /app/bin/), weil der Crate
-# in einem eigenen Repo neben pulse/ liegt — kein Walk-up möglich.
+# Rust-Linux-HQ-Sidecar = der Standard-Weg. Die Dev-App findet ihn über
+# $PULSE_LINUX_HQ_SIDECAR (im Flatpak liegt er unter /app/bin/). Der Crate liegt
+# seit 2026-07-29 im Repo (streaming/linux-hq-sidecar), muss aber gebaut sein:
+# `cd streaming/linux-hq-sidecar && cargo build --release`.
 # Ist er nicht gebaut, fällt Pulse automatisch auf den GSR-Weg zurück; der
 # Kompatibilitäts-Tab zeigt das dann als Rückfall an.
-set -l rust_sidecar "$repo_root/../Linux_Rust_Sidecar/target/release/pulse-linux-hq-sidecar"
+set -l rust_sidecar "$repo_root/streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar"
 if test -x $rust_sidecar
     set gsr_env "$gsr_env PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
     _ok "" "Rust-Linux-Sidecar da (Standard-Aufnahmeweg)"

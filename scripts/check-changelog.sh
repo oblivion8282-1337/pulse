@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Changelog-Gate (CI): blockt einen Deploy, wenn er Code/Verhalten ändert, aber
-# web/static/changelog.json nicht mit aktualisiert wurde. So ist garantiert,
-# dass jeder Push auf main, der die App verändert, einen Changelog-Eintrag hat
+# Changelog-Erinnerung (CI): meldet, wenn ein Push Code/Verhalten ändert, aber
+# web/static/changelog.json nicht mit aktualisiert wurde
 # (Pflege-Regeln: CLAUDE.md → "Changelog").
+#
+# WARNUNG, KEIN GATE. Seit 2026-06-28 endet JEDER Pfad mit exit 0, damit
+# Hotfixes nicht blockieren — der Name "Gate" hielt sich danach noch eine Weile
+# in Kommentaren und in CLAUDE.md und war schlicht falsch (korrigiert
+# 2026-07-27). Der ``images``-Job hängt zwar an diesem Job, aber der schlägt nie
+# fehl; der Deploy läuft also in jedem Fall. Ein fehlender Eintrag ist eine
+# redaktionelle Nachlässigkeit, kein technischer Fehler.
 #
 # Usage: check-changelog.sh <before-sha> <after-sha>
 #   In ci.yml mit ${{ github.event.before }} und ${{ github.sha }} aufgerufen.
@@ -18,7 +24,7 @@ set -euo pipefail
 # user-sichtbare Wirkung wird vom begleitenden Code-Commit (Model/Route)
 # angekündigt, der das Gate ohnehin auslöst. Ein reiner Migrations-Commit
 # (z.B. ein Revision-Hotfix) braucht keinen eigenen Eintrag.
-NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|(^|/)scripts/|(^|/)Dockerfile[^/]*$|\.toml$|\.ya?ml$|(^|/)build-resources/|(^|/)package\.json$|/tests/|(^|/)conftest\.py$|/alembic/|^web/static/changelog\.json$|^web/static/install\.sh$|(^|/)\.[a-z]+ignore$'
+NON_USER_FACING='(^|/)[^/]*\.md$|(^|/)LICENSE[^/]*$|^docs/|^\.github/|^infra/|^packaging/|(^|/)scripts/|(^|/)Dockerfile[^/]*$|\.toml$|\.ya?ml$|(^|/)build-resources/|(^|/)package\.json$|/tests/|(^|/)conftest\.py$|/alembic/|^web/static/changelog\.json$|^web/static/install\.sh$|(^|/)\.[a-z]+ignore$'
 
 before="${1:-}"
 after="${2:-HEAD}"

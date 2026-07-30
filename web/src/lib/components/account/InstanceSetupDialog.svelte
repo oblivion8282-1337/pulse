@@ -12,6 +12,7 @@
   import { ApiError } from '$lib/api/client';
   import { instancesApi, type Instance } from '$lib/api/instances';
   import BootstrapConsumedPanel from './BootstrapConsumedPanel.svelte';
+  import EnvReissuePanel from './EnvReissuePanel.svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -37,6 +38,8 @@
   let aiCopied = $state(false);
   let showExplain = $state(false);
   let envDownloading = $state(false);
+  // 403 beim Env-Download = One-Shot verbraucht → Neu-Ausstellen anbieten.
+  let envConsumed = $state(false);
   let nowMs = $state(0);
   let ticker: ReturnType<typeof setInterval> | null = null;
   let mintGen = 0;
@@ -63,11 +66,15 @@
   let expired = $derived(token !== null && expiresAtMs > 0 && remainingMs <= 0);
   let countdown = $derived(formatRemaining(remainingMs));
 
+  // Ab einer Stunde mit Stunden-Teil: die Token-Gültigkeit liegt bei 2 h, und
+  // reines mm:ss zeigte dafür „120:00" — das liest niemand als zwei Stunden.
   function formatRemaining(ms: number): string {
     const total = Math.floor(ms / 1000);
-    const mm = Math.floor(total / 60);
+    const hh = Math.floor(total / 3600);
+    const mm = Math.floor(total / 60) % 60;
     const ss = total % 60;
-    return `${mm}:${ss.toString().padStart(2, '0')}`;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
   }
 
   async function mint(reset = false) {
@@ -118,17 +125,20 @@
     }
   }
 
-  async function downloadEnv() {
+  async function downloadEnv(reset = false) {
     if (!instance || envDownloading) return;
     envDownloading = true;
     try {
-      await instancesApi.downloadEnvFile(instance.id);
+      await instancesApi.downloadEnvFile(instance.id, { reset });
+      envConsumed = false;
       toast.success(m.instance_setup_manual_downloaded());
     } catch (e) {
-      // 403 = One-Shot bereits verbraucht → spezifisch erklären statt
-      // generischem Fehler (der User würde sonst sinnlos erneut klicken).
+      // 403 = One-Shot bereits verbraucht. Kein Toast: der erklärt zwar den
+      // Grund, verschwindet aber wieder und bietet keinen Ausweg. Stattdessen
+      // der erklärte Zustand mit bewusstem Neu-Ausstellen-Pfad — analog zum
+      // Bootstrap-Token (BootstrapConsumedPanel).
       if (e instanceof ApiError && e.status === 403) {
-        toast.error(m.instance_setup_env_forbidden());
+        envConsumed = true;
       } else {
         toast.error(m.instance_setup_error());
       }
@@ -166,6 +176,10 @@
     resetting = false;
     loading = false;
     showExplain = false;
+    // Sonst zeigt der Dialog beim naechsten Oeffnen — auch fuer eine ANDERE
+    // Instanz — weiter den Neu-Ausstellen-Zustand statt des Download-Knopfs.
+    envConsumed = false;
+    envDownloading = false;
     stopTicker();
   }
 
@@ -294,18 +308,24 @@
           </p>
           <p class="text-text-muted text-xs">{m.instance_setup_manual_desc()}</p>
 
-          <Button
-            variant="outline"
-            size="xs"
-            class="w-fit"
-            onclick={() => void downloadEnv()}
-            disabled={envDownloading}
-            data-testid="instance-setup-env-download"
-          >
-            <DownloadIcon class="size-4" />
-            {envDownloading ? m.instance_setup_manual_downloading() : m.instance_setup_manual_download()}
-          </Button>
-          <p class="text-warning text-xs">{m.instance_setup_manual_download_warning()}</p>
+          {#if envConsumed}
+            <EnvReissuePanel busy={envDownloading} onreissue={() => void downloadEnv(true)} />
+          {:else}
+            <Button
+              variant="outline"
+              size="xs"
+              class="w-fit"
+              onclick={() => void downloadEnv()}
+              disabled={envDownloading}
+              data-testid="instance-setup-env-download"
+            >
+              <DownloadIcon class="size-4" />
+              {envDownloading
+                ? m.instance_setup_manual_downloading()
+                : m.instance_setup_manual_download()}
+            </Button>
+            <p class="text-warning text-xs">{m.instance_setup_manual_download_warning()}</p>
+          {/if}
 
           <p class="text-text-muted text-xs">{m.instance_setup_manual_steps()}</p>
           <a

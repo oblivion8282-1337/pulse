@@ -63,8 +63,8 @@ Aber: server-spezifisches `aud` zwingt den User, `pulse.com` beim Login den Ziel
 ## Lizenz: AGPL-3.0 + Marke (2026-05-21) — ÜBERHOLT, siehe Nachtrag
 
 > **Nachtrag 2026-07-25: Die AGPL-Entscheidung wurde revidiert.** Pulse ist jetzt
-> **source-available**: Client-Komponenten unter PolyForm Perimeter 1.0.0, Server-
-> Komponenten unter PolyForm Free Trial 1.0.0. Grund: AGPL erlaubt jedem, Pulse
+> **source-available**: Client-Komponenten unter der Pulse Client License 1.0,
+> Server-Komponenten unter der Pulse Server License 1.0. Grund: AGPL erlaubt jedem, Pulse
 > gratis selbst zu betreiben und einen Lizenzcheck herauszupatchen — das Self-Hosting
 > als bezahlter Dienst war damit nicht durchsetzbar. Verbindlich ist `LICENSE` im
 > Repo-Root. Die Marken-Überlegungen unten gelten unverändert; der Abschnitt bleibt

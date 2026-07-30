@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import secrets
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from dcc_auth.models import User
-from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_auth.models_instances import (
+    InstanceBootstrapToken,
+    RegisteredInstance,
+    UserInstanceMembership,
+)
 
 # ---------------------------------------------------------------------------
 # Shared test credentials
@@ -448,7 +453,168 @@ async def test_env_file_blocked_after_first_download(
         headers={"Cookie": alice_cookie},
     )
     assert r2.status_code == 403, r2.text
-    assert "bereits heruntergeladen" in r2.json()["detail"]
+    assert "bereits eingerichtet" in r2.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_env_file_reissue_liefert_neues_secret(
+    client, alice_cookie, alice_instance
+):
+    """``reset=true`` hebt die One-Shot-Sperre auf und rotiert das Secret.
+
+    Der Recovery-Pfad bei verlorener Datei (2026-07-27). Wichtig ist nicht nur,
+    DASS ein zweiter Download klappt, sondern dass er ein ANDERES Secret
+    liefert — sonst waere die Rotation kaputt und zwei Server koennten
+    gleichzeitig mit demselben Geheimnis laufen.
+    """
+
+    def secret_of(resp) -> str:
+        line = next(
+            ln
+            for ln in resp.text.splitlines()
+            if ln.startswith("PULSE_CLOUD_CLIENT_SECRET=")
+        )
+        return line.split("=", 1)[1]
+
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r1.status_code == 200
+
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+        json={"reset": True},
+    )
+    assert r2.status_code == 200, r2.text
+    assert secret_of(r2) != secret_of(r1)
+
+    # Ohne das Flag bleibt es gesperrt — der Reset ist ein bewusster Schritt,
+    # kein Zustand, in den die Instanz nach einmal Reset dauerhaft faellt.
+    r3 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r3.status_code == 403, r3.text
+
+
+@pytest.mark.asyncio
+async def test_env_file_reissue_false_bleibt_gesperrt(
+    client, alice_cookie, alice_instance
+):
+    """``reset=false`` explizit im Body darf die Sperre NICHT aufheben."""
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r1.status_code == 200
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+        json={"reset": False},
+    )
+    assert r2.status_code == 403, r2.text
+
+
+@pytest.mark.asyncio
+async def test_env_download_nach_installer_braucht_bestaetigung(
+    client, alice_cookie, alice_instance, session_factory
+):
+    """Der wichtigste Fall: Installer lief schon, .env-Download darf NICHT still rotieren.
+
+    Bricht der Schnellinstaller NACH dem Einloesen ab (Container startet nicht,
+    TLS scheitert), liegen die gueltigen Zugangsdaten laengst auf dem Server.
+    Ein anschliessender Download rotierte sie frueher wortlos weg — aus einem
+    halb geglueckten Setup wurde ein sicher kaputtes. Jetzt zaehlt ein
+    eingeloestes Token als "bereits eingerichtet" und der Weg fuehrt ueber die
+    bewusste Bestaetigung.
+    """
+    async with session_factory() as session:
+        session.add(
+            InstanceBootstrapToken(
+                id=20000000000000001,
+                instance_id=alice_instance.id,
+                token_hash="egal",
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                consumed_at=datetime.now(UTC),  # <- der Installer war hier
+            )
+        )
+        await session.commit()
+
+    # Erster (!) Download — vorher war das ein freier Schuss.
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 403, r.text
+    assert "bereits eingerichtet" in r.json()["detail"]
+
+    # Mit bewusster Bestaetigung geht es weiter — sonst waere der Nutzer
+    # ausgesperrt, statt nur gewarnt.
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+        json={"reset": True},
+    )
+    assert r2.status_code == 200, r2.text
+
+
+@pytest.mark.asyncio
+async def test_env_download_entwertet_offene_installer_tokens(
+    client, alice_cookie, alice_instance, session_factory
+):
+    """Ein liegengebliebenes Token darf die frisch verteilte .env nicht erschlagen.
+
+    Bricht der Installer VOR dem Einloesen ab, lebt sein Token bis zum Ablauf
+    weiter. Wird es spaeter doch noch eingeloest, rotiert es das Secret erneut.
+    Deshalb entwertet jede Credential-Ausgabe offene Tokens.
+    """
+    mint = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice_cookie},
+    )
+    assert mint.status_code == 201, mint.text
+
+    async with session_factory() as session:
+        offen = (
+            await session.execute(
+                select(InstanceBootstrapToken.id).where(
+                    InstanceBootstrapToken.instance_id == alice_instance.id,
+                    InstanceBootstrapToken.consumed_at.is_(None),
+                )
+            )
+        ).all()
+    assert len(offen) == 1, "Vorbedingung: genau ein offenes Token"
+
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as session:
+        offen_danach = (
+            await session.execute(
+                select(InstanceBootstrapToken.id).where(
+                    InstanceBootstrapToken.instance_id == alice_instance.id,
+                    InstanceBootstrapToken.consumed_at.is_(None),
+                )
+            )
+        ).all()
+    assert offen_danach == [], "offenes Token haette entwertet werden muessen"
+
+
+@pytest.mark.asyncio
+async def test_env_file_reissue_nur_fuer_owner(client, bob_cookie, alice_instance):
+    """Der Reset darf kein Schlupfloch um den Owner-Check sein — Bob bekommt
+    404 wie ueberall sonst (Existence-Leak-Schutz)."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": bob_cookie},
+        json={"reset": True},
+    )
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

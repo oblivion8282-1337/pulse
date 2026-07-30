@@ -237,17 +237,81 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    „Mirror to registry.howispulse.com"). GHCR bleibt Source-of-Truth — schlägt der
    Mirror fehl, laufen die GHCR-Tags trotzdem.
 
-8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; alte
-   ungetaggte Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
+8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; kurze
+   Downtime, ok für `:edge`/`:stable`. **Zwei Schritte** — erst alte Tags samt
+   ihrer Kind-Manifeste weg (`registry-prune.py`), dann die Blobs freigeben:
    ```sh
-   17 4 * * 0  docker stop pulse_registry; docker run --rm \
-     -v pulse_pulse_registry:/var/lib/registry \
-     -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
-     registry:2.8.3 garbage-collect --delete-untagged /etc/docker/registry/config.yml; \
+   17 4 * * 0  docker stop pulse_registry; \
+     docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+       -v ~/pulse/infra/prod/registry-prune.py:/prune.py:ro \
+       python:3-alpine python /prune.py --behalte-sha 5 --apply >> …/registry-gc.log 2>&1; \
+     docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+       -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
+       registry:2.8.3 garbage-collect /etc/docker/registry/config.yml >> …/registry-gc.log 2>&1; \
      docker start pulse_registry
    ```
    Das Volume heißt `pulse_pulse_registry`, nicht `pulse_registry` — Compose prefixt
    mit dem Projektnamen (`name: pulse`); der falsche Name GC't ein leeres Frisch-Volume.
+
+   **Log-Rotation** (täglich, Host-Crontab): Beide Cron-Logs (`pulse-update.log`,
+   `registry-gc.log`) werden per `>>` geschrieben und wuchsen unbegrenzt — der
+   Update-Cron läuft alle zwei Minuten. `rotate-logs.sh` kappt alle `*.log` in
+   diesem Verzeichnis auf die letzten 2000 Zeilen:
+   ```sh
+   23 4 * * *  ~/pulse/infra/prod/rotate-logs.sh >> ~/pulse/infra/prod/rotate-logs.log 2>&1
+   ```
+   Kein `logrotate` — das verlangt eine Datei unter `/etc/logrotate.d` und damit
+   root; `sudo` will auf diesem Server ein Passwort, unbeaufsichtigt läuft das
+   also nicht. Das Skript kappt **in-place** (gleiche Inode) statt umzubenennen:
+   die Schreiber halten O_APPEND, ein Umbenennen ließe einen gerade laufenden Job
+   unsichtbar in die alte Datei weiterschreiben. Gegen einen gleichzeitigen
+   Schreiber getestet (400 Zeilen während der Rotation): keine Null-Bytes, keine
+   beschädigte Zeile, alle Zeilen erhalten.
+
+   **Warum zwei Schritte:** Ohne `--delete-untagged` (s. Warnung unten) räumt die GC
+   allein nichts mehr auf — jede überschriebene Revision hält ihre Blobs weiter fest.
+   Das Prune-Skript löscht deshalb gezielt Tags **samt Index und Kind-Manifesten**;
+   erst danach findet die GC die Blobs als unreferenziert. Es schützt dabei alles,
+   was ein behaltener Tag noch braucht (mehrere Tags zeigen oft auf denselben Index —
+   `:edge` und `:stable` regelmäßig). Trockenlauf ohne `--apply`.
+
+   > ⚠️ **NIEMALS `--delete-untagged`.** Bei Multi-Arch-Images hängen die
+   > Pro-Architektur-Manifeste nur am Index und tragen selbst **keinen Tag** —
+   > `registry:2.8.3` hält sie damit für Müll und löscht sie, während der
+   > getaggte Index stehen bleibt und ins Leere zeigt.
+   >
+   > **Am 2026-07-26 um 04:17 ist genau das passiert und hat ALLE 91 Tags
+   > zerstört** (`:edge`, `:stable` und alle 87 `sha-*`). Übrig blieben 89 Indexe
+   > und **null** Kind-Manifeste; die Registry schrumpfte auf 33 MB. Self-Hoster
+   > bekamen beim Pull:
+   > `failed to copy: httpReadSeeker: failed open: content at …/manifests/sha256:… not found`.
+   >
+   > **Wiederherstellen** (GHCR ist unversehrt, es ist die Source-of-Truth) —
+   > kopiert Index **und** Kinder zurück, dauert rund eine Minute:
+   > ```sh
+   > docker buildx imagetools create \
+   >   -t registry.howispulse.com/pulse-allinone:edge \
+   >   -t registry.howispulse.com/pulse-allinone:stable \
+   >   ghcr.io/oblivion8282-1337/pulse-allinone:edge
+   > ```
+   >
+   > **Prüfen, ob es wieder passieren würde** — ein Trockenlauf sagt es sofort:
+   > ```sh
+   > docker run --rm -v pulse_pulse_registry:/var/lib/registry \
+   >   -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
+   >   registry:2.8.3 garbage-collect --dry-run … | grep -c "manifest eligible for deletion"
+   > ```
+   > Ohne `--delete-untagged`: **0**. Mit: die Zahl der Kind-Manifeste (nach der
+   > Wiederherstellung am 2026-07-27 waren es 2 — der Cron hätte das frische
+   > Image am nächsten Sonntag erneut zerlegt).
+   >
+   > **Preis dieser Entscheidung:** ungetaggte Manifeste aus überschriebenen Tags
+   > bleiben samt ihrer Blobs liegen, der Platz wächst also. Das ist bewusst in
+   > Kauf genommen (472 GB frei). Wer wirklich aufräumen will, löscht **alte
+   > `sha-*`-Tags samt ihrer Kind-Manifeste** gezielt über die Registry-API
+   > (`DELETE /v2/pulse-allinone/manifests/<digest>`, erst die Kinder, dann den
+   > Index) und lässt danach ein normales `garbage-collect` laufen. Nicht gebaut,
+   > aber der richtige Weg.
 
 9. **Hetzner-Test umstellen** (`pulse.unicutmedia.com`, einzelner allinone hinter
    Host-Caddy): mit den vorhandenen Instanz-Creds einloggen + Container auf die neue
@@ -267,7 +331,7 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 > im Realm-Endpoint gekoppelt (Stelle im Code markiert). Diese Registry ist Verteilung
 > + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben technisch extrahierbar.
 > Der Schutz ist lizenzrechtlich: Server-Betrieb über die 32-Tage-Evaluierung hinaus
-> braucht eine kommerzielle Lizenz (PolyForm Free Trial, siehe `LICENSE`).
+> braucht eine kommerzielle Lizenz (Pulse Server License 1.0, siehe `LICENSE`).
 
 ## Operating
 

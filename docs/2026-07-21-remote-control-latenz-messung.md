@@ -219,7 +219,7 @@ recherchiert werden.
 > **Lizenz-Nachtrag (2026-07-25):** Das Ursprungspapier hielt die Lizenz für
 > unkritisch („GPL-3.0 ist mit unserem AGPL-3.0 kombinierbar"). **Das gilt nicht
 > mehr.** Seit der Umstellung auf source-available (PolyForm Free Trial für den
-> Server, Perimeter für den Client) ist Sunshines GPL-3.0 ein **harter Blocker** —
+> Server, eigene Client-Lizenz) ist Sunshines GPL-3.0 ein **harter Blocker** —
 > zusätzlich zum architektonischen. Siehe CLAUDE.md, Abschnitt „Lizenz".
 
 ### 7.2 Plattform-Realität der Input-Injektion

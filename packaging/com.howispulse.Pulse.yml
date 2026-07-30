@@ -220,12 +220,16 @@ modules:
       - cargo --offline build --release --verbose
       - install -Dm755 target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
     sources:
-      # Sidecar-Repo von GitHub (CI-tauglich: der Bau-Server hat keinen lokalen
-      # Nachbar-Checkout). Commit fest pinnen — bei jedem Sidecar-Update hier den
-      # neuen SHA eintragen (und Cargo.lock-Änderungen → cargo-sources neu genn).
-      - type: git
-        url: https://github.com/oblivion8282-1337/pulse-linux-hq-sidecar.git
-        commit: 1afe5f115e4f28d63ff074a0c466bc771f35661a
+      # Liegt seit 2026-07-29 IM Repo (vorher eigenes Repo + fest gepinnter
+      # Commit). Damit löst eine Sidecar-Änderung wieder automatisch einen
+      # Flatpak-Build aus — vorher musste der SHA hier von Hand nachgezogen
+      # werden, und genau das war der Zustand: der Pin stand monatelang auf
+      # einem Stand ohne die Latenz-Verbesserungen.
+      # Bleibt Handarbeit: ändert sich `Cargo.lock`, muss
+      # `linux-hq-sidecar-cargo-sources.json` neu generiert werden
+      # (flatpak-cargo-generator) — der Flatpak baut Cargo offline.
+      - type: dir
+        path: ../streaming/linux-hq-sidecar
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────

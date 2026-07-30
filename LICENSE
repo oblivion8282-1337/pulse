@@ -4,12 +4,13 @@ Pulse — Licensing Overview
 Copyright (c) 2026 Oblivion Pictures — Michael de Meyer (https://howispulse.com)
 
 Pulse is source-available, not open source. The source is published so that
-anyone can read, audit and modify it, but the licences below place limits on
-how it may be used. Two licences apply, depending on which part of the
-repository a file belongs to.
+anyone can read and audit it. Reading is permitted; reusing is not. You may not
+modify Pulse or redistribute it, and you may not take code from it into another
+project. Two licences apply, depending on which part of the repository a file
+belongs to.
 
 
-1. Server components — PolyForm Free Trial 1.0.0
+1. Server components — Pulse Server License 1.0
 ------------------------------------------------
 Full text: LICENSE-SERVER.md
 
@@ -22,15 +23,17 @@ Full text: LICENSE-SERVER.md
     uv.lock
 
 These are the components required to operate a Pulse server. You may evaluate
-them for less than 32 consecutive days. Operating a Pulse server beyond that
-requires a commercial licence from the copyright holder, regardless of whether
-the deployment is commercial, private or non-profit.
+them for up to 32 consecutive days, and you may read their source at any time.
+Operating a Pulse server beyond the trial period requires a commercial licence
+from the copyright holder, regardless of whether the deployment is commercial,
+private or non-profit. Modification and redistribution are not permitted at any
+time.
 
 Self-hosting is offered as a paid, activated service. See
 https://howispulse.com for terms.
 
 
-2. Client components — PolyForm Perimeter 1.0.0
+2. Client components — Pulse Client License 1.0
 -----------------------------------------------
 Full text: LICENSE-CLIENT.md
 
@@ -43,8 +46,9 @@ Full text: LICENSE-CLIENT.md
     Logo/
     scripts/
 
-These may be used and redistributed freely, including commercially. The only
-prohibited use is providing a product that competes with Pulse.
+These may be used freely, including commercially, and their source may be read
+and audited. They may not be modified, redistributed, republished, or reused in
+another project.
 
 Using the Pulse web app, desktop app or mobile app to connect to a Pulse
 server — including the hosted service at howispulse.com — is unrestricted and

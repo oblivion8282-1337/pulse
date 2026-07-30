@@ -129,7 +129,21 @@ class Settings(BaseSettings):
     rate_limit_directory_offer: str = "20/minute"
     # Eintrag gilt als "online", solange der letzte Heartbeat jünger ist.
     directory_online_threshold_seconds: int = 300
-    bootstrap_token_ttl_seconds: int = 1200
+    # 2 Stunden (vorher 20 Min). Der Wert muss eine ganze Installation ueberdauern,
+    # nicht nur das Einfuegen des Befehls: Docker nachinstallieren, das
+    # allinone-Image ziehen, Proxy/DNS richten, ACME-Zertifikat holen — und
+    # beim ersten Anlauf kommt fast immer ein Fehlschlag dazwischen. Laeuft der
+    # Token mitten darin ab, bricht der Installer ab und der Betreiber steht
+    # ratlos vor einer halben Installation. 20 Min waren dafuer zu knapp
+    # (2026-07-27 beim Testen aufgefallen); bewusst grosszuegig gewaehlt, damit
+    # auch ein unterbrochener Anlauf noch im Fenster liegt.
+    #
+    # Der Preis ist gering: das Token ist einmalig verwendbar, nur der
+    # eingeloggte Owner kann es minten, der Redeem ist gedrosselt, und ein
+    # Redeem rotiert die Credentials — ein abgefangenes Token faellt also
+    # spaetestens beim eigenen Versuch des Owners auf. Notfalls per
+    # ``BOOTSTRAP_TOKEN_TTL_SECONDS`` am Server ueberschreibbar.
+    bootstrap_token_ttl_seconds: int = 7200
     # WebAuthn ceremonies. ``register`` covers the authenticated add-a-passkey
     # flow; ``login`` covers both the 2FA-second-step and the passwordless
     # entry point (the latter is unauthenticated, so keep it as tight as the

@@ -31,6 +31,7 @@ from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
+from dcc_chat_gateway.suspend_poller import suspend_poller_loop
 from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
 
 log = logging.getLogger(__name__)
@@ -195,6 +196,7 @@ async def lifespan(app: FastAPI):
     idle_sweeper: asyncio.Task | None = None
     voice_pull_reaper: asyncio.Task | None = None
     crl_poller: asyncio.Task | None = None
+    suspend_poller: asyncio.Task | None = None
     cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
     owns_manager = False
@@ -245,6 +247,18 @@ async def lifespan(app: FastAPI):
             crl_poller_loop(redis, settings.pulse_cloud_origin),
             name="dcc-crl-poller",
         )
+        # Sperr-Poller — erfaehrt, wenn die Cloud DIESE Instanz gesperrt oder
+        # geloescht hat. Nur im Self-Host-Modus: in der Cloud gibt es niemanden,
+        # der uns sperren koennte. Ohne diese Aufgabe war "Server loeschen" fuer
+        # den Betreiber wirkungslos — die Instanz lief unbeirrt weiter
+        # (beobachtet 2026-07-27, s. suspend_poller.py).
+        if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_id:
+            suspend_poller = asyncio.create_task(
+                suspend_poller_loop(
+                    redis, settings.pulse_cloud_origin, settings.pulse_instance_id
+                ),
+                name="dcc-suspend-poller",
+            )
         # Cloud policy poller — fetches the version-policy document every 6 h
         # (configurable via ``cloud_policy_poll_interval``). Persists to Redis
         # so Phase-4 frontend and the WS hello-frame can surface update banners.
@@ -335,7 +349,7 @@ async def lifespan(app: FastAPI):
         if owns_manager:
             bg_tasks = (
                 supervisor, reaper, push_cleanup, idle_sweeper,
-                voice_pull_reaper, crl_poller, cloud_policy_task,
+                voice_pull_reaper, crl_poller, suspend_poller, cloud_policy_task,
                 jwks_retry, dropbox_sweep_task,
             )
             for task in bg_tasks:

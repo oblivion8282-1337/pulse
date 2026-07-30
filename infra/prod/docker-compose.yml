@@ -7,9 +7,15 @@
 # fill in real secrets). Caddy on the host fronts pulse_web on
 # https://howispulse.com (see Caddyfile.pulse.snippet).
 #
-# App images come from GHCR (built by .github/workflows/ci.yml on push to main);
-# pulse_watchtower polls them every 5 min and recreates on a new :latest.
-# postgres / redis / mediamtx / livekit are pinned and excluded from Watchtower.
+# App images come from GHCR (built by .github/workflows/ci.yml on push to main).
+#
+# UPDATES RUN VIA USER-CRONTAB, NOT WATCHTOWER (since 2026-06-11):
+# infra/prod/pulse-update.sh does a scoped `compose pull && up -d` every few
+# minutes. Watchtower is gone because it mounted the Docker socket (= root on
+# the host); see the comment near the end of this file. The
+# `com.centurylinklabs.watchtower.*` labels below are leftovers — harmless, but
+# they describe a container that no longer exists. This header claimed the
+# opposite until 2026-07-27; the file contradicted itself.
 
 name: pulse
 

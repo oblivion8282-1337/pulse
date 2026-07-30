@@ -1,0 +1,521 @@
+//! PipeWire-Audio-Capture → interleaved Float32-Stereo @48kHz, direkt als
+//! Opus-Encoder-Input. Modusabhängig (siehe [`AudioSelection`]):
+//!
+//! - **Desktop / App**: eigener Capture-Sink via [`audio_router`] (Null-Sink,
+//!   auf den nur die gewünschten App-Streams gelinkt werden — Desktop schließt
+//!   Pulse selbst + user-Excludes aus, App linkt genau eine App). Der Stream
+//!   hier hängt am Monitor DIESES Sinks (`TARGET_OBJECT` + CAPTURE_SINK).
+//! - **Mikrofon**: Default-Input (AUTOCONNECT, kein CAPTURE_SINK).
+//!
+//! Audio braucht **kein** Portal. Wir verbinden auf den Default-Graph
+//! (`connect_rc(None)`) und fordern F32LE / 48000 / 2ch im EnumFormat an;
+//! PipeWire konvertiert (Adapter) automatisch.
+//!
+//! Threading wie `pipewire_stream`: MainLoop+Context+Stream(+Router) leben auf
+//! EINEM Worker-Thread (pipewire-rs nutzt `Rc`), nach außen geht nur der
+//! `mpsc::Receiver<Vec<f32>>` (Send). Stop über `pw::channel` → `quit()`.
+
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
+use std::thread::{self, JoinHandle};
+use std::time::Instant;
+
+use pipewire as pw;
+use pw::properties::properties;
+use pw::spa;
+use spa::param::audio::{AudioFormat, AudioInfoRaw};
+use spa::param::format::{MediaSubtype, MediaType};
+use spa::param::format_utils;
+use spa::pod::Pod;
+
+use super::audio_router::{AudioRouter, RouteMode};
+
+/// Ziel-Sample-Rate — Opus arbeitet nativ mit 48kHz.
+pub const SAMPLE_RATE: u32 = 48_000;
+/// Stereo (interleaved FL,FR).
+pub const CHANNELS: u32 = 2;
+
+/// Node-Name der eigenen Electron-Audio-Streams (via `PULSE_PROP` in
+/// `desktop/electron/main.ts`). Bei Desktop-Capture IMMER ausgeschlossen,
+/// damit Pulses Voice-Wiedergabe nicht als Echo im Stream landet — gleiche
+/// Konvention wie der Python-Sidecar (`profiles.py::PULSE_SELF_NODE_NAME`).
+pub const PULSE_SELF_NODE_NAME: &str = "Pulse";
+
+/// UI-Prefix für App-spezifisches Capture (`"App: <name>"` auf der Leitung,
+/// wie `APP_AUDIO_PREFIX` im Frontend / `APP_LABEL_PREFIX` in Python).
+const APP_AUDIO_PREFIX: &str = "App: ";
+
+/// Aufgelöster Audio-Modus eines Streams.
+#[derive(Debug, Clone)]
+pub enum AudioSelection {
+    Off,
+    /// Default-Mikrofon.
+    Mic,
+    /// System-Ton = alle App-Streams außer `exclude` (enthält immer "Pulse").
+    Desktop { exclude: Vec<String> },
+    /// Nur der Ton EINER App.
+    App { name: String },
+}
+
+impl AudioSelection {
+    /// Wire-`audio.mode` + `excluded_apps` → Selection. Unbekanntes → Off
+    /// (ein Streaming-Start soll an Audio nie scheitern). "Desktop + Mikrofon"
+    /// wird als Desktop behandelt (Mikrofon-Mix noch nicht implementiert —
+    /// Warnung loggt `ops::start`).
+    pub fn parse(mode: &str, mut excluded_apps: Vec<String>) -> Self {
+        let mode = mode.trim();
+        let mode = mode.strip_suffix(" (offline)").unwrap_or(mode).trim();
+        if let Some(app) = mode.strip_prefix(APP_AUDIO_PREFIX) {
+            let app = app.trim();
+            if !app.is_empty() {
+                return Self::App { name: app.to_string() };
+            }
+            return Self::Off;
+        }
+        match mode {
+            "Mikrofon" => Self::Mic,
+            "Desktop" | "Desktop + Mikrofon" => {
+                if !excluded_apps
+                    .iter()
+                    .any(|e| e.eq_ignore_ascii_case(PULSE_SELF_NODE_NAME))
+                {
+                    excluded_apps.push(PULSE_SELF_NODE_NAME.to_string());
+                }
+                Self::Desktop { exclude: excluded_apps }
+            }
+            _ => Self::Off,
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    /// Menschlich lesbare Kurzform fürs Stream-Log.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Off => "aus".to_string(),
+            Self::Mic => "Mikrofon".to_string(),
+            Self::Desktop { exclude } => format!("Desktop (ohne {})", exclude.join(", ")),
+            Self::App { name } => format!("nur App \u{201e}{name}\u{201c}"),
+        }
+    }
+}
+
+/// Sample-Batch + Capture-Zeit-Anker (Samples seit `record_start`, im
+/// PipeWire-Callback gestempelt). Der Anker MUSS capture-seitig entstehen:
+/// beim Empfang im Encode-Thread gestempelt würde ein Consumer-Stau (voller
+/// Mux, RTMPS-Backpressure) wie eine Capture-Lücke aussehen und die
+/// Re-Anker-Logik den Ton permanent nach hinten versetzen.
+pub type AudioBatch = (Vec<f32>, i64);
+
+struct AudioData {
+    sample_tx: SyncSender<AudioBatch>,
+    info: AudioInfoRaw,
+    record_start: Instant,
+    format_warned: bool,
+    /// Wie viele Pakete der volle Kanal schon verworfen hat (s. `try_send`).
+    dropped_batches: u64,
+    /// Zuletzt gemeldete Batch-Groesse — meldet nur bei Aenderung.
+    batch_reported: Option<usize>,
+}
+
+/// Laufende Audio-Capture-Session. `stop` beendet den Worker-Thread.
+pub struct AudioCapture {
+    stop_tx: pw::channel::Sender<()>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl AudioCapture {
+    /// Starte die Capture für den gegebenen Modus. Liefert interleaved
+    /// F32-Stereo-Chunks mit Capture-Zeit-Anker (ein Batch pro
+    /// PipeWire-`process`). `record_start` = gemeinsamer Monotonic-Nullpunkt
+    /// mit dem Video-Pfad.
+    pub fn start(
+        selection: &AudioSelection,
+        record_start: Instant,
+    ) -> anyhow::Result<(Receiver<AudioBatch>, Self)> {
+        if !selection.enabled() {
+            anyhow::bail!("AudioCapture::start mit AudioSelection::Off");
+        }
+        let selection = selection.clone();
+        // BEGRENZT, anders als der Video-Weg (der hat eine Ein-Slot-Mailbox mit
+        // "neuestes gewinnt"). Ton darf man nicht einfach verwerfen, aber
+        // unbegrenzt puffern noch weniger: stockt der Muxer, sammelte der Kanal
+        // vorher 384 KB/s ohne jede Grenze — ein Stillstand von einer Minute
+        // waren rund 23 MB, nach oben offen. 64 Pakete sind gut eine Sekunde
+        // Ton; laeuft es voll, ist die Verbindung ohnehin das Problem.
+        let (sample_tx, sample_rx) = sync_channel::<AudioBatch>(64);
+        let (stop_tx, stop_rx) = pw::channel::channel::<()>();
+
+        let worker = thread::Builder::new()
+            .name("pipewire-audio".into())
+            .spawn(move || {
+                if let Err(e) = run_audio(selection, sample_tx, record_start, stop_rx) {
+                    tracing::error!(target: "audio", "Audio-Capture-Thread: {e:#}");
+                }
+            })?;
+        Ok((sample_rx, Self { stop_tx, worker: Some(worker) }))
+    }
+
+    pub fn stop(&mut self) {
+        let _ = self.stop_tx.send(());
+        if let Some(w) = self.worker.take() {
+            let _ = w.join();
+        }
+    }
+}
+
+/// Wie bei `PipewireCapture`: ohne Drop liefe der Audio-Worker (samt Router-
+/// Sink + Links im User-Graph) ewig weiter, wenn ein Fehlerpfad das explizite
+/// `stop()` überspringt.
+impl Drop for AudioCapture {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn run_audio(
+    selection: AudioSelection,
+    sample_tx: SyncSender<AudioBatch>,
+    record_start: Instant,
+    stop_rx: pw::channel::Receiver<()>,
+) -> anyhow::Result<()> {
+    pw::init();
+
+    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
+    let _stop_receiver = stop_rx.attach(mainloop.loop_(), {
+        let mainloop = mainloop.clone();
+        move |_| mainloop.quit()
+    });
+    let context = pw::context::ContextRc::new(&mainloop, None)?;
+    let core = context.connect_rc(None)?;
+
+    // Core-Error (PipeWire-Daemon stirbt/Restart): Mainloop beenden statt mit
+    // toter Verbindung stumm weiterzulaufen — der Sample-Kanal schließt, der
+    // Encode-Thread flusht und endet, der Stream läuft ohne Audio weiter und
+    // das Log sagt warum. (Der Video-Pfad erkennt sein Ende separat über
+    // `state_changed`.)
+    let _core_listener = core
+        .add_listener_local()
+        .error({
+            let mainloop = mainloop.clone();
+            move |id, seq, res, message| {
+                tracing::error!(
+                    target: "audio",
+                    id, seq, res, message,
+                    "PipeWire-Core-Fehler — Audio-Capture endet"
+                );
+                mainloop.quit();
+            }
+        })
+        .register();
+
+    // Modusabhängig: Desktop/App bekommen einen Router (eigener Capture-Sink,
+    // auf den nur die gewünschten Quellen gelinkt werden) und der Stream hängt
+    // an DESSEN Monitor; Mikrofon connectet direkt auf den Default-Input.
+    // Der Router muss bis Mainloop-Ende leben (hält Sink + Links).
+    let _router = match &selection {
+        AudioSelection::Desktop { exclude } => Some(AudioRouter::start(
+            &core,
+            RouteMode::All { exclude: exclude.clone() },
+        )?),
+        AudioSelection::App { name } => {
+            Some(AudioRouter::start(&core, RouteMode::App { name: name.clone() })?)
+        }
+        AudioSelection::Mic => None,
+        AudioSelection::Off => unreachable!("start() weist Off ab"),
+    };
+
+    let mut props = properties! {
+        *pw::keys::MEDIA_TYPE => "Audio",
+        *pw::keys::MEDIA_CATEGORY => "Capture",
+        *pw::keys::MEDIA_ROLE => "Music",
+    };
+    // Feineres Aufnahme-Raster anfordern — und das ist wieder eine BILD-Frage,
+    // nicht nur eine Ton-Frage.
+    //
+    // Ohne diese Angabe liefert PipeWire im Standardraster des Graphen (meist
+    // 1024 Samples, gut 21 ms). Weil FLV eine einzige Zeitleiste ist, wartet
+    // der Muxer mit den Bildern auf den Ton — die Bilder gehen dann in
+    // 21-ms-Buendeln heraus, egal wie kurz die Opus-Pakete sind. Gemessen am
+    // 2026-07-26 gegen den nativen Player, groesster Paket-Ankunftsabstand:
+    //   Standardraster + 20-ms-Opus   30-34 ms   (bei 280 fps stirbt der Stream)
+    //   Standardraster +  5-ms-Opus   10,7 ms
+    //   240/48000       +  5-ms-Opus   s. unten
+    // Die Schwelle, ab der es als Ruckeln sichtbar wird, ist der doppelte
+    // Bildabstand: 13,9 ms bei 144 fps, aber nur 7,1 ms bei 280 fps. Deshalb
+    // muss das Raster mit der Bildrate mitkommen und nicht umgekehrt.
+    //
+    // Preis: eine Latenz-Anforderung zieht den GANZEN PipeWire-Graphen auf das
+    // kleinste angefragte Raster, kostet also auch anderen Ton-Anwendungen
+    // etwas CPU. 5 ms ist dafuer ein ueblicher Wert (Spiele/Sprache liegen
+    // dort), keine Extremforderung.
+    let latency = std::env::var("PULSE_AUDIO_QUANTUM")
+        .ok()
+        .filter(|v| v.parse::<u32>().is_ok_and(|n| (32..=2048).contains(&n)))
+        .unwrap_or_else(|| "240".to_string());
+    props.insert(*pw::keys::NODE_LATENCY, format!("{latency}/{SAMPLE_RATE}"));
+    if let Some(router) = &_router {
+        // Monitor unseres eigenen Capture-Sinks — NICHT der Default-Sink.
+        // ("target.object" literal: die pw::keys-Konstante ist hinter einem
+        // höheren Version-Feature-Gate, der Key selbst ist seit 0.3.44 stabil.)
+        props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
+        props.insert("target.object", router.sink_name());
+    }
+
+    // Angefordertes Format (EnumFormat). `AudioData.info` bleibt Default und
+    // nimmt beim `param_changed` das tatsächlich negotiierte Format auf.
+    let mut req = AudioInfoRaw::new();
+    req.set_format(AudioFormat::F32LE);
+    req.set_rate(SAMPLE_RATE);
+    req.set_channels(CHANNELS);
+    let data = AudioData {
+        sample_tx,
+        info: AudioInfoRaw::new(),
+        record_start,
+        format_warned: false,
+        dropped_batches: 0,
+        batch_reported: None,
+    };
+
+    let stream = pw::stream::StreamRc::new(core, "pulse-linux-hq-sidecar-audio", props)?;
+
+    let _listener = stream
+        .add_local_listener_with_user_data(data)
+        .state_changed(|_s, _ud, old, new| {
+            tracing::debug!(target: "audio", "PW-State: {old:?} -> {new:?}");
+        })
+        .param_changed(|_s, ud, id, param| {
+            let Some(param) = param else { return };
+            if id != spa::param::ParamType::Format.as_raw() {
+                return;
+            }
+            let Ok((media_type, media_subtype)) = format_utils::parse_format(param) else {
+                return;
+            };
+            if media_type != MediaType::Audio || media_subtype != MediaSubtype::Raw {
+                return;
+            }
+            if ud.info.parse(param).is_ok() {
+                tracing::info!(
+                    target: "audio",
+                    rate = ud.info.rate(),
+                    channels = ud.info.channels(),
+                    "Audio-Format ausgehandelt"
+                );
+                // Der Opus-Pfad nimmt F32/48k/2ch blind an — weicht das
+                // Negotiat je ab, gäbe es falsche Tonhöhe/Kanäle OHNE jede
+                // Diagnose. Laut warnen (Adapter konvertiert normal immer).
+                if ud.info.rate() != SAMPLE_RATE || ud.info.channels() != CHANNELS {
+                    tracing::error!(
+                        target: "audio",
+                        rate = ud.info.rate(),
+                        channels = ud.info.channels(),
+                        "Negotiat weicht von F32/48k/2ch ab — Ton wäre falsch!"
+                    );
+                }
+            }
+        })
+        .process(|stream, ud| {
+            let Some(mut buffer) = stream.dequeue_buffer() else { return };
+            let datas = buffer.datas_mut();
+            if datas.is_empty() {
+                return;
+            }
+            let data = &mut datas[0];
+            let offset = data.chunk().offset() as usize;
+            let size = data.chunk().size() as usize;
+            if size == 0 {
+                return;
+            }
+            if let Some(bytes) = data.data() {
+                let samples = samples_from_chunk(bytes, offset, size);
+                if samples.is_empty() {
+                    return;
+                }
+                if ud.info.rate() != 0 && ud.info.rate() != SAMPLE_RATE && !ud.format_warned {
+                    ud.format_warned = true;
+                    tracing::error!(target: "audio", "liefere Samples mit falscher Rate — s. Negotiat-Warnung");
+                }
+                // Capture-Zeit-Anker: JETZT gestempelt (im PW-Callback), nicht
+                // beim Empfang — s. AudioBatch-Doku. Auf den Batch-ANFANG
+                // zurückgerechnet (s. batch_anchor).
+                let elapsed = (ud.record_start.elapsed().as_secs_f64()
+                    * SAMPLE_RATE as f64) as i64;
+                let anchor = batch_anchor(elapsed, samples.len(), CHANNELS);
+                // Wie gross ein Batch WIRKLICH ist, entscheidet die Latenz des
+                // Tonwegs: der Anker wird um die Batch-Laenge zurueckgerechnet
+                // (s. `batch_anchor`), also hinkt der Ton mindestens um diese
+                // Zeit hinter der Wanduhr her — und der FLV-Muxer haelt das
+                // Bild genau so lange fest. Die ANGEFORDERTE Groesse
+                // (`node.latency`) sagt darueber nichts: PipeWire darf sie
+                // ueberstimmen. Einmal je Aenderung melden, nicht je Batch.
+                if !ud.batch_reported.is_some_and(|n| n == samples.len()) {
+                    ud.batch_reported = Some(samples.len());
+                    let frames = samples.len() / CHANNELS as usize;
+                    tracing::info!(
+                        target: "audio",
+                        frames,
+                        ms = format!("{:.1}", frames as f64 * 1000.0 / SAMPLE_RATE as f64),
+                        "Ton-Batch-Groesse (bestimmt den Rueckstand des Tons)"
+                    );
+                }
+                // `try_send`, nicht `send`: dieser Callback laeuft auf einem
+                // Echtzeit-Thread von PipeWire (RT_PROCESS). Dort zu blockieren
+                // wuerde die Audio-Aufnahme des ganzen Systems ins Stocken
+                // bringen, nicht nur unseren Stream. Ein voller Kanal heisst,
+                // dass der Encode-Weg haengt — dann ist das verworfene Paket
+                // das kleinere Problem, aber es wird gezaehlt und gemeldet.
+                match ud.sample_tx.try_send((samples, anchor)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        ud.dropped_batches += 1;
+                        // Nicht bei jedem Paket loggen — sonst erzeugt der
+                        // Stau zusaetzlich eine Logflut auf dem RT-Thread.
+                        if ud.dropped_batches.is_power_of_two() {
+                            tracing::warn!(
+                                target: "audio",
+                                dropped = ud.dropped_batches,
+                                "Ton-Kanal voll — Pakete verworfen (Encode-Weg haengt?)"
+                            );
+                        }
+                    }
+                    // Fehlt der Consumer, ist der Stream vorbei.
+                    Err(TrySendError::Disconnected(_)) => {}
+                }
+            }
+        })
+        .register()?;
+
+    // EnumFormat aus AudioInfoRaw (F32LE/48k/2ch).
+    let obj = pw::spa::pod::Object {
+        type_: spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
+        id: spa::param::ParamType::EnumFormat.as_raw(),
+        properties: req.into(),
+    };
+    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &pw::spa::pod::Value::Object(obj),
+    )
+    .map_err(|e| anyhow::anyhow!("serialize audio EnumFormat: {e:?}"))?
+    .0
+    .into_inner();
+    let mut params = [Pod::from_bytes(&values).ok_or_else(|| anyhow::anyhow!("audio EnumFormat from_bytes"))?];
+
+    stream.connect(
+        spa::utils::Direction::Input,
+        None,
+        pw::stream::StreamFlags::AUTOCONNECT
+            | pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::RT_PROCESS,
+        &mut params,
+    )?;
+
+    tracing::info!(target: "audio", "Audio-Capture verbunden, Mainloop läuft");
+    mainloop.run();
+    tracing::debug!(target: "audio", "Audio-Mainloop beendet (stop)");
+    Ok(())
+}
+
+/// Gültigen Sample-Bereich aus einem SPA-Chunk schneiden und als F32LE
+/// dekodieren. `offset`/`size` kommen aus `chunk()` — der Server darf Buffers
+/// mit `offset != 0` liefern (SHM-Ringpuffer), der Ausschnitt beginnt dann
+/// NICHT bei Byte 0. Out-of-Range-Werte werden defensiv geclampt.
+/// Capture-Zeit-Anker für einen Batch: Samples seit `record_start` am
+/// Batch-ANFANG. Der Callback stempelt naturgemäß am Batch-Ende — ohne die
+/// Rückrechnung um die Batch-Länge läge der Anker bei großen
+/// PipeWire-Quanten (≥ 100 ms = Re-Anker-Schwelle) dauerhaft eine
+/// Batch-Länge vor der pts-Zeitlinie und JEDER Batch würde re-verankert
+/// (Ton dauerhaft versetzt + Log-Spam).
+fn batch_anchor(elapsed_samples: i64, interleaved_len: usize, channels: u32) -> i64 {
+    let batch_len = (interleaved_len as i64) / i64::from(channels.max(1));
+    (elapsed_samples - batch_len).max(0)
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::batch_anchor;
+
+    #[test]
+    fn anchor_points_at_batch_start() {
+        // 960 Stereo-Sample-Paare = 1920 interleaved bei 48k: Ende bei 48000
+        // → Anfang bei 47040.
+        assert_eq!(batch_anchor(48_000, 1920, 2), 47_040);
+        // Nie negativ (allererster Batch direkt nach record_start).
+        assert_eq!(batch_anchor(100, 1920, 2), 0);
+    }
+}
+
+fn samples_from_chunk(bytes: &[u8], offset: usize, size: usize) -> Vec<f32> {
+    let start = offset.min(bytes.len());
+    let end = start.saturating_add(size).min(bytes.len());
+    // chunks_exact(4) verwirft einen angebrochenen Rest-Sample selbst — kein
+    // manuelles Runden auf die f32-Grenze nötig.
+    bytes[start..end]
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+#[cfg(test)]
+mod chunk_tests {
+    use super::samples_from_chunk;
+
+    fn le(vals: &[f32]) -> Vec<u8> {
+        vals.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn respects_chunk_offset() {
+        // Buffer: [garbage garbage | 1.0 2.0], Chunk sagt offset=8, size=8.
+        let mut bytes = le(&[9.9, 8.8, 1.0, 2.0]);
+        assert_eq!(samples_from_chunk(&bytes, 8, 8), vec![1.0, 2.0]);
+        // offset=0 bleibt wie gehabt.
+        bytes.truncate(8);
+        assert_eq!(samples_from_chunk(&bytes, 0, 8), vec![9.9, 8.8]);
+    }
+
+    #[test]
+    fn clamps_out_of_range_offset_and_size() {
+        let bytes = le(&[1.0, 2.0]);
+        // offset hinter dem Buffer → leer statt Panik.
+        assert!(samples_from_chunk(&bytes, 64, 8).is_empty());
+        // size über das Buffer-Ende hinaus → auf den Rest geclampt.
+        assert_eq!(samples_from_chunk(&bytes, 4, 999), vec![2.0]);
+        // krumme size → auf Sample-Grenze abgerundet.
+        assert_eq!(samples_from_chunk(&bytes, 0, 7), vec![1.0]);
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::AudioSelection as S;
+
+    #[test]
+    fn parse_modes() {
+        assert!(matches!(S::parse("Aus", vec![]), S::Off));
+        assert!(matches!(S::parse("Unbekannt", vec![]), S::Off));
+        assert!(matches!(S::parse("Mikrofon", vec![]), S::Mic));
+        match S::parse("App: Firefox", vec![]) {
+            S::App { name } => assert_eq!(name, "Firefox"),
+            other => panic!("erwartet App, war {other:?}"),
+        }
+        assert!(matches!(S::parse("App: ", vec![]), S::Off)); // leerer Name
+    }
+
+    #[test]
+    fn desktop_always_excludes_pulse() {
+        match S::parse("Desktop", vec!["Spotify".into()]) {
+            S::Desktop { exclude } => {
+                assert!(exclude.iter().any(|e| e == "Spotify"));
+                assert!(exclude.iter().any(|e| e == "Pulse"));
+            }
+            other => panic!("erwartet Desktop, war {other:?}"),
+        }
+        // Case-insensitiv: kein Duplikat, wenn "pulse" schon drin ist.
+        match S::parse("Desktop + Mikrofon", vec!["pulse".into()]) {
+            S::Desktop { exclude } => assert_eq!(exclude.len(), 1),
+            other => panic!("erwartet Desktop, war {other:?}"),
+        }
+    }
+}
