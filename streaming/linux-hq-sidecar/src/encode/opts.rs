@@ -127,11 +127,76 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             // GSR main.cpp: rc_mode="CBR", async_depth=3, low_power je Capability,
             // coder=cabac, tier=main (AV1).
             opts.set("rc_mode", "CBR");
-            opts.set("async_depth", "3");
+            //
+            // Encoder-Vorlauf abstellen — das VAAPI-Gegenstueck zu
+            // `zerolatency`+`delay=0` im NVENC-Zweig, und derselbe Posten in
+            // derselben Groessenordnung.
+            //
+            // **Mechanik:** ffmpeg gibt bei VAAPI erst dann ein Paket heraus,
+            // wenn `async_depth` Bilder in seiner Schlange stehen. Der Vorlauf
+            // ist damit (n-1) Bildabstaende. `async_depth=3` kostete also zwei,
+            // genau wie NVENC ohne `delay=0`.
+            //
+            // **Dass es rein um Pipelining geht und nicht um Kodierung, ist
+            // bewiesen, nicht geschlossen:** bei gleichem Eingang liefern
+            // async_depth 1, 2, 3 und 8 einen BYTE-IDENTISCHEN Bitstrom —
+            // gleiche md5, gleiche Groesse, fuer `av1_vaapi` UND `h264_vaapi`.
+            // Die Bildqualitaet kann sich dadurch also nicht aendern. Das ist
+            // die belastbarere Aussage als die VMAF-Messung darunter, deren
+            // Aufloesung bei rund +-7 Punkten liegt (jeder Lauf erwischt ein
+            // anderes Stueck des Messbilds).
+            //
+            // Gemessen 2026-07-30 auf Radeon 780M (VCN 4.0), 2560x1440 bei
+            // 60 fps, bewegter Inhalt, je drei Laeufe verschraenkt; Rauschen
+            // vorher ueber fuenf Laeufe derselben Einstellung bestimmt
+            // (Latenz ±0,13 ms, GPU ±215 us/Bild):
+            //
+            // | async_depth | AV1 | H.264 |
+            // |---|---|---|
+            // | 3 (vorher) | 33,62 ms | 33,64 ms |
+            // | 2 | 16,97 ms | 16,95 ms |
+            // | **1** | **4,75 ms** | **5,84 ms** |
+            //
+            // `ad3 - ad2` sind 16,69 ms — exakt ein Bildabstand bei 60 fps.
+            // Nicht nur die Wirkung stimmt also, sondern die Erklaerung.
+            //
+            // **Kostet nichts, wo es zaehlt.** GPU-Zeit je Bild unveraendert
+            // (AV1 3243 gegen 3220 us, H.264 3125 gegen 3117 — beides
+            // innerhalb der Streuung), Bitrate unveraendert bei 4,0 Mbit/s,
+            // Bildqualitaet unveraendert (s. Messakte). Der Durchsatz am
+            // Anschlag sinkt: offline 505 -> 487 Bilder/s bei 1080p, 334 -> 303
+            // bei 1440p, bei 4K gar nicht (dort ist die GPU der Engpass, da
+            // ueberlappt ohnehin nichts). Bei 60 fps liegt zwischen Bedarf und
+            // Decke Faktor 5 (1440p) bis 2,2 (4K) — der Verlust trifft nur
+            // Bildraten, die wir nicht fahren.
+            //
+            // **Die Streuung steigt** (±0,12 auf ±1,33 ms), genau wie im
+            // NVENC-Zweig: der feste Vorlauf hat die echte Schwankung der
+            // Encode-Zeit mit versteckt. Auf die Gleichmaessigkeit der Ausgabe
+            // wirkt es nicht.
+            //
+            // Rueckschalter braucht es hier keinen eigenen — `PULSE_ENCODER_OPTS
+            // =async_depth=3` stellt den alten Stand ohne Neubau her; genau
+            // dafuer ist die Variable da.
+            //
+            // Volle Messakten: `streaming/testbench/profiles/amd-*-2026-07-30-*.json`
+            opts.set("async_depth", "1");
             // low_power: bleibt ungesetzt. Auf AMD scheitert der Encoder-Open
             // damit hart ("Function not implemented", 2026-07-30 nachgemessen) —
             // es ist ein Intel-VDENC-Pfad. Die frühere Notiz "Phase 6
             // capability-gesteuert" ist damit für AMD gegenstandslos.
+            //
+            // Ebenfalls geprueft und absichtlich NICHT gesetzt (2026-07-30):
+            // * `compression_level=4` (die einzige erreichbare Qualitaetsstufe
+            //   bei `av1_vaapi` — eine `quality`-Option hat der Encoder nicht):
+            //   +166 % GPU-Zeit fuer null Latenzgewinn. Auf einer iGPU ist die
+            //   Leiter unbezahlbar, `compression_level=6` traegt 1440p60 gar
+            //   nicht mehr (59 Bilder/s offline gemessen).
+            // * `quality=1` bei `h264_vaapi`: reisst die Ratenkontrolle,
+            //   4,82 statt 4,01 Mbit/s bei +40 % GPU. `compression_level=1` tut
+            //   bei AV1 dasselbe (11,3 statt 4,0 Mbit/s). Wer die Leiter naiv
+            //   durchmisst, haelt das fuer Qualitaetsgewinn.
+            // * `tiles=2x1`: kein Gewinn, +3 % GPU.
         }
     }
     opts
