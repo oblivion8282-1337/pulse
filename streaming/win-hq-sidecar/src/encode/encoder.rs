@@ -60,6 +60,68 @@ pub enum VideoCodec {
     Av1,
 }
 
+/// `PULSE_HQ_AMD_D3D11=1` — AMD auch mit H.264/HEVC über den D3D11-Weg
+/// (`h264_amf`) statt über `h264_d3d12va`.
+///
+/// **Ein Messschalter, kein Feature** — und die Messung ist gemacht. Die Frage
+/// war, ob der D3D12-Zweig (rund 1800 Zeilen Eigenbau samt Compute-Shader,
+/// Shared-Handle-Brücke und extradata-Notlösung) überhaupt noch etwas trägt,
+/// nachdem `h264_amf` hier auch über D3D11 läuft. Am 2026-07-30 auf einer
+/// Radeon 780M, 1440p-Capture → 1080p60, 4000 kbps:
+///
+/// | H.264 über | Encode-Latenz | GPU-Video |
+/// |---|---|---|
+/// | D3D12 (`h264_d3d12va`) | **6,8 ms** | 25,4 % |
+/// | D3D11 (`h264_amf`)     | 17,2 ms    | 10,5 % |
+///
+/// **Die D3D11-Zeile ist mit Vorsicht zu lesen:** sie entstand vor dem
+/// Einzeltextur-Fix (`hwctx.rs`), das Bild war dabei zerrissen — und ein
+/// zerrissenes Bild kostet weniger Video-Engine, weil weniger echter Inhalt
+/// drinsteckt. Sie ist nach dem Fix **nicht nachgemessen**.
+///
+/// Was auch danach gilt: D3D12 ist um das Zweieinhalbfache latenzärmer, und
+/// `h264_d3d12va` kennt kein `usage`, lässt sich also nicht sparsam stellen.
+/// Streichen ließe sich damit weder der eine noch der andere Zweig, ohne etwas
+/// zu verlieren — aber wie groß der GPU-Vorteil von AMF wirklich ist, gehört
+/// mit korrektem Bild nachgemessen.
+///
+/// Die 17,2 ms sind übrigens dieselben, die `av1_amf` liefert, und sie ließen
+/// sich mit keiner Option bewegen: **AMF hält ein Bild zurück**, unabhängig vom
+/// Codec und von `async_depth`. Der d3d12va-Zweig tut das nicht.
+///
+/// Daraus folgt die heutige Aufteilung: H.264 (der Kompatibilitätscodec) geht
+/// über D3D12 und bekommt die niedrige Latenz, AV1 (der Effizienzcodec) über
+/// AMF und bekommt die niedrige GPU-Last. Jeder Codec nimmt den Weg, der für
+/// ihn der bessere ist.
+///
+/// Der Schalter bleibt für die Gegenprobe auf anderer AMD-Hardware. Er ist
+/// bewusst nicht der Vorgabeweg: `h264_amf` auf D3D11-Eingang ist die
+/// Konstellation aus AMF-Issue #455 (`SubmitInput`-Integer-Divide-by-Zero).
+/// Auf dieser Maschine ist der Absturz nicht reproduzierbar — das ist eine
+/// Maschine, kein Beleg.
+///
+/// Nachtrag 2026-07-30: die obige Messung lief noch über den Texture-Array-
+/// Pool, dessen Bild auf AMF **zerrissen** war (auch für `h264_amf` — per
+/// Standbild belegt, `f_sth264.png` gegen `check_h264_d3d11.png`). Seit dem
+/// Einzeltextur-Pool (`hwctx.rs`) ist der Weg auch im Bild sauber; an den
+/// Latenz-/Lastzahlen ändert die Pool-Bauart nichts Messbares (17,25 gegen
+/// 17,2 ms).
+fn amd_forces_d3d11() -> bool {
+    crate::env::flag("PULSE_HQ_AMD_D3D11")
+}
+
+/// Welcher der drei Encode-Wege eine (Vendor, Codec)-Kombination bedient.
+/// Siehe [`VideoCodec::encode_path`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodePath {
+    /// `pipeline_hw` — WGC → D3D11VA-Pool → Encoder (NVENC bzw. AMF).
+    D3d11ZeroCopy,
+    /// `pipeline_d3d12` — WGC → Shared-Handle → D3D12-Compute → `*_d3d12va`.
+    D3d12ZeroCopy,
+    /// `run_cpu_pipeline` — CPU-Readback + swscale. Notausgang.
+    Cpu,
+}
+
 impl VideoCodec {
     /// FFmpeg-Encoder-Name für (Vendor, Codec). `vendor` ist der Slug aus
     /// `system::dxgi::Adapter::vendor()` (`"nvidia"`/`"amd"`/`"intel"`).
@@ -76,6 +138,56 @@ impl VideoCodec {
             ("intel", VideoCodec::Av1) => "av1_qsv",
             _ => return Err(anyhow!("no HW encoder for vendor={vendor} codec={self:?}")),
         })
+    }
+
+    /// Welcher Encode-Weg diese Kombination bedient — die EINE Stelle, an der
+    /// das steht.
+    ///
+    /// Die Regel hing vorher an zwei Orten (Dispatcher und `pipeline_hw`) in
+    /// zwei verschiedenen Schreibweisen. Zwei Fassungen derselben Regel laufen
+    /// auseinander, sobald eine Zelle dazukommt — und dann schickt der
+    /// Dispatcher einen Stream auf einen Pfad, der ihn sofort wieder
+    /// wegdelegiert. Sie steht hier, weil daneben mit
+    /// [`ffmpeg_name`](Self::ffmpeg_name) schon die andere
+    /// (Vendor, Codec)-Tabelle wohnt.
+    ///
+    /// - **NVIDIA, alles** → D3D11: NVENC nimmt D3D11-BGRA direkt.
+    /// - **AMD, AV1** → D3D11: `av1_amf` nimmt D3D11-BGRA direkt. AV1 über
+    ///   D3D12 kann die Hardware nicht (unbrauchbarer Bitstrom, Messung in
+    ///   `pipeline_d3d12::run`), und über die CPU-Pipeline kostete AV1 113 %
+    ///   einer CPU-Kerne samt 42 übersprungenen Bildern in 20 s; über D3D11
+    ///   sind es ~10 % und 0 (2026-07-30, Radeon 780M, 1440p nativ).
+    /// - **AMD, H.264/HEVC** → D3D12: `h264_d3d12va` ist um das
+    ///   Zweieinhalbfache latenzärmer als `h264_amf` (6,8 gegen 17,2 ms).
+    /// - **Rest (Intel)** → CPU.
+    ///
+    /// **AMD+AV1 war hier schon einmal auf D3D11 und wurde zurückgenommen**,
+    /// weil das Bild zerrissen war (doppelte, versetzte Kopien, verschmierter
+    /// Text) — bei formal einwandfreiem, fehlerfrei dekodierbarem Strom. Die
+    /// Ursache ist gefunden und behoben: die AMF-Runtime liest aus dem
+    /// D3D11VA-**Texture-Array**-Pool falsch; mit einem Pool aus
+    /// **Einzeltexturen** ist das Bild sauber (Herleitung + Standbild-A/B am
+    /// Wert in `hwctx.rs::HwContext::new`; `h264_amf` zeigte über das Array
+    /// dieselben Risse, der Fehler ist codec-unabhängig). `hwctx.rs` wählt die
+    /// Pool-Bauart seither automatisch nach GPU-Vendor.
+    ///
+    /// Aus der ersten Rücknahme bleibt die Regel: **bei Bildwegen gehört zu
+    /// jeder Messung eine Sichtprüfung** — Latenz, CPU und Decodierbarkeit
+    /// sahen auch beim zerrissenen Bild hervorragend aus. Der Fix hier ist
+    /// per Standbild belegt (1440p nativ und 1080p über den Scaler-Pool).
+    ///
+    /// Neue Zellen gehören hierher und brauchen eine Messung, keine Vermutung —
+    /// und bei Bildwegen eine Sichtprüfung.
+    pub fn encode_path(self, vendor: &str) -> EncodePath {
+        if vendor == "amd" && amd_forces_d3d11() {
+            return EncodePath::D3d11ZeroCopy;
+        }
+        match (vendor, self) {
+            ("nvidia", _) => EncodePath::D3d11ZeroCopy,
+            ("amd", VideoCodec::Av1) => EncodePath::D3d11ZeroCopy,
+            ("amd", _) => EncodePath::D3d12ZeroCopy,
+            _ => EncodePath::Cpu,
+        }
     }
 
     /// Umkehrung von [`slug`](Self::slug): der Kurzname aus dem `start`-Request.

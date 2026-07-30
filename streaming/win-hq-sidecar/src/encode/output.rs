@@ -104,7 +104,7 @@ pub fn open_output(output_path: &str) -> Result<format::context::Output> {
                 // Datenmenge hängt. Auf Linux mit 3,6 ms gemessen; hier
                 // ungemessen, aber derselbe Socket und dieselbe Mechanik.
                 // Über `PULSE_TCP_NODELAY=0` abschaltbar (Vergleichsmessung).
-                if std::env::var("PULSE_TCP_NODELAY").as_deref() != Ok("0") {
+                if crate::env::flag_default_on("PULSE_TCP_NODELAY") {
                     opts.set("tcp_nodelay", "1");
                 }
                 if output_path.to_ascii_lowercase().starts_with("rtmps://") {

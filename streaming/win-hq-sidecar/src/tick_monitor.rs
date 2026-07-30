@@ -149,7 +149,7 @@ impl TickMonitor {
             win_start_drops: 0,
             cur_drops: 0,
             win: Window::default(),
-            enc_log: std::env::var("PULSE_ENC_LATENCY_LOG").as_deref() == Ok("1"),
+            enc_log: crate::env::flag("PULSE_ENC_LATENCY_LOG"),
         }
     }
 

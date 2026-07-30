@@ -1,4 +1,4 @@
-//! D3D11VA hwdevice + hwframes-Pool für Zero-Copy NVENC.
+//! D3D11VA-hwdevice + hwframes-Pool für Zero-Copy-Encode (NVENC und AMF).
 //!
 //! ffmpeg-next 8.1 hat keine safe Bindings für `hwcontext_d3d11va.h` — wir gehen
 //! direkt über `ffmpeg-sys-next`-FFI. Der `AVD3D11VADeviceContext`-Struct ist
@@ -68,6 +68,16 @@ struct AVD3D11VAFramesContext {
 /// für seinen D3D11-Input kein DECODER-Flag, nur SHADER_RESOURCE.
 const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 
+/// Hängt das D3D11-Device an einer AMD-GPU (VendorId `0x1002`)? Entscheidet
+/// die Pool-Bauart in [`HwContext::new`] (Einzeltexturen statt Texture-Array —
+/// Begründung dort). Bewusst am Device statt an `select_adapter()` abgefragt:
+/// maßgeblich ist die GPU, auf der WGC captured und AMF encodiert, und die
+/// kann auf Multi-GPU von der `HIGH_PERFORMANCE`-Wahl abweichen (gleiche
+/// Überlegung wie `pipeline_hw::device_vendor`).
+fn device_is_amd(device: &ID3D11Device) -> bool {
+    crate::system::dxgi::device_vendor(device) == Some("amd")
+}
+
 unsafe extern "C" fn cs_lock(ctx: *mut c_void) {
     unsafe { EnterCriticalSection(ctx as *mut CRITICAL_SECTION) }
 }
@@ -106,9 +116,18 @@ unsafe impl Sync for HwContext {}
 impl HwContext {
     /// Baut device_ctx + frames_ctx aus WGCs D3D11-Handles.
     ///
-    /// `pool_size`: D3D11VA kann den Pool nicht dynamisch erweitern, also genug
-    /// für NVENC-Lookahead + Capture-Backpressure. 8 ist robust für 60 FPS bei
-    /// `tune=ull` (kein B-Frame-Lookahead, aber NVENC braucht ~2-3 Frames in-flight).
+    /// `pool_size`: Schranke **nur der Array-Bauart** (s. Pool-Bauart weiter
+    /// unten) — dort kann der Pool nicht wachsen, also muss er Encoder-Vorlauf
+    /// und Capture-Backpressure von vornherein fassen. Die Aufrufer geben 24
+    /// (Capture-Pool) bzw. 16 (Scaler-Ziel-Pool).
+    ///
+    /// **In der Einzeltextur-Bauart (AMD) ist der Wert wirkungslos**: dort
+    /// wächst der Pool bis zur Arbeitsmenge. Zwei Folgen, die man kennen sollte
+    /// — die ersten Frames tragen je ein `CreateTexture2D` (bei 1440p-BGRA
+    /// ~15 MB) **im Capture-Callback** statt einmalig beim Pool-Bau, und
+    /// `acquire_frame` kann nicht mehr wegen „Pool erschöpft" fehlschlagen, das
+    /// Backpressure-Signal kommt dann allein aus der Channel-Kapazität
+    /// (`wgc_hw.rs::CHANNEL_CAPACITY`).
     ///
     /// `extra_bind_flags`: zusätzliche `D3D11_BIND_*`-Flags für die Pool-
     /// Texturen (0 = nur libavutil-Default DECODER|SHADER_RESOURCE). Der
@@ -194,7 +213,39 @@ impl HwContext {
             (*frames_hdr).sw_format = AVPixelFormat::AV_PIX_FMT_BGRA;
             (*frames_hdr).width = width as c_int;
             (*frames_hdr).height = height as c_int;
-            (*frames_hdr).initial_pool_size = pool_size as c_int;
+            // Pool-Bauart hängt am GPU-Vendor (2026-07-30, Radeon 780M,
+            // Treiber 32.0.31035.1003, FFmpeg n8.1.1):
+            //
+            // - `initial_pool_size > 0` → libavutil legt EIN `ID3D11Texture2D`
+            //   mit `ArraySize = pool_size` an; die Frames unterscheiden sich
+            //   nur im Subresource-Index (`data[1]`).
+            // - `initial_pool_size = 0` → je Frame eine EIGENE Textur
+            //   (`ArraySize = 1`, Index 0; `d3d11va_alloc_single` in
+            //   `hwcontext_d3d11va.c`). Der AVBufferPool recycelt sie, die
+            //   Allokation wächst also nur bis zur Arbeitsmenge (~6 Texturen
+            //   statt fix `pool_size` — bei 1440p-BGRA spart das zudem
+            //   ~250 MB VRAM gegenüber dem 24er-Array).
+            //
+            // **AMF (AMD) liefert über den Array-Pool ein zerrissenes Bild** —
+            // doppelte, versetzte Kopien, verschmierter Text; `av1_amf` wie
+            // `h264_amf`, 1440p nativ wie 1080p über den Scaler-Pool. Mit
+            // Einzeltexturen ist dasselbe Material über denselben Pfad sauber
+            // (Standbilder `f_singletex/f_st1080/f_sth264.png` gegen
+            // `f_arrayctl.png`, A/B auf demselben Build; deckungsgleich die
+            // CLI-Probe F2: `hwupload` ohne `extra_hw_frames` = dynamische
+            // Einzeltexturen, VMAF 82,1). FFmpeg übergibt den Index korrekt
+            // per `SetPrivateData(AMFTextureArrayIndexGUID)` vor
+            // `CreateSurfaceFromDX11Native` (`amfenc.c`) — die AMF-Runtime
+            // dieses Treibers verwertet ihn beim BGRA-Eingang offenbar nicht.
+            // NVENC (NVIDIA) läuft seit jeher fehlerfrei über den Array-Pool
+            // und bleibt darauf — die Einzeltextur-Wirkung ist dort ungemessen.
+            //
+            // `PULSE_HQ_D3D11_SINGLE_TEX=1|0` übersteuert die Vendor-Regel in
+            // beide Richtungen (Messschalter; `0` reproduziert das zerrissene
+            // Bild auf AMD, `1` misst Einzeltexturen auf NVIDIA).
+            let single_tex = crate::env::flag_opt("PULSE_HQ_D3D11_SINGLE_TEX")
+                .unwrap_or_else(|| device_is_amd(&device));
+            (*frames_hdr).initial_pool_size = if single_tex { 0 } else { pool_size as c_int };
             // BindFlags setzen wir nur explizit, wenn `extra_bind_flags != 0`
             // (Scaler-Ziel-Pool braucht RENDER_TARGET). Dann SHADER_RESOURCE
             // selbst dazunehmen — DECODER lassen wir weg (inkompatibel mit

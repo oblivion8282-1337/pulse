@@ -1,4 +1,4 @@
-//! Hardware-Encoder mit D3D11-Pool-Input (Zero-Copy-NVENC-Pfad).
+//! Hardware-Encoder mit D3D11-Pool-Input (Zero-Copy — NVENC und AMF).
 //!
 //! Spiegelt `FfmpegEncoder` aus `encoder.rs`, aber:
 //! - Input-Frames sind `OwnedHwFrame` (AVFrame mit D3D11-Texture in data[0]).
@@ -14,8 +14,10 @@
 //! native aus dem Capture-Pool, downscaled aus dem Scaler-Ziel-Pool. Der
 //! Caller übergibt die passende `hw_frames_ctx`-AVBufferRef.
 //!
-//! Aktiv für `vendor == "nvidia"`. AMD/Intel-Zero-Copy bräuchten zusätzlich
-//! einen GPU-Color-Convert BGRA→NV12 — kein Scope hier.
+//! Aktiv für `vendor == "nvidia"` (alle Codecs) und für `vendor == "amd"` mit
+//! AV1: beide Encoder nehmen BGRA-D3D11-Frames an und rechnen den
+//! NV12-Convert selbst auf der GPU. Intel bleibt auf der CPU-Pipeline.
+//! Welche Kombination hier landet, entscheidet `pipeline_hw::run`.
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
@@ -237,6 +239,17 @@ impl FfmpegHwEncoder {
     /// Encodete Video-Packets aus dem Encoder ziehen und in die MuxWriter-Queue
     /// schieben. EAGAIN/EOF = nichts (mehr) da → Drain fertig; ein ECHTER
     /// Encoder-Fehler wird propagiert statt verschluckt (#8).
+    ///
+    /// **Auf EAGAIN zu warten bringt bei AMF nichts — geprüft.** Naheliegender
+    /// Verdacht war, dass „jetzt noch nicht" nur heißt, dass wir zu früh
+    /// fragen, und dass das Paket ein paar Millisekunden später bereitläge; wir
+    /// es aber erst beim nächsten Tick abholen und so einen ganzen Bildabstand
+    /// verschenken. Am 2026-07-30 gemessen: ein Drain, der bis zu 12 ms lang
+    /// gezielt auf das Paket zum gerade eingeschobenen Bild nachfragt, ändert
+    /// die Encode-Latenz von `av1_amf` um 0,02 ms (17,23 → 17,21). Das Paket
+    /// ist wirklich nicht da — FFmpegs AMF-Zweig gibt es erst heraus, wenn das
+    /// nächste Bild eingeschoben wird. Nicht noch einmal versuchen; die
+    /// Herleitung steht in `docs/plans/2026-07-30-amd-windows-messung.md`.
     fn drain_video(&mut self) -> Result<()> {
         let mut mux_us: u64 = 0;
         loop {

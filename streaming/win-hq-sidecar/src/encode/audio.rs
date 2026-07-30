@@ -211,8 +211,7 @@ impl AudioPipeline {
             stream_origin: None,
             stream_origin_qpc: None,
             origin_set: false,
-            lag_report: (std::env::var("PULSE_MUX_LATENCY_LOG").as_deref() == Ok("1"))
-                .then(Instant::now),
+            lag_report: crate::env::flag("PULSE_MUX_LATENCY_LOG").then(Instant::now),
         })
     }
 

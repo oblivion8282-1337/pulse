@@ -4,14 +4,29 @@
 //! D3D11VA-Pool, von dem der Encoder direkt liest. Kein PCIe-Hin-und-Her, kein
 //! BGRA→NV12-swscale auf der CPU. Downscale per `D3D11Scaler` (VideoProcessor).
 //!
-//! Aktiv NUR für NVIDIA — h264_nvenc nimmt D3D11-BGRA-Frames direkt. AMD läuft
-//! über `pipeline_d3d12` (nativer h264_d3d12va), Intel über die CPU-Pipeline
-//! (`run_cpu_pipeline`): h264_amf stürzt auf D3D11-Surface-Input ab
-//! (dokumentierter AMD-AMF-Treiber-Bug, AMF-Issue #455). Da `select_adapter()`
-//! auf Multi-GPU die dGPU statt der Display-GPU liefern kann, verifiziert
-//! `run` die echte WGC-Capture-GPU und delegiert bei !=nvidia selbst an
-//! `pipeline_d3d12` bzw. `run_cpu_pipeline`. Kill-Switch
-//! `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
+//! Aktiv für **NVIDIA (alle Codecs)** und für **AMD, aber nur AV1**:
+//! `h264_nvenc` wie `av1_amf` nehmen D3D11-BGRA-Frames direkt entgegen.
+//! AMD-H.264/HEVC läuft über `pipeline_d3d12` (nativer `h264_d3d12va`), Intel
+//! über die CPU-Pipeline (`run_cpu_pipeline`).
+//!
+//! **Warum AMD hier nur mit AV1 steht.** Über D3D12 ist AV1 auf AMD nicht
+//! benutzbar (`av1_d3d12va` liefert einen Bitstrom, den kein Decoder liest —
+//! Messung in `pipeline_d3d12::run`), und der frühere Ausweg über die
+//! CPU-Pipeline kostete gemessen 113 % einer CPU-Kerne und 42 übersprungene
+//! Bilder in 20 s. Über diesen Pfad sind daraus 9 % und 2 geworden.
+//! Voraussetzung ist der **Einzeltextur-Pool** für AMD (`hwctx.rs`): über den
+//! Texture-Array-Pool, den NVIDIA nutzt, liefert AMF ein zerrissenes Bild
+//! (Standbild-A/B und Herleitung am Wert in `HwContext::new`). Für
+//! AMD-H.264 gibt es dagegen keinen Anlass umzustellen: `h264_d3d12va`
+//! funktioniert, und `h264_amf` hat mit D3D11-Eingang die Vorgeschichte aus
+//! AMF-Issue #455 (`SubmitInput`-Integer-Divide-by-Zero). Auf der Radeon 780M
+//! mit dem Treiber vom Juli 2026 ist der Crash nicht mehr reproduzierbar —
+//! das ist eine Maschine, kein Beleg.
+//!
+//! Da `select_adapter()` auf Multi-GPU die dGPU statt der Display-GPU liefern
+//! kann, verifiziert `run` die echte WGC-Capture-GPU und delegiert bei einer
+//! unpassenden Vendor/Codec-Kombination selbst an `pipeline_d3d12` bzw.
+//! `run_cpu_pipeline`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
 //!
 //! Der Encoder-Vendor wird aus der echten WGC-D3D11-Device-GPU abgeleitet
 //! (`device_vendor`), NICHT aus `select_adapter()` — letzteres bevorzugt die
@@ -22,13 +37,13 @@ use serde_json::json;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
-use windows::core::Interface;
 
 use crate::audio::AudioCapture;
 use crate::capture::wgc::CaptureConfig;
 use crate::capture::{HwCaptureItem, WgcHwCapture};
 use crate::encode::{
-    AudioStreamConfig, D3D11Scaler, FfmpegHwEncoder, HwEncoderConfig, OwnedHwFrame, VideoCodec,
+    AudioStreamConfig, D3D11Scaler, EncodePath, FfmpegHwEncoder, HwEncoderConfig, OwnedHwFrame,
+    VideoCodec,
 };
 use crate::events;
 use crate::stream_controller::{StartParams, StreamController};
@@ -39,7 +54,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     let ctrl = StreamController::singleton();
 
     let fps = params.override_fps.unwrap_or(params.profile.fps);
-    let codec = params.override_codec.unwrap_or_else(|| VideoCodec::from_slug(params.profile.codec));
+    let codec = params.codec();
     let bitrate = params
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);
@@ -92,23 +107,26 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     let vendor = device_vendor(hw.device()).unwrap_or_else(|| adapter.vendor());
 
-    // Dieser D3D11-Zero-Copy-Pfad gilt NUR für NVIDIA — h264_amf (AMD) stürzt
-    // auf D3D11-Surface-Input ab (AMF-Runtime-Bug, AMF-Issue #455). Ist die
-    // echte Capture-GPU nicht NVIDIA → HW-Capture stoppen und delegieren:
-    // AMD → `pipeline_d3d12` (nativer h264_d3d12va), sonst → CPU-Pfad.
-    if vendor != "nvidia" {
+    // `encode_path` hier ein zweites Mal auswerten — jetzt mit dem ECHTEN
+    // Vendor der WGC-Capture-GPU. Der Dispatcher entscheidet auf
+    // `select_adapter()`, und das kann auf Multi-GPU die dGPU sein. Die Regel
+    // selbst steht nur einmal (`encode/encoder.rs`).
+    // Wohin delegiert wird, sagt `encode_path` selbst — die Zuordnung wird hier
+    // NICHT ein zweites Mal ausgeschrieben. Genau das war der Fehler, den die
+    // Zusammenführung in `encode_path` beseitigen sollte: zwei Fassungen
+    // derselben Regel laufen auseinander, sobald eine Zelle dazukommt.
+    let path = codec.encode_path(vendor);
+    if path != EncodePath::D3d11ZeroCopy {
         drop(capture);
         drop(first);
         drop(hw);
-        if vendor == "amd" {
-            eprintln!("[pipeline-hw] Capture-GPU ist amd — Delegation an pipeline_d3d12");
-            return crate::pipeline_d3d12::run(params, stop_rx);
-        }
         eprintln!(
-            "[pipeline-hw] Capture-GPU ist {vendor}, nicht nvidia/amd — \
-             Delegation an den CPU-Pfad"
+            "[pipeline-hw] Capture-GPU ist {vendor}, Codec {codec:?} — Delegation an {path:?}"
         );
-        return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
+        return match path {
+            EncodePath::D3d12ZeroCopy => crate::pipeline_d3d12::run(params, stop_rx, codec),
+            _ => crate::stream_controller::run_cpu_pipeline(params, stop_rx),
+        };
     }
     // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
     // kein Upscale, gerade Maße — deckt auch die NV12-Anforderung #7 ab). Bei
@@ -186,14 +204,38 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             &params.push_url,
         )
     };
-    // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern beim
-    // Öffnen "function not implemented". Dann auf H.264 zurückfallen statt failen.
-    let encoder = match (codec, make(codec)) {
-        (VideoCodec::Av1, Err(e)) => {
+    let encoder = match make(codec) {
+        Ok(enc) => enc,
+        // AMD steht hier regulär nur mit AV1 (s. `encode_path`). Ein Rückfall
+        // auf H.264 darf deshalb NICHT hier stattfinden: H.264 hieße
+        // `h264_amf` mit D3D11-Eingang, und genau dafür gibt es AMF-Issue #455.
+        // AMD hat für H.264 einen erprobten eigenen Weg — dorthin abgeben.
+        // (Gilt auch unter `PULSE_HQ_AMD_D3D11=1`: scheitert der Open dort, ist
+        // der D3D12-Weg die richtige Antwort, nicht ein zweiter Versuch.)
+        Err(e) if vendor == "amd" => {
+            eprintln!(
+                "[pipeline-hw] av1_amf nicht über D3D11 öffenbar ({e:#}) — \
+                 Delegation an pipeline_d3d12 (H.264)"
+            );
+            // `audio_capture` MUSS mit weg. Ohne das liefe der WASAPI-Thread
+            // die ganze Laufzeit des delegierten Streams weiter, während
+            // `pipeline_d3d12` sich eine zweite Aufnahme startet — der
+            // verwaiste Kanal läuft voll und der Worker dreht danach dauerhaft
+            // in seiner Sende-Warteschleife.
+            drop(scaler);
+            drop(capture);
+            drop(first);
+            drop(hw);
+            drop(audio_capture);
+            return crate::pipeline_d3d12::run(params, stop_rx, VideoCodec::H264);
+        }
+        // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern
+        // beim Öffnen "function not implemented" → H.264 statt Abbruch.
+        Err(e) if matches!(codec, VideoCodec::Av1) => {
             eprintln!("[pipeline-hw] av1 HW encoder nicht verfügbar ({e:#}) → Fallback H.264");
             make(VideoCodec::H264)?
         }
-        (_, r) => r?,
+        Err(e) => return Err(e),
     };
 
     // ── Ab hier wird NICHTS mehr gedroppt ────────────────────────────────────
@@ -239,10 +281,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // relativ zum QPC des ersten Frames (origin_qpc); Audio am selben origin
     // verankert → exakter Offset ohne Kalibrierung. qpc_sync aus / origin_qpc==0
     // (Timestamp n/a) → Fallback auf reine Wall-clock. Kill: PULSE_HQ_NO_AV_OFFSET=1.
-    let qpc_sync = std::env::var("PULSE_HQ_NO_AV_OFFSET")
-        .map(|v| v.is_empty() || v == "0")
-        .unwrap_or(true)
-        && first_qpc != 0;
+    let qpc_sync = !crate::env::flag("PULSE_HQ_NO_AV_OFFSET") && first_qpc != 0;
     let origin_qpc = first_qpc;
     let mut newest_qpc = first_qpc;
     // Anker muss zum tatsächlichen Video-Origin passen: mit QPC-Sync ist PTS 0
@@ -422,14 +461,5 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
 /// primären Displays); der Encoder muss dazu passen (h264_nvenc / h264_amf).
 /// `None` wenn die Abfrage fehlschlägt oder der Vendor unbekannt ist.
 fn device_vendor(device: &ID3D11Device) -> Option<&'static str> {
-    use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-    let dxgi: IDXGIDevice = device.cast().ok()?;
-    let adapter = unsafe { dxgi.GetAdapter() }.ok()?;
-    let desc = unsafe { adapter.GetDesc() }.ok()?;
-    match desc.VendorId {
-        0x10DE => Some("nvidia"),
-        0x1002 => Some("amd"),
-        0x8086 => Some("intel"),
-        _ => None,
-    }
+    crate::system::dxgi::device_vendor(device)
 }

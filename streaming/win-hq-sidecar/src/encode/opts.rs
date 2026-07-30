@@ -40,9 +40,56 @@ pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary
             opts.set("delay", "0");
         }
         "amd" => {
-            opts.set("usage", "transcoding");
+            // `usage` ist bei AMF kein Etikett, sondern ein Bündel: es stellt
+            // Vorlauf, Voranalyse und Referenzstruktur auf einen Schlag ein.
+            // `transcoding` heißt „Generic Transcoding" und ist das Bündel für
+            // Offline-Umkodierung — es stand hier, seit der Zweig existiert,
+            // ohne dass je gemessen wurde, was es kostet.
+            //
+            // Am 2026-07-30 auf einer Radeon 780M gemessen (1080p60, 4000 kbps,
+            // Bildschirminhalt, Eingang auf Echtzeit gedrosselt; GPU-Wert =
+            // mittlere Auslastung der Video-Engine über den Prozess):
+            //
+            //                                 GPU-Video    VMAF
+            //   AV1  usage=transcoding          23,9 %     82,85
+            //   AV1  usage=ultralowlatency       9,4 %     82,86
+            //   H264 usage=transcoding          26,6 %     82,00
+            //   H264 usage=ultralowlatency      10,3 %     81,60
+            //
+            // Im laufenden Sidecar bestätigt (`av1_amf`, 1440p→1080p60):
+            // Video-Engine 22,1 % → 9,8 %.
+            //
+            // Bei AV1 — dem Codec, der über diesen Zweig läuft — kostet der
+            // Wechsel also NICHTS an Bildqualität und senkt die Last der
+            // Video-Engine auf gut ein Drittel. Auf einer iGPU, die sich die
+            // Leistungsaufnahme mit der CPU teilt, ist das der größte Posten
+            // überhaupt. Bei H.264 kostet er 0,4 VMAF; dieser Zweig ist für
+            // H.264 aber ohnehin nur der Notausgang (`PULSE_HQ_DISABLE_ZERO_COPY`),
+            // der Regelweg ist `h264_d3d12va`.
+            opts.set("usage", "ultralowlatency");
+            // Unter `ultralowlatency` ist `quality` wirkungslos — `balanced` und
+            // `speed` lieferten byte-identische Bitströme (SHA-256 über 720
+            // Bilder). Der Wert bleibt stehen, damit er greift, wenn jemand
+            // `usage` über `PULSE_ENCODER_OPTS` zurückdreht.
             opts.set("quality", "balanced");
             opts.set("rc", "cbr");
+            // AMFs Default ist **16** — bis zu 15 Bilder Vorlauf, und FFmpeg
+            // schreibt die Latenzwirkung selbst in den Hilfetext.
+            //
+            // **Auf dieser Hardware ändert der Wert allerdings nichts**, und das
+            // gehört dazugesagt, damit niemand ihn später für einen gemessenen
+            // Gewinn hält: `av1_amf` lieferte im Sidecar bei `async_depth=1` wie
+            // bei `16` dieselbe Encode-Latenz (17,2 ms, = ein Bildabstand) und
+            // dieselbe Video-Engine-Last. Anders als auf dem d3d12va-Zweig, wo
+            // jede Stufe messbar einen Bildabstand kostet
+            // (s. `encoder_d3d12.rs::d3d12va_opts`), scheint AMF hier ohnehin
+            // nur ein Bild zu halten.
+            //
+            // Der Wert bleibt trotzdem gesetzt: er kostet nachweislich nichts,
+            // FFmpeg dokumentiert ihn als Latenzschraube, und auf einer anderen
+            // AMD-Generation kann der Default 16 sehr wohl durchschlagen. Ein
+            // Nachmessen dort ist billig — `PULSE_ENCODER_OPTS=async_depth=16`.
+            opts.set("async_depth", "1");
         }
         "intel" => {
             opts.set("preset", "medium");
