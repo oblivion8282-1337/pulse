@@ -3,10 +3,18 @@
 Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 (`streaming/linux-hq-sidecar/` im Pulse-Repo).
 
-**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`, jetzt
-Archiv). Dort stehen die Commits mit den Messbegründungen zu den Latenz- und
-Encoder-Werten; wer wissen will, warum eine Zahl so gesetzt ist, findet die
-Herleitung in der Historie des Archivs. Übernommen wurde `ba9cc48`.
+**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`,
+übernommen wurde `ba9cc48`). **Dieses Repo ist seit 2026-07-30 gelöscht** —
+lokal wie auf GitHub. Seine Historie trug die Messbegründungen zu den Latenz-
+und Encoder-Werten; die sind damit weg.
+
+Praktisch verkraftbar, weil die Werte, auf die es ankommt, seit 2026-07-30 ihre
+Begründung **am Wert selbst** tragen (`encode/opts.rs` und
+`encode/mod.rs::DEFAULT_INTERLEAVE_US`, jeweils mit Messtabelle) und die
+Messakten in `streaming/testbench/profiles/` append-only im Pulse-Repo liegen.
+Wo unten „siehe Historie des Archivs" stand, gilt: **dort steht nichts mehr,
+was hier nicht steht.** Findet sich doch eine Zahl ohne Herleitung, ist sie neu
+zu messen und nicht zu erben.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
@@ -14,8 +22,11 @@ Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-s
 Binary als Subprocess spawned. Hier: **FFmpeg als Bibliothek** (wie die Windows/macOS-
 Rust-Sidecars `pulse/streaming/{win,mac}-hq-sidecar/`), kein zweites Programm.
 
-**Am Pulse-Repo (`/home/michael/Dokumente/pulse/`) wird nichts geändert** — nur dieser
-Ordner. Vorbild/Vorlage ist `mac-hq-sidecar` (nächste Verwandtschaft: backendfrei +
+**Überholt seit dem Zusammenlegen:** hier stand „am Pulse-Repo wird nichts
+geändert — nur dieser Ordner". Das galt, solange dies ein eigenes Repo war.
+Dieser Ordner IST jetzt das Pulse-Repo; Änderungen an `packaging/`,
+`desktop/electron/sidecar.ts` oder `streaming/testbench/` gehören in denselben
+Branch. Vorbild/Vorlage ist `mac-hq-sidecar` (nächste Verwandtschaft: backendfrei +
 ffmpeg-as-lib + kein Tokio im Main-Loop).
 
 ## Wire-Protokoll (heilig — nicht brechen)
@@ -308,6 +319,9 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
 gegen Drift).
 
 ## Memory / Plan
-- Projekt-Memory: `~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`
-  (`linux-rust-sidecar-rebuild.md` — vollständiger Stand/Phasen/Fällen).
-- Plan: `~/.claude/plans/shiny-meandering-tide.md`.
+Beides zeigte auf die Arbeitsumgebung des eigenen Repos
+(`~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`,
+`~/.claude/plans/shiny-meandering-tide.md`) und ist mit dem Zusammenlegen
+gegenstandslos — Claude-Memory ist ohnehin pro Maschine und wandert nicht mit.
+Der verbindliche Stand steht in dieser Datei, die Messungen an den Werten in
+`encode/opts.rs` und in `streaming/testbench/profiles/`.
