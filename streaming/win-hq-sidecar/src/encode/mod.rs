@@ -24,7 +24,9 @@ pub mod encoder_d3d12;
 pub mod extradata;
 pub mod encoder_hw;
 pub mod hwctx;
+pub mod latency;
 pub mod mux_writer;
+pub mod output;
 
 pub use d3d11_scale::D3D11Scaler;
 pub use encoder::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};

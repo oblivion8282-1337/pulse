@@ -106,13 +106,43 @@ sauber bei 60 fps. Darum **nicht** der NVIDIA-D3D11-Pfad, sondern der eigene D3D
   `av_offset_ms` im `start`-Request mit, `src/encode/audio.rs`); die Env-Var greift nur,
   wenn der UI-Wert 0 ist.
 
+### Latenz messen und drehen (2026-07-30)
+
+- `PULSE_ENC_LATENCY_LOG=1` — gibt die 2-Sekunden-Zusammenfassung des
+  `TickMonitor` auch dann aus, wenn das Fenster sauber war (sonst schweigt sie).
+  Die Zeile traegt `enc avg=/max= (n)`: die **Encode-Latenz** vom Einschieben
+  eines Bildes bis zu seinem Paket. Das ist NICHT `send` — `send` ist die Dauer
+  des Submit-Aufrufs und bleibt bei einem Encoder mit Vorlauf nahe null,
+  waehrend das Paket zwei Bilder spaeter herausfaellt. Gegenprobe auf der
+  RTX 5080 (2026-07-30): Vorgabe 1,8 ms, mit `PULSE_ENCODER_OPTS=delay=2`
+  16,8 ms — exakt ein Bildabstand bei 60 fps, bei unveraendertem `send`.
+- `PULSE_ENCODER_OPTS="k=v,k=v"` — beliebige Encoder-Optionen, ueberschreibt die
+  Vendor-Vorgaben. Damit faehrt ein Messlauf eine ganze Reihe ohne Neubau; das
+  ist das Werkzeug fuer den offenen AMD-Teil (`async_depth`, `usage`). Schluessel,
+  die der Encoder nicht kennt, werden vor dem Open gemeldet — ffmpeg verwirft sie
+  sonst **stillschweigend**, und eine wirkungslose Messvariante ist von einer
+  wirksamen nicht zu unterscheiden.
+- `PULSE_MUX_INTERLEAVE_US=<us>` — `max_interleave_delta` (Default 10000).
+  Groesser = der Muxer haelt Bilder laenger fuer den Ton zurueck; zu klein toetet
+  den Stream (`write_interleaved: Invalid argument`), s. `src/encode/output.rs`.
+- `PULSE_OPUS_FRAME_MS=5|10|20|40|60` — Laenge eines Opus-Pakets (Default 5).
+  **Dreht am Bild, nicht am Ton:** der FLV-Muxer gibt Bilder in Ton-Buendeln
+  frei. Das Aufnahme-Raster zieht automatisch mit.
+- `PULSE_MUX_LATENCY_LOG=1` — meldet je Sekunde, wie weit die Ton-Zeitlinie
+  hinter der Wanduhr herlaeuft. Jede Millisekunde davon haelt der Muxer als
+  Bild-Latenz fest. Auf dieser Maschine gemessen: -7 bis +4 ms ohne Trend, also
+  kein anhaltender Rueckstand (anders als auf Linux, wo der PipeWire-Null-Sink
+  27-29 ms einbrachte und eine Korrektur noetig war).
+- `PULSE_TCP_NODELAY=0` — Nagle wieder an (Vergleichsmessung).
+
 ## TLS/RTMPS-Fußnote
 
 FFmpegs Schannel-Backend auf Windows ist strict-verify by default — `tls_verify=0`
 MUSS gesetzt sein, wenn MediaMTX self-signed nutzt (Pulse-Default, Token in URL ist
 die echte Auth). Sonst killt FFmpeg den Push nach dem TLS-Handshake mit „Writing
 encrypted data to socket failed" (sieht aus wie ein Network-Bug, ist aber
-Cert-Verification — `encoder.rs::create` setzt das automatisch bei `rtmps://`).
+Cert-Verification — `encode/output.rs::open_output` setzt das automatisch bei
+`rtmps://`).
 
 ## Tests
 

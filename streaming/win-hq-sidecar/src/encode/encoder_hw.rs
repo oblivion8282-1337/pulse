@@ -22,9 +22,11 @@ use ffmpeg_next as ffmpeg;
 use ffmpeg::{Packet, Rational, codec, format, ffi::*};
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, open_output, vendor_encoder_opts};
+use super::encoder::{AudioStreamConfig, VideoCodec, vendor_encoder_opts};
 use super::hwctx::OwnedHwFrame;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 
 #[derive(Debug, Clone)]
@@ -55,6 +57,9 @@ pub struct FfmpegHwEncoder {
     /// ein Spike = Queue voll = Writer-Thread hängt am Socket).
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben -> Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `zerolatency`/`delay` veraendern; `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegHwEncoder {
@@ -70,7 +75,7 @@ impl FfmpegHwEncoder {
         ffmpeg::init().context("ffmpeg::init")?;
 
         // Output-Öffnung inkl. Protokoll-Optionen (RTMPS/SRT/WHIP) zentral in
-        // encoder.rs::open_output.
+        // output.rs::open_output.
         let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.ffmpeg_name(&cfg.vendor)?;
@@ -109,7 +114,8 @@ impl FfmpegHwEncoder {
             (*ctx_ptr).hw_frames_ctx = new_ref;
         }
 
-        let opts = vendor_encoder_opts(&cfg.vendor);
+        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec);
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open hw encoder '{codec_name}' (vendor={})", cfg.vendor))?;
@@ -149,7 +155,15 @@ impl FfmpegHwEncoder {
             audio,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in us.
+    /// Holt und LEERT die Zaehler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// NVENC-Submit-Dauer (`avcodec_send_frame`) des letzten `send_hw` in µs.
@@ -193,10 +207,12 @@ impl FfmpegHwEncoder {
     /// (Downscale erledigt der `D3D11Scaler` vorgelagert).
     pub fn send_hw(&mut self, frame: &mut OwnedHwFrame, pts: i64) -> Result<()> {
         frame.set_pts(pts);
-        self.send_avframe(frame.as_mut_ptr())
+        self.send_avframe(frame.as_mut_ptr(), pts)
     }
 
-    fn send_avframe(&mut self, frame_ptr: *mut AVFrame) -> Result<()> {
+    fn send_avframe(&mut self, frame_ptr: *mut AVFrame, pts: i64) -> Result<()> {
+        // VOR dem Einschieben stempeln: mit `delay=0` liefert NVENC das Paket
+        // im selben Aufruf zurueck (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         unsafe {
             let ret = avcodec_send_frame(self.encoder.as_mut_ptr(), frame_ptr);
@@ -205,6 +221,7 @@ impl FfmpegHwEncoder {
             }
         }
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_video()
     }
 
@@ -221,6 +238,9 @@ impl FfmpegHwEncoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             // Einreihen in die Queue messen — normal ~0; blockiert nur, wenn

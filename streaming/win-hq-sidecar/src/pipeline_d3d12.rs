@@ -103,7 +103,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
 
     // ── Audio-Pipeline (WASAPI → libopus → zweite FLV-Spur).
     let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
-        match AudioCapture::start(src.clone(), 1024) {
+        match AudioCapture::start(src.clone(), crate::encode::audio::capture_chunk_frames()) {
             Ok(c) => Some(c),
             Err(e) => {
                 eprintln!("[pipeline-d3d12] audio capture failed, video-only: {e:#}");
@@ -331,6 +331,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
             pts,
             pts_delta: pts - prev_pts,
             capture_drops: capture.dropped(),
+            enc_latency: encoder.take_encode_latency(),
         });
         prev_pts = pts;
 

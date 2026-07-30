@@ -23,7 +23,9 @@ use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
 
 use super::audio::AudioPipeline;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::output::{apply_encoder_opts_override, open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
 
@@ -132,6 +134,9 @@ pub struct FfmpegEncoder {
     last_convert_us: u64,
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben → Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `async_depth` (AMF/QSV) verändert; `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegEncoder {
@@ -190,7 +195,8 @@ impl FfmpegEncoder {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
 
-        let opts = vendor_encoder_opts(&cfg.vendor);
+        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec);
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}' (vendor={})", cfg.vendor))?;
@@ -270,7 +276,15 @@ impl FfmpegEncoder {
             last_convert_us: 0,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in µs.
+    /// Holt und LEERT die Zähler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// Frame-Copy + swscale BGRA→NV12 des letzten `send` in µs.
@@ -362,11 +376,14 @@ impl FfmpegEncoder {
 
         frame.set_pts(Some(pts));
 
+        // VOR dem Einschieben stempeln: mit abgeschaltetem Vorlauf liefert der
+        // Encoder das Paket im selben Aufruf zurück (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         self.encoder
             .send_frame(frame)
             .context("encoder.send_frame")?;
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_packets()?;
         Ok(())
     }
@@ -384,6 +401,9 @@ impl FfmpegEncoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             let t_mux = std::time::Instant::now();
@@ -414,78 +434,6 @@ impl FfmpegEncoder {
     }
 }
 
-/// Für URL-Schemes ohne Extension wählt FFmpeg's Auto-Detect kein Format —
-/// wir mappen die unterstützten Streaming-Protokolle hier explizit.
-///
-/// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
-/// - `srt://`               → MPEG-TS (SRT-Standard)
-/// - `http(s)://`           → WHIP (WebRTC-Ingest; media-svc mintet solche
-///                            URLs für Gäste auf App-gehosteten Instanzen)
-/// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
-pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
-    let lower = target.to_ascii_lowercase();
-    if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
-        Some("flv")
-    } else if lower.starts_with("srt://") {
-        Some("mpegts")
-    } else if lower.starts_with("http://") || lower.starts_with("https://") {
-        Some("whip")
-    } else {
-        None
-    }
-}
-
-/// Öffnet den Output-Kontext für die Push-URL — gemeinsame Stelle für alle
-/// drei Encoder-Pfade (CPU / NVENC-D3D11 / AMD-D3D12).
-///
-/// Für RTMPS: `tls_verify=0` — Pulse-MediaMTX nutzt by-design ein self-signed
-/// Cert; die echte Auth läuft per Stream-Token in der URL → authHTTP-Hook.
-/// FFmpegs Schannel-Backend ist strict-verify by default und killt den Stream
-/// sonst nach dem TLS-Handshake. `rw_timeout` (µs): ohne das blockiert ein
-/// toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze bei `stop()`.
-///
-/// Für WHIP: der Muxer macht sein eigenes I/O (ICE/DTLS/SRTP) — die
-/// AVIO-Optionen greifen dort nicht; stattdessen den Handshake begrenzen.
-/// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
-/// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
-pub(crate) fn open_output(output_path: &str) -> Result<format::context::Output> {
-    match url_format_hint(output_path) {
-        Some(fmt) => {
-            let mut opts = Dictionary::new();
-            if fmt == "whip" {
-                ensure_muxer_available(fmt)?;
-                opts.set("handshake_timeout", "10000");
-            } else {
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-            }
-            format::output_as_with(&output_path, fmt, opts)
-                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))
-        }
-        None => format::output(&output_path)
-            .with_context(|| format!("format::output({output_path})")),
-    }
-}
-
-/// Probe: trägt das gelinkte FFmpeg den Muxer überhaupt? (WHIP existiert nur
-/// in Builds mit DTLS-Support, FFmpeg ≥ 8.0 + OpenSSL.)
-fn ensure_muxer_available(fmt: &'static str) -> Result<()> {
-    let name = std::ffi::CString::new(fmt).expect("static fmt name");
-    let found = unsafe {
-        !ffmpeg::ffi::av_guess_format(name.as_ptr(), std::ptr::null(), std::ptr::null()).is_null()
-    };
-    if found {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Muxer '{fmt}' fehlt im gelinkten FFmpeg — für WHIP wird FFmpeg ≥ 8.0 \
-             mit DTLS (OpenSSL) benötigt. Bitte FFmpeg-DLLs aktualisieren."
-        ))
-    }
-}
-
 /// BGRA-Bytes in einen FFmpeg-`Video`-Frame kopieren. Beachtet den Frame-Stride
 /// (FFmpeg padded die Zeilen für SIMD-Alignment, deshalb funktioniert kein
 /// pauschales `data.copy_from_slice(src)`). `width`/`height` müssen mit der
@@ -504,7 +452,13 @@ pub(crate) fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, heigh
 /// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
 /// (Low-Latency, CBR) — pro Encoder mehr durchstimmen wenn die echten
 /// Quality-Tradeoffs sichtbar sind.
-pub(crate) fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
+///
+/// `codec` wird für die eine Option gebraucht, die es nicht bei jedem Codec
+/// desselben Vendors gibt (Begründung an der Stelle selbst). Jeder gesetzte
+/// Schlüssel wird vor dem Open gegen die Optionstabelle des Encoders geprüft
+/// (`output::warn_unknown_opts`) — ein Schlüssel, den der Encoder nicht kennt,
+/// wird von ffmpeg still verworfen.
+pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     match vendor {
         "nvidia" => {
@@ -526,9 +480,21 @@ pub(crate) fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
         }
         "intel" => {
             opts.set("preset", "medium");
-            opts.set("look_ahead", "0"); // low-latency
+            // Lookahead aus (Latenz). Die Option gibt es bei `h264_qsv` und
+            // `hevc_qsv` — bei `av1_qsv` NICHT (2026-07-30 gegen die
+            // Optionstabellen des mitgelieferten FFmpeg n8.1 geprüft). Bis dahin
+            // stand sie unbedingt hier und wurde bei jedem AV1-QSV-Stream still
+            // verworfen; folgenlos (der Default ist ohnehin `false`), aber es
+            // war eine Anweisung ohne Wirkung — und sie hätte die neue
+            // Unbekannt-Warnung bei jedem gesunden AV1-Stream feuern lassen.
+            // Eine Warnung, die im gesunden Fall feuert, erzieht dazu,
+            // Warnungen zu überlesen.
+            if !matches!(codec, VideoCodec::Av1) {
+                opts.set("look_ahead", "0");
+            }
         }
         _ => {}
     }
+    apply_encoder_opts_override(&mut opts);
     opts
 }

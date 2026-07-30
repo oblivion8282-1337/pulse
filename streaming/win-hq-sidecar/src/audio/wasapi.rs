@@ -69,11 +69,17 @@ pub struct AudioCapture {
 
 impl AudioCapture {
     /// Startet die Capture. `chunk_frames` ist die Frames-pro-Chunk-Granularität
-    /// (kleiner = weniger Latenz, höher = weniger Channel-Sends). 1024 @ 48kHz =
-    /// ~21ms Chunks — guter Default.
+    /// (kleiner = weniger Latenz, höher = weniger Channel-Sends). Die Pipelines
+    /// uebergeben `encode::audio::capture_chunk_frames()` — dasselbe Raster wie
+    /// ein Opus-Paket, weil der FLV-Muxer die Bilder in Ton-Buendeln freigibt.
     pub fn start(source: AudioSource, chunk_frames: usize) -> Result<Self> {
         let format = AudioFormat::DEFAULT;
-        let (tx, rx) = std::sync::mpsc::sync_channel::<CapturedAudio>(8);
+        // Tiefe in ZEIT denken, nicht in Chunks: seit dem 5-ms-Raster
+        // (s. `encode::audio::capture_chunk_frames`) waeren 8 Chunks nur noch
+        // 40 ms Puffer — ein Pacing-Loop, der einmal laenger braucht, liesse
+        // den Capture-Thread blockieren. 32 haelt dieselbe Groessenordnung wie
+        // vorher (~160 ms).
+        let (tx, rx) = std::sync::mpsc::sync_channel::<CapturedAudio>(32);
         let (stop_tx, stop_rx) = channel();
 
         let src = source.clone();

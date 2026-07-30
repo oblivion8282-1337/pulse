@@ -2,7 +2,7 @@
 //!
 //! Push-URLs tragen den Key als `pass=…`, `token=…` oder `streamid=publish:…`.
 //! Über anyhow-Fehlerketten landet die volle URL sonst in Antworten und Events
-//! (`encode::encoder::open_output` hängt sie als Kontext an), und
+//! (`encode::output::open_output` hängt sie als Kontext an), und
 //! `desktop/electron/sidecar.ts` schreibt JEDE stdout-Zeile in eine persistente
 //! Log-Datei — der Key läge im Klartext auf der Platte. Projektregel: niemals
 //! Stream-Keys loggen.

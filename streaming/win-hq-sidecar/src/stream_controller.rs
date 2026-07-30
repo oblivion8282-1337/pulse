@@ -394,7 +394,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // WHIP-Ziel (App-gehostete Instanz): FFmpegs WHIP-Muxer trägt nur
         // H.264-Video → ausweichen statt beim write_header hart zu scheitern
         // (wie Linux/Mac-Sidecar).
-        if crate::encode::encoder::url_format_hint(&params.push_url) == Some("whip")
+        if crate::encode::output::url_format_hint(&params.push_url) == Some("whip")
             && !matches!(codec, VideoCodec::H264)
         {
             eprintln!("[stream-pipeline] Codec {codec:?} über WHIP nicht verfügbar → Fallback auf H264");
@@ -409,7 +409,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Wenn `params.audio = None` (mode=Aus) oder die Capture fehlschlägt,
         // läuft der Stream video-only weiter.
         let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
-            match AudioCapture::start(src.clone(), 1024) {
+            match AudioCapture::start(src.clone(), crate::encode::audio::capture_chunk_frames()) {
                 Ok(c) => Some(c),
                 Err(e) => {
                     eprintln!("[stream-pipeline] audio capture failed, continuing video-only: {e:#}");
@@ -636,6 +636,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 pts,
                 pts_delta: pts - prev_pts,
                 capture_drops: capture.dropped(),
+                enc_latency: encoder.take_encode_latency(),
             });
             prev_pts = pts;
 
