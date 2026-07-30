@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-30.2",
+      "date": "2026-07-30",
+      "style": "Sachlich",
+      "title": "HQ-Streaming: geringere Verzögerung jetzt auch mit AMD",
+      "intro": "Der zweite Teil der Verbesserung von heute Morgen.",
+      "items": [
+        "Beim Streamen mit einer AMD-Grafikkarte wurde jedes Bild zurückgehalten, bis zwei weitere fertig waren. Das kostete bei 60 Bildern je Sekunde rund 28 Millisekunden.",
+        "Jetzt geht jedes Bild heraus, sobald es fertig ist.",
+        "Bildqualität, Bitrate und Auslastung der Grafikkarte sind unverändert."
+      ],
+      "outro": "Gilt für Linux mit AMD-Grafikkarte."
+    },
+    {
       "id": "2026-07-30",
       "date": "2026-07-30",
       "style": "Sachlich",
