@@ -44,9 +44,15 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   → ffmpeg-8.1-WHIP-Muxer (WebRTC-Ingest für Gäste auf App-gehosteten Instanzen;
   RTMPS bleibt Default/Cloud-Pfad). AV1 kann der WHIP-Muxer nicht → auto-Fallback
   auf H.264 in `ops/start.rs`. Plan: pulse-Repo `docs/plans/2026-07-12-whip-guest-publish.md`.
-- Encoder-Settings orientieren sich an GSR (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`):
-  NVENC `tune=ll/rc=cbr/b_ref_mode=0/coder=cabac`, VAAPI `rc_mode=CBR/async_depth=3/coder=cabac`.
-  GSR nutzt selbst ffmpeg-Encoder (`h264_nvenc`/`h264_vaapi`) via av_dict — Settings ~1:1.
+- Encoder-Settings gehen auf GSR zurück (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`,
+  nutzt selbst `h264_nvenc`/`h264_vaapi` via av_dict) — aber **nicht mehr 1:1**. Maßgeblich ist
+  `encode/opts.rs`, dort steht an jedem Wert die Messung. Der Stand nach 2026-07-30:
+  NVENC `tune=ll/rc=cbr/b_ref_mode=0` **+ `preset=p2` + `zerolatency=1`/`delay=0`**,
+  VAAPI `rc_mode=CBR` + **`async_depth=1`** (GSR: 3 — der Vorlauf kostete zwei Bildabstände,
+  33,6 → 5,3 ms). `coder=cabac` **nur bei H.264**: bei `av1_nvenc`/`av1_vaapi` existiert die
+  Option nicht, und AV1 ist der Standard-Codec — unbedingt gesetzt wurde sie bis 2026-07-30
+  bei jedem AV1-Stream still verworfen. `low_power` bleibt ungesetzt (Intel-VDENC-Pfad; auf
+  AMD scheitert der Encoder-Open damit hart).
 
 ## Tonraster bestimmt die Bild-Gleichmäßigkeit (gemessen 2026-07-26)
 
