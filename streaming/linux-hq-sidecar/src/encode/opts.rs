@@ -25,15 +25,44 @@ pub fn encoder_name(vendor: Vendor, codec: &str) -> Option<&'static str> {
 
 /// av_dict-Optionen für den Encoder-Open. CBR, Ultra-Low-Latency, kein B-Ref —
 /// GSRs Performance-Tune.
-pub fn vendor_opts(vendor: Vendor) -> Dictionary<'static> {
+///
+/// `codec` ist `"h264"` oder `"av1"` — gebraucht fuer die eine Option, die es
+/// nur bei H.264 gibt (Begruendung an der Stelle selbst).
+pub fn vendor_opts(vendor: Vendor, codec: &str) -> Dictionary<'static> {
+    let mut opts = vendor_defaults(vendor, codec);
+    apply_override(&mut opts);
+    opts
+}
+
+/// Wie [`vendor_opts`], aber OHNE `PULSE_ENCODER_OPTS`.
+///
+/// Für die Fähigkeitsprobe (`probe_encoder`) — die soll beantworten, was die
+/// HARDWARE kann, nicht was die gerade laufende Messvariante tut. Floss die
+/// Variante mit ein, konnte ein Wert, den der Encoder ablehnt, die Probe
+/// scheitern lassen; `caps::supports_codec` meldete dann `false`, und
+/// `ops::start` nahm den Codec still auf H.264 zurück. Ergebnis wäre eine
+/// H.264-Messung unter AV1-Etikett gewesen — plausibel aussehend und nicht
+/// nachweisbar.
+pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
+    // Entropie-Kodierer, NUR H.264. `coder` gibt es bei `h264_nvenc` und
+    // `h264_vaapi`; bei `av1_nvenc` und `av1_vaapi` existiert die Option NICHT
+    // (2026-07-30 gegen die AVOption-Tabellen beider Encoder geprüft) — AV1
+    // hat keine CABAC/CAVLC-Wahl, es kodiert immer arithmetisch.
+    //
+    // Bis 2026-07-30 stand das unbedingt in BEIDEN Zweigen und wurde bei jedem
+    // AV1-Stream still verworfen. Folgenlos, aber es war eine Anweisung ohne
+    // Wirkung — und AV1 ist der Standard-Codec, der Wert griff also
+    // praktisch nie.
+    if codec == "h264" {
+        opts.set("coder", "cabac");
+    }
     match vendor {
         Vendor::Nvidia => {
             // GSR main.cpp: tune="ll", rc="cbr", b_ref_mode=0, coder=cabac.
             opts.set("tune", "ll");
             opts.set("rc", "cbr");
             opts.set("b_ref_mode", "0");
-            opts.set("coder", "cabac");
             // Hier stand mal: "preset/Multipass/rc-lookahead nur bei tune=quality".
             // Das ist FALSCH — 2026-07-19 nachgemessen (RTX 4090, ffmpeg-nvenc):
             // `preset`/`multipass`/`spatial-aq` werden auch mit tune=ll angenommen
@@ -99,12 +128,65 @@ pub fn vendor_opts(vendor: Vendor) -> Dictionary<'static> {
             // coder=cabac, tier=main (AV1).
             opts.set("rc_mode", "CBR");
             opts.set("async_depth", "3");
-            opts.set("coder", "cabac");
-            // low_power: Phase 4 erstmal aus (EncSlice); Phase 6 capability-gesteuert.
+            // low_power: bleibt ungesetzt. Auf AMD scheitert der Encoder-Open
+            // damit hart ("Function not implemented", 2026-07-30 nachgemessen) —
+            // es ist ein Intel-VDENC-Pfad. Die frühere Notiz "Phase 6
+            // capability-gesteuert" ist damit für AMD gegenstandslos.
         }
     }
-    apply_override(&mut opts);
     opts
+}
+
+/// Meldet Encoder-Optionen, die dieser Encoder gar nicht kennt.
+///
+/// **Warum das noetig ist:** `avcodec_open2` bekommt die Optionen als
+/// `av_dict`. Was es nicht zuordnen kann, bleibt im Dictionary liegen und wird
+/// beim Aufraeumen verworfen — **ohne eine einzige Logzeile**. Die ffmpeg-CLI
+/// meldet Unbekanntes, weil sie den Rest hinterher selbst prueft; ueber die
+/// Bibliothek passiert das nicht, und `open_with` prueft es auch nicht.
+///
+/// Das ist genau die Fehlerform, an der eine Messreihe scheitert, ohne es zu
+/// zeigen: ein Tippfehler oder eine Option, die dieser Encoder nicht hat,
+/// wirkt nicht — der Lauf sieht aber normal aus, und die Zahl wird als
+/// Ergebnis gedeutet. Dieselbe Falle wie das `netem`, das nachweislich nichts
+/// verwirft (s. `streaming/testbench/README.md`).
+///
+/// `AV_OPT_SEARCH_CHILDREN` erfasst neben den generischen
+/// `AVCodecContext`-Optionen auch die privaten des Encoders, also sowohl
+/// `compression_level` als auch `async_depth`.
+///
+/// Nur eine Warnung, kein Fehler. [`vendor_defaults`] erzeugt seit 2026-07-30
+/// keinen unbekannten Schluessel mehr (`coder` ist auf H.264 begrenzt), die
+/// einzige Quelle ist damit `PULSE_ENCODER_OPTS` — also eine ausdrueckliche
+/// Eingabe des Messenden, die ihn nicht am Streamen hindern soll.
+///
+/// # Safety
+///
+/// `ctx` muss ein gueltiger `AVCodecContext` sein und den Aufruf ueberleben.
+/// Die Funktion liest ihn nur (`av_opt_find`), sie veraendert nichts.
+pub unsafe fn warn_unknown(ctx: *mut ffmpeg::ffi::AVCodecContext, opts: &Dictionary<'_>) {
+    for (key, value) in opts.iter() {
+        let Ok(name) = std::ffi::CString::new(key) else { continue };
+        // SAFETY: `ctx` ist laut Kontrakt gueltig; `name` lebt bis zum Ende
+        // der Iteration. `av_opt_find` liest nur.
+        let gefunden = unsafe {
+            ffmpeg::ffi::av_opt_find(
+                ctx.cast(),
+                name.as_ptr(),
+                std::ptr::null(),
+                0,
+                ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN as i32,
+            )
+        };
+        if gefunden.is_null() {
+            tracing::warn!(
+                target: "encode",
+                key,
+                value,
+                "Encoder-Option unbekannt — ffmpeg verwirft sie still, sie wirkt NICHT"
+            );
+        }
+    }
 }
 
 /// Zusaetzliche Encoder-Optionen aus `PULSE_ENCODER_OPTS`, Form
@@ -116,9 +198,10 @@ pub fn vendor_opts(vendor: Vendor) -> Dictionary<'static> {
 /// nach der dritten Variante nicht mehr gemacht. Mit dieser Variable faehrt der
 /// Pruefstand (`streaming/testbench/`) eine ganze Messreihe an einem Stueck.
 ///
-/// Die Werte werden NICHT geprueft — ffmpeg meldet Unbekanntes selbst und
-/// ignoriert es. Wer hier etwas Unsinniges setzt, misst Unsinn; das ist der
-/// Preis dafuer, dass jede Encoder-Option ohne Code-Aenderung erreichbar ist.
+/// Die WERTE werden nicht geprueft — wer hier Unsinn setzt, misst Unsinn. Die
+/// SCHLUESSEL dagegen schon: [`warn_unknown`] meldet vor dem Open jeden, den
+/// der Encoder nicht kennt. Ohne das war eine wirkungslose Messvariante von
+/// einer wirksamen nicht zu unterscheiden.
 fn apply_override(opts: &mut Dictionary<'_>) {
     let Ok(roh) = std::env::var("PULSE_ENCODER_OPTS") else { return };
     for paar in roh.split(',') {

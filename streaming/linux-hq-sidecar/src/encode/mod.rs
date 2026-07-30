@@ -287,10 +287,26 @@ impl VideoEncoder {
             (*ctx_ptr).hw_frames_ctx = new_ref;
         }
 
-        let o = opts::vendor_opts(cfg.vendor);
+        let o = opts::vendor_opts(cfg.vendor, &cfg.codec);
+        // SAFETY: der Kontext gehört uns, ist noch nicht geöffnet und lebt
+        // über den Aufruf hinaus; `warn_unknown` liest ihn nur.
+        unsafe { opts::warn_unknown(encoder.as_mut_ptr(), &o) };
         let opened = encoder
             .open_with(o)
             .with_context(|| format!("open hw encoder '{codec_name}' (vendor={:?})", cfg.vendor))?;
+        // WELCHER Encoder wirklich offen ist, gehört ins Log.
+        //
+        // `ops::start` kann den Codec still auf H.264 zurücknehmen (fehlendes
+        // AV1, WHIP-Ziel) — bisher stand das nur als `warn!` dort, und was am
+        // Ende lief, war nirgends festgehalten. Für eine Messreihe ist das
+        // gefährlich: der Prüfstand schreibt seinen WUNSCH in die Messakte, und
+        // eine H.264-Messung mit AV1-Etikett sieht vollkommen plausibel aus.
+        tracing::info!(
+            target: "stream", encoder = codec_name, vendor = ?cfg.vendor,
+            breite = cfg.width, hoehe = cfg.height, fps = cfg.fps,
+            bitrate_kbps = cfg.bitrate_kbps,
+            "Encoder offen"
+        );
         stream.set_parameters(&opened);
 
         // Audio-Stream VOR write_header hinzufügen (der Video-Stream-Borrow ist
@@ -517,7 +533,7 @@ pub fn probe_encoder(
     if quiet {
         unsafe { av_log_set_level(AV_LOG_FATAL) };
     }
-    let ok = probe_open(desc, &hwctx, vendor);
+    let ok = probe_open(desc, &hwctx, vendor, codec_id);
     if quiet {
         unsafe { av_log_set_level(prev) };
     }
@@ -526,7 +542,7 @@ pub fn probe_encoder(
 
 /// Encoder-Context bauen, Frames-Pool binden, `open` versuchen. Kein Muxer,
 /// kein Output — nur der Fähigkeits-Test.
-fn probe_open(desc: ffmpeg::Codec, hwctx: &HwContext, vendor: Vendor) -> bool {
+fn probe_open(desc: ffmpeg::Codec, hwctx: &HwContext, vendor: Vendor, codec: &str) -> bool {
     let Ok(mut enc) = codec::context::Context::new_with_codec(desc)
         .encoder()
         .video()
@@ -547,7 +563,7 @@ fn probe_open(desc: ffmpeg::Codec, hwctx: &HwContext, vendor: Vendor) -> bool {
         }
         (*ctx).hw_frames_ctx = new_ref;
     }
-    enc.open_with(opts::vendor_opts(vendor)).is_ok()
+    enc.open_with(opts::vendor_defaults(vendor, codec)).is_ok()
 }
 
 /// Output-Format-Hint nach URL-Schema: rtmp(s)→flv, srt→mpegts,
