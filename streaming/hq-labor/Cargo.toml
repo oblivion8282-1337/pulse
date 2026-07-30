@@ -1,0 +1,87 @@
+[package]
+name = "pulse-hq-labor"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-only"
+description = "Messstand für den experimentellen HQ-Sendeweg (eigener WebRTC/WHIP-Push, AV1-Paketierer, Intra-Refresh). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
+
+# Ein eigenes Artefakt, absichtlich anders benannt als das ausgelieferte
+# `pulse-linux-hq-sidecar`. Das Flatpak-Manifest baut ausschliesslich jenes;
+# was hier entsteht, faehrt nur der Pruefstand ueber $PULSE_LINUX_HQ_SIDECAR.
+[[bin]]
+name = "pulse-hq-labor"
+path = "src/main.rs"
+
+[dependencies]
+# Der ausgelieferte Sidecar als Bibliothek. Alles, was der WHIP-Weg NICHT
+# anfasst — Portal/PipeWire-Capture, die GPU-Importpfade, Profile, Protokoll,
+# Logging — kommt von dort und wird hier NICHT kopiert. Die Abhaengigkeit
+# laeuft nur in diese Richtung: die Bibliothek weiss vom Labor nichts.
+pulse-linux-hq-sidecar = { path = "../linux-hq-sidecar" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+# Diagnose-Logging auf stderr (Pulse tee't das in sidecar.log). Stufen +
+# Modul-Targets, gesteuert über $PULSE_HQ_LOG (wie RUST_LOG). Siehe src/logging.rs.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+] }
+
+# FFmpeg als Bibliothek (ab Phase 2: TLS-Probe; Phase 4+: Encode/Mux/RTMPS).
+# Gegen das System-FFmpeg (pkg-config) gelinkt — Arch n8.1.2 mit
+# --enable-gnutls --enable-libdrm --enable-nvenc --enable-vulkan.
+# KEIN `build`-Feature (würde FFmpeg aus Source bauen). `filter` kommt dazu,
+# sobald scale_vaapi für den BGRA→NV12-Convert gebraucht wird (Phase 5).
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "filter",              # scale_vaapi (BGRx→NV12 CSC) für den VAAPI-Import
+    "software-resampling",
+    "software-scaling",
+] }
+
+# Capture (Phase 6): xdg-desktop-portal ScreenCast + PipeWire-DMABUF.
+# ashpd ist async (zbus) — wir scopen einen tokio-Runtime nur für die
+# Portal-Verhandlung, danach läuft der PipeWire-Mainloop synchron.
+ashpd = { version = "0.10", default-features = false, features = ["tokio"] }
+# v0_3_33: PropertyFlags::DONT_FIXATE für die DMABUF-Modifier-Verhandlung
+# (System-PipeWire ist 1.6.7, weit drüber).
+pipewire = { version = "0.10", features = ["v0_3_33"] }
+libspa = { version = "0.10", features = ["v0_3_33"] }
+drm-fourcc = "2.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# Eigener WebRTC-Sendeweg (WHIP). Freigegeben am 2026-07-28.
+#
+# WARUM nicht ffmpegs WHIP-Muxer: der hat KEINEN Rueckkanal zur Anwendung — eine
+# Vollbild-Anforderung des Zuschauers koennte den Encoder also nie erreichen —
+# und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264).
+#
+# Die Abhaengigkeit ist im Projekt bereits angenommen: der native Player nutzt
+# dieselbe Fassung, und `streaming/pulse-remote-webrtc` (Fernsteuerung)
+# deklariert sie identisch. MIT/Apache-2.0, kein GPL.
+webrtc = "0.17"
+rtcp = "0.17"
+bytes = "1"
+# Nur fuer den WHIP-Handschlag (ein POST mit dem SDP). rustls statt native-tls,
+# wie im Player — webrtc bringt rustls ueber `dtls` ohnehin verpflichtend mit.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+libc = "0.2"
+# EGL-dlopen für eglQueryDmaBufModifiersEXT (Modifier-Liste fürs EnumFormat,
+# wie GSR) — kein Link-Time-Dep auf libEGL.
+libloading = "0.8"
+
+[profile.release]
+opt-level = 3
+# fat-LTO: der heiße Pfad (Frame-Drain → Import → Encode) läuft pro Frame bei
+# bis zu 1000fps — cross-crate-Inlining lohnt, Build-Zeit ist uns egal.
+lto = "fat"
+codegen-units = 1
+strip = true

@@ -54,6 +54,19 @@ def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.
     Aufraeum-Kette (``finally``) unveraendert behalten — dort haengt bei
     ``zeigen.py`` das Abraeumen der ``tc``-Regel dran.
     """
+    # Welches Binary hier laeuft, ist keine Nebensache: der ausgelieferte
+    # Sidecar kann AV1 nicht ueber WHIP muxen und weicht STILL auf H.264 8 bit
+    # aus. Am 2026-07-30 lief so eine ganze Sitzung als H.264, waehrend
+    # Aufruf und Ausgabe „av1 10 bit" sagten. Deshalb steht die Herkunft in
+    # jedem Lauf, und der stille Fall wird zur lauten Warnung.
+    binaer = laden("real-harness").SIDECAR
+    print(f"Sender-Binary: {binaer}")
+    if "whip" in push_url and binaer.name != "pulse-hq-labor":
+        print("WARNUNG: WHIP-Ziel, aber nicht der Messstand (streaming/hq-labor) — "
+              "der ausgelieferte Sidecar faellt dabei still auf H.264 8 bit zurueck. "
+              "Bauen: cd streaming/hq-labor && cargo build --release",
+              file=sys.stderr)
+
     overrides = {"codec": args.codec, "fps": args.fps,
                  "bitrate_kbps": args.kbps, "bit_depth": args.bits}
     # Nur die Werkzeuge, die den Schalter haben, schicken ihn mit — und ein

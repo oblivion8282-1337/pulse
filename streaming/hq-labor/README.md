@@ -1,0 +1,86 @@
+# HQ-Labor — Messstand für den experimentellen Sendeweg
+
+Ein **eigenes Artefakt**, kein Umbau des ausgelieferten Sidecars. Was hier
+entsteht, heißt `pulse-hq-labor` und geht in keinen Nutzer-Build: das
+Flatpak-Manifest baut ausschließlich `pulse-linux-hq-sidecar` aus
+`streaming/linux-hq-sidecar/`, und dieses Verzeichnis hier wird von keinem
+Workflow angefasst.
+
+## Warum getrennt
+
+Der experimentelle Weg (eigener WebRTC/WHIP-Push, AV1-Paketierer,
+Intra-Refresh, FEC) ist kein Anbau, sondern greift mitten in den Sendepfad:
+der Encoder-Ausgang wird von „schreib in den FLV-Muxer" zu einem Enum
+`Muxer | Whip`, der Opus-Encoder wird für beide Wege gemeinsam geöffnet. Über
+den ausgelieferten Stand gelegt, liefe **jeder Nutzer** durch diesen Code —
+auch wer nie WHIP anfasst, und ein Fehler darin zeigte sich nicht als Absturz,
+sondern als etwas mehr Ruckeln bei Leuten, die nichts damit zu tun haben.
+
+Dazu kommt: der Weg funktioniert nur mit Beiwerk, das ebenfalls nicht
+ausgeliefert ist — gepatchtes MediaMTX (siehe `mediamtx-patches/`), gepatchtes
+`webrtc-rs` im Player, und der native Player selbst ist kein Produktteil.
+
+## Wie die Trennung gebaut ist
+
+Das Labor bindet den ausgelieferten Sidecar als **Bibliothek** ein
+(`pulse-linux-hq-sidecar = { path = "../linux-hq-sidecar" }`) und kopiert nur
+die Dateien, die der WHIP-Weg ohnehin umbaut:
+
+| kopiert (weicht ab) | aus der Bibliothek (geteilt) |
+|---|---|
+| `encode/{mod,audio,mux_writer}.rs` | `capture/` (Portal, PipeWire) |
+| `whip/{mod,av1,pacer}.rs` | `encode/{hw,nv_import,nv_p010,opts,raw_dump,va_import}.rs` |
+| `ops/*`, `stream_controller.rs`, `dispatch.rs` | `caps`, `profiles`, `proto`, `events`, `logging`, `redact`, `system` |
+
+Zwei Dinge daran sind nicht offensichtlich:
+
+* **`ops/` und `stream_controller.rs` mussten zusammen mitkommen.** Läge `stop`
+  in der Bibliothek und `start` hier, sprächen die beiden verschiedene
+  Zustände an — der Stream ließe sich starten, aber nicht beenden.
+* **Die Abhängigkeit läuft nur in eine Richtung.** Kein geteiltes Modul greift
+  in die kopierten zurück (geprüft); die Bibliothek weiß vom Labor nichts.
+  Deshalb kann `crate::capture::…` in den kopierten Dateien unverändert
+  stehenbleiben — `lib.rs` re-exportiert die geteilten Module unter denselben
+  Namen.
+
+Der Preis ist die Duplikation dieser Dateien. Sie können auseinanderlaufen,
+und das ist bewusst in Kauf genommen: erst wenn feststeht, welche Teile des
+Messstands bleiben, lohnt es, eine saubere Naht (ein Trait „Paketsenke") in
+die Bibliothek zu ziehen und die Kopien wieder aufzulösen.
+
+## Bauen und fahren
+
+```bash
+cd streaming/hq-labor && cargo build --release
+```
+
+Der Prüfstand (`streaming/testbench/`) nimmt das Labor-Binary von selbst, wenn
+es gebaut ist; er meldet in jedem Lauf, welches Binary er fährt. Fehlt es,
+fällt er auf den ausgelieferten Sidecar zurück — dann sind RTMPS-Läufe
+weiterhin möglich, **WHIP-Läufe fallen aber still auf H.264 8 bit zurück**
+(der ffmpeg-Muxer kann kein AV1). Genau das ist am 2026-07-30 unbemerkt
+passiert, deshalb warnt der Prüfstand jetzt laut davor.
+
+```bash
+cd streaming/testbench
+./ansehen.py --codec av1 --bits 10 --fps 60 --kbps 4000     # WHIP über Hetzner
+./ansehen.py --proto rtmps ...                              # zum Vergleich der heutige Weg
+```
+
+## `mediamtx-patches/`
+
+Die serverseitigen Stücke desselben Messstands, aus `infra/mediamtx-fork/`
+hierher genommen:
+
+* `0002-forward-viewer-keyframe-requests.patch` — leitet die Vollbild-Anforderung
+  eines Zuschauers an den Publisher weiter (upstream wird sie verworfen) und
+  macht die fest verdrahtete 2-Sekunden-Uhr über `PULSE_KEYFRAME_INTERVAL`
+  abschaltbar.
+* `0003-flexfec-on-whep.patch` — FlexFEC-03 auf dem WHEP-Ausgang
+  (`PULSE_FLEXFEC=1`, Verhältnis über `PULSE_FLEXFEC_MEDIA`/`_FEC`).
+
+**Sie liegen hier, damit sie nicht ausgeliefert werden.** In
+`infra/mediamtx-fork/patches/` würde jeder von ihnen beim nächsten `main`-Push
+in dasselbe Image wandern, das Produktion pinnt. Der Testserver wird von Hand
+versorgt; wenn einer davon bleiben soll, ist das eine bewusste Entscheidung
+und ein Umzug zurück.
