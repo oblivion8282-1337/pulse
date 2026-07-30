@@ -3,7 +3,9 @@ name = "pulse-hq-labor"
 version = "0.1.0"
 edition = "2024"
 publish = false
-license = "AGPL-3.0-only"
+# Kein `license`-Feld — es gilt `streaming/LICENSE` (Pulse Client License 1.0),
+# wie bei allen Crates unter `streaming/`. Siehe die Begruendung in
+# `../linux-hq-sidecar/Cargo.toml`.
 description = "Messstand für den experimentellen HQ-Sendeweg (eigener WebRTC/WHIP-Push, AV1-Paketierer, Intra-Refresh). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
 
 # Ein eigenes Artefakt, absichtlich anders benannt als das ausgelieferte
