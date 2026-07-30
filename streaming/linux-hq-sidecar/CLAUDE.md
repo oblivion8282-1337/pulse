@@ -4,9 +4,16 @@ Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 (`streaming/linux-hq-sidecar/` im Pulse-Repo).
 
 **Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`, jetzt
-Archiv). Dort stehen die Commits mit den Messbegründungen zu den Latenz- und
-Encoder-Werten; wer wissen will, warum eine Zahl so gesetzt ist, findet die
-Herleitung in der Historie des Archivs. Übernommen wurde `ba9cc48`.
+Archiv). Übernommen wurde `ba9cc48` als sauberer Schnitt ohne Historien-Import.
+
+**Warum eine Zahl so gesetzt ist:** zuerst
+`docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md` im Pulse-Repo — die
+Messbegründungen aus der Archiv-Historie (Latenzkette, Encoder-Werte, Puffer-
+Größen und vor allem die **geprüft-und-verworfenen** Versuche) sind dort
+extrahiert. Nur wenn die volle Commit-Nachricht gebraucht wird, ins Archiv;
+das Register am Ende des Dokuments nennt die Hashes. Werte, die nach dem Umzug
+gewandert sind (AMD-Encoder-Arbeit), tragen ihre Begründung im Code-Kommentar —
+der gilt.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
