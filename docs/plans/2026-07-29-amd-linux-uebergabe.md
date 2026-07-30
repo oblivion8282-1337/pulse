@@ -12,18 +12,52 @@ gemeinsam ist.
 
 ## Was zu klonen ist
 
-| Repo | Branch | Rolle |
-|---|---|---|
-| `github.com/oblivion8282-1337/pulse-linux-hq-sidecar` | `perf/sendeweg-latenz-und-gpu` | **Arbeitsort.** Hier sitzt der Encoder-Code. |
-| `github.com/oblivion8282-1337/pulse` | `feat/native-hq-player` | **Messen.** Der Prüfstand liegt unter `streaming/testbench/`. |
+**EIN Repo, seit 2026-07-29:** `github.com/oblivion8282-1337/pulse`, Branch
+`main`. Encoder-Code unter `streaming/linux-hq-sidecar/`, Prüfstand unter
+`streaming/testbench/`.
 
-**Warum zwei Repos:** Der Linux-Rust-Sidecar liegt außerhalb des Pulse-Repos —
-anders als Windows (`streaming/win-hq-sidecar/`), macOS und der Player, die alle
-im Hauptrepo sind. Der Grund ist nirgends dokumentiert; die Indizien deuten auf
-ein separates Experiment, das später zum Standard wurde. Ein Zusammenlegen ist
-nach dieser Runde vorgesehen.
+Der Absatz „warum zwei Repos" ist erledigt — das Zusammenlegen ist vollzogen
+(`53aa1e23`), das Quell-Repo `pulse-linux-hq-sidecar` steht nur noch als Archiv
+und trägt die Messbegründungen in seiner Historie. Der Prüfstand liegt seit
+`7b9ab6a6` ebenfalls auf `main`, nicht mehr auf `feat/native-hq-player`.
 
-Neuen Branch von `perf/sendeweg-latenz-und-gpu` aufsetzen, etwa `perf/amd-vaapi`.
+## Bauumgebung auf einer frischen Maschine (Fedora, geprüft 2026-07-30)
+
+```
+sudo dnf install rust cargo clang-devel ffmpeg-free-devel pipewire-devel
+```
+
+`clang-devel` ist Pflicht, nicht optional: `pipewire-sys` und `ffmpeg-sys-next`
+erzeugen ihre Bindings mit bindgen, das braucht `libclang.so`. Der Build läuft
+danach ohne Zutun durch (1m06s, keine Warnung).
+
+**Und dann ist da eine Falle, die Stunden kostet, wenn man sie nicht kennt:**
+Fedoras Mesa liefert **keine patentbehafteten Codecs**. `vainfo` zeigt auf einem
+Standard-Fedora als Encode-Fähigkeit ausschließlich
+`VAProfileAV1Profile0 : VAEntrypointEncSlice` — **kein H.264, kein HEVC**.
+`h264_vaapi` ist in FFmpeg vorhanden, der Treiber bietet es nur nicht an, und
+der Fehler kommt erst beim Encoder-Open. Abhilfe:
+
+```
+sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+sudo dnf install mesa-va-drivers-freeworld
+```
+
+Der Treiber landet in `/usr/lib64/dri-freeworld/`, das libva von sich aus zuerst
+probiert — es wird nichts ersetzt, und `dnf remove` stellt den Ausgangszustand
+wieder her. Die Mesa-Version muss exakt passen (hier 26.1.5 gegen 26.1.5).
+
+**Zweite Hälfte derselben Falle, und die ist subtiler:** `ffmpeg-free` baut mit
+`--disable-decoder='h264,hevc,vc1,vvc'`, lässt die *Encoder* aber aktiviert.
+VAAPI-Decode ist in FFmpeg **kein Decoder**, sondern ein *hwaccel*, der sich in
+den nativen Software-Decoder einhängt — fehlt der, gibt es keinen Andockpunkt.
+Folge: `-hwaccel vaapi` auf H.264 scheitert **lautlos**, FFmpeg nimmt
+`libopenh264` und rechnet auf der CPU, Exit-Code 0. Wer dort Decode-Last misst,
+bekommt eine CPU-Zahl und hält sie für eine Hardware-Zahl. AV1-Decode ist davon
+nicht betroffen (nativer `av1`-Decoder vorhanden, hwaccel greift). Wer H.264 in
+Hardware dekodieren muss, braucht `libavcodec-freeworld` — **das zieht x264 und
+x265 (GPL) vor die LGPL-libavcodec in den Loader-Pfad**, siehe die
+Lizenz-Auflagen in der Wurzel-`CLAUDE.md`. Für Sender-Arbeit ist es nicht nötig.
 
 ## Was auf AMD schon gilt — nur gegenprüfen
 
@@ -110,10 +144,23 @@ Einstieg: `latenz-2026-07-27-*.json`, `bild-2026-07-27-av1.json` (Encoder-Preset
 ## Ungetestet auf AMD
 
 - **Der Player-Decoder.** Er probiert `av1_cuvid`, `av1_qsv`, `av1_vaapi`, dann
-  Software — auf AMD landet er bei `av1_vaapi`, durch den in dieser Messreihe
-  kein Bild gelaufen ist. Offen: ob VAAPI genauso vier Bilder zurückhält wie der
-  NVIDIA-Decoder (dort mit `AV_CODEC_FLAG_LOW_DELAY` behoben, 82,3 → 33,5 ms),
-  und was er unter Paketverlust tut.
+  Software. **Teil-Antwort vom 2026-07-30:** AV1-Decode über VAAPI läuft auf dem
+  780M — `vainfo` führt `VAProfileAV1Profile0 : VAEntrypointVLD`, und FFmpeg
+  wählt für `-hwaccel vaapi` sichtbar den nativen `av1`-Decoder („Selecting
+  decoder 'av1' because of requested hwaccel method vaapi") und lädt den
+  Treiber. Der Weg ist also vorhanden. **Offen bleibt**, ob VAAPI genauso vier
+  Bilder zurückhält wie der NVIDIA-Decoder (dort mit `AV_CODEC_FLAG_LOW_DELAY`
+  behoben, 82,3 → 33,5 ms) und was er unter Paketverlust tut — dafür braucht es
+  den Player, und der ist nicht auf `main`.
+
+- **Es gibt kein Beispielprogramm für die volle VAAPI-Kette.**
+  `examples/capture_encode_smoke.rs` lehnt AMD ausdrücklich ab („dieses Smoke
+  testet den NVENC-Import; VAAPI-Import folgt separat"). Wer Portal → DMABUF →
+  `hwmap` → `scale_vaapi` → Encoder am Stück fahren will, nimmt stattdessen
+  `streaming/testbench/datei-harness.py`: das treibt den echten `start`-Op mit
+  einem **Dateipfad** als `channel.push_url` (`url_format_hint` liefert dafür
+  `None`, der Muxer schreibt eine Datei) und braucht damit weder MediaMTX noch
+  Redis noch den Player.
 - **Der TempDelim-Patch im MediaMTX-Fork** (`infra/mediamtx-fork/patches/0001-`)
   existiert ausschließlich für AMD-VAAPI-AV1: Diesen Strömen fehlen
   `OBU_TEMPORAL_DELIMITER`-Einheiten, und der Stream friert beim Zuschauer nach

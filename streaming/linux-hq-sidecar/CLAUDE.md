@@ -64,11 +64,18 @@ Zwei Schrauben, und nur eine ist die richtige:
 * **Richtig: an der Quelle.** `OPUS_FRAME_MS = 5` (`encode/audio.rs`) plus
   `node.latency = 240/48000` (`capture/audio.rs`). Wirkt bei JEDER Bildrate,
   die Schreibreihenfolge bleibt intakt.
-* **Falsch: `max_interleave_delta` klein machen.** Das schreibt Bilder VOR dem
-  Ton, die Reihenfolge kippt und der Muxer beendet den Stream
-  (`write_interleaved: Invalid argument`). Delta 2 ms lief bei 144 fps und starb
-  bei 280 fps — eine Falle, die nur bei hohen Bildraten zuschnappt. Der Wert
-  steht deshalb bewusst auf 100 ms und ist nur noch Notbremse.
+* **Nicht ALLEIN: `max_interleave_delta` klein machen** — und nicht zu klein.
+  Zu klein schreibt Bilder VOR dem Ton, die Reihenfolge kippt und der Muxer
+  beendet den Stream (`write_interleaved: Invalid argument`). Delta 1 us starb
+  sofort, Delta 2 ms lief bei 144 fps und starb bei 280 fps — eine Falle, die
+  nur bei hohen Bildraten zuschnappt.
+
+  **Der Wert steht seit 2026-07-27 auf 10 ms** (`DEFAULT_INTERLEAVE_US` in
+  `encode/mod.rs`), nicht mehr auf 100. Hier stand bis 2026-07-30 noch „bewusst
+  auf 100 ms und nur noch Notbremse" — das war der Stand VOR der Messreihe, die
+  99,8 auf 82,3 ms geholt hat. 10 ms hält zur Kante Abstand (bei 280 fps
+  dreimal über 16 s ohne Fehler), und 3 ms wie 1 ms brachten bei 60 fps nichts
+  mehr. Die volle Begründung mit Tabelle steht am Konstanten-Docstring.
 
 Ergebnis am Prüfstand (`streaming/testbench/` im Pulse-Repo), gezählt werden
 Ausgabe-Abstände über dem doppelten Soll je Sekunde:
