@@ -1,5 +1,78 @@
+diff --git a/interceptor/src/nack/generator/generator_stream.rs b/interceptor/src/nack/generator/generator_stream.rs
+index 8cd5a10..ad346ab 100644
+--- a/interceptor/src/nack/generator/generator_stream.rs
++++ b/interceptor/src/nack/generator/generator_stream.rs
+@@ -121,16 +121,35 @@ impl GeneratorStreamInternal {
+     }
+ }
+ 
++/// PULSE: was der Stream braucht, um die Antwortzeit auf eigene
++/// Nachforderungen zu messen. Siehe `mod.rs`.
++pub(super) struct PulseRtt {
++    pub(super) ssrc: u32,
++    pub(super) gefragt: Arc<tokio::sync::Mutex<std::collections::HashMap<(u32, u16), std::time::Instant>>>,
++    /// Schneller Vorabtest: ist ueberhaupt etwas offen? Ohne ihn kostete die
++    /// Messung bei JEDEM Paket eine Sperre, auch wenn nichts nachgefordert
++    /// wurde — und das ist der Normalfall.
++    pub(super) offen: Arc<std::sync::atomic::AtomicBool>,
++    /// Gleitender Mittelwert der Antwortzeit in Millisekunden.
++    pub(super) rtt_ms: Arc<std::sync::atomic::AtomicU64>,
++}
++
+ pub(super) struct GeneratorStream {
+     parent_rtp_reader: Arc<dyn RTPReader + Send + Sync>,
++    pulse_rtt: PulseRtt,
+ 
+     internal: Mutex<GeneratorStreamInternal>,
+ }
+ 
+ impl GeneratorStream {
+-    pub(super) fn new(log2_size_minus_6: u8, reader: Arc<dyn RTPReader + Send + Sync>) -> Self {
++    pub(super) fn new(
++        log2_size_minus_6: u8,
++        reader: Arc<dyn RTPReader + Send + Sync>,
++        pulse_rtt: PulseRtt,
++    ) -> Self {
+         GeneratorStream {
+             parent_rtp_reader: reader,
++            pulse_rtt,
+             internal: Mutex::new(GeneratorStreamInternal::new(log2_size_minus_6)),
+         }
+     }
+@@ -157,6 +176,31 @@ impl RTPReader for GeneratorStream {
+     ) -> Result<(rtp::packet::Packet, Attributes)> {
+         let (pkt, attr) = self.parent_rtp_reader.read(buf, a).await?;
+ 
++        // PULSE: Antwortzeit auf eigene Nachforderungen messen.
++        //
++        // Der Erzeuger weiss, WANN er gefragt hat; hier kommt das Paket an.
++        // Die Differenz ist genau die Groesse, an der die Sperrfrist haengen
++        // soll — und sie ist besser als die ICE-Umlaufzeit, weil die
++        // Verarbeitungszeit der Gegenseite mit drinsteckt. (webrtc-rs meldet
++        // ohnehin keine: `current_round_trip_time` steht dort fest auf 0.0.)
++        if self.pulse_rtt.offen.load(std::sync::atomic::Ordering::Relaxed) {
++            let schluessel = (self.pulse_rtt.ssrc, pkt.header.sequence_number);
++            let gemessen = {
++                let mut offen = self.pulse_rtt.gefragt.lock().await;
++                offen.remove(&schluessel).map(|t| t.elapsed())
++            };
++            if let Some(dauer) = gemessen {
++                // Gleitender Mittelwert, ein Achtel neu: eine einzelne
++                // Ausreisser-Messung soll die Sperre nicht springen lassen.
++                let neu = dauer.as_millis() as u64;
++                let alt = self.pulse_rtt.rtt_ms.load(std::sync::atomic::Ordering::Relaxed);
++                let gemittelt = if alt == 0 { neu } else { (alt * 7 + neu) / 8 };
++                self.pulse_rtt
++                    .rtt_ms
++                    .store(gemittelt, std::sync::atomic::Ordering::Relaxed);
++            }
++        }
++
+         self.add(pkt.header.sequence_number);
+ 
+         Ok((pkt, attr))
 diff --git a/interceptor/src/nack/generator/mod.rs b/interceptor/src/nack/generator/mod.rs
-index 16b6658..d03bc74 100644
+index 16b6658..2566df0 100644
 --- a/interceptor/src/nack/generator/mod.rs
 +++ b/interceptor/src/nack/generator/mod.rs
 @@ -3,8 +3,9 @@ mod generator_stream;
@@ -13,15 +86,17 @@ index 16b6658..d03bc74 100644
  
  use async_trait::async_trait;
  use generator_stream::GeneratorStream;
-@@ -27,6 +28,7 @@ pub struct GeneratorBuilder {
+@@ -27,6 +28,9 @@ pub struct GeneratorBuilder {
      log2_size_minus_6: Option<u8>,
      skip_last_n: Option<u16>,
      interval: Option<Duration>,
 +    pulse_resend_delay: Option<Arc<AtomicU64>>,
++    pulse_rtt_ms: Option<Arc<AtomicU64>>,
++    pulse_auto: Option<bool>,
  }
  
  impl GeneratorBuilder {
-@@ -49,6 +51,36 @@ impl GeneratorBuilder {
+@@ -49,6 +53,63 @@ impl GeneratorBuilder {
          self.interval = Some(interval);
          self
      }
@@ -55,10 +130,37 @@ index 16b6658..d03bc74 100644
 +        self.pulse_resend_delay = Some(delay_ms);
 +        self
 +    }
++
++    /// PULSE: Zelle fuer die SELBST gemessene Antwortzeit auf Nachforderungen,
++    /// in Millisekunden, gleitend gemittelt.
++    ///
++    /// Der Erzeuger misst sie im Lesepfad (`generator_stream.rs`): er weiss,
++    /// wann er gefragt hat, und sieht das Paket ankommen. Die ICE-Umlaufzeit
++    /// taugt dafuer NICHT — webrtc-rs setzt `current_round_trip_time` fest auf
++    /// 0.0 und berechnet sie nirgends.
++    ///
++    /// Der Aufrufer braucht den Wert nur zum Mitschreiben; die Sperrfrist
++    /// leitet der Erzeuger selbst daraus ab.
++    pub fn with_pulse_rtt_cell(mut self, rtt_ms: Arc<AtomicU64>) -> GeneratorBuilder {
++        self.pulse_rtt_ms = Some(rtt_ms);
++        self
++    }
++
++    /// PULSE: Soll die Sperrfrist aus der gemessenen Antwortzeit abgeleitet
++    /// werden? Vorgabe ja.
++    ///
++    /// `false` laesst den vom Aufrufer gesetzten Wert unangetastet — noetig
++    /// fuer Vergleichslaeufe mit fester Sperre. Ohne diesen Schalter
++    /// ueberschriebe die Ableitung jede feste Vorgabe, und die Messreihe, aus
++    /// der die Formel stammt, waere nicht wiederholbar.
++    pub fn with_pulse_auto(mut self, auto: bool) -> GeneratorBuilder {
++        self.pulse_auto = Some(auto);
++        self
++    }
  }
  
  impl InterceptorBuilder for GeneratorBuilder {
-@@ -64,6 +96,11 @@ impl InterceptorBuilder for GeneratorBuilder {
+@@ -64,6 +125,18 @@ impl InterceptorBuilder for GeneratorBuilder {
                      Duration::from_millis(100)
                  },
  
@@ -66,38 +168,59 @@ index 16b6658..d03bc74 100644
 +                    .pulse_resend_delay
 +                    .clone()
 +                    .unwrap_or_else(|| Arc::new(AtomicU64::new(0))),
++                pulse_gefragt: Arc::new(Mutex::new(HashMap::new())),
++                pulse_offen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
++                pulse_auto: self.pulse_auto.unwrap_or(true),
++                pulse_rtt_ms: self
++                    .pulse_rtt_ms
++                    .clone()
++                    .unwrap_or_else(|| Arc::new(AtomicU64::new(0))),
 +
                  streams: Mutex::new(HashMap::new()),
                  close_rx: Mutex::new(Some(close_rx)),
              }),
-@@ -78,6 +115,9 @@ struct GeneratorInternal {
+@@ -78,6 +151,20 @@ struct GeneratorInternal {
      log2_size_minus_6: u8,
      skip_last_n: u16,
      interval: Duration,
-+    /// PULSE: Sperrfrist in Millisekunden, laufend lesbar.
++    /// PULSE: Sperrfrist in Millisekunden, laufend lesbar. Wird aus
++    /// `pulse_rtt_ms` abgeleitet, sobald eine Messung vorliegt.
 +    /// S. `GeneratorBuilder::with_pulse_resend_delay`.
 +    pulse_resend_delay: Arc<AtomicU64>,
++    /// PULSE: wann jede Sequenznummer angefordert wurde. Liegt hier statt in
++    /// der Sendeschleife, weil der LESEPFAD sie ebenfalls braucht — dort wird
++    /// die Antwortzeit gemessen (`generator_stream.rs`).
++    pulse_gefragt: Arc<Mutex<HashMap<(u32, u16), Instant>>>,
++    /// Steht ueberhaupt etwas offen? Schneller Vorabtest fuer den Lesepfad.
++    pulse_offen: Arc<std::sync::atomic::AtomicBool>,
++    /// Gemessene Antwortzeit auf eigene Nachforderungen, gleitend gemittelt.
++    pulse_rtt_ms: Arc<AtomicU64>,
++    /// Sperrfrist aus der Messung ableiten? S. `with_pulse_auto`.
++    pulse_auto: bool,
  
      streams: Mutex<HashMap<u32, Arc<GeneratorStream>>>,
      close_rx: Mutex<Option<mpsc::Receiver<()>>>,
-@@ -115,18 +155,45 @@ impl Generator {
-             .ok_or(Error::ErrInvalidCloseRx)?;
- 
-         let sender_ssrc = rand::random::<u32>();
-+        // PULSE: wann jede Sequenznummer zuletzt angefordert wurde.
-+        let mut pulse_gefragt: HashMap<(u32, u16), Instant> = HashMap::new();
-         loop {
-             tokio::select! {
-                 _ = ticker.tick() =>{
+@@ -121,12 +208,48 @@ impl Generator {
                      let nacks = {
                          let mut nacks = vec![];
                          let streams = internal.streams.lock().await;
 +                        let jetzt = Instant::now();
-+                        // Frisch lesen: der Aufrufer koppelt den Wert an die
-+                        // gemessene Umlaufzeit, er aendert sich also im Lauf.
++                        // Sperre aus der SELBST gemessenen Antwortzeit: ein
++                        // Drittel davon, begrenzt auf 5 bis 200 ms. Solange
++                        // noch nichts gemessen ist, gilt der Startwert des
++                        // Aufrufers. (Die ICE-Umlaufzeit taugt nicht —
++                        // webrtc-rs setzt `current_round_trip_time` fest auf
++                        // 0.0 und berechnet sie nirgends.)
++                        let gemessen = internal.pulse_rtt_ms.load(Ordering::Relaxed);
++                        if internal.pulse_auto && gemessen > 0 {
++                            internal
++                                .pulse_resend_delay
++                                .store((gemessen / 3).clamp(5, 200), Ordering::Relaxed);
++                        }
 +                        let sperre = Duration::from_millis(
 +                            internal.pulse_resend_delay.load(Ordering::Relaxed),
 +                        );
++                        let mut pulse_gefragt = internal.pulse_gefragt.lock().await;
                          for (ssrc, stream) in streams.iter() {
 -                            let missing = stream.missing_seq_numbers(internal.skip_last_n);
 +                            let mut missing = stream.missing_seq_numbers(internal.skip_last_n);
@@ -127,21 +250,40 @@ index 16b6658..d03bc74 100644
                              nacks.push(TransportLayerNack{
                                  sender_ssrc,
                                  media_ssrc: *ssrc,
-@@ -136,6 +203,17 @@ impl Generator {
+@@ -136,6 +259,23 @@ impl Generator {
                          nacks
                      };
  
 +                    // PULSE: Gedaechtnis beschneiden, sonst waechst es mit
 +                    // jedem verlorenen Paket der Sitzung weiter.
-+                    let sperre = Duration::from_millis(
-+                        internal.pulse_resend_delay.load(Ordering::Relaxed),
-+                    );
-+                    if !sperre.is_zero() {
-+                        let grenze = sperre * 8;
-+                        let jetzt = Instant::now();
-+                        pulse_gefragt.retain(|_, t| jetzt.duration_since(*t) < grenze);
++                    {
++                        let sperre = Duration::from_millis(
++                            internal.pulse_resend_delay.load(Ordering::Relaxed),
++                        );
++                        let mut pulse_gefragt = internal.pulse_gefragt.lock().await;
++                        if !sperre.is_zero() {
++                            let grenze = sperre * 8;
++                            let jetzt = Instant::now();
++                            pulse_gefragt.retain(|_, t| jetzt.duration_since(*t) < grenze);
++                        }
++                        internal
++                            .pulse_offen
++                            .store(!pulse_gefragt.is_empty(), Ordering::Relaxed);
 +                    }
 +
                      let a = Attributes::new();
                      for nack in nacks{
                          if let Err(err) = rtcp_writer.write(&[Box::new(nack)], &a).await{
+@@ -215,6 +355,12 @@ impl Interceptor for Generator {
+         let stream = Arc::new(GeneratorStream::new(
+             self.internal.log2_size_minus_6,
+             reader,
++            generator_stream::PulseRtt {
++                ssrc: info.ssrc,
++                gefragt: Arc::clone(&self.internal.pulse_gefragt),
++                offen: Arc::clone(&self.internal.pulse_offen),
++                rtt_ms: Arc::clone(&self.internal.pulse_rtt_ms),
++            },
+         ));
+         {
+             let mut streams = self.internal.streams.lock().await;

@@ -594,9 +594,7 @@ pub async fn run(
             // wie die Statistik, weil `get_stats()` ueber alle Transporte
             // laeuft — bei jedem Schleifendurchlauf waere das ueber 1000-mal
             // je Sekunde.
-            if let Some(rtt) = whep_session.sperre_nachfuehren().await {
-                stats.rtt_ms = Some(rtt.as_millis() as u64);
-            }
+            stats.rtt_ms = whep_session.rtt_ms();
             // Erst hier abfragen: `media.stats()` nimmt die Sperre des
             // Audio-Ringpuffers, auf die auch der Geraete-Callback wartet.
             // Bei jedem Durchlauf waere das ueber 1000-mal pro Sekunde.

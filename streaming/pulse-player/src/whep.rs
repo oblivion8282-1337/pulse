@@ -132,7 +132,8 @@ pub struct WhepSession {
     fec: Arc<crate::fec::Zaehler>,
     /// Sperrfrist des NACK-Erzeugers, in Millisekunden. Wird von
     /// [`Self::sperre_nachfuehren`] an die gemessene Umlaufzeit angepasst.
-    nack_sperre: Arc<std::sync::atomic::AtomicU64>,
+    /// Vom Erzeuger gemessene Antwortzeit; s. [`Self::rtt_ms`].
+    nack_rtt: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WhepSession {
@@ -163,33 +164,25 @@ impl WhepSession {
         }
     }
 
-    /// Fuehrt die NACK-Sperrfrist an die gemessene Umlaufzeit nach.
+    /// Die zuletzt gemessene Antwortzeit auf eigene Nachforderungen, in
+    /// Millisekunden — oder `None`, solange nichts nachgefordert wurde.
     ///
-    /// Gibt die verwendete Umlaufzeit zurueck, damit sie in der Statistik
-    /// erscheint — sonst waere von aussen nicht zu sehen, mit welchem Wert der
-    /// Erzeuger gerade arbeitet, und ein zu grosser Wert kostet Bild (s.
-    /// [`sperre_aus_rtt`]).
+    /// Der NACK-Erzeuger misst sie selbst und leitet seine Sperrfrist daraus
+    /// ab (ein Drittel, begrenzt auf 5 bis 200 ms). Hier wird sie nur
+    /// abgeholt, damit sie in der Messakte steht: ohne sie ist nicht
+    /// nachvollziehbar, mit welcher Sperre ein Lauf gefahren ist.
     ///
-    /// Tut nichts, wenn `PULSE_PLAYER_NACK_SPERRE_MS` gesetzt ist — ein fester
-    /// Wert soll fest bleiben, sonst waere kein Vergleichslauf moeglich.
-    pub async fn sperre_nachfuehren(&self) -> Option<Duration> {
-        if !nack_sperre_gekoppelt() {
-            return None;
+    /// **Der naheliegende Weg ueber `get_stats()` funktioniert nicht** —
+    /// webrtc-rs deklariert `current_round_trip_time`, setzt es aber fest auf
+    /// 0.0 (`ice/src/agent/agent_stats.rs`) und berechnet es nirgends. Eine
+    /// erste Fassung dieser Kopplung las genau dieses Feld und war damit
+    /// wirkungslos; aufgefallen ist es erst, weil die Zahl in keiner Akte
+    /// auftauchte.
+    pub fn rtt_ms(&self) -> Option<u64> {
+        match self.nack_rtt.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => None,
+            ms => Some(ms),
         }
-        // Die Umlaufzeit der NOMINIERTEN Kandidatenpaarung — nur die traegt
-        // den Verkehr. Andere Paarungen stehen mit alten Werten daneben.
-        let bericht = self.pc.get_stats().await;
-        let rtt = bericht.reports.values().find_map(|eintrag| match eintrag {
-            webrtc::stats::StatsReportType::CandidatePair(p)
-                if p.nominated && p.current_round_trip_time > 0.0 =>
-            {
-                Some(Duration::from_secs_f64(p.current_round_trip_time))
-            }
-            _ => None,
-        })?;
-        self.nack_sperre
-            .store(sperre_aus_rtt(rtt), std::sync::atomic::Ordering::Relaxed);
-        Some(rtt)
     }
 
     /// `(repariert, unreparierbar, verworfen, mehrfach_loch, zu_spaet)` der
@@ -293,6 +286,13 @@ fn nack_sperre_gekoppelt() -> bool {
 ///
 /// Die Grenzen fangen Ausreisser: eine Umlaufzeit von 0 (noch nicht gemessen)
 /// oder 3 s (kurzer Stau) darf die Sperre nicht unbrauchbar machen.
+/// **Diese Fassung ist die getestete Referenz, gerechnet wird im Patch.**
+/// `patches/0002-nack-generator-resend-delay.patch` traegt dieselbe Rechnung
+/// im Erzeuger — dort, wo sie gebraucht wird, aber ohne eigenen Test, weil
+/// der Vendor-Baum nicht versioniert ist. Weichen beide voneinander ab,
+/// schlaegt der Test hier nicht an; wer die Formel aendert, muss beide Stellen
+/// anfassen.
+#[allow(dead_code)]
 pub fn sperre_aus_rtt(rtt: Duration) -> u64 {
     (rtt.as_millis() as u64 / 3).clamp(5, 200)
 }
@@ -401,6 +401,7 @@ fn srtp_fenster_fuer_nachlieferung() -> SettingEngine {
 fn interceptors_mit_zuegigem_nack(
     media: &mut MediaEngine,
     sperre: &Arc<std::sync::atomic::AtomicU64>,
+    rtt: &Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<Registry> {
     for parameter in ["", "pli"] {
         media.register_feedback(
@@ -414,7 +415,9 @@ fn interceptors_mit_zuegigem_nack(
     registry.add(Box::new(
         Generator::builder()
             .with_interval(nack_intervall())
-            .with_pulse_resend_delay(sperre.clone()),
+            .with_pulse_resend_delay(sperre.clone())
+            .with_pulse_rtt_cell(rtt.clone())
+            .with_pulse_auto(nack_sperre_gekoppelt()),
     ));
     registry = configure_rtcp_reports(registry);
     configure_twcc_receiver_only(registry, media).context("TWCC-Interceptor")
@@ -441,7 +444,8 @@ pub async fn connect(
         flexfec_anbieten(&mut media)?;
     }
     let nack_sperre = Arc::new(std::sync::atomic::AtomicU64::new(nack_sperre_start()));
-    let registry = interceptors_mit_zuegigem_nack(&mut media, &nack_sperre)?;
+    let nack_rtt = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let registry = interceptors_mit_zuegigem_nack(&mut media, &nack_sperre, &nack_rtt)?;
     let api = APIBuilder::new()
         .with_media_engine(media)
         .with_interceptor_registry(registry)
@@ -511,7 +515,7 @@ pub async fn connect(
             resource_url,
             http,
             fec: fec_zaehler,
-            nack_sperre,
+            nack_rtt,
         }),
         Err(e) => {
             let _ = pc.close().await;
