@@ -1,5 +1,12 @@
 {
   "id": "fec-2026-07-31-fest-gegen-adaptiv",
+  "KORREKTUR_2026-07-31_NACHT": {
+    "betrifft": "die Wiederholungs- und Verspaetungszahlen dieser Akte",
+    "was_falsch_war": "Die 931 kbit/s Wiederholungen bestanden zu rund 98 Prozent aus Duplikaten: der Player verwarf seine eigenen Nachlieferungen (SRTP-Wiedergabefenster 64 Pakete), die Luecke blieb offen, und der NACK-Erzeuger forderte bis zu 200 mal dasselbe Paket an. Ebenso war `rechtzeitig_bei_100ms_puffer: 172 von 803` falsch gerechnet — die Auswertung mass die Verspaetung der zweiten und jeder weiteren KOPIE, nie die der eigentlichen Nachlieferung.",
+    "richtige_werte_aus_demselben_pcap": "910 Luecken (0,33 Prozent Verlust), davon 795 nachgeliefert; Verspaetung Median 96,71 ms; 562 von 795 rechtzeitig, also 70,7 statt 21 Prozent. 61805 Kopien verteilen sich auf 795 Pakete = 77,7 je Stueck.",
+    "was_bestehen_bleibt": "Dass die feste Paritaet arbeitet (170 reparierte Pakete, null unreparierbar) und der Einfrier-Detektor sechsmal griff. Beides steht innerhalb der Messung und haengt nicht an der Wiederholungszaehlung.",
+    "belege": "player-2026-07-31-srtp-fenster, Commit cb1de022"
+  },
   "gemessen_am": "2026-07-31 (Abend)",
   "frage": "Was leistet feste Paritaet unter derselben Stoerserie, unter der die adaptive Regelung nichts repariert hat?",
 

@@ -1,0 +1,71 @@
+{
+  "id": "player-2026-07-31-srtp-fenster",
+  "gemessen_am": "2026-07-31 (Nacht)",
+  "frage": "Der Player warf seine eigenen Nachlieferungen weg, weil das SRTP-Wiedergabefenster auf 64 Paketen stand. Was bringt es, das Fenster auf 2048 zu setzen?",
+
+  "warum_die_frage_zaehlt": "Die FEC-Reihe war mit dem Ergebnis abgeschlossen, dass 42 Prozent Aufschlag der guenstigste messbare Zustand sei und an der Rate nichts zu sparen. Diese Aussage stuetzte sich auf eine Zahl, die etwas anderes gezaehlt hat als angenommen: 931 kbit/s 'Nachlieferungen' klangen nach einer schlechten Leitung, waren aber zu 98 Prozent Duplikate aus einer Rueckkopplung im Empfaenger.",
+
+  "die_ursache": {
+    "mechanik": "webrtc-rs gibt dem SRTP-Wiedergabeschutz ein Fenster von 64 Paketen mit (`srtp/src/session/mod.rs:21`), wer keine SettingEngine setzt, erbt es. Der Detektor verwirft jedes Paket mit `latest_seq >= window_size + seq` (`util/src/replay_detector/mod.rs`) — still, ohne Meldung. Bei 440 Paketen je Sekunde sind 64 Pakete rund 145 ms; eine Nachlieferung ueber diese Strecke braucht laenger, sobald die Leitung staut.",
+    "die_rueckkopplung": "Was herausfaellt, schliesst die Luecke nicht. Der NACK-Erzeuger sieht sie weiter offen und fordert alle 10 ms erneut an (`interceptor/nack/generator`), MediaMTX beantwortet jede Anforderung, und jede Antwort faellt wieder heraus. Das laeuft, bis das Paket nach rund zwei Sekunden aus dem Erzeuger-Fenster faellt.",
+    "der_beleg": "Im Vorlauf verteilen sich die 61805 Kopien exakt entlang dieser Grenze: die 505 Nachlieferungen, die INNERHALB des 64er-Fensters ankamen, kosten je acht Kopien (Umlaufzeit, unvermeidbar); die 290, die HERAUSFIELEN, kosten je rund 200. Die 290 tragen damit 94 Prozent aller Kopien. Die Uebereinstimmung der Zahlen 505/290 zwischen Fenstermessung und Kopienverteilung ist die eigentliche Beweisfuehrung."
+  },
+
+  "aenderung": "streaming/pulse-player/src/whep.rs — `SettingEngine::set_srtp_replay_protection_window(2048)` am APIBuilder. Eine Zeile plus Begruendung. 2048 Pakete sind bei dieser Rate gut viereinhalb Sekunden; der Preis ist eine groessere Bitmaske, also 256 Byte.",
+
+  "aufbau": "Identisch zum Vergleichslauf `fec-2026-07-31-fest-gegen-adaptiv`: echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde, neun Stoerzyklen (4 Downloads, 25 s, alle 45 s), Labor-Server auf fester Paritaet 10+2 und PULSE_KEYFRAME_INTERVAL=0.",
+
+  "vergleich": [
+    {"groesse": "Dauer s", "fenster_64": 618.7, "fenster_2048": 604.0},
+    {"groesse": "Kopien je verlorenem Paket", "fenster_64": 77.7, "fenster_2048": 7.8},
+    {"groesse": "ueberfluessige Kopien", "fenster_64": 61805, "fenster_2048": 2796},
+    {"groesse": "Wiederholungen kbit/s", "fenster_64": 931, "fenster_2048": 43},
+    {"groesse": "Wiederholungen Prozent", "fenster_64": 22.2, "fenster_2048": 1.2},
+    {"groesse": "Paritaets-Aufschlag kbit/s", "fenster_64": 831, "fenster_2048": 803},
+    {"groesse": "Aufschlag GESAMT Prozent", "fenster_64": 42.0, "fenster_2048": 22.8},
+    {"groesse": "NACKs", "fenster_64": 29910, "fenster_2048": 549},
+    {"groesse": "PLIs", "fenster_64": 53, "fenster_2048": 9},
+    {"groesse": "Nachlieferungen im Fenster", "fenster_64": "505 von 795 (63,5 %)", "fenster_2048": "358 von 358 (100 %)"},
+    {"groesse": "Verspaetung Median ms", "fenster_64": 96.71, "fenster_2048": 92.5},
+    {"groesse": "Verspaetung max ms", "fenster_64": 376.35, "fenster_2048": 109.08},
+    {"groesse": "rechtzeitig bei 100ms-Puffer", "fenster_64": "562 von 795 (70,7 %)", "fenster_2048": "334 von 358 (93,3 %)"},
+    {"groesse": "Luecken erkannt", "fenster_64": 910, "fenster_2048": 417},
+    {"groesse": "Luecken gefuellt", "fenster_64": "795 (87,4 %)", "fenster_2048": "358 (85,9 %)"},
+    {"groesse": "Verlustrate Prozent", "fenster_64": 0.33, "fenster_2048": 0.17},
+    {"groesse": "FEC repariert", "fenster_64": 170, "fenster_2048": 621},
+    {"groesse": "unreparierbar", "fenster_64": 0, "fenster_2048": 0},
+    {"groesse": "Einfrier-Eingriffe", "fenster_64": 6, "fenster_2048": 0},
+    {"groesse": "Sekunden mit Bildausfall", "fenster_64": 1, "fenster_2048": 0}
+  ],
+
+  "was_belastbar_ist": {
+    "die_kopien_verschwinden": "77,7 auf 7,8 Kopien je verlorenem Paket. Das ist eine Verhaeltniszahl INNERHALB je einer Messung und damit von der Stoerlage unabhaengig — anders als jeder Vergleich absoluter Bandbreiten. Die Extremfaelle sind restlos weg: die Verteilung endete vorher bei 215 Kopien je Paket, jetzt bei 12.",
+    "die_uebrig_gebliebenen_acht_sind_erklaert": "Bei 58,7 ms Umlaufzeit und 10 ms Nachforderungsabstand gehen rund acht Anforderungen hinaus, bevor die erste Antwort eintreffen kann. MediaMTX beantwortet jede. Das ist der Bodensatz, den dieser Fix nicht anfassen kann.",
+    "alle_nachlieferungen_kommen_an": "358 von 358 liegen im Fenster, vorher 505 von 795. Der Wiedergabeschutz verwirft keine Reparatur mehr.",
+    "der_rueckkanal_ist_frei": "549 statt 29910 NACKs, ein Faktor 54. Das ist die direkte Folge: eine geschlossene Luecke wird nicht erneut angefordert.",
+    "die_nachlieferungen_werden_schneller": "Groesste Verspaetung 109 statt 376 ms, rechtzeitig 93,3 statt 70,7 Prozent. Erklaerbar daraus, dass der Rueckkanal nicht mehr mit Wiederholungen der immer gleichen Anforderung verstopft ist."
+  },
+
+  "was_NICHT_belastbar_ist": {
+    "die_stoerlage_war_milder": "0,17 gegen 0,33 Prozent Verlust bei identischer gesetzter Stoerserie — die Fremdlast auf der Leitung ist nicht steuerbar. Der Vergleich ABSOLUTER Zahlen (kbit/s, Anzahl NACKs) traegt deshalb nur die Richtung, nicht die Hoehe.",
+    "die_bildstabilitaet": "Null Einfrier-Eingriffe gegen sechs, null gegen eine Sekunde Bildausfall — das passt zur Erwartung, faellt aber mit der milderen Stoerlage zusammen. Als Beleg fuer 'der Fix macht das Bild stabiler' reicht ein Lauf nicht; als Beleg dafuer, dass er nichts verschlechtert, schon.",
+    "die_fec_reparaturen": "621 gegen 170 bei besserer Leitung ist unerwartet und ungeklaert. Nicht ueberinterpretieren, solange es keinen zweiten Lauf gibt.",
+    "die_aufschlagszahl": "22,8 Prozent gelten fuer DIESE Stoerlage. Bei 0,33 Prozent Verlust laege der Wiederholungsanteil hoeher — aber bei rund 8 statt 78 Kopien je Paket, also ungefaehr bei einem Zehntel des frueheren Werts."
+  },
+
+  "was_das_fuer_die_fec_reihe_bedeutet": {
+    "die_reihe_ist_wieder_offen": "Sie war mit 'an der Rate laesst sich nichts sparen' abgeschlossen. Diese Aussage stuetzte sich auf Vergleiche, in denen die Wiederholungen zu 98 Prozent Duplikate waren — gemessen wurde also, wie stark die Rueckkopplung anspringt, nicht wie gut die Paritaet arbeitet.",
+    "10plus1_muss_neu_gemessen_werden": "Der Lauf meldete 74 Prozent Wiederholungen und 82,9 Prozent Gesamtaufschlag. Wenn davon 98 Prozent Duplikate waren, ist der Befund 'halbe Paritaet, doppelter Durchsatz' gegenstandslos. `fec-2026-07-31-rate-sparen-geht-nicht` traegt jetzt einen Korrekturvermerk.",
+    "reed_solomon_bleibt_ungeklaert": "`unreparierbar` steht weiter auf 0, aber der Zaehler kann den Buendelfall gar nicht sehen (er zaehlt Rechen- und Parse-Fehler, `fec/empfaenger.rs`). Die Aussage 'XOR scheitert nie' ist damit nicht belegt, sondern unbelegt.",
+    "nack_ist_rehabilitiert": "Der Befund '81 Prozent der Nachlieferungen verpassen den Puffer' war ein Artefakt der Duplikat-Messung. Richtig gerechnet waren es vorher 70,7 und jetzt 93,3 Prozent RECHTZEITIG."
+  },
+
+  "offen": [
+    "Die acht Kopien je Reparatur. Der NACK-Erzeuger hat kein Gedaechtnis und fordert waehrend der Umlaufzeit weiter an. Ein Erzeuger, der eine gestellte Anforderung fuer eine Umlaufzeit sperrt, wuerde sie auf ein bis zwei druecken — das sind bei dieser Stoerlage nur noch rund 30 kbit/s, lohnt also erst, wenn die Leitung schlechter ist. Eigene Messung noetig.",
+    "Die FEC-Reihe mit den reparierten Werkzeugen wiederholen, mindestens 10+1 gegen 10+2. Erst dann steht, ob die 20 Prozent Paritaet ihren Preis wert sind.",
+    "Ein A/B mit GESETZTEM Verlust (netem mit ifb am Empfangsweg) fehlt weiterhin. Ohne ihn schwanken alle Vergleichszahlen mit der Tageszeit.",
+    "Der Fix ist nur im nativen Player. Ob Chrome ein groesseres Fenster nutzt, ist ungemessen — die 215 NACKs auf 358 s im Browser-Lauf legen es nahe, belegen es aber nicht."
+  ],
+
+  "lehre": "Die Reihe war drei Laeufe lang mit der Frage beschaeftigt, wie sich 20 Prozent Paritaet einsparen lassen, waehrend danebenliegend 22 Prozent Aufschlag aus einem Ein-Zeilen-Fehler im eigenen Empfaenger stammten. Sichtbar wurde er erst, als eine Zaehlung von Ereignissen (61805 Wiederholungen) um ihre Bezugsgroesse ergaenzt wurde (auf 795 Pakete). Eine Zahl ohne Bezugsgroesse ist keine Messung."
+}

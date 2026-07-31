@@ -1,5 +1,12 @@
 {
   "id": "fec-2026-07-31-rate-sparen-geht-nicht",
+  "KORREKTUR_2026-07-31_NACHT": {
+    "status": "DIE SCHLUSSFOLGERUNG DIESER AKTE IST HINFAELLIG",
+    "warum": "Die Groesse `Wiederholungen kbit/s`, auf der der ganze Vergleich ruht, hat etwas anderes gemessen als angenommen. Der Player stand auf einem SRTP-Wiedergabefenster von 64 Paketen und verwarf Nachlieferungen, die weiter zurueck lagen — die Luecke blieb offen, der NACK-Erzeuger forderte alle 10 ms weiter, und jede Antwort fiel wieder heraus. Von den gemessenen Wiederholungen waren rund 98 Prozent solche Duplikate. Gemessen wurde also, wie stark diese Rueckkopplung anspringt, nicht was die Paritaet leistet.",
+    "konkret_fuer_10plus1": "Die 2944 kbit/s Wiederholungen (74,1 Prozent) und daraus der Befund 'halbe Paritaet, doppelter Gesamtdurchsatz' sind damit nicht belegt. Ob 10+1 wirklich schlechter ist als 10+2, ist wieder OFFEN.",
+    "was_bleibt": "Die Beobachtung, dass mehr Detektor-Eingriffe und mehr Bildausfaelle auftraten (14 gegen 6, 2 s gegen 1 s), ist davon unberuehrt — sie haengt nicht an der Bandbreitenzaehlung. Sie stuetzt die Richtung, traegt aber allein keine Empfehlung.",
+    "belege": "player-2026-07-31-srtp-fenster (Fix und Gegenmessung), Commit cb1de022 (reparierte Auswertungswerkzeuge)"
+  },
   "gemessen_am": "2026-07-31 (Nacht)",
   "frage": "Laesst sich der Paritaets-Aufschlag halbieren? 10+1 statt 10+2 kostet 10 statt 20 Prozent — was kostet das an Wirkung?",
   "warum_die_frage_zaehlt": "Die Ausgangsfrage der ganzen FEC-Reihe war Bandbreite. Adaptive Paritaet ist gescheitert, Reed-Solomon gegenstandslos, 20+4 wirkungsschwaecher. Die Rate selbst zu senken war der letzte einfache Hebel — eine Einstellung, kein Umbau.",
@@ -94,5 +101,6 @@
     "offen_geblieben": "NICHTS MEHR. Der letzte Kandidat war `ungleicher Schutz` — unter Intra-Refresh hiesse das: den EINEN Einstiegs-IDR absichern, weil er darueber entscheidet, ob ein Zuschauer ueberhaupt ein Bild sieht. Er ist am 2026-07-31 als VERZICHTBAR eingestuft worden, und zwar wegen des Player-Fixes vom selben Tag (Commit a6a9bd12): der Player fordert den Einstiegspunkt jetzt alle 500 ms nach, solange er keinen hat. Damit ist derselbe Fehlerfall abgedeckt — statt das IDR gegen Verlust zu haerten, wird es einfach erneut geholt. Der Unterschied in der Wirkung ist eine halbe Sekunde zusaetzliche Wartezeit BEIM BEITRITT, also in dem Moment, in dem der Zuschauer ohnehin auf den Verbindungsaufbau wartet. Dem stuende ein Eingriff in den MediaMTX-Fork gegenueber: pions FlexFEC-Interceptor deckt rein mechanisch nach `X mod N` ab und weiss nicht, welches Paket wichtig ist — es braeuchte einen Fork des Interceptors oder eine zweite Paritaetsschicht daneben, die der Player ebenfalls verstehen muesste. Das Verhaeltnis stimmt nicht. WIEDER AUFGREIFEN, falls sich zeigt, dass Zuschauer beim Beitritt spuerbar haengen — dann aber erst mit einer Messung, die belegt, dass es am verlorenen IDR liegt und nicht an etwas anderem."
   },
   "lehre": "Drei Laeufe lang lautete die Frage „wie sparen wir die 20 Prozent\". Die Antwort ist, dass die 20 Prozent das Guenstigste sind, was gemessen wurde. Fehlerkorrektur, die im Voraus mitlaeuft, ist billiger als Nachforderungen, die einzeln ueber die Leitung gehen — und der Unterschied faellt umso staerker aus, je schlechter die Leitung ist.",
-  "stand_der_reihe": "ABGESCHLOSSEN. Sechs Wege gemessen oder geprueft, keiner davon offen."
+  "lehre_korrigiert": "Die eigentliche Lehre ist eine andere: drei Laeufe lang wurde gefragt, wie sich 20 Prozent Paritaet einsparen lassen, waehrend danebenliegend 22 Prozent Aufschlag aus einem Ein-Zeilen-Fehler im eigenen Empfaenger stammten. Wer eine fremde Komponente vermisst, muss zuerst pruefen, was der eigene Code ihr uebergibt.",
+  "stand_der_reihe": "WIEDER OFFEN (Stand 2026-07-31 Nacht). Die Reihe galt als abgeschlossen; nach dem SRTP-Fensterfund sind die Vergleiche zwischen den Paritaetsstufen neu zu fahren — mit den reparierten Werkzeugen. Unberuehrt bleibt nur, was innerhalb EINER Messung stand."
 }

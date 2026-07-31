@@ -1,5 +1,11 @@
 {
   "id": "fec-2026-07-31-20plus4-bringt-nichts",
+  "KORREKTUR_2026-07-31_NACHT": {
+    "betrifft": "die Wiederholungszahlen (809 kbit/s) und die Aussage, XOR scheitere nie",
+    "was_falsch_war": "Die Wiederholungen bestanden groesstenteils aus Duplikaten der SRTP-Fenster-Rueckkopplung (s. `player-2026-07-31-srtp-fenster`), nicht aus echten Nachlieferungen. Und `unreparierbar: 0` ist KEIN Beleg dafuer, dass XOR nie an seine Grenze kommt: der Zaehler erfasst Rechen- und Parse-Fehler (`fec/empfaenger.rs`), nicht den Fall 'zwei Luecken in einer Gruppe'. Der Buendelfall, fuer den 20+4 gebaut ist, war damit gar nicht messbar.",
+    "was_bestehen_bleibt": "Der Reparaturvergleich 170 gegen 19 Pakete. Er steht innerhalb je einer Messung und ist von der Wiederholungszaehlung unabhaengig — die Empfehlung, bei 10+2 zu bleiben, traegt also weiter.",
+    "folge": "Die Aussage 'Reed-Solomon ist gegenstandslos' ist nicht widerlegt, aber auch nicht belegt. Sie braucht einen Zaehler, der gescheiterte Gruppen erfasst."
+  },
   "gemessen_am": "2026-07-31 (spaeter Abend)",
   "frage": "Bringt 20+4 statt 10+2 einen Gewinn? Gleicher Aufschlag, doppelter Verschraenkungsabstand — laut FEC-Analyse ein Gratis-Gewinn gegen Buendelverlust.",
 

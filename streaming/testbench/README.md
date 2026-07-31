@@ -221,3 +221,35 @@ Ursache lag im Zusammenspiel von Tonraster und Muxer. Behoben an der Quelle
 zu drehen half nur einer Bildrate und ließ bei 280 fps die Schreibreihenfolge
 kippen. Begründung im Code: `src/encode/mod.rs` und `src/capture/audio.rs` des
 Linux-Sidecars.
+
+## Was damit gefunden wurde (2026-07-31)
+
+**Der Player warf seine eigenen Reparaturen weg.** webrtc-rs gibt dem
+SRTP-Wiedergabeschutz ein Fenster von 64 Paketen mit; wer keine `SettingEngine`
+setzt, erbt es. Bei 440 Paketen je Sekunde sind das 145 ms — weniger, als eine
+Nachlieferung über diese Strecke braucht. Was herausfiel, wurde still verworfen,
+die Lücke blieb offen, und der NACK-Erzeuger forderte alle 10 ms dasselbe Paket
+erneut an. Ergebnis: 78 Kopien je verlorenem Paket, 945 kbit/s, von denen der
+Player 98 Prozent selbst wegwarf. Fenster auf 2048 → Aufschlag von 42 auf 22,8
+Prozent, NACKs von 29910 auf 549, und **alle** Nachlieferungen kommen an
+(`profiles/player-2026-07-31-srtp-fenster.json`).
+
+**Wie er so lange unentdeckt blieb**, ist die eigentliche Lehre: die Auswertung
+zählte Wiederholungs-*Ereignisse* ohne die Zahl betroffener *Pakete* daneben.
+61805 Wiederholungen sehen nach schlechter Leitung aus — verteilt auf 795 Pakete
+sind sie eine Rückkopplung im Empfänger. Drei Messungen der FEC-Reihe stützten
+sich darauf und tragen jetzt Korrekturvermerke. Dieselbe Auswertung maß die
+Verspätung außerdem an der zweiten und jeder weiteren Kopie statt an der
+eigentlichen Nachlieferung; daher stammte der (falsche) Befund, 81 Prozent der
+Nachlieferungen kämen zu spät. Richtig gerechnet sind es 71 Prozent
+**rechtzeitig**, nach dem Fix 93.
+
+Werkzeuge dafür, beide rein lesende Nachauswertung eines Mitschnitts:
+
+```fish
+./kopien.py  fenster-2048.pcap    # auf wieviele Pakete sich die Kopien verteilen
+./fenster.py fenster-2048.pcap    # ob eine Nachlieferung ins SRTP-Fenster fällt
+./fenster.py fenster-2048.pcap --groesse 2048    # gegen das tatsächliche Fenster
+```
+
+Merksatz: eine Zählung von Ereignissen ohne ihre Bezugsgröße ist keine Messung.
