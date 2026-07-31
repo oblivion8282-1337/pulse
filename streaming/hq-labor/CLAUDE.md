@@ -132,13 +132,51 @@ keine Entscheidungsgrundlage** — vor dem Bauen messen.
 Was gemessen und belegt ist, steht in `streaming/testbench/profiles/` und in
 `streaming/pulse-player/WISSENSSTAND.md`.
 
+## Was in der Nacht zum 2026-07-31 entschieden wurde
+
+Vier Befunde, alle gemessen statt angenommen. Messakten in
+`streaming/testbench/profiles/`.
+
+**Browser und Electron tragen FlexFEC — die alte Notiz war falsch.** Chromium
+handelt `flexfec-03` im Empfang per Default aus (Field-Trial ist nur fürs
+*Senden* nötig), unser Fork erzeugt die dafür zwingende
+`a=ssrc-group:FEC-FR`, und die Paritätspakete kommen an (1352–5788 je Lauf,
+`fecPacketsReceived` aus `getStats()`). FEC im Browser ist keine Baustelle.
+
+**AV1 10 bit ist im Browser tot.** Null Bilder in 15 Sekunden bei normal
+ankommenden Paketen und 97 Keyframe-Anforderungen; 8 bit liefert im selben
+Aufbau 722 Bilder. Ursache ist der Decoder (dav1d in libwebrtc lehnt
+`bpc != 8` ab), nicht der Weg. **Folge: 10 bit bleibt dem nativen Player
+vorbehalten**, Browser und Electron bekommen 8 bit.
+
+**Intra-Refresh scheidet für Browser und Electron aus.** Der Empfänger startet
+ohne echtes IDR gar nicht (`keyframe_required_ = true`) und fordert nach jedem
+Verlust im 200-ms-Takt ein Keyframe an; der H.264-Recovery-Point-SEI wird beim
+Depacketisieren verworfen, und AV1 hat gar keine Signalisierung dafür. Es kann
+also höchstens ein Sonderweg **nur** für den nativen Player sein — für den
+WHEP-Pfad bleiben periodische echte Keyframes Pflicht.
+
+**Das Stottern liegt nicht am Codec.** H.264, AV1 8 bit und AV1 10 bit liegen
+in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
+13,2–13,5 Lücken/s, größte Lücke 36 ms). Der Referenzsender schickt
+gleichmäßig — die Bündelung entsteht dahinter.
+
 ## Offene Punkte
 
-- [ ] **Browser und Electron mit Intra-Refresh + FEC/NACK**: prüfen, nicht
-      annehmen. Browser handeln flexfec-03 nicht aus (Stand der Notizen);
-      was tragen sie stattdessen, und reicht das?
-- [ ] **Portal-Dialog pro Sitzung** (s.o.) — Ursache finden
-- [ ] **Bildschirm-Abschaltung während Messungen** unterbinden
+- [ ] **Wo entsteht die Bündelung?** Nächster Schritt: dieselbe Codec-Reihe
+      über WHIP statt RTMPS, und `fern-split.py`, um zu trennen, ob die Lücken
+      vor oder hinter dem eigenen Anschluss entstehen.
+- [ ] **Der echte Sender ist noch nicht vermessen** — Aufnahme und Encoder
+      können zusätzlich bündeln. Braucht das Portal und einen Menschen davor.
+- [ ] **Portal nachts**: das Restore-Token greift (nachgeprüft), aber bei
+      abgeschaltetem Bildschirm findet das Backend den gespeicherten Monitor
+      über seine EDID-Kennung nicht wieder und fragt neu. Messungen mit dem
+      echten Sender sind deshalb nicht unbeaufsichtigt fahrbar.
+- [ ] **Adaptive Parität Stufe 2/3** (Rate je Sitzung, stufenlos) — erst
+      sinnvoll, wenn gemessen ist, dass zwischen „aus" und „20 Prozent" etwas
+      fehlt. Stufe 1 ist gebaut (Patch 0004) und wirkt.
+- [ ] **Schwellenwert der Regelung** steht ungeprüft auf 1 Prozent.
+- [ ] **Reed-Solomon statt XOR** (Analyse 2.2) — die Ausbaustufe für
+      Bündelverlust, wo XOR strukturell nur ein Loch je Gruppe schließt.
 - [ ] **Setup-Mitnahme**: eine knappe Anleitung, was ein frischer Rechner
       braucht (Prüfstand, Player-Build, Zugangsdaten, Vorlagen)
-- [ ] Adaptive Parität statt fester 20 Prozent (s. Analyse-Dokument)
