@@ -53,7 +53,7 @@ def start_push(quelle: str, path: str, token: str, log) -> subprocess.Popen:
         "-re", "-stream_loop", "-1", "-i", quelle,
         "-c", "copy",
         "-f", "flv", "-tls_verify", "0",
-        f"rtmps://{HOST}:{RTMPS_PORT}/{path}?token={token}",
+        _fh.push_url(path, token, "rtmps", 120),
     ]
     return subprocess.Popen(cmd, stdout=log, stderr=log)
 

@@ -79,6 +79,50 @@ cd streaming/testbench
 ./ansehen.py --proto rtmps ...                              # zum Vergleich der heutige Weg
 ```
 
+## Der Server dahinter
+
+Die Gegenstelle ist der Hetzner-Testserver, erreichbar als
+`pulse.unicutmedia.com`. Seit 2026-07-31 läuft dort **nur noch MediaMTX**, als
+eigenständiger Container `mediamtx-labor`:
+
+```
+~/mediamtx-labor/
+  mediamtx              das gepatchte Binary (v1.19.1-dirty: PLI-Weiterleitung + FlexFEC)
+  mediamtx.yml          Konfiguration, eingebaute Auth
+  certs/                RTMPS-Zertifikat (self-signed, deshalb `tls_verify=0`)
+  zugang.txt            Nutzer, Passwort, Lese-Token — chmod 600
+  mediamtx.yml.original die Fassung aus dem alten All-in-one-Container
+```
+
+Vorher steckte dasselbe Binary **im** All-in-one-Container der
+Self-Host-Testinstanz, der damit auch den Auth-Hook und eine Redis stellte.
+Dieser Container ist entfernt (samt Volume, auf Wunsch), ebenso ein zweiter,
+verwaister MediaMTX. Der pausierte Auto-Updater ist aus der Crontab raus — er
+war nur pausiert, weil er sonst das getauschte Binary überschrieben hätte.
+
+Drei Dinge, die man wissen muss:
+
+* **Auth ist jetzt eingebaut, nicht mehr per Hook.** Ein Zugang (`labor`) darf
+  senden und lesen; API und Metriken gehen ohne Zugangsdaten, aber nur vom Host
+  (Port ist auf `127.0.0.1` gebunden). Der Prüfstand braucht damit **keinen
+  Serverzugriff mehr** — vorher legte er für jeden Lauf zwei Token per `ssh` +
+  `docker exec … redis-cli` in die Redis des Containers.
+* **MediaMTX nimmt für WHEP ausschließlich Basic-Auth.** Zugangsdaten als
+  Query-Parameter beantwortet 1.19.1 mit 401 (nachgemessen, nicht aus der Doku
+  geglaubt). Unser Player kann keinen Auth-Header, deshalb **übersetzt Caddy**:
+  es prüft den `?token=`, den Player und Prüfstand ohnehin mitschicken, und
+  setzt den Header. Für alle Aufrufer sieht die Adresse aus wie vorher.
+* **Das Bruecken-Netz dieses Servers ist `10.0.0.0/8`**, nicht der
+  Docker-Standard `172.17.x`. Wer die IP-Liste in der `mediamtx.yml` nach
+  Gefühl füllt, sperrt sich aus der eigenen API aus — die Antwort lautet dann
+  `authentication error`, obwohl der Port gar nicht nach aussen zeigt.
+
+Ein neues Patch-Binary einzuspielen ist ein Dateitausch:
+`docker cp`/`scp` nach `~/mediamtx-labor/mediamtx`, dann
+`docker restart mediamtx-labor`. Die Schalter (`PULSE_KEYFRAME_INTERVAL`,
+`PULSE_FLEXFEC*`) stehen als Umgebungsvariablen am Container, nicht in der
+`mediamtx.yml`.
+
 ## `mediamtx-patches/`
 
 Die serverseitigen Stücke desselben Messstands, aus `infra/mediamtx-fork/`
