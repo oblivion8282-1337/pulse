@@ -138,11 +138,22 @@ def main() -> int:
     # Die eigentliche Zahl: wie lange nach dem ersten Verlust kam die Paritaet?
     if verlust and par:
         print("\nReaktion:")
+        vs = set(verlust)
         for a, _b in par:
-            davor = [s for s in verlust if s <= a]
-            if davor:
-                print(f"  Verlust ab Sekunde {davor[0]:>4} -> Paritaet ab {a:>4}"
-                      f"   = {a - davor[0]} s Verzug")
+            # Den Beginn des Verlustblocks suchen, der ZU DIESEM Fenster
+            # gehoert — nicht den ersten Verlust des ganzen Laufs.
+            #
+            # Die erste Fassung nahm `davor[0]`, also den allerersten Verlust
+            # ueberhaupt. Fuer das erste Torfenster stimmte die Zahl zufaellig,
+            # fuer jedes weitere kam Unsinn heraus ("140 s Verzug", 2026-07-31).
+            letzter = max((s for s in verlust if s <= a), default=None)
+            if letzter is None:
+                continue
+            beginn = letzter
+            while beginn - 1 in vs:
+                beginn -= 1
+            print(f"  Verlustblock ab Sekunde {beginn:>4} -> Paritaet ab {a:>4}"
+                  f"   = {a - beginn} s Verzug")
     elif verlust and not par:
         print(f"\nReaktion: KEINE. Verlust in {len(verlust)} Sekunden "
               f"(erste bei {verlust[0]}), Paritaet nie.")

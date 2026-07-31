@@ -1,0 +1,58 @@
+{
+  "id": "fec-2026-07-31-schwelle-taugt-nicht",
+  "gemessen_am": "2026-07-31 (Abend)",
+  "frage": "Wird die adaptive Paritaet brauchbar, wenn man die Schwelle von 1 auf 0,1 Prozent senkt?",
+
+  "warum_die_frage_zaehlt": "Der Ruhelauf hatte gezeigt: die Regelung spart zuverlaessig (1281 kbit/s je Zuschauer) und schuetzt praktisch nie — in 605 Sekunden ging das Tor acht Paketen lang auf, gegen vierzehn Sekunden Verlust. Die Schwelle stammt von libwebrtc, das unterhalb 1 Prozent seine FEC abschaltet; Chrome kann sich das leisten, weil es periodische Keyframes faehrt. Unter Intra-Refresh gibt es dieses Netz nicht.",
+
+  "erste_erkenntnis_vor_der_messung": {
+    "befund": "Die Schwelle laesst sich gar nicht auf 0,1 Prozent stellen.",
+    "grund": "`fraction lost` (RFC 3550) ist ein 8-Bit-Wert, also Anteil mal 256. `pulseFecAdaptiv` rechnet `prozent * 256 / 100` und klemmt auf mindestens 1. Damit gibt es genau diese Stufen:",
+    "stufen": {
+      "1,0 Prozent eingestellt": "2/256 = 0,78 Prozent tatsaechlich",
+      "0,5 und alles darunter": "1/256 = 0,39 Prozent — feiner geht es nicht"
+    },
+    "folge": "Die frueheren Messungen liefen also bei 0,78 Prozent, nicht bei 1,0. Und dieser Lauf misst 0,39 Prozent, die feinste ueberhaupt erreichbare Stufe."
+  },
+
+  "aufbau": "Wie `fec-2026-07-31-adaptiv-gegenprobe`: echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde. 632 Sekunden, neun Stoerzyklen (4 parallele Downloads, 25 s, alle 45 s).",
+
+  "ergebnis": {
+    "sekunden_mit_verlust": 92,
+    "sekunden_mit_paritaet": 8,
+    "torfenster": ["46-47", "186-187", "560-561", "620-621"],
+    "paritaetspakete": 152,
+    "damit_reparierte_pakete": 0,
+    "verzug_der_regelung": "0, 0, 4 und 2 Sekunden — sie reagiert im selben Sekundenfenster oder kurz danach",
+    "aufschlag": {
+      "nutzlast_kbit": 3882,
+      "paritaet_kbit": 2,
+      "wiederholungen_kbit": 710,
+      "gesamt_kbit": 4597
+    },
+    "player": "622 Sondenmessungen, alle `0 ohne Muster`; ein Einfrier-Eingriff (der Fix von heute arbeitet)"
+  },
+
+  "was_das_heisst": {
+    "die_schwelle_ist_nicht_das_problem": "152 Paritaetspakete haben NULL Pakete repariert. Bei 0,78 Prozent waren es acht Pakete und ebenfalls keine Reparatur. Zwischen den beiden erreichbaren Stufen liegt kein brauchbarer Zustand — und eine dritte gibt es nicht.",
+    "warum_es_konstruktiv_nicht_gehen_kann": "**FEC muss VORHER da sein.** Paritaet schuetzt die Pakete, die nach ihr kommen. Die Regelung schaltet sie aber erst ein, NACHDEM Verlust gemeldet wurde, und schliesst nach zwei Sekunden wieder — sie ist damit immer im falschen Moment offen. Dazu kommt, dass `fraction lost` erst NACH der NACK-Reparatur gemessen wird: der Ausloeser ist nicht nur zu spaet, sondern auch zu schwach.",
+    "der_preis_steht_daneben": "Die Nachforderungen sind auf 710 kbit/s gestiegen (gegen 407 bei fester Paritaet). Was an Paritaet gespart wird, kommt teilweise als Nachlieferung zurueck — nur zu spaet fuers Bild, weil 81 Prozent davon den Jitter-Puffer verpassen (`hq-2026-07-31-intra-refresh-echter-sender`)."
+  },
+
+  "vergleich_der_vier_zustaende": [
+    {"zustand": "ohne Paritaet", "gesamt_kbit": 4353, "paritaet_kbit": 0, "wiederholungen_kbit": 122, "repariert": null},
+    {"zustand": "Paritaet fest 10+2", "gesamt_kbit": 5548, "paritaet_kbit": 904, "wiederholungen_kbit": 407, "repariert": 190},
+    {"zustand": "adaptiv, Schwelle 0,78 %", "gesamt_kbit": 4267, "paritaet_kbit": 0, "wiederholungen_kbit": 27, "repariert": 0},
+    {"zustand": "adaptiv, Schwelle 0,39 %", "gesamt_kbit": 4597, "paritaet_kbit": 2, "wiederholungen_kbit": 710, "repariert": 0}
+  ],
+
+  "einschraenkungen": [
+    "**Die vier Laeufe sind unterschiedlich stark gestoert.** Der Verlust entsteht aus selbst ausgeloesten Saettigungszyklen plus dem, was die Leitung von sich aus tut; die Wiederholungszahlen (122 bis 710 kbit/s) sind deshalb nicht direkt vergleichbar. Belastbar ist, was innerhalb EINES Laufs steht: 152 Paritaetspakete, null Reparaturen.",
+    "Die Stoerung ist Saettigung, kein gesetzter Paketverlust. Eine `netem`-Strecke mit fester Rate waere aussagekraeftiger; sie fehlt weiterhin (FEC-Analyse §6).",
+    "Gemessen wurde nur mit EINEM Zuschauer. Die Regelung ist prozessweit (`pulseFecTorAktiv`) — bei mehreren regelt der zuletzt verbundene fuer alle, und das ist ungetestet."
+  ],
+
+  "empfehlung": "Den Labor-Server zurueck auf feste Paritaet. Er laeuft im Moment im schlechtesten der drei Zustaende: er spart die 904 kbit/s und liefert dafuer keinen Schutz. Feste Paritaet hat in derselben Umgebung 190 Pakete repariert und die Nachforderungen von 7437 auf 2686 gedrueckt. Wer die Bandbreite wirklich sparen will, braucht eine andere Regelgroesse als `fraction lost` — eine, die den Verlust VOR der NACK-Reparatur sieht und die Paritaet vorausschauend einschaltet statt nachtraeglich.",
+
+  "lehre": "Zwei Laeufe lang war die Frage „ist die Schwelle richtig gesetzt\". Die Antwort war, dass die Frage falsch war: eine Regelung, die auf bereits eingetretenen Verlust reagiert, kann eine VORWAERTS wirkende Fehlerkorrektur nicht sinnvoll steuern. Das haette man am Wirkprinzip sehen koennen, bevor die erste Schwelle gesetzt wurde — sichtbar wurde es erst an der Zahl `repariert: 0`, die es bis heute Nachmittag gar nicht gab."
+}
