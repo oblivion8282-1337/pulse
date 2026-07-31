@@ -271,15 +271,29 @@ def main() -> int:
             # ab ("noch kein Bild empfangen"), weil es den Codec des Stroms
             # kennen muss, um den Container zu waehlen. Ein fester Vorlauf war
             # zu kurz und die Aufnahme fiel still aus.
-            for _ in range(60):
+            #
+            # **Dabei muss der Einstieg nachgefordert werden.** Unter
+            # Intra-Refresh gibt es nur EIN Vollbild, und das lag vor dem
+            # Beitritt des Players — ohne Nachforderung dekodiert er nie etwas,
+            # die Schleife laeuft leer, und der Lauf endet mit „noch kein Bild
+            # empfangen". Genau so ist der erste Qualitaetsvergleich zwischen
+            # Keyframes und Intra-Refresh gescheitert (2026-07-31).
+            for versuch in range(60):
                 st = player.call("stats", session=sid)
                 if st.get("ok") and (st.get("frames_decoded") or 0) > 0:
                     break
+                if versuch % 4 == 0:            # rund einmal je Sekunde
+                    sender.call("keyframe", timeout=10)
                 time.sleep(0.25)
             rr = player.call("record", session=sid, path=str(rec_path))
             if not rr.get("ok"):
                 print(f"Aufnahme abgelehnt: {rr}", file=sys.stderr)
                 return 1
+            # Zweites Vollbild als Startpunkt der DATEI: der Recorder schreibt
+            # erst ab dem naechsten Keyframe. Unter Intra-Refresh kaeme sonst
+            # keiner mehr, und die Aufnahme bliebe leer — was erst beim
+            # Ansehen auffiele.
+            sender.call("keyframe", timeout=10)
             print(f"Aufnahme laeuft: {rr.get('path', rec_path)}")
         end = time.monotonic() + args.secs
         naechste_probe = time.monotonic() + 1.0
