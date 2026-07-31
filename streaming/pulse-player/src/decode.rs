@@ -21,9 +21,43 @@ use ffmpeg_next as ffmpeg;
 
 use crate::whep::Codec;
 
-/// Erkennt am Decoder-Namen, ob er auf der GPU laeuft.
+/// Erkennt am Decoder-Namen, ob er selbst auf der GPU laeuft.
+///
+/// Gilt ausdruecklich NICHT fuer den VAAPI-Weg: der laeuft ueber den nativen
+/// Decoder mit angehaengtem Geraet, sein Name ist deshalb schlicht `av1` und
+/// sagt ueber die Hardware nichts. Dafuer steht [`Kandidat::vaapi`].
 fn is_hardware(name: &str) -> bool {
-    ["cuvid", "qsv", "vaapi"].iter().any(|tag| name.contains(tag))
+    ["cuvid", "qsv"].iter().any(|tag| name.contains(tag))
+}
+
+/// Ein Weg, den Decoder zu oeffnen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Kandidat {
+    /// Name des FFmpeg-Decoders.
+    name: &'static str,
+    /// Ein VAAPI-Geraet anhaengen. Der Decode laeuft dann auf der GPU, obwohl
+    /// `name` ein Software-Name ist.
+    vaapi: bool,
+}
+
+impl Kandidat {
+    const fn sw(name: &'static str) -> Self {
+        Self { name, vaapi: false }
+    }
+
+    fn hardware(&self) -> bool {
+        self.vaapi || is_hardware(self.name)
+    }
+
+    fn beschreibung(&self) -> &'static str {
+        if self.vaapi {
+            "Hardware (VAAPI)"
+        } else if is_hardware(self.name) {
+            "Hardware"
+        } else {
+            "Software"
+        }
+    }
 }
 
 /// Aufeinanderfolgende abgelehnte Einheiten, ab denen der Decoder als defekt
@@ -139,11 +173,45 @@ fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
 /// Kandidaten in Reihenfolge der Bevorzugung. Am Ende stehen immer die
 /// Software-Decoder; der jeweils letzte ist der generische Name, weil die
 /// bevorzugte Bibliothek (z. B. `libdav1d`) nicht in jedem Build steckt.
-fn candidates(codec: Codec, allow_hw: bool) -> Vec<&'static str> {
-    let (hw, sw): (&[&str], &[&str]) = match codec {
-        Codec::Av1 => (&["av1_cuvid", "av1_qsv", "av1_vaapi"], &["libdav1d", "av1"]),
-        Codec::H264 => (&["h264_cuvid", "h264_qsv", "h264_vaapi"], &["h264"]),
-        Codec::Opus => (&[], &["libopus", "opus"]),
+///
+/// **Hier stand bis 2026-08-01 `av1_vaapi` bzw. `h264_vaapi` — Decoder, die es
+/// in FFmpeg NICHT GIBT.** VAAPI ist kein eigener Decoder, sondern ein hwaccel
+/// auf dem nativen; die Namen liefen deshalb immer ins Leere. Auf einer
+/// AMD-Karte fiel der Player damit still auf Software zurueck, obwohl die GPU
+/// AV1 dekodieren kann (`vainfo`: `VAProfileAV1Profile0/VAEntrypointVLD`, 8
+/// UND 10 bit). Gemessen am 2026-08-01 auf einer Radeon 780M.
+///
+/// **Warum VAAPI vor QSV steht:** `av1_qsv` laesst sich auch ohne
+/// Intel-Hardware oeffnen und scheitert erst beim ersten Bild — der Player
+/// verliert dadurch eine halbe Sekunde und einen Neuaufbau (am 2026-08-01 im
+/// Log beobachtet: „Decoder av1_qsv lehnt dauerhaft ab"). Das Anlegen des
+/// VAAPI-Geraets scheitert dagegen sofort und sauber, wenn keine passende GPU
+/// da ist. Auf Intel bedient VAAPI dieselbe Hardware.
+fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
+    let (hw, sw): (&[Kandidat], &[Kandidat]) = match codec {
+        Codec::Av1 => (
+            &[
+                Kandidat::sw("av1_cuvid"),
+                Kandidat { name: "av1", vaapi: true },
+                Kandidat::sw("av1_qsv"),
+            ],
+            &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")],
+        ),
+        Codec::H264 => (
+            &[
+                Kandidat::sw("h264_cuvid"),
+                Kandidat { name: "h264", vaapi: true },
+                Kandidat::sw("h264_qsv"),
+            ],
+            // `libopenh264` VOR `h264`: Distributionen, die patentbehaftete
+            // Decoder ausbauen (Fedora `libavcodec-free`), haben den nativen
+            // `h264` NICHT — dort war die Wiedergabe von H.264 bisher schlicht
+            // unmoeglich, obwohl ein brauchbarer Decoder danebenliegt.
+            // Nachgeprueft am 2026-08-01: `ffmpeg -decoders` listet auf dieser
+            // Maschine `libopenh264`, aber kein `h264`.
+            &[Kandidat::sw("libopenh264"), Kandidat::sw("h264")],
+        ),
+        Codec::Opus => (&[], &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
     };
     let mut out = Vec::new();
     if allow_hw {
@@ -151,6 +219,93 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<&'static str> {
     }
     out.extend_from_slice(sw);
     out
+}
+
+/// Welche Render-Node der VAAPI-Weg benutzt.
+///
+/// Ueber `PULSE_PLAYER_VAAPI_DEVICE` umstellbar — auf Maschinen mit zwei GPUs
+/// (iGPU plus Steckkarte) ist die erste nicht zwingend die richtige.
+fn vaapi_geraetepfad() -> String {
+    std::env::var("PULSE_PLAYER_VAAPI_DEVICE")
+        .unwrap_or_else(|_| "/dev/dri/renderD128".to_string())
+}
+
+/// Haengt ein VAAPI-Geraet an den Decoder-Kontext, VOR dem Oeffnen.
+///
+/// **Mehr braucht es nicht.** `avcodec_default_get_format` waehlt das
+/// Hardware-Format von sich aus, sobald ein Geraet gesetzt ist und der Decoder
+/// eine passende hwaccel-Konfiguration hat — nachgelesen in
+/// `libavcodec/decode.c` („If a device was supplied when the codec was opened,
+/// assume that the user wants to use it"). Ein eigener `get_format`-Rueckruf
+/// waere ein Funktionszeiger aus Rust in FFmpeg hinein und damit deutlich mehr
+/// Angriffsflaeche fuer denselben Effekt.
+///
+/// Die Referenz auf das Geraet geht an den Kontext ueber; `avcodec_free_context`
+/// gibt sie frei.
+fn vaapi_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext) -> Result<()> {
+    let pfad = vaapi_geraetepfad();
+    let c_pfad = std::ffi::CString::new(pfad.as_str()).context("Geraetepfad")?;
+    let mut geraet: *mut ffmpeg::ffi::AVBufferRef = std::ptr::null_mut();
+    // SAFETY: `ctx` ist ein frisch angelegter, noch nicht geoeffneter Kontext;
+    // `c_pfad` lebt bis zum Ende des Aufrufs. `av_hwdevice_ctx_create` schreibt
+    // ausschliesslich in `geraet`.
+    let rc = unsafe {
+        ffmpeg::ffi::av_hwdevice_ctx_create(
+            &mut geraet,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+            c_pfad.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc < 0 || geraet.is_null() {
+        bail!("VAAPI-Geraet {pfad} liess sich nicht anlegen (rc={rc})");
+    }
+    // SAFETY: `ctx` ist gueltig und ungeoeffnet; das Feld war zuvor null.
+    unsafe { (*ctx).hw_device_ctx = geraet };
+    Ok(())
+}
+
+/// Holt ein Bild aus dem Grafikspeicher in den Hauptspeicher.
+///
+/// **Das Zielformat gibt FFmpeg vor** (`format` bleibt ungesetzt): bei 8 bit
+/// kommt NV12 heraus, bei 10 bit P010 — beides kennt [`convert`]. Ein festes
+/// Format zu verlangen hiesse, den 10-bit-Fall stillschweigend auf 8 bit zu
+/// stutzen; genau die Sorte Verlust, die niemandem auffaellt.
+///
+/// **`av_hwframe_transfer_data` kopiert nur die Bilddaten.** Farbraum,
+/// Wertebereich und Zeitstempel muessen getrennt mit — ohne sie raet `convert`
+/// die Matrix (das war am 2026-07-26 schon einmal zwei Fehlversuche wert) und
+/// die Latenzmessung verliert ihren Bezugspunkt.
+///
+/// **`ziel` wird wiederverwendet.** FFmpeg legt die Puffer nur an, wenn keine
+/// da sind (`hwcontext.c`: `if (!dst->buf[0]) return transfer_data_alloc(…)`)
+/// — sonst schreibt es hinein. Ein frisches Bild je Durchgang waeren bei
+/// 1440p10 rund 11 MB Anforderung sechzigmal je Sekunde, also genau die Last,
+/// gegen die es den [`PlanePool`] gibt. Aendert sich Format oder Groesse,
+/// scheitert der Transfer in den alten Puffer; dann wird einmal neu angelegt.
+fn in_den_hauptspeicher(
+    gpu: &ffmpeg::util::frame::video::Video,
+    ziel: &mut ffmpeg::util::frame::video::Video,
+) -> Result<()> {
+    // SAFETY: beide Bilder sind gueltig und gehoeren uns; FFmpeg schreibt
+    // ausschliesslich in `ziel`.
+    let mut rc = unsafe { ffmpeg::ffi::av_hwframe_transfer_data(ziel.as_mut_ptr(), gpu.as_ptr(), 0) };
+    if rc < 0 {
+        *ziel = ffmpeg::util::frame::video::Video::empty();
+        // SAFETY: wie oben, nur mit leerem Ziel — FFmpeg legt Puffer und
+        // Format jetzt selbst fest.
+        rc = unsafe { ffmpeg::ffi::av_hwframe_transfer_data(ziel.as_mut_ptr(), gpu.as_ptr(), 0) };
+    }
+    if rc < 0 {
+        bail!("av_hwframe_transfer_data scheiterte (rc={rc})");
+    }
+    // SAFETY: wie oben; kopiert nur Metadaten.
+    let rc = unsafe { ffmpeg::ffi::av_frame_copy_props(ziel.as_mut_ptr(), gpu.as_ptr()) };
+    if rc < 0 {
+        bail!("av_frame_copy_props scheiterte (rc={rc})");
+    }
+    Ok(())
 }
 
 /// Vorrat wiederverwendbarer Ebenen-Puffer.
@@ -344,6 +499,9 @@ pub struct VideoDecoder {
     /// Vorrat fuer die Ebenen-Puffer (s. [`PlanePool`]). Ueberlebt den
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
+    /// Wiederverwendetes Ziel fuer den Weg von der GPU in den Hauptspeicher
+    /// (s. [`in_den_hauptspeicher`]). Nur auf dem VAAPI-Weg benutzt.
+    hw_ziel: ffmpeg::util::frame::video::Video,
 }
 
 impl VideoDecoder {
@@ -356,17 +514,18 @@ impl VideoDecoder {
         let allow = allow_hw.unwrap_or(true);
 
         let mut last_err = None;
-        for name in candidates(codec, allow) {
-            match Self::try_open(name) {
+        for kandidat in candidates(codec, allow) {
+            match Self::try_open(kandidat) {
                 Ok(decoder) => {
-                    let hardware = is_hardware(name);
+                    let hardware = kandidat.hardware();
                     eprintln!(
-                        "pulse-player: Decoder {name} ({})",
-                        if hardware { "Hardware" } else { "Software" }
+                        "pulse-player: Decoder {} ({})",
+                        kandidat.name,
+                        kandidat.beschreibung()
                     );
                     return Ok(Self {
                         decoder,
-                        name: name.to_string(),
+                        name: kandidat.name.to_string(),
                         hardware,
                         codec,
                         consecutive_errors: 0,
@@ -380,6 +539,7 @@ impl VideoDecoder {
                         keyframes: 0,
                         letztes_keyframe: None,
                         plane_pool: PlanePool::default(),
+                        hw_ziel: ffmpeg::util::frame::video::Video::empty(),
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -388,7 +548,8 @@ impl VideoDecoder {
         Err(last_err.unwrap_or_else(|| anyhow!("kein Decoder fuer {}", codec.as_str())))
     }
 
-    fn try_open(name: &str) -> Result<ffmpeg::decoder::Video> {
+    fn try_open(kandidat: Kandidat) -> Result<ffmpeg::decoder::Video> {
+        let name = kandidat.name;
         let codec = ffmpeg::decoder::find_by_name(name)
             .ok_or_else(|| anyhow!("Decoder {name} nicht vorhanden"))?;
         let mut ctx = ffmpeg::codec::context::Context::new_with_codec(codec);
@@ -410,6 +571,12 @@ impl VideoDecoder {
         // Bild einen zu neuen Stempel und `glass` misst die eigene Wartezeit
         // nicht mit.
         ctx.set_flags(ffmpeg::codec::Flags::LOW_DELAY);
+        if kandidat.vaapi {
+            // SAFETY: der Kontext gehoert uns, ist frisch angelegt und noch
+            // nicht geoeffnet; `vaapi_geraet_anhaengen` setzt genau ein Feld.
+            let ptr = unsafe { ctx.as_mut_ptr() };
+            vaapi_geraet_anhaengen(ptr).with_context(|| format!("VAAPI fuer {name}"))?;
+        }
         ctx.decoder()
             .video()
             .with_context(|| format!("Decoder {name} liess sich nicht oeffnen"))
@@ -693,7 +860,24 @@ impl VideoDecoder {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::video::Video::empty();
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            if let Some(f) = convert(&frame, &self.plane_pool) {
+            // Auf dem VAAPI-Weg liegt das Bild im Grafikspeicher; der Renderer
+            // erwartet Ebenen im Hauptspeicher. Genau wie bei cuvid, das seine
+            // Bilder von sich aus herunterreicht — nur muss man es hier selbst
+            // tun.
+            let auf_gpu = frame.format() == ffmpeg::format::Pixel::VAAPI;
+            if auf_gpu {
+                if let Err(e) = in_den_hauptspeicher(&frame, &mut self.hw_ziel) {
+                    eprintln!("pulse-player: Bild von der GPU holen scheiterte: {e}");
+                    continue;
+                }
+            }
+            // Eigener Block: die Leihe auf `self.hw_ziel` endet hier, danach
+            // darf der Zaehlerstand unten wieder veraendert werden.
+            let umgewandelt = {
+                let bild = if auf_gpu { &self.hw_ziel } else { &frame };
+                convert(bild, &self.plane_pool)
+            };
+            if let Some(f) = umgewandelt {
                 // Aendert sich der Bildinhalt ueberhaupt noch? (s.
                 // [`VideoDecoder::eingefroren`])
                 let abdruck = bild_abdruck(&f.planes);
@@ -857,20 +1041,41 @@ mod tests {
     #[test]
     fn kandidaten_enden_immer_auf_software() {
         let av1 = candidates(Codec::Av1, true);
-        assert!(av1.first().unwrap().contains("cuvid"), "Hardware zuerst: {av1:?}");
-        assert!(av1.contains(&"libdav1d"), "Software-Rueckfall fehlt: {av1:?}");
+        assert!(av1.first().unwrap().name.contains("cuvid"), "Hardware zuerst: {av1:?}");
+        assert!(av1.iter().any(|k| k.name == "libdav1d"), "Software-Rueckfall fehlt: {av1:?}");
+        assert!(!av1.last().unwrap().hardware(), "zuletzt Software: {av1:?}");
 
         let h264 = candidates(Codec::H264, true);
-        assert!(h264.contains(&"h264"), "Software-Rueckfall fehlt: {h264:?}");
+        assert!(h264.iter().any(|k| k.name == "h264"), "Software-Rueckfall fehlt: {h264:?}");
     }
 
     #[test]
     fn ohne_hardware_nur_software() {
         let list = candidates(Codec::Av1, false);
         assert!(
-            !list.iter().any(|n| n.contains("cuvid") || n.contains("vaapi")),
+            !list.iter().any(|k| k.hardware()),
             "Hardware darf abschaltbar sein: {list:?}"
         );
+    }
+
+    /// VAAPI ist kein eigener Decoder, sondern ein Geraet am nativen — genau
+    /// deshalb liefen die frueheren Namen `av1_vaapi`/`h264_vaapi` ins Leere.
+    /// Der Kandidat muss den NATIVEN Namen tragen und trotzdem als Hardware
+    /// zaehlen, sonst faellt der Player auf AMD still auf Software zurueck.
+    #[test]
+    fn vaapi_haengt_am_nativen_decoder() {
+        for (codec, nativ) in [(Codec::Av1, "av1"), (Codec::H264, "h264")] {
+            let liste = candidates(codec, true);
+            let va = liste.iter().find(|k| k.vaapi).expect("VAAPI-Kandidat fehlt");
+            assert_eq!(va.name, nativ, "VAAPI muss den nativen Decoder nehmen");
+            assert!(va.hardware(), "VAAPI zaehlt als Hardware");
+
+            // Und zwar VOR QSV, das sich auch ohne Intel-Hardware oeffnen
+            // laesst und erst beim ersten Bild scheitert.
+            let pos_va = liste.iter().position(|k| k.vaapi).unwrap();
+            let pos_qsv = liste.iter().position(|k| k.name.contains("qsv")).unwrap();
+            assert!(pos_va < pos_qsv, "VAAPI vor QSV: {liste:?}");
+        }
     }
 
     /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit
