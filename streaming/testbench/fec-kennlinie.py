@@ -199,12 +199,19 @@ def tabelle(zeilen: list[dict]) -> None:
         return
     print(f"\n{'Verlust':>8} {'Par':>5} {'Auf%':>6} {'Par kbit':>9} {'Wdh kbit':>9} "
           f"{'PLI':>5} {'FECrep':>7} {'unrep':>6} {'frier':>6} {'0Bild':>6} {'min/s':>6}")
-    for z in zeilen:
-        print(f"{z['verlust_gesetzt']:>7} % {z['paritaet']:>5} {z['aufschlag_prozent']:>6} "
-              f"{z['paritaet_kbit']:>9} {z['wiederholungen_kbit']:>9} "
-              f"{z['plis']:>5} {z['fec_repariert']:>7} {z['fec_unreparierbar']:>6} "
-              f"{z['einfrier_eingriffe']:>6} {z['sekunden_ohne_bild']:>6} "
-              f"{z['bilder_min']:>6}")
+    # Fehlende Werte als "?" statt Absturz: ein einzelner misslungener Lauf
+    # darf nicht die Tabelle der gelungenen mitreissen. Am 2026-07-31 genau so
+    # passiert — `None` in einer Format-Angabe, und die ganze Reihe war weg.
+    def z(wert, breite):
+        return f"{wert:>{breite}}" if wert is not None else f"{'?':>{breite}}"
+
+    for r in zeilen:
+        print(z(r['verlust_gesetzt'], 7) + " % " + z(r['paritaet'], 5) + " "
+              + z(r['aufschlag_prozent'], 6) + " " + z(r['paritaet_kbit'], 9) + " "
+              + z(r['wiederholungen_kbit'], 9) + " " + z(r['plis'], 5) + " "
+              + z(r['fec_repariert'], 7) + " " + z(r['fec_unreparierbar'], 6) + " "
+              + z(r['einfrier_eingriffe'], 6) + " " + z(r['sekunden_ohne_bild'], 6) + " "
+              + z(r['bilder_min'], 6))
 
 
 if __name__ == "__main__":

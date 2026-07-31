@@ -386,7 +386,13 @@ def main() -> int:
                               "packets_duplicate", "frames_decoded", "frames_dropped",
                               "frames_skipped", "buffered_packets", "fec_repariert",
                               "fec_unreparierbar", "fec_verworfen", "fec_mehrfach_loch",
-                              "fec_zu_spaet")}
+                              "fec_zu_spaet",
+                              # Die gemessene Umlaufzeit steuert seit dem
+                              # 2026-07-31 die NACK-Sperrfrist. Ohne sie in der
+                              # Akte ist nicht nachvollziehbar, mit welcher
+                              # Sperre ein Lauf gefahren ist — und ein zu
+                              # grosser Wert kostet Bild.
+                              "rtt_ms")}
                     for pr in proben],
     }
     ziel = HERE / f"{args.label}.json"
