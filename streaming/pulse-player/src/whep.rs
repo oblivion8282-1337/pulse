@@ -130,6 +130,9 @@ pub struct WhepSession {
     /// erreicht — s. [`crate::fec::Zaehler`]. Bleibt bei null, wenn FlexFEC
     /// aus ist; die Statistik zeigt dann drei Nullen und keine Luecke.
     fec: Arc<crate::fec::Zaehler>,
+    /// Sperrfrist des NACK-Erzeugers, in Millisekunden. Wird von
+    /// [`Self::sperre_nachfuehren`] an die gemessene Umlaufzeit angepasst.
+    nack_sperre: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WhepSession {
@@ -158,6 +161,35 @@ impl WhepSession {
         if let Err(e) = self.pc.write_rtcp(&[Box::new(pli)]).await {
             eprintln!("pulse-player: Vollbild-Anforderung nicht zustellbar: {e}");
         }
+    }
+
+    /// Fuehrt die NACK-Sperrfrist an die gemessene Umlaufzeit nach.
+    ///
+    /// Gibt die verwendete Umlaufzeit zurueck, damit sie in der Statistik
+    /// erscheint — sonst waere von aussen nicht zu sehen, mit welchem Wert der
+    /// Erzeuger gerade arbeitet, und ein zu grosser Wert kostet Bild (s.
+    /// [`sperre_aus_rtt`]).
+    ///
+    /// Tut nichts, wenn `PULSE_PLAYER_NACK_SPERRE_MS` gesetzt ist — ein fester
+    /// Wert soll fest bleiben, sonst waere kein Vergleichslauf moeglich.
+    pub async fn sperre_nachfuehren(&self) -> Option<Duration> {
+        if !nack_sperre_gekoppelt() {
+            return None;
+        }
+        // Die Umlaufzeit der NOMINIERTEN Kandidatenpaarung — nur die traegt
+        // den Verkehr. Andere Paarungen stehen mit alten Werten daneben.
+        let bericht = self.pc.get_stats().await;
+        let rtt = bericht.reports.values().find_map(|eintrag| match eintrag {
+            webrtc::stats::StatsReportType::CandidatePair(p)
+                if p.nominated && p.current_round_trip_time > 0.0 =>
+            {
+                Some(Duration::from_secs_f64(p.current_round_trip_time))
+            }
+            _ => None,
+        })?;
+        self.nack_sperre
+            .store(sperre_aus_rtt(rtt), std::sync::atomic::Ordering::Relaxed);
+        Some(rtt)
     }
 
     /// `(repariert, unreparierbar, verworfen, mehrfach_loch, zu_spaet)` der
@@ -223,13 +255,46 @@ fn nack_intervall() -> Duration {
 /// 20 ms sind etwa ein Drittel der Umlaufzeit dieser Strecke. Wer deutlich
 /// weiter weg sitzt, braucht mehr; sauber waere eine Kopplung an die gemessene
 /// Umlaufzeit. `0` schaltet die Sperre ab.
-fn nack_sperre() -> Duration {
-    let ms = std::env::var("PULSE_PLAYER_NACK_SPERRE_MS")
+fn nack_sperre_start() -> u64 {
+    std::env::var("PULSE_PLAYER_NACK_SPERRE_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|ms| *ms <= 2000)
-        .unwrap_or(20);
-    Duration::from_millis(ms)
+        .unwrap_or(20)
+}
+
+/// Ist die Sperre an die gemessene Umlaufzeit gekoppelt?
+///
+/// Der feste Startwert passt zu DIESER Messstrecke (59 ms). Wer weiter weg
+/// sitzt, braucht mehr, wer im selben Rechenzentrum sitzt, weniger — deshalb
+/// wird der Wert im Betrieb nachgefuehrt, sobald die erste Messung vorliegt.
+/// `PULSE_PLAYER_NACK_SPERRE_MS` setzt ihn fest und schaltet die Kopplung ab:
+/// nur so bleibt ein Vergleichslauf mit festem Wert moeglich.
+fn nack_sperre_gekoppelt() -> bool {
+    std::env::var("PULSE_PLAYER_NACK_SPERRE_MS").is_err()
+}
+
+/// Sperrfrist aus einer gemessenen Umlaufzeit — ein Drittel davon.
+///
+/// **Das Drittel stammt aus einer Messreihe, nicht aus der Theorie.** Bei 5
+/// Prozent Verlust und 59 ms Umlaufzeit (je 120 s):
+///
+///     Sperre   Wiederholungen   Aufschlag   endgueltig verloren
+///     aus          1354 kbit/s      54,0 %                   14
+///     20 ms         593 kbit/s      37,5 %                   15
+///     30 ms         422 kbit/s      32,0 %                   26
+///     60 ms         246 kbit/s      27,6 %                   44
+///
+/// Bei einem Drittel (20 von 59 ms) bleibt der Verlust unveraendert, waehrend
+/// der Wiederholungsverkehr um 56 Prozent faellt. Bei einer halben Umlaufzeit
+/// verdoppelt sich der Verlust, bei einer ganzen verdreifacht er sich — weil
+/// bei hohem Verlust auch Anforderungen selbst verlorengehen und dann erst
+/// nach der Sperrfrist nachgeholt werden.
+///
+/// Die Grenzen fangen Ausreisser: eine Umlaufzeit von 0 (noch nicht gemessen)
+/// oder 3 s (kurzer Stau) darf die Sperre nicht unbrauchbar machen.
+pub fn sperre_aus_rtt(rtt: Duration) -> u64 {
+    (rtt.as_millis() as u64 / 3).clamp(5, 200)
 }
 
 /// Baut die Interceptor-Registry selbst, statt `register_default_interceptors`
@@ -333,7 +398,10 @@ fn srtp_fenster_fuer_nachlieferung() -> SettingEngine {
 }
 
 /// Messakte: `testbench/profiles/nack-2026-07-29-stufe3.json`.
-fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
+fn interceptors_mit_zuegigem_nack(
+    media: &mut MediaEngine,
+    sperre: &Arc<std::sync::atomic::AtomicU64>,
+) -> Result<Registry> {
     for parameter in ["", "pli"] {
         media.register_feedback(
             RTCPFeedback { typ: "nack".to_owned(), parameter: parameter.to_owned() },
@@ -346,7 +414,7 @@ fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
     registry.add(Box::new(
         Generator::builder()
             .with_interval(nack_intervall())
-            .with_pulse_resend_delay(nack_sperre()),
+            .with_pulse_resend_delay(sperre.clone()),
     ));
     registry = configure_rtcp_reports(registry);
     configure_twcc_receiver_only(registry, media).context("TWCC-Interceptor")
@@ -372,7 +440,8 @@ pub async fn connect(
     if std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1") {
         flexfec_anbieten(&mut media)?;
     }
-    let registry = interceptors_mit_zuegigem_nack(&mut media)?;
+    let nack_sperre = Arc::new(std::sync::atomic::AtomicU64::new(nack_sperre_start()));
+    let registry = interceptors_mit_zuegigem_nack(&mut media, &nack_sperre)?;
     let api = APIBuilder::new()
         .with_media_engine(media)
         .with_interceptor_registry(registry)
@@ -437,7 +506,13 @@ pub async fn connect(
         .context("HTTP-Client")?;
 
     match negotiate(&pc, &http, whep_url).await {
-        Ok(resource_url) => Ok(WhepSession { pc, resource_url, http, fec: fec_zaehler }),
+        Ok(resource_url) => Ok(WhepSession {
+            pc,
+            resource_url,
+            http,
+            fec: fec_zaehler,
+            nack_sperre,
+        }),
         Err(e) => {
             let _ = pc.close().await;
             Err(e)
@@ -633,7 +708,29 @@ async fn pump_track(
 }
 
 #[cfg(test)]
+
 mod tests {
+    use super::*;
+
+    /// Die Formel stammt aus einer Messreihe, nicht aus der Theorie — deshalb
+    /// steht hier fest, was sie liefern MUSS, samt der Grenzen fuer Ausreisser.
+    #[test]
+    fn sperrfrist_folgt_der_umlaufzeit_mit_grenzen() {
+        // Die Messstrecke: 59 ms Umlaufzeit -> 20 ms, der Wert, bei dem der
+        // Verlust unveraendert blieb und die Wiederholungen um 56 % fielen.
+        assert_eq!(sperre_aus_rtt(Duration::from_millis(59)), 19);
+        assert_eq!(sperre_aus_rtt(Duration::from_millis(60)), 20);
+
+        // Untergrenze: im selben Rechenzentrum darf die Sperre nicht auf 0
+        // fallen, sonst ist sie wirkungslos und die Kopien sind zurueck.
+        assert_eq!(sperre_aus_rtt(Duration::from_millis(3)), 5);
+        assert_eq!(sperre_aus_rtt(Duration::ZERO), 5);
+
+        // Obergrenze: ein kurzer Stau (3 s) darf nicht dazu fuehren, dass
+        // Sekunden lang nicht nachgefordert wird — der Jitter-Puffer haelt
+        // 100 ms, danach ist die Reparatur ohnehin wertlos.
+        assert_eq!(sperre_aus_rtt(Duration::from_secs(3)), 200);
+    }
     use super::*;
 
     #[test]

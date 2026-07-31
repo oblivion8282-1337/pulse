@@ -101,6 +101,11 @@ pub struct SessionStats {
     /// versagte, und trug damit die falsche Aussage „XOR scheitert nie".
     pub fec_mehrfach_loch: u64,
     pub fec_zu_spaet: u64,
+    /// Gemessene Umlaufzeit der nominierten ICE-Paarung, in Millisekunden.
+    /// Steuert die NACK-Sperrfrist (s. `whep::sperre_aus_rtt`) und gehoert
+    /// deshalb in die Akte: ohne sie ist nicht nachvollziehbar, mit welcher
+    /// Sperre ein Lauf gefahren ist.
+    pub rtt_ms: Option<u64>,
     pub frames_decoded: u64,
     pub frames_dropped: u64,
     /// Bilder, die verworfen wurden, weil die Darstellung nicht mitkam.
@@ -585,6 +590,13 @@ pub async fn run(
 
         if last_stats.elapsed() >= STATS_INTERVAL {
             last_stats = Instant::now();
+            // NACK-Sperre an die gemessene Umlaufzeit koppeln. Im selben Takt
+            // wie die Statistik, weil `get_stats()` ueber alle Transporte
+            // laeuft — bei jedem Schleifendurchlauf waere das ueber 1000-mal
+            // je Sekunde.
+            if let Some(rtt) = whep_session.sperre_nachfuehren().await {
+                stats.rtt_ms = Some(rtt.as_millis() as u64);
+            }
             // Erst hier abfragen: `media.stats()` nimmt die Sperre des
             // Audio-Ringpuffers, auf die auch der Geraete-Callback wartet.
             // Bei jedem Durchlauf waere das ueber 1000-mal pro Sekunde.

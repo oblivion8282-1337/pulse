@@ -1,25 +1,27 @@
 diff --git a/interceptor/src/nack/generator/mod.rs b/interceptor/src/nack/generator/mod.rs
-index 16b6658..8ef8724 100644
+index 16b6658..d03bc74 100644
 --- a/interceptor/src/nack/generator/mod.rs
 +++ b/interceptor/src/nack/generator/mod.rs
-@@ -4,7 +4,7 @@ mod generator_test;
+@@ -3,8 +3,9 @@ mod generator_stream;
+ mod generator_test;
  
  use std::collections::HashMap;
++use std::sync::atomic::{AtomicU64, Ordering};
  use std::sync::Arc;
 -use std::time::Duration;
 +use std::time::{Duration, Instant};
  
  use async_trait::async_trait;
  use generator_stream::GeneratorStream;
-@@ -27,6 +27,7 @@ pub struct GeneratorBuilder {
+@@ -27,6 +28,7 @@ pub struct GeneratorBuilder {
      log2_size_minus_6: Option<u8>,
      skip_last_n: Option<u16>,
      interval: Option<Duration>,
-+    pulse_resend_delay: Option<Duration>,
++    pulse_resend_delay: Option<Arc<AtomicU64>>,
  }
  
  impl GeneratorBuilder {
-@@ -49,6 +50,33 @@ impl GeneratorBuilder {
+@@ -49,6 +51,36 @@ impl GeneratorBuilder {
          self.interval = Some(interval);
          self
      }
@@ -46,32 +48,39 @@ index 16b6658..8ef8724 100644
 +    /// **Die ERSTE Anforderung verzoegert das nicht** — nur die Wiederholung.
 +    /// Der sinnvolle Wert ist etwa eine Umlaufzeit; `Duration::ZERO` schaltet
 +    /// die Sperre ab und stellt das urspruengliche Verhalten wieder her.
-+    pub fn with_pulse_resend_delay(mut self, delay: Duration) -> GeneratorBuilder {
-+        self.pulse_resend_delay = Some(delay);
++    /// Der Wert wird bei JEDEM Takt frisch gelesen, nicht einmal beim Bauen:
++    /// so kann der Aufrufer ihn an die gemessene Umlaufzeit koppeln, ohne den
++    /// Interceptor neu aufzusetzen. `0` schaltet die Sperre ab.
++    pub fn with_pulse_resend_delay(mut self, delay_ms: Arc<AtomicU64>) -> GeneratorBuilder {
++        self.pulse_resend_delay = Some(delay_ms);
 +        self
 +    }
  }
  
  impl InterceptorBuilder for GeneratorBuilder {
-@@ -64,6 +92,8 @@ impl InterceptorBuilder for GeneratorBuilder {
+@@ -64,6 +96,11 @@ impl InterceptorBuilder for GeneratorBuilder {
                      Duration::from_millis(100)
                  },
  
-+                pulse_resend_delay: self.pulse_resend_delay.unwrap_or(Duration::ZERO),
++                pulse_resend_delay: self
++                    .pulse_resend_delay
++                    .clone()
++                    .unwrap_or_else(|| Arc::new(AtomicU64::new(0))),
 +
                  streams: Mutex::new(HashMap::new()),
                  close_rx: Mutex::new(Some(close_rx)),
              }),
-@@ -78,6 +108,8 @@ struct GeneratorInternal {
+@@ -78,6 +115,9 @@ struct GeneratorInternal {
      log2_size_minus_6: u8,
      skip_last_n: u16,
      interval: Duration,
-+    /// PULSE: s. `GeneratorBuilder::with_pulse_resend_delay`.
-+    pulse_resend_delay: Duration,
++    /// PULSE: Sperrfrist in Millisekunden, laufend lesbar.
++    /// S. `GeneratorBuilder::with_pulse_resend_delay`.
++    pulse_resend_delay: Arc<AtomicU64>,
  
      streams: Mutex<HashMap<u32, Arc<GeneratorStream>>>,
      close_rx: Mutex<Option<mpsc::Receiver<()>>>,
-@@ -115,18 +147,41 @@ impl Generator {
+@@ -115,18 +155,45 @@ impl Generator {
              .ok_or(Error::ErrInvalidCloseRx)?;
  
          let sender_ssrc = rand::random::<u32>();
@@ -84,6 +93,11 @@ index 16b6658..8ef8724 100644
                          let mut nacks = vec![];
                          let streams = internal.streams.lock().await;
 +                        let jetzt = Instant::now();
++                        // Frisch lesen: der Aufrufer koppelt den Wert an die
++                        // gemessene Umlaufzeit, er aendert sich also im Lauf.
++                        let sperre = Duration::from_millis(
++                            internal.pulse_resend_delay.load(Ordering::Relaxed),
++                        );
                          for (ssrc, stream) in streams.iter() {
 -                            let missing = stream.missing_seq_numbers(internal.skip_last_n);
 +                            let mut missing = stream.missing_seq_numbers(internal.skip_last_n);
@@ -95,12 +109,11 @@ index 16b6658..8ef8724 100644
 +                            // nicht erneut anfordern — die Antwort ist noch
 +                            // unterwegs. Nur Wiederholungen sind betroffen;
 +                            // eine neue Luecke geht sofort hinaus.
-+                            if !internal.pulse_resend_delay.is_zero() {
++                            if !sperre.is_zero() {
 +                                missing.retain(|seq| {
 +                                    match pulse_gefragt.get(&(*ssrc, *seq)) {
 +                                        None => true,
-+                                        Some(t) => jetzt.duration_since(*t)
-+                                            >= internal.pulse_resend_delay,
++                                        Some(t) => jetzt.duration_since(*t) >= sperre,
 +                                    }
 +                                });
 +                                if missing.is_empty(){
@@ -114,14 +127,17 @@ index 16b6658..8ef8724 100644
                              nacks.push(TransportLayerNack{
                                  sender_ssrc,
                                  media_ssrc: *ssrc,
-@@ -136,6 +191,14 @@ impl Generator {
+@@ -136,6 +203,17 @@ impl Generator {
                          nacks
                      };
  
 +                    // PULSE: Gedaechtnis beschneiden, sonst waechst es mit
 +                    // jedem verlorenen Paket der Sitzung weiter.
-+                    if !internal.pulse_resend_delay.is_zero() {
-+                        let grenze = internal.pulse_resend_delay * 8;
++                    let sperre = Duration::from_millis(
++                        internal.pulse_resend_delay.load(Ordering::Relaxed),
++                    );
++                    if !sperre.is_zero() {
++                        let grenze = sperre * 8;
 +                        let jetzt = Instant::now();
 +                        pulse_gefragt.retain(|_, t| jetzt.duration_since(*t) < grenze);
 +                    }
