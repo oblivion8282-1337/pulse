@@ -33,10 +33,14 @@ Zwei Dinge, die man beim Lesen der Ausgabe kennen muss:
 - **10 bit gibt es nur mit AV1.** Ein 10-bit-Wunsch mit H.264 wird still auf 8 bit
   zurückgeschoben — `High 10` kann NVENC zwar, aber kein Browser dekodiert es, und der
   WHEP-Rückfall im Web ist ein `<video>`.
-- **AV1 gibt es nicht über WHIP.** Der ffmpeg-WHIP-Muxer kann kein AV1, `ops/start.rs`
-  weicht deshalb auf H.264 aus — und damit zugleich auf 8 bit. Betrifft app-gehostete
-  Instanzen (`MEDIAMTX_PUSH_PROTOCOL=whip`); der Cloud-Weg ist RTMPS und nicht betroffen.
-  Wer AV1 über WebRTC senden will, braucht den eigenen Sendeweg aus `streaming/hq-labor/`.
+- **Dieser Sidecar sendet über WHIP kein AV1** — die Grenze liegt am ffmpeg-WHIP-Muxer,
+  nicht an WHIP oder WebRTC. `ops/start.rs` weicht deshalb auf H.264 aus, und damit
+  zugleich auf 8 bit. Betrifft app-gehostete Instanzen (`MEDIAMTX_PUSH_PROTOCOL=whip`);
+  der Cloud-Weg ist RTMPS und nicht betroffen.
+  **Mit eigenem Paketierer geht es sehr wohl:** `streaming/hq-labor/` sendet AV1 10 bit
+  über WHIP und war damit am 2026-07-28 gemessen 18,7 ms schneller als RTMPS, bei
+  achtmal kleinerer Streuung. Nur ist dieser Weg (noch) nichts, was ausgeliefert wird —
+  deshalb steht er dort und nicht hier.
 
 Offen: die **Aufnahme** selbst ist weiterhin 8 bit (der Compositor liefert `XRGB8888`);
 10-bit-Encode nutzt trotzdem etwas gegen Banding, ist aber keine echte 10-bit-Quelle.
