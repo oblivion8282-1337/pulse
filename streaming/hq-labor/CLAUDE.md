@@ -8,39 +8,93 @@ Prüfstand unter `streaming/testbench/`, der Player unter
 Rechner.** Sie steht bewusst im Repo und nicht in der Claude-Memory: die liegt
 pro Maschine und wandert nicht mit.
 
-## Wiedereinstieg (Stand 2026-07-31, früher Morgen)
+## Wiedereinstieg (Stand 2026-07-31, Nacht)
 
-**Wo die Arbeit liegt:** `main` trägt Labor, Sidecar-Doku und Lizenzfix. Die
-Nacht-Arbeit (adaptive Parität, Browser-Werkzeug, Messakten) liegt in **PR 267**
-(`werkzeug/pruefstand-labor-server`) — offen, weil dafür keine Freigabe vorlag.
-Der Player-Branch `feat/native-hq-player` ist auf `main` gesetzt und baut
-(116 Tests).
+**Neuer Rechner? Zuerst `EINRICHTUNG.md` daneben lesen.** Zwei Dinge fehlen
+nach einem frischen Klon und brechen sofort: der vendorierte webrtc-rs
+(`vendor/` ist ignoriert, `bootstrap-webrtc.sh` stellt ihn her) und die
+Zugangsdaten des Labor-Servers (die liegen auf dem Server).
 
-**Der Labor-Server** (`pulse.unicutmedia.com`) läuft eigenständig, nur noch
-MediaMTX, kein All-in-one-Container mehr. Binary `mediamtx.adaptiv` mit vier
-Patches, Betriebsart über `~/mediamtx-labor/neustart.sh` umschaltbar. Zugang in
-`~/mediamtx-labor/zugang.txt`. Aktuell: Vorgabe (FlexFEC 10+2, **nicht**
-adaptiv).
+**Wo die Arbeit liegt:** zwei Zweige, beide mit viel ungepushter Arbeit —
+`werkzeug/pruefstand-labor-server` (Prüfstand, Messwerkzeuge, Messakten) und
+`feat/native-hq-player` (Player, 122 Tests). **Sie hängen zusammen, liegen aber
+getrennt:** der Player braucht den Prüfstand zum Messen, der Prüfstand den
+Player als Zuschauer. Nicht den Zweig wechseln, während eine Messung läuft —
+so sind fünf von sechs Läufen einer Kennlinie ausgefallen.
 
-**Die drei nächsten Schritte**, in dieser Reihenfolge:
+**Der Labor-Server** (`pulse.unicutmedia.com`) läuft eigenständig, nur MediaMTX.
+Binary jetzt `mediamtx.fecfix` (drei Patches plus den neuen pion-Patch), das
+vorherige liegt als `mediamtx.vor-fecfix` daneben. Betriebsart über
+`~/mediamtx-labor/neustart.sh`, Zugang in `~/mediamtx-labor/zugang.txt`.
+Aktuell: **FlexFEC 10+2, Intra-Refresh** (`PULSE_KEYFRAME_INTERVAL=0`).
 
-1. **AV1 10 bit mit Hardware-Decoder klären** (s.u.) — davon hängt ab, was
-   Browser-Zuschauer überhaupt bekommen. Die bisherige Messung lief headless
-   und ist für den Nutzerfall nicht aussagekräftig.
-2. **Intra-Refresh unter Verlust**: Der Browser läuft im Intra-Refresh-Betrieb
-   nachweislich durch, aber der Fall „Verlust → PLI → IDR vom Sender" ist
-   ungemessen. Braucht den echten Sidecar, also Portal und einen Menschen.
-3. **Wo entsteht die Bündelung?** Der Codec ist es nicht (gemessen). Nächster
-   Schnitt: dieselbe Reihe über WHIP statt RTMPS, plus `fern-split.py`, um vor
-   und hinter dem eigenen Anschluss zu trennen.
+### Was an diesem Tag entschieden ist
 
-**Zwei Fehler dieser Nacht, damit sie sich nicht wiederholen:** Ein 10-bit-Lauf
-wurde gegen 8-bit-Läufe mit **anderer Bitrate und Bildrate** verglichen (25
-Mbit/144 fps gegen 4 Mbit/60 fps) — der Uplink staute, und der Unterschied
-wurde der Bittiefe zugeschrieben. Und aus einer Quelltextstelle
-(`keyframe_required_ = true`) wurde geschlossen, Intra-Refresh sei im Browser
-unmöglich; die Messung zeigt das Gegenteil. **Beides waren Folgerungen ohne
-Messung, in einem Projekt, dessen erste Regel lautet, nicht zu raten.**
+**Die Umstellung auf Intra-Refresh kostet nichts und gewinnt dreifach** — auf
+Linux+NVIDIA gemessen, gegen Keyframes alle 2 s bei identischer Datenrate:
+gleiche Bitrate (4015 gegen 3905 kbit/s), **1,4 statt 48,7 Prozent** gestörte
+Sekunden, **92,8 statt 76,3 VMAF**. Der oft genannte Aufschlag von 20 Prozent
+gehört *nicht* zu Intra-Refresh, sondern zur Parität — die ist eine getrennte
+Entscheidung (ohne sie: 2,8 Prozent Aufschlag).
+
+**Paritätsstufe: 10+2.** Bei gleichverteiltem Verlust gibt es bis 5 Prozent
+keinen Unterschied zu 10+1; entschieden wird es am **Bündelverlust**, und dort
+ließ 10+2 kein Paket endgültig verlorengehen, 10+1 neunzehn. 20+4 ist zweimal
+geprüft und verliert trotz dreifacher Reparaturleistung dreifach so viel — die
+größere Gruppe ist zu träge für unseren 100-ms-Puffer.
+
+**Vier Reparaturen, alle gemessen** (Details in den Messakten):
+
+| | war | ist |
+|---|---|---|
+| SRTP-Wiedergabefenster im Player | 64 Pakete → Nachlieferungen verworfen | 2048 |
+| Paritätserzeugung (pion-Patch 0005) | brach unter Last auf ein Fünftel ein | konstant |
+| FEC-Zähler | sah den Versagensfall von XOR nicht | drei getrennte Zahlen |
+| NACK-Sperrfrist | dieselbe Lücke 6–8× angefordert | 20 ms, 56 % weniger Verkehr |
+
+Zusammen: bei 5 Prozent Verlust derselbe Aufschlag wie vorher (36,5 gegen
+37,0 Prozent) — aber vorher war es ein Strom **ohne** funktionierenden Schutz.
+
+### Was als Nächstes ansteht
+
+1. **AMD klären — das blockiert alles Weitere.** Intra-Refresh läuft heute nur
+   auf Linux+NVIDIA. `av1_vaapi` bietet die Option nicht an, der
+   Windows-Sidecar kennt sie gar nicht, macOS auch nicht. Ob AMD-Hardware es
+   *könnte*, sagt allein der Treiber:
+   `cc -o /tmp/vaapi-ir testbench/vaapi-intra-refresh-pruefen.c -lva -lva-drm && /tmp/vaapi-ir`.
+   JA heißt: nur FFmpeg im Weg, ein Patch wäre der Weg und AV1 bliebe. NEIN
+   heißt: nur `h264_amf` (kann Intra-Refresh, aber nicht für AV1), also H.264
+   plus ein zweiter Encoder-Pfad im Sidecar.
+2. **AV1 10 bit mit Hardware-Decoder im Browser.** Der bisherige Befund („geht
+   nicht") stammt aus headless Chromium mit Software-Decoder und sagt über
+   echte Nutzer nichts. Davon hängt die Bittiefe für alle Browser-Zuschauer ab.
+3. **Die NACK-Kopplung** ist gebaut, aber abgeschaltet — sie misst 7 ms statt
+   59. Zwei Ursachen sind behoben (Mittelwert → abklingendes Maximum,
+   Aufräumfenster entkoppelt), die dritte ist offen.
+   `PULSE_PLAYER_NACK_SPERRE_AUTO=1` schaltet sie zum Weitersuchen ein.
+4. **Die Patches in die Produktion** (`hq-labor/mediamtx-patches/` →
+   `infra/mediamtx-fork/`), erst wenn 1 geklärt ist.
+
+### Fallen dieses Tages, damit sie sich nicht wiederholen
+
+**Eine Zahl ohne Bezugsgröße ist keine Messung.** 61805 Wiederholungen sahen
+nach schlechter Leitung aus — verteilt auf 795 Pakete waren es 78 Kopien je
+Stück, also eine Rückkopplung im eigenen Empfänger. Dieselbe Falle dreimal an
+einem Tag: `unreparierbar` zählte etwas anderes als sein Name sagt,
+`fec_repariert` ist keine Erfolgskennzahl (20+4 reparierte dreifach und verlor
+dreifach), und ein Bildausfall-Zähler suchte ein Feld, das es nicht gibt.
+
+**Ein Lauf je Variante trägt keine Entscheidung.** Zwei Befunde mussten
+zurückgenommen werden, weil der zweite Durchgang das Gegenteil zeigte.
+
+**Werkzeuge zuerst am eigenen Material prüfen.** Der gesetzte Verlust ist im
+Mitschnitt *nicht* als Lücke sichtbar (tcpdump hängt vor dem tc-Hook), und die
+Qualitätsmessung verglich anfangs Bilder, die einander nie entsprachen — beides
+hätte plausible, falsche Zahlen geliefert.
+
+**Commit-Nachrichten über `git commit -F <datei>`**, nie inline: Backticks
+werden sonst von der Shell ausgeführt und verstümmeln den Text. Dreimal
+passiert.
 
 ## Wie hier gearbeitet wird (Vorgabe des Nutzers, 2026-07-31)
 
@@ -163,6 +217,27 @@ Sie ist ausdrücklich **Analyse, keine Messung** und markiert jede Aussage mit
 ihrer Belegklasse (GEMESSEN / GELESEN / EXTERN / VERMUTET). **VERMUTET ist
 keine Entscheidungsgrundlage** — vor dem Bauen messen.
 
+**Nachtrag 2026-07-31 Nacht: ihre Empfehlung ist überholt.** Adaptive Parität
+war als größter Hebel eingestuft; gemessen repariert sie *nichts*. Ihre
+Regelgröße `fraction lost` reagiert auf bereits eingetretenen Verlust,
+Vorwärtskorrektur muss aber vorher da sein — und feiner als 0,39 Prozent lässt
+sich die Schwelle gar nicht stellen (8-Bit-Wert). Der wirkliche Hebel lag
+woanders: **drei Fehler ließen Player und Server gegeneinander arbeiten**
+(SRTP-Fenster, Paritätserzeugung, NACK-Wiederholungen). Nach ihrer Behebung
+kostet voller Schutz ungefähr so viel wie vorher der kaputte.
+
+Was die Analyse über die Alternativen sagt, bleibt lesenswert — aber jede ihrer
+Zahlen ist gegen die Messakten zu prüfen, bevor darauf gebaut wird.
+
+Die theoretische Grundlage, die dem Labor lange fehlte, ist
+**Holmer/Shemer/Paniconi, „Handling Packet Loss in WebRTC" (Google, ICIP
+2013)**: hybrides NACK/FEC, gesteuert über die **Umlaufzeit** statt über die
+Verlustrate (FEC wird reduziert, sobald die halbe Umlaufzeit unter ~50 ms
+liegt — bei uns sind es 29,5). Dort steht auch die Gruppengrößen-Formel
+`λ ≈ max(1, min(f·RTT, λ₀))` und der Hinweis auf ungleichen Schutz über
+Zeitschichten (spart 40–60 Prozent, bei uns aber blockiert: NVENC gibt über
+FFmpeg keine Zeitschichten her).
+
 Was gemessen und belegt ist, steht in `streaming/testbench/profiles/` und in
 `streaming/pulse-player/WISSENSSTAND.md`.
 
@@ -216,22 +291,43 @@ in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
 13,2–13,5 Lücken/s, größte Lücke 36 ms). Der Referenzsender schickt
 gleichmäßig — die Bündelung entsteht dahinter.
 
-## Offene Punkte
+## Offene Punkte (Stand 2026-07-31, Nacht)
 
-- [ ] **Wo entsteht die Bündelung?** Nächster Schritt: dieselbe Codec-Reihe
-      über WHIP statt RTMPS, und `fern-split.py`, um zu trennen, ob die Lücken
-      vor oder hinter dem eigenen Anschluss entstehen.
-- [ ] **Der echte Sender ist noch nicht vermessen** — Aufnahme und Encoder
-      können zusätzlich bündeln. Braucht das Portal und einen Menschen davor.
-- [ ] **Portal nachts**: das Restore-Token greift (nachgeprüft), aber bei
-      abgeschaltetem Bildschirm findet das Backend den gespeicherten Monitor
-      über seine EDID-Kennung nicht wieder und fragt neu. Messungen mit dem
-      echten Sender sind deshalb nicht unbeaufsichtigt fahrbar.
-- [ ] **Adaptive Parität Stufe 2/3** (Rate je Sitzung, stufenlos) — erst
-      sinnvoll, wenn gemessen ist, dass zwischen „aus" und „20 Prozent" etwas
-      fehlt. Stufe 1 ist gebaut (Patch 0004) und wirkt.
-- [ ] **Schwellenwert der Regelung** steht ungeprüft auf 1 Prozent.
-- [ ] **Reed-Solomon statt XOR** (Analyse 2.2) — die Ausbaustufe für
-      Bündelverlust, wo XOR strukturell nur ein Loch je Gruppe schließt.
-- [ ] **Setup-Mitnahme**: eine knappe Anleitung, was ein frischer Rechner
-      braucht (Prüfstand, Player-Build, Zugangsdaten, Vorlagen)
+**Blockierend — davor lohnt nichts anderes:**
+
+- [ ] **AMD**: kann die Hardware Intra-Refresh? `vaapi-intra-refresh-pruefen.c`
+      auf der AMD-Maschine. Ohne diese Antwort ist offen, ob die Umstellung
+      überhaupt für alle Nutzer geht oder nur für NVIDIA-Sender.
+- [ ] **Windows und macOS**: eigene Encoder-Ketten, Intra-Refresh kommt in
+      ihrem Quelltext null Mal vor. NVENC *kann* es (auf Linux belegt), es ist
+      dort nur nicht gebaut.
+
+**Wichtig, aber nicht blockierend:**
+
+- [ ] **AV1 10 bit mit HARDWARE-Decoder im Browser.** Der Befund „geht nicht"
+      stammt aus headless Chromium (Software-Decoder). Entscheidet die
+      Bittiefe für alle Browser-Zuschauer.
+- [ ] **NACK-Sperre an die gemessene Antwortzeit koppeln.** Gebaut, aber
+      abgeschaltet: sie misst 7 statt 59 ms. Zwei Ursachen behoben
+      (Mittelwert → abklingendes Maximum; Aufräumfenster entkoppelt), die
+      dritte ist offen. `PULSE_PLAYER_NACK_SPERRE_AUTO=1` zum Weitersuchen.
+- [ ] **Patches in die Produktion** (`mediamtx-patches/` →
+      `infra/mediamtx-fork/`) — erst wenn AMD geklärt ist.
+- [ ] **Portal nachts**: Restore-Token greift, aber bei abgeschaltetem
+      Bildschirm findet das Backend den Monitor über seine EDID nicht wieder
+      und fragt neu. Läufe mit echtem Sender sind nicht unbeaufsichtigt fahrbar.
+
+**Erledigt, hier nur als Merkposten, warum nicht weiterverfolgt:**
+
+- **Adaptive Parität** — repariert nachweislich nichts; `fraction lost` ist die
+  falsche Regelgröße (reagiert auf Vergangenes), und feiner als 0,39 Prozent
+  ist die Schwelle technisch nicht stellbar.
+- **Reed-Solomon** — XOR kommt bei Bündelverlust in 81–93 Prozent der Fälle an
+  seine Grenze (jetzt endlich messbar). Trotzdem gehen fast keine Pakete
+  verloren, weil Nachfordern bei 59 ms Umlaufzeit schneller ist. Ein Problem,
+  das nach dem Nachfordern nicht mehr besteht.
+- **20+4 / größere Gruppen** — zweimal gemessen: repariert dreifach, verliert
+  dreifach. Zu träge für einen 100-ms-Puffer.
+- **Ungleicher Schutz über Zeitschichten** — blockiert, NVENC gibt über FFmpeg
+  keine Zeitschichten her (dieselbe Sackgasse wie LTR).
+- **Setup-Mitnahme** — steht in `EINRICHTUNG.md`.
