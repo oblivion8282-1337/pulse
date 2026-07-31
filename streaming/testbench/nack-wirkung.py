@@ -211,6 +211,12 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
         "verspaetung_ms_median": round(verspaetung[len(verspaetung) // 2], 2) if verspaetung else None,
         "verspaetung_ms_max": round(verspaetung[-1], 2) if verspaetung else None,
         "rechtzeitig_bei_20ms_puffer": sum(1 for v in verspaetung if v <= 20.0),
+        # Der Wert, auf den es HEUTE ankommt: der Player haelt seit dem
+        # 2026-07-29 100 ms auf (`pulse-player/src/proto.rs::JITTER_MS_VORGABE`),
+        # nicht mehr 20. Die 20er-Zahl bleibt daneben stehen, damit aeltere
+        # Messakten vergleichbar bleiben — sie beantwortet aber nicht mehr,
+        # ob eine Nachlieferung im laufenden Betrieb noch etwas nuetzt.
+        "rechtzeitig_bei_100ms_puffer": sum(1 for v in verspaetung if v <= 100.0),
     }
 
 
