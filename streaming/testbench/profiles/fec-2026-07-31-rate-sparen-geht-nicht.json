@@ -1,0 +1,50 @@
+{
+  "id": "fec-2026-07-31-rate-sparen-geht-nicht",
+  "gemessen_am": "2026-07-31 (Nacht)",
+  "frage": "Laesst sich der Paritaets-Aufschlag halbieren? 10+1 statt 10+2 kostet 10 statt 20 Prozent — was kostet das an Wirkung?",
+
+  "warum_die_frage_zaehlt": "Die Ausgangsfrage der ganzen FEC-Reihe war Bandbreite. Adaptive Paritaet ist gescheitert, Reed-Solomon gegenstandslos, 20+4 wirkungsschwaecher. Die Rate selbst zu senken war der letzte einfache Hebel — eine Einstellung, kein Umbau.",
+
+  "aufbau": "Identisch zu `fec-2026-07-31-fest-gegen-adaptiv` und `fec-2026-07-31-20plus4-bringt-nichts`: echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde, neun Stoerzyklen (4 Downloads, 25 s, alle 45 s). Einziger Unterschied: PULSE_FLEXFEC_FEC=1.",
+
+  "vergleich": [
+    {"groesse": "Paritaets-Aufschlag kbit/s", "10+2": 831, "20+4": 809, "10+1": 349},
+    {"groesse": "Paritaets-Aufschlag Prozent", "10+2": 19.8, "20+4": 19.1, "10+1": 8.8},
+    {"groesse": "Wiederholungen kbit/s", "10+2": 931, "20+4": 809, "10+1": 2944},
+    {"groesse": "Wiederholungen Prozent", "10+2": 22.2, "20+4": 19.1, "10+1": 74.1},
+    {"groesse": "GESAMT kbit/s", "10+2": 5960, "20+4": 5846, "10+1": 7267},
+    {"groesse": "Aufschlag gesamt Prozent", "10+2": 42.0, "20+4": 38.3, "10+1": 82.9},
+    {"groesse": "reparierte Pakete", "10+2": 170, "20+4": 19, "10+1": 293},
+    {"groesse": "unreparierbar", "10+2": 0, "20+4": 0, "10+1": 0},
+    {"groesse": "NACKs", "10+2": 29910, "20+4": 27389, "10+1": 48755},
+    {"groesse": "Detektor-Eingriffe", "10+2": 6, "20+4": 6, "10+1": 14},
+    {"groesse": "Sekunden mit Bildausfall", "10+2": 1, "20+4": 1, "10+1": 2}
+  ],
+
+  "was_das_heisst": {
+    "die_ersparnis_kehrt_sich_um": "Die Paritaet kostet nur noch die Haelfte (349 statt 831 kbit/s), aber die Nachforderungen steigen auf 2944 kbit/s — mehr als das Dreifache. Unterm Strich gehen 7267 statt 5960 kbit/s ueber die Leitung: mit HALBER Paritaet fliesst mehr, nicht weniger.",
+    "warum_das_mechanisch_stimmig_ist": "Was die Paritaet nicht mehr repariert, muss einzeln nachgefordert werden. Eine Nachforderung kostet ein ganzes Paket plus Umlaufzeit; ein Paritaetspaket laeuft im Voraus mit und wirkt sofort. Die hohe Reparaturzahl (293) ist kein Widerspruch, sondern Folge davon, dass viel mehr zu reparieren war.",
+    "es_kostet_auch_bild": "14 Detektor-Eingriffe statt 6 — der Decoder kippt mehr als doppelt so oft. Zwei Sekunden mit sichtbarem Bildausfall statt einer.",
+    "die_antwort_auf_die_ausgangsfrage": "An der RATE laesst sich nichts sparen. 10+2 ist von den drei getesteten Varianten die guenstigste, obwohl sie die teuerste Paritaet hat."
+  },
+
+  "einschraenkungen": [
+    "**Die Leitung war waehrend dieses Laufs erkennbar schlechter** als in den beiden Vorlaeufen: 196268 wiederholte Sequenznummern gegen 52586 bei 20+4 und 61805 bei 10+2. Ein Teil des Unterschieds ist Stoerlage, nicht Einstellung.",
+    "Die Richtung ist trotzdem belastbar, weil sie in ALLEN Groessen zusammenpasst (mehr NACKs, mehr Eingriffe, mehr Gesamtdurchsatz, mehr Bildausfaelle) und die Mechanik sie erwarten laesst. Die HOEHE des Unterschieds ist es nicht.",
+    "Ein Lauf je Variante. Fuer belastbare Absolutwerte braeuchte es eine Teststrecke mit gesetztem Verlust — die fehlt weiterhin."
+  ],
+
+  "empfehlung": "Bei 10+2 bleiben. Server steht wieder so.",
+
+  "damit_ist_die_fec_reihe_abgeschlossen": {
+    "adaptive_paritaet": "gescheitert — repariert nichts, die Regelgroesse `fraction lost` kommt prinzipiell zu spaet",
+    "reed_solomon": "gegenstandslos — XOR ist in vier Laeufen kein einziges Mal an einer Gruppe gescheitert",
+    "nack": "laengst gezogen, gemessen zu langsam (81 Prozent der Nachlieferungen verpassen den Puffer)",
+    "ltr": "blockiert — FFmpeg reicht `enableLTR` fuer av1_nvenc nicht durch",
+    "20+4": "gleicher Preis, schlechtere Wirkung",
+    "10+1": "halbe Paritaet, doppelter Gesamtdurchsatz",
+    "offen_geblieben": "Nur `ungleicher Schutz`. Unter Intra-Refresh heisst das nicht mehr „Keyframes schuetzen\" (es gibt nur einen), sondern: genau diesen EINEN Einstiegs-IDR absichern. Er entscheidet, ob ein Zuschauer ueberhaupt ein Bild sieht, und faellt einmal je Zuschauer an — waere also spottbillig. Braucht aber einen Eingriff in den Fork, weil pions Abdeckung rein mechanisch nach `X mod N` arbeitet und nicht weiss, welches Paket wichtig ist."
+  },
+
+  "lehre": "Drei Laeufe lang lautete die Frage „wie sparen wir die 20 Prozent\". Die Antwort ist, dass die 20 Prozent das Guenstigste sind, was gemessen wurde. Fehlerkorrektur, die im Voraus mitlaeuft, ist billiger als Nachforderungen, die einzeln ueber die Leitung gehen — und der Unterschied faellt umso staerker aus, je schlechter die Leitung ist."
+}
