@@ -1,0 +1,44 @@
+{
+  "id": "fec-2026-07-31-kennlinie-mit-allen-fixes",
+  "gemessen_am": "2026-07-31 (Nacht, nach vier Reparaturen)",
+  "frage": "Was kostet der Schutz wirklich — jetzt, wo Player und Server nicht mehr gegen sich selbst arbeiten?",
+
+  "warum_neu_gemessen": "Die erste Kennlinie (`fec-2026-07-31-kennlinie-gesetzter-verlust`) lief, bevor die Paritaetserzeugung repariert war. Ihre 5-Prozent-Zeilen massen zweimal 'fast keine Paritaet' und waren damit hinfaellig. Dazwischen sind vier Dinge behoben worden, die alle in dieselbe Richtung wirken: das SRTP-Wiedergabefenster des Players (Nachlieferungen wurden verworfen), die Paritaetserzeugung des Servers (jede Nachlieferung riss eine Gruppe auf), der blinde FEC-Zaehler und die fehlende NACK-Sperre (dieselbe Luecke wurde sechs- bis achtmal angefordert).",
+
+  "aufbau": "Je 180 s, gesetzter Verlust (`verluststrecke.py`, gleichverteilt), echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, Zeitmuster. Player mit SRTP-Fenster 2048 und NACK-Sperre 20 ms (fest — die Kopplung an die gemessene Antwortzeit traegt noch nicht, s. Commit a82b2169). Server mit pion-Patch 0005. Serverstand je Lauf verifiziert.",
+
+  "kennlinie": [
+    {"verlust": 0.5, "paritaet": "10+1", "aufschlag_prozent": 12.4, "paritaet_kbit": 452, "wiederholungen_kbit": 63, "plis": 5, "fec_repariert": 1365, "einfrier_eingriffe": 0, "bilder_min": 33, "sekunden_unter_30": 0},
+    {"verlust": 0.5, "paritaet": "10+2", "aufschlag_prozent": 23.2, "paritaet_kbit": 908, "wiederholungen_kbit": 58, "plis": 1, "fec_repariert": 42, "einfrier_eingriffe": 0, "bilder_min": 43, "sekunden_unter_30": 0},
+    {"verlust": 2.0, "paritaet": "10+1", "aufschlag_prozent": 16.6, "paritaet_kbit": 455, "wiederholungen_kbit": 238, "plis": 5, "fec_repariert": 26, "einfrier_eingriffe": 0, "bilder_min": 40, "sekunden_unter_30": 0},
+    {"verlust": 2.0, "paritaet": "10+2", "aufschlag_prozent": 27.3, "paritaet_kbit": 910, "wiederholungen_kbit": 232, "plis": 5, "fec_repariert": 620, "einfrier_eingriffe": 0, "bilder_min": 44, "sekunden_unter_30": 0},
+    {"verlust": 5.0, "paritaet": "10+1", "aufschlag_prozent": 25.8, "paritaet_kbit": 451, "wiederholungen_kbit": 621, "plis": 15, "fec_repariert": 2027, "einfrier_eingriffe": 1, "bilder_min": 36, "sekunden_unter_30": 0},
+    {"verlust": 5.0, "paritaet": "10+2", "aufschlag_prozent": 36.5, "paritaet_kbit": 896, "wiederholungen_kbit": 612, "plis": 14, "fec_repariert": 770, "einfrier_eingriffe": 0, "bilder_min": 45, "sekunden_unter_30": 0}
+  ],
+
+  "was_die_reparaturen_zusammen_bewirkt_haben": {
+    "am_beispiel_5_prozent_verlust_mit_10plus2": {
+      "vor_allen_fixes": "37,0 Prozent Aufschlag — sah guenstig aus, WAR es aber nur, weil die Paritaet zu vier Fuenfteln ausfiel (3200 statt 16316 Paritaetspakete).",
+      "nach_dem_paritaets_fix": "54,0 Prozent. Der echte Preis der vollen Paritaet, erstmals sichtbar.",
+      "nach_der_nack_sperre": "36,5 Prozent. Die eingesparten Wiederholungen bezahlen die volle Paritaet.",
+      "schluss": "Wir zahlen heute ungefaehr denselben Aufschlag wie vorher — bekommen dafuer aber den Schutz, fuer den er gedacht war. Das ist die eigentliche Bilanz der Nacht."
+    },
+    "die_paritaet_ist_jetzt_konstant": "452 bzw. 908 kbit/s ueber alle drei Verlustraten. Vorher sank sie mit steigendem Verlust (13690 -> 9032 -> 3200 Pakete), also genau dann, wenn sie gebraucht wurde.",
+    "die_wiederholungen_bleiben_klein": "58 bis 621 kbit/s statt frueher bis 1354. Die Sperre wirkt ueber die ganze Kennlinie."
+  },
+
+  "was_das_fuer_die_paritaetswahl_heisst": {
+    "10+2_ist_in_jeder_zeile_stabiler": "Schwaechste Sekunde 43/44/45 Bilder gegen 33/40/36. Vollbild-Anforderungen 1/5/14 gegen 5/5/15. Einfrier-Eingriffe 0/0/0 gegen 0/0/1.",
+    "10+1_spart_rund_11_prozentpunkte": "12,4 gegen 23,2 bei 0,5 Prozent Verlust, 25,8 gegen 36,5 bei 5 Prozent — also ziemlich genau die halbe Paritaet, wie erwartet.",
+    "die_entscheidung_bleibt_10plus2": "Sie faellt nicht an dieser Kennlinie, sondern am Buendelverlust (`fec-2026-07-31-20plus4-bringt-nichts`, Korrektur 3): dort liess 10+2 kein Paket endgueltig verloren gehen, 10+1 neunzehn. Gleichverteilter Verlust ist der freundliche Fall; auf echten Strecken kommt Verlust in Buendeln."
+  },
+
+  "einschraenkungen": [
+    "Ein Lauf je Punkt. Die Einzelwerte schwanken erheblich — `fec_repariert` springt zwischen 26 und 2027, ohne dass die Nachbarzahlen das erklaeren. Belastbar sind die Aufschlagswerte (sie reproduzieren sich ueber Laeufe auf 0,3 Punkte genau) und die Richtung der Bildstabilitaet.",
+    "Nur gleichverteilter Verlust. Der Buendelfall steht in einer eigenen Akte und faellt anders aus.",
+    "Die NACK-Sperre stand auf einem FESTEN Wert von 20 ms, abgestimmt auf die Umlaufzeit dieser Strecke (59 ms). Auf einer laengeren Strecke waere sie zu kurz und die Wiederholungszahlen fielen hoeher aus. Die Kopplung an die gemessene Antwortzeit ist gebaut, traegt aber noch nicht.",
+    "`bilder_min` von 33 bei 0,5 Prozent und 10+1 ist der niedrigste Wert der ganzen Reihe und passt nicht zum Trend (bei 2 Prozent sind es 40). Ein Einzelwert; wer darauf etwas stuetzen will, braucht einen zweiten Lauf."
+  ],
+
+  "lehre": "Die erste Fassung dieser Kennlinie sagte, 5 Prozent Verlust kosteten 37 Prozent Aufschlag. Die neue sagt 36,5 — fast dasselbe. Dazwischen liegen vier Reparaturen, und trotzdem sieht das Ergebnis gleich aus. Der Unterschied ist, dass die Zahl jetzt bedeutet, was sie sagt: vorher war es ein Strom ohne funktionierenden Schutz, jetzt ist es einer mit."
+}
