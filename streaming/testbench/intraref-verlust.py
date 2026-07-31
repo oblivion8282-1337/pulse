@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -53,6 +54,33 @@ from harness import HERE, Player
 _fern = laden("fern-harness")
 _nw = laden("nack-wirkung")
 Sidecar = laden("real-harness").Sidecar
+
+
+# Grosse Datei zum Saettigen des Empfangswegs. Bewusst NICHT vom Labor-Server:
+# der ist die Gegenstelle der Messung, ihn zusaetzlich zu belasten wuerde
+# Leitung und Server vermischen.
+STOER_QUELLE = "https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso"
+
+
+def stoerung(quelle: str, stroeme: int, dauer: float, log) -> None:
+    """Den Empfangsweg fuer `dauer` Sekunden saettigen.
+
+    Mehrere parallele Downloads statt eines einzigen: eine TCP-Verbindung
+    erreicht die Leitungsgrenze oft nicht, mehrere schon — und genau die
+    Saettigung ist der Zustand, der den Videostrom umbringt (gemessen
+    2026-07-31: waehrend eines Speedtests lief der Decoder weiter und die
+    Ausgabe brach ein, weil die Pakete zu spaet kamen, nicht weil sie fehlten).
+    """
+    procs = [subprocess.Popen(["curl", "-s", "-o", "/dev/null", quelle],
+                              stdout=log, stderr=log) for _ in range(stroeme)]
+    time.sleep(dauer)
+    for pr in procs:
+        pr.terminate()
+    for pr in procs:
+        try:
+            pr.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pr.kill()
 
 
 def iface_zu(ip: str) -> str:
@@ -79,6 +107,14 @@ def ereignisse_lesen(pfad: Path, start: float, ziel: list[dict], stopp: threadin
             zeile = f.readline()
             if not zeile:
                 time.sleep(0.2)
+                continue
+            if "Ende-zu-Ende" in zeile:
+                # „N ohne Muster" ist der Einfrier-Anzeiger: steht das Bild,
+                # liest die Sonde immer denselben Balken, die Latenz wird
+                # unglaubwuerdig und der Treffer wird verworfen.
+                ziel.append({"sekunde": round(time.monotonic() - start, 1),
+                             "meldung": zeile.split("Sitzung")[-1].strip()[-70:],
+                             "sonde": True, "_neu": False})
                 continue
             if "Vollbild" in zeile or "Einstiegspunkt" in zeile:
                 ziel.append({"sekunde": round(time.monotonic() - start, 1),
@@ -134,6 +170,21 @@ def main() -> int:
     # sie auch, liegt er davor. Ohne Neukodierung, kostet also fast nichts.
     ap.add_argument("--aufnehmen", metavar="PFAD",
                     help="ankommenden Bitstrom mitschreiben (Einfrier-Diagnose)")
+    # Zeitmuster + Sonde. Das Bild traegt dann die Uhrzeit selbst, und der
+    # Player liest sie zurueck — damit ist ein EINGEFRORENES Bild maschinell
+    # erkennbar: die abgelesene Zeit bleibt stehen, die errechnete Latenz
+    # ueberschreitet `MAX_PLAUSIBLE_MS`, und der Player zaehlt „ohne Muster"
+    # hoch. Ohne das braucht es einen Menschen, der hinsieht.
+    ap.add_argument("--muster", action="store_true",
+                    help="Zeitmuster anzeigen und im Player zuruecklesen")
+    # Stoerung selbst erzeugen, statt auf einen Menschen mit Mobiltelefon zu
+    # warten: parallele Downloads saettigen den Empfangsweg. `--stoeren 120:20`
+    # heisst „ab Sekunde 120 fuer 20 Sekunden".
+    ap.add_argument("--stoeren", metavar="AB:DAUER",
+                    help="Leitung selbst saettigen, z.B. 120:20")
+    ap.add_argument("--stoer-quelle", default=STOER_QUELLE)
+    ap.add_argument("--stoer-strom", type=int, default=4,
+                    help="parallele Downloads (mehr = haertere Stoerung)")
     args = ap.parse_args()
 
     server_ip = socket.gethostbyname(_fern.HOST)
@@ -157,6 +208,25 @@ def main() -> int:
     # Der Encoder-Schalter geht als Umgebung an den Sidecar — `vendor_opts`
     # reicht ihn an den Encoder-Open durch, `warn_unknown` meldet Unbekanntes.
     env = {} if args.keyframes else {"PULSE_ENCODER_OPTS": "intra-refresh=1,forced-idr=1"}
+    # Zeitmuster VOR dem Sender: der Sidecar nimmt den Bildschirm auf, das
+    # Muster muss also schon stehen, wenn die Aufnahme beginnt.
+    muster = None
+    player_env: dict[str, str] = {}
+    if args.muster:
+        epoche = str(int(time.time() * 1000))
+        muster = subprocess.Popen(
+            [sys.executable, str(HERE / "latency-pattern.py")],
+            env={**os.environ, "PULSE_LATENCY_EPOCH_MS": epoche},
+            stdout=open(HERE / f"muster-{args.label}.log", "w"),
+            stderr=subprocess.STDOUT)
+        time.sleep(2.0)
+        if muster.poll() is not None:
+            print("Zeitmuster startete nicht — siehe muster-Log", file=sys.stderr)
+            return 1
+        player_env = {"PULSE_PLAYER_LATENCY_PROBE": "1",
+                      "PULSE_PLAYER_LATENCY_EPOCH_MS": epoche}
+        print("Zeitmuster laeuft — der Bildschirm zeigt jetzt die Messbalken.")
+
     sender = Sidecar(open(sender_log, "w"), env)
     player = None
     # Vor dem `try`, weil das `finally` sie braucht: scheitert der Lauf vor der
@@ -174,7 +244,7 @@ def main() -> int:
 
         time.sleep(5.0)
         pf = open(player_log, "w")
-        player = Player(pf)
+        player = Player(pf, player_env)
         whep = f"https://{_fern.HOST}/whep/{path}/whep?token={rd}"
         res = player.call("open", url=whep, title=f"Verlust {args.label}",
                           options={"volume": 0.0}, timeout=30)
@@ -213,9 +283,20 @@ def main() -> int:
             else:
                 print(f"Aufnahme fehlgeschlagen: {r}", file=sys.stderr, flush=True)
 
+        stoer_ab = stoer_dauer = None
+        if args.stoeren:
+            stoer_ab, stoer_dauer = (float(x) for x in args.stoeren.split(":"))
+            stoer_log = open(HERE / f"stoerung-{args.label}.log", "w")
+
         ende = start + args.secs
         while time.monotonic() < ende:
             time.sleep(1.0)
+            if stoer_ab is not None and time.monotonic() - start >= stoer_ab:
+                print(f"[{time.monotonic() - start:.0f} s] STOERUNG an "
+                      f"({args.stoer_strom} Stroeme, {stoer_dauer:.0f} s)", flush=True)
+                stoerung(args.stoer_quelle, args.stoer_strom, stoer_dauer, stoer_log)
+                print(f"[{time.monotonic() - start:.0f} s] Stoerung aus", flush=True)
+                stoer_ab = None
             s = player.call("stats", session=sid)
             if s.get("ok"):
                 proben.append(s)
@@ -239,6 +320,12 @@ def main() -> int:
                     print(f"stop_record fehlgeschlagen: {e}", file=sys.stderr)
             player.stop()
         sender.stop()
+        if muster:
+            muster.terminate()
+            try:
+                muster.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                muster.kill()
         subprocess.run(["sudo", "pkill", "-INT", "-f", f"tcpdump.*{pcap.name}"], check=False)
         try:
             dump.wait(timeout=10)
