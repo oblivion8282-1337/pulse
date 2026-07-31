@@ -1,5 +1,5 @@
 diff --git a/interceptor/src/nack/generator/generator_stream.rs b/interceptor/src/nack/generator/generator_stream.rs
-index 8cd5a10..ad346ab 100644
+index 8cd5a10..a5934dd 100644
 --- a/interceptor/src/nack/generator/generator_stream.rs
 +++ b/interceptor/src/nack/generator/generator_stream.rs
 @@ -121,16 +121,35 @@ impl GeneratorStreamInternal {
@@ -39,7 +39,7 @@ index 8cd5a10..ad346ab 100644
              internal: Mutex::new(GeneratorStreamInternal::new(log2_size_minus_6)),
          }
      }
-@@ -157,6 +176,31 @@ impl RTPReader for GeneratorStream {
+@@ -157,6 +176,51 @@ impl RTPReader for GeneratorStream {
      ) -> Result<(rtp::packet::Packet, Attributes)> {
          let (pkt, attr) = self.parent_rtp_reader.read(buf, a).await?;
  
@@ -57,14 +57,34 @@ index 8cd5a10..ad346ab 100644
 +                offen.remove(&schluessel).map(|t| t.elapsed())
 +            };
 +            if let Some(dauer) = gemessen {
-+                // Gleitender Mittelwert, ein Achtel neu: eine einzelne
-+                // Ausreisser-Messung soll die Sperre nicht springen lassen.
++                // ABKLINGENDES MAXIMUM, kein Mittelwert.
++                //
++                // **Ein Mittelwert misst hier das Falsche.** Die meisten
++                // Treffer sind gar keine Antworten, sondern nur UMSORTIERTE
++                // Pakete: die Anforderung ging gerade erst hinaus, das Paket
++                // war ohnehin schon unterwegs und trifft ein bis zwei
++                // Millisekunden spaeter ein. Bei der ersten Fassung dominierten
++                // diese Treffer, der Mittelwert lag bei 2 ms statt der echten
++                // 59 — die Sperre fiel auf ihre Untergrenze und war wirkungslos
++                // (6,3 Kopien je Paket, also der Stand vor dem Fix).
++                //
++                // Das Maximum ist unempfindlich dagegen: die echten
++                // Nachlieferungen sind die LANGSAMEN Treffer. Damit es einer
++                // besser gewordenen Strecke folgt, sinkt es langsam ab —
++                // gebremst genug, dass ein Schwung Umsortierungen es nicht
++                // herunterzieht.
 +                let neu = dauer.as_millis() as u64;
 +                let alt = self.pulse_rtt.rtt_ms.load(std::sync::atomic::Ordering::Relaxed);
-+                let gemittelt = if alt == 0 { neu } else { (alt * 7 + neu) / 8 };
++                let gehalten = if neu >= alt {
++                    neu
++                } else {
++                    // 63/64 je Messung: bei rund 400 Paketen je Sekunde ist die
++                    // Haelfte nach gut einer Sekunde abgebaut.
++                    alt - (alt / 64).max(1)
++                };
 +                self.pulse_rtt
 +                    .rtt_ms
-+                    .store(gemittelt, std::sync::atomic::Ordering::Relaxed);
++                    .store(gehalten, std::sync::atomic::Ordering::Relaxed);
 +            }
 +        }
 +
