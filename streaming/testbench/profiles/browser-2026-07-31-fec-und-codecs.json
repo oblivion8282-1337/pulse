@@ -1,0 +1,34 @@
+{
+  "id": "browser-2026-07-31-fec-und-codecs",
+  "gemessen_am": "2026-07-31 (nachts)",
+  "frage": "Traegt der WHEP-Weg im BROWSER? Kommt die Paritaet dort an, und welche Codec-Varianten dekodiert er ueberhaupt?",
+  "warum": "Alle bisherigen Messungen liefen ueber den nativen Player, der einen EIGENEN FlexFEC-Empfaenger und einen eigenen WHEP-Client hat. Ueber Browser und Electron sagten sie deshalb NICHTS — und Pulse ist web-first. In den Projektnotizen stand die unbelegte Behauptung 'Browser bekommen nichts davon (handeln flexfec-03 nicht aus)'.",
+  "aufbau": {
+    "sender": "ffmpeg, vorkodierte Vorlage per -c copy an den Labor-Server (kein Portal, kein Sidecar, kein Encoder im Spiel — in jedem Durchgang exakt dieselben Bytes)",
+    "vorlagen": "live-vorlage.py, 2560x1440@60, 4000 kbps, Keyframe alle 2 s, Sidecar-Encoder-Optionen",
+    "server": "Hetzner, mediamtx-labor (v1.19.1-dirty: PLI-Weiterleitung + FlexFEC), PULSE_FLEXFEC=1 mit 10+2",
+    "zuschauer": "Playwright-Chromium ueber streaming/testbench/browser-whep.mjs, Werte aus RTCPeerConnection.getStats()",
+    "dauer": "je 15 s, die ersten zwei Sekunden (ICE, erstes Vollbild) verworfen"
+  },
+  "ergebnis": [
+    {"variante": "AV1 10 bit", "bilder_dekodiert": 0,   "fec_pakete": 5788, "pli": 97, "verloren": 470, "nack": 27},
+    {"variante": "AV1 8 bit",  "bilder_dekodiert": 722, "fec_pakete": 1352, "pli": 7,  "verloren": 0,   "nack": 0},
+    {"variante": "H.264 8 bit","bilder_dekodiert": 722, "fec_pakete": 1496, "pli": 7,  "verloren": 0,   "nack": 0}
+  ],
+  "was_das_heisst": {
+    "die_alte_notiz_war_falsch": "Der Browser handelt flexfec-03 sehr wohl aus, und die Paritaetspakete kommen an — 1352 bis 5788 Stueck je Lauf. `fecPacketsReceived` ist der harte Beleg: libwebrtc holt den Wert aus `flexfec_stream_->GetStats()`, er ist also nur ungleich null, wenn der Empfangsstrom wirklich existiert.",
+    "unser_server_macht_es_richtig": "In JEDER Antwort steht `a=ssrc-group:FEC-FR`. Das ist die Bedingung, an der es haette scheitern koennen: Chromium legt den FlexFEC-Empfang nur an, wenn die SSRC-Gruppe da ist — der Payload-Type allein genuegt nicht (ConfigureReceiverRtp → GetFecFrSsrc → IsCompleteAndEnabled). Der pion-Interceptor im Fork erzeugt sie.",
+    "av1_10_bit_ist_im_browser_tot": "Null Bilder in 15 Sekunden, waehrend Pakete und Paritaet normal ankamen (34884 empfangen), dazu 97 Keyframe-Anforderungen — der Empfaenger fragt endlos nach einem Bild, das er nicht dekodieren kann. Gegenprobe mit identischem Aufbau: 8 bit liefert 722 Bilder. Die Ursache ist die Bittiefe, nicht der Weg.",
+    "die_zahl_722_zweimal": "AV1 8 bit und H.264 liefern exakt dieselbe Bildzahl — beide dekodieren sauber, der Unterschied liegt nicht in der Menge."
+  },
+  "folgerung": {
+    "fuer_das_produkt": "Browser-Zuschauer bekommen 8 bit, und das ist keine Einschraenkung des Servers, sondern des Decoders (dav1d in libwebrtc lehnt bpc != 8 ab). AV1 10 bit bleibt dem nativen Player vorbehalten.",
+    "fuer_die_fehlerkorrektur": "FEC im Browser ist KEINE Baustelle mehr — der Pfad steht Ende zu Ende. Was noch fehlt, ist der Nachweis, dass sie unter echtem Verlust auch repariert (hier lief nur ein Lauf mit Verlust, und der war der 10-bit-Lauf, in dem gar nicht dekodiert wurde)."
+  },
+  "offen": [
+    "Reparatur unter kuenstlichem Verlust messen (tc netem auf der Empfangsseite), FEC an/aus im Wechsel — erst das belegt den NUTZEN, nicht nur die Anwesenheit",
+    "Electron-Lauf zur Gegenprobe (browser-whep.mjs --electron); laut Recherche identisch (Chromium 150), gemessen ist es hier nicht",
+    "fecPacketsDiscarded meldete Chromium in keinem Lauf (n/a) — Feldname pruefen"
+  ],
+  "werkzeug": "streaming/testbench/browser-whep.mjs (neu). Der WHEP-POST laeuft in Node, nicht im Browser — sonst scheiterte die Verhandlung an der Herkunftspruefung."
+}

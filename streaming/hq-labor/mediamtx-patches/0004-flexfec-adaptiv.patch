@@ -1,0 +1,269 @@
+From 48403582d448e5cc5d099056c89ca026a3a902a1 Mon Sep 17 00:00:00 2001
+From: z <x@y>
+Date: Fri, 31 Jul 2026 03:20:53 +0200
+Subject: [PATCH] FlexFEC nur senden, wenn die Leitung tatsaechlich verliert
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Der Paritaets-Aufschlag war fest 20 Prozent — unabhaengig davon, ob ueberhaupt
+etwas verloren geht. Auf einer gesunden Leitung ist er damit vollstaendig
+umsonst bezahlt; die Teststrecke verliert bei passender Bitrate ueber zwei
+Laeufe und 27000 Pakete NICHTS.
+
+Dieser Patch macht die Paritaet verlustgeregelt (Stufe 1: an/aus, keine
+stufenlose Rate). Voreinstellung AUS — ohne PULSE_FLEXFEC_ADAPTIV=1 verhaelt
+sich der Server wie zuvor.
+
+  PULSE_FLEXFEC_ADAPTIV=1              Regelung ein
+  PULSE_FLEXFEC_SCHWELLE_PROZENT=1     ab welchem Verlust die Paritaet laeuft
+
+Die Regelgroesse liegt schon entpackt herum: der RTCP-Rueckkanal des Lesers
+wird seit 0002 gelesen, dort aber nur auf PLI und FIR abgeklopft. Der
+ReceiverReport mit `fraction lost` lag in derselben Schleife im selben Slice
+und wurde fallengelassen. Kein neuer Rueckkanal, kein DataChannel, keine
+SDP-Aenderung — eine zusaetzliche Verzweigung an einer schon gepatchten Stelle.
+
+Drei Dinge, die beim Bauen NICHT offensichtlich waren und je einen Fehlversuch
+gekostet haben:
+
+1. Die Rate mitten in der Sitzung zu aendern ginge nur mit einem Fork des
+   pion-Interceptors (er nimmt die Werte als Bau-Optionen). Fuer die Bandbreite
+   ist es aber gleichgueltig, ob die Rate sinkt oder die Pakete gar nicht erst
+   hinausgehen — also ein Filter davor statt eines Umbaus dahinter.
+
+2. Die Reihenfolge in der Interceptor-Kette ist umgekehrt zur Intuition.
+   `interceptor.Chain.BindLocalStream` wickelt vorwaerts: der ZUERST
+   Registrierte bekommt den echten Netzwerk-Writer, jeder weitere den seines
+   Vorgaengers. Wer zuerst registriert, sitzt also am NETZ. Das Tor muss
+   deshalb VOR ConfigureFlexFEC03 registriert werden, um dessen Pakete zu
+   sehen. (Es ist dieselbe Anordnung, aus der pion verlangt, FlexFEC vor TWCC
+   zu registrieren: TWCC liegt dadurch weiter aussen und fasst die Paritaet
+   gar nicht erst an.)
+
+3. Der Paritaets-Payload-Type ist AUSGEHANDELT, keine Konstante. Chromium
+   bietet 49 an, unser nativer Player 110. Ein Filter, der gegen die eigene
+   Konstante prueft, laesst beim Browser alles durch — wirkungslos, ohne zu
+   scheitern. Der ausgehandelte Wert steht in
+   `StreamInfo.PayloadTypeForwardErrorCorrection`; an demselben Feld
+   entscheidet auch pions Erzeuger, ob er ueberhaupt Paritaet baut.
+
+Ausserdem: `PULSE_FLEXFEC_FEC=0` heisst jetzt AUS statt "nimm die Vorgabe".
+Vorher fiel die 0 auf 2 zurueck — wer damit einen Nullauf fahren wollte, mass
+unbemerkt 10+2 gegen 10+2.
+
+Gemessen ueber die echte Leitung, Zuschauer war ein echter Chromium
+(streaming/testbench/browser-whep.mjs), je 18 Proben:
+
+  Vorgabe, gesunde Leitung     1808 Paritaetspakete   1024 Bilder
+  adaptiv, gesunde Leitung        0 Paritaetspakete   1022 Bilder
+  adaptiv, 5 % Verlust          514 Paritaetspakete   1014 Bilder
+
+Baut gegen 1.19.1, go vet sauber, Pakettests gruen.
+---
+ internal/protocols/webrtc/outbound_track.go  |  18 ++-
+ internal/protocols/webrtc/peer_connection.go | 141 ++++++++++++++++++-
+ 2 files changed, 152 insertions(+), 7 deletions(-)
+
+diff --git a/internal/protocols/webrtc/outbound_track.go b/internal/protocols/webrtc/outbound_track.go
+index ad2282c..b237860 100644
+--- a/internal/protocols/webrtc/outbound_track.go
++++ b/internal/protocols/webrtc/outbound_track.go
+@@ -76,12 +76,22 @@ func (t *OutboundTrack) setup(p *PeerConnection) error {
+ 			// Upstream discards these packets, so the request died at this
+ 			// line and the reader stayed frozen forever whenever the
+ 			// publisher was not emitting periodic key frames. Hand it on.
+-			if p.OnKeyFrameRequest != nil && t.isVideo() {
+-				for _, pkt := range pkts {
+-					switch pkt.(type) {
+-					case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
++			for _, pkt := range pkts {
++				switch v := pkt.(type) {
++				case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
++					// Pulse: a reader that lost sync asks for a key frame here.
++					if p.OnKeyFrameRequest != nil && t.isVideo() {
+ 						p.OnKeyFrameRequest()
+ 					}
++				case *rtcp.ReceiverReport:
++					// Pulse: die Verlustmeldung lag hier schon entpackt und
++					// wurde fallengelassen. Sie ist der Regelgroesse des
++					// Paritaets-Tors — kein neuer Rueckkanal noetig.
++					if tor := pulseFecTorAktiv.Load(); tor != nil {
++						for _, r := range v.Reports {
++							tor.melden(r.FractionLost)
++						}
++					}
+ 				}
+ 			}
+ 		}
+diff --git a/internal/protocols/webrtc/peer_connection.go b/internal/protocols/webrtc/peer_connection.go
+index 22aee87..9011442 100644
+--- a/internal/protocols/webrtc/peer_connection.go
++++ b/internal/protocols/webrtc/peer_connection.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/pion/ice/v4"
+ 	"github.com/pion/interceptor"
+ 	"github.com/pion/interceptor/pkg/flexfec"
++	"github.com/pion/rtp"
+ 	"github.com/pion/sdp/v3"
+ 	"github.com/pion/transport/v4"
+ 	"github.com/pion/webrtc/v4"
+@@ -53,11 +54,125 @@ func pulseFlexFECConfig() (an bool, medien uint32, paritaet uint32) {
+ 		}
+ 		return uint32(v)
+ 	}
+-	return os.Getenv("PULSE_FLEXFEC") == "1",
+-		zahl("PULSE_FLEXFEC_MEDIA", 10),
+-		zahl("PULSE_FLEXFEC_FEC", 2)
++	an = os.Getenv("PULSE_FLEXFEC") == "1"
++	medien = zahl("PULSE_FLEXFEC_MEDIA", 10)
++	paritaet = zahl("PULSE_FLEXFEC_FEC", 2)
++
++	// `PULSE_FLEXFEC_FEC=0` heisst AUS, nicht "nimm die Vorgabe".
++	//
++	// Vorher fiel die 0 durch die Pruefung oben auf 2 zurueck — wer damit
++	// einen Nullauf fahren wollte, mass unbemerkt 10+2 gegen 10+2. Genau
++	// diese Fehlerklasse hat in dieser Messreihe schon zweimal zugeschlagen
++	// (vier identische Laeufe als A/B ausgewertet; eine netem-Stoerung, die
++	// gar nichts verwarf). Ein Schalter, der still das Gegenteil tut, ist
++	// schlimmer als keiner.
++	if os.Getenv("PULSE_FLEXFEC_FEC") == "0" {
++		an = false
++	}
++	return an, medien, paritaet
+ }
+ 
++// pulseFecTor entscheidet, ob die Paritaetspakete tatsaechlich hinausgehen.
++//
++// WARUM: Der Aufschlag ist sonst fest 20 Prozent — unabhaengig davon, ob
++// ueberhaupt etwas verloren geht. Auf einer gesunden Leitung ist er damit
++// vollstaendig umsonst bezahlt; gemessen verliert die Teststrecke bei
++// passender Bitrate ueber zwei Laeufe und 27000 Pakete NICHTS.
++//
++// Die Rate mitten in der Sitzung zu aendern ginge nur mit einem Fork des
++// pion-Interceptors (er nimmt die Werte als Bau-Optionen). Fuer die Bandbreite
++// ist es aber gleichgueltig, ob die Rate sinkt oder die Pakete gar nicht erst
++// hinausgehen — deshalb ein Filter davor statt eines Umbaus dahinter.
++//
++// WO ER SITZEN MUSS: direkt NACH FlexFEC und VOR TWCC. Verwuerfe er nach der
++// TWCC-Markierung, erschienen die verworfenen Pakete beim Zuschauer als
++// Verlust — eine Regelschleife, die sich von ihrer eigenen Wirkung fuettert.
++type pulseFecTor struct {
++	// fraction lost aus dem letzten Receiver Report, 0..255 (RFC 3550 §6.4.1:
++	// der Anteil seit dem vorigen Report, mal 256).
++	verlust atomic.Uint32
++	// ab welchem Anteil die Paritaet hinausgeht; 0 heisst "immer".
++	schwelle uint32
++}
++
++func (g *pulseFecTor) melden(fractionLost uint8) {
++	g.verlust.Store(uint32(fractionLost))
++}
++
++func (g *pulseFecTor) durchlassen() bool {
++	return g.verlust.Load() >= g.schwelle
++}
++
++// pulseFecFilter verwirft Paritaetspakete, solange das Tor zu ist.
++type pulseFecFilter struct {
++	interceptor.NoOp
++	tor *pulseFecTor
++}
++
++func (f *pulseFecFilter) BindLocalStream(
++	info *interceptor.StreamInfo, writer interceptor.RTPWriter,
++) interceptor.RTPWriter {
++	// Der Paritaets-Payload-Type wird AUSGEHANDELT, er ist keine Konstante:
++	// Chromium bietet 49 an, unser nativer Player 110. Ein Filter, der gegen
++	// die eigene Konstante prueft, laesst deshalb beim Browser alles durch —
++	// genau so ist die erste Fassung wirkungslos geblieben, ohne zu scheitern.
++	//
++	// `PayloadTypeForwardErrorCorrection` steht in der StreamInfo des
++	// MEDIENstroms und ist dasselbe Feld, an dem pions Erzeuger entscheidet,
++	// ob er ueberhaupt Paritaet baut (encoder_interceptor.go:72). Ist es 0,
++	// gibt es fuer diesen Strom keine Paritaet und nichts zu filtern.
++	fecPT := uint8(info.PayloadTypeForwardErrorCorrection)
++	if fecPT == 0 {
++		return writer
++	}
++	return interceptor.RTPWriterFunc(
++		func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
++			if header.PayloadType == fecPT && !f.tor.durchlassen() {
++				// Still schlucken. Der Empfaenger prueft den Paritaetsstrom
++				// nicht auf Luecken (er schluesselt ueber die Basis-Sequenznummer
++				// im Paritaetskopf), sieht also schlicht keine Paritaet und
++				// repariert nicht — gefahrlos.
++				return len(payload), nil
++			}
++			return writer.Write(header, payload, attributes)
++		})
++}
++
++type pulseFecFilterFactory struct{ tor *pulseFecTor }
++
++func (f *pulseFecFilterFactory) NewInterceptor(_ string) (interceptor.Interceptor, error) {
++	return &pulseFecFilter{tor: f.tor}, nil
++}
++
++// pulseFecAdaptiv liest die Regelung aus der Umgebung.
++//
++// Voreinstellung AUS: ohne Zutun geht die Paritaet immer hinaus, also genau
++// wie bisher gemessen. Eingeschaltet mit PULSE_FLEXFEC_ADAPTIV=1; die Schwelle
++// steht in Prozent (PULSE_FLEXFEC_SCHWELLE_PROZENT, Vorgabe 1) — derselbe
++// Bereich, unterhalb dessen libwebrtc seine eigene FEC abschaltet.
++func pulseFecAdaptiv() (an bool, schwelle uint32) {
++	if os.Getenv("PULSE_FLEXFEC_ADAPTIV") != "1" {
++		return false, 0
++	}
++	prozent := 1.0
++	if v, err := strconv.ParseFloat(os.Getenv("PULSE_FLEXFEC_SCHWELLE_PROZENT"), 64); err == nil && v > 0 {
++		prozent = v
++	}
++	// fraction lost ist Anteil*256.
++	s := uint32(prozent * 256.0 / 100.0)
++	if s == 0 {
++		s = 1
++	}
++	return true, s
++}
++
++// pulseFecTorAktiv haelt das Tor der zuletzt aufgebauten Sendesitzung.
++// Prozessweit, weil die RTCP-Leseschleife (outbound_track.go) die
++// PeerConnection nicht mitfuehrt. Fuer die Messung genuegt das; bei mehreren
++// gleichzeitigen Zuschauern regelt der zuletzt verbundene fuer alle.
++var pulseFecTorAktiv atomic.Pointer[pulseFecTor]
++
++
+ func interfaceIPs(interfaceList []string) ([]string, error) {
+ 	intfs, err := net.Interfaces()
+ 	if err != nil {
+@@ -129,6 +244,26 @@ func registerInterceptors(
+ 	// `session.go::runRead`). Auf der Empfangsseite waere es sinnlos: dort
+ 	// erzeugt MediaMTX keine Pakete, sondern nimmt sie entgegen.
+ 	if an, medien, paritaet := pulseFlexFECConfig(); an && sendet {
++		// Das Tor wird VOR dem Erzeuger registriert — und sitzt damit HINTER
++		// ihm in Schreibrichtung. `interceptor.Chain.BindLocalStream` wickelt
++		// vorwaerts: der zuerst Registrierte bekommt den echten
++		// Netzwerk-Writer, jeder weitere den seines Vorgaengers. Wer zuerst
++		// registriert, sitzt also am NETZ, nicht an der Anwendung.
++		//
++		// Beim ersten Versuch stand es umgekehrt (Registrierung nach
++		// ConfigureFlexFEC03) — dann sah der Filter nur die Medienpakete
++		// (PT 45/111) und NIE die Paritaet, und die Regelung blieb wirkungslos,
++		// ohne zu scheitern. Belegt am laufenden Server per Diagnose-Ausgabe.
++		//
++		// Nebenbei ist das genau die Anordnung, die pion fuer TWCC verlangt:
++		// TWCC wird nach FlexFEC registriert, liegt damit weiter aussen und
++		// fasst die Paritaetspakete gar nicht erst an.
++		if adaptiv, schwelle := pulseFecAdaptiv(); adaptiv {
++			tor := &pulseFecTor{schwelle: schwelle}
++			pulseFecTorAktiv.Store(tor)
++			interceptorRegistry.Add(&pulseFecFilterFactory{tor: tor})
++		}
++
+ 		err := webrtc.ConfigureFlexFEC03(
+ 			pulseFlexFECPayloadType,
+ 			mediaEngine,
+-- 
+2.55.0
+

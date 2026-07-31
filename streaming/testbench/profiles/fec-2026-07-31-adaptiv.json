@@ -1,0 +1,30 @@
+{
+  "id": "fec-2026-07-31-adaptiv",
+  "gemessen_am": "2026-07-31 (nachts)",
+  "frage": "Laesst sich der feste 20-Prozent-Aufschlag der Paritaet loswerden, ohne den Schutz zu verlieren?",
+  "ausgangslage": "Der Aufschlag war fest und unabhaengig vom tatsaechlichen Verlust — auf einer gesunden Leitung vollstaendig umsonst bezahlt. Analyse: docs/plans/2026-07-31-fec-bandbreite-und-adaptivitaet.md, Stufe 1.",
+  "was_gebaut_wurde": "MediaMTX-Fork-Patch 0004: ein Tor vor dem Paritaets-Erzeuger. Es liest `fraction lost` aus den Receiver Reports, die der RTCP-Rueckkanal des Lesers seit Patch 0002 ohnehin liefert (dort wurden bisher nur PLI und FIR ausgewertet, der ReceiverReport lag im selben Slice und wurde fallengelassen), und verwirft die Paritaetspakete, solange der Verlust unter der Schwelle liegt. Voreinstellung AUS.",
+  "aufbau": "Hetzner-Labor-Server, AV1 8 bit 2560x1440@60 4000 kbps als vorkodierte Vorlage per ffmpeg -c copy (kein Encoder, kein Portal — in jedem Durchgang exakt dieselben Bytes). Zuschauer: echter Chromium ueber browser-whep.mjs, Werte aus getStats(). Je 20 s, die ersten zwei Proben verworfen.",
+  "ergebnis": [
+    {"betriebsart": "Vorgabe (nicht adaptiv), gesunde Leitung", "fec_pakete": 1808, "bilder": 1024, "verloren": 0,  "nack": 0},
+    {"betriebsart": "adaptiv, gesunde Leitung",                 "fec_pakete": 0,    "bilder": 1022, "verloren": 0,  "nack": 0},
+    {"betriebsart": "adaptiv, 5 % Verlust (netem, 857 Pakete verworfen)", "fec_pakete": 514, "bilder": 1014, "verloren": 14, "nack": 444}
+  ],
+  "was_das_heisst": {
+    "die_ersparnis_ist_vollstaendig": "Auf gesunder Leitung geht KEIN einziges Paritaetspaket mehr hinaus (1808 → 0), und die Bildzahl bleibt gleich (1024 → 1022, im Rauschen). Der gesamte Aufschlag faellt weg, solange nichts verloren geht.",
+    "der_schutz_bleibt": "Unter 5 % Verlust springt die Paritaet an (514 Pakete). Von 857 verworfenen Paketen blieben nur 14 endgueltig verloren — den Grossteil holt NACK, den Rest die Paritaet.",
+    "die_regelung_ist_traege_und_das_ist_ok": "Bis der erste Receiver Report eintrifft, laeuft der Beginn einer Stoerung ungeschuetzt. Genau dieses Fenster bedient NACK, das kein Vorwissen braucht — die beiden Verfahren ergaenzen sich zeitlich."
+  },
+  "drei_fallen_die_je_einen_fehlversuch_gekostet_haben": {
+    "reihenfolge_der_interceptoren": "`interceptor.Chain.BindLocalStream` wickelt VORWAERTS: der zuerst Registrierte bekommt den echten Netzwerk-Writer, jeder weitere den seines Vorgaengers. Wer zuerst registriert, sitzt am NETZ, nicht an der Anwendung. Das Tor muss deshalb VOR ConfigureFlexFEC03 registriert werden, um dessen Pakete ueberhaupt zu sehen.",
+    "der_payload_type_ist_ausgehandelt": "Chromium bietet flexfec-03 als PT 49 an, unser nativer Player als 110. Der Filter prueft deshalb `StreamInfo.PayloadTypeForwardErrorCorrection`, nicht die eigene Konstante. Die Fassung mit fester 110 lief im Browser wirkungslos durch — OHNE zu scheitern. Die Aussage 'Payload-Type auf beiden Seiten fest auf 110 verdrahtet' aus der Analyse gilt nur fuer den Player.",
+    "musl_gegen_glibc": "Ein Diagnose-Binary ohne CGO_ENABLED=0 startet im Alpine-Container nicht und meldet 'exec /mediamtx-bin: no such file or directory' — die Datei ist da, der dynamische Linker fehlt."
+  },
+  "wie_es_gefunden_wurde": "Nicht durch Nachdenken, sondern durch eine Diagnose-Ausgabe im laufenden Server: sie zeigte, welche Payload-Types das Tor tatsaechlich sieht (45 Video, 111 Ton, 49 Paritaet). Ohne sie waere die Fehlersuche bei der Interceptor-Reihenfolge steckengeblieben, die gar nicht das Problem war.",
+  "offen": [
+    "Stufe 2/3 der Analyse (Rate je Sitzung, stufenlose Regelung) — erst sinnvoll, wenn gemessen ist, dass zwischen 'aus' und '20 Prozent' etwas fehlt",
+    "Schwellenwert ist ungeprueft auf 1 Prozent gesetzt (der Bereich, unterhalb dessen libwebrtc seine eigene FEC abschaltet)",
+    "Verhalten bei mehreren gleichzeitigen Zuschauern: das Tor ist prozessweit, der zuletzt Verbundene regelt fuer alle",
+    "Reed-Solomon statt XOR (Analyse 2.2) bleibt die Ausbaustufe fuer Buendelverlust"
+  ]
+}

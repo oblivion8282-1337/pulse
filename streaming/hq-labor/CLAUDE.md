@@ -86,17 +86,35 @@ liegt im Repo; was noch fehlt, steht unter „Offene Punkte".
 
 ## Linux — zwei Dinge, die jede Messreihe stören
 
-1. **Der Portal-Dialog soll pro Sitzung einmal kommen, nicht bei jedem Lauf.**
-   `PULSE_PORTAL_REUSE=1` legt das Restore-Token nach
-   `$XDG_STATE_HOME/pulse/portal-restore-token` und löst es beim nächsten Start
-   ein. **Beobachtet am 2026-07-31: der Dialog kam trotzdem bei jedem Lauf** —
-   Ursache ungeklärt (Verdacht: das Portal entwertet das Token, oder der
-   GNOME-Backend unter niri verlangt jedes Mal Bestätigung). Das ist zu
-   untersuchen, nicht zu umgehen.
+1. **Der Portal-Dialog kommt einmal pro Rechner, nicht pro Lauf — und das
+   funktioniert.** `PULSE_PORTAL_REUSE=1` legt das Restore-Token nach
+   `$XDG_STATE_HOME/pulse/portal-restore-token`, `real-harness.py` setzt die
+   Variable von sich aus, und `portal-grant.py` wählt die Quelle einmal aus.
+   **Hier stand zwischenzeitlich, der Dialog käme trotzdem bei jedem Lauf —
+   das war falsch** und aus dem Gedächtnis geschrieben. Nachgeprüft am
+   2026-07-31 im Portal-Journal: **genau ein** Dialog um 01:14:58 (die
+   Erstanlage nach dem Löschen der Token-Datei), danach drei Läufe über 28
+   Minuten ohne. Der `last_used_time` des Store-Eintrags belegt die Einlösung
+   auf die Sekunde.
+   Kontrolle, falls der Verdacht wiederkommt — **zählen, nicht erinnern**:
+   ```bash
+   journalctl --user -t xdg-desktop-portal-gnome -f
+   ```
+   Jede Zeile `Failed to associate portal window with parent window` ist ein
+   *gezeigter* Dialog (sie fällt an, weil wir kein `parent_window` übergeben).
+   Zwei echte Fallen: `zeigen.py --portal-neu` setzt `PULSE_PORTAL_REUSE=0`
+   und erzwingt den Dialog **mit Absicht**; und ein Start aus der Flatpak-App
+   hat eine andere App-Identität (`com.howispulse.Pulse`) als einer aus dem
+   Terminal (dort ist sie der leere String) — Token gelten nur je Identität.
 2. **Die Bildschirme dürfen sich während einer Messung nicht abschalten.**
    Ein dunkler Schirm liefert keine Frames (der Compositor sendet nur bei
    Damage), und die Messung sieht aus wie ein Aussetzer des Senders. Ebenso
    wenig darf der Bildschirmschoner das Zeitmuster verdecken.
+   Der Idle-Manager dieser Maschine ist **`dms`** (Dank Material Shell), nicht
+   swayidle/hypridle; `systemd-inhibit` greift hier ins Leere, weil in
+   `logind.conf` `IdleAction` gar nicht gesetzt ist. Der Prüfstand hält den
+   Schirm deshalb über `dms ipc call inhibit enable` wach und nimmt es in
+   einem Trap zurück (`gemeinsam.py`), wie er es mit den `tc`-Regeln tut.
 
 ## Fehlerkorrektur — Stand und Richtung
 

@@ -16,10 +16,61 @@ Kein Programm, nur ein Modul: die drei Werkzeuge bleiben einzeln aufrufbar.
 
 from __future__ import annotations
 
+import atexit
 import importlib.util
+import shutil
+import signal
+import subprocess
 import sys
 
 from harness import CID, HERE
+
+# Der Idle-Manager dieser Maschine. `systemd-inhibit` greift hier INS LEERE:
+# in `logind.conf` ist `IdleAction` gar nicht gesetzt (Vorgabe `ignore`), es
+# gibt also nichts zu hemmen — das Abschalten kommt von der Shell.
+# Nachgeprüft 2026-07-31. Auf einer anderen Maschine (swayidle, hypridle,
+# GNOME) gehört hier deren Gegenstück hin; fehlt das Werkzeug, passiert
+# schlicht nichts.
+_IDLE_BEFEHL = ("dms", "ipc", "call", "inhibit")
+_idle_gehemmt = False
+
+
+def bildschirm_wachhalten() -> None:
+    """Bildschirmabschaltung für die Dauer des Laufs unterbinden.
+
+    **Warum das eine Messgröße ist:** Ein dunkler Schirm liefert keine Bilder —
+    der Compositor sendet nur bei Damage. Der Sender wiederholt dann brav sein
+    letztes Bild, die Aufnahme meldet `duplicates == frames`, und die Messung
+    sieht aus wie ein Aussetzer des Senders. Beim Zeitmuster (`--e2e`) ist es
+    schlimmer: ein Bildschirmschoner verdeckt die Balken, der Player liest
+    nichts zurück, und „ohne Muster" steigt still.
+
+    Hebt sich selbst wieder auf — auch bei Strg-C und bei einem Abbruch, wie
+    es `zeigen.py` mit den `tc`-Regeln hält.
+    """
+    global _idle_gehemmt
+    if _idle_gehemmt or not shutil.which(_IDLE_BEFEHL[0]):
+        return
+    if subprocess.run([*_IDLE_BEFEHL, "enable"], capture_output=True).returncode != 0:
+        return
+    _idle_gehemmt = True
+    atexit.register(bildschirm_freigeben)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        vorher = signal.getsignal(sig)
+        def _weiter(s, rahmen, _vorher=vorher):
+            bildschirm_freigeben()
+            if callable(_vorher):
+                _vorher(s, rahmen)
+            else:
+                raise KeyboardInterrupt
+        signal.signal(sig, _weiter)
+
+
+def bildschirm_freigeben() -> None:
+    global _idle_gehemmt
+    if _idle_gehemmt:
+        _idle_gehemmt = False
+        subprocess.run([*_IDLE_BEFEHL, "disable"], capture_output=True)
 
 
 def laden(datei: str):
@@ -59,6 +110,7 @@ def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.
     # aus. Am 2026-07-30 lief so eine ganze Sitzung als H.264, waehrend
     # Aufruf und Ausgabe „av1 10 bit" sagten. Deshalb steht die Herkunft in
     # jedem Lauf, und der stille Fall wird zur lauten Warnung.
+    bildschirm_wachhalten()
     binaer = laden("real-harness").SIDECAR
     print(f"Sender-Binary: {binaer}")
     if "whip" in push_url and binaer.name != "pulse-hq-labor":
