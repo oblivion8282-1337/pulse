@@ -46,25 +46,34 @@ pub struct Empfaenger {
     clock_rate: u32,
     tx: mpsc::Sender<RtpArrival>,
     pub repariert: u64,
-    /// Gruppen, die endgueltig NICHT repariert wurden.
+    /// Paritaetspakete, die sich nicht anwenden liessen — Rechenfehler beim
+    /// Zurueckrechnen oder ein Ergebnis, das kein gueltiges RTP-Paket ergab.
     ///
-    /// **Bis zum 2026-07-31 zaehlte dieses Feld nur Rechen- und
-    /// Parse-Fehler** — also Faelle, die im Betrieb praktisch nie auftreten.
-    /// Der eigentliche Versagensfall von XOR, zwei Loecher in derselben
-    /// Gruppe, fiel durch `versuchen() -> false` still heraus. Das Feld stand
-    /// deshalb in acht Messlaeufen auf 0, auch in einem Lauf mit gesetztem
-    /// Buendelverlust, in dem die Paritaet nachweislich versagte (21
-    /// Vollbild-Anforderungen gegen 2 mit doppelter Paritaet). Auf dieser
-    /// blinden Null beruhte die Aussage „XOR scheitert nie, Reed-Solomon
-    /// loest ein Problem, das es nicht gibt".
+    /// **Enge Bedeutung, und das ist Absicht.** Am 2026-07-31 wurde dieses
+    /// Feld einmal auf „alles, was nicht repariert wurde" erweitert. Es meldete
+    /// daraufhin 11719 bei 8158 Gruppen — waehrend dem Jitter-Puffer im selben
+    /// Lauf ganze 14 Pakete endgueltig fehlten. Die Zahl war also kein Mass
+    /// fuer Verlust, sondern eines fuer ueberfluessige Paritaet, und trug
+    /// trotzdem einen Namen, der Verlust behauptete. Ein zweites Mal derselbe
+    /// Fehler in derselben Datei.
     pub unreparierbar: u64,
-    /// Gruppen, die beim ERSTEN Versuch mehr als ein Loch hatten.
+    /// Paritaetspakete, die aus dem Wartepuffer verdraengt wurden, ohne je
+    /// etwas repariert zu haben.
     ///
-    /// Getrennt von `unreparierbar`, weil beides verschiedene Fragen
-    /// beantwortet: hier steht, wie oft XOR an seine Grenze kam — auch wenn
-    /// ein Nachzuegler die Gruppe spaeter doch noch loesbar machte. Die
-    /// Differenz zu `unreparierbar` ist genau das, was das Nachfassen
-    /// gerettet hat.
+    /// **Misst ueberfluessige Paritaet, NICHT verlorene Pakete.** Ein hoher
+    /// Wert heisst, dass die Nachforderung schneller war — die Luecke war
+    /// schon geschlossen, als die Paritaet zum Zug kam. Was tatsaechlich
+    /// verlorenblieb, steht in `packets_lost` des Jitter-Puffers, nirgends
+    /// sonst.
+    pub verworfen: u64,
+    /// Gruppen, die beim ERSTEN Versuch mehr als ein Loch hatten — die Grenze
+    /// von XOR.
+    ///
+    /// **Das ist die Zahl, die bis zum 2026-07-31 fehlte** und deren Fehlen
+    /// die Aussage „XOR scheitert nie, Reed-Solomon loest ein Problem, das es
+    /// nicht gibt" getragen hat. Sie ist eine Obergrenze: ein verspaeteter
+    /// Nachzuegler kann die Gruppe hinterher doch noch loesbar machen, und
+    /// dann taucht sie zusaetzlich in `repariert` auf.
     pub mehrfach_loch: u64,
     pub zu_spaet: u64,
 }
@@ -79,6 +88,7 @@ impl Empfaenger {
             tx,
             repariert: 0,
             unreparierbar: 0,
+            verworfen: 0,
             mehrfach_loch: 0,
             zu_spaet: 0,
         }
@@ -106,19 +116,19 @@ impl Empfaenger {
         }
         // Hier und nur hier steht fest, dass XOR an seine Grenze kam: die
         // Gruppe hat beim ersten Versuch mehr als ein Loch. Ein Nachzuegler
-        // kann sie spaeter noch loesen — deshalb ist das nicht dasselbe wie
-        // `unreparierbar`, sondern die Obergrenze dafuer.
+        // kann sie spaeter noch loesen — die Zahl ist deshalb eine Obergrenze
+        // und KEIN Mass fuer Verlust.
         self.mehrfach_loch += 1;
         // Noch nicht loesbar — aufheben, vielleicht kommt das zweite Paket noch.
         if self.wartend.len() >= WARTENDE_PARITAET {
             // `keys().next()` einer HashMap ist NICHT die aelteste, sondern
             // eine beliebige — fuer die Speicherbegrenzung gleichgueltig.
-            // Entscheidend ist, dass sie hier ENDGUELTIG verlorengeht: dieser
-            // Zweig ist der einzige Ort, an dem eine ungeloeste Gruppe
-            // verschwindet, und genau deshalb wird sie hier gezaehlt.
+            // Hier verschwindet eine ungeloeste Gruppe endgueltig; gezaehlt
+            // wird das als `verworfen`, nicht als Verlust: meist war die
+            // Luecke laengst per Nachforderung geschlossen.
             if let Some(&beliebige) = self.wartend.keys().next() {
                 self.wartend.remove(&beliebige);
-                self.unreparierbar += 1;
+                self.verworfen += 1;
             }
         }
         self.wartend.insert(kopf.basis_sequenz, (kopf, nutzlast.to_vec()));
@@ -246,6 +256,7 @@ mod tests {
         assert_eq!(e.repariert, 1);
         assert_eq!(e.mehrfach_loch, 0);
         assert_eq!(e.unreparierbar, 0);
+        assert_eq!(e.verworfen, 0);
         assert!(rx.try_recv().is_ok(), "das reparierte Paket muss eingespeist werden");
     }
 

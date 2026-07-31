@@ -78,6 +78,8 @@ pub fn eingeschaltet() -> bool {
 pub struct Zaehler {
     pub repariert: AtomicU64,
     pub unreparierbar: AtomicU64,
+    /// Paritaet, die nichts bewirkt hat (s. `empfaenger::Empfaenger::verworfen`).
+    pub verworfen: AtomicU64,
     /// Wie oft XOR an seine Grenze kam (Gruppe mit mehr als einem Loch).
     /// Siehe `empfaenger::Empfaenger::mehrfach_loch` — ohne diese Zahl sagt
     /// `unreparierbar` allein nichts darueber, ob die Paritaet ausreicht.
@@ -86,11 +88,12 @@ pub struct Zaehler {
 }
 
 impl Zaehler {
-    /// `(repariert, unreparierbar, mehrfach_loch, zu_spaet)` — die Leseseite.
-    pub fn lesen(&self) -> (u64, u64, u64, u64) {
+    /// `(repariert, unreparierbar, verworfen, mehrfach_loch, zu_spaet)`.
+    pub fn lesen(&self) -> (u64, u64, u64, u64, u64) {
         (
             self.repariert.load(Ordering::Relaxed),
             self.unreparierbar.load(Ordering::Relaxed),
+            self.verworfen.load(Ordering::Relaxed),
             self.mehrfach_loch.load(Ordering::Relaxed),
             self.zu_spaet.load(Ordering::Relaxed),
         )
@@ -131,6 +134,7 @@ pub fn starten(
                     // Statistik zwischen zwei Zehnerschritten alt aussehen.
                     zaehler.repariert.store(empfaenger.repariert, Ordering::Relaxed);
                     zaehler.unreparierbar.store(empfaenger.unreparierbar, Ordering::Relaxed);
+                    zaehler.verworfen.store(empfaenger.verworfen, Ordering::Relaxed);
                     zaehler.mehrfach_loch.store(empfaenger.mehrfach_loch, Ordering::Relaxed);
                     zaehler.zu_spaet.store(empfaenger.zu_spaet, Ordering::Relaxed);
                     if empfaenger.repariert > 0 && empfaenger.repariert != letzte_meldung
