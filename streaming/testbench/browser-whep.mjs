@@ -77,6 +77,7 @@ async function offerBauen() {
   v.autoplay = true;
   v.muted = true;
   document.body.appendChild(v);
+  window.__video = v;
   pc.ontrack = (e) => { v.srcObject = e.streams[0]; };
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -110,6 +111,36 @@ async function probe() {
   const pc = window.__pc;
   const bericht = await pc.getStats();
   const out = { verbindung: pc.connectionState, ice: pc.iceConnectionState };
+
+  // Fingerabdruck des SICHTBAREN Bildes.
+  //
+  // WARUM ZUSAETZLICH ZU framesDecoded: Am 2026-07-31 lieferte der native
+  // Player 60 Bilder je Sekunde und zeigte trotzdem ein Standbild — der
+  // Decoder gab immer dasselbe Bild aus. Kein Zaehler meldete das, auch
+  // `freezeCount` nicht, denn formal kamen ja Bilder. Nur ein Blick auf die
+  // Pixel entscheidet, ob sich das Bild wirklich aendert.
+  //
+  // Kleines Ziel-Canvas (64x36): Es geht um "hat sich etwas geaendert", nicht
+  // um Bildqualitaet. Das Herunterskalieren macht die GPU, es kostet fast
+  // nichts, und es glaettet Kodierrauschen weg, das sonst jeden Vergleich
+  // verrauschen wuerde.
+  try {
+    const v = window.__video;
+    if (v && v.videoWidth > 0) {
+      const c = window.__canvas || (window.__canvas = document.createElement('canvas'));
+      c.width = 64; c.height = 36;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, 64, 36);
+      const d = ctx.getImageData(0, 0, 64, 36).data;
+      let h = 2166136261;
+      for (let i = 0; i < d.length; i += 4) {
+        h ^= d[i]; h = Math.imul(h, 16777619);
+      }
+      out.bildAbdruck = h >>> 0;
+    }
+  } catch (e) {
+    out.bildAbdruckFehler = String(e).slice(0, 80);
+  }
   bericht.forEach((s) => {
     if (s.type === 'inbound-rtp' && s.kind === 'video') {
       Object.assign(out, {
