@@ -256,15 +256,27 @@ fn nack_sperre_start() -> u64 {
         .unwrap_or(20)
 }
 
-/// Ist die Sperre an die gemessene Umlaufzeit gekoppelt?
+/// Soll die Sperre aus der gemessenen Antwortzeit abgeleitet werden?
 ///
-/// Der feste Startwert passt zu DIESER Messstrecke (59 ms). Wer weiter weg
-/// sitzt, braucht mehr, wer im selben Rechenzentrum sitzt, weniger — deshalb
-/// wird der Wert im Betrieb nachgefuehrt, sobald die erste Messung vorliegt.
-/// `PULSE_PLAYER_NACK_SPERRE_MS` setzt ihn fest und schaltet die Kopplung ab:
-/// nur so bleibt ein Vergleichslauf mit festem Wert moeglich.
+/// **Vorgabe NEIN — die Kopplung ist gebaut, aber sie traegt noch nicht.**
+/// Der Erzeuger misst die Zeit zwischen Anforderung und Ankunft selbst
+/// (`patches/0002-...`), und die Messung ist in drei Anlaeufen um den Faktor
+/// acht zu klein geblieben: 7 ms statt der tatsaechlichen 59. Die Sperre fiel
+/// damit auf ihre Untergrenze und war wirkungslos (6,3 Kopien je Paket, also
+/// der Stand vor dem Fix).
+///
+/// Zwei Ursachen sind gefunden und behoben — ein Mittelwert, den die vielen
+/// UMSORTIERTEN Pakete nach unten zogen (jetzt abklingendes Maximum), und ein
+/// Aufraeumfenster, das an die Sperre gekoppelt war und echte Antworten
+/// vergass, bevor sie eintrafen. Beide reichen nicht: der gemessene Wert
+/// bleibt bei 7 ms. Die dritte Ursache ist offen.
+///
+/// Bis dahin gilt der feste Wert aus [`nack_sperre_start`], der GEMESSEN
+/// funktioniert (Kennlinie im Doc-Kommentar von [`sperre_aus_rtt`]).
+/// `PULSE_PLAYER_NACK_SPERRE_AUTO=1` schaltet die Ableitung zum Weitersuchen
+/// ein; `rtt_ms` in der Statistik zeigt dabei, was der Erzeuger misst.
 fn nack_sperre_gekoppelt() -> bool {
-    std::env::var("PULSE_PLAYER_NACK_SPERRE_MS").is_err()
+    std::env::var("PULSE_PLAYER_NACK_SPERRE_AUTO").as_deref() == Ok("1")
 }
 
 /// Sperrfrist aus einer gemessenen Umlaufzeit — ein Drittel davon.
