@@ -96,6 +96,40 @@ def pakete_lesen(pfad: Path, server_ip: str):
         yield zeit, vom_server, False, ssrc, seq, orig
 
 
+def erweitern(zustand: dict, ssrc: int, seq: int) -> int:
+    """16-Bit-Sequenznummer in eine monoton wachsende umrechnen (RFC 3550).
+
+    **Ohne diese Umrechnung zaehlt jede Auswertung Unsinn, und zwar
+    unauffaellig.** Die RTP-Sequenznummer laeuft nach 65536 Paketen ueber; bei
+    440 Paketen je Sekunde ist das alle zweieinhalb Minuten. Wer roh zaehlt,
+    haelt jede Nummer des zweiten Umlaufs fuer eine Wiederholung der ersten.
+    Am 2026-07-31 ist genau das passiert: eine Handauswertung meldete „65536
+    eindeutige Nummern, alle mehrfach zugestellt" — das ist exakt der volle
+    Zahlenraum und war reiner Ueberlauf, kein einziges Duplikat.
+
+    Der Zustand wird je SSRC gefuehrt (`zustand` ist ein leeres dict beim
+    ersten Aufruf). Entscheidend ist die Behandlung von RUECKWAERTS-Spruengen:
+    eine Nachlieferung oder Umsortierung darf den Bezugspunkt NICHT
+    fortschreiben, sonst wird sie selbst als Ueberlauf gelesen und die
+    Zaehlung explodiert.
+    """
+    z = zustand.setdefault(ssrc, {"cycles": 0, "max": None})
+    if z["max"] is None:
+        z["max"] = seq
+        return seq
+    vor = z["max"]
+    if ((seq - vor) & 0xFFFF) < 0x8000:          # vorwaerts
+        if seq < vor:                            # dabei ueber die Grenze
+            z["cycles"] += 1
+        z["max"] = seq
+        return (z["cycles"] << 16) | seq
+    # rueckwaerts: Nachlieferung oder Umsortierung, Bezugspunkt bleibt stehen
+    c = z["cycles"]
+    if seq > vor:                                # gehoert in den vorigen Umlauf
+        c = max(c - 1, 0)
+    return (c << 16) | seq
+
+
 def sammeln(pfad: Path, server_ip: str) -> tuple[dict, dict, dict, int, int, float]:
     """(pakete, bytes, wiederholte_bytes) je SSRC + RTCP-Pakete/Bytes + Dauer."""
     pakete: dict[int, int] = defaultdict(int)
