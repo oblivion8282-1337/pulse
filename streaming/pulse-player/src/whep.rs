@@ -21,6 +21,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use tokio::sync::mpsc;
 use webrtc::api::interceptor_registry::{configure_rtcp_reports, configure_twcc_receiver_only};
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::nack::generator::Generator;
@@ -249,6 +250,43 @@ fn flexfec_anbieten(media: &mut MediaEngine) -> Result<()> {
     Ok(())
 }
 
+/// Wieviele Pakete das SRTP-Wiedergabefenster zurueckreicht.
+///
+/// **Die Vorgabe von webrtc-rs ist 64 — und die ist fuer eine Strecke mit
+/// Nachforderung zu klein.** Bei 440 Paketen je Sekunde sind 64 Pakete rund
+/// 145 Millisekunden; eine Nachlieferung braucht Umlaufzeit plus Wartezeit auf
+/// der Gegenseite und liegt schon im Normalbetrieb daneben, sobald die Leitung
+/// staut. Was herausfaellt, verwirft der Wiedergabeschutz still
+/// (`replay_detector`: `latest_seq >= window_size + seq` -> `false`).
+///
+/// Das kostet nicht nur die Reparatur, es erzeugt eine Rueckkopplung: der
+/// NACK-Erzeuger sieht die Luecke weiter offen und fordert alle
+/// `nack_intervall()` erneut an, die Gegenseite beantwortet jede Anforderung,
+/// und jede Antwort faellt wieder heraus. Gemessen am 2026-07-31
+/// (`testbench/fec-fest-ab3.pcap`, 618 s):
+///
+/// * 910 Luecken bei 273662 Paketen = 0,33 Prozent Verlust — die Leitung ist gut
+/// * 795 wurden nachgeliefert, davon **505 innerhalb** des 64er-Fensters
+///   (kosten je acht Kopien, das ist die Umlaufzeit und unvermeidbar) und
+///   **290 ausserhalb** — diese 290 loesen je rund 200 Nachforderungen aus
+/// * die 290 tragen damit **94 Prozent aller 61805 ueberfluessigen Kopien**,
+///   zusammen 945 kbit/s, von denen der Player 98 Prozent selbst wegwirft
+///
+/// 2048 Pakete sind bei dieser Rate gut viereinhalb Sekunden und decken den
+/// gemessenen Groesstabstand (376 ms) um ein Vielfaches ab. Der Preis ist eine
+/// groessere Bitmaske, also 256 Byte. **Der Angriffsschutz leidet nicht:**
+/// innerhalb des Fensters verhindert die Maske jedes Duplikat weiterhin
+/// luecklos, und ein Angreifer kann ohnehin nur Pakete einspielen, die die
+/// SRTP-Authentifizierung bestehen — also echte, nie angekommene.
+const SRTP_FENSTER: usize = 2048;
+
+/// Wiedergabefenster, das eine Nachlieferung noch durchlaesst (s. `SRTP_FENSTER`).
+fn srtp_fenster_fuer_nachlieferung() -> SettingEngine {
+    let mut engine = SettingEngine::default();
+    engine.set_srtp_replay_protection_window(SRTP_FENSTER);
+    engine
+}
+
 /// Messakte: `testbench/profiles/nack-2026-07-29-stufe3.json`.
 fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
     for parameter in ["", "pli"] {
@@ -289,6 +327,7 @@ pub async fn connect(
     let api = APIBuilder::new()
         .with_media_engine(media)
         .with_interceptor_registry(registry)
+        .with_setting_engine(srtp_fenster_fuer_nachlieferung())
         .build();
 
     let mut urls = vec![DEFAULT_STUN.to_string()];
