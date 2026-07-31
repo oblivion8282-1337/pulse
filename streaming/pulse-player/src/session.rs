@@ -56,6 +56,13 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 /// ueberlastet ist, mit zusaetzlicher Last.
 const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Wie oft nachgefordert wird, solange der Decoder noch gar keinen
+/// Einstiegspunkt hat. Laenger als [`KEYFRAME_REQUEST_INTERVAL`]: dort ist eine
+/// laufende Wiedergabe zu retten und jede Millisekunde zaehlt, hier wartet der
+/// Zuschauer ohnehin schon auf das erste Bild. Fuenf Anforderungen je Sekunde
+/// waeren nur Last auf dem Rueckkanal.
+const EINSTIEG_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -494,6 +501,28 @@ pub async fn run(
                     if let Some(d) = decoder.as_mut() {
                         d.wegen_einfrieren_neu();
                     }
+                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                        last_keyframe_request = Instant::now();
+                        whep_session.request_keyframe(ssrc).await;
+                    }
+                }
+
+                // Solange kein Einstiegspunkt da ist, NACHFORDERN.
+                //
+                // Im Intra-Refresh-Betrieb kommt kein regulaerer Keyframe mehr
+                // — das einzige Vollbild kommt auf Anforderung. Ging die
+                // hinaus, waehrend der Player noch im Verbindungsaufbau steckte,
+                // wartete er danach vergeblich, bis
+                // `MAX_UNITS_WITHOUT_KEYFRAME` die Sitzung abbrach: der
+                // Zuschauer sah NIE ein Bild. Am 2026-07-31 im Pruefstand
+                // beobachtet (150 Sekunden „dekodiert 0/s").
+                //
+                // Eigenes, laengeres Intervall als bei der Luecke: hier ist
+                // noch gar nichts zu retten, und fuenf Anforderungen je Sekunde
+                // waeren nur Last auf dem Rueckkanal.
+                if decoder.as_ref().is_some_and(VideoDecoder::wartet_auf_einstieg)
+                    && last_keyframe_request.elapsed() >= EINSTIEG_REQUEST_INTERVAL
+                {
                     if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                         last_keyframe_request = Instant::now();
                         whep_session.request_keyframe(ssrc).await;

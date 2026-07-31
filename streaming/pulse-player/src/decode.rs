@@ -601,6 +601,22 @@ impl VideoDecoder {
         self.skipped_before_keyframe = 0;
     }
 
+    /// Wartet der Decoder noch auf seinen ersten Einstiegspunkt?
+    ///
+    /// **Warum das nach aussen muss.** Ohne Einstieg verwirft er JEDE Einheit
+    /// (s. [`VideoDecoder::decode`]) — der Zuschauer sieht nichts. Im
+    /// Intra-Refresh-Betrieb gibt es aber keinen regulaeren Keyframe mehr: das
+    /// einzige Vollbild kommt auf Anforderung. Geht die eine Anforderung
+    /// hinaus, waehrend der Player noch im Verbindungsaufbau steckt, wartet er
+    /// danach VERGEBLICH — bis `MAX_UNITS_WITHOUT_KEYFRAME` die Sitzung
+    /// abbricht. Am 2026-07-31 im Pruefstand beobachtet: 150 Sekunden mit
+    /// „dekodiert 0/s", ohne dass ein zweites Mal angefordert wurde.
+    ///
+    /// Die Sitzung fragt das ab und fordert nach, solange es `true` ist.
+    pub fn wartet_auf_einstieg(&self) -> bool {
+        self.awaiting_keyframe
+    }
+
     /// Liefert der Decoder trotz voller Datenrate immer dasselbe Bild?
     ///
     /// **Warum es das braucht.** `av1_cuvid` kippt nach einem Aussetzer in
