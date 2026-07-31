@@ -3,10 +3,14 @@
 Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 (`streaming/linux-hq-sidecar/` im Pulse-Repo).
 
-**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`, jetzt
-Archiv). Dort stehen die Commits mit den Messbegründungen zu den Latenz- und
-Encoder-Werten; wer wissen will, warum eine Zahl so gesetzt ist, findet die
-Herleitung in der Historie des Archivs. Übernommen wurde `ba9cc48`.
+**Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`).
+Übernommen wurde `ba9cc48`, als sauberer Schnitt ohne Historien-Import — die
+Commits mit den einzelnen Messbegründungen zu den Latenz- und Encoder-Werten
+blieben also dort. **Das Repo auf GitHub existiert nicht mehr**; die Historie
+liegt seit 2026-07-31 als Bundle unter `historie/` in diesem Verzeichnis
+(65 Commits, klonbar — siehe `historie/README.md`). Wer wissen will, warum eine
+Zahl so gesetzt ist: die verdichtete Fassung steht weiter unten in dieser
+Datei, die einzelnen Schritte im Bundle.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
@@ -294,7 +298,17 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
 "Desktop + Mikrofon"; ggf. Audio-Silence-Insertion bei PipeWire-xruns (GSR macht das
 gegen Drift).
 
-## Memory / Plan
-- Projekt-Memory: `~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`
-  (`linux-rust-sidecar-rebuild.md` — vollständiger Stand/Phasen/Fällen).
-- Plan: `~/.claude/plans/shiny-meandering-tide.md`.
+## Wo sonst noch etwas steht
+
+- **Historie des alten Repos**: `historie/pulse-linux-hq-sidecar.bundle` — die 65
+  Commits mit den einzelnen Messbegründungen, als klonbares Bundle. Siehe
+  `historie/README.md`.
+- **Experimenteller Sendeweg**: `streaming/hq-labor/` (eigener WebRTC/WHIP-Push,
+  AV1-Paketierer, FEC). Eigenes Binary, bindet diesen Sidecar als Bibliothek ein
+  — hier wird dafür nichts geändert.
+- **Prüfstand und Messakten**: `streaming/testbench/` bzw. `.../profiles/`.
+
+Die früher hier genannten Pfade in `~/.claude/` (Projekt-Memory
+`linux-rust-sidecar-rebuild.md`, Plan `shiny-meandering-tide.md`) **existieren
+nicht mehr** — sie hingen am alten Repo-Verzeichnis und sind mit dem Umzug
+verfallen. Nicht suchen; was davon zählt, steht in dieser Datei.
