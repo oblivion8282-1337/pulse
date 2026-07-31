@@ -85,6 +85,38 @@ def ereignisse_lesen(pfad: Path, start: float, ziel: list[dict], stopp: threadin
                              "meldung": zeile.strip(), "_neu": True})
 
 
+def paritaet_auswerten(proben: list[dict]) -> dict:
+    """Was die FlexFEC-Paritaet ausgerichtet hat, aus der letzten `stats`-Probe.
+
+    **Warum aus der Probe und nicht aus dem Log.** Der Player meldet auf stderr
+    nur jede zehnte Reparatur; die genauen Staende stehen seit dem 2026-07-31
+    in der Statistik (`fec_repariert`/`fec_unreparierbar`/`fec_zu_spaet`). Der
+    erste Lauf dieses Werkzeugs sammelte die Proben zwar ein, schrieb aber nur
+    ihre ANZAHL in die Akte — die Zahlen, um derentwillen der Player umgebaut
+    worden war, landeten nirgends.
+
+    Die Zaehler sind kumulativ, der letzte Stand ist also der Endstand.
+    Fehlende Felder bedeuten einen aelteren Player, nicht null Reparaturen —
+    deshalb `None` statt 0, sonst liest sich „alter Player" wie „Paritaet ohne
+    Wirkung".
+    """
+    for probe in reversed(proben):
+        if "fec_repariert" in probe:
+            unrep = probe.get("fec_unreparierbar", 0)
+            rep = probe["fec_repariert"]
+            return {
+                "repariert": rep,
+                "unreparierbar": unrep,
+                "zu_spaet": probe.get("fec_zu_spaet", 0),
+                # Der Anteil, den XOR nicht schliessen konnte. Genau die Zahl
+                # entscheidet, ob Reed-Solomon (mehrere Loecher je Gruppe)
+                # ueberhaupt ein Problem loesen wuerde, das wir haben.
+                "unreparierbar_anteil": (round(unrep / (rep + unrep), 4)
+                                         if rep + unrep else None),
+            }
+    return {"hinweis": "keine fec_*-Felder in den Proben — aelterer Player?"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--secs", type=float, default=600.0)
@@ -180,6 +212,7 @@ def main() -> int:
         "betrieb": betrieb,
         "sekunden": round(args.secs, 1),
         "netz": netz,
+        "paritaet": paritaet_auswerten(proben),
         "vollbild_ereignisse": [{k: v for k, v in e.items() if not k.startswith("_")}
                                 for e in vollbilder],
         "player_proben": len(proben),

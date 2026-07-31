@@ -110,6 +110,10 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
     # eine Messung. Deckt der NACK-Zeitraum nicht den groessten Teil des
     # Laufs ab, ist die Auswertung ungueltig.
     nack_zeiten: list[float] = []
+    # Empfangsberichte des Players. Sie gehen im festen Takt hinaus, UNABHAENGIG
+    # davon, ob etwas verloren geht — deshalb sind sie das taugliche Lebenszeichen
+    # (s. `lebend` unten).
+    bericht_zeiten: list[float] = []
     erste_zeit: float | None = None
     letzte_zeit: float | None = None
 
@@ -157,6 +161,7 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
                     plis += 1
                 else:
                     rtcp_sonst += 1
+                    bericht_zeiten.append(zeit)
             continue
 
         if rtcp_typ(nutz) is not None:     # RTCP vom Server — hier uninteressant
@@ -189,13 +194,26 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
     verspaetung.sort()
     dauer = (letzte_zeit - erste_zeit) if (erste_zeit and letzte_zeit) else 0.0
     nack_spanne = (nack_zeiten[-1] - nack_zeiten[0]) if len(nack_zeiten) > 1 else 0.0
-    # Ein NACK-Zeitraum unter 60 % der Laufdauer heisst: der Player hat
-    # irgendwann aufgehoert nachzufordern. Bei gleichmaessiger Stoerung ueber
-    # den ganzen Lauf gibt es dafuer keinen guten Grund.
-    lebend = dauer > 0 and nack_spanne / dauer >= 0.6
+    # LEBENDKONTROLLE ueber die EMPFANGSBERICHTE, nicht ueber die NACKs.
+    #
+    # Bis zum 2026-07-31 hing sie an der NACK-Spanne — und das war falsch:
+    # NACKs entstehen NUR bei Verlust. Tritt die Stoerung in einem Block auf
+    # (etwa weil jemand die Leitung saettigt) und danach ist Ruhe, endet die
+    # NACK-Spanne lange vor dem Lauf, ohne dass irgendetwas kaputt ist. Genau
+    # so ist der FEC-Lauf vom 2026-07-31 faelschlich als ungueltig markiert
+    # worden: 279 s NACK-Spanne auf 606 s Lauf, waehrend der Player
+    # nachweislich bis zur letzten Sekunde 60 Bilder je Sekunde zeichnete.
+    #
+    # Empfangsberichte gehen im festen Takt hinaus, solange die Sitzung lebt.
+    # Sie messen also, was gemeint war: laeuft der Player noch.
+    bericht_spanne = (bericht_zeiten[-1] - bericht_zeiten[0]) if len(bericht_zeiten) > 1 else 0.0
+    lebend = dauer > 0 and bericht_spanne / dauer >= 0.6
     return {
         "mitschnitt_dauer_s": round(dauer, 1),
         "nack_zeitraum_s": round(nack_spanne, 1),
+        "empfangsberichte_zeitraum_s": round(bericht_spanne, 1),
+        # Heisst weiter `nack_deckt_lauf_ab`, damit aeltere Akten lesbar
+        # bleiben — gemessen wird jetzt an den Empfangsberichten.
         "nack_deckt_lauf_ab": lebend,
         "rtp_pakete_server_zu_player": rtp_hin,
         "nacks_player_zu_server": nacks,
