@@ -201,19 +201,34 @@ fn nack_intervall() -> Duration {
 /// ueberfluessig, also ueber ein Megabit je Sekunde und Zuschauer. Bei guter
 /// Leitung faellt nichts an, weil nichts nachgefordert wird.
 ///
-/// Der sinnvolle Wert ist etwa eine Umlaufzeit. 60 ms passen zur Messstrecke
-/// (59 ms); wer weiter weg sitzt, sollte hoeher stellen, sonst bleiben Kopien
-/// uebrig. `0` schaltet die Sperre ab.
-///
 /// **Die ERSTE Anforderung verzoegert das nicht** — eine frische Luecke geht
-/// sofort hinaus. Betroffen sind nur Wiederholungen, und der Preis dafuer ist,
-/// dass ein VERLORENES NACK erst nach der Sperrfrist nachgeholt wird.
+/// sofort hinaus. Betroffen sind nur Wiederholungen. Der Preis: ein
+/// VERLORENES NACK wird erst nach der Sperrfrist nachgeholt, und bei hohem
+/// Verlust geht auch mal eine Anforderung selbst verloren.
+///
+/// **Genau daran haengt der richtige Wert**, und er ist NICHT die volle
+/// Umlaufzeit. Gemessen bei 5 Prozent Verlust, je 120 s:
+///
+///     Sperre   Wiederholungen   Aufschlag   Vollbilder   endgueltig verloren
+///     aus          1354 kbit/s      54,0 %            5                   14
+///     20 ms         593 kbit/s      37,5 %           11                   15
+///     30 ms         422 kbit/s      32,0 %           26                   26
+///     60 ms         246 kbit/s      27,6 %           37                   44
+///
+/// Bei 20 ms bleibt der Verlust unveraendert (15 gegen 14), waehrend der
+/// Wiederholungsverkehr um 56 Prozent faellt. Ab 30 ms kippt es: der Verlust
+/// verdoppelt sich, bei 60 ms verdreifacht er sich. Die erste Fassung stand
+/// auf 60 ms — eine Umlaufzeit — und war damit dreimal zu hoch.
+///
+/// 20 ms sind etwa ein Drittel der Umlaufzeit dieser Strecke. Wer deutlich
+/// weiter weg sitzt, braucht mehr; sauber waere eine Kopplung an die gemessene
+/// Umlaufzeit. `0` schaltet die Sperre ab.
 fn nack_sperre() -> Duration {
     let ms = std::env::var("PULSE_PLAYER_NACK_SPERRE_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|ms| *ms <= 2000)
-        .unwrap_or(60);
+        .unwrap_or(20);
     Duration::from_millis(ms)
 }
 
