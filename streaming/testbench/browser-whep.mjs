@@ -61,6 +61,11 @@ function args() {
     secs: Number(wert('--secs', '30')),
     label: wert('--label', 'browser'),
     electron: a.includes('--electron'),
+    // Sichtbares Fenster statt headless — zum ZUSEHEN, nicht zum Messen.
+    // Achtung fuer Messungen: ein sichtbarer Chromium dekodiert ueber die
+    // GPU, ein headless ueber die Software-Anbindung. Das ist genau der
+    // Unterschied, an dem AV1 10 bit haengt.
+    sichtbar: a.includes('--sichtbar'),
   };
 }
 
@@ -76,6 +81,10 @@ async function offerBauen() {
   const v = document.createElement('video');
   v.autoplay = true;
   v.muted = true;
+  // Fensterfuellend und schwarz hinterlegt: ohne das ist das Element im
+  // sichtbaren Fenster winzig und man sieht nichts vom Bild.
+  document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+  v.style.cssText = 'width:100vw;height:100vh;object-fit:contain;display:block';
   document.body.appendChild(v);
   window.__video = v;
   pc.ontrack = (e) => { v.srcObject = e.streams[0]; };
@@ -177,6 +186,7 @@ async function main() {
     browser = app;
   } else {
     browser = await chromium.launch({
+      headless: !a.sichtbar,
       args: ['--autoplay-policy=no-user-gesture-required'],
     });
     page = await browser.newPage();

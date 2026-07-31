@@ -78,6 +78,8 @@ def main() -> int:
     # Ohne bewegtes Bild ist der Pixel-Fingerabdruck wertlos: ein stehender
     # Desktop liefert dieselben Pixel wie ein eingefrorener Decoder. Das
     # Zeitmuster sorgt fuer garantierte Bewegung in JEDEM Bild.
+    ap.add_argument("--sichtbar", action="store_true",
+                    help="Chromium-Fenster anzeigen (zum Zusehen statt Messen)")
     ap.add_argument("--muster", action="store_true",
                     help="Zeitmuster anzeigen (Pflicht fuer den Standbild-Nachweis)")
     args = ap.parse_args()
@@ -112,6 +114,8 @@ def main() -> int:
                   "--secs", str(int(args.secs)), "--label", args.label]
         if args.electron:
             befehl.append("--electron")
+        if args.sichtbar:
+            befehl.append("--sichtbar")
         browser = subprocess.Popen(befehl, cwd=HERE)
 
         # Der Browser braucht seinen Einstiegspunkt — und zwar WIEDERHOLT
