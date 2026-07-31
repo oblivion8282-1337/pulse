@@ -138,17 +138,29 @@ def paritaet_auswerten(proben: list[dict]) -> dict:
     """
     for probe in reversed(proben):
         if "fec_repariert" in probe:
-            unrep = probe.get("fec_unreparierbar", 0)
             rep = probe["fec_repariert"]
+            grenze = probe.get("fec_mehrfach_loch")
             return {
                 "repariert": rep,
-                "unreparierbar": unrep,
+                # Rechen- und Parse-Fehler. Steht praktisch immer auf 0 und
+                # sagt NICHTS ueber die Wirksamkeit der Paritaet.
+                "unreparierbar": probe.get("fec_unreparierbar", 0),
+                # Paritaet, die nichts bewirkt hat, weil die Nachforderung
+                # schneller war. Ein hoher Wert heisst „ueberfluessig", nicht
+                # „verloren".
+                "verworfen": probe.get("fec_verworfen"),
+                # Gruppen mit mehr als einem Loch — die Grenze von XOR und
+                # DIE Zahl, die darueber entscheidet, ob Reed-Solomon ein
+                # Problem loesen wuerde, das wir haben.
+                #
+                # Bis zum 2026-07-31 stand hier `unreparierbar_anteil`, der
+                # sich auf einen Zaehler stuetzte, der diesen Fall gar nicht
+                # sehen konnte. Er war in acht Laeufen 0 — auch dort, wo die
+                # Paritaet nachweislich versagte.
+                "mehrfach_loch": grenze,
+                "grenzfall_anteil": (round(grenze / (rep + grenze), 4)
+                                     if grenze is not None and rep + grenze else None),
                 "zu_spaet": probe.get("fec_zu_spaet", 0),
-                # Der Anteil, den XOR nicht schliessen konnte. Genau die Zahl
-                # entscheidet, ob Reed-Solomon (mehrere Loecher je Gruppe)
-                # ueberhaupt ein Problem loesen wuerde, das wir haben.
-                "unreparierbar_anteil": (round(unrep / (rep + unrep), 4)
-                                         if rep + unrep else None),
             }
     return {"hinweis": "keine fec_*-Felder in den Proben — aelterer Player?"}
 
@@ -373,7 +385,8 @@ def main() -> int:
                      if k in ("packets_received", "packets_lost", "packets_reordered",
                               "packets_duplicate", "frames_decoded", "frames_dropped",
                               "frames_skipped", "buffered_packets", "fec_repariert",
-                              "fec_unreparierbar", "fec_zu_spaet")}
+                              "fec_unreparierbar", "fec_verworfen", "fec_mehrfach_loch",
+                              "fec_zu_spaet")}
                     for pr in proben],
     }
     ziel = HERE / f"{args.label}.json"

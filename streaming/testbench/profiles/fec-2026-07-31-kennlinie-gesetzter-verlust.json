@@ -1,59 +1,164 @@
 {
-  "id": "fec-2026-07-31-kennlinie-gesetzter-verlust",
-  "gemessen_am": "2026-07-31 (Nacht, nach dem SRTP-Fensterfix)",
-  "frage": "Ab welcher Verlustrate lohnt sich 10+2 gegenueber 10+1 — und taugt der Plan, 10+1 als Dauerzustand zu fahren und bei schlechter Leitung hochzuschalten?",
-
-  "was_daran_neu_ist": "Erstmals mit GESETZTEM Verlust. Alle frueheren FEC-Vergleiche liefen bei dem, was die Leitung zufaellig gerade tat (rund 0,2 Prozent); Vergleiche zwischen Laeufen mit 0,14 und 0,33 Prozent tragen keine Aussage. Das neue Werkzeug `verluststrecke.py` legt den Verlust per netem ueber eine ifb-Umleitung auf den Empfangsweg und weist ihn nach (`tc -s`).",
-
-  "aufbau": "Je 180 s, echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, Zeitmuster, Player mit SRTP-Fenster 2048, PULSE_PLAYER_FLEXFEC=1. Keine Stoerzyklen noetig — der gesetzte Verlust liegt konstant an. Serverstand je Lauf per `docker inspect` verifiziert.",
-
-  "kennlinie_gleichverteilt": [
-    {"verlust": 0.5, "paritaet": "10+1", "aufschlag_prozent": 12.6, "paritaet_kbit": 375, "wiederholungen_kbit": 113, "plis": 1, "fec_repariert": 179, "bilder_min": 45, "sekunden_unter_30": 0},
-    {"verlust": 0.5, "paritaet": "10+2", "aufschlag_prozent": 21.9, "paritaet_kbit": 761, "wiederholungen_kbit": 126, "plis": 1, "fec_repariert": 593, "bilder_min": 44, "sekunden_unter_30": 0},
-    {"verlust": 2.0, "paritaet": "10+1", "aufschlag_prozent": 18.9, "paritaet_kbit": 248, "wiederholungen_kbit": 537, "plis": 1, "fec_repariert": 608, "bilder_min": 42, "sekunden_unter_30": 0},
-    {"verlust": 2.0, "paritaet": "10+2", "aufschlag_prozent": 24.0, "paritaet_kbit": 506, "wiederholungen_kbit": 499, "plis": 1, "fec_repariert": 671, "bilder_min": 44, "sekunden_unter_30": 0},
-    {"verlust": 5.0, "paritaet": "10+1", "aufschlag_prozent": 34.0, "paritaet_kbit": 112, "wiederholungen_kbit": 1303, "plis": 1, "fec_repariert": 206, "bilder_min": 44, "sekunden_unter_30": 0},
-    {"verlust": 5.0, "paritaet": "10+2", "aufschlag_prozent": 37.0, "paritaet_kbit": 179, "wiederholungen_kbit": 1372, "plis": 1, "fec_repariert": 133, "bilder_min": 46, "sekunden_unter_30": 0}
-  ],
-
-  "kennlinie_buendelverlust": [
-    {"verlust_gemessen": 3.925, "paritaet": "10+1", "aufschlag_prozent": 30.3, "paritaet_kbit": 233, "wiederholungen_kbit": 1027, "plis": 21, "einfrier_eingriffe": 1, "fec_repariert": 633, "bilder_min": 43, "sekunden_unter_30": 0},
-    {"verlust_gemessen": 3.834, "paritaet": "10+2", "aufschlag_prozent": 34.7, "paritaet_kbit": 487, "wiederholungen_kbit": 958, "plis": 2, "einfrier_eingriffe": 0, "fec_repariert": 257, "bilder_min": 45, "sekunden_unter_30": 0}
-  ],
-
-  "der_hauptbefund": {
-    "bei_gleichverteiltem_verlust_gibt_es_keinen_schnittpunkt": "In allen sechs Laeufen lief das Bild mit Median 60 Bildern durch, keine Sekunde unter 30, und genau EIN PLI — der vom Beitritt. Auch bei 5 Prozent Verlust. Die staerkere Paritaet liefert dort kein besseres Bild, sie kostet nur mehr.",
-    "bei_buendelverlust_schon_und_deutlich": "21 gegen 2 Vollbild-Anforderungen, bei praktisch gleicher Verlustrate (3,93 gegen 3,83 Prozent). Dazu ein Einfrier-Eingriff gegen keinen. Das ist der erste gemessene Fall, in dem 10+2 seinem Preis etwas entgegensetzt.",
-    "warum_das_mechanisch_stimmt": "XOR-Paritaet schliesst je Gruppe genau EIN Loch. Zwei aufeinanderfolgende Verluste in derselben Gruppe kann 10+1 nicht reparieren, 10+2 schon. Gleichverteilter Verlust trifft eine Gruppe fast nie zweimal — deshalb sieht man dort keinen Unterschied.",
-    "die_eigentliche_lehre": "**Nicht die Verlustrate entscheidet, sondern seine Struktur.** Eine Verlustrate von 4 Prozent ist harmlos, wenn sie gleichverteilt ist, und teuer, wenn sie in Buendeln kommt. Alle bisherigen Ueberlegungen im Labor haben nach der Rate gefragt."
+ "id": "fec-2026-07-31-kennlinie-gesetzter-verlust",
+ "gemessen_am": "2026-07-31 (Nacht, nach dem SRTP-Fensterfix)",
+ "frage": "Ab welcher Verlustrate lohnt sich 10+2 gegenueber 10+1 — und taugt der Plan, 10+1 als Dauerzustand zu fahren und bei schlechter Leitung hochzuschalten?",
+ "was_daran_neu_ist": "Erstmals mit GESETZTEM Verlust. Alle frueheren FEC-Vergleiche liefen bei dem, was die Leitung zufaellig gerade tat (rund 0,2 Prozent); Vergleiche zwischen Laeufen mit 0,14 und 0,33 Prozent tragen keine Aussage. Das neue Werkzeug `verluststrecke.py` legt den Verlust per netem ueber eine ifb-Umleitung auf den Empfangsweg und weist ihn nach (`tc -s`).",
+ "aufbau": "Je 180 s, echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, Zeitmuster, Player mit SRTP-Fenster 2048, PULSE_PLAYER_FLEXFEC=1. Keine Stoerzyklen noetig — der gesetzte Verlust liegt konstant an. Serverstand je Lauf per `docker inspect` verifiziert.",
+ "kennlinie_gleichverteilt": [
+  {
+   "verlust": 0.5,
+   "paritaet": "10+1",
+   "aufschlag_prozent": 12.6,
+   "paritaet_kbit": 375,
+   "wiederholungen_kbit": 113,
+   "plis": 1,
+   "fec_repariert": 179,
+   "bilder_min": 45,
+   "sekunden_unter_30": 0
   },
-
-  "was_das_fuer_die_geplante_regelung_heisst": {
-    "der_plan": "10+1 als Dauerzustand (12 Prozent), auf 10+2 hochschalten, wenn die Leitung laenger schlechter wird (23 Prozent).",
-    "das_problem": "Die Regelgroesse waere `fraction lost` — also die RATE. Genau die ist blind fuer den Fall, in dem die Umschaltung noetig waere: Buendel- und Gleichverlust sehen darin identisch aus. Die Regelung wuerde bei 4 Prozent gleichverteilt teuer hochschalten (wo 10+1 gereicht haette) und bei 4 Prozent in Buendeln genauso reagieren — richtig, aber aus dem falschen Grund, und ohne den Fall unterscheiden zu koennen.",
-    "empfehlung": "Die Regelung NICHT nach der Verlustrate bauen. Entweder bei 10+2 fest bleiben (Buendelverlust ist auf echten Strecken der Normalfall, nicht die Ausnahme), oder eine Regelgroesse verwenden, die Buendelung sieht — etwa den Anteil der Verluste, die auf einen unmittelbaren Vorgaenger folgen. Die laesst sich im Player aus dem Jitter-Puffer ableiten und ueber die Empfangsberichte melden; gebaut ist sie nicht.",
-    "vorlaeufige_entscheidung": "Bei 10+2 bleiben. Der Preisunterschied ist mit rund 10 Prozentpunkten real, aber der Buendelfall kostet bei 10+1 den zehnfachen PLI-Aufwand — und PLIs sind unter Intra-Refresh besonders teuer, weil jede ein Vollbild erzwingt."
+  {
+   "verlust": 0.5,
+   "paritaet": "10+2",
+   "aufschlag_prozent": 21.9,
+   "paritaet_kbit": 761,
+   "wiederholungen_kbit": 126,
+   "plis": 1,
+   "fec_repariert": 593,
+   "bilder_min": 44,
+   "sekunden_unter_30": 0
   },
-
-  "nebenbefund_der_zaehler_ist_blind": {
-    "beobachtung": "`unreparierbar` steht in ALLEN acht Laeufen auf 0 — auch im 10+1-Buendellauf, in dem XOR nachweislich versagt hat (21 PLIs, 633 Reparaturen gegen 3070 nachgeforderte Pakete).",
-    "schluss": "Damit ist belegt, was bisher nur vermutet war: der Zaehler erfasst den Fall 'Gruppe nicht rekonstruierbar' NICHT. Er zaehlt Rechen- und Parse-Fehler (`fec/empfaenger.rs`). Jede fruehere Aussage der Form 'XOR scheitert nie, deshalb braucht es kein Reed-Solomon' stuetzte sich auf eine Zahl, die diesen Fall gar nicht sehen kann.",
-    "folge": "Ob Reed-Solomon etwas braechte, ist weiterhin unbeantwortet — aber die 2 PLIs von 10+2 im Buendellauf zeigen, dass zwei XOR-Paritaetspakete den Fall weitgehend abdecken."
+  {
+   "verlust": 2.0,
+   "paritaet": "10+1",
+   "aufschlag_prozent": 18.9,
+   "paritaet_kbit": 248,
+   "wiederholungen_kbit": 537,
+   "plis": 1,
+   "fec_repariert": 608,
+   "bilder_min": 42,
+   "sekunden_unter_30": 0
   },
-
-  "nebenbefund_die_paritaet_bricht_unter_last_ein": {
-    "beobachtung": "Bei gleicher Nutzlast sinkt die Zahl der Paritaetspakete mit steigendem Verlust: 13690 (0,5 %) -> 9032 (2 %) -> 3200 (5 %). Gemessen als Anteil der Nutzlast faellt 10+2 von 18,7 auf 4,3 Prozent — statt der eingestellten 20.",
-    "was_es_nicht_ist": "Kein Messfehler des Mitschnitts (er liegt vor der Teststrecke, sieht also alles, was ankommt) und keine Drosselung des Senders (die Nutzlast bleibt bei 3888 bis 4201 kbit/s konstant).",
-    "folge_fuer_diese_messung": "Der 5-Prozent-Vergleich misst nicht '20 gegen 10 Prozent Paritaet', sondern zweimal 'fast keine'. Dass dort kein Unterschied sichtbar wird, ist deshalb KEIN Beleg dafuer, dass Paritaet bei hohem Verlust nichts nuetzt.",
-    "naechster_schritt": "pions FlexFEC-Interceptor ansehen (`interceptor/pkg/flexfec`). Der Patch setzt nur `NumMediaPackets`/`NumFECPackets`; die Erzeugung liegt in pion. Verdacht: eine Kopplung an die Senderate oder eine Warteschlange, die unter NACK-Last (hier bis 13811 Nachforderungen je Lauf) nicht mitkommt."
+  {
+   "verlust": 2.0,
+   "paritaet": "10+2",
+   "aufschlag_prozent": 24.0,
+   "paritaet_kbit": 506,
+   "wiederholungen_kbit": 499,
+   "plis": 1,
+   "fec_repariert": 671,
+   "bilder_min": 44,
+   "sekunden_unter_30": 0
   },
-
-  "einschraenkungen": [
-    "Ein Lauf je Punkt, 180 Sekunden. Fuer die Bildstabilitaet reicht das (die Werte sind eindeutig), fuer die Bandbreitenzahlen bei hohem Verlust nicht — dort verzerrt der Paritaets-Einbruch.",
-    "Buendelverlust nur an EINEM Punkt gemessen (Gilbert-Elliott mit r=50, mittlere Buendellaenge zwei Pakete). Laengere Buendel sind ungetestet; dort koennte auch 10+2 kippen.",
-    "Die Umlaufzeit betrug rund 59 ms. Dass Nachfordern den Stream traegt, haengt daran — bei doppelter Latenz sieht die Rechnung anders aus, weil eine Nachlieferung dann den Jitter-Puffer verpasst.",
-    "Nur ein Zuschauer. Die Paritaet wird je Verbindung gerechnet; der Einbruch unter Last koennte sich mit mehreren Zuschauern verschaerfen."
-  ],
-
-  "lehre": "Die Frage lautete drei Runden lang 'ab welcher Verlustrate lohnt sich mehr Paritaet'. Die Antwort ist, dass die Rate die falsche Frage war: bei 5 Prozent gleichverteiltem Verlust laeuft das Bild ohne jede Stoerung durch, bei 3,9 Prozent in Buendeln braucht es die zweite Paritaetsspur. Eine Kennlinie ueber die falsche Achse haette 'Paritaet bringt nichts' ergeben."
+  {
+   "verlust": 5.0,
+   "paritaet": "10+1",
+   "aufschlag_prozent": 34.0,
+   "paritaet_kbit": 112,
+   "wiederholungen_kbit": 1303,
+   "plis": 1,
+   "fec_repariert": 206,
+   "bilder_min": 44,
+   "sekunden_unter_30": 0
+  },
+  {
+   "verlust": 5.0,
+   "paritaet": "10+2",
+   "aufschlag_prozent": 37.0,
+   "paritaet_kbit": 179,
+   "wiederholungen_kbit": 1372,
+   "plis": 1,
+   "fec_repariert": 133,
+   "bilder_min": 46,
+   "sekunden_unter_30": 0
+  }
+ ],
+ "kennlinie_buendelverlust": [
+  {
+   "verlust_gemessen": 3.925,
+   "paritaet": "10+1",
+   "aufschlag_prozent": 30.3,
+   "paritaet_kbit": 233,
+   "wiederholungen_kbit": 1027,
+   "plis": 21,
+   "einfrier_eingriffe": 1,
+   "fec_repariert": 633,
+   "bilder_min": 43,
+   "sekunden_unter_30": 0
+  },
+  {
+   "verlust_gemessen": 3.834,
+   "paritaet": "10+2",
+   "aufschlag_prozent": 34.7,
+   "paritaet_kbit": 487,
+   "wiederholungen_kbit": 958,
+   "plis": 2,
+   "einfrier_eingriffe": 0,
+   "fec_repariert": 257,
+   "bilder_min": 45,
+   "sekunden_unter_30": 0
+  }
+ ],
+ "der_hauptbefund": {
+  "bei_gleichverteiltem_verlust_gibt_es_keinen_schnittpunkt": "In allen sechs Laeufen lief das Bild mit Median 60 Bildern durch, keine Sekunde unter 30, und genau EIN PLI — der vom Beitritt. Auch bei 5 Prozent Verlust. Die staerkere Paritaet liefert dort kein besseres Bild, sie kostet nur mehr.",
+  "bei_buendelverlust_schon_und_deutlich": "21 gegen 2 Vollbild-Anforderungen, bei praktisch gleicher Verlustrate (3,93 gegen 3,83 Prozent). Dazu ein Einfrier-Eingriff gegen keinen. Das ist der erste gemessene Fall, in dem 10+2 seinem Preis etwas entgegensetzt.",
+  "warum_das_mechanisch_stimmt": "XOR-Paritaet schliesst je Gruppe genau EIN Loch. Zwei aufeinanderfolgende Verluste in derselben Gruppe kann 10+1 nicht reparieren, 10+2 schon. Gleichverteilter Verlust trifft eine Gruppe fast nie zweimal — deshalb sieht man dort keinen Unterschied.",
+  "die_eigentliche_lehre": "**Nicht die Verlustrate entscheidet, sondern seine Struktur.** Eine Verlustrate von 4 Prozent ist harmlos, wenn sie gleichverteilt ist, und teuer, wenn sie in Buendeln kommt. Alle bisherigen Ueberlegungen im Labor haben nach der Rate gefragt."
+ },
+ "was_das_fuer_die_geplante_regelung_heisst": {
+  "der_plan": "10+1 als Dauerzustand (12 Prozent), auf 10+2 hochschalten, wenn die Leitung laenger schlechter wird (23 Prozent).",
+  "das_problem": "Die Regelgroesse waere `fraction lost` — also die RATE. Genau die ist blind fuer den Fall, in dem die Umschaltung noetig waere: Buendel- und Gleichverlust sehen darin identisch aus. Die Regelung wuerde bei 4 Prozent gleichverteilt teuer hochschalten (wo 10+1 gereicht haette) und bei 4 Prozent in Buendeln genauso reagieren — richtig, aber aus dem falschen Grund, und ohne den Fall unterscheiden zu koennen.",
+  "empfehlung": "Die Regelung NICHT nach der Verlustrate bauen. Entweder bei 10+2 fest bleiben (Buendelverlust ist auf echten Strecken der Normalfall, nicht die Ausnahme), oder eine Regelgroesse verwenden, die Buendelung sieht — etwa den Anteil der Verluste, die auf einen unmittelbaren Vorgaenger folgen. Die laesst sich im Player aus dem Jitter-Puffer ableiten und ueber die Empfangsberichte melden; gebaut ist sie nicht.",
+  "vorlaeufige_entscheidung": "Bei 10+2 bleiben. Der Preisunterschied ist mit rund 10 Prozentpunkten real, aber der Buendelfall kostet bei 10+1 den zehnfachen PLI-Aufwand — und PLIs sind unter Intra-Refresh besonders teuer, weil jede ein Vollbild erzwingt."
+ },
+ "nebenbefund_der_zaehler_ist_blind": {
+  "beobachtung": "`unreparierbar` steht in ALLEN acht Laeufen auf 0 — auch im 10+1-Buendellauf, in dem XOR nachweislich versagt hat (21 PLIs, 633 Reparaturen gegen 3070 nachgeforderte Pakete).",
+  "schluss": "Damit ist belegt, was bisher nur vermutet war: der Zaehler erfasst den Fall 'Gruppe nicht rekonstruierbar' NICHT. Er zaehlt Rechen- und Parse-Fehler (`fec/empfaenger.rs`). Jede fruehere Aussage der Form 'XOR scheitert nie, deshalb braucht es kein Reed-Solomon' stuetzte sich auf eine Zahl, die diesen Fall gar nicht sehen kann.",
+  "folge": "Ob Reed-Solomon etwas braechte, ist weiterhin unbeantwortet — aber die 2 PLIs von 10+2 im Buendellauf zeigen, dass zwei XOR-Paritaetspakete den Fall weitgehend abdecken."
+ },
+ "nebenbefund_die_paritaet_bricht_unter_last_ein": {
+  "beobachtung": "Bei gleicher Nutzlast sinkt die Zahl der Paritaetspakete mit steigendem Verlust: 13690 (0,5 %) -> 9032 (2 %) -> 3200 (5 %). Gemessen als Anteil der Nutzlast faellt 10+2 von 18,7 auf 4,3 Prozent — statt der eingestellten 20.",
+  "was_es_nicht_ist": "Kein Messfehler des Mitschnitts (er liegt vor der Teststrecke, sieht also alles, was ankommt) und keine Drosselung des Senders (die Nutzlast bleibt bei 3888 bis 4201 kbit/s konstant).",
+  "folge_fuer_diese_messung": "Der 5-Prozent-Vergleich misst nicht '20 gegen 10 Prozent Paritaet', sondern zweimal 'fast keine'. Dass dort kein Unterschied sichtbar wird, ist deshalb KEIN Beleg dafuer, dass Paritaet bei hohem Verlust nichts nuetzt.",
+  "naechster_schritt": "pions FlexFEC-Interceptor ansehen (`interceptor/pkg/flexfec`). Der Patch setzt nur `NumMediaPackets`/`NumFECPackets`; die Erzeugung liegt in pion. Verdacht: eine Kopplung an die Senderate oder eine Warteschlange, die unter NACK-Last (hier bis 13811 Nachforderungen je Lauf) nicht mitkommt."
+ },
+ "einschraenkungen": [
+  "Ein Lauf je Punkt, 180 Sekunden. Fuer die Bildstabilitaet reicht das (die Werte sind eindeutig), fuer die Bandbreitenzahlen bei hohem Verlust nicht — dort verzerrt der Paritaets-Einbruch.",
+  "Buendelverlust nur an EINEM Punkt gemessen (Gilbert-Elliott mit r=50, mittlere Buendellaenge zwei Pakete). Laengere Buendel sind ungetestet; dort koennte auch 10+2 kippen.",
+  "Die Umlaufzeit betrug rund 59 ms. Dass Nachfordern den Stream traegt, haengt daran — bei doppelter Latenz sieht die Rechnung anders aus, weil eine Nachlieferung dann den Jitter-Puffer verpasst.",
+  "Nur ein Zuschauer. Die Paritaet wird je Verbindung gerechnet; der Einbruch unter Last koennte sich mit mehreren Zuschauern verschaerfen."
+ ],
+ "lehre": "Die Frage lautete drei Runden lang 'ab welcher Verlustrate lohnt sich mehr Paritaet'. Die Antwort ist, dass die Rate die falsche Frage war: bei 5 Prozent gleichverteiltem Verlust laeuft das Bild ohne jede Stoerung durch, bei 3,9 Prozent in Buendeln braucht es die zweite Paritaetsspur. Eine Kennlinie ueber die falsche Achse haette 'Paritaet bringt nichts' ergeben.",
+ "NACHTRAG_2026-07-31_beide_offenen_punkte_repariert": {
+  "1_die_paritaet_brach_unter_last_ein": {
+   "ursache": "pions `flexfec_encoder_03.go` verwirft eine GANZE Gruppe, sobald die Sequenznummern im Puffer nicht lueckenlos sind (`return nil`). Genau das tut jede Nachlieferung: der NACK-Responder wiederholt auf demselben SSRC, und in pions Kette ist der zuerst registrierte Interceptor der INNERSTE — FlexFEC steht vor ConfigureNack, liegt also innen, und jede Wiederholung laeuft durch seinen Writer in den Puffer.",
+   "fix": "Wiederholungen werden vor dem Puffer herausgefiltert (RFC-1982-Vergleich der Sequenznummern). Patch gegen vendoriertes pion, MediaMTX neu gebaut; Binary auf dem Labor-Server, das alte liegt als `mediamtx.vor-fecfix` daneben.",
+   "wirkung_gemessen": "Bei 5 Prozent Verlust und 10+2: 3200 -> 16316 Paritaetspakete, Verhaeltnis Medien:Paritaet von 25,3:1 auf exakt 5,0:1 (Soll).",
+   "folge_fuer_die_kennlinie_oben": "**Die 5-Prozent-Zeilen sind damit hinfaellig.** Sie massen zweimal 'fast keine Paritaet'. Der Aufschlag bei 5 Prozent steigt mit funktionierender Paritaet von 37,0 auf 54,0 Prozent — der guenstige Wert war guenstig, WEIL die Paritaet kaputt war. Die 0,5- und 2-Prozent-Zeilen sind weniger betroffen (dort fielen 10 bzw. 43 Prozent der Gruppen aus), aber ebenfalls nicht sauber."
+  },
+  "2_der_blinde_zaehler": {
+   "fix": "Drei getrennte Zahlen statt einer ueberladenen: `unreparierbar` (Rechen-/Parse-Fehler, enge Bedeutung), `verworfen` (Paritaet ohne Wirkung, weil die Nachforderung schneller war) und `mehrfach_loch` (Gruppen mit mehr als einem Loch = die Grenze von XOR). Drei Tests sichern das ab.",
+   "zwischenfall": "Die erste Fassung erweiterte `unreparierbar` auf 'alles, was nicht repariert wurde' und meldete 11719 bei 8158 Gruppen — waehrend dem Jitter-Puffer im selben Lauf 14 Pakete fehlten. Also erneut eine Zahl, die etwas anderes misst als ihr Name sagt. Korrigiert, bevor sie in eine Akte kam."
+  },
+  "was_die_neuen_zahlen_zeigen": {
+   "messung": "2 Prozent Buendelverlust, 150 s, beide Fixes aktiv.",
+   "10+1": {
+    "mehrfach_loch": 3962,
+    "repariert": 929,
+    "grenzfall_anteil": 0.81,
+    "verworfen": 3525,
+    "packets_lost": 0
+   },
+   "10+2": {
+    "mehrfach_loch": 8354,
+    "repariert": 652,
+    "grenzfall_anteil": 0.93,
+    "verworfen": 8018,
+    "packets_lost": 3
+   },
+   "die_reed_solomon_frage_ist_beantwortet": "XOR kommt bei Buendelverlust in 81 bis 93 Prozent der Faelle an seine Grenze. Die frueher gemeldete Null war blind. Reed-Solomon haette hier also tatsaechlich Substanz — es wuerde Gruppen loesen, an denen XOR scheitert.",
+   "aber_es_wird_trotzdem_nicht_gebraucht": "Endgueltig verloren gingen 0 bzw. 3 Pakete. Die Loecher werden per Nachforderung geschlossen, bevor sie zaehlen — bei 59 ms Umlaufzeit ist NACK schneller als jede Paritaetsrechnung. Reed-Solomon wuerde ein Problem loesen, das NACH dem Nachfordern nicht mehr besteht.",
+   "einschraenkung": "`mehrfach_loch` zaehlt je PARITAETSPAKET, nicht je Gruppe — 10+2 hat doppelt so viele davon und deshalb naturgemaess einen hoeheren Wert. Der `grenzfall_anteil` taugt damit als Aussage INNERHALB einer Einstellung, nicht als Vergleich zwischen 10+1 und 10+2."
+  },
+  "was_jetzt_neu_zu_messen_waere": "Die Kennlinie mit funktionierender Paritaet noch einmal — erst die traegt belastbare Aufschlagszahlen. Die Empfehlung (10+2, weil Buendelverlust der reale Fall ist) hat sich durch die Reparatur eher bestaetigt: mit voller Paritaet repariert 10+2 unter Buendelverlust 1338 statt 257 Pakete und laesst KEIN Paket endgueltig verloren gehen (10+1: 19)."
+ }
 }

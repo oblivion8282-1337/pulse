@@ -134,6 +134,13 @@ hierher genommen:
   abschaltbar.
 * `0003-flexfec-on-whep.patch` — FlexFEC-03 auf dem WHEP-Ausgang
   (`PULSE_FLEXFEC=1`, Verhältnis über `PULSE_FLEXFEC_MEDIA`/`_FEC`).
+* `0005-flexfec-nachlieferungen-nicht-puffern.patch` — **geht gegen
+  vendorierten pion-Code, nicht gegen MediaMTX**, und muss deshalb nach
+  `go mod vendor` angewandt werden. Ohne ihn zerstört jede NACK-Nachlieferung
+  die Lückenlosigkeit des FEC-Puffers, `EncodeFec` gibt `nil` zurück, und die
+  ganze Gruppe bleibt ungeschützt: bei 5 % Verlust kamen so nur 3200 statt
+  16316 Paritätspakete zustande — der Schutz brach genau dann zusammen, wenn
+  er gebraucht wurde. Die vollständige Bauanleitung steht im Patch-Kopf.
 
 **Sie liegen hier, damit sie nicht ausgeliefert werden.** In
 `infra/mediamtx-fork/patches/` würde jeder von ihnen beim nächsten `main`-Push
