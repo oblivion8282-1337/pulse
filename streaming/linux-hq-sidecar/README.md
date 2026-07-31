@@ -14,8 +14,10 @@ WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
 ## Stack
 - **Capture**: xdg-desktop-portal ScreenCast → PipeWire-DMABUF, zero-copy in den Encoder.
 - **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 (System-FFmpeg,
-  pkg-config). Codecs: **nur H264 + AV1** (kein HEVC). Encoder-Optionen orientieren sich
-  an GSR (`tune=ll`/`rc=cbr`/`b_ref_mode=0` für NVENC; `rc_mode=CBR`/`async_depth=3` für VAAPI).
+  pkg-config). Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
+  zurück, sind aber **nicht mehr 1:1** — maßgeblich ist `encode/opts.rs`, dort steht an
+  jedem Wert die Messung (etwa VAAPI `async_depth=1` statt GSRs 3: der Vorlauf kostete
+  zwei Bildabstände, 33,6 → 5,3 ms).
 - **Push**: FLV-Mux → RTMPS an MediaMTX (`tls_verify=0`, GnuTLS-Backend im System-FFmpeg —
   kein Custom-Build nötig, anders als bei macOS). Viewer holen per WHEP.
 - **Threading**: `std::thread` + `mpsc`, kein Tokio im Main-Loop (nur scoped für die

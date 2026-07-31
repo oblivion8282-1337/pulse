@@ -108,6 +108,12 @@ streaming/server/certs/
 # höher (webrtc-rs + wgpu + FFmpeg-Bindings, ~2 GB, 8000+ Dateien).
 /streaming/pulse-player/target/
 
+# Bau-Cache des Windows-Input-PoC (~54 MB). Dieselbe Falle wie eine Zeile
+# darueber, nur mit dem Quelltext auf `feat/remote-control-windows`: Der PoC
+# bringt seine eigene `/target`-.gitignore mit, die ist aber mitversioniert und
+# verschwindet beim Wechsel auf einen Branch ohne ihn. Zurueck bleibt das
+# ignorierte Bau-Verzeichnis, das dann NICHT mehr ignoriert ist.
+
 # electron-packager output (Pulse-<platform>-<arch>{/,.zip})
 Pulse-*-*/
 Pulse-*-*.zip

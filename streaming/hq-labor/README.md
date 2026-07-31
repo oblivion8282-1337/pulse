@@ -48,6 +48,18 @@ und das ist bewusst in Kauf genommen: erst wenn feststeht, welche Teile des
 Messstands bleiben, lohnt es, eine saubere Naht (ein Trait „Paketsenke") in
 die Bibliothek zu ziehen und die Kopien wieder aufzulösen.
 
+**Der Preis ist sofort fällig geworden** — schon am Tag der Trennung hatte die
+Bibliothek eine Signatur geändert (`opts::vendor_opts` nahm plötzlich den
+Codec entgegen, aus der AMD-Encoder-Arbeit vom 2026-07-30), und die Kopie
+brach. Der Compiler hat es gefangen, aber nicht jede Drift tut ihm den
+Gefallen: eine geänderte **Konstante** in der Kopie fällt nicht auf, sie
+verschiebt nur still die Messung.
+
+**Beim nächsten Eingriff am ausgelieferten Sidecar deshalb abgleichen** —
+mindestens die messrelevanten Werte. Stand 2026-07-31 geprüft und gleich:
+`DEFAULT_INTERLEAVE_US = 10_000`; die Encoder-Optionen (`opts.rs`) teilt sich
+das Labor ohnehin mit der Bibliothek, dort kann nichts auseinanderlaufen.
+
 ## Bauen und fahren
 
 ```bash

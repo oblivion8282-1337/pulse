@@ -19,8 +19,9 @@ Zwei Sender stehen zur Wahl, und der Unterschied ist der Witz an der Sache:
 * Dev-Infrastruktur läuft: MediaMTX (`streaming/server/docker-compose.yml`),
   Redis auf 6380, `mediamtx-auth-hook` auf 8005. `scripts/dev-up.fish` bringt alles.
 * `pulse-player` gebaut: `cd streaming/pulse-player && cargo build --release`.
-* Für `real-harness.py` zusätzlich der Linux-Sidecar (eigenes Repo, Pfad in
-  `real-harness.py`).
+* Für `real-harness.py` zusätzlich der Linux-Sidecar — liegt im Baum
+  (`streaming/linux-hq-sidecar/`), muss aber gebaut sein
+  (`cargo build --release`); Pfad-Kandidaten stehen in `real-harness.py`.
 * Für `harness.py` einmalig die Vorlage erzeugen (bleibt liegen, ~32 MB):
 
   ```bash

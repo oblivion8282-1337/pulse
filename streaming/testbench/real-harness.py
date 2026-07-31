@@ -31,11 +31,9 @@ from harness import CID, HERE, Player, mint_tokens
 # weiterhin moeglich, WHIP-Laeufe fallen still auf H.264 zurueck (der
 # ffmpeg-Muxer kann kein AV1). Am 2026-07-30 genau so passiert, deshalb sagt
 # `sender_starten` es inzwischen laut.
-_REPO = Path(__file__).resolve().parents[2]
 _KANDIDATEN = [
-    _REPO / "streaming/hq-labor/target/release/pulse-hq-labor",
-    _REPO / "streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar",
-    Path.home() / "Dokumente/Linux_Rust_Sidecar/target/release/pulse-linux-hq-sidecar",
+    HERE.parent / "hq-labor/target/release/pulse-hq-labor",
+    HERE.parent / "linux-hq-sidecar/target/release/pulse-linux-hq-sidecar",
 ]
 SIDECAR = Path(os.environ["PULSE_LINUX_HQ_SIDECAR"]) if os.environ.get(
     "PULSE_LINUX_HQ_SIDECAR"

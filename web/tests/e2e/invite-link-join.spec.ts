@@ -11,6 +11,7 @@
  */
 
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { E2E_BASE_URL } from './_ports';
 
 const ts = Date.now();
 const ALICE = {
@@ -82,7 +83,9 @@ test.describe.serial('Invite-Link Join E2E', () => {
     const linkEl = alicePage.getByTestId('invite-share-link');
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     inviteLink = (await linkEl.textContent())!.trim();
-    expect(inviteLink).toMatch(/^http:\/\/127\.0\.0\.1:5173\/invite\/[A-Za-z0-9]{6,}$/);
+    expect(inviteLink).toMatch(
+      new RegExp(`^${E2E_BASE_URL.replace(/[.]/g, '\\.')}/invite/[A-Za-z0-9]{6,}$`)
+    );
     await alicePage.keyboard.press('Escape');
   });
 

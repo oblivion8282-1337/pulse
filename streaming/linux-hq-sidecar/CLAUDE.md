@@ -4,13 +4,22 @@ Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 (`streaming/linux-hq-sidecar/` im Pulse-Repo).
 
 **Lag bis 2026-07-29 in einem eigenen Repo** (`pulse-linux-hq-sidecar`).
-Übernommen wurde `ba9cc48`, als sauberer Schnitt ohne Historien-Import — die
-Commits mit den einzelnen Messbegründungen zu den Latenz- und Encoder-Werten
-blieben also dort. **Das Repo auf GitHub existiert nicht mehr**; die Historie
-liegt seit 2026-07-31 als Bundle unter `historie/` in diesem Verzeichnis
-(65 Commits, klonbar — siehe `historie/README.md`). Wer wissen will, warum eine
-Zahl so gesetzt ist: die verdichtete Fassung steht weiter unten in dieser
-Datei, die einzelnen Schritte im Bundle.
+Übernommen wurde `ba9cc48` als sauberer Schnitt ohne Historien-Import; das
+Quell-Repo ist am 2026-07-30 gelöscht. **Vor dem Import-Commit gibt es hier
+also keine Historie** — `git log`/`git blame` enden dort, das ist kein Fehler.
+
+**Warum eine Zahl so gesetzt ist**, drei Quellen, sonst keine:
+1. `docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md` im Pulse-Repo — die
+   Messbegründungen aus der alten Historie (Latenzkette, Encoder-Werte,
+   Puffergrößen und vor allem die **geprüft-und-verworfenen** Versuche).
+2. Der Code-Kommentar an der Stelle selbst. Für Werte, die nach dem Umzug
+   gewandert sind (AMD-Encoder-Arbeit), ist **er** die gültige Begründung —
+   das Dokument beschreibt den Stand `ba9cc48`.
+3. `historie/pulse-linux-hq-sidecar.bundle` — die alte Historie selbst, 65
+   Commits, klonbar (siehe `historie/README.md`). Punkt 1 ist der Extrakt
+   daraus; wer den einzelnen Schritt mit seinem Diff sucht, findet ihn nur
+   hier. Gesichert am 2026-07-31, weil der lokale Klon nach der Löschung des
+   Quell-Repos die einzige verbliebene Kopie war.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
@@ -48,9 +57,15 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   → ffmpeg-8.1-WHIP-Muxer (WebRTC-Ingest für Gäste auf App-gehosteten Instanzen;
   RTMPS bleibt Default/Cloud-Pfad). AV1 kann der WHIP-Muxer nicht → auto-Fallback
   auf H.264 in `ops/start.rs`. Plan: pulse-Repo `docs/plans/2026-07-12-whip-guest-publish.md`.
-- Encoder-Settings orientieren sich an GSR (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`):
-  NVENC `tune=ll/rc=cbr/b_ref_mode=0/coder=cabac`, VAAPI `rc_mode=CBR/async_depth=3/coder=cabac`.
-  GSR nutzt selbst ffmpeg-Encoder (`h264_nvenc`/`h264_vaapi`) via av_dict — Settings ~1:1.
+- Encoder-Settings gehen auf GSR zurück (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`,
+  nutzt selbst `h264_nvenc`/`h264_vaapi` via av_dict) — aber **nicht mehr 1:1**. Maßgeblich ist
+  `encode/opts.rs`, dort steht an jedem Wert die Messung. Der Stand nach 2026-07-30:
+  NVENC `tune=ll/rc=cbr/b_ref_mode=0` **+ `preset=p2` + `zerolatency=1`/`delay=0`**,
+  VAAPI `rc_mode=CBR` + **`async_depth=1`** (GSR: 3 — der Vorlauf kostete zwei Bildabstände,
+  33,6 → 5,3 ms). `coder=cabac` **nur bei H.264**: bei `av1_nvenc`/`av1_vaapi` existiert die
+  Option nicht, und AV1 ist der Standard-Codec — unbedingt gesetzt wurde sie bis 2026-07-30
+  bei jedem AV1-Stream still verworfen. `low_power` bleibt ungesetzt (Intel-VDENC-Pfad; auf
+  AMD scheitert der Encoder-Open damit hart).
 
 ## Tonraster bestimmt die Bild-Gleichmäßigkeit (gemessen 2026-07-26)
 
@@ -68,11 +83,18 @@ Zwei Schrauben, und nur eine ist die richtige:
 * **Richtig: an der Quelle.** `OPUS_FRAME_MS = 5` (`encode/audio.rs`) plus
   `node.latency = 240/48000` (`capture/audio.rs`). Wirkt bei JEDER Bildrate,
   die Schreibreihenfolge bleibt intakt.
-* **Falsch: `max_interleave_delta` klein machen.** Das schreibt Bilder VOR dem
-  Ton, die Reihenfolge kippt und der Muxer beendet den Stream
-  (`write_interleaved: Invalid argument`). Delta 2 ms lief bei 144 fps und starb
-  bei 280 fps — eine Falle, die nur bei hohen Bildraten zuschnappt. Der Wert
-  steht deshalb bewusst auf 100 ms und ist nur noch Notbremse.
+* **Nicht ALLEIN: `max_interleave_delta` klein machen** — und nicht zu klein.
+  Zu klein schreibt Bilder VOR dem Ton, die Reihenfolge kippt und der Muxer
+  beendet den Stream (`write_interleaved: Invalid argument`). Delta 1 us starb
+  sofort, Delta 2 ms lief bei 144 fps und starb bei 280 fps — eine Falle, die
+  nur bei hohen Bildraten zuschnappt.
+
+  **Der Wert steht seit 2026-07-27 auf 10 ms** (`DEFAULT_INTERLEAVE_US` in
+  `encode/mod.rs`), nicht mehr auf 100. Hier stand bis 2026-07-30 noch „bewusst
+  auf 100 ms und nur noch Notbremse" — das war der Stand VOR der Messreihe, die
+  99,8 auf 82,3 ms geholt hat. 10 ms hält zur Kante Abstand (bei 280 fps
+  dreimal über 16 s ohne Fehler), und 3 ms wie 1 ms brachten bei 60 fps nichts
+  mehr. Die volle Begründung mit Tabelle steht am Konstanten-Docstring.
 
 Ergebnis am Prüfstand (`streaming/testbench/` im Pulse-Repo), gezählt werden
 Ausgabe-Abstände über dem doppelten Soll je Sekunde:
@@ -298,17 +320,7 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
 "Desktop + Mikrofon"; ggf. Audio-Silence-Insertion bei PipeWire-xruns (GSR macht das
 gegen Drift).
 
-## Wo sonst noch etwas steht
-
-- **Historie des alten Repos**: `historie/pulse-linux-hq-sidecar.bundle` — die 65
-  Commits mit den einzelnen Messbegründungen, als klonbares Bundle. Siehe
-  `historie/README.md`.
-- **Experimenteller Sendeweg**: `streaming/hq-labor/` (eigener WebRTC/WHIP-Push,
-  AV1-Paketierer, FEC). Eigenes Binary, bindet diesen Sidecar als Bibliothek ein
-  — hier wird dafür nichts geändert.
-- **Prüfstand und Messakten**: `streaming/testbench/` bzw. `.../profiles/`.
-
-Die früher hier genannten Pfade in `~/.claude/` (Projekt-Memory
-`linux-rust-sidecar-rebuild.md`, Plan `shiny-meandering-tide.md`) **existieren
-nicht mehr** — sie hingen am alten Repo-Verzeichnis und sind mit dem Umzug
-verfallen. Nicht suchen; was davon zählt, steht in dieser Datei.
+## Memory / Plan
+- Projekt-Memory: `~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`
+  (`linux-rust-sidecar-rebuild.md` — vollständiger Stand/Phasen/Fällen).
+- Plan: `~/.claude/plans/shiny-meandering-tide.md`.
