@@ -47,22 +47,27 @@ def ist_rtcp(nutz: bytes) -> bool:
     return 64 <= (nutz[1] & 0x7F) <= 95
 
 
-def sammeln(pfad: Path, server_ip: str) -> tuple[dict, dict, dict, int, int, float]:
-    """(pakete, bytes, wiederholte_bytes) je SSRC + RTCP-Pakete/Bytes + Dauer."""
+def pakete_lesen(pfad: Path, server_ip: str):
+    """Jedes RTP/RTCP-Paket des Mitschnitts einzeln, als Wortfolge.
+
+    Liefert ``(zeit, vom_server, ist_rtcp, ssrc, seq, laenge)`` — `ssrc` und
+    `seq` sind bei RTCP `None`. `laenge` ist die ECHTE Paketlaenge aus dem
+    pcap-Kopf, nicht die mitgeschnittene (der Pruefstand schneidet mit
+    ``-s 120`` ab, sonst kaeme ueberall 120 heraus).
+
+    **Eigene Funktion, weil zwei Werkzeuge dieselbe Schleife brauchen**
+    ([`sammeln`] fuer die Summen, `fec-verlauf.py` fuer den Zeitverlauf). Zwei
+    Fassungen davon wuerden auseinanderlaufen, sobald jemand einen Filter
+    aendert — und ein Filterfehler faellt hier nicht auf: die Zahlen sehen
+    weiter plausibel aus. Genau so sind am 2026-07-29 aus 2663 STUN-Paketen
+    „505 Nachlieferungen" geworden.
+    """
     ziel = bytes(int(x) for x in server_ip.split("."))
     roh = pfad.read_bytes()
     magic = struct.unpack("<I", roh[:4])[0]
     if magic not in (0xA1B2C3D4, 0xA1B23C4D):
         raise SystemExit(f"unbekanntes pcap-Magic {magic:08x}")
     teiler = 1e6 if magic == 0xA1B2C3D4 else 1e9
-
-    pakete: dict[int, int] = defaultdict(int)
-    groesse: dict[int, int] = defaultdict(int)
-    wieder: dict[int, int] = defaultdict(int)
-    fenster: dict[int, deque] = defaultdict(deque)
-    gesehen: dict[int, set] = defaultdict(set)
-    rtcp_n = rtcp_b = 0
-    erste = letzte = None
 
     pos, n = 24, len(roh)
     while pos + 16 <= n:
@@ -77,19 +82,40 @@ def sammeln(pfad: Path, server_ip: str) -> tuple[dict, dict, dict, int, int, flo
         if pkt[14 + 9] != 17:                       # nur UDP
             continue
         nutz = pkt[14 + ihl + 8:]
-        if not ist_rtp_oder_rtcp(nutz):
+        if not ist_rtp_oder_rtcp(nutz):             # STUN/DTLS aussortieren
             continue
-        if pkt[14 + 12:14 + 16] != ziel:            # nur Server -> Player
+        vom_server = pkt[14 + 12:14 + 16] == ziel
+        zum_server = pkt[14 + 16:14 + 20] == ziel
+        if not (vom_server or zum_server):
+            continue
+        if ist_rtcp(nutz):
+            yield zeit, vom_server, True, None, None, orig
+            continue
+        seq = struct.unpack(">H", nutz[2:4])[0]
+        ssrc = struct.unpack(">I", nutz[8:12])[0]
+        yield zeit, vom_server, False, ssrc, seq, orig
+
+
+def sammeln(pfad: Path, server_ip: str) -> tuple[dict, dict, dict, int, int, float]:
+    """(pakete, bytes, wiederholte_bytes) je SSRC + RTCP-Pakete/Bytes + Dauer."""
+    pakete: dict[int, int] = defaultdict(int)
+    groesse: dict[int, int] = defaultdict(int)
+    wieder: dict[int, int] = defaultdict(int)
+    fenster: dict[int, deque] = defaultdict(deque)
+    gesehen: dict[int, set] = defaultdict(set)
+    rtcp_n = rtcp_b = 0
+    erste = letzte = None
+
+    for zeit, vom_server, rtcp, ssrc, seq, orig in pakete_lesen(pfad, server_ip):
+        if not vom_server:
             continue
         if erste is None:
             erste = zeit
         letzte = zeit
-        if ist_rtcp(nutz):
+        if rtcp:
             rtcp_n += 1
             rtcp_b += orig
             continue
-        seq = struct.unpack(">H", nutz[2:4])[0]
-        ssrc = struct.unpack(">I", nutz[8:12])[0]
         pakete[ssrc] += 1
         groesse[ssrc] += orig
         f, m = fenster[ssrc], gesehen[ssrc]

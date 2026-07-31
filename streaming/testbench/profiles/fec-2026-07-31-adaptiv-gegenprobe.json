@@ -1,0 +1,51 @@
+{
+  "id": "fec-2026-07-31-adaptiv-gegenprobe",
+  "gemessen_am": "2026-07-31 (spaeter Nachmittag)",
+  "frage": "Geht das Tor der adaptiven Paritaet auf, wenn wirklich etwas verloren geht — und wie schnell?",
+
+  "warum_die_frage_zaehlt": "Der Ruhelauf (`fec-2026-07-31-adaptiv-eingeschaltet`) belegte nur die Sparfunktion: kein Verlust, kein Paritaetsstrom, 1281 kbit/s gespart. Die Schutzfunktion war damit unbewiesen — eine Regelung, die immer zu bleibt, ist keine Regelung, sondern ein Ausschalter.",
+
+  "aufbau": {
+    "gemeinsam": "Wie `fec-2026-07-31-adaptiv-eingeschaltet`: echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, PULSE_FLEXFEC_ADAPTIV=1, Schwelle 1 Prozent, PULSE_PLAYER_FLEXFEC=1. 600 Sekunden.",
+    "stoerung": "Vom Nutzer gesetzt: ein Speedtest vom Mobiltelefon ueber dieselbe Leitung, angekuendigt bei Laufsekunde 194 (pcap-Sekunde rund 201). Reproduzierbar, aber nicht quantifiziert — es ist Saettigung, kein gesetzter Paketverlust.",
+    "ruhephase_davor": "194 Sekunden ohne ein einziges Paritaetspaket — der Ausgangszustand ist belegt, nicht angenommen."
+  },
+
+  "ergebnis": {
+    "das_tor_geht_auf": true,
+    "verzug_sekunden": 1,
+    "torfenster": "Sekunde 201 bis 201 — EINE Sekunde, 8 Paritaetspakete",
+    "sekunden_mit_verlust": 14,
+    "vollbild_anforderungen": 7,
+    "aufschlag": {
+      "nutzlast_kbit": 4231,
+      "paritaet_kbit": 0,
+      "wiederholungen_kbit": 205,
+      "gesamt_kbit": 4438,
+      "aufschlag_prozent": 4.9
+    }
+  },
+
+  "was_das_heisst": {
+    "die_reaktionszeit_ist_nicht_das_problem": "GEMESSEN: 1 Sekunde zwischen erstem Verlust und erstem Paritaetspaket — das ist rund ein Empfangsbericht-Intervall, also das theoretische Minimum dieser Bauart. Die in der FEC-Analyse befuerchtete Traegheit des Anfangsfensters ist damit entkraeftet.",
+    "das_durchhalten_ist_das_problem": "GEMESSEN: 8 Paritaetspakete gegen 14 Sekunden Verlust und 7 Vollbild-Anforderungen. Das Tor faellt nach einer Sekunde wieder zu, waehrend die Stoerung weiterlaeuft. Die Regelung hat in dieser Messung praktisch nichts geschuetzt.",
+    "verdacht_zur_ursache": "VERMUTET, nicht gemessen: Die Regelgroesse ist `fraction lost` aus dem Empfangsbericht — also das, was am Ende fehlt, NACHDEM NACK die Luecken gefuellt hat. Fuer Intra-Refresh ist das die falsche Groesse: die Nachlieferungen kommen zu 81 Prozent zu spaet fuers Bild (`hq-2026-07-31-intra-refresh-echter-sender`), zaehlen fuer den Bericht aber als angekommen. Die Regelung waere danach nach ihrer eigenen Logik korrekt und fuer diesen Betrieb blind.",
+    "saettigung_ist_kein_fec_fall": "Der Speedtest saettigt die Leitung. Dabei gehen Pakete nicht verloren, sie kommen zu spaet — dagegen hilft keine Paritaet. Die 14 Sekunden mit Wiederholungen zeigen zwar echten Verlust, aber der Hauptschaden entsteht durch Verzoegerung."
+  },
+
+  "schwerer_nebenbefund_player_friert_ein": {
+    "beobachtung": "Nach dem Stoerblock (letzte Vollbild-Anforderung Sekunde 208,5) zeigte der Player ein SAUBER EINGEFRORENES Bild — vom Nutzer gesehen und bestaetigt — und erholte sich bis zum Ende des Laufs (Sekunde 600) nicht.",
+    "warum_das_schwer_wiegt": "Saemtliche Kennzahlen blieben dabei gruen: dekodiert 60/s, gezeichnet 59-61/s, 4168 kbit/s empfangen, `uebersprungen` konstant, `nie gezeichnet` 0, kein weiterer Paketverlust. Der Player hielt sich fuer gesund und stellte KEINE weitere Vollbild-Anforderung. Ein Nutzer saehe ein Standbild, und keine Messung wuerde es melden.",
+    "was_es_eingrenzt": "Der Sender encodierte durchgehend rund 41 unterschiedliche Bilder je Sekunde (61 minus 20 Duplikate), schickte also nachweislich Bewegung. Intra-Refresh erneuert zudem jeden Bildbereich binnen zwei Sekunden — ein beschaedigter Referenzrahmen waere laengst ausgewaschen. Ein SAUBER eingefrorenes Bild bei voller Datenrate deutet damit hinter den Decoder: auf die Uebergabe zwischen `av1_cuvid` und der Darstellung. VERMUTET, nicht diagnostiziert.",
+    "naechster_schritt": "`PULSE_PLAYER_DUMP_RTP` mitschreiben, den Mitschnitt offline dekodieren und ansehen. Zeigt er Bewegung, liegt der Fehler in der Darstellung; zeigt er ein Standbild, davor. Eine Ja/Nein-Frage, in einem kurzen Lauf beantwortet — die Stoerung ist per Speedtest reproduzierbar.",
+    "folge_fuer_frueher_gemessenes": "Ob dieser Fehler auch in den frueheren Laeufen des Tages auftrat, ist offen. Die dortigen Vollbild-Anforderungen sprechen dagegen (sie stammen aus echtem Verlust), aber sauber getrennt ist es nicht."
+  },
+
+  "einschraenkungen": [
+    "Ein einziges Torfenster. Ob sich das Ein-Sekunden-Muster wiederholt, ist nicht belegt — ein zweiter Speedtest kam nicht mehr zustande.",
+    "Die Stoerung ist Saettigung, nicht gesetzter Paketverlust. Fuer den FEC-Fall waere eine `netem`-Strecke mit gesetzter Rate aussagekraeftiger; die fehlt weiterhin (FEC-Analyse §6).",
+    "Der Einfrierfehler kann die Zahlen ab Sekunde 208 verfaelschen: was der Player danach meldet, beschreibt einen Zustand, in dem seine Ausgabe nachweislich nicht mehr stimmte."
+  ],
+
+  "lehre": "Eine Regelung ist erst belegt, wenn BEIDE Richtungen gemessen sind. Der Ruhelauf sah nach einem vollen Erfolg aus — 1281 kbit/s gespart — und hat die Haelfte gezeigt, auf die es ankommt, gar nicht. Und: die gruenen Kennzahlen des Players haben ein eingefrorenes Bild ueber vier Minuten nicht bemerkt. Kennzahlen, die den sichtbaren Fehlerfall nicht abdecken, sind ein Messwerkzeug mit blindem Fleck."
+}
