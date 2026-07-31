@@ -75,6 +75,17 @@ pub struct SessionStats {
     pub packets_lost: u64,
     pub packets_reordered: u64,
     pub packets_duplicate: u64,
+    /// Was die FlexFEC-Paritaet ausgerichtet hat: wiederhergestellte Pakete,
+    /// Gruppen mit mehr Loechern als Paritaet (XOR loest nur EINE Unbekannte
+    /// je Gruppe) und Reparaturen, die zu spaet fuer den Puffer kamen.
+    ///
+    /// **Gehoert neben `packets_lost` und nicht auf stderr.** Ohne beide
+    /// Zahlen in derselben Akte ist nach einer Aenderung an der Paritaet nicht
+    /// zu unterscheiden, ob sie gewirkt hat oder ob die Leitung ruhiger war.
+    /// Alle drei bleiben null, solange `PULSE_PLAYER_FLEXFEC` aus ist.
+    pub fec_repariert: u64,
+    pub fec_unreparierbar: u64,
+    pub fec_zu_spaet: u64,
     pub frames_decoded: u64,
     pub frames_dropped: u64,
     /// Bilder, die verworfen wurden, weil die Darstellung nicht mitkam.
@@ -482,6 +493,8 @@ pub async fn run(
         stats.packets_received = buffers.values().map(|b| b.received).sum();
         stats.bytes_received = buffers.values().map(|b| b.bytes_received).sum();
         stats.packets_lost = buffers.values().map(|b| b.lost).sum();
+        (stats.fec_repariert, stats.fec_unreparierbar, stats.fec_zu_spaet) =
+            whep_session.fec_zaehler();
         stats.packets_reordered = buffers.values().map(|b| b.reordered).sum();
         stats.packets_duplicate = buffers.values().map(|b| b.duplicates).sum();
         stats.buffered_packets = buffers.values().map(|b| b.buffered() as u64).sum();

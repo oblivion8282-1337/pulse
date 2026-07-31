@@ -124,6 +124,11 @@ pub struct WhepSession {
     pc: Arc<RTCPeerConnection>,
     resource_url: Option<String>,
     http: reqwest::Client,
+    /// Was die Paritaet ausgerichtet hat. Wird hier gehalten, weil der
+    /// Empfaenger selbst in einer Aufgabe steckt, die von aussen niemand
+    /// erreicht — s. [`crate::fec::Zaehler`]. Bleibt bei null, wenn FlexFEC
+    /// aus ist; die Statistik zeigt dann drei Nullen und keine Luecke.
+    fec: Arc<crate::fec::Zaehler>,
 }
 
 impl WhepSession {
@@ -152,6 +157,11 @@ impl WhepSession {
         if let Err(e) = self.pc.write_rtcp(&[Box::new(pli)]).await {
             eprintln!("pulse-player: Vollbild-Anforderung nicht zustellbar: {e}");
         }
+    }
+
+    /// `(repariert, unreparierbar, zu_spaet)` der Paritaet — fuer die Statistik.
+    pub fn fec_zaehler(&self) -> (u64, u64, u64) {
+        self.fec.lesen()
     }
 
     /// Baut die Sitzung ab. Idempotent — mehrfaches Aufrufen ist harmlos.
@@ -309,8 +319,11 @@ pub async fn connect(
     // DTLS-Transport, und an den kommt man erst ueber einen Empfaenger, den
     // es hier bereits gibt.
     let fec_an = crate::fec::eingeschaltet();
+    let fec_zaehler = Arc::new(crate::fec::Zaehler::default());
+    let fec_fuer_track = fec_zaehler.clone();
     pc.on_track(Box::new(move |track, receiver, _transceiver| {
         let tx = tx.clone();
+        let fec_zaehler = fec_fuer_track.clone();
         Box::pin(async move {
             // Nur am VIDEO-Track: dort liegt der geschuetzte Strom, und nur
             // dort sind Codec und Taktrate bekannt, die ein repariertes Paket
@@ -322,6 +335,7 @@ pub async fn connect(
                     tx.clone(),
                     codec,
                     capability.clock_rate,
+                    fec_zaehler,
                 )),
                 _ => None,
             };
@@ -335,7 +349,7 @@ pub async fn connect(
         .context("HTTP-Client")?;
 
     match negotiate(&pc, &http, whep_url).await {
-        Ok(resource_url) => Ok(WhepSession { pc, resource_url, http }),
+        Ok(resource_url) => Ok(WhepSession { pc, resource_url, http, fec: fec_zaehler }),
         Err(e) => {
             let _ = pc.close().await;
             Err(e)

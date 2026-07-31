@@ -16,17 +16,24 @@
 //! fuegt genau zwei lesende Methoden hinzu; dieses Modul ist ihr einziger
 //! Nutzer.
 //!
-//! **Stand: Aufsammeln, noch kein Zurueckrechnen.** Bewusst in dieser
-//! Reihenfolge — ob die Pakete den ganzen Weg bis in unseren Code schaffen,
-//! ist die Frage, an der der Ansatz haette scheitern koennen, und sie laesst
-//! sich ohne eine Zeile Rechenlogik beantworten.
+//! **Stand: es wird zurueckgerechnet.** Hier stand bis zum 2026-07-31
+//! „Aufsammeln, noch kein Zurueckrechnen" — das war der Stand des ersten
+//! Schritts und ist ueberholt: `empfaenger.rs` stellt fehlende Medienpakete
+//! aus der Paritaet wieder her und zaehlt das mit ([`Zaehler`]).
+//!
+//! **Was weiterhin gilt: ohne `PULSE_PLAYER_FLEXFEC=1` passiert nichts.** Der
+//! Player bietet FlexFEC dann gar nicht erst an, der Server erzeugt die
+//! Paritaet trotzdem, und ihr Aufschlag ist vollstaendig umsonst bezahlt.
+//! Keines der Pruefstand-Skripte setzt die Variable (Stand 2026-07-31) — wer
+//! eine Messung fuer „mit Paritaet" haelt, ohne sie gesetzt zu haben, misst
+//! „ohne".
 
 pub mod empfaenger;
 pub mod flexfec03;
 pub mod gegenprobe;
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,6 +60,38 @@ pub fn eingeschaltet() -> bool {
     std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1")
 }
 
+/// Was die Paritaet tatsaechlich ausgerichtet hat, fuer die Statistik.
+///
+/// **Warum das nicht im `Empfaenger` bleiben kann.** Der lebt in einer
+/// eigenen Aufgabe, die niemand von aussen erreicht — bis 2026-07-31 gingen
+/// seine drei Zaehler deshalb nur auf stderr, und zwar auch dort nur jedes
+/// zehnte Mal. `packets_lost` steht derweil sauber alle 250 ms in der
+/// Statistik. Ein A/B einer Paritaets-Einstellung braucht aber BEIDE Zahlen
+/// in derselben Messakte: „weniger Verlust" und „mehr repariert" sind
+/// verschiedene Aussagen, und ohne die zweite ist nicht zu unterscheiden, ob
+/// eine Aenderung gewirkt oder die Leitung sich beruhigt hat.
+///
+/// Atomics statt Sperre, weil ausschliesslich gezaehlt und gelesen wird —
+/// `Relaxed` genuegt: die drei Werte haengen nicht voneinander ab, und eine
+/// Statistik, die einen Zaehler ein Fenster zu spaet sieht, ist richtig genug.
+#[derive(Debug, Default)]
+pub struct Zaehler {
+    pub repariert: AtomicU64,
+    pub unreparierbar: AtomicU64,
+    pub zu_spaet: AtomicU64,
+}
+
+impl Zaehler {
+    /// `(repariert, unreparierbar, zu_spaet)` — die Leseseite.
+    pub fn lesen(&self) -> (u64, u64, u64) {
+        (
+            self.repariert.load(Ordering::Relaxed),
+            self.unreparierbar.load(Ordering::Relaxed),
+            self.zu_spaet.load(Ordering::Relaxed),
+        )
+    }
+}
+
 /// Startet den Paritaets-Empfang und liefert den Kanal, ueber den der
 /// Video-Track seine Pakete meldet.
 ///
@@ -65,6 +104,7 @@ pub fn starten(
     tx: tokio::sync::mpsc::Sender<crate::whep::RtpArrival>,
     codec: crate::whep::Codec,
     clock_rate: u32,
+    zaehler: Arc<Zaehler>,
 ) -> tokio::sync::mpsc::Sender<(u16, Vec<u8>)> {
     let (medien_tx, mut medien_rx) = tokio::sync::mpsc::channel::<(u16, Vec<u8>)>(256);
     let (par_tx, mut par_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
@@ -81,6 +121,12 @@ pub fn starten(
                 }
                 Some(nutzlast) = par_rx.recv() => {
                     empfaenger.paritaetspaket(&nutzlast).await;
+                    // Nach JEDEM Paritaetspaket spiegeln, nicht nur bei der
+                    // stderr-Meldung unten: die haengt an `% 10` und liesse die
+                    // Statistik zwischen zwei Zehnerschritten alt aussehen.
+                    zaehler.repariert.store(empfaenger.repariert, Ordering::Relaxed);
+                    zaehler.unreparierbar.store(empfaenger.unreparierbar, Ordering::Relaxed);
+                    zaehler.zu_spaet.store(empfaenger.zu_spaet, Ordering::Relaxed);
                     if empfaenger.repariert > 0 && empfaenger.repariert != letzte_meldung
                         && empfaenger.repariert % 10 == 0
                     {
