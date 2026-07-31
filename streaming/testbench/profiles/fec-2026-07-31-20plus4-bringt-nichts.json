@@ -106,5 +106,82 @@
    "Die Gruppengroesse ist bei uns FEST. Das Vorbild rechnet sie aus Bildrate und Umlaufzeit — bei anderer Latenz oder Bildrate waere 20+4 wieder falsch."
   ],
   "empfehlung": "20+4 als neue Vorgabe pruefen, mit einem zweiten Lauf je Variante. Der Preis ist gleich, die Wirkung besser. Server steht derzeit wieder auf 10+2."
+ },
+ "KORREKTUR_3_2026-07-31_NACHT_DOPPELLAUF_ENTSCHEIDET": {
+  "status": "DER URSPRUENGLICHE BEFUND STIMMT IM ERGEBNIS — aber nicht aus den Gruenden, die er nannte",
+  "wie_es_dazu_kam": "Korrektur 2 hatte den Abend-Befund als widerlegt eingestuft, gestuetzt auf EINEN Lauf je Variante unter Buendelverlust (20+4 reparierte 1746 gegen 711). Weil an genau dieser Konstruktion an diesem Tag schon zwei Befunde gescheitert waren, wurde ein zweiter Durchgang gefahren.",
+  "doppellauf_je_180_s_buendelverlust": {
+   "20+4": {
+    "repariert": [
+     1746,
+     1659
+    ],
+    "endgueltig_verloren": [
+     34,
+     50
+    ],
+    "plis": [
+     6,
+     11
+    ],
+    "bilder_min": [
+     43,
+     20
+    ],
+    "sekunden_unter_30": [
+     0,
+     1
+    ],
+    "aufschlag_prozent": [
+     48.1,
+     48.0
+    ]
+   },
+   "10+2": {
+    "repariert": [
+     711,
+     394
+    ],
+    "endgueltig_verloren": [
+     26,
+     0
+    ],
+    "plis": [
+     10,
+     1
+    ],
+    "bilder_min": [
+     45,
+     42
+    ],
+    "sekunden_unter_30": [
+     0,
+     0
+    ],
+    "aufschlag_prozent": [
+     45.5,
+     45.6
+    ]
+   }
+  },
+  "summe": {
+   "20+4": {
+    "repariert": 3405,
+    "verloren": 84,
+    "plis": 17,
+    "sekunden_unter_30": 1
+   },
+   "10+2": {
+    "repariert": 1105,
+    "verloren": 26,
+    "plis": 11,
+    "sekunden_unter_30": 0
+   }
+  },
+  "der_befund": "20+4 repariert das Dreifache und verliert trotzdem das Dreifache. Die Reparaturzahl ist KEINE Erfolgskennzahl — sie zaehlt, was der FEC-Empfaenger zurueckgerechnet hat, nicht was beim Zuschauer ankam.",
+  "warum_das_mechanisch_stimmt": "Bei 20+4 muss der Empfaenger auf ZWANZIG Medienpakete warten, bevor die Paritaet rechnen kann — doppelt so lange wie bei 10+2. Die Reparatur gelingt dann zwar, aber der Jitter-Puffer hat die Luecke laengst weitergemeldet und verwirft das Paket mit `seq < next` als umsortiert (steht seit 2026-07-29 im Docstring von `fec/empfaenger.rs`). `zu_spaet` bleibt dabei auf 0, weil dieser Zaehler nur eine volle Warteschlange erfasst, nicht den verpassten Puffer.",
+  "was_vom_papier_bleibt": "Die Formel `lambda ~ max(1, min(f*RTT, lambda0))` empfiehlt fuer unsere Werte rund 24 Pakete. Sie stammt aber aus einem System mit anderer Puffergeduld; bei unseren 100 ms Jitter-Puffer und 59 ms Umlaufzeit ist die groessere Gruppe zu traege. Die Formel ist nicht falsch — sie hat eine Randbedingung, die wir nicht erfuellen.",
+  "ENTSCHEIDUNG": "10+2. Der Server steht so. Gilt fuer diese Strecke (59 ms Umlaufzeit, 100 ms Puffer, 60 fps); bei deutlich hoeherer Latenz waere 20+4 neu zu pruefen.",
+  "einschraenkung": "Zwei Laeufe je Variante bei rund 4 Prozent Buendelverlust. Die Einzelwerte schwanken erheblich (10+2 hatte einmal 26 und einmal 0 verlorene Pakete); belastbar ist, dass 20+4 in BEIDEN Durchgaengen mehr verlor."
  }
 }
