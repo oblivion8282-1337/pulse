@@ -1,0 +1,55 @@
+{
+  "id": "fec-2026-07-31-adaptiv-eingeschaltet",
+  "gemessen_am": "2026-07-31 (Nachmittag)",
+  "frage": "Was spart die adaptive Paritaet (Patch 0004, Stufe 1) auf einer ruhigen Leitung — und schuetzt sie noch, wenn doch etwas verloren geht?",
+
+  "warum_die_frage_zaehlt": "Der Aufschlag ist sonst fest: 904 kbit/s je Zuschauer, unabhaengig davon, ob etwas verloren geht. Der Server rechnet die Paritaet fuer JEDE Verbindung einzeln aus und schickt sie einzeln hinaus — der Posten multipliziert sich also mit der Zuschauerzahl und wird von deren Leitung bezahlt.",
+
+  "wie_es_zu_dieser_messung_kam": "Der Nutzer wollte die adaptive Paritaet bauen lassen. Sie war bereits gebaut (Patch 0004: pulseFecTor + pulseFecFilter, Empfangsberichte ausgewertet in outbound_track.go:92) — nur nicht eingeschaltet. Der Labor-Server lief mit der Vorgabe, also nicht adaptiv. Es war also nichts zu bauen, nur umzuschalten und nachzuweisen.",
+
+  "aufbau": {
+    "gemeinsam": "Echter Sender (streaming/hq-labor), Intra-Refresh, av1_nvenc 10 bit, 2560x1440, 60 fps, 4000 kbps CBR, WHIP -> MediaMTX -> WHEP -> nativer Player mit PULSE_PLAYER_FLEXFEC=1. Je rund 600 Sekunden.",
+    "schalter": "PULSE_FLEXFEC_ADAPTIV=1, Schwelle PULSE_FLEXFEC_SCHWELLE_PROZENT unveraendert bei 1",
+    "verifikation_des_schalters": "GEMESSEN: `strings` auf den drei Binaries am Server — `mediamtx` und `mediamtx.adaptiv` sind byte-identisch (md5 98266889) und kennen PULSE_FLEXFEC_ADAPTIV, `mediamtx.vor-adaptiv` nicht. Der Container mountet `mediamtx`. Ein wirkungsloser Schalter ist damit ausgeschlossen."
+  },
+
+  "ergebnis": {
+    "aufschlag_je_lauf": [
+      {"lauf": "ohne Paritaet", "gesamt_kbit": 4353, "paritaet_kbit": 0,
+       "wiederholungen_kbit": 122, "ssrcs": 1, "aufschlag_prozent": 2.8},
+      {"lauf": "Paritaet fest (10+2)", "gesamt_kbit": 5548, "paritaet_kbit": 904,
+       "wiederholungen_kbit": 407, "ssrcs": 2, "aufschlag_prozent": 31.0},
+      {"lauf": "Paritaet adaptiv", "gesamt_kbit": 4267, "paritaet_kbit": 0,
+       "wiederholungen_kbit": 27, "ssrcs": 1, "aufschlag_prozent": 0.7}
+    ],
+    "ersparnis": "1281 kbit/s je Zuschauer gegenueber fester Paritaet (5548 -> 4267), also die vollen 904 kbit/s Paritaet plus die eingesparten Wiederholungen.",
+    "tor_ging_nie_auf": {
+      "ssrcs_im_ganzen_lauf": 1,
+      "fec_repariert": 0,
+      "fec_unreparierbar": 0,
+      "plis": 3,
+      "vollbild_ereignisse": 2,
+      "belegstelle": "kein zweiter SSRC im Mitschnitt ueber 605 s; stats-Felder alle null"
+    }
+  },
+
+  "was_das_heisst": {
+    "die_ersparnis_ist_belegt": "GEMESSEN und von der Stoerlage unabhaengig: ohne Paritaetsstrom gibt es keine Paritaetsbytes. 4267 statt 5548 kbit/s, der Aufschlag faellt von 31 auf 0,7 Prozent ueber der Nutzlast.",
+    "die_schwelle_von_1_prozent_passt_nicht_zu_intra_refresh": "Das Tor ging in 605 Sekunden KEIN EINZIGES MAL auf — auch nicht bei den zwei Verlustereignissen, die je ein sichtbares Standbild und eine Vollbild-Anforderung kosteten. Die Schwelle stammt von libwebrtc, das unterhalb 1 Prozent seine FEC abschaltet. Chrome faehrt dabei aber periodische Keyframes: ein einzelner Verlust ist dort spaetestens nach zwei Sekunden geheilt. Unter Intra-Refresh gibt es dieses Netz nicht — ein unrepariertes Paket kostet sofort Standbild plus PLI. Die Verlustrate, ab der es hier wehtut, liegt weit unter der, ab der die Regelung reagiert.",
+    "die_regelung_ist_nur_in_einer_richtung_nachgewiesen": "Belegt ist 'Tor zu bei Ruhe'. Dass es bei echtem Verlust aufgeht, ist NICHT gemessen — der geplante Speedtest zur Gegenprobe wurde in diesem Lauf nicht gefahren. Damit ist die Schutzfunktion der Regelung unbewiesen; belegt ist bisher nur ihre Sparfunktion."
+  },
+
+  "einschraenkungen": [
+    "**Die drei Laeufe sind unterschiedlich stark gestoert gewesen** (wiederholte Sequenznummern: 7856 / 26794 / 1909). Der adaptive Lauf war der mit Abstand ruhigste. Dass er nur zwei Vollbild-Ereignisse hatte, ist deshalb KEIN Guetebeleg — er hatte es leichter. Nur die Bandbreiten-Ersparnis ist stoerungsunabhaengig und damit belastbar.",
+    "**Die Regelung ist prozessweit, nicht je Sitzung** (`pulseFecTorAktiv`, Kommentar im Patch): bei mehreren gleichzeitigen Zuschauern regelt der zuletzt verbundene fuer alle. Fuer eine Messung mit einem Zuschauer folgenlos, fuer den Betrieb nicht. Das ist Stufe 2 der Analyse und ungebaut.",
+    "**Aus dem Player-Log allein ist ein kurzes Torfenster nicht erkennbar**: er meldet Paritaet erst alle 500 empfangenen Pakete und alle 10 Reparaturen. Ein Aufgehen ueber ein, zwei Sekunden stuende dort nirgends. Verbindlich ist deshalb der Mitschnitt (eigener SSRC), nicht das Log."
+  ],
+
+  "offen": [
+    "Die Gegenprobe: Lauf mit gesetzter Stoerung (Speedtest oder netem), um zu belegen, dass das Tor aufgeht — und wie schnell. Der Beginn einer Stoerung laeuft konstruktionsbedingt ungeschuetzt, bis der naechste Empfangsbericht die Rate meldet; wie teuer das ist, ist weiterhin unbekannt.",
+    "Schwelle senken (PULSE_FLEXFEC_SCHWELLE_PROZENT=0.1) und denselben Lauf wiederholen — springt die Paritaet dann bei den Ereignissen an, und was kostet sie, wenn sie realistisch oft anspringt?",
+    "Stufe 2: Regelung je Sitzung statt prozessweit."
+  ],
+
+  "lehre": "Zum zweiten Mal an diesem Tag war das Verlangte bereits gebaut und nur nicht eingeschaltet — erst PULSE_PLAYER_FLEXFEC, dann PULSE_FLEXFEC_ADAPTIV. Vor 'bau das ein' gehoert die Frage, ob es schon da ist; und vor jeder Messung die Frage, ob der Schalter im laufenden Binary ueberhaupt vorkommt."
+}
