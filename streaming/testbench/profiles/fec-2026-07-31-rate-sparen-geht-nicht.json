@@ -3,7 +3,8 @@
   "KORREKTUR_2026-07-31_NACHT": {
     "status": "DIE SCHLUSSFOLGERUNG DIESER AKTE IST HINFAELLIG",
     "warum": "Die Groesse `Wiederholungen kbit/s`, auf der der ganze Vergleich ruht, hat etwas anderes gemessen als angenommen. Der Player stand auf einem SRTP-Wiedergabefenster von 64 Paketen und verwarf Nachlieferungen, die weiter zurueck lagen — die Luecke blieb offen, der NACK-Erzeuger forderte alle 10 ms weiter, und jede Antwort fiel wieder heraus. Von den gemessenen Wiederholungen waren rund 98 Prozent solche Duplikate. Gemessen wurde also, wie stark diese Rueckkopplung anspringt, nicht was die Paritaet leistet.",
-    "konkret_fuer_10plus1": "Die 2944 kbit/s Wiederholungen (74,1 Prozent) und daraus der Befund 'halbe Paritaet, doppelter Gesamtdurchsatz' sind damit nicht belegt. Ob 10+1 wirklich schlechter ist als 10+2, ist wieder OFFEN.",
+    "konkret_fuer_10plus1": "Die 2944 kbit/s Wiederholungen (74,1 Prozent) und daraus der Befund 'halbe Paritaet, doppelter Gesamtdurchsatz' sind damit nicht belegt.",
+    "inzwischen_neu_gemessen": "`fec-2026-07-31-10plus1-neu-gemessen` (dieselbe Nacht, drei Laeufe): 10+1 kostet **12,3 statt 82,9 Prozent** Aufschlag und HALBIERT ihn gegenueber 10+2 (23,1 Prozent), statt ihn zu verdoppeln. Der Preis liegt woanders, als diese Akte annahm — bei den Vollbild-Anforderungen (38 gegen 17 unter gleicher Stoerlage), nicht beim Durchsatz.",
     "was_bleibt": "Die Beobachtung, dass mehr Detektor-Eingriffe und mehr Bildausfaelle auftraten (14 gegen 6, 2 s gegen 1 s), ist davon unberuehrt — sie haengt nicht an der Bandbreitenzaehlung. Sie stuetzt die Richtung, traegt aber allein keine Empfehlung.",
     "belege": "player-2026-07-31-srtp-fenster (Fix und Gegenmessung), Commit cb1de022 (reparierte Auswertungswerkzeuge)"
   },
