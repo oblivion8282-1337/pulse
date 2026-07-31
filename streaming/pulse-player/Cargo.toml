@@ -104,4 +104,10 @@ strip = "debuginfo"
 # Delta gegen v0.17.2: 24 Zeilen in `webrtc/src/dtls_transport/mod.rs`.
 # Faellt weg, sobald das Original etwas Gleichwertiges hat.
 [patch.crates-io]
-webrtc = { path = "../../../webrtc-rs-pulse/webrtc" }
+# Der Zweig wird von `scripts/bootstrap-webrtc.sh` hergestellt (klont v0.17.2,
+# wendet `patches/0001-...patch` an). Bis 2026-07-31 zeigte der Pfad hierhin:
+#   path = "../../../webrtc-rs-pulse/webrtc"
+# also auf ein Verzeichnis NEBEN dem Repo, das es nur auf einer Maschine gab.
+# Fehlt es, bricht cargo schon beim Aufloesen ab — kein Player, kein
+# `cargo test`, auf keinem zweiten Rechner und in keinem CI.
+webrtc = { path = "vendor/webrtc-rs/webrtc" }
