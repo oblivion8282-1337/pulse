@@ -96,15 +96,14 @@
     "warum_eine_stichprobe": "Ein 1440p-Bild in 10 bit sind rund 11 MB; das bei jedem Bild vollstaendig zu hashen waere teurer als das Dekodieren. Gelesen wird jedes 1021. Byte (Primzahl, damit die Schrittweite nicht mit der Zeilenlaenge zusammenfaellt und immer dieselbe Bildspalte trifft), hoechstens 4096 Proben."
   },
   "noch_nicht_belegt": [
-    "Ob die Schwellen (90 Bilder, 500 kB) optimal sind. 90 Bilder sind anderthalb Sekunden Erkennungszeit; niedriger hiesse schnellere Rettung, aber hoeheres Fehlalarm-Risiko bei echten Standbild-Szenen.",
-    "Warum in einer Phase DREI Eingriffe binnen elf Sekunden noetig waren (555,7 / 560,7 / 567,1 s). Ein Vollbild allein reicht dort offenbar nicht — mehrfach anzufordern ist besser als haengenzubleiben, aber die Ursache ist ungeklaert.",
-    "Ob derselbe Fehler auch andere Decoder trifft (vaapi, qsv, Software) oder nur `av1_cuvid`.",
-    "Ob der Fehler auch bei H.264 auftritt oder nur bei AV1 im Intra-Refresh-Betrieb.",
-    "**Der nachlaufende Rueckstand.** Nach einer Saettigungsphase hinkt das Bild bis zu 1,6 Sekunden hinterher, bis der Puffer sich leert (12 von 621 Sekunden ueber 500 ms). Das ist ein Puffer-Thema, kein Decoder-Thema, und vom Fix unberuehrt."
+    "**Der Einstiegs-Fix ist nicht am Rennen verifiziert.** Er ist klein und geradlinig (periodisch nachfordern, solange kein Einstieg da ist), aber der urspruengliche Fehlerfall trat nur zufaellig auf und liess sich nicht gezielt herstellen.",
+    "Ob die Schwellen des Einfrier-Nachweises (90 Bilder, 500 kB) optimal sind. 90 Bilder sind anderthalb Sekunden Erkennungszeit.",
+    "Ob derselbe Decoder-Fehler auch vaapi, qsv oder den Software-Decoder trifft oder nur `av1_cuvid`.",
+    "Ob er auch bei H.264 auftritt oder nur bei AV1 im Intra-Refresh-Betrieb."
   ],
   "zwei_nebenbefunde": [
-    "**Der Einstieg ist ein Wettlauf.** Eine einzelne Keyframe-Anforderung geht ins Leere, wenn der Player noch im ICE-Aufbau steckt — bei Intra-Refresh kommt dann nie wieder eine, und der Zuschauer sieht NIE ein Bild. Im Pruefstand hat das einen Lauf gekostet (150 s mit „dekodiert 0/s\"); dort jetzt durch Wiederholung abgesichert. Im Produkt ist es ungeloest.",
-    "**`-read_intervals` funktioniert auf den Aufnahmen nicht** — der Recorder schreibt keinen Suchindex (MPEG-TS/MKV ohne Cues, so dokumentiert). Wer in einer Aufnahme springen will, dekodiert von vorne."
+    "**Der Einstieg war ein Wettlauf — BEHOBEN** (Commit a6a9bd12). Eine einzelne Keyframe-Anforderung geht ins Leere, wenn der Player noch im Verbindungsaufbau steckt; bei Intra-Refresh kommt dann nie wieder eine, und der Zuschauer sieht NIE ein Bild (im Pruefstand: 150 s mit „dekodiert 0/s\"). Der Player fordert jetzt alle 500 ms nach, solange der Decoder keinen Einstiegspunkt hat (`VideoDecoder::wartet_auf_einstieg`). Eigenes, laengeres Intervall als bei der Luecke: dort ist eine laufende Wiedergabe zu retten, hier wartet der Zuschauer ohnehin auf das erste Bild.",
+    "**Der fehlende Suchindex war eine FEHLDIAGNOSE.** Nachgeprueft: die Aufnahme traegt Cues (Byte 112) und SeekHead (Byte 52), der Recorder schreibt seinen Trailer korrekt. Dass `-read_intervals` trotzdem nicht springt, liegt am Strom — bei Intra-Refresh enthaelt die ganze Datei GENAU EINEN Keyframe, also genau ein Sprungziel. Eigenschaft des Verfahrens, kein Fehler. Die frueher hier stehende Behauptung „der Recorder schreibt keinen Suchindex\" war falsch."
   ],
   "lehre": "Die Kennzahlen des Players decken den sichtbaren Fehlerfall nicht ab: 60 dekodiert, 60 gezeichnet, voller Durchsatz, null Verlust — und der Schirm steht. Ein Messwerkzeug, das den schlimmsten Zustand als gesund meldet, ist gefaehrlicher als keins. Der Fix ist deshalb nicht nur eine Reparatur, sondern schliesst diese Luecke: der Player merkt jetzt selbst, dass sein Bild steht.",
   "verifikation": {
@@ -123,5 +122,10 @@
     "vergleich_ohne_fix": "45 aufeinanderfolgende Sekunden mit 60 von 60 Bildern ohne Muster, Latenz eingefroren bei 1658 ms, keine Erholung ueber 90 Sekunden.",
     "was_damit_belegt_ist": "Der Fix beendet den Zustand zuverlaessig. Er greift genau dann, wenn der alte Player haengengeblieben waere, und bleibt im Normalbetrieb still — 621 Sekunden mit reichlich Stoerung und Verlust, kein einziger Fehlalarm, Latenz-Median unveraendert bei 81 ms.",
     "was_er_NICHT_leistet": "Er verhindert den Aussetzer nicht, er beendet ihn. Zwischen Kippen und Rettung liegt rund eine Sekunde (90 Bilder Erkennungsschwelle plus 0,2 s Reaktionszeit). Aus einem toten Bild wird ein kurzes Haengen."
+  },
+  "geklaerte_punkte": {
+    "dichte_eingriffe": "Im Verifikationslauf griff der Detektor viermal binnen 34 Sekunden (529/551/556/563 s). Das sah nach Nachfeuern aus, ist aber korrektes Verhalten: alle vier fallen in DASSELBE Stoerfenster (531-556 s). Waehrend anhaltender Saettigung kippt der Decoder mehrfach und wird mehrfach gerettet. Kein Handlungsbedarf.",
+    "keine_fehlalarme": "Alle acht Eingriffe des Laufs lagen in Stoerphasen, KEINER ausserhalb — der beste verfuegbare Beleg gegen Fehlalarme.",
+    "nachlaufender_rueckstand": "Entkraeftet: beim einzigen sichtbaren Ausfall holte der Eingriff die Latenz von 1592 ms auf 86 ms zurueck, binnen einer Sekunde. Das Leeren des Decoders raeumt den Rueckstand mit ab. Die frueher hier vermutete Dauerwirkung gibt es nicht."
   }
 }
