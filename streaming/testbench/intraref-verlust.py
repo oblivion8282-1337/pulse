@@ -128,6 +128,12 @@ def main() -> int:
     ap.add_argument("--audio", default="Aus")
     ap.add_argument("--keyframes", action="store_true",
                     help="Gegenprobe: periodische Keyframes statt Intra-Refresh")
+    # Fuer die Einfrier-Diagnose (2026-07-31): schreibt den ANKOMMENDEN
+    # Bitstrom mit, vor dem Decoder. Zeigt die Aufnahme Bewegung, waehrend der
+    # Schirm stand, liegt der Fehler im Decoder oder in der Darstellung; steht
+    # sie auch, liegt er davor. Ohne Neukodierung, kostet also fast nichts.
+    ap.add_argument("--aufnehmen", metavar="PFAD",
+                    help="ankommenden Bitstrom mitschreiben (Einfrier-Diagnose)")
     args = ap.parse_args()
 
     server_ip = socket.gethostbyname(_fern.HOST)
@@ -153,6 +159,9 @@ def main() -> int:
     env = {} if args.keyframes else {"PULSE_ENCODER_OPTS": "intra-refresh=1,forced-idr=1"}
     sender = Sidecar(open(sender_log, "w"), env)
     player = None
+    # Vor dem `try`, weil das `finally` sie braucht: scheitert der Lauf vor der
+    # Sitzungseroeffnung, verdeckte ein NameError dort den echten Fehler.
+    sid = None
     proben: list[dict] = []
     vollbilder: list[dict] = []
     stopp = threading.Event()
@@ -176,10 +185,33 @@ def main() -> int:
         start = time.monotonic()
         threading.Thread(target=ereignisse_lesen,
                          args=(player_log, start, vollbilder, stopp), daemon=True).start()
+
         # Ein Vollbild auf Zuruf: im Intra-Refresh-Betrieb hat der Strom nach
         # dem Start keinen Einstiegspunkt mehr, der Player bliebe sonst schwarz.
         time.sleep(1.0)
         sender.call("keyframe", timeout=10)
+
+        # Die Aufnahme braucht ZWEI Anforderungen, und die Reihenfolge ist eine
+        # Zwickmuehle, in die der erste Versuch am 2026-07-31 gelaufen ist:
+        #
+        #   * VOR dem ersten Bild lehnt der Player `record` ab
+        #     ("noch kein Bild empfangen — erst nach dem ersten Frame moeglich").
+        #   * DANACH schreibt der Recorder erst ab dem naechsten Video-Keyframe
+        #     (`recorder.rs::awaiting_keyframe`) — und den gibt es im
+        #     Intra-Refresh-Betrieb nur auf Anforderung.
+        #
+        # Also: erst der Einstieg oben, dann `record`, dann ein zweites Vollbild
+        # als Startpunkt der Datei. Ohne das zweite bleibt sie leer, und das
+        # faellt erst beim Ansehen auf.
+        if args.aufnehmen:
+            time.sleep(1.5)
+            r = player.call("record", session=sid, path=str(args.aufnehmen), timeout=15)
+            if r.get("ok"):
+                print(f"Aufnahme laeuft: {r.get('path')}", flush=True)
+                time.sleep(0.3)
+                sender.call("keyframe", timeout=10)
+            else:
+                print(f"Aufnahme fehlgeschlagen: {r}", file=sys.stderr, flush=True)
 
         ende = start + args.secs
         while time.monotonic() < ende:
@@ -198,6 +230,13 @@ def main() -> int:
     finally:
         stopp.set()
         if player:
+            if args.aufnehmen and sid is not None:
+                # Vor `stop()`: danach ist die Sitzung weg und der Muxer
+                # schliesst die Datei nicht mehr sauber ab.
+                try:
+                    player.call("stop_record", session=sid, timeout=15)
+                except Exception as e:                       # noqa: BLE001
+                    print(f"stop_record fehlgeschlagen: {e}", file=sys.stderr)
             player.stop()
         sender.stop()
         subprocess.run(["sudo", "pkill", "-INT", "-f", f"tcpdump.*{pcap.name}"], check=False)
