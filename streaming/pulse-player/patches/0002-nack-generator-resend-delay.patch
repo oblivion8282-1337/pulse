@@ -1,0 +1,131 @@
+diff --git a/interceptor/src/nack/generator/mod.rs b/interceptor/src/nack/generator/mod.rs
+index 16b6658..8ef8724 100644
+--- a/interceptor/src/nack/generator/mod.rs
++++ b/interceptor/src/nack/generator/mod.rs
+@@ -4,7 +4,7 @@ mod generator_test;
+ 
+ use std::collections::HashMap;
+ use std::sync::Arc;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ use async_trait::async_trait;
+ use generator_stream::GeneratorStream;
+@@ -27,6 +27,7 @@ pub struct GeneratorBuilder {
+     log2_size_minus_6: Option<u8>,
+     skip_last_n: Option<u16>,
+     interval: Option<Duration>,
++    pulse_resend_delay: Option<Duration>,
+ }
+ 
+ impl GeneratorBuilder {
+@@ -49,6 +50,33 @@ impl GeneratorBuilder {
+         self.interval = Some(interval);
+         self
+     }
++
++    /// PULSE: Sperrfrist, bevor DIESELBE Sequenznummer erneut angefordert wird.
++    ///
++    /// Ohne sie fordert der Erzeuger in jedem Takt alles an, was fehlt — auch
++    /// das, wonach er vor 10 ms schon gefragt hat. Bis eine Antwort zurueck
++    /// sein kann, vergeht aber eine Umlaufzeit; bei 59 ms und 10 ms Takt gehen
++    /// also rund sechs bis acht Anforderungen fuer dasselbe Paket hinaus, und
++    /// die Gegenseite beantwortet jede einzeln.
++    ///
++    /// Gemessen im Pulse-Labor am 2026-07-31 (180-s-Laeufe ueber die echte
++    /// Leitung, 59 ms Umlaufzeit):
++    ///
++    ///     4 Prozent Buendelverlust:  996 kbit/s Wiederholungen, 6,3 je Paket
++    ///     5 Prozent Verlust:        1354 kbit/s Wiederholungen, 6,4 je Paket
++    ///
++    /// Fuenf Sechstel davon sind ueberfluessig — bei schlechter Leitung ueber
++    /// ein Megabit je Sekunde und Zuschauer, also rund ein Viertel des
++    /// Videostroms. Bei guter Leitung faellt gar nichts an, weil nichts
++    /// nachgefordert wird.
++    ///
++    /// **Die ERSTE Anforderung verzoegert das nicht** — nur die Wiederholung.
++    /// Der sinnvolle Wert ist etwa eine Umlaufzeit; `Duration::ZERO` schaltet
++    /// die Sperre ab und stellt das urspruengliche Verhalten wieder her.
++    pub fn with_pulse_resend_delay(mut self, delay: Duration) -> GeneratorBuilder {
++        self.pulse_resend_delay = Some(delay);
++        self
++    }
+ }
+ 
+ impl InterceptorBuilder for GeneratorBuilder {
+@@ -64,6 +92,8 @@ impl InterceptorBuilder for GeneratorBuilder {
+                     Duration::from_millis(100)
+                 },
+ 
++                pulse_resend_delay: self.pulse_resend_delay.unwrap_or(Duration::ZERO),
++
+                 streams: Mutex::new(HashMap::new()),
+                 close_rx: Mutex::new(Some(close_rx)),
+             }),
+@@ -78,6 +108,8 @@ struct GeneratorInternal {
+     log2_size_minus_6: u8,
+     skip_last_n: u16,
+     interval: Duration,
++    /// PULSE: s. `GeneratorBuilder::with_pulse_resend_delay`.
++    pulse_resend_delay: Duration,
+ 
+     streams: Mutex<HashMap<u32, Arc<GeneratorStream>>>,
+     close_rx: Mutex<Option<mpsc::Receiver<()>>>,
+@@ -115,18 +147,41 @@ impl Generator {
+             .ok_or(Error::ErrInvalidCloseRx)?;
+ 
+         let sender_ssrc = rand::random::<u32>();
++        // PULSE: wann jede Sequenznummer zuletzt angefordert wurde.
++        let mut pulse_gefragt: HashMap<(u32, u16), Instant> = HashMap::new();
+         loop {
+             tokio::select! {
+                 _ = ticker.tick() =>{
+                     let nacks = {
+                         let mut nacks = vec![];
+                         let streams = internal.streams.lock().await;
++                        let jetzt = Instant::now();
+                         for (ssrc, stream) in streams.iter() {
+-                            let missing = stream.missing_seq_numbers(internal.skip_last_n);
++                            let mut missing = stream.missing_seq_numbers(internal.skip_last_n);
+                             if missing.is_empty(){
+                                 continue;
+                             }
+ 
++                            // PULSE-FIX: was gerade erst angefordert wurde,
++                            // nicht erneut anfordern — die Antwort ist noch
++                            // unterwegs. Nur Wiederholungen sind betroffen;
++                            // eine neue Luecke geht sofort hinaus.
++                            if !internal.pulse_resend_delay.is_zero() {
++                                missing.retain(|seq| {
++                                    match pulse_gefragt.get(&(*ssrc, *seq)) {
++                                        None => true,
++                                        Some(t) => jetzt.duration_since(*t)
++                                            >= internal.pulse_resend_delay,
++                                    }
++                                });
++                                if missing.is_empty(){
++                                    continue;
++                                }
++                                for seq in &missing {
++                                    pulse_gefragt.insert((*ssrc, *seq), jetzt);
++                                }
++                            }
++
+                             nacks.push(TransportLayerNack{
+                                 sender_ssrc,
+                                 media_ssrc: *ssrc,
+@@ -136,6 +191,14 @@ impl Generator {
+                         nacks
+                     };
+ 
++                    // PULSE: Gedaechtnis beschneiden, sonst waechst es mit
++                    // jedem verlorenen Paket der Sitzung weiter.
++                    if !internal.pulse_resend_delay.is_zero() {
++                        let grenze = internal.pulse_resend_delay * 8;
++                        let jetzt = Instant::now();
++                        pulse_gefragt.retain(|_, t| jetzt.duration_since(*t) < grenze);
++                    }
++
+                     let a = Attributes::new();
+                     for nack in nacks{
+                         if let Err(err) = rtcp_writer.write(&[Box::new(nack)], &a).await{

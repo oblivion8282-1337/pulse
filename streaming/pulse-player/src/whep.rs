@@ -188,6 +188,35 @@ fn nack_intervall() -> Duration {
     Duration::from_millis(ms)
 }
 
+/// Wie lange dieselbe Sequenznummer nach einer Anforderung gesperrt bleibt.
+///
+/// **Das kurze Sendeintervall oben hat eine Kehrseite.** Der Erzeuger fordert
+/// in jedem Takt alles an, was fehlt — auch das, wonach er vor 10 ms schon
+/// gefragt hat. Bis eine Antwort zurueck sein kann, vergeht aber eine
+/// Umlaufzeit; bei 59 ms gehen also sechs bis acht Anforderungen fuer dasselbe
+/// Paket hinaus, und MediaMTX beantwortet jede einzeln.
+///
+/// Gemessen (2026-07-31, 180 s, echte Leitung): bei 5 Prozent Verlust 1354
+/// kbit/s Wiederholungen mit 6,4 Kopien je Paket — fuenf Sechstel davon
+/// ueberfluessig, also ueber ein Megabit je Sekunde und Zuschauer. Bei guter
+/// Leitung faellt nichts an, weil nichts nachgefordert wird.
+///
+/// Der sinnvolle Wert ist etwa eine Umlaufzeit. 60 ms passen zur Messstrecke
+/// (59 ms); wer weiter weg sitzt, sollte hoeher stellen, sonst bleiben Kopien
+/// uebrig. `0` schaltet die Sperre ab.
+///
+/// **Die ERSTE Anforderung verzoegert das nicht** — eine frische Luecke geht
+/// sofort hinaus. Betroffen sind nur Wiederholungen, und der Preis dafuer ist,
+/// dass ein VERLORENES NACK erst nach der Sperrfrist nachgeholt wird.
+fn nack_sperre() -> Duration {
+    let ms = std::env::var("PULSE_PLAYER_NACK_SPERRE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms <= 2000)
+        .unwrap_or(60);
+    Duration::from_millis(ms)
+}
+
 /// Baut die Interceptor-Registry selbst, statt `register_default_interceptors`
 /// zu nehmen — **nur wegen des NACK-Sendeintervalls.**
 ///
@@ -299,7 +328,11 @@ fn interceptors_mit_zuegigem_nack(media: &mut MediaEngine) -> Result<Registry> {
 
     let mut registry = Registry::new();
     registry.add(Box::new(Responder::builder()));
-    registry.add(Box::new(Generator::builder().with_interval(nack_intervall())));
+    registry.add(Box::new(
+        Generator::builder()
+            .with_interval(nack_intervall())
+            .with_pulse_resend_delay(nack_sperre()),
+    ));
     registry = configure_rtcp_reports(registry);
     configure_twcc_receiver_only(registry, media).context("TWCC-Interceptor")
 }

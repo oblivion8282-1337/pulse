@@ -28,14 +28,27 @@ REPO="https://github.com/webrtc-rs/webrtc.git"
 
 hier="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ziel="$hier/vendor/webrtc-rs"
-patch_datei="$hier/patches/0001-webrtc-rs-expose-undeclared-ssrc-streams.patch"
+# ALLE Patches, in alphabetischer Reihenfolge. Frueher stand hier genau einer,
+# hartcodiert — der zweite (NACK-Sperrfrist) waere damit auf jeder anderen
+# Maschine und in der CI stillschweigend gefehlt, und der Player haette dort
+# ein anderes Verhalten gezeigt als hier gemessen.
+shopt -s nullglob
+patch_dateien=("$hier"/patches/*.patch)
+shopt -u nullglob
 
-[ -f "$patch_datei" ] || { echo "Patch fehlt: $patch_datei" >&2; exit 1; }
+[ ${#patch_dateien[@]} -gt 0 ] || { echo "Keine Patches in $hier/patches" >&2; exit 1; }
 
 if [ -d "$ziel/.git" ]; then
     # Schon da: auf den Ausgangsstand zurück, damit ein zweiter Lauf nicht
     # denselben Patch ein zweites Mal anzuwenden versucht.
-    git -C "$ziel" checkout -q "$VERSION"
+    #
+    # `checkout` allein GENUEGT NICHT — es laesst Aenderungen an getrackten
+    # Dateien stehen, und genau die sind hier ja die Patches. Der Rueckfall
+    # wirkte deshalb nie; mit einem einzigen Patch fiel es nur nicht auf, weil
+    # `apply --check` danach am schon gepatchten Baum scheiterte und das Skript
+    # mit "wurde webrtc-rs angehoben?" abbrach — einer Meldung, die in die
+    # voellig falsche Richtung zeigt.
+    git -C "$ziel" reset -q --hard "$VERSION"
     git -C "$ziel" clean -qfd
 else
     mkdir -p "$(dirname "$ziel")"
@@ -44,11 +57,15 @@ else
     git clone -q --depth 1 --branch "$VERSION" "$REPO" "$ziel"
 fi
 
-git -C "$ziel" apply --check "$patch_datei" 2>/dev/null || {
-    echo "Patch passt nicht auf $VERSION — wurde webrtc-rs angehoben?" >&2
-    exit 1
-}
-git -C "$ziel" apply "$patch_datei"
+for patch_datei in "${patch_dateien[@]}"; do
+    git -C "$ziel" apply --check "$patch_datei" 2>/dev/null || {
+        echo "Patch passt nicht auf $VERSION: $(basename "$patch_datei")" >&2
+        echo "Wurde webrtc-rs angehoben?" >&2
+        exit 1
+    }
+    git -C "$ziel" apply "$patch_datei"
+    echo "  angewandt: $(basename "$patch_datei")"
+done
 
-echo "webrtc-rs $VERSION + Pulse-Patch liegt in $ziel"
+echo "webrtc-rs $VERSION + ${#patch_dateien[@]} Pulse-Patches liegen in $ziel"
 echo "Gegenprobe:  cd $hier && cargo build --release"
