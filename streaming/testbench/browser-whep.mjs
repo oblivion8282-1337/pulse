@@ -114,6 +114,8 @@ async function probe() {
     if (s.type === 'inbound-rtp' && s.kind === 'video') {
       Object.assign(out, {
         framesDecoded: s.framesDecoded, framesDropped: s.framesDropped,
+        framesReceived: s.framesReceived, framesAssembled: s.framesAssembledFromMultiplePackets,
+        keyFramesDecoded: s.keyFramesDecoded, frameWidth: s.frameWidth, frameHeight: s.frameHeight,
         packetsReceived: s.packetsReceived, packetsLost: s.packetsLost,
         fecPacketsReceived: s.fecPacketsReceived,
         fecPacketsDiscarded: s.fecPacketsDiscarded,

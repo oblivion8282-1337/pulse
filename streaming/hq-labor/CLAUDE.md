@@ -8,6 +8,40 @@ Prüfstand unter `streaming/testbench/`, der Player unter
 Rechner.** Sie steht bewusst im Repo und nicht in der Claude-Memory: die liegt
 pro Maschine und wandert nicht mit.
 
+## Wiedereinstieg (Stand 2026-07-31, früher Morgen)
+
+**Wo die Arbeit liegt:** `main` trägt Labor, Sidecar-Doku und Lizenzfix. Die
+Nacht-Arbeit (adaptive Parität, Browser-Werkzeug, Messakten) liegt in **PR 267**
+(`werkzeug/pruefstand-labor-server`) — offen, weil dafür keine Freigabe vorlag.
+Der Player-Branch `feat/native-hq-player` ist auf `main` gesetzt und baut
+(116 Tests).
+
+**Der Labor-Server** (`pulse.unicutmedia.com`) läuft eigenständig, nur noch
+MediaMTX, kein All-in-one-Container mehr. Binary `mediamtx.adaptiv` mit vier
+Patches, Betriebsart über `~/mediamtx-labor/neustart.sh` umschaltbar. Zugang in
+`~/mediamtx-labor/zugang.txt`. Aktuell: Vorgabe (FlexFEC 10+2, **nicht**
+adaptiv).
+
+**Die drei nächsten Schritte**, in dieser Reihenfolge:
+
+1. **AV1 10 bit mit Hardware-Decoder klären** (s.u.) — davon hängt ab, was
+   Browser-Zuschauer überhaupt bekommen. Die bisherige Messung lief headless
+   und ist für den Nutzerfall nicht aussagekräftig.
+2. **Intra-Refresh unter Verlust**: Der Browser läuft im Intra-Refresh-Betrieb
+   nachweislich durch, aber der Fall „Verlust → PLI → IDR vom Sender" ist
+   ungemessen. Braucht den echten Sidecar, also Portal und einen Menschen.
+3. **Wo entsteht die Bündelung?** Der Codec ist es nicht (gemessen). Nächster
+   Schnitt: dieselbe Reihe über WHIP statt RTMPS, plus `fern-split.py`, um vor
+   und hinter dem eigenen Anschluss zu trennen.
+
+**Zwei Fehler dieser Nacht, damit sie sich nicht wiederholen:** Ein 10-bit-Lauf
+wurde gegen 8-bit-Läufe mit **anderer Bitrate und Bildrate** verglichen (25
+Mbit/144 fps gegen 4 Mbit/60 fps) — der Uplink staute, und der Unterschied
+wurde der Bittiefe zugeschrieben. Und aus einer Quelltextstelle
+(`keyframe_required_ = true`) wurde geschlossen, Intra-Refresh sei im Browser
+unmöglich; die Messung zeigt das Gegenteil. **Beides waren Folgerungen ohne
+Messung, in einem Projekt, dessen erste Regel lautet, nicht zu raten.**
+
 ## Wie hier gearbeitet wird (Vorgabe des Nutzers, 2026-07-31)
 
 - **Nicht raten. Nichts von vornherein annehmen.** Jede Aussage über Verhalten
@@ -143,11 +177,20 @@ handelt `flexfec-03` im Empfang per Default aus (Field-Trial ist nur fürs
 `a=ssrc-group:FEC-FR`, und die Paritätspakete kommen an (1352–5788 je Lauf,
 `fecPacketsReceived` aus `getStats()`). FEC im Browser ist keine Baustelle.
 
-**AV1 10 bit ist im Browser tot.** Null Bilder in 15 Sekunden bei normal
-ankommenden Paketen und 97 Keyframe-Anforderungen; 8 bit liefert im selben
-Aufbau 722 Bilder. Ursache ist der Decoder (dav1d in libwebrtc lehnt
-`bpc != 8` ab), nicht der Weg. **Folge: 10 bit bleibt dem nativen Player
-vorbehalten**, Browser und Electron bekommen 8 bit.
+**AV1 10 bit im Browser — nur für den SOFTWARE-Decoder geklärt, und das ist
+nicht der Fall, der zählt.** Gemessen: 0 Bilder gegen 722 bei 8 bit, bei
+gleicher Bitrate und ohne jeden Paketverlust. Aber der Chromium lief
+**headless**, also ohne Hardware-Decode (`decoderImplementation` stand in allen
+Läufen auf `n/a`). Belegt ist nur, dass libwebrtcs dav1d-Anbindung `bpc != 8`
+ablehnt; über den **Hardware**-Pfad sagt das nichts — und Nutzer haben eine GPU.
+Der Nutzer berichtet, der Browser gebe 10-bit-AV1 sehr wohl wieder, auf 8 bit
+heruntergerechnet. Das widerspricht der Messung nicht.
+**Offen und vor jeder Folgerung zu klären**: derselbe Lauf mit sichtbarem
+Chromium und Hardware-Decoder, und derselbe Test in der echten Electron-App.
+Erster Fehlversuch dabei: der ursprüngliche 10-bit-Lauf nutzte eine Vorlage mit
+25 Mbit/s und 144 fps gegen 4 Mbit/s und 60 fps bei den anderen — über einen
+10-Mbit-Uplink staut das zwangsläufig, und der Unterschied wurde fälschlich der
+Bittiefe zugeschrieben.
 
 **Intra-Refresh funktioniert im Browser — er braucht nur einen Einstiegspunkt.**
 Hier stand zwischenzeitlich das Gegenteil („scheidet für Browser und Electron
