@@ -5,31 +5,52 @@ Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars** — ersetzt den Python-`gs
 Wie die Windows/macOS-Rust-Sidecars: **FFmpeg als Bibliothek** (kein zweites Programm),
 gleiches stdio-JSON-RPC-Protokoll wie `gsr-sidecar/control.py`.
 
+**Das ist der ausgelieferte Aufnahmeweg** — seit 2026-07-17 der Standard unter Linux
+(der Python-GSR-Sidecar ist nur noch Auffangnetz), gebaut vom Flatpak-Manifest nach
+`/app/bin/pulse-linux-hq-sidecar`. Wer am experimentellen Sendeweg misst (eigener
+WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
+`streaming/hq-labor/` — ein eigenes Binary, das diesen Code als Bibliothek einbindet.
+
 ## Stack
-- **Capture** (Phase 6, in Arbeit): xdg-desktop-portal ScreenCast → PipeWire-DMABUF.
+- **Capture**: xdg-desktop-portal ScreenCast → PipeWire-DMABUF, zero-copy in den Encoder.
 - **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 (System-FFmpeg,
-  pkg-config). Codecs: **nur H264 + AV1** (kein HEVC). Encoder-Optionen orientieren sich
-  an GSR (`tune=ll`/`rc=cbr`/`b_ref_mode=0` für NVENC; `rc_mode=CBR`/`async_depth=3` für VAAPI).
+  pkg-config). Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
+  zurück, sind aber **nicht mehr 1:1** — maßgeblich ist `encode/opts.rs`, dort steht an
+  jedem Wert die Messung (etwa VAAPI `async_depth=1` statt GSRs 3: der Vorlauf kostete
+  zwei Bildabstände, 33,6 → 5,3 ms).
 - **Push**: FLV-Mux → RTMPS an MediaMTX (`tls_verify=0`, GnuTLS-Backend im System-FFmpeg —
   kein Custom-Build nötig, anders als bei macOS). Viewer holen per WHEP.
 - **Threading**: `std::thread` + `mpsc`, kein Tokio im Main-Loop (nur scoped für die
   Portal-Verhandlung via `ashpd`).
 
 ## Stand
-- ✅ Protokoll-Skelett (wire-identisch zu `control.py`): health/gpu_info/state/stop/
-  build_argv/start.
-- ✅ TLS-De-Risk: `tls_backend=gnutls`, RTMPS-Connect mit `tls_verify=0` gegen self-signed
-  MediaMTX-Cert funktioniert (`examples/tls_probe.rs`).
-- ✅ DRM-Vendor-Erkennung (sysfs: nvidia/amd/intel + `/dev/dri/renderDXXX`).
-- ✅ NVENC-Encode (H264 + AV1) → Datei + RTMPS-Push, via HLS lesbar verifiziert
-  (`examples/encode_smoke.rs`).
-- ✅ `start`-Op treibt über JSON-RPC einen echten NVENC→RTMPS-Stream (synthetische Quelle).
-- ✅ Portal-Capture: Dialog → PipeWire-`node_id`+`fd`+`restore_token`
-  (`examples/capture_smoke.rs`).
-- ⏳ PipeWire-DMABUF-Consumer: Format-Verhandlung blockiert (vermutlich fehlender
-  DMA-BUF-Modifier im EnumFormat — s. Code-Kommentare in `src/capture/pipewire_stream.rs`).
-- ⏳ Zero-Copy-Handoff (NVENC `cuImportExternalMemory` / VAAPI `av_hwframe_map`), Audio
-  (Opus, 2-Stream-FLV), `test_driver`-Example.
+
+Die volle Kette läuft und wird ausgeliefert: Portal-Dialog → PipeWire-DMABUF →
+zero-copy in den Encoder (NVENC via CUDA-GL-Interop, VAAPI via `hwmap`+`scale_vaapi`)
+→ FLV-Mux mit Ton → RTMPS. Dazu Auflösungs-Skalierung auf der GPU, Audio-Modi
+(Desktop / einzelne App / Mikrofon) und A/V-Anker über eine gemeinsame Wanduhr.
+
+Zwei Dinge, die man beim Lesen der Ausgabe kennen muss:
+
+- **10 bit gibt es nur mit AV1.** Ein 10-bit-Wunsch mit H.264 wird still auf 8 bit
+  zurückgeschoben — `High 10` kann NVENC zwar, aber kein Browser dekodiert es, und der
+  WHEP-Rückfall im Web ist ein `<video>`.
+- **Dieser Sidecar sendet über WHIP kein AV1** — die Grenze liegt am ffmpeg-WHIP-Muxer,
+  nicht an WHIP oder WebRTC. `ops/start.rs` weicht deshalb auf H.264 aus, und damit
+  zugleich auf 8 bit. Betrifft app-gehostete Instanzen (`MEDIAMTX_PUSH_PROTOCOL=whip`);
+  der Cloud-Weg ist RTMPS und nicht betroffen.
+  **Mit eigenem Paketierer geht es sehr wohl:** `streaming/hq-labor/` sendet AV1 10 bit
+  über WHIP und war damit am 2026-07-28 gemessen 18,7 ms schneller als RTMPS, bei
+  achtmal kleinerer Streuung. Nur ist dieser Weg (noch) nichts, was ausgeliefert wird —
+  deshalb steht er dort und nicht hier.
+
+Offen: die **Aufnahme** selbst ist weiterhin 8 bit (der Compositor liefert `XRGB8888`);
+10-bit-Encode nutzt trotzdem etwas gegen Banding, ist aber keine echte 10-bit-Quelle.
+VAAPI hat keinen 10-bit-Zweig. „Desktop + Mikrofon" mischt bisher nur Desktop.
+
+Die Herleitung der Encoder- und Puffer-Werte mit den zugehörigen Messungen steht in
+`CLAUDE.md` in diesem Verzeichnis — dort ist auch festgehalten, welche Wege gemessen
+und **verworfen** wurden, damit sie niemand erneut aufgreift.
 
 ## Lokales Test-MediaMTX
 ```bash

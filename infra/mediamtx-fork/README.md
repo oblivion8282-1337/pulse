@@ -15,6 +15,21 @@ The patch header explains the AV1-spec context and why this is necessary —
 short version: AMD VAAPI doesn't emit them, NVENC does, and libwebrtc's
 RTP-AV1 receiver relies on them to find frame boundaries.
 
+## Was hier NICHT hineingehört
+
+Dieses Verzeichnis ist ein Auslieferungspfad, kein Ablageort. Das Dockerfile
+wendet **jeden** Patch in `patches/` an, der Workflow baut damit **denselben
+Tag**, den `infra/prod/docker-compose.yml` pinnt, und der Cron-Updater auf dem
+VPS zieht einen neuen Digest desselben Tags binnen fünf Minuten. Ein Patch,
+der hier landet, ist also in Produktion — ohne Versionswechsel und ohne dass
+man es am Tag ablesen könnte.
+
+Experimentelles gehört deshalb nach `streaming/hq-labor/mediamtx-patches/`.
+Dort liegen die serverseitigen Stücke des HQ-Messstands (Weiterleitung der
+Vollbild-Anforderung, FlexFEC auf dem WHEP-Ausgang); kein Workflow fasst sie
+an, der Testserver wird von Hand damit versorgt. Sie kommen erst hierher,
+wenn entschieden ist, dass sie ausgeliefert werden sollen.
+
 ## How it gets built and shipped
 
 `.github/workflows/mediamtx-fork.yml` rebuilds the image when anything under

@@ -8,13 +8,18 @@ Projektanweisungen für Claude Code. Gilt für die Arbeit in diesem Verzeichnis
 Quell-Repo ist am 2026-07-30 gelöscht. **Vor dem Import-Commit gibt es hier
 also keine Historie** — `git log`/`git blame` enden dort, das ist kein Fehler.
 
-**Warum eine Zahl so gesetzt ist**, zwei Quellen, sonst keine:
+**Warum eine Zahl so gesetzt ist**, drei Quellen, sonst keine:
 1. `docs/2026-07-30-linux-hq-sidecar-messbegruendungen.md` im Pulse-Repo — die
    Messbegründungen aus der alten Historie (Latenzkette, Encoder-Werte,
    Puffergrößen und vor allem die **geprüft-und-verworfenen** Versuche).
 2. Der Code-Kommentar an der Stelle selbst. Für Werte, die nach dem Umzug
    gewandert sind (AMD-Encoder-Arbeit), ist **er** die gültige Begründung —
    das Dokument beschreibt den Stand `ba9cc48`.
+3. `historie/pulse-linux-hq-sidecar.bundle` — die alte Historie selbst, 65
+   Commits, klonbar (siehe `historie/README.md`). Punkt 1 ist der Extrakt
+   daraus; wer den einzelnen Schritt mit seinem Diff sucht, findet ihn nur
+   hier. Gesichert am 2026-07-31, weil der lokale Klon nach der Löschung des
+   Quell-Repos die einzige verbliebene Kopie war.
 
 ## Was das ist
 Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-sidecar`
