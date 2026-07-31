@@ -92,7 +92,7 @@ index 8cd5a10..a5934dd 100644
  
          Ok((pkt, attr))
 diff --git a/interceptor/src/nack/generator/mod.rs b/interceptor/src/nack/generator/mod.rs
-index 16b6658..2566df0 100644
+index 16b6658..81fcb90 100644
 --- a/interceptor/src/nack/generator/mod.rs
 +++ b/interceptor/src/nack/generator/mod.rs
 @@ -3,8 +3,9 @@ mod generator_stream;
@@ -270,22 +270,30 @@ index 16b6658..2566df0 100644
                              nacks.push(TransportLayerNack{
                                  sender_ssrc,
                                  media_ssrc: *ssrc,
-@@ -136,6 +259,23 @@ impl Generator {
+@@ -136,6 +259,31 @@ impl Generator {
                          nacks
                      };
  
 +                    // PULSE: Gedaechtnis beschneiden, sonst waechst es mit
 +                    // jedem verlorenen Paket der Sitzung weiter.
 +                    {
-+                        let sperre = Duration::from_millis(
-+                            internal.pulse_resend_delay.load(Ordering::Relaxed),
-+                        );
 +                        let mut pulse_gefragt = internal.pulse_gefragt.lock().await;
-+                        if !sperre.is_zero() {
-+                            let grenze = sperre * 8;
-+                            let jetzt = Instant::now();
-+                            pulse_gefragt.retain(|_, t| jetzt.duration_since(*t) < grenze);
-+                        }
++                        // FESTES Aufraeumfenster, NICHT an die Sperre gekoppelt.
++                        //
++                        // Eine erste Fassung nahm `sperre * 8`, und das ergab
++                        // einen Teufelskreis: bei kleiner Sperre flog ein
++                        // Eintrag nach 40 ms heraus, die echte Antwort traf
++                        // aber erst nach 59 ms ein und fand ihn nicht mehr.
++                        // Gemessen wurden dann nur noch UMSORTIERUNGEN (7 ms
++                        // statt 59), die Sperre blieb auf ihrer Untergrenze,
++                        // das Fenster blieb kurz — und der Fix war wirkungslos.
++                        //
++                        // Zwei Sekunden decken jede Antwort ab, die noch etwas
++                        // nuetzen koennte (der Jitter-Puffer haelt 100 ms), und
++                        // begrenzen die Karte trotzdem.
++                        let jetzt = Instant::now();
++                        pulse_gefragt
++                            .retain(|_, t| jetzt.duration_since(*t) < Duration::from_secs(2));
 +                        internal
 +                            .pulse_offen
 +                            .store(!pulse_gefragt.is_empty(), Ordering::Relaxed);
@@ -294,7 +302,7 @@ index 16b6658..2566df0 100644
                      let a = Attributes::new();
                      for nack in nacks{
                          if let Err(err) = rtcp_writer.write(&[Box::new(nack)], &a).await{
-@@ -215,6 +355,12 @@ impl Interceptor for Generator {
+@@ -215,6 +363,12 @@ impl Interceptor for Generator {
          let stream = Arc::new(GeneratorStream::new(
              self.internal.log2_size_minus_6,
              reader,
