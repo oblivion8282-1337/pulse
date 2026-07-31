@@ -1,0 +1,38 @@
+{
+  "id": "fec-2026-07-31-20plus4-bringt-nichts",
+  "gemessen_am": "2026-07-31 (spaeter Abend)",
+  "frage": "Bringt 20+4 statt 10+2 einen Gewinn? Gleicher Aufschlag, doppelter Verschraenkungsabstand — laut FEC-Analyse ein Gratis-Gewinn gegen Buendelverlust.",
+
+  "warum_die_frage_zaehlt": "Es war der letzte offene Weg aus der FEC-Analyse, der nichts kostet: 4 Paritaetspakete auf 20 Medienpakete sind dasselbe Verhaeltnis wie 2 auf 10, nur liegen die Pakete einer Gruppe weiter auseinander. Zwei zusammenhaengend verlorene Pakete landen dann seltener in derselben Gruppe — und genau daran scheitert XOR, das je Gruppe nur EIN Loch schliesst.",
+
+  "aufbau": "Identisch zum 10+2-Lauf (`fec-2026-07-31-fest-gegen-adaptiv`): echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde, neun Stoerzyklen (4 Downloads, 25 s, alle 45 s). Einziger Unterschied: PULSE_FLEXFEC_MEDIA=20, PULSE_FLEXFEC_FEC=4.",
+
+  "vergleich": [
+    {"groesse": "reparierte Pakete", "10+2": 170, "20+4": 19},
+    {"groesse": "unreparierbar", "10+2": 0, "20+4": 0},
+    {"groesse": "zu spaet", "10+2": 0, "20+4": 0},
+    {"groesse": "Paritaets-Aufschlag kbit/s", "10+2": 831, "20+4": 809},
+    {"groesse": "Paritaets-Aufschlag Prozent", "10+2": 19.8, "20+4": 19.1},
+    {"groesse": "Wiederholungen kbit/s", "10+2": 931, "20+4": 809},
+    {"groesse": "NACKs", "10+2": 29910, "20+4": 27389},
+    {"groesse": "Detektor-Eingriffe", "10+2": 6, "20+4": 6},
+    {"groesse": "sichtbare Bildausfaelle", "10+2": 1, "20+4": 1}
+  ],
+
+  "was_das_heisst": {
+    "der_preis_stimmt_wie_erwartet": "19,1 gegen 19,8 Prozent Aufschlag. Die Annahme der Analyse trifft zu: 20+4 kostet nicht mehr als 10+2.",
+    "es_repariert_aber_deutlich_weniger": "19 statt 170 Pakete. Bei 10+2 gehoeren zwei Paritaetspakete zu je zehn Medienpaketen; ein einzelnes verlorenes Paket ist dort viel haeufiger DAS EINE Loch, das XOR schliessen kann. In der groesseren Gruppe muss der Empfaenger auf mehr Pakete warten, und die Luecke ist oft schon per Nachforderung gefuellt, bevor die Paritaet zum Zug kaeme — die NACKs liegen in beiden Laeufen bei knapp 30000.",
+    "die_traegheits-vermutung_ist_widerlegt": "Waehrend des Laufs lag der Verdacht nahe, die groessere Gruppe sei zu langsam (44 statt 22 ms, bis eine Gruppe vollstaendig ist). Der Zaehler `zu_spaet` steht aber in BEIDEN Laeufen auf null. Die Reparaturen kommen nicht zu spaet, sie kommen gar nicht erst zustande.",
+    "der_erhoffte_gewinn_tritt_nicht_ein": "20+4 ist fuer Buendelverlust gebaut. Dieser Fall tritt hier nicht auf: `unreparierbar` steht in beiden Varianten auf null, XOR scheitert nie. Ohne den Fall bringt der doppelte Verschraenkungsabstand nichts und kostet nur Reparaturgelegenheiten."
+  },
+
+  "einschraenkungen": [
+    "**Die Stoerlage schwankt weiter zwischen den Laeufen.** Beide hatten dieselbe gesetzte Stoerserie, aber die Fremdlast auf der Leitung ist nicht steuerbar (27389 gegen 29910 NACKs — hier zufaellig aehnlich, an anderen Tagen um den Faktor zehn verschieden). Belastbar ist der Reparaturvergleich vor allem deshalb, weil der Unterschied gross ist (170 gegen 19) und in dieselbe Richtung zeigt wie die Mechanik es erwarten laesst.",
+    "Buendelverlust wurde NICHT gezielt erzeugt. Die Saettigung durch Downloads verliert eher vereinzelt; eine `netem`-Strecke mit `loss gemodel` waere der Test, fuer den 20+4 gebaut ist. Solange der fehlt, ist die Aussage „bringt nichts\" auf DIESE Stoerart begrenzt.",
+    "Ein Lauf je Variante."
+  ],
+
+  "empfehlung": "Bei 10+2 bleiben (Server steht wieder so). 20+4 ist nicht schlechter im Preis, aber schlechter in der Wirkung — solange XOR ohnehin nie an seine Grenze kommt.",
+
+  "was_damit_zur_fec_analyse_abgeschlossen_ist": "Von den fuenf Wegen der Analyse sind vier erledigt: adaptive Paritaet (repariert nichts, Regelgroesse taugt nicht), Reed-Solomon (gegenstandslos, XOR scheitert nie), NACK (laengst gezogen, gemessen zu langsam), LTR (blockiert, FFmpeg reicht enableLTR fuer av1_nvenc nicht durch). Der Zusatzvorschlag 20+4 ist mit diesem Lauf ebenfalls erledigt. Offen bleibt allein `ungleicher Schutz` — und der ist unter Intra-Refresh interessanter geworden als in der Analyse: dort ging es um periodische Keyframes, hier gibt es nur EINEN, den beim Beitritt. Genau der entscheidet aber, ob ein Zuschauer ueberhaupt ein Bild sieht."
+}
