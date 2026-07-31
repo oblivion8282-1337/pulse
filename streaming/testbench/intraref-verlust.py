@@ -185,6 +185,12 @@ def main() -> int:
     ap.add_argument("--stoer-quelle", default=STOER_QUELLE)
     ap.add_argument("--stoer-strom", type=int, default=4,
                     help="parallele Downloads (mehr = haertere Stoerung)")
+    # Der Einfrierfehler ist SPORADISCH: dieselbe Stoerung kippt den Player
+    # einmal und einmal nicht (2026-07-31 beide Faelle gemessen). Er haengt
+    # also an einem Rennen beim Aufloesen des Staus. Ein einzelner Zyklus
+    # trifft ihn nicht verlaesslich — deshalb wiederholen, bis es passiert.
+    ap.add_argument("--stoer-alle", type=float, metavar="SEKUNDEN",
+                    help="Stoerung wiederholen (Abstand zwischen den Zyklen)")
     args = ap.parse_args()
 
     server_ip = socket.gethostbyname(_fern.HOST)
@@ -258,8 +264,22 @@ def main() -> int:
 
         # Ein Vollbild auf Zuruf: im Intra-Refresh-Betrieb hat der Strom nach
         # dem Start keinen Einstiegspunkt mehr, der Player bliebe sonst schwarz.
-        time.sleep(1.0)
-        sender.call("keyframe", timeout=10)
+        #
+        # WIEDERHOLT anfordern, bis der Player den Einstieg meldet. Eine
+        # einzelne Anforderung ist ein Wettlauf: geht sie hinaus, waehrend der
+        # Player noch im ICE-Aufbau steckt, kommt nie wieder eine — der Lauf
+        # laeuft dann 150 Sekunden mit „dekodiert 0/s" durch und ist wertlos
+        # (am 2026-07-31 genau so passiert). Kostet im Normalfall einen
+        # einzigen Durchgang.
+        for _versuch in range(6):
+            time.sleep(1.0)
+            sender.call("keyframe", timeout=10)
+            time.sleep(1.5)
+            if any(e.get("meldung", "").find("Einstiegspunkt") >= 0 for e in vollbilder):
+                break
+        else:
+            print("WARNUNG: Player meldet keinen Einstiegspunkt — Lauf ist wertlos",
+                  file=sys.stderr)
 
         # Die Aufnahme braucht ZWEI Anforderungen, und die Reihenfolge ist eine
         # Zwickmuehle, in die der erste Versuch am 2026-07-31 gelaufen ist:
@@ -296,7 +316,10 @@ def main() -> int:
                       f"({args.stoer_strom} Stroeme, {stoer_dauer:.0f} s)", flush=True)
                 stoerung(args.stoer_quelle, args.stoer_strom, stoer_dauer, stoer_log)
                 print(f"[{time.monotonic() - start:.0f} s] Stoerung aus", flush=True)
-                stoer_ab = None
+                if args.stoer_alle:
+                    stoer_ab = time.monotonic() - start + args.stoer_alle
+                else:
+                    stoer_ab = None
             s = player.call("stats", session=sid)
             if s.get("ok"):
                 proben.append(s)
@@ -342,6 +365,16 @@ def main() -> int:
         "vollbild_ereignisse": [{k: v for k, v in e.items() if not k.startswith("_")}
                                 for e in vollbilder],
         "player_proben": len(proben),
+        # Die Proben SELBST, nicht nur ihre Anzahl. Fuer die Einfrier-Suche
+        # zaehlen `packets_reordered` und `packets_lost` ueber die Zeit: sie
+        # sagen, ob der Jitter-Puffer beim Stau-Ende Pakete verwirft — und das
+        # steht in keiner Logzeile, nur in der `stats`-Antwort.
+        "verlauf": [{k: v for k, v in pr.items()
+                     if k in ("packets_received", "packets_lost", "packets_reordered",
+                              "packets_duplicate", "frames_decoded", "frames_dropped",
+                              "frames_skipped", "buffered_packets", "fec_repariert",
+                              "fec_unreparierbar", "fec_zu_spaet")}
+                    for pr in proben],
     }
     ziel = HERE / f"{args.label}.json"
     ziel.write_text(json.dumps(ergebnis, indent=1, ensure_ascii=False) + "\n")
