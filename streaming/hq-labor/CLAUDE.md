@@ -149,12 +149,24 @@ Aufbau 722 Bilder. Ursache ist der Decoder (dav1d in libwebrtc lehnt
 `bpc != 8` ab), nicht der Weg. **Folge: 10 bit bleibt dem nativen Player
 vorbehalten**, Browser und Electron bekommen 8 bit.
 
-**Intra-Refresh scheidet für Browser und Electron aus.** Der Empfänger startet
-ohne echtes IDR gar nicht (`keyframe_required_ = true`) und fordert nach jedem
-Verlust im 200-ms-Takt ein Keyframe an; der H.264-Recovery-Point-SEI wird beim
-Depacketisieren verworfen, und AV1 hat gar keine Signalisierung dafür. Es kann
-also höchstens ein Sonderweg **nur** für den nativen Player sein — für den
-WHEP-Pfad bleiben periodische echte Keyframes Pflicht.
+**Intra-Refresh funktioniert im Browser — er braucht nur einen Einstiegspunkt.**
+Hier stand zwischenzeitlich das Gegenteil („scheidet für Browser und Electron
+aus"), geschlossen aus der Quelltextstelle `keyframe_required_ = true` in
+libwebrtc. Das war voreilig: die Stelle betrifft den **Einstieg**, nicht den
+Dauerbetrieb. Gemessen (`profiles/browser-2026-07-31-intra-refresh.json`):
+
+| Lauf | Bilder |
+|---|---|
+| Intra-Refresh, Beitritt **nach** dem einzigen IDR | 0 (98 vergebliche Anforderungen) |
+| **nativer Player**, derselbe Fall | 0 — es ist keine Browser-Eigenheit |
+| dieselbe Kette mit Keyframes alle 2 s | 721 |
+| Intra-Refresh, Beitritt **vor** dem IDR | **2228 in 40 s**, danach 37 s reiner Intra-Refresh, PLI-Zähler steht |
+
+Die Bedingung ist also nicht „periodische Keyframes", sondern **ein IDR beim
+Beitritt** — und das liefert Patch 0002 bereits, indem er die
+Keyframe-Anforderung des Zuschauers an den Sender weiterleitet, statt sie wie
+upstream zu verwerfen. Noch ungemessen ist das Verhalten nach einem **Verlust**
+im laufenden Betrieb (dort muss derselbe Weg greifen).
 
 **Das Stottern liegt nicht am Codec.** H.264, AV1 8 bit und AV1 10 bit liegen
 in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
