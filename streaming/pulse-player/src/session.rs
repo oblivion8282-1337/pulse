@@ -479,6 +479,26 @@ pub async fn run(
                         return;
                     }
                 }
+
+                // Zweiter, von der Lueckenmeldung UNABHAENGIGER Weg zur
+                // Rettung des Decoders.
+                //
+                // Der Gap-Zweig oben greift nur, wenn wirklich Pakete fehlen.
+                // Am 2026-07-31 fror `av1_cuvid` aber nach dem Ende einer
+                // Saettigungsphase ein, OHNE dass ein einziges Paket verloren
+                // ging — er gab weiter 60 Bilder je Sekunde aus, immer
+                // dasselbe, ueber 90 Sekunden. Keine Luecke, keine Rettung,
+                // und jede Kennzahl sah gesund aus. Deshalb hier ein Auslöser,
+                // der am ERGEBNIS haengt statt an der Ursache.
+                if decoder.as_mut().is_some_and(VideoDecoder::eingefroren) {
+                    if let Some(d) = decoder.as_mut() {
+                        d.wegen_einfrieren_neu();
+                    }
+                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                        last_keyframe_request = Instant::now();
+                        whep_session.request_keyframe(ssrc).await;
+                    }
+                }
             }
         }
 

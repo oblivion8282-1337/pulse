@@ -224,6 +224,66 @@ impl Av1Assembler {
 
 #[cfg(test)]
 mod tests {
+    /// Faehrt einen echten RTP-Mitschnitt durch den Zusammensetzer und
+    /// schreibt die entstehenden Zugriffseinheiten als rohen AV1-Strom weg.
+    ///
+    /// **Wofuer.** Am 2026-07-31 hat der Player nach dem Ende einer
+    /// Saettigungsphase ein sauber eingefrorenes Bild gezeigt, bei voller
+    /// Datenrate, null Paketverlust und laufenden Zaehlern. Der mitgeschriebene
+    /// Bitstrom war ab diesem Punkt fuer libdav1d ungueltig ("Invalid repeated
+    /// frame header OBU"), waehrend `av1_cuvid` ihn schluckte und stur dasselbe
+    /// Bild ausgab. Offen ist, ob der Zusammensetzer aus denselben Paketen
+    /// wieder denselben kaputten Strom baut — dann liegt der Fehler hier — oder
+    /// einen gueltigen, dann lag es an der Reihenfolge davor.
+    ///
+    /// Kein regulaerer Test: laeuft nur mit gesetztem `PULSE_TEST_RTPDUMP`.
+    #[test]
+    fn mitschnitt_durch_den_zusammensetzer() {
+        let Ok(pfad) = std::env::var("PULSE_TEST_RTPDUMP") else {
+            eprintln!("PULSE_TEST_RTPDUMP nicht gesetzt — uebersprungen");
+            return;
+        };
+        let bytes = std::fs::read(&pfad).expect("Mitschnitt lesbar");
+        let pakete = crate::dump::read_dump(&bytes);
+        assert!(!pakete.is_empty(), "Mitschnitt ist leer");
+
+        let mut a = Av1Assembler::new();
+        let mut strom: Vec<u8> = Vec::new();
+        let mut einheiten = 0usize;
+        let mut verworfen = 0usize;
+        let mut marker = 0usize;
+        for (payload, mk) in &pakete {
+            if *mk {
+                marker += 1;
+            }
+            match a.push(payload, *mk) {
+                Some(unit) => {
+                    einheiten += 1;
+                    // Mit Laengen-Praefix, damit die Einheitsgrenzen beim
+                    // Auswerten erhalten bleiben: der Zusammensetzer verwirft
+                    // die Temporal Delimiter (so gewollt), am fertigen Strom
+                    // sind die Grenzen danach nicht mehr abzulesen.
+                    strom.extend_from_slice(&(unit.len() as u32).to_le_bytes());
+                    strom.extend_from_slice(&unit);
+                }
+                None if *mk => verworfen += 1,
+                None => {}
+            }
+        }
+        let ziel = std::env::var("PULSE_TEST_OBU_OUT")
+            .unwrap_or_else(|_| "/tmp/assembler-aus.obu".to_string());
+        std::fs::write(&ziel, &strom).expect("Ausgabe schreibbar");
+        eprintln!(
+            "Pakete {} | Marker {} | Einheiten {} | verworfene Einheiten {} | {} Bytes -> {}",
+            pakete.len(),
+            marker,
+            einheiten,
+            verworfen,
+            strom.len(),
+            ziel
+        );
+    }
+
     use super::*;
 
     fn leb(v: u32) -> Vec<u8> {
