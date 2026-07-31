@@ -78,15 +78,20 @@ pub fn eingeschaltet() -> bool {
 pub struct Zaehler {
     pub repariert: AtomicU64,
     pub unreparierbar: AtomicU64,
+    /// Wie oft XOR an seine Grenze kam (Gruppe mit mehr als einem Loch).
+    /// Siehe `empfaenger::Empfaenger::mehrfach_loch` — ohne diese Zahl sagt
+    /// `unreparierbar` allein nichts darueber, ob die Paritaet ausreicht.
+    pub mehrfach_loch: AtomicU64,
     pub zu_spaet: AtomicU64,
 }
 
 impl Zaehler {
-    /// `(repariert, unreparierbar, zu_spaet)` — die Leseseite.
-    pub fn lesen(&self) -> (u64, u64, u64) {
+    /// `(repariert, unreparierbar, mehrfach_loch, zu_spaet)` — die Leseseite.
+    pub fn lesen(&self) -> (u64, u64, u64, u64) {
         (
             self.repariert.load(Ordering::Relaxed),
             self.unreparierbar.load(Ordering::Relaxed),
+            self.mehrfach_loch.load(Ordering::Relaxed),
             self.zu_spaet.load(Ordering::Relaxed),
         )
     }
@@ -126,6 +131,7 @@ pub fn starten(
                     // Statistik zwischen zwei Zehnerschritten alt aussehen.
                     zaehler.repariert.store(empfaenger.repariert, Ordering::Relaxed);
                     zaehler.unreparierbar.store(empfaenger.unreparierbar, Ordering::Relaxed);
+                    zaehler.mehrfach_loch.store(empfaenger.mehrfach_loch, Ordering::Relaxed);
                     zaehler.zu_spaet.store(empfaenger.zu_spaet, Ordering::Relaxed);
                     if empfaenger.repariert > 0 && empfaenger.repariert != letzte_meldung
                         && empfaenger.repariert % 10 == 0
@@ -133,8 +139,9 @@ pub fn starten(
                         letzte_meldung = empfaenger.repariert;
                         eprintln!(
                             "pulse-player: Paritaet reparierte {} Pakete \
-                             ({} unreparierbar)",
-                            empfaenger.repariert, empfaenger.unreparierbar
+                             ({} unreparierbar, {} mit mehr als einem Loch)",
+                            empfaenger.repariert, empfaenger.unreparierbar,
+                            empfaenger.mehrfach_loch
                         );
                     }
                 }

@@ -92,6 +92,11 @@ pub struct SessionStats {
     /// Alle drei bleiben null, solange `PULSE_PLAYER_FLEXFEC` aus ist.
     pub fec_repariert: u64,
     pub fec_unreparierbar: u64,
+    /// Gruppen, in denen XOR an seine Grenze kam (mehr als ein Loch). Der
+    /// Zaehler, der bis zum 2026-07-31 fehlte — `fec_unreparierbar` allein
+    /// stand in acht Messlaeufen auf 0, auch wo die Paritaet nachweislich
+    /// versagte, und trug damit die falsche Aussage „XOR scheitert nie".
+    pub fec_mehrfach_loch: u64,
     pub fec_zu_spaet: u64,
     pub frames_decoded: u64,
     pub frames_dropped: u64,
@@ -542,8 +547,8 @@ pub async fn run(
         stats.packets_received = buffers.values().map(|b| b.received).sum();
         stats.bytes_received = buffers.values().map(|b| b.bytes_received).sum();
         stats.packets_lost = buffers.values().map(|b| b.lost).sum();
-        (stats.fec_repariert, stats.fec_unreparierbar, stats.fec_zu_spaet) =
-            whep_session.fec_zaehler();
+        (stats.fec_repariert, stats.fec_unreparierbar, stats.fec_mehrfach_loch,
+         stats.fec_zu_spaet) = whep_session.fec_zaehler();
         stats.packets_reordered = buffers.values().map(|b| b.reordered).sum();
         stats.packets_duplicate = buffers.values().map(|b| b.duplicates).sum();
         stats.buffered_packets = buffers.values().map(|b| b.buffered() as u64).sum();

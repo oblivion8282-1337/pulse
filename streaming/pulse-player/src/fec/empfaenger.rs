@@ -46,7 +46,26 @@ pub struct Empfaenger {
     clock_rate: u32,
     tx: mpsc::Sender<RtpArrival>,
     pub repariert: u64,
+    /// Gruppen, die endgueltig NICHT repariert wurden.
+    ///
+    /// **Bis zum 2026-07-31 zaehlte dieses Feld nur Rechen- und
+    /// Parse-Fehler** — also Faelle, die im Betrieb praktisch nie auftreten.
+    /// Der eigentliche Versagensfall von XOR, zwei Loecher in derselben
+    /// Gruppe, fiel durch `versuchen() -> false` still heraus. Das Feld stand
+    /// deshalb in acht Messlaeufen auf 0, auch in einem Lauf mit gesetztem
+    /// Buendelverlust, in dem die Paritaet nachweislich versagte (21
+    /// Vollbild-Anforderungen gegen 2 mit doppelter Paritaet). Auf dieser
+    /// blinden Null beruhte die Aussage „XOR scheitert nie, Reed-Solomon
+    /// loest ein Problem, das es nicht gibt".
     pub unreparierbar: u64,
+    /// Gruppen, die beim ERSTEN Versuch mehr als ein Loch hatten.
+    ///
+    /// Getrennt von `unreparierbar`, weil beides verschiedene Fragen
+    /// beantwortet: hier steht, wie oft XOR an seine Grenze kam — auch wenn
+    /// ein Nachzuegler die Gruppe spaeter doch noch loesbar machte. Die
+    /// Differenz zu `unreparierbar` ist genau das, was das Nachfassen
+    /// gerettet hat.
+    pub mehrfach_loch: u64,
     pub zu_spaet: u64,
 }
 
@@ -60,6 +79,7 @@ impl Empfaenger {
             tx,
             repariert: 0,
             unreparierbar: 0,
+            mehrfach_loch: 0,
             zu_spaet: 0,
         }
     }
@@ -84,10 +104,21 @@ impl Empfaenger {
         if self.versuchen(&kopf, nutzlast).await {
             return;
         }
+        // Hier und nur hier steht fest, dass XOR an seine Grenze kam: die
+        // Gruppe hat beim ersten Versuch mehr als ein Loch. Ein Nachzuegler
+        // kann sie spaeter noch loesen — deshalb ist das nicht dasselbe wie
+        // `unreparierbar`, sondern die Obergrenze dafuer.
+        self.mehrfach_loch += 1;
         // Noch nicht loesbar — aufheben, vielleicht kommt das zweite Paket noch.
         if self.wartend.len() >= WARTENDE_PARITAET {
-            if let Some(&aelteste) = self.wartend.keys().next() {
-                self.wartend.remove(&aelteste);
+            // `keys().next()` einer HashMap ist NICHT die aelteste, sondern
+            // eine beliebige — fuer die Speicherbegrenzung gleichgueltig.
+            // Entscheidend ist, dass sie hier ENDGUELTIG verlorengeht: dieser
+            // Zweig ist der einzige Ort, an dem eine ungeloeste Gruppe
+            // verschwindet, und genau deshalb wird sie hier gezaehlt.
+            if let Some(&beliebige) = self.wartend.keys().next() {
+                self.wartend.remove(&beliebige);
+                self.unreparierbar += 1;
             }
         }
         self.wartend.insert(kopf.basis_sequenz, (kopf, nutzlast.to_vec()));
@@ -159,5 +190,86 @@ impl Empfaenger {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fec::flexfec03::tests::{medienpaket, paritaet_bauen};
+
+    const SSRC: u32 = 0xDEAD_BEEF;
+    const BASIS: u16 = 1000;
+
+    /// Fuenf Medienpakete und die Paritaet darueber — wie sie pion erzeugt.
+    fn gruppe() -> (Vec<Medienpaket>, Vec<u8>) {
+        let medien: Vec<_> = (0..5)
+            .map(|i| medienpaket(BASIS + i, 9000, SSRC, &[i as u8; 40]))
+            .collect();
+        let paritaet = paritaet_bauen(&medien, SSRC, BASIS);
+        (medien, paritaet)
+    }
+
+    /// **Der Fall, den der Zaehler bis zum 2026-07-31 nicht sehen konnte.**
+    /// Zwei Loecher in einer Gruppe sind die Grenze von XOR; bis dahin fiel
+    /// das durch `versuchen() -> false` still heraus, und `unreparierbar`
+    /// blieb auf 0. Auf dieser Null beruhte die Aussage „XOR scheitert nie".
+    #[tokio::test]
+    async fn zwei_loecher_werden_als_grenzfall_gezaehlt() {
+        let (medien, paritaet) = gruppe();
+        let (tx, _rx) = mpsc::channel(16);
+        let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);
+
+        // Nur drei der fuenf ankommen lassen — 1003 und 1004 fehlen.
+        for p in medien.iter().take(3) {
+            e.medienpaket(p.sequenz, p.bytes.clone()).await;
+        }
+        e.paritaetspaket(&paritaet).await;
+
+        assert_eq!(e.mehrfach_loch, 1, "zwei Loecher muessen gezaehlt werden");
+        assert_eq!(e.repariert, 0, "mit zwei Loechern kann XOR nichts ausrichten");
+    }
+
+    /// Die Gegenprobe: EIN Loch ist der Normalfall und darf den Grenzfall-
+    /// Zaehler nicht erhoehen — sonst waere er als Diagnose wertlos.
+    #[tokio::test]
+    async fn ein_loch_wird_repariert_und_nicht_als_grenzfall_gezaehlt() {
+        let (medien, paritaet) = gruppe();
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);
+
+        for p in medien.iter().take(4) {
+            e.medienpaket(p.sequenz, p.bytes.clone()).await;
+        }
+        e.paritaetspaket(&paritaet).await;
+
+        assert_eq!(e.repariert, 1);
+        assert_eq!(e.mehrfach_loch, 0);
+        assert_eq!(e.unreparierbar, 0);
+        assert!(rx.try_recv().is_ok(), "das reparierte Paket muss eingespeist werden");
+    }
+
+    /// Das Nachfassen: kommt eines der beiden fehlenden Pakete verspaetet an,
+    /// wird die Gruppe doch noch loesbar. `mehrfach_loch` bleibt trotzdem bei
+    /// 1 — es zaehlt, dass XOR an der Grenze WAR, nicht dass es verlor.
+    #[tokio::test]
+    async fn nachzuegler_loest_die_gruppe_der_grenzfall_bleibt_gezaehlt() {
+        let (medien, paritaet) = gruppe();
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);
+
+        for p in medien.iter().take(3) {
+            e.medienpaket(p.sequenz, p.bytes.clone()).await;
+        }
+        e.paritaetspaket(&paritaet).await;
+        assert_eq!(e.mehrfach_loch, 1);
+        assert_eq!(e.repariert, 0);
+
+        // 1003 trifft verspaetet ein — jetzt fehlt nur noch 1004.
+        e.medienpaket(medien[3].sequenz, medien[3].bytes.clone()).await;
+
+        assert_eq!(e.repariert, 1, "die Gruppe ist jetzt loesbar");
+        assert_eq!(e.mehrfach_loch, 1, "der Grenzfall bleibt gezaehlt");
+        assert!(rx.try_recv().is_ok());
     }
 }

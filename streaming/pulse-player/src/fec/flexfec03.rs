@@ -232,13 +232,17 @@ pub fn zurueckrechnen(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Baut ein Paritaetspaket wie pions Encoder — dieselbe Reihenfolge, damit
     /// der Test das echte Format prueft und nicht das, was ich mir dabei
     /// gedacht habe.
-    fn paritaet_bauen(medien: &[Medienpaket], ssrc: u32, basis: u16) -> Vec<u8> {
+    ///
+    /// `pub(crate)`, weil auch `empfaenger.rs` echte Paritaetspakete braucht.
+    /// Eine zweite Fassung dort wuerde beim naechsten Formatdetail auseinander-
+    /// laufen, und dann prueften die Tests zwei verschiedene Formate.
+    pub(crate) fn paritaet_bauen(medien: &[Medienpaket], ssrc: u32, basis: u16) -> Vec<u8> {
         let max_nutzlast = medien
             .iter()
             .map(|p| p.bytes.len() - RTP_KOPF)
@@ -274,7 +278,12 @@ mod tests {
         aus
     }
 
-    fn medienpaket(sequenz: u16, zeitstempel: u32, ssrc: u32, nutzlast: &[u8]) -> Medienpaket {
+    pub(crate) fn medienpaket(
+        sequenz: u16,
+        zeitstempel: u32,
+        ssrc: u32,
+        nutzlast: &[u8],
+    ) -> Medienpaket {
         let mut bytes = vec![0x80, 96];
         bytes.extend_from_slice(&sequenz.to_be_bytes());
         bytes.extend_from_slice(&zeitstempel.to_be_bytes());

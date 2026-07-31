@@ -160,8 +160,9 @@ impl WhepSession {
         }
     }
 
-    /// `(repariert, unreparierbar, zu_spaet)` der Paritaet — fuer die Statistik.
-    pub fn fec_zaehler(&self) -> (u64, u64, u64) {
+    /// `(repariert, unreparierbar, mehrfach_loch, zu_spaet)` der Paritaet —
+    /// fuer die Statistik.
+    pub fn fec_zaehler(&self) -> (u64, u64, u64, u64) {
         self.fec.lesen()
     }
 
