@@ -76,6 +76,12 @@ static void profil_pruefen(VADisplay dpy, VAProfile profil, const char *name)
     if (ir & VA_ENC_INTRA_REFRESH_ROLLING_ROW)    printf(", rollende Zeile");
     if (ir & VA_ENC_INTRA_REFRESH_ADAPTIVE)       printf(", adaptiv");
     if (ir & VA_ENC_INTRA_REFRESH_CYCLIC)         printf(", zyklisch");
+    /* Auf welchen Bildarten. Ohne diese drei bleibt ein Teil des Wertes
+     * unerklaert (AMD meldet 0x10003, und die 0x10000 sind genau das) — und
+     * P-Bilder sind die Art, auf die es hier ankommt. */
+    if (ir & VA_ENC_INTRA_REFRESH_P_FRAME)        printf(", auf P-Bildern");
+    if (ir & VA_ENC_INTRA_REFRESH_B_FRAME)        printf(", auf B-Bildern");
+    if (ir & VA_ENC_INTRA_REFRESH_MULTI_REF)      printf(", mit mehreren Referenzen");
     printf(")\n");
 }
 

@@ -57,14 +57,20 @@ Zusammen: bei 5 Prozent Verlust derselbe Aufschlag wie vorher (36,5 gegen
 
 ### Was als Nächstes ansteht
 
-1. **AMD klären — das blockiert alles Weitere.** Intra-Refresh läuft heute nur
-   auf Linux+NVIDIA. `av1_vaapi` bietet die Option nicht an, der
-   Windows-Sidecar kennt sie gar nicht, macOS auch nicht. Ob AMD-Hardware es
-   *könnte*, sagt allein der Treiber:
-   `cc -o /tmp/vaapi-ir testbench/vaapi-intra-refresh-pruefen.c -lva -lva-drm && /tmp/vaapi-ir`.
-   JA heißt: nur FFmpeg im Weg, ein Patch wäre der Weg und AV1 bliebe. NEIN
-   heißt: nur `h264_amf` (kann Intra-Refresh, aber nicht für AV1), also H.264
-   plus ein zweiter Encoder-Pfad im Sidecar.
+1. ~~**AMD klären**~~ — **erledigt am 2026-08-01, die Antwort ist JA.** Radeon
+   780M (VCN 4, Mesa 26.1.5) meldet rollenden Intra-Refresh für AV1, H.264 und
+   HEVC, und Mesa programmiert ihn bis in den VCN-Kommandostrom. Im Weg stand
+   allein FFmpeg, das die VA-API-Schnittstelle in **keiner** Version
+   durchreicht (auch nicht in `master`). Patch dafür:
+   `hq-labor/ffmpeg-patches/`, Beweiskette in
+   `testbench/profiles/amd-2026-08-01-intra-refresh.json`. `h264_amf` und der
+   Verzicht auf AV1 auf AMD sind damit vom Tisch.
+   **Was daran offen bleibt: die Auslieferung** — Sidecar und Labor linken
+   gegen das FFmpeg des Systems. Upstream einreichen, eigenes FFmpeg ins
+   Flatpak bündeln oder auf den Laborgebrauch beschränken ist eine
+   Nutzer-Entscheidung. Und **die AMD-Zahlen fehlen**: dass die Betriebsart
+   läuft, ist belegt; dass sie hier denselben Gewinn bringt wie auf NVIDIA,
+   nicht.
 2. **AV1 10 bit mit Hardware-Decoder im Browser.** Der bisherige Befund („geht
    nicht") stammt aus headless Chromium mit Software-Decoder und sagt über
    echte Nutzer nichts. Davon hängt die Bittiefe für alle Browser-Zuschauer ab.
@@ -295,9 +301,18 @@ gleichmäßig — die Bündelung entsteht dahinter.
 
 **Blockierend — davor lohnt nichts anderes:**
 
-- [ ] **AMD**: kann die Hardware Intra-Refresh? `vaapi-intra-refresh-pruefen.c`
-      auf der AMD-Maschine. Ohne diese Antwort ist offen, ob die Umstellung
-      überhaupt für alle Nutzer geht oder nur für NVIDIA-Sender.
+- [x] **AMD: kann die Hardware Intra-Refresh?** JA (2026-08-01, Radeon 780M).
+      Die Sperre war FFmpeg, nicht die Hardware — Patch liegt in
+      `hq-labor/ffmpeg-patches/`, der Sidecar setzt die richtige Option je
+      Vendor über `PULSE_INTRA_REFRESH=1` und **bricht ab**, wenn sein FFmpeg
+      sie nicht kennt (statt still Keyframes zu fahren).
+- [ ] **AMD messen**: derselbe Verlust-Lauf wie auf NVIDIA
+      (`intraref-verlust.py`), mit einer AMD-Karte als Sender. Erst der sagt,
+      ob der Gewinn hier derselbe ist. Ungemessen ist auch der GPU-Preis auf
+      einer iGPU.
+- [ ] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
+      (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. Bis dahin haben
+      Nutzer auf AMD kein Intra-Refresh, egal was der Sidecar kann.
 - [ ] **Windows und macOS**: eigene Encoder-Ketten, Intra-Refresh kommt in
       ihrem Quelltext null Mal vor. NVENC *kann* es (auf Linux belegt), es ist
       dort nur nicht gebaut.

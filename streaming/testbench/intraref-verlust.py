@@ -223,9 +223,13 @@ def main() -> int:
 
     sender_log = HERE / f"sender-{args.label}.log"
     player_log = HERE / f"player-{args.label}.log"
-    # Der Encoder-Schalter geht als Umgebung an den Sidecar — `vendor_opts`
-    # reicht ihn an den Encoder-Open durch, `warn_unknown` meldet Unbekanntes.
-    env = {} if args.keyframes else {"PULSE_ENCODER_OPTS": "intra-refresh=1,forced-idr=1"}
+    # Der Encoder-Schalter geht als Umgebung an den Sidecar. VENDOR-NEUTRAL:
+    # die Optionsnamen unterscheiden sich (NVENC `intra-refresh`, VAAPI
+    # `intra_refresh`), und der NVENC-Name allein haette auf einer AMD-Karte
+    # still einen Keyframe-Lauf unter diesem Etikett gemessen. `vendor_opts`
+    # setzt jetzt den richtigen Namen, und der Sidecar bricht ab, wenn sein
+    # FFmpeg die Option nicht kennt.
+    env = {} if args.keyframes else {"PULSE_INTRA_REFRESH": "1"}
     # Zeitmuster VOR dem Sender: der Sidecar nimmt den Bildschirm auf, das
     # Muster muss also schon stehen, wenn die Aufnahme beginnt.
     muster = None

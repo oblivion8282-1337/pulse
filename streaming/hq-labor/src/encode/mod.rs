@@ -805,6 +805,11 @@ unsafe fn open_encoder(
     }
 
     let o = opts::vendor_opts(cfg.vendor, &cfg.codec);
+    // SAFETY: der Kontext gehört uns, ist noch nicht geöffnet und lebt über den
+    // Aufruf hinaus; beide Funktionen lesen ihn nur.
+    unsafe { opts::warn_unknown(encoder.as_mut_ptr(), &o) };
+    // SAFETY: wie oben — derselbe Kontext, nur gelesen.
+    unsafe { opts::intra_refresh_pruefen(encoder.as_mut_ptr(), cfg.vendor, codec_name)? };
     let opened = encoder
         .open_with(o)
         .with_context(|| format!("open hw encoder '{codec_name}' (vendor={:?})", cfg.vendor))?;

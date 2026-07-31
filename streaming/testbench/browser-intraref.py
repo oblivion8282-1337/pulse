@@ -97,7 +97,9 @@ def main() -> int:
             return 1
         print("Zeitmuster laeuft — der Bildschirm zeigt jetzt die Messbalken.")
 
-    env = {} if args.keyframes else {"PULSE_ENCODER_OPTS": "intra-refresh=1,forced-idr=1"}
+    # Vendor-neutral, siehe intraref-verlust.py: der NVENC-Optionsname allein
+    # haette auf AMD still einen Keyframe-Lauf gemessen.
+    env = {} if args.keyframes else {"PULSE_INTRA_REFRESH": "1"}
     sender = Sidecar(open(HERE / f"sender-{args.label}.log", "w"), env)
     browser = None
     try:

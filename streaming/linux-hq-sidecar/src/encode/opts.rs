@@ -199,7 +199,83 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             // * `tiles=2x1`: kein Gewinn, +3 % GPU.
         }
     }
+    if intra_refresh_gewuenscht() {
+        for (k, v) in intra_refresh_opts(vendor) {
+            opts.set(k, v);
+        }
+    }
     opts
+}
+
+/// Rollender Intra-Refresh statt periodischer Keyframes? (`PULSE_INTRA_REFRESH=1`)
+///
+/// **Warum eine eigene Variable und nicht `PULSE_ENCODER_OPTS`:** die
+/// Optionsnamen unterscheiden sich je Vendor (NVENC `intra-refresh`, VAAPI
+/// `intra_refresh`). Ein Prüfstand-Skript, das den NVENC-Namen setzt, misst auf
+/// einer AMD-Karte einen Keyframe-Lauf unter dem Etikett „Intra-Refresh" — die
+/// Sorte Fehler, die eine Messreihe nicht scheitern lässt, sondern verfälscht.
+pub fn intra_refresh_gewuenscht() -> bool {
+    matches!(std::env::var("PULSE_INTRA_REFRESH").as_deref(), Ok("1"))
+}
+
+/// Die Encoder-Optionen für rollenden Intra-Refresh, je Vendor.
+///
+/// Die **Umlaufdauer** steht hier bewusst nicht: sie ergibt sich aus `-g`
+/// (`set_gop`, 2 s), und beide Encoder machen daraus dasselbe — NVENC liest
+/// `gopLength` als Refresh-Periode und schaltet den GOP danach auf unendlich
+/// (`nvenc.c:1309ff`), der VAAPI-Patch genauso.
+///
+/// `forced-idr` nur bei NVENC: dort wird ein angeforderter Keyframe sonst
+/// nicht zwingend als IDR kodiert. VAAPI macht daraus ohnehin eins
+/// (2026-08-01 nachgemessen: drei angeforderte Keyframes, drei IDR) — und
+/// dass angeforderte Keyframes weiter ankommen, ist die Bedingung, unter der
+/// Zuschauer überhaupt in einen Intra-Refresh-Strom einsteigen können.
+///
+/// **VAAPI braucht ein gepatchtes FFmpeg** (`streaming/hq-labor/ffmpeg-patches/`);
+/// upstream gibt es die Option in keiner Version. Fehlt sie, bricht der
+/// Encoder-Open mit klarer Meldung ab, statt still weiterzulaufen.
+pub fn intra_refresh_opts(vendor: Vendor) -> &'static [(&'static str, &'static str)] {
+    match vendor {
+        Vendor::Nvidia => &[("intra-refresh", "1"), ("forced-idr", "1")],
+        Vendor::Amd | Vendor::Intel => &[("intra_refresh", "1")],
+    }
+}
+
+/// Vor dem Encoder-Open prüfen, ob ein verlangter Intra-Refresh überhaupt
+/// ankommt — und den Start verweigern, wenn nicht.
+///
+/// **Warum hier ein Fehler steht, wo [`warn_unknown`] nur warnt:** eine
+/// unbekannte Option aus `PULSE_ENCODER_OPTS` ist die Eingabe des Messenden und
+/// soll ihn nicht am Streamen hindern. Intra-Refresh dagegen ist die
+/// Betriebsart selbst: fällt sie aus, läuft ein Keyframe-Strom unter ihrem
+/// Etikett weiter — eine Messung, die nicht scheitert, sondern täuscht.
+///
+/// Auf VAAPI trifft das jedes ungepatchte FFmpeg, also praktisch jedes System
+/// (`streaming/hq-labor/ffmpeg-patches/`).
+///
+/// # Safety
+///
+/// Wie [`warn_unknown`]: `ctx` muss ein gueltiger `AVCodecContext` sein und den
+/// Aufruf ueberleben. Die Funktion liest ihn nur.
+pub unsafe fn intra_refresh_pruefen(
+    ctx: *mut ffmpeg::ffi::AVCodecContext,
+    vendor: Vendor,
+    codec_name: &str,
+) -> anyhow::Result<()> {
+    if !intra_refresh_gewuenscht() {
+        return Ok(());
+    }
+    for (key, _) in intra_refresh_opts(vendor) {
+        // SAFETY: `ctx` ist laut Kontrakt gueltig und wird nur gelesen.
+        if !unsafe { kennt_option(ctx, key) } {
+            anyhow::bail!(
+                "PULSE_INTRA_REFRESH=1, aber '{codec_name}' kennt '{key}' nicht — \
+                 dieses FFmpeg reicht Intra-Refresh nicht durch. \
+                 Patch und Bauanleitung: streaming/hq-labor/ffmpeg-patches/"
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Meldet Encoder-Optionen, die dieser Encoder gar nicht kennt.
@@ -231,19 +307,8 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
 /// Die Funktion liest ihn nur (`av_opt_find`), sie veraendert nichts.
 pub unsafe fn warn_unknown(ctx: *mut ffmpeg::ffi::AVCodecContext, opts: &Dictionary<'_>) {
     for (key, value) in opts.iter() {
-        let Ok(name) = std::ffi::CString::new(key) else { continue };
-        // SAFETY: `ctx` ist laut Kontrakt gueltig; `name` lebt bis zum Ende
-        // der Iteration. `av_opt_find` liest nur.
-        let gefunden = unsafe {
-            ffmpeg::ffi::av_opt_find(
-                ctx.cast(),
-                name.as_ptr(),
-                std::ptr::null(),
-                0,
-                ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN as i32,
-            )
-        };
-        if gefunden.is_null() {
+        // SAFETY: der Kontrakt dieser Funktion ist der von `kennt_option`.
+        if !unsafe { kennt_option(ctx, key) } {
             tracing::warn!(
                 target: "encode",
                 key,
@@ -252,6 +317,32 @@ pub unsafe fn warn_unknown(ctx: *mut ffmpeg::ffi::AVCodecContext, opts: &Diction
             );
         }
     }
+}
+
+/// Kennt dieser Encoder die Option? Antwort desselben `av_opt_find`, das
+/// [`warn_unknown`] benutzt — nur als Frage statt als Warnung, für den Fall,
+/// dass eine fehlende Option ein Abbruchgrund ist statt einer Randnotiz.
+///
+/// # Safety
+///
+/// Wie [`warn_unknown`]: `ctx` muss ein gueltiger `AVCodecContext` sein und den
+/// Aufruf ueberleben. Die Funktion liest ihn nur.
+pub unsafe fn kennt_option(ctx: *mut ffmpeg::ffi::AVCodecContext, name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: `ctx` ist laut Kontrakt gueltig; `name` lebt bis zum Ende des
+    // Aufrufs. `av_opt_find` liest nur.
+    let gefunden = unsafe {
+        ffmpeg::ffi::av_opt_find(
+            ctx.cast(),
+            name.as_ptr(),
+            std::ptr::null(),
+            0,
+            ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN as i32,
+        )
+    };
+    !gefunden.is_null()
 }
 
 /// Zusaetzliche Encoder-Optionen aus `PULSE_ENCODER_OPTS`, Form

@@ -94,10 +94,10 @@ Danach steht `probe.json` da. Die Kontrollzahlen: `nack_deckt_lauf_ab` muss
 
 ## Was auf einer AMD-Maschine zuerst zu tun ist
 
-Die Umstellung auf Intra-Refresh ist auf Linux+NVIDIA vermessen und gewinnt
-dort in jeder Kennzahl. **Für AMD ist ungeklärt, ob sie überhaupt geht** —
-`av1_vaapi` bietet keine `intra-refresh`-Option an, und ob die Hardware es
-könnte, sagt nur der Treiber selbst:
+**Die Frage „kann AMD Intra-Refresh?" ist beantwortet: ja** (2026-08-01,
+Radeon 780M/VCN 4, Mesa 26.1.5 — Messakte
+`testbench/profiles/amd-2026-08-01-intra-refresh.json`). Auf einer anderen
+AMD-Karte lohnt die Gegenprobe trotzdem, sie dauert eine Minute:
 
 ```bash
 cd streaming/testbench
@@ -105,7 +105,16 @@ cc -o /tmp/vaapi-ir vaapi-intra-refresh-pruefen.c -lva -lva-drm
 /tmp/vaapi-ir
 ```
 
-Steht bei AV1 oder H.264 ein JA, kann die Hardware es und nur FFmpeg ist im
-Weg. Steht überall NEIN, bleibt für AMD nur `h264_amf` (AMDs eigene
-Schnittstelle, kann Intra-Refresh, aber nicht für AV1) — und die nutzt unser
-Sidecar bisher gar nicht.
+Im Weg steht nicht die Hardware, sondern **FFmpeg** — es reicht die
+VA-API-Schnittstelle in keiner Version durch. Für Intra-Refresh auf AMD
+braucht diese Maschine also ein gepatchtes FFmpeg:
+
+```bash
+# Patch, Bauanleitung und Begründung:
+streaming/hq-labor/ffmpeg-patches/README.md
+```
+
+Danach fährt `PULSE_INTRA_REFRESH=1` beide Vendor gleich (der Sidecar wählt
+den richtigen Optionsnamen). Ohne den Patch **bricht der Start ab** statt
+still Keyframes zu fahren — das ist Absicht: ein Keyframe-Lauf unter dem
+Etikett „Intra-Refresh" wäre schlimmer als ein Fehler.
