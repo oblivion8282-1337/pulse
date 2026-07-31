@@ -20,8 +20,12 @@
     {"groesse": "FEC repariert", "10+2_a": 621, "10+2_b": 620, "10+1": 853},
     {"groesse": "unreparierbar", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
     {"groesse": "Einfrier-Eingriffe", "10+2_a": 0, "10+2_b": 1, "10+1": 1},
-    {"groesse": "Sekunden ohne Bild", "10+2_a": 0, "10+2_b": 0, "10+1": 0}
+    {"groesse": "Sekunden ohne Bild", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
+    {"groesse": "Sekunden unter 30 Bildern", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
+    {"groesse": "schwaechste Sekunde (Bilder/s)", "10+2_a": 44, "10+2_b": 45, "10+1": 45}
   ],
+
+  "NACHTRAG_zur_bildstabilitaet": "Die Zeile 'Sekunden ohne Bild' stammte urspruenglich aus einer Auswertung, die ein Feld `dekodiert` suchte, das es nicht gibt (richtig: `frames_decoded`, kumulativ). Sie haette auch bei einem Standbild null gemeldet. Nachgerechnet ueber den Zuwachs je Sekunde bestaetigen sich die Werte, und die aussagekraeftigere Groesse steht jetzt daneben: die schwaechste Sekunde lag in allen drei Laeufen bei 44 bis 45 Bildern, keiner fiel unter 30. Damit ist belegt, was vorher nur behauptet war — die Bildrate bricht in keiner Variante ein.",
 
   "was_belastbar_ist": {
     "der_preis_reproduziert_sich": "22,8 und 23,1 Prozent in zwei 10+2-Laeufen — die Streuung liegt bei 0,3 Punkten, obwohl die Stoerlage zwischen ihnen um 40 Prozent auseinanderging (417 gegen 637 Luecken). Der Aufschlag haengt also praktisch nur an der Einstellung, nicht an der Tagesform. Damit ist der Unterschied zu 10+1 (12,3 Prozent) belastbar: **die duennere Paritaet halbiert den Aufschlag.**",

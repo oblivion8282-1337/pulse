@@ -253,3 +253,43 @@ Werkzeuge dafür, beide rein lesende Nachauswertung eines Mitschnitts:
 ```
 
 Merksatz: eine Zählung von Ereignissen ohne ihre Bezugsgröße ist keine Messung.
+
+## Verlust selbst einstellen (seit 2026-07-31)
+
+Bis dahin wurde gestört, indem parallel Dateien heruntergeladen wurden — wie
+stark, entschied die Gegenstelle und die Tageszeit. Vergleiche zwischen Läufen
+mit 0,14 und 0,33 % Verlust tragen aber keine Aussage darüber, welche
+Einstellung besser ist; drei Befunde dieses Tages sind daran gescheitert.
+
+```fish
+sudo -v
+./verluststrecke.py --an 2.0            # 2 % auf UDP vom Labor-Server
+./verluststrecke.py --an 2.0 --buendel  # in Bündeln (Gilbert-Elliott)
+./verluststrecke.py --aus               # räumt ab und meldet die Bilanz
+
+./fec-kennlinie.py --verluste 0.5 2 5 --paritaeten 1 2   # ganze Reihe
+```
+
+Zwei Dinge daran sind nicht offensichtlich:
+
+**Der gesetzte Verlust ist im Mitschnitt nicht als Lücke sichtbar.** `tcpdump`
+hängt im Kernel vor dem tc-Hook, sieht das Paket also noch, das netem gleich
+danach wegwirft. Er zeigt sich stattdessen an der *Reaktion*: bei 2,053 %
+gesetztem Verlust wurden 2,051 % der Pakete nachgefordert. `luecken_erkannt`
+misst weiterhin nur den Verlust der echten Leitung, `pakete_mit_kopien` den
+gesetzten. `fenster.py` taugt unter gesetztem Verlust gar nicht.
+
+**Bildstabilität kommt aus dem Zuwachs von `frames_decoded`**, nicht aus einem
+Feld `dekodiert` — das gibt es nicht. Eine erste Fassung von
+`fec-kennlinie.py` fragte danach und meldete deshalb stur „null Bildausfälle";
+sie hätte dasselbe bei einem dauerhaften Standbild gemeldet.
+
+## Was damit gefunden wurde (2026-07-31, Kennlinie)
+
+**Nicht die Verlustrate entscheidet, sondern ihre Struktur.** Bei
+gleichverteiltem Verlust gibt es bis 5 % keinen Unterschied zwischen 10+1 und
+10+2: Median 60 Bilder, keine Sekunde unter 30, ein einziger PLI (der vom
+Beitritt). Bei **Bündelverlust** derselben Höhe dagegen 21 gegen 2 PLIs — XOR
+schließt je Gruppe nur ein Loch, und zwei aufeinanderfolgende Verluste
+überfordern 10+1. Details:
+`profiles/fec-2026-07-31-kennlinie-gesetzter-verlust.json`.

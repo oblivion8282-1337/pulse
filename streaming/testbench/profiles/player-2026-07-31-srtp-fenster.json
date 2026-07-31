@@ -35,8 +35,15 @@
     {"groesse": "FEC repariert", "fenster_64": 170, "fenster_2048": 621},
     {"groesse": "unreparierbar", "fenster_64": 0, "fenster_2048": 0},
     {"groesse": "Einfrier-Eingriffe", "fenster_64": 6, "fenster_2048": 0},
-    {"groesse": "Sekunden mit Bildausfall", "fenster_64": 1, "fenster_2048": 0}
+    {"groesse": "Sekunden mit Bildausfall", "fenster_64": 1, "fenster_2048": 0},
+    {"groesse": "schwaechste Sekunde (Bilder/s)", "fenster_64": "nicht erhoben", "fenster_2048": 44}
   ],
+
+  "NACHTRAG_zur_bildstabilitaet": {
+    "was_war": "Die Zeile 'Sekunden mit Bildausfall: 0' stammte aus einer Auswertung, die auf ein Feld `dekodiert` sah — das es im Verlauf gar nicht gibt (es heisst `frames_decoded` und ist kumulativ). Der Vergleich `x.get('dekodiert') == 0` ist damit immer falsch, die Auswertung haette also auch bei einem dauerhaften Standbild 'null Ausfaelle' gemeldet.",
+    "was_gilt": "Richtig gerechnet ueber den ZUWACHS je Sekunde (erste Sekunde als Anlauf verworfen) bestaetigt sich die Zahl: 0 Sekunden ohne Bild, 0 Sekunden unter 30 Bildern, schwaechste Sekunde 44 Bilder, Median 60. Die Aussage stimmte, belegt war sie nicht.",
+    "korrigiert_in": "fec-kennlinie.py::bildstabilitaet, 2026-07-31 Nacht"
+  },
 
   "was_belastbar_ist": {
     "die_kopien_verschwinden": "77,7 auf 7,8 Kopien je verlorenem Paket. Das ist eine Verhaeltniszahl INNERHALB je einer Messung und damit von der Stoerlage unabhaengig — anders als jeder Vergleich absoluter Bandbreiten. Die Extremfaelle sind restlos weg: die Verteilung endete vorher bei 215 Kopien je Paket, jetzt bei 12.",
