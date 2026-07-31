@@ -25,10 +25,19 @@ from pathlib import Path
 from gpuload import GpuLoad
 from harness import CID, HERE, Player, mint_tokens
 
-SIDECAR = Path(os.environ.get(
-    "PULSE_LINUX_HQ_SIDECAR",
+# Der Pruefstand faehrt den MESSSTAND (`streaming/hq-labor`), nicht das
+# ausgelieferte Binary: nur er kann den eigenen WebRTC-Sendeweg. Faellt er weg,
+# bleibt der ausgelieferte Sidecar als Rueckfall — dann sind RTMPS-Laeufe
+# weiterhin moeglich, WHIP-Laeufe fallen still auf H.264 zurueck (der
+# ffmpeg-Muxer kann kein AV1). Am 2026-07-30 genau so passiert, deshalb sagt
+# `sender_starten` es inzwischen laut.
+_KANDIDATEN = [
+    HERE.parent / "hq-labor/target/release/pulse-hq-labor",
     HERE.parent / "linux-hq-sidecar/target/release/pulse-linux-hq-sidecar",
-))
+]
+SIDECAR = Path(os.environ["PULSE_LINUX_HQ_SIDECAR"]) if os.environ.get(
+    "PULSE_LINUX_HQ_SIDECAR"
+) else next((p for p in _KANDIDATEN if p.exists()), _KANDIDATEN[0])
 
 
 class Sidecar:

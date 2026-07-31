@@ -1,0 +1,466 @@
+//! AV1 in RTP-Pakete zerlegen.
+//!
+//! **Warum von Hand und nicht aus dem `rtp`-Crate.** Dessen `Av1Payloader`
+//! schreibt Laengenfelder falsch. Die Ursache liegt in genau einer Funktion:
+//! `encode_leb128` packt die Sieben-Bit-Gruppen in Acht-Bit-Faecher (474 wird
+//! zu `0xDA03`), und `put_leb128` behandelt dieses Ergebnis anschliessend
+//! nochmal als Zahl, die zu kodieren waere. Am 2026-07-28 nachgerechnet:
+//!
+//! | Wert | Crate schreibt | richtig | Crate liest zurueck |
+//! |---|---|---|---|
+//! | 127 | `7F` | `7F` | 127 |
+//! | 128 | `81 80 02` | `80 01` | 32769 |
+//! | 474 | `83 B4 03` | `DA 03` | 55811 |
+//! | 16383 | `FF FE 03` | `FF 7F` | 65407 |
+//!
+//! Zwei Dinge daran sind wichtig. Erstens ist die LESENDE Haelfte desselben
+//! Crates korrekt (`read_leb128` gibt fuer richtige Bytes richtige Werte) — es
+//! ist also nicht "das Crate kann kein LEB128", sondern eine Funktion. Zweitens
+//! stimmt alles unter 128, und OBU-Elemente unter 128 Byte gibt es reichlich.
+//! Ein fluechtiger Test faellt darauf herein.
+//!
+//! Grundlage: <https://aomediacodec.github.io/av1-rtp-spec/>, Abschnitte 4.4,
+//! 4.5 und 5.
+
+use anyhow::{Result, bail};
+
+/// Zeitweiliger Kopf der Nutzlast (`Z|Y|W W|N|-|-|-`) plus die Nutzlast selbst
+/// passen in ein UDP-Paket, das ueberall durchkommt. 1200 ist derselbe Wert,
+/// den webrtc-rs fuer seine eigenen Paketierer nimmt.
+pub const MTU: usize = 1200;
+
+/// Groesser als drei Elemente je Paket bringt nichts: `W` ist zwei Bit breit,
+/// darueber muss `W=0` gesetzt und JEDES Element mit Laengenfeld versehen
+/// werden. Ein Zeitabschnitt besteht ohnehin aus zwei bis drei OBUs
+/// (Zeittrenner — wird entfernt —, ggf. Sequenzkopf, Bild).
+const MAX_ELEMENTE: usize = 3;
+
+/// Der Aggregationskopf `Z|Y|W W|N|-|-|-` steht in jedem Paket (Abschnitt 4.4).
+const AGGREGATIONSKOPF: usize = 1;
+
+/// Fuers Laengenfeld eines Elements zurueckgelegte Bytes. Ein Element ist nie
+/// groesser als die MTU, also reichen zwei immer; wird es am Ende eines, bleibt
+/// das Paket ein Byte kuerzer als geplant — kein Schaden, nur ein Byte
+/// ungenutzt.
+const LAENGENFELD_RESERVE: usize = 2;
+
+const OBU_SEQUENZKOPF: u8 = 1;
+const OBU_ZEITTRENNER: u8 = 2;
+const OBU_KACHELLISTE: u8 = 8;
+
+/// Ein OBU ohne sein Groessenfeld.
+///
+/// Die Nutzlast bleibt eine Ausleihe auf das Encoder-Paket — nur der ein bis
+/// zwei Byte grosse Kopf wird kopiert, weil in ihm ein Bit zu loeschen ist.
+/// Deshalb kostet das Paketieren keine Kopie des Bildes.
+struct Obu<'a> {
+    kopf: [u8; 2],
+    kopf_len: usize,
+    rumpf: &'a [u8],
+    typ: u8,
+}
+
+impl Obu<'_> {
+    fn len(&self) -> usize {
+        self.kopf_len + self.rumpf.len()
+    }
+
+    /// `[von, bis)` dieses OBU an `ziel` anhaengen. Der Bereich kann ueber die
+    /// Grenze zwischen Kopf und Rumpf laufen — beim Fragmentieren ist genau das
+    /// der Normalfall.
+    fn schreibe(&self, ziel: &mut Vec<u8>, von: usize, bis: usize) {
+        let kopf_bis = bis.min(self.kopf_len);
+        if von < kopf_bis {
+            ziel.extend_from_slice(&self.kopf[von..kopf_bis]);
+        }
+        let rumpf_von = von.saturating_sub(self.kopf_len);
+        let rumpf_bis = bis.saturating_sub(self.kopf_len);
+        if rumpf_von < rumpf_bis {
+            ziel.extend_from_slice(&self.rumpf[rumpf_von..rumpf_bis]);
+        }
+    }
+}
+
+fn lies_leb128(daten: &[u8]) -> Result<(u32, usize)> {
+    let mut wert: u64 = 0;
+    for (i, b) in daten.iter().take(8).enumerate() {
+        wert |= u64::from(b & 0x7F) << (i * 7);
+        if b & 0x80 == 0 {
+            return Ok((wert as u32, i + 1));
+        }
+    }
+    bail!("LEB128 ohne Abschluss")
+}
+
+fn schreibe_leb128(ziel: &mut Vec<u8>, mut wert: u32) {
+    loop {
+        let b = (wert & 0x7F) as u8;
+        wert >>= 7;
+        if wert == 0 {
+            ziel.push(b);
+            return;
+        }
+        ziel.push(b | 0x80); // 0x80 = "es folgt noch eine Gruppe"
+    }
+}
+
+/// Den Zeitabschnitt in OBUs zerlegen, dabei das Groessenfeld entfernen und
+/// `obu_has_size_field` loeschen.
+///
+/// Die Spezifikation sagt dazu "SHOULD be set to zero in all OBUs" — das
+/// Laengenfeld der RTP-Nutzlast traegt die Groesse bereits, das Feld im OBU
+/// waere die zweite Angabe derselben Sache. Der Empfaenger setzt es beim
+/// Zusammensetzen wieder ein (im eigenen Player `depacket/av1.rs`).
+///
+/// Zeittrenner und Kachellisten fallen weg (Abschnitt 5): der Zeittrenner ist
+/// im RTP-Strom ueberfluessig, weil der Zeitstempel den Abschnitt schon trennt.
+fn zerlege(daten: &[u8]) -> Result<Vec<Obu<'_>>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < daten.len() {
+        let b0 = daten[i];
+        let typ = (b0 >> 3) & 0x0F;
+        let hat_erweiterung = (b0 >> 2) & 1 == 1;
+        let hat_groesse = (b0 >> 1) & 1 == 1;
+        let kopf_len = 1 + usize::from(hat_erweiterung);
+        if i + kopf_len > daten.len() {
+            bail!("OBU-Kopf reicht ueber das Paketende");
+        }
+        let mut kopf = [0u8; 2];
+        kopf[..kopf_len].copy_from_slice(&daten[i..i + kopf_len]);
+        kopf[0] &= !0b10; // obu_has_size_field loeschen
+
+        let (rumpf_start, rumpf_len) = if hat_groesse {
+            let (len, gelesen) = lies_leb128(&daten[i + kopf_len..])?;
+            (i + kopf_len + gelesen, len as usize)
+        } else {
+            // Ohne Groessenfeld reicht das OBU bis zum Ende — nur fuer das
+            // letzte zulaessig. Was danach kaeme, waere ohnehin nicht mehr
+            // auffindbar. Der Rumpf endet dann per Konstruktion genau am
+            // Paketende, die Pruefung darunter kann hier nicht greifen.
+            (i + kopf_len, daten.len() - i - kopf_len)
+        };
+        if rumpf_start + rumpf_len > daten.len() {
+            bail!("OBU-Groesse {rumpf_len} reicht ueber das Paketende");
+        }
+
+        if typ != OBU_ZEITTRENNER && typ != OBU_KACHELLISTE {
+            out.push(Obu {
+                kopf,
+                kopf_len,
+                rumpf: &daten[rumpf_start..rumpf_start + rumpf_len],
+                typ,
+            });
+        }
+        i = rumpf_start + rumpf_len;
+    }
+    Ok(out)
+}
+
+/// Platz, der im laufenden Paket noch fuer Nutzdaten bleibt.
+fn frei_im_paket(mtu: usize, belegt: usize) -> usize {
+    mtu.saturating_sub(belegt + LAENGENFELD_RESERVE)
+}
+
+/// Ein Stueck eines OBU, das in ein bestimmtes Paket geht.
+struct Stueck {
+    obu: usize,
+    von: usize,
+    bis: usize,
+}
+
+/// Die fertige Nutzlast eines RTP-Pakets samt Markierung.
+pub struct Nutzlast {
+    pub daten: Vec<u8>,
+    /// Letztes Paket des Zeitabschnitts — setzt das Marker-Bit (Abschnitt 4.2).
+    pub letztes: bool,
+}
+
+/// Einen Zeitabschnitt (ein encodiertes Bild, wie FFmpeg es liefert) in
+/// RTP-Nutzlasten zerlegen.
+pub fn paketiere(daten: &[u8], mtu: usize) -> Result<Vec<Nutzlast>> {
+    let obus = zerlege(daten)?;
+    if obus.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sequenzkopf_offen = obus.iter().any(|o| o.typ == OBU_SEQUENZKOPF);
+
+    let mut pakete: Vec<Nutzlast> = Vec::new();
+    let mut stuecke: Vec<Stueck> = Vec::new();
+    let mut belegt = AGGREGATIONSKOPF;
+    let mut z = false; // erstes Stueck setzt eine Zerteilung fort
+
+    for (i, obu) in obus.iter().enumerate() {
+        let mut off = 0;
+        // Ein OBU kann sich ueber mehrere Pakete ziehen: jeder Durchgang legt
+        // ein Stueck ab und schliesst das Paket ab, sobald es voll ist.
+        loop {
+            let nimm = frei_im_paket(mtu, belegt).min(obu.len() - off);
+            if nimm > 0 {
+                stuecke.push(Stueck { obu: i, von: off, bis: off + nimm });
+                belegt += LAENGENFELD_RESERVE + nimm;
+                off += nimm;
+            }
+            // `rest` ist zugleich das `Y` dieses Pakets und das `Z` des
+            // naechsten: das Stueck wird dort fortgesetzt.
+            let rest = off < obu.len();
+            let voll = stuecke.len() >= MAX_ELEMENTE || frei_im_paket(mtu, belegt) == 0;
+            if !rest && !voll {
+                break; // dieses OBU ist durch, im selben Paket geht noch was
+            }
+            pakete.push(baue(&obus, &stuecke, z, rest, &mut sequenzkopf_offen));
+            stuecke.clear();
+            belegt = AGGREGATIONSKOPF;
+            z = rest;
+            if !rest {
+                break;
+            }
+        }
+    }
+    if !stuecke.is_empty() {
+        pakete.push(baue(&obus, &stuecke, z, false, &mut sequenzkopf_offen));
+    }
+    if let Some(l) = pakete.last_mut() {
+        l.letztes = true;
+    }
+    Ok(pakete)
+}
+
+/// Ein Paket aus den gesammelten Stuecken zusammensetzen.
+///
+/// `sequenzkopf_offen` wird beim ersten Paket geleert: `N` bedeutet "erstes
+/// Paket einer codierten Bildfolge", nicht "enthaelt einen Sequenzkopf" — und
+/// die Spezifikation haelt fest, dass bei `N=1` auch `Z=0` sein muss.
+fn baue(
+    obus: &[Obu<'_>],
+    stuecke: &[Stueck],
+    z: bool,
+    y: bool,
+    sequenzkopf_offen: &mut bool,
+) -> Nutzlast {
+    let n = *sequenzkopf_offen && !z;
+    if n {
+        *sequenzkopf_offen = false;
+    }
+
+    // `W` = Anzahl der Elemente, wenn sie in zwei Bit passt. Dann traegt das
+    // LETZTE Element kein Laengenfeld — seine Groesse ergibt sich aus dem Rest
+    // des Pakets. Sonst `W=0` und jedes Element bekommt eines.
+    let w = if stuecke.len() <= MAX_ELEMENTE { stuecke.len() } else { 0 };
+
+    let mut daten = Vec::with_capacity(MTU);
+    daten.push(
+        u8::from(z) << 7 | u8::from(y) << 6 | ((w as u8) & 0b11) << 4 | u8::from(n) << 3,
+    );
+    for (k, s) in stuecke.iter().enumerate() {
+        let letztes = k + 1 == stuecke.len();
+        if w == 0 || !letztes {
+            schreibe_leb128(&mut daten, (s.bis - s.von) as u32);
+        }
+        obus[s.obu].schreibe(&mut daten, s.von, s.bis);
+    }
+    Nutzlast { daten, letztes: false }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ein OBU im Format, das FFmpeg liefert: mit Groessenfeld.
+    ///
+    /// Das Laengenfeld wird hier VON HAND geschrieben, nicht mit
+    /// `schreibe_leb128`. Sonst pruefte der Rundlauf die zu pruefende Funktion
+    /// gegen sich selbst: ein falscher Schreiber erzeugte eine falsche Vorlage,
+    /// die der gleich falsche Leser wieder auflöste, und der Test bliebe gruen.
+    fn obu(typ: u8, rumpf_len: usize) -> Vec<u8> {
+        let mut v = vec![(typ << 3) | 0b10];
+        let mut n = rumpf_len as u32;
+        loop {
+            let b = (n & 0x7F) as u8;
+            n >>= 7;
+            v.push(if n != 0 { b | 0x80 } else { b });
+            if n == 0 {
+                break;
+            }
+        }
+        v.extend((0..rumpf_len).map(|i| (i % 251) as u8));
+        v
+    }
+
+    /// Was der Empfaenger sieht: alle Nutzlasten wieder zu OBUs
+    /// zusammensetzen — bewusst als eigene, schlichte Umsetzung, damit der
+    /// Test nicht dieselbe Annahme prueft, die er belegen soll.
+    fn setze_zusammen(pakete: &[Nutzlast]) -> Vec<Vec<u8>> {
+        let mut fertig: Vec<Vec<u8>> = Vec::new();
+        let mut offen: Option<Vec<u8>> = None;
+        for p in pakete {
+            let kopf = p.daten[0];
+            let z = kopf & 0x80 != 0;
+            let y = kopf & 0x40 != 0;
+            let w = ((kopf >> 4) & 0b11) as usize;
+            let mut rest = &p.daten[1..];
+            let mut k = 0;
+            while !rest.is_empty() {
+                k += 1;
+                let letztes_im_paket = w != 0 && k == w;
+                let stueck: &[u8] = if letztes_im_paket {
+                    let s = rest;
+                    rest = &[];
+                    s
+                } else {
+                    let (len, n) = lies_leb128(rest).unwrap();
+                    let s = &rest[n..n + len as usize];
+                    rest = &rest[n + len as usize..];
+                    s
+                };
+                let erstes_im_paket = k == 1;
+                if erstes_im_paket && z {
+                    offen.as_mut().expect("Z=1 ohne offenes OBU").extend_from_slice(stueck);
+                } else {
+                    if let Some(o) = offen.take() {
+                        fertig.push(o);
+                    }
+                    offen = Some(stueck.to_vec());
+                }
+                let letztes_element = rest.is_empty();
+                if letztes_element && !y {
+                    fertig.push(offen.take().unwrap());
+                }
+            }
+        }
+        if let Some(o) = offen {
+            fertig.push(o);
+        }
+        fertig
+    }
+
+    /// Die OBUs so, wie sie nach dem Strippen aussehen sollen.
+    fn erwartet(quelle: &[u8]) -> Vec<Vec<u8>> {
+        zerlege(quelle)
+            .unwrap()
+            .iter()
+            .map(|o| {
+                let mut v = o.kopf[..o.kopf_len].to_vec();
+                v.extend_from_slice(o.rumpf);
+                v
+            })
+            .collect()
+    }
+
+    #[test]
+    fn leb128_stimmt_wo_das_crate_falsch_liegt() {
+        // Genau die Werte, bei denen `rtp` 0.17.2 danebenliegt.
+        for (wert, bytes) in [
+            (0u32, vec![0x00]),
+            (127, vec![0x7F]),
+            (128, vec![0x80, 0x01]),
+            (474, vec![0xDA, 0x03]),
+            (16383, vec![0xFF, 0x7F]),
+            (16384, vec![0x80, 0x80, 0x01]),
+        ] {
+            let mut v = Vec::new();
+            schreibe_leb128(&mut v, wert);
+            assert_eq!(v, bytes, "schreiben von {wert}");
+            assert_eq!(lies_leb128(&v).unwrap(), (wert, bytes.len()), "lesen von {wert}");
+        }
+    }
+
+    #[test]
+    fn zeittrenner_und_kachelliste_fallen_weg() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(6, 50)); // Bild
+        tu.extend(obu(OBU_KACHELLISTE, 20));
+        let obus = zerlege(&tu).unwrap();
+        assert_eq!(obus.len(), 1);
+        assert_eq!(obus[0].typ, 6);
+    }
+
+    #[test]
+    fn groessenfeld_wird_entfernt_und_das_bit_geloescht() {
+        let tu = obu(6, 200);
+        let obus = zerlege(&tu).unwrap();
+        assert_eq!(obus[0].kopf[0] & 0b10, 0, "obu_has_size_field muss 0 sein");
+        assert_eq!(obus[0].len(), 201, "Kopf + 200 Byte, ohne die zwei Laengenbytes");
+        // Zur Gegenprobe: die Quelle war 1 + 2 + 200 Byte lang.
+        assert_eq!(tu.len(), 203);
+    }
+
+    #[test]
+    fn kleines_bild_ein_paket_mit_marker() {
+        let tu = obu(6, 100);
+        let p = paketiere(&tu, MTU).unwrap();
+        assert_eq!(p.len(), 1);
+        assert!(p[0].letztes, "Marker-Bit gehoert auf das letzte Paket");
+        let kopf = p[0].daten[0];
+        assert_eq!(kopf & 0x80, 0, "Z");
+        assert_eq!(kopf & 0x40, 0, "Y");
+        assert_eq!((kopf >> 4) & 0b11, 1, "W = ein Element");
+        assert_eq!(kopf & 0x08, 0, "N ohne Sequenzkopf");
+    }
+
+    #[test]
+    fn sequenzkopf_setzt_n_nur_im_ersten_paket() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_SEQUENZKOPF, 12));
+        tu.extend(obu(6, 5000));
+        let p = paketiere(&tu, MTU).unwrap();
+        assert!(p.len() > 1);
+        assert_eq!(p[0].daten[0] & 0x08, 0x08, "N im ersten Paket");
+        for (i, q) in p.iter().enumerate().skip(1) {
+            assert_eq!(q.daten[0] & 0x08, 0, "N darf nur im ersten Paket stehen (Paket {i})");
+        }
+    }
+
+    #[test]
+    fn zerteilung_setzt_y_und_z_paarweise() {
+        let tu = obu(6, 5000);
+        let p = paketiere(&tu, MTU).unwrap();
+        assert!(p.len() >= 5);
+        for (i, q) in p.iter().enumerate() {
+            let z = q.daten[0] & 0x80 != 0;
+            let y = q.daten[0] & 0x40 != 0;
+            assert_eq!(z, i > 0, "Z im Paket {i}");
+            assert_eq!(y, i + 1 < p.len(), "Y im Paket {i}");
+            assert_eq!(q.letztes, i + 1 == p.len(), "Marker im Paket {i}");
+            assert!(q.daten.len() <= MTU, "Paket {i} ueberschreitet die MTU");
+        }
+    }
+
+    /// Der Test, der die Sache traegt: was hineingeht, muss unveraendert
+    /// wieder herauskommen — bei jeder MTU, ueber jede Zerteilungsgrenze
+    /// hinweg. Genau hier faellt ein falsches Laengenfeld auf.
+    #[test]
+    fn rundlauf_byte_gleich_bei_jeder_mtu() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_SEQUENZKOPF, 13));
+        tu.extend(obu(6, 130)); // knapp ueber 128 — dort liegt der Crate-Fehler
+        tu.extend(obu(6, 4711));
+        let soll = erwartet(&tu);
+        for mtu in [MTU, 500, 300, 137, 60, 20, 8] {
+            let p = paketiere(&tu, mtu).unwrap();
+            assert!(p.iter().all(|q| q.daten.len() <= mtu), "MTU {mtu} verletzt");
+            assert_eq!(setze_zusammen(&p), soll, "Rundlauf bei MTU {mtu}");
+        }
+    }
+
+    #[test]
+    fn mehr_als_drei_obus_gehen_auf_mehrere_pakete() {
+        let mut tu = Vec::new();
+        for _ in 0..5 {
+            tu.extend(obu(6, 40));
+        }
+        let p = paketiere(&tu, MTU).unwrap();
+        assert_eq!(p.len(), 2, "drei Elemente je Paket, also 3 + 2");
+        assert_eq!(setze_zusammen(&p), erwartet(&tu));
+    }
+
+    #[test]
+    fn letztes_obu_darf_ohne_groessenfeld_kommen() {
+        let mut tu = obu(6, 30);
+        tu.push(7 << 3); // ohne Groessenfeld, reicht bis zum Ende
+        tu.extend([1, 2, 3, 4]);
+        let obus = zerlege(&tu).unwrap();
+        assert_eq!(obus.len(), 2);
+        assert_eq!(obus[1].rumpf, &[1, 2, 3, 4]);
+    }
+}
