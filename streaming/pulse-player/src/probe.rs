@@ -21,7 +21,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::decode::DecodedFrame;
+use crate::decode::{DecodedFrame, PixelLayout};
 
 // ── Musterformat — MUSS mit `latency-pattern.py` übereinstimmen ──────────────
 const BLOCK: usize = 32;
@@ -140,14 +140,29 @@ impl LatencyProbe {
 }
 
 /// Luma eines Bildpunkts, 8 oder 10 bit, immer auf 0..=255 gebracht.
+///
+/// **Wo die zehn Bit im 16-bit-Wort sitzen, haengt vom Decoder ab** — und das
+/// ist keine Feinheit, sondern der Unterschied zwischen Messung und Blindheit:
+///
+/// * `P010LE` (zwei Ebenen; `av1_cuvid`, VAAPI): die zehn Bit sitzen **oben**.
+/// * `YUV420P10LE` (drei Ebenen; `libdav1d`, `libaom`): sie sitzen **unten**.
+///
+/// Bis 2026-08-01 wurde immer das obere Byte genommen. Beim Software-Decoder
+/// stehen dort nur die obersten zwei Bit des Wertes (0..3) — also immer
+/// "schwarz", der Balken wurde in JEDEM Bild verworfen und die Sonde meldete
+/// stumm "ohne Muster". Aufgefallen an einer Messreihe, die 32535 Bilder ohne
+/// Muster zaehlte, waehrend das Bild sichtbar lief.
 fn luma_at(frame: &DecodedFrame, x: usize, y: usize) -> Option<u8> {
     let stride = *frame.strides.first()?;
     let plane = frame.planes.first()?;
     if frame.ten_bit {
-        // P010: 16-bit-Wörter, die zehn Bit sitzen OBEN.
         let off = y * stride + x * 2;
-        let hi = *plane.get(off + 1)?;
-        Some(hi)
+        let wort = u16::from_le_bytes([*plane.get(off)?, *plane.get(off + 1)?]);
+        let zehn_bit = match frame.format {
+            PixelLayout::BiPlanar420 => wort >> 6,
+            PixelLayout::Planar420 => wort & 0x03FF,
+        };
+        Some((zehn_bit >> 2) as u8)
     } else {
         Some(*plane.get(y * stride + x)?)
     }
@@ -194,6 +209,18 @@ mod tests {
 
     /// Baut ein Bild, das an (x0, y0) genau den Balken des Musters traegt.
     fn frame_with_bar(x0: usize, y0: usize, counter: u16, ten_bit: bool) -> DecodedFrame {
+        frame_with_bar_layout(x0, y0, counter, ten_bit, PixelLayout::BiPlanar420)
+    }
+
+    /// Wie [`frame_with_bar`], aber mit waehlbarer Ebenen-Form — die
+    /// entscheidet bei 10 bit, WO im Wort der Wert steht (s. [`luma_at`]).
+    fn frame_with_bar_layout(
+        x0: usize,
+        y0: usize,
+        counter: u16,
+        ten_bit: bool,
+        format: PixelLayout,
+    ) -> DecodedFrame {
         let (w, h) = (2560usize, 1440usize);
         let bpp = if ten_bit { 2 } else { 1 };
         let stride = w * bpp;
@@ -211,15 +238,21 @@ mod tests {
                 for x in x0 + i * BLOCK..x0 + (i + 1) * BLOCK {
                     let off = y * stride + x * bpp;
                     if ten_bit {
-                        plane[off] = 0xC0;
-                        plane[off + 1] = 0xFF; // obere acht Bit = weiss
+                        // Weiss (1023) an der Stelle, an der die jeweilige Form
+                        // es erwartet — genau der Unterschied, den `luma_at`
+                        // beachten muss.
+                        let wort: u16 = match format {
+                            PixelLayout::BiPlanar420 => 1023 << 6, // P010: oben
+                            PixelLayout::Planar420 => 1023,        // yuv420p10: unten
+                        };
+                        plane[off..off + 2].copy_from_slice(&wort.to_le_bytes());
                     } else {
                         plane[off] = 0xFF;
                     }
                 }
             }
         }
-        DecodedFrame::for_test(w as u32, h as u32, vec![plane], vec![stride], ten_bit)
+        DecodedFrame::for_test(w as u32, h as u32, vec![plane], vec![stride], ten_bit, format)
     }
 
     #[test]
@@ -232,17 +265,30 @@ mod tests {
         }
     }
 
+    /// Beide 10-bit-Formen, weil beide vorkommen: `P010LE` liefert der
+    /// Hardware-Decoder (cuvid, VAAPI), `YUV420P10LE` der Software-Decoder
+    /// (libdav1d). Die zweite Form war bis 2026-08-01 unlesbar — die Sonde
+    /// meldete dann kein Muster statt einer falschen Zahl, war aber blind.
     #[test]
     fn liest_auch_zehn_bit() {
-        let f = frame_with_bar(64, 64, 1234, true);
-        assert_eq!(read_bar(&f, 64, 64), Some(1234));
+        for form in [PixelLayout::BiPlanar420, PixelLayout::Planar420] {
+            let f = frame_with_bar_layout(64, 64, 1234, true, form);
+            assert_eq!(read_bar(&f, 64, 64), Some(1234), "Form {form:?}");
+        }
     }
 
     #[test]
     fn schwarzes_bild_ist_kein_balken() {
         // Ein Bild ohne Muster darf NICHTS liefern — sonst meldete die Sonde
         // eine erfundene Latenz, was schlimmer waere als keine Zahl.
-        let f = DecodedFrame::for_test(2560, 1440, vec![vec![0u8; 2560 * 1440]], vec![2560], false);
+        let f = DecodedFrame::for_test(
+            2560,
+            1440,
+            vec![vec![0u8; 2560 * 1440]],
+            vec![2560],
+            false,
+            PixelLayout::Planar420,
+        );
         assert_eq!(read_bar(&f, 64, 64), None);
     }
 

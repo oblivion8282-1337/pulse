@@ -394,11 +394,12 @@ impl DecodedFrame {
         planes: Vec<Vec<u8>>,
         strides: Vec<usize>,
         ten_bit: bool,
+        format: PixelLayout,
     ) -> Self {
         Self {
             width,
             height,
-            format: PixelLayout::Planar420,
+            format,
             planes,
             strides,
             ten_bit,
