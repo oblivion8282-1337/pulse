@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -98,6 +99,28 @@ def abspielen(pfad: Path, log) -> list[subprocess.Popen]:
     return laeufe
 
 
+def auch_bei_sigterm_aufraeumen() -> None:
+    """SIGTERM in ein `SystemExit` verwandeln, damit `finally` noch laeuft.
+
+    **Ohne das ueberleben die mpv-Prozesse jedes `kill`.** Python beendet sich
+    bei SIGTERM sofort und ohne `finally`; die drei mpv (einer je Bildschirm)
+    laufen mit `--loop-file=inf` und `--hwdec=auto` weiter und dekodieren
+    endlos auf der GPU. Strg-C raeumt auf, `pkill` nicht — und genau `pkill`
+    steht in jedem Skript, das das Bewegtbild nebenher startet.
+
+    Am 2026-08-01 hat das mehrere Messungen entwertet, ohne sich als Fehler zu
+    zeigen: sechs vergessene mpv hielten `gpu_busy_percent` auf 99, die
+    Hardware-Dekodierung fiel von 159 auf 30 Bilder je Sekunde, und der
+    Messlauf sah aus, als koenne die Karte kein H.264. Erst der Vergleich
+    derselben Datei mit und ohne die Leichen brachte es heraus.
+    """
+    def _weiter(_sig: int, _rahmen: object) -> None:
+        raise SystemExit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _weiter)
+
+
 def beenden(laeufe: list[subprocess.Popen]) -> None:
     for p in laeufe:
         p.terminate()
@@ -116,6 +139,7 @@ def main() -> int:
     args = ap.parse_args()
     pfad = datei(args.fps)
     log = open(HERE / "bewegtbild-mpv.log", "w")
+    auch_bei_sigterm_aufraeumen()
     laeufe = abspielen(pfad, log)
     print(f"[bewegtbild] laeuft auf allen Bildschirmen ({pfad.name})", flush=True)
     try:
