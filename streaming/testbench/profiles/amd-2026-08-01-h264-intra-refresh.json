@@ -2,9 +2,7 @@
  "id": "amd-2026-08-01-h264-intra-refresh",
  "gemessen_am": "2026-08-01, Radeon 780M (VCN 4), Mesa 26.1.5",
  "frage": "Traegt der Intra-Refresh-Gewinn auch auf H.264? Das ist kein Randfall: RDNA2 (RX 6000) kann AV1 gar nicht encodieren — diese Nutzer fahren H.264.",
-
  "ANTWORT": "JA, und deutlicher als bei AV1. Sekunden mit einem Haenger ueber 100 ms: 5,0 Prozent mit Intra-Refresh gegen 48,9 Prozent mit Keyframes alle 2 s — Faktor zehn. Die Haenger im Keyframe-Lauf stehen im 2-Sekunden-Takt (291 Belege), im Intra-Refresh-Lauf verstreut.",
-
  "aufbau": {
   "sender": "streaming/hq-labor, Portal-Aufnahme, h264_vaapi auf VCN 4, 1920x1080, 8 bit, 60 fps, 4000 kbps CBR, gegen das gepatchte FFmpeg",
   "weg": "WHIP → MediaMTX auf pulse.unicutmedia.com (FlexFEC 10+2) → WHEP → streaming/pulse-player",
@@ -12,7 +10,6 @@
   "stoerung": "vier parallele Downloads, 25 s, alle 45 s ab Sekunde 60 — identisch in beiden Laeufen",
   "warum_1080p": "H.264 in SOFTWARE traegt 1440p60 nicht (s. `befund_software_decoder`); mit Hardware-Dekodierung laeuft 1080p60 stabil, ohne Ring-Zeitueberlauf (Zaehler vor und nach der Reihe: 10)."
  },
-
  "ergebnis": [
   {
    "lauf": "A — Intra-Refresh",
@@ -20,7 +17,23 @@
    "groesster_abstand_median_ms": 38.7,
    "sekunden_ueber_100ms_prozent": 5.0,
    "haenger_ueber_100ms_anzahl": 30,
-   "abstaende_zwischen_den_haengern_s": [62, 68, 9, 2, 3, 10, 45, 20, 50, 1, 5, 5, 1, 6, 51],
+   "abstaende_zwischen_den_haengern_s": [
+    62,
+    68,
+    9,
+    2,
+    3,
+    10,
+    45,
+    20,
+    50,
+    1,
+    5,
+    5,
+    1,
+    6,
+    51
+   ],
    "bitrate_median_kbit": 3063,
    "gezeichnet_median_je_s": 60,
    "netz_bis_schirm_median_ms": 6.1,
@@ -32,37 +45,135 @@
    "groesster_abstand_median_ms": 74.0,
    "sekunden_ueber_100ms_prozent": 48.9,
    "haenger_ueber_100ms_anzahl": 291,
-   "abstaende_zwischen_den_haengern_s": [5, 1, 2, 4, 4, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2],
+   "abstaende_zwischen_den_haengern_s": [
+    5,
+    1,
+    2,
+    4,
+    4,
+    2,
+    2,
+    2,
+    4,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+   ],
    "bitrate_median_kbit": 2750,
    "gezeichnet_median_je_s": 60,
    "netz_bis_schirm_median_ms": 7.5,
    "vollbilder_empfangen": 314
   }
  ],
-
  "was_das_heisst": {
   "der_takt_ist_wieder_der_beweis": "291 Haenger im Abstand von durchgehend zwei Sekunden gegen 30 verstreute. Dasselbe Muster wie auf AV1 und wie auf NVIDIA — die Quelle des Stotterns ist der periodische Keyframe, nicht der Codec.",
   "vollbilder": "14 gegen 314. Die 14 sind angeforderte, keine periodischen.",
   "auch_die_verzoegerung": "Netz-bis-Schirm 6,1 gegen 7,5 ms im Median.",
   "fuer_wen_das_zaehlt": "Wer auf RDNA2 sendet, hat kein AV1 — und bekommt mit Intra-Refresh denselben Gewinn. Die Umstellung muss also nicht auf AV1-faehige Karten warten."
  },
-
  "befund_software_decoder": {
   "was": "H.264 in Software traegt 1440p60 auf dieser Maschine NICHT: 42-48 ms Dekodierzeit je Bild, noetig waeren 16,7. Der Player lieferte 21 statt 60 Bilder je Sekunde.",
   "ursache": "Der Player setzt `AV_CODEC_FLAG_LOW_DELAY` (kostet sonst rund 60 ms Anzeigeverzoegerung). Das schliesst Frame-Threading aus; uebrig bliebe Slice-Threading, und unser Encoder schreibt EINE Slice je Bild — der Decoder laeuft damit auf einem Kern. Zum Vergleich: dav1d dekodiert AV1 10 bit bei 1440p60 in 7 ms je Bild, weil es intern eigenstaendig threadet.",
   "hebel": "Entweder Hardware-Dekodierung (jetzt gebaut) oder mehrere Slices je Bild im Encoder (`-slices`). Zweiteres kostet etwas Kompression und hilft JEDEM Software-Zuschauer. Nicht entschieden, nicht gemessen."
  },
-
  "DIE_FALLE_DIESES_TAGES": {
   "was": "Sechs vergessene `mpv`-Prozesse aus `bewegtbild.py` liefen anderthalb Stunden weiter und hielten die Video-Einheit dauerhaft belegt.",
   "wie_es_aussah": "`gpu_busy_percent` 99 statt 25; dieselbe Datei dekodierte in Hardware mit 30 statt 159 Bildern je Sekunde (AV1) bzw. 30 statt 279 (H.264); der Messlauf sah aus, als koenne die Karte kein H.264 in Hardware (7 Bilder je Sekunde). Die Suche lief eine Weile im Player, wo nichts zu finden war.",
   "warum_es_passierte": "`bewegtbild.py` raeumt im `finally` auf — das laeuft bei Strg-C, nicht bei SIGTERM. Und SIGTERM ist genau das, was `pkill` schickt.",
   "wie_es_herauskam": "Dieselbe Datei einmal mit und einmal ohne die Leichen dekodiert. Behoben (SIGTERM-Behandlung im Werkzeug); die Reihe ist danach vollstaendig wiederholt worden."
  },
-
  "was_hier_NICHT_gemessen_ist": [
-  "Ende-zu-Ende-Verzoegerung: die Zeitmuster-Sonde sucht die Balken an FESTEN Bildpunkten (`POS_X`/`POS_Y`, Blockgroesse 32). Sie setzt damit die native Aufloesung voraus — dieser Lauf skalierte auf 1080p herunter, die Balken sind weder an der Stelle noch in der Groesse. Kein Fehler, eine Grenze des Werkzeugs; ein Lauf in nativer Aufloesung holt die Zahl nach.",
-  "Bildqualitaet fuer H.264 (die Qualitaetsreihe lief nur auf AV1).",
-  "Ein Lauf je Variante. Die Hausregel verlangt zwei — der Befund ist mit Faktor zehn und 291 Takt-Belegen deutlich, die Wiederholung steht aus."
- ]
+  "Ende-zu-Ende-Verzoegerung: die Zeitmuster-Sonde sucht die Balken an FESTEN Bildpunkten (`POS_X`/`POS_Y`, Blockgroesse 32) und setzt damit die native Aufloesung voraus — dieser Lauf skalierte auf 1080p herunter. Kein Fehler, eine Grenze des Werkzeugs. Fuer AV1 ist die Zahl inzwischen nachgeholt (93,7 ms, nativer Lauf).",
+  "Ein Lauf je Variante in der VERLUSTREIHE. Die Hausregel verlangt zwei — der Befund ist mit Faktor zehn und 291 Takt-Belegen deutlich, die Wiederholung steht aus. (Die Qualitaetsreihe hat je zwei.)",
+  "Ob mehrere Slices je Bild (`-slices`) die Software-Wiedergabe rettet und was sie an Kompression kosten — der einzige Hebel, der H.264 auch ohne Hardware-Dekodierung bei 1440p60 tragbar machen wuerde."
+ ],
+ "NACHTRAG_QUALITAET_UND_GPU": {
+  "gemessen_am": "2026-08-01, im Anschluss",
+  "frage": "Kostet Intra-Refresh auf H.264 Bildqualitaet oder GPU-Zeit? Nicht uebertragbar aus der AV1-Messung: dort zaehlt die Auffrischung in Superblock-Zeilen (64 Pixel, 17 bei 1080p), hier in Makroblock-Zeilen (16 Pixel, 68) — das Band ist viermal feiner unterteilt, der Bit-Aufschlag verteilt sich anders.",
+  "live_datei_harness": {
+   "A_keyframes": [
+    {
+     "vmaf": 86.2,
+     "vcn_us_je_bild": 2525,
+     "latenz_ms": 5.56,
+     "kbit_s": 3513
+    },
+    {
+     "vmaf": 86.95,
+     "vcn_us_je_bild": 2463,
+     "latenz_ms": 5.54,
+     "kbit_s": 3431
+    }
+   ],
+   "B_intra_refresh": [
+    {
+     "vmaf": 85.71,
+     "vcn_us_je_bild": 2516,
+     "latenz_ms": 5.61,
+     "kbit_s": 3518
+    },
+    {
+     "vmaf": 86.17,
+     "vcn_us_je_bild": 2514,
+     "latenz_ms": 5.6,
+     "kbit_s": 3494
+    }
+   ],
+   "lesart": "Alle vier Laeufe sauber gepaart (180 Paare). GPU praktisch gleich (2494 gegen 2515 Mikrosekunden im Mittel, +0,8 Prozent), Latenz gleich. Beim VMAF liegen beide Intra-Refresh-Laeufe unter beiden Keyframe-Laeufen (86,6 gegen 85,9 im Mittel) — der Abstand ist aber kleiner als die Streuung innerhalb der Keyframe-Laeufe (0,75). Grenzwertig, deshalb der Offline-Vergleich."
+  },
+  "offline_identische_bilder": {
+   "warum_das_hier_besser_taugt": "Dieselben 300 Bilder fuer jede Variante, und H.264 trifft anders als AV1 die Zielrate wirklich — jeder Punkt ist damit ein echter Iso-Bitraten-Vergleich.",
+   "messung": [
+    {
+     "ziel_kbps": 700,
+     "keyframes": {
+      "kbps": 680,
+      "vmaf": 92.93
+     },
+     "intraref": {
+      "kbps": 675,
+      "vmaf": 94.15
+     }
+    },
+    {
+     "ziel_kbps": 1100,
+     "keyframes": {
+      "kbps": 1092,
+      "vmaf": 94.32
+     },
+     "intraref": {
+      "kbps": 1055,
+      "vmaf": 95.05
+     }
+    },
+    {
+     "ziel_kbps": 2000,
+     "keyframes": {
+      "kbps": 1911,
+      "vmaf": 96.18
+     },
+     "intraref": {
+      "kbps": 1910,
+      "vmaf": 96.14
+     }
+    },
+    {
+     "ziel_kbps": 4000,
+     "keyframes": {
+      "kbps": 3811,
+      "vmaf": 96.57
+     },
+     "intraref": {
+      "kbps": 3810,
+      "vmaf": 96.58
+     }
+    }
+   ],
+   "ANTWORT": "Am Betriebspunkt (4000 kbps) kostet Intra-Refresh NICHTS (96,57 gegen 96,58). Wird die Rate knapp, gewinnt es sogar deutlich: +1,22 VMAF bei 700 und +0,73 bei 1100 kbit/s, jeweils bei gleicher Datenrate. Die 0,6 VMAF Abstand der Live-Laeufe sind damit erklaert — die lagen bei ~3500 kbit/s beide an der Qualitaetsdecke, der Unterschied dort ist Inhaltsschwankung."
+  },
+  "werkzeugfehler_auf_dem_weg": "`vmaf_common.encode_cmd` setzte kein `-bf 0`. Die VAAPI-Encoder haben `bf=2` als eigene Vorgabe, der Live-Pfad setzt 0 — der Sweep haette fuer H.264 also eine Einstellung gemessen, die nie laeuft. Bei AV1 faellt es nicht auf (der Treiber bietet dort keine B-Bilder an); bei H.264 mit Intra-Refresh scheitert der Encoder-Open sogar hart. Behoben."
+ }
 }

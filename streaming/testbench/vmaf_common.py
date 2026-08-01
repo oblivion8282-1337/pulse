@@ -68,7 +68,13 @@ def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
     geraet: list[str] = []
     vorne = list(pre)
     if vaapi:
-        basis = ["-rc_mode", "CBR", "-async_depth", "1"]
+        # `-bf 0` spiegelt `set_max_b_frames(0)` im Live-Pfad. Ohne das misst
+        # der Sweep eine Einstellung, die nie laeuft: die VAAPI-Encoder setzen
+        # `bf=2` als eigene Vorgabe (`vaapi_encode_h264.c`). Bei AV1 faellt es
+        # nicht auf, weil der Treiber dort gar keine B-Bilder anbietet; bei
+        # H.264 schon — und mit Intra-Refresh scheitert der Encoder-Open dann
+        # sogar ("Intra refresh cannot be used together with B-frames").
+        basis = ["-rc_mode", "CBR", "-async_depth", "1", "-bf", "0"]
         geraet = ["-vaapi_device", os.environ.get("PULSE_VAAPI_DEVICE", "/dev/dri/renderD128")]
         # VAAPI encodiert aus einer GPU-Surface — die Rohbilder muessen erst
         # hinauf. Ein vorhandener `pre`-Filter (Aufloesungs-Sweep) wird davor
