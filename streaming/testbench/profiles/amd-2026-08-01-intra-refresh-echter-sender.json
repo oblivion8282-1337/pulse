@@ -152,10 +152,43 @@
    "bewertung": "NUR 34 Sekunden — der Video-Track des Players endete wieder frueh. Die Prozentzahl steht ueber einem kurzen Fenster und ist nur ein Hinweis, kein Messwert."
   },
   "DER_EIGENTLICHE_BEFUND_DIESER_WIEDERHOLUNG": {
-   "was": "Der Keyframe-Lauf hat den Player-Track ZWEIMAL VON ZWEI Malen frueh verloren (116 s und 34 s), der Intra-Refresh-Lauf ZWEIMAL VON ZWEI die volle Zeit durchgehalten (549 s und 583 s).",
-   "mechanik": "Im Log jedes Mal dieselbe Kette: `libdav1d: Error parsing OBU data`, dann `Track video/AV1 beendet`. Das ist der am 2026-07-29 dokumentierte Weg — der Software-Decoder lehnt beschaedigte Einheiten ab, statt sie zu zeigen.",
-   "einordnung": "Damit ist es KEIN Zufall zweier misslungener Laeufe, sondern ein Unterschied im Verhalten. Warum der Keyframe-Betrieb dabei haerter getroffen wird, ist NICHT geklaert und gehoert nachgegangen — der naheliegende Verdacht (nach einer Luecke wartet der Player bis zum naechsten Keyframe und speist solange beschaedigte Einheiten ein) ist eine Vermutung, keine Messung.",
-   "gegenprobe": "Auf H.264 mit HARDWARE-Dekodierung lief der Keyframe-Lauf die vollen 595 Sekunden durch. Es haengt also am Decoder-Weg, nicht am Keyframe-Betrieb allein."
+   "KORREKTUR": "Hier stand: der Keyframe-Lauf habe den Track ZWEIMAL VON ZWEI Malen frueh verloren, der Intra-Refresh-Lauf nie. DAS WAR FALSCH — der 588-Sekunden-Lauf `amd-kf` war uebersehen, und die Ursache war nicht nachgesehen, sondern aus der Fehlermeldung geraten.",
+   "was_wirklich_gemessen_ist": {
+    "amd-intraref": {
+     "dauer_s": 592,
+     "neuaufbauten": 1,
+     "aufgegeben": false
+    },
+    "amd-ir": {
+     "dauer_s": 549,
+     "neuaufbauten": 2,
+     "aufgegeben": true
+    },
+    "amd-ir2": {
+     "dauer_s": 583,
+     "neuaufbauten": 0,
+     "aufgegeben": false
+    },
+    "amd-keyframes": {
+     "dauer_s": 116,
+     "neuaufbauten": 2,
+     "aufgegeben": true
+    },
+    "amd-kf": {
+     "dauer_s": 588,
+     "neuaufbauten": 2,
+     "aufgegeben": true
+    },
+    "amd-kf2": {
+     "dauer_s": 34,
+     "neuaufbauten": 2,
+     "aufgegeben": true
+    }
+   },
+   "schluss": "Der Abbruch haengt NICHT am Encoder-Betrieb: auch ein Intra-Refresh-Lauf hat aufgegeben (amd-ir, nach 549 s — kurz vor Schluss, deshalb sah er vollstaendig aus). Vier von sechs Laeufen enden ueber dieselbe Regel im Player: nach ERROR_LIMIT abgelehnten Einheiten in Folge ein Neuaufbau, nach MAX_REBUILDS=2 gibt die Sitzung auf. Wann das greift, streut zwischen 34 und 588 Sekunden.",
+   "die_meldung_taugt_nicht_zur_diagnose": "`Track video/AV1 beendet: DataChannel is not opened` steht in VIER von sechs Logs, auch in vollstaendig durchgelaufenen — es ist die normale Meldung beim Abbau der Sitzung, kein Symptom. Der Grund steht eine Zeile weiter oben: `Decoder libdav1d lehnt dauerhaft ab … Neuaufbau 2/2`.",
+   "was_daraus_folgt": "Nicht der Encoder, sondern die Aufgabe-Regel ist der Hebel: unter starkem Verlust ist `MAX_REBUILDS=2` streng — ein Zuschauer haette lieber einen weiteren Neuaufbau als eine tote Sitzung. Das ist eine Produktentscheidung, keine Messung, und sie ist offen.",
+   "lehre": "Eine Fehlermeldung am Ende eines Logs ist kein Befund. Zwei Laeufe sind keine Stichprobe. Beides stand als Regel schon in den Notizen — und beides ist hier trotzdem passiert."
   },
   "ende_zu_ende_endlich_gemessen": "93,7 ms im Intra-Refresh-Betrieb (gegen 117,8 im kurzen Keyframe-Fenster). Voraussetzung war zweierlei: der Sonden-Fix fuer planare 10-bit-Bilder UND ein Lauf in NATIVER Aufloesung — die Sonde sucht die Balken an festen Bildpunkten und findet sie in einem herunterskalierten Bild nicht."
  }

@@ -75,9 +75,12 @@
   "fuer_wen_das_zaehlt": "Wer auf RDNA2 sendet, hat kein AV1 — und bekommt mit Intra-Refresh denselben Gewinn. Die Umstellung muss also nicht auf AV1-faehige Karten warten."
  },
  "befund_software_decoder": {
-  "was": "H.264 in Software traegt 1440p60 auf dieser Maschine NICHT: 42-48 ms Dekodierzeit je Bild, noetig waeren 16,7. Der Player lieferte 21 statt 60 Bilder je Sekunde.",
-  "ursache": "Der Player setzt `AV_CODEC_FLAG_LOW_DELAY` (kostet sonst rund 60 ms Anzeigeverzoegerung). Das schliesst Frame-Threading aus; uebrig bliebe Slice-Threading, und unser Encoder schreibt EINE Slice je Bild — der Decoder laeuft damit auf einem Kern. Zum Vergleich: dav1d dekodiert AV1 10 bit bei 1440p60 in 7 ms je Bild, weil es intern eigenstaendig threadet.",
-  "hebel": "Entweder Hardware-Dekodierung (jetzt gebaut) oder mehrere Slices je Bild im Encoder (`-slices`). Zweiteres kostet etwas Kompression und hilft JEDEM Software-Zuschauer. Nicht entschieden, nicht gemessen."
+  "KORREKTUR": "Hier stand: H.264 in Software trage 1440p60 nicht (42-48 ms Dekodierzeit je Bild, 21 statt 60 Bilder je Sekunde), und die Ursache sei strukturell — `AV_CODEC_FLAG_LOW_DELAY` schliesse Frame-Threading aus, und bei EINER Slice je Bild bleibe auch Slice-Threading wirkungslos. BEIDES WAR FALSCH.",
+  "was_wirklich_war": "Die Messung stammt aus der Phase, in der sechs vergessene mpv-Prozesse die Maschine belegten (s. DIE_FALLE_DIESES_TAGES). Auf der aufgeraeumten Maschine nachgemessen, offline UND in der echten Kette:",
+  "offline_1440p_h264_software_low_delay": "1,58 s fuer 600 Bilder = 2,6 ms je Bild (noetig sind hoechstens 16,7).",
+  "live_1440p60_software": "Median 60 dekodierte Bilder je Sekunde ueber 74 Sekunden, 4,9-5,6 ms je Bild.",
+  "lehre": "Die Erklaerung klang schluessig und war nachpruefbar falsch. Eine Ursache, die zur Messung passt, ist noch kein Beleg — die Messung selbst muss zuerst sauber sein.",
+  "folge_fuer_diese_akte": "Die Verlustreihe lief deshalb auf 1080p mit Hardware-Dekodierung. Das entwertet sie nicht (beide Arme identisch), aber die angegebene BEGRUENDUNG fuer 1080p war falsch — 1440p in Software waere gegangen."
  },
  "DIE_FALLE_DIESES_TAGES": {
   "was": "Sechs vergessene `mpv`-Prozesse aus `bewegtbild.py` liefen anderthalb Stunden weiter und hielten die Video-Einheit dauerhaft belegt.",
@@ -175,5 +178,42 @@
    "ANTWORT": "Am Betriebspunkt (4000 kbps) kostet Intra-Refresh NICHTS (96,57 gegen 96,58). Wird die Rate knapp, gewinnt es sogar deutlich: +1,22 VMAF bei 700 und +0,73 bei 1100 kbit/s, jeweils bei gleicher Datenrate. Die 0,6 VMAF Abstand der Live-Laeufe sind damit erklaert — die lagen bei ~3500 kbit/s beide an der Qualitaetsdecke, der Unterschied dort ist Inhaltsschwankung."
   },
   "werkzeugfehler_auf_dem_weg": "`vmaf_common.encode_cmd` setzte kein `-bf 0`. Die VAAPI-Encoder haben `bf=2` als eigene Vorgabe, der Live-Pfad setzt 0 — der Sweep haette fuer H.264 also eine Einstellung gemessen, die nie laeuft. Bei AV1 faellt es nicht auf (der Treiber bietet dort keine B-Bilder an); bei H.264 mit Intra-Refresh scheitert der Encoder-Open sogar hart. Behoben."
+ },
+ "NACHTRAG_SLICES": {
+  "frage": "Bringen mehrere Slices je Bild dem Software-Decoder etwas, und was kosten sie?",
+  "stand": "Die Frage ist gegenstandslos geworden — es gibt kein Problem zu loesen (s. `befund_software_decoder`). Gemessen ist sie trotzdem, damit die Zahl da ist, falls jemand sie fuer einen anderen Zweck braucht.",
+  "messung_1080p_4000kbps_300_bilder": [
+   {
+    "slices": 1,
+    "kbit_s": 3811,
+    "vmaf": 96.57,
+    "dekodierzeit_ms_je_bild": 1.3
+   },
+   {
+    "slices": 2,
+    "kbit_s": 3811,
+    "vmaf": 96.54,
+    "dekodierzeit_ms_je_bild": 1.0
+   },
+   {
+    "slices": 4,
+    "kbit_s": 3811,
+    "vmaf": 96.47,
+    "dekodierzeit_ms_je_bild": 0.8
+   },
+   {
+    "slices": 8,
+    "kbit_s": 3811,
+    "vmaf": 96.49,
+    "dekodierzeit_ms_je_bild": 0.8
+   },
+   {
+    "slices": 16,
+    "kbit_s": 3811,
+    "vmaf": 96.41,
+    "dekodierzeit_ms_je_bild": 0.7
+   }
+  ],
+  "lesart": "Die Datenrate bleibt gleich (CBR), die Bildqualitaet faellt leicht (96,57 auf 96,41 von 1 auf 16 Slices), die Dekodierzeit halbiert sich etwa. Ein Gewinn, den niemand braucht, fuer einen kleinen Verlust — deshalb bleibt es bei einer Slice je Bild."
  }
 }
