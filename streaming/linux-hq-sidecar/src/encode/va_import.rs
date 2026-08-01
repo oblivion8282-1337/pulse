@@ -198,9 +198,26 @@ impl VaapiImporter {
             if scale_ctx.is_null() {
                 return Err(anyhow!("alloc scale_vaapi failed"));
             }
+            // **Farbraum und Wertebereich werden VORGEGEBEN, nicht dem Treiber
+            // ueberlassen.** Ohne die beiden Angaben liefert Mesa BT.709 im
+            // VOLLEN Wertebereich (2026-08-01 nachgemessen: weiss Y=255,
+            // schwarz Y=0, rot Y=54, blau Y=18) — und der Encoder signalisierte
+            // nichts, weil die Signalisierung am 10-bit-Zweig haengt. Ein
+            // Empfaenger ohne Angabe nimmt den begrenzten Bereich an und
+            // spreizt das Bild: Schwarz sackt ab, Weiss reisst aus. Der Fehler
+            // ist sichtbar und war es die ganze Zeit.
+            //
+            // Gewaehlt ist BT.709 BEGRENZT, weil (1) der 10-bit-Pfad
+            // (`nv_p010`) genau das rechnet und beide Bittiefen dasselbe liefern
+            // sollen, (2) ein Empfaenger, der die Signalisierung ignoriert,
+            // damit trotzdem richtig liegt — bei vollem Bereich waere er
+            // wieder falsch. Nachgemessen mit denselben Farben: 235/16/62/32.
             let zielformat = if self.ten_bit { "p010" } else { "nv12" };
-            let scale_args =
-                std::ffi::CString::new(format!("w={out_w}:h={out_h}:format={zielformat}")).unwrap();
+            let scale_args = std::ffi::CString::new(format!(
+                "w={out_w}:h={out_h}:format={zielformat}\
+                 :out_color_matrix=bt709:out_range=limited"
+            ))
+            .unwrap();
             let r = avfilter_init_str(scale_ctx, scale_args.as_ptr());
             if r < 0 {
                 return Err(anyhow!("init scale_vaapi failed (rc={r})"));

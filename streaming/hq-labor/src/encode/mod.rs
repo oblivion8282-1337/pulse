@@ -776,13 +776,23 @@ unsafe fn open_encoder(
     if global_header {
         encoder.set_flags(codec::Flags::GLOBAL_HEADER);
     }
-    // Farb-Signalisierung NUR im 10-bit-Pfad, und das mit Absicht:
-    // dort rechnet `nv_p010` die Matrix selbst (BT.709, begrenzter
-    // Bereich) und muss dem Empfänger sagen, was er bekommt — sonst rät
-    // der Player. Im 8-bit-Pfad wandelt NVENC intern nach eigener
-    // Konvention; dort etwas zu behaupten, das wir nicht kontrollieren,
-    // würde einen verifiziert korrekten Pfad auf Verdacht verstellen.
-    if cfg.ten_bit {
+    // Farb-Signalisierung überall dort, wo WIR die Umwandlung bestimmen:
+    //
+    // * 10 bit: `nv_p010` rechnet die Matrix selbst (BT.709, begrenzt).
+    // * VAAPI, jede Bittiefe: `scale_vaapi` bekommt seit 2026-08-01
+    //   `out_color_matrix=bt709:out_range=limited` vorgegeben.
+    //
+    // Für NVENC in 8 bit bleibt es aus, und das ist keine Nachlässigkeit:
+    // dort wandelt der Encoder intern nach eigener Konvention, und etwas zu
+    // behaupten, das wir nicht kontrollieren, würde einen verifiziert
+    // korrekten Pfad auf Verdacht verstellen.
+    //
+    // **Warum es für VAAPI nachgezogen wurde:** ohne Vorgabe lieferte Mesa
+    // BT.709 im VOLLEN Wertebereich, der Strom sagte aber nichts — und ein
+    // Empfänger ohne Angabe nimmt den begrenzten Bereich an und spreizt das
+    // Bild. Gemessen am 2026-08-01: weiss Y=255 statt 235, schwarz Y=0 statt
+    // 16, rot Y=54 statt 62. Sichtbar, und es traf jeden AMD-Sender.
+    if cfg.ten_bit || matches!(cfg.vendor, Vendor::Amd | Vendor::Intel) {
         encoder.set_colorspace(ffmpeg::color::Space::BT709);
         encoder.set_color_range(ffmpeg::color::Range::MPEG);
         unsafe {
