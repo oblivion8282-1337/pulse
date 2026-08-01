@@ -489,18 +489,18 @@ const PROBE_H: u32 = 720;
 /// `Ok(true|false)` = Probe lief sauber. `Err` = Device selbst nicht
 /// initialisierbar (Treiber fehlt) → Caller behandelt konservativ (nicht
 /// anbieten).
-/// `ten_bit`: mit dem 10-bit-Eingangsformat proben (`X2BGR10LE`) statt mit dem
-/// 8-bit-Pfad. Nur NVENC — der VAAPI-Pfad wandelt im Filtergraph fest auf NV12
-/// (8 bit), dort ist die Antwort ohne Probe `false`.
+/// `ten_bit`: mit dem 10-bit-Eingangsformat proben statt mit dem 8-bit-Pfad —
+/// P010 auf beiden Wegen (NVENC bekommt es aus dem Shader, VAAPI aus
+/// `scale_vaapi=format=p010`). **Bis 2026-08-01 gab der VAAPI-Zweig hier ohne
+/// Probe `false` zurueck**, weil der Filtergraph fest auf NV12 wandelte; dass
+/// die Hardware es kann, war damit nie gefragt worden. Auf einer Radeon 780M
+/// meldet der Treiber `VA_RT_FORMAT_YUV420_10` fuer AV1-Encode.
 pub fn probe_encoder(
     vendor: Vendor,
     render_node: &str,
     codec_id: &str,
     ten_bit: bool,
 ) -> Result<bool> {
-    if ten_bit && !matches!(vendor, Vendor::Nvidia) {
-        return Ok(false);
-    }
     let Some(name) = opts::encoder_name(vendor, codec_id) else {
         return Ok(false);
     };
@@ -515,6 +515,9 @@ pub fn probe_encoder(
         // X2BGR10LE im 10-bit-Pfad, VAAPI NV12 (scale_vaapi-Ausgang).
         Vendor::Nvidia if ten_bit => (None, AVPixelFormat::AV_PIX_FMT_P010LE),
         Vendor::Nvidia => (None, AVPixelFormat::AV_PIX_FMT_RGB0),
+        Vendor::Amd | Vendor::Intel if ten_bit => {
+            (Some(render_node), AVPixelFormat::AV_PIX_FMT_P010LE)
+        }
         Vendor::Amd | Vendor::Intel => (Some(render_node), AVPixelFormat::AV_PIX_FMT_NV12),
     };
     let hwctx = HwContext::create(kind, dev_arg, PROBE_W, PROBE_H, sw)?;

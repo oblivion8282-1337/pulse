@@ -1,0 +1,99 @@
+{
+ "id": "amd-2026-08-01-intra-refresh-echter-sender",
+ "gemessen_am": "2026-08-01 (Nacht), Radeon 780M (Phoenix/VCN 4), Mesa 26.1.5, Fedora 44",
+ "frage": "Bringt Intra-Refresh auf AMD denselben Gewinn wie auf NVIDIA — am echten Sender, über die echte Leitung, im nativen Player?",
+
+ "ANTWORT": "JA, und in derselben Größenordnung. Sekunden mit einem Hänger über 100 ms: 16,0 Prozent mit Intra-Refresh gegen 65,6 Prozent mit Keyframes alle 2 s, bei gleicher Datenrate (4001 gegen 3998 kbit/s). Die Hänger im Keyframe-Lauf stehen im 2-Sekunden-Takt (386 Belege), im Intra-Refresh-Lauf verstreut. Damit ist der Befund vom 2026-07-31 (NVIDIA: 1,4 gegen 48,7 Prozent) auf der zweiten Hersteller-Plattform bestätigt.",
+
+ "voraussetzung": "Ohne den FFmpeg-Patch aus `streaming/hq-labor/ffmpeg-patches/` gibt es diesen Lauf nicht: `av1_vaapi` kennt upstream keine Intra-Refresh-Option, in keiner Version. Beweiskette dazu in `amd-2026-08-01-intra-refresh.json`.",
+
+ "aufbau": {
+  "sender": "streaming/hq-labor (Messstand), Portal-Aufnahme eines Bildschirms, av1_vaapi auf VCN 4, 2560x1440, 10 bit, 60 fps, 4000 kbps CBR, async_depth=1, gegen ein selbst gebautes FFmpeg 8.1.2 mit dem Intra-Refresh-Patch",
+  "weg": "WHIP → MediaMTX 1.19.1-pulse auf pulse.unicutmedia.com (FlexFEC 10+2) → WHEP → streaming/pulse-player",
+  "player": "libdav1d, SOFTWARE — erzwungen, siehe `warum_software_decoder`",
+  "leitung": "10 Mbit Upload; derselbe Anschluss sendet und schaut zu",
+  "stoerung": "vier parallele Downloads, 25 s, alle 45 s ab Sekunde 60 (identisch in beiden Läufen)",
+  "A": "PULSE_INTRA_REFRESH=1 — der Sidecar wählt daraus `intra_refresh=1` für VAAPI",
+  "B": "Vorgabe: Keyframes alle 2 s. Sonst identisch."
+ },
+
+ "ergebnis": [
+  {
+   "lauf": "A — Intra-Refresh",
+   "sekunden_betrieb": 549,
+   "groesster_abstand_median_ms": 68.9,
+   "groesster_abstand_p90_ms": 164.2,
+   "groesster_abstand_p99_ms": 629.0,
+   "groesster_abstand_max_ms": 1086.0,
+   "sekunden_ueber_33ms_prozent": 98.0,
+   "sekunden_ueber_100ms_prozent": 16.0,
+   "haenger_ueber_100ms_anzahl": 88,
+   "abstaende_zwischen_den_haengern_s": [1, 24, 13, 2, 15, 2, 2, 1, 1, 1, 1, 1, 4, 4, 14, 30, 11, 1, 1, 2],
+   "bitrate_median_kbit": 4001,
+   "gezeichnet_median_je_s": 60,
+   "netz_bis_schirm_median_ms": 14.6,
+   "vollbilder_empfangen": 41,
+   "rtp_pakete": 317862,
+   "nacks": 402,
+   "plis": 45,
+   "luecken_erkannt": 1784,
+   "luecken_nie_gefuellt": 270,
+   "paritaet_repariert": 1367,
+   "paritaet_unreparierbar": 0
+  },
+  {
+   "lauf": "B — Keyframes alle 2 s",
+   "sekunden_betrieb": 588,
+   "groesster_abstand_median_ms": 220.2,
+   "groesster_abstand_p90_ms": 373.5,
+   "groesster_abstand_p99_ms": 567.8,
+   "groesster_abstand_max_ms": 1257.8,
+   "sekunden_ueber_33ms_prozent": 80.8,
+   "sekunden_ueber_100ms_prozent": 65.6,
+   "haenger_ueber_100ms_anzahl": 386,
+   "abstaende_zwischen_den_haengern_s": [1, 1, 1, 1, 2, 1, 1, 2, 2, 2, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1],
+   "bitrate_median_kbit": 3998,
+   "gezeichnet_median_je_s": 54,
+   "netz_bis_schirm_median_ms": 23.6,
+   "vollbilder_empfangen": 340,
+   "rtp_pakete": 345343,
+   "nacks": 457,
+   "plis": 62,
+   "luecken_erkannt": 2378,
+   "luecken_nie_gefuellt": 374,
+   "paritaet_repariert": 2179,
+   "paritaet_unreparierbar": 0
+  }
+ ],
+
+ "was_das_heisst": {
+  "der_takt_ist_der_beweis": "Wie auf NVIDIA liegt der Unterschied nicht in einer Durchschnittszahl, sondern im MUSTER: im Keyframe-Lauf folgen die Hänger fast durchgehend im Abstand von einer bis zwei Sekunden — 386 Stück. Im Intra-Refresh-Lauf gibt es keinen Takt (1, 24, 13, 2, 15, 30, 11 …), dort sind es die Störzyklen.",
+  "es_kostet_keine_datenrate": "4001 gegen 3998 kbit/s. Wie auf NVIDIA, und aus demselben Grund: die Ratenkontrolle läuft auf CBR.",
+  "der_schwierigere_lauf_gewinnt_wieder": "B hatte MEHR Pakete (345343 gegen 317862) und mehr Reparaturen (2179 gegen 1367) und schneidet trotzdem in jeder Kennzahl schlechter ab.",
+  "auch_die_verzoegerung": "Netz-bis-Schirm 14,6 gegen 23,6 ms im Median, und 60 gegen 54 gezeichnete Bilder je Sekunde.",
+  "vollbilder": "41 gegen 340. Die 41 sind angeforderte (45 PLIs), keine periodischen — die Umstellung räumt den Takt wirklich weg und nicht nur seine Wirkung."
+ },
+
+ "warum_software_decoder": {
+  "befund": "Hardware-Dekodierung ist im Player gebaut und nachgewiesen (`Decoder av1 (Hardware (VAAPI))`, Bilder als P010LE) — auf DIESER Maschine aber nicht durchhaltbar: Sender und Player teilen sich EINE Video-Engine (`vcn_unified_0`, Encode und Decode in einem Ring). Der Ring lief in drei von drei Versuchen über, der Kernel nennt jedes Mal `Process pulse-player`, danach GPU-Reset und Player weg.",
+  "die_drei_versuche": "1440p60/10 bit: nach ~60 s. 1080p60/10 bit: nach ~50 s. 1080p60/10 bit mit Störung: Lauf A nach 82 s, Lauf B schon nach 58 s — also VOR der ersten Störung. Ohne gleichzeitiges Encoden dekodiert dieselbe Karte dieselbe 10-bit-Datei mit ~185 fps.",
+  "nicht_unser_fehler": "Mesa führt in den Anmerkungen zu 26.0 und 26.1 gleichartige Fälle als bekannte Fehler ('VCN unified ring timeout during VAAPI HEVC encode', 'VCN page fault & ring timeout during VAAPI HEVC encode with scale_vaapi' — scale_vaapi ist unser Sendeweg).",
+  "folge_fuer_die_messung": "Der A/B-Vergleich bleibt gültig, beide Läufe hatten denselben Decoder. Gegen die NVIDIA-Referenz sind die ABSOLUTEN Zahlen nicht zu halten: dort dekodierte av1_cuvid in Hardware, und der Verlust war weit geringer (118 Pakete gegen hier 379 bzw. 452 am Laufende).",
+  "was_daraus_folgt": "Für einen Zuschauer auf einer eigenen Maschine ist das kein Problem — dort encodiert niemand gleichzeitig. Es trifft nur den Fall Sender und Zuschauer auf derselben APU, also unseren Prüfstand."
+ },
+
+ "was_dabei_noch_gefunden_wurde": [
+  "Der Player suchte Hardware-Decoder über den Namen und hatte `av1_vaapi`/`h264_vaapi` in der Liste — die es in FFmpeg NICHT GIBT (VAAPI ist ein hwaccel am nativen Decoder). Auf AMD fiel er deshalb immer still auf Software zurück. Behoben.",
+  "`av1_qsv` lässt sich auch ohne Intel-Hardware öffnen und scheitert erst beim ersten Bild — im Log: 'Decoder av1_qsv lehnt dauerhaft ab'. VAAPI steht jetzt davor.",
+  "Der Sender meldete '(8 bit)', obwohl der Strom bereits in 10 bit lief, UND unterdrückte dabei die Farb-Signalisierung (`let ten_bit = params.ten_bit && Vendor::Nvidia`). Der Player bekam `range=Unspecified space=Unspecified` und musste raten. Behoben.",
+  "Die Zeitmuster-Sonde war beim Software-Decoder in 10 bit BLIND: sie las immer das obere Byte des 16-bit-Wortes (richtig für P010LE, falsch für YUV420P10LE). 32535 Bilder ohne Muster in Lauf A. Die Ende-zu-Ende-Latenz ist in dieser Messreihe deshalb NICHT gemessen; der Fehler ist behoben, die Zahl gehört nachgeholt.",
+  "Fedora baut die patentbehafteten Decoder aus (`libavcodec-free`): kein `h264`-Decoder, damit auch kein H.264 über hwaccel. `libavcodec-freeworld` aus RPM Fusion stellt das her; zusätzlich steht `libopenh264` jetzt im Rückfall des Players."
+ ],
+
+ "offen": [
+  "Ende-zu-Ende-Latenz: in dieser Reihe wegen der blinden Sonde nicht gemessen. Ein Wiederholungslauf mit dem behobenen Player holt sie nach.",
+  "Zwei Läufe je Variante — hier ist es einer. Der Befund ist deutlich (Faktor 4 bei den gestörten Sekunden, 386 Belege für den Takt), aber die Hausregel verlangt die Wiederholung.",
+  "GPU-Preis des Encoders auf der iGPU ist ungemessen.",
+  "Hardware-Dekodierung auf einer Maschine, die NICHT gleichzeitig sendet — dort sollte sie tragen, geprüft ist es nicht."
+ ]
+}

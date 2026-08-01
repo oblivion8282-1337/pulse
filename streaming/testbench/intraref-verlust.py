@@ -174,6 +174,21 @@ def main() -> int:
     ap.add_argument("--codec", default="av1")
     ap.add_argument("--bits", type=int, default=10)
     ap.add_argument("--audio", default="Aus")
+    # Auf einer APU teilen sich Sender und Player EINE Video-Engine
+    # (`vcn_unified_0`): am 2026-08-01 hat 1440p60 in 10 bit mit
+    # Hardware-Dekodierung den Ring zum Zeitueberlauf gebracht, der Treiber hat
+    # ihn zurueckgesetzt und den Player mitgerissen. Auf getrennten Engines
+    # (NVENC/NVDEC) faellt das nicht auf. Deshalb hier ein Schalter statt einer
+    # festen nativen Groesse.
+    # Wie `harness.py` und `fern-referenz.py`. Auf einer APU ist das kein
+    # Komfort-Schalter: Hardware-Dekodierung UND Encode teilen sich dort eine
+    # Engine, und der Ring lief am 2026-08-01 reproduzierbar ueber (zweimal
+    # binnen 82 s, Kernel nennt jedes Mal `Process pulse-player`).
+    ap.add_argument("--hwdec", choices=("auto", "hw", "sw"), default="auto")
+    ap.add_argument("--aufloesung", default=None,
+                    help="Native/4K/1440p/1080p/720p/480p oder WxH. Ohne Angabe "
+                         "die native Groesse des Schirms. Achtung: der Sidecar "
+                         "liest Unbekanntes still als Native")
     ap.add_argument("--keyframes", action="store_true",
                     help="Gegenprobe: periodische Keyframes statt Intra-Refresh")
     # Fuer die Einfrier-Diagnose (2026-07-31): schreibt den ANKOMMENDEN
@@ -268,8 +283,10 @@ def main() -> int:
         pf = open(player_log, "w")
         player = Player(pf, player_env)
         whep = f"https://{_fern.HOST}/whep/{path}/whep?token={rd}"
+        optionen = {"volume": 0.0}
+        optionen |= {"auto": {}, "hw": {"hwdec": True}, "sw": {"hwdec": False}}[args.hwdec]
         res = player.call("open", url=whep, title=f"Verlust {args.label}",
-                          options={"volume": 0.0}, timeout=30)
+                          options=optionen, timeout=30)
         if not res.get("ok"):
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
             return 1

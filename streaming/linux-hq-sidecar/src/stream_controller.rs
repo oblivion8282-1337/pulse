@@ -647,15 +647,6 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 Ok(FrameImporter::Nvenc { imp, hw: hw_ctx })
             }
             Vendor::Amd | Vendor::Intel => {
-                // Der VAAPI-Filtergraph wandelt fest auf NV12 (8 bit) — ein
-                // 10-bit-Wunsch verfällt hier, statt den Start zu verweigern:
-                // welche Karte den Puffer besitzt, steht erst hier fest.
-                if params.ten_bit {
-                    emit(Event::Log {
-                        line: "[stream] 10 bit auf diesem Encode-Pfad nicht verfügbar (nur NVENC) — streame mit 8 bit"
-                            .to_string(),
-                    });
-                }
                 let imp = VaapiImporter::new(
                     node,
                     first.drm_fourcc,
@@ -664,6 +655,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                     params.fps,
                     out_w,
                     out_h,
+                    params.ten_bit,
                 )?;
                 Ok(FrameImporter::Vaapi { imp })
             }
@@ -718,7 +710,15 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     if shared.stop_requested.load(Ordering::SeqCst) {
         return Ok(None);
     }
-    let ten_bit = params.ten_bit && matches!(vendor, Vendor::Nvidia);
+    // Beide Wege koennen 10 bit: NVENC ueber den P010-Shader (`nv_p010`), VAAPI
+    // ueber `scale_vaapi=format=p010`. Hier stand bis 2026-08-01 eine
+    // Einschraenkung auf NVIDIA — die stimmte, solange der VAAPI-Filtergraph
+    // fest auf NV12 wandelte, und war danach schaedlich: der Strom lief bereits
+    // in 10 bit, waehrend diese Zeile 8 bit meldete UND die Farb-Signalisierung
+    // unterblieb (`create_with_audio` setzt sie nur im 10-bit-Zweig). Der
+    // Player bekam dadurch `range=Unspecified space=Unspecified` und musste
+    // raten.
+    let ten_bit = params.ten_bit;
     emit(Event::Log {
         line: format!(
             "[stream] Encode-Pfad: {} auf {} ({} bit)",

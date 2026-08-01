@@ -45,6 +45,8 @@ pub struct VaapiImporter {
     fps: u32,
     out_w: u32,
     out_h: u32,
+    /// Zielformat des CSC: P010 statt NV12 (s. `build_graph`).
+    ten_bit: bool,
 }
 
 impl VaapiImporter {
@@ -60,6 +62,7 @@ impl VaapiImporter {
         fps: u32,
         out_w: u32,
         out_h: u32,
+        ten_bit: bool,
     ) -> Result<Self> {
         unsafe {
             // 1) DRM-Device am Render-Node. Der Filter leitet daraus per
@@ -90,6 +93,7 @@ impl VaapiImporter {
                 fps,
                 out_w,
                 out_h,
+                ten_bit,
             };
             if let Err(e) = me.build_graph(fps, out_w, out_h) {
                 // me's Drop räumt drm_dev/graph auf.
@@ -181,14 +185,22 @@ impl VaapiImporter {
                 return Err(anyhow!("init hwmap failed (rc={r})"));
             }
 
-            // scale_vaapi=w:h:format=nv12 (VPP: CSC BGRx→NV12 + Downscale in
+            // scale_vaapi=w:h:format=… (VPP: CSC BGRx→NV12/P010 + Downscale in
             // EINEM GPU-Durchgang — bei out==native skaliert er nicht).
+            //
+            // **P010 im 10-bit-Betrieb.** Die Aufnahme selbst bleibt 8 bit (der
+            // Compositor liefert XRGB8888); der Gewinn liegt darin, dass der
+            // Encoder nicht noch einmal auf 8 bit quantisiert — dieselbe
+            // Begruendung wie im NVENC-Zweig (`nv_p010`). Eine echte
+            // 10-bit-Quelle braeuchte ein 10-bit-Format in der
+            // PipeWire-Aushandlung, das ist offen.
             let scale_ctx = avfilter_graph_alloc_filter(graph, scale_vaapi, c"csc".as_ptr());
             if scale_ctx.is_null() {
                 return Err(anyhow!("alloc scale_vaapi failed"));
             }
+            let zielformat = if self.ten_bit { "p010" } else { "nv12" };
             let scale_args =
-                std::ffi::CString::new(format!("w={out_w}:h={out_h}:format=nv12")).unwrap();
+                std::ffi::CString::new(format!("w={out_w}:h={out_h}:format={zielformat}")).unwrap();
             let r = avfilter_init_str(scale_ctx, scale_args.as_ptr());
             if r < 0 {
                 return Err(anyhow!("init scale_vaapi failed (rc={r})"));

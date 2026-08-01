@@ -306,10 +306,20 @@ gleichmäßig — die Bündelung entsteht dahinter.
       `hq-labor/ffmpeg-patches/`, der Sidecar setzt die richtige Option je
       Vendor über `PULSE_INTRA_REFRESH=1` und **bricht ab**, wenn sein FFmpeg
       sie nicht kennt (statt still Keyframes zu fahren).
-- [ ] **AMD messen**: derselbe Verlust-Lauf wie auf NVIDIA
-      (`intraref-verlust.py`), mit einer AMD-Karte als Sender. Erst der sagt,
-      ob der Gewinn hier derselbe ist. Ungemessen ist auch der GPU-Preis auf
-      einer iGPU.
+- [x] **AMD messen** — gemessen 2026-08-01, Messakte
+      `profiles/amd-2026-08-01-intra-refresh-echter-sender.json`: **16,0 gegen
+      65,6 Prozent** gestörte Sekunden bei gleicher Datenrate (4001/3998
+      kbit/s), 386 Belege für den 2-Sekunden-Takt im Keyframe-Lauf. Der Befund
+      von NVIDIA trägt also auf beiden Herstellern. Offen bleiben: die
+      Wiederholung (ein Lauf je Variante), die Ende-zu-Ende-Latenz (die Sonde
+      war blind, s.u.) und der GPU-Preis auf der iGPU.
+- [ ] **Hardware-Dekodierung auf einer Maschine, die nicht gleichzeitig
+      sendet.** Sie ist gebaut (`Decoder av1 (Hardware (VAAPI))`, P010), aber
+      auf der Prüfstand-APU nicht durchhaltbar: Sender und Player teilen sich
+      `vcn_unified_0`, der Ring lief dreimal über (Kernel: `Process
+      pulse-player`), danach GPU-Reset. Ohne gleichzeitiges Encoden dekodiert
+      dieselbe Karte mit ~185 fps. Gleichartige Fälle stehen in den
+      Mesa-Anmerkungen 26.0/26.1 als bekannte Fehler.
 - [ ] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
       (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. Bis dahin haben
       Nutzer auf AMD kein Intra-Refresh, egal was der Sidecar kann.
