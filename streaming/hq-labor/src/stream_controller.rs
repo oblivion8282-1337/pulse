@@ -845,6 +845,17 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let mut window_duplicates = 0u64;
     let mut window_pts_gaps = 0u64;
     let mut window_pts_clamps = 0u64;
+    // Scheiternde Bild-Importe in Folge — und ab wann der Strom aufgibt.
+    //
+    // **Warum das ein Abbruchgrund ist und keine Randnotiz.** Schlaegt der
+    // Import fehl, bleibt `last_hw` stehen und der Pacing-Loop schiebt dasselbe
+    // Bild weiter in den Encoder: der Zuschauer sieht ein STANDBILD, der
+    // Zustand meldet weiter „live", die Bitrate sieht normal aus, und in
+    // `duplicates` taucht es nicht auf (das zaehlt nur Takte ohne neuen Frame).
+    // Fuer eine Messreihe ist das die teuerste Fehlerform ueberhaupt: sie
+    // liefert Zahlen, die nach einem Ergebnis aussehen.
+    let mut import_fehler_in_folge = 0u64;
+    let import_fehler_grenze = (params.fps.max(1) as u64).saturating_mul(2);
 
     let run_result = (|| -> Result<()> {
         loop {
@@ -876,10 +887,30 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 match importer.import(&frame) {
                     Ok(hw) => {
                         last_hw.replace(hw);
+                        import_fehler_in_folge = 0;
                     }
-                    Err(e) => emit(Event::Log {
-                        line: format!("[stream] Frame-Import übersprungen: {e:#}"),
-                    }),
+                    Err(e) => {
+                        import_fehler_in_folge += 1;
+                        // Nur die erste Meldung und danach eine je Sekunde:
+                        // sechzig gleiche Zeilen pro Sekunde verstopfen das Log
+                        // und sagen ab der zweiten nichts Neues.
+                        if import_fehler_in_folge == 1
+                            || import_fehler_in_folge % params.fps.max(1) as u64 == 0
+                        {
+                            emit(Event::Log {
+                                line: format!(
+                                    "[stream] Frame-Import übersprungen \
+                                     ({import_fehler_in_folge} in Folge): {e:#}"
+                                ),
+                            });
+                        }
+                        if import_fehler_in_folge >= import_fehler_grenze {
+                            return Err(anyhow!(
+                                "Frame-Import scheitert dauerhaft — {import_fehler_in_folge} \
+                                 Bilder in Folge: {e:#}"
+                            ));
+                        }
+                    }
                 }
                 // frame droppt hier → Plane-fds zu.
             }
