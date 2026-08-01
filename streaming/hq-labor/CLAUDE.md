@@ -323,9 +323,14 @@ gleichmäßig — die Bündelung entsteht dahinter.
 - [ ] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
       (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. Bis dahin haben
       Nutzer auf AMD kein Intra-Refresh, egal was der Sidecar kann.
-- [ ] **Windows und macOS**: eigene Encoder-Ketten, Intra-Refresh kommt in
-      ihrem Quelltext null Mal vor. NVENC *kann* es (auf Linux belegt), es ist
-      dort nur nicht gebaut.
+- [ ] **Windows und macOS** — Einstieg: `UEBERGABE-WINDOWS-MACOS.md` daneben.
+      Am Quelltext geklärt (2026-08-01): beide Sidecars encodieren ebenfalls
+      über FFmpeg, der Hebel ist also überall eine Encoder-Option. **Windows
+      braucht keinen Patch** — `*_nvenc` und `*_d3d12va` (der AMD-Weg dort)
+      haben Intra-Refresh upstream, für AV1 eingeschlossen. **macOS ist der
+      offene Fall**: `videotoolbox` hat in FFmpeg keine einzige einschlägige
+      Stelle. Ob VideoToolbox selbst es kann, entscheidet, ob die Umstellung
+      plattformweit möglich ist — deshalb zuerst prüfen, nicht zuletzt.
 
 **Wichtig, aber nicht blockierend:**
 
