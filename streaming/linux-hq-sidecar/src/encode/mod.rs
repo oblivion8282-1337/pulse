@@ -560,6 +560,17 @@ fn probe_open(desc: ffmpeg::Codec, hwctx: &HwContext, vendor: Vendor, codec: &st
     enc.set_time_base(Rational::new(1, 30));
     enc.set_frame_rate(Some(Rational::new(30, 1)));
     enc.set_bit_rate(2_000_000);
+    // Wie der echte Pfad: keine B-Bilder.
+    //
+    // **Das ist keine Kosmetik.** Die VAAPI-Encoder setzen selbst `bf=2` als
+    // Vorgabe (`vaapi_encode_h264.c`), der Live-Pfad ueberschreibt das mit
+    // `set_max_b_frames(0)` — die Probe tat es nicht und pruefte damit eine
+    // ANDERE Einstellung als die, die spaeter laeuft. Aufgefallen am
+    // 2026-08-01: mit `PULSE_INTRA_REFRESH=1` scheiterte der h264-Open in der
+    // Probe an "Intra refresh cannot be used together with B-frames", und
+    // H.264 verschwand still aus `health.video_codecs` — obwohl der echte
+    // Encode-Pfad es problemlos konnte.
+    enc.set_max_b_frames(0);
     unsafe {
         let ctx = enc.as_mut_ptr();
         let new_ref = av_buffer_ref(hwctx.frames_ref());
