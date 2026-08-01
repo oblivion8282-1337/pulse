@@ -203,13 +203,23 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
                 Kandidat { name: "h264", vaapi: true },
                 Kandidat::sw("h264_qsv"),
             ],
-            // `libopenh264` VOR `h264`: Distributionen, die patentbehaftete
-            // Decoder ausbauen (Fedora `libavcodec-free`), haben den nativen
-            // `h264` NICHT — dort war die Wiedergabe von H.264 bisher schlicht
-            // unmoeglich, obwohl ein brauchbarer Decoder danebenliegt.
-            // Nachgeprueft am 2026-08-01: `ffmpeg -decoders` listet auf dieser
-            // Maschine `libopenh264`, aber kein `h264`.
-            &[Kandidat::sw("libopenh264"), Kandidat::sw("h264")],
+            // Nativer Decoder zuerst, `libopenh264` nur als Rueckfall.
+            //
+            // Der Rueckfall existiert, weil Distributionen die patentbehafteten
+            // Decoder ausbauen (Fedora `libavcodec-free`,
+            // `--disable-decoder='h264,hevc,vc1,vvc'`): dort gibt es `h264`
+            // nicht, und ohne diesen Eintrag ist H.264-Wiedergabe schlicht
+            // unmoeglich.
+            //
+            // **Die Reihenfolge ist nicht beliebig.** Am 2026-08-01 stand
+            // `libopenh264` zuerst, und ein Messlauf mit unserem eigenen Strom
+            // (High Profile, CABAC) lief damit ins Leere: 12-13 dekodierte
+            // Bilder je Sekunde statt 60, 78-101 ms Dekodierzeit je Bild,
+            // Ausgabe-Abstaende bis 1103 ms, dazu OpenH264-Warnungen. Der
+            // native Decoder macht dieselbe Arbeit in wenigen Millisekunden.
+            // OpenH264 ist auf Constrained Baseline ausgelegt — als Notnagel
+            // richtig, als erste Wahl falsch.
+            &[Kandidat::sw("h264"), Kandidat::sw("libopenh264")],
         ),
         Codec::Opus => (&[], &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
     };
