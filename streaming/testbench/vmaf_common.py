@@ -9,6 +9,7 @@ identisch ist.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -50,17 +51,44 @@ def run_ffmpeg(cmd: list[str], was: str) -> None:
 def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
                 frames: int, out: Path, *, pre: list[str] = (),
                 post: list[str] = (), codec: str = "av1_nvenc") -> list[str]:
-    """Gemeinsames NVENC-Kommando. `pre` sitzt vor `-c:v` (Skalierungsfilter),
-    `post` dahinter vor der Ausgabedatei (Preset/Variante) — Reihenfolge bewusst
-    getrennt, weil beide Sweeps sie an unterschiedlicher Stelle brauchen."""
+    """Encode-Kommando in den Einstellungen des Sidecars. `pre` sitzt vor
+    `-c:v` (Skalierungsfilter), `post` dahinter vor der Ausgabedatei
+    (Preset/Variante) — Reihenfolge bewusst getrennt, weil beide Sweeps sie an
+    unterschiedlicher Stelle brauchen.
+
+    **Die Grundeinstellungen haengen am Encoder.** Bis 2026-08-01 standen hier
+    fest die NVENC-Namen (`-tune ll -rc cbr -zerolatency -delay -b_ref_mode`);
+    auf `av1_vaapi`/`h264_vaapi` gibt es die nicht, ffmpeg bricht damit ab. Die
+    Frage "was kostet diese Encoder-Einstellung an Bildqualitaet" war auf AMD
+    also gar nicht stellbar — dieselbe Luecke, die `amdgpuload.py` fuer die
+    GPU-Last geschlossen hat. Die VAAPI-Seite spiegelt `encode/opts.rs`:
+    `rc_mode=CBR` plus `async_depth=1`.
+    """
+    vaapi = codec.endswith("_vaapi")
+    geraet: list[str] = []
+    vorne = list(pre)
+    if vaapi:
+        basis = ["-rc_mode", "CBR", "-async_depth", "1"]
+        geraet = ["-vaapi_device", os.environ.get("PULSE_VAAPI_DEVICE", "/dev/dri/renderD128")]
+        # VAAPI encodiert aus einer GPU-Surface — die Rohbilder muessen erst
+        # hinauf. Ein vorhandener `pre`-Filter (Aufloesungs-Sweep) wird davor
+        # gehaengt statt ersetzt, sonst gewaenne das zweite `-vf` und die
+        # Skalierung fiele still aus.
+        if vorne[:1] == ["-vf"]:
+            vorne = ["-vf", f"{vorne[1]},format=nv12,hwupload"] + vorne[2:]
+        else:
+            vorne = ["-vf", "format=nv12,hwupload"] + vorne
+    else:
+        basis = ["-tune", "ll", "-rc", "cbr",
+                 "-b_ref_mode", "0", "-zerolatency", "1", "-delay", "0"]
     return [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *geraet,
         "-f", "rawvideo", "-pix_fmt", pix_fmt, "-s", f"{w}x{h}", "-r", str(fps),
         "-i", str(ref), "-frames:v", str(frames),
-        *pre,
-        "-c:v", codec, "-tune", "ll", "-rc", "cbr",
+        *vorne,
+        "-c:v", codec, *basis,
         "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k",
-        "-b_ref_mode", "0", "-zerolatency", "1", "-delay", "0", "-g", str(fps * 2),
+        "-g", str(fps * 2),
         *post,
         str(out),
     ]
