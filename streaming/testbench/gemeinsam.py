@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import atexit
 import importlib.util
+import os
 import shutil
 import signal
 import subprocess
 import sys
+from pathlib import Path
 
 from harness import CID, HERE
 
@@ -33,6 +35,97 @@ from harness import CID, HERE
 # schlicht nichts.
 _IDLE_BEFEHL = ("dms", "ipc", "call", "inhibit")
 _idle_gehemmt = False
+
+
+def zustand_pruefen(streng: bool = True) -> list[str]:
+    """Ist die Maschine ueberhaupt in einem Zustand, in dem gemessen werden darf?
+
+    **Warum das vor jedem Lauf steht.** Am 2026-08-01 haben sechs vergessene
+    `mpv`-Prozesse (aus `bewegtbild.py`, das SIGTERM nicht abfing) anderthalb
+    Stunden lang jede Messung verdorben: `gpu_busy_percent` stand auf 99, die
+    Hardware-Dekodierung fiel von 159 auf 30 Bilder je Sekunde, und der
+    Messlauf sah aus, als koenne die Karte kein H.264. Aus dieser einen
+    Verunreinigung sind ZWEI falsche Befunde entstanden, beide plausibel
+    erzaehlt, beide committet, beide spaeter zu korrigieren.
+
+    Der Pruefstand liefert Zahlen, egal was die Maschine sonst tut — er warnt
+    nur nicht. Genau das holt diese Funktion nach.
+
+    Geprueft wird, was heute wirklich schiefging, nicht was schiefgehen
+    koennte:
+
+    * **Fremde Video-Prozesse** (mpv, ffmpeg, ein zweiter Sender oder Player).
+      Das ist der harte Fall — er verfaelscht Encode- wie Decode-Messungen.
+    * **GPU-Grundlast** ueber einer Schwelle, auch ohne erkennbaren
+      Verursacher. Faengt den Fall, in dem der Schuldige anders heisst.
+    * **Liegengebliebene `tc`-Regeln** aus einem abgebrochenen Verlust-Lauf.
+      Eine vergessene Stoerstrecke ist dieselbe Art Fehler: sie wirkt, ohne
+      im Protokoll zu stehen.
+
+    `streng=True` bricht ab, `False` meldet nur. Rueckgabe ist die Liste der
+    Befunde — leer heisst sauber.
+    """
+    befunde: list[str] = []
+
+    # 1. VERWAISTE mpv. Nicht "irgendein mpv": ein Bewegtbild, das zu diesem
+    #    Lauf gehoert, ist erwuenscht und hat einen lebenden `bewegtbild.py`
+    #    als Elternprozess. Genau der fehlt im Schadensfall — das Python stirbt
+    #    an SIGTERM, die mpv laufen als Waisen weiter. Ein Waechter, der auch
+    #    das richtige Bewegtbild anmeckert, wird nach dem zweiten Mal
+    #    abgeschaltet; deshalb die Unterscheidung statt eines Pauschalverbots.
+    for pid in subprocess.run(["pgrep", "-x", "mpv"],
+                              capture_output=True, text=True).stdout.split():
+        try:
+            eltern = int((Path("/proc") / pid / "stat").read_text().split(") ", 1)[1].split()[1])
+            elternname = (Path("/proc") / str(eltern) / "cmdline").read_bytes().decode(
+                "utf-8", "replace")
+        except (OSError, IndexError, ValueError):
+            continue
+        if "bewegtbild" not in elternname:
+            befunde.append(f"verwaiste mpv (PID {pid}, Elternprozess {eltern}) — "
+                           f"sie dekodiert weiter und verfaelscht jede Messung")
+
+    # 2. GPU-Grundlast — aber NUR ohne laufendes Bewegtbild. Mit ihm sind 80
+    #    Prozent der Normalfall (es dekodiert auf jedem Schirm), die Zahl sagt
+    #    dann nichts. Ohne es bedeutet eine hohe Grundlast, dass etwas rechnet,
+    #    das hier niemand bestellt hat — der Fall, den die Waisen-Pruefung oben
+    #    nicht faengt, weil der Verursacher anders heisst.
+    #
+    #    Nur AMD/Intel liefern diese Datei; auf NVIDIA fehlt sie und die
+    #    Pruefung entfaellt still (dort haette `nvidia-smi` die Zahl).
+    bewegtbild_laeuft = bool(subprocess.run(
+        ["pgrep", "-f", "bewegtbild.py"], capture_output=True, text=True).stdout.strip())
+    for karte in ([] if bewegtbild_laeuft
+                  else sorted(Path("/sys/class/drm").glob("card*/device/gpu_busy_percent"))):
+        try:
+            last = int(karte.read_text().strip())
+        except (OSError, ValueError):
+            continue
+        if last > 40:
+            befunde.append(f"GPU-Grundlast {last} % ({karte.parents[1].name}) — "
+                           f"da rechnet etwas mit")
+        break
+
+    # 3. Liegengebliebene Stoerstrecke. `tc` liegt in /usr/sbin und ist im PATH
+    #    eines normalen Nutzers oft nicht — fehlt es, entfaellt die Pruefung
+    #    still. Ein Waechter, der den Lauf umbringt, weil er selbst nicht
+    #    laufen kann, waere schlimmer als gar keiner.
+    tc = shutil.which("tc") or "/usr/sbin/tc"
+    try:
+        r = subprocess.run([tc, "qdisc", "show"], capture_output=True, text=True)
+        if "netem" in r.stdout:
+            befunde.append("eine netem-Regel liegt noch an (verluststrecke.py --aus)")
+    except OSError:
+        pass
+
+    if befunde:
+        for b in befunde:
+            print(f"[zustand] {b}", file=sys.stderr)
+        if streng:
+            print("[zustand] Messung abgebrochen. Wer trotzdem messen will: "
+                  "PULSE_ZUSTAND_EGAL=1", file=sys.stderr)
+            raise SystemExit(2)
+    return befunde
 
 
 def bildschirm_wachhalten() -> None:
@@ -110,6 +203,8 @@ def sender_starten(sender, args, token: str, push_url: str, warte_s: float = 90.
     # aus. Am 2026-07-30 lief so eine ganze Sitzung als H.264, waehrend
     # Aufruf und Ausgabe „av1 10 bit" sagten. Deshalb steht die Herkunft in
     # jedem Lauf, und der stille Fall wird zur lauten Warnung.
+    if os.environ.get("PULSE_ZUSTAND_EGAL") != "1":
+        zustand_pruefen()
     bildschirm_wachhalten()
     binaer = laden("real-harness").SIDECAR
     print(f"Sender-Binary: {binaer}")
