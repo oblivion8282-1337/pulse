@@ -120,5 +120,82 @@
    "verworfen": "Der zweite A-Lauf trug die Signatur der verrutschten Bildpaarung (vmaf_min 0.0, 181 statt 180 Paare) und ist nicht verwertbar — es bleibt EIN sauberer A-Lauf."
   },
   "bestaetigt": "Dieselbe Aussage: VMAF 89,49 gegen 88,90/89,55, VCN 2634 gegen 2674/2664 Mikrosekunden. Kein Unterschied ueber der Streuung. Die absoluten Werte liegen anders als in der ersten Reihe (dort 91,2-92,1 VMAF und 1943-2017 us) — der Bildinhalt war ein anderer; verglichen wird immer nur INNERHALB einer Reihe."
+ },
+ "NACHTRAG_ISO_BITRATE": {
+  "gemessen_am": "2026-08-01, offline auf identischen Bildern (300 Bilder aus EINEM Rohmitschnitt)",
+  "warum": "Der erste Vergleich war KEIN Iso-Bitraten-Vergleich: beide Varianten lagen an ihrer Qualitaetsdecke und unterschritten die Vorgabe.",
+  "erster_befund_die_ratenkontrolle_saettigt": {
+   "messung": [
+    {
+     "ziel_kbps": 2000,
+     "keyframes_kbps": 1058,
+     "intraref_kbps": 713,
+     "vmaf_keyframes": 95.93,
+     "vmaf_intraref": 96.05
+    },
+    {
+     "ziel_kbps": 4000,
+     "keyframes_kbps": 1099,
+     "intraref_kbps": 777,
+     "vmaf_keyframes": 96.51,
+     "vmaf_intraref": 96.52
+    },
+    {
+     "ziel_kbps": 8000,
+     "keyframes_kbps": 1177,
+     "intraref_kbps": 837,
+     "vmaf_keyframes": 96.85,
+     "vmaf_intraref": 96.86
+    },
+    {
+     "ziel_kbps": 16000,
+     "keyframes_kbps": 1175,
+     "intraref_kbps": 827,
+     "vmaf_keyframes": 96.92,
+     "vmaf_intraref": 96.89
+    }
+   ],
+   "lesart": "Der Encoder erreicht das Ziel NIE — bei 16000 kbps Vorgabe liefert er 1175. Er ist qualitaetsgesaettigt, nicht ratenbegrenzt. Ueber alle Ziele hinweg braucht Intra-Refresh rund 30 Prozent weniger Bits bei GLEICHEM VMAF."
+  },
+  "der_echte_iso_bitraten_punkt": {
+   "verfahren": "Beide Varianten auf so niedrige Ziele gezwungen, dass die Ratenkontrolle wirklich begrenzt.",
+   "messung": [
+    {
+     "ziel_kbps": 700,
+     "keyframes": {
+      "kbps": 560,
+      "vmaf": 92.64
+     },
+     "intraref": {
+      "kbps": 567,
+      "vmaf": 94.44
+     }
+    },
+    {
+     "ziel_kbps": 900,
+     "keyframes": {
+      "kbps": 767,
+      "vmaf": 93.75
+     },
+     "intraref": {
+      "kbps": 639,
+      "vmaf": 94.84
+     }
+    },
+    {
+     "ziel_kbps": 1100,
+     "keyframes": {
+      "kbps": 817,
+      "vmaf": 94.12
+     },
+     "intraref": {
+      "kbps": 669,
+      "vmaf": 95.23
+     }
+    }
+   ],
+   "ANTWORT": "Bei 560 gegen 567 kbit/s — also praktisch derselben Rate — liegt Intra-Refresh 1,8 VMAF vorn (94,44 gegen 92,64). Bei den hoeheren Zielen braucht es weniger Bits UND ist besser. Intra-Refresh kostet also nicht nur nichts, es gewinnt auch bei gleicher Datenrate."
+  },
+  "grenze": "Gemessen auf EINEM Inhalt (bewegtbild.py, weiche Verlaeufe plus wanderndes Detailfeld). Bei Inhalt, der die Ratenkontrolle wirklich auslastet (schnelle Spielszene, viel Detail), kann das Verhaeltnis anders liegen — dort kosten die Keyframes relativ weniger."
  }
 }

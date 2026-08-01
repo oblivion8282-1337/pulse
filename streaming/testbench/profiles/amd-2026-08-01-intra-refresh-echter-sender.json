@@ -2,11 +2,8 @@
  "id": "amd-2026-08-01-intra-refresh-echter-sender",
  "gemessen_am": "2026-08-01 (Nacht), Radeon 780M (Phoenix/VCN 4), Mesa 26.1.5, Fedora 44",
  "frage": "Bringt Intra-Refresh auf AMD denselben Gewinn wie auf NVIDIA — am echten Sender, über die echte Leitung, im nativen Player?",
-
  "ANTWORT": "JA, und in derselben Größenordnung. Sekunden mit einem Hänger über 100 ms: 16,0 Prozent mit Intra-Refresh gegen 65,6 Prozent mit Keyframes alle 2 s, bei gleicher Datenrate (4001 gegen 3998 kbit/s). Die Hänger im Keyframe-Lauf stehen im 2-Sekunden-Takt (386 Belege), im Intra-Refresh-Lauf verstreut. Damit ist der Befund vom 2026-07-31 (NVIDIA: 1,4 gegen 48,7 Prozent) auf der zweiten Hersteller-Plattform bestätigt.",
-
  "voraussetzung": "Ohne den FFmpeg-Patch aus `streaming/hq-labor/ffmpeg-patches/` gibt es diesen Lauf nicht: `av1_vaapi` kennt upstream keine Intra-Refresh-Option, in keiner Version. Beweiskette dazu in `amd-2026-08-01-intra-refresh.json`.",
-
  "aufbau": {
   "sender": "streaming/hq-labor (Messstand), Portal-Aufnahme eines Bildschirms, av1_vaapi auf VCN 4, 2560x1440, 10 bit, 60 fps, 4000 kbps CBR, async_depth=1, gegen ein selbst gebautes FFmpeg 8.1.2 mit dem Intra-Refresh-Patch",
   "weg": "WHIP → MediaMTX 1.19.1-pulse auf pulse.unicutmedia.com (FlexFEC 10+2) → WHEP → streaming/pulse-player",
@@ -16,7 +13,6 @@
   "A": "PULSE_INTRA_REFRESH=1 — der Sidecar wählt daraus `intra_refresh=1` für VAAPI",
   "B": "Vorgabe: Keyframes alle 2 s. Sonst identisch."
  },
-
  "ergebnis": [
   {
    "lauf": "A — Intra-Refresh",
@@ -28,7 +24,28 @@
    "sekunden_ueber_33ms_prozent": 98.0,
    "sekunden_ueber_100ms_prozent": 16.0,
    "haenger_ueber_100ms_anzahl": 88,
-   "abstaende_zwischen_den_haengern_s": [1, 24, 13, 2, 15, 2, 2, 1, 1, 1, 1, 1, 4, 4, 14, 30, 11, 1, 1, 2],
+   "abstaende_zwischen_den_haengern_s": [
+    1,
+    24,
+    13,
+    2,
+    15,
+    2,
+    2,
+    1,
+    1,
+    1,
+    1,
+    1,
+    4,
+    4,
+    14,
+    30,
+    11,
+    1,
+    1,
+    2
+   ],
    "bitrate_median_kbit": 4001,
    "gezeichnet_median_je_s": 60,
    "netz_bis_schirm_median_ms": 14.6,
@@ -51,7 +68,28 @@
    "sekunden_ueber_33ms_prozent": 80.8,
    "sekunden_ueber_100ms_prozent": 65.6,
    "haenger_ueber_100ms_anzahl": 386,
-   "abstaende_zwischen_den_haengern_s": [1, 1, 1, 1, 2, 1, 1, 2, 2, 2, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1],
+   "abstaende_zwischen_den_haengern_s": [
+    1,
+    1,
+    1,
+    1,
+    2,
+    1,
+    1,
+    2,
+    2,
+    2,
+    1,
+    1,
+    1,
+    1,
+    2,
+    1,
+    1,
+    2,
+    1,
+    1
+   ],
    "bitrate_median_kbit": 3998,
    "gezeichnet_median_je_s": 54,
    "netz_bis_schirm_median_ms": 23.6,
@@ -65,7 +103,6 @@
    "paritaet_unreparierbar": 0
   }
  ],
-
  "was_das_heisst": {
   "der_takt_ist_der_beweis": "Wie auf NVIDIA liegt der Unterschied nicht in einer Durchschnittszahl, sondern im MUSTER: im Keyframe-Lauf folgen die Hänger fast durchgehend im Abstand von einer bis zwei Sekunden — 386 Stück. Im Intra-Refresh-Lauf gibt es keinen Takt (1, 24, 13, 2, 15, 30, 11 …), dort sind es die Störzyklen.",
   "es_kostet_keine_datenrate": "4001 gegen 3998 kbit/s. Wie auf NVIDIA, und aus demselben Grund: die Ratenkontrolle läuft auf CBR.",
@@ -73,7 +110,6 @@
   "auch_die_verzoegerung": "Netz-bis-Schirm 14,6 gegen 23,6 ms im Median, und 60 gegen 54 gezeichnete Bilder je Sekunde.",
   "vollbilder": "41 gegen 340. Die 41 sind angeforderte (45 PLIs), keine periodischen — die Umstellung räumt den Takt wirklich weg und nicht nur seine Wirkung."
  },
-
  "warum_software_decoder": {
   "befund": "Hardware-Dekodierung ist im Player gebaut und nachgewiesen (`Decoder av1 (Hardware (VAAPI))`, Bilder als P010LE) — auf DIESER Maschine aber nicht durchhaltbar: Sender und Player teilen sich EINE Video-Engine (`vcn_unified_0`, Encode und Decode in einem Ring). Der Ring lief in drei von drei Versuchen über, der Kernel nennt jedes Mal `Process pulse-player`, danach GPU-Reset und Player weg.",
   "die_drei_versuche": "1440p60/10 bit: nach ~60 s. 1080p60/10 bit: nach ~50 s. 1080p60/10 bit mit Störung: Lauf A nach 82 s, Lauf B schon nach 58 s — also VOR der ersten Störung. Ohne gleichzeitiges Encoden dekodiert dieselbe Karte dieselbe 10-bit-Datei mit ~185 fps.",
@@ -81,7 +117,6 @@
   "folge_fuer_die_messung": "Der A/B-Vergleich bleibt gültig, beide Läufe hatten denselben Decoder. Gegen die NVIDIA-Referenz sind die ABSOLUTEN Zahlen nicht zu halten: dort dekodierte av1_cuvid in Hardware, und der Verlust war weit geringer (118 Pakete gegen hier 379 bzw. 452 am Laufende).",
   "was_daraus_folgt": "Für einen Zuschauer auf einer eigenen Maschine ist das kein Problem — dort encodiert niemand gleichzeitig. Es trifft nur den Fall Sender und Zuschauer auf derselben APU, also unseren Prüfstand."
  },
-
  "was_dabei_noch_gefunden_wurde": [
   "Der Player suchte Hardware-Decoder über den Namen und hatte `av1_vaapi`/`h264_vaapi` in der Liste — die es in FFmpeg NICHT GIBT (VAAPI ist ein hwaccel am nativen Decoder). Auf AMD fiel er deshalb immer still auf Software zurück. Behoben.",
   "`av1_qsv` lässt sich auch ohne Intel-Hardware öffnen und scheitert erst beim ersten Bild — im Log: 'Decoder av1_qsv lehnt dauerhaft ab'. VAAPI steht jetzt davor.",
@@ -89,11 +124,39 @@
   "Die Zeitmuster-Sonde war beim Software-Decoder in 10 bit BLIND: sie las immer das obere Byte des 16-bit-Wortes (richtig für P010LE, falsch für YUV420P10LE). 32535 Bilder ohne Muster in Lauf A. Die Ende-zu-Ende-Latenz ist in dieser Messreihe deshalb NICHT gemessen; der Fehler ist behoben, die Zahl gehört nachgeholt.",
   "Fedora baut die patentbehafteten Decoder aus (`libavcodec-free`): kein `h264`-Decoder, damit auch kein H.264 über hwaccel. `libavcodec-freeworld` aus RPM Fusion stellt das her; zusätzlich steht `libopenh264` jetzt im Rückfall des Players."
  ],
-
  "offen": [
   "Ende-zu-Ende-Latenz: in dieser Reihe wegen der blinden Sonde nicht gemessen. Ein Wiederholungslauf mit dem behobenen Player holt sie nach.",
   "Zwei Läufe je Variante — hier ist es einer. Der Befund ist deutlich (Faktor 4 bei den gestörten Sekunden, 386 Belege für den Takt), aber die Hausregel verlangt die Wiederholung.",
   "GPU-Preis des Encoders auf der iGPU ist ungemessen.",
   "Hardware-Dekodierung auf einer Maschine, die NICHT gleichzeitig sendet — dort sollte sie tragen, geprüft ist es nicht."
- ]
+ ],
+ "NACHTRAG_WIEDERHOLUNG_UND_LATENZ": {
+  "gemessen_am": "2026-08-01, nach der Reparatur der Zeitmuster-Sonde",
+  "warum": "Zwei offene Punkte auf einmal: der zweite Lauf je Variante (Hausregel) und die Ende-zu-Ende-Verzoegerung, die in der ersten Reihe fehlte, weil die Sonde bei 10 bit im Software-Decoder blind war.",
+  "A_intra_refresh_wiederholung": {
+   "sekunden_betrieb": 583,
+   "sekunden_ueber_100ms_prozent": 17.7,
+   "haenger_ueber_100ms_anzahl": 103,
+   "groesster_abstand_median_ms": 67.0,
+   "bitrate_median_kbit": 3999,
+   "gezeichnet_median_je_s": 60,
+   "netz_bis_schirm_median_ms": 14.6,
+   "ende_zu_ende_median_ms": 93.7,
+   "muster_lesbar": true,
+   "bewertung": "Bestaetigt den ersten Lauf (16,0 Prozent) — 17,7 Prozent bei sonst gleichen Bedingungen."
+  },
+  "B_keyframes_wiederholung": {
+   "sekunden_betrieb": 34,
+   "sekunden_ueber_100ms_prozent": 70.6,
+   "ende_zu_ende_median_ms": 117.8,
+   "bewertung": "NUR 34 Sekunden — der Video-Track des Players endete wieder frueh. Die Prozentzahl steht ueber einem kurzen Fenster und ist nur ein Hinweis, kein Messwert."
+  },
+  "DER_EIGENTLICHE_BEFUND_DIESER_WIEDERHOLUNG": {
+   "was": "Der Keyframe-Lauf hat den Player-Track ZWEIMAL VON ZWEI Malen frueh verloren (116 s und 34 s), der Intra-Refresh-Lauf ZWEIMAL VON ZWEI die volle Zeit durchgehalten (549 s und 583 s).",
+   "mechanik": "Im Log jedes Mal dieselbe Kette: `libdav1d: Error parsing OBU data`, dann `Track video/AV1 beendet`. Das ist der am 2026-07-29 dokumentierte Weg — der Software-Decoder lehnt beschaedigte Einheiten ab, statt sie zu zeigen.",
+   "einordnung": "Damit ist es KEIN Zufall zweier misslungener Laeufe, sondern ein Unterschied im Verhalten. Warum der Keyframe-Betrieb dabei haerter getroffen wird, ist NICHT geklaert und gehoert nachgegangen — der naheliegende Verdacht (nach einer Luecke wartet der Player bis zum naechsten Keyframe und speist solange beschaedigte Einheiten ein) ist eine Vermutung, keine Messung.",
+   "gegenprobe": "Auf H.264 mit HARDWARE-Dekodierung lief der Keyframe-Lauf die vollen 595 Sekunden durch. Es haengt also am Decoder-Weg, nicht am Keyframe-Betrieb allein."
+  },
+  "ende_zu_ende_endlich_gemessen": "93,7 ms im Intra-Refresh-Betrieb (gegen 117,8 im kurzen Keyframe-Fenster). Voraussetzung war zweierlei: der Sonden-Fix fuer planare 10-bit-Bilder UND ein Lauf in NATIVER Aufloesung — die Sonde sucht die Balken an festen Bildpunkten und findet sie in einem herunterskalierten Bild nicht."
+ }
 }
