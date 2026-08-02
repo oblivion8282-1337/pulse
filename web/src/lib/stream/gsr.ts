@@ -115,7 +115,18 @@ export interface GsrStartArgs {
   };
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
-  overrides?: { codec?: string; bitrate_kbps?: number; fps?: number; resolution?: string };
+  /** Spiegelt `OverrideSet` aus `stream/settings.svelte.ts` — `bit_depth` und
+   *  `intra_refresh` fehlten hier, waehrend `buildStartArgs` sie laengst
+   *  fuellte. Der Typ log also, ohne dass der Compiler es merkte (`cleaned` ist
+   *  eine Variable, kein Objektliteral → keine Excess-Property-Pruefung). */
+  overrides?: {
+    codec?: string;
+    bit_depth?: number;
+    bitrate_kbps?: number;
+    fps?: number;
+    resolution?: string;
+    intra_refresh?: boolean;
+  };
   /** Show the mouse cursor in the captured stream. Default true (GSR's
    *  built-in default); set to false to pass `-cursor no`. */
   show_cursor?: boolean;

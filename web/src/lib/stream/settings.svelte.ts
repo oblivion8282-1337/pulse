@@ -638,6 +638,11 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
     // gleich wieder verwirft.
     if (tenBitPossible()) cleaned.bit_depth = 10;
+    // Nur mitschicken, wenn die Oberflaeche wirklich eine Wahl getroffen hat.
+    // Fehlt das Feld, entscheidet im Sidecar `PULSE_INTRA_REFRESH` — so behaelt
+    // der Pruefstand, der den Sidecar ohne Oberflaeche faehrt, seine
+    // Betriebsart. Ein hart mitgeschicktes `false` wuerde sie ihm wegnehmen.
+    if (o.intra_refresh === true) cleaned.intra_refresh = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

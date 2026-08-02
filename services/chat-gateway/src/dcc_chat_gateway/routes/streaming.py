@@ -47,11 +47,17 @@ SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Only ``rtmp`` is accepted — media-svc rejects everything else (SRT is
-    # disabled there because the token would travel in cleartext in the SRT
-    # streamid field). Mirror its pattern so a caller passing ``srt`` gets a
-    # clean 422 at this layer instead of a confusing forwarded one.
-    protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
+    # ``rtmp`` oder ``whip``. SRT bleibt draussen: dort reiste das Token im
+    # ``streamid``-Feld im Klartext. Das Muster spiegelt media-svc, damit ein
+    # Aufrufer mit ``srt`` hier ein sauberes 422 bekommt statt eines
+    # weitergereichten.
+    #
+    # ``whip`` ist seit 2026-08-02 erlaubt (vorher hart auf ``rtmp``): der
+    # WHIP-Weg ist der einzige mit RTCP-Rueckkanal, und ohne den bekommt ein
+    # beitretender Zuschauer in einem Intra-Refresh-Strom nie sein erstes
+    # Vollbild. media-svc entscheidet weiterhin, was daraus wird — hier steht
+    # nur, was ueberhaupt gefragt werden darf.
+    protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|whip)$")] = "rtmp"
     # Which of the caller's stream slots to publish (0 == the default single
     # stream). Forwarded verbatim to media-svc, which owns the path/key shape.
     slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0

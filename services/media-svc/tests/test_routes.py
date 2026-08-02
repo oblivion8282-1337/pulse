@@ -471,3 +471,62 @@ async def test_issue_token_clears_stopping_tombstone(client, auth_signer, redis)
         assert await redis.get(sk) is None
     finally:
         await redis.delete(TOKEN_KEY.format(token=r.json()["token"]), sk)
+
+
+@pytest.mark.asyncio
+async def test_stream_token_client_may_ask_for_whip(client, auth_signer, redis):
+    """Der Client darf WHIP verlangen, auch wenn die Instanz RTMPS mintet.
+
+    Das ist der Intra-Refresh-Fall: nur der WHIP-Weg hat einen RTCP-Rueckkanal,
+    und ohne den bekommt ein beitretender Zuschauer nie sein erstes Vollbild.
+    """
+    access = auth_signer.issue_access(31, "carol")
+    cid = _unique_cid()
+    r = await client.post(
+        f"/channels/{cid}/stream-token", json={"protocol": "whip"}, headers=_auth(access)
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    token = body["token"]
+    assert body["push_protocol"] == "whip"
+    assert body["push_url"] == f"http://stream.test:8889/{body['mediamtx_path']}/whip?token={token}"
+    rec = json.loads((await redis.get(TOKEN_KEY.format(token=token))).decode())
+    assert rec["protocol"] == "whip"
+
+
+@pytest.mark.asyncio
+async def test_stream_token_whip_wish_beats_owner_exemption(
+    _whip_settings, client, auth_signer
+):
+    """Die Owner-Ausnahme ist Bequemlichkeit, kein Riegel.
+
+    Sie stellt den Owner auf den bewaehrten RTMPS-Weg zurueck — aber nur, wenn
+    er nichts anderes verlangt. Bliebe sie staerker, koennte ausgerechnet der
+    Betreiber einer Instanz Intra-Refresh auf ihr nie benutzen.
+    """
+    access = auth_signer.issue_access(4242, "owner")
+    cid = _unique_cid()
+    r = await client.post(
+        f"/channels/{cid}/stream-token", json={"protocol": "whip"}, headers=_auth(access)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["push_protocol"] == "whip"
+
+
+@pytest.mark.asyncio
+async def test_stream_token_rtmp_wish_does_not_downgrade_whip(
+    _whip_settings, client, auth_signer
+):
+    """Der Wunsch wirkt nur nach oben.
+
+    Auf einer app-gehosteten Instanz ist WHIP der einzige Weg, der hinter dem
+    NAT des Hosts ueberhaupt funktioniert — ein Gast, der RTMPS verlangt (oder
+    das Feld schlicht weglaesst), darf sich den nicht abschneiden.
+    """
+    access = auth_signer.issue_access(7, "guest")
+    cid = _unique_cid()
+    r = await client.post(
+        f"/channels/{cid}/stream-token", json={"protocol": "rtmp"}, headers=_auth(access)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["push_protocol"] == "whip"

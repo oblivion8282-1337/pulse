@@ -77,6 +77,9 @@ pub struct VideoEncoder {
     /// N kann erst beim Einschieben von Bild N+2 erscheinen. Die Reihenfolge
     /// bleibt monoton (keine B-Bilder, `bf=0`), deshalb reicht eine Schlange.
     submitted: std::collections::VecDeque<(i64, std::time::Instant)>,
+    /// Bildrate — nur fuer die Sperrfrist der Vollbild-Anforderungen
+    /// (`take_keyframe_request`) gebraucht, die in Bildern gerechnet ist.
+    fps_fuer_keyframes: u32,
     /// Latenz-Posten des Encodierens, je Fenster (s. `take_encode_latency`).
     enc_sum_us: u64,
     enc_count: u64,
@@ -314,6 +317,7 @@ impl VideoEncoder {
                 encoder_time_base,
                 stream_time_base,
                 submitted: std::collections::VecDeque::new(),
+                fps_fuer_keyframes: cfg.fps,
                 enc_sum_us: 0,
                 enc_count: 0,
                 enc_max_us: 0,
@@ -377,6 +381,7 @@ impl VideoEncoder {
                 // damit die Struktur eine bleibt.
                 stream_time_base: tb,
                 submitted: std::collections::VecDeque::new(),
+                fps_fuer_keyframes: cfg.fps,
                 enc_sum_us: 0,
                 enc_count: 0,
                 enc_max_us: 0,
@@ -427,7 +432,7 @@ impl VideoEncoder {
             // und wird wiederverwendet; ohne das Zuruecksetzen bliebe `I` nach
             // der ersten Anforderung kleben und JEDES Bild waere ein Vollbild —
             // bei fester Bitrate bricht damit die Bildqualitaet zusammen.
-            (*frame).pict_type = if take_keyframe_request() {
+            (*frame).pict_type = if take_keyframe_request(self.fps_fuer_keyframes) {
                 ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_I
             } else {
                 ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_NONE
@@ -632,10 +637,20 @@ unsafe fn open_encoder(
     // Ende lief, war nirgends festgehalten. Für eine Messreihe ist das
     // gefährlich: der Prüfstand schreibt seinen WUNSCH in die Messakte, und
     // eine H.264-Messung mit AV1-Etikett sieht vollkommen plausibel aus.
+    //
+    // Die BETRIEBSART gehoert mit ins Log, nicht nur der Encoder. Sie kommt aus
+    // den Start-Parametern ODER aus der Umgebung, und ob sie wirklich
+    // angekommen ist, war von aussen bisher gar nicht feststellbar: ein
+    // Intra-Refresh-Lauf, bei dem der Wunsch unterwegs verlorenging, sieht in
+    // jedem anderen Log genau wie ein Keyframe-Lauf aus. Am 2026-08-02 ist
+    // genau das passiert — die Oberflaeche schickte das Feld nicht mit, der
+    // Stream lief mit Vollbildern, und nichts sagte es.
     tracing::info!(
         target: "stream", encoder = codec_name, vendor = ?cfg.vendor,
         breite = cfg.width, hoehe = cfg.height, fps = cfg.fps,
         bitrate_kbps = cfg.bitrate_kbps,
+        intra_refresh = opts::intra_refresh_gewuenscht(),
+        keyframe_abstand_bilder = keyframe_abstand_bilder(cfg.fps),
         "Encoder offen"
     );
     Ok(opened)
@@ -686,14 +701,82 @@ fn keyframe_abstand_bilder(fps: u32) -> u32 {
 static KEYFRAME_ANGEFORDERT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Zeitpunkt des zuletzt ausgelieferten Vollbilds, als Millisekunden seit
+/// Prozessstart.
+///
+/// `u64::MAX` heisst „noch keins". NICHT 0: `jetzt_ms()` IST in der ersten
+/// Millisekunde nach dem Start 0, das Merkmal haette sich also nie geloescht
+/// und jede Anforderung waere durchgegangen — genau das, was die Sperrfrist
+/// verhindern soll. Vom Test gefunden.
+const NIE: u64 = u64::MAX;
+static LETZTES_VOLLBILD_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(NIE);
+
+fn jetzt_ms() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
+}
+
+/// Mindestabstand zwischen zwei angeforderten Vollbildern.
+///
+/// **Warum es den geben MUSS.** Ein Empfaenger, der den Strom aus eigenen
+/// Gruenden nicht dekodieren kann, fordert unablaessig Vollbilder an — er hat
+/// keinen anderen Hebel. Ohne Untergrenze beantwortet der Sender jede einzelne
+/// Anforderung, und bei fester Bitrate besteht der Strom dann aus IDRs. Am
+/// 2026-08-02 auf dieser Kette beobachtet: 766 Vollbilder, eins alle 420 ms,
+/// sichtbar als Pumpen. Der Ausloeser war ein Chromium, dem 10-bit-AV1 nicht
+/// dekodierbar ist — aber die Ursache ist allgemein: die Anforderung eines
+/// Zuschauers darf den Strom fuer alle anderen nicht ruinieren.
+///
+/// **Warum genau dieser Wert.** Der Abstand regulaerer Vollbilder
+/// (`PULSE_KEYFRAME_SECONDS`, Vorgabe 2 s) ist die natuerliche Obergrenze: Mit
+/// ihr ist der angeforderte Weg NIE schlechter als der alte Betrieb mit festem
+/// Takt. Die erste Anforderung nach einer Ruhephase wird sofort beantwortet —
+/// gedrosselt wird nur das Nachfassen.
+///
+/// `PULSE_KEYFRAME_MIN_ABSTAND_MS` setzt ihn fuer Messungen ausser Kraft (0 =
+/// jede Anforderung beantworten, das Verhalten vor dieser Aenderung).
+fn keyframe_mindestabstand_ms(fps: u32) -> u64 {
+    if let Some(v) = std::env::var("PULSE_KEYFRAME_MIN_ABSTAND_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return v;
+    }
+    let bilder = keyframe_abstand_bilder(fps) as u64;
+    bilder.saturating_mul(1000) / fps.max(1) as u64
+}
+
 /// Beim naechsten Bild ein Vollbild erzeugen.
 pub fn request_keyframe() {
     KEYFRAME_ANGEFORDERT.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Anforderung abholen und loeschen — genau ein Vollbild je Anforderung.
-fn take_keyframe_request() -> bool {
-    KEYFRAME_ANGEFORDERT.swap(false, std::sync::atomic::Ordering::Relaxed)
+/// Anforderung abholen — hoechstens eine je [`keyframe_mindestabstand_ms`].
+///
+/// Die Anforderung wird auch dann geloescht, wenn sie verworfen wird: sie ist
+/// damit beantwortet, sobald das naechste Vollbild kommt. Sonst sammelte sich
+/// ein Rueckstau an, der nach der Sperrfrist eine Salve ausloeste.
+fn take_keyframe_request(fps: u32) -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !KEYFRAME_ANGEFORDERT.swap(false, Relaxed) {
+        return false;
+    }
+    let jetzt = jetzt_ms();
+    let letztes = LETZTES_VOLLBILD_MS.load(Relaxed);
+    let abstand = keyframe_mindestabstand_ms(fps);
+    // Die erste Anforderung geht immer durch, sonst saehe ein Zuschauer, der
+    // sofort beitritt, bis zum Ablauf einer nie gelaufenen Frist gar nichts.
+    if letztes != NIE && jetzt.saturating_sub(letztes) < abstand {
+        tracing::debug!(
+            target: "stream",
+            seit_ms = jetzt.saturating_sub(letztes), mindestens_ms = abstand,
+            "Vollbild-Anforderung zusammengefasst"
+        );
+        return false;
+    }
+    LETZTES_VOLLBILD_MS.store(jetzt, Relaxed);
+    true
 }
 
 /// Probe-Auflösung: klein, aber über AV1-Mindestmaßen/Alignment.
@@ -849,5 +932,40 @@ mod format_hint_tests {
         assert!(is_whip_url("https://host/whep/channel-1/whip?token=t"));
         assert!(!is_whip_url("rtmps://host:1936/channel-1?user=pulse&pass=t"));
         assert!(!is_whip_url("/tmp/out.mp4"));
+    }
+}
+
+#[cfg(test)]
+mod keyframe_sperrfrist_tests {
+    use super::*;
+
+    /// Die Sperrfrist ist der Schutz davor, dass EIN Empfaenger den Strom fuer
+    /// alle ruiniert (2026-08-02: 766 erzwungene Vollbilder, eins alle 420 ms).
+    #[test]
+    fn zweite_anforderung_wird_zusammengefasst() {
+        unsafe { std::env::set_var("PULSE_KEYFRAME_MIN_ABSTAND_MS", "60000") };
+        LETZTES_VOLLBILD_MS.store(NIE, std::sync::atomic::Ordering::Relaxed);
+
+        // Die erste geht durch — ein Zuschauer, der gerade beitritt, soll nicht
+        // bis zum Ablauf einer Frist warten, die noch nie gelaufen ist.
+        request_keyframe();
+        assert!(take_keyframe_request(60), "erste Anforderung muss durchgehen");
+
+        // Die zweite faellt in die Frist und wird verworfen, nicht gestaut.
+        request_keyframe();
+        assert!(!take_keyframe_request(60), "zweite Anforderung muss zusammengefasst werden");
+
+        // Ohne Anforderung passiert nichts — auch nach Ablauf der Frist.
+        unsafe { std::env::set_var("PULSE_KEYFRAME_MIN_ABSTAND_MS", "0") };
+        assert!(!take_keyframe_request(60), "ohne Anforderung kein Vollbild");
+
+        // Frist aus: jede Anforderung wird beantwortet (das Verhalten, das der
+        // Pruefstand fuer Vergleichsmessungen braucht).
+        request_keyframe();
+        assert!(take_keyframe_request(60));
+        request_keyframe();
+        assert!(take_keyframe_request(60));
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_MIN_ABSTAND_MS") };
     }
 }
