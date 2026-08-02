@@ -136,3 +136,6 @@ desktop/resources-podman/*
 !desktop/resources-podman/README.md
 desktop/resources-podman-mac/*
 !desktop/resources-podman-mac/README.md
+
+# Nebenprodukte der Pruefstand-Browserlaeufe (SDP-Mitschriften je Lauf)
+streaming/testbench/sdp-*.txt

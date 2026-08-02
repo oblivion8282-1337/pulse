@@ -66,11 +66,19 @@ function args() {
     // GPU, ein headless ueber die Software-Anbindung. Das ist genau der
     // Unterschied, an dem AV1 10 bit haengt.
     sichtbar: a.includes('--sichtbar'),
+    // Ton hoerbar ausgeben — nur fuer Tonlaufzeit-Messungen (s. offerBauen).
+    ton: a.includes('--ton'),
+    // Bezugspunkt fuer den Zeitmuster-Balken (ms seit Epoche), wie
+    // `PULSE_PLAYER_LATENCY_EPOCH_MS` beim Player. Ohne ihn keine Bildmessung.
+    epoch: Number(wert('--epoch', '0')),
+    // X-Position des Fensters; muss auf einem ANDEREN Schirm liegen als das
+    // Zeitmuster (s. Launch-Argumente).
+    fensterX: Number(wert('--fenster-x', '0')),
   };
 }
 
 // Im Browser-Kontext: Offer bauen. Nur recvonly — wir schauen zu.
-async function offerBauen() {
+async function offerBauen({ ton } = { ton: false }) {
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
   });
@@ -80,7 +88,14 @@ async function offerBauen() {
   pc.addTransceiver('audio', { direction: 'recvonly' });
   const v = document.createElement('video');
   v.autoplay = true;
-  v.muted = true;
+  // Stumm ist die Vorgabe: fuer Bildmessungen ist der Ton nur eine Fehlerquelle
+  // (er zieht Interleaving und Puffer mit hinein). `--ton` schaltet ihn frei,
+  // wenn die TONlaufzeit die Messgroesse ist — dann muss der Browser hoerbar
+  // ausgeben, sonst gibt es nichts aufzunehmen. Autoplay ohne Nutzergeste ist
+  // beim Start bereits erlaubt (`--autoplay-policy`), sonst bliebe es trotz
+  // `muted = false` still.
+  v.muted = !ton;
+  v.volume = 1.0;
   // Fensterfuellend und schwarz hinterlegt: ohne das ist das Element im
   // sichtbaren Fenster winzig und man sieht nichts vom Bild.
   document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
@@ -133,6 +148,69 @@ async function probe() {
   // um Bildqualitaet. Das Herunterskalieren macht die GPU, es kostet fast
   // nichts, und es glaettet Kodierrauschen weg, das sonst jeden Vergleich
   // verrauschen wuerde.
+  // Zeitmuster-Balken lesen — dasselbe Format wie `pulse-player/src/probe.rs`
+  // und `testbench/pattern_format.py`. Ohne das misst der Browser-Weg gar
+  // keine Bildlaufzeit: der Player liest den Balken aus dem dekodierten Bild,
+  // fuer Chromium gab es bisher nur den Umweg ueber ein Bildschirmfoto, das
+  // Compositor und Anzeigeverzug mitzaehlt. So messen jetzt beide dasselbe.
+  try {
+    const v = window.__video;
+    if (v && v.videoWidth > 0 && window.__epoch) {
+      const BLOCK = 32, MARKER = [1, 0, 1, 1, 0, 0, 1, 0], BITS = 16;
+      const POS_X = [64, 880, 1696], POS_Y = [64, 400, 800, 1200];
+      const c = window.__barCanvas || (window.__barCanvas = document.createElement('canvas'));
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0);
+      // **Die ganze Balkenzeile in EINEM Zug holen.** Ein `getImageData` je
+      // Bit waeren bis zu 288 Aufrufe pro Probe (24 Bit x 12 Stellen), jeder
+      // mit GPU-Synchronisierung — im ersten Versuch kam davon 1 von 41 Proben
+      // durch. Eine Zeile pro Stelle genuegt, die Klotzmitten stehen darin.
+      const breite = (MARKER.length + BITS) * BLOCK;
+      const leseBalken = (x0, y0) => {
+        const y = y0 + BLOCK / 2;
+        if (y >= c.height || x0 + breite > c.width) return null;
+        const d = ctx.getImageData(x0, y, breite, 1).data;
+        // Grenzwerte wie im Player: dazwischen liegt kein gueltiger Wert, und
+        // ein grauer Punkt heisst "das ist nicht unser Balken".
+        const bitAt = (i) => {
+          const o = (i * BLOCK + BLOCK / 2) * 4;
+          const luma = 0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2];
+          if (luma <= 70) return 0;
+          if (luma >= 180) return 1;
+          return null;
+        };
+        for (let i = 0; i < MARKER.length; i++) {
+          if (bitAt(i) !== MARKER[i]) return null;
+        }
+        let zaehler = 0;
+        for (let i = 0; i < BITS; i++) {
+          const b = bitAt(MARKER.length + i);
+          if (b === null) return null;
+          zaehler = (zaehler << 1) | b;
+        }
+        return zaehler;
+      };
+      let zaehler = null;
+      const treffer = window.__barHit;
+      if (treffer) zaehler = leseBalken(treffer[0], treffer[1]);
+      if (zaehler === null) {
+        for (const y0 of POS_Y) {
+          for (const x0 of POS_X) {
+            const z = leseBalken(x0, y0);
+            if (z !== null) { zaehler = z; window.__barHit = [x0, y0]; break; }
+          }
+          if (zaehler !== null) break;
+        }
+      }
+      out.musterLatenzMs = zaehler === null
+        ? null
+        : ((Date.now() - window.__epoch) - zaehler) & 0xFFFF;
+    }
+  } catch (e) {
+    out.musterFehler = String(e).slice(0, 80);
+  }
+
   try {
     const v = window.__video;
     if (v && v.videoWidth > 0) {
@@ -187,7 +265,14 @@ async function main() {
   } else {
     browser = await chromium.launch({
       headless: !a.sichtbar,
-      args: ['--autoplay-policy=no-user-gesture-required'],
+      args: [
+        '--autoplay-policy=no-user-gesture-required',
+        // **Weg vom aufgenommenen Bildschirm.** Liegt das Fenster auf dem
+        // Schirm, den der Sender aufnimmt, verdeckt es das Zeitmuster und
+        // erzeugt eine Rueckkopplung — die Messung liest dann entweder gar
+        // keinen Balken oder einen bereits uebertragenen (zu kleine Latenz).
+        `--window-position=${a.fensterX},0`,
+      ],
     });
     page = await browser.newPage();
     // Irgendeine echte Herkunft; about:blank verbietet manche APIs.
@@ -196,7 +281,8 @@ async function main() {
 
   const proben = [];
   try {
-    const offer = await page.evaluate(offerBauen);
+    const offer = await page.evaluate(offerBauen, { ton: a.ton });
+    await page.evaluate((e) => { window.__epoch = e; }, a.epoch);
     const antwort = await fetch(a.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/sdp' },
