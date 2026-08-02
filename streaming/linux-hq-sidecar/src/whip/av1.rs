@@ -46,6 +46,8 @@ const LAENGENFELD_RESERVE: usize = 2;
 
 const OBU_SEQUENZKOPF: u8 = 1;
 const OBU_ZEITTRENNER: u8 = 2;
+const OBU_BILDKOPF: u8 = 3;
+const OBU_BILD: u8 = 6;
 const OBU_KACHELLISTE: u8 = 8;
 
 /// Ein OBU ohne sein Groessenfeld.
@@ -157,6 +159,38 @@ fn zerlege(daten: &[u8]) -> Result<Vec<Obu<'_>>> {
     Ok(out)
 }
 
+/// Ist dieses OBU ein echtes Vollbild — also ein Einstiegspunkt?
+///
+/// Gelesen werden die ersten drei Bit des unkomprimierten Bildkopfes:
+/// `show_existing_frame` (1 Bit) muss 0 sein (sonst wird nur ein bereits
+/// decodierter Puffer erneut gezeigt) und `frame_type` (2 Bit) muss
+/// `KEY_FRAME` (0) sein.
+///
+/// **Warum das nicht am Sequenzkopf abzulesen ist** (Windows-Labor,
+/// 2026-08-02): `av1_amf` schreibt im Intra-Refresh-Betrieb an jedem GOP-Rand
+/// einen Sequenzkopf, ohne dass ein Vollbild folgt — gemessen 6 Sequenzkoepfe
+/// auf 1 Vollbild in 360 Bildern. Wer den Kopf als Einstiegspunkt nimmt,
+/// schickt den Zuschauer fuenfmal auf ein Zwischenbild.
+///
+/// Auf `av1_nvenc` faellt das nicht auf, weil der Encoder den Kopf nur vor
+/// Vollbildern schreibt (am 2026-08-02 auf dieser Karte nachgemessen: 0 Faelle
+/// in beiden Betriebsarten, mit und ohne Intra-Refresh). Das ist eine
+/// Eigenschaft dieses einen Encoders, keine des Formats — und der Paketierer
+/// darf sich nicht darauf verlassen.
+///
+/// Das Feld `reduced_still_picture_header` wuerde dieses Bit-Layout aendern; es
+/// gilt nur fuer Einzelbild-Streams und kann in einem Live-Strom nicht
+/// auftreten.
+fn ist_vollbild(obu: &Obu<'_>) -> bool {
+    if obu.typ != OBU_BILD && obu.typ != OBU_BILDKOPF {
+        return false;
+    }
+    let Some(&b) = obu.rumpf.first() else {
+        return false;
+    };
+    b & 0x80 == 0 && (b >> 5) & 0b11 == 0
+}
+
 /// Platz, der im laufenden Paket noch fuer Nutzdaten bleibt.
 fn frei_im_paket(mtu: usize, belegt: usize) -> usize {
     mtu.saturating_sub(belegt + LAENGENFELD_RESERVE)
@@ -179,10 +213,24 @@ pub struct Nutzlast {
 /// Einen Zeitabschnitt (ein encodiertes Bild, wie FFmpeg es liefert) in
 /// RTP-Nutzlasten zerlegen.
 pub fn paketiere(daten: &[u8], mtu: usize) -> Result<Vec<Nutzlast>> {
-    let obus = zerlege(daten)?;
+    let mut obus = zerlege(daten)?;
+    // Einen Sequenzkopf ohne Vollbild gar nicht erst senden. Das N-Bit allein
+    // zurueckzuhalten reicht NICHT: Chromium leitet den Einstiegspunkt auch aus
+    // der blossen Anwesenheit des Kopfes ab und zaehlte im Windows-Labor
+    // weiterhin 8 Vollbilder statt 1. Erst das Weglassen hat es beendet.
+    //
+    // Ungefaehrlich, weil der Kopf in jedem echten Vollbild ohnehin mitsteht:
+    // ein spaet hinzukommender Zuschauer braucht bei Intra-Refresh sowieso eine
+    // Vollbild-Anforderung, und die liefert ihn mit.
+    if !obus.iter().any(ist_vollbild) {
+        obus.retain(|o| o.typ != OBU_SEQUENZKOPF);
+    }
     if obus.is_empty() {
         return Ok(Vec::new());
     }
+    // Nach dem Aussortieren oben steht ein Sequenzkopf nur noch bei einem
+    // echten Vollbild — die Anwesenheit ist hier also wieder das richtige
+    // Kriterium.
     let mut sequenzkopf_offen = obus.iter().any(|o| o.typ == OBU_SEQUENZKOPF);
 
     let mut pakete: Vec<Nutzlast> = Vec::new();
@@ -396,6 +444,74 @@ mod tests {
         assert_eq!(kopf & 0x40, 0, "Y");
         assert_eq!((kopf >> 4) & 0b11, 1, "W = ein Element");
         assert_eq!(kopf & 0x08, 0, "N ohne Sequenzkopf");
+    }
+
+    /// Wie [`obu`], aber mit gesetztem ersten Rumpfbyte — dort stehen bei
+    /// Bild-OBUs `show_existing_frame` und `frame_type`. Der Standardhelfer
+    /// fuellt den Rumpf ab 0, was zufaellig genau ein `KEY_FRAME` ergibt.
+    fn bild_obu(typ: u8, rumpf_len: usize, erstes: u8) -> Vec<u8> {
+        let mut v = obu(typ, rumpf_len);
+        let rumpf_start = v.len() - rumpf_len;
+        v[rumpf_start] = erstes;
+        v
+    }
+
+    /// `frame_type = 1` (INTER) — kein Einstiegspunkt.
+    const INTER: u8 = 0b0010_0000;
+    /// `show_existing_frame = 1` — zeigt nur einen Puffer erneut.
+    const ZEIGT_VORHANDENES: u8 = 0b1000_0000;
+
+    #[test]
+    fn vollbild_wird_an_den_ersten_drei_bit_erkannt() {
+        for (erstes, erwartet, was) in [
+            (0b0000_0000, true, "KEY_FRAME"),
+            (INTER, false, "INTER"),
+            (0b0100_0000, false, "INTRA_ONLY"),
+            (0b0110_0000, false, "SWITCH"),
+            (ZEIGT_VORHANDENES, false, "show_existing_frame"),
+        ] {
+            let tu = bild_obu(OBU_BILD, 40, erstes);
+            let obus = zerlege(&tu).unwrap();
+            assert_eq!(ist_vollbild(&obus[0]), erwartet, "{was}");
+        }
+        // Ein Sequenzkopf ist selbst nie ein Vollbild, egal was drinsteht.
+        let tu = bild_obu(OBU_SEQUENZKOPF, 40, 0);
+        assert!(!ist_vollbild(&zerlege(&tu).unwrap()[0]));
+    }
+
+    #[test]
+    fn sequenzkopf_ohne_vollbild_wird_gar_nicht_gesendet() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_SEQUENZKOPF, 12));
+        tu.extend(bild_obu(OBU_BILD, 50, INTER));
+        let p = paketiere(&tu, MTU).unwrap();
+        assert_eq!(p.len(), 1);
+        let kopf = p[0].daten[0];
+        assert_eq!(kopf & 0x08, 0, "N darf ohne Vollbild nicht stehen");
+        assert_eq!(
+            (kopf >> 4) & 0b11,
+            1,
+            "nur das Bild darf uebrig sein — der Sequenzkopf gehoert weggelassen"
+        );
+    }
+
+    #[test]
+    fn sequenzkopf_bei_echtem_vollbild_bleibt_erhalten() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_SEQUENZKOPF, 12));
+        tu.extend(bild_obu(OBU_BILD, 50, 0));
+        let p = paketiere(&tu, MTU).unwrap();
+        assert_eq!(p.len(), 1);
+        let kopf = p[0].daten[0];
+        assert_eq!(kopf & 0x08, 0x08, "N gehoert auf ein echtes Vollbild");
+        assert_eq!((kopf >> 4) & 0b11, 2, "Sequenzkopf und Bild");
+    }
+
+    #[test]
+    fn zeitabschnitt_aus_nur_einem_sequenzkopf_ergibt_kein_paket() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_SEQUENZKOPF, 12));
+        assert!(paketiere(&tu, MTU).unwrap().is_empty());
     }
 
     #[test]

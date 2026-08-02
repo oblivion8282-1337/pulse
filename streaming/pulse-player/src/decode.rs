@@ -1210,14 +1210,25 @@ mod tests {
         assert!(d.awaiting_keyframe, "es fehlt weiterhin ein Einstiegspunkt");
     }
 
-    /// Sobald ein Sequence-Header dabei ist, wird eingespeist.
+    /// Sobald Sequence-Header UND Vollbild da sind, wird eingespeist.
+    ///
+    /// Der Header allein reichte hier bis 2026-08-02 — siehe
+    /// `recorder::scan_av1_for_keyframe`: gegen einen Sender, der ihn auch
+    /// ohne Vollbild schreibt, waere das ein Einstieg auf ein Zwischenbild.
     #[test]
-    fn sequence_header_beendet_das_warten() {
+    fn sequence_header_mit_vollbild_beendet_das_warten() {
         let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
         // OBU_SEQUENCE_HEADER (Typ 1) mit Groessenfeld.
         let seq = [0x0Au8, 0x02, 0x00, 0x00];
         let _ = d.decode(&seq);
-        assert!(!d.awaiting_keyframe, "Sequence-Header ist der Einstiegspunkt");
+        assert!(d.awaiting_keyframe, "der Header allein ist kein Einstiegspunkt");
+
+        // Derselbe Header, gefolgt von OBU_FRAME (Typ 6) mit
+        // `show_existing_frame = 0` und `frame_type = KEY_FRAME`.
+        let mut einheit = seq.to_vec();
+        einheit.extend([0x32u8, 0x03, 0x00, 0x00, 0x00]);
+        let _ = d.decode(&einheit);
+        assert!(!d.awaiting_keyframe, "Header samt Vollbild ist der Einstiegspunkt");
     }
 
     /// Ewiges Warten waere wieder eine haengende Kachel — nur mit anderer

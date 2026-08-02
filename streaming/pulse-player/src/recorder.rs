@@ -79,7 +79,8 @@ struct Unit {
 
 /// Erkennt, ob eine Zugriffseinheit als Einstiegspunkt taugt.
 ///
-/// AV1: enthaelt einen Sequence-Header (OBU-Typ 1).
+/// AV1: enthaelt einen Sequence-Header (OBU-Typ 1) UND ein echtes Vollbild —
+/// warum beides noetig ist, steht bei [`scan_av1_for_keyframe`].
 /// H.264: enthaelt SPS (NAL 7) oder eine IDR-Einheit (NAL 5).
 ///
 /// Auch von [`crate::decode`] gebraucht, und dort aus demselben Grund wie
@@ -90,7 +91,7 @@ struct Unit {
 /// gar nicht gibt).
 pub(crate) fn is_keyframe(codec: Codec, data: &[u8]) -> bool {
     match codec {
-        Codec::Av1 => scan_av1_for_sequence_header(data),
+        Codec::Av1 => scan_av1_for_keyframe(data),
         Codec::H264 => scan_annexb_for_idr(data),
         Codec::Opus => true,
     }
@@ -148,13 +149,24 @@ fn av1_codec_config(seq_header: &[u8], ten_bit: bool) -> Vec<u8> {
     out
 }
 
-fn scan_av1_for_sequence_header(mut data: &[u8]) -> bool {
+/// Sequence-Header UND echtes Vollbild — beides, nicht nur das erste.
+///
+/// **Der Sequence-Header allein reicht nicht.** Bis 2026-08-02 galt hier jede
+/// Zugriffseinheit mit Typ-1-OBU als Einstiegspunkt. Gegen unseren eigenen
+/// Sender ging das gut, aber nur zufaellig: `av1_nvenc` schreibt den Header
+/// ausschliesslich vor Vollbildern. `av1_amf` tut das im Intra-Refresh-Betrieb
+/// nicht — dort standen 6 Sequence-Header 1 Vollbild gegenueber
+/// (Windows-Labor, 2026-08-02). Bei so einem Sender stiege der Player auf einem
+/// Zwischenbild ein, und genau davor soll diese Pruefung schuetzen.
+///
+/// Vollbild = OBU_FRAME (6) oder OBU_FRAME_HEADER (3), dessen unkomprimierter
+/// Kopf mit `show_existing_frame = 0` und `frame_type = KEY_FRAME (0)` beginnt.
+fn scan_av1_for_keyframe(mut data: &[u8]) -> bool {
     // Der Strom traegt hier bereits Groessenfelder (siehe depacket::av1).
+    let mut hat_sequence_header = false;
+    let mut hat_vollbild = false;
     while let Some((&header, rest)) = data.split_first() {
         let obu_type = (header & 0b0111_1000) >> 3;
-        if obu_type == 1 {
-            return true;
-        }
         if header & 0b0000_0010 == 0 {
             return false; // ohne Groessenfeld nicht weiter zerlegbar
         }
@@ -164,6 +176,19 @@ fn scan_av1_for_sequence_header(mut data: &[u8]) -> bool {
         let skip = n + size as usize;
         if rest.len() < skip {
             return false;
+        }
+        match obu_type {
+            1 => hat_sequence_header = true,
+            3 | 6 if size > 0 => {
+                // `rest` beginnt beim Groessenfeld, die Nutzlast also bei `n`.
+                if let Some(&b) = rest.get(n) {
+                    hat_vollbild |= b & 0b1000_0000 == 0 && (b >> 5) & 0b11 == 0;
+                }
+            }
+            _ => {}
+        }
+        if hat_sequence_header && hat_vollbild {
+            return true;
         }
         data = &rest[skip..];
     }
@@ -528,15 +553,39 @@ impl Drop for Recorder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn av1_sequence_header_gilt_als_keyframe() {
-        // OBU-Typ 1 (SEQUENCE_HEADER) mit Groessenfeld
-        let seq = [(1u8 << 3) | 0b10, 1, 0xAA];
-        assert!(is_keyframe(Codec::Av1, &seq));
+    /// OBU-Typ mit Groessenfeld und einem Byte Nutzlast.
+    fn obu(typ: u8, nutzlast: u8) -> [u8; 3] {
+        [(typ << 3) | 0b10, 1, nutzlast]
+    }
 
-        // OBU-Typ 6 (FRAME) allein ist keiner
-        let frame = [(6u8 << 3) | 0b10, 1, 0xAA];
-        assert!(!is_keyframe(Codec::Av1, &frame));
+    /// `show_existing_frame = 0`, `frame_type = KEY_FRAME`.
+    const VOLLBILD: u8 = 0b0000_0000;
+    /// `frame_type = INTER`.
+    const INTER: u8 = 0b0010_0000;
+
+    #[test]
+    fn av1_keyframe_verlangt_sequence_header_und_vollbild() {
+        // Hier stand bis 2026-08-02 die Erwartung, ein Sequence-Header ALLEIN
+        // sei ein Einstiegspunkt. Das war der Fehler, nicht der Test: gegen
+        // einen Sender, der den Header auch ohne Vollbild schreibt (`av1_amf`
+        // mit Intra-Refresh), stiege der Player auf einem Zwischenbild ein.
+        let mut nur_kopf = obu(1, 0xAA).to_vec();
+        assert!(!is_keyframe(Codec::Av1, &nur_kopf), "Sequence-Header allein reicht nicht");
+
+        let nur_bild = obu(6, VOLLBILD);
+        assert!(!is_keyframe(Codec::Av1, &nur_bild), "Vollbild ohne Sequence-Header reicht nicht");
+
+        let mut beides = nur_kopf.clone();
+        beides.extend(obu(6, VOLLBILD));
+        assert!(is_keyframe(Codec::Av1, &beides), "Sequence-Header UND Vollbild");
+
+        nur_kopf.extend(obu(6, INTER));
+        assert!(!is_keyframe(Codec::Av1, &nur_kopf), "Sequence-Header mit Zwischenbild");
+
+        // Auch als OBU_FRAME_HEADER (3) muss das Vollbild zaehlen.
+        let mut kopfform = obu(1, 0xAA).to_vec();
+        kopfform.extend(obu(3, VOLLBILD));
+        assert!(is_keyframe(Codec::Av1, &kopfform));
     }
 
     #[test]
