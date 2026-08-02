@@ -33,9 +33,17 @@ export type AudioMode = 'Aus' | 'Desktop' | 'Mikrofon' | 'Desktop + Mikrofon';
 
 export interface OverrideSet {
   codec?: string;
+  /** 8 oder 10 — an AV1 gebunden, s. `VIDEO_MODES`. */
+  bit_depth?: number;
   bitrate_kbps?: number;
   fps?: number;
   resolution?: string;
+  /**
+   * Rollender Intra-Refresh statt periodischer Vollbilder. Fehlt das Feld,
+   * entscheidet der Sidecar über `PULSE_INTRA_REFRESH` — deshalb wird es nur
+   * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
+   */
+  intra_refresh?: boolean;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
@@ -51,6 +59,42 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
   { value: 'av1', label: 'AV1' },
 ];
+
+/**
+ * Was im Codec-Feld steht. Codec und Bittiefe sind für den Nutzer EINE
+ * Entscheidung — zwei Felder daraus zu machen hiesse, ihm die Kopplung zu
+ * erklären, die der Sidecar ohnehin erzwingt: 10 bit gibt es nur mit AV1 (die
+ * H.264-Variante wäre `High 10`, die kein Browser dekodiert).
+ *
+ * `bit_depth` geht nur bei 10 mit auf die Leitung. Ein `bit_depth: 8` wäre
+ * gleichbedeutend mit „fehlt", würde aber in jeder persistierten Einstellung
+ * mitgeschleppt.
+ */
+export const VIDEO_MODES: ReadonlyArray<{
+  value: string;
+  label: string;
+  codec: string;
+  tenBit: boolean;
+}> = [
+  { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
+  { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
+  { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
+];
+
+/** Welcher Eintrag zu den aktuellen Overrides passt. */
+export function videoModeOf(o: OverrideSet): string {
+  const codec = o.codec ?? 'h264';
+  return codec === 'av1' && o.bit_depth === 10 ? 'av1-10' : codec;
+}
+
+/** Auswahl zurück in Codec + Bittiefe übersetzen. */
+export function applyVideoMode(o: OverrideSet, value: string): OverrideSet {
+  const mode = VIDEO_MODES.find((m) => m.value === value) ?? VIDEO_MODES[0];
+  const next: OverrideSet = { ...o, codec: mode.codec };
+  if (mode.tenBit) next.bit_depth = 10;
+  else delete next.bit_depth;
+  return next;
+}
 
 // Eine Stufe ist eine BOX, in die das Bild aspektwahrend eingepasst wird — NIE
 // hochskaliert (`fit_within_box` im Sidecar), 'Native' = gar nicht skalieren.
@@ -164,6 +208,10 @@ export const streamSettings = $state({
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
   gpu_info: null as GsrGpuInfo | null,
+  // Kann DIESE Maschine 10 bit encodieren? Aus `health.gsr.ten_bit`. Nicht
+  // persistiert — sie gehoert zur Hardware, nicht zur Wahl des Nutzers, und
+  // ein mitgeschleppter Wert von einem anderen Rechner waere eine Luege.
+  sidecar_ten_bit: false,
 
   // Diagnostics
   catalogs_loaded: false,
@@ -302,9 +350,12 @@ export async function loadCatalogs(): Promise<void> {
     // and forces ``profile_name='Custom'`` + ``use_overrides=true`` below. The
     // sidecars keep a single baseline (h264/opus/flv, 4000 kbps, 60 fps) that
     // unset override fields fall back to.
-    const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
+    const [audioApps, gpuInfo, health, monitors, windows] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
+      // Nur wegen der Bittiefe: `gpu_info` meldet die Codecs, aber nicht, ob
+      // diese Maschine 10 bit encodieren kann — das steht in `health.gsr`.
+      gsr.health(),
       isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
       // Window picking on Windows (WGC) + macOS (SCK): both enumerate windows so
       // the user can stream a single app instead of the whole monitor. Linux
@@ -318,6 +369,7 @@ export async function loadCatalogs(): Promise<void> {
     if (gpuInfo?.ok) {
       streamSettings.gpu_info = gpuInfo;
     }
+    streamSettings.sidecar_ten_bit = health?.gsr?.ten_bit === true;
     if (monitors?.ok) {
       streamSettings.available_monitors = monitors.monitors ?? [];
     }
@@ -350,6 +402,19 @@ export async function loadCatalogs(): Promise<void> {
     if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
+    }
+    // 10 bit hängt an AV1 UND an der Hardware. Fällt eines von beidem weg (der
+    // Codec ist gerade auf H.264 zurückgenommen worden, oder die Maschine kann
+    // es nicht), muss die Bittiefe mitfallen — sonst zeigt das Feld eine Wahl,
+    // die der Sidecar beim Start still auf 8 bit zurücknimmt.
+    if (
+      streamSettings.overrides.bit_depth === 10 &&
+      (streamSettings.overrides.codec !== 'av1' || !streamSettings.sidecar_ten_bit)
+    ) {
+      streamSettings.overrides = applyVideoMode(
+        streamSettings.overrides,
+        streamSettings.overrides.codec ?? 'h264',
+      );
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {

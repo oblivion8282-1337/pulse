@@ -13,7 +13,9 @@
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import {
     streamSettings,
-    CODEC_VALUES,
+    VIDEO_MODES,
+    videoModeOf,
+    applyVideoMode,
     gpuHasAv1,
     allowedResolutions,
     clampResolution,
@@ -23,6 +25,7 @@
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { isLinux } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
 
   // Slot, dessen Quelle die Auflösungs-Stufen filtert. Von außen `streamSlot`,
@@ -34,12 +37,19 @@
     streamSlot?: number;
   } = $props();
 
-  // Only offer codecs this machine's GPU can actually encode. AV1 needs the
-  // sidecar's reported `video_codecs` to include it (RTX 40xx, newer Intel/AMD,
-  // Apple M3+); H.264 is the universal baseline and always offered.
+  // Nur anbieten, was diese Maschine wirklich encodieren kann. AV1 verlangt,
+  // dass der Sidecar es in `video_codecs` meldet (RTX 40xx, neuere Intel/AMD,
+  // Apple M3+); H.264 ist die Grundlinie und steht immer da. 10 bit verlangt
+  // zusätzlich `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
+  //
+  // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
+  // Start still zurückgenommen wird: der Nutzer sähe sonst „AV1 10 bit" im Feld
+  // und bekäme 8 bit, ohne dass irgendwo etwas dazu steht.
   let codecOptions = $derived(
-    CODEC_VALUES.filter(
-      (c) => c.value !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs),
+    VIDEO_MODES.filter(
+      (m) =>
+        (m.codec !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs)) &&
+        (!m.tenBit || streamSettings.sidecar_ten_bit),
     ),
   );
 
@@ -72,7 +82,13 @@
 
   function onCodec(e: Event) {
     const v = (e.currentTarget as HTMLSelectElement).value || 'h264';
-    streamSettings.overrides = { ...streamSettings.overrides, codec: v };
+    streamSettings.overrides = applyVideoMode(streamSettings.overrides, v);
+    persistSettings();
+  }
+
+  function onIntraRefresh(e: Event) {
+    const an = (e.currentTarget as HTMLInputElement).checked;
+    streamSettings.overrides = { ...streamSettings.overrides, intra_refresh: an };
     persistSettings();
   }
 
@@ -148,7 +164,13 @@
     persistSettings();
   }
 
-  let codecValue = $derived(streamSettings.overrides.codec ?? 'h264');
+  // Der ANGEZEIGTE Wert muss in der Optionsliste vorkommen — wie bei der
+  // Auflösung unten. Sonst zeigt das Feld „AV1 10 bit" auf einer Maschine, die
+  // das gar nicht anbietet (gespeicherte Wahl von einem anderen Rechner).
+  let codecValue = $derived.by(() => {
+    const gewuenscht = videoModeOf(streamSettings.overrides);
+    return codecOptions.some((o) => o.value === gewuenscht) ? gewuenscht : 'h264';
+  });
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
   // Der *angezeigte* Wert muss in der Optionsliste vorkommen — sonst zeigt das
@@ -254,12 +276,30 @@
   </div>
  </div>
 
-  <label class="flex cursor-pointer items-center gap-2 text-sm">
-    <Checkbox
-      checked={streamSettings.show_cursor}
-      onchange={onShowCursor}
-      data-testid="stream-overrides-show-cursor"
-    />
-    <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
-  </label>
+  <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <!-- Nur Linux: Intra-Refresh setzt den WHIP-Weg voraus, und den eigenen
+         WebRTC-Sender (mit RTCP-Rueckkanal und AV1-Paketierer) gibt es bisher
+         nur im Linux-Sidecar. Windows und macOS wuerden ueber ffmpegs
+         WHIP-Muxer gehen: kein Rueckkanal, kein AV1 — ein sichtbares Kaestchen
+         waere dort eine Zusage, die der Sendeweg nicht einloest. -->
+    {#if isLinux()}
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox
+          checked={streamSettings.overrides.intra_refresh === true}
+          onchange={onIntraRefresh}
+          data-testid="stream-overrides-intra-refresh"
+        />
+        <span class="text-text-base">Intra-Refresh</span>
+      </label>
+    {/if}
+
+    <label class="flex cursor-pointer items-center gap-2 text-sm">
+      <Checkbox
+        checked={streamSettings.show_cursor}
+        onchange={onShowCursor}
+        data-testid="stream-overrides-show-cursor"
+      />
+      <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
+    </label>
+  </div>
 </div>

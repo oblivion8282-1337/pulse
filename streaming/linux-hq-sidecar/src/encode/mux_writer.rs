@@ -203,6 +203,19 @@ impl MuxWriter {
             .spawn(move || -> Result<()> {
                 let mut output = out.0;
                 let mut halt = InterleaveProbe::new();
+                // `PULSE_MUX_DIRECT=1`: `av_write_frame` statt
+                // `av_interleaved_write_frame` — das GSR-Modell (encoder.c:
+                // "dont use it!"). Ohne Interleave-Warteschlange kann der Ton
+                // ein Bild NIE festhalten; der ganze Kampf um
+                // `max_interleave_delta` (65-ms-Mittelstueck, 10-ms-Deckel,
+                // 5-ms-Opus) betrifft eine Stufe, die es hier dann nicht gibt.
+                // Voraussetzung ist nur je Strom monotones dts, und das ist
+                // erfuellt: dieser eine Writer-Thread schreibt in
+                // Kanal-Reihenfolge, die Produzenten stempeln monoton.
+                let direct = std::env::var("PULSE_MUX_DIRECT").as_deref() == Ok("1");
+                if direct {
+                    tracing::info!(target: "mux", "Direktschreiben aktiv (av_write_frame, keine Interleave-Queue)");
+                }
                 for msg in rx {
                     let pkt = match msg {
                         MuxMsg::Packet(p) => p,
@@ -211,9 +224,14 @@ impl MuxWriter {
                         MuxMsg::Shutdown => break,
                     };
                     halt.beobachte(&pkt.0, &output);
-                    if let Err(e) = pkt.0.write_interleaved(&mut output) {
-                        tracing::error!(target: "mux", "write_interleaved fehlgeschlagen: {e:#}");
-                        return Err(e).context("mux-writer: write_interleaved");
+                    let res = if direct {
+                        pkt.0.write(&mut output).map(|_| ())
+                    } else {
+                        pkt.0.write_interleaved(&mut output)
+                    };
+                    if let Err(e) = res {
+                        tracing::error!(target: "mux", "Muxer-Schreiben fehlgeschlagen (direct={direct}): {e:#}");
+                        return Err(e).context("mux-writer: Schreiben");
                     }
                     // Push the bytes onto the wire after every packet (live
                     // low-latency). AVFMT_FLAG_FLUSH_PACKETS is unreliable for the

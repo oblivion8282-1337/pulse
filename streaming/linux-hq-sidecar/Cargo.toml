@@ -52,7 +52,27 @@ ashpd = { version = "0.10", default-features = false, features = ["tokio"] }
 pipewire = { version = "0.10", features = ["v0_3_33"] }
 libspa = { version = "0.10", features = ["v0_3_33"] }
 drm-fourcc = "2.2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# Eigener WebRTC-Sendeweg (WHIP), s. `src/whip/`.
+#
+# WARUM nicht ffmpegs WHIP-Muxer: der hat KEINEN Rueckkanal zur Anwendung — eine
+# Vollbild-Anforderung des Zuschauers koennte den Encoder also nie erreichen —
+# und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264).
+#
+# Die Abhaengigkeit ist im Projekt bereits angenommen: der native Player nutzt
+# dieselbe Fassung, und `streaming/pulse-remote-webrtc` (Fernsteuerung)
+# deklariert sie identisch. MIT/Apache-2.0, kein GPL.
+#
+# Sie waechst den Sidecar spuerbar — auch fuer Nutzer, die den Weg nie waehlen.
+# Bewusst in Kauf genommen (2026-08-02), weil er Standard werden soll; ein
+# Cargo-Feature dafuer waere eine zweite Bauvariante, die auseinanderlaeuft.
+webrtc = "0.17"
+rtcp = "0.17"
+bytes = "1"
+# Nur fuer den WHIP-Handschlag (ein POST mit dem SDP). rustls statt native-tls,
+# wie im Player — webrtc bringt rustls ueber `dtls` ohnehin verpflichtend mit.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 libc = "0.2"
 # EGL-dlopen für eglQueryDmaBufModifiersEXT (Modifier-Liste fürs EnumFormat,
 # wie GSR) — kein Link-Time-Dep auf libEGL.

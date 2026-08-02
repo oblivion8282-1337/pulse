@@ -22,8 +22,7 @@ use ffmpeg_next as ffmpeg;
 use crate::capture::audio::{self, AudioCapture, AudioSelection};
 use crate::capture::pipewire_stream::{DmabufFrame, FrameMailbox, PipewireCapture};
 use crate::capture::portal;
-use crate::encode::audio::AudioEncoder;
-use crate::encode::mux_writer::MuxSender;
+use crate::encode::audio::{AudioEncoder, TonSenke};
 use crate::encode::nv_import::{self, NvDmabufImporter};
 use crate::encode::va_import::VaapiImporter;
 use crate::encode::{AudioParams, EncoderConfig, VideoEncoder, hw};
@@ -63,8 +62,9 @@ impl FrameImporter {
 /// Standard-Audio-Bitrate (Opus), bis Profile eine eigene mitliefern.
 const AUDIO_BITRATE_KBPS: u32 = 128;
 
-/// Audio-Nebenpfad: PipeWire-Sink-Monitor → Opus → Muxer. Läuft auf zwei
-/// Threads (PW-Capture + Encode) parallel zum Video-Pacing-Loop.
+/// Audio-Nebenpfad: PipeWire-Sink-Monitor → Opus → [`TonSenke`] (Muxer oder
+/// WHIP-Tonspur). Läuft auf zwei Threads (PW-Capture + Encode) parallel zum
+/// Video-Pacing-Loop.
 struct AudioPipeline {
     cap: AudioCapture,
     worker: Option<JoinHandle<()>>,
@@ -76,7 +76,7 @@ impl AudioPipeline {
     /// Feinabgleich (positiv = Ton später).
     fn start(
         mut enc: AudioEncoder,
-        mux: MuxSender,
+        senke: TonSenke,
         record_start: Instant,
         av_offset_ms: i32,
         selection: &AudioSelection,
@@ -97,15 +97,16 @@ impl AudioPipeline {
                     av_offset_ms as i64 * audio::SAMPLE_RATE as i64 / 1000;
                 while let Ok((samples, capture_anchor)) = rx.recv() {
                     let anchor = capture_anchor + offset_samples;
-                    if let Err(e) = enc.push(&samples, &mux, anchor) {
+                    if let Err(e) = enc.push(&samples, &senke, anchor) {
                         emit(Event::Log { line: format!("[audio] push: {e:#}") });
                         break;
                     }
                 }
-                if let Err(e) = enc.flush(&mux) {
+                if let Err(e) = enc.flush(&senke) {
                     emit(Event::Log { line: format!("[audio] flush: {e:#}") });
                 }
-                // `mux` (MuxSender) droppt hier → gibt den Muxer-Trailer frei.
+                // Die Senke droppt hier. Beim Muxer-Weg gibt das den Trailer
+                // frei; beim WHIP-Weg faellt nur eine Arc-Referenz weg.
             })
             .map_err(|e| anyhow!("spawn hq-audio-encode: {e}"))?;
         Ok(Self { cap, worker: Some(worker) })
@@ -784,10 +785,10 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                        "Nullpunkt der Aufnahme in Wanduhrzeit");
     }
 
-    // Audio-Nebenpfad starten (teilt sich den Muxer über einen MuxSender),
+    // Audio-Nebenpfad starten (teilt sich den Ausgang über eine TonSenke),
     // verankert an record_start + av_offset_ms.
     let mut audio_pipeline = match audio_enc {
-        Some(ae) => match enc.mux_sender().and_then(|s| {
+        Some(ae) => match enc.ton_senke().and_then(|s| {
             AudioPipeline::start(ae, s, record_start, params.av_offset_ms, &params.audio)
         }) {
             Ok(p) => {

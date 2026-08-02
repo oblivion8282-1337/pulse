@@ -1810,17 +1810,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ashpd",
+ "bytes",
  "drm-fourcc",
  "ffmpeg-next",
  "libc",
  "libloading",
  "libspa",
  "pipewire",
+ "reqwest",
+ "rtcp",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "webrtc",
 ]
 
 [[package]]

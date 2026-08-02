@@ -5,16 +5,19 @@
 //! (`capture::audio`) liefert interleaved Float32-Stereo @48kHz — genau libopus'
 //! Eingabeformat (`AV_SAMPLE_FMT_FLT`). Wir akkumulieren in ein FIFO und emittieren
 //! 960-Sample-Frames (20ms). Anders als der Mac läuft der Push auf einem eigenen
-//! Encode-Thread und schiebt Packets über einen [`MuxSender`] (der Muxer
-//! interleaved Video+Audio nach DTS).
+//! Encode-Thread und schiebt die Pakete über eine [`TonSenke`] — entweder in den
+//! Muxer (der interleaved Video+Audio nach DTS) oder auf die eigene WHIP-Tonspur.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{ChannelLayout, Dictionary, Packet, Rational, codec, format, frame};
 
 use super::mux_writer::MuxSender;
+use crate::whip::WhipSender;
 
 /// Standard-Paketlänge des Tons in Millisekunden.
 ///
@@ -152,7 +155,7 @@ impl PtsTimeline {
             }
         }
         if let Some(seit) = self.letzte_meldung {
-            if seit.elapsed() >= std::time::Duration::from_secs(1) {
+            if seit.elapsed() >= Duration::from_secs(1) {
                 self.letzte_meldung = Some(std::time::Instant::now());
                 tracing::info!(
                     target: "audio",
@@ -253,6 +256,48 @@ mod timeline_tests {
     }
 }
 
+/// Wohin die Ton-Pakete gehen.
+///
+/// Zwei Wege mit grundverschiedener Natur: der Muxer will ein `Packet` mit
+/// Stream-Index und umgerechneter Zeitbasis; die WebRTC-Spur will rohe Bytes und
+/// die Dauer des Pakets. Ein gemeinsamer Nenner waere hier eine Verschleierung —
+/// deshalb die Unterscheidung an genau einer Stelle (`drain`).
+pub enum TonSenke {
+    Mux(MuxSender),
+    Whip(Arc<WhipSender>),
+}
+
+fn find_opus() -> Result<ffmpeg::Codec> {
+    codec::encoder::find_by_name("libopus")
+        .ok_or_else(|| anyhow!("libopus-Encoder nicht im gelinkten FFmpeg"))
+}
+
+/// libopus-Encoder mit den fuer beide Wege gleichen Einstellungen oeffnen.
+fn open_opus(
+    codec: ffmpeg::Codec,
+    sample_rate: u32,
+    bitrate_kbps: u32,
+    global_header: bool,
+) -> Result<codec::encoder::Audio> {
+    let mut enc = codec::context::Context::new_with_codec(codec).encoder().audio()?;
+    // libopus akzeptiert nur interleaved Float32.
+    enc.set_format(format::Sample::F32(format::sample::Type::Packed));
+    enc.set_rate(sample_rate as i32);
+    enc.set_channel_layout(ChannelLayout::STEREO);
+    enc.set_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
+    enc.set_time_base(Rational::new(1, sample_rate as i32));
+    if global_header {
+        enc.set_flags(codec::Flags::GLOBAL_HEADER);
+    }
+    // Ohne diese Option bleibt libopus bei 20 ms und lehnt die kürzeren
+    // Frames ab („more samples than frame size") — die Paketlänge steht an
+    // ZWEI Stellen und muss zusammenpassen.
+    let mut aopts = Dictionary::new();
+    let dur = opus_frame_ms().to_string();
+    aopts.set("frame_duration", &dur);
+    enc.open_with(aopts).context("open libopus encoder")
+}
+
 pub struct AudioEncoder {
     encoder: codec::encoder::Audio,
     frame: frame::Audio,
@@ -267,6 +312,27 @@ pub struct AudioEncoder {
 }
 
 impl AudioEncoder {
+    /// Gemeinsamer Aufbau um einen bereits geoeffneten Encoder herum.
+    fn new(encoder: codec::encoder::Audio, stream_idx: usize, sample_rate: u32) -> Self {
+        let tb = Rational::new(1, sample_rate as i32);
+        Self {
+            encoder,
+            frame: frame::Audio::new(
+                format::Sample::F32(format::sample::Type::Packed),
+                opus_frame_samples(),
+                ChannelLayout::STEREO,
+            ),
+            fifo: VecDeque::new(),
+            channels: 2,
+            stream_idx,
+            encoder_time_base: tb,
+            // Der Muxer-Weg ueberschreibt das nach `write_header`
+            // (`set_stream_time_base`); auf dem WHIP-Weg wird nie umgerechnet.
+            stream_time_base: tb,
+            timeline: PtsTimeline::new(),
+        }
+    }
+
     /// libopus-Encoder anlegen + Audio-Stream zu `output` hinzufügen. MUSS VOR
     /// `output.write_header()` laufen.
     pub fn create(
@@ -274,8 +340,8 @@ impl AudioEncoder {
         sample_rate: u32,
         bitrate_kbps: u32,
     ) -> Result<Self> {
-        let codec = codec::encoder::find_by_name("libopus")
-            .ok_or_else(|| anyhow!("libopus-Encoder nicht im gelinkten FFmpeg"))?;
+        let codec = find_opus()?;
+        // VOR `add_stream` lesen — das leiht `output` mutable aus.
         let global_header = output
             .format()
             .flags()
@@ -284,43 +350,20 @@ impl AudioEncoder {
         let mut stream = output.add_stream(codec).context("add_stream audio")?;
         let stream_idx = stream.index();
 
-        let mut enc = codec::context::Context::new_with_codec(codec)
-            .encoder()
-            .audio()?;
-        // libopus akzeptiert nur interleaved Float32.
-        enc.set_format(format::Sample::F32(format::sample::Type::Packed));
-        enc.set_rate(sample_rate as i32);
-        enc.set_channel_layout(ChannelLayout::STEREO);
-        enc.set_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
-        enc.set_time_base(Rational::new(1, sample_rate as i32));
-        if global_header {
-            enc.set_flags(codec::Flags::GLOBAL_HEADER);
-        }
-        // Ohne diese Option bleibt libopus bei 20 ms und lehnt die kürzeren
-        // Frames ab („more samples than frame size") — die Paketlänge steht an
-        // ZWEI Stellen und muss zusammenpassen.
-        let mut aopts = Dictionary::new();
-        let dur = opus_frame_ms().to_string();
-        aopts.set("frame_duration", &dur);
-        let encoder = enc.open_with(aopts).context("open libopus encoder")?;
+        let encoder = open_opus(codec, sample_rate, bitrate_kbps, global_header)?;
         stream.set_parameters(&encoder);
 
-        let frame = frame::Audio::new(
-            format::Sample::F32(format::sample::Type::Packed),
-            opus_frame_samples(),
-            ChannelLayout::STEREO,
-        );
+        Ok(Self::new(encoder, stream_idx, sample_rate))
+    }
 
-        Ok(Self {
-            encoder,
-            frame,
-            fifo: VecDeque::new(),
-            channels: 2,
-            stream_idx,
-            encoder_time_base: Rational::new(1, sample_rate as i32),
-            stream_time_base: Rational::new(1, sample_rate as i32),
-            timeline: PtsTimeline::new(),
-        })
+    /// libopus-Encoder OHNE Container — fuer den eigenen WebRTC-Sendeweg.
+    ///
+    /// Dort gibt es weder Stream noch Kopf: die Spur nimmt rohe Opus-Pakete.
+    /// `global_header` ist deshalb aus, und `stream_idx` bleibt 0 (er wird auf
+    /// diesem Weg nie benutzt, s. `drain`).
+    pub fn create_standalone(sample_rate: u32, bitrate_kbps: u32) -> Result<Self> {
+        let encoder = open_opus(find_opus()?, sample_rate, bitrate_kbps, false)?;
+        Ok(Self::new(encoder, 0, sample_rate))
     }
 
     /// Vom Muxer zugewiesene Stream-Timebase setzen (nach `write_header` lesen).
@@ -332,7 +375,7 @@ impl AudioEncoder {
     /// emittieren. `anchor_samples` = Wanduhr-Position DIESES Batches (Samples
     /// seit Stream-Epoche, mit Video geteilt) — verankert den ersten Frame-pts
     /// und re-ankert nach Capture-Lücken (s. [`PtsTimeline`]).
-    pub fn push(&mut self, samples: &[f32], mux: &MuxSender, anchor_samples: i64) -> Result<()> {
+    pub fn push(&mut self, samples: &[f32], senke: &TonSenke, anchor_samples: i64) -> Result<()> {
         let mut pts = self.timeline.align(anchor_samples);
         self.fifo.extend(samples.iter().copied());
         let chunk = opus_frame_samples() * self.channels;
@@ -356,20 +399,32 @@ impl AudioEncoder {
             self.timeline.advance(opus_frame_samples() as i64);
             pts = self.timeline.out_pts;
             self.encoder.send_frame(&self.frame).context("audio send_frame")?;
-            self.drain(mux)?;
+            self.drain(senke)?;
         }
         Ok(())
     }
 
-    fn drain(&mut self, mux: &MuxSender) -> Result<()> {
+    fn drain(&mut self, senke: &TonSenke) -> Result<()> {
         loop {
             let mut packet = Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
-                Ok(()) => {
-                    packet.set_stream(self.stream_idx);
-                    packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
-                    mux.send(packet)?;
-                }
+                Ok(()) => match senke {
+                    TonSenke::Mux(mux) => {
+                        packet.set_stream(self.stream_idx);
+                        packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+                        mux.send(packet)?;
+                    }
+                    // Kein Umrechnen: die Spur bekommt die Bytes und die
+                    // PAKETDAUER. Die ist hier konstant (`opus_frame_ms`), weil
+                    // der Encoder mit `frame_duration` genau darauf festgelegt
+                    // wurde — waere sie es nicht, verschoebe sich der Ton
+                    // schleichend gegen das Bild, ohne dass ein Fehler auftaucht.
+                    TonSenke::Whip(w) => {
+                        if let Some(d) = packet.data() {
+                            w.send_audio(d, Duration::from_millis(opus_frame_ms() as u64))?;
+                        }
+                    }
+                },
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(ffmpeg::Error::Eof) => break,
                 Err(e) => return Err(e).context("audio receive_packet"),
@@ -378,9 +433,9 @@ impl AudioEncoder {
         Ok(())
     }
 
-    pub fn flush(&mut self, mux: &MuxSender) -> Result<()> {
+    pub fn flush(&mut self, senke: &TonSenke) -> Result<()> {
         self.encoder.send_eof().context("audio send_eof")?;
-        self.drain(mux)
+        self.drain(senke)
     }
 
     pub fn stream_idx(&self) -> usize {

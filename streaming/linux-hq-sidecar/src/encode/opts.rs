@@ -207,7 +207,31 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
     opts
 }
 
-/// Rollender Intra-Refresh statt periodischer Keyframes? (`PULSE_INTRA_REFRESH=1`)
+/// Wunsch aus den Start-Parametern. `None` = nichts gesagt, dann entscheidet
+/// die Umgebungsvariable.
+///
+/// Prozessweit statt als Feld in `EncoderConfig`, weil [`vendor_opts`] und
+/// [`intra_refresh_pruefen`] von mehreren Stellen ohne diese Konfiguration
+/// gerufen werden — ein Feld müsste durch jede davon durchgereicht werden, und
+/// eine vergessene Stelle liefe still im falschen Modus.
+static AUS_PARAMETERN: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(UNGESAGT);
+
+const UNGESAGT: u8 = 0;
+const AUS: u8 = 1;
+const AN: u8 = 2;
+
+/// Den Wunsch der Oberfläche hinterlegen. `ops::start` ruft das einmal je
+/// Stream, bevor der Encoder geöffnet wird.
+pub fn intra_refresh_setzen(an: bool) {
+    AUS_PARAMETERN.store(if an { AN } else { AUS }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Rollender Intra-Refresh statt periodischer Keyframes?
+///
+/// Quelle ist der Wunsch aus den Start-Parametern (`overrides.intra_refresh`);
+/// ohne ihn `PULSE_INTRA_REFRESH=1`. Die Variable bleibt, weil der Prüfstand
+/// den Sidecar direkt fährt, ohne Oberfläche.
 ///
 /// **Warum eine eigene Variable und nicht `PULSE_ENCODER_OPTS`:** die
 /// Optionsnamen unterscheiden sich je Vendor (NVENC `intra-refresh`, VAAPI
@@ -215,7 +239,11 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
 /// einer AMD-Karte einen Keyframe-Lauf unter dem Etikett „Intra-Refresh" — die
 /// Sorte Fehler, die eine Messreihe nicht scheitern lässt, sondern verfälscht.
 pub fn intra_refresh_gewuenscht() -> bool {
-    matches!(std::env::var("PULSE_INTRA_REFRESH").as_deref(), Ok("1"))
+    match AUS_PARAMETERN.load(std::sync::atomic::Ordering::Relaxed) {
+        AN => true,
+        AUS => false,
+        _ => matches!(std::env::var("PULSE_INTRA_REFRESH").as_deref(), Ok("1")),
+    }
 }
 
 /// Die Encoder-Optionen für rollenden Intra-Refresh, je Vendor.

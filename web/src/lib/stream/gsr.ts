@@ -36,6 +36,11 @@ export interface GsrHealth {
     video_codecs?: string[];
     capture_options?: string[];
     has_flv_patch?: boolean;
+    /**
+     * Kann diese Maschine 10 bit encodieren? Zusatzfeld des Linux-Rust-Sidecars
+     * (Python/win/mac melden es nicht) — `undefined` ist als `false` zu lesen.
+     */
+    ten_bit?: boolean;
   };
 }
 

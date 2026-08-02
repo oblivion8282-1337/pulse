@@ -17,17 +17,31 @@
 
 services:
   mediamtx:
-    # Pinned to 1.17.1 (Pulse fork): v1.18.0 broke AV1-over-Enhanced-RTMP→WebRTC
-    # for AMD VAAPI (MediaMTX #5728); 1.17.1 fixes that but has its own
-    # AMD-only freeze due to missing OBU_TEMPORAL_DELIMITER. The Pulse fork
-    # injects them in the RTMP→stream path — see infra/mediamtx-fork/README.md.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse
+    # Pulse-Fork von 1.19.1 — der Grund für den Fork und alle fünf Patches
+    # stehen im Kopf von `infra/mediamtx-fork/Dockerfile`.
+    #
+    # `-pulse2` (2026-08-02) bringt die vier Labor-Patches dazu: den Rückweg
+    # für Vollbild-Anforderungen, den abschaltbaren Keyframe-Takt und FlexFEC.
+    # Lokal bauen (das Image liegt noch nicht in der Registry):
+    #   docker build -t pulse-mediamtx:1.19.1-pulse2 infra/mediamtx-fork/
+    image: pulse-mediamtx:1.19.1-pulse2
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - ./certs:/certs:ro
+    environment:
+      # Der 2-Sekunden-Takt, mit dem MediaMTX jeden WebRTC-Sender nach einem
+      # Vollbild fragt. Für Intra-Refresh ist er Gift — er setzt genau die
+      # Bursts zurück, die das Verfahren vermeidet. RTMP-Sender berührt er
+      # nicht. Leer/unbesetzt = Upstream-Verhalten (2s).
+      PULSE_KEYFRAME_INTERVAL: "0"
+      # FlexFEC bleibt im Dev-Stack AUS. Sie kostet jeden Zuschauer rund
+      # 20 Prozent mehr Daten, unabhängig davon, wie der Stream reinkam —
+      # das ist eine eigene Entscheidung und gehört nicht in denselben
+      # Testlauf wie Intra-Refresh. Zum Zuschalten: PULSE_FLEXFEC: "1".
+      PULSE_FLEXFEC: ""
     # network_mode: host weil WebRTC-ICE auf UDP sonst kompliziert wird mit Port-Mapping
     # (Memory-Regel: bei Docker-Port-Range lieber host-Netzwerk) — und es macht den
     # auth-hook auf dem Host (localhost:8005) für MediaMTX direkt erreichbar.

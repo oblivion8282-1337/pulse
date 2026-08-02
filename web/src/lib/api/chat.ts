@@ -517,10 +517,16 @@ export const chatApi = {
    * Mint a short-lived publish token for the channel's HQ stream. The caller
    * must be a member of the channel's guild and the channel must be a voice
    * channel. The returned `push_url` already carries the token.
+   *
+   * `protocol` entscheidet ueber die Form der URL und damit ueber den Sendeweg
+   * des Sidecars: `rtmp` → `rtmps://…` (FLV ueber TCP), `whip` → `https://…`
+   * (eigener WebRTC-Sender). Nur der WHIP-Weg hat einen Rueckkanal, ueber den
+   * die Vollbild-Anforderung eines Zuschauers den Encoder erreicht — deshalb
+   * verlangt Intra-Refresh ihn.
    */
   getStreamToken(
     channelId: string,
-    protocol: 'rtmp' = 'rtmp',
+    protocol: 'rtmp' | 'whip' = 'rtmp',
     slot = 0,
     label?: string
   ): Promise<StreamTokenResponse> {

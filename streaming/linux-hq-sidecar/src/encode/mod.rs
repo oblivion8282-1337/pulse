@@ -18,15 +18,18 @@ pub mod opts;
 pub mod raw_dump;
 pub mod va_import;
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, ffi::*};
 
 use audio::AudioEncoder;
 use hw::HwContext;
-use mux_writer::{MuxSender, MuxWriter};
+use mux_writer::MuxWriter;
 use crate::redact::redact_url;
 use crate::system::drm::Vendor;
+use crate::whip::WhipSender;
 
 /// Optionale Audio-Konfiguration für [`VideoEncoder::create_with_audio`].
 #[derive(Debug, Clone)]
@@ -49,8 +52,21 @@ pub struct EncoderConfig {
     pub ten_bit: bool,
 }
 
+/// Wohin die encodierten Pakete gehen.
+///
+/// Zwei Wege, die sich grundlegend unterscheiden: der Muxer schreibt in einen
+/// Container (FLV/MPEG-TS) und braucht dafuer Zeitbasen und Stream-Indizes; der
+/// eigene WebRTC-Weg kennt beides nicht — dort ist ein Bild ein Sample, und die
+/// Paketierung macht webrtc-rs.
+enum Ausgabe {
+    Mux(MuxWriter),
+    /// Eigener WHIP-Sendeweg (s. [`crate::whip`]). Der einzige Weg, auf dem
+    /// eine Vollbild-Anforderung des Zuschauers den Encoder erreicht.
+    Whip(Arc<WhipSender>),
+}
+
 pub struct VideoEncoder {
-    mux: MuxWriter,
+    mux: Ausgabe,
     encoder: codec::encoder::Video,
     video_stream_idx: usize,
     encoder_time_base: Rational,
@@ -124,7 +140,7 @@ impl VideoEncoder {
     /// der VAAPI-Pfad übergibt `Pixel::VAAPI` + den NV12-Frames-Kontext vom
     /// `scale_vaapi`-Filter-Ausgang. Der Audio-Stream wird VOR `write_header`
     /// hinzugefügt; der zurückgegebene [`AudioEncoder`] läuft auf einem eigenen
-    /// Thread und teilt sich den Muxer über [`VideoEncoder::mux_sender`].
+    /// Thread und teilt sich den Ausgang über [`VideoEncoder::ton_senke`].
     ///
     /// # Safety
     ///
@@ -143,6 +159,15 @@ impl VideoEncoder {
         audio: Option<AudioParams>,
     ) -> Result<(Self, Option<AudioEncoder>)> {
         ffmpeg::init().context("ffmpeg::init")?;
+
+        // Eigener WebRTC-Sendeweg: kein Container, kein Stream, kein Header.
+        // Deshalb VOR dem Oeffnen eines Ausgangs abzweigen — alles Folgende
+        // haengt daran.
+        if is_whip_url(output_path) {
+            // SAFETY: `frames_ctx` und `hw_pixel` kommen unveraendert vom
+            // Aufrufer und unterliegen demselben Vertrag wie im Muxer-Weg.
+            return unsafe { Self::create_whip(cfg, hw_pixel, frames_ctx, output_path, audio) };
+        }
 
         let mut output = match url_format_hint(output_path) {
             Some(fmt) => {
@@ -242,84 +267,11 @@ impl VideoEncoder {
         let mut stream = output.add_stream(codec_descriptor).context("add_stream")?;
         let stream_idx = stream.index();
 
-        let mut encoder = codec::context::Context::new_with_codec(codec_descriptor)
-            .encoder()
-            .video()?;
-        encoder.set_width(cfg.width);
-        encoder.set_height(cfg.height);
-        encoder.set_format(hw_pixel);
-        encoder.set_time_base(Rational::new(1, cfg.fps as i32));
-        encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
-        let bitrate_bps = (cfg.bitrate_kbps as usize).saturating_mul(1000);
-        encoder.set_bit_rate(bitrate_bps);
-        encoder.set_max_bit_rate(bitrate_bps);
-        encoder.set_gop(cfg.fps.saturating_mul(2)); // keyint=2.0s (GSR)
-        // Low-Latency: kein B-Frame (GSR Performance-Tune).
-        encoder.set_max_b_frames(0);
-        if global_header {
-            encoder.set_flags(codec::Flags::GLOBAL_HEADER);
-        }
-        // Farb-Signalisierung überall dort, wo WIR die Umwandlung bestimmen:
-        //
-        // * 10 bit: `nv_p010` rechnet die Matrix selbst (BT.709, begrenzt).
-        // * VAAPI, jede Bittiefe: `scale_vaapi` bekommt seit 2026-08-01
-        //   `out_color_matrix=bt709:out_range=limited` vorgegeben.
-        //
-        // Für NVENC in 8 bit bleibt es aus, und das ist keine Nachlässigkeit:
-        // dort wandelt der Encoder intern nach eigener Konvention, und etwas
-        // zu behaupten, das wir nicht kontrollieren, würde einen verifiziert
-        // korrekten Pfad auf Verdacht verstellen.
-        //
-        // **Warum es für VAAPI nachgezogen wurde:** ohne Vorgabe lieferte Mesa
-        // BT.709 im VOLLEN Wertebereich, der Strom sagte aber nichts — und ein
-        // Empfänger ohne Angabe nimmt den begrenzten Bereich an und spreizt
-        // das Bild. Gemessen am 2026-08-01: weiss Y=255 statt 235, schwarz
-        // Y=0 statt 16, rot Y=54 statt 62. Sichtbar, und es traf jeden
-        // AMD-Sender.
-        if cfg.ten_bit || matches!(cfg.vendor, Vendor::Amd | Vendor::Intel) {
-            encoder.set_colorspace(ffmpeg::color::Space::BT709);
-            encoder.set_color_range(ffmpeg::color::Range::MPEG);
-            unsafe {
-                let ctx = encoder.as_mut_ptr();
-                (*ctx).color_primaries = AVColorPrimaries::AVCOL_PRI_BT709;
-                (*ctx).color_trc = AVColorTransferCharacteristic::AVCOL_TRC_BT709;
-            }
-        }
-
-        // hw_frames_ctx VOR open an die AVCodecContext hängen (ffmpeg-next
-        // exponiert das Feld nicht → `as_mut_ptr`). NVENC/VAAPI brauchen den
-        // Frames-Pool als Input-Quelle.
-        unsafe {
-            let ctx_ptr = encoder.as_mut_ptr();
-            let new_ref = av_buffer_ref(frames_ctx);
-            if new_ref.is_null() {
-                return Err(anyhow!("av_buffer_ref(frames_ctx) returned NULL"));
-            }
-            (*ctx_ptr).hw_frames_ctx = new_ref;
-        }
-
-        let o = opts::vendor_opts(cfg.vendor, &cfg.codec);
-        // SAFETY: der Kontext gehört uns, ist noch nicht geöffnet und lebt
-        // über den Aufruf hinaus; `warn_unknown` liest ihn nur.
-        unsafe { opts::warn_unknown(encoder.as_mut_ptr(), &o) };
-        // SAFETY: wie oben — derselbe Kontext, nur gelesen.
-        unsafe { opts::intra_refresh_pruefen(encoder.as_mut_ptr(), cfg.vendor, codec_name)? };
-        let opened = encoder
-            .open_with(o)
-            .with_context(|| format!("open hw encoder '{codec_name}' (vendor={:?})", cfg.vendor))?;
-        // WELCHER Encoder wirklich offen ist, gehört ins Log.
-        //
-        // `ops::start` kann den Codec still auf H.264 zurücknehmen (fehlendes
-        // AV1, WHIP-Ziel) — bisher stand das nur als `warn!` dort, und was am
-        // Ende lief, war nirgends festgehalten. Für eine Messreihe ist das
-        // gefährlich: der Prüfstand schreibt seinen WUNSCH in die Messakte, und
-        // eine H.264-Messung mit AV1-Etikett sieht vollkommen plausibel aus.
-        tracing::info!(
-            target: "stream", encoder = codec_name, vendor = ?cfg.vendor,
-            breite = cfg.width, hoehe = cfg.height, fps = cfg.fps,
-            bitrate_kbps = cfg.bitrate_kbps,
-            "Encoder offen"
-        );
+        // SAFETY: `frames_ctx` ist laut Vertrag dieser Funktion gueltig und
+        // passt zu `hw_pixel`; die Hilfsfunktion reicht ihn nur weiter.
+        let opened = unsafe {
+            open_encoder(cfg, hw_pixel, frames_ctx, codec_descriptor, codec_name, global_header)?
+        };
         stream.set_parameters(&opened);
 
         // Audio-Stream VOR write_header hinzufügen (der Video-Stream-Borrow ist
@@ -356,7 +308,7 @@ impl VideoEncoder {
 
         Ok((
             Self {
-                mux,
+                mux: Ausgabe::Mux(mux),
                 encoder: opened,
                 video_stream_idx: stream_idx,
                 encoder_time_base,
@@ -370,9 +322,79 @@ impl VideoEncoder {
         ))
     }
 
-    /// Cloneable Muxer-Sender für den Audio-Encode-Thread.
-    pub fn mux_sender(&self) -> Result<MuxSender> {
-        self.mux.sender()
+    /// Encoder + eigener WHIP-Sendeweg, ohne jeden ffmpeg-Ausgang.
+    ///
+    /// **`global_header` ist hier bewusst `false`.** Ein Container wie FLV
+    /// erwartet die Parametersaetze (SPS/PPS bzw. den Sequence-Header) EINMAL
+    /// im Kopf; ueber RTP muessen sie dagegen im Strom mitlaufen, weil jeder
+    /// Zuschauer zu einem beliebigen Zeitpunkt einsteigt und es keinen Kopf
+    /// gibt, den er nachlesen koennte. Mit globalem Kopf bekaeme er nie
+    /// Parametersaetze und saehe dauerhaft nichts.
+    ///
+    /// # Safety
+    ///
+    /// Wie [`create_with_audio`](Self::create_with_audio).
+    unsafe fn create_whip(
+        cfg: &EncoderConfig,
+        hw_pixel: format::Pixel,
+        frames_ctx: *mut AVBufferRef,
+        url: &str,
+        audio: Option<AudioParams>,
+    ) -> Result<(Self, Option<AudioEncoder>)> {
+        let codec_name = opts::encoder_name(cfg.vendor, &cfg.codec)
+            .ok_or_else(|| anyhow!("kein Encoder fuer {:?}/{}", cfg.vendor, cfg.codec))?;
+        let codec_descriptor = ffmpeg::encoder::find_by_name(codec_name)
+            .ok_or_else(|| anyhow!("Encoder '{codec_name}' nicht in diesem ffmpeg"))?;
+
+        // SAFETY: siehe Vertrag dieser Funktion.
+        let opened = unsafe {
+            open_encoder(cfg, hw_pixel, frames_ctx, codec_descriptor, codec_name, false)?
+        };
+
+        // Der Ton-Encoder MUSS vor dem Verbinden stehen: WHIP kennt keine
+        // Nachverhandlung, die Tonspur muss also schon im Angebot liegen. Wer
+        // sie spaeter anmelden wollte, muesste die Sitzung neu aufbauen.
+        let audio_enc = audio
+            .map(|a| AudioEncoder::create_standalone(a.sample_rate, a.bitrate_kbps))
+            .transpose()
+            .context("libopus-Encoder fuer den WHIP-Weg")?;
+
+        // Erst NACH dem Oeffnen der Encoder verbinden: schlaegt einer von ihnen
+        // fehl, waere eine offene Sitzung beim Server ein Karteileichen-Pfad,
+        // den erst ein Zeitablauf aufraeumt.
+        let sender = WhipSender::connect(url, &cfg.codec, cfg.fps)
+            .with_context(|| format!("WHIP-Aufbau zu {}", redact_url(url)))?;
+
+        let tb = Rational::new(1, cfg.fps as i32);
+        Ok((
+            Self {
+                mux: Ausgabe::Whip(Arc::new(sender)),
+                encoder: opened,
+                video_stream_idx: 0,
+                encoder_time_base: tb,
+                // Gleich der Encoder-Zeitbasis: auf diesem Weg wird nicht
+                // umgerechnet (s. `drain_video`), das Feld bleibt nur belegt,
+                // damit die Struktur eine bleibt.
+                stream_time_base: tb,
+                submitted: std::collections::VecDeque::new(),
+                enc_sum_us: 0,
+                enc_count: 0,
+                enc_max_us: 0,
+            },
+            audio_enc,
+        ))
+    }
+
+    /// Wohin der Ton-Faden seine Pakete schickt.
+    ///
+    /// Auf dem WHIP-Weg ist es eine eigene Spur in der Peer-Verbindung statt
+    /// eines zweiten Streams im Container — der Ton-Faden bekommt dafuer eine
+    /// geteilte Referenz auf den Sender.
+    pub fn ton_senke(&self) -> Result<audio::TonSenke> {
+        match &self.mux {
+            Ausgabe::Mux(m) => Ok(audio::TonSenke::Mux(m.sender()?)),
+            Ausgabe::Whip(w) => Ok(audio::TonSenke::Whip(Arc::clone(w))),
+        }
     }
 
     /// Schicke einen HW-Frame (CUDA/VAAPI, `*mut AVFrame`) in den Encoder.
@@ -397,6 +419,19 @@ impl VideoEncoder {
         let mut submitted_at = std::time::Instant::now();
         unsafe {
             (*frame).pts = pts;
+            // Vollbild auf Anforderung. `pict_type = I` auf dem Eingabe-Bild
+            // verlangt vom Encoder ein IDR — der Weg, den der Windows-Sidecar
+            // fuer die Fernsteuerung schon geht.
+            //
+            // WICHTIG: pro Bild ZURUECKSETZEN. Der Frame stammt aus einem Pool
+            // und wird wiederverwendet; ohne das Zuruecksetzen bliebe `I` nach
+            // der ersten Anforderung kleben und JEDES Bild waere ein Vollbild —
+            // bei fester Bitrate bricht damit die Bildqualitaet zusammen.
+            (*frame).pict_type = if take_keyframe_request() {
+                ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_NONE
+            };
             let mut ret = avcodec_send_frame(self.encoder.as_mut_ptr(), frame);
             if ret == AVERROR(libc::EAGAIN) {
                 // Encoder-Input voll (kleiner NVENC-Surface-Pool / VAAPI
@@ -452,9 +487,22 @@ impl VideoEncoder {
                     }
                 }
             }
-            packet.set_stream(self.video_stream_idx);
-            packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
-            self.mux.send(packet)?;
+            match &mut self.mux {
+                Ausgabe::Mux(m) => {
+                    packet.set_stream(self.video_stream_idx);
+                    packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+                    m.send(packet)?;
+                }
+                // Kein Umrechnen und kein Stream-Index: der Sende-Track nimmt
+                // die rohen Bytes und die Bilddauer. Die Zeitstempel setzt
+                // webrtc-rs selbst aus der RTP-Uhr — ein umgerechneter pts
+                // waere hier nicht nur nutzlos, sondern irrefuehrend.
+                Ausgabe::Whip(w) => {
+                    if let Some(daten) = packet.data() {
+                        w.send(daten)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -481,8 +529,171 @@ impl VideoEncoder {
     pub fn finish(&mut self) -> Result<()> {
         self.encoder.send_eof().context("video send_eof")?;
         self.drain_video()?;
-        self.mux.finish()
+        match &mut self.mux {
+            Ausgabe::Mux(m) => m.finish(),
+            Ausgabe::Whip(w) => {
+                w.close();
+                Ok(())
+            }
+        }
     }
+}
+
+/// Den Hardware-Encoder aufsetzen und oeffnen — gemeinsam fuer beide Ausgaenge.
+///
+/// Herausgeloest, damit der WHIP-Weg (`create_whip`) nicht seine eigene Kopie
+/// dieser Einstellungen fuehrt: sie sind gemessen, und zwei Fassungen davon
+/// wuerden garantiert auseinanderlaufen.
+///
+/// `global_header` unterscheidet die beiden Aufrufer und ist der einzige echte
+/// Unterschied — Begruendung am WHIP-Aufrufer.
+///
+/// # Safety
+///
+/// `frames_ctx` muss ein gueltiger `AVBufferRef` auf einen Frames-Kontext sein,
+/// dessen Format zu `hw_pixel` passt; er wird nur referenziert, nicht besessen.
+unsafe fn open_encoder(
+    cfg: &EncoderConfig,
+    hw_pixel: format::Pixel,
+    frames_ctx: *mut AVBufferRef,
+    codec_descriptor: ffmpeg::Codec,
+    codec_name: &str,
+    global_header: bool,
+) -> Result<codec::encoder::Video> {
+    let mut encoder = codec::context::Context::new_with_codec(codec_descriptor)
+        .encoder()
+        .video()?;
+    encoder.set_width(cfg.width);
+    encoder.set_height(cfg.height);
+    encoder.set_format(hw_pixel);
+    encoder.set_time_base(Rational::new(1, cfg.fps as i32));
+    encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
+    let bitrate_bps = (cfg.bitrate_kbps as usize).saturating_mul(1000);
+    encoder.set_bit_rate(bitrate_bps);
+    encoder.set_max_bit_rate(bitrate_bps);
+    encoder.set_gop(keyframe_abstand_bilder(cfg.fps));
+    // Low-Latency: kein B-Frame (GSR Performance-Tune).
+    encoder.set_max_b_frames(0);
+    if global_header {
+        encoder.set_flags(codec::Flags::GLOBAL_HEADER);
+    }
+    // Farb-Signalisierung überall dort, wo WIR die Umwandlung bestimmen:
+    //
+    // * 10 bit: `nv_p010` rechnet die Matrix selbst (BT.709, begrenzt).
+    // * VAAPI, jede Bittiefe: `scale_vaapi` bekommt seit 2026-08-01
+    //   `out_color_matrix=bt709:out_range=limited` vorgegeben.
+    //
+    // Für NVENC in 8 bit bleibt es aus, und das ist keine Nachlässigkeit:
+    // dort wandelt der Encoder intern nach eigener Konvention, und etwas
+    // zu behaupten, das wir nicht kontrollieren, würde einen verifiziert
+    // korrekten Pfad auf Verdacht verstellen.
+    //
+    // **Warum es für VAAPI nachgezogen wurde:** ohne Vorgabe lieferte Mesa
+    // BT.709 im VOLLEN Wertebereich, der Strom sagte aber nichts — und ein
+    // Empfänger ohne Angabe nimmt den begrenzten Bereich an und spreizt
+    // das Bild. Gemessen am 2026-08-01: weiss Y=255 statt 235, schwarz
+    // Y=0 statt 16, rot Y=54 statt 62. Sichtbar, und es traf jeden
+    // AMD-Sender.
+    if cfg.ten_bit || matches!(cfg.vendor, Vendor::Amd | Vendor::Intel) {
+        encoder.set_colorspace(ffmpeg::color::Space::BT709);
+        encoder.set_color_range(ffmpeg::color::Range::MPEG);
+        unsafe {
+            let ctx = encoder.as_mut_ptr();
+            (*ctx).color_primaries = AVColorPrimaries::AVCOL_PRI_BT709;
+            (*ctx).color_trc = AVColorTransferCharacteristic::AVCOL_TRC_BT709;
+        }
+    }
+
+    // hw_frames_ctx VOR open an die AVCodecContext hängen (ffmpeg-next
+    // exponiert das Feld nicht → `as_mut_ptr`). NVENC/VAAPI brauchen den
+    // Frames-Pool als Input-Quelle.
+    unsafe {
+        let ctx_ptr = encoder.as_mut_ptr();
+        let new_ref = av_buffer_ref(frames_ctx);
+        if new_ref.is_null() {
+            return Err(anyhow!("av_buffer_ref(frames_ctx) returned NULL"));
+        }
+        (*ctx_ptr).hw_frames_ctx = new_ref;
+    }
+
+    let o = opts::vendor_opts(cfg.vendor, &cfg.codec);
+    // SAFETY: der Kontext gehört uns, ist noch nicht geöffnet und lebt
+    // über den Aufruf hinaus; `warn_unknown` liest ihn nur.
+    unsafe { opts::warn_unknown(encoder.as_mut_ptr(), &o) };
+    // SAFETY: wie oben — derselbe Kontext, nur gelesen.
+    unsafe { opts::intra_refresh_pruefen(encoder.as_mut_ptr(), cfg.vendor, codec_name)? };
+    let opened = encoder
+        .open_with(o)
+        .with_context(|| format!("open hw encoder '{codec_name}' (vendor={:?})", cfg.vendor))?;
+    // WELCHER Encoder wirklich offen ist, gehört ins Log.
+    //
+    // `ops::start` kann den Codec still auf H.264 zurücknehmen (fehlendes
+    // AV1, WHIP-Ziel) — bisher stand das nur als `warn!` dort, und was am
+    // Ende lief, war nirgends festgehalten. Für eine Messreihe ist das
+    // gefährlich: der Prüfstand schreibt seinen WUNSCH in die Messakte, und
+    // eine H.264-Messung mit AV1-Etikett sieht vollkommen plausibel aus.
+    tracing::info!(
+        target: "stream", encoder = codec_name, vendor = ?cfg.vendor,
+        breite = cfg.width, hoehe = cfg.height, fps = cfg.fps,
+        bitrate_kbps = cfg.bitrate_kbps,
+        "Encoder offen"
+    );
+    Ok(opened)
+}
+
+/// Keyframe-Abstand in Bildern. Vorgabe zwei Sekunden wie bei GSR.
+///
+/// **Warum das einstellbar ist.** Der Abstand ist der einzige Hebel, den der
+/// Sender gegen Paketverlust hat, solange kein Rueckkanal existiert. Am
+/// 2026-07-28 gemessen (`verlust-2026-07-28-browser-gegen-nativ.json`): Der
+/// native Player wartet nach jeder Luecke auf den naechsten Einstiegspunkt, und
+/// bei zwei Sekunden Abstand wird er dadurch unberechenbar — drei identische
+/// Laeufe unter 1 % Verlust ergaben Mediane von 38, 190 und 369 ms, mit
+/// Ausschlaegen bis 539. Chromium wartet nicht, sondern dekodiert weiter, und
+/// liegt deshalb unter Verlust vorn.
+///
+/// Ein kuerzerer Abstand kostet dabei NICHT Datenrate: die Rate-Control laeuft
+/// auf `cbr` mit fester Bitrate. Er kostet Bildqualitaet, weil mehr Bits in die
+/// Vollbilder gehen. Beides gehoert gemessen, bevor die Vorgabe sich aendert —
+/// deshalb ein Schalter und keine neue Zahl.
+fn keyframe_abstand_bilder(fps: u32) -> u32 {
+    let sekunden = std::env::var("PULSE_KEYFRAME_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|v| (0.1..=10.0).contains(v))
+        .unwrap_or(2.0);
+    // Mindestens ein Bild — ein GOP von 0 hiesse "jedes Bild ein Vollbild" und
+    // wuerde von manchen Encodern als "unbegrenzt" gelesen.
+    ((fps as f32 * sekunden).round() as u32).max(1)
+}
+
+/// Offene Anforderung eines Vollbilds.
+///
+/// **Wozu.** Ein Zuschauer, der ein Paket verliert, kann erst am naechsten
+/// Einstiegspunkt wieder aufsetzen. Ueber den WHIP-Weg erreicht seine
+/// RTCP-Anforderung (PLI/FIR) jetzt den Encoder — MediaMTX reicht sie
+/// nachweislich durch, es fehlte nur ein Sender, der sie annimmt. Ohne diesen
+/// Rueckweg stand das Bild nach einem Verlust bis zum naechsten regulaeren
+/// Vollbild, bei zwei Sekunden Abstand also bis zu zwei Sekunden.
+///
+/// Zweiter Nutzen, und fuer Intra-Refresh der entscheidende: ein neu
+/// dazukommender Zuschauer braucht EIN Vollbild zum Einstieg. Ohne das sieht er
+/// gar nichts — gemessen 0 Bilder gegen 2228, wenn er vor dem einzigen IDR
+/// beitritt.
+///
+/// Ausgeloest wird sie ausserdem ueber die Operation `keyframe` auf der
+/// stdio-Schnittstelle, damit sich die Wirkung ohne Netz messen laesst.
+static KEYFRAME_ANGEFORDERT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Beim naechsten Bild ein Vollbild erzeugen.
+pub fn request_keyframe() {
+    KEYFRAME_ANGEFORDERT.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Anforderung abholen und loeschen — genau ein Vollbild je Anforderung.
+fn take_keyframe_request() -> bool {
+    KEYFRAME_ANGEFORDERT.swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Probe-Auflösung: klein, aber über AV1-Mindestmaßen/Alignment.

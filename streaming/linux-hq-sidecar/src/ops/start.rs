@@ -44,16 +44,20 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .and_then(Value::as_str)
         .unwrap_or(profile.codec)
         .to_string();
-    // Codec-Wahl mit zwei Sicherheitsnetzen, Reihenfolge fest:
-    // 1. Kann die HW den gewünschten Codec nicht encodieren, auf H.264 zurück-
-    //    fallen statt den Encoder-open crashen zu lassen. Die UI bietet AV1 auf
-    //    solcher HW zwar gar nicht erst an (der `health`-Report filtert über
-    //    dieselbe Probe), aber ein veralteter Client / Direktaufruf käme sonst
-    //    zum harten Fehler. Geht auch H.264 nicht, bleibt der Wunsch stehen →
-    //    echter, ehrlicher Encoder-Fehler.
-    // 2. WHIP-Ziel (App-gehostete Instanz): der ffmpeg-8.1-WHIP-Muxer kann kein
-    //    AV1 → auf H.264 ausweichen statt beim write_header hart zu scheitern.
-    let mut codec = if crate::caps::supports_codec(&requested_codec) {
+    // Codec-Wahl mit EINEM Sicherheitsnetz: kann die HW den gewünschten Codec
+    // nicht encodieren, auf H.264 zurückfallen statt den Encoder-open crashen
+    // zu lassen. Die UI bietet AV1 auf solcher HW zwar gar nicht erst an (der
+    // `health`-Report filtert über dieselbe Probe), aber ein veralteter Client
+    // oder ein Direktaufruf käme sonst zum harten Fehler. Geht auch H.264
+    // nicht, bleibt der Wunsch stehen → echter, ehrlicher Encoder-Fehler.
+    //
+    // **Der zweite Rückfall ist am 2026-08-02 entfallen.** Er nahm bei jedem
+    // WHIP-Ziel AV1 zurück, weil ffmpegs WHIP-Muxer ausschließlich H.264 trägt
+    // (in 8.1 und in `master`: ein einziger Payload-Typ). Über diesen Muxer
+    // läuft der Weg aber nicht mehr — `encode::create_whip` benutzt den eigenen
+    // Sendeweg in `crate::whip`, und der paketiert AV1 selbst. Bliebe der
+    // Rückfall stehen, verlöre jeder WHIP-Stream still seinen Codec.
+    let codec = if crate::caps::supports_codec(&requested_codec) {
         requested_codec
     } else if crate::caps::supports_codec("h264") {
         tracing::warn!(
@@ -64,19 +68,17 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     } else {
         requested_codec
     };
-    if codec == "av1" && crate::encode::is_whip_url(&push_url) {
-        tracing::warn!(
-            target: "stream",
-            "AV1 über WHIP nicht verfügbar (ffmpeg-Muxer) → Fallback auf h264"
-        );
-        codec = "h264".to_string();
-    }
     // 10 bit ist an AV1 GEBUNDEN und hängt an der Hardware. Reihenfolge der
     // Absagen (jede mit Log, damit „warum sind es 8 bit" beantwortbar bleibt):
     // H.264 → die 10-bit-Variante wäre `High 10`, die kein Browser dekodiert
     // (der WHEP-Rückfall im Web ist ein `<video>`); danach die HW-Probe. Weil
-    // der Codec oben schon auf h264 zurückgefallen sein kann (fehlendes AV1,
-    // WHIP-Ziel), erledigt derselbe Zweig auch diese Fälle.
+    // der Codec oben schon auf h264 zurückgefallen sein kann (fehlendes AV1),
+    // erledigt derselbe Zweig auch diesen Fall.
+    // Betriebsart vor dem Encoder-Open hinterlegen — `vendor_opts` und die
+    // Prüfung lesen sie von dort (s. `opts::intra_refresh_gewuenscht`).
+    if let Some(an) = requested_intra_refresh(overrides) {
+        crate::encode::opts::intra_refresh_setzen(an);
+    }
     let wants_ten_bit = requested_ten_bit(overrides);
     let ten_bit = wants_ten_bit && ten_bit_possible(&codec);
     if wants_ten_bit && !ten_bit {
@@ -175,6 +177,17 @@ pub(crate) fn requested_ten_bit(overrides: Option<&Map<String, Value>>) -> bool 
         .and_then(|o| o.get("bit_depth"))
         .and_then(Value::as_u64)
         == Some(10)
+}
+
+/// Wunsch aus dem Wire-Format lesen: `overrides.intra_refresh` = true|false.
+///
+/// Fehlt das Feld, wird NICHT auf `false` entschieden, sondern gar nicht — dann
+/// bleibt `PULSE_INTRA_REFRESH` zuständig. Sonst könnte ein Client, der das Feld
+/// nicht kennt, dem Prüfstand die Betriebsart unter den Füßen wegziehen.
+pub(crate) fn requested_intra_refresh(overrides: Option<&Map<String, Value>>) -> Option<bool> {
+    overrides
+        .and_then(|o| o.get("intra_refresh"))
+        .and_then(Value::as_bool)
 }
 
 /// Ist der 10-bit-Wunsch bei diesem Codec und dieser Hardware erfüllbar?
