@@ -15,12 +15,18 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
+  import { nativePlayerSessions } from '$lib/player/store.svelte';
   import { parseHqTileId } from '$lib/stream/hqTile';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
 
   // Verlässt der Viewer die App (Logout → App-Layout unmountet), alle noch
-  // laufenden HQ-Verbindungen sauber beenden.
-  onDestroy(() => hqStreams.reconcile([]));
+  // laufenden HQ-Verbindungen sauber beenden. `nativePlayerSessions` schließt
+  // hier nur mit — geöffnet wird ausschließlich vom WhepPlayer-Effect (gated
+  // auf die useNativePlayer-Einstellung), s. dort.
+  onDestroy(() => {
+    hqStreams.reconcile([]);
+    nativePlayerSessions.closeExcept([]);
+  });
 
   $effect(() => {
     const myId = currentServerUserId();
@@ -31,5 +37,6 @@
       .map((e) => ({ channelId: e.channelId, ...parseHqTileId(e.id) }))
       .filter((e) => e.userId !== myId && !detachedStreams.has(e.channelId, e.userId, e.slot));
     hqStreams.reconcile(wanted);
+    nativePlayerSessions.closeExcept(wanted);
   });
 </script>

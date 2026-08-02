@@ -56,6 +56,10 @@ export const stream = $state({
    *  voice-view HQ-Stream button can gate on real availability, not just
    *  "the bridge works". */
   gsrAvailable: false,
+  /** True iff der Sidecar 10 bit je Farbkanal encodieren kann (`gsr.ten_bit`).
+   *  Nur der Linux-Rust-Sidecar meldet das Feld — fehlt es, bleibt es false,
+   *  und die 10-bit-Einstellung wird gar nicht angeboten. */
+  tenBitAvailable: false,
   ...freshSession(),
 });
 
@@ -170,10 +174,12 @@ export async function initStream(): Promise<() => void> {
     if (h) {
       if (!h.ok) stream.error = 'sidecar health probe failed';
       stream.gsrAvailable = !!h.gsr?.available;
+      stream.tenBitAvailable = !!h.gsr?.ten_bit;
     }
   } catch (e) {
     stream.available = false;
     stream.gsrAvailable = false;
+    stream.tenBitAvailable = false;
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.
     initialised = false;

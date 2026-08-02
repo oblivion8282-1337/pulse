@@ -528,11 +528,12 @@ export const chatApi = {
     channelId: string,
     protocol: 'rtmp' | 'whip' = 'rtmp',
     slot = 0,
-    label?: string
+    label?: string,
+    tenBit = false
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
-      body: { protocol, slot, ...(label ? { label } : {}) }
+      body: { protocol, slot, ...(label ? { label } : {}), ...(tenBit ? { ten_bit: true } : {}) }
     });
   },
   /**
@@ -547,9 +548,17 @@ export const chatApi = {
     return request<void>(`/channels/${channelId}/stream${q}`, { method: 'DELETE' });
   },
   /** WHEP playback URL for `userId`'s HQ stream in `channelId`. `slot` picks
-   *  which of that user's streams (0 = primary, default). */
-  getWhepUrl(channelId: string, userId: string, slot = 0): Promise<{ whep_url: string }> {
-    return request<{ whep_url: string }>(
+   *  which of that user's streams (0 = primary, default).
+   *
+   *  `ten_bit` sagt, ob der Streamer mit 10 bit Farbtiefe sendet — daran
+   *  entscheidet der Zuschauer den Wiedergabeweg (nur der native Player kann
+   *  mehr als 8 bit ausgeben). Ältere Server lassen das Feld weg → 8 bit. */
+  getWhepUrl(
+    channelId: string,
+    userId: string,
+    slot = 0
+  ): Promise<{ whep_url: string; ten_bit?: boolean }> {
+    return request<{ whep_url: string; ten_bit?: boolean }>(
       `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
     );
   },

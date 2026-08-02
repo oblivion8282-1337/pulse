@@ -342,6 +342,10 @@ export interface PulseApi {
   deviceName?: string;
   store: PulseStoreApi;
   gsr: PulseGsrApi;
+  /** Nativer HQ-Player (streaming/pulse-player). Nur unter Electron, und
+   *  auch dort nur, wenn das Binary vorhanden ist — vorher `available()`
+   *  fragen und sonst auf den `<video>`-Weg zurueckfallen. */
+  player?: PulsePlayerApi;
   notify: PulseNotifyApi;
   invite?: PulseInviteApi;
   updates?: PulseUpdatesApi;
@@ -380,6 +384,62 @@ export interface PulseTrayApi {
    *  data: URL). Trägt den dynamischen Badge (Counter / @). Main validiert
    *  das `data:image/`-Präfix. Liefert false bei ungültigem Input, sonst true. */
   setImage(dataUrl: string): Promise<boolean>;
+}
+
+/** Antwortrahmen des Players — identisch zum Sidecar-Protokoll. */
+export interface PulsePlayerResult {
+  ok: boolean;
+  error?: string;
+  [key: string]: unknown;
+}
+
+/** Zur Laufzeit umschaltbare Wiedergabe-Einstellungen. Nur gesetzte Felder
+ *  wirken; der Player laesst alles andere unveraendert. */
+export interface PulsePlayerOptions {
+  /** Ziel-Fuellstand des Jitter-Puffers (0-2000 ms). */
+  jitter_ms?: number;
+  /** Debanding-Staerke 0.0-1.0. Glaettet Kompressions-Banding. */
+  deband?: number;
+  dither?: boolean;
+  /** 1.0 = ganzes Bild, bis 16.0. */
+  zoom?: number;
+  pan_x?: number;
+  pan_y?: number;
+  volume?: number;
+  av_offset_ms?: number;
+  /** Standbild ohne Verbindungsabbruch. */
+  paused?: boolean;
+  /** Hardware-Decode erzwingen/verbieten; weglassen = automatisch. */
+  hwdec?: boolean;
+}
+
+export interface PulsePlayerApi {
+  /** false, wenn das Binary fehlt — dann NICHT umschalten. */
+  available(): Promise<boolean>;
+  health(): Promise<PulsePlayerResult>;
+  open(params: {
+    url: string;
+    title?: string;
+    fullscreen?: boolean;
+    options?: PulsePlayerOptions;
+  }): Promise<PulsePlayerResult>;
+  close(session: number): Promise<PulsePlayerResult>;
+  setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
+  setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
+  /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
+   *  von aussen belegbar, welcher Decoder und welche Bittiefe anliegen. */
+  stats(session: number): Promise<PulsePlayerResult>;
+  /** Fenster nach vorne holen. Unter Wayland darf sich ein Fenster nicht selbst
+   *  nach vorne zwingen — der Compositor entscheidet, die Antwort sagt nur, dass
+   *  die Bitte angekommen ist. */
+  focus(session: number): Promise<PulsePlayerResult>;
+  /** Mitschnitt starten. Zielpfad bestimmt der Hauptprozess, er steht als
+   *  `path` in der Antwort. */
+  record(session: number): Promise<PulsePlayerResult>;
+  stopRecord(session: number): Promise<PulsePlayerResult>;
+  /** Letzte `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
+  clip(session: number, seconds?: number): Promise<PulsePlayerResult>;
+  onEvent(cb: (ev: unknown) => void): () => void;
 }
 
 declare global {

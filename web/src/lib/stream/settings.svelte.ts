@@ -23,6 +23,7 @@
 
 import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs, type GsrWindow } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
+import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
@@ -33,7 +34,12 @@ export type AudioMode = 'Aus' | 'Desktop' | 'Mikrofon' | 'Desktop + Mikrofon';
 
 export interface OverrideSet {
   codec?: string;
-  /** 8 oder 10 — an AV1 gebunden, s. `VIDEO_MODES`. */
+  /** Farbtiefe je Kanal: 8 (Standard) oder 10. Nur der Linux-Rust-Sidecar
+   *  versteht das Feld und nur mit AV1 — ältere Sidecars ignorieren es
+   *  stillschweigend, und der Linux-Sidecar schiebt einen unerfüllbaren Wunsch
+   *  selbst auf 8 bit zurück. Deshalb ist es hier ungefährlich mitzuschicken.
+   *  In der Oberfläche ist es mit dem Codec zu EINEM Feld verbunden, s.
+   *  [`VIDEO_MODES`]. */
   bit_depth?: number;
   bitrate_kbps?: number;
   fps?: number;
@@ -174,6 +180,29 @@ export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /av1/i.test(c));
 }
 
+/**
+ * Wird der nächste Stream mit 10 bit Farbtiefe gesendet — Wunsch UND
+ * Erfüllbarkeit?
+ *
+ * Drei Bedingungen, alle nötig: der Nutzer hat es eingeschaltet, die Karte kann
+ * es (`health.gsr.ten_bit`, nur der Linux-Rust-Sidecar meldet das), und der
+ * Codec ist AV1. Letzteres ist keine Bequemlichkeit: 10-bit-H.264 wäre
+ * `High 10`, und das dekodiert kein Browser — Zuschauer ohne den nativen Player
+ * sehen den Stream über ein `<video>`. Derselbe Riegel sitzt im Sidecar.
+ *
+ * EINE Definition für drei Verwendungen: die Sidecar-Argumente
+ * (`buildStartArgs`), die Token-Anforderung (der Wert reist zu den Zuschauern,
+ * damit die den Wiedergabeweg wählen können) und den Auto-Neustart. Liefen die
+ * auseinander, bekäme ein Zuschauer das eigene Fenster für einen 8-bit-Stream
+ * oder umgekehrt.
+ */
+export function tenBitPossible(): boolean {
+  const codec = streamSettings.overrides.codec ?? 'h264';
+  return (
+    streamSettings.overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable
+  );
+}
+
 // ── Reactive state ──────────────────────────────────────────────────────────
 
 export const streamSettings = $state({
@@ -208,10 +237,6 @@ export const streamSettings = $state({
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
   gpu_info: null as GsrGpuInfo | null,
-  // Kann DIESE Maschine 10 bit encodieren? Aus `health.gsr.ten_bit`. Nicht
-  // persistiert — sie gehoert zur Hardware, nicht zur Wahl des Nutzers, und
-  // ein mitgeschleppter Wert von einem anderen Rechner waere eine Luege.
-  sidecar_ten_bit: false,
 
   // Diagnostics
   catalogs_loaded: false,
@@ -350,12 +375,9 @@ export async function loadCatalogs(): Promise<void> {
     // and forces ``profile_name='Custom'`` + ``use_overrides=true`` below. The
     // sidecars keep a single baseline (h264/opus/flv, 4000 kbps, 60 fps) that
     // unset override fields fall back to.
-    const [audioApps, gpuInfo, health, monitors, windows] = await Promise.all([
+    const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
-      // Nur wegen der Bittiefe: `gpu_info` meldet die Codecs, aber nicht, ob
-      // diese Maschine 10 bit encodieren kann — das steht in `health.gsr`.
-      gsr.health(),
       isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
       // Window picking on Windows (WGC) + macOS (SCK): both enumerate windows so
       // the user can stream a single app instead of the whole monitor. Linux
@@ -369,7 +391,6 @@ export async function loadCatalogs(): Promise<void> {
     if (gpuInfo?.ok) {
       streamSettings.gpu_info = gpuInfo;
     }
-    streamSettings.sidecar_ten_bit = health?.gsr?.ten_bit === true;
     if (monitors?.ok) {
       streamSettings.available_monitors = monitors.monitors ?? [];
     }
@@ -407,10 +428,7 @@ export async function loadCatalogs(): Promise<void> {
     // Codec ist gerade auf H.264 zurückgenommen worden, oder die Maschine kann
     // es nicht), muss die Bittiefe mitfallen — sonst zeigt das Feld eine Wahl,
     // die der Sidecar beim Start still auf 8 bit zurücknimmt.
-    if (
-      streamSettings.overrides.bit_depth === 10 &&
-      (streamSettings.overrides.codec !== 'av1' || !streamSettings.sidecar_ten_bit)
-    ) {
+    if (streamSettings.overrides.bit_depth === 10 && !tenBitPossible()) {
       streamSettings.overrides = applyVideoMode(
         streamSettings.overrides,
         streamSettings.overrides.codec ?? 'h264',
@@ -616,6 +634,10 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     if (typeof o.fps === 'number' && o.fps > 0)
       cleaned.fps = Math.min(hq.fpsMax, Math.max(capabilities.hqFpsMin, o.fps));
     if (o.resolution) cleaned.resolution = clampResolution(o.resolution, hq.resolutionMax);
+    // 10 bit nur mitschicken, wenn es auch erfüllbar ist (AV1 + passende
+    // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
+    // gleich wieder verwirft.
+    if (tenBitPossible()) cleaned.bit_depth = 10;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

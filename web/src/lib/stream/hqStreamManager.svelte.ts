@@ -105,6 +105,24 @@ export class ManagedHqStream {
   }
 
   // ---- Lautstärke ---------------------------------------------------------
+  /**
+   * Gibt der native Player den Ton aus? Dann schweigt dieser Weg.
+   *
+   * Ohne das liefe der Ton DOPPELT: das eigene Fenster dekodiert Opus selbst
+   * (cpal) und diese Verbindung tut es auch — und der Schieber in der Kachel
+   * würde nur die Hälfte davon regeln. Gesetzt wird es von der
+   * `NativePlayerSession`, nicht von der Kachel: das Fenster überlebt deren
+   * Unmount (Keep-Alive), und beim Aushängen dürfte der Ton nicht wieder
+   * doppelt anlaufen.
+   */
+  nativeAudio = $state(false);
+
+  setNativeAudio(on: boolean): void {
+    if (this.nativeAudio === on) return;
+    this.nativeAudio = on;
+    this.#applyVolume();
+  }
+
   setVolume(v: number): void {
     if (v > 0) this.#prevVolume = v;
     this.volume = v;
@@ -129,7 +147,9 @@ export class ManagedHqStream {
   }
 
   #applyVolume(): void {
-    const v = this.volume / 100;
+    // Der ANGEZEIGTE Wert bleibt erhalten (`this.volume`) — er gilt dann für
+    // den Player, der ihn über `set_option` bekommt.
+    const v = this.nativeAudio ? 0 : this.volume / 100;
     if (this.#audioEl) this.#audioEl.volume = Math.min(1.0, v);
     this.#boost.setVolume(v);
   }

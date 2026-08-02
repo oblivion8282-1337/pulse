@@ -32,6 +32,7 @@
     streamSettings,
     isAppAudioMode,
     appFromAudioMode,
+    tenBitPossible,
   } from '../settings.svelte';
   import { resolveSlotLabel } from '../label';
   import { recordStreamStart } from '../autoRestart';
@@ -119,7 +120,7 @@
         // diesen Rueckweg nicht — die Betriebsart entscheidet also den
         // Transport mit, nicht nur die Encoder-Option.
         const protokoll = streamSettings.overrides.intra_refresh === true ? 'whip' : 'rtmp';
-        tok = await chatApi.getStreamToken(channelId, protokoll, slot, label);
+        tok = await chatApi.getStreamToken(channelId, protokoll, slot, label, tenBitPossible());
       } catch (e) {
         const msg =
           e instanceof ApiError

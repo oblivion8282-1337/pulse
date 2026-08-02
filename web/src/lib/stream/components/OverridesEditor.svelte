@@ -22,6 +22,7 @@
     captureSourceForSlot,
     persistSettings,
   } from '../settings.svelte';
+  import { stream } from '../state.svelte';
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -49,7 +50,7 @@
     VIDEO_MODES.filter(
       (m) =>
         (m.codec !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs)) &&
-        (!m.tenBit || streamSettings.sidecar_ten_bit),
+        (!m.tenBit || stream.tenBitAvailable),
     ),
   );
 
@@ -191,6 +192,12 @@
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
     persistSettings();
   }
+
+  // Die Bittiefe hatte hier bis zum 2026-08-02 ein eigenes Kästchen, das bei
+  // falschem Codec gesperrt danebenstand. Sie steckt jetzt im Codec-Feld
+  // (`VIDEO_MODES`): 10 bit gibt es ohnehin nur mit AV1, und zwei gekoppelte
+  // Bedienelemente zu erklären ist mehr Aufwand als eine Liste, in der die
+  // unmögliche Kombination gar nicht vorkommt.
 </script>
 
 <div class="flex flex-col gap-3" data-testid="stream-overrides-editor">

@@ -156,7 +156,7 @@ return 1
 
 async def _consume_token_and_mark_active(
     redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str,
-    label: str | None = None,
+    label: str | None = None, ten_bit: bool = False,
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -173,7 +173,9 @@ async def _consume_token_and_mark_active(
     returns that slot's latest publish path (with its per-session nonce).
     ``label`` (copied from the token record) is included when present so the
     poller can surface it in ``stream:channel``/``stream:events`` without a
-    second lookup source."""
+    second lookup source. ``ten_bit`` reist genauso mit — media-svc gibt es in
+    der WHEP-Antwort an den Zuschauer weiter, der daran den Wiedergabeweg
+    wählt (nur der native Player kann mehr als 8 bit ausgeben)."""
     settings = get_settings()
     active: dict[str, Any] = {
         "user_id": user_id,
@@ -182,6 +184,9 @@ async def _consume_token_and_mark_active(
     }
     if isinstance(label, str) and label:
         active["label"] = label
+    # Nur bei True schreiben: der Record bleibt im Normalfall byte-identisch.
+    if ten_bit:
+        active["ten_bit"] = True
     payload = json.dumps(active, separators=(",", ":"))
     consumed = await redis.eval(  # type: ignore[arg-type]
         _LUA_CONSUME_AND_MARK,
@@ -251,7 +256,8 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
         label_val = rec.get("label")
         label = label_val if isinstance(label_val, str) and label_val else None
         if not await _consume_token_and_mark_active(
-            redis, req.credential, channel_id, path_user_id, path_slot, req.path, label
+            redis, req.credential, channel_id, path_user_id, path_slot, req.path, label,
+            rec.get("ten_bit") is True,
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
         log.info(

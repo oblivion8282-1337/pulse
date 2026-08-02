@@ -74,16 +74,36 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ...}` |
+| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, ...}` |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
 | `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
-| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}` | `argv` (die gleiche Liste) — danach kommen Events |
+| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
+
+**Der Zuschauer erfährt die Bittiefe über die WHEP-Antwort** (`ten_bit`), nicht
+über `stream:events`: sie reist als `ten_bit` im Token-Record mit
+(`POST /channels/{id}/stream-token`), der auth-hook kopiert sie beim
+Publish-Auth in `stream:active`, und `GET /channels/{id}/whep` gibt sie
+zurück — genau dieselbe Schiene wie `label`. Grund für den Umweg: nur der
+native Player kann mehr als 8 bit ausgeben, und die Kachel muss sich für einen
+Wiedergabeweg entscheiden, BEVOR sie dekodiert. Fehlt das Feld (älterer Server
+oder Streamer), gilt 8 bit und die Kachel bleibt im `<video>`.
+
+`overrides.bit_depth` (8|10) und `health.gsr.ten_bit` sind **Zusatzfelder des
+Linux-Rust-Sidecars** (seit 2026-07-26). Python-, Windows- und macOS-Sidecar
+melden `ten_bit` nicht und ignorieren `bit_depth` stillschweigend — Konsumenten
+müssen `undefined` als „kann kein 10 bit" lesen, nie als „unbekannt, probier's".
+10 bit ist dort an **AV1** gebunden: die 10-bit-Variante von H.264 wäre
+`High 10`, die kein Browser dekodiert, und der WHEP-Rückfall im Web ist ein
+`<video>`. Ein unerfüllbarer Wunsch (kein AV1, WHIP-Ziel, VAAPI-Karte) fällt im
+Sidecar mit Log-Zeile auf 8 bit zurück statt den Start zu verweigern; das
+Frontend schickt ihn deshalb nur, wenn er erfüllbar ist
+(`settings.svelte.ts::tenBitPossible`).
 
 `start`/`build_argv` brauchen den Channel-Block — Pulse streamt immer in einen
 Voice-Channel:
@@ -100,6 +120,16 @@ Voice-Channel:
   URL-Schema (`http(s)://` → ffmpeg-WHIP; AV1→H.264-Fallback, der
   WHIP-Muxer von ffmpeg 8.1 kann kein AV1). Python-GSR- sowie Win/Mac-Sidecars
   können (noch) kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
+  - **Die AV1-Sperre liegt an ffmpegs Muxer, nicht an WHIP** (nachgeprüft
+    2026-07-28, damit es niemand aus dem Satz oben falsch schließt): `whip.c`
+    trägt `.p.video_codec = AV_CODEC_ID_H264` und genau einen Payload-Typ (106),
+    in 8.1 **und** im aktuellen master — es lohnt also nicht, auf ein Update zu
+    warten. Ein konkurrierender Muxer mit AV1/HEVC/VP9 (nativewaves, auf Basis
+    von libdatachannel) liegt seit November 2023 unangenommen im Patchsystem.
+    WHIP selbst trägt AV1 problemlos; unser Player empfängt es über WHEP in
+    10 bit, und mit `webrtc-rs` liegt im Baum bereits ein vollständiger
+    WebRTC-Baukasten — ein eigener Sendeweg wäre also kein Codec-Verzicht,
+    sondern nur Arbeit.
 
 `capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
 Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus

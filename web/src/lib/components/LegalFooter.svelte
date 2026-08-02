@@ -7,6 +7,7 @@
     { href: '/impressum', label: m.legal_footer_impressum() },
     { href: '/datenschutz', label: m.legal_footer_datenschutz() },
     { href: '/agb', label: m.legal_footer_agb() },
+    { href: '/drittanbieter', label: m.legal_footer_drittanbieter() },
     { href: '/report', label: m.legal_footer_report() },
   ]);
 </script>

@@ -1,0 +1,56 @@
+From 0f38e80b0397ca0163a910b943f2584e77e4a7bb Mon Sep 17 00:00:00 2001
+From: Michael de Meyer <249562202+oblivion8282-1337@users.noreply.github.com>
+Date: Wed, 29 Jul 2026 17:50:09 +0200
+Subject: [PATCH] dtls_transport: expose streams for undeclared SSRCs
+
+The undeclared media processor already decrypts and stores every RTP
+stream whose SSRC matches no declared track, and leaves it in the map
+when dispatch fails. A receiver that negotiated FlexFEC therefore has
+its repair packets sitting decrypted in simulcast_streams, with no way
+to reach them: the map and both accessors are pub(crate).
+
+Add two read-only accessors. They take the same lock the existing
+methods take and never call accept(), so they cannot race the internal
+acceptor loop for streams.
+---
+ webrtc/src/dtls_transport/mod.rs | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/webrtc/src/dtls_transport/mod.rs b/webrtc/src/dtls_transport/mod.rs
+index 6c9c2a91..c51177cf 100644
+--- a/webrtc/src/dtls_transport/mod.rs
++++ b/webrtc/src/dtls_transport/mod.rs
+@@ -579,6 +579,30 @@ impl RTCDtlsTransport {
+         simulcast_streams.insert(ssrc, stream);
+     }
+ 
++    /// Returns the decrypted RTP stream for an SSRC that could not be matched
++    /// to a declared track, if one has been seen.
++    ///
++    /// `undeclared_media_processor` stores every such stream here *before* it
++    /// attempts to dispatch it, and leaves it in place when dispatch fails —
++    /// so the packets of, for example, a FlexFEC repair stream are already
++    /// decrypted and buffered, but unreachable from outside the crate.
++    ///
++    /// This accessor only reads that map. It does not call `accept()` and
++    /// therefore does not compete with the internal acceptor loop for streams.
++    pub async fn undeclared_stream(&self, ssrc: SSRC) -> Option<Arc<Stream>> {
++        let simulcast_streams = self.simulcast_streams.lock().await;
++        simulcast_streams.get(&ssrc).cloned()
++    }
++
++    /// The SSRCs of all streams currently held by [`Self::undeclared_stream`].
++    ///
++    /// A receiver that negotiated FlexFEC knows the payload type it asked for
++    /// but not the SSRC the sender picked, so it needs to discover it.
++    pub async fn undeclared_stream_ssrcs(&self) -> Vec<SSRC> {
++        let simulcast_streams = self.simulcast_streams.lock().await;
++        simulcast_streams.keys().copied().collect()
++    }
++
+     pub(crate) async fn remove_simulcast_stream(&self, ssrc: SSRC) {
+         let mut simulcast_streams = self.simulcast_streams.lock().await;
+         simulcast_streams.remove(&ssrc);
+-- 
+2.55.0
+

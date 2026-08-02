@@ -34,6 +34,8 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
+  import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
 
   let {
     channelId,
@@ -66,29 +68,60 @@
     mgr = hqStreams.ensure(channelId, userId, streamSlot);
   });
 
+  // Nativer HQ-Player (Electron, experimentell — `streaming/pulse-player/`):
+  // ersetzt nur das BILD. Der Ton kommt unveraendert aus `mgr` weiter (dessen
+  // Video-Element ist immer stumm, siehe hqStreamManager.svelte.ts) — die
+  // Browser-WHEP-Verbindung laeuft also so oder so, unabhaengig davon, ob wir
+  // ihr Video anzeigen. Logik ausgelagert (Groessen-Policy): siehe
+  // `useNativePlayback.svelte.ts`.
+  const native = useNativePlayback(() => ({
+    channelId,
+    userId,
+    slot: streamSlot,
+    title: name
+  }));
+  const useNative = $derived(native.active);
+
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
   // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
+  // Kein Attach, solange der native Player das Bild zeigt.
   $effect(() => {
     const m = mgr;
     const el = videoEl;
-    if (!m || !el) return;
+    if (!m || !el || useNative) return;
     void m.stream; // tracken → Re-Attach bei (Wieder-)Verbindung
     m.attachVideo(el);
     return () => m.detachVideo(el);
   });
 
-  // Anzeige-Zustand spiegelt den Manager.
-  const phase = $derived(mgr?.phase ?? 'connecting');
-  const detail = $derived(mgr?.detail ?? '');
+  // Anzeige-Zustand: im nativen Modus spiegelt der Overlay den Sitzungsstatus
+  // des Players statt des Browser-Managers (dessen `mgr.phase` weiterläuft,
+  // ist hier aber nicht das, was der Viewer gerade sieht).
+  // Wer den Ton ausgibt, setzt die Sitzung selbst (sie ueberlebt den Unmount
+  // dieser Kachel). Hier NOCHMAL, weil `ensure()` eine BESTEHENDE Sitzung
+  // zurueckgeben kann, waehrend der Manager frisch ist — dann hat die Sitzung
+  // ihr `open()` schon hinter sich und wuerde nie mehr stummschalten.
+  $effect(() => {
+    mgr?.setNativeAudio(useNative && native.phase === 'playing');
+  });
+
+  const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
+  const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
   const stats = $derived(mgr?.stats ?? null);
   const audioBlocked = $derived(mgr?.audioBlocked ?? false);
   const volume = $derived(mgr?.volume ?? 100);
 
+  // Der Schieber schreibt weiter auf `mgr` — dort haengt die Persistenz je
+  // Streamer und der angezeigte Wert. Gibt das Fenster den Ton aus, ist `mgr`
+  // stummgeschaltet (`nativeAudio`), also muss der Wert zusaetzlich dorthin.
   function handleVolume(e: Event) {
-    mgr?.setVolume(Number((e.currentTarget as HTMLInputElement).value));
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    mgr?.setVolume(v);
+    native.session?.setVolume(v);
   }
   function toggleMute() {
     mgr?.toggleMute();
+    if (mgr) native.session?.setVolume(mgr.volume);
   }
   function enableAudio() {
     void mgr?.enableAudio();
@@ -188,16 +221,23 @@
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
-  stats={statsPill}
+  stats={useNative ? undefined : statsPill}
 >
   {#snippet media()}
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      bind:this={videoEl}
-      autoplay
-      playsinline
-      class="h-full w-full bg-black object-contain"
-    ></video>
+    {#if useNative}
+      <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
+           dann das Cockpit: Lautstaerke/Chat liefert die TileShell, die
+           Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
+      <NativeWindowPanel session={native.session} />
+    {:else}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        autoplay
+        playsinline
+        class="h-full w-full bg-black object-contain"
+      ></video>
+    {/if}
   {/snippet}
   {#snippet overlay()}
     {#if phase === 'connecting' || phase === 'retrying'}

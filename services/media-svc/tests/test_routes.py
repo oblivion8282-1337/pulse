@@ -236,6 +236,71 @@ async def test_get_stream_state_reflects_redis(client, redis, auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_stream_token_ten_bit_stamped_into_record(client, auth_signer, redis):
+    """``ten_bit`` reist wie ``label`` im Token-Record mit (der auth-hook kopiert
+    es in ``stream:active``, die WHEP-Antwort meldet es dem Zuschauer). Nur bei
+    True geschrieben — sonst bliebe der Record nicht byte-identisch zur alten
+    Form."""
+    access = auth_signer.issue_access(4243, "alice")
+    cid = _unique_cid()
+    r = await client.post(
+        f"/channels/{cid}/stream-token", json={"ten_bit": True}, headers=_auth(access)
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    try:
+        rec = json.loads((await redis.get(TOKEN_KEY.format(token=token))).decode())
+        assert rec["ten_bit"] is True
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+    r2 = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
+    assert r2.status_code == 200, r2.text
+    token2 = r2.json()["token"]
+    try:
+        rec2 = json.loads((await redis.get(TOKEN_KEY.format(token=token2))).decode())
+        assert "ten_bit" not in rec2
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token2))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("active_extra, expected", [({"ten_bit": True}, True), ({}, False)])
+async def test_get_whep_url_reports_ten_bit(
+    client, redis, auth_signer, active_extra, expected
+):
+    """Die WHEP-Antwort trägt die Bittiefe des Streams. Daran — und nur daran —
+    entscheidet der Zuschauer, ob er den nativen Player nimmt: die Tiefe wäre
+    sonst erst nach dem Dekodieren bekannt, also erst nachdem er sich für einen
+    Wiedergabeweg entschieden hat. Fehlt das Feld im Record (Streamer mit
+    älterem Client), gilt 8 bit."""
+    access = auth_signer.issue_access(8, "bob")
+    cid = _unique_cid()
+    path = f"channel-{cid}-42-{'deadbeef' * 4}"
+    await redis.set(
+        ACTIVE_KEY.format(channel_id=cid, user_id="42"),
+        json.dumps(
+            {
+                "user_id": "42",
+                "started_at": "2026-07-26T00:00:00+00:00",
+                "path": path,
+                **active_extra,
+            }
+        ),
+    )
+    read_token = None
+    try:
+        r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
+        assert r.status_code == 200, r.text
+        assert r.json()["ten_bit"] is expected
+        read_token = r.json()["whep_url"].partition("token=")[2]
+    finally:
+        await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"))
+        if read_token:
+            await redis.delete(TOKEN_KEY.format(token=read_token))
+
+
+@pytest.mark.asyncio
 async def test_get_whep_url_returns_active_path(client, redis, auth_signer):
     access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
