@@ -68,8 +68,32 @@
   // Alive-Abgleicher im Layout besitzt die Lebensdauer + den Abbau. Diese
   // Komponente hängt nur ihr Video-Bild an den (evtl. schon laufenden) Stream.
   let mgr = $state<ManagedHqStream | null>(null);
+  // Einmal gesehen, bleibt gemerkt — und genau deshalb ein eigener Wert statt
+  // eines Blicks auf `mgr`: die Bittiefe entscheidet ueber das Fenster, das
+  // Fenster klemmt `mgr` ab, und `mgr` traegt die Bittiefe. Direkt gelesen
+  // waere das ein Kreis, der sich endlos selbst umschaltet. Die Bittiefe eines
+  // laufenden Streams aendert sich ohnehin nicht.
+  let tenBitGesehen = $state(false);
   $effect(() => {
-    mgr = hqStreams.ensure(channelId, userId, streamSlot);
+    if (mgr?.tenBit) tenBitGesehen = true;
+  });
+  $effect(() => {
+    // Solange das Bild NICHT im eigenen Fenster laeuft, haelt der Browser die
+    // Verbindung — auch waehrend das Fenster erst hochkommt, damit ein
+    // gescheiterter Start nahtlos auf `<video>` zurueckfaellt.
+    //
+    // Sobald es laeuft, wird sie abgeklemmt (Gegenstueck in
+    // `HqStreamKeepAlive`, Begruendung dort): das Fenster gibt Bild und Ton
+    // aus, eine zweite Kopie desselben Streams zu dekodieren bringt nichts —
+    // und ein Decoder, der daran scheitert, fordert Vollbilder an und
+    // beschaedigt den Strom fuer alle.
+    //
+    // Die Bittiefe, an der die Fenster-Pflicht haengt, ist zu diesem Zeitpunkt
+    // laengst bekannt: sie kommt aus der WHEP-Antwort dieser Verbindung, die
+    // vor dem Fenster steht.
+    mgr = native.session?.phase === 'playing'
+      ? null
+      : hqStreams.ensure(channelId, userId, streamSlot);
   });
 
   // Nativer HQ-Player (Electron, experimentell — `streaming/pulse-player/`):
@@ -87,7 +111,7 @@
     // irgendetwas dekodiert ist. Steht sie noch aus, ist der Wert `false`,
     // und die Kachel startet im `<video>`-Weg; kommt danach `true`, schaltet
     // dieser abgeleitete Wert die Kachel um.
-    tenBit: mgr?.tenBit === true
+    tenBit: tenBitGesehen
   }));
   const useNative = $derived(native.active);
 

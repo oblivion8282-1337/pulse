@@ -36,7 +36,25 @@
       .entriesOfKind('hq')
       .map((e) => ({ channelId: e.channelId, ...parseHqTileId(e.id) }))
       .filter((e) => e.userId !== myId && !detachedStreams.has(e.channelId, e.userId, e.slot));
-    hqStreams.reconcile(wanted);
+    // Laeuft das Bild im eigenen Fenster, braucht der Browser den Stream NICHT
+    // mehr — das Fenster gibt Bild UND Ton aus (`#setAudioOwner`). Die
+    // Browser-Verbindung blieb bisher trotzdem offen und dekodierte die
+    // Videospur weiter, unsichtbar.
+    //
+    // Das war nicht nur Verschwendung (zwei volle WHEP-Kopien desselben
+    // Streams an denselben Zuschauer), sondern hat am 2026-08-02 den Strom
+    // fuer ALLE ruiniert: bei 10-bit-AV1 lehnt Chromiums dav1d-Anbindung
+    // `bpc != 8` ab, der Decoder bekommt nie ein Bild zustande und fordert
+    // dauerhaft Vollbilder an. Der Sender beantwortete jede Anforderung — 766
+    // Vollbilder, eins alle 420 ms, sichtbar als Pumpen. Ein Decoder, der
+    // nichts anzeigt, darf nicht mitreden.
+    //
+    // Erst bei `playing` abgeklemmt, nicht schon beim Verbinden: scheitert das
+    // Fenster, faellt die Kachel auf den `<video>`-Weg zurueck, und dann soll
+    // die Verbindung noch stehen.
+    const imFenster = (e: { channelId: string; userId: string; slot: number }) =>
+      nativePlayerSessions.get(e.channelId, e.userId, e.slot)?.phase === 'playing';
+    hqStreams.reconcile(wanted.filter((e) => !imFenster(e)));
     nativePlayerSessions.closeExcept(wanted);
   });
 </script>

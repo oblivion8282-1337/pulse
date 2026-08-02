@@ -17,6 +17,8 @@
  * `useNativePlayer` + `isPlayerAvailable()`) — die Kachel weiss, wann sie den
  * nativen Weg WILL; der Keep-Alive weiss nur, wann eine Kachel weg ist.
  */
+import { SvelteMap } from 'svelte/reactivity';
+
 import { chatApi } from '$lib/api/chat';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 import { getStreamVolume, setStreamVolume } from '$lib/stream/streamVolume';
@@ -236,7 +238,17 @@ export class NativePlayerSession {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
-const registry = new Map<string, NativePlayerSession>();
+// **Reaktiv, und daran haengt die Abklemmung der Browser-Verbindung.**
+// `HqStreamKeepAlive` entscheidet ueber `get(...)?.phase === 'playing'`, ob eine
+// Kachel ihre WHEP-Verbindung behalten darf. Mit einer gewoehnlichen `Map` lief
+// dieser Effect beim Mount, fand noch GAR KEINE Sitzung (die oeffnet der
+// `WhepPlayer` erst danach) und las damit nie ein `phase` — also entstand auch
+// keine Abhaengigkeit darauf. Ging das Fenster spaeter auf `playing`, lief er
+// nie wieder, und die Verbindung blieb fuer immer offen. Genau das war am
+// 2026-08-02 zu sehen: das Abklemmen war gebaut und wirkte trotzdem nicht.
+// Mit `SvelteMap` weckt schon das EINFUEGEN der Sitzung den Effect, der dann
+// `phase` liest und beim Wechsel auf `playing` erneut laeuft.
+const registry = new SvelteMap<string, NativePlayerSession>();
 const keyOf = (channelId: string, userId: string, slot: number): string => `${channelId}:${userId}:${slot}`;
 
 export const nativePlayerSessions = {
