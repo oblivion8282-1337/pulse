@@ -25,6 +25,11 @@ export interface NativePlaybackArgs {
   userId: string;
   slot: number;
   title?: string;
+  /**
+   * Sendet dieser Stream mit 10 bit? Dann gibt es fuer den Zuschauer keine
+   * Wahl — s. `erzwungen` unten.
+   */
+  tenBit?: boolean;
 }
 
 /** `args` bleibt eine Funktion (kein Objekt), damit Aenderungen an den
@@ -38,6 +43,10 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
   /** Die laufende Sitzung — Traeger der Messwerte und der Fernsteuerung
    *  (Lautstaerke, Fenster nach vorne). `null`, solange keine laeuft. */
   readonly session: NativePlayerSession | null;
+  /** Das eigene Fenster laeuft, weil der Stream es verlangt — nicht, weil der
+   *  Zuschauer es gewaehlt hat. Die Kachel sagt das dazu; ein Schalter, der
+   *  sichtbar nichts bewirkt, sieht sonst kaputt aus. */
+  readonly erzwungen: boolean;
 } {
   let nativeAvailable = $state(false);
   let nativeFailed = $state(false);
@@ -52,10 +61,27 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
     if (isElectron()) void isPlayerAvailable().then((v) => (nativeAvailable = v));
   });
 
+  /**
+   * 10 bit laesst dem Zuschauer keine Wahl.
+   *
+   * Der `<video>`-Weg kann es nicht darstellen: Chromium legt seinen Puffer
+   * immer als 8 bit an — auch mit aktivem HDR und `scrgb-linear`, gemessen am
+   * 2026-07-26. Bliebe die Kachel dort, saehe der Zuschauer den Stream nur
+   * heruntergerechnet, ohne dass ihm etwas sagt, warum.
+   *
+   * Der Zwang greift NUR, wenn das Fenster auch wirklich zur Verfuegung steht.
+   * Fehlt das Binary oder ist die Sitzung gescheitert, bleibt es beim
+   * `<video>`-Weg — ein heruntergerechnetes Bild ist immer noch besser als gar
+   * keins.
+   */
+  const erzwungen = $derived(
+    isElectron() && nativeAvailable && !nativeFailed && args().tenBit === true
+  );
+
   const active = $derived(
     isElectron() &&
       nativeAvailable &&
-      playerSettings.useNativePlayer &&
+      (playerSettings.useNativePlayer || erzwungen) &&
       !nativeFailed &&
       !nativeSkipped
   );
@@ -115,6 +141,9 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
     },
     get session() {
       return session;
+    },
+    get erzwungen() {
+      return erzwungen;
     },
   };
 }

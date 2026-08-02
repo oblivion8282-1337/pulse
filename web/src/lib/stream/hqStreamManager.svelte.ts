@@ -54,6 +54,15 @@ export class ManagedHqStream {
   /** Eingehender MediaStream — das Player-`<video>` hängt sich hier dran. */
   stream = $state<MediaStream | null>(null);
   volume = $state(100);
+  /**
+   * Sendet dieser Stream mit 10 bit je Farbkanal? Aus der WHEP-Antwort, also
+   * bekannt BEVOR etwas dekodiert ist.
+   *
+   * Der Zuschauer hat hier keine Wahl: dieses `<video>` kann 10 bit nicht
+   * darstellen, nur das eigene Fenster kann es (`useNativePlayback`). `false`
+   * heisst „8 bit oder noch nicht bekannt" — nie „bestimmt nicht".
+   */
+  tenBit = $state(false);
 
   #session: WhepSession | null = null;
   #connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
@@ -235,7 +244,18 @@ export class ManagedHqStream {
     if (this.#disposed) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url } = await chatApi.getWhepUrl(this.channelId, this.userId, this.slot);
+      const { whep_url, ten_bit } = await chatApi.getWhepUrl(
+        this.channelId,
+        this.userId,
+        this.slot,
+      );
+      // Die Bittiefe entscheidet, OB dieser Weg ueberhaupt der richtige ist:
+      // ein 10-bit-Strom laesst sich hier nicht in 10 bit anzeigen (Chromium
+      // legt seinen Puffer als 8 bit an, gemessen 2026-07-26). Der Wert muss
+      // deshalb hier haengenbleiben — die Kachel kann ihn sonst nirgends
+      // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
+      // die Lage, in der die Entscheidung faellt.
+      this.tenBit = ten_bit === true;
       if (this.#disposed) return;
       const s = await connectWhep(whep_url, (stream) => this.#onStream(stream));
       if (this.#disposed) {

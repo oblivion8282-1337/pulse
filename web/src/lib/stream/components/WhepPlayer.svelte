@@ -34,8 +34,12 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
   import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
+  import { playerSettings, setUseNativePlayer } from '$lib/player/store.svelte';
+  import { isElectron } from '$lib/platform/runtime';
+  import { isPlayerAvailable } from '$lib/player/client';
 
   let {
     channelId,
@@ -78,9 +82,29 @@
     channelId,
     userId,
     slot: streamSlot,
-    title: name
+    title: name,
+    // Aus der WHEP-Antwort, die der Manager ohnehin holt — bekannt, bevor
+    // irgendetwas dekodiert ist. Steht sie noch aus, ist der Wert `false`,
+    // und die Kachel startet im `<video>`-Weg; kommt danach `true`, schaltet
+    // dieser abgeleitete Wert die Kachel um.
+    tenBit: mgr?.tenBit === true
   }));
   const useNative = $derived(native.active);
+
+  // Ob der Knopf ueberhaupt erscheint: ohne Electron oder ohne das Binary gibt
+  // es kein Fenster, in das man umschalten koennte.
+  let playerVerfuegbar = $state(false);
+  $effect(() => {
+    if (isElectron()) void isPlayerAvailable().then((v) => (playerVerfuegbar = v));
+  });
+
+  const fensterTitel = $derived(
+    native.erzwungen
+      ? m.whep_player_native_toggle_forced()
+      : useNative
+        ? m.whep_player_native_toggle_off()
+        : m.whep_player_native_toggle_on()
+  );
 
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
   // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
@@ -223,6 +247,29 @@
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
   stats={useNative ? undefined : statsPill}
 >
+  {#snippet controlsExtra()}
+    <!-- Wiedergabe im eigenen Fenster. Bei 10 bit gesperrt und AN: das
+         `<video>` daneben kann mehr als 8 bit nicht darstellen, die Wahl
+         existiert dort also nicht. Sichtbar bleibt der Knopf trotzdem — ein
+         verschwundenes Bedienelement erklaert nichts, ein gesperrtes mit
+         Begruendung schon. Nur unter Electron und nur, wenn das Binary da ist
+         (sonst gibt es nichts umzuschalten). -->
+    {#if playerVerfuegbar}
+      <button
+        type="button"
+        onclick={() => setUseNativePlayer(!playerSettings.useNativePlayer)}
+        disabled={native.erzwungen}
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60 md:p-1.5"
+        class:text-primary={useNative}
+        aria-pressed={useNative}
+        aria-label={fensterTitel}
+        title={fensterTitel}
+        data-testid="hq-stream-native-toggle"
+      >
+        <AppWindowIcon class="size-5 md:size-3.5" />
+      </button>
+    {/if}
+  {/snippet}
   {#snippet media()}
     {#if useNative}
       <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
