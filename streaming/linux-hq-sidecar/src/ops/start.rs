@@ -79,6 +79,11 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     if let Some(an) = requested_intra_refresh(overrides) {
         crate::encode::opts::intra_refresh_setzen(an);
     }
+    // Hier stand bis 2026-08-02 eine Warnung, Intra-Refresh trage auf AV1
+    // nicht. Sie war falsch — Begruendung und Gegenmessung stehen bei der
+    // entfernten `traegt_intra_refresh` in `encode/opts.rs`. Ob der Encoder
+    // die Betriebsart wirklich annimmt, entscheidet ohnehin
+    // `intra_refresh_pruefen` vor dem Open, und zwar mit Abbruch statt Warnung.
     let wants_ten_bit = requested_ten_bit(overrides);
     let ten_bit = wants_ten_bit && ten_bit_possible(&codec);
     if wants_ten_bit && !ten_bit {

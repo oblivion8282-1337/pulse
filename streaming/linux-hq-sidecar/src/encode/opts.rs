@@ -264,10 +264,39 @@ pub fn intra_refresh_gewuenscht() -> bool {
 /// Encoder-Open mit klarer Meldung ab, statt still weiterzulaufen.
 pub fn intra_refresh_opts(vendor: Vendor) -> &'static [(&'static str, &'static str)] {
     match vendor {
-        Vendor::Nvidia => &[("intra-refresh", "1"), ("forced-idr", "1")],
+        // `no-scenecut` gehoert dazu und fehlte bis 2026-08-02. Ohne die Option
+        // schiebt NVENC bei Szenenwechseln von sich aus I-Bilder ein — mitten
+        // in einen Strom, der gerade KEINE haben soll. Jedes davon ist bei
+        // fester Bitrate ein sichtbarer Ausschlag. Die Labor-Vorlage der
+        // erfolgreichen Messung hatte sie (`-intra-refresh 1 -no-scenecut 1`),
+        // unsere Optionsliste nicht.
+        Vendor::Nvidia => &[("intra-refresh", "1"), ("forced-idr", "1"), ("no-scenecut", "1")],
         Vendor::Amd | Vendor::Intel => &[("intra_refresh", "1")],
     }
 }
+
+// **Hier stand bis 2026-08-02 ein `traegt_intra_refresh(codec) == "h264"`.**
+// Die Begruendung — AV1 koenne dem Zuschauer mangels `recovery_point`-SEI nicht
+// signalisieren, wann die Auffrisch-Welle durch ist, weshalb der Empfaenger
+// dauerhaft Vollbilder anfordere — war eine Fehldeutung des Pumpens, das an
+// jenem Tag zu sehen war. Sie ist widerlegt, und zwar durch eine Messung, die
+// es vorher schon gab: `streaming/testbench/profiles/
+// hq-2026-07-31-intra-refresh-echter-sender.json` faehrt `av1_nvenc` in 10 bit
+// ueber den ausgelieferten Weg und zaehlt im Intra-Refresh-Lauf **8 Vollbilder
+// in 1248 s** gegen 216 in 427 s im Keyframe-Lauf. Die Akte belegt die Mechanik
+// zusaetzlich am ffmpeg-Quelltext (`nvenc_setup_av1_config` setzt
+// `enableIntraRefresh=1` und danach `gopLength = NVENC_INFINITE_GOPLENGTH`).
+//
+// Die echte Quelle der Vollbild-Flut sass beim Zuschauer: Chromiums
+// dav1d-Anbindung lehnt `bpc != 8` ab, bekommt bei 10-bit-AV1 nie ein Bild
+// zustande und fordert endlos Vollbilder an — auch dann, wenn das Bild laengst
+// im eigenen Fenster laeuft und niemand dieses `<video>` ansieht. Abgeklemmt
+// wird das dort, wo es entsteht (`web/src/lib/stream/components/
+// HqStreamKeepAlive.svelte`), nicht durch eine Codec-Sperre im Encoder.
+//
+// Kein neuer Ersatz an dieser Stelle: es gibt keinen Codec, der Intra-Refresh
+// hier nicht traegt. Was ihn nicht kann, faellt schon in `intra_refresh_pruefen`
+// mit klarer Meldung durch.
 
 /// Vor dem Encoder-Open prüfen, ob ein verlangter Intra-Refresh überhaupt
 /// ankommt — und den Start verweigern, wenn nicht.
@@ -396,5 +425,41 @@ fn apply_override(opts: &mut Dictionary<'_>) {
         }
         tracing::info!(target: "encode", key = k, value = v, "Encoder-Option aus der Umgebung");
         opts.set(k, v);
+    }
+}
+
+#[cfg(test)]
+mod intra_refresh_tests {
+    use super::*;
+
+    /// Der Weg vom Start-Parameter bis in die Encoder-Optionen — die Strecke,
+    /// auf der der Wunsch am 2026-08-02 verlorenging (die Oberflaeche schickte
+    /// das Feld gar nicht erst mit, und nichts fiel auf).
+    ///
+    /// Laeuft seriell: die Betriebsart ist prozessweit, parallele Tests wuerden
+    /// einander den Zustand umstellen.
+    #[test]
+    fn wunsch_erreicht_die_encoder_optionen() {
+        intra_refresh_setzen(true);
+        assert!(intra_refresh_gewuenscht());
+        for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
+            let opts = vendor_opts(vendor, "h264");
+            for (key, wert) in intra_refresh_opts(vendor) {
+                assert_eq!(
+                    opts.get(key),
+                    Some(*wert),
+                    "{key} fehlt in den Optionen fuer {vendor:?}",
+                );
+            }
+        }
+
+        intra_refresh_setzen(false);
+        assert!(!intra_refresh_gewuenscht());
+        for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
+            let opts = vendor_opts(vendor, "h264");
+            for (key, _) in intra_refresh_opts(vendor) {
+                assert_eq!(opts.get(key), None, "{key} steht trotz Absage in den Optionen");
+            }
+        }
     }
 }
