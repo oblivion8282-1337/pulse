@@ -99,6 +99,13 @@ opts=(
     --enable-libdrm
     # Opus: Ton-Encode im Sidecar, Ton-Decode im Player.
     --enable-libopus
+    # dav1d: AV1-SOFTWARE-Decode im Player, und zwar schnell. Der native
+    # AV1-Decoder in FFmpeg ist um ein Vielfaches langsamer — ohne dav1d ist
+    # `PULSE_PLAYER_HWDEC=0` keine brauchbare Option, sondern nur eine
+    # theoretische. Gebraucht wird sie auf AMD-APUs, wo Encode und Decode sich
+    # eine Einheit teilen und gleichzeitige Last die GPU zuruecksetzt
+    # (s. `decode.rs::hwdec_vorgabe`).
+    --enable-libdav1d
 )
 
 if pkg-config --exists ffnvcodec 2>/dev/null; then

@@ -231,6 +231,29 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
     out
 }
 
+/// Hardware-Dekodierung benutzen, wenn der Aufrufer nichts dazu gesagt hat?
+///
+/// Vorgabe ja; `PULSE_PLAYER_HWDEC=0` schaltet sie ab. Die Option gibt es im
+/// Wire-Protokoll laengst (`OpenOptions.hwdec`), nur setzt sie niemand — und
+/// fuer den Fall, um den es hier geht, waere sie an der falschen Stelle: er
+/// haengt an der MASCHINE, nicht an der Sitzung.
+///
+/// **Wofuer man das braucht.** Auf AMD-APUs (Phoenix/VCN 4, z. B. Radeon 780M)
+/// teilen sich Encode und Decode dieselbe Einheit. Sendet dieselbe Maschine,
+/// auf der auch der Player laeuft, ueberlaeuft der Ring und der Treiber setzt
+/// die GPU zurueck — `amdgpu: The CS has cancelled because the context is
+/// lost`, danach ist der Player-Prozess weg (SIGABRT, am 2026-08-03 hier
+/// beobachtet). Das trifft im Betrieb kaum jemanden (wer zusieht, sendet
+/// meist nicht), aber jeden, der beide Seiten auf einem Rechner gegentestet.
+/// Ohne gleichzeitiges Encoden dekodiert dieselbe Karte mit rund 185 fps.
+///
+/// Software-Dekodierung ist dafuer nur brauchbar, wenn `libdav1d` im
+/// FFmpeg-Bau steckt — der native AV1-Decoder ist um ein Vielfaches langsamer.
+/// `streaming/ffmpeg-patches/bootstrap-ffmpeg.sh` schaltet es deshalb ein.
+fn hwdec_vorgabe() -> bool {
+    !matches!(std::env::var("PULSE_PLAYER_HWDEC").as_deref(), Ok("0"))
+}
+
 /// Welche Render-Node der VAAPI-Weg benutzt.
 ///
 /// Ueber `PULSE_PLAYER_VAAPI_DEVICE` umstellbar — auf Maschinen mit zwei GPUs
@@ -522,7 +545,7 @@ impl VideoDecoder {
         if !codec.is_video() {
             bail!("{} ist kein Video-Codec", codec.as_str());
         }
-        let allow = allow_hw.unwrap_or(true);
+        let allow = allow_hw.unwrap_or_else(hwdec_vorgabe);
 
         let mut last_err = None;
         for kandidat in candidates(codec, allow) {
