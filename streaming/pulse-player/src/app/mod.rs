@@ -610,6 +610,26 @@ impl App {
         if let Some(line) = probe_line {
             eprintln!("pulse-player: Sitzung {id}{line}");
         }
+        // Der Ton ebenfalls in einer eigenen Zeile, aus demselben Grund.
+        //
+        // **Warum ueberhaupt:** Die Zahlen liegen seit jeher an (`counters()`
+        // → `MediaStats`), gingen aber nur ins Overlay — und wer beim Zuschauen
+        // die Maus bewegt, um sie zu lesen, veraendert die Messung. Beim
+        // Knacksen wurde deshalb bisher geraten. Ein Unterlauf ist genau das,
+        // was man hoert: der Geraete-Rueckruf fand zu wenig im Ring und hat mit
+        // Stille aufgefuellt. Steigen stattdessen die verworfenen Samples,
+        // liegt es am anderen Ende — es kommt mehr an, als ausgegeben wird.
+        let media = &st.media;
+        if media.audio_active || media.audio_underruns > 0 {
+            // `concat!` wie oben, nicht `\` am Zeilenende — aus demselben Grund.
+            eprintln!(
+                concat!(
+                    "pulse-player: Sitzung {}: Ton — Unterlaeufe {}, verworfen {}, ",
+                    "Puffer {} Samples"
+                ),
+                id, media.audio_underruns, media.audio_dropped, media.audio_buffered,
+            );
+        }
         session.last_log = Some(now);
         session.presented_at_last_log = presented;
     }
