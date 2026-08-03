@@ -49,6 +49,35 @@ const OBU_ZEITTRENNER: u8 = 2;
 const OBU_BILDKOPF: u8 = 3;
 const OBU_BILD: u8 = 6;
 const OBU_KACHELLISTE: u8 = 8;
+/// Fuellbytes. Laut Spezifikation ein reines No-op — der Decoder ueberspringt
+/// sie. Sie DUERFEN nicht auf die Leitung.
+///
+/// **Warum das hier der wichtigste Filter ist, obwohl er nach Kleinigkeit
+/// aussieht.** Mesas VAAPI-Encoder fuellt bei CBR auf die Zielrate auf, sobald
+/// der Inhalt sie nicht ausschoepft — und genau das ist der Pulse-Fall:
+/// gemessen am 2026-08-03 auf einer Radeon 780M (Mesa 26.1.5), 1080p60 bei
+/// 4000 kbps, je vier Sekunden:
+///
+/// | Inhalt | Bilder mit Fuellung | je Stueck | Anteil am Bitstrom |
+/// |---|---|---|---|
+/// | statischer Schirm | 225 von 240 | 7677-8301 B | **99,6 %** |
+/// | Bildschirmarbeit | 221 von 240 | 2045-6514 B | **66 %** |
+/// | Vollbewegung | 0 | — | 0 % |
+///
+/// Ohne diesen Filter wird jedes ~8-KB-Fuell-OBU ueber rund sieben RTP-Pakete
+/// zerteilt: 6,6 statt 1 Paket je Bild, 3,75 statt 0,01 Mbit/s auf der Leitung.
+/// Und libwebrtcs Wiederzusammenbau kommt damit nicht klar — der Befund steht
+/// im Kopf von `infra/mediamtx-fork/patches/0001-rtmp-inject-temporal-delimiter.patch`
+/// bereits im Repo: die Referenzkette bricht rund zwanzig Bilder nach jedem
+/// Gruppenanfang. Dieser Patch heilt aber nur den RTMP-Weg; der WHIP-Weg geht
+/// ohne jeden Filter aus dem Encoder in `paketiere`.
+///
+/// **NVENC fuellt nicht auf** — derselbe Code, andere Eingabe. Genau deshalb
+/// lief der Weg auf NVIDIA und riss auf AMD.
+///
+/// Die Referenzumsetzung des Formats verwirft dieselben drei Typen
+/// (`vendor/webrtc-rs/rtp/src/codecs/av1/obu.rs::should_ignore_obu_type`).
+const OBU_FUELLUNG: u8 = 15;
 
 /// Ein OBU ohne sein Groessenfeld.
 ///
@@ -146,7 +175,7 @@ fn zerlege(daten: &[u8]) -> Result<Vec<Obu<'_>>> {
             bail!("OBU-Groesse {rumpf_len} reicht ueber das Paketende");
         }
 
-        if typ != OBU_ZEITTRENNER && typ != OBU_KACHELLISTE {
+        if typ != OBU_ZEITTRENNER && typ != OBU_KACHELLISTE && typ != OBU_FUELLUNG {
             out.push(Obu {
                 kopf,
                 kopf_len,
@@ -421,6 +450,36 @@ mod tests {
         let obus = zerlege(&tu).unwrap();
         assert_eq!(obus.len(), 1);
         assert_eq!(obus[0].typ, 6);
+    }
+
+    /// Ein Zeitabschnitt in der AMD-FORM: Bildkopf und Kacheldaten getrennt
+    /// (NVENC packt beides in ein `OBU_FRAME`), dazu die Fuellung, mit der Mesa
+    /// bei CBR auf die Zielrate auffuellt.
+    ///
+    /// **Diese Form hat in der ganzen Testdatei gefehlt** — jeder andere Test
+    /// baut ein Bild als `obu(6, …)`, also wie NVENC es liefert. Genau deshalb
+    /// konnte der fehlende Fuellungs-Filter ueberleben, bis er auf einer
+    /// AMD-Karte den Zuschauer-Decoder umgebracht hat.
+    #[test]
+    fn fuellung_faellt_weg_amd_form() {
+        let mut tu = obu(OBU_ZEITTRENNER, 0);
+        tu.extend(obu(OBU_BILDKOPF, 30));
+        tu.extend(obu(4, 400)); // Kachelgruppe
+        tu.extend(obu(OBU_FUELLUNG, 8000));
+        let obus = zerlege(&tu).unwrap();
+        assert_eq!(
+            obus.iter().map(|o| o.typ).collect::<Vec<_>>(),
+            vec![OBU_BILDKOPF, 4],
+            "Zeittrenner UND Fuellung muessen weg sein, Bildkopf und Kacheln bleiben"
+        );
+        // Und die Folge davon, in der Groesse gemessen, die den Fehler beim
+        // Zuschauer erzeugt hat: ohne Filter zerteilt sich das 8-KB-Fuell-OBU
+        // ueber rund sieben Pakete, mit Filter bleibt EINS.
+        assert_eq!(
+            paketiere(&tu, MTU).unwrap().len(),
+            1,
+            "Kopf + Kacheln passen in ein Paket; mit durchgereichter Fuellung waeren es rund sieben"
+        );
     }
 
     #[test]
