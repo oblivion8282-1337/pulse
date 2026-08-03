@@ -34,14 +34,25 @@ rtmpsAddress: :1936
 rtmpServerCert: /certs/server.crt
 rtmpServerKey: /certs/server.key
 
-# Low-latency HLS (reached via pulse_web → /hls/*)
-hls: yes
-hlsAddress: :8888
-hlsAlwaysRemux: yes
-hlsVariant: lowLatency
-hlsSegmentCount: 7
-hlsSegmentDuration: 200ms
-hlsPartDuration: 100ms
+# HLS ist AUS (2026-08-03) — es geht mit Intra-Refresh nicht zusammen, und
+# niemand konsumiert es.
+#
+# **Die Unvertraeglichkeit:** HLS kann nur an Vollbildern segmentieren. Seit
+# `PULSE_KEYFRAME_INTERVAL=0` (s. docker-compose.yml) enthaelt ein
+# Intra-Refresh-Strom keine periodischen mehr, und `hlsAlwaysRemux: yes` baute
+# die Segmente auch ohne einen einzigen Zuschauer. Der Muxer starb daran lokal
+# alle ~66 s mit „reached maximum segment size" und startete im Kreis neu.
+#
+# **Warum Abschalten und kein Kompromiss:** Kein Pulse-Client spricht HLS an.
+# Der HQ-Stream laeuft ueber WHEP, und die Watch-Party lehnt `.m3u8` sogar
+# ausdruecklich ab (der Betrachter ist ein nacktes `<video>`, das Chromium
+# nicht nativ abspielt — s. `web/src/lib/watch/source.ts`). Ein `hlsAlwaysRemux:
+# no` haette den Absturz nur bis zum ersten Aufruf von `/hls/` verschoben.
+#
+# Zurueckholen: diesen Block wieder scharf stellen UND `PULSE_KEYFRAME_INTERVAL`
+# entfernen — beides zusammen, sonst kehrt die Absturzschleife zurueck. Damit
+# faellt allerdings Intra-Refresh weg.
+hls: no
 
 # WebRTC / WHEP (reached via pulse_web → /whep/*; ICE on :8189/udp direct)
 webrtc: yes

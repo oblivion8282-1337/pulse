@@ -409,6 +409,25 @@ services:
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
+    environment:
+      # Feste Vollbild-Uhr AUS. MediaMTX fordert von einem WebRTC-Publisher
+      # sonst alle 2 s ein Vollbild an (Upstream-Verhalten; unser Patch 0002
+      # macht das ueberhaupt erst abschaltbar, und NICHT gesetzt heisst weiter
+      # 2 s).
+      #
+      # **Warum das gesetzt sein MUSS, seit Intra-Refresh ausgeliefert wird:**
+      # In dieser Betriebsart soll der Strom gerade keine periodischen
+      # Vollbilder enthalten — die Kosten sind ueber die Auffrisch-Welle
+      # verteilt. Fordert der Server sie trotzdem im Takt an, beantwortet der
+      # Sidecar das (seine Sperrfrist steht selbst auf 2 s, laesst also jede
+      # durch), und der Strom besteht wieder aus IDR-Bursts. Der Schalter in
+      # der Oberflaeche taete dann sichtbar nichts.
+      #
+      # Das Tueckische daran: Sender und Server arbeiten dabei jeder fuer sich
+      # korrekt, kein Log und kein Zaehler schlaegt aus. Lokal (wo der Wert
+      # laengst 0 ist) waere das Verhalten richtig — die Fehlersuche liefe also
+      # im Code statt in dieser Datei.
+      PULSE_KEYFRAME_INTERVAL: "0"
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - ./certs:/certs:ro          # self-signed RTMPS cert (server.crt / server.key)
