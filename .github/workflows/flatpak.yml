@@ -37,7 +37,13 @@ on:
       - 'streaming/gsr-sidecar/**'
       - 'streaming/linux-hq-sidecar/**'
       - 'packaging/linux-hq-sidecar-cargo-sources.json'
+      - 'streaming/pulse-player/**'
+      - 'packaging/pulse-player-cargo-sources.json'
       - 'streaming/patches/**'
+      # Der VAAPI-Intra-Refresh-Patch wird ins gebündelte FFmpeg gebaut. Ohne
+      # diesen Eintrag löst eine Änderung daran keinen Build aus, und die
+      # ausgelieferte App bliebe still auf dem alten Patch stehen.
+      - 'streaming/ffmpeg-patches/**'
       - 'packaging/com.howispulse.Pulse.yml'
       - 'packaging/launcher.sh'
       - 'packaging/com.howispulse.Pulse.desktop'
