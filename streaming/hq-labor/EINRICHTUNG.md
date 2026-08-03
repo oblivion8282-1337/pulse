@@ -111,7 +111,7 @@ braucht diese Maschine also ein gepatchtes FFmpeg:
 
 ```bash
 # Patch, Bauanleitung und Begründung:
-streaming/hq-labor/ffmpeg-patches/README.md
+streaming/ffmpeg-patches/README.md
 ```
 
 Danach fährt `PULSE_INTRA_REFRESH=1` beide Vendor gleich (der Sidecar wählt

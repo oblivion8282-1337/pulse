@@ -284,12 +284,22 @@
  </div>
 
   <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
-    <!-- Nur Linux: Intra-Refresh setzt den WHIP-Weg voraus, und den eigenen
+    <!-- Zwei Bedingungen, beide notwendig.
+
+         Nur Linux: Intra-Refresh setzt den WHIP-Weg voraus, und den eigenen
          WebRTC-Sender (mit RTCP-Rueckkanal und AV1-Paketierer) gibt es bisher
          nur im Linux-Sidecar. Windows und macOS wuerden ueber ffmpegs
          WHIP-Muxer gehen: kein Rueckkanal, kein AV1 — ein sichtbares Kaestchen
-         waere dort eine Zusage, die der Sendeweg nicht einloest. -->
-    {#if isLinux()}
+         waere dort eine Zusage, die der Sendeweg nicht einloest.
+
+         Und nur, wenn das FFmpeg des Sidecars die Betriebsart durchreicht. Auf
+         AMD/Intel laeuft das ueber VAAPI, und dort gibt es die Option in KEINER
+         FFmpeg-Version — nur mit unserem Patch. Fehlt er, bricht der Start ab
+         (`encode/opts.rs::intra_refresh_pruefen`, bewusst mit Fehler statt
+         still Keyframes). Ein Kaestchen, dessen Anhaken den Stream scheitern
+         laesst, ist schlechter als keins: dieselbe Begruendung wie beim
+         Codec-Feld oben. -->
+    {#if isLinux() && stream.intraRefreshAvailable}
       <label class="flex cursor-pointer items-center gap-2 text-sm">
         <Checkbox
           checked={streamSettings.overrides.intra_refresh === true}

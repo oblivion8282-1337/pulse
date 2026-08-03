@@ -55,42 +55,50 @@ braucht, misst es vorher.
 
 ## Bauen
 
-```bash
-curl -O https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
-tar xf ffmpeg-8.1.2.tar.xz && cd ffmpeg-8.1.2
-git apply .../0001-vaapi_encode-rollender-intra-refresh.patch   # oder patch -p1
-./configure --prefix=/pfad/nach/wohin --enable-vaapi --enable-shared --disable-static \
-            --disable-doc --disable-debug
-make -j$(nproc) && make install
-```
-
-Braucht `libva-devel` (Fedora) bzw. `libva-dev` (Debian/Ubuntu) und `nasm`.
-`--enable-shared` ist nötig, damit der Sidecar (der gegen die Bibliothek linkt)
-das gepatchte FFmpeg benutzen kann; für reine Datei-Versuche reicht das
-statische Standard-Bauen.
-
-Gegenprobe, dass der Patch wirklich greift:
+Nicht von Hand — dafür gibt es `bootstrap-ffmpeg.sh` daneben:
 
 ```bash
-./ffmpeg -h encoder=av1_vaapi | grep intra_refresh
+scripts/hq-bauen.sh          # FFmpeg + Sidecar + Player, in einem
 ```
 
-## Was der Patch NICHT löst
+Das Skript holt denselben FFmpeg-Commit, den auch das Flatpak pinnt, patcht
+ihn, baut LGPL (kein `--enable-gpl`, kein libx264) nach
+`~/.cache/pulse/ffmpeg-intra-refresh/prefix` und prüft am Ende nach, dass die
+Option wirklich da ist. Das System-FFmpeg wird nicht angefasst: Sidecar und
+Player bekommen einen RPATH auf diesen Bau, sonst sieht ihn nichts.
 
-**Die Auslieferung.** Sidecar und Labor linken dynamisch gegen das FFmpeg des
-Systems, und dort ist der Patch nicht drin. Drei Wege, alle offen und alle eine
-Nutzer-Entscheidung:
+Voraussetzungen: `libva-devel`, `libdrm-devel`, `opus-devel`, `openssl-devel`
+und `nasm` (Fedora; auf Debian/Ubuntu die `-dev`-Namen).
 
-1. **Upstream einreichen.** Sauber, kostet nichts an Wartung — aber es gibt
-   keine Zusage und keinen Termin, und Bestandssysteme haben ihn erst mit dem
-   nächsten Distributions-FFmpeg.
-2. **Eigenes FFmpeg ins Flatpak bündeln.** Wir kontrollieren die
-   Linux-Auslieferung selbst. Lizenzlage beachten: ohne `--enable-gpl` ist
-   FFmpeg LGPL, dynamisch gelinkt — das ist die Bedingung aus dem Wurzel-`CLAUDE.md`
-   und bleibt damit eingehalten. Kostet Bauzeit und Pflege im Manifest.
-3. **Nur im Labor.** Für Messungen reicht der lokale Bau; für Nutzer ändert
-   sich nichts.
+**Zwei Fallen beim Bauen von Hand**, falls es doch jemand tut:
 
-Bis einer davon steht, muss der Sidecar den Unterschied **merken und sagen** —
-still auf Keyframes zurückzufallen wäre genau die Art Fehler, die hier schon
-mehrfach Messreihen entwertet hat.
+* `--enable-shared` ist Pflicht. Sidecar und Player linken gegen die
+  Bibliothek; ein statischer Standardbau nützt ihnen nichts.
+* **Das gebaute `ffmpeg`-Binary hat keinen RPATH auf seine eigenen
+  Bibliotheken.** Ruft man es ohne `LD_LIBRARY_PATH` auf, lädt der Loader das
+  libavcodec der Distribution aus `/usr/lib64` — die Gegenprobe befragt dann
+  das falsche FFmpeg und meldet, der Patch habe nicht gegriffen, obwohl der
+  Bau in Ordnung ist. Genau so ist es hier am 2026-08-03 einmal passiert:
+
+  ```bash
+  LD_LIBRARY_PATH=<prefix>/lib <prefix>/bin/ffmpeg -h encoder=av1_vaapi | grep intra_refresh
+  ```
+
+## Auslieferung
+
+Der Patch muss **mitgeliefert** werden, sonst haben Nutzer auf AMD und Intel
+kein Intra-Refresh, egal was der Sidecar kann — er bricht den Start dann ab
+(`encode/opts.rs::intra_refresh_pruefen`), statt still Keyframes zu fahren.
+
+* **Entwicklung:** `scripts/hq-bauen.sh`, s.o. Steht.
+* **Linux-Auslieferung:** das Flatpak baut sein FFmpeg ohnehin selbst
+  (`packaging/com.howispulse.Pulse.yml`, Modul `ffmpeg`, Tag `n8.1.1`) — der
+  Patch kommt dort als weitere `type: patch`-Quelle dazu, wie die drei
+  GSR-Patches. Gegen `n8.1.1` geprüft: greift sauber.
+* **Upstream einreichen** bleibt wünschenswert (spart die Pflege), ist aber
+  kein Ersatz: es gibt keine Zusage und keinen Termin, und Bestandssysteme
+  hätten ihn erst mit dem nächsten Distributions-FFmpeg.
+
+Windows und macOS brauchen den Patch **nicht** — dort läuft AMD über
+`*_d3d12va` bzw. steht der Fall noch offen. Siehe
+`streaming/hq-labor/UEBERGABE-WINDOWS-MACOS.md`.

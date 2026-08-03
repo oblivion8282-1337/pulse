@@ -60,7 +60,7 @@ VARIANTEN: list[tuple[str, list[str]]] = [
 # Die Grundeinstellungen kommen aus `vmaf_common.encode_cmd` (rc_mode=CBR,
 # async_depth=1), also aus `encode/opts.rs`.
 #
-# `intra_refresh` gibt es nur mit dem Patch aus `hq-labor/ffmpeg-patches/`;
+# `intra_refresh` gibt es nur mit dem Patch aus `streaming/ffmpeg-patches/`;
 # ohne ihn bricht ffmpeg mit "Option not found" ab — laut und richtig, statt
 # still einen Keyframe-Lauf unter diesem Namen zu messen.
 VARIANTEN_VAAPI: list[tuple[str, list[str]]] = [

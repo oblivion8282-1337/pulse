@@ -203,6 +203,27 @@ export function tenBitPossible(): boolean {
   );
 }
 
+/**
+ * Rollender Intra-Refresh — Wunsch UND Erfüllbarkeit?
+ *
+ * Wie [`tenBitPossible`], und aus demselben Grund EINE Definition: der Wert
+ * entscheidet an drei Stellen dasselbe — die Sidecar-Argumente
+ * (`buildStartArgs`), den Push-Weg (`pushProtokoll`, Intra-Refresh braucht den
+ * WHIP-Rückkanal) und den Auto-Neustart. Liefen die auseinander, entstünde
+ * genau die Kombination, die am 2026-08-03 ein schwarzes Bild erzeugt hat:
+ * Intra-Refresh-Strom über RTMPS, also ohne den Rückkanal, über den ein
+ * beitretender Zuschauer sein erstes Vollbild anfordern könnte.
+ *
+ * **`stream.intraRefreshAvailable` gehört zwingend dazu**, obwohl das Kästchen
+ * bereits danach gated ist. Die Einstellung wird persistiert und wandert damit
+ * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
+ * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
+ * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
+ */
+export function intraRefreshPossible(): boolean {
+  return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
+}
+
 // ── Reactive state ──────────────────────────────────────────────────────────
 
 export const streamSettings = $state({
@@ -434,6 +455,16 @@ export async function loadCatalogs(): Promise<void> {
         streamSettings.overrides.codec ?? 'h264',
       );
     }
+    // Und dieselbe Rücknahme für Intra-Refresh. Die Einstellungen wandern mit
+    // dem Konto zwischen Rechnern: ein auf NVIDIA gesetzter Haken läge sonst
+    // auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter in den gespeicherten
+    // Werten — unsichtbar, weil das Kästchen dort gar nicht erscheint.
+    // `intraRefreshPossible()` fängt das beim Senden ohnehin ab; hier wird der
+    // tote Wert zusätzlich weggeräumt, damit er nicht dauerhaft mitreist.
+    if (streamSettings.overrides.intra_refresh === true && !intraRefreshPossible()) {
+      const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
     streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
@@ -598,7 +629,7 @@ export interface ChannelStreamArg {
  * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
  */
 export function pushProtokoll(): 'rtmp' | 'whip' {
-  return streamSettings.overrides.intra_refresh === true ? 'whip' : 'rtmp';
+  return intraRefreshPossible() ? 'whip' : 'rtmp';
 }
 
 /**
@@ -671,7 +702,13 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // aber ueber RTMPS, weil `pushProtokoll()` korrekt auf den Standardweg
     // schloss. Dieser Strom hat kaum Vollbilder UND keinen Rueckkanal, ueber
     // den ein Zuschauer eins anfordern koennte: er sieht dauerhaft nichts.
-    if (o.intra_refresh !== undefined) cleaned.intra_refresh = o.intra_refresh;
+    //
+    // Gesendet wird der ERFÜLLBARE Wert, nicht der gespeicherte Wunsch
+    // (`intraRefreshPossible`): ein Haken, den dieses FFmpeg nicht einlösen
+    // kann, würde den Start abbrechen. Die Fallunterscheidung bleibt trotzdem
+    // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
+    // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
+    if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

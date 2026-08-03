@@ -88,6 +88,20 @@ cd $repo_root/streaming/server
 if not test -f mediamtx.yml
     cp mediamtx.yml.template mediamtx.yml
     _warn "mediamtx.yml aus Template erstellt"
+else if not diff -q (grep -vE '^\s*(#|$)' mediamtx.yml.template | psub) \
+                    (grep -vE '^\s*(#|$)' mediamtx.yml | psub) >/dev/null
+    # Die lokale Konfiguration ist gitignored und wird beim ersten Lauf aus der
+    # Vorlage kopiert — danach wandert die Vorlage weiter und die Kopie nicht.
+    # Der Hinweis ist da, weil dieser Drift STILL kaputtgeht: am 2026-08-03 stand
+    # lokal noch `hls: yes`, das die Vorlage längst abgeschaltet hatte. Mit
+    # Intra-Refresh enthält der Strom keine periodischen Vollbilder mehr, der
+    # HLS-Muxer findet keine Segmentgrenze und stürzt im Kreis — sichtbar nur in
+    # `docker logs`, während in der App einfach nichts ankommt.
+    #
+    # Nur Warnung, kein Überschreiben: wer hier absichtlich etwas geändert hat,
+    # soll es nicht wortlos verlieren.
+    _warn "mediamtx.yml weicht von mediamtx.yml.template ab — Unterschiede prüfen:"
+    _warn "  diff streaming/server/mediamtx.yml.template streaming/server/mediamtx.yml"
 end
 docker compose up -d mediamtx >/dev/null 2>&1; or _die "docker compose mediamtx failed"
 cd $repo_root
@@ -219,8 +233,35 @@ set -l rust_sidecar "$repo_root/streaming/linux-hq-sidecar/target/release/pulse-
 if test -x $rust_sidecar
     set gsr_env "$gsr_env PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
     _ok "" "Rust-Linux-Sidecar da (Standard-Aufnahmeweg)"
+
+    # Intra-Refresh braucht auf AMD/Intel ein gepatchtes FFmpeg — VA-API reicht
+    # die Option upstream in KEINER Version durch (streaming/ffmpeg-patches/,
+    # gebaut von scripts/hq-bauen.sh).
+    #
+    # Gefragt wird der SIDECAR SELBST, nicht das Dateisystem: `health` meldet
+    # dieselbe Fähigkeit, an der auch die Oberfläche das Kästchen festmacht.
+    # Damit können Dev-Hinweis und App nicht auseinanderlaufen — eine Prüfung,
+    # die stattdessen den Bibliothekspfad des Binaries ansieht, beantwortet nur
+    # eine Näherung derselben Frage.
+    set -l health (echo '{"op":"health","id":1}' | timeout 30 $rust_sidecar 2>/dev/null)
+    if string match -q '*"intra_refresh":true*' -- $health
+        _ok "" "Intra-Refresh verfügbar (Sidecar reicht die Betriebsart durch)"
+    else
+        _info "Intra-Refresh nicht verfügbar — auf AMD/Intel fehlt das gepatchte FFmpeg. Bauen: scripts/hq-bauen.sh"
+    end
 else
     _info "Rust-Linux-Sidecar nicht gebaut — Dev nutzt den GSR-Fallback"
+end
+
+# Nativer Player. Electron findet ihn in Dev von selbst (Aufwärtssuche nach
+# streaming/pulse-player/target/release/), deshalb hier kein Env — nur der
+# Hinweis, wenn er fehlt: ohne ihn bleibt "im eigenen Fenster ansehen" aus, und
+# AV1 10 bit ist für Zuschauer gar nicht wählbar.
+set -l player_bin "$repo_root/streaming/pulse-player/target/release/pulse-player"
+if test -x $player_bin
+    _ok "" "Nativer Player da (eigenes Zuschauer-Fenster wählbar)"
+else
+    _info "Nativer Player nicht gebaut — Zuschauen läuft über den Browser-Weg. Bauen: scripts/hq-bauen.sh"
 end
 
 _info "Electron starten (→ localhost:5173)"

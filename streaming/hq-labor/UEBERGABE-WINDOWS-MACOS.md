@@ -20,7 +20,7 @@ Geprüft im FFmpeg-8.1.2-Quellbaum:
 | `av1_amf`, `hevc_amf` | **nein** | — |
 | `hevc_qsv` | ja | `-int_ref_type` / `-int_ref_cycle_size` |
 | `h264_qsv`, `av1_qsv` | **nein** | — |
-| `*_vaapi` | **nein upstream** | unser Patch, `hq-labor/ffmpeg-patches/` |
+| `*_vaapi` | **nein upstream** | unser Patch, `streaming/ffmpeg-patches/` |
 | `*_videotoolbox` | **nein, gar nichts** | — |
 
 ## Windows — die gute Nachricht

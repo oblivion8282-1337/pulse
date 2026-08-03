@@ -51,6 +51,11 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         // Farbkanal encodieren (impliziert AV1)? Ältere Sidecars melden es
         // nicht — Konsumenten müssen `undefined` als false lesen.
         "ten_bit": caps.ten_bit,
+        // Zusatzfeld wie `ten_bit`: reicht das gelinkte FFmpeg rollenden
+        // Intra-Refresh durch? Auf VAAPI nur mit unserem Patch — ohne ihn
+        // verweigert der Encoder-Open den Start. Ältere Sidecars melden das
+        // Feld nicht; Konsumenten müssen `undefined` als false lesen.
+        "intra_refresh": caps.intra_refresh,
         // Das Portal verhandelt Monitor ODER Window (`SourceType` in
         // portal.rs) — "region" hier zu bewerben hieße, einen Modus zu
         // versprechen, der still als Monitor/Window-Dialog endet.

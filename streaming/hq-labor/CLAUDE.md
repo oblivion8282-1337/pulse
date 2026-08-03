@@ -62,7 +62,7 @@ Zusammen: bei 5 Prozent Verlust derselbe Aufschlag wie vorher (36,5 gegen
    HEVC, und Mesa programmiert ihn bis in den VCN-Kommandostrom. Im Weg stand
    allein FFmpeg, das die VA-API-Schnittstelle in **keiner** Version
    durchreicht (auch nicht in `master`). Patch dafür:
-   `hq-labor/ffmpeg-patches/`, Beweiskette in
+   `streaming/ffmpeg-patches/`, Beweiskette in
    `testbench/profiles/amd-2026-08-01-intra-refresh.json`. `h264_amf` und der
    Verzicht auf AV1 auf AMD sind damit vom Tisch.
    **Was daran offen bleibt: die Auslieferung** — Sidecar und Labor linken
@@ -303,7 +303,7 @@ gleichmäßig — die Bündelung entsteht dahinter.
 
 - [x] **AMD: kann die Hardware Intra-Refresh?** JA (2026-08-01, Radeon 780M).
       Die Sperre war FFmpeg, nicht die Hardware — Patch liegt in
-      `hq-labor/ffmpeg-patches/`, der Sidecar setzt die richtige Option je
+      `streaming/ffmpeg-patches/`, der Sidecar setzt die richtige Option je
       Vendor über `PULSE_INTRA_REFRESH=1` und **bricht ab**, wenn sein FFmpeg
       sie nicht kennt (statt still Keyframes zu fahren).
 - [x] **AMD messen** — gemessen 2026-08-01, Messakte

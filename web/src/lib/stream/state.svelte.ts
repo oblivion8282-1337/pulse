@@ -60,6 +60,11 @@ export const stream = $state({
    *  Nur der Linux-Rust-Sidecar meldet das Feld — fehlt es, bleibt es false,
    *  und die 10-bit-Einstellung wird gar nicht angeboten. */
   tenBitAvailable: false,
+  /** True iff das FFmpeg des Sidecars rollenden Intra-Refresh durchreicht
+   *  (`gsr.intra_refresh`). Ohne das verweigert der Encoder-Open den Start —
+   *  der Schalter wird deshalb gar nicht erst angeboten, statt eine
+   *  Fehlermeldung zu produzieren. Fehlt das Feld, bleibt es false. */
+  intraRefreshAvailable: false,
   ...freshSession(),
 });
 
@@ -175,11 +180,13 @@ export async function initStream(): Promise<() => void> {
       if (!h.ok) stream.error = 'sidecar health probe failed';
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
+      stream.intraRefreshAvailable = !!h.gsr?.intra_refresh;
     }
   } catch (e) {
     stream.available = false;
     stream.gsrAvailable = false;
     stream.tenBitAvailable = false;
+    stream.intraRefreshAvailable = false;
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.
     initialised = false;

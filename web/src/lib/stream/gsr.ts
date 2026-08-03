@@ -40,6 +40,12 @@ export interface GsrHealth {
      *  Sidecar meldet das Feld (NVENC + AV1); Python/Windows/macOS lassen es
      *  weg → `undefined` heißt "nein", nie "unbekannt, probier's mal". */
     ten_bit?: boolean;
+    /** Reicht das FFmpeg des Sidecars rollenden Intra-Refresh durch? Das ist
+     *  eine Frage an FFmpeg, nicht an die Karte: auf NVENC ist die Option
+     *  upstream, auf VAAPI (AMD/Intel) gibt es sie in KEINER FFmpeg-Version —
+     *  dort braucht es den Patch aus `streaming/ffmpeg-patches/`. Fehlt das
+     *  Feld (ältere Sidecars, Windows, macOS), heißt das "nein". */
+    intra_refresh?: boolean;
   };
 }
 
