@@ -29,11 +29,15 @@
 //! **Zwei Bildspuren, je nach Codec.** H.264 laesst webrtc-rs paketieren. AV1
 //! nicht: dessen `Av1Payloader` schreibt Laengenfelder ab 128 falsch (Nachweis
 //! und Zahlen in [`av1`]). Dafuer gibt es einen eigenen Paketierer, und die
-//! Spur ist dann eine `TrackLocalStaticRTP` — Reihenfolge, Zeitstempel und
-//! Marker-Bit setzt dieser Weg selbst.
+//! Spur ist dann eine `TrackLocalStaticRTP` — Reihenfolge, Marker-Bit und
+//! Zeitstempel setzt dieser Weg selbst. Der WERT des Zeitstempels kommt dabei
+//! aus dem `pts`, den der Encoder mitgibt, nicht aus einem eigenen Zaehler
+//! (Begruendung an `av1::Av1Zustand::zeitstempel`).
 
 pub mod av1;
 mod pacer;
+
+use av1::Av1Zustand;
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -84,7 +88,7 @@ fn codec_capability(codec: &str) -> Result<RTCRtpCodecCapability> {
     match codec {
         "h264" => Ok(RTCRtpCodecCapability {
             mime_type: MIME_TYPE_H264.to_owned(),
-            clock_rate: 90000,
+            clock_rate: av1::RTP_TAKT_HZ,
             // `packetization-mode=1` ist Pflicht fuer fragmentierte NAL-Units;
             // `profile-level-id` nennt Baseline 3.1 — die Fassung, auf die sich
             // Browser und MediaMTX ohne Nachfrage einigen.
@@ -98,7 +102,7 @@ fn codec_capability(codec: &str) -> Result<RTCRtpCodecCapability> {
         // die Spur beim Binden ihren Codec nicht.
         "av1" => Ok(RTCRtpCodecCapability {
             mime_type: MIME_TYPE_AV1.to_owned(),
-            clock_rate: 90000,
+            clock_rate: av1::RTP_TAKT_HZ,
             sdp_fmtp_line: "profile-id=0".to_owned(),
             ..Default::default()
         }),
@@ -132,46 +136,6 @@ fn write_to_track(track: &TrackLocalStaticSample, data: &[u8], dauer: Duration) 
     runtime().block_on(track.write_sample(&sample)).map_err(Into::into)
 }
 
-/// Fortlaufender Zustand des eigenen AV1-Paketierers.
-///
-/// Beides gehoert hierher und nicht in den Encode-Faden: `TrackLocalStaticRTP`
-/// vergibt weder Sequenznummern noch Zeitstempel — es ueberschreibt nur SSRC
-/// und Payload-Typ je Bindung.
-struct Av1Zustand {
-    seq: u16,
-    /// Bilder seit Beginn. Der Zeitstempel wird daraus JEDES MAL neu gerechnet
-    /// (`bilder * 90000 / fps`) statt aufaddiert: bei 280 fps sind 90000/fps
-    /// keine ganze Zahl, und ein aufaddierter Schritt liefe um rund eine
-    /// Millisekunde je Sekunde davon.
-    bilder: u64,
-    fps: u32,
-}
-
-impl Av1Zustand {
-    fn neu(fps: u32) -> Self {
-        // Zufaelliger Startpunkt fuer die Sequenznummern, wie es auch
-        // webrtc-rs' eigener Zaehler macht. Die Uhr reicht dafuer — eine
-        // Zufallsquelle waere hier eine Abhaengigkeit fuer nichts.
-        let seq = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos() as u16);
-        Self { seq, bilder: 0, fps }
-    }
-
-    /// Zeitstempel DIESES Bildes; zaehlt den Bildzaehler danach weiter.
-    fn zeitstempel_und_weiter(&mut self) -> u32 {
-        let ts = (self.bilder * 90_000 / u64::from(self.fps)) as u32;
-        self.bilder += 1;
-        ts
-    }
-
-    /// Sequenznummer fuer das naechste Paket; laeuft bei 65535 ueber.
-    fn naechste_seq(&mut self) -> u16 {
-        let seq = self.seq;
-        self.seq = self.seq.wrapping_add(1);
-        seq
-    }
-}
 
 /// Wie die Bild-Pakete auf die Leitung kommen.
 enum Bildspur {
@@ -415,8 +379,15 @@ impl WhipSender {
     }
 
     /// Ein encodiertes Bild senden.
-    pub fn send(&self, data: &[u8]) -> Result<()> {
+    ///
+    /// `pts` ist der Zeitstempel des Encoder-Pakets in der ENCODER-Zeitbasis
+    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten. Der
+    /// AV1-Weg rechnet ihn selbst um (`av1::Av1Zustand::zeitstempel`); der
+    /// H.264-Weg ignoriert ihn, dort stempelt webrtc-rs aus der Bilddauer.
+    pub fn send(&self, data: &[u8], pts: Option<i64>) -> Result<()> {
         match &self.track {
+            // H.264: webrtc-rs stempelt selbst aus der Bilddauer, `pts` bleibt
+            // hier ungenutzt.
             Bildspur::Fremd(t) => {
                 write_to_track(t, data, self.frame_duration).context("write_sample")
             }
@@ -424,7 +395,7 @@ impl WhipSender {
                 let pakete: Vec<Packet> = {
                     let mut z = zustand.lock().expect("AV1-Zustand vergiftet");
                     // Alle Pakete eines Bildes tragen denselben Zeitstempel.
-                    let ts = z.zeitstempel_und_weiter();
+                    let ts = z.zeitstempel(pts);
                     av1::paketiere(data, av1::MTU)?
                         .into_iter()
                         .map(|p| Packet {

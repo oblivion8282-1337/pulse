@@ -29,6 +29,12 @@ use anyhow::{Result, bail};
 /// den webrtc-rs fuer seine eigenen Paketierer nimmt.
 pub const MTU: usize = 1200;
 
+/// Takt der RTP-Uhr fuer Video. Steht hier und nicht zweimal ausgeschrieben,
+/// weil derselbe Wert im SDP als `clock_rate` angemeldet wird — laufen die
+/// beiden auseinander, rechnet der Empfaenger die Zeitstempel falsch um, ohne
+/// dass irgendetwas scheitert.
+pub const RTP_TAKT_HZ: u32 = 90_000;
+
 /// Groesser als drei Elemente je Paket bringt nichts: `W` ist zwei Bit breit,
 /// darueber muss `W=0` gesetzt und JEDES Element mit Laengenfeld versehen
 /// werden. Ein Zeitabschnitt besteht ohnehin aus zwei bis drei OBUs
@@ -339,6 +345,69 @@ fn baue(
     Nutzlast { daten, letztes: false }
 }
 
+/// Fortlaufender Zustand des eigenen AV1-Paketierers.
+///
+/// Beides gehoert hierher und nicht in den Encode-Faden: `TrackLocalStaticRTP`
+/// vergibt weder Sequenznummern noch Zeitstempel — es ueberschreibt nur SSRC
+/// und Payload-Typ je Bindung.
+pub(super) struct Av1Zustand {
+    seq: u16,
+    /// Ersatz-Takt, falls ein Encoder-Paket ausnahmsweise KEINEN `pts` traegt.
+    /// Zaehlt dann dort weiter, wo der letzte Zeitstempel lag — sonst laegen
+    /// zwei Bilder auf derselben Uhrzeit.
+    ersatz_takt: u64,
+    fps: u32,
+}
+
+impl Av1Zustand {
+    pub(super) fn neu(fps: u32) -> Self {
+        // Zufaelliger Startpunkt fuer die Sequenznummern, wie es auch
+        // webrtc-rs' eigener Zaehler macht. Die Uhr reicht dafuer — eine
+        // Zufallsquelle waere hier eine Abhaengigkeit fuer nichts.
+        let seq = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos() as u16);
+        Self { seq, ersatz_takt: 0, fps }
+    }
+
+    /// RTP-Zeitstempel DIESES Bildes, aus dem `pts` des Encoder-Pakets.
+    ///
+    /// **Hier stand bis 2026-08-03 ein reiner Bildzaehler** (`bilder * 90000 /
+    /// fps`, danach `bilder += 1`) — und das war falsch, sobald ein Bild
+    /// wegfiel. Der Pacing-Loop leitet den echten `pts` aus `record_start` ab
+    /// und protokolliert selbst, dass er springt und klemmt
+    /// (`stream_controller.rs`, `pts_gaps`/`pts_clamps`); dazu verwirft
+    /// `send_hw` bei anhaltendem EAGAIN ganze Bilder. Jedes so verlorene Bild
+    /// liess den Zaehler hinter der Wanduhr zurueckfallen, waehrend die
+    /// Tonspur mit echten Opus-Dauern weiterlief: wachsende Bild-Ton-
+    /// Verschiebung und ein Jitter-Puffer, der beim Zuschauer immer weiter
+    /// auflaeuft. Auf einer iGPU bei 1440p60 — also genau dort, wo der Encoder
+    /// die Bildrate nicht immer haelt — faellt das sofort auf.
+    ///
+    /// Der `pts` liegt in der Encoder-Zeitbasis 1/fps, ein Takt ist also ein
+    /// Bildabstand. Gerechnet wird JEDES MAL neu statt aufaddiert: bei 280 fps
+    /// sind 90000/fps keine ganze Zahl, und ein aufaddierter Schritt liefe um
+    /// rund eine Millisekunde je Sekunde davon.
+    ///
+    /// `as u32` schneidet oben ab — genau das erwartet RFC 3550 von einer
+    /// RTP-Uhr (sie laeuft ueber und faengt von vorn an).
+    pub(super) fn zeitstempel(&mut self, pts: Option<i64>) -> u32 {
+        let takt = match pts {
+            Some(p) if p >= 0 => p as u64,
+            _ => self.ersatz_takt,
+        };
+        self.ersatz_takt = takt + 1;
+        (takt * u64::from(RTP_TAKT_HZ) / u64::from(self.fps)) as u32
+    }
+
+    /// Sequenznummer fuer das naechste Paket; laeuft bei 65535 ueber.
+    pub(super) fn naechste_seq(&mut self) -> u16 {
+        let seq = self.seq;
+        self.seq = self.seq.wrapping_add(1);
+        seq
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,5 +706,48 @@ mod tests {
         let obus = zerlege(&tu).unwrap();
         assert_eq!(obus.len(), 2);
         assert_eq!(obus[1].rumpf, &[1, 2, 3, 4]);
+    }
+}
+
+#[cfg(test)]
+mod zeitstempel_tests {
+    use super::Av1Zustand;
+
+    /// Der Kern der Sache: ein AUSGELASSENES Bild darf die Uhr nicht
+    /// verschieben. Genau das konnte der frühere Bildzähler nicht — er hätte
+    /// hier 3000 geliefert, also 40 ms zu früh, und wäre bei jedem weiteren
+    /// verworfenen Bild weiter zurückgefallen.
+    #[test]
+    fn ausgelassene_bilder_verschieben_die_uhr_nicht() {
+        let mut z = Av1Zustand::neu(60);
+        assert_eq!(z.zeitstempel(Some(0)), 0);
+        assert_eq!(z.zeitstempel(Some(1)), 1_500, "ein Bildabstand bei 60 fps");
+        // Bilder 2, 3, 4 sind im Encoder verworfen worden.
+        assert_eq!(z.zeitstempel(Some(5)), 7_500, "5 * 1500 — nicht 3000");
+    }
+
+    /// Ohne `pts` läuft der Ersatz-Takt weiter, statt zwei Bilder auf dieselbe
+    /// Uhrzeit zu legen.
+    #[test]
+    fn fehlender_pts_faellt_auf_den_ersatz_takt_zurueck() {
+        let mut z = Av1Zustand::neu(60);
+        assert_eq!(z.zeitstempel(Some(10)), 15_000);
+        assert_eq!(z.zeitstempel(None), 16_500, "weiter bei Takt 11");
+        assert_eq!(z.zeitstempel(None), 18_000, "und bei 12");
+        // Kommt der pts zurück, gilt wieder er.
+        assert_eq!(z.zeitstempel(Some(20)), 30_000);
+    }
+
+    /// Jedes Mal neu gerechnet statt aufaddiert — sonst liefe die Uhr bei
+    /// krummen Bildraten davon (90000/280 ist keine ganze Zahl).
+    #[test]
+    fn krumme_bildrate_laeuft_nicht_davon() {
+        let mut z = Av1Zustand::neu(280);
+        // Ein aufaddierter Schritt waere 321 (90000/280 abgerundet) und laege
+        // nach einer Sekunde bei 89880 statt 90000 — 1,3 ms zu frueh, und das
+        // je Sekunde erneut.
+        assert_eq!(z.zeitstempel(Some(1)), 321);
+        assert_eq!(z.zeitstempel(Some(140)), 45_000, "eine halbe Sekunde");
+        assert_eq!(z.zeitstempel(Some(280)), 90_000, "genau eine Sekunde");
     }
 }

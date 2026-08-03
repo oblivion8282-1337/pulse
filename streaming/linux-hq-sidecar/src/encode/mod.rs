@@ -501,12 +501,19 @@ impl VideoEncoder {
                     m.send(packet)?;
                 }
                 // Kein Umrechnen und kein Stream-Index: der Sende-Track nimmt
-                // die rohen Bytes und die Bilddauer. Die Zeitstempel setzt
-                // webrtc-rs selbst aus der RTP-Uhr — ein umgerechneter pts
-                // waere hier nicht nur nutzlos, sondern irrefuehrend.
+                // die rohen Bytes.
+                //
+                // Der `pts` geht MIT — in der Encoder-Zeitbasis, der Track
+                // rechnet ihn selbst auf die 90-kHz-RTP-Uhr um. Hier stand bis
+                // 2026-08-03, webrtc-rs setze die Zeitstempel ohnehin selbst;
+                // das gilt aber nur fuer H.264 (`TrackLocalStaticSample`). Der
+                // AV1-Weg laeuft ueber `TrackLocalStaticRTP`, und der stempelt
+                // NICHT — dort zaehlte stattdessen ein Bildzaehler, der bei
+                // jedem ausgelassenen Bild hinter der Wanduhr zurueckfiel.
+                // Begruendung in `whip::Av1Zustand::zeitstempel`.
                 Ausgabe::Whip(w) => {
                     if let Some(daten) = packet.data() {
-                        w.send(daten)?;
+                        w.send(daten, packet.pts())?;
                     }
                 }
             }
