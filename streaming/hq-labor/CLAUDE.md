@@ -297,6 +297,57 @@ in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
 13,2–13,5 Lücken/s, größte Lücke 36 ms). Der Referenzsender schickt
 gleichmäßig — die Bündelung entsteht dahinter.
 
+## Stand 2026-08-04 — was auf `feat/intra-refresh-produktion` fehlt
+
+Die Labor-Fragen sind beantwortet; was hier steht, ist der Weg von „lauffaehig
+im Dev-Stack" nach „ausgeliefert". Der Abschnitt darunter (Stand 2026-07-31)
+bleibt als Historie stehen.
+
+**Erledigt seit dem 2026-08-03** (Details in den Commits, hier nur als Landkarte):
+Auslieferung des VAAPI-Patches (`streaming/ffmpeg-patches/` + `scripts/hq-bauen.sh`
++ Flatpak-Modul), `health.gsr.intra_refresh` und das daran gattierte Kaestchen,
+der **Fuell-OBU-Filter** (99,6 % des AMD-Bitstroms waren Fuellbytes), die
+**RTP-Zeitstempel aus dem echten pts** statt aus einem Bildzaehler, die
+Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
+`pulse-player`-Modul im Flatpak.
+
+**Blockierend fuer den Flatpak-Sichttest — das Flatpak redet NUR mit der Produktion:**
+
+- [ ] **`infra/prod/docker-compose.yml` pinnt noch `pulse-mediamtx:1.19.1-pulse`.**
+      Das ist der Stand mit NUR Patch 0001. Gebraucht wird ein Image mit 0002-0005
+      (Vollbild-Rueckweg, abschaltbarer Keyframe-Takt, FlexFEC) — lokal existiert
+      es als `pulse-mediamtx:1.19.1-pulse2`, in der Registry noch nicht. **Fehler
+      auf dem Branch**, nicht bloss eine offene Aufgabe.
+- [ ] **Die Produktion kennt `protocol=whip` nicht.** `media-svc` und
+      `chat-gateway` haben das Feld auf `^rtmp$` festgenagelt; ein WHIP-Token
+      endet mit 422. Intra-Refresh ist damit ueber die Produktion nicht startbar.
+- [ ] **Die Player-Oberflaeche ist Branch-only.** `web/src/lib/player/**` und das
+      Intra-Refresh-Kaestchen gibt es auf `main` nicht — in der ausgelieferten
+      App fehlen die Knoepfe schlicht. Und `PULSE_DEV_URL` wird in verpackten
+      Builds bewusst ignoriert (Sicherheitsentscheidung), es gibt also keine
+      Abkuerzung ueber den Dev-Stack.
+- [ ] **Kein `changelog.json`-Eintrag** fuer den ganzen Branch.
+
+**Gemessen, aber noch nicht verfolgt:**
+
+- [ ] **`av1_vaapi` haengt bei 50 Mbit/s den VCN-Ring auf** (`ring vcn_unified_0
+      timeout`, `device wedged`), bei 720p wie 1440p, mit System- und mit
+      gepatchtem FFmpeg. 8 Mbit/s laeuft sauber. Relevant, sobald die
+      Bitraten-Obergrenze fuer grosse Aufloesungen hochgeht — die Vorgabe steht
+      bei 10 Mbit/s, per Admin bis 100 anhebbar.
+- [ ] **Der 8K-Codec-Wechsel ist gebaut, aber nie auf 8K-Hardware gelaufen.**
+      Belegt ist nur die Grundlage: `h264_vaapi` scheitert bei 7680x4320,
+      `av1_vaapi` traegt es.
+- [ ] **Die H.264-WHIP-Aushandlung mit der neuen Fassungsangabe** (High statt
+      Baseline) ist nicht live gelaufen. Ein Empfaenger koennte strenger
+      reagieren; das saehe man sofort, der Stream kaeme nicht zustande.
+- [ ] **10-bit-AV1 im Browser gibt GAR KEIN Bild** (Chromiums dav1d lehnt
+      `bpc != 8` ab), und das SDP kuendigt die Bittiefe nicht an, der Browser
+      kann also nicht ablehnen. Produktentscheidung offen.
+- [ ] **GPU-Reset beim Senden UND Hardware-Dekodieren auf derselben APU.**
+      Bekannte Grenze (`vcn_unified_0` teilt sich Encode und Decode);
+      `PULSE_PLAYER_HWDEC=0` ist der Ausweg fuer den Test auf einem Rechner.
+
 ## Offene Punkte (Stand 2026-07-31, Nacht)
 
 **Blockierend — davor lohnt nichts anderes:**
