@@ -368,7 +368,7 @@ impl VideoEncoder {
         // Erst NACH dem Oeffnen der Encoder verbinden: schlaegt einer von ihnen
         // fehl, waere eine offene Sitzung beim Server ein Karteileichen-Pfad,
         // den erst ein Zeitablauf aufraeumt.
-        let sender = WhipSender::connect(url, &cfg.codec, cfg.fps)
+        let sender = WhipSender::connect(url, &cfg.codec, cfg.fps, cfg.width, cfg.height)
             .with_context(|| format!("WHIP-Aufbau zu {}", redact_url(url)))?;
 
         let tb = Rational::new(1, cfg.fps as i32);
@@ -788,7 +788,16 @@ fn take_keyframe_request(fps: u32) -> bool {
     true
 }
 
-/// Probe-Auflösung: klein, aber über AV1-Mindestmaßen/Alignment.
+/// Probe-Auflösung für die Codec-Liste: klein, aber über
+/// AV1-Mindestmaßen/Alignment.
+///
+/// **Sie beantwortet „kann diese Karte den Codec", nicht „bis wohin".** Das ist
+/// für die Codec-Liste richtig (die steht, bevor der Wayland-Dialog die Quelle
+/// festlegt), reicht aber nicht für den Start: `h264_vaapi` öffnet auf einer
+/// Radeon 780M bei 4K und scheitert bei 8K mit `Invalid argument`, während
+/// `av1_vaapi` beides trägt (gemessen 2026-08-03). Der Startpfad probt deshalb
+/// ein zweites Mal mit der ECHTEN Auflösung — s.
+/// `stream_controller::codec_fuer_aufloesung`.
 const PROBE_W: u32 = 1280;
 const PROBE_H: u32 = 720;
 
@@ -815,6 +824,22 @@ pub fn probe_encoder(
     codec_id: &str,
     ten_bit: bool,
 ) -> Result<bool> {
+    probe_encoder_at(vendor, render_node, codec_id, ten_bit, PROBE_W, PROBE_H)
+}
+
+/// Wie [`probe_encoder`], aber bei einer VORGEGEBENEN Bildgroesse.
+///
+/// Gebraucht vom Startpfad: „kann die Karte den Codec" (720p) und „kann sie ihn
+/// auch bei DIESER Groesse" sind verschiedene Fragen, und die Antworten weichen
+/// ab — s. `caps::codec_fuer_aufloesung`.
+pub fn probe_encoder_at(
+    vendor: Vendor,
+    render_node: &str,
+    codec_id: &str,
+    ten_bit: bool,
+    breite: u32,
+    hoehe: u32,
+) -> Result<bool> {
     let Some(name) = opts::encoder_name(vendor, codec_id) else {
         return Ok(false);
     };
@@ -834,7 +859,7 @@ pub fn probe_encoder(
         }
         Vendor::Amd | Vendor::Intel => (Some(render_node), AVPixelFormat::AV_PIX_FMT_NV12),
     };
-    let hwctx = HwContext::create(kind, dev_arg, PROBE_W, PROBE_H, sw)?;
+    let hwctx = HwContext::create(kind, dev_arg, breite, hoehe, sw)?;
 
     // FFmpeg-Logs während der Probe dämpfen — ein fehlgeschlagener open loggt
     // sonst laute AV_LOG_ERROR-Zeilen in die sidecar.log, obwohl "geht nicht"
@@ -852,7 +877,7 @@ pub fn probe_encoder(
     if quiet {
         unsafe { av_log_set_level(AV_LOG_FATAL) };
     }
-    let ok = probe_open(desc, &hwctx, vendor, codec_id);
+    let ok = probe_open(desc, &hwctx, vendor, codec_id, breite, hoehe);
     if quiet {
         unsafe { av_log_set_level(prev) };
     }
@@ -861,15 +886,22 @@ pub fn probe_encoder(
 
 /// Encoder-Context bauen, Frames-Pool binden, `open` versuchen. Kein Muxer,
 /// kein Output — nur der Fähigkeits-Test.
-fn probe_open(desc: ffmpeg::Codec, hwctx: &HwContext, vendor: Vendor, codec: &str) -> bool {
+fn probe_open(
+    desc: ffmpeg::Codec,
+    hwctx: &HwContext,
+    vendor: Vendor,
+    codec: &str,
+    breite: u32,
+    hoehe: u32,
+) -> bool {
     let Ok(mut enc) = codec::context::Context::new_with_codec(desc)
         .encoder()
         .video()
     else {
         return false;
     };
-    enc.set_width(PROBE_W);
-    enc.set_height(PROBE_H);
+    enc.set_width(breite);
+    enc.set_height(hoehe);
     enc.set_format(hwctx.ffmpeg_pixel());
     enc.set_time_base(Rational::new(1, 30));
     enc.set_frame_rate(Some(Rational::new(30, 1)));

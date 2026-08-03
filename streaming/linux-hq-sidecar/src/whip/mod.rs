@@ -36,6 +36,7 @@
 
 pub mod av1;
 mod pacer;
+mod sdp;
 
 use av1::Av1Zustand;
 
@@ -48,7 +49,7 @@ use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use tokio::runtime::Runtime;
 use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1, MIME_TYPE_H264, MIME_TYPE_OPUS};
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1};
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
@@ -81,48 +82,6 @@ fn runtime() -> &'static Runtime {
             .build()
             .expect("whip tokio runtime bauen")
     })
-}
-
-/// Fassung fuer den Codec, wie sie im Angebot steht.
-fn codec_capability(codec: &str) -> Result<RTCRtpCodecCapability> {
-    match codec {
-        "h264" => Ok(RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_H264.to_owned(),
-            clock_rate: av1::RTP_TAKT_HZ,
-            // `packetization-mode=1` ist Pflicht fuer fragmentierte NAL-Units;
-            // `profile-level-id` nennt Baseline 3.1 — die Fassung, auf die sich
-            // Browser und MediaMTX ohne Nachfrage einigen.
-            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;\
-                            profile-level-id=42e01f"
-                .to_owned(),
-            ..Default::default()
-        }),
-        // `profile-id=0` muss dastehen, weil die Fassung Wort fuer Wort zu der
-        // passen muss, die `register_default_codecs` anmeldet — sonst findet
-        // die Spur beim Binden ihren Codec nicht.
-        "av1" => Ok(RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_AV1.to_owned(),
-            clock_rate: av1::RTP_TAKT_HZ,
-            sdp_fmtp_line: "profile-id=0".to_owned(),
-            ..Default::default()
-        }),
-        andere => bail!("WHIP: Codec {andere} nicht unterstuetzt"),
-    }
-}
-
-/// Fassung fuer die Tonspur — immer Opus, der Ton-Encoder kennt nichts anderes
-/// (s. [`crate::encode::audio`]).
-fn opus_capability() -> RTCRtpCodecCapability {
-    RTCRtpCodecCapability {
-        mime_type: MIME_TYPE_OPUS.to_owned(),
-        clock_rate: 48000,
-        channels: 2,
-        // `stereo=1` verlangt, dass der Empfaenger zweikanalig ausgibt; ohne
-        // die Angabe mischt er nach RFC 7587 auf mono. Dieselbe Falle wie im
-        // Browser-Client (s. `whep.ts`).
-        sdp_fmtp_line: "minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1".to_owned(),
-        ..Default::default()
-    }
 }
 
 /// Ein Sample auf eine Spur schreiben. Wird aus dem synchronen Encode-Faden
@@ -185,8 +144,8 @@ pub struct WhipSender {
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
-    pub fn connect(url: &str, codec: &str, fps: u32) -> Result<Self> {
-        let cap = codec_capability(codec)?;
+    pub fn connect(url: &str, codec: &str, fps: u32, breite: u32, hoehe: u32) -> Result<Self> {
+        let cap = sdp::codec_capability(codec, breite, hoehe, fps)?;
         let fps = fps.max(1);
         runtime().block_on(async move { Self::connect_async(url, cap, fps).await })
     }
@@ -245,7 +204,7 @@ impl WhipSender {
         // und stumme Spur kostet dagegen nichts — anders als beim Muxer, wo ein
         // angekuendigter, aber stummer Strom den Interleaver puffern liesse.
         let audio = Arc::new(TrackLocalStaticSample::new(
-            opus_capability(),
+            sdp::opus_capability(),
             "audio".to_owned(),
             "pulse-hq".to_owned(),
         ));

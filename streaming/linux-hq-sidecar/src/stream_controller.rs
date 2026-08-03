@@ -719,12 +719,28 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     // unterblieb (`create_with_audio` setzt sie nur im 10-bit-Zweig). Der
     // Player bekam dadurch `range=Unspecified space=Unspecified` und musste
     // raten.
-    let ten_bit = params.ten_bit;
+    // Traegt der gewuenschte Codec DIESE Aufloesung? Die Codec-Liste wurde bei
+    // 720p erhoben, und das ist eine andere Frage (s. `caps::probe`).
+    let codec =
+        crate::caps::codec_fuer_aufloesung(vendor, &node, &params.codec, params.ten_bit, out_w, out_h);
+    if codec != params.codec {
+        emit(Event::Log {
+            line: format!(
+                "[stream] {} traegt {out_w}x{out_h} auf dieser Karte nicht — weiter mit {codec}",
+                params.codec
+            ),
+        });
+    }
+    // 10 bit ist an AV1 gebunden. Faellt der Codec gerade auf H.264 zurueck,
+    // muss die Bittiefe mitfallen — sonst stuende sie im Encoder-Config, waehrend
+    // der Codec sie nicht traegt.
+    let ten_bit = params.ten_bit && codec == "av1";
     emit(Event::Log {
         line: format!(
-            "[stream] Encode-Pfad: {} auf {} ({} bit)",
+            "[stream] Encode-Pfad: {} auf {} ({}, {} bit)",
             if matches!(vendor, Vendor::Nvidia) { "NVENC" } else { "VAAPI" },
             display_node(&node),
+            codec,
             if ten_bit { 10 } else { 8 }
         ),
     });
@@ -742,7 +758,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let (hw_pixel, frames_ctx) = importer.encoder_binding();
     let cfg = EncoderConfig {
         vendor,
-        codec: params.codec.clone(),
+        codec,
         fps: params.fps,
         bitrate_kbps: params.bitrate_kbps,
         width: out_w,
