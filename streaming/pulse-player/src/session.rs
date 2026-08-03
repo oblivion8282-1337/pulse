@@ -89,7 +89,8 @@ pub struct SessionStats {
     /// **Gehoert neben `packets_lost` und nicht auf stderr.** Ohne beide
     /// Zahlen in derselben Akte ist nach einer Aenderung an der Paritaet nicht
     /// zu unterscheiden, ob sie gewirkt hat oder ob die Leitung ruhiger war.
-    /// Alle drei bleiben null, solange `PULSE_PLAYER_FLEXFEC` aus ist.
+    /// Alle drei bleiben null, wenn die Paritaet abgeschaltet ist
+    /// (`PULSE_PLAYER_FLEXFEC=0`) oder der Server keine sendet.
     pub fec_repariert: u64,
     pub fec_unreparierbar: u64,
     /// Paritaet, die nichts bewirkt hat — MISST NICHT VERLUST. Was wirklich

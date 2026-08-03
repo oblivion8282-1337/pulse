@@ -21,12 +21,23 @@
 //! Schritts und ist ueberholt: `empfaenger.rs` stellt fehlende Medienpakete
 //! aus der Paritaet wieder her und zaehlt das mit ([`Zaehler`]).
 //!
-//! **Was weiterhin gilt: ohne `PULSE_PLAYER_FLEXFEC=1` passiert nichts.** Der
-//! Player bietet FlexFEC dann gar nicht erst an, der Server erzeugt die
-//! Paritaet trotzdem, und ihr Aufschlag ist vollstaendig umsonst bezahlt.
-//! Keines der Pruefstand-Skripte setzt die Variable (Stand 2026-07-31) — wer
-//! eine Messung fuer „mit Paritaet" haelt, ohne sie gesetzt zu haben, misst
-//! „ohne".
+//! **Seit 2026-08-03 ist der Paritaets-Empfang der Standardweg**,
+//! `PULSE_PLAYER_FLEXFEC=0` schaltet ihn ab. Vorher lag er hinter einem
+//! `=1`-Schalter, den ausser dem Pruefstand niemand setzte — der ausgelieferte
+//! Player bot FlexFEC damit gar nicht erst an, und ein Server mit
+//! eingeschalteter Paritaet haette ihren Aufschlag fuer ihn umsonst gezahlt.
+//!
+//! Der Grund fuer die Umstellung liegt in der Bildstruktur: Ein
+//! Intra-Refresh-Strom heilt sich nach einem Verlust NICHT selbst (gemessen
+//! 2026-07-29 — eine verworfene Zugriffseinheit laesst das Bild dauerhaft
+//! stehen, bei av1_cuvid wie bei libdav1d). Wo keine Vollbilder mehr im Strom
+//! stehen, muss der Verlust verhindert werden statt hinterher repariert, und
+//! die Paritaet ist die Schicht, die weder NACK noch die Vollbild-Anforderung
+//! abdecken: Redundanz, die VOR dem Verlust unterwegs ist.
+//!
+//! Die alte Warnung bleibt als Merkposten gueltig: Wer eine Messung fuer „mit
+//! Paritaet" haelt, muss geprueft haben, dass sie im laufenden Binary wirklich
+//! ausgehandelt wurde — die Zaehler in der Statistik zeigen es.
 
 pub mod empfaenger;
 pub mod flexfec03;
@@ -52,12 +63,18 @@ const SUCHINTERVALL: Duration = Duration::from_millis(200);
 /// gewoehnliche Leitung geht.
 const LESEPUFFER: usize = 1500;
 
-/// Ob der Paritaets-Empfang eingeschaltet ist.
+/// Ob der Paritaets-Empfang eingeschaltet ist. **Standard: ja** (seit
+/// 2026-08-03), abschaltbar mit `PULSE_PLAYER_FLEXFEC=0`.
 ///
-/// Vorerst hinter einer Variablen: das Angebot veraendert die SDP-Aushandlung,
-/// und ohne Gegenstueck am Server passiert ohnehin nichts.
+/// **Die EINZIGE Stelle, die das entscheidet.** `whep.rs` fragte dieselbe
+/// Variable frueher selbst ab — zwei Abfragen fuer eine Entscheidung, und die
+/// gefaehrlichere Haelfte war die stille: Wer nur das Angebot umstellt, zahlt
+/// den Aufschlag der Paritaet und wertet sie nicht aus. Genau umgekehrt lief es
+/// am 2026-07-31 schon einmal (Angebot fehlte, Server sendete trotzdem), und
+/// die Messakte haelt die Lehre fest: „Ein Schalter, den niemand setzt, ist
+/// kein Schalter."
 pub fn eingeschaltet() -> bool {
-    std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1")
+    std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() != Ok("0")
 }
 
 /// Was die Paritaet tatsaechlich ausgerichtet hat, fuer die Statistik.

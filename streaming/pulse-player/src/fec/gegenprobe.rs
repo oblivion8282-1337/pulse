@@ -14,8 +14,9 @@
 //! der Gruppengroesse statt mit der Verlustrate. Ein simulierter Verlust
 //! wuerde dagegen genau die Pakete verstecken, gegen die man vergleichen will.
 //!
-//! Eingeschaltet mit `PULSE_PLAYER_FEC_GEGENPROBE=1` (setzt `PULSE_PLAYER_FLEXFEC=1`
-//! voraus). Reine Pruefbetriebsart: sie repariert nichts und veraendert den
+//! Eingeschaltet mit `PULSE_PLAYER_FEC_GEGENPROBE=1` (setzt voraus, dass die
+//! Paritaet laeuft — seit 2026-08-03 der Standard, s. [`super::eingeschaltet`]).
+//! Reine Pruefbetriebsart: sie repariert nichts und veraendert den
 //! Empfangsweg nicht.
 
 use std::collections::BTreeMap;

@@ -449,10 +449,25 @@ pub async fn connect(
     media
         .register_default_codecs()
         .context("Standard-Codecs konnten nicht registriert werden")?;
-    // Noch hinter einem Schalter: das Angebot veraendert das SDP, und der
-    // Empfaenger dafuer ist erst im Bau. Ohne die Variable verhaelt sich der
-    // Player wie bisher.
-    if std::env::var("PULSE_PLAYER_FLEXFEC").as_deref() == Ok("1") {
+    // FlexFEC anbieten — seit 2026-08-03 der Standardweg, vorher hinter
+    // `PULSE_PLAYER_FLEXFEC=1` versteckt; abschaltbar mit `=0` (fuer
+    // Vergleichsmessungen und als Notausgang, falls das veraenderte Angebot
+    // einem Server nicht passt). Warum umgestellt wurde — Intra-Refresh heilt
+    // sich nach Verlust nicht selbst — steht im Modul-Kopf von `crate::fec`,
+    // gleich beim aufgerufenen `eingeschaltet()`.
+    //
+    // **Was an dieser Zeile haengt.** Ohne das Angebot fehlt FlexFEC im SDP,
+    // und der Server sendet dem Player ueberhaupt keine Paritaet — egal, was
+    // serverseitig eingeschaltet ist. Genau so lief es bis zum 2026-08-03: der
+    // Empfaenger war seit dem 2026-07-31 fertig, nur der Schalter blieb stehen.
+    //
+    // Die Entscheidung kommt aus `fec::eingeschaltet()` und wird hier NICHT
+    // noch einmal selbst aus der Umgebung gelesen: Angebot und Auswertung
+    // muessen zusammen an- und ausgehen. Zwei getrennte Abfragen koennen
+    // auseinanderlaufen, und beide Richtungen sind still — angeboten ohne
+    // auszuwerten heisst Aufschlag ohne Nutzen, ausgewertet ohne anzubieten
+    // heisst Zaehler, die ewig auf null stehen.
+    if crate::fec::eingeschaltet() {
         flexfec_anbieten(&mut media)?;
     }
     let nack_sperre = Arc::new(std::sync::atomic::AtomicU64::new(nack_sperre_start()));
