@@ -47,7 +47,13 @@ services:
       # 20 Prozent mehr Daten, unabhängig davon, wie der Stream reinkam —
       # das ist eine eigene Entscheidung und gehört nicht in denselben
       # Testlauf wie Intra-Refresh. Zum Zuschalten: PULSE_FLEXFEC: "1".
+      # Dieselbe Einstellung wie auf dem Testserver: feste Rate, auf je 10
+      # Medienpakete 2 Paritaetspakete (rund 20 % Aufschlag), NICHT adaptiv.
+      # Zum Abschalten fuer einen Intra-Refresh-Messlauf auf "" setzen — sonst
+      # laufen zwei Massnahmen gegen Verlust im selben Durchgang.
       PULSE_FLEXFEC: ""
+      PULSE_FLEXFEC_MEDIA: "10"
+      PULSE_FLEXFEC_FEC: "2"
     # network_mode: host weil WebRTC-ICE auf UDP sonst kompliziert wird mit Port-Mapping
     # (Memory-Regel: bei Docker-Port-Range lieber host-Netzwerk) — und es macht den
     # auth-hook auf dem Host (localhost:8005) für MediaMTX direkt erreichbar.

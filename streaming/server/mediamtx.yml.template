@@ -37,7 +37,19 @@ rtmpServerCert: /certs/server.crt
 rtmpServerKey: /certs/server.key
 
 # HLS Low-Latency
-hls: yes
+# HLS AUS (2026-08-03). Es wird auf diesem Weg von niemandem gelesen — der
+# Zuschauer kommt ueber WHEP —, und mit `PULSE_KEYFRAME_INTERVAL=0`
+# (Intra-Refresh) ist es aktiv schaedlich: HLS kann ein Segment nur an einem
+# Keyframe abschliessen. Ohne regelmaessige Keyframes waechst es bis zur
+# Grenze, der Muxer stuerzt ab ("reached maximum segment size") und faengt von
+# vorn an — gemessen alle rund 66 Sekunden, dauerhaft, mit Lastspitze bei
+# jedem Neustart.
+#
+# `hlsAlwaysRemux: yes` machte es schlimmer: damit baut MediaMTX die Segmente
+# auch dann, wenn niemand zusieht. Wer HLS zurueckholt, sollte zumindest das
+# ausschalten — und wissen, dass es mit Intra-Refresh nicht zusammengeht.
+# Dieselbe Falle wartet auf der Produktion: dort ist HLS an.
+hls: no
 hlsAddress: :8888
 hlsAlwaysRemux: yes
 hlsVariant: lowLatency

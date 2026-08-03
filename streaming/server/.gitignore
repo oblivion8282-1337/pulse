@@ -1,0 +1,10 @@
+
+# Das vom Testserver uebernommene MediaMTX-Binary (37 MB, per docker-compose
+# ueber das Image gemountet). Ein Handbau ohne nachvollziehbare Herkunft
+# gehoert nicht in die Versionsverwaltung — fuer Produktion wird ohnehin aus
+# den Patches in `infra/mediamtx-fork/` neu gebaut.
+#
+# Die Konfiguration von dort ist bewusst NICHT hier: sie traegt ein
+# Klartext-Passwort (`authInternalUsers`) und passt fachlich nicht — lokal
+# gilt `mediamtx.yml` daneben, die gegen den auth-hook prueft.
+/hetzner-mediamtx/
