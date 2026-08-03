@@ -32,6 +32,7 @@
     streamSettings,
     isAppAudioMode,
     appFromAudioMode,
+    pushProtokoll,
     tenBitPossible,
   } from '../settings.svelte';
   import { resolveSlotLabel } from '../label';
@@ -113,14 +114,14 @@
         // Resolve the human-readable label (e.g. "Monitor 1", "Chrome") once at
         // start so viewers' picker can name this stream without the GSR catalogs.
         const label = resolveSlotLabel(slot).label;
-        // Intra-Refresh braucht den WHIP-Weg: nur dort erreicht die
-        // Vollbild-Anforderung eines beitretenden Zuschauers den Encoder, und
-        // ohne sein erstes Vollbild sieht er in einem Intra-Refresh-Strom
-        // GAR NICHTS (gemessen: 0 Bilder gegen 2228). Ueber RTMPS gaebe es
-        // diesen Rueckweg nicht — die Betriebsart entscheidet also den
-        // Transport mit, nicht nur die Encoder-Option.
-        const protokoll = streamSettings.overrides.intra_refresh === true ? 'whip' : 'rtmp';
-        tok = await chatApi.getStreamToken(channelId, protokoll, slot, label, tenBitPossible());
+        // Warum die Betriebsart den Transport mitentscheidet: s. `pushProtokoll`.
+        tok = await chatApi.getStreamToken(
+          channelId,
+          pushProtokoll(),
+          slot,
+          label,
+          tenBitPossible()
+        );
       } catch (e) {
         const msg =
           e instanceof ApiError

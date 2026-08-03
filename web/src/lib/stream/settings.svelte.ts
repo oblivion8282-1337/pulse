@@ -583,6 +583,25 @@ export interface ChannelStreamArg {
 }
 
 /**
+ * Der Push-Weg, den die aktuelle Betriebsart verlangt.
+ *
+ * Intra-Refresh braucht WHIP: nur dort gibt es den RTCP-Rueckkanal, ueber den
+ * die Vollbild-Anforderung eines beitretenden Zuschauers den Encoder erreicht.
+ * In einem Intra-Refresh-Strom stehen kaum Vollbilder, also bekommt er sein
+ * erstes nur auf Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0
+ * Bilder gegen 2228). Die Betriebsart entscheidet den Transport also mit.
+ *
+ * **Warum als Funktion und nicht zweimal ausgeschrieben:** die Regel stand in
+ * `StreamControls` und im Auto-Neustart getrennt, und im Auto-Neustart stand
+ * sie falsch (hart `'rtmp'`). Ein Stream, der sich nach einem Encoder-Abbruch
+ * selbst neu startete, wechselte damit lautlos auf einen Weg, auf dem er nicht
+ * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
+ */
+export function pushProtokoll(): 'rtmp' | 'whip' {
+  return streamSettings.overrides.intra_refresh === true ? 'whip' : 'rtmp';
+}
+
+/**
  * Translate the in-memory `streamSettings` into the body shape that
  * `gsr.start()` / `gsr.buildArgv()` expect. Overrides are only included when
  * `use_overrides` is set (or the user picked the synthetic "Custom" profile) —
@@ -638,11 +657,21 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
     // gleich wieder verwirft.
     if (tenBitPossible()) cleaned.bit_depth = 10;
-    // Nur mitschicken, wenn die Oberflaeche wirklich eine Wahl getroffen hat.
-    // Fehlt das Feld, entscheidet im Sidecar `PULSE_INTRA_REFRESH` — so behaelt
-    // der Pruefstand, der den Sidecar ohne Oberflaeche faehrt, seine
-    // Betriebsart. Ein hart mitgeschicktes `false` wuerde sie ihm wegnehmen.
-    if (o.intra_refresh === true) cleaned.intra_refresh = true;
+    // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
+    // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
+    // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine
+    // Betriebsart.
+    //
+    // **Warum `=== true` hier nicht reichte** (2026-08-03, schwarzes Bild beim
+    // Zuschauer): Der Sidecar haelt die Betriebsart in einer prozessweiten
+    // Variablen (`encode::opts::AUS_PARAMETERN`) und setzt sie nur, wenn das
+    // Feld ankommt. Fehlte es, blieb der Wert des VORIGEN Laufs stehen. Wer
+    // also einmal mit Intra-Refresh gestreamt hatte und danach auf den
+    // Standardweg zurueckschaltete, bekam weiter einen Intra-Refresh-Strom —
+    // aber ueber RTMPS, weil `pushProtokoll()` korrekt auf den Standardweg
+    // schloss. Dieser Strom hat kaum Vollbilder UND keinen Rueckkanal, ueber
+    // den ein Zuschauer eins anfordern koennte: er sieht dauerhaft nichts.
+    if (o.intra_refresh !== undefined) cleaned.intra_refresh = o.intra_refresh;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

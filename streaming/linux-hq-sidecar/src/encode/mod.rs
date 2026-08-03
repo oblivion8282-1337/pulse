@@ -163,6 +163,8 @@ impl VideoEncoder {
     ) -> Result<(Self, Option<AudioEncoder>)> {
         ffmpeg::init().context("ffmpeg::init")?;
 
+        warne_bei_intra_refresh_ohne_rueckkanal(output_path);
+
         // Eigener WebRTC-Sendeweg: kein Container, kein Stream, kein Header.
         // Deshalb VOR dem Oeffnen eines Ausgangs abzweigen — alles Folgende
         // haengt daran.
@@ -908,6 +910,39 @@ pub fn url_format_hint(url: &str) -> Option<&'static str> {
 /// der ffmpeg-8.1-WHIP-Muxer kann kein AV1.)
 pub fn is_whip_url(url: &str) -> bool {
     url_format_hint(url) == Some("whip")
+}
+
+/// Melden, wenn Intra-Refresh über einen Weg ohne RTCP-Rückkanal geht.
+///
+/// Diese Kombination ist für jeden Zuschauer wertlos: In einem
+/// Intra-Refresh-Strom stehen kaum Vollbilder, und ohne Rückkanal kann niemand
+/// eins anfordern — der Zuschauer sieht dauerhaft ein schwarzes Bild, während
+/// Sender und Server nichts Auffälliges melden.
+///
+/// **Warum die Warnung existiert** (2026-08-03): Genau das ist passiert, und
+/// es war von außen nicht zu sehen. Die Oberfläche schickte ihre Wahl nur mit,
+/// wenn sie `true` war; beim Zurückschalten auf den Standardweg fehlte das
+/// Feld, der prozessweite Zustand im Sidecar behielt „an", und der Transport
+/// fiel korrekt auf RTMPS zurück. Der Encoder lief also in einer Betriebsart,
+/// die diesen Transport ausschließt. Beide Seiten für sich waren plausibel —
+/// erst zusammen ergaben sie einen unbrauchbaren Strom.
+///
+/// Nur eine Warnung, kein Abbruch und kein stilles Umschalten: Der Prüfstand
+/// fährt den Sidecar ohne Oberfläche und darf diese Kombination messen dürfen.
+/// Dateiziele sind ausgenommen — dort gibt es keinen Zuschauer.
+fn warne_bei_intra_refresh_ohne_rueckkanal(output_path: &str) {
+    let Some(format) = url_format_hint(output_path) else {
+        return; // Datei, kein Netz-Ziel
+    };
+    if format == "whip" || !opts::intra_refresh_gewuenscht() {
+        return;
+    }
+    tracing::warn!(
+        target: "stream", format,
+        "Intra-Refresh ohne RTCP-Rueckkanal: dieser Weg kann keine Vollbild-Anforderung \
+         zustellen, und der Strom enthaelt kaum Vollbilder — Zuschauer sehen ein \
+         schwarzes Bild. Intra-Refresh braucht WHIP."
+    );
 }
 
 #[cfg(test)]
