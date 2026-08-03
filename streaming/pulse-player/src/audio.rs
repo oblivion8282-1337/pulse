@@ -171,6 +171,10 @@ pub struct AudioOutput {
     pub channels: u16,
 }
 
+/// Abtastrate von Opus. Der Codec kennt nur diese eine — alles andere
+/// entsteht erst durch Umrechnen beim Ausgeben.
+const OPUS_SAMPLE_RATE: u32 = 48_000;
+
 impl AudioOutput {
     /// Oeffnet das Standard-Ausgabegeraet. Schlaegt das fehl, ist das kein
     /// Grund, die Sitzung zu beenden — der Aufrufer laeuft dann stumm weiter.
@@ -179,9 +183,39 @@ impl AudioOutput {
         let device = host
             .default_output_device()
             .ok_or_else(|| anyhow!("kein Standard-Ausgabegeraet"))?;
-        let supported = device
+        let default_config = device
             .default_output_config()
             .context("Standard-Ausgabeformat nicht abfragbar")?;
+        // 48 kHz bevorzugen — Opus liefert IMMER 48 kHz.
+        //
+        // `default_output_config()` meldet unter ALSA gern 44100, unabhaengig
+        // davon, was darunter wirklich laeuft. Am 2026-08-03 auf der
+        // Dev-Maschine gemessen: PipeWire fuhr `clock.rate=48000` und liess mit
+        // `allowed-rates=[48000]` gar nichts anderes zu, das Headset ebenfalls
+        // 48000 — der Player waehlte trotzdem 44100. Der Ton wurde also von
+        // 48000 auf 44100 heruntergerechnet und gleich darauf wieder hoch, mit
+        // einem krummen Verhaeltnis in beide Richtungen. Hoerbar als Knacksen.
+        //
+        // Kann das Geraet 48 kHz, faellt beides ersatzlos weg (der Resampler
+        // in `OpusStream` bleibt fuer Geraete, die es nicht koennen).
+        let supported = device
+            .supported_output_configs()
+            .ok()
+            .and_then(|mut ranges| {
+                ranges.find(|r| {
+                    // Kanalzahl MIT pruefen: die Geraeteliste enthaelt auch
+                    // Mono-Varianten, und die stand hier zuerst — der Ton lief
+                    // dadurch einkanalig (gemessen 2026-08-03: "48000 Hz,
+                    // 1 Kanaele" statt 2). Rate zu treffen und dabei einen
+                    // Kanal zu verlieren ist kein guter Tausch.
+                    r.channels() == default_config.channels()
+                        && r.sample_format() == default_config.sample_format()
+                        && r.min_sample_rate() <= OPUS_SAMPLE_RATE
+                        && OPUS_SAMPLE_RATE <= r.max_sample_rate()
+                })
+            })
+            .map(|r| r.with_sample_rate(OPUS_SAMPLE_RATE))
+            .unwrap_or(default_config);
         let sample_rate = supported.sample_rate();
         let channels = supported.channels();
         let config: cpal::StreamConfig = supported.into();
