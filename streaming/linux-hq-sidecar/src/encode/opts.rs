@@ -7,6 +7,8 @@
 //!   NVENC:  `rc`  = constqp | vbr | cbr
 //!   VAAPI:  `rc_mode` = CQP | VBR | CBR  (GROSS)
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use ffmpeg_next as ffmpeg;
 use ffmpeg::Dictionary;
 
@@ -60,7 +62,45 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
     match vendor {
         Vendor::Nvidia => {
             // GSR main.cpp: tune="ll", rc="cbr", b_ref_mode=0, coder=cabac.
-            opts.set("tune", "ll");
+            //
+            // `tune=ull` statt GSRs `ll` — seit 2026-08-04, und zwar zur
+            // ANGLEICHUNG an den Windows-Sidecar, der fuer denselben
+            // ffmpeg-Encoder seit jeher `ull` setzt. Dass hier `ll` stand, war
+            // kein Abwaegen zwischen beiden, sondern von GSR uebernommen; die
+            // beiden Wege sind getrennt entstanden und nie verglichen worden.
+            //
+            // **Was NVIDIA dazu sagt** (Programmierhandbuch, Tabelle "Tuning
+            // info for popular video encoding use-cases"): `ll` fuer "high
+            // bandwidth channel with tolerance for bigger occasional frame
+            // sizes", `ull` fuer "strictly bandwidth-constrained channel".
+            // Also nicht "schneller", sondern gleichmaessigere Bildgroessen —
+            // ein doppelt so grosses Bild braucht auf enger Leitung doppelt so
+            // lange, und DAS ist die Latenz.
+            //
+            // **Ungemessen, hier wie dort.** Was die beiden Tunes im Treiber
+            // konkret unterschiedlich einstellen, ist nicht veroeffentlicht:
+            // ffmpeg reicht die Konstante nur durch (`nvenc.c:1844`), der Rest
+            // passiert in NVIDIAs Closed Source. Oeffentliche Messungen zu
+            // `ll` gegen `ull` gibt es nicht (2026-08-04 gesucht; zwei
+            // arxiv-Papiere, die eine Suchmaschine als Beleg ausgab, vergleichen
+            // beide etwas anderes). Der Wechsel ist damit eine
+            // Vereinheitlichung, KEIN belegter Gewinn — wer ihn rueckgaengig
+            // machen will, braucht dafuer so wenig Begruendung wie er hatte.
+            //
+            // **Der sichtbarste Unterschied greift ohnehin nicht.** Die
+            // Puffergroesse, auf die NVIDIAs Beschreibung direkt zeigt, setzt
+            // ffmpeg selbst: ohne `rc_buffer_size` schreibt es
+            // `vbvBufferSize = 2 * Bitrate` (`nvenc.c:1183-1186`) — und zwar
+            // NACH dem Uebernehmen der Tuning-Voreinstellung
+            // (`nvenc_setup_rate_control` laeuft in Zeile 1942, die
+            // Preset-Uebernahme in 1865). Zwei Sekunden Puffer also, rund das
+            // Sechzigfache von NVIDIAs Low-Latency-Empfehlung (ein Bild,
+            // Bitrate/fps) — in BEIDEN Sidecars, und von niemandem entschieden.
+            // Ein `bufsize` ist bewusst nicht gesetzt: kleiner hiesse flachere
+            // Datenrate, aber mehr sichtbares Pumpen (der Ausgleich ginge ueber
+            // den Quantisierer), groesser ist der Daempfungs-Hebel, den der
+            // Nutzer am 2026-08-03 wegen der Latenz abgelehnt hat.
+            opts.set("tune", "ull");
             opts.set("rc", "cbr");
             opts.set("b_ref_mode", "0");
             // Hier stand mal: "preset/Multipass/rc-lookahead nur bei tune=quality".
@@ -214,8 +254,7 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
 /// [`intra_refresh_pruefen`] von mehreren Stellen ohne diese Konfiguration
 /// gerufen werden — ein Feld müsste durch jede davon durchgereicht werden, und
 /// eine vergessene Stelle liefe still im falschen Modus.
-static AUS_PARAMETERN: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(UNGESAGT);
+static AUS_PARAMETERN: AtomicU8 = AtomicU8::new(UNGESAGT);
 
 const UNGESAGT: u8 = 0;
 const AUS: u8 = 1;
@@ -224,7 +263,7 @@ const AN: u8 = 2;
 /// Den Wunsch der Oberfläche hinterlegen. `ops::start` ruft das einmal je
 /// Stream, bevor der Encoder geöffnet wird.
 pub fn intra_refresh_setzen(an: bool) {
-    AUS_PARAMETERN.store(if an { AN } else { AUS }, std::sync::atomic::Ordering::Relaxed);
+    AUS_PARAMETERN.store(if an { AN } else { AUS }, Ordering::Relaxed);
 }
 
 /// Rollender Intra-Refresh statt periodischer Keyframes?
@@ -239,7 +278,7 @@ pub fn intra_refresh_setzen(an: bool) {
 /// einer AMD-Karte einen Keyframe-Lauf unter dem Etikett „Intra-Refresh" — die
 /// Sorte Fehler, die eine Messreihe nicht scheitern lässt, sondern verfälscht.
 pub fn intra_refresh_gewuenscht() -> bool {
-    match AUS_PARAMETERN.load(std::sync::atomic::Ordering::Relaxed) {
+    match AUS_PARAMETERN.load(Ordering::Relaxed) {
         AN => true,
         AUS => false,
         _ => matches!(std::env::var("PULSE_INTRA_REFRESH").as_deref(), Ok("1")),

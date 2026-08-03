@@ -67,7 +67,13 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
 - Encoder-Settings gehen auf GSR zurück (`~/.cache/pulse/gsr/gpu-screen-recorder/src/main.cpp`,
   nutzt selbst `h264_nvenc`/`h264_vaapi` via av_dict) — aber **nicht mehr 1:1**. Maßgeblich ist
   `encode/opts.rs`, dort steht an jedem Wert die Messung. Der Stand nach 2026-07-30:
-  NVENC `tune=ll/rc=cbr/b_ref_mode=0` **+ `preset=p2` + `zerolatency=1`/`delay=0`**,
+  NVENC `rc=cbr/b_ref_mode=0` + `preset=p2` + `zerolatency=1`/`delay=0` und seit
+  2026-08-04 **`tune=ull`** statt GSRs `ll` — reine Angleichung an den Windows-Sidecar,
+  der `ull` seit jeher setzt; der Unterschied der beiden Tunes ist NICHT gemessen und
+  auch nicht veröffentlicht (ffmpeg reicht die Konstante nur an den Treiber durch).
+  **`rc_buffer_size` bleibt ungesetzt** — dann schreibt ffmpeg selbst `2 × Bitrate`
+  (`nvenc.c:1183`), und zwar nach der Tuning-Voreinstellung, die es damit überschreibt.
+  Zwei Sekunden VBV also, in beiden Sidecars; Begründung am Code (`encode/opts.rs`),
   VAAPI `rc_mode=CBR` + **`async_depth=1`** (GSR: 3 — der Vorlauf kostete zwei Bildabstände,
   33,6 → 5,3 ms). `coder=cabac` **nur bei H.264**: bei `av1_nvenc`/`av1_vaapi` existiert die
   Option nicht, und AV1 ist der Standard-Codec — unbedingt gesetzt wurde sie bis 2026-07-30
