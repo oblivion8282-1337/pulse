@@ -76,6 +76,17 @@ pollster = "0.4"
 egui = "0.35"
 egui-wgpu = "0.35"
 egui-winit = { version = "0.35", default-features = false }
+# Zeichnet die Lucide-Symbole der Kachel-Leiste (`assets/icons/`, aus derselben
+# Quelle wie die Web-App). Ohne das kann egui keine Vektorgrafik darstellen, und
+# die Symbole muessten als Bilder eingebacken werden — dann waeren sie beim
+# Skalieren unscharf und liefen bei einem Lucide-Update auseinander.
+# `default-features = false`: gebraucht wird NUR der SVG-Zeichner, nicht die
+# Tabellen-, Datepicker- und Syntax-Widgets des Crates.
+# Lizenzen der ganzen Kette geprueft 2026-08-03 — alles permissiv, kein
+# GPL/AGPL und kein MPL: egui_extras/resvg/usvg/kurbo/svgtypes/simplecss/
+# roxmltree MIT OR Apache-2.0, tiny-skia BSD-3-Clause, imagesize/xmlwriter MIT.
+# (resvg stand frueher unter MPL-2.0; seit 0.45 nicht mehr.)
+egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
 
 # --- Audio-Ausgabe ---
 cpal = "0.17"

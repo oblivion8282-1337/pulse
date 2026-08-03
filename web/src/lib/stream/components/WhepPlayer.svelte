@@ -34,12 +34,13 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
   import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
-  import { playerSettings, setUseNativePlayer } from '$lib/player/store.svelte';
-  import { isElectron } from '$lib/platform/runtime';
-  import { isPlayerAvailable } from '$lib/player/client';
+  import {
+    nativeChatRequests,
+    nativePlayerSessions,
+    nativeWindowRequests
+  } from '$lib/player/store.svelte';
 
   let {
     channelId,
@@ -115,20 +116,22 @@
   }));
   const useNative = $derived(native.active);
 
-  // Ob der Knopf ueberhaupt erscheint: ohne Electron oder ohne das Binary gibt
-  // es kein Fenster, in das man umschalten koennte.
-  let playerVerfuegbar = $state(false);
-  $effect(() => {
-    if (isElectron()) void isPlayerAvailable().then((v) => (playerVerfuegbar = v));
-  });
+  // Steht der native Player zur Verfuegung? Ohne Electron, ohne das Binary
+  // ODER nach einer gescheiterten Sitzung (`nativeFailed`) fuehrt der
+  // Abkoppel-Knopf in das zweite Browser-Fenster wie eh und je — sonst taete
+  // er sichtbar nichts, weil `useNativePlayback` nach einem Fehler dauerhaft
+  // beim `<video>`-Weg bleibt.
+  const nativMoeglich = $derived(native.verfuegbar && !native.nativeFailed);
 
-  const fensterTitel = $derived(
-    native.erzwungen
-      ? m.whep_player_native_toggle_forced()
-      : useNative
-        ? m.whep_player_native_toggle_off()
-        : m.whep_player_native_toggle_on()
-  );
+  // Beschriftung des EINEN Knopfes. Sie muss die jeweilige Bedeutung tragen —
+  // derselbe Knopf oeffnet, holt zurueck oder holt nach vorne.
+  function fensterTitelFuer(): string {
+    if (!nativMoeglich) return m.tile_shell_detach();
+    if (native.erzwungen) return m.whep_player_native_toggle_forced();
+    if (useNative) return m.whep_player_native_toggle_off();
+    return m.tile_shell_detach();
+  }
+  const fensterTitel = $derived(fensterTitelFuer());
 
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
   // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
@@ -142,6 +145,30 @@
     return () => m.detachVideo(el);
   });
 
+  // Der Schliessen-Knopf IM Fenster soll die Kachel zumachen — dieselbe Wirkung
+  // wie das X hier. Die Sitzung kennt die Kachel-Registry nicht, deshalb haengt
+  // sie den Weg dorthin als Rueckruf ein.
+  $effect(() => {
+    const s = native.session;
+    if (!s) return;
+    s.onCloseTile = (cid, uid, slot) =>
+      openedTiles.close('hq', cid, hqTileId(uid, slot));
+    return () => {
+      s.onCloseTile = null;
+    };
+  });
+
+  // Chat-Knopf im Fenster: der Hauptprozess holt die App nach vorne, hier geht
+  // der Chat auf. Ueber einen Zaehler, damit auch das zweite Druecken wirkt.
+  let chatWunschGesehen = $state(0);
+  $effect(() => {
+    const n = nativeChatRequests.count(channelId, userId, streamSlot);
+    if (n > chatWunschGesehen) {
+      chatWunschGesehen = n;
+      chatOpen = true;
+    }
+  });
+
   // Anzeige-Zustand: im nativen Modus spiegelt der Overlay den Sitzungsstatus
   // des Players statt des Browser-Managers (dessen `mgr.phase` weiterläuft,
   // ist hier aber nicht das, was der Viewer gerade sieht).
@@ -152,6 +179,12 @@
   $effect(() => {
     mgr?.setNativeAudio(useNative && native.phase === 'playing');
   });
+
+  // Zwei Bedienleisten fuer denselben Stream sind Murks: sobald das Bild im
+  // eigenen Fenster laeuft, ist DESSEN Leiste die einzige. Erst ab `playing` —
+  // waehrend des Verbindens (und wenn es scheitert) muss die Kachel bedienbar
+  // bleiben, sonst haette man gar nichts.
+  const hideDock = $derived(useNative && native.phase === 'playing');
 
   const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
   const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
@@ -175,7 +208,41 @@
     void mgr?.enableAudio();
   }
 
+  /**
+   * „In eigenem Fenster öffnen" — EIN Knopf, zwei Wege.
+   *
+   * Aus Sicht des Zuschauers ist es dieselbe Sache: der Stream soll raus aus
+   * der Kachel. Womit das Fenster gebaut ist, ist eine technische Frage und
+   * gehoert nicht auf die Oberflaeche. Deshalb entscheidet die Umgebung:
+   * steht der native Player zur Verfuegung (Electron + Binary), nimmt er den
+   * Stream; sonst bleibt es beim zweiten Browser-Fenster.
+   *
+   * Der native Weg ist dabei der bessere — eigenes Fenster heisst dort auch
+   * NVDEC statt Software-Decode und spuerbar weniger Verzoegerung (gemessen,
+   * s. `playerSettings.onlyTenBit`). Im Browser gibt es ihn nicht, dort traegt
+   * der Popup-Weg alles ausser AV1 10 bit.
+   */
   function handleDetach(): void {
+    if (nativMoeglich) {
+      // 10 bit laesst keine Wahl (das `<video>` kann es nicht darstellen), der
+      // Knopf kann dort also nicht zurueckholen. Statt ins Leere zu greifen
+      // holt er das Fenster nach vorne — es oeffnet ohne Aktivierung und liegt
+      // gern hinter der App.
+      if (native.erzwungen) {
+        native.session?.focus();
+        return;
+      }
+      if (useNative) {
+        // Zurueck in die Kachel: erst die Anforderung zuruecknehmen, dann das
+        // Fenster wirklich schliessen — sonst bliebe es offen stehen, waehrend
+        // die Kachel schon wieder zeigt.
+        nativeWindowRequests.release(channelId, userId, streamSlot);
+        nativePlayerSessions.close(channelId, userId, streamSlot);
+      } else {
+        nativeWindowRequests.request(channelId, userId, streamSlot);
+      }
+      return;
+    }
     const opened = detachedStreams.open(channelId, userId, streamSlot);
     if (!opened) {
       toast.error(m.whep_player_popup_blocked(), {
@@ -268,32 +335,11 @@
   {chatOpen}
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
+  detachLabel={fensterTitel}
+  {hideDock}
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
   stats={useNative ? undefined : statsPill}
 >
-  {#snippet controlsExtra()}
-    <!-- Wiedergabe im eigenen Fenster. Bei 10 bit gesperrt und AN: das
-         `<video>` daneben kann mehr als 8 bit nicht darstellen, die Wahl
-         existiert dort also nicht. Sichtbar bleibt der Knopf trotzdem — ein
-         verschwundenes Bedienelement erklaert nichts, ein gesperrtes mit
-         Begruendung schon. Nur unter Electron und nur, wenn das Binary da ist
-         (sonst gibt es nichts umzuschalten). -->
-    {#if playerVerfuegbar}
-      <button
-        type="button"
-        onclick={() => setUseNativePlayer(!playerSettings.useNativePlayer)}
-        disabled={native.erzwungen}
-        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60 md:p-1.5"
-        class:text-primary={useNative}
-        aria-pressed={useNative}
-        aria-label={fensterTitel}
-        title={fensterTitel}
-        data-testid="hq-stream-native-toggle"
-      >
-        <AppWindowIcon class="size-5 md:size-3.5" />
-      </button>
-    {/if}
-  {/snippet}
   {#snippet media()}
     {#if useNative}
       <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist

@@ -824,6 +824,15 @@ function wirePlayer(): void {
   // Registrieren startet den Prozess NICHT — der Start bleibt lazy bis zum
   // ersten `call()`.
   playerManager.onEvent((ev) => {
+    // Chat-Knopf im Player-Fenster: das App-Fenster nach vorne holen. Das kann
+    // nur der Hauptprozess — ein `window.focus()` im Renderer bewirkt hier
+    // nichts, und das Fenster kann obendrein im Tray versteckt sein
+    // (`show()` blendet ein UND fokussiert). Den Chat selbst oeffnet dann der
+    // Renderer, der dasselbe Ereignis bekommt.
+    if (ev?.ev === 'player:chatRequest' && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('player:event', ev);
     }

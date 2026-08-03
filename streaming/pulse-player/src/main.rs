@@ -29,6 +29,7 @@ mod recorder;
 mod render;
 mod rpc;
 mod session;
+mod theme;
 mod whep;
 
 use anyhow::Result;

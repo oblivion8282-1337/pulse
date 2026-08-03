@@ -178,6 +178,12 @@ struct Session {
     last_log: Option<std::time::Instant>,
     presented_at_last_log: u64,
     state: SessionState,
+    /// Kopie von `req.can_reattach` (s. `proto.rs`) — steht bisher nur im
+    /// Overlay (fuer den Reattach-Knopf), aber der Fenster-Schliessen-Handler
+    /// braucht sie ebenso und hat kein `overlay` (kann `None` sein, wenn die
+    /// Bedienoberflaeche nicht aufgebaut werden konnte). Deshalb hier zusaetzlich
+    /// direkt an der Sitzung, statt sie ueber das Overlay umzuleiten.
+    can_reattach: bool,
 }
 
 pub struct App {
@@ -303,7 +309,7 @@ impl App {
 
         let title = req.title.clone().unwrap_or_else(|| "Pulse — HQ-Stream".into());
         let attrs = Window::default_attributes()
-            .with_title(title)
+            .with_title(title.clone())
             .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
             // NICHT aktivieren: das Fenster soll den Tastatur-Fokus nicht
             // wegnehmen. Pulses Tastenkuerzel hoeren am Fenster der Web-App zu
@@ -325,7 +331,14 @@ impl App {
             &window,
             options.volume.unwrap_or(1.0),
         ) {
-            Ok(o) => Some(o),
+            Ok(mut o) => {
+                // Die Leiste im Fenster ist die einzige Bedienung dieses
+                // Streams, solange er hier laeuft — sie braucht denselben
+                // Namen und dieselben Knoepfe wie die Kachel in der App.
+                o.set_title(title);
+                o.set_can_reattach(req.can_reattach.unwrap_or(true));
+                Some(o)
+            }
             Err(e) => {
                 eprintln!("pulse-player: Bedienoberflaeche nicht verfuegbar: {e:#}");
                 None
@@ -403,6 +416,7 @@ impl App {
                 last_log: None,
                 presented_at_last_log: 0,
                 state: SessionState::Connecting,
+                can_reattach: req.can_reattach.unwrap_or(true),
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
@@ -622,6 +636,41 @@ impl App {
                 );
                 session.window.request_redraw();
             }
+            // Zurueck in die Kachel — dasselbe wie das Fensterkreuz (der
+            // Reattach-Knopf existiert nur, wenn `can_reattach` ohnehin gilt,
+            // s. `overlay/controls.rs`): gemeinsame Entscheidung in
+            // `on_window_closed`, damit beide Wege nicht auseinanderlaufen
+            // koennen.
+            OverlayAction::Reattach => self.on_window_closed(id),
+            // „Diesen Stream nicht mehr ansehen." Der Unterschied zu `Reattach`
+            // liegt allein in der Meldung nach vorne: die App schliesst darauf
+            // die Kachel, statt das Bild zurueckzuholen. Ohne diese
+            // Unterscheidung war ein erzwungenes Fenster nicht loszuwerden — es
+            // ging sofort wieder auf.
+            OverlayAction::Close => {
+                self.stdout.send(&Event::new(
+                    "player:closeRequest",
+                    serde_json::json!({ "session": id }),
+                ));
+                self.emit_state(id, SessionState::Closed, None);
+                self.close_session(id);
+            }
+            // Der Chat lebt in der App. Hier nur die Bitte, ihn zu zeigen —
+            // ihn im Fenster nachzubauen hiesse Nachrichtenliste, Eingabe und
+            // eine eigene Serververbindung zu doppeln.
+            OverlayAction::Chat => {
+                self.stdout.send(&Event::new(
+                    "player:chatRequest",
+                    serde_json::json!({ "session": id }),
+                ));
+            }
+            OverlayAction::ToggleStats => {
+                let Some(session) = self.sessions.get_mut(&id) else { return };
+                if let Some(overlay) = session.overlay.as_mut() {
+                    overlay.toggle_stats();
+                }
+                session.window.request_redraw();
+            }
         }
     }
 
@@ -631,6 +680,30 @@ impl App {
             obj.insert("error".into(), err.into());
         }
         self.stdout.send(&Event::new("player:state", data));
+    }
+
+    /// Fenster wurde OHNE den expliziten „Schliessen"-Knopf beendet — Titelleisten-
+    /// Kreuz, Alt+F4, Fenstermanager, oder der Reattach-Knopf. Anders als bei
+    /// `OverlayAction::Close` gibt es hier keine ausdrueckliche „nicht mehr
+    /// ansehen"-Absicht, also muss aus `can_reattach` folgen, was gemeint ist:
+    /// Steht ein Zurueck zur Verfuegung, heisst das Ende nur „Bild zurueck in
+    /// die Kachel" (die App holt es beim `closed`-Zustand automatisch ab, kein
+    /// `closeRequest` noetig). Bei einem erzwungenen Fenster (10 bit, kein
+    /// Zurueck moeglich) gibt es dieses Zurueck nicht — bliebe die Meldung hier
+    /// gleich, wuerde die App weiter `active` halten und das Fenster ueber
+    /// `ensure()` prompt neu oeffnen (der eigentliche Fehler). EINE Stelle fuer
+    /// die Entscheidung, damit OS-Schliessweg und Reattach-Knopf nicht
+    /// auseinanderlaufen koennen.
+    fn on_window_closed(&mut self, id: u64) {
+        let can_reattach = self.sessions.get(&id).is_some_and(|s| s.can_reattach);
+        if !can_reattach {
+            self.stdout.send(&Event::new(
+                "player:closeRequest",
+                serde_json::json!({ "session": id }),
+            ));
+        }
+        self.emit_state(id, SessionState::Closed, None);
+        self.close_session(id);
     }
 
     fn close_session(&mut self, id: u64) {
@@ -758,10 +831,10 @@ impl ApplicationHandler<UserEvent> for App {
         }
         match event {
             WindowEvent::CloseRequested => {
-                // Der Nutzer hat das Fenster geschlossen — nach vorne melden,
-                // damit die App ihren Zustand nachziehen kann.
-                self.emit_state(id, SessionState::Closed, None);
-                self.close_session(id);
+                // Der Nutzer hat das Fenster ueber das OS geschlossen (Kreuz,
+                // Alt+F4, Fenstermanager) — dieselbe Entscheidung wie beim
+                // Reattach-Knopf, s. `on_window_closed`.
+                self.on_window_closed(id);
             }
             WindowEvent::Resized(size) => {
                 if let Some(session) = self.sessions.get_mut(&id) {

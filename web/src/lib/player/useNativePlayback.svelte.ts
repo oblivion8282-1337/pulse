@@ -16,6 +16,7 @@ import { isPlayerAvailable } from './client';
 import {
   loadPlayerSettings,
   nativePlayerSessions,
+  nativeWindowRequests,
   playerSettings,
   type NativePlayerSession,
 } from './store.svelte';
@@ -47,6 +48,15 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
    *  Zuschauer es gewaehlt hat. Die Kachel sagt das dazu; ein Schalter, der
    *  sichtbar nichts bewirkt, sieht sonst kaputt aus. */
   readonly erzwungen: boolean;
+  /** Steht das eigene Fenster ueberhaupt zur Verfuegung (Electron + Binary)?
+   *  Die Kachel braucht das fuer ihren Abkoppel-Knopf: ohne das Fenster fuehrt
+   *  er in das zweite Browser-Fenster wie eh und je. Hier mit heraus, damit
+   *  die Kachel `isPlayerAvailable()` nicht ein zweites Mal fragen muss. */
+  readonly verfuegbar: boolean;
+  /** Native Sitzung ist (bis zum naechsten Mount) endgueltig gescheitert. Der
+   *  Abkoppel-Knopf muss das kennen: ohne native Sitzung fuehrt er wieder ins
+   *  zweite Browser-Fenster statt sichtbar nichts zu tun. */
+  readonly nativeFailed: boolean;
 } {
   let nativeAvailable = $state(false);
   let nativeFailed = $state(false);
@@ -74,14 +84,25 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
    * `<video>`-Weg — ein heruntergerechnetes Bild ist immer noch besser als gar
    * keins.
    */
-  const erzwungen = $derived(
-    isElectron() && nativeAvailable && !nativeFailed && args().tenBit === true
+  const verfuegbar = $derived(isElectron() && nativeAvailable);
+
+  const erzwungen = $derived(verfuegbar && !nativeFailed && args().tenBit === true);
+
+  /**
+   * Hat der Zuschauer DIESEN Stream ins eigene Fenster geschickt?
+   *
+   * Das ist seit dem zusammengelegten Abkoppel-Knopf der uebliche Weg.
+   * `useNativePlayer` bleibt daneben als Vorgabe-fuer-alles bestehen (ohne
+   * Oberflaeche, s. `pulse-stream.json`) — wer den gesetzt hat, bekommt jeden
+   * Stream im Fenster, ohne zu klicken.
+   */
+  const angefordert = $derived(
+    nativeWindowRequests.has(args().channelId, args().userId, args().slot)
   );
 
   const active = $derived(
-    isElectron() &&
-      nativeAvailable &&
-      (playerSettings.useNativePlayer || erzwungen) &&
+    verfuegbar &&
+      (angefordert || playerSettings.useNativePlayer || erzwungen) &&
       !nativeFailed &&
       !nativeSkipped
   );
@@ -144,6 +165,12 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
     },
     get erzwungen() {
       return erzwungen;
+    },
+    get verfuegbar() {
+      return verfuegbar;
+    },
+    get nativeFailed() {
+      return nativeFailed;
     },
   };
 }

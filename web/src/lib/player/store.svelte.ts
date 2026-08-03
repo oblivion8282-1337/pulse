@@ -17,7 +17,7 @@
  * `useNativePlayer` + `isPlayerAvailable()`) — die Kachel weiss, wann sie den
  * nativen Weg WILL; der Keep-Alive weiss nur, wann eine Kachel weg ist.
  */
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 import { chatApi } from '$lib/api/chat';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
@@ -28,6 +28,7 @@ import {
   focusPlayer,
   onPlayerEvent,
   onPlayerOptionEvent,
+  onPlayerWindowRequest,
   openPlayer,
   setPlayerOptions,
   type PlayerStateEvent,
@@ -95,6 +96,60 @@ export function setNativePlayerOnlyTenBit(v: boolean): void {
   void saveAll({ nativePlayerOnlyTenBit: v });
 }
 
+// ── Anforderung „ins eigene Fenster" ────────────────────────────────────────
+
+const keyOf = (channelId: string, userId: string, slot: number): string =>
+  `${channelId}:${userId}:${slot}`;
+
+/**
+ * Welche Kacheln der Zuschauer ins eigene Fenster geschickt hat — je
+ * *(channel, user, slot)*, wie bei `detachedStreams`.
+ *
+ * WARUM NEBEN `playerSettings.useNativePlayer`: Der Schalter ist eine
+ * **Vorgabe für alle** Streams; das hier ist eine **Entscheidung fuer einen**.
+ * Seit der Abkoppel-Knopf unter Electron das eigene Fenster oeffnet (statt
+ * eines zweiten Chromium-Fensters), ist das der uebliche Weg — der Nutzer
+ * waehlt pro Stream, nicht ein fuer alle Mal.
+ *
+ * Zurueckgenommen wird sie an zwei Stellen: beim `closed` der Sitzung (Fenster
+ * zugemacht → Bild zurueck in die Kachel) und beim Schliessen-Knopf im Fenster
+ * (dann zusaetzlich die Kachel weg). Ohne das Erste hing die Kachel dauerhaft
+ * im Zustand `connecting` ohne Bild, obwohl Verbindung und Ton weiterliefen.
+ */
+const requests = new SvelteSet<string>();
+
+/**
+ * „Chat aufmachen" aus dem Player-Fenster — ein Zaehler je Stream.
+ *
+ * Ein Zaehler statt eines Ja/Nein: der Nutzer kann den Knopf mehrfach
+ * druecken, und beim zweiten Mal muss die Kachel wieder reagieren. Ein `true`,
+ * das schon `true` war, loest keinen Effect aus.
+ */
+const chatWuensche = new SvelteMap<string, number>();
+
+export const nativeChatRequests = {
+  /** Wie oft der Chat fuer diesen Stream angefordert wurde. */
+  count(channelId: string, userId: string, slot = 0): number {
+    return chatWuensche.get(keyOf(channelId, userId, slot)) ?? 0;
+  },
+  bump(channelId: string, userId: string, slot = 0): void {
+    const k = keyOf(channelId, userId, slot);
+    chatWuensche.set(k, (chatWuensche.get(k) ?? 0) + 1);
+  },
+};
+
+export const nativeWindowRequests = {
+  has(channelId: string, userId: string, slot = 0): boolean {
+    return requests.has(keyOf(channelId, userId, slot));
+  },
+  request(channelId: string, userId: string, slot = 0): void {
+    requests.add(keyOf(channelId, userId, slot));
+  },
+  release(channelId: string, userId: string, slot = 0): void {
+    requests.delete(keyOf(channelId, userId, slot));
+  },
+};
+
 // ── Sitzung ─────────────────────────────────────────────────────────────────
 
 export class NativePlayerSession {
@@ -117,6 +172,13 @@ export class NativePlayerSession {
   #session: number | null = null;
   #unlisten: (() => void) | null = null;
   #unlistenOptions: (() => void) | null = null;
+  #unlistenWindow: (() => void) | null = null;
+  /**
+   * Wird gerufen, wenn im Fenster „Schliessen" gedrueckt wurde — die Kachel
+   * soll weg. Als Rueckruf statt eines Imports, damit dieses Modul nichts von
+   * der Kachel-Registry wissen muss (und in Tests ohne sie laeuft).
+   */
+  onCloseTile: ((channelId: string, userId: string, slot: number) => void) | null = null;
   #disposed = false;
 
   constructor(channelId: string, userId: string, slot = 0, title?: string) {
@@ -125,6 +187,20 @@ export class NativePlayerSession {
     this.slot = slot;
     this.#unlisten = onPlayerEvent((ev) => this.#onEvent(ev));
     this.#unlistenOptions = onPlayerOptionEvent((ev) => this.#onOptionEvent(ev));
+    this.#unlistenWindow = onPlayerWindowRequest((kind, session) => {
+      if (session !== this.#session) return;
+      if (kind === 'chat') {
+        nativeChatRequests.bump(this.channelId, this.userId, this.slot);
+        return;
+      }
+      // Schliessen: Anforderung zuruecknehmen UND die Kachel schliessen. Nur
+      // Ersteres wuerde bei erzwungenem Fenster (10 bit) sofort ein neues
+      // oeffnen — genau der Zustand, den dieser Knopf beheben soll. Die Kachel
+      // schliesst `onCloseTile`, weil dieses Modul die Kachel-Registry nicht
+      // kennen soll.
+      nativeWindowRequests.release(this.channelId, this.userId, this.slot);
+      this.onCloseTile?.(this.channelId, this.userId, this.slot);
+    });
     void this.#open(title);
   }
 
@@ -158,6 +234,10 @@ export class NativePlayerSession {
       const session = await openPlayer(whep_url, {
         title,
         options: { volume: getStreamVolume(this.userId) / 100 },
+        // Bei 10 bit gibt es kein Zurueck in die Kachel — Chromium legt seinen
+        // Puffer immer als 8 bit an. Die Leiste im Fenster laesst den Knopf
+        // dann weg, statt ihn ins Leere zeigen zu lassen.
+        canReattach: ten_bit !== true,
       });
       if (this.#disposed) {
         if (session !== null) void closePlayer(session);
@@ -188,6 +268,14 @@ export class NativePlayerSession {
       // Fenster weg → der Ton muss zurück in die App, sonst ist der Stream
       // stumm (die Kachel fällt gleichzeitig auf den `<video>`-Weg zurück).
       this.#setAudioOwner(false);
+    }
+    if (ev.state === 'closed') {
+      // Der Nutzer hat das Fenster zugemacht — das ist die Rücknahme der
+      // Anforderung, und ohne sie bliebe die Kachel stumm dabei stehen: sie
+      // zeigt absichtlich kein Bild, solange das Fenster zustaendig ist.
+      // `failed` bleibt aussen vor, das faengt `useNativePlayback` als
+      // Stoerfall ab (und merkt sich ihn bis zum naechsten Mount).
+      nativeWindowRequests.release(this.channelId, this.userId, this.slot);
     }
   }
 
@@ -231,6 +319,8 @@ export class NativePlayerSession {
     this.#unlisten = null;
     this.#unlistenOptions?.();
     this.#unlistenOptions = null;
+    this.#unlistenWindow?.();
+    this.#unlistenWindow = null;
     if (this.#session !== null) void closePlayer(this.#session);
     this.#session = null;
   }
@@ -249,7 +339,6 @@ export class NativePlayerSession {
 // Mit `SvelteMap` weckt schon das EINFUEGEN der Sitzung den Effect, der dann
 // `phase` liest und beim Wechsel auf `playing` erneut laeuft.
 const registry = new SvelteMap<string, NativePlayerSession>();
-const keyOf = (channelId: string, userId: string, slot: number): string => `${channelId}:${userId}:${slot}`;
 
 export const nativePlayerSessions = {
   /**

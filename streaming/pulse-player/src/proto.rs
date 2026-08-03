@@ -36,6 +36,12 @@ pub struct Request {
     pub fallback_url: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Kann die App das Bild ueberhaupt selbst zeigen? Bei AV1 10 bit nicht —
+    /// Chromium legt seinen Puffer immer als 8 bit an (gemessen 2026-07-26).
+    /// Steht hier `false`, bietet die Leiste kein „wieder in der App zeigen"
+    /// an; das waere eine Zusage, die niemand halten kann.
+    #[serde(default)]
+    pub can_reattach: Option<bool>,
     /// Index aus `list_monitors`; ohne Angabe entscheidet der Compositor.
     /// Noch nicht ausgewertet — Fensterplatzierung folgt.
     #[allow(dead_code)]

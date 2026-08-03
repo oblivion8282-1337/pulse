@@ -53,12 +53,25 @@ export async function isPlayerAvailable(): Promise<boolean> {
  */
 export async function openPlayer(
   whepUrl: string,
-  opts: { title?: string; fullscreen?: boolean; options?: PulsePlayerOptions } = {},
+  opts: {
+    title?: string;
+    fullscreen?: boolean;
+    options?: PulsePlayerOptions;
+    /** Kann die App das Bild notfalls selbst zeigen? Bei AV1 10 bit nicht —
+     *  dann bietet die Leiste im Fenster kein „wieder in der App zeigen" an
+     *  (der Knopf koennte sein Versprechen nicht halten). */
+    canReattach?: boolean;
+  } = {},
 ): Promise<number | null> {
   const p = api();
   if (!p) return null;
   try {
-    const res = await p.open({ url: whepUrl, ...opts });
+    const { canReattach, ...rest } = opts;
+    const res = await p.open({
+      url: whepUrl,
+      ...rest,
+      ...(canReattach === undefined ? {} : { can_reattach: canReattach }),
+    });
     if (!res.ok) {
       console.warn('[player] open fehlgeschlagen:', res.error);
       return null;
@@ -121,6 +134,27 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
     if (ev?.ev === 'player:state' && typeof ev.state === 'string') {
       cb(ev as PlayerStateEvent);
     }
+  });
+}
+
+/**
+ * Der Nutzer hat im Fenster auf Schliessen oder Chat gedrueckt.
+ *
+ * Beide brauchen die App: das Fenster kann eine Kachel nicht selbst schliessen
+ * und den Chat nicht selbst anzeigen. `player:closeRequest` ist dabei der
+ * einzige Weg, einen erzwungenen 10-bit-Stream loszuwerden — ein blosses
+ * Fensterkreuz hiesse dort „zeig es wieder in der App", was nicht geht.
+ */
+export function onPlayerWindowRequest(
+  cb: (kind: 'close' | 'chat', session: number) => void,
+): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw: unknown) => {
+    const ev = raw as { ev?: string; session?: number };
+    if (typeof ev?.session !== 'number') return;
+    if (ev.ev === 'player:closeRequest') cb('close', ev.session);
+    else if (ev.ev === 'player:chatRequest') cb('chat', ev.session);
   });
 }
 
