@@ -283,8 +283,51 @@ fn video_format_to_drm_fourcc(fmt: VideoFormat) -> Option<DrmFourcc> {
     match fmt {
         VideoFormat::BGRx => Some(DrmFourcc::Xrgb8888),
         VideoFormat::BGRA => Some(DrmFourcc::Argb8888),
+        // 10 bit je Farbkanal, gepackt in ein 32-bit-Wort. Anders als bei den
+        // 8-bit-Formaten dreht sich die Reihenfolge hier NICHT um: dort ist der
+        // SPA-Name die Byte-Folge im Speicher und der DRM-Name das
+        // Little-Endian-Wort (BGRx == XRGB8888), bei 2101010 benennen beide
+        // dasselbe Wort.
+        VideoFormat::xBGR_210LE => Some(DrmFourcc::Xbgr2101010),
+        VideoFormat::ABGR_210LE => Some(DrmFourcc::Abgr2101010),
         _ => None,
     }
+}
+
+/// Bietet die Aufnahme dem Compositor auch 10-Bit-Formate an?
+///
+/// **Vorgabe AUS — und nach der Messung unten bleibt sie es auch.** Der Rest
+/// der Kette ist auf 8-bit-Puffer gebaut (`va_import`/`nv_import` und der
+/// Filtergraph dahinter); ein ausgehandeltes `XB30` kaeme dort nicht an. Das
+/// hier ist ein Messschalter, keine Funktion.
+///
+/// **Die Frage, die er beantwortet hat.** Bis 2026-08-04 stand die Aufnahme als
+/// prinzipiell 8-bit im Repo, mit dem Vermerk „ob niri/KWin mehr anbietet, ist
+/// ungeprueft". Der Verdacht lag nahe, dass gar nicht der Compositor der
+/// Engpass ist, sondern DIESE Liste — sie hat nie nach mehr gefragt.
+///
+/// **Geprueft am 2026-08-04, KDE/KWin auf Wayland, Radeon 780M, Mesa 26.1.5:**
+///
+/// * KWin fuehrt `XB30` und `AB30` mit vollstaendiger AMD-Modifier-Liste
+///   (`wayland-info`) — der Grafikstack traegt 10-Bit-DMABUF also.
+/// * EGL liefert fuer beide Fourccs je **5 Modifier**, genau so viele wie fuer
+///   das 8-bit-`XR24`. Das Angebot war damit vollstaendig und gueltig, nicht
+///   etwa eine leere Modifier-Liste, an der die Verhandlung haette scheitern
+///   muessen.
+/// * Mit diesen Formaten an ERSTER Stelle im Angebot lieferte KWins ScreenCast
+///   trotzdem `fourcc=0x34325258` = `XR24` = XRGB8888. **Acht bit.**
+///
+/// KWins ScreenCast gibt also kein 10 bit heraus, obwohl der Compositor das
+/// Format in der Gegenrichtung kennt. Der Schalter bleibt, damit dieselbe
+/// Messung auf einem anderen Compositor (oder einem spaeteren KWin) ein
+/// Kommando statt eines Nachmittags kostet — und damit niemand die Frage ein
+/// zweites Mal fuer offen haelt.
+///
+/// Folge fuer die Bittiefe: „10 bit" heisst bei einem Bildschirm-Stream **10 bit
+/// Rechenraum im Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist trotzdem
+/// gemessen — der Encoder quantisiert nicht ein zweites Mal.
+fn zehn_bit_aufnahme_gewuenscht() -> bool {
+    matches!(std::env::var("PULSE_CAPTURE_10BIT").as_deref(), Ok("1"))
 }
 
 /// Baue ein EnumFormat-POD. Mit `modifiers` kommt die Modifier-Property als
@@ -434,7 +477,20 @@ fn run_pipewire(
     let core = context.connect_fd_rc(pw_fd, None)?;
 
     // Modifier pro DRM-Fourcc via EGL (wie GSR eglQueryDmaBufModifiersEXT).
-    let formats = [VideoFormat::BGRx, VideoFormat::BGRA];
+    // Reihenfolge = Vorrang: der Compositor nimmt das erste, das er kann. Die
+    // 10-bit-Formate stehen deshalb vorn — aber nur, wenn ausdruecklich
+    // verlangt (s. `zehn_bit_aufnahme_gewuenscht`).
+    let formats: Vec<VideoFormat> = if zehn_bit_aufnahme_gewuenscht() {
+        tracing::info!(target: "pipewire", "10-bit-Aufnahme angefragt (PULSE_CAPTURE_10BIT=1)");
+        vec![
+            VideoFormat::xBGR_210LE,
+            VideoFormat::ABGR_210LE,
+            VideoFormat::BGRx,
+            VideoFormat::BGRA,
+        ]
+    } else {
+        vec![VideoFormat::BGRx, VideoFormat::BGRA]
+    };
     let fourccs: Vec<u32> = formats
         .iter()
         .filter_map(|&f| video_format_to_drm_fourcc(f))

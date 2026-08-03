@@ -305,16 +305,37 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
   Prüfen-mit-dem-Auge, das hier schon zweimal Fehler durchgelassen hat (Rot/Blau
   getauscht, Faktor 64 zu dunkel). Volle Kette mit echter Capture:
   `capture_encode_smoke <out> av1 60 120 10` → Ausgabe muss `yuv420p10le` sein.
-- **VAAPI hat keinen 10-bit-Zweig** (der Filtergraph wandelt fest auf NV12). Besitzt die
-  aufnehmende Karte kein NVENC, verfällt der Wunsch mit Log-Zeile statt den Start zu
-  verweigern — welche Karte den Puffer hält, steht erst beim Import fest.
-- **Offen: die Aufnahme selbst ist weiter 8 bit.** Der Compositor liefert `XRGB8888`
-  (`pipewire_stream.rs` bewirbt nur BGRx/BGRA). 10-bit-Encode eines 8-bit-Bildes bringt
-  trotzdem etwas (keine zusätzliche Quantisierung im Encoder → weniger Banding in
-  Verläufen), aber es ist keine echte 10-bit-Quelle. Für die bräuchte es
-  `xBGR_210LE`/`ARGB_210LE` in der EnumFormat-Liste — ob niri/KWin das anbietet, ist
-  ungeprüft. Der Shader-Pfad selbst bräuchte dafür KEINE Änderung (er sampelt
-  normalisierte Floats).
+- **VAAPI HAT einen 10-bit-Zweig** (seit `c25807a7`): `va_import.rs` setzt
+  `scale_vaapi=format=p010` statt nv12, sobald `ten_bit` an ist. Hier stand bis
+  2026-08-04 das Gegenteil — der Satz stammte aus der Zeit, als der Filtergraph
+  fest auf NV12 wandelte, und hat den 10-bit-Weg auf AMD als nicht existent
+  erscheinen lassen, obwohl er seit Wochen lief.
+  Nachgemessen am 2026-08-04 (Radeon 780M, Testbild mit flachem Verlauf, gezählt
+  werden verschiedene Luma-Werte je Bildband): 10-bit-Lauf **41** Werte, davon 31
+  zwischen den 8-bit-Stufen; derselbe Inhalt im 8-bit-Lauf **11**, alle auf dem
+  Raster. Der VPP-Schritt selbst ist dabei bit-exakt.
+- **Die Aufnahme selbst bleibt 8 bit — jetzt GEPRÜFT, nicht mehr offen.** Der
+  Compositor liefert `XRGB8888`. Hier stand, dafür bräuchte es
+  `xBGR_210LE`/`ARGB_210LE` in der EnumFormat-Liste, und ob KWin/niri das
+  anbietet, sei ungeprüft. Am 2026-08-04 auf KDE/KWin (Wayland, Radeon 780M,
+  Mesa 26.1.5) nachgeholt, und die Antwort ist NEIN:
+  - KWin führt `XB30`/`AB30` mit voller AMD-Modifier-Liste (`wayland-info`), der
+    Grafikstack trägt 10-Bit-DMABUF also.
+  - EGL liefert für beide Fourccs je 5 Modifier — genau so viele wie für das
+    8-bit-`XR24`. Das Angebot war vollständig, nicht etwa leer.
+  - Mit beiden Formaten an ERSTER Stelle im Angebot lieferte KWins ScreenCast
+    trotzdem `XR24` (XRGB8888).
+
+  Der Schalter `PULSE_CAPTURE_10BIT=1` (`pipewire_stream.rs`, Vorgabe aus) bleibt
+  als Messwerkzeug stehen, damit dieselbe Frage auf einem anderen Compositor ein
+  Kommando statt eines Nachmittags kostet.
+
+  Folge: „10 bit" heißt bei einem Bildschirm-Stream **10 bit Rechenraum im
+  Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist real und gemessen (ein
+  absichtlich auf 8 bit gerastertes Band kommt im 10-bit-Lauf mit 42 statt 11
+  Stufen heraus — AV1s Schleifenfilter darf im feineren Raster rechnen), aber es
+  ist keine echte 10-bit-Quelle. Der Shader-Pfad bräuchte dafür KEINE Änderung
+  (er sampelt normalisierte Floats).
 
 **Als Nächstes:** VAAPI auf echter AMD/Intel-Hardware verifizieren; Mikrofon-Mix für
 "Desktop + Mikrofon"; ggf. Audio-Silence-Insertion bei PipeWire-xruns (GSR macht das
