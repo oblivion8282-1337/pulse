@@ -254,6 +254,45 @@ Werkzeuge dafür, beide rein lesende Nachauswertung eines Mitschnitts:
 
 Merksatz: eine Zählung von Ereignissen ohne ihre Bezugsgröße ist keine Messung.
 
+## Hardware-Decode beim Zuschauer (seit 2026-08-03)
+
+`browser-decode.py` beantwortet, ob Chromium bzw. die Electron-App den
+empfangenen Strom in Hardware dekodiert — und ob die bekannten
+VA-API-Schalter daran etwas aendern.
+
+```fish
+./browser-decode.py --secs 20 --quelle synth8-av1.mkv --label x
+./browser-decode.py --nur basis,electron          # Teilmenge
+```
+
+Es faehrt EINEN Sender und schickt nacheinander fuenf Zuschauer-Varianten
+dagegen (unveraendert / mit VA-API-Schaltern / zusaetzlich EGL / Electron ohne
+und mit Schaltern), misst je Lauf die NVDEC-Auslastung der Karte, die
+Decode-Zeit je Bild und die Selbstauskunft von `getStats()`.
+
+**Drei Kontrollen sind eingebaut, und keine davon ist Zierde** — jede hat in der
+ersten Messreihe (2026-08-03) einen Fehlschluss verhindert:
+
+* **Schlaegt der NVDEC-Zaehler ueberhaupt an?** Vorweg laeuft immer
+  `ffmpeg -hwaccel cuda` ueber dieselbe Vorlage. Bleibt der Ausschlag aus,
+  bricht das Skript ab, statt ein wertloses „0 %" zu melden.
+* **Kommen die Schalter am Prozess an?** Playwright setzt ein **eigenes**
+  `--enable-features`; bei doppeltem Switch zaehlt in Chromium der letzte.
+  Nachsehen laesst sich das an der Kommandozeile des laufenden Prozesses
+  (`tr '\0' '\n' < /proc/<pid>/cmdline`).
+* **War der Browser an der echten Karte?** Der GL-Treiber wird je Lauf erhoben
+  und mit ausgegeben. Playwright startet mit `--enable-unsafe-swiftshader` —
+  faellt Chromium auf SwiftShader zurueck, ist „Software" ein Artefakt des
+  Aufbaus. Genau das passierte in der Variante mit `--use-gl=egl`.
+
+Die Feature-Namen sind die von Chromium 150. `VaapiVideoDecoder` aus aelteren
+Anleitungen ist **wirkungslos** (seit Chromium 131 heisst es
+`AcceleratedVideoDecodeLinuxGL`) und wird still ignoriert — eine Messung damit
+saehe aus wie „Schalter helfen nicht", obwohl nichts eingeschaltet war.
+
+Befund der ersten Reihe: alle fuenf Varianten dekodieren in Software, NVDEC
+bleibt bei 0 %. Voll in `docs/2026-08-03-chromium-webrtc-decode-messung.md`.
+
 ## Verlust selbst einstellen (seit 2026-07-31)
 
 Bis dahin wurde gestört, indem parallel Dateien heruntergeladen wurden — wie

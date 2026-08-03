@@ -56,7 +56,26 @@ function args() {
     const i = a.indexOf(name);
     return i >= 0 && a[i + 1] ? a[i + 1] : vorgabe;
   };
+  // Mehrfach angebbar: `--env A=1 --env B=2`.
+  const alleWerte = (name) =>
+    a.flatMap((v, i) => (v === name && a[i + 1] ? [a[i + 1]] : []));
   return {
+    // Zusaetzliche Chromium-Schalter, komma-getrennt, ohne Leerzeichen:
+    //   --flags "--enable-features=AcceleratedVideoDecodeLinuxGL,--ignore-gpu-blocklist"
+    // Getrennt wird an Kommas, denen ein `--` folgt — sonst zerrisse es die
+    // Feature-Liste INNERHALB von `--enable-features=A,B` in zwei Schalter.
+    flags: wert('--flags', '')
+      .split(/,(?=--)/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    // Umgebung fuer den Browser-Prozess, z.B. `--env LIBVA_DRIVER_NAME=nvidia`.
+    // Muss VOR dem Start gesetzt sein: libva liest sie beim Initialisieren.
+    env: Object.fromEntries(
+      alleWerte('--env').map((p) => {
+        const i = p.indexOf('=');
+        return i < 0 ? [p, ''] : [p.slice(0, i), p.slice(i + 1)];
+      }),
+    ),
     url: wert('--url', ''),
     secs: Number(wert('--secs', '30')),
     label: wert('--label', 'browser'),
@@ -121,6 +140,26 @@ async function offerBauen({ ton } = { ton: false }) {
     });
   }
   return pc.localDescription.sdp;
+}
+
+// Im Browser-Kontext: welcher GL-Treiber liegt wirklich darunter?
+//
+// UNVERZICHTBARE KONTROLLE fuer jede Decode-Messung: Playwright startet sein
+// Chromium unter anderem mit `--enable-unsafe-swiftshader`. Faellt es dabei auf
+// SwiftShader (Software-GL) zurueck, kann ueber die GPU gar nichts dekodiert
+// werden — ein Ergebnis "Software" waere dann schon in den Aufbau gelegt und
+// wuerde ueber den Auslieferzustand nichts aussagen. Steht hier ein echter
+// NVIDIA/AMD/Intel-Name, hatte der Browser Zugriff auf die Karte.
+function gpuAuskunft() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return 'kein WebGL';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    return dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  } catch (e) {
+    return `Fehler: ${String(e).slice(0, 60)}`;
+  }
 }
 
 // Im Browser-Kontext: Antwort setzen.
@@ -241,6 +280,22 @@ async function probe() {
         freezeCount: s.freezeCount, totalFreezesDuration: s.totalFreezesDuration,
         jitter: s.jitter, decoderImplementation: s.decoderImplementation,
         mimeType: s.mimeType,
+        // DIE drei Felder fuer die Frage "Hardware oder Software?".
+        //
+        // `powerEfficientDecoder` ist das einzige, das libwebrtc SELBST als
+        // Ja/Nein beantwortet — `decoderImplementation` ist nur ein Name, und
+        // der luegt bekanntermassen: er meldet gern eine
+        // Hardware-Implementierung, waehrend der Decode still in Software
+        // zurueckfaellt (genau die Falle, wegen der `VaapiIgnoreDriverChecks`
+        // ueberhaupt existiert). Deshalb wird beides erhoben, und die GPU-Last
+        // daneben entscheidet im Zweifel.
+        powerEfficientDecoder: s.powerEfficientDecoder,
+        // Rechenzeit je Bild (totalDecodeTime/framesDecoded) ist die dritte,
+        // von den anderen beiden unabhaengige Achse: Software-AV1 bei 1440p
+        // kostet ein Vielfaches von NVDEC und faellt auch dann auf, wenn beide
+        // Selbstauskuenfte oben irren.
+        totalDecodeTime: s.totalDecodeTime,
+        totalInterFrameDelay: s.totalInterFrameDelay,
       });
     }
   });
@@ -257,16 +312,27 @@ async function main() {
 
   let browser = null;
   let page = null;
+  const umgebung = Object.keys(a.env).length ? { ...process.env, ...a.env } : undefined;
   if (a.electron) {
     // Die Electron-Fassung der App: dasselbe Chromium, das Nutzer fahren.
-    const app = await _electron.launch({ args: [resolve(HIER, '../../desktop')] });
+    //
+    // `--flags` landen hier HINTER dem Verzeichnis, also als Argumente der App
+    // — Electron reicht unbekannte Schalter an Chromium durch. Damit laesst
+    // sich messen, was zusaetzliche Schalter braechten, OHNE `main.ts`
+    // anzufassen; der Auslieferzustand ist schlicht der Lauf ohne `--flags`.
+    const app = await _electron.launch({
+      args: [resolve(HIER, '../../desktop'), ...a.flags],
+      env: umgebung,
+    });
     page = await app.firstWindow();
     browser = app;
   } else {
     browser = await chromium.launch({
       headless: !a.sichtbar,
+      env: umgebung,
       args: [
         '--autoplay-policy=no-user-gesture-required',
+        ...a.flags,
         // **Weg vom aufgenommenen Bildschirm.** Liegt das Fenster auf dem
         // Schirm, den der Sender aufnimmt, verdeckt es das Zeitmuster und
         // erzeugt eine Rueckkopplung — die Messung liest dann entweder gar
@@ -281,6 +347,7 @@ async function main() {
 
   const proben = [];
   try {
+    console.log(`[${a.label}] GL-Treiber: ${await page.evaluate(gpuAuskunft)}`);
     const offer = await page.evaluate(offerBauen, { ton: a.ton });
     await page.evaluate((e) => { window.__epoch = e; }, a.epoch);
     const antwort = await fetch(a.url, {
@@ -334,6 +401,16 @@ async function main() {
               `verloren=${letzte.packetsLost ?? 'n/a'} ` +
               `nack=${letzte.nackCount ?? 'n/a'} pli=${letzte.pliCount ?? 'n/a'} ` +
               `decoder=${letzte.decoderImplementation ?? 'n/a'}`);
+  // Decode-Zeit je Bild aus der DIFFERENZ ueber den Lauf, nicht aus dem
+  // Endstand geteilt durch alle Bilder: die ersten Bilder nach dem Verbinden
+  // sind teurer (Decoder-Aufbau) und zoegen einen Gesamtschnitt nach oben.
+  const ersteGute = gut[0] || {};
+  const dtSpanne = (letzte.totalDecodeTime ?? 0) - (ersteGute.totalDecodeTime ?? 0);
+  const msJeBild = bilder > 0 ? (dtSpanne * 1000) / bilder : null;
+  console.log(`[${a.label}] sparsamerDecoder=${letzte.powerEfficientDecoder ?? 'n/a'} ` +
+              `decodeZeit=${msJeBild === null ? 'n/a' : msJeBild.toFixed(2) + ' ms/Bild'} ` +
+              `codec=${letzte.mimeType ?? 'n/a'} ` +
+              `${letzte.frameWidth ?? '?'}x${letzte.frameHeight ?? '?'}`);
   console.log(`[${a.label}] SDP in sdp-${a.label}.txt, Proben in ${datei}`);
 }
 

@@ -128,7 +128,11 @@ den VPS nicht machbar. Realistische Hebel lägen alle auf der Senderseite
 
 ## 6. Offen
 
-- Dasselbe am echten WHEP-Stream messen statt an lokalen Dateien.
+- ~~Dasselbe am echten WHEP-Stream messen statt an lokalen Dateien.~~
+  **Erledigt am 2026-08-03** (`2026-08-03-chromium-webrtc-decode-messung.md`):
+  Der WebRTC-Pfad verhaelt sich wie der `<video>`-Pfad — NVDEC bleibt bei 0 %,
+  auch mit VA-API-Schaltern, auch in Electron. Die Einschraenkung in §3 ist
+  damit aufgehoben, der Befund gilt fuer beide Wege.
 - Firefox mit `gfx.wayland.hdr=true` gegenpruefen.
 - Die Render-Etappe des Players messen — das ist die Zahl, die in
   `2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung steht.

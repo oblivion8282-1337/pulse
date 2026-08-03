@@ -1,0 +1,74 @@
+{
+ "was": "Hardware-Decode beim Zuschauer: Chromium und Electron am WHEP-Weg",
+ "datum": "2026-08-03",
+ "werkzeug": "browser-decode.py",
+ "doku": "docs/2026-08-03-chromium-webrtc-decode-messung.md",
+ "vorgabe": "2560x1440, AV1 8 bit, Pruefstands-Sender (ffmpeg -c copy)",
+ "vergleich_gegen": null,
+ "maschine": "RTX 5080, NVIDIA 610.43.03, CachyOS, Wayland, Chromium 150 / Electron 43",
+ "quelle": "synth8-av1.mkv",
+ "secs": 20.0,
+ "kontrolle_nvdec": 48.0,
+ "ergebnisse": [
+  {
+   "variante": "basis",
+   "nvdec_spitze": 0.0,
+   "gl_treiber": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5080/PCIe/SSE2, OpenGL ES 3.2)",
+   "bilder": 2631,
+   "sparsam": null,
+   "decoder": null,
+   "codec": null,
+   "aufloesung": "2560x1440",
+   "ms_je_bild": 3.06,
+   "erklaerung": "Chromium unveraendert — der heutige Auslieferzustand"
+  },
+  {
+   "variante": "vaapi",
+   "nvdec_spitze": 0.0,
+   "gl_treiber": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5080/PCIe/SSE2, OpenGL ES 3.2)",
+   "bilder": 2338,
+   "sparsam": null,
+   "decoder": null,
+   "codec": null,
+   "aufloesung": "2560x1440",
+   "ms_je_bild": 3.02,
+   "erklaerung": "mit VA-API-Schaltern und NVDEC-Treiber"
+  },
+  {
+   "variante": "vaapi-egl",
+   "nvdec_spitze": 0.0,
+   "gl_treiber": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+   "bilder": 2767,
+   "sparsam": null,
+   "decoder": null,
+   "codec": null,
+   "aufloesung": "2560x1440",
+   "ms_je_bild": 3.32,
+   "erklaerung": "wie vaapi, zusaetzlich EGL statt der Vorgabe"
+  },
+  {
+   "variante": "electron",
+   "nvdec_spitze": 0.0,
+   "gl_treiber": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5080/PCIe/SSE2, OpenGL ES 3.2)",
+   "bilder": 2631,
+   "sparsam": null,
+   "decoder": null,
+   "codec": null,
+   "aufloesung": "2560x1440",
+   "ms_je_bild": 3.01,
+   "erklaerung": "die Electron-App wie ausgeliefert"
+  },
+  {
+   "variante": "electron-vaapi",
+   "nvdec_spitze": 0.0,
+   "gl_treiber": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 5080/PCIe/SSE2, OpenGL ES 3.2)",
+   "bilder": 2635,
+   "sparsam": null,
+   "decoder": null,
+   "codec": null,
+   "aufloesung": "2560x1440",
+   "ms_je_bild": 3.16,
+   "erklaerung": "die Electron-App mit denselben Schaltern"
+  }
+ ]
+}
