@@ -607,7 +607,7 @@ mod tests {
         let inter = [0u8, 0, 1, 0x41, 0x9A]; // NAL 1, kein Keyframe
         let key = [0u8, 0, 1, 0x65, 0x88]; // NAL 5 (IDR)
         r.push(Codec::H264, &key, 0); // Codec bekannt machen
-        r.start(Path::new("/tmp/pulse-player-keyframe-gate")).expect("startet");
+        r.start(&crate::ablage::temp("pulse-player-keyframe-gate")).expect("startet");
 
         r.push(Codec::H264, &inter, 10);
         r.push(Codec::H264, &inter, 20);
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn aufnahme_ohne_bild_wird_abgelehnt() {
         let mut r = Recorder::default();
-        let err = r.start(Path::new("/tmp/pulse-player-test.mkv"));
+        let err = r.start(&crate::ablage::temp("pulse-player-test.mkv"));
         assert!(err.is_err(), "ohne bekannte Bildgroesse darf nicht gestartet werden");
     }
 
@@ -707,7 +707,7 @@ mod tests {
         assert!(units.len() > 10, "zu wenige Zugriffseinheiten: {}", units.len());
 
         let out = std::env::var("PULSE_PLAYER_MUX_OUT")
-            .unwrap_or_else(|_| "/tmp/pulse-player-muxtest.mkv".into());
+            .unwrap_or_else(|_| crate::ablage::temp_str("pulse-player-muxtest.mkv"));
 
         let mut r = Recorder::default();
         r.note_dimensions(640, 360);
@@ -797,7 +797,7 @@ mod tests {
         assert!(units.len() > 10, "zu wenige Zugriffseinheiten: {}", units.len());
 
         let out = std::env::var("PULSE_PLAYER_AV1_OUT")
-            .unwrap_or_else(|_| "/tmp/pulse-player-av1test.ts".into());
+            .unwrap_or_else(|_| crate::ablage::temp_str("pulse-player-av1test.ts"));
 
         let mut r = Recorder::default();
         r.note_dimensions(320, 180);
@@ -834,7 +834,7 @@ mod tests {
         let units = split_obu(&data);
         assert!(units.len() > 5);
 
-        let out = "/tmp/pulse-player-dupts";
+        let out = &crate::ablage::temp_str("pulse-player-dupts");
         let mut r = Recorder::default();
         r.note_dimensions(320, 180);
         r.push(Codec::Av1, &units[0], 0);

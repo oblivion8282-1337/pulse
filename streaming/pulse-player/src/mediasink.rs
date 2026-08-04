@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn aufnahme_ohne_bild_meldet_fehler_statt_zu_panischen() {
         let mut m = MediaSink::new();
-        assert!(m.start_recording("/tmp/pulse-player-nichts.mkv").is_err());
+        assert!(m.start_recording(&crate::ablage::temp_str("pulse-player-nichts.mkv")).is_err());
         assert!(m.stop_recording().is_err(), "Stopp ohne Start ist ein Fehler");
     }
 
@@ -203,7 +203,7 @@ mod tests {
         m.note_dimensions(0, 0);
         m.handle_unit(Codec::H264, &[0, 0, 1, 0x65, 0x11], 0);
         assert!(
-            m.start_recording("/tmp/pulse-player-nullgroesse.mkv").is_err(),
+            m.start_recording(&crate::ablage::temp_str("pulse-player-nullgroesse.mkv")).is_err(),
             "ohne echte Bildgroesse darf keine Aufnahme starten"
         );
     }

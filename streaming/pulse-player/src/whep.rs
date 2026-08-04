@@ -762,7 +762,6 @@ mod tests {
         // 100 ms, danach ist die Reparatur ohnehin wertlos.
         assert_eq!(sperre_aus_rtt(Duration::from_secs(3)), 200);
     }
-    use super::*;
 
     #[test]
     fn codec_aus_mime() {

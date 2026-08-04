@@ -14,6 +14,8 @@
 //!
 //! stdout gehoert dem JSON-RPC. Diagnose geht ausschliesslich nach stderr.
 
+#[cfg(test)]
+mod ablage;
 mod app;
 mod audio;
 mod decode;

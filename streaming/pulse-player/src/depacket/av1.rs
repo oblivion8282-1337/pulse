@@ -271,7 +271,7 @@ mod tests {
             }
         }
         let ziel = std::env::var("PULSE_TEST_OBU_OUT")
-            .unwrap_or_else(|_| "/tmp/assembler-aus.obu".to_string());
+            .unwrap_or_else(|_| crate::ablage::temp_str("assembler-aus.obu"));
         std::fs::write(&ziel, &strom).expect("Ausgabe schreibbar");
         eprintln!(
             "Pakete {} | Marker {} | Einheiten {} | verworfene Einheiten {} | {} Bytes -> {}",

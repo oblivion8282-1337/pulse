@@ -247,7 +247,7 @@ mod tests {
         let quelle = std::env::var("PULSE_PLAYER_DUMP_IN")
             .expect("PULSE_PLAYER_DUMP_IN muss auf ein .rtpdump zeigen");
         let ziel = std::env::var("PULSE_PLAYER_UNITS_OUT")
-            .unwrap_or_else(|_| "/tmp/einheiten.bin".to_string());
+            .unwrap_or_else(|_| crate::ablage::temp_str("einheiten.bin"));
         let roh = std::fs::read(&quelle).expect("Mitschnitt lesbar");
         let pakete = crate::dump::read_dump(&roh);
         assert!(!pakete.is_empty(), "Mitschnitt {quelle} enthaelt keine Pakete");
