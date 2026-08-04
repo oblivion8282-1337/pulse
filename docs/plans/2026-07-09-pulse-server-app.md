@@ -1,5 +1,18 @@
 # Plan: Pulse Server-App (Self-Hosting auf eigener Hardware)
 
+> **ZURÜCKGESTELLT — der Weg ist abgeschaltet.** (Vermerkt 2026-08-04.)
+>
+> `web/src/lib/featureFlags.ts` setzt `APP_HOSTING_ENABLED = false`; die
+> Download-Karte und die App-Host-Option sind damit ausgeblendet. Den Nutzern
+> wurde es am 2026-07-14 auch so gesagt: „Einen Pulse-Server direkt auf dem
+> eigenen Gerät zu betreiben, ist vorerst nicht mehr verfügbar."
+> Übrig bleibt Self-Hosting auf einem VPS.
+>
+> **Das ist eine Produktentscheidung, keine technische Sackgasse** — der Code
+> ist da und der Schalter umlegbar. Wer hier weiterbaut, sollte trotzdem zuerst
+> klären, ob die Entscheidung noch gilt, statt gegen ein abgeschaltetes Feature
+> zu entwickeln.
+
 ## Kontext — warum dieser Plan
 
 Ursprüngliche Idee: App-Hosting **in der Pulse-Client-App** (Workstation wird zum

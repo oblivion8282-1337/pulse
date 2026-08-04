@@ -1,5 +1,25 @@
 # WHIP-Publish für Gäste auf App-gehosteten Instanzen (2026-07-12)
 
+> **ÜBERHOLT im entscheidenden Punkt: der Sendeweg ist ein anderer.**
+> (Vermerkt 2026-08-04.)
+>
+> Dieses Blatt baut auf **ffmpegs WHIP-Muxer** auf und leitet daraus ab, dass
+> AV1 nicht geht und auf H.264 zurückgefallen werden muss. Beide Sidecars
+> haben inzwischen einen **eigenen WebRTC-Sendeweg** (`whip/` in
+> `linux-hq-sidecar` und, seit 2026-08-04, in `win-hq-sidecar`) mit eigenem
+> AV1-Paketierer. Der Rückfall auf H.264 entfällt damit.
+>
+> Der Grund war nicht AV1 allein, sondern der **Rückkanal**: ffmpegs Muxer
+> reicht die Vollbild-Anforderung eines Zuschauers nicht an die Anwendung
+> durch. Für rollenden Intra-Refresh ist das kein Komfortverlust — ein solcher
+> Strom hat nach dem Start kein Vollbild mehr, ohne Anforderung kommt niemand
+> mehr ins Bild.
+>
+> Was am Blatt gilt: die Token- und Berechtigungs-Seite (media-svc,
+> chat-gateway, auth-hook). **Und der dort beschriebene Weg ist in Produktion
+> weiterhin nicht startbar** — `protocol=whip` wird von media-svc und
+> chat-gateway noch auf `^rtmp$` festgenagelt und endet mit 422.
+
 ## Problem
 
 HQ-Streaming-Publish läuft heute ausschließlich über RTMPS (`rtmps://<host>:1936`) —
