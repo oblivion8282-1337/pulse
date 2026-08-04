@@ -443,16 +443,35 @@ services:
       # WHIP-Rueckkanal ist die letzte Rettung. Im Stoerungslauf ueber 358 s
       # mit fuenf Saettigungsphasen ergab das zusammen NULL Standbilder.
       #
-      # 10:2 fest, NICHT adaptiv: `PULSE_FLEXFEC_ADAPTIV` bleibt bewusst weg —
-      # feste Paritaet reparierte 170 Pakete, die adaptive Regelung null
-      # (`fec-2026-07-31-fest-gegen-adaptiv.json`). Die Werte stehen explizit
-      # da, obwohl sie den Vorgaben entsprechen: die Messreihe belegt genau
-      # dieses Verhaeltnis, und eine verschobene Vorgabe soll das nicht still
-      # aendern.
+      # 10:2 fest. Die Werte stehen explizit da, obwohl sie den Vorgaben
+      # entsprechen: die Messreihe belegt genau dieses Verhaeltnis, und eine
+      # verschobene Vorgabe soll das nicht still aendern.
       #
       # Kostet ~20 % Datenrate, und MediaMTX faechert das an JEDEN Zuschauer.
       # Grenze der Wirkung: bei GEBUENDELTEM Verlust bringt XOR nichts (Buendel
       # sind im Mittel 2,5 Pakete, eine Gruppe loest nur eine Unbekannte).
+      #
+      # **`PULSE_FLEXFEC_ADAPTIV` bleibt weg — aber nicht mehr aus dem Grund,
+      # der hier stand.** Der lautete: "feste Paritaet reparierte 170 Pakete,
+      # die adaptive Regelung null (`fec-2026-07-31-fest-gegen-adaptiv.json`)".
+      # Das galt fuer die DAMALIGE Regelgroesse, den gemeldeten Verlust
+      # (`fraction lost`) — der reagiert auf bereits eingetretenen Schaden,
+      # waehrend Vorwaertskorrektur vorher da sein muss, und feiner als
+      # 0,39 Prozent laesst sich die Schwelle gar nicht stellen (8-Bit-Wert).
+      #
+      # Am 2026-08-04 ist Patch 0004 auf den eingehenden NACK als Regelgroesse
+      # umgestellt worden, und damit funktioniert sie: auf sauberer Leitung
+      # **20,01 auf 0,65 Prozent Aufschlag bei identischem Bild**, bei Verlust
+      # in Phasen 19,86 auf 12,3 bis 15,0, bei Dauerverlust unveraendert (dort
+      # wird sie gebraucht). Messakte
+      # `streaming/testbench/profiles/fec-2026-08-04-adaptiv-ueber-nack.json`.
+      #
+      # Weg bleibt sie trotzdem, und das ist eine Reihenfolge-Entscheidung,
+      # keine fachliche: das hier laufende Image (`1.19.1-pulse`) traegt nur
+      # Patch 0001 und kennt KEINE dieser Variablen. Sie stehen bereits scharf
+      # und wirken in dem Moment, in dem das Image nachgezogen wird. Wer die
+      # adaptive Regelung dazunimmt, aendert also zwei Dinge auf einmal.
+      # Zuerst das Image, dann messen, dann die Regelung.
       PULSE_FLEXFEC: "1"
       PULSE_FLEXFEC_MEDIA: "10"
       PULSE_FLEXFEC_FEC: "2"

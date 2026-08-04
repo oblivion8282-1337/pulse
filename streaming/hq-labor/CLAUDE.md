@@ -356,8 +356,26 @@ getestet.
 - [ ] **`infra/prod/docker-compose.yml` pinnt noch `pulse-mediamtx:1.19.1-pulse`.**
       Das ist der Stand mit NUR Patch 0001. Gebraucht wird ein Image mit 0002-0005
       (Vollbild-Rueckweg, abschaltbarer Keyframe-Takt, FlexFEC) — lokal existiert
-      es als `pulse-mediamtx:1.19.1-pulse2`, in der Registry noch nicht. **Fehler
-      auf dem Branch**, nicht bloss eine offene Aufgabe.
+      es als `pulse-mediamtx:1.19.1-pulse2`, in der Registry noch nicht.
+
+      **Hier stand „Fehler auf dem Branch, nicht bloss eine offene Aufgabe" —
+      das ist zurueckgenommen** (Nutzer-Entscheidung 2026-08-04). Der alte Pin
+      steht mit Absicht: umgestellt wird, wenn Linux UND Windows fertig gebaut
+      sind, damit Server und Clients gemeinsam wechseln.
+
+      **Was dabei zu wissen ist, und es ist nicht offensichtlich:** die
+      `PULSE_*`-Variablen im Compose stehen **bereits scharf**
+      (`PULSE_KEYFRAME_INTERVAL=0`, `PULSE_FLEXFEC=1` mit 10:2) — das laufende
+      Image kennt sie nur nicht. Das Nachziehen des Images ist deshalb **kein**
+      stilles Bereitstellen einer Faehigkeit, sondern schaltet im selben Moment
+      FlexFEC fuer JEDEN Zuschauer ein: rund 20 Prozent mehr Datenrate, auf
+      jeder Leitung, ob etwas verlorengeht oder nicht. Der Keyframe-Takt-
+      Schalter dagegen ist folgenlos (er betrifft nur WebRTC-Publisher, und die
+      gibt es in Produktion nicht).
+
+      Wer den Serverwechsel isoliert beobachten will, setzt beim Nachziehen
+      `PULSE_FLEXFEC` voruebergehend auf `"0"` und legt ihn erst mit den
+      Clients um.
 - [ ] **Die Produktion kennt `protocol=whip` nicht.** `media-svc` und
       `chat-gateway` haben das Feld auf `^rtmp$` festgenagelt; ein WHIP-Token
       endet mit 422. Intra-Refresh ist damit ueber die Produktion nicht startbar.
