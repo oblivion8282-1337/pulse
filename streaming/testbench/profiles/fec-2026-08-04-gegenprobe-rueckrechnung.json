@@ -1,0 +1,47 @@
+{
+  "id": "fec-2026-08-04-gegenprobe-rueckrechnung",
+  "gemessen_am": "2026-08-04",
+  "frage": "Rechnet unser FlexFEC-Empfaenger richtig zurueck — oder schreibt er Muell in Einheiten, die danach jede Pruefung fuer intakt haelt?",
+
+  "warum_die_frage_zaehlt": "Sie stand am Anfang der Ursachensuche zum GPU-Haenger (`ring vcn_unified_0 timeout`, Player tot). Ein falsch zurueckgerechnetes Paket ist der EINZIGE Weg, auf dem beschaedigte Daten in eine Zugriffseinheit gelangen, die der Zusammensetzer fuer lueckenlos haelt: die Reparatur schliesst genau das Loch, an dem alle Verlust-Erkennungen haengen. Verschaerft wird das dadurch, dass `fec/flexfec03.rs:207-208` die RTP-Versionsbits im zurueckgerechneten Paket hart SETZT statt sie zu pruefen — ein falsches Ergebnis waere damit praktisch garantiert „gueltig\".",
+
+  "aufbau": {
+    "werkzeug": "`PULSE_PLAYER_FEC_GEGENPROBE=1` (`streaming/pulse-player/src/fec/gegenprobe.rs`)",
+    "kniff": "Es braucht KEINEN Verlust. Geprueft wird an Gruppen, die VOLLSTAENDIG angekommen sind: jedes Paket wird einmal weggelassen, zurueckgerechnet und byte-weise mit dem echten verglichen. Jedes Paket ist damit Eingabe und Sollwert zugleich. Ein simulierter Verlust wuerde genau die Pakete verstecken, gegen die man vergleichen will.",
+    "warum_nicht_die_unit-Tests_genuegen": "Die Tests in `flexfec03.rs` pruefen gegen einen Nachbau von pions Encoder in derselben Datei. Ist die Lesart des Formats an einer Stelle falsch, ist sie in Nachbau UND Decoder gleich falsch, und der Test wird trotzdem gruen. Genau diese Falle hat in dieser Messreihe schon zugeschlagen (`Av1Payloader` des rtp-Crates, 2026-07-28).",
+    "lauf": "Laborserver ueber die echte Leitung, feste Paritaet 10+2, saubere Leitung, 90 s, Software-Dekodierung, nativer Player. Ausgeliefertes Image (`pulse-mediamtx:1.19.1-pulse2`)."
+  },
+
+  "ergebnis": {
+    "gruppen_geprueft": 4717,
+    "pakete_byte_gleich": 23585,
+    "pakete_abweichend": 0,
+    "koepfe_unlesbar": 0,
+    "gruppen_unvollstaendig": 3215,
+    "lauf_daneben": {"bilder": 5211, "standbild_sekunden": 0, "pakete_verloren": 0}
+  },
+
+  "antwort": "Die Rueckrechnung ist richtig. 23585 von 23585 rekonstruierten Paketen waren byte-gleich mit dem echten, kein einziges wich ab, kein Paritaetskopf war unlesbar. Damit ist der FEC-Zweig als Quelle beschaedigter Daten AUSGESCHLOSSEN — und zwar nicht durch ein Plausibilitaetsargument, sondern gegen echte Paritaetspakete des Servers.",
+
+  "was_offen_bleibt": "Die gesetzten Versionsbits (`flexfec03.rs:207-208`) bleiben eine Luecke in der Vorsorge, kein aktiver Fehler: WENN eine Rueckrechnung je falsch waere, faellt es nicht auf. Neun kostenlose Pruefbits (Version + Payload-Type) werden weggeworfen. Das zu schliessen ist billig und richtig, hat aber mit dem GPU-Haenger nach dieser Messung nichts zu tun.",
+
+  "zwei_zusatzmessungen_am_echten_strom": {
+    "streuung": {
+      "wert": "Der kleinste Abstand zwischen zwei geschuetzten Sequenznummern ist in ALLEN 7932 Gruppen genau 2.",
+      "warum_das_zaehlt": "Diese Zahl allein entscheidet, was ein Buendelverlust anrichtet: XOR loest genau EINE Unbekannte je Gruppe. Bei Abstand 2 liegen zwei aufeinanderfolgende Pakete in VERSCHIEDENEN Gruppen und sind beide reparierbar — ein Buendel von DREI trifft dieselbe Gruppe zweimal und ist verloren. Die Buendel dieser Strecke sind im Mittel 2,5 Pakete lang (frueher gemessen). Die Paritaet arbeitet also genau an ihrer Kante, und das erklaert die hohen `fec_mehrfach_loch`-Zahlen der Buendellaeufe (bis 5907).",
+      "bisher": "Der Wert stand bislang nur als Lesart von pions Quelltext (`X % numFecPackets`) im Raum. Jetzt ist er am eigenen Strom nachgemessen."
+    },
+    "nachlauf": {
+      "wert": "Zeit zwischen dem letzten geschuetzten Paket und seiner Paritaet: Median 0,2 ms, 90 % unter 0,7 ms, 99 % unter 28,8 ms, Maximum 197,9 ms (aus 4717 Gruppen).",
+      "warum_das_zaehlt": "Er entscheidet, ob eine Reparatur den Jitter-Puffer ueberhaupt noch rechtzeitig erreicht. Im Regelfall kommt die Paritaet praktisch sofort — dort ist sie schneller als jede Nachforderung ueber 60 ms Umlaufzeit. Das letzte Prozent laeuft aber bis 198 ms nach und verpasst damit einen 100-ms-Puffer."
+    }
+  },
+
+  "einschraenkungen": [
+    "Ein Lauf, saubere Leitung. Die Rueckrechnung ist damit fuer den ungestoerten Fall belegt; ob sie unter Last oder bei ueberlappenden Gruppen anders arbeitet, sagt dieser Lauf nicht.",
+    "Geprueft wird die Rueckrechnung, NICHT der Weg davor. `whep.rs:716-722` nimmt an, dass `packet.marshal()` byte-gleich zu dem ist, was auf der Leitung lag; waere diese Annahme falsch, waere die Gegenprobe in sich stimmig und trotzdem wertlos. Der Kommentar dort nennt es selbst eine Annahme.",
+    "Die 3215 unvollstaendigen Gruppen sind kein Befund, sondern der Rest am Laufende plus Gruppen, deren Paritaet nachlief."
+  ],
+
+  "folge_fuer_die_gpu-frage": "Der Verdacht „unsere FEC schreibt Muell in scheinbar intakte Einheiten\" ist erledigt. Als Kandidat in unserem eigenen Code bleibt `decode.rs:777`: der Vorgabe-Zweig von `on_gap()` fuettert den Decoder nach einer Luecke ABSICHTLICH mit Bildern weiter, deren Referenzbilder nie dekodiert wurden. Das ist begruendet und dokumentiert (ein `flush` liess die Bildrate auf 0 fallen), aber die Messung dahinter stammt vom 2026-07-28 und von `av1_cuvid` — fuer den VAAPI-Weg ist sie nie wiederholt worden."
+}
