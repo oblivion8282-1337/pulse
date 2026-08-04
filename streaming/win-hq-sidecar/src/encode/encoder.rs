@@ -60,54 +60,46 @@ pub enum VideoCodec {
     Av1,
 }
 
-/// `PULSE_HQ_AMD_D3D11=1` — AMD auch mit H.264/HEVC über den D3D11-Weg
-/// (`h264_amf`) statt über `h264_d3d12va`.
+/// `PULSE_HQ_AMD_D3D12=1` — AMD mit H.264/HEVC zurück auf `h264_d3d12va`
+/// statt auf AMF. Der Gegenprobe-Schalter, seit AMF der Regelweg ist.
 ///
-/// **Ein Messschalter, kein Feature** — und die Messung ist gemacht. Die Frage
-/// war, ob der D3D12-Zweig (rund 1800 Zeilen Eigenbau samt Compute-Shader,
-/// Shared-Handle-Brücke und extradata-Notlösung) überhaupt noch etwas trägt,
-/// nachdem `h264_amf` hier auch über D3D11 läuft. Am 2026-07-30 auf einer
-/// Radeon 780M, 1440p-Capture → 1080p60, 4000 kbps:
+/// **Bis 2026-08-04 war es umgekehrt**, und die Umkehrung ist eine
+/// Produktentscheidung, keine Messung — die Zahlen darunter gelten weiter:
 ///
 /// | H.264 über | Encode-Latenz | GPU-Video |
 /// |---|---|---|
 /// | D3D12 (`h264_d3d12va`) | **6,8 ms** | 25,4 % |
 /// | D3D11 (`h264_amf`)     | 17,2 ms    | 10,5 % |
 ///
-/// **Die D3D11-Zeile ist mit Vorsicht zu lesen:** sie entstand vor dem
-/// Einzeltextur-Fix (`hwctx.rs`), das Bild war dabei zerrissen — und ein
-/// zerrissenes Bild kostet weniger Video-Engine, weil weniger echter Inhalt
-/// drinsteckt. Sie ist nach dem Fix **nicht nachgemessen**.
+/// (Radeon 780M, 1440p → 1080p60, 4000 kbps, 2026-07-30. Die D3D11-Zeile
+/// entstand vor dem Einzeltextur-Fix in `hwctx.rs`, ihr Bild war zerrissen —
+/// und ein zerrissenes Bild kostet weniger Video-Engine, weil weniger echter
+/// Inhalt drinsteckt. Die **Last**-Zahl ist damit unbelegt; die **Latenz**-Zahl
+/// ist es nicht, sie steht über drei Bildraten und mehrere Optionen gegengeprüft.)
 ///
-/// Was auch danach gilt: D3D12 ist um das Zweieinhalbfache latenzärmer, und
-/// `h264_d3d12va` kennt kein `usage`, lässt sich also nicht sparsam stellen.
-/// Streichen ließe sich damit weder der eine noch der andere Zweig, ohne etwas
-/// zu verlieren — aber wie groß der GPU-Vorteil von AMF wirklich ist, gehört
-/// mit korrektem Bild nachgemessen.
+/// **Was AMF kostet:** rund 10 ms, exakt ein Bildabstand — AMF hält ein Bild
+/// zurück, codec-unabhängig, und keine Option bewegt das (`async_depth` 1 wie
+/// 16, `latency`, `preanalysis`, alle gemessen). Bei 120 fps sind es nur noch
+/// 8,9 ms, die Bildrate ist also der einzige Hebel darauf.
 ///
-/// Die 17,2 ms sind übrigens dieselben, die `av1_amf` liefert, und sie ließen
-/// sich mit keiner Option bewegen: **AMF hält ein Bild zurück**, unabhängig vom
-/// Codec und von `async_depth`. Der d3d12va-Zweig tut das nicht.
+/// **Warum trotzdem AMF, für beide Codecs:** ein Weg statt zwei. Die frühere
+/// Aufteilung — H.264 über D3D12, AV1 über AMF — war je Codec begründet und in
+/// der Summe teuer: zwei Encode-Wege, die auseinanderlaufen, zwei Stellen für
+/// jede Option, und Eigenschaften, die nur auf einem der beiden ankommen.
+/// Intra-Refresh ist genau so ein Fall: `h264_d3d12va` nimmt die Option an und
+/// tut nichts damit, `h264_amf` frischt unter `usage=ultralowlatency` von sich
+/// aus auf. Auch `usage` selbst gibt es nur bei AMF — der d3d12va-Zweig liegt
+/// fest bei rund 25 % Video-Engine und lässt sich nicht sparsam stellen.
 ///
-/// Daraus folgt die heutige Aufteilung: H.264 (der Kompatibilitätscodec) geht
-/// über D3D12 und bekommt die niedrige Latenz, AV1 (der Effizienzcodec) über
-/// AMF und bekommt die niedrige GPU-Last. Jeder Codec nimmt den Weg, der für
-/// ihn der bessere ist.
-///
-/// Der Schalter bleibt für die Gegenprobe auf anderer AMD-Hardware. Er ist
-/// bewusst nicht der Vorgabeweg: `h264_amf` auf D3D11-Eingang ist die
-/// Konstellation aus AMF-Issue #455 (`SubmitInput`-Integer-Divide-by-Zero).
-/// Auf dieser Maschine ist der Absturz nicht reproduzierbar — das ist eine
-/// Maschine, kein Beleg.
-///
-/// Nachtrag 2026-07-30: die obige Messung lief noch über den Texture-Array-
-/// Pool, dessen Bild auf AMF **zerrissen** war (auch für `h264_amf` — per
-/// Standbild belegt, `f_sth264.png` gegen `check_h264_d3d11.png`). Seit dem
-/// Einzeltextur-Pool (`hwctx.rs`) ist der Weg auch im Bild sauber; an den
-/// Latenz-/Lastzahlen ändert die Pool-Bauart nichts Messbares (17,25 gegen
-/// 17,2 ms).
-fn amd_forces_d3d11() -> bool {
-    crate::env::flag("PULSE_HQ_AMD_D3D11")
+/// **Das Risiko, das mitkommt, und es ist benannt:** `h264_amf` auf
+/// D3D11-Eingang ist die Konstellation aus AMF-Issue #455
+/// (`SubmitInput`-Integer-Divide-by-Zero). Auf dieser Maschine ist der Absturz
+/// nicht reproduzierbar — das ist eine Maschine, kein Beleg. Deshalb bleibt
+/// `pipeline_hw` bei einem gescheiterten Open auf AMD weiterhin an
+/// `pipeline_d3d12` abgeben können (s. `bildencoder.rs`), und dieser Schalter
+/// stellt den alten Weg ohne Neubau wieder her.
+fn amd_forces_d3d12() -> bool {
+    crate::env::flag("PULSE_HQ_AMD_D3D12")
 }
 
 /// Welcher der drei Encode-Wege eine (Vendor, Codec)-Kombination bedient.
@@ -197,23 +189,26 @@ impl VideoCodec {
         }
         // **Dasselbe gilt für einen angemeldeten ENCODER**, und aus demselben
         // Grund: nur der D3D11-Weg fragt `encode::bildencoder`. Auf jeder
-        // anderen Route (AMD+H.264 → D3D12, Intel → CPU) würde die Anmeldung
-        // wortlos übergangen — der Stream liefe, sähe gesund aus und
-        // beantwortete eine andere Frage als die gestellte. Genau die
-        // Verwechslung, gegen die es `log_encoder_open` gibt.
+        // anderen Route (Intel → CPU, AMD unter dem Gegenprobe-Schalter →
+        // D3D12) würde die Anmeldung wortlos übergangen — der Stream liefe,
+        // sähe gesund aus und beantwortete eine andere Frage als die gestellte.
+        // Genau die Verwechslung, gegen die es `log_encoder_open` gibt.
         //
         // Hier ohne URL-Prüfung, anders als beim Sendeweg: ein Encoder ist
         // nicht an ein Ziel gebunden, er encodiert jeden Strom.
         if super::bildencoder::angemeldet().is_some() {
             return EncodePath::D3d11ZeroCopy;
         }
-        if vendor == "amd" && amd_forces_d3d11() {
-            return EncodePath::D3d11ZeroCopy;
+        // AV1 hat den Gegenprobe-Schalter nicht: `av1_d3d12va` gibt keine
+        // brauchbare extradata heraus, der Weg endete ohnehin im Rückfall.
+        if vendor == "amd" && !matches!(self, VideoCodec::Av1) && amd_forces_d3d12() {
+            return EncodePath::D3d12ZeroCopy;
         }
-        match (vendor, self) {
-            ("nvidia", _) => EncodePath::D3d11ZeroCopy,
-            ("amd", VideoCodec::Av1) => EncodePath::D3d11ZeroCopy,
-            ("amd", _) => EncodePath::D3d12ZeroCopy,
+        match vendor {
+            // **AMD geht seit 2026-08-04 mit JEDEM Codec über AMF**, nicht mehr
+            // nur mit AV1. Ein Weg statt zwei — Begründung und Preis stehen an
+            // `amd_forces_d3d12`.
+            "nvidia" | "amd" => EncodePath::D3d11ZeroCopy,
             _ => EncodePath::Cpu,
         }
     }

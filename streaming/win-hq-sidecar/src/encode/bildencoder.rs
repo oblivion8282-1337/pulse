@@ -289,16 +289,21 @@ pub(crate) unsafe fn baue_mit_rueckfall(
             "angemeldeter Encode-Weg liess sich nicht oeffnen — KEIN Rueckfall auf den \
              Regelweg, das waere eine Messung unter falschem Etikett",
         )),
-        // AMD steht auf diesem Weg regulär nur mit AV1 (s. `encode_path`). Ein
-        // Rückfall auf H.264 darf hier NICHT stattfinden: H.264 hieße
-        // `h264_amf` mit D3D11-Eingang, und genau dafür gibt es AMF-Issue #455.
-        // AMD hat für H.264 einen erprobten eigenen Weg — dorthin abgeben.
-        // (Gilt auch unter `PULSE_HQ_AMD_D3D11=1`: scheitert der Open dort, ist
-        // der D3D12-Weg die richtige Antwort, nicht ein zweiter Versuch.)
+        // **Das Auffangnetz für AMF-Issue #455.** Seit dem 2026-08-04 geht AMD
+        // mit beiden Codecs über AMF (s. `encode_path`), und `h264_amf` auf
+        // D3D11-Eingang ist genau die Konstellation, für die es das Issue gibt
+        // (`SubmitInput`-Integer-Divide-by-Zero). Auf der Prüfmaschine ist der
+        // Absturz nicht reproduzierbar — das ist eine Maschine, kein Beleg.
+        //
+        // Scheitert der Open, gibt dieser Weg deshalb an den erprobten
+        // D3D12-Zweig ab, statt den Stream fallen zu lassen. Der trägt kein
+        // AV1 (keine brauchbare extradata) und kein Intra-Refresh — Letzteres
+        // bricht dort mit klarer Meldung ab, statt still Keyframes zu fahren.
+        // Ein Rückfall, der die Betriebsart verschluckt, gibt es also nicht.
         Err(e) if vendor == "amd" => {
             eprintln!(
                 "[pipeline-hw] {:?} nicht über D3D11 öffenbar ({e:#}) — \
-                 Delegation an pipeline_d3d12 (H.264)",
+                 Delegation an pipeline_d3d12",
                 cfg.codec
             );
             Ok(Gebaut::AnD3d12)

@@ -75,20 +75,46 @@ pub(crate) fn vendor_encoder_opts(
             // Im laufenden Sidecar bestätigt (`av1_amf`, 1440p→1080p60):
             // Video-Engine 22,1 % → 9,8 %.
             //
-            // Bei AV1 — dem Codec, der über diesen Zweig läuft — kostet der
-            // Wechsel also NICHTS an Bildqualität und senkt die Last der
-            // Video-Engine auf gut ein Drittel. Auf einer iGPU, die sich die
-            // Leistungsaufnahme mit der CPU teilt, ist das der größte Posten
-            // überhaupt. Bei H.264 kostet er 0,4 VMAF; dieser Zweig ist für
-            // H.264 aber ohnehin nur der Notausgang (`PULSE_HQ_DISABLE_ZERO_COPY`),
-            // der Regelweg ist `h264_d3d12va`.
+            // Bei AV1 kostet der Wechsel NICHTS an Bildqualität und senkt die
+            // Last der Video-Engine auf gut ein Drittel. Auf einer iGPU, die
+            // sich die Leistungsaufnahme mit der CPU teilt, ist das der größte
+            // Posten überhaupt.
+            //
+            // Bei H.264 kostet er 0,4 VMAF. **Seit dem 2026-08-04 ist das keine
+            // Randnotiz mehr**, denn H.264 läuft jetzt ebenfalls über diesen
+            // Zweig (`encode_path`) — hier stand vorher, er sei dafür nur der
+            // Notausgang. 0,4 VMAF für zweieinhalbfach weniger Video-Engine ist
+            // trotzdem der richtige Tausch, und zwar erst recht auf einer iGPU.
             opts.set("usage", "ultralowlatency");
-            // Unter `ultralowlatency` ist `quality` wirkungslos — `balanced` und
-            // `speed` lieferten byte-identische Bitströme (SHA-256 über 720
-            // Bilder). Der Wert bleibt stehen, damit er greift, wenn jemand
-            // `usage` über `PULSE_ENCODER_OPTS` zurückdreht.
+            // **`quality` wirkt bei den beiden Encodern verschieden**, und der
+            // Satz „unter `ultralowlatency` wirkungslos" galt nur für AV1:
+            //
+            // * `av1_amf` — `balanced` und `speed` liefern byte-identische
+            //   Bitströme (SHA-256 über 720 Bilder). Wirklich wirkungslos.
+            // * `h264_amf` — verändert den Bitstrom sehr wohl (drei Stufen,
+            //   drei verschiedene Prüfsummen, 2026-08-04 nachgemessen).
+            //
+            // **Trotzdem bleibt `balanced` stehen**, und das ist eine
+            // Entscheidung gegen einen scheinbaren Gewinn: `quality` sah auf
+            // dem ersten Messinhalt nach +0,21 dB PSNR bei gleicher Bitrate und
+            // gleichem Durchsatz aus (305–311 Bilder/s, verschränkt gemessen,
+            // Unterschied im Rauschen). Auf dem zweiten Inhalt waren es +0,03 dB
+            // — also nichts. Ein Gewinn, der sich beim zweiten Inhalt in Luft
+            // auflöst, trägt keine Änderung an einer Vorgabe. Wer das aufgreift,
+            // misst auf echtem Bildschirminhalt statt auf `testsrc2`.
             opts.set("quality", "balanced");
             opts.set("rc", "cbr");
+            // **Zwei Optionen, die hier ABSICHTLICH fehlen** — beide am
+            // 2026-08-04 am gebündelten FFmpeg nachgesehen, damit sie niemand
+            // „zur Sicherheit" ergänzt:
+            //
+            // * `coder=cabac` (setzt der Linux-Zweig) — `h264_amf` schaltet
+            //   CABAC von sich aus ein (`entropy_coding_mode_flag = 1` im PPS
+            //   des erzeugten Stroms). Die Option wäre eine Anweisung ohne
+            //   Wirkung.
+            // * `filler_data=0` — unter CBR erzeugt `h264_amf` gar keine
+            //   Füll-NALs (0 Stück in 300 Bildern, `trace_headers`). Das
+            //   Füllbyten-Problem der Linux-Seite gibt es hier nicht.
             // AMFs Default ist **16** — bis zu 15 Bilder Vorlauf, und FFmpeg
             // schreibt die Latenzwirkung selbst in den Hilfetext.
             //
@@ -126,6 +152,25 @@ pub(crate) fn vendor_encoder_opts(
             // diesen Zweig gibt es ohnehin kein 10 bit.
             if ten_bit {
                 opts.set("bitdepth", "10");
+            }
+            // **Die Fassung ausdrücklich setzen, weil wir sie ausdrücklich
+            // zusagen.** `whip::sdp` schreibt `profile-level-id=6400xx` ins
+            // Angebot — `64` heißt High. `h264_amf` wählt ohne Zutun aber
+            // **Main** (2026-08-04 am erzeugten Strom nachgesehen, nicht am
+            // Hilfetext). Die Richtung ist die harmlose — wer High dekodieren
+            // kann, kann auch Main —, aber eine Zusage, die nicht stimmt, ist
+            // in einer SDP-Verhandlung die falsche Sorte Ungenauigkeit: der
+            // Empfänger legt seine Puffer danach aus.
+            //
+            // **Kostet nichts:** bei fester Quantisierung liefern `main` und
+            // `high` auf demselben Inhalt 10 565 874 gegen 10 565 875 Bytes —
+            // ein Byte auf 10 MB. AMF nutzt die High-Werkzeuge hier also
+            // ohnehin kaum; der Gewinn ist die richtige Zusage, nicht die
+            // Kompression.
+            //
+            // Nur H.264: `av1_amf` kennt bei `profile` allein `main`.
+            if matches!(codec, VideoCodec::H264) {
+                opts.set("profile", "high");
             }
         }
         "intel" => {

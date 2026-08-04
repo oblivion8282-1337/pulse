@@ -26,7 +26,8 @@
 //! `streaming/testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`.
 
 use anyhow::{Result, bail};
-use ffmpeg_next::Dictionary;
+use ffmpeg_next as ffmpeg;
+use ffmpeg::Dictionary;
 
 use super::encoder::{EncodePath, VideoCodec};
 
@@ -148,17 +149,78 @@ pub fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&
     }
 }
 
+/// Kennt das GELINKTE FFmpeg alle Optionen, die dieser Encoder dafür braucht?
+///
+/// **Die zweite Hälfte der Frage, und sie ist nicht theoretisch.** Die Tabelle
+/// oben sagt, was der Encoder *könnte*; ob dieses FFmpeg die Optionen
+/// durchreicht, ist eine andere Frage — und am 2026-08-04 lautete die Antwort
+/// nein: das gebündelte `n8.1.1-118-g1034b144ff` kennt
+/// `intra_refresh_mode`/`intra_refresh_stripes` bei `av1_amf` **nicht**, erst
+/// 8.1.2 hat sie (kein Patch von uns, eine Upstream-Ergänzung dazwischen).
+///
+/// Ohne diese Prüfung wäre das der schlimmste denkbare Ausgang: `avcodec_open2`
+/// bekommt die Optionen als Dictionary, was es nicht zuordnen kann, bleibt
+/// liegen und wird beim Aufräumen verworfen — **ohne eine einzige Logzeile**.
+/// Der Stream liefe, mit periodischen Vollbildern, unter dem Etikett
+/// „Intra-Refresh". Genau der Fall, gegen den es dieses Modul gibt.
+///
+/// Dieselbe Prüfung wie im Linux-Sidecar
+/// (`encode/opts.rs::intra_refresh_verfuegbar`), dort für den VAAPI-Patch.
+/// Fasst keine Hardware an: die Frage ist nicht „kann die Karte das", sondern
+/// „hat dieses FFmpeg die Option".
+fn ffmpeg_kennt_die_optionen(encoder: &str) -> bool {
+    let Some(liste) = optionen_fuer(encoder) else {
+        return false;
+    };
+    if liste.is_empty() {
+        return true; // nichts zu setzen — s. `h264_amf`
+    }
+    let Some(desc) = ffmpeg::codec::encoder::find_by_name(encoder) else {
+        return false; // Encoder gar nicht ins FFmpeg gelinkt
+    };
+    let Ok(mut enc) = ffmpeg::codec::context::Context::new_with_codec(desc).encoder().video()
+    else {
+        return false;
+    };
+    // SAFETY: `enc` lebt bis zum Ende der Funktion, der Zeiger stammt aus ihm
+    // und ist damit gueltig; `av_opt_find` liest ihn nur.
+    liste.iter().all(|(key, _)| unsafe { kennt_option(enc.as_mut_ptr(), key) })
+}
+
+/// Kennt dieser Encoder-Kontext die Option?
+///
+/// # Safety
+///
+/// `ctx` muss ein gueltiger `AVCodecContext` sein und den Aufruf ueberleben.
+/// Die Funktion liest ihn nur.
+unsafe fn kennt_option(ctx: *mut ffmpeg::ffi::AVCodecContext, name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: Kontrakt der Funktion; `name` lebt bis zum Ende des Aufrufs.
+    let gefunden = unsafe {
+        ffmpeg::ffi::av_opt_find(
+            ctx.cast(),
+            name.as_ptr(),
+            std::ptr::null(),
+            0,
+            ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN as i32,
+        )
+    };
+    !gefunden.is_null()
+}
+
 /// Trägt diese Maschine die Betriebsart mit mindestens einem ihrer Codecs?
 ///
 /// Das ist die Frage, die `health.gsr.intra_refresh` beantwortet, und sie ist
 /// bewusst großzügig: die Oberfläche soll das Kästchen anbieten, sobald es
 /// einen Weg dorthin gibt. Welcher Codec ihn trägt, entscheidet sich erst beim
-/// Start — und wenn der gewählte ihn nicht trägt, sagt [`pruefen`] das mit
+/// Start — und wenn der gewählte ihn nicht trägt, sagt [`anwenden`] das mit
 /// klarer Meldung, statt still Keyframes zu fahren.
 pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
     codecs.iter().any(|slug| {
         encoder_name(vendor, VideoCodec::from_slug(slug), "")
-            .is_some_and(|name| optionen_fuer(name).is_some())
+            .is_some_and(ffmpeg_kennt_die_optionen)
     })
 }
 
@@ -180,12 +242,26 @@ pub fn anwenden(opts: &mut Dictionary<'_>, encoder: &str, fps: u32) -> Result<()
     let Some(liste) = optionen_fuer(encoder) else {
         bail!(
             "Intra-Refresh verlangt, aber '{encoder}' liefert ihn nicht. \
-             Auf AMD trägt ihn AV1 (über av1_amf), H.264 nur über den \
-             AMF-Weg (PULSE_HQ_AMD_D3D11=1) — der Regelweg h264_d3d12va nimmt \
-             die Option an und tut nichts damit. Begründung je Encoder: \
+             Auf AMD tragen ihn beide Codecs über AMF; `h264_d3d12va` (nur noch \
+             über PULSE_HQ_AMD_D3D12=1 erreichbar) nimmt die Option an und tut \
+             nichts damit, Intel kann es gar nicht. Begründung je Encoder: \
              encode/auffrischung.rs"
         );
     };
+    // Zweite Hürde: die Option muss in DIESEM FFmpeg auch existieren. Sonst
+    // verwirft `avcodec_open2` sie wortlos und der Strom liefe mit
+    // periodischen Vollbildern unter falschem Etikett weiter.
+    if !ffmpeg_kennt_die_optionen(encoder) {
+        let fehlend: Vec<&str> = liste.iter().map(|(k, _)| *k).collect();
+        bail!(
+            "Intra-Refresh verlangt, aber dieses FFmpeg reicht ihn an \
+             '{encoder}' nicht durch (vermisst: {}). Bei `av1_amf` gibt es die \
+             Optionen erst ab FFmpeg 8.1.2 — das gebündelte \
+             `ffmpeg-dist/n8.1-lgpl-shared` ist älter. Neu holen: \
+             scripts/fetch-ffmpeg.ps1",
+            fehlend.join(", ")
+        );
+    }
     let fps = fps.to_string();
     for (key, wert) in liste {
         opts.set(key, &wert.replace("{fps}", &fps));
@@ -206,13 +282,47 @@ mod tests {
         r
     }
 
+    /// Die Optionsliste selbst — die Tabelle, unabhängig davon, ob das gerade
+    /// gelinkte FFmpeg sie durchreicht. Getrennt geprüft, weil sonst ein
+    /// älteres FFmpeg diesen Test rot machte, obwohl die Tabelle stimmt.
     #[test]
     fn av1_amf_bekommt_die_auffrischung_mit_der_bildrate() {
+        let liste = optionen_fuer("av1_amf").expect("av1_amf traegt die Betriebsart");
+        assert_eq!(liste, [("intra_refresh_mode", "gop_aligned"), ("intra_refresh_stripes", "{fps}")]);
+
+        // Und beim Anwenden wird `{fps}` eingesetzt — aber nur, wenn dieses
+        // FFmpeg die Schlüssel überhaupt kennt. Kennt es sie nicht, MUSS der
+        // Aufruf scheitern statt still nichts zu tun; das prüft
+        // `verfuegbarkeit_fragt_das_gelinkte_ffmpeg`.
+        if ffmpeg_kennt_die_optionen("av1_amf") {
+            mit_wunsch(true, || {
+                let mut opts = Dictionary::new();
+                anwenden(&mut opts, "av1_amf", 60).unwrap();
+                assert_eq!(opts.get("intra_refresh_mode"), Some("gop_aligned"));
+                assert_eq!(opts.get("intra_refresh_stripes"), Some("60"));
+            });
+        }
+    }
+
+    /// **Der Fall, der am 2026-08-04 wirklich vorlag.** Das gebündelte FFmpeg
+    /// (`n8.1.1-118`) kennt die AV1-Schlüssel nicht, erst 8.1.2 hat sie. Ohne
+    /// die Prüfung setzte `anwenden` sie klaglos, `avcodec_open2` verwürfe sie
+    /// wortlos, und der Strom liefe mit periodischen Vollbildern unter dem
+    /// Etikett „Intra-Refresh" — genau der Ausgang, gegen den es dieses Modul
+    /// gibt. Der Test schreibt die FFmpeg-Fassung nicht vor; er verlangt nur,
+    /// dass beide Antworten dieselbe sind.
+    #[test]
+    fn fehlende_option_im_ffmpeg_scheitert_statt_still_zu_wirken() {
+        let kennt = ffmpeg_kennt_die_optionen("av1_amf");
         mit_wunsch(true, || {
             let mut opts = Dictionary::new();
-            anwenden(&mut opts, "av1_amf", 60).unwrap();
-            assert_eq!(opts.get("intra_refresh_mode"), Some("gop_aligned"));
-            assert_eq!(opts.get("intra_refresh_stripes"), Some("60"));
+            let ergebnis = anwenden(&mut opts, "av1_amf", 60);
+            assert_eq!(ergebnis.is_ok(), kennt);
+            if let Err(e) = ergebnis {
+                let text = e.to_string();
+                assert!(text.contains("8.1.2"), "die Meldung muss den Ausweg nennen: {text}");
+                assert!(opts.get("intra_refresh_mode").is_none(), "nichts halb gesetzt lassen");
+            }
         });
     }
 
@@ -254,17 +364,40 @@ mod tests {
         });
     }
 
-    /// AMD kann es — aber nur über AV1. Genau diese Unterscheidung geht
-    /// verloren, wenn die Fähigkeit am Herstellernamen statt am Encode-Weg
-    /// hängt: `ffmpeg_name("amd", H264)` ist `h264_amf` und könnte es, der
-    /// tatsächlich laufende `h264_d3d12va` nicht.
+    /// **AMD geht seit 2026-08-04 mit beiden Codecs über AMF.** Der Test hält
+    /// die Zuordnung fest, weil die Fähigkeitsmeldung an ihr hängt: sie muss
+    /// den Encoder nennen, der WIRKLICH läuft, nicht den Herstellernamen. Zu
+    /// D3D12 kommt man nur noch über den Gegenprobe-Schalter, und der ist hier
+    /// nicht gesetzt.
     #[test]
-    fn amd_meldet_die_faehigkeit_ueber_av1_nicht_ueber_h264() {
+    fn amd_laeuft_mit_beiden_codecs_ueber_amf() {
         assert_eq!(encoder_name("amd", VideoCodec::Av1, ""), Some("av1_amf"));
-        assert_eq!(encoder_name("amd", VideoCodec::H264, ""), Some("h264_d3d12va"));
-        assert!(verfuegbar("amd", &["av1".to_string()]));
-        assert!(!verfuegbar("amd", &["h264".to_string()]));
-        assert!(verfuegbar("amd", &["h264".to_string(), "av1".to_string()]));
+        assert_eq!(encoder_name("amd", VideoCodec::H264, ""), Some("h264_amf"));
+    }
+
+    /// **Die Fähigkeit hängt am gelinkten FFmpeg, nicht nur an der Tabelle.**
+    /// `h264_amf` braucht keine Option (`usage=ultralowlatency` frischt selbst
+    /// auf) und ist damit immer verfügbar; `av1_amf` braucht zwei, die es erst
+    /// ab FFmpeg 8.1.2 gibt. Der Test schreibt kein Ergebnis vor — er hält
+    /// fest, dass die Antwort für AV1 aus dem echten Optionsbestand kommt und
+    /// nicht geraten ist. Sonst meldete der Sidecar auf einem älteren FFmpeg
+    /// eine Betriebsart, die beim Start still zu Keyframes würde.
+    #[test]
+    fn verfuegbarkeit_fragt_das_gelinkte_ffmpeg() {
+        assert!(verfuegbar("amd", &["h264".to_string()]), "h264_amf braucht keine Option");
+
+        let av1 = verfuegbar("amd", &["av1".to_string()]);
+        assert_eq!(
+            av1,
+            ffmpeg_kennt_die_optionen("av1_amf"),
+            "die Meldung muss dem Optionsbestand folgen, nicht der Tabelle"
+        );
+        // Und was der Encoder verlangt, muss beim Anwenden dieselbe Antwort
+        // geben: melden und dann scheitern waere schlimmer als beides nicht.
+        mit_wunsch(true, || {
+            let mut opts = Dictionary::new();
+            assert_eq!(anwenden(&mut opts, "av1_amf", 60).is_ok(), av1);
+        });
     }
 
     #[test]

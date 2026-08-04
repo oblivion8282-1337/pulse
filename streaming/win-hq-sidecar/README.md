@@ -146,12 +146,13 @@ einzeln beschrieben.
 - `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt den CPU-Pfad für **jeden** Vendor (NVIDIA wie
   AMD). Für A/B-Debugging; auf AMD = Fallback auf `h264_amf` (Software-NV12-Input).
   **Teuer:** bei 1440p→1080p60 gemessen rund eine volle CPU-Kerne.
-- `PULSE_HQ_AMD_D3D11=1` — schickt AMD auch mit H.264/HEVC über den D3D11-Weg
-  (`h264_amf`) statt über `h264_d3d12va`. **Messschalter für die Gegenprobe auf
-  fremder AMD-Hardware**, nicht für den Regelbetrieb: das ist die Konstellation aus
-  AMF-Issue #455. Auf einer Radeon 780M (Treiber 07/2026) läuft sie sauber, kostet
-  aber Latenz — 17,2 statt 6,8 ms — bei dafür deutlich niedrigerer Video-Engine-Last
-  (10,5 % statt 25,4 %). Herleitung: `docs/plans/2026-07-30-amd-windows-messung.md`.
+- `PULSE_HQ_AMD_D3D12=1` — schickt AMD mit H.264/HEVC zurück auf `h264_d3d12va`
+  statt auf AMF. **Der Gegenprobe-Schalter, seit AMF der Regelweg ist** (2026-08-04;
+  bis dahin hieß er `PULSE_HQ_AMD_D3D11` und wirkte andersherum). Auf AV1 hat er
+  keine Wirkung — `av1_d3d12va` gibt keine brauchbare extradata heraus.
+  D3D12 ist latenzärmer (6,8 statt 17,2 ms — AMF hält codec-unabhängig ein Bild
+  zurück), kennt dafür kein `usage` und liegt fest bei rund 25 % Video-Engine.
+  Herleitung: `docs/plans/2026-07-30-amd-windows-messung.md`.
 - `PULSE_HQ_D3D11_SINGLE_TEX=1|0` — übersteuert die vendor-abhängige Pool-Bauart des
   D3D11-Pfads (Einzeltexturen statt Texture-Array; Vorgabe: AMD=Einzeltexturen,
   NVIDIA=Array). `0` reproduziert das zerrissene AMF-Bild auf AMD, `1` misst
