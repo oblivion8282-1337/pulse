@@ -1,4 +1,5 @@
-//! WGC-Capture mit Zero-Copy in einen D3D11VA-Pool (NVENC-Pfad).
+//! WGC-Capture mit Zero-Copy in einen D3D11VA-Pool (D3D11-Zero-Copy-Pfad —
+//! NVENC auf NVIDIA, `av1_amf` auf AMD).
 //!
 //! Variante von `wgc.rs::WgcCapture`. Statt im Callback einen BGRA-CPU-Buffer
 //! zu materialisieren, kopieren wir die WGC-Frame-Texture per

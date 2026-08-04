@@ -20,10 +20,13 @@
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
+use ffmpeg::{Packet, Rational, codec, format, frame, software::scaling};
 
 use super::audio::AudioPipeline;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::opts::vendor_encoder_opts;
+use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
 
@@ -57,6 +60,68 @@ pub enum VideoCodec {
     Av1,
 }
 
+/// `PULSE_HQ_AMD_D3D11=1` — AMD auch mit H.264/HEVC über den D3D11-Weg
+/// (`h264_amf`) statt über `h264_d3d12va`.
+///
+/// **Ein Messschalter, kein Feature** — und die Messung ist gemacht. Die Frage
+/// war, ob der D3D12-Zweig (rund 1800 Zeilen Eigenbau samt Compute-Shader,
+/// Shared-Handle-Brücke und extradata-Notlösung) überhaupt noch etwas trägt,
+/// nachdem `h264_amf` hier auch über D3D11 läuft. Am 2026-07-30 auf einer
+/// Radeon 780M, 1440p-Capture → 1080p60, 4000 kbps:
+///
+/// | H.264 über | Encode-Latenz | GPU-Video |
+/// |---|---|---|
+/// | D3D12 (`h264_d3d12va`) | **6,8 ms** | 25,4 % |
+/// | D3D11 (`h264_amf`)     | 17,2 ms    | 10,5 % |
+///
+/// **Die D3D11-Zeile ist mit Vorsicht zu lesen:** sie entstand vor dem
+/// Einzeltextur-Fix (`hwctx.rs`), das Bild war dabei zerrissen — und ein
+/// zerrissenes Bild kostet weniger Video-Engine, weil weniger echter Inhalt
+/// drinsteckt. Sie ist nach dem Fix **nicht nachgemessen**.
+///
+/// Was auch danach gilt: D3D12 ist um das Zweieinhalbfache latenzärmer, und
+/// `h264_d3d12va` kennt kein `usage`, lässt sich also nicht sparsam stellen.
+/// Streichen ließe sich damit weder der eine noch der andere Zweig, ohne etwas
+/// zu verlieren — aber wie groß der GPU-Vorteil von AMF wirklich ist, gehört
+/// mit korrektem Bild nachgemessen.
+///
+/// Die 17,2 ms sind übrigens dieselben, die `av1_amf` liefert, und sie ließen
+/// sich mit keiner Option bewegen: **AMF hält ein Bild zurück**, unabhängig vom
+/// Codec und von `async_depth`. Der d3d12va-Zweig tut das nicht.
+///
+/// Daraus folgt die heutige Aufteilung: H.264 (der Kompatibilitätscodec) geht
+/// über D3D12 und bekommt die niedrige Latenz, AV1 (der Effizienzcodec) über
+/// AMF und bekommt die niedrige GPU-Last. Jeder Codec nimmt den Weg, der für
+/// ihn der bessere ist.
+///
+/// Der Schalter bleibt für die Gegenprobe auf anderer AMD-Hardware. Er ist
+/// bewusst nicht der Vorgabeweg: `h264_amf` auf D3D11-Eingang ist die
+/// Konstellation aus AMF-Issue #455 (`SubmitInput`-Integer-Divide-by-Zero).
+/// Auf dieser Maschine ist der Absturz nicht reproduzierbar — das ist eine
+/// Maschine, kein Beleg.
+///
+/// Nachtrag 2026-07-30: die obige Messung lief noch über den Texture-Array-
+/// Pool, dessen Bild auf AMF **zerrissen** war (auch für `h264_amf` — per
+/// Standbild belegt, `f_sth264.png` gegen `check_h264_d3d11.png`). Seit dem
+/// Einzeltextur-Pool (`hwctx.rs`) ist der Weg auch im Bild sauber; an den
+/// Latenz-/Lastzahlen ändert die Pool-Bauart nichts Messbares (17,25 gegen
+/// 17,2 ms).
+fn amd_forces_d3d11() -> bool {
+    crate::env::flag("PULSE_HQ_AMD_D3D11")
+}
+
+/// Welcher der drei Encode-Wege eine (Vendor, Codec)-Kombination bedient.
+/// Siehe [`VideoCodec::encode_path`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodePath {
+    /// `pipeline_hw` — WGC → D3D11VA-Pool → Encoder (NVENC bzw. AMF).
+    D3d11ZeroCopy,
+    /// `pipeline_d3d12` — WGC → Shared-Handle → D3D12-Compute → `*_d3d12va`.
+    D3d12ZeroCopy,
+    /// `run_cpu_pipeline` — CPU-Readback + swscale. Notausgang.
+    Cpu,
+}
+
 impl VideoCodec {
     /// FFmpeg-Encoder-Name für (Vendor, Codec). `vendor` ist der Slug aus
     /// `system::dxgi::Adapter::vendor()` (`"nvidia"`/`"amd"`/`"intel"`).
@@ -73,6 +138,79 @@ impl VideoCodec {
             ("intel", VideoCodec::Av1) => "av1_qsv",
             _ => return Err(anyhow!("no HW encoder for vendor={vendor} codec={self:?}")),
         })
+    }
+
+    /// Welcher Encode-Weg diese Kombination bedient — die EINE Stelle, an der
+    /// das steht.
+    ///
+    /// Die Regel hing vorher an zwei Orten (Dispatcher und `pipeline_hw`) in
+    /// zwei verschiedenen Schreibweisen. Zwei Fassungen derselben Regel laufen
+    /// auseinander, sobald eine Zelle dazukommt — und dann schickt der
+    /// Dispatcher einen Stream auf einen Pfad, der ihn sofort wieder
+    /// wegdelegiert. Sie steht hier, weil daneben mit
+    /// [`ffmpeg_name`](Self::ffmpeg_name) schon die andere
+    /// (Vendor, Codec)-Tabelle wohnt.
+    ///
+    /// - **NVIDIA, alles** → D3D11: NVENC nimmt D3D11-BGRA direkt.
+    /// - **AMD, AV1** → D3D11: `av1_amf` nimmt D3D11-BGRA direkt. AV1 über
+    ///   D3D12 kann die Hardware nicht (unbrauchbarer Bitstrom, Messung in
+    ///   `pipeline_d3d12::run`), und über die CPU-Pipeline kostete AV1 113 %
+    ///   einer CPU-Kerne samt 42 übersprungenen Bildern in 20 s; über D3D11
+    ///   sind es ~10 % und 0 (2026-07-30, Radeon 780M, 1440p nativ).
+    /// - **AMD, H.264/HEVC** → D3D12: `h264_d3d12va` ist um das
+    ///   Zweieinhalbfache latenzärmer als `h264_amf` (6,8 gegen 17,2 ms).
+    /// - **Rest (Intel)** → CPU.
+    ///
+    /// **AMD+AV1 war hier schon einmal auf D3D11 und wurde zurückgenommen**,
+    /// weil das Bild zerrissen war (doppelte, versetzte Kopien, verschmierter
+    /// Text) — bei formal einwandfreiem, fehlerfrei dekodierbarem Strom. Die
+    /// Ursache ist gefunden und behoben: die AMF-Runtime liest aus dem
+    /// D3D11VA-**Texture-Array**-Pool falsch; mit einem Pool aus
+    /// **Einzeltexturen** ist das Bild sauber (Herleitung + Standbild-A/B am
+    /// Wert in `hwctx.rs::HwContext::new`; `h264_amf` zeigte über das Array
+    /// dieselben Risse, der Fehler ist codec-unabhängig). `hwctx.rs` wählt die
+    /// Pool-Bauart seither automatisch nach GPU-Vendor.
+    ///
+    /// Aus der ersten Rücknahme bleibt die Regel: **bei Bildwegen gehört zu
+    /// jeder Messung eine Sichtprüfung** — Latenz, CPU und Decodierbarkeit
+    /// sahen auch beim zerrissenen Bild hervorragend aus. Der Fix hier ist
+    /// per Standbild belegt (1440p nativ und 1080p über den Scaler-Pool).
+    ///
+    /// Neue Zellen gehören hierher und brauchen eine Messung, keine Vermutung —
+    /// und bei Bildwegen eine Sichtprüfung.
+    pub fn encode_path(self, vendor: &str) -> EncodePath {
+        if vendor == "amd" && amd_forces_d3d11() {
+            return EncodePath::D3d11ZeroCopy;
+        }
+        match (vendor, self) {
+            ("nvidia", _) => EncodePath::D3d11ZeroCopy,
+            ("amd", VideoCodec::Av1) => EncodePath::D3d11ZeroCopy,
+            ("amd", _) => EncodePath::D3d12ZeroCopy,
+            _ => EncodePath::Cpu,
+        }
+    }
+
+    /// Umkehrung von [`slug`](Self::slug): der Kurzname aus dem `start`-Request.
+    /// Unbekanntes faellt auf H.264 zurueck, wie an allen drei Aufrufstellen
+    /// zuvor einzeln ausgeschrieben.
+    pub fn from_slug(s: &str) -> Self {
+        match s {
+            "hevc" => VideoCodec::Hevc,
+            "av1" => VideoCodec::Av1,
+            _ => VideoCodec::H264,
+        }
+    }
+
+    /// Kurzname wie im `start`-Request (`"h264"`/`"hevc"`/`"av1"`) — die
+    /// Rueckrichtung zu `parse_overrides`. Gebraucht fuer die argv-Zeile der
+    /// `start`-Antwort, die sonst den Codec des PROFILS meldet statt den
+    /// gewaehlten.
+    pub fn slug(self) -> &'static str {
+        match self {
+            VideoCodec::H264 => "h264",
+            VideoCodec::Hevc => "hevc",
+            VideoCodec::Av1 => "av1",
+        }
     }
 
     /// FFmpeg-Encoder-Name für den nativen D3D12VA-Pfad (AMD-GPU-Pfad). Die
@@ -132,6 +270,9 @@ pub struct FfmpegEncoder {
     last_convert_us: u64,
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben → Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `async_depth` (AMF/QSV) verändert; `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegEncoder {
@@ -190,10 +331,19 @@ impl FfmpegEncoder {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
 
-        let opts = vendor_encoder_opts(&cfg.vendor);
+        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec);
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}' (vendor={})", cfg.vendor))?;
+        super::log_encoder_open(
+            codec_name,
+            &cfg.vendor,
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+        );
         stream.set_parameters(&opened);
 
         // Audio-Pipeline VOR write_header anlegen — sie addiert einen Stream
@@ -270,7 +420,15 @@ impl FfmpegEncoder {
             last_convert_us: 0,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in µs.
+    /// Holt und LEERT die Zähler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// Frame-Copy + swscale BGRA→NV12 des letzten `send` in µs.
@@ -362,11 +520,14 @@ impl FfmpegEncoder {
 
         frame.set_pts(Some(pts));
 
+        // VOR dem Einschieben stempeln: mit abgeschaltetem Vorlauf liefert der
+        // Encoder das Paket im selben Aufruf zurück (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         self.encoder
             .send_frame(frame)
             .context("encoder.send_frame")?;
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_packets()?;
         Ok(())
     }
@@ -384,6 +545,9 @@ impl FfmpegEncoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             let t_mux = std::time::Instant::now();
@@ -414,78 +578,6 @@ impl FfmpegEncoder {
     }
 }
 
-/// Für URL-Schemes ohne Extension wählt FFmpeg's Auto-Detect kein Format —
-/// wir mappen die unterstützten Streaming-Protokolle hier explizit.
-///
-/// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
-/// - `srt://`               → MPEG-TS (SRT-Standard)
-/// - `http(s)://`           → WHIP (WebRTC-Ingest; media-svc mintet solche
-///                            URLs für Gäste auf App-gehosteten Instanzen)
-/// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
-pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
-    let lower = target.to_ascii_lowercase();
-    if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
-        Some("flv")
-    } else if lower.starts_with("srt://") {
-        Some("mpegts")
-    } else if lower.starts_with("http://") || lower.starts_with("https://") {
-        Some("whip")
-    } else {
-        None
-    }
-}
-
-/// Öffnet den Output-Kontext für die Push-URL — gemeinsame Stelle für alle
-/// drei Encoder-Pfade (CPU / NVENC-D3D11 / AMD-D3D12).
-///
-/// Für RTMPS: `tls_verify=0` — Pulse-MediaMTX nutzt by-design ein self-signed
-/// Cert; die echte Auth läuft per Stream-Token in der URL → authHTTP-Hook.
-/// FFmpegs Schannel-Backend ist strict-verify by default und killt den Stream
-/// sonst nach dem TLS-Handshake. `rw_timeout` (µs): ohne das blockiert ein
-/// toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze bei `stop()`.
-///
-/// Für WHIP: der Muxer macht sein eigenes I/O (ICE/DTLS/SRTP) — die
-/// AVIO-Optionen greifen dort nicht; stattdessen den Handshake begrenzen.
-/// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
-/// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
-pub(crate) fn open_output(output_path: &str) -> Result<format::context::Output> {
-    match url_format_hint(output_path) {
-        Some(fmt) => {
-            let mut opts = Dictionary::new();
-            if fmt == "whip" {
-                ensure_muxer_available(fmt)?;
-                opts.set("handshake_timeout", "10000");
-            } else {
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-            }
-            format::output_as_with(&output_path, fmt, opts)
-                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))
-        }
-        None => format::output(&output_path)
-            .with_context(|| format!("format::output({output_path})")),
-    }
-}
-
-/// Probe: trägt das gelinkte FFmpeg den Muxer überhaupt? (WHIP existiert nur
-/// in Builds mit DTLS-Support, FFmpeg ≥ 8.0 + OpenSSL.)
-fn ensure_muxer_available(fmt: &'static str) -> Result<()> {
-    let name = std::ffi::CString::new(fmt).expect("static fmt name");
-    let found = unsafe {
-        !ffmpeg::ffi::av_guess_format(name.as_ptr(), std::ptr::null(), std::ptr::null()).is_null()
-    };
-    if found {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Muxer '{fmt}' fehlt im gelinkten FFmpeg — für WHIP wird FFmpeg ≥ 8.0 \
-             mit DTLS (OpenSSL) benötigt. Bitte FFmpeg-DLLs aktualisieren."
-        ))
-    }
-}
-
 /// BGRA-Bytes in einen FFmpeg-`Video`-Frame kopieren. Beachtet den Frame-Stride
 /// (FFmpeg padded die Zeilen für SIMD-Alignment, deshalb funktioniert kein
 /// pauschales `data.copy_from_slice(src)`). `width`/`height` müssen mit der
@@ -499,36 +591,4 @@ pub(crate) fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, heigh
         let dst = y * stride;
         data[dst..dst + row_bytes].copy_from_slice(&bgra[src..src + row_bytes]);
     }
-}
-
-/// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
-/// (Low-Latency, CBR) — pro Encoder mehr durchstimmen wenn die echten
-/// Quality-Tradeoffs sichtbar sind.
-pub(crate) fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
-    let mut opts = Dictionary::new();
-    match vendor {
-        "nvidia" => {
-            // NVENC-Presets: p1 (fastest) … p7 (slowest+best). Für Live-Stream
-            // ist Throughput wichtiger als Last-bit-Quality → `p2` ist der
-            // sweet-spot, sehr schnell und kaum schlechter als p4 im Screen-
-            // Content. `tune=ull` (ultra-low-latency) statt nur `ll` damit
-            // B-Frames und VBV-Lookahead komplett aus sind.
-            opts.set("preset", "p2");
-            opts.set("tune", "ull");
-            opts.set("rc", "cbr");
-            opts.set("zerolatency", "1");
-            opts.set("delay", "0");
-        }
-        "amd" => {
-            opts.set("usage", "transcoding");
-            opts.set("quality", "balanced");
-            opts.set("rc", "cbr");
-        }
-        "intel" => {
-            opts.set("preset", "medium");
-            opts.set("look_ahead", "0"); // low-latency
-        }
-        _ => {}
-    }
-    opts
 }

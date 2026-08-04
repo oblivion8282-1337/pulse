@@ -15,7 +15,8 @@
 //!
 //! Kein PCIe-Roundtrip, kein CPU-swscale. Die Capture bleibt zwangsläufig
 //! D3D11 (Windows hat keine D3D12-Bildschirmaufnahme); alles danach ist
-//! D3D12-only. Dispatch: `run_pipeline` schickt `amd` hierher.
+//! D3D12-only. Dispatch: `VideoCodec::encode_path` schickt **AMD mit
+//! H.264/HEVC** hierher — AV1 nicht, s. `run`.
 //! `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt weiterhin den CPU-Pfad
 //! (`run_cpu_pipeline`, `h264_amf` mit Software-NV12) — Sicherheitsventil.
 
@@ -37,31 +38,48 @@ use crate::events;
 use crate::stream_controller::{StartParams, StreamController, emit_state};
 use crate::tick_monitor::{TickMonitor, TickSample};
 
-pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
-    let ctrl = StreamController::singleton();
-
-    let fps = params.override_fps.unwrap_or(params.profile.fps);
-    let codec = params.override_codec.unwrap_or(match params.profile.codec {
-        "h264" => VideoCodec::H264,
-        "hevc" => VideoCodec::Hevc,
-        "av1" => VideoCodec::Av1,
-        _ => VideoCodec::H264,
-    });
-    let bitrate = params
-        .override_bitrate_kbps
-        .unwrap_or(params.profile.bitrate_kbps);
-
-    // AV1 kann der d3d12va-Pfad (noch) nicht: der `av1_d3d12va`-Encoder liefert
-    // keine extradata, und `param_set_extradata` baut für AV1 (OBUs statt NALs)
-    // keinen avcC → der Stream bräche beim ersten Keyframe hart ab. Der CPU-Pfad
-    // (`av1_amf`, echte Encoder-extradata) kann AV1 → dorthin ausweichen, statt
-    // deterministisch zu failen (#3).
+/// `codec` kommt vom Aufrufer, nicht aus `params`: nach einem Rückfall aus
+/// `pipeline_hw` läuft hier ein anderer Codec als der angeforderte, und diese
+/// Abweichung soll an der Aufrufstelle sichtbar sein statt hier drin zu
+/// entstehen.
+pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Result<()> {
+    // **AV1 gehört nicht auf diesen Pfad, und der Grund ist schwerwiegender als
+    // lange angenommen.** Bislang stand hier, `av1_d3d12va` liefere keine
+    // extradata und für AV1 (OBUs statt NALs) lasse sich kein avcC bauen. Das
+    // stimmt, ist aber nur das erste Hindernis. Am 2026-07-30 auf einer
+    // Radeon 780M (Treiber 32.0.31035.1003, FFmpeg n8.1.1) gemessen:
+    //
+    // 1. `av1_d3d12va` öffnet nur bei **Breite % 64 == 0 und Höhe % 16 == 0**
+    //    (AMDs `64x16`-Ausrichtung). 1920x1080 scheitert schon am Anlegen des
+    //    Encoder-Heaps, 1920x1088 läuft. 21 Auflösungen geprüft, die Regel sagt
+    //    alle korrekt vorher.
+    // 2. Wo er öffnet, ist der **Bitstrom unbrauchbar**: dav1d („Error parsing
+    //    frame header"), libaom („Corrupt frame detected") und FFmpegs nativer
+    //    AV1-Decoder lehnen ihn ab — in zwei Containern, bei 720p wie 1088p,
+    //    schon beim Keyframe. Die OBU-Struktur ist dabei gültig und der
+    //    Sequence-Header parst sauber; es sind die Bilddaten selbst.
+    //    `h264_d3d12va` und `hevc_d3d12va` aus derselben Encoder-Familie
+    //    dekodieren fehlerfrei — es liegt also nicht am Weg hierher.
+    //
+    // Bleibt also der CPU-Pfad, und der ist teuer: gemessen 113 % einer
+    // CPU-Kerne und 42 übersprungene Bilder in 20 s (1440p-Capture → 1080p60).
+    // Der naheliegende Ausweg — AV1 über den D3D11-Zero-Copy-Pfad, den `av1_amf`
+    // annimmt — ist geprüft und **verworfen**: er liefert ein sichtbar
+    // zerrissenes Bild (Begründung an `VideoCodec::encode_path`). Ein teurer
+    // Weg mit korrektem Bild schlägt einen billigen mit kaputtem.
     if matches!(codec, VideoCodec::Av1) {
         eprintln!(
-            "[pipeline-d3d12] AV1 vom d3d12va-Pfad nicht unterstützt — Fallback auf CPU-Pfad (av1_amf)"
+            "[pipeline-d3d12] AV1 ist über d3d12va auf AMD unbrauchbar — Fallback auf CPU-Pfad (av1_amf)"
         );
         return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
     }
+
+    let ctrl = StreamController::singleton();
+
+    let fps = params.override_fps.unwrap_or(params.profile.fps);
+    let bitrate = params
+        .override_bitrate_kbps
+        .unwrap_or(params.profile.bitrate_kbps);
 
     // ── Capture-Bridge: WGC → teilbare D3D11-BGRA-Texturen.
     let capture = WgcD3d12Capture::start(
@@ -103,7 +121,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
 
     // ── Audio-Pipeline (WASAPI → libopus → zweite FLV-Spur).
     let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
-        match AudioCapture::start(src.clone(), 1024) {
+        match AudioCapture::start(src.clone(), crate::encode::audio::capture_chunk_frames()) {
             Ok(c) => Some(c),
             Err(e) => {
                 eprintln!("[pipeline-d3d12] audio capture failed, video-only: {e:#}");
@@ -202,11 +220,9 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let started = Instant::now();
     // A/V-Sync über echte Hardware-Timestamps (QPC) — s. pipeline_hw. Fallback
     // auf Wall-clock wenn qpc_sync aus / origin_qpc==0. Kill: PULSE_HQ_NO_AV_OFFSET=1.
-    let qpc_sync = std::env::var("PULSE_HQ_NO_AV_OFFSET")
-        .map(|v| v.is_empty() || v == "0")
-        .unwrap_or(true)
-        && first_qpc != 0;
+    let qpc_sync = !crate::env::flag("PULSE_HQ_NO_AV_OFFSET") && first_qpc != 0;
     let origin_qpc = first_qpc;
+    crate::syncprobe::video_origin(origin_qpc);
     let mut newest_qpc = first_qpc;
     // Anker muss zum tatsächlichen Video-Origin passen — s. pipeline_hw.
     encoder.set_audio_origin(
@@ -251,6 +267,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
                     let _ = capture.free_tx.send(old);
                     if qpc != 0 {
                         newest_qpc = qpc;
+                        crate::syncprobe::video_frame_age(qpc);
                     }
                     captured += 1;
                 }
@@ -331,6 +348,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
             pts,
             pts_delta: pts - prev_pts,
             capture_drops: capture.dropped(),
+            enc_latency: encoder.take_encode_latency(),
         });
         prev_pts = pts;
 

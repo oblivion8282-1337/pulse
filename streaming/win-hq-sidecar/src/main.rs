@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     // Debug — nötig um hinter „Writing encrypted data to socket failed" den
     // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)
     // zu sehen. Default-Level (Info) verschluckt den. Greift für tcp/tls/rtmp.
-    if std::env::var("PULSE_HQ_FFMPEG_DEBUG").is_ok() {
+    if pulse_win_hq_sidecar::env::flag("PULSE_HQ_FFMPEG_DEBUG") {
         ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Debug);
         eprintln!("[hq-sidecar] FFmpeg log level = Debug (PULSE_HQ_FFMPEG_DEBUG)");
     }

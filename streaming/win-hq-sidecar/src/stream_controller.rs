@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::audio::{AudioCapture, AudioSource};
 use crate::capture::CaptureSource;
 use crate::capture::wgc::{CaptureConfig, CapturedFrame, WgcCapture};
-use crate::encode::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};
+use crate::encode::{AudioStreamConfig, EncodePath, EncoderConfig, FfmpegEncoder, VideoCodec};
 use crate::events;
 use crate::profiles::StreamProfile;
 use crate::system::dxgi;
@@ -88,6 +88,20 @@ pub struct StartParams {
     /// Konstanter A/V-Trim in ms (>0 = Audio später) aus dem UI-Slider. 0 =
     /// neutral. Reicht bis in die `AudioPipeline` durch (dort Sample-Offset).
     pub av_offset_ms: i32,
+}
+
+impl StartParams {
+    /// Der effektiv gewählte Codec: Override schlägt Profil-Sockel.
+    ///
+    /// Stand wörtlich an vier Stellen, seit der Dispatcher ihn ebenfalls
+    /// braucht. Das ist ab jetzt keine Bequemlichkeit mehr, sondern eine
+    /// Bedingung: Dispatcher und Pipeline MÜSSEN dieselbe Codec-Entscheidung
+    /// treffen, sonst landet ein Stream auf einem Pfad, der sich für einen
+    /// anderen Codec hält.
+    pub(crate) fn codec(&self) -> VideoCodec {
+        self.override_codec
+            .unwrap_or_else(|| VideoCodec::from_slug(self.profile.codec))
+    }
 }
 
 pub struct StreamController {
@@ -290,27 +304,25 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
         let adapter = select_adapter()?;
 
-        // Encoder-Pfad nach Vendor:
-        // - NVIDIA → `pipeline_hw`: WGC → D3D11-Pool → VideoProcessor → NVENC
-        //   direkt (Zero-Copy). h264_nvenc frisst D3D11-Frames sauber.
-        // - AMD → `pipeline_d3d12`: nativer `h264_d3d12va`-Encoder. h264_amf
-        //   crasht reproduzierbar auf D3D11-Surface-Input (AMF-Runtime-Bug,
-        //   `SubmitInput`-Integer-Divide-by-Zero, Issue #455); der d3d12va-
-        //   Encoder umgeht die AMF-Runtime komplett (D3D12 Video Encode API).
-        // - Intel/sonst → CPU-Pfad (`run_cpu_pipeline`, h264_qsv).
+        // Welcher Encode-Weg zuständig ist, steht an genau einer Stelle:
+        // `VideoCodec::encode_path` (`encode/encoder.rs`) — dort auch die
+        // Begründung je Zelle. Hier wird sie nur noch ausgeführt.
+        //
         // `select_adapter()` liefert auf Multi-GPU evtl. die dGPU statt der
-        // Display-GPU; `pipeline_hw` verifiziert die echte WGC-GPU selbst und
-        // delegiert nötigenfalls an `pipeline_d3d12`/`run_cpu_pipeline`.
-        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad
-        // (für AMD = Fallback auf das funktionierende h264_amf).
-        let disable_zc = std::env::var("PULSE_HQ_DISABLE_ZERO_COPY")
-            .map(|v| !v.is_empty() && v != "0")
-            .unwrap_or(false);
+        // Display-GPU; `pipeline_hw` wertet `encode_path` deshalb mit der
+        // ECHTEN WGC-GPU noch einmal aus und delegiert nötigenfalls weiter.
+        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad.
+        let disable_zc = crate::env::flag("PULSE_HQ_DISABLE_ZERO_COPY");
+        let codec = params.codec();
         if !disable_zc {
-            match adapter.vendor() {
-                "nvidia" => return crate::pipeline_hw::run(adapter, params, stop_rx),
-                "amd" => return crate::pipeline_d3d12::run(params, stop_rx),
-                _ => {}
+            match codec.encode_path(adapter.vendor()) {
+                EncodePath::D3d11ZeroCopy => {
+                    return crate::pipeline_hw::run(adapter, params, stop_rx);
+                }
+                EncodePath::D3d12ZeroCopy => {
+                    return crate::pipeline_d3d12::run(params, stop_rx, codec);
+                }
+                EncodePath::Cpu => {}
             }
         }
         run_cpu_pipeline(params, stop_rx)
@@ -343,9 +355,14 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
 }
 
 /// CPU-Encode-Pfad: WGC-CPU-Readback → swscale BGRA→NV12 → FFmpeg-Encoder
-/// (`encoder.rs`). Aktiv für AMD/Intel sowie für NVIDIA unter
-/// `PULSE_HQ_DISABLE_ZERO_COPY=1`. `pipeline_hw` delegiert hierher, wenn die
-/// echte Capture-GPU (WGC-D3D11-Device) nicht NVIDIA ist.
+/// (`encoder.rs`). Zuständig für Intel (QSV) und für jeden Vendor unter
+/// `PULSE_HQ_DISABLE_ZERO_COPY=1`; `pipeline_hw` delegiert hierher, wenn
+/// `encode_path` für die echte Capture-GPU [`EncodePath::Cpu`] sagt.
+///
+/// **Der teuerste Weg im Sidecar**, und das ist gemessen: der swscale
+/// BGRA→NV12 kostete bei 1440p-Capture → 1080p60 eine volle CPU-Kerne und ließ
+/// den Pacing-Loop in 20 s 42 Bilder überspringen. Wo ein GPU-Pfad zur
+/// Verfügung steht, gehört der Stream dorthin.
 pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
     (|| -> Result<()> {
@@ -385,16 +402,11 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Encoder-Erzeugung, der Setup-Versatz würde zum konstanten A/V-Offset).
         let origin_instant = Instant::now();
 
-        let mut codec = params.override_codec.unwrap_or(match params.profile.codec {
-            "h264" => VideoCodec::H264,
-            "hevc" => VideoCodec::Hevc,
-            "av1" => VideoCodec::Av1,
-            _ => VideoCodec::H264,
-        });
+        let mut codec = params.codec();
         // WHIP-Ziel (App-gehostete Instanz): FFmpegs WHIP-Muxer trägt nur
         // H.264-Video → ausweichen statt beim write_header hart zu scheitern
         // (wie Linux/Mac-Sidecar).
-        if crate::encode::encoder::url_format_hint(&params.push_url) == Some("whip")
+        if crate::encode::output::url_format_hint(&params.push_url) == Some("whip")
             && !matches!(codec, VideoCodec::H264)
         {
             eprintln!("[stream-pipeline] Codec {codec:?} über WHIP nicht verfügbar → Fallback auf H264");
@@ -409,7 +421,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Wenn `params.audio = None` (mode=Aus) oder die Capture fehlschlägt,
         // läuft der Stream video-only weiter.
         let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
-            match AudioCapture::start(src.clone(), 1024) {
+            match AudioCapture::start(src.clone(), crate::encode::audio::capture_chunk_frames()) {
                 Ok(c) => Some(c),
                 Err(e) => {
                     eprintln!("[stream-pipeline] audio capture failed, continuing video-only: {e:#}");
@@ -472,11 +484,9 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // A/V-Sync über echte Hardware-Timestamps (QPC) — s. pipeline_hw.
         // Fallback Wall-clock wenn qpc_sync aus / origin_qpc==0.
         // Kill-Switch: PULSE_HQ_NO_AV_OFFSET=1.
-        let qpc_sync = std::env::var("PULSE_HQ_NO_AV_OFFSET")
-            .map(|v| v.is_empty() || v == "0")
-            .unwrap_or(true)
-            && first_qpc != 0;
+        let qpc_sync = !crate::env::flag("PULSE_HQ_NO_AV_OFFSET") && first_qpc != 0;
         let origin_qpc = first_qpc;
+        crate::syncprobe::video_origin(origin_qpc);
         let mut newest_qpc = first_qpc;
         // Anker muss zum tatsächlichen Video-Origin passen: mit QPC-Sync ist
         // PTS 0 der erste Frame (origin_instant), ohne QPC-Sync die Wanduhr-
@@ -636,6 +646,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 pts,
                 pts_delta: pts - prev_pts,
                 capture_drops: capture.dropped(),
+                enc_latency: encoder.take_encode_latency(),
             });
             prev_pts = pts;
 
@@ -702,7 +713,19 @@ pub(crate) fn build_argv_redacted(params: &StartParams) -> Vec<String> {
         "--profile".into(),
         params.profile_name.clone(),
         "--codec".into(),
-        params.profile.codec.to_string(),
+        // Den GEWAEHLTEN Codec melden, nicht den des Profils.
+        //
+        // Bis 2026-07-30 stand hier `params.profile.codec` — waehrend `--fps`
+        // und `--bitrate` zwei Zeilen weiter den Override respektieren. Wer
+        // AV1 waehlte, bekam in der Antwort und damit im Log `--codec h264` zu
+        // sehen und hielt einen AV1-Lauf fuer einen H.264-Lauf. Genau daran
+        // ist am 2026-07-30 eine Auswertung falsch abgebogen.
+        //
+        // Auch das bleibt aber der GEWUENSCHTE Codec: die Rueckfaelle
+        // (WHIP kann kein AV1, AV1 verlaesst den d3d12va-Pfad) greifen erst
+        // spaeter. Was wirklich lief, sagt die Zeile "Encoder offen" aus
+        // `encode/`, und die ist die verbindliche.
+        params.codec().slug().to_string(),
         "--fps".into(),
         params
             .override_fps

@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-30.3",
+      "date": "2026-07-30",
+      "style": "Erklärend",
+      "title": "HQ-Streaming unter Windows: Bild wartet nicht mehr auf den Ton",
+      "intro": "Bild und Ton laufen beim Streamen auf einer gemeinsamen Zeitleiste. Bisher wartete jedes Bild darauf, dass der passende Ton vorliegt.",
+      "items": [
+        "Diese Wartezeit ist jetzt eng begrenzt.",
+        "Der Ton kommt in kürzeren Abschnitten, dadurch verlässt das Bild den Rechner gleichmäßig statt in Schüben.",
+        "Datenpakete gehen sofort auf die Leitung, statt vom Betriebssystem gesammelt zu werden."
+      ],
+      "outro": "Gilt für Windows, mit AMD- wie NVIDIA-Grafikkarte."
+    },
+    {
       "id": "2026-07-30.2",
       "date": "2026-07-30",
       "style": "Sachlich",

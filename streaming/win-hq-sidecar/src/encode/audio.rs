@@ -5,7 +5,8 @@
 //! Format direkt (`AV_SAMPLE_FMT_FLT` — siehe `libavcodec/libopusenc.c`).
 //! Kein Resampler nötig.
 //!
-//! 1. Akkumulieren in einem FIFO bis ein 960-Sample-Chunk voll ist (20ms@48kHz)
+//! 1. Akkumulieren in einem FIFO bis ein Opus-Frame voll ist (s.
+//!    [`OPUS_FRAME_MS`])
 //! 2. Encode + Packet emittieren in 1/48000-Time-Base
 //!
 //! Opus-in-FLV ist seit FFmpeg 6.1 nativ unterstützt (Enhanced RTMP) — kein
@@ -19,24 +20,70 @@ use std::time::Instant;
 
 use crate::audio::CapturedAudio;
 
-/// 20ms-Frame bei 48 kHz = 960 Samples. Standard für libopus + FFmpegs Opus-Encoder.
-pub const OPUS_FRAME_SAMPLES: usize = 960;
+/// Länge eines Opus-Pakets in Millisekunden.
+///
+/// **Wer hier am Ton dreht, dreht am BILD.** FLV/RTMP ist EINE Zeitleiste:
+/// `av_interleaved_write_frame` gibt ein Videopaket erst frei, wenn Ton mit
+/// passendem Zeitstempel vorliegt. Mit 20-ms-Paketen verlassen die Bilder den
+/// Sender also in 20-ms-Bündeln — beim Zuschauer als Ruckeln sichtbar, obwohl
+/// Bildzahl, Bitrate und Paketverlust tadellos aussehen.
+///
+/// 5 ms ist eine für Opus zulässige Länge (2,5/5/10/20/40/60). Kosten: mehr
+/// Paket-Overhead auf einer 128-kbit/s-Spur — nichts gegen 25 Mbit/s Video.
+/// Auf Linux ist das die Schraube, die gewirkt hat (`OPUS_FRAME_MS = 5` in
+/// `streaming/linux-hq-sidecar/src/encode/audio.rs`), und sie wirkt an der
+/// QUELLE: bei jeder Bildrate, ohne die Schreibreihenfolge zu gefährden. Der
+/// Deckel `max_interleave_delta` (s. `output.rs`) begrenzt nur, was ein
+/// Rückstand kostet.
+///
+/// **Das Raster der Aufnahme muss mitziehen**, sonst bringt es nichts: die
+/// WASAPI-Chunk-Größe steht in den Pipelines auf demselben Wert
+/// (`AudioCapture::start(src, 240)`); mit 21-ms-Chunks käme der Ton weiterhin
+/// in 21-ms-Bündeln beim Muxer an, nur feiner zerlegt.
+///
+/// Über `PULSE_OPUS_FRAME_MS` veränderbar (nur ganze ms), damit die Wahl
+/// messbar bleibt statt geraten zu werden.
+const OPUS_FRAME_MS: usize = 5;
+
+/// Chunk-Groesse der WASAPI-Aufnahme in Frames — dasselbe Raster wie ein
+/// Opus-Paket (48 kHz fest, s. `AudioFormat::DEFAULT`).
+///
+/// Muss mitziehen, wenn [`OPUS_FRAME_MS`] sinkt: sonst kommt der Ton weiterhin
+/// in 21-ms-Buendeln beim Muxer an, nur feiner zerlegt — und der Muxer gibt
+/// die Bilder in genau diesen Buendeln frei.
+pub fn capture_chunk_frames() -> usize {
+    48 * opus_frame_ms()
+}
+
+/// Länge eines Opus-Pakets in ms, einmal aus der Umgebung gelesen.
+pub fn opus_frame_ms() -> usize {
+    static MS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *MS.get_or_init(|| {
+        std::env::var("PULSE_OPUS_FRAME_MS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|v| [5, 10, 20, 40, 60].contains(v))
+            .unwrap_or(OPUS_FRAME_MS)
+    })
+}
 
 pub struct AudioPipeline {
     encoder: codec::encoder::Audio,
     /// Interleaved-FLT-Frame der direkt in den Encoder geht (libopus-Format).
     interleaved_frame: frame::Audio,
-    /// Roh-Byte-FIFO — sammelt WASAPI-Chunks bis OPUS_FRAME_SAMPLES Frames erreicht.
+    /// Roh-Byte-FIFO — sammelt WASAPI-Chunks bis `frame_samples` erreicht sind.
     /// Bytes-Layout: f32 interleaved Stereo → 8 Bytes pro Frame.
     fifo: VecDeque<u8>,
+    /// Samples je Kanal und Opus-Paket (= `sample_rate/1000 * `[`opus_frame_ms`]).
+    frame_samples: usize,
     sample_rate: u32,
     channels: u16,
     block_align_in: usize,
     /// PTS für eingehende Frames (= an `send_frame` übergeben). Wächst pro
-    /// 960-Sample-Chunk um 960.
+    /// Chunk um `frame_samples`.
     pts_samples: i64,
     /// PTS für ausgehende Packets (= zum Mux'er). Wird beim Drain bei jedem
-    /// emittierten Packet um 960 erhöht. Brauchen wir separat zu `pts_samples`
+    /// emittierten Packet um `frame_samples` erhöht. Brauchen wir separat zu `pts_samples`
     /// weil libopus' Output-Packet-PTS nicht zuverlässig propagiert wird.
     out_pts_samples: i64,
     /// Fester Trim-Offset in Samples (>0 = Audio später). Quelle: UI-Feld
@@ -61,6 +108,14 @@ pub struct AudioPipeline {
     stream_origin_qpc: Option<i64>,
     /// Einmal-Flag: PTS-Origin wurde beim ersten `send()` festgenagelt.
     origin_set: bool,
+    /// Einmal-Flag: der Ursprung steht auf einem echten Geräte-Zeitstempel und
+    /// nicht mehr auf einer Stille-Füllung (s. `reanchor_on_first_device_stamp`).
+    qpc_anchored: bool,
+    /// Flankenzustand der Piep-Erkennung am Encoder-Eingang (nur Diagnose).
+    probe_in_beep: bool,
+    /// Nur fuer die Messung (`PULSE_MUX_LATENCY_LOG=1`): wann zuletzt der
+    /// Rueckstand gemeldet wurde. `None` = Messung aus (s. `report_lag`).
+    lag_report: Option<Instant>,
 }
 
 impl AudioPipeline {
@@ -105,13 +160,18 @@ impl AudioPipeline {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
 
-        let opts = Dictionary::new();
+        // Paketlaenge am Encoder setzen — OHNE das bleibt libopus bei seinen
+        // 20 ms, und ein 240-Sample-Frame waere dann ein Teilframe.
+        let frame_ms = opus_frame_ms();
+        let mut opts = Dictionary::new();
+        opts.set("frame_duration", &frame_ms.to_string());
         let opened = encoder.open_with(opts).context("open libopus encoder")?;
+        let frame_samples = (sample_rate as usize / 1000) * frame_ms;
         stream.set_parameters(&opened);
 
         let interleaved_frame = frame::Audio::new(
             format::Sample::F32(format::sample::Type::Packed),
-            OPUS_FRAME_SAMPLES,
+            frame_samples,
             ChannelLayout::STEREO,
         );
 
@@ -142,7 +202,8 @@ impl AudioPipeline {
         Ok(Self {
             encoder: opened,
             interleaved_frame,
-            fifo: VecDeque::with_capacity(OPUS_FRAME_SAMPLES * block_align_in * 4),
+            fifo: VecDeque::with_capacity(frame_samples * block_align_in * 8),
+            frame_samples,
             sample_rate,
             channels,
             block_align_in,
@@ -155,6 +216,9 @@ impl AudioPipeline {
             stream_origin: None,
             stream_origin_qpc: None,
             origin_set: false,
+            qpc_anchored: false,
+            probe_in_beep: false,
+            lag_report: crate::env::flag("PULSE_MUX_LATENCY_LOG").then(Instant::now),
         })
     }
 
@@ -191,28 +255,8 @@ impl AudioPipeline {
         // Beim ersten Chunk den PTS-Origin am Wall-clock-Ursprung verankern.
         // `captured_at - stream_origin` ist der Versatz der Audio-Timeline-Null
         // gegenüber dem Video-PTS-Null → ohne das driften die Spuren auseinander.
+        let anchored = self.anchor_samples(captured);
         if !self.origin_set {
-            // HW-Timestamp-Anker bevorzugt: echte Aufnahmezeit beider Spuren auf
-            // derselben QPC-Uhr → exakter A/V-Offset, ohne Kalibrierung. Fallback
-            // (QPC-Sync aus ODER beim Start noch kein Read → qpc==0): Instant-Anker.
-            let anchored = match (self.stream_origin_qpc, captured.qpc) {
-                (Some(origin_qpc), q) if q != 0 => Some(
-                    ((q as i64 - origin_qpc) as f64 / 10_000_000.0 * self.sample_rate as f64) as i64,
-                ),
-                // Instant-Fallback MIT Vorzeichen — `saturating_duration_since`
-                // wäre genau das `.max(0)`, das der Kommentar unten verbietet:
-                // Audio-Chunks von VOR dem Origin (WASAPI startet vor dem ersten
-                // Video-Frame und puffert) würden auf „gleichzeitig" gestaucht
-                // und die ganze Spur um den Setup-Versatz nach vorn geschoben.
-                _ => self.stream_origin.map(|origin| {
-                    let secs = if captured.captured_at >= origin {
-                        captured.captured_at.duration_since(origin).as_secs_f64()
-                    } else {
-                        -origin.duration_since(captured.captured_at).as_secs_f64()
-                    };
-                    (secs * self.sample_rate as f64) as i64
-                }),
-            };
             if let Some(s) = anchored {
                 // KEIN .max(0): Audio, das VOR dem ersten Video-Frame aufgenommen
                 // wurde (Capture-Vorlauf), bekommt negativen PTS und wird beim
@@ -224,15 +268,159 @@ impl AudioPipeline {
             }
             self.origin_set = true;
         }
+        self.reanchor_on_first_device_stamp(captured);
+        self.probe_beep_pts(captured);
+        self.report_lag(anchored);
 
         self.fifo.extend(&captured.bytes);
 
         let mut packets = Vec::new();
-        let chunk_bytes = OPUS_FRAME_SAMPLES * self.block_align_in;
+        let chunk_bytes = self.frame_samples * self.block_align_in;
         while self.fifo.len() >= chunk_bytes {
             self.encode_one_chunk(chunk_bytes, &mut packets)?;
         }
         Ok(packets)
+    }
+
+    /// Meldet, welchen PTS ein Prüfton-Piep beim EINTRITT in den Encoder bekommt
+    /// (`PULSE_HQ_SYNC_PROBE=1`).
+    ///
+    /// Die Sonde am Geräte-Eingang (`syncprobe.rs`) sagt, wann der Piep
+    /// aufgenommen wurde; der Empfänger sagt, wo er im Strom landet. Weichen
+    /// beide ab, liegt der Verlust irgendwo dazwischen — und „dazwischen" ist
+    /// genau diese Stufe. Ohne diesen Messpunkt bleibt nur Raten, auf welcher
+    /// Seite der FIFO-Grenze der Versatz entsteht.
+    fn probe_beep_pts(&mut self, captured: &CapturedAudio) {
+        if !crate::syncprobe::enabled() {
+            return;
+        }
+        let step = 4 * self.channels as usize;
+        if step == 0 || captured.bytes.len() < step {
+            return;
+        }
+        let mono: Vec<f32> = captured
+            .bytes
+            .chunks_exact(step)
+            .map(|f| f32::from_le_bytes([f[0], f[1], f[2], f[3]]))
+            .collect();
+        let amp = crate::syncprobe::goertzel(&mono, 1000.0, self.sample_rate as f64);
+        let ist_piep = amp > 0.1;
+        if ist_piep && !self.probe_in_beep {
+            eprintln!(
+                "[sp] enc_beep pts_samples={} pts_ms={:.1}",
+                self.pts_samples,
+                self.pts_samples as f64 * 1000.0 / self.sample_rate as f64
+            );
+        }
+        self.probe_in_beep = ist_piep;
+    }
+
+    /// Zieht den PTS-Ursprung einmalig auf den **Geräte**-Zeitstempel nach.
+    ///
+    /// **Warum das nötig ist.** Der Anker wird beim ersten Chunk gesetzt. Der
+    /// erste Chunk ist aber nicht zwingend echter Ton: liefert die Audio-Engine
+    /// beim Start noch nichts (stiller Desktop, oder das Gerät braucht seinen
+    /// Moment), schiebt `audio/wasapi.rs` eine Stille-Füllung ein. Die trägt
+    /// keinen Geräte-Zeitstempel (`qpc == 0`) → `anchor_samples` fällt auf die
+    /// Wanduhr zurück → verankert wird an `captured_at - stream_origin`.
+    ///
+    /// Der Aufnahme-Thread startet jedoch **vor** dem Video-Ursprung
+    /// (`AudioCapture::start` steht in allen drei Pipelines lange vor dem ersten
+    /// Bild), also ist dieser Anker um die Rüstzeit zu klein — und der ganze Ton
+    /// läuft dem Bild dauerhaft um diesen Betrag voraus. Am 2026-07-30 gegen die
+    /// Aufnahme-Zeitstempel gemessen: **175 ms Vorlauf**, über 19 Prüfmarken auf
+    /// ±0,2 ms konstant (Verfahren: `syncprobe.rs`).
+    ///
+    /// **Warum nur vorwärts.** Ein PTS-Rückschritt ist im Muxer nicht erlaubt.
+    /// Der Fehlerfall ist ohnehin einseitig — die Stille verankert immer zu
+    /// früh, nie zu spät —, und ein Sprung nach vorn reißt lediglich eine Lücke
+    /// in eine Stille, die es real nie gab.
+    ///
+    /// **Warum die Stille nicht einfach verworfen wird.** Sie hält die
+    /// Opus-Spur am Leben; ohne sie hängt der 2-Spur-Muxer bei stillem Desktop
+    /// und der Push läuft in den `rw_timeout` (Begründung in `wasapi.rs`).
+    fn reanchor_on_first_device_stamp(&mut self, captured: &CapturedAudio) {
+        if self.qpc_anchored || captured.qpc == 0 {
+            return;
+        }
+        let Some(origin_qpc) = self.stream_origin_qpc else {
+            return;
+        };
+        self.qpc_anchored = true;
+        let soll = ((captured.qpc as i64 - origin_qpc) as f64 / 10_000_000.0
+            * self.sample_rate as f64) as i64
+            + self.trim_samples;
+        if soll <= self.pts_samples {
+            return;
+        }
+        let sprung_ms = (soll - self.pts_samples) as f64 * 1000.0 / self.sample_rate as f64;
+        self.pts_samples = soll;
+        self.out_pts_samples = soll;
+        eprintln!(
+            "[audio] Ton-Anker auf den Geraete-Zeitstempel nachgezogen: +{sprung_ms:.1} ms \
+             (davor stand er auf einer Stille-Fuellung)"
+        );
+    }
+
+    /// Wanduhr-Position dieses Batches in Samples seit dem Video-PTS-Ursprung.
+    ///
+    /// HW-Timestamp-Anker bevorzugt: echte Aufnahmezeit beider Spuren auf
+    /// derselben QPC-Uhr -> exakter A/V-Offset, ohne Kalibrierung. Fallback
+    /// (QPC-Sync aus ODER beim Start noch kein Read -> qpc==0): Instant-Anker.
+    ///
+    /// Der Instant-Fallback rechnet MIT Vorzeichen — `saturating_duration_since`
+    /// waere genau das `.max(0)`, das beim Verankern verboten ist: Audio-Chunks
+    /// von VOR dem Origin (WASAPI startet vor dem ersten Video-Frame und
+    /// puffert) wuerden auf „gleichzeitig" gestaucht und die ganze Spur um den
+    /// Setup-Versatz nach vorn geschoben.
+    fn anchor_samples(&self, captured: &CapturedAudio) -> Option<i64> {
+        match (self.stream_origin_qpc, captured.qpc) {
+            (Some(origin_qpc), q) if q != 0 => Some(
+                ((q as i64 - origin_qpc) as f64 / 10_000_000.0 * self.sample_rate as f64) as i64,
+            ),
+            _ => self.stream_origin.map(|origin| {
+                let secs = if captured.captured_at >= origin {
+                    captured.captured_at.duration_since(origin).as_secs_f64()
+                } else {
+                    -origin.duration_since(captured.captured_at).as_secs_f64()
+                };
+                (secs * self.sample_rate as f64) as i64
+            }),
+        }
+    }
+
+    /// Meldet je Sekunde, wie weit die Ton-Zeitlinie hinter der Wanduhr
+    /// herlaeuft (`PULSE_MUX_LATENCY_LOG=1`).
+    ///
+    /// **Warum diese Zahl zaehlt:** der FLV-Muxer haelt jedes BILD fest, bis Ton
+    /// mit passendem Zeitstempel vorliegt — jede Millisekunde Rueckstand ist
+    /// also Bild-Latenz (heute durch `max_interleave_delta` gedeckelt, s.
+    /// `output.rs`), und der Ton laeuft dem Bild beim Zuschauer um denselben
+    /// Betrag voraus.
+    ///
+    /// **Nur messen, nicht korrigieren — und das ist Absicht.** Der Linux-Zweig
+    /// holt einen anhaltenden Rueckstand am Encoder ein
+    /// (`PtsTimeline::align`), weil dort der PipeWire-Null-Sink einen festen
+    /// Rueckstand von 27-29 ms einbrachte. Windows korrigiert an der QUELLE:
+    /// `wasapi.rs` fuehrt ein Sample-Budget gegen die Wanduhr, schiebt fehlende
+    /// Chunks als Stille ein und verwirft reale Chunks, die mehr als 100 ms
+    /// vorauslaufen. Ob hier ueberhaupt ein Rueckstand entsteht, ist damit
+    /// offen — und eine zweite Korrektur auf Verdacht einzubauen, waere genau
+    /// die Aenderung, deren Wirkung man hinterher nicht mehr auseinanderhalten
+    /// kann. Erst die Zahl, dann die Entscheidung.
+    fn report_lag(&mut self, anchored: Option<i64>) {
+        let (Some(anchor), Some(seit)) = (anchored, self.lag_report) else {
+            return;
+        };
+        if seit.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        self.lag_report = Some(Instant::now());
+        let rueckstand_ms = (anchor - self.pts_samples) as f64 * 1000.0 / self.sample_rate as f64;
+        eprintln!(
+            "[audio] Ton-Zeitlinie {rueckstand_ms:.1} ms hinter der Wanduhr \
+             (jede ms davon haelt der Muxer als Bild-Latenz fest)"
+        );
     }
 
     fn encode_one_chunk(
@@ -251,7 +439,7 @@ impl AudioPipeline {
         self.fifo.drain(..chunk_bytes);
 
         self.interleaved_frame.set_pts(Some(self.pts_samples));
-        self.pts_samples += OPUS_FRAME_SAMPLES as i64;
+        self.pts_samples += self.frame_samples as i64;
 
         self.encoder
             .send_frame(&self.interleaved_frame)
@@ -275,13 +463,13 @@ impl AudioPipeline {
             // Output-PTS ist nicht zuverlässig). Pre-Origin-Packets (negativer
             // PTS) werden VERWORFEN — nicht gemuxt, aber der Counter läuft weiter.
             let this_pts = self.out_pts_samples;
-            self.out_pts_samples += OPUS_FRAME_SAMPLES as i64;
+            self.out_pts_samples += self.frame_samples as i64;
             if this_pts < 0 {
                 continue;
             }
             packet.set_pts(Some(this_pts));
             packet.set_dts(Some(this_pts));
-            packet.set_duration(OPUS_FRAME_SAMPLES as i64);
+            packet.set_duration(self.frame_samples as i64);
             packet.set_stream(self.stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             out.push(packet);

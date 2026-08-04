@@ -28,9 +28,11 @@ use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, I
 use windows::core::Interface;
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, open_output};
+use super::encoder::{AudioStreamConfig, VideoCodec};
 use super::extradata::param_set_extradata;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::output::{apply_encoder_opts_override, open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 
 /// FFmpeg verlangt `AV_INPUT_BUFFER_PADDING_SIZE` Null-Bytes hinter extradata.
@@ -149,6 +151,10 @@ pub struct FfmpegD3d12Encoder {
     /// Diagnose-Timings (µs) für den `TickMonitor`.
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben -> Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `async_depth` veraendert (Default 2 bei den d3d12va-Encodern);
+    /// `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegD3d12Encoder {
@@ -165,7 +171,7 @@ impl FfmpegD3d12Encoder {
             create_d3d12_pool(adapter, cfg.dst_width, cfg.dst_height)?;
 
         // Output-Öffnung inkl. Protokoll-Optionen (RTMPS/SRT/WHIP) zentral in
-        // encoder.rs::open_output.
+        // output.rs::open_output.
         let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.d3d12va_name();
@@ -200,9 +206,19 @@ impl FfmpegD3d12Encoder {
             (*ctx).hw_frames_ctx = new_ref;
         }
 
+        let opts = d3d12va_opts();
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
-            .open_with(d3d12va_opts())
+            .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}'"))?;
+        super::log_encoder_open(
+            codec_name,
+            "amd/d3d12va",
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+        );
 
         // Audio-Pipeline VOR write_header (addiert einen Stream zum Output).
         let audio = match audio_cfg {
@@ -232,6 +248,7 @@ impl FfmpegD3d12Encoder {
             audio,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
     }
 
@@ -244,6 +261,13 @@ impl FfmpegD3d12Encoder {
     /// `avcodec_send_frame`-Dauer des letzten `send_frame` in µs.
     pub fn last_send_us(&self) -> u64 {
         self.last_send_us
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in us.
+    /// Holt und LEERT die Zaehler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// Queue-Einreih-Dauer des letzten `send_frame` in µs.
@@ -272,12 +296,14 @@ impl FfmpegD3d12Encoder {
     /// `pts` ist die wall-clock-abgeleitete PTS in Encoder-Timebase (1/fps).
     pub fn send_frame(&mut self, frame: &mut OwnedD3d12Frame, pts: i64) -> Result<()> {
         unsafe { (*frame.frame).pts = pts };
+        // VOR dem Einschieben stempeln (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         let ret = unsafe { avcodec_send_frame(self.encoder.as_mut_ptr(), frame.frame) };
         if ret < 0 {
             return Err(anyhow!("avcodec_send_frame failed: {ret}"));
         }
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_and_mux()
     }
 
@@ -315,6 +341,9 @@ impl FfmpegD3d12Encoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             let t_mux = std::time::Instant::now();
             if self.mux.is_none() {
                 self.activate(&packet)?;
@@ -408,6 +437,24 @@ impl FfmpegD3d12Encoder {
 fn d3d12va_opts() -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     opts.set("rc_mode", "CBR");
+    // `async_depth` ist der Vorlauf der Encoder-Warteschlange. Der Default 2
+    // haelt ein Bild zurueck; auf 1 gezogen faellt es sofort heraus.
+    //
+    // Am 2026-07-30 auf einer Radeon 780M gemessen (1440p-Capture -> 1080p60,
+    // H.264, `PULSE_ENC_LATENCY_LOG=1`) — Einschieben bis Paket:
+    //
+    //     async_depth=1   7,1 ms   (Maximum 11,2)
+    //     async_depth=2  19,2 ms   (Maximum 25,4)   <- bisheriger Default
+    //     async_depth=4  52,4 ms   (Maximum 59,2)
+    //
+    // Also rund ein Bildabstand je Stufe (16,7 ms bei 60 fps) — dieselbe
+    // Arithmetik, die der Linux-Zweig bei VAAPI gemessen hat. Der Wert 1 kostet
+    // dabei NICHTS an Bildqualitaet, und das ist nicht geschaetzt: die
+    // Bitstroeme fuer 1, 2 und 4 sind byte-identisch (SHA-256 ueber 720 Bilder,
+    // H.264 wie AV1). `async_depth` verschiebt nur, wann ein fertiges Paket
+    // herausgegeben wird, nicht wie encodiert wird.
+    opts.set("async_depth", "1");
+    apply_encoder_opts_override(&mut opts);
     opts
 }
 

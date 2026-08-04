@@ -27,8 +27,11 @@ Rust-Neubau des Pulse **Linux HQ-Streaming-Sidecars**. Ersetzt den Python-`gsr-s
 Binary als Subprocess spawned. Hier: **FFmpeg als Bibliothek** (wie die Windows/macOS-
 Rust-Sidecars `pulse/streaming/{win,mac}-hq-sidecar/`), kein zweites Programm.
 
-**Am Pulse-Repo (`/home/michael/Dokumente/pulse/`) wird nichts geändert** — nur dieser
-Ordner. Vorbild/Vorlage ist `mac-hq-sidecar` (nächste Verwandtschaft: backendfrei +
+**Überholt seit dem Zusammenlegen:** hier stand „am Pulse-Repo wird nichts
+geändert — nur dieser Ordner". Das galt, solange dies ein eigenes Repo war.
+Dieser Ordner IST jetzt das Pulse-Repo; Änderungen an `packaging/`,
+`desktop/electron/sidecar.ts` oder `streaming/testbench/` gehören in denselben
+Branch. Vorbild/Vorlage ist `mac-hq-sidecar` (nächste Verwandtschaft: backendfrei +
 ffmpeg-as-lib + kein Tokio im Main-Loop).
 
 ## Wire-Protokoll (heilig — nicht brechen)
@@ -342,6 +345,9 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
 gegen Drift).
 
 ## Memory / Plan
-- Projekt-Memory: `~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`
-  (`linux-rust-sidecar-rebuild.md` — vollständiger Stand/Phasen/Fällen).
-- Plan: `~/.claude/plans/shiny-meandering-tide.md`.
+Beides zeigte auf die Arbeitsumgebung des eigenen Repos
+(`~/.claude/projects/-home-michael-Dokumente-Linux-Rust-Sidecar/memory/`,
+`~/.claude/plans/shiny-meandering-tide.md`) und ist mit dem Zusammenlegen
+gegenstandslos — Claude-Memory ist ohnehin pro Maschine und wandert nicht mit.
+Der verbindliche Stand steht in dieser Datei, die Messungen an den Werten in
+`encode/opts.rs` und in `streaming/testbench/profiles/`.
