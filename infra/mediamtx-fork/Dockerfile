@@ -44,6 +44,22 @@
 # `go mod vendor`, and note that its target moves with the pion version.
 
 ARG MEDIAMTX_VERSION=1.19.1
+# Unser Patch-Stand, und er gehoert in den Tag.
+#
+# **Warum das noetig wurde:** bis 2026-08-04 baute der Workflow immer
+# `<version>-pulse`, egal wie viele Patches darin steckten. Beim Sprung von
+# EINEM auf FUENF Patches (Vollbild-Rueckweg, FlexFEC, adaptive Paritaet, der
+# vendorierte pion-Patch) haette derselbe Tag auf voellig anderen Inhalt
+# gezeigt — ohne dass man es ihm ansieht, und ohne Rueckweg ausser einem
+# Rebuild. Genau davor warnt die README dieses Verzeichnisses.
+#
+# Jetzt steht der Stand im Tag: `1.19.1-pulse2`. Ein Rueckweg ist damit eine
+# Zeile in `infra/prod/docker-compose.yml` statt eines Neubaus, und das alte
+# `1.19.1-pulse` bleibt in der Registry unangetastet.
+#
+# **Hochzaehlen, sobald sich der Patch-Satz aendert** — nicht bei einem
+# MediaMTX-Bump, der bewegt `MEDIAMTX_VERSION`.
+ARG PULSE_REVISION=2
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────

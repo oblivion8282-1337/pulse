@@ -39,29 +39,34 @@ un-configured deployment behaves exactly like upstream plus 0001.
 ## Was hier NICHT hineingehört
 
 Dieses Verzeichnis ist ein Auslieferungspfad, kein Ablageort. Das Dockerfile
-wendet **jeden** Patch in `patches/` an, der Workflow baut damit **denselben
-Tag**, den `infra/prod/docker-compose.yml` pinnt, und der Cron-Updater auf dem
-VPS zieht einen neuen Digest desselben Tags binnen fünf Minuten. Ein Patch,
-der hier landet, ist also in Produktion — ohne Versionswechsel und ohne dass
-man es am Tag ablesen könnte.
+wendet **jeden** Patch in `patches/` an, und der Workflow baut daraus das Image,
+das Produktion pinnt.
 
-Das gilt weiterhin für alles **Experimentelle**: das gehört nach
+**Seit 2026-08-04 steht der Patch-Stand im Tag** (`PULSE_REVISION` im
+Dockerfile → `1.19.1-pulse2`). Hier stand vorher, ein Patch lande „in Produktion
+— ohne Versionswechsel und ohne dass man es am Tag ablesen könnte". Genau das
+ist jetzt behoben: wer den Satz ändert, ändert den Tag mit, das alte Image
+bleibt in der Registry stehen, und ein Rückweg ist eine Zeile in der
+Compose-Datei statt eines Neubaus.
+
+**Der Austausch bleibt trotzdem ein bewusster Schritt.** MediaMTX gehört nicht
+zu den Diensten, die der Cron-Updater anfasst (nur die App-Images) — es passiert
+erst etwas bei einem `docker compose pull mediamtx && up -d`. Und **das
+unterbricht jeden laufenden Stream**: Sender wie Zuschauer verlieren die
+Verbindung, und ein automatischer Neustart greift nicht (den gibt es nur bei
+einer Auflösungsänderung der Quelle). Vorher in der MediaMTX-API nachsehen, ob
+gerade jemand streamt, kostet nichts.
+
+Für alles **Experimentelle** gilt weiterhin: das gehört nach
 `streaming/hq-labor/mediamtx-patches/`, wo kein Workflow es anfasst und der
 Testserver von Hand versorgt wird.
-
-**Eine Besonderheit des aktuellen Stands**, die man kennen muss: die
-`PULSE_*`-Variablen stehen in `infra/prod/docker-compose.yml` **bereits
-gesetzt**, während dort noch ein Image ohne diese Patches gepinnt ist. Das
-Nachziehen des Images schaltet sie deshalb im selben Moment scharf — es ist
-kein stilles Bereitstellen einer Fähigkeit. Begründung und Reihenfolge stehen
-am Compose-Eintrag.
 
 ## How it gets built and shipped
 
 `.github/workflows/mediamtx-fork.yml` rebuilds the image when anything under
 `infra/mediamtx-fork/` changes on `main`. It pushes two tags to GHCR:
 
-- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse`  — version pin
+- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse2` — version pin (MediaMTX-Fassung + unser Patch-Stand, s. `PULSE_REVISION` im Dockerfile)
 - `ghcr.io/oblivion8282-1337/pulse-mediamtx:latest`        — rolling
 
 Both compose files reference the version-pinned tag. The labels include
