@@ -60,7 +60,7 @@ tatsächliche Stand in einer Tabelle:
 
 | Karte | Encoder | Betriebsart |
 |---|---|---|
-| NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Auf Windows nicht nachgemessen** — dieselbe Option wie auf Linux, wo sie gemessen ist. |
+| NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Am 2026-08-04 auf einer RTX 5080 nachgemessen**: 1 statt 10 Vollbilder bei gleicher Datenrate, H.264 wie AV1, plus 9 recovery points gegen 0. Braucht kein gepatchtes FFmpeg. Messakte `nvidia-2026-08-04-windows-intra-refresh.json`. |
 | AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. **Braucht unseren FFmpeg-Patch** (`streaming/ffmpeg-patches/0002-…`) — die Optionen gibt es in keiner FFmpeg-Fassung. |
 | AMD, H.264 | `h264_amf` | trägt sie **ohne jede Option**: `usage=ultralowlatency`, das der Sidecar ohnehin setzt, frischt von sich aus auf. Kein Patch nötig. |
 | Intel | `*_qsv` | nein, die Option gibt es dort nur bei HEVC. |

@@ -50,9 +50,12 @@ pub(crate) fn vendor_encoder_opts(
             // die Option mit Bindestrich; die Mechanik dahinter ist eine andere
             // als bei AMF (dort `amfenc.c`, s. AMD-Zweig unten).
             //
-            // **Auf NVIDIA ungeprueft.** Die Messung vom 2026-08-02 lief auf
-            // AMD; hier ist die Option gesetzt, weil sie dasselbe verspricht,
-            // aber nicht nachgemessen.
+            // **Am 2026-08-04 auf NVIDIA nachgemessen** (RTX 5080, Messakte
+            // `nvidia-2026-08-04-windows-intra-refresh.json`, Abschnitt 5):
+            // zwei angeforderte Vollbilder, zwei IDR in der Datei, an der
+            // erwarteten Stelle — und ausserhalb davon weiter keines. Gezaehlt
+            // im Mitschnitt, nicht im Log des Senders; genau dort ist der
+            // Fehler auf AMD zuerst durchgerutscht.
             opts.set("forced-idr", "1");
         }
         "amd" => {

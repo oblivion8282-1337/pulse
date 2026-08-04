@@ -312,7 +312,12 @@ Nutzer bestätigt), und über die **echte Leitung** ist der Weg gemessen
 * **`encoder_d3d12.rs` und `encoder.rs` sind nicht gegabelt.** Sie sagen jetzt
   klar ab statt still zu muxen. Für AMD ist das folgenlos (H.264 nimmt den
   D3D11-Weg), für Intel heißt es: kein WHIP aus dem Labor.
-* **Windows+NVIDIA ist unberührt.** Anderer Rechner, danach.
+* **Windows+NVIDIA ist seit dem 2026-08-04 gemessen** — aber nicht von hier
+  aus. Der Nachweis dort läuft am **ausgelieferten** Sidecar gegen einen
+  Dateimitschnitt (`testbench/nvidia-intra-refresh-nachweis.ps1`), weil NVENC
+  weder den Vulkan-Umweg noch ein gepatchtes FFmpeg braucht. Das Labor selbst
+  ist auf dieser Karte nie gelaufen; der Weg über den eigenen Sendeweg zum
+  dekodierenden Zuschauer ist auf NVIDIA weiterhin offen.
 
 ### Der Rückkanal — vollständig gemessen
 

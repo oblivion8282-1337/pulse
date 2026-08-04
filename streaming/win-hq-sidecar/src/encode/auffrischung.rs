@@ -86,9 +86,16 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
         // sichtbarer Ausschlag. `forced-idr` setzt `opts::vendor_encoder_opts`
         // bereits unbedingt.
         //
-        // **Auf Windows+NVIDIA nicht nachgemessen.** Es ist derselbe
-        // ffmpeg-Encoder wie unter Linux, deshalb steht die Option hier — aber
-        // die Messung stammt von dort, und das gehört dazugesagt.
+        // **Auf Windows+NVIDIA am 2026-08-04 nachgemessen** (RTX 5080, je drei
+        // Läufe zu 20 s, `nvidia-2026-08-04-windows-intra-refresh.json`): ein
+        // Vollbild statt zehn bei gleicher Datenrate, mit `h264_nvenc` wie mit
+        // `av1_nvenc`, und neun recovery-point-SEI gegen null in der
+        // Gegenprobe. Das ist derselbe Nachweis, an dem `h264_d3d12va` unten
+        // scheitert — hier fällt er positiv aus.
+        //
+        // Was von dort NICHT übernommen ist: was die Betriebsart unter
+        // Paketverlust bringt. Die Zahl stammt weiter aus dem Linux-Labor und
+        // hängt am Zuschauer, nicht am Encoder.
         "h264_nvenc" | "hevc_nvenc" | "av1_nvenc" => {
             Some(&[("intra-refresh", "1"), ("no-scenecut", "1")])
         }

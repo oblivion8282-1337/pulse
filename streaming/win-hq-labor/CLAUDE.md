@@ -33,7 +33,7 @@ Der Stand über die Plattformen:
 |---|---|
 | Linux, NVIDIA + AMD | vorangegangen, Referenz (`streaming/hq-labor/`) |
 | **Windows, AMD** | **diese Maschine, hier wird gearbeitet** |
-| Windows, NVIDIA | anderer Rechner, danach |
+| Windows, NVIDIA | **Encoder-Seite erledigt** (2026-08-04, RTX 5080) — am ausgelieferten Sidecar gegen einen Dateimitschnitt, ohne dieses Labor: NVENC braucht weder Vulkan noch ein gepatchtes FFmpeg. `testbench/nvidia-intra-refresh-nachweis.ps1`, Messakte `nvidia-2026-08-04-windows-intra-refresh.json`. Offen bleibt dort der Weg zum dekodierenden Zuschauer. |
 
 ## Die vier Regeln
 

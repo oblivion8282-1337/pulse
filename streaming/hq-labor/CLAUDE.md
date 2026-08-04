@@ -345,11 +345,19 @@ steckte: der **abgeschnittene 90-kHz-Zeitstempel** in webrtc-rs, der H.264 dem
 Ton 20 ms je Minute davonlaufen liess. Der zweite (AV1-Paketierer,
 Sequenzkopf ohne Vollbild) war hier bereits eingebaut.
 
-**Was daran ungeprueft bleibt und vor der Auslieferung gehoert:** Windows+NVIDIA
-ist nicht nachgemessen, `pnpm check`/`build` sind auf der Windows-Maschine nicht
-gelaufen (kein Node), und die Linux-Aenderung ist dort nicht baubar (kein
-PipeWire) — sie ist nur ueber die identische Windows-Fassung derselben Datei
-getestet.
+**Windows+NVIDIA ist seit dem 2026-08-04 nachgemessen** (RTX 5080, eigene
+Maschine): 1 statt 10 Vollbilder bei gleicher Datenrate, `h264_nvenc` wie
+`av1_nvenc`, je drei Laeufe, dazu recovery points und das eingeloeste Vollbild
+auf Anforderung. Messakte
+`profiles/nvidia-2026-08-04-windows-intra-refresh.json`, Werkzeug
+`win-hq-labor/testbench/nvidia-intra-refresh-nachweis.ps1`. Gemessen ist der
+Encoder am Mitschnitt, **nicht** der Weg zum Zuschauer und nicht das Verhalten
+unter Verlust.
+
+**Was daran ungeprueft bleibt und vor der Auslieferung gehoert:**
+`pnpm check`/`build` sind auf der Windows-Maschine nicht gelaufen (kein Node),
+und die Linux-Aenderung ist dort nicht baubar (kein PipeWire) — sie ist nur
+ueber die identische Windows-Fassung derselben Datei getestet.
 
 **Blockierend fuer den Flatpak-Sichttest — das Flatpak redet NUR mit der Produktion:**
 
@@ -462,9 +470,20 @@ getestet.
       keine einzige einschlägige Stelle. Ob VideoToolbox selbst es kann,
       entscheidet, ob die Umstellung plattformweit möglich ist. Einstieg:
       `UEBERGABE-WINDOWS-MACOS.md` daneben.
-- [ ] **Windows+NVIDIA nachmessen.** Die Optionen stehen (`intra-refresh` +
-      `no-scenecut`, upstream, wie unter Linux), gemessen ist dort aber nichts —
-      das steht auch so am Code. Ein anderer Rechner, kleine Aufgabe.
+- [x] **Windows+NVIDIA nachmessen** — erledigt am 2026-08-04 auf einer
+      RTX 5080. Die Optionen (`intra-refresh` + `no-scenecut`, upstream) tun
+      dort, was sie versprechen: 1 statt 10 Vollbilder bei gleicher Datenrate,
+      mit beiden Codecs, dreimal wiederholt; 9 recovery-point-SEI gegen 0 in
+      der Gegenprobe; `forced-idr` loest die Anforderung als echtes IDR ein.
+      Kein eigener FFmpeg-Bau noetig, anders als bei `av1_amf`. Messakte
+      `profiles/nvidia-2026-08-04-windows-intra-refresh.json`.
+      **Nicht** mitbeantwortet: der Weg zum Zuschauer und das Verhalten unter
+      Verlust, beides am Mitschnitt nicht messbar.
+      **Nebenbefund, und er wog schwerer als die Messung selbst:** 10 bit war
+      auf NVIDIA **kaputt** — jeder solche Stream starb vor dem Encoder-Open
+      (`E_INVALIDARG` beim P010-Pool), waehrend `health` die Faehigkeit
+      meldete. Ursache war eine Pool-Bauart, die allein am Vendor hing; behoben
+      in `hwctx.rs`, Gegenprobe samt Sichtpruefung in der Messakte.
 
 **Vorgemerkt, bewusst nicht gebaut (2026-08-04) — der Player stirbt an einem
 GPU-Hänger, und das trifft ausgelieferte Nutzer:**
