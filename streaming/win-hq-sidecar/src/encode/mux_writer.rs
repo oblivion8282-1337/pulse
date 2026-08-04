@@ -120,9 +120,7 @@ fn write_loop(
                 continue;
             }
             eprintln!("[mux-writer] write_interleaved failed: {e:#}");
-            if let Ok(mut slot) = fail_slot.lock() {
-                *slot = Some(format!("{e:#}"));
-            }
+            super::fail_slot::hinterlege(fail_slot, &e);
             return Err(e).context("mux-writer: write_interleaved");
         }
     }
@@ -192,12 +190,8 @@ impl MuxWriter {
         match &self.tx {
             Some(tx) => tx.send(SendPacket(packet)).map_err(|_| {
                 // Writer tot → echten Grund aus dem Slot ziehen (s. `fail_msg`).
-                let cause = self
-                    .fail_msg
-                    .lock()
-                    .ok()
-                    .and_then(|slot| slot.clone())
-                    .unwrap_or_else(|| "thread beendet ohne hinterlegten Grund".into());
+                let cause =
+                    super::fail_slot::lies(&self.fail_msg, "thread beendet ohne hinterlegten Grund");
                 anyhow!("mux-writer failed: {cause}")
             }),
             None => Err(anyhow!("mux-writer already finished")),

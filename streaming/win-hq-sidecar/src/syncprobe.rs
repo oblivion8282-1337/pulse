@@ -47,8 +47,16 @@ const BEEP_FRAC: f64 = 0.35;
 /// Anteil des Trägerton-Pegels, unter dem ein Block als Loch gilt.
 const GAP_FRAC: f64 = 0.25;
 
+/// Ob die Sonde an ist. Gecacht (`OnceLock`, wie `encode::audio::opus_frame_ms`)
+/// — `enabled()` wird sonst pro Audio-Chunk (bis zu ~200/s bei 5-ms-Opus-
+/// Paketen, s. `encode/audio/mod.rs::OPUS_FRAME_MS`) UND pro Video-Frame
+/// (`video_frame_age`, 60-120 Hz im `pipeline_d3d12`-Pacing-Loop) neu gelesen —
+/// eine `std::env::var`-Abfrage je Aufruf, im deaktivierten Regelfall reine
+/// Verschwendung in einem latenzkritischen Pfad. Der Schalter ist ein
+/// Prozessstart-Wert, ändert sich also nie während eines Laufs.
 pub fn enabled() -> bool {
-    crate::env::flag("PULSE_HQ_SYNC_PROBE")
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| crate::env::flag("PULSE_HQ_SYNC_PROBE"))
 }
 
 /// Meldet den QPC-Ursprung der Videospur. Ohne ihn lassen sich die

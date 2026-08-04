@@ -14,10 +14,13 @@
 //! native aus dem Capture-Pool, downscaled aus dem Scaler-Ziel-Pool. Der
 //! Caller übergibt die passende `hw_frames_ctx`-AVBufferRef.
 //!
-//! Aktiv für `vendor == "nvidia"` (alle Codecs) und für `vendor == "amd"` mit
-//! AV1: beide Encoder nehmen BGRA-D3D11-Frames an und rechnen den
-//! NV12-Convert selbst auf der GPU. Intel bleibt auf der CPU-Pipeline.
-//! Welche Kombination hier landet, entscheidet `pipeline_hw::run`.
+//! Aktiv für `vendor == "nvidia"` und `vendor == "amd"`: beide Encoder nehmen
+//! BGRA-D3D11-Frames an und rechnen den NV12-Convert selbst auf der GPU.
+//! Intel bleibt auf der CPU-Pipeline. **Welche (Vendor, Codec)-Kombination
+//! hier landet, steht an genau einer Stelle** — `VideoCodec::encode_path`
+//! (`encode/codec.rs`), nicht hier zweitgefasst; die Tabelle hat sich schon
+//! einmal verschoben (2026-08-04, AMD ging vorher nur mit AV1 diesen Weg),
+//! ohne dass eine zweite Prosa-Fassung mitgezogen worden wäre.
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;

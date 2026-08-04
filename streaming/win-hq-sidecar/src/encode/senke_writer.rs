@@ -109,12 +109,8 @@ impl SenkenWriter {
     fn reihe_ein(&self, s: Sendung) -> Result<()> {
         match &self.tx {
             Some(tx) => tx.send(s).map_err(|_| {
-                let grund = self
-                    .fail_msg
-                    .lock()
-                    .ok()
-                    .and_then(|slot| slot.clone())
-                    .unwrap_or_else(|| "Faden beendet ohne hinterlegten Grund".into());
+                let grund =
+                    super::fail_slot::lies(&self.fail_msg, "Faden beendet ohne hinterlegten Grund");
                 anyhow!("senken-writer gescheitert: {grund}")
             }),
             None => Err(anyhow!("senken-writer bereits beendet")),
@@ -156,9 +152,7 @@ fn sende_schleife(
         // Grund ablegen, BEVOR der Kanal fällt: sonst sieht der Erzeuger nur
         // einen geschlossenen Kanal und meldet „Faden ist weg" statt der
         // Ursache. Dieselbe Reihenfolge wie in `mux_writer::write_loop`.
-        if let Ok(mut slot) = fail_slot.lock() {
-            *slot = Some(format!("{e:#}"));
-        }
+        super::fail_slot::hinterlege(fail_slot, &e);
         return Err(e);
     }
     Ok(())

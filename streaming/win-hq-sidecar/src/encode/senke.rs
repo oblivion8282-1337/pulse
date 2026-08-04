@@ -29,7 +29,6 @@
 //! keinen Bauer an; [`zustaendig`] liefert dann immer `false` und jeder Stream
 //! geht über den Muxer, Byte für Byte wie vorher.
 
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -98,7 +97,7 @@ pub struct SenkenAuftrag<'a> {
 /// nichts tut.
 pub type SenkenBauer = fn(&SenkenAuftrag) -> Result<Box<dyn PaketSenke>>;
 
-static BAUER: OnceLock<SenkenBauer> = OnceLock::new();
+static BAUER: super::einmal::EinmalBauer<SenkenBauer> = super::einmal::EinmalBauer::new();
 
 /// Den Bauer anmelden. Einmal beim Programmstart, vor dem ersten `start`.
 ///
@@ -106,9 +105,10 @@ static BAUER: OnceLock<SenkenBauer> = OnceLock::new();
 /// selben Prozess wären ein Aufbaufehler, und ein stilles Gewinnen des ersten
 /// würde beim Suchen Stunden kosten.
 pub fn registriere_senken_bauer(bauer: SenkenBauer) {
-    if BAUER.set(bauer).is_err() {
-        eprintln!("[senke] WARNUNG: zweiter Senken-Bauer ignoriert — der erste bleibt");
-    }
+    BAUER.registriere(
+        bauer,
+        "[senke] WARNUNG: zweiter Senken-Bauer ignoriert — der erste bleibt",
+    );
 }
 
 /// Übernimmt ein angemeldeter Sendeweg diese URL?

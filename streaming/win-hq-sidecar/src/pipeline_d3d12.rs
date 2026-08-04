@@ -197,9 +197,10 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
                 let worker_err = capture.join_error();
                 return Err(anyhow!(
                     "capture exit vor dem ersten Frame{}",
-                    worker_err
-                        .map(|s| format!(": {s}"))
-                        .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
+                    crate::capture::worker_err_suffix(
+                        worker_err,
+                        "Thread clean beendet, nie ein Frame geliefert"
+                    )
                 ));
             }
         }
@@ -278,9 +279,10 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
                     let worker_err = capture.join_error();
                     return Err(anyhow!(
                         "capture channel disconnected mid-stream{}",
-                        worker_err
-                            .map(|s| format!(": {s}"))
-                            .unwrap_or_else(|| " (clean exit, keine Fehlermeldung)".into())
+                        crate::capture::worker_err_suffix(
+                            worker_err,
+                            "clean exit, keine Fehlermeldung"
+                        )
                     ));
                 }
             }

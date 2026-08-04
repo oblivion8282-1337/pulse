@@ -80,9 +80,7 @@ impl AudioPipeline {
             return;
         };
         self.qpc_anchored = true;
-        let soll = ((captured.qpc as i64 - origin_qpc) as f64 / 10_000_000.0
-            * self.sample_rate as f64) as i64
-            + self.trim_samples;
+        let soll = self.qpc_to_samples(captured.qpc as i64, origin_qpc) + self.trim_samples;
         if soll <= self.pts_samples {
             return;
         }
@@ -108,9 +106,7 @@ impl AudioPipeline {
     /// Setup-Versatz nach vorn geschoben.
     pub(super) fn anchor_samples(&self, captured: &CapturedAudio) -> Option<i64> {
         match (self.stream_origin_qpc, captured.qpc) {
-            (Some(origin_qpc), q) if q != 0 => Some(
-                ((q as i64 - origin_qpc) as f64 / 10_000_000.0 * self.sample_rate as f64) as i64,
-            ),
+            (Some(origin_qpc), q) if q != 0 => Some(self.qpc_to_samples(q as i64, origin_qpc)),
             _ => self.stream_origin.map(|origin| {
                 let secs = if captured.captured_at >= origin {
                     captured.captured_at.duration_since(origin).as_secs_f64()
@@ -120,6 +116,15 @@ impl AudioPipeline {
                 (secs * self.sample_rate as f64) as i64
             }),
         }
+    }
+
+    /// QPC-Differenz (100ns-Einheiten) in Samples bei `self.sample_rate`.
+    /// Zusammengezogen aus zwei wortgleichen Vorkommen (Verankerung + Nachzug
+    /// auf den Geräte-Zeitstempel) — zwei Kopien derselben Umrechnung liefen
+    /// sonst auseinander, sobald eine von beiden angepasst wird, ohne dass es
+    /// auffiele.
+    fn qpc_to_samples(&self, qpc: i64, origin_qpc: i64) -> i64 {
+        ((qpc - origin_qpc) as f64 / 10_000_000.0 * self.sample_rate as f64) as i64
     }
 
     /// Meldet je Sekunde, wie weit die Ton-Zeitlinie hinter der Wanduhr

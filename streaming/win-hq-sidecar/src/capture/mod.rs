@@ -153,6 +153,18 @@ pub(crate) fn join_result_or_detach(
     }
 }
 
+/// Haengt einen optionalen Worker-Fehlertext an eine Fehlermeldung an: `":
+/// <text>"` wenn vorhanden, sonst `" (<fallback>)"`. Zusammengezogen aus
+/// sechs wortgleichen Vorkommen in den drei Pipelines (`pipeline_hw`,
+/// `pipeline_d3d12`, `stream_controller::cpu_pipeline`) — jede ruft beim
+/// Scheitern des Capture-Kanals `join_error()` und haengt das Ergebnis so an
+/// ihre jeweilige Fehlermeldung an.
+pub(crate) fn worker_err_suffix(worker_err: Option<String>, fallback: &str) -> String {
+    worker_err
+        .map(|s| format!(": {s}"))
+        .unwrap_or_else(|| format!(" ({fallback})"))
+}
+
 /// Hat `GraphicsCaptureSession` auf DIESEM Windows die Property?
 ///
 /// Die Settings-Enums der Crate sind nicht abwärtskompatibel: jedes

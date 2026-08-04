@@ -4,21 +4,28 @@
 //! D3D11VA-Pool, von dem der Encoder direkt liest. Kein PCIe-Hin-und-Her, kein
 //! BGRA→NV12-swscale auf der CPU. Downscale per `D3D11Scaler` (VideoProcessor).
 //!
-//! Aktiv für **NVIDIA (alle Codecs)** und für **AMD, aber nur AV1**:
-//! `h264_nvenc` wie `av1_amf` nehmen D3D11-BGRA-Frames direkt entgegen.
-//! AMD-H.264/HEVC läuft über `pipeline_d3d12` (nativer `h264_d3d12va`), Intel
-//! über die CPU-Pipeline (`run_cpu_pipeline`).
+//! Aktiv für **NVIDIA** und für **AMD** (`h264_nvenc`/`hevc_nvenc`/`av1_nvenc`
+//! bzw. `h264_amf`/`hevc_amf`/`av1_amf` nehmen D3D11-BGRA-Frames direkt
+//! entgegen), Intel über die CPU-Pipeline (`run_cpu_pipeline`). **Welche
+//! (Vendor, Codec)-Kombination hier statt über `pipeline_d3d12` läuft, steht
+//! an genau einer Stelle** — `VideoCodec::encode_path` (`encode/codec.rs`),
+//! hier nicht zweitgefasst; die Tabelle hat sich schon einmal verschoben
+//! (2026-08-04, AMD ging vorher nur mit AV1 diesen Weg, H.264/HEVC über
+//! `pipeline_d3d12`) und kann es wieder.
 //!
-//! **Warum AMD hier nur mit AV1 steht.** Über D3D12 ist AV1 auf AMD nicht
-//! benutzbar (`av1_d3d12va` liefert einen Bitstrom, den kein Decoder liest —
-//! Messung in `pipeline_d3d12::run`), und der frühere Ausweg über die
-//! CPU-Pipeline kostete gemessen 113 % eines CPU-Kerns und 42 übersprungene
-//! Bilder in 20 s; über diesen Pfad sind daraus 9 % und 2 geworden.
-//! Voraussetzung ist der **Einzeltextur-Pool** für AMD (`hwctx.rs`): über den
-//! Texture-Array-Pool, den NVIDIA nutzt, liefert AMF ein zerrissenes Bild
-//! (Herleitung am Wert in `HwContext::new`). Für AMD-H.264 gibt es dagegen
-//! keinen Anlass umzustellen — `h264_d3d12va` funktioniert, und `h264_amf` hat
-//! mit D3D11-Eingang die Vorgeschichte aus AMF-Issue #455.
+//! **Warum AV1 auf AMD hier bleibt, ohne Gegenprobe-Schalter.** Über D3D12
+//! ist AV1 auf AMD nicht benutzbar (`av1_d3d12va` liefert einen Bitstrom, den
+//! kein Decoder liest — Messung in `pipeline_d3d12::run`), und der frühere
+//! Ausweg über die CPU-Pipeline kostete gemessen 113 % eines CPU-Kerns und 42
+//! übersprungene Bilder in 20 s; über diesen Pfad sind daraus 9 % und 2
+//! geworden. Voraussetzung ist der **Einzeltextur-Pool** für AMD (`hwctx.rs`):
+//! über den Texture-Array-Pool, den NVIDIA nutzt, liefert AMF ein zerrissenes
+//! Bild (Herleitung am Wert in `HwContext::new`). Für AMD-H.264/HEVC gab es
+//! denselben Grund dagegen nicht (`h264_d3d12va` funktioniert, und `h264_amf`
+//! hat mit D3D11-Eingang die Vorgeschichte aus AMF-Issue #455) — deshalb
+//! tragen die beiden einen Gegenprobe-Schalter zurück auf D3D12
+//! (`PULSE_HQ_AMD_D3D12=1`, Begründung an `amd_forces_d3d12` in
+//! `encode/codec.rs`) und AV1 nicht.
 //!
 //! Da `select_adapter()` auf Multi-GPU die dGPU statt der Display-GPU liefern
 //! kann, verifiziert `run` die echte WGC-Capture-GPU und delegiert bei einer
@@ -355,9 +362,10 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                     let worker_err = capture.join_error();
                     return Err(anyhow!(
                         "hw capture channel disconnected mid-stream{}",
-                        worker_err
-                            .map(|s| format!(": {s}"))
-                            .unwrap_or_else(|| " (clean exit, keine Fehlermeldung)".into())
+                        crate::capture::worker_err_suffix(
+                            worker_err,
+                            "clean exit, keine Fehlermeldung"
+                        )
                     ));
                 }
             }

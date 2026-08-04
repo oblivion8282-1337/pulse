@@ -190,30 +190,12 @@ fn ffmpeg_kennt_die_optionen(encoder: &str) -> bool {
     };
     // SAFETY: `enc` lebt bis zum Ende der Funktion, der Zeiger stammt aus ihm
     // und ist damit gueltig; `av_opt_find` liest ihn nur.
-    liste.iter().all(|(key, _)| unsafe { kennt_option(enc.as_mut_ptr(), key) })
-}
-
-/// Kennt dieser Encoder-Kontext die Option?
-///
-/// # Safety
-///
-/// `ctx` muss ein gueltiger `AVCodecContext` sein und den Aufruf ueberleben.
-/// Die Funktion liest ihn nur.
-unsafe fn kennt_option(ctx: *mut ffmpeg::ffi::AVCodecContext, name: &str) -> bool {
-    let Ok(name) = std::ffi::CString::new(name) else {
-        return false;
-    };
-    // SAFETY: Kontrakt der Funktion; `name` lebt bis zum Ende des Aufrufs.
-    let gefunden = unsafe {
-        ffmpeg::ffi::av_opt_find(
-            ctx.cast(),
-            name.as_ptr(),
-            std::ptr::null(),
-            0,
-            ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN as i32,
-        )
-    };
-    !gefunden.is_null()
+    //
+    // `has_option` statt einer eigenen Kopie: derselbe Probe stand hier UND in
+    // `output.rs::warn_unknown_opts` wortgleich zweimal.
+    liste
+        .iter()
+        .all(|(key, _)| unsafe { super::output::has_option(enc.as_mut_ptr(), key) })
 }
 
 /// Trägt diese Maschine die Betriebsart mit mindestens einem ihrer Codecs?

@@ -25,8 +25,6 @@
 //! **Ohne Anmeldung ändert sich nichts.** Der ausgelieferte Sidecar meldet
 //! nichts an; dann baut `pipeline_hw` seinen `FfmpegHwEncoder` wie immer.
 
-use std::sync::OnceLock;
-
 use anyhow::Result;
 use ffmpeg_next::ffi::{AVBufferRef, AVPixelFormat};
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext};
@@ -188,13 +186,14 @@ pub(crate) fn pool_wahl(wunsch_ten_bit: bool) -> PoolWahl {
     }
 }
 
-static BAUER: OnceLock<EncoderBauer> = OnceLock::new();
+static BAUER: super::einmal::EinmalBauer<EncoderBauer> = super::einmal::EinmalBauer::new();
 
 /// Einmal beim Programmstart, vor dem ersten `start`.
 pub fn registriere_encoder_bauer(bauer: EncoderBauer) {
-    if BAUER.set(bauer).is_err() {
-        eprintln!("[bildencoder] WARNUNG: zweiter Encoder-Bauer ignoriert — der erste bleibt");
-    }
+    BAUER.registriere(
+        bauer,
+        "[bildencoder] WARNUNG: zweiter Encoder-Bauer ignoriert — der erste bleibt",
+    );
 }
 
 /// Der angemeldete Bauer, falls es einen gibt.

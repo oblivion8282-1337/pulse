@@ -213,28 +213,47 @@ pub fn warn_unknown_opts(
     // ganze Funktion am Leben und exklusiv.
     let ctx = unsafe { encoder.as_mut_ptr() };
     for (key, value) in opts.iter() {
-        let Ok(name) = std::ffi::CString::new(key) else {
+        // Kein gültiger C-String (eingebettetes NUL-Byte) → derselbe
+        // Frühausstieg wie zuvor inline: kein Fund, aber auch keine Warnung —
+        // das ist ein Schlüssel, den wir gar nicht erst prüfen konnten, nicht
+        // einer, den der Encoder nachweislich nicht kennt.
+        if std::ffi::CString::new(key).is_err() {
             continue;
-        };
+        }
         // SAFETY: `ctx` stammt aus dem `&mut`-Borrow oben, ist also gültig und
-        // lebt über den Aufruf hinaus; `name` lebt bis zum Ende des
-        // Schleifendurchlaufs. `av_opt_find` liest nur.
-        let gefunden = unsafe {
-            ffmpeg::ffi::av_opt_find(
-                ctx.cast(),
-                name.as_ptr(),
-                std::ptr::null(),
-                0,
-                ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN,
-            )
-        };
-        if gefunden.is_null() {
+        // lebt über den Aufruf hinaus.
+        if !unsafe { has_option(ctx, key) } {
             eprintln!(
                 "[encode] WARNUNG: '{encoder_name}' kennt die Option '{key}={value}' nicht — \
                  ffmpeg verwirft sie still, sie wirkt NICHT"
             );
         }
     }
+}
+
+/// Kennt dieser Encoder-Kontext die Option `name`? Gemeinsame Stelle für den
+/// `av_opt_find`-Probe — stand vorher wortgleich hier UND in
+/// `auffrischung.rs::kennt_option`, die jetzt hierher delegiert.
+///
+/// # Safety
+///
+/// `ctx` muss ein gültiger `AVCodecContext` sein und den Aufruf überleben.
+/// Die Funktion liest ihn nur.
+pub(super) unsafe fn has_option(ctx: *mut ffmpeg::ffi::AVCodecContext, name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: Kontrakt der Funktion; `name` lebt bis zum Ende des Aufrufs.
+    let gefunden = unsafe {
+        ffmpeg::ffi::av_opt_find(
+            ctx.cast(),
+            name.as_ptr(),
+            std::ptr::null(),
+            0,
+            ffmpeg::ffi::AV_OPT_SEARCH_CHILDREN,
+        )
+    };
+    !gefunden.is_null()
 }
 
 /// Probe: trägt das gelinkte FFmpeg den Muxer überhaupt? (WHIP existiert nur

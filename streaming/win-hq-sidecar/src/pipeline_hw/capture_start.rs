@@ -60,9 +60,10 @@ pub(super) fn start_and_wait_for_setup(
             let worker_err = capture.join_error();
             return Err(anyhow!(
                 "hw capture exit vor dem ersten Frame{}",
-                worker_err
-                    .map(|s| format!(": {s}"))
-                    .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
+                crate::capture::worker_err_suffix(
+                    worker_err,
+                    "Thread clean beendet, nie ein Frame geliefert"
+                )
             ));
         }
     };
