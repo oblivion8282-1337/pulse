@@ -139,11 +139,12 @@ SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # The client's protocol WISH — kept for wire-compat, but the SERVER decides
-    # the effective protocol (``settings.mediamtx_push_protocol``; app-hosted
+    # The client's protocol WISH. Until 2026-08-02 this was pattern-locked to
+    # "rtmp" and ignored; it is now honoured, but only UPWARDS (see the
+    # resolution in ``issue_stream_token``). Kept next to the old comment about
     # instances mint WHIP URLs). SRT stays disabled: UDP has no TLS layer so the
     # stream token would be visible in cleartext in the SRT streamid field.
-    protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
+    protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|whip)$")] = "rtmp"
     # Which of the caller's stream slots this token publishes. 0 == the default
     # single stream (legacy path/key shape); 1 == a second concurrent stream.
     slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
@@ -153,6 +154,14 @@ class StreamTokenIn(BaseModel):
     # apart. Stripped + bounded here; empty/``None`` → omitted from the token
     # record so the legacy single-stream shape stays byte-identical.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Sendet der Streamer mit 10 bit Farbtiefe? Fährt denselben Weg wie
+    # ``label`` (Token-Record → auth-hook → ``stream:active``) und wird dem
+    # Zuschauer in der WHEP-Antwort gemeldet: nur der native Player kann mehr
+    # als 8 bit darstellen, und ohne diesen Hinweis wüsste der Zuschauer die
+    # Tiefe erst NACH dem Dekodieren — also erst, nachdem er sich für einen
+    # Wiedergabeweg entschieden hat. Fehlt das Feld (ältere Clients), gilt
+    # 8 bit.
+    ten_bit: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -174,6 +183,10 @@ class StreamStateOut(BaseModel):
 
 class WhepOut(BaseModel):
     whep_url: str
+    # Sendet dieser Stream mit 10 bit? Aus dem ``stream:active``-Record. Der
+    # Zuschauer entscheidet daran, ob er den nativen Player nimmt (nur der
+    # kann mehr als 8 bit ausgeben) oder das ``<video>``-Element.
+    ten_bit: bool = False
 
 
 def _get_redis(request: Request) -> Redis:
@@ -220,14 +233,34 @@ async def issue_stream_token(
     settings = get_settings()
     redis = _get_redis(request)
     user_id = str(user.id)
-    # The server decides the push protocol: the client's request (pattern-locked
-    # to "rtmp") is a wish; app-hosted instances set MEDIAMTX_PUSH_PROTOCOL=whip
-    # so publishes ride the NAT-punching WebRTC layer instead of TCP 1936. The
-    # instance OWNER streams to their own machine and keeps the proven RTMPS
-    # loopback/direct path.
+    # Push-Weg: der Server erzwingt, der Client darf zusaetzlich wuenschen —
+    # aber nur NACH OBEN, also Richtung WHIP.
+    #
+    # Der Zwang bleibt, wozu er da ist: app-gehostete Instanzen setzen
+    # MEDIAMTX_PUSH_PROTOCOL=whip, damit Gaeste ueber die NAT-durchstossende
+    # WebRTC-Schicht publishen statt ueber TCP 1936, den sie hinter dem NAT des
+    # Hosts gar nicht erreichen. Der Instanz-OWNER streamt auf die eigene
+    # Maschine und behaelt den bewaehrten RTMPS-Weg.
+    #
+    # Der Wunsch kam 2026-08-02 dazu, fuer Intra-Refresh: dieser Betriebsart
+    # fehlt ueber RTMPS der RTCP-Rueckkanal, und ohne ihn bekommt ein
+    # beitretender Zuschauer nie sein erstes Vollbild — er saehe gar nichts.
+    # Die Betriebsart entscheidet den Transport also mit.
+    #
+    # Warum der Wunsch die Owner-Ausnahme schlaegt: die Ausnahme ist eine
+    # Bequemlichkeit (der bewaehrte Weg, wo er ohnehin funktioniert), keine
+    # Sicherheitsgrenze. Bliebe sie staerker, koennte ausgerechnet der Betreiber
+    # einer Instanz Intra-Refresh auf ihr nie benutzen.
+    #
+    # Und warum nur nach oben: ein Client, der RTMPS wuenscht, wo der Server
+    # WHIP erzwingt, wuerde sich damit den Weg abschneiden, der auf dieser
+    # Instanz ueberhaupt funktioniert.
+    wunsch_whip = payload.protocol == "whip"
     protocol = settings.mediamtx_push_protocol
-    if user_id == settings.pulse_instance_owner_id:
+    if user_id == settings.pulse_instance_owner_id and not wunsch_whip:
         protocol = "rtmp"
+    if wunsch_whip:
+        protocol = "whip"
     token = secrets.token_urlsafe(32)
     # Fresh nonce per token → fresh MediaMTX path per publish (see
     # ``streamkeys.py`` for why). 32 hex = 128 bits = offline path-guessing
@@ -253,6 +286,10 @@ async def issue_stream_token(
     label = (payload.label or "").strip()
     if label:
         record["label"] = label
+    # Wie ``label``: nur bei True mitschreiben, damit der Record im Normalfall
+    # byte-identisch zur alten Form bleibt.
+    if payload.ten_bit:
+        record["ten_bit"] = True
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),
@@ -386,7 +423,10 @@ async def get_whep_url(
             winner = await redis.get(cache_key)
             read_token = (winner.decode() if isinstance(winner, bytes) else winner) or candidate
     base = s.mediamtx_public_base.rstrip("/")
-    return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")
+    return WhepOut(
+        whep_url=f"{base}/{path}/whep?token={read_token}",
+        ten_bit=data.get("ten_bit") is True,
+    )
 
 
 @router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
@@ -422,11 +462,14 @@ async def stop_stream(
     uid = str(user.id)
     targets = [slot] if slot is not None else list(range(_SLOT_MAX + 1))
 
+    # Gepipelined statt einzeln: bis zu 4 Slots waren bis zu 8 sequentielle
+    # Round-Trips für einen einzigen Stop-Klick. Dasselbe Muster begründet der
+    # Poller für sich schon ("reduces O(N) sequential round-trips to O(1)").
+    pipe = redis.pipeline()
     for s in targets:
-        await redis.set(
-            stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s
-        )
-        await redis.delete(active_key(channel_id, uid, s))
+        pipe.set(stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s)
+        pipe.delete(active_key(channel_id, uid, s))
+    await pipe.execute()
 
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
     remaining_uids: list[str] = []
