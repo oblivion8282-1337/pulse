@@ -367,6 +367,20 @@ Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
 - [ ] **GPU-Reset beim Senden UND Hardware-Dekodieren auf derselben APU.**
       Bekannte Grenze (`vcn_unified_0` teilt sich Encode und Decode);
       `PULSE_PLAYER_HWDEC=0` ist der Ausweg fuer den Test auf einem Rechner.
+      **Nachtrag 2026-08-04: es braucht das gleichzeitige Senden gar nicht.**
+      Unter Buendelverlust ist der Player gestorben, waehrend der Sender ffmpeg
+      von der Platte war — nichts encodierte. Der Kernel:
+      `ring vcn_unified_0 timeout, signaled seq=242587, emitted seq=242588`,
+      also GENAU EIN Decodier-Auftrag, der nie zurueckkam; danach Ring-Reset
+      und `device wedged, but no recovery needed`. Kein Gedraenge auf der
+      Warteschlange, sondern der Auftrag selbst. Sichtbar auch an der
+      Decodierzeit des Players (11,1 → 132,0 ms Mittel in einer Probe — das ist
+      Wartezeit, keine Rechenzeit). Vermutet, nicht belegt: der Decoder bekommt
+      nach Buendelverlust laenger kaputte Daten, weil ein Intra-Refresh-Strom
+      sich nicht selbst heilt, und die Hardware-Einheit ist dagegen
+      empfindlicher als ein Software-Decoder — beide Software-Laeufe hatten
+      null Decoder-Einfrierungen, beide Hardware-Laeufe welche. Ein Absturz in
+      einem von zwei Laeufen traegt aber keine Ursachenaussage.
 
 ## Offene Punkte (Stand 2026-07-31, Nacht)
 

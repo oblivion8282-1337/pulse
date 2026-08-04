@@ -44,10 +44,15 @@ Vergleichbar ueber beide hinweg sind also: endgueltig verlorene Pakete, Bilder,
 und die Zaehler des Tors auf dem Server.
 
 **Auf einer AMD-APU die Buendel-Laeufe mit `--kein-hwdec` fahren.** Mit
-Hardware-Decode ist der Player dort im Buendelverlust gestorben (`amdgpu: the
-context is lost`), nach dutzenden Decoder-Neustarts. Das ist die bekannte
-Grenze von `vcn_unified_0` — sie schlug hier aber OHNE gleichzeitiges
-Encodieren zu, der Sender war ffmpeg von der Platte.
+Hardware-Decode ist der Player dort im Buendelverlust gestorben. Der Kernel:
+`ring vcn_unified_0 timeout, signaled seq=242587, emitted seq=242588` — GENAU
+EIN Decodier-Auftrag ging hinein und kam nie zurueck. Kein Verschleiss, keine
+Ueberlastung; die Decodierzeit des Players sprang in derselben Probe von
+11,1 auf 132,0 ms Mittel, und das ist Wartezeit auf den haengenden Auftrag.
+Die bekannte Grenze von `vcn_unified_0` ist fuer SENDEN UND DEKODIEREN
+gleichzeitig beschrieben — hier hat nichts encodiert, der Sender war ffmpeg
+von der Platte. Beide Software-Laeufe liefen durch, mit null
+Decoder-Einfrierungen.
 
 **Die Vorlage ist echter Intra-Refresh** (`fec-intraref-20s.mkv`, av1_vaapi mit
 `-intra_refresh 1`, gebaut mit dem gepatchten FFmpeg aus
