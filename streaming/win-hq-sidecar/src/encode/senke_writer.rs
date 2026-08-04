@@ -143,7 +143,11 @@ fn sende_schleife(
 ) -> Result<()> {
     for s in rx {
         let ergebnis = match &s {
-            Sendung::Video(p) => p.data().map(|d| senke.video(d)),
+            // Der `pts` wird MIT durchgereicht, nicht neu erfunden: er steht
+            // hier noch in der Encoder-Zeitbasis (der Extern-Weg rescaled
+            // nicht, s. `encoder_hw::drain_video`), und genau die erwartet der
+            // AV1-Paketierer.
+            Sendung::Video(p) => p.data().map(|d| senke.video(d, p.pts())),
             Sendung::Ton(p) => p.data().map(|d| senke.audio(d, ton_dauer)),
         };
         // Ein Paket ohne Nutzlast ist nichts zu senden, aber auch kein Fehler.
@@ -174,7 +178,7 @@ mod tests {
     }
 
     impl PaketSenke for Attrappe {
-        fn video(&mut self, _d: &[u8]) -> Result<()> {
+        fn video(&mut self, _d: &[u8], _pts: Option<i64>) -> Result<()> {
             let n = self.video.fetch_add(1, Ordering::SeqCst) + 1;
             if self.scheitert_ab > 0 && n >= self.scheitert_ab {
                 return Err(anyhow!("Attrappe scheitert absichtlich"));

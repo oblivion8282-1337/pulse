@@ -40,9 +40,21 @@ use anyhow::Result;
 /// (`senke_writer.rs`), damit der Taktfaden nicht am Netz hängt. Ohne diese
 /// Schranke lässt sich die Box dort nicht hinbewegen.
 pub trait PaketSenke: Send {
-    /// Ein fertiges Videopaket, roh. **Kein Zeitstempel**: die Zeit setzt der
-    /// Sendeweg selbst (bei WebRTC die RTP-Uhr).
-    fn video(&mut self, daten: &[u8]) -> Result<()>;
+    /// Ein fertiges Videopaket, roh.
+    ///
+    /// `pts` ist der Zeitstempel des Encoder-Pakets in der **Encoder**-Zeitbasis
+    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten, und nicht
+    /// umgerechnet. Ob er gebraucht wird, entscheidet der Sendeweg: der
+    /// H.264-Weg stempelt aus der Bilddauer und ignoriert ihn, der eigene
+    /// AV1-Paketierer rechnet ihn um.
+    ///
+    /// **Hier stand bis 2026-08-04 „kein Zeitstempel, die Zeit setzt der
+    /// Sendeweg selbst".** Das war die Bauart, bevor der Linux-Zweig den
+    /// RTP-Zeitstempel vom Bildzähler auf den echten `pts` umgestellt hat: ein
+    /// Zähler unterstellt, dass jedes eingeschobene Bild auch eines wird, und
+    /// läuft auseinander, sobald der Encoder eines verwirft oder die Taktung
+    /// dupliziert.
+    fn video(&mut self, daten: &[u8], pts: Option<i64>) -> Result<()>;
 
     /// Ein fertiges Tonpaket samt seiner Länge. Die Länge ist nicht optional —
     /// aus ihr leitet der Sendeweg den Zeitstempel ab, und ein falscher Wert
@@ -63,6 +75,16 @@ pub struct SenkenAuftrag<'a> {
     /// Codec-Kurzname wie im `start`-Request (`"h264"` / `"av1"`).
     pub codec: &'a str,
     pub fps: u32,
+    /// Die Maße, mit denen wirklich encodiert wird (nach Skalierung).
+    ///
+    /// Nicht Zierde: das Angebot nennt bei AV1 eine Stufe (`seq_level_idx`) und
+    /// bei H.264 eine Fassung, und beide hängen an Bildgröße mal Bildrate. Eine
+    /// zu klein angesetzte Stufe lässt den Hardware-Decoder des Zuschauers
+    /// aussteigen — er fällt dann auf Software zurück, das Bild läuft weiter,
+    /// und niemand sieht es an einer Bildzahl. Genau so am 2026-08-02 passiert
+    /// (Level 3.0 bei 720p), Herleitung in `whip::sdp`.
+    pub breite: u32,
+    pub hoehe: u32,
 }
 
 /// Baut die Sitzung auf. **Läuft erst, wenn die Encoder offen sind** — würde

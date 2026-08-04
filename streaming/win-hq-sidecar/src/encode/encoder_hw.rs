@@ -242,6 +242,10 @@ impl FfmpegHwEncoder {
                     url: output_path,
                     codec: cfg.codec.slug(),
                     fps: cfg.fps,
+                    // Die ZIEL-Maße, nicht die der Aufnahme: das Angebot muss
+                    // beschreiben, was wirklich über die Leitung geht.
+                    breite: cfg.dst_w,
+                    hoehe: cfg.dst_h,
                 })
                 .context("fremden Sendeweg aufbauen")?;
                 // **Sagen, welcher Weg genommen wurde.** Die beiden Wege sind

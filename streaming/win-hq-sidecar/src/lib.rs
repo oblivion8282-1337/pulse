@@ -21,3 +21,4 @@ pub mod stream_controller;
 pub mod syncprobe;
 pub mod system;
 pub mod tick_monitor;
+pub mod whip;
