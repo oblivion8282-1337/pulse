@@ -331,6 +331,26 @@ der **Fuell-OBU-Filter** (99,6 % des AMD-Bitstroms waren Fuellbytes), die
 Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
 `pulse-player`-Modul im Flatpak.
 
+**Am 2026-08-04 dazugekommen: Windows.** Der Zweig hatte Linux fertig und
+Windows unberuehrt — der ausgelieferte Windows-Sidecar stand sogar noch VOR der
+AMD-Messreihe, weil `perf/win-sidecar-gop` nirgends gemergt war. Jetzt drin:
+diese Messreihe (`usage=ultralowlatency`, Video-Engine 23,9 auf 9,4 Prozent bei
+gleicher Bildqualitaet; AV1 zero-copy statt CPU-Weg), Intra-Refresh als
+Betriebsart (`encode/auffrischung.rs`), Vollbild auf Anforderung samt der
+Operation `keyframe`, und der eigene WebRTC-Sendeweg (`src/whip/`, dieselbe
+Fassung wie Linux).
+
+Dabei ist ein Rueckport auf die Linux-Seite gewandert, der dort ungemessen
+steckte: der **abgeschnittene 90-kHz-Zeitstempel** in webrtc-rs, der H.264 dem
+Ton 20 ms je Minute davonlaufen liess. Der zweite (AV1-Paketierer,
+Sequenzkopf ohne Vollbild) war hier bereits eingebaut.
+
+**Was daran ungeprueft bleibt und vor der Auslieferung gehoert:** Windows+NVIDIA
+ist nicht nachgemessen, `pnpm check`/`build` sind auf der Windows-Maschine nicht
+gelaufen (kein Node), und die Linux-Aenderung ist dort nicht baubar (kein
+PipeWire) — sie ist nur ueber die identische Windows-Fassung derselben Datei
+getestet.
+
 **Blockierend fuer den Flatpak-Sichttest — das Flatpak redet NUR mit der Produktion:**
 
 - [ ] **`infra/prod/docker-compose.yml` pinnt noch `pulse-mediamtx:1.19.1-pulse`.**
@@ -408,14 +428,25 @@ Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
 - [ ] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
       (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. Bis dahin haben
       Nutzer auf AMD kein Intra-Refresh, egal was der Sidecar kann.
-- [ ] **Windows und macOS** — Einstieg: `UEBERGABE-WINDOWS-MACOS.md` daneben.
-      Am Quelltext geklärt (2026-08-01): beide Sidecars encodieren ebenfalls
-      über FFmpeg, der Hebel ist also überall eine Encoder-Option. **Windows
-      braucht keinen Patch** — `*_nvenc` und `*_d3d12va` (der AMD-Weg dort)
-      haben Intra-Refresh upstream, für AV1 eingeschlossen. **macOS ist der
-      offene Fall**: `videotoolbox` hat in FFmpeg keine einzige einschlägige
-      Stelle. Ob VideoToolbox selbst es kann, entscheidet, ob die Umstellung
-      plattformweit möglich ist — deshalb zuerst prüfen, nicht zuletzt.
+- [x] **Windows** — erledigt am 2026-08-04, ausgeliefert im Sidecar
+      (`win-hq-sidecar/src/encode/auffrischung.rs` + `src/whip/`). Gemessen auf
+      einer Radeon 780M am 2026-08-02, auf Windows+NVIDIA **nicht**
+      nachgemessen. **Zwei Annahmen dieses Eintrags waren falsch** und stehen
+      berichtigt in `UEBERGABE-WINDOWS-MACOS.md`: der AMD-Weg ist **AMF, nicht
+      D3D12** (`av1_amf` mit `intra_refresh_mode gop_aligned` — die Option
+      heißt dort nur anders), und `*_d3d12va` ist unbrauchbar, nicht bequem
+      (nimmt die Option an, tut nichts damit). Und ein Punkt fehlte ganz: der
+      **Rückkanal**. Ein Intra-Refresh-Strom hat nach dem Start kein Vollbild
+      mehr; ffmpegs WHIP-Muxer kann die Anforderung des Zuschauers nicht
+      weiterreichen und trägt kein AV1, also ist der eigene WebRTC-Sendeweg
+      mitportiert. Die Encoder-Option war die halbe Aufgabe.
+- [ ] **macOS** — der offene Fall, unverändert. `videotoolbox` hat in FFmpeg
+      keine einzige einschlägige Stelle. Ob VideoToolbox selbst es kann,
+      entscheidet, ob die Umstellung plattformweit möglich ist. Einstieg:
+      `UEBERGABE-WINDOWS-MACOS.md` daneben.
+- [ ] **Windows+NVIDIA nachmessen.** Die Optionen stehen (`intra-refresh` +
+      `no-scenecut`, upstream, wie unter Linux), gemessen ist dort aber nichts —
+      das steht auch so am Code. Ein anderer Rechner, kleine Aufgabe.
 
 **Vorgemerkt, bewusst nicht gebaut (2026-08-04) — der Player stirbt an einem
 GPU-Hänger, und das trifft ausgelieferte Nutzer:**

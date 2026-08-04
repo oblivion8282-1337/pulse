@@ -10,6 +10,20 @@ Electron spawnt ihn lazy beim ersten `gsr:call`; Path-Resolver in
 `target/release|debug/pulse-win-hq-sidecar.exe` → `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe`.
 Kein Python — die Rust-Bin ist standalone (FFmpeg-DLLs neben der exe).
 
+## Zwei Sendewege
+
+**RTMPS geht an ffmpegs Muxer, `http(s)://` an den eigenen WebRTC-Sender**
+(`src/whip/`, seit 2026-08-04; angemeldet in `main.rs`, eingehängt über
+`encode::senke`). ffmpegs WHIP-Muxer wäre für den zweiten Fall der naheliegende
+Weg und kann zwei Dinge nicht, die hier zählen: er hat **keinen Rückkanal** zur
+Anwendung — eine Vollbild-Anforderung des Zuschauers erreicht den Encoder also
+nie — und er trägt **kein AV1**. Beides ist bei Intra-Refresh entscheidend: so
+ein Strom hat nach dem Start kein Vollbild mehr, und AV1 ist auf AMD der Codec,
+der die Betriebsart überhaupt trägt.
+
+Dieselbe Fassung wie im Linux-Sidecar. Der CPU-Weg (Intel) benutzt weiter
+ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
+
 ## Stack
 
 - **Capture:** `windows-capture` v2 (WGC, ID3D11-Texture-Output).
@@ -35,6 +49,14 @@ kann der d3d12va-Encoder nicht, s.u.), `amd` + H.264/HEVC → `pipeline_d3d12`
 (D3D12VA-Zero-Copy), sonst (Intel) → `run_cpu_pipeline`. **Beide GPU-Pfade sind by default
 aktiv** — `PULSE_HQ_DISABLE_ZERO_COPY=1` zwingt jeden Vendor auf den CPU-Pfad (für AMD =
 Fallback auf das funktionierende `h264_amf` mit Software-NV12).
+
+**Für Intra-Refresh entscheidet genau diese Aufteilung mit**, und nicht die
+Optionstabelle des Encoders: `h264_d3d12va` — der Regelweg für H.264 auf AMD —
+nimmt die Option an und tut nichts damit. Getragen wird die Betriebsart auf AMD
+von AV1 über `av1_amf`, also vom D3D11-Weg. Deshalb hängt `health.gsr.intra_refresh`
+am Encoder, der bei dieser Kombination **wirklich** läuft (`encode/auffrischung.rs`
+::`encoder_name`) — am Herstellernamen zu fragen meldete `h264_amf` und liefe
+`h264_d3d12va`.
 
 ### D3D11 Zero-Copy (NVENC / AMF)
 `src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
@@ -134,6 +156,17 @@ einzeln beschrieben.
   D3D11-Pfads (Einzeltexturen statt Texture-Array; Vorgabe: AMD=Einzeltexturen,
   NVIDIA=Array). `0` reproduziert das zerrissene AMF-Bild auf AMD, `1` misst
   Einzeltexturen auf NVIDIA. Begründung am Wert in `encode/hwctx.rs`.
+- `PULSE_INTRA_REFRESH=1` — rollender Intra-Refresh statt periodischer Vollbilder,
+  wenn die Oberfläche nichts sagt (`overrides.intra_refresh` sticht). **Heißt auf
+  Linux genauso**, damit die Prüfstand-Skripte plattformgleich bleiben. Trägt der
+  Encoder die Betriebsart nicht, **bricht der Start ab** — ein Keyframe-Strom unter
+  diesem Etikett wäre keine Messung, die scheitert, sondern eine, die täuscht.
+  Welcher Encoder sie trägt und warum, steht in `src/encode/auffrischung.rs`; die
+  Kurzfassung: AMD nur mit AV1 (`av1_amf`), NVIDIA immer, Intel nie, und
+  `h264_d3d12va` nimmt die Option an, ohne etwas zu tun.
+- `PULSE_WHIP_PACING=1` — verteilt die RTP-Pakete eines Bildes über die Zeit, statt
+  sie als Schwall zu senden. **Aus als Vorgabe**: in dieser Fassung gemessen
+  schlechter, nicht besser (Zahlen in `src/whip/pacer.rs`).
 - `PULSE_HQ_FFMPEG_DEBUG=1` — FFmpegs eigenes Log auf `Debug` hochdrehen.
 - `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
 - `PULSE_HQ_NO_AV_OFFSET=1` — schaltet die QPC-A/V-Verankerung ab (reine Wall-clock,

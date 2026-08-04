@@ -1,9 +1,38 @@
 # Intra-Refresh auf Windows und macOS — Übergabe
 
-Linux ist durch (NVIDIA am 2026-07-31, AMD am 2026-08-01). Dieses Blatt ist
-der Einstieg für die beiden fehlenden Plattformen. **Es ist am Quelltext
-belegt, nicht geraten** — aber nichts davon ist auf der jeweiligen Maschine
-nachgemessen. Genau das ist die Aufgabe.
+Linux ist durch (NVIDIA am 2026-07-31, AMD am 2026-08-01). Dieses Blatt war
+der Einstieg für die beiden fehlenden Plattformen.
+
+> **Windows ist inzwischen durch, und dieses Blatt lag an zwei Stellen falsch.**
+> Am 2026-08-02 auf einer Radeon 780M nachgemessen, am 2026-08-04 ausgeliefert
+> (`streaming/win-hq-sidecar/src/encode/auffrischung.rs` und `src/whip/`):
+>
+> 1. **AMD läuft nicht über D3D12, sondern über AMF.** Die Tabelle unten sagt
+>    „`av1_amf` kann kein Intra-Refresh" — falsch. Die Option heißt dort nur
+>    anders: `intra_refresh_mode gop_aligned` (plus `intra_refresh_stripes`).
+>    Gemessen wurde `-intra_refresh`, und der Treiber nimmt einen Optionsnamen
+>    an, den er nicht kennt; daher die byte-identischen Ströme, aus denen der
+>    Fehlschluss kam.
+> 2. **Der D3D12-Weg ist unbrauchbar, nicht der bequeme.** `av1_d3d12va` bricht
+>    mit Intra-Refresh sofort ab, und `h264_d3d12va` nimmt die Option an,
+>    ändert den Strom um 0,47 Prozent und setzt weder
+>    `constrained_intra_pred_flag` noch einen recovery point. Der Satz „es
+>    braucht nicht die Welle von Hand wie bei VAAPI" stimmt technisch und führt
+>    trotzdem in die Irre.
+>
+> Und ein Punkt fehlte ganz: **der Rückkanal.** Ein Intra-Refresh-Strom hat
+> nach dem Start kein Vollbild mehr; ohne einen Sender, der die Anforderung des
+> Zuschauers empfängt, kommt niemand mehr ins Bild. Unter Windows hieß das,
+> ffmpegs WHIP-Muxer zu ersetzen — die Encoder-Option allein war nur die halbe
+> Aufgabe.
+>
+> Der Rest des Blatts bleibt stehen: **macOS ist weiter offen**, und die
+> Abschnitte „Wie dort gemessen wird" und „Die Fallen" gelten unverändert.
+> Was hier widerlegt ist, steht als Widerlegung da statt zu verschwinden — der
+> Fehlschluss ist naheliegend genug, dass ihn jemand ein zweites Mal zieht.
+
+**Es ist am Quelltext belegt, nicht geraten** — aber nichts davon ist auf der
+jeweiligen Maschine nachgemessen. Genau das ist die Aufgabe.
 
 ## Der gemeinsame Hebel
 
@@ -16,44 +45,44 @@ Geprüft im FFmpeg-8.1.2-Quellbaum:
 |---|---|---|
 | `*_nvenc` (h264, hevc, **av1**) | **ja, upstream** | `-intra-refresh 1` (+ `-forced-idr 1`) |
 | `*_d3d12va` (h264, hevc, **av1**) | **ja, upstream** | `-intra_refresh_mode row_based` |
-| `h264_amf` | ja | `-intra_refresh_mb N` |
-| `av1_amf`, `hevc_amf` | **nein** | — |
+| `h264_amf` | ja — und `usage=ultralowlatency` frischt ohnehin schon auf | `-intra_refresh_mb N` |
+| ~~`av1_amf`~~ | **doch, s. Kasten oben** | `-intra_refresh_mode gop_aligned` + `-intra_refresh_stripes` |
+| `hevc_amf` | ungemessen | — |
 | `hevc_qsv` | ja | `-int_ref_type` / `-int_ref_cycle_size` |
 | `h264_qsv`, `av1_qsv` | **nein** | — |
 | `*_vaapi` | **nein upstream** | unser Patch, `streaming/ffmpeg-patches/` |
 | `*_videotoolbox` | **nein, gar nichts** | — |
 
-## Windows — die gute Nachricht
+## Windows — erledigt am 2026-08-04
 
-**Beide Vendor sind ohne Patch erreichbar.**
+Ausgeliefert. Was hier ursprünglich stand, ist im Kasten oben berichtigt; der
+tatsächliche Stand in einer Tabelle:
 
-* **NVIDIA**: `av1_nvenc`/`h264_nvenc` haben `intra-refresh` seit jeher. Genau
-  das läuft auf Linux+NVIDIA schon.
-* **AMD**: Der Windows-Sidecar nutzt für AMD ohnehin **nicht** AMF, sondern den
-  D3D12-Pfad (`d3d12va_name()` in `encode/encoder.rs`, wegen der AMF-Laufzeit
-  und deren D3D11-Surface-Absturz, Issue #455) — und `av1_d3d12va` ist dort
-  bereits eingetragen. FFmpeg treibt den Refresh-Zyklus im D3D12-Encoder
-  **selbst** (`intra_refresh_frame_index` in `d3d12va_encode.c`), es braucht
-  also nicht die Welle von Hand wie bei VAAPI.
-* **Intel**: über denselben D3D12-Pfad (der ist vendor-unabhängig) statt QSV,
-  wo nur HEVC die Option hat.
+| Karte | Encoder | Betriebsart |
+|---|---|---|
+| NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Auf Windows nicht nachgemessen** — dieselbe Option wie auf Linux, wo sie gemessen ist. |
+| AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. |
+| AMD, H.264 | `h264_d3d12va` | **trägt sie nicht** — der Start wird verweigert. Über `PULSE_HQ_AMD_D3D11=1` läuft H.264 auf `h264_amf`, und dort frischt `usage=ultralowlatency` ohnehin auf. |
+| Intel | `*_qsv` | nein, die Option gibt es dort nur bei HEVC. |
 
-**Wo der Schalter hingehört:** `vendor_encoder_opts(vendor)` in
-`win-hq-sidecar/src/encode/encoder.rs:507` — das Gegenstück zu
-`linux-hq-sidecar/src/encode/opts.rs::vendor_defaults`. Auf Linux heißt der
-vendor-neutrale Schalter `PULSE_INTRA_REFRESH=1`; dieselbe Variable dort
-einzuführen hält die Prüfstand-Skripte plattformgleich.
+**Wo der Schalter sitzt:** `win-hq-sidecar/src/encode/auffrischung.rs`, das
+Gegenstück zu den `intra_refresh_*`-Funktionen in
+`linux-hq-sidecar/src/encode/opts.rs`. Der vendor-neutrale Schalter heißt auf
+beiden Plattformen `PULSE_INTRA_REFRESH=1`, damit die Prüfstand-Skripte gleich
+bleiben; aus der Oberfläche kommt `overrides.intra_refresh`.
 
-**Zuerst zu tun, in dieser Reihenfolge:**
+**Der Unterschied zu Linux, und er ist der Kern:** dort genügt die Frage, ob
+das gelinkte FFmpeg die Option kennt — wo sie da ist, wirkt sie auch. Hier
+nicht. `h264_d3d12va` kennt sie und tut nichts damit. Eine Abfrage der
+Optionstabelle sagte also „ja" und läge falsch. Deshalb entscheidet auf Windows
+eine Tabelle aus Messungen statt einer Abfrage — und verweigert den Start,
+statt still Keyframes unter dem Etikett „Intra-Refresh" zu fahren.
 
-1. `ffmpeg -h encoder=av1_d3d12va` und `-h encoder=av1_nvenc` gegen das
-   **gebündelte** FFmpeg laufen lassen (`ffmpeg-dist/n8.1-lgpl-shared/`, s.
-   `FFMPEG_DIR` in `.cargo/config.toml`) — nicht gegen irgendein FFmpeg im
-   PATH. Steht die Option da, ist der Rest Verdrahtung.
-2. Eine Datei encodieren und die Keyframes zählen (`ffprobe … key_frame`):
-   ohne Intra-Refresh viele, mit einem. Das ist der billigste Beweis, dass der
-   Schalter etwas tut.
-3. Erst dann die Live-Kette.
+**Der Rückkanal war die andere Hälfte.** Ein Intra-Refresh-Strom hat nach dem
+Start kein Vollbild mehr; ohne einen Sender, der die Anforderung des Zuschauers
+empfängt, kommt niemand mehr ins Bild. ffmpegs WHIP-Muxer hat keinen und kann
+kein AV1 — also ist die Linux-Fassung des eigenen WebRTC-Sendewegs mit
+portiert (`win-hq-sidecar/src/whip/`, eingehängt über `encode::senke`).
 
 ## macOS — der offene Fall
 
