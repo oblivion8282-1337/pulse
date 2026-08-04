@@ -1,5 +1,28 @@
 # Regeln für das Windows-HQ-Labor
 
+> **Wo die Historie geblieben ist** (2026-08-04). Dieses Verzeichnis lag bis
+> dahin auf einem lokalen Zweig `feat/win-hq-labor`, der nie gepusht war — 151
+> Commits auf einem einzigen Datenträger. Der Zweig ist am 2026-08-04 gelöscht,
+> nachdem alles Ergebnisrelevante hierher gewandert ist: der Messstand selbst,
+> die elf Messakten (`streaming/testbench/profiles/`, alle mit `windows`,
+> `amd-2026-08-0*` oder `amf-` im Namen) und das Planblatt
+> `docs/plans/2026-08-01-windows-hq-labor-und-empfaenger.md`.
+>
+> **`git log` beginnt hier deshalb beim Import-Commit** — das ist kein Fehler,
+> sondern derselbe saubere Schnitt wie beim Linux-Sidecar
+> (`streaming/linux-hq-sidecar/CLAUDE.md`).
+>
+> Die vollständige Historie liegt als Bundle unter
+> `~/Documents/pulse-historie/win-hq-labor-2026-08-04.bundle` (30 MB, geprüft
+> klonbar: `git clone <bundle> <ziel>`). **Nicht im Repo**, weil sie zum großen
+> Teil aus Mitschnitten und Protokollen besteht; das Gegenstück des
+> Linux-Sidecars ist 372 KB und enthält nur Quelltext.
+>
+> **Was darin steckt und hier nicht:** die einzelnen Schritte mit ihren Diffs,
+> die Irrwege und die Reihenfolge, in der die Befunde entstanden. Wer eine Zahl
+> hinterfragt, findet ihre Begründung in der Messakte oder im Code-Kommentar
+> daneben — dafür braucht es das Bundle nicht.
+
 **Das Ziel:** Intra-Refresh-Streaming soll das reguläre Verfahren mit
 periodischen Vollbildern **ersetzen** — das reguläre ist gebaut und läuft in
 Produktion. Das Labor portiert Intra-Refresh auf diese Plattform.
