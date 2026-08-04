@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WHEP-Wiedergabe im Browser — Intra-Refresh-Pruefung</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 1.5rem; background: #111; color: #eee; }
+  video { width: 640px; background: #000; display: block; margin: .5rem 0; }
+  .zeile { display: flex; gap: 2rem; flex-wrap: wrap; }
+  .fall { border: 1px solid #333; padding: .75rem; border-radius: 6px; }
+  pre { background: #000; padding: .5rem; font-size: 12px; max-height: 9rem; overflow: auto; }
+  h2 { font-size: 15px; margin: 0 0 .5rem; }
+  b { color: #7fd; }
+</style>
+<h1>WHEP im Browser</h1>
+<p>Prueft, ob ein Intra-Refresh-Strom im Browser ankommt — das ist die
+Voraussetzung dafuer, dass Nutzer im Browser nach der Umstellung noch zusehen
+koennen. Der Zaehler unten kommt aus <code>getStats()</code>: erst wenn
+<b>framesDecoded</b> steigt, ist wirklich ein Bild da.</p>
+<div class="zeile" id="faelle"></div>
+
+<script>
+const BASIS = new URLSearchParams(location.search).get('basis')
+  || 'https://pulse.unicutmedia.com/whep';
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+let FAELLE = [
+  { name: 'AV1 8 Bit',  pfad: 'br-av1-8'  },
+  { name: 'AV1 10 Bit', pfad: 'br-av1-10' },
+  { name: 'H.264',      pfad: 'br-h264'   },
+];
+// `?nur=<pfad>` schraenkt auf einen Fall ein. Fuer die Fehlersuche wichtig:
+// drei gleichzeitige Verbindungen erzeugen drei Decoder, und im Protokoll ist
+// dann nicht mehr zu trennen, welche Meldung zu welchem gehoert.
+const NUR = new URLSearchParams(location.search).get('nur');
+if (NUR) FAELLE = [{ name: NUR, pfad: NUR }];
+
+for (const f of FAELLE) {
+  const box = document.createElement('div');
+  box.className = 'fall';
+  box.innerHTML = `<h2>${f.name}</h2><video autoplay muted playsinline></video><pre></pre>`;
+  document.getElementById('faelle').append(box);
+  starte(f, box.querySelector('video'), box.querySelector('pre'));
+}
+
+async function starte(f, video, log) {
+  // Auch in die Konsole: der Browser laeuft im Test mit `--enable-logging`,
+  // damit die Zahlen in einer Datei landen und auswertbar sind statt nur
+  // sichtbar. Ein Test, dessen Ergebnis man nur ablesen kann, ist keiner.
+  const sag = (t) => {
+    log.textContent += t + '\n';
+    log.scrollTop = 1e6;
+    console.log(`[${f.name}] ${t}`);
+  };
+  try {
+    const pc = new RTCPeerConnection();
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    const strom = new MediaStream();
+    pc.ontrack = (e) => { strom.addTrack(e.track); video.srcObject = strom; };
+    pc.oniceconnectionstatechange = () => sag('ICE: ' + pc.iceConnectionState);
+
+    const angebot = await pc.createOffer();
+    await pc.setLocalDescription(angebot);
+    await new Promise(r => {
+      if (pc.iceGatheringState === 'complete') return r();
+      const t = setTimeout(r, 2000);
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); }
+      };
+    });
+
+    const url = `${BASIS}/${f.pfad}/whep` + (TOKEN ? `?token=${TOKEN}` : '');
+    const antwort = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: pc.localDescription.sdp,
+    });
+    if (!antwort.ok) { sag('HTTP ' + antwort.status); return; }
+    await pc.setRemoteDescription({ type: 'answer', sdp: await antwort.text() });
+
+    // **Vollbild anfordern.** Bei Intra-Refresh gibt es nach dem Start keines
+    // mehr — ohne diese Anforderung bleibt der Browser schwarz. Chrome schickt
+    // beim Einstieg von sich aus ein PLI, sobald es Pakete sieht, die es nicht
+    // dekodieren kann; genau das wird hier mitgemessen.
+    let letzte = 0, still = 0;
+    setInterval(async () => {
+      const stats = await pc.getStats();
+      stats.forEach(s => {
+        if (s.type === 'inbound-rtp' && s.kind === 'video') {
+          // **`decoderImplementation` ist die entscheidende Angabe.** Ohne sie
+          // sagt der Zaehler nur, DASS dekodiert wurde — nicht womit. Am
+          // 2026-08-02 hat genau das eine falsche Schlussfolgerung getragen:
+          // 10 Bit kam nicht heraus, und der Befund lautete „der Browser kann
+          // es nicht", obwohl nur der SOFTWARE-Decoder (libdav1d) abgelehnt
+          // hatte. `powerEfficientDecoder` sagt dazu, ob es die Hardware war.
+          const zeile = `Bilder=${s.framesDecoded ?? 0} `
+            + `key=${s.keyFramesDecoded ?? '?'} `
+            + `Pakete=${s.packetsReceived ?? 0} `
+            + `verloren=${s.packetsLost ?? 0} `
+            + `PLI=${s.pliCount ?? 0} `
+            + `DECODER=${s.decoderImplementation ?? '?'} `
+            + `hardware=${s.powerEfficientDecoder ?? '?'}`;
+          // Auch dann melden, wenn KEIN Bild herauskommt — sonst schweigt der
+          // Fall, der am meisten zu sagen hat.
+          if (s.framesDecoded !== letzte || (still++ % 5) === 0) {
+            letzte = s.framesDecoded;
+            sag(zeile);
+          }
+        }
+      });
+    }, 1000);
+  } catch (e) {
+    sag('FEHLER: ' + e);
+  }
+}
+</script>

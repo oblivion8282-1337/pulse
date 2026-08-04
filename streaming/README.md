@@ -33,12 +33,38 @@ streaming/
 │   ├── ffmpeg-dist/         FFmpeg LGPL n8.1.2-shared, selbst gebaut + gepatcht
 │   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
 │   └── examples/            cargo-runnable Smoke-Driver
+├── linux-hq-sidecar/        Linux: Rust-Sidecar (PipeWire + VAAPI/NVENC), der Standard
+├── mac-hq-sidecar/          macOS: Rust-Sidecar (ScreenCaptureKit + VideoToolbox)
+├── pulse-player/            nativer HQ-Player — der einzige Weg für AV1 10 bit
+├── hq-labor/                Messstand Linux — NICHT ausgeliefert (s.u.)
+├── win-hq-labor/            Messstand Windows — NICHT ausgeliefert (s.u.)
+├── testbench/               Messwerkzeuge + `profiles/` = die Messakten
+├── ffmpeg-patches/          unsere FFmpeg-Patches (VAAPI + AMF, je Intra-Refresh)
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
 ├── pyproject.toml           uv-Workspace-Member "gsr-sidecar" (package=false)
 └── README.md                hier
 ```
+
+## Die zwei Messstände — was sie sind und was sie nicht sind
+
+`hq-labor/` (Linux) und `win-hq-labor/` (Windows) sind **Messstände, keine
+Produktteile.** Sie binden den jeweils ausgelieferten Sidecar als Bibliothek ein
+und ergänzen, was zum Messen nötig ist: einen eigenen WebRTC-Sender, einen
+eigenen Zuschauer, der wirklich dekodiert und zählt, Verlust-Erzeugung,
+Ton-Auswertung, Vergleichsarme für verworfene Wege.
+
+**Keine CI baut sie.** `win-build.yml` ist auf `streaming/win-hq-sidecar/**`
+begrenzt und baut ausschließlich `pulse-win-hq-sidecar`; für den Linux-Messstand
+gilt dasselbe. Ein eigener Crate-Name (`pulse-win-hq-labor`) hält die
+Unterscheidung auch dort auf, wo jemand von Hand baut.
+
+**Warum sie trotzdem im Repo liegen:** ohne sie ist eine Nachmessung ein Neubau.
+Der Windows-Messstand hat belegt, dass Intra-Refresh beim Zuschauer ankommt —
+nicht an einer Bildzahl aus dem Sender, sondern an der Gegenstelle gemessen. Die
+nächste offene Frage (Windows mit NVIDIA) braucht genau ihn wieder. Er lag bis
+2026-08-04 nur auf einem lokalen Zweig; das war ein Versehen, kein Entwurf.
 
 ## Was vom Original-Repo NICHT mitkopiert wurde
 

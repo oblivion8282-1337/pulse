@@ -1,0 +1,77 @@
+[package]
+name = "pulse-win-hq-labor"
+version = "0.1.0"
+edition = "2024"
+publish = false
+# Kein `license`-Feld — es gilt `streaming/LICENSE` (Pulse Client License 1.0),
+# wie bei allen Crates unter `streaming/`.
+description = "Messstand für den experimentellen HQ-Sendeweg unter Windows (eigener WebRTC/WHIP-Push, AV1-Paketierer, Intra-Refresh über Vulkan). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
+
+# Absichtlich anders benannt als das ausgelieferte `pulse-win-hq-sidecar`.
+# `win-build.yml` baut ausschliesslich jenes.
+# Auch als Bibliothek, damit `examples/` auf die Module zugreifen koennen —
+# gleiche Begruendung wie beim Sidecar.
+[lib]
+name = "pulse_win_hq_labor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pulse-win-hq-labor"
+path = "src/main.rs"
+
+[dependencies]
+# Der ausgelieferte Sidecar als Bibliothek. Alles, was der WHIP-Weg NICHT
+# anfasst — WGC-Capture, wasapi, die GPU-Importpfade, Profile, Protokoll,
+# Logging — kommt von dort und wird hier NICHT kopiert. Die Abhaengigkeit
+# laeuft nur in diese Richtung: die Bibliothek weiss vom Labor nichts.
+pulse-win-hq-sidecar = { path = "../win-hq-sidecar" }
+
+serde_json = "1"
+anyhow = "1"
+
+# Eigener WebRTC-Sendeweg. Dieselben Fassungen wie im Linux-Labor und im
+# Player — auseinanderlaufende webrtc-rs-Versionen waeren die Sorte Fehler,
+# die sich erst in der SDP-Verhandlung zeigt.
+webrtc = "0.17"
+rtcp = "0.17"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# Der Encoder-Ausgang wird hier gegabelt (Muxer | Whip) und braucht deshalb
+# dieselbe ffmpeg-Bindung wie die Bibliothek.
+ffmpeg-next = "8.1"
+
+# Diagnose-Logging auf stderr (stdout ist JSON-RPC), wie in beiden Sidecars.
+#
+# Der Empfaenger fehlte bis 2026-08-02, und das war kein Schoenheitsfehler:
+# `tracing`-Aufrufe ohne Empfaenger verschwinden SPURLOS. Ein Messstand, dessen
+# Diagnose ins Leere laeuft, ist genau dann blind, wenn man ihn braucht — beim
+# ersten WHIP-Handschlag hat das eine Stunde gekostet.
+#
+# Gleiche Fassung und gleiche Feature-Auswahl wie `linux-hq-sidecar` und das
+# Linux-Labor; im Projekt also nichts Neues.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+] }
+
+# D3D11-Handles fuer den Vulkan-Import. Dieselbe Fassung wie der Sidecar —
+# zwei windows-crate-Versionen im selben Binary waeren zwei COM-Welten.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
+
+# Der WHIP-Handschlag ist ein HTTP-POST. rustls statt der System-TLS, weil
+# webrtc-rs ueber `dtls` ohnehin rustls mitbringt — zwei TLS-Stacks im selben
+# Binary sind vermeidbarer Ballast.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+
+# Kein `[build-dependencies]` und kein `build.rs`: die FFmpeg-Header und -Libs
+# findet ffmpeg-sys-next ueber `../win-hq-sidecar/.cargo/config.toml`.

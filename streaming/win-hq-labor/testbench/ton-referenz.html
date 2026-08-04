@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  Spielt das Referenzsignal formatfuellend ab, damit die Bildschirmaufnahme es
+  aufnimmt und der Desktop-Loopback seinen Ton.
+
+  Zwei Dinge sind hier nicht Kosmetik:
+
+  * `object-fit: fill` statt `contain`. Ein schwarzer Balken neben dem Bild
+    senkt die mittlere Helligkeit, und der Blitz wird an genau dieser
+    Groesse gemessen - mit Balken faellt er schwaecher aus, ohne Balken nicht.
+  * KEINE weitere Bewegung auf der Seite (kein Cursor-Effekt, kein Steuerwerk).
+    Alles, was zusaetzlich hell wird, geht als Blitz durch.
+
+  Der Ton muss LAUT genug sein: die Auswertung leitet ihre Schwelle zwar aus
+  dem Signal ab, aber ein Rechner auf Lautstaerke 5 % liefert am Ende
+  Quantisierungsrauschen statt eines Pieps.
+-->
+<meta charset="utf-8">
+<title>Pulse — Ton-Referenz</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  video { width: 100vw; height: 100vh; object-fit: fill; display: block; }
+</style>
+<video id="v" autoplay loop playsinline></video>
+<script>
+  // Der Pfad kommt als `?datei=` herein, damit die Seite im Repo liegen kann
+  // und die (grosse) Referenzdatei nicht.
+  const p = new URLSearchParams(location.search).get('datei');
+  const v = document.getElementById('v');
+  v.src = p || 'tonreferenz.mp4';
+  v.volume = 1.0;
+  // Autoplay mit Ton braucht `--autoplay-policy=no-user-gesture-required`;
+  // scheitert es trotzdem, soll es auffallen statt still stumm zu bleiben.
+  v.play().catch(e => { document.title = 'PLAY GESCHEITERT: ' + e; });
+</script>

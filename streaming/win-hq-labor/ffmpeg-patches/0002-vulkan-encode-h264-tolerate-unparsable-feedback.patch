@@ -1,0 +1,24 @@
+--- a/libavcodec/vulkan_encode_h264.c
++++ b/libavcodec/vulkan_encode_h264.c
+@@ -1175,8 +1175,19 @@
+     err = parse_feedback_units(avctx, data, data_size,
+                                h264_params_feedback.hasStdSPSOverrides,
+                                h264_params_feedback.hasStdPPSOverrides);
+-    if (err < 0)
+-        return err;
++    if (err < 0) {
++        /* Pulse: do not let an unparsable parameter-set dump kill the encoder.
++         *
++         * The dump is only consumed when the driver reports overrides; with
++         * none reported there is nothing to copy, and we already hold our own
++         * SPS/PPS from init_sequence_headers() -- those are what gets written
++         * into the stream. Measured on a Radeon 780M (driver 32.0.31035.1003):
++         * with any bitrate-based rate control the driver returns an SPS whose
++         * rbsp_stop_one_bit is 0, cbs refuses it, and avcodec_open2() fails.
++         * Constant-QP works, and so does av1_vulkan. */
++        av_log(avctx, AV_LOG_WARNING, "Ignoring unparsable feedback units -- "
++               "keeping our own SPS/PPS\n");
++    }
+ 
+     /* Create final session parameters */
+     err = create_session_params(avctx);

@@ -1,0 +1,31 @@
+# Wo ffmpeg-sys-next die Header + Libs sucht. `relative = true` macht den Pfad
+# relativ zum Workspace-Root (= dem `Cargo.toml`-Verzeichnis), nicht zum CWD —
+# damit funktioniert `cargo build` aus jedem Unterordner.
+#
+# **Das Labor linkt gegen ein GEPATCHTES FFmpeg**, nicht gegen das
+# ausgelieferte (`../win-hq-sidecar/ffmpeg-dist/`). Der Unterschied ist der
+# ganze Zweck dieses Verzeichnisses: `av1_vulkan` und `h264_vulkan` bekommen
+# damit `-intra_refresh` und `-intra_refresh_period`
+# (`VK_KHR_video_encode_intra_refresh`). Ohne den Patch gibt es die Optionen
+# nicht — und ohne sie kann diese Maschine kein Intra-Refresh, weil AMF es
+# ignoriert (gemessen 2026-08-01).
+#
+# Am 2026-08-02 auf einer Radeon 780M nachgewiesen: mit `-intra_refresh 1
+# -g 600` enthaelt ein 5-Sekunden-Strom GENAU EIN Vollbild (am Anfang), ohne
+# die Option fuenf. Der Treiber begrenzt den Zyklus auf 32 Bilder und sagt das
+# auch ("exceeds the driver maximum of 32 frames, clamping").
+#
+# Beide Verzeichnisse sind gitignored (Bau-Erzeugnisse, zusammen ~290 MB):
+#   ../win-hq-sidecar/ffmpeg-dist/   per `scripts/fetch-ffmpeg.ps1`
+#   ffmpeg-patched/                  eigener Bau, s. README "Intra-Refresh"
+#
+# **Zur Laufzeit muessen die DLLs aus `ffmpeg-patched/bin` im PATH stehen** —
+# und zwar VOR denen des ausgelieferten FFmpeg, sonst laedt das Binary die
+# ungepatchten und die Optionen fehlen wieder.
+
+[env]
+FFMPEG_DIR = { value = "ffmpeg-patched", relative = true }
+# bindgen (transitive dep of ffmpeg-sys-next) braucht libclang.dll. winget-
+# Install von `LLVM.LLVM` landet hier; falls auf einem anderen Pfad → diese
+# Variable überschreiben oder per `LIBCLANG_PATH` ENV-Var setzen.
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"

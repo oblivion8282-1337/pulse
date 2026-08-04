@@ -1,0 +1,365 @@
+diff --git a/libavcodec/amfenc.h b/libavcodec/amfenc.h
+index ff5ce0b..35789e6 100644
+--- a/libavcodec/amfenc.h
++++ b/libavcodec/amfenc.h
+@@ -119,6 +119,9 @@ typedef struct AMFEncoderContext {
+     int                 align;
+     /* enum AMF_VIDEO_ENCODER_AV1_AQ_MODE_ENUM */
+     int                 aq_mode;
++    /* enum AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE_ENUM */
++    int                 intra_refresh_mode;
++    int                 intra_refresh_stripes;
+ 
+     // Preanalysis - specific options
+ 
+diff --git a/libavcodec/amfenc_av1.c b/libavcodec/amfenc_av1.c
+index 70642a6..c4833d6 100644
+--- a/libavcodec/amfenc_av1.c
++++ b/libavcodec/amfenc_av1.c
+@@ -186,6 +186,12 @@ static const AVOption options[] = {
+ 
+     { "pa_adaptive_mini_gop",                   "Enable Adaptive B-frame",                                      OFFSET(pa_adaptive_mini_gop),                      AV_OPT_TYPE_BOOL,   { .i64 = -1 }, -1, 1, VE },
+ 
++    { "intra_refresh_mode",                     "Intra refresh mode",                                           OFFSET(intra_refresh_mode),                        AV_OPT_TYPE_INT,    { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__CONTINUOUS, VE, .unit = "intra_refresh_mode" },
++    { "disabled",                               "No intra refresh",                 0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__DISABLED    }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "gop_aligned",                            "Intra refresh aligned to the GOP", 0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__GOP_ALIGNED }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "continuous",                             "Continuous intra refresh",         0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__CONTINUOUS  }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "intra_refresh_stripes",                  "Number of stripes per intra refresh cycle (one stripe per frame, so this is also the length of a full cycle in frames)", OFFSET(intra_refresh_stripes), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, INT_MAX, VE },
++
+     { NULL }
+ 
+ };
+@@ -446,6 +452,23 @@ static av_cold int amf_encode_init_av1(AVCodecContext* avctx)
+         AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_AQ_MODE, ctx->aq_mode);
+     }
+ 
++    // Intra refresh. AMF exposes this for AV1 the same way it does for H.264,
++    // but unlike the H.264 wrapper nothing here ever passed it on, in any
++    // FFmpeg release. Verified against the AMF runtime directly on a Radeon
++    // 780M: both properties are accepted, survive Init() and change the
++    // bitstream, and the resulting stream decodes cleanly.
++    //
++    // The stripe count is what makes the wave: AMF refreshes one stripe per
++    // frame, so N stripes means a full refresh every N frames. It is only
++    // valid while intra refresh is enabled, hence the nesting.
++    if (ctx->intra_refresh_mode != -1) {
++        AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE, ctx->intra_refresh_mode);
++        if (ctx->intra_refresh_mode != AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__DISABLED &&
++            ctx->intra_refresh_stripes != -1) {
++            AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_INTRAREFRESH_STRIPES, ctx->intra_refresh_stripes);
++        }
++    }
++
+     if (ctx->latency != -1) {
+         AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_ENCODING_LATENCY_MODE, ctx->latency);
+     }
+diff --git a/libavcodec/vulkan_encode.c b/libavcodec/vulkan_encode.c
+index 39c4330..dd16eee 100644
+--- a/libavcodec/vulkan_encode.c
++++ b/libavcodec/vulkan_encode.c
+@@ -173,6 +173,11 @@ static int vulkan_encode_issue(AVCodecContext *avctx,
+ 
+     VkVideoReferenceSlotInfoKHR ref_slot[37];
+     VkVideoEncodeInfoKHR encode_info;
++#ifdef VK_KHR_video_encode_intra_refresh
++    VkVideoEncodeIntraRefreshInfoKHR ir_info;
++    VkVideoReferenceIntraRefreshInfoKHR ir_ref_info[37];
++    VkVideoReferenceSlotInfoKHR ir_ref_slot[37];
++#endif
+ 
+     /* Create packet data buffer */
+     max_pkt_size = FFALIGN(3 * ctx->base.surface_width * ctx->base.surface_height + (1 << 16),
+@@ -273,6 +278,62 @@ static int vulkan_encode_issue(AVCodecContext *avctx,
+     if (err < 0)
+         return err;
+ 
++#ifdef VK_KHR_video_encode_intra_refresh
++    /* Rolling intra refresh.
++     *
++     * Deliberately after init_pic_params: that is where the codec layer
++     * fills encode_info.pNext and the reference slots' pNext. We push our
++     * structures in FRONT of whatever is there instead of walking to the
++     * end of the chain - pNext chains are order independent, and walking
++     * would silently break the day a codec layer chains two structures.
++     *
++     * An IDR restarts the cycle: it refreshes the whole picture by itself,
++     * so the frame after it is index 0 again with no dirty regions behind
++     * it. Encoding the IDR itself as an intra refresh frame would be wrong
++     * (and the index bookkeeping below would drift by one). */
++    if (ctx->ir_mode && base_pic->type == FF_HW_PICTURE_TYPE_IDR) {
++        ctx->ir_index = 0;
++    } else if (ctx->ir_mode) {
++        ir_info = (VkVideoEncodeIntraRefreshInfoKHR) {
++            .sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_INTRA_REFRESH_INFO_KHR,
++            .pNext = encode_info.pNext,
++            .intraRefreshCycleDuration = ctx->ir_cycle,
++            .intraRefreshIndex = ctx->ir_index,
++        };
++        encode_info.pNext = &ir_info;
++        encode_info.flags |= VK_VIDEO_ENCODE_INTRA_REFRESH_BIT_KHR;
++
++        /* Tell the encoder how much of each reference is still unrefreshed,
++         * so it does not predict from dirty areas - without this the wave
++         * carries the damage forward instead of cutting it off, and nothing
++         * about the stream looks wrong while it happens.
++         *
++         * Per the extension, a partially dirty reference may only be the
++         * previous frame of the cycle, and its dirty count is
++         * cycleDuration - index (index being the CURRENT frame's). At index
++         * 0 the reference is the frame before the cycle started, which is
++         * fully dirty as far as this cycle is concerned. */
++        /* Eigenes Array fuer den Encode-Aufruf. `ref_slot` teilen sich
++         * vkCmdBeginVideoCodingKHR und vkCmdEncodeVideoKHR; die
++         * Dirty-Region-Angabe gehoert laut Erweiterung aber ausschliesslich
++         * an VkVideoEncodeInfoKHR::pReferenceSlots. Sie auch dem
++         * Begin-Coding-Aufruf unterzuschieben ist Missbrauch der
++         * Schnittstelle — und Missbrauch, den kein Treiber melden muss. */
++        for (int i = 0; i < encode_info.referenceSlotCount; i++) {
++            ir_ref_slot[i] = ref_slot[i];
++            ir_ref_info[i] = (VkVideoReferenceIntraRefreshInfoKHR) {
++                .sType = VK_STRUCTURE_TYPE_VIDEO_REFERENCE_INTRA_REFRESH_INFO_KHR,
++                .pNext = ref_slot[i].pNext,
++                .dirtyIntraRefreshRegions = ctx->ir_cycle - ctx->ir_index,
++            };
++            ir_ref_slot[i].pNext = &ir_ref_info[i];
++        }
++        encode_info.pReferenceSlots = ir_ref_slot;
++
++        ctx->ir_index = (ctx->ir_index + 1) % ctx->ir_cycle;
++    }
++#endif
++
+     encode_start = (VkVideoBeginCodingInfoKHR) {
+         .sType = VK_STRUCTURE_TYPE_VIDEO_BEGIN_CODING_INFO_KHR,
+         .pNext = !base_pic->force_idr ? &rc_info : NULL,
+@@ -761,6 +822,9 @@ av_cold int ff_vulkan_encode_init(AVCodecContext *avctx, FFVulkanEncodeContext *
+     VkVideoSessionCreateInfoKHR session_create = {
+         .sType = VK_STRUCTURE_TYPE_VIDEO_SESSION_CREATE_INFO_KHR,
+     };
++#ifdef VK_KHR_video_encode_intra_refresh
++    VkVideoEncodeSessionIntraRefreshCreateInfoKHR ir_session_create;
++#endif
+     VkPhysicalDeviceVideoFormatInfoKHR fmt_info = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_FORMAT_INFO_KHR,
+         .pNext = &ctx->profile_list,
+@@ -846,9 +910,22 @@ av_cold int ff_vulkan_encode_init(AVCodecContext *avctx, FFVulkanEncodeContext *
+     ctx->profile_list.profileCount = 1;
+     ctx->profile_list.pProfiles    = &ctx->profile;
+ 
+-    /* Get the capabilities of the encoder for the given profile */
++    /* Get the capabilities of the encoder for the given profile.
++     *
++     * The intra refresh capabilities are queried unconditionally when the
++     * extension is present, even if the user did not ask for it: the answer
++     * decides whether we may enable it at all, and querying it here keeps
++     * that decision in one place. Chained in front of the codec-specific
++     * capabilities - pNext chains are order independent. */
+     ctx->enc_caps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_CAPABILITIES_KHR;
+     ctx->enc_caps.pNext = codec_caps;
++#ifdef VK_KHR_video_encode_intra_refresh
++    if (s->extensions & FF_VK_EXT_VIDEO_ENCODE_INTRA_REFRESH) {
++        ctx->ir_caps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_INTRA_REFRESH_CAPABILITIES_KHR;
++        ctx->ir_caps.pNext = ctx->enc_caps.pNext;
++        ctx->enc_caps.pNext = &ctx->ir_caps;
++    }
++#endif
+     ctx->caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+     ctx->caps.pNext = &ctx->enc_caps;
+ 
+@@ -881,6 +958,69 @@ av_cold int ff_vulkan_encode_init(AVCodecContext *avctx, FFVulkanEncodeContext *
+         return AVERROR(ENOTSUP);
+     }
+ 
++#ifdef VK_KHR_video_encode_intra_refresh
++    if (ctx->opts.intra_refresh) {
++        /* Prefer a row based refresh: it is the one form that maps to a
++         * predictable band walking down the picture, and it is what the
++         * VAAPI path produces, so measurements stay comparable. Block based
++         * is accepted as a fallback because the spec explicitly allows an
++         * implementation to only group coding blocks. */
++        if (ctx->ir_caps.intraRefreshModes & VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_BLOCK_ROW_BASED_BIT_KHR)
++            ctx->ir_mode = VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_BLOCK_ROW_BASED_BIT_KHR;
++        else if (ctx->ir_caps.intraRefreshModes & VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_BLOCK_BASED_BIT_KHR)
++            ctx->ir_mode = VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_BLOCK_BASED_BIT_KHR;
++        else if (ctx->ir_caps.intraRefreshModes & VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_PER_PICTURE_PARTITION_BIT_KHR)
++            ctx->ir_mode = VK_VIDEO_ENCODE_INTRA_REFRESH_MODE_PER_PICTURE_PARTITION_BIT_KHR;
++
++        /* Refuse loudly instead of quietly falling back to key frames. A
++         * silent fallback is the failure mode that costs a measurement
++         * series: the run looks healthy and answers a different question
++         * than the one asked. */
++        if (!ctx->ir_mode) {
++            av_log(avctx, AV_LOG_ERROR, "Intra refresh requested, but this "
++                   "driver offers no intra refresh mode for the chosen "
++                   "profile.\n");
++            return AVERROR(ENOTSUP);
++        }
++        if (ctx->ir_caps.maxIntraRefreshActiveReferencePictures < 1) {
++            av_log(avctx, AV_LOG_ERROR, "Intra refresh requested, but the "
++                   "driver allows no active reference pictures with it.\n");
++            return AVERROR(ENOTSUP);
++        }
++
++        ctx->ir_cycle = ctx->opts.intra_refresh_period;
++        if (!ctx->ir_cycle)
++            ctx->ir_cycle = ctx->ir_caps.maxIntraRefreshCycleDuration;
++        if (ctx->ir_cycle > ctx->ir_caps.maxIntraRefreshCycleDuration) {
++            av_log(avctx, AV_LOG_WARNING, "Intra refresh period %u exceeds the "
++                   "driver maximum of %u frames, clamping.\n",
++                   ctx->ir_cycle, ctx->ir_caps.maxIntraRefreshCycleDuration);
++            ctx->ir_cycle = ctx->ir_caps.maxIntraRefreshCycleDuration;
++        }
++        if (ctx->ir_cycle < 2) {
++            av_log(avctx, AV_LOG_ERROR, "Intra refresh period must be at least "
++                   "2 frames.\n");
++            return AVERROR(EINVAL);
++        }
++        ctx->ir_index = 0;
++
++        /* The whole point is to replace the periodic key frame, so drop it.
++         * Leaving it in would keep the bandwidth spike we are trying to get
++         * rid of, and the cycle would restart at every IDR anyway. */
++        if (avctx->gop_size > 0 && avctx->gop_size < INT_MAX)
++            avctx->gop_size = INT_MAX;
++
++        av_log(avctx, AV_LOG_VERBOSE, "Intra refresh: mode 0x%x, cycle %u frames\n",
++               ctx->ir_mode, ctx->ir_cycle);
++    }
++#else
++    if (ctx->opts.intra_refresh) {
++        av_log(avctx, AV_LOG_ERROR, "Intra refresh requires Vulkan headers with "
++               "VK_KHR_video_encode_intra_refresh.\n");
++        return AVERROR(ENOSYS);
++    }
++#endif
++
+     err = init_rc(avctx, ctx);
+     if (err < 0)
+         return err;
+@@ -1045,6 +1185,18 @@ av_cold int ff_vulkan_encode_init(AVCodecContext *avctx, FFVulkanEncodeContext *
+     session_create.pictureFormat = ctx->pic_format;
+     session_create.referencePictureFormat = session_create.pictureFormat;
+     session_create.pStdHeaderVersion = &vk_desc->ext_props;
++#ifdef VK_KHR_video_encode_intra_refresh
++    /* Must be declared at session creation - a session that was not created
++     * for intra refresh rejects the per-frame flag later. */
++    if (ctx->ir_mode) {
++        ir_session_create = (VkVideoEncodeSessionIntraRefreshCreateInfoKHR) {
++            .sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_SESSION_INTRA_REFRESH_CREATE_INFO_KHR,
++            .pNext = session_create.pNext,
++            .intraRefreshMode = ctx->ir_mode,
++        };
++        session_create.pNext = &ir_session_create;
++    }
++#endif
+ 
+     err = ff_vk_video_common_init(avctx, s, &ctx->common, &session_create);
+     if (err < 0)
+diff --git a/libavcodec/vulkan_encode.h b/libavcodec/vulkan_encode.h
+index cf5f255..0a683c5 100644
+--- a/libavcodec/vulkan_encode.h
++++ b/libavcodec/vulkan_encode.h
+@@ -164,6 +164,13 @@ typedef struct FFVkEncodeCommonOptions {
+ 
+     VkVideoEncodeRateControlModeFlagBitsKHR rc_mode;
+ #define FF_VK_RC_MODE_AUTO 0xFFFFFFFF
++
++    /* Rolling intra refresh (VK_KHR_video_encode_intra_refresh).
++     * intra_refresh: enable, and stop emitting periodic key frames.
++     * intra_refresh_period: frames per full cycle, 0 = pick the largest
++     * cycle the implementation supports. */
++    int intra_refresh;
++    int intra_refresh_period;
+ } FFVkEncodeCommonOptions;
+ 
+ typedef struct FFVulkanEncodeContext {
+@@ -192,6 +199,17 @@ typedef struct FFVulkanEncodeContext {
+     VkVideoEncodeCapabilitiesKHR enc_caps;
+     VkVideoEncodeUsageInfoKHR usage_info;
+ 
++    /* Intra refresh state. `ir_mode` is zero when intra refresh is off or
++     * unsupported, which is the single check everywhere else.
++     * `ir_index` walks 0..ir_cycle-1 and is the ordinal of the next frame
++     * within the cycle; the reference's dirty region count is derived from
++     * it, so it must only ever advance for frames actually encoded with
++     * intra refresh. */
++    VkVideoEncodeIntraRefreshCapabilitiesKHR ir_caps;
++    VkVideoEncodeIntraRefreshModeFlagBitsKHR ir_mode;
++    uint32_t ir_cycle;
++    uint32_t ir_index;
++
+     AVVulkanDeviceQueueFamily *qf_enc;
+     FFVkExecPool enc_pool;
+ 
+diff --git a/libavcodec/vulkan_encode_av1.c b/libavcodec/vulkan_encode_av1.c
+index c280f37..1ff5859 100644
+--- a/libavcodec/vulkan_encode_av1.c
++++ b/libavcodec/vulkan_encode_av1.c
+@@ -1421,6 +1421,11 @@ static const AVOption vulkan_encode_av1_options[] = {
+     { "units", "Set units to include", OFFSET(unit_elems), AV_OPT_TYPE_FLAGS, { .i64 = UNIT_MASTERING_DISPLAY | UNIT_CONTENT_LIGHT_LEVEL }, 0, INT_MAX, FLAGS, "units" },
+         { "hdr",        "Include HDR metadata for mastering display colour volume and content light level information", 0, AV_OPT_TYPE_CONST, { .i64 = UNIT_MASTERING_DISPLAY | UNIT_CONTENT_LIGHT_LEVEL }, INT_MIN, INT_MAX, FLAGS, "units" },
+ 
++    { "intra_refresh", "Use rolling intra refresh instead of periodic key frames",
++      OFFSET(common.opts.intra_refresh), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, FLAGS },
++    { "intra_refresh_period", "Frames per full intra refresh cycle (0 = the largest the driver allows)",
++      OFFSET(common.opts.intra_refresh_period), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, FLAGS },
++
+     { NULL },
+ };
+ 
+diff --git a/libavcodec/vulkan_encode_h264.c b/libavcodec/vulkan_encode_h264.c
+index 0327ccb..e999608 100644
+--- a/libavcodec/vulkan_encode_h264.c
++++ b/libavcodec/vulkan_encode_h264.c
+@@ -1621,6 +1621,11 @@ static const AVOption vulkan_encode_h264_options[] = {
+         { "recovery",   "Include recovery points where appropriate", 0, AV_OPT_TYPE_CONST, { .i64 = UNIT_SEI_RECOVERY }, INT_MIN, INT_MAX, FLAGS, "units" },
+         { "a53_cc",     "Include A/53 caption data", 0, AV_OPT_TYPE_CONST, { .i64 = UNIT_SEI_A53_CC }, INT_MIN, INT_MAX, FLAGS, "units" },
+ 
++    { "intra_refresh", "Use rolling intra refresh instead of periodic key frames",
++      OFFSET(common.opts.intra_refresh), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, FLAGS },
++    { "intra_refresh_period", "Frames per full intra refresh cycle (0 = the largest the driver allows)",
++      OFFSET(common.opts.intra_refresh_period), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, FLAGS },
++
+     { NULL },
+ };
+ 
+diff --git a/libavutil/hwcontext_vulkan.c b/libavutil/hwcontext_vulkan.c
+index 65e2256..fb68200 100644
+--- a/libavutil/hwcontext_vulkan.c
++++ b/libavutil/hwcontext_vulkan.c
+@@ -732,6 +732,9 @@ static const VulkanOptExtension optional_device_exts[] = {
+ #endif
+ #ifdef VK_KHR_video_encode_av1
+     { VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME,                 FF_VK_EXT_VIDEO_ENCODE_AV1       },
++#endif
++#ifdef VK_KHR_video_encode_intra_refresh
++    { VK_KHR_VIDEO_ENCODE_INTRA_REFRESH_EXTENSION_NAME,       FF_VK_EXT_VIDEO_ENCODE_INTRA_REFRESH },
+ #endif
+     { VK_KHR_VIDEO_DECODE_AV1_EXTENSION_NAME,                 FF_VK_EXT_VIDEO_DECODE_AV1       },
+ };
+diff --git a/libavutil/vulkan_functions.h b/libavutil/vulkan_functions.h
+index d4be2ca..b557cdf 100644
+--- a/libavutil/vulkan_functions.h
++++ b/libavutil/vulkan_functions.h
+@@ -69,6 +69,7 @@ typedef uint64_t FFVulkanExtensions;
+ #define FF_VK_EXT_VIDEO_ENCODE_H264      (1ULL << 51) /* VK_KHR_video_encode_h264 */
+ #define FF_VK_EXT_VIDEO_ENCODE_H265      (1ULL << 52) /* VK_KHR_video_encode_h265 */
+ #define FF_VK_EXT_VIDEO_ENCODE_AV1       (1ULL << 53) /* VK_KHR_video_encode_av1 */
++#define FF_VK_EXT_VIDEO_ENCODE_INTRA_REFRESH (1ULL << 54) /* VK_KHR_video_encode_intra_refresh */
+ 
+ #define FF_VK_EXT_PORTABILITY_SUBSET     (1ULL << 62)
+ #define FF_VK_EXT_NO_FLAG                (1ULL << 63)
+diff --git a/libavutil/vulkan_loader.h b/libavutil/vulkan_loader.h
+index 45a296e..68f3e36 100644
+--- a/libavutil/vulkan_loader.h
++++ b/libavutil/vulkan_loader.h
+@@ -95,6 +95,9 @@ static inline uint64_t ff_vk_extensions_to_mask(const char * const *extensions,
+ #endif
+ #ifdef VK_KHR_video_encode_av1
+         { VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME,          FF_VK_EXT_VIDEO_ENCODE_AV1       },
++#endif
++#ifdef VK_KHR_video_encode_intra_refresh
++        { VK_KHR_VIDEO_ENCODE_INTRA_REFRESH_EXTENSION_NAME, FF_VK_EXT_VIDEO_ENCODE_INTRA_REFRESH },
+ #endif
+     };
+ 
