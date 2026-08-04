@@ -974,11 +974,22 @@ impl VideoDecoder {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::video::Video::empty();
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            // Auf dem VAAPI-Weg liegt das Bild im Grafikspeicher; der Renderer
-            // erwartet Ebenen im Hauptspeicher. Genau wie bei cuvid, das seine
-            // Bilder von sich aus herunterreicht — nur muss man es hier selbst
-            // tun.
-            let auf_gpu = frame.format() == ffmpeg::format::Pixel::VAAPI;
+            // Auf den hwaccel-Wegen liegt das Bild im Grafikspeicher; der
+            // Renderer erwartet Ebenen im Hauptspeicher. Genau wie bei cuvid,
+            // das seine Bilder von sich aus herunterreicht — nur muss man es
+            // hier selbst tun.
+            //
+            // **Beide Formate MUESSEN hier stehen.** Als am 2026-08-04 der
+            // D3D11VA-Weg dazukam, stand er hier zunaechst nicht — mit der
+            // Folge, dass der Decoder sauber lieferte, `convert` aber jedes
+            // Bild mit "Pixelformat D3D11 wird nicht unterstuetzt" ablehnte
+            // und nie eines beim Renderer ankam: ein weisses Fenster, ohne
+            // dass irgendwo ein Fehler stand, der nach der Ursache aussieht.
+            // Wer einen dritten Geraetetyp ergaenzt, ergaenzt ihn auch hier.
+            let auf_gpu = matches!(
+                frame.format(),
+                ffmpeg::format::Pixel::VAAPI | ffmpeg::format::Pixel::D3D11
+            );
             if auf_gpu {
                 if let Err(e) = in_den_hauptspeicher(&frame, &mut self.hw_ziel) {
                     eprintln!("pulse-player: Bild von der GPU holen scheiterte: {e}");
