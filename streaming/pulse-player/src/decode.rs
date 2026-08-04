@@ -7,7 +7,8 @@
 //! Decoder deshalb **explizit** statt zu hoffen.
 //!
 //! Vorgehen: erst einen hardwaregestuetzten Decoder ueber seinen Namen suchen
-//! (`av1_cuvid`, `h264_cuvid`, `*_qsv`, `*_vaapi`), sonst Software. Die
+//! (`av1_cuvid`, `h264_cuvid`, `*_qsv`) oder den nativen mit angehaengtem
+//! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Die
 //! cuvid-Decoder liefern ihre Frames in den Hauptspeicher; der Decode selbst
 //! laeuft auf der GPU. Das ist noch nicht zero-copy — ein direkter Weg von
 //! NVDEC in eine Vulkan-Textur waere die naechste Ausbaustufe, verlangt aber
@@ -23,11 +24,44 @@ use crate::whep::Codec;
 
 /// Erkennt am Decoder-Namen, ob er selbst auf der GPU laeuft.
 ///
-/// Gilt ausdruecklich NICHT fuer den VAAPI-Weg: der laeuft ueber den nativen
-/// Decoder mit angehaengtem Geraet, sein Name ist deshalb schlicht `av1` und
-/// sagt ueber die Hardware nichts. Dafuer steht [`Kandidat::vaapi`].
+/// Gilt ausdruecklich NICHT fuer die hwaccel-Wege: die laufen ueber den
+/// nativen Decoder mit angehaengtem Geraet, ihr Name ist deshalb schlicht
+/// `av1` und sagt ueber die Hardware nichts. Dafuer steht [`Kandidat::hw`].
 fn is_hardware(name: &str) -> bool {
     ["cuvid", "qsv"].iter().any(|tag| name.contains(tag))
+}
+
+/// Ein Geraetetyp, der an den NATIVEN Decoder gehaengt wird, statt einen
+/// eigenen Decoder zu benennen.
+///
+/// Beides sind hwaccels, keine Decoder — genau die Verwechslung, an der die
+/// Kandidatenliste bis 2026-08-01 mit erfundenen `av1_vaapi`-Namen scheiterte.
+/// Die zwei Werte decken je eine Plattform ab: VAAPI unter Linux, D3D11VA
+/// unter Windows.
+// Je Zielplattform ist genau EINE Variante in Gebrauch — die andere ist dort
+// tot, ohne dass etwas fehlt. Beide trotzdem hier zu fuehren haelt die
+// Fallunterscheidung an einer Stelle statt in `#[cfg]`-Zweigen quer durchs Modul.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hwaccel {
+    Vaapi,
+    D3d11va,
+}
+
+impl Hwaccel {
+    fn geraetetyp(self) -> ffmpeg::ffi::AVHWDeviceType {
+        match self {
+            Self::Vaapi => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+            Self::D3d11va => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
+        }
+    }
+
+    fn beschreibung(self) -> &'static str {
+        match self {
+            Self::Vaapi => "Hardware (VAAPI)",
+            Self::D3d11va => "Hardware (D3D11VA)",
+        }
+    }
 }
 
 /// Ein Weg, den Decoder zu oeffnen.
@@ -35,27 +69,37 @@ fn is_hardware(name: &str) -> bool {
 struct Kandidat {
     /// Name des FFmpeg-Decoders.
     name: &'static str,
-    /// Ein VAAPI-Geraet anhaengen. Der Decode laeuft dann auf der GPU, obwohl
-    /// `name` ein Software-Name ist.
-    vaapi: bool,
+    /// Ein Hardware-Geraet anhaengen. Der Decode laeuft dann auf der GPU,
+    /// obwohl `name` ein Software-Name ist.
+    hw: Option<Hwaccel>,
 }
 
 impl Kandidat {
     const fn sw(name: &'static str) -> Self {
-        Self { name, vaapi: false }
+        Self { name, hw: None }
+    }
+
+    /// Der plattform-eigene hwaccel auf dem nativen Decoder.
+    ///
+    /// Bewusst EINE Funktion statt zweier Listen: die Reihenfolge der
+    /// Kandidaten ist ueberall dieselbe, nur der Geraetetyp unterscheidet sich.
+    const fn nativ_hw(name: &'static str) -> Self {
+        #[cfg(windows)]
+        let hw = Some(Hwaccel::D3d11va);
+        #[cfg(not(windows))]
+        let hw = Some(Hwaccel::Vaapi);
+        Self { name, hw }
     }
 
     fn hardware(&self) -> bool {
-        self.vaapi || is_hardware(self.name)
+        self.hw.is_some() || is_hardware(self.name)
     }
 
     fn beschreibung(&self) -> &'static str {
-        if self.vaapi {
-            "Hardware (VAAPI)"
-        } else if is_hardware(self.name) {
-            "Hardware"
-        } else {
-            "Software"
+        match self.hw {
+            Some(hw) => hw.beschreibung(),
+            None if is_hardware(self.name) => "Hardware",
+            None => "Software",
         }
     }
 }
@@ -181,18 +225,25 @@ fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
 /// AV1 dekodieren kann (`vainfo`: `VAProfileAV1Profile0/VAEntrypointVLD`, 8
 /// UND 10 bit). Gemessen am 2026-08-01 auf einer Radeon 780M.
 ///
-/// **Warum VAAPI vor QSV steht:** `av1_qsv` laesst sich auch ohne
+/// **Warum der hwaccel vor QSV steht:** `av1_qsv` laesst sich auch ohne
 /// Intel-Hardware oeffnen und scheitert erst beim ersten Bild — der Player
 /// verliert dadurch eine halbe Sekunde und einen Neuaufbau (am 2026-08-01 im
 /// Log beobachtet: „Decoder av1_qsv lehnt dauerhaft ab"). Das Anlegen des
-/// VAAPI-Geraets scheitert dagegen sofort und sauber, wenn keine passende GPU
-/// da ist. Auf Intel bedient VAAPI dieselbe Hardware.
+/// Geraets scheitert dagegen sofort und sauber, wenn keine passende GPU da
+/// ist. Auf Intel bedient derselbe hwaccel dieselbe Hardware.
+///
+/// **Unter Windows steht dort D3D11VA statt VAAPI** (seit 2026-08-04). VAAPI
+/// gibt es dort nicht, die Liste war also Linux-foermig: der einzige Weg, der
+/// sich ueberhaupt oeffnen liess, war `*_qsv` — auf einer AMD-Maschine der
+/// falsche. Im Log vom 2026-08-04 ist genau das zu sehen, hundertfach
+/// „Error creating a MFX session: -9", danach Software-Decode; die Radeon lag
+/// waehrenddessen still, obwohl sie AV1 in 8 UND 10 bit kann.
 fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
     let (hw, sw): (&[Kandidat], &[Kandidat]) = match codec {
         Codec::Av1 => (
             &[
                 Kandidat::sw("av1_cuvid"),
-                Kandidat { name: "av1", vaapi: true },
+                Kandidat::nativ_hw("av1"),
                 Kandidat::sw("av1_qsv"),
             ],
             &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")],
@@ -200,7 +251,7 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
         Codec::H264 => (
             &[
                 Kandidat::sw("h264_cuvid"),
-                Kandidat { name: "h264", vaapi: true },
+                Kandidat::nativ_hw("h264"),
                 Kandidat::sw("h264_qsv"),
             ],
             // Nativer Decoder zuerst, `libopenh264` nur als Rueckfall.
@@ -280,7 +331,7 @@ fn vaapi_geraetepfad() -> String {
         .unwrap_or_else(|_| "/dev/dri/renderD128".to_string())
 }
 
-/// Haengt ein VAAPI-Geraet an den Decoder-Kontext, VOR dem Oeffnen.
+/// Haengt ein Hardware-Geraet an den Decoder-Kontext, VOR dem Oeffnen.
 ///
 /// **Mehr braucht es nicht.** `avcodec_default_get_format` waehlt das
 /// Hardware-Format von sich aus, sobald ein Geraet gesetzt ist und der Decoder
@@ -292,9 +343,19 @@ fn vaapi_geraetepfad() -> String {
 ///
 /// Die Referenz auf das Geraet geht an den Kontext ueber; `avcodec_free_context`
 /// gibt sie frei.
-fn vaapi_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext) -> Result<()> {
-    let pfad = vaapi_geraetepfad();
-    let c_pfad = std::ffi::CString::new(pfad.as_str()).context("Geraetepfad")?;
+fn hw_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext, art: Hwaccel) -> Result<()> {
+    // Nur VAAPI braucht einen Pfad. D3D11VA waehlt ohne Angabe den
+    // Standard-Adapter — auf einer Maschine mit zwei GPUs also denselben, den
+    // auch der Rest des Systems benutzt.
+    let pfad = match art {
+        Hwaccel::Vaapi => Some(vaapi_geraetepfad()),
+        Hwaccel::D3d11va => None,
+    };
+    let c_pfad = pfad
+        .as_deref()
+        .map(std::ffi::CString::new)
+        .transpose()
+        .context("Geraetepfad")?;
     let mut geraet: *mut ffmpeg::ffi::AVBufferRef = std::ptr::null_mut();
     // SAFETY: `ctx` ist ein frisch angelegter, noch nicht geoeffneter Kontext;
     // `c_pfad` lebt bis zum Ende des Aufrufs. `av_hwdevice_ctx_create` schreibt
@@ -302,14 +363,15 @@ fn vaapi_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext) -> Result<()> {
     let rc = unsafe {
         ffmpeg::ffi::av_hwdevice_ctx_create(
             &mut geraet,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-            c_pfad.as_ptr(),
+            art.geraetetyp(),
+            c_pfad.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
             std::ptr::null_mut(),
             0,
         )
     };
     if rc < 0 || geraet.is_null() {
-        bail!("VAAPI-Geraet {pfad} liess sich nicht anlegen (rc={rc})");
+        let wo = pfad.as_deref().unwrap_or("Standard-Adapter");
+        bail!("{} auf {wo} liess sich nicht anlegen (rc={rc})", art.beschreibung());
     }
     // SAFETY: `ctx` ist gueltig und ungeoeffnet; das Feld war zuvor null.
     unsafe { (*ctx).hw_device_ctx = geraet };
@@ -622,11 +684,12 @@ impl VideoDecoder {
         // Bild einen zu neuen Stempel und `glass` misst die eigene Wartezeit
         // nicht mit.
         ctx.set_flags(ffmpeg::codec::Flags::LOW_DELAY);
-        if kandidat.vaapi {
+        if let Some(art) = kandidat.hw {
             // SAFETY: der Kontext gehoert uns, ist frisch angelegt und noch
-            // nicht geoeffnet; `vaapi_geraet_anhaengen` setzt genau ein Feld.
+            // nicht geoeffnet; `hw_geraet_anhaengen` setzt genau ein Feld.
             let ptr = unsafe { ctx.as_mut_ptr() };
-            vaapi_geraet_anhaengen(ptr).with_context(|| format!("VAAPI fuer {name}"))?;
+            hw_geraet_anhaengen(ptr, art)
+                .with_context(|| format!("{} fuer {name}", art.beschreibung()))?;
         }
         ctx.decoder()
             .video()
@@ -1109,24 +1172,41 @@ mod tests {
         );
     }
 
-    /// VAAPI ist kein eigener Decoder, sondern ein Geraet am nativen — genau
-    /// deshalb liefen die frueheren Namen `av1_vaapi`/`h264_vaapi` ins Leere.
-    /// Der Kandidat muss den NATIVEN Namen tragen und trotzdem als Hardware
-    /// zaehlen, sonst faellt der Player auf AMD still auf Software zurueck.
+    /// VAAPI und D3D11VA sind keine eigenen Decoder, sondern Geraete am
+    /// nativen — genau deshalb liefen die frueheren Namen
+    /// `av1_vaapi`/`h264_vaapi` ins Leere. Der Kandidat muss den NATIVEN Namen
+    /// tragen und trotzdem als Hardware zaehlen, sonst faellt der Player still
+    /// auf Software zurueck.
     #[test]
-    fn vaapi_haengt_am_nativen_decoder() {
+    fn hwaccel_haengt_am_nativen_decoder() {
         for (codec, nativ) in [(Codec::Av1, "av1"), (Codec::H264, "h264")] {
             let liste = candidates(codec, true);
-            let va = liste.iter().find(|k| k.vaapi).expect("VAAPI-Kandidat fehlt");
-            assert_eq!(va.name, nativ, "VAAPI muss den nativen Decoder nehmen");
-            assert!(va.hardware(), "VAAPI zaehlt als Hardware");
+            let hw = liste.iter().find(|k| k.hw.is_some()).expect("hwaccel-Kandidat fehlt");
+            assert_eq!(hw.name, nativ, "hwaccel muss den nativen Decoder nehmen");
+            assert!(hw.hardware(), "hwaccel zaehlt als Hardware");
 
             // Und zwar VOR QSV, das sich auch ohne Intel-Hardware oeffnen
             // laesst und erst beim ersten Bild scheitert.
-            let pos_va = liste.iter().position(|k| k.vaapi).unwrap();
+            let pos_hw = liste.iter().position(|k| k.hw.is_some()).unwrap();
             let pos_qsv = liste.iter().position(|k| k.name.contains("qsv")).unwrap();
-            assert!(pos_va < pos_qsv, "VAAPI vor QSV: {liste:?}");
+            assert!(pos_hw < pos_qsv, "hwaccel vor QSV: {liste:?}");
         }
+    }
+
+    /// Der Geraetetyp MUSS zur Plattform passen. Stand hier der falsche, waere
+    /// der einzige oeffenbare Hardware-Weg unter Windows wieder `*_qsv` — auf
+    /// einer AMD-Maschine die falsche Hardware, und der Fehler faellt nur als
+    /// halbe Sekunde Verzoegerung auf, nicht als Fehlermeldung.
+    #[test]
+    fn geraetetyp_passt_zur_plattform() {
+        let hw = candidates(Codec::Av1, true)
+            .into_iter()
+            .find_map(|k| k.hw)
+            .expect("hwaccel-Kandidat fehlt");
+        #[cfg(windows)]
+        assert_eq!(hw, Hwaccel::D3d11va);
+        #[cfg(not(windows))]
+        assert_eq!(hw, Hwaccel::Vaapi);
     }
 
     /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit
