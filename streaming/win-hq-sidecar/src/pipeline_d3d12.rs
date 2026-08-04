@@ -61,12 +61,22 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
     //    `h264_d3d12va` und `hevc_d3d12va` aus derselben Encoder-Familie
     //    dekodieren fehlerfrei — es liegt also nicht am Weg hierher.
     //
-    // Bleibt also der CPU-Pfad, und der ist teuer: gemessen 113 % einer
+    // **Wer hier landet, ist nicht der Regelfall.** AV1 auf AMD geht seit dem
+    // 2026-07-30 über den D3D11-Zero-Copy-Weg (`av1_amf`), und der ist der
+    // Standard. Hierher kommt AV1 nur noch über den Auffangweg aus
+    // `pipeline_hw` — also dann, wenn der AMF-Open über D3D11 gescheitert ist
+    // (die Konstellation aus AMF-Issue #455).
+    //
+    // Bleibt dann der CPU-Pfad, und der ist teuer: gemessen 113 % einer
     // CPU-Kerne und 42 übersprungene Bilder in 20 s (1440p-Capture → 1080p60).
-    // Der naheliegende Ausweg — AV1 über den D3D11-Zero-Copy-Pfad, den `av1_amf`
-    // annimmt — ist geprüft und **verworfen**: er liefert ein sichtbar
-    // zerrissenes Bild (Begründung an `VideoCodec::encode_path`). Ein teurer
-    // Weg mit korrektem Bild schlägt einen billigen mit kaputtem.
+    // Teuer und richtig schlägt billig und falsch — die Alternative wäre, den
+    // Codec still auf H.264 zu wechseln.
+    //
+    // **Hier stand, AV1 über D3D11 sei „geprüft und verworfen, er liefert ein
+    // sichtbar zerrissenes Bild".** Das galt für den Texture-Array-Pool; seit
+    // dem Einzeltextur-Pool (`hwctx.rs`) ist das Bild dort sauber, und genau
+    // deshalb ist dieser Weg heute der Standard. Der Satz stammt vom
+    // 2026-07-30, aus den Tagen vor dem Fix.
     if matches!(codec, VideoCodec::Av1) {
         eprintln!(
             "[pipeline-d3d12] AV1 ist über d3d12va auf AMD unbrauchbar — Fallback auf CPU-Pfad (av1_amf)"

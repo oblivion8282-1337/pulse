@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 use crate::audio::AudioCapture;
 use crate::capture::HwCaptureItem;
 use crate::encode::{
-    AudioStreamConfig, D3D11Scaler, EncodePath, HwEncoderConfig, OwnedHwFrame, VideoCodec,
+    AudioStreamConfig, D3D11Scaler, EncodePath, HwEncoderConfig, OwnedHwFrame,
 };
 use crate::events;
 use crate::stream_controller::{StartParams, StreamController};
@@ -247,7 +247,23 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             drop(first);
             drop(hw);
             drop(audio_capture);
-            return crate::pipeline_d3d12::run(params, stop_rx, VideoCodec::H264);
+            // **Den angeforderten Codec weiterreichen, nicht H.264 einsetzen.**
+            // Hier stand bis 2026-08-04 fest `VideoCodec::H264`, anders als an
+            // den beiden Schwesterstellen (Z. 95 und `stream_controller`).
+            // Folge: ein AV1-Wunsch wurde beim Rückfall stillschweigend zu
+            // H.264 — der Stream lief, sah gesund aus und trug den falschen
+            // Codec.
+            //
+            // Seit AMD mit JEDEM Codec über AMF geht (`encode_path`), ist
+            // dieser Rückfall nicht mehr die Ausnahme für einen Randfall,
+            // sondern der Auffangweg für alles — die Verwechslung war damit
+            // deutlich leichter zu treffen als vorher.
+            //
+            // `pipeline_d3d12::run` weiß selbst, was es mit AV1 tut: es gibt
+            // sofort an den CPU-Weg ab (`av1_amf` mit Software-NV12). Teuer,
+            // aber es bleibt AV1 — und ein teurer Weg mit dem richtigen Codec
+            // schlägt einen billigen mit dem falschen.
+            return crate::pipeline_d3d12::run(params, stop_rx, codec);
         }
     };
 
