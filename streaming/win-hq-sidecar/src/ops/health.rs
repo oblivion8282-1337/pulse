@@ -20,6 +20,7 @@
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
+use crate::encode::{VideoCodec, auffrischung};
 use crate::system::dxgi;
 
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
@@ -39,6 +40,22 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         None => (false, "missing", None, Vec::new(), None),
     };
 
+    // Zusatzfelder gegenüber Python/mac, gleiche Namen wie im Linux-Sidecar.
+    // Ältere Sidecars melden sie nicht — Konsumenten lesen `undefined` als
+    // `false` (`web/src/lib/stream/state.svelte.ts`).
+    //
+    // `ten_bit` hängt am AV1-Zero-Copy-Weg (P010-Pool + `bitdepth=10` an
+    // `av1_amf`), nicht am Codec allein; `intra_refresh` daran, ob der Encoder,
+    // der bei dieser Kombination WIRKLICH läuft, die Betriebsart trägt — auf
+    // AMD ist das AV1, nicht H.264 (`encode::auffrischung`).
+    let ten_bit = vendor.is_some_and(|v| {
+        video_codecs.iter().any(|c| {
+            VideoCodec::from_slug(c).supports_ten_bit()
+                && auffrischung::encoder_name(v, VideoCodec::from_slug(c), "").is_some()
+        })
+    });
+    let intra_refresh = vendor.is_some_and(|v| auffrischung::verfuegbar(v, &video_codecs));
+
     let mut gsr = json!({
         "available": available,
         "source": source,
@@ -47,6 +64,8 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "video_codecs": video_codecs,
         "capture_options": ["window", "monitor", "region"], // WGC kann alle drei
         "has_flv_patch": Value::Null,
+        "ten_bit": ten_bit,
+        "intra_refresh": intra_refresh,
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);

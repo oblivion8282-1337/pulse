@@ -379,7 +379,10 @@ impl FfmpegEncoder {
 
         // `false`: die CPU-Pipeline liefert 8 bit. Der 10-bit-Weg hängt am
         // P010-D3D11-Pool und existiert nur auf dem Zero-Copy-Zweig.
-        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, false);
+        let mut opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, false);
+        // S. `encoder_hw.rs` an derselben Stelle: Abbruch statt stillem
+        // Keyframe-Lauf unter dem Etikett „Intra-Refresh".
+        super::auffrischung::anwenden(&mut opts, codec_name, cfg.fps)?;
         warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)

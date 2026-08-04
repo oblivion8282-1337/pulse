@@ -18,6 +18,7 @@
 //! Kein Pfad hat einen PCIe-Roundtrip außer dem CPU-Fallback.
 
 pub mod audio;
+pub mod auffrischung;
 pub mod bildencoder;
 pub mod d3d11_scale;
 pub mod d3d12_convert;
