@@ -378,6 +378,11 @@ async function main() {
     for (let i = 0; i < a.secs; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const p = await page.evaluate(probe);
+      // Wanduhr an jeder Probe. Ohne sie lassen sich zwei GLEICHZEITIG
+      // laufende Zuschauer nicht gegeneinander legen — man muss die
+      // Probennummern aufeinander schaetzen, und genau daran ist die erste
+      // Auswertung des Zwei-Zuschauer-Laufs (2026-08-04) haengengeblieben.
+      p.t = Date.now();
       proben.push(p);
       if (i === 2 || i === a.secs - 1) {
         console.log(`[${a.label}] t=${i + 1}s ${JSON.stringify(p)}`);
