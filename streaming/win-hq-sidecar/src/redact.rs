@@ -39,7 +39,10 @@ fn ends_value(c: char) -> bool {
 /// hinter dem eingesetzten `***` weiter und kann dabei zu viel wegfressen.
 /// Jede Ausgabestelle redigiert deshalb genau einmal — beim Verketten von
 /// Pfaden darauf achten.
-pub(crate) fn secrets(s: &str) -> String {
+/// `pub` statt `pub(crate)`, damit das Labor (`../win-hq-labor`) dieselbe
+/// Maskierung benutzt statt einer eigenen. Zwei Fassungen davon wären die
+/// Sorte Doppelung, die irgendwann einen Stream-Key ins Log schreibt.
+pub fn secrets(s: &str) -> String {
     let mut out = s.to_string();
     for pat in ["pass=", "token=", "streamid=publish:"] {
         let mut from = 0;

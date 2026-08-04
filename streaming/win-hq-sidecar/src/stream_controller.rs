@@ -88,6 +88,19 @@ pub struct StartParams {
     /// Konstanter A/V-Trim in ms (>0 = Audio später) aus dem UI-Slider. 0 =
     /// neutral. Reicht bis in die `AudioPipeline` durch (dort Sample-Offset).
     pub av_offset_ms: i32,
+    /// 10 bit je Kanal statt 8 — der WUNSCH aus dem Request, nicht das
+    /// Ergebnis. Ob er erfüllt wird, entscheidet `pipeline_hw` aus
+    /// [`VideoCodec::supports_ten_bit`](crate::encode::VideoCodec::supports_ten_bit)
+    /// und dem gewählten Encode-Weg; unerfüllbar heißt still 8 bit, nicht
+    /// Startverweigerung. Als `bool` statt als Bittiefe, damit hier keine 12
+    /// stehen kann, die nirgends behandelt wird — gleiche Form wie im
+    /// Linux-Sidecar (`StartParams::ten_bit`).
+    ///
+    /// **Das Frontend schickt `bit_depth` heute nicht.** Der Weg ist nur über
+    /// einen von Hand gebauten Request erreichbar (Labor, `/app/dev/stream`).
+    /// Wer ihn in die Oberfläche holt, braucht dort dieselbe Absage-Regel,
+    /// sonst bietet ein Schalter etwas an, das der Sidecar wortlos verwirft.
+    pub ten_bit: bool,
 }
 
 impl StartParams {
@@ -294,6 +307,9 @@ impl StreamController {
 
 fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let ctrl = StreamController::singleton();
+    // Eine Vollbild-Anforderung, die nach dem letzten Bild des vorigen Streams
+    // eintraf, gehoert nicht diesem hier (Begruendung an `keyframe::reset`).
+    crate::keyframe::reset();
     // `catch_unwind`: ein Panic in der Pipeline (statt eines `Err`) würde sonst
     // an `worker_finished` VORBEI unwinden — kein `error`-Event, `running`
     // bliebe für immer `true`, der Renderer sähe einen Stream, der wortlos in
@@ -315,7 +331,7 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         let disable_zc = crate::env::flag("PULSE_HQ_DISABLE_ZERO_COPY");
         let codec = params.codec();
         if !disable_zc {
-            match codec.encode_path(adapter.vendor()) {
+            match codec.encode_path(adapter.vendor(), &params.push_url) {
                 EncodePath::D3d11ZeroCopy => {
                     return crate::pipeline_hw::run(adapter, params, stop_rx);
                 }
@@ -406,7 +422,14 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // WHIP-Ziel (App-gehostete Instanz): FFmpegs WHIP-Muxer trägt nur
         // H.264-Video → ausweichen statt beim write_header hart zu scheitern
         // (wie Linux/Mac-Sidecar).
-        if crate::encode::output::url_format_hint(&params.push_url) == Some("whip")
+        //
+        // **Nur wenn wirklich jener Muxer das Ziel ist.** Ist ein eigener
+        // Sendeweg angemeldet (`encode::senke`), gilt die Einschränkung nicht —
+        // der trägt AV1. Ein Rückfall hier wäre dann eine stille Codec-
+        // Änderung: der Stream liefe, und jede Messung stünde unter falschem
+        // Etikett. Genau das ist auf der Linux-Seite am 2026-07-30 passiert.
+        if crate::encode::output::is_whip_url(&params.push_url)
+            && !crate::encode::senke::zustaendig(&params.push_url)
             && !matches!(codec, VideoCodec::H264)
         {
             eprintln!("[stream-pipeline] Codec {codec:?} über WHIP nicht verfügbar → Fallback auf H264");

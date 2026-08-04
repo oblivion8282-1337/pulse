@@ -18,6 +18,7 @@
 //! Kein Pfad hat einen PCIe-Roundtrip außer dem CPU-Fallback.
 
 pub mod audio;
+pub mod bildencoder;
 pub mod d3d11_scale;
 pub mod d3d12_convert;
 pub mod encoder;
@@ -29,6 +30,8 @@ pub mod latency;
 pub mod mux_writer;
 pub mod opts;
 pub mod output;
+pub mod senke;
+pub mod senke_writer;
 
 /// **`rc_buffer_size` (VBV) wurde probiert und wirkt auf keinem AMD-Zweig** —
 /// nicht eingebaut, damit es niemand ein zweites Mal versucht.
@@ -75,4 +78,8 @@ pub use d3d11_scale::D3D11Scaler;
 pub use encoder::{AudioStreamConfig, EncodePath, EncoderConfig, FfmpegEncoder, VideoCodec};
 pub use encoder_d3d12::{D3d12EncoderConfig, FfmpegD3d12Encoder};
 pub use encoder_hw::{FfmpegHwEncoder, HwEncoderConfig};
-pub use hwctx::{HwContext, OwnedHwFrame};
+pub use hwctx::{HwContext, HwPoolConfig, OwnedHwFrame};
+pub use bildencoder::{
+    BildEncoder, EncoderAuftrag, EncoderBauer, registriere_encoder_bauer,
+};
+pub use senke::{PaketSenke, SenkenAuftrag, SenkenBauer, registriere_senken_bauer};

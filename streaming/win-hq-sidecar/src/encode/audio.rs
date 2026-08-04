@@ -55,6 +55,13 @@ pub fn capture_chunk_frames() -> usize {
     48 * opus_frame_ms()
 }
 
+/// Dieselbe Länge als [`Duration`]. Braucht jeder Sendeweg ohne Container:
+/// dort trägt kein Zeitstempel die Paketlänge, sie muss mitgegeben werden
+/// (s. `senke.rs`).
+pub fn opus_frame_dauer() -> std::time::Duration {
+    std::time::Duration::from_millis(opus_frame_ms() as u64)
+}
+
 /// Länge eines Opus-Pakets in ms, einmal aus der Umgebung gelesen.
 pub fn opus_frame_ms() -> usize {
     static MS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
@@ -122,8 +129,16 @@ impl AudioPipeline {
     /// Erstellt den Audio-Encoder + Resampler und fügt einen neuen Stream zum
     /// `output`-Context hinzu. Muss VOR `output.write_header()` aufgerufen
     /// werden (Stream-Anlage modifiziert den Container-Header).
+    /// `output` ist `None` für Sendewege **ohne Container** — die führen den
+    /// Ton als eigene Spur statt als zweiten Stream in einer Datei
+    /// (s. `senke.rs`). Dann entfallen Stream-Anlage und globaler Kopf; alles
+    /// andere — Encoder, Sammelpuffer, Zeitverankerung, A/V-Trim — ist
+    /// identisch. Deshalb EIN Einstieg mit `Option` und keine zweite Fassung:
+    /// eine Kopie liefe bei der nächsten Änderung an der Verankerung
+    /// auseinander, und ein Ton, der um Millisekunden verschoben ist, fällt in
+    /// keinem Test auf.
     pub fn create(
-        output: &mut format::context::Output,
+        output: Option<&mut format::context::Output>,
         sample_rate: u32,
         channels: u16,
         bitrate_kbps: u32,
@@ -140,10 +155,11 @@ impl AudioPipeline {
         let codec_descriptor = codec::encoder::find_by_name("libopus")
             .ok_or_else(|| anyhow!("libopus encoder not registered in linked FFmpeg"))?;
 
-        let global_header = output.format().flags().contains(format::Flags::GLOBAL_HEADER);
-
-        let mut stream = output.add_stream(codec_descriptor).context("add_stream audio")?;
-        let stream_idx = stream.index();
+        // Ohne Container: kein globaler Kopf (es gibt keinen, in den er
+        // gehörte) und kein Stream-Index.
+        let global_header = output
+            .as_ref()
+            .is_some_and(|o| o.format().flags().contains(format::Flags::GLOBAL_HEADER));
 
         let mut encoder = codec::context::Context::new_with_codec(codec_descriptor)
             .encoder()
@@ -167,7 +183,17 @@ impl AudioPipeline {
         opts.set("frame_duration", &frame_ms.to_string());
         let opened = encoder.open_with(opts).context("open libopus encoder")?;
         let frame_samples = (sample_rate as usize / 1000) * frame_ms;
-        stream.set_parameters(&opened);
+        // Stream erst JETZT anlegen: `set_parameters` braucht den geöffneten
+        // Encoder, und ein Stream ohne Parameter im Container wäre ein Kopf,
+        // den kein Abspieler lesen kann.
+        let stream_idx = match output {
+            Some(o) => {
+                let mut stream = o.add_stream(codec_descriptor).context("add_stream audio")?;
+                stream.set_parameters(&opened);
+                stream.index()
+            }
+            None => 0,
+        };
 
         let interleaved_frame = frame::Audio::new(
             format::Sample::F32(format::sample::Type::Packed),

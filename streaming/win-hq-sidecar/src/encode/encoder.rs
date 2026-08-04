@@ -178,7 +178,35 @@ impl VideoCodec {
     ///
     /// Neue Zellen gehören hierher und brauchen eine Messung, keine Vermutung —
     /// und bei Bildwegen eine Sichtprüfung.
-    pub fn encode_path(self, vendor: &str) -> EncodePath {
+    /// **Ein angemeldeter Sendeweg (`encode::senke`) schlägt alles andere**,
+    /// unabhängig von Hersteller und Codec: nur der D3D11-Weg ist gegabelt,
+    /// D3D12 und CPU schreiben in einen Container. Ohne diese Zeile bekäme
+    /// AMD+H.264 den D3D12-Weg, dessen Pakete am Sendeweg vorbei in den
+    /// ffmpeg-Muxer liefen — und der scheitert auf Windows an DTLS, ohne dass
+    /// irgendwo etwas Brauchbares stünde (gemessen 2026-08-02: `Creating
+    /// security context failed (0x80090331)`). Der Stream käme nie an.
+    ///
+    /// Die Entscheidung hängt an der **URL**, nicht bloß daran, ob überhaupt
+    /// ein Sendeweg angemeldet ist: sonst nähme im Labor auch ein Stream nach
+    /// RTMPS oder in eine Datei einen anderen Encode-Weg als im ausgelieferten
+    /// Sidecar — und ein Messstand, der anders encodiert als das Original,
+    /// misst das Falsche.
+    pub fn encode_path(self, vendor: &str, push_url: &str) -> EncodePath {
+        if super::senke::zustaendig(push_url) {
+            return EncodePath::D3d11ZeroCopy;
+        }
+        // **Dasselbe gilt für einen angemeldeten ENCODER**, und aus demselben
+        // Grund: nur der D3D11-Weg fragt `encode::bildencoder`. Auf jeder
+        // anderen Route (AMD+H.264 → D3D12, Intel → CPU) würde die Anmeldung
+        // wortlos übergangen — der Stream liefe, sähe gesund aus und
+        // beantwortete eine andere Frage als die gestellte. Genau die
+        // Verwechslung, gegen die es `log_encoder_open` gibt.
+        //
+        // Hier ohne URL-Prüfung, anders als beim Sendeweg: ein Encoder ist
+        // nicht an ein Ziel gebunden, er encodiert jeden Strom.
+        if super::bildencoder::angemeldet().is_some() {
+            return EncodePath::D3d11ZeroCopy;
+        }
         if vendor == "amd" && amd_forces_d3d11() {
             return EncodePath::D3d11ZeroCopy;
         }
@@ -188,6 +216,24 @@ impl VideoCodec {
             ("amd", _) => EncodePath::D3d12ZeroCopy,
             _ => EncodePath::Cpu,
         }
+    }
+
+    /// Trägt dieser Codec 10 bit über den Zero-Copy-Weg? Steht hier neben den
+    /// anderen beiden Codec-Tabellen, damit die Regel nicht als `if codec ==
+    /// Av1` im Aufrufer landet und dort beim nächsten Codec vergessen wird.
+    ///
+    /// Heute nur AV1, und zwar nicht aus Prinzip, sondern weil nur dieser Weg
+    /// gemessen ist (2026-08-01, Radeon 780M: P010-Pool + `bitdepth=10` an
+    /// `av1_amf`, am Server als 10-bit-Strom bestätigt). H.264 läuft auf AMD
+    /// über D3D12 (`encode_path`) und damit an diesem Pool vorbei; für HEVC
+    /// gibt es keinen Anlass, weil der Codec ausgebaut wird.
+    ///
+    /// Wer hier eine Zeile ergänzt, misst sie — die Kette aus Pool-Format,
+    /// Farbraum am Video-Prozessor (`d3d11_scale.rs`), Hersteller-Option
+    /// (`opts.rs`) und Signalisierung (`encoder_hw.rs`) muss ganz stimmen. Ein
+    /// Bruch darin liefert einen dekodierbaren Strom mit falschen Farben.
+    pub fn supports_ten_bit(self) -> bool {
+        matches!(self, VideoCodec::Av1)
     }
 
     /// Umkehrung von [`slug`](Self::slug): der Kurzname aus dem `start`-Request.
@@ -331,7 +377,9 @@ impl FfmpegEncoder {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
 
-        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec);
+        // `false`: die CPU-Pipeline liefert 8 bit. Der 10-bit-Weg hängt am
+        // P010-D3D11-Pool und existiert nur auf dem Zero-Copy-Zweig.
+        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, false);
         warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)
@@ -351,7 +399,7 @@ impl FfmpegEncoder {
         // wurde.
         let mut audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
-                &mut output,
+                Some(&mut output),
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,

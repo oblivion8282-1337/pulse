@@ -223,7 +223,7 @@ impl FfmpegD3d12Encoder {
         // Audio-Pipeline VOR write_header (addiert einen Stream zum Output).
         let audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
-                &mut output,
+                Some(&mut output),
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,

@@ -68,6 +68,12 @@ struct AVD3D11VAFramesContext {
 /// für seinen D3D11-Input kein DECODER-Flag, nur SHADER_RESOURCE.
 const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 
+/// `D3D11_RESOURCE_MISC_SHARED` / `..._SHARED_NTHANDLE`. Nur zusammen brauchbar:
+/// NTHANDLE allein lehnt `CreateTexture2D` mit `E_INVALIDARG` ab. Warum nicht
+/// `KEYEDMUTEX` — s. [`HwPoolConfig::shared`].
+const D3D11_RESOURCE_MISC_SHARED: u32 = 0x2;
+const D3D11_RESOURCE_MISC_SHARED_NTHANDLE: u32 = 0x800;
+
 /// Hängt das D3D11-Device an einer AMD-GPU (VendorId `0x1002`)? Entscheidet
 /// die Pool-Bauart in [`HwContext::new`] (Einzeltexturen statt Texture-Array —
 /// Begründung dort). Bewusst am Device statt an `select_adapter()` abgefragt:
@@ -113,12 +119,14 @@ pub struct HwContext {
 unsafe impl Send for HwContext {}
 unsafe impl Sync for HwContext {}
 
-impl HwContext {
-    /// Baut device_ctx + frames_ctx aus WGCs D3D11-Handles.
-    ///
-    /// `pool_size`: Schranke **nur der Array-Bauart** (s. Pool-Bauart weiter
-    /// unten) — dort kann der Pool nicht wachsen, also muss er Encoder-Vorlauf
-    /// und Capture-Backpressure von vornherein fassen. Die Aufrufer geben 24
+/// Alles am Pool, was zwischen den Aufrufern abweicht. Als Struct statt als
+/// Argumentliste, weil beide Aufrufer nur je zwei Felder vom Default abrücken —
+/// als Positionsargumente wären das zwei Reihen aus `0`, `None` und `false`,
+/// die man nur mit Inline-Kommentaren lesen kann.
+pub struct HwPoolConfig {
+    /// Schranke **nur der Array-Bauart** (s. Pool-Bauart in [`HwContext::new`])
+    /// — dort kann der Pool nicht wachsen, also muss er Encoder-Vorlauf und
+    /// Capture-Backpressure von vornherein fassen. Die Aufrufer geben 24
     /// (Capture-Pool) bzw. 16 (Scaler-Ziel-Pool).
     ///
     /// **In der Einzeltextur-Bauart (AMD) ist der Wert wirkungslos**: dort
@@ -128,21 +136,60 @@ impl HwContext {
     /// `acquire_frame` kann nicht mehr wegen „Pool erschöpft" fehlschlagen, das
     /// Backpressure-Signal kommt dann allein aus der Channel-Kapazität
     /// (`wgc_hw.rs::CHANNEL_CAPACITY`).
-    ///
-    /// `extra_bind_flags`: zusätzliche `D3D11_BIND_*`-Flags für die Pool-
-    /// Texturen (0 = nur libavutil-Default DECODER|SHADER_RESOURCE). Der
-    /// `D3D11Scaler`-Ziel-Pool übergibt `D3D11_BIND_RENDER_TARGET`, damit
+    pub pool_size: u32,
+    /// Zusätzliche `D3D11_BIND_*`-Flags für die Pool-Texturen (0 = nur
+    /// libavutil-Default DECODER|SHADER_RESOURCE). Der `D3D11Scaler`-Ziel-Pool
+    /// übergibt `D3D11_BIND_RENDER_TARGET`, damit
     /// `CreateVideoProcessorOutputView` die Texturen akzeptiert; der
     /// Capture-Pool übergibt 0.
+    pub extra_bind_flags: u32,
+    /// Fremde CRITICAL_SECTION mitbenutzen statt einer eigenen. Der
+    /// Scaler-Ziel-Pool teilt so den Lock des Capture-Pools — Begründung in
+    /// [`HwContext::new`].
+    pub shared_lock: Option<*mut CRITICAL_SECTION>,
+    /// Pool-Format. `AV_PIX_FMT_BGRA` ist der Regelfall (der Encoder wandelt
+    /// selbst); `AV_PIX_FMT_P010LE` braucht der 10-bit-Weg, weil `av1_amf`
+    /// BGRA-Eingang für 10 bit ablehnt (`SubmitInput() failed with error 18`,
+    /// gemessen 2026-08-01), P010 als D3D11-Textur aber annimmt.
+    ///
+    /// **Falle:** die Bind-Flags müssen zum Format passen. FFmpegs eigener
+    /// `scale_d3d11`-Filter scheitert an genau dieser Stelle mit
+    /// `CreateTexture2D`-Fehler `0x80070057` — dieselbe Fehlerklasse wie
+    /// `DECODER|RENDER_TARGET` auf BGRA (s. Konstanten-Doku oben). Wer hier ein
+    /// Format ergänzt, prüft die Flags mit.
+    pub sw_format: AVPixelFormat,
+    /// Pool-Texturen als NT-Handle teilbar machen. Braucht nur der Messstand
+    /// (`streaming/win-hq-labor/`), dessen Encoder Vulkan ist und die Texturen
+    /// importieren muss. `NTHANDLE` allein genügt nicht — ohne `SHARED` lehnt
+    /// `CreateTexture2D` mit `E_INVALIDARG` ab. **Nicht `KEYEDMUTEX` nehmen**,
+    /// obwohl auch das die Textur erzeugbar macht: ein Keyed-Mutex verlangt,
+    /// dass jeder Zugriff die Sperre nimmt, und an FFmpegs
+    /// Vulkan-Kommandopuffer kommt man nicht heran.
+    pub shared: bool,
+}
+
+impl Default for HwPoolConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: 0,
+            extra_bind_flags: 0,
+            shared_lock: None,
+            sw_format: AVPixelFormat::AV_PIX_FMT_BGRA,
+            shared: false,
+        }
+    }
+}
+
+impl HwContext {
+    /// Baut device_ctx + frames_ctx aus WGCs D3D11-Handles.
     pub fn new(
         device: ID3D11Device,
         device_context: ID3D11DeviceContext,
         width: u32,
         height: u32,
-        pool_size: u32,
-        extra_bind_flags: u32,
-        shared_lock: Option<*mut CRITICAL_SECTION>,
+        cfg: HwPoolConfig,
     ) -> Result<Self> {
+        let HwPoolConfig { pool_size, extra_bind_flags, shared_lock, sw_format, shared } = cfg;
         // Eigenen Lock anlegen ODER einen fremden teilen. Letzteres ist der
         // #2-Fix: der Scaler-dst-Pool teilt die CRITICAL_SECTION des Capture-
         // Pools, damit CopySubresourceRegion (Capture-Thread), VideoProcessorBlt
@@ -210,7 +257,7 @@ impl HwContext {
         unsafe {
             let frames_hdr = (*frames_ref).data as *mut AVHWFramesContext;
             (*frames_hdr).format = AVPixelFormat::AV_PIX_FMT_D3D11;
-            (*frames_hdr).sw_format = AVPixelFormat::AV_PIX_FMT_BGRA;
+            (*frames_hdr).sw_format = sw_format;
             (*frames_hdr).width = width as c_int;
             (*frames_hdr).height = height as c_int;
             // Pool-Bauart hängt am GPU-Vendor (2026-07-30, Radeon 780M,
@@ -251,10 +298,13 @@ impl HwContext {
             // selbst dazunehmen — DECODER lassen wir weg (inkompatibel mit
             // RENDER_TARGET auf BGRA, s. Konstanten-Doku oben). Capture-Pool
             // (flags=0) bleibt unverändert auf libavutil-Default.
+            let d3d_frames = (*frames_hdr).hwctx as *mut AVD3D11VAFramesContext;
             if extra_bind_flags != 0 {
-                let d3d_frames =
-                    (*frames_hdr).hwctx as *mut AVD3D11VAFramesContext;
                 (*d3d_frames).bind_flags = D3D11_BIND_SHADER_RESOURCE | extra_bind_flags;
+            }
+            if shared {
+                (*d3d_frames).misc_flags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE
+                    | D3D11_RESOURCE_MISC_SHARED;
             }
         }
 

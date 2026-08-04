@@ -10,6 +10,7 @@ pub mod dispatch;
 pub mod encode;
 pub mod env;
 pub mod events;
+pub mod keyframe;
 pub mod ops;
 pub mod pipeline_d3d12;
 pub mod pipeline_hw;

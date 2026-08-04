@@ -22,6 +22,7 @@
 pub mod build_argv;
 pub mod gpu_info;
 pub mod health;
+pub mod keyframe;
 pub mod list_application_audio;
 pub mod list_monitors;
 pub mod list_windows;

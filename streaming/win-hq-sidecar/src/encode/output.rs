@@ -6,7 +6,7 @@
 //! Encoder-Code zugestellt hätten (und die Datei schon an der Größen-Grenze
 //! stand).
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, codec, format};
 
@@ -76,6 +76,20 @@ pub fn url_format_hint(target: &str) -> Option<&'static str> {
     }
 }
 
+/// Ist das eine WHIP-URL (WebRTC-Ingest)? Die Antwort kommt aus derselben
+/// Schema-Tabelle wie die Muxer-Wahl — es darf nirgends eine zweite geben.
+///
+/// Gleicher Dreizeiler wie `linux-hq-sidecar::encode::is_whip_url`. Ohne ihn
+/// schreibt jeder Aufrufer `url_format_hint(..) == Some("whip")` selbst aus,
+/// und spätestens der dritte schreibt es leicht anders. Was daran hängt, ist
+/// nicht kosmetisch: greift eine Kopie zu weit, landet ein RTMPS-Stream im
+/// WebRTC-Sender; greift sie zu kurz, läuft ein WHIP-Stream still über den
+/// ffmpeg-Muxer — und genau diese Verwechslung hat auf der Linux-Seite am
+/// 2026-07-30 eine ganze Messreihe entwertet.
+pub fn is_whip_url(url: &str) -> bool {
+    url_format_hint(url) == Some("whip")
+}
+
 /// Öffnet den Output-Kontext für die Push-URL.
 ///
 /// Für RTMPS: `tls_verify=0` — Pulse-MediaMTX nutzt by-design ein self-signed
@@ -89,6 +103,19 @@ pub fn url_format_hint(target: &str) -> Option<&'static str> {
 /// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
 /// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
 pub fn open_output(output_path: &str) -> Result<format::context::Output> {
+    // **Ein angemeldeter Sendeweg darf nicht umgangen werden.** Nur
+    // `encoder_hw` kennt die Gabelung; `encoder` (CPU) und `encoder_d3d12`
+    // landen sonst hier und muxen an ihm vorbei. Das Ergebnis wäre ein Stream,
+    // der über den ffmpeg-WHIP-Muxer geht — der auf Windows an DTLS scheitert
+    // und selbst wenn er liefe, kein AV1 könnte und keinen Rückkanal hätte.
+    // Lieber laut absagen als still das Falsche tun: eine Messung unter
+    // falschem Etikett ist teurer als ein abgebrochener Start.
+    if super::senke::zustaendig(output_path) {
+        return Err(anyhow!(
+            "dieser Encode-Weg kann den angemeldeten Sendeweg nicht bedienen (nur der \
+             D3D11-Weg ist gegabelt) — Stream abgebrochen statt still ueber den Muxer"
+        ));
+    }
     match url_format_hint(output_path) {
         Some(fmt) => {
             let mut opts = Dictionary::new();

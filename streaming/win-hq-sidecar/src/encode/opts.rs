@@ -24,7 +24,15 @@ use super::output::apply_encoder_opts_override;
 /// Schlüssel wird vor dem Open gegen die Optionstabelle des Encoders geprüft
 /// (`output::warn_unknown_opts`) — ein Schlüssel, den der Encoder nicht kennt,
 /// wird von ffmpeg still verworfen.
-pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary<'static> {
+///
+/// `ten_bit` gehört aus demselben Grund hierher wie `codec`: die Option, die
+/// eine 10-bit-Ausgabe erzwingt, heißt bei jedem Hersteller anders. Sie im
+/// Aufrufer zu setzen hieße, einen AMF-Schlüssel auch an NVENC zu schicken.
+pub(crate) fn vendor_encoder_opts(
+    vendor: &str,
+    codec: VideoCodec,
+    ten_bit: bool,
+) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     match vendor {
         "nvidia" => {
@@ -38,6 +46,14 @@ pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary
             opts.set("rc", "cbr");
             opts.set("zerolatency", "1");
             opts.set("delay", "0");
+            // Ein angefordertes Vollbild soll ein ECHTES sein. Bei NVENC heisst
+            // die Option mit Bindestrich; die Mechanik dahinter ist eine andere
+            // als bei AMF (dort `amfenc.c`, s. AMD-Zweig unten).
+            //
+            // **Auf NVIDIA ungeprueft.** Die Messung vom 2026-08-02 lief auf
+            // AMD; hier ist die Option gesetzt, weil sie dasselbe verspricht,
+            // aber nicht nachgemessen.
+            opts.set("forced-idr", "1");
         }
         "amd" => {
             // `usage` ist bei AMF kein Etikett, sondern ein Bündel: es stellt
@@ -90,6 +106,27 @@ pub(crate) fn vendor_encoder_opts(vendor: &str, codec: VideoCodec) -> Dictionary
             // AMD-Generation kann der Default 16 sehr wohl durchschlagen. Ein
             // Nachmessen dort ist billig — `PULSE_ENCODER_OPTS=async_depth=16`.
             opts.set("async_depth", "1");
+            // **Ein angefordertes Vollbild soll ein ECHTES sein.**
+            //
+            // `amfenc.c` verzweigt auf genau diese Option: ohne sie wird aus
+            // `pict_type = I` bei AV1 ein `FORCE_FRAME_TYPE_INTRA_ONLY` statt
+            // `..._KEY` (bei H.264 ein `PICTURE_TYPE_I` statt `..._IDR`). Ein
+            // Intra-Only-Bild ist zwar vollstaendig intra-kodiert, aber **kein
+            // Keyframe** — es bringt den Sequenzkopf nicht mit, und ein neu
+            // einsteigender Zuschauer kann damit nichts anfangen.
+            //
+            // Kostet nichts, solange niemand anfordert: die Option greift erst
+            // bei einem Bild mit `pict_type = I`. Wie der Fehler auffiel und
+            // was er verdeckte, steht in der Messakte
+            // `testbench/profiles/rueckkanal-2026-08-02-windows.json`.
+            opts.set("forced_idr", "1");
+            // AMFs eigene Bittiefen-Option. Ohne sie liefert der Encoder trotz
+            // P010-Eingang einen 8-bit-Strom — der P010-Pool allein genügt
+            // also nicht. Nur `av1_amf` kennt den Schlüssel; bei H.264 über
+            // diesen Zweig gibt es ohnehin kein 10 bit.
+            if ten_bit {
+                opts.set("bitdepth", "10");
+            }
         }
         "intel" => {
             opts.set("preset", "medium");
