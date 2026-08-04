@@ -39,9 +39,13 @@ nicht einsehbar.
 - **AV1 und H.264**, Hardware-Decoder zuerst (`av1_cuvid`, `h264_cuvid`, `*_qsv`,
   `*_vaapi`), Software als Rueckfall.
 - **Ausgabe mit mehr als 8 bit**, wenn der Compositor es anbietet: bevorzugt
-  `Rgba16Float`, dann `Rgb10a2Unorm`, sonst 8 bit. Das tatsaechlich verhandelte
+  `Rgb10a2Unorm`, dann `Rgba16Float`, sonst 8 bit. Das tatsaechlich verhandelte
   Format steht in `stats.surface_format` — damit ist von aussen belegbar, was
-  anliegt.
+  anliegt. Warum 10-bit-Unorm VOR fp16 steht, obwohl fp16 mehr Bits haette,
+  steht in `render/setup.rs` (fp16 wird als lineares Licht gedeutet).
+  **Was die zehn Bit wirklich bringen, ist gemessen** und kleiner als lange
+  angenommen: `docs/2026-08-04-player-farbwerte-messung.md`, nachzustellen mit
+  `pulse-player --stufen`.
 - **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt
   Verstaerkung ueber 100 %, Stumm, Vollbild (Knopf, Doppelklick, Esc) und ein
   Statistik-Feld (Auflösung, Bilder/s, Bitrate, Decoder samt Hardware-Angabe,

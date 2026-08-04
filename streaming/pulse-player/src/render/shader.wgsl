@@ -16,7 +16,8 @@ struct Uniforms {
     // w = Skalierungsfaktor der Abtastwerte (s. render::sample_scale)
     flags: vec4<f32>,
     // x = Ausgabe erwartet LINEARE Werte (s. render::surface_is_linear),
-    // y = BT.601 statt BT.709 (z/w frei)
+    // y = BT.601 statt BT.709, z = 8-bit-aequivalente Codewerte je normierter
+    // Einheit (s. render::code_scale und `yuv_to_rgb`), w frei
     output: vec4<f32>,
 };
 
@@ -51,15 +52,32 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
 // Mit der falschen Matrix bleibt das Bild dekodierbar, wirkt aber entsaettigt
 // und verwaschen — ein Fehler, den man leicht dem Encoder anlastet.
 // `cb`/`cr` statt `u`/`v`, weil `u` sonst den Uniform-Block verdecken wuerde.
+//
+// **Der Nullpunkt des Chromas ist NICHT 0.5** — und die Grenzen des begrenzten
+// Wertebereichs sind es auch nicht ohne Weiteres. Der Abtastwert ist ein
+// Codewert geteilt durch seinen Hoechstwert; neutrales Chroma ist Code 128 von
+// 255 (= 0.50196), in 10 bit Code 512 von 1023 (= 0.50049). Der frueher hier
+// stehende Abzug von 0.5 lag also immer um einen HALBEN Chroma-Code daneben.
+// Auf Grau hiess das (BT.709, gemessen 2026-08-04 am zurueckgelesenen
+// Bildpunkt): R +0,9, G -0,37, B +1,06 Stufen — Grau mit leichtem Blaustich,
+// ueber die ganze Flaeche, in jedem Bild.
+//
+// `u.output.z` traegt deshalb den Massstab: wieviele 8-BIT-AEQUIVALENTE
+// Codewerte auf normiert 1.0 gehen (255 bei 8-bit-Texturen, 255,75 bei
+// planarem 10 bit, 255,996 bei P010 — s. `render::code_scale`). Damit stimmen
+// dieselben Konstanten 16/219/128/224 fuer JEDE Bittiefe, statt fuer 8 bit zu
+// gelten und bei 10 bit knapp danebenzuliegen (dort fehlten am Weisspunkt
+// zuletzt 3,2 von 1023 Stufen).
 fn yuv_to_rgb(yuv: vec3<f32>, full_range: bool) -> vec3<f32> {
+    let k = u.output.z;
     var y = yuv.x;
-    var cb = yuv.y - 0.5;
-    var cr = yuv.z - 0.5;
+    var cb = yuv.y - 128.0 / k;
+    var cr = yuv.z - 128.0 / k;
     if (!full_range) {
         // Begrenzter Bereich: Y 16..235, Chroma 16..240 (auf 8-bit bezogen).
-        y = (y - 16.0 / 255.0) * (255.0 / 219.0);
-        cb = cb * (255.0 / 224.0);
-        cr = cr * (255.0 / 224.0);
+        y = (y * k - 16.0) / 219.0;
+        cb = cb * k / 224.0;
+        cr = cr * k / 224.0;
     }
     if (u.output.y > 0.5) {
         // BT.601 (ITU-R BT.470BG / SMPTE 170M)

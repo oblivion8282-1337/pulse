@@ -35,6 +35,20 @@ const FORMAT_PREFERENCE: [wgpu::TextureFormat; 4] = [
     wgpu::TextureFormat::Rgba8Unorm,
 ];
 
+/// Alles, was nur vom **Zielformat** abhaengt: Shader, Bindungen, Pipeline,
+/// Sampler, Uniform-Puffer.
+///
+/// Getrennt von [`create`], weil der Messpfad ([`crate::messen`]) genau diese
+/// Pipeline braucht — ohne Fenster und ohne Swapchain. Ein dort nachgebauter
+/// Zwilling waere als Messgeraet wertlos: gemessen wuerde der Nachbau, und
+/// jede Shader-Aenderung liefe an der Messung vorbei.
+pub struct Graphics {
+    pub pipeline: wgpu::RenderPipeline,
+    pub bind_layout: wgpu::BindGroupLayout,
+    pub sampler: wgpu::Sampler,
+    pub uniform_buf: wgpu::Buffer,
+}
+
 /// Alles, was beim Oeffnen eines Fensters genau einmal entsteht.
 pub struct GpuSetup {
     pub device: wgpu::Device,
@@ -112,29 +126,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         })
         .await
         .context("keine passende GPU gefunden")?;
-    // 16-bit-Norm-Texturen nur anfordern, wenn die GPU sie kann — ein
-    // unerfuellbares `required_features` laesst `request_device` scheitern.
-    let wide_textures =
-        adapter.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
-    if !wide_textures {
-        eprintln!(
-            "pulse-player: GPU ohne TEXTURE_FORMAT_16BIT_NORM — 10-bit-Quellen \
-             werden auf 8 bit heruntergerechnet"
-        );
-    }
-    let required_features = if wide_textures {
-        wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
-    } else {
-        wgpu::Features::empty()
-    };
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            label: Some("pulse-player"),
-            required_features,
-            ..Default::default()
-        })
-        .await
-        .context("GPU-Geraet liess sich nicht oeffnen")?;
+    let (device, queue, wide_textures) = geraet_oeffnen(&adapter, "pulse-player").await?;
 
     let caps = surface.get_capabilities(&adapter);
     let format = pick_format(&caps.formats)
@@ -184,6 +176,61 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
     );
     surface.configure(&device, &config);
 
+    let gfx = build_graphics(&device, format);
+
+    Ok(GpuSetup {
+        device,
+        queue,
+        surface,
+        config,
+        pipeline: gfx.pipeline,
+        bind_layout: gfx.bind_layout,
+        sampler: gfx.sampler,
+        uniform_buf: gfx.uniform_buf,
+        wide_textures,
+    })
+}
+
+/// GPU-Geraet mit den Merkmalen anfordern, die der Player braucht.
+///
+/// Gemeinsam fuer Fenster und Messpfad, weil ein Auseinanderlaufen hier
+/// besonders teuer waere: `R16Unorm`/`Rg16Unorm` sind in wgpu hinter
+/// `TEXTURE_FORMAT_16BIT_NORM` gegated, und eine Textur ohne angefordertes
+/// Feature ist ein Geraetefehler — also ein Absturz beim ersten 10-bit-Bild.
+/// Miesse man auf einem anders angeforderten Geraet, sagte die Messung nichts
+/// ueber das ausgelieferte.
+///
+/// Drittes Rueckgabefeld: ob 16-bit-Norm-Texturen benutzt werden duerfen.
+pub async fn geraet_oeffnen(
+    adapter: &wgpu::Adapter,
+    label: &str,
+) -> Result<(wgpu::Device, wgpu::Queue, bool)> {
+    // Nur anfordern, wenn die GPU es kann — ein unerfuellbares
+    // `required_features` laesst `request_device` scheitern.
+    let wide_textures = adapter.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
+    if !wide_textures {
+        eprintln!(
+            "pulse-player: GPU ohne TEXTURE_FORMAT_16BIT_NORM — 10-bit-Quellen \
+             werden auf 8 bit heruntergerechnet"
+        );
+    }
+    let required_features = if wide_textures {
+        wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
+    } else {
+        wgpu::Features::empty()
+    };
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor {
+            label: Some(label),
+            required_features,
+            ..Default::default()
+        })
+        .await
+        .context("GPU-Geraet liess sich nicht oeffnen")?;
+    Ok((device, queue, wide_textures))
+}
+
+pub fn build_graphics(device: &wgpu::Device, format: wgpu::TextureFormat) -> Graphics {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("pulse-player-shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -257,16 +304,33 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    Ok(GpuSetup {
-        device,
-        queue,
-        surface,
-        config,
-        pipeline,
-        bind_layout,
-        sampler,
-        uniform_buf,
-        wide_textures,
+    Graphics { pipeline, bind_layout, sampler, uniform_buf }
+}
+
+/// Die Bindungen fuer ein Bild: Uniform-Puffer, Sampler, drei Ebenen.
+///
+/// An EINER Stelle, weil die Nummern sonst dreifach von Hand gefuehrt wuerden
+/// (Layout hier, Fenster, Messpfad) und eine sechste Bindung im Shader erst
+/// zur Laufzeit auffiele.
+pub fn build_bind_group(
+    device: &wgpu::Device,
+    gfx: &Graphics,
+    ebenen: [&wgpu::TextureView; 3],
+) -> wgpu::BindGroup {
+    use super::texture_binding as textur;
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("pulse-player-bg"),
+        layout: &gfx.bind_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: gfx.uniform_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&gfx.sampler),
+            },
+            textur(2, ebenen[0]),
+            textur(3, ebenen[1]),
+            textur(4, ebenen[2]),
+        ],
     })
 }
 

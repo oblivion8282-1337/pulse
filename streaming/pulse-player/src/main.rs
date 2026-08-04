@@ -22,6 +22,7 @@ mod dump;
 mod fec;
 mod jitter;
 mod mediasink;
+mod messen;
 mod overlay;
 mod probe;
 mod proto;
@@ -38,6 +39,14 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use app::{App, UserEvent};
 
 fn main() -> Result<()> {
+    // Messpfad VOR allem anderen: er braucht weder TLS noch Fenster noch
+    // Tokio, und er darf stdout benutzen — im Normalbetrieb gehoert stdout
+    // dem JSON-RPC, hier gibt es keins.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("--stufen") {
+        return messen::ausfuehren(&argv[1..]);
+    }
+
     // Muss VOR dem ersten TLS-Aufbau stehen. Der Abhaengigkeitsbaum enthaelt
     // zwei rustls-Krypto-Provider (`ring` ueber webrtc-rs' dtls, `aws-lc-rs`
     // ueber reqwest/hyper-rustls). Bei mehr als einem waehlt rustls nicht

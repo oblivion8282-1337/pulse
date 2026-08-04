@@ -10,8 +10,14 @@
 //! braeuchte aber FFI-Bindungen. Die hier benoetigte Verarbeitung (Farbmatrix,
 //! Deband, Dither, Zoom) passt in einen WGSL-Shader, und wgpu ist MIT/Apache.
 
+mod farbe;
 mod setup;
 mod uniforms;
+
+// Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
+pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
+pub use setup::{build_bind_group, build_graphics, geraet_oeffnen, Graphics};
+pub use uniforms::Uniforms;
 
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -19,9 +25,8 @@ use std::sync::Arc;
 use crate::decode::{ColorMatrix, DecodedFrame, PixelLayout};
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::PlayerOptions;
-use uniforms::Uniforms;
 
-fn texture_binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
+pub fn texture_binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource: wgpu::BindingResource::TextureView(view) }
 }
 
@@ -102,34 +107,6 @@ impl Renderer {
     /// Verhandlung fest, und die Statistik wird pro Bild gelesen.
     pub fn surface_format(&self) -> &str {
         &self.surface_format_name
-    }
-
-    /// Stufenzahl des Ausgabeformats (2^Bits pro Kanal) fuer das Dither.
-    fn output_levels(&self) -> f32 {
-        match self.config.format {
-            // fp16 ist Fliesskomma: die Mantisse traegt nahe 1.0 rund 11 Bit, nicht
-            // 16. Mit 65536 Stufen waere das Dither-Rauschen so schwach, dass es
-            // das Banding der spaeteren Quantisierung durch den Compositor nicht
-            // mehr aufbricht.
-            wgpu::TextureFormat::Rgba16Float => 2048.0,
-            wgpu::TextureFormat::Rgb10a2Unorm => 1024.0,
-            _ => 256.0,
-        }
-    }
-
-    /// Ob das verhandelte Oberflaechenformat LINEARE Werte erwartet.
-    ///
-    /// Nicht Theorie, sondern gemessen (2026-07-26, KWin 6.7.3): derselbe
-    /// Strom in zwei Fenstern, einziger Unterschied das Format. Der
-    /// `Bgra8Unorm`-Puffer sah richtig aus, der `Rgba16Float`-Puffer flau —
-    /// also deutet der Compositor fp16 als lineares Licht (scRGB) und Unorm
-    /// als sRGB-kodiert. Der Shader rechnet in gamma-kodiertem R'G'B', weil
-    /// das Video so vorliegt; fuer fp16 muss deshalb umgerechnet werden.
-    ///
-    /// `*UnormSrgb` ist hier bewusst NICHT dabei: dort kodiert die Hardware
-    /// beim Schreiben selbst, eine zusaetzliche Umrechnung waere doppelt.
-    fn surface_is_linear(&self) -> bool {
-        matches!(self.config.format, wgpu::TextureFormat::Rgba16Float)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -283,37 +260,17 @@ impl Renderer {
         full_range: bool,
         matrix: ColorMatrix,
     ) -> Uniforms {
-        let zoom = opts.zoom.unwrap_or(1.0).max(1.0);
-        let size = 1.0 / zoom;
-        // Ausschnitt so verschieben, dass er im Bild bleibt.
-        let origin_x = (opts.pan_x.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
-        let origin_y = (opts.pan_y.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
-        let flag = |on: bool| if on { 1.0 } else { 0.0 };
-
-        Uniforms {
-            crop: [origin_x, origin_y, size, size],
-            params: [
-                opts.deband.unwrap_or(0.0),
-                flag(opts.dither.unwrap_or(true)),
-                self.output_levels(),
-                // Modulo, damit die f32-Aufloesung nicht mit der Laufzeit zerfaellt:
-                // nach ~18 h liegt der Abstand zweier darstellbarer Werte ueber
-                // einem Frameintervall, das Rauschmuster wuerde einfrieren.
-                (self.start.elapsed().as_secs_f64() % 3600.0) as f32,
-            ],
-            flags: [
-                flag(planes.ten_bit),
-                flag(full_range),
-                flag(planes.layout == PixelLayout::BiPlanar420),
-                sample_scale(planes.wide, planes.layout),
-            ],
-            output: [
-                flag(self.surface_is_linear()),
-                flag(matrix == ColorMatrix::Bt601),
-                0.0,
-                0.0,
-            ],
-        }
+        build_uniforms(
+            self.config.format,
+            Bildform { layout: planes.layout, ten_bit: planes.ten_bit, wide: planes.wide },
+            opts,
+            full_range,
+            matrix,
+            // Modulo, damit die f32-Aufloesung nicht mit der Laufzeit zerfaellt:
+            // nach ~18 h liegt der Abstand zweier darstellbarer Werte ueber
+            // einem Frameintervall, das Rauschmuster wuerde einfrieren.
+            (self.start.elapsed().as_secs_f64() % 3600.0) as f32,
+        )
     }
 
     /// Holt das naechste Bild der Swapchain. `None` heisst "diesen Frame
@@ -472,6 +429,7 @@ impl<'a> OverlayPass<'a> {
     }
 }
 
+
 /// Groesstes Rechteck mit dem Seitenverhaeltnis der Quelle, das ins Fenster
 /// passt, mittig gesetzt. Ergebnis: `(x, y, breite, hoehe)` in Pixeln.
 ///
@@ -492,52 +450,7 @@ fn fit_viewport(win_w: f32, win_h: f32, src_w: f32, src_h: f32) -> (f32, f32, f3
     }
 }
 
-/// Faktor, mit dem ein als `*16Unorm` gelesener Abtastwert multipliziert
-/// werden muss, um wieder in [0,1] zu liegen.
-///
-/// Der Unterschied ist leicht zu uebersehen und entscheidet ueber richtiges
-/// gegen fast schwarzes Bild:
-/// * `P010LE` (biplanar, kommt von NVDEC) legt die 10 Bit in die **oberen**
-///   Bits eines 16-bit-Wortes. Als Unorm gelesen stimmt der Wert bereits.
-/// * `YUV420P10LE` (planar, kommt von libdav1d/Software-Decode) legt sie in
-///   die **unteren** Bits, Wertebereich 0..1023. Als Unorm gelesen waere das
-///   um Faktor ~64 zu dunkel.
-fn narrow_plane_into(source: &[u8], layout: PixelLayout, out: &mut Vec<u8>) {
-    // Planar (YUV420P10LE) legt die 10 Bit in die UNTEREN Bits, Wertebereich
-    // 0..1023 -> zwei Bit abschneiden. P010 legt sie in die OBEREN, dort ist
-    // das hohe Byte schon der richtige 8-bit-Wert.
-    let planar = layout == PixelLayout::Planar420;
-    // `clear` behaelt die Kapazitaet — nach dem ersten Bild wird hier nichts
-    // mehr angefordert.
-    out.clear();
-    out.reserve(source.len() / 2);
-    out.extend(source.chunks_exact(2).map(|w| {
-        let v = u16::from_le_bytes([w[0], w[1]]);
-        if planar { (v >> 2) as u8 } else { (v >> 8) as u8 }
-    }));
-}
 
-#[cfg(test)]
-fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
-    let mut out = Vec::new();
-    narrow_plane_into(source, layout, &mut out);
-    out
-}
-
-/// Faktor fuer die Abtastwerte, abhaengig davon, wie die Daten in der TEXTUR
-/// liegen — NICHT davon, was die Quelle war.
-///
-/// `wide_texture` heisst: die Textur traegt 16 bit. Wurde eine 10-bit-Quelle
-/// beim Hochladen auf 8 bit heruntergerechnet (GPU ohne
-/// `TEXTURE_FORMAT_16BIT_NORM`), darf nicht skaliert werden — sonst waere das
-/// Bild um Faktor 64 zu hell.
-fn sample_scale(wide_texture: bool, layout: PixelLayout) -> f32 {
-    if wide_texture && layout == PixelLayout::Planar420 {
-        f32::from(u16::MAX) / 1023.0
-    } else {
-        1.0
-    }
-}
 
 #[cfg(test)]
 mod viewport_tests {
@@ -594,35 +507,3 @@ mod viewport_tests {
     }
 }
 
-#[cfg(test)]
-mod scale_tests {
-    use super::*;
-
-    #[test]
-    fn heruntergerechnete_planes_werden_nicht_skaliert() {
-        // Ohne 16-bit-Texturen liegen die Daten als 8 bit in der Textur —
-        // dann waere jede Skalierung falsch.
-        assert!((sample_scale(false, PixelLayout::Planar420) - 1.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn narrow_plane_rechnet_je_layout_richtig_herunter() {
-        // Planar: Werte in den unteren Bits, 0..1023 -> zwei Bit abschneiden.
-        let planar = narrow_plane(&[0x00, 0x01, 0xFF, 0x03], PixelLayout::Planar420);
-        assert_eq!(planar, vec![(0x0100u16 >> 2) as u8, (0x03FFu16 >> 2) as u8]);
-        // P010: Werte in den oberen Bits -> hohes Byte ist der 8-bit-Wert.
-        let p010 = narrow_plane(&[0x00, 0x40, 0x00, 0xFF], PixelLayout::BiPlanar420);
-        assert_eq!(p010, vec![0x40, 0xFF]);
-    }
-
-    #[test]
-    fn zehn_bit_planar_wird_hochskaliert_biplanar_nicht() {
-        // YUV420P10LE: Werte 0..1023 in den unteren Bits -> muss skaliert werden.
-        let planar = sample_scale(true, PixelLayout::Planar420);
-        assert!((planar - 65535.0 / 1023.0).abs() < 0.01, "planar: {planar}");
-        // P010LE: Werte liegen bereits in den oberen Bits -> unveraendert.
-        assert!((sample_scale(true, PixelLayout::BiPlanar420) - 1.0).abs() < f32::EPSILON);
-        // 8 bit: nie skalieren.
-        assert!((sample_scale(false, PixelLayout::Planar420) - 1.0).abs() < f32::EPSILON);
-    }
-}

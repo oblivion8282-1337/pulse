@@ -13,7 +13,8 @@ pub struct Uniforms {
     pub crop: [f32; 4],
     pub params: [f32; 4],
     pub flags: [f32; 4],
-    /// x = Ausgabe erwartet lineare Werte, yzw frei.
+    /// x = Ausgabe erwartet lineare Werte, y = BT.601, z = Codewert-Massstab
+    /// (s. [`crate::render::code_scale`]), w frei.
     pub output: [f32; 4],
 }
 
