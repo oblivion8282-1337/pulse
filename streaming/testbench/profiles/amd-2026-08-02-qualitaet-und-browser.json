@@ -1,0 +1,90 @@
+{
+  "id": "amd-2026-08-02-qualitaet-und-browser",
+  "gemessen_am": "2026-08-02",
+  "frage": "Die zwei Punkte, die vor einer Entscheidung ueber den Vulkan-Umweg fehlten: (1) Wie steht AMF qualitativ gegen Vulkan? (2) Spielt ein Browser den AMF-Auffrischungsstrom in Hardware?",
+  "stand": "BEIDE beantwortet. (1) AMF ist auf dieser Karte klar besser — rund 43 % weniger Bits bei gleicher oder besserer Messqualitaet. (2) Nach einer Berichtigung im eigenen Sendeweg spielen AV1 8 Bit, AV1 10 Bit und H.264 mit Auffrischung durchgehend in Hardware im Browser (Abschnitt 3). Der zunaechst erratische Befund lag am Sender, nicht am Browser und nicht am Encoder.",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, FFmpeg n8.1.2 (`ffmpeg-patched`). Qualitaet ueber die FFmpeg-Kommandozeile gegen eine gemeinsame verlustfreie Quelle; Browser ueber den Hetzner-Messstand mit Brave (Chromium).",
+
+  "1_QUALITAET": {
+    "quelle": "12 s echter Bildschirminhalt (Terminal mit durchlaufendem Text), per `ddagrab` aufgenommen, auf 1280x720 skaliert und **verlustfrei** als FFV1 abgelegt (`ref.mkv`, 359 Bilder). Beide Encoder bekommen Bild fuer Bild dasselbe.",
+    "warum_nicht_ueber_die_bitrate_verglichen": "**Der erste Anlauf war unbrauchbar, und das gehoert hierher.** Bei Zielraten von 400 bis 3000 kbit/s traf `av1_vulkan` sein Ziel nie und lieferte bei praktisch gleicher Dateigroesse einmal 39,2 und einmal 47,8 dB (554 gegen 552 kbit/s). Die Werte reproduzieren, es ist kein Messfehler — die Ratensteuerung des Vulkan-Encoders ist auf dieser Karte schlicht unbrauchbar. Ein bitratengesteuerter Vergleich haette diese kaputte Steuerung gemessen, nicht die Bildqualitaet. Deshalb feste Quantisierung und Vergleich bei ERREICHTER Bitrate.",
+    "verfahren": "Feste Quantisierung (QP 24/32/40/48), Einstellungen wie im Betrieb: Vulkan wie `vulkan_encoder.rs` (`tune ll`, `g 6000`, Intra-Refresh), AMF wie `encode/opts.rs` (`usage ultralowlatency`, `quality balanced`, `async_depth 1`, `forced_idr 1`, `g 60`) plus `gop_aligned`/30. Auffrischungs-TAKT angeglichen: Vulkan zusaetzlich mit Zyklus 60 statt 30 gefahren, damit beide gleich oft auffrischen.",
+    "messwerte": {
+      "spalten": ["QP", "kbit/s", "PSNR dB", "SSIM"],
+      "vulkan_ir_zyklus30":  [[24, 805, 53.374, 0.997976], [32, 724, 52.024, 0.997585], [40, 664, 50.881, 0.997199], [48, 623, 49.821, 0.996739]],
+      "vulkan_ir_zyklus60":  [[24, 784, 53.374, 0.997976], [32, 705, 52.023, 0.997587], [40, 647, 50.880, 0.997200], [48, 607, 49.824, 0.996741]],
+      "amf_ir_gop_aligned":  [[24, 446, 53.640, 0.998063], [32, 402, 52.330, 0.997714], [40, 369, 51.251, 0.997371], [48, 346, 50.258, 0.997010]],
+      "amf_ohne_auffrischung":[[24, 388, 53.752, 0.998062], [32, 349, 52.474, 0.997729], [40, 319, 51.393, 0.997375], [48, 301, 50.423, 0.997033]]
+    },
+    "befund": "**AMF ist an JEDEM gemessenen Punkt gleichzeitig sparsamer UND besser.** Bei QP 24: Vulkan 784 kbit/s fuer 53,374 dB, AMF 446 kbit/s fuer 53,640 dB — 43 % weniger Bits bei besserer Zahl. Die ganze AMF-Kurve liegt oberhalb und links der Vulkan-Kurve; die beiden schneiden sich im gemessenen Bereich nirgends. Der angeglichene Auffrischungs-Takt aendert daran nichts (784 gegen 805 kbit/s, PSNR identisch) — der Abstand kommt nicht von der Auffrischungshaeufigkeit, sondern vom Encoder.",
+    "was_die_auffrischung_kostet": "Auf dem AMF-Weg kostet sie rund 15 % Bitrate und 0,11 dB (446 gegen 388 kbit/s, 53,640 gegen 53,752 bei QP 24). Auf der Linux-Seite war Intra-Refresh bei gleicher Bitrate ein GEWINN (+0,4 VMAF, `allintra-2026-07-29.json`); hier ist es ein kleiner Verlust. Der Vergleich ist aber nicht derselbe — dort gegen einen 2-Sekunden-Takt bei fester Bitrate, hier bei festem QP. Nicht gegeneinander verrechnen.",
+    "etiketten_geprueft": "Vollbilder gezaehlt: `amf_ir` 1, `amf_ohne` 6, `vulkan_ir` 1. Die Arme sind also das, was auf ihnen steht.",
+    "GRENZEN": [
+      "**PSNR und SSIM, nicht VMAF.** Dem gepatchten FFmpeg fehlt `libvmaf`. PSNR belohnt wahrnehmbare Qualitaet schlechter; ein Unterschied von 43 % Bitrate liegt aber weit ausserhalb dessen, was die Metrikwahl erklaeren koennte.",
+      "**Ein Clip.** 12 s Terminal-Text mit Scroll-Bewegung. Das ist der Zielinhalt, aber es ist eine Quelle.",
+      "Die QP-Skalen der beiden Encoder sind nicht dieselbe Groesse — deshalb wird ueber die KURVEN verglichen und nicht je QP.",
+      "Nur 8 Bit. In 10 Bit ist der Vulkan-Weg farblich kaputt, ein Qualitaetsvergleich dort waere sinnlos."
+    ]
+  },
+
+  "2_BROWSER_NICHT_BEANTWORTET": {
+    "verfahren": "`testbench/browser-whep.ps1 -Amd`, Brave (Chromium) gegen den Messstand, `getStats()` plus Chromium-Protokoll auf `--v=1`. Der Sender berichtet jetzt selbst, mit welchem Encoder und welchen Optionen er lief — ohne das waere der erste Lauf falsch ausgewertet worden.",
+    "h264_ueber_amf": "**Stabil ueber alle Laeufe.** 291 bis 493 Bilder, 1 bis 2 Vollbilder, PLI 2 bis 3, Decoder bleibt `ExternalDecoder (D3D11VideoDecoder)`, `is_hardware_accelerated = true`. Kein einziger Rueckfall.",
+    "av1_ueber_amf_mit_auffrischung": {
+      "drei_stroeme_gleichzeitig_mit_ton": "8 Bit und 10 Bit blieben bei 60 Bildern stehen, PLI stieg auf 69, beide fielen auf dav1d zurueck",
+      "einzeln_mit_ton_8bit":  "435 Bilder, Hardware gehalten",
+      "einzeln_mit_ton_10bit": "0 Bilder, PLI 65",
+      "einzeln_ohne_ton_8bit": "423 Bilder, ABER Rueckfall auf dav1d",
+      "einzeln_ohne_ton_10bit":"428 Bilder, Hardware gehalten",
+      "befund": "**Nicht wiederholbar.** Derselbe Fall lief einmal in Hardware, einmal in Software, einmal gar nicht. Weder die Gleichzeitigkeit noch der Ton erklaeren das Muster. Aus solchen Zahlen ist keine Aussage abzuleiten."
+    },
+    "av1_ueber_amf_OHNE_auffrischung": "Spielt: 468 Bilder (8 Bit) und 471 Bilder (10 Bit), PLI 3 bis 4. Das ist der Stand, der schon vorher belegt war.",
+    "ein_zweiter_widerspruch": "Der Browser zaehlt fuer die AV1-Stroeme 8 bis 10 Vollbilder (`keyFramesDecoded`), unser eigenes Messwerk auf derselben Sender-Einstellung genau EINES. Zwei Zuschauer, dieselbe Quelle, unvereinbare Zahlen — mindestens einer der beiden zaehlt etwas anderes, als sein Name sagt. Verdacht (NICHT geprueft): Chromium zaehlt bei AV1 die Markierung fuer eine neue Bildfolge im RTP-Kopf, die unser eigener Paketierer setzt, und nicht die AV1-Vollbilder selbst.",
+    "was_daraus_folgt": "Punkt 2 ist fuer H.264 beantwortet und fuer AV1 offen. **Bevor daraus irgendetwas geschlossen wird, muss der Widerspruch zwischen den beiden Zuschauern aufgeloest sein** — sonst misst man wieder das Werkzeug statt der Sache. Der naechste Schritt ist nicht ein weiterer Lauf, sondern nachzusehen, was der Paketierer im RTP-Kopf markiert."
+  },
+
+  "3_AUFGELOEST_es_lag_am_eigenen_sendeweg": {
+    "stand": "Der Widerspruch ist geklaert und behoben. Nach der Berichtigung spielen **alle drei Faelle im Browser durchgehend in Hardware**, wiederholbar.",
+    "die_ursache": "Unser AV1-Paketierer leitete 'hier beginnt eine neue Bildfolge' daraus ab, DASS ein Sequenzkopf im Zeitabschnitt steht. Das faellt mit 'hier steht ein Vollbild' nur dann zusammen, wenn der Encoder den Kopf ausschliesslich vor Vollbildern schreibt — bei `av1_vulkan` und NVENC ist das so, bei `av1_amf` mit Auffrischung NICHT: gemessen **6 Sequenzkoepfe auf 1 Vollbild** in 360 Bildern (OBU-Zaehlung in `rq_amf_ir_24.obu`). Der Weg war also seit jeher falsch und ist nur nie aufgefallen.",
+    "zwei_schritte_waren_noetig": {
+      "1_die_markierung": "`N` wird nur noch gesetzt, wenn der Zeitabschnitt einen Sequenzkopf UND ein echtes Vollbild enthaelt (drei Bit des unkomprimierten Bildkopfs). **Das allein hat den Browser nicht geheilt** — er zaehlte weiter 8 Vollbilder.",
+      "2_der_kopf_selbst": "Ein Empfaenger schliesst auch selbst von der blossen ANWESENHEIT eines Sequenzkopfs auf ein Vollbild; Chromium tut das. Deshalb wird ein Sequenzkopf ohne Vollbild jetzt gar nicht erst gesendet. Erst danach zaehlte der Browser 1 statt 8.",
+      "warum_das_gefahrlos_ist": "Der Kopf steht in jedem echten Vollbild ohnehin mit, und ein spaet einsteigender Zuschauer bekommt eines nur auf Anforderung — ohne die kaeme er bei Intra-Refresh gar nicht ins Bild (Abschnitt 7 der AMF-Akte). Er verliert also nichts, was er nicht ohnehin anfordern muss."
+    },
+    "ergebnis_einzeln": {
+      "av1_8bit":  "3 von 3 Laeufen: 374 bis 377 Bilder, 1 Vollbild, PLI 2, Hardware gehalten",
+      "av1_10bit": "3 von 3 Laeufen: 374 Bilder, 1 Vollbild, PLI 2, Hardware gehalten"
+    },
+    "ergebnis_alle_drei_gleichzeitig": {
+      "av1_8bit":  { "bilder": 493, "vollbilder": 2, "pli": 3 },
+      "av1_10bit": { "bilder": 495, "vollbilder": 2, "pli": 3 },
+      "h264":      { "bilder": 494, "vollbilder": 1, "pli": 2 },
+      "rueckfaelle": 0
+    },
+    "vorher_zum_vergleich": "Dieselben Faelle vor der Berichtigung: 8 bis 10 gezaehlte Vollbilder, Rueckfaelle auf Software, und 10 Bit blieb in etwa jedem zweiten Lauf ganz ohne Bild.",
+    "SICHTGEPRUEFT": "**Der Nutzer hat am 2026-08-02 im geoeffneten Browserfenster AV1 in 10 Bit gesehen und das Bild als einwandfrei beurteilt.** Das ist die Pruefung, die alle Zahlen dieser Akte nicht ersetzen — und genau die, deren Fehlen den 10-Bit-Fehler wochenlang verdeckt hat. Fuer AV1 8 Bit und H.264 liegt sie im Browser weiterhin NICHT vor, nur ueber Dateimitschnitte.",
+    "GILT_AUCH_FUER_LINUX": "`whip/av1.rs` ist laut Laborordnung eine wortgleiche Kopie aus dem Linux-Labor. Der Fehler steckt dort genauso — er ist nur nicht aufgefallen, weil NVENC den Sequenzkopf ebenfalls nur vor Vollbildern schreibt. **Die Berichtigung gehoert zurueckportiert**, bevor dort ein Encoder benutzt wird, der sich anders verhaelt. Zwei Zeilen duerfen dabei NICHT mitwandern: `lies_leb128`/`schreibe_leb128` sind hier `pub(crate)`/`pub(super)`, weil Entpacker und Pruefwerkzeug sie brauchen — die gibt es dort nicht.",
+    "UND_DERSELBE_FEHLSCHLUSS_STECKT_IM_PLAYER": "`pulse-player`, `recorder.rs::scan_av1_for_sequence_header`: dort gilt ein Zeitabschnitt als Vollbild, sobald ein Sequenzkopf darin steht — und `decode.rs` entscheidet damit, wo der Player einsteigt. Gegen unseren eigenen Sender ist das seit dieser Berichtigung zufaellig richtig, gegen jeden anderen AV1-Sender nicht. Nicht angefasst (eigenes Programm, ausserhalb dieser Aenderung), aber es ist derselbe Fehler an einer zweiten Stelle."
+  },
+
+  "4_DAS_LABOR_STEHT_JETZT_AUF_AMF": {
+    "was": "Ein nackter Lauf ohne jede Umgebungsvariable faehrt seit dem 2026-08-02 den herstellereigenen Weg MIT Auffrischung. Fuer AV1 setzt `src/auffrischung.rs` die Optionen selbst (der ausgelieferte Sidecar tut es nicht, und er wird dafuer nicht angefasst — die Naht `PULSE_ENCODER_OPTS` gab es schon); bei H.264 bringt `usage=ultralowlatency` sie ohnehin mit. `PULSE_LABOR_VULKAN=1` holt den alten Weg als Vergleichsarm zurueck, `PULSE_LABOR_KEIN_IR=1` schaltet die Auffrischung ab.",
+    "gegengeprueft_ohne_jeden_schalter": {
+      "av1_datei":  { "encoder": "av1_amf", "optionen": "gop_aligned + stripes=30 automatisch", "bilder": 356, "vollbilder": 1 },
+      "h264_datei": { "encoder": "h264_amf", "optionen": "keine noetig", "bilder": 237, "vollbilder": 1 },
+      "browser_alle_drei": [
+        { "av1_8bit": 373, "av1_10bit": 373, "h264": 374, "vollbilder": "1/1/1", "rueckfaelle": 0 },
+        { "av1_8bit": 367, "av1_10bit": 368, "h264": 366, "vollbilder": "2/2/1", "rueckfaelle": 0 }
+      ]
+    },
+    "EIN_MESSFEHLER_DER_FAST_DURCHGING": "Zwischendrin fielen die Browser-Zahlen von 493 auf 65 Bilder, mit Rueckfaellen — das sah nach einer Regression durch die Umstellung aus. Ursache: `browser-whep.ps1` beendete nur den GESTARTETEN Browser-Prozess, nicht dessen gutes Dutzend Kinder. Ueber mehrere Laeufe hatten sich fuenfzehn Chromium-Prozesse angesammelt und belegten die GPU. Nach dem Aufraeumen war alles wieder sauber. **Wenn Zahlen ueber eine Messreihe hinweg schlechter werden, zuerst nach eigenen Resten sehen.** Behoben, erkannt am Profilverzeichnis."
+  },
+
+  "WERKZEUG_AENDERUNGEN": [
+    "`browser-whep.ps1` berichtet jetzt, was die SENDER gefahren haben (Encoder + wirklich gesetzte Optionen). Der erste Lauf dieser Reihe sah nach 'Auffrischung kaputt' aus, und ohne diesen Bericht waere nicht aufgefallen, dass die Frage offen ist, ob sie ueberhaupt wirkte.",
+    "`--v=1` statt `--v=0`: erst ab dieser Stufe schreibt Chromium, WELCHEN Decoder es genommen hat und ob es zurueckgefallen ist. Vorher stand im Protokoll nur, DASS Bilder kamen.",
+    "`-Nur`, `-OhneTon`, `-OhneAuffrischung`, `-Amd`: die vier Bedingungen, die in dieser Reihe einzeln zu trennen waren."
+  ],
+
+  "NEBENBEFUND_stiller_rueckfall": "Ein Start mit Ton auf eine DATEI-Senke faellt still von AV1 auf `h264_d3d12va` zurueck und schreibt 0 Bytes. Aufgefallen ist es nur, weil `warn_unknown_opts` meldete, `h264_d3d12va` kenne `intra_refresh_stripes` nicht — die Warnung hat hier genau das getan, wofuer sie gebaut wurde. Ueber eine WHIP-URL passiert das nicht. Nicht weiter untersucht; betrifft nur den Diagnose-Weg."
+}

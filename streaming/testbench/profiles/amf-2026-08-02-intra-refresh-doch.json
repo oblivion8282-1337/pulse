@@ -1,0 +1,91 @@
+{
+  "id": "amf-2026-08-02-intra-refresh-doch",
+  "gemessen_am": "2026-08-02",
+  "frage": "Kann av1_amf auf dieser Karte doch Intra-Refresh? Die Laborakte sagt seit dem 2026-08-01 nein, und darauf steht der ganze Vulkan-Umweg.",
+  "stand": "JA, ueber `-intra_refresh_mode gop_aligned`, und **bis zum Zuschauer belegt** (Abschnitte 6 bis 9, ueber den Hetzner-Messstand). Die bisherige Aussage 'AMF ignoriert die Einstellung byte-identisch' ist WIDERLEGT. Die Voraussetzung des Labors — 'auf AMD/Windows fuehrt nur der Vulkan-Encoder zum Ziel' — traegt nicht mehr.",
+  "kurzfassung": "1 Vollbild statt 6 am Zuschauer (8 und 10 Bit), Einstieg ohne Anforderung bleibt schwarz (wie bei Vulkan), Erholung nach Verlust nur mit Anforderung (27,8 -> 0,0 ohne, 28,0 -> 29,5 mit), Vollbild-Anforderung wird waehrend der Auffrischung eingeloest, 10-Bit-Bild sichtgeprueft und einwandfrei. Offen bleibt die Qualitaetsmessung.",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, FFmpeg n8.1.2 (`ffmpeg-patched`). Nur die FFmpeg-Kommandozeile, kein Labor-Binary, kein Netz, kein Server. Quelle je nach Frage `testsrc2` (bewegt) oder ein Standbild daraus (`-loop 1`), 1280x720@30.",
+
+  "1_die_option_heisst_anders_als_geprueft": {
+    "befund": "`av1_amf` hat **kein** `-intra_refresh`. Es hat `-intra_refresh_mode` mit drei Werten (`disabled` 0, `gop_aligned` 1, `continuous` 2) und `-intra_refresh_stripes`. `h264_amf` hat stattdessen `-intra_refresh_mb`.",
+    "warum_das_die_alte_Messung_erklaert": "Wer `-intra_refresh 1` setzt (der Name aus dem Vulkan-Patch und von NVENC), bekommt bei `av1_amf` keine Wirkung. Ein byte-identisches Ergebnis ist dann kein Befund ueber AMF, sondern ueber einen Optionsnamen. **Nicht belegt**, dass die alte Messung genau das getan hat — die Akte vom 2026-08-01 nennt den Aufruf nicht; das ist die naheliegendste Erklaerung, mehr nicht."
+  },
+
+  "2_aendert_die_option_ueberhaupt_etwas": {
+    "verfahren": "Zweimal derselbe Aufruf ohne Option (Kontrolle auf Determinismus), dann mit `-intra_refresh_mode continuous -intra_refresh_stripes 30`. `testsrc2`, 5 s, CBR 4000k, `-g 600`.",
+    "kontrolle_zweimal_gleich": "byte-identisch (SHA 822B9E86..., 2.542.756 Bytes beide Male). Der Encoder ist deterministisch — ein Unterschied ist damit aussagekraeftig.",
+    "mit_option": "2.544.047 Bytes, anderer Hash. Also NICHT ignoriert.",
+    "befund": "Die Option wirkt. Ob sie das Richtige tut, sagt der Groessenvergleich bei CBR aber nicht — die Ratensteuerung fuellt ohnehin auf."
+  },
+
+  "3_tut_sie_auch_intra_refresh": {
+    "verfahren": "**Stehendes Bild** statt bewegter Quelle, feste Quantisierung (`-rc cqp -qp_i 30 -qp_p 30`), `-g 600`. Auf einem Standbild kosten Zwischenbilder ohne Auffrischung fast nichts; ein Auffrischungs-Streifen kostet dagegen rund ein Dreissigstel eines Vollbilds. Damit ist die Frage an der Bildgroesse ablesbar.",
+    "vollbild_kostet_bytes": 40564,
+    "ein_streifen_waere_also_rund": 1352,
+    "mittel_je_zwischenbild": {
+      "continuous_30_streifen": 80,
+      "continuous_10_streifen": 65,
+      "continuous_30_streifen_usage_ultralowlatency": 80,
+      "gop_aligned_30_streifen": 1445
+    },
+    "befund": "**Nur `gop_aligned` frischt wirklich auf.** 1445 Bytes je Zwischenbild treffen die erwarteten 1352 auf 7 % genau. `continuous` bleibt bei 65 bis 80 Bytes — das sind uebersprungene Bilder, also gar keine Auffrischung. Dieser Treiber nimmt Modus 2 an und tut nichts damit; das ist der Teil der alten Aussage, der stimmt."
+  },
+
+  "4_ersetzt_es_die_periodischen_vollbilder": {
+    "verfahren": "Der eigentliche Zweck. Stehendes Bild, `-g 60`, 300 Bilder — ohne Auffrischung muessen fuenf Vollbilder kommen.",
+    "ohne_intra_refresh": { "vollbilder": 5, "bei_bild": [0, 60, 120, 180, 240], "groesse_je_vollbild": 40564 },
+    "mit_gop_aligned_30_streifen": { "vollbilder": 1, "bei_bild": [0], "groesstes_bild_danach": 7666 },
+    "mittel_je_30er_block_ohne": [1410, 57, 1410, 57, 1410, 57, 1410, 57, 1410, 57],
+    "mittel_je_30er_block_mit": [2749, 69, 1428, 84, 1422, 69, 1429, 84, 1423, 77],
+    "befund": "**Das ist die Kernaussage.** Statt fuenf Vollbildern kommt eines, und die Auffrischung wiederholt sich je GOP (der Wechsel 1428/69 in den Bloecken). Die Bitmenge ist dieselbe — sie ist nur verteilt statt in Stoessen. Genau das soll Intra-Refresh leisten."
+  },
+
+  "5_und_in_10_bit": {
+    "verfahren": "Derselbe Lauf mit `format=p010le`. Und, weil das die Lehre des Tages ist: ein Bild ANGESEHEN, nicht nur gezaehlt (Bild 90 aus einem 4-s-Lauf ueber `testsrc2`, CBR 4000k, `-g 60`).",
+    "struktur": { "vollbilder": 1, "auffrischung_wiederholt_sich": true },
+    "bild": "einwandfrei — volle, richtige Farben.",
+    "befund": "AV1 in 10 Bit MIT Intra-Refresh laeuft ueber AMF. Das ist genau die Kombination, die ueber den Vulkan-Encoder farblich kaputt ist (`intrarefresh-2026-08-02-windows-amd.json` Abschnitt 11)."
+  },
+
+  "6_KOMMT_ES_BEIM_ZUSCHAUER_AN": {
+    "frage": "Die Entscheidungsfrage. Alles oben sind Dateimitschnitte — traegt die Auffrischung durch Server und Leitung bis zu einem Zuschauer, der wirklich dekodiert?",
+    "verfahren": "Voller Weg: Labor-Binary mit `PULSE_LABOR_AMF=1` und `PULSE_ENCODER_OPTS=intra_refresh_mode=gop_aligned,intra_refresh_stripes=30` (das ausgelieferte Binary wurde dafuer NICHT angefasst — die Naht gibt es schon), Bildschirmaufnahme 720p30 4000 kbps ueber den Hetzner-Messstand, Zuschauer `whep_messwerk` mit echtem Decoder. Der Sidecar setzt fuer AMF `gop = fps * 2`, also alle 2 s ein Vollbild — ohne Auffrischung muessen in 12 s rund sechs kommen. Skript: `win-hq-labor/testbench/amf-intra-refresh-nachweis.ps1`.",
+    "ohne_auffrischung_8bit":  { "pakete": 2852, "bilder": 339, "vollbilder": 6, "abgelehnt": 6 },
+    "mit_auffrischung_8bit":   { "pakete": 2845, "bilder": 337, "vollbilder": 1, "abgelehnt": 7 },
+    "mit_auffrischung_10bit":  { "pakete": 1434, "bilder": 339, "vollbilder": 1, "abgelehnt": 5 },
+    "befund": "**JA.** 1 Vollbild statt 6, bei gleicher Bildzahl und gleicher Paketzahl — am dekodierenden Zuschauer gezaehlt, nicht am Log des Senders. Der Vollbild-Takt ist ersetzt, nicht ergaenzt. Gilt fuer 8 und 10 Bit.",
+    "wiederholt": "Das Paar 8 Bit ohne/mit wurde ein zweites Mal gefahren (336 Bilder / 6 Vollbilder gegen 344 / 1). Gleiches Bild, andere Bildinhalte — die Aussage haengt also nicht an einem einzelnen Lauf."
+  },
+
+  "7_der_rueckkanal_ist_auch_hier_voraussetzung": {
+    "verfahren": "Derselbe Strom, Zuschauer einmal OHNE Vollbild-Anforderung beim Einstieg (`kein-pli`).",
+    "einstieg_ohne_anforderung_8bit": { "pakete": 2859, "bilder": 0, "vollbilder": 0, "abgelehnt": 67 },
+    "befund": "Null Bilder. Identisch zum Vulkan-Weg (dort 411 vollstaendige Zeitabschnitte, 0 Bilder). Ein Auffrischungsstrom hat nach dem Start kein Vollbild mehr, also kommt ein Einsteiger ohne Anforderung nicht ins Bild — das ist keine Eigenheit des Encoders, sondern des Verfahrens. Der Rueckkanal ist Voraussetzung, keine Verbesserung."
+  },
+
+  "8_erholung_nach_verlust": {
+    "verfahren": "Beide Zuschauer fordern beim Einstieg an. Nach 7 s verwirft das Messwerk 60 Pakete am Stueck. Nur einer fordert danach erneut an. Gemessen wird die Bildrate VOR und NACH dem Verlust, 16 s Laufzeit — dieselbe Rechnung wie beim Vulkan-Weg.",
+    "fragt_nicht_8bit":  { "rate_vorher_je_s": 27.8, "rate_danach_je_s": 0.0, "bilder": 203, "vollbilder": 1 },
+    "fragt_nach_8bit":   { "rate_vorher_je_s": 28.0, "rate_danach_je_s": 29.5, "bilder": 446, "vollbilder": 2 },
+    "fragt_nach_10bit":  { "rate_vorher_je_s": 24.7, "rate_danach_je_s": 29.5, "bilder": 417, "vollbilder": 2 },
+    "befund": "Auch hier deckungsgleich mit dem Vulkan-Weg: **Intra-Refresh heilt nicht von selbst** (27,8 -> 0,0 je Sekunde und bleibt unten; der Vulkan-Weg kam auf 4,1), und mit Anforderung ist der Strom sofort wieder vollstaendig.",
+    "beantwortet_nebenbei_die_offene_frage": "**AMF loest eine Vollbild-Anforderung ein, waehrend die Auffrischung laeuft.** Genau zwei Vollbilder kommen an — das beim Einstieg und das nach dem Verlust —, und die Bildrate ist danach wieder voll. Das ist `forced_idr=1`, das der AMF-Zweig ohnehin setzt (`encode/opts.rs`). Damit hat der Rueckkanal auf diesem Weg dasselbe, worauf er wirken kann."
+  },
+
+  "9_sichtpruefung": {
+    "verfahren": "Die Lehre des Tages: nicht zaehlen, hinsehen — und nicht Bild 0. 10 Bit ueber die ECHTE Pipeline (Aufnahme, Skalierer, AMF mit Auffrischung) in eine Datei, Bild 45 als PNG.",
+    "befund": "einwandfrei, volle und richtige Farben.",
+    "warum_das_hier_zaehlt": "Es ist genau die Kombination, die ueber den Vulkan-Encoder magenta ist."
+  },
+
+  "OFFEN_UND_NICHT_GEMESSEN": [
+    "**Qualitaet.** Kein VMAF, kein PSNR. Dass die Bitmenge gleich ist und nur anders verteilt, ist gezeigt; dass das Bild dabei gleich gut bleibt, nicht. Das ist der letzte fehlende Vergleich gegen den Vulkan-Weg.",
+    "**Browser.** Ob ein Chromium den AMF-Auffrischungsstrom in HARDWARE dekodiert, ist hier nicht nachgeprueft. Fuer den AMF-Strom OHNE Auffrischung ist es belegt (`intrarefresh-...` Abschnitt 9: 0 Rueckfaelle, `ExternalDecoder`), und die Auffrischung aendert den Sequenzkopf nicht — aber hergeleitet ist nicht gemessen.",
+    "**Die Streifen-Semantik.** `-intra_refresh_stripes 60` bei `-g 60` ergibt dasselbe Muster wie 30 Streifen (Wechsel 1547/82) — der Zyklus fuellt den GOP also nicht aus, und warum, ist ungeklaert. Wer die Einstellung im Betrieb waehlen will, muss das erst verstehen.",
+    "**H.264.** `h264_amf` hat eine andere Option (`-intra_refresh_mb`), die hier gar nicht geprueft ist.",
+    "**Der Sidecar setzt die Optionen nicht selbst.** Alle Messungen liefen ueber `PULSE_ENCODER_OPTS`. Bevor das Verfahren ausgeliefert wird, muesste es in `encode/opts.rs` — das ist eine Entscheidung ueber das ausgelieferte Binary und steht hier nicht an.",
+    "Nur diese eine Karte und dieser eine Treiber."
+  ],
+
+  "folge": "Der Vulkan-Umweg (eigener D3D11->Vulkan-Import, zwei FFmpeg-Patches, eigener Encode-Weg) ist mit der Begruendung 'nur Vulkan kann hier Intra-Refresh' angetreten. Diese Begruendung traegt nicht mehr. Ob der Umweg trotzdem der richtige Weg bleibt, ist eine Entscheidung und keine Messung — dafuer fehlen die offenen Punkte oben, vor allem der Zuschauer-Nachweis. Was der Befund SOFORT aendert: 10 Bit mit Intra-Refresh ist auf dieser Karte moeglich, nur eben nicht ueber Vulkan."
+}

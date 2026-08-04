@@ -1,0 +1,69 @@
+{
+  "id": "rueckkanal-2026-08-02-windows",
+  "gemessen_am": "2026-08-02",
+  "frage": "Erreicht die Vollbild-Anforderung eines Zuschauers den Encoder — und erzeugt er daraufhin wirklich ein Vollbild? Ohne beides ist Intra-Refresh unbedienbar: dort hat der Strom nach dem Start KEIN regulaeres Vollbild mehr, ein neu dazukommender Zuschauer kaeme ohne Anforderung gar nicht erst ins Bild.",
+  "stand": "BEIDE HAELFTEN BELEGT — und dabei ein Fehler gefunden, der die zweite Haelfte unwirksam machte.",
+  "aufbau": "Radeon 780M, AV1 und H.264 ueber av1_amf/h264_amf, 1280x720@30, 3000 kbps. MediaMTX 1.19.1 (Lagerfassung) auf derselben Maschine.",
+
+  "haelfte_1_erzeugt_der_encoder_ein_vollbild": {
+    "verfahren": "Stream in eine DATEI (nicht ueber das Netz), Anforderungen per `{\"op\":\"keyframe\"}` zu bekannten Zeiten, danach `ffprobe` ueber die Paket-Flags. Bewusst NICHT dem Log des Senders geglaubt — die Datei ist die unabhaengige Instanz.",
+    "vorher": {
+      "anforderungen": "bei 5,0 s und 9,0 s, vom Sender als angenommen gemeldet (pts 148 und 269)",
+      "vollbilder_in_der_datei": [0.0, 2.03, 4.03, 6.03, 8.03, 10.03, 12.03],
+      "befund": "NUR der regulaere Zwei-Sekunden-Takt. Keine zusaetzlichen Vollbilder an den Anforderungen. Der Rueckkanal war in Ordnung, die Wirkung blieb aus."
+    },
+    "ursache": "FFmpeg verzweigt in `amfenc.c` auf die Option `forced_idr`. Ohne sie wird aus `pict_type = I` bei AV1 ein `AMF_VIDEO_ENCODER_AV1_FORCE_FRAME_TYPE_INTRA_ONLY` statt `..._KEY` (bei H.264 ein `PICTURE_TYPE_I` statt `..._IDR`). Ein Intra-Only-Bild ist zwar vollstaendig intra-kodiert, aber KEIN Keyframe: es bringt den Sequenzkopf nicht mit, und ein neu einsteigender Zuschauer kann damit nichts anfangen.",
+    "behebung": "`forced_idr=1` im AMD-Zweig von `vendor_encoder_opts`, `forced-idr=1` (mit Bindestrich) im NVIDIA-Zweig. Kostet nichts, solange niemand anfordert — die Option greift erst bei einem Bild mit `pict_type = I`.",
+    "nachher": {
+      "anforderungen": "bei 5,1 s und 9,0 s (pts 149 und 267)",
+      "vollbilder_in_der_datei": [0.0, 2.03, 4.03, 4.97, 6.97, 8.9, 10.9, 12.9],
+      "befund": "Die zwei zusaetzlichen liegen GENAU auf den Anforderungen (4,97 und 8,90 s), und der regulaere Takt startet danach neu (6,97 = 4,97 + 2,00). Anforderung wirkt, unabhaengig belegt."
+    },
+    "was_daran_zaehlt": "Der Fehler war nur sichtbar, weil die Messung die DATEI gelesen hat. Das Log des Senders meldete beide Anforderungen als angenommen und war damit vollkommen plausibel — und falsch. Dieselbe Lehre wie beim zerrissenen Bild am 2026-07-30: bei Bildwegen gehoert zu jeder Messung eine Quelle, die nicht der Sender selbst ist."
+  },
+
+  "haelfte_2_erreicht_eine_fremde_anforderung_den_encoder": {
+    "verfahren": "Stream ueber den eigenen WHIP-Sendeweg an MediaMTX. Die Lagerfassung fordert von JEDEM WebRTC-Sender alle zwei Sekunden ein Vollbild an, aus einem fest verdrahteten Takt (`inbound_track.go`) — damit laesst sich der Empfangspfad pruefen, OHNE Zuschauer und ohne den Pulse-Fork.",
+    "ergebnis": [
+      { "codec": "AV1", "ton": "aus", "empfangen": 6, "eingeloest": 6, "abstand": "pts 125/185/245/305/365/425 — exakt 60 Bilder = 2,00 s" },
+      { "codec": "AV1", "ton": "Desktop", "empfangen": 7, "eingeloest": 7 },
+      { "codec": "H.264", "ton": "Desktop", "empfangen": 7, "eingeloest": 7 }
+    ],
+    "befund": "Jede empfangene Anforderung wird eingeloest. Der Weg RTCP -> Sender -> Encoder traegt vollstaendig."
+  },
+
+  "haelfte_3_die_letzte_meile_kommt_die_anforderung_eines_ZUSCHAUERS_durch": {
+    "frage": "Die beiden Haelften oben zeigen: eine eintreffende RTCP-Anforderung wird eingeloest. Offen blieb das Stueck davor — passiert die Anforderung eines echten Zuschauers den Server?",
+    "werkzeug": "`streaming/win-hq-labor/examples/whep_zuschauer.rs` — ein WHEP-Empfaenger, der zusieht und auf Zuruf eine PictureLossIndication schickt. Dekodiert bewusst nicht; die Frage ist, ob die Anforderung ankommt.",
+    "aufbau": "Damit die Antwort eindeutig ist: gepatchter MediaMTX (Patch 0002) MIT `PULSE_KEYFRAME_INTERVAL=0`, also OHNE den fest verdrahteten Zwei-Sekunden-Takt. Jede Anforderung, die der Sender dann sieht, kann nur vom Zuschauer kommen.",
+    "drei_laeufe": [
+      {
+        "lauf": "A — Fork, Takt aus, Zuschauer fordert an",
+        "ergebnis": "1 Anforderung empfangen, 1 Vollbild erzeugt (pts=300 bzw. 329 in der Wiederholung). Zuschauer bekam die AV1-Spur und empfing nach der Anforderung weitere 924 bzw. 954 Pakete.",
+        "bedeutung": "Die letzte Meile traegt."
+      },
+      {
+        "lauf": "B — Fork, Takt aus, Zuschauer sieht nur zu",
+        "ergebnis": "0 Anforderungen, 0 Vollbilder.",
+        "bedeutung": "Gegenprobe: die Eins aus Lauf A kam wirklich vom Zuschauer und nicht aus einem Rest."
+      },
+      {
+        "lauf": "C — LAGERFASSUNG, Zuschauer fordert an",
+        "ergebnis": "7 Anforderungen, alle Vollbilder exakt 60 Bilder auseinander (pts 132/192/252/312/372/432/492).",
+        "bedeutung": "Alle sieben sind der fest verdrahtete Takt — KEINE faellt aus dem Raster. Die Anforderung des Zuschauers ist unterwegs gestorben. Damit ist gemessen statt angenommen, dass Patch 0002 noetig ist."
+      }
+    ],
+    "stand": "BELEGT, mit Gegenprobe und Kontrolllauf."
+  },
+
+  "nebenbefund_der_zaehlt": "Mit der Lagerfassung von MediaMTX bekommt der Stream ALLE ZWEI SEKUNDEN ein Vollbild aus dem Takt — zusaetzlich zu den eigenen aus dem GOP. Genau das beschreibt der Fork-Patch 0002 als Problem: fuer einen Intra-Refresh-Strom setzt dieser Takt die Bild-Stoesse wieder ein, gegen die Intra-Refresh antritt. Wer hier Intra-Refresh misst, muss den Takt abschalten (`PULSE_KEYFRAME_INTERVAL=0` im Fork), sonst misst er ihn mit.",
+
+  "GRENZEN_DER_AUSSAGE": [
+    "**Keine Sichtpruefung.** Dass ein Zuschauer nach einem Verlust WIEDER INS BILD kommt, ist nicht gezeigt — nur, dass seine Anforderung ankommt, ein Vollbild erzeugt und gesendet wird. Der Zuschauer in Lauf A dekodiert nicht.",
+    "**Kein Verlust im Spiel.** Die Anforderung wurde auf Zuruf gestellt, nicht durch eine echte Luecke ausgeloest. Ob ein Zuschauer bei realem Paketverlust von selbst eine stellt, ist eine andere Frage.",
+    "Nur Radeon 780M, nur ueber Loopback, nur AV1 in den Laeufen A-C (H.264 in Haelfte 2 mitgeprueft).",
+    "`forced_idr` ist auf NVIDIA und Intel ungeprueft — dort ist die Option gesetzt, aber nicht nachgemessen."
+  ],
+
+  "messmethodische_lehre": "Zwei Stunden gingen an den Messaufbau, nicht an den Code. Erstens: kommt die Anfrage aus einer Datei, sieht der Sidecar nach der letzten Zeile EOF auf stdin und faehrt korrekt herunter — mitten im Verbindungsaufbau, was von aussen wie ein Netzproblem aussieht. Zweitens: `Register-ObjectEvent` in PowerShell hat stderr-Zeilen verschluckt (sechs kamen an, der Rest nicht) — und ausgerechnet die fehlenden waren die, die den Rueckkanal belegen. Eine erste Messung meldete deshalb 'null Anforderungen empfangen', obwohl es sieben waren. Wer hier misst: stdin offen halten und stderr am Ende mit `ReadToEnd` in einem Stueck lesen."
+}

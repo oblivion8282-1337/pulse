@@ -1,0 +1,33 @@
+{
+  "id": "whip-2026-08-02-windows-eigener-sendeweg",
+  "gemessen_am": "2026-08-02",
+  "frage": "Traegt der eigene WHIP-Sendeweg unter Windows — also AV1 ueber WebRTC mit Rueckkanal, was FFmpegs eigener WHIP-Muxer nicht kann?",
+  "stand": "JA, fuer alle vier gepruefte Kombinationen. Bild UND Ton kommen am Server an.",
+  "warum_die_frage_zaehlt": "Ohne diesen Weg verhaelt sich das Labor exakt wie der ausgelieferte Sidecar: eine http(s)-URL ginge ueber den FFmpeg-WHIP-Muxer, und der kann kein AV1 und hat keinen Rueckkanal. Ohne Rueckkanal gibt es keine Vollbild-Anforderung — und im Intra-Refresh-Betrieb ist die nicht Reparatur, sondern Voraussetzung: dort hat der Strom nach dem Start kein Vollbild mehr, ein neu dazukommender Zuschauer kaeme ohne sie gar nicht ins Bild.",
+  "aufbau": "Radeon 780M. MediaMTX 1.19.1 (Lagerfassung, NICHT der Pulse-Fork) auf derselben Maschine, nur WebRTC aktiv, ohne Authentifizierung. Aufnahme: echter Monitor 2560x1440, ausgegeben als 720p30. Je Lauf rund 15 s, gemessen an der MediaMTX-API (`/v3/paths/list`).",
+  "ergebnis": [
+    { "codec": "AV1", "ton": "aus",     "spuren": "AV1",       "empfangen_bytes": 2634541, "bereit": true },
+    { "codec": "AV1", "ton": "Desktop", "spuren": "Opus+AV1",  "empfangen_bytes": 2471713, "bereit": true },
+    { "codec": "AV1 10 bit", "ton": "Desktop", "spuren": "Opus+AV1", "empfangen_bytes": 2156721, "bereit": true },
+    { "codec": "H.264", "ton": "Desktop", "spuren": "Opus+H264", "empfangen_bytes": 3013423, "bereit": true }
+  ],
+  "gegenprobe_ffmpeg_whip_muxer": {
+    "befehl": "ffmpeg -f lavfi -i testsrc -c:v h264_amf -f whip http://127.0.0.1:8889/x/whip",
+    "ergebnis": "SCHEITERT auf dieser Maschine: `Creating security context failed (0x80090331)` -> `DTLS session failed`.",
+    "bedeutung": "FFmpegs WHIP-Muxer ist unter Windows nicht nur AV1-untauglich, er laeuft hier ueberhaupt nicht (Schannel-DTLS). Das ist ein zweiter, unabhaengiger Grund fuer den eigenen Sendeweg — und es heisst, dass ein Windows-Nutzer auf einer WHIP-Instanz heute gar nicht senden koennte."
+  },
+  "was_dabei_gefunden_wurde": [
+    "**H.264 nahm den falschen Weg und schwieg dabei.** Auf AMD geht H.264 regulaer ueber D3D12 (`h264_d3d12va`), und dieser Encoder ist nicht gegabelt — seine Pakete liefen am angemeldeten Sendeweg vorbei in den ffmpeg-Muxer, der dann an DTLS starb. Am Server kam nichts an, im Log stand nichts Brauchbares. Behoben an ZWEI Stellen: `VideoCodec::encode_path` waehlt bei angemeldetem Sendeweg den D3D11-Weg (nur der kann ihn bedienen), und `open_output` sagt laut ab, statt still zu muxen.",
+    "**Der Messaufbau hat eine Stunde gekostet, nicht der Code.** Die Anfrage kam aus einer Datei; nach der einen Zeile sah der Sidecar EOF auf stdin und fuhr korrekt herunter — mitten im ICE-Aufbau. Von aussen sah das wie ein Netzproblem aus (`deadline exceeded while waiting connection` am Server) und hat eine lange Jagd nach Firewall- und ICE-Ursachen ausgeloest. **Wer hier misst, haelt stdin offen** (`streaming/testbench/` bzw. das Skript im Sitzungsordner).",
+    "**Das Labor war stumm.** `tracing` war eingebunden, ein Empfaenger nicht — alle Diagnosezeilen des WHIP-Wegs verschwanden spurlos, ohne Warnung beim Bauen. Jetzt gibt es `logging.rs` (gleiche Bauart wie im Linux-Sidecar, `PULSE_HQ_LOG`), Zustandsmeldungen fuer ICE und Verbindung, und eine Zaehlung der ICE-Kandidaten im Angebot.",
+    "**Windows-Firewall legt fuer ein frisch gebautes Binary eine Block-Regel an**, ohne dass jemand am Rechner ist (`pulse-win-hq-labor.exe` Inbound Block). Fuer Messungen gegen einen Server auf derselben Maschine deshalb `PULSE_WHIP_LOOPBACK=1` — dann laeuft ICE ueber 127.0.0.1, wo die Firewall nicht greift."
+  ],
+  "GRENZEN_DER_AUSSAGE": [
+    "Server auf DERSELBEN Maschine, ueber Loopback. Ueber eine echte Leitung ist der Weg unter Windows ungeprueft.",
+    "**Der Rueckkanal selbst ist nicht gemessen.** Der Empfangspfad fuer PLI/FIR ist verdrahtet, aber es gab in diesem Lauf keinen Zuschauer, der eine Anforderung gestellt haette — und die Lagerfassung von MediaMTX leitet sie ohnehin nicht weiter (dafuer gibt es den Pulse-Fork-Patch 0002). Das ist die naechste Messung. Sie braucht dafuer keinen Zuschauer mehr: der neue Op `{\"op\":\"keyframe\"}` loest dasselbe von Hand aus (im Lauf gegen den laufenden Stream geprueft, Antwort `ok`).",
+    "**Der eigene Sendeweg hat keine Abgabestelle.** Er paketiert, verschluesselt und sendet synchron im Taktfaden, waehrend der Muxer dafuer einen eigenen Faden hat. In diesen Laeufen nicht aufgefallen, aber es ist die Stelle, an der ein Messstand fuer Latenz und Gleichmaessigkeit sich selbst verfaelschen kann — und `last_mux_us` bedeutet auf beiden Wegen etwas Verschiedenes.",
+    "Nur Radeon 780M. NVIDIA und Intel sind ungeprueft; auf Intel faellt der Weg heute auf die CPU-Pipeline, die nicht gegabelt ist und deshalb laut absagt.",
+    "Die 10-bit-Zeile belegt, dass der Strom flieSSt — NICHT, dass er 10 bit ist. MediaMTX meldet die Bittiefe nicht. Der Encoder-Weg selbst ist am 2026-08-01 am Server als 10 bit bestaetigt worden.",
+    "Keine Sichtpruefung am Bild. Bytes am Server sagen nichts ueber das, was ein Zuschauer sieht."
+  ]
+}

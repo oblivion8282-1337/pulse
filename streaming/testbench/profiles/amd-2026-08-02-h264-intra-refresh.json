@@ -1,0 +1,66 @@
+{
+  "id": "amd-2026-08-02-h264-intra-refresh",
+  "gemessen_am": "2026-08-02",
+  "frage": "Was ist mit H.264 auf den herstellereigenen Wegen — koennen die Intra-Refresh?",
+  "stand": "JA, und zwar mehr als erwartet: auf dem AMF-Weg laeuft es **schon**, ohne dass es je jemand eingeschaltet haette. `usage=lowlatency`/`ultralowlatency` bringt es mit, und genau das setzt der Sidecar auf AMD (`encode/opts.rs`). Der Strom heilt sich am Zuschauer nach Paketverlust OHNE Anforderung — anders als AV1.",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, FFmpeg n8.1.2. Struktur-Messungen ueber die FFmpeg-Kommandozeile mit einem STEHENDEN Bild und fester Quantisierung (nur so ist eine Auffrischung an der Bildgroesse ablesbar); Zuschauer-Messungen ueber den Hetzner-Messstand mit `whep_messwerk`.",
+
+  "1_die_optionen": {
+    "h264_amf": "`-intra_refresh_mb <N>` — Zahl der Makrobloecke je Bild. Bei 720p sind es 3600 insgesamt, also 120 fuer einen 30-Bilder-Zyklus. Ganz andere Form als bei `av1_amf` (`-intra_refresh_mode` + `-intra_refresh_stripes`).",
+    "h264_d3d12va": "`-intra_refresh_mode row_based` + `-intra_refresh_duration <Bilder>`.",
+    "warum_das_zaehlt": "Drei Encoder desselben Herstellers, drei verschiedene Optionsnamen. Wer einen Namen von einem auf den anderen uebertraegt, misst nichts — genau so ist am 2026-08-01 der Fehlschluss 'AMF kann kein Intra-Refresh' entstanden."
+  },
+
+  "2_DER_HAUPTBEFUND_es_laeuft_schon": {
+    "verfahren": "Stehendes Bild, `-rc cqp -qp_i 30 -qp_p 30 -g 60`, 300 Bilder, nur `-usage` variiert. Ohne Auffrischung muessen fuenf Vollbilder kommen und die Zwischenbilder auf fast nichts zusammenfallen.",
+    "mittel_je_30er_block": {
+      "usage_default":         { "vollbilder": 5, "bloecke": [701, 50, 700, 50, 700, 50, 700, 50, 700, 50] },
+      "usage_transcoding":     { "vollbilder": 5, "bloecke": [701, 50, 700, 50, 700, 50, 700, 50, 700, 50] },
+      "usage_lowlatency":      { "vollbilder": 1, "bloecke": [1439, 61, 825, 61, 825, 61, 825, 61, 825, 61] },
+      "usage_ultralowlatency": { "vollbilder": 1, "bloecke": [1439, 61, 825, 61, 825, 61, 825, 61, 825, 61] }
+    },
+    "befund": "**`usage=lowlatency` und `ultralowlatency` ersetzen den Vollbild-Takt von sich aus durch eine verteilte Intra-Last.** Fuenf Vollbilder werden zu einem, und statt der 700/50-Stoesse steht ein wiederkehrendes 825/61. Niemand hat dafuer eine Auffrischungs-Option gesetzt.",
+    "folge": "Der Sidecar setzt `usage=ultralowlatency` fuer AMD seit dem 2026-07-30 — aus Last-Gruenden (23,9 % auf 9,4 % Video-Engine, `opts.rs`). **Damit laeuft H.264 ueber AMF seither mit Auffrischung, ohne dass es irgendwo steht.** Das erklaert auch den Eintrag in `intrarefresh-2026-08-02-windows-amd.json` Abschnitt 7, wonach die Vollbild-Zahl bei H.264 'nicht unterscheidet' — sie konnte gar nicht, weil beide Seiten des Vergleichs bereits auffrischten."
+  },
+
+  "3_und_die_eigentliche_option": {
+    "verfahren": "Dieselbe Messung, `-usage ultralowlatency`, mit und ohne `-intra_refresh_mb 120`.",
+    "ohne":  { "vollbilder": 1, "aktiver_block": 825 },
+    "mit":   { "vollbilder": 1, "aktiver_block": 938 },
+    "befund": "`intra_refresh_mb` wirkt, aber es schaltet nichts ein — es dreht an einem Zyklus, der schon laeuft (+14 % Last im aktiven Block). Bei der TREIBER-Vorgabe (`usage` ungesetzt) ist es dagegen der Schalter: dort werden aus 5 Vollbildern 1, und die Zwischenbilder steigen von 50 auf 938.",
+    "ohne_usage_ultralowlatency": { "ohne_mb": { "vollbilder": 5, "aktiver_block": 700 }, "mit_mb_120": { "vollbilder": 1, "aktiver_block": 938 } }
+  },
+
+  "4_der_zuschauer": {
+    "verfahren": "Hetzner-Messstand, `whep_messwerk` mit echtem Decoder, 16 s, nach 7 s 60 Pakete am Stueck verworfen. Sidecar-Vorgaben unveraendert (also `usage=ultralowlatency`, Auffrischung an), KEINE zusaetzliche Option.",
+    "fragt_nach_verlust_nicht": { "bilder": 445, "vollbilder": 1, "rate_vorher_je_s": 28.5, "rate_danach_je_s": 28.9 },
+    "fragt_nach_verlust":       { "bilder": 450, "vollbilder": 2, "rate_vorher_je_s": 28.3, "rate_danach_je_s": 29.5 },
+    "befund": "**H.264 heilt sich selbst.** 28,5 -> 28,9 Bilder je Sekunde ohne jede Anforderung, bei einem einzigen Vollbild im ganzen Lauf. Das ist genau das, was Intra-Refresh leisten soll — und es ist der Unterschied zu AV1.",
+    "gegenprobe_ist_eingebaut": "AV1 ueber DENSELBEN Messstand, dieselbe Verlust-Messung, faellt auf 0,0 je Sekunde und bleibt unten (`amf-2026-08-02-intra-refresh-doch.json` Abschnitt 8). Es liegt also nicht an FEC oder NACK des Messstands — die sind in beiden Faellen dieselben.",
+    "warum_der_unterschied_plausibel_ist": "H.264 kennt `constrained_intra_pred` und damit einen Auffrischungs-Zyklus, nach dem kein Bildteil mehr auf Verlorenes zeigt. Bei AV1 gibt es das so nicht. **Hergeleitet, nicht gemessen** — die Bitstrom-Ebene ist hier nicht geprueft."
+  },
+
+  "5_h264_d3d12va": {
+    "verfahren": "Stehendes Bild, `-rc_mode CQP -qp 30`, einmal `-g 60` und einmal `-g 600`, mit und ohne `-intra_refresh_mode row_based -intra_refresh_duration 30`.",
+    "g60_ohne":  { "vollbilder": 5, "bloecke": [695, 44, 695, 44, 695, 44, 695, 44, 695, 44] },
+    "g60_mit":   { "vollbilder": 5, "bloecke": [1135, 507, 1135, 507, 1135, 507, 1135, 507, 1135, 507] },
+    "g600_ohne": { "vollbilder": 1, "bloecke": [695, 44, 44, 44, 44, 44, 44, 44, 44, 44] },
+    "g600_mit":  { "vollbilder": 1, "bloecke": [1135, 507, 510, 506, 508, 512, 505, 510, 511, 510] },
+    "befund": "Der d3d12-Weg frischt **durchgehend** auf (507 statt 44 in JEDEM Block), ersetzt den GOP-Takt aber NICHT von selbst: bei `-g 60` bleiben die fuenf Vollbilder stehen und die Auffrischung kommt obendrauf. Wer ihn benutzt, muss den GOP lang setzen. Damit ist auch der alte Satz 'D3D12 ist unbrauchbar' fuer H.264 nicht haltbar — er stammt aus dem AV1-Zusammenhang (`av1_d3d12va` liefert einen Bitstrom, den kein Decoder liest)."
+  },
+
+  "6_STOLPERSTEIN_der_encoder_haengt_an_der_SENKE": {
+    "befund": "Derselbe Auftrag laeuft je nach Ziel auf einem ANDEREN Encoder: Datei -> `pipeline-d3d12` -> `h264_d3d12va`; Messstand (http/https) -> `pipeline-hw` -> `h264_amf`.",
+    "warum": "Kein Fehler, sondern Regel: `VideoCodec::encode_path` erzwingt den D3D11-Weg, sobald der eigene WHIP-Sendeweg fuer die URL zustaendig ist (`senke::zustaendig`) — nur dieser Weg fragt `encode::senke` und `encode::bildencoder` ueberhaupt. Steht so im Quelltext begruendet.",
+    "was_man_daraus_lernen_muss": "**Eine H.264-Messung ueber den Messstand und eine ueber eine Datei messen NICHT denselben Encoder.** Wer eine Datei-Mitschrift zur Erklaerung einer Messstand-Zahl heranzieht, vergleicht zwei verschiedene Dinge. `PULSE_HQ_AMD_D3D11=1` erzwingt den D3D11-Weg auch fuer die Datei und stellt die Vergleichbarkeit her — so sind die Zahlen in Abschnitt 4 und die Struktur-Messungen zusammengefuehrt worden."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Die Struktur-Messungen (Abschnitte 2, 3, 5) laufen ueber die FFmpeg-Kommandozeile mit einem stehenden Bild, nicht durch die Pipeline. Der Weg durch die Pipeline ist fuer Abschnitt 4 gemessen, aber dort ist die Quelle ein echter Bildschirm und damit nicht kontrolliert — Bildgroessen sagen dort nichts.",
+    "**Keine Qualitaetsmessung.** Kein VMAF, kein PSNR, weder gegen den Vulkan-Weg noch zwischen den `usage`-Stufen.",
+    "**Keine Sichtpruefung fuer H.264 in dieser Reihe.** Dass das Bild stimmt, ist am 2026-08-02 fuer den Vulkan-Weg geprueft worden, nicht hier.",
+    "Dass H.264 sich selbst heilt und AV1 nicht, ist am Zuschauer GEMESSEN; die Erklaerung ueber `constrained_intra_pred` ist hergeleitet und im Bitstrom nicht nachgesehen.",
+    "Der Einstieg eines neuen Zuschauers OHNE Anforderung ist fuer H.264 nicht gemessen (fuer AV1 schon: 0 Bilder).",
+    "Nur diese eine Karte und dieser eine Treiber."
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "amd-windows-2026-08-01-codecs-und-10bit",
+  "gemessen_am": "2026-08-01 (nachts)",
+  "frage": "Deckt der Windows-Sidecar auf AMD die drei geforderten Betriebsarten ab — H.264, AV1 und AV1 in 10 bit? 10 bit gab es dort bisher gar nicht: das Feld verstand nur der Linux-Sidecar.",
+  "stand": "ALLE DREI LAUFEN, am echten Sidecar mit echter Bildschirm-Aufnahme, jeweils am Server gegengeprueft.",
+  "aufbau": {
+    "maschine": "Mini-PC, AMD Radeon 780M, Treiber 32.0.31035.1003, Windows 11",
+    "sidecar": "pulse-win-hq-sidecar, Branch feat/win-hq-labor (enthaelt die AMD-Zero-Copy-Arbeit aus perf/win-sidecar-gop)",
+    "capture": "echter Monitor 2560x1440, Ausgabe 1080p-Box, 60 fps, 4000 kbps, Ton aus",
+    "server": "MediaMTX v1.19.1 lokal, RTMP-Push",
+    "kontrolle": "Bittiefe und Codec NICHT dem Sender geglaubt, sondern per HLS am Server abgegriffen und mit ffprobe gelesen"
+  },
+  "ergebnis": {
+    "h264": { "encoder": "h264_d3d12va", "aufloesung": "1920x1080", "pix_fmt": "yuv420p" },
+    "av1_8bit": { "encoder": "av1_amf", "aufloesung": "1920x1082", "pix_fmt": "yuv420p" },
+    "av1_10bit": { "encoder": "av1_amf", "aufloesung": "1920x1082", "pix_fmt": "yuv420p10le", "fps": "60,1-60,5 stabil", "encode_latenz": "17,1 ms Mittel, 18,3 ms Maximum" },
+    "h264_mit_10bit_wunsch": { "encoder": "h264_d3d12va", "pix_fmt": "yuv420p", "bewertung": "korrekt auf 8 bit zurueckgenommen statt den Start zu verweigern" }
+  },
+  "wie_10_bit_gebaut_ist": {
+    "der_befund_der_den_weg_bestimmt": "av1_amf lehnt BGRA-D3D11-Eingang fuer 10 bit ab (`SubmitInput() failed with error 18`), nimmt P010 als D3D11-Textur aber an und liefert yuv420p10le. Der Zero-Copy-Weg traegt 10 bit also NICHT unveraendert — er braucht ein anderes Pool-Format.",
+    "loesung": "Der D3D11Scaler (VideoProcessorBlt) wandelt BGRA->P010 im selben Durchgang, in dem er sonst skaliert. Auf dem 10-bit-Weg wird er deshalb auch ohne Downscale erzwungen. Der Weg bleibt zero-copy, es kommt kein CPU-Umweg dazu.",
+    "geaenderte_stellen": [
+      "encode/hwctx.rs: neue `new_with_format`, Pool-sw_format ist jetzt Parameter statt fest BGRA",
+      "encode/d3d11_scale.rs: Ziel-Pool-Format als Parameter",
+      "encode/encoder_hw.rs: `ten_bit` in der Config, setzt AMF-Option `bitdepth=10` und die Farb-Signalisierung (BT.709, begrenzter Bereich) — letztere NUR im 10-bit-Pfad, wie im Linux-Sidecar",
+      "pipeline_hw.rs: 10 bit an AV1 gebunden, Scaler-Zwang, Format-Wahl",
+      "stream_controller.rs + ops/start.rs: `bit_depth` durch die Parameterkette"
+    ],
+    "falle_beim_pool_bau": "FFmpegs eigener scale_d3d11-Filter scheitert an genau dieser Stelle mit CreateTexture2D 0x80070057 (E_INVALIDARG) — dieselbe Fehlerklasse wie DECODER|RENDER_TARGET auf BGRA. Weil der Sidecar seinen Pool selbst baut und die Bind-Flags kontrolliert, greift das hier nicht."
+  },
+  "nebenbefund_1082_zeilen": "AV1 meldet am Server 1920x1082 statt 1920x1080, H.264 dagegen sauber 1080. Das ist AMFs AV1-Ausrichtung (die AMF-Enum kennt dafuer eigens `ALIGNMENT_MODE_64X16_1080P_CODED_1082`) und NICHT durch die 10-bit-Aenderung verursacht — es tritt bei 8 und 10 bit gleich auf. Ob ein Zuschauer die zwei Zeilen sieht oder der Container sie wegschneidet, ist UNGEPRUEFT.",
+  "GRENZEN_DER_AUSSAGE": [
+    "Je ein Lauf pro Betriebsart. Der Unterschied ist binaer (Bittiefe/Codec am Server abgelesen), aber ueber Stabilitaet ueber Zeit sagt das nichts.",
+    "Ton war aus. Der A/V-Sync-Weg ist in diesen Laeufen nicht beruehrt.",
+    "Kein Zuschauer im Bild — geprueft ist, WAS gesendet wird, nicht wie es ankommt.",
+    "Keine Sichtpruefung des Bildinhalts. Nach der Regel aus dem AMD-Branch (der zerrissene AV1-Pfad war in JEDER Kennzahl besser) gehoert ein Standbild dazu, bevor das als fertig gilt.",
+    "NVIDIA und Intel sind von der Aenderung nicht beruehrt (anderer Pfad bzw. anderes Pool-Format), aber auch nicht nachgemessen."
+  ],
+  "tests": "cargo test --release: 23 bestanden, 0 fehlgeschlagen"
+}

@@ -1,0 +1,60 @@
+{
+  "id": "ton-2026-08-02-windows-messstand",
+  "gemessen_am": "2026-08-02",
+  "frage": "Kommt der Ton ueber den eigenen WHIP-Sendeweg unter Windows sauber an, und bleibt er zum Bild passend?",
+  "stand": "Unversehrtheit: einwandfrei, in vier Laeufen ohne einen einzigen Aussetzer. Synchronitaet: bei AV1 stabil, bei H.264 laeuft das Bild dem Ton mit rund 21 ms je Minute davon — reproduziert, Ursache gefunden, NICHT behoben.",
+  "warum_die_frage_zaehlt": "Bis heute war ueber den Ton nur bekannt, dass am Server eine Opus-Spur ANKOMMT (whip-2026-08-02-windows-eigener-sendeweg.json). Ob sie sauber klingt und zum Bild passt, konnte niemand sagen: das Messwerk dekodierte ausschliesslich Bild, alle Laborzahlen waren tonblind. Dieselbe Luecke hat beim Bild den 10-Bit-Magenta-Fehler zwei Wochen verdeckt — dort wurde 'kommen Bilder heraus' gemessen und niemand sah hin.",
+
+  "aufbau": {
+    "strecke": "Radeon 780M -> eigener WHIP-Sendeweg -> Hetzner-Messstand (MediaMTX hinter Caddy, rund 59 ms Umlauf) -> whep_messwerk auf derselben Maschine. Gemessen wird am Zuschauer, nicht am Log des Senders.",
+    "encoder": "av1_amf bzw. h264_amf, jeweils mit Auffrischung (Standard seit 2026-08-02), 720p30, 4000 kbit/s, Ton 'Desktop' (WASAPI-Loopback ohne Selbst-Ausschluss, damit die Referenz mitgeht).",
+    "referenzsignal": "Eigens erzeugt (testbench/ton-referenz.ps1), im Browser formatfuellend abgespielt: alle 2 s gleichzeitig ein 1-kHz-Piep (50 ms) und ein weisser Vollbild-Blitz (100 ms), sample- und bildgenau aus derselben Quelle; der Piep wechselt links/rechts; dazwischen ein 220-Hz-Traeger, der nie aussetzt. Gegengeprueft mit `silencedetect`: Pieps auf den geraden Sekunden, links 0/4/8, rechts 2/6.",
+    "warum_dieses_signal": "Ohne bekannten Bezug im Material ist weder 'Aussetzer' noch 'Versatz' eine Zahl. Der Traeger macht Stille eindeutig zum Fehler (sonst ist eine Luecke von der Ruhe zwischen zwei Pieps nicht zu unterscheiden), der Seitenwechsel deckt eine zu Mono zusammengefallene Stereo-Spur auf, und Piep+Blitz aus derselben Quelle sind der einzige Weg, Bild und Ton ohne Vertrauen in den Sender gegeneinander zu halten."
+  },
+
+  "was_gemessen_wird": {
+    "unversehrtheit": "Sequenzluecken (auf der Leitung verloren) getrennt von Zeitstempel-Spruengen (Luecke, die der SENDER schon hatte), plus Stille gegen den Traeger. Die Trennung ist der Punkt: die beiden zeigen auf verschiedene Schuldige.",
+    "versatz_bei_ankunft": "Blitz gegen Piep an der Uhr des Empfaengers — was ein Zuschauer OHNE eigene Synchronisierung sieht.",
+    "drift": "Dieselbe Differenz in den RTP-Zeitleisten, und nur ihre AENDERUNG. Der Anfangswert ist bedeutungslos (beide Uhren starten beliebig), die Steigung nicht.",
+    "messgrenzen": "Bild ±33 ms (30 Bilder je Sekunde), Ton ±5 ms (ein Opus-Paket). Fuer die Steigung ueber 149 Punkte mitteln sich beide heraus; der Schaetzfehler der Steigung liegt bei rund 1 ms je Minute."
+  },
+
+  "ergebnis": [
+    { "codec": "AV1",   "lauf": 1, "sekunden": 300, "opus_pakete": 59940, "verloren": 0, "sender_luecken": 0, "stille_ms": 0, "pieps": 149, "paare": 149, "stereo_wechsel": true, "piep_takt_ms": 2000.0, "versatz_ankunft_ms": 50, "drift_ms_pro_min": -0.5 },
+    { "codec": "AV1",   "lauf": 2, "sekunden": 300, "opus_pakete": 59948, "verloren": 0, "sender_luecken": 0, "stille_ms": 0, "pieps": 149, "paare": 149, "stereo_wechsel": true, "piep_takt_ms": 2000.0, "versatz_ankunft_ms": 49, "drift_ms_pro_min": -0.0 },
+    { "codec": "H.264", "lauf": 1, "sekunden": 300, "opus_pakete": 59920, "verloren": 0, "sender_luecken": 0, "stille_ms": 0, "pieps": 149, "paare": 149, "stereo_wechsel": true, "piep_takt_ms": 2000.0, "versatz_ankunft_ms": 48, "drift_ms_pro_min": -21.9 },
+    { "codec": "H.264", "lauf": 2, "sekunden": 300, "opus_pakete": 59913, "verloren": 0, "sender_luecken": 0, "stille_ms": 0, "pieps": 149, "paare": 149, "stereo_wechsel": true, "piep_takt_ms": 2000.0, "versatz_ankunft_ms": 30, "drift_ms_pro_min": -20.5 }
+  ],
+
+  "befund_1_ton_ist_unversehrt": "In vier Laeufen zu je fuenf Minuten: 239 721 Opus-Pakete, NULL auf der Leitung verloren, NULL Luecken beim Sender, NULL Millisekunden Stille. Der Piep-Takt betraegt in jedem Lauf 2000,0 ms — die Ton-Uhr selbst geht also richtig, und die Stille-Auffuellung in `audio/wasapi.rs` hat in keinem Lauf eingegriffen. Der Seitenwechsel links/rechts kommt in allen Laeufen sauber an: die Stereo-Spur bleibt Stereo.",
+
+  "befund_2_h264_laeuft_dem_ton_davon": {
+    "zahl": "-21,9 und -20,5 ms je Minute in zwei Laeufen; AV1 im selben Aufbau -0,5 und -0,0. Der Unterschied ist rund zwanzigmal so gross wie der Schaetzfehler, und beide Seiten sind zweimal gefahren.",
+    "ursache": "webrtc-rs rechnet in `track_local_static_sample.rs:137` die Bilddauer in RTP-Takte um: `(sample.duration.as_secs_f64() * clock_rate) as u32`. Der Sendeweg uebergibt `Duration::from_secs_f64(1.0/30.0)`; 0,0333... * 90000 ergibt 2999,9999999999995, und `as u32` SCHNEIDET AB statt zu runden. Das Bild bekommt also 2999 statt 3000 Takte je Bild.",
+    "rechnung": "1 Takt je Bild = 1/90000 s. Bei 30 Bildern/s sind das 1800 Takte je Minute = 20,0 ms. Gemessen: 20,5 und 21,9. Die Erklaerung deckt den Befund also nicht nur der Groessenordnung nach, sondern auf die Stelle.",
+    "warum_AV1_nicht_betroffen_ist": "Der AV1-Weg paketiert selbst und rechnet den Zeitstempel je Bild als ganzzahliges `Bildzahl * 90000 / fps` neu (`whip/mod.rs`, `Av1Zustand`). Genau dagegen ist dieser Kommentar geschrieben worden — jetzt ist es gemessen statt vermutet.",
+    "auswirkung": "Rund 1,3 Sekunden je Stunde. Innerhalb eines kurzen Laufs faellt es nicht auf; in einem langen Stream laeuft die Lippensynchronitaet sichtbar weg. Es taucht in KEINEM Log auf.",
+    "reichweite": "Betrifft den WHIP-Sendeweg des Labors, NICHT den ausgelieferten Sidecar (der geht ueber RTMPS und den ffmpeg-Muxer mit verankerter Aufnahmezeit). **Die Linux-Fassung von `whip/mod.rs` ist eine Kopie und hat denselben Fehler** — dort ebenso ungemessen.",
+    "behoben_am": "2026-08-03. `dauer_fuer_takte()` in `whip/mod.rs` legt die uebergebene Dauer eine halbe RTP-Takt-Breite hoeher, damit das Abschneiden auf dem gewuenschten Wert landet — fuer jede Bildrate, nicht nur fuer 30. Drei Tests halten es fest, darunter einer, der den ALTEN Fehler nachbaut (2999 statt 3000) und die 20 ms je Minute nachrechnet. **Der Ton geht denselben Weg**, obwohl er die Falle heute nicht trifft: 5 ms mal 48000 faellt in f64 zufaellig knapp UEBER 240. Bei einer anderen Paketlaenge kann es andersherum ausgehen, und dann liefe der Ton weg statt des Bildes.",
+    "gegenprobe": "Zwei Laeufe zu fuenf Minuten mit je 149 Paaren: +4,2 und -6,7 ms je Minute (vorher -21,9 und -20,5). Der einseitige Fehler ist weg; was bleibt, streut um null und liegt in der Groessenordnung der Messgrenze. Der Rest ist NICHT weiter eingegrenzt.",
+    "verbleibende_streuung": "Die beiden AV1-Kontrollaeufe nach der Berichtigung sind fuer die Drift-Zahl unbrauchbar: der Decoder des EMPFAENGERS ist zurueckgefallen (3859 bzw. 2587 dekodierte Bilder statt 8985, entsprechend nur 43 bis 64 Blitze statt 149), und ueber die kuerzere Strecke ist die Steigung viel unsicherer. Ein 90-s-Lauf auf derselben Maschine dekodiert wieder voll (2678 von 2685, libdav1d) — die Ursache ist also nicht das Werkzeug, sondern der Zustand der Maschine nach rund einem Dutzend Fuenf-Minuten-Laeufen (Verdacht: Drosselung). **Die Ton-Zahlen sind davon unberuehrt** (in jedem dieser Laeufe 149 bis 150 Pieps, null Stille, null Sender-Luecken); betroffen ist nur die Bild-Seite des Vergleichs. Offen: AV1-Kontrolle nach echter Abkuehlung wiederholen, und das Messwerk soll den Decoder vor der Ernte leerlaufen lassen, statt stillschweigend weniger Bilder zu melden."
+  },
+
+  "befund_3_versatz_bei_ankunft": "30 bis 50 ms, das Bild spaeter als der Ton desselben Augenblicks. Diese Zahl ist NICHT der Beweis eines Fehlers: sie enthaelt den Abspielweg des Browsers, die Aufnahme, die Leitung und ±33 ms Abtastung des Bildes. Sie sagt, was ein Zuschauer OHNE eigene Synchronisierung sieht — unser nativer Player hat keine. Ein Browser synchronisiert ueber RTCP und ist damit hier nicht vermessen; das bleibt offen.",
+
+  "werkzeug": {
+    "neu": "`src/whep/ton.rs` (Tonspur empfangen, mit libopus dekodieren, je Paket 1-kHz-Anteil und Lautstaerke) und `src/whep/tonurteil.rs` (Pieps und Blitze finden, paaren, Drift rechnen). Der Bild-Decoder gibt dafuer die mittlere Helligkeit mit heraus, und der RTP-Zeitstempel reist bis zur Auswertung durch.",
+    "eine_uhr_fuer_beide_spuren": "Jede Spur hatte bisher ihren eigenen Nullpunkt (Ankunft ihres ersten Pakets). Fuer den Vergleich Bild gegen Ton waere das toedlich gewesen: der unbekannte Abstand der beiden Spur-Rueckrufe ginge als 'A/V-Versatz' durch. Deshalb eine gemeinsame, vor den Spuren gestellte Uhr.",
+    "bedienung": "`testbench/ton-referenz.ps1` einmal, dann `testbench/ton-messung.ps1 [-Sekunden 300] [-Codec av1|h264]`.",
+    "grenze": "Der Zuschauer wertet den Ton aus, er HOERT ihn nicht. Verzerrung unterhalb der Piep-Erkennung, Knacken und Tonhoehenfehler wuerden hier nicht auffallen — die Hoerpruefung durch einen Menschen ersetzt das nicht."
+  },
+
+  "offen": [
+    "Hoerpruefung durch einen Menschen (die eine Pruefung, die keine Zahl ersetzt).",
+    "AV1-Kontrolle nach echter Abkuehlung wiederholen (s. verbleibende_streuung).",
+    "Das Messwerk soll den Bild-Decoder vor der Ernte leerlaufen lassen — heute meldet es stillschweigend weniger Bilder, wenn er zurueckfaellt, und das sieht wie ein Stromfehler aus.",
+    "Denselben Fehler in der Linux-Fassung von `whip/mod.rs` beheben — die Datei ist eine Kopie, die Berichtigung von hier ist zu uebernehmen.",
+    "Versatz gegen einen RICHTIG synchronisierenden Zuschauer (Browser, RTCP-Sender-Reports) — die Zahl 'Versatz bei Ankunft' gilt nur fuer einen Zuschauer ohne Synchronisierung.",
+    "Ton unter Verlust: alle Laeufe hier sind ohne erzeugten Verlust gefahren."
+  ]
+}

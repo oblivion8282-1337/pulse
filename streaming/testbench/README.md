@@ -14,6 +14,46 @@ Zwei Sender stehen zur Wahl, und der Unterschied ist der Witz an der Sache:
 | `harness.py` | ffmpeg, vorkodierte Datei per `-c copy` | Referenz: exakt gleichmäßig, ganz ohne unseren Code. Zeigt, ob ein Symptom vom Sender kommt oder dahinter entsteht. |
 | `real-harness.py` | Linux-Rust-Sidecar | Der echte Weg: Aufnahme → Encode → RTMPS. |
 
+## Wie die Messakten in `profiles/` zu lesen sind
+
+Es sind inzwischen **88 Stück**, und sie sind **append-only**: eine Akte wird
+nicht überschrieben, wenn sich herausstellt, dass ihr Schluss falsch war. Das
+ist Absicht — der Irrweg gehört zum Beleg —, aber es heißt auch: **eine Akte
+allein ist nicht der Stand der Dinge.** Ein Datum später kann alles umdrehen.
+
+Drei Regeln fürs Lesen, jede aus einem Fall, in dem genau das schiefging:
+
+1. **Erst auf einen Nachtrag sehen, dann auf den Befund.** Die Felder heißen
+   `nachtrag_<datum>_*`, `behoben_am` oder tragen im `stand` ein Wort wie
+   „VERWORFEN". Beispiel: `vulkan-2026-08-01-d3d11-import-zerocopy` beantwortet
+   die Frage „geht der Bildweg zero-copy nach Vulkan" mit einem sauberen Ja —
+   und ist als **Lösung** trotzdem verworfen, weil der Weg, für den es sie
+   brauchte, sich als überflüssig erwies. Der Nachtrag steht drin; wer nur den
+   Befund liest, baut den Vulkan-Weg nach.
+2. **Die Frage einer Akte trägt oft eine Annahme.** Dieselbe Akte fragt im
+   Nebensatz nach dem Encoder, „der als EINZIGER Intra-Refresh kann". Diese
+   Annahme war am nächsten Tag widerlegt — die Messung darin bleibt richtig,
+   ihr Anlass nicht.
+3. **Eine Messung altert anders als eine Empfehlung.** Zahlen bleiben, was sie
+   waren. Der Schluss daraus kann kippen, sobald sich etwas anderes ändert.
+   `2026-07-30-amd-windows-messung` misst korrekt, dass D3D12 latenzärmer ist
+   als AMF — die daraus gezogene Aufteilung („H.264 über D3D12") ist am
+   2026-08-04 trotzdem aufgegeben worden.
+
+**Die vier Umkehrungen, die dieser Prüfstand bisher erlebt hat**, damit niemand
+auf halbem Weg stehenbleibt:
+
+| Erst gemessen | Später berichtigt | Wo die Korrektur steht |
+|---|---|---|
+| „AMF kann kein Intra-Refresh" (2026-08-01) | Kann es doch — die Option heißt nur anders | `amf-2026-08-02-intra-refresh-doch` |
+| 10-Bit-Magenta liegt am eigenen D3D11-Import | Liegt im Vulkan-Encode-Weg | `amd-2026-08-02-qualitaet-und-browser` |
+| Adaptive Parität repariert nichts (2026-07-31) | Tut sie doch — mit dem NACK statt `fraction lost` als Regelgröße | `fec-2026-08-04-adaptiv-ueber-nack` |
+| Browser bekommen keine FlexFEC-Parität (2026-07-29) | Bekommen sie | `fec-2026-08-01-windows-browser` |
+
+Und die Regel, die aus allen vieren folgt: **ein Lauf je Variante trägt keine
+Entscheidung.** Zwei der obigen Umkehrungen kamen zustande, weil der zweite
+Durchgang das Gegenteil zeigte.
+
 ## Voraussetzungen
 
 * Dev-Infrastruktur läuft: MediaMTX (`streaming/server/docker-compose.yml`),
