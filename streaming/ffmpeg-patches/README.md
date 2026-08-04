@@ -1,8 +1,30 @@
 # FFmpeg-Patches des Labors
 
-Derzeit einer: **Intra-Refresh für den VAAPI-Encoder**. Er ist der Grund, warum
-die Umstellung auf Intra-Refresh nicht auf NVIDIA-Sender beschränkt bleiben
-muss.
+Zwei, und beide haben denselben Zweck: **Intra-Refresh auf AMD zugänglich
+machen.** Die Hardware kann es auf beiden Betriebssystemen — es fehlt jeweils
+nur die Durchreichung in FFmpeg.
+
+| Patch | Für | Betrifft |
+|---|---|---|
+| `0001-vaapi_encode-…` | Linux, AMD/Intel (`*_vaapi`) | H.264 **und** AV1 |
+| `0002-amfenc_av1-…` | Windows, AMD (`av1_amf`) | **nur** AV1 |
+
+**Windows braucht ihn nur für AV1.** `h264_amf` reicht sein Gegenstück
+(`intra_refresh_mb`) upstream durch — und mehr noch: unter
+`usage=ultralowlatency`, das der Sidecar ohnehin setzt, frischt der Encoder von
+sich aus auf. H.264 auf AMD/Windows braucht also **gar nichts**. `*_nvenc` hat
+die Option auf beiden Betriebssystemen upstream.
+
+**Und `0002` ist nicht durch ein neueres FFmpeg zu ersetzen.** Hier stand am
+2026-08-04 zwischenzeitlich, die Optionen gäbe es ab 8.1.2 — das war falsch und
+kam daher, dass das selbstgebaute FFmpeg des Labors sie hatte. Es hatte sie,
+weil dieser Patch drin war. Wer das prüft, prüft an einem **ungepatchten**
+Bau.
+
+## 0001 — Intra-Refresh für den VAAPI-Encoder
+
+Er ist der Grund, warum die Umstellung auf Intra-Refresh nicht auf
+NVIDIA-Sender beschränkt bleiben muss.
 
 ## Warum es ihn gibt
 
@@ -99,6 +121,48 @@ kein Intra-Refresh, egal was der Sidecar kann — er bricht den Start dann ab
   kein Ersatz: es gibt keine Zusage und keinen Termin, und Bestandssysteme
   hätten ihn erst mit dem nächsten Distributions-FFmpeg.
 
-Windows und macOS brauchen den Patch **nicht** — dort läuft AMD über
-`*_d3d12va` bzw. steht der Fall noch offen. Siehe
+macOS braucht `0001` nicht — dort steht der Fall noch offen
+(`videotoolbox` hat in FFmpeg keine einschlägige Stelle), siehe
 `streaming/hq-labor/UEBERGABE-WINDOWS-MACOS.md`.
+
+**Hier stand, Windows brauche keinen Patch, weil AMD dort über `*_d3d12va`
+laufe. Beides ist widerlegt** (2026-08-04): der d3d12va-Encoder nimmt die
+Option an und tut nichts damit, und AMD läuft unter Windows seither über AMF.
+Was Windows braucht, steht als `0002` unten.
+
+## 0002 — Intra-Refresh für `av1_amf` (Windows)
+
+**Dieselbe Lücke, andere Schnittstelle.** Die AMF-Laufzeit kann rollenden
+Intra-Refresh für AV1 genauso wie für H.264 — beide Eigenschaften werden
+angenommen, überleben `Init()` und verändern den Bitstrom. Der FFmpeg-Wrapper
+reicht sie nur für H.264 durch (`intra_refresh_mb`); der AV1-Wrapper hat sie
+noch nie durchgereicht, in **keiner** Fassung.
+
+Der Patch fügt `av1_amf` zwei Optionen hinzu:
+
+| Option | Bedeutung |
+|---|---|
+| `intra_refresh_mode` | `disabled` · `gop_aligned` · `continuous` |
+| `intra_refresh_stripes` | Streifen je Umlauf — AMF frischt einen Streifen je Bild auf, `N` Streifen heißen also ein voller Umlauf alle `N` Bilder |
+
+Gemessen auf einer Radeon 780M (Treiber 32.0.31035.1003, FFmpeg n8.1.2): mit
+`-intra_refresh_mode gop_aligned -intra_refresh_stripes <fps>` und `-g 60`
+enthält ein 300-Bilder-Lauf **ein** Vollbild statt fünf, die Bitmenge bleibt
+gleich und die Intra-Last verteilt sich, statt in Stößen anzufallen. Gilt für
+8 wie für 10 Bit. Herleitung:
+`streaming/testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`.
+
+`continuous` nimmt der Treiber an und tut auf dieser Hardware nichts damit; die
+Betriebsart steht trotzdem im Patch, weil sie zum AMF-Enum gehört.
+
+### Auslieferung — offen
+
+Anders als auf Linux gibt es unter Windows **keinen** Bau aus Quelltext: der
+Sidecar linkt gegen ein fertiges Paket (`ffmpeg-dist/n8.1-lgpl-shared`, geholt
+von `scripts/fetch-ffmpeg.ps1`). Ein gepatchtes FFmpeg auszuliefern heißt
+deshalb, dieses Paket selbst zu bauen statt es von BtbN zu übernehmen — eine
+Entscheidung, die noch niemand getroffen hat.
+
+**Bis dahin trägt Windows die Betriebsart nur mit H.264** (dort braucht es
+nichts). Der Sidecar meldet das ehrlich und bricht bei AV1 mit einer Meldung
+ab, die hierher zeigt (`encode/auffrischung.rs`).

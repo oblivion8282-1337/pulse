@@ -153,10 +153,16 @@ pub fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&
 ///
 /// **Die zweite Hälfte der Frage, und sie ist nicht theoretisch.** Die Tabelle
 /// oben sagt, was der Encoder *könnte*; ob dieses FFmpeg die Optionen
-/// durchreicht, ist eine andere Frage — und am 2026-08-04 lautete die Antwort
-/// nein: das gebündelte `n8.1.1-118-g1034b144ff` kennt
-/// `intra_refresh_mode`/`intra_refresh_stripes` bei `av1_amf` **nicht**, erst
-/// 8.1.2 hat sie (kein Patch von uns, eine Upstream-Ergänzung dazwischen).
+/// durchreicht, ist eine andere Frage — und für `av1_amf` lautet die Antwort
+/// bei **jedem** ausgelieferten FFmpeg nein. Die Optionen
+/// `intra_refresh_mode`/`intra_refresh_stripes` gibt es dort in keiner Fassung;
+/// sie kommen aus unserem eigenen Patch
+/// (`streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`).
+/// Die AMF-Laufzeit selbst kann es längst — nur der FFmpeg-Wrapper hat es nie
+/// weitergereicht, anders als beim H.264-Gegenstück (`intra_refresh_mb`).
+///
+/// Damit ist die Lage dieselbe wie auf Linux mit VAAPI, und nicht, wie hier
+/// zwischenzeitlich stand, eine Frage der FFmpeg-Fassung.
 ///
 /// Ohne diese Prüfung wäre das der schlimmste denkbare Ausgang: `avcodec_open2`
 /// bekommt die Optionen als Dictionary, was es nicht zuordnen kann, bleibt
@@ -256,9 +262,9 @@ pub fn anwenden(opts: &mut Dictionary<'_>, encoder: &str, fps: u32) -> Result<()
         bail!(
             "Intra-Refresh verlangt, aber dieses FFmpeg reicht ihn an \
              '{encoder}' nicht durch (vermisst: {}). Bei `av1_amf` gibt es die \
-             Optionen erst ab FFmpeg 8.1.2 — das gebündelte \
-             `ffmpeg-dist/n8.1-lgpl-shared` ist älter. Neu holen: \
-             scripts/fetch-ffmpeg.ps1",
+             Optionen in KEINER FFmpeg-Fassung — sie kommen aus \
+             streaming/ffmpeg-patches/, ein neueres Bundle hilft also nicht. \
+             Auf AMD trägt H.264 die Betriebsart ohne Patch.",
             fehlend.join(", ")
         );
     }
@@ -304,13 +310,15 @@ mod tests {
         }
     }
 
-    /// **Der Fall, der am 2026-08-04 wirklich vorlag.** Das gebündelte FFmpeg
-    /// (`n8.1.1-118`) kennt die AV1-Schlüssel nicht, erst 8.1.2 hat sie. Ohne
-    /// die Prüfung setzte `anwenden` sie klaglos, `avcodec_open2` verwürfe sie
-    /// wortlos, und der Strom liefe mit periodischen Vollbildern unter dem
-    /// Etikett „Intra-Refresh" — genau der Ausgang, gegen den es dieses Modul
-    /// gibt. Der Test schreibt die FFmpeg-Fassung nicht vor; er verlangt nur,
-    /// dass beide Antworten dieselbe sind.
+    /// **Der Fall, der am 2026-08-04 wirklich vorlag.** Das ausgelieferte
+    /// FFmpeg kennt die AV1-Schlüssel nicht — und zwar keine Fassung, die
+    /// Optionen kommen aus unserem eigenen Patch. Ohne die Prüfung setzte
+    /// `anwenden` sie klaglos, `avcodec_open2` verwürfe sie wortlos, und der
+    /// Strom liefe mit periodischen Vollbildern unter dem Etikett
+    /// „Intra-Refresh" — genau der Ausgang, gegen den es dieses Modul gibt.
+    ///
+    /// Der Test schreibt nicht vor, ob das gelinkte FFmpeg gepatcht ist; er
+    /// verlangt nur, dass Meldung und Verhalten dieselbe Antwort geben.
     #[test]
     fn fehlende_option_im_ffmpeg_scheitert_statt_still_zu_wirken() {
         let kennt = ffmpeg_kennt_die_optionen("av1_amf");
@@ -320,7 +328,12 @@ mod tests {
             assert_eq!(ergebnis.is_ok(), kennt);
             if let Err(e) = ergebnis {
                 let text = e.to_string();
-                assert!(text.contains("8.1.2"), "die Meldung muss den Ausweg nennen: {text}");
+                // Die Meldung muss zum Patch führen, NICHT zu einem Bundle-Update:
+                // ein neueres FFmpeg hilft hier nachweislich nicht.
+                assert!(
+                    text.contains("ffmpeg-patches"),
+                    "die Meldung muss den echten Ausweg nennen: {text}"
+                );
                 assert!(opts.get("intra_refresh_mode").is_none(), "nichts halb gesetzt lassen");
             }
         });
