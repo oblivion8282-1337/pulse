@@ -23,6 +23,7 @@ pub mod bildencoder;
 pub mod codec;
 pub mod d3d11_scale;
 pub mod d3d12_convert;
+mod d3d12_device;
 pub mod encoder;
 pub mod encoder_d3d12;
 pub mod extradata;
