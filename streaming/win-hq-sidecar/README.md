@@ -75,12 +75,18 @@ ist in `hwctx.rs` hand-gespiegelt + CRITICAL_SECTION als `lock`/`unlock`-Callbac
 hält denselben Lock manuell für `CopySubresourceRegion`). Aktiv für NVIDIA (alle
 Codecs) und AMD (AV1 via `av1_amf`).
 
-**Pool-Bauart ist vendor-abhängig** (2026-07-30): NVIDIA nutzt das klassische
-D3D11VA-Texture-Array (`initial_pool_size` Scheiben in EINER Textur), AMD bekommt
-**Einzeltexturen** (`initial_pool_size=0`, libavutil `d3d11va_alloc_single`) — die
-AMF-Runtime liest aus dem Array falsch (zerrissenes Bild, codec-unabhängig; Standbild-A/B
-und Herleitung am Wert in `hwctx.rs::HwContext::new`). Messschalter:
-`PULSE_HQ_D3D11_SINGLE_TEX=1|0` übersteuert die Vendor-Regel.
+**Pool-Bauart hängt am Vendor UND am Format**: NVIDIA nutzt in 8 bit das klassische
+D3D11VA-Texture-Array (`initial_pool_size` Scheiben in EINER Textur), **Einzeltexturen**
+(`initial_pool_size=0`, libavutil `d3d11va_alloc_single`) bekommen AMD und jeder
+P010-Pool. Zwei getrennte Gründe:
+- **AMD, jedes Format** (2026-07-30): die AMF-Runtime liest aus dem Array falsch
+  (zerrissenes Bild, codec-unabhängig; Standbild-A/B am Wert in `hwctx.rs`).
+- **P010, jeder Vendor** (2026-08-04): NVIDIA lehnt ein P010-Texture-Array ab
+  (`CreateTexture2D` → `E_INVALIDARG`), womit **jeder 10-bit-Stream vor dem
+  Encoder-Open starb**, während `health` die Fähigkeit meldete. Messakte
+  `streaming/testbench/profiles/nvidia-2026-08-04-windows-intra-refresh.json`.
+
+Messschalter: `PULSE_HQ_D3D11_SINGLE_TEX=1|0` übersteuert beides.
 
 ### AMD Zero-Copy H.264/HEVC (D3D12VA) — 2026-05-21
 `src/pipeline_d3d12.rs` + `src/capture/wgc_d3d12.rs` + `src/encode/d3d12_convert.rs` +
@@ -163,10 +169,11 @@ einzeln beschrieben.
   D3D12 ist latenzärmer (6,8 statt 17,2 ms — AMF hält codec-unabhängig ein Bild
   zurück), kennt dafür kein `usage` und liegt fest bei rund 25 % Video-Engine.
   Herleitung: `docs/plans/2026-07-30-amd-windows-messung.md`.
-- `PULSE_HQ_D3D11_SINGLE_TEX=1|0` — übersteuert die vendor-abhängige Pool-Bauart des
-  D3D11-Pfads (Einzeltexturen statt Texture-Array; Vorgabe: AMD=Einzeltexturen,
-  NVIDIA=Array). `0` reproduziert das zerrissene AMF-Bild auf AMD, `1` misst
-  Einzeltexturen auf NVIDIA. Begründung am Wert in `encode/hwctx.rs`.
+- `PULSE_HQ_D3D11_SINGLE_TEX=1|0` — übersteuert die Pool-Bauart des D3D11-Pfads
+  (Einzeltexturen statt Texture-Array; Vorgabe: Einzeltexturen bei AMD **und** bei
+  jedem P010-Pool, sonst Array). `0` reproduziert das zerrissene AMF-Bild auf AMD
+  und den P010-Fehlschlag auf NVIDIA, `1` misst Einzeltexturen auf NVIDIA in 8 bit.
+  Begründung am Wert in `encode/hwctx.rs`.
 - `PULSE_INTRA_REFRESH=1` — rollender Intra-Refresh statt periodischer Vollbilder,
   wenn die Oberfläche nichts sagt (`overrides.intra_refresh` sticht). **Heißt auf
   Linux genauso**, damit die Prüfstand-Skripte plattformgleich bleiben. Trägt der
