@@ -417,6 +417,53 @@ Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
       Stelle. Ob VideoToolbox selbst es kann, entscheidet, ob die Umstellung
       plattformweit möglich ist — deshalb zuerst prüfen, nicht zuletzt.
 
+**Vorgemerkt, bewusst nicht gebaut (2026-08-04) — der Player stirbt an einem
+GPU-Hänger, und das trifft ausgelieferte Nutzer:**
+
+Untersucht am 2026-08-04, Entscheidung des Nutzers: erst merken, nicht bauen.
+Wer das aufgreift, braucht die drei Befunde und die eine Sackgasse:
+
+- **Der Player kann es nicht abfangen.** Der Coredump zeigt `abort()` in
+  `amdgpu_ctx_set_sw_reset_status` auf **Mesas eigenem** Submit-Thread
+  (`util_queue_thread_func`) — kein Rückgabewert, kein Panic, nichts, was der
+  Prozess sähe. Der vorhandene Rettungsapparat (`decode.rs` `classify`,
+  `rebuild()` auf Software) ist an dieser Stelle prinzipiell unerreichbar.
+  Mesas Abbruch ist von außen auch nicht abschaltbar (kein `drirc`-Schalter,
+  keine Umgebungsvariable — geprüft, negativ).
+- **Der kleinste Eingriff sitzt im Aufseher**, `desktop/electron/player.ts`
+  (`exit`-Handler, ~Z. 165): `signal === 'SIGABRT'` erkennen und einmalig mit
+  `PULSE_PLAYER_HWDEC=0` neu starten. Am Player ist **keine Zeile** zu ändern,
+  den Schalter gibt es (`decode.rs::hwdec_vorgabe`). Ein Merker gegen die
+  Neustartschleife. Kosten: Software-AV1 — im Gegenprobe-Lauf gemessen 60 B/s
+  bei 3,4–3,9 ms je Bild bei 1080p60, also tragbar (setzt `libdav1d` im
+  FFmpeg-Bau voraus, das schaltet `bootstrap-ffmpeg.sh` ein).
+- **Heute fällt die App auf den `<video>`-Weg zurück** (`store.svelte.ts`
+  `#onEvent`), der Nutzer sieht also kein schwarzes Bild. Aber `ensureStarted()`
+  startet beim nächsten Öffnen wieder **mit** Hardware-Dekodierung — es stirbt
+  erneut, still, und der Grund steht nirgends.
+
+**Sackgasse, nicht noch einmal verfolgen:** Der Verdacht, unsere FEC-Rückrechnung
+schreibe Müll in scheinbar intakte Einheiten, ist **ausgeschlossen** —
+`PULSE_PLAYER_FEC_GEGENPROBE=1`, 23585 von 23585 Paketen byte-gleich, 0
+abweichend (`profiles/fec-2026-08-04-gegenprobe-rueckrechnung.json`).
+
+**Offener Kandidat in unserem Code:** `decode.rs:777`. Der Vorgabe-Zweig von
+`on_gap()` füttert den Decoder nach einer Lücke **absichtlich** mit Bildern
+weiter, deren Referenzen nie ankamen. Begründet und dokumentiert (ein `flush`
+ließ die Bildrate auf 0 fallen) — aber die Messung dahinter ist vom 2026-07-28
+und von `av1_cuvid`, für den VAAPI-Weg nie wiederholt. Der sichere Weg liegt
+fertig daneben, hinter `PULSE_PLAYER_GAP_WAIT_KEYFRAME=1`.
+
+**Upstream (Recherche eines Agenten, von mir NICHT nachgeprüft):** drm/amd
+#5417 soll dieselbe Hardware (780M Phoenix) und eine zeilengleiche
+Log-Signatur zeigen, offen und ohne Fix; kein Fix in Mesa > 26.1.5 oder
+Kernel > 7.1.5. Vor einer Entscheidung darauf selbst nachsehen.
+
+**Beim nächsten Auftreten sofort sichern:** `/sys/class/drm/card1/device/devcoredump/data`
+wegkopieren — der Kernel räumt ihn nach rund fünf Minuten, und ohne ihn ist
+nicht rekonstruierbar, welcher Auftrag die Einheit aufgehalten hat. Genau das
+ist hier passiert.
+
 **Wichtig, aber nicht blockierend:**
 
 - [ ] **AV1 10 bit mit HARDWARE-Decoder im Browser.** Der Befund „geht nicht"

@@ -243,8 +243,25 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
 /// auf der auch der Player laeuft, ueberlaeuft der Ring und der Treiber setzt
 /// die GPU zurueck — `amdgpu: The CS has cancelled because the context is
 /// lost`, danach ist der Player-Prozess weg (SIGABRT, am 2026-08-03 hier
-/// beobachtet). Das trifft im Betrieb kaum jemanden (wer zusieht, sendet
-/// meist nicht), aber jeden, der beide Seiten auf einem Rechner gegentestet.
+/// beobachtet).
+///
+/// **KORREKTUR 2026-08-04: das gleichzeitige Encodieren ist NICHT noetig.**
+/// Hier stand, das treffe „im Betrieb kaum jemanden (wer zusieht, sendet meist
+/// nicht)". Am 2026-08-04 ist der Player unter Buendelverlust gestorben,
+/// waehrend der Sender ein `ffmpeg -c copy` von der Platte war — nichts
+/// encodierte. Der Kernel: `ring vcn_unified_0 timeout, signaled seq=242587,
+/// emitted seq=242588`, also EIN Decodier-Auftrag, der nie zurueckkam. Es
+/// trifft damit normale Zuschauer auf AMD bei schlechter Leitung, und der
+/// Player wird seit dem 2026-08-03 im Flatpak ausgeliefert.
+///
+/// **Abfangen laesst es sich hier NICHT.** Der Coredump zeigt `abort()` in
+/// `amdgpu_ctx_set_sw_reset_status` auf Mesas eigenem Submit-Thread
+/// (`util_queue_thread_func`) — kein Rueckgabewert, kein Panic, nichts, was
+/// dieser Prozess sehen koennte. Der Rettungsweg gehoert deshalb in den
+/// Aufseher (`desktop/electron/player.ts`, `exit`-Handler): SIGABRT erkennen
+/// und einmalig mit `PULSE_PLAYER_HWDEC=0` neu starten. Bewusst noch nicht
+/// gebaut, s. `streaming/hq-labor/CLAUDE.md`.
+///
 /// Ohne gleichzeitiges Encoden dekodiert dieselbe Karte mit rund 185 fps.
 ///
 /// Software-Dekodierung ist dafuer nur brauchbar, wenn `libdav1d` im
