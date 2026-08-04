@@ -16,32 +16,38 @@ ausgeloeste Downloads als Stoerung — daher stand in jeder dieser Messakten der
 Vorbehalt, dass die Laeufe unterschiedlich stark gestoert und deshalb nicht
 vergleichbar sind.
 
-**Verhaeltnis zu `verluststrecke.py`.** Das gibt es und es tut dasselbe — nur
-am anderen Ende: es legt `netem` per ifb-Umleitung auf den EMPFANGSweg dieser
-Maschine. Beides erzeugt beim Zuschauer denselben Verlust. Hier wird trotzdem
-serverseitig gestoert, aus zwei Gruenden: der Uplink dieser Leitung liegt bei
-10 Mbit, und ein Paket, das erst hierher uebertragen und dann verworfen wird,
-hat die Leitung bereits belegt — die Ersparnis einer Paritaets-Regelung waere
-damit gerade nicht messbar. Und `tc` ist auf dieser Maschine gar nicht
-installiert, `verluststrecke.py` laeuft hier also nicht. Wer eine Maschine mit
-`iproute-tc` hat und den Empfangsweg stoeren will, nimmt weiter jenes Werkzeug.
+**Wo die Stoerung sitzt** — im Netz-Namensraum des MediaMTX-Containers, auf
+dem Serverausgang, gefiltert auf den Medienport — und warum ausgerechnet
+dort, samt Verhaeltnis zu `verluststrecke.py`: siehe `serverstoerung.py`.
 
-**Wo der Verlust sitzt und warum ausgerechnet dort.** Im Netz-Namensraum des
-MediaMTX-Containers, auf dessen `eth0`-Ausgang, gefiltert auf UDP-Quellport
-8189 (`webrtcLocalUDPAddress`). Drei Gruende:
+**Zwei Zuschauer, `--zuschauer browser|player`.** Vorgabe ist ein headless
+Chromium (`browser-whep.mjs`): kein Fenster, kein wacher Bildschirm, nachts
+fahrbar, und der Fall, der fuer die Mehrheit der Nutzer zaehlt — Pulse ist
+web-first. `--zuschauer player` faehrt stattdessen den nativen Player.
 
-* Am SERVERausgang, damit er den Empfangsweg trifft und nicht den Push — sonst
-  misst man den eigenen Uplink (10 Mbit) statt den Sendeweg.
-* IM Container, weil auf dieser Maschine fremde Dienste laufen (Supabase,
-  Caddy, mehrere Anwendungen). Ein `tc` auf dem Host-Interface waere ein
-  Eingriff in deren Betrieb; der Container hat sein eigenes veth.
-* Auf den MEDIENport gefiltert, damit die RTMP-Quittungen an den Sender
-  ungestoert bleiben. Wird auch der Rueckweg des Pushs verworfen, drosselt TCP
-  den Sender, und die Messung zeigt einen Sender-Einbruch statt Empfangsverlust.
+Die beiden messen NICHT dasselbe, und das ist beim Vergleichen wichtiger als
+es aussieht:
 
-**Zuschauer ist ein headless Chromium** (`browser-whep.mjs`), nicht der native
-Player: kein Fenster, kein wacher Bildschirm, nachts fahrbar. Und es ist der
-Fall, der fuer die Mehrheit der Nutzer zaehlt — Pulse ist web-first.
+* Den **Aufschlag** kann nur der Browser beziffern. Das `kbps` des Players
+  misst den Medienstrom ohne Paritaet — 4084,9 gegen 3984,8 zwischen fest und
+  geregelt, waehrend der wirkliche Unterschied rund 20 Prozent betraegt.
+* **`fec_repariert` des Players ist KEIN Verlustmass.** Auf ungestoerter
+  Leitung standen dort 632 Reparaturen bei null endgueltig verlorenen Paketen:
+  ein bloss umsortiertes Paket sieht im Moment der Luecke wie ein Verlust aus
+  und wird nachgebaut, obwohl es gleich darauf echt eintrifft. Belastbar ist
+  `packets_lost`.
+* **`standbild_sekunden`** heisst beim Browser „die Pixel haben sich nicht
+  geaendert", beim Player nur „`frames_decoded` lief nicht weiter". Die
+  Browser-Fassung ist die schaerfere.
+
+Vergleichbar ueber beide hinweg sind also: endgueltig verlorene Pakete, Bilder,
+und die Zaehler des Tors auf dem Server.
+
+**Auf einer AMD-APU die Buendel-Laeufe mit `--kein-hwdec` fahren.** Mit
+Hardware-Decode ist der Player dort im Buendelverlust gestorben (`amdgpu: the
+context is lost`), nach dutzenden Decoder-Neustarts. Das ist die bekannte
+Grenze von `vcn_unified_0` — sie schlug hier aber OHNE gleichzeitiges
+Encodieren zu, der Sender war ffmpeg von der Platte.
 
 **Die Vorlage ist echter Intra-Refresh** (`fec-intraref-20s.mkv`, av1_vaapi mit
 `-intra_refresh 1`, gebaut mit dem gepatchten FFmpeg aus
@@ -77,6 +83,15 @@ import time
 from pathlib import Path
 
 import gemeinsam
+import harness
+import serverstoerung
+from serverstoerung import (
+    netem_setzen,
+    netem_umschalten,
+    netem_weg,
+    netem_wirkung,
+    stoerzyklus,
+)
 
 HERE = Path(__file__).parent
 
@@ -84,131 +99,8 @@ HERE = Path(__file__).parent
 # `gemeinsam.laden` gibt es genau dafuer — nicht selbst nachbauen.
 _fh = gemeinsam.laden("fern-harness")
 
-SSH = os.environ.get("PULSE_FERN_SSH", "michael@77.42.71.166")
-CONTAINER = "mediamtx-labor"
-WEBRTC_UDP_PORT = 8189
-
-# `BatchMode=yes` ist hier keine Vorsichtsmassnahme, sondern eine Falle, die
-# schon zugeschlagen hat: die Vorgabe `michael@77.42.71.166` findet den
-# Schluessel nur, wenn er in `~/.ssh/config` an dieser ADRESSE haengt. Steht er
-# dort unter einem Namen (`Host pulse-test`), fragt ssh nach einem Passwort —
-# und da der Aufruf keine Konsole hat, wartet er stumm bis zum Zeitablauf. Der
-# Lauf sieht dann aus, als haenge der Server. Mit BatchMode scheitert er
-# sofort und sagt, woran.
-#   export PULSE_FERN_SSH=pulse-test
-SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
-
-# Die Stoerprofile. `gemodel` statt der Korrelations-Schreibweise ist kein
-# Geschmack: `loss 5% 50%` wird vom Kern anstandslos angenommen und verwirft
-# dann NICHTS (am 2026-07-29 eine ganze Buendelreihe so verloren). Deshalb
-# zusaetzlich die Wirkungskontrolle in `netem_wirkung()`.
-PROFILE: dict[str, list[str]] = {
-    "klar": [],
-    "verlust_leicht": ["loss", "0.5%"],
-    "verlust": ["loss", "2%"],
-    "verlust_stark": ["loss", "5%"],
-    # p, r, 1-h, 1-k — Uebergang gut→schlecht, schlecht→gut, Verlust im
-    # schlechten, Verlust im guten Zustand. Der Fall, an dem sich XOR-Paritaet
-    # entscheidet: eine Gruppe loest genau EINE Unbekannte, ein Buendel trifft
-    # dieselbe Gruppe mehrfach.
-    "buendel": ["loss", "gemodel", "2%", "40%", "100%", "0%"],
-}
-
-
-def im_netns(*befehle: str) -> subprocess.CompletedProcess:
-    """Ein `tc`-Befehl im Netz-Namensraum des MediaMTX-Containers.
-
-    Das Image ist `FROM scratch` und hat keine Shell — deshalb ein
-    Beistell-Container, der sich dessen Namensraum teilt. `--cap-add=NET_ADMIN`
-    genuegt; Host-root wird nicht gebraucht.
-    """
-    # Mit `;` verbinden und EINMAL shell-quoten. Zeilenumbrueche taugen hier
-    # nicht: ssh reicht den Befehl als eine Zeichenkette an die entfernte Shell,
-    # die ihn erneut zerlegt — die Umbrueche gehen dabei verloren, und aus
-    # `set -e` + `tc` wurde `set -etc` („illegal option -t"). `shlex.quote`
-    # haelt das Skript ueber beide Zerlegungen hinweg zusammen.
-    skript = "; ".join(befehle)
-    return subprocess.run(
-        ["ssh", *SSH_OPTS, SSH,
-         f"docker run --rm --net=container:{CONTAINER} "
-         f"--cap-add=NET_ADMIN pulse-tc:1 sh -c {shlex.quote(skript)}"],
-        capture_output=True, text=True, check=False,
-    )
-
-
-def netem_setzen(profil: str) -> None:
-    netem_weg()
-    args = PROFILE[profil]
-    if not args:
-        return
-    r = im_netns(
-        "set -e",
-        "tc qdisc add dev eth0 root handle 1: prio bands 3",
-        f"tc qdisc add dev eth0 parent 1:3 handle 30: netem {' '.join(args)}",
-        f"tc filter add dev eth0 protocol ip parent 1: prio 1 flower "
-        f"ip_proto udp src_port {WEBRTC_UDP_PORT} flowid 1:3",
-        f"tc filter add dev eth0 protocol ipv6 parent 1: prio 2 flower "
-        f"ip_proto udp src_port {WEBRTC_UDP_PORT} flowid 1:3",
-    )
-    if r.returncode != 0:
-        raise SystemExit(f"netem setzen fehlgeschlagen:\n{r.stderr}")
-
-
-def netem_weg() -> None:
-    im_netns("tc qdisc del dev eth0 root 2>/dev/null || true")
-
-
-def netem_umschalten(profil: str) -> None:
-    """Die Stoerung an- oder abschalten, OHNE die Warteschlange neu zu bauen.
-
-    `tc qdisc change` taucht nur den netem-Knoten um; Wurzel, Klassen und
-    Filter bleiben stehen. Ein `del`/`add` je Umschaltung wuerde stattdessen
-    die Zaehler zuruecksetzen — und damit ausgerechnet die Wirkungskontrolle
-    zerstoeren, die belegt, dass ueberhaupt etwas verworfen wurde.
-    """
-    args = PROFILE[profil] or ["loss", "0%"]
-    im_netns(f"tc qdisc change dev eth0 parent 1:3 handle 30: netem {' '.join(args)}")
-
-
-def stoerzyklus(an_s: float, aus_s: float, profil: str, ende: float) -> None:
-    """Verlust in Phasen statt durchgehend — der Fall, um den es geht.
-
-    Eine Leitung, die DAUERND verliert, laesst jede Regelung voll aufdrehen;
-    dort kann eine Regelung per Konstruktion nichts sparen. Eine echte Leitung
-    hat ruhige und gestoerte Abschnitte, und genau ihr Verhaeltnis entscheidet,
-    was die Haltezeit im Mittel kostet.
-    """
-    while time.monotonic() < ende:
-        netem_umschalten(profil)
-        time.sleep(min(an_s, max(0.0, ende - time.monotonic())))
-        if time.monotonic() >= ende:
-            return
-        netem_umschalten("klar")
-        time.sleep(min(aus_s, max(0.0, ende - time.monotonic())))
-
-
-def netem_wirkung() -> tuple[int, int]:
-    """(gesendete, verworfene) Pakete der netem-Warteschlange.
-
-    **Die einzige ehrliche Kontrolle, dass die Stoerung ueberhaupt gewirkt hat.**
-    Ohne sie liest man einen ungestoerten Lauf als Ergebnis der Stoerung — und
-    bei einer Schutzschicht sieht das aus wie „bringt nichts".
-
-    Die Auswertung des `tc`-Textes ist dieselbe wie in
-    `netz-harness.py::netem_wirkung` — SYNCHRON HALTEN. Geteilt wird sie nicht:
-    dort laeuft `tc` lokal, hier in einem Beistell-Container auf dem Server.
-    Gemeinsam ist nur das Format, und das aendert `tc` nicht.
-    """
-    r = im_netns("tc -s qdisc show dev eth0")
-    zeilen = r.stdout.splitlines()
-    for i, z in enumerate(zeilen):
-        if "netem" not in z or i + 1 >= len(zeilen):
-            continue
-        stat = zeilen[i + 1].split()
-        if "pkt" in stat and "(dropped" in stat:
-            return (int(stat[stat.index("pkt") - 1]),
-                    int(stat[stat.index("(dropped") + 1].rstrip(",")))
-    return 0, 0
+SSH = serverstoerung.SSH
+SSH_OPTS = serverstoerung.SSH_OPTS
 
 
 def server_modus(zusatz: list[str], image: str) -> str:
@@ -307,6 +199,91 @@ def auswerten(proben: list[dict], label: str, netem: tuple[int, int]) -> dict:
     }
 
 
+def player_proben(whep: str, args) -> list[dict]:
+    """Denselben Lauf mit dem NATIVEN Player statt dem Browser.
+
+    **Warum beide Zuschauer noetig sind.** Die Regelung sitzt im Server und ist
+    dem Zuschauer gegenueber blind — er sieht schlicht keine Paritaet. Das ist
+    das Argument dafuer, dass ein Browser-Ergebnis auch fuer den Player gilt;
+    ein Beleg ist es nicht. Zwei Dinge unterscheiden sich nachweislich: der
+    Player fordert seltener nach (20-ms-Sperrfrist, waehrend Chromium dieselbe
+    Luecke 6- bis 8-mal anfordert), und sein FlexFEC-Empfaenger ist unser
+    eigener Code statt libwebrtc.
+
+    **Er misst dafuer etwas, das der Browser gar nicht hergibt:** wie viele
+    Pakete die Paritaet WIRKLICH repariert hat (`fec_repariert`). Der Browser
+    meldet nur, wieviel Paritaet ankam. Genau diese Zahl war es, die den ersten
+    Anlauf am 2026-07-31 als wirkungslos entlarvt hat — sie stand auf null.
+    """
+    log = open(HERE / f"player-{args.label}.log", "w")
+    spieler = harness.Player(log)
+    proben: list[dict] = []
+    try:
+        res = spieler.call("open", url=whep, title=f"FEC {args.label}",
+                           options={} if args.hwdec else {"hwdec": False})
+        if not res.get("ok"):
+            raise SystemExit(f"Player-open fehlgeschlagen: {res}")
+        sid = res["session"]
+        ende = time.monotonic() + args.secs
+        while time.monotonic() < ende:
+            time.sleep(1.0)
+            s = spieler.call("stats", session=sid)
+            if s.get("ok"):
+                proben.append(s)
+    finally:
+        spieler.stop()
+        log.close()
+
+    return proben
+
+
+def auswerten_player(proben: list[dict], label: str, netem: tuple[int, int]) -> dict:
+    """Dasselbe Bild aus den Zahlen des nativen Players.
+
+    Die Felder heissen anders als im Browser, und zwei Groessen gibt es nur
+    hier beziehungsweise nur dort — deshalb eine eigene Auswertung statt einer
+    Übersetzungstabelle, die vorgaebe, alles sei vergleichbar:
+
+    * `fec_repariert` — was die Paritaet WIRKLICH geleistet hat. Der Browser
+      meldet nur, wieviel Paritaet ankam.
+    * `standbild_sekunden` ist hier „Sekunden, in denen `frames_decoded` nicht
+      weiterlief". Der Browser vergleicht stattdessen die PIXEL. Das ist die
+      schaerfere Messung — ein Decoder, der immer dasselbe Bild ausgibt, meldet
+      volle Bildrate, und genau das ist am 2026-07-31 passiert. Die Zahl von
+      hier ist also eine UNTERgrenze, nicht dasselbe.
+    * Der Aufschlag steht hier nicht drin: der Player zaehlt die empfangene
+      Paritaet nicht einzeln. Fuer ihn ist `kbps` das Mass — und die Zaehler
+      des Tors auf dem Server sagen ohnehin genauer, was hinausging.
+    """
+    gut = proben[2:]
+    if not gut:
+        raise SystemExit("keine brauchbaren Proben")
+    erste, letzte = gut[0], gut[-1]
+
+    def spanne(name: str) -> int:
+        return int(letzte.get(name) or 0) - int(erste.get(name) or 0)
+
+    bilder = [int(s.get("frames_decoded") or 0) for s in gut]
+    kbps = [float(s.get("kbps") or 0) for s in gut]
+    gesendet, verworfen = netem
+
+    return {
+        "label": label,
+        "proben": len(gut),
+        "bilder_dekodiert": spanne("frames_decoded"),
+        "standbild_sekunden": sum(1 for a, b in zip(bilder, bilder[1:], strict=False) if a == b),
+        "kbps_mittel": round(sum(kbps) / len(kbps), 1) if kbps else None,
+        "pakete_verloren": spanne("packets_lost"),
+        "fec_repariert": spanne("fec_repariert"),
+        "fec_unreparierbar": spanne("fec_unreparierbar"),
+        "fec_zu_spaet": spanne("fec_zu_spaet"),
+        "fec_mehrfach_loch": spanne("fec_mehrfach_loch"),
+        "netem_gesendet": gesendet,
+        "netem_verworfen": verworfen,
+        "netem_verlust_prozent": round(100.0 * verworfen / gesendet, 2) if gesendet else None,
+    }
+
+
 def zuschauen(whep: str, args) -> tuple[int, int]:
     """Den Zuschauer unter der Stoerung laufen lassen; gibt die tc-Bilanz zurueck."""
     # Im Zyklusbetrieb steht die Warteschlange von Anfang an, faengt aber
@@ -323,11 +300,17 @@ def zuschauen(whep: str, args) -> tuple[int, int]:
             daemon=True)
         takt.start()
 
-    r = subprocess.run(
-        ["node", str(HERE / "browser-whep.mjs"), "--url", whep,
-         "--secs", str(int(args.secs)), "--label", args.label],
-        capture_output=True, text=True, check=False)
-    print(r.stdout.strip() or r.stderr.strip()[:400])
+    if args.zuschauer == "player":
+        proben = player_proben(whep, args)
+        (HERE / f"player-proben-{args.label}.json").write_text(
+            json.dumps(proben, indent=1))
+        print(f"[{args.label}] {len(proben)} Proben vom nativen Player")
+    else:
+        r = subprocess.run(
+            ["node", str(HERE / "browser-whep.mjs"), "--url", whep,
+             "--secs", str(int(args.secs)), "--label", args.label],
+            capture_output=True, text=True, check=False)
+        print(r.stdout.strip() or r.stderr.strip()[:400])
     if takt:
         takt.join(timeout=10)
 
@@ -362,9 +345,12 @@ def lauf(args) -> dict:
             push.kill()
         push_log.close()
 
-    datei = HERE / f"browser-proben-{args.label}.json"
+    vorsatz = "player" if args.zuschauer == "player" else "browser"
+    datei = HERE / f"{vorsatz}-proben-{args.label}.json"
     proben = json.loads(datei.read_text()) if datei.exists() else []
-    ergebnis = auswerten(proben, args.label, netem)
+    ergebnis = (auswerten_player if args.zuschauer == "player" else auswerten)(
+        proben, args.label, netem)
+    ergebnis["zuschauer"] = args.zuschauer
     ergebnis["profil"] = args.profil
     ergebnis["modus"] = args.modus
     ergebnis["image"] = args.image or "(Vorgabe)"
@@ -375,7 +361,7 @@ def lauf(args) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quelle", default=str(HERE / "fec-intraref-20s.mkv"))
-    ap.add_argument("--profil", default="verlust", choices=tuple(PROFILE))
+    ap.add_argument("--profil", default="verlust", choices=tuple(serverstoerung.PROFILE))
     ap.add_argument("--secs", type=float, default=60)
     ap.add_argument("--label", default="fec")
     # Zusaetzliche Server-Umgebung, mehrfach angebbar:
@@ -386,6 +372,12 @@ def main() -> int:
     # `--zyklus AN,AUS` in Sekunden: Verlust in Phasen statt durchgehend.
     #   --zyklus 15,30   15 s gestoert, 30 s ruhig, wiederholt
     ap.add_argument("--zyklus", default="")
+    ap.add_argument("--zuschauer", default="browser", choices=("browser", "player"))
+    # Auf einer APU teilen sich Encoder und Decoder eine Einheit; hier sendet
+    # zwar nur ffmpeg von der Platte, aber der Schalter bleibt der Ausweg,
+    # falls der Ring doch ueberlaeuft (`PULSE_PLAYER_HWDEC=0`).
+    ap.add_argument("--hwdec", action="store_true", default=True)
+    ap.add_argument("--kein-hwdec", dest="hwdec", action="store_false")
     args = ap.parse_args()
 
     if not os.path.exists(args.quelle):
