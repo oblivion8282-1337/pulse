@@ -20,15 +20,24 @@ transitive dependency has not been run as part of compiling this file.
 
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
-| FFmpeg (BtbN `n8.1-lgpl-shared` distribution) | Self-hosted mirror dated 2026-06-16, SHA256-pinned | LGPL (build excludes libx264/libx265) | `streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1:9-45`, `.cargo/config.toml:9` (`FFMPEG_DIR`), `Cargo.toml:56-68` (`ffmpeg-next` binding), `.github/workflows/win-build.yml:42-58` (CI fetch step) |
+| FFmpeg (self-built, patched) | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-…` | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265) | `streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (SHA256-pinned distribution of that build), `.cargo/config.toml:9` (`FFMPEG_DIR`), `Cargo.toml:56-68` (`ffmpeg-next` binding), `.github/workflows/win-build.yml:42-58` (CI fetch step) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
-FFmpeg is BtbN's unmodified prebuilt distribution — Pulse does not patch its
-source for this platform. The DLLs are copied next to
-`pulse-win-hq-sidecar.exe` as separate, exchangeable files (dynamic linking,
-LGPL-compliant). The exact LGPL sub-version and configure flags used by
-BtbN's own build process are external to this repository and were not
-independently re-verified in this pass.
+Since 2026-08-04 Windows no longer ships BtbN's prebuilt distribution. FFmpeg
+is built from the official `n8.1.2` source with **one** Pulse patch
+(`streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`,
+GPL-3.0 as a derivative of FFmpeg's own source, kept in-tree) — it exposes
+rolling intra refresh on `av1_amf`, which no FFmpeg release offers. The build
+reports `License: LGPL version 2.1 or later`, verified with `ffmpeg -version`
+on the produced binary; `scripts/build-ffmpeg-patched.ps1` refuses to install a
+build whose configure line contains a GPL or nonfree switch. The DLLs are
+copied next to `pulse-win-hq-sidecar.exe` as separate, exchangeable files
+(dynamic linking, LGPL-compliant), and the modified source is in this
+repository, which is what LGPL §2/§4 asks for.
+
+Until the built package is uploaded to the self-hosted mirror, `fetch-ffmpeg.ps1`
+still falls back to the frozen BtbN mirror dated 2026-06-16 (same LGPL terms,
+no Pulse patch) and warns when it does.
 
 ## macOS (`streaming/mac-hq-sidecar/`)
 

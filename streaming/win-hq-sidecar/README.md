@@ -35,9 +35,9 @@ ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
   läuft. `pid` = Electron-Main-PID via `PULSE_SELF_PID` (gesetzt in
   `desktop/electron/sidecar.ts`); fehlt sie, Fallback auf den simplen
   Render-Loopback. Linux-Äquivalent: `-a app-inverse:Pulse` (`gsr-sidecar/profiles.py`).
-- **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen die **vendored** BtbN-LGPL-Shared-
-  Distribution unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
-  `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe).
+- **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen ein **selbst gebautes, gepatchtes**
+  FFmpeg unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
+  `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe) — s. „Das FFmpeg" unten.
 - MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.18.1/mediamtx.exe`.
 
 ## Drei Encode-Pfade
@@ -205,6 +205,67 @@ einzeln beschrieben.
   kein anhaltender Rueckstand (anders als auf Linux, wo der PipeWire-Null-Sink
   27-29 ms einbrachte und eine Korrektur noetig war).
 - `PULSE_TCP_NODELAY=0` — Nagle wieder an (Vergleichsmessung).
+
+## Das FFmpeg — selbst gebaut, seit 2026-08-04
+
+Bis dahin kam das Paket unter `ffmpeg-dist/n8.1-lgpl-shared/` fertig von BtbN.
+**Das geht nicht mehr:** der Sidecar fährt AV1 auf AMD mit rollendem
+Intra-Refresh, und die dafür nötigen Optionen an `av1_amf`
+(`intra_refresh_mode`, `intra_refresh_stripes`) gibt es in **keiner**
+FFmpeg-Fassung — nicht in 8.1, nicht in `master`, also in keinem Fertigpaket.
+Sie kommen aus `streaming/ffmpeg-patches/0002-amfenc_av1-…`. Ein neueres Bundle
+hilft nachweislich nicht; wer das prüft, prüft an einem ungepatchten Bau.
+
+- **Selbst bauen:** `scripts/build-ffmpeg-patched.ps1` (FFmpeg n8.1.2 + Patch
+  0002, MSYS2/mingw64). Holt die Quelle, patcht, konfiguriert, baut, prüft das
+  Ergebnis und ersetzt das bisherige Paket **erst danach**. Jede Zeile der
+  configure-Liste trägt im Skript ihren Grund.
+- **Holen statt bauen:** `scripts/fetch-ffmpeg.ps1` — unverändert SHA-gepinnt
+  vom eigenen VPS. Es erkennt am `ffmpeg.exe` selbst, ob das Paket gepatcht
+  ist: ein bereits gepatchtes überschreibt es nicht (nur mit `-Force`), und ein
+  ungepatchtes meldet es als Warnung, statt es stillschweigend hinzunehmen.
+- **Was noch von Hand fehlt:** das gebaute Zip auf den VPS legen
+  (`build-ffmpeg-patched.ps1 -Zip` schnürt es und nennt den SHA256), danach in
+  `fetch-ffmpeg.ps1` `$PatchedUrl` und `$PatchedSha` **gemeinsam** setzen.
+  Solange die beiden leer sind, holt CI weiter das alte BtbN-Paket — der
+  Windows-Sidecar baut dann, verweigert aber AV1 mit Intra-Refresh. Der Bau vom
+  2026-08-04 liegt als
+  `ffmpeg-dist/ffmpeg-n8.1-lgpl-shared-patched-2026-08-04.zip` bereit,
+  SHA256 `266b960d2610e89f2cb8353930c5c9866285c1c78b84d0b7b08b3fbd16beda19`:
+
+  ```
+  scp ffmpeg-dist/ffmpeg-n8.1-lgpl-shared-patched-2026-08-04.zip `
+      michael@159.195.150.54:pulse/downloads/vendor/
+  ```
+
+  Der Bau ist **nicht bitgleich reproduzierbar** — wer neu baut, bekommt einen
+  anderen SHA256 und muss beide Zeilen erneut setzen. Deshalb wird die Datei
+  hochgeladen und eingefroren, nicht bei jedem Bau neu erzeugt.
+- **Ein Auslieferungs-Bump gehört dazu:** Änderungen unter
+  `streaming/win-hq-sidecar/**` erreichen Bestandsclients nur mit einem
+  `version`-Bump in `desktop/package.json` (electron-updater ignoriert eine
+  erneut veröffentlichte gleiche Version wortlos).
+- **Lizenz bleibt LGPL:** kein `--enable-gpl`, kein `--enable-nonfree`, kein
+  libx264/libx265; `--enable-version3` steht bewusst auch nicht da. Das
+  Bauskript bricht ab, wenn einer dieser Schalter auftaucht.
+- **Unterschiede zum BtbN-Paket:** enthalten ist genau, was der Sidecar
+  braucht — `amf`, `nvenc`/`ffnvcodec`, `libvpl` (QSV), `d3d11va`/`d3d12va`,
+  `libopus`, `libdav1d`, `libsrt`, `schannel`, `zlib`. BtbNs Dutzende weiterer
+  Fremdbibliotheken (libaom, libsvtav1, libplacebo, libass, …) fehlen; keine
+  davon wird hier benutzt. Das Paket schrumpft dadurch von rund 250 MB auf
+  48 MB.
+
+**Nach einem Austausch des Pakets muss `build.rs` einmal laufen**, sonst liegen
+neben der `.exe` weiter die alten DLLs — Windows sucht dort zuerst, und
+`ffmpeg.exe -h` zeigt dann das Neue, während das Programm mit dem Alten läuft:
+
+```
+(Get-Item build.rs).LastWriteTime = Get-Date
+cargo build --release --bins --examples
+```
+
+Das Bauskript stupst `build.rs` selbst an; von Hand ausgetauscht muss man daran
+denken.
 
 ## TLS/RTMPS-Fußnote
 

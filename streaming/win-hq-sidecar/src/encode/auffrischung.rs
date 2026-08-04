@@ -390,8 +390,10 @@ mod tests {
 
     /// **Die Fähigkeit hängt am gelinkten FFmpeg, nicht nur an der Tabelle.**
     /// `h264_amf` braucht keine Option (`usage=ultralowlatency` frischt selbst
-    /// auf) und ist damit immer verfügbar; `av1_amf` braucht zwei, die es erst
-    /// ab FFmpeg 8.1.2 gibt. Der Test schreibt kein Ergebnis vor — er hält
+    /// auf) und ist damit immer verfügbar; `av1_amf` braucht zwei, die es in
+    /// keiner FFmpeg-Fassung gibt — sie kommen aus unserem Patch
+    /// (`streaming/ffmpeg-patches/0002-…`), den das ausgelieferte Paket seit
+    /// dem 2026-08-04 mitbringt. Der Test schreibt kein Ergebnis vor — er hält
     /// fest, dass die Antwort für AV1 aus dem echten Optionsbestand kommt und
     /// nicht geraten ist. Sonst meldete der Sidecar auf einem älteren FFmpeg
     /// eine Betriebsart, die beim Start still zu Keyframes würde.

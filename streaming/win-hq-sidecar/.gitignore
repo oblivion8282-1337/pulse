@@ -6,9 +6,10 @@ capture_smoke_*.png
 audio_smoke_*.wav
 encode_smoke*.mp4
 encode_smoke*.flv
-# FFmpeg-LGPL-Distribution wird per `scripts/fetch-ffmpeg.ps1` reproduzierbar
-# heruntergeladen (BtbN-Prebuilt, n8.1, ~88 MB Zip → ~250 MB ausgepackt). Pin
-# steht im Script (URL + SHA256).
+# FFmpeg-LGPL-Distribution: per `scripts/fetch-ffmpeg.ps1` heruntergeladen (Pin
+# = URL + SHA256 im Script) oder per `scripts/build-ffmpeg-patched.ps1` selbst
+# gebaut. Enthält dann auch dessen Quellbaum unter `_build/` (mehrere GB) —
+# `build-ffmpeg-patched.ps1 -Clean` räumt ihn weg.
 /ffmpeg-dist/
 # MediaMTX-Standalone-Binary für lokale Test-Driver-Runs (`scripts/fetch-mediamtx.ps1`).
 /mediamtx-dist/

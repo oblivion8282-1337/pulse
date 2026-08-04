@@ -30,7 +30,7 @@ streaming/
 │   └── __init__.py
 ├── win-hq-sidecar/          Windows: Rust-Sidecar — s. unten
 │   ├── src/                 WGC-Capture + WASAPI + ffmpeg-next-Encode
-│   ├── ffmpeg-dist/         vendored FFmpeg LGPL n8.1-shared (BtbN)
+│   ├── ffmpeg-dist/         FFmpeg LGPL n8.1.2-shared, selbst gebaut + gepatcht
 │   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
 │   └── examples/            cargo-runnable Smoke-Driver
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
@@ -213,9 +213,12 @@ landet ausschließlich in der Push-URL (GSR auf Linux, ffmpeg-next auf Windows).
 
 Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
 identisch). Stack: `windows-capture` v2 (WGC), `wasapi` (Desktop-Loopback +
-Mikrofon), `ffmpeg-next` 8.1 gegen die **vendored** BtbN-LGPL-Shared-Distribution
-unter `ffmpeg-dist/n8.1-lgpl-shared/`. `build.rs` kopiert die FFmpeg-DLLs neben
-die exe — Binary ist standalone, kein Python nötig.
+Mikrofon), `ffmpeg-next` 8.1 gegen ein **selbst gebautes, gepatchtes** FFmpeg
+unter `ffmpeg-dist/n8.1-lgpl-shared/` (n8.1.2 + `ffmpeg-patches/0002-amfenc_av1-…`;
+seit 2026-08-04 nicht mehr BtbNs Fertigpaket, weil es die AMF-Intra-Refresh-Optionen
+in keiner Fassung gibt — Bau: `win-hq-sidecar/scripts/build-ffmpeg-patched.ps1`).
+`build.rs` kopiert die FFmpeg-DLLs neben die exe — Binary ist standalone, kein
+Python nötig.
 
 **Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
 - **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `capture/wgc_hw.rs` + `encode/encoder_hw.rs` + `encode/hwctx.rs`):

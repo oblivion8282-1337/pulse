@@ -155,14 +155,31 @@ gleich und die Intra-Last verteilt sich, statt in Stößen anzufallen. Gilt für
 `continuous` nimmt der Treiber an und tut auf dieser Hardware nichts damit; die
 Betriebsart steht trotzdem im Patch, weil sie zum AMF-Enum gehört.
 
-### Auslieferung — offen
+### Auslieferung — Windows baut sein FFmpeg jetzt selbst
 
-Anders als auf Linux gibt es unter Windows **keinen** Bau aus Quelltext: der
-Sidecar linkt gegen ein fertiges Paket (`ffmpeg-dist/n8.1-lgpl-shared`, geholt
-von `scripts/fetch-ffmpeg.ps1`). Ein gepatchtes FFmpeg auszuliefern heißt
-deshalb, dieses Paket selbst zu bauen statt es von BtbN zu übernehmen — eine
-Entscheidung, die noch niemand getroffen hat.
+**Die Entscheidung ist am 2026-08-04 gefallen: das ausgelieferte Paket wird
+selbst gebaut.** Sie war unausweichlich — ein Fertigpaket kann diese Optionen
+nicht enthalten, weil es sie nirgends gibt.
 
-**Bis dahin trägt Windows die Betriebsart nur mit H.264** (dort braucht es
-nichts). Der Sidecar meldet das ehrlich und bricht bei AV1 mit einer Meldung
-ab, die hierher zeigt (`encode/auffrischung.rs`).
+* **Bauen:** `streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1` holt
+  FFmpeg `n8.1.2`, wendet **nur diesen Patch** an (`0001` ist VAAPI und hat
+  unter Windows nichts zu suchen), konfiguriert LGPL-shared und legt das
+  Ergebnis nach `ffmpeg-dist/n8.1-lgpl-shared/`, wohin `FFMPEG_DIR` zeigt. Das
+  Skript prüft am Ende selbst nach — Optionen, Muxer, Protokolle, und dass
+  keine GPL-/nonfree-Schalter drin sind — und ersetzt das bisherige Paket
+  **erst danach**. Voraussetzung ist MSYS2; welche Pakete fehlen, sagt es beim
+  Start.
+* **Nachweis, dass der Patch wirkt** (2026-08-04 auf Radeon 780M, gegen genau
+  diesen Bau): 300 Bilder mit `-c:v av1_amf -usage ultralowlatency -rc cbr
+  -b:v 4000k -g 60` enthalten **fünf** Vollbilder; mit
+  `-intra_refresh_mode gop_aligned -intra_refresh_stripes 60` **eines**, bei
+  2 567 482 statt 2 577 538 Byte (0,4 Prozent weniger). Das ist die
+  Labormessung, reproduziert am Auslieferungspaket.
+* **Verteilung:** `scripts/fetch-ffmpeg.ps1` lädt das Paket weiterhin
+  SHA-gepinnt vom eigenen VPS — nur eben unseren Bau statt BtbNs. Solange dort
+  noch die alte Datei liegt, warnt das Skript beim Holen, und die CI baut
+  einen Windows-Sidecar **ohne** die Optionen.
+
+**Wo kein gepatchtes FFmpeg liegt, trägt Windows die Betriebsart nur mit
+H.264** (dort braucht es nichts). Der Sidecar meldet das ehrlich und bricht bei
+AV1 mit einer Meldung ab, die hierher zeigt (`encode/auffrischung.rs`).
