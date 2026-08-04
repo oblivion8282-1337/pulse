@@ -24,6 +24,12 @@
 //! kann, verifiziert `run` die echte WGC-Capture-GPU und delegiert bei einer
 //! unpassenden Vendor/Codec-Kombination selbst an `pipeline_d3d12` bzw.
 //! `run_cpu_pipeline`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
+//!
+//! Capture-Start + Warten auf das erste Bild sitzt in [`capture_start`] —
+//! herausgezogen, weil diese Datei mit den Messbegründungen über die harte
+//! Größen-Grenze von 500 Zeilen gewachsen war (`PLAN.md` §12.1). Eigener
+//! Verantwortungsbereich: bevor überhaupt feststeht, welcher Encode-Weg oder
+//! Skalierer gebraucht wird, muss erst ein Bild da sein.
 
 use anyhow::{Result, anyhow, bail};
 use ffmpeg_next::ffi::AVPixelFormat;
@@ -32,8 +38,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::audio::AudioCapture;
-use crate::capture::wgc::CaptureConfig;
-use crate::capture::{HwCaptureItem, WgcHwCapture};
+use crate::capture::HwCaptureItem;
 use crate::encode::{
     AudioStreamConfig, D3D11Scaler, EncodePath, HwEncoderConfig, OwnedHwFrame, VideoCodec,
 };
@@ -41,6 +46,8 @@ use crate::events;
 use crate::stream_controller::{StartParams, StreamController};
 use crate::system::dxgi::Adapter;
 use crate::tick_monitor::{TickMonitor, TickSample};
+
+mod capture_start;
 
 pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
@@ -51,50 +58,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);
 
-    // Capture-D3D11VA-Pool: versorgt Capture-Queue + (im Native-Pfad) die
-    // NVENC-In-Flight-Tiefe. Im Downscale-Pfad hat der Scaler einen eigenen
-    // Ziel-Pool, dann muss dieser hier nur Capture-Queue + Scaler-Input-Halt
-    // bedienen — 24 ist für beide Fälle robust.
-    let mut capture = WgcHwCapture::start(
-        params.capture.clone(),
-        CaptureConfig { max_fps: fps, include_cursor: params.show_cursor, ..Default::default() },
-        24,
-    )?;
-
-    // Setup-Item warten (mit erstem Pool-Frame). Bei Disconnect den echten
-    // Capture-Fehler aus dem Worker-JoinHandle ziehen (`join_error`) — sonst
-    // geht die Root-Cause (WGC-Close ohne Frame / HwContext::new-Fehler / …)
-    // verloren und nur „channel disconnected" bleibt übrig. Timeout vs.
-    // Disconnected trennen: Ersteres = WGC liefert nie (Target/Permission/HDR),
-    // Zweiteres = Capture-Thread ist tatsächlich gecrasht/zu Ende.
-    let setup = match capture.items.recv_timeout(Duration::from_secs(5)) {
-        Ok(item) => item,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            return Err(anyhow!(
-                "hw capture lieferte innerhalb von 5 s keinen ersten Frame \
-                 (WGC-Capture startete, aber lieferte nichts — Target/Permission/HDR-Verdacht)"
-            ));
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            let worker_err = capture.join_error();
-            return Err(anyhow!(
-                "hw capture exit vor dem ersten Frame{}",
-                worker_err
-                    .map(|s| format!(": {s}"))
-                    .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
-            ));
-        }
-    };
-    // Wall-clock-Zeitpunkt des Video-Origins (≈ first_qpc). Audio-Chunks ohne
-    // QPC ankern hieran — NICHT an `started` (das liegt erst NACH der Encoder-
-    // Erzeugung; der Setup-Versatz würde zum konstanten A/V-Offset).
-    let origin_instant = Instant::now();
-    let (hw, width, height, first, first_qpc) = match setup {
-        HwCaptureItem::Setup { hw, width, height, first, first_qpc } => {
-            (hw, width, height, first, first_qpc)
-        }
-        HwCaptureItem::Frame { .. } => return Err(anyhow!("first item was Frame, expected Setup")),
-    };
+    let (capture, hw, width, height, first, first_qpc, origin_instant) =
+        capture_start::start_and_wait_for_setup(params.capture.clone(), fps, params.show_cursor)?;
     // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
     // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     // Massgeblich ist die GPU, auf der WGC sein Device gebaut hat (= die des
