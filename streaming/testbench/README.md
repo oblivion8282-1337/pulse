@@ -323,6 +323,73 @@ Feld `dekodiert` — das gibt es nicht. Eine erste Fassung von
 `fec-kennlinie.py` fragte danach und meldete deshalb stur „null Bildausfälle";
 sie hätte dasselbe bei einem dauerhaften Standbild gemeldet.
 
+## Paritäts-Regelung messen (seit 2026-08-04)
+
+`fec-adaptiv.py` fährt einen kompletten A/B-Arm allein: es stellt den
+Laborserver in die gewünschte Betriebsart um, schiebt die Vorlage per RTMPS
+hoch, setzt den Verlust, lässt einen headless Chromium zuschauen und wertet
+aus. Nachts unbeaufsichtigt fahrbar — kein Portal, kein wacher Bildschirm.
+
+```fish
+export PULSE_FERN_SSH=pulse-test    # sonst hängt ssh still an der Passwortfrage
+export PULSE_FERN_PASS=… PULSE_FERN_TOKEN=…
+
+./fec-adaptiv.py --profil klar    --secs 60  --label fest
+./fec-adaptiv.py --profil klar    --secs 60  --label adaptiv \
+    --modus PULSE_FLEXFEC_ADAPTIV=1
+./fec-adaptiv.py --profil verlust --secs 120 --zyklus 15,30 --label phasen \
+    --modus PULSE_FLEXFEC_ADAPTIV=1
+```
+
+**Damit hat das Labor zum ersten Mal eine Strecke, die gleichzeitig verliert
+und Umlaufzeit hat** — der Mangel, den die FEC-Analyse §6 als entscheidend
+benannt hatte. Der Weg geht über die echte Leitung (60 ms), der Verlust wird
+gesetzt statt durch Sättigung erzeugt.
+
+Die Vorlage ist `*.mkv` und damit gitignored — sie muss einmal erzeugt werden.
+Echter Intra-Refresh, deshalb über das **gepatchte** FFmpeg
+(`streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`); auf AMD zusätzlich der Umweg
+über eine Pipe, weil dieser Bau kein `lavfi` enthält:
+
+```bash
+P=~/.cache/pulse/ffmpeg-intra-refresh
+ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=60:duration=150" \
+       -pix_fmt yuv420p -f yuv4mpegpipe - |
+LD_LIBRARY_PATH=$P/prefix/lib $P/prefix/bin/ffmpeg -y \
+  -vaapi_device /dev/dri/renderD128 -f yuv4mpegpipe -i - \
+  -vf 'format=nv12,hwupload' \
+  -c:v av1_vaapi -rc_mode CBR -b:v 4000k -g 9999 \
+  -intra_refresh 1 -intra_refresh_period 120 lang.mkv
+ffmpeg -y -i lang.mkv -t 20 -c copy fec-intraref-20s.mkv   # 1200 Bilder, 1 Vollbild
+```
+
+**8 bit ist Pflicht**, nicht Bequemlichkeit: Chromiums dav1d lehnt `bpc != 8`
+ab, ein 10-bit-Lauf ergäbe null Bilder. Und `-force_key_frames` greift bei
+eingeschaltetem Intra-Refresh **nicht** — ein zweiter Einstiegspunkt lässt sich
+so nicht setzen, deshalb der Weg über die kurze Schleife.
+
+Vier Dinge, die nicht offensichtlich sind:
+
+**Der Verlust sitzt im Netz-Namensraum des MediaMTX-Containers**, nicht auf dem
+Host-Interface: auf der Maschine laufen fremde Dienste. Und nicht lokal wie bei
+`verluststrecke.py` — ein Paket, das erst über den 10-Mbit-Uplink kommt und
+dann verworfen wird, hat die Leitung schon belegt, womit die Ersparnis einer
+Regelung gerade nicht mehr messbar wäre.
+
+**`--zyklus AN,AUS` ist der einzige Fall, in dem eine Regelung etwas sparen
+kann.** Eine dauernd verlierende Leitung lässt jede Regelung voll aufdrehen,
+eine saubere lässt sie ganz zu — beides sagt über den Alltag wenig.
+
+**Die Vorlage läuft in Schleife, und das ist Absicht.** Ein Zuschauer, der nach
+dem einzigen Vollbild einsteigt, bekommt nie ein Bild (hier reproduziert: 0
+Bilder, 99 vergebliche Anforderungen). Im Produkt löst das Patch 0002; ein
+Sender, der eine Datei durchreicht, kann auf eine Anforderung nicht antworten.
+Der Schleifenpunkt steht stellvertretend dafür.
+
+**`standbild_sekunden` ist die Kennzahl, nicht `framesDecoded`.** Ein Decoder,
+der immer dasselbe Bild ausgibt, meldet volle Bildrate; nur der Fingerabdruck
+der Pixel sieht das Standbild.
+
 ## Was damit gefunden wurde (2026-07-31, Kennlinie)
 
 **Nicht die Verlustrate entscheidet, sondern ihre Struktur.** Bei

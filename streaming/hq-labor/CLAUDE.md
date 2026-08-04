@@ -232,6 +232,26 @@ woanders: **drei Fehler ließen Player und Server gegeneinander arbeiten**
 (SRTP-Fenster, Paritätserzeugung, NACK-Wiederholungen). Nach ihrer Behebung
 kostet voller Schutz ungefähr so viel wie vorher der kaputte.
 
+**Nachtrag 2026-08-04: adaptive Parität funktioniert doch — mit dem NACK als
+Regelgröße.** Messakte `profiles/fec-2026-08-04-adaptiv-ueber-nack.json`,
+Patch `infra/mediamtx-fork/patches/0004-flexfec-adaptiv.patch` (neu gefasst).
+Auf sauberer Leitung **20,01 → 0,65 Prozent Aufschlag bei identischem Bild**,
+bei Verlust in Phasen 19,86 → 12,3–15,0 Prozent, bei Dauerverlust unverändert
+(dort wird sie gebraucht). Der Nachtrag von gestern bleibt richtig: mit
+`fraction lost` geht es nicht. Falsch war nur die Verallgemeinerung davon.
+
+Was den Unterschied macht: der eingehende NACK sieht den Verlust **roh**, vor
+jeder Reparatur, nennt die Sequenznummern einzeln und kommt sofort. Dazu eine
+bewusst unsymmetrische Hysterese (sofort auf, Haltezeit zu) und ein
+Anlauffenster, das das Einstiegs-Vollbild schützt.
+
+**Zwei Fallen dabei, beide nur durch Messen sichtbar** (Details in der Akte):
+Auf einen NACK *allein* darf das Tor nicht hören — NACKs kommen auch auf
+ruhiger Leitung dauernd (108 von 119 Sekunden), das Tor schließt dann nie und
+spart nichts, ohne dass etwas scheitert. Und der rohe NACK-Zähler ist um den
+**Faktor 9** aufgebläht, weil Chromium dieselbe Lücke mehrfach anfordert;
+gezählt werden müssen *verschiedene* Sequenznummern.
+
 Was die Analyse über die Alternativen sagt, bleibt lesenswert — aber jede ihrer
 Zahlen ist gegen die Messakten zu prüfen, bevor darauf gebaut wird.
 
@@ -400,9 +420,10 @@ Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
 
 **Erledigt, hier nur als Merkposten, warum nicht weiterverfolgt:**
 
-- **Adaptive Parität** — repariert nachweislich nichts; `fraction lost` ist die
-  falsche Regelgröße (reagiert auf Vergangenes), und feiner als 0,39 Prozent
-  ist die Schwelle technisch nicht stellbar.
+- ~~**Adaptive Parität**~~ — **am 2026-08-04 wieder aufgenommen und diesmal
+  erfolgreich**, siehe eigenen Abschnitt unten. Der alte Eintrag stimmte für
+  `fraction lost` als Regelgröße; falsch war der Schluss, damit sei die Sache
+  erledigt.
 - **Reed-Solomon** — XOR kommt bei Bündelverlust in 81–93 Prozent der Fälle an
   seine Grenze (jetzt endlich messbar). Trotzdem gehen fast keine Pakete
   verloren, weil Nachfordern bei 59 ms Umlaufzeit schneller ist. Ein Problem,

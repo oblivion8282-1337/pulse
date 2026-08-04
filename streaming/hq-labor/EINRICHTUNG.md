@@ -71,6 +71,31 @@ Argumente ist es die Vorgabe (FlexFEC 10+2, Intra-Refresh). **Der Server ist
 gemeinsam** — wer ihn umstellt, stellt ihn für alle um, und wer eine Messreihe
 fährt, sollte ihn danach zurückstellen.
 
+**Seit 2026-08-04 läuft dort das ausgelieferte Image**, nicht mehr ein von Hand
+hochgeladenes Binary. Vorher lagen unter `~/mediamtx-labor/` mehrere Dateien
+(`mediamtx`, `.fecfix`, `.adaptiv`, `.diag`, `.vor-*`), deren Inhalt nirgends
+stand — der Dateiname war die ganze Dokumentation, und ob der gemessene Stand
+dem entspricht, was in die Produktion geht, war nicht belegbar. Jetzt ist es
+exakt das Image aus `infra/mediamtx-fork/` (Patches 0001–0005), dasselbe, das
+der Dev-Stack fährt. Neu einspielen von der Entwicklungsmaschine:
+
+```bash
+docker build -t pulse-mediamtx:1.19.1-pulse2 infra/mediamtx-fork/
+docker save pulse-mediamtx:1.19.1-pulse2 | gzip | ssh pulse-test 'gunzip | docker load'
+ssh pulse-test 'docker tag localhost/pulse-mediamtx:1.19.1-pulse2 pulse-mediamtx:1.19.1-pulse2'
+```
+
+Das `localhost/`-Präfix entsteht, weil die Entwicklungsmaschine podman fährt
+und dessen `save` den Namen voll qualifiziert; ohne das Nachtaggen sucht Docker
+auf dem Server eine Registry und scheitert mit „pull access denied". Der
+Rückweg auf das alte Binary liegt als `neustart.sh.binary-alt` daneben.
+
+**`ssh` braucht dort einen Namen, keine IP.** Die Vorgabe `michael@77.42.71.166`
+findet den Schlüssel nur, wenn er in `~/.ssh/config` an dieser Adresse hängt;
+steht er unter `Host pulse-test`, fragt ssh nach einem Passwort und ein
+Messlauf wartet stumm bis zum Zeitablauf. Deshalb `export
+PULSE_FERN_SSH=pulse-test`.
+
 ## 5. Was das System braucht
 
 * **Rust** (stable), **ffmpeg** mit `av1_nvenc` bzw. `av1_vaapi`/`av1_amf`

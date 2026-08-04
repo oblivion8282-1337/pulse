@@ -1,0 +1,75 @@
+{
+  "id": "fec-2026-08-04-adaptiv-ueber-nack",
+  "gemessen_am": "2026-08-04 (Nacht)",
+  "frage": "Laesst sich der feste Paritaets-Aufschlag von rund 20 Prozent senken, ohne den Schutz zu verlieren, den ein Intra-Refresh-Strom bei Verlust braucht?",
+
+  "warum_die_frage_zaehlt": "Der Aufschlag ist heute fest und faellt an, ob die Leitung verliert oder nicht — und MediaMTX faechert ihn an JEDEN Zuschauer auf. Ein erster Anlauf am 2026-07-31 (`fec-2026-07-31-schwelle-taugt-nicht`) ist gescheitert und wurde als „nicht weiterverfolgen\" abgelegt: seine Regelgroesse `fraction lost` reagiert auf bereits Repariertes, ist auf 1/256 gequantelt und kommt nur einmal je Report-Zyklus. Die Messakte von damals nennt die Bedingung, unter der ein zweiter Anlauf Sinn haette — „eine Regelgroesse, die den Verlust VOR der NACK-Reparatur sieht\". Genau die wird hier benutzt.",
+
+  "was_neu_gebaut_wurde": {
+    "regelgroesse": "Der EINGEHENDE NACK statt `fraction lost`. Er meldet den rohen Verlust, bevor irgendetwas repariert wurde, nennt die Sequenznummern einzeln (keine Quantisierung) und trifft eine halbe Umlaufzeit nach dem Verlust ein statt am Ende eines Zyklus. Er lag in derselben RTCP-Schleife, die Patch 0002 schon fuer das PLI aufmacht.",
+    "hysterese": "Bewusst unsymmetrisch: sofort auf, langsam zu (Haltezeit). Die erste Fassung schloss nach zwei Sekunden und war damit immer im falschen Moment offen.",
+    "anlauffenster": "Die ersten Sekunden einer Sitzung laeuft die Paritaet immer — das ist der Moment des Einstiegs-Vollbilds, und bei Intra-Refresh gibt es keinen zweiten Einstiegspunkt.",
+    "je_sitzung": "Das Tor haengt an der PeerConnection statt in einer prozessweiten Variablen. Prozessweit hiesse: bei mehreren Zuschauern regelt der zuletzt verbundene fuer alle.",
+    "patch": "infra/mediamtx-fork/patches/0004-flexfec-adaptiv.patch (ersetzt die Fassung vom 2026-07-31)"
+  },
+
+  "aufbau": {
+    "strecke": "Laborserver ueber die echte Leitung, 60 ms Umlaufzeit gemessen. **Damit ist zum ersten Mal beides zugleich da, was die FEC-Analyse §6 als fehlend benannt hat: Verlust UND Umlaufzeit.** Lokal gab es Verlust ohne Laufzeit, fern Laufzeit ohne Verlust.",
+    "verlust": "GESETZT (`tc netem`) statt durch Saettigung erzeugt. Die frueheren adaptiv-Laeufe stoerten mit selbst ausgeloesten Downloads; deshalb stand in jeder dieser Akten der Vorbehalt, die Laeufe seien unterschiedlich stark gestoert und nicht vergleichbar. Wirkung jedes Laufs aus den tc-Zaehlern belegt.",
+    "wo_der_verlust_sitzt": "Im Netz-Namensraum des MediaMTX-Containers, auf dessen eth0-Ausgang, gefiltert auf UDP-Quellport 8189. Am Serverausgang, damit er den Empfangsweg trifft und nicht den Push; IM Container, weil auf der Maschine fremde Dienste laufen; auf den Medienport gefiltert, damit die RTMP-Quittungen ungestoert bleiben.",
+    "sender": "Referenzsender, vorkodierte Datei mit `-c copy` — in jedem Durchgang exakt dieselben Bytes. Echter Intra-Refresh (av1_vaapi, `-intra_refresh 1`, gepatchtes FFmpeg): 1200 Bilder, GENAU EIN Vollbild. 1920x1080@60, 4000 kbps.",
+    "zuschauer": "headless Chromium (`browser-whep.mjs`) — nachts fahrbar, und der Fall, der fuer die Mehrheit der Nutzer zaehlt.",
+    "server": "Der Laborserver faehrt seit heute DAS AUSGELIEFERTE IMAGE aus `infra/mediamtx-fork/` (Patches 0001-0005) statt eines von Hand hochgeladenen Binarys. Vorher war nicht belegbar, dass der gemessene Stand dem entspricht, was in die Produktion geht."
+  },
+
+  "ergebnis_saubere_leitung": {
+    "beschreibung": "Der Fall, um den es hauptsaechlich geht — die Teststrecke verliert bei passender Bitrate nichts.",
+    "fest_10_2": {"aufschlag_prozent": 20.01, "standbild_sekunden": 0, "bilder": 3200, "pakete_verloren": 0, "einfrierungen": 0},
+    "adaptiv": {"aufschlag_prozent": 0.65, "standbild_sekunden": 0, "bilder": 3202, "pakete_verloren": 0, "einfrierungen": 0},
+    "adaptiv_wiederholung": {"aufschlag_prozent": 0.68, "standbild_sekunden": 0, "pakete_verloren": 0, "einfrierungen": 0},
+    "das_ergebnis_in_einem_satz": "20,01 gegen 0,65 Prozent Aufschlag bei identischem Bild — 3200 gegen 3202 Bilder, beide null verlorene Pakete, null Einfrierungen, null Standbildsekunden. Zweiter Durchgang der adaptiven Seite: 0,68 Prozent.",
+    "anmerkung": "Die 0,65 Prozent sind das Anlauffenster (5 s Paritaet am Sitzungsanfang), nicht Regelrauschen. Danach geht kein einziges Paritaetspaket mehr hinaus."
+  },
+
+  "ergebnis_dauerverlust_2_prozent": {
+    "beschreibung": "Gegenprobe: verliert die Leitung DURCHGEHEND, darf die Regelung nichts sparen.",
+    "ohne_paritaet": {"aufschlag_prozent": 0.0, "bilder": 3290, "einfrierungen": 4, "einfrierdauer_s": 0.73, "pakete_verloren": 1, "netem_verlust_prozent": 2.04},
+    "fest_10_2": {"aufschlag_prozent": 19.69, "bilder": 3331, "einfrierungen": 0, "pakete_verloren": 60, "netem_verlust_prozent": 1.95},
+    "adaptiv": {"aufschlag_prozent": 19.60, "bilder": 3286, "einfrierungen": 0, "pakete_verloren": 61, "netem_verlust_prozent": 2.16},
+    "anmerkung": "Die Regelung verhaelt sich hier wie die feste Paritaet — richtig so. Bemerkenswert daneben: OHNE Paritaet bleibt bei gleichverteiltem 2-Prozent-Verlust nur EIN Paket endgueltig aus, NACK holt bei 60 ms Umlaufzeit praktisch alles. Die Paritaet kauft dort vier Einfrierungen (0,73 s) weg, nicht mehr."
+  },
+
+  "ergebnis_verlust_in_phasen": {
+    "beschreibung": "Der praxisnahe Fall und der einzige, in dem eine Regelung ueberhaupt etwas sparen KANN: 15 s gestoert, 30 s ruhig, im Wechsel ueber 120 s.",
+    "arme": [
+      {"arm": "fest 10+2", "aufschlag_prozent": 19.86, "standbild_sekunden": 0, "einfrierungen": 0, "pakete_verloren": 47},
+      {"arm": "adaptiv, jeder NACK oeffnet (v2.0)", "aufschlag_prozent": 19.88, "standbild_sekunden": 0, "pakete_verloren": 42, "urteil": "wirkungslos — s. Fallen"},
+      {"arm": "adaptiv, Schwelle 1 %", "aufschlag_prozent": 19.53, "standbild_sekunden": 0, "pakete_verloren": 33, "urteil": "Schwelle liegt im Grundrauschen der Leitung"},
+      {"arm": "adaptiv, Schwelle 2 %, Haltezeit 10 s", "aufschlag_prozent": 14.99, "standbild_sekunden": 0, "einfrierungen": 0, "pakete_verloren": 38, "tor_zu_prozent_der_zeit": 23},
+      {"arm": "adaptiv, Schwelle 2 %, Haltezeit 5 s", "aufschlag_prozent": 12.31, "standbild_sekunden": 0, "einfrierungen": 0, "pakete_verloren": 35},
+      {"arm": "adaptiv, Schwelle 2 %, Haltezeit 5 s (Wiederholung)", "aufschlag_prozent": 13.19, "standbild_sekunden": 0, "einfrierungen": 0, "pakete_verloren": 42},
+      {"arm": "adaptiv mit den AUSGELIEFERTEN Vorgaben (2 %, 10 s, 5 s Anlauf), ohne jeden Zusatzschalter", "aufschlag_prozent": 16.81, "standbild_sekunden": 0, "einfrierungen": 0, "pakete_verloren": 42}
+    ],
+    "streuung": "Dieselbe Einstellung ergab in zwei Durchgaengen 14,99 und 16,81 Prozent (Haltezeit 10 s) beziehungsweise 12,31 und 13,19 (Haltezeit 5 s). Die Spanne kommt daher, dass die Stoerzyklen nicht auf dieselbe Phase der Sitzung fallen. Belastbar ist die Groessenordnung — 12 bis 17 statt 20 —, nicht die zweite Stelle.",
+    "anmerkung": "Kein Arm hat ein Standbild oder eine Einfrierung. Die adaptiven Arme verlieren nicht MEHR Pakete endgueltig als die feste Paritaet, sondern eher weniger — der Unterschied liegt aber innerhalb dessen, was zwischen zwei Laeufen ohnehin schwankt."
+  },
+
+  "die_zwei_fallen_die_erst_die_messung_gezeigt_hat": {
+    "auf_einen_nack_allein_darf_das_tor_nicht_hoeren": "In 108 von 119 Sekunden kamen NACKs an, auch in den ruhigen Abschnitten (1 bis 4 je Sekunde). Ein Tor, das bei jedem NACK aufgeht und zehn Sekunden haelt, schliesst deshalb NIE — gemessen: null unterdrueckte Paritaetspakete, voller Aufschlag, und nichts daran sieht nach einem Fehler aus. Entschieden werden muss an der RATE.",
+    "der_rohe_nack_zaehler_ist_um_das_neunfache_aufgeblasen": "Derselbe Lauf meldete 7442 Verluste in 120 s bei 449 Medienpaketen je Sekunde — das waeren 14 Prozent bei 2 Prozent eingestellter Stoerung. Chromium fordert dieselbe Luecke mehrfach an (im Labor 6- bis 8-mal; deshalb gibt es die NACK-Sperrfrist im Player). Nach Entdopplung auf VERSCHIEDENE Sequenznummern je Fenster: 801 statt 7442, Faktor 9. Ohne diesen Schritt regelt das Tor auf die Hartnaeckigkeit des Empfaengers statt auf den Verlust der Leitung.",
+    "die_schwelle_von_1_prozent_liegt_im_rauschen": "1 Prozent ist die Grenze, unterhalb derer libwebrtc seine eigene FEC abschaltet, und war deshalb die naheliegende Vorgabe. Auf DIESER Strecke liegt der Grundverlust der ruhigen Phasen bei 2 bis 9 Promille — die Schwelle sitzt also mitten darin, und das Tor kippt staendig. Erst 2 Prozent trennt sauber. Eine von der Leitung abhaengige Groesse, kein Naturgesetz."
+  },
+
+  "einschraenkungen": [
+    "**Die Schleife der Vorlage.** Ein Zuschauer, der NACH dem einzigen Vollbild einsteigt, bekommt nie ein Bild — im ersten Lauf hier reproduziert (0 Bilder, 99 vergebliche Anforderungen), genau der Befund aus `browser-2026-07-31-intra-refresh`. Im Produkt loest das Patch 0002, indem es die Anforderung an den Sender weiterreicht; ein Sender, der eine Datei durchreicht, KANN darauf nicht antworten. Die Vorlage laeuft deshalb in 20-Sekunden-Schleife, und der Schleifenpunkt steht stellvertretend fuer diesen Rettungsweg. Folge: ein Standbild kann nie laenger als 20 s dauern. Trifft alle Arme gleich.",
+    "**Der Verlust wird am Serverausgang gesetzt, nicht auf der Strecke erzeugt.** Die verworfenen Pakete haben die Leitung also bereits belegt. Fuer die Frage nach dem Aufschlag ist das ohne Belang (gemessen wird, was der Server sendet), fuer eine Aussage ueber Ueberlast waere es keine taugliche Grundlage.",
+    "**Nur gleichverteilter Verlust.** Buendelverlust (`--profil buendel`) ist im Werkzeug vorgesehen, aber in dieser Nacht nicht gefahren. Genau dort kommt XOR-Paritaet an ihre Grenze, und genau dort koennte eine Regelung, die zu spaet oeffnet, teurer sein als sie aussieht.",
+    "**Nur EIN Zuschauer.** Das Tor haengt jetzt zwar je Sitzung statt prozessweit — geprueft ist das aber nur am Quelltext, nicht gemessen.",
+    "**Ein Lauf je Variante**, ausser wo eine Wiederholung ausdruecklich dabeisteht. Zwei Befunde dieser Messreihe mussten frueher zurueckgenommen werden, weil der zweite Durchgang das Gegenteil zeigte.",
+    "**Die Schwelle ist an DIESER Leitung eingestellt.** 2 Prozent trennt hier Rauschen von Stoerung. Auf einer Leitung mit anderem Grundverlust ist der Wert ein anderer, und ein zu tief gesetzter macht die Regelung wirkungslos, ohne zu scheitern — dieselbe stille Fehlerklasse wie beim ersten Anlauf."
+  ],
+
+  "empfehlung": "Die Regelung einschalten. Die Vorgaben im Patch stehen jetzt auf den gemessenen Werten (Schwelle 2 Prozent, Haltezeit 10 s, Anlauf 5 s) — der Lauf mit genau diesen Vorgaben und ohne jeden Zusatzschalter steht oben. Der Gewinn auf gesunder Leitung ist gross und praktisch gratis; in Phasen gestoerter Leitung bleiben 12 bis 17 statt 20 Prozent, ohne dass ein Bild darunter leidet. Bei Dauerverlust aendert sie erwartungsgemaess nichts — dort wird die Paritaet gebraucht. Wer noch weiter druecken will, setzt die Haltezeit auf 5 s; das kostete in beiden Durchgaengen nichts an Bildqualitaet, ist aber der Puffer gegen den naechsten Stoerungsanfang. VOR DEM AUSROLLEN FEHLEN: der Buendelverlust-Lauf und ein Lauf mit zwei gleichzeitigen Zuschauern.",
+
+  "lehre": "Der erste Anlauf ist nicht daran gescheitert, dass adaptive Paritaet nicht ginge, sondern an der Wahl der Regelgroesse — und die Messakte von damals hat den Ausweg bereits benannt. Die zwei Fallen, die diesmal Zeit gekostet haben, sind beide von derselben Sorte: eine Groesse, die plausibel aussieht (ein NACK ist da / der Zaehler steigt), aber etwas anderes misst als ihr Name sagt. Beide waren nur sichtbar, weil neben der Wirkung auch die Bezugsgroesse mitgezaehlt wurde."
+}
