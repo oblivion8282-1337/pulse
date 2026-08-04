@@ -259,11 +259,21 @@ gesetzt sein wenn MediaMTX self-signed nutzt (Pulse-Default; Token in URL ist di
 Push nach dem TLS-Handshake mit „Writing encrypted data to socket failed". `encoder.rs::create` +
 `encoder_hw.rs::create` setzen das automatisch bei `rtmps://`.
 
-## Nächste Etappe (T3)
+## Etappe T3 — erledigt, und anders als hier geplant
 
-- Tauri (Rust): spawnt den Sidecar als Subprocess, liest stdout-Events,
-  forwarded sie als Tauri-Events ins Frontend.
-- Svelte: baut die GSR-UI (Profil-/Server-/Capture-Picker, Audio-Mode,
-  Overrides, Start/Stop, Live-FPS+Uptime, Log) gegen das RPC-Protokoll
-  oben. Persistenz wandert auf den Tauri-`store` (statt
-  `~/.config/gsr-stream-ui/`).
+**Dieser Abschnitt beschrieb bis 2026-08-04 Tauri als nächsten Schritt. Das ist
+seit dem 2026-05-12 überholt**: der Desktop-Wrapper ist **Electron** geworden,
+weil WebKitGTKs WebRTC unter Tauri unzuverlässig war (`PLAN.md` §17; Tauri steht
+in `CLAUDE.md` inzwischen unter den Anti-Patterns). Der Absatz blieb stehen,
+während dieselbe Datei weiter unten längst die reale Electron-Anbindung
+beschreibt.
+
+Wie es wirklich gebaut ist:
+
+- **Electron-Main** spawnt den Sidecar lazy beim ersten `gsr:call` und reicht
+  stdout-Ereignisse an den Renderer durch (`desktop/electron/sidecar.ts`).
+- **Svelte** bedient das Protokoll oben über `window.pulse.gsr.*`
+  (`web/src/lib/stream/`).
+- **Persistenz** liegt in einem hand-gebauten KV-Store
+  (`desktop/electron/store.ts`), nicht in einem Tauri-`store` — `electron-store`
+  ist ESM-only und passte nicht zum CJS-Build.

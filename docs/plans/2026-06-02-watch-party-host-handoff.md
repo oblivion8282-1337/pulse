@@ -1,5 +1,17 @@
 # Watch-Party Host-Handoff Implementation Plan
 
+> **ÜBERHOLT — der Auto-Handoff ist zurückgenommen worden.**
+> Nachfolger: `2026-06-02-watch-party-host-sticky.md` daneben. Dort behält der
+> Host die Party bis zur ausdrücklichen Abgabe (`watch_handoff`); es gibt
+> **kein** automatisches Weiterreichen an den ältesten Zuschauer mehr.
+> Der Code bestätigt den Sticky-Stand: `ws_watch.py` ruft `end_if_host` bzw.
+> `end_or_grace_if_host`, nirgends das unten geplante `promote_or_end`.
+>
+> Dieses Blatt bleibt als Historie stehen — die Watcher-Registry und der
+> Socket-Refcount daraus sind gebaut und in Betrieb, nur der Handoff-Teil nicht.
+> Wer hier ohne diesen Hinweis anfing, baute eine Funktion nach, die bewusst
+> entfernt wurde.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wenn der Host einer Watch-Party verschwindet (Disconnect / Channel-Leave / Kachel-Schließen / explizite Abgabe), wandert die Kontrolle automatisch zum ältesten verbliebenen Zuschauer statt die Party zu beenden; ist niemand mehr da, endet sie.

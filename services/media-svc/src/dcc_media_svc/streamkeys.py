@@ -42,9 +42,16 @@ CHANNEL_PATH_PREFIX = "channel-"
 CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{32})$")
 
 # stream:token:<token>                   → JSON {channel_id, user_id, nonce, scope:"publish", protocol,
-#                                          created_at, slot? (omitted when 0), label? (omitted when empty)}
+#                                          created_at, slot? (omitted when 0), label? (omitted when empty),
+#                                          ten_bit? (omitted when false)}
 #                                          issued by media-svc with TTL = TOKEN_TTL_S, consumed by the hook.
-# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?}
+#                                          ``ten_bit`` rides along so the viewer can pick a playback path
+#                                          BEFORE decoding (only the native player renders >8 bit) — the hook
+#                                          copies it into ``stream:active`` and ``GET /whep`` returns it.
+#                                          This line listed neither field until 2026-08-04, while
+#                                          ``routes.py`` had been writing them for weeks; the auth-hook copy
+#                                          (which calls THIS file authoritative) already carried them.
+# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?}
 #                                          written by the hook on a successful publish-auth (path carries the
 #                                          nonce so viewers can locate the live MediaMTX path). ``label`` is
 #                                          copied from the token record so the poller can surface it without

@@ -134,6 +134,13 @@ hierher genommen:
   abschaltbar.
 * `0003-flexfec-on-whep.patch` — FlexFEC-03 auf dem WHEP-Ausgang
   (`PULSE_FLEXFEC=1`, Verhältnis über `PULSE_FLEXFEC_MEDIA`/`_FEC`).
+* `0004-flexfec-adaptiv.patch` — bezahlt die Parität nur, wenn die Leitung sie
+  braucht (`PULSE_FLEXFEC_ADAPTIV=1`). **Regelgröße ist der eingehende NACK,
+  nicht `fraction lost`** — der reagiert erst auf eingetretenen Schaden, und
+  feiner als 0,39 Prozent lässt sich die Schwelle gar nicht stellen (8-Bit-Wert).
+  Am 2026-08-04 neu gefasst; auf sauberer Leitung 20,01 → 0,65 Prozent
+  Aufschlag bei identischem Bild. Fehlte in dieser Aufzählung bis 2026-08-04,
+  obwohl es den Patch seit dem 2026-07-31 gibt.
 * `0005-flexfec-nachlieferungen-nicht-puffern.patch` — **geht gegen
   vendorierten pion-Code, nicht gegen MediaMTX**, und muss deshalb nach
   `go mod vendor` angewandt werden. Ohne ihn zerstört jede NACK-Nachlieferung

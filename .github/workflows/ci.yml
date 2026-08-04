@@ -1,6 +1,9 @@
 # Pulse CI: test on every push/PR; on push to main also build & publish the
-# production images to GHCR (consumed on the VPS by the `pulse_watchtower`
-# container — same GHCR → Watchtower pattern as the other apps on that box).
+# production images to GHCR. On the VPS a **user crontab** picks them up every
+# 5 min (`infra/prod/pulse-update.sh`, a scoped `compose pull && up -d`).
+#
+# NOT Watchtower — that was removed on 2026-06-11 because it mounted the Docker
+# socket (= root on the host). This header still named it until 2026-08-04.
 
 name: ci
 
@@ -141,7 +144,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
         run: bash scripts/check-changelog.sh "$BEFORE_SHA" "$AFTER_SHA"
 
-  # Build & push the 6 production images. Watchtower on the VPS follows `:latest`.
+  # Build & push the 6 production images. The cron updater on the VPS follows `:latest`.
   #
   # DEPLOY IST BEWUSST VOM TEST-GATE ENTKOPPELT: needs ist nur `changelog`,
   # NICHT backend/frontend. Grund: die backend-Tests haben seltene pub/sub-
@@ -203,7 +206,7 @@ jobs:
       # ghcr timeouts during buildx bootstrap. Once the image is local,
       # setup-buildx reuses it and never re-hits the registry. A flaky build
       # here means that one service's :latest is silently NOT pushed → a
-      # partial deploy (watchtower keeps the stale container), so it's worth
+      # partial deploy (the cron updater keeps the stale container), so it's worth
       # the retry. No untrusted input is used in this step.
       - name: Pre-pull buildkit (resilient against registry flakes)
         run: |

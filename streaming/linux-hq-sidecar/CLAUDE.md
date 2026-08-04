@@ -41,7 +41,11 @@ Pulse-Repo für die Spec.
 - Request: `{"op":"...","id":<num>?,"params"}` · Response: `{"id","ok","fields"}` (flach!)
   · Event: `{"ev":"..."}` (kein id/ok).
 - Ops: `health, gpu_info, list_monitors, list_windows,
-  list_application_audio, build_argv, start, stop, state`.
+  list_application_audio, build_argv, start, stop, state, keyframe`.
+  (`keyframe` seit 2026-08-02 — beim naechsten Bild ein Vollbild erzeugen. Bei
+  Intra-Refresh keine Reparatur, sondern Voraussetzung: der Strom hat nach dem
+  Start kein Vollbild mehr. Der Windows-Sidecar hat sie ebenfalls, der
+  Python-Auffang nicht.)
 - States: `idle|starting|live|error|stopped`. Events: `state, fps, log, error, stopped`.
 - Token in URLs (pass=/token=) wird in `argv`/Logs **redacted** (`***`).
 

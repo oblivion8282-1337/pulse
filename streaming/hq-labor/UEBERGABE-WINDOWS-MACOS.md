@@ -61,9 +61,16 @@ tatsächliche Stand in einer Tabelle:
 | Karte | Encoder | Betriebsart |
 |---|---|---|
 | NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Auf Windows nicht nachgemessen** — dieselbe Option wie auf Linux, wo sie gemessen ist. |
-| AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. |
-| AMD, H.264 | `h264_d3d12va` | **trägt sie nicht** — der Start wird verweigert. Über `PULSE_HQ_AMD_D3D11=1` läuft H.264 auf `h264_amf`, und dort frischt `usage=ultralowlatency` ohnehin auf. |
+| AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. **Braucht unseren FFmpeg-Patch** (`streaming/ffmpeg-patches/0002-…`) — die Optionen gibt es in keiner FFmpeg-Fassung. |
+| AMD, H.264 | `h264_amf` | trägt sie **ohne jede Option**: `usage=ultralowlatency`, das der Sidecar ohnehin setzt, frischt von sich aus auf. Kein Patch nötig. |
 | Intel | `*_qsv` | nein, die Option gibt es dort nur bei HEVC. |
+
+> **Diese Tabelle sagte bis 2026-08-04 etwas anderes** — H.264 auf AMD laufe
+> über `h264_d3d12va`, trage die Betriebsart nicht, und `PULSE_HQ_AMD_D3D11=1`
+> hole den AMF-Weg zurück. Das galt genau 29 Minuten: seit demselben Tag geht
+> AMD mit **jedem** Codec über AMF, und der Gegenprobe-Schalter heißt
+> `PULSE_HQ_AMD_D3D12=1` und wirkt andersherum. `PULSE_HQ_AMD_D3D11` gibt es im
+> Quelltext nicht mehr.
 
 **Wo der Schalter sitzt:** `win-hq-sidecar/src/encode/auffrischung.rs`, das
 Gegenstück zu den `intra_refresh_*`-Funktionen in

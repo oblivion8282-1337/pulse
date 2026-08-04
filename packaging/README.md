@@ -3,7 +3,7 @@
 `com.howispulse.Pulse` — a Flatpak of the Electron desktop app.
 
 ## What's in it
-- Electron 42 (bundled binary), launched via `zypak-wrapper` (sandbox shim from `org.electronjs.Electron2.BaseApp`).
+- Electron 43 (bundled binary), launched via `zypak-wrapper` (sandbox shim from `org.electronjs.Electron2.BaseApp`).
 - `electron/dist/{main,preload}.cjs` (esbuild bundle) → `/app/pulse/`.
 - The pure-stdlib Python GSR sidecar (`streaming/gsr-sidecar/*.py`) → `/app/share/pulse/gsr-sidecar/` (matches `sidecar.ts`'s Flatpak default path).
 - A custom `gpu-screen-recorder` (`/app/bin/gpu-screen-recorder`): FFmpeg-with-NVENC + GSR-from-source + the `streaming/patches/` (FLV-Opus whitelist, Vulkan-encoder stub). The FFmpeg/GSR module stack is lifted verbatim from the proven gsr-streamer manifest.
@@ -65,7 +65,7 @@ the Python sidecar, the GSR binary) need a rebuild + republish.
    `infra/prod/web-nginx.conf` serves it under `/flatpak/`. So after pushing the
    updated `infra/`:
    ```fish
-   ssh michael@77.42.71.166 'mkdir -p ~/pulse/flatpak-repo'
+   ssh michael@159.195.150.54 'mkdir -p ~/pulse/flatpak-repo'
    # rsync infra/ → ~/pulse/infra/  (if you haven't already), then on the VPS:
    #   cd ~/pulse/infra/prod && docker compose up -d
    ```
@@ -112,11 +112,11 @@ cached runs ~5 min (the workflow caches `~/.local/share/flatpak` + `.flatpak-bui
 - `VPS_SSH_PRIVATE_KEY` — a CI-only key. Generate fresh, don't reuse a personal one:
   ```fish
   ssh-keygen -t ed25519 -f /tmp/pulse-ci-deploy -N ""
-  ssh-copy-id -i /tmp/pulse-ci-deploy.pub michael@77.42.71.166
+  ssh-copy-id -i /tmp/pulse-ci-deploy.pub michael@159.195.150.54
   cat /tmp/pulse-ci-deploy                     # → paste into the secret
   shred -u /tmp/pulse-ci-deploy /tmp/pulse-ci-deploy.pub
   ```
-- `VPS_KNOWN_HOSTS` — output of `ssh-keyscan 77.42.71.166` (pins the host key).
+- `VPS_KNOWN_HOSTS` — output of `ssh-keyscan 159.195.150.54` (pins the host key).
 
 The legacy pre-push hook still works as an emergency fallback (CI down, hotfix
 without pushing to GitHub) — opt in with `PULSE_FORCE_LOCAL_PUBLISH=1 git push …`.

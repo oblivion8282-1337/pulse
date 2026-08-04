@@ -43,20 +43,23 @@ ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
 ## Drei Encode-Pfade
 
 Dispatch über `VideoCodec::encode_path` (`encode/encoder.rs` — die EINE Stelle für die
-Regel), ausgewertet in `src/stream_controller.rs::run_pipeline`: `nvidia` → `pipeline_hw`
-(D3D11-Zero-Copy, alle Codecs), `amd` + **AV1** → ebenfalls `pipeline_hw` (`av1_amf`; AV1
-kann der d3d12va-Encoder nicht, s.u.), `amd` + H.264/HEVC → `pipeline_d3d12`
-(D3D12VA-Zero-Copy), sonst (Intel) → `run_cpu_pipeline`. **Beide GPU-Pfade sind by default
-aktiv** — `PULSE_HQ_DISABLE_ZERO_COPY=1` zwingt jeden Vendor auf den CPU-Pfad (für AMD =
-Fallback auf das funktionierende `h264_amf` mit Software-NV12).
+Regel), ausgewertet in `src/stream_controller.rs::run_pipeline`: **`nvidia` und `amd` →
+`pipeline_hw`** (D3D11-Zero-Copy, alle Codecs — NVENC bzw. AMF), sonst (Intel) →
+`run_cpu_pipeline`. `PULSE_HQ_DISABLE_ZERO_COPY=1` zwingt jeden Vendor auf den CPU-Pfad
+(für AMD = `h264_amf` mit Software-NV12), `PULSE_HQ_AMD_D3D12=1` holt für AMD-H.264/HEVC
+den `pipeline_d3d12`-Weg als Gegenprobe zurück.
 
-**Für Intra-Refresh entscheidet genau diese Aufteilung mit**, und nicht die
-Optionstabelle des Encoders: `h264_d3d12va` — der Regelweg für H.264 auf AMD —
-nimmt die Option an und tut nichts damit. Getragen wird die Betriebsart auf AMD
-von AV1 über `av1_amf`, also vom D3D11-Weg. Deshalb hängt `health.gsr.intra_refresh`
-am Encoder, der bei dieser Kombination **wirklich** läuft (`encode/auffrischung.rs`
-::`encoder_name`) — am Herstellernamen zu fragen meldete `h264_amf` und liefe
-`h264_d3d12va`.
+**Bis 2026-08-04 stand hier die alte Aufteilung** — H.264/HEVC auf AMD über
+`pipeline_d3d12`, nur AV1 über AMF. Sie war je Codec begründet (D3D12 latenzärmer, AMF
+sparsamer) und ist einer Vereinheitlichung gewichen: ein Weg statt zwei. Der Preis steht
+am Schalter `amd_forces_d3d12` in `encode/encoder.rs` — rund 10 ms, exakt ein Bildabstand,
+weil AMF codec-unabhängig ein Bild zurückhält.
+
+**Für Intra-Refresh war genau diese Aufteilung der Grund**, dass die Fähigkeitsmeldung
+am Encode-Weg hängt und nicht an der Optionstabelle: `h264_d3d12va` nimmt die Option an
+und tut nichts damit. Über den Gegenprobe-Schalter ist er weiter erreichbar, deshalb
+bleibt die Prüfung — `health.gsr.intra_refresh` fragt den Encoder, der bei dieser
+Kombination **wirklich** läuft (`encode/auffrischung.rs::encoder_name`).
 
 ### D3D11 Zero-Copy (NVENC / AMF)
 `src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
@@ -120,9 +123,16 @@ Bind-Flags, Auflösung und NV12-vs-BGRA wurden damals als Ursache ausgeschlossen
 
 **Auf einer Radeon 780M mit dem Treiber vom Juli 2026 ist der Absturz nicht mehr
 reproduzierbar** — AMF initialisiert über D3D11 sauber (`AMF initialisation succeeded
-via D3D11`), und AV1 läuft seit 2026-07-30 standardmäßig genau so. Eine Maschine ist
-kein Beleg, deshalb bleibt AMD-H.264/HEVC auf dem D3D12-Zweig: dort läuft es, und er
-ist um das Zweieinhalbfache latenzärmer (6,8 gegen 17,2 ms).
+via D3D11`), und AV1 läuft seit 2026-07-30 standardmäßig genau so.
+
+**Seit 2026-08-04 läuft H.264/HEVC ebenfalls über AMF** (Nutzer-Entscheidung: ein Weg
+statt zwei). Eine Maschine bleibt kein Beleg, deshalb zwei Vorkehrungen: das
+Auffangnetz in `bildencoder.rs` gibt bei einem gescheiterten D3D11-Open an
+`pipeline_d3d12` ab, und `PULSE_HQ_AMD_D3D12=1` stellt den alten Weg ohne Neubau her.
+
+Hier stand bis dahin „deshalb bleibt AMD-H.264/HEVC auf dem D3D12-Zweig". Die
+Latenzzahl dahinter gilt unverändert — D3D12 ist um das Zweieinhalbfache latenzärmer
+(6,8 gegen 17,2 ms) —, sie wiegt die zwei Encode-Wege nur nicht mehr auf.
 
 **Dispatch-Detail:** die Regel steht einmal in `VideoCodec::encode_path`
 (`encode/encoder.rs`) und wird **zweimal ausgewertet** — im Dispatcher

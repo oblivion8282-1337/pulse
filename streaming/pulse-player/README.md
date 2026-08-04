@@ -243,8 +243,11 @@ printf '{"op":"open","id":1,"url":"https://…/whep/…?token=…"}\n' | ./targe
 
 ## Lizenz
 
-Die Crate selbst faellt unter die Client-Lizenz des Repos (PolyForm Perimeter,
-siehe `../LICENSE`). Fuer Abhaengigkeiten gilt:
+Die Crate selbst faellt unter die Client-Lizenz des Repos (**Pulse Client
+License 1.0**, siehe `../LICENSE`). Hier stand bis 2026-08-04 „PolyForm
+Perimeter" — das Projekt ist am 2026-07-29 auf eigene Lizenztexte gewechselt,
+weil PolyForm ausdruecklich Aenderungen und Weitergabe erlaubt und damit genau
+das gestattet haette, was hier untersagt sein soll. Fuer Abhaengigkeiten gilt:
 
 - **Kein GPL-Code** darf hier hineingelinkt werden. Das kollidiert hart mit der
   Client-Lizenz.
