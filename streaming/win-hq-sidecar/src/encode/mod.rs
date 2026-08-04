@@ -66,6 +66,14 @@ pub mod senke_writer;
 /// AV1 verlaesst den d3d12va-Pfad mangels extradata). Ohne diese Zeile stand
 /// nirgends, was am Ende lief — und eine Messung unter falschem Etikett sieht
 /// vollkommen plausibel aus.
+/// **Bittiefe und Betriebsart gehoeren dazu, und zwar aus demselben Grund wie
+/// der Encoder-Name.** Beide koennen bis hierher still zurueckgenommen worden
+/// sein: ein 10-bit-Wunsch faellt auf 8 zurueck, wenn Codec oder Encode-Weg ihn
+/// nicht tragen, und die Auffrischung haengt am Encoder. Ohne diese Zeile
+/// stand nirgends, was am Ende wirklich lief — und beim ersten
+/// 10-bit-Fehlversuch am 2026-08-04 war genau das die Luecke: das Log meldete
+/// `av1_amf`, aber nicht, ob der Strom 8 oder 10 bit trug. Damit war nicht zu
+/// entscheiden, ob der Fehler beim Sender oder beim Zuschauer lag.
 pub fn log_encoder_open(
     codec_name: &str,
     vendor: &str,
@@ -73,9 +81,13 @@ pub fn log_encoder_open(
     height: u32,
     fps: u32,
     bitrate_kbps: u32,
+    ten_bit: bool,
 ) {
+    let tiefe = if ten_bit { 10 } else { 8 };
+    let auffrischung = if auffrischung::gewuenscht() { "Intra-Refresh" } else { "Vollbilder" };
     eprintln!(
-        "[encode] Encoder offen: {codec_name} (vendor={vendor}, {width}x{height}@{fps}, {bitrate_kbps} kbps)"
+        "[encode] Encoder offen: {codec_name} (vendor={vendor}, {width}x{height}@{fps}, \
+         {bitrate_kbps} kbps, {tiefe} bit, {auffrischung})"
     );
 }
 

@@ -202,6 +202,7 @@ impl FfmpegHwEncoder {
             cfg.dst_h,
             cfg.fps,
             cfg.bitrate_kbps,
+            cfg.ten_bit,
         );
 
         let encoder_time_base = Rational::new(1, cfg.fps as i32);

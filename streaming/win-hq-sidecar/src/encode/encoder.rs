@@ -181,6 +181,9 @@ impl FfmpegEncoder {
             cfg.dst_height,
             cfg.fps,
             cfg.bitrate_kbps,
+            // Der CPU-Weg liefert 8 bit — dieselbe Feststellung wie bei
+            // `vendor_encoder_opts` ein paar Zeilen darueber.
+            false,
         );
         stream.set_parameters(&opened);
 

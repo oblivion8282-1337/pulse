@@ -175,6 +175,8 @@ impl FfmpegD3d12Encoder {
             cfg.dst_height,
             cfg.fps,
             cfg.bitrate_kbps,
+            // Der d3d12va-Weg fuehrt keinen 10-bit-Pool.
+            false,
         );
 
         // Audio-Pipeline VOR write_header (addiert einen Stream zum Output).
