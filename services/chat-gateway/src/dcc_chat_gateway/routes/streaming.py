@@ -47,11 +47,17 @@ SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Only ``rtmp`` is accepted — media-svc rejects everything else (SRT is
-    # disabled there because the token would travel in cleartext in the SRT
-    # streamid field). Mirror its pattern so a caller passing ``srt`` gets a
-    # clean 422 at this layer instead of a confusing forwarded one.
-    protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
+    # ``rtmp`` oder ``whip``. SRT bleibt draussen: dort reiste das Token im
+    # ``streamid``-Feld im Klartext. Das Muster spiegelt media-svc, damit ein
+    # Aufrufer mit ``srt`` hier ein sauberes 422 bekommt statt eines
+    # weitergereichten.
+    #
+    # ``whip`` ist seit 2026-08-02 erlaubt (vorher hart auf ``rtmp``): der
+    # WHIP-Weg ist der einzige mit RTCP-Rueckkanal, und ohne den bekommt ein
+    # beitretender Zuschauer in einem Intra-Refresh-Strom nie sein erstes
+    # Vollbild. media-svc entscheidet weiterhin, was daraus wird — hier steht
+    # nur, was ueberhaupt gefragt werden darf.
+    protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|whip)$")] = "rtmp"
     # Which of the caller's stream slots to publish (0 == the default single
     # stream). Forwarded verbatim to media-svc, which owns the path/key shape.
     slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
@@ -59,6 +65,11 @@ class StreamTokenIn(BaseModel):
     # Forwarded verbatim to media-svc, which bounds/strips + threads it through
     # the token → active → poller → stream_state path.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Streamt der Client mit 10 bit Farbtiefe? Wird nur weitergereicht;
+    # media-svc fädelt es über Token-Record → auth-hook → ``stream:active``
+    # bis in die WHEP-Antwort, aus der der Zuschauer seinen Wiedergabeweg
+    # ableitet (nur der native Player kann mehr als 8 bit ausgeben).
+    ten_bit: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -71,6 +82,8 @@ class StreamTokenOut(BaseModel):
 
 class WhepOut(BaseModel):
     whep_url: str
+    # Von media-svc durchgereicht: sendet dieser Stream mit 10 bit?
+    ten_bit: bool = False
 
 
 # --- media-svc client (thin; tests monkeypatch these two) -------------------
@@ -180,6 +193,10 @@ async def issue_stream_token(
     token_body: dict[str, object] = {"protocol": payload.protocol, "slot": payload.slot}
     if payload.label is not None:
         token_body["label"] = payload.label
+    # Wie ``label`` nur bei Bedarf mitschicken, damit der Body im Normalfall
+    # unverändert bleibt.
+    if payload.ten_bit:
+        token_body["ten_bit"] = True
     try:
         resp = await _media_svc_request(
             "POST",

@@ -229,6 +229,66 @@ async def test_stream_token_slot_forwarded(client, _auth_signer, mock_media_svc)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ten_bit, forwarded", [(True, {"ten_bit": True}), (False, {})])
+async def test_stream_token_ten_bit_forwarded(
+    client, _auth_signer, mock_media_svc, ten_bit, forwarded
+):
+    """``ten_bit`` wird nur bei True weitergereicht — sonst bliebe der Body
+    nicht identisch zu dem, was ältere Clients senden. Von media-svc fährt der
+    Wert weiter bis in die WHEP-Antwort, aus der der Zuschauer seinen
+    Wiedergabeweg ableitet."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "tok123",
+                "mediamtx_path": f"channel-{vc['id']}-1",
+                "push_protocol": "rtmp",
+                "push_url": "rtmps://localhost:1936/x",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={"ten_bit": ten_bit}, headers=_auth(token)
+    )
+    assert r.status_code == 200, r.text
+    assert mock_media_svc.calls[0][3] == {"protocol": "rtmp", "slot": 0, **forwarded}
+
+
+@pytest.mark.asyncio
+async def test_whep_proxy_passes_ten_bit_to_viewer(client, _auth_signer, mock_media_svc):
+    """Die Bittiefe muss den Proxy überleben: der Zuschauer entscheidet daran, ob
+    er den nativen Player nimmt. Fehlt sie in media-svcs Antwort (älterer
+    Server), gilt 8 bit."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(200, {"whep_url": "http://localhost:8889/x/whep", "ten_bit": True})
+    )
+    r = await client.get(f"/channels/{vc['id']}/whep?user_id=1", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["ten_bit"] is True
+
+    mock_media_svc.responses.append(_resp(200, {"whep_url": "http://localhost:8889/x/whep"}))
+    r2 = await client.get(f"/channels/{vc['id']}/whep?user_id=1", headers=_auth(token))
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["ten_bit"] is False
+
+
+@pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock_media_svc):
     """Slot is clamped at the gateway (0.._SLOT_MAX); a slot past it → 422,
     never forwarded."""
