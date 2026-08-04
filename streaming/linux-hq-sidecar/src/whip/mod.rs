@@ -84,6 +84,38 @@ fn runtime() -> &'static Runtime {
     })
 }
 
+/// Eine Dauer, aus der webrtc-rs **genau** `takte` RTP-Takte macht.
+///
+/// **Warum das noetig ist** (gemessen 2026-08-02 auf der Windows-Seite,
+/// Messakte `streaming/testbench/profiles/ton-2026-08-02-windows-messstand.json`
+/// — die Stelle ist dieselbe Datei in webrtc-rs, der Fehler also derselbe hier):
+/// `track_local_static_sample.rs:137` rechnet `(dauer.as_secs_f64() * uhr) as
+/// u32`, und `as u32` **schneidet ab**. Ein Bild bei 30/s dauert 1/30 s, das mal
+/// 90000 ergibt in f64 2999,9999999999995, und daraus wird 2999 statt 3000.
+///
+/// Ein Takt je Bild klingt nach nichts und ist bei 30 Bildern je Sekunde
+/// **20 ms je Minute**: das Bild laeuft dem Ton mit rund 1,3 Sekunden je Stunde
+/// davon, ohne dass irgendwo ein Fehler auftaucht. Auf Windows so gemessen
+/// (H.264 -21,9 und -20,5 ms/min), waehrend AV1 dort bei -0,5 und -0,0 lag —
+/// der eigene AV1-Paketierer rechnet den Zeitstempel ganzzahlig aus der
+/// Bildzahl und geht an dieser Stelle vorbei.
+///
+/// **Auf Linux ungemessen**, aber nicht ungeprueft: es ist dieselbe Fassung
+/// derselben fremden Datei, und der Rechenweg haengt an nichts
+/// Plattformspezifischem. Die Gegenprobe auf Windows nach dem Einbau: +4,2 und
+/// -6,7 ms/min statt -21,9 und -20,5, je 149 Paare — der einseitige Fehler ist
+/// weg, der Rest streut um null.
+///
+/// **Eine halbe Takt-Zugabe, nicht eine ganze.** Damit landet das Abschneiden
+/// sicher auf dem gewuenschten Wert, egal wie die f64-Darstellung faellt, und
+/// die Dauer bleibt zugleich naeher am Soll als jede Aufrundung auf den
+/// naechsten Takt. Der Taktgeber (`pacer`) nimmt weiter die ECHTE Bilddauer;
+/// diese hier ist ausschliesslich die Uebergabe an webrtc-rs.
+fn dauer_fuer_takte(takte: u32, uhr: u32) -> Duration {
+    let ns = (f64::from(takte) + 0.5) * 1e9 / f64::from(uhr);
+    Duration::from_nanos(ns.round() as u64)
+}
+
 /// Ein Sample auf eine Spur schreiben. Wird aus dem synchronen Encode-Faden
 /// gerufen; `write_sample` reiht nur ein, blockiert also nicht spuerbar.
 fn write_to_track(track: &TrackLocalStaticSample, data: &[u8], dauer: Duration) -> Result<()> {
@@ -137,8 +169,11 @@ pub struct WhipSender {
     /// Aus dem `Location`-Kopf der Antwort — fuer das abschliessende DELETE.
     resource_url: Option<String>,
     http: reqwest::Client,
-    /// Dauer eines Bildes; `write_sample` braucht sie fuer den Zeitstempel.
-    frame_duration: Duration,
+    /// Die Bilddauer, so zurechtgelegt, dass webrtc-rs daraus die RICHTIGE Zahl
+    /// RTP-Takte macht (s. [`dauer_fuer_takte`]). **Nur** fuer die Uebergabe an
+    /// `write_sample`; wer damit rechnet, rechnet falsch — die echte Bilddauer
+    /// bekommt der Taktgeber beim Bau.
+    bild_sample_dauer: Duration,
 }
 
 impl WhipSender {
@@ -151,7 +186,13 @@ impl WhipSender {
     }
 
     async fn connect_async(url: &str, cap: RTCRtpCodecCapability, fps: u32) -> Result<Self> {
+        // Zwei Dauern, und sie sind NICHT dasselbe: `frame_duration` ist der
+        // echte Bildabstand und geht an den Taktgeber, `bild_sample_dauer` ist
+        // die Uebergabe an webrtc-rs (s. `dauer_fuer_takte`). Takte je Bild
+        // ganzzahlig, wie es der AV1-Paketierer auch tut — bei 90000/fps ohne
+        // Rest (24/25/30/50/60...) exakt, sonst der naechstliegende Wert.
         let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
+        let bild_sample_dauer = dauer_fuer_takte((90_000 + fps / 2) / fps, 90_000);
         let mut media = MediaEngine::default();
         media.register_default_codecs().context("Codecs registrieren")?;
         let mut registry = Registry::new();
@@ -285,7 +326,7 @@ impl WhipSender {
         });
 
         let (resource_url, http) = Self::negotiate(&pc, url).await?;
-        Ok(Self { track, audio, pc, resource_url, http, frame_duration })
+        Ok(Self { track, audio, pc, resource_url, http, bild_sample_dauer })
     }
 
     /// Angebot erzeugen, Kandidaten sammeln, POST, Antwort setzen.
@@ -348,7 +389,7 @@ impl WhipSender {
             // H.264: webrtc-rs stempelt selbst aus der Bilddauer, `pts` bleibt
             // hier ungenutzt.
             Bildspur::Fremd(t) => {
-                write_to_track(t, data, self.frame_duration).context("write_sample")
+                write_to_track(t, data, self.bild_sample_dauer).context("write_sample")
             }
             Bildspur::Selbst { zustand, pacer, track } => {
                 let pakete: Vec<Packet> = {
@@ -388,8 +429,18 @@ impl WhipSender {
     /// `encode::audio::opus_frame_ms`) — webrtc-rs leitet daraus den
     /// RTP-Zeitstempel ab. Ein falscher Wert verschoebe den Ton gegen das Bild,
     /// ohne dass irgendwo ein Fehler auftaucht.
+    ///
+    /// **Auch hier ueber [`dauer_fuer_takte`]**, obwohl der Ton die Falle heute
+    /// nicht trifft: 5 ms mal 48000 faellt in f64 zufaellig knapp UEBER 240 und
+    /// wird richtig abgeschnitten. Das ist ein Zufall der Darstellung, keine
+    /// Absicht — bei einer anderen Paketlaenge (`OPUS_FRAME_MS`) kann es
+    /// andersherum ausgehen, und dann liefe der TON weg statt des Bildes. Ein
+    /// gemessener Fehler an einer Stelle heisst, dieselbe Stelle ueberall zu
+    /// schliessen.
     pub fn send_audio(&self, data: &[u8], dauer: Duration) -> Result<()> {
-        write_to_track(&self.audio, data, dauer).context("write_sample audio")
+        let takte = (dauer.as_secs_f64() * 48_000.0).round() as u32;
+        write_to_track(&self.audio, data, dauer_fuer_takte(takte, 48_000))
+            .context("write_sample audio")
     }
 
     /// Sitzung abbauen. Idempotent.
@@ -408,5 +459,53 @@ impl WhipSender {
                 let _ = http.delete(&u).send().await;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Genau die Rechnung, die webrtc-rs anstellt** — nachgebaut, damit der
+    /// Test die Falle prueft und nicht unsere Absicht:
+    /// `track_local_static_sample.rs`, `(dauer.as_secs_f64() * uhr) as u32`.
+    fn wie_webrtc_rs(dauer: Duration, uhr: u32) -> u32 {
+        (dauer.as_secs_f64() * f64::from(uhr)) as u32
+    }
+
+    /// Die alte Rechnung verliert bei 30 Bildern je Sekunde einen Takt je Bild.
+    /// Dieser Test haelt den GEMESSENEN Fehler fest (2026-08-02, rund 20 ms je
+    /// Minute); faellt er irgendwann weg, weil webrtc-rs rundet, darf die
+    /// Zugabe verschwinden — vorher nicht.
+    #[test]
+    fn die_alte_rechnung_verliert_einen_takt() {
+        let alt = Duration::from_secs_f64(1.0 / 30.0);
+        assert_eq!(wie_webrtc_rs(alt, 90_000), 2999, "das war der Fehler");
+        let verlust_je_minute = 30.0 * 60.0 * f64::from(3000 - 2999) / 90_000.0 * 1000.0;
+        assert!((verlust_je_minute - 20.0).abs() < 0.001, "20 ms je Minute");
+    }
+
+    /// Und die berichtigte trifft — fuer jede Bildrate, die hier vorkommt.
+    #[test]
+    fn dauer_fuer_takte_trifft_den_takt() {
+        for fps in [24u32, 25, 30, 50, 60, 90, 120, 144] {
+            let takte = (90_000 + fps / 2) / fps;
+            let d = dauer_fuer_takte(takte, 90_000);
+            assert_eq!(wie_webrtc_rs(d, 90_000), takte, "fps {fps}");
+            // Die Zugabe darf die Dauer nicht spuerbar verschieben: hoechstens
+            // ein halber Takt, also 5,6 Mikrosekunden.
+            let soll = f64::from(takte) / 90_000.0;
+            assert!((d.as_secs_f64() - soll).abs() < 6e-6, "fps {fps} zu weit weg");
+        }
+    }
+
+    /// Dasselbe fuer den Ton, ueber alle zulaessigen Opus-Paketlaengen.
+    #[test]
+    fn dauer_fuer_takte_trifft_auch_den_ton() {
+        for ms in [2.5f64, 5.0, 10.0, 20.0, 40.0, 60.0] {
+            let takte = (ms * 48.0).round() as u32;
+            let d = dauer_fuer_takte(takte, 48_000);
+            assert_eq!(wie_webrtc_rs(d, 48_000), takte, "{ms} ms");
+        }
     }
 }
