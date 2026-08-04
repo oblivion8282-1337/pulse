@@ -1,41 +1,72 @@
 # Pulse fork of MediaMTX
 
-A minimal patched MediaMTX image that works around a Chromium-side WebRTC-AV1
-receive bug for AMD-VAAPI publishers. Built as a multi-stage Dockerfile,
-published to `ghcr.io/oblivion8282-1337/pulse-mediamtx:<tag>`, consumed by
-both `streaming/server/docker-compose.yml` (dev) and `infra/prod/docker-compose.yml`
+A patched MediaMTX image, built as a multi-stage Dockerfile, published to
+`ghcr.io/oblivion8282-1337/pulse-mediamtx:<tag>`, consumed by both
+`streaming/server/docker-compose.yml` (dev) and `infra/prod/docker-compose.yml`
 (prod).
 
 ## What it does
 
-`patches/0001-rtmp-inject-temporal-delimiter.patch` adds three lines to
-`internal/protocols/rtmp/to_stream.go` that prepend an `OBU_TEMPORAL_DELIMITER`
-to every AV1 temporal unit coming in over RTMP, if one isn't already present.
-The patch header explains the AV1-spec context and why this is necessary —
-short version: AMD VAAPI doesn't emit them, NVENC does, and libwebrtc's
-RTP-AV1 receiver relies on them to find frame boundaries.
+**Five patches, in two groups.** The Dockerfile header carries the full
+rationale for each; this is the map.
+
+`patches/` — applied to the MediaMTX source right after clone:
+
+| Patch | What it does |
+|---|---|
+| `0001-rtmp-inject-temporal-delimiter` | prepends an `OBU_TEMPORAL_DELIMITER` to every AV1 temporal unit coming in over RTMP. AMD VAAPI doesn't emit them, NVENC does, and libwebrtc's RTP-AV1 receiver relies on them to find frame boundaries. |
+| `0002-forward-viewer-keyframe-requests` | lets a viewer's key-frame request reach the publisher, and makes the hardwired 2 s key-frame ticker switchable (`PULSE_KEYFRAME_INTERVAL`). |
+| `0003-flexfec-on-whep` | generates FlexFEC parity on the WHEP sending side (`PULSE_FLEXFEC=1`, media:parity via `PULSE_FLEXFEC_MEDIA`/`_FEC`). |
+| `0004-flexfec-adaptiv` | drives that parity off the incoming NACK instead of paying it unconditionally (`PULSE_FLEXFEC_ADAPTIV=1`). |
+
+`patches-vendor/` — applied to vendored third-party code, after `go mod vendor`:
+
+| Patch | What it does |
+|---|---|
+| `0005-flexfec-nachlieferungen-nicht-puffern` | keeps NACK retransmissions out of pion's parity buffer; a single one otherwise left the whole group unprotected. |
+
+**Every one of 0002-0005 is off unless its environment variable is set.** An
+un-configured deployment behaves exactly like upstream plus 0001.
+
+> **Dieser Abschnitt beschrieb den Fork bis 2026-08-04 als „minimal" mit genau
+> einem Patch**, und den Abschnitt darunter als offene Frage („Experimentelles
+> gehört nach `hq-labor/`"). Beides ist überholt: Commit `32992c4e` (2026-08-02)
+> hat Vollbild-Weiterleitung und FlexFEC ausdrücklich aus dem Labor in den
+> ausgelieferten Weg geschoben. Die Kopien unter
+> `streaming/hq-labor/mediamtx-patches/` sind seither der Arbeitsstand des
+> Messstands, nicht mehr die Warteschlange davor.
 
 ## Was hier NICHT hineingehört
 
 Dieses Verzeichnis ist ein Auslieferungspfad, kein Ablageort. Das Dockerfile
-wendet **jeden** Patch in `patches/` an, der Workflow baut damit **denselben
-Tag**, den `infra/prod/docker-compose.yml` pinnt, und der Cron-Updater auf dem
-VPS zieht einen neuen Digest desselben Tags binnen fünf Minuten. Ein Patch,
-der hier landet, ist also in Produktion — ohne Versionswechsel und ohne dass
-man es am Tag ablesen könnte.
+wendet **jeden** Patch in `patches/` an, und der Workflow baut daraus das Image,
+das Produktion pinnt.
 
-Experimentelles gehört deshalb nach `streaming/hq-labor/mediamtx-patches/`.
-Dort liegen die serverseitigen Stücke des HQ-Messstands (Weiterleitung der
-Vollbild-Anforderung, FlexFEC auf dem WHEP-Ausgang); kein Workflow fasst sie
-an, der Testserver wird von Hand damit versorgt. Sie kommen erst hierher,
-wenn entschieden ist, dass sie ausgeliefert werden sollen.
+**Seit 2026-08-04 steht der Patch-Stand im Tag** (`PULSE_REVISION` im
+Dockerfile → `1.19.1-pulse2`). Hier stand vorher, ein Patch lande „in Produktion
+— ohne Versionswechsel und ohne dass man es am Tag ablesen könnte". Genau das
+ist jetzt behoben: wer den Satz ändert, ändert den Tag mit, das alte Image
+bleibt in der Registry stehen, und ein Rückweg ist eine Zeile in der
+Compose-Datei statt eines Neubaus.
+
+**Der Austausch bleibt trotzdem ein bewusster Schritt.** MediaMTX gehört nicht
+zu den Diensten, die der Cron-Updater anfasst (nur die App-Images) — es passiert
+erst etwas bei einem `docker compose pull mediamtx && up -d`. Und **das
+unterbricht jeden laufenden Stream**: Sender wie Zuschauer verlieren die
+Verbindung, und ein automatischer Neustart greift nicht (den gibt es nur bei
+einer Auflösungsänderung der Quelle). Vorher in der MediaMTX-API nachsehen, ob
+gerade jemand streamt, kostet nichts.
+
+Für alles **Experimentelle** gilt weiterhin: das gehört nach
+`streaming/hq-labor/mediamtx-patches/`, wo kein Workflow es anfasst und der
+Testserver von Hand versorgt wird.
 
 ## How it gets built and shipped
 
 `.github/workflows/mediamtx-fork.yml` rebuilds the image when anything under
 `infra/mediamtx-fork/` changes on `main`. It pushes two tags to GHCR:
 
-- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse`  — version pin
+- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse2` — version pin (MediaMTX-Fassung + unser Patch-Stand, s. `PULSE_REVISION` im Dockerfile)
 - `ghcr.io/oblivion8282-1337/pulse-mediamtx:latest`        — rolling
 
 Both compose files reference the version-pinned tag. The labels include
@@ -66,8 +97,14 @@ cd infra/mediamtx-fork
 # Edit Dockerfile: MEDIAMTX_VERSION=<new>
 # Verify the patch still applies cleanly against the new tag:
 git clone --depth=1 -b v<new> https://github.com/bluenviron/mediamtx.git /tmp/mediamtx-check
-( cd /tmp/mediamtx-check && patch -p1 --dry-run < ../patches/0001-*.patch )
-# If it fails to apply, rebase the patch against the new line numbers.
+# EVERY patch, not just 0001 — there are four here plus one vendored.
+( cd /tmp/mediamtx-check && for p in ../patches/*.patch; do patch -p1 --dry-run < "$p"; done )
+# If one fails to apply, rebase that patch against the new line numbers.
+#
+# `patches-vendor/0005-*` can only be checked AFTER `go mod vendor` (it goes
+# against pion's FlexFEC interceptor, not against the MediaMTX source), so the
+# Docker build is the first place it is verified. Expect that step to be the
+# one that breaks on a pion bump.
 ```
 
 Then commit; the workflow rebuilds and pushes the new image, and you update

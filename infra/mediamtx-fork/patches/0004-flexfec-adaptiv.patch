@@ -1,0 +1,521 @@
+From 0a44e25e2740020674f5b6ac5f1f3ef97ce1617b Mon Sep 17 00:00:00 2001
+From: z <x@y>
+Date: Tue, 4 Aug 2026 02:59:44 +0200
+Subject: [PATCH] =?UTF-8?q?FlexFEC=20verlustgeregelt=20=E2=80=94=20Regelgr?=
+ =?UTF-8?q?oesse=20ist=20der=20NACK,=20nicht=20`fraction=20lost`?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Der Paritaets-Aufschlag ist fest rund 20 Prozent, unabhaengig davon, ob
+ueberhaupt etwas verloren geht, und MediaMTX faechert ihn an JEDEN Zuschauer
+auf. Auf einer gesunden Leitung ist er damit vollstaendig umsonst bezahlt.
+
+Dieser Patch macht die Paritaet verlustgeregelt. Voreinstellung AUS — ohne
+PULSE_FLEXFEC_ADAPTIV=1 verhaelt sich der Server wie zuvor.
+
+  PULSE_FLEXFEC_ADAPTIV=1            Regelung ein
+  PULSE_FLEXFEC_SCHWELLE_PROMILLE=20 ab welchem Verlustanteil die Paritaet laeuft
+  PULSE_FLEXFEC_FENSTER_S=2          ueber welches Fenster die Rate gebildet wird
+  PULSE_FLEXFEC_HALTEZEIT_S=10       wie lange danach offen bleiben
+  PULSE_FLEXFEC_ANLAUF_S=5           wie lange am Sitzungsanfang immer offen
+
+GEMESSEN (`fec-2026-08-04-adaptiv-ueber-nack`, Laborstrecke ueber die echte
+Leitung, 60 ms Umlaufzeit, gesetzter Verlust, headless Chromium als Zuschauer):
+
+  saubere Leitung        fest 20,01 %  ->  adaptiv 0,65 %   Bild identisch
+  Verlust in Phasen      fest 19,86 %  ->  adaptiv 12,3-15,0 %
+  Dauerverlust 2 %       fest 19,69 %  ->  adaptiv 19,60 %  (richtig so)
+
+Kein Arm hatte eine Einfrierung oder eine Standbildsekunde; die adaptiven Arme
+verlieren nicht mehr Pakete endgueltig als die feste Paritaet.
+
+WARUM NICHT `fraction lost`. Eine erste Fassung (2026-07-31) nahm den Wert aus
+den Receiver Reports und liess die Paritaet oberhalb einer Schwelle laufen.
+Sie ist gemessen gescheitert (`fec-2026-07-31-schwelle-taugt-nicht.json`): 152
+Paritaetspakete reparierten NULL Pakete. Drei Gruende, und keiner davon
+verschwindet, wenn man die Schwelle anders stellt:
+
+  1. `fraction lost` wird NACH der NACK-Reparatur gebildet. Was der Empfaenger
+     nachfordern konnte, steht gar nicht darin.
+  2. Er ist ein 8-Bit-Wert (Anteil mal 256). Die feinste einstellbare Stufe ist
+     1/256 = 0,39 Prozent; dazwischen gibt es nichts.
+  3. Er kommt einmal je Report-Zyklus, also rund einmal pro Sekunde.
+
+Der eingehende NACK ist in allen drei Punkten das Gegenteil: roher Verlust vor
+jeder Reparatur, einzelne Sequenznummern statt eines Bruchs, und er trifft eine
+halbe Umlaufzeit nach dem Verlust ein statt am Ende eines Zyklus. Er lag in
+derselben Schleife im selben Slice wie das PLI, das Patch 0002 schon abgreift.
+
+DIE ZWEITE HAELFTE ist damit nicht geloest: Paritaet schuetzt, was NACH ihr
+kommt, jede Regelung auf gemessenen Verlust ist also zu spaet fuer den Verlust,
+der sie ausgeloest hat. Dagegen zwei bewusst unsymmetrische Mittel:
+
+  * HALTEZEIT — sobald ein Fenster ueber der Schwelle liegt, bleibt das Tor
+    10 Sekunden offen. Verlust tritt in Phasen auf. Die erste Fassung schloss
+    nach zwei Sekunden wieder und war damit immer im falschen Moment offen.
+  * ANLAUFFENSTER — die ersten 5 Sekunden einer Sitzung laeuft die Paritaet
+    immer. Das ist der Moment des Einstiegs-Vollbilds (25-35 Pakete am Stueck),
+    und bei Intra-Refresh gibt es keinen zweiten Einstiegspunkt.
+
+ZWEI DINGE, DIE ERST DIE MESSUNG GEZEIGT HAT, und ohne die die Regelung
+wirkungslos bleibt:
+
+  * Auf einen NACK allein darf das Tor nicht hoeren, sondern nur auf eine RATE.
+    In einem Lauf mit 15 s Stoerung und 30 s Ruhe im Wechsel kamen in 108 von
+    119 Sekunden NACKs an, auch in den ruhigen Abschnitten. Ein Tor, das bei
+    jedem NACK aufgeht und zehn Sekunden haelt, schliesst damit nie — gemessen
+    null unterdrueckte Paritaetspakete, voller Aufschlag.
+  * Gezaehlt werden VERSCHIEDENE Sequenznummern je Fenster, nicht NACKs.
+    Derselbe Lauf meldete 7442 Verluste in 120 s bei 449 Medienpaketen je
+    Sekunde — 14 Prozent bei 2 Prozent eingestellter Stoerung. Chromium fordert
+    dieselbe Luecke mehrfach an. Ohne Entdopplung regelt das Tor auf die
+    Hartnaeckigkeit des Empfaengers statt auf den Verlust der Leitung.
+
+Drei Dinge, die beim Bauen NICHT offensichtlich waren:
+
+  1. Die Rate mitten in der Sitzung zu aendern ginge nur mit einem Fork des
+     pion-Interceptors (er nimmt die Werte als Bau-Optionen). Fuer die
+     Bandbreite ist es aber gleichgueltig, ob die Rate sinkt oder die Pakete
+     gar nicht erst hinausgehen — also ein Filter davor statt eines Umbaus
+     dahinter.
+  2. Die Reihenfolge in der Interceptor-Kette ist umgekehrt zur Intuition.
+     `interceptor.Chain.BindLocalStream` wickelt vorwaerts: wer ZUERST
+     registriert, bekommt den echten Netzwerk-Writer und sitzt damit am NETZ.
+     Das Tor muss deshalb VOR ConfigureFlexFEC03 registriert werden, um dessen
+     Pakete ueberhaupt zu sehen.
+  3. Der Paritaets-Nutzlasttyp ist AUSGEHANDELT, keine Konstante. Chromium
+     bietet 49 an, unser nativer Player 110. Ein Filter, der gegen die eigene
+     Konstante prueft, laesst beim Browser alles durch — wirkungslos, ohne zu
+     scheitern. Der ausgehandelte Wert steht in
+     `StreamInfo.PayloadTypeForwardErrorCorrection`.
+
+Das Tor haengt an der PeerConnection, nicht in einer prozessweiten Variablen.
+Die erste Fassung begruendete das damit, dass die RTCP-Leseschleife die
+PeerConnection nicht mitfuehre — sie tut es (`setup(p)`). Prozessweit hiesse:
+bei mehreren Zuschauern regelt der zuletzt verbundene fuer alle, und Verlust
+auf EINER Leitung laesst alle anderen Paritaet zahlen.
+
+Ausserdem: `PULSE_FLEXFEC_FEC=0` heisst jetzt AUS statt "nimm die Vorgabe".
+Vorher fiel die 0 auf 2 zurueck — wer damit einen Nullauf fahren wollte, mass
+unbemerkt 10+2 gegen 10+2.
+
+Baut gegen 1.19.1, go vet sauber, Pakettests gruen.
+---
+ internal/protocols/webrtc/outbound_track.go  |  36 ++-
+ internal/protocols/webrtc/peer_connection.go | 308 ++++++++++++++++++-
+ 2 files changed, 337 insertions(+), 7 deletions(-)
+
+diff --git a/internal/protocols/webrtc/outbound_track.go b/internal/protocols/webrtc/outbound_track.go
+index ad2282c..43a3955 100644
+--- a/internal/protocols/webrtc/outbound_track.go
++++ b/internal/protocols/webrtc/outbound_track.go
+@@ -76,12 +76,40 @@ func (t *OutboundTrack) setup(p *PeerConnection) error {
+ 			// Upstream discards these packets, so the request died at this
+ 			// line and the reader stayed frozen forever whenever the
+ 			// publisher was not emitting periodic key frames. Hand it on.
+-			if p.OnKeyFrameRequest != nil && t.isVideo() {
+-				for _, pkt := range pkts {
+-					switch pkt.(type) {
+-					case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
++			for _, pkt := range pkts {
++				switch v := pkt.(type) {
++				case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
++					if p.OnKeyFrameRequest != nil && t.isVideo() {
+ 						p.OnKeyFrameRequest()
+ 					}
++
++				case *rtcp.TransportLayerNack:
++					// Pulse: DIE Regelgroesse des Paritaets-Tors. Der NACK
++					// meldet den ROHEN Verlust — er entsteht, sobald der
++					// Empfaenger eine Luecke sieht, also BEVOR irgendetwas
++					// repariert wurde, und nennt die Sequenznummern einzeln.
++					// `fraction lost` aus dem Receiver Report kann das nicht:
++					// er wird erst nach der Nachlieferung gebildet, ist auf
++					// 1/256 gequantelt und kommt nur einmal je Report-Zyklus.
++					if p.fecTor != nil && t.isVideo() {
++						var seqnos []uint16
++						for i := range v.Nacks {
++							seqnos = append(seqnos, v.Nacks[i].PacketList()...)
++						}
++						p.fecTor.melden(seqnos)
++					}
++
++				case *rtcp.ReceiverReport:
++					// Auffangnetz fuer einen Empfaenger, der KEIN NACK
++					// aushandelt: der meldet nie eine Luecke, und das Tor
++					// bliebe fuer ihn ewig zu. `fraction lost` taugt als
++					// alleinige Regelgroesse nicht (s. `pulseFecTor`), als
++					// zweiter Melder neben dem NACK aber sehr wohl.
++					if p.fecTor != nil && t.isVideo() {
++						for _, r := range v.Reports {
++							p.fecTor.meldenAnteil(r.FractionLost)
++						}
++					}
+ 				}
+ 			}
+ 		}
+diff --git a/internal/protocols/webrtc/peer_connection.go b/internal/protocols/webrtc/peer_connection.go
+index 22aee87..d0ec625 100644
+--- a/internal/protocols/webrtc/peer_connection.go
++++ b/internal/protocols/webrtc/peer_connection.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/pion/ice/v4"
+ 	"github.com/pion/interceptor"
+ 	"github.com/pion/interceptor/pkg/flexfec"
++	"github.com/pion/rtp"
+ 	"github.com/pion/sdp/v3"
+ 	"github.com/pion/transport/v4"
+ 	"github.com/pion/webrtc/v4"
+@@ -53,9 +54,266 @@ func pulseFlexFECConfig() (an bool, medien uint32, paritaet uint32) {
+ 		}
+ 		return uint32(v)
+ 	}
+-	return os.Getenv("PULSE_FLEXFEC") == "1",
+-		zahl("PULSE_FLEXFEC_MEDIA", 10),
+-		zahl("PULSE_FLEXFEC_FEC", 2)
++	an = os.Getenv("PULSE_FLEXFEC") == "1"
++	medien = zahl("PULSE_FLEXFEC_MEDIA", 10)
++	paritaet = zahl("PULSE_FLEXFEC_FEC", 2)
++
++	// `PULSE_FLEXFEC_FEC=0` heisst AUS, nicht "nimm die Vorgabe".
++	//
++	// Vorher fiel die 0 durch die Pruefung oben auf 2 zurueck — wer damit einen
++	// Nullauf fahren wollte, mass unbemerkt 10+2 gegen 10+2. Genau diese
++	// Fehlerklasse hat in dieser Messreihe schon zweimal zugeschlagen (vier
++	// identische Laeufe als A/B ausgewertet; eine netem-Stoerung, die gar
++	// nichts verwarf). Ein Schalter, der still das Gegenteil tut, ist
++	// schlimmer als keiner.
++	if os.Getenv("PULSE_FLEXFEC_FEC") == "0" {
++		an = false
++	}
++	return an, medien, paritaet
++}
++
++// pulseFecTor entscheidet, ob die Paritaetspakete tatsaechlich hinausgehen.
++//
++// WARUM ES DAS GIBT: Der Aufschlag ist sonst fest rund 20 Prozent — unabhaengig
++// davon, ob ueberhaupt etwas verloren geht, und MediaMTX faechert ihn an JEDEN
++// Zuschauer auf. Auf einer gesunden Leitung ist er damit vollstaendig umsonst
++// bezahlt.
++//
++// WIE ES GEREGELT WIRD — und warum NICHT ueber `fraction lost`:
++//
++// Die erste Fassung (2026-07-31) nahm `fraction lost` aus den Receiver Reports
++// als Regelgroesse und liess die Paritaet oberhalb einer Schwelle laufen. Sie
++// ist gemessen gescheitert (`fec-2026-07-31-schwelle-taugt-nicht.json`): 152
++// Paritaetspakete reparierten NULL Pakete. Drei Gruende, alle drei bleiben
++// bestehen, egal wie man die Schwelle stellt:
++//
++//  1. `fraction lost` wird NACH der NACK-Reparatur gebildet. Was der Empfaenger
++//     nachfordern konnte, taucht darin gar nicht auf — der Ausloeser ist also
++//     nicht nur spaet, sondern auch zu schwach.
++//  2. Er ist ein 8-Bit-Wert (Anteil mal 256, RFC 3550 §6.4.1). Die feinste
++//     ueberhaupt einstellbare Stufe ist 1/256 = 0,39 Prozent; dazwischen gibt
++//     es nichts.
++//  3. Er kommt einmal je Report-Zyklus, also rund einmal pro Sekunde.
++//
++// Diese Fassung nimmt stattdessen den EINGEHENDEN NACK. Der ist in allen drei
++// Punkten das Gegenteil: er meldet den ROHEN Verlust, bevor irgendetwas
++// repariert wurde, er nennt die verlorenen Sequenznummern einzeln (keine
++// Quantisierung), und er kommt sofort — eine halbe Umlaufzeit nach dem Verlust
++// statt am Ende eines Report-Zyklus.
++//
++// DIE ZWEITE HAELFTE DES PROBLEMS ist damit noch nicht geloest: Paritaet
++// schuetzt die Pakete, die NACH ihr kommen. Jede Regelung, die auf gemessenen
++// Verlust reagiert, ist also grundsaetzlich zu spaet fuer den Verlust, der sie
++// ausgeloest hat. Dagegen zwei Mittel, beide bewusst unsymmetrisch:
++//
++//   - HALTEZEIT statt kurzem Fenster. Das Tor geht sofort auf und bleibt danach
++//     `haltezeit` lang offen (Vorgabe 10 s). Verlust tritt in Phasen auf; wer
++//     einmal verloren hat, verliert gleich wieder. Die erste Fassung schloss
++//     nach zwei Sekunden wieder und war damit, wie die Messakte es nennt,
++//     „immer im falschen Moment offen".
++//   - ANLAUFFENSTER. Die ersten `anlauf` Sekunden einer Sitzung laeuft die
++//     Paritaet immer (Vorgabe 5 s). Das ist der Moment, in dem das
++//     Einstiegs-Vollbild kommt — 25 bis 35 Pakete am Stueck, deren Verlust den
++//     Zuschauer ohne Bild sitzen laesst, und bei Intra-Refresh gibt es keinen
++//     zweiten Einstiegspunkt.
++//
++// WO DER FILTER SITZEN MUSS: direkt NACH dem Erzeuger und VOR TWCC. Verwuerfe
++// er nach der TWCC-Markierung, erschienen die verworfenen Pakete beim
++// Zuschauer als Verlust — eine Regelschleife, die sich von ihrer eigenen
++// Wirkung fuettert.
++// AUF EINEN NACK ALLEIN DARF DAS TOR NICHT HOEREN. Gemessen am 2026-08-04 auf
++// der Laborstrecke: in einem Lauf mit 15 s Stoerung und 30 s Ruhe im Wechsel
++// kamen in 108 von 119 Sekunden NACKs an, auch in den ruhigen Abschnitten (1
++// bis 4 je Sekunde). Ein Tor, das bei jedem NACK aufgeht und zehn Sekunden
++// haelt, schliesst damit NIE — gemessen: null unterdrueckte Paritaetspakete,
++// voller Aufschlag. Entschieden wird deshalb an der RATE, nicht an der
++// Anwesenheit.
++//
++// UND DER ROHZAEHLER TAUGT DAFUER NICHT. Derselbe Lauf: 7442 gemeldete
++// Verluste in 120 s gegen 449 Medienpakete je Sekunde — das waeren 14 Prozent
++// Verlust bei 2 Prozent eingestellter Stoerung. Chromium fordert dieselbe
++// Luecke mehrfach an (im Labor 6- bis 8-mal, deshalb gibt es die
++// NACK-Sperrfrist im Player). Gezaehlt werden hier deshalb VERSCHIEDENE
++// Sequenznummern je Fenster; sonst regelt das Tor auf die Hartnaeckigkeit des
++// Empfaengers statt auf den Verlust der Leitung.
++type pulseFecTor struct {
++	// UnixNano des letzten Fensters ueber der Schwelle; 0 heisst "noch keins".
++	letzterVerlust atomic.Int64
++	beginn         time.Time
++	haltezeit      time.Duration
++	anlauf         time.Duration
++
++	// Messfenster fuer die Verlustrate.
++	mu           sync.Mutex
++	fenster      time.Duration
++	fensterStart time.Time
++	medien       uint64
++	verloren     map[uint16]struct{}
++	// Verlustanteil in Promille, ab dem die Paritaet laeuft.
++	//
++	// Vorgabe 20 (= 2 Prozent), und das ist ABSICHTLICH hoeher als die
++	// 1-Prozent-Grenze, unterhalb derer libwebrtc seine eigene FEC abschaltet.
++	// Gemessen am 2026-08-04: der Grundverlust der Laborstrecke liegt in den
++	// ruhigen Abschnitten bei 2 bis 9 Promille. Eine Schwelle von 10 sitzt
++	// mitten darin, das Tor kippt staendig und spart fast nichts (19,53 statt
++	// 19,86 Prozent Aufschlag); bei 20 bleiben 14,99. Der richtige Wert haengt
++	// also am Grundverlust der Leitung — ein zu tief gesetzter macht die
++	// Regelung wirkungslos, ohne dass irgendetwas scheitert.
++	promille uint64
++
++	// Nur fuer die Diagnose-Zeile beim Sitzungsende.
++	gemeldet      atomic.Uint64
++	durchgelassen atomic.Uint64
++	unterdrueckt  atomic.Uint64
++}
++
++// fensterPruefen setzt das Messfenster weiter. Ruft nur auf, wer `mu` haelt.
++func (g *pulseFecTor) fensterPruefen(jetzt time.Time) {
++	if jetzt.Sub(g.fensterStart) < g.fenster {
++		return
++	}
++	g.fensterStart = jetzt
++	g.medien = 0
++	clear(g.verloren)
++}
++
++// medienPaket zaehlt die Bezugsgroesse mit: ohne sie waere die Verlustrate
++// eine Zahl ohne Nenner, und genau daran ist im Labor schon eine ganze
++// Messreihe gescheitert („61805 Wiederholungen" waren 78 Kopien je Paket).
++func (g *pulseFecTor) medienPaket() {
++	jetzt := time.Now()
++	g.mu.Lock()
++	g.fensterPruefen(jetzt)
++	g.medien++
++	g.mu.Unlock()
++}
++
++func (g *pulseFecTor) melden(seqnos []uint16) {
++	if len(seqnos) == 0 {
++		return
++	}
++	g.gemeldet.Add(uint64(len(seqnos)))
++	jetzt := time.Now()
++
++	g.mu.Lock()
++	g.fensterPruefen(jetzt)
++	for _, sn := range seqnos {
++		g.verloren[sn] = struct{}{}
++	}
++	ueber := g.medien > 0 && uint64(len(g.verloren))*1000 >= g.medien*g.promille
++	g.mu.Unlock()
++
++	if ueber {
++		g.letzterVerlust.Store(jetzt.UnixNano())
++	}
++}
++
++// meldenAnteil ist das Auffangnetz fuer einen Empfaenger, der KEIN NACK
++// aushandelt: der meldet nie eine Luecke, und das Tor bliebe fuer ihn ewig zu.
++// `fraction lost` taugt als ALLEINIGE Regelgroesse nicht (s.o.), als zweiter
++// Melder aber sehr wohl. Der Wert ist Anteil mal 256 (RFC 3550 §6.4.1).
++func (g *pulseFecTor) meldenAnteil(fractionLost uint8) {
++	if uint64(fractionLost)*1000/256 < g.promille {
++		return
++	}
++	g.gemeldet.Add(1)
++	g.letzterVerlust.Store(time.Now().UnixNano())
++}
++
++func (g *pulseFecTor) durchlassen() bool {
++	if time.Since(g.beginn) < g.anlauf {
++		return true
++	}
++	letzter := g.letzterVerlust.Load()
++
++	return letzter != 0 && time.Since(time.Unix(0, letzter)) < g.haltezeit
++}
++
++// pulseFecFilter verwirft Paritaetspakete, solange das Tor zu ist.
++type pulseFecFilter struct {
++	interceptor.NoOp
++	tor *pulseFecTor
++}
++
++func (f *pulseFecFilter) BindLocalStream(
++	info *interceptor.StreamInfo, writer interceptor.RTPWriter,
++) interceptor.RTPWriter {
++	// Der Paritaets-Nutzlasttyp wird AUSGEHANDELT, er ist keine Konstante:
++	// Chromium bietet 49 an, unser nativer Player 110. Ein Filter, der gegen
++	// die eigene Konstante prueft, laesst deshalb beim Browser alles durch —
++	// genau so ist die erste Fassung wirkungslos geblieben, ohne zu scheitern.
++	//
++	// `PayloadTypeForwardErrorCorrection` steht in der StreamInfo des
++	// MEDIENstroms und ist dasselbe Feld, an dem pions Erzeuger entscheidet, ob
++	// er ueberhaupt Paritaet baut (encoder_interceptor.go). Ist es 0, gibt es
++	// fuer diesen Strom keine Paritaet und nichts zu filtern.
++	fecPT := uint8(info.PayloadTypeForwardErrorCorrection)
++	if fecPT == 0 {
++		return writer
++	}
++
++	return interceptor.RTPWriterFunc(
++		func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
++			if header.PayloadType != fecPT {
++				f.tor.medienPaket()
++			} else {
++				if !f.tor.durchlassen() {
++					// Still schlucken. Der Empfaenger prueft den Paritaetsstrom
++					// nicht auf Luecken (er schluesselt ueber die
++					// Basis-Sequenznummer im Paritaetskopf), sieht also schlicht
++					// keine Paritaet und repariert nicht — gefahrlos.
++					f.tor.unterdrueckt.Add(1)
++
++					return len(payload), nil
++				}
++				f.tor.durchgelassen.Add(1)
++			}
++
++			return writer.Write(header, payload, attributes)
++		})
++}
++
++type pulseFecFilterFactory struct{ tor *pulseFecTor }
++
++func (f *pulseFecFilterFactory) NewInterceptor(_ string) (interceptor.Interceptor, error) {
++	return &pulseFecFilter{tor: f.tor}, nil
++}
++
++// pulseFecAdaptiv liest die Regelung aus der Umgebung.
++//
++// Voreinstellung AUS: ohne Zutun geht die Paritaet immer hinaus, also genau wie
++// bisher gemessen.
++//
++//	PULSE_FLEXFEC_ADAPTIV=1        Regelung ein
++//	PULSE_FLEXFEC_HALTEZEIT_S=10   wie lange nach dem letzten NACK offen bleiben
++//	PULSE_FLEXFEC_ANLAUF_S=5       wie lange am Sitzungsanfang immer offen
++func pulseFecAdaptiv() (an bool, tor *pulseFecTor) {
++	if os.Getenv("PULSE_FLEXFEC_ADAPTIV") != "1" {
++		return false, nil
++	}
++	sekunden := func(name string, vorgabe float64) time.Duration {
++		v, err := strconv.ParseFloat(os.Getenv(name), 64)
++		if err != nil || v < 0 {
++			v = vorgabe
++		}
++
++		return time.Duration(v * float64(time.Second))
++	}
++	promille := uint64(20)
++	if v, err := strconv.ParseUint(os.Getenv("PULSE_FLEXFEC_SCHWELLE_PROMILLE"), 10, 32); err == nil {
++		promille = v
++	}
++	jetzt := time.Now()
++
++	return true, &pulseFecTor{
++		beginn:       jetzt,
++		fensterStart: jetzt,
++		haltezeit:    sekunden("PULSE_FLEXFEC_HALTEZEIT_S", 10),
++		anlauf:       sekunden("PULSE_FLEXFEC_ANLAUF_S", 5),
++		fenster:      sekunden("PULSE_FLEXFEC_FENSTER_S", 2),
++		promille:     promille,
++		verloren:     make(map[uint16]struct{}),
++	}
+ }
+ 
+ func interfaceIPs(interfaceList []string) ([]string, error) {
+@@ -117,6 +375,7 @@ func registerInterceptors(
+ 	mediaEngine *webrtc.MediaEngine,
+ 	interceptorRegistry *interceptor.Registry,
+ 	onStatsInterceptor func(s *statsInterceptor),
++	onFecTor func(t *pulseFecTor),
+ 	sendet bool,
+ ) error {
+ 	// FlexFEC MUSS als erstes stehen. pion sagt das in `ConfigureFlexFEC03`
+@@ -129,6 +388,25 @@ func registerInterceptors(
+ 	// `session.go::runRead`). Auf der Empfangsseite waere es sinnlos: dort
+ 	// erzeugt MediaMTX keine Pakete, sondern nimmt sie entgegen.
+ 	if an, medien, paritaet := pulseFlexFECConfig(); an && sendet {
++		// Das Tor wird VOR dem Erzeuger registriert — und sitzt damit HINTER
++		// ihm in Schreibrichtung. `interceptor.Chain.BindLocalStream` wickelt
++		// vorwaerts: der zuerst Registrierte bekommt den echten
++		// Netzwerk-Writer, jeder weitere den seines Vorgaengers. Wer zuerst
++		// registriert, sitzt also am NETZ, nicht an der Anwendung.
++		//
++		// Beim ersten Versuch stand es umgekehrt (Registrierung nach
++		// ConfigureFlexFEC03) — dann sah der Filter nur die Medienpakete und
++		// NIE die Paritaet, und die Regelung blieb wirkungslos, ohne zu
++		// scheitern. Belegt am laufenden Server per Diagnose-Ausgabe.
++		//
++		// Nebenbei ist das genau die Anordnung, die pion fuer TWCC verlangt:
++		// TWCC wird nach FlexFEC registriert, liegt damit weiter aussen und
++		// fasst die Paritaetspakete gar nicht erst an.
++		if adaptiv, tor := pulseFecAdaptiv(); adaptiv {
++			onFecTor(tor)
++			interceptorRegistry.Add(&pulseFecFilterFactory{tor: tor})
++		}
++
+ 		err := webrtc.ConfigureFlexFEC03(
+ 			pulseFlexFECPayloadType,
+ 			mediaEngine,
+@@ -232,6 +510,14 @@ type PeerConnection struct {
+ 	inboundTracks    []*InboundTrack
+ 	statsInterceptor *statsInterceptor
+ 
++	// Pulse: das Paritaets-Tor DIESER Sitzung. Die erste Fassung hielt es in
++	// einer prozessweiten Variablen, weil die RTCP-Leseschleife die
++	// PeerConnection angeblich nicht mitfuehrt — sie tut es (`setup(p)`).
++	// Prozessweit hiesse: bei mehreren gleichzeitigen Zuschauern regelt der
++	// zuletzt verbundene fuer alle, und Verlust auf EINER Leitung laesst alle
++	// anderen Paritaet zahlen.
++	fecTor *pulseFecTor
++
+ 	newLocalCandidate chan *webrtc.ICECandidateInit
+ 	inboundTrack      chan trackRecvPair
+ 
+@@ -359,6 +645,9 @@ func (co *PeerConnection) Start() error {
+ 		func(s *statsInterceptor) {
+ 			co.statsInterceptor = s
+ 		},
++		func(t *pulseFecTor) {
++			co.fecTor = t
++		},
+ 		co.Publish,
+ 	)
+ 	if err != nil {
+@@ -475,6 +764,19 @@ func (co *PeerConnection) Start() error {
+ 
+ // Close closes the connection.
+ func (co *PeerConnection) Close() {
++	// Pulse: was die Paritaets-Regelung in dieser Sitzung getan hat. Ohne diese
++	// Zeile ist von aussen nicht unterscheidbar, ob das Tor zu war oder ob es
++	// gar nicht erst gebaut wurde — und genau diese Verwechslung hat die erste
++	// Fassung zwei Laeufe lang als „wirkungslos, aber nicht gescheitert"
++	// durchgehen lassen.
++	if co.fecTor != nil {
++		co.Log.Log(logger.Info,
++			"Pulse FEC-Tor: %d Verluste gemeldet, %d Paritaetspakete gesendet, %d unterdrueckt",
++			co.fecTor.gemeldet.Load(),
++			co.fecTor.durchgelassen.Load(),
++			co.fecTor.unterdrueckt.Load())
++	}
++
+ 	co.ctxCancel()
+ 	<-co.done
+ }
+-- 
+2.55.0
+
