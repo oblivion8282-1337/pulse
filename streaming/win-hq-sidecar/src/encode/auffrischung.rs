@@ -29,7 +29,7 @@ use anyhow::{Result, bail};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::Dictionary;
 
-use super::encoder::{EncodePath, VideoCodec};
+use super::codec::{EncodePath, VideoCodec};
 
 /// Wunsch aus den Start-Parametern. `UNGESAGT` = nichts gesagt, dann
 /// entscheidet die Umgebungsvariable.

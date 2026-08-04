@@ -28,7 +28,8 @@ use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, I
 use windows::core::Interface;
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec};
+use super::codec::VideoCodec;
+use super::encoder::AudioStreamConfig;
 use super::extradata::param_set_extradata;
 use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;

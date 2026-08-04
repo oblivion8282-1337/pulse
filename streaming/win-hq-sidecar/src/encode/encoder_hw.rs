@@ -24,7 +24,8 @@ use ffmpeg_next as ffmpeg;
 use ffmpeg::{Packet, Rational, codec, format, ffi::*};
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec};
+use super::codec::VideoCodec;
+use super::encoder::AudioStreamConfig;
 use super::opts::vendor_encoder_opts;
 use super::hwctx::OwnedHwFrame;
 use super::latency::EncodeLatency;

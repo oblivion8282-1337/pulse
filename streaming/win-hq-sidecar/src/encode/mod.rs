@@ -20,6 +20,7 @@
 pub mod audio;
 pub mod auffrischung;
 pub mod bildencoder;
+pub mod codec;
 pub mod d3d11_scale;
 pub mod d3d12_convert;
 pub mod encoder;
@@ -75,8 +76,9 @@ pub fn log_encoder_open(
     );
 }
 
+pub use codec::{EncodePath, VideoCodec};
 pub use d3d11_scale::D3D11Scaler;
-pub use encoder::{AudioStreamConfig, EncodePath, EncoderConfig, FfmpegEncoder, VideoCodec};
+pub use encoder::{AudioStreamConfig, EncoderConfig, FfmpegEncoder};
 pub use encoder_d3d12::{D3d12EncoderConfig, FfmpegD3d12Encoder};
 pub use encoder_hw::{FfmpegHwEncoder, HwEncoderConfig};
 pub use hwctx::{HwContext, HwPoolConfig, OwnedHwFrame};

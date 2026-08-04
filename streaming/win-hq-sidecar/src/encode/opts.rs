@@ -12,7 +12,7 @@
 use ffmpeg_next as ffmpeg;
 use ffmpeg::Dictionary;
 
-use super::encoder::VideoCodec;
+use super::codec::VideoCodec;
 use super::output::apply_encoder_opts_override;
 
 /// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
