@@ -451,30 +451,53 @@ services:
       # Grenze der Wirkung: bei GEBUENDELTEM Verlust bringt XOR nichts (Buendel
       # sind im Mittel 2,5 Pakete, eine Gruppe loest nur eine Unbekannte).
       #
-      # **`PULSE_FLEXFEC_ADAPTIV` bleibt weg — aber nicht mehr aus dem Grund,
-      # der hier stand.** Der lautete: "feste Paritaet reparierte 170 Pakete,
-      # die adaptive Regelung null (`fec-2026-07-31-fest-gegen-adaptiv.json`)".
-      # Das galt fuer die DAMALIGE Regelgroesse, den gemeldeten Verlust
-      # (`fraction lost`) — der reagiert auf bereits eingetretenen Schaden,
-      # waehrend Vorwaertskorrektur vorher da sein muss, und feiner als
-      # 0,39 Prozent laesst sich die Schwelle gar nicht stellen (8-Bit-Wert).
+      # **Die Paritaet ist verlustgeregelt** (`PULSE_FLEXFEC_ADAPTIV`,
+      # Nutzer-Entscheidung 2026-08-04). Ohne die Regelung faellt der Aufschlag
+      # fest an, auch auf einer Leitung, die gar nichts verliert — und
+      # MediaMTX faechert ihn an JEDEN Zuschauer auf.
       #
-      # Am 2026-08-04 ist Patch 0004 auf den eingehenden NACK als Regelgroesse
-      # umgestellt worden, und damit funktioniert sie: auf sauberer Leitung
-      # **20,01 auf 0,65 Prozent Aufschlag bei identischem Bild**, bei Verlust
-      # in Phasen 19,86 auf 12,3 bis 15,0, bei Dauerverlust unveraendert (dort
-      # wird sie gebraucht). Messakte
+      # **Regelgroesse ist der eingehende NACK, nicht `fraction lost`.** Hier
+      # stand bis 2026-08-04, die adaptive Regelung sei widerlegt ("feste
+      # Paritaet reparierte 170 Pakete, die adaptive null",
+      # `fec-2026-07-31-fest-gegen-adaptiv.json`). Das galt fuer die damalige
+      # Regelgroesse: der gemeldete Verlust reagiert auf bereits eingetretenen
+      # Schaden, waehrend Vorwaertskorrektur vorher da sein muss, und feiner
+      # als 0,39 Prozent laesst sich die Schwelle gar nicht stellen
+      # (8-Bit-Wert). Der NACK dagegen sieht den Verlust roh, nennt die
+      # Sequenznummern einzeln und kommt sofort.
+      #
+      # Gemessen mit der neuen Fassung: auf sauberer Leitung **20,01 auf 0,65
+      # Prozent Aufschlag bei identischem Bild**, bei Verlust in Phasen 19,86
+      # auf 12,3 bis 15,0, bei Dauerverlust unveraendert — dort wird sie
+      # gebraucht. Messakte
       # `streaming/testbench/profiles/fec-2026-08-04-adaptiv-ueber-nack.json`.
       #
-      # Weg bleibt sie trotzdem, und das ist eine Reihenfolge-Entscheidung,
-      # keine fachliche: das hier laufende Image (`1.19.1-pulse`) traegt nur
-      # Patch 0001 und kennt KEINE dieser Variablen. Sie stehen bereits scharf
-      # und wirken in dem Moment, in dem das Image nachgezogen wird. Wer die
-      # adaptive Regelung dazunimmt, aendert also zwei Dinge auf einmal.
-      # Zuerst das Image, dann messen, dann die Regelung.
+      # **Das Tor regelt JE ZUSCHAUER, nicht serverweit.** Es haengt an der
+      # PeerConnection und liest die NACKs genau dieser Sitzung. Belegt mit
+      # zwei Chromium am selben Strom (`25d34c0c`): vier Sekunden lang bekam
+      # der eine Paritaet und der andere keine, im selben Prozess, zur selben
+      # Zeit. Ein sauber angebundener Zuschauer zahlt also nichts, waehrend
+      # ein anderer im gestoerten WLAN vollen Schutz bekommt.
+      #
+      # **Was das NICHT kann: nach Strom-Art unterscheiden.** Der Schalter
+      # sitzt an der allgemeinen WebRTC-Verbindung; ob der Sender Intra-Refresh
+      # oder Vollbilder fuhr, weiss MediaMTX beim Ausliefern nicht. Gebraucht
+      # wird die Paritaet eigentlich nur fuer Intra-Refresh (ein solcher Strom
+      # heilt sich nach Verlust NICHT selbst, ein Vollbild-Strom am naechsten
+      # Vollbild schon). Die Regelung ersetzt diese Unterscheidung durch eine
+      # bessere: bezahlt wird nach tatsaechlichem Verlust statt nach Strom-Art.
+      # Eine Unterscheidung je Strom braeuchte ein `intra_refresh`-Feld auf der
+      # Token-Schiene (wie `ten_bit`) plus einen Nachschlag auf der
+      # Ausliefer-Seite — existiert nicht.
+      #
+      # **Vorbehalt, der dazugehoert:** die 0,65 Prozent sind EINE Messreihe
+      # vom 2026-08-04. Dieses Projekt hat sich bei diesem Thema zweimal
+      # geirrt. `PULSE_FLEXFEC_ADAPTIV: "0"` faellt auf feste 10:2 zurueck,
+      # `PULSE_FLEXFEC: "0"` schaltet die Paritaet ganz ab.
       PULSE_FLEXFEC: "1"
       PULSE_FLEXFEC_MEDIA: "10"
       PULSE_FLEXFEC_FEC: "2"
+      PULSE_FLEXFEC_ADAPTIV: "1"
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - ./certs:/certs:ro          # self-signed RTMPS cert (server.crt / server.key)
