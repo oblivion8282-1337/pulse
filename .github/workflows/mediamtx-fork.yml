@@ -47,10 +47,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Extract the MEDIAMTX_VERSION arg default from the Dockerfile so the
-      # tag stays in sync with whatever's actually being built. Keeps the
-      # source of truth in the Dockerfile.
-      - name: Read MediaMTX version from Dockerfile
+      # Beide Angaben aus dem Dockerfile lesen, damit der Tag zu dem passt, was
+      # wirklich gebaut wird. Quelle der Wahrheit bleibt das Dockerfile.
+      #
+      # `PULSE_REVISION` ist unser Patch-Stand und steht seit 2026-08-04 im
+      # Tag (`1.19.1-pulse2`). Vorher hiess jeder Bau `<version>-pulse` — bei
+      # einer Aenderung am Patch-Satz zeigte derselbe Tag danach auf anderen
+      # Inhalt, ohne Rueckweg ausser einem Rebuild. Begruendung am ARG selbst.
+      - name: Read MediaMTX version + patch revision from Dockerfile
         id: ver
         run: |
           v=$(grep -oP '^ARG MEDIAMTX_VERSION=\K[0-9.]+' infra/mediamtx-fork/Dockerfile)
@@ -58,15 +62,21 @@ jobs:
             echo "::error::could not parse MEDIAMTX_VERSION from Dockerfile"
             exit 1
           fi
+          r=$(grep -oP '^ARG PULSE_REVISION=\K[0-9]+' infra/mediamtx-fork/Dockerfile)
+          if [ -z "$r" ]; then
+            echo "::error::could not parse PULSE_REVISION from Dockerfile"
+            exit 1
+          fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "→ MediaMTX version: $v"
+          echo "tag=$v-pulse$r" >> "$GITHUB_OUTPUT"
+          echo "→ MediaMTX $v, Pulse-Patchstand $r → Tag $v-pulse$r"
 
       - uses: docker/build-push-action@v6
         with:
           context: infra/mediamtx-fork
           push: true
           tags: |
-            ghcr.io/oblivion8282-1337/pulse-mediamtx:${{ steps.ver.outputs.version }}-pulse
+            ghcr.io/oblivion8282-1337/pulse-mediamtx:${{ steps.ver.outputs.tag }}
             ghcr.io/oblivion8282-1337/pulse-mediamtx:latest
           cache-from: type=gha,scope=mediamtx-fork
           cache-to: type=gha,mode=max,scope=mediamtx-fork

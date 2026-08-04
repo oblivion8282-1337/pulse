@@ -405,10 +405,99 @@ services:
     # instantly. The AV1 temporal-delimiter patch still applies cleanly and is
     # kept. Rollback: revert this commit → `:1.17.1-pulse` (image still in GHCR
     # and cached on the host) + `docker compose up -d pulse_mediamtx`.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse2
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
+    environment:
+      # Feste Vollbild-Uhr AUS. MediaMTX fordert von einem WebRTC-Publisher
+      # sonst alle 2 s ein Vollbild an (Upstream-Verhalten; unser Patch 0002
+      # macht das ueberhaupt erst abschaltbar, und NICHT gesetzt heisst weiter
+      # 2 s).
+      #
+      # **Warum das gesetzt sein MUSS, seit Intra-Refresh ausgeliefert wird:**
+      # In dieser Betriebsart soll der Strom gerade keine periodischen
+      # Vollbilder enthalten — die Kosten sind ueber die Auffrisch-Welle
+      # verteilt. Fordert der Server sie trotzdem im Takt an, beantwortet der
+      # Sidecar das (seine Sperrfrist steht selbst auf 2 s, laesst also jede
+      # durch), und der Strom besteht wieder aus IDR-Bursts. Der Schalter in
+      # der Oberflaeche taete dann sichtbar nichts.
+      #
+      # Das Tueckische daran: Sender und Server arbeiten dabei jeder fuer sich
+      # korrekt, kein Log und kein Zaehler schlaegt aus. Lokal (wo der Wert
+      # laengst 0 ist) waere das Verhalten richtig — die Fehlersuche liefe also
+      # im Code statt in dieser Datei.
+      PULSE_KEYFRAME_INTERVAL: "0"
+      # FlexFEC-Paritaet auf dem WHEP-Ausgang. **Bedingung dafuer, dass
+      # Intra-Refresh Verlust ueberlebt** — nicht bloss eine Verbesserung:
+      # Ein Intra-Refresh-Strom heilt sich nach einem Verlust NICHT selbst
+      # (gemessen 2026-07-29, `decoder-2026-07-29-intra-refresh.json`: eine
+      # einzige verworfene Zugriffseinheit laesst das Bild dauerhaft stehen,
+      # alle 148 folgenden byte-identisch, bei av1_cuvid wie bei libdav1d).
+      # Ein Keyframe-Strom heilt dagegen am naechsten Vollbild byte-perfekt.
+      # Wo keine Vollbilder mehr im Strom stehen, muss der Verlust also
+      # VERHINDERT werden, statt ihn hinterher zu reparieren.
+      #
+      # Die Paritaet ist dabei die mittlere von drei Schichten: NACK liefert
+      # nach (traegt den Hauptteil), die Vollbild-Anforderung ueber den
+      # WHIP-Rueckkanal ist die letzte Rettung. Im Stoerungslauf ueber 358 s
+      # mit fuenf Saettigungsphasen ergab das zusammen NULL Standbilder.
+      #
+      # 10:2 fest. Die Werte stehen explizit da, obwohl sie den Vorgaben
+      # entsprechen: die Messreihe belegt genau dieses Verhaeltnis, und eine
+      # verschobene Vorgabe soll das nicht still aendern.
+      #
+      # Kostet ~20 % Datenrate, und MediaMTX faechert das an JEDEN Zuschauer.
+      # Grenze der Wirkung: bei GEBUENDELTEM Verlust bringt XOR nichts (Buendel
+      # sind im Mittel 2,5 Pakete, eine Gruppe loest nur eine Unbekannte).
+      #
+      # **Die Paritaet ist verlustgeregelt** (`PULSE_FLEXFEC_ADAPTIV`,
+      # Nutzer-Entscheidung 2026-08-04). Ohne die Regelung faellt der Aufschlag
+      # fest an, auch auf einer Leitung, die gar nichts verliert — und
+      # MediaMTX faechert ihn an JEDEN Zuschauer auf.
+      #
+      # **Regelgroesse ist der eingehende NACK, nicht `fraction lost`.** Hier
+      # stand bis 2026-08-04, die adaptive Regelung sei widerlegt ("feste
+      # Paritaet reparierte 170 Pakete, die adaptive null",
+      # `fec-2026-07-31-fest-gegen-adaptiv.json`). Das galt fuer die damalige
+      # Regelgroesse: der gemeldete Verlust reagiert auf bereits eingetretenen
+      # Schaden, waehrend Vorwaertskorrektur vorher da sein muss, und feiner
+      # als 0,39 Prozent laesst sich die Schwelle gar nicht stellen
+      # (8-Bit-Wert). Der NACK dagegen sieht den Verlust roh, nennt die
+      # Sequenznummern einzeln und kommt sofort.
+      #
+      # Gemessen mit der neuen Fassung: auf sauberer Leitung **20,01 auf 0,65
+      # Prozent Aufschlag bei identischem Bild**, bei Verlust in Phasen 19,86
+      # auf 12,3 bis 15,0, bei Dauerverlust unveraendert — dort wird sie
+      # gebraucht. Messakte
+      # `streaming/testbench/profiles/fec-2026-08-04-adaptiv-ueber-nack.json`.
+      #
+      # **Das Tor regelt JE ZUSCHAUER, nicht serverweit.** Es haengt an der
+      # PeerConnection und liest die NACKs genau dieser Sitzung. Belegt mit
+      # zwei Chromium am selben Strom (`25d34c0c`): vier Sekunden lang bekam
+      # der eine Paritaet und der andere keine, im selben Prozess, zur selben
+      # Zeit. Ein sauber angebundener Zuschauer zahlt also nichts, waehrend
+      # ein anderer im gestoerten WLAN vollen Schutz bekommt.
+      #
+      # **Was das NICHT kann: nach Strom-Art unterscheiden.** Der Schalter
+      # sitzt an der allgemeinen WebRTC-Verbindung; ob der Sender Intra-Refresh
+      # oder Vollbilder fuhr, weiss MediaMTX beim Ausliefern nicht. Gebraucht
+      # wird die Paritaet eigentlich nur fuer Intra-Refresh (ein solcher Strom
+      # heilt sich nach Verlust NICHT selbst, ein Vollbild-Strom am naechsten
+      # Vollbild schon). Die Regelung ersetzt diese Unterscheidung durch eine
+      # bessere: bezahlt wird nach tatsaechlichem Verlust statt nach Strom-Art.
+      # Eine Unterscheidung je Strom braeuchte ein `intra_refresh`-Feld auf der
+      # Token-Schiene (wie `ten_bit`) plus einen Nachschlag auf der
+      # Ausliefer-Seite — existiert nicht.
+      #
+      # **Vorbehalt, der dazugehoert:** die 0,65 Prozent sind EINE Messreihe
+      # vom 2026-08-04. Dieses Projekt hat sich bei diesem Thema zweimal
+      # geirrt. `PULSE_FLEXFEC_ADAPTIV: "0"` faellt auf feste 10:2 zurueck,
+      # `PULSE_FLEXFEC: "0"` schaltet die Paritaet ganz ab.
+      PULSE_FLEXFEC: "1"
+      PULSE_FLEXFEC_MEDIA: "10"
+      PULSE_FLEXFEC_FEC: "2"
+      PULSE_FLEXFEC_ADAPTIV: "1"
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - ./certs:/certs:ro          # self-signed RTMPS cert (server.crt / server.key)
