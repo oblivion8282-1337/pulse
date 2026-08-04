@@ -48,6 +48,41 @@ WEBRTC_UDP_PORT = 8189
 #   export PULSE_FERN_SSH=pulse-test
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
 
+# Beistell-Image mit `iproute2`. Das MediaMTX-Image ist `FROM scratch` und hat
+# weder Shell noch `tc` — gestoert wird deshalb aus einem Container, der sich
+# nur dessen Netz-Namensraum teilt.
+HELFER = "pulse-tc:1"
+_helfer_geprueft = False
+
+
+def helfer_sicherstellen() -> None:
+    """Das Beistell-Image anlegen, falls es auf dem Server fehlt.
+
+    **Warum das hier steht und nicht in einer Anleitung.** Das Image entstand
+    am 2026-08-04 von Hand auf dem Laborserver und war danach die einzige
+    ungeschriebene Voraussetzung dieses Werkzeugs: auf einem frischen Server —
+    oder von einem anderen Rechner aus, der ihn neu aufsetzt — waere jeder Lauf
+    mit „Unable to find image" gescheitert, ohne dass irgendwo steht, woher es
+    kommt. Zwei Zeilen Selbstheilung sind besser als ein Satz in einer Datei,
+    die niemand liest.
+    """
+    global _helfer_geprueft
+    if _helfer_geprueft:
+        return
+    vorhanden = subprocess.run(
+        ["ssh", *SSH_OPTS, SSH, f"docker image inspect {HELFER} >/dev/null 2>&1"],
+        capture_output=True, text=True, check=False)
+    if vorhanden.returncode != 0:
+        print(f"[stoerstrecke] {HELFER} fehlt auf dem Server — wird angelegt")
+        bau = subprocess.run(
+            ["ssh", *SSH_OPTS, SSH,
+             f"printf 'FROM alpine:3.20\\nRUN apk add --no-cache iproute2\\n' "
+             f"| docker build -q -t {HELFER} -"],
+            capture_output=True, text=True, check=False)
+        if bau.returncode != 0:
+            raise SystemExit(f"{HELFER} liess sich nicht bauen:\n{bau.stderr}")
+    _helfer_geprueft = True
+
 
 # Die Stoerprofile. `gemodel` statt der Korrelations-Schreibweise ist kein
 # Geschmack: `loss 5% 50%` wird vom Kern anstandslos angenommen und verwirft
@@ -78,11 +113,12 @@ def im_netns(*befehle: str) -> subprocess.CompletedProcess:
     # die ihn erneut zerlegt — die Umbrueche gehen dabei verloren, und aus
     # `set -e` + `tc` wurde `set -etc` („illegal option -t"). `shlex.quote`
     # haelt das Skript ueber beide Zerlegungen hinweg zusammen.
+    helfer_sicherstellen()
     skript = "; ".join(befehle)
     return subprocess.run(
         ["ssh", *SSH_OPTS, SSH,
          f"docker run --rm --net=container:{CONTAINER} "
-         f"--cap-add=NET_ADMIN pulse-tc:1 sh -c {shlex.quote(skript)}"],
+         f"--cap-add=NET_ADMIN {HELFER} sh -c {shlex.quote(skript)}"],
         capture_output=True, text=True, check=False,
     )
 

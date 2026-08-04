@@ -90,6 +90,20 @@ und dessen `save` den Namen voll qualifiziert; ohne das Nachtaggen sucht Docker
 auf dem Server eine Registry und scheitert mit „pull access denied". Der
 Rückweg auf das alte Binary liegt als `neustart.sh.binary-alt` daneben.
 
+**Die Quelle von `neustart.sh` liegt im Repo**, unter
+`streaming/hq-labor/labor-server/neustart.sh`. Bis zum 2026-08-04 existierte
+das Skript *nur* auf dem Server — bei einem Neuaufsetzen wäre es weg gewesen,
+und niemand hätte gewusst, wie der Laborserver eigentlich gestartet wird.
+Ändert man es, gehören beide Stände nachgezogen:
+
+```bash
+scp streaming/hq-labor/labor-server/neustart.sh pulse-test:~/mediamtx-labor/neustart.sh
+```
+
+Das Beistell-Image für die Störstrecke (`pulse-tc:1`, alpine mit `iproute2`)
+muss **nicht** von Hand angelegt werden — `streaming/testbench/serverstoerung.py`
+baut es beim ersten Bedarf selbst.
+
 **`ssh` braucht dort einen Namen, keine IP.** Die Vorgabe `michael@77.42.71.166`
 findet den Schlüssel nur, wenn er in `~/.ssh/config` an dieser Adresse hängt;
 steht er unter `Host pulse-test`, fragt ssh nach einem Passwort und ein

@@ -368,6 +368,24 @@ ab, ein 10-bit-Lauf ergäbe null Bilder. Und `-force_key_frames` greift bei
 eingeschaltetem Intra-Refresh **nicht** — ein zweiter Einstiegspunkt lässt sich
 so nicht setzen, deshalb der Weg über die kurze Schleife.
 
+**Auf NVIDIA ist das alles einfacher:** `av1_nvenc` hat Intra-Refresh upstream,
+es braucht also weder den FFmpeg-Patch noch den Umweg über die Pipe (das
+System-FFmpeg kann `lavfi`). Ein Aufruf statt zwei:
+
+```bash
+ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=60:duration=150" \
+  -c:v av1_nvenc -tune ll -rc cbr -b_ref_mode 0 -preset p2 \
+  -zerolatency 1 -delay 0 -b:v 4000k -g 9999 \
+  -intra-refresh 1 lang.mkv
+```
+
+Der Schalter heißt bei NVENC `-intra-refresh` mit Bindestrich, bei VAAPI
+`-intra_refresh` mit Unterstrich. Und `-single-slice-intra-refresh` gibt es
+**nur** bei `h264_nvenc`/`hevc_nvenc`, nicht bei `av1_nvenc` — an der
+Optionstabelle geprüft, nicht geraten. Die übrigen Werte sind die des
+Sidecars (`live-vorlage.py::SIDECAR_OPTS`), damit die Vorlage dieselbe
+Bitstrom-Struktur bekommt wie ein echter Stream.
+
 Vier Dinge, die nicht offensichtlich sind:
 
 **Der Verlust sitzt im Netz-Namensraum des MediaMTX-Containers**, nicht auf dem
