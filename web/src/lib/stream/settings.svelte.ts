@@ -185,7 +185,8 @@ export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
  * Erfüllbarkeit?
  *
  * Drei Bedingungen, alle nötig: der Nutzer hat es eingeschaltet, die Karte kann
- * es (`health.gsr.ten_bit`, nur der Linux-Rust-Sidecar meldet das), und der
+ * es (`health.gsr.ten_bit` — der Linux- und seit 2026-08-04 der
+ * Windows-Sidecar melden das; macOS nicht, dort bleibt es `undefined`), und der
  * Codec ist AV1. Letzteres ist keine Bequemlichkeit: 10-bit-H.264 wäre
  * `High 10`, und das dekodiert kein Browser — Zuschauer ohne den nativen Player
  * sehen den Stream über ein `<video>`. Derselbe Riegel sitzt im Sidecar.
@@ -219,6 +220,9 @@ export function tenBitPossible(): boolean {
  * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
  * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
  * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
+ * Seit Windows dazugekommen ist, wandert er auch über Plattformgrenzen: dort
+ * trägt die Betriebsart nur AV1 (über AMF), H.264 läuft über einen Encoder,
+ * der die Option annimmt und nichts damit tut.
  */
 export function intraRefreshPossible(): boolean {
   return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;

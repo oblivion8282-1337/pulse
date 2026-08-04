@@ -36,15 +36,23 @@ export interface GsrHealth {
     video_codecs?: string[];
     capture_options?: string[];
     has_flv_patch?: boolean;
-    /** Kann diese Karte 10 bit je Farbkanal encodieren? Nur der Linux-Rust-
-     *  Sidecar meldet das Feld (NVENC + AV1); Python/Windows/macOS lassen es
-     *  weg → `undefined` heißt "nein", nie "unbekannt, probier's mal". */
+    /** Kann diese Karte 10 bit je Farbkanal encodieren? Der Linux-Sidecar
+     *  meldet das Feld (NVENC/VAAPI + AV1), seit 2026-08-04 auch der
+     *  Windows-Sidecar (AMF + AV1); Python und macOS lassen es weg →
+     *  `undefined` heißt "nein", nie "unbekannt, probier's mal". */
     ten_bit?: boolean;
-    /** Reicht das FFmpeg des Sidecars rollenden Intra-Refresh durch? Das ist
-     *  eine Frage an FFmpeg, nicht an die Karte: auf NVENC ist die Option
-     *  upstream, auf VAAPI (AMD/Intel) gibt es sie in KEINER FFmpeg-Version —
-     *  dort braucht es den Patch aus `streaming/ffmpeg-patches/`. Fehlt das
-     *  Feld (ältere Sidecars, Windows, macOS), heißt das "nein". */
+    /** Liefert der Sidecar rollenden Intra-Refresh? Die Frage dahinter ist je
+     *  Plattform eine andere, die Antwort deshalb immer die des Sidecars und
+     *  nie eine hier abgeleitete:
+     *
+     *  - Linux — eine Frage an FFmpeg, nicht an die Karte. Auf NVENC ist die
+     *    Option upstream, auf VAAPI gibt es sie in KEINER FFmpeg-Version, dort
+     *    braucht es den Patch aus `streaming/ffmpeg-patches/`.
+     *  - Windows — eine Frage an den Encoder, der wirklich läuft. `h264_d3d12va`
+     *    (der Regelweg für H.264 auf AMD) NIMMT die Option an und tut nichts
+     *    damit; getragen wird sie dort von AV1 über AMF.
+     *
+     *  Fehlt das Feld (ältere Sidecars, macOS), heißt das "nein". */
     intra_refresh?: boolean;
   };
 }

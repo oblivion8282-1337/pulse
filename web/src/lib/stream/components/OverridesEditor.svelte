@@ -26,7 +26,7 @@
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
-  import { isLinux } from '$lib/platform/runtime';
+  import { isLinux, isWindows } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
 
   // Slot, dessen Quelle die Auflösungs-Stufen filtert. Von außen `streamSlot`,
@@ -286,20 +286,25 @@
   <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
     <!-- Zwei Bedingungen, beide notwendig.
 
-         Nur Linux: Intra-Refresh setzt den WHIP-Weg voraus, und den eigenen
-         WebRTC-Sender (mit RTCP-Rueckkanal und AV1-Paketierer) gibt es bisher
-         nur im Linux-Sidecar. Windows und macOS wuerden ueber ffmpegs
-         WHIP-Muxer gehen: kein Rueckkanal, kein AV1 — ein sichtbares Kaestchen
-         waere dort eine Zusage, die der Sendeweg nicht einloest.
+         Linux ODER Windows: Intra-Refresh setzt den WHIP-Weg voraus, und der
+         braucht einen eigenen WebRTC-Sender (RTCP-Rueckkanal fuer das
+         Einstiegs-Vollbild, dazu ein AV1-Paketierer). Den hatte lange nur der
+         Linux-Sidecar; seit dem 2026-08-04 hat ihn der Windows-Sidecar auch
+         (`win-hq-sidecar/src/whip/`, dieselbe Fassung). macOS bleibt draussen —
+         dort ginge es weiter ueber ffmpegs WHIP-Muxer: kein Rueckkanal, kein
+         AV1, und ein sichtbares Kaestchen waere eine Zusage, die der Sendeweg
+         nicht einloest.
 
-         Und nur, wenn das FFmpeg des Sidecars die Betriebsart durchreicht. Auf
-         AMD/Intel laeuft das ueber VAAPI, und dort gibt es die Option in KEINER
-         FFmpeg-Version — nur mit unserem Patch. Fehlt er, bricht der Start ab
-         (`encode/opts.rs::intra_refresh_pruefen`, bewusst mit Fehler statt
-         still Keyframes). Ein Kaestchen, dessen Anhaken den Stream scheitern
-         laesst, ist schlechter als keins: dieselbe Begruendung wie beim
-         Codec-Feld oben. -->
-    {#if isLinux() && stream.intraRefreshAvailable}
+         Und nur, wenn der Sidecar die Betriebsart wirklich liefert — was
+         `health.gsr.intra_refresh` meldet. Die Frage dahinter ist je Plattform
+         eine andere: auf Linux, ob das FFmpeg die VAAPI-Option durchreicht
+         (nur mit unserem Patch); auf Windows, ob der Encoder, der bei dieser
+         Karte WIRKLICH laeuft, sie traegt — auf AMD ist das AV1 ueber AMF,
+         nicht H.264 ueber D3D12. Beide Sidecars brechen den Start ab, statt
+         still Keyframes zu fahren; ein Kaestchen, dessen Anhaken den Stream
+         scheitern laesst, ist schlechter als keins. Dieselbe Begruendung wie
+         beim Codec-Feld oben. -->
+    {#if (isLinux() || isWindows()) && stream.intraRefreshAvailable}
       <label class="flex cursor-pointer items-center gap-2 text-sm">
         <Checkbox
           checked={streamSettings.overrides.intra_refresh === true}
