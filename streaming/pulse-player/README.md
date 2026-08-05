@@ -147,8 +147,14 @@ Ehrlich benannt, damit niemand danach sucht:
 - **Kein zero-copy.** Die cuvid-Decoder liefern in den Hauptspeicher, von dort
   wird in GPU-Texturen hochgeladen. Ein direkter Weg NVDEC -> Vulkan-Textur
   braeuchte `hw_frames_ctx` samt Interop.
-- **Nur unter Linux getestet.** Die Crate ist plattformneutral geschrieben
-  (winit/wgpu/FFmpeg), Windows und macOS sind aber ungeprueft.
+- **Hier stand bis 2026-08-05 „Nur unter Linux getestet … Windows und macOS
+  sind ungeprueft". Fuer Windows stimmt das nicht mehr.** Auf Windows + NVIDIA
+  (RTX 5080) laeuft er mit Hardware-Dekodierung — `h264_cuvid` und `av1_cuvid`,
+  8 wie 10 bit —, geprueft gegen die echte Kette (win-hq-sidecar -> eigener
+  WHIP-Sendeweg -> gepatchtes MediaMTX -> Player) samt Ton und nachtraeglichem
+  Einstieg in einen Intra-Refresh-Strom ohne periodische Vollbilder. Seither
+  wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
+  `win-build.yml`). **macOS bleibt ungeprueft** und wird nicht ausgeliefert.
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
@@ -276,4 +282,7 @@ Drittanbieter-Seite im Web.
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung
    steht, und sie entscheidet, ob der Player auch fuer die Fernsteuerung
    der richtige Weg ist.
-4. Windows und macOS bauen und pruefen.
+4. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
+   gegen die echte Kette geprueft (H.264 und AV1, 8 und 10 bit, jeweils
+   `*_cuvid` in Hardware) und im Installer. Hier stand vorher „Windows und
+   macOS"; nur macOS ist offen.

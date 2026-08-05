@@ -13,31 +13,59 @@ the same facts, this one adds repo-internal pointers for maintainers.
 This is not a full Software Bill of Materials (SBOM) of every transitive Rust
 crate — it covers the components that are separately bundled/dynamically
 linked or that carry their own copyleft obligations distinct from Pulse's own
-client license. A full `cargo license`/`pnpm licenses` sweep of every
-transitive dependency has not been run as part of compiling this file.
+client license.
+
+A full sweep **has** been run on 2026-08-05 — this paragraph used to say it
+had not been. `cargo metadata` over all three shipped Rust trees (native
+player, Windows sidecar, Linux sidecar; the 44 crates unique to the Linux tree
+were looked up individually on crates.io because that tree does not resolve on
+a Windows host), plus `pnpm licenses list --prod` over the pnpm workspace.
+Result: **no AGPL, no GPL-only, no MPL-only anywhere.** The only copyleft that
+ships is FFmpeg (LGPL, dynamically linked everywhere) and gpu-screen-recorder
+(GPL-3.0, shipped as a separate program in the Flatpak, not linked against
+Pulse). Three dual licences resolve to their permissive side and are recorded
+where they occur: `self_cell` (`Apache-2.0 OR GPL-2.0-only` → Apache-2.0),
+`r-efi` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later` → MIT) and `dompurify`
+(`MPL-2.0 OR Apache-2.0` → Apache-2.0). Re-run the sweep when a dependency
+tree changes; it is the only way this file stays true.
 
 ## Windows (`streaming/win-hq-sidecar/`)
 
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
-| FFmpeg (self-built, patched) | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-…` | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265) | `streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (SHA256-pinned distribution of that build), `.cargo/config.toml:9` (`FFMPEG_DIR`), `Cargo.toml:56-68` (`ffmpeg-next` binding), `.github/workflows/win-build.yml:42-58` (CI fetch step) |
+| **FFmpeg — what currently ships**: BtbN prebuilt, **unmodified** | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL — the licence text inside that distribution is **v3**, and that is the copy shipped as `resources/hq-sidecar/FFMPEG-LICENSE.txt` | `scripts/fetch-ffmpeg.ps1` (`$FallbackUrl`/`$FallbackSha`), `desktop/electron-builder.yml` (`win.extraResources`, both the DLLs and the licence text) |
+| FFmpeg (self-built, patched) — **prepared, not active**, see below | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-…` | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265) | `streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (SHA256-pinned distribution of that build), `.cargo/config.toml:9` (`FFMPEG_DIR`), `Cargo.toml:56-68` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
+| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
-Since 2026-08-04 Windows no longer ships BtbN's prebuilt distribution. FFmpeg
-is built from the official `n8.1.2` source with **one** Pulse patch
-(`streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`,
-GPL-3.0 as a derivative of FFmpeg's own source, kept in-tree) — it exposes
-rolling intra refresh on `av1_amf`, which no FFmpeg release offers. The build
-reports `License: LGPL version 2.1 or later`, verified with `ffmpeg -version`
-on the produced binary; `scripts/build-ffmpeg-patched.ps1` refuses to install a
-build whose configure line contains a GPL or nonfree switch. The DLLs are
-copied next to `pulse-win-hq-sidecar.exe` as separate, exchangeable files
-(dynamic linking, LGPL-compliant), and the modified source is in this
-repository, which is what LGPL §2/§4 asks for.
+**What actually ships today is BtbN's prebuilt, UNPATCHED distribution.** This
+paragraph used to open with "Since 2026-08-04 Windows no longer ships BtbN's
+prebuilt distribution" — that describes the intent, not the state: `$PatchedUrl`
+and `$PatchedSha` in `scripts/fetch-ffmpeg.ps1` are still empty, so the script
+takes the fallback (frozen BtbN mirror dated 2026-06-16, same LGPL terms, no
+Pulse patch) and warns when it does. Checked again on 2026-08-05. Windows
+therefore ships an **unmodified** LGPL library — which is also what the
+user-facing page at `/drittanbieter` says.
 
-Until the built package is uploaded to the self-hosted mirror, `fetch-ffmpeg.ps1`
-still falls back to the frozen BtbN mirror dated 2026-06-16 (same LGPL terms,
-no Pulse patch) and warns when it does.
+The intended path, once the built package is uploaded to the self-hosted
+mirror: FFmpeg built from the official `n8.1.2` source with **one** Pulse patch
+(`streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`) — it
+exposes rolling intra refresh on `av1_amf`, which no FFmpeg release offers. That
+patch is **LGPL-2.1-or-later**, as a derivative of FFmpeg's own LGPL source; this
+file claimed GPL-3.0 until 2026-08-05, which contradicted both
+`streaming/ffmpeg-patches/LICENSE` and the Flatpak manifest and was wrong (the
+GPL-3.0 belongs to `streaming/patches/`, the gpu-screen-recorder patches). The
+build reports `License: LGPL version 2.1 or later`, verified with
+`ffmpeg -version` on the produced binary; `scripts/build-ffmpeg-patched.ps1`
+refuses to install a build whose configure line contains a GPL or nonfree
+switch. The DLLs are copied next to `pulse-win-hq-sidecar.exe` as separate,
+exchangeable files (dynamic linking, LGPL-compliant), and the modified source
+is in this repository, which is what LGPL §2/§4 asks for.
+
+**Switching that on is a two-file change:** set `$PatchedUrl`/`$PatchedSha`, and
+check that the licence text shipped in the installer still matches the build —
+`desktop/electron-builder.yml` copies `ffmpeg-dist/n8.1-lgpl-shared/LICENSE.txt`
+to `resources/hq-sidecar/FFMPEG-LICENSE.txt`, and BtbN's copy is LGPL **v3**.
 
 ## macOS (`streaming/mac-hq-sidecar/`)
 
@@ -60,13 +88,56 @@ asserted.
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
 | Electron | `43.0.0` | MIT | `com.howispulse.Pulse.yml:267` (official release zip), bundled unmodified into `/app/electron/` |
-| FFmpeg | git tag `n8.1.1`, commit `239f2c733de417201d7ad3b3b8b0d9b63285b2b1` | LGPLv3 (`--enable-version3`, no `--enable-gpl`/libx264) | `com.howispulse.Pulse.yml:101-167` |
+| FFmpeg — **modified by Pulse** | git tag `n8.1.1`, commit `239f2c733de417201d7ad3b3b8b0d9b63285b2b1`, plus `streaming/ffmpeg-patches/0001-vaapi_encode-rollender-intra-refresh.patch` | LGPLv3 (`--enable-version3`, no `--enable-gpl`/libx264); the patch itself is LGPL-2.1-or-later per `streaming/ffmpeg-patches/LICENSE` | `com.howispulse.Pulse.yml` (ffmpeg module + `type: patch` source) |
 | nv-codec-headers | git tag `n13.0.19.0`, commit `e844e5b26f46bb77479f063029595293aa8f812d` | MIT (headers only, build-time) | `com.howispulse.Pulse.yml:169-179` |
 | gpu-screen-recorder | commit `0349083cfe4578dbc8bc600e31187e8e09318add` + 3 Pulse patches | GPL-3.0-or-later | `com.howispulse.Pulse.yml:187-200`, `streaming/patches/LICENSE` |
-| pulse-linux-hq-sidecar (Rust) | separate repo `github.com/oblivion8282-1337/pulse-linux-hq-sidecar`, commit `1afe5f115e4f28d63ff074a0c466bc771f35661a` | Pulse's own client code (not third-party) | `com.howispulse.Pulse.yml:212-229` |
+| pulse-linux-hq-sidecar (Rust) | in-tree at `streaming/linux-hq-sidecar/`, built via `type: dir` | Pulse's own client code (not third-party) | `com.howispulse.Pulse.yml` (linux-hq-sidecar module) |
+| pulse-player (native HQ player, Rust) | in-tree at `streaming/pulse-player/`, built to `/app/bin/pulse-player` | Pulse's own client code; third-party tree in its own section below | `com.howispulse.Pulse.yml` (pulse-player module) |
+
+The sidecar row used to point at a **separate repository** and a pinned commit
+(`1afe5f11…`). That repo moved in-tree on 2026-07-29 and was **deleted** on
+2026-07-30 — the reference had been dangling since. Nothing about the licence
+changes; it is Pulse's own code either way.
 
 Electron's own bundled third-party notices (Chromium, Node.js, etc.) ship
 inside the official Electron release archive and are not reproduced here.
+
+## Native HQ player (`streaming/pulse-player/`)
+
+Ships on **Linux** (Flatpak, `/app/bin/pulse-player`) and, since app version
+`0.1.42`, on **Windows** (`resources/hq-sidecar/pulse-player.exe`, next to the
+FFmpeg DLLs it links against). macOS does not ship it. It is additive: without
+the binary the renderer stays on the built-in `<video>` WHEP path.
+
+Everything below is **statically linked into that binary**, so the notices
+travel with the shipped file even though there are no separate library files.
+The user-facing counterpart is the "Nativer HQ-Player" section of
+`web/src/lib/legal/drittanbieter.md`; keep both in step.
+
+| Component | Version | License | Note |
+|---|---|---|---|
+| webrtc-rs | 0.17.2 | MIT OR Apache-2.0 | **Modified by Pulse** — two patches, see below |
+| wgpu / winit / egui (+ `egui-wgpu`, `egui-winit`, `egui_extras`) | 29.0.4 / 0.30.13 / 0.35.0 | MIT OR Apache-2.0 (winit: Apache-2.0) | |
+| resvg / usvg | 0.45.1 | Apache-2.0 OR MIT | SVG icon rasteriser pulled in by `egui_extras`'s `svg` feature |
+| tiny-skia | 0.11.4 | BSD-3-Clause | |
+| cpal | 0.17.3 | Apache-2.0 | audio output |
+| ffmpeg-next / ffmpeg-sys-next | 8.1.0 | WTFPL | bindings only — FFmpeg itself is the LGPL library above |
+| rustls | 0.23.42 | Apache-2.0 OR ISC OR MIT | |
+| aws-lc-rs | 1.17.3 | ISC AND (Apache-2.0 OR ISC) AND … | crypto provider chosen in `main.rs` |
+| webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 | Mozilla root store |
+| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | **Pulse takes Apache-2.0.** The only GPL text anywhere in the shipped trees, and it is an either/or |
+| ICU4X (`icu_*`, `zerovec`, `tinystr`, `writeable`, `yoke`, …) | 2.2.0 | Unicode-3.0 | |
+| epaint_default_fonts | 0.35.0 | (MIT OR Apache-2.0) AND **OFL-1.1** AND **Ubuntu-font-1.0** | egui's default fonts, embedded because `theme.rs` starts from `FontDefinitions::default()` |
+| Plus Jakarta Sans (Regular, SemiBold) | — | **SIL OFL 1.1** | `assets/fonts/`, `include_bytes!` in `theme.rs`; origin + notice in `assets/fonts/LICENSE.md` |
+| Lucide icons | — | **ISC** (parts from Feather, MIT) | `assets/icons/`, notice in `assets/icons/LICENSE.md` |
+
+**Modification notice for webrtc-rs (Apache-2.0 §4(b)):** Pulse changes
+`webrtc/src/dtls_transport/mod.rs` (read access to streams whose SSRC matches no
+declared track — where the FlexFEC parity packets sit) and the NACK generator
+under `interceptor/src/nack/generator/`. The patches live in
+`streaming/pulse-player/patches/` with their own `LICENSE` file; that file was
+missing until 2026-08-05, which left MIT/Apache-derived material looking as if
+it fell under the Pulse Client License.
 
 FFmpeg for this target is built from an unmodified pinned upstream commit; the
 `--enable-version3` flag is an explicit LGPLv3 opt-in (documented at

@@ -1,0 +1,41 @@
+MIT OR Apache-2.0
+
+Diese Patch-Dateien aendern webrtc-rs (https://github.com/webrtc-rs/webrtc),
+das unter "MIT oder Apache-2.0" steht. Als abgeleitete Werke dieses Quelltexts
+stehen sie selbst unter denselben Bedingungen und sind NICHT von den
+Pulse-Lizenzen erfasst, die fuer den Rest dieses Repositorys gelten.
+
+Warum das ausdruecklich dastehen muss: die Pulse Client License 1.0 untersagt
+Aendern, abgeleitete Werke und Weitergabe. Fuer fremden, permissiv
+lizenzierten Code kann sie das nicht — ohne diesen Vermerk sieht es aber so
+aus, als taete sie es, weil `streaming/LICENSE` sonst das ganze Verzeichnis
+erfasst. Die beiden anderen Patch-Verzeichnisse tragen aus genau demselben
+Grund je eine eigene LICENSE: `streaming/patches/` (GPL-3.0-or-later, von
+gpu-screen-recorder abgeleitet) und `streaming/ffmpeg-patches/`
+(LGPL-2.1-or-later, von FFmpeg abgeleitet). Hier fehlte sie bis 2026-08-05.
+
+Geaendert werden gegenueber dem Stand v0.17.2:
+
+  0001-webrtc-rs-expose-undeclared-ssrc-streams.patch
+      webrtc/src/dtls_transport/mod.rs
+      Zwei lesende Methoden auf die Stroeme, deren SSRC zu keiner angemeldeten
+      Spur passt. Dort liegen die FlexFEC-Paritaetspakete; die Bibliothek legt
+      sie bereits ab, nur Karte und Zugriff sind `pub(crate)`.
+
+  0002-nack-generator-resend-delay.patch
+      interceptor/src/nack/generator/generator_stream.rs
+      interceptor/src/nack/generator/mod.rs
+      Wartezeit vor dem erneuten Anfordern eines verlorenen Pakets.
+
+Aenderungshinweis nach Apache-2.0 §4(b): die oben genannten Dateien sind
+gegenueber der Fassung v0.17.2 veraendert. Was genau, steht im Kopf des
+jeweiligen Patches und in `streaming/pulse-player/Cargo.toml`
+(`[patch.crates-io]`).
+
+webrtc-rs selbst liegt nicht in diesem Repository. Der gepatchte Zweig wird zur
+Bauzeit hergestellt — lokal mit `streaming/pulse-player/scripts/bootstrap-webrtc.sh`,
+fuer die Auslieferung vom Flatpak-Manifest bzw. von `.github/workflows/win-build.yml` —
+und liegt danach unter `streaming/pulse-player/vendor/webrtc-rs/` (gitignored).
+
+Copyright (c) 2021 WebRTC.rs
+Der volle Lizenztext liegt im geklonten Zweig (`LICENSE-MIT`, `LICENSE-APACHE`).
