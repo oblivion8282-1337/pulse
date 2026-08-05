@@ -172,6 +172,22 @@
     const gewuenscht = videoModeOf(streamSettings.overrides);
     return codecOptions.some((o) => o.value === gewuenscht) ? gewuenscht : 'h264';
   });
+  // 10 bit schliesst Browser-Zuschauer aus — das muss beim EINSTELLEN dastehen,
+  // nicht erst beim Zuschauer.
+  //
+  // Warum: Chromes Hardware-Decoder steigt bei 10-bit-AV1 mitten im Strom aus
+  // und faellt auf `dav1d` zurueck, der kein 10 bit kann; danach ist der Strom
+  // fuer diesen Zuschauer endgueltig undekodierbar (gemessen 2026-08-01,
+  // `streaming/testbench/profiles/browser-2026-08-01-windows-av1-10bit.json`).
+  // Der Zuschauer lehnt seit dem 2026-08-05 ausdruecklich ab, statt einzufrieren
+  // (`hqStreamManager.svelte.ts`) — aber die Wahl faellt HIER, und wer sie
+  // trifft, soll ihre Folge kennen, statt sie beim Publikum zu entdecken.
+  //
+  // Ein Hinweis und keine Sperre: wer nur Desktop-Zuschauer hat, bekommt mit
+  // 10 bit das bessere Bild, und diese Entscheidung gehoert dem Streamer.
+  const zehnBitGewaehlt = $derived(
+    VIDEO_MODES.find((v) => v.value === codecValue)?.tenBit === true,
+  );
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
   // Der *angezeigte* Wert muss in der Optionsliste vorkommen — sonst zeigt das
@@ -219,6 +235,11 @@
         <option value={c.value}>{c.label}</option>
       {/each}
     </select>
+    {#if zehnBitGewaehlt}
+      <p class="text-2xs text-amber-500" data-testid="stream-overrides-ten-bit-warning">
+        {m.overrides_editor_ten_bit_warning()}
+      </p>
+    {/if}
   </div>
 
   <div class="flex flex-col gap-1.5">
