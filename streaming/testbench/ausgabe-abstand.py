@@ -37,6 +37,20 @@ from pathlib import Path
 
 # `Abstand 2.3-267.3 ms (0 zu spaet)` — Kleinst- und Groesstwert der Sekunde.
 ABSTAND = re.compile(r"Abstand ([\d.]+)-([\d.]+) ms")
+# Die Zahl in derselben Klammer: Ausgabe-Abstaende ueber dem DOPPELTEN Soll.
+#
+# **Sie wurde hier bis zum 2026-08-05 nicht gelesen**, obwohl die README des
+# Pruefstands sie „die Zahl, auf die es ankommt" nennt und der Player sie seit
+# jeher mitschreibt. Ausgewertet wurde nur der groesste Abstand je Sekunde —
+# das ist EIN Ereignis je Sekunde, egal ob in dieser Sekunde ein Bild zu spaet
+# kam oder dreissig. Fuer die Frage „wie gleichmaessig laeuft die Ausgabe" ist
+# die Anzahl die Groesse, der Ausschlag nur ihr schlimmster Einzelfall.
+ZU_SPAET = re.compile(r"Abstand [\d.]+-[\d.]+ ms \((\d+) zu spaet\)")
+# `Ausgabe-Takt 60 ms Vorhalt, verspaetet 12, neu verankert 0` — nur vorhanden,
+# wenn der Takt laeuft (`PULSE_PLAYER_AUSGABETAKT_MS`). `verspaetet` ist dessen
+# Kontrollzahl: steigt sie, ist der Vorhalt kleiner als die Schwankung der
+# Strecke und es taktet nichts mehr.
+TAKT = re.compile(r"Ausgabe-Takt (\d+) ms Vorhalt, verspaetet (\d+), neu verankert (\d+), nachgezogen (\d+)")
 BITRATE = re.compile(r"([\d.]+) kbit/s")
 DEKODIERT = re.compile(r"dekodiert (\d+)/s")
 GEZEICHNET = re.compile(r"gezeichnet (\d+)/s")
@@ -68,6 +82,11 @@ def auswerten(pfad: Path) -> dict:
     vollbilder = 0
     # In welcher Sekunde des Laufs lag ein Haenger — daraus die Abstaende.
     haenger_bei: list[int] = []
+    zu_spaet: list[int] = []
+    takt_vorhalt: int | None = None
+    takt_verspaetet = 0
+    takt_verankert = 0
+    takt_nachgezogen = 0
 
     for zeile in pfad.read_text(errors="replace").splitlines():
         if VOLLBILD.search(zeile):
@@ -75,9 +94,18 @@ def auswerten(pfad: Path) -> dict:
         if m := E2E.search(zeile):
             e2e.append(float(m.group(1)))
             ohne_muster += int(m.group(3))
+        if t := TAKT.search(zeile):
+            # KUMULATIV wie der Paketverlust: der Player zaehlt ueber die
+            # Sitzung, nicht je Fenster.
+            takt_vorhalt = int(t.group(1))
+            takt_verspaetet = int(t.group(2))
+            takt_verankert = int(t.group(3))
+            takt_nachgezogen = int(t.group(4))
         m = ABSTAND.search(zeile)
         if not m:
             continue
+        if z := ZU_SPAET.search(zeile):
+            zu_spaet.append(int(z.group(1)))
         sekunde = len(groesster)
         gross = float(m.group(2))
         groesster.append(gross)
@@ -112,6 +140,21 @@ def auswerten(pfad: Path) -> dict:
         "sekunden_ueber_33ms_prozent": anteil(groesster, 33.0),
         "sekunden_ueber_100ms_prozent": anteil(groesster, 100.0),
         "haenger_ueber_100ms_anzahl": len(haenger_bei),
+        # Die eigentliche Gleichmaessigkeits-Zahl (s. Kommentar an ZU_SPAET).
+        # `summe` ist der Vergleichswert zwischen zwei Laeufen GLEICHER Laenge,
+        # `je_sekunde` der zwischen verschieden langen.
+        "zu_spaet_summe": sum(zu_spaet) if zu_spaet else None,
+        "zu_spaet_je_sekunde_median": (statistics.median(zu_spaet)
+                                       if zu_spaet else None),
+        "zu_spaet_je_sekunde_max": max(zu_spaet) if zu_spaet else None,
+        "sekunden_ohne_zu_spaet_prozent": (
+            round(100.0 * sum(1 for z in zu_spaet if z == 0) / len(zu_spaet), 1)
+            if zu_spaet else None),
+        # Nur gesetzt, wenn der Ausgabe-Takt lief.
+        "ausgabetakt_vorhalt_ms": takt_vorhalt,
+        "ausgabetakt_verspaetet": takt_verspaetet if takt_vorhalt else None,
+        "ausgabetakt_neu_verankert": takt_verankert if takt_vorhalt else None,
+        "ausgabetakt_nachgezogen": takt_nachgezogen if takt_vorhalt else None,
         "abstaende_zwischen_den_haengern_s": [b - a for a, b in
                                               zip(haenger_bei, haenger_bei[1:])][:40],
         "bitrate_median_kbit": round(statistics.median(kbit), 0) if kbit else None,
