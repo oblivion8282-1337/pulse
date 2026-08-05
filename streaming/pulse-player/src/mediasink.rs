@@ -159,16 +159,15 @@ impl MediaSink {
     }
 
     pub fn stats(&self) -> MediaStats {
-        let (underruns, dropped, buffered, resyncs, alive) =
-            self.audio.as_ref().map_or((0, 0, 0, 0, false), AudioOutput::counters);
+        let ton = self.audio.as_ref().map(AudioOutput::counters).unwrap_or_default();
         MediaStats {
-            audio_underruns: underruns,
-            audio_dropped: dropped,
-            audio_buffered: buffered as u64,
-            audio_resyncs: resyncs,
+            audio_underruns: ton.underruns,
+            audio_dropped: ton.dropped,
+            audio_buffered: ton.buffered as u64,
+            audio_resyncs: ton.resyncs,
             // Nicht `is_some()`: der Griff bleibt bestehen, auch wenn der
             // Ausgabe-Thread laengst weg ist.
-            audio_active: alive,
+            audio_active: ton.alive,
             recording: self.recorder.is_recording(),
             recorded_units: self.recorder.written_units,
             recording_failed: self.recorder.failed,

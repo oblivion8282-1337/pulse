@@ -22,13 +22,14 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use crate::decode::{self, ColorMatrix};
-use takt::Ausgabetakt;
-pub use takt::VORHALT_MAX_MS;
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
 use crate::rpc::StdoutWriter;
 use crate::session::{self, SessionCommand, SessionEvent, SessionStats};
+use takt::Ausgabetakt;
+
+pub use takt::VORHALT_MAX_MS;
 
 /// Wie frisch das letzte Bild sein muss, damit Eingaben KEINEN eigenen
 /// Durchgang anfordern.
@@ -590,19 +591,18 @@ impl App {
         // taktet nichts mehr — die Ausgabe-Abstaende in der Zeile darueber
         // saehen aus wie ohne Takt, ohne dass etwas darauf hinweist.
         //
-        // Die Werte hier abgreifen, nicht unten: `st` unten leiht die Sitzung
-        // bis zum Ende der Funktion aus.
-        let takt_zeile = session
-            .takt
-            .aktiv()
-            .then(|| {
-                (
-                    session.takt.vorhalt_ms(),
-                    session.takt.verspaetet(),
-                    session.takt.neu_verankert(),
-                    session.takt.nachgezogen(),
-                )
-            });
+        // Die Zeile hier fertigstellen, nicht unten: `st` unten leiht die
+        // Sitzung bis zum Ende der Funktion aus. (Wie `probe_line` darueber.)
+        let takt_zeile = session.takt.aktiv().then(|| {
+            format!(
+                ": Ausgabe-Takt {} ms Vorhalt, verspaetet {}, neu verankert {}, \
+                 nachgezogen {}",
+                session.takt.vorhalt_ms(),
+                session.takt.verspaetet(),
+                session.takt.neu_verankert(),
+                session.takt.nachgezogen(),
+            )
+        });
         let st = &session.stats;
         // `concat!` statt Zeilenfortsetzungen: mit `\` am Zeilenende ist beim
         // Schreiben dieser Datei schon einmal eine einzige lange Zeile mit
@@ -645,12 +645,8 @@ impl App {
         if let Some(line) = probe_line {
             eprintln!("pulse-player: Sitzung {id}{line}");
         }
-        if let Some((vorhalt, verspaetet, verankert, nachgezogen)) = takt_zeile {
-            eprintln!(
-                "pulse-player: Sitzung {id}: Ausgabe-Takt {vorhalt} ms Vorhalt, \
-                 verspaetet {verspaetet}, neu verankert {verankert}, \
-                 nachgezogen {nachgezogen}"
-            );
+        if let Some(line) = takt_zeile {
+            eprintln!("pulse-player: Sitzung {id}{line}");
         }
         // Der Ton ebenfalls in einer eigenen Zeile, aus demselben Grund.
         //
@@ -869,7 +865,6 @@ impl App {
         session.window.request_redraw();
     }
 }
-
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
