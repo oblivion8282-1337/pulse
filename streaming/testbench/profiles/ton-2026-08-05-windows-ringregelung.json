@@ -1,0 +1,135 @@
+{
+  "id": "ton-2026-08-05-windows-ringregelung",
+  "gemessen_am": "2026-08-05 (Nachmittag/Abend), Windows-Entwicklungsmaschine",
+  "frage": "Woher kommen die Ton-Unterlaeufe des nativen Players, und was passiert mit dem Ton, wenn die Lieferung einmal aussetzt — in der Betriebsart, die der Nutzer wirklich faehrt (2560x1440@60, AV1, 10 bit, 3000 kbps, Intra-Refresh)?",
+
+  "wie_es_zu_dieser_messung_kam": "Zwei Laeufe hatten `audio_underruns` 5 bzw. 7 gemeldet, ohne dass jemand wusste, warum. Die Vermutung im Auftrag lautete, die Zahl haenge an der sehr knappen Videodatenrate. Sie haengt nicht daran (s. `datenraten_gegenprobe`), sondern an einer Eigenschaft des Ausgabe-Rings, die man nicht an der Zahl der Unterlaeufe sieht, sondern an seinem FUELLSTAND.",
+
+  "aufbau": {
+    "maschine": "Windows 11, RTX 5080, Treiber 610.47, primaerer Schirm 2560x1440 bei 280 Hz (daneben zweimal 144 Hz)",
+    "sender": "streaming/win-hq-sidecar, Commit 4aebae43 (Zweig fix/wgc-capture-drossel-60fps), gelinkt gegen das selbstgebaute FFmpeg n8.1.2-pulse-intra-refresh",
+    "zuschauer": "streaming/pulse-player, derselbe Baum, `open` + `stats` ueber stdio-JSON-RPC, `PULSE_PLAYER_STATS_LOG=1`",
+    "betriebsart": "2560x1440@60, AV1, 10 bit, 3000 kbps CBR, Intra-Refresh an, Ton Desktop — die Einstellung des Nutzers, nicht die Pruefstandsvorgabe",
+    "empfaenger_drei_verschiedene": {
+      "a_lager_nativ": "MediaMTX 1.19.1, offizielles Windows-Release, nativ (kein Docker)",
+      "b_fork_container": "pulse-mediamtx:local-test (der Pulse-Fork) in Docker/WSL2, mit und ohne PULSE_KEYFRAME_INTERVAL=0",
+      "c_produktion": "howispulse.com, pulse-mediamtx:1.19.1-pulse2, eigener synthetischer Testpfad channel-999000000000000001-999000000000000002-<nonce>, Token selbst in die Redis gelegt und hinterher geloescht"
+    },
+    "was_gemessen_wird": "`audio_buffered` (Ringfuellstand in Samples, /96 = ms bei 48 kHz Stereo), `audio_underruns`, `audio_dropped` — alles aus der `stats`-Antwort des Players, alle 2 bzw. 5 s abgefragt",
+    "warum_der_fuellstand_und_nicht_die_unterlaeufe": "Die Unterlaufzahl sagt nur, wie oft der Ring leer war. Die Ausgabe-VERZOEGERUNG steht im Fuellstand, und genau die wandert. Ein Lauf mit 7 Unterlaeufen und stehendem Fuellstand ist gesund; einer mit 7 Unterlaeufen und wachsendem Fuellstand ist es nicht."
+  },
+
+  "der_mechanismus_steht_im_code": {
+    "datei": "streaming/pulse-player/src/audio.rs",
+    "1_kein_sollwert": "`av_offset_ms` hat die Vorgabe `Some(0)` (`proto.rs:200`). Daraus wird `target_fill = 0` (`audio.rs:154`). Die Anlaufsperre in `fill_output` (`audio.rs:75-78`) prueft `ring.len() < target_fill` und ist damit NIE wahr — es gibt keinen Mindestfuellstand.",
+    "2_keine_nachregelung": "`fill_output` nimmt bei jedem Geraete-Aufruf `min(ring.len(), out.len())` (`audio.rs:80-84`). Der Fuellstand wird nirgends gegen einen Sollwert verglichen und nirgends abgebaut. Er ist damit das INTEGRAL aller bisherigen Liefer-Schwankungen: was ein Nachhol-Schwall hineinlegt, bleibt liegen.",
+    "3_nur_ein_harter_deckel": "Die einzige Obergrenze ist `MAX_RING_SECONDS = 6` (`audio.rs:33`); daruber werden die AELTESTEN Samples verworfen (`audio.rs:142-146`). Das begrenzt den Speicher, nicht die Verzoegerung — bei vollem Ring spielt die Ausgabe dauerhaft sechs Sekunden alten Ton.",
+    "4_die_tonspur_ist_ungesichert": "NACK-Rueckmeldung wird ausschliesslich fuer `RTPCodecType::Video` angemeldet (`whep.rs:419-422`, selbst nachgesehen). Ton bekommt weder NACK noch FlexFEC, teilt sich aber denselben Jitter-Puffer-Zielwert von 100 ms mit dem Bild. Ein verlorenes Opus-Paket wird also 100 ms lang erwartet, obwohl es nie nachgeliefert werden kann."
+  },
+
+  "ergebnis_ringverlauf": {
+    "einheit": "Ringfuellstand in ms, Anfang und Ende des Laufs; Delta = bleibende Verschiebung der Tonausgabe",
+    "ruhig_lokal_60fps": [
+      {"lauf": "attr-neu-1", "ring_start_ms": 100, "ring_ende_ms": 110, "delta_ms": 10, "unterlaeufe": 6, "verworfen": 0},
+      {"lauf": "attr-alt-1", "ring_start_ms": 120, "ring_ende_ms": 120, "delta_ms": 0, "unterlaeufe": 7, "verworfen": 0},
+      {"lauf": "attr-neu-2", "ring_start_ms": 168, "ring_ende_ms": 168, "delta_ms": 0, "unterlaeufe": 0, "verworfen": 0},
+      {"lauf": "attr-alt-2", "ring_start_ms": 78, "ring_ende_ms": 73, "delta_ms": -5, "unterlaeufe": 0, "verworfen": 0}
+    ],
+    "produktion_90s": [
+      {"lauf": "prod2", "ring_start_ms": 105, "ring_ende_ms": 180, "delta_ms": 75, "unterlaeufe": 14, "verworfen": 0},
+      {"lauf": "prod3", "ring_start_ms": 95, "ring_ende_ms": 270, "delta_ms": 175, "unterlaeufe": 25, "verworfen": 0},
+      {"lauf": "prod4", "ring_start_ms": 95, "ring_ende_ms": 95, "delta_ms": 0, "unterlaeufe": 7, "verworfen": 0}
+    ],
+    "unter_last_60fps": [
+      {"lauf": "fps60-1", "ring_start_ms": 250, "ring_ende_ms": 2890, "delta_ms": 2640, "unterlaeufe": 274, "verworfen": 0},
+      {"lauf": "fps60-2", "ring_start_ms": 100, "ring_ende_ms": 5980, "delta_ms": 5880, "unterlaeufe": 767, "verworfen": 165600}
+    ],
+    "gegenprobe_30fps": [
+      {"lauf": "fps30-1", "ring_start_ms": 90, "ring_ende_ms": 120, "delta_ms": 30, "unterlaeufe": 6, "verworfen": 0},
+      {"lauf": "fps30-2", "ring_start_ms": 115, "ring_ende_ms": 105, "delta_ms": -10, "unterlaeufe": 6, "verworfen": 0}
+    ]
+  },
+
+  "der_lauf_der_alles_zeigt": {
+    "lauf": "fps60-2, 70 s, lokal nativ, waehrend im Hintergrund ein cargo-Release-Bau lief",
+    "verlauf": [
+      {"t_s": 5, "ring_ms": 100, "unterlaeufe": 7, "kbps": 2711, "fps": 60, "ankunft_max_ms": 17.1},
+      {"t_s": 30, "ring_ms": 100, "unterlaeufe": 7, "kbps": 3206, "fps": 60, "ankunft_max_ms": 22.9},
+      {"t_s": 35, "ring_ms": 60, "unterlaeufe": 7, "kbps": 2681, "fps": 59, "ankunft_max_ms": 36.1},
+      {"t_s": 40, "ring_ms": 0, "unterlaeufe": 490, "kbps": 647, "fps": 18, "ankunft_max_ms": 37.8},
+      {"t_s": 45, "ring_ms": 5990, "unterlaeufe": 767, "kbps": 8700, "fps": 176, "ankunft_max_ms": 18.3},
+      {"t_s": 50, "ring_ms": 5980, "unterlaeufe": 767, "kbps": 3045, "fps": 60, "ankunft_max_ms": 17.0},
+      {"t_s": 70, "ring_ms": 5980, "unterlaeufe": 767, "kbps": 3173, "fps": 60, "ankunft_max_ms": 17.7}
+    ],
+    "was_da_passiert": "Eine Lieferpause von rund fuenf Sekunden leert den Ring (Unterlaeufe steigen auf 490). Danach kommt alles auf einmal — 176 Bilder je Sekunde und 8700 kbit/s sind der Nachholschwall. Der Ring nimmt ihn vollstaendig auf, laeuft auf den 6-Sekunden-Deckel und BLEIBT DORT. Ab t=50 s ist das Bild wieder tadellos (60 fps, 3045 kbit/s, Ankunftsabstand 17 ms) und der Ton laeuft sechs Sekunden hinterher, bis der Lauf endet.",
+    "die_zahl_die_es_beweist": "`audio_dropped` = 165600 Samples = 1,7 s Ton, waehrend des Schwalls am Ringende verworfen. Danach steht der Zaehler still: der Ring ist voll, die Verzoegerung bleibt, und niemand baut sie ab."
+  },
+
+  "datenraten_gegenprobe": {
+    "frage": "Haengen die Unterlaeufe an der Videodatenrate — teilen sich Bild und Ton ein Budget?",
+    "aufbau": "Derselbe Aufbau, abwechselnd 3000 und 20000 kbps, drei Paare, je 70 s, Reihenfolge in jedem Paar getauscht.",
+    "ergebnis": [
+      {"lauf": "rate3000-1", "ziel_kbps": 3000, "gemessen_kbps_median": 3250, "ring_delta_ms": 0, "unterlaeufe": 7},
+      {"lauf": "rate3000-2", "ziel_kbps": 3000, "gemessen_kbps_median": 3267, "ring_delta_ms": 2100, "unterlaeufe": 224},
+      {"lauf": "rate3000-3", "ziel_kbps": 3000, "gemessen_kbps_median": 3196, "ring_delta_ms": 830, "unterlaeufe": 93},
+      {"lauf": "rate20000-1", "ziel_kbps": 20000, "gemessen_kbps_median": 15002, "ring_delta_ms": 0, "unterlaeufe": 6},
+      {"lauf": "rate20000-2", "ziel_kbps": 20000, "gemessen_kbps_median": 15179, "ring_delta_ms": 0, "unterlaeufe": 6},
+      {"lauf": "rate20000-3", "ziel_kbps": 20000, "gemessen_kbps_median": 14590, "ring_delta_ms": 310, "unterlaeufe": 45}
+    ],
+    "antwort": "NEIN, es gibt kein geteiltes Budget. Die Videodatenrate um das 6,7-fache anzuheben macht den Ton nicht schlechter — die Drift tritt in BEIDEN Armen auf (bei 3000 in zwei von drei Laeufen, bei 20000 in einem von drei) und ihre Groesse haengt daran, ob waehrend des Laufs eine Lieferpause auftrat, nicht an der Rate. Waere die knappe Rate die Ursache, muesste der 20000er-Arm sauber sein; er ist es nicht.",
+    "was_daraus_NICHT_folgt": "Dass 3000 kbps haeufiger driftet (2 von 3 gegen 1 von 3), traegt bei drei Paaren keine Aussage — die Pausen sind zufaellig, und der Unterschied liegt im Rauschen dieser Stichprobe. Wer daraus 'niedrige Rate beguenstigt Pausen' machen will, braucht mehr Laeufe und einen GESETZTEN Ausloeser.",
+    "nebenbefund": "Der 20000er-Arm erreicht sein Ziel nicht: gemessen 14590 bis 15179 kbit/s statt 20000. Auf diesem Inhalt (weitgehend ruhiger Desktop) findet `av1_nvenc` unter CBR nicht genug zu kodieren und fuellt nicht auf (`cbr_padding` steht auf `auto` und greift hier offenbar nicht). Fuer diese Messung folgenlos — beide Arme liegen weit auseinander —, aber es heisst, dass 'CBR' hier eine Obergrenze ist und keine feste Rate.",
+    "warum_die_gegenprobe_noetig_war": "Ohne sie stuende im Pruefstand eine Vermutung. Der vermutete Mechanismus (Liefer-Kontinuitaet, nicht Bitratenbudget) sagte vorher, dass die Datenrate nichts aendert — die Vorhersage haette falsch sein koennen und ist gepruefte worden."
+  },
+
+  "der_fund_der_jede_kuenftige_lokale_messung_betrifft": {
+    "kurz": "**Das Lager-MediaMTX fordert alle zwei Sekunden ein Vollbild an.** Wer lokal mit dem offiziellen Release misst, misst Keyframe-Betrieb — auch wenn Sender und Log ausdruecklich `Intra-Refresh` melden.",
+    "gemessen": [
+      {"empfaenger": "MediaMTX 1.19.1 Lager, nativ", "dauer_s": 20, "vollbilder": 11, "abstand_ms": 1999},
+      {"empfaenger": "MediaMTX 1.19.1 Lager, nativ, Player-PLI ABGESCHALTET (PULSE_PLAYER_NO_KEYFRAME_REQUEST=1)", "dauer_s": 20, "vollbilder": 10},
+      {"empfaenger": "pulse-mediamtx Fork mit PULSE_KEYFRAME_INTERVAL=0", "dauer_s": 25, "vollbilder": 1},
+      {"empfaenger": "pulse-mediamtx Fork mit PULSE_KEYFRAME_INTERVAL=0", "dauer_s": 40, "vollbilder": 1},
+      {"empfaenger": "Produktion (howispulse.com)", "dauer_s": 90, "vollbilder": 1}
+    ],
+    "die_kontrolle_die_es_entscheidet": "Mit abgeschaltetem Player-PLI blieben es 10 Vollbilder in 20 s. Damit ist der Player als Quelle ausgeschlossen — es ist die fest verdrahtete Uhr in MediaMTX, die der Pulse-Fork (`infra/mediamtx-fork/patches/0002-forward-viewer-keyframe-requests.patch`) ueberhaupt erst abschaltbar macht. NICHT gesetzt heisst weiter 2 s.",
+    "was_ein_vollbild_bei_3000_kbps_kostet": "Aus zwei Mitschnitten des empfangenen Bitstroms (`ffprobe`, Paketgroessen): Keyframe-Median 29253 bzw. 29410 Bytes gegen einen Gesamtmedian von 5877 bzw. 5863 Bytes — **das 5,0-fache eines normalen Bildes**, in beiden Laeufen gleich. Bei fester Datenrate nehmen sich diese Bits die Nachbarbilder.",
+    "die_produktion_ist_richtig_eingestellt": "In der laufenden Instanz nachgesehen: `PULSE_KEYFRAME_INTERVAL=0` steht in der Umgebung von `pulse_mediamtx`, und ueber 90 s kam genau ein Vollbild. Der Befund ist eine Falle fuer das MESSEN, kein Fehler im Betrieb.",
+    "warum_das_hier_steht": "Eine kuenftige lokale Messung 'Intra-Refresh gegen Keyframes' mit dem Lager-Binary vergliche zwei Keyframe-Laeufe und faende keinen Unterschied — mit voellig plausibel aussehenden Zahlen und einem Sender-Log, das `Intra-Refresh` sagt."
+  },
+
+  "nebenbefunde_die_eigene_fehler_sind": {
+    "1_abriss_wird_nicht_erkannt": "Reisst der Strom ab, meldet der Player `dekodiert 0/s`, `0 kbit/s`, KEINEN Fehler, versucht keine Neuverbindung und zaehlt rund 100 Unterlaeufe je Sekunde weiter — in einem Lauf ueber 128 Sekunden bis 13116. Die Einfrier-Erkennung kann das per Konstruktion nicht fangen: sie verlangt `bytes_seit_bild >= EINFRIER_BYTES` (500000, `decode.rs:137`), und ohne ankommende Daten waechst dieser Zaehler nie. Beobachtet in 3 von rund 12 langen Laeufen; ausgeloest wurde der Abriss jeweils durch `hw capture channel disconnected mid-stream (clean exit, keine Fehlermeldung)` im Sender.",
+    "2_401_wird_als_encoder_mangel_gemeldet": "Beim ersten Produktionslauf schlug der WHIP-POST mit HTTP 401 fehl (mein Token war nicht abgelegt, s. `kontrollen`). Der Sender meldete daraufhin `av1 HW encoder nicht verfuegbar (... HTTP 401 Unauthorized) -> Fallback H.264` und oeffnete `h264_nvenc`. Ein Autorisierungsfehler wird also als Encoder-Faehigkeit ausgegeben und loest einen stillen Codec-Wechsel aus.",
+    "3_die_5ms_opus_begruendung_traegt_auf_dem_whip_weg_nicht": "Im ganzen Baum gibt es KEINE Aussage dazu, was 5-ms-Rahmen fuer die Sprachqualitaet bedeuten (gesucht nach LPC, CELT, SILK, application, voip, frame_duration, OPUS_FRAME_MS, ueber `streaming/`, `docs/` und alle Messakten). Begruendet sind die 5 ms allein mit der FLV-Buendelung (`encode/audio/mod.rs:33-56`). Auf dem eigenen WebRTC-Sendeweg gibt es dieses Problem ausdruecklich nicht (`whip/mod.rs:160-168`: zwei getrennte Spuren halten sich nicht gegenseitig auf) — und genau ueber diesen Weg laeuft AV1, also die Betriebsart des Nutzers. Der Sender meldet bei jedem Start `LPC mode cannot be used with a frame duration of less than 10ms. Enabling restricted low-delay mode`, faehrt also CELT-only.",
+    "4_das_sdp_sagt_etwas_anderes_als_der_sender_tut": "`whip/sdp.rs:101` bietet `minptime=10;useinbandfec=1` an. Gesendet werden 5-ms-Pakete, und der Opus-Encoder bekommt keine FEC-Option gesetzt. Beide Zusagen stimmen nicht."
+  },
+
+  "kontrollen": [
+    "**Schlaegt der Vollbild-Zaehler ueberhaupt an?** Ja — 1 gegen 10 bis 11 zwischen den beiden Empfaenger-Betriebsarten. Ohne diesen Ausschlag waere 'keine Keyframes' nicht von 'nicht gemessen' zu unterscheiden.",
+    "**Ist der Player die Quelle der Vollbilder?** Nein — mit `PULSE_PLAYER_NO_KEYFRAME_REQUEST=1` blieben es 10 in 20 s.",
+    "**Ist die Ring-Drift eine Eigenschaft des Aufbaus?** Nein — bei 30 fps, sonst identisch, zweimal keine Drift (+30 und -10 ms). Die Groesse kann also stehenbleiben, sie tut es unter Last nur nicht.",
+    "**Ist der Abriss dem HEAD-Commit anzulasten?** Nein. `4aebae43` aendert genau die WGC-Drosselung bei 60 fps, also den benutzten Pfad — deshalb geprueft: Sidecar aus dem Elterncommit `495c28fa` gebaut und abwechselnd gegen den HEAD-Bau gefahren, 2 Paare, je 70 s. Beide Binaries: kein Abriss, 0 bis 7 Unterlaeufe, Ringdelta -5 bis +10 ms. Der Abriss trat nur unter Last auf und ist nicht dem Commit zuzuordnen.",
+    "**Sind die Token in der Produktion ueberhaupt angekommen?** Die erste Fassung des Aufbaus meldete 'gesetzt' und hatte NICHTS getan: das Redis der Produktion verlangt AUTH, und `redis-cli` liefert bei `NOAUTH` trotzdem Rueckgabewert 0. Sichtbar wurde es erst am 401 des Senders und an `reason=read_unknown_token` im Log des auth-hooks. Seitdem prueft der Aufbau mit `EXISTS` nach und bricht ab, wenn die Schluessel fehlen."
+  ],
+
+  "einschraenkungen": [
+    "**Der Ausloeser der Lieferpausen war nicht gesetzt, sondern zufaellig.** In den beiden Last-Laeufen lief nebenher ein cargo-Release-Bau. Was das Aussetzen verursacht, ist damit NICHT kontrolliert gemessen. Die FOLGE — der Ring bleibt oben — ist es, und sie ist der Befund.",
+    "Der Bildschirminhalt war der eigene Desktop, in dem auch das Player-Fenster stand (also mit Rueckkopplung). Er ist zwischen den Laeufen nicht identisch und nicht wiederholbar. Fuer Ring- und Keyframe-Zahlen unkritisch, fuer jede Aussage ueber Bildqualitaet oder Bitratenbedarf unbrauchbar.",
+    "Der Docker/WSL2-Arm (Fork-Image) taugt nicht fuer Laufzeiten: der Lese-Weg lief ueber die Docker-Bruecke (`172.17.0.1`), und die UDP-Strecke brach dort nach etwa 20 s ab. Er wurde deshalb NUR zum Zaehlen der Vollbilder benutzt, nicht fuer Zeiten.",
+    "Die drei Produktionslaeufe haben je 90 s. Ob die Drift danach weiterlaeuft, saettigt oder zurueckgeht, ist nicht gemessen.",
+    "`prod4` zeigt Delta 0 — die Drift tritt also nicht in jedem Lauf auf. Zwei von drei ist keine Rate, sondern eine Beobachtung.",
+    "Die Ringzahlen stammen aus `stats`-Abfragen alle 2 bzw. 5 s. Was zwischen zwei Abfragen passiert, ist unsichtbar; die Pause in `fps60-2` ist deshalb 'rund fuenf Sekunden' und nicht genauer."
+  ],
+
+  "nicht_gemessen": [
+    "**Bildqualitaet, ueberhaupt nicht.** Das gebuendelte FFmpeg ist ohne `libvmaf` gebaut (`--enable-*` enthaelt es nicht; vorhanden sind nur psnr/ssim/xpsnr), und der Windows-Sidecar hat kein Gegenstueck zu `PULSE_DUMP_RAW` — es gibt also weder das Messwerkzeug noch ein Referenzbild. Die Akte `qualitaet-2026-07-31-intra-refresh-gegen-keyframes` ist damit auf dieser Maschine WEDER bestaetigt NOCH widerlegt. Die Frage aus dem Auftrag, ob sie nach dem FFmpeg-Wechsel noch gilt, bleibt offen.",
+    "**Der absolute A/V-Versatz am Ausgang.** `ton-laufzeit.py`, `ton-vergleich.py` und `tonsignal.py` bauen auf PipeWire (`pw-link`, `pactl`) und laufen unter Windows nicht. Gemessen ist der Ringfuellstand, also die VERAENDERUNG der Tonverzoegerung — nicht ihr Absolutwert. Die 35 bis 38 ms aus `ton-2026-08-02-player-gegen-chromium` sind hier weder nachgeprueft noch bestritten.",
+    "Ende-zu-Ende-Laufzeit mit Zeitmuster. `latency-pattern.py` setzt ein X11-Vollbildfenster voraus; auf Windows nicht gefahren. Gemessen ist nur `Netz-bis-Schirm` (3,5 bis 4,6 ms in der Produktion), also der letzte Abschnitt.",
+    "Verhalten bei GESETZTEM Paketverlust. Die Produktionslaeufe hatten 0 verlorene Pakete (FlexFEC reparierte 54). Gerade der vermutete Weg — Tonpaket weg, keine Nachlieferung moeglich, 100 ms Wartezeit umsonst — braucht Stoerung, um sich zu zeigen.",
+    "Ob die Einfrier-Erkennung bei einem echten Standbild falsch ausloest. Sie hat in keinem Lauf gefeuert. Bei CBR und wirklich unveraendertem Bild waeren beide Schwellen erreichbar (90 gleiche Bilder = 1,5 s bei 60 fps; 500 kB = 1,33 s bei 3000 kbps) — das ist eine RECHNUNG, keine Messung, und gehoert nachgemessen.",
+    "H.264, AMD und der Browser-Weg. Alles nur NVIDIA/AV1/nativer Player.",
+    "Der zweite Zuschauer. Alle Laeufe hatten genau einen."
+  ],
+
+  "lehre": "Eine Zaehlung sagt nicht, was sie zu sagen scheint. `audio_underruns` zaehlt, wie oft der Ring leer war — die hoerbare Groesse ist aber, wie VOLL er ist, und die steht in einem Feld, das bis heute niemand angesehen hat. Sieben Unterlaeufe mit stehendem Fuellstand sind gesund, sieben mit wachsendem sind der Anfang eines Fehlers, und beide sehen in der Statistik gleich aus. Dasselbe Muster wie am 2026-07-31 bei den NACK-Wiederholungen: eine Zahl ohne ihre Bezugsgroesse ist keine Messung."
+}
