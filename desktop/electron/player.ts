@@ -11,6 +11,17 @@
  * meldet `isAvailable()` schlicht `false` und der Renderer bleibt auf dem
  * bestehenden WHEP-Weg im `<video>`-Element. Hier darf nie etwas werfen, das
  * die App beeintraechtigt.
+ *
+ * **Alles Diagnostische geht zusaetzlich in `sidecar.log`** (`logSidecar`, s.
+ * `sidecar-log.ts`). Bis 2026-08-05 ging es ausschliesslich nach `console.*` —
+ * und im verpackten Build hat Electrons Konsole keinen Abnehmer: die Ausgabe
+ * landete nirgends. Damit war nach einem Bild-Fehler beim Nutzer NICHT
+ * nachvollziehbar, was der Player getan hat (welcher Decoder, welche
+ * Fehlermeldung, ob er ueberhaupt gestartet ist), obwohl der Datei-Logger
+ * daneben schon lief und der Capture-Sidecar ihn benutzte. Beide schreiben
+ * bewusst in DIESELBE Datei: ein HQ-Fehler betrifft fast immer beide Seiten,
+ * und zwei Dateien haetten die Zeitzuordnung zwischen Senden und Empfangen
+ * gekostet. Auseinanderzuhalten sind sie am `[pulse-player]`-Vorsatz.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -18,6 +29,23 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { app } from 'electron';
+
+import { logSidecar } from './sidecar-log';
+
+/**
+ * Eine Zeile in beide Kanaele: Datei-Log (ueberlebt den verpackten Build) und
+ * Konsole (im Dev-Lauf das, was man sofort sieht).
+ *
+ * Der `[pulse-player]`-Vorsatz steht IM Text und nicht nur in der Konsole,
+ * damit er in der gemeinsamen Datei erhalten bleibt — sonst waeren
+ * Player-Zeilen dort nicht von denen des Capture-Sidecars zu unterscheiden.
+ */
+function log(stream: 'out' | 'err' | 'lifecycle', line: string): void {
+  const text = `[pulse-player] ${line}`;
+  logSidecar(stream, text);
+  if (stream === 'err' || stream === 'lifecycle') console.error(text);
+  else console.log(text);
+}
 
 const REQUEST_TIMEOUT_MS = 10_000;
 /** `open` baut eine WebRTC-Verbindung auf — das darf laenger dauern. */
@@ -159,6 +187,10 @@ class PlayerManager {
     const binary = resolvePlayerBinary();
     if (!binary) {
       this.startFailed = true;
+      // Der haeufigste Fall in einem verpackten Build (bis 2026-08-05 wurde das
+      // Binary unter Windows gar nicht mitgeliefert) — und ohne diese Zeile
+      // sieht man von aussen nur, dass das eigene Fenster „nicht verfuegbar" ist.
+      log('lifecycle', 'Binary nicht gefunden — eigenes Fenster steht nicht zur Verfuegung');
       throw new Error('pulse-player nicht gefunden');
     }
 
@@ -168,20 +200,24 @@ class PlayerManager {
     });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
+    log('lifecycle', `gestartet pid=${child.pid ?? '?'} ${binary}`);
 
     this.rl = readline.createInterface({ input: child.stdout });
     this.rl.on('line', (line) => this.handleLine(line));
 
     // Diagnose des Players geht nach stderr und gehoert ins Electron-Log,
-    // nicht in den Protokollstrom.
+    // nicht in den Protokollstrom. Genau hier stehen die Zeilen, die einen
+    // Bildfehler erklaeren: gewaehlter Decoder samt Hardware-Ja/Nein, die
+    // FFmpeg-Meldungen, und mit `PULSE_PLAYER_STATS_LOG=1` die
+    // Ausgabe-Abstaende.
     child.stderr.on('data', (chunk: string) => {
       for (const line of chunk.split('\n')) {
-        if (line.trim()) console.log(`[pulse-player] ${line}`);
+        if (line.trim()) log('err', line);
       }
     });
 
     child.on('exit', (code, signal) => {
-      console.log(`[pulse-player] beendet (code=${code}, signal=${signal})`);
+      log('lifecycle', `beendet (code=${code}, signal=${signal})`);
       this.failAllPending(new Error('pulse-player wurde beendet'));
       this.rl?.close();
       this.rl = null;
@@ -199,11 +235,11 @@ class PlayerManager {
     // Zeitueberschreitung raeumen die offenen Anfragen bereits auf.
     child.stdin.on('error', (err) => {
       if (this.child !== child) return;
-      console.error('[pulse-player] stdin-Fehler:', err);
+      log('lifecycle', `stdin-Fehler: ${err.message}`);
     });
 
     child.on('error', (err) => {
-      console.error('[pulse-player] Start fehlgeschlagen:', err);
+      log('lifecycle', `Start fehlgeschlagen: ${err.message}`);
       this.startFailed = true;
       this.failAllPending(err);
     });
@@ -215,11 +251,15 @@ class PlayerManager {
   private handleLine(line: string): void {
     const trimmed = line.trim();
     if (!trimmed) return;
+    // Der Protokollstrom des Players ist duenn (Zustandswechsel, Knopfdruecke
+    // im Fenster) — anders als beim Capture-Sidecar gibt es hier keine
+    // fps-Flut, die auszuduennen waere. Deshalb vollstaendig mit.
+    log('out', trimmed);
     let msg: PlayerMessage;
     try {
       msg = JSON.parse(trimmed) as PlayerMessage;
     } catch {
-      console.warn(`[pulse-player] unlesbare Zeile: ${trimmed.slice(0, 200)}`);
+      log('err', `unlesbare Zeile: ${trimmed.slice(0, 200)}`);
       return;
     }
 
@@ -248,7 +288,7 @@ class PlayerManager {
       try {
         cb(msg);
       } catch (err) {
-        console.error('[pulse-player] Ereignis-Empfaenger warf:', err);
+        log('err', `Ereignis-Empfaenger warf: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
