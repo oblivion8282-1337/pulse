@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-05.3",
+      "date": "2026-08-05",
+      "style": "Sachlich",
+      "title": "Stillstehende Bilder kosten keine Datenrate mehr",
+      "items": [
+        "Steht der Bildschirminhalt still — ein Ladebildschirm, ein pausiertes Spiel, eine ruhige Szene —, hielt das Fenster für die HQ-Wiedergabe das für einen Fehler und forderte im Sekundentakt ein komplettes neues Bild an. Ein solches Bild kostet ungefähr das Fünffache eines normalen; auf einem stehenden Bildschirm bestand damit rund die Hälfte der Übertragung daraus. Das ist behoben, und die Bildrate bleibt dabei jetzt gleichmäßig.",
+        "Der Grund, warum es überhaupt nötig ist, bleibt bestehen: In seltenen Fällen bleibt die Wiedergabe wirklich hängen, und dann hilft genau dieser Schritt. Er wird jetzt nur noch dann gemacht, wenn er auch etwas bringt."
+      ]
+    },
+    {
       "id": "2026-08-05.2",
       "date": "2026-08-05",
       "style": "Sachlich",
