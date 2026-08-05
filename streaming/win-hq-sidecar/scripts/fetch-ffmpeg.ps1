@@ -64,8 +64,16 @@ $Target = Join-Path $Dist 'n8.1-lgpl-shared'
 # BtbN-Paket zurueck und WARNT - der Sidecar baut damit, faehrt AV1 aber ohne
 # Intra-Refresh und verweigert den Start ehrlich, wenn er verlangt wird
 # (`src/encode/auffrischung.rs`). Beide Zeilen gemeinsam setzen.
-$PatchedUrl = ''
-$PatchedSha = ''
+#
+# GESETZT seit 2026-08-05. Gebaut mit `build-ffmpeg-patched.ps1` aus n8.1.2 +
+# `0002-amfenc_av1-rollender-intra-refresh.patch`, LGPL-shared, ohne
+# --enable-gpl/--enable-nonfree/libx264/libx265 und ohne --enable-version3.
+# Am gebauten Binary gegengeprueft: `av1_amf` kennt jetzt `intra_refresh_mode`
+# UND `intra_refresh_stripes` - im BtbN-Paket fehlten beide, weshalb AMD unter
+# Windows bis hierher kein Intra-Refresh bekam, obwohl es auf der AMD-Maschine
+# laengst gemessen war. Der Patch existierte, das Paket war nur nie hochgeladen.
+$PatchedUrl = 'https://howispulse.com/downloads/vendor/ffmpeg-n8.1-lgpl-shared-patched-2026-08-05.zip'
+$PatchedSha = 'a8b6fc7ccb7b45b014c7c17abb030e3d738ef7b57f34d27b51426e02d3a9e708'
 
 # --- Rueckfall: das bisherige BtbN-Paket -------------------------------------
 #

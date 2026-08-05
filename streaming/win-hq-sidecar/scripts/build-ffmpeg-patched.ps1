@@ -301,6 +301,44 @@ foreach ($f in Get-ChildItem $StageBin -Include *.exe, *.dll -Recurse) {
     Copy-Abhaengigkeiten $f.FullName
 }
 
+# --- Lizenztext und Aenderungshinweis in den Baum legen ----------------------
+#
+# Die LGPL will zweierlei: eine Kopie der Lizenz BEI der Weitergabe, und dass
+# eine Veraenderung als solche kenntlich ist. BtbNs Fertigpaket brachte eine
+# `LICENSE.txt` an oberster Stelle mit - ein selbst gebauter Baum bringt von
+# sich aus KEINE. Ohne diesen Schritt stuende der Windows-Installer also ohne
+# Lizenztext da, und `desktop/electron-builder.yml` (das genau diese Datei nach
+# `resources/hq-sidecar/FFMPEG-LICENSE.txt` kopiert) scheiterte am fehlenden
+# Pfad, sobald das selbst gebaute Paket das BtbN-Paket ersetzt.
+#
+# Es ist COPYING.LGPLv2.1, weil `configure` bewusst ohne `--enable-version3`
+# laeuft (s. Schalterliste oben). Wandert dieser Schalter, wandert diese Zeile
+# mit - sonst liegt der falsche Lizenztext im Paket.
+$LizenzQuelle = Join-Path $Src 'COPYING.LGPLv2.1'
+if (-not (Test-Path $LizenzQuelle)) { Die "kein COPYING.LGPLv2.1 in $Src" }
+Copy-Item $LizenzQuelle (Join-Path $Stage 'LICENSE.txt')
+
+# Der Aenderungshinweis gehoert IN das Paket, nicht nur ins Repo: wer diese
+# DLLs in die Hand bekommt, soll ohne Umweg sehen, dass sie nicht dem Original
+# entsprechen, und wo die Aenderung offen liegt.
+@(
+    'FFmpeg in diesem Paket ist VERAENDERT gegenueber dem Original.'
+    ''
+    "Fassung:   $Ref (https://github.com/FFmpeg/FFmpeg)"
+    'Aenderung: streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch'
+    '           gibt dem AMF-AV1-Encoder die Optionen intra_refresh_mode und'
+    '           intra_refresh_stripes. Keine FFmpeg-Fassung bietet sie an.'
+    ''
+    'Der Patch ist von LGPL-Quelltext abgeleitet und steht selbst unter der'
+    'LGPL, nicht unter den Pulse-Lizenzen. Er liegt offen im Repository:'
+    '  https://github.com/oblivion8282-1337/pulse/tree/main/streaming/ffmpeg-patches'
+    ''
+    'Gebaut ohne --enable-gpl, ohne --enable-nonfree, ohne libx264/libx265.'
+    'Die Bibliotheken sind dynamisch gelinkt und als eigene Dateien'
+    'austauschbar. Lizenztext: LICENSE.txt in diesem Verzeichnis.'
+) | Set-Content -Path (Join-Path $Stage 'PULSE-AENDERUNGEN.txt') -Encoding ASCII
+Say 'LICENSE.txt + PULSE-AENDERUNGEN.txt in den Baum gelegt'
+
 # --- Pruefen, BEVOR das laufende Paket angefasst wird -------------------------
 $Ffmpeg = Join-Path $StageBin 'ffmpeg.exe'
 if (-not (Test-Path $Ffmpeg)) { Die "kein ffmpeg.exe in $StageBin" }
