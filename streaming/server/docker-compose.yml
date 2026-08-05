@@ -20,17 +20,23 @@ services:
     # Pulse-Fork von 1.19.1 — der Grund für den Fork und alle fünf Patches
     # stehen im Kopf von `infra/mediamtx-fork/Dockerfile`.
     #
-    # `-pulse2` (2026-08-02) bringt die vier Labor-Patches dazu: den Rückweg
-    # für Vollbild-Anforderungen, den abschaltbaren Keyframe-Takt und FlexFEC.
-    # Lokal bauen (das Image liegt noch nicht in der Registry):
-    #   docker build -t pulse-mediamtx:1.19.1-pulse2 infra/mediamtx-fork/
+    # `-pulse2` bringt die vier Labor-Patches dazu: den Rückweg für
+    # Vollbild-Anforderungen, den abschaltbaren Keyframe-Takt, FlexFEC und die
+    # verlustgeregelte Parität. Der Patch-Stand steht seit 2026-08-04 im Tag
+    # (`PULSE_REVISION` im Dockerfile) — vorher hieß jeder Bau `-pulse`.
+    #
+    # **Aus der Registry, nicht lokal gebaut.** Hier stand bis 2026-08-04 ein
+    # `docker build`-Hinweis, weil das Image damals nur auf einer Maschine
+    # existierte. Seit die Patches auf `main` sind, baut der Workflow es — Dev
+    # und Produktion ziehen damit denselben Digest, und niemand muss MediaMTX
+    # selbst übersetzen.
     #
     # ACHTUNG beim Versions-Bump: der TAG allein sagt nichts darueber, was
     # laeuft. Am 2026-07-26 stand hier bereits 1.19.1-pulse, waehrend lokal
     # beide Tags auf denselben Digest eines 1.17.1-Images zeigten — der
     # Container meldete `v1.17.1-dirty`. Nach einem Bump also
     # `docker logs streaming-mediamtx | head -1` pruefen, nicht den Tag glauben.
-    image: pulse-mediamtx:1.19.1-pulse2
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse2
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
