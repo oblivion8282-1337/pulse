@@ -1,0 +1,118 @@
+{
+  "id": "ausgabetakt-2026-08-05-windows-produktion",
+  "gemessen_am": "2026-08-05 (Nachmittag/Abend)",
+  "frage": "Wird die Bildausgabe des nativen Players gleichmaessiger, wenn sie am RTP-Zeitstempel haengt statt an der Ankunft — und was kostet das an Verzoegerung?",
+
+  "warum_die_frage_zaehlt": "Der Player zeichnete bei `SessionEvent::Frame` sofort. Der Abstand zweier ausgegebener Bilder war damit der Abstand ihrer ANKUNFT und trug jede Schwankung von Leitung, Server und Decoder. Der Jitter-Puffer davor gleicht das NICHT aus: `JITTER_MS_VORGABE` ist die Wartezeit bei einem FEHLENDEN Paket, `jitter.rs::poll` gibt lueckenlose Pakete sofort frei. Es gab im ganzen Programm keine Stelle, an der ein Bild auf seinen Zeitpunkt gewartet haette — und `DecodedFrame` trug bis heute gar keinen RTP-Zeitstempel, obwohl `whep.rs` ihn samt `clock_rate` vorliegen hat.",
+
+  "vergleich_gegen": "ruckeln-2026-07-28-stand (Vorbefund: der Player hat keinen Ausgabe-Takt)",
+
+  "aufbau": {
+    "maschine": "Windows 11, NVIDIA GeForce RTX 5080 (Treiber 32.0.16.1047). Sender UND Zuschauer auf DERSELBEN Maschine — s. `einschraenkungen`.",
+    "sender": "streaming/win-hq-sidecar (ausgeliefertes Binary), WGC-Aufnahme des Hauptschirms, av1_nvenc, 2560x1440, 10 bit, 60 fps, 3000 kbps, Intra-Refresh, eigener WHIP-Sendeweg",
+    "weg": "WHIP -> https://howispulse.com/whep/<pfad>/whip -> Caddy -> pulse_web-nginx -> MediaMTX 1.19.1-pulse (host-net) -> WHEP zurueck",
+    "zuschauer": "streaming/pulse-player, Decoder av1_cuvid (Hardware), Oberflaeche Rgb10a2Unorm, Praesentationsart Mailbox",
+    "authentifizierung": "wie im Produktivbetrieb: Publish- und Read-Token in der Redis der Produktion (`stream:token:*`), geprueft vom `mediamtx-auth-hook`. Eigener, klar synthetischer Pfad `channel-999000000000000001-999000000000000002-<nonce>`; beide Schluessel nach jedem Lauf geloescht.",
+    "A": "PULSE_PLAYER_AUSGABETAKT_MS=0 — Ausgabe-Takt aus (die Vorgabe, Verhalten wie vorher)",
+    "B": "PULSE_PLAYER_AUSGABETAKT_MS=60 — 60 ms Vorhalt, sonst identisch",
+    "lauflaenge": "45 s Messfenster je Lauf, 46 auswertbare Statistikzeilen",
+    "reihenfolge": "abwechselnd, nicht blockweise; die Reihenfolge im Paar wird von Paar zu Paar getauscht (Pruefstand-README: das hat dort viermal zugeschlagen)"
+  },
+
+  "belegte_mechanik": {
+    "der_zeitstempel_lag_ungenutzt_vor": "GELESEN: `whep.rs::RtpArrival` traegt `clock_rate` und das ganze RTP-Paket; `jitter.rs::Release::Packet` gibt es weiter. `DecodedFrame` hatte nur `arrived: Instant`. Der Wert war also da und wurde eine Stufe spaeter weggeworfen.",
+    "der_jitterpuffer_ist_kein_vorhalt": "GELESEN (`jitter.rs::poll`): ein Paket wird freigegeben, sobald es `target` lang liegt ODER alle Vorgaenger da sind. Bei lueckenlosem Strom greift die zweite Bedingung immer.",
+    "die_schleife_schlief": "GELESEN (`main.rs`): `ControlFlow::Wait`. Ein wartendes Bild ist kein Ereignis — ohne `about_to_wait` + `WaitUntil` laege es bis zum naechsten RTP-Paket herum und der Takt waere wieder der der Ankunft."
+  },
+
+  "ergebnis": [
+    {
+      "reihe": "pt3 — mit nachgezogenem Anker (der ausgelieferte Stand)",
+      "paare": 3,
+      "A_takt_aus": {
+        "zu_spaet_je_lauf": [24, 30, 22],
+        "sekunden_ohne_ein_zu_spaetes_bild_prozent": [73.9, 47.8, 54.3],
+        "groesster_abstand_median_ms": [24.6, 41.5, 36.7],
+        "groesster_abstand_p90_ms": [213.7, 104.0, 43.8],
+        "sekunden_ueber_33ms_prozent": [30.4, 56.5, 52.2],
+        "netz_bis_schirm_median_ms": [4.5, 4.4, 4.5],
+        "gezeichnet_je_s": [60, 60, 60],
+        "paketverlust": [0, 0, 0]
+      },
+      "B_takt_60ms": {
+        "zu_spaet_je_lauf": [3, 15, 0],
+        "sekunden_ohne_ein_zu_spaetes_bild_prozent": [95.7, 80.4, 100.0],
+        "groesster_abstand_median_ms": [17.4, 17.3, 17.2],
+        "groesster_abstand_p90_ms": [18.3, 80.6, 17.4],
+        "sekunden_ueber_33ms_prozent": [6.5, 21.7, 2.2],
+        "netz_bis_schirm_median_ms": [59.6, 59.4, 59.5],
+        "gezeichnet_je_s": [60, 60, 60],
+        "paketverlust": [0, 0, 0],
+        "takt_verspaetet": [28, 237, 7],
+        "takt_neu_verankert": [1, 1, 0],
+        "takt_anker_nachgezogen": [34, 32, 8]
+      },
+      "deutung": "Drei von drei Paaren zeigen dieselbe Richtung. Der Median des groessten Ausgabe-Abstands je Sekunde faellt von 36,7 auf 17,3 ms — 17,3 ist praktisch der Soll-Abstand bei 60 fps (16,7 ms), der Takt liefert also das, was er verspricht. Die Zahl der zu spaeten Bilder faellt von 24 auf 3 je Lauf, die Sekunden ganz ohne ein zu spaetes Bild steigen von 54 auf 96 Prozent. Bezahlt wird das mit 55 ms mehr Verzoegerung (4,5 -> 59,5 ms)."
+    },
+    {
+      "reihe": "ptakt — mit dem ERSTEN Anker (nur EIN Messwert), verworfen",
+      "paare": 4,
+      "A_takt_aus": {
+        "zu_spaet_je_lauf": [12, 26, 7, 22],
+        "groesster_abstand_median_ms": [29.1, 34.5, 26.8, 30.9],
+        "netz_bis_schirm_median_ms": [4.4, 4.4, 5.2, 4.6]
+      },
+      "B_takt_60ms": {
+        "zu_spaet_je_lauf": [1, 4, 3, 5],
+        "groesster_abstand_median_ms": [17.8, 17.9, 17.4, 17.6],
+        "netz_bis_schirm_median_ms": [130.0, 117.2, 121.4, 116.4]
+      },
+      "deutung": "Die Gleichmaessigkeit stimmte schon hier — die VERZOEGERUNG nicht: 60 ms eingestellter Vorhalt kosteten gemessene 116 bis 130. Das ist der Befund, der zur Korrektur gefuehrt hat, und er waere unbemerkt geblieben, wenn nur `gap_late` erhoben worden waere.",
+      "ursache": "Der Anker hing an EINEM Messwert, dem ersten Bild. Und ausgerechnet das ist das schlechteste: es ist das Vollbild, also 25 bis 35 Pakete statt zwei bis drei, und es gilt erst als angekommen, wenn das letzte davon da ist. Der Anker lag damit systematisch zu spaet, und jede folgende Anzeige wartete die Differenz zusaetzlich ab — dauerhaft.",
+      "behebung": "Der Anker wandert seither auf die kuerzeste Laufzeit, die die Strecke hergibt (`app/takt.rs`, Zaehler `nachgezogen`). Nach oben korrigiert er nicht; dafuer gibt es `NEU_VERANKERN` (250 ms). Ergebnis: 59,5 statt 119,3 ms, bei unveraenderter Gleichmaessigkeit."
+    },
+    {
+      "reihe": "Gegenprobe lokal — nativer MediaMTX 1.19.1 auf 127.0.0.1, KEIN Docker",
+      "lauf": "rauch1, 14 s, sonst gleiche Vorgabe",
+      "zu_spaet_summe": 0,
+      "sekunden_ohne_ein_zu_spaetes_bild_prozent": 100.0,
+      "groesster_abstand_median_ms": 18.6,
+      "netz_bis_schirm_median_ms": 2.7,
+      "deutung": "Ueber die lokale Schleife ist der Unterschied NICHT messbar: dort ist die Ausgabe schon ohne Takt gleichmaessig (0 zu spaete Bilder). Wer den Ausgabe-Takt lokal prueft, misst nichts — die Aussage braucht eine echte Strecke. Das ist zugleich die Antwort auf die WSL2-Frage: der native MediaMTX zeigt hier keinerlei Ankunftsluecken, die Bewertung der Produktionszahlen haengt also nicht an Docker."
+    }
+  ],
+
+  "was_das_heisst": {
+    "der_ausgabe_takt_wirkt": "GEMESSEN, sieben Paare insgesamt, alle in dieselbe Richtung. Der Ausgabe-Abstand geht auf den Soll-Abstand der Quelle zurueck; die Bildzahl bleibt bei 60 je Sekunde, es wird also nichts weggeworfen, um das zu erreichen.",
+    "er_kostet_genau_das_eingestellte": "GEMESSEN, nach der Anker-Korrektur: 59,5 ms bei 60 ms Vorhalt. Vorher waren es 119 — die Differenz war kein Rauschen, sondern ein Aufbaufehler.",
+    "die_vorgabe_bleibt_trotzdem_AUS": "Der Vorhalt ist echte Verzoegerung. Fuer Zuschauen ist der Tausch gut, fuer die Fernsteuerung ist er falsch (dort zaehlt allein, wie schnell die eigene Mausbewegung zurueckkommt). Deshalb `ausgabetakt_ms = 0` als Vorgabe und ein Schalter daneben.",
+    "verspaetet_ist_die_kontrollzahl": "Nicht `gap_late`. Steigt `verspaetet`, ist der Vorhalt kleiner als die Schwankung der Strecke und es taktet nichts mehr — waehrend die Abstaende daneben aussehen wie ohne Takt. Im Lauf pt3-t60-2 stieg sie auf 237 (gegen 7 und 28), und genau dieser Lauf hat als einziger der drei einen erhoehten p90 (80,6 ms). Die Zahl zeigt also, WELCHER Lauf gestoert war, statt den Unterschied zu verwischen.",
+    "die_rueckstaffelung_stoert_den_gesunden_betrieb_nicht": "GEMESSEN als Kontrolle: in allen sechs Produktionslaeufen kamen 1 bis 3 Vollbild-Anforderungen an, ALLE wurden eingeloest, NULL zurueckgestellt (`[keyframe] Anforderung zurueckgestellt` kommt in keinem Sender-Log vor). Die Staffelung greift erst bei anhaltendem Sturm."
+  },
+
+  "nicht_gemessen": [
+    "Der eigentliche Zielfall der Rueckstaffelung — ein Zuschauer, dessen Decoder dauerhaft ausgestiegen ist und 425 Vollbilder anfordert. Dafuer waere ein absichtlich kaputter Empfaenger noetig; belegt ist hier nur, dass die Staffelung im gesunden Betrieb nichts tut. Die Wirkungsgrenze steht als Test (`dauersturm_landet_bei_einer_je_zwei_sekunden`), nicht als Messung.",
+    "Der Ausgabe-Takt unter PAKETVERLUST. Alle sechs Produktionslaeufe hatten Paketverlust 0. Was der Takt tut, wenn Bilder ausfallen, ist offen — der Verdacht ist, dass er dort neutral ist (ein fehlendes Bild hat keinen Zielzeitpunkt), aber das ist eine Vermutung. `verluststrecke.py` setzt den Verlust ueber Linux-`tc` und laeuft auf dieser Maschine nicht.",
+    "Ton an gegen Ton aus (der senderseitige Verdacht: Opus wird auf dem Taktfaden kodiert). Alle Laeufe hier mit Ton.",
+    "Mailbox gegen Fifo als Praesentationsart. Der Schalter dafuer ist gebaut (`PULSE_PLAYER_PRESENT_MODE`), die Reihe war zum Zeitpunkt dieser Akte noch nicht ausgewertet.",
+    "PULSE_WHIP_PACING (Paket-Verteilung beim Sender).",
+    "Andere Vorhalt-Werte. Gemessen wurde 60 ms gegen 0. Ob 30 oder 100 besser waeren, ist offen; 60 ist gewaehlt, weil es ueber dem beobachteten Ausgabe-Ausschlag liegt und unter dem, was man als Verzoegerung bemerkt.",
+    "Bildqualitaet. Der Ausgabe-Takt fasst den Bitstrom nicht an, eine Qualitaetsmessung waere hier ohne Aussage."
+  ],
+
+  "einschraenkungen": [
+    "**Sender und Zuschauer laufen auf DERSELBEN Maschine.** Der Weg geht zwar ueber die echte Leitung zur Produktion und zurueck, aber Aufnahme, Encode, Decode und Anzeige teilen sich eine GPU und eine CPU. Ein Zwei-Rechner-Aufbau kann andere Zahlen liefern — besonders bei `gezeichnet je s` und beim Ausgabe-Abstand, weil dort die Encoder-Last mit im Spiel ist. **Das ist die Messung, die auf dem Zwei-Rechner-Aufbau des Nutzers nachzuholen ist.**",
+    "Der aufgenommene Bildschirminhalt war nicht kontrolliert (Arbeitsflaeche, ueberwiegend ruhig). Bei fester Bitrate schwankt damit, wie schwer der Encoder es hat. Innerhalb eines Paares ist das derselbe Rechner in derselben Minute; ueber die Paare hinweg nicht.",
+    "Der Vergleich `alter Anker` gegen `nachgezogener Anker` ist NICHT gepaart gefahren — es sind zwei getrennte Reihen im Abstand von rund einer halben Stunde. Fuer die Verzoegerung (119 gegen 59,5 ms) ist der Unterschied so gross und die Streuung so klein (116-130 gegen 59,4-59,6), dass die Aussage traegt; fuer die Gleichmaessigkeit wurde daraus KEIN Unterschied abgeleitet.",
+    "Die Produktion trug waehrend der Messung einen fremden, echten Stream (H.264 ueber RTMPS, mit Zuschauern). Er wurde nicht angefasst, teilt sich aber Server und Uplink."
+  ],
+
+  "lehre": "Eine Zahl allein haette hier das Falsche gesagt. `gap_late` war in der ersten Reihe schon ausgezeichnet (1 bis 5 gegen 7 bis 26) — und derselbe Stand kostete 119 statt 60 ms Verzoegerung, also fast eine weitere Bildfolge, dauerhaft, ohne dass irgendetwas darauf hinwies. Sichtbar wurde es nur, weil `Netz-bis-Schirm` in derselben Zeile steht und die erwartete Groesse bekannt war. Wer eine Verbesserung an ihrer Zielgroesse misst, muss den Preis daneben legen, sonst optimiert er in einen Fehler hinein.",
+
+  "werkzeuge": {
+    "auswertung": "streaming/testbench/ausgabe-abstand.py — liest seit dem 2026-08-05 auch `(N zu spaet)` und die Takt-Zeile. Bis dahin wertete es nur den GROESSTEN Abstand je Sekunde aus, also ein Ereignis je Sekunde, egal ob eines oder dreissig Bilder zu spaet kamen.",
+    "fahrer": "Ein Windows-Treiber fuer Sender+Player+Auswertung liegt im Arbeitsverzeichnis dieser Sitzung, NICHT im Repo (`lauf.py`, `varianten.py`, `prod.py`). Der Pruefstand im Repo ist Linux-seitig (`real-harness.py` braucht Portal und den Linux-Sidecar). **Das ist eine offene Luecke:** die Messung ist damit auf dieser Maschine wiederholbar, im Repo aber nicht."
+  },
+
+  "rohdaten": "Player- und Sender-Logs je Lauf (`play-pt3-*.log`, `send-pt3-*.log`, `play-ptakt-*.log`) sowie die Proben-JSONs im Arbeitsverzeichnis der Sitzung. Nicht im Repo — sie enthalten Pfade des Testkanals."
+}
