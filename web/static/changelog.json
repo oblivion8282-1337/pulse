@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-05",
+      "date": "2026-08-05",
+      "style": "Groß",
+      "title": "🚀 Ein kleiner Schritt für dich, ein großer Sprung für Pulse",
+      "intro": "Das ist das größte Update, das Pulse bisher bekommen hat. Der Weg eines Streams — vom Bild auf deinem Schirm bis zu dem, was der andere sieht — wurde von vorne bis hinten neu gebaut. An drei Stellen steht jetzt etwas völlig anderes als vorher, und an einer haben wir das eingebaute Fenster gleich ganz ersetzt.",
+      "items": [
+        "Das Bild ist deutlich ruhiger geworden, und das ist die wichtigste Änderung überhaupt. Bisher schickte jeder Stream im festen Takt ein vollständiges Bild — nötig, damit Zuschauer überhaupt einsteigen können, aber teuer: die Datenrate sprang jedes Mal an, und dazwischen fiel das Bild sichtbar ab. Jetzt wird es fortlaufend erneuert, Stück für Stück, ohne diese Schläge. In unseren Messungen sank der Anteil sichtbar gestörter Sekunden dadurch von rund der Hälfte auf gut ein Prozent — bei gleicher Datenrate. Und wer dazukommt, wird gezielt bedient, statt auf den nächsten Schub zu warten.",
+        "10 Bit Farbe gibt es jetzt durchgehend: mit AMD- wie mit NVIDIA-Karten, unter Linux wie unter Windows. Auf NVIDIA unter Windows startete so ein Stream vorher überhaupt nicht — er meldete, er könne es, und blieb dann stumm. Das ist der Unterschied zwischen sichtbaren Streifen in einem dunklen Himmel und einem sauberen Verlauf.",
+        "Verluste werden repariert, bevor du sie siehst. Der Stream führt Zusatzdaten mit, aus denen sich verlorene Pakete zurückrechnen lassen — und zwar nur so viel davon, wie die Leitung gerade wirklich braucht. Auf einer sauberen Verbindung kostet das nichts.",
+        "Zuschauen geht jetzt in einem eigenen Fenster, unter Linux und unter Windows. Es hängt nicht mehr am eingebauten Browser-Player: die Grafikkarte dekodiert selbst, die Ausgabe kann mehr als 8 Bit, die Lautstärke lässt sich über 100 Prozent hinaus anheben, Vollbild geht per Doppelklick — und ein Statistikfeld zeigt, was tatsächlich anliegt: Auflösung, Bilder pro Sekunde, Datenrate, welcher Decoder gerade arbeitet und ob Pakete fehlen. Ist das Fenster nicht verfügbar, läuft alles unverändert wie bisher weiter.",
+        "Unter Windows rechnet beim Zuschauen endlich die Grafikkarte. Bisher lief das Dekodieren dort vollständig in Software, während die Karte danebenlag.",
+        "Neu im Fuß der Seite: eine Übersicht, worauf Pulse aufbaut — welche fremden Bausteine mitgeliefert werden, unter welchen Bedingungen, und wo deren Quelltext liegt."
+      ],
+      "outro": "Nichts davon ist geschätzt. Jede dieser Änderungen ist auf echter Hardware nachgemessen worden, mit beiden Grafikkarten-Herstellern und auf beiden Betriebssystemen — die Messreihen liegen offen im Quellcode-Repository."
+    },
+    {
       "id": "2026-07-30.3",
       "date": "2026-07-30",
       "style": "Erklärend",

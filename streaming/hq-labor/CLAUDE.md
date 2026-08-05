@@ -355,9 +355,22 @@ Encoder am Mitschnitt, **nicht** der Weg zum Zuschauer und nicht das Verhalten
 unter Verlust.
 
 **Was daran ungeprueft bleibt und vor der Auslieferung gehoert:**
-`pnpm check`/`build` sind auf der Windows-Maschine nicht gelaufen (kein Node),
-und die Linux-Aenderung ist dort nicht baubar (kein PipeWire) — sie ist nur
-ueber die identische Windows-Fassung derselben Datei getestet.
+Hier stand „`pnpm check`/`build` sind auf der Windows-Maschine nicht gelaufen
+(kein Node)" — das gilt seit dem 2026-08-05 nicht mehr: Node und pnpm sind dort
+installiert, und `pytest` (1922 bestanden), `pnpm check` (0 Fehler, 0 Warnungen)
+sowie `pnpm build` sind auf dieser Maschine durchgelaufen. Offen bleibt: die
+Linux-Aenderung ist dort nicht baubar (kein PipeWire) — sie ist nur ueber die
+identische Windows-Fassung derselben Datei getestet.
+
+**Nachtrag 2026-08-05 — Windows+NVIDIA ist jetzt auch als KETTE gemessen,**
+nicht mehr nur am Encoder-Mitschnitt: `win-hq-sidecar` (AV1, `av1_nvenc`, 8 und
+10 bit, Intra-Refresh) ueber den eigenen WHIP-Sendeweg in ein lokal gebautes
+`pulse-mediamtx` mit allen fuenf Patches, angesehen mit `pulse-player`
+(`av1_cuvid`, Hardware). Der nachtraegliche Einstieg in einen Strom ohne
+periodische Vollbilder funktioniert; im Sender-Log steht die Gegenprobe
+(„Vollbild angefordert (insgesamt 1)" / „Vollbild auf Anforderung"). Ton lief
+mit (Opus), FlexFEC reparierte real Pakete. Was weiter fehlt: dieselbe Messung
+gegen die Produktion statt gegen ein lokales MediaMTX.
 
 **Blockierend fuer den Flatpak-Sichttest — das Flatpak redet NUR mit der Produktion:**
 
