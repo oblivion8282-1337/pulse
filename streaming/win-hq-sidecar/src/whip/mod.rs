@@ -69,6 +69,40 @@ use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 /// rausgeht. Wie im Player (`pulse-player/src/whep.rs`).
 const ICE_GATHERING_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Der Server hat den Sendeweg abgewiesen — eine Aussage ueber die
+/// BERECHTIGUNG, nicht ueber die Hardware.
+///
+/// **Wozu ein eigener Typ statt `bail!` mit Text.** Der Aufrufer in
+/// `encode/bildencoder.rs` faengt beim Codec AV1 jeden Fehler ab und faellt auf
+/// H.264 zurueck — gedacht fuer NVIDIA-Karten vor Ada, die AV1 gar nicht
+/// koennen. Ein HTTP 401 lief da mit hinein und kam beim Nutzer als
+/// „av1 HW encoder nicht verfuegbar" an, samt stillem Codec-Wechsel. Ein
+/// abgelaufener Token gab sich damit als Eigenschaft der Grafikkarte aus und
+/// schickte die Fehlersuche in die falsche Ecke (am 2026-08-05 gegen die
+/// Produktion beobachtet).
+///
+/// Auf den Text zu pruefen waere die naheliegende Abkuerzung und genau so
+/// bruechig, wie sie klingt: die Meldung wandert, und niemand merkt es.
+/// Deshalb ein Marker, den `bildencoder.rs` per `downcast_ref` findet.
+///
+/// Traegt nur den Status, nicht die URL — die enthaelt den Publish-Token
+/// (s. die `map_err`-Begruendung beim POST weiter unten).
+#[derive(Debug, Clone, Copy)]
+pub struct SendewegAbgewiesen(pub u16);
+
+impl std::fmt::Display for SendewegAbgewiesen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "der Server hat den Sendeweg abgewiesen (HTTP {}) — Zugangsdaten \
+             oder Kanal pruefen, nicht den Encoder",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for SendewegAbgewiesen {}
+
 /// Eigene Laufzeit fuer den Sendeweg — bewusst getrennt von der des Portals.
 ///
 /// Das Portal verhandelt einmal beim Start und ist danach still; dieser Weg
@@ -359,7 +393,7 @@ impl WhipSender {
             // loggen.
             .map_err(|e| anyhow!("WHIP-Server nicht erreichbar: {}", crate::redact::secrets(&e.to_string())))?;
         if !res.status().is_success() {
-            bail!("WHIP-POST fehlgeschlagen: HTTP {}", res.status());
+            return Err(anyhow::Error::new(SendewegAbgewiesen(res.status().as_u16())));
         }
         let location = res
             .headers()

@@ -307,6 +307,23 @@ pub(crate) unsafe fn baue_mit_rueckfall(
             );
             Ok(Gebaut::AnD3d12)
         }
+        // **Ein abgewiesener Sendeweg ist KEIN Encoder-Problem.** Muss vor dem
+        // AV1-Zweig darunter stehen, sonst frisst dessen Rückfall ihn mit auf:
+        // ein HTTP 401 kam beim Nutzer als „av1 HW encoder nicht verfügbar" an
+        // und löste einen stillen Wechsel auf H.264 aus (2026-08-05 gegen die
+        // Produktion beobachtet). Ein abgelaufener Token gab sich so als
+        // Eigenschaft der Grafikkarte aus.
+        //
+        // Dieselbe Regel wie beim angemeldeten Encode-Weg oben und wie in
+        // `auffrischung.rs`: lieber ehrlich abbrechen als unter falschem
+        // Etikett weiterlaufen. H.264 hätte hier ohnehin nicht geholfen — der
+        // Server weist den Weg unabhängig vom Codec ab.
+        Err(e)
+            if e.chain()
+                .any(|u| u.downcast_ref::<crate::whip::SendewegAbgewiesen>().is_some()) =>
+        {
+            Err(e)
+        }
         // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern
         // beim Öffnen "function not implemented" → H.264 statt Abbruch.
         Err(e) if matches!(cfg.codec, super::VideoCodec::Av1) => {
