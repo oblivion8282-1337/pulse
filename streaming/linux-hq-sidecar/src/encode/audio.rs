@@ -35,18 +35,61 @@ use crate::whip::WhipSender;
 /// Paket-Overhead auf einer 128-kbit/s-Spur — nichts gegen 25 Mbit/s Video.
 const OPUS_FRAME_MS: usize = 5;
 
+/// Paketlänge auf dem eigenen WebRTC-Sendeweg.
+///
+/// **Die Begründung der 5 ms oben gilt hier nicht — sie ist vollständig eine
+/// FLV-Begründung.** Der eigene Sendeweg hat keinen Container und keine
+/// gemeinsame Zeitleiste; Bild und Ton können sich dort gar nicht gegenseitig
+/// aufhalten. Auf diesem Weg wurde also ein Nachteil ohne Gegenleistung
+/// eingekauft.
+///
+/// **Der Nachteil ist messbar.** Unter 10 ms fällt libopus in CELT-only zurück
+/// und sagt es bei jedem Start selbst („LPC mode cannot be used with a frame
+/// duration of less than 10ms"). Damit ist auch die In-Band-Fehlerkorrektur
+/// weg — die ist ein SILK-Merkmal. Und genau die verspricht das SDP
+/// (`useinbandfec=1`), so wie es `minptime=10` verspricht und 5 sendet.
+///
+/// 10 statt 20: der kleinste Wert, der beide Zusagen einlöst, bei der
+/// geringsten zusätzlichen Verzögerung. Wortgleich zum Windows-Sidecar
+/// (`win-hq-sidecar/src/encode/audio/mod.rs`) — beide Crates sollen hier
+/// dasselbe tun, sonst klingt derselbe Stream je nach Sender anders.
+const OPUS_FRAME_MS_WHIP: usize = 10;
+
+/// Geht der laufende Stream über den eigenen Sendeweg?
+///
+/// Prozessweit wie die Betriebsart in [`super::opts`], und aus demselben
+/// Grund: die Paketlänge wird an Stellen gebraucht, die die Ziel-URL nicht
+/// sehen — vor allem das Aufnahme-Raster ([`capture_chunk_frames`]).
+static UEBER_EIGENEN_SENDEWEG: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Vom Start her mitteilen, welcher Sendeweg gilt. **Vor** dem Aufbau der
+/// Aufnahme rufen — deren Raster hängt daran.
+pub fn setze_sendeweg(ueber_eigenen: bool) {
+    UEBER_EIGENEN_SENDEWEG.store(ueber_eigenen, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Samples pro Kanal und Opus-Paket bei 48 kHz. Über `PULSE_OPUS_FRAME_MS`
 /// veränderbar (zulässig 2,5 wird nicht angeboten — nur ganze ms), damit die
 /// Wahl messbar bleibt statt geraten zu werden.
+///
+/// Reihenfolge: die Umgebung sticht immer, danach entscheidet der Sendeweg.
 pub fn opus_frame_ms() -> usize {
-    static MS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *MS.get_or_init(|| {
+    static AUS_UMGEBUNG: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let gesetzt = *AUS_UMGEBUNG.get_or_init(|| {
         std::env::var("PULSE_OPUS_FRAME_MS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|v| [5, 10, 20, 40, 60].contains(v))
-            .unwrap_or(OPUS_FRAME_MS)
-    })
+    });
+    if let Some(v) = gesetzt {
+        return v;
+    }
+    if UEBER_EIGENEN_SENDEWEG.load(std::sync::atomic::Ordering::Relaxed) {
+        OPUS_FRAME_MS_WHIP
+    } else {
+        OPUS_FRAME_MS
+    }
 }
 
 pub fn opus_frame_samples() -> usize {
@@ -293,8 +336,26 @@ fn open_opus(
     // Frames ab („more samples than frame size") — die Paketlänge steht an
     // ZWEI Stellen und muss zusammenpassen.
     let mut aopts = Dictionary::new();
-    let dur = opus_frame_ms().to_string();
+    let frame_ms = opus_frame_ms();
+    let dur = frame_ms.to_string();
     aopts.set("frame_duration", &dur);
+    // In-Band-Fehlerkorrektur — die einzige Absicherung, die die Tonspur
+    // überhaupt haben kann (MediaMTX erzeugt FlexFEC nur für die Videospur).
+    //
+    // **Zwei Gründe, warum sie bis 2026-08-05 wirkungslos war, und beide
+    // mussten weg:** die Option wurde hier nie gesetzt, UND unter 10 ms gibt es
+    // sie gar nicht — LBRR ist ein SILK-Merkmal, CELT-only kennt es nicht.
+    // Deshalb steht sie hier zusammen mit der Paketlänge; einzeln wäre jede von
+    // beiden folgenlos geblieben.
+    //
+    // `packet_loss` ist Pflicht: libopus legt die Redundanz nach der ERWARTETEN
+    // Verlustrate aus, bei 0 entsteht keine. 5 % ist der übliche WebRTC-Ansatz
+    // und kostet auf einer 128-kbit/s-Spur nichts, was neben dem Video
+    // auffiele. Nicht gemessen — wer ihn dreht, misst nach.
+    if frame_ms >= 10 {
+        aopts.set("fec", "1");
+        aopts.set("packet_loss", "5");
+    }
     enc.open_with(aopts).context("open libopus encoder")
 }
 

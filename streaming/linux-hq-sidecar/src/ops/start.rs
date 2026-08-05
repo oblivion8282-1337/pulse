@@ -79,6 +79,14 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     if let Some(an) = requested_intra_refresh(overrides) {
         crate::encode::opts::intra_refresh_setzen(an);
     }
+    // Dasselbe Muster, derselbe Grund: die Opus-Paketlänge hängt am Sendeweg,
+    // gebraucht wird sie aber dort, wo die Ziel-URL nicht hinkommt — vor allem
+    // im Aufnahme-Raster. **Vor** dem Aufbau der Aufnahme setzen.
+    //
+    // Ohne `if let`: es gibt kein „ungesagt". Die URL liegt vor, also steht der
+    // Weg fest, und ein Rest aus dem vorigen Stream wäre hier schlimmer als
+    // eine Vorgabe.
+    crate::encode::audio::setze_sendeweg(crate::encode::is_whip_url(&push_url));
     // Hier stand bis 2026-08-02 eine Warnung, Intra-Refresh trage auf AV1
     // nicht. Sie war falsch — Begruendung und Gegenmessung stehen bei der
     // entfernten `traegt_intra_refresh` in `encode/opts.rs`. Ob der Encoder
