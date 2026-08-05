@@ -174,6 +174,7 @@ src/
 │   ├── mod.rs     H.264 (ueber das rtp-Crate) und Opus
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
 ├── decode.rs      FFmpeg, Hardware zuerst
+├── einfrieren.rs  erkennt den haengenden Decoder und staffelt die Abhilfe
 ├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
 ├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
 ├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit

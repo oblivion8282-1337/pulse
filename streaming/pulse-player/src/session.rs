@@ -29,8 +29,8 @@ const STATS_INTERVAL: Duration = Duration::from_millis(250);
 /// abgerissen gilt. 12 mal 250 ms sind drei Sekunden.
 ///
 /// **Warum es diesen zweiten Waechter braucht.** Die Einfrier-Erkennung in
-/// `decode.rs` kann einen Abriss PER KONSTRUKTION nicht sehen: sie verlangt
-/// neben 90 unveraenderten Bildern auch `EINFRIER_BYTES` an ankommenden Daten
+/// `einfrieren.rs` kann einen Abriss PER KONSTRUKTION nicht sehen: sie verlangt
+/// neben den unveraenderten Bildern auch `EINFRIER_BYTES` an ankommenden Daten
 /// — und ohne Daten waechst dieser Zaehler nie. Sie fragt „aendert sich das
 /// Bild nicht, obwohl gesendet wird", hier lautet die Frage „kommt ueberhaupt
 /// noch etwas".
@@ -572,6 +572,12 @@ pub async fn run(
                 // dasselbe, ueber 90 Sekunden. Keine Luecke, keine Rettung,
                 // und jede Kennzahl sah gesund aus. Deshalb hier ein Auslöser,
                 // der am ERGEBNIS haengt statt an der Ursache.
+                //
+                // WIE OFT er zuschlagen darf, entscheidet er selbst
+                // (`einfrieren.rs`): ein Standbild sieht am Ergebnis genauso
+                // aus wie ein Haenger, deshalb wird der Pruefabstand groesser,
+                // solange sich nichts bewegt. Hier bleibt es bei „melden ->
+                // Decoder neu -> Vollbild anfordern".
                 if decoder.as_mut().is_some_and(VideoDecoder::eingefroren) {
                     if let Some(d) = decoder.as_mut() {
                         d.wegen_einfrieren_neu();
