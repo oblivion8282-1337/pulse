@@ -26,6 +26,8 @@ import { WhepStatsReader, type StreamStats } from './whep-stats';
 import { VolumeBoost } from './volumeBoost';
 import { getStreamVolume, setStreamVolume } from './streamVolume';
 import { chatApi } from '$lib/api/chat';
+import { isPlayerAvailable } from '$lib/player/client';
+import { m } from '$lib/paraglide/messages.js';
 
 // Retry-Backoff: Publisher evtl. noch nicht online (404) oder transienter
 // Netz-Aussetzer. ICE-Watchdog wie zuvor im WhepPlayer.
@@ -40,6 +42,30 @@ const CONNECT_TIMEOUT_MS = 7000;
 const STALL_RECONNECT_MS = 3500;
 
 export type StreamPhase = 'connecting' | 'playing' | 'retrying' | 'error';
+
+/**
+ * Kann DIESER Zuschauer einen 10-bit-Strom im eigenen Fenster ansehen?
+ *
+ * Der `<video>`-Weg kann es nicht — und zwar nicht „schlechter", sondern nach
+ * einer Weile gar nicht mehr. Gemessen am 2026-08-01
+ * (`streaming/testbench/profiles/browser-2026-08-01-windows-av1-10bit.json`,
+ * ausgewertet in `intrarefresh-2026-08-02-windows-amd.json` Abschnitt 9):
+ * Chromes Hardware-Decoder steigt MITTEN im Lauf aus, libwebrtc faellt auf
+ * `dav1d` zurueck, und der kann kein 10 bit
+ * (`Dav1dDecoder::Decode unhandled bit depth: 10`). Ab da ist der Strom
+ * endgueltig undekodierbar — und der Zuschauer fordert endlos Vollbilder an
+ * (425 in einem einzigen Lauf), was den Strom fuer ALLE anderen beschaedigt.
+ *
+ * `client.ts::isPlayerAvailable` liefert im Browser immer `false` und wirft
+ * nie — die Abfrage ist also auch dort unbedenklich.
+ */
+async function eigenesFensterMoeglich(): Promise<boolean> {
+  try {
+    return await isPlayerAvailable();
+  } catch {
+    return false;
+  }
+}
 
 export class ManagedHqStream {
   readonly channelId: string;
@@ -256,6 +282,36 @@ export class ManagedHqStream {
       // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
       // die Lage, in der die Entscheidung faellt.
       this.tenBit = ten_bit === true;
+      if (this.#disposed) return;
+      // **10 bit ohne eigenes Fenster: gar nicht erst verbinden.**
+      //
+      // Warum ABLEHNEN und nicht „so gut es geht anzeigen": beides waere
+      // vertretbar, wenn der `<video>`-Weg 10 bit nur heruntergerechnet
+      // zeigte. Er tut etwas anderes — er zeigt es eine Weile und dann nie
+      // wieder, und waehrend dieses Nie-wieder hammert er den Sender mit
+      // Vollbild-Anforderungen (s. `eigenesFensterMoeglich`). Der Schaden
+      // trifft also nicht nur diesen Zuschauer, sondern jeden anderen im
+      // selben Stream. Eine ehrliche Absage mit einem Weg nach vorne ist
+      // besser als ein Bild, das sich in ein Standbild verwandelt und dabei
+      // die Runde mitnimmt.
+      //
+      // **Warum nicht senderseitig aushandeln** („10 bit nur anbieten, wenn
+      // der Zuschauer es tragen kann"): es gibt EINEN Encode fuer alle
+      // Zuschauer, MediaMTX verteilt ihn nur. Pro Zuschauer eine Bittiefe
+      // hiesse eine zweite Kodierung — Transcoding auf dem Server ist in
+      // `PLAN.md` §12 ausdruecklich ausgeschlossen. Was senderseitig moeglich
+      // und deshalb zusaetzlich gebaut ist: der Streamer erfaehrt beim
+      // Einstellen, was 10 bit fuer Browser-Zuschauer bedeutet
+      // (`OverridesEditor.svelte`).
+      //
+      // `ten_bit` steht aus der WHEP-Antwort fest, BEVOR etwas dekodiert ist —
+      // die Entscheidung faellt also ohne einen einzigen falschen Frame.
+      if (this.tenBit && !(await eigenesFensterMoeglich())) {
+        if (this.#disposed) return;
+        this.phase = 'error';
+        this.detail = m.hq_stream_ten_bit_needs_desktop();
+        return;
+      }
       if (this.#disposed) return;
       const s = await connectWhep(whep_url, (stream) => this.#onStream(stream));
       if (this.#disposed) {
