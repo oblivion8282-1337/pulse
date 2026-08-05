@@ -126,7 +126,7 @@ pub struct PlayerOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hwdec: Option<bool>,
 
-    /// Vorhalt des Ausgabe-Takts in Millisekunden. `0` = aus (Vorgabe).
+    /// Vorhalt des Ausgabe-Takts in Millisekunden. `0` = aus.
     ///
     /// **Was das tut und was `jitter_ms` NICHT tut.** Ist der Wert gesetzt,
     /// zeigt der Player ein Bild zu dem Zeitpunkt, den sein RTP-Zeitstempel
@@ -136,9 +136,31 @@ pub struct PlayerOptions {
     /// Vor dieser Option gab es also im ganzen Programm keine Stelle, an der
     /// ein Bild auf seinen Zeitpunkt gewartet haette.
     ///
-    /// **Aus als Vorgabe, weil der Vorhalt echte Verzoegerung kostet.** Fuer
-    /// Zuschauen ist das ein guter Tausch, fuer die Fernsteuerung ist er
-    /// falsch. Ueber die Umgebung: `PULSE_PLAYER_AUSGABETAKT_MS`.
+    /// **Vorgabe 60 ms — an, seit 2026-08-05.** Beim Einbau stand hier "aus",
+    /// weil der Vorhalt echte Verzoegerung kostet. Die Messung gegen die
+    /// PRODUKTION hat das entschieden (Messakte
+    /// `ausgabetakt-2026-08-05-windows-produktion.json`, drei Paare,
+    /// abwechselnd, gleiche Richtung ohne Ueberlappung):
+    ///
+    /// | | aus | 60 ms |
+    /// |---|---|---|
+    /// | zu spaete Bilder je Lauf | 24/30/22 | 3/15/0 |
+    /// | Sekunden ganz ohne | 54 % | 96 % |
+    /// | Netz bis Schirm | 4,5 ms | 59,5 ms |
+    ///
+    /// Rund 55 ms Verzoegerung gegen ein Bild, das in 96 statt 54 Prozent der
+    /// Sekunden sauber laeuft — fuers Zuschauen der richtige Tausch, und der
+    /// Wert liegt damit in derselben Groessenordnung wie Chromiums eigener
+    /// Puffer (52 ms gemessen). **Aus als Vorgabe hiess: die Messung wird
+    /// ausgeliefert, die Wirkung nicht.**
+    ///
+    /// **Fuer die Fernsteuerung ist er falsch** — dort zaehlt jede
+    /// Millisekunde, und dieser Weg wird sie auf `0` setzen, wenn er kommt.
+    /// Ueber die Umgebung: `PULSE_PLAYER_AUSGABETAKT_MS`.
+    ///
+    /// Lokal ueber die Schleife ist der Unterschied NICHT messbar (dort steht
+    /// die Ausgabe schon ohne Takt bei null zu spaeten Bildern). Wer den Wert
+    /// aendert, misst ueber eine echte Leitung — sonst misst er nichts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ausgabetakt_ms: Option<u32>,
 }
@@ -185,6 +207,10 @@ umschaltbare_felder!(
 /// Puffergeduld haengt davon ab, ueber welchen Weg die Sitzung geoeffnet wurde.
 pub const JITTER_MS_VORGABE: u32 = 100;
 
+/// Vorhalt des Ausgabe-Takts, Vorgabe. Herleitung und Messwerte stehen an
+/// [`PlayerOptions::ausgabetakt_ms`].
+pub const AUSGABETAKT_MS_VORGABE: u32 = 60;
+
 impl PlayerOptions {
     /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn).
     ///
@@ -217,9 +243,11 @@ impl PlayerOptions {
             av_offset_ms: Some(0),
             paused: Some(false),
             hwdec: None,
-            // Aus. Begruendung an der Feld-Doku und in `app::takt`: der Vorhalt
-            // kostet Verzoegerung, und die ist fuer die Fernsteuerung falsch.
-            ausgabetakt_ms: Some(0),
+            // An, mit 60 ms. Begruendung samt Messwerten an der Feld-Doku:
+            // gegen die Produktion gemessen laeuft die Ausgabe damit in 96
+            // statt 54 Prozent der Sekunden sauber, fuer rund 55 ms Vorhalt.
+            // Die Fernsteuerung setzt ihn auf 0, wenn sie kommt.
+            ausgabetakt_ms: Some(AUSGABETAKT_MS_VORGABE),
         }
     }
 
