@@ -235,6 +235,9 @@ pub async fn run(
     // Die Kennung kommt aus dem ersten Videopaket; vorher gibt es nichts
     // anzufordern.
     let mut video_ssrc: Option<u32> = None;
+    // Takt der Video-Zeitstempel (s. der Video-Zweig unten). `0` = noch kein
+    // Videopaket gesehen; `app::takt` behandelt das wie „kein Zeitstempel".
+    let mut video_clock_rate: u32 = 0;
     // Gedrosselt, weil ein Verlust typischerweise MEHRERE Luecken hintereinander
     // erzeugt: ohne Bremse ginge fuer jede eine eigene Anforderung raus, der
     // Sender wuerde Vollbild um Vollbild schicken und damit genau die Bitrate
@@ -371,6 +374,14 @@ pub async fn run(
                     // Fuer die Vollbild-Anforderung nach einem Verlust: die
                     // Kennung des Videostroms steht nur im Paket selbst.
                     video_ssrc = Some(arrival.packet.header.ssrc);
+                    // Der Takt der Zeitstempel — Grundlage des Ausgabe-Takts
+                    // (`app::takt`). Er steht in der ausgehandelten
+                    // Codec-Faehigkeit und ist deshalb NUR hier zu haben; der
+                    // Jitter-Puffer reicht ihn nicht weiter. Nicht fest 90000
+                    // eingesetzt, obwohl WebRTC-Video ihn immer so aushandelt:
+                    // eine angenommene Zahl waere genau die Sorte Fehler, die
+                    // sich als leichte Zeitlupe zeigt und nirgends auffaellt.
+                    video_clock_rate = arrival.clock_rate;
                 }
                 buffers
                     .entry(codec)
@@ -406,9 +417,13 @@ pub async fn run(
                 .or_insert_with(|| crate::dump::RtpDump::from_env(codec.as_str()));
 
             for release in buffer.poll(now) {
-                let (unit, unit_arrived) = match release {
+                let (unit, unit_arrived, unit_rtp_ts) = match release {
                     Release::Gap { .. } => {
                         assembler.on_gap();
+                        // Eine Luecke bricht die Zeitreihe: das naechste Bild
+                        // ist womoeglich weit spaeter. Der Ausgabe-Takt haengt
+                        // sich in `app::takt` selbst neu ein, wenn der Abstand
+                        // zu gross wird — hier ist nichts zu tun.
                         // Nur eine BILD-Luecke geht den Video-Decoder etwas an.
                         //
                         // Diese Schleife laeuft ueber ALLE Spuren, auch ueber
@@ -441,6 +456,15 @@ pub async fn run(
                     // nicht zum neuesten eingetroffenen Paket.
                     Release::Packet(p, arrived) => {
                         let marker = p.header.marker;
+                        // Der RTP-Zeitstempel DIESES Pakets ist der der ganzen
+                        // Zugriffseinheit: alle Pakete einer Einheit tragen
+                        // denselben, das ist die RTP-Regel und zugleich das,
+                        // woran der Zusammensetzer die Einheit erkennt. Er wird
+                        // hier abgegriffen, weil `Assembler::push` ihn nicht
+                        // durchreicht und eine Signaturaenderung dort jede
+                        // Codec-Grammatik mit einer Zeitfrage belasten wuerde,
+                        // die sie nichts angeht.
+                        let ts = p.header.timestamp;
                         // Diagnose vor der Verarbeitung: der Mitschnitt soll
                         // zeigen, was ANKOMMT, nicht was wir daraus machen.
                         if let Some(d) = dumps.get(codec).and_then(Option::as_ref) {
@@ -449,6 +473,7 @@ pub async fn run(
                         (
                             assembler.push(p.header.sequence_number, &p.payload, marker),
                             Some(arrived),
+                            Some(ts),
                         )
                     }
                 };
@@ -479,8 +504,19 @@ pub async fn run(
                     },
                 };
 
-                match emit_frames(dec, &unit, unit_arrived, &mut stats, &mut announced_playing, &events)
-                    .await
+                match emit_frames(
+                    dec,
+                    &unit,
+                    Zeitmarken {
+                        arrived: unit_arrived,
+                        rtp_ts: unit_rtp_ts,
+                        clock_rate: video_clock_rate,
+                    },
+                    &mut stats,
+                    &mut announced_playing,
+                    &events,
+                )
+                .await
                 {
                     Ok(()) => {}
                     // Der Fenster-Thread ist weg — die Sitzung hat keinen
@@ -641,10 +677,23 @@ enum EmitError {
     Decoder(String),
 }
 
+/// Die drei Zeitangaben, die eine Zugriffseinheit an ihre Bilder weitergibt.
+///
+/// Zusammen und nicht als drei Parameter: sie gehoeren zusammen, und drei
+/// gleichartige `Option`s in einer Signatur sind die Sorte Stelle, an der zwei
+/// davon irgendwann vertauscht werden.
+struct Zeitmarken {
+    /// Ankunft des abschliessenden Pakets — Start der gemessenen Latenz.
+    arrived: Option<Instant>,
+    /// Entstehungszeit beim Sender, auf dessen Uhr (s. `DecodedFrame::rtp_ts`).
+    rtp_ts: Option<u32>,
+    clock_rate: u32,
+}
+
 async fn emit_frames(
     dec: &mut VideoDecoder,
     unit: &[u8],
-    arrived: Option<Instant>,
+    zeit: Zeitmarken,
     stats: &mut SessionStats,
     announced_playing: &mut bool,
     events: &mpsc::Sender<SessionEvent>,
@@ -672,7 +721,9 @@ async fn emit_frames(
     let vorzeigbar = dec.ist_sauber();
 
     for mut f in frames {
-        f.arrived = arrived;
+        f.arrived = zeit.arrived;
+        f.rtp_ts = zeit.rtp_ts;
+        f.clock_rate = zeit.clock_rate;
         stats.frames_decoded += 1;
         stats.width = f.width;
         stats.height = f.height;

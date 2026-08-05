@@ -9,6 +9,7 @@
 //! Was die einzelnen RPC-Operationen bedeuten, steht in [`requests`].
 
 mod requests;
+mod takt;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,6 +22,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use crate::decode::{self, ColorMatrix};
+use takt::Ausgabetakt;
+pub use takt::VORHALT_MAX_MS;
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
@@ -157,6 +160,10 @@ struct Session {
     matrix: ColorMatrix,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
+    /// Ausgabe-Takt (s. [`takt`]). Bei ausgeschaltetem Vorhalt — der Vorgabe —
+    /// reicht er jedes Bild unveraendert durch, das Verhalten ist dann exakt
+    /// das von vorher.
+    takt: Ausgabetakt,
     /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
     /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
     /// kostet nichts.
@@ -302,10 +309,18 @@ impl App {
     fn open(&mut self, req: Request, event_loop: &ActiveEventLoop) -> Result<u64> {
         let url = req.url.clone().ok_or_else(|| anyhow::anyhow!("url fehlt"))?;
         let mut options = PlayerOptions::defaults();
+        // Die Umgebung VOR dem Aufrufer: sie ist das Werkzeug des Pruefstands,
+        // der den Player ohne Oberflaeche faehrt. Ein `open` mit gesetztem
+        // `ausgabetakt_ms` sticht sie danach wieder — die App soll bestimmen
+        // duerfen, wenn sie etwas sagt.
+        if let Some(ms) = takt::vorhalt_aus_umgebung() {
+            options.ausgabetakt_ms = Some(ms);
+        }
         if let Some(o) = req.options.as_ref() {
             options.apply(o);
         }
         options.clamp();
+        let vorhalt_ms = options.ausgabetakt_ms.unwrap_or(0);
 
         let title = req.title.clone().unwrap_or_else(|| "Pulse — HQ-Stream".into());
         let attrs = Window::default_attributes()
@@ -409,6 +424,7 @@ impl App {
                 full_range: false,
                 matrix: ColorMatrix::Bt709,
                 pending: None,
+                takt: Ausgabetakt::neu(vorhalt_ms),
                 probe: crate::probe::LatencyProbe::from_env(),
                 frames_never_drawn: 0,
                 phases: PhaseTimes::default(),
@@ -568,6 +584,25 @@ impl App {
                 p.misses()
             )
         });
+        // Der Ausgabe-Takt bekommt eine eigene Zeile, und nur wenn er laeuft.
+        // **`verspaetet` ist dabei die Kontrollzahl, nicht `gap_late`**: steigt
+        // sie, ist der Vorhalt kleiner als die Schwankung der Strecke, und dann
+        // taktet nichts mehr — die Ausgabe-Abstaende in der Zeile darueber
+        // saehen aus wie ohne Takt, ohne dass etwas darauf hinweist.
+        //
+        // Die Werte hier abgreifen, nicht unten: `st` unten leiht die Sitzung
+        // bis zum Ende der Funktion aus.
+        let takt_zeile = session
+            .takt
+            .aktiv()
+            .then(|| {
+                (
+                    session.takt.vorhalt_ms(),
+                    session.takt.verspaetet(),
+                    session.takt.neu_verankert(),
+                    session.takt.nachgezogen(),
+                )
+            });
         let st = &session.stats;
         // `concat!` statt Zeilenfortsetzungen: mit `\` am Zeilenende ist beim
         // Schreiben dieser Datei schon einmal eine einzige lange Zeile mit
@@ -609,6 +644,13 @@ impl App {
         // Normalbetrieb unveraendert bleiben (der Pruefstand liest sie).
         if let Some(line) = probe_line {
             eprintln!("pulse-player: Sitzung {id}{line}");
+        }
+        if let Some((vorhalt, verspaetet, verankert, nachgezogen)) = takt_zeile {
+            eprintln!(
+                "pulse-player: Sitzung {id}: Ausgabe-Takt {vorhalt} ms Vorhalt, \
+                 verspaetet {verspaetet}, neu verankert {verankert}, \
+                 nachgezogen {nachgezogen}"
+            );
         }
         // Der Ton ebenfalls in einer eigenen Zeile, aus demselben Grund.
         //
@@ -746,38 +788,14 @@ impl App {
                 if session.options.paused.unwrap_or(false) {
                     return;
                 }
-                // Wartet noch ein ungezeichnetes Bild, dann zeichne es JETZT,
-                // statt es zu verwerfen: winit fasst mehrere `request_redraw`
-                // eines Durchlaufs zu EINEM Zeichnen zusammen, treffen also
-                // zwei Bilder im selben Durchlauf ein, ueberlebte vorher nur
-                // das zweite. Gemessen gingen so bei 144 ankommenden Bildern
-                // rund 95 je Sekunde verloren, obwohl ein Durchgang nur 0,4 ms
-                // braucht.
-                //
-                // Das passiert VOR der Uebernahme der Farbwerte des neuen
-                // Bildes — sonst wuerde das alte Bild mit fremdem Wertebereich
-                // oder fremder Matrix gezeichnet (sichtbar falsche Farben, s.
-                // die Pause-Begruendung oben).
-                if self.sessions.get(&id).is_some_and(|s| s.pending.is_some()) {
-                    let actions = self.draw(id);
-                    for action in actions {
-                        self.apply_overlay_action(id, action);
-                    }
-                    // Kommt der Player trotzdem nicht mit (sehr hohe Bildrate,
-                    // langsame GPU), bleibt das Verwerfen der Ausweg — dann
-                    // aber gezaehlt.
-                    if let Some(session) = self.sessions.get_mut(&id) {
-                        if session.pending.is_some() {
-                            session.frames_never_drawn += 1;
-                        }
-                    }
-                }
-                let Some(session) = self.sessions.get_mut(&id) else { return };
-                session.last_frame_at = Some(std::time::Instant::now());
-                session.full_range = frame.full_range;
-                session.matrix = frame.matrix;
-                session.pending = Some(frame);
-                session.window.request_redraw();
+                // Ueber den Ausgabe-Takt einreihen statt direkt uebernehmen.
+                // Bei ausgeschaltetem Vorhalt — der Vorgabe — ist das Bild im
+                // selben Zug wieder faellig und `uebernehmen` laeuft genauso
+                // wie vorher; der zweite Weg (`about_to_wait`) bleibt dann
+                // ungenutzt.
+                let jetzt = std::time::Instant::now();
+                session.takt.einreihen(frame, jetzt);
+                self.abliefern(id, jetzt);
             }
             SessionEvent::Stats(stats) => {
                 session.stats = stats;
@@ -805,10 +823,93 @@ impl App {
             }
         }
     }
+
+    /// Alles vom Ausgabe-Takt uebernehmen, was faellig ist.
+    fn abliefern(&mut self, id: u64, jetzt: std::time::Instant) {
+        let Some(session) = self.sessions.get_mut(&id) else { return };
+        let (faellig, uebersprungen) = session.takt.faellig(jetzt);
+        session.frames_never_drawn += uebersprungen;
+        if let Some(frame) = faellig {
+            self.uebernehmen(id, frame);
+        }
+    }
+
+    /// Ein faelliges Bild zur Anzeige stellen.
+    fn uebernehmen(&mut self, id: u64, frame: Box<decode::DecodedFrame>) {
+        // Wartet noch ein ungezeichnetes Bild, dann zeichne es JETZT, statt es
+        // zu verwerfen: winit fasst mehrere `request_redraw` eines Durchlaufs
+        // zu EINEM Zeichnen zusammen, treffen also zwei Bilder im selben
+        // Durchlauf ein, ueberlebte vorher nur das zweite. Gemessen gingen so
+        // bei 144 ankommenden Bildern rund 95 je Sekunde verloren, obwohl ein
+        // Durchgang nur 0,4 ms braucht.
+        //
+        // Das passiert VOR der Uebernahme der Farbwerte des neuen Bildes —
+        // sonst wuerde das alte Bild mit fremdem Wertebereich oder fremder
+        // Matrix gezeichnet (sichtbar falsche Farben, s. die
+        // Pause-Begruendung oben).
+        if self.sessions.get(&id).is_some_and(|s| s.pending.is_some()) {
+            let actions = self.draw(id);
+            for action in actions {
+                self.apply_overlay_action(id, action);
+            }
+            // Kommt der Player trotzdem nicht mit (sehr hohe Bildrate,
+            // langsame GPU), bleibt das Verwerfen der Ausweg — dann aber
+            // gezaehlt.
+            if let Some(session) = self.sessions.get_mut(&id) {
+                if session.pending.is_some() {
+                    session.frames_never_drawn += 1;
+                }
+            }
+        }
+        let Some(session) = self.sessions.get_mut(&id) else { return };
+        session.last_frame_at = Some(std::time::Instant::now());
+        session.full_range = frame.full_range;
+        session.matrix = frame.matrix;
+        session.pending = Some(frame);
+        session.window.request_redraw();
+    }
 }
+
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+
+    /// Weckruf fuer den Ausgabe-Takt.
+    ///
+    /// Die Schleife steht sonst auf `ControlFlow::Wait` (`main.rs`) und schlaeft,
+    /// bis ein Ereignis kommt — ein wartendes Bild ist aber kein Ereignis. Ohne
+    /// diese Stelle laege es bis zum naechsten RTP-Paket herum, und der Takt
+    /// waere wieder der der Ankunft.
+    ///
+    /// **Der Schnellweg zuerst.** Diese Methode laeuft bei JEDEM
+    /// Schleifendurchlauf, und das sind ueber tausend je Sekunde (jedes
+    /// Statistik-Ereignis weckt den Faden). Solange nichts wartet — und das ist
+    /// der Vorgabefall mit ausgeschaltetem Vorhalt — kostet sie einen Blick auf
+    /// eine leere Warteschlange je Sitzung und sonst nichts.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.sessions.values().all(|s| s.takt.leer()) {
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            return;
+        }
+        let jetzt = std::time::Instant::now();
+        // Kennungen erst einsammeln: `abliefern` leiht die Sitzung erneut aus
+        // (es zeichnet), eine laufende Iteration ueber `self.sessions` waere
+        // damit nicht vertraeglich. Die Sammlung kostet nur, wenn ueberhaupt
+        // etwas wartet — der Schnellweg oben ist vorher schon zurueckgekehrt.
+        let ids: Vec<u64> = self.sessions.keys().copied().collect();
+        for id in ids {
+            self.abliefern(id, jetzt);
+        }
+        let naechster = self
+            .sessions
+            .values()
+            .filter_map(|s| s.takt.naechster_termin())
+            .min();
+        event_loop.set_control_flow(match naechster {
+            Some(t) => winit::event_loop::ControlFlow::WaitUntil(t),
+            None => winit::event_loop::ControlFlow::Wait,
+        });
+    }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
