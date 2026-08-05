@@ -32,6 +32,58 @@ use ffmpeg_next as ffmpeg;
 /// es blieb dauerhaft still, ohne Meldung.
 const MAX_RING_SECONDS: usize = 6;
 
+/// Sollfuellstand des Rings in Millisekunden.
+///
+/// **Warum es den ueberhaupt braucht.** Bis 2026-08-05 gab es ihn nicht:
+/// `target_fill` wurde ausschliesslich von `av_offset_ms` gesetzt, und dessen
+/// Vorgabe ist 0. Die Anlaufsperre in `fill_output` griff damit nie, und es gab
+/// weder Sollwert noch Rueckfuehrung — der Fuellstand war das freilaufende
+/// Integral aller Liefer-Schwankungen: beim Verbinden zufaellig gesetzt, von
+/// jedem Haenger einseitig nach oben geschoben, nie wieder abgebaut. Gemessen
+/// am 2026-08-05: nach EINER Lieferpause blieb er bei 5980 ms stehen (dem
+/// harten Deckel), mit 767 Unterlaeufen und 1,7 s verworfenem Ton — waehrend
+/// das Bild wieder tadellos mit 60 fps lief. Sechs Sekunden Ton hinterher,
+/// dauerhaft, ohne Erholung und ohne Meldung. Messakte
+/// `profiles/ton-2026-08-05-windows-ringregelung.json`.
+///
+/// **Woher die 60 ms kommen** — aus Messwerten, nicht aus dem Gefuehl:
+/// * In den gesunden Laeufen stellte sich der Ring von selbst auf 73-168 ms
+///   ein. Das ist die Spanne, die die Strecke ohne Regelung erzeugt.
+/// * Der Ankunftsabstand lag in der Produktion bei hoechstens 18-29 ms. Zwei
+///   bis drei davon zu ueberbruecken sind rund 50-60 ms.
+/// * Die Untergrenze setzt das Geraet: WASAPI-Shared ruft typisch alle 10 ms,
+///   und in `fill_output` muss mindestens ein voller Aufruf Vorrat liegen,
+///   sonst zaehlt jeder Jitter als Unterlauf.
+///
+/// **Getrennt von `av_offset_ms`, und das ist der Kern.** Jener ist der
+/// Nutzer-Trim aus der Oberflaeche. Ihn als Sollwert zu missbrauchen hiess:
+/// "Ton um 0 ms verschieben" bedeutet "gar kein Puffer" — genau der Fehler,
+/// den es hier zu beheben gilt. Der Trim ist jetzt ein ZUSCHLAG hierauf.
+const RING_SOLL_MS: usize = 60;
+
+/// Ab dem Wievielfachen des Sollwerts grob gekappt wird.
+///
+/// Darunter regelt der Feinabbau. Der Schnitt klingt wie ein kurzer Aussetzer —
+/// verglichen mit sechs Sekunden bleibendem Versatz ist das der bessere Tausch,
+/// aber er ist teuer genug, dass er nicht bei jedem Jitter feuern darf.
+const RING_KAPP_FAKTOR: usize = 3;
+
+/// Sperrfrist nach einer Grobkappung.
+///
+/// Ohne sie erzeugen mehrere Lieferpausen kurz hintereinander mehrere Schnitte.
+/// Der Wert ist NICHT gemessen — er ist ein begruendeter Anfang, und wer ihn
+/// aendert, misst nach.
+const RING_KAPP_SPERRE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Feinabbau: ein Sample je so vielen angehaengten.
+///
+/// 1 von 2000 sind 0,05 % Tonhoehenfehler — unter der Wahrnehmungsschwelle und
+/// baut 40 ms in gut einer Minute ab. Resampling waere die Alternative und
+/// scheidet aus: der Weg hat schon einen Resampler, und ihn laufend zu
+/// verstimmen zieht hoerbar die Tonhoehe. Fuer die gemessene Groessenordnung
+/// (Sekunden) waere es entweder unhoerbar langsam oder hoerbar falsch.
+const RING_FEIN_TEILER: usize = 2000;
+
 /// Steuerbefehle an den Ausgabe-Thread.
 enum AudioCommand {
     Pcm(Vec<f32>),
@@ -54,9 +106,21 @@ struct Shared {
     ring: VecDeque<f32>,
     volume: f32,
     /// Gewuenschter Fuellstand in Samples, bevor ausgegeben wird.
+    /// = `RING_SOLL_MS` plus der Nutzer-Trim `av_offset_ms`.
     target_fill: usize,
     underruns: u64,
     dropped: u64,
+    /// Wie oft der Ring grob auf den Sollwert gekappt wurde.
+    ///
+    /// **Gehoert gemeldet, nicht verschwiegen.** Der Schnitt ist hoerbar, und
+    /// ein Eingriff, den niemand sieht, ist genau die Sorte Fehler, die hier
+    /// behoben wird: der alte 6-Sekunden-Deckel kappte auch, nur eben zu spaet
+    /// und lautlos.
+    resyncs: u64,
+    /// Zaehlt angehaengte Samples fuer den Feinabbau (s. `RING_FEIN_TEILER`).
+    fein_zaehler: usize,
+    /// Wann zuletzt grob gekappt wurde — fuer `RING_KAPP_SPERRE`.
+    letzte_kappung: Option<std::time::Instant>,
     /// Solange der Ausgabe-Thread laeuft. Faellt er weg (vergiftete Sperre,
     /// Geraetefehler), meldete die Statistik sonst weiter "Ton aktiv",
     /// waehrend nichts mehr ankommt.
@@ -134,6 +198,7 @@ fn pump_commands(
             // auftreten.
             AudioCommand::Packet(_) => {}
             AudioCommand::Pcm(samples) => {
+                let angehaengt = samples.len();
                 s.ring.extend(samples);
                 // NACH dem Anhaengen kappen, nicht vorher: eine einzelne Charge
                 // kann selbst groesser als die Ringgrenze sein, dann reichte das
@@ -144,6 +209,48 @@ fn pump_commands(
                     s.ring.drain(..excess);
                     s.dropped += excess as u64;
                 }
+
+                // ── Rueckfuehrung auf den Sollwert ──────────────────────────
+                //
+                // Ohne sie steigt der Fuellstand nur: jede Lieferpause schiebt
+                // ihn hoch, und nichts baut ihn wieder ab. Der harte Deckel
+                // darueber greift erst bei sechs Sekunden und ist damit keine
+                // Regelung, sondern ein Notausgang.
+                //
+                // Zwei Kreise mit sehr verschiedenen Zeitkonstanten, weil ein
+                // einzelner nicht beides kann: Sekunden Rueckstand abbauen UND
+                // dabei unhoerbar bleiben.
+                let soll = s.target_fill;
+                if soll > 0 {
+                    let darf_kappen = s
+                        .letzte_kappung
+                        .is_none_or(|t| t.elapsed() >= RING_KAPP_SPERRE);
+                    if s.ring.len() > soll * RING_KAPP_FAKTOR && darf_kappen {
+                        // Grob: nach einem Nachhol-Schwall in EINEM Schnitt
+                        // zurueck auf den Sollwert. Hoerbar wie ein kurzer
+                        // Aussetzer — und der bessere Tausch gegen einen
+                        // Rueckstand, der sonst bis Sitzungsende bleibt.
+                        let excess = s.ring.len() - soll;
+                        s.ring.drain(..excess);
+                        s.dropped += excess as u64;
+                        s.resyncs += 1;
+                        s.letzte_kappung = Some(std::time::Instant::now());
+                    } else if s.ring.len() > soll {
+                        // Fein: ein Sample je `RING_FEIN_TEILER` angehaengten.
+                        // Baut den Rest stetig ab, ohne dass man es hoert.
+                        s.fein_zaehler += angehaengt;
+                        while s.fein_zaehler >= RING_FEIN_TEILER && s.ring.len() > soll {
+                            s.fein_zaehler -= RING_FEIN_TEILER;
+                            s.ring.pop_front();
+                            s.dropped += 1;
+                        }
+                    } else {
+                        // Unter dem Sollwert wird NICHT abgebaut — sonst
+                        // arbeitete die Regelung gegen den normalen Jitter und
+                        // erzeugte die Unterlaeufe, die sie verhindern soll.
+                        s.fein_zaehler = 0;
+                    }
+                }
             }
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {
@@ -151,7 +258,11 @@ fn pump_commands(
                 // Nie ueber die Ringgroesse hinaus: der Callback gibt erst
                 // aus, wenn der Zielfuellstand erreicht ist. Laege der ueber
                 // dem, was der Ring haelt, bliebe es dauerhaft still.
-                s.target_fill = ((ms.max(0) as usize) * per_ms).min(max_ring_samples / 2);
+                // Der Trim ist ein ZUSCHLAG auf den Sollwert, kein Ersatz.
+                // Bis 2026-08-05 stand hier nur `ms`, und damit hiess der
+                // Vorgabewert 0 "gar kein Puffer" — s. `RING_SOLL_MS`.
+                s.target_fill = ((RING_SOLL_MS + ms.max(0) as usize) * per_ms)
+                    .min(max_ring_samples / 2);
                 if ms < 0 {
                     // Negativ = Ton frueher: vorhandenen Vorlauf kappen.
                     let n = ((-ms) as usize * per_ms).min(s.ring.len());
@@ -220,6 +331,12 @@ impl AudioOutput {
         let channels = supported.channels();
         let config: cpal::StreamConfig = supported.into();
 
+        // VOR dem Anlegen von `Shared`: der Sollfuellstand haengt daran, und ihn
+        // erst spaeter zu setzen hiesse, dass die Wiedergabe bis zum ersten
+        // `OffsetMs` ungeregelt liefe — also im Regelfall fuer immer, weil die
+        // Oberflaeche den Trim nur schickt, wenn jemand ihn anfasst.
+        let per_ms = (sample_rate as usize * channels as usize) / 1000;
+
         let shared = Arc::new(Mutex::new(Shared {
             // Volle Kapazitaet im Voraus: sonst allokiert der Fuetter-Thread
             // beim Wachsen des Rings, waehrend er die Sperre haelt, auf die der
@@ -227,9 +344,12 @@ impl AudioOutput {
             // Prioritaetsumkehr und aeussert sich als Knacksen.
             ring: VecDeque::new(),
             volume: 1.0,
-            target_fill: 0,
+            target_fill: RING_SOLL_MS * per_ms,
             underruns: 0,
             dropped: 0,
+            resyncs: 0,
+            fein_zaehler: 0,
+            letzte_kappung: None,
             alive: true,
         }));
         let max_ring_samples =
@@ -244,7 +364,6 @@ impl AudioOutput {
         }
         let cb_shared = Arc::clone(&shared);
         let thread_shared = Arc::clone(&shared);
-        let per_ms = (sample_rate as usize * channels as usize) / 1000;
 
         // Der Stream lebt auf diesem Thread und stirbt mit ihm.
         std::thread::Builder::new()
@@ -297,14 +416,14 @@ impl AudioOutput {
         let _ = self.tx.send(AudioCommand::OffsetMs(ms.clamp(-2000, 2000)));
     }
 
-    /// (Unterlaeufe, verworfene Samples, Fuellstand, laeuft noch) fuer die
-    /// Statistik. Bei vergifteter Sperre gilt die Ausgabe als tot — dann
-    /// stimmt nichts mehr, und das soll man sehen.
-    pub fn counters(&self) -> (u64, u64, usize, bool) {
+    /// (Unterlaeufe, verworfene Samples, Fuellstand, Grobkappungen, laeuft
+    /// noch) fuer die Statistik. Bei vergifteter Sperre gilt die Ausgabe als
+    /// tot — dann stimmt nichts mehr, und das soll man sehen.
+    pub fn counters(&self) -> (u64, u64, usize, u64, bool) {
         self.shared
             .lock()
-            .map(|s| (s.underruns, s.dropped, s.ring.len(), s.alive))
-            .unwrap_or((0, 0, 0, false))
+            .map(|s| (s.underruns, s.dropped, s.ring.len(), s.resyncs, s.alive))
+            .unwrap_or((0, 0, 0, 0, false))
     }
 }
 
@@ -414,6 +533,97 @@ impl OpusDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ein `Shared` wie zur Laufzeit: Sollwert gesetzt, Ring leer.
+    fn shared_mit_soll(per_ms: usize) -> Mutex<Shared> {
+        Mutex::new(Shared {
+            ring: VecDeque::new(),
+            volume: 1.0,
+            target_fill: RING_SOLL_MS * per_ms,
+            underruns: 0,
+            dropped: 0,
+            resyncs: 0,
+            fein_zaehler: 0,
+            letzte_kappung: None,
+            alive: true,
+        })
+    }
+
+    /// 48 kHz stereo — dieselbe Rechnung wie zur Laufzeit.
+    const TEST_PER_MS: usize = 96;
+    const TEST_MAX_RING: usize = MAX_RING_SECONDS * 48_000 * 2;
+
+    /// **Der Fall, um den es geht.** Ein Nachhol-Schwall nach einer
+    /// Lieferpause schiebt den Ring weit ueber den Sollwert. Ohne Grobkappung
+    /// bliebe er dort bis Sitzungsende — am 2026-08-05 gemessen: 5980 ms, ueber
+    /// 30 s hinweg, ohne Erholung und ohne Meldung.
+    ///
+    /// Als Test und nicht als Lastlauf, weil ein Lastlauf den Fall nur
+    /// zufaellig trifft: der Versuch, ihn ueber CPU-Last zu erzwingen, blieb
+    /// am 2026-08-05 folgenlos (Ring 87-118 ms, keine Kappung).
+    #[test]
+    fn grobkappung_holt_den_ring_zurueck() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let soll = RING_SOLL_MS * TEST_PER_MS;
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Vier Sollwerte auf einmal — ueber der Kappschwelle (Faktor 3).
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
+        tx.send(AudioCommand::Stop).unwrap();
+        pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
+        let s = shared.lock().unwrap();
+        assert_eq!(s.ring.len(), soll, "Ring muss auf den Sollwert zurueck");
+        assert_eq!(s.resyncs, 1, "die Kappung gehoert gezaehlt — sie ist hoerbar");
+    }
+
+    /// Zwei Schwaelle kurz hintereinander duerfen nicht zweimal schneiden.
+    /// Ohne Sperrfrist wuerde jede Stoerungsserie zur Schnittserie.
+    #[test]
+    fn nach_einer_kappung_gilt_die_sperrfrist() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let soll = RING_SOLL_MS * TEST_PER_MS;
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll * 4])).unwrap();
+        tx.send(AudioCommand::Stop).unwrap();
+        pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
+        let s = shared.lock().unwrap();
+        assert_eq!(s.resyncs, 1, "die zweite Kappung muss die Sperrfrist abfangen");
+    }
+
+    /// Unter dem Sollwert wird NICHT abgebaut — sonst arbeitete die Regelung
+    /// gegen den normalen Jitter und erzeugte die Unterlaeufe, die sie
+    /// verhindern soll.
+    #[test]
+    fn unter_dem_sollwert_bleibt_alles_liegen() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let soll = RING_SOLL_MS * TEST_PER_MS;
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(AudioCommand::Pcm(vec![0.0; soll / 2])).unwrap();
+        tx.send(AudioCommand::Stop).unwrap();
+        pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
+        let s = shared.lock().unwrap();
+        assert_eq!(s.ring.len(), soll / 2, "nichts darf verworfen werden");
+        assert_eq!(s.dropped, 0);
+        assert_eq!(s.resyncs, 0);
+    }
+
+    /// Der Nutzer-Trim ist ein ZUSCHLAG auf den Sollwert, kein Ersatz. Bis
+    /// 2026-08-05 hiess `av_offset_ms = 0` "gar kein Puffer" — der Kern des
+    /// Fehlers.
+    #[test]
+    fn trim_addiert_sich_auf_den_sollwert() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(AudioCommand::OffsetMs(40)).unwrap();
+        tx.send(AudioCommand::Stop).unwrap();
+        pump_commands(&rx, &shared, TEST_PER_MS, TEST_MAX_RING, 48_000, 2);
+        let s = shared.lock().unwrap();
+        assert_eq!(
+            s.target_fill,
+            (RING_SOLL_MS + 40) * TEST_PER_MS,
+            "Trim muss auf den Sollwert addieren"
+        );
+    }
 
     /// Der Opus-Decoder muss auf jeder Maschine oeffnen — sonst waere der
     /// Tonpfad von der FFmpeg-Konfiguration abhaengig, ohne es zu merken.
@@ -675,12 +885,18 @@ mod tests {
     /// die Mechanik unabhaengig von realen Groessen sichtbar ist.
     #[test]
     fn grosser_einzelner_push_haelt_die_ringgrenze_ein() {
+        // `target_fill: 0` ist hier Absicht: dieser Test prueft NUR die harte
+        // Ringgrenze. Mit Sollwert liefe zusaetzlich die Rueckfuehrung an und
+        // vermischte zwei Mechaniken in einer Zusicherung.
         let shared = Arc::new(Mutex::new(Shared {
             ring: VecDeque::new(),
             volume: 1.0,
             target_fill: 0,
             underruns: 0,
             dropped: 0,
+            resyncs: 0,
+            fein_zaehler: 0,
+            letzte_kappung: None,
             alive: true,
         }));
         let (tx, rx) = std::sync::mpsc::channel::<AudioCommand>();
