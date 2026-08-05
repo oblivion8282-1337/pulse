@@ -21,6 +21,10 @@ pub struct MediaStats {
     pub audio_underruns: u64,
     /// Verworfene Samples, weil der Ring uebergelaufen ist.
     pub audio_dropped: u64,
+    /// Wie oft der Ton-Ring grob auf den Sollwert zurueckgeschnitten wurde.
+    /// Sichtbar, weil der Schnitt hoerbar ist — ein Eingriff, den niemand
+    /// sieht, war genau der alte Fehler (s. `audio.rs::RING_SOLL_MS`).
+    pub audio_resyncs: u64,
     /// Aktueller Fuellstand des Ausgabepuffers in Samples.
     pub audio_buffered: u64,
     /// Ob ueberhaupt eine Tonausgabe zustande kam.
@@ -155,12 +159,13 @@ impl MediaSink {
     }
 
     pub fn stats(&self) -> MediaStats {
-        let (underruns, dropped, buffered, alive) =
-            self.audio.as_ref().map_or((0, 0, 0, false), AudioOutput::counters);
+        let (underruns, dropped, buffered, resyncs, alive) =
+            self.audio.as_ref().map_or((0, 0, 0, 0, false), AudioOutput::counters);
         MediaStats {
             audio_underruns: underruns,
             audio_dropped: dropped,
             audio_buffered: buffered as u64,
+            audio_resyncs: resyncs,
             // Nicht `is_some()`: der Griff bleibt bestehen, auch wenn der
             // Ausgabe-Thread laengst weg ist.
             audio_active: alive,
