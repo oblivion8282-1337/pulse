@@ -288,6 +288,27 @@ pub(crate) unsafe fn baue_mit_rueckfall(
             "angemeldeter Encode-Weg liess sich nicht oeffnen — KEIN Rueckfall auf den \
              Regelweg, das waere eine Messung unter falschem Etikett",
         )),
+        // **Ein abgewiesener Sendeweg ist KEIN Encoder-Problem.** Muss vor
+        // BEIDEN Rückfällen darunter stehen — dem AMD-Zweig und dem AV1-Zweig.
+        //
+        // Beim ersten Anlauf am 2026-08-05 stand dieser Arm nur vor dem
+        // AV1-Zweig. Auf einer AMD-Karte fing der Arm darunter ein HTTP 401
+        // zuerst ab und meldete „nicht über D3D11 öffenbar → Delegation an
+        // pipeline_d3d12" — also genau die Fehlklasse, die hier behoben werden
+        // sollte, eine Ebene höher. Auf der NVIDIA-Prüfmaschine war das nicht
+        // zu sehen, weil der AMD-Arm dort nie greift. Gefunden beim
+        // Vereinfachungs-Durchlauf, nicht beim Messen.
+        //
+        // Dieselbe Regel wie beim angemeldeten Encode-Weg oben und in
+        // `auffrischung.rs`: lieber ehrlich abbrechen als unter falschem
+        // Etikett weiterlaufen. Ein anderer Encode-Weg hätte ohnehin nicht
+        // geholfen — der Server weist den Sendeweg unabhängig davon ab.
+        Err(e)
+            if e.chain()
+                .any(|u| u.downcast_ref::<crate::whip::SendewegAbgewiesen>().is_some()) =>
+        {
+            Err(e)
+        }
         // **Das Auffangnetz für AMF-Issue #455.** Seit dem 2026-08-04 geht AMD
         // mit beiden Codecs über AMF (s. `encode_path`), und `h264_amf` auf
         // D3D11-Eingang ist genau die Konstellation, für die es das Issue gibt
@@ -306,23 +327,6 @@ pub(crate) unsafe fn baue_mit_rueckfall(
                 cfg.codec
             );
             Ok(Gebaut::AnD3d12)
-        }
-        // **Ein abgewiesener Sendeweg ist KEIN Encoder-Problem.** Muss vor dem
-        // AV1-Zweig darunter stehen, sonst frisst dessen Rückfall ihn mit auf:
-        // ein HTTP 401 kam beim Nutzer als „av1 HW encoder nicht verfügbar" an
-        // und löste einen stillen Wechsel auf H.264 aus (2026-08-05 gegen die
-        // Produktion beobachtet). Ein abgelaufener Token gab sich so als
-        // Eigenschaft der Grafikkarte aus.
-        //
-        // Dieselbe Regel wie beim angemeldeten Encode-Weg oben und wie in
-        // `auffrischung.rs`: lieber ehrlich abbrechen als unter falschem
-        // Etikett weiterlaufen. H.264 hätte hier ohnehin nicht geholfen — der
-        // Server weist den Weg unabhängig vom Codec ab.
-        Err(e)
-            if e.chain()
-                .any(|u| u.downcast_ref::<crate::whip::SendewegAbgewiesen>().is_some()) =>
-        {
-            Err(e)
         }
         // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern
         // beim Öffnen "function not implemented" → H.264 statt Abbruch.

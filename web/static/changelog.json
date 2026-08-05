@@ -2,6 +2,23 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-05.2",
+      "date": "2026-08-05",
+      "style": "Sachlich",
+      "title": "Ruhigeres Bild, und ein Ton, der nicht mehr davonläuft",
+      "intro": "Nach dem großen Streaming-Update von heute Morgen haben wir gemessen, was davon beim Zuschauer wirklich ankommt. Dabei kamen mehrere Fehler zum Vorschein, die man nur über eine echte Leitung sieht — auf einem Rechner allein treten sie nicht auf.",
+      "items": [
+        "Das Bild im eigenen Fenster läuft jetzt gleichmäßig. Bisher wurde jedes Bild in dem Moment gezeigt, in dem es ankam — schwankte die Leitung, schwankte die Anzeige mit. Jetzt richtet sie sich nach der Uhr des Senders. In Messungen über eine echte Verbindung sank der Anteil der Sekunden mit sichtbar verspäteten Bildern von rund der Hälfte auf unter zehn Prozent. Das kostet etwa eine zwanzigstel Sekunde zusätzliche Verzögerung.",
+        "Der Ton läuft nicht mehr davon. Eine einzige Störung konnte ihn dauerhaft mehrere Sekunden hinter das Bild schieben, ohne dass er sich je wieder fing — auch dann nicht, wenn längst wieder alles sauber lief. Der Tonpuffer hat jetzt einen Zielwert und regelt darauf zurück.",
+        "Der Ton ist gegen Paketverluste abgesichert. Bisher war er die einzige Spur ganz ohne Schutz: ging unterwegs etwas verloren, war es weg.",
+        "Streams mit 10 Bit Farbtiefe lassen sich im Browser gar nicht mehr öffnen — mit einem Hinweis, statt nach kurzer Zeit einzufrieren. Der Browser kann sie nach einem internen Wechsel des Decoders nicht mehr darstellen, und das ließ sich von innen nicht reparieren. In der Desktop-App laufen sie unverändert.",
+        "Ein eingefrorenes Bild holt sich von selbst eine frische Verbindung, statt stehen zu bleiben.",
+        "Ein Zuschauer, dessen Wiedergabe klemmt, zieht den Stream nicht mehr für alle anderen herunter.",
+        "Fehlermeldungen beim Verbinden nennen den wirklichen Grund. Abgelehnte Zugangsdaten wurden bisher als fehlende Grafikkarten-Unterstützung gemeldet — und die Übertragung wechselte still das Videoformat."
+      ],
+      "outro": "Alle genannten Verbesserungen sind über die echte Verbindung zum Server nachgemessen, nicht auf einem einzelnen Rechner geschätzt."
+    },
+    {
       "id": "2026-08-05",
       "date": "2026-08-05",
       "style": "Groß",
