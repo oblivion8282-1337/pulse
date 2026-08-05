@@ -36,6 +36,24 @@ export interface GsrHealth {
     video_codecs?: string[];
     capture_options?: string[];
     has_flv_patch?: boolean;
+    /** Kann diese Karte 10 bit je Farbkanal encodieren? Der Linux-Sidecar
+     *  meldet das Feld (NVENC/VAAPI + AV1), seit 2026-08-04 auch der
+     *  Windows-Sidecar (AMF + AV1); Python und macOS lassen es weg →
+     *  `undefined` heißt "nein", nie "unbekannt, probier's mal". */
+    ten_bit?: boolean;
+    /** Liefert der Sidecar rollenden Intra-Refresh? Die Frage dahinter ist je
+     *  Plattform eine andere, die Antwort deshalb immer die des Sidecars und
+     *  nie eine hier abgeleitete:
+     *
+     *  - Linux — eine Frage an FFmpeg, nicht an die Karte. Auf NVENC ist die
+     *    Option upstream, auf VAAPI gibt es sie in KEINER FFmpeg-Version, dort
+     *    braucht es den Patch aus `streaming/ffmpeg-patches/`.
+     *  - Windows — eine Frage an den Encoder, der wirklich läuft. `h264_d3d12va`
+     *    (der Regelweg für H.264 auf AMD) NIMMT die Option an und tut nichts
+     *    damit; getragen wird sie dort von AV1 über AMF.
+     *
+     *  Fehlt das Feld (ältere Sidecars, macOS), heißt das "nein". */
+    intra_refresh?: boolean;
   };
 }
 
@@ -111,7 +129,18 @@ export interface GsrStartArgs {
   };
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
-  overrides?: { codec?: string; bitrate_kbps?: number; fps?: number; resolution?: string };
+  /** Spiegelt `OverrideSet` aus `stream/settings.svelte.ts` — `bit_depth` und
+   *  `intra_refresh` fehlten hier, waehrend `buildStartArgs` sie laengst
+   *  fuellte. Der Typ log also, ohne dass der Compiler es merkte (`cleaned` ist
+   *  eine Variable, kein Objektliteral → keine Excess-Property-Pruefung). */
+  overrides?: {
+    codec?: string;
+    bit_depth?: number;
+    bitrate_kbps?: number;
+    fps?: number;
+    resolution?: string;
+    intra_refresh?: boolean;
+  };
   /** Show the mouse cursor in the captured stream. Default true (GSR's
    *  built-in default); set to false to pass `-cursor no`. */
   show_cursor?: boolean;

@@ -1,0 +1,76 @@
+{
+  "id": "browser-2026-07-31-fec-und-codecs",
+  "gemessen_am": "2026-07-31 (nachts)",
+  "frage": "Traegt der WHEP-Weg im BROWSER? Kommt die Paritaet dort an, und welche Codec-Varianten dekodiert er ueberhaupt?",
+  "warum": "Alle bisherigen Messungen liefen ueber den nativen Player, der einen EIGENEN FlexFEC-Empfaenger und einen eigenen WHEP-Client hat. Ueber Browser und Electron sagten sie deshalb NICHTS — und Pulse ist web-first. In den Projektnotizen stand die unbelegte Behauptung 'Browser bekommen nichts davon (handeln flexfec-03 nicht aus)'.",
+  "aufbau": {
+    "sender": "ffmpeg, vorkodierte Vorlage per -c copy an den Labor-Server (kein Portal, kein Sidecar, kein Encoder im Spiel — in jedem Durchgang exakt dieselben Bytes)",
+    "vorlagen": "live-vorlage.py, 2560x1440@60, 4000 kbps, Keyframe alle 2 s, Sidecar-Encoder-Optionen",
+    "server": "Hetzner, mediamtx-labor (v1.19.1-dirty: PLI-Weiterleitung + FlexFEC), PULSE_FLEXFEC=1 mit 10+2",
+    "zuschauer": "Playwright-Chromium ueber streaming/testbench/browser-whep.mjs, Werte aus RTCPeerConnection.getStats()",
+    "dauer": "je 15 s, die ersten zwei Sekunden (ICE, erstes Vollbild) verworfen"
+  },
+  "ergebnis": [
+    {
+      "variante": "AV1 10 bit",
+      "bilder_dekodiert": 0,
+      "fec_pakete": 5788,
+      "pli": 97,
+      "verloren": 470,
+      "nack": 27,
+      "ACHTUNG_UNGUELTIGER_LAUF": "Dieser Lauf ist NICHT vergleichbar mit den beiden anderen: die 10-bit-Vorlage war live-vorlage.mkv mit 25000 kbps und 144 fps, die 8-bit-Vorlagen liefen mit 4000 kbps und 60 fps. Ueber einen 10-Mbit-Uplink staut ein 25-Mbit-Push zwangslaeufig — daher die 470 verlorenen Pakete. Der Unterschied wurde faelschlich der Bittiefe zugeschrieben. Nachgemessen bei gleicher Bitrate: siehe unten."
+    },
+    {
+      "variante": "AV1 8 bit",
+      "bilder_dekodiert": 722,
+      "fec_pakete": 1352,
+      "pli": 7,
+      "verloren": 0,
+      "nack": 0
+    },
+    {
+      "variante": "H.264 8 bit",
+      "bilder_dekodiert": 722,
+      "fec_pakete": 1496,
+      "pli": 7,
+      "verloren": 0,
+      "nack": 0
+    }
+  ],
+  "was_das_heisst": {
+    "die_alte_notiz_war_falsch": "Der Browser handelt flexfec-03 sehr wohl aus, und die Paritaetspakete kommen an — 1352 bis 5788 Stueck je Lauf. `fecPacketsReceived` ist der harte Beleg: libwebrtc holt den Wert aus `flexfec_stream_->GetStats()`, er ist also nur ungleich null, wenn der Empfangsstrom wirklich existiert.",
+    "unser_server_macht_es_richtig": "In JEDER Antwort steht `a=ssrc-group:FEC-FR`. Das ist die Bedingung, an der es haette scheitern koennen: Chromium legt den FlexFEC-Empfang nur an, wenn die SSRC-Gruppe da ist — der Payload-Type allein genuegt nicht (ConfigureReceiverRtp → GetFecFrSsrc → IsCompleteAndEnabled). Der pion-Interceptor im Fork erzeugt sie.",
+    "av1_10_bit_ist_im_browser_tot": "Null Bilder in 15 Sekunden, waehrend Pakete und Paritaet normal ankamen (34884 empfangen), dazu 97 Keyframe-Anforderungen — der Empfaenger fragt endlos nach einem Bild, das er nicht dekodieren kann. Gegenprobe mit identischem Aufbau: 8 bit liefert 722 Bilder. Die Ursache ist die Bittiefe, nicht der Weg.",
+    "die_zahl_722_zweimal": "AV1 8 bit und H.264 liefern exakt dieselbe Bildzahl — beide dekodieren sauber, der Unterschied liegt nicht in der Menge."
+  },
+  "folgerung": {
+    "fuer_das_produkt": "Browser-Zuschauer bekommen 8 bit, und das ist keine Einschraenkung des Servers, sondern des Decoders (dav1d in libwebrtc lehnt bpc != 8 ab). AV1 10 bit bleibt dem nativen Player vorbehalten.",
+    "fuer_die_fehlerkorrektur": "FEC im Browser ist KEINE Baustelle mehr — der Pfad steht Ende zu Ende. Was noch fehlt, ist der Nachweis, dass sie unter echtem Verlust auch repariert (hier lief nur ein Lauf mit Verlust, und der war der 10-bit-Lauf, in dem gar nicht dekodiert wurde)."
+  },
+  "offen": [
+    "Reparatur unter kuenstlichem Verlust messen (tc netem auf der Empfangsseite), FEC an/aus im Wechsel — erst das belegt den NUTZEN, nicht nur die Anwesenheit",
+    "Electron-Lauf zur Gegenprobe (browser-whep.mjs --electron); laut Recherche identisch (Chromium 150), gemessen ist es hier nicht",
+    "fecPacketsDiscarded meldete Chromium in keinem Lauf (n/a) — Feldname pruefen",
+    "AV1 10 bit mit HARDWARE-Decoder messen (sichtbarer Chromium, decoderImplementation mitschreiben) — das ist der Fall, der fuer Nutzer zaehlt",
+    "Denselben Test in der echten Electron-App auf dem Desktop des Nutzers"
+  ],
+  "werkzeug": "streaming/testbench/browser-whep.mjs (neu). Der WHEP-POST laeuft in Node, nicht im Browser — sonst scheiterte die Verhandlung an der Herkunftspruefung.",
+  "nachgemessen_2026_07_31_frueh": {
+    "aufbau": "identische Vorlagen 2560x1440@60 4000 kbps AV1, einziger Unterschied yuv420p10le gegen yuv420p",
+    "av1_10_bit": {
+      "bilder": 0,
+      "verloren": 0,
+      "pli": 75,
+      "framesReceived": 620,
+      "keyFramesDecoded": 6,
+      "framesDropped": 6
+    },
+    "av1_8_bit": {
+      "bilder": 722,
+      "verloren": 0,
+      "pli": 8
+    },
+    "einordnung": "Der Befund haelt bei sauberem Aufbau — ABER NUR FUER DEN SOFTWARE-DECODER. Der Chromium lief headless, also ohne Hardware-Decode; `decoderImplementation` stand in allen Laeufen auf n/a. Belegt ist, dass libwebrtcs dav1d-Anbindung bpc != 8 ablehnt; ueber den HARDWARE-Pfad ist damit NICHTS gesagt, und Nutzer haben eine GPU. Der Nutzer berichtet, der Browser gebe 10-bit-AV1 sehr wohl wieder (heruntergerechnet auf 8 bit) — das widerspricht dieser Messung nicht, wenn dort ein Hardware-Decoder arbeitete.",
+    "widerspruch_im_zaehlerwerk": "framesReceived 620 und keyFramesDecoded 6 bei framesDecoded 0 passen nicht zusammen. Nicht ueberinterpretieren; es koennte bedeuten, dass der Decoder den Bitstrom annimmt und erst danach etwas scheitert (framesDropped 6)."
+  }
+}

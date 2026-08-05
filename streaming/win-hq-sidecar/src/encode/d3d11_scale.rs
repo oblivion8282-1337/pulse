@@ -9,9 +9,13 @@
 //! Pipeline jetzt:
 //! ```text
 //! WGC-Capture-HwContext (D3D11, src-res, BGRA)
-//!   └─→ VideoProcessorBlt   (GPU-Resize BGRA→BGRA)
-//!         └─→ Scaler-HwContext (D3D11, dst-res, BGRA)  → NVENC direkt
+//!   └─→ VideoProcessorBlt   (GPU-Resize, dabei BGRA→BGRA oder BGRA→P010)
+//!         └─→ Scaler-HwContext (D3D11, dst-res)  → Encoder direkt
 //! ```
+//!
+//! Das Zielformat entscheidet der Aufrufer (`dst_format`): BGRA ist der
+//! Regelfall, P010 der 10-bit-Weg. Beides kostet denselben einen Durchgang —
+//! der Video-Processor wandelt die Farben beim Skalieren mit.
 //!
 //! Der Ziel-Pool (`dst`-`HwContext`) wird mit `D3D11_BIND_RENDER_TARGET`
 //! angelegt (zusätzlich zum libavutil-Default DECODER|SHADER_RESOURCE), damit
@@ -27,7 +31,8 @@ use ffmpeg_next::ffi::AVBufferRef;
 use std::collections::HashMap;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_TEX2D_ARRAY_VPOV, D3D11_TEX2D_VPIV,
-    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
+    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_COLOR_SPACE,
+    D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
@@ -39,7 +44,7 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_RATIONAL;
 use windows::Win32::System::Threading::CRITICAL_SECTION;
 use windows::core::Interface;
 
-use super::hwctx::{HwContext, OwnedHwFrame};
+use super::hwctx::{HwContext, HwPoolConfig, OwnedHwFrame};
 
 /// GPU-Downscaler. Besitzt einen eigenen D3D11VA-Pool in dst-Auflösung, aus dem
 /// `scale()` die Ziel-Frames zieht. Capture-Pool bleibt unangetastet.
@@ -78,6 +83,13 @@ impl D3D11Scaler {
         // damit alle ID3D11DeviceContext-Zugriffe (Capture-Copy, Blt, NVENC)
         // auf EINEM Lock serialisieren (#2-Fix, sonst Datenrace).
         shared_lock: *mut CRITICAL_SECTION,
+        // Format des Ziel-Pools: `AV_PIX_FMT_BGRA` (8 bit, Encoder wandelt
+        // selbst) oder `AV_PIX_FMT_P010` (10 bit, Begründung am Pool-Bau unten).
+        dst_format: ffmpeg_next::ffi::AVPixelFormat,
+        // Ziel-Texturen als NT-Handle teilbar anlegen. Nur ein Encode-Weg, der
+        // sie in eine andere Grafik-API importiert, braucht das — heute der
+        // Vulkan-Weg des Labors (s. `HwPoolConfig::shared`).
+        geteilt: bool,
     ) -> Result<Self> {
         let video_device: ID3D11VideoDevice = device
             .cast()
@@ -102,27 +114,56 @@ impl D3D11Scaler {
         let processor = unsafe { video_device.CreateVideoProcessor(&enumerator, 0) }
             .map_err(|e| anyhow!("CreateVideoProcessor: {e}"))?;
 
-        // Ziel-Pool: dst-res, BGRA, mit RENDER_TARGET damit
+        // Ziel-Pool: dst-res, mit RENDER_TARGET damit
         // CreateVideoProcessorOutputView die Pool-Texturen frisst. NVENC liest
         // dieselben Texturen direkt (DECODER|SHADER_RESOURCE bleiben gesetzt).
+        //
+        // Das Ziel-FORMAT ist der 10-bit-Schalter: bei 8 bit bleibt es BGRA und
+        // der Encoder rechnet den Convert selbst; bei 10 bit muss hier schon
+        // P010 stehen (Begründung an `HwPoolConfig::sw_format`). Der
+        // Video-Processor wandelt BGRA→P010 dabei in einem Durchgang mit dem
+        // Skalieren — es kostet also keinen zweiten Weg über die GPU.
         let dst = HwContext::new(
             device,
             device_context,
             dst_w,
             dst_h,
-            pool_size,
-            D3D11_BIND_RENDER_TARGET.0 as u32,
-            Some(shared_lock), // Capture-Pool-Lock teilen (#2-Fix).
+            HwPoolConfig {
+                pool_size,
+                extra_bind_flags: D3D11_BIND_RENDER_TARGET.0 as u32,
+                shared_lock: Some(shared_lock), // Capture-Pool-Lock teilen (#2-Fix).
+                sw_format: dst_format,
+                shared: geteilt,
+            },
         )?;
 
-        // Auto-Color-Space-Conversion abschalten: BGRA→BGRA, kein YCbCr im
-        // Spiel. Default-Bitfield (0) = RGB Full-Range, Playback-Usage — exakt
-        // was wir wollen. Explizit gesetzt, damit ein Treiber-Default uns nicht
-        // überrascht (z.B. Studio- statt Full-Range-RGB).
+        // Farbraum. Der EINGANG ist immer BGRA vom Desktop, also RGB in voller
+        // Auflösung 0-255 — dafür ist das genullte Bitfield exakt richtig
+        // (Usage=Playback, RGB_Range=Full). Explizit gesetzt, damit kein
+        // Treiber-Default dazwischenfunkt (z.B. Studio-Range).
+        //
+        // Der AUSGANG hängt am Zielformat: bei BGRA bleibt es dasselbe RGB
+        // (keine Wandlung, genulltes Feld). Bei P010 wandelt der Prozessor
+        // nach YCbCr und muss dabei die Werte treffen, die der Encoder
+        // anschließend als Metadaten anschreibt — `encoder_hw.rs` signalisiert
+        // dort BT.709 mit MPEG-Range. Steht hier etwas anderes, sagen die
+        // Metadaten das eine und die Bildpunkte das andere; der Fehler sieht
+        // beim Zuschauer nach flauen oder ausgefressenen Farben aus, nicht nach
+        // einem Defekt, und taucht in keiner Kennzahl auf.
         unsafe {
             let cs = std::mem::zeroed();
             video_context.VideoProcessorSetStreamColorSpace(&processor, 0, &cs);
-            video_context.VideoProcessorSetOutputColorSpace(&processor, &cs);
+            let out_cs = if dst_format == ffmpeg_next::ffi::AVPixelFormat::AV_PIX_FMT_BGRA {
+                cs
+            } else {
+                D3D11_VIDEO_PROCESSOR_COLOR_SPACE {
+                    // Bit 2 = YCbCr_Matrix 1 (BT.709), Bits 4-5 = Nominal_Range 1
+                    // (16-235). Reihenfolge der Bitfelder aus `d3d11.h`:
+                    // Usage, RGB_Range, YCbCr_Matrix, YCbCr_xvYCC, Nominal_Range.
+                    _bitfield: (1 << 2) | (1 << 4),
+                }
+            };
+            video_context.VideoProcessorSetOutputColorSpace(&processor, &out_cs);
             video_context.VideoProcessorSetStreamFrameFormat(
                 &processor,
                 0,
@@ -158,8 +199,21 @@ impl D3D11Scaler {
     /// Input/Output-Views werden pro (Textur, Slice) genau einmal erzeugt und
     /// gecacht — Pool-Texturen sind eine feste kleine Menge, nach dem ersten
     /// Pool-Durchlauf gibt es 0 View-Allocs im Hot-Path.
-    pub fn scale(&mut self, src: &OwnedHwFrame) -> Result<OwnedHwFrame> {
+    ///
+    /// `vorher` läuft **nach** dem Holen des Ziel-Bildes und **vor** dem Blt.
+    /// **Diese Naht ist nicht kosmetisch.** Der Ziel-Pool recycelt Texturen;
+    /// wer eine davon noch liest — etwa ein Encoder, der sie in eine andere
+    /// Grafik-API importiert hat — muss fertig sein, bevor der Video-Prozessor
+    /// hineinschreibt. Ohne diesen Punkt bliebe nur, hinterher zu warten, und
+    /// das ist ein Bild zu spät: der Blt lief dann schon. Der Fehler zeigt sich
+    /// nicht dort, sondern später als zerrissenes Bild oder Geräteverlust, und
+    /// nur manchmal. Wer nichts vorher zu tun hat, gibt `|_| Ok(())`.
+    pub fn scale_mit<F>(&mut self, src: &OwnedHwFrame, vorher: F) -> Result<OwnedHwFrame>
+    where
+        F: FnOnce(&OwnedHwFrame) -> Result<()>,
+    {
         let dst_frame = self.dst.acquire_frame()?;
+        vorher(&dst_frame)?;
         let src_key = (src.texture_raw() as usize, src.subresource_index());
         let dst_key = (dst_frame.texture_raw() as usize, dst_frame.subresource_index());
 

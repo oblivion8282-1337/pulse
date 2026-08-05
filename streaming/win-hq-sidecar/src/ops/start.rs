@@ -59,8 +59,7 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
 
     let capture = parse_capture(params)?;
     let audio = parse_audio(params);
-    let (override_codec, override_bitrate, override_fps, override_resolution) =
-        parse_overrides(params);
+    let overrides = parse_overrides(params);
     // Mauszeiger im Stream — Default `true` (GSR-Default `-cursor yes`); fehlt
     // das Feld oder ist es kein Bool, bleibt's an.
     let show_cursor = params
@@ -88,10 +87,11 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         push_url,
         capture,
         audio,
-        override_codec,
-        override_bitrate_kbps: override_bitrate,
-        override_fps,
-        override_resolution,
+        override_codec: overrides.codec,
+        override_bitrate_kbps: overrides.bitrate_kbps,
+        override_fps: overrides.fps,
+        override_resolution: overrides.resolution,
+        ten_bit: overrides.ten_bit,
         show_cursor,
         av_offset_ms,
     })
@@ -99,6 +99,15 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let start_params = parse_start_params(&params)?;
+    // Die Betriebsart ist prozessweit, nicht Teil der `StartParams` — sie wird
+    // an vier Stellen gelesen, die diese Konfiguration nicht sehen
+    // (`encode::auffrischung`). **Nur hier setzen, nicht in
+    // `parse_start_params`:** das teilt sich `build_argv`, und der baut nur
+    // eine Kommandozeile zum Anzeigen. Eine Vorschau darf die Betriebsart des
+    // nächsten echten Streams nicht umstellen.
+    if let Some(an) = requested_intra_refresh(params.get("overrides").and_then(Value::as_object)) {
+        crate::encode::auffrischung::setzen(an);
+    }
     let argv = StreamController::singleton().start(start_params)?;
 
     let mut out = Map::new();
@@ -107,6 +116,18 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         Value::Array(argv.into_iter().map(Value::String).collect()),
     );
     Ok(out)
+}
+
+/// Wunsch aus dem Wire-Format lesen: `overrides.intra_refresh` = true|false.
+///
+/// Fehlt das Feld, wird NICHT auf `false` entschieden, sondern gar nicht — dann
+/// bleibt `PULSE_INTRA_REFRESH` zuständig. Sonst zöge ein Client, der das Feld
+/// nicht kennt, dem Messstand die Betriebsart unter den Füßen weg. Wortgleich
+/// zum Linux-Sidecar (`ops/start.rs::requested_intra_refresh`).
+fn requested_intra_refresh(overrides: Option<&Map<String, Value>>) -> Option<bool> {
+    overrides
+        .and_then(|o| o.get("intra_refresh"))
+        .and_then(Value::as_bool)
 }
 
 /// `capture` aus dem Request → konkreter `CaptureSource`.
@@ -217,12 +238,27 @@ fn pulse_self_pid() -> Option<u32> {
         .filter(|&p| p != 0)
 }
 
-fn parse_overrides(
-    params: &Map<String, Value>,
-) -> (Option<VideoCodec>, Option<u32>, Option<u32>, Option<(u32, u32)>) {
+/// Die Felder aus `overrides`, die der Renderer schicken darf. Als Struct statt
+/// als Tupel, weil `None` an vierter von fünf Stellen nichts mehr aussagt und
+/// die Vorgabe für den Frühausstieg sonst zweimal dasteht.
+#[derive(Default)]
+struct Overrides {
+    codec: Option<VideoCodec>,
+    bitrate_kbps: Option<u32>,
+    fps: Option<u32>,
+    resolution: Option<(u32, u32)>,
+    /// 10 bit statt 8. Vom Renderer angefragt, hier aber nur ein Wunsch: ob er
+    /// erfüllt wird, entscheidet [`VideoCodec::supports_ten_bit`] zusammen mit
+    /// dem Encode-Weg (`pipeline_hw`). Ein unerfüllbarer Wunsch ist kein
+    /// Fehler — er fällt still auf 8 bit zurück, wie jeder andere Override,
+    /// den die Hardware nicht trägt.
+    ten_bit: bool,
+}
+
+fn parse_overrides(params: &Map<String, Value>) -> Overrides {
     let o = match params.get("overrides").and_then(Value::as_object) {
         Some(o) => o,
-        None => return (None, None, None, None),
+        None => return Overrides::default(),
     };
     let codec = o.get("codec").and_then(Value::as_str).and_then(|s| match s {
         "h264" => Some(VideoCodec::H264),
@@ -257,5 +293,9 @@ fn parse_overrides(
         "Native" | "" => None,
         _ => None,
     });
-    (codec, bitrate, fps, resolution)
+    // Nur der Wert 10 zählt als Anfrage; alles andere (fehlend, 8, Unsinn) ist
+    // der Regelfall. Bewusst kein „alles über 8" — ein Tippfehler soll nicht
+    // stillschweigend etwas anderes einschalten, als dasteht.
+    let ten_bit = o.get("bit_depth").and_then(Value::as_u64) == Some(10);
+    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit }
 }

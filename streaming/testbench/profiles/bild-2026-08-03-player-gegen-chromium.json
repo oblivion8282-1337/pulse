@@ -1,0 +1,42 @@
+{
+  "id": "bild-2026-08-03-player-gegen-chromium",
+  "gemessen_am": "2026-08-03 (Nacht)",
+  "frage": "Wie schnell ist das BILD im nativen Player gegen Chromium — mit demselben Verfahren fuer beide?",
+  "gehoert_zu": "ton-2026-08-02-player-gegen-chromium.json. Erst beide zusammen beantworten die Betriebsbeobachtung: im Player wirkt das Bild frueher und der Ton spaeter, der Abstand zwischen beiden waere dort also groesser.",
+  "warum_nicht_der_vorhandene_vergleich": "`vergleich-browser-nativ.py` misst den Player ueber seine Sonde (aus dem dekodierten Bild) und den Browser ueber ein Bildschirmfoto — zwei Verfahren, deren Grundunterschied dort selbst als Einschraenkung ausgewiesen ist. Hier lesen BEIDE denselben Balken aus dem dekodierten Bild; der Dekoder fuer Chromium (`browser-whep.mjs`) wurde dafuer neu gebaut. Die Zahlen sind damit direkt vergleichbar.",
+  "aufbau": {
+    "werkzeug": "streaming/testbench/bild-laufzeit.py (neu)",
+    "sender": "ausgelieferter Linux-HQ-Sidecar, Portal-Aufnahme von DP-2, av1_nvenc, 2560x1440, 8 bit, 60 fps, 8000 kbps, RTMPS an lokales MediaMTX",
+    "muster": "pattern-one.py auf DP-2, gemeinsame Epoche fuer Muster, Player und Browser",
+    "zuschauer": "streaming/pulse-player (probe.rs) und Chromium (browser-whep.mjs, neuer Balken-Dekoder), NACHEINANDER am selben Sender",
+    "messgroesse": "Muster bis Anzeige, je Sekunde eine Probe, Median ueber den eingeschwungenen Teil (ab 20 s)",
+    "warum_8_bit": "Chromiums dav1d-Anbindung lehnt bpc != 8 ab und dekodiert dann gar nichts. Ein 10-bit-Lauf misst hier nichts."
+  },
+  "ergebnis": [
+    { "reihenfolge": "Player zuerst", "player_median_ms": 10.0, "player_spanne_ms": "8,7-10,5", "chromium_median_ms": 53.0, "chromium_spanne_ms": "45-64", "differenz_ms": 43.0, "proben_je_weg": 41 },
+    { "reihenfolge": "Chromium zuerst", "player_median_ms": 10.1, "player_spanne_ms": "9,8-10,6", "chromium_median_ms": 52.0, "chromium_spanne_ms": "43-63", "differenz_ms": 41.9, "proben_je_weg": 41 }
+  ],
+  "was_das_heisst": {
+    "beim_bild_ist_der_player_deutlich_schneller": "GEMESSEN: rund 42 ms, in beiden Reihenfolgen (43,0 und 41,9 ms). Der Player liegt bei 10 ms und ist dabei sehr gleichmaessig (Spanne unter 2 ms), Chromium bei 52 bis 53 ms mit rund 20 ms Spanne.",
+    "zusammen_mit_dem_ton_erklaert_es_die_beobachtung": "Bild rund 42 ms FRUEHER, Ton rund 36 ms SPAETER als in der Electron-App. Der Abstand zwischen Bild und Ton ist im Player also rund 78 ms groesser. Genau das war die Beobachtung, die zu beiden Messungen gefuehrt hat — der Ton wirkt 'weiter weg', obwohl das Bild schneller ist.",
+    "die_gleichmaessigkeit_unterscheidet_sich_auch": "Der Player schwankt ueber den Lauf um weniger als 2 ms, Chromium um rund 20 ms. Das passt zu einem festen Puffer gegen einen geregelten."
+  },
+  "was_auf_dem_weg_schiefging_und_warum_es_hier_steht": {
+    "das_token_fehlte_in_der_push_url": "Der erste Lauf brach mit 'Broken pipe' im Muxer ab. Ursache war kein Netz- oder Encoder-Problem: MediaMTX wies den Push ab, weil das Token nur in `channel` stand und nicht in der URL. Der Sidecar meldet das als Muxer-Fehler — wer die Meldung woertlich nimmt, sucht an der falschen Stelle.",
+    "zwei_proben_statt_sechzig": "Die Browser-Auswertung las zuerst das Log. `browser-whep.mjs` probt jede Sekunde, GIBT aber nur zwei Zeilen aus (die dritte und die letzte). Aus einem 60-s-Lauf kamen so zwei Werte, davon einer brauchbar — und das sah aus wie 'der Browser liest den Balken fast nie', also wie ein Messproblem am Dekoder. Alle Proben stehen in `browser-proben-*.json`; von dort werden sie jetzt gelesen.",
+    "ein_getImageData_je_bit_war_zu_langsam": "Der erste Dekoder holte jedes der 24 Bit einzeln, an bis zu 12 Stellen — bis zu 288 GPU-Synchronisierungen je Probe. Jetzt eine Zeile je Stelle."
+  },
+  "nicht_gemessen": [
+    "Verhalten unter Paketverlust. Die Strecke war lokal und sauber. Die frueheren Messungen (`verlust-2026-07-28-browser-gegen-nativ.json`) zeigen, dass sich das Verhaeltnis unter Verlust umdreht — das gilt hier unveraendert und ist nicht nachgeprueft.",
+    "Der Vergleich mit den Juli-Zahlen (98 gegen 160 ms). Die liefen ueber die echte Leitung nach Hetzner und mit dem Foto-Verfahren fuer den Browser; hier ist alles lokal. Die absoluten Werte sind deshalb nicht vergleichbar, nur die Richtung.",
+    "Intra-Refresh. Dieser Lauf hatte es NICHT an — die Frage, ob der Vorsprung des Players unter Intra-Refresh schrumpft, ist damit weiterhin offen.",
+    "Wo die 42 ms entstehen. Chromiums Jitter-Puffer ist der naechstliegende Verdacht, gemessen ist es nicht."
+  ],
+  "einschraenkungen": [
+    "Je Reihenfolge nur EIN Lauf. Die Uebereinstimmung (43,0 gegen 41,9 ms) ist gut, ersetzt aber keine Wiederholungsreihe.",
+    "Beide Wege liefen nacheinander am selben Sender, nicht gleichzeitig.",
+    "Der Player misst mit seiner eingebauten Sonde bis kurz vor die Anzeige, Chromium ueber ein Canvas aus dem Videoelement. Beide lesen aus dem dekodierten Bild, aber die letzte Strecke bis zum Bildschirm ist in keiner der beiden Zahlen enthalten.",
+    "Der Player-Wert von rund 10 ms ist auffaellig niedrig. Bei lokaler Schleife mit zerolatency ist er plausibel, wurde aber nicht unabhaengig gegengeprueft."
+  ],
+  "lehre": "Zweimal sah ein Werkzeugfehler wie ein Messergebnis aus: erst 'der Browser liest den Balken fast nie' (in Wahrheit: das Log gibt nur zwei von sechzig Proben aus), dann 'Broken pipe' als Encoder-Problem (in Wahrheit: fehlendes Token). Beide Male war die Zahl, die herauskam, nicht offensichtlich falsch — nur die Probenzahl verriet es."
+}

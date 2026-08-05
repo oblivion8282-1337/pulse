@@ -1,5 +1,21 @@
 # Windows-.exe Auto-Update Implementation Plan
 
+> **EIN PUNKT IST ÜBERHOLT: der Installer ist NICHT still.** (Vermerkt 2026-08-04.)
+>
+> Dieses Blatt legt `oneClick: true` fest — „Discord-Stil: kein Wizard,
+> per-User-Install". Ausgeliefert wird das Gegenteil:
+> `desktop/electron-builder.yml` setzt `oneClick: false`, also einen
+> assistierten Installer mit Willkommens-, Fortschritts- und Abschluss-Seite.
+> Die Begründung steht als Kommentar direkt darüber: der stille Installer lief
+> beim ersten Einrichten ohne jede Rückmeldung durch und wirkte, als sei nichts
+> passiert.
+>
+> Der Rest des Blatts (electron-updater, Feed, SHA512, Hintergrund-Prüfung)
+> stimmt weiterhin. **Ebenfalls nicht mehr aktuell und hier nicht vermerkt:**
+> der Boot-Splash aus dem ursprünglichen Entwurf ist am 2026-07-17 wieder
+> ausgebaut worden — er blockierte den Start und erschien auf manchen Rechnern
+> gar nicht (Einzelheiten in `CLAUDE.md`, Abschnitt Desktop).
+
 **Goal:** Die Windows-Desktop-App von einer portablen Einzel-.exe auf einen NSIS-Installer mit Selbst-Aktualisierung (electron-updater, generic-Feed auf howispulse.com) umstellen — Discord-Stil: In-App-Banner „Update bereit – neu starten", sonst Auto-Install beim nächsten App-Schließen.
 
 **Architecture:** electron-updater (`autoUpdater`, generic provider) prüft beim Start gegen `https://howispulse.com/updates/win/latest.yml`, lädt das Update automatisch herunter, meldet den Fortschritt über eine neue `window.pulse.updates`-IPC-Bridge an den Renderer. Der Renderer zeigt ein sonner-Banner mit „Neu starten"-Button (`quitAndInstall`). Der CI-Workflow baut den NSIS-Installer + `latest.yml`/`.blockmap` und rsynct sie auf den VPS (gleiches Muster wie Flatpak); nginx serviert `/updates/win/` aus einem bind-gemounteten Host-Ordner.

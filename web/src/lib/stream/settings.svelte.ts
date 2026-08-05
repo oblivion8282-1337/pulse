@@ -23,6 +23,7 @@
 
 import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs, type GsrWindow } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
+import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
@@ -33,9 +34,22 @@ export type AudioMode = 'Aus' | 'Desktop' | 'Mikrofon' | 'Desktop + Mikrofon';
 
 export interface OverrideSet {
   codec?: string;
+  /** Farbtiefe je Kanal: 8 (Standard) oder 10. Nur der Linux-Rust-Sidecar
+   *  versteht das Feld und nur mit AV1 — ältere Sidecars ignorieren es
+   *  stillschweigend, und der Linux-Sidecar schiebt einen unerfüllbaren Wunsch
+   *  selbst auf 8 bit zurück. Deshalb ist es hier ungefährlich mitzuschicken.
+   *  In der Oberfläche ist es mit dem Codec zu EINEM Feld verbunden, s.
+   *  [`VIDEO_MODES`]. */
+  bit_depth?: number;
   bitrate_kbps?: number;
   fps?: number;
   resolution?: string;
+  /**
+   * Rollender Intra-Refresh statt periodischer Vollbilder. Fehlt das Feld,
+   * entscheidet der Sidecar über `PULSE_INTRA_REFRESH` — deshalb wird es nur
+   * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
+   */
+  intra_refresh?: boolean;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
@@ -51,6 +65,42 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
   { value: 'av1', label: 'AV1' },
 ];
+
+/**
+ * Was im Codec-Feld steht. Codec und Bittiefe sind für den Nutzer EINE
+ * Entscheidung — zwei Felder daraus zu machen hiesse, ihm die Kopplung zu
+ * erklären, die der Sidecar ohnehin erzwingt: 10 bit gibt es nur mit AV1 (die
+ * H.264-Variante wäre `High 10`, die kein Browser dekodiert).
+ *
+ * `bit_depth` geht nur bei 10 mit auf die Leitung. Ein `bit_depth: 8` wäre
+ * gleichbedeutend mit „fehlt", würde aber in jeder persistierten Einstellung
+ * mitgeschleppt.
+ */
+export const VIDEO_MODES: ReadonlyArray<{
+  value: string;
+  label: string;
+  codec: string;
+  tenBit: boolean;
+}> = [
+  { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
+  { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
+  { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
+];
+
+/** Welcher Eintrag zu den aktuellen Overrides passt. */
+export function videoModeOf(o: OverrideSet): string {
+  const codec = o.codec ?? 'h264';
+  return codec === 'av1' && o.bit_depth === 10 ? 'av1-10' : codec;
+}
+
+/** Auswahl zurück in Codec + Bittiefe übersetzen. */
+export function applyVideoMode(o: OverrideSet, value: string): OverrideSet {
+  const mode = VIDEO_MODES.find((m) => m.value === value) ?? VIDEO_MODES[0];
+  const next: OverrideSet = { ...o, codec: mode.codec };
+  if (mode.tenBit) next.bit_depth = 10;
+  else delete next.bit_depth;
+  return next;
+}
 
 // Eine Stufe ist eine BOX, in die das Bild aspektwahrend eingepasst wird — NIE
 // hochskaliert (`fit_within_box` im Sidecar), 'Native' = gar nicht skalieren.
@@ -128,6 +178,54 @@ export function audioModeUsesDesktop(mode: string): boolean {
  *  the machine can really encode — RTX 40xx/M3+ get AV1, older GPUs / M2 don't. */
 export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /av1/i.test(c));
+}
+
+/**
+ * Wird der nächste Stream mit 10 bit Farbtiefe gesendet — Wunsch UND
+ * Erfüllbarkeit?
+ *
+ * Drei Bedingungen, alle nötig: der Nutzer hat es eingeschaltet, die Karte kann
+ * es (`health.gsr.ten_bit` — der Linux- und seit 2026-08-04 der
+ * Windows-Sidecar melden das; macOS nicht, dort bleibt es `undefined`), und der
+ * Codec ist AV1. Letzteres ist keine Bequemlichkeit: 10-bit-H.264 wäre
+ * `High 10`, und das dekodiert kein Browser — Zuschauer ohne den nativen Player
+ * sehen den Stream über ein `<video>`. Derselbe Riegel sitzt im Sidecar.
+ *
+ * EINE Definition für drei Verwendungen: die Sidecar-Argumente
+ * (`buildStartArgs`), die Token-Anforderung (der Wert reist zu den Zuschauern,
+ * damit die den Wiedergabeweg wählen können) und den Auto-Neustart. Liefen die
+ * auseinander, bekäme ein Zuschauer das eigene Fenster für einen 8-bit-Stream
+ * oder umgekehrt.
+ */
+export function tenBitPossible(): boolean {
+  const codec = streamSettings.overrides.codec ?? 'h264';
+  return (
+    streamSettings.overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable
+  );
+}
+
+/**
+ * Rollender Intra-Refresh — Wunsch UND Erfüllbarkeit?
+ *
+ * Wie [`tenBitPossible`], und aus demselben Grund EINE Definition: der Wert
+ * entscheidet an drei Stellen dasselbe — die Sidecar-Argumente
+ * (`buildStartArgs`), den Push-Weg (`pushProtokoll`, Intra-Refresh braucht den
+ * WHIP-Rückkanal) und den Auto-Neustart. Liefen die auseinander, entstünde
+ * genau die Kombination, die am 2026-08-03 ein schwarzes Bild erzeugt hat:
+ * Intra-Refresh-Strom über RTMPS, also ohne den Rückkanal, über den ein
+ * beitretender Zuschauer sein erstes Vollbild anfordern könnte.
+ *
+ * **`stream.intraRefreshAvailable` gehört zwingend dazu**, obwohl das Kästchen
+ * bereits danach gated ist. Die Einstellung wird persistiert und wandert damit
+ * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
+ * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
+ * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
+ * Seit Windows dazugekommen ist, wandert er auch über Plattformgrenzen: dort
+ * trägt die Betriebsart nur AV1 (über AMF), H.264 läuft über einen Encoder,
+ * der die Option annimmt und nichts damit tut.
+ */
+export function intraRefreshPossible(): boolean {
+  return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
 }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
@@ -351,6 +449,26 @@ export async function loadCatalogs(): Promise<void> {
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
     }
+    // 10 bit hängt an AV1 UND an der Hardware. Fällt eines von beidem weg (der
+    // Codec ist gerade auf H.264 zurückgenommen worden, oder die Maschine kann
+    // es nicht), muss die Bittiefe mitfallen — sonst zeigt das Feld eine Wahl,
+    // die der Sidecar beim Start still auf 8 bit zurücknimmt.
+    if (streamSettings.overrides.bit_depth === 10 && !tenBitPossible()) {
+      streamSettings.overrides = applyVideoMode(
+        streamSettings.overrides,
+        streamSettings.overrides.codec ?? 'h264',
+      );
+    }
+    // Und dieselbe Rücknahme für Intra-Refresh. Die Einstellungen wandern mit
+    // dem Konto zwischen Rechnern: ein auf NVIDIA gesetzter Haken läge sonst
+    // auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter in den gespeicherten
+    // Werten — unsichtbar, weil das Kästchen dort gar nicht erscheint.
+    // `intraRefreshPossible()` fängt das beim Senden ohnehin ab; hier wird der
+    // tote Wert zusätzlich weggeräumt, damit er nicht dauerhaft mitreist.
+    if (streamSettings.overrides.intra_refresh === true && !intraRefreshPossible()) {
+      const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
     streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
@@ -500,6 +618,25 @@ export interface ChannelStreamArg {
 }
 
 /**
+ * Der Push-Weg, den die aktuelle Betriebsart verlangt.
+ *
+ * Intra-Refresh braucht WHIP: nur dort gibt es den RTCP-Rueckkanal, ueber den
+ * die Vollbild-Anforderung eines beitretenden Zuschauers den Encoder erreicht.
+ * In einem Intra-Refresh-Strom stehen kaum Vollbilder, also bekommt er sein
+ * erstes nur auf Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0
+ * Bilder gegen 2228). Die Betriebsart entscheidet den Transport also mit.
+ *
+ * **Warum als Funktion und nicht zweimal ausgeschrieben:** die Regel stand in
+ * `StreamControls` und im Auto-Neustart getrennt, und im Auto-Neustart stand
+ * sie falsch (hart `'rtmp'`). Ein Stream, der sich nach einem Encoder-Abbruch
+ * selbst neu startete, wechselte damit lautlos auf einen Weg, auf dem er nicht
+ * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
+ */
+export function pushProtokoll(): 'rtmp' | 'whip' {
+  return intraRefreshPossible() ? 'whip' : 'rtmp';
+}
+
+/**
  * Translate the in-memory `streamSettings` into the body shape that
  * `gsr.start()` / `gsr.buildArgv()` expect. Overrides are only included when
  * `use_overrides` is set (or the user picked the synthetic "Custom" profile) —
@@ -551,6 +688,31 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     if (typeof o.fps === 'number' && o.fps > 0)
       cleaned.fps = Math.min(hq.fpsMax, Math.max(capabilities.hqFpsMin, o.fps));
     if (o.resolution) cleaned.resolution = clampResolution(o.resolution, hq.resolutionMax);
+    // 10 bit nur mitschicken, wenn es auch erfüllbar ist (AV1 + passende
+    // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
+    // gleich wieder verwirft.
+    if (tenBitPossible()) cleaned.bit_depth = 10;
+    // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
+    // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
+    // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine
+    // Betriebsart.
+    //
+    // **Warum `=== true` hier nicht reichte** (2026-08-03, schwarzes Bild beim
+    // Zuschauer): Der Sidecar haelt die Betriebsart in einer prozessweiten
+    // Variablen (`encode::opts::AUS_PARAMETERN`) und setzt sie nur, wenn das
+    // Feld ankommt. Fehlte es, blieb der Wert des VORIGEN Laufs stehen. Wer
+    // also einmal mit Intra-Refresh gestreamt hatte und danach auf den
+    // Standardweg zurueckschaltete, bekam weiter einen Intra-Refresh-Strom —
+    // aber ueber RTMPS, weil `pushProtokoll()` korrekt auf den Standardweg
+    // schloss. Dieser Strom hat kaum Vollbilder UND keinen Rueckkanal, ueber
+    // den ein Zuschauer eins anfordern koennte: er sieht dauerhaft nichts.
+    //
+    // Gesendet wird der ERFÜLLBARE Wert, nicht der gespeicherte Wunsch
+    // (`intraRefreshPossible`): ein Haken, den dieses FFmpeg nicht einlösen
+    // kann, würde den Start abbrechen. Die Fallunterscheidung bleibt trotzdem
+    // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
+    // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
+    if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

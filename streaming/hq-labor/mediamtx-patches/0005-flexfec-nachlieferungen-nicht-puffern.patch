@@ -1,0 +1,88 @@
+FlexFEC: Nachlieferungen nicht in den Paritaets-Puffer aufnehmen
+
+Der NACK-Responder wiederholt verlorene Pakete auf DEMSELBEN SSRC (kein RTX).
+In pions Interceptor-Kette ist der zuerst registrierte Interceptor der
+innerste; FlexFEC steht vor ConfigureNack (Patch 0003) und liegt damit innen —
+jede Wiederholung laeuft durch seinen Writer und landete bisher im Puffer.
+
+`EncodeFec` prueft aber auf lueckenlose Sequenznummern und gibt bei der
+kleinsten Unstetigkeit `nil` zurueck (flexfec_encoder_03.go). Eine einzige
+Nachlieferung laesst damit die GANZE Gruppe ungeschuetzt.
+
+Gemessen am 2026-07-31 (Pulse-Labor, 180-s-Laeufe, 10+2, gesetzter Verlust):
+
+    Verlust 0,5 %:  13690 Paritaetspakete   (Soll rund 15900)
+    Verlust 2,0 %:   9032
+    Verlust 5,0 %:   3200                   = ein Fuenftel des Solls
+
+Bei 5 Prozent kamen 3,3 Wiederholungen auf jede Gruppe; es fiel also fast jede
+aus. Der Schutz bricht damit genau dann zusammen, wenn er gebraucht wird.
+Nach dem Fix: 16316 Paritaetspakete, Verhaeltnis Medien:Paritaet exakt 5,0:1.
+
+ANWENDUNG — anders als 0002/0003, die gegen den MediaMTX-Quelltext gehen:
+dieser Patch geht gegen VENDORIERTEN Fremdcode und muss deshalb NACH
+`go mod vendor` angewandt werden, sonst ueberschreibt das Vendoring ihn wieder.
+
+    git clone --depth=1 -b v1.19.1 https://github.com/bluenviron/mediamtx.git
+    patch -p1 < 0002-*.patch && patch -p1 < 0003-*.patch && patch -p1 < 0004-*.patch
+    go generate -mod=mod ./internal/servers/hls/... ./internal/core/...
+    go mod vendor
+    patch -p1 < 0005-flexfec-nachlieferungen-nicht-puffern.patch
+    CGO_ENABLED=0 go build -mod=vendor -tags=osusergo,netgo -ldflags="-s -w" -trimpath -o mediamtx .
+
+Upstream-tauglich waere der Fix auch — er ist nicht Pulse-spezifisch. Bis dahin
+traegt er das `pulse`-Praefix, damit er bei einem Rebase auffaellt.
+
+--- a/vendor/github.com/pion/interceptor/pkg/flexfec/encoder_interceptor.go
++++ b/vendor/github.com/pion/interceptor/pkg/flexfec/encoder_interceptor.go
+@@ -16,6 +16,15 @@
+ 	mu             sync.Mutex
+ 	flexFecEncoder FlexEncoder
+ 	packetBuffer   []rtp.Packet
++	// PULSE: hoechste bisher gepufferte Sequenznummer (siehe Filter unten).
++	pulseHighestSeq uint16
++	pulseSeen       bool
++}
++
++// pulseIsNewer meldet, ob `a` in der Sequenznummernfolge NACH `b` liegt
++// (RFC 1982). Die Subtraktion laeuft in uint16 bewusst ueber.
++func pulseIsNewer(a, b uint16) bool {
++	return a != b && (a-b) < 0x8000
+ }
+ 
+ // FecInterceptor implements FlexFec.
+@@ -94,6 +103,34 @@
+ 
+ 			var fecPackets []rtp.Packet
+ 			stream.mu.Lock()
++
++			// PULSE-FIX: Nachlieferungen duerfen NICHT in den Puffer.
++			//
++			// Der NACK-Responder wiederholt verlorene Pakete auf DEMSELBEN
++			// SSRC (kein RTX). In pions Kette ist der zuerst registrierte
++			// Interceptor der innerste; FlexFEC steht vor ConfigureNack und
++			// liegt damit innen — jede Wiederholung laeuft durch diesen
++			// Writer.
++			//
++			// Sie landete bisher im Puffer und zerstoerte dessen
++			// Lueckenlosigkeit. Genau darauf prueft `EncodeFec` aber und gibt
++			// bei der kleinsten Unstetigkeit `nil` zurueck (siehe
++			// flexfec_encoder_03.go) — die GANZE Gruppe bleibt ungeschuetzt.
++			//
++			// Gemessen 2026-07-31 (Pulse-Labor, 180 s, 10+2):
++			//   Verlust 0,5 %: 13690 Paritaetspakete  (Soll rund 15900)
++			//   Verlust 2,0 %:  9032
++			//   Verlust 5,0 %:  3200                  = ein Fuenftel des Solls
++			// Bei 5 % kamen 3,3 Wiederholungen auf jede Gruppe; es fiel also
++			// fast jede aus. Der Schutz bricht zusammen, wenn er gebraucht wird.
++			if stream.pulseSeen && !pulseIsNewer(header.SequenceNumber, stream.pulseHighestSeq) {
++				stream.mu.Unlock()
++
++				return writer.Write(header, payload, attributes)
++			}
++			stream.pulseHighestSeq = header.SequenceNumber
++			stream.pulseSeen = true
++
+ 			stream.packetBuffer = append(stream.packetBuffer, rtp.Packet{
+ 				Header:  *header,
+ 				Payload: payload,

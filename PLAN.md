@@ -887,4 +887,6 @@ Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpa
 - Der Standalone-GSR-Flatpak im Original-Repo bleibt unberührt.
 
 ### Reihenfolge / Status
-E1 (Electron-Migration, E1a→E1b→E1c) ist erledigt — die "Pulse-Electron-App mit Streaming"-Basis steht. Offen davon: globaler PTT, Notifications. T4 (WHEP-Playback), T5 (Multi-User-Auth + Deploy), T6 (Electron-Flatpak) folgen. Pro Code-Etappe gilt die Verifikations-Regel (§15): Team mit Plan/Umsetzung + Verify.
+E1 (Electron-Migration, E1a→E1b→E1c) ist erledigt — die "Pulse-Electron-App mit Streaming"-Basis steht. **Offen davon ist heute nur noch der globale PTT** (Electrons `globalShortcut` kennt kein Loslassen, s. `desktop/electron/shortcuts.ts`).
+
+**Hier stand bis 2026-08-04 zusätzlich „Notifications" als offen, und „T4 (WHEP-Playback), T5 (Multi-User-Auth + Deploy), T6 (Electron-Flatpak) folgen".** Alle vier sind gebaut: Notifications in `desktop/electron/notify.ts` (`wireNotify()`, in `main.ts` gebootet), T4 in `web/src/lib/stream/whep.ts`, T5 in `services/media-svc` + `services/mediamtx-auth-hook` samt `infra/prod/`, T6 in `packaging/com.howispulse.Pulse.yml` + `.github/workflows/flatpak.yml`. Pro Code-Etappe gilt die Verifikations-Regel (§15): Team mit Plan/Umsetzung + Verify.

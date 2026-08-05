@@ -1,0 +1,6 @@
+# Der gepatchte webrtc-rs-Zweig — reproduzierbar herstellbar mit
+# scripts/bootstrap-webrtc.sh, deshalb nicht eingecheckt.
+/vendor/
+
+# Rust
+/target

@@ -73,6 +73,16 @@ pub struct TickSample {
     pub pts_delta: i64,
     /// Kumulativ verworfene Capture-Frames (Snapshot von `WgcHwCapture`).
     pub capture_drops: u64,
+    /// Encode-Latenz der in DIESEM Tick herausgefallenen Pakete: (Summe,
+    /// Maximum, Anzahl) in Mikrosekunden, aus `take_encode_latency()`.
+    ///
+    /// Das ist NICHT `send`: `send` ist die Dauer des Submit-Aufrufs, hier
+    /// steht die Zeit vom Einschieben eines Bildes bis zu seinem Paket — also
+    /// der Vorlauf der Encoder-Warteschlange. Genau den veraendern
+    /// `zerolatency`/`delay` (NVENC) und `async_depth` (D3D12VA/AMF/QSV), und
+    /// genau den sah der Monitor bisher nicht. Anzahl 0 = in diesem Tick wurde
+    /// kein Paket zugeordnet (voellig normal bei Encoder-Vorlauf).
+    pub enc_latency: (u64, u64, u64),
 }
 
 /// Fenster-Akkumulator — bei jedem `flush_summary` zurückgesetzt.
@@ -91,6 +101,9 @@ struct Window {
     max_mux: Duration,
     max_audio: Duration,
     sum_iter: Duration,
+    enc_sum_us: u64,
+    enc_max_us: u64,
+    enc_count: u64,
 }
 
 pub struct TickMonitor {
@@ -102,6 +115,11 @@ pub struct TickMonitor {
     win_start_drops: u64,
     cur_drops: u64,
     win: Window,
+    /// `PULSE_ENC_LATENCY_LOG=1`: die 2s-Zusammenfassung auch dann ausgeben,
+    /// wenn das Fenster sauber war. Fuer Messlaeufe — die Encode-Latenz ist
+    /// gerade dann interessant, wenn NICHTS auffaellig ist, und die
+    /// Ruhe-Regel unten haette sie sonst verschluckt.
+    enc_log: bool,
 }
 
 impl TickMonitor {
@@ -131,6 +149,7 @@ impl TickMonitor {
             win_start_drops: 0,
             cur_drops: 0,
             win: Window::default(),
+            enc_log: crate::env::flag("PULSE_ENC_LATENCY_LOG"),
         }
     }
 
@@ -158,6 +177,10 @@ impl TickMonitor {
             if s.pts_delta > 1 {
                 w.pts_gaps += 1;
             }
+            let (enc_sum, enc_max, enc_n) = s.enc_latency;
+            w.enc_sum_us += enc_sum;
+            w.enc_max_us = w.enc_max_us.max(enc_max);
+            w.enc_count += enc_n;
         }
 
         if let Some(trace) = self.trace.as_mut() {
@@ -175,6 +198,9 @@ impl TickMonitor {
                 "pts": s.pts,
                 "pts_delta": s.pts_delta,
                 "drops": s.capture_drops,
+                "enc_sum_us": s.enc_latency.0,
+                "enc_max_us": s.enc_latency.1,
+                "enc_n": s.enc_latency.2,
             });
             let _ = writeln!(trace, "{line}");
         }
@@ -211,9 +237,13 @@ impl TickMonitor {
             let _ = trace.flush();
         }
         let w = std::mem::take(&mut self.win);
+        let enc = enc_text(&w);
         // Sauberes Fenster → keine Zeile. Hält den Log ruhig, solange alles
-        // flüssig läuft.
+        // flüssig läuft. Ausnahme: Messlauf (s. `enc_log`).
         if w.slow == 0 && w.pts_gaps == 0 && drops == 0 {
+            if self.enc_log {
+                emit_log(format!("{} ticks, sauber | {enc}", w.ticks));
+            }
             return;
         }
         let avg = if w.ticks > 0 {
@@ -223,7 +253,7 @@ impl TickMonitor {
         };
         emit_log(format!(
             "{} ticks: {} slow, {} pts-gaps, {} capture-drops, {} dup-frames | \
-             iter avg={} max={} | max conv={} send={} mux={} audio={} wake={} cap={}",
+             iter avg={} max={} | {} | max conv={} send={} mux={} audio={} wake={} cap={}",
             w.ticks,
             w.slow,
             w.pts_gaps,
@@ -231,6 +261,7 @@ impl TickMonitor {
             w.dups,
             ms(avg),
             ms(w.max_iter),
+            enc,
             ms(w.max_convert),
             ms(w.max_send),
             ms(w.max_mux),
@@ -239,6 +270,21 @@ impl TickMonitor {
             ms(w.max_capture),
         ));
     }
+}
+
+/// Encode-Latenz des Fensters als Text. Mittel ueber die tatsaechlich
+/// zugeordneten Pakete — nicht ueber die Ticks, weil je Tick auch null oder
+/// zwei Pakete herausfallen koennen.
+fn enc_text(w: &Window) -> String {
+    if w.enc_count == 0 {
+        return "enc n/a".into();
+    }
+    format!(
+        "enc avg={:.1}ms max={:.1}ms ({})",
+        w.enc_sum_us as f64 / w.enc_count as f64 / 1000.0,
+        w.enc_max_us as f64 / 1000.0,
+        w.enc_count,
+    )
 }
 
 fn ms(d: Duration) -> String {

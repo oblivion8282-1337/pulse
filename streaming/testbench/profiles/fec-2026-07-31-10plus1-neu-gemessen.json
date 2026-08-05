@@ -1,0 +1,57 @@
+{
+  "id": "fec-2026-07-31-10plus1-neu-gemessen",
+  "gemessen_am": "2026-07-31 (Nacht, nach dem SRTP-Fensterfix)",
+  "frage": "Was kostet 10+1 wirklich? Der erste Anlauf am selben Tag ergab 82,9 Prozent Aufschlag und die Empfehlung, bei 10+2 zu bleiben — gemessen wurde dabei aber ueberwiegend die SRTP-Rueckkopplung.",
+
+  "warum_die_frage_neu_gestellt_wurde": "`fec-2026-07-31-rate-sparen-geht-nicht` verglich die Paritaetsstufen ueber die Groesse `Wiederholungen kbit/s`. Die bestand zu rund 98 Prozent aus Duplikaten, weil der Player seine eigenen Nachlieferungen verwarf (SRTP-Wiedergabefenster 64 Pakete, s. `player-2026-07-31-srtp-fenster`). Gemessen wurde also, wie stark diese Rueckkopplung anspringt — und die springt bei duennerer Paritaet staerker an, weil mehr nachgefordert werden muss. Der Befund war damit ein Artefakt.",
+
+  "aufbau": "Drei Laeufe hintereinander in derselben Nacht, damit die Fremdlast auf der Leitung moeglichst aehnlich ist. Je 600 s, echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, 60 fps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde, neun Stoerzyklen (4 Downloads, 25 s, alle 45 s). Player mit dem Fenster-Fix (2048). Einziger Unterschied zwischen den Laeufen: PULSE_FLEXFEC_FEC am Labor-Server.",
+
+  "vergleich": [
+    {"groesse": "Verlustrate Prozent", "10+2_a": 0.144, "10+2_b": 0.199, "10+1": 0.191},
+    {"groesse": "Aufschlag GESAMT Prozent", "10+2_a": 22.8, "10+2_b": 23.1, "10+1": 12.3},
+    {"groesse": "Paritaet kbit/s", "10+2_a": 803, "10+2_b": 882, "10+1": 450},
+    {"groesse": "Wiederholungen kbit/s", "10+2_a": 43, "10+2_b": 67, "10+1": 67},
+    {"groesse": "Luecken erkannt", "10+2_a": 417, "10+2_b": 637, "10+1": 578},
+    {"groesse": "NACKs", "10+2_a": 549, "10+2_b": 811, "10+1": 942},
+    {"groesse": "PLIs", "10+2_a": 9, "10+2_b": 17, "10+1": 38},
+    {"groesse": "Kopien je verlorenem Paket", "10+2_a": 7.8, "10+2_b": 8.1, "10+1": 8.4},
+    {"groesse": "rechtzeitig bei 100ms-Puffer Prozent", "10+2_a": 93.3, "10+2_b": 79.9, "10+1": 67.2},
+    {"groesse": "FEC repariert", "10+2_a": 621, "10+2_b": 620, "10+1": 853},
+    {"groesse": "unreparierbar", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
+    {"groesse": "Einfrier-Eingriffe", "10+2_a": 0, "10+2_b": 1, "10+1": 1},
+    {"groesse": "Sekunden ohne Bild", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
+    {"groesse": "Sekunden unter 30 Bildern", "10+2_a": 0, "10+2_b": 0, "10+1": 0},
+    {"groesse": "schwaechste Sekunde (Bilder/s)", "10+2_a": 44, "10+2_b": 45, "10+1": 45}
+  ],
+
+  "NACHTRAG_zur_bildstabilitaet": "Die Zeile 'Sekunden ohne Bild' stammte urspruenglich aus einer Auswertung, die ein Feld `dekodiert` suchte, das es nicht gibt (richtig: `frames_decoded`, kumulativ). Sie haette auch bei einem Standbild null gemeldet. Nachgerechnet ueber den Zuwachs je Sekunde bestaetigen sich die Werte, und die aussagekraeftigere Groesse steht jetzt daneben: die schwaechste Sekunde lag in allen drei Laeufen bei 44 bis 45 Bildern, keiner fiel unter 30. Damit ist belegt, was vorher nur behauptet war — die Bildrate bricht in keiner Variante ein.",
+
+  "was_belastbar_ist": {
+    "der_preis_reproduziert_sich": "22,8 und 23,1 Prozent in zwei 10+2-Laeufen — die Streuung liegt bei 0,3 Punkten, obwohl die Stoerlage zwischen ihnen um 40 Prozent auseinanderging (417 gegen 637 Luecken). Der Aufschlag haengt also praktisch nur an der Einstellung, nicht an der Tagesform. Damit ist der Unterschied zu 10+1 (12,3 Prozent) belastbar: **die duennere Paritaet halbiert den Aufschlag.**",
+    "der_alte_befund_ist_widerlegt": "82,9 gegen jetzt 12,3 Prozent. Es war nie die Paritaet, die 10+1 teuer machte, sondern die Rueckkopplung, die bei duennerer Paritaet oefter ausgeloest wurde.",
+    "der_faire_wirkungsvergleich": "Lauf b (10+2) und der 10+1-Lauf liegen mit 0,199 und 0,191 Prozent Verlust dicht beieinander — sie sind das eigentliche Paar. Dort kostet 10+1 **38 statt 17 PLIs** und **67,2 statt 79,9 Prozent** rechtzeitige Nachlieferungen, bei halbem Preis.",
+    "die_plis_skalieren_nicht_nur_mit_der_stoerlage": "Bei 10+2 wachsen sie mit dem Verlust (9 bei 0,144 Prozent, 17 bei 0,199). Nach dieser Linie waeren bei 10+1 rund 16 zu erwarten; gemessen sind 38. Der Ueberschuss ist der Einstellung zuzurechnen, nicht der Leitung."
+  },
+
+  "was_NICHT_belastbar_ist": {
+    "ein_lauf_fuer_10plus1": "Von 10+2 gibt es zwei Laeufe und damit eine Streuungsschaetzung, von 10+1 nur einen. Die PLI-Zahl 38 ist ein Einzelwert.",
+    "die_fec_zaehlung_widerspricht_sich": "`repariert: 853` bei 578 erkannten Luecken — der Zaehler meldet mehr Reparaturen als es Luecken gab. Entweder zaehlt er Rekonstruktionen doppelt (Paket kommt per NACK UND wird per Paritaet gebaut), oder er zaehlt Versuche statt Ergebnisse. Bis das geklaert ist, taugt die Groesse nicht zum Vergleich zwischen den Stufen.",
+    "unreparierbar_bleibt_blind": "Steht in allen drei Laeufen auf 0, kann den Buendelfall aber gar nicht sehen (zaehlt Rechen- und Parse-Fehler, `fec/empfaenger.rs`). Kein Beleg dafuer, dass XOR nie an seine Grenze kommt."
+  },
+
+  "bewertung": {
+    "was_10plus1_kostet": "Rund 430 kbit/s je Zuschauer weniger — bei 4000 kbps Nutzlast ist das der Unterschied zwischen 12 und 23 Prozent Aufschlag. Bezahlt wird mit gut doppelt so vielen Vollbild-Anforderungen. Jede davon zwingt den Sender im Intra-Refresh-Betrieb zu einem Vollbild, also genau zu der Bitratenspitze, die Intra-Refresh vermeiden soll.",
+    "was_dagegen_gleich_blieb": "Keine Sekunde ohne Bild, kein unreparierbarer Verlust, ein Einfrier-Eingriff wie bei 10+2 unter gleicher Stoerlage. Der Zuschauer haette den Unterschied in diesen Laeufen vermutlich nicht gesehen.",
+    "empfehlung": "Vorerst bei 10+2 bleiben (Server steht wieder so). Die PLI-Rate ist ein Fruehindikator: sie zeigt, dass 10+1 naeher an der Kante arbeitet, und diese Laeufe hatten mit rund 0,2 Prozent eine gute Leitung. Bei einer schlechteren Strecke ist zu erwarten, dass 10+1 zuerst nachgibt. Wer die 430 kbit/s je Zuschauer braucht, hat mit 10+1 aber eine belegbar tragfaehige Option — nicht mehr die vermeintliche Katastrophe von 82,9 Prozent."
+  },
+
+  "offen": [
+    "Ein zweiter 10+1-Lauf fuer die Streuung der PLI-Zahl.",
+    "Der Vergleich unter WIRKLICH schlechter Leitung. Alle drei Laeufe lagen um 0,2 Prozent Verlust; die Frage, ab wann 10+1 kippt, ist damit unbeantwortet. Dafuer braucht es die Teststrecke mit gesetztem Verlust (netem mit ifb am Empfangsweg), die dem Labor weiterhin fehlt.",
+    "Den FEC-Reparaturzaehler klaeren (853 Reparaturen bei 578 Luecken).",
+    "Einen Zaehler fuer gescheiterte Paritaetsgruppen bauen — erst der kann die Frage nach Reed-Solomon beantworten."
+  ],
+
+  "lehre": "Derselbe Versuchsaufbau, dieselbe Einstellung, dieselbe Nacht — und ein Ergebnis, das dem vom Abend diametral widerspricht (82,9 gegen 12,3 Prozent). Dazwischen lag nur die Reparatur eines Messfehlers im Empfaenger. Wer Einstellungen vergleicht, misst immer auch das Werkzeug mit."
+}

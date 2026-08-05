@@ -13,16 +13,20 @@
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import {
     streamSettings,
-    CODEC_VALUES,
+    VIDEO_MODES,
+    videoModeOf,
+    applyVideoMode,
     gpuHasAv1,
     allowedResolutions,
     clampResolution,
     captureSourceForSlot,
     persistSettings,
   } from '../settings.svelte';
+  import { stream } from '../state.svelte';
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { isLinux, isWindows } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
 
   // Slot, dessen Quelle die Auflösungs-Stufen filtert. Von außen `streamSlot`,
@@ -34,12 +38,19 @@
     streamSlot?: number;
   } = $props();
 
-  // Only offer codecs this machine's GPU can actually encode. AV1 needs the
-  // sidecar's reported `video_codecs` to include it (RTX 40xx, newer Intel/AMD,
-  // Apple M3+); H.264 is the universal baseline and always offered.
+  // Nur anbieten, was diese Maschine wirklich encodieren kann. AV1 verlangt,
+  // dass der Sidecar es in `video_codecs` meldet (RTX 40xx, neuere Intel/AMD,
+  // Apple M3+); H.264 ist die Grundlinie und steht immer da. 10 bit verlangt
+  // zusätzlich `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
+  //
+  // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
+  // Start still zurückgenommen wird: der Nutzer sähe sonst „AV1 10 bit" im Feld
+  // und bekäme 8 bit, ohne dass irgendwo etwas dazu steht.
   let codecOptions = $derived(
-    CODEC_VALUES.filter(
-      (c) => c.value !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs),
+    VIDEO_MODES.filter(
+      (m) =>
+        (m.codec !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs)) &&
+        (!m.tenBit || stream.tenBitAvailable),
     ),
   );
 
@@ -72,7 +83,13 @@
 
   function onCodec(e: Event) {
     const v = (e.currentTarget as HTMLSelectElement).value || 'h264';
-    streamSettings.overrides = { ...streamSettings.overrides, codec: v };
+    streamSettings.overrides = applyVideoMode(streamSettings.overrides, v);
+    persistSettings();
+  }
+
+  function onIntraRefresh(e: Event) {
+    const an = (e.currentTarget as HTMLInputElement).checked;
+    streamSettings.overrides = { ...streamSettings.overrides, intra_refresh: an };
     persistSettings();
   }
 
@@ -148,7 +165,13 @@
     persistSettings();
   }
 
-  let codecValue = $derived(streamSettings.overrides.codec ?? 'h264');
+  // Der ANGEZEIGTE Wert muss in der Optionsliste vorkommen — wie bei der
+  // Auflösung unten. Sonst zeigt das Feld „AV1 10 bit" auf einer Maschine, die
+  // das gar nicht anbietet (gespeicherte Wahl von einem anderen Rechner).
+  let codecValue = $derived.by(() => {
+    const gewuenscht = videoModeOf(streamSettings.overrides);
+    return codecOptions.some((o) => o.value === gewuenscht) ? gewuenscht : 'h264';
+  });
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
   // Der *angezeigte* Wert muss in der Optionsliste vorkommen — sonst zeigt das
@@ -169,6 +192,12 @@
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
     persistSettings();
   }
+
+  // Die Bittiefe hatte hier bis zum 2026-08-02 ein eigenes Kästchen, das bei
+  // falschem Codec gesperrt danebenstand. Sie steckt jetzt im Codec-Feld
+  // (`VIDEO_MODES`): 10 bit gibt es ohnehin nur mit AV1, und zwei gekoppelte
+  // Bedienelemente zu erklären ist mehr Aufwand als eine Liste, in der die
+  // unmögliche Kombination gar nicht vorkommt.
 </script>
 
 <div class="flex flex-col gap-3" data-testid="stream-overrides-editor">
@@ -254,12 +283,45 @@
   </div>
  </div>
 
-  <label class="flex cursor-pointer items-center gap-2 text-sm">
-    <Checkbox
-      checked={streamSettings.show_cursor}
-      onchange={onShowCursor}
-      data-testid="stream-overrides-show-cursor"
-    />
-    <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
-  </label>
+  <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <!-- Zwei Bedingungen, beide notwendig.
+
+         Linux ODER Windows: Intra-Refresh setzt den WHIP-Weg voraus, und der
+         braucht einen eigenen WebRTC-Sender (RTCP-Rueckkanal fuer das
+         Einstiegs-Vollbild, dazu ein AV1-Paketierer). Den hatte lange nur der
+         Linux-Sidecar; seit dem 2026-08-04 hat ihn der Windows-Sidecar auch
+         (`win-hq-sidecar/src/whip/`, dieselbe Fassung). macOS bleibt draussen —
+         dort ginge es weiter ueber ffmpegs WHIP-Muxer: kein Rueckkanal, kein
+         AV1, und ein sichtbares Kaestchen waere eine Zusage, die der Sendeweg
+         nicht einloest.
+
+         Und nur, wenn der Sidecar die Betriebsart wirklich liefert — was
+         `health.gsr.intra_refresh` meldet. Die Frage dahinter ist je Plattform
+         eine andere: auf Linux, ob das FFmpeg die VAAPI-Option durchreicht
+         (nur mit unserem Patch); auf Windows, ob der Encoder, der bei dieser
+         Karte WIRKLICH laeuft, sie traegt — auf AMD ist das AV1 ueber AMF,
+         nicht H.264 ueber D3D12. Beide Sidecars brechen den Start ab, statt
+         still Keyframes zu fahren; ein Kaestchen, dessen Anhaken den Stream
+         scheitern laesst, ist schlechter als keins. Dieselbe Begruendung wie
+         beim Codec-Feld oben. -->
+    {#if (isLinux() || isWindows()) && stream.intraRefreshAvailable}
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox
+          checked={streamSettings.overrides.intra_refresh === true}
+          onchange={onIntraRefresh}
+          data-testid="stream-overrides-intra-refresh"
+        />
+        <span class="text-text-base">Intra-Refresh</span>
+      </label>
+    {/if}
+
+    <label class="flex cursor-pointer items-center gap-2 text-sm">
+      <Checkbox
+        checked={streamSettings.show_cursor}
+        onchange={onShowCursor}
+        data-testid="stream-overrides-show-cursor"
+      />
+      <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
+    </label>
+  </div>
 </div>

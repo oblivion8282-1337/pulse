@@ -60,14 +60,32 @@ def main() -> int:
     ap.add_argument("--hoehe", type=int, default=1440)
     ap.add_argument("--kbps", type=int, default=25000)
     ap.add_argument("--keyframe-sekunden", type=float, default=2.0)
+    # Die drei Betriebsarten, die das Produkt kennt. 10 bit ist an AV1
+    # GEBUNDEN — H.264 koennte NVENC zwar in `High 10`, aber kein Browser
+    # dekodiert das, und der Sidecar schiebt jeden solchen Wunsch auf 8 bit
+    # zurueck (`ops/start.rs`). Diese Vorlage bildet das nach, statt eine
+    # Kombination zu erzeugen, die live gar nicht vorkommt.
+    ap.add_argument("--codec", default="av1", choices=("av1", "h264"))
+    ap.add_argument("--bits", type=int, default=10, choices=(8, 10))
     args = ap.parse_args()
 
+    if args.codec == "h264" and args.bits == 10:
+        print("H.264 mit 10 bit gibt es im Produkt nicht — `--bits 8` dazu.",
+              file=sys.stderr)
+        return 2
+
+    zehn_bit = args.bits == 10
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i",
         f"testsrc2=size={args.breite}x{args.hoehe}:rate={args.fps}:duration={args.secs}",
         "-f", "lavfi", "-i", f"sine=frequency=440:duration={args.secs}",
-        "-pix_fmt", "p010le", "-c:v", "av1_nvenc", *SIDECAR_OPTS,
+        "-pix_fmt", "p010le" if zehn_bit else "yuv420p",
+        "-c:v", f"{args.codec}_nvenc", *SIDECAR_OPTS,
+        # `coder=cabac` gibt es NUR bei H.264 — bei `av1_nvenc` existiert die
+        # Option nicht (2026-07-30 gegen die AVOption-Tabellen geprueft) und
+        # wuerde still verworfen. Derselbe Fall wie im Sidecar `encode/opts.rs`.
+        *(["-coder", "cabac"] if args.codec == "h264" else []),
         "-g", str(int(args.fps * args.keyframe_sekunden)),
         "-b:v", f"{args.kbps}k",
         "-c:a", "libopus", "-b:a", "128k",

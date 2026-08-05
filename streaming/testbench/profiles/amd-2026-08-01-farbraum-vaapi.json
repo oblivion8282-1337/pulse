@@ -1,0 +1,28 @@
+{
+ "id": "amd-2026-08-01-farbraum-vaapi",
+ "gemessen_am": "2026-08-01, Radeon 780M, Mesa 26.1.5",
+ "frage": "Welche Farbmatrix und welchen Wertebereich liefert `scale_vaapi` im 8-bit-Pfad tatsaechlich — und stimmt das mit dem ueberein, was der Strom dem Empfaenger sagt?",
+
+ "ANTWORT": "Es stimmte NICHT. Mesa liefert BT.709 im VOLLEN Wertebereich, der Strom sagte aber gar nichts (die Farb-Signalisierung haengte am 10-bit-Zweig). Ein Empfaenger ohne Angabe nimmt den BEGRENZTEN Bereich an und spreizt das Bild: Schwarz sackt unter null, Weiss reisst aus. Der Fehler war sichtbar und traf jeden AMD-Sender in 8 bit.",
+
+ "wie_gemessen": "Bekannte Farben durch GENAU den Filterweg des Senders und wieder heraus: `format=bgr0,hwupload,scale_vaapi=format=nv12,hwdownload,format=nv12`, dann das erste Y/U/V-Byte gelesen. Kein Encoder, kein Netz — die Umwandlung allein.",
+
+ "messwerte": {
+  "ohne_vorgabe": {"weiss": "Y=255", "schwarz": "Y=0", "rot": "Y=54 U=99 V=255", "blau": "Y=18 U=255 V=116"},
+  "mit_out_color_matrix_bt709_out_range_limited": {"weiss": "Y=235", "schwarz": "Y=16", "rot": "Y=62 U=103 V=239", "blau": "Y=32 U=240 V=118"},
+  "vergleichswerte": "BT.709 voll: rot 54,2 / blau 18,4. BT.601 voll: rot 76,2 / blau 29,1. BT.709 begrenzt: rot 62,6 / blau 31,8. Die Zuordnung ist damit eindeutig, nicht geschlossen."
+ },
+
+ "entscheidung": "BT.709, BEGRENZTER Bereich — dem Filter vorgegeben (`out_color_matrix=bt709:out_range=limited`) und im Strom signalisiert. Zwei Gruende: (1) der 10-bit-Pfad (`nv_p010`) rechnet genau das, beide Bittiefen sollen dasselbe liefern; (2) ein Empfaenger, der die Signalisierung ignoriert, liegt mit dem begrenzten Bereich richtig — bei vollem Bereich waere er wieder falsch. Vorgeben statt messen-und-hoffen: eine Treiberaenderung kann die Umwandlung so nicht mehr still verschieben.",
+
+ "gegenprobe_durch_die_ganze_kette": {
+  "av1_8_bit": "format=NV12 range=MPEG space=BT709 transfer=BT709 primaries=BT709",
+  "h264_8_bit": "format=NV12 range=MPEG space=BT709 transfer=BT709 primaries=BT709",
+  "av1_10_bit": "format=P010LE range=MPEG space=BT709 transfer=BT709 primaries=BT709",
+  "warum_das_zaehlt": "Die Angaben liest der Player aus dem BITSTROM (Decoder-Ausgabe), nicht aus unserer Konfiguration — sie sind also wirklich beim Empfaenger angekommen."
+ },
+
+ "nicht_angefasst": "NVENC in 8 bit signalisiert weiterhin nichts. Dort wandelt der Encoder intern nach eigener Konvention; was er liefert, ist auf dieser Maschine nicht messbar (keine NVIDIA-Karte). Dieselbe Messung gehoert dort nachgeholt — bis dahin bleibt der verifiziert korrekte Pfad unangetastet.",
+
+ "offen": "Ob der begrenzte Bereich bei Bildschirminhalt sichtbar Stufen kostet (219 statt 255 Werte), ist ungemessen. Fuer Verlaeufe in dunklen Flaechen waere das der Ort, an dem es auffiele."
+}

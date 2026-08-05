@@ -1,0 +1,31 @@
+{
+  "id": "fec-2026-08-01-windows-browser",
+  "gemessen_am": "2026-08-01 (abends)",
+  "frage": "Bekommt ein BROWSER-Zuschauer die FlexFEC-Paritaet — und gilt das auch unter Windows? In den Akten stand das widerspruechlich: fec-2026-07-29-erste-wirkung sagt 'Browser-Zuschauer bekommen weiterhin nichts davon: sie handeln flexfec-03 nicht aus', der Browser-Lauf vom 2026-07-31 zaehlt dagegen 31908 empfangene FEC-Pakete.",
+  "stand": "ENTSCHIEDEN, zugunsten der 07-31-Messung: der Browser handelt flexfec-03 mit unserem gepatchten MediaMTX sehr wohl aus und empfaengt Paritaet. Die Aussage in der 07-29-Akte ist damit ueberholt und sollte dort als solche markiert werden.",
+  "warum_das_zaehlt": "Pulse ist web-first. Waere FEC eine reine Player-Sache, haette die Mehrheit der Zuschauer keinen Verlustschutz ausser NACK — und NACK traegt ueber Entfernung nicht (61 ms Umlaufzeit gegen 20-100 ms Puffergeduld, s. nack-2026-07-29-echte-leitung). Mit FEC im Browser gilt die Schutzschicht fuer alle.",
+  "aufbau": {
+    "maschine": "Mini-PC, AMD Radeon 780M, Windows 11",
+    "server": "MediaMTX v1.19.1, selbst gebaut, mit den Labor-Patches 0002 (Vollbild-Weiterleitung) und 0003 (FlexFEC auf WHEP). Beide gehen sauber auf v1.19.1. PULSE_FLEXFEC=1, Verhaeltnis 10+2, PULSE_KEYFRAME_INTERVAL=0.",
+    "sender": "ffmpeg n8.1.2 (eigener Bau), av1_amf, 1280x720@60, 4000 kbps, RTMP an den lokalen Server",
+    "zuschauer": "Microsoft Edge (Chromium) ueber Playwright, headless, eigener WHEP-Client",
+    "gemessen": "getStats().fecPacketsReceived — libwebrtc holt den Wert aus flexfec_stream_->GetStats(); er ist nur ungleich null, wenn der Empfangsstrom wirklich existiert"
+  },
+  "kontrolle": "Dieselbe Messung gegen das UNVERAENDERTE MediaMTX 1.19.1 ergab in drei Laeufen fecPacketsReceived = 0. Der Unterschied liegt also am Patch und nicht am Messaufbau.",
+  "ergebnis": {
+    "fecPacketsReceived_nach_15s": 1370,
+    "framesDecoded": 803,
+    "verschiedene_fingerabdruecke": "15 von 15",
+    "pli": 9,
+    "nack": 0,
+    "aufloesung": "1280x720"
+  },
+  "befund": "Der Browser empfaengt Paritaet. Zusammen mit NACK (server-seitig, ebenfalls plattformunabhaengig) hat ein Windows-Zuschauer damit dieselben zwei Schutzschichten wie ein Linux-Zuschauer.",
+  "GRENZEN_DER_AUSSAGE": [
+    "Edge, nicht Chrome.",
+    "Lokale Schleife, KEIN Verlust. Gemessen ist, dass die Paritaet ANKOMMT — nicht, dass sie etwas repariert. Die Reparaturwirkung ist auf Linux gemessen (fec-2026-07-29-erste-wirkung: Luecken -31 %, bei 5 % Verlust die Sekunden ohne Bild halbiert) und hier NICHT nachgemessen.",
+    "nackCount stand auf 0 — auf einer verlustfreien Schleife der erwartete Wert, aber damit ist ueber NACK in diesem Lauf nichts gezeigt.",
+    "Ein Lauf."
+  ],
+  "nebenbefund_bau": "Der MediaMTX-Bau bricht ohne `go generate` ab: internal/servers/hls/hls.min.js und internal/core/VERSION fehlen. Fuer WHEP sind beide bedeutungslos — Platzhalter genuegen. Das spart die Node/esbuild-Kette im Bau."
+}

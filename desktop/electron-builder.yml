@@ -14,10 +14,13 @@
 # Eine .exe deckt NVIDIA *und* AMD ab — der Sidecar erkennt die GPU selbst und
 # wählt den Pfad (NVIDIA-Zero-Copy / AMD-CPU).
 #
-# Voraussetzung: der Sidecar ist vorher release-gebaut
-# (`cargo build --release` in `streaming/win-hq-sidecar/`) — `extraResources`
-# zieht die Artefakte direkt aus dessen `target/release/`. Die Web-Oberfläche
-# wird NICHT mitgepackt: die App lädt sie von `https://howispulse.com`.
+# Voraussetzung: Sidecar UND Player sind vorher release-gebaut
+# (`cargo build --release` in `streaming/win-hq-sidecar/` und in
+# `streaming/pulse-player/`, letzterer nach `scripts/bootstrap-webrtc.sh` und
+# mit `FFMPEG_DIR` auf die Dist des Sidecars) — `extraResources` zieht die
+# Artefakte direkt aus deren `target/release/`. win-build.yml baut beide, bevor
+# es hier hereinläuft. Die Web-Oberfläche wird NICHT mitgepackt: die App lädt
+# sie von `https://howispulse.com`.
 appId: com.howispulse.pulse
 productName: Pulse
 # Ad-hoc-Signatur der macOS-.app (Stufe A, kein Developer ID) — siehe
@@ -73,6 +76,41 @@ win:
       filter:
         - pulse-win-hq-sidecar.exe
         - "*.dll"
+    # Der native HQ-Player (`streaming/pulse-player/`) — er EMPFÄNGT einen
+    # Stream und zeigt ihn im eigenen Fenster, wo der Sidecar daneben aufnimmt.
+    #
+    # Bewusst DASSELBE Zielverzeichnis, kein eigenes: er linkt dieselben
+    # FFmpeg-DLLs, und Windows sucht die DLLs eines Prozesses zuerst im
+    # Verzeichnis seiner EIGENEN .exe — nicht in dem der App. Ein eigener
+    # Ordner hätte also eine zweite Kopie derselben Bibliotheken verlangt.
+    # `resolvePlayerBinary()` in electron/player.ts sucht genau hier.
+    #
+    # Bis 2026-08-05 fehlte dieser Eintrag: der Player war unter Windows
+    # gebaut und gefixt, wurde aber nie mit ausgeliefert — die App fiel dort
+    # still auf den <video>-Weg zurück.
+    - from: ../streaming/pulse-player/target/release
+      to: hq-sidecar
+      filter:
+        - pulse-player.exe
+    # Der Lizenztext der ausgelieferten FFmpeg-Distribution. Die LGPL verlangt,
+    # dass der Weitergabe eine Kopie der Lizenz beiliegt; bis 2026-08-05 lagen
+    # im Installer NUR Electrons und Chromiums Texte, obwohl daneben sieben
+    # LGPL-DLLs ausgeliefert werden.
+    #
+    # Er kommt aus der Distribution, nicht aus `target/release/` — dorthin
+    # kopiert `build.rs` nur die DLLs selbst. Und er muss zum Build passen, der
+    # WIRKLICH ausgeliefert wird: seit 2026-08-05 ist das der selbst gebaute,
+    # gepatchte Baum, und sein Text ist LGPL **2.1** (`configure` läuft ohne
+    # `--enable-version3`). BtbNs Rückfall-Paket trüge stattdessen v3. Die
+    # Datei staged `build-ffmpeg-patched.ps1`; ein selbst gebauter Baum bringt
+    # von sich aus KEINE mit.
+    - from: ../streaming/win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared/LICENSE.txt
+      to: hq-sidecar/FFMPEG-LICENSE.txt
+    # Der Änderungshinweis, den die LGPL für eine veränderte Bibliothek will —
+    # bewusst IM Paket und nicht nur im Repo: wer die DLLs in die Hand bekommt,
+    # soll ohne Umweg sehen, dass sie nicht dem Original entsprechen.
+    - from: ../streaming/win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared/PULSE-AENDERUNGEN.txt
+      to: hq-sidecar/PULSE-AENDERUNGEN.txt
     # App-Hosting-Podman-Bündelung (resources-podman → podman) entfernt, weil
     # App-Hosting geparkt ist (2026-07-14) — der Windows-Client hostet nicht
     # mehr, das gebündelte Podman war totes Gewicht im Installer. Zum

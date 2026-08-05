@@ -15,7 +15,17 @@ $ErrorActionPreference = 'Stop'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SidecarRoot = Split-Path -Parent $ScriptDir
-$Version = 'v1.18.1'
+# 1.19.1, NICHT 1.18.1: Dev-Compose und Produktion fahren beide
+# "pulse-mediamtx:1.19.1-pulse". Mit 1.18.1 testete man lokal gegen einen
+# Empfaenger, der sich anders verhaelt als der echte - bei AV1 lehnte 1.18.1 den
+# Strom mit "unable to parse AV1 sequence header: not enough bytes" komplett ab,
+# 1.19.1 nimmt ihn an. Wer das nicht weiss, haelt einen funktionierenden Encoder
+# fuer kaputt (2026-07-30 genau so passiert).
+#
+# Diese Datei absichtlich ASCII-rein halten: PowerShell 5.1 liest .ps1 als ANSI,
+# ein UTF-8-Sonderzeichen wird dann zu einem Smart-Quote und kann den Parser
+# zerlegen - genau daran scheiterte scripts/fetch-ffmpeg.ps1 unter 5.1.
+$Version = 'v1.19.1'
 $Dist = Join-Path $SidecarRoot 'mediamtx-dist'
 $Target = Join-Path $Dist $Version
 $Exe = Join-Path $Target 'mediamtx.exe'

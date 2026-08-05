@@ -1,0 +1,124 @@
+[package]
+name = "pulse-player"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Nativer HQ-Stream-Player fuer Pulse (WHEP -> Decode -> eigenes Fenster)"
+publish = false
+
+# ---------------------------------------------------------------------------
+# LIZENZ — bitte vor dem Hinzufuegen einer Dependency lesen.
+#
+# Pulse ist source-available (PolyForm Perimeter fuer den Client). GPL-Code
+# darf NICHT in dieses Binary gelinkt werden; das kollidiert hart mit der
+# Client-Lizenz. Erlaubt sind MIT / Apache-2.0 / BSD / ISC / WTFPL sowie LGPL
+# NUR dynamisch gelinkt und als getrennt austauschbare Datei ausgeliefert.
+#
+# FFmpeg: in ausgelieferten Builds MUSS eine LGPL-Konfiguration verwendet
+# werden (wie win-hq-sidecar via FFMPEG_DIR und mac-hq-sidecar via
+# scripts/build-ffmpeg.sh). Die System-FFmpeg vieler Distributionen ist mit
+# --enable-gpl gebaut und deshalb NUR fuer die lokale Entwicklung geeignet.
+# Siehe THIRD-PARTY-NOTICES.md und streaming/pulse-player/README.md.
+# ---------------------------------------------------------------------------
+
+[dependencies]
+# --- stdio-JSON-RPC + Fehlerbehandlung ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+
+# --- Laufzeit ---
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "io-std",
+    "io-util",
+] }
+
+# --- WHEP / WebRTC (gleiche Version wie der Fernsteuerungs-Spike) ---
+webrtc = "0.17"
+# rustls, NICHT native-tls: webrtc-rs bringt ueber `dtls` ohnehin verpflichtend
+# rustls mit. Ein zweiter TLS-Stack (OpenSSL) daneben waere reine Doppelung —
+# mehr Angriffsflaeche, groesseres Paket, zwei Lizenztexte statt einem.
+# Folge: aws-lc-rs/aws-lc-sys ist Teil des Baums (ISC, Apache-2.0, MIT,
+# BSD-3-Clause — alle permissiv) und gehoert in THIRD-PARTY-NOTICES.md.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+# Bereits transitiv im Baum (0.23.42, ueber webrtc UND reqwest) — hier nur
+# explizit gemacht, damit `main()` den Krypto-Provider selbst waehlen kann.
+# Noetig, weil ueber beide Wege ZWEI Provider hereinkommen (`ring` via dtls,
+# `aws-lc-rs` via hyper-rustls): rustls raet dann nicht, sondern panickt beim
+# ersten TLS-Aufbau. Siehe `main.rs`.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+bytes = "1"
+
+# --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "software-resampling",
+    "software-scaling",
+] }
+
+# --- Fenster + GPU-Darstellung ---
+winit = "0.30"
+wgpu = "29"
+raw-window-handle = "0.6"
+pollster = "0.4"
+
+# --- Bedienoberflaeche IM Fenster (Lautstaerke, Vollbild, Statistik) ---
+# Alle drei MIT OR Apache-2.0 (geprueft 2026-07-26), also lizenzkonform.
+# Die Versionen muessen zu wgpu/winit passen: egui-wgpu 0.35 verlangt
+# `wgpu ^29.0` und `winit ^0.30.13` — genau unsere. Beim Anheben von wgpu
+# oder winit MUSS egui im gleichen Schritt mitwandern, sonst bricht der Build.
+egui = "0.35"
+egui-wgpu = "0.35"
+egui-winit = { version = "0.35", default-features = false }
+# Zeichnet die Lucide-Symbole der Kachel-Leiste (`assets/icons/`, aus derselben
+# Quelle wie die Web-App). Ohne das kann egui keine Vektorgrafik darstellen, und
+# die Symbole muessten als Bilder eingebacken werden — dann waeren sie beim
+# Skalieren unscharf und liefen bei einem Lucide-Update auseinander.
+# `default-features = false`: gebraucht wird NUR der SVG-Zeichner, nicht die
+# Tabellen-, Datepicker- und Syntax-Widgets des Crates.
+# Lizenzen der ganzen Kette geprueft 2026-08-03 — alles permissiv, kein
+# GPL/AGPL und kein MPL: egui_extras/resvg/usvg/kurbo/svgtypes/simplecss/
+# roxmltree MIT OR Apache-2.0, tiny-skia BSD-3-Clause, imagesize/xmlwriter MIT.
+# (resvg stand frueher unter MPL-2.0; seit 0.45 nicht mehr.)
+egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
+
+# --- Audio-Ausgabe ---
+cpal = "0.17"
+
+[dev-dependencies]
+# Nur fuer den AV1-Rundlauf-Test (depacket/av1.rs): echter RTP-Payloader, um
+# den selbstgeschriebenen Depacketizer gegen die Gegenseite zu pruefen.
+# Bereits transitiv ueber `webrtc` im Baum (0.17.2) -- hier nur explizit
+# gemacht, kein neuer Dependency-Baum.
+rtp = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+# Eigener Zweig von webrtc-rs, gepinnt: er macht die Stroeme sichtbar, deren
+# SSRC zu keiner angemeldeten Spur passt. Genau dort liegen die
+# FlexFEC-Paritaetspakete — die Bibliothek entschluesselt und speichert sie
+# bereits (`undeclared_media_processor` legt sie ab, BEVOR sie die Zuordnung
+# versucht, und raeumt sie bei Fehlschlag nicht weg), aber Karte und Zugriff
+# sind `pub(crate)`. Der Zweig fuegt zwei lesende Methoden hinzu, sonst nichts:
+# kein `accept()`, also kein Wettlauf mit der bibliothekseigenen Schleife.
+#
+# Delta gegen v0.17.2: 24 Zeilen in `webrtc/src/dtls_transport/mod.rs`.
+# Faellt weg, sobald das Original etwas Gleichwertiges hat.
+[patch.crates-io]
+# Der Zweig wird von `scripts/bootstrap-webrtc.sh` hergestellt (klont v0.17.2,
+# wendet `patches/0001-...patch` an). Bis 2026-07-31 zeigte der Pfad hierhin:
+#   path = "../../../webrtc-rs-pulse/webrtc"
+# also auf ein Verzeichnis NEBEN dem Repo, das es nur auf einer Maschine gab.
+# Fehlt es, bricht cargo schon beim Aufloesen ab — kein Player, kein
+# `cargo test`, auf keinem zweiten Rechner und in keinem CI.
+webrtc = { path = "vendor/webrtc-rs/webrtc" }

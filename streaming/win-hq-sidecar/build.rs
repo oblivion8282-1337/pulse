@@ -2,7 +2,15 @@
 //! damit `cargo run` ohne PATH-Augmentation funktioniert.
 //!
 //! Windows-DLL-Suche schaut zuerst neben der `.exe` — wir legen sie also dort
-//! ab. Quelle: `ffmpeg-dist/n8.1-lgpl-shared/bin/*.dll` (BtbN-Build).
+//! ab. Quelle: `ffmpeg-dist/n8.1-lgpl-shared/bin/*.dll` (selbst gebaut, s.
+//! `scripts/build-ffmpeg-patched.ps1`).
+//!
+//! **Das `cargo:rerun-if-changed` je Quell-DLL unten reicht als Auslöser nicht
+//! verlässlich**, wenn das ganze Zielverzeichnis ausgetauscht wird — deshalb
+//! stupst `build-ffmpeg-patched.ps1` diese Datei zusätzlich an. Beide
+//! Mechanismen sind Absicht; wer einen davon entfernt, riskiert den Zustand,
+//! der schon einmal eine halbe Stunde gekostet hat: `ffmpeg.exe -h` zeigt das
+//! neue FFmpeg, das Programm läuft mit den alten DLLs daneben.
 //!
 //! Die OUT_DIR→target-Walk-Up-Heuristik ist die Standard-Methode in der
 //! Rust-Welt (siehe z.B. `windows-targets`-Crate). Cargo selber hat keinen

@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AV1 8 und 10 Bit als Datei</title>
+<style>body{font:13px system-ui;margin:1.5rem;background:#111;color:#eee}
+video{width:420px;background:#000}.f{display:inline-block;margin-right:2rem;vertical-align:top}
+pre{background:#000;padding:.5rem;font-size:12px;width:400px}</style>
+<h1>AV1 als Datei — 8 gegen 10 Bit</h1>
+<p><b>Trennt zwei Fragen, die sonst zusammenfallen:</b> kann der Browser
+10-Bit-AV1 ueberhaupt (Medien-Pipeline, mit Hardware), oder scheitert nur der
+WebRTC-Weg daran? Ueber WebRTC kommt bei 10 Bit kein Bild heraus — hier laeuft
+derselbe Codec durch die andere Kette.</p>
+<div id="a"></div>
+
+<script>
+const DATEIEN = [
+  ['AV1  8 Bit', 'achtbit.mp4'],
+  ['AV1 10 Bit', 'zehnbit.mp4'],
+];
+
+for (const [name, datei] of DATEIEN) {
+  const box = document.createElement('div');
+  box.className = 'f';
+  box.innerHTML = `<h3>${name}</h3><video muted playsinline></video><pre></pre>`;
+  document.getElementById('a').append(box);
+  const v = box.querySelector('video'), log = box.querySelector('pre');
+  const sag = (t) => { log.textContent += t + '\n'; console.log(`[datei] ${name}: ${t}`); };
+
+  // `canPlayType` sagt nur, was der Browser BEHAUPTET. Gezaehlt wird, was
+  // wirklich dekodiert wird — `getVideoPlaybackQuality()`. Eine schwarze
+  // Flaeche mit laufender Zeit sieht sonst aus wie Erfolg.
+  sag('canPlayType: ' + (v.canPlayType('video/mp4; codecs="av01.0.05M.' + (name.includes('10') ? '10' : '08') + '"') || '(leer)'));
+  v.src = datei;
+  v.onerror = () => sag('FEHLER: ' + (v.error && v.error.message || v.error && v.error.code));
+  v.onloadedmetadata = () => sag(`Masse ${v.videoWidth}x${v.videoHeight}`);
+  v.play().catch(e => sag('play(): ' + e.name));
+
+  let n = 0;
+  const t = setInterval(() => {
+    const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+    sag(`t=${v.currentTime.toFixed(1)}s BILDER=${q ? q.totalVideoFrames : '?'} `
+      + `verworfen=${q ? q.droppedVideoFrames : '?'}`);
+    if (++n >= 5) clearInterval(t);
+  }, 1200);
+}
+</script>

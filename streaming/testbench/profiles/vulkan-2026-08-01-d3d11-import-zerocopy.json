@@ -1,0 +1,64 @@
+{
+  "id": "vulkan-2026-08-01-d3d11-import-zerocopy",
+  "gemessen_am": "2026-08-01 (nachts)",
+  "frage": "Laesst sich der WGC-Bildweg (D3D11) zero-copy nach Vulkan bringen? Davon haengt ab, ob Intra-Refresh auf AMD/Windows ohne CPU-Umweg moeglich ist — der Vulkan-Encoder ist der EINZIGE, der Intra-Refresh dort ueberhaupt ausfuehrt.",
+  "stand": "BEANTWORTET MIT JA, beide Haelften einzeln belegt: Speicher-Import und Synchronisierung.",
+  "warum_die_frage_zaehlt": "FFmpeg hat fuer D3D11 keine Vulkan-Bruecke. `hwcontext_vulkan.c` bildet nur von DRM, VAAPI und CUDA ab — alles Linux. Der naheliegende Ausweg (Bild ueber die CPU nach Vulkan hochladen) traegt zwar den Durchsatz (295 Bilder/s bei 1440p gemessen, fuenffach ueber Bedarf), kostet aber das Zuruecklesen aus der GPU. Genau das wollte die AMD-Zero-Copy-Arbeit vom 2026-07-30 loswerden (113 % einer CPU-Kerne, 42 uebersprungene Bilder in 20 s).",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003. Probe ohne Capture, ohne Encoder, ohne Server: eine Textur, ein Import, ein Ergebnis (streaming/win-hq-labor/examples/probe_d3d11_vulkan_import.rs). Vulkan-Funktionen ueber FFmpegs `get_proc_addr` — keine neue Abhaengigkeit, gleiche Bauart wie die AVD3D11VA-Spiegel im Sidecar.",
+  "ergebnis": {
+    "speicher_import_8bit": {
+      "textur": "D3D11 NV12 1920x1080",
+      "vulkan_format": "VK_FORMAT_G8_B8R8_2PLANE_420_UNORM",
+      "handle_typ": "VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT",
+      "memory_type_bits": "0x1111 (Schnittmenge Bild und Handle)",
+      "groesse": "3932160 Bytes",
+      "stand": "gelungen"
+    },
+    "speicher_import_10bit": {
+      "textur": "D3D11 P010 1920x1080",
+      "vulkan_format": "VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16",
+      "memory_type_bits": "0x1111",
+      "groesse": "7340032 Bytes (rund doppelt, wie fuer 10 bit erwartet)",
+      "stand": "gelungen",
+      "anmerkung": "Dieselbe Flag-Kombination wie NV12 (SR|RT + NTHANDLE|SHARED). Die Sorge, 10 bit koenne an anderen Anforderungen scheitern, hat sich nicht bestaetigt."
+    },
+    "synchronisierung": {
+      "weg": "ID3D11Fence mit D3D11_FENCE_FLAG_SHARED -> CreateSharedHandle -> vkImportSemaphoreWin32HandleKHR als Zeitleisten-Semaphore",
+      "stand": "Import gelungen — aber als Loesung VERWORFEN, s. Nachtrag 2026-08-02",
+      "wozu": "FFmpeg wartet je Bild auf `AVVkFrame.sem` und signalisiert danach mit erhoehtem Wert. Ohne Synchronisierung greift der Encoder auf ein Bild zu, das der Video-Prozessor noch schreibt — ein Fehler, der sich als sporadisch zerrissenes Bild zeigt und in keiner Kennzahl auftaucht.",
+      "warum_verworfen": "Der Import gelingt, aber FFmpeg kann die so gestuetzte Semaphore nicht benutzen: schon das erste Bild endet in VK_ERROR_DEVICE_LOST, auch ohne Signalisieren. Der Betrieb laeuft deshalb ueber gewoehnliche Zeitleisten-Semaphoren je Textur plus kurzes CPU-Warten auf den Fence."
+    }
+  },
+  "drei_dinge_die_die_probe_geklaert_hat": [
+    "`SHARED_NTHANDLE` allein reicht fuer NV12 NICHT — `CreateTexture2D` lehnt mit E_INVALIDARG (0x80070057) ab. Es braucht einen Partner: **`NTHANDLE|SHARED` ist der richtige**, `NTHANDLE|KEYEDMUTEX` funktioniert ebenfalls, ist aber die FALSCHE Wahl. Ein Keyed-Mutex verlangt, dass JEDER Zugriff die Sperre nimmt — und FFmpegs Vulkan-Seite tut das nicht, an ihre Kommandopuffer kommt man nicht heran. Mit `SHARED` uebernimmt der geteilte Fence die Synchronisierung. Die erste Fassung dieser Akte nannte KEYEDMUTEX als noetig; das war zu frueh geschlossen (die Kombination NTHANDLE|SHARED war in der ersten Probe schlicht nicht dabei).",
+    "Die Import-Allokation muss DEDIZIERT sein (`VkMemoryDedicatedAllocateInfo`), und der Speichertyp muss zu Bild UND Handle passen.",
+    "Der EINZELTEXTUR-Pool ist Voraussetzung. Ein Texture-Array (was FFmpeg mit `initial_pool_size > 0` anlegt und was NVIDIA nutzt) laesst sich nicht je Bild importieren — Vulkan importiert die ganze Ressource. Auf AMD gibt es den Einzeltextur-Pool bereits, weil AMF ueber das Array zerrissene Bilder liefert (Befund vom 2026-07-30). Der Fehler von damals macht den Weg von heute erst moeglich."
+  ],
+  "was_daraus_folgt": "Der Sendeweg des Labors kann sein: WGC (BGRA D3D11) -> VideoProcessorBlt -> NV12/P010-Textur (geteilt) -> Vulkan-Import -> av1_vulkan/h264_vulkan mit Intra-Refresh. Kein Byte ueber die CPU. Der VideoProcessorBlt erledigt Farbwandlung und Skalierung in einem Durchgang und ist im Sidecar bereits vorhanden.",
+  "nachtrag_2026_08_02_der_betrieb": {
+    "frage": "Wird ein importiertes Bild vom Vulkan-Encoder auch korrekt kodiert? Der Import allein sagt das nicht.",
+    "stand": "JA. Muster in die D3D11-Textur, importiert, mit av1_vulkan kodiert, dekodiert und Punkt fuer Punkt gegen das Muster gerechnet.",
+    "werkzeug": "examples/probe_vulkan_encode_import.rs (30 Bilder, Verlaufsmuster mit Versatz je Bild — faengt sowohl vertauschte Achsen als auch ein stehendes Bild)",
+    "ergebnis": "Verlauf steigt in beide Richtungen wie vorgegeben; mittlere Abweichung 9,2 von 255 an 16 Stichpunkten. Die Abweichung ist SYSTEMATISCH (dunkel zu dunkel, hell zu hell) und der Wertebereich, nicht der Bildweg: rohe 0-255 hineingeschrieben, die Videokette rechnet mit 16-235 und spreizt beim Dekodieren.",
+    "vier_fehler_die_dabei_gefunden_wurden": [
+      "`AVVkFrame.internal` muss belegt sein — FFmpeg sperrt darin einen Mutex (hwcontext_vulkan.c:2955). Bei NULL: Absturz ohne Meldung. Genullte Allokation genuegt (pthread_mutex_t ist unter Windows ein SRWLOCK, dessen Anfangszustand null ist).",
+      "`AVFrame.buf[0]` muss gesetzt sein, sonst lehnt avcodec_send_frame mit EINVAL ab.",
+      "Die Bilder muessen CONCURRENT ueber die Queue-Familien angelegt sein wie FFmpegs eigene. Bei EXCLUSIVE sind FFmpegs Barrieren (queueFamilyIndex = IGNORED) ungueltig — aeussert sich als VK_ERROR_DEVICE_LOST beim DRITTEN Bild, nicht am Ort der Ursache.",
+      "Der D3D11-Fence darf NICHT als Vulkan-Semaphore in den AVVkFrame. Der Import gelingt zwar, aber FFmpeg kann sie nicht benutzen: schon das erste Bild endet in DEVICE_LOST, auch ohne Signalisieren (per Halbierung nachgewiesen). Stattdessen: eigene Zeitleisten-Semaphore JE TEXTUR (eine gemeinsame ginge nicht, weil FFmpeg sem_value je Bild erhoeht) plus ein kurzes CPU-Warten auf den D3D11-Fence nach dem Schreiben. Kostet Wartezeit, KEINE Kopie."
+    ],
+    "sporadischer_geraeteverlust": {
+      "befund": "VK_ERROR_DEVICE_LOST bei Bild 2, etwa einmal in fuenf Laeufen. Ein sporadischer Geraeteverlust ist schlimmer als ein sicherer, weil er sich im Betrieb als seltener Abbruch zeigt.",
+      "zwei_luecken_gefunden": [
+        "Nichts wartete darauf, dass der Encoder mit einer Textur fertig ist, bevor D3D11 sie neu beschrieb. Der Pool hat vier Texturen, der Encoder haelt bis zu drei — bei ungluecklichem Zeitverlauf ueberschreibt der Video-Prozessor ein Bild waehrend des Kodierens.",
+        "`layout`/`access` blieben nach dem fremden Schreibzugriff auf dem Wert stehen, den FFmpeg hinterlassen hatte. Eine Vulkan-Barriere aus einem Zustand, in dem das Bild gar nicht mehr ist, ist ungueltig — und sie scheitert nicht sichtbar, sondern gelegentlich."
+      ],
+      "behebung": "Beides steckt jetzt in `VulkanImport::mit_bild`, das die Reihenfolge (auf Encoder warten -> schreiben -> auf D3D11 warten) erzwingt statt sie zu dokumentieren, und `layout[0]`/`access[0]` bei jeder Uebergabe auf UNDEFINED zuruecksetzt.",
+      "stand": "15 von 15 Laeufen danach sauber. Das ist KEIN Beweis — bei einer Fehlerrate von 1:5 waere die Wahrscheinlichkeit, 15-mal zufaellig durchzukommen, etwa 3 Prozent, also unwahrscheinlich, aber nicht ausgeschlossen. Beide behobenen Luecken sind unabhaengig davon echte Fehler."
+    }
+  },
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur AMD/Radeon 780M. NVIDIA und Intel sind ungeprueft; die Erweiterungen sind Standard, die Flag-Anforderungen koennen je Treiber abweichen.",
+    "Gemessen wurde mit kuenstlichem Muster ueber 30 Bilder, nicht mit echter Bildschirmaufnahme ueber Minuten. Dauerlauf und Sichtpruefung stehen aus.",
+    "Der 10-bit-Weg (P010) ist beim IMPORT belegt, aber nicht durch den Encoder gerechnet — die Inhaltspruefung lief auf NV12."
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "fec-2026-08-04-zwei-zuschauer",
+  "gemessen_am": "2026-08-04",
+  "frage": "Regelt das Paritaets-Tor je Sitzung — oder regelt der zuletzt verbundene Zuschauer fuer alle?",
+
+  "warum_die_frage_zaehlt": "Die erste Fassung der Regelung (2026-07-31) hielt ihr Tor in einer prozessweiten Variablen (`pulseFecTorAktiv`), mit dem ausdruecklichen Vermerk „bei mehreren gleichzeitigen Zuschauern regelt der zuletzt verbundene fuer alle, und das ist ungetestet\". Praktisch hiesse das: Verlust auf EINER Leitung laesst alle anderen Paritaet zahlen — oder schlimmer, ein ruhiger Zuschauer schliesst das Tor fuer einen, der gerade verliert. Die heutige Fassung haengt es an die PeerConnection. Das war bis hierher nur am Quelltext geprueft; dies ist die letzte offene Bedingung vor dem Einschalten.",
+
+  "aufbau": {
+    "kniff": "Es braucht KEINEN Verlust. Jede Sitzung faehrt ein Anlauffenster — die ersten 5 Sekunden geht die Paritaet immer hinaus, damit das Einstiegs-Vollbild geschuetzt ist. Genau daran trennen sich die beiden Bauweisen: bei einem Tor JE SITZUNG faellt B's Anlauffenster in eine Zeit, in der A's Tor laengst zu ist. Bei einem PROZESSWEITEN Tor gaebe es nur einen Zustand, und beide muessten immer gleich stehen.",
+    "lauf": "Zwei headless Chromium an DEMSELBEN WHEP-Pfad, saubere Leitung, adaptive Regelung mit den ausgelieferten Vorgaben. A verbindet bei Sekunde 0 und laeuft 100 s, B kommt bei Sekunde 55 dazu und laeuft 45 s.",
+    "werkzeug": "`streaming/testbench/fec-zwei.py`",
+    "zeitachse": "Beide Zuschauer stempeln jede Probe mit der Wanduhr (`browser-whep.mjs`, `p.t`). Ohne das lassen sich zwei gleichzeitig laufende Zuschauer nicht gegeneinander legen — der erste Durchgang ist genau daran haengengeblieben und musste ueber die Probennummern schaetzen."
+  },
+
+  "ergebnis": {
+    "paritaetspakete_je_sekunde": {
+      "s0_bis_s3": {"A": [86, 94, 88, 80], "B": "nicht verbunden", "bedeutung": "A's eigenes Anlauffenster"},
+      "s4_bis_s54": {"A": 0, "B": "nicht verbunden", "bedeutung": "A's Tor ist zu — auf sauberer Leitung geht keine Paritaet hinaus"},
+      "s55_bis_s58": {"A": 0, "B": [88, 94, 88, 84], "bedeutung": "DER BEWEIS: B's Anlauffenster, waehrend A's Tor zu bleibt"},
+      "ab_s59": {"A": 0, "B": 0, "bedeutung": "beide zu"}
+    },
+    "sekunden_in_denen_nur_einer_paritaet_bekam": 4,
+    "sekunden_in_denen_beide_paritaet_bekamen": 0,
+    "tor_zaehler_des_servers": [
+      {"sitzung": "A (100 s)", "verluste_gemeldet": 0, "paritaet_gesendet": 420, "unterdrueckt": 8938},
+      {"sitzung": "B (45 s)", "verluste_gemeldet": 0, "paritaet_gesendet": 414, "unterdrueckt": 4012}
+    ]
+  },
+
+  "antwort": "Das Tor regelt je Sitzung. Vier Sekunden lang (55-58) bekam B Paritaet und A keine — im selben Prozess, zur selben Zeit, am selben Strom. Ein prozessweites Tor kann das nicht erzeugen: es haette EINEN Zustand fuer beide. Die Zaehler des Servers bestaetigen es von der anderen Seite: zwei Sitzungen, je rund 415 gesendete Paritaetspakete (jeweils das eigene 5-Sekunden-Anlauffenster) und getrennte Unterdrueckungszahlen im Verhaeltnis ihrer Laufzeiten (8938 zu 4012 bei 100 zu 45 Sekunden).",
+
+  "erster_durchgang_und_was_er_lehrte": "Ein Vorlauf mit B ab Sekunde 40 war NICHT eindeutig: A hatte mitten im Lauf ein elf Sekunden langes Paritaetsfenster, das dicht an B's Beitritt lag. Aufgeloest ueber die Tor-Zeile — A meldete 6 Verluste, B null. Es war also A's eigenes Tor, das auf A's eigenen Verlust reagierte und die Haltezeit von 10 s abfuhr, nicht ein Uebergriff von B. Belastbar wurde das erst, nachdem die Proben eine Uhrzeit tragen und B weit genug hinter A's Anlauf gelegt wurde. **Lehre: zwei gleichzeitige Messreihen ohne gemeinsame Zeitachse sind nicht auswertbar — man schaetzt sonst Probennummern aufeinander und liest die Antwort in das Rauschen hinein.**",
+
+  "einschraenkungen": [
+    "Saubere Leitung, ein Durchgang. Belegt ist die Unabhaengigkeit der Tore, NICHT das Verhalten zweier Zuschauer unter unterschiedlich starkem Verlust.",
+    "**Beide Zuschauer sitzen hinter DERSELBEN Leitung.** Der Fall, der die prozessweite Fassung eigentlich zu Fall brachte — einer verliert, der andere nicht —, ist damit nicht nachgestellt. Dafuer muesste der Verlust je Zuschauer gesetzt werden; die Stoerung haengt heute am UDP-Quellport des Servers und trifft zwangslaeufig alle. Ein Filter auf den ZIEL-Port (jede WHEP-Sitzung bindet einen eigenen) waere der Weg, ist aber nicht gebaut.",
+    "Zwei Zuschauer, nicht zehn. Ob der prozessweite Rest an anderer Stelle sitzt (etwa in der Paritaetserzeugung selbst, die pro Strom laeuft), sagt dieser Lauf nicht."
+  ],
+
+  "folge": "Die letzte offene Bedingung aus `fec-2026-08-04-adaptiv-ueber-nack` ist damit erfuellt. Vor dem Einschalten in der Produktion bleibt kein gemessener Vorbehalt mehr offen — wohl aber die Auslieferungskette: die Produktion faehrt ein Image mit nur Patch 0001, und `PULSE_FLEXFEC_ADAPTIV` steht in keiner Konfiguration."
+}

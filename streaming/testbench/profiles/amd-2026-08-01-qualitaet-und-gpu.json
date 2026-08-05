@@ -1,0 +1,201 @@
+{
+ "id": "amd-2026-08-01-qualitaet-und-gpu",
+ "gemessen_am": "2026-08-01, Radeon 780M (VCN 4), Mesa 26.1.5",
+ "frage": "Was kostet Intra-Refresh auf AMD an BILDQUALITÄT und an GPU-Zeit? Der Gewinn unter Verlust war gemessen (16,0 gegen 65,6 Prozent gestörte Sekunden), der Preis nicht.",
+ "ANTWORT": "Nichts, auf beiden Achsen. Bildqualität 91,1-92,1 gegen 91,2-91,3 VMAF, GPU 1986-2017 gegen 1943-2014 Mikrosekunden VCN-Zeit je Bild — beide Spannen überlappen, der Unterschied liegt unter der Streuung zwischen zwei Wiederholungen derselben Variante. Auf identischen Bildern (Offline-Gegenprobe) sogar 29 Prozent WENIGER Daten bei gleicher Qualität.",
+ "aufbau": {
+  "werkzeug": "datei-harness.py — misst alle drei Achsen in EINEM Lauf: Encode-Latenz (die Zeile, die der Sidecar selbst schreibt), GPU-Kosten (amdgpuload, pro PROZESS über DRM-fdinfo) und VMAF gegen den verlustfreien Encoder-Eingang. Kein Server, keine Leitung — gemessen wird der Encoder.",
+  "inhalt": "bewegtbild.py (deterministische Bewegung, weiche Verläufe plus wanderndes Detailfeld). Auf stehendem Schirm ist jede Encoder-Messung wertlos.",
+  "sender": "1920x1080, 60 fps, AV1 8 bit, 4000 kbps CBR, av1_vaapi, async_depth=1, gegen das gepatchte FFmpeg",
+  "je_variante": "2 Wiederholungen à 40 s, 180 Bilder für VMAF"
+ },
+ "ergebnis": {
+  "A_keyframes_2s": [
+   {
+    "lauf": 1,
+    "vmaf": 91.3,
+    "vmaf_min": 78.001,
+    "vcn_us_je_bild": 2014.4,
+    "csc_us_je_bild": 1571.4,
+    "enc_util_pct": 12.09,
+    "leistung_w": 48.93,
+    "latenz_ms_median": 5.75,
+    "bytes": 11284842
+   },
+   {
+    "lauf": 2,
+    "vmaf": 91.2,
+    "vmaf_min": 77.669,
+    "vcn_us_je_bild": 1943.3,
+    "csc_us_je_bild": 1481.6,
+    "enc_util_pct": 11.66,
+    "leistung_w": 49.37,
+    "latenz_ms_median": 5.65,
+    "bytes": 11027782
+   }
+  ],
+  "B_intra_refresh": [
+   {
+    "lauf": 1,
+    "vmaf": 91.062,
+    "vmaf_min": 78.695,
+    "vcn_us_je_bild": 2016.8,
+    "csc_us_je_bild": 1611.2,
+    "enc_util_pct": 12.1,
+    "leistung_w": 48.0,
+    "latenz_ms_median": 5.87,
+    "bytes": 11274078
+   },
+   {
+    "lauf": 2,
+    "vmaf": 92.062,
+    "vmaf_min": 79.647,
+    "vcn_us_je_bild": 1985.8,
+    "csc_us_je_bild": 1544.1,
+    "enc_util_pct": 11.91,
+    "leistung_w": 49.62,
+    "latenz_ms_median": 5.65,
+    "bytes": 11515919
+   }
+  ],
+  "lesart": "Die Streuung INNERHALB von B (1,0 VMAF) ist größer als der Abstand zwischen A und B. Genauso bei der GPU-Zeit: 71 Mikrosekunden zwischen den beiden A-Läufen, 31 zwischen den B-Läufen, und die Mittelwerte liegen 22 auseinander. Das ist kein Unterschied, das ist Rauschen."
+ },
+ "gegenprobe_identische_bilder": {
+  "warum": "Bei datei-harness nimmt jeder Lauf einen anderen Ausschnitt auf — die Inhaltsschwankung ist größer als der gesuchte Unterschied (dieselbe Lehre wie im Kopf von sweep-offline.py). Hier bekommen beide Varianten dieselben 300 Bilder aus EINEM Rohmitschnitt.",
+  "heute": {
+   "vmaf": 96.514,
+   "vmaf_min": 85.15,
+   "psnr_y": 56.306,
+   "groesse_kb": 671
+  },
+  "intraref": {
+   "vmaf": 96.519,
+   "vmaf_min": 85.15,
+   "psnr_y": 55.763,
+   "groesse_kb": 474
+  },
+  "bedeutung": "Gleiche Qualität (96,514 gegen 96,519) bei 29 Prozent weniger Daten. Der Grund ist derselbe wie live: die periodischen Vollbilder fallen weg. Achtung, KEIN Iso-Bitraten-Vergleich — die Ratenkontrolle unterschreitet die Vorgabe bei diesem Inhalt in beiden Fällen, beide liegen also an ihrer Qualitätsdecke."
+ },
+ "DIE_FALLE_DIESES_LAUFS": {
+  "was_passierte": "Die erste B-Reihe lief über die Umgebungsvariable `PULSE_INTRA_REFRESH=1`. Im Protokoll stand danach `opts: \"(Vorgabe)\"` — genau wie bei A. Nichts im Lauf belegte, dass der Schalter angekommen war, und das Sidecar-Log erwähnt Intra-Refresh nirgends.",
+  "warum_das_zaehlt": "Die Zahlen sahen gut aus (VMAF 91,311 gegen 91,3) und wären als 'kein Unterschied' durchgegangen — der wahrscheinlichste Grund für 'kein Unterschied' ist aber, dass beide Varianten dasselbe gemessen haben.",
+  "behoben": "B wiederholt mit `--opts intra_refresh=1`. Damit steht der Schalter IM Protokoll, und `unbekannte_optionen: []` belegt, dass der Encoder ihn kennt. Die Zahlen bestätigen die erste Reihe — verwertbar ist trotzdem nur die zweite."
+ },
+ "NEBENBEFUND_1082_ZEILEN": {
+  "befund": "`av1_vaapi` gibt bei 1080p ZWEI ZEILEN MEHR aus, als der Container angibt: Container 1920x1080, Decoder liefert 1920x1082. Reproduziert über den Datei-Weg UND über den Live-Encode-Pfad des Sidecars (`encode_smoke av1 1920 1080`).",
+  "nur_bei_1080": "720p, 1440p und 1088 sind exakt; H.264 bei 1080p ebenfalls exakt. Es trifft also AV1 bei genau der Auflösung, die am häufigsten gestreamt wird.",
+  "folge": "Ein Empfänger, der auf die Container-Größe zuschneidet, sieht nichts davon. Wer das dekodierte Bild nimmt, wie es kommt — und das tut unser Player —, bekommt zwei Zeilen zusätzlich. Für die Qualitätsmessung war es ein harter Abbruch ('input height must match'), bis der Vergleich zuschneidet.",
+  "offen": "Ursache nicht geklärt (Treiber/Encoder, nicht unser Code). Ob es sichtbar ist und ob die Ausgabehöhe auf ein Vielfaches von 16 gerundet werden sollte, ist eine Entscheidung, keine Messung."
+ },
+ "was_dafuer_am_werkzeug_zu_aendern_war": "`vmaf_common.encode_cmd` hatte die NVENC-Optionen fest verdrahtet (`-tune ll -rc cbr -zerolatency -delay -b_ref_mode`); auf `av1_vaapi` bricht ffmpeg damit ab. Die Frage 'was kostet diese Encoder-Einstellung an Bildqualität' war auf AMD also gar nicht stellbar — dieselbe Lücke, die `amdgpuload.py` für die GPU-Last geschlossen hat. Jetzt wählt die Funktion die Grundeinstellungen nach Encoder-Familie, und `sweep-offline.py` hat eine eigene VAAPI-Variantenliste (die NVENC-Namen existieren dort alle nicht).",
+ "offen": [
+  "Iso-Bitraten-Vergleich: beide Varianten lagen an der Qualitätsdecke, die Ratenkontrolle unterschritt die 4000 kbps. Ein Vergleich bei erzwungen gleicher Datenrate (oder höherem Ziel) würde die Aussage schärfen.",
+  "Nur AV1 gemessen. Für H.264 (RDNA2 kann kein AV1 encodieren) fehlt dieselbe Reihe.",
+  "Die GPU-Zahl ist VCN-Zeit je Bild; der CSC-Anteil (scale_vaapi, 1481-1611 Mikrosekunden) läuft auf der Compute-Einheit und ist in beiden Varianten gleich groß — er gehört nicht zum Intra-Refresh-Vergleich, wohl aber zur Frage 'was kostet der Sendeweg insgesamt'."
+ ],
+ "NACHTRAG_SAUBERE_WIEDERHOLUNG": {
+  "warum": "Die erste Reihe lief mit ungleicher Fremdlast: nach Variante A blieben drei mpv aus `bewegtbild.py` stehen (SIGTERM raeumt dort nicht auf), Variante B lief also mit doppelter Hintergrundlast auf der GPU. Die GPU-Zahl misst zwar pro PROZESS und ist davon unberuehrt, die Bedingungen waren trotzdem nicht gleich.",
+  "wiederholt_am": "2026-08-01, nach dem Fix in bewegtbild.py, EIN Bewegtbild fuer beide Varianten",
+  "ergebnis": {
+   "A_keyframes": {
+    "vmaf": 89.49,
+    "vmaf_min": 81.3,
+    "vcn_us_je_bild": 2634,
+    "latenz_ms_median": 5.68
+   },
+   "B_intra_refresh": [
+    {
+     "vmaf": 88.9,
+     "vmaf_min": 80.6,
+     "vcn_us_je_bild": 2674,
+     "latenz_ms_median": 5.84
+    },
+    {
+     "vmaf": 89.55,
+     "vmaf_min": 80.9,
+     "vcn_us_je_bild": 2664,
+     "latenz_ms_median": 5.77
+    }
+   ],
+   "verworfen": "Der zweite A-Lauf trug die Signatur der verrutschten Bildpaarung (vmaf_min 0.0, 181 statt 180 Paare) und ist nicht verwertbar — es bleibt EIN sauberer A-Lauf."
+  },
+  "bestaetigt": "Dieselbe Aussage: VMAF 89,49 gegen 88,90/89,55, VCN 2634 gegen 2674/2664 Mikrosekunden. Kein Unterschied ueber der Streuung. Die absoluten Werte liegen anders als in der ersten Reihe (dort 91,2-92,1 VMAF und 1943-2017 us) — der Bildinhalt war ein anderer; verglichen wird immer nur INNERHALB einer Reihe."
+ },
+ "NACHTRAG_ISO_BITRATE": {
+  "gemessen_am": "2026-08-01, offline auf identischen Bildern (300 Bilder aus EINEM Rohmitschnitt)",
+  "warum": "Der erste Vergleich war KEIN Iso-Bitraten-Vergleich: beide Varianten lagen an ihrer Qualitaetsdecke und unterschritten die Vorgabe.",
+  "erster_befund_die_ratenkontrolle_saettigt": {
+   "messung": [
+    {
+     "ziel_kbps": 2000,
+     "keyframes_kbps": 1058,
+     "intraref_kbps": 713,
+     "vmaf_keyframes": 95.93,
+     "vmaf_intraref": 96.05
+    },
+    {
+     "ziel_kbps": 4000,
+     "keyframes_kbps": 1099,
+     "intraref_kbps": 777,
+     "vmaf_keyframes": 96.51,
+     "vmaf_intraref": 96.52
+    },
+    {
+     "ziel_kbps": 8000,
+     "keyframes_kbps": 1177,
+     "intraref_kbps": 837,
+     "vmaf_keyframes": 96.85,
+     "vmaf_intraref": 96.86
+    },
+    {
+     "ziel_kbps": 16000,
+     "keyframes_kbps": 1175,
+     "intraref_kbps": 827,
+     "vmaf_keyframes": 96.92,
+     "vmaf_intraref": 96.89
+    }
+   ],
+   "lesart": "Der Encoder erreicht das Ziel NIE — bei 16000 kbps Vorgabe liefert er 1175. Er ist qualitaetsgesaettigt, nicht ratenbegrenzt. Ueber alle Ziele hinweg braucht Intra-Refresh rund 30 Prozent weniger Bits bei GLEICHEM VMAF."
+  },
+  "der_echte_iso_bitraten_punkt": {
+   "verfahren": "Beide Varianten auf so niedrige Ziele gezwungen, dass die Ratenkontrolle wirklich begrenzt.",
+   "messung": [
+    {
+     "ziel_kbps": 700,
+     "keyframes": {
+      "kbps": 560,
+      "vmaf": 92.64
+     },
+     "intraref": {
+      "kbps": 567,
+      "vmaf": 94.44
+     }
+    },
+    {
+     "ziel_kbps": 900,
+     "keyframes": {
+      "kbps": 767,
+      "vmaf": 93.75
+     },
+     "intraref": {
+      "kbps": 639,
+      "vmaf": 94.84
+     }
+    },
+    {
+     "ziel_kbps": 1100,
+     "keyframes": {
+      "kbps": 817,
+      "vmaf": 94.12
+     },
+     "intraref": {
+      "kbps": 669,
+      "vmaf": 95.23
+     }
+    }
+   ],
+   "ANTWORT": "Bei 560 gegen 567 kbit/s — also praktisch derselben Rate — liegt Intra-Refresh 1,8 VMAF vorn (94,44 gegen 92,64). Bei den hoeheren Zielen braucht es weniger Bits UND ist besser. Intra-Refresh kostet also nicht nur nichts, es gewinnt auch bei gleicher Datenrate."
+  },
+  "grenze": "Gemessen auf EINEM Inhalt (bewegtbild.py, weiche Verlaeufe plus wanderndes Detailfeld). Bei Inhalt, der die Ratenkontrolle wirklich auslastet (schnelle Spielszene, viel Detail), kann das Verhaeltnis anders liegen — dort kosten die Keyframes relativ weniger."
+ }
+}

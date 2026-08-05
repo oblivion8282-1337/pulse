@@ -54,6 +54,15 @@ export class ManagedHqStream {
   /** Eingehender MediaStream — das Player-`<video>` hängt sich hier dran. */
   stream = $state<MediaStream | null>(null);
   volume = $state(100);
+  /**
+   * Sendet dieser Stream mit 10 bit je Farbkanal? Aus der WHEP-Antwort, also
+   * bekannt BEVOR etwas dekodiert ist.
+   *
+   * Der Zuschauer hat hier keine Wahl: dieses `<video>` kann 10 bit nicht
+   * darstellen, nur das eigene Fenster kann es (`useNativePlayback`). `false`
+   * heisst „8 bit oder noch nicht bekannt" — nie „bestimmt nicht".
+   */
+  tenBit = $state(false);
 
   #session: WhepSession | null = null;
   #connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
@@ -105,6 +114,24 @@ export class ManagedHqStream {
   }
 
   // ---- Lautstärke ---------------------------------------------------------
+  /**
+   * Gibt der native Player den Ton aus? Dann schweigt dieser Weg.
+   *
+   * Ohne das liefe der Ton DOPPELT: das eigene Fenster dekodiert Opus selbst
+   * (cpal) und diese Verbindung tut es auch — und der Schieber in der Kachel
+   * würde nur die Hälfte davon regeln. Gesetzt wird es von der
+   * `NativePlayerSession`, nicht von der Kachel: das Fenster überlebt deren
+   * Unmount (Keep-Alive), und beim Aushängen dürfte der Ton nicht wieder
+   * doppelt anlaufen.
+   */
+  nativeAudio = $state(false);
+
+  setNativeAudio(on: boolean): void {
+    if (this.nativeAudio === on) return;
+    this.nativeAudio = on;
+    this.#applyVolume();
+  }
+
   setVolume(v: number): void {
     if (v > 0) this.#prevVolume = v;
     this.volume = v;
@@ -129,7 +156,9 @@ export class ManagedHqStream {
   }
 
   #applyVolume(): void {
-    const v = this.volume / 100;
+    // Der ANGEZEIGTE Wert bleibt erhalten (`this.volume`) — er gilt dann für
+    // den Player, der ihn über `set_option` bekommt.
+    const v = this.nativeAudio ? 0 : this.volume / 100;
     if (this.#audioEl) this.#audioEl.volume = Math.min(1.0, v);
     this.#boost.setVolume(v);
   }
@@ -215,7 +244,18 @@ export class ManagedHqStream {
     if (this.#disposed) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url } = await chatApi.getWhepUrl(this.channelId, this.userId, this.slot);
+      const { whep_url, ten_bit } = await chatApi.getWhepUrl(
+        this.channelId,
+        this.userId,
+        this.slot,
+      );
+      // Die Bittiefe entscheidet, OB dieser Weg ueberhaupt der richtige ist:
+      // ein 10-bit-Strom laesst sich hier nicht in 10 bit anzeigen (Chromium
+      // legt seinen Puffer als 8 bit an, gemessen 2026-07-26). Der Wert muss
+      // deshalb hier haengenbleiben — die Kachel kann ihn sonst nirgends
+      // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
+      // die Lage, in der die Entscheidung faellt.
+      this.tenBit = ten_bit === true;
       if (this.#disposed) return;
       const s = await connectWhep(whep_url, (stream) => this.#onStream(stream));
       if (this.#disposed) {

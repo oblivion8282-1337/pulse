@@ -11,7 +11,7 @@
 //! FLV-Muxer baut daraus via `ff_isom_write_avcc`/`hvcc` den Sequence-Header —
 //! Annex-B-Input (Start-Codes) wird dabei akzeptiert und konvertiert.
 
-use super::encoder::VideoCodec;
+use super::codec::VideoCodec;
 
 /// Zieht die Parameter-Set-NALs (H.264: SPS+PPS · HEVC: VPS+SPS+PPS) aus einem
 /// Annex-B-Bitstream und gibt sie start-code-präfixiert zurück — fertig als

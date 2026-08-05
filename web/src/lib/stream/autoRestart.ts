@@ -23,7 +23,7 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { chatApi } from '$lib/api/chat';
 import { gsr } from './gsr';
-import { buildStartArgs } from './settings.svelte';
+import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
 import { streamForSlot, markStarting } from './state.svelte';
 import { resolveSlotLabel } from './label';
 
@@ -66,7 +66,16 @@ export function maybeAutoRestart(slot: number): void {
     const session = streamForSlot(slot);
     try {
       const label = resolveSlotLabel(slot).label;
-      const tok = await chatApi.getStreamToken(channelId, 'rtmp', slot, label);
+      // Denselben Weg wie beim Start von Hand waehlen — warum die Betriebsart
+      // den Transport mitentscheidet und was das harte `'rtmp'` hier anrichtete:
+      // s. `pushProtokoll`.
+      const tok = await chatApi.getStreamToken(
+        channelId,
+        pushProtokoll(),
+        slot,
+        label,
+        tenBitPossible()
+      );
       const args = buildStartArgs({ channelId, token: tok.token, pushUrl: tok.push_url }, slot);
       const r = await gsr.start(args, slot);
       if (r && !r.ok) throw new Error(r.error ?? m.stream_controls_error_start_failed());

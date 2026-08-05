@@ -1,0 +1,29 @@
+{
+  "id": "codecs-2026-07-31-empfangsweg",
+  "gemessen_am": "2026-07-31 (nachts, ohne Nutzer)",
+  "frage": "Liegt das Stottern am Codec? Verhalten sich H.264, AV1 8 bit und AV1 10 bit auf dem Empfangsweg unterschiedlich?",
+  "aufbau": {
+    "sender": "fern-referenz.py — ffmpeg schickt eine vorkodierte Vorlage per -c copy, in jedem Durchgang exakt dieselben Bytes, gleichmaessig getaktet (-re). KEIN Encoder, KEIN Portal, KEINE Bildschirmaufnahme: alle drei Stoergroessen des echten Senders sind damit aus der Messung heraus.",
+    "vorlagen": "live-vorlage.py mit Sidecar-Encoder-Optionen, 2560x1440@60, 4000 kbps, Keyframe alle 2 s",
+    "weg": "RTMPS zum Hetzner-Labor-Server, Zuschauer ist der native Player ueber WHEP",
+    "server": "mediamtx-labor, Vorgabe-Betriebsart (FlexFEC 10+2, nicht adaptiv)",
+    "dauer": "je 25 s, 23 Proben nach Abzug des Aufbaus"
+  },
+  "ergebnis": [
+    {"variante": "AV1 10 bit", "fps_mittel": 58.4, "fps_min": 23, "luecken_ueber_5ms_je_s": 13.4, "groesste_luecke_ms": 36.5},
+    {"variante": "AV1 8 bit",  "fps_mittel": 58.1, "fps_min": 17, "luecken_ueber_5ms_je_s": 13.5, "groesste_luecke_ms": 36.2},
+    {"variante": "H.264 8 bit","fps_mittel": 58.1, "fps_min": 17, "luecken_ueber_5ms_je_s": 13.2, "groesste_luecke_ms": 37.2}
+  ],
+  "was_das_heisst": {
+    "der_codec_ist_es_nicht": "Die drei Varianten liegen in jeder Groesse innerhalb des Rauschens beieinander — Bildrate 58,1 bis 58,4, Luecken 13,2 bis 13,5 je Sekunde, groesste Luecke 36,2 bis 37,2 ms. Wer das Stottern beim Encoder sucht, sucht am falschen Ende.",
+    "die_buendelung_entsteht_hinter_dem_sender": "Der Referenzsender schickt gleichmaessig; was beim Zuschauer ankommt, ist es nicht. Uebrig bleiben als Verursacher: der eigene Uplink, der Server, der Weg zum Zuschauer, der Jitter-Puffer oder der Player.",
+    "die_groesse_der_luecken_ist_die_ruckel_schwelle": "Bei 60 fps liegt der doppelte Bildabstand bei 33,3 ms — genau in diesem Bereich liegen die groessten Ankunftsluecken (36 ms). Das ist die Groesse, die man als Ruckeln SIEHT, waehrend Bildzahl und Bitrate unauffaellig aussehen.",
+    "58_statt_60": "Rund zwei Bilder je Sekunde fehlen durchgaengig. Ob sie verloren gehen oder zu spaet kommen, ist mit diesen Groessen nicht entschieden."
+  },
+  "was_diese_messung_NICHT_beantwortet": [
+    "Den echten Sender (Aufnahme + Encoder + Push) — der braucht das Portal und damit einen Menschen am Rechner. Der Encoder kann zusaetzlich buendeln; diese Messung schliesst ihn nur als ALLEINIGE Ursache aus.",
+    "Den WHIP-Weg — hier lief RTMPS. Der Vergleich beider Wege am Referenzsender ist der naechste Schritt.",
+    "Ob die Luecken vom eigenen Uplink kommen: bei 4000 kbps auf 10 Mbit sollte er reichen, belegt ist es hier nicht (fern-split.py kann das attribuieren)."
+  ],
+  "naechster_schritt": "Dieselbe Reihe ueber WHIP statt RTMPS, und mit fern-split.py aufteilen, ob die Luecken vor oder hinter dem eigenen Anschluss entstehen."
+}

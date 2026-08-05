@@ -1,0 +1,56 @@
+{
+  "id": "fec-2026-07-31-fest-gegen-adaptiv",
+  "KORREKTUR_2026-07-31_NACHT": {
+    "betrifft": "die Wiederholungs- und Verspaetungszahlen dieser Akte",
+    "was_falsch_war": "Die 931 kbit/s Wiederholungen bestanden zu rund 98 Prozent aus Duplikaten: der Player verwarf seine eigenen Nachlieferungen (SRTP-Wiedergabefenster 64 Pakete), die Luecke blieb offen, und der NACK-Erzeuger forderte bis zu 200 mal dasselbe Paket an. Ebenso war `rechtzeitig_bei_100ms_puffer: 172 von 803` falsch gerechnet — die Auswertung mass die Verspaetung der zweiten und jeder weiteren KOPIE, nie die der eigentlichen Nachlieferung.",
+    "richtige_werte_aus_demselben_pcap": "910 Luecken (0,33 Prozent Verlust), davon 795 nachgeliefert; Verspaetung Median 96,71 ms; 562 von 795 rechtzeitig, also 70,7 statt 21 Prozent. 61805 Kopien verteilen sich auf 795 Pakete = 77,7 je Stueck.",
+    "was_bestehen_bleibt": "Dass die feste Paritaet arbeitet (170 reparierte Pakete, null unreparierbar) und der Einfrier-Detektor sechsmal griff. Beides steht innerhalb der Messung und haengt nicht an der Wiederholungszaehlung.",
+    "belege": "player-2026-07-31-srtp-fenster, Commit cb1de022"
+  },
+  "gemessen_am": "2026-07-31 (Abend)",
+  "frage": "Was leistet feste Paritaet unter derselben Stoerserie, unter der die adaptive Regelung nichts repariert hat?",
+
+  "warum_die_frage_zaehlt": "Der Lauf davor hatte gezeigt: adaptive Paritaet schaltet zu spaet und repariert NULL Pakete. Bevor daraus eine Empfehlung wird, muss belegt sein, dass die feste Variante ueberhaupt etwas leistet — sonst waere „ganz aus\" die ehrlichere Wahl als 20 Prozent Aufschlag fuer nichts.",
+
+  "aufbau": "Identisch zum adaptiven Lauf: echter Sender, Intra-Refresh, AV1 10 bit, 4000 kbps, PULSE_PLAYER_FLEXFEC=1, Zeitmuster und Sonde, neun Stoerzyklen (4 Downloads, 25 s, alle 45 s). Einziger Unterschied: Server auf fester Paritaet 10+2 (`./neustart.sh` ohne Argumente).",
+
+  "ergebnis": {
+    "dauer_s": 618.7,
+    "reparierte_pakete": 170,
+    "unreparierbare_pakete": 0,
+    "zu_spaet": 0,
+    "paritaet_kbit": 831,
+    "paritaet_prozent": 19.8,
+    "wiederholungen_kbit": 931,
+    "gesamt_kbit": 5960,
+    "aufschlag_prozent": 42.0,
+    "nacks": 29910,
+    "plis": 53,
+    "ssrcs": 2,
+    "verspaetung_median_ms": 107.76,
+    "rechtzeitig_bei_100ms_puffer": "172 von 803",
+    "detektor_eingriffe": 6,
+    "sichtbare_bildausfaelle": 1
+  },
+
+  "was_belastbar_ist": {
+    "die_paritaet_arbeitet": "170 reparierte Pakete, null unreparierbar. Das steht INNERHALB einer Messung und ist damit von der Stoerlage unabhaengig — anders als jeder Vergleich zwischen Laeufen.",
+    "xor_reicht_fuer_diese_strecke": "In inzwischen drei Laeufen mit eingeschalteter Paritaet ist XOR kein einziges Mal an einer Gruppe gescheitert (`unreparierbar` durchgehend 0). Reed-Solomon loest hier weiterhin ein Problem, das nicht auftritt.",
+    "der_preis_ist_bekannt": "Rund 20 Prozent Aufschlag, hier 831 kbit/s je Zuschauer. Der Server rechnet sie fuer jede Verbindung einzeln aus."
+  },
+
+  "was_NICHT_belastbar_ist": {
+    "der_vergleich_der_aufschlagszahlen": "Die Stoerlage war trotz identischer Stoerserie sehr verschieden: 931 kbit/s Wiederholungen in diesem Lauf gegen 710 im adaptiven, und 29910 NACKs gegen 2686 im fruehen Lauf mit fester Paritaet. Die Leitung war am Abend erheblich unruhiger als am Nachmittag. Zahlen zwischen den Laeufen zu vergleichen waere Zahlenspielerei.",
+    "die_these_fec_senkt_die_nachforderungen": "Am Nachmittag sah es so aus (7437 -> 2686 NACKs). Heute Abend liegen sie MIT Paritaet bei 29910. Die fruehere Beobachtung war vermutlich Stoerlage, nicht Wirkung. Diese These ist damit offen, nicht belegt."
+  },
+
+  "nebenbefund_der_zaehlt": "Der Einfrier-Detektor griff sechsmal, davon EINMAL bei Sekunde 28 — also VOR dem ersten gesetzten Stoerzyklus, bei ganz normalen Leitungsverhaeltnissen (Latenz war auf 1082 ms gestiegen, `dekodiert` schwankte zwischen 49 und 73 statt konstant 60). Der Decoder-Fehler braucht also keine kuenstliche Saettigung; es genuegt, wenn die Leitung von sich aus kurz staut. Ohne den Fix waere das ein dauerhaft eingefrorenes Bild gewesen, das keine Kennzahl gemeldet haette.",
+
+  "empfehlung": "Bei fester Paritaet bleiben. Sie ist der einzige der drei Zustaende mit belegtem Nutzen. Wer die 20 Prozent sparen will, braucht eine Regelung mit einer anderen Regelgroesse als `fraction lost` — eine, die den Verlust VOR der NACK-Reparatur sieht und die Paritaet vorausschauend einschaltet.",
+
+  "offen": [
+    "Ein sauberer A/B braucht eine Teststrecke mit GESETZTEM Verlust (netem mit ifb fuer den Empfangsweg), nicht nur selbst ausgeloeste Saettigung plus Fremdlast. Ohne sie schwanken die Vergleichszahlen mit der Tageszeit.",
+    "Ob 20+4 statt 10+2 bei gleichem Overhead besser gegen Buendelverlust schuetzt (doppelter Verschraenkungsabstand) — bisher nur aus der Analyse, nie gemessen.",
+    "Ob die Paritaet den Rueckkanal wirklich entlastet. Die Zahlen widersprechen sich zwischen den Laeufen."
+  ]
+}

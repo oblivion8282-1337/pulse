@@ -16,6 +16,38 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::core::Interface;
 
+/// Vendor-Slug einer GPU-Vendor-ID. Die EINE Tabelle im Crate — sie stand
+/// zwischenzeitlich an vier Stellen (hier, `pipeline_hw`, `encode/hwctx`,
+/// `encode/encoder_d3d12`), und eine Vendor-Zuordnung, die auseinanderlaufen
+/// kann, ist genau die Art Fehler, die man erst am kaputten Bild bemerkt.
+/// `None` = unbekannter Hersteller.
+pub fn vendor_slug(vendor_id: u32) -> Option<&'static str> {
+    match vendor_id {
+        0x10DE => Some("nvidia"),
+        0x1002 => Some("amd"),
+        0x8086 => Some("intel"),
+        _ => None,
+    }
+}
+
+/// Vendor-Slug der GPU hinter einem **D3D11-Device** — via
+/// `IDXGIDevice::GetAdapter`.
+///
+/// Maßgeblich ist die GPU, auf der WGC sein Device gebaut hat (= die des
+/// primären Displays), nicht die aus `list_adapters()`/`select_adapter()`: auf
+/// Multi-GPU bevorzugt Letzteres die dGPU, während Capture und Encoder auf der
+/// Display-GPU laufen. `None` wenn die Abfrage fehlschlägt oder der Vendor
+/// unbekannt ist.
+pub fn device_vendor(
+    device: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
+) -> Option<&'static str> {
+    use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+    let dxgi: IDXGIDevice = device.cast().ok()?;
+    let adapter = unsafe { dxgi.GetAdapter() }.ok()?;
+    let desc = unsafe { adapter.GetDesc() }.ok()?;
+    vendor_slug(desc.VendorId)
+}
+
 /// Knappes Adapter-Profil, JSON-serialisierbar.
 #[derive(Debug, Clone)]
 pub struct Adapter {
@@ -28,12 +60,7 @@ pub struct Adapter {
 impl Adapter {
     /// Vendor-Slug für die JSON-Response (`"nvidia"`/`"amd"`/`"intel"`/`"other"`).
     pub fn vendor(&self) -> &'static str {
-        match self.vendor_id {
-            0x10DE => "nvidia",
-            0x1002 => "amd",
-            0x8086 => "intel",
-            _ => "other",
-        }
+        vendor_slug(self.vendor_id).unwrap_or("other")
     }
 
     /// Encoder-Codecs die die GPU in Hardware wirklich unterstützt (FFmpeg-Codec-

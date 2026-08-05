@@ -17,8 +17,9 @@ gemeinsam ist.
 `streaming/testbench/`.
 
 Der Absatz „warum zwei Repos" ist erledigt — das Zusammenlegen ist vollzogen
-(`53aa1e23`), das Quell-Repo `pulse-linux-hq-sidecar` steht nur noch als Archiv
-und trägt die Messbegründungen in seiner Historie. Der Prüfstand liegt seit
+(`53aa1e23`), das Quell-Repo `pulse-linux-hq-sidecar` ist seit
+2026-07-30 gelöscht (lokal und auf GitHub); seine Historie ist nicht mehr
+nachschlagbar, die Begründungen stehen jetzt an den Werten selbst. Der Prüfstand liegt seit
 `7b9ab6a6` ebenfalls auf `main`, nicht mehr auf `feat/native-hq-player`.
 
 ## Bauumgebung auf einer frischen Maschine (Fedora, geprüft 2026-07-30)

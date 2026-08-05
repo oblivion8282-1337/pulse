@@ -34,6 +34,13 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
+  import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
+  import {
+    nativeChatRequests,
+    nativePlayerSessions,
+    nativeWindowRequests
+  } from '$lib/player/store.svelte';
 
   let {
     channelId,
@@ -62,39 +69,180 @@
   // Alive-Abgleicher im Layout besitzt die Lebensdauer + den Abbau. Diese
   // Komponente hängt nur ihr Video-Bild an den (evtl. schon laufenden) Stream.
   let mgr = $state<ManagedHqStream | null>(null);
+  // Einmal gesehen, bleibt gemerkt — und genau deshalb ein eigener Wert statt
+  // eines Blicks auf `mgr`: die Bittiefe entscheidet ueber das Fenster, das
+  // Fenster klemmt `mgr` ab, und `mgr` traegt die Bittiefe. Direkt gelesen
+  // waere das ein Kreis, der sich endlos selbst umschaltet. Die Bittiefe eines
+  // laufenden Streams aendert sich ohnehin nicht.
+  let tenBitGesehen = $state(false);
   $effect(() => {
-    mgr = hqStreams.ensure(channelId, userId, streamSlot);
+    if (mgr?.tenBit) tenBitGesehen = true;
   });
+  $effect(() => {
+    // Solange das Bild NICHT im eigenen Fenster laeuft, haelt der Browser die
+    // Verbindung — auch waehrend das Fenster erst hochkommt, damit ein
+    // gescheiterter Start nahtlos auf `<video>` zurueckfaellt.
+    //
+    // Sobald es laeuft, wird sie abgeklemmt (Gegenstueck in
+    // `HqStreamKeepAlive`, Begruendung dort): das Fenster gibt Bild und Ton
+    // aus, eine zweite Kopie desselben Streams zu dekodieren bringt nichts —
+    // und ein Decoder, der daran scheitert, fordert Vollbilder an und
+    // beschaedigt den Strom fuer alle.
+    //
+    // Die Bittiefe, an der die Fenster-Pflicht haengt, ist zu diesem Zeitpunkt
+    // laengst bekannt: sie kommt aus der WHEP-Antwort dieser Verbindung, die
+    // vor dem Fenster steht.
+    mgr = native.session?.phase === 'playing'
+      ? null
+      : hqStreams.ensure(channelId, userId, streamSlot);
+  });
+
+  // Nativer HQ-Player (Electron, experimentell — `streaming/pulse-player/`):
+  // ersetzt nur das BILD. Der Ton kommt unveraendert aus `mgr` weiter (dessen
+  // Video-Element ist immer stumm, siehe hqStreamManager.svelte.ts) — die
+  // Browser-WHEP-Verbindung laeuft also so oder so, unabhaengig davon, ob wir
+  // ihr Video anzeigen. Logik ausgelagert (Groessen-Policy): siehe
+  // `useNativePlayback.svelte.ts`.
+  const native = useNativePlayback(() => ({
+    channelId,
+    userId,
+    slot: streamSlot,
+    title: name,
+    // Aus der WHEP-Antwort, die der Manager ohnehin holt — bekannt, bevor
+    // irgendetwas dekodiert ist. Steht sie noch aus, ist der Wert `false`,
+    // und die Kachel startet im `<video>`-Weg; kommt danach `true`, schaltet
+    // dieser abgeleitete Wert die Kachel um.
+    tenBit: tenBitGesehen
+  }));
+  const useNative = $derived(native.active);
+
+  // Steht der native Player zur Verfuegung? Ohne Electron, ohne das Binary
+  // ODER nach einer gescheiterten Sitzung (`nativeFailed`) fuehrt der
+  // Abkoppel-Knopf in das zweite Browser-Fenster wie eh und je — sonst taete
+  // er sichtbar nichts, weil `useNativePlayback` nach einem Fehler dauerhaft
+  // beim `<video>`-Weg bleibt.
+  const nativMoeglich = $derived(native.verfuegbar && !native.nativeFailed);
+
+  // Beschriftung des EINEN Knopfes. Sie muss die jeweilige Bedeutung tragen —
+  // derselbe Knopf oeffnet, holt zurueck oder holt nach vorne.
+  function fensterTitelFuer(): string {
+    if (!nativMoeglich) return m.tile_shell_detach();
+    if (native.erzwungen) return m.whep_player_native_toggle_forced();
+    if (useNative) return m.whep_player_native_toggle_off();
+    return m.tile_shell_detach();
+  }
+  const fensterTitel = $derived(fensterTitelFuer());
 
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
   // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
+  // Kein Attach, solange der native Player das Bild zeigt.
   $effect(() => {
     const m = mgr;
     const el = videoEl;
-    if (!m || !el) return;
+    if (!m || !el || useNative) return;
     void m.stream; // tracken → Re-Attach bei (Wieder-)Verbindung
     m.attachVideo(el);
     return () => m.detachVideo(el);
   });
 
-  // Anzeige-Zustand spiegelt den Manager.
-  const phase = $derived(mgr?.phase ?? 'connecting');
-  const detail = $derived(mgr?.detail ?? '');
+  // Der Schliessen-Knopf IM Fenster soll die Kachel zumachen — dieselbe Wirkung
+  // wie das X hier. Die Sitzung kennt die Kachel-Registry nicht, deshalb haengt
+  // sie den Weg dorthin als Rueckruf ein.
+  $effect(() => {
+    const s = native.session;
+    if (!s) return;
+    s.onCloseTile = (cid, uid, slot) =>
+      openedTiles.close('hq', cid, hqTileId(uid, slot));
+    return () => {
+      s.onCloseTile = null;
+    };
+  });
+
+  // Chat-Knopf im Fenster: der Hauptprozess holt die App nach vorne, hier geht
+  // der Chat auf. Ueber einen Zaehler, damit auch das zweite Druecken wirkt.
+  let chatWunschGesehen = $state(0);
+  $effect(() => {
+    const n = nativeChatRequests.count(channelId, userId, streamSlot);
+    if (n > chatWunschGesehen) {
+      chatWunschGesehen = n;
+      chatOpen = true;
+    }
+  });
+
+  // Anzeige-Zustand: im nativen Modus spiegelt der Overlay den Sitzungsstatus
+  // des Players statt des Browser-Managers (dessen `mgr.phase` weiterläuft,
+  // ist hier aber nicht das, was der Viewer gerade sieht).
+  // Wer den Ton ausgibt, setzt die Sitzung selbst (sie ueberlebt den Unmount
+  // dieser Kachel). Hier NOCHMAL, weil `ensure()` eine BESTEHENDE Sitzung
+  // zurueckgeben kann, waehrend der Manager frisch ist — dann hat die Sitzung
+  // ihr `open()` schon hinter sich und wuerde nie mehr stummschalten.
+  $effect(() => {
+    mgr?.setNativeAudio(useNative && native.phase === 'playing');
+  });
+
+  // Zwei Bedienleisten fuer denselben Stream sind Murks: sobald das Bild im
+  // eigenen Fenster laeuft, ist DESSEN Leiste die einzige. Erst ab `playing` —
+  // waehrend des Verbindens (und wenn es scheitert) muss die Kachel bedienbar
+  // bleiben, sonst haette man gar nichts.
+  const hideDock = $derived(useNative && native.phase === 'playing');
+
+  const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
+  const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
   const stats = $derived(mgr?.stats ?? null);
   const audioBlocked = $derived(mgr?.audioBlocked ?? false);
   const volume = $derived(mgr?.volume ?? 100);
 
+  // Der Schieber schreibt weiter auf `mgr` — dort haengt die Persistenz je
+  // Streamer und der angezeigte Wert. Gibt das Fenster den Ton aus, ist `mgr`
+  // stummgeschaltet (`nativeAudio`), also muss der Wert zusaetzlich dorthin.
   function handleVolume(e: Event) {
-    mgr?.setVolume(Number((e.currentTarget as HTMLInputElement).value));
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    mgr?.setVolume(v);
+    native.session?.setVolume(v);
   }
   function toggleMute() {
     mgr?.toggleMute();
+    if (mgr) native.session?.setVolume(mgr.volume);
   }
   function enableAudio() {
     void mgr?.enableAudio();
   }
 
+  /**
+   * „In eigenem Fenster öffnen" — EIN Knopf, zwei Wege.
+   *
+   * Aus Sicht des Zuschauers ist es dieselbe Sache: der Stream soll raus aus
+   * der Kachel. Womit das Fenster gebaut ist, ist eine technische Frage und
+   * gehoert nicht auf die Oberflaeche. Deshalb entscheidet die Umgebung:
+   * steht der native Player zur Verfuegung (Electron + Binary), nimmt er den
+   * Stream; sonst bleibt es beim zweiten Browser-Fenster.
+   *
+   * Der native Weg ist dabei der bessere — eigenes Fenster heisst dort auch
+   * NVDEC statt Software-Decode und spuerbar weniger Verzoegerung (gemessen,
+   * s. `playerSettings.onlyTenBit`). Im Browser gibt es ihn nicht, dort traegt
+   * der Popup-Weg alles ausser AV1 10 bit.
+   */
   function handleDetach(): void {
+    if (nativMoeglich) {
+      // 10 bit laesst keine Wahl (das `<video>` kann es nicht darstellen), der
+      // Knopf kann dort also nicht zurueckholen. Statt ins Leere zu greifen
+      // holt er das Fenster nach vorne — es oeffnet ohne Aktivierung und liegt
+      // gern hinter der App.
+      if (native.erzwungen) {
+        native.session?.focus();
+        return;
+      }
+      if (useNative) {
+        // Zurueck in die Kachel: erst die Anforderung zuruecknehmen, dann das
+        // Fenster wirklich schliessen — sonst bliebe es offen stehen, waehrend
+        // die Kachel schon wieder zeigt.
+        nativeWindowRequests.release(channelId, userId, streamSlot);
+        nativePlayerSessions.close(channelId, userId, streamSlot);
+      } else {
+        nativeWindowRequests.request(channelId, userId, streamSlot);
+      }
+      return;
+    }
     const opened = detachedStreams.open(channelId, userId, streamSlot);
     if (!opened) {
       toast.error(m.whep_player_popup_blocked(), {
@@ -187,17 +335,26 @@
   {chatOpen}
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
+  detachLabel={fensterTitel}
+  {hideDock}
   onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
-  stats={statsPill}
+  stats={useNative ? undefined : statsPill}
 >
   {#snippet media()}
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      bind:this={videoEl}
-      autoplay
-      playsinline
-      class="h-full w-full bg-black object-contain"
-    ></video>
+    {#if useNative}
+      <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
+           dann das Cockpit: Lautstaerke/Chat liefert die TileShell, die
+           Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
+      <NativeWindowPanel session={native.session} />
+    {:else}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        autoplay
+        playsinline
+        class="h-full w-full bg-black object-contain"
+      ></video>
+    {/if}
   {/snippet}
   {#snippet overlay()}
     {#if phase === 'connecting' || phase === 'retrying'}

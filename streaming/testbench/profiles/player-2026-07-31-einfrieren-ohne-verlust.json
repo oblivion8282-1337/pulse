@@ -1,0 +1,131 @@
+{
+  "id": "player-2026-07-31-einfrieren-ohne-verlust",
+  "gemessen_am": "2026-07-31 (Nachmittag/Abend)",
+  "frage": "Warum zeigt der Player nach einer Saettigungsphase ein sauber eingefrorenes Bild — bei voller Datenrate, laufenden Zaehlern und ohne einen einzigen Paketverlust?",
+  "warum_die_frage_zaehlt": "Ein Zuschauer saehe ein Standbild, und WEDER der Player NOCH irgendeine Kennzahl wuerde es melden: 60 Bilder dekodiert, 60 gezeichnet, 4162 kbit/s empfangen, Puffer leer, nichts uebersprungen, Paketverlust null. Das ist kein Messproblem, sondern ein Auslieferungs-Blocker.",
+  "reproduktion": {
+    "aufbau": "Echter Sender (streaming/hq-labor), Intra-Refresh, AV1 10 bit, 2560x1440, 60 fps, 4000 kbps -> WHIP -> MediaMTX (pulse.unicutmedia.com) -> WHEP -> nativer Player. Zeitmuster im Bild, Sonde im Player.",
+    "stoerung": "Vier parallele Downloads von einem Spiegel, 20-25 Sekunden — saettigt den Empfangsweg. Vom Pruefstand selbst ausgeloest (`--stoeren`), kein Mensch noetig.",
+    "trefferquote": "SPORADISCH. Derselbe Zyklus kippte den Player einmal und einmal nicht; in einer Serie mit 45 s Abstand traf es den dritten von vier Zyklen. Der Fehler haengt an einem Rennen beim Aufloesen des Staus.",
+    "nachweis_ohne_menschen": "Die Latenz-Sonde liest das Zeitmuster aus dem DEKODIERTEN Bild zurueck. Steht das Bild, bleibt die abgelesene Zeit stehen, die errechnete Latenz wird unglaubwuerdig und der Player zaehlt „ohne Muster\" hoch — im gesunden Betrieb steht der Zaehler auf null."
+  },
+  "verlauf_des_treffers": [
+    {
+      "sekunde": "40-60",
+      "latenz_ms": 80,
+      "ohne_muster": 0,
+      "was": "Ruhe, gesund"
+    },
+    {
+      "sekunde": "61-85",
+      "latenz_ms": "94-133",
+      "ohne_muster": 0,
+      "was": "Stoerung laeuft — der Player haelt durch"
+    },
+    {
+      "sekunde": 86,
+      "latenz_ms": 180,
+      "ohne_muster": 0,
+      "was": "Stoerung endet"
+    },
+    {
+      "sekunde": 87,
+      "latenz_ms": 848,
+      "ohne_muster": 0,
+      "was": "Stau loest sich auf"
+    },
+    {
+      "sekunde": 88,
+      "latenz_ms": 1658,
+      "ohne_muster": 35,
+      "was": "kippt"
+    },
+    {
+      "sekunde": "89-179",
+      "latenz_ms": 1658,
+      "ohne_muster": "60 von 60",
+      "was": "eingefroren, keine Erholung ueber 90 s"
+    }
+  ],
+  "was_ausgeschlossen_wurde": [
+    {
+      "verdacht": "Das Netz verliert Pakete",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "pcap-Auswertung: 81440 RTP-Pakete, NULL nie angekommene Sequenznummern, Marker-Bits durchgehend ~60/s auch nach dem Kipppunkt."
+    },
+    {
+      "verdacht": "Der Video-Track stirbt",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "`Track video/AV1 beendet: DataChannel is not opened` ist die LETZTE Logzeile (373 von 373) — der regulaere Abbau, nicht der Kipppunkt. Erster Fehlschluss dieser Sitzung."
+    },
+    {
+      "verdacht": "Der Jitter-Puffer sortiert falsch",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "Sein Ausgabestrom (RTP-Mitschnitt) ergibt fehlerfreie Einheiten — s. naechster Punkt."
+    },
+    {
+      "verdacht": "Der AV1-Zusammensetzer baut kaputte Einheiten",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "124692 mitgeschnittene Pakete offline durch den ECHTEN `Av1Assembler` gefahren: 16556 Einheiten, davon 13365x FRAME, 3180x FRAME_HDR TILE_GROUP, 11x SEQ_HDR FRAME — null strukturelle Abweichung, nur 7 verworfene Einheiten."
+    },
+    {
+      "verdacht": "Der Speicher-Pool liefert altes Bild",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "`PlanePool` gibt leere Puffer aus, `convert` kopiert die Ebenen hinein — kein geteilter Speicher zwischen Bildern."
+    },
+    {
+      "verdacht": "Der Decoder lehnt Einheiten ab",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "Keine einzige `send_packet`-Fehlermeldung im Log; der Fehlerpfad meldet den ersten Fehler immer."
+    },
+    {
+      "verdacht": "Der Recorder verursacht es",
+      "ergebnis": "WIDERLEGT",
+      "beleg": "Der erste beobachtete Fall lief ohne Aufnahme und ohne RTP-Mitschnitt."
+    }
+  ],
+  "ursache": {
+    "kern": "`av1_cuvid` kippt nach einem Aussetzer in einen Zustand, in dem er weiter 60 Bilder je Sekunde ausgibt — immer dasselbe. Das ist seit dem 2026-07-28 bekannt und im Quelltext beschrieben (`decode.rs::on_gap`).",
+    "warum_die_rettung_nicht_greift": "Dagegen gibt es eine eingebaute Gegenmassnahme — Anzeige sperren, Decoder leeren, Vollbild anfordern. Sie haengt aber AUSSCHLIESSLICH an der Lueckenmeldung des Jitter-Puffers (`Release::Gap` -> `on_gap()` -> `request_keyframe`). Bei reiner Saettigung geht kein Paket verloren: alles kommt an, nur zu spaet und in einem Schwall. Keine Luecke, keine Rettung.",
+    "warum_es_bisher_niemand_sah": "Saemtliche Kennzahlen bleiben gruen. Der Decoder arbeitet ja — er liefert Bilder, sie werden gezeichnet, nichts wird verworfen. Nur der INHALT aendert sich nicht mehr, und darauf schaut keine Zahl."
+  },
+  "fix": {
+    "commit": "bb90f8d0",
+    "ansatz": "Ein zweiter Ausloeser, der am ERGEBNIS haengt statt an der Ursache: traegt ueber 90 Bilder in Folge jedes denselben Fingerabdruck, waehrend mindestens 500 kB Bildinhalt hineingegangen sind, rechnet der Decoder nicht mehr. Dann wird er geleert und ein Vollbild angefordert — dieselbe Rettung wie beim Gap, nur anders ausgeloest.",
+    "warum_die_byte_schwelle": "Sie trennt den Fehler vom ECHTEN Standbild: aendert sich der Bildinhalt wirklich nicht, kostet das den Encoder fast nichts. 500 kB in anderthalb Sekunden sind rund 2,7 Mbit/s und kommen nur zustande, wenn tatsaechlich Bild gesendet wird.",
+    "warum_eine_stichprobe": "Ein 1440p-Bild in 10 bit sind rund 11 MB; das bei jedem Bild vollstaendig zu hashen waere teurer als das Dekodieren. Gelesen wird jedes 1021. Byte (Primzahl, damit die Schrittweite nicht mit der Zeilenlaenge zusammenfaellt und immer dieselbe Bildspalte trifft), hoechstens 4096 Proben."
+  },
+  "noch_nicht_belegt": [
+    "**Der Einstiegs-Fix ist nicht am Rennen verifiziert.** Er ist klein und geradlinig (periodisch nachfordern, solange kein Einstieg da ist), aber der urspruengliche Fehlerfall trat nur zufaellig auf und liess sich nicht gezielt herstellen.",
+    "Ob die Schwellen des Einfrier-Nachweises (90 Bilder, 500 kB) optimal sind. 90 Bilder sind anderthalb Sekunden Erkennungszeit.",
+    "Ob derselbe Decoder-Fehler auch vaapi, qsv oder den Software-Decoder trifft oder nur `av1_cuvid`.",
+    "Ob er auch bei H.264 auftritt oder nur bei AV1 im Intra-Refresh-Betrieb."
+  ],
+  "zwei_nebenbefunde": [
+    "**Der Einstieg war ein Wettlauf — BEHOBEN** (Commit a6a9bd12). Eine einzelne Keyframe-Anforderung geht ins Leere, wenn der Player noch im Verbindungsaufbau steckt; bei Intra-Refresh kommt dann nie wieder eine, und der Zuschauer sieht NIE ein Bild (im Pruefstand: 150 s mit „dekodiert 0/s\"). Der Player fordert jetzt alle 500 ms nach, solange der Decoder keinen Einstiegspunkt hat (`VideoDecoder::wartet_auf_einstieg`). Eigenes, laengeres Intervall als bei der Luecke: dort ist eine laufende Wiedergabe zu retten, hier wartet der Zuschauer ohnehin auf das erste Bild.",
+    "**Der fehlende Suchindex war eine FEHLDIAGNOSE.** Nachgeprueft: die Aufnahme traegt Cues (Byte 112) und SeekHead (Byte 52), der Recorder schreibt seinen Trailer korrekt. Dass `-read_intervals` trotzdem nicht springt, liegt am Strom — bei Intra-Refresh enthaelt die ganze Datei GENAU EINEN Keyframe, also genau ein Sprungziel. Eigenschaft des Verfahrens, kein Fehler. Die frueher hier stehende Behauptung „der Recorder schreibt keinen Suchindex\" war falsch."
+  ],
+  "lehre": "Die Kennzahlen des Players decken den sichtbaren Fehlerfall nicht ab: 60 dekodiert, 60 gezeichnet, voller Durchsatz, null Verlust — und der Schirm steht. Ein Messwerkzeug, das den schlimmsten Zustand als gesund meldet, ist gefaehrlicher als keins. Der Fix ist deshalb nicht nur eine Reparatur, sondern schliesst diese Luecke: der Player merkt jetzt selbst, dass sein Bild steht.",
+  "verifikation": {
+    "gelaufen_am": "2026-07-31 (Abend), 621 Sekunden, neun Stoerzyklen im 45-Sekunden-Abstand",
+    "aufbau": "identisch zum Fehlerlauf, nur mit dem gefixten Player (Commit bb90f8d0)",
+    "ergebnis": {
+      "sekunden_gemessen": 621,
+      "sekunden_mit_bildausfall": 2,
+      "laengster_ausfall": "eine Sekunde mit 23 von 60 Bildern ohne Muster, danach sofort behoben",
+      "detektor_eingriffe": 8,
+      "reaktionszeit": "durchgehend 0,2 s von der Erkennung bis zum eingetroffenen Vollbild",
+      "latenz_median_ms": 81,
+      "latenz_ueber_500ms_sekunden": 12,
+      "fehlalarme": 0
+    },
+    "vergleich_ohne_fix": "45 aufeinanderfolgende Sekunden mit 60 von 60 Bildern ohne Muster, Latenz eingefroren bei 1658 ms, keine Erholung ueber 90 Sekunden.",
+    "was_damit_belegt_ist": "Der Fix beendet den Zustand zuverlaessig. Er greift genau dann, wenn der alte Player haengengeblieben waere, und bleibt im Normalbetrieb still — 621 Sekunden mit reichlich Stoerung und Verlust, kein einziger Fehlalarm, Latenz-Median unveraendert bei 81 ms.",
+    "was_er_NICHT_leistet": "Er verhindert den Aussetzer nicht, er beendet ihn. Zwischen Kippen und Rettung liegt rund eine Sekunde (90 Bilder Erkennungsschwelle plus 0,2 s Reaktionszeit). Aus einem toten Bild wird ein kurzes Haengen."
+  },
+  "geklaerte_punkte": {
+    "dichte_eingriffe": "Im Verifikationslauf griff der Detektor viermal binnen 34 Sekunden (529/551/556/563 s). Das sah nach Nachfeuern aus, ist aber korrektes Verhalten: alle vier fallen in DASSELBE Stoerfenster (531-556 s). Waehrend anhaltender Saettigung kippt der Decoder mehrfach und wird mehrfach gerettet. Kein Handlungsbedarf.",
+    "keine_fehlalarme": "Alle acht Eingriffe des Laufs lagen in Stoerphasen, KEINER ausserhalb — der beste verfuegbare Beleg gegen Fehlalarme.",
+    "nachlaufender_rueckstand": "Entkraeftet: beim einzigen sichtbaren Ausfall holte der Eingriff die Latenz von 1592 ms auf 86 ms zurueck, binnen einer Sekunde. Das Leeren des Decoders raeumt den Rueckstand mit ab. Die frueher hier vermutete Dauerwirkung gibt es nicht."
+  }
+}

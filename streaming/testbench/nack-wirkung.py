@@ -12,14 +12,24 @@ PLIs getan hat.
   ueberhaupt an? Ohne die ist alles Weitere sinnlos.
 * **wiederholte RTP-Sequenznummern vom Server zum Player** — liefert die
   Gegenseite nach? Das ist der Beweis, nach dem gesucht wird.
+* **auf wieviele Pakete sich diese Wiederholungen verteilen** — seit dem
+  2026-07-31, und der Zusatz ist kein Beiwerk: dieselbe Zahl Wiederholungen
+  bedeutet eine schlechte Leitung, wenn sie sich auf viele Pakete verteilt,
+  und eine Rueckkopplung im Empfaenger, wenn sie auf wenigen sitzt. Gemessen
+  wurden 78 Kopien je Nachlieferung bei 0,33 Prozent echtem Verlust.
+  Aufschluesselung: `kopien.py` (wieviele Kopien) und `fenster.py` (warum sie
+  entstehen — der SRTP-Wiedergabeschutz wirft sie weg, die Luecke bleibt
+  offen, der Erzeuger fordert weiter).
+* **`luecken_erkannt` / `luecken_gefuellt`** — die Verlustbilanz. Nur die
+  erste Zahl ist der Verlust; die zweite sagt, wieviel davon NACK geholt hat.
 
 Beides ist trotz SRTP/SRTCP lesbar: verschluesselt wird die Nutzlast, die
 Kopfzeilen bleiben klar (RTP: Sequenznummer und SSRC; RTCP: Typ und Format).
 
 Wrap-Schutz: 16-Bit-Sequenznummern laufen bei ~2000 Paketen/s nach gut einer
-halben Minute ueber. Eine Wiederholung zaehlt deshalb nur, wenn dieselbe Nummer
-INNERHALB eines Fensters erneut auftaucht — sonst waere jeder Ueberlauf ein
-falscher Treffer.
+halben Minute ueber. Gezaehlt wird deshalb auf erweiterten, monoton wachsenden
+Nummern (`aufschlag.erweitern`) — sonst waere jeder Ueberlauf ein falscher
+Treffer.
 
     sudo -v && ./nack-wirkung.py --profil verlust_stark --secs 20
 """
@@ -32,29 +42,25 @@ import struct
 import subprocess
 import sys
 import time
-from collections import deque
+from collections import Counter, deque
 from pathlib import Path
 
 HERE = Path(__file__).parent
+# Wird auch ueber `laden("nack-wirkung")` eingebunden (intraref-verlust.py,
+# fern-nack.py) — dann steht das Verzeichnis nicht zwangslaeufig im Pfad.
+sys.path.insert(0, str(HERE))
+# `ist_rtp_oder_rtcp` kommt gemeinsam mit `aufschlag.py` — dort auch die
+# Fehlergeschichte (`pakete_lesen`-Docstring): ohne die Pruefung wurden 2663
+# STUN-Pakete als RTP gelesen (ueber tausend Schein-SSRCs, 505 Schein-Kopien),
+# weil STUN denselben Port teilt (RFC 7983). Eine zweite Kopie dieser
+# Pruefung hier waere derselbe Fehler in zwei Dateien.
+from aufschlag import erweitern, ist_rtp_oder_rtcp  # noqa: E402
+
 MEDIA_PORT = 8189
 # So viele zurueckliegende Sequenznummern gelten als "noch aktuell". Bei rund
 # 2000 Paketen/s sind 4000 etwa zwei Sekunden — weit mehr als jede
 # Nachlieferung braucht, und weit weniger als ein 16-Bit-Ueberlauf.
 FENSTER = 4000
-
-
-def ist_rtp_oder_rtcp(nutzlast: bytes) -> bool:
-    """Trennt RTP/RTCP von STUN und DTLS, die denselben Port teilen (RFC 7983).
-
-    **Diese Pruefung fehlte im ersten Anlauf und hat das Ergebnis wertlos
-    gemacht.** Ohne sie wurden 2663 STUN-Pakete als RTP gelesen: ihr drittes
-    und viertes Byte landeten als "Sequenznummer" in der Auswertung, ihr
-    neuntes bis zwoelftes als "SSRC". Ergebnis waren ueber tausend SSRCs (ein
-    WHEP-Strom hat zwei) und 505 vermeintliche Nachlieferungen, die keine
-    waren. Das Unterscheidungsmerkmal sind die oberen zwei Bit: RTP und RTCP
-    tragen dort die Version 2, STUN eine 0.
-    """
-    return len(nutzlast) >= 12 and (nutzlast[0] >> 6) == 2
 
 
 def rtcp_typ(nutzlast: bytes) -> tuple[int, int] | None:
@@ -92,15 +98,35 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
     nacks = 0              # RTCP-NACKs Player -> Server
     plis = 0               # RTCP-PLIs Player -> Server
     rtcp_sonst = 0
-    wiederholt: list[tuple[int, int]] = []   # (ssrc, seq)
+    # Ueberfluessige Zustellungen je (ssrc, erweiterter Sequenznummer). Ein
+    # Counter statt einer Liste, weil die Frage nicht ist, WIE OFT wiederholt
+    # wurde, sondern auf WIEVIELE Pakete sich das verteilt — reine
+    # Ereigniszaehlung verdeckte den Rueckkopplungs-Fall vom 2026-07-31 drei
+    # Messungen lang (Story + Zahlen: `kopien.py`; Ursache: `fenster.py`).
+    kopien: Counter = Counter()
+    zustand: dict = {}                       # Ueberlaufzustand je SSRC
     letzte: dict[int, deque] = {}
     gesehen: dict[int, set] = {}
+    hoechste: dict[int, int] = {}            # Bezugspunkt der Lueckenerkennung
+    luecken_erkannt = 0
     # Wann die Luecke sichtbar wurde (= Ankunft des NACHFOLGERS der fehlenden
-    # Nummer) und wann die Wiederholung eintraf. Die Differenz ist die Zahl,
-    # an der sich alles entscheidet: der Jitter-Puffer haelt nur `jitter_ms`
-    # (Vorgabe 20) auf, danach ist die Einheit weg. Eine Nachlieferung, die
-    # spaeter kommt, ist zwar messbar, aber wirkungslos — und sieht in jeder
-    # Zaehlstatistik aus wie eine gelungene.
+    # Nummer). Gegen diesen Zeitpunkt wird die NACHLIEFERUNG gehalten, also
+    # die ERSTE Zustellung der fehlenden Nummer.
+    #
+    # **Bis zum 2026-07-31 stand die Messung an der falschen Stelle:** sie
+    # verglich gegen die WIEDERHOLUNG, also gegen die zweite und jede weitere
+    # Kopie. Ein Paket, das verlorenging und genau einmal nachgeliefert wurde,
+    # kam damit in der Auswertung ueberhaupt nicht vor — es ist bei seiner
+    # Ankunft ja neu, nicht wiederholt. Gemessen wurden ausschliesslich
+    # Duplikate, und die sind naturgemaess spaet. Daher stammt der Befund
+    # „81 Prozent der Nachlieferungen verpassen den Puffer": er beschrieb die
+    # Rueckkopplung, nicht die Reparatur.
+    #
+    # Die Differenz entscheidet, ob eine Nachlieferung ueberhaupt etwas
+    # nuetzt: der Jitter-Puffer haelt `JITTER_MS_VORGABE` (heute 100 ms) auf,
+    # danach ist die Einheit weg. Eine spaetere Nachlieferung ist messbar,
+    # aber wirkungslos — und sieht in jeder Zaehlstatistik aus wie eine
+    # gelungene.
     luecke_gesehen: dict[tuple[int, int], float] = {}
     verspaetung: list[float] = []
     # LEBENDKONTROLLE. Am 2026-07-29 wurde aus Mitschnitten gemessen, deren
@@ -110,6 +136,10 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
     # eine Messung. Deckt der NACK-Zeitraum nicht den groessten Teil des
     # Laufs ab, ist die Auswertung ungueltig.
     nack_zeiten: list[float] = []
+    # Empfangsberichte des Players. Sie gehen im festen Takt hinaus, UNABHAENGIG
+    # davon, ob etwas verloren geht — deshalb sind sie das taugliche Lebenszeichen
+    # (s. `lebend` unten).
+    bericht_zeiten: list[float] = []
     erste_zeit: float | None = None
     letzte_zeit: float | None = None
 
@@ -157,6 +187,7 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
                     plis += 1
                 else:
                     rtcp_sonst += 1
+                    bericht_zeiten.append(zeit)
             continue
 
         if rtcp_typ(nutz) is not None:     # RTCP vom Server — hier uninteressant
@@ -165,44 +196,85 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
         rtp_hin += 1
         seq = struct.unpack(">H", nutz[2:4])[0]
         ssrc = struct.unpack(">I", nutz[8:12])[0]
+        # Auf eine monoton wachsende Nummer umrechnen. Ohne das ist nach
+        # jedem 16-Bit-Ueberlauf (hier alle zweieinhalb Minuten) der ganze
+        # Zahlenraum „schon dagewesen" — s. `aufschlag.erweitern`.
+        e = erweitern(zustand, ssrc, seq)
         fenster = letzte.setdefault(ssrc, deque())
         menge = gesehen.setdefault(ssrc, set())
-        if seq in menge:
-            wiederholt.append((ssrc, seq))
-            if (start := luecke_gesehen.pop((ssrc, seq), None)) is not None:
-                verspaetung.append((zeit - start) * 1000.0)
+        if e in menge:
+            kopien[(ssrc, e)] += 1
         else:
+            # ERSTE Zustellung dieser Nummer. War sie als fehlend vorgemerkt,
+            # ist genau dies die Nachlieferung, auf die es ankommt.
+            if (start := luecke_gesehen.pop((ssrc, e), None)) is not None:
+                verspaetung.append((zeit - start) * 1000.0)
             # Sprung nach vorn = eine oder mehrere Nummern fehlen. Der
-            # Zeitpunkt wird gemerkt, damit eine spaetere Wiederholung
+            # Zeitpunkt wird gemerkt, damit die spaetere Nachlieferung
             # dagegen gehalten werden kann.
-            if fenster:
-                zuletzt = fenster[-1]
-                fehlend = (seq - zuletzt - 1) & 0xFFFF
-                if fehlend < 100:
+            #
+            # Bezugspunkt ist der HOECHSTSTAND, nicht das zuletzt eingetragene
+            # Paket. Der Unterschied ist keine Feinheit: eine Nachlieferung
+            # kommt naturgemaess hinter ihrem Nachfolger an und wuerde den
+            # Bezugspunkt zurueckziehen — das naechste regulaere Paket sieht
+            # dann eine Luecke, die es nie gab. Mit diesem Fehler meldete der
+            # Lauf vom 2026-07-31 5872 Luecken statt 812, also das Siebenfache,
+            # und liess eine ausgezeichnete Leitung wie eine kaputte aussehen.
+            hoch = hoechste.get(ssrc)
+            if hoch is not None and e > hoch:
+                fehlend = e - hoch - 1
+                if 0 < fehlend < 100:
                     for versatz in range(1, fehlend + 1):
-                        luecke_gesehen.setdefault((ssrc, (zuletzt + versatz) & 0xFFFF), zeit)
-            menge.add(seq)
-            fenster.append(seq)
+                        if (ssrc, hoch + versatz) not in luecke_gesehen:
+                            luecke_gesehen[(ssrc, hoch + versatz)] = zeit
+                            luecken_erkannt += 1
+            if hoch is None or e > hoch:
+                hoechste[ssrc] = e
+            menge.add(e)
+            fenster.append(e)
             if len(fenster) > FENSTER:
                 menge.discard(fenster.popleft())
 
     verspaetung.sort()
     dauer = (letzte_zeit - erste_zeit) if (erste_zeit and letzte_zeit) else 0.0
     nack_spanne = (nack_zeiten[-1] - nack_zeiten[0]) if len(nack_zeiten) > 1 else 0.0
-    # Ein NACK-Zeitraum unter 60 % der Laufdauer heisst: der Player hat
-    # irgendwann aufgehoert nachzufordern. Bei gleichmaessiger Stoerung ueber
-    # den ganzen Lauf gibt es dafuer keinen guten Grund.
-    lebend = dauer > 0 and nack_spanne / dauer >= 0.6
+    # LEBENDKONTROLLE ueber die EMPFANGSBERICHTE, nicht ueber die NACKs.
+    #
+    # Bis zum 2026-07-31 hing sie an der NACK-Spanne — und das war falsch:
+    # NACKs entstehen NUR bei Verlust. Tritt die Stoerung in einem Block auf
+    # (etwa weil jemand die Leitung saettigt) und danach ist Ruhe, endet die
+    # NACK-Spanne lange vor dem Lauf, ohne dass irgendetwas kaputt ist. Genau
+    # so ist der FEC-Lauf vom 2026-07-31 faelschlich als ungueltig markiert
+    # worden: 279 s NACK-Spanne auf 606 s Lauf, waehrend der Player
+    # nachweislich bis zur letzten Sekunde 60 Bilder je Sekunde zeichnete.
+    #
+    # Empfangsberichte gehen im festen Takt hinaus, solange die Sitzung lebt.
+    # Sie messen also, was gemeint war: laeuft der Player noch.
+    bericht_spanne = (bericht_zeiten[-1] - bericht_zeiten[0]) if len(bericht_zeiten) > 1 else 0.0
+    lebend = dauer > 0 and bericht_spanne / dauer >= 0.6
     return {
         "mitschnitt_dauer_s": round(dauer, 1),
         "nack_zeitraum_s": round(nack_spanne, 1),
+        "empfangsberichte_zeitraum_s": round(bericht_spanne, 1),
+        # Heisst weiter `nack_deckt_lauf_ab`, damit aeltere Akten lesbar
+        # bleiben — gemessen wird jetzt an den Empfangsberichten.
         "nack_deckt_lauf_ab": lebend,
         "rtp_pakete_server_zu_player": rtp_hin,
         "nacks_player_zu_server": nacks,
         "plis_player_zu_server": plis,
         "rtcp_sonstiges_player_zu_server": rtcp_sonst,
-        "wiederholte_sequenznummern": len(wiederholt),
-        "beispiele": [{"ssrc": s, "seq": q} for s, q in wiederholt[:5]],
+        # Zahl der ueberfluessigen Zustellungen — heisst weiter so, damit
+        # aeltere Messakten lesbar bleiben, und ist unveraendert berechnet.
+        "wiederholte_sequenznummern": sum(kopien.values()),
+        # ... und die Bezugsgroesse, die bis zum 2026-07-31 gefehlt hat.
+        "pakete_mit_kopien": len(kopien),
+        "kopien_je_betroffenem_paket": (
+            round(sum(kopien.values()) / len(kopien), 1) if kopien else None),
+        # Bilanz der Luecken: erkannt / spaeter gefuellt / nie gekommen.
+        "luecken_erkannt": luecken_erkannt,
+        "luecken_gefuellt": len(verspaetung),
+        "luecken_nie_gefuellt": len(luecke_gesehen),
+        "beispiele": [{"ssrc": s, "seq": q & 0xFFFF} for s, q in list(kopien)[:5]],
         "anzahl_ssrcs": len(letzte),
         "ssrcs": sorted(letzte)[:8],
         # Die eigentliche Frage: nuetzt die Nachlieferung etwas?
@@ -211,6 +283,12 @@ def auswerten(pcap: Path, server_ip: str | None = None) -> dict:
         "verspaetung_ms_median": round(verspaetung[len(verspaetung) // 2], 2) if verspaetung else None,
         "verspaetung_ms_max": round(verspaetung[-1], 2) if verspaetung else None,
         "rechtzeitig_bei_20ms_puffer": sum(1 for v in verspaetung if v <= 20.0),
+        # Der Wert, auf den es HEUTE ankommt: der Player haelt seit dem
+        # 2026-07-29 100 ms auf (`pulse-player/src/proto.rs::JITTER_MS_VORGABE`),
+        # nicht mehr 20. Die 20er-Zahl bleibt daneben stehen, damit aeltere
+        # Messakten vergleichbar bleiben — sie beantwortet aber nicht mehr,
+        # ob eine Nachlieferung im laufenden Betrieb noch etwas nuetzt.
+        "rechtzeitig_bei_100ms_puffer": sum(1 for v in verspaetung if v <= 100.0),
     }
 
 

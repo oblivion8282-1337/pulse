@@ -24,6 +24,7 @@ async def _put_token(
     scope: str = "publish",
     slot: int = 0,
     label: str | None = None,
+    ten_bit: bool = False,
     ttl: int = 3600,
 ):
     record = {
@@ -38,6 +39,8 @@ async def _put_token(
         record["slot"] = slot
     if label:  # label omitted when empty → legacy token shape (matches media-svc)
         record["label"] = label
+    if ten_bit:  # nur bei True gesetzt (matches media-svc)
+        record["ten_bit"] = True
     await redis.set(TOKEN_KEY.format(token=token), json.dumps(record, separators=(",", ":")), ex=ttl)
 
 
@@ -203,6 +206,27 @@ async def test_publish_copies_label_into_active_record(client, redis):
         rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
         assert rec["label"] == "Chrome"
         assert rec["user_id"] == uid
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ten_bit", [True, False])
+async def test_publish_copies_ten_bit_into_active_record(client, redis, ten_bit):
+    """``ten_bit`` wird wie ``label`` aus dem Token-Record in ``stream:active``
+    kopiert — media-svc liest es dort für die WHEP-Antwort, an der der Zuschauer
+    seinen Wiedergabeweg wählt. Ohne die Kopie käme die Bittiefe nie beim
+    Zuschauer an, weil der Token-Record beim Publish verbraucht wird."""
+    cid = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid, ten_bit=ten_bit)
+    try:
+        r = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r.status_code == 200, r.text
+        rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
+        # Bei 8 bit fehlt der Schlüssel ganz (alte Record-Form bleibt erhalten).
+        assert rec.get("ten_bit", False) is ten_bit
     finally:
         await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
 

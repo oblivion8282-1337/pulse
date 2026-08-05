@@ -1,0 +1,91 @@
+{
+ "label": "intraref-verlust-fec",
+ "betrieb": "Intra-Refresh",
+ "sekunden": 600.0,
+ "netz": {
+  "mitschnitt_dauer_s": 605.6,
+  "nack_zeitraum_s": 279.5,
+  "nack_deckt_lauf_ab": false,
+  "rtp_pakete_server_zu_player": 351121,
+  "nacks_player_zu_server": 2686,
+  "plis_player_zu_server": 28,
+  "rtcp_sonstiges_player_zu_server": 2412,
+  "wiederholte_sequenznummern": 26794,
+  "beispiele": [
+   {
+    "ssrc": 2803133222,
+    "seq": 46010
+   },
+   {
+    "ssrc": 2803133222,
+    "seq": 46011
+   },
+   {
+    "ssrc": 2803133222,
+    "seq": 46014
+   },
+   {
+    "ssrc": 2803133222,
+    "seq": 46010
+   },
+   {
+    "ssrc": 2803133222,
+    "seq": 46011
+   }
+  ],
+  "anzahl_ssrcs": 2,
+  "ssrcs": [
+   2803133222,
+   3724370157
+  ],
+  "verspaetung_zugeordnet": 648,
+  "verspaetung_ms_min": 0.5,
+  "verspaetung_ms_median": 124.87,
+  "verspaetung_ms_max": 321.03,
+  "rechtzeitig_bei_20ms_puffer": 75,
+  "rechtzeitig_bei_100ms_puffer": 141
+ },
+ "vollbild_ereignisse": [
+  {
+   "sekunde": 1.2,
+   "meldung": "pulse-player: Vollbild #1 empfangen, Abstand erstes"
+  },
+  {
+   "sekunde": 1.2,
+   "meldung": "pulse-player: Einstiegspunkt gefunden, 23 Einheiten davor verworfen"
+  },
+  {
+   "sekunde": 284.7,
+   "meldung": "pulse-player: Vollbild #2 empfangen, Abstand 283493 ms"
+  },
+  {
+   "sekunde": 285.1,
+   "meldung": "pulse-player: Vollbild #3 empfangen, Abstand 415 ms"
+  },
+  {
+   "sekunde": 286.7,
+   "meldung": "pulse-player: Vollbild #4 empfangen, Abstand 1637 ms"
+  },
+  {
+   "sekunde": 287.5,
+   "meldung": "pulse-player: Vollbild #5 empfangen, Abstand 851 ms"
+  },
+  {
+   "sekunde": 288.9,
+   "meldung": "pulse-player: Vollbild #6 empfangen, Abstand 1317 ms"
+  },
+  {
+   "sekunde": 290.1,
+   "meldung": "pulse-player: Vollbild #7 empfangen, Abstand 1225 ms"
+  },
+  {
+   "sekunde": 292.3,
+   "meldung": "pulse-player: Vollbild #8 empfangen, Abstand 2213 ms"
+  },
+  {
+   "sekunde": 293.1,
+   "meldung": "pulse-player: Vollbild #9 empfangen, Abstand 869 ms"
+  }
+ ],
+ "player_proben": 599
+}

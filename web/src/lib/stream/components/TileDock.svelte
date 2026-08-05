@@ -54,6 +54,7 @@
     controlsExtra,
     onDetach,
     showDetach = false,
+    detachLabel,
     isFullscreen = false,
     onToggleFullscreen,
     onHide
@@ -79,6 +80,10 @@
     controlsExtra?: Snippet;
     onDetach?: () => void;
     showDetach?: boolean;
+    /** Beschriftung des Abkoppel-Knopfs. Der HQ-Stream setzt sie um, weil
+     *  derselbe Knopf dort je nach Lage oeffnet, zurueckholt oder das Fenster
+     *  nach vorne holt. Ohne Angabe die Vorgabe „In eigenem Fenster oeffnen". */
+    detachLabel?: string;
     isFullscreen?: boolean;
     onToggleFullscreen?: () => void;
     onHide?: () => void;
@@ -224,8 +229,8 @@
           type="button"
           onclick={() => onDetach?.()}
           class={btn()}
-          aria-label={m.tile_shell_detach()}
-          title={m.tile_shell_detach()}
+          aria-label={detachLabel ?? m.tile_shell_detach()}
+          title={detachLabel ?? m.tile_shell_detach()}
           data-testid={`${testidPrefix}-detach`}
         >
           <ExternalLinkIcon class={ICON} />
@@ -299,7 +304,7 @@
                 data-testid={`${testidPrefix}-detach`}
               >
                 <ExternalLinkIcon class={ICON} />
-                {m.tile_shell_detach()}
+                {detachLabel ?? m.tile_shell_detach()}
               </DropdownMenu.Item>
             {/if}
             {#if onHide}

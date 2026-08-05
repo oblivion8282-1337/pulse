@@ -31,6 +31,7 @@ windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem", # GetFileVersionInfoW/VerQueryValueW: App-Anzeigename (system/app_name.rs)
     "Win32_System_Com",
     "Win32_System_Kernel",
+    "Win32_System_Performance", # QueryPerformanceCounter: prueft, ob WGC- und WASAPI-Zeitstempel auf derselben Uhr liegen (syncprobe.rs)
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
     "Win32_System_Threading",
@@ -67,9 +68,31 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
     "software-scaling",    # swscale für BGRA→NV12-Konversion (CPU-Fallback)
 ] }
 
-# Stage 8+ deps — added in their respective stages.
+# Eigener WebRTC-Sendeweg (WHIP), s. `src/whip/`.
 #
-# tokio           = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
+# WARUM nicht ffmpegs WHIP-Muxer: der hat KEINEN Rueckkanal zur Anwendung — eine
+# Vollbild-Anforderung des Zuschauers koennte den Encoder also nie erreichen —
+# und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264). Bei
+# Intra-Refresh ist der Rueckkanal keine Zugabe, sondern Voraussetzung: dieser
+# Strom hat nach dem Start kein Vollbild mehr, ohne Anforderung kommt ein neu
+# dazukommender Zuschauer gar nicht erst ins Bild.
+#
+# Dieselben Fassungen wie im Linux-Sidecar, im nativen Player und in
+# `streaming/pulse-remote-webrtc`. Auseinanderlaufende webrtc-rs-Versionen
+# waeren die Sorte Fehler, die sich erst in der SDP-Verhandlung zeigt.
+# MIT/Apache-2.0, kein GPL.
+#
+# Sie waechst den Sidecar spuerbar — auch fuer Nutzer, die den Weg nie waehlen.
+# Bewusst in Kauf genommen, weil er Standard werden soll; ein Cargo-Feature
+# dafuer waere eine zweite Bauvariante, die auseinanderlaeuft.
+webrtc = "0.17"
+rtcp = "0.17"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# Nur fuer den WHIP-Handschlag (ein POST mit dem SDP). rustls statt der
+# System-TLS, wie im Player — webrtc bringt rustls ueber `dtls` ohnehin
+# verpflichtend mit, zwei TLS-Stacks im selben Binary waeren Ballast.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [dev-dependencies]
 # NUR für `examples/probe_vulkan_sps.rs` — Diagnose-Probe, die

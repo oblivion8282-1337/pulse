@@ -1,0 +1,44 @@
+{
+  "id": "browser-2026-08-01-windows-av1-10bit",
+  "gemessen_am": "2026-08-01 (abends)",
+  "frage": "Dekodiert Chromium unter WINDOWS einen AV1-Strom in 10 bit? Der Negativbefund vom 2026-07-31 stammt aus headless Chromium unter Linux, und die Begruendung fuer den nativen Player im Code nennt ausdruecklich Wayland — beides gilt unter Windows nicht.",
+  "stand": "BEANTWORTET, und schaerfer als die Frage gestellt war: es haengt NICHT am Betriebssystem, sondern am Decode-Pfad. Chromium dekodiert AV1 10 bit NUR mit Hardware-Decode. Der Software-Decoder scheitert unter Windows genauso wie unter Linux. Der Linux-Befund vom 2026-07-31 ist damit reproduziert und zugleich richtig eingeordnet.",
+  "aufbau": {
+    "maschine": "Mini-PC, AMD Radeon 780M, Treiber 32.0.31035.1003, Windows 11",
+    "server": "MediaMTX v1.19.1 lokal (die mitgelieferte 1.18.1 LEHNT AV1 AB — wer damit misst, haelt einen funktionierenden Encoder fuer kaputt)",
+    "sender": "ffmpeg n8.1.2 (eigener Bau), av1_amf, usage=ultralowlatency, rc=cbr, 4000 kbps, 1280x720@60, testsrc2, RTMP an den lokalen Server",
+    "varianten": "8 bit (-pix_fmt nv12) und 10 bit (-pix_fmt p010le -bitdepth 10), sonst identisch; je einmal mit und einmal ohne erzwungenen Software-Decode",
+    "zuschauer": "Microsoft Edge (Chromium) ueber Playwright, headless, eigener WHEP-Client im Seitenkontext",
+    "software_decode_erzwungen_durch": "--disable-accelerated-video-decode --disable-gpu",
+    "verfahren": "je Sekunde eine Probe: getStats().framesDecoded plus ein Pixel-Fingerabdruck des sichtbaren Videobildes (64x36 FNV-1a). Der Fingerabdruck ist noetig, weil die Bildzahl allein luegt — ein Decoder kann still das letzte gute Bild wiederholen."
+  },
+  "kontrollen_vor_dem_ergebnis": [
+    "Bittiefe NICHT dem Sender geglaubt, sondern am Server abgegriffen: HLS-Mitschnitt von 127.0.0.1:8888 ergibt fuer av1-8 `pix_fmt=yuv420p`, fuer av1-10 `pix_fmt=yuv420p10le`. Ohne diese Kontrolle waere ein stiller Rueckfall des Encoders auf 8 bit als 'Browser kann 10 bit' durchgegangen.",
+    "Software-Decode-Lauf mit 8 bit gegengeprueft. Ohne den waere '0 Bilder bei 10 bit' auch damit erklaerbar gewesen, dass --disable-gpu die ganze Kette killt. Tut es nicht: 8 bit liefert dort 669 Bilder."
+  ],
+  "ergebnis": {
+    "hardware_decode": {
+      "av1_8bit": { "framesDecoded_nach_12s": 717, "fingerabdruecke": "12 von 12", "pli": 2 },
+      "av1_10bit": { "framesDecoded_nach_12s": 646, "fingerabdruecke": "12 von 12", "pli": 7 }
+    },
+    "software_decode_erzwungen": {
+      "av1_8bit": { "framesDecoded_nach_12s": 669, "fingerabdruecke": "12 von 12", "pli": 5 },
+      "av1_10bit": { "framesDecoded_nach_12s": 0, "fingerabdruecke": "1 (Standbild, nie ein Bild)", "pli": 61, "aufloesung": "0x0" }
+    }
+  },
+  "befund": "Drei von vier Kombinationen laufen. Die eine, die nicht laeuft, ist AV1 10 bit im Software-Decoder: der Decoder laeuft nie an, das Videoelement bleibt 0x0, und der Browser fordert in 12 Sekunden 61-mal ein Vollbild an. Das ist exakt dasselbe Fehlerbild wie am 2026-07-31 unter Linux (265 vergebliche Anforderungen, framesDecoded null).",
+  "was_daraus_folgt": [
+    "Die Grenze verlaeuft NICHT zwischen Betriebssystemen und auch nicht zwischen nativem Player und Browser, sondern zwischen Hardware- und Software-Decode. Meine erste Fassung dieser Akte sagte 'der Linux-Befund uebertraegt sich nicht' — das war zu grob und ist mit dem Software-Lauf widerlegt.",
+    "10 bit erreicht nur Zuschauer, deren GPU AV1 10 bit in Hardware dekodiert. Wer das nicht hat (aeltere Karte, virtuelle Maschine, abgeschaltete Beschleunigung), sieht NICHTS — kein schlechteres Bild, sondern gar keines.",
+    "Der native Player bleibt damit sinnvoll, aber aus einem anderen Grund als angenommen: nicht weil Browser 10 bit grundsaetzlich nicht koennen, sondern weil er den Decoder selbst waehlt und nicht auf die Entscheidung des Browsers angewiesen ist.",
+    "Fuer den Windows-Sidecar wird 10-bit-SENDEN sinnvoll (heute versteht nur der Linux-Rust-Sidecar das Feld) — mit der Auflage, dass die Reichweite im UI ehrlich benannt wird."
+  ],
+  "GRENZEN_DER_AUSSAGE": [
+    "Edge, nicht Chrome. Beide sind Chromium, aber nicht dasselbe Programm.",
+    "`decoderImplementation` wurde in KEINER Probe gemeldet. Dass im ersten Lauf Hardware-Decode lief, ist aus dem Gegensatz zum erzwungenen Software-Lauf geschlossen, nicht direkt abgelesen.",
+    "Headless. Ein Fenster-Browser eines echten Nutzers ist ein anderer Pfad.",
+    "Lokale Schleife ohne Verlust und ohne Entfernung. Ueber Verhalten unter Stoerung sagt der Lauf nichts.",
+    "Ein Lauf je Kombination. Der Effekt ist binaer (dekodiert / dekodiert nicht) und in beiden Richtungen kontrolliert, aber es bleibt ein Lauf."
+  ],
+  "werkzeug": "scratchpad/browsertest/whep-messung.mjs und whep-sw.mjs (neu, Playwright ueber den Edge-Kanal). Node liegt portabel im Scratchpad, weil der Installer eine Administrator-Bestaetigung verlangt und niemand da war, sie zu geben."
+}

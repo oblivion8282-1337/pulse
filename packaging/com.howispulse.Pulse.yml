@@ -6,6 +6,13 @@
 #   - the pure-stdlib Python GSR sidecar (streaming/gsr-sidecar/*.py) → /app/share/pulse/gsr-sidecar/
 #   - a custom-built `gpu-screen-recorder` (FFmpeg-with-NVENC + GSR-from-source + the FLV-Opus / Vulkan-stub patches),
 #     the FFmpeg/GSR module stack lifted verbatim from the proven gsr-streamer manifest.
+#   - der Rust-Linux-HQ-Sidecar (senden) und der native HQ-Player (zuschauen),
+#     beide gegen dasselbe gebündelte FFmpeg gelinkt.
+#
+# Das gebündelte FFmpeg trägt zwei Dinge, die es sonst nirgends gibt und die
+# beim Kürzen nicht wegfallen dürfen: den VAAPI-Intra-Refresh-Patch (sonst haben
+# AMD/Intel die Betriebsart nicht) und eine Decoder-Liste (sonst zeigt der
+# Player nie ein Bild). Beides steht am ffmpeg-Modul ausführlich begründet.
 #
 # What's NOT inside: the web frontend. The packaged app loads https://howispulse.com remotely
 # (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
@@ -109,7 +116,33 @@ modules:
       - --disable-debug
       - --disable-doc
       - --disable-programs
+      # Decoder: alle aus, dann gezielt die auf, die der native Player braucht.
+      #
+      # **Ohne diese Liste zeigt der Player NIE ein Bild.** Er sucht seinen
+      # Decoder zur Laufzeit (`decode.rs::candidates`, Hardware zuerst, Software
+      # dahinter); findet er keinen einzigen, endet die Sitzung mit `failed` und
+      # jeder Zuschauer landet auf dem `<video>`-Weg — auf einer Maschine mit
+      # tadelloser GPU genauso wie ohne. Bis 2026-08-03 stand hier nur
+      # `--disable-decoders`, weil das Flatpak ausschliesslich encodiert hat.
+      #
+      # `av1`/`h264` sind ZUGLEICH der Software-Rueckfall UND der Hardware-Weg
+      # auf AMD/Intel: VAAPI ist kein eigener Decoder, sondern ein hwaccel auf
+      # dem nativen (`--enable-vaapi` weiter unten). Genau diese Verwechslung
+      # hat den Player bis 2026-08-01 auf AMD still in Software rechnen lassen.
+      # `libdav1d` ist der schnelle AV1-Software-Weg — der native AV1-Decoder
+      # ist um ein Vielfaches langsamer, und ohne dav1d waere Software-Decode
+      # kein brauchbarer Rueckfall, sondern nur ein nomineller. Die Runtime
+      # bringt `libdav1d.so.7` bereits mit.
+      # `opus` fuer den Ton, `*_cuvid` fuer NVIDIA-Zuschauer.
+      #
+      # 10 bit braucht hier NICHTS Zusaetzliches: die Bittiefe steckt im
+      # `av1`-Decoder bzw. im VAAPI-hwaccel, und ob die Karte sie traegt,
+      # entscheidet der Player zur Laufzeit selbst.
       - --disable-decoders
+      - --enable-decoder=av1,h264,opus,libdav1d,av1_cuvid,h264_cuvid
+      - --enable-libdav1d
+      - --enable-cuvid
+      - --enable-nvdec
       - --disable-indevs
       - --disable-vdpau
       - --disable-filters
@@ -165,6 +198,23 @@ modules:
         url: https://github.com/FFmpeg/FFmpeg.git
         tag: n8.1.1
         commit: 239f2c733de417201d7ad3b3b8b0d9b63285b2b1
+      # Rollender Intra-Refresh fuer die VAAPI-Encoder. FFmpeg reicht die
+      # VA-API-Option in KEINER Version durch, auch nicht in master — ohne
+      # diesen Patch haben AMD- und Intel-Nutzer die Betriebsart schlicht nicht,
+      # und der Sidecar verweigert den Start, statt still Keyframes zu fahren
+      # (`encode/opts.rs::intra_refresh_pruefen`). Auf NVIDIA wird er nicht
+      # gebraucht, `*_nvenc` hat die Option upstream.
+      #
+      # Begruendung, Messreihe und Bauanleitung: `streaming/ffmpeg-patches/`.
+      # Der Patch ist LGPL (von FFmpeg abgeleitet), NICHT Pulse-lizenziert —
+      # eigene LICENSE liegt daneben. Gegen genau den Commit oben geprueft;
+      # beim Anheben von FFmpeg zuerst `git apply --check` gegen den neuen Tag.
+      #
+      # Dev baut denselben Commit mit demselben Patch
+      # (`streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`) — hier gemessene Zahlen
+      # gelten deshalb auch fuer die ausgelieferte App.
+      - type: patch
+        path: ../streaming/ffmpeg-patches/0001-vaapi_encode-rollender-intra-refresh.patch
     modules:
       - name: ffnvcodec
         no-autogen: true
@@ -230,7 +280,119 @@ modules:
       # (flatpak-cargo-generator) — der Flatpak baut Cargo offline.
       - type: dir
         path: ../streaming/linux-hq-sidecar
+        # `dir` kopiert das Verzeichnis WÖRTLICH — `.gitignore` gilt hier nicht.
+        # Ohne dieses `skip` wandern die lokalen Bauartefakte des Entwicklers in
+        # jeden Flatpak-Bau: 1,5 GB, die anschliessend nichts tun (der Bau
+        # laeuft in einem anderen Praefix und uebersetzt ohnehin neu).
+        skip:
+          - target
       - linux-hq-sidecar-cargo-sources.json
+
+  # ── Nativer HQ-Player (Zuschauer-Seite) ────────────────────────────────────
+  # Baut das Rust-Binary → /app/bin/pulse-player. GENAU DIESER PFAD ist der, den
+  # `desktop/electron/player.ts::resolvePlayerBinary` in verpackten Builds
+  # sucht; er ist Teil des Vertrags, nicht frei wählbar.
+  #
+  # Wofür: WHEP direkt empfangen, dekodieren und in einem eigenen Fenster
+  # zeigen, statt über Chromiums `<video>`. Der einzige Weg zu AV1 in 10 bit —
+  # Chromium legt seinen Puffer immer als 8 bit an. Fehlt das Binary, fällt die
+  # Kachel still auf den `<video>`-Weg zurück (`useNativePlayback.svelte.ts`),
+  # es geht also nichts kaputt; es fehlt nur die bessere Wiedergabe.
+  #
+  # Linkt gegen das oben gebaute ffmpeg-Modul. **Dessen Decoder-Liste ist die
+  # Bedingung dafür, dass dieses Modul überhaupt etwas nützt** — s. den langen
+  # Kommentar bei `--enable-decoder` weiter oben.
+  #
+  # Vulkan (wgpu) und ALSA (cpal) kommen zur Laufzeit aus der Runtime; die
+  # nötigen Rechte hat der Player als Kind von Electron in derselben Sandbox
+  # (`--device=all`, `--socket=pulseaudio`, `--share=network`).
+  # **Eigene Rust-Toolchain, NICHT die SDK-Extension** — der einzige Punkt, an
+  # dem dieses Modul vom Sidecar daneben abweicht, und der Grund dafuer ist
+  # hart: `org.freedesktop.Sdk.Extension.rust-stable//24.08` liefert rustc
+  # 1.89, die egui-0.35-Kette verlangt 1.92. Der Bau bricht sonst ab mit
+  # „rustc 1.89.0 is not supported by the following packages".
+  #
+  # Drei Wege standen zur Wahl, zwei sind verworfen:
+  # * `rust-nightly//24.08` haette gereicht (1.99), waere aber der einzige
+  #   unpinnbare Baustein im ganzen Manifest — FFmpeg, GSR, webrtc-rs und
+  #   MediaMTX haengen alle an festen Commits. Ein Nightly-Regress braeche den
+  #   Flatpak-Bau zu einem beliebigen Zeitpunkt, ohne dass sich hier etwas
+  #   geaendert haette.
+  # * Runtime auf 25.08 anheben waere die saubere Dauerloesung, ist aber eine
+  #   eigene Baustelle (BaseApp, GL-Extension, codecs-extra) und hat mit dem
+  #   Player nichts zu tun.
+  #
+  # Also die offizielle Toolchain, auf Version UND Pruefsumme festgenagelt. Sie
+  # wird in den BAU-Ordner ausgepackt, nicht nach /app — sie landet also nicht
+  # in der ausgelieferten App. Beim Anheben: neue `sha256` aus
+  # `https://static.rust-lang.org/dist/<datei>.sha256` holen.
+  #
+  # Warum 1.97.1: dieselbe Version, mit der hier lokal gebaut und gemessen wird
+  # (Fedora 44). Ein Bau, der eine andere Toolchain benutzt als der, an dem die
+  # Zahlen entstanden sind, waere eine unnoetige zweite Variable.
+  - name: pulse-player
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/llvm18/bin
+      env:
+        CARGO_HOME: /run/build/pulse-player/cargo
+        LIBCLANG_PATH: /usr/lib/sdk/llvm18/lib
+    build-commands:
+      # `--disable-ldconfig`: im Bau-Sandkasten gibt es kein schreibbares
+      # /etc, das Skript scheiterte sonst am letzten Schritt.
+      - ./rust-toolchain/install.sh --prefix=$PWD/rust --disable-ldconfig
+        --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu
+      - PATH="$PWD/rust/bin:$PATH" cargo --offline build --release --verbose
+      - install -Dm755 target/release/pulse-player /app/bin/pulse-player
+    sources:
+      - type: archive
+        url: https://static.rust-lang.org/dist/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
+        sha256: 88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f
+        dest: rust-toolchain
+      - type: dir
+        path: ../streaming/pulse-player
+        # `dir` kopiert wörtlich, `.gitignore` gilt hier NICHT — und beide
+        # Ausnahmen sind hier nicht bloss Ballast:
+        #
+        # * `target` sind die Bauartefakte des Entwicklers (2,8 GB), die im
+        #   Flatpak-Bau nichts verloren haben.
+        # * `vendor` ist der bereits ausgecheckte und GEPATCHTE webrtc-rs-Zweig.
+        #   Bliebe er stehen, liefe die `git`-Quelle unten in genau dieses
+        #   Verzeichnis und die Patches darunter fänden ihre Änderung schon vor:
+        #   „Reversed (or previously applied) patch detected", Bau abgebrochen.
+        #   Genau so gescheitert beim ersten Versuch am 2026-08-03.
+        skip:
+          - target
+          - vendor
+      # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über
+      # `[patch.crates-io]` als PFAD einbindet — ohne ihn bricht cargo schon
+      # beim Auflösen ab.
+      #
+      # **Warum hier und nicht über `scripts/bootstrap-webrtc.sh`:** das Skript
+      # klont zur Bauzeit, und der Flatpak baut offline — Netzzugriff gibt es
+      # nur, während flatpak-builder die Quellen HOLT, nicht mehr im
+      # Build-Schritt. Deshalb wandert derselbe Zweig hier als Quelle hinein.
+      # Das Skript bleibt für die Entwicklung; ändert sich der Stand, müssen
+      # beide Stellen nachgezogen werden (Tag unten und `VERSION` im Skript).
+      - type: git
+        url: https://github.com/webrtc-rs/webrtc.git
+        tag: v0.17.2
+        commit: 1da3fe8ee84db8d266322cbcfcb357c745959a8e
+        dest: vendor/webrtc-rs
+      # Beide Patches, in derselben Reihenfolge wie im Skript. Der erste macht
+      # die Ströme sichtbar, deren SSRC zu keiner angemeldeten Spur passt (dort
+      # liegen die FlexFEC-Paritätspakete), der zweite setzt die NACK-Sperrfrist.
+      # Ohne den zweiten verhielte sich der ausgelieferte Player anders als der
+      # gemessene.
+      - type: patch
+        path: ../streaming/pulse-player/patches/0001-webrtc-rs-expose-undeclared-ssrc-streams.patch
+        dest: vendor/webrtc-rs
+      - type: patch
+        path: ../streaming/pulse-player/patches/0002-nack-generator-resend-delay.patch
+        dest: vendor/webrtc-rs
+      # Wie beim Sidecar: ändert sich `Cargo.lock`, muss diese Datei neu
+      # generiert werden (flatpak-cargo-generator).
+      - pulse-player-cargo-sources.json
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
   - name: pulse

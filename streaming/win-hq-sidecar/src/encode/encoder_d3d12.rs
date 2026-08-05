@@ -21,68 +21,22 @@
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::{Dictionary, Packet, Rational, codec, ffi::*, format};
-use std::ffi::c_void;
+use ffmpeg::{Packet, Rational, codec, ffi::*, format};
 use windows::Win32::Graphics::Direct3D12::{ID3D12Device, ID3D12Resource};
-use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIFactory1};
 use windows::core::Interface;
 
 use super::audio::AudioPipeline;
-use super::encoder::{AudioStreamConfig, VideoCodec, open_output};
+use super::codec::VideoCodec;
+use super::d3d12_device::{AVD3D12VAFrame, amd_adapter_index, create_d3d12_pool, d3d12va_opts};
+use super::encoder::AudioStreamConfig;
 use super::extradata::param_set_extradata;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 
 /// FFmpeg verlangt `AV_INPUT_BUFFER_PADDING_SIZE` Null-Bytes hinter extradata.
 const EXTRADATA_PADDING: usize = 64;
-
-/// `D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS` — die Pool-NV12-Resources
-/// müssen UAV-fähig sein, damit der Compute-Shader sie beschreiben kann.
-const D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS: i32 = 0x4;
-
-// ── Hand-Spiegel der `AVD3D12VA*`-Structs (libavutil/hwcontext_d3d12va.h,
-//    FFmpeg 8.1). ffmpeg-sys-next bindet die D3D12VA-Header nicht — gleiches
-//    Muster wie `encode/hwctx.rs` für D3D11VA. ─────────────────────────────
-
-/// `AVD3D12VADeviceContext` — `AVHWDeviceContext.hwctx`. Wir lesen `device`.
-#[repr(C)]
-struct AVD3D12VADeviceContext {
-    device: *mut c_void,       // ID3D12Device*
-    video_device: *mut c_void,
-    lock: *mut c_void,
-    unlock: *mut c_void,
-    lock_ctx: *mut c_void,
-    resource_flags: i32,
-    heap_flags: i32,
-}
-
-/// `AVD3D12VAFramesContext` — `AVHWFramesContext.hwctx`. Wir setzen
-/// `resource_flags`.
-#[repr(C)]
-struct AVD3D12VAFramesContext {
-    format: i32,
-    resource_flags: i32,
-    heap_flags: i32,
-    texture_array: *mut c_void,
-    flags: i32,
-}
-
-/// `AVD3D12VASyncContext` — Teil von `AVD3D12VAFrame`.
-#[repr(C)]
-struct AVD3D12VASyncContext {
-    fence: *mut c_void,
-    event: *mut c_void,
-    fence_value: u64,
-}
-
-/// `AVD3D12VAFrame` — `AVFrame.data[0]` zeigt hierauf. Wir lesen `texture`.
-#[repr(C)]
-struct AVD3D12VAFrame {
-    texture: *mut c_void, // ID3D12Resource*
-    subresource_index: i32,
-    sync_ctx: AVD3D12VASyncContext,
-    flags: i32,
-}
 
 #[derive(Debug, Clone)]
 pub struct D3d12EncoderConfig {
@@ -149,6 +103,10 @@ pub struct FfmpegD3d12Encoder {
     /// Diagnose-Timings (µs) für den `TickMonitor`.
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben -> Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `async_depth` veraendert (Default 2 bei den d3d12va-Encodern);
+    /// `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegD3d12Encoder {
@@ -165,7 +123,7 @@ impl FfmpegD3d12Encoder {
             create_d3d12_pool(adapter, cfg.dst_width, cfg.dst_height)?;
 
         // Output-Öffnung inkl. Protokoll-Optionen (RTMPS/SRT/WHIP) zentral in
-        // encoder.rs::open_output.
+        // output.rs::open_output.
         let mut output = open_output(output_path)?;
 
         let codec_name = cfg.codec.d3d12va_name();
@@ -200,14 +158,31 @@ impl FfmpegD3d12Encoder {
             (*ctx).hw_frames_ctx = new_ref;
         }
 
+        let mut opts = d3d12va_opts();
+        // Hier ist der Abbruch der ganze Zweck: `h264_d3d12va` NIMMT die
+        // Intra-Refresh-Option an und tut nichts damit (Herleitung in
+        // `auffrischung::optionen_fuer`). Ohne diese Zeile liefe genau der
+        // Fall, gegen den die Betriebsart antritt — und niemand sähe es.
+        super::auffrischung::anwenden(&mut opts, codec_name, cfg.fps)?;
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
-            .open_with(d3d12va_opts())
+            .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}'"))?;
+        super::log_encoder_open(
+            codec_name,
+            "amd/d3d12va",
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+            // Der d3d12va-Weg fuehrt keinen 10-bit-Pool.
+            false,
+        );
 
         // Audio-Pipeline VOR write_header (addiert einen Stream zum Output).
         let audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
-                &mut output,
+                Some(&mut output),
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,
@@ -232,6 +207,7 @@ impl FfmpegD3d12Encoder {
             audio,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
     }
 
@@ -244,6 +220,13 @@ impl FfmpegD3d12Encoder {
     /// `avcodec_send_frame`-Dauer des letzten `send_frame` in µs.
     pub fn last_send_us(&self) -> u64 {
         self.last_send_us
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in us.
+    /// Holt und LEERT die Zaehler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// Queue-Einreih-Dauer des letzten `send_frame` in µs.
@@ -272,12 +255,14 @@ impl FfmpegD3d12Encoder {
     /// `pts` ist die wall-clock-abgeleitete PTS in Encoder-Timebase (1/fps).
     pub fn send_frame(&mut self, frame: &mut OwnedD3d12Frame, pts: i64) -> Result<()> {
         unsafe { (*frame.frame).pts = pts };
+        // VOR dem Einschieben stempeln (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         let ret = unsafe { avcodec_send_frame(self.encoder.as_mut_ptr(), frame.frame) };
         if ret < 0 {
             return Err(anyhow!("avcodec_send_frame failed: {ret}"));
         }
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_and_mux()
     }
 
@@ -315,6 +300,9 @@ impl FfmpegD3d12Encoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             let t_mux = std::time::Instant::now();
             if self.mux.is_none() {
                 self.activate(&packet)?;
@@ -402,106 +390,4 @@ impl FfmpegD3d12Encoder {
             None => Ok(()),
         }
     }
-}
-
-/// Vendor-Optionen für die d3d12va-Encoder. CBR-Rate-Control für Streaming.
-fn d3d12va_opts() -> Dictionary<'static> {
-    let mut opts = Dictionary::new();
-    opts.set("rc_mode", "CBR");
-    opts
-}
-
-/// D3D12-hwdevice (auf der AMD-GPU) + NV12-hwframes-Pool. Der Pool ist
-/// UAV-fähig (`ALLOW_UNORDERED_ACCESS`), damit der Compute-Shader die
-/// Pool-Frames direkt beschreiben kann. Gibt die frames-AVBufferRef + FFmpegs
-/// `ID3D12Device` zurück.
-fn create_d3d12_pool(
-    adapter: u32,
-    width: u32,
-    height: u32,
-) -> Result<(*mut AVBufferRef, ID3D12Device)> {
-    let dev_str = std::ffi::CString::new(adapter.to_string()).unwrap();
-    let mut device_ref: *mut AVBufferRef = std::ptr::null_mut();
-    let ret = unsafe {
-        av_hwdevice_ctx_create(
-            &mut device_ref,
-            AVHWDeviceType::AV_HWDEVICE_TYPE_D3D12VA,
-            dev_str.as_ptr(),
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if ret < 0 {
-        return Err(anyhow!(
-            "av_hwdevice_ctx_create(D3D12VA, adapter={adapter}) failed: {ret}"
-        ));
-    }
-
-    // FFmpegs ID3D12Device aus dem hwctx ziehen (Clone = AddRef).
-    let device = unsafe {
-        let dev_ctx = (*device_ref).data as *mut AVHWDeviceContext;
-        let d3d12_hw = (*dev_ctx).hwctx as *mut AVD3D12VADeviceContext;
-        let ptr = (*d3d12_hw).device;
-        ID3D12Device::from_raw_borrowed(&ptr)
-            .map(|d| d.clone())
-            .ok_or_else(|| anyhow!("AVD3D12VADeviceContext.device ist NULL"))
-    };
-    let device = match device {
-        Ok(d) => d,
-        Err(e) => {
-            let mut r = device_ref;
-            unsafe { av_buffer_unref(&mut r) };
-            return Err(e);
-        }
-    };
-
-    let frames_ref = unsafe { av_hwframe_ctx_alloc(device_ref) };
-    if frames_ref.is_null() {
-        unsafe { av_buffer_unref(&mut device_ref) };
-        return Err(anyhow!("av_hwframe_ctx_alloc returned NULL"));
-    }
-    unsafe {
-        let hdr = (*frames_ref).data as *mut AVHWFramesContext;
-        (*hdr).format = AVPixelFormat::AV_PIX_FMT_D3D12;
-        (*hdr).sw_format = AVPixelFormat::AV_PIX_FMT_NV12;
-        (*hdr).width = width as i32;
-        (*hdr).height = height as i32;
-        (*hdr).initial_pool_size = 8;
-        let d3d12_frames = (*hdr).hwctx as *mut AVD3D12VAFramesContext;
-        (*d3d12_frames).resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    }
-    let ret = unsafe { av_hwframe_ctx_init(frames_ref) };
-    if ret < 0 {
-        let mut fr = frames_ref;
-        let mut dr = device_ref;
-        unsafe {
-            av_buffer_unref(&mut fr);
-            av_buffer_unref(&mut dr);
-        }
-        return Err(anyhow!("av_hwframe_ctx_init failed: {ret}"));
-    }
-    // device_ref hält der frames-Ctx jetzt intern; lokale Ref freigeben.
-    unsafe { av_buffer_unref(&mut device_ref) };
-    Ok((frames_ref, device))
-}
-
-/// DXGI-Index der ersten AMD-GPU (Vendor `0x1002`).
-fn amd_adapter_index() -> Result<u32> {
-    let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1() }.context("CreateDXGIFactory1")?;
-    let mut idx = 0u32;
-    loop {
-        let adapter = match unsafe { factory.EnumAdapters1(idx) } {
-            Ok(a) => a,
-            Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break,
-            Err(e) => return Err(anyhow!("EnumAdapters1: {e}")),
-        };
-        let desc = unsafe { adapter.GetDesc1() }.context("GetDesc1")?;
-        if desc.VendorId == 0x1002 {
-            return Ok(idx);
-        }
-        idx += 1;
-    }
-    Err(anyhow!(
-        "keine AMD-GPU (DXGI-Vendor 0x1002) für den D3D12VA-Encoder gefunden"
-    ))
 }

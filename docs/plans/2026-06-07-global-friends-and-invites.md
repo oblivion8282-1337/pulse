@@ -1,5 +1,26 @@
 # Globale Freunde + neues Einladungs-Modell
 
+> **STUFE 3 IST ÜBERHOLT — dort ist das Gegenteil gebaut worden.**
+> (Vermerkt 2026-08-04. Der Rest des Blatts gilt.)
+>
+> Das Ziel oben sagt „Wegwerf-Invite-Links entfallen", und Stufe 3 führt aus,
+> was dafür **entfernt** werden soll: die Link-Kopier-Oberfläche im
+> Einladen-Dialog, die Route `/invite/[code]`, das Untermenü „Link in DM" und
+> `lib/guilds/inviteLink.ts`.
+>
+> Tatsächlich wurden Link-Einladungen **ausgebaut**, nicht entfernt: Commit
+> `d23b96d8` (2026-07-13) stellt „Oder Link teilen" direkt neben den
+> Freunde-Auswähler und teilt `inviteLink.ts` ausdrücklich weiter statt es
+> abzuräumen; `ab34e2ca` baute darauf **konfigurierbare** Einladungslinks samt
+> Verwaltungs-Tab (Ablaufzeit, Nutzungsgrenze, Widerruf —
+> `GuildInvitesEditor.svelte`, zuletzt am 2026-07-20 angefasst). Das Untermenü
+> „Link in DM" existiert weiter und ist in `PopoverFriendActions.svelte`
+> verdrahtet.
+>
+> Das ist kein „noch offen": wer Stufe 3 heute nachbaut, reißt eine produktiv
+> genutzte und aktiv gepflegte Funktion ab. Die Stufen 2, 4 und 5 tragen ihre
+> eigenen Umsetzungs-Vermerke und sind davon unberührt.
+
 **Status:** Entwurf / geplant — noch nicht begonnen
 **Datum:** 2026-06-07
 **Betrifft:** Identitäts-/Social-Schicht (Cert-Modell), chat-gateway, web. Ergänzt `IDENTITY_CONCEPT.md`.

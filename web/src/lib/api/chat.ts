@@ -517,16 +517,23 @@ export const chatApi = {
    * Mint a short-lived publish token for the channel's HQ stream. The caller
    * must be a member of the channel's guild and the channel must be a voice
    * channel. The returned `push_url` already carries the token.
+   *
+   * `protocol` entscheidet ueber die Form der URL und damit ueber den Sendeweg
+   * des Sidecars: `rtmp` → `rtmps://…` (FLV ueber TCP), `whip` → `https://…`
+   * (eigener WebRTC-Sender). Nur der WHIP-Weg hat einen Rueckkanal, ueber den
+   * die Vollbild-Anforderung eines Zuschauers den Encoder erreicht — deshalb
+   * verlangt Intra-Refresh ihn.
    */
   getStreamToken(
     channelId: string,
-    protocol: 'rtmp' = 'rtmp',
+    protocol: 'rtmp' | 'whip' = 'rtmp',
     slot = 0,
-    label?: string
+    label?: string,
+    tenBit = false
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
-      body: { protocol, slot, ...(label ? { label } : {}) }
+      body: { protocol, slot, ...(label ? { label } : {}), ...(tenBit ? { ten_bit: true } : {}) }
     });
   },
   /**
@@ -541,9 +548,17 @@ export const chatApi = {
     return request<void>(`/channels/${channelId}/stream${q}`, { method: 'DELETE' });
   },
   /** WHEP playback URL for `userId`'s HQ stream in `channelId`. `slot` picks
-   *  which of that user's streams (0 = primary, default). */
-  getWhepUrl(channelId: string, userId: string, slot = 0): Promise<{ whep_url: string }> {
-    return request<{ whep_url: string }>(
+   *  which of that user's streams (0 = primary, default).
+   *
+   *  `ten_bit` sagt, ob der Streamer mit 10 bit Farbtiefe sendet — daran
+   *  entscheidet der Zuschauer den Wiedergabeweg (nur der native Player kann
+   *  mehr als 8 bit ausgeben). Ältere Server lassen das Feld weg → 8 bit. */
+  getWhepUrl(
+    channelId: string,
+    userId: string,
+    slot = 0
+  ): Promise<{ whep_url: string; ten_bit?: boolean }> {
+    return request<{ whep_url: string; ten_bit?: boolean }>(
       `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
     );
   },

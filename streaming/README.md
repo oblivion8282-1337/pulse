@@ -30,15 +30,41 @@ streaming/
 │   └── __init__.py
 ├── win-hq-sidecar/          Windows: Rust-Sidecar — s. unten
 │   ├── src/                 WGC-Capture + WASAPI + ffmpeg-next-Encode
-│   ├── ffmpeg-dist/         vendored FFmpeg LGPL n8.1-shared (BtbN)
+│   ├── ffmpeg-dist/         FFmpeg LGPL n8.1.2-shared, selbst gebaut + gepatcht
 │   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
 │   └── examples/            cargo-runnable Smoke-Driver
+├── linux-hq-sidecar/        Linux: Rust-Sidecar (PipeWire + VAAPI/NVENC), der Standard
+├── mac-hq-sidecar/          macOS: Rust-Sidecar (ScreenCaptureKit + VideoToolbox)
+├── pulse-player/            nativer HQ-Player — der einzige Weg für AV1 10 bit
+├── hq-labor/                Messstand Linux — NICHT ausgeliefert (s.u.)
+├── win-hq-labor/            Messstand Windows — NICHT ausgeliefert (s.u.)
+├── testbench/               Messwerkzeuge + `profiles/` = die Messakten
+├── ffmpeg-patches/          unsere FFmpeg-Patches (VAAPI + AMF, je Intra-Refresh)
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
 ├── pyproject.toml           uv-Workspace-Member "gsr-sidecar" (package=false)
 └── README.md                hier
 ```
+
+## Die zwei Messstände — was sie sind und was sie nicht sind
+
+`hq-labor/` (Linux) und `win-hq-labor/` (Windows) sind **Messstände, keine
+Produktteile.** Sie binden den jeweils ausgelieferten Sidecar als Bibliothek ein
+und ergänzen, was zum Messen nötig ist: einen eigenen WebRTC-Sender, einen
+eigenen Zuschauer, der wirklich dekodiert und zählt, Verlust-Erzeugung,
+Ton-Auswertung, Vergleichsarme für verworfene Wege.
+
+**Keine CI baut sie.** `win-build.yml` ist auf `streaming/win-hq-sidecar/**`
+begrenzt und baut ausschließlich `pulse-win-hq-sidecar`; für den Linux-Messstand
+gilt dasselbe. Ein eigener Crate-Name (`pulse-win-hq-labor`) hält die
+Unterscheidung auch dort auf, wo jemand von Hand baut.
+
+**Warum sie trotzdem im Repo liegen:** ohne sie ist eine Nachmessung ein Neubau.
+Der Windows-Messstand hat belegt, dass Intra-Refresh beim Zuschauer ankommt —
+nicht an einer Bildzahl aus dem Sender, sondern an der Gegenstelle gemessen. Die
+nächste offene Frage (Windows mit NVIDIA) braucht genau ihn wieder. Er lag bis
+2026-08-04 nur auf einem lokalen Zweig; das war ein Versehen, kein Entwurf.
 
 ## Was vom Original-Repo NICHT mitkopiert wurde
 
@@ -74,16 +100,45 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ...}` |
+| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, intra_refresh?, ...}` — die beiden letzten melden Linux- und Windows-Sidecar, macOS und der Python-Auffang nicht; **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
 | `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
-| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}` | `argv` (die gleiche Liste) — danach kommen Events |
+| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth, intra_refresh}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
+| `keyframe` | — | `ok` — beim nächsten Bild ein Vollbild erzeugen. **Nur Linux- und Windows-Sidecar.** Ohne laufenden Stream folgenlos; mehrere Anforderungen innerhalb eines Bildabstands fallen zu einer zusammen (bei mehreren Zuschauern zahlt der Sender ein Intra-Bild einmal für alle). Der reguläre Weg ist der RTCP-Rückkanal des eigenen WHIP-Sendewegs — diese Operation ist die Gegenstelle von Hand, damit die Wirkung messbar ist, ohne dass ein echter Zuschauer und ein Verlustprofil zusammenkommen müssen. |
+
+`overrides.intra_refresh` schaltet die Betriebsart um: rollender Intra-Refresh
+statt periodischer Vollbilder. **Der Sidecar verweigert den Start**, wenn sein
+Encoder sie nicht liefert, statt still Keyframes unter ihrem Etikett zu fahren;
+ob sie überhaupt zu haben ist, meldet `health.gsr.intra_refresh` vorab, damit
+die Oberfläche das Kästchen gar nicht erst anbietet. Ein solcher Strom hat nach
+dem Start **kein** Vollbild mehr — der Rückkanal (`keyframe` bzw. RTCP) ist
+deshalb Voraussetzung, nicht Zubehör.
+
+**Der Zuschauer erfährt die Bittiefe über die WHEP-Antwort** (`ten_bit`), nicht
+über `stream:events`: sie reist als `ten_bit` im Token-Record mit
+(`POST /channels/{id}/stream-token`), der auth-hook kopiert sie beim
+Publish-Auth in `stream:active`, und `GET /channels/{id}/whep` gibt sie
+zurück — genau dieselbe Schiene wie `label`. Grund für den Umweg: nur der
+native Player kann mehr als 8 bit ausgeben, und die Kachel muss sich für einen
+Wiedergabeweg entscheiden, BEVOR sie dekodiert. Fehlt das Feld (älterer Server
+oder Streamer), gilt 8 bit und die Kachel bleibt im `<video>`.
+
+`overrides.bit_depth` (8|10) und `health.gsr.ten_bit` sind **Zusatzfelder des
+Linux-Rust-Sidecars** (seit 2026-07-26). Python-, Windows- und macOS-Sidecar
+melden `ten_bit` nicht und ignorieren `bit_depth` stillschweigend — Konsumenten
+müssen `undefined` als „kann kein 10 bit" lesen, nie als „unbekannt, probier's".
+10 bit ist dort an **AV1** gebunden: die 10-bit-Variante von H.264 wäre
+`High 10`, die kein Browser dekodiert, und der WHEP-Rückfall im Web ist ein
+`<video>`. Ein unerfüllbarer Wunsch (kein AV1, WHIP-Ziel, VAAPI-Karte) fällt im
+Sidecar mit Log-Zeile auf 8 bit zurück statt den Start zu verweigern; das
+Frontend schickt ihn deshalb nur, wenn er erfüllbar ist
+(`settings.svelte.ts::tenBitPossible`).
 
 `start`/`build_argv` brauchen den Channel-Block — Pulse streamt immer in einen
 Voice-Channel:
@@ -100,6 +155,16 @@ Voice-Channel:
   URL-Schema (`http(s)://` → ffmpeg-WHIP; AV1→H.264-Fallback, der
   WHIP-Muxer von ffmpeg 8.1 kann kein AV1). Python-GSR- sowie Win/Mac-Sidecars
   können (noch) kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
+  - **Die AV1-Sperre liegt an ffmpegs Muxer, nicht an WHIP** (nachgeprüft
+    2026-07-28, damit es niemand aus dem Satz oben falsch schließt): `whip.c`
+    trägt `.p.video_codec = AV_CODEC_ID_H264` und genau einen Payload-Typ (106),
+    in 8.1 **und** im aktuellen master — es lohnt also nicht, auf ein Update zu
+    warten. Ein konkurrierender Muxer mit AV1/HEVC/VP9 (nativewaves, auf Basis
+    von libdatachannel) liegt seit November 2023 unangenommen im Patchsystem.
+    WHIP selbst trägt AV1 problemlos; unser Player empfängt es über WHEP in
+    10 bit, und mit `webrtc-rs` liegt im Baum bereits ein vollständiger
+    WebRTC-Baukasten — ein eigener Sendeweg wäre also kein Codec-Verzicht,
+    sondern nur Arbeit.
 
 `capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
 Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus
@@ -174,9 +239,12 @@ landet ausschließlich in der Push-URL (GSR auf Linux, ffmpeg-next auf Windows).
 
 Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
 identisch). Stack: `windows-capture` v2 (WGC), `wasapi` (Desktop-Loopback +
-Mikrofon), `ffmpeg-next` 8.1 gegen die **vendored** BtbN-LGPL-Shared-Distribution
-unter `ffmpeg-dist/n8.1-lgpl-shared/`. `build.rs` kopiert die FFmpeg-DLLs neben
-die exe — Binary ist standalone, kein Python nötig.
+Mikrofon), `ffmpeg-next` 8.1 gegen ein **selbst gebautes, gepatchtes** FFmpeg
+unter `ffmpeg-dist/n8.1-lgpl-shared/` (n8.1.2 + `ffmpeg-patches/0002-amfenc_av1-…`;
+seit 2026-08-04 nicht mehr BtbNs Fertigpaket, weil es die AMF-Intra-Refresh-Optionen
+in keiner Fassung gibt — Bau: `win-hq-sidecar/scripts/build-ffmpeg-patched.ps1`).
+`build.rs` kopiert die FFmpeg-DLLs neben die exe — Binary ist standalone, kein
+Python nötig.
 
 **Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
 - **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `capture/wgc_hw.rs` + `encode/encoder_hw.rs` + `encode/hwctx.rs`):
@@ -217,11 +285,21 @@ gesetzt sein wenn MediaMTX self-signed nutzt (Pulse-Default; Token in URL ist di
 Push nach dem TLS-Handshake mit „Writing encrypted data to socket failed". `encoder.rs::create` +
 `encoder_hw.rs::create` setzen das automatisch bei `rtmps://`.
 
-## Nächste Etappe (T3)
+## Etappe T3 — erledigt, und anders als hier geplant
 
-- Tauri (Rust): spawnt den Sidecar als Subprocess, liest stdout-Events,
-  forwarded sie als Tauri-Events ins Frontend.
-- Svelte: baut die GSR-UI (Profil-/Server-/Capture-Picker, Audio-Mode,
-  Overrides, Start/Stop, Live-FPS+Uptime, Log) gegen das RPC-Protokoll
-  oben. Persistenz wandert auf den Tauri-`store` (statt
-  `~/.config/gsr-stream-ui/`).
+**Dieser Abschnitt beschrieb bis 2026-08-04 Tauri als nächsten Schritt. Das ist
+seit dem 2026-05-12 überholt**: der Desktop-Wrapper ist **Electron** geworden,
+weil WebKitGTKs WebRTC unter Tauri unzuverlässig war (`PLAN.md` §17; Tauri steht
+in `CLAUDE.md` inzwischen unter den Anti-Patterns). Der Absatz blieb stehen,
+während dieselbe Datei weiter unten längst die reale Electron-Anbindung
+beschreibt.
+
+Wie es wirklich gebaut ist:
+
+- **Electron-Main** spawnt den Sidecar lazy beim ersten `gsr:call` und reicht
+  stdout-Ereignisse an den Renderer durch (`desktop/electron/sidecar.ts`).
+- **Svelte** bedient das Protokoll oben über `window.pulse.gsr.*`
+  (`web/src/lib/stream/`).
+- **Persistenz** liegt in einem hand-gebauten KV-Store
+  (`desktop/electron/store.ts`), nicht in einem Tauri-`store` — `electron-store`
+  ist ESM-only und passte nicht zum CJS-Build.

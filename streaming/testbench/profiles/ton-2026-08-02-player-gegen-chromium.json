@@ -1,0 +1,91 @@
+{
+  "id": "ton-2026-08-02-player-gegen-chromium",
+  "gemessen_am": "2026-08-02 (Abend)",
+  "frage": "Gibt der native Player den Ton spaeter aus als Chromium — und wenn ja, wie viel?",
+  "wie_es_zu_dieser_messung_kam": "Beobachtung aus dem Betrieb: der Ton im eigenen Fenster klinge 'minimal weiter weg vom Original' als in der Electron-App. Am Bild war der Unterschied nicht zu beurteilen, am Ton schon — das Ohr loest Zeitversatz feiner auf, und beim Ton steht das Original als Referenz daneben.",
+  "warum_die_vorhandenen_werkzeuge_nicht_reichten": "`ton-auswertung.py` liest den Player-Mitschnitt, und der stempelt die ANKUNFT der Pakete (`session.rs` reicht `started.elapsed()` weiter). Der Verdacht sitzt dahinter: zwischen Decode und Geraet liegt ein Ring, der bei Unterlauf Stille auffuellt (`audio.rs`), und eingefuegte Stille schiebt die Tonzeitachse dauerhaft nach hinten. Was VOR dem Ring gemessen wird, kann das nicht zeigen. Fuer Chromium gibt es ausserdem gar keinen Mitschnitt.",
+  "aufbau": {
+    "werkzeug": "streaming/testbench/ton-laufzeit.py (neu), Auswertung aus ton-vergleich.py (neu)",
+    "sender": "ffmpeg-Push, Video kopiert aus synth8-av1.mkv (AV1 8 bit, 2560x1440), Ton = Beep-Signal aus tonsignal.py als Opus, RTMPS an lokales MediaMTX",
+    "zuschauer_1": "streaming/pulse-player (nativ), JSON-RPC `open`",
+    "zuschauer_2": "Chromium via browser-whep.mjs --ton --sichtbar (derselbe, den Playwright fuer E2E nutzt)",
+    "aufnahme": "durchgehend, eigener Null-Sink, beide Wege NACHEINANDER in dieselbe Datei",
+    "messgroesse": "Phasenlage der 3-kHz-Beeps im 1-Sekunden-Raster, zirkulaer gemittelt",
+    "warum_phasenlage": "Der Sender setzt einen Beep auf jede volle Sekunde. Die Ausgabeverzoegerung zeigt sich damit als Phase im Raster, ohne dass zwischen den beiden Abschnitten irgendeine Uhr geteilt werden muesste. Alles Gemeinsame (Sendeweg, Aufnahmelatenz, Rasterphase der Quelle) faellt in der Differenz heraus."
+  },
+  "das_messgeraet_wurde_geprueft": {
+    "verfahren": "`ton-vergleich.py --nulltest`: EIN Signal ueber `pw-link` auf ZWEI getrennte Null-Sinks, beide Monitore in eine zweikanalige Aufnahme. Die wahre Differenz ist null.",
+    "ergebnis": "40 Beep-Paare, Median 0,0 ms, Spanne 0,0 bis 0,0, Streuung 0,0 ms.",
+    "die_erste_fassung_des_nulltests_taugte_nicht": "Zweimal DIESELBE Quelle aufzunehmen ergab sofort 0,0 ms bei null Streuung — und bewies nichts, weil ffmpeg denselben Strom zweimal identisch bedient. Erst zwei getrennte Sinks pruefen den Weg, der spaeter benutzt wird. Der wertlose Nulltest sah dabei genauso ueberzeugend aus wie der gueltige."
+  },
+  "ergebnis": [
+    {
+      "lauf": 1,
+      "player_phase_ms": 842.0,
+      "chromium_phase_ms": 790.0,
+      "differenz_ms": -52.0,
+      "beeps_player": 31,
+      "beeps_chromium": 30
+    },
+    {
+      "lauf": 2,
+      "player_phase_ms": 834.0,
+      "chromium_phase_ms": 799.0,
+      "differenz_ms": -35.0,
+      "beeps_player": 31,
+      "beeps_chromium": 29
+    },
+    {
+      "lauf": 3,
+      "player_phase_ms": 834.0,
+      "chromium_phase_ms": 790.0,
+      "differenz_ms": -44.0,
+      "beeps_player": 31,
+      "beeps_chromium": 30
+    }
+  ],
+  "gegenprobe_reihenfolge": {
+    "warum": "Die drei ersten Laeufe hatten dieselbe Reihenfolge (erst Player, dann Chromium). Alles, was sich waehrend der Aufnahme einpegelt, koennte damit als Unterschied zwischen den Wegen erscheinen.",
+    "erster_versuch_scheiterte_und_das_war_der_hinweis": "Mit vertauschter Reihenfolge und derselben Aufbauzeit von 6 s ergaben drei Laeufe -44,9 / -32,2 / +5,8 ms — einer davon mit umgekehrtem Vorzeichen. Das Warnsignal stand in der Streuung: Chromiums Phasenlage streute dabei 162 bis 174 ms statt 0,0. Laeuft Chromium als ERSTER Zuschauer am frisch gestarteten Sender, ist seine Ausgabelatenz nach 6 s noch nicht eingeschwungen. Der Mittelwert daraus bedeutet nichts.",
+    "mit_35_s_aufbauzeit_haelt_es": [
+      {
+        "reihenfolge": "Player zuerst",
+        "player_phase_ms": 833.0,
+        "chromium_phase_ms": 795.0,
+        "differenz_ms": -38.0,
+        "streuung": "beide 0,0 ms"
+      },
+      {
+        "reihenfolge": "Chromium zuerst",
+        "player_phase_ms": 844.0,
+        "chromium_phase_ms": 809.0,
+        "differenz_ms": -35.0,
+        "streuung": "beide 0,0 ms"
+      }
+    ],
+    "schluss": "Der Befund ist reihenfolgeunabhaengig: -38 und -35 ms bei umgekehrter Folge, beide Male mit stabiler Phase. Die Einschwingzeit ist als `PULSE_TON_AUFBAU_S` einstellbar; 6 s sind zu wenig."
+  },
+  "was_das_heisst": {
+    "die_beobachtung_stimmt": "GEMESSEN: Der native Player gibt den Ton spaeter aus als Chromium. Bester Schaetzwert aus den eingeschwungenen Laeufen: 35 bis 38 ms, unabhaengig von der Reihenfolge. Die erste Serie (6 s Aufbauzeit) ergab 35 bis 52 ms — dieselbe Richtung, aber mit dem Einschwingen als zusaetzlicher Streuquelle.",
+    "chromium_braucht_lange_zum_einpegeln": "GEMESSEN, als Nebenprodukt der Gegenprobe: In den ersten Sekunden nach dem Beitritt schwankt Chromiums Ausgabelatenz um mehr als 160 ms; nach rund 35 s liegt die Phase fest (Streuung 0,0). Der native Player ist dagegen von Anfang an stabil. Fuer den Zuschauer heisst das: der Browser-Weg beginnt unruhig und wird dann gut, der Player beginnt gut und bleibt es — nur eben spaeter.",
+    "die_streuung_liegt_ZWISCHEN_den_laeufen": "Innerhalb eines Laufs ist die Phase praktisch konstant (Streuung 0,0 ms ueber rund 30 Beeps, bei 1 ms Aufloesung). Zwischen den Laeufen schwankt sie um 17 ms. Was hier variiert, wird also beim VERBINDEN festgelegt und bleibt dann stehen — das passt zu einer Puffer-Fuellung, die sich beim Start einpegelt, und nicht zu laufender Drift.",
+    "kein_weglaufen": "In keinem Lauf wandert die Phase ueber die Messdauer. Ein kumulatives Nachhinken durch eingefuegte Stille waere hier sichtbar geworden und ist es nicht — bei sauberer Leitung. Unter Verlust ist es ungemessen."
+  },
+  "nebenbefund_der_zaehlt": {
+    "chromium_dekodiert_10_bit_av1_nicht": "Der erste Anlauf lief mit der Standard-Pruefstandsquelle `synth10.mkv` (AV1, yuv420p10le). Chromium meldete nach 3 Sekunden `framesDecoded: 0`, `framesDropped: 21` und `pliCount: 13` — bei 8814 empfangenen Paketen und null Verlust. Das ist dieselbe Ursache, die am selben Tag im echten Betrieb das Pumpen erzeugte (`Dav1dDecoder::Decode unhandled bit depth: 10`), hier unabhaengig im Pruefstand reproduziert. Deshalb musste die Quelle fuer diese Messung auf 8 bit umgestellt werden.",
+    "h264_ging_gar_nicht": "Eine H.264-Variante derselben Quelle kam beim Player mit 0 kbit/s an (`Track video/H264 beendet: DataChannel is not opened`). Nicht untersucht — fuer die Tonfrage genuegte der Wechsel auf AV1 8 bit, der alles andere an der Kette unveraendert laesst."
+  },
+  "nicht_gemessen": [
+    "Die BILD-Laufzeit im selben Lauf. Damit ist der A/V-Versatz je Weg nicht bestimmt — nur die Tondifferenz. Fuer die urspruengliche Frage (Bild frueh + Ton spaet ergaebe im Player einen groesseren Versatz) fehlt also noch die Haelfte.",
+    "Die absolute Tonlaufzeit je Weg. Gemessen ist die Differenz; ein Anker (`tonsignal-*.start.json`) wurde nicht ausgewertet.",
+    "Verhalten unter Paketverlust. Die Leitung war lokal und sauber. Gerade der vermutete Mechanismus (Stille bei Unterlauf, die nie aufgeholt wird) braucht Stoerung, um sich zu zeigen.",
+    "Die Ursache. Dass der Player spaeter ist, ist gemessen; WO die 35 bis 38 ms entstehen (Jitter-Puffer mit 100 ms Vorgabe, Ring-Zielfuellstand, cpal-Geraetepuffer), ist offen."
+  ],
+  "einschraenkungen": [
+    "Die Reihenfolge ist gegengeprueft (beide Folgen, 35 s Aufbauzeit) — aber je nur EINMAL. Die drei Wiederholungen gibt es nur fuer die kurze Fassung.",
+    "Gemessen wurde am Monitor eines Null-Sinks, nicht am echten Ausgabegeraet. Fuer die Differenz ist das unkritisch, solange beide Wege gleich behandelt werden — fuer eine absolute Zahl waere es eine Fehlerquelle.",
+    "Beide Zuschauer liefen NACHEINANDER am selben Sender. Zwischen den Abschnitten koennen sich Sender- oder Netzbedingungen geaendert haben; bei lokaler Schleife ist das unwahrscheinlich, aber ungeprueft.",
+    "Aufloesung der Einsatzsuche: 1 ms. Unterschiede darunter sind nicht aufloesbar."
+  ],
+  "lehre": "Ein Nulltest, der bequem zu bauen ist, prueft oft nicht den Weg, der spaeter benutzt wird. Beide Fassungen lieferten hier 0,0 ms — nur eine davon bedeutete etwas."
+}

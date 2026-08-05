@@ -1,0 +1,45 @@
+{
+ "id": "remote-2026-08-02-chromium-jitterpuffer",
+ "gemessen_am": "2026-08-02",
+ "frage": "Wie tief regelt Chromiums Jitter-Puffer auf einem P2P-WebRTC-Pfad? Daran haengt, ob der native Player als Fernsteuer-Fenster einen Latenzvorteil braechte.",
+
+ "warum_die_frage": "Im Latenzbudget der Fernsteuerung (docs/2026-07-21-remote-control-latenz-messung.md) steht der Jitter-Puffer mit 5-15 ms von insgesamt 65-90 ms. Gemessen war damals nur, dass diese Werte auf der Strecke REICHEN — nicht, was Chromium daraus macht. Der Player-README fuehrt den stellbaren Puffer als Vorteil, gestuetzt auf die Aussage, Chromiums Puffer lasse sich nicht dorthin zwingen. Diese Aussage war unbelegt.",
+
+ "aufbau": {
+  "werkzeug": "streaming/testbench/remote-jitter-sim.mjs + remote-jitter-sim.sh",
+  "aufbau": "Zwei RTCPeerConnections im ECHTEN Chromium (der von Playwright), direkt verbunden, Verkehr ueber Loopback-UDP. Quelle: Chromiums synthetische Kamera (`--use-fake-device-for-media-stream=fps=60`), 1280x720, H.264 erzwungen, maxBitrate 4000 kbps.",
+  "stoerung": "netem auf `lo`, nur UDP, `delay 30ms <jitter> distribution normal loss <verlust> rate 10mbit`",
+  "messgroesse": "jitterBufferDelay / jitterBufferEmittedCount aus getStats(), als DIFFERENZ zwischen zwei Proben (nicht der kumulative Endwert)",
+  "kontrolle": "currentRoundTripTime + `tc -s` in jedem Lauf — ohne diesen Nachweis misst man den Leerlauf"
+ },
+
+ "ergebnis": [
+  {"bedingung": "ohne Stoerung", "puffer_ms": 7.9, "spanne_ms": [6.6, 8.2], "rtt_ms": 0, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 11ms, 0,2 % (Wdh. 1)", "puffer_ms": 14.8, "spanne_ms": [11.0, 18.0], "rtt_ms": 76, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 11ms, 0,2 % (Wdh. 2)", "puffer_ms": 17.5, "spanne_ms": [11.1, 25.6], "rtt_ms": 75, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 11ms, 0,2 % (Wdh. 3)", "puffer_ms": 18.1, "spanne_ms": [10.6, 25.1], "rtt_ms": 94, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 25ms, 0,2 %", "puffer_ms": 38.8, "spanne_ms": [20.9, 49.2], "rtt_ms": 125, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 50ms, 0,2 %", "puffer_ms": 56.1, "spanne_ms": [33.7, 83.6], "rtt_ms": 209, "aufloesung": "1280x720"},
+  {"bedingung": "30ms +/- 11ms, 2 % Verlust", "puffer_ms": 25.5, "spanne_ms": [13.7, 39.9], "rtt_ms": 74, "aufloesung": "1280x720"}
+ ],
+
+ "was_das_heisst": {
+  "auf_der_gemessenen_teststrecke_ist_der_vorteil_klein": "Bei den Netzwerten der Machbarkeitsmessung (11 ms Jitter, 0,2 % Verlust) liegt Chromiums Puffer bei 15-18 ms — also im selben Bereich, den das Budget mit 5-15 ms ansetzt. Ein stellbarer Puffer holt dort hoechstens 5-10 ms von 65-90 ms heraus, rund 10 Prozent.",
+  "der_grosse_puffer_auf_schlechter_leitung_ist_KEIN_fehler": "Bei 25 und 50 ms Jitter geht Chromium auf 39 und 56 ms. Das ist die richtige Antwort auf die Leitung, nicht Traegheit: ein fest kleiner Puffer wuerde dort Bilder verwerfen statt Latenz zu sparen. Der Player muesste dasselbe tun — der vermeintliche Vorteil verschwindet genau dort, wo er am meisten wert waere.",
+  "die_regelung_ist_sauber": "Der Puffer folgt dem gesetzten Jitter monoton (7,9 -> 15-18 -> 38,8 -> 56,1 ms) und reagiert auch auf Verlust (25,5 ms bei 2 Prozent). Chromium regelt, es puffert nicht blind vor."
+ },
+
+ "was_es_NICHT_beantwortet": [
+  "Die echte Strecke. Loopback + netem ist kein Internet; die absoluten Werte tragen nur als Groessenordnung.",
+  "Den echten Sender. Hier sendet Chromium selbst (gleichmaessiger als der Tee aus dem HQ-Encoder). Das Ergebnis ist damit eine UNTERE SCHRANKE fuer Chromiums Puffer — real eher hoeher, aber die Kennlinie bleibt.",
+  "1440p und Hardware-Codec. Gemessen mit 720p, OpenH264 (Software) und FFmpeg-Decode (Rueckfall von VaapiVideoDecoder). Groessere Bilder haben mehr Pakete je Frame und damit laengere Zusammenbauzeit.",
+  "Was der native Player auf DEMSELBEN Pfad erreicht. Er spricht WHEP, nicht das remote-Signaling — ein direkter Vergleich verlangt erst die Controller-Rolle im Player."
+ ],
+
+ "fallen_dieses_laufs": {
+  "netem_traf_den_verkehr_nicht": "Erster Stoerlauf zeigte exakt die ungestoerten Werte. Der tc-Filter griff nur auf IPv4, Chromium nimmt ueber Loopback `::1`. `tc -s` zeigte 196 Pakete bei 3482 empfangenen — ohne diesen Nachweis waere `Chromium bleibt auch unter Stoerung bei 7,8 ms` als Befund herausgegangen.",
+  "netem_mit_jitter_sortiert_um": "Ohne `rate` ueberholen sich Pakete. WebRTC liest das als schwere Stoerung, die Bitrate kollabierte auf 320x180, und zwei identische Laeufe ergaben 11,3 und 81,4 ms — Faktor 7. Mit `rate 10mbit` (serialisiert, zugleich der reale Uplink) liegen drei Wiederholungen bei 14,8 / 17,5 / 18,1 ms.",
+  "die_quelle_muss_liefern": "Ein 2D-Canvas als Quelle schaffte im Playwright-Chromium nur 5-20 statt 60 Bilder je Sekunde. Dann misst man den Sender, nicht den Empfangspuffer. Chromiums synthetische Kamera mit `fps=60` loest das.",
+  "outbound_rtp_liegt_beim_sender": "Die Senderwerte standen anfangs auf null, weil beide Seiten am Empfaenger abgefragt wurden — dadurch war nicht unterscheidbar, ob der Empfang traege war oder gar nichts ankam."
+ }
+}

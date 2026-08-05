@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::encode;
-use crate::system::drm;
+use crate::system::drm::{self, Vendor};
 
 /// Kandidaten in Präferenzordnung (kein HEVC).
 const CANDIDATES: &[&str] = &["h264", "av1"];
@@ -32,6 +32,15 @@ pub struct Caps {
     /// läuft aber über `<video>`. Heute nur der NVENC-Pfad (s.
     /// `encode::probe_encoder`).
     pub ten_bit: bool,
+    /// Reicht das gelinkte FFmpeg rollenden Intra-Refresh durch?
+    ///
+    /// **Das ist eine Frage an FFmpeg, nicht an die Hardware.** Auf NVIDIA ist
+    /// die Option upstream; auf VAAPI (AMD/Intel) gibt es sie in KEINER
+    /// FFmpeg-Version, dort braucht es unseren Patch
+    /// (`streaming/ffmpeg-patches/`). Ohne ihn bricht der Start ab, statt still
+    /// Keyframes zu fahren — die Oberfläche soll das Kästchen deshalb gar nicht
+    /// erst anbieten.
+    pub intra_refresh: bool,
 }
 
 /// Hardware-encodierbare Video-Codecs auf dieser Maschine, in Präferenzordnung.
@@ -121,11 +130,19 @@ fn probe_all() -> (Caps, bool) {
                 false
             }
         };
+    // Intra-Refresh fragt nur die Optionsliste des Encoders ab — keine
+    // Hardware, kein `open`, also auch nichts, was `definitive` kippen könnte.
+    // Ein einziger Codec genügt: die Option sitzt bei beiden Vendorn im
+    // gemeinsamen Optionsblock, und was hier gemeldet wird, ist die Eigenschaft
+    // des FFmpeg-Baus, nicht die des Codecs.
+    let intra_refresh = out
+        .first()
+        .is_some_and(|c| encode::opts::intra_refresh_verfuegbar(vendor, c));
     tracing::info!(
-        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit,
+        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit, intra_refresh,
         "HW-Encode-Probe abgeschlossen"
     );
-    (Caps { codecs: out, ten_bit }, definitive)
+    (Caps { codecs: out, ten_bit, intra_refresh }, definitive)
 }
 
 /// Kann diese Maschine den Pulse-Codec (h264/av1) per Hardware encodieren?
@@ -136,4 +153,73 @@ pub fn supports_codec(codec_id: &str) -> bool {
 /// Kann diese Maschine 10 bit encodieren (impliziert AV1)?
 pub fn supports_ten_bit() -> bool {
     probe().ten_bit
+}
+
+/// Welchen Codec dieser Stream wirklich fahren kann — geprüft an der ECHTEN
+/// Auflösung. Gibt den gewünschten zurück, wenn er trägt.
+///
+/// **Warum das die Codec-Liste oben nicht erledigt.** [`probe`] öffnet den
+/// Encoder bei 720p und beantwortet damit „kann diese Karte den Codec". Das
+/// muss so sein: die Liste steht, bevor der Wayland-Dialog die Quelle festlegt
+/// — vorher weiß niemand, wie groß der Schirm ist. „Kann sie ihn auch bei 8K"
+/// ist aber eine andere Frage, und die Antwort weicht ab: gemessen am
+/// 2026-08-03 auf einer Radeon 780M öffnet `h264_vaapi` bei 4K und scheitert
+/// bei 7680x4320 mit `Invalid argument`, während `av1_vaapi` beides trägt.
+///
+/// Ohne diese Prüfung bekäme ein Nutzer mit großem Schirm eine Treibermeldung
+/// beim Start — obwohl der andere Codec auf derselben Karte funktioniert hätte.
+///
+/// Der Rückfall geht bewusst in BEIDE Richtungen. `ops::start` fällt von AV1 auf
+/// H.264 zurück, wenn die Karte kein AV1 encodiert; hier ist es umgekehrt, weil
+/// H.264 zuerst an der Bildgröße scheitert. Schlägt die Probe für beide fehl,
+/// bleibt es beim Wunsch — dann soll der echte Open seine eigene, genauere
+/// Fehlermeldung liefern statt einer geratenen.
+///
+/// Meldet NICHTS an den Nutzer: eine Fähigkeits-Probe ist die falsche Ebene für
+/// Oberflächen-Ereignisse. Der Aufrufer vergleicht mit seinem Wunsch und sagt es.
+pub fn codec_fuer_aufloesung(
+    vendor: Vendor,
+    node: &str,
+    gewuenscht: &str,
+    ten_bit: bool,
+    breite: u32,
+    hoehe: u32,
+) -> String {
+    // Geprüft wird erst OBERHALB dessen, was jede Karte sicher kann, und zwar
+    // an den Abmessungen — nicht an der Fläche. Der Unterschied ist real: ein
+    // 5120x1440-Ultrawide hat weniger Bildpunkte als 4K, überschreitet aber die
+    // Breitengrenze und ist genau der Fall, den diese Prüfung fangen soll.
+    //
+    // Die Zahlen sind die H.264-Grenze von VCN 4 (rund 4096x2304). Jede Karte,
+    // die die 720p-Probe besteht, encodiert auch darunter in beiden Codecs;
+    // unterhalb würde die Prüfung nur Zeit kosten (eine zusätzliche
+    // Encoder-Öffnung samt HW-Pool in voller Bildgröße, bei JEDEM Start) und
+    // nie etwas finden.
+    //
+    // Das ist eine Annahme über Hardware, keine Messung. Wandert die Grenze,
+    // gehören diese Werte mitgezogen.
+    const MAX_SICHER_BREITE: u32 = 4096;
+    const MAX_SICHER_HOEHE: u32 = 2304;
+    if breite <= MAX_SICHER_BREITE && hoehe <= MAX_SICHER_HOEHE {
+        return gewuenscht.to_string();
+    }
+    // 10 bit ist an AV1 gebunden (s. [`Caps::ten_bit`]) — der Ausweich-Codec
+    // muss deshalb ohne geprüft werden, sonst testet die Probe eine
+    // Kombination, die ohnehin nie laufen soll.
+    let traegt = |c: &str| {
+        let zehn = ten_bit && c == "av1";
+        matches!(encode::probe_encoder_at(vendor, node, c, zehn, breite, hoehe), Ok(true))
+    };
+    if traegt(gewuenscht) {
+        return gewuenscht.to_string();
+    }
+    let ausweich = if gewuenscht == "h264" { "av1" } else { "h264" };
+    if traegt(ausweich) {
+        return ausweich.to_string();
+    }
+    tracing::warn!(
+        target: "stream", codec = gewuenscht, breite, hoehe,
+        "weder der gewuenschte noch der andere Codec oeffnet bei dieser Groesse"
+    );
+    gewuenscht.to_string()
 }

@@ -1,0 +1,8504 @@
+{
+ "label": "fec-schwelle-039",
+ "betrieb": "Intra-Refresh",
+ "sekunden": 600.0,
+ "netz": {
+  "mitschnitt_dauer_s": 631.6,
+  "nack_zeitraum_s": 584.7,
+  "empfangsberichte_zeitraum_s": 631.0,
+  "nack_deckt_lauf_ab": true,
+  "rtp_pakete_server_zu_player": 306243,
+  "nacks_player_zu_server": 22862,
+  "plis_player_zu_server": 45,
+  "rtcp_sonstiges_player_zu_server": 2512,
+  "wiederholte_sequenznummern": 47092,
+  "beispiele": [
+   {
+    "ssrc": 3147034853,
+    "seq": 19659
+   },
+   {
+    "ssrc": 3147034853,
+    "seq": 19660
+   },
+   {
+    "ssrc": 3147034853,
+    "seq": 19661
+   },
+   {
+    "ssrc": 3147034853,
+    "seq": 19662
+   },
+   {
+    "ssrc": 3147034853,
+    "seq": 19663
+   }
+  ],
+  "anzahl_ssrcs": 2,
+  "ssrcs": [
+   3147034853,
+   3881890912
+  ],
+  "verspaetung_zugeordnet": 804,
+  "verspaetung_ms_min": 3.68,
+  "verspaetung_ms_median": 106.72,
+  "verspaetung_ms_max": 475652.72,
+  "rechtzeitig_bei_20ms_puffer": 11,
+  "rechtzeitig_bei_100ms_puffer": 236
+ },
+ "paritaet": {
+  "repariert": 0,
+  "unreparierbar": 0,
+  "zu_spaet": 0,
+  "unreparierbar_anteil": null
+ },
+ "vollbild_ereignisse": [
+  {
+   "sekunde": 1.2,
+   "meldung": "1, Ende-zu-Ende 0.0/0.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 1.4,
+   "meldung": "pulse-player: Vollbild #1 empfangen, Abstand erstes"
+  },
+  {
+   "sekunde": 1.4,
+   "meldung": "pulse-player: Einstiegspunkt gefunden, 17 Einheiten davor verworfen"
+  },
+  {
+   "sekunde": 2.2,
+   "meldung": "1, Ende-zu-Ende 85.2/137.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 3.2,
+   "meldung": "1, Ende-zu-Ende 79.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 4.2,
+   "meldung": "1, Ende-zu-Ende 78.3/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 5.2,
+   "meldung": "1, Ende-zu-Ende 80.3/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 6.2,
+   "meldung": "1, Ende-zu-Ende 78.7/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 7.2,
+   "meldung": "1, Ende-zu-Ende 80.6/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 8.2,
+   "meldung": "1, Ende-zu-Ende 79.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 9.2,
+   "meldung": "1, Ende-zu-Ende 80.5/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 10.2,
+   "meldung": "1, Ende-zu-Ende 77.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 11.2,
+   "meldung": "1, Ende-zu-Ende 80.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 12.2,
+   "meldung": "1, Ende-zu-Ende 78.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 13.2,
+   "meldung": "1, Ende-zu-Ende 80.8/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 14.2,
+   "meldung": "1, Ende-zu-Ende 78.8/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 15.2,
+   "meldung": "1, Ende-zu-Ende 80.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 16.2,
+   "meldung": "1, Ende-zu-Ende 78.6/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 17.2,
+   "meldung": "1, Ende-zu-Ende 79.7/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 18.2,
+   "meldung": "1, Ende-zu-Ende 80.3/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 19.2,
+   "meldung": "1, Ende-zu-Ende 79.5/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 20.2,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 21.2,
+   "meldung": "1, Ende-zu-Ende 80.2/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 22.2,
+   "meldung": "1, Ende-zu-Ende 77.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 23.2,
+   "meldung": "1, Ende-zu-Ende 79.5/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 24.2,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 25.2,
+   "meldung": "1, Ende-zu-Ende 80.1/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 26.2,
+   "meldung": "1, Ende-zu-Ende 79.3/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 27.2,
+   "meldung": "1, Ende-zu-Ende 79.7/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 28.2,
+   "meldung": "1, Ende-zu-Ende 79.2/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 29.2,
+   "meldung": "1, Ende-zu-Ende 79.2/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 30.2,
+   "meldung": "1, Ende-zu-Ende 77.5/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 31.2,
+   "meldung": "1, Ende-zu-Ende 78.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 32.2,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 33.2,
+   "meldung": "1, Ende-zu-Ende 79.8/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 34.2,
+   "meldung": "1, Ende-zu-Ende 82.0/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 35.2,
+   "meldung": "1, Ende-zu-Ende 78.9/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 36.2,
+   "meldung": "1, Ende-zu-Ende 78.6/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 37.2,
+   "meldung": "1, Ende-zu-Ende 79.4/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 38.2,
+   "meldung": "1, Ende-zu-Ende 78.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 39.2,
+   "meldung": "1, Ende-zu-Ende 82.9/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 40.2,
+   "meldung": "1, Ende-zu-Ende 79.0/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 41.2,
+   "meldung": "1, Ende-zu-Ende 82.2/122.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 41.4,
+   "meldung": "pulse-player: Vollbild #2 empfangen, Abstand 39886 ms"
+  },
+  {
+   "sekunde": 42.2,
+   "meldung": "1, Ende-zu-Ende 112.8/162.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 42.8,
+   "meldung": "pulse-player: Vollbild #3 empfangen, Abstand 1434 ms"
+  },
+  {
+   "sekunde": 43.4,
+   "meldung": "1, Ende-zu-Ende 136.4/179.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 44.4,
+   "meldung": "1, Ende-zu-Ende 136.4/179.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 44.4,
+   "meldung": "pulse-player: Decoder eingefroren (gleiches Bild trotz Daten) — leere ihn und fordere ein Vollbild an"
+  },
+  {
+   "sekunde": 44.6,
+   "meldung": "pulse-player: Vollbild #4 empfangen, Abstand 1705 ms"
+  },
+  {
+   "sekunde": 44.6,
+   "meldung": "pulse-player: Einstiegspunkt gefunden, 8 Einheiten davor verworfen"
+  },
+  {
+   "sekunde": 45.4,
+   "meldung": "1, Ende-zu-Ende 86.3/128.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 46.4,
+   "meldung": "1, Ende-zu-Ende 86.0/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 47.4,
+   "meldung": "1, Ende-zu-Ende 84.4/108.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 48.4,
+   "meldung": "1, Ende-zu-Ende 90.9/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 49.4,
+   "meldung": "1, Ende-zu-Ende 87.1/103.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 50.4,
+   "meldung": "1, Ende-zu-Ende 91.1/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 51.4,
+   "meldung": "1, Ende-zu-Ende 98.0/111.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 52.4,
+   "meldung": "1, Ende-zu-Ende 110.5/232.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 52.6,
+   "meldung": "pulse-player: Vollbild #5 empfangen, Abstand 8111 ms"
+  },
+  {
+   "sekunde": 53.4,
+   "meldung": "1, Ende-zu-Ende 132.5/268.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 54.4,
+   "meldung": "1, Ende-zu-Ende 88.2/110.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 55.4,
+   "meldung": "1, Ende-zu-Ende 89.1/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 56.4,
+   "meldung": "1, Ende-zu-Ende 91.5/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 57.4,
+   "meldung": "1, Ende-zu-Ende 97.2/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 58.4,
+   "meldung": "1, Ende-zu-Ende 124.7/285.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 59.4,
+   "meldung": "1, Ende-zu-Ende 93.2/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 60.4,
+   "meldung": "1, Ende-zu-Ende 118.5/257.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 61.4,
+   "meldung": "1, Ende-zu-Ende 78.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 62.4,
+   "meldung": "1, Ende-zu-Ende 80.4/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 63.4,
+   "meldung": "1, Ende-zu-Ende 123.4/274.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 64.4,
+   "meldung": "1, Ende-zu-Ende 93.2/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 65.4,
+   "meldung": "1, Ende-zu-Ende 95.8/118.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 66.4,
+   "meldung": "1, Ende-zu-Ende 82.0/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 67.4,
+   "meldung": "1, Ende-zu-Ende 92.0/140.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 68.4,
+   "meldung": "1, Ende-zu-Ende 169.5/196.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 69.4,
+   "meldung": "1, Ende-zu-Ende 90.7/196.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 70.4,
+   "meldung": "1, Ende-zu-Ende 78.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 71.4,
+   "meldung": "1, Ende-zu-Ende 78.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 72.4,
+   "meldung": "1, Ende-zu-Ende 78.8/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 73.4,
+   "meldung": "1, Ende-zu-Ende 78.8/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 74.4,
+   "meldung": "1, Ende-zu-Ende 77.5/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 75.4,
+   "meldung": "1, Ende-zu-Ende 78.9/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 76.4,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 77.4,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 78.4,
+   "meldung": "1, Ende-zu-Ende 77.1/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 79.4,
+   "meldung": "1, Ende-zu-Ende 79.4/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 80.4,
+   "meldung": "1, Ende-zu-Ende 79.3/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 81.4,
+   "meldung": "1, Ende-zu-Ende 77.6/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 82.4,
+   "meldung": "1, Ende-zu-Ende 77.9/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 83.4,
+   "meldung": "1, Ende-zu-Ende 78.5/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 84.4,
+   "meldung": "1, Ende-zu-Ende 77.3/86.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 85.4,
+   "meldung": "1, Ende-zu-Ende 77.9/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 86.4,
+   "meldung": "1, Ende-zu-Ende 78.7/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 87.4,
+   "meldung": "1, Ende-zu-Ende 79.0/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 88.4,
+   "meldung": "1, Ende-zu-Ende 77.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 89.4,
+   "meldung": "1, Ende-zu-Ende 78.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 90.4,
+   "meldung": "1, Ende-zu-Ende 80.6/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 91.4,
+   "meldung": "1, Ende-zu-Ende 78.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 92.4,
+   "meldung": "1, Ende-zu-Ende 78.0/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 93.4,
+   "meldung": "1, Ende-zu-Ende 78.7/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 94.4,
+   "meldung": "1, Ende-zu-Ende 77.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 95.6,
+   "meldung": "1, Ende-zu-Ende 78.3/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 96.6,
+   "meldung": "1, Ende-zu-Ende 77.6/86.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 97.6,
+   "meldung": "1, Ende-zu-Ende 78.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 98.6,
+   "meldung": "1, Ende-zu-Ende 79.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 99.6,
+   "meldung": "1, Ende-zu-Ende 79.8/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 100.6,
+   "meldung": "1, Ende-zu-Ende 78.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 101.6,
+   "meldung": "1, Ende-zu-Ende 79.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 102.6,
+   "meldung": "1, Ende-zu-Ende 79.1/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 103.6,
+   "meldung": "1, Ende-zu-Ende 79.5/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 104.6,
+   "meldung": "1, Ende-zu-Ende 79.5/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 105.6,
+   "meldung": "1, Ende-zu-Ende 78.9/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 106.6,
+   "meldung": "1, Ende-zu-Ende 78.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 107.6,
+   "meldung": "1, Ende-zu-Ende 80.3/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 108.6,
+   "meldung": "1, Ende-zu-Ende 79.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 109.6,
+   "meldung": "1, Ende-zu-Ende 78.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 110.6,
+   "meldung": "1, Ende-zu-Ende 77.9/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 111.2,
+   "meldung": "pulse-player: Vollbild #6 empfangen, Abstand 58676 ms"
+  },
+  {
+   "sekunde": 111.6,
+   "meldung": "1, Ende-zu-Ende 100.5/157.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 112.7,
+   "meldung": "1, Ende-zu-Ende 115.1/129.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 113.7,
+   "meldung": "1, Ende-zu-Ende 103.4/116.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 114.7,
+   "meldung": "1, Ende-zu-Ende 130.6/289.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 115.7,
+   "meldung": "1, Ende-zu-Ende 85.4/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 116.7,
+   "meldung": "1, Ende-zu-Ende 93.7/216.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 116.9,
+   "meldung": "pulse-player: Vollbild #7 empfangen, Abstand 5535 ms"
+  },
+  {
+   "sekunde": 117.7,
+   "meldung": "1, Ende-zu-Ende 87.7/129.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 118.7,
+   "meldung": "1, Ende-zu-Ende 86.3/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 119.7,
+   "meldung": "1, Ende-zu-Ende 81.5/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 120.7,
+   "meldung": "1, Ende-zu-Ende 85.5/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 121.7,
+   "meldung": "1, Ende-zu-Ende 89.1/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 122.7,
+   "meldung": "1, Ende-zu-Ende 96.3/125.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 123.3,
+   "meldung": "pulse-player: Vollbild #8 empfangen, Abstand 6505 ms"
+  },
+  {
+   "sekunde": 123.7,
+   "meldung": "1, Ende-zu-Ende 97.2/137.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 124.7,
+   "meldung": "1, Ende-zu-Ende 81.6/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 124.9,
+   "meldung": "pulse-player: Vollbild #9 empfangen, Abstand 1555 ms"
+  },
+  {
+   "sekunde": 125.7,
+   "meldung": "1, Ende-zu-Ende 89.6/232.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 126.7,
+   "meldung": "1, Ende-zu-Ende 86.8/127.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 127.7,
+   "meldung": "1, Ende-zu-Ende 91.2/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 128.1,
+   "meldung": "pulse-player: Vollbild #10 empfangen, Abstand 3069 ms"
+  },
+  {
+   "sekunde": 128.7,
+   "meldung": "1, Ende-zu-Ende 84.5/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 129.7,
+   "meldung": "1, Ende-zu-Ende 85.1/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 130.7,
+   "meldung": "1, Ende-zu-Ende 88.1/103.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 131.7,
+   "meldung": "1, Ende-zu-Ende 91.8/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 132.7,
+   "meldung": "1, Ende-zu-Ende 123.9/276.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 133.7,
+   "meldung": "1, Ende-zu-Ende 92.1/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 134.5,
+   "meldung": "pulse-player: Vollbild #11 empfangen, Abstand 6413 ms"
+  },
+  {
+   "sekunde": 134.7,
+   "meldung": "1, Ende-zu-Ende 99.5/226.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 135.7,
+   "meldung": "1, Ende-zu-Ende 82.4/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 136.7,
+   "meldung": "1, Ende-zu-Ende 79.7/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 137.9,
+   "meldung": "1, Ende-zu-Ende 128.7/189.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 138.9,
+   "meldung": "1, Ende-zu-Ende 169.2/212.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 139.9,
+   "meldung": "1, Ende-zu-Ende 79.4/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 140.9,
+   "meldung": "1, Ende-zu-Ende 78.5/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 141.9,
+   "meldung": "1, Ende-zu-Ende 79.2/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 142.9,
+   "meldung": "1, Ende-zu-Ende 82.4/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 143.9,
+   "meldung": "1, Ende-zu-Ende 101.7/276.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 144.9,
+   "meldung": "1, Ende-zu-Ende 79.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 145.9,
+   "meldung": "1, Ende-zu-Ende 79.9/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 146.9,
+   "meldung": "1, Ende-zu-Ende 79.3/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 147.9,
+   "meldung": "1, Ende-zu-Ende 79.9/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 148.9,
+   "meldung": "1, Ende-zu-Ende 162.3/204.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 149.9,
+   "meldung": "1, Ende-zu-Ende 164.8/283.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 150.9,
+   "meldung": "1, Ende-zu-Ende 78.5/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 151.9,
+   "meldung": "1, Ende-zu-Ende 79.4/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 152.9,
+   "meldung": "1, Ende-zu-Ende 79.6/99.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 153.9,
+   "meldung": "1, Ende-zu-Ende 78.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 154.9,
+   "meldung": "1, Ende-zu-Ende 78.2/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 155.9,
+   "meldung": "1, Ende-zu-Ende 78.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 156.9,
+   "meldung": "1, Ende-zu-Ende 78.4/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 157.9,
+   "meldung": "1, Ende-zu-Ende 78.9/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 158.9,
+   "meldung": "1, Ende-zu-Ende 78.9/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 159.9,
+   "meldung": "1, Ende-zu-Ende 80.1/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 160.9,
+   "meldung": "1, Ende-zu-Ende 80.0/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 161.9,
+   "meldung": "1, Ende-zu-Ende 78.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 162.9,
+   "meldung": "1, Ende-zu-Ende 78.0/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 163.9,
+   "meldung": "1, Ende-zu-Ende 79.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 164.9,
+   "meldung": "1, Ende-zu-Ende 78.5/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 165.9,
+   "meldung": "1, Ende-zu-Ende 78.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 166.9,
+   "meldung": "1, Ende-zu-Ende 80.1/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 167.9,
+   "meldung": "1, Ende-zu-Ende 80.0/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 168.9,
+   "meldung": "1, Ende-zu-Ende 79.5/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 169.9,
+   "meldung": "1, Ende-zu-Ende 81.3/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 170.9,
+   "meldung": "1, Ende-zu-Ende 78.4/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 171.9,
+   "meldung": "1, Ende-zu-Ende 79.4/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 172.9,
+   "meldung": "1, Ende-zu-Ende 166.3/197.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 173.9,
+   "meldung": "1, Ende-zu-Ende 147.3/245.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 174.9,
+   "meldung": "1, Ende-zu-Ende 78.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 175.9,
+   "meldung": "1, Ende-zu-Ende 79.2/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 176.9,
+   "meldung": "1, Ende-zu-Ende 79.4/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 177.9,
+   "meldung": "1, Ende-zu-Ende 78.8/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 178.9,
+   "meldung": "1, Ende-zu-Ende 79.0/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 179.9,
+   "meldung": "1, Ende-zu-Ende 79.7/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 180.9,
+   "meldung": "1, Ende-zu-Ende 79.8/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 181.3,
+   "meldung": "pulse-player: Vollbild #12 empfangen, Abstand 46950 ms"
+  },
+  {
+   "sekunde": 181.9,
+   "meldung": "1, Ende-zu-Ende 135.2/264.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 182.9,
+   "meldung": "pulse-player: Vollbild #13 empfangen, Abstand 1446 ms"
+  },
+  {
+   "sekunde": 182.9,
+   "meldung": "1, Ende-zu-Ende 116.1/164.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 183.9,
+   "meldung": "1, Ende-zu-Ende 93.8/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 184.9,
+   "meldung": "1, Ende-zu-Ende 84.5/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 185.9,
+   "meldung": "1, Ende-zu-Ende 89.0/108.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 186.9,
+   "meldung": "1, Ende-zu-Ende 91.6/107.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 187.9,
+   "meldung": "1, Ende-zu-Ende 118.7/250.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 188.9,
+   "meldung": "1, Ende-zu-Ende 96.9/127.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 189.9,
+   "meldung": "1, Ende-zu-Ende 82.1/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 190.9,
+   "meldung": "1, Ende-zu-Ende 88.5/109.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 192.1,
+   "meldung": "1, Ende-zu-Ende 93.7/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 193.1,
+   "meldung": "1, Ende-zu-Ende 95.8/111.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 194.1,
+   "meldung": "1, Ende-zu-Ende 101.6/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 195.1,
+   "meldung": "1, Ende-zu-Ende 104.7/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 196.1,
+   "meldung": "1, Ende-zu-Ende 190.4/272.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 197.1,
+   "meldung": "1, Ende-zu-Ende 243.1/260.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 198.1,
+   "meldung": "1, Ende-zu-Ende 129.5/241.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 199.1,
+   "meldung": "1, Ende-zu-Ende 107.4/124.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 199.3,
+   "meldung": "pulse-player: Vollbild #14 empfangen, Abstand 16545 ms"
+  },
+  {
+   "sekunde": 200.1,
+   "meldung": "1, Ende-zu-Ende 113.1/160.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 201.1,
+   "meldung": "1, Ende-zu-Ende 89.1/107.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 202.1,
+   "meldung": "1, Ende-zu-Ende 86.1/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 203.1,
+   "meldung": "1, Ende-zu-Ende 91.9/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 204.1,
+   "meldung": "1, Ende-zu-Ende 96.0/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 205.1,
+   "meldung": "1, Ende-zu-Ende 100.6/124.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 206.1,
+   "meldung": "1, Ende-zu-Ende 94.1/129.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 207.1,
+   "meldung": "1, Ende-zu-Ende 79.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 208.1,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 209.1,
+   "meldung": "1, Ende-zu-Ende 79.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 210.1,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 211.1,
+   "meldung": "1, Ende-zu-Ende 79.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 212.1,
+   "meldung": "1, Ende-zu-Ende 78.3/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 213.1,
+   "meldung": "1, Ende-zu-Ende 79.6/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 214.1,
+   "meldung": "1, Ende-zu-Ende 78.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 215.1,
+   "meldung": "1, Ende-zu-Ende 80.3/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 216.1,
+   "meldung": "1, Ende-zu-Ende 83.2/161.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 217.1,
+   "meldung": "1, Ende-zu-Ende 212.5/244.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 218.1,
+   "meldung": "1, Ende-zu-Ende 153.7/354.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 219.1,
+   "meldung": "1, Ende-zu-Ende 81.2/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 220.1,
+   "meldung": "1, Ende-zu-Ende 80.8/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 221.1,
+   "meldung": "1, Ende-zu-Ende 79.8/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 222.1,
+   "meldung": "1, Ende-zu-Ende 78.9/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 223.1,
+   "meldung": "1, Ende-zu-Ende 80.2/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 224.1,
+   "meldung": "1, Ende-zu-Ende 77.9/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 225.1,
+   "meldung": "1, Ende-zu-Ende 82.1/103.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 226.1,
+   "meldung": "1, Ende-zu-Ende 78.5/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 227.1,
+   "meldung": "1, Ende-zu-Ende 79.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 228.1,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 229.1,
+   "meldung": "1, Ende-zu-Ende 80.0/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 230.1,
+   "meldung": "1, Ende-zu-Ende 77.8/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 231.1,
+   "meldung": "1, Ende-zu-Ende 78.7/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 232.1,
+   "meldung": "1, Ende-zu-Ende 78.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 233.1,
+   "meldung": "1, Ende-zu-Ende 79.5/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 234.1,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 235.1,
+   "meldung": "1, Ende-zu-Ende 79.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 236.1,
+   "meldung": "1, Ende-zu-Ende 78.0/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 237.1,
+   "meldung": "1, Ende-zu-Ende 80.7/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 238.1,
+   "meldung": "1, Ende-zu-Ende 78.8/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 239.1,
+   "meldung": "1, Ende-zu-Ende 79.1/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 240.1,
+   "meldung": "1, Ende-zu-Ende 77.6/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 241.1,
+   "meldung": "1, Ende-zu-Ende 80.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 242.3,
+   "meldung": "1, Ende-zu-Ende 78.4/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 243.3,
+   "meldung": "1, Ende-zu-Ende 79.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 244.3,
+   "meldung": "1, Ende-zu-Ende 78.6/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 245.3,
+   "meldung": "1, Ende-zu-Ende 79.6/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 246.3,
+   "meldung": "1, Ende-zu-Ende 76.6/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 247.3,
+   "meldung": "1, Ende-zu-Ende 77.9/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 248.3,
+   "meldung": "1, Ende-zu-Ende 78.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 249.3,
+   "meldung": "1, Ende-zu-Ende 80.0/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 250.3,
+   "meldung": "1, Ende-zu-Ende 78.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 251.3,
+   "meldung": "1, Ende-zu-Ende 81.4/125.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 251.3,
+   "meldung": "pulse-player: Vollbild #15 empfangen, Abstand 52023 ms"
+  },
+  {
+   "sekunde": 251.7,
+   "meldung": "pulse-player: Vollbild #16 empfangen, Abstand 377 ms"
+  },
+  {
+   "sekunde": 252.1,
+   "meldung": "pulse-player: Vollbild #17 empfangen, Abstand 346 ms"
+  },
+  {
+   "sekunde": 252.3,
+   "meldung": "1, Ende-zu-Ende 114.9/252.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 253.3,
+   "meldung": "1, Ende-zu-Ende 88.2/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 254.3,
+   "meldung": "1, Ende-zu-Ende 80.7/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 255.3,
+   "meldung": "1, Ende-zu-Ende 86.4/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 256.3,
+   "meldung": "1, Ende-zu-Ende 87.1/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 257.3,
+   "meldung": "1, Ende-zu-Ende 95.3/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 258.3,
+   "meldung": "1, Ende-zu-Ende 98.6/231.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 259.3,
+   "meldung": "1, Ende-zu-Ende 120.5/265.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 260.3,
+   "meldung": "1, Ende-zu-Ende 79.9/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 261.3,
+   "meldung": "1, Ende-zu-Ende 88.4/109.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 262.3,
+   "meldung": "1, Ende-zu-Ende 95.0/127.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 262.5,
+   "meldung": "pulse-player: Vollbild #18 empfangen, Abstand 10505 ms"
+  },
+  {
+   "sekunde": 263.3,
+   "meldung": "1, Ende-zu-Ende 101.2/240.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 264.3,
+   "meldung": "1, Ende-zu-Ende 85.4/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 265.3,
+   "meldung": "1, Ende-zu-Ende 80.9/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 266.3,
+   "meldung": "1, Ende-zu-Ende 81.2/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 267.3,
+   "meldung": "1, Ende-zu-Ende 85.6/103.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 268.3,
+   "meldung": "1, Ende-zu-Ende 97.1/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 269.3,
+   "meldung": "1, Ende-zu-Ende 106.5/119.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 270.3,
+   "meldung": "1, Ende-zu-Ende 97.7/110.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 271.3,
+   "meldung": "1, Ende-zu-Ende 102.9/118.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 272.3,
+   "meldung": "1, Ende-zu-Ende 111.0/221.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 272.5,
+   "meldung": "pulse-player: Vollbild #19 empfangen, Abstand 9988 ms"
+  },
+  {
+   "sekunde": 273.3,
+   "meldung": "1, Ende-zu-Ende 95.0/148.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 274.3,
+   "meldung": "1, Ende-zu-Ende 88.0/108.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 275.3,
+   "meldung": "1, Ende-zu-Ende 93.0/109.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 276.3,
+   "meldung": "1, Ende-zu-Ende 83.5/107.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 277.3,
+   "meldung": "1, Ende-zu-Ende 86.6/157.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 278.3,
+   "meldung": "1, Ende-zu-Ende 190.8/205.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 279.3,
+   "meldung": "1, Ende-zu-Ende 100.5/209.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 280.3,
+   "meldung": "1, Ende-zu-Ende 77.7/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 281.3,
+   "meldung": "1, Ende-zu-Ende 79.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 282.3,
+   "meldung": "1, Ende-zu-Ende 79.0/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 283.3,
+   "meldung": "1, Ende-zu-Ende 80.0/107.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 284.3,
+   "meldung": "1, Ende-zu-Ende 79.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 285.3,
+   "meldung": "1, Ende-zu-Ende 78.6/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 286.3,
+   "meldung": "1, Ende-zu-Ende 80.6/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 287.3,
+   "meldung": "1, Ende-zu-Ende 135.2/196.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 288.3,
+   "meldung": "1, Ende-zu-Ende 105.4/161.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 289.5,
+   "meldung": "1, Ende-zu-Ende 77.6/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 290.5,
+   "meldung": "1, Ende-zu-Ende 78.0/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 291.5,
+   "meldung": "1, Ende-zu-Ende 80.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 292.5,
+   "meldung": "1, Ende-zu-Ende 78.7/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 293.5,
+   "meldung": "1, Ende-zu-Ende 78.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 294.5,
+   "meldung": "1, Ende-zu-Ende 76.8/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 295.5,
+   "meldung": "1, Ende-zu-Ende 79.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 296.5,
+   "meldung": "1, Ende-zu-Ende 78.6/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 297.5,
+   "meldung": "1, Ende-zu-Ende 79.1/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 298.5,
+   "meldung": "1, Ende-zu-Ende 78.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 299.5,
+   "meldung": "1, Ende-zu-Ende 78.4/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 300.5,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 301.5,
+   "meldung": "1, Ende-zu-Ende 78.0/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 302.5,
+   "meldung": "1, Ende-zu-Ende 77.0/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 303.5,
+   "meldung": "1, Ende-zu-Ende 77.8/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 304.5,
+   "meldung": "1, Ende-zu-Ende 78.3/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 305.5,
+   "meldung": "1, Ende-zu-Ende 78.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 306.5,
+   "meldung": "1, Ende-zu-Ende 77.8/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 307.5,
+   "meldung": "1, Ende-zu-Ende 78.5/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 308.5,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 309.5,
+   "meldung": "1, Ende-zu-Ende 78.6/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 310.5,
+   "meldung": "1, Ende-zu-Ende 77.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 311.5,
+   "meldung": "1, Ende-zu-Ende 80.8/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 312.5,
+   "meldung": "1, Ende-zu-Ende 77.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 313.5,
+   "meldung": "1, Ende-zu-Ende 78.8/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 314.5,
+   "meldung": "1, Ende-zu-Ende 77.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 315.5,
+   "meldung": "1, Ende-zu-Ende 78.5/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 316.5,
+   "meldung": "1, Ende-zu-Ende 77.9/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 317.5,
+   "meldung": "1, Ende-zu-Ende 78.8/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 318.5,
+   "meldung": "1, Ende-zu-Ende 78.1/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 319.5,
+   "meldung": "1, Ende-zu-Ende 79.2/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 320.5,
+   "meldung": "1, Ende-zu-Ende 78.0/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 321.5,
+   "meldung": "1, Ende-zu-Ende 98.6/126.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 322.1,
+   "meldung": "pulse-player: Vollbild #20 empfangen, Abstand 49627 ms"
+  },
+  {
+   "sekunde": 322.5,
+   "meldung": "1, Ende-zu-Ende 120.8/264.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 323.5,
+   "meldung": "1, Ende-zu-Ende 87.1/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 324.5,
+   "meldung": "1, Ende-zu-Ende 90.7/103.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 325.5,
+   "meldung": "1, Ende-zu-Ende 95.8/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 326.5,
+   "meldung": "1, Ende-zu-Ende 98.0/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 327.5,
+   "meldung": "1, Ende-zu-Ende 109.1/234.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 327.7,
+   "meldung": "pulse-player: Vollbild #21 empfangen, Abstand 5540 ms"
+  },
+  {
+   "sekunde": 328.5,
+   "meldung": "1, Ende-zu-Ende 87.5/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 329.1,
+   "meldung": "pulse-player: Vollbild #22 empfangen, Abstand 1444 ms"
+  },
+  {
+   "sekunde": 329.5,
+   "meldung": "1, Ende-zu-Ende 91.5/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 330.5,
+   "meldung": "1, Ende-zu-Ende 86.2/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 331.5,
+   "meldung": "1, Ende-zu-Ende 79.9/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 332.5,
+   "meldung": "1, Ende-zu-Ende 101.0/253.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 333.5,
+   "meldung": "1, Ende-zu-Ende 80.7/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 334.5,
+   "meldung": "1, Ende-zu-Ende 104.1/252.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 335.6,
+   "meldung": "1, Ende-zu-Ende 80.7/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 336.6,
+   "meldung": "1, Ende-zu-Ende 81.2/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 337.6,
+   "meldung": "1, Ende-zu-Ende 88.9/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 338.6,
+   "meldung": "1, Ende-zu-Ende 104.0/246.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 339.6,
+   "meldung": "1, Ende-zu-Ende 82.8/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 340.6,
+   "meldung": "1, Ende-zu-Ende 86.8/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 341.6,
+   "meldung": "1, Ende-zu-Ende 92.6/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 342.8,
+   "meldung": "1, Ende-zu-Ende 96.1/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 343.8,
+   "meldung": "1, Ende-zu-Ende 89.8/111.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 345.0,
+   "meldung": "1, Ende-zu-Ende 93.1/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 346.0,
+   "meldung": "1, Ende-zu-Ende 92.8/111.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 347.0,
+   "meldung": "1, Ende-zu-Ende 77.2/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 348.0,
+   "meldung": "1, Ende-zu-Ende 145.4/199.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 349.0,
+   "meldung": "1, Ende-zu-Ende 148.8/228.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 350.0,
+   "meldung": "1, Ende-zu-Ende 78.2/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 351.0,
+   "meldung": "1, Ende-zu-Ende 77.3/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 352.0,
+   "meldung": "1, Ende-zu-Ende 77.3/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 353.0,
+   "meldung": "1, Ende-zu-Ende 78.0/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 354.0,
+   "meldung": "1, Ende-zu-Ende 78.2/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 355.0,
+   "meldung": "1, Ende-zu-Ende 78.5/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 356.0,
+   "meldung": "1, Ende-zu-Ende 79.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 357.0,
+   "meldung": "1, Ende-zu-Ende 79.0/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 358.0,
+   "meldung": "1, Ende-zu-Ende 79.0/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 359.0,
+   "meldung": "1, Ende-zu-Ende 78.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 360.0,
+   "meldung": "1, Ende-zu-Ende 78.9/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 361.0,
+   "meldung": "1, Ende-zu-Ende 80.0/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 362.0,
+   "meldung": "1, Ende-zu-Ende 78.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 363.0,
+   "meldung": "1, Ende-zu-Ende 79.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 364.0,
+   "meldung": "1, Ende-zu-Ende 78.6/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 365.0,
+   "meldung": "1, Ende-zu-Ende 78.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 366.0,
+   "meldung": "1, Ende-zu-Ende 93.5/154.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 367.0,
+   "meldung": "1, Ende-zu-Ende 172.8/200.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 368.0,
+   "meldung": "1, Ende-zu-Ende 106.6/224.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 369.0,
+   "meldung": "1, Ende-zu-Ende 79.2/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 370.0,
+   "meldung": "1, Ende-zu-Ende 78.5/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 371.0,
+   "meldung": "1, Ende-zu-Ende 79.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 372.0,
+   "meldung": "1, Ende-zu-Ende 78.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 373.0,
+   "meldung": "1, Ende-zu-Ende 79.5/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 374.0,
+   "meldung": "1, Ende-zu-Ende 78.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 375.0,
+   "meldung": "1, Ende-zu-Ende 79.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 376.0,
+   "meldung": "1, Ende-zu-Ende 78.2/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 377.0,
+   "meldung": "1, Ende-zu-Ende 79.8/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 378.0,
+   "meldung": "1, Ende-zu-Ende 78.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 379.0,
+   "meldung": "1, Ende-zu-Ende 80.7/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 380.0,
+   "meldung": "1, Ende-zu-Ende 77.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 381.2,
+   "meldung": "1, Ende-zu-Ende 78.8/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 382.2,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 383.2,
+   "meldung": "1, Ende-zu-Ende 79.6/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 384.2,
+   "meldung": "1, Ende-zu-Ende 78.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 385.2,
+   "meldung": "1, Ende-zu-Ende 80.8/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 386.2,
+   "meldung": "1, Ende-zu-Ende 78.5/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 387.2,
+   "meldung": "1, Ende-zu-Ende 79.6/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 388.2,
+   "meldung": "1, Ende-zu-Ende 77.9/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 389.2,
+   "meldung": "1, Ende-zu-Ende 79.8/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 390.2,
+   "meldung": "1, Ende-zu-Ende 78.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 391.2,
+   "meldung": "1, Ende-zu-Ende 81.4/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 392.2,
+   "meldung": "1, Ende-zu-Ende 124.6/272.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 392.8,
+   "meldung": "pulse-player: Vollbild #23 empfangen, Abstand 63594 ms"
+  },
+  {
+   "sekunde": 393.2,
+   "meldung": "1, Ende-zu-Ende 121.1/214.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 394.2,
+   "meldung": "1, Ende-zu-Ende 87.3/99.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 395.2,
+   "meldung": "1, Ende-zu-Ende 93.3/107.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 396.2,
+   "meldung": "1, Ende-zu-Ende 95.0/110.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 397.2,
+   "meldung": "1, Ende-zu-Ende 100.4/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 398.2,
+   "meldung": "1, Ende-zu-Ende 100.1/134.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 399.2,
+   "meldung": "1, Ende-zu-Ende 84.7/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 400.2,
+   "meldung": "1, Ende-zu-Ende 85.6/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 401.2,
+   "meldung": "1, Ende-zu-Ende 92.2/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 402.2,
+   "meldung": "1, Ende-zu-Ende 96.2/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 403.2,
+   "meldung": "1, Ende-zu-Ende 126.4/269.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 404.2,
+   "meldung": "1, Ende-zu-Ende 90.9/116.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 405.2,
+   "meldung": "1, Ende-zu-Ende 92.7/117.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 406.2,
+   "meldung": "1, Ende-zu-Ende 89.2/109.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 407.2,
+   "meldung": "1, Ende-zu-Ende 96.8/113.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 408.2,
+   "meldung": "1, Ende-zu-Ende 117.1/278.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 408.6,
+   "meldung": "pulse-player: Vollbild #24 empfangen, Abstand 15873 ms"
+  },
+  {
+   "sekunde": 409.2,
+   "meldung": "1, Ende-zu-Ende 101.9/237.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 410.2,
+   "meldung": "1, Ende-zu-Ende 81.5/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 411.2,
+   "meldung": "1, Ende-zu-Ende 85.7/99.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 412.2,
+   "meldung": "1, Ende-zu-Ende 87.8/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 413.2,
+   "meldung": "1, Ende-zu-Ende 109.1/127.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 414.2,
+   "meldung": "1, Ende-zu-Ende 92.9/118.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 415.2,
+   "meldung": "1, Ende-zu-Ende 92.9/109.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 416.2,
+   "meldung": "1, Ende-zu-Ende 83.9/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 417.2,
+   "meldung": "1, Ende-zu-Ende 82.3/120.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 418.2,
+   "meldung": "1, Ende-zu-Ende 189.2/210.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 419.2,
+   "meldung": "1, Ende-zu-Ende 112.5/212.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 420.2,
+   "meldung": "1, Ende-zu-Ende 78.5/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 421.2,
+   "meldung": "1, Ende-zu-Ende 80.6/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 422.2,
+   "meldung": "1, Ende-zu-Ende 78.0/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 423.2,
+   "meldung": "1, Ende-zu-Ende 80.0/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 424.2,
+   "meldung": "1, Ende-zu-Ende 79.1/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 425.4,
+   "meldung": "1, Ende-zu-Ende 78.4/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 426.4,
+   "meldung": "1, Ende-zu-Ende 79.8/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 427.4,
+   "meldung": "1, Ende-zu-Ende 80.2/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 428.4,
+   "meldung": "1, Ende-zu-Ende 79.3/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 429.4,
+   "meldung": "1, Ende-zu-Ende 79.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 430.4,
+   "meldung": "1, Ende-zu-Ende 78.3/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 431.4,
+   "meldung": "1, Ende-zu-Ende 79.7/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 432.4,
+   "meldung": "1, Ende-zu-Ende 78.5/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 433.4,
+   "meldung": "1, Ende-zu-Ende 80.7/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 434.4,
+   "meldung": "1, Ende-zu-Ende 80.2/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 435.4,
+   "meldung": "1, Ende-zu-Ende 81.6/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 436.4,
+   "meldung": "1, Ende-zu-Ende 78.9/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 437.4,
+   "meldung": "1, Ende-zu-Ende 79.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 438.4,
+   "meldung": "1, Ende-zu-Ende 78.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 439.4,
+   "meldung": "1, Ende-zu-Ende 79.3/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 440.4,
+   "meldung": "1, Ende-zu-Ende 78.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 441.4,
+   "meldung": "1, Ende-zu-Ende 78.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 442.4,
+   "meldung": "1, Ende-zu-Ende 79.0/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 443.4,
+   "meldung": "1, Ende-zu-Ende 78.5/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 444.4,
+   "meldung": "1, Ende-zu-Ende 76.5/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 445.4,
+   "meldung": "1, Ende-zu-Ende 78.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 446.4,
+   "meldung": "1, Ende-zu-Ende 80.2/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 447.4,
+   "meldung": "1, Ende-zu-Ende 79.9/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 448.4,
+   "meldung": "1, Ende-zu-Ende 78.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 449.4,
+   "meldung": "1, Ende-zu-Ende 79.5/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 450.4,
+   "meldung": "1, Ende-zu-Ende 78.9/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 451.4,
+   "meldung": "1, Ende-zu-Ende 78.6/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 452.4,
+   "meldung": "1, Ende-zu-Ende 79.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 453.4,
+   "meldung": "1, Ende-zu-Ende 81.9/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 454.4,
+   "meldung": "1, Ende-zu-Ende 78.3/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 455.4,
+   "meldung": "1, Ende-zu-Ende 79.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 456.4,
+   "meldung": "1, Ende-zu-Ende 79.1/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 457.4,
+   "meldung": "1, Ende-zu-Ende 79.4/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 458.4,
+   "meldung": "1, Ende-zu-Ende 78.7/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 459.4,
+   "meldung": "1, Ende-zu-Ende 80.9/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 460.4,
+   "meldung": "1, Ende-zu-Ende 81.0/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 461.4,
+   "meldung": "1, Ende-zu-Ende 113.8/264.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 462.4,
+   "meldung": "pulse-player: Vollbild #25 empfangen, Abstand 53803 ms"
+  },
+  {
+   "sekunde": 462.4,
+   "meldung": "1, Ende-zu-Ende 111.8/129.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 463.0,
+   "meldung": "pulse-player: Vollbild #26 empfangen, Abstand 634 ms"
+  },
+  {
+   "sekunde": 463.4,
+   "meldung": "1, Ende-zu-Ende 96.8/137.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 464.4,
+   "meldung": "1, Ende-zu-Ende 80.5/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 465.4,
+   "meldung": "1, Ende-zu-Ende 78.4/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 466.4,
+   "meldung": "1, Ende-zu-Ende 94.7/236.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 467.4,
+   "meldung": "1, Ende-zu-Ende 78.8/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 468.4,
+   "meldung": "1, Ende-zu-Ende 135.3/258.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 469.4,
+   "meldung": "1, Ende-zu-Ende 99.8/282.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 470.6,
+   "meldung": "1, Ende-zu-Ende 80.0/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 471.6,
+   "meldung": "1, Ende-zu-Ende 89.9/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 472.6,
+   "meldung": "1, Ende-zu-Ende 83.7/110.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 473.6,
+   "meldung": "1, Ende-zu-Ende 105.9/119.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 474.6,
+   "meldung": "1, Ende-zu-Ende 87.5/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 475.6,
+   "meldung": "1, Ende-zu-Ende 92.3/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 476.6,
+   "meldung": "1, Ende-zu-Ende 95.3/110.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 477.6,
+   "meldung": "1, Ende-zu-Ende 107.2/226.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 477.6,
+   "meldung": "pulse-player: Vollbild #27 empfangen, Abstand 14582 ms"
+  },
+  {
+   "sekunde": 478.6,
+   "meldung": "1, Ende-zu-Ende 115.6/151.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 478.8,
+   "meldung": "pulse-player: Vollbild #28 empfangen, Abstand 1091 ms"
+  },
+  {
+   "sekunde": 479.6,
+   "meldung": "1, Ende-zu-Ende 108.6/211.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 480.6,
+   "meldung": "1, Ende-zu-Ende 79.3/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 481.6,
+   "meldung": "1, Ende-zu-Ende 79.1/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 482.6,
+   "meldung": "1, Ende-zu-Ende 88.0/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 483.6,
+   "meldung": "1, Ende-zu-Ende 106.0/274.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 484.6,
+   "meldung": "1, Ende-zu-Ende 80.1/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 485.6,
+   "meldung": "1, Ende-zu-Ende 82.1/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 486.6,
+   "meldung": "1, Ende-zu-Ende 79.5/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 487.6,
+   "meldung": "1, Ende-zu-Ende 107.0/189.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 488.6,
+   "meldung": "1, Ende-zu-Ende 205.9/248.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 489.6,
+   "meldung": "1, Ende-zu-Ende 78.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 490.6,
+   "meldung": "1, Ende-zu-Ende 77.1/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 491.6,
+   "meldung": "1, Ende-zu-Ende 79.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 492.6,
+   "meldung": "1, Ende-zu-Ende 78.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 493.6,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 494.6,
+   "meldung": "1, Ende-zu-Ende 79.3/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 495.6,
+   "meldung": "1, Ende-zu-Ende 80.8/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 496.6,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 497.6,
+   "meldung": "1, Ende-zu-Ende 78.4/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 498.6,
+   "meldung": "1, Ende-zu-Ende 77.8/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 499.6,
+   "meldung": "1, Ende-zu-Ende 80.0/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 500.6,
+   "meldung": "1, Ende-zu-Ende 77.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 501.6,
+   "meldung": "1, Ende-zu-Ende 78.7/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 502.6,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 503.6,
+   "meldung": "1, Ende-zu-Ende 78.4/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 504.6,
+   "meldung": "1, Ende-zu-Ende 77.5/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 505.6,
+   "meldung": "1, Ende-zu-Ende 79.5/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 506.6,
+   "meldung": "1, Ende-zu-Ende 78.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 507.6,
+   "meldung": "1, Ende-zu-Ende 78.2/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 508.6,
+   "meldung": "1, Ende-zu-Ende 78.6/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 509.6,
+   "meldung": "1, Ende-zu-Ende 77.8/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 510.6,
+   "meldung": "1, Ende-zu-Ende 77.3/86.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 511.6,
+   "meldung": "1, Ende-zu-Ende 78.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 512.6,
+   "meldung": "1, Ende-zu-Ende 78.1/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 513.6,
+   "meldung": "1, Ende-zu-Ende 78.7/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 514.6,
+   "meldung": "1, Ende-zu-Ende 77.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 515.6,
+   "meldung": "1, Ende-zu-Ende 79.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 516.6,
+   "meldung": "1, Ende-zu-Ende 77.2/85.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 517.6,
+   "meldung": "1, Ende-zu-Ende 79.1/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 518.6,
+   "meldung": "1, Ende-zu-Ende 78.5/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 519.6,
+   "meldung": "1, Ende-zu-Ende 78.9/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 520.6,
+   "meldung": "1, Ende-zu-Ende 78.5/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 521.8,
+   "meldung": "1, Ende-zu-Ende 79.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 522.8,
+   "meldung": "1, Ende-zu-Ende 78.4/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 523.8,
+   "meldung": "1, Ende-zu-Ende 79.5/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 524.8,
+   "meldung": "1, Ende-zu-Ende 77.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 525.8,
+   "meldung": "1, Ende-zu-Ende 77.4/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 526.8,
+   "meldung": "1, Ende-zu-Ende 77.2/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 527.8,
+   "meldung": "1, Ende-zu-Ende 79.0/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 528.8,
+   "meldung": "1, Ende-zu-Ende 77.7/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 529.8,
+   "meldung": "1, Ende-zu-Ende 79.0/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 530.8,
+   "meldung": "1, Ende-zu-Ende 78.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 531.4,
+   "meldung": "pulse-player: Vollbild #29 empfangen, Abstand 52579 ms"
+  },
+  {
+   "sekunde": 531.8,
+   "meldung": "1, Ende-zu-Ende 97.8/137.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 532.8,
+   "meldung": "1, Ende-zu-Ende 111.0/127.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 533.4,
+   "meldung": "pulse-player: Vollbild #30 empfangen, Abstand 2060 ms"
+  },
+  {
+   "sekunde": 533.8,
+   "meldung": "1, Ende-zu-Ende 113.9/231.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 534.8,
+   "meldung": "1, Ende-zu-Ende 113.3/239.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 535.8,
+   "meldung": "1, Ende-zu-Ende 105.3/118.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 536.8,
+   "meldung": "1, Ende-zu-Ende 83.8/105.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 537.8,
+   "meldung": "1, Ende-zu-Ende 88.0/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 538.8,
+   "meldung": "1, Ende-zu-Ende 90.6/104.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 539.4,
+   "meldung": "pulse-player: Vollbild #31 empfangen, Abstand 6054 ms"
+  },
+  {
+   "sekunde": 539.8,
+   "meldung": "1, Ende-zu-Ende 105.3/148.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 540.8,
+   "meldung": "1, Ende-zu-Ende 80.8/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 541.8,
+   "meldung": "1, Ende-zu-Ende 102.8/254.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 542.8,
+   "meldung": "1, Ende-zu-Ende 94.1/123.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 543.8,
+   "meldung": "1, Ende-zu-Ende 101.3/150.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 544.8,
+   "meldung": "1, Ende-zu-Ende 85.2/116.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 545.6,
+   "meldung": "pulse-player: Vollbild #32 empfangen, Abstand 6205 ms"
+  },
+  {
+   "sekunde": 545.8,
+   "meldung": "1, Ende-zu-Ende 108.5/137.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 546.8,
+   "meldung": "1, Ende-zu-Ende 80.3/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 547.8,
+   "meldung": "1, Ende-zu-Ende 83.1/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 548.8,
+   "meldung": "1, Ende-zu-Ende 80.8/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 549.8,
+   "meldung": "1, Ende-zu-Ende 81.0/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 550.8,
+   "meldung": "1, Ende-zu-Ende 102.1/130.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 551.2,
+   "meldung": "pulse-player: Vollbild #33 empfangen, Abstand 5658 ms"
+  },
+  {
+   "sekunde": 551.8,
+   "meldung": "1, Ende-zu-Ende 91.7/131.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 552.8,
+   "meldung": "1, Ende-zu-Ende 82.8/96.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 553.8,
+   "meldung": "1, Ende-zu-Ende 88.4/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 554.8,
+   "meldung": "pulse-player: Vollbild #34 empfangen, Abstand 3466 ms"
+  },
+  {
+   "sekunde": 554.8,
+   "meldung": "1, Ende-zu-Ende 100.6/238.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 555.8,
+   "meldung": "1, Ende-zu-Ende 125.5/265.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 556.8,
+   "meldung": "1, Ende-zu-Ende 78.9/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 557.8,
+   "meldung": "1, Ende-zu-Ende 154.2/213.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 558.8,
+   "meldung": "1, Ende-zu-Ende 162.7/235.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 559.8,
+   "meldung": "1, Ende-zu-Ende 79.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 560.8,
+   "meldung": "1, Ende-zu-Ende 78.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 561.8,
+   "meldung": "1, Ende-zu-Ende 78.3/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 562.9,
+   "meldung": "1, Ende-zu-Ende 82.5/118.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 563.9,
+   "meldung": "1, Ende-zu-Ende 78.5/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 564.9,
+   "meldung": "1, Ende-zu-Ende 78.1/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 566.1,
+   "meldung": "1, Ende-zu-Ende 78.0/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 567.1,
+   "meldung": "1, Ende-zu-Ende 80.2/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 568.1,
+   "meldung": "1, Ende-zu-Ende 78.3/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 569.1,
+   "meldung": "1, Ende-zu-Ende 78.1/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 570.1,
+   "meldung": "1, Ende-zu-Ende 78.4/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 571.1,
+   "meldung": "1, Ende-zu-Ende 78.5/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 572.1,
+   "meldung": "1, Ende-zu-Ende 78.2/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 573.1,
+   "meldung": "1, Ende-zu-Ende 79.1/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 574.1,
+   "meldung": "1, Ende-zu-Ende 78.7/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 575.1,
+   "meldung": "1, Ende-zu-Ende 78.0/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 576.1,
+   "meldung": "1, Ende-zu-Ende 78.5/95.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 577.1,
+   "meldung": "1, Ende-zu-Ende 79.4/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 578.1,
+   "meldung": "1, Ende-zu-Ende 79.1/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 579.1,
+   "meldung": "1, Ende-zu-Ende 79.4/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 580.1,
+   "meldung": "1, Ende-zu-Ende 78.3/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 581.1,
+   "meldung": "1, Ende-zu-Ende 78.7/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 582.1,
+   "meldung": "1, Ende-zu-Ende 77.9/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 583.1,
+   "meldung": "1, Ende-zu-Ende 78.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 584.1,
+   "meldung": "1, Ende-zu-Ende 78.6/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 585.1,
+   "meldung": "1, Ende-zu-Ende 79.6/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 586.1,
+   "meldung": "1, Ende-zu-Ende 79.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 587.1,
+   "meldung": "1, Ende-zu-Ende 80.0/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 588.1,
+   "meldung": "1, Ende-zu-Ende 77.7/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 589.1,
+   "meldung": "1, Ende-zu-Ende 79.7/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 590.1,
+   "meldung": "1, Ende-zu-Ende 77.9/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 591.1,
+   "meldung": "1, Ende-zu-Ende 78.9/100.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 592.1,
+   "meldung": "1, Ende-zu-Ende 78.2/88.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 593.1,
+   "meldung": "1, Ende-zu-Ende 79.2/87.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 594.1,
+   "meldung": "1, Ende-zu-Ende 78.6/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 595.1,
+   "meldung": "1, Ende-zu-Ende 79.7/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 596.1,
+   "meldung": "1, Ende-zu-Ende 78.2/89.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 597.1,
+   "meldung": "1, Ende-zu-Ende 80.5/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 598.1,
+   "meldung": "1, Ende-zu-Ende 78.8/90.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 599.1,
+   "meldung": "1, Ende-zu-Ende 79.9/93.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 600.1,
+   "meldung": "1, Ende-zu-Ende 78.7/91.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 601.1,
+   "meldung": "1, Ende-zu-Ende 81.8/106.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 602.1,
+   "meldung": "1, Ende-zu-Ende 124.5/245.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 603.1,
+   "meldung": "1, Ende-zu-Ende 129.0/277.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 604.1,
+   "meldung": "1, Ende-zu-Ende 119.1/282.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 605.1,
+   "meldung": "1, Ende-zu-Ende 83.8/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 606.1,
+   "meldung": "1, Ende-zu-Ende 83.2/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 607.1,
+   "meldung": "1, Ende-zu-Ende 91.7/108.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 608.1,
+   "meldung": "1, Ende-zu-Ende 93.5/108.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 609.1,
+   "meldung": "1, Ende-zu-Ende 101.0/115.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 610.1,
+   "meldung": "1, Ende-zu-Ende 102.2/119.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 610.5,
+   "meldung": "pulse-player: Vollbild #35 empfangen, Abstand 55632 ms"
+  },
+  {
+   "sekunde": 611.1,
+   "meldung": "1, Ende-zu-Ende 106.7/232.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 612.1,
+   "meldung": "1, Ende-zu-Ende 82.9/97.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 613.1,
+   "meldung": "1, Ende-zu-Ende 88.2/102.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 614.1,
+   "meldung": "1, Ende-zu-Ende 108.8/272.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 615.1,
+   "meldung": "1, Ende-zu-Ende 126.4/270.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 615.3,
+   "meldung": "pulse-player: Vollbild #36 empfangen, Abstand 4907 ms"
+  },
+  {
+   "sekunde": 616.1,
+   "meldung": "1, Ende-zu-Ende 109.3/254.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 616.9,
+   "meldung": "pulse-player: Vollbild #37 empfangen, Abstand 1573 ms"
+  },
+  {
+   "sekunde": 617.1,
+   "meldung": "1, Ende-zu-Ende 96.3/229.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 618.3,
+   "meldung": "1, Ende-zu-Ende 79.3/94.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 619.3,
+   "meldung": "1, Ende-zu-Ende 80.8/92.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 620.3,
+   "meldung": "1, Ende-zu-Ende 82.0/98.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 621.3,
+   "meldung": "1, Ende-zu-Ende 87.5/101.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 622.3,
+   "meldung": "1, Ende-zu-Ende 109.1/271.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 623.3,
+   "meldung": "1, Ende-zu-Ende 119.5/275.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 624.3,
+   "meldung": "1, Ende-zu-Ende 98.1/112.0 ms (0 ohne Muster)",
+   "sonde": true
+  },
+  {
+   "sekunde": 625.3,
+   "meldung": "1, Ende-zu-Ende 95.4/121.0 ms (0 ohne Muster)",
+   "sonde": true
+  }
+ ],
+ "player_proben": 398,
+ "verlauf": [
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 114,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 976,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 175,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 1375,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 235,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 1812,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 295,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 2210,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 355,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 2646,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 416,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 3044,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 475,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 3480,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 536,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 3872,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 596,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 4320,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 657,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 4698,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 717,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 5135,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 777,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 5507,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 837,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 5942,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 897,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 6322,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 958,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 6756,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1018,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 7138,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1079,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 7576,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1139,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 7956,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1199,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 8389,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1259,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 8764,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1320,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 9191,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1380,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 9586,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1439,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 10014,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1500,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 10407,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1560,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 10827,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1621,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 11229,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1682,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 11646,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1741,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 12018,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1801,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 12450,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1862,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 12846,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1922,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 13282,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 1983,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 13663,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 2043,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 14091,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 2103,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 14468,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 2164,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 14906,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 2224,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 15284,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 2284,
+   "frames_dropped": 0,
+   "frames_skipped": 0,
+   "packets_duplicate": 0,
+   "packets_lost": 0,
+   "packets_received": 15710,
+   "packets_reordered": 0
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 3808,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 26741,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 3869,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 27125,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 3926,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 27548,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 3983,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 27911,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4050,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 28383,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4110,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 28761,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4171,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 29181,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4231,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 29569,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4291,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 29998,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4351,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 30379,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4412,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 30810,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4472,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 31191,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4532,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 31627,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4592,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 32018,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4653,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 32448,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4713,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 32838,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4773,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 33261,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4834,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 33653,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4893,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 34068,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 4954,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 34467,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5014,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 34886,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5074,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 35270,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5135,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 35703,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5195,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 36096,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5255,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 36522,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5315,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 36910,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5376,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 37354,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5436,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 37741,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5497,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 38173,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5557,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 38558,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5617,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 38987,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5677,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 39371,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5738,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 39806,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5798,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 40193,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5858,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 40618,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5918,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 40992,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 5979,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 41419,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6039,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 41800,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6100,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 42234,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6160,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 42617,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6220,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 43047,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6280,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 43429,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6341,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 43864,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6400,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 44239,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 6461,
+   "frames_dropped": 149,
+   "frames_skipped": 11,
+   "packets_duplicate": 0,
+   "packets_lost": 45,
+   "packets_received": 44688,
+   "packets_reordered": 18
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8001,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 55965,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8062,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 56389,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8116,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 56798,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8175,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 57186,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8242,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 57670,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8302,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 58073,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8363,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 58517,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8423,
+   "frames_dropped": 256,
+   "frames_skipped": 16,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 58908,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8484,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 59343,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8543,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 59723,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8604,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 60158,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8664,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 60535,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8725,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 60971,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8778,
+   "frames_dropped": 256,
+   "frames_skipped": 20,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 61320,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8844,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 61777,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8905,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 62182,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 8965,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 62614,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9025,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 63008,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9086,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 63440,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9146,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 63833,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9206,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 64269,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9267,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 64667,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9327,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 65096,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9387,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 65478,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9447,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 65917,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9507,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 66301,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9568,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 66733,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9628,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 67117,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9688,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 67541,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9748,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 67928,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9808,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 68360,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9869,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 68751,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9929,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 69184,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 9974,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 69476,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10035,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 69917,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10095,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 70296,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10155,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 70722,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10209,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 71062,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10273,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 71522,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10336,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 71919,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10396,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 72352,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10456,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 72733,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10516,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 73175,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10577,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 73546,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 10637,
+   "frames_dropped": 256,
+   "frames_skipped": 25,
+   "packets_duplicate": 0,
+   "packets_lost": 64,
+   "packets_received": 73987,
+   "packets_reordered": 28
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12190,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 84980,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12251,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 85383,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12312,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 85818,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12372,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 86205,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12432,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 86641,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12492,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 87028,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12553,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 87464,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12613,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 87850,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12673,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 88281,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12733,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 88667,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12793,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 89097,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12846,
+   "frames_dropped": 311,
+   "frames_skipped": 32,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 89443,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12914,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 89922,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 12975,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 90311,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13034,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 90744,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13095,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 91130,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13155,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 91553,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13216,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 91940,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13275,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 92368,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13335,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 92755,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13396,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 93199,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13456,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 93580,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13502,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 93928,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13562,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 94309,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13622,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 94736,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13683,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 95118,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13742,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 95547,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13803,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 95922,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13863,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 96355,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13923,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 96722,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 13984,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 97162,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14044,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 97544,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14105,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 97982,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14165,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 98358,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14225,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 98792,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14285,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 99173,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14346,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 99604,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14406,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 100000,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14466,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 100424,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14526,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 100807,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14587,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 101236,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14648,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 101635,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14707,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 102050,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14768,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 102445,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 14828,
+   "frames_dropped": 311,
+   "frames_skipped": 41,
+   "packets_duplicate": 0,
+   "packets_lost": 110,
+   "packets_received": 102872,
+   "packets_reordered": 44
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16381,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 113976,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16441,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 114379,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16495,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 114779,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16562,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 115225,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16623,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 115661,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16683,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 116066,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16743,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 116492,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16803,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 116891,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16848,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 117222,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16909,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 117614,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 16969,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 118053,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17028,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 118425,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17086,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 118841,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17150,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 119239,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17210,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 119667,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17270,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 120040,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17331,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 120484,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17391,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 120864,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17451,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 121296,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17511,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 121675,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17572,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 122123,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17632,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 122508,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17692,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 122932,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17752,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 123318,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17813,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 123738,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17872,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 124110,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17933,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 124540,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 17993,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 124929,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18053,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 125351,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18114,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 125744,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18174,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 126179,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18234,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 126566,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18295,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 126998,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18355,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 127389,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18415,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 127823,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18475,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 128195,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18535,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 128630,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18596,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 129028,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18656,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 129458,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18716,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 129846,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18777,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 130283,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18837,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 130669,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18897,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 131095,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 18957,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 131479,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 19018,
+   "frames_dropped": 404,
+   "frames_skipped": 49,
+   "packets_duplicate": 0,
+   "packets_lost": 150,
+   "packets_received": 131910,
+   "packets_reordered": 60
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20555,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 142868,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20616,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 143253,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20672,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 143669,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20728,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 144018,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20797,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 144507,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20857,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 144886,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20918,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 145325,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 20978,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 145718,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21038,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 146143,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21098,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 146521,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21159,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 146960,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21219,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 147345,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21279,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 147772,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21339,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 148150,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21400,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 148574,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21460,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 148953,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21520,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 149377,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21581,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 149777,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21640,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 150193,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21701,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 150591,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21761,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 151026,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21816,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 151380,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21882,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 151843,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 21942,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 152235,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22002,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 152660,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22063,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 153057,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22123,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 153486,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22184,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 153883,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22244,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 154311,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22304,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 154691,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22364,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 155111,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22425,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 155501,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22485,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 155924,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22545,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 156312,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22605,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 156744,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22665,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 157115,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22725,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 157538,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22786,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 157923,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22846,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 158347,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22906,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 158725,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 22966,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 159158,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 23027,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 159552,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 23087,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 159982,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 23147,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 160360,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 23208,
+   "frames_dropped": 456,
+   "frames_skipped": 55,
+   "packets_duplicate": 0,
+   "packets_lost": 185,
+   "packets_received": 160792,
+   "packets_reordered": 73
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 24756,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 171665,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 24818,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 172069,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 24872,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 172476,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 24937,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 172901,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 24998,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 173330,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25059,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 173720,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25119,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 174144,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25179,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 174525,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25239,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 174949,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25299,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 175333,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25360,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 175769,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25420,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 176159,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25481,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 176594,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25541,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 176984,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25601,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 177427,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25661,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 177818,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25721,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 178244,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25782,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 178632,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25842,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 179056,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25902,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 179449,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 25962,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 179875,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26022,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 180252,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26082,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 180674,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26143,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 181070,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26204,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 181498,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26264,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 181877,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26324,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 182307,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26385,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 182697,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26445,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 183136,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26505,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 183517,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26565,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 183945,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26626,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 184337,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26686,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 184760,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26746,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 185139,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26807,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 185570,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26867,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 185944,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26927,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 186381,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 26988,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 186763,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27047,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 187192,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27108,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 187593,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27154,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 187931,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27213,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 188309,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27274,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 188749,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27335,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 189133,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 27395,
+   "frames_dropped": 493,
+   "frames_skipped": 65,
+   "packets_duplicate": 0,
+   "packets_lost": 201,
+   "packets_received": 189559,
+   "packets_reordered": 89
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 28936,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 200571,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 28997,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 200970,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29050,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 201352,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29117,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 201785,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29177,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 202217,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29238,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 202607,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29298,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 203037,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29359,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 203432,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29418,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 203869,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29479,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 204247,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29539,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 204672,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29600,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 205061,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29660,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 205496,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29720,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 205870,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29780,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 206298,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29840,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 206684,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29901,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 207126,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 29961,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 207517,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30022,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 207946,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30082,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 208331,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30142,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 208758,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30202,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 209138,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30262,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 209568,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30323,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 209950,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30383,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 210375,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30443,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 210753,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30503,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 211188,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30563,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 211567,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30624,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 212007,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30669,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 212288,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30730,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 212717,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30789,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 213096,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30850,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 213528,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30910,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 213920,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 30971,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 214345,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31030,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 214724,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31091,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 215154,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31151,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 215547,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31211,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 215971,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31272,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 216366,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31331,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 216791,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31392,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 217175,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31453,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 217605,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31512,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 217986,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 31573,
+   "frames_dropped": 585,
+   "frames_skipped": 79,
+   "packets_duplicate": 0,
+   "packets_lost": 278,
+   "packets_received": 218433,
+   "packets_reordered": 127
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33119,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 229781,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33180,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 230205,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33233,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 230587,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33300,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 231044,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33361,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 231488,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33421,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 231892,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33482,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 232331,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33541,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 232721,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33602,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 233154,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33662,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 233545,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33722,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 233972,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33767,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 234260,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33828,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 234694,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33888,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 235083,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 33948,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 235516,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34008,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 235892,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34069,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 236321,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34129,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 236720,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34189,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 237131,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34249,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 237520,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34309,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 237940,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34370,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 238334,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34430,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 238766,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34490,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 239162,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34551,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 239589,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34611,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 239978,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34671,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 240399,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34731,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 240787,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34791,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 241208,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34852,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 241603,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34912,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 242024,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 34972,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 242412,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35033,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 242830,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35093,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 243222,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35153,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 243657,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35213,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 244045,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35273,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 244474,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35333,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 244856,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35394,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 245291,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35454,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 245687,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35514,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 246108,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35574,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 246496,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35635,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 246927,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35695,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 247319,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 35755,
+   "frames_dropped": 733,
+   "frames_skipped": 90,
+   "packets_duplicate": 0,
+   "packets_lost": 345,
+   "packets_received": 247754,
+   "packets_reordered": 141
+  },
+  {
+   "buffered_packets": 0,
+   "fec_repariert": 0,
+   "fec_unreparierbar": 0,
+   "fec_zu_spaet": 0,
+   "frames_decoded": 37318,
+   "frames_dropped": 789,
+   "frames_skipped": 112,
+   "packets_duplicate": 0,
+   "packets_lost": 359,
+   "packets_received": 258750,
+   "packets_reordered": 152
+  }
+ ]
+}

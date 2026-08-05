@@ -11,12 +11,28 @@ irgendwo, was auf der Schleife per Konstruktion unsichtbar bleibt: dort gibt es
 keine Laufzeit, keine Schwankung und keinen Verlust. Jede Aussage über Latenz,
 die nur auf der Schleife erhoben wurde, sagt über den Betrieb wenig.
 
-**Voraussetzungen.** SSH-Zugang zum Server ohne Passwort, dort Docker-Zugriff,
-und der Pulse-Container heisst wie in ``PULSE_FERN_CONTAINER`` angegeben. Die
-Token werden per ``docker exec … redis-cli`` direkt in die Redis DES CONTAINERS
-gelegt — media-svc ist bewusst nicht im Spiel, der Prüfstand baut die Adresse
-selbst (genau deshalb kann er auch Protokolle fahren, die media-svc gar nicht
-ausgibt).
+**Voraussetzungen.** Auf dem Zielserver läuft der Labor-MediaMTX (seit
+2026-07-31 eigenständig, vorher steckte er im All-in-one-Container der
+Self-Host-Testinstanz). Zugangsdaten kommen aus der Umgebung:
+
+    PULSE_FERN_PASS    Passwort des MediaMTX-Zugangs (Pflicht)
+    PULSE_FERN_TOKEN   Lese-Token, das Caddy vor dem WHEP-Weg prüft (Pflicht)
+    PULSE_FERN_USER    Nutzername, Vorgabe ``labor``
+
+Beide stehen auf dem Server in ``~/mediamtx-labor/zugang.txt``.
+
+**Kein SSH mehr, keine Redis.** Bis zum 2026-07-31 legte der Prüfstand für
+jeden Lauf zwei Token per ``ssh`` + ``docker exec … redis-cli`` in die Redis
+des Containers, weil MediaMTX dort gegen den Pulse-Auth-Hook prüfte. Der Hook
+ist mit dem Container weg; der Messstand nutzt die eingebaute Auth von
+MediaMTX. Ein Lauf braucht damit keinen Serverzugriff mehr — nur die
+Zugangsdaten.
+
+**Warum der WHEP-Weg trotzdem einen ``token=``-Parameter trägt.** MediaMTX
+nimmt für WHEP ausschließlich Basic-Auth (Query-Parameter beantwortet 1.19.1
+mit 401), und unser Player kann keinen Auth-Header. Caddy übersetzt deshalb:
+es prüft den Token und setzt den Header. Für alle Aufrufer hier sieht die
+Adresse deshalb aus wie vorher.
 
     ./fern-harness.py --secs 30 --fps 60 --kbps 4000 --e2e --label fern1
     ./fern-harness.py --proto srt --codec h264 --bits 8 --label srt1
@@ -47,8 +63,10 @@ _spec.loader.exec_module(_rh)
 Sidecar = _rh.Sidecar
 
 HOST = os.environ.get("PULSE_FERN_HOST", "pulse.unicutmedia.com")
+# Nur noch für `verzoegerung.py` (misst die Umlaufzeit zur Server-Adresse) —
+# der Prüfstand selbst braucht seit 2026-07-31 keinen Serverzugriff mehr.
 SSH = os.environ.get("PULSE_FERN_SSH", "michael@77.42.71.166")
-CONTAINER = os.environ.get("PULSE_FERN_CONTAINER", "pulse")
+USER = os.environ.get("PULSE_FERN_USER", "labor")
 RTMPS_PORT = int(os.environ.get("PULSE_FERN_RTMPS_PORT", "1936"))
 # MediaMTX lauscht per Voreinstellung auf 8890 — der Container veröffentlicht
 # diesen Port aber nicht, und einen Port nachträglich zu veröffentlichen ginge
@@ -59,41 +77,47 @@ RTMPS_PORT = int(os.environ.get("PULSE_FERN_RTMPS_PORT", "1936"))
 SRT_PORT = int(os.environ.get("PULSE_FERN_SRT_PORT", "7890"))
 
 
-def redis_set_remote(pairs: list[tuple[str, str]], ttl: int = 1800) -> None:
-    """Token in die Redis IM Container legen — ein SSH-Aufruf für alle."""
-    cmds = "\n".join(f"SET {k} '{v}' EX {ttl}" for k, v in pairs)
-    r = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH,
-         f"docker exec -i {CONTAINER} redis-cli <<'EOF'\n{cmds}\nEOF"],
-        capture_output=True, text=True, timeout=60,
-    )
-    if r.returncode != 0:
-        raise RuntimeError(f"redis-set fehlgeschlagen: {r.stderr.strip()}")
-    if "OK" not in r.stdout:
-        raise RuntimeError(f"redis antwortete unerwartet: {r.stdout.strip()}")
+def _pflicht(name: str) -> str:
+    wert = os.environ.get(name, "")
+    if not wert:
+        raise SystemExit(
+            f"{name} fehlt. Die Zugangsdaten des Labor-MediaMTX stehen auf dem "
+            f"Server in ~/mediamtx-labor/zugang.txt:\n"
+            f"    export PULSE_FERN_PASS=…   export PULSE_FERN_TOKEN=…"
+        )
+    return wert
 
 
 def mint_remote() -> tuple[str, str, str]:
-    """(mediamtx-Pfad, publish-token, read-token) — Payload-Schema aus ``harness.py``,
-    nur die Ablage geht per SSH in die Redis DES ENTFERNTEN Containers statt lokal."""
-    path, pub, rd, pub_payload, rd_payload = token_payloads()
-    redis_set_remote([
-        (f"stream:token:{pub}", json.dumps(pub_payload)),
-        (f"stream:token:{rd}", json.dumps(rd_payload)),
-    ])
-    return path, pub, rd
+    """(mediamtx-Pfad, Publish-Passwort, Lese-Token).
+
+    Heisst weiter ``mint_remote``, obwohl nichts mehr geprägt wird: die Form
+    ``(pfad, publish, lesen)`` teilen sich sechs Aufrufer, und sie passt
+    unverändert — nur sind die beiden Geheimnisse jetzt fest statt je Lauf neu.
+
+    Der Pfad bleibt einmalig (Nonce), und das aus demselben Grund wie im
+    Produkt: derselbe Pfad Sekundenbruchteile später ist für MediaMTX eine noch
+    lebende Sitzung, und der neue Push fällt in deren ICE-Abbau.
+    """
+    path, _pub, _rd, _pp, _rp = token_payloads()
+    return path, _pflicht("PULSE_FERN_PASS"), _pflicht("PULSE_FERN_TOKEN")
 
 
 def push_url(path: str, token: str, proto: str, srt_latency_ms: int) -> str:
+    """Push-Adresse. ``token`` ist das Passwort aus ``mint_remote``."""
     if proto == "whip":
         # Eigener WebRTC-Sendeweg des Sidecars. Der Weg durch Caddy ist derselbe
         # wie beim Zuschauen: `handle_path /whep/*` streift das Praefix ab, und
-        # MediaMTX sieht `/<pfad>/whip`. Ton laeuft darueber noch nicht.
-        return f"https://{HOST}/whep/{path}/whip?token={token}"
+        # MediaMTX sieht `/<pfad>/whip`. Hier zaehlt deshalb der LESE-Token, den
+        # Caddy prüft — die MediaMTX-Zugangsdaten setzt Caddy selbst. Ton laeuft
+        # ueber diesen Weg noch nicht.
+        return f"https://{HOST}/whep/{path}/whip?token={_pflicht('PULSE_FERN_TOKEN')}"
     if proto == "srt":
-        return (f"srt://{HOST}:{SRT_PORT}?streamid=publish:{path}:pulse:{token}"
+        return (f"srt://{HOST}:{SRT_PORT}?streamid=publish:{path}:{USER}:{token}"
                 f"&pkt_size=1316&latency={srt_latency_ms * 1000}")
-    return f"rtmps://{HOST}:{RTMPS_PORT}/{path}?token={token}"
+    # RTMPS geht direkt an MediaMTX (Port 1936, an Caddy vorbei) — dort traegt
+    # die URL die Zugangsdaten selbst.
+    return f"rtmps://{HOST}:{RTMPS_PORT}/{path}?user={USER}&pass={token}"
 
 
 def parse_args() -> argparse.Namespace:

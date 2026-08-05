@@ -1,4 +1,5 @@
-//! WGC-Capture mit Zero-Copy in einen D3D11VA-Pool (NVENC-Pfad).
+//! WGC-Capture mit Zero-Copy in einen D3D11VA-Pool (D3D11-Zero-Copy-Pfad —
+//! NVENC auf NVIDIA, `av1_amf` auf AMD).
 //!
 //! Variante von `wgc.rs::WgcCapture`. Statt im Callback einen BGRA-CPU-Buffer
 //! zu materialisieren, kopieren wir die WGC-Frame-Texture per
@@ -28,7 +29,7 @@ use windows_capture::settings::{
 
 use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 use super::wgc::CaptureConfig;
-use crate::encode::{HwContext, OwnedHwFrame};
+use crate::encode::{HwContext, HwPoolConfig, OwnedHwFrame};
 
 /// Items aus dem Capture-Thread. Erstes ist immer Setup, danach Frame.
 pub enum HwCaptureItem {
@@ -209,14 +210,15 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             let width = frame.width();
             let height = frame.height();
             self.expected_dims = (width, height);
+            // Bind-Flags, Format und Lock bleiben auf Default: der Capture-Pool
+            // nimmt libavutils BGRA-Default und besitzt den Lock selbst — der
+            // Scaler teilt ihn dann (#2).
             let hw = HwContext::new(
                 frame.device().clone(),
                 frame.device_context().clone(),
                 width,
                 height,
-                self.pool_size,
-                0,    // Capture-Pool: keine extra Bind-Flags (libavutil-Default).
-                None, // Capture-Pool besitzt den Lock; der Scaler teilt ihn (#2).
+                HwPoolConfig { pool_size: self.pool_size, ..Default::default() },
             )
             .context("HwContext::new")?;
             let hw = Arc::new(hw);

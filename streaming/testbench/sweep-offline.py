@@ -54,6 +54,25 @@ VARIANTEN: list[tuple[str, list[str]]] = [
     ("allintra", ["-preset", "p2", "-g", "1"]),
 ]
 
+# Dasselbe fuer VAAPI (AMD/Intel). Eigene Liste, weil KEINE der Optionen oben
+# dort existiert — `preset`, `zerolatency`, `b_ref_mode`, `forced-idr` sind
+# NVENC-Namen, und `intra-refresh` heisst hier `intra_refresh` (Unterstrich).
+# Die Grundeinstellungen kommen aus `vmaf_common.encode_cmd` (rc_mode=CBR,
+# async_depth=1), also aus `encode/opts.rs`.
+#
+# `intra_refresh` gibt es nur mit dem Patch aus `streaming/ffmpeg-patches/`;
+# ohne ihn bricht ffmpeg mit "Option not found" ab — laut und richtig, statt
+# still einen Keyframe-Lauf unter diesem Namen zu messen.
+VARIANTEN_VAAPI: list[tuple[str, list[str]]] = [
+    ("heute", []),
+    ("intraref", ["-intra_refresh", "1", "-g", "600"]),
+    ("allintra", ["-g", "1"]),
+]
+
+
+def varianten_fuer(codec: str) -> list[tuple[str, list[str]]]:
+    return VARIANTEN_VAAPI if codec.endswith("_vaapi") else VARIANTEN
+
 
 def encode(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
            extra: list[str], out: Path, frames: int, codec: str = "av1_nvenc") -> float:
@@ -85,7 +104,7 @@ def main() -> int:
     echtzeit = args.frames / args.fps
     with tempfile.TemporaryDirectory() as td:
         gewaehlt = [v.strip() for v in args.nur.split(",") if v.strip()]
-        for name, extra in VARIANTEN:
+        for name, extra in varianten_fuer(args.codec):
             if gewaehlt and name not in gewaehlt:
                 continue
             out = Path(td) / f"{name}.mkv"

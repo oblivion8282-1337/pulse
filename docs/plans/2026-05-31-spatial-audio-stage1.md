@@ -1,5 +1,26 @@
 # Räumliches Audio — Stufe 1 („Sitzordnung") Umsetzungsplan
 
+> **ÜBERHOLT — anders gebaut, als hier geplant.** (Vermerkt 2026-08-04.)
+>
+> Dieses Blatt sieht eine rein clientseitige Lösung über die native Web Audio
+> API vor: ein `PannerNode` (HRTF) je Gegenstelle, ein Ja/Nein-Schalter
+> `spatialAudio`, ein Geometrie-Helfer `web/src/lib/voice/spatial.ts` mit
+> `computeHalfCirclePositions` — und die Tech-Stack-Zeile sagt ausdrücklich
+> „nativ, keine neue Dependency".
+>
+> Gebaut wurde zwei Wochen später etwas anderes (Commits `09bfc5cd` und
+> `aa53afd8`, 2026-06-17): `spatialMode` ist ein **vierwertiger** Schalter
+> (aus/Standard/hoch/automatisch), und die Engine lädt bei Bedarf die
+> **vendorierte Resonance-Audio-Bibliothek** (`web/static/vendor/resonance-audio/`,
+> Apache-2.0) — genau die Abhängigkeit, die dieses Blatt ausschließt.
+> `web/src/lib/voice/spatial.ts` gibt es nicht; an seiner Stelle steht das
+> Verzeichnis `web/src/lib/voice/spatial/` (`layout.ts`, `resonanceLoader.ts`,
+> `spatialScene.ts`), und `computeHalfCirclePositions` kommt im Repo nirgends vor.
+>
+> Wer hier anfängt, baut eine `PannerNode`-Lösung, die die tatsächlich verbaute
+> Engine ersetzen würde. Das Blatt bleibt als Historie stehen — die Überlegungen
+> zur Sitzordnung darin gelten weiter, die Umsetzung nicht.
+
 **Goal:** Remote-Stimmen im Voice-Channel werden binaural (HRTF) auf einem Halbkreis *vor* dem Hörer positioniert, statt flach aus der Mitte zu kommen — rein clientseitig, abschaltbarer Toggle in den Voice-Settings. Keine Bewegung, kein Netzwerk-Sync (das ist Stufe 2).
 
 **Architektur:** Pro Remote-Mic-Track wird ein `PannerNode` (panningModel `HRTF`) ans **Ende** der bestehenden `RemoteAudioElements`-Node-Kette gesetzt (`… → gain → [limiter] → [panner] → ctx.destination`). Der `AudioListener` des AudioContext sitzt im Ursprung mit Blick nach −z. Die Halbkreis-Positionen berechnet eine pure Funktion in `spatial.ts` und werden bei jedem Join/Leave neu verteilt. Der An/Aus-Toggle läuft end-to-end exakt wie der bestehende `limiterEnabled` (Schema → Setter → `livekit.svelte.ts` → `audioElements.ts` → UI).

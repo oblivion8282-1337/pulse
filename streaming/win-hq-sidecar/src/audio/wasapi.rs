@@ -69,11 +69,17 @@ pub struct AudioCapture {
 
 impl AudioCapture {
     /// Startet die Capture. `chunk_frames` ist die Frames-pro-Chunk-Granularität
-    /// (kleiner = weniger Latenz, höher = weniger Channel-Sends). 1024 @ 48kHz =
-    /// ~21ms Chunks — guter Default.
+    /// (kleiner = weniger Latenz, höher = weniger Channel-Sends). Die Pipelines
+    /// uebergeben `encode::audio::capture_chunk_frames()` — dasselbe Raster wie
+    /// ein Opus-Paket, weil der FLV-Muxer die Bilder in Ton-Buendeln freigibt.
     pub fn start(source: AudioSource, chunk_frames: usize) -> Result<Self> {
         let format = AudioFormat::DEFAULT;
-        let (tx, rx) = std::sync::mpsc::sync_channel::<CapturedAudio>(8);
+        // Tiefe in ZEIT denken, nicht in Chunks: seit dem 5-ms-Raster
+        // (s. `encode::audio::capture_chunk_frames`) waeren 8 Chunks nur noch
+        // 40 ms Puffer — ein Pacing-Loop, der einmal laenger braucht, liesse
+        // den Capture-Thread blockieren. 32 haelt dieselbe Groessenordnung wie
+        // vorher (~160 ms).
+        let (tx, rx) = std::sync::mpsc::sync_channel::<CapturedAudio>(32);
         let (stop_tx, stop_rx) = channel();
 
         let src = source.clone();
@@ -215,6 +221,15 @@ fn run_capture(
     // QPC (100ns) des allerersten gelesenen Samples — Audio-Stream-Ursprung für
     // die HW-Timestamp-Verankerung. 0, bis ein echter Read passiert ist.
     let mut first_read_qpc: u64 = 0;
+    // Erwarteter Geräte-Frame-Index des nächsten Lesevorgangs. S.
+    // `fuelle_geraetelucke` — ohne diese Buchführung schrumpft die Ton-Zeitlinie
+    // bei jeder Gerätelücke, und der Ton läuft dem Bild dauerhaft voraus.
+    let mut naechster_index: u64 = 0;
+    // Diagnose-Sonde am ROHEN Gerätestrom (`PULSE_HQ_SYNC_PROBE=1`). Sitzt
+    // bewusst VOR Stille-Fill und Drift-Korrektur: nur von hier aus lässt sich
+    // sagen, ob eine Tonlücke schon aus dem Gerät kam. S. `syncprobe.rs`.
+    let mut probe = crate::syncprobe::enabled()
+        .then(|| crate::syncprobe::SyncProbe::new(format.sample_rate, format.channels));
     loop {
         if stop_rx.try_recv().is_ok() {
             should_stop = true;
@@ -229,12 +244,18 @@ fn run_capture(
             // Silence-Fill weiter unten (die Rückstand auffüllt).
             let owed = (started.elapsed().as_secs_f64() * format.sample_rate as f64) as u64;
             if emitted_frames > owed + ahead_limit {
+                if let Some(p) = probe.as_mut() {
+                    p.on_drop(chunk_frames as u64);
+                }
                 queue.drain(..chunk_bytes);
                 continue;
             }
             let mut chunk = vec![0u8; chunk_bytes];
             for slot in chunk.iter_mut() {
                 *slot = queue.pop_front().unwrap();
+            }
+            if let Some(p) = probe.as_mut() {
+                p.on_emit(false, emitted_frames);
             }
             let captured = CapturedAudio {
                 format,
@@ -256,6 +277,9 @@ fn run_capture(
         // Stille-Fill: nur ganze Chunks, die gegenüber der Wall-Clock fehlen.
         let owed = (started.elapsed().as_secs_f64() * format.sample_rate as f64) as u64;
         while queue.len() < chunk_bytes && emitted_frames + chunk_frames as u64 <= owed {
+            if let Some(p) = probe.as_mut() {
+                p.on_emit(true, emitted_frames);
+            }
             let silence = CapturedAudio {
                 format,
                 bytes: vec![0u8; chunk_bytes],
@@ -280,12 +304,19 @@ fn run_capture(
                 if queue.capacity() - queue.len() < need {
                     queue.reserve(need);
                 }
+                let vorher = queue.len();
                 let info = capture_client
                     .read_from_device_to_deque(&mut queue)
                     .context("read_from_device_to_deque")?;
                 // QPC des ersten je gelesenen Samples = Audio-Stream-Ursprung.
                 if first_read_qpc == 0 {
                     first_read_qpc = info.timestamp;
+                    naechster_index = info.index;
+                }
+                fuelle_geraetelucke(&mut queue, vorher, &info, &mut naechster_index, block_align);
+                if let Some(p) = probe.as_mut() {
+                    let neu: Vec<u8> = queue.iter().skip(vorher).copied().collect();
+                    p.on_read(&info, &neu);
                 }
             }
             Ok(_) => {}
@@ -300,8 +331,70 @@ fn run_capture(
     }
 
     let _ = audio_client.stop_stream();
+    if let Some(p) = probe.as_ref() {
+        p.summary();
+    }
     Ok(())
 }
+
+/// Füllt eine Lücke im Gerätestrom mit Stille auf — **vor** den gerade gelesenen
+/// Daten, an der Stelle, an der sie real entstanden ist.
+///
+/// **Warum das nötig ist.** WASAPI liefert je Lesevorgang den Frame-Index des
+/// ersten enthaltenen Samples. Springt der weiter, als wir Frames bekommen
+/// haben, hat das Gerät Samples übersprungen (Loopback-Neustart, Format-Wechsel,
+/// überlaufener Puffer). Wir bekommen davon nichts zu sehen: der Datenstrom
+/// läuft ja weiter.
+///
+/// Die Ton-Zeitlinie entsteht aber durch **Zählen** der angekommenen Samples
+/// (`AudioPipeline` erhöht den PTS je Paket um dessen Länge). Fehlen N ms im
+/// Zulauf, ist die Zeitlinie danach um N ms zu kurz — und der ganze restliche
+/// Ton läuft dem Bild um N ms voraus. Dauerhaft, denn nichts holt das je wieder
+/// ein: die Stille-Auffüllung weiter oben greift nur, wenn gar nichts mehr
+/// kommt, nicht wenn der Strom *mit Sprung* weiterläuft.
+///
+/// Am 2026-07-30 gemessen (Verfahren: `syncprobe.rs` gegen die
+/// Geräte-Zeitstempel): 142 ms Lücke kurz nach dem Start, danach lag der Ton in
+/// jedem Lauf um genau diesen Betrag vor dem Bild — über 19 Prüfmarken auf
+/// ±0,2 ms konstant. Ohne die Geräte-Indizes ist das nicht zu sehen; die
+/// Bildzahlen, die Bitrate und die Tonhüllkurve waren alle unauffällig.
+///
+/// Die Stille muss **vor** die frisch gelesenen Bytes, sonst säße das Loch an
+/// der falschen Stelle. Deshalb wird der neue Teil kurz herausgenommen und
+/// hinter der Stille wieder angehängt — das passiert nur im Lückenfall.
+fn fuelle_geraetelucke(
+    queue: &mut VecDeque<u8>,
+    vor_dem_lesen: usize,
+    info: &wasapi::BufferInfo,
+    naechster_index: &mut u64,
+    block_align: usize,
+) {
+    let gelesen = (queue.len() - vor_dem_lesen) / block_align;
+    if info.index > *naechster_index {
+        let fehlend = (info.index - *naechster_index) as usize;
+        // Ein absurd grosser Sprung ist eher ein Geraete-Neustart als eine
+        // Luecke; dann waere Stille in dieser Menge schlimmer als der Versatz.
+        if fehlend <= MAX_LUECKE_FRAMES {
+            let neu: Vec<u8> = queue.drain(vor_dem_lesen..).collect();
+            queue.extend(std::iter::repeat_n(0u8, fehlend * block_align));
+            queue.extend(neu);
+            eprintln!(
+                "[audio] Geraetelucke {fehlend} Frames ({:.1} ms) mit Stille aufgefuellt — \
+                 ohne das liefe der Ton ab hier um diesen Betrag vor dem Bild",
+                fehlend as f64 * 1000.0 / 48_000.0
+            );
+        } else {
+            eprintln!(
+                "[audio] Geraete-Index springt um {fehlend} Frames — zu gross fuer eine \
+                 Luecke, nicht aufgefuellt (Geraete-Neustart?)"
+            );
+        }
+    }
+    *naechster_index = info.index + gelesen as u64;
+}
+
+/// Obergrenze für das Auffüllen einer Gerätelücke (2 s bei 48 kHz).
+const MAX_LUECKE_FRAMES: usize = 96_000;
 
 fn open_audio_client(source: &AudioSource) -> Result<AudioClient> {
     match source {

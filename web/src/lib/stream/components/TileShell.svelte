@@ -47,6 +47,8 @@
     queueOpen = false,
     onToggleQueue,
     onDetach,
+    detachLabel,
+    hideDock = false,
     onHide,
     media,
     overlay,
@@ -86,6 +88,12 @@
     queueOpen?: boolean;
     onToggleQueue?: () => void;
     onDetach?: () => void;
+    /** Beschriftung des Abkoppel-Knopfs (s. TileDock). */
+    detachLabel?: string;
+    /** Steuerleiste ganz weglassen. Der HQ-Stream setzt das, sobald sein Bild
+     *  im eigenen Player-Fenster laeuft: dessen Leiste ist dann die einzige
+     *  Bedienung, zwei uebereinander waeren nur verwirrend. */
+    hideDock?: boolean;
     onHide?: () => void;
     media: Snippet;
     overlay?: Snippet;
@@ -167,6 +175,7 @@
     controlsExtra,
     onDetach,
     showDetach,
+    detachLabel,
     isFullscreen,
     onToggleFullscreen: toggleFs,
     onHide
@@ -206,7 +215,9 @@
 
 <div
   bind:this={containerEl}
-  class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
+  class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
+    ? 'rounded-none border-0'
+    : 'rounded-2xl border border-border'}"
   data-testid={containerTestid}
   data-identity={identity}
 >
@@ -240,7 +251,7 @@
            NICHT bei der Watch-Party (staticHud) — dort würde das Overlay die
            nativen iframe-Controls verdecken; die kriegt stattdessen die
            solide Leiste darunter (siehe unten). -->
-      {#if isFullscreen && !staticHud}
+      {#if isFullscreen && !staticHud && !hideDock}
         <div
           class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
         >
@@ -268,7 +279,7 @@
          Vollbilds — aber die Watch-Party (staticHud) behält sie auch im
          Vollbild solide darunter, damit das iframe (leicht kleiner) seine
          nativen Controls frei darüber behält. -->
-    {#if !isFullscreen || staticHud}
+    {#if (!isFullscreen || staticHud) && !hideDock}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>

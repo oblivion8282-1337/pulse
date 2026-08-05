@@ -40,6 +40,7 @@ import {
   getSidecar,
   resetSpawnTargetCache,
 } from './sidecar';
+import { playerManager } from './player';
 import { onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -807,6 +808,85 @@ function wireSidecar(): void {
   ipcMain.handle('gsr:backend', () => getLinuxBackend());
 }
 
+/**
+ * Nativer HQ-Player (`streaming/pulse-player/`). Rein additiv: fehlt das
+ * Binary, meldet `player:available` schlicht `false` und der Renderer bleibt
+ * auf dem bestehenden WHEP-Weg im `<video>`-Element.
+ *
+ * Op-Allowlist analog zu `ALLOWED_GSR_OPS` — der Renderer darf nicht beliebige
+ * Operationen in den Kindprozess schieben.
+ */
+// `record`/`clip` fehlen hier bewusst: die tragen einen Dateipfad und laufen
+// deshalb ueber eigene Kanaele, bei denen der Hauptprozess das Ziel bestimmt.
+const ALLOWED_PLAYER_OPS = new Set(['health', 'open', 'close', 'set_option', 'stats', 'focus']);
+
+function wirePlayer(): void {
+  // Registrieren startet den Prozess NICHT — der Start bleibt lazy bis zum
+  // ersten `call()`.
+  playerManager.onEvent((ev) => {
+    // Chat-Knopf im Player-Fenster: das App-Fenster nach vorne holen. Das kann
+    // nur der Hauptprozess — ein `window.focus()` im Renderer bewirkt hier
+    // nichts, und das Fenster kann obendrein im Tray versteckt sein
+    // (`show()` blendet ein UND fokussiert). Den Chat selbst oeffnet dann der
+    // Renderer, der dasselbe Ereignis bekommt.
+    if (ev?.ev === 'player:chatRequest' && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('player:event', ev);
+    }
+  });
+
+  ipcMain.handle('player:available', () => playerManager.isAvailable());
+
+  // Aufnahme: der Renderer loest nur aus. Zielpfad und Laengenbegrenzung
+  // bestimmt der Hauptprozess (s. player.ts) — ein renderer-gewaehlter Pfad
+  // waere ein Schreibzugriff an beliebige Stelle.
+  //
+  // Alle drei teilen dieselbe Absicherung: Sitzung pruefen und jeden Fehler
+  // abfangen, damit im Renderer immer ein {ok:false} ankommt statt einer
+  // geworfenen IPC-Ausnahme.
+  const handleRecording = (
+    channel: string,
+    run: (session: number, arg: unknown) => Promise<Record<string, unknown>>,
+  ): void => {
+    ipcMain.handle(channel, async (_e, session: unknown, arg: unknown) => {
+      if (typeof session !== 'number') return { ok: false, error: 'session fehlt' };
+      try {
+        return await run(session, arg);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    });
+  };
+
+  handleRecording('player:record', (session) => playerManager.startRecording(session));
+  handleRecording('player:stopRecord', (session) =>
+    playerManager.call('stop_record', { session }),
+  );
+  handleRecording('player:clip', (session, seconds) =>
+    playerManager.saveClip(session, Number(seconds) || 30),
+  );
+
+  ipcMain.handle('player:call', async (_e, op: string, params: unknown) => {
+    if (!ALLOWED_PLAYER_OPS.has(op)) {
+      return { ok: false, error: 'unknown op' };
+    }
+    try {
+      return await playerManager.call(op, (params ?? {}) as Record<string, unknown>);
+    } catch (e) {
+      // Alles abfangen: ein fehlendes Binary oder ein toter Prozess muss als
+      // {ok:false} im Renderer ankommen, damit dieser zurueckfallen kann.
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  // Shutdown haengt NICHT hier an einem eigenen before-quit-Listener — der
+  // laeuft gebuendelt mit den Sidecars im bestehenden before-quit-Handler
+  // weiter unten (bounded 3s-Race), damit der Player-Prozess nicht
+  // unabhaengig vom Rest der Aufraeum-Sequenz wegrennt.
+}
+
 // ── Settings persistence (E1c) ──────────────────────────────────────────────
 // A tiny key-value store backed by `<userData>/pulse-stream.json` (see store.ts).
 // `initStore()` loads it on app-ready; the renderer talks to it via `store:*`.
@@ -848,6 +928,9 @@ const ALLOWED_STORE_KEYS = new Set([
   // hing früher am Rust-Toggle; seit Rust der Standard ist, wäre das eine
   // stille Telemetrie für jeden Linux-Nutzer gewesen.
   'uploadDiagnosticLogs',
+  // Nativer HQ-Player (`streaming/pulse-player/`) statt des <video>-WHEP-Wegs.
+  // Default aus — experimentell, noch ohne Tonausgabe (siehe player.ts).
+  'useNativePlayer',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
@@ -1072,6 +1155,7 @@ async function bootClient(): Promise<void> {
   // updater.ts.
   wireHost(() => mainWindow);
   wireSidecar();
+  wirePlayer();
   wireScreenShare();
   wireNotify(() => mainWindow);
   wirePower();
@@ -1174,7 +1258,10 @@ app.on('before-quit', (event) => {
   didShutdownSidecar = true;
   const done = () => app.quit();
   void Promise.race([
-    Promise.all(allSidecars().map((s) => s.shutdown())),
+    // playerManager (nativer HQ-Player) haengt hier mit dran statt an einem
+    // eigenen before-quit-Listener — sonst koennte die Bound-Race oben schon
+    // abgelaufen sein, bevor der Player-Prozess sein SIGTERM verarbeitet hat.
+    Promise.all([...allSidecars().map((s) => s.shutdown()), playerManager.shutdown()]),
     new Promise<void>((r) => setTimeout(r, 3_000)),
   ]).then(done, done);
 });

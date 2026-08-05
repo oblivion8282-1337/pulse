@@ -22,8 +22,7 @@ use ffmpeg_next as ffmpeg;
 use crate::capture::audio::{self, AudioCapture, AudioSelection};
 use crate::capture::pipewire_stream::{DmabufFrame, FrameMailbox, PipewireCapture};
 use crate::capture::portal;
-use crate::encode::audio::AudioEncoder;
-use crate::encode::mux_writer::MuxSender;
+use crate::encode::audio::{AudioEncoder, TonSenke};
 use crate::encode::nv_import::{self, NvDmabufImporter};
 use crate::encode::va_import::VaapiImporter;
 use crate::encode::{AudioParams, EncoderConfig, VideoEncoder, hw};
@@ -63,8 +62,9 @@ impl FrameImporter {
 /// Standard-Audio-Bitrate (Opus), bis Profile eine eigene mitliefern.
 const AUDIO_BITRATE_KBPS: u32 = 128;
 
-/// Audio-Nebenpfad: PipeWire-Sink-Monitor → Opus → Muxer. Läuft auf zwei
-/// Threads (PW-Capture + Encode) parallel zum Video-Pacing-Loop.
+/// Audio-Nebenpfad: PipeWire-Sink-Monitor → Opus → [`TonSenke`] (Muxer oder
+/// WHIP-Tonspur). Läuft auf zwei Threads (PW-Capture + Encode) parallel zum
+/// Video-Pacing-Loop.
 struct AudioPipeline {
     cap: AudioCapture,
     worker: Option<JoinHandle<()>>,
@@ -76,7 +76,7 @@ impl AudioPipeline {
     /// Feinabgleich (positiv = Ton später).
     fn start(
         mut enc: AudioEncoder,
-        mux: MuxSender,
+        senke: TonSenke,
         record_start: Instant,
         av_offset_ms: i32,
         selection: &AudioSelection,
@@ -97,15 +97,16 @@ impl AudioPipeline {
                     av_offset_ms as i64 * audio::SAMPLE_RATE as i64 / 1000;
                 while let Ok((samples, capture_anchor)) = rx.recv() {
                     let anchor = capture_anchor + offset_samples;
-                    if let Err(e) = enc.push(&samples, &mux, anchor) {
+                    if let Err(e) = enc.push(&samples, &senke, anchor) {
                         emit(Event::Log { line: format!("[audio] push: {e:#}") });
                         break;
                     }
                 }
-                if let Err(e) = enc.flush(&mux) {
+                if let Err(e) = enc.flush(&senke) {
                     emit(Event::Log { line: format!("[audio] flush: {e:#}") });
                 }
-                // `mux` (MuxSender) droppt hier → gibt den Muxer-Trailer frei.
+                // Die Senke droppt hier. Beim Muxer-Weg gibt das den Trailer
+                // frei; beim WHIP-Weg faellt nur eine Arc-Referenz weg.
             })
             .map_err(|e| anyhow!("spawn hq-audio-encode: {e}"))?;
         Ok(Self { cap, worker: Some(worker) })
@@ -647,15 +648,6 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 Ok(FrameImporter::Nvenc { imp, hw: hw_ctx })
             }
             Vendor::Amd | Vendor::Intel => {
-                // Der VAAPI-Filtergraph wandelt fest auf NV12 (8 bit) — ein
-                // 10-bit-Wunsch verfällt hier, statt den Start zu verweigern:
-                // welche Karte den Puffer besitzt, steht erst hier fest.
-                if params.ten_bit {
-                    emit(Event::Log {
-                        line: "[stream] 10 bit auf diesem Encode-Pfad nicht verfügbar (nur NVENC) — streame mit 8 bit"
-                            .to_string(),
-                    });
-                }
                 let imp = VaapiImporter::new(
                     node,
                     first.drm_fourcc,
@@ -664,6 +656,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                     params.fps,
                     out_w,
                     out_h,
+                    params.ten_bit,
                 )?;
                 Ok(FrameImporter::Vaapi { imp })
             }
@@ -718,12 +711,36 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     if shared.stop_requested.load(Ordering::SeqCst) {
         return Ok(None);
     }
-    let ten_bit = params.ten_bit && matches!(vendor, Vendor::Nvidia);
+    // Beide Wege koennen 10 bit: NVENC ueber den P010-Shader (`nv_p010`), VAAPI
+    // ueber `scale_vaapi=format=p010`. Hier stand bis 2026-08-01 eine
+    // Einschraenkung auf NVIDIA — die stimmte, solange der VAAPI-Filtergraph
+    // fest auf NV12 wandelte, und war danach schaedlich: der Strom lief bereits
+    // in 10 bit, waehrend diese Zeile 8 bit meldete UND die Farb-Signalisierung
+    // unterblieb (`create_with_audio` setzt sie nur im 10-bit-Zweig). Der
+    // Player bekam dadurch `range=Unspecified space=Unspecified` und musste
+    // raten.
+    // Traegt der gewuenschte Codec DIESE Aufloesung? Die Codec-Liste wurde bei
+    // 720p erhoben, und das ist eine andere Frage (s. `caps::probe`).
+    let codec =
+        crate::caps::codec_fuer_aufloesung(vendor, &node, &params.codec, params.ten_bit, out_w, out_h);
+    if codec != params.codec {
+        emit(Event::Log {
+            line: format!(
+                "[stream] {} traegt {out_w}x{out_h} auf dieser Karte nicht — weiter mit {codec}",
+                params.codec
+            ),
+        });
+    }
+    // 10 bit ist an AV1 gebunden. Faellt der Codec gerade auf H.264 zurueck,
+    // muss die Bittiefe mitfallen — sonst stuende sie im Encoder-Config, waehrend
+    // der Codec sie nicht traegt.
+    let ten_bit = params.ten_bit && codec == "av1";
     emit(Event::Log {
         line: format!(
-            "[stream] Encode-Pfad: {} auf {} ({} bit)",
+            "[stream] Encode-Pfad: {} auf {} ({}, {} bit)",
             if matches!(vendor, Vendor::Nvidia) { "NVENC" } else { "VAAPI" },
             display_node(&node),
+            codec,
             if ten_bit { 10 } else { 8 }
         ),
     });
@@ -741,7 +758,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let (hw_pixel, frames_ctx) = importer.encoder_binding();
     let cfg = EncoderConfig {
         vendor,
-        codec: params.codec.clone(),
+        codec,
         fps: params.fps,
         bitrate_kbps: params.bitrate_kbps,
         width: out_w,
@@ -784,10 +801,10 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                        "Nullpunkt der Aufnahme in Wanduhrzeit");
     }
 
-    // Audio-Nebenpfad starten (teilt sich den Muxer über einen MuxSender),
+    // Audio-Nebenpfad starten (teilt sich den Ausgang über eine TonSenke),
     // verankert an record_start + av_offset_ms.
     let mut audio_pipeline = match audio_enc {
-        Some(ae) => match enc.mux_sender().and_then(|s| {
+        Some(ae) => match enc.ton_senke().and_then(|s| {
             AudioPipeline::start(ae, s, record_start, params.av_offset_ms, &params.audio)
         }) {
             Ok(p) => {
@@ -844,6 +861,23 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let mut window_duplicates = 0u64;
     let mut window_pts_gaps = 0u64;
     let mut window_pts_clamps = 0u64;
+    // Scheiternde Bild-Importe in Folge — und ab wann der Strom aufgibt.
+    //
+    // **Warum das ein Abbruchgrund ist und keine Randnotiz.** Schlaegt der
+    // Import fehl, bleibt `last_hw` stehen und der Pacing-Loop schiebt
+    // dasselbe Bild weiter in den Encoder: der Zuschauer sieht ein STANDBILD,
+    // der Zustand meldet weiter „live", die Bitrate sieht normal aus, und in
+    // `duplicates` taucht es nicht auf (das zaehlt nur Takte ohne neuen Frame).
+    // Genau so sieht es aus, wenn der Compositor einen Puffer liefert, den die
+    // Video-Einheit nicht lesen kann — auf AMD der Fall mit DCC-komprimierten
+    // Layouts (s. `egl_modifiers::vcn_incompatible_dcc`; beim impliziten
+    // Modifier ist er nicht filterbar, weil es nichts zu pruefen gibt).
+    //
+    // Zwei Sekunden Nachsicht: lang genug fuer einen einzelnen Ausrutscher
+    // (Format-Neuverhandlung, Karte kurz belegt), kurz genug, dass niemand
+    // minutenlang ein Standbild sendet und es fuer eine schlechte Leitung haelt.
+    let mut import_fehler_in_folge = 0u64;
+    let import_fehler_grenze = (params.fps.max(1) as u64).saturating_mul(2);
 
     let run_result = (|| -> Result<()> {
         loop {
@@ -875,10 +909,30 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 match importer.import(&frame) {
                     Ok(hw) => {
                         last_hw.replace(hw);
+                        import_fehler_in_folge = 0;
                     }
-                    Err(e) => emit(Event::Log {
-                        line: format!("[stream] Frame-Import übersprungen: {e:#}"),
-                    }),
+                    Err(e) => {
+                        import_fehler_in_folge += 1;
+                        // Nur die erste Meldung und danach eine je Sekunde:
+                        // sechzig gleiche Zeilen pro Sekunde verstopfen das Log
+                        // und sagen ab der zweiten nichts Neues.
+                        if import_fehler_in_folge == 1
+                            || import_fehler_in_folge % params.fps.max(1) as u64 == 0
+                        {
+                            emit(Event::Log {
+                                line: format!(
+                                    "[stream] Frame-Import übersprungen \
+                                     ({import_fehler_in_folge} in Folge): {e:#}"
+                                ),
+                            });
+                        }
+                        if import_fehler_in_folge >= import_fehler_grenze {
+                            return Err(anyhow!(
+                                "Frame-Import scheitert dauerhaft — {import_fehler_in_folge} \
+                                 Bilder in Folge: {e:#}"
+                            ));
+                        }
+                    }
                 }
                 // frame droppt hier → Plane-fds zu.
             }

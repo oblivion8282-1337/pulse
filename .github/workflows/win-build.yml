@@ -16,6 +16,11 @@ on:
     paths:
       - 'desktop/**'
       - 'streaming/win-hq-sidecar/**'
+      # Der native Player wird seit 2026-08-05 mit ausgeliefert. Ohne diesen
+      # Eintrag löst eine Änderung an ihm keinen Build aus, und der Installer
+      # trüge weiter den alten Stand — genau die Falle, die flatpak.yml beim
+      # FFmpeg-Patch schon hatte.
+      - 'streaming/pulse-player/**'
       - '.github/workflows/win-build.yml'
   workflow_dispatch: {}
 
@@ -37,7 +42,9 @@ jobs:
       - name: Cargo-Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: streaming/win-hq-sidecar
+          workspaces: |
+            streaming/win-hq-sidecar
+            streaming/pulse-player
 
       # ffmpeg-dist/ ist nicht im Git (~307 MB) — das Script lädt die
       # SHA-gepinnte FFmpeg-LGPL-Distribution nach ffmpeg-dist/n8.1-lgpl-shared/,
@@ -65,6 +72,34 @@ jobs:
         working-directory: streaming/win-hq-sidecar
         run: cargo build --release
 
+      # Der native HQ-Player (`streaming/pulse-player/`). Er braucht zwei Dinge,
+      # die der Sidecar nicht braucht:
+      #
+      #  * `bootstrap-webrtc.sh` — die Crate bindet webrtc-rs über
+      #    `[patch.crates-io]` an `vendor/webrtc-rs/`, und das ist gitignored
+      #    (reproduzierbar herstellbar statt eingecheckt). Fehlt es, bricht
+      #    cargo schon beim AUFLÖSEN ab, nicht erst beim Übersetzen. Das Script
+      #    ist bash — der windows-latest-Runner bringt Git-Bash mit.
+      #  * `FFMPEG_DIR` als Schritt-ENV statt als `.cargo/config.toml` in der
+      #    Crate: ein `[env]`-Block dort gölte für JEDE Plattform und würde den
+      #    Linux-/Flatpak-Bau auf ein Windows-Verzeichnis zeigen lassen, das es
+      #    dort nicht gibt (unter Linux kommt FFmpeg über pkg-config).
+      #
+      # Läuft NACH dem Sidecar, weil er dessen `ffmpeg-dist/` mitbenutzt — eine
+      # zweite Kopie derselben ~300 MB wäre sinnlos, und ausgeliefert wird
+      # ohnehin nur EIN Satz DLLs (s. electron-builder.yml).
+      - name: webrtc-rs-Zweig herstellen (Player)
+        shell: bash
+        run: ./streaming/pulse-player/scripts/bootstrap-webrtc.sh
+
+      - name: Player bauen (release)
+        shell: pwsh
+        working-directory: streaming/pulse-player
+        env:
+          FFMPEG_DIR: ${{ github.workspace }}\streaming\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: cargo build --release
+
       - name: pnpm
         uses: pnpm/action-setup@v4
 
@@ -89,8 +124,10 @@ jobs:
       #   *.blockmap                 (Delta-Download-Map)
       # `dist:win` läuft mit `--publish never` — der Upload macht der scp-Step
       # unten, nicht electron-builder. Zieht den Sidecar + DLLs aus
-      # streaming/win-hq-sidecar/target/release/ als extraResources (siehe
-      # desktop/electron-builder.yml).
+      # streaming/win-hq-sidecar/target/release/ und den Player aus
+      # streaming/pulse-player/target/release/ als extraResources; beide landen
+      # in demselben resources/hq-sidecar/, weil sie sich die FFmpeg-DLLs teilen
+      # (siehe desktop/electron-builder.yml).
       - name: NSIS-Installer bauen
         run: pnpm --filter @dcc/desktop run dist:win
 

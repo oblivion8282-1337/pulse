@@ -1,8 +1,15 @@
 # Deploying Pulse to the VPS
 
-Production runs on the Hetzner VPS (`michael@77.42.71.166`, alongside Caddy and
+Production runs on the netcup VPS (`michael@159.195.150.54`, alongside Caddy and
 the other apps). Public URL: **https://howispulse.com**. The whole stack
 is one Docker Compose project (`name: pulse`) in `~/pulse/infra/prod/`.
+
+> **`77.42.71.166` is NOT production.** That is the old Hetzner box; production
+> moved to netcup on 2026-05-28 and Hetzner lives on as the **self-host test
+> instance** (see the note further down). This paragraph and the first-time
+> setup below still named it until 2026-08-04 — everything from "already live"
+> onwards had been using the netcup address for months, so reading only the top
+> of this file got you the wrong machine.
 
 App images (`ghcr.io/oblivion8282-1337/pulse-*`) are built by
 `.github/workflows/ci.yml` on every push to `main` and auto-pulled on the server
@@ -19,10 +26,10 @@ schema migrations apply automatically on deploy (no more manual
 
 ```sh
 # 1. copy infra/ to the server (no git on the server — rsync the configs)
-rsync -av --exclude .env --exclude secrets infra/ michael@77.42.71.166:~/pulse/infra/
+rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
 
 # 2. on the server: secrets
-ssh michael@77.42.71.166
+ssh michael@159.195.150.54
 mkdir -p ~/pulse/infra/prod/secrets && cd ~/pulse/infra/prod
 PGPW=$(openssl rand -hex 32); RPW=$(openssl rand -hex 32); LKS=$(openssl rand -hex 32)
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PGPW|" \
@@ -54,7 +61,10 @@ chmod 0644 certs/server.crt
 #    public ingest/egress + LiveKit RTC:
 #    (no 1935/tcp — mediamtx.yml sets rtmpEncryption: strict, plain-RTMP is refused)
 sudo ufw allow 1936/tcp        # RTMPS ingest (GSR push — TLS, token not in cleartext)
-sudo ufw allow 8890/udp        # SRT ingest (GSR push, Opus audio)
+# NO 8890/udp — SRT ingest is OFF (`srt: no` in mediamtx.yml, with the reason
+# at that line: plaintext UDP, and media-svc only ever mints RTMPS tokens).
+# This rule stood here until 2026-08-04 and would have opened a port nothing
+# listens on.
 sudo ufw allow 8189/udp        # MediaMTX WebRTC ICE
 sudo ufw allow 7881/tcp        # LiveKit TCP fallback
 sudo ufw allow 7882:7892/udp   # LiveKit RTC
@@ -255,7 +265,7 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 
    **Log-Rotation** (täglich, Host-Crontab): Beide Cron-Logs (`pulse-update.log`,
    `registry-gc.log`) werden per `>>` geschrieben und wuchsen unbegrenzt — der
-   Update-Cron läuft alle zwei Minuten. `rotate-logs.sh` kappt alle `*.log` in
+   Update-Cron läuft alle fünf Minuten. `rotate-logs.sh` kappt alle `*.log` in
    diesem Verzeichnis auf die letzten 2000 Zeilen:
    ```sh
    23 4 * * *  ~/pulse/infra/prod/rotate-logs.sh >> ~/pulse/infra/prod/rotate-logs.log 2>&1

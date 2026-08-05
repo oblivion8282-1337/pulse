@@ -20,12 +20,22 @@
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
+use ffmpeg::{Packet, Rational, codec, format, frame, software::scaling};
 
 use super::audio::AudioPipeline;
+use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
+use super::opts::vendor_encoder_opts;
+use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
+
+// `VideoCodec` (und `EncodePath`, hier nicht gebraucht) leben in
+// `super::codec` (eigenes Modul, weil alle drei Encode-Pfade + der
+// Dispatcher sie lesen) — nicht `mod codec;` hier: das kollidiert mit dem
+// `codec`-Modulnamen aus `ffmpeg_next`, das in dieser Datei durchgehend als
+// `codec::encoder::Video` etc. verwendet wird.
+use super::codec::VideoCodec;
 
 /// Konfiguration für die optionale Audio-Spur. Wenn `None` an
 /// `FfmpegEncoder::create` übergeben wird, hat der Output nur eine Video-Spur.
@@ -48,45 +58,6 @@ impl AudioStreamConfig {
         bitrate_kbps: 128,
         av_offset_ms: 0,
     };
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum VideoCodec {
-    H264,
-    Hevc,
-    Av1,
-}
-
-impl VideoCodec {
-    /// FFmpeg-Encoder-Name für (Vendor, Codec). `vendor` ist der Slug aus
-    /// `system::dxgi::Adapter::vendor()` (`"nvidia"`/`"amd"`/`"intel"`).
-    pub fn ffmpeg_name(self, vendor: &str) -> Result<&'static str> {
-        Ok(match (vendor, self) {
-            ("nvidia", VideoCodec::H264) => "h264_nvenc",
-            ("nvidia", VideoCodec::Hevc) => "hevc_nvenc",
-            ("nvidia", VideoCodec::Av1) => "av1_nvenc",
-            ("amd", VideoCodec::H264) => "h264_amf",
-            ("amd", VideoCodec::Hevc) => "hevc_amf",
-            ("amd", VideoCodec::Av1) => "av1_amf",
-            ("intel", VideoCodec::H264) => "h264_qsv",
-            ("intel", VideoCodec::Hevc) => "hevc_qsv",
-            ("intel", VideoCodec::Av1) => "av1_qsv",
-            _ => return Err(anyhow!("no HW encoder for vendor={vendor} codec={self:?}")),
-        })
-    }
-
-    /// FFmpeg-Encoder-Name für den nativen D3D12VA-Pfad (AMD-GPU-Pfad). Die
-    /// d3d12va-Encoder nutzen Microsofts D3D12 Video Encode API — NICHT
-    /// NVENC/AMF/QSV — und umgehen so die AMF-Runtime + deren D3D11-Surface-
-    /// Crash (Issue #455). Vendor-unabhängig: nur der Codec bestimmt den Namen.
-    /// S. `encoder_d3d12.rs`.
-    pub fn d3d12va_name(self) -> &'static str {
-        match self {
-            VideoCodec::H264 => "h264_d3d12va",
-            VideoCodec::Hevc => "hevc_d3d12va",
-            VideoCodec::Av1 => "av1_d3d12va",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +103,9 @@ pub struct FfmpegEncoder {
     last_convert_us: u64,
     last_send_us: u64,
     last_mux_us: u64,
+    /// Einschieben → Paket, s. `latency.rs`. Das ist der Posten, den
+    /// `async_depth` (AMF/QSV) verändert; `last_send_us` sieht ihn NICHT.
+    enc_latency: EncodeLatency,
 }
 
 impl FfmpegEncoder {
@@ -190,10 +164,27 @@ impl FfmpegEncoder {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
 
-        let opts = vendor_encoder_opts(&cfg.vendor);
+        // `false`: die CPU-Pipeline liefert 8 bit. Der 10-bit-Weg hängt am
+        // P010-D3D11-Pool und existiert nur auf dem Zero-Copy-Zweig.
+        let mut opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, false);
+        // S. `encoder_hw.rs` an derselben Stelle: Abbruch statt stillem
+        // Keyframe-Lauf unter dem Etikett „Intra-Refresh".
+        super::auffrischung::anwenden(&mut opts, codec_name, cfg.fps)?;
+        warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)
             .with_context(|| format!("open encoder '{codec_name}' (vendor={})", cfg.vendor))?;
+        super::log_encoder_open(
+            codec_name,
+            &cfg.vendor,
+            cfg.dst_width,
+            cfg.dst_height,
+            cfg.fps,
+            cfg.bitrate_kbps,
+            // Der CPU-Weg liefert 8 bit — dieselbe Feststellung wie bei
+            // `vendor_encoder_opts` ein paar Zeilen darueber.
+            false,
+        );
         stream.set_parameters(&opened);
 
         // Audio-Pipeline VOR write_header anlegen — sie addiert einen Stream
@@ -201,7 +192,7 @@ impl FfmpegEncoder {
         // wurde.
         let mut audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
-                &mut output,
+                Some(&mut output),
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,
@@ -270,7 +261,15 @@ impl FfmpegEncoder {
             last_convert_us: 0,
             last_send_us: 0,
             last_mux_us: 0,
+            enc_latency: EncodeLatency::default(),
         })
+    }
+
+    /// Encode-Latenz seit dem letzten Aufruf: (Summe, Maximum, Anzahl) in µs.
+    /// Holt und LEERT die Zähler — der Pacing-Loop reicht sie je Tick an den
+    /// `TickMonitor` weiter.
+    pub fn take_encode_latency(&mut self) -> (u64, u64, u64) {
+        self.enc_latency.take()
     }
 
     /// Frame-Copy + swscale BGRA→NV12 des letzten `send` in µs.
@@ -362,11 +361,14 @@ impl FfmpegEncoder {
 
         frame.set_pts(Some(pts));
 
+        // VOR dem Einschieben stempeln: mit abgeschaltetem Vorlauf liefert der
+        // Encoder das Paket im selben Aufruf zurück (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         self.encoder
             .send_frame(frame)
             .context("encoder.send_frame")?;
         self.last_send_us = t_send.elapsed().as_micros() as u64;
+        self.enc_latency.submitted(pts, t_send);
         self.drain_packets()?;
         Ok(())
     }
@@ -384,6 +386,9 @@ impl FfmpegEncoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
+            // Zuordnen VOR `rescale_ts` — danach steht der pts in der
+            // Muxer-Zeitbasis und passt nicht mehr zum vermerkten.
+            self.enc_latency.packet(packet.pts());
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             let t_mux = std::time::Instant::now();
@@ -414,78 +419,6 @@ impl FfmpegEncoder {
     }
 }
 
-/// Für URL-Schemes ohne Extension wählt FFmpeg's Auto-Detect kein Format —
-/// wir mappen die unterstützten Streaming-Protokolle hier explizit.
-///
-/// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
-/// - `srt://`               → MPEG-TS (SRT-Standard)
-/// - `http(s)://`           → WHIP (WebRTC-Ingest; media-svc mintet solche
-///                            URLs für Gäste auf App-gehosteten Instanzen)
-/// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
-pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
-    let lower = target.to_ascii_lowercase();
-    if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
-        Some("flv")
-    } else if lower.starts_with("srt://") {
-        Some("mpegts")
-    } else if lower.starts_with("http://") || lower.starts_with("https://") {
-        Some("whip")
-    } else {
-        None
-    }
-}
-
-/// Öffnet den Output-Kontext für die Push-URL — gemeinsame Stelle für alle
-/// drei Encoder-Pfade (CPU / NVENC-D3D11 / AMD-D3D12).
-///
-/// Für RTMPS: `tls_verify=0` — Pulse-MediaMTX nutzt by-design ein self-signed
-/// Cert; die echte Auth läuft per Stream-Token in der URL → authHTTP-Hook.
-/// FFmpegs Schannel-Backend ist strict-verify by default und killt den Stream
-/// sonst nach dem TLS-Handshake. `rw_timeout` (µs): ohne das blockiert ein
-/// toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze bei `stop()`.
-///
-/// Für WHIP: der Muxer macht sein eigenes I/O (ICE/DTLS/SRTP) — die
-/// AVIO-Optionen greifen dort nicht; stattdessen den Handshake begrenzen.
-/// Vorab-Probe, damit ein FFmpeg ohne WHIP-Muxer (braucht DTLS/OpenSSL im
-/// Build) eine klare Meldung liefert statt eines kryptischen Open-Fehlers.
-pub(crate) fn open_output(output_path: &str) -> Result<format::context::Output> {
-    match url_format_hint(output_path) {
-        Some(fmt) => {
-            let mut opts = Dictionary::new();
-            if fmt == "whip" {
-                ensure_muxer_available(fmt)?;
-                opts.set("handshake_timeout", "10000");
-            } else {
-                opts.set("rw_timeout", "10000000");
-                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
-                    opts.set("tls_verify", "0");
-                }
-            }
-            format::output_as_with(&output_path, fmt, opts)
-                .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))
-        }
-        None => format::output(&output_path)
-            .with_context(|| format!("format::output({output_path})")),
-    }
-}
-
-/// Probe: trägt das gelinkte FFmpeg den Muxer überhaupt? (WHIP existiert nur
-/// in Builds mit DTLS-Support, FFmpeg ≥ 8.0 + OpenSSL.)
-fn ensure_muxer_available(fmt: &'static str) -> Result<()> {
-    let name = std::ffi::CString::new(fmt).expect("static fmt name");
-    let found = unsafe {
-        !ffmpeg::ffi::av_guess_format(name.as_ptr(), std::ptr::null(), std::ptr::null()).is_null()
-    };
-    if found {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Muxer '{fmt}' fehlt im gelinkten FFmpeg — für WHIP wird FFmpeg ≥ 8.0 \
-             mit DTLS (OpenSSL) benötigt. Bitte FFmpeg-DLLs aktualisieren."
-        ))
-    }
-}
-
 /// BGRA-Bytes in einen FFmpeg-`Video`-Frame kopieren. Beachtet den Frame-Stride
 /// (FFmpeg padded die Zeilen für SIMD-Alignment, deshalb funktioniert kein
 /// pauschales `data.copy_from_slice(src)`). `width`/`height` müssen mit der
@@ -499,36 +432,4 @@ pub(crate) fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, heigh
         let dst = y * stride;
         data[dst..dst + row_bytes].copy_from_slice(&bgra[src..src + row_bytes]);
     }
-}
-
-/// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
-/// (Low-Latency, CBR) — pro Encoder mehr durchstimmen wenn die echten
-/// Quality-Tradeoffs sichtbar sind.
-pub(crate) fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
-    let mut opts = Dictionary::new();
-    match vendor {
-        "nvidia" => {
-            // NVENC-Presets: p1 (fastest) … p7 (slowest+best). Für Live-Stream
-            // ist Throughput wichtiger als Last-bit-Quality → `p2` ist der
-            // sweet-spot, sehr schnell und kaum schlechter als p4 im Screen-
-            // Content. `tune=ull` (ultra-low-latency) statt nur `ll` damit
-            // B-Frames und VBV-Lookahead komplett aus sind.
-            opts.set("preset", "p2");
-            opts.set("tune", "ull");
-            opts.set("rc", "cbr");
-            opts.set("zerolatency", "1");
-            opts.set("delay", "0");
-        }
-        "amd" => {
-            opts.set("usage", "transcoding");
-            opts.set("quality", "balanced");
-            opts.set("rc", "cbr");
-        }
-        "intel" => {
-            opts.set("preset", "medium");
-            opts.set("look_ahead", "0"); // low-latency
-        }
-        _ => {}
-    }
-    opts
 }

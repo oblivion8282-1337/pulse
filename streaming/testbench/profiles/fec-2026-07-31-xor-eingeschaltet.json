@@ -1,0 +1,63 @@
+{
+  "id": "fec-2026-07-31-xor-eingeschaltet",
+  "gemessen_am": "2026-07-31 (Mittag)",
+  "frage": "Was richtet die vorhandene XOR-Paritaet aus, wenn man sie im Player EINSCHALTET — und scheitert sie an Buendelverlust, wie die FEC-Analyse vermutet?",
+
+  "warum_die_frage_zaehlt": "Die Analyse `docs/plans/2026-07-31-fec-bandbreite-und-adaptivitaet.md` empfiehlt Reed-Solomon (§2.2), weil XOR je Gruppe nur EIN Loch schliesst und der gemessene Verlust in Buendeln auftritt. Das ist ein grosser Umbau auf beiden Seiten (pion und webrtc-rs bringen kein RS mit). Vorher gehoert geprueft, ob das Problem, das RS loest, ueberhaupt auftritt.",
+
+  "wie_es_zu_dieser_messung_kam": "Beim Verdrahten der Paritaets-Zaehler in die Statistik fiel auf: **kein einziges Pruefstand-Skript setzt `PULSE_PLAYER_FLEXFEC`.** Ohne die Variable bietet der Player FlexFEC in der SDP-Aushandlung gar nicht erst an — der Server erzeugt seine Paritaet trotzdem. Saemtliche Messungen des Tages liefen damit als 'ohne Paritaet', bei vollem Aufschlag von 20 Prozent. Der Vergleichslauf war damit ueberfaellig.",
+
+  "aufbau": {
+    "gemeinsam": "Echter Sender (streaming/hq-labor) im Intra-Refresh-Betrieb, Portal-Aufnahme, av1_nvenc 10 bit, 2560x1440, 60 fps, 4000 kbps CBR, WHIP -> MediaMTX (mediamtx.adaptiv, FlexFEC 10+2) auf pulse.unicutmedia.com -> WHEP -> nativer Player. Je 600 Sekunden, tcpdump auf der Leitung.",
+    "A": "ohne `PULSE_PLAYER_FLEXFEC` — Player handelt keine Paritaet aus",
+    "B": "`PULSE_PLAYER_FLEXFEC=1`",
+    "umlaufzeit": "58,7 ms (ping, 8 Pakete, min 58,1 / max 59,7)"
+  },
+
+  "ergebnis": {
+    "paritaet_wirkt": {
+      "repariert": 190,
+      "unreparierbar": 0,
+      "belegstelle": "Player-Log, hoechste Meldung; `unreparierbar` in KEINER Meldung ueber 0",
+      "paritaetsstrom": "eigener SSRC 3724370157, 53296 Pakete gelesen, 0 fremde verworfen"
+    },
+    "vergleich": [
+      {"groesse": "RTP-Pakete Server->Player", "ohne": 278940, "mit": 351121,
+       "deutung": "+26 Prozent — die Paritaet selbst, sie kommt an"},
+      {"groesse": "NACKs Player->Server", "ohne": 7437, "mit": 2686,
+       "deutung": "Der erwartete Effekt: FEC schliesst Luecken, bevor der Nachforderer sie anmahnt — und das TROTZ zusaetzlicher Stoerung in B (s.u.)"},
+      {"groesse": "PLIs", "ohne": 14, "mit": 28,
+       "deutung": "hoeher, aber 16 davon entfallen auf den Saettigungsblock in B"},
+      {"groesse": "Verspaetung Nachlieferung, Median (ms)", "ohne": 111.14, "mit": 124.87},
+      {"groesse": "rechtzeitig bei 100-ms-Puffer", "ohne": "55/289", "mit": "141/648"},
+      {"groesse": "SSRCs im Strom", "ohne": 1, "mit": 2}
+    ]
+  },
+
+  "was_das_heisst": {
+    "reed_solomon_loest_hier_nichts": "GEMESSEN: In 600 Sekunden ist XOR kein einziges Mal an einer Gruppe gescheitert. Der Vorteil von RS — mehrere Loecher je Gruppe — haette in diesem Lauf nichts zu tun gehabt. Die Empfehlung aus §2.2 bleibt fuer den Buendelfall richtig, ist aber durch keine Beobachtung an DIESER Strecke gedeckt.",
+    "der_aufschlag_war_nie_das_problem": "Die 20 Prozent wurden bezahlt und nie abgeholt. Bevor ueber ihre Hoehe oder ueber adaptives Abschalten (§2.1) entschieden wird, gehoert die Paritaet ueberhaupt erst einmal eingeschaltet.",
+    "nachforderung_faellt_deutlich": "7437 auf 2686 NACKs. Das entlastet genau den Weg, der auf dieser Strecke strukturell zu langsam ist (81 Prozent der Nachlieferungen kommen nach dem 100-ms-Puffer, s. `hq-2026-07-31-intra-refresh-echter-sender`)."
+  },
+
+  "einschraenkungen": [
+    "**`unreparierbar` untertreibt systematisch.** Gezaehlt wird nur, wo ein Paritaetspaket ankam und die Gruppe mehr Loecher hatte, als XOR loesen kann. Geht eine ganze Gruppe samt Paritaet verloren, sieht der Empfaenger nichts — und der Zaehler bleibt bei 0, obwohl nichts repariert wurde. 'Null unreparierbar' heisst also NICHT 'nichts blieb kaputt'.",
+    "**In B lief eine vom Nutzer erzeugte Stoerung**, die es in A nicht gab: zwei Speedtests vom Mobiltelefon ueber dieselbe Leitung, Sekunde 284,7 bis 293,1. Acht der zehn Vollbild-Anforderungen fallen in diese neun Sekunden. Die beiden Laeufe sind in diesem Fenster nicht vergleichbar; B hatte es schwerer.",
+    "**Die Saettigung ist kein Paketverlust.** Waehrend des Blocks lief der Decoder weiter (30-41 Bilder/s) und die Ausgabe brach ein (0-9 Bilder/s gezeichnet) — die Pakete kamen an, nur zu spaet und in Schueben. Keine Paritaet der Welt hilft dagegen, und `unreparierbar` bleibt dabei zu Recht bei null.",
+    "**Verlust ausserhalb des Blocks war nicht steuerbar.** Mutmasslich Mitbenutzung der Leitung im Haus. Damit ist die in der FEC-Analyse §6 als fehlend benannte Teststrecke (Verlust UND Umlaufzeit gleichzeitig) weiterhin NICHT vorhanden — hier lag nur Glueck vor, kein Aufbau."
+  ],
+
+  "zwei_werkzeugfehler_die_dieser_lauf_aufgedeckt_hat": [
+    "**Die Lebendkontrolle hing an den NACKs** und markierte B faelschlich als ungueltig (279 s NACK-Spanne auf 606 s Lauf). NACKs entstehen aber nur bei Verlust — tritt der in einem Block auf und danach ist Ruhe, endet die Spanne frueh, ohne dass etwas kaputt ist. Der Player lief nachweislich bis zur letzten Sekunde mit 60 Bildern je Sekunde. Kontrolliert wird jetzt ueber die Empfangsberichte, die unabhaengig von Verlust im festen Takt laufen; beide Laeufe gelten damit als gueltig (605,0 von 605,7 s abgedeckt).",
+    "**`intraref-verlust.py` warf die Paritaets-Zaehler weg.** Es sammelte die `stats`-Proben und schrieb nur ihre ANZAHL in die Akte — genau die Felder, fuer die der Player umgebaut worden war, landeten nirgends. Die 190/0 stammen deshalb aus dem stderr-Log, das nur jede zehnte Reparatur meldet. Behoben; der naechste Lauf traegt sie in der Akte."
+  ],
+
+  "offen": [
+    "Ein sauberes A/B ohne Fremdstoerung — beide Laeufe bei ruhiger Leitung, oder beide mit derselben gesetzten Stoerung.",
+    "Was passiert, wenn ganze Gruppen samt Paritaet verloren gehen? Dafuer braucht es einen Zaehler fuer 'Luecke gesehen, kein Paritaetspaket dazu' — heute nicht vorhanden.",
+    "Verschraenkungsabstand 20+4 statt 10+2 bei gleichem Overhead (Analyse, Schluss). Gratis-Gewinn gegen Buendel, ohne RS.",
+    "Der Saettigungsfall selbst: er trifft die Ausgabe haerter als jeder gemessene Verlust und ist durch Fehlerkorrektur grundsaetzlich nicht adressierbar."
+  ],
+
+  "lehre": "Ein Schalter, den niemand setzt, ist kein Schalter. `PULSE_PLAYER_FLEXFEC` steht seit dem 2026-07-29 im Player, die Paritaet lief seither serverseitig mit vollem Aufschlag — und ausgewertet hat sie nie jemand. Bevor ein Verfahren als unzureichend eingestuft und ersetzt wird, gehoert geprueft, ob es ueberhaupt lief."
+}

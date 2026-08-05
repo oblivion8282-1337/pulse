@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael de Meyer <249562202+oblivion8282-1337@users.noreply.github.com>
+Date: Sun, 2 Aug 2026 18:40:00 +0200
+Subject: [PATCH] avcodec/amfenc_av1: expose rolling intra refresh
+
+AMF exposes intra refresh for AV1 the same way it does for H.264 -- the
+runtime accepts AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE and
+AMF_VIDEO_ENCODER_AV1_INTRAREFRESH_STRIPES, both survive Init() and both
+change the bitstream. The H.264 wrapper passes its equivalent on as
+`intra_refresh_mb`; the AV1 wrapper never passed anything on, in any FFmpeg
+release.
+
+Verified on a Radeon 780M (driver 32.0.31035.1003, FFmpeg n8.1.2): with
+`-intra_refresh_mode gop_aligned -intra_refresh_stripes <fps>` and `-g 60`,
+a 300 frame encode contains ONE key frame instead of five, the bit count is
+unchanged, and the intra load is spread over the cycle instead of arriving
+in bursts. Holds for 8 and 10 bit, and the resulting stream decodes cleanly
+in both a hardware and a software decoder.
+
+The stripe count is what makes the wave: AMF refreshes one stripe per frame,
+so N stripes means a full refresh every N frames. It is only valid while
+intra refresh is enabled, hence the nesting.
+
+`continuous` (mode 2) is accepted by the driver and does nothing observable
+on this hardware; it is exposed anyway because it is part of the AMF enum
+and may work elsewhere.
+
+---
+diff --git a/libavcodec/amfenc.h b/libavcodec/amfenc.h
+index ff5ce0b..35789e6 100644
+--- a/libavcodec/amfenc.h
++++ b/libavcodec/amfenc.h
+@@ -119,6 +119,9 @@ typedef struct AMFEncoderContext {
+     int                 align;
+     /* enum AMF_VIDEO_ENCODER_AV1_AQ_MODE_ENUM */
+     int                 aq_mode;
++    /* enum AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE_ENUM */
++    int                 intra_refresh_mode;
++    int                 intra_refresh_stripes;
+ 
+     // Preanalysis - specific options
+ 
+diff --git a/libavcodec/amfenc_av1.c b/libavcodec/amfenc_av1.c
+index 70642a6..c4833d6 100644
+--- a/libavcodec/amfenc_av1.c
++++ b/libavcodec/amfenc_av1.c
+@@ -186,6 +186,12 @@ static const AVOption options[] = {
+ 
+     { "pa_adaptive_mini_gop",                   "Enable Adaptive B-frame",                                      OFFSET(pa_adaptive_mini_gop),                      AV_OPT_TYPE_BOOL,   { .i64 = -1 }, -1, 1, VE },
+ 
++    { "intra_refresh_mode",                     "Intra refresh mode",                                           OFFSET(intra_refresh_mode),                        AV_OPT_TYPE_INT,    { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__CONTINUOUS, VE, .unit = "intra_refresh_mode" },
++    { "disabled",                               "No intra refresh",                 0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__DISABLED    }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "gop_aligned",                            "Intra refresh aligned to the GOP", 0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__GOP_ALIGNED }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "continuous",                             "Continuous intra refresh",         0, AV_OPT_TYPE_CONST, {.i64 = AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__CONTINUOUS  }, 0, 0, VE, .unit = "intra_refresh_mode" },
++    { "intra_refresh_stripes",                  "Number of stripes per intra refresh cycle (one stripe per frame, so this is also the length of a full cycle in frames)", OFFSET(intra_refresh_stripes), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, INT_MAX, VE },
++
+     { NULL }
+ 
+ };
+@@ -446,6 +452,23 @@ static av_cold int amf_encode_init_av1(AVCodecContext* avctx)
+         AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_AQ_MODE, ctx->aq_mode);
+     }
+ 
++    // Intra refresh. AMF exposes this for AV1 the same way it does for H.264,
++    // but unlike the H.264 wrapper nothing here ever passed it on, in any
++    // FFmpeg release. Verified against the AMF runtime directly on a Radeon
++    // 780M: both properties are accepted, survive Init() and change the
++    // bitstream, and the resulting stream decodes cleanly.
++    //
++    // The stripe count is what makes the wave: AMF refreshes one stripe per
++    // frame, so N stripes means a full refresh every N frames. It is only
++    // valid while intra refresh is enabled, hence the nesting.
++    if (ctx->intra_refresh_mode != -1) {
++        AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE, ctx->intra_refresh_mode);
++        if (ctx->intra_refresh_mode != AMF_VIDEO_ENCODER_AV1_INTRA_REFRESH_MODE__DISABLED &&
++            ctx->intra_refresh_stripes != -1) {
++            AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_INTRAREFRESH_STRIPES, ctx->intra_refresh_stripes);
++        }
++    }
++
+     if (ctx->latency != -1) {
+         AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, AMF_VIDEO_ENCODER_AV1_ENCODING_LATENCY_MODE, ctx->latency);
+     }

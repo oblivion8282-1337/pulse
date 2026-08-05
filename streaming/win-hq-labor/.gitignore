@@ -1,0 +1,19 @@
+/target
+# Erzeugnisse der Proben — entstehen bei jedem Lauf neu.
+probe-*.mp4
+# Gepatchtes FFmpeg (n8.1.2 + die Patches aus `ffmpeg-patches/`, rund 40 MB).
+# Wie `win-hq-sidecar/ffmpeg-dist/` nicht im Repo — es ist ein Bau-Erzeugnis.
+# Erzeugung: `ffmpeg-patches/README.md`.
+/ffmpeg-patched
+
+# Das Messstand-Token. Steht nie im Repo.
+testbench/fern_token.txt
+browser-profil/
+testbench/browser-profil/
+# Das Profil der Ton-Messung — eigenes Verzeichnis, damit ein Lauf den Browser
+# des Benutzers nicht anfasst (und damit das Aufraeumen ihn daran erkennt).
+testbench/browser-profil-ton/
+testbench/browser.log
+
+# Probevideos fuer den Datei-Test — Bau-Erzeugnisse, s. testbench/README.md
+testbench/*.mp4

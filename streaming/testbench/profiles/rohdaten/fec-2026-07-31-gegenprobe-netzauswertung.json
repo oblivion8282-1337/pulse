@@ -1,0 +1,90 @@
+{
+ "label": "intraref-adaptiv-stoerung",
+ "betrieb": "Intra-Refresh",
+ "sekunden": 600.0,
+ "netz": {
+  "mitschnitt_dauer_s": 605.6,
+  "nack_zeitraum_s": 322.9,
+  "empfangsberichte_zeitraum_s": 605.0,
+  "nack_deckt_lauf_ab": true,
+  "rtp_pakete_server_zu_player": 284465,
+  "nacks_player_zu_server": 3143,
+  "plis_player_zu_server": 14,
+  "rtcp_sonstiges_player_zu_server": 2412,
+  "wiederholte_sequenznummern": 13880,
+  "beispiele": [
+   {
+    "ssrc": 1935163198,
+    "seq": 23352
+   },
+   {
+    "ssrc": 1935163198,
+    "seq": 23352
+   },
+   {
+    "ssrc": 1935163198,
+    "seq": 23352
+   },
+   {
+    "ssrc": 1935163198,
+    "seq": 23352
+   },
+   {
+    "ssrc": 1935163198,
+    "seq": 23352
+   }
+  ],
+  "anzahl_ssrcs": 2,
+  "ssrcs": [
+   1402801520,
+   1935163198
+  ],
+  "verspaetung_zugeordnet": 207,
+  "verspaetung_ms_min": 0.49,
+  "verspaetung_ms_median": 116.0,
+  "verspaetung_ms_max": 172.79,
+  "rechtzeitig_bei_20ms_puffer": 18,
+  "rechtzeitig_bei_100ms_puffer": 34
+ },
+ "paritaet": {
+  "repariert": 0,
+  "unreparierbar": 0,
+  "zu_spaet": 0,
+  "unreparierbar_anteil": null
+ },
+ "vollbild_ereignisse": [
+  {
+   "sekunde": 1.2,
+   "meldung": "pulse-player: Vollbild #1 empfangen, Abstand erstes"
+  },
+  {
+   "sekunde": 1.2,
+   "meldung": "pulse-player: Einstiegspunkt gefunden, 13 Einheiten davor verworfen"
+  },
+  {
+   "sekunde": 196.9,
+   "meldung": "pulse-player: Vollbild #2 empfangen, Abstand 195655 ms"
+  },
+  {
+   "sekunde": 202.5,
+   "meldung": "pulse-player: Vollbild #3 empfangen, Abstand 5592 ms"
+  },
+  {
+   "sekunde": 203.7,
+   "meldung": "pulse-player: Vollbild #4 empfangen, Abstand 1343 ms"
+  },
+  {
+   "sekunde": 203.9,
+   "meldung": "pulse-player: Vollbild #5 empfangen, Abstand 147 ms"
+  },
+  {
+   "sekunde": 205.1,
+   "meldung": "pulse-player: Vollbild #6 empfangen, Abstand 1079 ms"
+  },
+  {
+   "sekunde": 208.5,
+   "meldung": "pulse-player: Vollbild #7 empfangen, Abstand 3504 ms"
+  }
+ ],
+ "player_proben": 599
+}

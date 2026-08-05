@@ -1,5 +1,26 @@
 # Simplifier-Gates
 
+> **Achtung: die beiden Gates sind seit dem 2026-06-28 NICHT MEHR verdrahtet.**
+> Commit `b345ca8d` hat sie aus `.claude/settings.json` entfernt („Hooks haben
+> hauptsächlich genervt"); dort stehen heute nur noch zwei graphify-Hooks, kein
+> `git commit`-Gate und kein `Stop`-Gate. Die Skripte liegen weiter hier und
+> funktionieren — sie feuern nur niemand mehr.
+>
+> **Was daraus folgt:** die Regel unten ist eine Regel, keine Schranke. Sie wird
+> nicht mehr erzwungen, sondern muss eingehalten werden. `simplify-stamp.sh`
+> von Hand aufzurufen ist damit die Geste, die den Durchlauf bezeugt — nichts
+> prüft sie nach.
+>
+> Dieser Abschnitt stand hier bis 2026-08-04 nicht, obwohl der Text darunter am
+> 2026-07-27 — fast einen Monat NACH der Abschaltung — neu geschrieben wurde und
+> die Verdrahtung erneut als gegeben beschrieb. Wer den Gates vertraut hat, hat
+> ein Netz angenommen, das es nicht gab.
+>
+> Wer sie zurückwill: die beiden Einträge (`PreToolUse` mit Matcher `Bash` auf
+> `require-simplifier.sh`, plus ein `Stop`-Eintrag auf
+> `stop-require-simplifier.sh`) gehören in `.claude/settings.json` neben die
+> graphify-Hooks.
+
 Diese vier Skripte erzwingen eine einzige Regel:
 
 > Nach jeder abgeschlossenen Code-Änderung läuft der `code-simplifier`-Agent

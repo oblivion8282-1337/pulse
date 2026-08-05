@@ -38,6 +38,9 @@ declare const __APP_MODE__: 'client' | 'server';
 const gsrCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
   ipcRenderer.invoke('gsr:call', op, params, slot);
 
+const playerCall = (op: string, params?: unknown): Promise<unknown> =>
+  ipcRenderer.invoke('player:call', op, params);
+
 contextBridge.exposeInMainWorld('pulse', {
   platform: 'electron' as const,
   appMode: __APP_MODE__,
@@ -100,6 +103,46 @@ contextBridge.exposeInMainWorld('pulse', {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);
       ipcRenderer.on('gsr:event', handler);
       return () => ipcRenderer.removeListener('gsr:event', handler);
+    },
+  },
+
+  /**
+   * Nativer HQ-Player (`streaming/pulse-player/`). Optionaler Ersatz fuer das
+   * `<video>`-Element: stellt den Stream in einem eigenen Fenster dar, mit
+   * mehr als 8 bit Ausgabe und explizit gewaehltem Decoder.
+   *
+   * Rein additiv — `available()` meldet `false`, wenn das Binary fehlt; der
+   * Renderer bleibt dann auf dem bestehenden WHEP-Weg.
+   */
+  player: {
+    available: (): Promise<boolean> => ipcRenderer.invoke('player:available'),
+    health: () => playerCall('health'),
+    open: (params: unknown) => playerCall('open', params),
+    close: (session: number) => playerCall('close', { session }),
+    setOption: (session: number, key: string, value: unknown) =>
+      playerCall('set_option', { session, key, value }),
+    setOptions: (session: number, options: unknown) =>
+      playerCall('set_option', { session, options }),
+    stats: (session: number) => playerCall('stats', { session }),
+    /** Fenster nach vorne holen (das Fenster selbst wertet keine Eingaben aus,
+     *  die Bedienung sitzt in der App). Unter Wayland eine Bitte an den
+     *  Compositor, keine Garantie. */
+    focus: (session: number) => playerCall('focus', { session }),
+
+    /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
+     *  kommt als `path` in der Antwort zurueck. */
+    record: (session: number): Promise<unknown> => ipcRenderer.invoke('player:record', session),
+    stopRecord: (session: number): Promise<unknown> =>
+      ipcRenderer.invoke('player:stopRecord', session),
+    /** Die letzten `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
+    clip: (session: number, seconds = 30): Promise<unknown> =>
+      ipcRenderer.invoke('player:clip', session, seconds),
+
+    /** Zustandsereignisse (`player:state`). Liefert eine Abmelde-Funktion. */
+    onEvent: (cb: (ev: unknown) => void): (() => void) => {
+      const handler = (_e: unknown, ev: unknown): void => cb(ev);
+      ipcRenderer.on('player:event', handler);
+      return () => ipcRenderer.removeListener('player:event', handler);
     },
   },
 

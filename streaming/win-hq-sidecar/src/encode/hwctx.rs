@@ -1,4 +1,4 @@
-//! D3D11VA hwdevice + hwframes-Pool für Zero-Copy NVENC.
+//! D3D11VA-hwdevice + hwframes-Pool für Zero-Copy-Encode (NVENC und AMF).
 //!
 //! ffmpeg-next 8.1 hat keine safe Bindings für `hwcontext_d3d11va.h` — wir gehen
 //! direkt über `ffmpeg-sys-next`-FFI. Der `AVD3D11VADeviceContext`-Struct ist
@@ -68,6 +68,23 @@ struct AVD3D11VAFramesContext {
 /// für seinen D3D11-Input kein DECODER-Flag, nur SHADER_RESOURCE.
 const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 
+/// `D3D11_RESOURCE_MISC_SHARED` / `..._SHARED_NTHANDLE`. Nur zusammen brauchbar:
+/// NTHANDLE allein lehnt `CreateTexture2D` mit `E_INVALIDARG` ab. Warum nicht
+/// `KEYEDMUTEX` — s. [`HwPoolConfig::shared`].
+const D3D11_RESOURCE_MISC_SHARED: u32 = 0x2;
+const D3D11_RESOURCE_MISC_SHARED_NTHANDLE: u32 = 0x800;
+
+/// Hängt das D3D11-Device an einer AMD-GPU (VendorId `0x1002`)? Einer der
+/// beiden Gründe für Einzeltexturen statt Texture-Array in [`HwContext::new`]
+/// (der andere ist ein P010-Pool — Begründung dort). Bewusst am Device statt
+/// an `select_adapter()` abgefragt:
+/// maßgeblich ist die GPU, auf der WGC captured und AMF encodiert, und die
+/// kann auf Multi-GPU von der `HIGH_PERFORMANCE`-Wahl abweichen (gleiche
+/// Überlegung wie `pipeline_hw::device_vendor`).
+fn device_is_amd(device: &ID3D11Device) -> bool {
+    crate::system::dxgi::device_vendor(device) == Some("amd")
+}
+
 unsafe extern "C" fn cs_lock(ctx: *mut c_void) {
     unsafe { EnterCriticalSection(ctx as *mut CRITICAL_SECTION) }
 }
@@ -103,27 +120,77 @@ pub struct HwContext {
 unsafe impl Send for HwContext {}
 unsafe impl Sync for HwContext {}
 
-impl HwContext {
-    /// Baut device_ctx + frames_ctx aus WGCs D3D11-Handles.
+/// Alles am Pool, was zwischen den Aufrufern abweicht. Als Struct statt als
+/// Argumentliste, weil beide Aufrufer nur je zwei Felder vom Default abrücken —
+/// als Positionsargumente wären das zwei Reihen aus `0`, `None` und `false`,
+/// die man nur mit Inline-Kommentaren lesen kann.
+pub struct HwPoolConfig {
+    /// Schranke **nur der Array-Bauart** (s. Pool-Bauart in [`HwContext::new`])
+    /// — dort kann der Pool nicht wachsen, also muss er Encoder-Vorlauf und
+    /// Capture-Backpressure von vornherein fassen. Die Aufrufer geben 24
+    /// (Capture-Pool) bzw. 16 (Scaler-Ziel-Pool).
     ///
-    /// `pool_size`: D3D11VA kann den Pool nicht dynamisch erweitern, also genug
-    /// für NVENC-Lookahead + Capture-Backpressure. 8 ist robust für 60 FPS bei
-    /// `tune=ull` (kein B-Frame-Lookahead, aber NVENC braucht ~2-3 Frames in-flight).
-    ///
-    /// `extra_bind_flags`: zusätzliche `D3D11_BIND_*`-Flags für die Pool-
-    /// Texturen (0 = nur libavutil-Default DECODER|SHADER_RESOURCE). Der
-    /// `D3D11Scaler`-Ziel-Pool übergibt `D3D11_BIND_RENDER_TARGET`, damit
+    /// **In der Einzeltextur-Bauart (AMD oder P010-Pool) ist der Wert
+    /// wirkungslos**: dort wächst der Pool bis zur Arbeitsmenge. Zwei Folgen,
+    /// die man kennen sollte — die ersten Frames tragen je ein
+    /// `CreateTexture2D` (bei 1440p-BGRA ~15 MB) **im Capture-Callback** statt
+    /// einmalig beim Pool-Bau, und `acquire_frame` kann nicht mehr wegen „Pool
+    /// erschöpft" fehlschlagen, das Backpressure-Signal kommt dann allein aus
+    /// der Channel-Kapazität (`wgc_hw.rs::CHANNEL_CAPACITY`).
+    pub pool_size: u32,
+    /// Zusätzliche `D3D11_BIND_*`-Flags für die Pool-Texturen (0 = nur
+    /// libavutil-Default DECODER|SHADER_RESOURCE). Der `D3D11Scaler`-Ziel-Pool
+    /// übergibt `D3D11_BIND_RENDER_TARGET`, damit
     /// `CreateVideoProcessorOutputView` die Texturen akzeptiert; der
     /// Capture-Pool übergibt 0.
+    pub extra_bind_flags: u32,
+    /// Fremde CRITICAL_SECTION mitbenutzen statt einer eigenen. Der
+    /// Scaler-Ziel-Pool teilt so den Lock des Capture-Pools — Begründung in
+    /// [`HwContext::new`].
+    pub shared_lock: Option<*mut CRITICAL_SECTION>,
+    /// Pool-Format. `AV_PIX_FMT_BGRA` ist der Regelfall (der Encoder wandelt
+    /// selbst); `AV_PIX_FMT_P010LE` braucht der 10-bit-Weg, weil `av1_amf`
+    /// BGRA-Eingang für 10 bit ablehnt (`SubmitInput() failed with error 18`,
+    /// gemessen 2026-08-01), P010 als D3D11-Textur aber annimmt.
+    ///
+    /// **Falle:** die Bind-Flags müssen zum Format passen. FFmpegs eigener
+    /// `scale_d3d11`-Filter scheitert an genau dieser Stelle mit
+    /// `CreateTexture2D`-Fehler `0x80070057` — dieselbe Fehlerklasse wie
+    /// `DECODER|RENDER_TARGET` auf BGRA (s. Konstanten-Doku oben). Wer hier ein
+    /// Format ergänzt, prüft die Flags mit.
+    pub sw_format: AVPixelFormat,
+    /// Pool-Texturen als NT-Handle teilbar machen. Braucht nur der Messstand
+    /// (`streaming/win-hq-labor/`), dessen Encoder Vulkan ist und die Texturen
+    /// importieren muss. `NTHANDLE` allein genügt nicht — ohne `SHARED` lehnt
+    /// `CreateTexture2D` mit `E_INVALIDARG` ab. **Nicht `KEYEDMUTEX` nehmen**,
+    /// obwohl auch das die Textur erzeugbar macht: ein Keyed-Mutex verlangt,
+    /// dass jeder Zugriff die Sperre nimmt, und an FFmpegs
+    /// Vulkan-Kommandopuffer kommt man nicht heran.
+    pub shared: bool,
+}
+
+impl Default for HwPoolConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: 0,
+            extra_bind_flags: 0,
+            shared_lock: None,
+            sw_format: AVPixelFormat::AV_PIX_FMT_BGRA,
+            shared: false,
+        }
+    }
+}
+
+impl HwContext {
+    /// Baut device_ctx + frames_ctx aus WGCs D3D11-Handles.
     pub fn new(
         device: ID3D11Device,
         device_context: ID3D11DeviceContext,
         width: u32,
         height: u32,
-        pool_size: u32,
-        extra_bind_flags: u32,
-        shared_lock: Option<*mut CRITICAL_SECTION>,
+        cfg: HwPoolConfig,
     ) -> Result<Self> {
+        let HwPoolConfig { pool_size, extra_bind_flags, shared_lock, sw_format, shared } = cfg;
         // Eigenen Lock anlegen ODER einen fremden teilen. Letzteres ist der
         // #2-Fix: der Scaler-dst-Pool teilt die CRITICAL_SECTION des Capture-
         // Pools, damit CopySubresourceRegion (Capture-Thread), VideoProcessorBlt
@@ -191,19 +258,75 @@ impl HwContext {
         unsafe {
             let frames_hdr = (*frames_ref).data as *mut AVHWFramesContext;
             (*frames_hdr).format = AVPixelFormat::AV_PIX_FMT_D3D11;
-            (*frames_hdr).sw_format = AVPixelFormat::AV_PIX_FMT_BGRA;
+            (*frames_hdr).sw_format = sw_format;
             (*frames_hdr).width = width as c_int;
             (*frames_hdr).height = height as c_int;
-            (*frames_hdr).initial_pool_size = pool_size as c_int;
+            // Pool-Bauart — Texture-Array oder Einzeltexturen. Was libavutil
+            // daraus macht (FFmpeg n8.1.1):
+            //
+            // - `initial_pool_size > 0` → libavutil legt EIN `ID3D11Texture2D`
+            //   mit `ArraySize = pool_size` an; die Frames unterscheiden sich
+            //   nur im Subresource-Index (`data[1]`).
+            // - `initial_pool_size = 0` → je Frame eine EIGENE Textur
+            //   (`ArraySize = 1`, Index 0; `d3d11va_alloc_single` in
+            //   `hwcontext_d3d11va.c`). Der AVBufferPool recycelt sie, die
+            //   Allokation wächst also nur bis zur Arbeitsmenge (~6 Texturen
+            //   statt fix `pool_size` — bei 1440p-BGRA spart das zudem
+            //   ~250 MB VRAM gegenüber dem 24er-Array).
+            //
+            // **AMF (AMD) liefert über den Array-Pool ein zerrissenes Bild**
+            // (2026-07-30, Radeon 780M, Treiber 32.0.31035.1003) — doppelte,
+            // versetzte Kopien, verschmierter Text; `av1_amf` wie `h264_amf`,
+            // 1440p nativ wie 1080p über den Scaler-Pool. Mit Einzeltexturen
+            // ist dasselbe Material über denselben Pfad sauber (Standbilder
+            // `f_singletex/f_st1080/f_sth264.png` gegen
+            // `f_arrayctl.png`, A/B auf demselben Build; deckungsgleich die
+            // CLI-Probe F2: `hwupload` ohne `extra_hw_frames` = dynamische
+            // Einzeltexturen, VMAF 82,1). FFmpeg übergibt den Index korrekt
+            // per `SetPrivateData(AMFTextureArrayIndexGUID)` vor
+            // `CreateSurfaceFromDX11Native` (`amfenc.c`) — die AMF-Runtime
+            // dieses Treibers verwertet ihn beim BGRA-Eingang offenbar nicht.
+            // NVENC (NVIDIA) läuft über den Array-Pool fehlerfrei, **solange er
+            // BGRA führt** — und bleibt dafür darauf; die Einzeltextur-Wirkung
+            // ist dort ungemessen.
+            //
+            // **P010 kann NVIDIA dagegen nicht als Array** (2026-08-04, RTX
+            // 5080, Treiber 32.0.16.1047): der Ziel-Pool des Skalierers scheitert
+            // an `Could not create the texture (80070057)` = `E_INVALIDARG`, und
+            // damit stirbt jeder 10-bit-Stream noch vor dem Encoder-Open. Mit
+            // Einzeltexturen läuft dieselbe Kombination auf Anhieb
+            // (`av1_nvenc`, `yuv420p10le` am fertigen Strom nachgesehen).
+            // Getrennt ist NICHT, ob der Treiber P010-Arrays grundsätzlich
+            // ablehnt oder nur zusammen mit `RENDER_TARGET` — der 10-bit-Pool
+            // hat dieses Bind-Flag immer, die Frage stellt sich hier also nicht.
+            // Messakte `nvidia-2026-08-04-windows-intra-refresh.json`.
+            //
+            // Deshalb hängt die Bauart an **beidem**: am Vendor (AMDs
+            // zerrissenes Bild) und am Format (NVIDIAs abgelehntem P010-Array).
+            // Ein reiner Vendor-Schalter hat hier still eine Funktion gekostet,
+            // die `health` als vorhanden gemeldet hat.
+            //
+            // `PULSE_HQ_D3D11_SINGLE_TEX=1|0` übersteuert beides in beide
+            // Richtungen (Messschalter; `0` reproduziert das zerrissene Bild auf
+            // AMD und den P010-Fehlschlag auf NVIDIA, `1` misst Einzeltexturen
+            // auf NVIDIA in 8 bit).
+            let single_tex = crate::env::flag_opt("PULSE_HQ_D3D11_SINGLE_TEX")
+                .unwrap_or_else(|| {
+                    device_is_amd(&device) || sw_format == AVPixelFormat::AV_PIX_FMT_P010LE
+                });
+            (*frames_hdr).initial_pool_size = if single_tex { 0 } else { pool_size as c_int };
             // BindFlags setzen wir nur explizit, wenn `extra_bind_flags != 0`
             // (Scaler-Ziel-Pool braucht RENDER_TARGET). Dann SHADER_RESOURCE
             // selbst dazunehmen — DECODER lassen wir weg (inkompatibel mit
             // RENDER_TARGET auf BGRA, s. Konstanten-Doku oben). Capture-Pool
             // (flags=0) bleibt unverändert auf libavutil-Default.
+            let d3d_frames = (*frames_hdr).hwctx as *mut AVD3D11VAFramesContext;
             if extra_bind_flags != 0 {
-                let d3d_frames =
-                    (*frames_hdr).hwctx as *mut AVD3D11VAFramesContext;
                 (*d3d_frames).bind_flags = D3D11_BIND_SHADER_RESOURCE | extra_bind_flags;
+            }
+            if shared {
+                (*d3d_frames).misc_flags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE
+                    | D3D11_RESOURCE_MISC_SHARED;
             }
         }
 

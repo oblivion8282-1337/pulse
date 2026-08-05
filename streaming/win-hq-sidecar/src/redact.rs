@@ -2,7 +2,7 @@
 //!
 //! Push-URLs tragen den Key als `pass=…`, `token=…` oder `streamid=publish:…`.
 //! Über anyhow-Fehlerketten landet die volle URL sonst in Antworten und Events
-//! (`encode::encoder::open_output` hängt sie als Kontext an), und
+//! (`encode::output::open_output` hängt sie als Kontext an), und
 //! `desktop/electron/sidecar.ts` schreibt JEDE stdout-Zeile in eine persistente
 //! Log-Datei — der Key läge im Klartext auf der Platte. Projektregel: niemals
 //! Stream-Keys loggen.
@@ -39,7 +39,10 @@ fn ends_value(c: char) -> bool {
 /// hinter dem eingesetzten `***` weiter und kann dabei zu viel wegfressen.
 /// Jede Ausgabestelle redigiert deshalb genau einmal — beim Verketten von
 /// Pfaden darauf achten.
-pub(crate) fn secrets(s: &str) -> String {
+/// `pub` statt `pub(crate)`, damit das Labor (`../win-hq-labor`) dieselbe
+/// Maskierung benutzt statt einer eigenen. Zwei Fassungen davon wären die
+/// Sorte Doppelung, die irgendwann einen Stream-Key ins Log schreibt.
+pub fn secrets(s: &str) -> String {
     let mut out = s.to_string();
     for pat in ["pass=", "token=", "streamid=publish:"] {
         let mut from = 0;

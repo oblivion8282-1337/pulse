@@ -47,6 +47,7 @@ fn dispatch(req: Request) -> Response {
         "build_argv" => ops::build_argv::handle(req.params),
         "start" => ops::start::handle(req.params),
         "stop" => ops::stop::handle(req.params),
+        "keyframe" => ops::keyframe::handle(req.params),
         "state" => ops::state::handle(req.params),
         unknown => Err(anyhow::anyhow!("unknown op: {unknown}")),
     };

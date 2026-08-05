@@ -13,8 +13,10 @@
 # No internal users, no fixed stream key — the GSR sidecar gets its push URL
 # (token in `?pass=…` or `streamid=publish:<path>:pulse:<token>`) from media-svc.
 #
-# Public ingest/egress ports must be open in UFW: 1936/tcp (RTMPS), 8890/udp
-# (SRT), 8189/udp (WebRTC ICE). 8889/tcp (WHEP) and 8888/tcp (HLS) are reached
+# Public ingest/egress ports must be open in UFW: 1936/tcp (RTMPS) and
+# 8189/udp (WebRTC ICE). NOT 8890/udp — SRT is disabled below (`srt: no`, with
+# the reason at that line); this header listed it until 2026-08-04 and sent
+# people opening a port nothing listens on. 8889/tcp (WHEP) and 8888/tcp (HLS) are reached
 # via the pulse_web nginx (host.docker.internal) → not exposed directly. The API
 # (:9997) is bound on all interfaces so media-svc (on pulse-net) can poll it via
 # host.docker.internal; UFW's default INPUT DROP keeps it private.
@@ -34,14 +36,25 @@ rtmpsAddress: :1936
 rtmpServerCert: /certs/server.crt
 rtmpServerKey: /certs/server.key
 
-# Low-latency HLS (reached via pulse_web → /hls/*)
-hls: yes
-hlsAddress: :8888
-hlsAlwaysRemux: yes
-hlsVariant: lowLatency
-hlsSegmentCount: 7
-hlsSegmentDuration: 200ms
-hlsPartDuration: 100ms
+# HLS ist AUS (2026-08-03) — es geht mit Intra-Refresh nicht zusammen, und
+# niemand konsumiert es.
+#
+# **Die Unvertraeglichkeit:** HLS kann nur an Vollbildern segmentieren. Seit
+# `PULSE_KEYFRAME_INTERVAL=0` (s. docker-compose.yml) enthaelt ein
+# Intra-Refresh-Strom keine periodischen mehr, und `hlsAlwaysRemux: yes` baute
+# die Segmente auch ohne einen einzigen Zuschauer. Der Muxer starb daran lokal
+# alle ~66 s mit „reached maximum segment size" und startete im Kreis neu.
+#
+# **Warum Abschalten und kein Kompromiss:** Kein Pulse-Client spricht HLS an.
+# Der HQ-Stream laeuft ueber WHEP, und die Watch-Party lehnt `.m3u8` sogar
+# ausdruecklich ab (der Betrachter ist ein nacktes `<video>`, das Chromium
+# nicht nativ abspielt — s. `web/src/lib/watch/source.ts`). Ein `hlsAlwaysRemux:
+# no` haette den Absturz nur bis zum ersten Aufruf von `/hls/` verschoben.
+#
+# Zurueckholen: diesen Block wieder scharf stellen UND `PULSE_KEYFRAME_INTERVAL`
+# entfernen — beides zusammen, sonst kehrt die Absturzschleife zurueck. Damit
+# faellt allerdings Intra-Refresh weg.
+hls: no
 
 # WebRTC / WHEP (reached via pulse_web → /whep/*; ICE on :8189/udp direct)
 webrtc: yes

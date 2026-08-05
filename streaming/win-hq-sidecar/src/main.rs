@@ -23,10 +23,22 @@ fn main() -> anyhow::Result<()> {
     // Debug — nötig um hinter „Writing encrypted data to socket failed" den
     // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)
     // zu sehen. Default-Level (Info) verschluckt den. Greift für tcp/tls/rtmp.
-    if std::env::var("PULSE_HQ_FFMPEG_DEBUG").is_ok() {
+    if pulse_win_hq_sidecar::env::flag("PULSE_HQ_FFMPEG_DEBUG") {
         ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Debug);
         eprintln!("[hq-sidecar] FFmpeg log level = Debug (PULSE_HQ_FFMPEG_DEBUG)");
     }
+
+    // Den eigenen WebRTC-Sendeweg anmelden. Ab hier gehen `http(s)://`-Ziele
+    // nicht mehr an ffmpegs WHIP-Muxer (kein Rueckkanal, kein AV1), sondern an
+    // `whip::WhipSender`; RTMPS bleibt unveraendert beim Muxer.
+    //
+    // **Hier und nicht in der Bibliothek**, und das ist keine Formsache: ein
+    // Vorgabe-Bauer in `encode::senke` schickte jeden Nutzer der Bibliothek
+    // stillschweigend auf diesen Weg — auch das Labor, das seinen eigenen
+    // anmeldet. Ein Test dort haelt genau das fest.
+    pulse_win_hq_sidecar::encode::senke::registriere_senken_bauer(
+        pulse_win_hq_sidecar::whip::senke::baue,
+    );
 
     let (out_tx, out_rx) = std::sync::mpsc::channel::<serde_json::Value>();
     events::init(out_tx.clone());

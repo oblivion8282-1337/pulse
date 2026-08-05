@@ -13,6 +13,40 @@ const CHAT_PORT = process.env.PULSE_API_CHAT_PORT || '8002';
 const VOICE_PORT = process.env.PULSE_API_VOICE_PORT || '8003';
 const WEB_PORT = Number(process.env.PULSE_WEB_PORT) || 5173;
 
+// `PULSE_API_ORIGIN=https://howispulse.com` — die Oberfläche dieses Zweigs
+// gegen ein FERTIGES Backend fahren statt gegen lokale Dienste.
+//
+// **Wozu.** Ein Client lässt sich sonst nur prüfen, wenn der ganze Stack
+// daneben läuft: Docker, Postgres, Redis, fünf Dienste, uv. Auf einer Maschine,
+// die nur Node hat (etwa dem Windows-Rechner, auf dem der HQ-Sidecar gebaut
+// wird), war die Oberfläche damit gar nicht auszuprobieren — und die
+// verpackte App hilft nicht, die lädt die AUSGELIEFERTE Oberfläche aus der
+// Cloud, nie die des Zweigs.
+//
+// **Warum der Präfix hier bleiben MUSS.** Im Dev-Stack zeigt jeder Eintrag auf
+// einen Dienst direkt, deshalb schneidet `rewrite` das `/api/<dienst>` ab. Ein
+// fertiges Backend steht dagegen hinter nginx, und das erwartet genau diesen
+// Präfix und entfernt ihn selbst (`infra/prod/web-nginx.conf`). Mit dem
+// Abschneiden käme `/login` statt `/api/auth/login` an — 404 für alles, und der
+// Fehler sähe nach einem kaputten Backend aus statt nach einer falschen
+// Weiterleitung.
+//
+// **Das ist ein Prüfwerkzeug, kein Betriebsweg.** Wer es setzt, meldet sich mit
+// echten Zugangsdaten an einem echten Server an und wirkt auf echte Daten. Die
+// Vorgabe bleibt unverändert der lokale Stack.
+const API_ORIGIN = process.env.PULSE_API_ORIGIN;
+
+/** Weiterleitung für einen `/api/<dienst>`-Zweig. */
+function apiProxy(port: string, opts: { ws?: boolean } = {}) {
+  if (API_ORIGIN) {
+    // Kein `rewrite`: der Präfix gehört zum Ziel (s.o.). `ws://` bzw. `wss://`
+    // leitet Vite für aufgerüstete Verbindungen selbst ab.
+    return { target: API_ORIGIN, changeOrigin: true, secure: true, ...opts };
+  }
+  const schema = opts.ws ? 'ws' : 'http';
+  return { target: `${schema}://127.0.0.1:${port}`, changeOrigin: true, ...opts };
+}
+
 export default defineConfig({
   plugins: [
     tailwindcss(),
@@ -76,25 +110,20 @@ export default defineConfig({
     },
     proxy: {
       '/api/auth': {
-        target: `http://127.0.0.1:${AUTH_PORT}`,
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/auth/, '')
+        ...apiProxy(AUTH_PORT),
+        ...(API_ORIGIN ? {} : { rewrite: (p: string) => p.replace(/^\/api\/auth/, '') })
       },
       '/api/chat': {
-        target: `http://127.0.0.1:${CHAT_PORT}`,
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/chat/, '')
+        ...apiProxy(CHAT_PORT),
+        ...(API_ORIGIN ? {} : { rewrite: (p: string) => p.replace(/^\/api\/chat/, '') })
       },
       '/api/voice': {
-        target: `http://127.0.0.1:${VOICE_PORT}`,
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/voice/, '')
+        ...apiProxy(VOICE_PORT),
+        ...(API_ORIGIN ? {} : { rewrite: (p: string) => p.replace(/^\/api\/voice/, '') })
       },
       '/api/ws': {
-        target: `ws://127.0.0.1:${CHAT_PORT}`,
-        ws: true,
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/ws/, '')
+        ...apiProxy(CHAT_PORT, { ws: true }),
+        ...(API_ORIGIN ? {} : { rewrite: (p: string) => p.replace(/^\/api\/ws/, '') })
       }
     }
   }
