@@ -895,8 +895,18 @@ impl VideoDecoder {
     /// Luecke, keine Luecke heisst keine Rettung.
     ///
     /// Der Nachweis kommt deshalb aus dem Ergebnis statt aus der Ursache: Wenn
-    /// ueber eine Sekunde lang jedes Bild denselben Fingerabdruck traegt,
-    /// waehrend ordentlich Daten hineingehen, rechnet der Decoder nicht mehr.
+    /// ueber **zweieinhalb Sekunden** lang jedes Bild denselben Fingerabdruck
+    /// traegt, waehrend ordentlich Daten hineingehen, rechnet der Decoder nicht
+    /// mehr.
+    ///
+    /// **Hier stand bis zum 2026-08-06 „ueber eine Sekunde lang"**, und die
+    /// Schwelle war in Bildern gefasst (90). Beides war zu kurz: der Sender
+    /// legt alle zwei Sekunden ein Vollbild bzw. einen abgeschlossenen
+    /// Auffrischungsdurchlauf hin, und dabei aendert sich das dekodierte Bild
+    /// auch bei stehendem Inhalt. Ein Fenster darunter sieht dort ein
+    /// Standbild, das keines ist — und in Bildern gefasst war es bei 144 fps
+    /// noch einmal um mehr als das Doppelte zu kurz. Messreihe:
+    /// [`crate::einfrieren`].
     ///
     /// **Hier stand bis zum 2026-08-05 „Ein echtes Standbild sieht anders aus —
     /// dort schickt der Encoder winzige Bilder, weil sich nichts aendert;
@@ -918,12 +928,18 @@ impl VideoDecoder {
         // Die Staffel gehoert in die Meldung: sie ist das Einzige, woran im
         // Log zu sehen ist, ob hier ein Decoder gerettet wird oder ob ein
         // Standbild immer wieder dieselbe Diagnose ausloest.
+        // Beide Schwellen gehoeren in die Zeile, nicht nur die in Bildern:
+        // welche von beiden bindet, haengt an der Ausgaberate, und wer im Log
+        // nur „nach 90 Bildern" liest, rechnet bei 144 fps mit 0,6 Sekunden,
+        // wo in Wahrheit 2,5 gelten (s. `einfrieren::EINFRIER_DAUER`).
         eprintln!(
             "pulse-player: Decoder eingefroren (gleiches Bild trotz Daten) — \
              leere ihn und fordere ein Vollbild an (Meldung {} ohne \
-             zwischenzeitliche Bewegung, naechste Pruefung nach {} Bildern)",
+             zwischenzeitliche Bewegung, naechste Pruefung nach {} Bildern \
+             UND {} ms)",
             self.wacht.stufe(),
-            self.wacht.schwelle()
+            self.wacht.schwelle(),
+            self.wacht.mindestdauer().as_millis()
         );
         self.decoder.flush();
         self.unsauber_bis = None;
