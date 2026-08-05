@@ -21,6 +21,7 @@ mod audio;
 mod decode;
 mod depacket;
 mod dump;
+mod einfrieren;
 mod fec;
 mod jitter;
 mod mediasink;

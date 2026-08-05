@@ -20,6 +20,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use ffmpeg_next as ffmpeg;
 
+use crate::einfrieren::EinfrierWacht;
 use crate::whep::Codec;
 
 /// Erkennt am Decoder-Namen, ob er selbst auf der GPU laeuft.
@@ -123,41 +124,6 @@ const ERROR_LIMIT: u32 = 30;
 /// Ursache korrekt ("der Sender schickt zu selten ein Vollbild") — sie ging
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
 const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
-
-/// Ab wie vielen unveraenderten Bildern in Folge der Decoder als eingefroren
-/// gilt. 90 sind bei 60 Bildern je Sekunde anderthalb Sekunden — lang genug,
-/// dass eine kurze Standbild-Szene (Ladebildschirm, Standbild im Spiel) nicht
-/// hineinlaeuft, kurz genug, dass ein Zuschauer nicht minutenlang festhaengt.
-const EINFRIER_BILDER: u32 = 90;
-
-/// Wie viele Bytes in derselben Zeit hineingegangen sein muessen. Ein echtes
-/// Standbild kostet den Encoder fast nichts (wenige hundert Byte je Bild);
-/// 500 kB ueber anderthalb Sekunden entspricht rund 2,7 Mbit/s und kommt nur
-/// zustande, wenn wirklich Bildinhalt gesendet wird.
-const EINFRIER_BYTES: usize = 500_000;
-
-/// Fingerabdruck eines Bildes — billige Stichprobe statt vollem Vergleich.
-///
-/// Ein 1440p-Bild in 10 bit sind rund 11 MB; die bei jedem Bild vollstaendig
-/// zu hashen waere teurer als das Dekodieren. Gelesen wird deshalb jedes
-/// 1021. Byte (Primzahl, damit die Schrittweite nicht mit der Zeilenlaenge
-/// zusammenfaellt und immer dieselbe Bildspalte trifft), hoechstens 4096
-/// Proben. Fuer die Frage „hat sich ueberhaupt etwas geaendert" genuegt das:
-/// zwei verschiedene Bilder stimmen an allen Proben nur zufaellig ueberein.
-fn bild_abdruck(planes: &[Vec<u8>]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    for plane in planes {
-        plane.len().hash(&mut h);
-        for (i, b) in plane.iter().step_by(1021).enumerate() {
-            if i >= 4096 {
-                break;
-            }
-            b.hash(&mut h);
-        }
-    }
-    h.finish()
-}
 
 /// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
 const MAX_REBUILDS: u32 = 2;
@@ -615,15 +581,9 @@ pub struct VideoDecoder {
     skipped_before_keyframe: u64,
     /// Bis wann das Bild nach einer Luecke als unsauber gilt (s. [`on_gap`]).
     unsauber_bis: Option<std::time::Instant>,
-    /// Fingerabdruck des zuletzt ausgegebenen Bildes und wie oft er sich in
-    /// Folge NICHT geaendert hat — der Einfrier-Nachweis (s.
-    /// [`VideoDecoder::eingefroren`]).
-    letzter_abdruck: Option<u64>,
-    gleiche_bilder: u32,
-    /// Bytes, die seit dem letzten ausgegebenen Bild hineingegangen sind.
-    /// Trennt „der Schirm steht, weil nichts Neues gesendet wird" von „der
-    /// Decoder gibt trotz voller Datenrate immer dasselbe aus".
-    bytes_seit_bild: usize,
+    /// Der Einfrier-Nachweis samt Staffelung der Abhilfe (s.
+    /// [`crate::einfrieren`]).
+    wacht: EinfrierWacht,
     /// Wie viele Vollbilder bisher ankamen, und wann das letzte kam —
     /// gemeldet, weil der Abstand verraet, ob sich zwei Keyframe-Quellen
     /// ueberlagern (Sender-Takt plus Server-Uhr).
@@ -666,9 +626,7 @@ impl VideoDecoder {
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
                         unsauber_bis: None,
-                        letzter_abdruck: None,
-                        gleiche_bilder: 0,
-                        bytes_seit_bild: 0,
+                        wacht: EinfrierWacht::default(),
                         keyframes: 0,
                         letztes_keyframe: None,
                         plane_pool: PlanePool::default(),
@@ -778,9 +736,9 @@ impl VideoDecoder {
             self.awaiting_keyframe = false;
         }
 
-        // Zaehlt mit, wieviel Bildinhalt seit dem letzten VERAENDERTEN Bild
-        // hineingegangen ist — die zweite Haelfte des Einfrier-Nachweises.
-        self.bytes_seit_bild = self.bytes_seit_bild.saturating_add(data.len());
+        // Zaehlt mit, wieviel seit dem letzten VERAENDERTEN Bild hineingegangen
+        // ist — der Boden des Einfrier-Nachweises (s. [`crate::einfrieren`]).
+        self.wacht.daten(data.len());
 
         let packet = ffmpeg::codec::packet::Packet::copy(data);
         if let Err(e) = self.decoder.send_packet(&packet) {
@@ -939,18 +897,16 @@ impl VideoDecoder {
     /// Der Nachweis kommt deshalb aus dem Ergebnis statt aus der Ursache: Wenn
     /// ueber eine Sekunde lang jedes Bild denselben Fingerabdruck traegt,
     /// waehrend ordentlich Daten hineingehen, rechnet der Decoder nicht mehr.
-    /// Ein echtes Standbild sieht anders aus — dort schickt der Encoder
-    /// winzige Bilder, weil sich nichts aendert; deshalb die Byte-Schwelle.
+    ///
+    /// **Hier stand bis zum 2026-08-05 „Ein echtes Standbild sieht anders aus —
+    /// dort schickt der Encoder winzige Bilder, weil sich nichts aendert;
+    /// deshalb die Byte-Schwelle." Das ist falsch**: die Schwelle zaehlt Bytes,
+    /// ohne hineinzusehen, und ein Encoder mit Fuellmaterial haelt seine Rate
+    /// auch bei Standbild. Die Schwelle bleibt als Boden („kommt ueberhaupt
+    /// etwas an"), unterscheidet aber nichts — deshalb ist die Abhilfe
+    /// gestaffelt. Volle Begruendung samt Messreihe: [`crate::einfrieren`].
     pub fn eingefroren(&mut self) -> bool {
-        if self.gleiche_bilder < EINFRIER_BILDER || self.bytes_seit_bild < EINFRIER_BYTES {
-            return false;
-        }
-        // Zuruecksetzen, sonst meldet jeder folgende Durchgang erneut und der
-        // Aufrufer schickt im Sekundentakt Vollbild-Anforderungen.
-        self.gleiche_bilder = 0;
-        self.bytes_seit_bild = 0;
-        self.letzter_abdruck = None;
-        true
+        self.wacht.eingefroren()
     }
 
     /// Setzt den Decoder nach einem erkannten Einfrieren neu auf.
@@ -959,9 +915,15 @@ impl VideoDecoder {
     /// Einstiegspunkt warten. Ohne das Leeren rechnet er auf demselben kaputten
     /// Zustand weiter, den wir gerade festgestellt haben.
     pub fn wegen_einfrieren_neu(&mut self) {
+        // Die Staffel gehoert in die Meldung: sie ist das Einzige, woran im
+        // Log zu sehen ist, ob hier ein Decoder gerettet wird oder ob ein
+        // Standbild immer wieder dieselbe Diagnose ausloest.
         eprintln!(
             "pulse-player: Decoder eingefroren (gleiches Bild trotz Daten) — \
-             leere ihn und fordere ein Vollbild an"
+             leere ihn und fordere ein Vollbild an (Meldung {} ohne \
+             zwischenzeitliche Bewegung, naechste Pruefung nach {} Bildern)",
+            self.wacht.stufe(),
+            self.wacht.schwelle()
         );
         self.decoder.flush();
         self.unsauber_bis = None;
@@ -1025,14 +987,7 @@ impl VideoDecoder {
             if let Some(f) = umgewandelt {
                 // Aendert sich der Bildinhalt ueberhaupt noch? (s.
                 // [`VideoDecoder::eingefroren`])
-                let abdruck = bild_abdruck(&f.planes);
-                if self.letzter_abdruck == Some(abdruck) {
-                    self.gleiche_bilder = self.gleiche_bilder.saturating_add(1);
-                } else {
-                    self.letzter_abdruck = Some(abdruck);
-                    self.gleiche_bilder = 0;
-                    self.bytes_seit_bild = 0;
-                }
+                self.wacht.bild(&f.planes);
                 out.push(f);
             }
         }
@@ -1161,30 +1116,9 @@ mod pool_tests {
 
 #[cfg(test)]
 mod tests {
+    // Der Fingerabdruck und der Einfrier-Nachweis werden seit 2026-08-05 in
+    // `crate::einfrieren` gepflegt und dort auch geprueft.
 
-    /// Der Fingerabdruck muss zwei Dinge koennen: gleiche Bilder gleich
-    /// abbilden und veraenderte verschieden. Er liest nur jedes 1021. Byte —
-    /// die Probe MUSS also treffen, sonst meldet der Einfrier-Nachweis
-    /// „unveraendert", waehrend sich das Bild sehr wohl aendert.
-    #[test]
-    fn abdruck_erkennt_veraenderung() {
-        let a = vec![vec![7u8; 300_000], vec![9u8; 150_000]];
-        assert_eq!(super::bild_abdruck(&a), super::bild_abdruck(&a.clone()));
-
-        // Erste Probenstelle veraendern.
-        let mut b = a.clone();
-        b[0][0] = 8;
-        assert_ne!(super::bild_abdruck(&a), super::bild_abdruck(&b));
-
-        // Eine spaetere Probenstelle (jedes 1021. Byte).
-        let mut c = a.clone();
-        c[0][1021 * 50] = 8;
-        assert_ne!(super::bild_abdruck(&a), super::bild_abdruck(&c));
-
-        // Andere Groesse zaehlt ebenfalls als Veraenderung.
-        let d = vec![vec![7u8; 299_999], vec![9u8; 150_000]];
-        assert_ne!(super::bild_abdruck(&a), super::bild_abdruck(&d));
-    }
     use super::*;
 
     #[test]
