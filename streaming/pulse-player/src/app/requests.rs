@@ -149,6 +149,14 @@ impl App {
         if let (Some(overlay), Some(volume)) = (session.overlay.as_mut(), patch.volume) {
             overlay.set_volume(volume);
         }
+        // Der Ausgabe-Takt lebt im Fenster-Thread, nicht in der Sitzung — er
+        // muss deshalb HIER nachgezogen werden. Ginge er nur ueber
+        // `SessionCommand::Options` mit, antwortete `set_option` mit
+        // `ok: true`, ohne dass sich etwas aendert (genau die Falle, wegen der
+        // `hwdec` unten den Decoder verwirft).
+        if let Some(ms) = patch.ausgabetakt_ms {
+            session.takt.setze_vorhalt(ms);
+        }
         session.window.request_redraw();
         let tx = session.commands.clone();
         self.runtime.spawn(async move {

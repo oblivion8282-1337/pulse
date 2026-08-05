@@ -492,6 +492,24 @@ pub struct DecodedFrame {
     /// abschloss. Traegt die Latenzmessung bis zum gezeichneten Bild; `None`,
     /// wenn das Bild nicht aus einem Netzpaket stammt (Tests).
     pub arrived: Option<std::time::Instant>,
+    /// RTP-Zeitstempel der Zugriffseinheit und ihr Takt (fast immer 90 kHz).
+    ///
+    /// **Der Unterschied zu [`arrived`](Self::arrived) ist der ganze Zweck.**
+    /// `arrived` sagt, wann das Bild HIER ankam — das enthaelt jede Schwankung
+    /// der Leitung. Der RTP-Zeitstempel sagt, wann es beim Sender ENTSTAND, und
+    /// zwar auf dessen gleichmaessiger Uhr. Nur damit laesst sich die Ausgabe
+    /// gleichmaessig takten, statt sie an die Ankunft zu haengen (s.
+    /// `app::takt`).
+    ///
+    /// `None`, wenn das Bild nicht aus einem Netzpaket stammt (Tests) — dann
+    /// gibt es nichts zu takten und die Anzeige laeuft wie bisher sofort.
+    ///
+    /// **Mehrere Bilder aus EINER Zugriffseinheit teilen sich den Wert.** Bei
+    /// den hier gefahrenen Codecs kommt das nicht vor (eine Einheit ist ein
+    /// Bild); traefe es zu, laegen sie auf demselben Zielzeitpunkt und wuerden
+    /// bis auf das letzte verworfen — dasselbe, was heute schon passiert.
+    pub rtp_ts: Option<u32>,
+    pub clock_rate: u32,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
     pool: PlanePool,
 }
@@ -518,6 +536,8 @@ impl DecodedFrame {
             full_range: false,
             matrix: ColorMatrix::Bt709,
             arrived: None,
+            rtp_ts: None,
+            clock_rate: 0,
             pool: PlanePool::default(),
         }
     }
@@ -1083,6 +1103,10 @@ fn convert(
 
     Some(DecodedFrame {
         arrived: None,
+        // Beide werden erst in `session.rs` gesetzt: der Decoder kennt die
+        // Zugriffseinheit nicht mehr, aus der das Bild stammt.
+        rtp_ts: None,
+        clock_rate: 0,
         width,
         height,
         format: layout,

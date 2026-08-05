@@ -111,6 +111,49 @@ fn pick_format(offered: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
         .or_else(|| offered.first().copied())
 }
 
+/// Wie das fertige Bild auf den Schirm kommt.
+///
+/// **`Mailbox` ist die Vorgabe und bleibt es** — sie gibt sofort aus und
+/// verwirft ueberzaehlige Bilder; `Fifo` wartet auf den Bildschirmtakt und
+/// kostet damit bis zu eine Bildwiederholung mehr Verzug.
+///
+/// `PULSE_PLAYER_PRESENT_MODE=fifo|mailbox` erzwingt die Wahl. Kein
+/// Betriebsschalter, sondern ein Messinstrument — genau wie
+/// `PULSE_PLAYER_SURFACE` und `PULSE_PLAYER_MATRIX` daneben: die Frage „macht
+/// `Mailbox` die Ausgabe unruhiger, weil sie verwirft, oder `Fifo`, weil sie
+/// wartet" laesst sich sonst nur durch einen Neubau beantworten, und dann ist
+/// es keine A/B-Messung mehr.
+///
+/// Ein nicht angebotener Modus wird gemeldet und die Vorgabe genommen; ein
+/// unbekanntes Wort ebenso. Still auf etwas anderes auszuweichen waere der
+/// Messfehler, bei dem zwei Arme hinterher identisch aussehen.
+fn praesentationsart(angeboten: &[wgpu::PresentMode]) -> wgpu::PresentMode {
+    let vorgabe = || {
+        angeboten
+            .iter()
+            .copied()
+            .find(|m| *m == wgpu::PresentMode::Mailbox)
+            .unwrap_or(wgpu::PresentMode::Fifo)
+    };
+    let Ok(wunsch) = std::env::var("PULSE_PLAYER_PRESENT_MODE") else { return vorgabe() };
+    let gewaehlt = match wunsch.trim().to_ascii_lowercase().as_str() {
+        "fifo" => Some(wgpu::PresentMode::Fifo),
+        "mailbox" => Some(wgpu::PresentMode::Mailbox),
+        "immediate" => Some(wgpu::PresentMode::Immediate),
+        _ => None,
+    };
+    match gewaehlt.filter(|m| angeboten.contains(m)) {
+        Some(m) => m,
+        None => {
+            eprintln!(
+                "pulse-player: PULSE_PLAYER_PRESENT_MODE={wunsch:?} nicht verwendbar \
+                 (angeboten: {angeboten:?}) — Vorgabe bleibt"
+            );
+            vorgabe()
+        }
+    }
+}
+
 pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32) -> Result<GpuSetup> {
     let instance = wgpu::Instance::new(
         wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
@@ -138,12 +181,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         format,
         width: width.max(1),
         height: height.max(1),
-        present_mode: caps
-            .present_modes
-            .iter()
-            .copied()
-            .find(|m| *m == wgpu::PresentMode::Mailbox)
-            .unwrap_or(wgpu::PresentMode::Fifo),
+        present_mode: praesentationsart(&caps.present_modes),
         alpha_mode: caps.alpha_modes[0],
         view_formats: vec![],
         // Drei Swapchain-Bilder, nicht zwei: wgpu macht daraus

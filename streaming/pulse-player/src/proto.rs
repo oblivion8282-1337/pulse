@@ -125,6 +125,22 @@ pub struct PlayerOptions {
     /// zuerst, Software als Rueckfall).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hwdec: Option<bool>,
+
+    /// Vorhalt des Ausgabe-Takts in Millisekunden. `0` = aus (Vorgabe).
+    ///
+    /// **Was das tut und was `jitter_ms` NICHT tut.** Ist der Wert gesetzt,
+    /// zeigt der Player ein Bild zu dem Zeitpunkt, den sein RTP-Zeitstempel
+    /// nennt, statt sofort bei der Ankunft — die Uhr des Senders gibt dann den
+    /// Takt vor. `jitter_ms` daneben ist ausschliesslich die Wartezeit bei
+    /// einem FEHLENDEN Paket; ohne Luecke gibt `jitter.rs::poll` sofort frei.
+    /// Vor dieser Option gab es also im ganzen Programm keine Stelle, an der
+    /// ein Bild auf seinen Zeitpunkt gewartet haette.
+    ///
+    /// **Aus als Vorgabe, weil der Vorhalt echte Verzoegerung kostet.** Fuer
+    /// Zuschauen ist das ein guter Tausch, fuer die Fernsteuerung ist er
+    /// falsch. Ueber die Umgebung: `PULSE_PLAYER_AUSGABETAKT_MS`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ausgabetakt_ms: Option<u32>,
 }
 
 /// Erzeugt [`PlayerOptions::apply`] und [`PlayerOptions::any_set`] aus **einer**
@@ -159,6 +175,7 @@ umschaltbare_felder!(
     av_offset_ms,
     paused,
     hwdec,
+    ausgabetakt_ms,
 );
 
 /// Geduld des Jitter-Puffers bei einer Luecke, in Millisekunden.
@@ -200,6 +217,9 @@ impl PlayerOptions {
             av_offset_ms: Some(0),
             paused: Some(false),
             hwdec: None,
+            // Aus. Begruendung an der Feld-Doku und in `app::takt`: der Vorhalt
+            // kostet Verzoegerung, und die ist fuer die Fernsteuerung falsch.
+            ausgabetakt_ms: Some(0),
         }
     }
 
@@ -208,6 +228,9 @@ impl PlayerOptions {
     pub fn clamp(&mut self) {
         if let Some(v) = self.jitter_ms.as_mut() {
             *v = (*v).clamp(0, 2000);
+        }
+        if let Some(v) = self.ausgabetakt_ms.as_mut() {
+            *v = (*v).min(crate::app::VORHALT_MAX_MS);
         }
         if let Some(v) = self.deband.as_mut() {
             *v = v.clamp(0.0, 1.0);
