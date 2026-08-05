@@ -236,10 +236,11 @@ impl Ausgabetakt {
         // 6,6 Stunden liegt, und das ist er hier immer.
         let abstand = rtp.wrapping_sub(anker_rtp) as i32;
         let versatz_us = i64::from(abstand) * 1_000_000 / i64::from(takt);
+        let versatz = Duration::from_micros(versatz_us.unsigned_abs());
         let ziel = if versatz_us >= 0 {
-            anker_lokal.checked_add(Duration::from_micros(versatz_us as u64))
+            anker_lokal.checked_add(versatz)
         } else {
-            anker_lokal.checked_sub(Duration::from_micros(versatz_us.unsigned_abs()))
+            anker_lokal.checked_sub(versatz)
         };
         // Weit daneben heisst: die Zeitreihe ist gerissen (neuer Sender, lange
         // Luecke, Pause). Dann neu einhaengen, statt einer Rechnung zu folgen,
