@@ -25,6 +25,27 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2);
 /// angezeigt, nicht ausgewertet, und jedes Ereignis weckt den Fenster-Thread.
 const STATS_INTERVAL: Duration = Duration::from_millis(250);
 
+/// Nach wie vielen Statistik-Fenstern ohne ein einziges Byte die Sitzung als
+/// abgerissen gilt. 12 mal 250 ms sind drei Sekunden.
+///
+/// **Warum es diesen zweiten Waechter braucht.** Die Einfrier-Erkennung in
+/// `decode.rs` kann einen Abriss PER KONSTRUKTION nicht sehen: sie verlangt
+/// neben 90 unveraenderten Bildern auch `EINFRIER_BYTES` an ankommenden Daten
+/// — und ohne Daten waechst dieser Zaehler nie. Sie fragt „aendert sich das
+/// Bild nicht, obwohl gesendet wird", hier lautet die Frage „kommt ueberhaupt
+/// noch etwas".
+///
+/// Gemessen am 2026-08-05: nach einem Abriss meldete der Player `dekodiert
+/// 0/s`, `0 kbit/s`, keinen Fehler, versuchte keine Neuverbindung — und zaehlte
+/// rund 100 Ton-Unterlaeufe je Sekunde weiter, in einem Lauf ueber 128 s bis
+/// 13116. Von aussen sah das aus wie ein stehendes Bild.
+///
+/// Drei Sekunden sind ein Kompromiss: lang genug, dass eine Netzdelle oder
+/// eine kurze Saettigung nicht hineinlaeuft (die laengste beobachtete
+/// Ankunftsluecke lag bei 31 ms), kurz genug, dass niemand minutenlang auf ein
+/// totes Bild sieht.
+const STILLE_FENSTER_BIS_ABBRUCH: u32 = 12;
+
 /// Fenster fuer Bildrate und Bitrate. Bewusst ein VIELFACHES von
 /// [`STATS_INTERVAL`] und hier berechnet, nicht beim Anzeigen: wer die Rate aus
 /// zwei Abfragen eines fremden Taktes bildet, misst mal 3, mal 4 Intervalle und
@@ -214,6 +235,10 @@ pub async fn run(
         SessionStats { jitter_target_ms: target.as_millis() as u64, ..Default::default() };
     let mut announced_playing = false;
     let mut last_stats = Instant::now();
+    // Abriss-Erkennung: wie viele Fenster in Folge kein Byte kam, und der
+    // Stand, gegen den verglichen wird.
+    let mut stille_fenster: u32 = 0;
+    let mut bytes_im_letzten_fenster: u64 = 0;
     let mut rate_ref = RateRef { at: Instant::now(), frames: 0, bytes: 0 };
     // Ankunfts-Diagnose (s. der Video-Zweig unten).
     //
@@ -627,6 +652,34 @@ pub async fn run(
 
         if last_stats.elapsed() >= STATS_INTERVAL {
             last_stats = Instant::now();
+
+            // --- Abriss erkennen: Stille, nicht Standbild ---
+            //
+            // Gegen `bytes_received` und nicht gegen die Bildzahl: ein Decoder,
+            // der nichts mehr ausgibt, obwohl Pakete ankommen, ist das
+            // EINFRIEREN und gehoert der Erkennung in `decode.rs`. Hier geht es
+            // um den Fall, in dem gar nichts mehr kommt — und der sah bis heute
+            // von aussen genauso aus.
+            if stats.bytes_received == bytes_im_letzten_fenster {
+                stille_fenster += 1;
+            } else {
+                stille_fenster = 0;
+                bytes_im_letzten_fenster = stats.bytes_received;
+            }
+            if stille_fenster >= STILLE_FENSTER_BIS_ABBRUCH {
+                // Ueber `break` und nicht ueber eine stille Ecke: die Sitzung
+                // ist tot, und sie abzuraeumen beendet zugleich die
+                // Ton-Unterlaeufe, die sonst bis in alle Ewigkeit weiterzaehlen.
+                // Der Aufrufer entscheidet, ob neu verbunden wird.
+                break (
+                    format!(
+                        "Verbindung abgerissen — seit {} Sekunden kein Paket",
+                        (STILLE_FENSTER_BIS_ABBRUCH as u64 * STATS_INTERVAL.as_millis() as u64)
+                            / 1000
+                    ),
+                    true,
+                );
+            }
             // NACK-Sperre an die gemessene Umlaufzeit koppeln. Im selben Takt
             // wie die Statistik, weil `get_stats()` ueber alle Transporte
             // laeuft — bei jedem Schleifendurchlauf waere das ueber 1000-mal
