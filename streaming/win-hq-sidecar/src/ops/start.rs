@@ -108,6 +108,17 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     if let Some(an) = requested_intra_refresh(params.get("overrides").and_then(Value::as_object)) {
         crate::encode::auffrischung::setzen(an);
     }
+    // Dasselbe Muster, derselbe Grund: die Opus-Rahmenlänge haengt am Sendeweg,
+    // gebraucht wird sie aber an Stellen, die die Start-Parameter nicht sehen
+    // (Aufnahme-Raster, Paketdauer im Sendeweg). **Vor** `start()`, weil die
+    // Aufnahme ihr Raster daraus nimmt.
+    //
+    // Anders als oben ohne `if let`: es gibt kein "ungesagt". Die Ziel-URL
+    // liegt vor, also steht der Weg fest — und ein Rest aus dem vorigen Stream
+    // waere hier schlimmer als eine Vorgabe.
+    crate::encode::audio::setze_sendeweg(crate::encode::output::is_whip_url(
+        &start_params.push_url,
+    ));
     let argv = StreamController::singleton().start(start_params)?;
 
     let mut out = Map::new();
