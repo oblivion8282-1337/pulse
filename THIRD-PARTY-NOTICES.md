@@ -33,39 +33,77 @@ tree changes; it is the only way this file stays true.
 
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
-| **FFmpeg — what currently ships**: BtbN prebuilt, **unmodified** | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL — the licence text inside that distribution is **v3**, and that is the copy shipped as `resources/hq-sidecar/FFMPEG-LICENSE.txt` | `scripts/fetch-ffmpeg.ps1` (`$FallbackUrl`/`$FallbackSha`), `desktop/electron-builder.yml` (`win.extraResources`, both the DLLs and the licence text) |
-| FFmpeg (self-built, patched) — **prepared, not active**, see below | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-…` | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265) | `streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (SHA256-pinned distribution of that build), `.cargo/config.toml:9` (`FFMPEG_DIR`), `Cargo.toml:56-68` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
+| FFmpeg — self-built, **MODIFIED by Pulse** | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`, package dated 2026-08-05 | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265); the patch itself is LGPL-2.1-or-later per `streaming/ffmpeg-patches/LICENSE` | `scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (`$PatchedUrl`/`$PatchedSha`, SHA256-pinned), `.cargo/config.toml` (`FFMPEG_DIR`), `Cargo.toml` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
+| FFmpeg — BtbN prebuilt, unmodified (**fallback only**) | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL (that distribution's own licence text is **v3**) | `scripts/fetch-ffmpeg.ps1` (`$FallbackUrl`/`$FallbackSha`) — used only if `$PatchedUrl`/`$PatchedSha` are cleared |
 | pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
-**What actually ships today is BtbN's prebuilt, UNPATCHED distribution.** This
-paragraph used to open with "Since 2026-08-04 Windows no longer ships BtbN's
-prebuilt distribution" — that describes the intent, not the state: `$PatchedUrl`
-and `$PatchedSha` in `scripts/fetch-ffmpeg.ps1` are still empty, so the script
-takes the fallback (frozen BtbN mirror dated 2026-06-16, same LGPL terms, no
-Pulse patch) and warns when it does. Checked again on 2026-08-05. Windows
-therefore ships an **unmodified** LGPL library — which is also what the
-user-facing page at `/drittanbieter` says.
-
-The intended path, once the built package is uploaded to the self-hosted
-mirror: FFmpeg built from the official `n8.1.2` source with **one** Pulse patch
+**Since 2026-08-05 Windows ships a Pulse-MODIFIED FFmpeg.** Built from the
+official `n8.1.2` source with **one** Pulse patch
 (`streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`) — it
-exposes rolling intra refresh on `av1_amf`, which no FFmpeg release offers. That
-patch is **LGPL-2.1-or-later**, as a derivative of FFmpeg's own LGPL source; this
-file claimed GPL-3.0 until 2026-08-05, which contradicted both
-`streaming/ffmpeg-patches/LICENSE` and the Flatpak manifest and was wrong (the
-GPL-3.0 belongs to `streaming/patches/`, the gpu-screen-recorder patches). The
-build reports `License: LGPL version 2.1 or later`, verified with
-`ffmpeg -version` on the produced binary; `scripts/build-ffmpeg-patched.ps1`
-refuses to install a build whose configure line contains a GPL or nonfree
-switch. The DLLs are copied next to `pulse-win-hq-sidecar.exe` as separate,
-exchangeable files (dynamic linking, LGPL-compliant), and the modified source
-is in this repository, which is what LGPL §2/§4 asks for.
+exposes rolling intra refresh on `av1_amf`, which no FFmpeg release offers.
+Without it, AMD cards get no intra refresh on Windows at all: the AV1 path is
+`av1_amf`, and the regular H.264 path on AMD is `h264_d3d12va`, which accepts
+the option and does nothing with it. Measured on the shipped BtbN package
+before the switch: `av1_amf` present, `intra_refresh_mode` and
+`intra_refresh_stripes` **both absent**; on the new build both present.
 
-**Switching that on is a two-file change:** set `$PatchedUrl`/`$PatchedSha`, and
-check that the licence text shipped in the installer still matches the build —
-`desktop/electron-builder.yml` copies `ffmpeg-dist/n8.1-lgpl-shared/LICENSE.txt`
-to `resources/hq-sidecar/FFMPEG-LICENSE.txt`, and BtbN's copy is LGPL **v3**.
+That patch is **LGPL-2.1-or-later**, as a derivative of FFmpeg's own LGPL
+source. This file claimed GPL-3.0 until 2026-08-05, which contradicted both
+`streaming/ffmpeg-patches/LICENSE` and the Flatpak manifest and was wrong (the
+GPL-3.0 belongs to `streaming/patches/`, the gpu-screen-recorder patches).
+
+How the LGPL obligations are met: the configure line carries no
+`--enable-gpl`, no `--enable-nonfree`, no libx264/libx265 and no
+`--enable-version3` (`build-ffmpeg-patched.ps1` refuses to install a build that
+does); the DLLs sit next to `pulse-win-hq-sidecar.exe` as separate,
+exchangeable files (dynamic linking); the modified source is in this
+repository; and since 2026-08-05 the built package itself carries **two** files
+at its root, which the build script stages and `desktop/electron-builder.yml`
+ships into `resources/hq-sidecar/`:
+
+* `LICENSE.txt` — FFmpeg's `COPYING.LGPLv2.1`, matching the configure line.
+  (BtbN's package carried LGPL **v3**; a self-built tree carries none at all
+  unless staged, which is why this step exists.)
+* `PULSE-AENDERUNGEN.txt` — states that the library is modified, names the
+  patch and links to it. The change notice travels inside the distribution, not
+  only in this repository.
+
+**Rolling back** is clearing `$PatchedUrl`/`$PatchedSha` in
+`scripts/fetch-ffmpeg.ps1`: the script then takes the BtbN fallback, warns, and
+raises a GitHub annotation. AMD loses intra refresh on Windows again, and the
+licence statements above and on `/drittanbieter` must be reverted with it.
+
+### The libraries that now ship next to the sidecar
+
+**This list changed on 2026-08-05 and the change is easy to miss.** BtbN's
+package shipped eight files (the seven `av*`/`sw*` libraries plus its own
+licence text). A self-built MinGW tree additionally needs its runtime — without
+it no binary starts at all, silently (`0xC0000135`, before a line of code runs)
+— so `build-ffmpeg-patched.ps1` walks `objdump -p` transitively and stages
+whatever it finds. Twelve further DLLs come along that way, and three of them
+carry licences worth stating precisely.
+
+| File | Component | License |
+|---|---|---|
+| `avcodec-62`, `avformat-62`, `avfilter-11`, `avutil-60`, `swresample-6`, `swscale-9`, `avdevice-62` | FFmpeg (modified, see above) | LGPL-2.1-or-later |
+| `libgcc_s_seh-1`, `libstdc++-6` | GCC runtime (pulled in by libsrt, which is C++) | **GPL-3.0-or-later WITH GCC-exception-3.1** — the Runtime Library Exception explicitly permits distribution alongside programs under any licence; this is *not* a GPL obligation on Pulse |
+| `libiconv-2` | GNU libiconv | **LGPL-2.1** — unmodified, separate exchangeable file, same posture as FFmpeg |
+| `libsrt` | Haivision SRT | **MPL-2.0** — file-level copyleft, unmodified, shipped as its own file; source at `github.com/Haivision/srt` |
+| `libcrypto-3-x64` | OpenSSL 3 | Apache-2.0 |
+| `libdav1d-7` | dav1d | BSD-2-Clause |
+| `libopus-0` | libopus | BSD-3-Clause |
+| `libvpl-2` | Intel VPL | MIT |
+| `libwinpthread-1` | mingw-w64 winpthreads | MIT/permissive |
+| `zlib1` | zlib | Zlib |
+| `liblzma-5` | xz/liblzma | 0BSD/public domain |
+| `libbz2-1` | bzip2 | BSD-style |
+
+None of these forces anything on Pulse's own code. They are listed because they
+are **shipped as files** and every one of those licences asks to be named.
+Whoever changes the configure line in `build-ffmpeg-patched.ps1` changes this
+table: re-read `ffmpeg-dist/n8.1-lgpl-shared/bin/*.dll` afterwards rather than
+assuming the set is stable.
 
 ## macOS (`streaming/mac-hq-sidecar/`)
 

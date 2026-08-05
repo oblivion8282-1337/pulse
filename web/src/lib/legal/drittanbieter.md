@@ -21,23 +21,45 @@ wir die Lizenzpflichten wie folgt:
 - Der **Quellcode** der jeweils verwendeten Version ist über die unten
   verlinkten öffentlichen Quellen erhältlich. Wo Pulse ihn **ändert**, ist das
   in der jeweiligen Tabelle vermerkt, und die Änderung selbst liegt als
-  Patch-Datei im öffentlichen Quellcode-Repository — derzeit betrifft das
-  ausschließlich das FFmpeg der Linux-Fassung (siehe dort).
+  Patch-Datei im öffentlichen Quellcode-Repository — das betrifft das FFmpeg
+  der Linux- **und** der Windows-Fassung (jeweils ein Patch, siehe dort). Die
+  macOS-Fassung wird unverändert gebaut.
 
 ## Windows
 
 | Komponente | Version / Pin | Lizenz | Einbindung |
 |---|---|---|---|
-| [FFmpeg](https://ffmpeg.org/) (BtbN-Distribution) | n8.1, LGPL-shared-Build vom 2026-06-16 | LGPL (Build ohne libx264/libx265) | Dynamisch verlinkt: als separate `.dll`-Dateien neben `pulse-win-hq-sidecar.exe` ausgeliefert |
+| [FFmpeg](https://ffmpeg.org/) | n8.1.2, eigener Build vom 2026-08-05, **mit einem Pulse-Patch** | LGPL 2.1 (Build ohne `--enable-gpl`/`--enable-nonfree`/libx264/libx265) | Dynamisch verlinkt: als separate `.dll`-Dateien neben `pulse-win-hq-sidecar.exe` ausgeliefert |
 | [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) | n13.0.19.0 | MIT | Nur zur Build-Zeit für NVENC-Unterstützung verwendet, nicht als eigene Datei ausgeliefert |
 
+**Das FFmpeg der Windows-Fassung ist seit dem 5. August 2026 von Pulse
+verändert.** Hier stand vorher, Pulse ändere den Quellcode für diesen Pfad
+nicht und verwende die unveränderte Distribution von BtbN — das trifft nicht
+mehr zu. Der Patch gibt dem AV1-Encoder für AMD-Karten den rollenden
+Intra-Refresh frei; ohne ihn steht diese Betriebsart AMD-Nutzern unter Windows
+gar nicht zur Verfügung. Die Lizenzpflichten sind erfüllt: geändert werden nur
+LGPL-lizenzierte Dateien, der Patch steht selbst unter der LGPL und nicht unter
+der Pulse-Lizenz, die Bibliotheken bleiben dynamisch eingebunden und
+austauschbar, und der Patch liegt offen im Quellcode-Repository unter
+[`streaming/ffmpeg-patches/`](https://github.com/oblivion8282-1337/pulse/tree/main/streaming/ffmpeg-patches).
+Dem ausgelieferten Paket liegen zusätzlich der Lizenztext (`LICENSE.txt`) und
+ein Änderungshinweis (`PULSE-AENDERUNGEN.txt`) bei.
+
 Die FFmpeg-DLLs enthalten u. a. NVENC/AMF/QSV-Hardware-Encoder, Muxer für
-FLV/MPEGTS, [libopus](https://opus-codec.org/) (BSD-3-Clause) für die
-Audio-Kodierung und die TLS-Anbindung über SChannel für den verschlüsselten
-RTMPS-Push. Pulse ändert den FFmpeg-Quellcode für diesen Pfad nicht — es wird
-die unveränderte, von [BtbN](https://github.com/BtbN/FFmpeg-Builds) gebaute
-Distribution verwendet, deren Ursprung wiederum das öffentliche
-[FFmpeg-Projekt](https://github.com/FFmpeg/FFmpeg) ist.
+FLV/MPEGTS/WHIP und die TLS-Anbindung über SChannel für den verschlüsselten
+RTMPS-Push. Neben ihnen liefert dieser Build die Bibliotheken mit, gegen die er
+gebaut ist — jede als eigene, austauschbare Datei:
+
+| Bibliothek | Lizenz |
+|---|---|
+| [libopus](https://opus-codec.org/) (Audio) | BSD-3-Clause |
+| [dav1d](https://code.videolan.org/videolan/dav1d) (AV1-Dekodierung) | BSD-2-Clause |
+| [SRT](https://github.com/Haivision/srt) | MPL-2.0 |
+| [OpenSSL 3](https://www.openssl.org/) | Apache-2.0 |
+| [Intel VPL](https://github.com/intel/libvpl) | MIT |
+| GNU libiconv | LGPL-2.1 |
+| zlib, xz/liblzma, bzip2, winpthreads | Zlib, 0BSD, BSD, MIT |
+| GCC-Laufzeit (`libgcc`, `libstdc++`) | GPL-3.0 **mit GCC Runtime Library Exception** — diese Ausnahme erlaubt das Mitliefern ausdrücklich auch neben Programmen unter anderer Lizenz |
 
 ## macOS
 
