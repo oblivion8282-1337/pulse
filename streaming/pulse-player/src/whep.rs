@@ -421,6 +421,23 @@ fn interceptors_mit_zuegigem_nack(
             RTPCodecType::Video,
         );
     }
+    // **Der Ton hatte bis 2026-08-05 gar nichts.** Kein NACK, kein FlexFEC
+    // (Chrome handelt es nicht aus, wir schon — aber MediaMTX erzeugt die
+    // Paritaet nur fuer die Videospur). Er wartete im Jitterpuffer trotzdem
+    // dieselben 100 ms wie das Bild — auf eine Nachlieferung, die niemand
+    // anforderte. Reine Verzoegerung ohne Gegenwert.
+    //
+    // Ohne `pli`: eine Vollbild-Anforderung auf einer Tonspur ergibt keinen
+    // Sinn. Fordert der Server keine Nachlieferung an, kostet die Anmeldung
+    // nichts — sie steht dann nur im SDP.
+    //
+    // Zusammen mit der In-Band-Fehlerkorrektur, die der Sender seit demselben
+    // Tag wirklich einschaltet (`win-hq-sidecar/src/encode/audio/mod.rs`), hat
+    // die Tonspur damit zwei Wege, einen Verlust zu ueberstehen, statt keinem.
+    media.register_feedback(
+        RTCPFeedback { typ: "nack".to_owned(), parameter: String::new() },
+        RTPCodecType::Audio,
+    );
 
     let mut registry = Registry::new();
     registry.add(Box::new(Responder::builder()));

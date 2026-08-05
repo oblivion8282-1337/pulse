@@ -72,16 +72,64 @@ pub fn opus_frame_dauer() -> std::time::Duration {
     std::time::Duration::from_millis(opus_frame_ms() as u64)
 }
 
-/// Länge eines Opus-Pakets in ms, einmal aus der Umgebung gelesen.
+/// Rahmenlänge auf dem eigenen WebRTC-Sendeweg.
+///
+/// **Die 5 ms des Muxer-Wegs gelten hier nicht, und zwar aus dem Grund, der
+/// sie dort rechtfertigt.** Ihre gesamte Begründung ist die FLV-Bündelung —
+/// eine Zeitleiste, auf der ein Videopaket auf den passenden Ton wartet. Der
+/// eigene Sendeweg hat das ausdrücklich nicht (`whip/mod.rs`: „Zwei getrennte
+/// Spuren können sich so nicht gegenseitig aufhalten"). Dort wurde also ein
+/// Nachteil ohne Gegenleistung eingekauft.
+///
+/// **Der Nachteil ist nicht theoretisch.** Unter 10 ms fällt libopus in
+/// CELT-only zurück und sagt das bei jedem Start selbst: „LPC mode cannot be
+/// used with a frame duration of less than 10ms. Enabling restricted low-delay
+/// mode." Damit ist auch die In-Band-Fehlerkorrektur weg — die ist ein
+/// SILK-Merkmal. Und genau die verspricht unser SDP (`useinbandfec=1`), so wie
+/// es `minptime=10` verspricht und 5 sendet. Zwei Zusagen, eine Zeile, beide
+/// unwahr.
+///
+/// 10 statt 20: der kleinste Wert, der beide Zusagen einlöst. 20 wäre
+/// sparsamer im Overhead, kostet aber die doppelte zusätzliche Verzögerung —
+/// und auf einem Weg, dessen Sinn geringe Latenz ist, ist das der falsche
+/// Tausch, solange niemand das Gegenteil gemessen hat.
+const OPUS_FRAME_MS_WHIP: usize = 10;
+
+/// Geht der laufende Stream über den eigenen Sendeweg?
+///
+/// Prozessweit wie [`super::auffrischung`]s Betriebsart, und aus demselben
+/// Grund: die Rahmenlänge wird an Stellen gebraucht, die die Start-Parameter
+/// nicht sehen (Aufnahme-Raster, Paketdauer im Sendeweg). Gesetzt wird sie in
+/// `ops/start.rs`, wo die Ziel-URL vorliegt.
+static UEBER_EIGENEN_SENDEWEG: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Vom Start her mitteilen, welcher Sendeweg gilt. **Vor** dem Aufbau der
+/// Aufnahme rufen — `capture_chunk_frames()` hängt daran.
+pub fn setze_sendeweg(ueber_eigenen: bool) {
+    UEBER_EIGENEN_SENDEWEG.store(ueber_eigenen, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Länge eines Opus-Pakets in ms.
+///
+/// Reihenfolge: die Umgebung sticht immer (damit die Wahl messbar bleibt statt
+/// geraten zu werden), danach entscheidet der Sendeweg.
 pub fn opus_frame_ms() -> usize {
-    static MS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *MS.get_or_init(|| {
+    static AUS_UMGEBUNG: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let gesetzt = *AUS_UMGEBUNG.get_or_init(|| {
         std::env::var("PULSE_OPUS_FRAME_MS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|v| [5, 10, 20, 40, 60].contains(v))
-            .unwrap_or(OPUS_FRAME_MS)
-    })
+    });
+    if let Some(v) = gesetzt {
+        return v;
+    }
+    if UEBER_EIGENEN_SENDEWEG.load(std::sync::atomic::Ordering::Relaxed) {
+        OPUS_FRAME_MS_WHIP
+    } else {
+        OPUS_FRAME_MS
+    }
 }
 
 pub struct AudioPipeline {
@@ -191,6 +239,29 @@ impl AudioPipeline {
         let frame_ms = opus_frame_ms();
         let mut opts = Dictionary::new();
         opts.set("frame_duration", &frame_ms.to_string());
+        // In-Band-Fehlerkorrektur — die einzige Absicherung, die die Tonspur
+        // ueberhaupt haben kann.
+        //
+        // **Warum sie bis 2026-08-05 wirkungslos war, obwohl das SDP sie
+        // verspricht.** Zwei Gruende, und beide mussten weg: die Option wurde
+        // hier nie gesetzt, UND unter 10 ms Rahmenlaenge gibt es sie gar nicht
+        // (LBRR ist ein SILK-Merkmal, CELT-only kennt es nicht). Deshalb steht
+        // sie hier zusammen mit der Rahmenlaenge und nicht als eigene Zeile
+        // irgendwo — einzeln waere jede von beiden folgenlos.
+        //
+        // `packet_loss` ist Pflicht, nicht Zierde: libopus legt die Redundanz
+        // nach der ERWARTETEN Verlustrate aus. Bei 0 entsteht keine, und `fec=1`
+        // waere eine dritte unwahre Zusage. 5 % ist der uebliche WebRTC-Ansatz
+        // und kostet auf einer 128-kbit/s-Spur nichts, was neben dem Video
+        // auffiele. Nicht gemessen — wer ihn dreht, misst nach.
+        //
+        // Die Tonspur hat sonst NICHTS: kein NACK vom Server, kein FlexFEC
+        // (Chrome handelt es nicht aus). Sie wartet im Jitterpuffer trotzdem
+        // dieselben 100 ms wie das Bild.
+        if frame_ms >= 10 {
+            opts.set("fec", "1");
+            opts.set("packet_loss", "5");
+        }
         let opened = encoder.open_with(opts).context("open libopus encoder")?;
         let frame_samples = (sample_rate as usize / 1000) * frame_ms;
         // Stream erst JETZT anlegen: `set_parameters` braucht den geöffneten
