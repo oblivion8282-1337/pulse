@@ -41,6 +41,58 @@ const CONNECT_TIMEOUT_MS = 7000;
 // *picture* still decodes black frames, so it's unaffected too).
 const STALL_RECONNECT_MS = 3500;
 
+// ---- Wiedereinstieg bei anhaltendem Einfrieren ------------------------------
+//
+// **Die Luecke, die das schliesst.** Bis 2026-08-05 gab es fuer ein Einfrieren
+// MITTEN in der Wiedergabe keinen einzigen Ausweg:
+//
+// * Der Startup-Watchdog daneben (`STALL_RECONNECT_MS`) entwaffnet sich
+//   dauerhaft, sobald EIN Bild dekodiert hat — genau so ist er gemeint, er
+//   soll einen kurzen Aussetzer mitten im Bild nicht bekaempfen.
+// * Der Verbindungs-Handler feuert nie, weil die PeerConnection `connected`
+//   bleibt: es kommen ja weiter Pakete, nur wird nichts mehr daraus.
+//
+// Ein Decoder, der aussteigt, faellt damit in ein Loch, aus dem ihn nichts mehr
+// herausholt. Der Zuschauer sieht ein Standbild, `framesReceived` laeuft
+// weiter, und jede Kennzahl ausser dieser sieht gesund aus. Genau das Muster
+// steht in der 10-Bit-Messakte (`browser-2026-08-01-windows-av1-10bit.json`),
+// tritt aber nicht nur dort auf — ein VAAPI-/D3D11-Decoder kann aus jedem
+// Grund aufgeben.
+//
+// **Warum eine frische Verbindung und nicht nur ein Vollbild.** Ein Vollbild
+// fordert der Browser laengst selbst an (PLI), und zwar ohne Unterlass — es
+// hilft eben nicht, wenn der DECODER hin ist und nicht der Strom. Was hilft,
+// ist ein neuer Decoder, und den gibt es nur mit einer neuen PeerConnection.
+
+/**
+ * Wie lange eingefroren, bevor die Sitzung erneuert wird.
+ *
+ * `frozen` bedeutet bereits „`framesReceived` steigt, `framesDecoded` nicht,
+ * seit mindestens 2 s" (s. `whep-stats.ts`) — hier wird also noch einmal
+ * gewartet, statt sofort zu handeln. Sechs Sekunden, weil kurze Aussetzer
+ * (Vollbild unterwegs, Netzstoss) sich in dieser Zeit von selbst erledigen und
+ * ein Neuaufbau teurer waere als das Problem.
+ */
+const FREEZE_RECYCLE_SECONDS = 6;
+
+/**
+ * Wie oft hoechstens. Danach eine Fehlermeldung statt eines weiteren Versuchs:
+ * liegt die Ursache dauerhaft beim Zuschauer (Treiber, Bittiefe, kaputter
+ * Decoder-Pfad), waere jeder weitere Aufbau nur eine Endlosschleife — und jede
+ * davon kostet den SENDER ein Vollbild, das alle anderen Zuschauer mitbezahlen.
+ */
+const FREEZE_RECYCLE_MAX = 3;
+
+/**
+ * Nach so langer stoerungsfreier Wiedergabe zaehlt die Sperre wieder von vorn.
+ *
+ * Ohne das waere ein Stream, der nach zwei Stunden zum dritten Mal kurz
+ * haengt, endgueltig verloren — obwohl die drei Ereignisse nichts miteinander
+ * zu tun haben. Die Grenze soll „dieselbe Ursache immer wieder" treffen, nicht
+ * „drei unabhaengige Wackler an einem Abend".
+ */
+const FREEZE_RECYCLE_FORGET_MS = 120_000;
+
 export type StreamPhase = 'connecting' | 'playing' | 'retrying' | 'error';
 
 /**
@@ -106,6 +158,12 @@ export class ManagedHqStream {
   // Startup-black watchdog (see STALL_RECONNECT_MS): monotonic ms when "playing
   // but still zero decoded frames" began (0 = not currently stalled).
   #stalledSince = 0;
+  // Wie oft wegen anhaltenden Einfrierens schon neu aufgebaut wurde, und wann
+  // zuletzt (s. `FREEZE_RECYCLE_*`). Bewusst NICHT in `#start()` zurückgesetzt:
+  // dort steht dieselbe Zahl nach jedem Neuaufbau wieder auf null und die
+  // Grenze griffe nie.
+  #freezeRecycles = 0;
+  #lastFreezeRecycleAt = 0;
   // Letzte Nicht-Null-Lautstärke für den Mute-Toggle.
   #prevVolume = 100;
 
@@ -264,6 +322,43 @@ export class ManagedHqStream {
     }, wait);
   }
 
+  /**
+   * Entscheidet über den Wiedereinstieg bei anhaltendem Einfrieren.
+   *
+   * `true` = die Sitzung soll erneuert werden. Ist die Grenze erreicht, setzt
+   * die Methode selbst auf `error` und gibt `false` zurück — der Aufrufer
+   * bleibt damit eine Zeile.
+   */
+  #handleFreeze(next: StreamStats): boolean {
+    const now = performance.now();
+    if (!next.frozen) {
+      // Lange genug sauber gelaufen? Dann zählt die Sperre wieder von vorn.
+      if (this.#freezeRecycles > 0 && now - this.#lastFreezeRecycleAt > FREEZE_RECYCLE_FORGET_MS) {
+        this.#freezeRecycles = 0;
+      }
+      return false;
+    }
+    if (next.freezeSeconds < FREEZE_RECYCLE_SECONDS) return false;
+    if (this.#freezeRecycles >= FREEZE_RECYCLE_MAX) {
+      // Nur EINMAL umschalten: sonst überschriebe jede Sekunde denselben
+      // Zustand und ein späterer Retry-Versuch käme nie durch.
+      if (this.phase !== 'error') {
+        this.phase = 'error';
+        this.detail = m.hq_stream_frozen_give_up();
+        console.warn('[whep] dauerhaft eingefroren, aufgegeben', next.diagnostic);
+      }
+      return false;
+    }
+    this.#freezeRecycles += 1;
+    this.#lastFreezeRecycleAt = now;
+    console.warn(
+      `[whep] eingefroren seit ${next.freezeSeconds.toFixed(1)} s — Sitzung wird erneuert ` +
+        `(${this.#freezeRecycles}/${FREEZE_RECYCLE_MAX})`,
+      next.diagnostic,
+    );
+    return true;
+  }
+
   async #start(): Promise<void> {
     if (this.#disposed) return;
     await this.#teardown();
@@ -373,6 +468,7 @@ export class ManagedHqStream {
             this.#stalledSince = 0;
             recycle();
           }
+          if (this.#handleFreeze(next)) recycle();
         }
       }, 1000);
     } catch (e) {
