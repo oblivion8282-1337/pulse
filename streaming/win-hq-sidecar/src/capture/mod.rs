@@ -220,13 +220,44 @@ pub(crate) fn min_interval_settings(max_fps: u32) -> MinimumUpdateIntervalSettin
     if max_fps == 0 {
         return MinimumUpdateIntervalSettings::Default;
     }
-    if max_fps == 60 {
-        return MinimumUpdateIntervalSettings::Default;
-    }
+    // **Hier stand bis 2026-08-05 eine Ausnahme fuer `max_fps == 60`**, die die
+    // Drosselung ganz abschaltete. Sie kam aus dem Win10-Kompatibilitaets-Commit
+    // `348fd8cd`, dessen Begruendung `MinUpdateInterval` als etwas beschreibt,
+    // das "Streams mit reduzierter fps" betreffe. Dahinter steckt die Annahme,
+    // bei 60 gebe es nichts zu drosseln — und die gilt nur, wenn der Bildschirm
+    // hoechstens 60 Hz laeuft. WGC liefert ohne Deckel mit der
+    // WIEDERHOLRATE DES SCHIRMS, nicht mit der Zielbildrate.
+    //
+    // Auf einem 280-Hz-Schirm (am 2026-08-05 auf der Entwicklungsmaschine
+    // gemessen: primaer 280 Hz, daneben zweimal 144) holt der Encode-Takt damit
+    // rund viereinhalb Bilder je Takt ab und wirft dreieinhalb davon weg. Die
+    // Verwuerfe erscheinen in KEINEM Zaehler: `capture_drops` kennt nur
+    // Pool-Erschoepfung und Rueckstau. Bezahlt werden sie trotzdem — in
+    // Kopien ueber den geteilten D3D11-Immediate-Context, also genau auf dem
+    // Weg, der auch die Bildgleichmaessigkeit traegt.
+    //
+    // **Was das NICHT behebt:** das vom Nutzer berichtete Ruckeln. Ein Test mit
+    // dem Schirm auf 60 Hz (also derselbe Effekt von Hand hergestellt) aenderte
+    // am 2026-08-05 nichts. Diese Aenderung ist Sparsamkeit und ehrliche
+    // Inhaltszeit, nicht die Ruckel-Ursache.
     if !session_has("MinUpdateInterval") {
         eprintln!("[capture] MinUpdateInterval fehlt auf diesem Windows (< 24H2) — Capture ungedrosselt, Pacing-Loop taktet");
         return MinimumUpdateIntervalSettings::Default;
     }
-    // min update interval = 1/fps; bei 30fps z.B. ~33ms. Crate clampt wenn nötig.
-    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(1.0 / max_fps as f64))
+    // Deckel = 1/fps, ABER mit einem Zehntel Sicherheitsabstand.
+    //
+    // Der Abstand ist noetig, sobald Zielbildrate und Wiederholrate
+    // zusammenfallen (60 auf 60 Hz): traefe der Deckel den Bildabstand exakt,
+    // wuerde ein Bild, das eine Haarspitze zu frueh kommt, unterdrueckt — aus
+    // 60 wuerden 59 mit einem sichtbaren Aussetzer je Sekunde. Das ist der
+    // Grund, warum die Ausnahme oben ueberhaupt plausibel wirkte; sie hat das
+    // Problem nur mit dem Holzhammer geloest.
+    //
+    // Bei 60 sind das 15,0 ms statt 16,7 — der Schirm mit 280 Hz kommt damit
+    // auf hoechstens ~66 Bilder je Sekunde statt 280, und ein 60-Hz-Schirm
+    // verliert keines. Fuer reduzierte Bildraten aendert der Abstand praktisch
+    // nichts (30 fps: 30,0 statt 33,3 ms, die Quelle liefert dort ohnehin
+    // seltener).
+    let deckel = 0.9 / max_fps as f64;
+    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(deckel))
 }
