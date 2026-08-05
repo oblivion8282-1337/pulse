@@ -104,8 +104,10 @@
 //! **Erstens also: die Abhilfe wird gestaffelt, statt die Erkennung
 //! geschaerft.**
 //! Schaerfen hiesse Schwellen hochdrehen, und das verzoegert nur die echte
-//! Rettung. Gestaffelt heisst: der erste Verdacht wird sofort behandelt (wie
-//! bisher, nach 90 Bildern); meldet sich derselbe Verdacht wieder, ohne dass
+//! Rettung. Gestaffelt heisst: der erste Verdacht wird sofort behandelt
+//! (damals nach 90 Bildern; seit dem 2026-08-06 zusaetzlich gegen
+//! [`EINFRIER_DAUER`] gemessen, s. den Abschnitt zum Takt weiter unten);
+//! meldet sich derselbe Verdacht wieder, ohne dass
 //! die Wiedergabe zwischendurch nachweislich lief, verdoppelt sich der
 //! Pruefabstand — hoechstens [`MAX_STUFE`]-mal. Ein voellig stehendes Bild
 //! kostet damit statt 40 erzwungener Vollbilder je Minute noch 7, und ein
@@ -152,6 +154,9 @@
 //! nicht bitgleich wieder heraus; ein erzwungenes Vollbild ist dieselbe
 //! Neucodierung, nur auf einen Schlag. Die Pruefung haette bei jedem Standbild
 //! „hat geholfen!" gemeldet und die Staffelung sofort zurueckgesetzt.
+//! (Der Schluss steht; **„im Takt der wandernden Auffrischung" ist widerlegt** —
+//! es ist der Vollbild-Takt und laeuft ohne Intra-Refresh genauso, s. den
+//! Abschnitt zum Takt weiter unten.)
 //!
 //! Zurueckgesetzt wird deshalb an einem Merkmal, das dieses Rauschen nicht
 //! traegt: **ueber Sekunden anhaltende Bewegung** (s. [`BEWEGUNGS_FENSTER`]
@@ -161,12 +166,133 @@
 //!
 //! **Zweitens: der Abdruck liest jedes Byte** — Begruendung und Kosten stehen
 //! bei [`bild_abdruck`].
+//!
+//! ---
+//!
+//! ## Der Takt, in dem sich ein Standbild aendert (nachgemessen 2026-08-06)
+//!
+//! Oben steht, der Fingerabdruck aendere sich bei stehendem Inhalt „exakt alle
+//! 118 Bilder, **im Takt der wandernden Auffrischung** des Senders". Die Zahl
+//! stimmt ungefaehr (hier 117); **die Zuschreibung ist falsch** — derselbe Takt
+//! laeuft ohne Intra-Refresh genauso.
+//!
+//! Sechsundsechzig Laeufe ueber die echte Kette, je Betriebsart mehrere Runden
+//! abwechselnd gefahren; volle Messakte in
+//! `streaming/testbench/profiles/player-2026-08-06-standbild-takt.json`.
+//! Gemessen wird der **Abstand zwischen zwei veraenderten Bildern**: 1 heisst
+//! „jedes Bild ist neu", N heisst „N-1 Bilder blieben bitgleich". Groesster
+//! Abstand je Betriebsart, beide Runden gleich, mit Intra-Refresh wie ohne:
+//!
+//! | fps | AV1 1080p | AV1 1440p | H.264 1080p | Periode = fps x 2 |
+//! |---|---|---|---|---|
+//! | 30 | 57 | — | 48 | 60 |
+//! | 60 | 117 | 119 | 103 | 120 |
+//! | 144 | 285 | — | — | 288 |
+//!
+//! **Was den Takt setzt, ist der Vollbild-Abstand des Senders, nicht die
+//! Auffrischung.** Alle drei Sidecars stellen ihn auf zwei Sekunden —
+//! `set_gop(cfg.fps * 2)` in allen drei Encoder-Wegen des Windows-Sidecars,
+//! `(fps * 2).max(1)` auf macOS, `keyframe_abstand_bilder()` auf Linux; in
+//! Bildern also **2 x fps**, genau die Periode oben. Der Player bestaetigt es
+//! unabhaengig: seine eigene Vollbild-Meldung nennt 1999 bis 2001 ms. Im
+//! Intra-Refresh-Betrieb kommt gar kein zweites Vollbild (gemessen: **eines**
+//! in 40 s) und der Takt ist trotzdem derselbe — NVENC richtet die Dauer eines
+//! Auffrischungsdurchlaufs am GOP aus. Wer die Auffrischung fuer die Ursache
+//! haelt, sucht bei abgeschaltetem Intra-Refresh nach einer zweiten Erklaerung,
+//! wo es nur eine gibt.
+//!
+//! **Wie viel der Periode bitgleich bleibt, haengt am Inhalt** — von 0 (AV1 auf
+//! dichtem Text) ueber 6 von 120 (H.264 auf dichtem Text) bis 117 von 120. Das
+//! erklaert auch die 72 in der Tabelle vom 2026-08-05: dieselbe Frage, anderer
+//! Ladebildschirm. Die Periode war dort dieselbe, nur stand weniger von ihr
+//! still — die Zahl ist keine Encoder-Konstante und taugt nicht als eine.
+//!
+//! ### Damit ist der Fehlalarm ein Einheitenfehler
+//!
+//! [`EINFRIER_BILDER`] zaehlt **Bilder**, der Takt laeuft in **Sekunden**. 90
+//! Bilder sind bei 30 fps drei Sekunden (ueber der Periode → Fehlalarm
+//! unmoeglich), bei 60 anderthalb (darunter → moeglich), bei 144 sechs Zehntel.
+//! Die Oberflaeche laesst bis 360 Bilder je Sekunde zu
+//! (`capabilities.hqFpsMax`) — je hoeher die Bildrate, desto sicherer der
+//! Fehlalarm, ohne dass sich am Inhalt irgendetwas aendert. Gegengeprueft auf
+//! **44 Zeilen Terminal-Text wie im Vorfall, echte Schwellen, nichts
+//! abgesenkt**, zwei Runden zu je 40 s: mit 90 Bildern Fenster **2 / 3**
+//! Meldungen, mit 121 nur noch **0 / 1**.
+//!
+//! Deshalb steht neben dem Bilder-Zaehler jetzt [`EINFRIER_DAUER`] — dieselbe
+//! Frage, in der Einheit gestellt, in der die Antwort liegt.
+//!
+//! **In der laufenden Kette nachgewiesen**, sechs Paare zu je 60 s auf dem
+//! Inhalt des Vorfalls, DASSELBE Binary in beiden Armen
+//! (`PULSE_PLAYER_EINFRIER_MS=1` schaltet die Zeitbedingung ab und stellt den
+//! vorigen Stand her — sauberer als zwei Binaries): **12 Meldungen vorher
+//! (2,2,2,3,1,2), 2 nachher (0,0,1,0,1,0)**, bei vergleichbarer Lage in beiden
+//! Armen (der Encoder erreichte in 6 von 6 bzw. 5 von 6 Laeufen einen
+//! Fixpunkt). Laufender Inhalt, drei Runden: jedes Bild neu, **null**
+//! Meldungen — der Normalbetrieb ist unveraendert.
+//!
+//! ### Aber die Periode ist keine Obergrenze — deshalb bleibt die Staffelung
+//!
+//! Naheliegend waere jetzt „Fenster ueber die Periode, fertig". **Die zweite
+//! Runde widerlegt das**: auf demselben Inhalt stand das Bild dort einmal
+//! **239 Bilder** lang bitgleich — zwei volle Perioden, das Vollbild
+//! rekonstruierte zweimal hintereinander exakt den Fixpunkt. Ein Lauf ist ein
+//! VIELFACHES der Periode, und welches, ist unbeschraenkt. (Runde 1 sah keinen
+//! Lauf ueber 120 und haette „vollstaendig geloest" ergeben — die
+//! Zwei-Runden-Regel aus `streaming/testbench/README.md` hat wieder
+//! zugeschlagen.) Also: **kein Fenster beseitigt den Fehlalarm, es verringert
+//! ihn.** Nach oben begrenzt ihn weiterhin allein die Staffelung
+//! ([`MAX_STUFE`]); [`EINFRIER_DAUER`] nimmt ihr die Faelle ab, in denen das
+//! Fenster innerhalb EINER Periode lag — und das sind fast alle. Die Zahl ueber
+//! zwei Perioden zu legen kaufte 4,5 s verzoegerte Rettung fuer einen Fall, den
+//! die Staffelung nach der ersten Meldung ohnehin abfaengt.
+//!
+//! **Verworfen: das Fenster den Takt selbst beobachten lassen** — den groessten
+//! gesehenen Abstand mitschreiben und das Fenster darueberlegen, dann braeuchte
+//! es gar keine Zahl. **Es ist im Kreis geschlossen**: beobachtbar ist der Takt
+//! nur, waehrend der Inhalt steht — also genau in der Lage, die von einem
+//! Haenger nicht zu trennen ist. Ein haengender Decoder liefert einen immer
+//! groesseren „Takt", das Fenster waechst mit, die Erkennung legt sich selbst
+//! still; mit Deckel ist sie das, was [`MAX_STUFE`] schon ist, nur mit einer
+//! zweiten, schlechter begruendeten Zahl daneben. Zwei weitere Gruende
+//! (Sitzungsbeginn ohne Beobachtung, Umstellung mitten im Strom) stehen in der
+//! Messakte unter `verworfen`.
 
 /// Ab wie vielen unveraenderten Bildern in Folge der Decoder als eingefroren
 /// gilt. 90 sind bei 60 Bildern je Sekunde anderthalb Sekunden — lang genug,
 /// dass eine kurze Standbild-Szene nicht hineinlaeuft, kurz genug, dass ein
-/// Zuschauer nicht minutenlang festhaengt.
+/// Zuschauer nicht minutenlang festhaengt. **Allein genuegt sie nicht**: in
+/// Bildern gemessen, abzugrenzen gegen etwas, das in Sekunden laeuft
+/// ([`EINFRIER_DAUER`]).
 const EINFRIER_BILDER: u32 = 90;
+
+/// Wie lange dasselbe Bild MINDESTENS gestanden haben muss.
+///
+/// **Die eigentliche Untergrenze, und die einzige, die nicht an der Bildrate
+/// haengt.** Der Sender legt alle zwei Sekunden ein Vollbild bzw. einen
+/// abgeschlossenen Auffrischungsdurchlauf hin, und dabei aendert sich das
+/// dekodierte Bild auch bei stehendem Inhalt (Messreihe im Modulkopf); ein
+/// Fenster darunter liegt systematisch INNERHALB einer Periode und sieht dort
+/// ein Standbild, das keines ist. 2500 ms sind die gemessenen 2000 plus ein
+/// Viertel — der Aufschlag deckt den Jitter des Senders (1999–2001 ms), die
+/// Wartezeit bis das Vollbild dekodiert ist, und den Fall, dass die Periode
+/// exakt erreicht wird (gemessen: 120 von 120).
+///
+/// **Was sie NICHT deckt, und das ist nachgemessen statt befuerchtet:** ein
+/// laengeres GOP verschiebt den Takt mit. Mit `PULSE_ENCODER_OPTS=g=600` stand
+/// dasselbe Standbild **597 Bilder** bitgleich (Periode 600 statt 120, wieder
+/// minus drei). `PULSE_KEYFRAME_SECONDS` im Linux-Sidecar erlaubt genau das —
+/// bis zu 10 Sekunden. Wer das hochdreht, holt sich den Fehlalarm zurueck; die
+/// Staffelung faengt ihn dann wie bisher nach der ersten Meldung ab. Windows
+/// und macOS haben den Schalter nicht.
+///
+/// **Nicht gestaffelt** — die Verdopplung bleibt allein bei
+/// [`EINFRIER_BILDER`], damit der schlechteste Fall der bleibt, der bei
+/// [`MAX_STUFE`] steht (12 s bei 60 fps). Bindend ist die laengere der beiden
+/// Bedingungen; die Dauer gewinnt, wenn `Pruefabstand / Ausgaberate` unter ihr
+/// liegt — bei 60 fps nur auf Stufe 0, bei 144 fps auf 0 und 1, bei 30 fps nie.
+/// Also genau dort, wo der Fehlalarm ueberhaupt moeglich ist.
+const EINFRIER_DAUER: std::time::Duration = std::time::Duration::from_millis(2_500);
 
 /// Wie viele Bytes in derselben Zeit hineingegangen sein muessen.
 ///
@@ -174,7 +300,7 @@ const EINFRIER_BILDER: u32 = 90;
 /// beantwortet „kommt ueberhaupt noch etwas an" und haelt die Erkennung von
 /// dem Fall fern, um den sich `session.rs` kuemmert (Abriss). Ob die Bytes
 /// Bildinhalt oder Fuellmaterial tragen, sieht er NICHT.
-const EINFRIER_BYTES: usize = 500_000;
+const EINFRIER_BYTES: u32 = 500_000;
 
 /// Wie oft der Pruefabstand hoechstens verdoppelt wird.
 ///
@@ -193,8 +319,10 @@ const MAX_STUFE: u32 = 3;
 /// wie viele davon sich geaendert haben muessen.
 ///
 /// Der Abstand zu beiden Seiten ist gemessen, nicht geraten: ein Standbild
-/// erzeugt **1 Wechsel je 118 Bilder** (Auffrischungstakt des Senders, s.
-/// Modulkopf), also hoechstens einen je Fenster. Verlangt werden vier — das
+/// erzeugt **einen Wechsel je 117 bis 120 Bilder** (Vollbild-Takt des Senders,
+/// s. Modulkopf; hier stand bis zum 2026-08-06 „118", und die Zuschreibung an
+/// die wandernde Auffrischung war falsch), also hoechstens einen je Fenster —
+/// bei 30 fps sogar nur einen je zweitem Fenster. Verlangt werden vier — das
 /// traegt noch Inhalte, die nur mit 4 Bildern je Sekunde wirklich neu sind
 /// (Diashow, stark gedrosseltes Spiel), und liegt weit ueber dem, was
 /// Neucodierungs-Rauschen liefert.
@@ -232,69 +360,12 @@ const BEWEGUNGS_WECHSEL: u32 = 4;
 /// auf die uebernaechste Meldung aus.
 const BEWEGUNGS_KETTE: u32 = 8;
 
-/// Streufaktor des Abdrucks. Ungerade, also ist jeder Mischschritt umkehrbar —
-/// ein einzelnes veraendertes Byte kann sich nicht herausheben.
-const MISCHER: u64 = 0x517c_c1b7_2722_0a95;
+/// Messwerkzeug fuer den Pruefstand — im Betrieb vollstaendig aus.
+mod messung;
 
-/// Ein einzelner Mischschritt: `wort` in `kette` einrechnen (s. [`MISCHER`]).
-#[inline(always)]
-fn mische(kette: u64, wort: u64) -> u64 {
-    (kette ^ wort).wrapping_mul(MISCHER)
-}
-
-/// Fingerabdruck eines Bildes: **jedes Byte zaehlt**.
-///
-/// **Hier stand bis zum 2026-08-05 eine Stichprobe** — „jedes 1021. Byte
-/// (Primzahl, damit die Schrittweite nicht mit der Zeilenlaenge zusammenfaellt),
-/// hoechstens 4096 Proben. Fuer die Frage ‚hat sich ueberhaupt etwas geaendert'
-/// genuegt das." **Der letzte Satz ist falsch, und er war die Ursache des
-/// gemeldeten Fehlalarms** (voll im Modulkopf): 3000 Proben auf 3,1 MB sind ein
-/// Tausendstel des Bildes, ein blinkender Cursor traf sie zu rund 12 %, und weil
-/// das Raster fest liegt, blieb er dauerhaft unsichtbar. Der Encoder schickte
-/// 4646 kbit/s echten Bildinhalt, der Abdruck meldete „unveraendert".
-///
-/// Eine dichtere Stichprobe waere nur eine kleinere Version desselben Fehlers:
-/// jedes feste Raster hat blinde Flecken, und ein Element, das einmal
-/// danebenliegt, liegt immer daneben. Ein je Bild wechselndes Raster wuerde die
-/// blinden Flecken wandern lassen, aber dann sind zwei Abdruecke nur noch bei
-/// gleichem Raster vergleichbar — das kostet Zustand und macht aus „gleich?"
-/// ein „gleich wie vor N Bildern?". Vollstaendig lesen ist einfacher und die
-/// einzige Variante ohne Restrisiko.
-///
-/// **Kosten, gemessen am 2026-08-05 in derselben Kette** (1080p60 in NV12, 3,1
-/// MB je Bild, zwei Laeufe ueber je 90 s auf demselben Inhalt): Dekodierzeit
-/// je Bild im Mittel **3,78 ms mit der Stichprobe, 4,11 ms mit dem
-/// vollstaendigen Abdruck** — 0,33 ms oder 9 %, bei unveraenderter Bildrate.
-/// Das ist der Preis dafuer, dass ein veraendertes Bild nicht mehr durchrutschen
-/// kann. Vier unabhaengige Ketten, damit die Multiplikationen einander nicht
-/// blockieren; gelesen wird in 8-Byte-Woertern.
-///
-/// Fuer groessere Bilder waechst er linear mit (1440p in 10 bit sind rund
-/// 11 MB, also gut das Dreifache). Wird das eng, ist die Y-Ebene allein der
-/// naechste Schritt — sie traegt zwei Drittel der Daten, und ein bewegtes
-/// Element ohne jede Helligkeitsaenderung gibt es praktisch nicht.
-fn bild_abdruck(planes: &[Vec<u8>]) -> u64 {
-    let mut ketten = [MISCHER; 4];
-    for plane in planes {
-        // Die Laenge gehoert dazu: sonst gaeben zwei verschieden grosse Ebenen
-        // mit gleichem Anfang denselben Abdruck.
-        ketten[0] = mische(ketten[0], plane.len() as u64);
-
-        let bloecke = plane.chunks_exact(32);
-        let rest = bloecke.remainder();
-        for block in bloecke {
-            for (kette, bytes) in ketten.iter_mut().zip(block.chunks_exact(8)) {
-                let wort = u64::from_le_bytes(bytes.try_into().unwrap());
-                *kette = mische(*kette, wort);
-            }
-        }
-        for (i, byte) in rest.iter().enumerate() {
-            let kette = &mut ketten[i % 4];
-            *kette = mische(*kette, u64::from(*byte));
-        }
-    }
-    ketten.iter().fold(0u64, |abdruck, &kette| mische(abdruck, kette))
-}
+/// Fingerabdruck eines dekodierten Bildes (s. [`abdruck::bild_abdruck`]).
+mod abdruck;
+use abdruck::bild_abdruck;
 
 /// Zustand der Einfrier-Erkennung. Bewusst ohne jeden FFmpeg-Bezug, damit die
 /// Entscheidung ohne Decoder pruefbar ist.
@@ -304,6 +375,11 @@ pub struct EinfrierWacht {
     /// Folge NICHT geaendert hat.
     letzter_abdruck: Option<u64>,
     gleiche_bilder: u32,
+    /// Wann sich das Bild zuletzt geaendert hat — die zweite Bedingung neben
+    /// dem Zaehler (s. [`EINFRIER_DAUER`]). `None` heisst „noch kein Bild
+    /// gesehen"; dann steht auch `gleiche_bilder` auf 0 und es kann nichts
+    /// melden.
+    letzte_aenderung: Option<std::time::Instant>,
     /// Bytes, die seit dem letzten VERAENDERTEN Bild hineingegangen sind.
     bytes_seit_bild: usize,
     /// Laufendes Bewegungsfenster: Bilder darin und wieviele davon neu waren.
@@ -313,6 +389,8 @@ pub struct EinfrierWacht {
     bewegte_fenster: u32,
     /// Meldungen seit der letzten nachweislich bewegten Wiedergabe.
     stufe: u32,
+    /// Nur mit `PULSE_PLAYER_TAKT_LOG=1` (s. [`messung::TaktDiagnose`]).
+    takt: Option<messung::TaktDiagnose>,
 }
 
 impl EinfrierWacht {
@@ -323,14 +401,31 @@ impl EinfrierWacht {
 
     /// Ein ausgegebenes Bild mitzaehlen.
     pub fn bild(&mut self, planes: &[Vec<u8>]) {
+        self.bild_zur_zeit(planes, std::time::Instant::now());
+    }
+
+    /// Wie [`EinfrierWacht::bild`], mit gesetzter Uhr.
+    ///
+    /// Die Uhr ist herausgezogen, weil [`EINFRIER_DAUER`] sonst nicht pruefbar
+    /// waere: ein Test fuettert 3600 Bilder in Millisekunden, `Instant::now()`
+    /// bliebe dabei praktisch stehen und JEDE Meldung fiele aus — der Test
+    /// waere gruen, ohne irgendetwas gezeigt zu haben.
+    fn bild_zur_zeit(&mut self, planes: &[Vec<u8>], jetzt: std::time::Instant) {
         let abdruck = bild_abdruck(planes);
         let veraendert = self.letzter_abdruck != Some(abdruck);
         if veraendert {
             self.letzter_abdruck = Some(abdruck);
             self.gleiche_bilder = 0;
             self.bytes_seit_bild = 0;
+            self.letzte_aenderung = Some(jetzt);
         } else {
+            // `letzte_aenderung` steht hier immer: in diesen Zweig kommt man
+            // nur mit einem vorherigen Bild, und das erste Bild gilt per
+            // `letzter_abdruck == None` immer als veraendert.
             self.gleiche_bilder = self.gleiche_bilder.saturating_add(1);
+        }
+        if messung::takt_log() {
+            self.takt.get_or_insert_with(messung::TaktDiagnose::default).bild(veraendert);
         }
         self.bewegung_fortschreiben(veraendert);
     }
@@ -376,12 +471,41 @@ impl EinfrierWacht {
     /// „veraendert" durchgehen, egal was es zeigt: das Bewegungsfenster
     /// bekaeme bei jedem Standbild einen geschenkten Wechsel.
     pub fn eingefroren(&mut self) -> bool {
-        if self.gleiche_bilder < self.schwelle() || self.bytes_seit_bild < EINFRIER_BYTES {
+        self.eingefroren_zur_zeit(std::time::Instant::now())
+    }
+
+    /// Wie [`EinfrierWacht::eingefroren`], mit gesetzter Uhr — Begruendung bei
+    /// [`EinfrierWacht::bild_zur_zeit`].
+    fn eingefroren_zur_zeit(&mut self, jetzt: std::time::Instant) -> bool {
+        let boden = messung::zahl("PULSE_PLAYER_EINFRIER_BYTES", EINFRIER_BYTES) as usize;
+        // Drei Bedingungen, drei verschiedene Fragen: steht das Bild lange
+        // genug in BILDERN (haelt die Erkennung scharf, wenn die Ausgaberate
+        // einbricht), steht es lange genug in SEKUNDEN (haelt sie vom
+        // Vollbild-Takt des Senders fern, s. [`EINFRIER_DAUER`]), und kommt
+        // ueberhaupt noch etwas an (s. [`EINFRIER_BYTES`]).
+        let dauer = self.mindestdauer();
+        let lange_genug = self
+            .letzte_aenderung
+            .is_some_and(|t| jetzt.saturating_duration_since(t) >= dauer);
+        if self.gleiche_bilder < self.schwelle() || !lange_genug || self.bytes_seit_bild < boden {
+            return false;
+        }
+        if messung::abhilfe_aus() {
+            // Weiterzaehlen lassen, nur nicht eingreifen — sonst misst der
+            // Pruefstand die Nachwirkung der Rettung statt des Senders.
+            self.gleiche_bilder = 0;
+            self.bytes_seit_bild = 0;
             return false;
         }
         self.stufe = (self.stufe + 1).min(MAX_STUFE);
         self.gleiche_bilder = 0;
         self.bytes_seit_bild = 0;
+        // Die Uhr faengt mit, sonst waere zwischen zwei Meldungen nur noch der
+        // Bilder-Zaehler im Weg: bei 144 Bildern je Sekunde sind 180 Bilder
+        // 1,25 Sekunden und damit wieder kuerzer als der Vollbild-Takt des
+        // Senders. So gilt „mindestens [`EINFRIER_DAUER`] Stillstand" zwischen
+        // JE ZWEI Rettungen, nicht nur vor der ersten.
+        self.letzte_aenderung = Some(jetzt);
         // Die laufende Bewegungsrechnung faellt weg: was jetzt kommt, ist
         // zuerst die Wirkung der Rettung und nicht der Inhalt.
         self.fenster_zuruecksetzen();
@@ -391,7 +515,18 @@ impl EinfrierWacht {
 
     /// Wie viele unveraenderte Bilder derzeit noetig sind.
     pub fn schwelle(&self) -> u32 {
-        EINFRIER_BILDER << self.stufe
+        messung::zahl("PULSE_PLAYER_EINFRIER_BILDER", EINFRIER_BILDER) << self.stufe
+    }
+
+    /// Wie lange das Bild zusaetzlich gestanden haben muss (s.
+    /// [`EINFRIER_DAUER`]).
+    ///
+    /// Wie [`EinfrierWacht::schwelle`] die eine Stelle, an der die Zahl
+    /// herkommt — geprueft wird gegen sie, und die Diagnoseausgabe nennt
+    /// dieselbe. Zwei getrennte Abfragen der Umgebung koennten
+    /// auseinanderlaufen, und das faellt ausgerechnet im Log nicht auf.
+    pub fn mindestdauer(&self) -> std::time::Duration {
+        messung::dauer("PULSE_PLAYER_EINFRIER_MS", EINFRIER_DAUER)
     }
 
     /// Wievielte Meldung ohne zwischenzeitlich laufende Wiedergabe das war —
@@ -410,108 +545,117 @@ mod tests {
         vec![vec![n; 300_000], vec![n ^ 0x5a; 150_000]]
     }
 
-    /// Fuettert `anzahl` gleiche Bilder samt Daten und liefert die
-    /// Bildnummern, bei denen gemeldet wurde. 12 kB je Bild sind bei 60 fps
-    /// rund 5,8 Mbit/s — genau die Lage, in der ein fuellender Encoder die
-    /// Byte-Schwelle traegt, obwohl der Inhalt steht.
-    fn stehendes_bild(wacht: &mut EinfrierWacht, anzahl: u32) -> Vec<u32> {
+    /// Gestellte Uhr: ein Bild je `1/fps` Sekunde.
+    ///
+    /// **Ohne sie pruefen die Tests unten die Haelfte der Bedingung nicht.**
+    /// Ein Testlauf schiebt 3600 Bilder in Millisekunden durch;
+    /// `Instant::now()` steht dabei praktisch still, [`EINFRIER_DAUER`] waere
+    /// nie erfuellt, und jeder Test, der eine Meldung erwartet, wuerde
+    /// fehlschlagen — oder, schlimmer, jeder Test, der KEINE erwartet, waere
+    /// gruen, ohne etwas gezeigt zu haben.
+    struct Uhr {
+        start: std::time::Instant,
+        bilder: u64,
+        fps: u64,
+    }
+
+    impl Uhr {
+        fn mit(fps: u32) -> Self {
+            Self { start: std::time::Instant::now(), bilder: 0, fps: u64::from(fps) }
+        }
+
+        /// Der Zeitpunkt wird jedes Mal aus der Bildnummer gerechnet, nicht
+        /// aufaddiert. Ein aufaddierter Schritt von `1e9 / 60` ns ist um
+        /// 0,67 ns zu kurz — nach 150 Bildern fehlen 100 ns auf 2,5 Sekunden,
+        /// und die Meldung faellt genau ein Bild zu spaet. Das kostete beim
+        /// ersten Durchlauf drei rote Tests und sah aus wie ein Fehler in der
+        /// Sache.
+        fn tick(&mut self) -> std::time::Instant {
+            self.bilder += 1;
+            self.start + std::time::Duration::from_nanos(self.bilder * 1_000_000_000 / self.fps)
+        }
+    }
+
+    /// Fuettert `anzahl` Bilder samt Daten, deren Inhalt an der Bildnummer
+    /// haengt, und liefert die Bildnummern, bei denen gemeldet wurde. 12 kB je
+    /// Bild sind bei 60 fps rund 5,8 Mbit/s — genau die Lage, in der ein
+    /// fuellender Encoder die Byte-Schwelle traegt, obwohl der Inhalt steht.
+    ///
+    /// Ein neuer Puffer entsteht nur, wenn `inhalt` sich aendert: ein
+    /// Standbild ueber 36 000 Bilder legt einen an, nicht 36 000.
+    fn fuettern(
+        wacht: &mut EinfrierWacht,
+        uhr: &mut Uhr,
+        anzahl: u32,
+        inhalt: impl Fn(u32) -> u8,
+    ) -> Vec<u32> {
         let mut alarme = Vec::new();
-        let stand = bild(7);
+        let mut gezeigt = None;
+        let mut planes = Vec::new();
         for i in 0..anzahl {
+            let n = inhalt(i);
+            if gezeigt != Some(n) {
+                gezeigt = Some(n);
+                planes = bild(n);
+            }
+            let jetzt = uhr.tick();
             wacht.daten(12_000);
-            wacht.bild(&stand);
-            if wacht.eingefroren() {
+            wacht.bild_zur_zeit(&planes, jetzt);
+            if wacht.eingefroren_zur_zeit(jetzt) {
                 alarme.push(i);
             }
         }
         alarme
     }
 
+    /// Stehendes Bild: derselbe Inhalt, volle Datenrate.
+    fn stehendes_bild(wacht: &mut EinfrierWacht, uhr: &mut Uhr, anzahl: u32) -> Vec<u32> {
+        fuettern(wacht, uhr, anzahl, |_| 7)
+    }
+
     /// Bewegte Wiedergabe: jedes Bild ist neu.
-    fn bewegtes_bild(wacht: &mut EinfrierWacht, anzahl: u32) {
-        for i in 0..anzahl {
-            wacht.daten(12_000);
-            wacht.bild(&bild((i % 251) as u8 + 1));
-            assert!(!wacht.eingefroren(), "laufendes Bild darf nie melden");
-        }
+    fn bewegtes_bild(wacht: &mut EinfrierWacht, uhr: &mut Uhr, anzahl: u32) {
+        let alarme = fuettern(wacht, uhr, anzahl, |i| (i % 251) as u8 + 1);
+        assert!(alarme.is_empty(), "laufendes Bild darf nie melden, war {alarme:?}");
     }
 
-    /// Der Fingerabdruck muss zwei Dinge koennen: gleiche Bilder gleich
-    /// abbilden und veraenderte verschieden.
+    /// Der Fall vom 2026-07-31: gleiches Bild, volle Datenrate.
     ///
-    /// **Hier stand bis zum 2026-08-05 „Er liest nur jedes 1021. Byte — die
-    /// Probe MUSS also treffen"**; seither liest er jedes Byte, es gibt also
-    /// keine Probenstellen mehr, die treffen muessten. Die alten Stellen
-    /// bleiben trotzdem im Test: sie sind jetzt der Regressionsschutz gegen
-    /// eine Rueckkehr zur Stichprobe.
+    /// **Hier stand bis zum 2026-08-06 „Die erste Meldung MUSS nach 90 Bildern
+    /// kommen"**, und der Test bestand aus `stehendes_bild(&mut w, 91) ==
+    /// [90]`. Das war die Zahl, die den Fehlalarm erzeugt hat: 90 Bilder sind
+    /// bei 60 fps anderthalb Sekunden und liegen damit INNERHALB des
+    /// Zwei-Sekunden-Takts, in dem der Sender ein Standbild ohnehin veraendert
+    /// (Messreihe im Modulkopf). Bindend ist jetzt [`EINFRIER_DAUER`], also
+    /// 2500 ms — bei 60 Bildern je Sekunde das 150. Bild.
     #[test]
-    fn abdruck_erkennt_veraenderung() {
-        let a = vec![vec![7u8; 300_000], vec![9u8; 150_000]];
-        assert_eq!(bild_abdruck(&a), bild_abdruck(&a.clone()));
-
-        // Erstes Byte.
-        let mut b = a.clone();
-        b[0][0] = 8;
-        assert_ne!(bild_abdruck(&a), bild_abdruck(&b));
-
-        // Eine Stelle, die auch das alte Raster getroffen haette.
-        let mut c = a.clone();
-        c[0][1021 * 50] = 8;
-        assert_ne!(bild_abdruck(&a), bild_abdruck(&c));
-
-        // Andere Groesse zaehlt ebenfalls als Veraenderung.
-        let d = vec![vec![7u8; 299_999], vec![9u8; 150_000]];
-        assert_ne!(bild_abdruck(&a), bild_abdruck(&d));
-
-        // Ein einzelnes Byte irgendwo mittendrin — mit der alten Stichprobe
-        // ging so etwas zu 99,9 % unter.
-        let mut e = a.clone();
-        e[0][123_457] ^= 1;
-        assert_ne!(bild_abdruck(&a), bild_abdruck(&e), "ein Byte muss reichen");
-    }
-
-    /// Der Fall, der den gemeldeten Fehlalarm ausgeloest hat: ein winziges
-    /// bewegtes Element vor stehendem Rest — ein blinkender Cursor. Er MUSS
-    /// auffallen, sonst zaehlt die Erkennung 90 „gleiche" Bilder, waehrend der
-    /// Encoder echten Bildinhalt schickt.
-    ///
-    /// Die Stelle ist bewusst ein blinder Fleck des alten Rasters (jedes 1021.
-    /// Byte). Das ist kein Sonderfall, sondern der Regelfall: von den
-    /// Cursor-Positionen in einem 1080p-Bild sind **87 %** blind.
-    #[test]
-    fn abdruck_bemerkt_blinkenden_cursor() {
-        const STRIDE: usize = 1920; // wie im Log: „Zeilenabstand 1920"
-        let ohne = vec![vec![40u8; STRIDE * 1080], vec![128u8; STRIDE * 540]];
-        let mut mit = ohne.clone();
-
-        let (x0, y0) = (960, 520);
-        let mut altes_raster_traf = false;
-        for y in y0..y0 + 16 {
-            for x in x0..x0 + 8 {
-                let i = y * STRIDE + x;
-                altes_raster_traf |= i % 1021 == 0;
-                mit[0][i] = 235;
-            }
-        }
-        assert!(
-            !altes_raster_traf,
-            "Pruefstelle muss ein blinder Fleck des alten Rasters sein, sonst \
-             prueft der Test nichts"
-        );
-        assert_ne!(
-            bild_abdruck(&ohne),
-            bild_abdruck(&mit),
-            "ein 8x16 grosser Cursor muss den Abdruck aendern"
-        );
-    }
-
-    /// Der Fall vom 2026-07-31: gleiches Bild, volle Datenrate. Die erste
-    /// Meldung MUSS nach 90 Bildern kommen — daran aendert die Staffelung
-    /// nichts, sie greift erst ab der Wiederholung.
-    #[test]
-    fn haengender_decoder_wird_nach_90_bildern_gemeldet() {
+    fn haengender_decoder_wird_nach_zweieinhalb_sekunden_gemeldet() {
         let mut w = EinfrierWacht::default();
-        assert_eq!(stehendes_bild(&mut w, 91), vec![90]);
+        let mut uhr = Uhr::mit(60);
+        assert_eq!(stehendes_bild(&mut w, &mut uhr, 151), vec![150]);
+    }
+
+    /// **Dieselbe Dauer bei jeder Bildrate** — das ist der ganze Zweck von
+    /// [`EINFRIER_DAUER`].
+    ///
+    /// Mit dem reinen Bilder-Zaehler war die erste Meldung bei 30 fps nach drei
+    /// Sekunden faellig, bei 60 nach anderthalb und bei 144 nach sechs
+    /// Zehnteln — ein Unterschied vom Fuenffachen, ohne dass sich am Inhalt
+    /// etwas aenderte. Genau diese Spreizung war der Fehlalarm: unterhalb von
+    /// zwei Sekunden liegt das Fenster im Takt des Senders.
+    #[test]
+    fn erste_meldung_haengt_nicht_mehr_an_der_bildrate() {
+        for fps in [30u32, 60, 144, 240] {
+            let mut w = EinfrierWacht::default();
+            let mut uhr = Uhr::mit(fps);
+            let alarme = stehendes_bild(&mut w, &mut uhr, fps * 4);
+            let erste = *alarme.first().expect("es muss melden");
+            let sekunden = f64::from(erste) / f64::from(fps);
+            assert!(
+                (2.4..=3.2).contains(&sekunden),
+                "bei {fps} fps kam die erste Meldung nach {sekunden:.2} s (Bild {erste})"
+            );
+        }
     }
 
     /// **Die Gegenrichtung**: die Rettung hat gewirkt, das Bild laeuft wieder.
@@ -522,16 +666,17 @@ mod tests {
     #[test]
     fn bewegtes_bild_stellt_das_volle_tempo_wieder_her() {
         let mut w = EinfrierWacht::default();
-        stehendes_bild(&mut w, 3000);
+        let mut uhr = Uhr::mit(60);
+        stehendes_bild(&mut w, &mut uhr, 3000);
         assert_eq!(w.stufe(), MAX_STUFE, "Vorbedingung: Staffel am Anschlag");
 
         // Acht Fenster ununterbrochener Bewegung — s. BEWEGUNGS_KETTE.
-        bewegtes_bild(&mut w, BEWEGUNGS_FENSTER * BEWEGUNGS_KETTE);
+        bewegtes_bild(&mut w, &mut uhr, BEWEGUNGS_FENSTER * BEWEGUNGS_KETTE);
         assert_eq!(w.stufe(), 0, "laufende Wiedergabe muss zuruecksetzen");
         assert_eq!(w.schwelle(), EINFRIER_BILDER);
 
-        // Zweiter Haenger, direkt danach: wieder nach 90 Bildern.
-        assert_eq!(stehendes_bild(&mut w, 91), vec![90]);
+        // Zweiter Haenger, direkt danach: wieder nach 2,5 Sekunden.
+        assert_eq!(stehendes_bild(&mut w, &mut uhr, 151), vec![150]);
     }
 
     /// **Die Rettung darf ihre eigene Staffelung nicht zuruecksetzen.** Nach
@@ -545,19 +690,17 @@ mod tests {
     #[test]
     fn aufholschub_nach_der_rettung_setzt_die_staffelung_nicht_zurueck() {
         let mut w = EinfrierWacht::default();
-        assert_eq!(stehendes_bild(&mut w, 91).len(), 1);
+        let mut uhr = Uhr::mit(60);
+        assert_eq!(stehendes_bild(&mut w, &mut uhr, 151).len(), 1);
         assert_eq!(w.stufe(), 1);
 
         // Der Schub: 240 verschiedene Bilder unmittelbar nach der Meldung —
         // vier Sekunden, so lang wie der laengste live gemessene Nachlauf.
-        for i in 0..240u32 {
-            w.daten(12_000);
-            w.bild(&bild((i % 251) as u8 + 1));
-        }
+        bewegtes_bild(&mut w, &mut uhr, 240);
 
         // Danach steht der Inhalt wieder — die naechste Meldung muss die
         // Staffel WEITER hochzaehlen, nicht bei 1 anfangen.
-        let alarme = stehendes_bild(&mut w, 400);
+        let alarme = stehendes_bild(&mut w, &mut uhr, 400);
         assert!(!alarme.is_empty(), "die Erkennung muss weiter melden");
         assert!(
             w.stufe() >= 2,
@@ -571,7 +714,8 @@ mod tests {
     #[test]
     fn standbild_meldet_immer_seltener() {
         let mut w = EinfrierWacht::default();
-        let alarme = stehendes_bild(&mut w, 3600); // eine Minute bei 60 fps
+        let mut uhr = Uhr::mit(60);
+        let alarme = stehendes_bild(&mut w, &mut uhr, 3600); // eine Minute bei 60 fps
         let abstaende: Vec<u32> = alarme.windows(2).map(|p| p[1] - p[0]).collect();
         assert_eq!(
             &abstaende[..3],
@@ -587,33 +731,43 @@ mod tests {
         assert_eq!(alarme.len(), 7, "40 Meldungen je Minute waren der Fehler");
     }
 
-    /// Das Standbild aus der Messung: alle 118 Bilder aendert die wandernde
-    /// Auffrischung des Senders etwas am Bild. Dieser eine Wechsel darf die
-    /// Staffelung NICHT zuruecksetzen — sonst faellt die Erkennung genau in
-    /// den Zustand zurueck, der den Fehlalarm erzeugt hat.
+    /// **Der Vollbild-Takt des Senders darf gar nicht erst melden.**
     ///
-    /// Auf genau diesem Inhalt kostet der Fehlalarm damit **eine** Meldung
-    /// statt 40 je Minute: nach der ersten steht der Pruefabstand bei 180
-    /// Bildern und liegt damit ueber dem Auffrischungstakt.
+    /// **Hier stand bis zum 2026-08-06 ein schwaecherer Anspruch**: „auf genau
+    /// diesem Inhalt kostet der Fehlalarm EINE Meldung statt 40 je Minute" —
+    /// der Test verlangte `alarme == 1`. Eine Meldung je Standbild-Strecke ist
+    /// eine zu viel: sie leert den Decoder und erzwingt ein Vollbild, ohne dass
+    /// irgendetwas kaputt war. Mit [`EINFRIER_DAUER`] sind es **null**.
+    ///
+    /// Gefahren werden beide gemessenen Enden des Takts: 117 Bilder (AV1,
+    /// 1080p60 auf flaechigem Standbild) und 120 — die volle Periode, so
+    /// gemessen, sooft das Vollbild bitgleich rekonstruierte.
     #[test]
-    fn auffrischungstakt_setzt_die_staffelung_nicht_zurueck() {
-        let mut w = EinfrierWacht::default();
-        let mut alarme = 0;
-        for i in 0..3600u32 {
-            w.daten(12_000);
-            // Alle 118 Bilder ein anderer Inhalt, sonst unveraendert.
-            w.bild(&bild(7 + (i / 118) as u8 % 3));
-            if w.eingefroren() {
-                alarme += 1;
-            }
+    fn vollbild_takt_des_senders_meldet_gar_nicht() {
+        for takt in [117u32, 120] {
+            let mut w = EinfrierWacht::default();
+            let mut uhr = Uhr::mit(60);
+            let alarme = fuettern(&mut w, &mut uhr, 3600, |i| 7 + (i / takt) as u8 % 3);
+            assert!(
+                alarme.is_empty(),
+                "Takt {takt}: der Sender allein darf nichts ausloesen, war {alarme:?}"
+            );
+            assert_eq!(w.stufe(), 0, "Takt {takt}: ohne Meldung keine Staffel");
         }
-        assert_eq!(alarme, 1, "ohne Staffelung waeren es 40 je Minute");
-        assert!(w.stufe() >= 1, "ein Wechsel je 118 Bilder ist keine Bewegung");
-        assert!(
-            w.schwelle() > 118,
-            "Pruefabstand muss ueber den Auffrischungstakt steigen, ist {}",
-            w.schwelle()
-        );
+    }
+
+    /// Die Gegenprobe dazu, und ohne sie waere der Test darueber wertlos: ein
+    /// Bild, das ueber den Takt HINAUS steht, muss weiterhin gemeldet werden.
+    /// Sonst waere „null Meldungen" schlicht eine abgeschaltete Erkennung.
+    #[test]
+    fn stillstand_ueber_den_takt_hinaus_meldet_weiterhin() {
+        let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
+        // Zwei Takte lang brav auffrischen, dann bleibt das Bild stehen.
+        let alarme = fuettern(&mut w, &mut uhr, 3600, |i| {
+            if i < 240 { 7 + (i / 120) as u8 % 3 } else { 9 }
+        });
+        assert!(alarme.len() >= 5, "ein echter Haenger muss melden, waren {}", alarme.len());
     }
 
     /// Die Staffelung darf sich NIE ganz abschalten: auch nach einer langen
@@ -621,7 +775,8 @@ mod tests {
     #[test]
     fn erkennung_bleibt_dauerhaft_scharf() {
         let mut w = EinfrierWacht::default();
-        let alarme = stehendes_bild(&mut w, 36_000); // zehn Minuten
+        let mut uhr = Uhr::mit(60);
+        let alarme = stehendes_bild(&mut w, &mut uhr, 36_000); // zehn Minuten
         assert!(
             alarme.len() >= 45,
             "Erkennung darf nicht einschlafen: nur {} Meldungen",
@@ -636,10 +791,15 @@ mod tests {
     #[test]
     fn ohne_daten_keine_meldung() {
         let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
         let stand = bild(3);
         for _ in 0..1000 {
-            w.bild(&stand);
-            assert!(!w.eingefroren(), "ohne Daten darf nichts gemeldet werden");
+            let jetzt = uhr.tick();
+            w.bild_zur_zeit(&stand, jetzt);
+            assert!(
+                !w.eingefroren_zur_zeit(jetzt),
+                "ohne Daten darf nichts gemeldet werden"
+            );
         }
     }
 
@@ -648,12 +808,14 @@ mod tests {
     #[test]
     fn langsamer_strom_meldet_spaeter_trotzdem() {
         let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
         let stand = bild(11);
         let mut alarme = 0;
         for _ in 0..2000 {
+            let jetzt = uhr.tick();
             w.daten(1000); // 60 kB/s statt 720 kB/s
-            w.bild(&stand);
-            if w.eingefroren() {
+            w.bild_zur_zeit(&stand, jetzt);
+            if w.eingefroren_zur_zeit(jetzt) {
                 alarme += 1;
             }
         }
