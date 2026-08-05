@@ -43,7 +43,18 @@ interface PendingRequest {
  *   1. `$PULSE_PLAYER_BIN` (nur in unverpackten Builds — sonst koennte eine
  *      manipulierte .desktop-Datei beliebige Programme starten)
  *   2. Dev: aufwaerts nach `streaming/pulse-player/target/release/…`
- *   3. Plattform-Standard im Installationsverzeichnis
+ *   3. Verpackt: `resources/hq-sidecar/` — dasselbe Verzeichnis wie der
+ *      Capture-Sidecar (s.u., das ist unter Windows kein Schoenheitsfehler,
+ *      sondern Bedingung)
+ *   4. Plattform-Standard im Installationsverzeichnis
+ *
+ * **Warum der Player unter Windows im `hq-sidecar`-Verzeichnis liegt und nicht
+ * in einem eigenen:** er linkt FFmpeg dynamisch, und Windows sucht die DLLs
+ * eines Prozesses zuerst im Verzeichnis der EIGENEN ausfuehrbaren Datei — nicht
+ * in dem der App. Die FFmpeg-DLLs liegen dort bereits fuer den Capture-Sidecar;
+ * daneben zu ziehen kostet nichts, ein eigener Ordner haette dagegen eine
+ * zweite Kopie derselben ~100 MB verlangt. Bis 2026-08-05 wurde er ueberhaupt
+ * nicht mitgeliefert und diese Suche lief unter Windows daher immer ins Leere.
  *
  * Gibt `null` zurueck statt zu werfen: "nicht vorhanden" ist ein normaler
  * Zustand, kein Fehler.
@@ -73,9 +84,16 @@ export function resolvePlayerBinary(): string | null {
   }
 
   const candidates: string[] = [];
+  // Verpackte App: neben dem Capture-Sidecar unter `resources/hq-sidecar/`
+  // (Begruendung im Kopf der Funktion). `process.resourcesPath` ist in jedem
+  // Electron-Prozess gesetzt; im Dev-Lauf existiert der Pfad einfach nicht.
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'hq-sidecar', BINARY_NAME));
+  }
   if (process.platform === 'linux') {
     candidates.push(`/app/bin/${BINARY_NAME}`);
   } else if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Pulse', 'hq-sidecar', BINARY_NAME));
     candidates.push(path.join(process.env.LOCALAPPDATA, 'Pulse', BINARY_NAME));
   }
   // macOS und alles Uebrige: neben der ausfuehrbaren Datei.
