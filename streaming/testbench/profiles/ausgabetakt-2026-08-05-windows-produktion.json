@@ -79,6 +79,31 @@
       "groesster_abstand_median_ms": 18.6,
       "netz_bis_schirm_median_ms": 2.7,
       "deutung": "Ueber die lokale Schleife ist der Unterschied NICHT messbar: dort ist die Ausgabe schon ohne Takt gleichmaessig (0 zu spaete Bilder). Wer den Ausgabe-Takt lokal prueft, misst nichts — die Aussage braucht eine echte Strecke. Das ist zugleich die Antwort auf die WSL2-Frage: der native MediaMTX zeigt hier keinerlei Ankunftsluecken, die Bewertung der Produktionszahlen haengt also nicht an Docker."
+    },
+    {
+      "reihe": "pmb — Praesentationsart Mailbox gegen Fifo (Ausgabe-Takt AUS, sonst gleicher Aufbau)",
+      "paare": 3,
+      "kontrolle": "Jedes Log nennt die tatsaechlich benutzte Art (`Ausgabe-Takt Mailbox` bzw. `Fifo`) — in allen sechs Laeufen die gewuenschte. Ein stiller Rueckfall auf die Vorgabe ist damit ausgeschlossen.",
+      "mailbox": {
+        "zu_spaet_je_lauf": [19, 23, 24],
+        "sekunden_ohne_ein_zu_spaetes_bild_prozent": [65.2, 52.2, 50.0],
+        "groesster_abstand_median_ms": [32.6, 36.9, 35.0],
+        "groesster_abstand_p90_ms": [155.7, 43.3, 37.5],
+        "sekunden_ueber_33ms_prozent": [41.3, 52.2, 52.2],
+        "netz_bis_schirm_median_ms": [4.4, 4.4, 4.8],
+        "gezeichnet_je_s": [60, 60, 60]
+      },
+      "fifo": {
+        "zu_spaet_je_lauf": [49, 29, 32],
+        "sekunden_ohne_ein_zu_spaetes_bild_prozent": [30.4, 52.2, 52.2],
+        "groesster_abstand_median_ms": [42.7, 34.0, 31.2],
+        "groesster_abstand_p90_ms": [200.4, 44.6, 187.2],
+        "sekunden_ueber_33ms_prozent": [76.1, 52.2, 47.8],
+        "netz_bis_schirm_median_ms": [4.4, 4.3, 4.4],
+        "gezeichnet_je_s": [60, 60, 60]
+      },
+      "deutung": "**KEIN belastbarer Unterschied — und das ist das Ergebnis.** Bei `zu spaet` liegt Mailbox vorn (Median 23 gegen 32), bei `groesster Abstand Median` liegt Fifo vorn (34,0 gegen 35,0), bei `Sekunden ueber 33 ms` sind beide bei 52,2 Prozent. Die Streuung INNERHALB eines Arms (Fifo 29 bis 49) ist so gross wie der Abstand zwischen den Armen. Aus diesen drei Paaren folgt keine Entscheidung; die Vorgabe (Mailbox) bleibt, weil sie nicht schlechter ist und weniger Verzug kostet. Was auffaellt und NICHT gedeutet wird: das erste Paar hat in beiden Armen den schlechtesten Wert — ein Anlauf-Effekt ist plausibel, mit drei Paaren aber nicht zu trennen.",
+      "einschraenkung_dieser_reihe": "Gefahren mit AUSGESCHALTETEM Ausgabe-Takt. Mit eingeschaltetem Takt bestimmt der Zielzeitpunkt, wann gezeichnet wird; die Praesentationsart entscheidet dann nur noch ueber das letzte Stueck. Ob sie DORT etwas ausmacht, ist offen."
     }
   ],
 
@@ -94,7 +119,7 @@
     "Der eigentliche Zielfall der Rueckstaffelung — ein Zuschauer, dessen Decoder dauerhaft ausgestiegen ist und 425 Vollbilder anfordert. Dafuer waere ein absichtlich kaputter Empfaenger noetig; belegt ist hier nur, dass die Staffelung im gesunden Betrieb nichts tut. Die Wirkungsgrenze steht als Test (`dauersturm_landet_bei_einer_je_zwei_sekunden`), nicht als Messung.",
     "Der Ausgabe-Takt unter PAKETVERLUST. Alle sechs Produktionslaeufe hatten Paketverlust 0. Was der Takt tut, wenn Bilder ausfallen, ist offen — der Verdacht ist, dass er dort neutral ist (ein fehlendes Bild hat keinen Zielzeitpunkt), aber das ist eine Vermutung. `verluststrecke.py` setzt den Verlust ueber Linux-`tc` und laeuft auf dieser Maschine nicht.",
     "Ton an gegen Ton aus (der senderseitige Verdacht: Opus wird auf dem Taktfaden kodiert). Alle Laeufe hier mit Ton.",
-    "Mailbox gegen Fifo als Praesentationsart. Der Schalter dafuer ist gebaut (`PULSE_PLAYER_PRESENT_MODE`), die Reihe war zum Zeitpunkt dieser Akte noch nicht ausgewertet.",
+    "Mailbox gegen Fifo MIT eingeschaltetem Ausgabe-Takt — die Reihe oben lief ohne.",
     "PULSE_WHIP_PACING (Paket-Verteilung beim Sender).",
     "Andere Vorhalt-Werte. Gemessen wurde 60 ms gegen 0. Ob 30 oder 100 besser waeren, ist offen; 60 ist gewaehlt, weil es ueber dem beobachteten Ausgabe-Ausschlag liegt und unter dem, was man als Verzoegerung bemerkt.",
     "Bildqualitaet. Der Ausgabe-Takt fasst den Bitstrom nicht an, eine Qualitaetsmessung waere hier ohne Aussage."
@@ -104,7 +129,8 @@
     "**Sender und Zuschauer laufen auf DERSELBEN Maschine.** Der Weg geht zwar ueber die echte Leitung zur Produktion und zurueck, aber Aufnahme, Encode, Decode und Anzeige teilen sich eine GPU und eine CPU. Ein Zwei-Rechner-Aufbau kann andere Zahlen liefern — besonders bei `gezeichnet je s` und beim Ausgabe-Abstand, weil dort die Encoder-Last mit im Spiel ist. **Das ist die Messung, die auf dem Zwei-Rechner-Aufbau des Nutzers nachzuholen ist.**",
     "Der aufgenommene Bildschirminhalt war nicht kontrolliert (Arbeitsflaeche, ueberwiegend ruhig). Bei fester Bitrate schwankt damit, wie schwer der Encoder es hat. Innerhalb eines Paares ist das derselbe Rechner in derselben Minute; ueber die Paare hinweg nicht.",
     "Der Vergleich `alter Anker` gegen `nachgezogener Anker` ist NICHT gepaart gefahren — es sind zwei getrennte Reihen im Abstand von rund einer halben Stunde. Fuer die Verzoegerung (119 gegen 59,5 ms) ist der Unterschied so gross und die Streuung so klein (116-130 gegen 59,4-59,6), dass die Aussage traegt; fuer die Gleichmaessigkeit wurde daraus KEIN Unterschied abgeleitet.",
-    "Die Produktion trug waehrend der Messung einen fremden, echten Stream (H.264 ueber RTMPS, mit Zuschauern). Er wurde nicht angefasst, teilt sich aber Server und Uplink."
+    "Die Produktion trug waehrend der Messung einen fremden, echten Stream (H.264 ueber RTMPS, mit Zuschauern). Er wurde nicht angefasst, teilt sich aber Server und Uplink.",
+    "Drei Paare je Reihe sind das MINDESTE, nicht viel. Bei der Mailbox/Fifo-Reihe reicht es erkennbar nicht (s. dort); beim Ausgabe-Takt traegt es, weil die Arme sich in keiner Kennzahl ueberlappen."
   ],
 
   "lehre": "Eine Zahl allein haette hier das Falsche gesagt. `gap_late` war in der ersten Reihe schon ausgezeichnet (1 bis 5 gegen 7 bis 26) — und derselbe Stand kostete 119 statt 60 ms Verzoegerung, also fast eine weitere Bildfolge, dauerhaft, ohne dass irgendetwas darauf hinwies. Sichtbar wurde es nur, weil `Netz-bis-Schirm` in derselben Zeile steht und die erwartete Groesse bekannt war. Wer eine Verbesserung an ihrer Zielgroesse misst, muss den Preis daneben legen, sonst optimiert er in einen Fehler hinein.",
