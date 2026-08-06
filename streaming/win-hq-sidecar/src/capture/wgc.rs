@@ -78,6 +78,19 @@ pub struct CaptureConfig {
     ///
     /// Kostet Bandbreite über den Bus: 8 Byte je Bildpunkt statt 4.
     pub hdr: bool,
+    /// Die Farbwandlung nach P010 **schon im Aufnahme-Rückruf** rechnen statt
+    /// erst auf dem Taktfaden — dann entfällt die fp16-Zwischenkopie ganz.
+    ///
+    /// Gilt nur zusammen mit [`Self::hdr`]; entschieden wird es an einer Stelle
+    /// (`pipeline_hw::vorstufe::direktwandlung`), Begründung und Preis stehen in
+    /// [`crate::capture::aufnahmeziel`]. Der CPU-Pfad (dieses Modul) ignoriert
+    /// das Feld — er hat gar keinen Pool.
+    pub hdr_direkt: bool,
+    /// Die gewünschte Ziel-Box des Streams (`override_resolution`). Wird nur
+    /// gebraucht, wenn [`Self::hdr_direkt`] gilt: dann legt die Aufnahme ihren
+    /// Pool schon in Zielmaßen an und muss sie deshalb selbst ausrechnen
+    /// (`stream_controller::zielmasse`, dieselbe Funktion wie im Taktfaden).
+    pub ziel_kasten: Option<(u32, u32)>,
 }
 
 impl Default for CaptureConfig {
@@ -88,6 +101,8 @@ impl Default for CaptureConfig {
             max_fps: 60,
             channel_capacity: 4,
             hdr: false,
+            hdr_direkt: false,
+            ziel_kasten: None,
         }
     }
 }

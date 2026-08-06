@@ -112,6 +112,53 @@ impl Vorstufe {
     }
 }
 
+/// **Läuft die Farbwandlung schon im Aufnahme-Rückruf?** Dann gibt es gar keine
+/// Vorstufe mehr, und die fp16-Zwischenkopie entfällt.
+///
+/// Muss **vor** dem Start der Aufnahme beantwortet werden: das Pool-Format
+/// entscheidet sich beim ersten Bild. Preis und Herleitung stehen in
+/// [`crate::capture::aufnahmeziel`], die Messung in
+/// `streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
+///
+/// Drei Fälle, in denen es beim alten Weg bleibt:
+///
+/// 1. **SDR.** Dort wandelt der Video-Prozessor, nicht dieser Shader — eine
+///    andere Sache mit eigener Vorgeschichte. Die Kopie kostet dort gemessen
+///    0,96 ms und bleibt vorerst.
+/// 2. **`PULSE_HQ_HDR_ZWISCHENKOPIE=1`.** Der Notausschalter: stellt den Stand
+///    vor dem 2026-08-07 wieder her, ohne Neubau. Er ist zugleich der zweite
+///    Arm jeder Vorher/Nachher-Messung — beide aus DEMSELBEN Binary, wie bei
+///    `PULSE_PLAYER_EINFRIER_MS` am 2026-08-05.
+/// 3. **Ein angemeldeter Encode-Weg** — und der bricht ab statt zurückzufallen,
+///    s. unten.
+pub(super) fn direktwandlung(params: &StartParams) -> Result<bool> {
+    if !params.hdr {
+        return Ok(false);
+    }
+    if crate::env::flag("PULSE_HQ_HDR_ZWISCHENKOPIE") {
+        eprintln!(
+            "[pipeline-hw] PULSE_HQ_HDR_ZWISCHENKOPIE=1 — Farbwandlung läuft wieder auf dem \
+             Taktfaden, mit fp16-Zwischenkopie in der Aufnahme"
+        );
+        return Ok(false);
+    }
+    if crate::encode::bildencoder::angemeldet().is_some() {
+        // **Abbrechen statt stillschweigend den alten Weg zu nehmen** —
+        // dieselbe Regel wie am Ende von [`bauen`]. Wandelt die Aufnahme
+        // direkt, schreibt der Aufnahme-Faden in das Bild, das der Encoder
+        // gleich liest; die Zusage aus `BildEncoder::vor_dem_schreiben` wäre
+        // dort nicht einzulösen (sie gilt dem Taktfaden, der das Bild vorher
+        // vorzeigt). Still auf die Zwischenkopie auszuweichen hiesse, einen
+        // Messarm unter falschem Etikett zu fahren.
+        bail!(
+            "HDR mit Farbwandlung im Aufnahme-Rückruf und ein angemeldeter Encode-Weg gehen \
+             nicht zusammen: der Aufnahme-Faden beschreibt das Bild, das der Encoder liest, \
+             und kann es ihm vorher nicht zeigen. Abhilfe: PULSE_HQ_HDR_ZWISCHENKOPIE=1"
+        );
+    }
+    Ok(true)
+}
+
 /// Welche Vorstufe dieser Stream braucht — oder keine.
 ///
 /// `None` heißt: das Aufnahme-Bild geht unverändert in den Encoder. Das ist der

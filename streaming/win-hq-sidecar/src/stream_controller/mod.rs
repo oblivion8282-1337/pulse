@@ -36,7 +36,7 @@ use crate::profiles::StreamProfile;
 mod cpu_pipeline;
 mod helpers;
 pub(crate) use cpu_pipeline::run_cpu_pipeline;
-pub(crate) use helpers::{build_argv_redacted, emit_state, fit_within_box};
+pub(crate) use helpers::{build_argv_redacted, emit_state, fit_within_box, zielmasse};
 use helpers::select_adapter;
 
 /// Wie lange `stop()` maximal auf das Auslaufen des Worker-Threads wartet,

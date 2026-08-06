@@ -18,8 +18,10 @@ Leistungsaufnahme mit der CPU), Treiber 32.0.31035.1003, HDR am Schirm an.
 > ersetzen; ohne Abhilfe wären die Begleitdaten bei stehendem Bild unbegrenzt
 > gewachsen. Zahlen, Verfahren und Vorbehalte:
 > `streaming/testbench/profiles/leistung-2026-08-06-vier-befunde.json`.
-> Die drei überholten Behauptungen aus §9 sind ebenfalls berichtigt; §5 (die
-> fp16-Zwischenkopie) und §6.1 stehen weiter offen.
+> Die drei überholten Behauptungen aus §9 sind ebenfalls berichtigt. **Hier
+> stand: „§5 (die fp16-Zwischenkopie) und §6.1 stehen weiter offen" — beides
+> ist am 2026-08-07 erledigt:** die Kopie ist in HDR weg (§5.2), und die
+> Quell-Ansicht wird jetzt abgehängt (§6.1, in `hdr_zeichner.rs::zeichnen`).
 >
 > **Hier stand dazu: „nach der Messung ist §5 jetzt der größte verbliebene
 > Posten". Das ist falsch** — es war eine Zuschreibung, keine Messung. In der
@@ -84,7 +86,7 @@ Die Kette eines Bildes, von der Aufnahme bis zum abgegebenen Paket:
 | Stufe | Wo im Code | Beitrag | Herkunft der Zahl |
 |---|---|---|---|
 | WGC liefert das Bild | `capture/wgc_hw.rs::on_frame_arrived` | ungemessen | — |
-| Kopie in den Aufnahme-Pool | `wgc_hw.rs::copy_into_pool` | **1,82 ms GPU-Zeit** (nicht Verzögerung — asynchroner GPU-Befehl) | Messung 2026-08-06 nachts, s. §5 |
+| ~~Kopie in den Aufnahme-Pool~~ **seit 2026-08-07 in HDR weg** | war `wgc_hw.rs::copy_into_pool`, jetzt `capture/aufnahmeziel.rs` | **1,82 ms GPU-Zeit**, in HDR **eingespart** (s. §5.2) | Messung 2026-08-06 nachts, s. §5 |
 | **Warten auf den nächsten Tick** | `pipeline_hw/mod.rs:331-341` | **0 … 16,7 ms, im Mittel 8,3** | folgt aus der festen Kadenz, s.u. |
 | Farbwandlung / Verkleinerung | `encode/hdr_wandler.rs` bzw. `d3d11_scale.rs` | **1,79 ms GPU-Zeit** (HDR-Weg); `conv` im Monitor ist die CPU-Zeit des Absendens (~25 µs), nicht diese | Messung 2026-08-06 nachts, s. §5.1 |
 | **AMF hält ein Bild zurück** | `encode/encoder_hw.rs::send_avframe` | **17,2 ms** bei 60 fps, 8,9 bei 120 | `encode/codec.rs::amd_forces_d3d12`, Messung 2026-07-30 |
@@ -142,11 +144,17 @@ Ein Bildpunkt der Aufnahme ist bei HDR **8 Byte** (`Rgba16F`, scRGB) statt
 
 | Durchgang | Lesen | Schreiben | wo |
 |---|---|---|---|
-| Kopie in den Aufnahme-Pool | 29,5 MB | 29,5 MB | `wgc_hw.rs::copy_into_pool` |
-| Luma-Durchgang des Shaders | ~29,5 MB | 4,1 MB | `hdr_wandler.rs::ps_luma` |
-| **Chroma-Durchgang des Shaders** | **~29,5 MB** | 2,1 MB | `hdr_wandler.rs::ps_chroma` |
+| ~~Kopie in den Aufnahme-Pool~~ (in HDR seit 2026-08-07 weg, §5.2) | 29,5 MB | 29,5 MB | war `wgc_hw.rs::copy_into_pool` |
+| Luma-Durchgang des Shaders | ~29,5 MB | 4,1 MB | `hdr_zeichner.rs::ps_luma` |
+| **Chroma-Durchgang des Shaders** | **~29,5 MB** | 2,1 MB | `hdr_zeichner.rs::ps_chroma` |
 | Encoder liest das Bild | 6,2 MB | — | AMF |
 | **Summe je Bild** | **~95 MB** | **~36 MB** | |
+
+**Seit dem 2026-08-07 sind das in HDR ~65 MB Lesen und ~6 MB Schreiben** — die
+erste Zeile entfällt, der Shader liest die WGC-Textur direkt. Bei 48,5
+aufgenommenen Bildern je Sekunde sind das 2,9 GB/s weniger Speicherverkehr
+(gerechnet). Die Shader-Zeilen tragen jetzt `hdr_zeichner.rs`, weil der Farbweg
+dorthin gewandert ist; er hat seit dem Umbau zwei Aufrufer.
 
 Rund **130 MB je Bild**, bei 60 Bildern also grob **7,8 GB/s** Speicherverkehr —
 auf einer integrierten Einheit über denselben Bus, an dem die CPU hängt.
@@ -237,8 +245,10 @@ man einen sichtbaren Gewinn gegen einen unsichtbaren Fehler:
 
 ## 4. Befund 2 — der HDR-Shader rechnet den Farbweg doppelt
 
-**Wo.** `streaming/win-hq-sidecar/src/encode/hdr_wandler.rs`, `SHADER_HLSL`,
-`ps_luma` (Z. 148-150) und `ps_chroma` (Z. 152-163).
+**Wo.** War `streaming/win-hq-sidecar/src/encode/hdr_wandler.rs`, `SHADER_HLSL`,
+`ps_luma` und `ps_chroma`; **seit dem 2026-08-07 liegt der Shader in
+`encode/hdr_zeichner.rs`** (er hat einen zweiten Aufrufer bekommen, s. §5.2).
+`hdr_wandler.rs` führt nur noch den Ziel-Pool.
 
 Der Shader läuft in zwei Zeichendurchgängen. Der erste schreibt die Luma-Ebene in
 voller Auflösung und ruft dafür je Bildpunkt einmal `farbe()`. Der zweite schreibt
@@ -287,20 +297,25 @@ Empfehlung, wenn etwas gemacht wird: **(a) probieren, mit Sichtprüfung**, weil 
 die kleinste Änderung mit dem größten Verhältnis ist. **(c)** ist der Weg, falls
 sich (a) farblich als Rückschritt zeigt.
 
-## 5. Befund 3 — die Zwischenkopie in fp16 (**gemessen am 2026-08-06 nachts**)
+## 5. Befund 3 — die Zwischenkopie in fp16 (**gemessen 2026-08-06, behoben 2026-08-07**)
 
-> **Diese Zahl ist nicht mehr gerechnet.** Eine Kopie kostet **1,82 ms** auf der
-> 3D-Einheit des Senders. Der HDR-Shader kostet **1,79 ms** — genauso viel. Ein
-> Umbau, der die Kopie einspart, ist **109 ms je Sekunde** wert, also rund die
-> Hälfte der 3D-Einheit des Senders. Empfehlung: **machen, aber als eigener
-> Schritt und mit dem Zähler zuerst.** Verfahren, Rohwerte, Gegenproben und
-> Grenzen:
+> **Erledigt.** Die Kopie ist in HDR weg: die Farbwandlung läuft seit dem
+> 2026-08-07 im Aufnahme-Rückruf und schreibt direkt nach P010. Gemessen fällt
+> die 3D-Einheit des Senders damit **von 21,2 auf 10,6 Prozent**, also um die
+> Hälfte. Was das im Einzelnen ergeben hat — samt Verlust-Zähler, Standbild-Fall
+> und Sichtprüfung — steht in **§5.2**; Rohwerte in
+> `streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
+>
+> **Diese Zahl war schon vorher nicht mehr gerechnet.** Eine Kopie kostet
+> **1,82 ms** auf der 3D-Einheit des Senders. Der HDR-Shader kostet **1,79 ms** —
+> genauso viel. Verfahren, Rohwerte, Gegenproben und Grenzen jener Messung:
 > `streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`.
-> Das Nötige steht am Ende dieses Abschnitts; der Text davor ist der Stand von
-> vorher und bleibt lesbar, damit man sieht, was die Messung geändert hat.
+> Der Text unten ist der Stand von vorher und bleibt lesbar, damit man sieht, was
+> Messung und Umbau daran geändert haben.
 
-**Wo.** `capture/wgc_hw.rs::copy_into_pool` (Z. 350-374), gerufen aus
-`on_frame_arrived` (Z. 256 und 312).
+**Wo.** War `capture/wgc_hw.rs::copy_into_pool`, gerufen aus `on_frame_arrived`.
+**Seit dem 2026-08-07 liegt beides in `capture/aufnahmeziel.rs`**, weil dort
+nicht mehr nur kopiert, sondern zwischen Kopieren und Wandeln entschieden wird.
 
 Jedes von WGC gelieferte Bild wird zunächst per `CopySubresourceRegion` in eine
 Pool-Textur kopiert. Das ist bei SDR seit jeher so und hat einen guten Grund: die
@@ -387,7 +402,8 @@ eigenen billigen Bildänderung als Quelle.
 Dass der Shader danach **je aufgenommenem Bild** statt je Takt liefe (11 %
 öfter), ist in der Rechnung enthalten.
 
-**Empfehlung: machen — aber als eigener Schritt, und mit dem Zähler zuerst.**
+**Empfehlung (2026-08-06): machen — aber als eigener Schritt, und mit dem Zähler
+zuerst.** *Umgesetzt am 2026-08-07, genau in dieser Reihenfolge — s. §5.2.*
 
 * *Dafür:* der Preis ist jetzt gemessen und groß; auf einer integrierten Einheit,
   die sich Bandbreite und Leistungsbudget mit der CPU **und mit dem Spiel teilt,
@@ -408,15 +424,81 @@ Gemessenen) sind unerklärt. Drei Kandidaten, keiner geprüft — Treiber-/AMF-A
 auf derselben Einheit, die Bildlieferung von WGC selbst, oder eine
 Unterschätzung beider Posten, weil der Störungsversuch den *Grenzpreis* misst.
 
+### 5.2 Was der Umbau gebracht hat (**2026-08-07**)
+
+Gebaut wurde in der Reihenfolge, die §5.1 verlangt hat: **zuerst der Zähler**,
+dann der Umbau, dann die Messung, dann die Sichtprüfung.
+
+**Der Zähler** (`capture/rueckruf.rs`) misst die Verweildauer im
+Aufnahme-Rückruf und macht daraus eine **Obergrenze** WGC-seitig verworfener
+Bilder. Er zählt keine Verluste — die meldet WGC nicht —, sondern nutzt aus,
+dass WGC den Rückruf auf *einem* Faden der Reihe nach aufruft: ein Rückruf, der
+kürzer ist als der Lieferabstand (`0,9/fps`, also 15,0 ms bei 60), kann kein
+Bild kosten. Gezählt wird `floor(dauer / abstand)`. **Eine Null ist damit ein
+Beweis und keine Beobachtung.** Sichtbar in `PULSE_HQ_TRACE` (`cb_n`,
+`cb_sum_us`, `cb_max_us`, `cb_lang`, `cb_verlust`) und in der
+Zwei-Sekunden-Zusammenfassung; ein Fenster mit Verlust gilt dort nicht mehr als
+sauber.
+
+**Der Umbau.** In HDR führt der Aufnahme-Pool jetzt **P010 in Zielmaßen**, der
+Shader liest die WGC-Textur direkt. Es gibt keinen zweiten Pool und keine
+Vorstufe auf dem Taktfaden mehr. Notausschalter und zweiter Messarm:
+`PULSE_HQ_HDR_ZWISCHENKOPIE=1` — **beide Arme kommen aus demselben Binary.**
+SDR ist unangetastet (dort wandelt der Video-Prozessor, eine andere Sache).
+
+| | vorher | nachher | |
+|---|---|---|---|
+| **3D-Einheit, bewegtes Bild** | 21,2 % | **10,6 %** | paarweise −10,66 pp, drei Paare |
+| Video-Einheit | 12,7 % | 12,7 % | unverändert — die Kontrolle stimmt |
+| Aufnahmerate | 48,7/s | 48,4/s | −0,4/s, **ungeklärt**, s.u. |
+| **WGC-seitiger Verlust (Obergrenze)** | 0 | **0** | in allen sechs Läufen |
+| Verweildauer im Rückruf | 17 µs | 28 µs | von 15 000 µs Lieferabstand |
+| verworfene Bilder / PTS-Lücken | 0 / 0 | 0 / 0 | |
+| 3D-Einheit, **stehendes** Bild | 0,43 % | 0,21 % | Bild-Wiederverwendung erhalten |
+| Arbeitszeit je Tick (CPU) | 0,60 ms | 0,48 ms | `conv` fällt ganz weg |
+
+**Drei Dinge daran sind wichtiger als die Prozentzahl:**
+
+1. **Die Bild-Wiederverwendung bei stehendem Bild hat den Umbau überlebt** — und
+   zwar aus einem anderen Grund als vorher: es gibt gar keine Vorstufe mehr, die
+   etwas zwischenspeichern müsste. Der Taktfaden schiebt dasselbe Pool-Bild
+   erneut ein, wie es der Weg *ohne* Vorstufe seit jeher tut. 1,0 Aufnahmen/s und
+   98,3 % stehende Ticks in **allen sechs** Läufen, in beiden Armen gleich.
+   Damit trägt die Idempotenz von `hdr::metadaten_anhaengen` jetzt auch diesen
+   Weg; vorher lief HDR immer über eine Vorstufe.
+2. **Die Sichtprüfung ist bestanden, und zwar zweifach.** Ein Bild aus der Mitte
+   (Nr. 45) je Arm, aus Dateimitschnitten desselben Binarys: unversehrter
+   Desktop, scharfer Text, keine Risse, stimmige Farben — beide Arme gleich.
+   Dazu gerechnet: **PSNR 65,1 dB** über einen Bereich, dessen Inhalt sich
+   zwischen den Läufen nicht ändert. Das ist Encoder-Rauschen, kein Unterschied.
+   *Ein GDI-Bildschirmfoto des Player-Fensters zeigt Grün — in **beiden** Armen,
+   und der SDR-Desktop daneben stimmt. Das ist ein Aufnahme-Artefakt bei
+   Fließkomma-Oberflächen, kein Farbfehler.*
+3. **Ein Rest bleibt offen und gehört niemandem.** Die Aufnahmerate liegt im
+   neuen Arm um 0,4 Bilder/s (0,8 %) niedriger, gleichgerichtet in allen drei
+   Paaren, bei nur 0,1 Streuung innerhalb eines Arms. Es ist **kein** WGC-seitiger
+   Verlust durch einen zu langen Rückruf — die Obergrenze ist überall 0. Drei
+   Kandidaten, keiner geprüft: mehr Streit um die geteilte Sperre, das Anlegen
+   der ersten Pool-Texturen im Rückruf, Streuung der Bewegungsquelle.
+
+**Und ein Posten ist neu und einmalig:** der **allererste** Rückruf kostet jetzt
+13,9–14,6 ms statt 0,3–0,7 (Shader übersetzen, Sampler, Konstantenpuffer,
+Ansichten). Das liegt knapp *unter* dem Lieferabstand von 15,0 ms; in einem
+früheren Rauchtest lag er bei 15,16 ms, und dann zählt die Wacht genau ein Bild.
+Einmalig beim Start eines Streams, nicht im Betrieb — aber nicht null.
+
 ## 6. Kleinere Befunde am Code
 
 Alle drei sind eindeutig, alle drei sind vermutlich klein. Sie stehen hier, damit
 sie nicht verlorengehen, nicht weil sie dringend wären.
 
-**6.1 Die Quell-Ansicht bleibt nach dem Zeichnen gebunden.**
+**6.1 Die Quell-Ansicht bleibt nach dem Zeichnen gebunden.** *(Behoben am
+2026-08-07 — sie wird jetzt in `hdr_zeichner.rs::zeichnen` mit abgehängt. Fällig
+wurde es, weil der Rückruf-Weg diese Überschneidung in jedem Bild hat: dort ist
+die Quelle die WGC-Textur, in die WGC gleich wieder hineinschreibt.)*
 `hdr_wandler.rs::zeichnen` hängt am Ende sorgfältig das Ziel ab
-(`OMSetRenderTargets(None, None)`, Z. 351) — die Quell-Ansicht in
-`PSSetShaderResources` bleibt aber gebunden. Der Aufnahme-Faden schreibt kurz
+(`OMSetRenderTargets(None, None)`) — die Quell-Ansicht in
+`PSSetShaderResources` blieb aber gebunden. Der Aufnahme-Faden schreibt kurz
 darauf per `CopySubresourceRegion` in Pool-Texturen; der Pool umfasst wenige
 Texturen und wird reihum benutzt, also trifft er regelmäßig genau die noch
 gebundene. In eine gebundene Ansicht zu schreiben ist unter D3D11 nicht verboten,
@@ -459,9 +541,11 @@ nichts gefunden:
 * **Keine Umgebungsvariable wird je Bild gelesen.** Geprüft über alle
   `env::flag`/`std::env::var`-Aufrufe: alle liegen im Aufbau oder hinter einem
   `OnceLock`.
-* **Die Ansichten-Zwischenspeicher tun, was sie sollen.** `d3d11_scale` und
-  `hdr_wandler` legen Ansichten je Pool-Textur genau einmal an; im laufenden
-  Betrieb gibt es dort keine Treiber-Aufrufe mehr.
+* **Die Ansichten-Zwischenspeicher tun, was sie sollen.** `d3d11_scale` und der
+  HDR-Farbweg (seit 2026-08-07 `encode/hdr_ansichten.rs`) legen Ansichten je
+  Textur genau einmal an; im laufenden Betrieb gibt es dort keine
+  Treiber-Aufrufe mehr. Das gilt seither auch für die **WGC**-Bildpuffer, die
+  ebenfalls eine feste kleine Menge sind.
 * **Der Aufnahme-Deckel ist bereits gesetzt.** `min_interval_settings` deckelt
   seit dem 2026-08-05 auf `0,9/fps`; die frühere Ausnahme für 60 fps, die auf
   einem 280-Hz-Schirm viereinhalb Bilder je Takt abholen ließ, ist weg.
@@ -514,8 +598,8 @@ Danach, nach erwarteter Wirkung geordnet:
 |---|---|---|---|---|
 | 1 | Umwandlung bei stehendem Bild überspringen (§3) | ganze Vorstufe entfällt auf duplizierten Ticks | ~10 Zeilen + Sichtprüfung | hoch |
 | 2 | Chroma-Durchgang entdoppeln (§4, Weg a) | −37 % Shader-Arbeit im HDR-Weg | ~6 Zeilen + Sichtprüfung | erledigt; der Shader kostet danach gemessen 1,79 ms je Durchgang (§5.1) |
-| 3 | Quell-Ansicht abhängen (§6.1) | Treiber-Überschneidung weg | 1 Zeile | hoch, Wirkung klein |
-| 4 | fp16-Zwischenkopie einsparen (§5) | **−109 ms/s ≈ halbe 3D-Einheit des Senders** (gemessen) | Umbau, Zähler als Vorbedingung | **Nutzen gemessen**, Risiko messbar kleiner als angenommen |
+| 3 | Quell-Ansicht abhängen (§6.1) | Treiber-Überschneidung weg | 1 Zeile | **erledigt 2026-08-07** |
+| 4 | fp16-Zwischenkopie einsparen (§5) | **halbe 3D-Einheit des Senders** | Umbau, Zähler als Vorbedingung | **erledigt 2026-08-07**: gemessen 21,2 → 10,6 %, Verlust-Obergrenze 0 (§5.2) |
 | 5 | Bildrate auf 120 (§1) | −12 ms Verzögerung | Einstellung | hoch, kostet Last |
 
 ## 9. Nebenbefund — drei überholte Behauptungen im Code

@@ -50,7 +50,7 @@ use crate::encode::{
     AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame,
 };
 use crate::events;
-use crate::stream_controller::{StartParams, StreamController};
+use crate::stream_controller::{StartParams, StreamController, zielmasse};
 use crate::system::dxgi::Adapter;
 use crate::tick_monitor::{TickMonitor, TickSample};
 
@@ -66,13 +66,12 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);
 
-    let (capture, hw, width, height, first, first_qpc, origin_instant) =
-        capture_start::start_and_wait_for_setup(
-            params.capture.clone(),
-            fps,
-            params.show_cursor,
-            params.hdr,
-        )?;
+    // Ob die Farbwandlung schon im Aufnahme-Rückruf läuft, muss VOR dem Start
+    // feststehen — das Pool-Format entscheidet sich beim ersten Bild.
+    let direkt_an = vorstufe::direktwandlung(&params)?;
+    let capture_start::Aufnahmestart {
+        capture, hw, width, height, direkt, first, first_qpc, origin_instant,
+    } = capture_start::start_and_wait_for_setup(&params, fps, direkt_an)?;
     // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
     // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     // Massgeblich ist die GPU, auf der WGC sein Device gebaut hat (= die des
@@ -116,18 +115,12 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             _ => crate::stream_controller::run_cpu_pipeline(params, stop_rx),
         };
     }
-    // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
-    // kein Upscale, gerade Maße — deckt auch die NV12-Anforderung #7 ab). Bei
-    // dst==src geht der Capture-Frame direkt in den Encoder; sonst skaliert der
-    // `D3D11Scaler` per `VideoProcessorBlt` auf der GPU davor.
-    let (dst_w, dst_h) = match params.override_resolution {
-        Some((box_w, box_h)) => {
-            crate::stream_controller::fit_within_box(width, height, box_w, box_h)
-        }
-        // Native: nur die NV12-Gerade-Rundung (Fenster-Capture liefert
-        // beliebige Client-Größen), sonst unverändert.
-        None => (width & !1, height & !1),
-    };
+    // Zielmaße: bei Wandlung im Rückruf hat die Aufnahme sie schon gerechnet
+    // und ihren Pool danach angelegt — dann gilt IHRE Antwort, sonst dieselbe
+    // Rechnung hier (`zielmasse`: aspektwahrend in die Box, kein Upscale,
+    // gerade Maße für 4:2:0).
+    let (dst_w, dst_h) =
+        direkt.unwrap_or_else(|| zielmasse(width, height, params.override_resolution));
     // **Das Aufnahmeformat gehört in diese Zeile**, nicht nur die Maße. Es ist
     // die erste von vier Stufen, an denen HDR verlorengehen kann, und die
     // einzige, die man später am fertigen Strom NICHT mehr nachweisen kann:
@@ -135,8 +128,9 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // wird, trägt alle HDR-Merkmale und enthält trotzdem kein HDR. Ohne diese
     // Angabe bliebe die Frage „war die Quelle überhaupt HDR" unbeantwortbar.
     let aufnahmeformat = if params.hdr { "RGBA16F (scRGB)" } else { "BGRA8" };
+    let wo = if direkt.is_some() { " (Wandlung im Rückruf)" } else { "" };
     eprintln!(
-        "[pipeline-hw] capture {width}x{height} {aufnahmeformat} → encode {dst_w}x{dst_h}@{fps} on {} (vendor={vendor})",
+        "[pipeline-hw] capture {width}x{height} {aufnahmeformat} → encode {dst_w}x{dst_h}@{fps}{wo} on {} (vendor={vendor})",
         adapter.description
     );
 
@@ -180,10 +174,14 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
 
     // Was zwischen Aufnahme und Encoder passiert — Verkleinern, Farbwandlung,
     // beides oder nichts. Die Entscheidung samt Begründungen steht in
-    // [`vorstufe::bauen`].
-    let scaler = vorstufe::bauen(
-        &params, &hw, width, height, dst_w, dst_h, fps, dst_format, geteilt,
-    )?;
+    // [`vorstufe::bauen`]; hat die Aufnahme schon gewandelt, steht dort nichts
+    // mehr, und der Encoder liest den Aufnahme-Pool direkt.
+    let scaler = match direkt {
+        Some(_) => None,
+        None => vorstufe::bauen(
+            &params, &hw, width, height, dst_w, dst_h, fps, dst_format, geteilt,
+        )?,
+    };
 
     let hw_frames_ref = match &scaler {
         Some(s) => s.dst_frames_ref(),
@@ -462,6 +460,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             pts,
             pts_delta: pts - prev_pts,
             capture_drops: capture.dropped(),
+            rueckruf: capture.rueckruf_stand(),
             enc_latency: encoder.take_encode_latency(),
         });
         prev_pts = pts;

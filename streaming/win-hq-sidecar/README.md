@@ -81,11 +81,19 @@ offensichtlich:
 * **Die Aufnahme läuft in `Rgba16F` (scRGB)** statt BGRA (`capture::bildformat`).
   In BGRA gibt WGC einen bereits auf SDR heruntergerechneten Desktop heraus —
   was dort verlorengeht, holt keine spätere Stufe zurück.
-* **Die Farbwandlung macht ein eigener Shader** (`encode/hdr_wandler.rs`), nicht
+* **Die Farbwandlung macht ein eigener Shader** (`encode/hdr_zeichner.rs`), nicht
   der Video-Prozessor. Der kann auf dieser AMD-Karte kein PQ: von 32 geprüften
   Kombinationen sind zwei möglich, keine davon mit PQ, und 16-Bit-Fließkomma
   wird am Eingang grundsätzlich abgelehnt. Nachfahrbar mit
   `cargo test -- --ignored --nocapture wandlungen_dieses_treibers`.
+* **Und er läuft seit dem 2026-08-07 schon im Aufnahme-Rückruf**, direkt aus der
+  WGC-Textur nach P010 (`capture/aufnahmeziel.rs`). Damit entfällt die
+  fp16-Zwischenkopie, die es vorher je Bild gab; gemessen halbiert das die
+  3D-Last des Senders (21,2 → 10,6 %). Zurück auf den alten Weg:
+  `PULSE_HQ_HDR_ZWISCHENKOPIE=1`. Voraussetzung war ein Zähler für WGC-seitig
+  verworfene Bilder (`capture/rueckruf.rs`) — ohne ihn tauschte man messbare
+  Last gegen unsichtbaren Bildverlust. Messakte:
+  `streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
 
 Vollständige Messung samt der beiden Nebenbefunde (Mastering-Metadaten kommen
 mit falschen Zahlen an; der 10-bit-SDR-Weg hat sich bis dahin als PQ ausgegeben):

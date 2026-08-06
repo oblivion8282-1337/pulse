@@ -1,0 +1,168 @@
+{
+  "id": "leistung-2026-08-07-wandlung-im-rueckruf",
+  "gemessen_am": "2026-08-07 (nachts)",
+  "frage": "Die fp16-Zwischenkopie der Aufnahme ist eingespart — die Farbwandlung laeuft jetzt schon im WGC-Aufnahme-Rueckruf und schreibt direkt nach P010. Was bringt es wirklich, und geht dabei heimlich ein Bild verloren?",
+  "vergleich_gegen": "leistung-2026-08-06-fp16-kopie-gemessen",
+
+  "stand": "Der Gewinn ist da und trifft die Vorhersage: die 3D-Einheit des Senders faellt bei bewegtem Bild von 21,2 auf 10,6 Prozent, also um die HAELFTE (gemessen, drei Paare, paarweise Differenz -10,66 Prozentpunkte). Die Video-Einheit bleibt unveraendert, der Taktfaden wird nebenbei um 119 us je Tick leichter. Der neue Verlust-Zaehler schlaegt im laufenden Betrieb NICHT an: 0 Bilder Obergrenze in allen Laeufen. Ein ehrlicher Rest bleibt: die Aufnahmerate liegt im neuen Arm um 0,4 Bilder je Sekunde niedriger (48,4 statt 48,7), durchgaengig in allen drei Paaren, und das ist UNGEKLAERT.",
+
+  "was_gebaut_wurde": {
+    "zuerst_der_zaehler": {
+      "wo": "streaming/win-hq-sidecar/src/capture/rueckruf.rs",
+      "warum_er_die_vorbedingung_war": "WGC meldet nicht, wenn es ein Bild verwirft. `capture_drops` kennt nur die eigene Seite (Pool erschoepft, Kanal voll, Groesse geaendert). Waendert der Shader im Rueckruf, kann ein zu langer Rueckruf WGC Bilder kosten — und ohne diesen Zaehler taeuschte man messbare GPU-Last gegen unsichtbaren Bildverlust ein.",
+      "was_er_zaehlt": "NICHT Verluste, sondern deren Obergrenze. WGC ruft `on_frame_arrived` auf EINEM Faden der Reihe nach auf; ein Rueckruf, der kuerzer ist als der Lieferabstand, kann kein Bild kosten. Gezaehlt wird `floor(dauer / abstand)` — die vollstaendig verstrichenen Lieferzeitpunkte, an denen der Faden besetzt war. Bei `dauer < abstand` ist das null.",
+      "warum_eine_null_ein_beweis_ist": "Weil die Schranke aus der Serialisierung folgt und nicht aus einer Beobachtung. Was sie NICHT sieht: Verluste, die nicht an uns liegen — dagegen hilft nur die Aufnahmerate selbst, und die steht deshalb in jeder Tabelle unten.",
+      "abstand": "0,9/fps, also 15,0 ms bei 60 — derselbe Deckel, mit dem `capture::min_interval_settings` die Lieferung drosselt. Ohne den Deckel (Windows < 24H2) liefert WGC mit der Wiederholrate des Schirms und die Schranke waere zu freundlich; das steht am Modul.",
+      "sichtbar_in": "PULSE_HQ_TRACE (`cb_n`, `cb_sum_us`, `cb_max_us`, `cb_lang`, `cb_verlust`) und in der Zwei-Sekunden-Zusammenfassung des `tick_monitor`. Ein Fenster mit `cb_verlust > 0` gilt dort NICHT mehr als sauber — sonst stuende die einzige Zahl, die das zeigt, ausgerechnet in den unauffaelligen Fenstern nicht da.",
+      "drei_eigene_tests": "capture::rueckruf::tests — kurze Rueckrufe kosten nichts, lange zaehlen verstrichene Lieferzeitpunkte (nicht Rueckrufe), ohne Zielbildrate wird nichts behauptet."
+    },
+    "dann_der_umbau": {
+      "vorher": "WGC-Rueckruf kopiert fp16 in den Aufnahme-Pool (`CopySubresourceRegion`) -> Taktfaden faehrt den HDR-Shader aus dem Pool in einen ZWEITEN Pool (P010). Zwei Anfassen je Bild.",
+      "nachher": "WGC-Rueckruf faehrt den Shader direkt aus der WGC-Textur in den Aufnahme-Pool, der jetzt P010 in ZIELmassen fuehrt. Ein Anfassen je Bild, ein Pool statt zweier, keine Vorstufe mehr auf dem Taktfaden.",
+      "nur_hdr": "Der SDR-Weg wandelt ueber den Video-Prozessor (`d3d11_scale`), nicht ueber diesen Shader. Das ist eine andere Sache mit eigener Vorgeschichte; sie hier mitzunehmen hiesse, zwei Umbauten in einer Messung zu vermengen. SDR bleibt unangetastet — nachgeprueft, s. `gegenprobe_sdr_ist_unberuehrt`.",
+      "notausschalter": "PULSE_HQ_HDR_ZWISCHENKOPIE=1 stellt den alten Weg her. Er ist zugleich der zweite Messarm: beide Arme unten kommen aus DEMSELBEN Binary (dasselbe Verfahren wie PULSE_PLAYER_EINFRIER_MS am 2026-08-05).",
+      "wo": [
+        "capture/aufnahmeziel.rs (neu) — Pool und Schreibweg, kopieren oder wandeln",
+        "encode/hdr_zeichner.rs (neu) — der Shader, ohne eigenen Pool; zweiter Aufrufer neben `hdr_wandler`",
+        "encode/hdr_ansichten.rs (neu) — der Ansichten-Zwischenspeicher",
+        "pipeline_hw/vorstufe.rs::direktwandlung — die Entscheidung, an EINER Stelle"
+      ]
+    }
+  },
+
+  "aufbau": {
+    "maschine": "Windows 11 26200, Radeon 780M (integriert, RDNA3-APU), Treiber 32.0.31035.1003, HDR am Schirm an, EIN Bildschirm 2560x1440.",
+    "strecke": "Sender = streaming/win-hq-sidecar (av1_amf, Aufnahme 2560x1440 -> Ausgabe 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps) ueber den Hetzner-Messstand. KEIN Zuschauer.",
+    "werkzeug": "streaming/win-hq-labor/testbench/last-messen.ps1 (neu) — faehrt einen Arm und greift dabei '\\GPU Engine(*)\\Utilization Percentage' je Prozess und Engine-Typ ab, rund eine Probe je 1,5 s. Bildaenderung aus streaming/win-hq-labor/testbench/bewegung.ps1 (neu).",
+    "lauflaenge": "50 s je Lauf, davon die ersten 12 s nicht gemessen (Verbindungsaufbau) und die letzten 3 s ebenfalls nicht.",
+    "auswertung": "Mediane ueber ~23 Sekundenproben der Leistungsindikatoren je Lauf und ueber ~3200 Ticks der Spur; die ersten 120 Ticks fallen weg (Encoder-Anlauf). Drei Paare, abwechselnd gefahren (neu, alt, neu, alt, neu, alt)."
+  },
+
+  "bewegtes_bild": {
+    "einheit": "Prozent, Median je Lauf. NUR innerhalb dieser Akte vergleichbar (Taktregelung der APU, s. grenzen).",
+    "3d_einheit_neu": [10.62, 10.53, 10.74],
+    "3d_einheit_alt": [21.01, 21.22, 21.40],
+    "paarweise_differenz": [-10.39, -10.69, -10.66],
+    "median_der_differenzen_prozentpunkte": -10.66,
+    "relativ": "-50,2 Prozent der 3D-Einheit des Senders",
+    "video_einheit_neu": [12.66, 12.66, 12.74],
+    "video_einheit_alt": [12.74, 12.66, 12.73],
+    "video_befund": "unveraendert — die Kontrolle stimmt: am Encodieren aendert der Umbau nichts.",
+    "aufnahmen_je_sekunde_neu": [48.3, 48.4, 48.4],
+    "aufnahmen_je_sekunde_alt": [48.7, 48.7, 48.8],
+    "stehende_ticks_prozent_neu": [19.6, 19.4, 19.4],
+    "stehende_ticks_prozent_alt": [18.9, 19.0, 18.8],
+    "verworfene_aufnahmebilder": "0 in beiden Armen, in allen Laeufen (im Messfenster; die 8 bis 12 aus dem Anlauf zaehlen nicht mit und treten in beiden Armen gleich auf).",
+    "pts_luecken": "0 in beiden Armen, in allen Laeufen.",
+    "nachlauf_mit_dem_endgueltigen_binary": {
+      "warum": "Der Vereinfachungs-Durchgang hat danach zwei COM-Kopien aus `ins_pool` genommen — also genau aus dem Rueckruf, dessen Verweildauer die Wacht beschraenkt. Eine Aenderung im gemessenen Weg verlangt einen Nachlauf, sonst gilt die Messung fuer ein Binary, das niemand mehr hat.",
+      "3d_einheit": {"neu": 10.74, "alt": 21.02},
+      "differenz": -10.28,
+      "aufnahmen_je_sekunde": {"neu": 48.5, "alt": 48.8},
+      "verlust_obergrenze": 0,
+      "verworfene_aufnahmebilder": 0,
+      "bewertung": "Liegt auf den drei Paaren oben. Der Befund traegt fuer den ausgelieferten Stand."
+    }
+  },
+
+  "der_neue_verlust_zaehler_im_betrieb": {
+    "warum_das_die_wichtigste_tabelle_ist": "Der Gewinn zaehlt nur, wenn nicht heimlich Bilder verlorengehen. Genau dafuer gibt es den Zaehler, und genau deshalb steht er hier neben den Prozentzahlen und nicht in einer Fussnote.",
+    "verweildauer_im_rueckruf_us_mittel_neu": [27, 28, 28],
+    "verweildauer_im_rueckruf_us_mittel_alt": [17, 18, 17],
+    "was_das_heisst": "Der Rueckruf kostet 10 us mehr CPU-Zeit — er setzt jetzt einen Zeichendurchgang ab statt einer Kopie. Gegen den Lieferabstand von 15 000 us sind das 0,19 statt 0,12 Prozent. Der Faden ist also weit davon entfernt, einen Lieferzeitpunkt zu verpassen.",
+    "ueberlange_rueckrufe_im_messfenster": "0 in beiden Armen, in allen sechs Laeufen.",
+    "verlust_obergrenze_im_messfenster": "0 in beiden Armen, in allen sechs Laeufen.",
+    "aber_der_allererste_rueckruf_ist_teuer": {
+      "gemessen_neu_ms": [14.6, 13.9, 14.5],
+      "gemessen_alt_ms": [0.31, 0.44, 0.68],
+      "was_dort_passiert": "Im neuen Weg entstehen im ERSTEN Rueckruf zusaetzlich der Shader (D3DCompile fuer drei Einstiegspunkte), der Sampler, der Konstantenpuffer und die ersten Ansichten. Im alten Weg entsteht dort nur der Pool.",
+      "die_ehrliche_folge": "14 ms liegen knapp UNTER dem Lieferabstand von 15,0 ms — in diesen drei Laeufen hat der erste Rueckruf also kein Bild gekostet. In einem frueheren Rauchtest lag er bei 15,16 ms, und dann zaehlt die Wacht genau 1. Es ist eine EINMALIGE Sache beim Start eines Streams und betrifft ein Bild, nicht den Betrieb — aber es ist nicht null, und deshalb steht es hier.",
+      "nicht_behoben_und_warum": "Die Uebersetzung des Shaders liesse sich vorziehen (`D3DCompile` braucht kein Geraet), das Anlegen der Shader-Objekte nicht (dafuer braucht es das D3D11-Geraet, und das kennt man erst im Rueckruf). Ein halber Umbau fuer ein Bild beim Start war den Umfang nicht wert; wer es doch macht, hat hier die Zahl."
+    }
+  },
+
+  "stehendes_bild": {
+    "warum_eigene_reihe": "Seit dem 2026-08-06 rechnet die Vorstufe bei unveraenderter Quelle nicht neu. Diese Eigenschaft musste den Umbau ueberleben — der Taktfaden muss weiterhin dasselbe fertige Bild erneut einschieben koennen.",
+    "aufbau": "Dieselben 50-s-Laeufe ohne Bewegungsquelle und ohne Zuschauer. Ohne diesen Verzicht ist ein stehender Bildschirm nicht herstellbar.",
+    "3d_einheit_neu": [0.22, 0.21, 0.20],
+    "3d_einheit_alt": [0.45, 0.42, 0.42],
+    "paarweise_differenz": [-0.23, -0.21, -0.22],
+    "aufnahmen_je_sekunde": "1,0 in ALLEN sechs Laeufen, stehende Ticks 98,3 Prozent in ALLEN sechs Laeufen.",
+    "befund": "Die Eigenschaft ist erhalten, und zwar aus einem anderen Grund als vorher: es gibt gar keine Vorstufe mehr, die etwas zwischenspeichern muesste. Der Taktfaden schiebt schlicht dasselbe Pool-Bild erneut ein — genau das, was der Weg OHNE Vorstufe seit jeher tut. Dass die Zahlen dabei sogar noch etwas niedriger liegen (0,21 gegen 0,43 Prozent), ist folgerichtig: bei einem aufgenommenen Bild je Sekunde entfaellt eine Kopie je Sekunde.",
+    "die_hdr_begleitdaten": "Bleiben damit weiterhin die Stelle, an der ein wiederholt eingeschobenes Bild anwachsen koennte. `encode::hdr::metadaten_anhaengen` raeumt vorher weg und ist mehrfach anwendbar; die zwei Tests dazu sind unveraendert gruen. NEU ist, dass diese Idempotenz jetzt auch den Weg OHNE Vorstufe traegt — vorher lief HDR immer ueber eine Vorstufe."
+  },
+
+  "der_taktfaden_wird_nebenbei_leichter": {
+    "conv_us_median_neu": [0, 0, 0],
+    "conv_us_median_alt": [23, 22, 23],
+    "iter_us_median_neu": [483, 484, 482],
+    "iter_us_median_alt": [596, 599, 609],
+    "differenz_us": -119,
+    "was_das_ist_und_was_nicht": "CPU-Zeit des Taktfadens, nicht GPU-Arbeit. `conv_us` faellt auf null, weil es keine Vorstufe mehr gibt; die uebrigen ~96 us verteilen sich auf `send_us` und ist mit drei Paaren nicht weiter aufzuloesen. Bezogen auf das Bildbudget von 16 700 us bleibt die Arbeitszeit je Tick klein: 0,48 statt 0,60 ms."
+  },
+
+  "sichtpruefung": {
+    "warum_pflicht": "Diese Aenderung fasst den Bildweg an. Die Regel steht an `VideoCodec::encode_path` und ist teuer erkauft: ein zerrissenes Bild sah am 2026-07-30 in Latenz, CPU-Last und Decodierbarkeit hervorragend aus.",
+    "verfahren": "Je ein Dateimitschnitt beider Arme aus DEMSELBEN Binary (streaming/win-hq-labor/testbench/mitschnitt.ps1, neu), stehender Bildschirm, danach Bild 45 herausgeholt — nicht Bild 0, das waere das Vollbild.",
+    "was_zu_sehen_war": "Ein unversehrter Desktop: Text scharf und lesbar, keine Risse, keine versetzten Doppelbilder, Verlaeufe im Hintergrundbild glatt, Farben stimmig (violettes Hintergrundbild, gruener Terminaltext, farbige Symbole). Beide Arme sehen gleich aus.",
+    "und_zusaetzlich_gerechnet": "PSNR zwischen den beiden Bildern ueber einen Bereich, dessen Inhalt sich zwischen den Laeufen nicht aendert (440x900 links, Hintergrundbild und Symbole): 65,1 dB (r 65,7 / g 67,6 / b 63,2). Das ist Encoder-Rauschen, kein Unterschied.",
+    "stromangaben_beider_mitschnitte": "av1, yuv420p10le, bt2020nc / smpte2084 / bt2020 — identisch, und die Dateien sind mit 1 836 810 und 1 836 996 Bytes praktisch gleich gross.",
+    "am_laufenden_strom": {
+      "was_gemacht_wurde": "hdr-ansehen.ps1 mit Player-Fenster, je ein Lauf pro Arm, waehrenddessen ein Bildschirmfoto.",
+      "befund": "Das Player-Fenster erscheint im Bildschirmfoto GRUEN — in BEIDEN Armen gleichermassen, und der umgebende SDR-Desktop wird im selben Foto richtig abgebildet.",
+      "wie_das_zu_deuten_ist": "Als Aufnahme-Artefakt, nicht als Befund am Bild: `CopyFromScreen` (GDI/BitBlt) liest ein Fenster mit scRGB-Fliesskomma-Oberflaeche (`Rgba16Float`, der Player meldet sie selbst) nicht richtig aus. Der Vergleich der beiden Arme traegt trotzdem — sie sind gleich —, und die absolute Farbaussage kommt aus dem Dateimitschnitt oben, den ein fremdes Werkzeug (ffmpeg) dekodiert hat. Was NICHT geprueft ist: wie das Bild fuer ein menschliches Auge auf dem HDR-Schirm aussieht. Das kann kein Skript und kein Bildschirmfoto entscheiden.",
+      "nebenbefund": "In beiden Laeufen ist der Hardware-Decoder des Players nach wenigen Sekunden in die bekannte VCN-Stockung gelaufen (2814, 849, 2472 ms) und auf libdav1d zurueckgefallen. Das ist der bereits belegte Engpass dieser APU (player-2026-08-06-absturz-ist-eine-stockung.json) und keine Folge dieser Aenderung — er trat in beiden Armen auf."
+    }
+  },
+
+  "gegenprobe_sdr_ist_unberuehrt": {
+    "warum": "Die Kopie faellt fuer JEDE Aufnahme an, auch in SDR (dort gemessen 0,96 ms). Angefasst wurde sie dort NICHT — das muss nachweisbar sein und nicht nur behauptet.",
+    "wie": "Ein Dateimitschnitt in SDR mit demselben Binary.",
+    "ergebnis": "av1, yuv420p10le, bt709 / bt709 / bt709 — die Signalisierung ist unveraendert, insbesondere steht dort weiterhin ausdruecklich BT.709 und nicht PQ (das war die Behebung vom 2026-08-04, s. `encoder_hw.rs`).",
+    "und_der_startpfad": "`vorstufe::direktwandlung` gibt bei `!params.hdr` sofort `false` zurueck — SDR sieht den neuen Weg gar nicht."
+  },
+
+  "der_ungeklaerte_rest": {
+    "was": "Die Aufnahmerate liegt im neuen Arm bei 48,3 bis 48,4 Bildern je Sekunde, im alten bei 48,7 bis 48,8. Das sind 0,4/s oder 0,8 Prozent, und es ist in allen drei Paaren gleichgerichtet — die Streuung INNERHALB eines Arms betraegt nur 0,1.",
+    "was_es_NICHT_ist": "Kein WGC-seitiger Verlust durch einen zu langen Rueckruf: die Obergrenze der Wacht ist in allen Laeufen 0, und der Rueckruf belegt 0,19 Prozent des Lieferabstands.",
+    "kandidaten_keiner_geprueft": [
+      "Mehr Streit um die geteilte Sperre: der Rueckruf haelt sie jetzt fuer einen Zeichendurchgang (mehrere Zustandswechsel, zwei Draws) statt fuer eine Kopie, waehrend der Taktfaden sie fuers Einschieben braucht.",
+      "Das Anlegen der ersten P010-Pool-Texturen faellt in den Rueckruf (Einzeltextur-Bauart, der Pool waechst bis zur Arbeitsmenge) — das betrifft aber nur die ersten Bilder und muesste im Messfenster ab Tick 120 schon vorbei sein.",
+      "Streuung der Bewegungsquelle selbst. Dagegen spricht, dass die Arme abwechselnd auf DERSELBEN laufenden Quelle gefahren wurden."
+    ],
+    "wie_es_hier_stehenbleibt": "UNGEKLAERT. Ein ungeklaerter Rest gehoert keinem — das ist die Lehre der Vorgaengerakte, und sie gilt auch, wenn der Rest diesmal klein ist und gegen die eigene Aenderung spricht."
+  },
+
+  "was_der_umbau_ausserdem_spart": {
+    "gekennzeichnet_als": "GERECHNET, nicht gemessen.",
+    "pool_texturen": "29,5 MB je fp16-Textur (2560x1440x8 Byte) werden zu 6,2 MB je P010-Textur (1920x1080x3 Byte).",
+    "und_ein_ganzer_pool_faellt_weg": "Vorher gab es ZWEI Pools — den fp16-Aufnahme-Pool und den P010-Zielpool des Wandlers. Jetzt ist es einer. Beide sind in Einzeltextur-Bauart und wachsen bis zur Arbeitsmenge (rund sechs Texturen), also grob 210 MB gegen 37 MB.",
+    "speicherverkehr": "Die Kopie bewegte 59 MB je aufgenommenem Bild (29,5 lesen, 29,5 schreiben). Bei 48,5 Bildern je Sekunde sind das 2,9 GB/s, die nicht mehr anfallen."
+  },
+
+  "grenzen_dieser_messung": {
+    "prozente_nicht_zwischen_reihen_vergleichen": "Dieselbe Arbeit belegte die 3D-Einheit in frueheren Reihen zu 14,2 bzw. 21,2 Prozent bei identischem Code (Taktregelung der APU: CPU und GPU teilen sich ein Leistungsbudget). Alle Aussagen hier sind DIFFERENZEN innerhalb dieser Reihe.",
+    "und_was_das_fuer_die_millisekunden_heisst": "Rechnet man die gemessenen -10,66 Prozentpunkte bei 48,7 Aufnahmen je Sekunde in Zeit um, kostet eine Kopie 2,19 ms — die Vorgaengerakte hat 1,82 ms gemessen. Das sind 20 Prozent Unterschied bei derselben Arbeit auf derselben Maschine, und es ist genau die Einschraenkung oben, nicht ein Widerspruch. Belastbar ist der ANTEIL (die Haelfte der 3D-Einheit), nicht die Millisekunde.",
+    "48_5_statt_66_7_aufnahmen_je_sekunde": "Die Bewegungsquelle liefert rund 48 Aenderungen je Sekunde, nicht die vollen 66,7, die ein Spiel bei 60 fps ueber den Deckel `0,9/fps` erreichen wuerde. Bei mehr Bildern waechst der Gewinn mit, weil er je aufgenommenem Bild anfaellt.",
+    "ein_zuschauer_lief_nicht_mit": "Fuer die Sender-Aussagen ist das richtig so (ein Player streitet um dieselbe Grafikeinheit). Was ein gleichzeitig laufender Zuschauer aendert, ist hier nicht gemessen.",
+    "kein_engpass_geloest": "Es gab vorher keinen und gibt nachher keinen: 0 verworfene Bilder, 0 PTS-Luecken, 0,60 bzw. 0,48 von 16,7 ms Arbeitszeit je Takt. Der Gewinn ist Sparsamkeit — er zahlt sich dort aus, wo etwas anderes dieselbe Zeicheneinheit will (ein laufendes Spiel) oder bei 120 statt 60 Bildern je Sekunde."
+  },
+
+  "nachbauen": [
+    "cd streaming/win-hq-sidecar && cargo build --release --bins",
+    "Bewegungsquelle starten: powershell -File streaming/win-hq-labor/testbench/bewegung.ps1 -Sekunden 1200",
+    "Je Arm 50 s fahren, abwechselnd, drei Paare:",
+    "  powershell -File streaming/win-hq-labor/testbench/last-messen.ps1 -Kennung neu1 -Sekunden 50",
+    "  powershell -File streaming/win-hq-labor/testbench/last-messen.ps1 -Kennung alt1 -Sekunden 50 -Zwischenkopie",
+    "Standbild-Reihe: dasselbe OHNE laufende Bewegungsquelle (Bildschirm in Ruhe lassen).",
+    "Auswerten: Median der Sekundenproben je Lauf aus last-<kennung>.csv (Spalten t;engtype;wert, relevant `3d` und `video codec 0`); Aufnahmerate, Rueckruf-Zaehler und drops aus last-<kennung>.jsonl ab Tick 120.",
+    "Sichtpruefung: powershell -File streaming/win-hq-labor/testbench/mitschnitt.ps1 -Datei neu.mp4 -Sekunden 12 (und dasselbe mit -Zwischenkopie), dann",
+    "  ffmpeg -i neu.mp4 -vf \"select=eq(n\\,45)\" -vframes 1 -y bild.png"
+  ],
+
+  "fallen_im_aufbau": {
+    "die_bewegungsquelle_war_unsichtbar": "Der erste Anlauf startete `bewegung.ps1` mit `Start-Process -WindowStyle Hidden`. Das setzt `wShowWindow` in der Startinformation des Prozesses, und WinForms nimmt genau diesen Wert fuer sein ERSTES Fenster — das Fenster blieb unsichtbar, der Bildschirm stand still, 98,3 Prozent Duplikat-Takte und 1,0 Aufnahmen je Sekunde. Also dieselbe Falle wie am Vortag, nur mit anderer Ursache. Die Lehre bleibt dieselbe: ZUERST an der Spur pruefen, dass die Last ueberhaupt anfaellt (`captured` je Sekunde, Anteil stehender Ticks), sonst sieht ein Nullergebnis aus wie ein Befund.",
+    "die_werkzeuge_liegen_jetzt_im_repo": "Bewegungsquelle und Messarm sind eingecheckt (`bewegung.ps1`, `last-messen.ps1`, `mitschnitt.ps1`). Die Vorgaengermessung hat sich beides gebaut und nicht eingecheckt; diese Messung musste es neu erfinden.",
+    "ein_bildschirmfoto_taugt_nicht_fuer_farbe": "Ein GDI-Bildschirmfoto eines Fensters mit Fliesskomma-Oberflaeche zeigt Gruen. Wer das fuer einen Farbfehler haelt, sucht an der falschen Stelle — die Gegenprobe ist der zweite Arm (gleich gruen) und der Dateimitschnitt (richtig)."
+  }
+}
