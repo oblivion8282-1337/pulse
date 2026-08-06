@@ -1,0 +1,56 @@
+{
+  "id": "tune-2026-08-06-ll-gegen-ull",
+  "gemessen_am": "2026-08-06",
+  "frage": "Was aendert `tune=ull` gegenueber GSRs `tune=ll` am ausgelieferten Strom — der Wechsel vom 2026-08-04 war ausdruecklich eine Vereinheitlichung mit dem Windows-Sidecar, ohne Messung.",
+  "antwort_kurz": "Nichts. In der Produktionskonfiguration erzeugen beide Tunes einen BYTE-IDENTISCHEN Bitstrom, in allen acht geprueften Konstellationen. Der Grund ist mitgemessen: der einzige Unterschied der beiden Tunes ist die VBV-Puffervorgabe, und die ueberschreibt ffmpeg mit `2 x Bitrate`, solange kein `bufsize` gesetzt ist. Setzt man eines, unterscheiden sich die Stroeme sofort.",
+  "hardware": "RTX 5080, ffmpeg n8.1.2 (System, Arch), av1_nvenc + h264_nvenc",
+  "methode": {
+    "warum_byte_vergleich_statt_vmaf": "Byte-Identitaet ist das haertere Kriterium. Sind die Stroeme gleich, koennen Bildqualitaet, Bitrate, Bildgroessen-Gleichmaessigkeit und Latenz sich nicht unterscheiden — eine VMAF-Reihe darueber waere nur teurer, nicht aussagekraeftiger. Erst wo die Identitaet bricht, wird gemessen.",
+    "material": "ref-basis-spiel.raw und ref-basis-desktop.raw (Rohmitschnitte des Encoder-Eingangs, p010le 2560x1440, echter Bildschirminhalt), je 100 Bilder.",
+    "grundeinstellung": "Wie `encode/opts.rs::vendor_defaults` fuer NVENC: rc=cbr, b_ref_mode=0, preset=p2, zerolatency=1, delay=0, coder=cabac (nur H.264), -g = 2x fps.",
+    "hash": "Videostrom, nicht Datei: `ffmpeg -i x.mkv -map 0:v -c copy -f md5 -`."
+  },
+  "zwei_werkzeugfallen_die_zuerst_zuschlugen": {
+    "falle_1_container_statt_strom": "Der erste Vergleich hashte die MKV-DATEI und ergab fuer dieselbe Einstellung dreimal verschiedene Werte — daraus folgte kurz der Fehlschluss, der Encode sei nicht reproduzierbar. Matroska schreibt eine zufaellige Segment-UID; der Videostrom war die ganze Zeit identisch. Wer so misst, haelt jeden Determinismus fuer Rauschen und jede Wirkung fuer Zufall.",
+    "falle_2_gewinnt_das_hintere_argument": "Der A/B haengt daran, dass das zweite `-tune` das feste `-tune ll` aus `vmaf_common.encode_cmd` ueberschreibt. Wird es das nicht, sind alle Ergebnisse trivialerweise gleich und sehen aus wie 'kein Unterschied'. Kontrolle: derselbe Aufbau mit `-tune hq` liefert einen anderen Strom (925735 statt 1001102 Bytes). Das hintere Argument gewinnt also, und die Gleichheit von ll/ull ist ein Befund, kein Artefakt.",
+    "lehre": "Beide Fallen haetten plausible, falsche Zahlen geliefert — die eine 'nicht reproduzierbar', die andere 'kein Unterschied'. Dieselbe Sorte wie der netem-Fehlalarm und die Zuordnung in `bild-2026-07-27-av1.json`."
+  },
+  "byte_identitaet_ueber_die_produktionsmatrix": {
+    "verfahren": "je Konstellation einmal mit tune=ll und einmal mit tune=ull, Videostrom-MD5 verglichen",
+    "ergebnisse": [
+      {"codec": "av1_nvenc", "kbps": 4000, "material": "spiel", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "av1_nvenc", "kbps": 10000, "material": "spiel", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "av1_nvenc", "kbps": 2000, "material": "spiel", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "av1_nvenc", "kbps": 4000, "material": "desktop", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "h264_nvenc", "kbps": 4000, "material": "spiel", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "h264_nvenc", "kbps": 10000, "material": "spiel", "modus": "normal", "ll_gegen_ull": "identisch"},
+      {"codec": "av1_nvenc", "kbps": 4000, "material": "spiel", "modus": "intra-refresh", "ll_gegen_ull": "identisch"},
+      {"codec": "h264_nvenc", "kbps": 4000, "material": "spiel", "modus": "intra-refresh", "ll_gegen_ull": "identisch"}
+    ],
+    "intra_refresh_ist_mitgeprueft_weil": "das die Betriebsart ist, auf die die Produktion gerade umgestellt wird. Ein Befund nur fuer periodische Keyframes haette die Frage nicht beantwortet."
+  },
+  "der_mechanismus_ist_gemessen_nicht_nur_gelesen": {
+    "frage": "Warum aendert ein Tune, den NVIDIA ueber den Einsatzzweck unterscheidet, gar nichts?",
+    "verfahren": "Dieselbe Gegenueberstellung mit schrittweise abgeraeumter Umgebung, zuletzt mit ausdruecklich gesetztem VBV-Puffer.",
+    "ergebnisse": {
+      "produktion_p2_zerolatency_delay0": "identisch (1001102 Bytes)",
+      "ohne_zerolatency_und_delay": "identisch (1001102)",
+      "ohne_preset_ohne_zerolatency": "identisch (1011768)",
+      "nur_codec_und_cbr": "identisch (1011768)",
+      "mit_bufsize_66k_also_ein_bild": "UNTERSCHIEDLICH — ll 777790, ull 776988 Bytes"
+    },
+    "kontrolle": "Dieselbe Einstellung (ll, bufsize 66k) zweimal gefahren ergibt denselben MD5 und dieselbe Groesse. Der Unterschied ist damit echt und kein Rauschen.",
+    "was_es_bedeutet": "Der Unterschied zwischen ll und ull liegt allein in der VBV-Puffervorgabe. Ohne `rc_buffer_size` schreibt ffmpeg selbst `2 x Bitrate` (`nvenc.c:1183-1186`), und zwar NACH dem Uebernehmen der Tuning-Voreinstellung — es ueberschreibt also genau den einen Wert, in dem sich die beiden Tunes unterscheiden. Diese Herleitung stand seit dem 2026-08-04 als Quelltext-Lesung am Wert; sie ist jetzt gemessen.",
+    "nicht_untersucht": "Ob der Unterschied MIT gesetztem bufsize einen Vorteil traegt. Er ist mit 0,1 Prozent der Datenmenge klein, und die Produktion setzt kein bufsize — der Daempfungs-Hebel wurde am 2026-08-03 wegen der Latenz abgelehnt."
+  },
+  "folge_fuer_den_commit": {
+    "commit": "15461c59 encoder(linux): tune=ull statt ll",
+    "urteil": "Der Commit aendert am ausgelieferten Strom nachweislich nichts — er ist genau das, als was er sich bezeichnet: eine Vereinheitlichung mit dem Windows-Sidecar, kein Gewinn. Das ist kein Grund, ihn zurueckzunehmen (zwei Sidecars, die denselben Encoder verschieden ansprechen, kosten bei jeder kuenftigen Encoder-Frage Zeit), aber auch keiner, ihn als Verbesserung auszuweisen.",
+    "wann_er_relevant_wuerde": "Sobald `rc_buffer_size`/`bufsize` gesetzt wird, trennen sich die Wege sofort. Wer den VBV-Puffer je anfasst, muss die Tune-Wahl dann mitentscheiden — bis dahin ist sie folgenlos."
+  },
+  "geltungsbereich": {
+    "belegt_fuer": "RTX 5080, ffmpeg n8.1.2, av1_nvenc und h264_nvenc, die Optionskombination des Linux-Sidecars.",
+    "nicht_belegt_fuer": "Andere NVIDIA-Generationen und Treiberstaende (die Tuning-Voreinstellungen liegen in NVIDIAs Closed Source und koennen sich unterscheiden), der Windows-Sidecar (eigener Aufbau, dort ist bufsize ebenfalls ungesetzt, aber nicht nachgemessen), VAAPI (kennt `tune` gar nicht)."
+  },
+  "reproduzieren": "cd streaming/testbench && ffmpeg -f rawvideo -pix_fmt p010le -s 2560x1440 -r 60 -i ref-basis-spiel.raw -frames:v 100 -c:v av1_nvenc -rc cbr -b_ref_mode 0 -zerolatency 1 -delay 0 -b:v 4000k -maxrate 4000k -g 120 -preset p2 -tune <ll|ull> out.mkv && ffmpeg -v error -i out.mkv -map 0:v -c copy -f md5 -"
+}

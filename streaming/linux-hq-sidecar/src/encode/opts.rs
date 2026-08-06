@@ -77,19 +77,36 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             // ein doppelt so grosses Bild braucht auf enger Leitung doppelt so
             // lange, und DAS ist die Latenz.
             //
-            // **Ungemessen, hier wie dort.** Was die beiden Tunes im Treiber
-            // konkret unterschiedlich einstellen, ist nicht veroeffentlicht:
-            // ffmpeg reicht die Konstante nur durch (`nvenc.c:1844`), der Rest
-            // passiert in NVIDIAs Closed Source. Oeffentliche Messungen zu
-            // `ll` gegen `ull` gibt es nicht (2026-08-04 gesucht; zwei
-            // arxiv-Papiere, die eine Suchmaschine als Beleg ausgab, vergleichen
-            // beide etwas anderes). Der Wechsel ist damit eine
-            // Vereinheitlichung, KEIN belegter Gewinn — wer ihn rueckgaengig
-            // machen will, braucht dafuer so wenig Begruendung wie er hatte.
+            // **Gemessen am 2026-08-06: der Wechsel aendert gar nichts.** Beide
+            // Tunes erzeugen einen BYTE-IDENTISCHEN Bitstrom — geprueft ueber
+            // acht Konstellationen (av1_nvenc und h264_nvenc, 2000/4000/10000
+            // kbps, Spiel- und Desktop-Material, mit und ohne Intra-Refresh),
+            // je als MD5 des Videostroms. Kontrolle gegen den Trugschluss
+            // "wirkungslos, weil das Argument gar nicht ankommt": derselbe
+            // Aufbau mit `tune=hq` liefert sehr wohl einen anderen Strom.
+            // Messakte: `streaming/testbench/profiles/
+            // tune-2026-08-06-ll-gegen-ull.json`.
             //
-            // **Der sichtbarste Unterschied greift ohnehin nicht.** Die
-            // Puffergroesse, auf die NVIDIAs Beschreibung direkt zeigt, setzt
-            // ffmpeg selbst: ohne `rc_buffer_size` schreibt es
+            // Der Wechsel bleibt damit, was er war: eine Vereinheitlichung mit
+            // dem Windows-Sidecar, KEIN Gewinn. Neu ist nur, dass das jetzt
+            // belegt ist statt offen. Zurueckdrehen braucht ebenso wenig
+            // Begruendung — es wuerde nur die Abweichung wiederherstellen.
+            //
+            // Was NVIDIA dazu nicht sagt, bleibt wahr: ffmpeg reicht die
+            // Konstante nur durch (`nvenc.c:1844`), der Rest liegt in NVIDIAs
+            // Closed Source, und oeffentliche Messungen ll gegen ull gibt es
+            // keine (2026-08-04 gesucht).
+            //
+            // **Und das ist auch der Grund, WARUM nichts passiert** — am
+            // 2026-08-06 nicht mehr nur gelesen, sondern gezeigt: raeumt man
+            // die Umgebung schrittweise ab, bleiben die Stroeme gleich; setzt
+            // man dagegen ein `bufsize` von einem Bild, unterscheiden sie sich
+            // sofort (777790 gegen 776988 Bytes, bei deterministischer
+            // Wiederholung). Der einzige Unterschied der beiden Tunes liegt
+            // also in der Puffergroesse — und die ueberschreibt ffmpeg.
+            //
+            // Die Puffergroesse, auf die NVIDIAs Beschreibung direkt zeigt,
+            // setzt ffmpeg selbst: ohne `rc_buffer_size` schreibt es
             // `vbvBufferSize = 2 * Bitrate` (`nvenc.c:1183-1186`) — und zwar
             // NACH dem Uebernehmen der Tuning-Voreinstellung
             // (`nvenc_setup_rate_control` laeuft in Zeile 1942, die
