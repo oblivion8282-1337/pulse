@@ -1,0 +1,63 @@
+{
+  "id": "player-2026-08-06-bildweg-kosten",
+  "gemessen_am": "2026-08-06",
+  "frage": "Was kostet im pulse-player der Weg des dekodierten Bildes durch den Hauptspeicher, aufgeschluesselt nach Posten? Davon haengt ab, ob sich der Zero-Copy-Umbau lohnt.",
+  "aufbau": "Ryzen 7 5800X3D (96 MB L3), RTX 5080, Treiber 610.47. Player aus SAUBEREM main (git archive, nicht aus dem Arbeitsbaum). Kette: ffmpeg -re -stream_loop -1 -c copy einer vorkodierten Datei -> eigener MediaMTX -> Player ueber WHEP. Sender bewusst KEIN Capture-Sidecar: identischer Bitstrom in jedem Arm, kein Encoder auf derselben GPU. Arme abwechselnd, Reihenfolge je Runde rotiert. Alle Messvarianten hingen an Umgebungsvariablen; ohne sie lief der Code Byte fuer Byte wie main.",
+
+  "was_hier_tatsaechlich_zusammenkommt": {
+    "decoder": "av1_cuvid (Hardware)",
+    "backend": "Vulkan — NICHT DX12, obwohl setup.rs nichts vorgibt",
+    "wichtig": "in_den_hauptspeicher (decode.rs:371) laeuft auf diesem Weg GAR NICHT. `auf_gpu` prueft auf VAAPI|D3D11; av1_cuvid liefert NV12 bereits im Hauptspeicher. receive_frame = 0,9 us je Bild. Die Rueckholung steckt unsichtbar in send_packet, innerhalb von cuvid. Wer nach dem Modulkopf von decode.rs plant, optimiert den falschen Posten."
+  },
+
+  "kosten_je_bild_cuvid_weg": [
+    {"fall": "1080p60 8 bit", "mib_je_bild": 2.97, "convert_us": "166-218", "abdruck_us": "209-243", "upload_ms": 1.1, "decode_avg_ms": "4,0-4,4", "cpu_kerne": "0,17-0,27", "umweg_gesamt_ms": 1.5, "anteil_am_budget": "9 %"},
+    {"fall": "1080p60 10 bit", "mib_je_bild": 5.93, "convert_us": "369-432", "abdruck_us": "453-472", "upload_ms": 2.2, "decode_avg_ms": "6,1", "cpu_kerne": "0,27-0,31", "umweg_gesamt_ms": 2.99, "anteil_am_budget": "18 %"},
+    {"fall": "1440p60 10 bit", "mib_je_bild": 10.55, "convert_us": "679-695", "abdruck_us": "765-800", "upload_ms": 3.8, "decode_avg_ms": "~10,3", "cpu_kerne": "0,49-0,56", "umweg_gesamt_ms": 5.26, "anteil_am_budget": "32 %"}
+  ],
+
+  "kosten_je_bild_d3d11va_weg": {
+    "warum_das_zaehlt": "Das ist der Weg, den AMD und Intel unter Windows REGULAER gehen — auf NVIDIA greift av1_cuvid vorher. Erzwungen ueber PULSE_PLAYER_DECODER=av1+hw.",
+    "1080p60_8bit": {"in_den_hauptspeicher_us": "3506-3531", "convert_us": "122-126", "cpu_kerne": "0,36-0,39"},
+    "1080p60_10bit": {"in_den_hauptspeicher_us": "5192-5464", "convert_us": "287-291", "cpu_kerne": "0,59-0,75"},
+    "anmerkung": "av_hwframe_transfer_data macht fuer D3D11 eine Staging-Kopie plus Map und memcpy ueber unbeschleunigten Speicher — ueberwiegend echte CPU-Zeit, kein Warten (die Differenz der Prozessorzeit deckt fast die ganze Wandzeit ab). Danach ist convert billiger (122 statt 192 us), weil der Zielpuffer sauber ausgerichtet ist."
+  },
+
+  "befund_der_alle_zahlen_einfaerbt": {
+    "was": "Die GPU taktet herunter, und das veraendert die Posten um ein Vielfaches.",
+    "gemessen": "Sekunde 3-11: SM 2685 MHz, Speicher 15001 MHz, upload 0,2 ms, decode_avg 1,5-1,6 ms. Ab Sekunde 12: SM ~700 MHz, Speicher 405 MHz, upload 1,1 ms, decode_avg 4,1 ms. Die reinen CPU-Posten (Abdruck 208-222 us) bleiben unveraendert — genau das trennt die Ursache sauber ab.",
+    "folge": "Ein 1080p60-AV1-Strom lastet eine RTX 5080 nicht aus (GPU 10 %, Decoder 5 %), sie faellt nach rund zehn Sekunden in einen Sparzustand. Bezugswerte aus der Hochtaktphase beschreiben den Dauerbetrieb NICHT.",
+    "grenze": "Zeitliche Korrelation eng, Mechanismus plausibel — kausal NICHT bewiesen. nvidia-smi -lgc verlangt Administratorrechte, die nicht vorlagen."
+  },
+
+  "wo_sich_nichts_holen_laesst": {
+    "flexfec_paketweg": "Verdacht entkraeftet. pump_track macht je Videopaket marshal()+to_vec() (~1,2 kB, ~640 Pakete/s). Mit PULSE_PLAYER_FLEXFEC=0 gegengemessen, drei Runden abwechselnd: KEIN Unterschied (0,154-0,190 Kerne an gegen 0,170-0,190 aus; Streuung derselben Konfiguration +-20 %). Bei sauberer Leitung laeuft die Rueckrechnung ohnehin nicht.",
+    "fensterschleife": "In Ordnung. 187 Aufwachvorgaenge je Sekunde bei 60 gezeichneten Bildern, KEIN einziger vergeblicher Zeichendurchgang in vierzig Laeufen. CPU-Unterschied zu 114 Aufwachvorgaengen (Vorhalt 0): nicht messbar.",
+    "write_texture": "2,8-2,9 GB/s bei JEDER Aufloesung und JEDEM Backend, DX12 wie Vulkan (1440p10: 3,8 ms beide). Der Kommentar in convert ueber den 256-Byte-Zeilenabstand traegt hier nicht: 1080p8 (Abstand 1920, unausgerichtet) und 1080p10 (3840, ausgerichtet) kosten je Byte EXAKT dasselbe. Auf NVIDIAs Vulkan ist optimalBufferCopyRowPitchAlignment offenbar 1. Hier ist nichts zu holen ausser ueber Zero-Copy.",
+    "kopie_und_abdruck_verschmelzen": "Gemessen, weil es naheliegt: warm 293 gegen 293 us, kalt (1440p10) 1222 gegen 1269 us, kachelweise 64 KB sogar 1523 us. Im kalten Fall SCHLECHTER — das Nachlesen des frisch geschriebenen Ziels erzeugt zusaetzlichen Schreibzuteilungs-Verkehr. Bitte nicht verfolgen."
+  },
+
+  "fingerabdruck": {
+    "im_laufenden_player": {"main_heute_us": 229, "xxh3_artig_us": 136, "nur_y_ebene_us": 106, "alte_stichprobe_vor_1ff7c0df_us": 11.6},
+    "mikrobench_2_97_mb": {"heute": "181 us / 17,2 GB/s", "acht_ketten": "124 us / 25,1 GB/s", "xxh3_artig": "77,5 us / 40,1 GB/s", "nur_lesen_boden": "52 us / 59,8 GB/s"},
+    "ursache": "Rechengebunden, NICHT speichergebunden. Die 64x64-Multiplikation laesst sich nicht vektorisieren (AVX2 hat kein vpmullq, Zen3 kein AVX-512). Ein 32x32->64-Produkt in XXH3-Form wird zu vpmuludq+vpaddq.",
+    "empfehlung": "XXH3-artig, VOLL — 2,3-fach schneller bei unveraenderter Abdeckung (jedes Byte geht weiter durch ein Produkt). Nur-Y-Ebene braechte ein weiteres Drittel und kostet die Chroma-Abdeckung; da der ganze Posten ~1,3 % eines Kerns ausmacht, ist der Handel nicht wert — der Fehlalarm aus 1ff7c0df kam genau aus so einer Abkuerzung."
+  },
+
+  "auf_schwaecherer_hardware": [
+    "Der Fingerabdruck skaliert mit dem Takt, nicht mit der Bandbreite: auf einem 3-GHz-Notebookkern GESCHAETZT 340 statt 229 us bei 1080p8.",
+    "Der 96-MB-V-Cache dieser Maschine schoent alles. Mit erzwungen kaltem Speicher: 1440p10-Abdruck 645 -> 705 us, Kopie 435 -> 532 us. Auf einem Notebook mit 8 MB L3 faellt ein 10,5-MB-Bild komplett aus dem Cache — der Abstand wird groesser als diese 10 %, wie viel genau ist UNGEMESSEN.",
+    "iGPU (AMD 780M, Intel): dort laeuft der D3D11VA-Weg mit der teuren Rueckholung. Auf einer iGPU liegt der Grafikspeicher aber im Systemspeicher, es geht kein PCIe dazwischen — GESCHAETZT deutlich billiger, dafuer teilen sich CPU und GPU dieselbe Bandbreite, sodass convert und upload teurer werden. Beides UNGEMESSEN.",
+    "Der GPU-Sparzustand ist ein Oberklassen-Problem. Eine GPU, die von 1440p60-AV1 wirklich ausgelastet wird, bleibt oben getaktet.",
+    "1440p10 ist die Grenze, nicht 1080p: 5,3 ms je Bild fuer Kopieren und Lesen bei 16,7 ms Budget, auf einem 5800X3D. Wer das auf einem Vierkerner ohne V-Cache faehrt, hat die Reserve nicht mehr."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur NVIDIA/RTX 5080. AMD und Intel sind ungemessen; alle Aussagen dazu sind geschaetzt.",
+    "Die Rueckholung innerhalb von cuvids send_packet liess sich nicht vom eigentlichen NVDEC-Dekodieren trennen. Aus der Differenz bleiben ~3,5 ms fuer beides zusammen (1080p8, Sparzustand) bzw. ~1,1 ms bei vollem Takt.",
+    "Die Prioritaetsumkehr im Ton unter Last ist ungeprueft — es gab in keinem Lauf einen Unterlauf, also auch keinen Stresstest.",
+    "narrow_plane_into lief nie: die RTX 5080 hat TEXTURE_FORMAT_16BIT_NORM. Der zusaetzliche CPU-Durchlauf je Ebene trifft nur GPUs ohne dieses Merkmal."
+  ],
+
+  "nebenbefund": "Ein Lauf von rund vierzig endete mit hunderten 'Darstellung: Oberflaeche abgelehnt (Validation)', danach 0 gezeichnete Bilder, decode_avg 1117 ms — die Sitzung endete NIE und meldete der App KEINEN Fehler. Renderer::acquire zaehlt Cst::Validation nicht in acquire_misses; die Statistik behauptete waehrenddessen 'Swapchain gesund'. Beim Nutzer waere das ein dauerhaft weisses Fenster ohne Rueckfall auf das video-Element. NICHT reproduziert."
+}
