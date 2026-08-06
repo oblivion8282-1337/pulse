@@ -36,7 +36,9 @@
 
   let backend = $state<PulseLinuxBackend | null>(null);
   let useLegacy = $state(false);
-  let uploadLogs = $state(false);
+  // Vorbelegung: an. Wird in `onMount` durch den gespeicherten Wert ersetzt;
+  // bis dahin soll das Haekchen nicht faelschlich leer aussehen.
+  let uploadLogs = $state(true);
   let ready = $state(false);
 
   // Nur unter Linux gibt es zwei Aufnahme-Verfahren — Statuszeile und
@@ -50,7 +52,11 @@
         window.pulse?.store.get('uploadDiagnosticLogs')
       ]);
       useLegacy = legacy === true;
-      uploadLogs = upload === true;
+      // Standard AN seit 2026-08-06: nur ein ausdrueckliches `false` haelt
+      // das Haekchen leer. Fehlender Schluessel = frische oder unberuehrte
+      // Installation = an. Muss zur Lesart in `experimental-log-upload.ts`
+      // passen, sonst zeigt die Oberflaeche etwas anderes, als der Client tut.
+      uploadLogs = upload !== false;
     } catch {
       // Store nicht erreichbar (sollte auf dem Desktop nicht passieren) — Defaults.
     }
