@@ -1,0 +1,46 @@
+{
+  "id": "player-2026-08-06-nv12-wgpu-import",
+  "gemessen_am": "2026-08-06 (nachts)",
+  "frage": "Kommt der Inhalt einer geteilten D3D11-NV12-Textur ueber wgpus eigenen Helfer unveraendert in einem Renderdurchgang an? Davon haengt ab, ob Zero-Copy im pulse-player ohne Eigenbau-Import geht.",
+  "stand": "NEIN auf NVIDIA. Der Import gelingt technisch, der Inhalt kommt nicht an. Auf AMD ungeprueft — das ist der naechste Schritt.",
+  "aufbau": "RTX 5080, Treiber 610.47, Vulkan. Probe ohne Decoder, ohne Server, ohne Fenster: eine Textur, ein Import, ein Ergebnis (streaming/player-labor/nv12-wgpu-import). Geprueft wird nicht 'kein Fehler', sondern JEDER Bildpunkt gegen den geschriebenen Wert.",
+
+  "was_gelingt": {
+    "adapter": "TEXTURE_FORMAT_NV12 und VULKAN_EXTERNAL_MEMORY_WIN32 beide vorhanden",
+    "import": "wgpu::hal::vulkan::Device::texture_from_d3d11_shared_handle, 0,09-0,18 ms",
+    "ebenen_ansichten": "TextureAspect::Plane0 als R8Unorm, Plane1 als Rg8Unorm — passt GENAU auf den vorhandenen Shader des Players. Der muesste sich fuer Zero-Copy nicht aendern.",
+    "d3d11_seite": "In JEDEM Lauf per Rueckprobe (CopyResource in eine Staging-Textur, Map, Byte fuer Byte) als vollstaendig bestaetigt."
+  },
+
+  "was_nicht_gelingt": {
+    "ergebnis": "Alle 4096 Bildpunkte schwarz.",
+    "matrix": "2 Teilungsarten (NTHANDLE|SHARED, NTHANDLE|KEYEDMUTEX) x 3 Anfangszustaende (GENERAL, RESOURCE, UNINITIALIZED) x wgpu 29.0.4 und 30.0.0 — ausnahmslos schwarz, bei jedes Mal bestaetigter D3D11-Seite."
+  },
+
+  "eine_erklaerung_die_widerlegt_ist": {
+    "vermutung": "wgpu traegt jede eingehaengte Textur als TextureUses::UNINITIALIZED ein (wgpu-core-29.0.4 device/resource.rs:1253), das wird zu VK_IMAGE_LAYOUT_UNDEFINED (wgpu-hal vulkan/conv.rs:218), und ein Uebergang von dort DARF den Inhalt verwerfen. Das erklaert ein schwarzes Bild vollstaendig und steht so im Quelltext.",
+    "warum_sie_ueberzeugend_war": "wgpu 30 hat genau dafuer einen neuen Parameter bekommen: create_texture_from_hal nimmt jetzt einen initial_state entgegen. Die Aenderungsbeschreibung nennt als Grund ausdruecklich 'zero-copy hardware-decoded video imports'.",
+    "widerlegung": "Auf wgpu 30 gebaut, den Zustand gesetzt (GENERAL wie RESOURCE) — es aendert NICHTS. Alle drei Zustaende schwarz. Die Vermutung ist damit erledigt; wer sie erneut aufgreift, kostet sich einen Abend.",
+    "auch_ausgeschlossen": "Der Schluessel-Mutex. Er wird von der Vulkan-Seite nie erworben (wgpu kennt den Begriff nicht), also lag der Verdacht nahe. Ohne Mutex (NTHANDLE|SHARED, die Paarung, die die Akte vom 2026-08-01 empfiehlt) ist das Ergebnis identisch.",
+    "auch_nicht_verwertbar": "Die Vulkan-Pruefschicht schweigt — und das war vorhersehbar: ein Uebergang aus UNDEFINED ist ERLAUBTES Vulkan. Die Schicht kann zwischen den Ursachen nicht trennen, der Versuch war vergebens."
+  },
+
+  "verbleibender_verdacht": "Der Speichertyp. Die Akte vulkan-2026-08-01-d3d11-import-zerocopy verlangt die Schnittmenge aus Bild UND Handle (vkGetMemoryWin32HandlePropertiesKHR, dort 0x1111) und hat den Import damit erfolgreich gemacht — mit ROHEM Vulkan. wgpus Helfer nimmt nur die Anforderungen des Bildes plus DEVICE_LOCAL (wgpu-hal vulkan/device.rs:578). Ungeprueft, weil dafuer ein Eigenbau-Import noetig waere — genau der, den das Labor schon hat.",
+
+  "warum_die_vorarbeit_vom_1_august_nicht_einfach_traegt": "Jene Probe hat D3D11 -> Vulkan zum SCHREIBEN geloest (Sender: Vulkan-Encoder). Dort ist ein verworfener Anfangsinhalt folgenlos — die Akte setzt layout/access bei jeder Uebergabe sogar ABSICHTLICH auf UNDEFINED zurueck. Der Player LIEST, fuer ihn ist genau das der Totalverlust. Die Asymmetrie erklaert, warum dieselbe Technik dort gelang und hier nicht.",
+
+  "was_daraus_folgt": [
+    "Weg A (billig, aber ungeprueft): auf AMD dieselbe Probe laufen lassen. Die geglueckte Messung vom 1. August lief auf einer Radeon 780M, diese hier auf NVIDIA — es ist offen, ob der Befund am Treiber haengt oder an wgpu.",
+    "Weg B (sicher, teurer): Import von Hand mit dem vkimport-Modul des Labors, Ergebnis ueber texture_from_raw + create_texture_from_hal(initial_state) an wgpu geben. Verlangt wgpu 30; der Player steht auf 29.0.4, also ein Hauptversionssprung mitten im Renderer.",
+    "MITZUPLANEN, egal welcher Weg: ohne CPU-Zugriff auf die Ebenen hat die Einfrier-Erkennung keine Bildpunkte mehr. Der Fingerabdruck muesste in einen Compute-Shader (Reduktion ueber die Y-Ebene, GPU-seitig Mikrosekunden) mit einem 8-Byte-Rueckkanal und ein bis zwei Bildern Verzug. Bei einer Erkennung, die ohnehin 2,5 s Stillstand verlangt, ist der Verzug bedeutungslos — aber es ist Arbeit, die zum Umbau gehoert und nicht danach.",
+    "Die Backend-Wahl ist frei: DX12 und Vulkan kosten beim Upload dasselbe (1440p10: 3,8 ms beide). Sie darf sich allein danach richten, welcher Interop-Weg leichter faellt."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur NVIDIA/RTX 5080. AMD und Intel ungeprueft.",
+    "Einzeltextur, nicht das Textur-ARRAY, das der Decoder liefert. Fuer den Player ist das ARRAY der bequemere Fall (er liest nur, FFmpeg reicht den Schichtindex in AVFrame.data[1] mit) — geprueft ist es trotzdem nicht.",
+    "8 bit. P010 ist hier ungeprueft; der reine Speicher-Import dafuer ist in der Akte vom 1. August belegt, der Abtastweg nicht.",
+    "Keine Synchronisierung. Einmal schreiben, danach nur lesen — im Betrieb schreibt der Decoder waehrend gezeichnet wird.",
+    "Die Gegenprobe 'aus Vulkan schreiben, mit D3D11 lesen' haette den Speicher-Verdacht direkt entschieden. Sie riss beim Versuch das Geraet mit (Parent device is lost) und steht deshalb nur noch hinter SPIKE_GEGENRICHTUNG=1. Die Frage ist damit OFFEN, nicht beantwortet."
+  ]
+}

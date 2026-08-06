@@ -1,0 +1,33 @@
+[package]
+name = "nv12-import"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Repo-Bestandteil. Liegt bewusst ausserhalb des
+# Pulse-Baums: im Player misst gerade ein anderer Vorgang, und ein zweiter
+# Schreiber im selben Arbeitsbaum kostet mehr, als er einbringt.
+
+[dependencies]
+# 30, nicht 29: erst ab hier nimmt `create_texture_from_hal` einen
+# `initial_state` entgegen. In 29 traegt wgpu jede eingehaengte Textur als
+# UNINITIALIZED ein, was auf VK_IMAGE_LAYOUT_UNDEFINED hinauslaeuft — und ein
+# Uebergang von dort darf den Inhalt verwerfen. Genau daran ist der erste
+# Durchgang gescheitert (schwarzes Bild bei technisch gelungenem Import).
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
+pollster = "0.4"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    # CreateSharedHandle steht hinter diesem Schalter (SECURITY_ATTRIBUTES).
+    "Win32_Security",
+] }
+
+[[bin]]
+name = "nv12-import"
+path = "src/main.rs"
+
+[profile.release]
+debug = true
