@@ -69,8 +69,12 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   `encode/opts.rs`, dort steht an jedem Wert die Messung. Der Stand nach 2026-07-30:
   NVENC `rc=cbr/b_ref_mode=0` + `preset=p2` + `zerolatency=1`/`delay=0` und seit
   2026-08-04 **`tune=ull`** statt GSRs `ll` — reine Angleichung an den Windows-Sidecar,
-  der `ull` seit jeher setzt; der Unterschied der beiden Tunes ist NICHT gemessen und
-  auch nicht veröffentlicht (ffmpeg reicht die Konstante nur an den Treiber durch).
+  der `ull` seit jeher setzt. **Am 2026-08-06 gemessen: die beiden Tunes erzeugen einen
+  byte-identischen Bitstrom** (acht Konstellationen, beide Codecs, mit und ohne
+  Intra-Refresh), weil ihr einziger Unterschied die VBV-Puffergröße ist — und die
+  überschreibt ffmpeg. Der Wechsel ist also folgenlos, und das ist jetzt belegt statt
+  offen; er würde erst zählen, wenn jemand `bufsize` setzt. Messakte:
+  `streaming/testbench/profiles/tune-2026-08-06-ll-gegen-ull.json`.
   **`rc_buffer_size` bleibt ungesetzt** — dann schreibt ffmpeg selbst `2 × Bitrate`
   (`nvenc.c:1183`), und zwar nach der Tuning-Voreinstellung, die es damit überschreibt.
   Zwei Sekunden VBV also, in beiden Sidecars; Begründung am Code (`encode/opts.rs`),
