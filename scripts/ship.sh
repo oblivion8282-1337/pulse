@@ -70,15 +70,48 @@ echo
 
 # Branch sicher auf dem Remote haben.
 git push -u origin "$branch"
+head_sha="$(git rev-parse HEAD)"
 
-# PR anlegen, falls noch keiner offen ist (Titel/Body aus den Commits).
-if ! gh pr view "$branch" >/dev/null 2>&1; then
-  gh pr create --base main --head "$branch" --fill
+# PR anlegen, falls für diesen Branch keiner OFFEN ist.
+#
+# Warum nicht `gh pr view "$branch"`: das findet auch längst GEMERGTE PRs
+# desselben Branch-Namens. Wird ein Themen-Branch ein zweites Mal verwendet —
+# hier der Normalfall, dieselbe Sache läuft über mehrere Runden —, sah das
+# Skript den alten PR, legte keinen neuen an, und `gh pr merge` lief danach
+# gegen den bereits gemergten. Das gibt keinen Fehler: die Erfolgsmeldung kam,
+# der Branch lag aber unangetastet auf dem Server. Am 2026-08-06 genau so
+# passiert (alter PR #270 statt eines neuen), und ohne Nachsehen hätte es
+# ausgesehen wie gelandet.
+pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+if [ -z "$pr" ]; then
+  gh pr create --base main --head "$branch" --fill >/dev/null
+  pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+fi
+if [ -z "$pr" ]; then
+  echo "✗ Kein offener PR für '$branch' — Anlegen fehlgeschlagen." >&2
+  exit 1
+fi
+
+# Zeigt der PR auf den Stand, den das Test-Gate gerade geprüft hat? Sonst würde
+# etwas anderes gemergt als das, was hier grün war (z.B. nach einem halb
+# durchgelaufenen Push).
+pr_sha="$(gh pr view "$pr" --json headRefOid --jq .headRefOid)"
+if [ "$pr_sha" != "$head_sha" ]; then
+  echo "✗ PR #$pr zeigt auf ${pr_sha:0:8}, lokal ist ${head_sha:0:8} — Push unvollständig?" >&2
+  exit 1
 fi
 
 # Rebase-Merge, Branch-Delete nach Erfolg, Auto-Merge sobald die Checks grün sind.
-gh pr merge "$branch" --rebase --delete-branch --auto
+# Über die NUMMER statt über den Branch-Namen — die ist eindeutig.
+gh pr merge "$pr" --rebase --delete-branch --auto
+
+# Nachprüfen statt behaupten: ohne das war die Erfolgsmeldung oben eine reine
+# Vermutung, und genau daran ist es einmal vorbeigelaufen.
+if [ "$(gh pr view "$pr" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]; then
+  echo "✗ Auto-Merge wurde für PR #$pr NICHT gesetzt — bitte von Hand prüfen." >&2
+  exit 1
+fi
 
 echo
-echo "✓ PR auf Auto-Merge gesetzt — landet auf main, sobald die Pflicht-Checks grün sind."
-echo "  Status:  gh pr checks $branch --watch"
+echo "✓ PR #$pr auf Auto-Merge gesetzt — landet auf main, sobald die Pflicht-Checks grün sind."
+echo "  Status:  gh pr checks $pr --watch"
