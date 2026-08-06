@@ -219,7 +219,7 @@ Ehrlich benannt, damit niemand danach sucht:
 
 | Posten je Bild | ohne | mit |
 |---|---|---|
-| hochladen | 1,0-1,3 ms | **0,1-0,2 ms** |
+| hochladen | 1,0-1,3 ms | **0,0-0,1 ms** |
 | dekodieren (Mittel) | 4,3-4,8 ms | **2,2-3,7 ms** |
 | dekodieren (Spitze) | 7,1-7,7 ms | 3,5-6,8 ms |
 
@@ -227,8 +227,9 @@ Volle Messakte:
 `streaming/testbench/profiles/player-2026-08-06-zerocopy-im-player.json`.
 
 **Warum es nicht die Vorgabe ist.** Auf diesem Weg gibt es die Bild-Ebenen im
-Hauptspeicher nicht mehr — und damit arbeiten **der Einfrier-Waechter, die
-Latenz-Sonde und `--dump` nicht**. Der Waechter bildet seinen Fingerabdruck ueber
+Hauptspeicher nicht mehr — und damit arbeiten **der Einfrier-Waechter und die
+Latenz-Sonde nicht** (der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` sehr wohl: er
+sitzt vor dem Decoder). Der Waechter bildet seinen Fingerabdruck ueber
 jedes Byte des Bildes (dass eine Stichprobe nicht genuegt, ist am 2026-08-05
 teuer gelernt worden), ein stehender Decoder bliebe also unbemerkt. Ein bis zwei
 Millisekunden je Bild wiegen das nicht auf. Zur Vorgabe wird der Weg erst, wenn
@@ -270,6 +271,9 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
 - Die Textur des Decoders ist aufgerundet (bei AV1 auf Vielfache von 128, aus
   1080 werden 1152 Zeilen). Der Renderer schneidet beim Abtasten zu
   (`Bildform::nutzanteil`), statt einen Ausschnitt zu kopieren.
+- Eine Bindegruppe je Ringplatz, nicht je Bild — sie liegt im
+  `fremdbild`-Zwischenspeicher. Das ist der Unterschied zwischen 0,1-0,2 und
+  0,0-0,1 ms Hochladen (zwoelf statt sechzig Bindegruppen je Sekunde).
 - **NVIDIA und Intel sind ungemessen.** Der Rueckfall auf das Ruecklesen bleibt
   deshalb Pflicht und ist es auch: scheitert irgendetwas, steht eine Logzeile im
   Protokoll und der Player laeuft wie vorher.

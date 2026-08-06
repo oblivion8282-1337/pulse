@@ -30,8 +30,24 @@
 //! (`CopySubresourceRegion` auf FFmpegs eigenem D3D11-Geraet), und DIESE haengt
 //! der Renderer in wgpu ein. Kein PCIe-Rueckweg, keine CPU-Kopie — der Umweg
 //! wird durch eine Kopie ersetzt, die auf der Kopiereinheit der GPU laeuft.
-//! Dieselbe Bruecke faehrt `streaming/win-hq-sidecar/src/capture/wgc_d3d12.rs`
-//! seit laengerem in der Gegenrichtung.
+//!
+//! ## ZWILLING — wer hier etwas lernt, muss es dort nachtragen
+//!
+//! `streaming/win-hq-sidecar/src/capture/wgc_d3d12.rs` faehrt dieselbe Bruecke
+//! in der Gegenrichtung, und zwar strukturgleich: Ring teilbarer Texturen,
+//! `SHARED_NTHANDLE|KEYEDMUTEX`, `ID3D11Fence` samt CPU-Warten, Handles im
+//! `Drop` geschlossen. **Es sind zwei getrennte Crates ohne gemeinsame
+//! Bibliothek** — bewusst nicht geteilt, aus demselben Grund wie bei
+//! `render::hdr_fenster::schirm_kann_hdr` (eine Bibliothek dafuer waere mehr
+//! Kopplung als die Zeilen wert sind).
+//!
+//! Der Preis dafuer ist diese Notiz. Am 2026-08-06 waren die beiden bereits
+//! auseinandergelaufen: der Sidecar hatte `Flush()` und das Ueberspringen des
+//! Wartens bei bereits erreichtem Zaunwert, diese Seite nicht. **Sollte je ein
+//! dritter Verbraucher dazukommen oder der warteschlangenseitige Zaun
+//! (`ID3D12Fence::Wait`, auf wgpu 29 nicht erreichbar) gebaut werden, ist das
+//! der Zeitpunkt, eine gemeinsame Crate anzulegen** — jene Aenderung muss
+//! ohnehin in beide Dateien.
 //!
 //! ## Was der Weg kostet, und warum er nicht die Vorgabe ist
 //!
@@ -39,7 +55,13 @@
 //! Fingerabdruck ueber JEDES Byte des Bildes (`einfrieren::abdruck`, und dass
 //! eine Stichprobe nicht genuegt, ist am 2026-08-05 teuer gelernt worden) — das
 //! setzt die Ebenen im Hauptspeicher voraus, die es hier gerade nicht mehr
-//! gibt. Dasselbe gilt fuer die Latenz-Sonde (`probe`) und `--dump`.
+//! gibt. Dasselbe gilt fuer die Latenz-Sonde (`probe`).
+//!
+//! **Hier stand zusaetzlich „und `--dump`". Das ist falsch**, und es stand am
+//! 2026-08-06 gleich an drei Stellen so: einen Schalter `--dump` gibt es nicht,
+//! der Mitschnitt haengt an `PULSE_PLAYER_DUMP_RTP` und schreibt **RTP-Pakete**
+//! (`session.rs`, `dump.rs`) — er beruehrt `DecodedFrame` ueberhaupt nicht und
+//! laeuft auf diesem Weg unveraendert weiter.
 //!
 //! Ein stehender Decoder bliebe damit unbemerkt. Deshalb ist Zero-Copy
 //! **ausdruecklich anzufordern** (`PULSE_PLAYER_ZEROCOPY=1`) und nicht die
@@ -66,7 +88,27 @@ pub use leer::{Bruecke, GpuBild};
 mod uebergabe;
 pub use uebergabe::bild_ohne_umweg;
 
-/// Ist der Weg angefordert?
+/// Der Schalter, EINMAL aus der Umgebung gelesen.
+///
+/// **Nicht je Bild.** `std::env::var` geht unter Windows ueber
+/// `GetEnvironmentVariableW`, holt sich die prozessweite Sperre und
+/// allokiert zweimal (UTF-16-Puffer plus Umwandlung). Bei 60 Bildern je Sekunde
+/// ist das umsonst — der Wert kann sich zur Laufzeit ohnehin nicht aendern.
+///
+/// `AtomicBool` und nicht `bool`, weil der Renderer ihn LOESCHEN koennen muss
+/// (s. [`abschalten`]).
+fn schalter() -> &'static std::sync::atomic::AtomicBool {
+    static AN: std::sync::OnceLock<std::sync::atomic::AtomicBool> = std::sync::OnceLock::new();
+    AN.get_or_init(|| {
+        let an = matches!(
+            std::env::var("PULSE_PLAYER_ZEROCOPY").as_deref().map(str::trim),
+            Ok("1")
+        );
+        std::sync::atomic::AtomicBool::new(an)
+    })
+}
+
+/// Ist der Weg angefordert — und noch nicht aufgegeben?
 ///
 /// Vorgabe aus, Begruendung im Modulkopf. Bewusst eine Umgebungsvariable und
 /// kein Sitzungsschalter: der Weg ist ein Messinstrument, solange der
@@ -74,5 +116,23 @@ pub use uebergabe::bild_ohne_umweg;
 /// diesem Player durchgehend in der Umgebung (`PULSE_PLAYER_SURFACE`,
 /// `PULSE_PLAYER_BACKEND`, `PULSE_PLAYER_PRESENT_MODE`).
 pub fn angefordert() -> bool {
-    matches!(std::env::var("PULSE_PLAYER_ZEROCOPY").as_deref().map(str::trim), Ok("1"))
+    schalter().load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Den Weg abschalten — der Decoder holt die Bilder ab jetzt wieder herunter.
+///
+/// **Das ist der Rueckkanal vom Renderer zum Decoder, und ohne ihn fehlte der
+/// einzige Fehlerfall, den niemand bemerkt.** Kann der Renderer eine
+/// Fremdtextur nicht einhaengen (anderer Adapter unter FFmpeg als unter wgpu,
+/// anderes Backend, fehlendes Merkmal), dann liefert der Decoder weiter
+/// GPU-Bilder, die der Renderer allesamt auslaesst: ein schwarzes Fenster bei
+/// 0 Bildern je Sekunde — und weil auf diesem Weg auch der Einfrier-Waechter
+/// nicht arbeitet, meldet es nichts und niemand.
+///
+/// Die Gruende sind alle bleibend, deshalb wird nicht erneut versucht. Die
+/// Meldung kommt genau einmal.
+pub fn abschalten(grund: &str) {
+    if schalter().swap(false, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("pulse-player: Zero-Copy abgeschaltet ({grund}) — wieder Ruecklesen");
+    }
 }

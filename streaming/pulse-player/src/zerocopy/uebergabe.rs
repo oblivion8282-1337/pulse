@@ -44,7 +44,7 @@ fn versuchen(
         Ok(b) => {
             eprintln!(
                 "pulse-player: Zero-Copy an — das Bild bleibt im Grafikspeicher. \
-                 Einfrier-Waechter, Latenz-Sonde und --dump arbeiten auf diesem Weg NICHT."
+                 Einfrier-Waechter und Latenz-Sonde arbeiten auf diesem Weg NICHT."
             );
             Some(b)
         }

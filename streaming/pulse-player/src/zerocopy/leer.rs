@@ -8,29 +8,33 @@
 
 use anyhow::{bail, Result};
 
-/// Ein Bild, das im Grafikspeicher liegt. Ausserhalb von Windows nicht
-/// herstellbar — es gibt keinen oeffentlichen Weg, eines zu bauen.
-pub struct GpuBild {
-    _privat: (),
-}
+/// Ein Bild, das im Grafikspeicher liegt.
+///
+/// **Ein leeres `enum`, kein `struct` mit privatem Feld.** Der Unterschied ist
+/// nicht kosmetisch: ein leeres `enum` hat keine Werte, also BEWEIST der
+/// Compiler, dass `Option<Arc<GpuBild>>` ausserhalb von Windows immer `None`
+/// ist. Die Methoden brauchen dann keinen Rumpf mehr — `match *self {}` sagt
+/// „hierher kommt niemand", statt (0, 0) und `false` zurueckzugeben.
+///
+/// Hier standen bis zum 2026-08-06 solche Ersatzwerte, und der Aufrufer hatte
+/// sich bereits eine passende Abfrage darauf zugelegt. Ein Ersatzwert, der nie
+/// gilt, zieht Pruefungen nach sich, die nie greifen.
+pub enum GpuBild {}
 
 impl GpuBild {
-    /// Die Masse der geteilten Textur. Nie aufgerufen, weil es kein `GpuBild`
-    /// gibt; steht hier, damit die Aufrufseite ohne `#[cfg]` uebersetzt.
     pub fn textur_masse(&self) -> (u32, u32) {
-        (0, 0)
+        match *self {}
     }
     pub fn zehn_bit(&self) -> bool {
-        false
+        match *self {}
     }
     pub fn handle(&self) -> isize {
-        0
+        match *self {}
     }
 }
 
-pub struct Bruecke {
-    _privat: (),
-}
+/// Ebenfalls unbewohnt: `neu` kann nur scheitern.
+pub enum Bruecke {}
 
 impl Bruecke {
     pub fn neu(_frame: &ffmpeg_next::util::frame::video::Video) -> Result<Self> {
@@ -41,6 +45,6 @@ impl Bruecke {
         &mut self,
         _frame: &ffmpeg_next::util::frame::video::Video,
     ) -> Result<Option<std::sync::Arc<GpuBild>>> {
-        bail!("Zero-Copy gibt es nur unter Windows")
+        match *self {}
     }
 }

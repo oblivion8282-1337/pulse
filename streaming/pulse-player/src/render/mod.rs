@@ -19,7 +19,7 @@ mod uniforms;
 
 // Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
 pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
-pub use setup::{build_bind_group, build_graphics, geraet_oeffnen, pick_format, Graphics};
+pub use setup::{bind_group_aus_teilen, build_graphics, geraet_oeffnen, pick_format, Graphics};
 pub use uniforms::Uniforms;
 
 use anyhow::{anyhow, Result};
@@ -88,6 +88,9 @@ impl Renderer {
         let hwnd = hdr_fenster::fensterkennung(&window);
         let gpu = setup::create(window, width, height).await?;
         let surface_format_name = format!("{:?}", gpu.config.format);
+        // Vor dem Struktur-Ausdruck: dort wandert `gpu.device` in das Feld
+        // `device`, und danach ist es nicht mehr auszuleihen.
+        let fremdbilder = fremdbild::Fremdbilder::neu(&gpu.device);
         Ok(Self {
             angebotene_formate: gpu.angebotene_formate,
             hwnd,
@@ -102,7 +105,7 @@ impl Renderer {
             sampler: gpu.sampler,
             uniform_buf: gpu.uniform_buf,
             bild: None,
-            fremdbilder: fremdbild::Fremdbilder::neu(),
+            fremdbilder,
             bind_group: None,
             frames_presented: 0,
             wide_textures: gpu.wide_textures,
@@ -146,16 +149,15 @@ impl Renderer {
     /// dass es dort bleibt (s. [`crate::zerocopy`]).
     pub fn upload(&mut self, frame: &DecodedFrame) {
         if let Some(gpu) = frame.gpu.as_ref() {
-            if self.fremdbild_binden(frame, gpu) {
-                return;
-            }
-            // Der Import ist nicht moeglich (falsches Backend, fehlendes
-            // Merkmal). Der Decoder haette dann eigentlich gar nicht erst
-            // umgestellt — aber ein leeres Bild zu zeichnen waere schlimmer als
-            // eines auszulassen.
+            self.fremdbild_binden(frame, gpu);
             return;
         }
-        if !self.bild.as_ref().is_some_and(|b| b.passt_zu(frame, self.wide_textures)) {
+        let passt = match self.bild.as_ref() {
+            Some(Bildquelle::Eigen(p)) => p.passt_zu(frame, self.wide_textures),
+            // Nichts da, oder zuletzt lag ein Fremdbild an: Texturen anlegen.
+            _ => false,
+        };
+        if !passt {
             self.bild =
                 Some(Bildquelle::Eigen(planes_anlegen(&self.device, frame, self.wide_textures)));
             self.bind_group = None;
@@ -170,40 +172,38 @@ impl Renderer {
         );
     }
 
-    /// Ein Fremdbild einhaengen und binden. `false` heisst: geht nicht, der
-    /// Aufrufer laesst das Bild aus.
+    /// Ein Fremdbild einhaengen und binden.
     ///
-    /// **Die Bindegruppe entsteht bei JEDEM Bild neu**, und das ist kein
-    /// Versehen: der Ring rotiert je Bild, die Ansichten sind also andere. Der
-    /// Import selbst laeuft nur einmal je Ringplatz (Zwischenspeicher in
-    /// `fremdbild`); was hier je Bild anfaellt, ist das Schreiben von drei
-    /// Deskriptoren.
+    /// **Geht das nicht, wird der ganze Weg abgeschaltet, nicht nur dieses Bild
+    /// ausgelassen.** Die Gruende sind allesamt bleibend (anderes Backend,
+    /// fehlendes Merkmal, anderer Adapter unter FFmpeg als unter wgpu), der
+    /// Decoder lieferte also weiter GPU-Bilder, die hier allesamt liegenblieben:
+    /// ein schwarzes Fenster bei 0 Bildern je Sekunde — und weil auf diesem Weg
+    /// auch der Einfrier-Waechter nicht arbeitet, meldete es niemand. Der
+    /// Rueckkanal ist [`crate::zerocopy::abschalten`].
     fn fremdbild_binden(
         &mut self,
         frame: &DecodedFrame,
         gpu: &std::sync::Arc<crate::zerocopy::GpuBild>,
-    ) -> bool {
-        let (tw, th) = gpu.textur_masse();
-        if tw == 0 || th == 0 || frame.width == 0 || frame.height == 0 {
-            return false;
-        }
-        let Some(ansichten) = self.fremdbilder.binden(&self.device, gpu) else {
-            return false;
+    ) {
+        let teile = fremdbild::Bindeteile {
+            layout: &self.bind_layout,
+            sampler: &self.sampler,
+            uniform_buf: &self.uniform_buf,
         };
-        self.bind_group = Some(setup::bind_group_aus_teilen(
-            &self.device,
-            &self.bind_layout,
-            &self.sampler,
-            &self.uniform_buf,
-            ansichten,
-        ));
+        if self.fremdbilder.binden(&self.device, &teile, gpu).is_none() {
+            crate::zerocopy::abschalten("der Renderer kann die Textur nicht einhaengen");
+            return;
+        }
+        // Die Bindegruppe liegt im Zwischenspeicher (eine je Ringplatz); hier
+        // wird nur noch vermerkt, welche gerade gilt.
+        self.bind_group = None;
         self.bild = Some(Bildquelle::Fremd(Fremdform {
+            gpu: gpu.clone(),
             width: frame.width,
             height: frame.height,
-            ten_bit: frame.ten_bit,
-            nutzanteil: [frame.width as f32 / tw as f32, frame.height as f32 / th as f32],
+            layout: frame.format,
         }));
-        true
     }
 
     fn build_uniforms(
@@ -281,18 +281,32 @@ impl Renderer {
         let form = quelle.form();
         let (bild_w, bild_h) = quelle.masse();
 
-        if self.bind_group.is_none() {
-            let Some(Bildquelle::Eigen(planes)) = self.bild.as_ref() else { return Ok(()) };
-            let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
-            let (vy, vu, vv) = (view(&planes.y), view(&planes.u), view(&planes.v));
-            self.bind_group = Some(setup::bind_group_aus_teilen(
-                &self.device,
-                &self.bind_layout,
-                &self.sampler,
-                &self.uniform_buf,
-                [&vy, &vu, &vv],
-            ));
+        // Die eigenen Ebenen brauchen ihre Bindegruppe hier; ein Fremdbild
+        // bringt seine aus dem Zwischenspeicher mit (eine je Ringplatz).
+        if let Bildquelle::Eigen(planes) = quelle {
+            if self.bind_group.is_none() {
+                let view =
+                    |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
+                let (vy, vu, vv) = (view(&planes.y), view(&planes.u), view(&planes.v));
+                self.bind_group = Some(setup::bind_group_aus_teilen(
+                    &self.device,
+                    &self.bind_layout,
+                    &self.sampler,
+                    &self.uniform_buf,
+                    [&vy, &vu, &vv],
+                ));
+            }
         }
+
+        // Welche Bindegruppe gilt — und, beim Fremdbild, welcher Ringplatz noch
+        // gehalten werden muss.
+        let (gebundene, zu_halten) = match self.bild.as_ref() {
+            Some(Bildquelle::Fremd(f)) => (
+                self.fremdbilder.bindegruppe(f.gpu.handle()),
+                Some(f.gpu.clone()),
+            ),
+            _ => (self.bind_group.as_ref(), None),
+        };
 
         let uniforms = self.build_uniforms(opts, form, full_range, farbe);
         self.queue.write_buffer(&self.uniform_buf, 0, &uniforms.as_bytes());
@@ -323,7 +337,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
-            if let Some(bg) = self.bind_group.as_ref() {
+            if let Some(bg) = gebundene {
                 pass.set_bind_group(0, bg, &[]);
             }
             // Ohne das fuellt das Vollbild-Dreieck immer das ganze Fenster und
@@ -360,7 +374,12 @@ impl Renderer {
         // Fenster laesst ihn direkt nach `upload` fallen); ohne diese zweite
         // Referenz schriebe der Decoder in die Textur, aus der gerade gezeichnet
         // wird — sichtbar als flackernder Riss quer durchs Bild.
-        if let Some(gehalten) = self.fremdbilder.gehalten() {
+        //
+        // Nur beim Fremdbild: auf dem Weg ueber den Hauptspeicher gibt es
+        // keinen Ringplatz, und bis zum 2026-08-06 wurde hier trotzdem bei
+        // JEDEM Bild einer festgehalten — der eines laengst vergangenen
+        // Zero-Copy-Bildes, dauerhaft.
+        if let Some(gehalten) = zu_halten {
             self.queue.on_submitted_work_done(move || drop(gehalten));
         }
         surface_texture.present();

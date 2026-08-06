@@ -412,21 +412,12 @@ pub fn build_graphics(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gra
 /// An EINER Stelle, weil die Nummern sonst dreifach von Hand gefuehrt wuerden
 /// (Layout hier, Fenster, Messpfad) und eine sechste Bindung im Shader erst
 /// zur Laufzeit auffiele.
-pub fn build_bind_group(
-    device: &wgpu::Device,
-    gfx: &Graphics,
-    ebenen: [&wgpu::TextureView; 3],
-) -> wgpu::BindGroup {
-    bind_group_aus_teilen(device, &gfx.bind_layout, &gfx.sampler, &gfx.uniform_buf, ebenen)
-}
-
-/// Dieselbe Bindegruppe, aber aus Einzelteilen.
+/// **Hier stand `build_bind_group(device, &Graphics, ebenen)` als zweite,
+/// vorgelagerte Fassung.** Sie hatte nach dem Umbau nur noch einen Aufrufer und
+/// reichte alles unveraendert weiter; der Messpfad ruft jetzt direkt hier an.
 ///
-/// Es gibt sie, weil der Renderer im Fenster kein `Graphics` mehr zur Hand hat
-/// (er haelt dessen Teile einzeln) und ein nur zum Aufrufen gebauter
-/// `Graphics`-Zwilling drei ueberfluessige Kopien waere. Die Bindungsnummern
-/// bleiben damit trotzdem an EINER Stelle — das war der Zweck von
-/// [`build_bind_group`] und bleibt es.
+/// Die Bindungsnummern bleiben damit weiter an EINER Stelle — das war ihr
+/// Zweck, und der ist erfuellt, ohne dass es zwei Namen dafuer braucht.
 pub fn bind_group_aus_teilen(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,

@@ -16,7 +16,7 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_P010;
 
-use super::ffmpeg_geraet::{geraetekontext, quellmasse};
+use super::ffmpeg_geraet::{geraetekontext, quellmasse, quelltextur};
 use super::platz::{Freigabe, GpuBild};
 use windows::Win32::Graphics::Dxgi::{IDXGIKeyedMutex, IDXGIResource1};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
@@ -254,51 +254,34 @@ impl Bruecke {
         frame: &ffmpeg::util::frame::video::Video,
         slot: usize,
     ) -> Result<()> {
-        // SAFETY: das Bild lebt; `data[0]` traegt bei `AV_PIX_FMT_D3D11` die
-        // Textur, `data[1]` den Schichtindex (so legt es libavutil ab).
-        let (quelle, schicht) = unsafe {
-            let f = frame.as_ptr();
-            let roh = (*f).data[0] as *mut c_void;
-            if roh.is_null() {
-                bail!("Bild ohne D3D11-Textur");
-            }
-            let tex = ID3D11Texture2D::from_raw_borrowed(&roh)
-                .ok_or_else(|| anyhow!("D3D11-Textur nicht lesbar"))?
-                .clone();
-            (tex, (*f).data[1] as usize as u32)
-        };
+        let quelle = quelltextur(frame)?;
+        // SAFETY: das Bild lebt; bei `AV_PIX_FMT_D3D11` traegt `data[1]` den
+        // Schichtindex innerhalb des Decoder-Stapels (so legt es libavutil ab).
+        let schicht = unsafe { (*frame.as_ptr()).data[1] as usize as u32 };
 
+        // Der naechste Zaunwert steht VOR dem Block fest, nicht darin — sonst
+        // braeuchte der Abschnitt `&mut self`, waehrend `platz` schon eine Leihe
+        // auf `self.ring` haelt.
+        let zaun_wert = self.zaun_wert + 1;
         let platz = &self.ring[slot];
         self.sperren();
-        // SAFETY: alle Ressourcen leben, Schichtindex stammt aus dem Bild.
-        let ergebnis = unsafe {
-            platz
-                .mutex
-                .AcquireSync(0, INFINITE)
-                .context("AcquireSync")
-                .and_then(|()| {
-                    self.kontext.CopySubresourceRegion(
-                        &platz.textur,
-                        0,
-                        0,
-                        0,
-                        0,
-                        &quelle,
-                        schicht,
-                        None,
-                    );
-                    platz.mutex.ReleaseSync(0).context("ReleaseSync")
-                })
-        };
-        // Der Zaun MUSS auch nach einem Fehlschlag nicht gesetzt werden — aber
-        // die Sperre muss in jedem Fall fallen.
-        let ergebnis = ergebnis.and_then(|()| {
-            self.zaun_wert += 1;
-            // SAFETY: gueltiger Kontext und Zaun.
-            unsafe { self.kontext4.Signal(&self.zaun, self.zaun_wert) }.context("Signal")
-        });
+        // Ein Abschnitt mit `?`, damit an jeder Zeile steht, was sie tut. Die
+        // Sperre faellt danach in JEDEM Fall — deshalb steht das `?` auf dem
+        // Ergebnis erst hinter `entsperren`.
+        // SAFETY: alle Ressourcen leben, der Schichtindex stammt aus dem Bild.
+        let ergebnis = (|| -> Result<()> {
+            unsafe {
+                platz.mutex.AcquireSync(0, INFINITE).context("AcquireSync")?;
+                self.kontext
+                    .CopySubresourceRegion(&platz.textur, 0, 0, 0, 0, &quelle, schicht, None);
+                platz.mutex.ReleaseSync(0).context("ReleaseSync")?;
+                self.kontext4.Signal(&self.zaun, zaun_wert).context("Signal")?;
+            }
+            Ok(())
+        })();
         self.entsperren();
         ergebnis?;
+        self.zaun_wert = zaun_wert;
 
         // **Auf der CPU warten, bis die Kopie durch ist.** Ohne das koennte der
         // D3D12-Leser eine halb gefuellte Textur sehen: die beiden Seiten
@@ -310,12 +293,24 @@ impl Bruecke {
         // (`ID3D11Fence` als NT-Handle, `ID3D12Fence::Wait` auf der
         // wgpu-Warteschlange) braeuchte einen Zugriff auf die Warteschlange,
         // den wgpu 29 nicht anbietet.
-        // SAFETY: Zaun und Ereignis leben; das Ereignis wird nur hier benutzt.
+        //
+        // **`Flush` und die Abkuerzung ueber `GetCompletedValue` sind vom
+        // Zwilling uebernommen** (`win-hq-sidecar/src/capture/wgc_d3d12.rs`),
+        // wo beides seit laengerem steht und hier am 2026-08-06 fehlte. `Flush`
+        // schiebt die Arbeit ueberhaupt erst zur GPU — ohne das wartet man auf
+        // etwas, das noch gar nicht laeuft. Und ist der Zaunwert schon erreicht,
+        // spart der Vergleich Ereignis und Kernel-Uebergang; im gesunden Betrieb
+        // ist das der Regelfall.
+        // SAFETY: Zaun, Kontext und Ereignis leben; das Ereignis wird nur hier
+        // benutzt.
         unsafe {
-            self.zaun
-                .SetEventOnCompletion(self.zaun_wert, self.zaun_ereignis)
-                .context("SetEventOnCompletion")?;
-            WaitForSingleObject(self.zaun_ereignis, INFINITE);
+            self.kontext.Flush();
+            if self.zaun.GetCompletedValue() < self.zaun_wert {
+                self.zaun
+                    .SetEventOnCompletion(self.zaun_wert, self.zaun_ereignis)
+                    .context("SetEventOnCompletion")?;
+                WaitForSingleObject(self.zaun_ereignis, INFINITE);
+            }
         }
         Ok(())
     }

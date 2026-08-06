@@ -3,7 +3,7 @@
 //!
 //! Kein Fenster, keine Swapchain — sonst nichts anders. Geteilt mit dem
 //! Fenster sind Geraeteanforderung ([`geraet_oeffnen`]), Pipeline
-//! ([`build_graphics`]), Bindungen ([`build_bind_group`]), der Uniform-Block
+//! ([`build_graphics`]), Bindungen ([`bind_group_aus_teilen`]), der Uniform-Block
 //! ([`build_uniforms`]) und das Herunterrechnen ([`narrow_plane_into`]). Das
 //! ist der ganze Zweck der Uebung: ein Nachbau haette den Nachbau gemessen,
 //! und genau daran ist die numpy-Nachrechnung vom 2026-08-04 gescheitert (sie
@@ -17,7 +17,8 @@ use super::pixel::{bytes_pro_punkt, rot_kanal};
 use crate::decode::PixelLayout;
 use crate::proto::PlayerOptions;
 use crate::render::{
-    build_bind_group, build_graphics, build_uniforms, geraet_oeffnen, narrow_plane_into, scales,
+    bind_group_aus_teilen, build_graphics, build_uniforms, geraet_oeffnen, narrow_plane_into,
+    scales,
     Bildform, Graphics,
 };
 
@@ -161,7 +162,13 @@ impl Messstand {
 
         let ansicht = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
         let [vy, vu, vv] = std::array::from_fn(|i| ansicht(&self.ebenen[i]));
-        let bind = build_bind_group(&self.device, gfx, [&vy, &vu, &vv]);
+        let bind = bind_group_aus_teilen(
+            &self.device,
+            &gfx.bind_layout,
+            &gfx.sampler,
+            &gfx.uniform_buf,
+            [&vy, &vu, &vv],
+        );
 
         let mut enc = self
             .device

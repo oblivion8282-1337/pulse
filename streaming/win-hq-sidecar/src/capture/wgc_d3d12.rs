@@ -20,6 +20,17 @@
 //! Cross-API-Sync: nach dem Copy wartet der Capture-Thread per CPU-Fence, bis
 //! die D3D11-GPU-Arbeit fertig ist, BEVOR er den Slot freigibt — dann liest
 //! der D3D12-Converter eine garantiert vollständige Surface.
+//!
+//! ## ZWILLING — wer hier etwas lernt, muss es dort nachtragen
+//!
+//! `streaming/pulse-player/src/zerocopy/bruecke.rs` fährt seit dem 2026-08-06
+//! dieselbe Brücke in der Gegenrichtung (dekodiertes Bild statt Capture-Frame),
+//! strukturgleich bis hin zum CPU-Fence. Es sind zwei getrennte Crates ohne
+//! gemeinsame Bibliothek — bewusst nicht geteilt, aber deshalb diese Notiz: die
+//! beiden waren am 2026-08-06 bereits auseinandergelaufen (`Flush()` und das
+//! Überspringen des Wartens bei erreichtem Fence-Wert gab es nur hier).
+//! Kommt ein dritter Verbraucher dazu, oder wird der queue-seitige Fence
+//! gebaut, ist das der Zeitpunkt für eine gemeinsame Crate.
 
 use anyhow::{Context as _, Result, anyhow};
 use std::sync::Arc;

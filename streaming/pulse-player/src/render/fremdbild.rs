@@ -17,17 +17,31 @@
 //! wiederholten Beschreiben derselben Textur:
 //! `streaming/testbench/profiles/player-2026-08-06-zerocopy-d3d12-amd.json`.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::decode::PixelLayout;
 use crate::zerocopy::GpuBild;
 
 /// Ein eingehaengtes Bild samt seiner beiden Ebenen-Ansichten.
 pub struct Import {
-    /// Gehalten, weil die Ansichten daran haengen — sonst nirgends gebraucht.
+    /// Gehalten, weil die Bindegruppe daran haengt — sonst nirgends gebraucht.
     _textur: wgpu::Texture,
-    pub luma: wgpu::TextureView,
-    pub chroma: wgpu::TextureView,
+    /// Die fertige Bindegruppe dieses Ringplatzes.
+    ///
+    /// **Hier stand die Bindegruppe frueher NICHT, sie entstand je Bild neu**,
+    /// mit der Begruendung „der Ring rotiert je Bild, die Ansichten sind also
+    /// andere". Das erklaert nur, warum EINE feste Gruppe nicht reicht — nicht,
+    /// warum zwoelf feste es nicht taeten. Alle fuenf Bestandteile sind je
+    /// Ringplatz unveraenderlich (die beiden Ebenen-Ansichten, die Blindtextur,
+    /// der Sampler und der Uniform-Puffer; letzterer wird beschrieben, nicht neu
+    /// gebunden). `create_bind_group` ist in wgpu nicht billig — Layout-Pruefung,
+    /// Deskriptoren in den shader-sichtbaren Haufen, fuenf Arc-Klone in die
+    /// Ressourcen-Verfolgung —, und die alte Gruppe ging jedes Bild in die
+    /// verzoegerte Zerstoerung. Bei 60 Bildern je Sekunde waren das 60 Gruppen
+    /// statt zwoelf.
+    pub bindegruppe: wgpu::BindGroup,
 }
 
 /// Zwischenspeicher der Einhaengungen, ein Eintrag je Ringplatz.
@@ -39,12 +53,9 @@ pub struct Import {
 /// Bildnummer waere falsch.
 pub struct Fremdbilder {
     importe: HashMap<isize, Import>,
-    /// Was gerade gebunden ist — hier, damit der Renderer das `Arc` haelt, bis
-    /// die GPU fertig ist (s. [`Fremdbilder::binden`]).
-    aktuell: Option<Arc<GpuBild>>,
     /// Fuellt die dritte Bindung. Der Shader liest sie bei verschraenktem UV
     /// nicht, binden muss man sie trotzdem.
-    blind: Option<wgpu::TextureView>,
+    blind: wgpu::TextureView,
     /// Masse und Bittiefe, fuer die die Eintraege gelten.
     ///
     /// **Ohne das waere der Zwischenspeicher gefaehrlich, nicht nur veraltet.**
@@ -57,8 +68,12 @@ pub struct Fremdbilder {
 }
 
 impl Fremdbilder {
-    pub fn neu() -> Self {
-        Self { importe: HashMap::new(), aktuell: None, blind: None, bauart: None }
+    /// **Braucht das Geraet, statt die Blindtextur spaeter nachzuziehen.** Der
+    /// Aufrufer (`Renderer::new`) hat es ohnehin in der Hand; lazy angelegt
+    /// zwaenge sie in ein `Option` und damit zwei Fehlerpfade in `binden`, die
+    /// nie eintreten koennen.
+    pub fn neu(device: &wgpu::Device) -> Self {
+        Self { importe: HashMap::new(), blind: blindtextur(device), bauart: None }
     }
 
     /// Welche Merkmale das Geraet braucht, damit dieser Weg ueberhaupt offen
@@ -84,76 +99,66 @@ impl Fremdbilder {
         }
     }
 
-    /// Die drei Ansichten fuer die Bindegruppe. `None` heisst: der Import ist
-    /// nicht moeglich — der Aufrufer nimmt dann den bisherigen Weg.
+    /// Die fertige Bindegruppe fuer dieses Bild. `None` heisst: der Import ist
+    /// nicht moeglich — der Aufrufer schaltet den Weg dann ab.
     pub fn binden(
         &mut self,
         device: &wgpu::Device,
+        teile: &Bindeteile<'_>,
         bild: &Arc<GpuBild>,
-    ) -> Option<[&wgpu::TextureView; 3]> {
+    ) -> Option<&wgpu::BindGroup> {
         if !Self::moeglich(device, bild.zehn_bit()) {
             return None;
-        }
-        if self.blind.is_none() {
-            self.blind = Some(blindtextur(device));
         }
         let (bw, bh) = bild.textur_masse();
         let bauart = (bw, bh, bild.zehn_bit());
         if self.bauart != Some(bauart) {
-            self.leeren();
+            // Nach einem Formatwechsel zeigen die alten Handles auf Texturen,
+            // die es nicht mehr gibt (s. [`Fremdbilder::bauart`]).
+            self.importe.clear();
             self.bauart = Some(bauart);
         }
-        let schluessel = bild.handle();
-        if !self.importe.contains_key(&schluessel) {
-            let import = einhaengen(device, bild)?;
-            self.importe.insert(schluessel, import);
+        match self.importe.entry(bild.handle()) {
+            Entry::Occupied(e) => Some(&e.into_mut().bindegruppe),
+            Entry::Vacant(e) => {
+                let import = einhaengen(device, teile, &self.blind, bild)?;
+                Some(&e.insert(import).bindegruppe)
+            }
         }
-        // Erst JETZT das alte Bild loslassen: bis hierher haelt `aktuell` den
-        // Ringplatz des zuletzt gezeichneten Bildes.
-        self.aktuell = Some(bild.clone());
-        let import = self.importe.get(&schluessel)?;
-        let blind = self.blind.as_ref()?;
-        Some([&import.luma, &import.chroma, blind])
     }
 
-    /// Das gerade gebundene Bild — der Renderer haengt es an
-    /// `on_submitted_work_done`, damit der Ringplatz erst frei wird, wenn die
-    /// GPU ihn nicht mehr liest.
-    pub fn gehalten(&self) -> Option<Arc<GpuBild>> {
-        self.aktuell.clone()
+    /// Die bereits gebaute Bindegruppe eines Ringplatzes.
+    ///
+    /// Getrennt von [`Fremdbilder::binden`], weil `render` sie mit `&self`
+    /// braucht — `binden` laeuft in `upload` und darf einhaengen, `render`
+    /// findet nur noch vor.
+    pub fn bindegruppe(&self, handle: isize) -> Option<&wgpu::BindGroup> {
+        self.importe.get(&handle).map(|i| &i.bindegruppe)
     }
+}
 
-    /// Alles vergessen — nach einem Formatwechsel zeigen die alten Handles auf
-    /// Texturen, die es nicht mehr gibt (s. [`Fremdbilder::bauart`]).
-    fn leeren(&mut self) {
-        self.importe.clear();
-        self.aktuell = None;
-    }
+/// Was ausser den Ebenen noch in die Bindegruppe gehoert.
+///
+/// Als Buendel, damit `binden` nicht vier Einzelteile durchreichen muss und der
+/// Aufrufer sie nicht in der falschen Reihenfolge uebergeben kann.
+pub struct Bindeteile<'a> {
+    pub layout: &'a wgpu::BindGroupLayout,
+    pub sampler: &'a wgpu::Sampler,
+    pub uniform_buf: &'a wgpu::Buffer,
 }
 
 fn blindtextur(device: &wgpu::Device) -> wgpu::TextureView {
-    let t = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("pulse-player-blind"),
-        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    t.create_view(&wgpu::TextureViewDescriptor::default())
-}
-
-/// Ebenen-Formate zum Bildformat. Bei P010 sitzen die zehn Bit oben im
-/// 16-Bit-Wort, die Ansicht ist deshalb `*16Unorm` — dieselbe Zuordnung, mit
-/// der `render::farbe::scales` rechnet.
-fn ebenenformate(zehn_bit: bool) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
-    if zehn_bit {
-        (wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm)
-    } else {
-        (wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm)
-    }
+    // Dieselbe Bauart wie die Ebenen-Texturen (s. `bildquelle::textur`); nur
+    // `COPY_DST` faellt weg, denn hier wird nie etwas hineingeschrieben.
+    super::bildquelle::textur(
+        device,
+        1,
+        1,
+        wgpu::TextureFormat::R8Unorm,
+        wgpu::TextureUsages::TEXTURE_BINDING,
+        "pulse-player-blind",
+    )
+    .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 /// Ausserhalb von Windows gibt es weder NT-Handles noch ein D3D12-Geraet.
@@ -161,16 +166,35 @@ fn ebenenformate(zehn_bit: bool) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
 /// erreicht wird sie ohnehin nie, weil `DecodedFrame::gpu` dort immer `None`
 /// ist (s. `zerocopy::leer`).
 #[cfg(not(windows))]
-fn einhaengen(_device: &wgpu::Device, _bild: &Arc<GpuBild>) -> Option<Import> {
+fn einhaengen(
+    _device: &wgpu::Device,
+    _teile: &Bindeteile<'_>,
+    _blind: &wgpu::TextureView,
+    _bild: &Arc<GpuBild>,
+) -> Option<Import> {
     None
 }
 
 #[cfg(windows)]
-fn einhaengen(device: &wgpu::Device, bild: &Arc<GpuBild>) -> Option<Import> {
+fn einhaengen(
+    device: &wgpu::Device,
+    teile: &Bindeteile<'_>,
+    blind: &wgpu::TextureView,
+    bild: &Arc<GpuBild>,
+) -> Option<Import> {
     let (breite, hoehe) = bild.textur_masse();
     let format =
         if bild.zehn_bit() { wgpu::TextureFormat::P010 } else { wgpu::TextureFormat::NV12 };
-    let (ebene0, ebene1) = ebenenformate(bild.zehn_bit());
+    // Die Ebenen-Formate kommen aus `farbe`, nicht von hier: dort steht auch
+    // `scales`, das mit genau dieser Zuordnung rechnet. Zwei Tabellen koennten
+    // auseinanderlaufen, ohne dass man es dem Bild ansaehe — genau die
+    // Begruendung, mit der `scales` seinerzeit zusammengelegt wurde.
+    //
+    // `wide = zehn_bit`: auf diesem Weg wird nichts heruntergerechnet. Eine
+    // P010-Textur traegt 16 bit, oder es gibt gar keinen Import
+    // (`Fremdbilder::moeglich` prueft das Merkmal vorher).
+    let (ebene0, ebene1) =
+        super::farbe::ebenenformate(bild.zehn_bit(), PixelLayout::BiPlanar420);
     let masse = wgpu::Extent3d { width: breite, height: hoehe, depth_or_array_layers: 1 };
 
     let ressource = match oeffnen(device, bild.handle()) {
@@ -223,7 +247,15 @@ fn einhaengen(device: &wgpu::Device, bild: &Arc<GpuBild>) -> Option<Import> {
     };
     let luma = ansicht("fremdbild-y", ebene0, wgpu::TextureAspect::Plane0);
     let chroma = ansicht("fremdbild-uv", ebene1, wgpu::TextureAspect::Plane1);
-    Some(Import { _textur: textur, luma, chroma })
+    // Einmal je Ringplatz, nicht je Bild — Begruendung an `Import::bindegruppe`.
+    let bindegruppe = super::setup::bind_group_aus_teilen(
+        device,
+        teile.layout,
+        teile.sampler,
+        teile.uniform_buf,
+        [&luma, &chroma, blind],
+    );
+    Some(Import { _textur: textur, bindegruppe })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.

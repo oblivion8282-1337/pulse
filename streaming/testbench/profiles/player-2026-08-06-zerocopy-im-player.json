@@ -14,7 +14,8 @@
   },
 
   "zahlen": {
-    "hochladen_je_bild_ms": {"ohne": "1,0-1,3", "mit": "0,1-0,2"},
+    "hochladen_je_bild_ms": {"ohne": "1,0-1,3", "mit": "0,0-0,1"},
+    "hochladen_anmerkung": "Erst 0,1-0,2 gemessen; danach entsteht die Bindegruppe nur noch EINMAL JE RINGPLATZ statt je Bild (zwoelf statt sechzig je Sekunde), und der Posten faellt auf 0,0-0,1. Beide Zahlen sind echt gemessen, die zweite gilt.",
     "dekodieren_mittel_ms": {"ohne": "4,3-4,8", "mit": "2,2-3,7"},
     "dekodieren_spitze_ms": {"ohne": "7,1-7,7", "mit": "3,5-6,8"},
     "was_hochladen_meint": "Der Posten `upload` der Player-Statistik: bisher `write_texture` fuer drei Ebenen, jetzt nur noch das Einhaengen und Binden der Fremdtextur (der Import selbst laeuft einmal je Ringplatz, nicht je Bild).",
@@ -33,11 +34,13 @@
     "was": "`stockung::ist_grafikstockung` entschied bis heute allein an `ruecklesen`. Mit Zero-Copy ist dieser Wert immer 0 — die Bedingung war also nie erfuellt, und der Rueckfall auf Software (gebaut am selben Tag) haette auf diesem Weg NIE ausgeloest.",
     "im_ersten_lauf_beobachtet": "Zwoelf Stockungen, kein Rueckfall, Sitzung lief mit 2-8 Bildern je Sekunde weiter.",
     "abhilfe": "`Abschnitte` traegt jetzt ein viertes Feld `bruecke` (die Zeit in der Zero-Copy-Bruecke, im Wesentlichen das Warten am Zaun), und `ist_grafikstockung` zaehlt beide Wartearten. Ein Test haelt genau diesen Fall fest.",
+    "gegengeprueft": "Am selben Abend im laufenden Betrieb nachgewiesen: 'Stockung im Decoder — 2272 ms gesamt (0 ms hineingeben, 2272 ms herausholen, davon 0 ms Ruecklesen und 2272 ms Zero-Copy-Bruecke)', danach 'Decoder av1 wird aufgegeben: das Warten auf die Grafikeinheit blockiert wiederholt — weiter in Software'. Der Rueckfall greift auf diesem Weg jetzt also wirklich.",
     "lehre": "Ein neuer Weg am alten Messpunkt vorbei schaltet stillschweigend jeden Schutz ab, der an diesem Messpunkt haengt."
   },
 
   "der_preis_und_warum_zero_copy_nicht_die_vorgabe_ist": {
-    "was_ausfaellt": "Der Einfrier-Waechter, die Latenz-Sonde und --dump. Alle drei lesen die Ebenen im Hauptspeicher — und genau die gibt es auf diesem Weg nicht mehr.",
+    "was_ausfaellt": "Der Einfrier-Waechter und die Latenz-Sonde. Beide lesen die Ebenen im Hauptspeicher — und genau die gibt es auf diesem Weg nicht mehr.",
+    "was_NICHT_ausfaellt": "Der RTP-Mitschnitt. Hier stand zunaechst zusaetzlich '--dump'; das ist falsch und stand am 2026-08-06 gleich an vier Stellen so. Einen Schalter --dump gibt es nicht, der Mitschnitt haengt an PULSE_PLAYER_DUMP_RTP, schreibt RTP-Pakete und sitzt VOR dem Decoder — er beruehrt DecodedFrame ueberhaupt nicht.",
     "warum_das_schwer_wiegt": "Der Einfrier-Waechter bildet seinen Fingerabdruck ueber JEDES Byte des Bildes, und dass eine Stichprobe nicht genuegt, ist am 2026-08-05 teuer gelernt worden (einfrieren/abdruck.rs). Ein stehender Decoder bliebe also unbemerkt.",
     "entscheidung": "Zero-Copy ist anzufordern (PULSE_PLAYER_ZEROCOPY=1), nicht Vorgabe. Ein bis zwei Millisekunden je Bild wiegen einen ausgefallenen Waechter nicht auf.",
     "was_es_zur_vorgabe_machen_wuerde": "Den Fingerabdruck auf die GPU holen (Rechen-Durchgang ueber die Luma-Ebene, 8 Byte zurueck). Ungebaut."
@@ -46,7 +49,7 @@
   "weitere_kosten": {
     "grafikspeicher": "Ein Ring aus 12 geteilten Texturen: bei 1080p10 rund 80 MB, bei 1440p10 rund 140 MB. Zwoelf, weil der Ausgabe-Takt (60 ms Vorhalt) bei 60 fps allein vier Bilder haelt; mit vier Plaetzen schaltete sich der Weg nach dem ERSTEN Bild ab. Ueber PULSE_PLAYER_ZEROCOPY_RING einstellbar.",
     "cpu_zaun": "Nach der GPU-internen Kopie wird auf der CPU auf den Zaun gewartet. Noetig, weil eine ueber OpenSharedHandle geoeffnete Ressource keinen IDXGIKeyedMutex bereitstellt (dieselbe Feststellung wie im Sidecar) und wgpu 29 keinen Warte-Aufruf auf seiner Warteschlange anbietet. Im gesunden Betrieb unter einer Millisekunde; im Stockungsfall steht dort die ganze Wartezeit.",
-    "bindegruppe_je_bild": "Der Ring rotiert je Bild, die Ansichten sind also andere — die Bindegruppe entsteht je Bild neu (drei Deskriptoren). Der Import selbst laeuft nur einmal je Ringplatz."
+    "bindegruppe": "Eine je Ringplatz, nicht je Bild. **Hier stand zunaechst 'entsteht je Bild neu, weil der Ring rotiert' — das erklaert nur, warum EINE feste Gruppe nicht reicht, nicht, warum zwoelf feste es nicht taeten.** Alle Bestandteile sind je Ringplatz unveraenderlich; sie liegen jetzt im Zwischenspeicher neben dem Import. Das war der Unterschied zwischen 0,1-0,2 und 0,0-0,1 ms Hochladen."
   },
 
   "rueckfall": {

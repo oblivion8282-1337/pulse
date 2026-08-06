@@ -491,9 +491,10 @@ pub struct DecodedFrame {
     /// Das Bild liegt im Grafikspeicher (s. [`crate::zerocopy`]).
     ///
     /// **Ist das gesetzt, sind `planes` und `strides` leer** — und damit fallen
-    /// der Einfrier-Waechter, die Latenz-Sonde und `--dump` aus, weil sie alle
-    /// die Ebenen im Hauptspeicher lesen. Genau deshalb ist der Weg
-    /// ausdruecklich anzufordern und nicht die Vorgabe.
+    /// der Einfrier-Waechter und die Latenz-Sonde aus, weil beide die Ebenen im
+    /// Hauptspeicher lesen. Genau deshalb ist der Weg ausdruecklich anzufordern
+    /// und nicht die Vorgabe. (Der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` ist
+    /// NICHT betroffen — er sitzt vor dem Decoder.)
     pub gpu: Option<std::sync::Arc<crate::zerocopy::GpuBild>>,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
     pub(crate) pool: PlanePool,
@@ -531,6 +532,12 @@ impl DecodedFrame {
 
 impl Drop for DecodedFrame {
     fn drop(&mut self) {
+        // Nichts zurueckzugeben heisst: gar nicht erst sperren. Auf dem
+        // Zero-Copy-Weg sind die Ebenen immer leer, und `give_back` nimmt sonst
+        // je Bild eine Sperre, um dann nichts zu tun.
+        if self.planes.is_empty() {
+            return;
+        }
         self.pool.give_back(std::mem::take(&mut self.planes));
     }
 }

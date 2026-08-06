@@ -33,18 +33,40 @@ pub(super) enum Bildquelle {
     Fremd(Fremdform),
 }
 
-/// Die beschreibenden Angaben eines eingehaengten Fremdbildes.
+/// Ein eingehaengtes Fremdbild.
 ///
-/// Getrennt von den Ansichten selbst, weil die im Zwischenspeicher
-/// (`super::fremdbild::Fremdbilder`) liegen und ueber ihr NT-Handle gefunden
-/// werden.
-#[derive(Clone, Copy)]
+/// **Das `Arc` liegt hier, und das ist der Punkt.** Der Ringplatz wird frei,
+/// wenn das letzte `Arc` faellt (s. `zerocopy::GpuBild`) — er muss also genau so
+/// lange leben, wie diese Quelle gebunden ist. Bis zum 2026-08-06 hielt
+/// stattdessen `Fremdbilder` ein eigenes Feld `aktuell`, und `render` fragte es
+/// bei JEDEM Bild ab, auch auf dem Weg ueber den Hauptspeicher: dort wurde dann
+/// dauerhaft ein Ringplatz eines laengst vergangenen Zero-Copy-Bildes
+/// festgehalten. Eine Lebensdauer, zwei Besitzer, von Hand im Gleichschritt zu
+/// halten — jetzt nur noch einer.
+///
+/// Die Ansichten selbst stehen NICHT hier: die liegen im Zwischenspeicher
+/// (`super::fremdbild::Fremdbilder`) und gelten je Ringplatz, nicht je Bild.
 pub(super) struct Fremdform {
-    /// Bildmasse — nicht die der Textur (s. `nutzanteil`).
+    pub gpu: std::sync::Arc<crate::zerocopy::GpuBild>,
+    /// Bildmasse — nicht die der Textur (die ist aufgerundet, s. `nutzanteil`).
     pub width: u32,
     pub height: u32,
-    pub ten_bit: bool,
-    pub nutzanteil: [f32; 2],
+    pub layout: PixelLayout,
+}
+
+impl Fremdform {
+    /// Welcher Anteil der Textur ueberhaupt Bild ist.
+    ///
+    /// Abgeleitet statt gespeichert: die Masse stehen beide schon da, und ein
+    /// zweiter Wert daneben ginge still daneben, wenn der Ring zwischen Binden
+    /// und Zeichnen neu gebaut wuerde.
+    fn nutzanteil(&self) -> [f32; 2] {
+        let (tw, th) = self.gpu.textur_masse();
+        [
+            self.width as f32 / tw.max(1) as f32,
+            self.height as f32 / th.max(1) as f32,
+        ]
+    }
 }
 
 impl Bildquelle {
@@ -66,26 +88,23 @@ impl Bildquelle {
         match self {
             Bildquelle::Eigen(p) => Bildform::voll(p.layout, p.ten_bit, p.wide),
             Bildquelle::Fremd(f) => Bildform {
-                layout: PixelLayout::BiPlanar420,
-                ten_bit: f.ten_bit,
-                wide: f.ten_bit,
-                nutzanteil: f.nutzanteil,
+                layout: f.layout,
+                ten_bit: f.gpu.zehn_bit(),
+                wide: f.gpu.zehn_bit(),
+                nutzanteil: f.nutzanteil(),
             },
         }
     }
+}
 
-    /// Passen die vorhandenen Texturen noch zu diesem Bild?
+impl Planes {
+    /// Passen diese Texturen noch zu dem Bild?
     pub fn passt_zu(&self, frame: &DecodedFrame, wide_textures: bool) -> bool {
-        match self {
-            Bildquelle::Fremd(_) => false,
-            Bildquelle::Eigen(p) => {
-                p.width == frame.width
-                    && p.height == frame.height
-                    && p.layout == frame.format
-                    && p.ten_bit == frame.ten_bit
-                    && p.wide == (frame.ten_bit && wide_textures)
-            }
-        }
+        self.width == frame.width
+            && self.height == frame.height
+            && self.layout == frame.format
+            && self.ten_bit == frame.ten_bit
+            && self.wide == (frame.ten_bit && wide_textures)
     }
 }
 
@@ -98,19 +117,14 @@ pub(super) fn planes_anlegen(
     // 16-bit-Texturen nur, wenn die GPU sie erlaubt. Sonst werden die
     // Quelldaten beim Hochladen auf 8 bit heruntergerechnet.
     let wide = frame.ten_bit && wide_textures;
-    let single =
-        if wide { wgpu::TextureFormat::R16Unorm } else { wgpu::TextureFormat::R8Unorm };
-    let chroma_format = match frame.format {
-        PixelLayout::Planar420 => single,
-        PixelLayout::BiPlanar420 if wide => wgpu::TextureFormat::Rg16Unorm,
-        PixelLayout::BiPlanar420 => wgpu::TextureFormat::Rg8Unorm,
-    };
+    let (single, chroma_format) = super::farbe::ebenenformate(wide, frame.format);
     let chroma_w = frame.width.div_ceil(2);
     let chroma_h = frame.height.div_ceil(2);
+    let nutzung = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
     Planes {
-        y: textur(device, frame.width, frame.height, single, "y"),
-        u: textur(device, chroma_w, chroma_h, chroma_format, "u"),
-        v: textur(device, chroma_w, chroma_h, single, "v"),
+        y: textur(device, frame.width, frame.height, single, nutzung, "y"),
+        u: textur(device, chroma_w, chroma_h, chroma_format, nutzung, "u"),
+        v: textur(device, chroma_w, chroma_h, single, nutzung, "v"),
         width: frame.width,
         height: frame.height,
         layout: frame.format,
@@ -119,11 +133,15 @@ pub(super) fn planes_anlegen(
     }
 }
 
-fn textur(
+/// Eine schlichte 2D-Textur. `pub(super)`, weil `fremdbild::blindtextur`
+/// dieselbe Bauart braucht und ein zweiter Deskriptor daneben nur eine weitere
+/// Stelle waere, an der `mip_level_count` und Konsorten auseinanderlaufen.
+pub(super) fn textur(
     device: &wgpu::Device,
     width: u32,
     height: u32,
     format: wgpu::TextureFormat,
+    usage: wgpu::TextureUsages,
     label: &str,
 ) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
@@ -137,7 +155,7 @@ fn textur(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        usage,
         view_formats: &[],
     })
 }

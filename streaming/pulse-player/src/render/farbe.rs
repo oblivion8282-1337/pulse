@@ -224,6 +224,33 @@ fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
 /// einen halben Code daneben (Grau bekam einen Blaustich). Gemessen am
 /// 2026-08-04 mit `pulse-player --stufen`,
 /// `docs/2026-08-04-player-farbwerte-messung.md`.
+/// Die Texturformate der beiden Ebenen — Luma und Chroma.
+///
+/// **Steht hier und nicht bei den Aufrufern, weil [`scales`] direkt darunter
+/// mit GENAU dieser Zuordnung rechnet.** Bis zum 2026-08-06 gab es die Tabelle
+/// dreimal (`render::bildquelle`, `render::fremdbild`, `messen::gpu`), und
+/// `scales` traegt seit jeher die Begruendung, warum das nicht sein darf:
+/// „zwei getrennte Tabellen koennten auseinanderlaufen, ohne dass man es dem
+/// Bild ansaehe". Ein Auseinanderlaufen hier ist ein Verstaerkungsfehler ueber
+/// das ganze Bild, kein sichtbarer Fehler.
+///
+/// `wide` heisst — wie bei [`scales`] — dass die TEXTUR 16 bit traegt, nicht
+/// dass die Quelle 10 bit hatte.
+pub fn ebenenformate(
+    wide: bool,
+    layout: PixelLayout,
+) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
+    let einzeln =
+        if wide { wgpu::TextureFormat::R16Unorm } else { wgpu::TextureFormat::R8Unorm };
+    let chroma = match layout {
+        // Planar: die Chroma-Ebenen sind einkanalig wie Luma.
+        PixelLayout::Planar420 => einzeln,
+        PixelLayout::BiPlanar420 if wide => wgpu::TextureFormat::Rg16Unorm,
+        PixelLayout::BiPlanar420 => wgpu::TextureFormat::Rg8Unorm,
+    };
+    (einzeln, chroma)
+}
+
 pub fn scales(wide_texture: bool, layout: PixelLayout) -> (f32, f32) {
     match (wide_texture, layout) {
         // 8-bit-Textur (auch heruntergerechnetes 10 bit): Abtastwert = Code/255.
