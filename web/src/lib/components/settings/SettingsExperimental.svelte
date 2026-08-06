@@ -1,8 +1,15 @@
 <!--
-  SettingsDiagnostics — „Diagnose"-Tab (jede Desktop-App, siehe SettingsDialog
-  `electronOnly`).
+  SettingsExperimental — „Experimental"-Tab (jede Desktop-App, siehe
+  SettingsDialog `electronOnly`).
 
-  **Hiess bis 2026-08-06 „Kompatibilität" und war auf Linux beschränkt.** Das
+  **Der Tab-Name wanderte zweimal:** bis 2026-08-06 hieß er „Kompatibilität",
+  danach kurz „Diagnose", seit 2026-08-06 „Experimental". Die Datei und der
+  Übersetzungsschlüssel `settings_dialog_tab_diagnostics` tragen den mittleren
+  Namen teils noch — der Schlüssel bleibt bewusst stehen, ein Umbenennen von
+  Schlüsseln zieht nur Konflikte in den Übersetzungsdateien nach sich, ohne
+  dass ein Nutzer etwas davon hätte.
+
+  **Auf Linux beschränkt war er bis 2026-08-06 ebenfalls.** Das
   stammte aus der Zeit, als der Tab nur den Rust-Linux-Sidecar umschaltete —
   mit dem Diagnose-Schalter darin war es ein stiller Ausschluss: Windows- und
   macOS-Nutzer sahen den Tab nicht, konnten die Einwilligung also gar nicht
@@ -119,7 +126,7 @@
   const statusTone = $derived(toneFor(backend));
 </script>
 
-<div class="flex flex-col gap-5" data-testid="settings-diagnostics-panel">
+<div class="flex flex-col gap-5" data-testid="settings-experimental-panel">
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright flex items-center gap-2 text-base font-semibold">
       <PlugZapIcon class="size-5" />
