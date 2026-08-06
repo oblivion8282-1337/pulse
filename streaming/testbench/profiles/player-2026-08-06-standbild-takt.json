@@ -1,0 +1,138 @@
+{
+  "id": "player-2026-08-06-standbild-takt",
+  "gemessen_am": "2026-08-06",
+  "frage": "In welchem Abstand aendert sich das dekodierte Bild, wenn der Bildschirminhalt steht — und liegt dieser Takt so, dass ein laengeres Beobachtungsfenster den Einfrier-Fehlalarm an der Wurzel treffen wuerde?",
+  "warum_die_frage_zaehlt": "Die Einfrier-Erkennung des Players schlaegt nach 90 unveraenderten Bildern an. Beim Messen am 2026-08-05 war aufgefallen, dass sich ein Standbild alle ~118 Bilder von selbst aendert — die Erkennung saesse damit systematisch UNTERHALB dieses Rhythmus und schaute genau in dem Fenster nach, in dem auch ein gesunder Decoder auf stehendem Inhalt nichts Neues zeigt.",
+
+  "aufbau": {
+    "maschine": "Windows 11, RTX 5080, zwei Schirme 2560x1440 @144 Hz",
+    "kette": "streaming/win-hq-sidecar (WGC-Capture, NVENC) -> WHIP -> MediaMTX-Fork im Container (PULSE_KEYFRAME_INTERVAL=0, also OHNE die Vollbild-Uhr des Servers) -> WHEP -> streaming/pulse-player",
+    "inhalt_auf_schirm_2": "Der Player laeuft auf Schirm 1, aufgenommen wird Schirm 2 — sonst zeigt der Player sein eigenes Bild in die Aufnahme zurueck und nichts steht je still.",
+    "messgroesse": "Abstand zwischen zwei VERAENDERTEN Bildern, gezaehlt in dekodierten Bildern. Abstand 1 = jedes Bild ist neu; Abstand N = N-1 Bilder blieben bitgleich. Erhoben in `einfrieren::messung::TaktDiagnose` (PULSE_PLAYER_TAKT_LOG=1), blockweise ueber je 600 Bilder.",
+    "kontrolle_je_lauf": "PULSE_PLAYER_EINFRIER_AUS=1 fuer die reinen Taktmessungen — die Abhilfe leert sonst den Decoder und erzeugt selbst zwei bis vier Sekunden Bewegung, man misst dann ihre Nachwirkung statt des Senders.",
+    "messregel": "Je Betriebsart zwei Runden, abwechselnd gefahren, die Reihenfolge je Runde rotiert. Skripte: `takt-reihe.py`, `inhalt.ps1` (Scratchpad des Laufs)."
+  },
+
+  "inhalte": {
+    "flaech": "Ladebildschirm — grosse einfarbige Flaechen, Schriftzug, Balken. Encoder erreicht sofort einen Fixpunkt, Datenrate faellt auf 12-71 kbit/s.",
+    "mittel": "Doppelt so dichter Terminal-Text wie im Vorfall. Erreicht KEINEN Fixpunkt, jedes Bild aendert sich.",
+    "original": "Wort fuer Wort der Inhalt des Vorfalls vom 2026-08-05: 44 Zeilen Terminal-Text aus einem Vorrat von 13, eine Spalte, ohne den blinkenden Cursor. ACHTUNG BEIM NACHSTELLEN: dieser Inhalt ist der einzige, der beides zugleich liefert (Fixpunkt UND Datenrate ueber dem Byte-Boden) — aber er tut es NICHT in jedem Lauf. Von acht Laeufen erreichte der Encoder in etwa der Haelfte einen Fixpunkt, in der anderen aenderte sich jedes Bild. Wer ein Paar vergleicht, braucht deshalb mehrere Runden; ein einzelnes '0 Meldungen' kann schlicht heissen, dass der Inhalt in diesem Lauf gar nicht stillstand.",
+    "bewegt": "Derselbe Text, durchscrollend — die Gegenprobe."
+  },
+
+  "reihe_a_betriebsart": {
+    "fest": "60 fps, 1080p, 6000 kbps, 8 bit",
+    "beobachtung": "Beide Runden jeder Zeile lieferten dieselben Zahlen.",
+    "laeufe": [
+      {"codec": "av1",  "intra_refresh": true,  "inhalt": "mittel", "abstaende": "1x1800", "groesster": 1},
+      {"codec": "av1",  "intra_refresh": false, "inhalt": "mittel", "abstaende": "Runde 1: 1x1800 · Runde 2: 1x1560 120x2", "groesster": 120},
+      {"codec": "av1",  "intra_refresh": true,  "inhalt": "flaech", "abstaende": "1x49 117x14 (+1 Anlauf)", "groesster": 117},
+      {"codec": "av1",  "intra_refresh": false, "inhalt": "flaech", "abstaende": "1x46 117x14", "groesster": 117},
+      {"codec": "h264", "intra_refresh": true,  "inhalt": "mittel", "abstaende": "1x805 70x14", "groesster": 70},
+      {"codec": "h264", "intra_refresh": false, "inhalt": "mittel", "abstaende": "1x1709 6x14", "groesster": 6}
+    ]
+  },
+
+  "reihe_b_bildrate_und_aufloesung": {
+    "inhalt": "flaech",
+    "laeufe": [
+      {"codec": "av1",  "fps": 30,  "res": "1080p", "intra_refresh": false, "groesster_abstand": 57,  "wie_oft_je_600": 9,  "periode_rechnerisch": 60},
+      {"codec": "av1",  "fps": 30,  "res": "1080p", "intra_refresh": true,  "groesster_abstand": 57,  "wie_oft_je_600": 9,  "periode_rechnerisch": 60},
+      {"codec": "av1",  "fps": 60,  "res": "1080p", "intra_refresh": false, "groesster_abstand": 117, "wie_oft_je_600": 5,  "periode_rechnerisch": 120},
+      {"codec": "av1",  "fps": 60,  "res": "1440p", "intra_refresh": false, "groesster_abstand": 119, "wie_oft_je_600": 5,  "periode_rechnerisch": 120},
+      {"codec": "av1",  "fps": 144, "res": "1080p", "intra_refresh": false, "groesster_abstand": 285, "wie_oft_je_600": 2,  "periode_rechnerisch": 288},
+      {"codec": "h264", "fps": 30,  "res": "1080p", "intra_refresh": false, "groesster_abstand": 48,  "wie_oft_je_600": 9,  "periode_rechnerisch": 60},
+      {"codec": "h264", "fps": 60,  "res": "1080p", "intra_refresh": false, "groesster_abstand": 103, "wie_oft_je_600": 5,  "periode_rechnerisch": 120}
+    ],
+    "die_144_hz_zeile_ist_die_probe_aufs_exempel": "Vorhergesagt war 288-3 = 285, gemessen 285 — dieselbe Struktur wie bei 60 fps (117 = 120-3). Mit 90 Bildern Fenster meldet der Player dort ZWEIMAL je Standbild-Strecke (Abstaende 91 und 181, beide vom Alarm abgeschnitten, danach ist die Staffel bei 360 und damit ueber der Periode); mit 289 Bildern null Mal.",
+    "unabhaengige_bestaetigung": "Die eigene Vollbild-Meldung des Players nennt in allen Vollbild-Laeufen Abstaende von 1999 bis 2001 ms — also genau die Periode, in Zeit gemessen."
+  },
+
+  "befunde": [
+    {
+      "befund": "Der Takt ist stabil, und er ist rechenbar: Periode = fps x 2 Sekunden = der Vollbild-Abstand des Senders.",
+      "beleg": "30 fps -> 60 Bilder, 60 fps -> 120 Bilder, in beiden Codecs und beiden Aufloesungen; Vollbild-Abstand unabhaengig gemessen 1999-2001 ms. Quelle der Zahl im Code: `set_gop(cfg.fps * 2)` in allen drei Encoder-Wegen des Windows-Sidecars, `(fps * 2).max(1)` auf macOS, `keyframe_abstand_bilder()` auf Linux."
+    },
+    {
+      "befund": "Es ist NICHT der Intra-Refresh, obwohl die Notiz vom 2026-08-05 das so nennt.",
+      "beleg": "Mit und ohne Intra-Refresh derselbe Takt (117 bzw. 57), und im Intra-Refresh-Betrieb kommt gar kein zweites Vollbild — der Player zaehlt EINES in 40 Sekunden. NVENC richtet die Dauer eines Auffrischungsdurchlaufs am GOP aus, deshalb sagen beide Erklaerungen dieselbe Zahl voraus; nur die GOP-Erklaerung ueberlebt die Gegenprobe."
+    },
+    {
+      "befund": "Wie VIEL der Periode bitgleich bleibt, haengt am Inhalt und am Codec — von 0 bis zur vollen Periode.",
+      "beleg": "AV1 auf flaechigem Standbild 117 von 120; H.264 auf dichtem Text 6 von 120; AV1 auf dichtem Text 0 (jedes Bild neu). Der laengste gemessene Lauf erreichte die Periode EXAKT (120 von 120, zweimal auf dem Original-Inhalt) — ein Fenster muss also UEBER der Periode liegen, nicht auf ihr."
+    },
+    {
+      "befund": "Damit ist der Fehlalarm ein Einheitenfehler: das Fenster zaehlt Bilder, der Takt laeuft in Sekunden.",
+      "beleg": "90 Bilder sind bei 30 fps drei Sekunden (ueber der Periode -> Fehlalarm unmoeglich), bei 60 anderthalb (darunter -> moeglich), bei 144 sechs Zehntel. Die Oberflaeche laesst bis 360 fps zu."
+    }
+  ],
+
+  "reihe_c_fensterlaenge": {
+    "aufbau": "Ladebildschirm, Abhilfe EINGESCHALTET, Byte-Boden fuer die Messung auf 1 gesetzt (bei 12-71 kbit/s wird der echte Boden von 500 kB dort nie erreicht, es loeste sonst gar nichts aus). Je zwei Runden, beide gleich.",
+    "ergebnis": [
+      {"fenster_bilder": 90,  "fps": 60, "meldungen": 1},
+      {"fenster_bilder": 121, "fps": 60, "meldungen": 0},
+      {"fenster_bilder": 90,  "fps": 30, "meldungen": 0},
+      {"fenster_bilder": 121, "fps": 30, "meldungen": 0},
+      {"fenster_bilder": 90,  "fps": 60, "inhalt": "bewegt", "meldungen": 0},
+      {"fenster_bilder": 121, "fps": 60, "inhalt": "bewegt", "meldungen": 0}
+    ],
+    "lesehilfe": "Bei 90 Bildern bleibt es auf flaechigem Inhalt bei EINER Meldung, weil die Staffelung danach auf 180 geht und damit selbst ueber die Periode steigt. Die 30-fps-Zeile ist die eigentliche Aussage: dieselbe Erkennung, derselbe Inhalt, kein Fehlalarm — nur weil 90 Bilder dort drei statt anderthalb Sekunden sind."
+  },
+
+  "reihe_d_der_inhalt_des_vorfalls": {
+    "aufbau": "`original`-Inhalt, 60 fps, 1080p, 6000 kbps, ECHTER Byte-Boden (500 kB) — nichts kuenstlich abgesenkt.",
+    "ergebnis": [
+      {"fenster_bilder": 90,  "runde": 1, "meldungen": 2, "abstaende": "1x1618 91x2"},
+      {"fenster_bilder": 90,  "runde": 2, "meldungen": 3, "abstaende": "1x1558 91x2"},
+      {"fenster_bilder": 121, "runde": 1, "meldungen": 0, "abstaende": "1x1560 120x2"},
+      {"fenster_bilder": 121, "runde": 2, "meldungen": 1, "abstaende": "1x1079 120x3 122x1 239x1"}
+    ],
+    "lesehilfe": "Der Inhalt des Vorfalls steht mehrmals je 40 Sekunden bitgleich, meist GENAU 120 Bilder lang — exakt eine Periode. Mit 90 Bildern Fenster meldet der Player mitten hinein (die Abstaende von 91 sind die vom Alarm selbst erzwungenen Vollbilder); mit 121 verschwinden diese Faelle.",
+    "und_die_zweite_runde_ist_der_grund_es_nicht_dabei_zu_belassen": "In Runde 2 stand dasselbe Bild einmal 239 Bilder lang bitgleich — ZWEI volle Perioden, das Vollbild rekonstruierte zweimal hintereinander exakt den Fixpunkt. Ein Lauf ist also ein Vielfaches der Periode lang, und welches Vielfache ist unbeschraenkt. Damit beseitigt KEIN Fenster den Fehlalarm; es verringert ihn (hier von 2-3 auf 0-1 je 40 s). Nach oben begrenzt ihn weiterhin allein die Staffelung. Haette nur Runde 1 existiert, stuende hier 'vollstaendig vermeidbar' — genau der Fehlschluss, gegen den die Zwei-Runden-Regel im README steht."
+  },
+
+  "reihe_e_haengt_der_takt_wirklich_am_gop": {
+    "aufbau": "Ladebildschirm, 60 fps, sonst identisch — geaendert wird NUR das GOP des Senders, ueber PULSE_ENCODER_OPTS=g=600 (statt der vorgegebenen fps x 2 = 120).",
+    "ergebnis": [
+      {"gop": 120, "groesster_abstand": 117},
+      {"gop": 600, "groesster_abstand": 597}
+    ],
+    "lesehilfe": "Die Periode folgt dem GOP exakt, und die Struktur bleibt dieselbe (Periode minus drei Bilder). Damit ist der Zusammenhang nicht nur korreliert, sondern gestellt und wieder abgelesen. Es ist zugleich die Grenze jeder festen Fensterlaenge: `PULSE_KEYFRAME_SECONDS` im Linux-Sidecar erlaubt genau so eine Einstellung, und 597 Bilder Stillstand liegen ueber jedem vertretbaren Fenster."
+  },
+
+  "was_nicht_gemessen_werden_konnte": [
+    "Ein WIRKLICH haengender Decoder. Der Fall vom 2026-07-31 (`av1_cuvid` friert nach einer Saettigungsphase ein) laesst sich nicht auf Kommando ausloesen. Der Preis eines laengeren Fensters ist deshalb gerechnet, nicht gemessen: Fenster / Ausgaberate. Bei 60 fps 1,5 -> 2,5 Sekunden; bei 30 fps unveraendert 3; bei 144 fps 0,6 -> 2,5.",
+    "AMD und Intel. Diese Maschine hat NVIDIA. Die Periode sollte dieselbe sein (das GOP wird ueberall gleich gesetzt), aber `h264_amf` bringt seinen Intra-Refresh ueber `usage=ultralowlatency` mit, und ob dessen Zyklus am GOP haengt, ist ungemessen. `av1_amf` fuellt ausserdem mit `filler_data=1` — dort traegt der Byte-Boden auch auf flaechigem Standbild.",
+    "Linux und macOS als ZUSCHAUER. Derselbe Player-Code, aber andere Decoder (VAAPI, VideoToolbox); ob ein Vollbild dort ebenso zuverlaessig eine sichtbare Aenderung erzeugt, ist offen.",
+    "`PULSE_KEYFRAME_SECONDS` im Linux-Sidecar. Der Schalter erlaubt bis zu 10 Sekunden Vollbild-Abstand; die Periode waere dann 600 Bilder bei 60 fps und laege ueber jedem vertretbaren Fenster. Windows und macOS haben den Schalter nicht."
+  ],
+
+  "verworfen": {
+    "was": "Das Fenster den Takt selbst beobachten lassen, statt eine Zahl zu setzen.",
+    "warum": [
+      "Es ist im Kreis geschlossen: beobachtbar ist der Takt nur, waehrend der Inhalt steht — also genau in der Lage, die von einem Haenger nicht zu trennen ist. Ein haengender Decoder liefert einen immer groesseren 'Takt', das Fenster waechst mit, und die Erkennung legt sich selbst still. Mit Deckel ist sie das, was die Staffelung schon ist.",
+      "Beim Sitzungsbeginn gibt es nichts zu beobachten. Wer mit laufendem Inhalt einsteigt, sieht nur Abstaende von 1 und hat bis zur ersten Standbild-Szene keinen Schaetzwert; es braucht also ohnehin eine feste Zahl, und die ist dann die Zahl, die gilt.",
+      "Der Player kennt die Bildrate des SENDERS nicht, nur seine eigene Ausgaberate — 2 x fps ist fuer ihn nicht ausrechenbar, sobald Bilder verworfen werden."
+    ]
+  },
+
+  "reihe_f_die_aenderung_in_der_laufenden_kette": {
+    "aufbau": "DASSELBE Binary in beiden Armen, Inhalt des Vorfalls, echte Schwellen, drei Runden zu je 40 s. Einziger Unterschied: `PULSE_PLAYER_EINFRIER_MS=1` schaltet die neue Zeitbedingung praktisch ab und stellt damit den Stand von vorher her. Sauberer als zwei Binaries zu vergleichen — es kann nichts anderes mitgeaendert worden sein.",
+    "runden_40s": [
+      {"runde": 1, "neu": {"meldungen": 0, "abstaende": "1x1679 120x1"}, "alt": {"meldungen": 2, "abstaende": "1x1618 91x2"}},
+      {"runde": 2, "neu": {"meldungen": 0, "abstaende": "1x1800"},       "alt": {"meldungen": 0, "abstaende": "1x1800"}},
+      {"runde": 3, "neu": {"meldungen": 1, "abstaende": "1x1680 120x1"}, "alt": {"meldungen": 0, "abstaende": "1x1800"}}
+    ],
+    "kontrolle_laufender_inhalt": "Drei Runden durchscrollender Text mit dem neuen Stand: je 1800 Bilder, JEDES neu, null Meldungen. Der Normalbetrieb ist unveraendert.",
+    "warnung_zur_aussagekraft": "In vier der sechs `original`-Laeufe zu 40 s stand das Bild ueberhaupt nicht still (Abstaende durchgehend 1) — dort kann keiner der beiden Arme melden, und das Paar sagt nichts. Deshalb die laengere Reihe unten mit 60 s je Lauf.",
+    "sechs_paare_zu_60s": {
+      "neu_2500ms_boden": [0, 0, 1, 0, 1, 0],
+      "alt_zeitboden_abgeschaltet": [2, 2, 2, 3, 1, 2],
+      "summe": {"neu": 2, "alt": 12},
+      "laeufe_mit_echtem_stillstand": {"neu": 5, "alt": 6},
+      "lesehilfe": "Zwoelf Meldungen gegen zwei, bei vergleichbarer Zahl von Laeufen, in denen der Encoder ueberhaupt einen Fixpunkt erreichte (5 gegen 6). Die langen Laeufe im ALT-Arm sind durchgehend 91 — der Alarm schneidet sie bei 90 ab; im NEU-Arm sind es 120 (der Sender frischt auf, niemand meldet) und vereinzelt 149, das sind die, die die 2,5 Sekunden wirklich erreicht haben. Bleibende zwei Meldungen: kein Fenster beseitigt den Fehlalarm, s. den Befund zur Periode als Nicht-Obergrenze."
+    }},
+
+  "folge_im_code": "streaming/pulse-player/src/einfrieren.rs: neben EINFRIER_BILDER steht jetzt EINFRIER_DAUER (2500 ms). Bindend ist die laengere der beiden Bedingungen. Messwerkzeug in src/einfrieren/messung.rs, Fingerabdruck nach src/einfrieren/abdruck.rs ausgelagert."
+}
