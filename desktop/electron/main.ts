@@ -41,7 +41,7 @@ import {
   resetSpawnTargetCache,
 } from './sidecar';
 import { playerManager } from './player';
-import { onSidecarEventForUpload } from './experimental-log-upload';
+import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
@@ -1154,6 +1154,10 @@ async function bootClient(): Promise<void> {
   // und zeigt den „Update bereit"-Prompt im Hauptfenster-Renderer. Details:
   // updater.ts.
   wireHost(() => mainWindow);
+  // Bestandsinstallationen einmalig auf den neuen Standard heben (Diagnose
+  // standardmäßig an). Vor `wireSidecar`, damit schon der erste Stream
+  // dieser Sitzung nach der neuen Vorgabe entscheidet.
+  migriereAufStandardAn();
   wireSidecar();
   wirePlayer();
   wireScreenShare();

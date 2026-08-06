@@ -2,14 +2,25 @@
  * Diagnose-Log-Upload des Sidecars.
  *
  * Lädt bei Stream-Ende (und bei einem Stream-Fehler) die `sidecar.log` +
- * etwas Systeminfo an den Server hoch — ABER nur bei ausdrücklichem Opt-in
- * (`uploadDiagnosticLogs`-Store-Key, default aus; Schalter im
- * Kompatibilitäts-Tab).
+ * etwas Systeminfo an den Server hoch. Schalter: `uploadDiagnosticLogs`,
+ * Tab „Diagnose".
  *
- * Der Opt-in hing früher am `useRustSidecar`-Toggle: solange Rust die bewusst
- * gewählte Ausnahme war, WAR dieser Toggle die Einwilligung. Seit Rust der
- * Standard ist, trägt er sie nicht mehr — sonst lüde jeder Linux-Nutzer
- * ungefragt Logs hoch. Daher ein eigener Schalter.
+ * **Seit 2026-08-06 ist der Schalter standardmäßig AN** (Produktentscheidung).
+ * Vorher war er aus und musste ausdrücklich eingeschaltet werden — mit der
+ * damaligen Begründung, ein Standard-An wäre „stille Telemetrie für jeden
+ * Nutzer". Diese Sorge ist nicht verschwunden, sie wird jetzt anders
+ * beantwortet: nicht durch Schweigen, sondern durch Sichtbarkeit. Der
+ * Schalter steht im UI ausdrücklich als „an" da, sagt, was übertragen wird,
+ * und ist mit einem Klick abwählbar; die Umstellung selbst steht im
+ * Changelog.
+ *
+ * Wer ausdrücklich abgewählt hat, bleibt abgewählt — siehe
+ * {@link migriereAufStandardAn}.
+ *
+ * Der Opt-in hing noch früher am `useRustSidecar`-Toggle: solange Rust die
+ * bewusst gewählte Ausnahme war, WAR dieser Toggle die Einwilligung. Seit
+ * Rust der Standard ist, trägt er sie nicht mehr — daher ein eigener
+ * Schalter.
  *
  * Der Log ist bereits token-redacted (der Sidecar redacted vor dem Loggen,
  * `sidecar-log.ts` redacted beim Tee nochmals). Wir laden nur den Schwanz der
@@ -26,7 +37,7 @@ import { join } from 'node:path';
 import { app } from 'electron';
 
 import { logSidecar } from './sidecar-log';
-import { storeGet } from './store';
+import { storeGet, storeSet } from './store';
 
 const ENDPOINT =
   process.env.PULSE_EXPERIMENTAL_LOG_URL ?? 'https://howispulse.com/api/experimental-logs';
@@ -38,8 +49,39 @@ const MAX_LOG_BYTES = 512 * 1024;
 const sawError = new Map<number, boolean>();
 
 /**
+ * Bestandsinstallationen auf den neuen Standard heben. Einmal beim Start
+ * aufrufen.
+ *
+ * **Warum das überhaupt nötig ist:** der Schalter kennt drei Zustände, nicht
+ * zwei. Bis 2026-08-06 war die Vorgabe „aus", gespeichert wurde aber nur beim
+ * Umschalten — es gibt also Installationen ohne den Schlüssel (nie angefasst,
+ * die große Mehrheit), mit `true` (eingeschaltet) und mit `false`.
+ *
+ * Der fehlende Schlüssel erledigt sich von selbst: gelesen wird als
+ * „nicht `false`", eine frische wie eine unberührte Installation ist damit an.
+ *
+ * **`false` wird NICHT überschrieben, und das ist Absicht.** Diesen Wert kann
+ * nur bekommen haben, wer den Schalter selbst angefasst und wieder abgewählt
+ * hat — eine ausdrückliche Willensbekundung. Sie zu übergehen wäre etwas
+ * anderes als eine Vorgabe zu ändern, und es beträfe genau die Nutzer, die
+ * gezeigt haben, dass sie es nicht wollen.
+ */
+export function migriereAufStandardAn(): void {
+  if (storeGet('diagnosticsDefaultOnMigrated') === true) return;
+  storeSet('diagnosticsDefaultOnMigrated', true);
+
+  const bisher = storeGet('uploadDiagnosticLogs');
+  logSidecar(
+    'lifecycle',
+    `diagnostics default-on migration: previous=${
+      bisher === undefined ? 'unset' : String(bisher)
+    } → ${bisher === false ? 'stays off (explicitly declined)' : 'on'}`,
+  );
+}
+
+/**
  * Im `gsr:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
- * `stopped`-Event den Upload — no-op ohne Opt-in.
+ * `stopped`-Event den Upload — no-op, wenn ausdrücklich abgewählt.
  */
 export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void {
   if (ev.ev === 'error') {
@@ -51,8 +93,10 @@ export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void
   const reason = sawError.get(slot) ? 'error' : 'stream_end';
   sawError.delete(slot);
 
-  // Nur mit ausdrücklichem Opt-in (default aus).
-  if (storeGet('uploadDiagnosticLogs') !== true) return;
+  // Seit 2026-08-06 ist der Schalter standardmäßig AN — deshalb `!== false`
+  // statt `!== true`: gesendet wird, solange niemand ausdrücklich abgewählt
+  // hat. Ein fehlender Schlüssel (frische Installation) zählt als „an".
+  if (storeGet('uploadDiagnosticLogs') === false) return;
 
   void uploadExperimentalLog(reason).catch((e) => {
     logSidecar(
