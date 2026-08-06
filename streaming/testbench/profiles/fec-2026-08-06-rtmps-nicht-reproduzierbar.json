@@ -1,0 +1,84 @@
+{
+ "id": "fec-2026-08-06-rtmps-nicht-reproduzierbar",
+ "gemessen_am": "2026-08-06",
+ "vorgaenger": "fec-2026-08-06-stille-sitzungen-sendeweg",
+ "frage": "Welcher Mechanismus laesst die FlexFEC-Paritaet fuer WHEP-Zuschauer ausfallen, wenn der Strom ueber RTMPS eingeliefert wurde?",
+
+ "das_ergebnis_in_einem_satz": "NICHT GEFUNDEN — aber die Suche ist deutlich enger: die Produktionspaarung (echter Pulse-Sidecar ueber RTMPS + Chromium als Zuschauer) erzeugt lokal in VIER von vier Laeufen einwandfrei Paritaet, auch mit Verlust, 60 ms Umlaufzeit, 10 Mbit und spaetem Einstieg; und die Ausgangszahl '0 von 71' des Vorgaengers ist durch ein Zensierungsproblem verzerrt — es sind 2 von 75, beide in langen Sitzungen.",
+
+ "belegklassen": {
+  "GEMESSEN": "selbst erhoben, Werkzeug und Rohdaten benannt",
+  "GELESEN": "im Quelltext von pion/MediaMTX/gortsplib nachgelesen, Datei und Zeile benannt",
+  "VERMUTET": "plausibel, aber nicht belegt — keine Entscheidungsgrundlage"
+ },
+
+ "was_neu_belegt_ist": {
+
+  "die_ausgangszahl_war_zensiert": {
+   "befund": "GEMESSEN. Dieselbe Logquelle, 20 Zeilen spaeter abgeholt (2848 -> 2868 Zeilen), liefert 2 RTMPS-Sitzungen MIT Paritaet: e112b2d0 (978 Verluste, 31686 gesendet, 630414 unterdrueckt, 1 h 51 min) und ccd07885 (33 / 1754 / 28938, 4 min 36). Beide liegen auf demselben Pfad channel-65133981217071104-62988136275251200-d80c8a20…, der laut Log unzweideutig ueber RTMPS veroeffentlicht wurde.",
+   "warum_sie_vorher_fehlten": "Die Bilanzzeile wird beim SITZUNGSENDE geschrieben. Ein Schnappschuss des Logs enthaelt deshalb systematisch KEINE laufenden Sitzungen — und lange Sitzungen laufen laenger. Die RTMPS-Seite besteht aus wenigen langen Sitzungen, die WHIP-Seite aus vielen kurzen; der Filter 'nur beendete Sitzungen' laesst also bevorzugt die WHIP-Seite durch. e112b2d0 lief zum Zeitpunkt der Vorgaenger-Auswertung noch und endete erst um 20:54, die Akte reicht bis 20:04.",
+   "was_daraus_folgt": "Der Sendeweg bleibt das mit Abstand staerkste Signal (2 von 75 gegen 75 von 131), aber der Ausfall ist NICHT absolut. Eine Erklaerung, die 'ueber RTMPS ist es prinzipiell unmoeglich' verlangt, ist damit ausgeschlossen. Das schliesst insbesondere jede reine Aushandlungs-Erklaerung aus, die nur am Sendeweg haengt.",
+   "der_gegenbeleg_ist_noch_schaerfer": "GEMESSEN — auf DEMSELBEN RTMPS-Pfad bekamen 2 von 6 Zuschauern Paritaet und 4 nicht (9ffe77ba 5 s, 28058781 93 s, 3bf31406 2 s ohne; e112b2d0 und ccd07885 mit). Ein Sender, ein Strom, ein Einlieferweg — und trotzdem beides. Der Sendeweg allein KANN es also nicht entscheiden."
+  },
+
+  "die_produktionspaarung_laeuft_lokal": {
+   "warum_dieser_lauf_noetig_war": "Die fuenf Reproduktionsversuche des Vorgaengers paarten jeweils nur eine Haelfte richtig: ffmpeg ueber RTMPS mit der echten App, oder der echte Sidecar mit dem nativen Player. Produktion ist aber echter Sidecar UND Chromium/Electron (Paritaetstyp 49). Genau diese Paarung fehlte.",
+   "werkzeug": "streaming/testbench/fec-sidecar-browser.py (neu; setzt die Sidecar-Steuerung aus real-harness.py mit dem Browser-Zuschauer aus browser-whep.mjs zusammen)",
+   "aufbau": "Lokal gebautes Abbild aus infra/mediamtx-fork/ mit allen fuenf Patches und den PRODUKTIONS-Umgebungsvariablen (PULSE_FLEXFEC=1, 10:2, PULSE_FLEXFEC_ADAPTIV=1, PULSE_KEYFRAME_INTERVAL=0). Sender: streaming/linux-hq-sidecar (NVENC, AV1 10 bit, Portal-Aufnahme) ueber rtmps://localhost:1936.",
+   "laeufe_GEMESSEN": [
+    {"zuschauer": "nativer Player", "stoerung": "keine", "kbps": 4000, "bilanz": "404 gesendet, 2324 unterdrueckt, Paritaetstyp 110, 13643 Medienpakete"},
+    {"zuschauer": "Chromium", "stoerung": "keine", "kbps": 4000, "bilanz": "464 gesendet, 2268 unterdrueckt, Paritaetstyp 49, 13669 Medienpakete"},
+    {"zuschauer": "Chromium", "stoerung": "2 % Verlust, 60 ms Umlaufzeit", "kbps": 4000, "bilanz": "3144 gesendet, 0 unterdrueckt, Paritaetstyp 49, 15998 Medienpakete", "netem_wirkung": "26748 Pakete gesehen, 544 verworfen"},
+    {"zuschauer": "Chromium", "stoerung": "1 % Verlust, 60 ms Umlaufzeit, Einstieg erst 90 s nach Sendebeginn", "kbps": 10000, "bilanz": "8162 gesendet, 0 unterdrueckt, Paritaetstyp 49, 41192 Medienpakete", "netem_wirkung": "56911 Pakete gesehen, 594 verworfen"}
+   ],
+   "was_die_zahlen_zeigen": "Das Verhaeltnis Medien:Paritaet liegt bei den ungestoerten Laeufen bei 5,0:1 auf die durchgelassenen Gruppen gerechnet und bei den gestoerten Laeufen bei 41192/8162 = 5,05 bzw. 15998/3144 = 5,09 — also NOMINAL. Damit ist nebenbei belegt, dass Patch 0005 im gebauten Abbild wirkt: ohne ihn brach die Erzeugung unter Verlust auf ein Fuenftel ein (fec-2026-07-31-*).",
+   "schluss": "Der Ausloeser steckt WEDER im Sidecar, NOCH im RTMPS-Protokoll, NOCH im Browser-Zuschauer, NOCH in Verlust/Umlaufzeit, NOCH in der Bitrate, NOCH im spaeten Einstieg. Der Vorgaenger vermutete den Rest im Sidecar ('der Ausloeser steckt in etwas, das der Pulse-Sidecar ueber RTMPS anders macht als ffmpeg') — das ist hiermit gemessen widerlegt."
+  },
+
+  "das_laufende_produktions_abbild_ist_der_repo_stand": {
+   "befund": "GEMESSEN (lesend). ghcr.io/…/pulse-mediamtx:1.19.1-pulse2 traegt Created 2026-08-04T18:19:09Z; der Workflow mediamtx-fork.yml lief um 18:17:35Z auf ee81d682 ('den Fork mit allen fuenf Patches ausliefern'). Der Unterschied zwischen ee81d682 und dem heutigen Zweigstand beschraenkt sich auf 0004 — und dort nur auf die zusaetzlichen Diagnose-Felder (git diff --stat: eine Datei, 57 Zeilen).",
+   "warum_das_hier_steht": "Ein erster Verdacht lautete, das laufende Abbild sei aelter als der Patch-Satz im Baum (die Zeitstempel schienen 1 h 45 auseinanderzuliegen). Das war ein ZEITZONENFEHLER — der Commit traegt 20:04+02:00 = 18:04 UTC. Der Verdacht ist damit ausgeraeumt, und das lokal gebaute Abbild ist bis auf die Diagnose byte-gleich in seiner Wirkung."
+  },
+
+  "der_sendeweg_ist_nicht_zeitlich_verwechselt": {
+   "befund": "GEMESSEN. Je Tag getrennt: 2026-08-04 RTMPS 0/2, WHIP 24/37; 2026-08-05 RTMPS 0/15, WHIP 42/64; 2026-08-06 RTMPS 2/58, WHIP 9/30. Der Unterschied besteht an jedem der drei Tage, ist also keine Verwechslung mit einem Ereignis auf der Zeitachse.",
+   "einschraenkung": "Am 2026-08-06 faellt auch die WHIP-Quote (9 von 30). Ob das dieselbe Ursache ist oder nur kuerzere Sitzungen an diesem Tag, ist offen."
+  },
+
+  "ausgeschlossene_scheinsignale": {
+   "spurenreihenfolge": "GEMESSEN, kein Zusammenhang. Die Reihenfolge im Log ('2 tracks (AV1, Opus)' gegen '(Opus, AV1)') verteilt sich auf beiden Sendewegen auf Paritaet und Stille gleichermassen.",
+   "ICE_kandidatenklasse": "GEMESSEN, erklaert es nicht. In der guenstigsten Klasse (Bruecken-Adresse lokal, prflx entfernt) steht RTMPS bei 2 von 18 und WHIP bei 49 von 51. Die Kandidatenklasse ist also ein Stoerfaktor, aber nicht die Ursache.",
+   "HLS_muxer_auf_dem_pfad": "GEMESSEN, kein Zusammenhang. HLS-Muxer laufen auf beiden Sendewegen (RTMPS 3 von 29 Pfaden, WHIP 8 von 78).",
+   "sitzungsdauer": "GEMESSEN, erklaert es nicht. 33 RTMPS-Sitzungen ohne Paritaet liefen laenger als 20 s, die laengste 19393 s (5,4 h) mit 50283 gemeldeten Verlusten."
+  }
+ },
+
+ "was_daraus_fuer_die_mechanik_folgt": {
+  "die_zwei_verbliebenen_lagen": [
+   "A — flexfec ist gar nicht ausgehandelt (Paritaetstyp 0). Dann steht weder pions Erzeuger noch das Pulse-Tor in der Kette; beide Zaehler bleiben zwangslaeufig 0 (GELESEN: encoder_interceptor.go BindLocalStream prueft PayloadTypeForwardErrorCorrection == 0 || SSRCForwardErrorCorrection == 0 und gibt dann den Writer unveraendert zurueck; das Tor in 0004 prueft dasselbe Feld).",
+   "B — flexfec ist ausgehandelt, aber EncodeFec verwirft jede Gruppe. Der einzige stille Verwurf-Pfad ist die Lueckenlosigkeitspruefung (GELESEN: flexfec_encoder_03.go:64-71, 'return nil' bei SequenceNumber != vorheriger+1). Der zweite Kandidat, eine Groessengrenze, existiert NICHT — encodeFlexFecPacket hat keinen Pfad, der an der Paketgroesse scheitert (GELESEN, ganze Funktion durchgesehen)."
+  ],
+  "warum_B_schwer_zu_halten_ist": "GELESEN — die ausgehenden Sequenznummern eines WHEP-Lesers stammen aus einem PRO SITZUNG neu angelegten gortsplib-Paketierer (from_stream.go::setupVideoTrack legt fuer AV1/H264/H265/VP8/VP9 je einen eigenen Encoder an). rtpav1.Encoder.Encode kann gar nicht scheitern (gibt immer nil als Fehler zurueck) und zaehlt die Sequenznummer nur beim tatsaechlichen Erzeugen eines Pakets hoch; jedes erzeugte Paket wird auch geschrieben, und TrackLocalStaticRTP.writeRTP ueberschreibt nur SSRC und Nutzlasttyp, nicht die Sequenznummer. Der einzige bekannte Weg zu einer Unstetigkeit sind die NACK-Nachlieferungen — und die faengt Patch 0005 ab, was oben unter Verlust nachgemessen ist.",
+  "warum_A_schwer_zu_halten_ist": "Die Aushandlung haengt am ANGEBOT des Zuschauers und an den registrierten Codecs des Servers. Beides ist vom Einlieferweg unabhaengig, und der Gegenbeleg oben (zwei von sechs Zuschauern desselben RTMPS-Stroms bekamen Paritaet) zeigt, dass derselbe Strom beides zulaesst.",
+  "ehrliche_zusammenfassung": "Beide verbliebenen Lagen sind mit dem Befund schwer vereinbar. Das heisst: es fehlt noch eine Zutat, die in der Produktion vorkommt und im Labor nicht — und sie ist NICHT der Sender, nicht das Protokoll, nicht der Zuschauer, nicht die Leitung und nicht die Zeit."
+ },
+
+ "wo_der_naechste_ansetzen_muss": [
+  "DAS ABBILD MIT DER NEUEN BILANZZEILE IN DIE PRODUKTION BRINGEN. Es ist der einzige verbliebene Weg, A von B zu trennen, und die Zeile ist reine Diagnose. Achtung: das Nachziehen des Abbilds ist KEIN stiller Vorgang — es bringt zugleich den aktuellen Patch-Stand mit (siehe hq-labor/CLAUDE.md).",
+  "Falls A (Paritaetstyp 0): die Antwort-SDP genau dieser Sitzungen mitschreiben. Dann liegt es an MediaMTX' Antwort oder am Angebot dieser konkreten Zuschauer, nicht am Strom.",
+  "Falls B (Typ != 0, Medienpakete > 0, Paritaet 0): die ausgehenden Sequenznummern instrumentieren (ein Zaehler fuer verworfene Gruppen und den Sprung, an dem es scheitert). Das ist ein Fuenfzeiler in pulseFecFilter und beantwortet die Frage in einem Lauf.",
+  "NICHT noch einmal nachbauen: der Sidecar ueber RTMPS mit Browser-Zuschauer, mit und ohne Verlust, mit hoher Bitrate und mit spaetem Einstieg. Vier Laeufe, viermal nominale Paritaet."
+ ],
+
+ "messfallen_dieses_tages": {
+  "die_bilanzzeile_zensiert_lange_sitzungen": "Die Zeile entsteht erst beim Sitzungsende. Jede Auswertung eines Log-Schnappschusses laesst deshalb genau die laufenden — also die langen — Sitzungen weg. Wo die zu vergleichenden Gruppen unterschiedliche Sitzungsdauern haben (hier: wenige lange gegen viele kurze), erzeugt das einen Unterschied, den es so nicht gibt. Konkret wurde daraus '0 von 71' statt '2 von 75'. Gegenmittel: die Zeile auch periodisch schreiben, oder nur Sitzungen vergleichen, die im Beobachtungsfenster BEGONNEN haben.",
+  "ein_zeitzonen_versatz_sah_wie_ein_falsches_abbild_aus": "Der Vergleich 'Abbild gebaut 18:19 UTC' gegen 'Commit 20:04' liess das laufende Abbild fast zwei Stunden AELTER als seinen Quellstand erscheinen — die Commit-Zeit stand in +02:00. Ein daraus abgeleiteter Verdacht ('die Produktion faehrt einen anderen Patch-Satz') haette in die voellig falsche Richtung gefuehrt. Docker-Zeitstempel sind UTC, git-Zeitstempel tragen ihre Zone mit.",
+  "die_erste_kreuztabelle_hatte_den_falschen_nenner": "Eine Aufteilung nach ICE-Kandidatenklasse zeigte zuerst einen sauberen Zusammenhang mit der Paritaet — bis derselbe Schnitt auf der WHIP-Seite denselben Zusammenhang NICHT zeigte. Ein Merkmal, das in nur einer der beiden Gruppen mit dem Ergebnis laeuft, ist ein Stoerfaktor, keine Ursache."
+ },
+
+ "rohdaten": {
+  "produktion": "docker logs pulse_mediamtx (rein lesend), 2868 Zeilen, Containerlauf 2026-08-04 18:21 bis 2026-08-06 20:04+. Auf dem Server wurde ausschliesslich gelesen (docker logs, docker inspect); nichts angefasst, nichts neu gestartet.",
+  "labor": "streaming/testbench/{send,sdp,browser-proben}-p1..p3-*, docker logs streaming-mediamtx. Der Dev-Container lief fuer die Laeufe auf einem lokal gebauten Abbild (pulse-mediamtx:diag) mit den Produktions-Umgebungsvariablen und wurde danach auf den Compose-Stand zurueckgesetzt.",
+  "nachstellen": "cd streaming/testbench && ./fec-sidecar-browser.py --proto rtmps --zuschauer chromium --secs 40 --verlust 2 --laufzeit-ms 30 --label x"
+ }
+}
