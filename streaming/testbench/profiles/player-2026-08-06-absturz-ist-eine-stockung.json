@@ -44,15 +44,15 @@
   },
 
   "befund_4_so_endet_die_sitzung": {
-    "kette": "Ruecklesen blockiert -> der Dekodier-Thread steht -> 2 bis 8 statt 60 Bilder je Sekunde -> die Bilder stauen sich -> nach ein bis drei Minuten meldet webrtc-rs `ErrClosedPipe` ('DataChannel is not opened'), die Sitzung endet, das Fenster wird geschlossen.",
-    "beobachtete_endzeiten": "134, 165, 172, 176 und 178 Sekunden nach dem Start",
+    "kette": "HIER STAND: 'Ruecklesen blockiert -> der Dekodier-Thread steht -> 2 bis 8 statt 60 Bilder je Sekunde -> die Bilder stauen sich -> nach ein bis drei Minuten meldet webrtc-rs `ErrClosedPipe` (DataChannel is not opened), die Sitzung endet, das Fenster wird geschlossen.' DIE ZWEITE HAELFTE IST WIDERLEGT (2026-08-06 abends, `player-2026-08-06-zuschauer-fliegt-nach-zwei-minuten`): webrtc-rs meldet gar nichts von sich aus. Der Player BEENDET DIE SITZUNG SELBST, weil `VideoDecoder::rebuilds` ueber die ganze Sitzungsdauer zaehlte und nie zurueckgesetzt wurde — die dritte Fehlerserie greift auf `GiveUp`. Die ErrClosedPipe-Zeile ist die WIRKUNG des eigenen `close()`. Der Abbruch tritt deshalb auch OHNE jede Stockung auf, und er tritt bei ruhendem Schirm ueberhaupt nicht auf. Was von dieser Zeile stehen bleibt: die Stockung liefert Fehlerserien und beschleunigt den Abbruch — sie verursacht ihn nicht.",
+    "beobachtete_endzeiten": "134, 165, 172, 176 und 178 Sekunden nach dem Start. Die weite Streuung war der Hinweis, der hier nicht gedeutet wurde: eine Folge des Ruecklesens haette enger gelegen. Abgebrochen wird beim DRITTEN Verlust-Stoss, und wann der kommt, entscheidet die Leitung.",
     "wichtig": "Die Pakete kommen die ganze Zeit puenktlich an ('Ankunft max' bleibt bei 17-25 ms). Es ist nichts an der Leitung."
   },
 
   "was_daraus_folgt": {
     "sofort": "Der Player erkennt die Stockung jetzt und gibt bei drei Stockungen in zehn Sekunden den Hardware-Decoder auf (`stockung::Waechter` -> `VideoDecoder::rebuild`, der ohnehin auf Software umstellt). Das Bild wird teurer, aber es bleibt. `PULSE_PLAYER_STOCKUNGS_RUECKFALL=0` haelt den Hardware-Weg fest, wenn man das Verhalten vermessen will.",
-    "eigentlich": "Der blockierende Aufruf ist genau der, den Zero-Copy ersetzt. Wer das Ruecklesen abschafft, schafft diese Stockung ab — und spart nebenbei die 1,5 ms (1080p8) bzw. 5,3 ms (1440p10) je Bild aus `player-2026-08-06-bildweg-kosten`.",
-    "offen": "Ob die Grafikeinheit ohne das Ruecklesen ueberhaupt noch haengt, ist NICHT gemessen. Es kann sein, dass gleichzeitiges AV1-Encodieren und -Dekodieren in 10 bit auf dieser einen APU schon fuer sich zu viel ist. Das entscheidet sich erst an einem Player ohne Ruecklesen."
+    "eigentlich": "HIER STAND: 'Der blockierende Aufruf ist genau der, den Zero-Copy ersetzt. Wer das Ruecklesen abschafft, schafft diese Stockung ab.' AUCH DAS IST WIDERLEGT (2026-08-06 abends): mit Zero-Copy als Vorgabe sind die Stockungen nicht verschwunden, sie sind umgezogen — dieselben 2,1-2,4 s stehen jetzt unter 'Zero-Copy-Bruecke' statt unter 'Ruecklesen'. Die Ersparnis von 1,5 ms (1080p8) bzw. 5,3 ms (1440p10) je Bild aus `player-2026-08-06-bildweg-kosten` bleibt richtig.",
+    "offen": "Die damals offene Frage ist beantwortet: die Grafikeinheit haengt auch OHNE das Ruecklesen. Gleichzeitiges AV1-Encodieren und -Dekodieren in 10 bit auf dieser einen APU reicht dafuer offenbar schon."
   },
 
   "reproduzieren": "streaming/win-hq-labor/testbench/hdr-ansehen.ps1 mit -Sekunden 200, dazu Bewegung auf dem Schirm. WICHTIG: das Skript filtert stderr — fuer den Nachweis die volle Ausgabe mitschreiben. Die Stockungszeilen erscheinen von selbst, sie haengen an keinem Schalter. TDR-Ereignisse: Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1001} und auf 'P1: 141' sehen."

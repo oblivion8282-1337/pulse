@@ -28,6 +28,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use ffmpeg_next as ffmpeg;
 
 use crate::einfrieren::EinfrierWacht;
+use crate::neuaufbau::{self, ErrorAction, Neuaufbauten};
 use crate::whep::Codec;
 
 /// Erkennt am Decoder-Namen, ob er selbst auf der GPU laeuft.
@@ -112,10 +113,6 @@ impl Kandidat {
     }
 }
 
-/// Aufeinanderfolgende abgelehnte Einheiten, ab denen der Decoder als defekt
-/// gilt. Bei 60 fps ist das eine halbe Sekunde.
-const ERROR_LIMIT: u32 = 30;
-
 /// Wie viele Einheiten auf einen Einstiegspunkt gewartet wird, bevor die
 /// Sitzung aufgibt. Bei 60 fps sind das zwanzig Sekunden.
 ///
@@ -131,9 +128,6 @@ const ERROR_LIMIT: u32 = 30;
 /// Ursache korrekt ("der Sender schickt zu selten ein Vollbild") — sie ging
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
 const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
-
-/// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
-const MAX_REBUILDS: u32 = 2;
 
 /// Wie lange das Bild nach einer Luecke als unsauber gilt — also die Dauer
 /// eines vollen Auffrisch-Durchlaufs beim Sender.
@@ -154,37 +148,6 @@ fn refresh_dauer() -> std::time::Duration {
         .filter(|ms| (100..=10_000).contains(ms))
         .unwrap_or(2000);
     std::time::Duration::from_millis(ms)
-}
-
-/// Was nach einer abgelehnten Einheit zu tun ist.
-///
-/// Der Unterschied ist der Kern der Sache: **einzelne** Ablehnungen sind
-/// normal — nach einer Paketluecke ist die naechste Einheit unvollstaendig,
-/// bis ein Keyframe kommt, und die darf die Wiedergabe nicht beenden. Ein
-/// **dauerhaft toter** Decoder sieht an der Stelle aber genau gleich aus.
-/// Beobachtet am 2026-07-26: beim zweiten Oeffnen einer Sitzung meldete
-/// `av1_cuvid` fuer jedes Paket `CUDA_ERROR_UNKNOWN`. Weil jeder Fehler
-/// einzeln als "kaputter Frame" durchging, blieb das Bild schwarz, ohne dass
-/// irgendwo ein Fehler ankam. Erst die Unterscheidung nach Haeufigkeit macht
-/// den Unterschied sichtbar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ErrorAction {
-    /// Vereinzelt — weitermachen.
-    Ignore,
-    /// Anhaltend — Decoder neu aufbauen.
-    Rebuild,
-    /// Auch nach Neuaufbau kaputt — Sitzung beenden.
-    GiveUp,
-}
-
-fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
-    if consecutive_errors < ERROR_LIMIT {
-        ErrorAction::Ignore
-    } else if rebuilds < MAX_REBUILDS {
-        ErrorAction::Rebuild
-    } else {
-        ErrorAction::GiveUp
-    }
 }
 
 /// Kandidaten in Reihenfolge der Bevorzugung. Am Ende stehen immer die
@@ -772,8 +735,10 @@ pub struct VideoDecoder {
     codec: Codec,
     /// Abgelehnte Einheiten in Folge; jede angenommene setzt zurueck.
     consecutive_errors: u32,
-    /// Bisherige Neuaufbauten (s. [`classify`]).
-    rebuilds: u32,
+    /// Neuaufbauten, die aktuell gegen den Decoder zaehlen — samt Bewaehrung
+    /// (s. [`crate::neuaufbau`]; dort stehen auch die Tests, die frueher hier
+    /// neben `classify` lagen).
+    rebuilds: Neuaufbauten,
     /// Solange gesetzt, wird jede Einheit verworfen, die kein Einstiegspunkt
     /// ist. Siehe [`VideoDecoder::decode`].
     awaiting_keyframe: bool,
@@ -841,7 +806,7 @@ impl VideoDecoder {
                         hardware,
                         codec,
                         consecutive_errors: 0,
-                        rebuilds: 0,
+                        rebuilds: Neuaufbauten::default(),
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
                         unsauber_bis: None,
@@ -982,9 +947,9 @@ impl VideoDecoder {
             // CUDA-Kontext, und genau dort wurde am 2026-07-28 ein Segfault
             // beobachtet. Fehlte bisher komplett.
             self.decoder.flush();
-            match classify(self.consecutive_errors, self.rebuilds) {
+            match neuaufbau::classify(self.consecutive_errors, self.rebuilds.anzahl()) {
                 ErrorAction::Ignore => {}
-                ErrorAction::Rebuild => self.rebuild(&e.to_string())?,
+                ErrorAction::Rebuild => self.rebuild(&e.to_string(), uhr)?,
                 ErrorAction::GiveUp => bail!(
                     "Decoder {} nimmt seit {} Einheiten keine Pakete mehr an ({e})",
                     self.name,
@@ -994,6 +959,10 @@ impl VideoDecoder {
             return Ok(Vec::new());
         }
         self.consecutive_errors = 0;
+        // Ein angenommenes Paket traegt die Bewaehrung eines Neuaufbaus ab —
+        // ohne das zaehlte jede Fehlerserie einer langen Sitzung gegen die
+        // naechste, und die dritte beendete sie (s. `crate::neuaufbau`).
+        self.rebuilds.erfolg(uhr);
         let hineingeben = uhr.elapsed().as_micros() as u64;
         self.ruecklesen_us = 0;
         self.bruecke_us = 0;
@@ -1021,7 +990,7 @@ impl VideoDecoder {
     /// Auf Software umstellen, weil der Hardware-Weg zwar liefert, aber zu
     /// spaet (s. [`crate::stockung`]).
     ///
-    /// **Zaehlt bewusst NICHT gegen `MAX_REBUILDS`.** Der Zaehler steht fuer
+    /// **Zaehlt bewusst NICHT gegen [`neuaufbau::MAX_REBUILDS`].** Der Zaehler steht fuer
     /// „dieser Decoder ist kaputt, und der Ersatz ist es womoeglich auch";
     /// nach zwei Versuchen gibt er die Sitzung auf. Hier ist aber nichts
     /// kaputt: die Umstellung ist eine einmalige, absichtliche
@@ -1047,8 +1016,12 @@ impl VideoDecoder {
     /// Nach dem Tausch fehlt dem neuen Decoder der Referenzrahmen; bis zum
     /// naechsten Keyframe bleiben Einheiten unbrauchbar. Der Zaehler startet
     /// deshalb bei null, sonst gaebe genau diese Anlaufphase sofort auf.
-    fn rebuild(&mut self, cause: &str) -> Result<()> {
-        self.rebuilds += 1;
+    ///
+    /// `jetzt` wird durchgereicht statt hier neu geholt: Zaehlen und Bewaehren
+    /// muessen auf DERSELBEN Uhr rechnen, sonst haengt die Bewaehrungsfrist an
+    /// der Laufzeit eines Aufrufs.
+    fn rebuild(&mut self, cause: &str, jetzt: std::time::Instant) -> Result<()> {
+        let nummer = self.rebuilds.gezaehlt(jetzt);
         // **Hier stand bis zum 2026-08-06 „lehnt dauerhaft ab" fest im Text.**
         // Das stimmt nur fuer den einen Anlass, aus dem es die Funktion gab
         // (abgelehnte Pakete); seit der zweite dazukam — eine haengende
@@ -1056,8 +1029,9 @@ impl VideoDecoder {
         // schlicht falsch gewesen und haette die Suche in die Irre geschickt.
         eprintln!(
             "pulse-player: Decoder {} wird aufgegeben: {cause} — \
-             Neuaufbau {}/{MAX_REBUILDS} als Software",
-            self.name, self.rebuilds
+             Neuaufbau {nummer}/{} als Software",
+            self.name,
+            neuaufbau::MAX_REBUILDS
         );
         self.frischer_software_decoder()
     }
@@ -1531,29 +1505,6 @@ mod tests {
         assert_eq!(hw, Hwaccel::Vaapi);
     }
 
-    /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit
-    /// nach einer Paketluecke) und duerfen nichts ausloesen.
-    #[test]
-    fn einzelne_fehler_werden_ignoriert() {
-        assert_eq!(classify(1, 0), ErrorAction::Ignore);
-        assert_eq!(classify(ERROR_LIMIT - 1, 0), ErrorAction::Ignore);
-    }
-
-    /// Anhaltende Ablehnung heisst kaputter Decoder — der Neuaufbau ist der
-    /// Unterschied zwischen "faengt sich" und "bleibt schwarz".
-    #[test]
-    fn anhaltende_fehler_loesen_neuaufbau_aus() {
-        assert_eq!(classify(ERROR_LIMIT, 0), ErrorAction::Rebuild);
-        assert_eq!(classify(ERROR_LIMIT * 3, MAX_REBUILDS - 1), ErrorAction::Rebuild);
-    }
-
-    /// Irgendwann muss Schluss sein: sonst baut der Player endlos neu auf und
-    /// der Nutzer sieht weiter nichts, ohne je einen Fehler zu bekommen.
-    #[test]
-    fn nach_den_versuchen_wird_aufgegeben() {
-        assert_eq!(classify(ERROR_LIMIT, MAX_REBUILDS), ErrorAction::GiveUp);
-    }
-
     /// Die Angabe des Stroms schlaegt jede Vermutung — auch wenn sie der
     /// Aufloesung widerspricht. Genau dieser Fall trat auf: 1440p mit
     /// BT470BG-Kennung, wo man BT.709 erwarten wuerde.
@@ -1698,7 +1649,7 @@ mod tests {
         let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
         d.awaiting_keyframe = false;
         d.skipped_before_keyframe = 7;
-        d.rebuild("Test").expect("Neuaufbau");
+        d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
         assert!(d.awaiting_keyframe, "nach dem Neuaufbau fehlt der Einstiegspunkt wieder");
         assert_eq!(d.skipped_before_keyframe, 0, "Zaehler gehoert zum neuen Anlauf");
     }
@@ -1708,11 +1659,11 @@ mod tests {
     #[test]
     fn neuaufbau_landet_auf_software() {
         let mut d = VideoDecoder::new(Codec::H264, Some(false)).expect("Software-Decoder");
-        d.consecutive_errors = ERROR_LIMIT;
-        d.rebuild("Test").expect("Neuaufbau");
+        d.consecutive_errors = neuaufbau::ERROR_LIMIT;
+        d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
         assert!(!d.hardware, "Neuaufbau muss Software sein, ist {}", d.name);
         assert_eq!(d.consecutive_errors, 0, "Zaehler muss fuer die Anlaufphase zurueckgesetzt sein");
-        assert_eq!(d.rebuilds, 1);
+        assert_eq!(d.rebuilds.anzahl(), 1);
     }
 
     /// Der Software-Weg muss auf jeder Maschine funktionieren — ohne den

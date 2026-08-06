@@ -504,6 +504,8 @@ pub async fn connect(
     };
 
     let pc = Arc::new(api.new_peer_connection(config).await?);
+    // Vor dem Aushandeln: sonst fehlen genau die Wechsel des Aufbaus.
+    crate::abriss::zustaende_melden(&pc);
 
     // RTCRtpTransceiverInit ist nicht Clone — je Aufruf frisch bauen.
     let recvonly = || {

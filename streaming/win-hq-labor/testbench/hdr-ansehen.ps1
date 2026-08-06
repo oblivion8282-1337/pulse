@@ -16,6 +16,14 @@
 #
 # Der Vergleich ist der eigentliche Test. Ein HDR-Bild allein sieht man nicht an,
 # ob es stimmt -- erst neben dem SDR-Bild derselben Szene.
+#
+# WOFUER DIESES SKRIPT NICHT TAUGT: die Frage, ob eine Sitzung DURCHHAELT.
+# Die Vorgabe von 90 Sekunden liegt knapp UNTER allen Endzeiten des Abbruchs
+# vom 2026-08-06 (134 bis 178 s) -- genau deshalb ist der wochenlang niemandem
+# aufgefallen. Ausserdem liest dieses Skript stderr erst am Ende in einem
+# Stueck; die Reihenfolge zwischen Sender und Player ist danach nicht mehr
+# rekonstruierbar, und ohne die ist eine Ursache nicht von ihrer Wirkung zu
+# trennen. Fuer Dauer- und Abbruchfragen deshalb `abriss-messen.sh` nehmen.
 
 param(
   [int]$Sekunden = 90,

@@ -301,10 +301,22 @@ pub async fn run(
 
     // `failed` unterscheidet "Fenster zu" von "kaputt": nur beim zweiten faellt
     // der Renderer auf das <video>-Element zurueck.
-    let (reason, failed) = loop {
+    //
+    // **Die Schleife traegt einen Namen, weil drei Ausgaenge tief in
+    // verschachtelten `for`-Schleifen liegen.** Bis zum 2026-08-06 verliessen
+    // genau diese drei die Funktion mit `return` und bauten die Sitzung selbst
+    // ab — am gemeinsamen Ende vorbei. Folge: der Grund wurde nicht gemeldet,
+    // und eine laufende Aufnahme bekam keinen Matroska-Trailer. Ein
+    // unbenanntes `break` ginge dort nicht, es traefe die innere Schleife.
+    //
+    // **Alle** Ausgaenge tragen die Beschriftung, auch die vier, die sie nicht
+    // braeuchten: sonst muesste der Leser an jeder Stelle die Verschachtelung
+    // nachzaehlen, um zu wissen, ob `break` und `break 'sitzung` hier dasselbe
+    // meinen.
+    let (reason, failed) = 'sitzung: loop {
         tokio::select! {
             cmd = commands.recv() => match cmd {
-                Some(SessionCommand::Stop) | None => break ("closed".to_string(), false),
+                Some(SessionCommand::Stop) | None => break 'sitzung ("closed".to_string(), false),
                 Some(SessionCommand::Record { path, reply }) => {
                     let answer = media
                         .start_recording(&path)
@@ -366,7 +378,7 @@ pub async fn run(
                 // Enden die Tracks, BEVOR je ein Bild kam, ist das ein
                 // gescheiterter Aufbau und kein regulaeres Ende.
                 let Some(arrival) = arrival else {
-                    break ("track beendet".to_string(), !announced_playing);
+                    break 'sitzung ("track beendet".to_string(), !announced_playing);
                 };
                 let codec = arrival.codec;
                 // Ankunfts-Abstand der VIDEO-Pakete, so früh wie möglich
@@ -420,7 +432,7 @@ pub async fn run(
         // Auffangnetz gegen jede Art von haengendem Aufbau. Greift nur bis zum
         // ersten Bild; danach ist ein stiller Strom Sache des Senders.
         if !announced_playing && started.elapsed() > FIRST_FRAME_TIMEOUT {
-            break (
+            break 'sitzung (
                 format!(
                     "kein Bild nach {} s — Verbindung kam nicht zustande",
                     FIRST_FRAME_TIMEOUT.as_secs()
@@ -518,14 +530,7 @@ pub async fn run(
                     Some(d) => d,
                     None => match VideoDecoder::new(*codec, options.hwdec) {
                         Ok(d) => decoder.insert(d),
-                        Err(e) => {
-                            let reason = format!("Decoder: {e:#}");
-                            let _ = events
-                                .send(SessionEvent::Ended { reason, failed: true })
-                                .await;
-                            whep_session.close().await;
-                            return;
-                        }
+                        Err(e) => break 'sitzung (format!("Decoder: {e:#}"), true),
                     },
                 };
 
@@ -547,19 +552,9 @@ pub async fn run(
                     // Der Fenster-Thread ist weg — die Sitzung hat keinen
                     // Abnehmer mehr. Kein Fehler, nur Ende.
                     Err(EmitError::NoConsumer) => {
-                        whep_session.close().await;
-                        return;
+                        break 'sitzung ("Fenster geschlossen".to_string(), false)
                     }
-                    Err(EmitError::Decoder(reason)) => {
-                        let _ = events
-                            .send(SessionEvent::Ended {
-                                reason: format!("Decoder: {reason}"),
-                                failed: true,
-                            })
-                            .await;
-                        whep_session.close().await;
-                        return;
-                    }
+                    Err(EmitError::Decoder(reason)) => break 'sitzung (format!("Decoder: {reason}"), true),
                 }
 
                 // Zweiter, von der Lueckenmeldung UNABHAENGIGER Weg zur
@@ -677,7 +672,7 @@ pub async fn run(
                 // ist tot, und sie abzuraeumen beendet zugleich die
                 // Ton-Unterlaeufe, die sonst bis in alle Ewigkeit weiterzaehlen.
                 // Der Aufrufer entscheidet, ob neu verbunden wird.
-                break (
+                break 'sitzung (
                     format!(
                         "Verbindung abgerissen — seit {} Sekunden kein Paket",
                         (STILLE_FENSTER_BIS_ABBRUCH as u64 * STATS_INTERVAL.as_millis() as u64)
@@ -718,6 +713,24 @@ pub async fn run(
             eprintln!("pulse-player: Aufnahme beim Sitzungsende: {e}");
         }
     }
+    // WARUM die Sitzung endet, gehoert nach stderr — und zwar VOR dem
+    // `close()`, damit die Reihenfolge im Protokoll die Ursache von der
+    // Wirkung trennt.
+    //
+    // Bis zum 2026-08-06 stand der Grund ausschliesslich im
+    // `Ended`-Ereignis, und das geht als JSON-RPC ueber **stdout** an die
+    // Desktop-App. Wer den Player von Hand oder aus einem Messskript faehrt,
+    // liest stdout nicht — sichtbar war deshalb nur die Zeile, die eine
+    // Zehntelsekunde SPAETER kommt: „Track video/AV1 beendet: DataChannel is
+    // not opened". Die ist aber die Folge des `close()` direkt darunter, also
+    // unsere eigene Wirkung, und sie sieht wie ein Fehler der Bibliothek aus.
+    // Genau so ist am 2026-08-06 ein Sitzungsende, das der Player selbst
+    // ausgeloest hat, als Abriss in webrtc-rs protokolliert worden.
+    eprintln!(
+        "pulse-player: Sitzung endet nach {:.1} s ({}): {reason}",
+        started.elapsed().as_secs_f64(),
+        if failed { "Fehler" } else { "regulaer" },
+    );
     whep_session.close().await;
     let _ = events.send(SessionEvent::Ended { reason, failed }).await;
 }
