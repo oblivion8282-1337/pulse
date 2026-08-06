@@ -19,8 +19,15 @@ Leistungsaufnahme mit der CPU), Treiber 32.0.31035.1003, HDR am Schirm an.
 > gewachsen. Zahlen, Verfahren und Vorbehalte:
 > `streaming/testbench/profiles/leistung-2026-08-06-vier-befunde.json`.
 > Die drei überholten Behauptungen aus §9 sind ebenfalls berichtigt; §5 (die
-> fp16-Zwischenkopie) und §6.1 stehen weiter offen — nach der Messung ist §5
-> jetzt der größte verbliebene Posten.
+> fp16-Zwischenkopie) und §6.1 stehen weiter offen.
+>
+> **Hier stand dazu: „nach der Messung ist §5 jetzt der größte verbliebene
+> Posten". Das ist falsch** — es war eine Zuschreibung, keine Messung. In der
+> Nacht darauf ist §5 gemessen worden
+> (`streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`):
+> die Kopie kostet **1,82 ms** je aufgenommenem Bild, der HDR-Shader **1,79 ms**
+> je Durchgang — **zwei gleich große Posten**, keiner der größte. Was das für
+> §5 bedeutet, steht dort.
 
 ## Was diese Durchsicht ist — und was sie ausdrücklich nicht ist
 
@@ -77,9 +84,9 @@ Die Kette eines Bildes, von der Aufnahme bis zum abgegebenen Paket:
 | Stufe | Wo im Code | Beitrag | Herkunft der Zahl |
 |---|---|---|---|
 | WGC liefert das Bild | `capture/wgc_hw.rs::on_frame_arrived` | ungemessen | — |
-| Kopie in den Aufnahme-Pool | `wgc_hw.rs::copy_into_pool` | ungemessen (asynchroner GPU-Befehl) | — |
+| Kopie in den Aufnahme-Pool | `wgc_hw.rs::copy_into_pool` | **1,82 ms GPU-Zeit** (nicht Verzögerung — asynchroner GPU-Befehl) | Messung 2026-08-06 nachts, s. §5 |
 | **Warten auf den nächsten Tick** | `pipeline_hw/mod.rs:331-341` | **0 … 16,7 ms, im Mittel 8,3** | folgt aus der festen Kadenz, s.u. |
-| Farbwandlung / Verkleinerung | `encode/hdr_wandler.rs` bzw. `d3d11_scale.rs` | **ungemessen** (HDR-Weg), im Monitor als `conv` sichtbar | — |
+| Farbwandlung / Verkleinerung | `encode/hdr_wandler.rs` bzw. `d3d11_scale.rs` | **1,79 ms GPU-Zeit** (HDR-Weg); `conv` im Monitor ist die CPU-Zeit des Absendens (~25 µs), nicht diese | Messung 2026-08-06 nachts, s. §5.1 |
 | **AMF hält ein Bild zurück** | `encode/encoder_hw.rs::send_avframe` | **17,2 ms** bei 60 fps, 8,9 bei 120 | `encode/codec.rs::amd_forces_d3d12`, Messung 2026-07-30 |
 | Einreihen an den Abgabe-Faden | `encode/senke_writer.rs` | ~0, sonst Rückstau | Bauart: eigener Faden |
 | Paketieren + Senden | `whip/mod.rs`, `whip/av1.rs` | nicht im Taktfaden | Bauart |
@@ -154,6 +161,15 @@ Die Rechnung ist eine obere Schranke für die Texturseiten: der Texturcache
 bedient benachbarte Bildpunkte mehrfach, die tatsächlichen Zugriffe auf den
 Speicher liegen darunter. Die Größenordnung und vor allem das **Verhältnis**
 zwischen den Zeilen bleiben davon unberührt, und darauf kommt es hier an.
+
+**Nachgemessen (2026-08-06 nachts).** Die beiden ersten Zeilen der Tabelle
+haben inzwischen Millisekunden: die Kopie kostet **1,82 ms**, die beiden
+Shader-Durchgänge zusammen **1,79 ms** GPU-Zeit auf der 3D-Einheit. Das
+bestätigt die Bandbreiten-Rechnung als Größenordnung — 59 MB in 1,82 ms sind
+32,4 GB/s wirksame Bandbreite — **und widerlegt die Reihenfolge, die man aus
+ihr ableiten wollte**: nach Bytes gerechnet sieht der Shader teurer aus als die
+Kopie (59 gegen 65 MB, aber mit der Rechenarbeit obendrauf), gemessen sind
+beide gleich. Bytes sagen etwas über Bandbreite und nichts über Zeit.
 
 ---
 
@@ -271,7 +287,17 @@ Empfehlung, wenn etwas gemacht wird: **(a) probieren, mit Sichtprüfung**, weil 
 die kleinste Änderung mit dem größten Verhältnis ist. **(c)** ist der Weg, falls
 sich (a) farblich als Rückschritt zeigt.
 
-## 5. Befund 3 — die Zwischenkopie in fp16 (größer, mit echtem Risiko)
+## 5. Befund 3 — die Zwischenkopie in fp16 (**gemessen am 2026-08-06 nachts**)
+
+> **Diese Zahl ist nicht mehr gerechnet.** Eine Kopie kostet **1,82 ms** auf der
+> 3D-Einheit des Senders. Der HDR-Shader kostet **1,79 ms** — genauso viel. Ein
+> Umbau, der die Kopie einspart, ist **109 ms je Sekunde** wert, also rund die
+> Hälfte der 3D-Einheit des Senders. Empfehlung: **machen, aber als eigener
+> Schritt und mit dem Zähler zuerst.** Verfahren, Rohwerte, Gegenproben und
+> Grenzen:
+> `streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`.
+> Das Nötige steht am Ende dieses Abschnitts; der Text davor ist der Stand von
+> vorher und bleibt lesbar, damit man sieht, was die Messung geändert hat.
 
 **Wo.** `capture/wgc_hw.rs::copy_into_pool` (Z. 350-374), gerufen aus
 `on_frame_arrived` (Z. 256 und 312).
@@ -314,6 +340,73 @@ gibt es nicht. `windows-capture` 2.0.0 bietet in `ColorFormat` genau drei Werte 
 Kiste zu ändern. **Ob WGC darüber überhaupt ein brauchbares HDR-Bild lieferte,
 ist ungeprüft** und wäre eine eigene Untersuchung — die Behauptung, das halbiere
 die Bandbreite, wäre heute unbelegt.
+
+### 5.1 Was die Messung ergeben hat
+
+**Wie gemessen wurde, in einem Satz.** Die Kopie lässt sich nicht weglassen —
+ohne sie gibt es keinen Strom. Also wurde sie **wiederholt**: ein Messarm fährt
+dieselbe Kopie zwei- oder dreimal (gleiche Quelle, gleiches Ziel, bitgleiches
+Ergebnis), und die Differenz der GPU-Auslastung ist der Preis genau einer Kopie.
+Drei Stützpunkte, drei Runden, abwechselnd gefahren, ohne Zuschauer, mit einer
+eigenen billigen Bildänderung als Quelle.
+
+| | GPU-Zeit je Vorgang | wie oft | Anteil an der 3D-Einheit |
+|---|---|---|---|
+| **fp16-Kopie** (2560×1440) | **1,82 ms** | je aufgenommenem Bild | 8,9 % bei 48,9 Bildern/s |
+| **HDR-Shader** (beide Durchgänge) | **1,79 ms** | je Takt mit frischem Bild | 8,7 % bei 48,8/s |
+| Sockel (Ruhe, ohne Bildänderung) | — | — | 0,45 % |
+| unerklärter Rest | — | — | 3,2 % |
+
+**Drei Dinge daran sind wichtiger als die Zahl selbst:**
+
+1. **Die Gegenprobe in SDR beglaubigt die Messung.** Dort nimmt WGC in `Bgra8`
+   auf, also 4 statt 8 Byte je Bildpunkt — die Kopie kostet dann **0,96 ms**,
+   also **Faktor 1,90** statt 1,82 ms. Der gemessene Aufschlag folgt der
+   Bytezahl; ein Aufbau-Artefakt täte das nicht.
+2. **Die Zuschreibung von vorher war falsch.** Die Kopie ist **nicht** der
+   größte verbliebene Posten, sondern einer von zwei praktisch gleich großen.
+   Der Fehler steckte nicht in einer Zahl, sondern in einem Schluss: ein
+   ungeklärter Rest zwischen zwei Messreihen wurde dem einzigen benannten
+   Kandidaten zugeschrieben. **Ein ungeklärter Rest gehört niemandem.**
+3. **Der schwerste Einwand — Punkt 1 oben — ist messbar schwächer als
+   angenommen.** Im Arm mit der dreifachen Kopierlast (41 % statt 21 % der
+   3D-Einheit, alles vom Rückruf-Faden abgesetzt) ist die Aufnahmerate **nicht
+   gefallen**, sondern leicht gestiegen (51,1 gegen 48,8/s), und `drops` blieb
+   überall 0. Plausibel: der Rückruf **setzt einen GPU-Befehl ab**, er wartet
+   nicht auf GPU-Arbeit.
+
+**Was ein Umbau wert ist, gerechnet aus den gemessenen Millisekunden.** Bei
+60 fps und durchgehend bewegtem Bild liefert die Aufnahme höchstens 66,7 Bilder/s
+(Deckel `0,9/fps`), der Takt verbraucht 60:
+
+* **heute:** 66,7 × 1,82 ms (Kopie) + 60 × 1,79 ms (Shader) = **228 ms/s**
+* **danach:** 66,7 × 1,79 ms (Shader direkt aus der WGC-Textur) = **119 ms/s**
+* **Ersparnis: 109 ms/s** — rund die Hälfte der 3D-Einheit des Senders, dazu
+  3,9 GB/s Speicherverkehr und Pool-Texturen von 6,2 statt 29,5 MB.
+
+Dass der Shader danach **je aufgenommenem Bild** statt je Takt liefe (11 %
+öfter), ist in der Rechnung enthalten.
+
+**Empfehlung: machen — aber als eigener Schritt, und mit dem Zähler zuerst.**
+
+* *Dafür:* der Preis ist jetzt gemessen und groß; auf einer integrierten Einheit,
+  die sich Bandbreite und Leistungsbudget mit der CPU **und mit dem Spiel teilt,
+  das gerade übertragen wird**, ist die Hälfte der 3D-Last des Senders kein
+  Buchhaltungsposten. Der Einwand „Umbau auf Verdacht" ist erledigt.
+* *Dagegen:* es gibt heute **keinen Engpass**, den der Umbau löste — 0 verworfene
+  Bilder, 0 PTS-Lücken, Arbeitszeit je Takt 0,6 von 16,7 ms, Video-Einheit
+  12,6 %. Der Gewinn ist Sparsamkeit, nicht Abhilfe. Und die Zuständigkeiten
+  verschieben sich: `capture/wgc_hw.rs` (429 Zeilen) kennte danach Aufnahme
+  **und** Farbwandlung.
+* *Reihenfolge:* (1) Zähler für WGC-seitig verworfene Bilder — aus den
+  QPC-Abständen der gelieferten Bilder ableitbar, sichtbar in `tick_monitor` und
+  in der Spur; (2) Umbau; (3) Vorher/Nachher nach demselben Verfahren;
+  (4) Sichtprüfung an einem Bild aus der **Mitte** eines Mitschnitts.
+
+**Und was diese Messung nicht sagt:** 3,2 Prozentpunkte der 3D-Einheit (15 % des
+Gemessenen) sind unerklärt. Drei Kandidaten, keiner geprüft — Treiber-/AMF-Arbeit
+auf derselben Einheit, die Bildlieferung von WGC selbst, oder eine
+Unterschätzung beider Posten, weil der Störungsversuch den *Grenzpreis* misst.
 
 ## 6. Kleinere Befunde am Code
 
@@ -401,6 +494,12 @@ Daraus liest man ohne jeden Messaufbau ab:
   Behebung lohnt.
 * **`conv_us` nennenswert gegen das Budget von 16 700 µs** (Trace) → der
   HDR-Shader ist ein echter Posten, Befund 2 lohnt.
+  **Hier stand ein Fehlschluss, und er ist am 2026-08-06 nachts widerlegt
+  worden.** `conv_us` misst die **CPU-Zeit des Absendens**, nicht die
+  GPU-Arbeit: gemessen 25 µs, während derselbe Shader auf der Grafikeinheit
+  1,79 ms braucht — Faktor 70. Wer die **Last** einer GPU-Stufe wissen will,
+  braucht die Leistungsindikatoren (§5.1); `conv_us` beantwortet nur, ob der
+  **Taktfaden** dort hängenbleibt.
 * **`enc avg` nahe 17 ms und `slow`/`pts-gaps` bei null** → die Sendeseite ist
   gleichmäßig, und was der Nutzer spürt, ist die Verzögerung aus Abschnitt 1
   (oder sie liegt beim Zuschauer). Dann ist an dieser Seite mit kleinen
@@ -414,9 +513,9 @@ Danach, nach erwarteter Wirkung geordnet:
 | # | Befund | Wirkung | Aufwand | Sicherheit |
 |---|---|---|---|---|
 | 1 | Umwandlung bei stehendem Bild überspringen (§3) | ganze Vorstufe entfällt auf duplizierten Ticks | ~10 Zeilen + Sichtprüfung | hoch |
-| 2 | Chroma-Durchgang entdoppeln (§4, Weg a) | −37 % Shader-Arbeit im HDR-Weg | ~6 Zeilen + Sichtprüfung | hoch für die Verdopplung, ungemessen für den Zeitgewinn |
+| 2 | Chroma-Durchgang entdoppeln (§4, Weg a) | −37 % Shader-Arbeit im HDR-Weg | ~6 Zeilen + Sichtprüfung | erledigt; der Shader kostet danach gemessen 1,79 ms je Durchgang (§5.1) |
 | 3 | Quell-Ansicht abhängen (§6.1) | Treiber-Überschneidung weg | 1 Zeile | hoch, Wirkung klein |
-| 4 | fp16-Zwischenkopie einsparen (§5) | −59 MB je aufgenommenem Bild | Umbau, echtes Risiko | Rechnung sicher, Nutzen ungemessen |
+| 4 | fp16-Zwischenkopie einsparen (§5) | **−109 ms/s ≈ halbe 3D-Einheit des Senders** (gemessen) | Umbau, Zähler als Vorbedingung | **Nutzen gemessen**, Risiko messbar kleiner als angenommen |
 | 5 | Bildrate auf 120 (§1) | −12 ms Verzögerung | Einstellung | hoch, kostet Last |
 
 ## 9. Nebenbefund — drei überholte Behauptungen im Code

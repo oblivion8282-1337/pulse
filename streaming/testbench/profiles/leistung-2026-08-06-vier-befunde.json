@@ -72,7 +72,8 @@
       "gpu_3d_einheit_des_senders": {"vorher": [21.98, 20.73, 21.21, 21.55, 22.88, 20.33], "nachher": [18.31, 16.78, 19.34, 16.42, 19.50, 14.69], "einheit": "Prozent, Median je Lauf, sechs Paare"},
       "paarweise_differenz_prozentpunkte": [-3.67, -3.95, -1.87, -5.13, -3.39, -5.64],
       "median_der_differenzen": "-3,8 Prozentpunkte von rund 21,2, also rund -18 Prozent der 3D-Einheit des Senders",
-      "warum_nicht_mehr": "Die 3D-Einheit des Senders traegt nicht nur den HDR-Shader. Aus den Zahlen beider Serien geschaetzt (GERECHNET, nicht gemessen) entfaellt der groessere Teil auf die fp16-Zwischenkopie in capture/wgc_hw.rs::copy_into_pool, die je AUFGENOMMENEM Bild 59 MB bewegt — Befund 5 derselben Durchsicht, absichtlich nicht angefasst."
+      "warum_nicht_mehr": "Die 3D-Einheit des Senders traegt nicht nur den HDR-Shader. Aus den Zahlen beider Serien geschaetzt (GERECHNET, nicht gemessen) entfaellt der groessere Teil auf die fp16-Zwischenkopie in capture/wgc_hw.rs::copy_into_pool, die je AUFGENOMMENEM Bild 59 MB bewegt — Befund 5 derselben Durchsicht, absichtlich nicht angefasst.",
+      "berichtigt_am_2026-08-06_nachts": "Der zweite Satz oben ist WIDERLEGT und bleibt als widerlegt stehen. Gemessen (leistung-2026-08-06-fp16-kopie-gemessen): die Kopie kostet 1,82 ms, der HDR-Shader 1,79 ms je Durchgang — sie sind gleich gross, und der 'groessere Teil' entfaellt auf keinen von beiden allein. Der Fehler steckte nicht in den Zahlen, sondern im Schluss: die Schaetzung stuetzte sich darauf, dass zwischen Standbild- und Ketten-Serie ein Rest ungeklaert blieb, und schrieb diesen Rest der Kopie zu, weil sie der einzige benannte Kandidat war. Ein ungeklaerter Rest gehoert keinem."
     }
   },
 
@@ -103,7 +104,7 @@
   },
 
   "was_nicht_angefasst_wurde": {
-    "fp16_zwischenkopie": "Befund 5 der Sender-Durchsicht. Nach dieser Messung ist er der GROESSTE verbliebene Posten auf der 3D-Einheit des Senders — aber die Abhilfe (Farbwandlung in den Aufnahme-Rueckruf ziehen) verschiebt Arbeit auf den WGC-Rueckruf-Faden, und dort verworfene Bilder erscheinen in KEINEM Zaehler. Eigene Untersuchung, nicht hier.",
+    "fp16_zwischenkopie": "Befund 5 der Sender-Durchsicht. **Hier stand: 'Nach dieser Messung ist er der GROESSTE verbliebene Posten auf der 3D-Einheit des Senders' — das ist falsch.** Richtig ist (leistung-2026-08-06-fp16-kopie-gemessen, gemessen statt geschaetzt): Kopie 1,82 ms, HDR-Shader 1,79 ms je Bild — zwei gleich grosse Posten. Der Rest des Satzes gilt weiter: die Abhilfe (Farbwandlung in den Aufnahme-Rueckruf ziehen) verschiebt Arbeit auf den WGC-Rueckruf-Faden, und dort verworfene Bilder erscheinen in KEINEM Zaehler.",
     "quell_ansicht_abhaengen": "Befund 6.1, eine Zeile, Wirkung klein. Bewusst nicht mitgenommen, um den Umfang dieser Aenderung nicht ueber die vier Befunde hinaus zu ziehen.",
     "cpu_zaun_ueber_geteilten_zaun": "Die Widerlegung der alten Begruendung ist im Kommentar nachgezogen (zerocopy/bruecke.rs), der Umbau selbst nicht gemacht — er braucht einen teilbaren Zaun und ist auf diesem Treiber ungeprueft."
   },

@@ -347,6 +347,22 @@ impl HwFrameSink {
     }
 }
 
+/// Das WGC-Bild in eine Pool-Textur kopieren — **nötig, weil die WGC-Textur nur
+/// innerhalb dieses Rückrufs gültig ist**, der Taktfaden sie aber später abholt.
+///
+/// **Was das kostet, ist gemessen und nicht klein:** 1,82 ms auf der 3D-Einheit
+/// je Bild bei 2560×1440 in fp16 (HDR), 0,96 ms bei 8 bit — die Kosten folgen
+/// exakt der Bytezahl. Bei 60 fps und bewegtem Bild sind das rund 12 % der
+/// 3D-Einheit des Senders. Sie fällt auch für Bilder an, die der Taktfaden
+/// gleich wieder verwirft (die Aufnahme ist auf `0,9/fps` gedeckelt, liefert
+/// also ~11 % mehr Bilder als der Takt verbraucht).
+///
+/// **Der Ausweg wäre, hier gleich nach P010 zu wandeln** statt zu kopieren; das
+/// spart die Kopie ganz und ist gemessen rund die Hälfte der 3D-Last des
+/// Senders wert. Er ist bewusst nicht genommen — Herleitung, Preis, Vorbedingung
+/// (ein Zähler für WGC-seitig verworfene Bilder) und die Gegenproben stehen in
+/// `docs/2026-08-06-win-hq-sidecar-leistung-amd.md` §5.1 und
+/// `streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`.
 fn copy_into_pool(hw: &HwContext, src: &ID3D11Texture2D, dst: &OwnedHwFrame) -> Result<()> {
     hw.lock();
     let result = unsafe {

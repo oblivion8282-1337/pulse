@@ -56,6 +56,14 @@ pub struct TickSample {
     /// (CPU-Pfad), GPU-Scaler (`VideoProcessorBlt`, NVIDIA-Downscale) oder 0
     /// (NVIDIA-native — NVENC macht den Convert selbst). Auf dem CPU-Pfad bei
     /// hoher Auflösung der wahrscheinlichste Stutter-Kandidat.
+    ///
+    /// **Auf den GPU-Wegen ist das die Zeit des ABSENDENS, nicht die Arbeit.**
+    /// Der Treiber reiht Befehle ein und kehrt zurück; gerechnet wird danach.
+    /// Gemessen am 2026-08-06: 25 µs hier, während derselbe HDR-Shader auf der
+    /// Grafikeinheit 1,79 ms braucht — Faktor 70. Wer die *Last* einer
+    /// GPU-Stufe sucht, braucht die Windows-Leistungsindikatoren
+    /// (`streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`);
+    /// dieser Wert beantwortet nur, ob der **Taktfaden** dort hängenbleibt.
     pub convert: Duration,
     /// NVENC-/AMF-Submit des Video-Frames (`(avcodec_)send_frame`).
     pub send: Duration,
