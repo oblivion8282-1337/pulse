@@ -77,6 +77,16 @@
     }
   },
 
+  "vorgriff_synchronisierung": {
+    "frage": "Die Synchronisierung im Betrieb (der Decoder schreibt, waehrend gezeichnet wird) verlangt VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore. Steht die Erweiterung auf wgpus Geraet zur Verfuegung, so wie VK_KHR_external_memory_fd es tut?",
+    "antwort": "NEIN. wgpu-hal 29 fordert sie nicht an. Im Quelltext steht bei den Semaphoren nur VK_KHR_timeline_semaphore (adapter.rs:1232); eine Zeile fuer external_semaphore_fd gibt es nicht — anders als fuer external_memory_fd (adapter.rs:1296) und external_memory_win32 (adapter.rs:1290).",
+    "am_laufenden_geraet_nachgesehen": "enabled_device_extensions() fuehrt VK_KHR_external_memory_fd, aber nicht VK_KHR_external_semaphore_fd.",
+    "warum_das_kein_kernfassungs_irrtum_ist": "Eine Erweiterung, die in eine Kernfassung uebernommen wurde, steht nicht in dieser Liste und ist trotzdem da — genau so verhaelt sich VK_KHR_timeline_semaphore, das seit Vulkan 1.2 Kernbestand ist und deshalb ebenfalls fehlt, ohne zu fehlen. Fuer VK_KHR_external_semaphore_fd gibt es keine solche Uebernahme (nur das elternlose VK_KHR_external_semaphore wurde in 1.1 uebernommen, und vkGetSemaphoreFdKHR steckt nicht darin). Ihr Fehlen ist also ein echtes Fehlen. Ohne diese Unterscheidung waere die Zeile eine Falle.",
+    "die_KARTE_bietet_sie_an": "JA — enumerate_device_extension_properties fuehrt sie. Es liegt also an wgpu, nicht an der Hardware.",
+    "folge_fuer_den_umbau": "Der Player kann sein VkDevice nicht von wgpu anlegen lassen, wenn er Semaphoren ueber die Grenze braucht. Der Weg waere: Geraet selbst anlegen (mit beiden Erweiterungen) und per hal::vulkan::Adapter::device_from_raw (adapter.rs:2439) an wgpu uebergeben. Das ist genau ein Aufbauschritt mehr und aendert am hier gemessenen Bild-Import nichts — er lief bereits auf einem Geraet mit VK_KHR_external_memory_fd.",
+    "belegklasse": "GEMESSEN (Erweiterungsliste am laufenden Geraet und Angebot der Karte) plus GELESEN (die Quelltextstellen). NICHT gemessen: dass der so gebaute Weg dann auch traegt — cuImportExternalSemaphore ist in dieser Probe nie aufgerufen worden."
+  },
+
   "die_kontrollen": {
     "warum_ueberhaupt": "In diesem Labor sind mehrfach Befunde entstanden, weil ein Werkzeug stillschweigend nichts gemessen hat. Jede Stufe traegt deshalb eine Kontrolle, die zeigt, dass sie anschlagen KANN.",
     "stufe_A_vulkan_weg_messbar": "Das Bild wird vor allem anderen flaechendeckend mit 0x5A gefuellt und sofort zurueckgelesen. Kommt der Wert nicht unveraendert an, bricht die Probe ab, statt eine Zahl ueber wgpu zu liefern, die keine ist. Gruen in allen Laeufen.",
@@ -132,7 +142,7 @@
     "wgpu_30_entfaellt": "Die Kette wgpu 30 -> egui-wgpu/egui-winit 0.36 -> Rust 1.95 (diese Maschine hat 1.93.1) wird fuer diesen Zweck NICHT gebraucht. Sie bleibt eine Option aus anderen Gruenden; fuer den Bild-Import ist sie unbegruendet.",
     "was_als_naechstes_zu_klaeren_ist": [
       "Gibt av1_cuvid seine Bilder als CUDA-Speicher heraus (hwaccel_output_format cuda / AV_PIX_FMT_CUDA) statt in den Hauptspeicher? Ohne das nuetzt der Import nichts. Einstieg: streaming/pulse-player/src/decode.rs.",
-      "Synchronisierung: VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore. Im Betrieb schreibt der Decoder, waehrend gezeichnet wird.",
+      "Synchronisierung: VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore. Im Betrieb schreibt der Decoder, waehrend gezeichnet wird. ACHTUNG, s. vorgriff_synchronisierung: wgpu 29 fordert diese Erweiterung NICHT an, obwohl die Karte sie anbietet — der Player muesste sein VkDevice dafuer selbst anlegen und per Adapter::device_from_raw uebergeben.",
       "Die Einfrier-Erkennung verliert ihre Bildpunkte, sobald die Ebenen nicht mehr im Hauptspeicher liegen — der Fingerabdruck muesste in einen Compute-Shader (Reduktion ueber die Y-Ebene, Rueckkanal von 8 Byte).",
       "Der Tempo-Gewinn selbst ist unbelegt (s. GRENZEN)."
     ]

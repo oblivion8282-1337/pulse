@@ -8,7 +8,7 @@
 //!
 //! Dass das ueberhaupt geht, haengt an `VK_KHR_external_memory_fd` — warum das
 //! nicht angenommen, sondern abgefragt wird, steht bei `wgpu_aufbauen` in
-//! `main.rs`, wo die Abfrage sitzt.
+//! `aufbau.rs`, wo die Abfrage sitzt.
 //!
 //! Alle Befehle laufen ueber wgpus Warteschlange (`raw_queue`). Das ist
 //! zulaessig, solange nichts anderes gleichzeitig darauf sendet — die Probe ist
@@ -52,6 +52,22 @@ impl Vkseite {
         let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut id);
         unsafe { self.instance.get_physical_device_properties2(self.phys, &mut props) };
         id.device_uuid
+    }
+
+    /// Bietet die KARTE diese Erweiterung an — unabhaengig davon, ob wgpu sie
+    /// angefordert hat?
+    ///
+    /// Das ist die Unterscheidung, an der der naechste Schritt haengt. „Nicht
+    /// am Geraet an" heisst zweierlei: die Karte kann es nicht (dann ist der
+    /// Weg zu), oder wgpu laesst es liegen (dann ist der Ausweg, das VkDevice
+    /// selbst anzulegen und per `hal::vulkan::Adapter::device_from_raw` an wgpu
+    /// zu uebergeben). Ohne diese Abfrage waeren beide Faelle dieselbe
+    /// Fehlanzeige.
+    pub fn karte_bietet(&self, name: &str) -> bool {
+        let liste = unsafe { self.instance.enumerate_device_extension_properties(self.phys) };
+        liste.into_iter().flatten().any(|p| {
+            p.extension_name_as_c_str().map(|c| c.to_string_lossy() == name).unwrap_or(false)
+        })
     }
 
     fn speichertyp(&self, erlaubt: u32, noetig: vk::MemoryPropertyFlags) -> Result<u32> {

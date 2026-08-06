@@ -191,7 +191,13 @@ Die Reihenfolge, die hier stand, ist damit abgearbeitet:
    `streaming/pulse-player/src/decode.rs`.
 2. **Synchronisierung**: `VK_KHR_external_semaphore_fd` gegen
    `cuImportExternalSemaphore` — im Betrieb schreibt der Decoder, während
-   gezeichnet wird.
+   gezeichnet wird. **Dazu ist schon etwas gemessen, und es kostet einen
+   Aufbauschritt:** wgpu 29 fordert diese Erweiterung *nicht* an (anders als
+   `VK_KHR_external_memory_fd`), obwohl die Karte sie anbietet. Der Player
+   müsste sein `VkDevice` dafür selbst anlegen und per
+   `hal::vulkan::Adapter::device_from_raw` an wgpu übergeben. Am hier
+   gemessenen Bild-Import ändert das nichts. Einzelheiten unter
+   `vorgriff_synchronisierung` in der wgpu-Messakte.
 
 Zwei weitere Auflagen, die zum Umbau gehören und leicht vergessen werden:
 

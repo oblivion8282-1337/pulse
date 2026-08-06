@@ -129,7 +129,12 @@ Befund.
 * **Nebenläufigkeit.** Hier wird geschrieben, gewartet, gelesen. Im Betrieb
   schreibt der Decoder, während gezeichnet wird — das verlangt Semaphoren über
   dieselbe Grenze (`VK_KHR_external_semaphore_fd` gegen
-  `cuImportExternalSemaphore`).
+  `cuImportExternalSemaphore`). Ein Vorgriff darauf ist gemessen und steht als
+  Zeile in jedem Lauf: **wgpu 29 fordert diese Erweiterung nicht an**, obwohl
+  die Karte sie anbietet. Wer sie braucht, muss das `VkDevice` selbst anlegen
+  und per `hal::vulkan::Adapter::device_from_raw` an wgpu übergeben. Dass der so
+  gebaute Weg dann auch trägt, ist **nicht** gemessen —
+  `cuImportExternalSemaphore` ist hier nie aufgerufen worden.
 * **Der Decoder.** Der Inhalt kommt aus `cuMemAlloc`, nicht aus `av1_cuvid`.
   Ob der Decoder seine Bilder überhaupt als CUDA-Speicher herausgibt, ist eine
   getrennte offene Frage.
