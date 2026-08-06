@@ -31,6 +31,10 @@ pub(super) fn start_and_wait_for_setup(
     capture_source: CaptureSource,
     fps: u32,
     show_cursor: bool,
+    // In 16-Bit-Fließkomma aufnehmen statt in BGRA. Muss hier durchgereicht
+    // werden und nicht erst später gesetzt: das Format entscheidet sich beim
+    // Start der WGC-Sitzung, und ab dem ersten Bild steht der Pool darauf.
+    hdr: bool,
 ) -> Result<(WgcHwCapture, Arc<HwContext>, u32, u32, OwnedHwFrame, i64, Instant)> {
     // Capture-D3D11VA-Pool: versorgt Capture-Queue + (im Native-Pfad) die
     // NVENC-In-Flight-Tiefe. Im Downscale-Pfad hat der Scaler einen eigenen
@@ -38,7 +42,7 @@ pub(super) fn start_and_wait_for_setup(
     // bedienen — 24 ist für beide Fälle robust.
     let mut capture = WgcHwCapture::start(
         capture_source,
-        CaptureConfig { max_fps: fps, include_cursor: show_cursor, ..Default::default() },
+        CaptureConfig { max_fps: fps, include_cursor: show_cursor, hdr, ..Default::default() },
         24,
     )?;
 

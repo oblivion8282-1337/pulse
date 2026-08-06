@@ -69,6 +69,10 @@ pub struct GpuSetup {
     /// Fehlt das Feature, muss der Aufrufer 10-bit-Quellen auf 8 bit
     /// herunterrechnen statt abzustuerzen.
     pub wide_textures: bool,
+    /// Alle Formate, die die Oberflaeche angeboten hat. Der Renderer hebt sie
+    /// auf, weil der Wechsel auf ein HDR-Fenster und zurueck sie wieder
+    /// braucht — sonst muesste dafuer der Adapter am Leben gehalten werden.
+    pub angebotene_formate: Vec<wgpu::TextureFormat>,
 }
 
 /// Erlaubt, die Formatwahl von aussen festzunageln: `PULSE_PLAYER_SURFACE`
@@ -96,7 +100,13 @@ fn format_override() -> Option<wgpu::TextureFormat> {
 }
 
 /// Nimmt das praeziseste angebotene Format; als letzter Ausweg irgendeines.
-fn pick_format(offered: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+///
+/// **Das ist die SDR-Wahl.** Fuer eine HDR-Quelle entscheidet
+/// `hdr_fenster::HDR_OBERFLAECHE`, und zwar aus Gruenden, die mit Praezision
+/// nichts zu tun haben (Werte ueber 1,0 und der Farbraum, den wgpu daran
+/// knuepft). Deshalb bleibt diese Reihenfolge unveraendert, obwohl sie
+/// Fliesskomma hinter 10-bit-Ganzzahl stellt.
+pub fn pick_format(offered: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
     if let Some(forced) = format_override() {
         if offered.contains(&forced) {
             eprintln!("pulse-player: Oberflaechenformat erzwungen: {forced:?}");
@@ -154,10 +164,42 @@ fn praesentationsart(angeboten: &[wgpu::PresentMode]) -> wgpu::PresentMode {
     }
 }
 
+/// Welche Grafik-API das Fenster benutzt.
+///
+/// **Unter Windows D3D12, sonst alles, was wgpu findet** — und das ist eine
+/// Aenderung mit Grund, nicht Geschmack. wgpu nimmt auf Windows von sich aus
+/// Vulkan (am 2026-08-06 auf einer Radeon 780M nachgesehen: „Vulkan, AMD
+/// proprietary driver"), und auf dem Vulkan-Weg gibt es keine Moeglichkeit,
+/// dem Fenster einen HDR-Farbraum anzumelden: dort ist er eine Eigenschaft der
+/// Swapchain, wird beim Anlegen gesetzt und ist von aussen weder zu setzen noch
+/// zu pruefen. Ueber D3D12 ist es ein Aufruf (`hdr_fenster::farbraum_anmelden`).
+///
+/// Ohne diesen Wechsel gaebe es unter Windows **kein** HDR im Fenster — der
+/// Player wuerde jeden HDR-Strom herunterrechnen, auch auf einem HDR-Schirm.
+///
+/// `PULSE_PLAYER_BACKEND=vulkan|dx12|gl` nagelt die Wahl fest. Das ist der
+/// Notausgang, falls sich auf einer anderen Karte herausstellt, dass D3D12 dort
+/// schlechter faehrt — dieselbe Bauart wie `PULSE_PLAYER_SURFACE` und
+/// `PULSE_PLAYER_PRESENT_MODE` daneben: eine Frage, die sich sonst nur durch
+/// einen Neubau beantworten liesse.
+fn backends() -> wgpu::Backends {
+    match std::env::var("PULSE_PLAYER_BACKEND").as_deref().map(str::trim) {
+        Ok("vulkan") => return wgpu::Backends::VULKAN,
+        Ok("dx12") => return wgpu::Backends::DX12,
+        Ok("gl") => return wgpu::Backends::GL,
+        Ok(anderes) if !anderes.is_empty() => {
+            eprintln!("pulse-player: PULSE_PLAYER_BACKEND={anderes:?} unbekannt — normale Wahl");
+        }
+        _ => {}
+    }
+    if cfg!(windows) { wgpu::Backends::DX12 } else { wgpu::Backends::all() }
+}
+
 pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32) -> Result<GpuSetup> {
-    let instance = wgpu::Instance::new(
-        wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
-    );
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: backends(),
+        ..wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone()))
+    });
     let surface = instance
         .create_surface(window)
         .context("Oberflaeche liess sich nicht anlegen")?;
@@ -174,7 +216,16 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
     let caps = surface.get_capabilities(&adapter);
     let format = pick_format(&caps.formats)
         .ok_or_else(|| anyhow!("Oberflaeche bietet kein einziges Format an"))?;
-    eprintln!("pulse-player: Oberflaechenformat {format:?} (angeboten: {:?})", caps.formats);
+    // **Die Grafik-API gehoert in diese Zeile.** An ihr haengt, ob HDR im
+    // Fenster ueberhaupt moeglich ist (nur ueber D3D12 laesst sich der
+    // Farbraum anmelden, s. `hdr_fenster`), und sie ist von aussen sonst nicht
+    // zu sehen — die Angebotsliste unterscheidet sich zwar zwischen Vulkan und
+    // D3D12, aber das muesste man auswendig wissen.
+    let info = adapter.get_info();
+    eprintln!(
+        "pulse-player: Oberflaechenformat {format:?} auf {} ({:?}) (angeboten: {:?})",
+        info.name, info.backend, caps.formats
+    );
 
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -226,6 +277,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         sampler: gfx.sampler,
         uniform_buf: gfx.uniform_buf,
         wide_textures,
+        angebotene_formate: caps.formats,
     })
 }
 
@@ -388,6 +440,46 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Uebersetzt der Shader ueberhaupt — fuer JEDES Zielformat?**
+    ///
+    /// WGSL wird erst beim Bau der Pipeline uebersetzt, also zur Laufzeit. Ein
+    /// Tippfehler im Shader faellt deshalb weder beim `cargo build` noch beim
+    /// `cargo check` auf, sondern erst, wenn ein Fenster aufgeht — und bei den
+    /// HDR-Zweigen sogar erst, wenn ein HDR-Strom ankommt. Dieser Test holt das
+    /// nach vorn.
+    ///
+    /// Ohne GPU wird uebersprungen statt fehlgeschlagen: der Test soll auf
+    /// einem Bauserver ohne Grafikkarte nichts behaupten.
+    #[test]
+    fn shader_uebersetzt_fuer_jedes_zielformat() {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
+            eprintln!("keine GPU — Shader-Uebersetzung nicht geprueft");
+            return;
+        };
+        let Ok((device, _queue, _)) =
+            pollster::block_on(geraet_oeffnen(&adapter, "pulse-player-shadertest"))
+        else {
+            eprintln!("Geraet liess sich nicht oeffnen — Shader-Uebersetzung nicht geprueft");
+            return;
+        };
+        // Alle Formate, die der Player wirklich waehlen kann: die normale
+        // Reihenfolge plus das HDR-Format (das dort bewusst NICHT vorn steht).
+        for format in FORMAT_PREFERENCE
+            .iter()
+            .copied()
+            .chain(std::iter::once(super::super::hdr_fenster::HDR_OBERFLAECHE))
+        {
+            // `build_graphics` uebersetzt den Shader und baut die Pipeline; ein
+            // Fehler darin ist in wgpu ein Geraetefehler und beendet den Test.
+            let _ = build_graphics(&device, format);
+            device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap_or_else(|e| panic!("Geraet nach Pipeline-Bau fuer {format:?} krank: {e}"));
+        }
+    }
 
     /// Bietet der Compositor alles an, faellt die Wahl auf 10-bit-Unorm —
     /// NICHT auf fp16, obwohl das mehr Bits haette.

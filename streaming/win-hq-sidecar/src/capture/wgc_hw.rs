@@ -23,9 +23,7 @@ use windows::core::Interface;
 use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
-use windows_capture::settings::{
-    ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
-};
+use windows_capture::settings::{DirtyRegionSettings, SecondaryWindowSettings, Settings};
 
 use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 use super::wgc::CaptureConfig;
@@ -150,6 +148,9 @@ struct HwFrameSink {
     /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
     /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
     is_window: bool,
+    /// Wird in 16-Bit-Fließkomma aufgenommen (HDR)? Entscheidet über Pool- und
+    /// Ersatztextur-Format, s. `super::bildformat`.
+    hdr: bool,
 }
 
 /// Aufeinanderfolgende Größen-Mismatches, bevor der Pool als endgültig
@@ -164,6 +165,7 @@ struct HwHandlerFlags {
     dropped: Arc<AtomicU64>,
     guard: Option<SourceGuard>,
     is_window: bool,
+    hdr: bool,
 }
 
 impl GraphicsCaptureApiHandler for HwFrameSink {
@@ -182,6 +184,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             mask: MaskGate::new(ctx.flags.guard),
             black: None,
             is_window: ctx.flags.is_window,
+            hdr: ctx.flags.hdr,
         })
     }
 
@@ -210,20 +213,43 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             let width = frame.width();
             let height = frame.height();
             self.expected_dims = (width, height);
-            // Bind-Flags, Format und Lock bleiben auf Default: der Capture-Pool
-            // nimmt libavutils BGRA-Default und besitzt den Lock selbst — der
-            // Scaler teilt ihn dann (#2).
+            // Bind-Flags und Lock bleiben auf Default: der Capture-Pool besitzt
+            // den Lock selbst — der Scaler teilt ihn dann (#2).
+            //
+            // **Das Pool-Format MUSS zu `ColorFormat` passen**, sonst kopiert
+            // `CopySubresourceRegion` zwischen unterschiedlichen Formaten und
+            // wird im Release-Build zum wortlosen No-Op: der Stream liefe mit
+            // schwarzen Bildern, ohne dass irgendwo ein Fehler stünde. Die
+            // beiden Werte stehen deshalb in `bildformat()` beieinander statt
+            // an zwei Stellen.
             let hw = HwContext::new(
                 frame.device().clone(),
                 frame.device_context().clone(),
                 width,
                 height,
-                HwPoolConfig { pool_size: self.pool_size, ..Default::default() },
+                HwPoolConfig {
+                    pool_size: self.pool_size,
+                    sw_format: super::bildformat(self.hdr).1,
+                    // **Im HDR-Fall die Bindungen selbst setzen.** libavutils
+                    // Vorgabe ist `DECODER|SHADER_RESOURCE`, und `DECODER` ist
+                    // für Decoder-Ausgabeflächen gedacht (NV12/P010) — auf
+                    // einer 16-Bit-Fließkomma-Textur lässt der Treiber danach
+                    // keine Shader-Ansicht mehr zu (`CreateShaderResourceView`
+                    // scheitert mit `E_INVALIDARG`, gemessen 2026-08-06). Der
+                    // eigene Farbwandler braucht aber genau diese Ansicht.
+                    //
+                    // Auf dem 8-Bit-Weg bleibt es bei der Vorgabe: dort liest
+                    // kein Shader, sondern der Video-Prozessor, und der will
+                    // `DECODER` sehen.
+                    extra_bind_flags: if self.hdr { 0x8 } else { 0 },
+                    ..Default::default()
+                },
             )
             .context("HwContext::new")?;
             let hw = Arc::new(hw);
             if self.mask.has_guard() {
-                self.black = Some(super::black_bgra_texture(frame.device(), width, height)?);
+                self.black =
+                    Some(super::black_bgra_texture(frame.device(), width, height, self.hdr)?);
             }
             let mut pool_frame = hw.acquire_frame().context("acquire first pool frame")?;
             pool_frame.set_pts(0);
@@ -366,7 +392,10 @@ fn run_capture(
         dropped,
         guard: target.guard(),
         is_window: target.is_window(),
+        hdr: cfg.hdr,
     };
+    // Farbformat und Pool-Format kommen aus derselben Quelle — s. `bildformat`.
+    let farbformat = super::bildformat(cfg.hdr).0;
 
     match target {
         ResolvedTarget::Monitor { monitor, .. } => {
@@ -377,7 +406,7 @@ fn run_capture(
                 SecondaryWindowSettings::Default,
                 min_interval,
                 DirtyRegionSettings::Default,
-                ColorFormat::Bgra8,
+                farbformat,
                 flags,
             );
             HwFrameSink::start(settings).context("Monitor capture failed")?;
@@ -390,7 +419,7 @@ fn run_capture(
                 SecondaryWindowSettings::Default,
                 min_interval,
                 DirtyRegionSettings::Default,
-                ColorFormat::Bgra8,
+                farbformat,
                 flags,
             );
             HwFrameSink::start(settings).context("Window capture failed")?;

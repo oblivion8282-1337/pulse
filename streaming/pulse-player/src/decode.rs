@@ -452,8 +452,15 @@ pub struct DecodedFrame {
     pub ten_bit: bool,
     /// Voller Wertebereich (`pc`) statt begrenztem (`tv`).
     pub full_range: bool,
-    /// Welche YUV-Matrix der Strom verlangt.
-    pub matrix: ColorMatrix,
+    /// Was der Strom ueber seine Farben sagt — YUV-Matrix, Transferkurve,
+    /// Farbraum und Spitzenhelligkeit.
+    ///
+    /// **Die Matrix stand hier bis zum 2026-08-06 zusaetzlich als eigenes
+    /// Feld.** Beim Ergaenzen der HDR-Angaben waeren daraus zwei Fassungen
+    /// derselben Auskunft geworden, die beim naechsten Umbau auseinanderlaufen
+    /// — und eine falsche Matrix sieht man dem Bild nicht an, es wirkt nur
+    /// flau. Deshalb nur noch hier.
+    pub farbe: Farbangaben,
     /// Wann das Paket eintraf, das die Zugriffseinheit dieses Bildes
     /// abschloss. Traegt die Latenzmessung bis zum gezeichneten Bild; `None`,
     /// wenn das Bild nicht aus einem Netzpaket stammt (Tests).
@@ -500,7 +507,7 @@ impl DecodedFrame {
             strides,
             ten_bit,
             full_range: false,
-            matrix: ColorMatrix::Bt709,
+            farbe: Farbangaben::default(),
             arrived: None,
             rtp_ts: None,
             clock_rate: 0,
@@ -526,6 +533,67 @@ impl Drop for DecodedFrame {
 pub enum ColorMatrix {
     Bt601,
     Bt709,
+    /// BT.2020 ohne konstante Leuchtdichte — die Matrix jedes HDR10-Stroms.
+    ///
+    /// **Eigene Zeile, obwohl die Koeffizienten denen von BT.709 aehneln.** Sie
+    /// tun es nur ungefaehr (1,4746 gegen 1,5748 fuer Rot), und der Unterschied
+    /// faellt genau dort auf, wo man ihn am wenigsten sucht: das Bild bleibt
+    /// vollstaendig plausibel, nur Hauttoene und gesaettigtes Gruen wandern.
+    /// Denselben Fehler hat der Player schon einmal gemacht, als er BT.601 als
+    /// BT.709 gelesen hat (2026-07-26).
+    Bt2020Ncl,
+}
+
+/// Wie die Codewerte des Stroms in Licht uebersetzt werden.
+///
+/// Der Unterschied ist nicht graduell: eine SDR-Kurve ist RELATIV (1,0 heisst
+/// „so hell der Schirm eben ist"), PQ ist ABSOLUT (1,0 heisst 10 000 cd/m²).
+/// Einen PQ-Strom wie SDR zu zeichnen ergibt ein Bild, das durchweg viel zu
+/// dunkel und entsaettigt ist — der haeufigste sichtbare HDR-Fehler ueberhaupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Uebertragung {
+    /// Alles, was keine PQ-Kurve ist — die uebliche Gamma-artige Kodierung.
+    Sdr,
+    /// SMPTE ST 2084 (PQ), die Kurve von HDR10.
+    Pq,
+}
+
+/// Was der Strom ueber Farbraum und Helligkeit sagt — alles, was der Shader
+/// braucht und was NICHT an der Form der Bildpunkte haengt.
+///
+/// Als eigener Typ statt dreier Felder in [`DecodedFrame`], weil die drei
+/// Angaben nur zusammen einen Sinn ergeben: PQ ohne BT.2020-Primaervalenzen
+/// gibt es in der Praxis nicht, und eine Spitzenhelligkeit ohne PQ ist
+/// bedeutungslos.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Farbangaben {
+    pub matrix: ColorMatrix,
+    pub uebertragung: Uebertragung,
+    /// Liegen die Primaervalenzen in BT.2020 statt BT.709? Getrennt von der
+    /// Kurve, weil beides unabhaengig voneinander falsch sein kann — es gibt
+    /// SDR-Stroeme in BT.2020, und ein PQ-Strom ohne Primaervalenzen-Angabe
+    /// waere zwar unueblich, aber nicht unmoeglich.
+    pub weiter_farbraum: bool,
+    /// Spitzenhelligkeit des Inhalts in cd/m², aus den Metadaten des Stroms.
+    ///
+    /// Gebraucht wird sie nur beim Herunterrechnen auf einen SDR-Schirm: sie
+    /// sagt, wo die Kurve enden muss. `None` heisst „der Strom sagt nichts" —
+    /// dann nimmt der Player einen Ersatzwert und sagt das auch (s.
+    /// `render::farbe`). Eine geratene Zahl als gemessene auszugeben waere hier
+    /// besonders teuer, weil man dem Ergebnis nicht ansieht, dass sie geraten
+    /// war.
+    pub spitze_nits: Option<f32>,
+}
+
+impl Default for Farbangaben {
+    fn default() -> Self {
+        Self {
+            matrix: ColorMatrix::Bt709,
+            uebertragung: Uebertragung::Sdr,
+            weiter_farbraum: false,
+            spitze_nits: None,
+        }
+    }
 }
 
 /// Ohne Angabe gilt die uebliche Regel: SD ist BT.601, HD ist BT.709.
@@ -545,6 +613,12 @@ fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
     match space {
         Space::BT470BG | Space::SMPTE170M | Space::SMPTE240M => ColorMatrix::Bt601,
         Space::BT709 => ColorMatrix::Bt709,
+        // Beide BT.2020-Fassungen landen hier. Der Player rechnet die
+        // NCL-Matrix; die CL-Fassung („constant luminance") kommt in der Praxis
+        // nicht vor — kein Encoder erzeugt sie —, und sie hier als NCL zu
+        // behandeln ist der weit kleinere Fehler, als sie auf BT.709
+        // zurueckfallen zu lassen.
+        Space::BT2020NCL | Space::BT2020CL => ColorMatrix::Bt2020Ncl,
         _ => {
             if height <= 576 {
                 ColorMatrix::Bt601
@@ -553,6 +627,102 @@ fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
             }
         }
     }
+}
+
+/// Die Farbangaben eines dekodierten Bildes zusammentragen.
+///
+/// **Alles kommt aus dem Strom, nichts wird aus der Aufloesung geraten** —
+/// ausser der Matrix, die ihre eigene, alte Regel hat ([`matrix_of`]).
+///
+/// `PULSE_PLAYER_TRANSFER=sdr|pq` nagelt die Kurve fest, Gegenstueck zu
+/// `PULSE_PLAYER_MATRIX` und `PULSE_PLAYER_SURFACE`: nur so laesst sich
+/// „das Bild ist zu dunkel" auf eine der drei Ursachen eingrenzen, ohne den
+/// Player neu zu bauen.
+fn farbangaben_von(frame: &ffmpeg::util::frame::video::Video, height: u32) -> Farbangaben {
+    use ffmpeg::color::{Primaries, TransferCharacteristic};
+    let uebertragung = match std::env::var("PULSE_PLAYER_TRANSFER").as_deref().map(str::trim) {
+        Ok("sdr") => Uebertragung::Sdr,
+        Ok("pq") => Uebertragung::Pq,
+        _ => match frame.color_transfer_characteristic() {
+            TransferCharacteristic::SMPTE2084 => Uebertragung::Pq,
+            // **HLG faellt bewusst auf SDR zurueck und nicht auf PQ.** Die
+            // Kurve ist eine andere, und HLG als PQ zu lesen ergibt ein
+            // groteskes Bild. Als SDR gelesen ist es nur etwas flau — HLG ist
+            // rueckwaertskompatibel gebaut, genau dafuer. Wir erzeugen kein HLG;
+            // sollte es je hier ankommen, ist der milde Fehler der richtige.
+            _ => Uebertragung::Sdr,
+        },
+    };
+    Farbangaben {
+        matrix: matrix_of(frame.color_space(), height),
+        uebertragung,
+        weiter_farbraum: matches!(frame.color_primaries(), Primaries::BT2020),
+        spitze_nits: spitze_nits_von(frame),
+    }
+}
+
+/// Die Spitzenhelligkeit des Inhalts aus den Begleitdaten des Bildes.
+///
+/// Zwei Quellen, in dieser Reihenfolge — und die Reihenfolge ist die Aussage:
+///
+/// 1. **Content-Light-Level (`MaxCLL`)** beschreibt, was im INHALT wirklich
+///    vorkommt. Das ist die Zahl, die das Herunterrechnen braucht.
+/// 2. **Mastering-Display** beschreibt das GERAET, auf dem gemastert wurde —
+///    eine obere Schranke, oft deutlich zu hoch. Nur als Ersatz.
+///
+/// `None`, wenn der Strom nichts sagt. Der Aufrufer setzt dann einen
+/// Ersatzwert und meldet das (`render::farbe`), statt eine geratene Zahl wie
+/// eine gemessene zu behandeln.
+///
+/// Der Zugriff laeuft ueber `av_frame_get_side_data`, weil `ffmpeg-next` fuer
+/// diese beiden Nutzlasten keine sicheren Typen hat — dieselbe Lage wie im
+/// Sidecar (`encode/hdr.rs`), nur andersherum: dort schreiben wir sie, hier
+/// lesen wir sie.
+fn spitze_nits_von(frame: &ffmpeg::util::frame::video::Video) -> Option<f32> {
+    use ffmpeg::ffi::{AVFrameSideDataType, av_frame_get_side_data};
+
+    /// `AVContentLightMetadata` — zwei `unsigned` in cd/m².
+    #[repr(C)]
+    struct ContentLight {
+        max_cll: std::os::raw::c_uint,
+        max_fall: std::os::raw::c_uint,
+    }
+    /// `AVMasteringDisplayMetadata`; uns interessiert nur `max_luminance`, der
+    /// Rest steht fuer das richtige Speicherlayout da.
+    #[repr(C)]
+    struct Mastering {
+        display_primaries: [[ffmpeg::ffi::AVRational; 2]; 3],
+        white_point: [ffmpeg::ffi::AVRational; 2],
+        min_luminance: ffmpeg::ffi::AVRational,
+        max_luminance: ffmpeg::ffi::AVRational,
+        has_primaries: std::os::raw::c_int,
+        has_luminance: std::os::raw::c_int,
+    }
+
+    unsafe {
+        let ptr = frame.as_ptr();
+        let cll = av_frame_get_side_data(ptr, AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+        if !cll.is_null() {
+            let m = &*((*cll).data as *const ContentLight);
+            if m.max_cll > 0 {
+                return Some(m.max_cll as f32);
+            }
+        }
+        let md = av_frame_get_side_data(
+            ptr,
+            AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+        );
+        if !md.is_null() {
+            let m = &*((*md).data as *const Mastering);
+            if m.has_luminance != 0 && m.max_luminance.den != 0 {
+                let nits = m.max_luminance.num as f32 / m.max_luminance.den as f32;
+                if nits > 0.0 {
+                    return Some(nits);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1069,7 +1239,7 @@ fn convert(
         strides,
         ten_bit,
         full_range: matches!(frame.color_range(), ffmpeg::color::Range::JPEG),
-        matrix: matrix_of(frame.color_space(), height),
+        farbe: farbangaben_von(frame, height),
         pool: pool.clone(),
     })
 }

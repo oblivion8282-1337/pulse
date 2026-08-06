@@ -93,6 +93,24 @@
     persistSettings();
   }
 
+  // HDR zieht das Videoformat MIT auf AV1 10 bit, statt nur einen Haken zu
+  // setzen. Grund: HDR gibt es nur so (PQ in 8 bit wäre in jedem Verlauf
+  // sichtbar geringelt, `encode/hdr.rs`), und der Sidecar würde einen HDR-Haken
+  // ohne 10 bit mit einem Startabbruch quittieren. Zwei Felder, die
+  // zusammengehören, soll der Nutzer nicht selbst zusammensuchen.
+  //
+  // Beim Abwählen bleibt AV1 10 bit stehen. Das ist Absicht: es ist eine
+  // gültige Einstellung für sich, und wer HDR probiert und wieder abschaltet,
+  // will selten zurück auf H.264.
+  function onHdr(e: Event) {
+    const an = (e.currentTarget as HTMLInputElement).checked;
+    const mitFormat = an
+      ? applyVideoMode(streamSettings.overrides, 'av1-10')
+      : streamSettings.overrides;
+    streamSettings.overrides = { ...mitFormat, hdr: an };
+    persistSettings();
+  }
+
   // Hard cap on input (snap the field down so the user can't go above max),
   // enforce the minimum on blur (clamping the min *while* typing would turn a
   // half-typed "2" into the floor). Both write the field's DOM value directly
@@ -333,6 +351,33 @@
           data-testid="stream-overrides-intra-refresh"
         />
         <span class="text-text-base">Intra-Refresh</span>
+      </label>
+    {/if}
+
+    <!-- HDR. Nur Windows, und nur wenn der Sidecar es meldet
+         (`health.gsr.hdr`) — belegt ist bisher allein AV1 ueber AMF auf AMD.
+         Linux und macOS koennen die Aufnahme heute nicht in 16-Bit-Fliesskomma
+         holen, dort gaebe es also nichts zu senden.
+
+         **Das Kaestchen haengt bewusst NICHT daran, ob HDR in Windows gerade
+         eingeschaltet ist.** Waere es das, verschwaende es beim Ausschalten
+         spurlos, und niemand kaeme auf den Zusammenhang. Der Sidecar sagt beim
+         Start klar, dass der Schirm in SDR laeuft, und nennt den Windows-
+         Schalter — das ist die Stelle, an der die Auskunft ankommt.
+
+         Anders als bei Intra-Refresh laesst ein nicht einloesbarer Haken den
+         Start scheitern statt still auf etwas Kleineres zurueckzufallen; die
+         Begruendung dafuer steht in `encode/hdr.rs`. Genau deshalb raeumt
+         `loadCatalogs` einen mitgereisten Haken weg, bevor er jemandem den
+         Stream zerlegt. -->
+    {#if isWindows() && stream.hdrAvailable}
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox
+          checked={streamSettings.overrides.hdr === true}
+          onchange={onHdr}
+          data-testid="stream-overrides-hdr"
+        />
+        <span class="text-text-base">HDR</span>
       </label>
     {/if}
 

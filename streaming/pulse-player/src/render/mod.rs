@@ -11,18 +11,19 @@
 //! Deband, Dither, Zoom) passt in einen WGSL-Shader, und wgpu ist MIT/Apache.
 
 mod farbe;
+mod hdr_fenster;
 mod setup;
 mod uniforms;
 
 // Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
 pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
-pub use setup::{build_bind_group, build_graphics, geraet_oeffnen, Graphics};
+pub use setup::{build_bind_group, build_graphics, geraet_oeffnen, pick_format, Graphics};
 pub use uniforms::Uniforms;
 
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
-use crate::decode::{ColorMatrix, DecodedFrame, PixelLayout};
+use crate::decode::{DecodedFrame, Farbangaben, PixelLayout};
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::PlayerOptions;
 
@@ -70,6 +71,20 @@ pub struct Renderer {
     /// Zeitpunkt schon eine unveraenderliche Leihe auf `planes`.
     acquire_misses: std::cell::Cell<u64>,
     start: std::time::Instant,
+    /// Alle Formate, die die Oberflaeche anbietet. Aufgehoben, weil der Wechsel
+    /// auf HDR und zurueck (`farbraum_fuer_quelle`) die Liste wieder braucht —
+    /// den Adapter dafuer festzuhalten waere deutlich mehr.
+    angebotene_formate: Vec<wgpu::TextureFormat>,
+    /// Fensterkennung (Windows). Fuer die Frage, ob der Schirm unter diesem
+    /// Fenster in HDR laeuft; `0`, wo es keine gibt.
+    hwnd: isize,
+    /// Gibt das Fenster GERADE HDR aus? Nicht „koennte" — das hier ist das
+    /// Ergebnis eines geglueckten `SetColorSpace1`, und nur darauf darf der
+    /// Shader sich verlassen (s. `hdr_fenster`).
+    hdr_fenster: bool,
+    /// Was zuletzt gewuenscht war. Getrennt vom Ergebnis, damit ein
+    /// fehlgeschlagener Versuch nicht bei jedem Bild wiederholt wird.
+    hdr_gewuenscht: bool,
 }
 
 impl Renderer {
@@ -78,9 +93,14 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<Self> {
+        let hwnd = hdr_fenster::fensterkennung(&window);
         let gpu = setup::create(window, width, height).await?;
         let surface_format_name = format!("{:?}", gpu.config.format);
         Ok(Self {
+            angebotene_formate: gpu.angebotene_formate,
+            hwnd,
+            hdr_fenster: false,
+            hdr_gewuenscht: false,
             device: gpu.device,
             queue: gpu.queue,
             surface: gpu.surface,
@@ -115,7 +135,7 @@ impl Renderer {
         }
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        self.konfigurieren();
     }
 
     pub fn frames_presented(&self) -> u64 {
@@ -258,14 +278,15 @@ impl Renderer {
         opts: &PlayerOptions,
         planes: &Planes,
         full_range: bool,
-        matrix: ColorMatrix,
+        farbe: Farbangaben,
     ) -> Uniforms {
         build_uniforms(
             self.config.format,
             Bildform { layout: planes.layout, ten_bit: planes.ten_bit, wide: planes.wide },
             opts,
             full_range,
-            matrix,
+            farbe,
+            self.hdr_fenster,
             // Modulo, damit die f32-Aufloesung nicht mit der Laufzeit zerfaellt:
             // nach ~18 h liegt der Abstand zweier darstellbarer Werte ueber
             // einem Frameintervall, das Rauschmuster wuerde einfrieren.
@@ -282,6 +303,12 @@ impl Renderer {
             // Groesse/Zustand veraltet: neu konfigurieren, dann weiter.
             Cst::Outdated | Cst::Lost => {
                 self.acquire_misses.set(self.acquire_misses.get() + 1);
+                // Direkt statt ueber `konfigurieren`: `acquire` haelt nur `&self`
+                // (s. `acquire_misses`). Der Farbraum wird deshalb hier NICHT
+                // neu angemeldet — er kommt beim naechsten `resize` oder
+                // `farbraum_fuer_quelle` zurueck. Ein Bild in SDR-Deutung
+                // waehrend eines Fensterwechsels ist hinnehmbar; die Alternative
+                // waere, `render` und `acquire` auf `&mut self` umzustellen.
                 self.surface.configure(&self.device, &self.config);
                 Ok(None)
             }
@@ -314,7 +341,7 @@ impl Renderer {
         &mut self,
         opts: &PlayerOptions,
         full_range: bool,
-        matrix: ColorMatrix,
+        farbe: Farbangaben,
         overlay: Option<&mut OverlayPass<'_>>,
     ) -> Result<()> {
         let Some(planes) = self.planes.as_ref() else { return Ok(()) };
@@ -341,7 +368,7 @@ impl Renderer {
             }));
         }
 
-        let uniforms = self.build_uniforms(opts, planes, full_range, matrix);
+        let uniforms = self.build_uniforms(opts, planes, full_range, farbe);
         self.queue.write_buffer(&self.uniform_buf, 0, &uniforms.as_bytes());
 
         let Some(surface_texture) = self.acquire()? else { return Ok(()) };

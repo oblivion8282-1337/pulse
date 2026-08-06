@@ -31,8 +31,7 @@ use ffmpeg_next::ffi::AVBufferRef;
 use std::collections::HashMap;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_TEX2D_ARRAY_VPOV, D3D11_TEX2D_VPIV,
-    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_COLOR_SPACE,
-    D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
+    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
@@ -90,6 +89,14 @@ impl D3D11Scaler {
         // sie in eine andere Grafik-API importiert, braucht das — heute der
         // Vulkan-Weg des Labors (s. `HwPoolConfig::shared`).
         geteilt: bool,
+        // Was der Prozessor mit den Farben zu tun hat (s. `super::farbraum`).
+        // Getrennt vom `dst_format`, weil das Zielformat die Frage nicht
+        // beantwortet: P010 kann BT.709/SDR ODER PQ/BT.2020 tragen, und der
+        // Unterschied ist am Format nicht zu sehen — nur am Eingang.
+        farbweg: super::farbraum::Farbweg,
+        // Angaben des aufgenommenen Bildschirms. Nur der HDR-Weg braucht sie
+        // (für die Mastering-Metadaten), dort aber zwingend.
+        schirm: Option<&crate::system::hdr::SchirmFarbe>,
     ) -> Result<Self> {
         let video_device: ID3D11VideoDevice = device
             .cast()
@@ -137,33 +144,13 @@ impl D3D11Scaler {
             },
         )?;
 
-        // Farbraum. Der EINGANG ist immer BGRA vom Desktop, also RGB in voller
-        // Auflösung 0-255 — dafür ist das genullte Bitfield exakt richtig
-        // (Usage=Playback, RGB_Range=Full). Explizit gesetzt, damit kein
-        // Treiber-Default dazwischenfunkt (z.B. Studio-Range).
-        //
-        // Der AUSGANG hängt am Zielformat: bei BGRA bleibt es dasselbe RGB
-        // (keine Wandlung, genulltes Feld). Bei P010 wandelt der Prozessor
-        // nach YCbCr und muss dabei die Werte treffen, die der Encoder
-        // anschließend als Metadaten anschreibt — `encoder_hw.rs` signalisiert
-        // dort BT.709 mit MPEG-Range. Steht hier etwas anderes, sagen die
-        // Metadaten das eine und die Bildpunkte das andere; der Fehler sieht
-        // beim Zuschauer nach flauen oder ausgefressenen Farben aus, nicht nach
-        // einem Defekt, und taucht in keiner Kennzahl auf.
+        // Farbraum — Entscheidung und Begründung stehen in `super::farbraum`,
+        // nicht hier. Zwei Gründe: HDR braucht dafür eine andere API als SDR
+        // (das alte Bitfeld kann PQ und BT.2020 nicht ausdrücken), und diese
+        // Datei handelt von Views, Sperren und dem Blt — die Farbwissenschaft
+        // dazwischen sucht dort niemand.
+        super::farbraum::anwenden(&video_context, &enumerator, &processor, farbweg, schirm)?;
         unsafe {
-            let cs = std::mem::zeroed();
-            video_context.VideoProcessorSetStreamColorSpace(&processor, 0, &cs);
-            let out_cs = if dst_format == ffmpeg_next::ffi::AVPixelFormat::AV_PIX_FMT_BGRA {
-                cs
-            } else {
-                D3D11_VIDEO_PROCESSOR_COLOR_SPACE {
-                    // Bit 2 = YCbCr_Matrix 1 (BT.709), Bits 4-5 = Nominal_Range 1
-                    // (16-235). Reihenfolge der Bitfelder aus `d3d11.h`:
-                    // Usage, RGB_Range, YCbCr_Matrix, YCbCr_xvYCC, Nominal_Range.
-                    _bitfield: (1 << 2) | (1 << 4),
-                }
-            };
-            video_context.VideoProcessorSetOutputColorSpace(&processor, &out_cs);
             video_context.VideoProcessorSetStreamFrameFormat(
                 &processor,
                 0,

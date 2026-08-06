@@ -52,6 +52,23 @@ pub struct CaptureConfig {
     /// Wieviele Frames buffern bevor send-blockt. Default `4` — kleiner Buffer
     /// = niedrige Latenz, höherer = toleriert kurze Encoder-Stalls.
     pub channel_capacity: usize,
+    /// Das Bild in **16-Bit-Fließkomma** abholen statt in 8-Bit-BGRA.
+    ///
+    /// Das ist der HDR-Eingang, und es ist die einzige Stelle, an der HDR
+    /// überhaupt entstehen kann: WGC gibt bei einem HDR-Desktop in
+    /// `Bgra8` ein bereits auf SDR heruntergerechnetes Bild heraus. Was dort
+    /// verlorengeht, holt keine spätere Stufe zurück — die Spitzlichter sind
+    /// dann abgeschnitten und die weiten Farben zusammengeschoben, und der
+    /// Strom trüge trotzdem das HDR-Etikett.
+    ///
+    /// Die Werte kommen als **scRGB**: lineares Licht mit BT.709-Primärvalenzen,
+    /// wobei 1,0 dem SDR-Weiß (per Vereinbarung 80 cd/m²) entspricht und
+    /// Spitzlichter darüber hinausgehen. Negative Werte sind erlaubt und
+    /// bedeuten Farben außerhalb von BT.709. Die Umrechnung nach PQ/BT.2020
+    /// macht der Farbwandler davor dem Encoder (`encode::d3d11_scale`).
+    ///
+    /// Kostet Bandbreite über den Bus: 8 Byte je Bildpunkt statt 4.
+    pub hdr: bool,
 }
 
 impl Default for CaptureConfig {
@@ -61,6 +78,7 @@ impl Default for CaptureConfig {
             draw_border: false,
             max_fps: 60,
             channel_capacity: 4,
+            hdr: false,
         }
     }
 }

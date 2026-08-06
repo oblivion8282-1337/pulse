@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 use super::pixel::{bytes_pro_punkt, rot_kanal};
-use crate::decode::{ColorMatrix, PixelLayout};
+use crate::decode::PixelLayout;
 use crate::proto::PlayerOptions;
 use crate::render::{
     build_bind_group, build_graphics, build_uniforms, geraet_oeffnen, narrow_plane_into, scales,
@@ -135,12 +135,19 @@ impl Messstand {
             dither: Some(lauf.dither),
             ..Default::default()
         };
+        // Der Messstand faehrt SDR: die Stufen-Messung fragt, was die
+        // ANZEIGEKETTE aus einem Verlauf macht, und dafuer ist die
+        // BT.709-Kette der Bezug. Ein HDR-Lauf brauchte eine eigene
+        // Fragestellung (welche Helligkeiten kommen an, nicht welche
+        // Codewerte) und eine PQ-Quelle als Eingabe — bewusst nicht
+        // hineingemischt, statt eine Zahl zu liefern, die zwei Dinge misst.
         let uniforms = build_uniforms(
             lauf.format,
             self.form,
             &opts,
             self.voller_bereich,
-            ColorMatrix::Bt709,
+            crate::decode::Farbangaben::default(),
+            false,
             0.0,
         );
         self.queue.write_buffer(&gfx.uniform_buf, 0, &uniforms.as_bytes());

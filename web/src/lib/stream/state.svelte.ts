@@ -65,6 +65,13 @@ export const stream = $state({
    *  der Schalter wird deshalb gar nicht erst angeboten, statt eine
    *  Fehlermeldung zu produzieren. Fehlt das Feld, bleibt es false. */
   intraRefreshAvailable: false,
+  /** True iff dieser Rechner HDR senden kann (`gsr.hdr`) — also einen Encoder
+   *  hat, der PQ/BT.2020 bis in den Strom trägt. **Nicht** die Frage, ob HDR
+   *  in Windows gerade eingeschaltet ist: die beantwortet erst der Start, und
+   *  zwar mit einer Meldung, die auf den Windows-Schalter zeigt. Wäre schon
+   *  das Kästchen daran gekoppelt, verschwände es beim Ausschalten spurlos und
+   *  niemand käme auf den Zusammenhang. Fehlt das Feld, bleibt es false. */
+  hdrAvailable: false,
   ...freshSession(),
 });
 
@@ -181,11 +188,13 @@ export async function initStream(): Promise<() => void> {
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
       stream.intraRefreshAvailable = !!h.gsr?.intra_refresh;
+      stream.hdrAvailable = !!h.gsr?.hdr;
     }
   } catch (e) {
     stream.available = false;
     stream.gsrAvailable = false;
     stream.tenBitAvailable = false;
+    stream.hdrAvailable = false;
     stream.intraRefreshAvailable = false;
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.

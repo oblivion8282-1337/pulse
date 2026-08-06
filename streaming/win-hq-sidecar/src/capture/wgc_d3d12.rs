@@ -407,8 +407,13 @@ impl Bridge {
             ring.push(RingSlot { texture, mutex });
         }
 
+        // `hdr: false` ist hier keine Vereinfachung, sondern die Lage: der
+        // D3D12-Weg nimmt fest in BGRA auf (s. `ColorFormat::Bgra8` weiter
+        // unten) und trägt HDR nicht — er ist seit dem 2026-08-04 nur noch der
+        // Gegenprobe-Pfad hinter `PULSE_HQ_AMD_D3D12=1`. Die Absage dafür steht
+        // in `encode::hdr`, nicht hier.
         let black = if want_mask {
-            Some(super::black_bgra_texture(&device, width, height)?)
+            Some(super::black_bgra_texture(&device, width, height, false)?)
         } else {
             None
         };

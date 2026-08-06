@@ -46,6 +46,32 @@ nicht einsehbar.
   **Was die zehn Bit wirklich bringen, ist gemessen** und kleiner als lange
   angenommen: `docs/2026-08-04-player-farbwerte-messung.md`, nachzustellen mit
   `pulse-player --stufen`.
+- **HDR (PQ/BT.2020)**, seit 2026-08-06. Der Strom sagt, was er ist
+  (`decode.rs::farbangaben_von` liest Kurve, Primaervalenzen und
+  Spitzenhelligkeit — MaxCLL zuerst, Mastering-Display als Ersatz), und der
+  Shader zieht daraus die Folgen: BT.2020-Matrix, PQ-Kurve rueckwaerts,
+  Farbraumwandlung. **Zwei Ausgaenge, je nach Schirm:**
+  - **HDR-Schirm** — das Fenster stellt auf `Rgba16Float` und meldet scRGB an
+    (lineares Licht, 1,0 = 80 cd/m²). Spitzlichter bleiben Spitzlichter.
+  - **SDR-Schirm** — Tone-Mapping (erweitertes Reinhard, Bezug Diffusweiss
+    203 cd/m² nach ITU-R BT.2408). Ohne das saehe ein HDR-Strom flau und
+    falsch aus; mit dem Abschneiden statt Herunterrechnen waeren die
+    Spitzlichter weisse Flecken.
+
+  **Unter Windows laeuft der Player dafuer ueber D3D12 statt Vulkan**
+  (`render/setup.rs::backends`). Das ist Voraussetzung, keine Vorliebe: nur
+  dort laesst sich der Farbraum des Fensters ueberhaupt anmelden
+  (`IDXGISwapChain3::SetColorSpace1`); unter Vulkan ist er eine Eigenschaft der
+  Swapchain, wird beim Anlegen gesetzt und ist von aussen weder zu setzen noch
+  zu pruefen — und was wir nicht pruefen koennen, behaupten wir nicht. Dort
+  wird deshalb heruntergerechnet. `PULSE_PLAYER_BACKEND=vulkan|dx12|gl` nagelt
+  die Wahl fest.
+
+  **Was NICHT geprueft ist:** wie das Ergebnis auf einem HDR-Schirm aussieht.
+  Die Kette ist gebaut und uebersetzt, das Fenster geht auf und bekommt
+  `Rgba16Float` angeboten — aber ob das Bild stimmt, muss jemand ansehen.
+  Sendeseitig ist alles am Bitstrom belegt:
+  `docs/2026-08-06-hdr-windows-amd.md`.
 - **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt
   Verstaerkung ueber 100 %, Stumm, Vollbild (Knopf, Doppelklick, Esc) und ein
   Statistik-Feld (Auflösung, Bilder/s, Bitrate, Decoder samt Hardware-Angabe,

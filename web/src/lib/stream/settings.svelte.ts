@@ -50,6 +50,20 @@ export interface OverrideSet {
    * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
    */
   intra_refresh?: boolean;
+  /**
+   * HDR senden — der Bildschirminhalt wird in seinem vollen Helligkeitsumfang
+   * aufgenommen und als PQ/BT.2020 encodiert.
+   *
+   * **Anders als `bit_depth` kein Wunsch, der still zurückgenommen wird.**
+   * Kann der Sidecar HDR nicht liefern — Schirm läuft in SDR, falscher Codec,
+   * falscher Encode-Weg —, bricht er den Start mit einer Meldung ab. Das ist
+   * Absicht: 10 bit weniger als bestellt sieht man höchstens an einem Verlauf,
+   * SDR statt HDR sieht man am ganzen Bild.
+   *
+   * Setzt 10 bit voraus (PQ in 8 bit wäre in jedem Verlauf geringelt) und
+   * damit AV1; die Oberfläche erzwingt beides beim Anhaken.
+   */
+  hdr?: boolean;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
@@ -226,6 +240,29 @@ export function tenBitPossible(): boolean {
  */
 export function intraRefreshPossible(): boolean {
   return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
+}
+
+/**
+ * HDR — Wunsch UND Erfüllbarkeit?
+ *
+ * Dieselbe Bauart wie [`tenBitPossible`] und [`intraRefreshPossible`], und aus
+ * demselben Grund an EINER Stelle. Der Unterschied zu beiden: die Folge eines
+ * falschen Ja ist hier keine stille Rücknahme, sondern ein abgebrochener Start
+ * — der Sidecar verweigert HDR, das er nicht liefern kann (Begründung dort in
+ * `encode/hdr.rs`). Umso wichtiger, dass die Oberfläche gar nicht erst danach
+ * fragt, wenn es aussichtslos ist.
+ *
+ * **`stream.hdrAvailable` gehört zwingend dazu**, obwohl das Kästchen bereits
+ * danach gated ist: die Einstellung wird persistiert und wandert mit dem Konto
+ * zwischen Rechnern. Ein auf der HDR-Maschine gesetzter Haken läge sonst auf
+ * einem Rechner ohne HDR-fähigen Encoder weiter an — unsichtbar, weil das
+ * Kästchen dort nicht erscheint, und jeder Streamversuch bräche ab.
+ *
+ * Die Kopplung an 10 bit ist keine zweite Bedingung, sondern dieselbe: HDR
+ * gibt es nur mit AV1 in 10 bit, und genau das prüft `tenBitPossible`.
+ */
+export function hdrPossible(): boolean {
+  return streamSettings.overrides.hdr === true && stream.hdrAvailable && tenBitPossible();
 }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
@@ -467,6 +504,12 @@ export async function loadCatalogs(): Promise<void> {
     // tote Wert zusätzlich weggeräumt, damit er nicht dauerhaft mitreist.
     if (streamSettings.overrides.intra_refresh === true && !intraRefreshPossible()) {
       const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
+    // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Haken
+    // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
+    if (streamSettings.overrides.hdr === true && !hdrPossible()) {
+      const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
     streamSettings.catalogs_loaded = true;
@@ -713,6 +756,13 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
     // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
     if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
+    // HDR nur mitschicken, wenn es erfüllbar ist — ein `hdr: false` wäre
+    // dasselbe wie es wegzulassen, und ein `hdr: true`, das der Sidecar nicht
+    // einlösen kann, bräche den Start ab. Anders als bei Intra-Refresh gibt es
+    // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
+    // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
+    // Sidecar-Prozesses.
+    if (hdrPossible()) cleaned.hdr = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

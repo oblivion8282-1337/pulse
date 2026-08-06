@@ -7,9 +7,21 @@
 //! Lesen des Zeichenablaufs nicht sucht. Die Messgrundlage der Zahlen:
 //! `docs/2026-08-04-player-farbwerte-messung.md`.
 
-use crate::decode::{ColorMatrix, PixelLayout};
+use crate::decode::{ColorMatrix, Farbangaben, PixelLayout, Uebertragung};
 use crate::proto::PlayerOptions;
 use crate::render::Uniforms;
+
+/// Ersatz-Spitzenhelligkeit, wenn der Strom keine nennt (cd/m²).
+///
+/// **Eine geratene Zahl, und sie steht deshalb hier oben mit Namen** statt
+/// irgendwo im Rechenweg. 1000 ist der Wert, auf den HDR10-Inhalte
+/// ueblicherweise gemastert werden; er ist beim Herunterrechnen die
+/// vorsichtige Wahl, weil ein zu HOHER Wert das Bild nur etwas dunkler macht,
+/// ein zu niedriger dagegen Spitzlichter ausfressen laesst.
+///
+/// Unsere eigenen Stroeme nennen ihre Spitze (der Sidecar haengt sie an jedes
+/// Bild) — dieser Wert greift also nur bei fremdem Material.
+const ERSATZ_SPITZE_NITS: f32 = 1000.0;
 
 
 /// Was der Uniform-Bau ueber das anliegende Bild wissen muss — der
@@ -34,7 +46,13 @@ pub fn build_uniforms(
     form: Bildform,
     opts: &PlayerOptions,
     full_range: bool,
-    matrix: ColorMatrix,
+    farbe: Farbangaben,
+    // Kann das FENSTER HDR — also nimmt es lineares Licht ueber 1,0 an und
+    // gibt es als solches aus? Nicht dasselbe wie `surface_is_linear`: eine
+    // fp16-Oberflaeche in einer SDR-Sitzung ist linear, aber kein HDR-Fenster,
+    // und wer beides verwechselt, bekommt ein um Faktor 80/203 zu dunkles Bild.
+    // Entschieden wird das in `setup::hdr_fenster`.
+    hdr_fenster: bool,
     zeit: f32,
 ) -> Uniforms {
     let zoom = opts.zoom.unwrap_or(1.0).max(1.0);
@@ -61,10 +79,37 @@ pub fn build_uniforms(
         ],
         output: [
             flag(surface_is_linear(format)),
-            flag(matrix == ColorMatrix::Bt601),
+            matrix_kennzahl(farbe.matrix),
             code_massstab,
             0.0,
         ],
+        hdr: [
+            flag(farbe.uebertragung == Uebertragung::Pq),
+            // **Ein HDR-Fenster nuetzt nur einer HDR-Quelle.** Bliebe die
+            // Kennung bei einem SDR-Strom stehen, liefe er durch den PQ-Zweig
+            // des Shaders — den er nie erreicht, weil `hdr.x` dann 0 ist. Die
+            // Und-Verknuepfung hier ist trotzdem richtig und nicht doppelt
+            // gemoppelt: sie haelt die beiden Kennungen widerspruchsfrei,
+            // damit eine spaetere Auswertung von `hdr.y` allein nicht in die
+            // Irre laeuft.
+            flag(hdr_fenster && farbe.uebertragung == Uebertragung::Pq),
+            farbe.spitze_nits.unwrap_or(ERSATZ_SPITZE_NITS),
+            0.0,
+        ],
+    }
+}
+
+/// Welche YUV-Matrix der Shader nehmen soll, als Zahl.
+///
+/// **0 und 1 behalten ihre alte Bedeutung** (BT.709 bzw. BT.601). Das ist die
+/// Bedingung dafuer, dass die Erweiterung auf drei Matrizen an den beiden
+/// bestehenden Faellen nichts aendert — vorher stand an derselben Stelle ein
+/// Ja/Nein („BT.601?").
+fn matrix_kennzahl(matrix: ColorMatrix) -> f32 {
+    match matrix {
+        ColorMatrix::Bt709 => 0.0,
+        ColorMatrix::Bt601 => 1.0,
+        ColorMatrix::Bt2020Ncl => 2.0,
     }
 }
 
@@ -166,6 +211,75 @@ pub fn scales(wide_texture: bool, layout: PixelLayout) -> (f32, f32) {
         (true, PixelLayout::Planar420) => (f32::from(u16::MAX) / 1023.0, 1023.0 / 4.0),
         // P010: die zehn Bit sitzen OBEN, der Wert stimmt bereits.
         (true, _) => (1.0, f32::from(u16::MAX) / 256.0),
+    }
+}
+
+#[cfg(test)]
+mod hdr_tests {
+    use super::*;
+
+    fn bau(farbe: Farbangaben, hdr_fenster: bool, format: wgpu::TextureFormat) -> crate::render::Uniforms {
+        build_uniforms(
+            format,
+            Bildform { layout: PixelLayout::BiPlanar420, ten_bit: true, wide: true },
+            &PlayerOptions::default(),
+            false,
+            farbe,
+            hdr_fenster,
+            0.0,
+        )
+    }
+
+    fn pq(spitze: Option<f32>) -> Farbangaben {
+        Farbangaben {
+            matrix: ColorMatrix::Bt2020Ncl,
+            uebertragung: Uebertragung::Pq,
+            weiter_farbraum: true,
+            spitze_nits: spitze,
+        }
+    }
+
+    /// **Ein SDR-Strom muss exakt den alten Weg nehmen.** Beide HDR-Kennungen
+    /// null, Matrix-Kennzahl 0 fuer BT.709 und 1 fuer BT.601 — genau die
+    /// Bedeutung, die die Stelle vor der Umstellung auf drei Matrizen hatte.
+    /// Waere das nicht so, haette die HDR-Arbeit nebenbei jedes bestehende Bild
+    /// veraendert.
+    #[test]
+    fn sdr_bleibt_unveraendert() {
+        let u = bau(Farbangaben::default(), false, wgpu::TextureFormat::Rgb10a2Unorm);
+        assert_eq!(u.hdr[0], 0.0, "Quelle ist nicht PQ");
+        assert_eq!(u.hdr[1], 0.0, "kein HDR-Fenster");
+        assert_eq!(u.output[1], 0.0, "BT.709");
+
+        let bt601 = Farbangaben { matrix: ColorMatrix::Bt601, ..Default::default() };
+        assert_eq!(bau(bt601, false, wgpu::TextureFormat::Rgb10a2Unorm).output[1], 1.0);
+    }
+
+    #[test]
+    fn hdr_quelle_setzt_kurve_matrix_und_spitze() {
+        let u = bau(pq(Some(600.0)), true, wgpu::TextureFormat::Rgba16Float);
+        assert_eq!(u.hdr[0], 1.0, "PQ-Kurve");
+        assert_eq!(u.hdr[1], 1.0, "HDR-Fenster");
+        assert_eq!(u.hdr[2], 600.0, "Spitze aus dem Strom");
+        assert_eq!(u.output[1], 2.0, "BT.2020 NCL");
+    }
+
+    /// Sagt der Strom nichts ueber seine Spitzenhelligkeit, muss der
+    /// Ersatzwert stehen — und zwar ein benannter, kein im Rechenweg
+    /// versteckter.
+    #[test]
+    fn ohne_angabe_greift_der_ersatzwert() {
+        assert_eq!(bau(pq(None), false, wgpu::TextureFormat::Rgb10a2Unorm).hdr[2], ERSATZ_SPITZE_NITS);
+    }
+
+    /// **Ein HDR-Fenster ohne HDR-Quelle darf nicht als solches gelten.**
+    /// Sonst liefe ein SDR-Strom mit der Kennung „lineares Licht" — und wenn
+    /// spaeter jemand `hdr.y` allein auswertet, bekommt er ein um mehr als das
+    /// Doppelte zu dunkles Bild, ohne dass die Ursache hier zu sehen waere.
+    #[test]
+    fn hdr_fenster_ohne_hdr_quelle_zaehlt_nicht() {
+        let u = bau(Farbangaben::default(), true, wgpu::TextureFormat::Rgba16Float);
+        assert_eq!(u.hdr[1], 0.0);
     }
 }
 

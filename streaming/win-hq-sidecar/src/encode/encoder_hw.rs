@@ -75,6 +75,15 @@ pub struct HwEncoderConfig {
     /// Bittiefe des Ausgangs ergibt sich aus dem Eingangsformat, dieses Flag
     /// steuert nur die Encoder-Option und die Farb-Signalisierung.
     pub ten_bit: bool,
+    /// Gesetzt heißt **HDR**: die Bildpunkte kommen als PQ/BT.2020 aus dem
+    /// Video-Prozessor, und diese Angaben des Bildschirms gehen als
+    /// Mastering-Metadaten mit in den Strom (`super::hdr`).
+    ///
+    /// `Option` statt eines `hdr: bool` daneben, weil beides dieselbe Frage
+    /// beantwortet: HDR ohne die Schirm-Angaben gibt es nicht (dann fehlten
+    /// die Metadaten), und die Angaben ohne HDR wären bedeutungslos. Zwei
+    /// Felder könnten widersprüchlich gesetzt werden, dieses eine nicht.
+    pub schirm: Option<crate::system::hdr::SchirmFarbe>,
 }
 
 pub struct FfmpegHwEncoder {
@@ -98,6 +107,10 @@ pub struct FfmpegHwEncoder {
     /// Einschieben -> Paket, s. `latency.rs`. Das ist der Posten, den
     /// `zerolatency`/`delay` veraendern; `last_send_us` sieht ihn NICHT.
     enc_latency: EncodeLatency,
+    /// Bei HDR die Angaben des Bildschirms — sie hängen an JEDEM Bild
+    /// (Begründung an `super::hdr::metadaten_anhaengen`), der Encoder muss sie
+    /// also über seine Lebensdauer behalten.
+    schirm: Option<crate::system::hdr::SchirmFarbe>,
 }
 
 impl FfmpegHwEncoder {
@@ -178,13 +191,20 @@ impl FfmpegHwEncoder {
             (*ctx_ptr).hw_frames_ctx = new_ref;
         }
 
-        // Farb-Signalisierung NUR im 10-bit-Pfad — dieselbe Zurückhaltung wie im
-        // Linux-Sidecar: dort wandelt der Encoder im 8-bit-Pfad nach eigener
-        // Konvention, und etwas zu behaupten, das wir nicht kontrollieren, würde
-        // einen verifiziert korrekten Weg auf Verdacht verstellen.
+        // Farb-Signalisierung NUR wenn eine Vorstufe davor gewandelt hat —
+        // dieselbe Zurückhaltung wie im Linux-Sidecar: im 8-bit-Pfad wandelt
+        // der Encoder nach eigener Konvention, und etwas zu behaupten, das wir
+        // nicht kontrollieren, würde einen verifiziert korrekten Weg auf
+        // Verdacht verstellen.
+        //
+        // **Beide Fälle in EINEM Aufruf**, obwohl HDR und 10-bit-SDR
+        // verschiedene Werte setzen: bei HDR ist `ten_bit` ebenfalls gesetzt
+        // (HDR schaltet es selbst ein, s. `StartParams::hdr`), und zwei
+        // getrennte `if`s hätten sich in dieser Reihenfolge überschrieben — der
+        // Strom trüge dann PQ-Bildpunkte unter einer BT.709-Beschriftung. Wer
+        // die Entscheidung sucht: `super::hdr::signalisieren`.
         if cfg.ten_bit {
-            encoder.set_colorspace(ffmpeg::color::Space::BT709);
-            encoder.set_color_range(ffmpeg::color::Range::MPEG);
+            super::hdr::signalisieren(&mut encoder, cfg.schirm.as_ref());
         }
 
         let mut opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, cfg.ten_bit);
@@ -273,6 +293,7 @@ impl FfmpegHwEncoder {
             last_mux_us: 0,
             vollbilder_angefordert: Default::default(),
             enc_latency: EncodeLatency::default(),
+            schirm: cfg.schirm,
         })
     }
 
@@ -363,6 +384,22 @@ impl FfmpegHwEncoder {
             } else {
                 AVPictureType::AV_PICTURE_TYPE_NONE
             };
+            // HDR10-Metadaten. **Innerhalb des Messfensters**, anders als die
+            // Vollbild-Meldung darüber: das sind zwei kleine
+            // Speicheranforderungen, die zu JEDEM Bild gehören und deshalb
+            // auch in der gemessenen Einschiebezeit stehen sollen. Sie
+            // herauszurechnen hieße, eine Zeit zu melden, die der Weg nie hat.
+            //
+            // Ein Fehlschlag hier bricht den Strom NICHT ab: er bedeutet, dass
+            // kein Speicher da war, und dann ist ein Bild ohne Mastering-Angabe
+            // besser als ein abgerissener Stream. Die Farb-Signalisierung im
+            // Sequenzkopf steht davon unberührt — der Zuschauer sieht also
+            // weiterhin HDR, nur ohne die Angabe zum Mastering-Gerät.
+            if let Some(schirm) = &self.schirm
+                && let Err(e) = super::hdr::metadaten_anhaengen(frame_ptr, schirm)
+            {
+                eprintln!("[encode] HDR-Metadaten für dieses Bild nicht angehängt: {e:#}");
+            }
             let ret = avcodec_send_frame(self.encoder.as_mut_ptr(), frame_ptr);
             if ret < 0 {
                 return Err(anyhow!("avcodec_send_frame failed: {ret}"));

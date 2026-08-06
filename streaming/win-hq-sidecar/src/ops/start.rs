@@ -91,7 +91,13 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         override_bitrate_kbps: overrides.bitrate_kbps,
         override_fps: overrides.fps,
         override_resolution: overrides.resolution,
-        ten_bit: overrides.ten_bit,
+        // HDR schaltet 10 bit selbst ein — beides einzeln zu verlangen wären
+        // zwei Kästchen, die zusammengehören (Begründung: `StartParams::hdr`).
+        ten_bit: overrides.ten_bit || overrides.hdr,
+        hdr: overrides.hdr,
+        // Wird erst vom Verteiler gefüllt, wenn `hdr` geprüft ist — hier steht
+        // noch nicht fest, ob der Schirm mitspielt.
+        schirm: None,
         show_cursor,
         av_offset_ms,
     })
@@ -264,6 +270,11 @@ struct Overrides {
     /// Fehler — er fällt still auf 8 bit zurück, wie jeder andere Override,
     /// den die Hardware nicht trägt.
     ten_bit: bool,
+    /// HDR senden. **Anders als [`ten_bit`](Self::ten_bit) kein Wunsch,
+    /// sondern eine Bedingung** — ist sie nicht erfüllbar, verweigert der
+    /// Start (`encode::hdr::pruefen`). Der Unterschied ist Absicht und in
+    /// `StartParams::hdr` begründet.
+    hdr: bool,
 }
 
 fn parse_overrides(params: &Map<String, Value>) -> Overrides {
@@ -308,5 +319,9 @@ fn parse_overrides(params: &Map<String, Value>) -> Overrides {
     // der Regelfall. Bewusst kein „alles über 8" — ein Tippfehler soll nicht
     // stillschweigend etwas anderes einschalten, als dasteht.
     let ten_bit = o.get("bit_depth").and_then(Value::as_u64) == Some(10);
-    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit }
+    // Gleiche Strenge wie oben: nur ein echtes `true` zählt. Ein `"true"` als
+    // Zeichenkette oder eine 1 wären ein Fehler beim Bauen des Requests, und
+    // den soll niemand als „hat ja funktioniert" abhaken.
+    let hdr = o.get("hdr").and_then(Value::as_bool).unwrap_or(false);
+    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit, hdr }
 }

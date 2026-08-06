@@ -203,6 +203,36 @@ impl Overlay {
         })
     }
 
+    /// Den GPU-Zeichner gegen einen fuer ein anderes Oberflaechenformat
+    /// tauschen.
+    ///
+    /// Gebraucht, wenn der Player wegen eines HDR-Stroms das Format der
+    /// Oberflaeche wechselt (`render::Renderer::farbraum_fuer_quelle`): egui
+    /// uebersetzt seine Pipeline beim Anlegen fuer ein bestimmtes Ziel, und
+    /// eine Pipeline fuer `Rgb10a2Unorm` darf nicht in eine
+    /// `Rgba16Float`-Flaeche zeichnen.
+    ///
+    /// **Nur der Zeichner, nicht das ganze Overlay.** Titel, Lautstaerke,
+    /// Sichtbarkeit der Leiste und der Zustand von egui selbst haengen an
+    /// diesem Objekt; sie beim Formatwechsel zu verlieren waere ein sichtbarer
+    /// Ruckler in der Bedienung fuer ein Problem, das nur die GPU hat.
+    ///
+    /// Was dabei verlorengeht, sind die hochgeladenen Texturen (Symbole,
+    /// Schrift). egui laedt sie beim naechsten Durchgang von selbst neu — es
+    /// haelt seinen eigenen Bestand und schickt ihn als `textures_delta` mit.
+    pub fn zeichner_neu(&mut self, device: &wgpu::Device, surface_format: wgpu::TextureFormat) {
+        self.renderer = egui_wgpu::Renderer::new(
+            device,
+            surface_format,
+            egui_wgpu::RendererOptions { dithering: false, ..Default::default() },
+        );
+        // Alles neu zeichnen lassen — sonst bliebe die Leiste bis zur naechsten
+        // Eingabe leer.
+        self.ctx.request_repaint();
+        self.input_pending = true;
+        self.stats_dirty = true;
+    }
+
     /// Fenster-Ereignis an egui geben. `true` = ein Durchgang ist angefordert.
     pub fn on_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         use winit::event::WindowEvent as We;
