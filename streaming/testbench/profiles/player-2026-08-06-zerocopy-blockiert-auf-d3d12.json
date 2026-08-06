@@ -23,5 +23,12 @@
 
   "warum_das_jetzt_weniger_dringt_als_es_aussah": "Der Anlass fuer Zero-Copy war zuletzt nicht die Rechenzeit (1,5 ms bei 1080p8, 5,3 ms bei 1440p10), sondern das WARTEN im selben Aufruf — bis zu 2,4 Sekunden, wenn die Grafikeinheit haengt (`player-2026-08-06-absturz-ist-eine-stockung`). Dagegen steht seit heute ein Rueckfall auf den Software-Decoder, der im Nachweislauf 145 Sekunden lang 60 Bilder je Sekunde gehalten hat, wo vorher die Sitzung zerbrach. Die Stockung ist damit aufgefangen, nicht beseitigt.",
 
-  "empfehlung_fuer_den_naechsten_anlauf": "Zuerst die beiden offenen Punkte einzeln pruefen, jeden fuer sich und ohne den Player anzufassen: (1) legt libavutil einen D3D11VA-Pool mit SHARED_NTHANDLE an, und dekodiert FFmpeg dann noch hinein? (2) nimmt `OpenSharedHandle` eine so angelegte NV12/P010-Textur an, und stimmt der Inhalt in wgpu-dx12? Erst wenn beides steht, lohnt der Umbau — sonst baut man auf dieselbe Art Annahme, die schon die Vulkan-Studie ins Leere hat laufen lassen."
+  "empfehlung_fuer_den_naechsten_anlauf": "Zuerst die beiden offenen Punkte einzeln pruefen, jeden fuer sich und ohne den Player anzufassen: (1) legt libavutil einen D3D11VA-Pool mit SHARED_NTHANDLE an, und dekodiert FFmpeg dann noch hinein? (2) nimmt `OpenSharedHandle` eine so angelegte NV12/P010-Textur an, und stimmt der Inhalt in wgpu-dx12? Erst wenn beides steht, lohnt der Umbau — sonst baut man auf dieselbe Art Annahme, die schon die Vulkan-Studie ins Leere hat laufen lassen.",
+
+  "NACHTRAG_2026-08-06_NACHMITTAGS": {
+    "beide_punkte_sind_jetzt_beantwortet": "Punkt (2) mit ja, Punkt (1) mit einem gegenstandslos.",
+    "punkt_2": "`OpenSharedHandle` nimmt eine geteilte NV12- wie P010-EINZELtextur an, und der Inhalt stimmt in wgpu-dx12 vollstaendig — auch mit BIND_DECODER und auch nach wiederholtem Beschreiben. Gemessen: player-2026-08-06-zerocopy-d3d12-amd.",
+    "punkt_1": "Die Frage stellt sich nicht mehr. Der D3D11VA-Decoder verlangt eine ARRAY-Textur (libavcodec/dxva2.c:482 und :761), und ein geteilter Stapel nimmt auf D3D12 das Geraet mit. Der Player teilt FFmpegs Pool also gar nicht, sondern kopiert die Schicht GPU-intern in eine eigene, einschichtige, geteilte Textur.",
+    "was_hier_richtig_stand": "Die zentrale Warnung dieser Akte — 'die Studie hat ueber Vulkan gemessen, der Player faehrt D3D12, das ist ein anderer Weg' — hat sich als der entscheidende Punkt bestaetigt. Der Stapelfall verhaelt sich auf beiden Backends VERSCHIEDEN, und auf D3D12 schlimmer."
+  }
 }

@@ -1,20 +1,35 @@
-# Probe: dekodierte D3D11-NV12-Textur ohne Hauptspeicher-Umweg in wgpu
+# Probe: dekodierte D3D11-NV12/P010-Textur ohne Hauptspeicher-Umweg in wgpu
 
 Beantwortet **eine** Frage, nachprüfbar: kommt der Inhalt einer geteilten
-D3D11-NV12-Textur unverändert in einem wgpu-Renderdurchgang an?
+D3D11-Textur unverändert in einem wgpu-Renderdurchgang an — **auf dem Backend
+und in der wgpu-Fassung, die der `pulse-player` wirklich fährt**?
 
-Davon hängt Zero-Copy im `pulse-player` ab. Heute nimmt jedes Bild den Weg
+Davon hängt Zero-Copy im Player ab. Heute nimmt jedes Bild den Weg
 GPU → Hauptspeicher → GPU zurück; was das kostet, steht in
-`streaming/testbench/profiles/player-2026-08-06-*.json` (1,5 ms je Bild bei
-1080p8, 5,3 ms bei 1440p10).
+`streaming/testbench/profiles/player-2026-08-06-*.json`.
 
-## Warum eigenständig und nicht im `win-hq-labor`
+## Fassung und Backend — der wichtigste Absatz
 
-Die Probe braucht **wgpu 30**; der Player steht auf 29.0.4 und das Labor hat
-wgpu gar nicht. Sie hier anzuhängen hieße, dort eine Abhängigkeit aufzunehmen,
-die mit dem Produkt nichts zu tun hat. Deshalb eine eigene Crate, **kein**
-Workspace-Mitglied — sie berührt kein Bauziel des Produkts, und ein Fehlschlag
-hier kann nichts brechen.
+**Hier stand bis zum 2026-08-06 „die Probe braucht wgpu 30" und sie maß
+ausschließlich über Vulkan. Beides ist für die Frage, um die es geht, falsch**,
+und der Fehler hat bereits einen Anlauf gekostet:
+
+* Der Player steht auf **wgpu 29.0.4**, nicht 30.
+* Der Player fährt unter Windows seit dem 2026-08-06 **D3D12**
+  (`render/setup.rs::backends`) — und zwar zwingend, weil sich nur dort der
+  HDR-Farbraum des Fensters anmelden lässt.
+* `texture_from_d3d11_shared_handle` gibt es in wgpu-hal 29.0.4 **ausschließlich**
+  im Vulkan-Backend. Auf D3D12 führt der Weg über `ID3D12Device::OpenSharedHandle`
+  plus `wgpu_hal::dx12::Device::texture_from_raw` — ein anderer Weg, kein
+  Umbenennen.
+
+Die frühere Begründung für wgpu 30 (dort nimmt `create_texture_from_hal` einen
+`initial_state` entgegen) **ist widerlegt**: die volle Matrix aus zwei
+Teilungsarten × drei Anfangszuständen × wgpu 29 und 30 hat gezeigt, dass der
+Zustand überhaupt nicht die entscheidende Größe ist — auf AMD kommt der Inhalt
+selbst bei ausdrücklich angefordertem `UNINITIALIZED` an, auf NVIDIA in keiner
+Variante. Der Schalter `SPIKE_ZUSTAND` ist deshalb weggefallen; wer die
+Zustandsfrage erneut aufgreift, kostet sich einen Abend.
 
 ## Bauen und laufen lassen
 
@@ -31,116 +46,89 @@ Schalter (alle über die Umgebung, Vorgabe in Klammern):
 
 | | |
 |---|---|
+| `SPIKE_BACKEND` (`dx12`) | `vulkan` = der Vergleichsarm |
 | `SPIKE_FORMAT` (`nv12`) | `p010` = 10 bit |
 | `SPIKE_SCHICHTEN` (`1`) | Größe des Textur-Stapels (1 = Einzeltextur) |
 | `SPIKE_SCHICHT` (letzte) | welche Schicht abgetastet wird |
 | `SPIKE_MUTEX` (`1`) | `0` = `NTHANDLE\|SHARED` statt `NTHANDLE\|KEYEDMUTEX` |
-| `SPIKE_ZUSTAND` (`general`) | `resource` \| `uninit` — der `initial_state` für wgpu |
-| `SPIKE_PRUEFSCHICHT` (`0`) | `1` = Vulkan-Prüfschicht an |
-| `SPIKE_GEGENRICHTUNG` (`0`) | `1` = zusätzlich aus Vulkan schreiben und mit D3D11 lesen |
+| `SPIKE_DECODER` (`0`) | `1` = `BIND_DECODER` auch bei Einzeltextur (FFmpegs Bauart) |
+| `SPIKE_WIEDERHOLT` (`3`) | Runden mit neuem Inhalt nach dem Einhängen (Stufe 4b) |
+| `SPIKE_PRUEFSCHICHT` (`0`) | `1` = Prüfschicht an |
+| `SPIKE_GEGENRICHTUNG` (`0`) | `1` = zusätzlich aus wgpu schreiben und mit D3D11 lesen |
 
-Die Vorgaben sind der frühere Fall (NV12, Einzeltextur), damit ein nackter Lauf
-mit den älteren Messungen vergleichbar bleibt. `SPIKE_SCHICHT` zeigt bewusst auf
-die **letzte** Schicht: ein Weg, der immer Schicht 0 liest, fiele sonst nicht auf.
+**Die Vorgabe ist jetzt D3D12**, nicht mehr Vulkan: ein nackter Lauf soll die
+Lage des Produkts messen, nicht die einer Nebenstraße. `SPIKE_SCHICHT` zeigt
+weiter auf die **letzte** Schicht — ein Weg, der immer Schicht 0 liest, fiele
+sonst nicht auf.
 
-## Stand 2026-08-06 (RTX 5080, Vulkan)
+## Stand 2026-08-06, nachmittags (Radeon 780M, D3D12, wgpu 29)
 
-Stufen 1–3 gelingen: NV12 und externer Speicher sind da, der Import läuft in
-0,09–0,18 ms, die Ebenen-Ansichten `Plane0`/`Plane1` als R8/Rg8 passen **genau**
-auf den vorhandenen Shader des Players — der müsste sich nicht ändern.
+Messakte `streaming/testbench/profiles/player-2026-08-06-zerocopy-d3d12-amd.json`.
 
-**Stufe 4 kommt schwarz.** Alle 4096 Bildpunkte null, während die Rückprobe über
-D3D11 den Inhalt jedes Mal vollständig in der Textur findet. Durchgespielt wurde
-die volle Matrix — zwei Teilungsarten × drei Anfangszustände × wgpu 29 und 30 —
-ausnahmslos schwarz.
+**Die Einzeltextur trägt, in jeder geprüften Bauart.** NV12 und P010, mit und
+ohne Schlüssel-Mutex, mit und ohne `BIND_DECODER`: 0 von 4096 Bildpunkten
+abweichend. Import in 0,46–0,73 ms. Ebenen als `Plane0`/`Plane1` — der Shader
+des Players müsste sich nicht ändern.
 
-**Eine Erklärung ist dabei widerlegt worden**, und das ist der Grund, warum die
-Schalter stehen bleiben: wgpu 29 trägt jede eingehängte Textur als
-`UNINITIALIZED` ein (`wgpu-core/src/device/resource.rs:1253`), das wird zu
-`VK_IMAGE_LAYOUT_UNDEFINED` (`wgpu-hal vulkan/conv.rs:218`), und ein Übergang
-von dort darf den Inhalt verwerfen. Das schien die Ursache. wgpu 30 lässt den
-Zustand ausdrücklich angeben — und es ändert **nichts**. Die Vermutung war
-falsch; wer sie erneut aufgreift, kostet sich einen Abend.
+**Der Betriebsfall trägt auch.** Neu in dieser Fassung ist Stufe 4b: die
+D3D11-Textur wird nach dem Einhängen dreimal mit neuem Inhalt überschrieben und
+jedes Mal erneut durch wgpu abgetastet. Alle Runden fehlerfrei, auf beiden
+Backends. Damit ist ausgeschlossen, dass der Import eine Momentaufnahme hält —
+die Sorte Fehler, die im Player als eingefrorenes erstes Bild erschiene.
 
-Übrig bleibt der Verdacht, den die Akte `vulkan-2026-08-01-d3d11-import-zerocopy`
-nahelegt: der Speichertyp muss zu **Bild UND Handle** passen
-(`vkGetMemoryWin32HandlePropertiesKHR`, dort `0x1111`). wgpus Helfer nimmt nur
-die Anforderungen des Bildes plus `DEVICE_LOCAL`
-(`wgpu-hal vulkan/device.rs:578`). Jene Probe hat den Import **erfolgreich**
-gemacht — mit rohem Vulkan, nicht über wgpu.
+**Der Textur-Stapel trägt auf D3D12 nicht, und zwar härter als auf Vulkan.**
+`OpenSharedHandle` auf eine geteilte NV12- oder P010-Textur mit `ArraySize > 1`
+gibt `DXGI_ERROR_DEVICE_REMOVED` (0x887A0005) zurück — das Gerät ist danach weg.
+Geprüft mit 2 und 4 Schichten, beide Formate. Auf Vulkan war derselbe Fall
+still falsch (Schicht 0 gut, jede weitere um den Schichtabstand daneben); hier
+stirbt der Kontext. **Ein Player darf das also nicht einmal versuchen** — ein
+Fehlschlag ist hier nicht abfangbar wie ein falsches Bild.
 
-## Stand 2026-08-06, morgens (Radeon 780M, Vulkan): **es trägt**
+## Der Weg, den die frühere Akte empfahl, gibt es nicht
 
-Die offene Frage von oben — Treiber oder wgpu — ist entschieden: **es ist der
-Treiber.** Auf der Radeon 780M kommt der Inhalt vollständig an, 4096 von 4096
-Bildpunkten, und zwar in **allen sechs** Läufen der Matrix (beide Teilungsarten,
-alle drei Anfangszustände, dazu die Gegenrichtung). Auf NVIDIA war dieselbe
-Matrix ausnahmslos schwarz. Import in 0,65–0,74 ms. Probe unverändert
-übernommen, kein Codeeingriff. Messakte
-`streaming/testbench/profiles/player-2026-08-06-nv12-wgpu-import-amd.json`.
+`player-2026-08-06-p010-und-stapel` empfahl als „wahrscheinlich kürzesten Weg",
+den Stapel zu vermeiden: FFmpegs D3D11VA-Pool könne mit `initial_pool_size = 0`
+je Bild eine eigene Textur anlegen (`d3d11va_alloc_single`). **Das gilt für den
+Encoder-Pool des Sidecars, nicht für den Decoder.** Nachgesehen in FFmpeg n8.1
+(`libavcodec/dxva2.c`):
 
-**Der aussagekräftigste Einzelfall ist `SPIKE_ZUSTAND=uninit`.** Genau dieser
-Zustand stand auf NVIDIA im Zentrum der widerlegten Erklärung — ein Übergang aus
-`UNDEFINED` *darf* den Inhalt verwerfen. Auf AMD verwirft er ihn nicht, auch
-wenn man es ausdrücklich anfordert. Das Verhalten ist also erlaubt, aber nicht
-vorgeschrieben, und die beiden Treiber entscheiden es verschieden. Die
-Widerlegung bleibt damit richtig, ihr Grund wird nur klarer: der Zustand ist
-überhaupt nicht die entscheidende Größe.
+* `d3d11va_create_decoder`, Zeile 482: `if (!frames_hwctx->texture) { "AVD3D11VAFramesContext.texture not set."; return AVERROR(EINVAL); }` — ohne
+  Array-Textur legt der Decoder gar nicht erst an.
+* `get_surface`, Zeile 761: jedes Bild wird gegen `sctx->d3d11_texture`
+  geprüft und über `frame->data[1]` in `d3d11_views[]` indiziert. Einzeltexturen
+  ergäben je Bild ein anderes `data[0]` → „get_buffer frame is invalid!".
 
-Was daraus folgt, ist unbequemer als ein einfaches „geht":
+**Folge für den Player:** er bekommt zwingend einen Stapel, und den darf er
+nicht teilen. Der gangbare Weg ist deshalb nicht „den Decoder-Pool teilen",
+sondern: die Schicht des dekodierten Bildes GPU-intern per
+`CopySubresourceRegion` in eine **eigene, einschichtige, geteilte** Textur
+kopieren und diese in wgpu einhängen. Genau die Bauart, die diese Probe als
+tragend misst — und genau die, die `streaming/win-hq-sidecar/src/capture/wgc_d3d12.rs`
+für die Aufnahmerichtung bereits fährt. Kein PCIe-Rückweg, keine CPU-Kopie.
 
-* **Auf AMD** steht der Weg über wgpus eigenen Helfer offen. Kein Eigenbau,
-  kein Speichertyp aus der Schnittmenge, kein rohes Vulkan.
-* **Auf NVIDIA** bleibt es offen. Der nächste Schritt dort ist der Eigenbau-
-  Import aus `vulkan-2026-08-01-d3d11-import-zerocopy` — nicht mehr die
-  Zustands-Frage.
-* **Der Player müsste also beides können**: importieren, wo es geht, und
-  herunterladen, wo nicht. Das ist mehr Arbeit als „einmal umbauen", aber es ist
-  die Lage und keine Entscheidung.
+## Frühere Stände (Vulkan) — gelten weiter, aber nur für Vulkan
+
+* **2026-08-06, RTX 5080:** Stufen 1–3 gelingen, **Stufe 4 kommt schwarz**, in
+  der ganzen Matrix. Übrig bleibt der Verdacht aus
+  `vulkan-2026-08-01-d3d11-import-zerocopy`: der Speichertyp muss zu **Bild UND
+  Handle** passen, wgpus Helfer nimmt nur die Anforderungen des Bildes plus
+  `DEVICE_LOCAL`.
+* **2026-08-06, Radeon 780M:** es trägt, 4096 von 4096, in allen sechs Läufen.
+  Der Unterschied ist also der **Treiber**, nicht wgpu.
+* **2026-08-06, P010 und Stapel:** P010 trägt; der Stapel nicht — Schicht 0 gut,
+  jede weitere um den Schichtabstand verschoben.
+
+Auf NVIDIA ist damit weiterhin **beides** offen: der Vulkan-Weg ist dort
+schwarz, der D3D12-Weg ungemessen (keine NVIDIA-Karte an dieser Maschine). Der
+Player braucht den Rückfall auf das Rücklesen ohnehin.
+
+## Was diese Probe NICHT zeigt
+
+* **Nebenläufige Synchronisierung.** Stufe 4b schreibt und liest abwechselnd auf
+  EINEM Thread. Im Betrieb schreibt der Decoder, während gezeichnet wird.
+* **NVIDIA und Intel.** Nur auf einer Radeon 780M gemessen.
 
 **Falle beim Nachstellen:** PowerShell meldet den geglückten Bau als Fehler
 (Rückgabewert 255) — Windows PowerShell 5.1 wertet jede stderr-Zeile eines
 nativen Programms als Fehlerdatensatz, und zwei harmlose cargo-Warnungen
 genügen. Über die Bash starten, oder den Rückgabewert getrennt prüfen.
-
-## Stand 2026-08-06, vormittags: 10 bit trägt, der Stapel nicht
-
-Die beiden Lücken von unten sind geschlossen — mit gemischtem Ergebnis. Messakte
-`streaming/testbench/profiles/player-2026-08-06-p010-und-stapel.json`.
-
-**P010 kommt unverändert an**, 0 von 4096 abweichend, Ebenen als `R16Unorm` /
-`Rg16Unorm`. Das ist der Fall, an dem HDR hängt. Zwei Fallen dabei: P010 braucht
-**zwei** wgpu-Merkmale (`TEXTURE_FORMAT_P010` *und* `TEXTURE_FORMAT_16BIT_NORM`
-für die Ebenen-Ansichten), und die Testwerte sind bewusst keine Vielfachen von
-vier — ein Weg, der still auf 8 bit kappt, käme sonst als fehlerfrei durch.
-
-**Der Stapel trägt nicht — aber anders, als es auf NVIDIA aussah.** Schicht 0
-kommt **vollständig** an, jede weitere ist durchgehend falsch. Und die Werte sind
-nicht null, sondern Bruchstücke des Nachbarn: bei Schicht 1 steht an erster
-Stelle 64, der Chroma-Wert der Schicht davor. Der Import landet also auf dem
-richtigen Speicher, die Basis stimmt, **nur der Abstand zwischen den Schichten
-ist ein anderer**, als D3D11 ihn benutzt. Das ist eine ganz andere Lage als „der
-Speicher ist nicht da", und ein ganz anderer nächster Schritt.
-
-**Ein Video-Stapel braucht das Decoder-Bindungsflag.** Ohne `BIND_DECODER` lehnt
-`CreateTexture2D` einen NV12/P010-Stapel rundweg ab; mit ihm gelingt er, geteilt
-wie ungeteilt. Das ist genau die Bauart, die libavutils D3D11VA-Pool anlegt — die
-Ablehnung war ein Artefakt der Probe, kein Hindernis im Betrieb. Folgefalle: eine
-CPU-Ablage darf gar keine Bindungsflags tragen, ein Video-Stapel als Ablage ist
-damit unmöglich. Füllen und Zurücklesen laufen deshalb über eine **einschichtige**
-Ablage und `CopySubresourceRegion` je Schicht.
-
-### Der wahrscheinlich kürzeste Weg für den Player
-
-Nicht den Stapel reparieren, sondern ihn vermeiden: FFmpegs D3D11VA-Pool kann
-**je Bild eine eigene Textur** anlegen (`initial_pool_size = 0`, libavutil
-`d3d11va_alloc_single`). Der Sidecar fährt diese Bauart auf AMD ohnehin schon,
-aus einem ganz anderen Grund. Kostet eine Zeile im Pool-Aufbau — und der
-Einzeltextur-Fall ist oben als tragend gemessen.
-
-## Was diese Probe NICHT zeigt
-
-* **Synchronisierung.** Hier wird einmal geschrieben und danach nur gelesen. Im
-  Betrieb schreibt der Decoder, während gezeichnet wird.
-* **Ob FFmpegs Einzeltextur-Pool sich als NT-Handle teilen lässt.** Der Sidecar
-  legt seine Poolen ohne Teilungs-Flags an; für den Player müssten sie dazu.

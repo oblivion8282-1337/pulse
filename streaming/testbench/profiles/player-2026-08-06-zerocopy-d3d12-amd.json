@@ -1,0 +1,54 @@
+{
+  "id": "player-2026-08-06-zerocopy-d3d12-amd",
+  "gemessen_am": "2026-08-06 (nachmittags)",
+  "frage": "Traegt der Zero-Copy-Weg auf dem Backend und in der wgpu-Fassung, die der Player wirklich faehrt — D3D12 und wgpu 29.0.4? Die bisherigen Messungen liefen ueber Vulkan und wgpu 30 und sagen darueber nichts (s. player-2026-08-06-zerocopy-blockiert-auf-d3d12).",
+  "stand": "Einzeltextur JA, in jeder geprueften Bauart und auch im wiederholten Beschreiben. Textur-STAPEL NEIN, und zwar toedlich: OpenSharedHandle nimmt das Geraet mit.",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, Windows 11 26200. Probe streaming/player-labor/nv12-wgpu-import, auf wgpu 29 zurueckgesetzt und um einen D3D12-Arm (SPIKE_BACKEND) sowie zwei Schalter erweitert (SPIKE_DECODER, SPIKE_WIEDERHOLT). 64x64, jeder Bildpunkt gegen den geschriebenen Wert; Toleranz ein Codeschritt.",
+
+  "ergebnis_einzeltextur": {
+    "D3D12, NV12, mit Mutex": "0 von 4096 abweichend, Import 0,659 ms",
+    "D3D12, NV12, ohne Mutex": "0 von 4096, 0,479 ms",
+    "D3D12, P010, mit Mutex": "0 von 4096, 0,461 ms",
+    "D3D12, P010, ohne Mutex": "0 von 4096, 0,670 ms",
+    "D3D12, NV12, zusaetzlich BIND_DECODER": "0 von 4096, 0,505 ms",
+    "D3D12, P010, zusaetzlich BIND_DECODER": "0 von 4096, 0,483 ms",
+    "Vulkan, NV12 / P010 (Vergleichsarm auf wgpu 29)": "0 von 4096, 0,672-0,698 ms",
+    "anmerkung_zur_zeit": "Der erste Lauf nach dem Bau lag bei 1,854 ms, jeder weitere bei 0,46-0,73. Der Unterschied ist Aufwaermen (Treiber-Bibliotheken, Schattenspeicher), keine Eigenschaft des Weges. Wer einen Einzelwert zitiert, zitiert den ersten Lauf."
+  },
+
+  "befund_1_der_betriebsfall_traegt": {
+    "was": "Neu in dieser Fassung ist Stufe 4b: die D3D11-Textur wird NACH dem Einhaengen dreimal mit neuem Inhalt ueberschrieben und jedes Mal erneut durch wgpu abgetastet. Alle Runden 0 von 4096 abweichend, auf D3D12 wie auf Vulkan.",
+    "warum_das_noetig_war": "Alle frueheren Laeufe schrieben EINMAL und lasen danach nur. Damit war nicht ausgeschlossen, dass der Import eine Momentaufnahme haelt statt des lebenden Speichers — im Player waere das ein eingefrorenes erstes Bild, also genau der Fehler, den man zuletzt dem Decoder anlasten wuerde.",
+    "grenze": "Es bleibt EIN Thread, abwechselnd schreibend und lesend. Echte Nebenlaeufigkeit (Decoder schreibt, waehrend gezeichnet wird) ist weiterhin ungeprueft."
+  },
+
+  "befund_2_der_stapel_nimmt_das_geraet_mit": {
+    "was": "`ID3D12Device::OpenSharedHandle` auf eine geteilte NV12- oder P010-Textur mit ArraySize > 1 liefert DXGI_ERROR_DEVICE_REMOVED (0x887A0005). Geprueft mit 2 und 4 Schichten, beide Formate, jede Schicht — ausnahmslos.",
+    "unterschied_zu_vulkan": "Auf Vulkan war derselbe Fall STILL falsch: Schicht 0 kam vollstaendig an, jede weitere war um den Schichtabstand daneben (player-2026-08-06-p010-und-stapel). Auf D3D12 stirbt stattdessen der Kontext.",
+    "warum_das_die_lage_aendert": "Ein falsches Bild kann man erkennen und abfangen. Ein entferntes Geraet kann man nicht abfangen — jede weitere wgpu-Operation scheitert, und im Player waere das ein toter Renderer. Der Player darf den Stapel-Import deshalb nicht einmal versuchsweise fahren.",
+    "isoliert": "Nicht das Decoder-Bindungsflag ist die Ursache. Eine EINZELtextur mit BIND_DECODER|SHADER_RESOURCE — genau FFmpegs Bauart — traegt fehlerfrei (SPIKE_DECODER=1, beide Formate). Es ist ArraySize > 1."
+  },
+
+  "befund_3_der_empfohlene_ausweg_existiert_nicht": {
+    "was_frueher_empfohlen_wurde": "player-2026-08-06-p010-und-stapel nannte als 'wahrscheinlich kuerzesten Weg', den Stapel zu vermeiden: FFmpegs D3D11VA-Pool koenne mit initial_pool_size = 0 je Bild eine eigene Textur anlegen (libavutil d3d11va_alloc_single). 'Kostet eine Zeile im Pool-Aufbau.'",
+    "warum_das_falsch_ist": "Das gilt fuer den ENCODER-Pool des Sidecars, nicht fuer den DECODER. Nachgelesen in FFmpeg n8.1, libavcodec/dxva2.c: d3d11va_create_decoder bricht in Zeile 482 mit 'AVD3D11VAFramesContext.texture not set.' ab, wenn keine Array-Textur vorliegt; get_surface prueft in Zeile 761 jedes Bild gegen sctx->d3d11_texture und indiziert ueber frame->data[1] in d3d11_views[]. Einzeltexturen ergaeben je Bild ein anderes data[0] und damit 'get_buffer frame is invalid!'.",
+    "quelle": "streaming/win-hq-sidecar/ffmpeg-dist/_build/ffmpeg-src/libavcodec/dxva2.c — die Fassung, gegen die der Player gebaut wird. Nicht aus der Doku, sondern aus dem Quelltext.",
+    "damit_faellt_auch_eine_offene_frage_weg": "Ob sich FFmpegs Decoder-Pool ueberhaupt mit Teilungs-Flags anlegen laesst (AVD3D11VAFramesContext.MiscFlags), ist gegenstandslos: selbst wenn ja, waere das Ergebnis ein geteilter STAPEL, und der nimmt auf D3D12 das Geraet mit."
+  },
+
+  "was_das_fuer_den_player_heisst": {
+    "kurz": "Nicht FFmpegs Pool teilen. Die Schicht des dekodierten Bildes GPU-intern in eine EIGENE, einschichtige, geteilte Textur kopieren (CopySubresourceRegion auf FFmpegs D3D11-Geraet) und DIESE in wgpu-dx12 einhaengen.",
+    "warum_das_trotzdem_der_gewinn_ist": "Die Kopie bleibt im Grafikspeicher und laeuft auf der Kopiereinheit der GPU. Was heute wegfaellt, ist av_hwframe_transfer_data — eine Staging-Kopie plus Map plus memcpy ueber unbeschleunigten Speicher, ueberwiegend echte CPU-Zeit (3,5 ms bei 1080p8, 5,2-5,5 ms bei 1080p10 auf der RTX-Maschine gemessen, player-2026-08-06-bildweg-kosten) — und zusaetzlich der write_texture-Weg zurueck.",
+    "praezedenzfall_im_repo": "streaming/win-hq-sidecar/src/capture/wgc_d3d12.rs faehrt genau diese Bruecke in der Aufnahmerichtung: Ring teilbarer D3D11-Texturen, NT-Handle je Slot, OpenSharedHandle auf dem D3D12-Geraet. Dort steht auch, was dabei NICHT traegt: der Keyed-Mutex synchronisiert NICHT ueber die API-Grenze, weil eine D3D12-geoeffnete Ressource gar keinen IDXGIKeyedMutex bereitstellt. Die Fertigstellung muss ein expliziter Zaun leisten.",
+    "rueckfall_bleibt_pflicht": "NVIDIA ist auf D3D12 ungemessen und auf Vulkan schwarz; Intel ist ungemessen. Der bisherige Weg ueber den Hauptspeicher muss stehenbleiben."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur Radeon 780M, ein Treiberstand. NVIDIA und Intel ungemessen.",
+    "64x64 Bildpunkte. Zeilenabstaende sind bei dieser Groesse schon groesser als die Breite, aber echte 1080p/1440p-Lagen sind nicht geprueft.",
+    "Keine Nebenlaeufigkeit (s. Befund 1, Grenze).",
+    "Die Einblendzeiten sind Einzelwerte aus je einem Lauf, keine Verteilung."
+  ],
+
+  "reproduzieren": "cd streaming/player-labor/nv12-wgpu-import && cargo build --release, dann SPIKE_BACKEND=dx12|vulkan, SPIKE_FORMAT=nv12|p010, SPIKE_SCHICHTEN=N, SPIKE_DECODER=1, SPIKE_WIEDERHOLT=N. Ueber die Bash starten: PowerShell meldet den geglueckten Bau als Fehler (255), weil es cargo-Warnungen auf stderr als Fehlerdatensaetze wertet."
+}

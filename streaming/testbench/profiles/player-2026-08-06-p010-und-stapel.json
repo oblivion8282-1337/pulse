@@ -43,7 +43,8 @@
       "Den Schichtabstand selbst ausrechnen und von Hand importieren, statt wgpus Helfer zu nehmen — mehr Arbeit, aber es traegt den Decoder-Stapel unveraendert.",
       "Je Schicht ein eigenes Handle. Ungeprueft, ob D3D11 das ueberhaupt hergibt."
     ],
-    "empfehlung": "Zuerst den ersten Weg pruefen: er kostet eine Zeile im Pool-Aufbau und ist auf dieser Karte ohnehin die gefahrene Bauart."
+    "empfehlung": "Zuerst den ersten Weg pruefen: er kostet eine Zeile im Pool-Aufbau und ist auf dieser Karte ohnehin die gefahrene Bauart.",
+    "WIDERLEGT_AM_2026-08-06_NACHMITTAGS": "Der erste Weg existiert nicht. `initial_pool_size = 0` gilt fuer den ENCODER-Pool des Sidecars; der D3D11VA-DECODER verlangt zwingend eine Array-Textur — `d3d11va_create_decoder` bricht ohne sie ab ('AVD3D11VAFramesContext.texture not set.', libavcodec/dxva2.c:482), und `get_surface` (Zeile 761) prueft jedes Bild gegen dieselbe Textur. Der zweite und dritte Weg sind damit ebenfalls gegenstandslos, denn auf D3D12 — dem Backend, das der Player faehrt — nimmt `OpenSharedHandle` auf einen geteilten Stapel das GERAET mit (DXGI_ERROR_DEVICE_REMOVED), statt nur falsche Werte zu liefern. Der tatsaechlich gangbare Weg steht in player-2026-08-06-zerocopy-d3d12-amd: die Schicht GPU-intern in eine eigene, einschichtige, geteilte Textur kopieren."
   },
 
   "was_weiterhin_nicht_geprueft_ist": [

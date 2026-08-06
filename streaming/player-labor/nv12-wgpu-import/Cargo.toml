@@ -3,22 +3,38 @@ name = "nv12-import"
 version = "0.0.0"
 edition = "2021"
 
-# Machbarkeitsnachweis, KEIN Repo-Bestandteil. Liegt bewusst ausserhalb des
-# Pulse-Baums: im Player misst gerade ein anderer Vorgang, und ein zweiter
-# Schreiber im selben Arbeitsbaum kostet mehr, als er einbringt.
+# Machbarkeitsnachweis, KEIN Workspace-Mitglied. Beruehrt kein Bauziel des
+# Produkts; ein Fehlschlag hier kann nichts brechen.
 
 [dependencies]
-# 30, nicht 29: erst ab hier nimmt `create_texture_from_hal` einen
-# `initial_state` entgegen. In 29 traegt wgpu jede eingehaengte Textur als
-# UNINITIALIZED ein, was auf VK_IMAGE_LAYOUT_UNDEFINED hinauslaeuft — und ein
-# Uebergang von dort darf den Inhalt verwerfen. Genau daran ist der erste
-# Durchgang gescheitert (schwarzes Bild bei technisch gelungenem Import).
-wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
+# **29, nicht 30 — und das ist der Punkt der Fassung vom 2026-08-06.**
+#
+# Hier stand bis dahin `version = "30"` mit der Begruendung, erst dort nehme
+# `create_texture_from_hal` einen `initial_state` entgegen. **Die Begruendung
+# ist widerlegt**: die volle Matrix (zwei Teilungsarten x drei Anfangszustaende
+# x wgpu 29 und 30) hat am 2026-08-06 gezeigt, dass der Zustand ueberhaupt
+# nicht die entscheidende Groesse ist — auf AMD kommt der Inhalt selbst bei
+# ausdruecklich angefordertem `UNINITIALIZED` an, auf NVIDIA in keiner Variante.
+#
+# Entscheidend ist etwas anderes: eine Messung auf einer anderen Fassung als
+# der ausgelieferten sagt ueber die ausgelieferte nichts. Der Player steht auf
+# **29.0.4** (`streaming/pulse-player/Cargo.lock`). Also misst diese Probe
+# ebenfalls 29.
+#
+# `dx12` steht in den Merkmalen, weil der Player unter Windows genau dieses
+# Backend faehrt (`render/setup.rs::backends`, seit 2026-08-06 — Voraussetzung
+# fuer HDR). `vulkan` bleibt fuer den Vergleichsarm.
+wgpu = { version = "29", default-features = false, features = ["wgsl", "vulkan", "dx12"] }
 pollster = "0.4"
+# **Dieselbe Fassung, die wgpu-hal 29 ohnehin zieht** (0.62.2, s. Cargo.lock).
+# Bei einer anderen waeren `ID3D12Resource` aus `as_hal` und der hier benutzte
+# fuer den Compiler verschiedene Typen, obwohl sie dasselbe bezeichnen.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
+    # OpenSharedHandle + ID3D12Resource fuer den D3D12-Arm.
+    "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     # CreateSharedHandle steht hinter diesem Schalter (SECURITY_ATTRIBUTES).
