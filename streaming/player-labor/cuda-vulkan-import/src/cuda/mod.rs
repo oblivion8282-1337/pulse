@@ -5,100 +5,17 @@
 //! verlangt ein installiertes SDK; hier soll die Probe auf jeder Maschine mit
 //! NVIDIA-Treiber laufen. Der Linux-Sidecar bindet EGL aus demselben Grund so.
 //!
-//! **Die Struct-Layouts sind der heikle Teil.** Sie muessen `cuda.h` exakt
-//! treffen — ein falsches Feld-Offset erzeugt keinen Fehler, sondern stille
-//! Falschergebnisse. Deshalb steht an jedem Feld sein Byte-Versatz, und
-//! [`selbsttest_layout`] prueft die Groessen gegen die Werte aus dem Header.
+//! Die Struktur-Beschreibungen liegen in [`typen`]; dort steht auch, warum ihr
+//! Layout der heikelste Teil ist.
+
+pub mod typen;
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
 
 use anyhow::{bail, Context, Result};
 use libloading::{Library, Symbol};
 
-pub type CUresult = c_int;
-pub type CUdevice = c_int;
-pub type CUdeviceptr = u64;
-pub type CUcontext = *mut c_void;
-pub type CUexternalMemory = *mut c_void;
-
-pub const CUDA_SUCCESS: CUresult = 0;
-
-/// `CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD` — der Linux-Weg. Windows nutzt
-/// an derselben Stelle `OPAQUE_WIN32` (Typ 2), was der Grund ist, warum die
-/// Probe von der Windows-Seite nicht uebertragbar ist.
-pub const CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD: c_uint = 1;
-
-/// `CUDA_EXTERNAL_MEMORY_DEDICATED` — muss gesetzt sein, wenn die Vulkan-Seite
-/// mit `VkMemoryDedicatedAllocateInfo` alloziert hat. Fuer Bilder ist das auf
-/// NVIDIA die Regel, fuer Puffer nicht.
-pub const CUDA_EXTERNAL_MEMORY_DEDICATED: c_uint = 0x01;
-
-/// `CUDA_EXTERNAL_MEMORY_HANDLE_DESC` aus `cuda.h`.
-///
-/// Versaetze (64-bit): `type` 0, union 8..24 (`int fd` liegt am Anfang, die
-/// groesste Variante ist `struct {void*, const void*}` = 16 B), `size` 24,
-/// `flags` 32, `reserved[16]` 36..100. Gesamtgroesse 104 mit Endauffuellung.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ExternalMemoryHandleDesc {
-    pub typ: c_uint,
-    _auffuellung_vor_union: c_uint,
-    /// Erste Variante der union: `int fd`.
-    pub fd: c_int,
-    /// Rest der union — die Win32-Variante ist breiter als `int`.
-    _rest_der_union: [u8; 12],
-    pub size: u64,
-    pub flags: c_uint,
-    pub reserved: [c_uint; 16],
-}
-
-impl ExternalMemoryHandleDesc {
-    /// Beschreibung fuer einen Dateideskriptor aus Vulkan.
-    ///
-    /// `dediziert` MUSS zur Vulkan-Seite passen: hat diese mit
-    /// `VkMemoryDedicatedAllocateInfo` alloziert, verlangt CUDA das Flag —
-    /// fehlt es, rechnet der Treiber mit einer anderen Speicherlage.
-    pub fn fuer_fd(fd: c_int, size: u64, dediziert: bool) -> Self {
-        Self {
-            typ: CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD,
-            _auffuellung_vor_union: 0,
-            fd,
-            _rest_der_union: [0; 12],
-            size,
-            flags: if dediziert { CUDA_EXTERNAL_MEMORY_DEDICATED } else { 0 },
-            reserved: [0; 16],
-        }
-    }
-}
-
-/// `CUDA_EXTERNAL_MEMORY_BUFFER_DESC` aus `cuda.h`.
-///
-/// Versaetze: `offset` 0, `size` 8, `flags` 16, `reserved[16]` 20..84.
-/// Gesamtgroesse 88 mit Endauffuellung.
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct ExternalMemoryBufferDesc {
-    pub offset: u64,
-    pub size: u64,
-    pub flags: c_uint,
-    pub reserved: [c_uint; 16],
-}
-
-/// Die Groessen aus `cuda.h` gegenpruefen. Laeuft beim Start, nicht als Test:
-/// stimmt hier etwas nicht, ist jede Zahl der Probe wertlos, und das soll
-/// SOFORT auffallen statt in den Messwerten.
-pub fn selbsttest_layout() -> Result<()> {
-    let paare: [(&str, usize, usize); 2] = [
-        ("CUDA_EXTERNAL_MEMORY_HANDLE_DESC", std::mem::size_of::<ExternalMemoryHandleDesc>(), 104),
-        ("CUDA_EXTERNAL_MEMORY_BUFFER_DESC", std::mem::size_of::<ExternalMemoryBufferDesc>(), 88),
-    ];
-    for (name, ist, soll) in paare {
-        if ist != soll {
-            bail!("{name}: {ist} Bytes, erwartet {soll} — Layout weicht von cuda.h ab");
-        }
-    }
-    Ok(())
-}
+pub use typen::*;
 
 macro_rules! sym {
     ($lib:expr, $name:literal, $typ:ty) => {{
@@ -126,9 +43,21 @@ type FnCuExternalMemoryGetMappedBuffer = unsafe extern "C" fn(
     CUexternalMemory,
     *const ExternalMemoryBufferDesc,
 ) -> CUresult;
+type FnCuExternalMemoryGetMappedMipmappedArray = unsafe extern "C" fn(
+    *mut CUmipmappedArray,
+    CUexternalMemory,
+    *const ExternalMemoryMipmappedArrayDesc,
+) -> CUresult;
+type FnCuMipmappedArrayGetLevel =
+    unsafe extern "C" fn(*mut CUarray, CUmipmappedArray, c_uint) -> CUresult;
+type FnCuMipmappedArrayDestroy = unsafe extern "C" fn(CUmipmappedArray) -> CUresult;
+type FnCuArrayGetDescriptor = unsafe extern "C" fn(*mut ArrayDescriptor, CUarray) -> CUresult;
 type FnCuDestroyExternalMemory = unsafe extern "C" fn(CUexternalMemory) -> CUresult;
+type FnCuMemAlloc = unsafe extern "C" fn(*mut CUdeviceptr, usize) -> CUresult;
+type FnCuMemFree = unsafe extern "C" fn(CUdeviceptr) -> CUresult;
 type FnCuMemcpyHtoD = unsafe extern "C" fn(CUdeviceptr, *const c_void, usize) -> CUresult;
 type FnCuMemcpyDtoH = unsafe extern "C" fn(*mut c_void, CUdeviceptr, usize) -> CUresult;
+type FnCuMemcpy2d = unsafe extern "C" fn(*const Memcpy2d) -> CUresult;
 type FnCuMemsetD8 = unsafe extern "C" fn(CUdeviceptr, u8, usize) -> CUresult;
 type FnCuGetErrorString = unsafe extern "C" fn(CUresult, *mut *const c_char) -> CUresult;
 
@@ -145,9 +74,16 @@ pub struct Cuda {
     pub cuCtxSynchronize: FnCuCtxSynchronize,
     pub cuImportExternalMemory: FnCuImportExternalMemory,
     pub cuExternalMemoryGetMappedBuffer: FnCuExternalMemoryGetMappedBuffer,
+    pub cuExternalMemoryGetMappedMipmappedArray: FnCuExternalMemoryGetMappedMipmappedArray,
+    pub cuMipmappedArrayGetLevel: FnCuMipmappedArrayGetLevel,
+    pub cuMipmappedArrayDestroy: FnCuMipmappedArrayDestroy,
+    pub cuArrayGetDescriptor: FnCuArrayGetDescriptor,
     pub cuDestroyExternalMemory: FnCuDestroyExternalMemory,
+    pub cuMemAlloc: FnCuMemAlloc,
+    pub cuMemFree: FnCuMemFree,
     pub cuMemcpyHtoD: FnCuMemcpyHtoD,
     pub cuMemcpyDtoH: FnCuMemcpyDtoH,
+    pub cuMemcpy2d: FnCuMemcpy2d,
     pub cuMemsetD8: FnCuMemsetD8,
     pub cuGetErrorString: FnCuGetErrorString,
 }
@@ -179,6 +115,25 @@ impl Cuda {
                 "cuExternalMemoryGetMappedBuffer",
                 FnCuExternalMemoryGetMappedBuffer
             ),
+            // Die drei Array-Aufrufe tragen KEIN `_v2` — nachgesehen mit
+            // `nm -D --defined-only libcuda.so.1`, nicht angenommen. Wer hier
+            // ein `_v2` anhaengt, bekommt "kennt Symbol nicht" statt eines
+            // stillen Fehlers, das faellt also sofort auf.
+            cuExternalMemoryGetMappedMipmappedArray: sym!(
+                lib,
+                "cuExternalMemoryGetMappedMipmappedArray",
+                FnCuExternalMemoryGetMappedMipmappedArray
+            ),
+            cuMipmappedArrayGetLevel: sym!(
+                lib,
+                "cuMipmappedArrayGetLevel",
+                FnCuMipmappedArrayGetLevel
+            ),
+            cuMipmappedArrayDestroy: sym!(
+                lib,
+                "cuMipmappedArrayDestroy",
+                FnCuMipmappedArrayDestroy
+            ),
             cuDestroyExternalMemory: sym!(
                 lib,
                 "cuDestroyExternalMemory",
@@ -186,8 +141,12 @@ impl Cuda {
             ),
             // Die Speicher-Aufrufe tragen in `cuda.h` ein `_v2` — ohne das
             // laedt man die alte 32-bit-Fassung.
+            cuArrayGetDescriptor: sym!(lib, "cuArrayGetDescriptor_v2", FnCuArrayGetDescriptor),
+            cuMemAlloc: sym!(lib, "cuMemAlloc_v2", FnCuMemAlloc),
+            cuMemFree: sym!(lib, "cuMemFree_v2", FnCuMemFree),
             cuMemcpyHtoD: sym!(lib, "cuMemcpyHtoD_v2", FnCuMemcpyHtoD),
             cuMemcpyDtoH: sym!(lib, "cuMemcpyDtoH_v2", FnCuMemcpyDtoH),
+            cuMemcpy2d: sym!(lib, "cuMemcpy2D_v2", FnCuMemcpy2d),
             cuMemsetD8: sym!(lib, "cuMemsetD8_v2", FnCuMemsetD8),
             cuGetErrorString: sym!(lib, "cuGetErrorString", FnCuGetErrorString),
             _lib: lib,
@@ -201,14 +160,20 @@ impl Cuda {
         if r == CUDA_SUCCESS {
             return Ok(());
         }
+        bail!("{was}: CUDA-Fehler {r} ({})", self.fehlertext(r));
+    }
+
+    /// Klartext des Treibers zu einem Fehlercode. Getrennt von [`Self::pruefe`],
+    /// weil der Bild-Weg Fehlschlaege **erwartet** und berichtet, statt
+    /// abzubrechen: dass ein Weg nicht traegt, ist dort ein Ergebnis.
+    pub fn fehlertext(&self, r: CUresult) -> String {
         let mut p: *const c_char = std::ptr::null();
-        let text = unsafe {
+        unsafe {
             if (self.cuGetErrorString)(r, &mut p) == CUDA_SUCCESS && !p.is_null() {
                 CStr::from_ptr(p).to_string_lossy().into_owned()
             } else {
                 String::from("unbekannter Fehler")
             }
-        };
-        bail!("{was}: CUDA-Fehler {r} ({text})");
+        }
     }
 }

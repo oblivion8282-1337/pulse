@@ -1,7 +1,11 @@
 # Probe: teilen sich CUDA und Vulkan denselben Speicher? (Linux/NVIDIA)
 
-Beantwortet **eine** Frage, nachprüfbar: kommt ein Inhalt, den CUDA in einen von
-Vulkan exportierten Speicher schreibt, dort unverändert an — und umgekehrt?
+Beantwortet zwei Fragen, nachprüfbar, in zwei Stufen:
+
+1. **Puffer** — kommt ein Inhalt, den CUDA in einen von Vulkan exportierten
+   Speicher schreibt, dort unverändert an?
+2. **Bild** — kann CUDA in ein exportiertes `VkImage` schreiben (NV12 und
+   P010), oder muss eine Puffer→Bild-Kopie dazwischen?
 
 Davon hängt Zero-Copy im `pulse-player` unter **Linux/NVIDIA** ab. Heute nimmt
 jedes Bild den Weg GPU → Hauptspeicher → GPU zurück: `av1_cuvid` liefert seine
@@ -39,89 +43,158 @@ diese Verwechslung passiert (es sah nach wgpu aus und war der Treiber).
 ```bash
 cd streaming/player-labor/cuda-vulkan-import
 cargo build --release
-./target/release/cuda-vulkan-import
+./target/release/cuda-vulkan-import              # Stufe 1: Puffer
+SPIKE_MODUS=bild ./target/release/cuda-vulkan-import   # Stufe 2: Bild
 ```
 
 Braucht kein CUDA-Toolkit (`libcuda.so.1` kommt mit dem Treiber), kein FFmpeg,
-keinen Server, kein Fenster. Rückgabewert 0 = der Weg trägt.
+keinen Server, kein Fenster. Rückgabewert 0 = der geprüfte Weg trägt.
 
 | Schalter | |
 |---|---|
-| `SPIKE_BYTES` (`3686400`) | Größe des geteilten Speichers |
+| `SPIKE_MODUS` (`puffer`) | `bild` schaltet auf Stufe 2 |
+| `SPIKE_BYTES` (`3686400`) | Größe des geteilten Speichers, nur Stufe 1 |
+| `SPIKE_BREITE` / `SPIKE_HOEHE` (`2560`/`1440`) | Bildgröße, nur Stufe 2 |
 | `SPIKE_DEDIZIERT` (`1`) | `0` = ohne `VkMemoryDedicatedAllocateInfo` |
+| `SPIKE_SURFACE_LDST` (`0`) | `1` setzt `CUDA_ARRAY3D_SURFACE_LDST` |
+| `SPIKE_OHNE_SCHREIBEN` (`0`) | **Gegenprobe**, Urteil ist umgedreht |
+| `SPIKE_DEDI_FEHLANPASSUNG` (`0`) | **Gegenprobe**, gibt Befund statt Urteil |
+
+**Beim Nachfahren einer Matrix gilt die Kopfzeile des Laufs als Beleg, nicht die
+eigene Beschriftung.** Jeder Lauf gibt aus, mit welcher Auflösung und
+Schalterstellung er tatsächlich lief. Der Grund steht unter „Was die Probe
+absichert" — ein nicht greifender Schalter hat hier schon einmal drei Zeilen
+einer Matrix entwertet.
 
 ## Was die Probe absichert
 
-Drei Dinge, die kein Selbstzweck sind — jedes fängt eine Fehlerklasse, die in
-diesem Labor schon falsche Befunde erzeugt hat:
+Nichts davon ist Selbstzweck — jedes fängt eine Fehlerklasse, die in diesem
+Labor schon falsche Befunde erzeugt hat.
+
+**Beim Start:**
 
 * **Struct-Layouts gegen `cuda.h`.** Die Beschreibungen werden von Hand
   nachgebaut; ein falscher Feld-Versatz erzeugt keinen Fehler, sondern stille
-  Falschergebnisse. Die Größen werden beim Start geprüft.
+  Falschergebnisse. Die Größen werden geprüft, und die Sollwerte stammen aus
+  einem **kompilierten** `sizeof`/`offsetof` gegen `/opt/cuda/include/cuda.h` —
+  nicht aus der Doku und nicht von Hand gerechnet.
 * **UUID-Abgleich.** Vulkan und CUDA müssen dieselbe Karte meinen. Auf einer
   Maschine mit zwei GPUs schlüge der Import sonst aus einem Grund fehl, der mit
   der Sache nichts zu tun hat.
-* **Ein absichtlich verfälschtes Byte muss auffallen.** Ohne diese Kontrolle
-  wäre „alles stimmt" nicht von „die Prüfung vergleicht nichts" zu
-  unterscheiden.
+
+**In der Bild-Stufe, je Ebene:**
+
+* **Kontrolle A — ist der Weg überhaupt messbar?** Das Bild wird vor dem
+  CUDA-Zugriff flächendeckend mit `0x5A` gefüllt und sofort zurückgelesen. Kommt
+  der Wert nicht unverändert an, ist der Vulkan-eigene Bildweg kaputt; die Probe
+  bricht dann ab, statt eine Zahl über CUDA zu liefern, die keine ist.
+* **Kontrolle B — meint CUDA dasselbe Bild?** `cuArrayGetDescriptor` fragt
+  zurück, was eingehängt wurde. Stimmt es nicht mit der Beschreibung überein,
+  prüft der Vergleich brav die falsche Sache.
+* **Kontrolle C — ein verfälschtes Byte muss auffallen.** Ohne sie wäre „alles
+  stimmt" nicht von „die Prüfung vergleicht nichts" zu unterscheiden.
+
+**Zwei Gegenproben, die den Ablauf absichtlich sabotieren:**
+
+* `SPIKE_OHNE_SCHREIBEN=1` lässt `cuMemcpy2D` aus. **Das ist die schärfste
+  Kontrolle der Probe:** ein Erfolg im Hauptlauf heißt nur dann etwas, wenn ein
+  Nicht-Schreiben zuverlässig als Misserfolg herauskommt. Das Urteil ist hier
+  umgedreht, damit die Gegenprobe nicht von Hand ausgelegt werden muss — eine
+  Gegenprobe, deren Ergebnis man selbst deuten muss, wird beim nächsten Mal
+  falsch gedeutet.
+* `SPIKE_DEDI_FEHLANPASSUNG=1` setzt das Dedicated-Flag auf einer Seite falsch
+  (in beiden Richtungen prüfbar). Laut NVIDIA-Forum 278691 gäbe das senkrechte
+  Streifen ohne Fehlermeldung. **Auf dieser Karte tritt das nicht ein** — der
+  Lauf kommt fehlerfrei durch. Als Empfindlichkeitsnachweis taugt diese
+  Gegenprobe deshalb nicht; diese Rolle trägt allein die erste.
 
 Das Prüfmuster ist positionsabhängig und bewusst nicht gleichförmig: ein Weg,
-der versetzt liest oder nur den Anfang trifft, käme sonst als fehlerfrei durch.
-Genau dieser Fehler ist auf der Windows-Seite beim Textur-Stapel aufgetreten.
+der versetzt liest, nur den Anfang trifft oder eine falsche Zeilenlänge annimmt,
+käme sonst als fehlerfrei durch. Genau dieser Fehler ist auf der Windows-Seite
+beim Textur-Stapel aufgetreten. Bei einer Abweichung wird zusätzlich die
+Verteilung über die Zeilen ausgegeben — senkrechte Streifen und ein Lochmuster
+sind zwei verschiedene bekannte Ursachen und sehen unterschiedlich aus.
 
 ## Ergebnis
 
-Messakte: `streaming/testbench/profiles/player-2026-08-06-cuda-vulkan-linux.json`
+Messakten:
+`streaming/testbench/profiles/player-2026-08-06-cuda-vulkan-linux.json` (Puffer)
+und `player-2026-08-07-cuda-vulkan-bild-import.json` (Bild).
 
-Kurz: **der Weg trägt**, in beiden Richtungen, über alle geprüften Größen bis
-4K-P010, mit und ohne dedizierte Allokation, fünf Wiederholungen stabil.
+**Stufe 1 (Puffer): der Weg trägt** — in beiden Richtungen, über alle geprüften
+Größen bis 4K-P010, mit und ohne dedizierte Allokation, fünf Wiederholungen
+stabil.
 
-**Was er noch nicht zeigt:** Dies ist ein **Puffer**, keine Textur. Der Player
-braucht ein `VkImage` (NV12/P010), das ein Shader abtastet. Ob CUDA direkt in
-ein exportiertes Bild schreiben kann (`cuExternalMemoryGetMappedMipmappedArray`)
-oder ob eine Puffer→Bild-Kopie dazwischen muss, ist die nächste Frage — und der
-Unterschied ist eine GPU-lokale Kopie je Bild.
+**Stufe 2 (Bild): der Weg trägt ebenfalls, mit einer Einschränkung.**
 
-## Wo wir stehen (Stand 2026-08-06)
+| | |
+|---|---|
+| NV12 als **zwei** Bilder (R8 + R8G8) | trägt, jedes Byte |
+| P010 als **zwei** Bilder (R16 + R16G16) | trägt, jedes Byte |
+| NV12/P010 als **ein** mehrplaniges `VkImage` | abgewiesen, `CUDA_ERROR_INVALID_VALUE` |
 
-Zweig `feat/zero-copy-player-linux`, zwei Commits, **nicht gepusht**.
+Geprüft über 720p, 1080p, 1440p und 4K, mit und ohne dedizierte Allokation, mit
+und ohne `SURFACE_LDST`, fünf Wiederholungen stabil. **Eine Puffer→Bild-Kopie
+ist damit nicht nötig.**
 
-Erledigt: die Grundfrage. CUDA und Vulkan teilen sich auf Linux/NVIDIA denselben
-Speicher — beide Richtungen, bis 4K-P010, fünf Wiederholungen stabil. Damit ist
-Zero-Copy hier grundsätzlich möglich, anders als auf Windows/NVIDIA.
+Der Ein-Bild-Weg scheitert erst bei `cuExternalMemoryGetMappedMipmappedArray` —
+Anlegen, Exportieren und `cuImportExternalMemory` gehen durch. Der Grund liegt
+also in der Beschreibung des Bildes: `CUDA_ARRAY3D_DESCRIPTOR` kennt nur **ein**
+Format und **eine** Kanalzahl, NV12 hat aber zwei Ebenen mit unterschiedlicher
+Größe und Kanalzahl. Dass `cuda.h` trotzdem ein `CU_AD_FORMAT_NV12` führt, war
+der Anlass, es zu messen statt zu erschließen. Die Probe versucht es weiterhin
+bei jedem Lauf und würde es melden, wenn ein künftiger Treiber es annimmt.
 
-**Der nächste Schritt ist der Bild-Import**, und zwar wieder in reinem Vulkan:
-ein `VkImage` mit NV12 bzw. P010 statt eines Puffers, exportiert, von CUDA
-beschrieben, jeder Bildpunkt geprüft. Erst danach die Anbindung an wgpu.
+Getrennte Ebenen sind ohnehin die Form, in der ein Shader sie am liebsten
+abtastet — die Einschränkung kostet nichts.
 
-Die Reihenfolge dahinter ist bewusst so gewählt und sollte nicht umgestellt
-werden:
+**Nebenbefund, der beim Umbau zählt:** ein `VkImage` belegt mehr Speicher als
+die dichte Bildgröße, zwischen 0,74 und 18,5 Prozent über den geprüften Fällen,
+ohne einfache Regel. Die Zahl ist beim Treiber zu **erfragen** und in den
+CUDA-Import durchzureichen; sie aus Breite mal Höhe zu rechnen, geht bis zu
+18,5 Prozent daneben.
 
-1. **Bild-Import in reinem Vulkan** — braucht kein wgpu, ein Fehlschlag ist
-   damit eindeutig dem Treiber zuzuordnen.
-2. **Anbindung mit dem heutigen wgpu 29** (`texture_from_raw`). Hält es den
-   Inhalt, ist die ganze Update-Frage erledigt.
-3. **Erst wenn 29 nachweislich scheitert:** der Sprung auf wgpu 30. Das ist
-   eine Kette — wgpu 30 → `egui-wgpu`/`egui-winit` 0.36 → Rust 1.95 (diese
-   Maschine hat 1.93.1); Zahlen in der Messakte. Sein Nutzen ist **unbelegt**:
-   der einzige einschlägige Neuzugang (`initial_state`) wurde auf der
-   Windows-Seite geprüft und als Ursache widerlegt.
+## Wo wir stehen (Stand 2026-08-07)
 
-Zwei Auflagen, die zum Umbau gehören und leicht vergessen werden:
+Zweig `feat/zero-copy-player-linux`.
 
+**Erledigt: die Grundfrage und der Bild-Import.** CUDA und Vulkan teilen sich auf
+Linux/NVIDIA denselben Speicher, und CUDA schreibt direkt in exportierte
+Vulkan-Bilder — NV12 wie P010, als getrennte Ebenen. Damit ist Zero-Copy hier
+grundsätzlich möglich, anders als auf Windows/NVIDIA, und der Weg über einen
+Zwischenpuffer ist nicht nötig.
+
+**Der nächste Schritt ist die Anbindung an das heutige wgpu 29**
+(`texture_from_raw` / `create_texture_from_hal`). Hält es den Inhalt, ist die
+ganze Update-Frage erledigt. Die Reihenfolge dahinter ist bewusst so gewählt und
+sollte nicht umgestellt werden:
+
+1. ~~Bild-Import in reinem Vulkan~~ — erledigt.
+2. **Anbindung mit wgpu 29.**
+3. **Erst wenn 29 nachweislich scheitert:** der Sprung auf wgpu 30. Das ist eine
+   Kette — wgpu 30 → `egui-wgpu`/`egui-winit` 0.36 → Rust 1.95 (diese Maschine
+   hat 1.93.1); Zahlen in der Puffer-Messakte. Sein Nutzen ist **unbelegt**: der
+   einzige einschlägige Neuzugang (`initial_state`) wurde auf der Windows-Seite
+   geprüft und als Ursache widerlegt.
+
+Drei Auflagen, die zum Umbau gehören und leicht vergessen werden:
+
+* **Synchronisierung ist ungeprüft.** Hier wird geschrieben, gewartet, gelesen;
+  im Betrieb schreibt der Decoder, während gezeichnet wird. Das verlangt
+  Semaphoren über dieselbe Grenze (`VK_KHR_external_semaphore_fd` gegen
+  `cuImportExternalSemaphore`). Ungemessen und ungebaut.
 * **Die Einfrier-Erkennung verliert ihre Bildpunkte**, sobald die Ebenen nicht
   mehr im Hauptspeicher liegen. Der Fingerabdruck müsste in einen
   Compute-Shader (Reduktion über die Y-Ebene, Rückkanal von 8 Byte, ein bis
   zwei Bilder Verzug — bei 2,5 s Stillstandsschwelle bedeutungslos). Steht als
   Auflage schon in `player-2026-08-06-nv12-wgpu-import.json`.
-* **Synchronisierung ist ungeprüft.** Hier wird geschrieben, gewartet, gelesen;
-  im Betrieb schreibt der Decoder, während gezeichnet wird. Das verlangt
-  Semaphoren über dieselbe Grenze (`VK_KHR_external_semaphore_fd` gegen
-  `cuImportExternalSemaphore`).
+* **Die Allokationsgröße vom Treiber erfragen**, nicht rechnen (s.o.).
 
 Offen und noch nicht angefasst: ob `av1_cuvid` seine Bilder überhaupt als
 CUDA-Speicher herausgibt statt in den Hauptspeicher (FFmpeg-Frage,
-`hwaccel_output_format cuda`). Ohne das nützt der schönste Import nichts.
+`hwaccel_output_format cuda`). Ohne das nützt der schönste Import nichts. Und
+gemessen ist bisher **Korrektheit, nicht Tempo** — dass der Umbau die 5,26 ms je
+Bild wirklich einspart, ist begründet erwartet, aber nicht belegt.
 
 Danach steht als eigenes Thema **HDR für Linux/NVIDIA** an (10 bit liegt
 bereits vor).

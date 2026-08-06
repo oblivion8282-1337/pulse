@@ -1,8 +1,15 @@
-//! Probe: teilen sich CUDA und Vulkan auf dieser Karte denselben Speicher?
+//! Probe: teilen sich CUDA und Vulkan auf dieser Karte denselben Speicher —
+//! und laesst sich ein Vulkan-BILD von CUDA beschreiben?
 //!
-//! Beantwortet **eine** Frage, nachpruefbar: kommt ein Inhalt, den CUDA in
-//! einen von Vulkan exportierten Speicher schreibt, dort unveraendert an — und
-//! umgekehrt?
+//! Zwei Stufen, getrennt aufrufbar (`SPIKE_MODUS`):
+//!
+//! 1. **Puffer** (`puffer.rs`) — die Grundfrage: kommt ein Inhalt, den CUDA in
+//!    einen von Vulkan exportierten Speicher schreibt, dort unveraendert an?
+//!    Am 2026-08-06 mit Ja beantwortet.
+//! 2. **Bild** (`bild.rs`) — die Frage, die der Player wirklich stellt: ein
+//!    Puffer laesst sich nicht abtasten. Kann CUDA in ein exportiertes
+//!    `VkImage` schreiben (NV12 und P010), oder muss eine Puffer-nach-Bild-
+//!    Kopie dazwischen?
 //!
 //! Davon haengt Zero-Copy im `pulse-player` unter Linux/NVIDIA ab. Heute nimmt
 //! jedes Bild den Weg GPU -> Hauptspeicher -> GPU zurueck: `av1_cuvid` liefert
@@ -15,31 +22,41 @@
 //! CUDA schreiben und Vulkan lesen, nicht andersherum: Der Decoder-Frame liegt
 //! in CUDA-Speicher, den FFmpeg mit `cuMemAlloc` anlegt — und der ist NICHT
 //! exportierbar. Exportieren kann nur, wer beim Anlegen das Flag setzt, und das
-//! ist hier die Vulkan-Seite. Der Weg im Player waere also: Vulkan legt die
-//! Zieltextur an, CUDA bekommt sie eingehaengt, und der fertige Decoder-Frame
-//! wird GPU-lokal hineinkopiert. Das ist keine Nullkopie im Wortsinn, aber es
-//! ist die Kopie, die auf der Karte bleibt statt ueber PCIe zu laufen.
+//! ist hier die Vulkan-Seite.
 //!
 //! **Warum ohne wgpu.** Diese Stufe fragt nur, ob Treiber und CUDA sich einig
 //! sind. Kaeme wgpu dazu, waere ein Fehlschlag nicht mehr eindeutig zuzuordnen
 //! — auf der Windows-Seite ist genau diese Verwechslung passiert (es sah nach
 //! wgpu aus und war der Treiber, s. `player-2026-08-06-nv12-wgpu-import*.json`).
 //!
-//! Rueckgabewert 0 = der Weg traegt.
+//! Rueckgabewert 0 = der gepruefte Weg traegt.
 
+mod bild;
 mod cuda;
+mod puffer;
+mod vk;
 
-use std::ffi::c_void;
-
-use anyhow::{bail, Context, Result};
-use ash::vk;
+use anyhow::{bail, Result};
 
 use cuda::Cuda;
+use vk::Vulkan;
 
-/// Wie viele Bytes geteilt werden. Vorgabe entspricht grob einer 1440p-Luma-
-/// Ebene, damit die Groessenordnung der spaeteren Anwendung stimmt.
+/// Wie viele Bytes die Puffer-Stufe teilt. Vorgabe entspricht grob einer
+/// 1440p-Luma-Ebene, damit die Groessenordnung der spaeteren Anwendung stimmt.
 fn groesse() -> usize {
     std::env::var("SPIKE_BYTES").ok().and_then(|s| s.parse().ok()).unwrap_or(2560 * 1440)
+}
+
+fn zahl(name: &str, vorgabe: u32) -> u32 {
+    std::env::var(name).ok().and_then(|s| s.parse().ok()).unwrap_or(vorgabe)
+}
+
+fn an(name: &str, vorgabe: bool) -> bool {
+    match std::env::var(name).as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => vorgabe,
+    }
 }
 
 /// Positionsabhaengiges Muster.
@@ -48,248 +65,26 @@ fn groesse() -> usize {
 /// abhaengig: ein Weg, der um einige Bytes versetzt liest oder nur den Anfang
 /// trifft, kaeme mit einem gleichfoermigen Muster als fehlerfrei durch. Genau
 /// dieser Fehler ist auf der Windows-Seite beim Textur-Stapel aufgetreten und
-/// waere ohne so ein Muster als "geht" durchgegangen.
-fn muster(i: usize) -> u8 {
+/// waere ohne so ein Muster als "geht" durchgegangen. Bei Bildern faengt es
+/// zusaetzlich eine falsch angenommene Zeilenlaenge.
+pub fn muster(i: usize) -> u8 {
     ((i.wrapping_mul(31).wrapping_add(i >> 8).wrapping_add(7)) & 0xFF) as u8
 }
 
-struct Vulkan {
-    _entry: ash::Entry,
-    instance: ash::Instance,
-    device: ash::Device,
-    phys: vk::PhysicalDevice,
-    queue: vk::Queue,
-    queue_familie: u32,
-    uuid: [u8; 16],
-}
-
-impl Vulkan {
-    fn aufbauen() -> Result<Self> {
-        let entry = unsafe { ash::Entry::load() }.context("Vulkan-Laufzeit nicht ladbar")?;
-        let app = vk::ApplicationInfo::default()
-            .api_version(vk::API_VERSION_1_2)
-            .application_name(c"cuda-vulkan-import");
-        let instance = unsafe {
-            entry.create_instance(&vk::InstanceCreateInfo::default().application_info(&app), None)
-        }
-        .context("vkCreateInstance")?;
-
-        let phys_liste = unsafe { instance.enumerate_physical_devices() }?;
-        // Die Karte wird ueber die UUID gewaehlt, die auch CUDA meldet — auf
-        // einer Maschine mit zwei GPUs waere "die erste" sonst womoeglich eine
-        // andere als die, die CUDA benutzt, und der Import scheiterte aus einem
-        // Grund, der nichts mit der Sache zu tun hat.
-        let mut gewaehlt = None;
-        for p in phys_liste {
-            let mut id = vk::PhysicalDeviceIDProperties::default();
-            let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut id);
-            unsafe { instance.get_physical_device_properties2(p, &mut props) };
-            let name = unsafe { std::ffi::CStr::from_ptr(props.properties.device_name.as_ptr()) }
-                .to_string_lossy()
-                .into_owned();
-            println!("  Vulkan-Geraet: {name}  UUID {}", hex(&id.device_uuid));
-            if gewaehlt.is_none() {
-                gewaehlt = Some((p, id.device_uuid, name));
-            }
-        }
-        let (phys, uuid, name) = gewaehlt.context("keine Vulkan-faehige Karte gefunden")?;
-        println!("  gewaehlt: {name}");
-
-        let familien = unsafe { instance.get_physical_device_queue_family_properties(phys) };
-        let queue_familie = familien
-            .iter()
-            .position(|f| f.queue_flags.contains(vk::QueueFlags::TRANSFER))
-            .context("keine Queue-Familie mit Transfer")? as u32;
-
-        let prio = [1.0f32];
-        let qinfo = [vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(queue_familie)
-            .queue_priorities(&prio)];
-        // `VK_KHR_external_memory_fd` ist der Kern der Sache: ohne sie gibt es
-        // keinen Dateideskriptor zum Weiterreichen. `external_memory` selbst ist
-        // seit Vulkan 1.1 Kernbestand und braucht keine Anforderung.
-        let ext = [c"VK_KHR_external_memory_fd".as_ptr()];
-        let device = unsafe {
-            instance.create_device(
-                phys,
-                &vk::DeviceCreateInfo::default()
-                    .queue_create_infos(&qinfo)
-                    .enabled_extension_names(&ext),
-                None,
-            )
-        }
-        .context("vkCreateDevice — fehlt VK_KHR_external_memory_fd?")?;
-        let queue = unsafe { device.get_device_queue(queue_familie, 0) };
-
-        Ok(Self { _entry: entry, instance, device, phys, queue, queue_familie, uuid })
-    }
-
-    /// Speichertyp mit den geforderten Eigenschaften suchen.
-    fn speichertyp(&self, erlaubt: u32, noetig: vk::MemoryPropertyFlags) -> Result<u32> {
-        let props = unsafe { self.instance.get_physical_device_memory_properties(self.phys) };
-        for i in 0..props.memory_type_count {
-            if erlaubt & (1 << i) != 0
-                && props.memory_types[i as usize].property_flags.contains(noetig)
-            {
-                return Ok(i);
-            }
-        }
-        bail!("kein Speichertyp mit {noetig:?}")
-    }
-
-    /// Puffer im GERAETESPEICHER anlegen und seinen Speicher exportierbar
-    /// machen. Geraetespeicher, weil das die Lage der spaeteren Zieltextur ist —
-    /// ein host-sichtbarer Puffer waere ein anderer Fall und wuerde die Frage
-    /// nicht beantworten.
-    fn exportierbarer_puffer(&self, bytes: usize, dediziert: bool)
-        -> Result<(vk::Buffer, vk::DeviceMemory, i32)>
-    {
-        let mut ext_info = vk::ExternalMemoryBufferCreateInfo::default()
-            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
-        let puffer = unsafe {
-            self.device.create_buffer(
-                &vk::BufferCreateInfo::default()
-                    .size(bytes as u64)
-                    .usage(vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST)
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE)
-                    .push_next(&mut ext_info),
-                None,
-            )
-        }?;
-
-        let bedarf = unsafe { self.device.get_buffer_memory_requirements(puffer) };
-        let typ = self.speichertyp(bedarf.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL)?;
-
-        let mut export = vk::ExportMemoryAllocateInfo::default()
-            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
-        let mut dedi = vk::MemoryDedicatedAllocateInfo::default().buffer(puffer);
-        let mut info = vk::MemoryAllocateInfo::default()
-            .allocation_size(bedarf.size)
-            .memory_type_index(typ)
-            .push_next(&mut export);
-        if dediziert {
-            info = info.push_next(&mut dedi);
-        }
-        let speicher = unsafe { self.device.allocate_memory(&info, None) }?;
-        unsafe { self.device.bind_buffer_memory(puffer, speicher, 0) }?;
-
-        // Der Deskriptor gehoert nach dem Holen UNS; CUDA uebernimmt ihn beim
-        // Import und schliesst ihn selbst. Deshalb wird er hier nicht geschlossen
-        // — ein doppeltes close waere ein Fehler, der erst viel spaeter auffiele.
-        let fd_api = ash::khr::external_memory_fd::Device::new(&self.instance, &self.device);
-        let fd = unsafe {
-            fd_api.get_memory_fd(
-                &vk::MemoryGetFdInfoKHR::default()
-                    .memory(speicher)
-                    .handle_type(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD),
-            )
-        }?;
-        Ok((puffer, speicher, fd))
-    }
-
-    /// Host-sichtbarer Puffer zum Hinein- und Herauskopieren.
-    fn ablage(&self, bytes: usize) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        let puffer = unsafe {
-            self.device.create_buffer(
-                &vk::BufferCreateInfo::default()
-                    .size(bytes as u64)
-                    .usage(vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST)
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE),
-                None,
-            )
-        }?;
-        let bedarf = unsafe { self.device.get_buffer_memory_requirements(puffer) };
-        let typ = self.speichertyp(
-            bedarf.memory_type_bits,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-        let speicher = unsafe {
-            self.device.allocate_memory(
-                &vk::MemoryAllocateInfo::default()
-                    .allocation_size(bedarf.size)
-                    .memory_type_index(typ),
-                None,
-            )
-        }?;
-        unsafe { self.device.bind_buffer_memory(puffer, speicher, 0) }?;
-        Ok((puffer, speicher))
-    }
-
-    /// Eine Puffer-zu-Puffer-Kopie ausfuehren und auf ihr Ende warten.
-    fn kopieren(&self, von: vk::Buffer, nach: vk::Buffer, bytes: usize) -> Result<()> {
-        let pool = unsafe {
-            self.device.create_command_pool(
-                &vk::CommandPoolCreateInfo::default().queue_family_index(self.queue_familie),
-                None,
-            )
-        }?;
-        let cb = unsafe {
-            self.device.allocate_command_buffers(
-                &vk::CommandBufferAllocateInfo::default()
-                    .command_pool(pool)
-                    .level(vk::CommandBufferLevel::PRIMARY)
-                    .command_buffer_count(1),
-            )
-        }?[0];
-        unsafe {
-            self.device.begin_command_buffer(
-                cb,
-                &vk::CommandBufferBeginInfo::default()
-                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
-            )?;
-            self.device.cmd_copy_buffer(
-                cb,
-                von,
-                nach,
-                &[vk::BufferCopy::default().size(bytes as u64)],
-            );
-            self.device.end_command_buffer(cb)?;
-            let cbs = [cb];
-            let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
-            self.device.queue_submit(self.queue, &submit, vk::Fence::null())?;
-            self.device.queue_wait_idle(self.queue)?;
-            self.device.destroy_command_pool(pool, None);
-        }
-        Ok(())
-    }
-
-    fn lesen(&self, speicher: vk::DeviceMemory, bytes: usize) -> Result<Vec<u8>> {
-        unsafe {
-            let p = self.device.map_memory(speicher, 0, bytes as u64, vk::MemoryMapFlags::empty())?;
-            let v = std::slice::from_raw_parts(p as *const u8, bytes).to_vec();
-            self.device.unmap_memory(speicher);
-            Ok(v)
-        }
-    }
-
-    fn schreiben(&self, speicher: vk::DeviceMemory, daten: &[u8]) -> Result<()> {
-        unsafe {
-            let p = self.device.map_memory(
-                speicher, 0, daten.len() as u64, vk::MemoryMapFlags::empty())?;
-            std::ptr::copy_nonoverlapping(daten.as_ptr(), p as *mut u8, daten.len());
-            self.device.unmap_memory(speicher);
-        }
-        Ok(())
-    }
-}
-
-fn hex(b: &[u8]) -> String {
+pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// Erste abweichende Stelle suchen — und melden, WAS dort steht. Ein
 /// verschobener Wert (Nachbarbyte) heisst etwas voellig anderes als eine Null:
 /// das eine ist eine falsche Rechnung, das andere fehlender Speicher.
-fn vergleichen(soll: &[u8], ist: &[u8]) -> Option<(usize, u8, u8)> {
-    soll.iter()
-        .zip(ist.iter())
-        .position(|(a, b)| a != b)
-        .map(|i| (i, soll[i], ist[i]))
+pub fn vergleichen(soll: &[u8], ist: &[u8]) -> Option<(usize, u8, u8)> {
+    soll.iter().zip(ist.iter()).position(|(a, b)| a != b).map(|i| (i, soll[i], ist[i]))
 }
 
 /// Vergleichsergebnis fuer eine Richtung ausgeben; meldet per Rueckgabewert,
-/// ob eine Abweichung auftrat (Aufrufer zaehlt das in `fehler` zusammen).
-fn ergebnis_melden(richtung: &str, soll: &[u8], ist: &[u8]) -> bool {
+/// ob eine Abweichung auftrat.
+pub fn ergebnis_melden(richtung: &str, soll: &[u8], ist: &[u8]) -> bool {
     match vergleichen(soll, ist) {
         None => {
             println!("  {richtung}:  alle {} Bytes stimmen", soll.len());
@@ -307,15 +102,42 @@ fn ergebnis_melden(richtung: &str, soll: &[u8], ist: &[u8]) -> bool {
     }
 }
 
+/// Bei einer Abweichung im Bild: wie verteilt sie sich ueber die Zeilen?
+///
+/// Die Form der Abweichung trennt zwei bekannte Fehlerbilder voneinander, die
+/// beide OHNE Fehlermeldung auftreten: eine Fehlanpassung bei der dedizierten
+/// Allokation erzeugt senkrechte Streifen (also in JEDER Zeile ungefaehr
+/// gleich viele abweichende Bytes), ein falsches `depth`-Feld ein Lochmuster
+/// (also ganze Zeilen heil, andere ganz kaputt). Ohne diese Aufschluesselung
+/// waere beides nur "es stimmt nicht".
+pub fn streifen_diagnose(soll: &[u8], ist: &[u8], zeilenbytes: usize) -> String {
+    if zeilenbytes == 0 {
+        return String::from("Verteilung: keine Zeilenlaenge bekannt");
+    }
+    let zeilen: Vec<usize> = soll
+        .chunks(zeilenbytes)
+        .zip(ist.chunks(zeilenbytes))
+        .map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count())
+        .collect();
+    let heil = zeilen.iter().filter(|&&n| n == 0).count();
+    let ganz = zeilen.iter().filter(|&&n| n == zeilenbytes).count();
+    let max = zeilen.iter().copied().max().unwrap_or(0);
+    let min = zeilen.iter().copied().min().unwrap_or(0);
+    format!(
+        "Verteilung ueber {} Zeilen: {heil} voellig heil, {ganz} voellig kaputt, \
+         je Zeile {min}..{max} von {zeilenbytes} abweichend",
+        zeilen.len()
+    )
+}
+
 fn main() -> Result<()> {
-    let bytes = groesse();
-    let dediziert = std::env::var("SPIKE_DEDIZIERT").as_deref() != Ok("0");
-    println!("Probe CUDA <-> Vulkan, {bytes} Bytes, dedizierte Allokation: {dediziert}");
+    let modus = std::env::var("SPIKE_MODUS").unwrap_or_else(|_| String::from("puffer"));
+    let dediziert = an("SPIKE_DEDIZIERT", true);
 
     cuda::selbsttest_layout()?;
-    println!("  Struct-Layouts gegen cuda.h geprueft: ok");
+    println!("Struct-Layouts gegen cuda.h geprueft: ok");
 
-    let vk_seite = Vulkan::aufbauen()?;
+    let v = Vulkan::aufbauen()?;
     let c = Cuda::laden()?;
 
     unsafe { c.pruefe((c.cuInit)(0), "cuInit")? };
@@ -326,11 +148,11 @@ fn main() -> Result<()> {
     println!("  CUDA-Geraet 0: UUID {}", hex(&cu_uuid));
 
     // Reden beide ueber dieselbe Karte? Sonst ist jeder Befund wertlos.
-    if cu_uuid != vk_seite.uuid {
+    if cu_uuid != v.uuid {
         bail!(
             "Vulkan-Karte ({}) und CUDA-Karte ({}) sind verschieden — \
              die Probe wuerde etwas anderes messen als gemeint",
-            hex(&vk_seite.uuid),
+            hex(&v.uuid),
             hex(&cu_uuid)
         );
     }
@@ -342,98 +164,100 @@ fn main() -> Result<()> {
         c.pruefe((c.cuCtxSetCurrent)(ctx), "cuCtxSetCurrent")?;
     }
 
-    // ── Vulkan legt den geteilten Speicher an und exportiert ihn ────────────
-    let (geteilt, geteilt_mem, fd) = vk_seite.exportierbarer_puffer(bytes, dediziert)?;
-    println!("  Vulkan-Speicher exportiert, Deskriptor {fd}");
+    match modus.as_str() {
+        "puffer" => puffer::pruefen(&v, &c, groesse(), dediziert),
+        "bild" => bild_stufe(&v, &c, dediziert),
+        anderes => bail!("SPIKE_MODUS={anderes} unbekannt — 'puffer' oder 'bild'"),
+    }
+}
 
-    // ── CUDA haengt ihn ein ─────────────────────────────────────────────────
-    // Das Flag fuer die dedizierte Allokation muss zur Vulkan-Seite passen —
-    // die Begruendung steht am Konstruktor.
-    let beschreibung = cuda::ExternalMemoryHandleDesc::fuer_fd(fd, bytes as u64, dediziert);
-    let mut ext_mem: cuda::CUexternalMemory = std::ptr::null_mut();
-    unsafe {
-        c.pruefe(
-            (c.cuImportExternalMemory)(&mut ext_mem, &beschreibung),
-            "cuImportExternalMemory",
-        )?
+/// Die Bild-Stufe: NV12 und P010, je als zwei getrennte Bilder, dazu der
+/// Ein-Bild-Versuch. Das Urteil bezieht sich NUR auf die getrennten Ebenen —
+/// der Ein-Bild-Weg ist eine Zusatzfrage, sein Scheitern ist kein Fehlschlag
+/// der Stufe.
+fn bild_stufe(v: &Vulkan, c: &Cuda, dediziert: bool) -> Result<()> {
+    let breite = zahl("SPIKE_BREITE", 2560);
+    let hoehe = zahl("SPIKE_HOEHE", 1440);
+    let s = bild::Schalter {
+        dediziert,
+        surface_ldst: an("SPIKE_SURFACE_LDST", false),
+        ohne_schreiben: an("SPIKE_OHNE_SCHREIBEN", false),
+        dedi_fehlanpassung: an("SPIKE_DEDI_FEHLANPASSUNG", false),
     };
-    let mut zeiger: cuda::CUdeviceptr = 0;
-    let puffer_desc = cuda::ExternalMemoryBufferDesc {
-        offset: 0,
-        size: bytes as u64,
-        ..Default::default()
-    };
-    unsafe {
-        c.pruefe(
-            (c.cuExternalMemoryGetMappedBuffer)(&mut zeiger, ext_mem, &puffer_desc),
-            "cuExternalMemoryGetMappedBuffer",
-        )?
-    };
-    println!("  CUDA hat ihn eingehaengt, Geraetezeiger 0x{zeiger:x}");
+    println!(
+        "Stufe Bild: {breite}x{hoehe}, dedizierte Allokation: {dediziert}, \
+         SURFACE_LDST: {}, Gegenprobe ohne Schreiben: {}, \
+         Gegenprobe Dedicated-Fehlanpassung: {}",
+        s.surface_ldst, s.ohne_schreiben, s.dedi_fehlanpassung
+    );
 
-    let (ablage, ablage_mem) = vk_seite.ablage(bytes)?;
-    let soll: Vec<u8> = (0..bytes).map(muster).collect();
-    let mut fehler = 0usize;
-
-    // ── Hauptfall: CUDA schreibt, Vulkan liest ──────────────────────────────
-    // Das ist die Richtung, auf die es fuer den Player ankommt.
-    unsafe {
-        c.pruefe((c.cuMemsetD8)(zeiger, 0, bytes), "cuMemsetD8")?;
-        c.pruefe(
-            (c.cuMemcpyHtoD)(zeiger, soll.as_ptr() as *const c_void, bytes),
-            "cuMemcpyHtoD",
-        )?;
-        c.pruefe((c.cuCtxSynchronize)(), "cuCtxSynchronize")?;
-    }
-    vk_seite.kopieren(geteilt, ablage, bytes)?;
-    let gelesen = vk_seite.lesen(ablage_mem, bytes)?;
-    if ergebnis_melden("CUDA schreibt -> Vulkan liest", &soll, &gelesen) {
-        fehler += 1;
-    }
-
-    // ── Gegenrichtung: Vulkan schreibt, CUDA liest ──────────────────────────
-    // Nicht der Anwendungsfall, aber sie trennt zwei Ursachen: schluege nur der
-    // Hauptfall fehl, laege es an der Schreibrichtung, nicht am geteilten
-    // Speicher.
-    let soll2: Vec<u8> = (0..bytes).map(|i| muster(i.wrapping_add(12345))).collect();
-    vk_seite.schreiben(ablage_mem, &soll2)?;
-    vk_seite.kopieren(ablage, geteilt, bytes)?;
-    let mut zurueck = vec![0u8; bytes];
-    unsafe {
-        c.pruefe(
-            (c.cuMemcpyDtoH)(zurueck.as_mut_ptr() as *mut c_void, zeiger, bytes),
-            "cuMemcpyDtoH",
-        )?;
-        c.pruefe((c.cuCtxSynchronize)(), "cuCtxSynchronize")?;
-    }
-    if ergebnis_melden("Vulkan schreibt -> CUDA liest", &soll2, &zurueck) {
-        fehler += 1;
-    }
-
-    // ── Kontrolle: schlaegt die Pruefung ueberhaupt an? ─────────────────────
-    // Ohne sie waere "alles stimmt" nicht von "die Pruefung vergleicht nichts"
-    // zu unterscheiden — dieselbe Klasse Werkzeugfehler, die in diesem Labor
-    // schon mehrfach falsche Befunde erzeugt hat.
-    let mut verdorben = soll2.clone();
-    verdorben[bytes / 2] ^= 0xFF;
-    if vergleichen(&verdorben, &zurueck).is_none() {
-        bail!("Kontrolle fehlgeschlagen: ein absichtlich verfaelschtes Byte fiel NICHT auf");
-    }
-    println!("  Kontrolle: ein verfaelschtes Byte faellt auf — die Pruefung greift");
-
-    unsafe {
-        c.pruefe((c.cuDestroyExternalMemory)(ext_mem), "cuDestroyExternalMemory")?;
-        vk_seite.device.destroy_buffer(geteilt, None);
-        vk_seite.device.free_memory(geteilt_mem, None);
-        vk_seite.device.destroy_buffer(ablage, None);
-        vk_seite.device.free_memory(ablage_mem, None);
+    let mut getragen = 0usize;
+    let mut geprueft = 0usize;
+    for (bezeichnung, zehn_bit) in [("NV12 (8 bit)", false), ("P010 (10 bit)", true)] {
+        println!("\n=== {bezeichnung} als zwei getrennte Bilder ===");
+        for e in bild::ebenen(zehn_bit, breite, hoehe) {
+            geprueft += 1;
+            if bild::ebene_pruefen(v, c, &e, &s)? {
+                getragen += 1;
+            }
+        }
+        println!("\n=== {bezeichnung} als EIN mehrplaniges Bild ===");
+        bild::ein_bild_versuchen(v, c, zehn_bit, breite, hoehe);
     }
 
     println!();
-    if fehler == 0 {
-        println!("URTEIL: der Weg traegt. CUDA und Vulkan teilen sich den Speicher.");
+    // Bei der Gegenprobe ohne Schreiben ist die Erwartung UMGEKEHRT: dort waere
+    // ein fehlerfreier Vergleich der Beweis, dass die Probe gar nichts misst.
+    // Deshalb wird das Urteil dort gedreht, statt den Lauf von Hand zu deuten —
+    // eine Gegenprobe, deren Ergebnis man selbst noch auslegen muss, wird beim
+    // naechsten Mal falsch ausgelegt.
+    if s.ohne_schreiben {
+        return if getragen == 0 {
+            println!(
+                "URTEIL DER GEGENPROBE: bestanden. Ohne CUDA-Schreibzugriff weicht \
+                 jede der {geprueft} Ebenen ab — ein Erfolg im Hauptlauf ist also \
+                 kein Artefakt der Pruefmechanik."
+            );
+            Ok(())
+        } else {
+            bail!(
+                "URTEIL DER GEGENPROBE: DURCHGEFALLEN. {getragen} von {geprueft} Ebenen \
+                 galten als fehlerfrei, OBWOHL CUDA nichts geschrieben hat — die Probe \
+                 misst nicht, was sie zu messen behauptet. Jeder frueher hier gewonnene \
+                 Bild-Befund ist damit hinfaellig."
+            )
+        };
+    }
+
+    // Bei der Fehlanpassungs-Gegenprobe steht ausdruecklich KEIN Urteil ueber
+    // den Bild-Import: dieser Lauf beantwortet eine andere Frage (faellt eine
+    // falsch gesetzte Speicherlage auf?), und ein "traegt" waere hier eine
+    // Aussage ueber einen Weg, den so niemand baut.
+    if s.dedi_fehlanpassung {
+        println!(
+            "BEFUND DER FEHLANPASSUNG (Vulkan dediziert={dediziert}, CUDA-Flag \
+             dediziert={}): {getragen} von {geprueft} Ebenen kamen trotzdem \
+             fehlerfrei durch. {}",
+            !dediziert,
+            if getragen == geprueft {
+                "Der Treiber laesst sich von dem falschen Flag hier nicht beirren."
+            } else {
+                "Die Fehlanpassung faellt auf — Verteilung oben beachten."
+            }
+        );
+        return Ok(());
+    }
+
+    if getragen == geprueft {
+        println!(
+            "URTEIL: der Bild-Import traegt. CUDA schreibt direkt in exportierte \
+             Vulkan-Bilder ({getragen} von {geprueft} Ebenen fehlerfrei)."
+        );
         Ok(())
     } else {
-        bail!("URTEIL: der Weg traegt NICHT ({fehler} von 2 Richtungen abweichend)");
+        bail!(
+            "URTEIL: der Bild-Import traegt NICHT ({getragen} von {geprueft} Ebenen \
+             fehlerfrei) — der Weg fuehrt ueber Puffer plus vkCmdCopyBufferToImage"
+        )
     }
 }
