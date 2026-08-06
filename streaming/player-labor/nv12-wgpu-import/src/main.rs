@@ -23,18 +23,111 @@ use windows::Win32::Foundation::{HANDLE, HMODULE};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_1};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    D3D11_BIND_DECODER, D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
     D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX,
     D3D11_RESOURCE_MISC_SHARED_NTHANDLE,
     D3D11_CPU_ACCESS_READ, D3D11_CPU_ACCESS_WRITE, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ,
     D3D11_MAP_WRITE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
     D3D11_USAGE_STAGING,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_SAMPLE_DESC,
+};
 use windows::Win32::Graphics::Dxgi::{IDXGIKeyedMutex, IDXGIResource1};
 
 const BREITE: u32 = 64;
 const HOEHE: u32 = 64;
+
+/// Welches Bildformat geprueft wird.
+///
+/// **Der Unterschied ist nicht nur die Bittiefe.** P010 legt seine zehn Bit in
+/// die OBEREN Bits eines 16-Bit-Wortes, hat andere Ebenen-Formate und haengt an
+/// einem eigenen wgpu-Merkmal. Alles davon steht hier beieinander, damit es
+/// nicht an fuenf Stellen einzeln entschieden wird — genau die Sorte Streuung,
+/// bei der ein Weg spaeter halb umgestellt ist.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Bildformat {
+    Nv12,
+    P010,
+}
+
+impl Bildformat {
+    fn name(self) -> &'static str {
+        match self {
+            Bildformat::Nv12 => "NV12 (8 bit)",
+            Bildformat::P010 => "P010 (10 bit)",
+        }
+    }
+    fn dxgi(self) -> windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT {
+        match self {
+            Bildformat::Nv12 => DXGI_FORMAT_NV12,
+            Bildformat::P010 => DXGI_FORMAT_P010,
+        }
+    }
+    fn wgpu(self) -> wgpu::TextureFormat {
+        match self {
+            Bildformat::Nv12 => wgpu::TextureFormat::NV12,
+            Bildformat::P010 => wgpu::TextureFormat::P010,
+        }
+    }
+    /// Ebenen-Ansichten: Luma einkanalig, Chroma zweikanalig verschraenkt.
+    fn ebenen(self) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
+        match self {
+            Bildformat::Nv12 => (wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
+            Bildformat::P010 => (wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm),
+        }
+    }
+    /// Alle Merkmale, die dieses Format braucht — **auch die der
+    /// Ebenen-Ansichten.**
+    ///
+    /// Bei P010 sind das zwei: das Format selbst UND `TEXTURE_FORMAT_16BIT_NORM`
+    /// fuer `R16Unorm`/`Rg16Unorm`. Ohne das zweite gelingt der Import, und erst
+    /// `create_view` scheitert — mitten in Stufe 3, mit einer Meldung ueber
+    /// Merkmale statt ueber den Import. Genau die Sorte Fehlschlag, die man
+    /// zuerst dem geteilten Speicher anlastet.
+    fn merkmal(self) -> wgpu::Features {
+        match self {
+            Bildformat::Nv12 => wgpu::Features::TEXTURE_FORMAT_NV12,
+            Bildformat::P010 => {
+                wgpu::Features::TEXTURE_FORMAT_P010 | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
+            }
+        }
+    }
+    /// Byte je Abtastwert im Speicher — 1 bei NV12, 2 bei P010.
+    fn bytes(self) -> usize {
+        match self {
+            Bildformat::Nv12 => 1,
+            Bildformat::P010 => 2,
+        }
+    }
+    fn hoechster_code(self) -> u32 {
+        match self {
+            Bildformat::Nv12 => 255,
+            Bildformat::P010 => 1023,
+        }
+    }
+    /// Wie ein Codewert im Speicher steht.
+    ///
+    /// **P010 schiebt um sechs Bit nach oben.** Wer das vergisst, schreibt ein
+    /// um Faktor 64 zu dunkles Bild und sieht es dem Ergebnis nicht an — es ist
+    /// dann nur „fast schwarz" statt schwarz.
+    fn gespeichert(self, code: u32) -> u16 {
+        match self {
+            Bildformat::Nv12 => code as u16,
+            Bildformat::P010 => (code << 6) as u16,
+        }
+    }
+    /// Was der Sampler daraus macht, normiert auf [0,1] — der Sollwert, gegen
+    /// den Stufe 4 prueft. Beide Ebenen-Formate sind `*Unorm`, der Wert ist
+    /// also der gespeicherte geteilt durch den Hoechstwert des SPEICHERWORTES,
+    /// nicht durch den des Codes.
+    fn abtastwert(self, code: u32) -> f64 {
+        match self {
+            Bildformat::Nv12 => code as f64 / 255.0,
+            Bildformat::P010 => self.gespeichert(code) as f64 / 65535.0,
+        }
+    }
+}
 
 /// Was in die Textur geschrieben wird — und wogegen spaeter geprueft wird.
 ///
@@ -42,46 +135,62 @@ const HOEHE: u32 = 64;
 /// Zeilenabstands-Fehler auf (bei falschem Abstand verrutscht sie sichtbar),
 /// zwei verschiedene feste Chroma-Werte decken vertauschte U/V-Kanaele auf —
 /// mit 128/128 waere beides unsichtbar geblieben.
-fn luma(x: u32, y: u32) -> u8 {
-    ((x * 4 + y) % 256) as u8
+///
+/// **`schicht` geht mit ein, und das ist der Zweck der Stapel-Pruefung.**
+/// Jede Schicht traegt ein anderes Bild; ein Weg, der immer Schicht 0 liest
+/// oder den Abstand zwischen den Schichten falsch berechnet, faellt damit auf.
+/// Mit gleichem Inhalt in allen Schichten waere beides unsichtbar.
+///
+/// **Bei 10 Bit tragen die unteren zwei Bit eine eigene Stufe.** Ohne das
+/// bestuenden alle Werte aus Vielfachen von vier, und ein Weg, der still auf
+/// 8 Bit kappt, kaeme als fehlerfrei durch — also genau der Fehler, um den es
+/// bei 10 Bit geht.
+fn luma_code(f: Bildformat, x: u32, y: u32, schicht: u32) -> u32 {
+    let acht = (x * 4 + y + schicht * 37) % 256;
+    match f {
+        Bildformat::Nv12 => acht,
+        Bildformat::P010 => acht * 4 + (x + y) % 4,
+    }
 }
-const U_WERT: u8 = 64;
-const V_WERT: u8 = 192;
 
-fn nv12_daten() -> Vec<u8> {
-    let mut v = vec![0u8; (BREITE * HOEHE + BREITE * HOEHE / 2) as usize];
-    for y in 0..HOEHE {
-        for x in 0..BREITE {
-            v[(y * BREITE + x) as usize] = luma(x, y);
-        }
+/// Feste Chroma-Werte. Bei 10 Bit bewusst UNGERADE Vielfache gewaehlt (257 und
+/// 771 statt 256 und 768) — dieselbe Ueberlegung wie bei der Luma-Rampe: ein
+/// Weg, der auf 8 Bit kappt, liefert dann sichtbar etwas anderes.
+fn chroma_codes(f: Bildformat) -> (u32, u32) {
+    match f {
+        Bildformat::Nv12 => (64, 192),
+        Bildformat::P010 => (257, 771),
     }
-    let uv_start = (BREITE * HOEHE) as usize;
-    for i in 0..(BREITE * HOEHE / 4) as usize {
-        v[uv_start + i * 2] = U_WERT;
-        v[uv_start + i * 2 + 1] = V_WERT;
-    }
-    v
 }
 
 struct D3d11Quelle {
     mit_mutex: bool,
+    format: Bildformat,
+    /// Schichten des Stapels — 1 heisst Einzeltextur, also der bisherige Fall.
+    schichten: u32,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     textur: ID3D11Texture2D,
     handle: HANDLE,
 }
 
-/// Liest die Luma-Ebene der geteilten Textur ueber D3D11 zurueck.
+/// Eine EINSCHICHTIGE Ablage-Textur anlegen und den Inhalt genau einer Schicht
+/// hineinkopieren — die gemeinsame Vorarbeit beider Rueckproben.
 ///
-/// Zaehlt, wie viele Werte von `erwartet` abweichen. Getrennt von der vollen
-/// Rueckprobe, weil Stufe 5 nur die Luma-Ebene beschreibt.
-fn d3d11_luma_lesen(q: &D3d11Quelle, erwartet: &dyn Fn(u32, u32) -> u8) -> Result<usize, String> {
+/// **Warum einschichtig, obwohl die Quelle ein Stapel sein kann.** Ein
+/// Video-Format-Stapel laesst sich als CPU-Ablage gar nicht anlegen
+/// (`E_INVALIDARG`, 2026-08-06 gemessen): der Stapel braucht das
+/// Decoder-Bindungsflag, und eine Ablage-Textur darf ueberhaupt keine
+/// Bindungsflags tragen. Beides zusammen geht nicht. Deshalb einschichtig und
+/// `CopySubresourceRegion` je Schicht statt `CopyResource` am Stueck — genau
+/// der Weg, den auch der Sidecar fuer seine Poolen nimmt.
+fn ablage_mit_inhalt(q: &D3d11Quelle, schicht: u32) -> Result<ID3D11Texture2D, String> {
     let desc = D3D11_TEXTURE2D_DESC {
         Width: BREITE,
         Height: HOEHE,
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
+        Format: q.format.dxgi(),
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         Usage: D3D11_USAGE_STAGING,
         BindFlags: 0,
@@ -97,19 +206,53 @@ fn d3d11_luma_lesen(q: &D3d11Quelle, erwartet: &dyn Fn(u32, u32) -> u8) -> Resul
     if let Some(m) = &mutex {
         unsafe { m.AcquireSync(0, u32::MAX) }.map_err(|e| format!("AcquireSync: {e}"))?;
     }
-    unsafe { q.context.CopyResource(&ablage, &q.textur) };
+    unsafe {
+        q.context
+            .CopySubresourceRegion(&ablage, 0, 0, 0, 0, &q.textur, schicht, None)
+    };
     if let Some(m) = &mutex {
         unsafe { m.ReleaseSync(0) }.map_err(|e| format!("ReleaseSync: {e}"))?;
     }
+    Ok(ablage)
+}
+
+/// Einen Abtastwert aus einer abgebildeten Ebene lesen — ein oder zwei Byte,
+/// je nach Format.
+///
+/// # Safety
+/// `basis` muss auf die abgebildete Teilressource zeigen und der berechnete
+/// Versatz innerhalb davon liegen.
+unsafe fn wort(f: Bildformat, basis: *const u8, versatz: usize) -> u32 {
+    match f.bytes() {
+        1 => u32::from(unsafe { *basis.add(versatz) }),
+        _ => {
+            let b = unsafe { std::slice::from_raw_parts(basis.add(versatz), 2) };
+            u16::from_le_bytes([b[0], b[1]]) as u32
+        }
+    }
+}
+
+/// Liest die Luma-Ebene EINER Schicht der geteilten Textur ueber D3D11 zurueck.
+///
+/// Zaehlt, wie viele Werte von `erwartet` (als gespeichertes Wort) abweichen.
+/// Getrennt von der vollen Rueckprobe, weil Stufe 5 nur die Luma-Ebene
+/// beschreibt.
+fn d3d11_luma_lesen(
+    q: &D3d11Quelle,
+    schicht: u32,
+    erwartet: &dyn Fn(u32, u32) -> u32,
+) -> Result<usize, String> {
+    let ablage = ablage_mit_inhalt(q, schicht)?;
     let mut abbild = D3D11_MAPPED_SUBRESOURCE::default();
     unsafe { q.context.Map(&ablage, 0, D3D11_MAP_READ, 0, Some(&mut abbild)) }
         .map_err(|e| format!("Map: {e}"))?;
     let pitch = abbild.RowPitch as usize;
     let basis = abbild.pData as *const u8;
+    let b = q.format.bytes();
     let mut abweichend = 0usize;
     for y in 0..HOEHE {
         for x in 0..BREITE {
-            let ist = unsafe { *basis.add(y as usize * pitch + x as usize) };
+            let ist = unsafe { wort(q.format, basis, y as usize * pitch + x as usize * b) };
             if ist != erwartet(x, y) {
                 abweichend += 1;
             }
@@ -125,71 +268,66 @@ fn d3d11_luma_lesen(q: &D3d11Quelle, erwartet: &dyn Fn(u32, u32) -> u8) -> Resul
 /// Stufe 4 nichts an, kann das genauso gut heissen, dass nie etwas drin stand.
 /// Erst wenn D3D11 den geschriebenen Inhalt wiederfindet, ist ein leeres
 /// Vulkan-Ergebnis ein Vulkan-Befund.
+///
+/// Prueft **jede** Schicht, nicht nur die spaeter abgetastete: liefe schon
+/// D3D11 die Schichten durcheinander, waere ein Vulkan-Befund darueber wertlos.
 fn d3d11_rueckprobe(q: &D3d11Quelle) -> Result<usize, String> {
-    let desc = D3D11_TEXTURE2D_DESC {
-        Width: BREITE,
-        Height: HOEHE,
-        MipLevels: 1,
-        ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-        Usage: D3D11_USAGE_STAGING,
-        BindFlags: 0,
-        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-        MiscFlags: 0,
-    };
-    let mut ablage: Option<ID3D11Texture2D> = None;
-    unsafe { q.device.CreateTexture2D(&desc, None, Some(&mut ablage)) }
-        .map_err(|e| format!("Ablage-Textur: {e}"))?;
-    let ablage = ablage.ok_or("Ablage-Textur fehlt")?;
-    let mutex: Option<IDXGIKeyedMutex> =
-        if q.mit_mutex { Some(q.textur.cast().map_err(|e| format!("Mutex: {e}"))?) } else { None };
-    if let Some(m) = &mutex {
-        unsafe { m.AcquireSync(0, u32::MAX) }.map_err(|e| format!("AcquireSync: {e}"))?;
-    }
-    unsafe { q.context.CopyResource(&ablage, &q.textur) };
-    if let Some(m) = &mutex {
-        unsafe { m.ReleaseSync(0) }.map_err(|e| format!("ReleaseSync: {e}"))?;
-    }
-
-    let mut abbild = D3D11_MAPPED_SUBRESOURCE::default();
-    unsafe { q.context.Map(&ablage, 0, D3D11_MAP_READ, 0, Some(&mut abbild)) }
-        .map_err(|e| format!("Map: {e}"))?;
-    let pitch = abbild.RowPitch as usize;
-    let basis = abbild.pData as *const u8;
+    let (u_soll, v_soll) = chroma_codes(q.format);
+    let b = q.format.bytes();
     let mut abweichend = 0usize;
-    for y in 0..HOEHE as usize {
-        for x in 0..BREITE as usize {
-            let ist = unsafe { *basis.add(y * pitch + x) };
-            if ist != luma(x as u32, y as u32) {
+    for schicht in 0..q.schichten {
+        let ablage = ablage_mit_inhalt(q, schicht)?;
+        let mut abbild = D3D11_MAPPED_SUBRESOURCE::default();
+        unsafe { q.context.Map(&ablage, 0, D3D11_MAP_READ, 0, Some(&mut abbild)) }
+            .map_err(|e| format!("Map (Schicht {schicht}): {e}"))?;
+        let pitch = abbild.RowPitch as usize;
+        let basis = abbild.pData as *const u8;
+        for y in 0..HOEHE as usize {
+            for x in 0..BREITE as usize {
+                let ist = unsafe { wort(q.format, basis, y * pitch + x * b) };
+                if ist != q.format.gespeichert(luma_code(q.format, x as u32, y as u32, schicht))
+                    as u32
+                {
+                    abweichend += 1;
+                }
+            }
+        }
+        // Die Chroma-Ebene beginnt genau `pitch * hoehe` nach dem Anfang —
+        // bei NV12 wie bei P010; nur die Wortbreite unterscheidet sich.
+        let uv = pitch * HOEHE as usize;
+        for i in 0..(BREITE * HOEHE / 4) as usize {
+            let zeile = i / (BREITE as usize / 2);
+            let spalte = i % (BREITE as usize / 2);
+            let u = unsafe { wort(q.format, basis, uv + zeile * pitch + spalte * 2 * b) };
+            let v = unsafe { wort(q.format, basis, uv + zeile * pitch + spalte * 2 * b + b) };
+            if u != q.format.gespeichert(u_soll) as u32
+                || v != q.format.gespeichert(v_soll) as u32
+            {
                 abweichend += 1;
             }
         }
+        unsafe { q.context.Unmap(&ablage, schicht) };
     }
-    // Die Chroma-Ebene beginnt bei NV12 genau `pitch * hoehe` nach dem Anfang.
-    let uv = pitch * HOEHE as usize;
-    for i in 0..(BREITE * HOEHE / 4) as usize {
-        let zeile = i / (BREITE as usize / 2);
-        let spalte = i % (BREITE as usize / 2);
-        let u = unsafe { *basis.add(uv + zeile * pitch + spalte * 2) };
-        let v = unsafe { *basis.add(uv + zeile * pitch + spalte * 2 + 1) };
-        if u != U_WERT || v != V_WERT {
-            abweichend += 1;
-        }
-    }
-    unsafe { q.context.Unmap(&ablage, 0) };
     Ok(abweichend)
 }
 
-/// Stufe 2: geteilte NV12-Textur in D3D11 anlegen und mit bekanntem Inhalt
-/// fuellen.
+/// Stufe 2: geteilte Textur in D3D11 anlegen und mit bekanntem Inhalt fuellen.
 ///
 /// `SHARED_NTHANDLE` verlangt laut Doku die Paarung mit `SHARED_KEYEDMUTEX`;
 /// beides zusammen ergibt das NT-Handle, das Vulkan als
 /// `D3D11_TEXTURE`-Handle-Typ erwartet. Der Mutex wird hier nur einmal
 /// freigegeben — fuer einen Einmal-Nachweis genuegt das, im laufenden Betrieb
 /// braucht es echte Synchronisierung (s. Ausgabe am Ende).
-fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
+///
+/// `schichten > 1` legt einen Stapel an — die Form, in der ein
+/// Hardware-Decoder seine Bilder liefert (eine Schicht je Bild). **Jede
+/// Schicht bekommt einen anderen Inhalt**, sonst waere ein Weg, der immer
+/// Schicht 0 liest, von einem richtigen nicht zu unterscheiden.
+fn d3d11_quelle(
+    mit_mutex: bool,
+    format: Bildformat,
+    schichten: u32,
+) -> Result<D3d11Quelle, String> {
     let mut device: Option<ID3D11Device> = None;
     let mut context: Option<ID3D11DeviceContext> = None;
     unsafe {
@@ -213,11 +351,25 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
         Width: BREITE,
         Height: HOEHE,
         MipLevels: 1,
-        ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
+        ArraySize: schichten,
+        Format: format.dxgi(),
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         Usage: D3D11_USAGE_DEFAULT,
-        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+        // **Ein Stapel braucht zusaetzlich das Decoder-Flag.** Ohne es lehnt
+        // D3D11 einen Video-Format-Stapel rundweg ab (`E_INVALIDARG`), mit ihm
+        // gelingt er — geteilt wie ungeteilt (Halbierung im Fehlerpfad unten,
+        // gemessen 2026-08-06 auf einer Radeon 780M). Eine Einzeltextur kommt
+        // dagegen ohne aus, und dabei bleibt es: der Fall soll mit den
+        // frueheren Messungen vergleichbar bleiben.
+        //
+        // Das ist kein Kunstgriff, sondern genau die Bauart, die der Player
+        // vorfaende: libavutils D3D11VA-Pool legt seine Decoder-Poolen mit
+        // `DECODER|SHADER_RESOURCE` an.
+        BindFlags: if schichten > 1 {
+            (D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32
+        } else {
+            D3D11_BIND_SHADER_RESOURCE.0 as u32
+        },
         CPUAccessFlags: 0,
         // Zwei Bauarten, weil zwei Ursachen fuer ein schwarzes Bild in Frage
         // kommen und sie sich sonst nicht trennen lassen:
@@ -232,8 +384,42 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
         },
     };
     let mut textur: Option<ID3D11Texture2D> = None;
-    unsafe { device.CreateTexture2D(&desc, None, Some(&mut textur)) }
-        .map_err(|e| format!("CreateTexture2D (NV12, geteilt): {e}"))?;
+    if let Err(e) = unsafe { device.CreateTexture2D(&desc, None, Some(&mut textur)) } {
+        // **Halbieren statt melden.** Ein `E_INVALIDARG` sagt nicht, WELCHER
+        // der acht Werte im Deskriptor gemeint ist. Bei einem Stapel kommen
+        // genau zwei Erklaerungen in Frage — das Video-Format vertraegt keinen
+        // Stapel, oder ein Stapel laesst sich nicht teilen — und die trennt ein
+        // zweiter Versuch ohne die Teilungs-Flags. Ohne diese Unterscheidung
+        // stuende in der Messakte nur "geht nicht", und der naechste Anlauf
+        // finge wieder bei null an.
+        // Vier Varianten, jede laesst genau eine Erklaerung uebrig. Die dritte
+        // ist die wichtigste: **so legt libavutil seine Decoder-Poolen an**
+        // (`DECODER|SHADER_RESOURCE`), und genau solche Stapel wuerde der
+        // Player bekommen. Ein Video-Format-Stapel OHNE `BIND_DECODER` ist
+        // moeglicherweise gar nicht vorgesehen.
+        let versuch = |name: &str, bind: u32, misc: u32| {
+            let mut t: Option<ID3D11Texture2D> = None;
+            let d = D3D11_TEXTURE2D_DESC { BindFlags: bind, MiscFlags: misc, ..desc };
+            let ok = unsafe { device.CreateTexture2D(&d, None, Some(&mut t)) }.is_ok();
+            format!("\n    {name}: {}", if ok { "geht" } else { "geht nicht" })
+        };
+        const BIND_DECODER: u32 = 0x200;
+        let sr = D3D11_BIND_SHADER_RESOURCE.0 as u32;
+        let mut befund = String::new();
+        befund.push_str(&versuch("nur Shader-Ansicht, ungeteilt", sr, 0));
+        befund.push_str(&versuch("Decoder + Shader-Ansicht, ungeteilt", D3D11_BIND_DECODER.0 as u32 | sr, 0));
+        befund.push_str(&versuch(
+            "Decoder + Shader-Ansicht, geteilt",
+            D3D11_BIND_DECODER.0 as u32 | sr,
+            desc.MiscFlags,
+        ));
+        befund.push_str(&versuch("nur Decoder, ungeteilt", D3D11_BIND_DECODER.0 as u32, 0));
+        return Err(format!(
+            "CreateTexture2D ({}, geteilt, {schichten} Schicht(en)): {e}\
+             \n  Halbierung, welche Bauart dieser Treiber annimmt:{befund}",
+            format.name()
+        ));
+    }
     let textur = textur.ok_or("CreateTexture2D lieferte keine Textur")?;
 
     // Fuellen ueber eine Ablage-Textur, NICHT ueber `pInitialData`.
@@ -244,7 +430,13 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
     // hinter der ersten; ein einzelner `SysMemPitch` beschreibt das nicht
     // eindeutig). Ueber `Map` steht der echte Zeilenabstand des Treibers zur
     // Verfuegung, und der ist bei 64 Punkten Breite bereits groesser als 64.
+    //
+    // **Einschichtig, auch wenn das Ziel ein Stapel ist.** Ein Stapel in einem
+    // Video-Format braucht das Decoder-Bindungsflag, eine CPU-Ablage darf gar
+    // keine Bindungsflags tragen — beides zusammen lehnt D3D11 ab
+    // (`E_INVALIDARG`). Also eine Schicht fuellen und je Schicht kopieren.
     let ablage_desc = D3D11_TEXTURE2D_DESC {
+        ArraySize: 1,
         Usage: D3D11_USAGE_STAGING,
         BindFlags: 0,
         CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
@@ -255,33 +447,17 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
     unsafe { device.CreateTexture2D(&ablage_desc, None, Some(&mut ablage)) }
         .map_err(|e| format!("Ablage zum Fuellen: {e}"))?;
     let ablage = ablage.ok_or("Ablage fehlt")?;
-    let mut abbild = D3D11_MAPPED_SUBRESOURCE::default();
-    unsafe { context.Map(&ablage, 0, D3D11_MAP_WRITE, 0, Some(&mut abbild)) }
-        .map_err(|e| format!("Map zum Schreiben: {e}"))?;
-    let pitch = abbild.RowPitch as usize;
-    let basis = abbild.pData as *mut u8;
-    for y in 0..HOEHE as usize {
-        for x in 0..BREITE as usize {
-            unsafe { *basis.add(y * pitch + x) = luma(x as u32, y as u32) };
+    let (u_wert, v_wert) = chroma_codes(format);
+    let b = format.bytes();
+    let schreiben = |basis: *mut u8, versatz: usize, code: u32| unsafe {
+        let w = format.gespeichert(code);
+        match b {
+            1 => *basis.add(versatz) = w as u8,
+            _ => std::ptr::copy_nonoverlapping(w.to_le_bytes().as_ptr(), basis.add(versatz), 2),
         }
-    }
-    let uv = pitch * HOEHE as usize;
-    for zeile in 0..(HOEHE / 2) as usize {
-        for spalte in 0..(BREITE / 2) as usize {
-            unsafe {
-                *basis.add(uv + zeile * pitch + spalte * 2) = U_WERT;
-                *basis.add(uv + zeile * pitch + spalte * 2 + 1) = V_WERT;
-            }
-        }
-    }
-    unsafe { context.Unmap(&ablage, 0) };
-
-    // Der Schluessel-Mutex muss VOR dem Zugriff erworben werden.
-    //
-    // Beim ersten Anlauf stand das Erwerben hinter dem Kopieren — die Textur
-    // blieb leer, und zwar ohne jede Fehlermeldung: D3D11 verwirft die Arbeit
-    // still, wenn der Aufrufer den Schluessel nicht haelt. Genau die Sorte
-    // Fehler, die man ohne Rueckprobe der Vulkan-Seite anlastet.
+    };
+    // Der Schluessel-Mutex muss VOR dem Zugriff auf die geteilte Textur
+    // erworben werden — Begruendung unten, wo er frueher stand.
     let mutex: Option<IDXGIKeyedMutex> = if mit_mutex {
         Some(textur.cast().map_err(|e| format!("IDXGIKeyedMutex: {e}"))?)
     } else {
@@ -290,7 +466,38 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
     if let Some(m) = &mutex {
         unsafe { m.AcquireSync(0, u32::MAX) }.map_err(|e| format!("AcquireSync: {e}"))?;
     }
-    unsafe { context.CopyResource(&textur, &ablage) };
+    // Je Schicht: die einschichtige Ablage neu fuellen und an ihren Platz im
+    // Stapel kopieren.
+    for schicht in 0..schichten {
+        let mut abbild = D3D11_MAPPED_SUBRESOURCE::default();
+        unsafe { context.Map(&ablage, 0, D3D11_MAP_WRITE, 0, Some(&mut abbild)) }
+            .map_err(|e| format!("Map zum Schreiben (Schicht {schicht}): {e}"))?;
+        let pitch = abbild.RowPitch as usize;
+        let basis = abbild.pData as *mut u8;
+        for y in 0..HOEHE as usize {
+            for x in 0..BREITE as usize {
+                let code = luma_code(format, x as u32, y as u32, schicht);
+                schreiben(basis, y * pitch + x * b, code);
+            }
+        }
+        let uv = pitch * HOEHE as usize;
+        for zeile in 0..(HOEHE / 2) as usize {
+            for spalte in 0..(BREITE / 2) as usize {
+                let versatz = uv + zeile * pitch + spalte * 2 * b;
+                schreiben(basis, versatz, u_wert);
+                schreiben(basis, versatz + b, v_wert);
+            }
+        }
+        unsafe { context.Unmap(&ablage, 0) };
+        // **Das Erwerben des Schluessels steht VOR dieser Schleife**, nicht
+        // dahinter. Beim ersten Anlauf lag es hinter dem Kopieren — die Textur
+        // blieb leer, und zwar ohne jede Fehlermeldung: D3D11 verwirft die
+        // Arbeit still, wenn der Aufrufer den Schluessel nicht haelt. Genau die
+        // Sorte Fehler, die man ohne Rueckprobe der Vulkan-Seite anlastet.
+        unsafe {
+            context.CopySubresourceRegion(&textur, schicht, 0, 0, 0, &ablage, 0, None)
+        };
+    }
     unsafe { context.Flush() };
     if let Some(m) = &mutex {
         unsafe { m.ReleaseSync(0) }.map_err(|e| format!("ReleaseSync: {e}"))?;
@@ -301,7 +508,7 @@ fn d3d11_quelle(mit_mutex: bool) -> Result<D3d11Quelle, String> {
     let handle = unsafe { res.CreateSharedHandle(None, 0x8000_0000 | 1, None) }
         .map_err(|e| format!("CreateSharedHandle: {e}"))?;
 
-    Ok(D3d11Quelle { mit_mutex, device, context, textur, handle })
+    Ok(D3d11Quelle { mit_mutex, format, schichten, device, context, textur, handle })
 }
 
 const SHADER: &str = r#"
@@ -351,23 +558,51 @@ fn lauf() -> i32 {
     let info = adapter.get_info();
     println!("GPU        {} ({:?}, {})", info.name, info.backend, info.driver);
 
+    // Was geprueft wird. Vorgabe ist der bisherige Fall (NV12, Einzeltextur),
+    // damit ein nackter Lauf mit den frueheren Messungen vergleichbar bleibt.
+    let format = match std::env::var("SPIKE_FORMAT").as_deref() {
+        Ok("p010") => Bildformat::P010,
+        _ => Bildformat::Nv12,
+    };
+    let schichten: u32 = std::env::var("SPIKE_SCHICHTEN")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(1);
+    // Welche Schicht abgetastet wird. Vorgabe ist die LETZTE, nicht die erste:
+    // ein Weg, der immer Schicht 0 liest, faellt sonst gar nicht auf.
+    let schicht: u32 = std::env::var("SPIKE_SCHICHT")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .filter(|n| *n < schichten)
+        .unwrap_or(schichten - 1);
+
     let f = adapter.features();
-    let nv12 = f.contains(wgpu::Features::TEXTURE_FORMAT_NV12);
+    let hat_format = f.contains(format.merkmal());
     let extmem = f.contains(wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32);
-    println!("NV12       {}", if nv12 { "ja" } else { "NEIN" });
+    println!("Format     {} — {}", format.name(), if hat_format { "ja" } else { "NEIN" });
     println!("ext. Speicher (Win32)  {}", if extmem { "ja" } else { "NEIN" });
-    if !nv12 || !extmem {
-        println!("\nURTEIL: Der Weg ist auf dieser GPU nicht gangbar.");
+    println!("Stapel     {schichten} Schicht(en), geprueft wird Schicht {schicht}");
+    if !hat_format || !extmem {
+        println!("\nURTEIL: Der Weg ist auf dieser GPU mit diesem Format nicht gangbar.");
         return 1;
     }
 
+    // Bei 10 Bit reicht ein 8-Bit-Ziel nicht: es kappte die unteren zwei Bit
+    // und liesse damit genau den Fehler durch, um den es hier geht.
+    // `Rgba32Float` ist im Kern von wgpu darstellbar und verlustfrei — ein
+    // 16-Bit-Norm-Ziel braeuchte ein weiteres Merkmal.
+    let zielformat = match format {
+        Bildformat::Nv12 => wgpu::TextureFormat::Rgba8Unorm,
+        Bildformat::P010 => wgpu::TextureFormat::Rgba32Float,
+    };
+
     let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("nv12-import"),
-        required_features: wgpu::Features::TEXTURE_FORMAT_NV12
-            | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32,
+        required_features: format.merkmal() | wgpu::Features::VULKAN_EXTERNAL_MEMORY_WIN32,
         ..Default::default()
     })) else {
-        println!("FEHLER: Geraet mit NV12 + externem Speicher liess sich nicht oeffnen");
+        println!("FEHLER: Geraet mit {} + externem Speicher liess sich nicht oeffnen", format.name());
         return 1;
     };
 
@@ -375,40 +610,54 @@ fn lauf() -> i32 {
     // schaltet auf schlichtes Teilen um.
     let mit_mutex = std::env::var("SPIKE_MUTEX").as_deref() != Ok("0");
     println!(
-        "\n== Stufe 2: geteilte D3D11-NV12-Textur ({}) ==",
+        "\n== Stufe 2: geteilte D3D11-Textur, {} ({}) ==",
+        format.name(),
         if mit_mutex { "mit Schluessel-Mutex" } else { "ohne Mutex, schlicht geteilt" }
     );
-    let quelle = match d3d11_quelle(mit_mutex) {
+    let quelle = match d3d11_quelle(mit_mutex, format, schichten) {
         Ok(q) => q,
         Err(e) => {
             println!("FEHLER: {e}");
             return 1;
         }
     };
-    println!("angelegt, gefuellt, Handle steht ({}x{}, NV12)", BREITE, HOEHE);
+    println!(
+        "angelegt, gefuellt, Handle steht ({}x{}, {}, {} Schicht(en))",
+        BREITE,
+        HOEHE,
+        format.name(),
+        schichten
+    );
     match d3d11_rueckprobe(&quelle) {
         Ok(0) => println!("Rueckprobe ueber D3D11: Inhalt steht vollstaendig in der Textur"),
         Ok(n) => {
             println!("Rueckprobe ueber D3D11: {n} Werte abweichend");
             println!("\nURTEIL: Der Inhalt kommt schon in D3D11 nicht an — das ist kein");
-            println!("        Vulkan-Problem. Anfangsdaten fuer NV12 pruefen.");
+            println!("        Vulkan-Problem. Fuellweg fuer {} pruefen.", format.name());
             return 1;
         }
         Err(e) => println!("Rueckprobe nicht moeglich ({e}) — Stufe 4 bleibt damit mehrdeutig"),
     }
 
     println!("\n== Stufe 3: Einblenden in wgpu ==");
+    let (ebene0, ebene1) = format.ebenen();
+    // `depth_or_array_layers` traegt die Schichtenzahl. wgpus Import reicht den
+    // Deskriptor unveraendert an `create_image_without_memory` weiter, das
+    // Vulkan-Bild bekommt also `arrayLayers = schichten`. Ob die Speicherlage
+    // eines D3D11-Stapels dazu passt, ist genau die Frage dieser Erweiterung.
+    let masse =
+        wgpu::Extent3d { width: BREITE, height: HOEHE, depth_or_array_layers: schichten };
     let hal_desc = wgpu::hal::TextureDescriptor {
         label: Some("nv12-import"),
-        size: wgpu::Extent3d { width: BREITE, height: HOEHE, depth_or_array_layers: 1 },
+        size: masse,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::NV12,
+        format: format.wgpu(),
         // COPY_DST zusaetzlich, damit Stufe 5 in die Textur schreiben kann.
         usage: wgpu::TextureUses::RESOURCE | wgpu::TextureUses::COPY_DST,
         memory_flags: wgpu::hal::MemoryFlags::empty(),
-        view_formats: vec![wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm],
+        view_formats: vec![ebene0, ebene1],
     };
     let start = std::time::Instant::now();
     let hal_tex = unsafe {
@@ -446,52 +695,75 @@ fn lauf() -> i32 {
             hal_tex,
             &wgpu::TextureDescriptor {
                 label: Some("nv12-import"),
-                size: wgpu::Extent3d { width: BREITE, height: HOEHE, depth_or_array_layers: 1 },
+                size: masse,
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::NV12,
+                format: format.wgpu(),
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm],
+                view_formats: &[ebene0, ebene1],
             },
             zustand,
         )
     };
     println!("eingeblendet in {:.3} ms", einblendzeit.as_secs_f64() * 1000.0);
 
-    let y_view = textur.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("y"),
-        format: Some(wgpu::TextureFormat::R8Unorm),
-        aspect: wgpu::TextureAspect::Plane0,
-        ..Default::default()
-    });
-    let uv_view = textur.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("uv"),
-        format: Some(wgpu::TextureFormat::Rg8Unorm),
-        aspect: wgpu::TextureAspect::Plane1,
-        ..Default::default()
-    });
-    println!("Ebenen-Ansichten angelegt (Plane0 als R8, Plane1 als Rg8)");
+    // **Die Ansicht zeigt auf GENAU EINE Schicht.** `base_array_layer` waehlt
+    // sie, `array_layer_count: 1` macht daraus eine gewoehnliche 2D-Ansicht —
+    // sonst waere es eine Feld-Ansicht, und der Shader muesste ein
+    // `texture_2d_array` binden. Fuer den Player ist die Einzelansicht der
+    // richtige Fall: FFmpeg reicht den Schichtindex je Bild in `data[1]` mit,
+    // und der Shader soll davon nichts wissen muessen.
+    let ansicht = |name: &'static str, f: wgpu::TextureFormat, a: wgpu::TextureAspect| {
+        textur.create_view(&wgpu::TextureViewDescriptor {
+            label: Some(name),
+            format: Some(f),
+            aspect: a,
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: schicht,
+            array_layer_count: Some(1),
+            ..Default::default()
+        })
+    };
+    let y_view = ansicht("y", ebene0, wgpu::TextureAspect::Plane0);
+    let uv_view = ansicht("uv", ebene1, wgpu::TextureAspect::Plane1);
+    println!("Ebenen-Ansichten angelegt (Plane0 als {ebene0:?}, Plane1 als {ebene1:?}, Schicht {schicht})");
 
     println!("\n== Stufe 4: abtasten und nachrechnen ==");
-    let werte = zeichnen(&device, &queue, &y_view, &uv_view);
+    let werte = zeichnen(&device, &queue, &y_view, &uv_view, zielformat);
 
+    // Verglichen wird im ABTASTRAUM [0,1], nicht in Codewerten: nur so ist der
+    // Vergleich fuer 8 und 10 Bit derselbe, und die Toleranz bleibt an das
+    // Format gebunden statt an das Ziel.
+    let (u_soll, v_soll) = chroma_codes(format);
+    // Ein Schritt Spielraum: die Abtastung laeuft ueber Gleitkomma-Normierung,
+    // das letzte Bit darf wandern. Bei NV12 ist das exakt die alte Toleranz von
+    // einem 8-Bit-Schritt — die Zahlen bleiben mit den frueheren Laeufen
+    // vergleichbar.
+    let toleranz = 1.0 / format.hoechster_code() as f64;
     let mut fehler = 0usize;
     let mut erstes: Option<String> = None;
     for y in 0..HOEHE {
         for x in 0..BREITE {
-            let i = ((y * BREITE + x) * 4) as usize;
+            let i = ((y * BREITE + x) * 3) as usize;
             let (r, g, b) = (werte[i], werte[i + 1], werte[i + 2]);
-            let soll = (luma(x, y), U_WERT, V_WERT);
-            // Ein Schritt Spielraum: die Abtastung laeuft ueber
-            // Gleitkomma-Normierung, das letzte Bit darf wandern.
-            let ok = (r as i32 - soll.0 as i32).abs() <= 1
-                && (g as i32 - soll.1 as i32).abs() <= 1
-                && (b as i32 - soll.2 as i32).abs() <= 1;
+            let soll = (
+                format.abtastwert(luma_code(format, x, y, schicht)),
+                format.abtastwert(u_soll),
+                format.abtastwert(v_soll),
+            );
+            let ok = (r - soll.0).abs() <= toleranz
+                && (g - soll.1).abs() <= toleranz
+                && (b - soll.2).abs() <= toleranz;
             if !ok {
                 fehler += 1;
+                let code = |v: f64| (v * format.hoechster_code() as f64).round() as i32;
                 erstes.get_or_insert_with(|| {
-                    format!("({x},{y}): gelesen {r}/{g}/{b}, erwartet {}/{}/{}", soll.0, soll.1, soll.2)
+                    format!(
+                        "({x},{y}): gelesen {}/{}/{}, erwartet {}/{}/{} (in Codewerten)",
+                        code(r), code(g), code(b),
+                        code(soll.0), code(soll.1), code(soll.2)
+                    )
                 });
             }
         }
@@ -514,30 +786,37 @@ fn lauf() -> i32 {
         println!("Trennt die zwei moeglichen Ursachen: verworfener Anfangsinhalt");
         println!("(dann sieht D3D11 die Aenderung) gegen falsch gebundenen Speicher");
         println!("(dann sieht D3D11 nichts).");
-        const MARKE: u8 = 0xA5;
-        let zeile = vec![MARKE; BREITE as usize];
-        let mut alle = Vec::with_capacity((BREITE * HOEHE) as usize);
-        for _ in 0..HOEHE {
-            alle.extend_from_slice(&zeile);
+        // Die Marke wird als GESPEICHERTES Wort geschrieben, nicht als Byte —
+        // bei P010 sind das zwei Byte je Abtastwert. Der Code 0xA5 ist bei
+        // beiden Formaten darstellbar (255 bzw. 1023 sind die Obergrenzen).
+        const MARKE: u32 = 0xA5;
+        let b = format.bytes();
+        let wort = format.gespeichert(MARKE).to_le_bytes();
+        let mut alle = Vec::with_capacity((BREITE * HOEHE) as usize * b);
+        for _ in 0..(BREITE * HOEHE) as usize {
+            alle.extend_from_slice(&wort[..b]);
         }
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &textur,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                // Die Schicht, die auch abgetastet wurde — sonst pruefte die
+                // Gegenrichtung eine andere als Stufe 4.
+                origin: wgpu::Origin3d { x: 0, y: 0, z: schicht },
                 aspect: wgpu::TextureAspect::Plane0,
             },
             &alle,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(BREITE),
+                bytes_per_row: Some(BREITE * b as u32),
                 rows_per_image: Some(HOEHE),
             },
             wgpu::Extent3d { width: BREITE, height: HOEHE, depth_or_array_layers: 1 },
         );
         queue.submit([]);
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        match d3d11_luma_lesen(&quelle, &|_, _| MARKE) {
+        let erwartet_wort = u32::from(format.gespeichert(MARKE));
+        match d3d11_luma_lesen(&quelle, schicht, &|_, _| erwartet_wort) {
             Ok(0) => {
                 println!("D3D11 sieht das aus Vulkan Geschriebene: Speicher IST geteilt.");
                 println!();
@@ -589,12 +868,21 @@ fn lauf() -> i32 {
     }
 }
 
+/// Einen Durchgang zeichnen und die drei Kanaele je Bildpunkt zurueckgeben —
+/// als Abtastwerte in [0,1], nicht als Rohbytes.
+///
+/// **Das Zielformat haengt an der Bittiefe der Quelle.** Ein 8-Bit-Ziel kappte
+/// bei P010 die unteren zwei Bit und liesse damit genau den Fehler durch, um
+/// den es bei 10 Bit geht: einen Weg, der still auf 8 Bit wandelt. Fuer NV12
+/// bleibt es beim bisherigen `Rgba8Unorm`, damit die Zahlen mit den frueheren
+/// Laeufen vergleichbar bleiben.
 fn zeichnen(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     y_view: &wgpu::TextureView,
     uv_view: &wgpu::TextureView,
-) -> Vec<u8> {
+    zielformat: wgpu::TextureFormat,
+) -> Vec<f64> {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -638,7 +926,7 @@ fn zeichnen(
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: Some("fs"),
-            targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+            targets: &[Some(zielformat.into())],
             compilation_options: Default::default(),
         }),
         primitive: Default::default(),
@@ -654,15 +942,19 @@ fn zeichnen(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format: zielformat,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let ziel_view = ziel.create_view(&Default::default());
-    // 64 Punkte * 4 Byte = 256 — genau die geforderte Zeilenausrichtung.
+    // Byte je Bildpunkt am Ziel: 4 bei Rgba8Unorm, 16 bei Rgba32Float. Bei
+    // 64 Punkten Breite sind beide Zeilenlaengen (256 bzw. 1024) bereits auf
+    // 256 ausgerichtet — die von wgpu geforderte Schranke ist also ohne
+    // Zwischenzeile eingehalten.
+    let bpp: u32 = if zielformat == wgpu::TextureFormat::Rgba32Float { 16 } else { 4 };
     let puffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: (BREITE * HOEHE * 4) as u64,
+        size: (BREITE * HOEHE * bpp) as u64,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -700,7 +992,7 @@ fn zeichnen(
             buffer: &puffer,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(BREITE * 4),
+                bytes_per_row: Some(BREITE * bpp),
                 rows_per_image: Some(HOEHE),
             },
         },
@@ -711,8 +1003,25 @@ fn zeichnen(
     let slice = puffer.slice(..);
     slice.map_async(wgpu::MapMode::Read, |_| {});
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    let daten = slice.get_mapped_range().expect("Puffer nicht lesbar").to_vec();
-    drop(slice);
+    let roh = slice.get_mapped_range().expect("Puffer nicht lesbar").to_vec();
+    let _ = slice;
     puffer.unmap();
-    daten
+
+    // In den Abtastraum [0,1] umrechnen, drei Kanaele je Bildpunkt. Damit
+    // spielt es fuer den Vergleich keine Rolle mehr, welches Ziel gerade
+    // gefahren wurde — und die Toleranz laesst sich am QUELL-Format
+    // festmachen, wo sie hingehoert.
+    let mut werte = Vec::with_capacity((BREITE * HOEHE * 3) as usize);
+    for i in 0..(BREITE * HOEHE) as usize {
+        for k in 0..3usize {
+            let wert = if bpp == 16 {
+                let a = i * 16 + k * 4;
+                f32::from_le_bytes([roh[a], roh[a + 1], roh[a + 2], roh[a + 3]]) as f64
+            } else {
+                roh[i * 4 + k] as f64 / 255.0
+            };
+            werte.push(wert);
+        }
+    }
+    werte
 }

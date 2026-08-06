@@ -31,10 +31,17 @@ Schalter (alle über die Umgebung, Vorgabe in Klammern):
 
 | | |
 |---|---|
+| `SPIKE_FORMAT` (`nv12`) | `p010` = 10 bit |
+| `SPIKE_SCHICHTEN` (`1`) | Größe des Textur-Stapels (1 = Einzeltextur) |
+| `SPIKE_SCHICHT` (letzte) | welche Schicht abgetastet wird |
 | `SPIKE_MUTEX` (`1`) | `0` = `NTHANDLE\|SHARED` statt `NTHANDLE\|KEYEDMUTEX` |
 | `SPIKE_ZUSTAND` (`general`) | `resource` \| `uninit` — der `initial_state` für wgpu |
 | `SPIKE_PRUEFSCHICHT` (`0`) | `1` = Vulkan-Prüfschicht an |
 | `SPIKE_GEGENRICHTUNG` (`0`) | `1` = zusätzlich aus Vulkan schreiben und mit D3D11 lesen |
+
+Die Vorgaben sind der frühere Fall (NV12, Einzeltextur), damit ein nackter Lauf
+mit den älteren Messungen vergleichbar bleibt. `SPIKE_SCHICHT` zeigt bewusst auf
+die **letzte** Schicht: ein Weg, der immer Schicht 0 liest, fiele sonst nicht auf.
 
 ## Stand 2026-08-06 (RTX 5080, Vulkan)
 
@@ -96,13 +103,44 @@ Was daraus folgt, ist unbequemer als ein einfaches „geht":
 nativen Programms als Fehlerdatensatz, und zwei harmlose cargo-Warnungen
 genügen. Über die Bash starten, oder den Rückgabewert getrennt prüfen.
 
+## Stand 2026-08-06, vormittags: 10 bit trägt, der Stapel nicht
+
+Die beiden Lücken von unten sind geschlossen — mit gemischtem Ergebnis. Messakte
+`streaming/testbench/profiles/player-2026-08-06-p010-und-stapel.json`.
+
+**P010 kommt unverändert an**, 0 von 4096 abweichend, Ebenen als `R16Unorm` /
+`Rg16Unorm`. Das ist der Fall, an dem HDR hängt. Zwei Fallen dabei: P010 braucht
+**zwei** wgpu-Merkmale (`TEXTURE_FORMAT_P010` *und* `TEXTURE_FORMAT_16BIT_NORM`
+für die Ebenen-Ansichten), und die Testwerte sind bewusst keine Vielfachen von
+vier — ein Weg, der still auf 8 bit kappt, käme sonst als fehlerfrei durch.
+
+**Der Stapel trägt nicht — aber anders, als es auf NVIDIA aussah.** Schicht 0
+kommt **vollständig** an, jede weitere ist durchgehend falsch. Und die Werte sind
+nicht null, sondern Bruchstücke des Nachbarn: bei Schicht 1 steht an erster
+Stelle 64, der Chroma-Wert der Schicht davor. Der Import landet also auf dem
+richtigen Speicher, die Basis stimmt, **nur der Abstand zwischen den Schichten
+ist ein anderer**, als D3D11 ihn benutzt. Das ist eine ganz andere Lage als „der
+Speicher ist nicht da", und ein ganz anderer nächster Schritt.
+
+**Ein Video-Stapel braucht das Decoder-Bindungsflag.** Ohne `BIND_DECODER` lehnt
+`CreateTexture2D` einen NV12/P010-Stapel rundweg ab; mit ihm gelingt er, geteilt
+wie ungeteilt. Das ist genau die Bauart, die libavutils D3D11VA-Pool anlegt — die
+Ablehnung war ein Artefakt der Probe, kein Hindernis im Betrieb. Folgefalle: eine
+CPU-Ablage darf gar keine Bindungsflags tragen, ein Video-Stapel als Ablage ist
+damit unmöglich. Füllen und Zurücklesen laufen deshalb über eine **einschichtige**
+Ablage und `CopySubresourceRegion` je Schicht.
+
+### Der wahrscheinlich kürzeste Weg für den Player
+
+Nicht den Stapel reparieren, sondern ihn vermeiden: FFmpegs D3D11VA-Pool kann
+**je Bild eine eigene Textur** anlegen (`initial_pool_size = 0`, libavutil
+`d3d11va_alloc_single`). Der Sidecar fährt diese Bauart auf AMD ohnehin schon,
+aus einem ganz anderen Grund. Kostet eine Zeile im Pool-Aufbau — und der
+Einzeltextur-Fall ist oben als tragend gemessen.
+
 ## Was diese Probe NICHT zeigt
 
 * **Synchronisierung.** Hier wird einmal geschrieben und danach nur gelesen. Im
   Betrieb schreibt der Decoder, während gezeichnet wird.
-* **Der Decoder liefert ein Textur-ARRAY** (eine Schicht je Bild), nicht wie
-  hier eine Einzeltextur. Für den Player ist das der bequemere Fall — er liest
-  nur, und FFmpeg reicht den Schichtindex in `AVFrame.data[1]` mit —, geprüft
-  ist es trotzdem nicht.
-* **10 bit (P010)** ist ein anderes Format und hier ungeprüft. Der Speicher-
-  Import dafür ist in der Akte vom 1. August belegt, der Abtastweg nicht.
+* **Ob FFmpegs Einzeltextur-Pool sich als NT-Handle teilen lässt.** Der Sidecar
+  legt seine Poolen ohne Teilungs-Flags an; für den Player müssten sie dazu.
