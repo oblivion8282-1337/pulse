@@ -67,9 +67,17 @@ nicht einsehbar.
   wird deshalb heruntergerechnet. `PULSE_PLAYER_BACKEND=vulkan|dx12|gl` nagelt
   die Wahl fest.
 
-  **Was NICHT geprueft ist:** wie das Ergebnis auf einem HDR-Schirm aussieht.
-  Die Kette ist gebaut und uebersetzt, das Fenster geht auf und bekommt
-  `Rgba16Float` angeboten — aber ob das Bild stimmt, muss jemand ansehen.
+  **Die Farbrechnung selbst ist gemessen, nicht angesehen** (2026-08-06,
+  `pulse-player --farbwerte`, Akte
+  `streaming/testbench/profiles/player-2026-08-06-hdr-farbweg.json`): fuenfzehn
+  bekannte PQ-Codewerte durch den echten Shader, gegen Sollwerte aus SMPTE
+  ST 2084 / BT.2020 / BT.709 / BT.2408, **beide Ausgaenge**. Jede Abweichung
+  bleibt unter einer Stufe des Ausgabeformats, und bei neutralem Chroma sind
+  R, G und B exakt gleich — es gibt keinen Farbstich.
+  **Hier stand bis dahin „ob das Bild stimmt, muss jemand ansehen"; das war
+  fuer die Rechnung falsch** und hat den Blick eines Menschen zum Messgeraet
+  erklaert. Offen bleibt nur, was ein Blick wirklich allein entscheidet: wie
+  der Compositor den scRGB-Puffer auf den konkreten Schirm bringt.
   Sendeseitig ist alles am Bitstrom belegt:
   `docs/2026-08-06-hdr-windows-amd.md`.
 - **Bedienoberflaeche IM Fenster** (`src/overlay.rs`, egui): Lautstaerke samt

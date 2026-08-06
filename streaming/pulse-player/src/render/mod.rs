@@ -20,6 +20,10 @@ mod uniforms;
 
 // Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
 pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
+// Die Farbmessung muss GENAU das HDR-Format pruefen, das das Fenster nimmt —
+// mit einer eigenen Eintragung meldete sie nach einem Wechsel hier „ok" fuer
+// ein Format, das gar nicht mehr benutzt wird.
+pub use hdr_fenster::HDR_OBERFLAECHE;
 pub use setup::{bind_group_aus_teilen, build_graphics, geraet_oeffnen, pick_format, Graphics};
 pub use uniforms::Uniforms;
 

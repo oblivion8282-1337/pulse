@@ -242,11 +242,21 @@ fn pq_zu_nits(e: vec3<f32>) -> vec3<f32> {
 // Farben, die BT.709 nicht darstellt; sie landen ausserhalb des Wuerfels. Auf
 // dem HDR-Weg bleiben sie stehen (scRGB traegt sie), auf dem SDR-Weg werden sie
 // abgeschnitten — dort gibt es sie einfach nicht.
+//
+// **Aus den Primaervalenzen gerechnet, nicht abgeschrieben** (beide Raeume nach
+// XYZ ueber D65, SMPTE RP 177, dann invertiert). Bis zum 2026-08-06 standen
+// hier fuenfstellige Werte aus fremder Quelle; zwei in der dritten Zeile lagen
+// um 1e-4 daneben (-0,01825 statt -0,0181508, 1,11883 statt 1,1187297 — sie
+// hoben sich auf, die Zeilensumme blieb 1). An Grau unsichtbar, messbar erst an
+// einer reinen BT.2020-Primaervalenz: bei rotem Spitzlicht lag der blaue Kanal
+// um 0,5 % daneben (`testbench/profiles/player-2026-08-06-hdr-farbweg.json`).
+// Alle drei Zeilensummen sind exakt 1 — deshalb kann ein Farbstich NIE aus
+// dieser Matrix kommen.
 fn bt2020_zu_bt709(c: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(
-        dot(c, vec3<f32>( 1.66049, -0.58764, -0.07285)),
-        dot(c, vec3<f32>(-0.12455,  1.13290, -0.00835)),
-        dot(c, vec3<f32>(-0.01825, -0.10058,  1.11883)),
+        dot(c, vec3<f32>( 1.6604910, -0.5876411, -0.0728499)),
+        dot(c, vec3<f32>(-0.1245505,  1.1328999, -0.0083494)),
+        dot(c, vec3<f32>(-0.0181508, -0.1005789,  1.1187297)),
     );
 }
 

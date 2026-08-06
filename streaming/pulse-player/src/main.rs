@@ -48,8 +48,10 @@ fn main() -> Result<()> {
     // Tokio, und er darf stdout benutzen — im Normalbetrieb gehoert stdout
     // dem JSON-RPC, hier gibt es keins.
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.first().map(String::as_str) == Some("--stufen") {
-        return messen::ausfuehren(&argv[1..]);
+    match argv.first().map(String::as_str) {
+        Some("--stufen") => return messen::ausfuehren(&argv[1..]),
+        Some("--farbwerte") => return messen::farbwerte::ausfuehren(),
+        _ => {}
     }
 
     // Muss VOR dem ersten TLS-Aufbau stehen. Der Abhaengigkeitsbaum enthaelt

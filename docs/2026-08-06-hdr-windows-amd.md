@@ -11,8 +11,15 @@ Alles hier ist **am fertigen Bitstrom** nachgesehen, nicht am Log des Senders.
 Der Sidecar sendet HDR: der Strom trägt PQ, BT.2020 und beide HDR10-Metadaten,
 und sein Inhalt reicht mit **275 cd/m²** über das hinaus, was SDR darstellen
 kann. Der Player kann PQ dekodieren, auf einem HDR-Fenster ausgeben und auf
-einem SDR-Schirm herunterrechnen — **die Ausgabe selbst ist noch nicht am
-Bildschirm geprüft** (dafür muss jemand hinsehen).
+einem SDR-Schirm herunterrechnen — und **seine Farbrechnung ist seit dem Abend
+des 2026-08-06 gemessen**, gegen unabhängig aus den Normen gerechnete
+Sollwerte, in beiden Ausgängen (Befund 6).
+
+> **Hier stand am Vormittag: „die Ausgabe selbst ist noch nicht am Bildschirm
+> geprüft (dafür muss jemand hinsehen)".** Das war für die Rechnung falsch —
+> sie ist ohne Augenmaß prüfbar, und genau das ist nachgeholt worden. Für den
+> letzten Schritt (was der Compositor mit dem scRGB-Puffer auf dem konkreten
+> Schirm macht) gilt der Satz weiter.
 
 ## Die Kette und wo sie hing
 
@@ -22,7 +29,7 @@ Bildschirm geprüft** (dafür muss jemand hinsehen).
 | Farbwandlung | **eigener Shader**, nicht der Video-Prozessor | läuft |
 | Encode | `av1_amf`, 10 bit, BT.2020/PQ | läuft |
 | Metadaten | Mastering-Display + Content-Light je Bild | läuft, **Werte falsch** (s. u.) |
-| Wiedergabe | PQ im Shader, scRGB-Fenster oder Tone-Mapping | gebaut, **ungeprüft am Schirm** |
+| Wiedergabe | PQ im Shader, scRGB-Fenster oder Tone-Mapping | **Rechnung gemessen** (Befund 6), Darstellung am Schirm ungeprüft |
 
 ## Befund 1: Der Video-Prozessor dieses Treibers kann kein PQ
 
@@ -231,6 +238,53 @@ Variablen.
 **Offen bleibt ausserdem:** ob das Herunterrechnen auf einen SDR-Schirm
 ordentlich wirkt. Ungeprueft, weil der erste Blick schon am HDR-Weg haengen
 blieb.
+
+## Befund 6: Die Farbrechnung des Players stimmt — ausgerechnet, nicht angesehen
+
+Nach Befund 5 war die Farbfrage nicht beantwortet, sondern unbeantwortet: die
+Ursache des Grüns lag woanders, über die Rechnung sagte das nichts. Am selben
+Abend nachgeholt, ohne Augenmaß.
+
+**Werkzeug:** `pulse-player --farbwerte` (`src/messen/farbwerte.rs`) fährt den
+**echten** Shader ohne Fenster — dieselbe `build_graphics`, dieselbe
+`shader.wgsl`, derselbe Uniform-Block. Fünfzehn bekannte PQ-Codewerte hinein,
+zurückgelesene Bildpunkte heraus. Die Sollwerte stehen als feste Zahlen in
+`src/messen/sollwerte.rs` und sind aus SMPTE ST 2084, ITU-R BT.2020/BT.709,
+IEC 61966-2-1/-2-2 und ITU-R BT.2408 gerechnet — **nicht** aus `shader.wgsl`;
+ein Sollwert aus demselben Code prüfte nichts.
+
+**Ergebnis, beide Ausgänge:** jede Abweichung bleibt **unter einer Stufe des
+Ausgabeformats**, also unter dem, was in der Textur überhaupt unterscheidbar
+ist. Volle Tabelle in der Messakte
+`streaming/testbench/profiles/player-2026-08-06-hdr-farbweg.json`.
+
+| | HDR-Fenster (scRGB, `Rgba16Float`) | SDR-Fenster (Tone-Mapping, `Rgb10a2Unorm`) |
+|---|---|---|
+| größte Abweichung | 0,99 Stufen | 0,63 Stufen |
+| Grau bleibt grau | R = G = B, Spreizung **exakt 0** | ebenso |
+| Schwarz (Code 64) | 0 cd/m² | 0 |
+| 1000 cd/m² bei angemeldeter Spitze 1000 | 12,547 (= 1004/80) | **exakt 1,0** |
+| BT.2020-Primärvalenzen | negative Kanäle bleiben stehen | werden abgeschnitten |
+
+Drei Dinge, die dabei herauskamen und vorher nicht bekannt waren:
+
+* **Ein echter, kleiner Fehler in der Farbraum-Matrix.** Zwei Koeffizienten der
+  dritten Zeile waren um 1e-4 falsch (aus einer fremden Tabelle abgeschrieben,
+  fünfstellig). Sie hoben sich gegenseitig auf, die Zeilensumme blieb 1 — an
+  Grau also unsichtbar. Messbar wurde es erst an einer reinen
+  BT.2020-Primärvalenz: bei rotem Spitzlicht lag der blaue Kanal um 0,5 %
+  daneben. Behoben, die Werte sind jetzt aus den Primärvalenzen gerechnet.
+* **Dieser Treiber schneidet beim Schreiben nach fp16 ab, statt zu runden.**
+  Aufgefallen, weil der Fall „BT.2020 Blau" nach der Korrektur *näher* am
+  Sollwert lag und trotzdem eine Stufe nach unten sprang. Kostet bis zu einer
+  vollen Stufe statt einer halben; erklärt den gesamten Rest der Abweichung.
+* **D3D12 und Vulkan liefern Bit für Bit dasselbe.** Gegengeprüft mit
+  `WGPU_BACKEND=dx12` — und D3D12 ist der Weg, den der Player unter Windows
+  wirklich geht.
+
+**Was das nicht beantwortet:** was der Compositor mit dem scRGB-Puffer auf dem
+konkreten Schirm macht. Gemessen wird bis zur geschriebenen Textur, nicht bis
+zum Auge — dafür muss weiterhin jemand hinsehen.
 
 ## Nebenbefunde
 

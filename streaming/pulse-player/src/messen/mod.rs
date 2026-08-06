@@ -20,8 +20,10 @@
 //! `streaming/testbench/graustufen-testbild.py` erzeugt die vier Baender, auf
 //! die sich die Ausgabe bezieht.
 
+pub mod farbwerte;
 mod gpu;
 mod pixel;
+mod sollwerte;
 
 use anyhow::{bail, Context, Result};
 use std::io::{Read, Seek, SeekFrom};
@@ -163,7 +165,10 @@ fn kennzahlen(aus: &Ausgabe, band: usize, raster: f32) -> Kennzahlen {
     let mut mittel = vec![0.0f64; aus.breite];
     for y in zeilen {
         for x in 0..aus.breite {
-            let v = aus.werte[y * aus.breite + x];
+            // Rot genuegt hier: das Stufen-Testbild ist farblos (Chroma auf der
+            // Mitte), R, G und B tragen denselben Wert. Ob sie das WIRKLICH
+            // tun, ist eine andere Frage — die beantwortet `farbwerte`.
+            let v = aus.punkte[y * aus.breite + x][0];
             codes.insert(v.to_bits());
             mittel[x] += f64::from(v);
         }
@@ -238,7 +243,7 @@ pub fn ausfuehren(argv: &[String]) -> Result<()> {
             wgpu::TextureFormat::Bgra8Unorm,
             wgpu::TextureFormat::Rgba16Float,
         ] {
-            let aus = stand.zeichnen(&Lauf { format, deband, dither })?;
+            let aus = stand.zeichnen(&Lauf::sdr(format, deband, dither))?;
             let name = format!("{:13}{satz}", format!("{format:?}"));
             // Nur die flachen Baender: die Vollverlaeufe spreizen 220 bzw. 877
             // Werte ueber die Breite, dort sagt die Stufenzahl nichts.
@@ -301,7 +306,7 @@ mod tests {
     #[test]
     fn flaeche_ohne_verlauf_hat_eine_stufe() {
         let (w, h) = (16usize, 4 * (ROI.end + 10));
-        let aus = Ausgabe { werte: vec![0.5f32; w * h], breite: w, hoehe: h };
+        let aus = Ausgabe { punkte: vec![[0.5f32; 3]; w * h], breite: w, hoehe: h };
         let k = kennzahlen(&aus, 3, 1023.0);
         assert_eq!(k.stufen, 1);
         assert_eq!(k.spaltenmittel, 1);
@@ -312,13 +317,13 @@ mod tests {
     #[test]
     fn verlauf_wird_vollstaendig_gezaehlt() {
         let (w, h) = (8usize, 4 * (ROI.end + 10));
-        let mut werte = vec![0.0f32; w * h];
+        let mut werte = vec![[0.0f32; 3]; w * h];
         for y in 0..h {
             for x in 0..w {
-                werte[y * w + x] = x as f32 / 1023.0;
+                werte[y * w + x] = [x as f32 / 1023.0; 3];
             }
         }
-        let k = kennzahlen(&Ausgabe { werte, breite: w, hoehe: h }, 3, 1023.0);
+        let k = kennzahlen(&Ausgabe { punkte: werte, breite: w, hoehe: h }, 3, 1023.0);
         assert_eq!(k.stufen, w);
         assert_eq!(k.spaltenmittel, w);
         assert!((k.max_sprung - 1.0).abs() < 1e-3, "eine 10-bit-Stufe: {}", k.max_sprung);
