@@ -144,7 +144,49 @@ liegt bei 601. **Der Shader rechnet also wirklich.**
   zu setzen noch zu prüfen. `PULSE_PLAYER_BACKEND=vulkan` holt den alten Weg
   zurück. Nachgesehen: das Fenster geht auf, D3D12 bietet `Rgba16Float` an.
 
-## Befund 5: Das Bild ist gruenstichig — und die Verrohrung ist es nicht
+## Befund 5: Das Gruen war KEIN Farbfehler — der Einfrier-Waechter war es
+
+> **Der Abschnitt darunter ist die Fassung von vormittags, und seine Deutung war
+> falsch.** Er bleibt stehen, weil der Weg dorthin lehrreich ist. Was wirklich
+> los war, steht hier.
+
+**Das Bild blieb stehen, dann lag eine halbtransparente gruene Flaeche darueber,
+durch die der Inhalt noch zu sehen war. Danach verschwand sie, spaeter kam sie
+wieder.** Diese Beschreibung ist die Signatur eines halb leeren Bildes: die
+Helligkeitsebene traegt noch das alte Bild, die Farbebene steht auf null. Y
+sichtbar, U und V null — das ergibt in JEDER Matrix kraeftiges Gruen, und weil
+Y erhalten bleibt, wirkt es wie ein Schleier statt wie eine Flaeche.
+
+**Der Ausloeser stand die ganze Zeit im Log**, in beiden Laeufen:
+
+```
+pulse-player: Decoder eingefroren (gleiches Bild trotz Daten)
+              — leere ihn und fordere ein Vollbild an
+```
+
+Der Waechter schlaegt an, leert den Decoder und fordert ein Vollbild. Genau in
+dieser Erholungsphase entsteht das halb leere Bild. Danach laeuft es weiter, bis
+er wieder anschlaegt — „kommt und geht", wie beobachtet.
+
+**Und der Fehlalarm ist auf `main` behoben, nur nicht in diesem Zweig gewesen:**
+`f92bd8c4` („der Einfrier-Fehlalarm ist ein Einheitenfehler — das Fenster zaehlt
+Bilder, der Takt laeuft in Sekunden") kam auf `main`, **nachdem** dieser Zweig
+abgezweigt war. Am 2026-08-06 nachgeholt.
+
+**Was daran lehrreich ist, ueber diesen Fall hinaus:**
+
+* **Die Gegenprobe hat es entschieden, nicht die Vermutung.** Der SDR-Lauf mit
+  denselben Einstellungen zeigte dasselbe Verhalten. Damit war HDR als Ursache
+  aus, bevor eine einzige Zeile Shader-Code angesehen war.
+* **Das Wort des Beobachters trug die Loesung.** „Gruenstichig" fuehrte zwei
+  Runden lang in die Farbrechnung; „halbtransparente Flaeche, Inhalt noch
+  sichtbar" fuehrte in einem Satz zur Ursache. Wer ein Bild beurteilt, soll
+  beschreiben, WIE es falsch ist, nicht nur DASS.
+* **Ein Zweig, der ueber Nacht entsteht, ist am naechsten Morgen veraltet.**
+  Zwei Commits auf `main` genuegten, und einer davon war die Behebung genau des
+  Fehlers, den wir dann suchten.
+
+## Befund 5a (ueberholt): „Das Bild ist gruenstichig — und die Verrohrung ist es nicht"
 
 Am 2026-08-06 zum ersten Mal angesehen (`testbench/hdr-ansehen.ps1`, Sender und
 Player auf derselben Maschine ueber den Hetzner-Messstand). **Das Bild kommt
