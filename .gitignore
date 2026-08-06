@@ -108,6 +108,10 @@ streaming/server/certs/
 # höher (webrtc-rs + wgpu + FFmpeg-Bindings, ~2 GB, 8000+ Dateien).
 /streaming/pulse-player/target/
 
+# Bau-Cache der Player-Proben. Eigenständige Crates, kein Workspace-Mitglied —
+# ihr `target/` liegt deshalb je Probe und nicht zentral.
+/streaming/player-labor/*/target/
+
 # Bau-Cache des Windows-Input-PoC (~54 MB). Dieselbe Falle wie eine Zeile
 # darueber, nur mit dem Quelltext auf `feat/remote-control-windows`: Der PoC
 # bringt seine eigene `/target`-.gitignore mit, die ist aber mitversioniert und
