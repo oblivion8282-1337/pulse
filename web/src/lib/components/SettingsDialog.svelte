@@ -13,7 +13,7 @@
     | 'privacy'
     | 'self-host'
     | 'apps'
-    | 'diagnostics';
+    | 'experimental';
 </script>
 
 <script lang="ts">
@@ -29,7 +29,7 @@
   import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import SettingsApps from './settings/SettingsApps.svelte';
-  import SettingsDiagnostics from './settings/SettingsDiagnostics.svelte';
+  import SettingsExperimental from './settings/SettingsExperimental.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
   import PaletteIcon from '@lucide/svelte/icons/palette';
@@ -92,7 +92,8 @@
   // einzustellen.
   //
   // **Hier stand bis 2026-08-06 `linuxOnly`**, aus der Zeit, als der Tab nur
-  // den Rust-Linux-Sidecar umschaltete. Seit der Diagnose-Schalter darin sitzt,
+  // den Rust-Linux-Sidecar umschaltete. Seit der Diagnose-Schalter im
+  // „Experimental"-Tab sitzt,
   // war das ein stiller Ausschluss: Windows- und macOS-Nutzer sahen den Tab
   // nicht, konnten die Einwilligung also gar nicht geben — und es kam nie ein
   // einziger Bericht von dort an. Der Upload-Weg selbst war die ganze Zeit
@@ -124,7 +125,7 @@
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
-    { id: 'diagnostics', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true }
+    { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true }
   ];
 
   let visibleTabs = $derived(
@@ -219,8 +220,8 @@
           <SettingsSelfHost />
         {:else if activeTab === 'apps'}
           <SettingsApps />
-        {:else if activeTab === 'diagnostics'}
-          <SettingsDiagnostics />
+        {:else if activeTab === 'experimental'}
+          <SettingsExperimental />
         {:else}
           <SettingsSecurity />
         {/if}
