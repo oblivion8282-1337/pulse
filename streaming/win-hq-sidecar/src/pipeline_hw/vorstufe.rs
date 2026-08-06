@@ -12,8 +12,20 @@ use crate::encode::{D3D11Scaler, HwContext, OwnedHwFrame};
 use crate::stream_controller::StartParams;
 
 /// Aus einem Aufnahme-Bild ein Encoder-Bild machen — gegebenenfalls kleiner und
-/// in einem anderen Farbraum.
-///
+/// in einem anderen Farbraum, **und gar nicht, wenn sich nichts geändert hat.**
+pub(super) struct Vorstufe {
+    weg: Weg,
+    /// Das zuletzt gelieferte Encoder-Bild.
+    ///
+    /// Gehalten, damit ein Tick ohne frisches Aufnahmebild es erneut bekommt,
+    /// statt es bitgleich neu zu rechnen (s. [`Vorstufe::verarbeiten`]). Der
+    /// Zwischenspeicher gehört hierher und nicht in die Taktschleife: was seine
+    /// Gültigkeit ausmacht, ist eine Eigenschaft dieser Stufe, und der Frame
+    /// geht mit ihr in denselben Teardown (die Taktschleife müsste ihn sonst
+    /// einzeln vom Abbau ausnehmen).
+    letztes: Option<OwnedHwFrame>,
+}
+
 /// **Zwei Ausführungen, weil eine nicht überall geht.** Der Regelweg ist der
 /// Video-Prozessor der Grafikkarte ([`D3D11Scaler`]) — er skaliert und wandelt
 /// in einem Zug und kostet fast nichts. Für HDR verweigert er auf AMD den
@@ -23,16 +35,20 @@ use crate::stream_controller::StartParams;
 /// Ein Enum statt zweier `Option`-Felder: die beiden schließen einander aus,
 /// und zwei Felder ließen einen Zustand zu, in dem beide gesetzt sind — dann
 /// liefe die Farbwandlung zweimal.
-pub(super) enum Vorstufe {
+enum Weg {
     Skalierer(D3D11Scaler),
     Hdr(crate::encode::hdr_wandler::HdrWandler),
 }
 
 impl Vorstufe {
+    fn neu(weg: Weg) -> Self {
+        Self { weg, letztes: None }
+    }
+
     pub(super) fn dst_frames_ref(&self) -> *mut AVBufferRef {
-        match self {
-            Vorstufe::Skalierer(s) => s.dst_frames_ref(),
-            Vorstufe::Hdr(h) => h.dst_frames_ref(),
+        match &self.weg {
+            Weg::Skalierer(s) => s.dst_frames_ref(),
+            Weg::Hdr(h) => h.dst_frames_ref(),
         }
     }
 
@@ -43,14 +59,56 @@ impl Vorstufe {
     /// nicht, weil sich auf ihm heute kein fremder Encoder anmelden kann: der
     /// verlangte einen 8-bit-Pool, und dann wäre `hdr` schon in
     /// `encode::hdr::pruefen` abgelehnt worden.
-    pub(super) fn verarbeiten<F>(&mut self, src: &OwnedHwFrame, vorher: F) -> Result<OwnedHwFrame>
+    ///
+    /// # `unveraendert` heisst: gar nicht rechnen
+    ///
+    /// Ist die Quelle dieselbe wie beim letzten Aufruf, kommt das zuletzt
+    /// gelieferte Bild zurück — es wäre Bit für Bit dasselbe. Befund 1 der
+    /// Durchsicht vom 2026-08-06; gemessen sinkt die 3D-Einheit des Senders auf
+    /// einem stehenden Bildschirm von 14,2 auf 0,4 %
+    /// (`testbench/profiles/leistung-2026-08-06-vier-befunde.json`).
+    ///
+    /// **Der Aufrufer sagt es, statt dass diese Stufe es errät**, und das ist
+    /// Absicht: die einzige Kennung, die sie selbst hätte, wäre der Zeiger auf
+    /// die Quelltextur — und der taugt nicht, weil der Aufnahme-Pool seine
+    /// Texturen reihum wiederverwendet. Ein frisches Bild in derselben Textur
+    /// sähe damit aus wie ein unverändertes, und der Strom fröre ein.
+    ///
+    /// **Drei Voraussetzungen, alle geprüft statt angenommen:**
+    ///
+    /// 1. *Der Encoder verträgt dieselbe Textur zweimal.* Genau das tut der Weg
+    ///    ganz ohne Vorstufe seit jeher. Anders als dort wird hier ausserdem
+    ///    NICHT hineingeschrieben, während der Encoder das vorige Einschieben
+    ///    noch hält (AMF gibt ein Bild verzögert heraus) — die harmlosere der
+    ///    beiden Lagen, nicht die riskantere.
+    /// 2. *Die HDR-Begleitdaten wachsen nicht an.* Sie hängen am Bild, und
+    ///    `av_frame_new_side_data` hängt AN, statt zu ersetzen (Nachweis:
+    ///    `encode::hdr::tests::ffmpeg_haengt_begleitdaten_an`). Solange jeder
+    ///    Tick ein frisches `AVFrame` zog, war das folgenlos; jetzt räumt
+    ///    `hdr::metadaten_anhaengen` vorher weg.
+    /// 3. *Der Pool verliert ein Bild*, solange es gehalten wird. Auf dem
+    ///    Einzeltextur-Weg (AMD, P010) folgenlos, weil er ohnehin bis zur
+    ///    Arbeitsmenge wächst; auf dem Array-Pool eines von sechzehn.
+    ///
+    /// Und `vorher` entfällt dabei folgerichtig: die Zusage gilt dem
+    /// BESCHREIBEN des Zielbildes, und es wird nicht beschrieben.
+    pub(super) fn verarbeiten<F>(
+        &mut self,
+        src: &OwnedHwFrame,
+        unveraendert: bool,
+        vorher: F,
+    ) -> Result<&mut OwnedHwFrame>
     where
         F: FnOnce(&OwnedHwFrame) -> Result<()>,
     {
-        match self {
-            Vorstufe::Skalierer(s) => s.scale_mit(src, vorher),
-            Vorstufe::Hdr(h) => h.wandeln(src),
+        if !unveraendert || self.letztes.is_none() {
+            // Die Zuweisung gibt das vorige Zielbild in den Pool zurück.
+            self.letztes = Some(match &mut self.weg {
+                Weg::Skalierer(s) => s.scale_mit(src, vorher)?,
+                Weg::Hdr(h) => h.wandeln(src)?,
+            });
         }
+        self.letztes.as_mut().ok_or_else(|| anyhow!("Vorstufe ohne Zielbild"))
     }
 }
 
@@ -78,7 +136,7 @@ pub(super) fn bauen(
         // Kombinationen, zwei möglich, keine mit PQ). Der eigene Shader macht
         // dieselbe Arbeit — Verkleinern inbegriffen — und hängt an keinem
         // Treiber-Zugeständnis.
-        return Ok(Some(Vorstufe::Hdr(crate::encode::hdr_wandler::HdrWandler::new(
+        return Ok(Some(Vorstufe::neu(Weg::Hdr(crate::encode::hdr_wandler::HdrWandler::new(
             hw.device().clone(),
             // Safety: nur ein Clone (atomarer COM-AddRef), kein GPU-Befehl —
             // der Lock ist hier nicht nötig (s. `HwContext::device_context`).
@@ -87,7 +145,7 @@ pub(super) fn bauen(
             dst_h,
             16,
             hw.lock_ptr(),
-        )?)));
+        )?))));
     }
 
     // Downscale-Pfad: GPU-Scaler (VideoProcessorBlt) zwischen Capture und
@@ -107,7 +165,7 @@ pub(super) fn bauen(
     let anderes_format = dst_format != AVPixelFormat::AV_PIX_FMT_BGRA;
     if (dst_w, dst_h) != (width, height) || anderes_format || geteilt {
         let farbweg = crate::encode::farbraum::Farbweg::aus_formaten(false, dst_format);
-        return Ok(Some(Vorstufe::Skalierer(
+        return Ok(Some(Vorstufe::neu(Weg::Skalierer(
             D3D11Scaler::new(
                 hw.device().clone(),
                 unsafe { hw.device_context() }.clone(),
@@ -124,7 +182,7 @@ pub(super) fn bauen(
                 None,
             )
             .map_err(|e| anyhow!("D3D11Scaler::new: {e:#}"))?,
-        )));
+        ))));
     }
 
     if crate::encode::bildencoder::angemeldet().is_some() {

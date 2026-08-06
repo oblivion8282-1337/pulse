@@ -235,9 +235,16 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         present_mode: praesentationsart(&caps.present_modes),
         alpha_mode: caps.alpha_modes[0],
         view_formats: vec![],
-        // Drei Swapchain-Bilder, nicht zwei: wgpu macht daraus
-        // `min_image_count(latency + 1)`
-        // (`wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:192`, nachgelesen).
+        // Drei Swapchain-Bilder, nicht zwei: wgpu macht daraus `latency + 1`.
+        //
+        // **Die Quellenangabe hier war bis zum 2026-08-06 die falsche Datei**
+        // (`wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:192`) — der Player
+        // faehrt unter Windows seit dem HDR-Umbau ueber **D3D12**. Der Beleg
+        // ist `wgpu-hal-29.0.4/src/dx12/mod.rs:1344` (`maximum_frame_latency
+        // + 1`), und `mod.rs:1504` setzt zusaetzlich `SetMaximumFrameLatency`.
+        // Die Schlussfolgerung war also richtig, nur am falschen Backend
+        // nachgesehen; ohne diese Zeile prueft der Naechste wieder die
+        // Vulkan-Datei. Auf Linux gilt die Vulkan-Fundstelle weiter.
         //
         // Mit zwei Bildern kann der Fenster-Thread Bild N+1 nicht vorbereiten,
         // solange der Compositor Bild N haelt — `get_current_texture` wartet.

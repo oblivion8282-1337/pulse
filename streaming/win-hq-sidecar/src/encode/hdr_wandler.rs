@@ -14,9 +14,8 @@
 //! jeder Maschine nachfahren.
 //!
 //! Ein Video-Prozessor, der weder das Eingangsformat noch die Zielkurve
-//! annimmt, ist an dieser Stelle kein Werkzeug mehr. Also rechnen wir selbst —
-//! genau wie GSR es auf Linux tut (`color_conversion.c`), und aus demselben
-//! Grund.
+//! annimmt, ist kein Werkzeug mehr. Also rechnen wir selbst — wie GSR es auf
+//! Linux tut (`color_conversion.c`), aus demselben Grund.
 //!
 //! ## Was der Shader tut, in vier Schritten
 //!
@@ -111,15 +110,21 @@ float3 nach_pq(float3 nits) {
     return pow((c1 + c2 * ym) / (1.0 + c3 * ym), m2);
 }
 
-// Der ganze Farbweg fuer einen Bildpunkt: scRGB -> PQ-kodiertes BT.2020.
-float3 farbe(float2 uv) {
-    float3 scrgb = Src.SampleLevel(Samp, uv, 0).rgb;
-    // Negative Werte bedeutet scRGB als "ausserhalb von BT.709". Nach BT.2020
-    // liegen fast alle davon wieder im Bereich; was danach noch negativ ist,
-    // kann PQ nicht darstellen und wird hier abgeschnitten.
-    float3 nits = max(nach_bt2020(scrgb * SCRGB_WEISS), 0.0);
-    return nach_pq(nits);
+// Lineares Licht eines Bildpunkts in cd/m², noch in BT.709-Primaervalenzen.
+// **Eigene Funktion, weil hier die Trennlinie liegt:** bis hierher ist alles
+// linear, danach kommen Matrix und Kurve. Der Chroma-Durchgang mittelt VIER
+// davon und rechnet den Rest genau einmal (s. `ps_chroma`).
+float3 licht709(float2 uv) {
+    return Src.SampleLevel(Samp, uv, 0).rgb * SCRGB_WEISS;
 }
+
+// Aus linearem BT.709-Licht der fertige PQ-Codewert in BT.2020. Negative Werte
+// bedeuten scRGB als "ausserhalb von BT.709"; nach BT.2020 liegen fast alle
+// wieder im Bereich, was danach noch negativ ist, kann PQ nicht darstellen.
+float3 nach_pq2020(float3 licht) { return nach_pq(max(nach_bt2020(licht), 0.0)); }
+
+// Der ganze Farbweg fuer einen Bildpunkt: scRGB -> PQ-kodiertes BT.2020.
+float3 farbe(float2 uv) { return nach_pq2020(licht709(uv)); }
 
 // RGB -> YCbCr, BT.2020 ohne konstante Leuchtdichte, Studio-Bereich, 10 bit.
 //
@@ -151,15 +156,28 @@ float ps_luma(VsOut i) : SV_Target {
 
 float2 ps_chroma(VsOut i) : SV_Target {
     // Die vier Luma-Stellen dieses Chroma-Punkts mitteln — 4:2:0 heisst, dass
-    // ein Chroma-Wert fuer einen 2x2-Block gilt. Vor der Matrix zu mitteln
-    // waere farblich richtiger, kostet aber vier Matrixdurchlaeufe; danach zu
-    // mitteln ist der uebliche Weg und derselbe, den der D3D12-Wandler geht.
+    // ein Chroma-Wert fuer einen 2x2-Block gilt. **Gemittelt wird in linearem
+    // Licht, VOR Matrix und Kurve**; danach laeuft der Farbweg genau einmal.
+    //
+    // HIER STAND BIS ZUM 2026-08-06: "Vor der Matrix zu mitteln waere farblich
+    // richtiger, kostet aber vier Matrixdurchlaeufe." **Das Kostenargument war
+    // falsch ueber den eigenen Code:** die alte Fassung rief `farbe()` und
+    // `nach_ycbcr()` je viermal auf, zahlte die vier Matrixdurchlaeufe also
+    // bereits — dazu vier PQ-Kurven zu je sechs `pow`. Der angeblich teurere
+    // Weg ist der billigere: 2N Farbwege je Bild werden zu 1,25N, Ersparnis
+    // genau auf den `pow` (auf RDNA ein Viertel der Rate).
+    //
+    // Farblich ist es zugleich richtiger: eine Unterabtastung mittelt LICHT,
+    // nicht Codewerte. Wie weit beide auseinanderliegen, rechnet der
+    // CPU-Zwilling in `tests` aus — auf Flaechen, Text, Grau und Spitzlichtern
+    // null, an gesaettigten Farbkanten bis 28,7 von 1023. Das Luma-Bild ist
+    // unberuehrt, eine Helligkeitsverschiebung also ausgeschlossen.
     float2 h = InvDst * 0.5;
-    float3 s = nach_ycbcr(farbe(i.uv + float2(-h.x, -h.y)))
-             + nach_ycbcr(farbe(i.uv + float2( h.x, -h.y)))
-             + nach_ycbcr(farbe(i.uv + float2(-h.x,  h.y)))
-             + nach_ycbcr(farbe(i.uv + float2( h.x,  h.y)));
-    return (s * 0.25).yz * P010;
+    float3 licht = 0.25 * (licht709(i.uv + float2(-h.x, -h.y))
+                         + licht709(i.uv + float2( h.x, -h.y))
+                         + licht709(i.uv + float2(-h.x,  h.y))
+                         + licht709(i.uv + float2( h.x,  h.y)));
+    return nach_ycbcr(nach_pq2020(licht)).yz * P010;
 }
 "#;
 
@@ -476,5 +494,166 @@ fn uebersetzen(einstieg: &str, ziel: &str) -> Result<ID3DBlob> {
 fn bytes(blob: &ID3DBlob) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(blob.GetBufferPointer() as *const u8, blob.GetBufferSize())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! **Der Zwilling des Shaders auf der CPU** — er beantwortet die eine
+    //! Frage, die die Umstellung des Chroma-Durchgangs offenlässt: **wie weit
+    //! weicht die neue Mittelung farblich von der alten ab?**
+    //!
+    //! Das ersetzt keine Sichtprüfung an bewegtem Bild, aber es macht sie
+    //! entbehrlich für die Frage „ist das ein Rückschritt": ein Auge kann zwei
+    //! Codewerte Unterschied nicht sehen, ein Test kann sie zählen.
+    //!
+    //! Die Zahlen unten sind **gerechnet, nicht gemessen** — sie stammen aus
+    //! dieser Rechnung, nicht von der Grafikkarte. Was die Karte tut, ist
+    //! dasselbe: die Formeln sind Zeile für Zeile aus `SHADER_HLSL` übernommen.
+    //!
+    //! **Und genau darin liegt die Schwachstelle dieses Zwillings:** er ist
+    //! eine Abschrift, und nichts erzwingt, dass er eine bleibt. Wer die
+    //! BT.2087-Matrix oder eine PQ-Konstante im HLSL ändert und hier nicht,
+    //! bekommt weiterhin grüne Tests — über eine Rechnung, die die Karte nicht
+    //! mehr fährt. Beim Ändern also immer beide Seiten. (Den Shader aus
+    //! Rust-Konstanten zusammenzusetzen wäre der dichte Weg; er macht den
+    //! Shader-Text unsuchbar und wurde deshalb hier nicht genommen.)
+
+    /// BT.709 → BT.2020, linear (ITU-R BT.2087 Anhang A) — wie `nach_bt2020`.
+    fn nach_bt2020(c: [f64; 3]) -> [f64; 3] {
+        let d = |m: [f64; 3]| c[0] * m[0] + c[1] * m[1] + c[2] * m[2];
+        [
+            d([0.62740, 0.32930, 0.04330]),
+            d([0.06910, 0.91950, 0.01140]),
+            d([0.01640, 0.08800, 0.89560]),
+        ]
+    }
+
+    /// PQ vorwärts (SMPTE ST 2084) — wie `nach_pq`.
+    fn nach_pq(nits: [f64; 3]) -> [f64; 3] {
+        const M1: f64 = 0.1593017578125;
+        const M2: f64 = 78.84375;
+        const C1: f64 = 0.8359375;
+        const C2: f64 = 18.8515625;
+        const C3: f64 = 18.6875;
+        let e = |v: f64| {
+            let y = (v / 10000.0).clamp(0.0, 1.0);
+            let ym = y.powf(M1);
+            ((C1 + C2 * ym) / (1.0 + C3 * ym)).powf(M2)
+        };
+        [e(nits[0]), e(nits[1]), e(nits[2])]
+    }
+
+    /// RGB → YCbCr, BT.2020 NCL, Studio, 10 bit — wie `nach_ycbcr`.
+    fn nach_ycbcr(rgb: [f64; 3]) -> [f64; 3] {
+        let y = 0.2627 * rgb[0] + 0.6780 * rgb[1] + 0.0593 * rgb[2];
+        let u = (rgb[2] - y) / 1.8814;
+        let v = (rgb[0] - y) / 1.4746;
+        [
+            y * (876.0 / 1023.0) + (64.0 / 1023.0),
+            u * (896.0 / 1023.0) + (512.0 / 1023.0),
+            v * (896.0 / 1023.0) + (512.0 / 1023.0),
+        ]
+    }
+
+    const SCRGB_WEISS: f64 = 80.0;
+
+    fn farbe(scrgb: [f64; 3]) -> [f64; 3] {
+        let l = nach_bt2020([
+            scrgb[0] * SCRGB_WEISS,
+            scrgb[1] * SCRGB_WEISS,
+            scrgb[2] * SCRGB_WEISS,
+        ]);
+        nach_pq([l[0].max(0.0), l[1].max(0.0), l[2].max(0.0)])
+    }
+
+    /// Der ALTE Weg: vier fertige PQ-Farben nach YCbCr, dann mitteln.
+    fn chroma_alt(block: &[[f64; 3]; 4]) -> (f64, f64) {
+        let mut s = [0.0; 3];
+        for p in block {
+            let c = nach_ycbcr(farbe(*p));
+            for i in 0..3 {
+                s[i] += c[i] * 0.25;
+            }
+        }
+        (s[1], s[2])
+    }
+
+    /// Der NEUE Weg: die vier scRGB-Werte in linearem Licht mitteln, dann
+    /// einmal Matrix, Kurve und YCbCr.
+    fn chroma_neu(block: &[[f64; 3]; 4]) -> (f64, f64) {
+        let mut m = [0.0; 3];
+        for p in block {
+            for i in 0..3 {
+                m[i] += p[i] * 0.25;
+            }
+        }
+        let c = nach_ycbcr(farbe(m));
+        (c[1], c[2])
+    }
+
+    /// In Codewerten (10 bit, also 1023 Stufen) — so groß ist der Unterschied
+    /// wirklich, und nur so ist er einzuordnen.
+    fn abstand_codewerte(block: &[[f64; 3]; 4]) -> (f64, f64) {
+        let (au, av) = chroma_alt(block);
+        let (nu, nv) = chroma_neu(block);
+        (((nu - au) * 1023.0).abs(), ((nv - av) * 1023.0).abs())
+    }
+
+    /// **Auf gleichmäßigen Blöcken ist der Unterschied null** — und das ist
+    /// kein Zufall, sondern die Aussage: nur dort, wo sich die vier Bildpunkte
+    /// unterscheiden, kann die Reihenfolge von Mittelung und Kurve überhaupt
+    /// etwas ändern. Auf Flächen, also auf dem allermeisten Bild, ist das neue
+    /// Ergebnis **bitgleich**.
+    #[test]
+    fn auf_einer_flaeche_aendert_sich_nichts() {
+        for wert in [0.0, 0.05, 0.2, 0.5, 1.0, 3.0, 12.5] {
+            let block = [[wert, wert * 0.8, wert * 0.6]; 4];
+            let (du, dv) = abstand_codewerte(&block);
+            assert!(du < 1e-6 && dv < 1e-6, "gleichmässiger Block {wert}: {du}/{dv}");
+        }
+    }
+
+    /// **Und auf dem härtesten Übergang bleibt er klein.** Schwarz gegen ein
+    /// Spitzlicht in einem 2×2-Block ist der schlechteste Fall, den ein Bild
+    /// hergibt; gemessen in Codewerten ist selbst er einstellig bis knapp
+    /// zweistellig von 1023.
+    ///
+    /// Die Schranke ist bewusst als **Zahl mit Herleitung** gesetzt und nicht
+    /// als „irgendwas Kleines": sie ist der größte Wert, den diese Rechnung
+    /// über die Blöcke unten liefert, aufgerundet. Wer die Mittelung erneut
+    /// ändert, sieht hier sofort, ob er den Rahmen verlässt.
+    #[test]
+    fn selbst_der_haerteste_uebergang_bleibt_im_rahmen() {
+        let faelle: [(&str, [[f64; 3]; 4]); 4] = [
+            (
+                "Schwarz gegen Spitzlicht (10 000 cd/m²)",
+                [[0.0, 0.0, 0.0], [125.0, 125.0, 125.0], [0.0, 0.0, 0.0], [125.0, 125.0, 125.0]],
+            ),
+            (
+                "Schwarz gegen SDR-Weiss",
+                [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+            ),
+            (
+                "Rot gegen Blau, beide voll",
+                [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            ),
+            (
+                "Textkante: dunkles Grau gegen helles Grau",
+                [[0.05, 0.05, 0.05], [0.6, 0.6, 0.6], [0.05, 0.05, 0.05], [0.6, 0.6, 0.6]],
+            ),
+        ];
+        let mut groesster: f64 = 0.0;
+        for (name, block) in faelle {
+            let (du, dv) = abstand_codewerte(&block);
+            eprintln!("{name}: Cb {du:.1}, Cr {dv:.1} Codewerte von 1023");
+            groesster = groesster.max(du).max(dv);
+        }
+        assert!(
+            groesster < 40.0,
+            "der grösste Abstand über alle Fälle war {groesster:.1} Codewerte — \
+             über 40 wäre die Mittelung keine Verfeinerung mehr, sondern eine \
+             andere Farbe"
+        );
     }
 }

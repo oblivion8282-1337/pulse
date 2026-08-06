@@ -153,6 +153,125 @@ pub fn schirm_ist_hdr(_hwnd: isize) -> bool {
     false
 }
 
+/// Wie lange eine Antwort von [`schirm_ist_hdr`] wiederverwendet wird.
+///
+/// **Eine Sekunde, und beide Richtungen der Wahl sind begruendet.**
+///
+/// *Warum ueberhaupt gespeichert:* [`Renderer::farbraum_fuer_quelle`] wird bei
+/// JEDEM Bild gefragt, und bei einem PQ-Strom lief die Abfrage darin bis zum
+/// 2026-08-06 auch jedes Mal wirklich durch — `CreateDXGIFactory1` samt
+/// Aufzaehlung aller Adapter und Ausgaenge, sechzigmal je Sekunde. Das ist ein
+/// AUFBAU-Aufruf im Bildtakt, gegen dieselben Treibersperren, die gleichzeitig
+/// das Praesentieren bedienen. Bei einem SDR-Strom brach die `&&`-Kette vorher
+/// ab, deshalb ist es nie aufgefallen.
+///
+/// *Warum nicht einfach einmalig:* die Antwort kann sich waehrend der Sitzung
+/// aendern — der Nutzer legt HDR in den Windows-Anzeigeeinstellungen um, oder
+/// er zieht das Fenster auf einen anderen Schirm. Ein eingefrorener Wert hiesse
+/// dann: HDR-Strom auf SDR-Schirm mit abgeschnittenen Spitzlichtern, oder
+/// umgekehrt dauerhaftes Herunterrechnen auf einem Schirm, der HDR koennte.
+///
+/// *Warum eine Sekunde:* sie deckt beide Ereignisse ab, ohne sie spuerbar
+/// nachhinken zu lassen — Windows braucht fuer einen HDR-Wechsel selbst
+/// laenger (der Schirm wird dabei schwarz), und ein Fensterwechsel ueber die
+/// Bildschirmgrenze dauert die Mausbewegung. Nach oben begrenzt sie der
+/// Nutzen: aus 60 Abfragen je Sekunde wird eine, das sind 98 % weg. Eine
+/// laengere Frist holt davon nur noch Bruchteile und verlaengert den Nachhall.
+/// Kuerzer waere Aufwand ohne Anlass: bei 100 ms blieben sechs Aufzaehlungen je
+/// Sekunde stehen, fuer eine Frage, deren Antwort sich im Betrieb praktisch nie
+/// aendert.
+const SCHIRM_FRIST: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Die letzte Antwort von [`schirm_ist_hdr`] samt ihrem Alter.
+///
+/// Kein `Option<bool>` mit Zeitstempel daneben, sondern beides zusammen: die
+/// beiden gehoeren zueinander, und getrennt liessen sie einen Zustand zu, in
+/// dem ein Wert ohne Alter dasteht.
+#[derive(Default)]
+pub(super) struct Schirmwissen {
+    stand: Option<(bool, std::time::Instant)>,
+}
+
+impl Schirmwissen {
+    /// Laeuft der Schirm in HDR? Fragt hoechstens einmal je [`SCHIRM_FRIST`]
+    /// wirklich nach.
+    pub(super) fn ist_hdr(&mut self, hwnd: isize) -> bool {
+        // Als Wachbedingung statt als verschachteltes `if let`: die Kiste steht
+        // auf Edition 2021, `if let ... &&` gibt es erst ab 2024 — ein `match`
+        // mit `if` am Arm tut dasselbe schon heute.
+        match self.stand {
+            Some((wert, seit)) if seit.elapsed() < SCHIRM_FRIST => wert,
+            _ => {
+                let wert = schirm_ist_hdr(hwnd);
+                self.stand = Some((wert, std::time::Instant::now()));
+                wert
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Was die Bildschirm-Abfrage wirklich kostet** — die Zahl, die der
+    /// Durchsicht vom 2026-08-06 gefehlt hat (`[UNBELEGT]`, „begruendeter
+    /// Verdacht Nummer eins").
+    ///
+    /// `#[ignore]`, weil er echte Hardware abfragt: das Ergebnis haengt an
+    /// Adapterzahl, Ausgangszahl und Treiber, ist also auf keiner zweiten
+    /// Maschine dieselbe Zahl und taugt nicht als Zusicherung. Aufrufen mit
+    /// `cargo test --release -- --ignored --nocapture schirm_abfrage`.
+    ///
+    /// **Was er NICHT misst:** die Kosten unter Last. Hier laeuft weder ein
+    /// Zeichendurchgang noch ein Decoder gegen dieselben Treibersperren; im
+    /// laufenden Betrieb ist der Aufruf eher teurer als hier, nicht billiger.
+    #[test]
+    #[ignore = "fragt echte Hardware ab; Ergebnis ist maschinenabhaengig"]
+    fn was_kostet_die_schirm_abfrage() {
+        // Ein paar Durchlaeufe vorweg: der erste Aufruf zieht die DXGI-DLLs
+        // und waere sonst der Ausreisser, den man hinterher erklaeren muss.
+        for _ in 0..10 {
+            let _ = schirm_ist_hdr(0);
+        }
+        let mut zeiten: Vec<u128> = (0..200)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let _ = schirm_ist_hdr(0);
+                t.elapsed().as_micros()
+            })
+            .collect();
+        zeiten.sort_unstable();
+        let median = zeiten[zeiten.len() / 2];
+        let p95 = zeiten[zeiten.len() * 95 / 100];
+        eprintln!(
+            "schirm_ist_hdr: Median {median} us, p95 {p95} us, Groesstes {} us \
+             (200 Aufrufe) — bei 60 Bildern je Sekunde waeren das {:.2} ms/s, \
+             also {:.1} % eines Bildbudgets von 16,7 ms je Bild",
+            zeiten[zeiten.len() - 1],
+            median as f64 * 60.0 / 1000.0,
+            median as f64 / 16_700.0 * 100.0,
+        );
+    }
+
+    /// Die Frist tut, was sie soll: innerhalb ihrer kommt die Antwort aus dem
+    /// Speicher. Geprueft ohne echte Abfrage — `hwnd = 0` liefert auf
+    /// Nicht-Windows ohnehin `false`, und worauf es hier ankommt, ist, dass
+    /// zweimal dasselbe herauskommt und der Stand gesetzt ist.
+    #[test]
+    fn die_frist_haelt_die_antwort_fest() {
+        let mut w = Schirmwissen::default();
+        let erst = w.ist_hdr(0);
+        let stand = w.stand.expect("nach der ersten Frage muss ein Stand dastehen");
+        assert_eq!(w.ist_hdr(0), erst, "innerhalb der Frist dieselbe Antwort");
+        assert_eq!(
+            w.stand.map(|(v, t)| (v, t)),
+            Some(stand),
+            "und ohne den Zeitstempel zu erneuern — sonst liefe die Frist nie ab"
+        );
+    }
+}
+
 // ── Der Renderer-Teil, der am Farbraum haengt ───────────────────────────────
 //
 // Steht hier statt in `render::mod`, weil beides zusammengehoert: was das
@@ -207,10 +326,18 @@ impl Renderer {
     /// bietet ein Fliesskomma-Format an, und der Schirm laeuft in HDR. Fehlt
     /// eine, bleibt es beim SDR-Fenster — und der Shader rechnet herunter,
     /// statt Spitzlichter abschneiden zu lassen.
+    /// **Die dritte Bedingung steht bewusst hinten und wird gespeichert.** Sie
+    /// ist die einzige teure — eine DXGI-Aufzaehlung ueber alle Adapter und
+    /// Ausgaenge — und die `&&`-Kette kommt bei einem SDR-Strom gar nicht bis
+    /// zu ihr. Bei einem PQ-Strom kommt sie bei JEDEM Bild dorthin, und genau
+    /// deshalb beantwortet sie [`Schirmwissen`] aus dem Speicher (Frist:
+    /// [`SCHIRM_FRIST`]). Die Reihenfolge der Kette umzudrehen waere die
+    /// schlechtere Abhilfe gewesen: dann fiele ein Wechsel des Schirms nach HDR
+    /// nie auf.
     pub fn farbraum_fuer_quelle(&mut self, farbe: Farbangaben) -> Option<wgpu::TextureFormat> {
         let moeglich = farbe.uebertragung == Uebertragung::Pq
             && self.angebotene_formate.contains(&HDR_OBERFLAECHE)
-            && schirm_ist_hdr(self.hwnd);
+            && self.schirmwissen.ist_hdr(self.hwnd);
         if moeglich == self.hdr_gewuenscht {
             return None;
         }

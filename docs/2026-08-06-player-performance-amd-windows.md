@@ -7,6 +7,30 @@ Windows 11 26200, Radeon 780M (RDNA3-APU), Treiber 32.0.31035.1003, HDR-Schirm
 ist ausdrücklich **nicht** Gegenstand; er wird nur dort erwähnt, wo er sich mit dem
 Player dieselbe Grafikeinheit teilt.
 
+> **Nachtrag vom selben Tag, abends: Punkt 1 und 3 sind behoben und gemessen.**
+>
+> * **Punkt 1 ist der kleinste der Posten, nicht der größte.** Die Bildschirm-Abfrage
+>   kostet **116 µs im Median** (200 Aufrufe, `render::hdr_fenster::tests::
+>   was_kostet_die_schirm_abfrage`), also 0,12 ms je Bild oder 0,7 % eines
+>   Bildbudgets — nicht die zwei Millisekunden, die als Möglichkeit im Raum
+>   standen. Aus `[UNBELEGT]` ist damit eine Zahl geworden, und sie fällt klein
+>   aus. Behoben ist er trotzdem (Zwischenspeicher mit einer Sekunde Frist).
+>   **Nicht gedeckt** bleibt der zweite Teil der Sorge: der Streit um dieselben
+>   prozessweiten Sperren unter Last. Er kann nur größer sein als 116 µs.
+> * **Punkt 3 ist gefaltet, nicht ausgedünnt** — der Rechendurchgang liegt jetzt
+>   im Kommandopuffer des Zeichendurchgangs, der Wächter sieht genauso viele
+>   Bilder wie vorher, und keine Schwelle in `einfrieren.rs` musste angefasst
+>   werden. Das Ergebnis ist ehrlich gemischt: „hochladen" fällt von **0,5 auf
+>   0,0 ms**, „ausgeben" steigt von **0,4 auf 0,8** — die Arbeit ist
+>   größtenteils **umgezogen**, netto bleiben rund 0,1 ms je Bild.
+> * **Berichtigt**, unabhängig von jedem Umbau: die vier Kommentare zum
+>   Ausgabe-Takt (Punkt 5), die widerlegte Begründung in `bruecke.rs`
+>   (Punkt 6) und die falsche Quellenangabe in `setup.rs` (Punkt F).
+>
+> Zahlen, Verfahren und Vorbehalte — samt der Stockungen, die drei von sechs
+> Läufen getroffen haben:
+> `streaming/testbench/profiles/leistung-2026-08-06-vier-befunde.json`.
+
 ## Wie dieses Dokument zu lesen ist
 
 **Hier ist nichts gemessen worden.** Es wurde kein Stream gestartet, kein Player

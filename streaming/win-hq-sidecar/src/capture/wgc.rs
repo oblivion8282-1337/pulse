@@ -65,7 +65,16 @@ pub struct CaptureConfig {
     /// wobei 1,0 dem SDR-Weiß (per Vereinbarung 80 cd/m²) entspricht und
     /// Spitzlichter darüber hinausgehen. Negative Werte sind erlaubt und
     /// bedeuten Farben außerhalb von BT.709. Die Umrechnung nach PQ/BT.2020
-    /// macht der Farbwandler davor dem Encoder (`encode::d3d11_scale`).
+    /// macht der Farbwandler davor dem Encoder — **`encode::hdr_wandler`**,
+    /// ein eigener Shader.
+    ///
+    /// **Hier stand bis zum 2026-08-06 `encode::d3d11_scale`. Das ist falsch,
+    /// und der Irrtum ist der lehrreiche Teil:** der Video-Prozessor kann es
+    /// auf diesem Treiber gerade NICHT — er verneint jede Wandlung mit
+    /// 16-Bit-Fließkomma am Eingang und jede mit PQ am Ausgang (32 geprüfte
+    /// Kombinationen, Tabelle in
+    /// `encode::farbraum::tests::wandlungen_dieses_treibers`). Genau deshalb
+    /// gibt es `hdr_wandler` überhaupt.
     ///
     /// Kostet Bandbreite über den Bus: 8 Byte je Bildpunkt statt 4.
     pub hdr: bool,

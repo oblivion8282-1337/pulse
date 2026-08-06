@@ -57,9 +57,6 @@ use crate::tick_monitor::{TickMonitor, TickSample};
 mod capture_start;
 mod vorstufe;
 
-
-
-
 pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
 
@@ -416,8 +413,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         if pts <= last_pts {
             pts = last_pts + 1;
         }
-        // Convert-Zeit: GPU-Scaler bei Downscale, 0 bei Native (NVENC macht
-        // den BGRA→NV12-Convert selbst).
+        // Convert-Zeit: GPU-Scaler bei Downscale, 0 bei Native (NVENC macht den
+        // Convert selbst) — und **0 auch bei stehendem Bild** (s.u.).
         let mut convert = Duration::ZERO;
         if let Some(frame) = last_frame.as_mut() {
             match &mut *scaler {
@@ -429,9 +426,18 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                     // Video-Prozessor hineinschreibt — Begründung an
                     // `BildEncoder::vor_dem_schreiben`. Für den Regelweg ist
                     // das ein leerer Aufruf.
-                    let mut scaled = s.verarbeiten(frame, |ziel| encoder.vor_dem_schreiben(ziel))?;
+                    //
+                    // **`captured == 0` heisst „die Quelle ist unverändert"**
+                    // (WGC ist änderungsgetrieben und liefert bei stehendem
+                    // Inhalt gar nichts); die Vorstufe rechnet dann nicht neu,
+                    // sondern gibt ihr letztes Ergebnis zurück. Warum sie das
+                    // darf und warum die Entscheidung von HIER kommen muss,
+                    // steht an `Vorstufe::verarbeiten`.
+                    let ziel = s.verarbeiten(frame, captured == 0, |z| {
+                        encoder.vor_dem_schreiben(z)
+                    })?;
                     convert = t_conv.elapsed();
-                    encoder.send_hw(&mut scaled, pts)?;
+                    encoder.send_hw(ziel, pts)?;
                 }
                 // Native: Capture-Frame direkt in den Encoder.
                 None => encoder.send_hw(frame, pts)?,
@@ -475,7 +481,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // sind `ManuallyDrop` (s.o.) und werden weder gestoppt noch freigegeben.
     // `last_frame` ist kein eigenes Binding oben, weil es im Loop neu zugewiesen
     // wird (der alte Frame MUSS dabei in den Pool zurück); nur der allerletzte
-    // wird hier vom Teardown ausgenommen.
+    // wird hier vom Teardown ausgenommen. Das zuletzt GEWANDELTE Bild braucht
+    // keine eigene Zeile: es liegt in der Vorstufe, und die ist `ManuallyDrop`.
     std::mem::forget(last_frame);
     encoder.finish()?;
     Ok(())

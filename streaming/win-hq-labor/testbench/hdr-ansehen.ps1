@@ -34,6 +34,22 @@ param(
   [int]$Bitrate = 12000,
   [int]$Fps = 60,
   [string]$Aufloesung = '1080p',
+  # -Spur <pfad>: der Sender schreibt je Tick eine JSONL-Zeile
+  # (PULSE_HQ_TRACE). Darin stehen `captured` (wie viele frische Aufnahmebilder
+  # dieser Tick gebracht hat), `conv_us` (Farbwandlung/Verkleinerung) und
+  # `iter_us` (Arbeitszeit ohne den Takt-Schlaf). Das ist die einzige Quelle,
+  # die auch im gesunden Fall etwas sagt -- die Zwei-Sekunden-Zusammenfassung
+  # meldet `conv` und `dup-frames` nur bei einem auffaelligen Fenster.
+  [string]$Spur = '',
+  # -OhneZuschauer: nur senden, kein Player-Fenster.
+  #
+  # WARUM DAS NOETIG IST, wenn man die SENDESEITE misst: der Sender nimmt den
+  # Monitor auf, und auf dem Monitor steht das Player-Fenster. Das ist ein
+  # Spiegelkabinett -- und weil der Player-Shader ein Rauschmuster ueber die
+  # Laufzeit einrechnet, aendert sich das Bild dadurch in JEDEM Bild. Ein
+  # stehender Bildschirm ist mit laufendem Player nicht herstellbar, und genau
+  # der ist der Fall, in dem sich Bild-Duplizierung ueberhaupt zeigt.
+  [switch]$OhneZuschauer,
   # Eigener Name der Strecke auf dem Pruefstand.
   #
   # Zwei Laeufe auf DEMSELBEN Pfad streiten sich um dieselbe Sitzung, und beide
@@ -112,6 +128,7 @@ $psi.WorkingDirectory = Split-Path (Split-Path $side -Parent) -Parent
 $psi.UseShellExecute = $false
 $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
+if ($Spur -ne '') { $psi.EnvironmentVariables['PULSE_HQ_TRACE'] = $Spur }
 $s = [Diagnostics.Process]::Start($psi)
 $sErr = $s.StandardError.ReadToEndAsync()
 $s.StandardOutput.ReadToEndAsync() | Out-Null
@@ -129,6 +146,18 @@ if ($s.HasExited) {
 }
 
 # --- Zuschauer ---------------------------------------------------------------
+if ($OhneZuschauer) {
+  Write-Host ("Nur Sender, kein Fenster. Laeuft {0} Sekunden." -f $Sekunden) -ForegroundColor Yellow
+  Start-Sleep -Seconds $Sekunden
+  $s.StandardInput.WriteLine('{"op":"stop","id":2}'); $s.StandardInput.Flush()
+  if (-not $s.WaitForExit(8000)) { $s.Kill() }
+  Write-Host "=== Was der Sender gemeldet hat ===" -ForegroundColor Cyan
+  ($sErr.Result -replace 'token=[^\s"&]+', 'token=WEG') -split "`n" |
+    Where-Object { $_ -match '\[hdr\]|\[hdr-wandler\]|capture .*->|Encoder offen|HDR-Signalisierung|tick-monitor' } |
+    Select-Object -First 8 | ForEach-Object { "  " + $_.Trim() }
+  exit 0
+}
+
 # stdin OFFEN halten: kaeme die Anfrage aus einer Datei, saehe der Player nach
 # der letzten Zeile EOF und faehrt herunter -- mitten im Verbindungsaufbau.
 $pp = New-Object Diagnostics.ProcessStartInfo
@@ -181,8 +210,13 @@ $s.StandardInput.WriteLine('{"op":"stop","id":2}'); $s.StandardInput.Flush()
 if (-not $s.WaitForExit(8000)) { $s.Kill() }
 
 if ($Voll) {
-  $pDat = "$sp\hdr-ansehen-player.log"
-  $sDat = "$sp\hdr-ansehen-sender.log"
+  # Die Kennung gehoert auch in den DATEINAMEN, nicht nur in den Pfad auf dem
+  # Pruefstand: zwei Laeufe hintereinander ueberschrieben sich hier sonst
+  # gegenseitig, und wer danach zwei Arme vergleichen will, hat nur noch den
+  # zweiten. Genau der Fehler, gegen den es -Kennung eine Ebene weiter oben
+  # schon gibt.
+  $pDat = "$sp\hdr-ansehen-$Kennung-player.log"
+  $sDat = "$sp\hdr-ansehen-$Kennung-sender.log"
   ($pErr.Result -replace 'token=[^\s"&]+', 'token=WEG') | Set-Content -Encoding utf8 $pDat
   ($sErr.Result -replace 'token=[^\s"&]+', 'token=WEG') | Set-Content -Encoding utf8 $sDat
   Write-Host ("Volle Ausgabe: {0} / {1}" -f $pDat, $sDat) -ForegroundColor Cyan

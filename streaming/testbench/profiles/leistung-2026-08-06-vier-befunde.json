@@ -1,0 +1,119 @@
+{
+  "id": "leistung-2026-08-06-vier-befunde",
+  "gemessen_am": "2026-08-06 (abends)",
+  "frage": "Vier Leistungsbefunde aus den beiden Code-Durchsichten desselben Tages sind behoben. Was hat es gebracht — und wo nichts?",
+  "stand": "Drei von vier wirken, einer davon deutlich. Bei stehendem Bild faellt die Farbwandlung des Senders vollstaendig weg (3D-Einheit 14,2 -> 0,4 Prozent, gemessen); in der laufenden Kette sinkt sie um rund 18 Prozent. Im Player faellt der Posten 'hochladen' von 0,5 auf 0,0 ms, der Posten 'ausgeben' steigt dafuer von 0,4 auf 0,8 — die Arbeit ist groesstenteils UMGEZOGEN, netto rund 0,1 ms je Bild. Die Bildschirm-Abfrage je Bild kostete 0,12 ms und war damit der KLEINSTE der vier Posten, obwohl die Analyse sie als 'begruendeter Verdacht Nummer eins' fuehrte.",
+
+  "aufbau": {
+    "maschine": "Windows 11 26200, Radeon 780M (integriert, RDNA3-APU), Treiber 32.0.31035.1003, HDR am Schirm an, ein Bildschirm.",
+    "strecke": "Sender = streaming/win-hq-sidecar (av1_amf, 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps) ueber den Hetzner-Messstand; Zuschauer = streaming/pulse-player ueber WHEP auf derselben Maschine.",
+    "werkzeug": "streaming/win-hq-labor/testbench/hdr-ansehen.ps1, erweitert um -Spur (PULSE_HQ_TRACE des Senders) und -OhneZuschauer. GPU-Auslastung ueber die Windows-Leistungsindikatoren '\\GPU Engine(*)\\Utilization Percentage', je Prozess und je Engine-Typ, eine Probe je Sekunde.",
+    "verfahren": "Zwei Binaries je Kiste, aus demselben Arbeitsverzeichnis gebaut (Vergleichsarm ueber 'git stash'), abwechselnd gefahren, drei Paare je Serie. Ausgewertet werden MEDIANE ueber tausende Ticks bzw. ueber alle Statistikzeilen eines Laufs; die ersten 120 Ticks bzw. 5 Zeilen fallen weg (Encoder-Anlauf und Verbindungsaufbau)."
+  },
+
+  "die_grenze_dieser_maschine_gehoert_in_die_akte": {
+    "eine_video_einheit": "Die 780M hat EINE Video-Einheit (VCN). In der vollen Kette encodiert sie AV1 in 10 Bit und dekodiert gleichzeitig AV1 in 10 Bit. Absolute Zahlen sind dadurch nach oben verzerrt.",
+    "warum_der_vergleich_trotzdem_traegt": "Beide Arme tragen dieselbe Last, wurden abwechselnd gefahren und paarweise verglichen. Die Aussage ist immer die DIFFERENZ innerhalb einer Serie, nie eine absolute Zahl zwischen Serien.",
+    "und_warum_nicht_zwischen_serien": "Dieselbe Arbeit des Senders belegt die 3D-Einheit in der Standbild-Serie zu 14,2 Prozent und in der Ketten-Serie zu 21,2 — bei identischem Code. Der Grund ist die Taktregelung der APU: unter Last teilen sich CPU und GPU dasselbe Leistungsbudget, dieselbe Arbeit dauert laenger und belegt die Einheit prozentual mehr. Wer Prozentzahlen ueber Serien hinweg vergleicht, misst die Taktregelung."
+  },
+
+  "befund_1_bildschirm_abfrage_je_bild": {
+    "was_war": "render/hdr_fenster.rs, farbraum_fuer_quelle: schirm_ist_hdr(hwnd) stand VOR dem fruehen Ausstieg und in der &&-Kette. Bei einem PQ-Strom lief damit je Bild ein CreateDXGIFactory1 samt Aufzaehlung aller Adapter und Ausgaenge. Bei SDR brach die Kette vorher ab, deshalb war es nie aufgefallen.",
+    "was_jetzt": "Ein Zwischenspeicher mit Verfallszeit (hdr_fenster::SCHIRM_FRIST = 1 s). Nicht einmalig eingefroren, weil der Nutzer HDR in Windows umlegen oder das Fenster auf einen anderen Schirm ziehen kann; eine Sekunde deckt beides ab, ohne spuerbar nachzuhinken (Windows braucht fuer einen HDR-Wechsel selbst laenger, der Schirm wird dabei schwarz).",
+    "gemessen": {
+      "wie": "cargo test --release -- --ignored --nocapture was_kostet_die_schirm_abfrage — 200 Aufrufe, 10 Vorlaeufe, in render::hdr_fenster::tests.",
+      "median_us": 116,
+      "p95_us": 141,
+      "groesstes_us": 267,
+      "umgerechnet": "Bei 60 Bildern je Sekunde 7,0 ms/s, also 0,7 Prozent eines Bildbudgets je Bild. Nach der Behebung ein Aufruf je Sekunde statt 60, also 98 Prozent weniger."
+    },
+    "das_ehrliche_ergebnis": "0,12 ms je Bild — nicht 2. Die Analyse fuehrte diesen Punkt als 'begruendeter Verdacht Nummer eins' und kennzeichnete die Wirkung ausdruecklich als UNBELEGT; belegt ist sie jetzt und faellt klein aus. Behoben bleibt er trotzdem: ein Aufbau-Aufruf im Bildtakt ist auch dann falsch, wenn er billig ist.",
+    "was_diese_zahl_nicht_deckt": "Die Messung laeuft ohne Last. Der zweite Teil der Sorge — Streit um dieselben prozessweiten Sperren im Grafikstapel, waehrend Zeichnen und Dekodieren laufen — ist damit NICHT gemessen und bleibt offen. Er kann nur groesser sein als 116 us, nicht kleiner."
+  },
+
+  "befund_2_hdr_shader_rechnete_doppelt": {
+    "was_war": "encode/hdr_wandler.rs, ps_chroma rief farbe() an vier Stellen erneut auf — genau dort, wo ps_luma sie schon gerechnet hatte. farbe() traegt die PQ-Kurve mit sechs pow. Summe 2N statt N Farbwege je Bild.",
+    "die_begruendung_im_code_trug_den_code_nicht": "Dort stand, vor der Matrix zu mitteln sei farblich richtiger, koste aber vier Matrixdurchlaeufe. Der Code zahlte diese vier bereits — er rief nach_ycbcr viermal auf und farbe() davor ebenfalls viermal. Der angeblich teurere Weg war der billigere. Fehler im Kommentar UND im Code.",
+    "was_jetzt": "Die vier scRGB-Werte werden in LINEAREM Licht gemittelt, danach laufen Matrix, PQ-Kurve und YCbCr genau einmal. 2N -> 1,25N Farbwege, also 37,5 Prozent weniger, und die Ersparnis sitzt auf den pow.",
+    "farblich_geprueft_statt_angesehen": {
+      "womit": "Ein CPU-Zwilling des Shaders in encode::hdr_wandler::tests, Formeln Zeile fuer Zeile aus SHADER_HLSL. Er rechnet beide Mittelungen und gibt den Abstand in 10-Bit-Codewerten aus. GERECHNET, nicht auf der Grafikkarte gemessen — die Formeln sind identisch.",
+      "auf_flaechen": "0,0 Codewerte. Wo die vier Bildpunkte gleich sind, kann die Reihenfolge von Mittelung und Kurve nichts aendern — das ist der allergroesste Teil jedes Bildes.",
+      "schwarz_gegen_spitzlicht_10000_nits": "Cb 0,0 / Cr 0,0",
+      "schwarz_gegen_sdr_weiss": "Cb 0,0 / Cr 0,0",
+      "textkante_dunkelgrau_gegen_hellgrau": "Cb 0,0 / Cr 0,0",
+      "rot_gegen_blau_beide_voll": "Cb 28,7 / Cr 12,3 von 1023 (2,8 bzw. 1,2 Prozent)",
+      "warum_neutral_null_ergibt": "Bei unbunten Farben liegen Cb und Cr unabhaengig von der Helligkeit bei 0,5. Nur an gesaettigten Farbkanten unterscheiden sich die beiden Wege — also genau dort, wo 4:2:0 ohnehin Farbe wegwirft.",
+      "was_offen_bleibt": "Eine Sichtpruefung durch ein menschliches Auge an bewegtem Bild. Die Rechnung sagt, wo sie hinsehen muesste (gesaettigte Farbkanten), und dass sie auf Text, Grau und Spitzlichtern nichts finden kann."
+    },
+    "das_luma_bild_bleibt_unangetastet": "ps_luma ist unveraendert. Eine Helligkeitsverschiebung ist damit ausgeschlossen, nicht bloss unwahrscheinlich."
+  },
+
+  "befund_3_stehendes_bild_wurde_je_tick_neu_gerechnet": {
+    "was_war": "pipeline_hw/mod.rs: die Vorstufe lief je Tick, auch wenn die Aufnahme kein neues Bild geliefert hatte — das Ergebnis war dann bitgleich. Der Weg OHNE Vorstufe machte es seit jeher richtig.",
+    "was_jetzt": "Bei captured == 0 wird das zuletzt gewandelte Bild erneut eingeschoben.",
+    "der_benannte_fallstrick_war_echt": {
+      "die_sorge": "Die HDR-Begleitdaten haengen am Bild und werden je Einschieben angehaengt (encode/hdr.rs::metadaten_anhaengen). Bei Wiederverwendung koennten sie anwachsen. Die Analyse nannte das ausdruecklich UNGEPRUEFT.",
+      "geprueft": "av_frame_new_side_data haengt AN, es ersetzt nicht — zweimal gerufen stehen zwei Eintraege derselben Art am Bild. Nachweis: Test encode::hdr::tests::ffmpeg_haengt_begleitdaten_an.",
+      "folge": "Ohne Abhilfe waere das ein Speicherbedarf, der genau bei stehendem Inhalt und nur dort ueber die Laufzeit eines Streams waechst — also im am schwersten zu bemerkenden Fall.",
+      "abhilfe": "metadaten_anhaengen raeumt beide Arten vorher weg (av_frame_remove_side_data) und ist damit mehrfach anwendbar. Zweiter Test: dreimaliges Anhaengen ergibt zwei Eintraege, nicht sechs."
+    },
+    "gemessen_serie_1_standbild_ohne_zuschauer": {
+      "aufbau": "Drei Paare zu je 50 s, kein Player-Fenster. Ohne diesen Verzicht ist ein stehender Bildschirm gar nicht herstellbar: der Sender nimmt den Monitor auf, auf dem das Player-Fenster steht, und dessen Shader rechnet ein Rauschmuster ueber die Laufzeit ein — jedes Bild waere neu.",
+      "anteil_stehender_ticks": "82 bis 98 Prozent, je nach dem, was der Bildschirm nebenher tat.",
+      "conv_us_bei_stehendem_bild": {"vorher": [12, 16, 16], "nachher": [0, 0, 0], "einheit": "Mikrosekunden, Median je Lauf"},
+      "gpu_3d_einheit_des_senders": {"vorher": [12.23, 14.26, 14.25], "nachher": [0.40, 0.41, 3.99], "einheit": "Prozent, Median je Lauf"},
+      "gpu_video_einheit_des_senders": {"vorher": [11.08, 11.24, 11.25], "nachher": [11.44, 11.35, 11.41], "einheit": "Prozent — unveraendert, wie es sein muss: am Encodieren aendert sich nichts"},
+      "warum_nachher_3_bei_4_prozent_liegt": "Dieser Lauf hatte 16,5 Prozent frische Bilder (die anderen beiden 1,7 und 4,8) — dort laeuft die Wandlung ja weiterhin. Die Zahl folgt dem Inhalt, nicht dem Code.",
+      "iter_us_ganzer_tick_bei_stehendem_bild": {"vorher": [427, 466, 454], "nachher": [398, 331, 351], "einheit": "Mikrosekunden, Median je Lauf", "vorbehalt": "Der groessere Teil dieser Differenz steckt in send_us (AMF-Einschieben) und nicht in conv_us. Ob das eine Folge der entlasteten GPU ist oder Streuung zwischen Laeufen, ist mit drei Paaren nicht zu entscheiden."}
+    },
+    "gemessen_serie_2_und_3_volle_kette": {
+      "aufbau": "Je drei Paare zu je 60 s mit Zuschauer. Etwa 63 Prozent der Ticks tragen ein frisches Bild, 37 Prozent stehen — hier wirken Befund 2 und 3 zusammen.",
+      "conv_us_bei_stehendem_bild": {"vorher": [26, 23, 26], "nachher": [0, 0, 0]},
+      "gpu_3d_einheit_des_senders": {"vorher": [21.98, 20.73, 21.21, 21.55, 22.88, 20.33], "nachher": [18.31, 16.78, 19.34, 16.42, 19.50, 14.69], "einheit": "Prozent, Median je Lauf, sechs Paare"},
+      "paarweise_differenz_prozentpunkte": [-3.67, -3.95, -1.87, -5.13, -3.39, -5.64],
+      "median_der_differenzen": "-3,8 Prozentpunkte von rund 21,2, also rund -18 Prozent der 3D-Einheit des Senders",
+      "warum_nicht_mehr": "Die 3D-Einheit des Senders traegt nicht nur den HDR-Shader. Aus den Zahlen beider Serien geschaetzt (GERECHNET, nicht gemessen) entfaellt der groessere Teil auf die fp16-Zwischenkopie in capture/wgc_hw.rs::copy_into_pool, die je AUFGENOMMENEM Bild 59 MB bewegt — Befund 5 derselben Durchsicht, absichtlich nicht angefasst."
+    }
+  },
+
+  "befund_4_fingerabdruck_mit_eigener_abgabe": {
+    "was_war": "Der GPU-Fingerabdruck des Einfrier-Waechters gab je Bild einen eigenen Kommandopuffer ab — eine zweite submit neben der des Zeichendurchgangs, unter D3D12 ein zusaetzliches ExecuteCommandLists samt Zaun-Signal in derselben Warteschlange.",
+    "welcher_weg_gewaehlt_wurde_und_warum": {
+      "verworfen": "Nur jedes n-te Bild rechnen. Das haette zwei Drittel der Kosten gespart und die Empfindlichkeit des Waechters im selben Verhaeltnis gesenkt — seine Aufgabe ist zu erkennen, dass sich das Bild NICHT aendert, und wer jedes dritte Bild prueft, verlaengert die Zeit bis zum Anschlagen um denselben Faktor. Die Schwellen in einfrieren.rs haetten mitgezogen werden muessen (EINFRIER_BILDER, BEWEGUNGS_FENSTER, BEWEGUNGS_KETTE — drei Zahlen mit je eigener Messbegruendung).",
+      "gewaehlt": "Den Rechendurchgang in den vorhandenen Kommandopuffer falten (render::abdruck::im_zeichendurchgang). EINE Abgabe je Bild statt zwei, und der Waechter sieht GENAUSO VIELE Bilder wie vorher — keine Schwelle muss angefasst werden.",
+      "was_es_kostet": "Aufzeichnen und Abholen sind jetzt zwei Aufrufe mit einer Reihenfolge dazwischen: map_async MUSS nach dem submit laufen, sonst koennte die Abbildung fertig sein, bevor die Kopie in den Abholpuffer gelaufen ist. Frueher standen beide zwei Zeilen auseinander und konnten nicht auseinanderfallen. Die Zusage steht jetzt an abholung_starten, und die drei GPU-Tests fahren dieselbe Reihenfolge wie der Renderer."
+    },
+    "gemessen": {
+      "aufbau": "Drei Paare zu je 60 s, volle Kette, PULSE_PLAYER_STATS_LOG=1, eine Statistikzeile je Sekunde. Ausgewertet ueber ALLE Zeilen eines Laufs, nicht ueber die letzten drei.",
+      "hochladen_ms": {"vorher": "0,3-0,6, Median 0,5", "nachher": "0,0 in allen 54 bzw. 53 Zeilen der stoerungsfreien Laeufe"},
+      "ausgeben_ms": {"vorher": "Median 0,4", "nachher": "Median 0,8"},
+      "summe_je_gezeichnetem_bild": {"vorher": "rund 0,9 ms", "nachher": "rund 0,8 ms"},
+      "das_ehrliche_ergebnis": "Die Arbeit ist groesstenteils UMGEZOGEN, nicht verschwunden: 0,5 ms wandern aus 'hochladen' heraus, 0,4 ms tauchen in 'ausgeben' auf. Netto bleiben rund 0,1 ms je Bild. Die erhoffte Entlastung durch die weggefallene Serialisierung zweier Abgaben zeigt sich in diesen Zahlen NICHT.",
+      "gpu_3d_einheit_des_zuschauers": {"vorher": [14.73, 12.14, 14.05, 14.27, 12.24, 5.69], "nachher": [13.31, 13.38, 14.64, 14.23, 14.79, 6.04], "befund": "kein erkennbarer Unterschied — die Rechnung ist dieselbe, nur ihre Verpackung ist eine andere. Die beiden niedrigen Werte (5,69 und 6,04) stammen aus den beiden dritten Laeufen, in denen der Zuschauer die meiste Zeit in Stockungen stand und deshalb kaum gezeichnet hat."}
+    },
+    "eine_beobachtung_am_rande": "Drei der sechs Laeufe zeigten mehrsekuendige Stockungen im Decoder (706 bis 2663 ms), und dann steigt 'hochladen' in BEIDEN Armen auf 0,9-1,5 ms. Das ist der bereits belegte VCN-Engpass dieser APU (player-2026-08-06-absturz-ist-eine-stockung.json) und keine Folge dieser Aenderung — er trat in beiden Armen auf. Fuer die Zahlen oben zaehlen die stoerungsfreien Laeufe; die gestoerten sind hier genannt, statt sie stillschweigend wegzulassen."
+  },
+
+  "was_am_werkzeug_geaendert_wurde": {
+    "hdr_ansehen_ps1": [
+      "-Spur <pfad>: setzt PULSE_HQ_TRACE fuer den Sender. Die einzige Quelle, die auch im gesunden Fall etwas sagt — die Zwei-Sekunden-Zusammenfassung meldet conv und dup-frames nur bei einem auffaelligen Fenster.",
+      "-OhneZuschauer: nur senden, kein Player-Fenster. Ohne das ist ein stehender Bildschirm nicht herstellbar (s. Serie 1).",
+      "Die -Voll-Protokolle tragen jetzt die Kennung im DATEINAMEN. Zwei Laeufe hintereinander ueberschrieben sich sonst gegenseitig — dieselbe Kollision, gegen die es -Kennung eine Ebene weiter oben schon gab, nur eine Ebene tiefer uebersehen."
+    ]
+  },
+
+  "was_nicht_angefasst_wurde": {
+    "fp16_zwischenkopie": "Befund 5 der Sender-Durchsicht. Nach dieser Messung ist er der GROESSTE verbliebene Posten auf der 3D-Einheit des Senders — aber die Abhilfe (Farbwandlung in den Aufnahme-Rueckruf ziehen) verschiebt Arbeit auf den WGC-Rueckruf-Faden, und dort verworfene Bilder erscheinen in KEINEM Zaehler. Eigene Untersuchung, nicht hier.",
+    "quell_ansicht_abhaengen": "Befund 6.1, eine Zeile, Wirkung klein. Bewusst nicht mitgenommen, um den Umfang dieser Aenderung nicht ueber die vier Befunde hinaus zu ziehen.",
+    "cpu_zaun_ueber_geteilten_zaun": "Die Widerlegung der alten Begruendung ist im Kommentar nachgezogen (zerocopy/bruecke.rs), der Umbau selbst nicht gemacht — er braucht einen teilbaren Zaun und ist auf diesem Treiber ungeprueft."
+  },
+
+  "reproduzieren": [
+    "cd streaming/win-hq-sidecar && cargo build --release --bins",
+    "cd streaming/pulse-player && cargo build --release   (FFMPEG_DIR + LIBCLANG_PATH, s. CLAUDE.md)",
+    "Befund 1: cd streaming/pulse-player && cargo test --release -- --ignored --nocapture was_kostet_die_schirm_abfrage",
+    "Befund 2: cd streaming/win-hq-sidecar && cargo test --release -- --nocapture hdr_wandler",
+    "Befund 3: powershell -File streaming/win-hq-labor/testbench/hdr-ansehen.ps1 -Sekunden 50 -Kennung a -Spur spur.jsonl -OhneZuschauer   (Bildschirm dabei in Ruhe lassen)",
+    "Befund 4: dasselbe mit -Voll statt -OhneZuschauer, dann hochladen/ausgeben aus hdr-ansehen-a-player.log"
+  ]
+}

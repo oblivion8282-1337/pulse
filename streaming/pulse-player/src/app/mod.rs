@@ -168,9 +168,11 @@ struct Session {
     farbe: decode::Farbangaben,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
-    /// Ausgabe-Takt (s. [`takt`]). Bei ausgeschaltetem Vorhalt — der Vorgabe —
-    /// reicht er jedes Bild unveraendert durch, das Verhalten ist dann exakt
-    /// das von vorher.
+    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT 60 ms Vorhalt**
+    /// (`proto::AUSGABETAKT_MS_VORGABE`); hier stand bis zum 2026-08-06 „bei
+    /// ausgeschaltetem Vorhalt — der Vorgabe —", und das ist seit dem
+    /// 2026-08-05 falsch. Nur ausdruecklich abgeschaltet reicht er jedes Bild
+    /// unveraendert durch.
     takt: Ausgabetakt,
     /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
     /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
@@ -806,10 +808,12 @@ impl App {
                     return;
                 }
                 // Ueber den Ausgabe-Takt einreihen statt direkt uebernehmen.
-                // Bei ausgeschaltetem Vorhalt — der Vorgabe — ist das Bild im
-                // selben Zug wieder faellig und `uebernehmen` laeuft genauso
-                // wie vorher; der zweite Weg (`about_to_wait`) bleibt dann
-                // ungenutzt.
+                // In der Vorgabe (60 ms Vorhalt) liegt das Bild danach
+                // wirklich eine Weile, und der zweite Weg (`about_to_wait`)
+                // holt es ab. Nur bei ausdruecklich abgeschaltetem Vorhalt ist
+                // es im selben Zug wieder faellig — hier stand bis zum
+                // 2026-08-06 „bei ausgeschaltetem Vorhalt — der Vorgabe —",
+                // und das trifft seit dem 2026-08-05 nicht mehr zu.
                 let jetzt = std::time::Instant::now();
                 session.takt.einreihen(frame, jetzt);
                 self.abliefern(id, jetzt);
@@ -899,9 +903,16 @@ impl ApplicationHandler<UserEvent> for App {
     ///
     /// **Der Schnellweg zuerst.** Diese Methode laeuft bei JEDEM
     /// Schleifendurchlauf, und das sind ueber tausend je Sekunde (jedes
-    /// Statistik-Ereignis weckt den Faden). Solange nichts wartet — und das ist
-    /// der Vorgabefall mit ausgeschaltetem Vorhalt — kostet sie einen Blick auf
-    /// eine leere Warteschlange je Sitzung und sonst nichts.
+    /// Statistik-Ereignis weckt den Faden). Solange nichts wartet, kostet sie
+    /// einen Blick auf eine leere Warteschlange je Sitzung und sonst nichts.
+    ///
+    /// **Hier stand bis zum 2026-08-06 „und das ist der Vorgabefall mit
+    /// ausgeschaltetem Vorhalt". Das ist falsch, und es dreht die Aussage um:**
+    /// die Vorgabe sind 60 ms Vorhalt (seit 2026-08-05), damit ist die
+    /// Warteschlange im laufenden Betrieb praktisch NIE leer — der Schnellweg
+    /// ist zum Ausnahmefall geworden und die `Vec` weiter unten faellt bei
+    /// jedem Durchlauf an. Wirkung minimal, aber die Begruendung stimmt so
+    /// nicht mehr.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.sessions.values().all(|s| s.takt.leer()) {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);

@@ -7,6 +7,21 @@
 **Maschine, um die es geht:** Windows 11, Radeon 780M (integriert, teilt sich die
 Leistungsaufnahme mit der CPU), Treiber 32.0.31035.1003, HDR am Schirm an.
 
+> **Nachtrag vom selben Tag, abends: Befund 1 und 2 sind behoben und gemessen.**
+> Bei stehendem Bild entfällt die Wandlung jetzt vollständig (3D-Einheit des
+> Senders **14,2 → 0,4 %**, drei Paare abwechselnd), in der laufenden Kette
+> sinkt sie um rund **18 %**. Der Chroma-Durchgang mittelt in linearem Licht und
+> rechnet den Farbweg einmal statt viermal; farblich ist das auf Flächen, Text,
+> Grau und Spitzlichtern **bitgleich** und weicht nur an gesättigten Farbkanten
+> ab (Rot gegen Blau: 28,7 von 1023 Codewerten). **Der in §3 benannte
+> ungeprüfte Fallstrick war echt** — `av_frame_new_side_data` hängt an, statt zu
+> ersetzen; ohne Abhilfe wären die Begleitdaten bei stehendem Bild unbegrenzt
+> gewachsen. Zahlen, Verfahren und Vorbehalte:
+> `streaming/testbench/profiles/leistung-2026-08-06-vier-befunde.json`.
+> Die drei überholten Behauptungen aus §9 sind ebenfalls berichtigt; §5 (die
+> fp16-Zwischenkopie) und §6.1 stehen weiter offen — nach der Messung ist §5
+> jetzt der größte verbliebene Posten.
+
 ## Was diese Durchsicht ist — und was sie ausdrücklich nicht ist
 
 Der Auftrag lautete zunächst auf Messungen und wurde während der Arbeit geändert:

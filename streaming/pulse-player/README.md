@@ -471,11 +471,21 @@ Drittanbieter-Seite im Web.
    zurueck)." Genau das ist gebaut (s. „Zero-Copy" oben), und der Schalter zeigt
    jetzt andersherum.
 
-   Offen bleibt daran zweierlei: der Fingerabdruck kostet rund 0,3 ms je Bild im
-   Posten „hochladen", weil er eine eigene Abgabe an die Warteschlange braucht —
-   in den Zeichendurchgang gefaltet waere er billiger. Und die **Latenz-Sonde**
-   misst auf diesem Weg weiterhin nicht; sie sagt es jetzt, ersetzt ist sie
-   damit nicht.
+   **Die eigene Abgabe an die Warteschlange ist am 2026-08-06 weggefallen.**
+   Hier stand „der Fingerabdruck kostet rund 0,3 ms je Bild im Posten
+   ‚hochladen', weil er eine eigene Abgabe an die Warteschlange braucht — in
+   den Zeichendurchgang gefaltet waere er billiger". Genau das ist gemacht
+   (`render::abdruck::im_zeichendurchgang`). Was es gebracht hat, ehrlich
+   gemessen (drei Paare, abwechselnd, HDR ueber den Messstand): der Posten
+   „hochladen" faellt von **0,5 auf 0,0 ms**, der Posten „ausgeben" steigt von
+   **0,4 auf 0,8 ms** — die Arbeit ist also groesstenteils **umgezogen**, netto
+   bleiben rund **0,1 ms je Bild**. Die erhoffte Entlastung durch die
+   weggefallene Serialisierung zweier Abgaben zeigt sich in diesen Zahlen
+   nicht. Messakte:
+   `streaming/testbench/profiles/leistung-2026-08-06-vier-befunde.json`.
+
+   Und die **Latenz-Sonde** misst auf diesem Weg weiterhin nicht; sie sagt es
+   jetzt, ersetzt ist sie damit nicht.
 
    **Hier stand, Zero-Copy sei die Abhilfe gegen die Stockung. Das ist
    widerlegt:** ohne Ruecklesen bleiben die Stockungen in derselben Groesse

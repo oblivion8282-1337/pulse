@@ -299,8 +299,24 @@ impl Bruecke {
         // Das ist der bekannte Preis dieses Weges und die naechste Stelle, an
         // der sich etwas holen liesse — ein auf beiden Seiten geteilter Zaun
         // (`ID3D11Fence` als NT-Handle, `ID3D12Fence::Wait` auf der
-        // wgpu-Warteschlange) braeuchte einen Zugriff auf die Warteschlange,
-        // den wgpu 29 nicht anbietet.
+        // wgpu-Warteschlange).
+        //
+        // **HIER STAND BIS ZUM 2026-08-06 „braeuchte einen Zugriff auf die
+        // Warteschlange, den wgpu 29 nicht anbietet". Das ist falsch** —
+        // `wgpu::Queue::as_hal::<Dx12>()` gibt es (`wgpu-29.0.4`,
+        // `src/api/queue.rs:339`), `wgpu_hal::dx12::Queue::as_raw()` liefert
+        // die `ID3D12CommandQueue` (`wgpu-hal-29.0.4/src/dx12/mod.rs:792`),
+        // und DIESELBE Kiste benutzt denselben Ausstieg zweimal:
+        // `render/fremdbild.rs` (`as_hal` → `raw_device()`) und
+        // `render/hdr_fenster.rs` (`as_hal` → `swap_chain()`).
+        //
+        // Der Weg ist also offen, aber nicht umsonst, und DAS ist der wahre
+        // Grund, warum er hier noch nicht steht: der Zaun wird mit
+        // `D3D11_FENCE_FLAG_NONE` angelegt (s.o.), ist also nicht teilbar. Es
+        // braeuchte `D3D11_FENCE_FLAG_SHARED`, ein `CreateSharedHandle`, ein
+        // `OpenSharedHandle` auf wgpus D3D12-Geraet und dann `Wait` auf der
+        // Warteschlange — ein bekannter, aber nicht trivialer Weg, von dem
+        // ungeprueft ist, ob AMDs Treiber ihn hier sauber bedient.
         //
         // **`Flush` und die Abkuerzung ueber `GetCompletedValue` sind vom
         // Zwilling uebernommen** (`win-hq-sidecar/src/capture/wgc_d3d12.rs`),

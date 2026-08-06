@@ -86,6 +86,14 @@ pub struct Renderer {
     /// Was zuletzt gewuenscht war. Getrennt vom Ergebnis, damit ein
     /// fehlgeschlagener Versuch nicht bei jedem Bild wiederholt wird.
     hdr_gewuenscht: bool,
+    /// Die letzte Antwort auf „laeuft der Schirm in HDR" samt Alter. Ohne sie
+    /// liefe bei jedem Bild eines PQ-Stroms eine DXGI-Aufzaehlung.
+    schirmwissen: hdr_fenster::Schirmwissen,
+    /// Wartet ein frisch eingehaengtes Fremdbild auf seinen Fingerabdruck?
+    /// Ohne dieses Merkmal bekaeme ein Durchgang ohne neues Bild (Bedienleiste,
+    /// Mausbewegung) einen zweiten Abdruck desselben Bildes, und der
+    /// Einfrier-Waechter zaehlte eine Unveraenderlichkeit, die es nicht gab.
+    abdruck_faellig: bool,
 }
 
 impl Renderer {
@@ -124,6 +132,8 @@ impl Renderer {
             narrow_scratch: Default::default(),
             acquire_misses: std::cell::Cell::new(0),
             start: std::time::Instant::now(),
+            schirmwissen: Default::default(),
+            abdruck_faellig: false,
         })
     }
 
@@ -211,28 +221,18 @@ impl Renderer {
         // beschrieben wird.
         {
             let Self {
-                device, queue, fremdbilder, abdruckwerk, bind_layout, sampler, uniform_buf, ..
+                device, fremdbilder, abdruckwerk, bind_layout, sampler, uniform_buf, ..
             } = self;
             let teile = fremdbild::Bindeteile { layout: bind_layout, sampler, uniform_buf };
             if fremdbilder.binden(device, &teile, gpu, abdruckwerk).is_none() {
                 crate::zerocopy::abschalten("der Renderer kann die Textur nicht einhaengen");
                 return;
             }
-            // Den Fingerabdruck ANFORDERN — abgeholt wird er ein bis zwei
-            // Bilder spaeter (s. [`abdruck`]). Ohne diesen Aufruf saehe der
-            // Einfrier-Waechter auf dem Zero-Copy-Weg kein einziges Bild.
-            if let Some(bindung) = fremdbilder.abdruckgruppe(gpu.handle()) {
-                abdruckwerk.schritt(
-                    abdruck::Werkteile { device, queue, bindung },
-                    abdruck::Bildangabe {
-                        breite: frame.width,
-                        hoehe: frame.height,
-                        zehn_bit: gpu.zehn_bit(),
-                    },
-                    gpu.briefkasten(),
-                );
-            }
         }
+        // Den Fingerabdruck **vormerken**, nicht rechnen: gerechnet wird er im
+        // Kommandopuffer des Zeichendurchgangs, was die zweite Abgabe an die
+        // GPU-Warteschlange spart (Kopf von [`abdruck`]).
+        self.abdruck_faellig = true;
         // Die Bindegruppe liegt im Zwischenspeicher (eine je Ringplatz); hier
         // wird nur noch vermerkt, welche gerade gilt.
         self.bind_group = None;
@@ -336,14 +336,19 @@ impl Renderer {
             }
         }
 
-        // Welche Bindegruppe gilt — und, beim Fremdbild, welcher Ringplatz noch
-        // gehalten werden muss.
-        let (gebundene, zu_halten) = match self.bild.as_ref() {
+        // Welche Bindegruppe gilt, welcher Ringplatz noch gehalten werden muss
+        // — und, beim Fremdbild, gleich alles fuer den Fingerabdruck. **In
+        // EINEM Zugriff**: es ist dieselbe Fallunterscheidung und dieselbe
+        // Suche ueber dasselbe Handle, zweimal gefragt liefen die Arme beim
+        // naechsten `Bildquelle`-Zweig auseinander.
+        let (gebundene, zu_halten, abdruck_auftrag) = match self.bild.as_ref() {
             Some(Bildquelle::Fremd(f)) => (
                 self.fremdbilder.bindegruppe(f.gpu.handle()),
                 Some(f.gpu.clone()),
+                (self.fremdbilder.abdruckgruppe(f.gpu.handle()))
+                    .map(|b| (b, abdruck::Bildangabe::vom_fremdbild(f), f.gpu.briefkasten())),
             ),
-            _ => (self.bind_group.as_ref(), None),
+            _ => (self.bind_group.as_ref(), None, None),
         };
 
         let uniforms = self.build_uniforms(opts, form, full_range, farbe);
@@ -357,6 +362,18 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pulse-player") });
+        // Der Fingerabdruck des Einfrier-Waechters, **vor** dem Zeichnen und im
+        // SELBEN Kommandopuffer (s. [`abdruck`]) — er liest dieselbe Luma-Ebene,
+        // aus der gleich gezeichnet wird, beides nur lesend. Das `take` raeumt
+        // die Vormerkung auch dann ab, wenn nichts aufzuzeichnen ist; sonst
+        // holte der naechste Durchgang ein laengst ersetztes Bild nach.
+        let mut abdruck_platz = None;
+        if let (true, Some((bindung, bild, kasten))) =
+            (std::mem::take(&mut self.abdruck_faellig), abdruck_auftrag)
+        {
+            let teile = abdruck::Werkteile { device: &self.device, queue: &self.queue, bindung };
+            abdruck_platz = self.abdruckwerk.aufzeichnen(&mut encoder, teile, bild, kasten);
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("pulse-player-pass"),
@@ -407,6 +424,10 @@ impl Renderer {
             );
         }
         self.queue.submit(Some(encoder.finish()));
+        // **Erst nach dem `submit`** (Begruendung an `abholung_starten`).
+        if let Some(abholung) = abdruck_platz {
+            self.abdruckwerk.abholung_starten(abholung);
+        }
         // **Den Ringplatz erst freigeben, wenn die GPU ihn nicht mehr liest.**
         // Der `DecodedFrame` ist zu diesem Zeitpunkt laengst verworfen (das
         // Fenster laesst ihn direkt nach `upload` fallen); ohne diese zweite

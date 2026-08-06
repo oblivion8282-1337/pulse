@@ -30,7 +30,7 @@
 use anyhow::{Result, bail};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::ffi::{
-    AVFrame, AVFrameSideDataType, AVRational, av_frame_new_side_data,
+    AVFrame, AVFrameSideDataType, AVRational, av_frame_new_side_data, av_frame_remove_side_data,
 };
 
 use super::codec::VideoCodec;
@@ -279,6 +279,16 @@ fn sdr_signalisieren(encoder: &mut ffmpeg::encoder::video::Video) {
 /// der Sekunde ist das gegenüber allem anderen in diesem Weg nicht messbar; und
 /// FFmpeg fordert auf demselben Pfad ohnehin je Bild einen AMF-Puffer an.
 ///
+/// **Mehrfach auf DASSELBE Bild anwendbar — und das ist eine Zusage, keine
+/// Nebenwirkung.** `av_frame_new_side_data` hängt an, es ersetzt nicht: zweimal
+/// gerufen, stehen zwei Mastering-Einträge am Bild (nachgewiesen in
+/// `tests::ffmpeg_haengt_begleitdaten_an`). Solange jeder Tick ein frisches
+/// `AVFrame` aus dem Pool zog, war das folgenlos. Seit die Pipeline bei
+/// stehendem Bild dasselbe gewandelte Bild erneut einschiebt
+/// (`pipeline_hw::run`), ist es das nicht mehr — ein Standbild ließe die
+/// Begleitdaten über die Laufzeit des Streams unbegrenzt anwachsen. Deshalb
+/// räumt diese Funktion beide Arten vorher weg.
+///
 /// **`color_trc` am BILD ist die Zündung**, nicht nur eine Wiederholung der
 /// Encoder-Einstellung: `amfenc.c` prüft `frame->color_trc == AVCOL_TRC_SMPTE2084`
 /// und überspringt die Metadaten sonst vollständig. Ohne diese Zeile bliebe
@@ -351,6 +361,17 @@ unsafe fn seitendaten_schreiben<T>(
     wert: &T,
 ) -> Result<()> {
     let groesse = std::mem::size_of::<T>();
+    // **Erst weg, dann neu.** `av_frame_new_side_data` prüft nicht, ob diese
+    // Art schon am Bild hängt — es hängt eine zweite an.
+    //
+    // Das ist kein Sonderfall der Standbild-Wiederverwendung, sondern dieselbe
+    // Regel, unter der `encoder_hw::send_avframe` seit jeher `pict_type` je
+    // Bild ZURÜCKSETZT statt nur zu setzen: **die Bilder kommen aus einem Pool
+    // und werden wiederverwendet, also muss jedes bildgebundene Feld gesetzt
+    // werden, nicht ergänzt.** Wer hier eine dritte Begleitdaten-Art aufnimmt,
+    // räumt sie ebenso vorher weg. Der Aufruf ist ein Nulltarif, wenn nichts
+    // da ist.
+    unsafe { av_frame_remove_side_data(frame, art) };
     let sd = unsafe { av_frame_new_side_data(frame, art, groesse) };
     if sd.is_null() {
         bail!("av_frame_new_side_data({art:?}) lieferte NULL — kein Speicher");
@@ -362,6 +383,85 @@ unsafe fn seitendaten_schreiben<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ein Schirm, wie ihn DXGI meldet — Zahlen aus dem Gerät dieser Maschine,
+    /// damit sie plausibel sind. Für die Begleitdaten-Tests ist ihr Wert
+    /// gleichgültig, ihre Form nicht.
+    fn schirm() -> SchirmFarbe {
+        SchirmFarbe {
+            hdr_aktiv: true,
+            bits_je_kanal: 10,
+            max_nits: 463.0,
+            max_vollbild_nits: 463.0,
+            min_nits: 0.5,
+            primaervalenzen: [[0.6416, 0.3300], [0.2939, 0.6220], [0.1494, 0.0546]],
+            weisspunkt: [0.3125, 0.3291],
+        }
+    }
+
+    /// **Der Nachweis, dass die Sorge berechtigt war.** Die Analyse vom
+    /// 2026-08-06 nannte das Anwachsen der Begleitdaten als ungeprüften
+    /// Fallstrick der Bild-Wiederverwendung; hier steht die Antwort. FFmpegs
+    /// `av_frame_new_side_data` **hängt an** — zweimal gerufen, hat das Bild
+    /// zwei Einträge derselben Art.
+    ///
+    /// Der Test prüft FFmpeg, nicht uns. Er steht trotzdem hier: fiele die
+    /// Zusicherung eines Tages weg (FFmpeg räumte selbst), wäre das Entfernen
+    /// in [`seitendaten_schreiben`] überflüssig — und wer es entfernen will,
+    /// soll sehen, worauf es sich stützt.
+    #[test]
+    fn ffmpeg_haengt_begleitdaten_an() {
+        unsafe {
+            let frame = ffmpeg::ffi::av_frame_alloc();
+            assert!(!frame.is_null());
+            for _ in 0..2 {
+                let sd = av_frame_new_side_data(
+                    frame,
+                    AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+                    std::mem::size_of::<AVContentLightMetadata>(),
+                );
+                assert!(!sd.is_null());
+            }
+            assert_eq!(
+                (*frame).nb_side_data,
+                2,
+                "wenn FFmpeg hier 1 liefert, räumt es selbst — dann ist das \
+                 av_frame_remove_side_data in seitendaten_schreiben überflüssig"
+            );
+            let mut f = frame;
+            ffmpeg::ffi::av_frame_free(&mut f);
+        }
+    }
+
+    /// Und der Nachweis, dass unser Weg es abfängt: dasselbe Bild dreimal
+    /// beschrieben trägt danach **zwei** Einträge, nicht sechs.
+    ///
+    /// Das ist die Bedingung, unter der `pipeline_hw::run` bei stehendem Bild
+    /// dasselbe gewandelte Bild erneut einschieben darf.
+    #[test]
+    fn wiederholtes_anhaengen_waechst_nicht() {
+        unsafe {
+            let frame = ffmpeg::ffi::av_frame_alloc();
+            assert!(!frame.is_null());
+            let s = schirm();
+            for _ in 0..3 {
+                metadaten_anhaengen(frame, &s).expect("Begleitdaten anhängen");
+            }
+            assert_eq!(
+                (*frame).nb_side_data,
+                2,
+                "je Art genau einer — sonst wächst ein stehendes Bild über die \
+                 Laufzeit des Streams zu"
+            );
+            assert_eq!(
+                (*frame).color_trc,
+                ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084,
+                "die Zündung für amfenc muss stehenbleiben"
+            );
+            let mut f = frame;
+            ffmpeg::ffi::av_frame_free(&mut f);
+        }
+    }
 
     /// AV1 über AMF ist der belegte Weg — und H.264 auf derselben Karte ist es
     /// nicht. Der Test hält beides fest, weil AMD seit dem 2026-08-04 mit

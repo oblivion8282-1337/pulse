@@ -30,6 +30,28 @@
 //! dieses einen Bildes aus. Das ist kein Fehler, sondern der Gegendruck: der
 //! Waechter bekommt dann eben eine Stichprobe der Bilder statt aller — und
 //! seine Frage („aendert sich ueberhaupt noch etwas") beantwortet die genauso.
+//!
+//! ## Und die Rechnung faehrt im Zeichendurchgang mit (seit 2026-08-06)
+//!
+//! Sie hat **keinen eigenen Kommandopuffer** mehr. Bis dahin legte
+//! `Abdruckwerk::schritt` einen an, gab ihn selbst ab und kostete damit eine
+//! **zweite** `submit` je Bild — unter D3D12 ein zusaetzliches
+//! `ExecuteCommandLists` samt Zaun-Signal, in derselben Warteschlange wie der
+//! Zeichendurchgang und damit gegen ihn serialisiert. Gemessen schlug das mit
+//! rund 0,3 ms je Bild im Posten „hochladen" zu Buche
+//! (`profiles/player-2026-08-06-einfrier-waechter-auf-der-gpu.json`).
+//!
+//! Jetzt zeichnet [`Abdruckwerk::aufzeichnen`] in den Kommandopuffer des
+//! Renderers, und [`Abdruckwerk::abholung_starten`] laeuft nach dessen
+//! `submit`. **Der Waechter sieht dabei genauso viele Bilder wie vorher** —
+//! das war die Bedingung: die naheliegende Abhilfe „nur jedes n-te Bild
+//! rechnen" haette zwei Drittel der Kosten gespart und die Erkennung im selben
+//! Verhaeltnis traeger gemacht, also die Schwellen in `crate::einfrieren`
+//! mitverschoben. Hier aendert sich an der Empfindlichkeit nichts.
+//!
+//! Bezahlt ist es mit einer Zusage, die auseinanderfallen kann: Aufzeichnen
+//! und Abholen sind jetzt zwei Aufrufe mit einer Reihenfolge dazwischen
+//! (Begruendung an [`Abdruckwerk::abholung_starten`]).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -185,14 +207,40 @@ impl Abdruckwerk {
         })
     }
 
-    /// Ein Bild: Fertiges einsammeln, Neues anfordern.
+    /// Ein Bild: Fertiges einsammeln, Neues **in einen fremden Kommandopuffer
+    /// aufzeichnen**. Rueckgabe ist der belegte Ringplatz.
     ///
     /// `breite`/`hoehe` sind die des BILDES, nicht die der Textur — die ist
     /// aufgerundet, und was in der Auffuellung steht, gehoert nicht zum Bild
     /// (s. `zerocopy::GpuBild::textur_masse`).
-    pub fn schritt(&mut self, teile: Werkteile<'_>, bild: Bildangabe, kasten: &Briefkasten) {
+    ///
+    /// **Warum der Aufrufer den Kommandopuffer stellt** (seit 2026-08-06): bis
+    /// dahin legte diese Funktion einen eigenen an und gab ihn selbst ab — eine
+    /// **zweite** `submit` je Bild neben der des Zeichendurchgangs. Unter D3D12
+    /// ist jede Abgabe ein `ExecuteCommandLists` samt Zaun-Signal, und beide
+    /// lagen in derselben Warteschlange, serialisierten also gegeneinander. Der
+    /// Posten „hochladen" stieg dadurch von 0,0-0,1 auf 0,3-0,4 ms
+    /// (`profiles/player-2026-08-06-einfrier-waechter-auf-der-gpu.json`). In
+    /// den vorhandenen Durchgang gefaltet bleibt EINE Abgabe je Bild, und der
+    /// Waechter sieht **genauso viele Bilder wie vorher** — anders als bei der
+    /// naheliegenden Abhilfe „nur jedes n-te Bild rechnen", die seine
+    /// Empfindlichkeit mitgesenkt haette.
+    ///
+    /// **Der Aufrufer MUSS nach dem `submit` desselben Kommandopuffers
+    /// [`Abdruckwerk::abholung_starten`] mit dem Rueckgabewert rufen** — sonst
+    /// bleibt der Platz belegt, sein Inhalt wird nie abgeholt, und der Waechter
+    /// bekaeme von diesem Ringplatz nie wieder einen Abdruck. Deshalb ist die
+    /// Rueckgabe ein eigener `#[must_use]`-Typ und keine blosse Zahl: das
+    /// Vergessen wird zur Warnung des Uebersetzers.
+    pub fn aufzeichnen(
+        &mut self,
+        enc: &mut wgpu::CommandEncoder,
+        teile: Werkteile<'_>,
+        bild: Bildangabe,
+        kasten: &Briefkasten,
+    ) -> Option<Abholung> {
         self.ernten(teile.device, kasten);
-        let Some(i) = self.freier_platz() else { return };
+        let i = self.freier_platz()?;
 
         // 255 bei NV12 (R8Unorm), 65535 bei P010 (R16Unorm): `textureLoad`
         // liefert den normierten Wert, und das hier holt die ganze Zahl zurueck.
@@ -203,12 +251,13 @@ impl Abdruckwerk {
         kopf[8..12].copy_from_slice(&skala.to_le_bytes());
         teile.queue.write_buffer(&self.masse, 0, &kopf);
 
-        let mut enc = teile.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("pulse-player-abdruck"),
-        });
         // Ohne das Leeren summierte jedes Bild auf das vorige auf — der Abdruck
         // waere dann eine Laufsumme und aenderte sich in JEDEM Bild, auch im
         // stehenden. Der Waechter saehe nie ein eingefrorenes Bild.
+        //
+        // **Das gilt auch im geteilten Kommandopuffer**: Leeren, Rechnen und
+        // Wegkopieren stehen weiterhin unmittelbar hintereinander darin, und
+        // der Zeichendurchgang, der danach hineinkommt, ruehrt `summe` nicht an.
         enc.clear_buffer(&self.summe, 0, None);
         {
             let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -220,8 +269,24 @@ impl Abdruckwerk {
             pass.dispatch_workgroups(bild.breite.div_ceil(KANTE), bild.hoehe.div_ceil(KANTE), 1);
         }
         enc.copy_buffer_to_buffer(&self.summe, 0, &self.ring[i].puffer, 0, 8);
-        teile.queue.submit(Some(enc.finish()));
+        Some(Abholung(i))
+    }
 
+    /// Die Abholung des in [`Abdruckwerk::aufzeichnen`] belegten Platzes
+    /// anstossen — **erst nach dem `submit`**, nie davor.
+    ///
+    /// Die Reihenfolge ist keine Foermlichkeit. `map_async` ordnet sich gegen
+    /// die zum Zeitpunkt des Aufrufs BEREITS abgegebene Arbeit ein; vor dem
+    /// `submit` gerufen, koennte die Abbildung fertig sein, bevor die Kopie in
+    /// den Abholpuffer ueberhaupt gelaufen ist — der Waechter bekaeme dann den
+    /// Inhalt eines frueheren Bildes oder Nullen. Solange `aufzeichnen` seinen
+    /// Kommandopuffer selbst abgab, war das eine Zeile weiter unten und konnte
+    /// nicht auseinanderfallen; jetzt haelt es diese Trennung zusammen.
+    ///
+    /// [`Abholung`] wird dabei VERBRAUCHT — damit ist auch der zweite Fehler
+    /// ausgeschlossen, denselben Platz zweimal einzuloesen.
+    pub fn abholung_starten(&mut self, abholung: Abholung) {
+        let Abholung(i) = abholung;
         let fertig = self.ring[i].fertig.clone();
         self.ring[i].puffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             // Bei einem Fehler bleibt der Platz unfertig und damit belegt —
@@ -282,9 +347,23 @@ impl Abdruckwerk {
     }
 }
 
+/// Ein belegter Ringplatz, dessen Abholung noch anzustossen ist.
+///
+/// **Ein eigener Typ und kein `usize`**, damit die Zusage zwischen
+/// [`Abdruckwerk::aufzeichnen`] und [`Abdruckwerk::abholung_starten`] nicht
+/// allein im Kommentar steht: `#[must_use]` macht das Vergessen zur Warnung,
+/// und weil `abholung_starten` ihn verbraucht, laesst er sich nicht zweimal
+/// einloesen. Beides waeren stille Fehler — der Waechter bekaeme falsche oder
+/// gar keine Abdruecke und meldete Einfrieren, wo keines ist.
+///
+/// Ein `Drop`, der die Abholung selbst anstiesse, ginge NICHT: er bekaeme das
+/// `&mut Abdruckwerk` nicht, das `map_async` dafuer braucht.
+#[must_use = "ohne abholung_starten bleibt der Ringplatz belegt und sein Abdruck ungelesen"]
+pub(super) struct Abholung(usize);
+
 /// Was das Rechenwerk je Bild von aussen braucht.
 ///
-/// Als Buendel, damit [`Abdruckwerk::schritt`] nicht fuenf Einzelteile in der
+/// Als Buendel, damit [`Abdruckwerk::aufzeichnen`] sie nicht einzeln und in der
 /// richtigen Reihenfolge entgegennehmen muss — der Aufrufer haelt sie ohnehin
 /// alle in derselben Hand.
 pub(super) struct Werkteile<'a> {
@@ -300,6 +379,17 @@ pub(super) struct Bildangabe {
     pub breite: u32,
     pub hoehe: u32,
     pub zehn_bit: bool,
+}
+
+impl Bildangabe {
+    /// Die Angaben eines eingehaengten Fremdbildes.
+    ///
+    /// Steht hier und nicht am Aufrufort, damit `render` beim Zusammenstellen
+    /// des Auftrags eine Zeile braucht statt fuenf — die Datei dort liegt ueber
+    /// der Groessen-Grenze (`PLAN.md` §12.1), diese nicht.
+    pub(super) fn vom_fremdbild(f: &super::Fremdform) -> Self {
+        Self { breite: f.width, hoehe: f.height, zehn_bit: f.gpu.zehn_bit() }
+    }
 }
 
 #[cfg(test)]
@@ -324,6 +414,31 @@ mod tests {
         }))
         .ok()?;
         Some((device, queue))
+    }
+
+    /// Ein Bild anfordern, so wie der Renderer es tut: aufzeichnen, abgeben,
+    /// dann die Abholung anstossen.
+    ///
+    /// **Als Helfer und nicht dreimal ausgeschrieben**, damit die Tests
+    /// dieselbe Reihenfolge fahren wie `render::Renderer::render`. Ginge das
+    /// hier auseinander, prueften sie einen Ablauf, den im Betrieb niemand
+    /// ausfuehrt — genau der Fall, den `abholung_starten` beschreibt.
+    fn anfordern(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        werk: &mut Abdruckwerk,
+        bindung: &wgpu::BindGroup,
+        bild: Bildangabe,
+        kasten: &Briefkasten,
+    ) {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("abdruck-test"),
+        });
+        let platz = werk.aufzeichnen(&mut enc, Werkteile { device, queue, bindung }, bild, kasten);
+        queue.submit(Some(enc.finish()));
+        if let Some(abholung) = platz {
+            werk.abholung_starten(abholung);
+        }
     }
 
     /// Ein Bild als R8Unorm-Textur hochladen und den Abdruck darueber rechnen.
@@ -363,8 +478,11 @@ mod tests {
         let sicht = textur.create_view(&wgpu::TextureViewDescriptor::default());
         let bindung = werk.bindung(device, &sicht);
         let kasten = Briefkasten::neu();
-        werk.schritt(
-            Werkteile { device, queue, bindung: &bindung },
+        anfordern(
+            device,
+            queue,
+            werk,
+            &bindung,
             Bildangabe { breite, hoehe, zehn_bit: false },
             &kasten,
         );
@@ -470,8 +588,11 @@ mod tests {
         let kasten = Briefkasten::neu();
         for sicht in &texturen {
             let bindung = werk.bindung(&device, sicht);
-            werk.schritt(
-                Werkteile { device: &device, queue: &queue, bindung: &bindung },
+            anfordern(
+                &device,
+                &queue,
+                &mut werk,
+                &bindung,
                 Bildangabe { breite: b, hoehe: h, zehn_bit: false },
                 &kasten,
             );
