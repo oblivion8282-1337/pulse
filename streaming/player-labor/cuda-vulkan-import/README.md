@@ -81,3 +81,47 @@ braucht ein `VkImage` (NV12/P010), das ein Shader abtastet. Ob CUDA direkt in
 ein exportiertes Bild schreiben kann (`cuExternalMemoryGetMappedMipmappedArray`)
 oder ob eine Puffer→Bild-Kopie dazwischen muss, ist die nächste Frage — und der
 Unterschied ist eine GPU-lokale Kopie je Bild.
+
+## Wo wir stehen (Stand 2026-08-06)
+
+Zweig `feat/zero-copy-player-linux`, zwei Commits, **nicht gepusht**.
+
+Erledigt: die Grundfrage. CUDA und Vulkan teilen sich auf Linux/NVIDIA denselben
+Speicher — beide Richtungen, bis 4K-P010, fünf Wiederholungen stabil. Damit ist
+Zero-Copy hier grundsätzlich möglich, anders als auf Windows/NVIDIA.
+
+**Der nächste Schritt ist der Bild-Import**, und zwar wieder in reinem Vulkan:
+ein `VkImage` mit NV12 bzw. P010 statt eines Puffers, exportiert, von CUDA
+beschrieben, jeder Bildpunkt geprüft. Erst danach die Anbindung an wgpu.
+
+Die Reihenfolge dahinter ist bewusst so gewählt und sollte nicht umgestellt
+werden:
+
+1. **Bild-Import in reinem Vulkan** — braucht kein wgpu, ein Fehlschlag ist
+   damit eindeutig dem Treiber zuzuordnen.
+2. **Anbindung mit dem heutigen wgpu 29** (`texture_from_raw`). Hält es den
+   Inhalt, ist die ganze Update-Frage erledigt.
+3. **Erst wenn 29 nachweislich scheitert:** der Sprung auf wgpu 30. Das ist
+   eine Kette — wgpu 30 → `egui-wgpu`/`egui-winit` 0.36 → Rust 1.95 (diese
+   Maschine hat 1.93.1); Zahlen in der Messakte. Sein Nutzen ist **unbelegt**:
+   der einzige einschlägige Neuzugang (`initial_state`) wurde auf der
+   Windows-Seite geprüft und als Ursache widerlegt.
+
+Zwei Auflagen, die zum Umbau gehören und leicht vergessen werden:
+
+* **Die Einfrier-Erkennung verliert ihre Bildpunkte**, sobald die Ebenen nicht
+  mehr im Hauptspeicher liegen. Der Fingerabdruck müsste in einen
+  Compute-Shader (Reduktion über die Y-Ebene, Rückkanal von 8 Byte, ein bis
+  zwei Bilder Verzug — bei 2,5 s Stillstandsschwelle bedeutungslos). Steht als
+  Auflage schon in `player-2026-08-06-nv12-wgpu-import.json`.
+* **Synchronisierung ist ungeprüft.** Hier wird geschrieben, gewartet, gelesen;
+  im Betrieb schreibt der Decoder, während gezeichnet wird. Das verlangt
+  Semaphoren über dieselbe Grenze (`VK_KHR_external_semaphore_fd` gegen
+  `cuImportExternalSemaphore`).
+
+Offen und noch nicht angefasst: ob `av1_cuvid` seine Bilder überhaupt als
+CUDA-Speicher herausgibt statt in den Hauptspeicher (FFmpeg-Frage,
+`hwaccel_output_format cuda`). Ohne das nützt der schönste Import nichts.
+
+Danach steht als eigenes Thema **HDR für Linux/NVIDIA** an (10 bit liegt
+bereits vor).
