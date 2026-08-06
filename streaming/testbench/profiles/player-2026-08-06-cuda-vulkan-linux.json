@@ -37,6 +37,19 @@
     "Kein echter Decoder-Frame. Dass `av1_cuvid` seine Bilder ueberhaupt als CUDA-Speicher herausgeben kann statt in den Hauptspeicher, ist eine eigene Frage an FFmpeg (hwaccel_output_format cuda) und hier nicht beruehrt.",
     "Nur diese Karte und dieser Treiber. Aeltere NVIDIA-Generationen ungeprueft; AMD/Intel unter Linux laufen ohnehin ueber VAAPI/dma-buf, also einen dritten Weg."
   ],
+  "was_ein_wgpu_sprung_kosten_wuerde": {
+    "frage": "Die Windows-Akte nennt fuer den Eigenbau-Import wgpu 30 als Voraussetzung (dort nimmt `create_texture_from_hal` einen `initial_state` entgegen). Was kostet dieser Sprung im Player?",
+    "befund": "Er ist eine KETTE, kein Einzelschritt — am 2026-08-06 durch Aufloesen nachgeprueft, nicht geschaetzt.",
+    "gemessen": {
+      "wgpu 30 neben dem heutigen egui-wgpu 0.35": "ZWEI wgpu im Abhaengigkeitsbaum (29.0.4 fuer egui, 30.0.0 fuer den eigenen Code). Das baut, aber die Typen sind nicht dieselben — egui bekaeme ein anderes `Device` als der Renderer. Also unbrauchbar.",
+      "egui-wgpu 0.36": "zieht wgpu 30.0.0 — der Weg existiert",
+      "egui 0.36 verlangt": "Rust 1.95",
+      "diese Maschine hat": "Rust 1.93.1"
+    },
+    "kette": "wgpu 30 -> egui-wgpu/egui-winit 0.36 -> Rust-Toolchain hoch. Der Hinweis darauf steht bereits in der Cargo.toml des Players ('beim Anheben von wgpu oder winit MUSS egui im gleichen Schritt mitwandern').",
+    "ob_es_ueberhaupt_gebraucht_wird_ist_OFFEN": "Der einzige einschlaegige Neuzugang in wgpu 30 ist `initial_state` — und der wurde auf der Windows-Seite geprueft und als Ursache WIDERLEGT (alle drei Zustaende schwarz; auf AMD trug sogar `uninit`). Fuer Linux ist unbewiesen, dass er noetig ist.",
+    "empfohlene_reihenfolge": "Erst den Bild-Import in reinem Vulkan klaeren, dann die Anbindung mit dem heutigen wgpu 29 versuchen, und die Kette NUR anfassen, wenn 29 nachweislich scheitert. Ein Hauptversionssprung mitten im Renderer samt Toolchain-Update fuer ein Problem, das noch niemand hat, waere die falsche Reihenfolge."
+  },
   "was_daraus_folgt": [
     "Der Linux-Weg ist offen, waehrend der Windows-Weg auf NVIDIA zu ist. Das dreht die Reihenfolge um, in der die Plattformen sinnvoll umgebaut werden.",
     "Naechster Schritt ist der BILD-Import (VkImage statt VkBuffer), danach die Anbindung an wgpu und erst zuletzt die Synchronisierung.",
