@@ -1,0 +1,136 @@
+{
+  "id": "hdr-2026-08-07-machbarkeit-linux-nvidia",
+  "gemessen_am": "2026-08-07",
+  "frage": "Ist HDR im Pulse-HQ-Streaming unter Linux/NVIDIA erreichbar — echtes HDR, also Bittiefe UND PQ/HLG-Transferfunktion UND BT.2020 UND ein Zuschauer, der es darstellt? Und wenn ja, auf welchem Weg und zu welchem Preis?",
+  "antwort_kurz": "NEIN, heute nicht — und der Engpass ist die AUFNAHME, nicht der Encoder. KWins ScreenCast bietet ausschliesslich 8-Bit-Formate an (BGRA/BGRx) und traegt keinerlei Farbraum-Signalisierung; das gilt unveraendert bei eingeschaltetem HDR am Monitor, und die Aufnahme ist dann sogar BYTE-IDENTISCH zu der im SDR-Modus. Der Encoder dagegen kann es: `av1_nvenc` schreibt BT.2020 + SMPTE ST 2084 (PQ) + 10 bit korrekt in den AV1-Sequenzkopf, nachgewiesen am Bitstrom. Es gibt also einen HDR-faehigen Encoder ohne HDR-Inhalt zum Encodieren. Ein Zwischenschritt 'nur signalisieren' waere eine Zusage, die niemand einloest, und macht das Bild beim Zuschauer schlechter, nicht besser.",
+  "hardware_und_stand": {
+    "compositor": "KWin 6.7.3 (Plasma 6.7.3) auf Wayland",
+    "portal": "xdg-desktop-portal 1.22.1 + xdg-desktop-portal-kde 6.7.3",
+    "pipewire": "1.6.8",
+    "gpu": "NVIDIA GeForce RTX 5080, Treiber 610.43.03",
+    "ffmpeg": "n8.1.2 (Arch-System)",
+    "monitore": "DP-1 und HDMI-A-1, beide 2560x1440@144, beide laut EDID HDR-faehig (SMPTE ST2084, BT2020YCC/BT2020RGB; max. 400 bzw. 351 cd/m2)",
+    "hinweis": "Die Doku im Repo nennt fuer diese Maschine an mehreren Stellen niri als Compositor (streaming/linux-hq-sidecar/CLAUDE.md, Abschnitt Dev-Umgebung). Zum Messzeitpunkt lief KWin. Wer die Messung wiederholt, pruefe das zuerst — die Antwort haengt vollstaendig am Compositor."
+  },
+
+  "was_HDR_ausmacht": {
+    "vier_teile": [
+      "Bittiefe > 8 (sonst sichtbares Banding im gestreckten Wertebereich)",
+      "Transferfunktion PQ (SMPTE ST 2084) oder HLG statt der SDR-Gammakurve",
+      "Farbraum BT.2020 statt BT.709",
+      "statische Metadaten (Mastering Display, MaxCLL/MaxFALL) — hilfreich fuers Tone-Mapping, nicht zwingend, weil PQ absolut kodiert ist"
+    ],
+    "warum_das_hier_zaehlt": "Der Sidecar konnte bereits vor dieser Untersuchung 10 bit. Das ist Teil eins von vier und wurde im Repo nie als HDR ausgegeben — die Formulierung dort lautet '10 bit Rechenraum im Encoder, nicht 10 bit Bildinhalt'. Diese Akte prueft die drei uebrigen Teile."
+  },
+
+  "GEMESSEN": {
+    "M1_farbverwaltung_auf_der_ausgabeseite_ist_da": {
+      "verfahren": "wayland-info, Globals durchsehen",
+      "befund": "wp_color_manager_v1 (Version 2), wp_color_representation_manager_v1 und frog_color_management_factory_v1 werden angeboten.",
+      "bedeutung": "Der Compositor kann Farbraum und Transferfunktion fuer Client-Fenster entgegennehmen. Das ist die Seite, die ein PLAYER braucht — nicht die, die eine AUFNAHME braucht."
+    },
+    "M2_die_monitore_koennen_HDR_und_KWin_schaltet_es": {
+      "verfahren": "edid-decode auf /sys/class/drm/card1-*/edid; kscreen-doctor output.<name>.hdr.enable/disable",
+      "befund": "Beide EDIDs fuehren einen HDR Static Metadata Data Block mit SMPTE ST2084 und einen Colorimetry Data Block mit BT2020YCC/BT2020RGB. kscreen-doctor schaltet HDR an beiden Ausgaengen erfolgreich ein und wieder aus (kscreen-doctor -o meldet danach 'HDR: enabled' bzw. 'disabled').",
+      "bedeutung": "Die Messung scheitert nicht an fehlender HDR-Hardware. Der Fall ist real herstellbar.",
+      "nebenbefund": "Beide Ausgaenge melden 'Allow EDR: unsupported' — das betrifft KWins Hochskalieren von SDR-Inhalt in einen HDR-Ausgaberaum, nicht die HDR-Faehigkeit selbst."
+    },
+    "M3_unser_10_bit_angebot_ist_gueltig_und_vollstaendig": {
+      "verfahren": "neues Beispiel streaming/linux-hq-sidecar/examples/egl_modifier_probe.rs — fragt eglQueryDmaBufModifiersEXT je Fourcc, ohne Portal und ohne Aufnahme",
+      "befund": "XR24: 14 Modifier. AR24: 14. XB30: 14. AB30: 14 — in allen vier Faellen dieselbe Liste (0x03000000006060 10-15, 0x0300000000e080 10-15, LINEAR, INVALID).",
+      "warum_das_gebraucht_wird": "Wenn eine Formatverhandlung ein Format nicht liefert, gibt es zwei moegliche Schuldige: den Compositor oder uns (leere/ungueltige Modifier-Liste). Ohne diese Sonde sind sie von aussen nicht zu trennen. Sie ist hier gebaut worden, weil genau diese Verwechslung die 10-Bit-Frage schon einmal offen gehalten hat.",
+      "schluss": "Der NVIDIA-Treiber traegt 10-Bit-DMABUF vollstaendig. Der Engpass liegt nicht bei uns."
+    },
+    "M4_KWins_screencast_bietet_ueberhaupt_kein_10_bit_an": {
+      "verfahren": "capture_smoke laufen lassen (Portal-Restore-Token, ohne Dialog), waehrenddessen pw-dump; die EnumFormat- und Format-Pods des Producer-Node auswerten",
+      "node": "kwin_wayland, media.name=kwin-screencast-HDMI-A-1, media.class=Stream/Output/Video",
+      "befund": "Alle drei EnumFormat-Eintraege des Node fuehren als Format ausschliesslich {default: BGRA, alt1: BGRA, alt2: BGRx}. Kein xBGR_210LE, kein ABGR_210LE, kein fp16. Modifier-Anzahl je Eintrag 2 / 14 / 0 (der dritte ist der SHM-Fallback). Ausgehandelt wird Format=BGRx, modifier=0x0300000000606010.",
+      "bedeutung": "Das ist der harte Beleg und er ist staerker als der bisherige Stand im Repo. Dort stand, KWin liefere trotz 10-Bit-Angebot XR24 — man konnte das noch als Auswahlentscheidung des Compositors lesen. Tatsaechlich KENNT sein ScreenCast-Producer nichts anderes als 8 bit. Unser Angebot ist dabei irrelevant; PipeWire kann nur schneiden, was beide Seiten fuehren.",
+      "gegenprobe_HDR": "Dieselbe Auswertung mit eingeschaltetem HDR am aufgenommenen Monitor: identische Liste, identisches ausgehandeltes Format."
+    },
+    "M5_die_aufnahme_bleibt_XR24_in_jeder_konstellation": {
+      "verfahren": "capture_smoke, vier Konstellationen",
+      "ergebnisse": [
+        {"konstellation": "SDR, ohne PULSE_CAPTURE_10BIT", "fourcc": "0x34325258 (XR24 / XRGB8888)", "modifier": "0x0300000000606010"},
+        {"konstellation": "SDR, mit PULSE_CAPTURE_10BIT=1", "fourcc": "0x34325258", "modifier": "0x0300000000606010"},
+        {"konstellation": "HDR am Monitor an, ohne Schalter", "fourcc": "0x34325258", "modifier": "0x0300000000606010"},
+        {"konstellation": "HDR am Monitor an, mit PULSE_CAPTURE_10BIT=1", "fourcc": "0x34325258", "modifier": "0x0300000000606010"}
+      ],
+      "bedeutung": "Der Befund vom 2026-08-04 (KWin auf einer Radeon 780M) traegt auf NVIDIA unveraendert — und er traegt auch dann, wenn der Monitor wirklich im HDR-Modus laeuft. Das war die Luecke im alten Befund: dort war HDR aus, und man konnte hoffen, der Compositor schalte im HDR-Modus auf ein tieferes Format um. Tut er nicht."
+    },
+    "M6_ueber_die_aufnahme_kommt_keine_farbraum_signalisierung": {
+      "verfahren": "pw-dump waehrend der Aufnahme, Format-Pod des ScreenCast-Node und seines Ports vollstaendig ansehen",
+      "befund": "Das Format-Pod fuehrt mediaType, mediaSubtype, size, framerate, maxFramerate, format und modifier. Es fuehrt KEINE Farbfelder — weder color_matrix noch transfer_function noch color_primaries (die spa_video_info_raw kennt sie).",
+      "bedeutung": "Selbst wenn der Compositor eines Tages 10-Bit-Puffer herausgibt, weiss der Empfaenger nicht, in welchem Farbraum und mit welcher Transferfunktion sie kodiert sind. Fuer HDR ist das nicht optional: PQ-Werte, faelschlich als Gamma gedeutet, ergeben ein grob falsches Bild."
+    },
+    "M7_HDR_am_monitor_aendert_am_stream_nichts_byte_identisch": {
+      "verfahren": "streaming/testbench/... (Skript im Scratchpad, Ablauf in dieser Akte): derselbe unberuehrte Bildschirminhalt zweimal ueber capture_encode_smoke (h264, 8 bit) aufgenommen, einmal mit SDR- und einmal mit HDR-Ausgabe desselben Monitors, je eine frisch ausgehandelte Portal-Sitzung, 3 s Beruhigung nach dem Umschalten",
+      "befund": "Beide Dateien sind BYTE-IDENTISCH (md5 35c9d1b74b5531a1757a5e5f54dd34ce, je 135380 Byte).",
+      "bedeutung": "KWin gibt den ScreenCast in einem festen SDR-Ausgaberaum heraus, unabhaengig davon, was am Ausgang anliegt. Zwei Folgen: (1) Fuer HDR ist die Aufnahme eine Sackgasse, nicht nur eine Bittiefen-Frage. (2) Fuer den heutigen Betrieb ist das die GUTE Nachricht — wer mit HDR-Monitor streamt, sendet kein verunstaltetes Bild, sondern dasselbe wie jeder andere. Es gibt hier also keinen versteckten Fehler zu beheben.",
+      "einschraenkung": "Statischer Bildschirm, deshalb je nur ein Bild und ein Lauf je Variante. Nach Laborregel traegt ein Lauf keine Entscheidung — Byte-Identitaet ist aber das haertere Kriterium (dieselbe Begruendung wie in tune-2026-08-06-ll-gegen-ull): sind die Stroeme gleich, kann sich nichts an ihnen unterscheiden. Ein roh durchgereichtes PQ-Signal haette voellig andere Werte ergeben."
+    },
+    "M8_av1_nvenc_KANN_volles_HDR_in_den_bitstrom_schreiben": {
+      "verfahren": "Encode nach IVF (Container ohne eigene Farbtags, damit die Information nachweislich aus dem Bitstrom stammt), dann `ffmpeg -loglevel trace -i x.ivf -c copy -bsf:v trace_headers -f null -` und den AV1-Sequenzkopf lesen",
+      "kommando": "ffmpeg -f lavfi -i testsrc2=s=1280x720:r=60:d=2 -vf 'format=p010le,setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=tv' -c:v av1_nvenc -rc cbr -b:v 4000k -preset p2 -tune ull -zerolatency 1 -delay 0 -bf 0 -g 120 -f ivf out.ivf",
+      "bitstrom": {
+        "high_bitdepth": "1 (10 bit)",
+        "color_description_present_flag": "1",
+        "color_primaries": "9 = BT.2020",
+        "transfer_characteristics": "16 = SMPTE ST 2084 (PQ)",
+        "matrix_coefficients": "9 = BT.2020 non-constant luminance",
+        "color_range": "0 = limited"
+      },
+      "schluss": "Die Encoder-Stufe ist KEIN Hindernis. Sie kann heute, mit der ausgelieferten FFmpeg-Fassung und den Produktionsoptionen des Sidecars, einen vollstaendig HDR-signalisierten AV1-Strom erzeugen."
+    },
+    "M9_die_falle_dabei_die_CLI_optionen_allein_reichen_NICHT": {
+      "befund": "Derselbe Encode mit `-color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc` als Encoder-Optionen statt ueber setparams ergibt im Bitstrom: color_primaries=2 (unspecified), transfer_characteristics=2 (unspecified), matrix_coefficients=9, color_range=0. Matrix und Bereich kommen durch, Primaries und Transferfunktion NICHT.",
+      "gegenprobe": "Derselbe Effekt mit libsvtav1 statt av1_nvenc — es ist also keine NVENC-Eigenheit, sondern haengt daran, dass in FFmpeg 8.1 die Frame-Eigenschaften die Encoder-Option ueberschreiben.",
+      "warum_das_hier_steht": "Wer HDR spaeter baut und nur die CLI-Option setzt, bekommt einen Strom, der HDR zu sein BEHAUPTET (Flag steht) und die beiden entscheidenden Felder auf 'unbekannt' laesst. Das saehe in ffprobe halb richtig aus und beim Zuschauer falsch.",
+      "was_das_fuer_den_sidecar_bedeutet": "Der Sidecar setzt die Felder direkt an der AVCodecContext vor `open` (encode/mod.rs, heute fest auf BT.709 limited, und nur im 10-Bit- bzw. AMD/Intel-Pfad). Das ist genau der Weg, der funktioniert — ein HDR-Umbau waere dort ein Dreizeiler."
+    },
+    "M10_statische_HDR_metadaten_gibt_es_auf_diesem_weg_nicht": {
+      "befund": "`av1_nvenc` kennt weder `-master_display` noch `-max_cll` ('Unrecognized option'). Der Bitstreamfilter `av1_metadata` kann color_primaries, transfer_characteristics, matrix_coefficients, color_range und chroma_sample_position nachtraeglich setzen — aber KEINE Mastering-Display- oder Content-Light-Level-Metadaten (seine vollstaendige Optionsliste ist geprueft).",
+      "einordnung": "Kein Blocker. PQ kodiert Helligkeit absolut; MDCV und MaxCLL steuern nur das Tone-Mapping beim Zuschauer. Fehlen sie, mappt der Zuschauer nach Standardannahmen. Fuer einen Bildschirm-Stream ohne bekanntes Mastering waere ein erfundener Wert ohnehin schlechter als keiner."
+    }
+  },
+
+  "GELESEN_am_eigenen_quelltext": {
+    "aufnahme": "streaming/linux-hq-sidecar/src/capture/pipewire_stream.rs bietet BGRx/BGRA an, mit PULSE_CAPTURE_10BIT=1 zusaetzlich xBGR_210LE/ABGR_210LE an erster Stelle. Der Kommentar an `zehn_bit_aufnahme_gewuenscht` beschreibt den Stand vom 2026-08-04; er bleibt richtig und wird durch M4 praezisiert (KWin bietet nichts anderes an, statt sich fuer 8 bit zu entscheiden).",
+    "encoder_signalisierung": "streaming/linux-hq-sidecar/src/encode/mod.rs setzt colorspace/color_range/color_primaries/color_trc nur, wenn 10 bit an ist oder der Hersteller AMD/Intel ist — dann fest auf BT.709, limited. Fuer NVENC in 8 bit bleibt es bewusst aus. Der Ort fuer eine HDR-Signalisierung ist damit vorhanden und dokumentiert.",
+    "player_matrix": "streaming/pulse-player/src/decode.rs::matrix_of kennt genau zwei Matrizen (Bt601, Bt709). BT.2020 faellt in den Vorgabezweig und wird als BT.709 gerechnet — ein HDR-Strom saehe im Player also farbverschoben aus, nicht nur zu dunkel.",
+    "player_transferfunktion": "streaming/pulse-player/src/render/farbe.rs und shader.wgsl rechnen in gamma-kodiertem R'G'B'; `surface_is_linear` unterscheidet nur scRGB-fp16 von sRGB-Unorm. Eine PQ-EOTF gibt es nicht.",
+    "player_praezision_ist_schon_da": "streaming/pulse-player/src/render/setup.rs bevorzugt als Oberflaechenformat Rgb10a2Unorm vor Rgba16Float vor Bgra8Unorm. Der Player gibt also bereits mit 10 bit aus — was fehlt, ist nicht die Praezision, sondern die Anmeldung der Oberflaeche als PQ/BT.2020 beim Compositor.",
+    "player_kennt_HDR_nicht": "Volltextsuche nach hdr/smpte2084/bt2020/color_trc im Player: keine Treffer. Dasselbe im Web-Client (web/src/lib/stream/whep.ts).",
+    "transport": "MediaMTX transcodiert nicht (Anti-Pattern-Liste in CLAUDE.md, 'Re-Publishing MediaMTX->LiveKit' ausdruecklich verworfen). Die Farbinformation sitzt im AV1-Sequenzkopf und wird von der RTP-Paketierung nur transportiert — der Transport ist damit die unproblematischste Stufe der Kette."
+  },
+
+  "URTEIL": {
+    "erreichbar_heute": "Nichts, was den Namen HDR verdient. Von den vier Teilen ist genau einer da (10 bit Rechenraum im Encoder) und einer nachweislich erzeugbar (PQ+BT.2020-Signalisierung im Bitstrom) — aber es gibt keinen HDR-Bildinhalt, den man damit kodieren koennte, weil die Aufnahme ihn nicht liefert und nicht einmal beschreibt.",
+    "der_engpass": "Die Aufnahme, und zwar an zwei getrennten Stellen: (1) KWins ScreenCast fuehrt nur 8-Bit-Formate, (2) das PipeWire-Format traegt keine Farbraum-Beschreibung. Punkt 2 bliebe auch dann bestehen, wenn Punkt 1 morgen faellt.",
+    "was_fehlen_wuerde": [
+      "Compositor-seitig: ein ScreenCast-Producer, der 10-Bit-Formate anbietet UND den Farbraum des aufgenommenen Ausgangs mitliefert. Beides liegt ausserhalb unseres Codes.",
+      "Schnittstellen-seitig: eine Stelle im ScreenCast-Portal bzw. im SPA-Videoformat, an der Transferfunktion und Primaries ankommen.",
+      "Bei uns, in dieser Reihenfolge und erst danach sinnvoll: 10-Bit-Import (nv_import/va_import und der Filtergraph dahinter sind auf 8-Bit-Puffer gebaut), HDR-Signalisierung im Encoder (klein), PQ-EOTF und BT.2020-Matrix im Player, Anmeldung der Player-Oberflaeche ueber wp_color_manager_v1 (haengt daran, ob wgpu/winit das ueberhaupt hergeben).",
+      "Zuschauer-seitig: Browser und Electron sind der eigentliche Preis. Pulse ist web-first; ein Weg, den nur der native Player geht, ist nach der Labor-Vorgabe eine Zwischenloesung, kein Ergebnis."
+    ],
+    "zwischenschritt_nur_signalisieren": {
+      "urteil": "ABRATEN.",
+      "begruendung": "Ein SDR-Bild mit PQ-Tag ist nicht 'HDR-vorbereitet', sondern falsch beschriftet. Der Zuschauer wendet dann die PQ-EOTF auf Werte an, die in Gamma kodiert sind — das Bild wird sichtbar falsch, nicht neutral. Es gaebe auch nichts zu gewinnen: es gibt keinen HDR-Inhalt in der Kette, dessen Beschreibung gerettet werden muesste. Das ist genau die Zusage, die niemand einloest.",
+      "die_eine_ausnahme_die_es_nicht_gibt": "Sinnvoll waere eine korrekte Signalisierung fuer Inhalte, die BEREITS HDR sind. Solche Inhalte kommen aber nur ueber die Aufnahme herein, und die liefert nach M7 selbst bei HDR-Monitor ein bit-identisches SDR-Bild. Der Fall existiert auf diesem Weg nicht."
+    },
+    "was_stattdessen_zaehlt": "Der vorhandene 10-Bit-Weg bleibt begruendet und ist keine halbe HDR-Zusage: er verhindert eine zweite Quantisierung im Encoder und ist als Gewinn gemessen (41 statt 11 Luma-Stufen im Verlaufsband, Messung vom 2026-08-04). Er sollte weiter als das benannt werden, was er ist — mehr Rechenraum, kein HDR."
+  },
+
+  "WERKZEUG": {
+    "neu": "streaming/linux-hq-sidecar/examples/egl_modifier_probe.rs — meldet die EGL-DMABUF-Modifier je Fourcc (XR24/AR24/XB30/AB30), ohne Portal-Dialog und ohne Aufnahme. Trennt 'der Compositor kann nicht' von 'wir haben falsch gefragt'.",
+    "wiederholung_der_kernmessung": [
+      "kscreen-doctor -o | grep -E 'Output:|HDR:'   (Ausgangszustand notieren)",
+      "edid-decode /sys/class/drm/card1-<name>/edid | grep -A5 'HDR Static'   (kann der Monitor ueberhaupt HDR)",
+      "cargo run --release --example egl_modifier_probe   (traegt der Treiber 10-Bit-DMABUF)",
+      "PULSE_PORTAL_REUSE=1 PULSE_CAPTURE_10BIT=1 ./target/release/examples/capture_smoke 2   (was liefert der Compositor)",
+      "waehrenddessen: pw-dump, den Node mit node.name=kwin_wayland heraussuchen und params.EnumFormat lesen   (was BIETET er ueberhaupt an — das ist die eigentliche Antwort)",
+      "kscreen-doctor output.<name>.hdr.enable, dann dieselben zwei Schritte, danach hdr.disable"
+    ],
+    "messfalle": "Es genuegt NICHT, das ausgehandelte Format anzusehen. Ein 8-Bit-Ergebnis kann heissen 'der Compositor waehlt 8 bit' oder 'er kennt nichts anderes' — das sind verschiedene Befunde mit verschiedenen Folgen, und nur die EnumFormat-Liste des Producers trennt sie. Genau diese Verwechslung hat die Frage im Repo seit dem 2026-08-04 in einem unnoetig offenen Zustand gehalten."
+  }
+}

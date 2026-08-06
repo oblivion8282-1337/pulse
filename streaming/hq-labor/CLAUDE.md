@@ -547,6 +547,25 @@ ist hier passiert.
 
 **Wichtig, aber nicht blockierend:**
 
+- [x] **HDR — geklärt am 2026-08-07, die Antwort ist NEIN, und der Grund liegt
+      nicht dort, wo man ihn sucht.** Messakte
+      `profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.
+      Der **Encoder** kann es: `av1_nvenc` schreibt BT.2020 (`color_primaries=9`),
+      PQ (`transfer_characteristics=16`) und 10 bit korrekt in den
+      AV1-Sequenzkopf — containerfrei am Bitstrom nachgewiesen. Die **Aufnahme**
+      kann es nicht, und zwar doppelt: KWins ScreenCast-Producer annonciert
+      ausschließlich `BGRA`/`BGRx` (es gibt also gar kein 10-Bit-Gegenüber, mit
+      dem sich verhandeln ließe), und das PipeWire-Format trägt keinerlei
+      Farbraum-Felder. **Mit eingeschaltetem HDR am Monitor ändert sich nichts**
+      — die Aufnahme ist dann byte-identisch zu der im SDR-Modus.
+      Daraus folgt die eigentliche Entscheidung: **einen Zwischenschritt „nur
+      korrekt signalisieren" gibt es nicht.** Es gäbe nichts zu signalisieren
+      (der Inhalt ist SDR), und ein SDR-Bild mit PQ-Etikett wird beim Zuschauer
+      sichtbar falsch, nicht neutral. Wer HDR später aufgreift, fängt beim
+      Compositor an, nicht bei uns.
+      Neues Werkzeug: `linux-hq-sidecar/examples/egl_modifier_probe.rs` trennt
+      „der Compositor kann nicht" von „wir haben falsch gefragt" — die
+      Verwechslung, die diese Frage seit dem 2026-08-04 offen gehalten hat.
 - [ ] **AV1 10 bit mit HARDWARE-Decoder im Browser.** Der Befund „geht nicht"
       stammt aus headless Chromium (Software-Decoder). Entscheidet die
       Bittiefe für alle Browser-Zuschauer.
