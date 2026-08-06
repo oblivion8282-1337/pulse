@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-06",
+      "date": "2026-08-06",
+      "style": "Sachlich",
+      "title": "Wenn beim Streamen etwas klemmt, koennen wir es jetzt nachvollziehen",
+      "intro": "Bisher blieb bei Streaming-Problemen oft nur Raten. Dagegen gibt es jetzt Diagnoseberichte.",
+      "items": [
+        "Der Einstellungs-Tab heisst jetzt „Experimental“ und ist auf Windows, macOS und Linux vorhanden. Bisher gab es ihn nur unter Linux — Windows-Nutzer konnten die Diagnose gar nicht einschalten, selbst wenn sie wollten.",
+        "Diagnoseberichte sind ab sofort standardmaessig aktiv. Sie enthalten keine Zugangsdaten und keine Stream-Schluessel, und du kannst sie im Tab „Experimental“ jederzeit mit einem Klick abschalten. Wer sie frueher ausdruecklich abgewaehlt hat, bleibt abgewaehlt.",
+        "Neu ist, dass auch die Zuschauerseite berichtet: abgerissene Verbindungen, Stotterer und eingefrorene Bilder werden erfasst — also genau das, was man sieht, aber bisher niemand messen konnte.",
+        "Die Berichte werden zusammengefasst statt vollstaendig mitgeschrieben und nach vier Wochen automatisch geloescht. Laeuft ein Stream sauber, wird gar nichts gesendet."
+      ]
+    },
+    {
       "id": "2026-08-05.3",
       "date": "2026-08-05",
       "style": "Sachlich",
