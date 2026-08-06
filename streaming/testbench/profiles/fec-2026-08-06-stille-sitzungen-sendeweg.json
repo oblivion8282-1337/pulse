@@ -1,0 +1,105 @@
+{
+ "id": "fec-2026-08-06-stille-sitzungen-sendeweg",
+ "gemessen_am": "2026-08-06",
+ "frage": "Warum melden 59 von 205 WHEP-Sitzungen der Produktion Verlust, erzeugen aber weder gesendete noch unterdrueckte Paritaetspakete — obwohl der Server FlexFEC eingeschaltet hat?",
+ "warum_die_frage_zaehlt": "Beides auf null heisst: es lief in diesen Sitzungen gar kein Schutz. Betroffen waren auch lange Sitzungen mit viel Verlust (bis 5,4 Stunden, ueber 50000 gemeldete Verluste). Wenn ein nennenswerter Teil der Zuschauer den Schutz nie bekommt, ist die ganze Paritaets-Messreihe nur fuer den Rest gueltig.",
+
+ "belegklassen": {
+  "GEMESSEN": "selbst erhoben, Werkzeug und Rohdaten benannt",
+  "GELESEN": "im Quelltext von pion/MediaMTX nachgelesen, Datei und Zeile benannt",
+  "VERMUTET": "plausibel, aber nicht belegt — keine Entscheidungsgrundlage"
+ },
+
+ "das_ergebnis_in_einem_satz": "Es liegt am SENDEWEG des Publishers, nicht am Zuschauer und nicht am Codec: ueber RTMPS veroeffentlichte Stroeme bekamen in 0 von 71 Sitzungen Paritaet, ueber WHIP/WebRTC veroeffentlichte in 75 von 131 — und das haelt auch, wenn man den Zuschauer konstant haelt.",
+
+ "datenlage": {
+  "quelle": "docker logs pulse_mediamtx (rein lesend) ueber den ganzen Lauf des Containers, 2026-08-04 18:21 bis 2026-08-06 20:04, 2848 Zeilen; dazu docker logs pulse_web fuer die Zuschauer-Software (nur 2026-08-06, der Container ist zwischendurch neu gestartet).",
+  "werkzeug": "scripts/fec-tor-kennzahlen.py --datei (liegt auf feat/streaming-diagnose)",
+  "umfang": "205 WHEP-Sitzungen mit Bilanzzeile, 1257 Minuten Sitzungsdauer, 151853 gemeldete Verluste",
+  "reproduktion_des_befunds": "GEMESSEN — 205 Sitzungen, 75 mit Paritaet, 59 melden Verlust ohne ein einziges Paritaetspaket. Deckt sich mit der Ausgangsbeobachtung."
+ },
+
+ "was_widerlegt_ist": {
+  "codec": {
+   "behauptung_vorher": "H.264 nur 1 von 31 Sitzungen mit FEC (3 %), AV1 72 von 155 (46 %) — der Codec sei das staerkste Signal.",
+   "befund": "WIDERLEGT, GEMESSEN. Der Zusammenhang ist ein Scheinzusammenhang: H.264 kam in dieser Zeit fast nur ueber RTMPS herein. Es gibt auch AV1-Pfade ueber RTMPS (channel-66168213179736064-63373853165883392) — die bekamen in 26 von 26 Sitzungen ebenfalls keine Paritaet. Der Codec sagt nichts, sobald der Sendeweg bekannt ist.",
+   "gegenprobe_im_labor": "GEMESSEN — MediaMTX' Aushandlung mit echten Chromium-Angeboten, einmal mit AV1 als Serverspur, einmal mit H.264 (Caps woertlich aus from_stream.go): beide Male traegt die Antwort flexfec-03 und die zwingende a=ssrc-group:FEC-FR, beide Male ist der FEC-SSRC des Senders ungleich null."
+  },
+  "sdp_angebot_des_zuschauers": {
+   "befund": "WIDERLEGT, GEMESSEN. Vier Browser-Fassungen gepruefte (Playwright-Chromium 147, System-Chromium 150, Google Chrome 150, Electron 43 / Chromium 150 mit der Produktions-Kennung Pulse/0.1.45): ALLE fuehren a=rtpmap:49 flexfec-03/90000 und a=fmtp:49 repair-window=10000000 im recvonly-Angebot — in createOffer(), in pc.localDescription und im tatsaechlich abgeschickten Body.",
+   "quelltext": "GELESEN — media/engine/webrtc_video_engine.cc, GetDefaultSupportedFormats: `if (is_decoder_factory || trials.IsEnabled(\"WebRTC-FlexFEC-03-Advertised\"))`. Auf der EMPFANGSseite ist die Zeile bedingungslos wahr; das Field-Trial steuert nur das Senden. Seit dem Commit 064be3838 (2020-12-11, webrtc:8151)."
+  },
+  "sdp_nachbearbeitung_in_whep_ts": {
+   "befund": "WIDERLEGT, GEMESSEN. web/src/lib/stream/whep.ts munget das Angebot vor setLocalDescription (preferStereoOpus). Derselbe Lauf mit und ohne diese Nachbearbeitung, in allen vier Browser-Fassungen: kein Unterschied, flexfec-03 bleibt in jedem Fall stehen. Die Nachbearbeitung fasst nur die Opus-fmtp-Zeile an."
+  },
+  "paritaets_nutzlasttyp": {
+   "behauptung_vorher": "Nativer Player nutzt 110, Chromium 49 — eine Seite koennte einen Typ anbieten, den die andere nicht belegt.",
+   "befund": "WIDERLEGT. Patch 0004 prueft bereits gegen den AUSGEHANDELTEN Wert (StreamInfo.PayloadTypeForwardErrorCorrection), nicht gegen die eigene Konstante; das steht auch so im Patch-Kopf. GEMESSEN: MediaMTX antwortet auf ein Chromium-Angebot mit `m=video ... 109 49` bzw. `... 45 49` und uebernimmt damit den Typ des Zuschauers."
+  },
+  "zuschauer_software": {
+   "befund": "WIDERLEGT, GEMESSEN. Das ausgelieferte Produktions-Abbild (aus infra/mediamtx-fork/ gebaut, alle fuenf Patches, Produktions-Umgebungsvariablen) gegen die echte Electron-App: Paritaet laeuft, und die Zaehler stimmen aufs Paket. Vier Varianten geprueft, alle mit Paritaet:",
+   "laeufe": [
+    {"quelle": "RTMP, H.264 720p60 4 Mbit, 1 Spur", "gesendet": 640, "unterdrueckt": 1304, "fecPacketsReceived_im_Client": 640},
+    {"quelle": "RTMP, H.264 + Opus, 2 Spuren (wie Produktion)", "gesendet": 626, "unterdrueckt": 1310, "fecPacketsReceived_im_Client": 626},
+    {"quelle": "RTMPS, H.264 + Opus", "gesendet": 634, "unterdrueckt": 1298, "fecPacketsReceived_im_Client": 634},
+    {"quelle": "RTMPS, AV1 1440p60 10 Mbit + Opus", "gesendet": 1280, "unterdrueckt": 4072, "fecPacketsReceived_im_Client": 1280},
+    {"quelle": "RTMPS, H.264 mit Intra-Refresh statt Vollbildern", "gesendet": 640, "unterdrueckt": 1300, "fecPacketsReceived_im_Client": 640}
+   ]
+  },
+  "gedraenge_mehrerer_zuschauer": {
+   "befund": "WIDERLEGT, GEMESSEN. Acht gleichzeitige WHEP-Anfragen mit demselben echten Produktions-Angebot: alle acht Antworten tragen flexfec-03 und ssrc-group:FEC-FR."
+  }
+ },
+
+ "die_ursache": {
+  "aussage": "Der Sendeweg des Publishers entscheidet. Ueber RTMPS veroeffentlichte Pfade liefern KEINEM Zuschauer Paritaet.",
+  "zahlen_GEMESSEN": {
+   "RTMPS": {"sitzungen": 71, "mit_paritaet": 0, "anteil_prozent": 0.0},
+   "WebRTC_WHIP": {"sitzungen": 131, "mit_paritaet": 75, "anteil_prozent": 57.3},
+   "nur_sitzungen_ueber_20_s": {"RTMPS": "0 von 32", "WebRTC_WHIP": "55 von 78 (71 %)"},
+   "verteilt_ueber": "6 verschiedene sendende Nutzer auf der RTMPS-Seite, 107 Pfade insgesamt, kein einziger Pfad mit mehrdeutigem Sendeweg"
+  },
+  "kontrolliert_GEMESSEN": {
+   "warum_das_noetig_war": "Sendeweg und Zuschauerkreis fallen in der Produktion weitgehend zusammen — ohne diese Kreuzung waere offen, ob nicht doch der Zuschauer die Ursache ist.",
+   "zuschauer_62_46_231_65": {"ueber_WHIP": "73 von 126 mit Paritaet", "ueber_RTMPS": "0 von 8"},
+   "zuschauer_217_93_20_26": {"ueber_WHIP": "2 von 5 mit Paritaet", "ueber_RTMPS": "0 von 20"},
+   "schluss": "Derselbe Zuschauer, dieselbe Software, dieselbe Leitung — nur der Sendeweg des Stroms unterscheidet sich, und mit ihm die Paritaet. Damit ist die Zuschauerseite als Ursache ausgeschlossen."
+  },
+  "warum_der_erste_verdacht_daneben_lag": "Die Ausgangsanalyse schloss den Sender aus, weil 28 MediaMTX-Pfade BEIDE Sorten trugen. Diese 28 Pfade gehoeren aber alle zu ZWEI Sendern desselben Kanals (channel-53552698187849728-*) — und die veroeffentlichen ueber WHIP. Auf WHIP-Pfaden schwankt es tatsaechlich (kurze Sitzungen kommen nicht ueber das Anlauffenster hinaus); auf RTMPS-Pfaden schwankt gar nichts, dort ist es immer aus."
+ },
+
+ "was_offen_bleibt": {
+  "die_mechanik_im_server": "UNGEKLAERT. Fuenf Reproduktionsversuche mit dem ausgelieferten Abbild und ffmpeg als RTMPS-Sender (H.264 und AV1, 4 und 10 Mbit, 720p und 1440p, Vollbilder und Intra-Refresh, ein und zwei Spuren) haben den Fehler NICHT ausgeloest — in allen fuenf lief die Paritaet. Der Ausloeser steckt also in etwas, das der Pulse-Sidecar ueber RTMPS anders macht als ffmpeg, nicht im Protokoll selbst.",
+  "wo_der_naechste_ansetzen_sollte": [
+   "Die neue Logzeile abwarten (s.u.): sie sagt, ob in den stillen RTMPS-Sitzungen der Paritaetstyp 0 ist (nicht ausgehandelt) oder ungleich 0 (ausgehandelt, aber der Erzeuger liefert nichts). Das halbiert die Suche und war bisher nicht entscheidbar.",
+   "Ist der Typ ungleich 0: der einzige Weg, auf dem pions Erzeuger dann stillbleibt, ist EncodeFec — es verwirft JEDE Gruppe, deren zehn Sequenznummern nicht lueckenlos sind (GELESEN: interceptor@v0.1.45/pkg/flexfec/flexfec_encoder_03.go:66-71). Dann waeren die ausgehenden Sequenznummern des RTMPS-Weges nicht lueckenlos, und die Frage lautet, wer sie reisst.",
+   "Ist der Typ 0: dann handelt der Zuschauer auf RTMPS-Pfaden kein flexfec aus, obwohl er es anbietet — dann liegt es an MediaMTX' Antwort fuer genau diese Pfade.",
+   "Mit dem ECHTEN Sidecar ueber RTMPS senden statt mit ffmpeg. Das ist der Unterschied, an dem alle fuenf Reproduktionsversuche vorbeigingen."
+  ],
+  "nicht_noch_einmal_pruefen": "Codec, SDP-Angebot des Zuschauers, die Nachbearbeitung in whep.ts, der Paritaets-Nutzlasttyp, die Zuschauer-Software und mehrere gleichzeitige Zuschauer. Alle sechs sind oben gemessen widerlegt."
+ },
+
+ "was_gebaut_wurde": {
+  "aenderung": "infra/mediamtx-fork/patches/0004-flexfec-adaptiv.patch — die Bilanzzeile nennt jetzt zusaetzlich den ausgehandelten Paritaetstyp und die Zahl der Medienpakete.",
+  "warum": "Die alte Zeile beschrieb DREI verschiedene Lagen mit denselben Zahlen: flexfec nie ausgehandelt, ausgehandelt aber kein Paritaetspaket erzeugt, und gar kein Video geflossen. Genau diese Zweideutigkeit hat diese Untersuchung aufgehalten — sie ist der Grund, warum die Ursache nur bis zum Sendeweg und nicht bis zur Mechanik verfolgt werden konnte.",
+  "kein_verhalten_geaendert": "Reine Diagnose. Der Filter, die Regelung und die Schwellen sind unveraendert.",
+  "abnahme_GEMESSEN": {
+   "bau": "Alle fuenf Patches greifen sauber auf v1.19.1, gofmt sauber, go vet sauber, Abbild gebaut.",
+   "wirkprobe": "Zwei Sitzungen, die vorher identisch ausgesehen haetten (0 gesendet, 0 unterdrueckt): Angebot MIT flexfec meldet jetzt 'Paritaetstyp 49', dasselbe Angebot mit entfernter flexfec-Zeile meldet 'Paritaetstyp 0'.",
+   "normalbetrieb": "Electron-Zuschauer, RTMP-Quelle: '634 Paritaetspakete gesendet, 912 unterdrueckt, Paritaetstyp 49, 7736 Medienpakete' — die 634 decken sich exakt mit fecPacketsReceived im Client.",
+   "werkzeug_bleibt_lesbar": "scripts/fec-tor-kennzahlen.py liest die Zeile weiter (re.search auf dem Praefix); die neuen Felder zeigt es noch nicht an."
+  }
+ },
+
+ "messfallen_dieses_tages": {
+  "zuordnungsfenster_verzerrte_das_ergebnis": "Ein erster Abgleich Sitzung gegen nginx-Zugriff verlangte GENAU EINEN Treffer in fuenf Sekunden. Bei mehreren Zuschauern auf demselben Pfad liegen aber mehrere Anfragen dicht beieinander — die fielen alle heraus. Uebrig blieben nur einzeln stehende Sitzungen, und die trugen samt und sonders keine Paritaet: '28 Electron, 0 mit Paritaet'. Das war falsch und wurde zurueckgenommen, sobald dieselben Daten mit acht Sekunden Fenster auch Sitzungen MIT Paritaet aus Electron zeigten. Ein Filter, der bevorzugt eine Sorte durchlaesst, erzeugt ein sauber aussehendes Ergebnis.",
+  "null_treffer_war_ein_kaputtes_muster": "Die Suche nach den WHEP-Anfragen im nginx-Log lieferte null Zeilen. Nicht weil es keine gab, sondern weil der Pfad '/whep/<pfad>/whep' lautet und das Muster 'POST /channel...' verlangte. Erst die Gegenprobe, welche Methoden nginx ueberhaupt sieht, deckte es auf.",
+  "der_loopback_kandidat_ist_ein_scheinsignal": "Sitzungen, in denen MediaMTX 127.0.0.1 als eigenen ICE-Kandidaten waehlte, hatten nur zu 18 Prozent Paritaet statt zu 53. Das ist kein Zusammenhang mit FEC: solche Sitzungen sterben nach ein bis zwei Sekunden und kommen nie ueber das Anlauffenster. Dasselbe gilt fuer den Zusammenhang mit der Sitzungsdauer.",
+  "die_zahl_der_pfade_taeuscht": "'28 Pfade tragen beide Sorten' klingt nach 28 unabhaengigen Faellen. Jeder Pfad traegt aber eine Nonce, ist also eine einzelne Sendesitzung — die 28 gehoeren zu zwei Sendern. Ohne das Zusammenfassen auf Kanal und Sender sieht eine Stichprobe von zwei wie eine von 28 aus."
+ },
+
+ "rohdaten": {
+  "hinweis": "Die Auswertung laeuft auf einer lokalen Kopie des Produktionslogs; auf dem Server wurde ausschliesslich gelesen (docker logs, docker inspect, Konfigurationsdateien). Nichts angefasst, nichts neu gestartet.",
+  "nachstellen": "scripts/fec-tor-kennzahlen.py --seit 168h; die Kreuzung Sendeweg gegen Paritaet aus denselben Zeilen ueber 'is publishing to path' je Pfad."
+ }
+}
