@@ -144,9 +144,51 @@ liegt bei 601. **Der Shader rechnet also wirklich.**
   zu setzen noch zu prüfen. `PULSE_PLAYER_BACKEND=vulkan` holt den alten Weg
   zurück. Nachgesehen: das Fenster geht auf, D3D12 bietet `Rgba16Float` an.
 
-**Offen:** ob das Bild auf einem HDR-Schirm richtig aussieht, und ob das
-Herunterrechnen auf SDR ordentlich wirkt. Beides braucht ein Augenpaar und
-einen zweiten Rechner als Zuschauer.
+## Befund 5: Das Bild ist gruenstichig — und die Verrohrung ist es nicht
+
+Am 2026-08-06 zum ersten Mal angesehen (`testbench/hdr-ansehen.ps1`, Sender und
+Player auf derselben Maschine ueber den Hetzner-Messstand). **Das Bild kommt
+an, ist aber gruen eingefaerbt.**
+
+**Was dabei NACHWEISLICH funktioniert** — das schraenkt die Suche stark ein:
+
+```
+pulse-player: Oberflaechenformat Rgb10a2Unorm auf AMD Radeon 780M (Dx12)
+pulse-player: Decoder av1 (Hardware (D3D11VA))
+pulse-player: Farbraum des Fensters: scRGB (lineares Licht, 1,0 = 80 cd/m²)
+pulse-player: Farbwelt des Stroms HDR (PQ) -> Fenster HDR (Rgba16Float)
+```
+
+Also: der Formatwechsel zur Laufzeit, die Anmeldung des Farbraums ueber D3D12,
+die Erkennung der PQ-Kurve am Strom und die Hardware-Dekodierung. Das waren die
+unsicheren Stuecke, und sie tragen alle.
+
+**Wo der Fehler NICHT sein kann:** in der Senderseite (am Bitstrom vermessen,
+Befund 4) und im SDR-Weg des Players (unveraendert, seit Langem in Betrieb).
+Es bleibt der neue Zweig im Player-Shader: PQ aufloesen, BT.2020 nach BT.709,
+oder die scRGB-Skalierung.
+
+**Was NICHT die Ursache sein kann, obwohl es naheliegt:** fehlendes Chroma. Das
+ist die klassische Erklaerung fuer Gruen (Cb/Cr auf null statt neutral), passt
+hier aber nicht: der Strom traegt UAVG 529,8 und VAVG 531,7 bei einem neutralen
+Wert von 512 — Chroma ist also da und nahezu neutral. Und die drei Zeilen der
+BT.2020-Matrix summieren sich je auf 1,0, ein neutraler Eingang bliebe damit
+neutral.
+
+**Die billigste Halbierung zuerst** (ein Kommando, kein Neubau):
+
+```powershell
+$env:PULSE_PLAYER_TRANSFER = 'sdr'   # Strom als SDR behandeln
+```
+
+Verschwindet der Gruenstich damit, sitzt der Fehler im neuen PQ-Zweig. Bleibt
+er, liegt er davor — dann in der YUV-Matrix oder im Codewert-Massstab, und
+`PULSE_PLAYER_MATRIX=709` grenzt weiter ein. Genau dafuer gibt es diese
+Variablen.
+
+**Offen bleibt ausserdem:** ob das Herunterrechnen auf einen SDR-Schirm
+ordentlich wirkt. Ungeprueft, weil der erste Blick schon am HDR-Weg haengen
+blieb.
 
 ## Nebenbefunde
 
