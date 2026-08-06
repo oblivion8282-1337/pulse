@@ -12,6 +12,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/graphify-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/require-simplifier.sh"
           }
         ]
       },
@@ -36,6 +40,16 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/graphify-stamp.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/stop-require-simplifier.sh"
           }
         ]
       }

@@ -1,15 +1,20 @@
 # Simplifier-Gates
 
-> **Achtung: die beiden Gates sind seit dem 2026-06-28 NICHT MEHR verdrahtet.**
-> Commit `b345ca8d` hat sie aus `.claude/settings.json` entfernt („Hooks haben
-> hauptsächlich genervt"); dort stehen heute nur noch zwei graphify-Hooks, kein
-> `git commit`-Gate und kein `Stop`-Gate. Die Skripte liegen weiter hier und
-> funktionieren — sie feuern nur niemand mehr.
+> **Stand 2026-08-06: die beiden Gates sind WIEDER verdrahtet.**
+> Sie waren am 2026-06-28 mit Commit `b345ca8d` aus `.claude/settings.json`
+> entfernt worden („Hooks haben hauptsächlich genervt"); die Skripte lagen
+> seither hier und feuerten für niemanden. In der Zwischenzeit war
+> `simplify-stamp.sh` von Hand aufzurufen eine Geste ohne Prüfung — wer sie
+> unterließ, merkte nichts.
 >
-> **Was daraus folgt:** die Regel unten ist eine Regel, keine Schranke. Sie wird
-> nicht mehr erzwungen, sondern muss eingehalten werden. `simplify-stamp.sh`
-> von Hand aufzurufen ist damit die Geste, die den Durchlauf bezeugt — nichts
-> prüft sie nach.
+> Nachgewiesen beim Wiederverdrahten: mit gestagter `.ts`-Änderung und ohne
+> Stempel sperrt das Commit-Gate (Exit 2, mit Anleitung), nach
+> `simplify-stamp.sh` lässt es durch.
+>
+> **Eine Falle beim Nachstellen:** Das Gate prüft `git diff --cached`, also nur
+> GESTAGTE Dateien. Ein Test mit ungestagter Änderung läuft durch und sieht aus
+> wie ein totes Gate — genau dieser Fehlschluss ist beim Wiederverdrahten
+> beinahe passiert.
 >
 > Dieser Abschnitt stand hier bis 2026-08-04 nicht, obwohl der Text darunter am
 > 2026-07-27 — fast einen Monat NACH der Abschaltung — neu geschrieben wurde und
