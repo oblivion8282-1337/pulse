@@ -33,7 +33,16 @@ param(
   [switch]$Takt,
   [int]$Bitrate = 12000,
   [int]$Fps = 60,
-  [string]$Aufloesung = '1080p'
+  [string]$Aufloesung = '1080p',
+  # Eigener Name der Strecke auf dem Pruefstand.
+  #
+  # Zwei Laeufe auf DEMSELBEN Pfad streiten sich um dieselbe Sitzung, und beide
+  # messen danach Rauschen. Das ist keine graue Theorie: am 2026-08-06 lief eine
+  # Untersuchung ueber die Strecke, waehrend jemand nebenher hinsehen wollte.
+  # Die Abhilfe war zuerst eine KOPIE dieses Skripts mit geaendertem Pfad --
+  # ein Doppelgaenger, der beim naechsten Umbau hier zurueckgeblieben waere.
+  # Ein Parameter tut dasselbe und kann nicht auseinanderlaufen.
+  [string]$Kennung = 'ansehen'
 )
 
 # -Ruecklesen: das dekodierte Bild wieder ueber den Hauptspeicher schicken
@@ -86,7 +95,7 @@ foreach ($p in @($side, $player)) {
 $tokDatei = "$sp\fern_token.txt"
 if (-not (Test-Path $tokDatei)) { throw "Messstand-Token fehlt: $tokDatei" }
 $tok  = "$(Get-Content $tokDatei -Raw)".Trim()
-$pfad = if ($Ohne) { 'hdr-ansehen-sdr' } else { 'hdr-ansehen-hdr' }
+$pfad = "hdr-$Kennung-" + $(if ($Ohne) { 'sdr' } else { 'hdr' })
 $basis = "https://pulse.unicutmedia.com/whep/$pfad"
 
 # --- Sender ------------------------------------------------------------------
