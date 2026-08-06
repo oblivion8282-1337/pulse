@@ -22,6 +22,8 @@
  * Ton vom Video-Element entkoppelt und läuft beim Wegnavigieren weiter.
  */
 import { connectWhep, WhepError, type WhepSession } from './whep';
+import { DiagnoseSammler } from './diagnose-bericht';
+import { sendeDiagnoseBericht } from './diagnose-senden';
 import { WhepStatsReader, type StreamStats } from './whep-stats';
 import { VolumeBoost } from './volumeBoost';
 import { getStreamVolume, setStreamVolume } from './streamVolume';
@@ -73,6 +75,16 @@ export class ManagedHqStream {
   #connectTimer: ReturnType<typeof setTimeout> | undefined;
   #statsTimer: ReturnType<typeof setInterval> | undefined;
   #statsReader = new WhepStatsReader();
+  /**
+   * Sammelt die Zuschauersicht der laufenden Sitzung. `null`, solange keine
+   * Sitzung läuft.
+   *
+   * Einer je WHEP-Sitzung, nicht je Manager: ein Wiederaufbau (`recycle`) ist
+   * eine NEUE Sitzung mit eigenen Zählern — die WebRTC-Statistiken beginnen
+   * dort bei null, ein durchgehender Sammler würde die Zähler-Sprünge als
+   * riesige negative Deltas sehen.
+   */
+  #diagnose: DiagnoseSammler | null = null;
   #boost = new VolumeBoost();
   // Fallback-Audiosenke, falls der Web-Audio-Graph nicht greift (kein
   // AudioContext / kein Audio-Track) — bleibt auch ohne Video am Leben.
@@ -223,8 +235,34 @@ export class ManagedHqStream {
     this.#statsTimer = undefined;
   }
 
+  /**
+   * Schliesst die Diagnose der laufenden Sitzung ab und schickt sie los.
+   *
+   * Hier und nicht im `close()`: `#teardown()` ist die EINZIGE Stelle, durch
+   * die jedes Sitzungsende läuft — das gewollte Schliessen der Kachel ebenso
+   * wie der Wiederaufbau nach einem Abbruch. Am `close()` allein hinge der
+   * Bericht genau bei den Sitzungen nicht, die abbrachen, also bei denen, um
+   * die es geht.
+   *
+   * `void` und kein `await`: der Versand ist Beiwerk und darf den Abbau nicht
+   * aufhalten. Dass er trotzdem ankommt, wenn nebenher die Seite abgeräumt
+   * wird, besorgt `keepalive` in `diagnose-senden.ts`.
+   */
+  #diagnoseAbschliessen(grund: string): void {
+    const sammler = this.#diagnose;
+    this.#diagnose = null;
+    if (!sammler || !sammler.lohntSich()) return;
+    void sendeDiagnoseBericht(
+      sammler.bericht(grund),
+      grund === 'beendet' ? 'stream_end' : 'error',
+    );
+  }
+
   async #teardown(): Promise<void> {
     this.#clearTimers();
+    // `disposed` heisst: die Kachel wurde geschlossen. Alles andere, was hier
+    // durchkommt, ist ein Wiederaufbau — und der hat einen Grund.
+    this.#diagnoseAbschliessen(this.#disposed ? 'beendet' : 'wiederaufbau');
     const s = this.#session;
     this.#session = null;
     if (s && this.#connListener) {
@@ -348,6 +386,12 @@ export class ManagedHqStream {
       this.#connListener = () => {
         if (this.#disposed || this.#session !== s) return;
         const st = s.pc.connectionState;
+        // Auch die transienten Zustände mitschreiben. Gerade eine Kette
+        // `disconnected → connected` ist eine Aussage über die Leitung, die
+        // sonst nirgends auftaucht — der Zuschauer merkt davon nichts, und
+        // ohne den Eintrag sieht der Bericht später aus wie eine ruhige
+        // Sitzung mit unerklärlichem Ruckeln.
+        this.#diagnose?.verbindung(st);
         // `disconnected` ist transient (Chromium erholt sich meist) — nur bei
         // den endgültigen Zuständen neu aufbauen.
         if (st === 'connected') onConnected();
@@ -365,6 +409,12 @@ export class ManagedHqStream {
       }
       this.#statsReader.reset();
       this.#stalledSince = 0;
+      this.#diagnose = new DiagnoseSammler({
+        kanal: this.channelId,
+        sender: this.userId,
+        slot: this.slot,
+        zehnBit: this.tenBit,
+      });
       this.#statsTimer = setInterval(async () => {
         const cur = this.#session;
         if (!cur) return;
@@ -374,6 +424,7 @@ export class ManagedHqStream {
         // dann gehören die Stats zum alten PC, nicht überschreiben.
         if (this.#disposed || this.#session !== cur) return;
         this.stats = next;
+        this.#diagnose?.beobachte(next);
         // Startup-black watchdog: while playing but no frame has EVER decoded,
         // reconnect once the stall passes the threshold. Disarms permanently as
         // soon as the first frame decodes (mid-stream stalls are the connection-

@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
@@ -52,11 +52,87 @@ RETENTION_DAYS = 28
 MAX_ROWS = 5_000
 
 
+# Obergrenze für die Ereignisliste EINES Berichts. Der Client verdichtet und
+# deckelt bereits (`web/src/lib/stream/diagnose-bericht.ts`); diese Zahl ist
+# die zweite Verteidigungslinie, denn der Endpoint ist offen und darf sich
+# nicht darauf verlassen, dass der Absender unser Client ist.
+#
+# Sie liegt bewusst ETWAS über dem Client-Deckel: läge sie gleichauf, würde ein
+# Bericht, der genau am Deckel liegt, an einem Rundungsunterschied scheitern —
+# und ein 422 verwirft den ganzen Bericht, nicht nur das überzählige Ereignis.
+MAX_EVENTS = 250
+
+
+class Ereignis(BaseModel):
+    """Ein verdichteter Vorfall innerhalb einer Sitzung.
+
+    „Verdichtet" heißt: gleichartige Vorfälle innerhalb eines Zeitfensters sind
+    im Client bereits zu EINEM Eintrag mit `anzahl` zusammengefasst. Ohne das
+    schriebe eine einzige schlechte Minute mehrere hundert Zeilen, die alle
+    dasselbe sagen.
+    """
+
+    model_config = {"extra": "ignore"}
+
+    # Sekunden seit Sitzungsbeginn. Relativ, nicht absolut — eine Uhrzeit vom
+    # Client wäre ohne Zeitzone und Uhrenstand wertlos, und die Sitzungsdauer
+    # ist genau die Bezugsgröße, in der man einen Vorfall einordnet.
+    s: float
+    art: Annotated[str, Field(max_length=48)]
+    anzahl: Annotated[int, Field(ge=1)] = 1
+    # Freie Zahlen zum Vorfall (z.B. `{"dauer_ms": 480}`). Bewusst offen: was
+    # zu einem Einfrieren gehört, ist etwas anderes als das, was zu einem
+    # Verbindungswechsel gehört.
+    werte: dict[str, Any] | None = None
+
+
+class Bericht(BaseModel):
+    """Der strukturierte Sitzungsbericht — der Ersatz für 512 KiB Rohtext.
+
+    **`extra="ignore"` ist hier die wichtigste Zeile.** Der Endpoint bedient
+    Bestandsclients, die sich nur über den Auto-Updater erneuern; ein neuerer
+    Client, der ein Feld mehr schickt, darf nicht mit 422 abgewiesen werden,
+    und ein älterer, der eines weglässt, ebensowenig. Deshalb ist alles
+    optional und Unbekanntes fliegt still raus, statt den ganzen Bericht zu
+    verwerfen. Der Preis: ein Tippfehler im Feldnamen fällt nicht auf — dafür
+    gibt es die Tests.
+    """
+
+    model_config = {"extra": "ignore"}
+
+    # Kopf: unter welchen Umständen die Sitzung lief.
+    kopf: dict[str, Any] | None = None
+    # Bilanz: die Summen über die ganze Sitzung.
+    bilanz: dict[str, Any] | None = None
+    ereignisse: Annotated[list[Ereignis], Field(default_factory=list, max_length=MAX_EVENTS)]
+    # Wieviele Ereignisse der Client wegen seines eigenen Deckels NICHT
+    # geschickt hat.
+    #
+    # **Das muss im Bericht stehen und darf nicht stillschweigend passieren.**
+    # Eine gekappte Liste liest sich später wie „danach war nichts mehr" —
+    # also wie eine beruhigte Verbindung, obwohl das Gegenteil der Fall war.
+    # Genau in dem Moment, in dem am meisten schiefging, wäre die Diagnose am
+    # irreführendsten.
+    ereignisse_verworfen: Annotated[int, Field(ge=0)] = 0
+    # Abschluss: warum die Sitzung endete.
+    abschluss: dict[str, Any] | None = None
+
+
 class ExperimentalLogCreate(BaseModel):
     reason: Annotated[str, Field(max_length=32)] = "stream_end"
     sidecar_version: Annotated[str | None, Field(default=None, max_length=64)] = None
     system_info: dict[str, Any] | None = None
-    log_text: Annotated[str, Field(min_length=1, max_length=MAX_LOG_CHARS)]
+    role: Annotated[str | None, Field(default=None, max_length=16)] = None
+    channel_id: Annotated[str | None, Field(default=None, max_length=64)] = None
+    report: Bericht | None = None
+    # Seit 2026-08-06 optional: ein Zuschauerbericht entsteht im Browser und
+    # hat keine `sidecar.log`. Dass wenigstens EINES von beidem da sein muss,
+    # prüft der Handler `submit_experimental_log` weiter unten — hier ginge es
+    # nicht, weil ein Feld-Validator immer nur sein eigenes Feld sieht und die
+    # Bedingung über beide Felder zusammen läuft.
+    log_text: Annotated[str | None, Field(default=None, min_length=1, max_length=MAX_LOG_CHARS)] = (
+        None
+    )
 
 
 @router.post("/experimental-logs", status_code=status.HTTP_201_CREATED)
@@ -65,9 +141,18 @@ async def submit_experimental_log(
     request: Request,
     session: SessionDep,
 ):
-    """Nimmt einen Diagnose-Log-Upload entgegen. Rate-limited: 30/Stunde pro IP.
-    Keine Auth nötig — nur die experimentelle Sidecar-Version sendet, opt-in."""
+    """Nimmt einen Diagnose-Bericht entgegen. Rate-limited: 30/Stunde pro IP.
+    Keine Auth nötig — es sendet nur, wer den Schalter nicht abgewählt hat."""
     await _check_rate(request, "experimental_log_submit", "30/hour")
+
+    # Ein Aufruf ohne jeden Inhalt kostet eine Zeile und trägt nichts bei. Der
+    # Fall entsteht nicht theoretisch: seit `log_text` optional ist, ist
+    # `{"reason": "stream_end"}` ein syntaktisch gültiger Aufruf.
+    if payload.report is None and not payload.log_text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="entweder report oder log_text muss gesetzt sein",
+        )
 
     fwd = request.headers.get("x-forwarded-for", "")
     client_ip = fwd.split(",")[0].strip() or (
@@ -79,6 +164,13 @@ async def submit_experimental_log(
         reason=payload.reason,
         sidecar_version=payload.sidecar_version,
         system_info=payload.system_info,
+        role=payload.role,
+        channel_id=payload.channel_id,
+        # `mode="json"` statt `model_dump()`: die Spalte ist JSON(B), und ein
+        # rohes dict aus Pydantic kann Werte enthalten, die der JSON-Serializer
+        # nicht kennt. Hier sind es heute nur Zahlen und Zeichenketten — aber
+        # das gilt nur, solange niemand ein Feld ergänzt.
+        report=payload.report.model_dump(mode="json") if payload.report else None,
         log_text=payload.log_text,
         client_ip=client_ip,
     )

@@ -61,6 +61,157 @@ async def test_leerer_text_wird_abgelehnt(client):
 
 
 @pytest.mark.asyncio
+async def test_aufruf_ganz_ohne_inhalt_wird_abgelehnt(client):
+    """Seit `log_text` optional ist, ist `{"reason": ...}` allein syntaktisch
+    gueltig — und traegt nichts bei. Eine Zeile ohne Inhalt ist genau das, was
+    die Aufbewahrungsgrenzen sonst mit echten Berichten verdraengt."""
+    r = await client.post("/experimental-logs", json={"reason": "stream_end"})
+    assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Der strukturierte Bericht (seit 2026-08-06)
+# --------------------------------------------------------------------------
+
+
+def _bericht(**ueberschreibungen) -> dict:
+    grund = {
+        "kopf": {"rolle": "viewer", "codec": "AV1", "aufloesung": "1920x1080", "fps": 60},
+        "bilanz": {"dauer_s": 42.0, "bilder_gesamt": 2500, "bilder_ausgelassen": 3},
+        "ereignisse": [{"s": 12.5, "art": "einfrieren", "anzahl": 4, "werte": {"dauer_ms": 480}}],
+        "abschluss": {"grund": "beendet"},
+    }
+    grund.update(ueberschreibungen)
+    return grund
+
+
+@pytest.mark.asyncio
+async def test_bericht_wird_angenommen_und_gespeichert(client, session_factory):
+    """Der Kern des neuen Wegs: ein Bericht OHNE `log_text` muss durchgehen und
+    vollstaendig in der Spalte landen."""
+    r = await client.post(
+        "/experimental-logs",
+        json={
+            "reason": "stream_end",
+            "role": "viewer",
+            "channel_id": "57540999622172672",
+            "report": _bericht(),
+        },
+    )
+    assert r.status_code == 201
+
+    async with session_factory() as s:
+        eintrag = (await s.execute(select(ExperimentalLog))).scalars().one()
+    assert eintrag.log_text is None, "ein Zuschauerbericht hat keine sidecar.log"
+    assert eintrag.role == "viewer"
+    assert eintrag.channel_id == "57540999622172672", "der Schluessel zur Serversicht muss suchbar sein"
+    assert eintrag.report is not None
+    assert eintrag.report["ereignisse"][0]["art"] == "einfrieren"
+    assert eintrag.report["ereignisse"][0]["anzahl"] == 4
+
+
+@pytest.mark.asyncio
+async def test_verworfene_ereignisse_werden_uebernommen(client, session_factory):
+    """Die Kappung MUSS im Bericht stehen. Eine still gekappte Liste liest sich
+    spaeter wie "danach war nichts mehr" — also wie eine beruhigte Verbindung,
+    genau im Moment des groessten Aergers."""
+    r = await client.post(
+        "/experimental-logs",
+        json={"role": "viewer", "report": _bericht(ereignisse_verworfen=137)},
+    )
+    assert r.status_code == 201
+
+    async with session_factory() as s:
+        eintrag = (await s.execute(select(ExperimentalLog))).scalars().one()
+    assert eintrag.report["ereignisse_verworfen"] == 137
+
+
+@pytest.mark.asyncio
+async def test_fehlender_zaehler_ist_null_nicht_unbekannt(client, session_factory):
+    """Gegenprobe zum Test darueber: ein Bericht OHNE das Feld muss als "nichts
+    verworfen" ankommen, nicht als fehlender Wert. Sonst waere in der Auswertung
+    nicht unterscheidbar, ob nichts gekappt wurde oder ob ein alter Client
+    nichts dazu sagt."""
+    r = await client.post("/experimental-logs", json={"role": "viewer", "report": _bericht()})
+    assert r.status_code == 201
+
+    async with session_factory() as s:
+        eintrag = (await s.execute(select(ExperimentalLog))).scalars().one()
+    assert eintrag.report["ereignisse_verworfen"] == 0
+
+
+@pytest.mark.asyncio
+async def test_zu_viele_ereignisse_werden_abgelehnt(client):
+    """Die zweite Verteidigungslinie. Der Client deckelt selbst, aber der
+    Endpoint ist offen und darf sich darauf nicht verlassen."""
+    zuviel = [{"s": float(i), "art": "einfrieren"} for i in range(rel.MAX_EVENTS + 1)]
+    r = await client.post(
+        "/experimental-logs",
+        json={"role": "viewer", "report": _bericht(ereignisse=zuviel)},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_deckel_wird_nicht_zu_frueh_ausgeloest(client):
+    """Gegenprobe: genau am Deckel muss es noch durchgehen. Ohne diesen Test
+    wuerde ein Off-by-one den ganzen Bericht verwerfen, und zwar lautlos —
+    422 sieht der Nutzer nie."""
+    grade_noch = [{"s": float(i), "art": "einfrieren"} for i in range(rel.MAX_EVENTS)]
+    r = await client.post(
+        "/experimental-logs",
+        json={"role": "viewer", "report": _bericht(ereignisse=grade_noch)},
+    )
+    assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_unbekannte_felder_verwerfen_den_bericht_nicht(client, session_factory):
+    """`extra="ignore"`. Bestandsclients erneuern sich nur ueber den
+    Auto-Updater — ein neuerer Client, der ein Feld mehr schickt, darf nicht mit
+    422 abgewiesen werden. Das Unbekannte fliegt raus, der Rest kommt an."""
+    r = await client.post(
+        "/experimental-logs",
+        json={
+            "role": "viewer",
+            "report": _bericht(
+                ereignisse=[{"s": 1.0, "art": "einfrieren", "was_ganz_neues": 5}],
+                noch_ein_neues_feld={"x": 1},
+            ),
+        },
+    )
+    assert r.status_code == 201
+
+    async with session_factory() as s:
+        eintrag = (await s.execute(select(ExperimentalLog))).scalars().one()
+    assert "noch_ein_neues_feld" not in eintrag.report
+    assert eintrag.report["ereignisse"][0]["art"] == "einfrieren"
+
+
+@pytest.mark.asyncio
+async def test_bericht_und_rohtext_gemeinsam(client, session_factory):
+    """Die Senderseite darf beides schicken: den Bericht als Hauptweg und den
+    Rohtext als Auffangnetz fuer das, was kein Schema vorhersieht."""
+    r = await client.post(
+        "/experimental-logs",
+        json={
+            "role": "sender",
+            "sidecar_version": "0.4.2",
+            "report": _bericht(),
+            "log_text": "ffmpeg: irgendwas Unerwartetes",
+        },
+    )
+    assert r.status_code == 201
+
+    async with session_factory() as s:
+        eintrag = (await s.execute(select(ExperimentalLog))).scalars().one()
+    assert eintrag.role == "sender"
+    assert eintrag.sidecar_version == "0.4.2", "das Feld war bis 2026-08-06 immer NULL"
+    assert eintrag.report is not None
+    assert eintrag.log_text is not None
+
+
+@pytest.mark.asyncio
 async def test_zu_langer_text_wird_abgelehnt(client):
     r = await client.post(
         "/experimental-logs",
