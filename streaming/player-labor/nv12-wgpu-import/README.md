@@ -4,8 +4,10 @@ Beantwortet **eine** Frage, nachprüfbar: kommt der Inhalt einer geteilten
 D3D11-Textur unverändert in einem wgpu-Renderdurchgang an — **auf dem Backend
 und in der wgpu-Fassung, die der `pulse-player` wirklich fährt**?
 
-Davon hängt Zero-Copy im Player ab. Heute nimmt jedes Bild den Weg
-GPU → Hauptspeicher → GPU zurück; was das kostet, steht in
+Davon hängt Zero-Copy im Player ab. **Hier stand „Heute nimmt jedes Bild den Weg
+GPU → Hauptspeicher → GPU zurück" — das ist seit dem 2026-08-06 überholt:** der
+Weg ist im Player gebaut und unter Windows die Vorgabe (`PULSE_PLAYER_ZEROCOPY=0`
+schaltet ihn aus). Was er bringt und kostet, steht in
 `streaming/testbench/profiles/player-2026-08-06-*.json`.
 
 ## Fassung und Backend — der wichtigste Absatz

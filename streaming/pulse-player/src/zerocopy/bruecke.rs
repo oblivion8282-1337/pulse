@@ -71,6 +71,9 @@ pub struct Bruecke {
     /// Masse und Format, fuer die der Ring angelegt wurde. Aendert sich etwas
     /// davon, wird der Ring verworfen und neu gebaut.
     bauart: (u32, u32, i32),
+    /// Der Rueckweg fuer den Fingerabdruck. Jedes [`GpuBild`] bekommt einen
+    /// Klon mit, damit der Renderer ihn findet (s. `GpuBild::briefkasten`).
+    briefkasten: Arc<crate::einfrieren::Briefkasten>,
 }
 
 // SAFETY: alle Felder sind entweder COM-Schnittstellen (in windows-rs
@@ -102,7 +105,10 @@ impl Bruecke {
     /// traegt seinen `hw_frames_ctx` mit, und darin steht dasselbe Geraet — der
     /// Weg ueber `AVCodecContext.hw_device_ctx` braeuchte zusaetzlich Zugriff
     /// auf den rohen Kontext des laufenden Decoders.
-    pub fn neu(frame: &ffmpeg::util::frame::video::Video) -> Result<Self> {
+    pub fn neu(
+        frame: &ffmpeg::util::frame::video::Video,
+        briefkasten: Arc<crate::einfrieren::Briefkasten>,
+    ) -> Result<Self> {
         let hwctx = geraetekontext(frame)?;
         // SAFETY: `hwctx` zeigt auf einen von FFmpeg angelegten, lebenden
         // Geraetekontext; das Bild haelt eine Referenz darauf.
@@ -157,6 +163,7 @@ impl Bruecke {
             ring: Vec::new(),
             frei: Freigabe::leer(),
             bauart: (0, 0, 0),
+            briefkasten,
         };
         bruecke.ring_bauen(breite, hoehe, format)?;
         Ok(bruecke)
@@ -246,6 +253,7 @@ impl Bruecke {
             zehn_bit: format == DXGI_FORMAT_P010.0,
             slot,
             frei: self.frei.clone(),
+            briefkasten: self.briefkasten.clone(),
         })))
     }
 

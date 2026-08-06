@@ -257,6 +257,32 @@
 //! zweiten, schlechter begruendeten Zahl daneben. Zwei weitere Gruende
 //! (Sitzungsbeginn ohne Beobachtung, Umstellung mitten im Strom) stehen in der
 //! Messakte unter `verworfen`.
+//!
+//! ---
+//!
+//! ## Wenn das Bild den Hauptspeicher nie sieht (seit 2026-08-06)
+//!
+//! Auf dem Zero-Copy-Weg gibt es keine Ebenen zu lesen. Der Abdruck entsteht
+//! dann **auf der GPU** und kommt ein bis zwei Bilder spaeter zurueck
+//! ([`bild_von_der_gpu`](EinfrierWacht::bild_von_der_gpu), gerechnet in
+//! `render::abdruck`, beschrieben in [`gpuabdruck`]). Fuer alles unterhalb
+//! dieser Zeile aendert sich nichts: der Waechter vergleicht Abdruecke nur mit
+//! sich selbst.
+//!
+//! Zwei Dinge sind auf diesem Weg anders und stehen deshalb hier:
+//!
+//! * **Gezaehlt werden GEZEICHNETE Bilder, nicht dekodierte.** Das Fenster
+//!   haelt immer nur das neuste Bild (`app::Session::pending`); wird unter Last
+//!   ueberschrieben, faellt der Abdruck dieses Bildes weg. Der Zaehler
+//!   [`EINFRIER_BILDER`] laeuft dadurch langsamer voll — die Erkennung wird
+//!   traeger, nie empfindlicher. Bindend bleibt ohnehin meist
+//!   [`EINFRIER_DAUER`], und die haengt an der Uhr, nicht an der Zahl der
+//!   Bilder.
+//! * **Bilder, die auf diesem Weg NICHT durchkommen, zaehlen gar nicht.** Ist
+//!   kein Ringplatz frei, nimmt ein einzelnes Bild den Weg ueber den
+//!   Hauptspeicher; sein CPU-Abdruck ist mit den GPU-Abdruecken nicht
+//!   vergleichbar und gaelte faelschlich als „veraendert". Der Decoder laesst
+//!   ihn deshalb aus, solange der GPU-Weg steht (`decode::VideoDecoder::drain`).
 
 /// Ab wie vielen unveraenderten Bildern in Folge der Decoder als eingefroren
 /// gilt. 90 sind bei 60 Bildern je Sekunde anderthalb Sekunden — lang genug,
@@ -367,6 +393,12 @@ mod messung;
 mod abdruck;
 use abdruck::bild_abdruck;
 
+/// Derselbe Nachweis, wenn das Bild im Grafikspeicher liegenbleibt.
+mod gpuabdruck;
+pub use gpuabdruck::{Briefkasten, Zulauf};
+#[cfg(test)]
+pub use gpuabdruck::luma_abdruck;
+
 /// Zustand der Einfrier-Erkennung. Bewusst ohne jeden FFmpeg-Bezug, damit die
 /// Entscheidung ohne Decoder pruefbar ist.
 #[derive(Default)]
@@ -404,6 +436,23 @@ impl EinfrierWacht {
         self.bild_zur_zeit(planes, std::time::Instant::now());
     }
 
+    /// Ein Bild mitzaehlen, dessen Abdruck **auf der GPU** entstanden ist.
+    ///
+    /// Der Weg, auf dem das Bild den Hauptspeicher gar nicht erst sieht
+    /// (`crate::zerocopy`). Von hier an ist alles gleich — der Waechter
+    /// vergleicht den Abdruck ohnehin nur mit sich selbst, und WIE er entstand,
+    /// geht ihn nichts an (s. [`gpuabdruck`]).
+    ///
+    /// **Der Versatz von ein bis zwei Bildern ist Absicht und folgenlos.** Das
+    /// Ergebnis wird auf der GPU angefordert und ein paar Bilder spaeter
+    /// abgeholt, statt darauf zu warten; ein blockierendes Ruecklesen je Bild
+    /// waere genau die Rundreise, die der Zero-Copy-Weg gerade beseitigt. Der
+    /// Waechter zaehlt ueber Sekunden und braucht die Antwort nicht im selben
+    /// Bild — nur die REIHENFOLGE muss stimmen, und dafuer sorgt der Renderer.
+    pub fn bild_von_der_gpu(&mut self, abdruck: u64) {
+        self.abdruck_zur_zeit(abdruck, std::time::Instant::now());
+    }
+
     /// Wie [`EinfrierWacht::bild`], mit gesetzter Uhr.
     ///
     /// Die Uhr ist herausgezogen, weil [`EINFRIER_DAUER`] sonst nicht pruefbar
@@ -411,7 +460,11 @@ impl EinfrierWacht {
     /// bliebe dabei praktisch stehen und JEDE Meldung fiele aus — der Test
     /// waere gruen, ohne irgendetwas gezeigt zu haben.
     fn bild_zur_zeit(&mut self, planes: &[Vec<u8>], jetzt: std::time::Instant) {
-        let abdruck = bild_abdruck(planes);
+        self.abdruck_zur_zeit(bild_abdruck(planes), jetzt);
+    }
+
+    /// Der gemeinsame Rumpf beider Wege: hier zaehlt nur noch der Abdruck.
+    fn abdruck_zur_zeit(&mut self, abdruck: u64, jetzt: std::time::Instant) {
         let veraendert = self.letzter_abdruck != Some(abdruck);
         if veraendert {
             self.letzter_abdruck = Some(abdruck);

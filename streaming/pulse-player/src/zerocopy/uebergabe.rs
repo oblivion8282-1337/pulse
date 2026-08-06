@@ -30,21 +30,28 @@ use super::{Bruecke, GpuBild};
 pub fn bild_ohne_umweg(
     bruecke: &mut Option<Option<Bruecke>>,
     frame: &ffmpeg::util::frame::video::Video,
+    briefkasten: &std::sync::Arc<crate::einfrieren::Briefkasten>,
 ) -> (Option<DecodedFrame>, u64) {
     let uhr = std::time::Instant::now();
-    let bild = versuchen(bruecke, frame);
+    let bild = versuchen(bruecke, frame, briefkasten);
     (bild, uhr.elapsed().as_micros() as u64)
 }
 
 fn versuchen(
     bruecke: &mut Option<Option<Bruecke>>,
     frame: &ffmpeg::util::frame::video::Video,
+    briefkasten: &std::sync::Arc<crate::einfrieren::Briefkasten>,
 ) -> Option<DecodedFrame> {
-    let eintrag = bruecke.get_or_insert_with(|| match Bruecke::neu(frame) {
+    let eintrag = bruecke.get_or_insert_with(|| match Bruecke::neu(frame, briefkasten.clone()) {
         Ok(b) => {
+            // **Hier stand bis zum 2026-08-06 „Einfrier-Waechter und
+            // Latenz-Sonde arbeiten auf diesem Weg NICHT."** Fuer den Waechter
+            // ist das seither falsch — sein Fingerabdruck wird auf der GPU
+            // gerechnet (`render::abdruck`). Fuer die Sonde gilt es weiter, und
+            // sie sagt es beim ersten Bild selbst (`crate::probe`).
             eprintln!(
                 "pulse-player: Zero-Copy an — das Bild bleibt im Grafikspeicher. \
-                 Einfrier-Waechter und Latenz-Sonde arbeiten auf diesem Weg NICHT."
+                 Der Einfrier-Waechter arbeitet ueber den Fingerabdruck auf der GPU."
             );
             Some(b)
         }

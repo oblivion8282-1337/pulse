@@ -4,6 +4,13 @@
   "frage": "Was bringt der Zero-Copy-Weg im laufenden pulse-player, und was kostet er? Gebaut nach den Befunden aus player-2026-08-06-zerocopy-d3d12-amd.",
   "stand": "Gebaut und laeuft. Hochladen 1,0-1,3 -> 0,1-0,2 ms, Dekodieren 4,3-4,8 -> 2,2-3,7 ms je Bild. NICHT die Vorgabe, und zwei Befunde daneben sind wichtiger als die Zahlen.",
 
+  "NACHTRAG_2026_08_06_NACHTS": {
+    "was_hier_ueberholt_ist": "Alles, was unten unter 'der_preis_und_warum_zero_copy_nicht_die_vorgabe_ist' steht. Der Einfrier-Waechter arbeitet seither auch auf diesem Weg (Fingerabdruck auf der GPU), und Zero-Copy IST die Vorgabe — PULSE_PLAYER_ZEROCOPY=0 schaltet ihn aus. Auch der dort als 'ungebaut' bezeichnete Schritt ('den Fingerabdruck auf die GPU holen') ist gebaut.",
+    "was_hier_gilt": "Die Zahlen, die beiden Befunde zur Stockung und die Beschreibung der Bruecke. Nur der Posten 'hochladen' hat sich veraendert: 0,0-0,1 -> 0,3-0,4 ms, weil der Fingerabdruck dort mitlaeuft.",
+    "was_weiterhin_ausfaellt": "Die Latenz-Sonde. Sie sagt es jetzt aber einmal und deutlich, statt stumm nichts zu liefern.",
+    "wo": "player-2026-08-06-einfrier-waechter-auf-der-gpu.json"
+  },
+
   "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, Windows 11 26200, HDR-Schirm. Sender = win-hq-sidecar (av1_amf, 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps) ueber den Hetzner-Messstand, Zuschauer = pulse-player ueber WHEP auf derselben Maschine. Werkzeug: streaming/win-hq-labor/testbench/hdr-ansehen.ps1, neu mit -Zerocopy. Je Arm mehrere Laeufe zu 45-60 s; abgelesen werden die letzten Statistikzeilen (die ersten fallen in den Verbindungsaufbau).",
 
   "was_gebaut_wurde": {

@@ -46,6 +46,15 @@ pub struct GpuBild {
     pub(super) zehn_bit: bool,
     pub(super) slot: usize,
     pub(super) frei: Arc<Freigabe>,
+    /// Der Rueckweg fuer den Fingerabdruck, den der Renderer auf der GPU
+    /// rechnet (s. `crate::einfrieren::Briefkasten`).
+    ///
+    /// **Er faehrt im BILD mit, statt in einem eigenen Kanal.** Damit findet
+    /// der Renderer immer den Briefkasten des Decoders, aus dem dieses Bild
+    /// stammt — auch wenn mehrere Sitzungen gleichzeitig laufen. Ein Kanal
+    /// muesste durch `session.rs` und `app` hindurchgereicht werden, ein
+    /// globaler wuerde die Sitzungen vermischen.
+    pub(super) briefkasten: Arc<crate::einfrieren::Briefkasten>,
 }
 
 impl GpuBild {
@@ -68,6 +77,10 @@ impl GpuBild {
     /// seinen Import zwischenspeichert.
     pub fn handle(&self) -> isize {
         self.handle
+    }
+    /// Wohin der gerechnete Fingerabdruck gehoert (s. [`GpuBild::briefkasten`]).
+    pub fn briefkasten(&self) -> &Arc<crate::einfrieren::Briefkasten> {
+        &self.briefkasten
     }
 }
 

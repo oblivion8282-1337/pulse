@@ -170,10 +170,11 @@ Ehrlich benannt, damit niemand danach sucht:
   (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
   auseinanderlaeuft, ist ungemessen.
 - **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
-- **Zero-copy gibt es, aber nur auf Anforderung** (`PULSE_PLAYER_ZEROCOPY=1`,
-  Windows). **Hier stand bis zum 2026-08-06 abends „Kein zero-copy"; das ist
-  ueberholt** — die Einzelheiten stehen weiter unten unter „Zero-Copy". Ohne den
-  Schalter gilt der ganze folgende Absatz unveraendert: jedes Bild nimmt den
+- **Zero-copy ist unter Windows die Vorgabe** (`PULSE_PLAYER_ZEROCOPY=0`
+  schaltet ihn aus). **Hier stand bis zum 2026-08-06 abends „Kein zero-copy",
+  danach „nur auf Anforderung (`PULSE_PLAYER_ZEROCOPY=1`)"; beides ist
+  ueberholt** — die Einzelheiten stehen weiter unten unter „Zero-Copy". Mit
+  `=0` gilt der ganze folgende Absatz unveraendert: jedes Bild nimmt den
   Weg GPU -> Hauptspeicher -> GPU zurueck (`decode.rs::in_den_hauptspeicher`,
   dann `render/mod.rs::upload`). Die reinen Kosten stehen in
   `streaming/testbench/profiles/player-2026-08-06-bildweg-kosten.json`: 1,5 ms
@@ -212,28 +213,64 @@ Ehrlich benannt, damit niemand danach sucht:
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
-## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows, auf Anforderung)
+## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows, Vorgabe)
 
-`PULSE_PLAYER_ZEROCOPY=1` schaltet ihn ein. Gemessen an der laufenden Kette
-(Radeon 780M, 1080p60 in 10 bit, HDR):
+**Seit dem 2026-08-06 (nachts) die Vorgabe**; `PULSE_PLAYER_ZEROCOPY=0` schaltet
+ihn aus. **Hier stand bis dahin „auf Anforderung, `PULSE_PLAYER_ZEROCOPY=1`" —
+der Schalter zeigt jetzt in die andere Richtung**, und der Grund fuer die
+Sonderstellung ist weggefallen (s. „Wer noch mitliest").
 
-| Posten je Bild | ohne | mit |
+Gemessen an der laufenden Kette (Radeon 780M, 1080p60 in 10 bit, HDR, je zwei
+Runden zu 75 s, Vorgabe gegen `=0` auf demselben Material):
+
+| Posten je Bild | Ruecklesen (`=0`) | Zero-Copy (Vorgabe) |
 |---|---|---|
-| hochladen | 1,0-1,3 ms | **0,0-0,1 ms** |
-| dekodieren (Mittel) | 4,3-4,8 ms | **2,2-3,7 ms** |
-| dekodieren (Spitze) | 7,1-7,7 ms | 3,5-6,8 ms |
+| hochladen | 1,1-1,4 ms | **0,3-0,4 ms** |
+| dekodieren (Mittel) | 4,2-6,0 ms | **2,6-2,8 ms** |
+| dekodieren (Spitze) | 7,8-11,2 ms | 3,9-4,4 ms |
 
-Volle Messakte:
-`streaming/testbench/profiles/player-2026-08-06-zerocopy-im-player.json`.
+Messakten:
+`streaming/testbench/profiles/player-2026-08-06-zerocopy-im-player.json` (der
+Weg selbst) und `player-2026-08-06-einfrier-waechter-auf-der-gpu.json` (der
+Fingerabdruck und die Umstellung der Vorgabe).
 
-**Warum es nicht die Vorgabe ist.** Auf diesem Weg gibt es die Bild-Ebenen im
-Hauptspeicher nicht mehr — und damit arbeiten **der Einfrier-Waechter und die
-Latenz-Sonde nicht** (der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` sehr wohl: er
-sitzt vor dem Decoder). Der Waechter bildet seinen Fingerabdruck ueber
-jedes Byte des Bildes (dass eine Stichprobe nicht genuegt, ist am 2026-08-05
-teuer gelernt worden), ein stehender Decoder bliebe also unbemerkt. Ein bis zwei
-Millisekunden je Bild wiegen das nicht auf. Zur Vorgabe wird der Weg erst, wenn
-der Fingerabdruck auf der GPU entsteht.
+**Der Fingerabdruck kostet rund 0,3 ms davon.** Vor ihm stand hier 0,0-0,1 ms
+Hochladen; der Rechendurchgang samt eigener Abgabe an die Warteschlange und dem
+Nachfragen nach fertigen Ergebnissen laeuft in genau diesem Posten. Gegen 1,1-1,4
+ms Ruecklesen bleibt der Gewinn.
+
+### Wer auf diesem Weg noch mitliest — und wer nicht
+
+| Wache | Ruecklesen | Zero-Copy | woran sie haengt |
+|---|---|---|---|
+| `stockung.rs` — haengende Grafikeinheit | ja | **ja** | reine ZEIT (300 ms je Durchgang), liest keine Bildpunkte |
+| `einfrieren.rs` — Decoder liefert immer dasselbe Bild | ja | **ja, seit 2026-08-06 nachts** | Fingerabdruck: ueber alle Ebenen im Hauptspeicher bzw. ueber die Luma-Ebene auf der GPU |
+| `probe.rs` — Latenz-Sonde | ja | **nein, sagt es aber** | gemaltes Muster in der Luma-Ebene im Hauptspeicher |
+| `PULSE_PLAYER_DUMP_RTP` — RTP-Mitschnitt | ja | ja | sitzt VOR dem Decoder, war nie betroffen |
+
+Die erste Zeile ist die wichtigere: **der Fall, der die Sitzung wirklich
+zerreisst (die Grafikeinheit haengt), wird von `stockung.rs` erfasst, und der
+arbeitet auf beiden Wegen unveraendert.** Der Einfrier-Waechter deckt den
+selteneren Fall ab — der Decoder rechnet nicht mehr, liefert aber weiter Bilder.
+
+**Wie der Abdruck auf die GPU kommt** (`render/abdruck.rs` + `abdruck.wgsl`,
+Rechenvorschrift und CPU-Zwilling in `einfrieren/gpuabdruck.rs`): ein
+Rechendurchgang ueber die Luma-Ebene der eingehaengten Textur summiert je
+Bildpunkt einen gemischten Wert, in den die POSITION eingeht (`mische(mische(
+index) ^ wert)`, Murmur3 `fmix32` — eine Bijektion). Damit aendert ein einzelner
+veraenderter Bildpunkt den Abdruck garantiert; eine Summe der Helligkeiten waere
+der Fehler vom 2026-08-05 in neuer Gestalt. Zwei solche Summen ergeben die 64
+bit.
+
+**Abgeholt wird asynchron**: je Bild wird das Ergebnis angefordert und in einen
+von drei Puffern kopiert, eingesammelt wird, was aus frueheren Bildern fertig
+dasteht. Ein blockierendes Ruecklesen je Bild waere genau die Rundreise, die
+dieser Weg beseitigt. Der Waechter zaehlt ueber Sekunden — ein Versatz von ein
+bis zwei Bildern ist ihm gleichgueltig, solange die Reihenfolge stimmt.
+
+**Bleiben die Abdruecke aus, gibt der Decoder den Weg auf** (60 Bilder und 5
+Sekunden ohne Antwort, `einfrieren::Zulauf`). Ohne das waere der schnelle Weg
+still ungesichert, wenn der Renderer die Rechnung nicht ausfuehren kann.
 
 **Wie er arbeitet, und warum nicht einfacher.** Naheliegend waere, FFmpegs
 Decoder-Textur selbst zu teilen. Das geht aus zwei unabhaengigen Gruenden nicht:
@@ -295,13 +332,17 @@ src/
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
 ├── decode.rs      FFmpeg, Hardware zuerst
 ├── einfrieren.rs  erkennt den haengenden Decoder und staffelt die Abhilfe
+│   ├── abdruck.rs    Fingerabdruck ueber die Ebenen im Hauptspeicher
+│   ├── gpuabdruck.rs derselbe Nachweis fuer Bilder, die im Grafikspeicher
+│   │                 bleiben: Rechenvorschrift, CPU-Zwilling, Rueckweg
+│   └── messung.rs    Schalter des Pruefstands (im Betrieb aus)
 ├── stockung.rs    erkennt die haengende GRAFIKEINHEIT (das ist etwas anderes:
 │                  der Decoder liefert, nur Sekunden zu spaet) und gibt den
 │                  Hardware-Weg auf, bevor die Sitzung daran zerbricht
 ├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
 ├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
 ├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit
-├── zerocopy/      das Bild im Grafikspeicher lassen (Windows, auf Anforderung)
+├── zerocopy/      das Bild im Grafikspeicher lassen (Windows, Vorgabe)
 │   ├── bruecke.rs   Ring geteilter D3D11-Texturen samt Zaun
 │   ├── platz.rs     ein Ringplatz und wer ihn haelt (Lebensdauer-Regel)
 │   ├── ffmpeg_geraet.rs  was FFmpeg an einem D3D11-Bild mitgibt
@@ -310,6 +351,8 @@ src/
 │   ├── mod.rs     Zeichnen, Bindegruppe, Ausgabe
 │   ├── bildquelle.rs  woraus der Shader liest: eigene Ebenen oder Fremdtextur
 │   ├── fremdbild.rs   geteilte Textur nach wgpu-dx12 einhaengen (Zero-Copy)
+│   ├── abdruck.rs   Fingerabdruck auf der GPU rechnen und asynchron abholen
+│   ├── abdruck.wgsl der Rechendurchgang ueber die Luma-Ebene
 │   ├── setup.rs   Geraet, Pipeline, Wahl des Oberflaechenformats
 │   ├── uniforms.rs  Uniform-Block als Bytes
 │   └── shader.wgsl  YUV->RGB, Deband, Dither, Zoom
@@ -413,11 +456,18 @@ Drittanbieter-Seite im Web.
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung
    steht, und sie entscheidet, ob der Player auch fuer die Fernsteuerung
    der richtige Weg ist.
-4. **Zero-Copy zur Vorgabe machen.** Der Weg ist seit dem 2026-08-06 gebaut
-   (s. „Zero-Copy" oben) und spart 1-2 ms je Bild; was ihn noch als Schalter
-   festhaelt, ist der Einfrier-Waechter — er braucht die Ebenen im
-   Hauptspeicher. Der Schritt dorthin ist, seinen Fingerabdruck auf der GPU zu
-   bilden (Rechen-Durchgang ueber die Luma-Ebene, 8 Byte zurueck).
+4. **Erledigt am 2026-08-06 nachts: Zero-Copy ist die Vorgabe.** Hier stand
+   „was ihn noch als Schalter festhaelt, ist der Einfrier-Waechter — er braucht
+   die Ebenen im Hauptspeicher. Der Schritt dorthin ist, seinen Fingerabdruck
+   auf der GPU zu bilden (Rechen-Durchgang ueber die Luma-Ebene, 8 Byte
+   zurueck)." Genau das ist gebaut (s. „Zero-Copy" oben), und der Schalter zeigt
+   jetzt andersherum.
+
+   Offen bleibt daran zweierlei: der Fingerabdruck kostet rund 0,3 ms je Bild im
+   Posten „hochladen", weil er eine eigene Abgabe an die Warteschlange braucht —
+   in den Zeichendurchgang gefaltet waere er billiger. Und die **Latenz-Sonde**
+   misst auf diesem Weg weiterhin nicht; sie sagt es jetzt, ersetzt ist sie
+   damit nicht.
 
    **Hier stand, Zero-Copy sei die Abhilfe gegen die Stockung. Das ist
    widerlegt:** ohne Ruecklesen bleiben die Stockungen in derselben Groesse

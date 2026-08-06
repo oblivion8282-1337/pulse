@@ -49,25 +49,37 @@
 //! der Zeitpunkt, eine gemeinsame Crate anzulegen** — jene Aenderung muss
 //! ohnehin in beide Dateien.
 //!
-//! ## Was der Weg kostet, und warum er nicht die Vorgabe ist
+//! ## Wer auf diesem Weg noch mitliest — und wer nicht mehr
 //!
-//! **Der Einfrier-Waechter kann auf diesem Weg nicht arbeiten.** Er bildet den
-//! Fingerabdruck ueber JEDES Byte des Bildes (`einfrieren::abdruck`, und dass
-//! eine Stichprobe nicht genuegt, ist am 2026-08-05 teuer gelernt worden) — das
-//! setzt die Ebenen im Hauptspeicher voraus, die es hier gerade nicht mehr
-//! gibt. Dasselbe gilt fuer die Latenz-Sonde (`probe`).
+//! **Hier stand bis zum 2026-08-06 „Der Einfrier-Waechter kann auf diesem Weg
+//! nicht arbeiten" und, daraus gefolgert, „deshalb ist Zero-Copy ausdruecklich
+//! anzufordern (`PULSE_PLAYER_ZEROCOPY=1`) und nicht die Vorgabe". Beides ist
+//! ueberholt.** Der Waechter bildet seinen Fingerabdruck seither auf der GPU
+//! (`render::abdruck`, Rechenvorschrift in `einfrieren::gpuabdruck`): ein
+//! Durchgang ueber die Luma-Ebene der eingehaengten Textur, angefordert je Bild
+//! und ein bis zwei Bilder spaeter abgeholt, ohne auf die GPU zu warten. Der
+//! Grund fuer die Sonderstellung des Weges ist damit weg, und
+//! [`angefordert`] ist umgedreht: **Zero-Copy ist die Vorgabe,
+//! `PULSE_PLAYER_ZEROCOPY=0` schaltet ihn AUS.**
+//!
+//! Was weiterhin gilt:
+//!
+//! * **Die Latenz-Sonde (`probe`) misst auf diesem Weg nicht.** Sie liest ein
+//!   gemaltes Muster aus der Luma-Ebene im Hauptspeicher. Sie ist ein
+//!   Messwerkzeug und kein Betriebsteil, darf also ausfallen — aber sie SAGT es
+//!   jetzt, einmal und deutlich, statt stumm nichts zu liefern. Wer sie
+//!   braucht, setzt `PULSE_PLAYER_ZEROCOPY=0`.
+//! * **Bleibt der Abdruck aus, gibt der Decoder den Weg auf.** Rechnet der
+//!   Renderer nicht (Bindung abgelehnt, Fenster zeichnet nicht mehr), saehe der
+//!   Waechter sonst gar kein Bild — dieselbe Luecke, nur leiser. Der Zulauf
+//!   (`einfrieren::Zulauf`) zaehlt unbeantwortete Bilder mit und loest
+//!   [`abschalten`] aus.
 //!
 //! **Hier stand zusaetzlich „und `--dump`". Das ist falsch**, und es stand am
 //! 2026-08-06 gleich an drei Stellen so: einen Schalter `--dump` gibt es nicht,
 //! der Mitschnitt haengt an `PULSE_PLAYER_DUMP_RTP` und schreibt **RTP-Pakete**
 //! (`session.rs`, `dump.rs`) — er beruehrt `DecodedFrame` ueberhaupt nicht und
 //! laeuft auf diesem Weg unveraendert weiter.
-//!
-//! Ein stehender Decoder bliebe damit unbemerkt. Deshalb ist Zero-Copy
-//! **ausdruecklich anzufordern** (`PULSE_PLAYER_ZEROCOPY=1`) und nicht die
-//! Vorgabe: eine Zeitersparnis von wenigen Millisekunden wiegt einen
-//! ausgefallenen Waechter nicht auf. Wer den Weg fuer die Vorgabe halten will,
-//! muss den Abdruck vorher auf die GPU holen.
 
 #[cfg(windows)]
 mod bruecke;
@@ -97,24 +109,32 @@ pub use uebergabe::bild_ohne_umweg;
 ///
 /// `AtomicBool` und nicht `bool`, weil der Renderer ihn LOESCHEN koennen muss
 /// (s. [`abschalten`]).
+///
+/// **Die Abfrage ist am 2026-08-06 umgedreht worden** — vorher `Ok("1")` schaltet
+/// EIN, jetzt `Ok("0")` schaltet AUS. Begruendung im Modulkopf: der einzige
+/// Grund fuer die Sonderstellung war der ausgefallene Einfrier-Waechter, und
+/// den gibt es nicht mehr.
 fn schalter() -> &'static std::sync::atomic::AtomicBool {
     static AN: std::sync::OnceLock<std::sync::atomic::AtomicBool> = std::sync::OnceLock::new();
     AN.get_or_init(|| {
-        let an = matches!(
+        let aus = matches!(
             std::env::var("PULSE_PLAYER_ZEROCOPY").as_deref().map(str::trim),
-            Ok("1")
+            Ok("0")
         );
-        std::sync::atomic::AtomicBool::new(an)
+        std::sync::atomic::AtomicBool::new(!aus)
     })
 }
 
-/// Ist der Weg angefordert — und noch nicht aufgegeben?
+/// Laeuft der Weg — Vorgabe ja, und noch nicht aufgegeben?
 ///
-/// Vorgabe aus, Begruendung im Modulkopf. Bewusst eine Umgebungsvariable und
-/// kein Sitzungsschalter: der Weg ist ein Messinstrument, solange der
-/// Einfrier-Waechter darauf nicht arbeitet, und Messinstrumente stehen in
-/// diesem Player durchgehend in der Umgebung (`PULSE_PLAYER_SURFACE`,
+/// Bewusst eine Umgebungsvariable und kein Sitzungsschalter: was hier
+/// abzuschalten waere, schaltet man zum Messen ab (Latenz-Sonde, Vergleich
+/// gegen das Ruecklesen), und solche Schalter stehen in diesem Player
+/// durchgehend in der Umgebung (`PULSE_PLAYER_SURFACE`,
 /// `PULSE_PLAYER_BACKEND`, `PULSE_PLAYER_PRESENT_MODE`).
+///
+/// Der Name ist geblieben, obwohl er jetzt weniger passt: er steht an einem
+/// Dutzend Stellen, und „laeuft" haette denselben Inhalt.
 pub fn angefordert() -> bool {
     schalter().load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -126,8 +146,14 @@ pub fn angefordert() -> bool {
 /// Fremdtextur nicht einhaengen (anderer Adapter unter FFmpeg als unter wgpu,
 /// anderes Backend, fehlendes Merkmal), dann liefert der Decoder weiter
 /// GPU-Bilder, die der Renderer allesamt auslaesst: ein schwarzes Fenster bei
-/// 0 Bildern je Sekunde — und weil auf diesem Weg auch der Einfrier-Waechter
-/// nicht arbeitet, meldet es nichts und niemand.
+/// 0 Bildern je Sekunde.
+///
+/// **Hier stand bis zum 2026-08-06 „und weil auf diesem Weg auch der
+/// Einfrier-Waechter nicht arbeitet, meldet es nichts und niemand". Das ist
+/// falsch, seit der Abdruck auf der GPU entsteht** — bliebe er aus, gaebe der
+/// Decoder den Weg von sich aus auf (`einfrieren::Zulauf`). Dieser Rueckkanal
+/// bleibt trotzdem der bessere: er greift beim ERSTEN Bild und nennt die
+/// Ursache, wo der Zulauf fuenf Sekunden braucht und nur die Wirkung sieht.
 ///
 /// Die Gruende sind alle bleibend, deshalb wird nicht erneut versucht. Die
 /// Meldung kommt genau einmal.

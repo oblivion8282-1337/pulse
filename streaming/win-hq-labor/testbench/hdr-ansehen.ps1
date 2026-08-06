@@ -21,14 +21,21 @@ param(
   [int]$Sekunden = 90,
   [switch]$Ohne,
   [switch]$Voll,
-  [switch]$Zerocopy,
+  [switch]$Ruecklesen,
+  [switch]$Takt,
   [int]$Bitrate = 12000,
   [int]$Fps = 60,
   [string]$Aufloesung = '1080p'
 )
 
-# -Zerocopy: das dekodierte Bild bleibt im Grafikspeicher, statt ueber den
-# Hauptspeicher zu laufen (PULSE_PLAYER_ZEROCOPY=1, s. src/zerocopy).
+# -Ruecklesen: das dekodierte Bild wieder ueber den Hauptspeicher schicken
+# (PULSE_PLAYER_ZEROCOPY=0, s. src/zerocopy).
+#
+# HIER STAND BIS ZUM 2026-08-06 EIN SCHALTER "-Zerocopy", der den Weg am
+# Hauptspeicher vorbei EINschaltete. Das ist ueberholt: seit der Fingerabdruck
+# des Einfrier-Waechters auf der GPU entsteht, ist Zero-Copy die Vorgabe, und
+# der Schalter zeigt in die andere Richtung. Wer den alten Aufruf benutzt,
+# bekommt einen Parameterfehler statt eines stillschweigend falschen Arms.
 #
 # Der Schalter gehoert hierher, weil der Unterschied nur an einer LAUFENDEN
 # Strecke zu messen ist: die Posten "hochladen" und "dekodieren" in der
@@ -36,8 +43,15 @@ param(
 # ohne, auf demselben Material -- alles andere waere ein Vergleich zweier
 # verschiedener Szenen.
 #
-# ACHTUNG bei der Deutung: auf diesem Weg arbeitet der Einfrier-Waechter NICHT
-# (er braucht die Ebenen im Hauptspeicher). Ein Standbild faellt also nicht auf.
+# ACHTUNG bei der Deutung: die LATENZ-SONDE misst auf dem Zero-Copy-Weg nicht
+# (sie liest ein gemaltes Muster aus dem Hauptspeicher und sagt beim ersten Bild
+# selbst, dass sie aus ist). Fuer eine Latenzmessung also -Ruecklesen setzen.
+
+# -Takt: die Abstaende zwischen zwei VERAENDERTEN Bildern melden
+# (PULSE_PLAYER_TAKT_LOG=1). Das ist der Nachweis, dass der Einfrier-Waechter
+# ueberhaupt Bilder sieht -- auf dem Zero-Copy-Weg kommt sein Fingerabdruck von
+# der GPU zurueck, und ohne diese Zeilen liesse sich nicht unterscheiden, ob er
+# "keine Aenderung" meldet oder gar nichts bekommt.
 
 # -Voll: die VOLLSTAENDIGE Fehlerausgabe beider Programme in Dateien neben
 # diesem Skript, und der Rueckgabewert des Players dazu.
@@ -106,7 +120,8 @@ $pp.UseShellExecute = $false
 $pp.RedirectStandardInput = $true; $pp.RedirectStandardOutput = $true
 $pp.RedirectStandardError = $true
 $pp.EnvironmentVariables['PATH'] = "$ffbin;$env:PATH"
-if ($Zerocopy) { $pp.EnvironmentVariables['PULSE_PLAYER_ZEROCOPY'] = '1' }
+if ($Ruecklesen) { $pp.EnvironmentVariables['PULSE_PLAYER_ZEROCOPY'] = '0' }
+if ($Takt) { $pp.EnvironmentVariables['PULSE_PLAYER_TAKT_LOG'] = '1' }
 # Die Statistikzeile je Sekunde -- ohne sie steht in der Zusammenfassung unten
 # nichts ueber den Bildweg, und genau dort steht, was das Hochladen kostet.
 if ($Voll) { $pp.EnvironmentVariables['PULSE_PLAYER_STATS_LOG'] = '1' }
@@ -165,8 +180,17 @@ if ($Voll) {
 
 Write-Host "=== Was der Player gemeldet hat ===" -ForegroundColor Cyan
 ($pErr.Result -replace 'token=[^\s"&]+', 'token=WEG') -split "`n" |
-  Where-Object { $_ -match 'Oberflaechenformat|Farbraum|Farbwelt|Decoder|HDR|Zero-Copy' } |
+  Where-Object { $_ -match 'Oberflaechenformat|Farbraum|Farbwelt|Decoder|HDR|Zero-Copy|Latenz-Sonde' } |
   Select-Object -First 8 | ForEach-Object { "  " + $_.Trim() }
+
+# Sieht der Einfrier-Waechter ueberhaupt Bilder? Nur mit -Takt. "Abstand 1"
+# heisst "jedes Bild ist neu" -- auf laufendem Inhalt muss das der Regelfall
+# sein, egal auf welchem Bildweg.
+if ($Takt) {
+  Write-Host "=== Einfrier-Waechter: Abstaende zwischen veraenderten Bildern ===" -ForegroundColor Cyan
+  ($pErr.Result -split "`n" | Where-Object { $_ -match 'Takt-Diagnose' } |
+    Select-Object -Last 4) | ForEach-Object { "  " + $_.Trim() }
+}
 
 # Die Posten, um die es beim Zero-Copy-Weg geht. Die LETZTEN Zeilen, nicht die
 # ersten: die erste Statistikzeile faellt in den Verbindungsaufbau, und ein

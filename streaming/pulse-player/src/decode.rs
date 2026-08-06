@@ -14,8 +14,10 @@
 //!
 //! **Hier stand „Das ist noch nicht zero-copy … bewusst nicht Teil des ersten
 //! Wurfs". Fuer den D3D11VA-Weg unter Windows stimmt das seit dem 2026-08-06
-//! nicht mehr:** `PULSE_PLAYER_ZEROCOPY=1` laesst das Bild im Grafikspeicher
-//! (s. [`crate::zerocopy`]). Fuer cuvid und VAAPI gilt der Satz weiter — dort
+//! nicht mehr:** dort bleibt das Bild im Grafikspeicher, und zwar als VORGABE
+//! (`PULSE_PLAYER_ZEROCOPY=0` schaltet es aus; hier stand bis zum selben Tag
+//! nachts noch „`=1` laesst das Bild im Grafikspeicher", also der Schalter
+//! andersherum — s. [`crate::zerocopy`]). Fuer cuvid und VAAPI gilt der Satz weiter — dort
 //! gibt es keine Bruecke, und bei cuvid holt FFmpeg das Bild ohnehin selbst
 //! herunter, noch innerhalb von `send_packet`.
 //!
@@ -490,11 +492,19 @@ pub struct DecodedFrame {
     pub clock_rate: u32,
     /// Das Bild liegt im Grafikspeicher (s. [`crate::zerocopy`]).
     ///
-    /// **Ist das gesetzt, sind `planes` und `strides` leer** — und damit fallen
-    /// der Einfrier-Waechter und die Latenz-Sonde aus, weil beide die Ebenen im
-    /// Hauptspeicher lesen. Genau deshalb ist der Weg ausdruecklich anzufordern
-    /// und nicht die Vorgabe. (Der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` ist
-    /// NICHT betroffen — er sitzt vor dem Decoder.)
+    /// **Ist das gesetzt, sind `planes` und `strides` leer.**
+    ///
+    /// **Hier stand bis zum 2026-08-06 „und damit fallen der Einfrier-Waechter
+    /// und die Latenz-Sonde aus, weil beide die Ebenen im Hauptspeicher lesen.
+    /// Genau deshalb ist der Weg ausdruecklich anzufordern und nicht die
+    /// Vorgabe." Fuer den Waechter ist das falsch** — sein Fingerabdruck
+    /// entsteht auf diesem Weg im Renderer, auf der GPU
+    /// (`render::abdruck`), und kommt ueber [`crate::einfrieren::Briefkasten`]
+    /// zurueck. Der Weg ist seither die Vorgabe.
+    ///
+    /// Was bleibt: die Latenz-Sonde misst hier nicht (sie sagt es, s.
+    /// [`crate::probe`]). Der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` war nie
+    /// betroffen — er sitzt vor dem Decoder.
     pub gpu: Option<std::sync::Arc<crate::zerocopy::GpuBild>>,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
     pub(crate) pool: PlanePool,
@@ -801,6 +811,9 @@ pub struct VideoDecoder {
     /// in [`crate::zerocopy::bild_ohne_umweg`] erklaert, wo sie ausgewertet
     /// werden.
     bruecke: Option<Option<crate::zerocopy::Bruecke>>,
+    /// Der Rueckweg der auf der GPU gerechneten Fingerabdruecke (s.
+    /// [`crate::einfrieren::Zulauf`]). Nur auf dem Zero-Copy-Weg in Gebrauch.
+    zulauf: crate::einfrieren::Zulauf,
 }
 
 impl VideoDecoder {
@@ -841,6 +854,7 @@ impl VideoDecoder {
                         bruecke_us: 0,
                         stockungen: crate::stockung::Waechter::default(),
                         bruecke: None,
+                        zulauf: crate::einfrieren::Zulauf::default(),
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -1258,15 +1272,41 @@ impl VideoDecoder {
             // Der Weg am Hauptspeicher vorbei — nur wenn angefordert, nur bei
             // D3D11 und nur, solange er traegt. Scheitert er, wird er nicht
             // wieder versucht und es geht unten normal weiter.
-            if frame.format() == ffmpeg::format::Pixel::D3D11 && crate::zerocopy::angefordert() {
-                let (fertig, dauer) =
-                    crate::zerocopy::bild_ohne_umweg(&mut self.bruecke, &frame);
+            let zerocopy_versucht =
+                frame.format() == ffmpeg::format::Pixel::D3D11 && crate::zerocopy::angefordert();
+            if zerocopy_versucht {
+                let (fertig, dauer) = crate::zerocopy::bild_ohne_umweg(
+                    &mut self.bruecke,
+                    &frame,
+                    self.zulauf.kasten(),
+                );
                 self.bruecke_us += dauer;
                 if let Some(f) = fertig {
+                    // Der Fingerabdruck dieses Bildes entsteht im Renderer und
+                    // kommt spaeter zurueck; hier wird nur vermerkt, dass eine
+                    // Antwort aussteht.
+                    self.zulauf.bild_hinaus();
                     out.push(f);
                     continue;
                 }
             }
+            // Steht der GPU-Weg, sind die Abdruecke dieses Decoders GPU-Abdruecke
+            // — ein CPU-Abdruck dazwischen waere mit ihnen nicht vergleichbar
+            // und gaelte dem Waechter als „veraendert". Genau das passiert bei
+            // jedem Bild, das mangels freiem Ringplatz hier landet. Solche
+            // Bilder zaehlen deshalb gar nicht mit; es sind wenige, und eine
+            // Stichprobe weniger schadet nichts (s. `crate::einfrieren`).
+            //
+            // **Es muss DIESES Bild sein, nicht die Bruecke im Allgemeinen.**
+            // Zuerst stand hier `angefordert() && matches!(self.bruecke,
+            // Some(Some(_)))`, und das ist im Lauf am 2026-08-06 aufgefallen:
+            // nach dem Rueckfall auf Software (`auf_software`) bleibt die
+            // Bruecke gebaut stehen, waehrend die Bilder als `YUV420P10LE`
+            // ankommen. Die Bedingung war also weiter erfuellt, es gingen aber
+            // keine GPU-Bilder mehr hinaus — der Waechter bekam von KEINER
+            // Seite mehr ein Bild und war fuer den Rest der Sitzung blind.
+            // Sichtbar allein daran, dass die Takt-Diagnose verstummte.
+            let gpu_weg_steht = zerocopy_versucht && matches!(self.bruecke, Some(Some(_)));
             if auf_gpu {
                 let vor = std::time::Instant::now();
                 let ergebnis = in_den_hauptspeicher(&frame, &mut self.hw_ziel);
@@ -1285,9 +1325,17 @@ impl VideoDecoder {
             if let Some(f) = umgewandelt {
                 // Aendert sich der Bildinhalt ueberhaupt noch? (s.
                 // [`VideoDecoder::eingefroren`])
-                self.wacht.bild(&f.planes);
+                if !gpu_weg_steht {
+                    self.wacht.bild(&f.planes);
+                }
                 out.push(f);
             }
+        }
+        // Was der Renderer inzwischen gerechnet hat, in den Waechter geben.
+        // `true` heisst: es kommt nichts mehr — dann ist der GPU-Weg
+        // aufzugeben, sonst liefe er ohne Waechter weiter.
+        if self.zulauf.einspeisen(&mut self.wacht) {
+            crate::zerocopy::abschalten("es kommen keine Fingerabdruecke zurueck");
         }
         out
     }

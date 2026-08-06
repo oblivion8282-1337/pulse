@@ -42,6 +42,11 @@ pub struct Import {
     /// verzoegerte Zerstoerung. Bei 60 Bildern je Sekunde waren das 60 Gruppen
     /// statt zwoelf.
     pub bindegruppe: wgpu::BindGroup,
+    /// Die Bindung fuer den Fingerabdruck (nur die Luma-Ansicht, s.
+    /// [`super::abdruck`]). Aus demselben Grund hier wie `bindegruppe`: je
+    /// Ringplatz unveraenderlich, also einmal gebaut statt sechzigmal je
+    /// Sekunde.
+    pub abdruck_gruppe: wgpu::BindGroup,
 }
 
 /// Zwischenspeicher der Einhaengungen, ein Eintrag je Ringplatz.
@@ -106,6 +111,7 @@ impl Fremdbilder {
         device: &wgpu::Device,
         teile: &Bindeteile<'_>,
         bild: &Arc<GpuBild>,
+        werk: &super::abdruck::Abdruckwerk,
     ) -> Option<&wgpu::BindGroup> {
         if !Self::moeglich(device, bild.zehn_bit()) {
             return None;
@@ -121,10 +127,15 @@ impl Fremdbilder {
         match self.importe.entry(bild.handle()) {
             Entry::Occupied(e) => Some(&e.into_mut().bindegruppe),
             Entry::Vacant(e) => {
-                let import = einhaengen(device, teile, &self.blind, bild)?;
+                let import = einhaengen(device, teile, &self.blind, bild, werk)?;
                 Some(&e.insert(import).bindegruppe)
             }
         }
+    }
+
+    /// Die Abdruck-Bindung eines Ringplatzes (s. [`Import::abdruck_gruppe`]).
+    pub fn abdruckgruppe(&self, handle: isize) -> Option<&wgpu::BindGroup> {
+        self.importe.get(&handle).map(|i| &i.abdruck_gruppe)
     }
 
     /// Die bereits gebaute Bindegruppe eines Ringplatzes.
@@ -171,6 +182,7 @@ fn einhaengen(
     _teile: &Bindeteile<'_>,
     _blind: &wgpu::TextureView,
     _bild: &Arc<GpuBild>,
+    _werk: &super::abdruck::Abdruckwerk,
 ) -> Option<Import> {
     None
 }
@@ -181,6 +193,7 @@ fn einhaengen(
     teile: &Bindeteile<'_>,
     blind: &wgpu::TextureView,
     bild: &Arc<GpuBild>,
+    werk: &super::abdruck::Abdruckwerk,
 ) -> Option<Import> {
     let (breite, hoehe) = bild.textur_masse();
     let format =
@@ -255,7 +268,10 @@ fn einhaengen(
         teile.uniform_buf,
         [&luma, &chroma, blind],
     );
-    Some(Import { _textur: textur, bindegruppe })
+    // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
+    // `einfrieren::gpuabdruck`. Die Chroma-Ansicht geht ihn nichts an.
+    let abdruck_gruppe = werk.bindung(device, &luma);
+    Some(Import { _textur: textur, bindegruppe, abdruck_gruppe })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.

@@ -1,0 +1,96 @@
+{
+  "id": "player-2026-08-06-einfrier-waechter-auf-der-gpu",
+  "gemessen_am": "2026-08-06 (nachts)",
+  "frage": "Kann der Einfrier-Waechter arbeiten, wenn das dekodierte Bild im Grafikspeicher bleibt — ohne den Zeitgewinn wieder aufzuzehren? Und ist Zero-Copy danach als Vorgabe zu verantworten?",
+  "stand": "Ja und ja. Der Fingerabdruck entsteht jetzt auf der GPU und wird asynchron abgeholt; Zero-Copy ist die Vorgabe, PULSE_PLAYER_ZEROCOPY=0 schaltet ihn aus. Der Gewinn bleibt: hochladen 1,1-1,4 -> 0,3-0,4 ms, dekodieren 4,2-6,0 -> 2,6-2,8 ms. Der Abdruck selbst kostet rund 0,3 ms je Bild.",
+
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, Windows 11 26200, HDR-Schirm an. Sender = win-hq-sidecar (av1_amf, 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps, Vollbilder) ueber den Hetzner-Messstand, Zuschauer = pulse-player ueber WHEP auf derselben Maschine. Werkzeug: streaming/win-hq-labor/testbench/hdr-ansehen.ps1, je 75 s, je Arm zwei Runden. Abgelesen werden die letzten drei Statistikzeilen (die ersten fallen in den Verbindungsaufbau).",
+
+  "wer_ueberwacht_was_auf_welchem_weg": {
+    "warum_diese_tabelle": "Die Frage 'was faellt auf dem Zero-Copy-Weg aus' ist am 2026-08-06 zweimal falsch beantwortet worden — einmal zu weit (der Waechter, der gar nichts liest, wurde mitgezaehlt), einmal zu eng. Hier steht sie einmal vollstaendig.",
+    "stockung_rs": {"ruecklesen": "ja", "zero_copy": "ja", "woran": "reine ZEIT — Dauer der drei Abschnitte eines Dekodierdurchgangs, Schwelle 300 ms. Liest keinen einzigen Bildpunkt und ist deshalb vom Bildweg unabhaengig.", "deckt_ab": "Die Grafikeinheit haengt (Windows setzt sie zurueck, av_hwframe_transfer_data bzw. der eigene Zaun kehren nach Sekunden zurueck). DAS ist der Fall, an dem die Sitzung wirklich zerbricht; Abhilfe ist der Rueckfall auf Software."},
+    "einfrieren_rs": {"ruecklesen": "ja", "zero_copy": "ja, seit dieser Messakte", "woran": "Fingerabdruck des Bildes. Auf dem Ruecklese-Weg ueber JEDES Byte aller Ebenen im Hauptspeicher (einfrieren/abdruck.rs), auf dem Zero-Copy-Weg ueber die Luma-Ebene auf der GPU (render/abdruck.wgsl).", "deckt_ab": "Der Decoder rechnet nicht mehr, gibt aber weiter Bilder aus — immer dasselbe. Seltener als die Stockung und ohne jeden Fehler im Log; der Nachweis kommt nur aus dem Bild."},
+    "probe_rs": {"ruecklesen": "ja", "zero_copy": "NEIN — sagt es aber", "woran": "Ein gemaltes Muster in der Luma-Ebene im Hauptspeicher.", "warum_hinnehmbar": "Messwerkzeug, kein Betriebsteil. Sie meldet beim ersten Bild einmal 'Latenz-Sonde AUS ... Fuer eine Messung: PULSE_PLAYER_ZEROCOPY=0' und zaehlt danach nichts mehr. Vorher haette sie jedes Bild stumm als 'ohne Muster' gezaehlt und am Ende einen Mittelwert ueber null Bilder gemeldet — genau der Fehler vom 2026-08-01, nur schneller wiederholt."},
+    "dump_rtp": {"ruecklesen": "ja", "zero_copy": "ja", "woran": "Sitzt VOR dem Decoder und schreibt RTP-Pakete. War nie betroffen; die gegenteilige Behauptung stand am 2026-08-06 an vier Stellen."}
+  },
+
+  "die_eigentliche_schwierigkeit_war_der_rueckweg": {
+    "das_problem": "Die Rechnung selbst ist billig — ein Durchgang ueber die Luma-Ebene. Ein Ergebnis von der GPU abzuholen, indem man auf sie WARTET, ist dagegen genau die Rundreise, die Zero-Copy gerade beseitigt hat: map_async plus PollType::Wait je Bild kostet die Wartezeit bis zum Ende des laufenden Zeichendurchgangs, in derselben Groessenordnung wie das eingesparte Ruecklesen — und waere obendrein ein neuer Anlass fuer Stockungen.",
+    "die_loesung": "Angefordert und spaeter abgeholt. Je Bild wird der Rechendurchgang abgeschickt und sein Ergebnis in einen von DREI Abholpuffern kopiert; eingesammelt wird, was aus FRUEHEREN Bildern bereits fertig dasteht (PollType::Poll, blockiert nicht). Ist gerade kein Puffer frei, faellt der Abdruck dieses einen Bildes aus.",
+    "warum_der_versatz_folgenlos_ist": "Der Waechter zaehlt, wie oft derselbe Abdruck HINTEREINANDER kam, und arbeitet ueber Sekunden (90 Bilder UND 2500 ms). Ein bis zwei Bilder Versatz aendern daran nichts — nur die REIHENFOLGE muss stimmen. Sie stimmt, weil die Abholung die Puffer nach ihrer laufenden Nummer abraeumt und beim ersten unfertigen abbricht; ein Test weist das an drei Bildern nach, die zusammen den Ring fuellen.",
+    "drei_puffer": "Das Ergebnis braucht typisch ein bis zwei Bilder (die Rechnung haengt hinter dem Zeichendurchgang desselben Bildes in derselben Warteschlange). Zwei waeren knapp — dann faellt bei jedem Ruckler ein Bild aus."
+  },
+
+  "wie_der_abdruck_gebaut_ist": {
+    "anforderung": "Gleich fuer gleiche Bilder, verschieden fuer verschiedene — und zwar bei EINEM veraenderten Bildpunkt. Dem CPU-Abdruck gleichen muss er NICHT: verglichen wird er nur mit sich selbst.",
+    "die_falle": "Auf der GPU laufen die Bildpunkte parallel und in unbestimmter Reihenfolge durch, die Verknuepfung muss also kommutativ sein. Naheliegend ist eine Summe — und eine Summe der HELLIGKEITEN waere der Fehler vom 2026-08-05 in neuer Gestalt: sie mittelt. Ein Bildpunkt von 40 auf 41 und ein zweiter von 41 auf 40 heben sich auf; ein 8x16 grosser Cursor auf flaechigem Grund verschiebt eine Summe ueber zwei Millionen Werte um ein Zehntausendstel.",
+    "was_stattdessen": "Summiert wird je Bildpunkt ein GEMISCHTER Wert, in den die POSITION eingeht: mische(mische(index) ^ wert), mit Murmur3 fmix32. Die ist eine BIJEKTION, und k ^ wert ist bei festem k in wert ebenfalls umkehrbar — aendert sich ein Bildpunkt, aendert sich sein Beitrag garantiert. Zwei solche Summen mit verschiedenen Positionsschluesseln ergeben die 64 bit.",
+    "nur_luma": "Zwei Drittel der Daten, und ein bewegtes Element ohne jede Helligkeitsaenderung gibt es praktisch nicht. Stand bei einfrieren/abdruck.rs bereits als vorgesehener naechster Schritt.",
+    "nur_der_nutzanteil": "Die Textur des Decoders ist aufgerundet (bei AV1 auf Vielfache von 128). Gerechnet wird ueber Breite x Hoehe des BILDES; was in der Auffuellung steht, geht uns nichts an. Ein Test haelt das fest."
+  },
+
+  "nachweis_der_empfindlichkeit": {
+    "warum_zweifach": "Der Shader ist auf einer Maschine ohne Grafikkarte nicht pruefbar, und ein Test, der nur auf dieser einen GPU laeuft, ist keine Absicherung. Deshalb gibt es einen CPU-ZWILLING (einfrieren::gpuabdruck::luma_abdruck, nur unter #[cfg(test)] uebersetzt) und einen Test, der beide auf demselben Bild gegeneinander haelt.",
+    "ohne_gpu_geprueft": [
+      "ein einzelner Bildpunkt (40 -> 41) an vier Stellen eines 1920x1080-Bildes, jeweils erkannt",
+      "ein 8x16 grosser Cursor vor flaechigem Grund — der Fall des Fehlalarms vom 2026-08-05",
+      "zwei Bildpunkte, die ihre WERTE TAUSCHEN (jede blosse Summe bliebe hier gleich)",
+      "die Auffuellung ausserhalb der Breite zaehlt nicht mit, ein Bildpunkt innerhalb schon",
+      "bei 10 bit faellt eine Aenderung im oberen Byte des 16-bit-Wortes auf (dort sitzen bei P010 die Nutzbits)",
+      "gleiche Bilder geben denselben Wert"
+    ],
+    "auf_echter_hardware_geprueft": {
+      "gpu_und_cpu_rechnen_dasselbe": "253x131 (bewusst KEIN Vielfaches der Kachelgroesse 8), Pseudozufallsinhalt: Shader und CPU-Zwilling liefern bitgleich denselben u64.",
+      "ein_bildpunkt": "1920x1080 flaechig 40, ein Bildpunkt an (933, 701) auf 41: der Abdruck aendert sich. Derselbe Inhalt zweimal gerechnet ergibt zweimal denselben Wert — damit ist auch die Bestaendigkeit ueber zwei Rechendurchgaenge auf dieser GPU belegt, und nur die macht die Erkennung eines STEHENDEN Bildes ueberhaupt moeglich.",
+      "reihenfolge": "Drei Bilder hintereinander angefordert, alle drei Abholpuffer belegt: die Abdruecke kommen in der Reihenfolge der Bilder zurueck."
+    },
+    "in_der_laufenden_kette": "PULSE_PLAYER_TAKT_LOG=1 meldet die Abstaende zwischen zwei VERAENDERTEN Bildern. Auf dem Zero-Copy-Weg, laufender Inhalt: Bloecke zu 600 Bildern mit 540-600 Wechseln, Abstaende ueberwiegend 1 — der Waechter sieht also jedes Bild und sieht es sich aendern. Ohne diesen Nachweis waere 'keine Meldung' nicht von 'bekommt gar nichts' zu unterscheiden."
+  },
+
+  "zahlen": {
+    "arm_zero_copy_vorgabe": {"hochladen_ms": "0,3-0,4", "dekodieren_mittel_ms": "2,6-2,8", "dekodieren_spitze_ms": "3,9-4,4", "runden": 2},
+    "arm_ruecklesen_zerocopy_0": {"hochladen_ms": "1,1-1,4", "dekodieren_mittel_ms": "4,2-6,0", "dekodieren_spitze_ms": "7,8-11,2", "runden": 2},
+    "was_der_abdruck_kostet": "Rund 0,3 ms je Bild, sichtbar im Posten 'hochladen': vor dem Abdruck lag er bei 0,0-0,1 ms (player-2026-08-06-zerocopy-im-player), jetzt bei 0,3-0,4. Darin steckt der Rechendurchgang selbst, eine EIGENE Abgabe an die Warteschlange und das Nachfragen nach fertigen Ergebnissen. In den Zeichendurchgang gefaltet waere er billiger — ungebaut, weil `upload` und `render` getrennte Schritte mit getrennten Kommandopuffern sind.",
+    "vorsicht": "Mittelwerte je Sekunde aus der laufenden Statistik, keine Verteilung. Die Bildrate lag in allen vier Laeufen bei 59-63/s.",
+    "hdr": "Alle vier Laeufe in 10 bit ueber P010, 'Farbwelt des Stroms HDR (PQ) -> Fenster HDR (Rgba16Float)', Decoder av1 in Hardware (D3D11VA). Der 10-bit-Weg traegt den Abdruck unveraendert mit — im Shader ist der Unterschied ein Skalierungsfaktor (255 gegen 65535), keine zweite Fassung."
+  },
+
+  "befund_der_waechter_war_nach_dem_software_rueckfall_blind": {
+    "was": "Damit CPU- und GPU-Abdruecke nicht vermischt werden (sie sind nicht vergleichbar, ein CPU-Abdruck dazwischen gaelte als 'veraendert'), laesst der Decoder den CPU-Abdruck aus, solange der GPU-Weg steht. Die Bedingung lautete zuerst: 'Zero-Copy angefordert UND Bruecke gebaut'.",
+    "warum_das_falsch_war": "Nach dem Rueckfall auf Software (stockung::Waechter -> auf_software) bleibt die Bruecke gebaut stehen, waehrend die Bilder als YUV420P10LE ankommen. Die Bedingung war also weiter erfuellt, es gingen aber keine GPU-Bilder mehr hinaus: der Waechter bekam von KEINER Seite mehr ein Bild und war fuer den Rest der Sitzung blind.",
+    "wie_es_auffiel": "Im zweiten Lauf des Abends. Die Grafikeinheit stockte (2297 ms in der Zero-Copy-Bruecke), der Rueckfall auf Software griff — und die Takt-Diagnose VERSTUMMTE. Ohne PULSE_PLAYER_TAKT_LOG=1 haette nichts darauf hingedeutet: es gab keine Fehlermeldung, keine falsche Zahl, nur das Fehlen von Zeilen.",
+    "behoben": "Die Bedingung haengt jetzt an DIESEM Bild (Quellformat D3D11 und Zero-Copy angefordert), nicht am Zustand der Bruecke im Allgemeinen. Runde 3 danach: Takt-Diagnose durchgehend, 540-579 Wechsel je 600 Bilder.",
+    "lehre": "Dieselbe wie am selben Tag beim Stockungs-Waechter, nur andersherum: ein Zustand, der 'der schnelle Weg laeuft' bedeuten soll, muss am Bild haengen und nicht an einer Einrichtung, die den Wegwechsel ueberlebt."
+  },
+
+  "wenn_die_abdruecke_ausbleiben": {
+    "das_risiko": "Rechnet der Renderer nicht (Bindung abgelehnt, Fenster zeichnet nicht mehr, Pipeline nicht gebaut), saehe der Waechter kein einziges Bild — er zaehlte nichts, meldete nichts, und der schnelle Weg liefe ungesichert. Das ist derselbe stille Ausfall, den es zu beseitigen galt, nur eine Ebene tiefer.",
+    "abhilfe": "einfrieren::Zulauf zaehlt hinausgegangene GPU-Bilder ohne Antwort. 60 Bilder UND 5 Sekunden ohne einen einzigen Abdruck schalten den Zero-Copy-Weg ab (zerocopy::abschalten, eine Logzeile), der Decoder liest danach wieder zurueck und der Waechter arbeitet ueber die Ebenen.",
+    "warum_beide_bedingungen": "Beim Anlauf, beim Fensterwechsel und waehrend eines Formatwechsels bleibt das Zeichnen kurz aus, ohne dass etwas kaputt waere. Zwei Tests halten beide Seiten fest: 600 Bilder mit Antwort melden nie, 120 Bilder in 1,9 s ohne Antwort auch nicht, 600 Bilder ohne Antwort schon.",
+    "im_lauf_nicht_ausgeloest": "In keinem der vier Laeufe."
+  },
+
+  "entscheidung_zur_vorgabe": {
+    "ergebnis": "Zero-Copy ist die Vorgabe. PULSE_PLAYER_ZEROCOPY=0 schaltet ihn AUS (vorher schaltete =1 ihn EIN).",
+    "begruendung": "Der einzige Grund fuer die Sonderstellung war der ausgefallene Einfrier-Waechter, und der arbeitet jetzt. Zusaetzlich — und das ist der Teil, der auch OHNE den Abdruck getragen haette: der gefaehrliche Fall (haengende Grafikeinheit) wird von stockung.rs erfasst, das reine Zeiten misst und auf beiden Wegen unveraendert laeuft.",
+    "was_der_rueckfall_weiter_traegt": "Anderes Backend (PULSE_PLAYER_BACKEND=vulkan), NVIDIA/Intel ungemessen, Software-Decoder, fremdes Pixelformat, zwei GPUs im Rechner, kein freier Ringplatz. Jeder dieser Faelle endet in einer Logzeile und dem Weg ueber den Hauptspeicher, nicht in einem Absturz.",
+    "was_die_umstellung_kostet": "Die Latenz-Sonde ist im Normalbetrieb nicht mehr messbereit; wer sie braucht, setzt PULSE_PLAYER_ZEROCOPY=0. Der Schalter -Zerocopy des Pruefstands heisst deshalb jetzt -Ruecklesen und wirkt andersherum — ein alter Aufruf bekommt einen Parameterfehler statt eines stillschweigend falschen Arms."
+  },
+
+  "offen": {
+    "abdruck_billiger": "0,3 ms je Bild fuer eine eigene Abgabe an die Warteschlange sind viel fuer eine Rechnung, die selbst kaum etwas kostet. In den Kommandopuffer des Zeichendurchgangs gefaltet fiele der Posten vermutlich weitgehend weg.",
+    "stehendes_bild_in_der_kette": "Dass der Abdruck bei bitgleichem Bild bitgleich bleibt, ist auf dieser GPU an zwei Rechendurchgaengen desselben Inhalts belegt — aber nicht ueber die laufende Kette an einem echten Standbild. Der Messaufbau gibt das nicht her: die Aufnahme zeigt den Bildschirm, auf dem das Player-Fenster den eigenen Strom zeigt, also aendert sich immer etwas.",
+    "andere_hersteller": "NVIDIA und Intel sind fuer den ganzen Zero-Copy-Weg ungemessen, der Fingerabdruck damit auch.",
+    "speicher_nach_dem_rueckfall": "Faellt der Decoder auf Software zurueck, bleibt der Ring aus 12 geteilten Texturen (80-140 MB) stehen, obwohl ihn niemand mehr benutzt. Vorbestehend, nicht durch diese Aenderung entstanden — und nicht angefasst, weil ein Abraeumen die NT-Handles schliesst, waehrend moeglicherweise noch ein GpuBild unterwegs ist."
+  },
+
+  "dateien": [
+    "streaming/pulse-player/src/einfrieren/gpuabdruck.rs (Rechenvorschrift, CPU-Zwilling, Briefkasten, Zulauf)",
+    "streaming/pulse-player/src/render/abdruck.rs + abdruck.wgsl (Rechnung auf der GPU, asynchrone Abholung)",
+    "streaming/pulse-player/src/render/fremdbild.rs (Bindung je Ringplatz)",
+    "streaming/pulse-player/src/zerocopy/ (Briefkasten faehrt im Bild mit; Schalter umgedreht)",
+    "streaming/pulse-player/src/decode.rs (Einspeisung, Auslassen der CPU-Abdruecke)",
+    "streaming/pulse-player/src/probe.rs (die Sonde sagt, dass sie aus ist)",
+    "streaming/win-hq-labor/testbench/hdr-ansehen.ps1 (-Ruecklesen statt -Zerocopy, -Takt)"
+  ]
+}

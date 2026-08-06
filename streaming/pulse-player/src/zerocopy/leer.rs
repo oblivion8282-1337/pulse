@@ -31,13 +31,19 @@ impl GpuBild {
     pub fn handle(&self) -> isize {
         match *self {}
     }
+    pub fn briefkasten(&self) -> &std::sync::Arc<crate::einfrieren::Briefkasten> {
+        match *self {}
+    }
 }
 
 /// Ebenfalls unbewohnt: `neu` kann nur scheitern.
 pub enum Bruecke {}
 
 impl Bruecke {
-    pub fn neu(_frame: &ffmpeg_next::util::frame::video::Video) -> Result<Self> {
+    pub fn neu(
+        _frame: &ffmpeg_next::util::frame::video::Video,
+        _briefkasten: std::sync::Arc<crate::einfrieren::Briefkasten>,
+    ) -> Result<Self> {
         bail!("Zero-Copy gibt es nur unter Windows")
     }
 

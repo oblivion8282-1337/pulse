@@ -10,6 +10,7 @@
 //! braeuchte aber FFI-Bindungen. Die hier benoetigte Verarbeitung (Farbmatrix,
 //! Deband, Dither, Zoom) passt in einen WGSL-Shader, und wgpu ist MIT/Apache.
 
+mod abdruck;
 mod bildquelle;
 mod farbe;
 mod fremdbild;
@@ -46,6 +47,10 @@ pub struct Renderer {
     bild: Option<Bildquelle>,
     /// Eingehaengte Fremdtexturen samt ihrer Ebenen-Ansichten (Zero-Copy).
     fremdbilder: fremdbild::Fremdbilder,
+    /// Rechnet den Fingerabdruck der Fremdbilder fuer den Einfrier-Waechter
+    /// (s. [`abdruck`]). Nur auf dem Zero-Copy-Weg im Einsatz; auf dem Weg
+    /// ueber den Hauptspeicher liest der Waechter die Ebenen selbst.
+    abdruckwerk: abdruck::Abdruckwerk,
     bind_group: Option<wgpu::BindGroup>,
     frames_presented: u64,
     /// Ob 16-bit-Norm-Texturen erlaubt sind (s. `setup::GpuSetup`).
@@ -91,6 +96,7 @@ impl Renderer {
         // Vor dem Struktur-Ausdruck: dort wandert `gpu.device` in das Feld
         // `device`, und danach ist es nicht mehr auszuleihen.
         let fremdbilder = fremdbild::Fremdbilder::neu(&gpu.device);
+        let abdruckwerk = abdruck::Abdruckwerk::neu(&gpu.device);
         Ok(Self {
             angebotene_formate: gpu.angebotene_formate,
             hwnd,
@@ -106,6 +112,7 @@ impl Renderer {
             uniform_buf: gpu.uniform_buf,
             bild: None,
             fremdbilder,
+            abdruckwerk,
             bind_group: None,
             frames_presented: 0,
             wide_textures: gpu.wide_textures,
@@ -178,22 +185,49 @@ impl Renderer {
     /// ausgelassen.** Die Gruende sind allesamt bleibend (anderes Backend,
     /// fehlendes Merkmal, anderer Adapter unter FFmpeg als unter wgpu), der
     /// Decoder lieferte also weiter GPU-Bilder, die hier allesamt liegenblieben:
-    /// ein schwarzes Fenster bei 0 Bildern je Sekunde — und weil auf diesem Weg
-    /// auch der Einfrier-Waechter nicht arbeitet, meldete es niemand. Der
-    /// Rueckkanal ist [`crate::zerocopy::abschalten`].
+    /// ein schwarzes Fenster bei 0 Bildern je Sekunde. Der Rueckkanal ist
+    /// [`crate::zerocopy::abschalten`].
+    ///
+    /// **Hier stand bis zum 2026-08-06 „und weil auf diesem Weg auch der
+    /// Einfrier-Waechter nicht arbeitet, meldete es niemand". Das ist seit dem
+    /// Fingerabdruck auf der GPU ([`abdruck`]) falsch** — der Waechter arbeitet
+    /// jetzt auch hier, und bliebe der Abdruck aus, gaebe der Decoder den Weg
+    /// von sich aus auf (`einfrieren::Zulauf`). Die Meldung an dieser Stelle
+    /// bleibt trotzdem: sie nennt die Ursache, wo der Zulauf nur die Wirkung
+    /// sieht.
     fn fremdbild_binden(
         &mut self,
         frame: &DecodedFrame,
         gpu: &std::sync::Arc<crate::zerocopy::GpuBild>,
     ) {
-        let teile = fremdbild::Bindeteile {
-            layout: &self.bind_layout,
-            sampler: &self.sampler,
-            uniform_buf: &self.uniform_buf,
-        };
-        if self.fremdbilder.binden(&self.device, &teile, gpu).is_none() {
-            crate::zerocopy::abschalten("der Renderer kann die Textur nicht einhaengen");
-            return;
+        // Feldweise leihen, und in einem eigenen Block: `fremdbilder` wird
+        // veraendert und danach gelesen, waehrend `abdruckwerk` gleichzeitig
+        // veraendert wird — ueber `self` waere das dem Borrow-Checker nicht zu
+        // vermitteln. Der Block endet die Leihen, bevor unten wieder `self`
+        // beschrieben wird.
+        {
+            let Self {
+                device, queue, fremdbilder, abdruckwerk, bind_layout, sampler, uniform_buf, ..
+            } = self;
+            let teile = fremdbild::Bindeteile { layout: bind_layout, sampler, uniform_buf };
+            if fremdbilder.binden(device, &teile, gpu, abdruckwerk).is_none() {
+                crate::zerocopy::abschalten("der Renderer kann die Textur nicht einhaengen");
+                return;
+            }
+            // Den Fingerabdruck ANFORDERN — abgeholt wird er ein bis zwei
+            // Bilder spaeter (s. [`abdruck`]). Ohne diesen Aufruf saehe der
+            // Einfrier-Waechter auf dem Zero-Copy-Weg kein einziges Bild.
+            if let Some(bindung) = fremdbilder.abdruckgruppe(gpu.handle()) {
+                abdruckwerk.schritt(
+                    abdruck::Werkteile { device, queue, bindung },
+                    abdruck::Bildangabe {
+                        breite: frame.width,
+                        hoehe: frame.height,
+                        zehn_bit: gpu.zehn_bit(),
+                    },
+                    gpu.briefkasten(),
+                );
+            }
         }
         // Die Bindegruppe liegt im Zwischenspeicher (eine je Ringplatz); hier
         // wird nur noch vermerkt, welche gerade gilt.
