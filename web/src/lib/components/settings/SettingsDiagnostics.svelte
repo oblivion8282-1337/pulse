@@ -1,31 +1,47 @@
 <!--
-  SettingsCompatibility — „Kompatibilität"-Tab (nur Linux-Desktop, siehe
-  SettingsDialog `linuxOnly`).
+  SettingsDiagnostics — „Diagnose"-Tab (jede Desktop-App, siehe SettingsDialog
+  `electronOnly`).
 
-  Zwei Dinge, bewusst getrennt:
+  **Hiess bis 2026-08-06 „Kompatibilität" und war auf Linux beschränkt.** Das
+  stammte aus der Zeit, als der Tab nur den Rust-Linux-Sidecar umschaltete —
+  mit dem Diagnose-Schalter darin war es ein stiller Ausschluss: Windows- und
+  macOS-Nutzer sahen den Tab nicht, konnten die Einwilligung also gar nicht
+  geben, und es kam nie ein Bericht von dort an. Der Upload-Weg selbst war die
+  ganze Zeit plattformneutral.
 
-   1. ANZEIGE, welches Aufnahme-Verfahren gerade läuft — inklusive des
+  Drei Dinge, bewusst getrennt:
+
+   1. DIAGNOSEBERICHTE senden (`uploadDiagnosticLogs`, default aus) — ein
+      EIGENER Opt-in, auf jeder Plattform. Begründung in
+      `desktop/electron/experimental-log-upload.ts`.
+
+   2. ANZEIGE, welches Aufnahme-Verfahren gerade läuft — inklusive des
       automatischen Rückfalls auf GSR (`sidecar.ts::resolveLinuxSpawn`), den
-      der Tab sonst niemandem verriete.
+      der Tab sonst niemandem verriete. Nur unter Linux, weil es nur dort zwei
+      Verfahren gibt.
 
-   2. NOTBREMSE zurück auf GSR (`useLegacyGsrSidecar`, default aus). Beim
+   3. NOTBREMSE zurück auf GSR (`useLegacyGsrSidecar`, default aus). Beim
       Umschalten startet der Main die (idle) Sidecar-Prozesse neu, sodass es
-      beim nächsten Stream greift — ohne Pulse-Neustart.
-
-  Der Diagnose-Log-Upload hat einen EIGENEN Opt-in (`uploadDiagnosticLogs`,
-  default aus) — Begründung in `desktop/electron/experimental-log-upload.ts`.
+      beim nächsten Stream greift — ohne Pulse-Neustart. Ebenfalls nur Linux:
+      auf Windows/macOS gibt es keinen GSR-Sidecar, auf den man zurückfallen
+      könnte, und der Schalter wäre eine Zusage, die niemand einlöst.
 -->
 <script lang="ts">
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import type { PulseLinuxBackend } from '$lib/platform/pulse';
+  import { isLinux } from '$lib/platform/runtime';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let backend = $state<PulseLinuxBackend | null>(null);
   let useLegacy = $state(false);
   let uploadLogs = $state(false);
   let ready = $state(false);
+
+  // Nur unter Linux gibt es zwei Aufnahme-Verfahren — Statuszeile und
+  // Notbremse haengen daran, die Diagnoseberichte nicht.
+  const isLinuxDesktop = isLinux();
 
   onMount(async () => {
     try {
@@ -38,7 +54,7 @@
     } catch {
       // Store nicht erreichbar (sollte auf dem Desktop nicht passieren) — Defaults.
     }
-    await refreshBackend();
+    if (isLinuxDesktop) await refreshBackend();
     ready = true;
   });
 
@@ -97,16 +113,29 @@
   const statusTone = $derived(toneFor(backend));
 </script>
 
-<div class="flex flex-col gap-5" data-testid="settings-compatibility-panel">
+<div class="flex flex-col gap-5" data-testid="settings-diagnostics-panel">
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright flex items-center gap-2 text-base font-semibold">
       <PlugZapIcon class="size-5" />
-      {m.settings_compat_heading()}
+      {m.settings_diag_heading()}
     </h2>
-    <p class="text-text-muted text-xs">{m.settings_compat_intro()}</p>
+    <p class="text-text-muted text-xs">{m.settings_diag_intro()}</p>
   </div>
 
+  <!-- Aufnahme-Verfahren + Notbremse: NUR Linux. Dort gibt es zwei Verfahren
+       (Rust und GSR) und damit etwas zu zeigen und umzuschalten; auf
+       Windows/macOS gäbe es keinen Rückfall, auf den der Schalter zeigen
+       könnte. Der Tab selbst ist seit 2026-08-06 auf allen Plattformen da —
+       wegen der Diagnoseberichte weiter unten. -->
+  {#if isLinuxDesktop}
   <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
+    <div class="flex flex-col gap-1">
+      <h3 class="text-text-bright text-sm font-semibold">
+        {m.settings_diag_capture_heading()}
+      </h3>
+      <p class="text-text-muted text-xs">{m.settings_compat_intro()}</p>
+    </div>
+
     <!-- Statuszeile: was läuft gerade? -->
     <div class="flex flex-col gap-1" data-testid="compat-backend-status">
       <span class="flex items-center gap-2 text-sm">
@@ -143,8 +172,10 @@
       </span>
     </label>
   </div>
+  {/if}
 
-  <!-- Diagnose-Logs: eigener Opt-in, bewusst als eigenes Feld -->
+  <!-- Diagnose-Logs: eigener Opt-in, bewusst als eigenes Feld. Auf JEDER
+       Plattform sichtbar — das ist der Punkt der Änderung vom 2026-08-06. -->
   <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
     <label class="flex items-start gap-3">
       <Checkbox

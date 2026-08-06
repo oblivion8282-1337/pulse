@@ -13,7 +13,7 @@
     | 'privacy'
     | 'self-host'
     | 'apps'
-    | 'compatibility';
+    | 'diagnostics';
 </script>
 
 <script lang="ts">
@@ -29,7 +29,7 @@
   import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import SettingsApps from './settings/SettingsApps.svelte';
-  import SettingsCompatibility from './settings/SettingsCompatibility.svelte';
+  import SettingsDiagnostics from './settings/SettingsDiagnostics.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
   import PaletteIcon from '@lucide/svelte/icons/palette';
@@ -87,10 +87,21 @@
   // dort ist die App schon installiert, Download-Links wären sinnlos.
   const inBrowser = !isElectron() && !isCapacitorAndroid();
 
-  // linuxOnly: nur die Linux-Desktop-App (Flatpak). Der Experimental-Tab
-  // schaltet den Rust-Linux-Sidecar um — auf Windows/macOS laufen schon eigene
-  // Rust-Sidecars, im Browser gibt es keinen lokalen Sidecar. `window.pulse.os`
-  // ist Nodes `process.platform` aus dem Preload (autoritativ).
+  // electronOnly: jede Desktop-App, egal welche Plattform. Im Browser gibt es
+  // keinen lokalen Sidecar und keine `sidecar.log`, dort gäbe es also nichts
+  // einzustellen.
+  //
+  // **Hier stand bis 2026-08-06 `linuxOnly`**, aus der Zeit, als der Tab nur
+  // den Rust-Linux-Sidecar umschaltete. Seit der Diagnose-Schalter darin sitzt,
+  // war das ein stiller Ausschluss: Windows- und macOS-Nutzer sahen den Tab
+  // nicht, konnten die Einwilligung also gar nicht geben — und es kam nie ein
+  // einziger Bericht von dort an. Der Upload-Weg selbst war die ganze Zeit
+  // plattformneutral (`sidecar-log.ts` kennt den Windows-Pfad ausdrücklich),
+  // es fehlte allein der Schalter.
+  const isDesktopApp = isElectron();
+
+  // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
+  // (die Notbremse zurück auf den GSR-Sidecar).
   const isLinuxDesktop =
     isElectron() && typeof window !== 'undefined' && window.pulse?.os === 'linux';
 
@@ -100,7 +111,7 @@
     icon: typeof MicIcon;
     desktopOnly?: true;
     browserOnly?: true;
-    linuxOnly?: true;
+    electronOnly?: true;
   }[] = [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
@@ -113,7 +124,7 @@
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
-    { id: 'compatibility', label: m.settings_dialog_tab_compatibility(), icon: PlugZapIcon, linuxOnly: true }
+    { id: 'diagnostics', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true }
   ];
 
   let visibleTabs = $derived(
@@ -121,7 +132,7 @@
       (t) =>
         (!t.desktopOnly || !viewport.isMobile) &&
         (!t.browserOnly || inBrowser) &&
-        (!t.linuxOnly || isLinuxDesktop)
+        (!t.electronOnly || isDesktopApp)
     )
   );
 
@@ -208,8 +219,8 @@
           <SettingsSelfHost />
         {:else if activeTab === 'apps'}
           <SettingsApps />
-        {:else if activeTab === 'compatibility'}
-          <SettingsCompatibility />
+        {:else if activeTab === 'diagnostics'}
+          <SettingsDiagnostics />
         {:else}
           <SettingsSecurity />
         {/if}

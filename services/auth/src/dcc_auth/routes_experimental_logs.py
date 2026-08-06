@@ -1,20 +1,30 @@
-"""Diagnose-Log-Upload der experimentellen Rust-Sidecar-Version.
+"""Diagnose-Log-Upload der Desktop-App.
 
 POST /experimental-logs — öffentlich, rate-limited (30/Stunde pro IP).
 
-Nur der Electron-Client der experimentellen Rust-Linux-Sidecar-Version ruft
-das auf, und auch nur, wenn der User die Experimental-Checkbox aktiviert hat
-(Opt-in). Speichert einen bereits token-redacted sidecar.log-Ausschnitt +
+Die Desktop-App ruft das bei Stream-Ende und Stream-Fehler auf, und nur, wenn
+der Nutzer die Diagnose-Checkbox aktiviert hat (Opt-in, Vorgabe aus; Tab
+„Diagnose"). Speichert einen bereits token-redacted `sidecar.log`-Ausschnitt +
 Systeminfo in Postgres zur Fehlerdiagnose. Vorlage: routes_complaints.py.
+
+**Hier stand bis 2026-08-06 „der experimentellen Rust-Sidecar-Version".** Das
+war zweifach überholt: der Rust-Sidecar ist auf Linux längst der Standard, und
+seit derselben Änderung sendet auch Windows/macOS — vorher war der Tab mit der
+Einwilligung auf Linux beschränkt, sodass von dort NIE ein Bericht ankam.
+
+Der Endpoint-Name bleibt `/experimental-logs`: Bestandsclients rufen ihn so
+auf, und ein Umbenennen träfe genau die Nutzer, deren Berichte wir wollen.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
 
 from dcc_auth.db import SessionDep
 from dcc_auth.models_experimental import ExperimentalLog
@@ -29,6 +39,17 @@ router = APIRouter()
 # begrenzt, damit ein Client uns nicht zumüllt). Der Client schickt ohnehin
 # nur den Schwanz der sidecar.log.
 MAX_LOG_CHARS = 512 * 1024  # 512 KiB
+
+# Aufbewahrungsfrist. Bis 2026-08-06 gab es KEINE — die Tabelle wuchs
+# unbegrenzt, bei 512 KiB je Eintrag. Diagnose-Logs sind nur solange etwas
+# wert, wie jemand dem Vorfall noch nachgeht; was vier Wochen alt ist, hat
+# niemand mehr angesehen.
+RETENTION_DAYS = 28
+
+# Zweite, harte Grenze: selbst innerhalb der Frist nie mehr als so viele
+# Einträge behalten. Fängt den Fall ab, den die Frist allein nicht abfängt —
+# viele Clients in kurzer Zeit (das IP-Rate-Limit greift je IP, nicht global).
+MAX_ROWS = 5_000
 
 
 class ExperimentalLogCreate(BaseModel):
@@ -62,6 +83,69 @@ async def submit_experimental_log(
         client_ip=client_ip,
     )
     session.add(entry)
+    await session.flush()
+    await _aufraeumen(session)
     await session.commit()
 
     return {"id": str(entry.id), "status": "received"}
+
+
+async def _aufraeumen(session: SessionDep) -> None:
+    """Alte Berichte wegräumen — beim Schreiben, nicht per Zeitgeber.
+
+    **Warum am Schreibpfad und nicht als Hintergrundaufgabe:** die Tabelle
+    wächst NUR hier. Ein eigener Poller (wie `crl_poller` & Co.) wäre ein
+    zweiter Ort, der leise ausfallen kann — und genau so ein leiser Ausfall
+    ist der Grund, warum es diese Funktion überhaupt braucht: die
+    Aufbewahrung war bis 2026-08-06 schlicht nirgends umgesetzt. Was am
+    Schreibpfad hängt, kann nicht vergessen werden.
+
+    Zwei Grenzen, weil eine allein nicht reicht: die Frist räumt Altes weg,
+    die Zeilenzahl fängt einen Ansturm ab, der innerhalb der Frist bleibt.
+
+    Fehler hier dürfen den Upload NICHT scheitern lassen — ein voller
+    Papierkorb ist kein Grund, den Bericht zu verwerfen, den wir gerade
+    wollten. Deshalb laufen die beiden Deletes in einem eigenen SAVEPOINT
+    (wie in `instance_provisioning.py::provision_app_host_instance`): auf
+    Postgres vergiftet ein fehlgeschlagenes Statement sonst die GANZE
+    Transaktion („current transaction is aborted") — der `except` würde den
+    Fehler zwar loggen, aber das `session.commit()` im Aufrufer risse dann
+    den bereits geflushten, eigentlich unbeteiligten Log-Eintrag mit in den
+    Fehlschlag. Das SAVEPOINT rollt bei Fehlern nur das Aufräumen zurück,
+    nicht den Upload.
+    """
+    grenze = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    # `synchronize_session=False`: ohne das versucht das ORM, die Bedingung
+    # zusaetzlich im Python gegen die geladenen Objekte auszuwerten — und
+    # bricht dabei ab, weil `created_at` aus SQLite ohne Zeitzone kommt, die
+    # Grenze hier aber mit ("can't compare offset-naive and offset-aware
+    # datetimes"). Fuer ein Aufraeumen ist der Abgleich ohnehin unnoetig: wir
+    # arbeiten mit keinem der geloeschten Objekte weiter.
+    ohne_abgleich = {"synchronize_session": False}
+    try:
+        async with session.begin_nested():  # SAVEPOINT
+            await session.execute(
+                delete(ExperimentalLog).where(ExperimentalLog.created_at < grenze),
+                execution_options=ohne_abgleich,
+            )
+            # Alles ausserhalb der jüngsten MAX_ROWS Einträge. Unterabfrage statt
+            # OFFSET-Löschung, weil SQLite kein `DELETE ... LIMIT` kennt und die
+            # Tests darauf laufen.
+            #
+            # Sortiert wird nach der ID, NICHT nach `created_at`: die Snowflake
+            # trägt die Zeit in sich und ist dabei eindeutig. `created_at` kommt
+            # aus `func.now()` und ist für mehrere Einträge derselben Transaktion
+            # bzw. Sekunde identisch — die Reihenfolge wäre dann beliebig, und
+            # "die jüngsten N behalten" träfe irgendwelche N. Genau das hat der
+            # Test beim ersten Lauf aufgedeckt.
+            behalten = select(ExperimentalLog.id).order_by(
+                ExperimentalLog.id.desc()
+            ).limit(MAX_ROWS)
+            await session.execute(
+                delete(ExperimentalLog).where(
+                    ExperimentalLog.id.not_in(behalten.scalar_subquery())
+                ),
+                execution_options=ohne_abgleich,
+            )
+    except Exception:
+        log.warning("experimental_log_cleanup_failed", exc_info=True)
