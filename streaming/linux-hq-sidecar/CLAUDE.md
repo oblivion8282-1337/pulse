@@ -189,6 +189,16 @@ API :9997, HLS :8888). Self-signed Cert: `openssl req -x509 -newkey rsa:2048 -no
 **`test/certs/` ist gitignored — Private Keys niemals committen.**
 
 ## Dev-Umgebung
+
+**Zuerst nachsehen, nicht glauben.** Der Abschnitt unten beschreibt einen Stand,
+der am 2026-08-07 auf der Linux-Maschine so nicht mehr zutraf: dort lief
+**KWin 6.7.3** (nicht niri), auf einer **RTX 5080** (nicht 4090), mit PipeWire
+1.6.8 und dem **KDE**-Portal-Backend (nicht dem GNOME-Backend). Für jede Frage
+nach Aufnahme, Portal oder Farbraum entscheidet genau das — deshalb vor einer
+Messung `echo $XDG_CURRENT_DESKTOP`, `nvidia-smi -L` und
+`ls /run/user/1000/ | grep portal` ausführen. Die Angaben unten bleiben stehen,
+weil sie für die AMD-Seite und die dort begründeten Entscheidungen weiter gelten.
+
 - **NVIDIA RTX 4090 (Ada)** + **AMD Raphael-iGPU** (renderD129, im BIOS scharf), niri
   (Wayland), PipeWire 1.6.7. Beide Encode-Pfade live testbar: NVENC (H264+AV1),
   VAAPI (H264). AMD-Test erzwingen: `PULSE_HQ_VENDOR=amd` + im Portal den Monitor am
@@ -346,6 +356,33 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
   Der Schalter `PULSE_CAPTURE_10BIT=1` (`pipewire_stream.rs`, Vorgabe aus) bleibt
   als Messwerkzeug stehen, damit dieselbe Frage auf einem anderen Compositor ein
   Kommando statt eines Nachmittags kostet.
+
+  **Nachtrag 2026-08-07, KWin 6.7.3 auf NVIDIA (RTX 5080) — schärfer als oben,
+  und der Grund ist ein anderer als gedacht.** Der Befund oben liest sich, als
+  wähle KWins ScreenCast unter mehreren Möglichkeiten die 8 bit. Das stimmt
+  nicht: sein PipeWire-Producer **annonciert überhaupt nur `BGRA` und `BGRx`**
+  (alle drei EnumFormat-Einträge, per `pw-dump` am Node
+  `kwin-screencast-<Ausgang>` abgelesen). Es gibt kein 10-Bit-Gegenüber, mit dem
+  sich verhandeln ließe — unser Angebot ist dabei gleichgültig, PipeWire kann nur
+  schneiden, was beide Seiten führen. Ergänzend gemessen:
+  * Das Format-Pod trägt **keinerlei Farbfelder** (weder `color_matrix` noch
+    `transfer_function` noch `color_primaries`, obwohl `spa_video_info_raw` sie
+    kennt). Über die Aufnahme kommt also nicht einmal die Beschreibung eines
+    Farbraums herein — das bliebe auch dann so, wenn die Bittiefe morgen fiele.
+  * **Mit eingeschaltetem HDR am aufgenommenen Monitor ändert sich nichts:**
+    dieselbe Formatliste, dasselbe `XR24`, und die Aufnahme desselben
+    Bildschirminhalts ist **byte-identisch** zu der im SDR-Modus. KWin gibt den
+    ScreenCast in einem festen SDR-Raum heraus. Für den Betrieb ist das die gute
+    Nachricht (wer mit HDR-Monitor streamt, sendet kein verunstaltetes Bild);
+    für HDR ist es die Sackgasse.
+
+  Neu dafür: `examples/egl_modifier_probe.rs` — meldet die EGL-DMABUF-Modifier je
+  Fourcc ohne Portal und ohne Aufnahme. Auf NVIDIA liefert der Treiber für
+  `XB30`/`AB30` dieselben 14 Modifier wie für `XR24`/`AR24`; die Sonde trennt
+  damit „der Compositor kann nicht" von „wir haben falsch gefragt", und genau
+  diese Verwechslung hat die Frage seit dem 2026-08-04 offen gehalten.
+  Volle Messakte samt Encoder- und Zuschauerseite:
+  `streaming/testbench/profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.
 
   Folge: „10 bit" heißt bei einem Bildschirm-Stream **10 bit Rechenraum im
   Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist real und gemessen (ein
