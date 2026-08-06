@@ -21,10 +21,23 @@ param(
   [int]$Sekunden = 90,
   [switch]$Ohne,
   [switch]$Voll,
+  [switch]$Zerocopy,
   [int]$Bitrate = 12000,
   [int]$Fps = 60,
   [string]$Aufloesung = '1080p'
 )
+
+# -Zerocopy: das dekodierte Bild bleibt im Grafikspeicher, statt ueber den
+# Hauptspeicher zu laufen (PULSE_PLAYER_ZEROCOPY=1, s. src/zerocopy).
+#
+# Der Schalter gehoert hierher, weil der Unterschied nur an einer LAUFENDEN
+# Strecke zu messen ist: die Posten "hochladen" und "dekodieren" in der
+# Statistikzeile des Players. Zwei Laeufe hintereinander, einer mit und einer
+# ohne, auf demselben Material -- alles andere waere ein Vergleich zweier
+# verschiedener Szenen.
+#
+# ACHTUNG bei der Deutung: auf diesem Weg arbeitet der Einfrier-Waechter NICHT
+# (er braucht die Ebenen im Hauptspeicher). Ein Standbild faellt also nicht auf.
 
 # -Voll: die VOLLSTAENDIGE Fehlerausgabe beider Programme in Dateien neben
 # diesem Skript, und der Rueckgabewert des Players dazu.
@@ -93,6 +106,10 @@ $pp.UseShellExecute = $false
 $pp.RedirectStandardInput = $true; $pp.RedirectStandardOutput = $true
 $pp.RedirectStandardError = $true
 $pp.EnvironmentVariables['PATH'] = "$ffbin;$env:PATH"
+if ($Zerocopy) { $pp.EnvironmentVariables['PULSE_PLAYER_ZEROCOPY'] = '1' }
+# Die Statistikzeile je Sekunde -- ohne sie steht in der Zusammenfassung unten
+# nichts ueber den Bildweg, und genau dort steht, was das Hochladen kostet.
+if ($Voll) { $pp.EnvironmentVariables['PULSE_PLAYER_STATS_LOG'] = '1' }
 $p = [Diagnostics.Process]::Start($pp)
 $pErr = $p.StandardError.ReadToEndAsync()
 $p.StandardOutput.ReadToEndAsync() | Out-Null
@@ -148,8 +165,17 @@ if ($Voll) {
 
 Write-Host "=== Was der Player gemeldet hat ===" -ForegroundColor Cyan
 ($pErr.Result -replace 'token=[^\s"&]+', 'token=WEG') -split "`n" |
-  Where-Object { $_ -match 'Oberflaechenformat|Farbraum|Farbwelt|Decoder|HDR' } |
+  Where-Object { $_ -match 'Oberflaechenformat|Farbraum|Farbwelt|Decoder|HDR|Zero-Copy' } |
   Select-Object -First 8 | ForEach-Object { "  " + $_.Trim() }
+
+# Die Posten, um die es beim Zero-Copy-Weg geht. Die LETZTEN Zeilen, nicht die
+# ersten: die erste Statistikzeile faellt in den Verbindungsaufbau, und ein
+# Mittelwert ueber die ersten Sekunden misst mehr den Anlauf als den Betrieb.
+Write-Host "=== Bildweg (letzte Statistikzeilen) ===" -ForegroundColor Cyan
+($pErr.Result -split "`n" | Where-Object { $_ -match 'hochladen .* ms' } |
+  Select-Object -Last 3) | ForEach-Object {
+    if ($_ -match '(hochladen [0-9.]+ ms.*?dekodieren [0-9./]+ ms)') { "  " + $Matches[1] }
+  }
 
 Write-Host "=== Was der Sender gemeldet hat ===" -ForegroundColor Cyan
 ($sErr.Result -replace 'token=[^\s"&]+', 'token=WEG') -split "`n" |

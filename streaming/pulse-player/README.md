@@ -170,7 +170,10 @@ Ehrlich benannt, damit niemand danach sucht:
   (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
   auseinanderlaeuft, ist ungemessen.
 - **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
-- **Kein zero-copy — und das kostet mehr als Rechenzeit.** Jedes Bild nimmt den
+- **Zero-copy gibt es, aber nur auf Anforderung** (`PULSE_PLAYER_ZEROCOPY=1`,
+  Windows). **Hier stand bis zum 2026-08-06 abends „Kein zero-copy"; das ist
+  ueberholt** — die Einzelheiten stehen weiter unten unter „Zero-Copy". Ohne den
+  Schalter gilt der ganze folgende Absatz unveraendert: jedes Bild nimmt den
   Weg GPU -> Hauptspeicher -> GPU zurueck (`decode.rs::in_den_hauptspeicher`,
   dann `render/mod.rs::upload`). Die reinen Kosten stehen in
   `streaming/testbench/profiles/player-2026-08-06-bildweg-kosten.json`: 1,5 ms
@@ -192,11 +195,12 @@ Ehrlich benannt, damit niemand danach sucht:
   es bleibt. `PULSE_PLAYER_STOCKUNGS_RUECKFALL=0` haelt den Hardware-Weg fest —
   fuer den Fall, dass man genau dieses Verhalten vermessen will.
 
-  Ein Weg ohne Ruecklesen ist auf AMD machbar (geteilte D3D11-Textur nach wgpu,
-  NV12 wie P010, gemessen in
-  `player-2026-08-06-nv12-wgpu-import-amd.json` und
-  `player-2026-08-06-p010-und-stapel.json`), auf NVIDIA bisher nicht — er
-  muesste also beides koennen. Gebaut ist er nicht.
+  **Hier stand „Gebaut ist er nicht" — seit dem 2026-08-06 abends ist er
+  gebaut** (s. „Zero-Copy" unten). Und er beseitigt diese Stockung **nicht**:
+  mit Zero-Copy laeuft gar kein Ruecklesen mehr, die Stockungen bleiben in
+  derselben Groesse, und die Zeit steht dann im eigenen Zaun. Es ist also die
+  Grafikeinheit selbst, die haengt, und nicht der Weg des Bildes — was vorher
+  nicht zu unterscheiden war.
 - **Hier stand bis 2026-08-05 „Nur unter Linux getestet … Windows und macOS
   sind ungeprueft". Fuer Windows stimmt das nicht mehr.** Auf Windows + NVIDIA
   (RTX 5080) laeuft er mit Hardware-Dekodierung — `h264_cuvid` und `av1_cuvid`,
@@ -207,6 +211,68 @@ Ehrlich benannt, damit niemand danach sucht:
   `win-build.yml`). **macOS bleibt ungeprueft** und wird nicht ausgeliefert.
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
+
+## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows, auf Anforderung)
+
+`PULSE_PLAYER_ZEROCOPY=1` schaltet ihn ein. Gemessen an der laufenden Kette
+(Radeon 780M, 1080p60 in 10 bit, HDR):
+
+| Posten je Bild | ohne | mit |
+|---|---|---|
+| hochladen | 1,0-1,3 ms | **0,1-0,2 ms** |
+| dekodieren (Mittel) | 4,3-4,8 ms | **2,2-3,7 ms** |
+| dekodieren (Spitze) | 7,1-7,7 ms | 3,5-6,8 ms |
+
+Volle Messakte:
+`streaming/testbench/profiles/player-2026-08-06-zerocopy-im-player.json`.
+
+**Warum es nicht die Vorgabe ist.** Auf diesem Weg gibt es die Bild-Ebenen im
+Hauptspeicher nicht mehr — und damit arbeiten **der Einfrier-Waechter, die
+Latenz-Sonde und `--dump` nicht**. Der Waechter bildet seinen Fingerabdruck ueber
+jedes Byte des Bildes (dass eine Stichprobe nicht genuegt, ist am 2026-08-05
+teuer gelernt worden), ein stehender Decoder bliebe also unbemerkt. Ein bis zwei
+Millisekunden je Bild wiegen das nicht auf. Zur Vorgabe wird der Weg erst, wenn
+der Fingerabdruck auf der GPU entsteht.
+
+**Wie er arbeitet, und warum nicht einfacher.** Naheliegend waere, FFmpegs
+Decoder-Textur selbst zu teilen. Das geht aus zwei unabhaengigen Gruenden nicht:
+
+* Der D3D11VA-Decoder liefert **nur einen Textur-Stapel** —
+  `d3d11va_create_decoder` bricht ohne Array-Textur ab
+  (`libavcodec/dxva2.c:482`), und `get_surface` prueft jedes Bild gegen genau
+  diese eine Textur (`:761`). Der oft genannte Ausweg `initial_pool_size = 0`
+  gilt fuer den **Encoder**-Pool des Sidecars, nicht fuer den Decoder.
+* Einen geteilten Stapel nimmt D3D12 nicht an: `OpenSharedHandle` liefert
+  `DXGI_ERROR_DEVICE_REMOVED`, das Geraet ist danach weg. Nicht abfangbar.
+
+Deshalb kopiert die Bruecke die Schicht des Bildes **GPU-intern** in eine eigene,
+einschichtige, teilbare Textur (`src/zerocopy/`), und der Renderer haengt DIESE
+ueber `OpenSharedHandle` + `texture_from_raw` in wgpu-dx12 ein
+(`src/render/fremdbild.rs`). Kein PCIe-Rueckweg, keine CPU-Kopie. Dieselbe
+Bruecke faehrt `streaming/win-hq-sidecar/src/capture/wgc_d3d12.rs` in der
+Gegenrichtung.
+
+**Nur ueber D3D12.** `texture_from_d3d11_shared_handle` gibt es in wgpu-hal
+29.0.4 ausschliesslich im Vulkan-Backend, `texture_from_raw` ausschliesslich im
+dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
+`PULSE_PLAYER_BACKEND=vulkan` gibt es keinen Import, wohl aber den Rueckfall.
+
+**Was noch daran haengt:**
+
+- Ein Ring aus 12 geteilten Texturen, rund 80 MB bei 1080p10 und 140 MB bei
+  1440p10 (`PULSE_PLAYER_ZEROCOPY_RING`). Zwoelf, weil der Ausgabe-Takt allein
+  vier Bilder haelt; mit vier Plaetzen schaltete sich der Weg nach dem ersten
+  Bild ab.
+- Ein CPU-Zaun nach der Kopie. Eine ueber `OpenSharedHandle` geoeffnete
+  Ressource stellt keinen `IDXGIKeyedMutex` bereit, und wgpu 29 bietet keinen
+  Warte-Aufruf auf seiner Warteschlange an. Das ist die naechste Stelle, an der
+  sich etwas holen liesse.
+- Die Textur des Decoders ist aufgerundet (bei AV1 auf Vielfache von 128, aus
+  1080 werden 1152 Zeilen). Der Renderer schneidet beim Abtasten zu
+  (`Bildform::nutzanteil`), statt einen Ausschnitt zu kopieren.
+- **NVIDIA und Intel sind ungemessen.** Der Rueckfall auf das Ruecklesen bleibt
+  deshalb Pflicht und ist es auch: scheitert irgendetwas, steht eine Logzeile im
+  Protokoll und der Player laeuft wie vorher.
 
 ## Aufbau
 
@@ -231,8 +297,15 @@ src/
 ├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
 ├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
 ├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit
+├── zerocopy/      das Bild im Grafikspeicher lassen (Windows, auf Anforderung)
+│   ├── bruecke.rs   Ring geteilter D3D11-Texturen samt Zaun
+│   ├── platz.rs     ein Ringplatz und wer ihn haelt (Lebensdauer-Regel)
+│   ├── ffmpeg_geraet.rs  was FFmpeg an einem D3D11-Bild mitgibt
+│   └── uebergabe.rs Naht zum Decoder
 ├── render/        wgpu-Darstellung
-│   ├── mod.rs     Texturen, Uniform-Werte, Zeichnen
+│   ├── mod.rs     Zeichnen, Bindegruppe, Ausgabe
+│   ├── bildquelle.rs  woraus der Shader liest: eigene Ebenen oder Fremdtextur
+│   ├── fremdbild.rs   geteilte Textur nach wgpu-dx12 einhaengen (Zero-Copy)
 │   ├── setup.rs   Geraet, Pipeline, Wahl des Oberflaechenformats
 │   ├── uniforms.rs  Uniform-Block als Bytes
 │   └── shader.wgsl  YUV->RGB, Deband, Dither, Zoom
@@ -336,15 +409,20 @@ Drittanbieter-Seite im Web.
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung
    steht, und sie entscheidet, ob der Player auch fuer die Fernsteuerung
    der richtige Weg ist.
-4. **Das Ruecklesen aus dem Grafikspeicher abschaffen** (Zero-Copy). Es kostet
-   nicht nur Rechenzeit, es ist die Stelle, an der der Player unter Last bis zu
-   2,4 Sekunden stillsteht (s. oben, „Was er noch NICHT kann"). Der Rueckfall
-   auf Software faengt das auf, beseitigt es aber nicht. **Bevor jemand
-   anfaengt:** die vorliegende Machbarkeitsstudie hat ueber Vulkan gemessen,
-   der Player faehrt unter Windows aber D3D12 (wegen HDR) — und der gemessene
-   wgpu-Aufruf gibt es dort nicht. Was das heisst und was zuerst zu pruefen
-   ist, steht in
-   `streaming/testbench/profiles/player-2026-08-06-zerocopy-blockiert-auf-d3d12.json`.
+4. **Zero-Copy zur Vorgabe machen.** Der Weg ist seit dem 2026-08-06 gebaut
+   (s. „Zero-Copy" oben) und spart 1-2 ms je Bild; was ihn noch als Schalter
+   festhaelt, ist der Einfrier-Waechter — er braucht die Ebenen im
+   Hauptspeicher. Der Schritt dorthin ist, seinen Fingerabdruck auf der GPU zu
+   bilden (Rechen-Durchgang ueber die Luma-Ebene, 8 Byte zurueck).
+
+   **Hier stand, Zero-Copy sei die Abhilfe gegen die Stockung. Das ist
+   widerlegt:** ohne Ruecklesen bleiben die Stockungen in derselben Groesse
+   stehen, die Zeit steht dann im eigenen Zaun. Es haengt die Grafikeinheit,
+   nicht der Weg des Bildes. Der Rueckfall auf Software bleibt die einzige
+   bekannte Abhilfe.
+
+   Ebenfalls offen: NVIDIA und Intel. Auf NVIDIA ist selbst der Import
+   ungeprueft, und der Vulkan-Weg kam dort schwarz an.
 5. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
    gegen die echte Kette geprueft (H.264 und AV1, 8 und 10 bit, jeweils
    `*_cuvid` in Hardware) und im Installer. Hier stand vorher „Windows und

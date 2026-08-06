@@ -93,11 +93,7 @@ impl Messstand {
             geraet_oeffnen(&adapter, "pulse-player-messung").await?;
 
         // Die Quelle ist immer planares 10 bit (s. Modul-Doku von `super`).
-        let form = Bildform {
-            layout: PixelLayout::Planar420,
-            ten_bit: true,
-            wide: breite_texturen,
-        };
+        let form = Bildform::voll(PixelLayout::Planar420, true, breite_texturen);
         let ebenen = hochladen(&device, &queue, form, q);
         Ok(Self {
             device,

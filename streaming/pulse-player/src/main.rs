@@ -36,6 +36,7 @@ mod session;
 mod stockung;
 mod theme;
 mod whep;
+mod zerocopy;
 
 use anyhow::Result;
 use winit::event_loop::{ControlFlow, EventLoop};

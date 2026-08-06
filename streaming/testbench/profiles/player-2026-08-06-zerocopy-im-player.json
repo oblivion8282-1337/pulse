@@ -1,0 +1,67 @@
+{
+  "id": "player-2026-08-06-zerocopy-im-player",
+  "gemessen_am": "2026-08-06 (abends)",
+  "frage": "Was bringt der Zero-Copy-Weg im laufenden pulse-player, und was kostet er? Gebaut nach den Befunden aus player-2026-08-06-zerocopy-d3d12-amd.",
+  "stand": "Gebaut und laeuft. Hochladen 1,0-1,3 -> 0,1-0,2 ms, Dekodieren 4,3-4,8 -> 2,2-3,7 ms je Bild. NICHT die Vorgabe, und zwei Befunde daneben sind wichtiger als die Zahlen.",
+
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, Windows 11 26200, HDR-Schirm. Sender = win-hq-sidecar (av1_amf, 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps) ueber den Hetzner-Messstand, Zuschauer = pulse-player ueber WHEP auf derselben Maschine. Werkzeug: streaming/win-hq-labor/testbench/hdr-ansehen.ps1, neu mit -Zerocopy. Je Arm mehrere Laeufe zu 45-60 s; abgelesen werden die letzten Statistikzeilen (die ersten fallen in den Verbindungsaufbau).",
+
+  "was_gebaut_wurde": {
+    "kurz": "Die Schicht des dekodierten Bildes wird GPU-intern in eine eigene, einschichtige, teilbare D3D11-Textur kopiert; die haengt der Renderer ueber OpenSharedHandle in wgpu-dx12 ein. FFmpegs Decoder-Pool wird NICHT angefasst.",
+    "warum_nicht_direkt": "Der D3D11VA-Decoder liefert nur einen Textur-Stapel (libavcodec/dxva2.c:482 und :761), und ein geteilter Stapel nimmt auf D3D12 das Geraet mit (DXGI_ERROR_DEVICE_REMOVED). Beides in player-2026-08-06-zerocopy-d3d12-amd belegt.",
+    "wo": "streaming/pulse-player/src/zerocopy/ (Decoder-Seite) und src/render/fremdbild.rs (Renderer-Seite).",
+    "schalter": "PULSE_PLAYER_ZEROCOPY=1. Vorgabe AUS, Begruendung unter 'der Preis'."
+  },
+
+  "zahlen": {
+    "hochladen_je_bild_ms": {"ohne": "1,0-1,3", "mit": "0,1-0,2"},
+    "dekodieren_mittel_ms": {"ohne": "4,3-4,8", "mit": "2,2-3,7"},
+    "dekodieren_spitze_ms": {"ohne": "7,1-7,7", "mit": "3,5-6,8"},
+    "was_hochladen_meint": "Der Posten `upload` der Player-Statistik: bisher `write_texture` fuer drei Ebenen, jetzt nur noch das Einhaengen und Binden der Fremdtextur (der Import selbst laeuft einmal je Ringplatz, nicht je Bild).",
+    "was_dekodieren_meint": "Der ganze Durchgang send_packet + receive_frame + Umwandlung. Der Unterschied ist im Wesentlichen der Wegfall von av_hwframe_transfer_data plus der billigere Weg danach (kein `convert` ueber Megabyte-Ebenen mehr).",
+    "vorsicht": "Beide Arme wurden mehrfach gefahren; die Bildrate lag durchgehend bei 60/s. Es sind Mittelwerte je Sekunde aus der laufenden Statistik, keine Verteilung."
+  },
+
+  "befund_1_die_stockung_liegt_NICHT_im_ruecklesen": {
+    "was": "Der Player stockt auf dieser Maschine regelmaessig 0,7 bis 3,0 Sekunden in einem einzelnen Dekodierdurchgang (player-2026-08-06-absturz-ist-eine-stockung). Bisher stand die ganze Zeit im `av_hwframe_transfer_data`, und daraus war zu schliessen, das Ruecklesen sei die Ursache.",
+    "jetzt_gemessen": "Mit Zero-Copy laeuft gar kein Ruecklesen mehr — und die Stockungen bleiben, in derselben Groesse. Die Zeile lautet dann '2523 ms herausholen, davon 0 ms Ruecklesen und 2523 ms Zero-Copy-Bruecke'. Die Zeit steckt also im WARTEN AUF DIE GRAFIKEINHEIT, gleich an welcher Stelle man wartet.",
+    "warum_das_zaehlt": "Zero-Copy behebt die Stockung NICHT. Es verschiebt sie nur an die Stelle, an der der eigene Zaun steht — und macht damit zum ersten Mal sichtbar, dass es die Grafikeinheit selbst ist. Wer Zero-Copy als Abhilfe gegen die Stockung eingeplant hat, plant falsch.",
+    "haeufigkeit": "Sehr ungleichmaessig. Von vier Zero-Copy-Laeufen zu je 45-60 s hatten zwei gar keine Stockung, einer drei, einer zwoelf. Ohne Zero-Copy hatten beide Laeufe je drei — dort endete es aber immer im Rueckfall auf Software, danach kann es keine mehr geben. Die Zahlen sind deshalb NICHT direkt vergleichbar."
+  },
+
+  "befund_2_der_waechter_haette_sich_selbst_abgeschaltet": {
+    "was": "`stockung::ist_grafikstockung` entschied bis heute allein an `ruecklesen`. Mit Zero-Copy ist dieser Wert immer 0 — die Bedingung war also nie erfuellt, und der Rueckfall auf Software (gebaut am selben Tag) haette auf diesem Weg NIE ausgeloest.",
+    "im_ersten_lauf_beobachtet": "Zwoelf Stockungen, kein Rueckfall, Sitzung lief mit 2-8 Bildern je Sekunde weiter.",
+    "abhilfe": "`Abschnitte` traegt jetzt ein viertes Feld `bruecke` (die Zeit in der Zero-Copy-Bruecke, im Wesentlichen das Warten am Zaun), und `ist_grafikstockung` zaehlt beide Wartearten. Ein Test haelt genau diesen Fall fest.",
+    "lehre": "Ein neuer Weg am alten Messpunkt vorbei schaltet stillschweigend jeden Schutz ab, der an diesem Messpunkt haengt."
+  },
+
+  "der_preis_und_warum_zero_copy_nicht_die_vorgabe_ist": {
+    "was_ausfaellt": "Der Einfrier-Waechter, die Latenz-Sonde und --dump. Alle drei lesen die Ebenen im Hauptspeicher — und genau die gibt es auf diesem Weg nicht mehr.",
+    "warum_das_schwer_wiegt": "Der Einfrier-Waechter bildet seinen Fingerabdruck ueber JEDES Byte des Bildes, und dass eine Stichprobe nicht genuegt, ist am 2026-08-05 teuer gelernt worden (einfrieren/abdruck.rs). Ein stehender Decoder bliebe also unbemerkt.",
+    "entscheidung": "Zero-Copy ist anzufordern (PULSE_PLAYER_ZEROCOPY=1), nicht Vorgabe. Ein bis zwei Millisekunden je Bild wiegen einen ausgefallenen Waechter nicht auf.",
+    "was_es_zur_vorgabe_machen_wuerde": "Den Fingerabdruck auf die GPU holen (Rechen-Durchgang ueber die Luma-Ebene, 8 Byte zurueck). Ungebaut."
+  },
+
+  "weitere_kosten": {
+    "grafikspeicher": "Ein Ring aus 12 geteilten Texturen: bei 1080p10 rund 80 MB, bei 1440p10 rund 140 MB. Zwoelf, weil der Ausgabe-Takt (60 ms Vorhalt) bei 60 fps allein vier Bilder haelt; mit vier Plaetzen schaltete sich der Weg nach dem ERSTEN Bild ab. Ueber PULSE_PLAYER_ZEROCOPY_RING einstellbar.",
+    "cpu_zaun": "Nach der GPU-internen Kopie wird auf der CPU auf den Zaun gewartet. Noetig, weil eine ueber OpenSharedHandle geoeffnete Ressource keinen IDXGIKeyedMutex bereitstellt (dieselbe Feststellung wie im Sidecar) und wgpu 29 keinen Warte-Aufruf auf seiner Warteschlange anbietet. Im gesunden Betrieb unter einer Millisekunde; im Stockungsfall steht dort die ganze Wartezeit.",
+    "bindegruppe_je_bild": "Der Ring rotiert je Bild, die Ansichten sind also andere — die Bindegruppe entsteht je Bild neu (drei Deskriptoren). Der Import selbst laeuft nur einmal je Ringplatz."
+  },
+
+  "rueckfall": {
+    "unversehrt": "Ohne den Schalter laeuft der Player Zeile fuer Zeile wie vorher. Mit dem Schalter faellt er auf das Ruecklesen zurueck, wenn die Bruecke sich nicht bauen laesst, der Import scheitert (anderer Adapter unter FFmpeg als unter wgpu, anderes Backend, fehlendes Merkmal) oder das Format kein NV12/P010 ist — eine Logzeile, kein Absturz.",
+    "gegendruck_ist_kein_fehler": "Ist gerade kein Ringplatz frei, nimmt DIESES Bild den alten Weg und der naechste Versuch laeuft wieder. Die Unterscheidung ist neu und war noetig: im ersten Lauf hat ein leerer Ring den Weg dauerhaft abgeschaltet.",
+    "software_dekodierung": "Faellt der Decoder auf Software zurueck, liegt das Bild ohnehin im Hauptspeicher — die Abfrage auf `Pixel::D3D11` schliesst diesen Fall aus, ohne ihn eigens behandeln zu muessen."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur Radeon 780M, ein Treiberstand, nur 1080p60 in 10 bit. NVIDIA und Intel sind ungemessen; auf NVIDIA ist selbst der Import ungeprueft.",
+    "1440p ist nicht gemessen — dort waere der Gewinn nach player-2026-08-06-bildweg-kosten groesser und der Speicherbedarf des Rings ebenfalls.",
+    "Der Bildeindruck ist geprueft (HDR-Sichtlauf, Farben und Helligkeit unveraendert), aber nicht Bildpunkt fuer Bildpunkt gegen den Weg ohne Zero-Copy verglichen.",
+    "Die Stockungshaeufigkeit streut zu stark, um daraus etwas ueber den Einfluss des Weges abzuleiten.",
+    "8 bit (NV12) ist im Player nicht durchgemessen — der Messstand faehrt 10 bit. Die Probe deckt beide Formate ab, der laufende Player nur P010."
+  ],
+
+  "reproduzieren": "cd streaming/win-hq-labor/testbench && powershell -File hdr-ansehen.ps1 -Sekunden 60 -Voll [-Zerocopy]. Der Schalter -Voll setzt zusaetzlich PULSE_PLAYER_STATS_LOG=1; ohne ihn gibt es keine Statistikzeile und damit keine Zahlen. Ueber die Bash starten, nicht ueber die PowerShell-Sitzung."
+}

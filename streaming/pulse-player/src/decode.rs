@@ -10,9 +10,14 @@
 //! (`av1_cuvid`, `h264_cuvid`, `*_qsv`) oder den nativen mit angehaengtem
 //! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Die
 //! cuvid-Decoder liefern ihre Frames in den Hauptspeicher; der Decode selbst
-//! laeuft auf der GPU. Das ist noch nicht zero-copy — ein direkter Weg von
-//! NVDEC in eine Vulkan-Textur waere die naechste Ausbaustufe, verlangt aber
-//! `hw_frames_ctx` samt Interop und ist bewusst nicht Teil des ersten Wurfs.
+//! laeuft auf der GPU.
+//!
+//! **Hier stand „Das ist noch nicht zero-copy … bewusst nicht Teil des ersten
+//! Wurfs". Fuer den D3D11VA-Weg unter Windows stimmt das seit dem 2026-08-06
+//! nicht mehr:** `PULSE_PLAYER_ZEROCOPY=1` laesst das Bild im Grafikspeicher
+//! (s. [`crate::zerocopy`]). Fuer cuvid und VAAPI gilt der Satz weiter — dort
+//! gibt es keine Bruecke, und bei cuvid holt FFmpeg das Bild ohnehin selbst
+//! herunter, noch innerhalb von `send_packet`.
 //!
 //! LIZENZ: FFmpeg muss in ausgelieferten Builds LGPL-konfiguriert und dynamisch
 //! gelinkt sein — siehe Cargo.toml und THIRD-PARTY-NOTICES.md.
@@ -483,8 +488,15 @@ pub struct DecodedFrame {
     /// bis auf das letzte verworfen — dasselbe, was heute schon passiert.
     pub rtp_ts: Option<u32>,
     pub clock_rate: u32,
+    /// Das Bild liegt im Grafikspeicher (s. [`crate::zerocopy`]).
+    ///
+    /// **Ist das gesetzt, sind `planes` und `strides` leer** — und damit fallen
+    /// der Einfrier-Waechter, die Latenz-Sonde und `--dump` aus, weil sie alle
+    /// die Ebenen im Hauptspeicher lesen. Genau deshalb ist der Weg
+    /// ausdruecklich anzufordern und nicht die Vorgabe.
+    pub gpu: Option<std::sync::Arc<crate::zerocopy::GpuBild>>,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
-    pool: PlanePool,
+    pub(crate) pool: PlanePool,
 }
 
 #[cfg(test)]
@@ -511,6 +523,7 @@ impl DecodedFrame {
             arrived: None,
             rtp_ts: None,
             clock_rate: 0,
+            gpu: None,
             pool: PlanePool::default(),
         }
     }
@@ -773,8 +786,14 @@ pub struct VideoDecoder {
     /// gedauert hat. Wird je `decode` zurueckgesetzt und dort ausgewertet
     /// (s. [`crate::stockung`]).
     ruecklesen_us: u64,
+    /// Dasselbe fuer den Weg am Hauptspeicher vorbei (s. [`crate::zerocopy`]).
+    bruecke_us: u64,
     /// Zaehlt haengende Ruecklesevorgaenge (s. [`crate::stockung::Waechter`]).
     stockungen: crate::stockung::Waechter,
+    /// Der Weg am Hauptspeicher vorbei. Die drei Zustaende dieses `Option` sind
+    /// in [`crate::zerocopy::bild_ohne_umweg`] erklaert, wo sie ausgewertet
+    /// werden.
+    bruecke: Option<Option<crate::zerocopy::Bruecke>>,
 }
 
 impl VideoDecoder {
@@ -812,7 +831,9 @@ impl VideoDecoder {
                         plane_pool: PlanePool::default(),
                         hw_ziel: ffmpeg::util::frame::video::Video::empty(),
                         ruecklesen_us: 0,
+                        bruecke_us: 0,
                         stockungen: crate::stockung::Waechter::default(),
+                        bruecke: None,
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -954,11 +975,13 @@ impl VideoDecoder {
         self.consecutive_errors = 0;
         let hineingeben = uhr.elapsed().as_micros() as u64;
         self.ruecklesen_us = 0;
+        self.bruecke_us = 0;
         let bilder = self.drain();
         let abschnitte = crate::stockung::Abschnitte {
             hineingeben,
             herausholen: uhr.elapsed().as_micros() as u64 - hineingeben,
             ruecklesen: self.ruecklesen_us,
+            bruecke: self.bruecke_us,
         };
         crate::stockung::melden(abschnitte, bilder.len());
         // Haengt die Grafikeinheit wiederholt, ist der Hardware-Weg aufzugeben.
@@ -969,7 +992,7 @@ impl VideoDecoder {
             && crate::stockung::ist_grafikstockung(abschnitte)
             && self.stockungen.stockung(std::time::Instant::now())
         {
-            self.auf_software("das Ruecklesen aus dem Grafikspeicher blockiert wiederholt")?;
+            self.auf_software("das Warten auf die Grafikeinheit blockiert wiederholt")?;
         }
         Ok(bilder)
     }
@@ -1225,6 +1248,18 @@ impl VideoDecoder {
                 frame.format(),
                 ffmpeg::format::Pixel::VAAPI | ffmpeg::format::Pixel::D3D11
             );
+            // Der Weg am Hauptspeicher vorbei — nur wenn angefordert, nur bei
+            // D3D11 und nur, solange er traegt. Scheitert er, wird er nicht
+            // wieder versucht und es geht unten normal weiter.
+            if frame.format() == ffmpeg::format::Pixel::D3D11 && crate::zerocopy::angefordert() {
+                let (fertig, dauer) =
+                    crate::zerocopy::bild_ohne_umweg(&mut self.bruecke, &frame);
+                self.bruecke_us += dauer;
+                if let Some(f) = fertig {
+                    out.push(f);
+                    continue;
+                }
+            }
             if auf_gpu {
                 let vor = std::time::Instant::now();
                 let ergebnis = in_den_hauptspeicher(&frame, &mut self.hw_ziel);
@@ -1326,8 +1361,15 @@ fn convert(
         ten_bit,
         full_range: matches!(frame.color_range(), ffmpeg::color::Range::JPEG),
         farbe: farbangaben_von(frame, height),
+        gpu: None,
         pool: pool.clone(),
     })
+}
+
+/// Wie [`farbangaben_von`], aber auch fuer `zerocopy::uebergabe` erreichbar —
+/// eine zweite Ableitung dort liefe beim naechsten Umbau auseinander.
+pub(crate) fn farbangaben_fuer(frame: &ffmpeg::util::frame::video::Video) -> Farbangaben {
+    farbangaben_von(frame, frame.height())
 }
 
 #[cfg(test)]

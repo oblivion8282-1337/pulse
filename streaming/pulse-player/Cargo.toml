@@ -121,6 +121,13 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    # Ab hier fuer den Zero-Copy-Weg (`src/zerocopy`, `render/fremdbild.rs`):
+    # die geteilte Textur und ihr Zaun leben in D3D11, geoeffnet wird sie auf
+    # wgpus D3D12-Geraet, und auf den Zaun wird ueber ein Win32-Ereignis
+    # gewartet.
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_System_Threading",
 ] }
 
 [profile.release]

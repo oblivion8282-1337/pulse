@@ -32,6 +32,22 @@ pub struct Bildform {
     pub ten_bit: bool,
     /// Ob die TEXTUREN 16 bit tragen (nicht, ob die Quelle 10 bit hatte).
     pub wide: bool,
+    /// Welcher Anteil der Textur ueberhaupt Bild ist, in x und y.
+    ///
+    /// **Normalerweise `[1.0, 1.0]`** — die hochgeladenen Ebenen sind exakt so
+    /// gross wie das Bild. Auf dem Zero-Copy-Weg nicht: dort ist die Textur die
+    /// des Decoders, und der rundet auf (bei AV1 auf Vielfache von 128, aus
+    /// 1080 werden also 1152 Zeilen). Ohne diesen Faktor zeigte der Player die
+    /// Fuellzeilen mit an — schwarze oder muellige Raender, die kein Fehler des
+    /// Stroms waeren.
+    pub nutzanteil: [f32; 2],
+}
+
+impl Bildform {
+    /// Die uebliche Form: die Textur ist genau das Bild.
+    pub fn voll(layout: PixelLayout, ten_bit: bool, wide: bool) -> Self {
+        Self { layout, ten_bit, wide, nutzanteil: [1.0, 1.0] }
+    }
 }
 
 /// Der Uniform-Block, aus dem der Shader alles liest.
@@ -63,8 +79,14 @@ pub fn build_uniforms(
     let flag = |on: bool| if on { 1.0 } else { 0.0 };
     let (abtast_skalierung, code_massstab) = scales(form.wide, form.layout);
 
+    // Der Zoom-Ausschnitt liegt in Bild-Koordinaten, der Shader tastet aber die
+    // TEXTUR ab. Traegt die Textur Fuellzeilen (Zero-Copy, s.
+    // `Bildform::nutzanteil`), muss beides zusammen — sonst zoomte man in einen
+    // Ausschnitt, der die Fuellung einschliesst.
+    let [nx, ny] = form.nutzanteil;
+
     Uniforms {
-        crop: [origin_x, origin_y, size, size],
+        crop: [origin_x * nx, origin_y * ny, size * nx, size * ny],
         params: [
             opts.deband.unwrap_or(0.0),
             flag(opts.dither.unwrap_or(true)),
@@ -218,10 +240,58 @@ pub fn scales(wide_texture: bool, layout: PixelLayout) -> (f32, f32) {
 mod hdr_tests {
     use super::*;
 
+    /// **Der Zero-Copy-Fall.** Traegt die Textur Fuellzeilen des Decoders
+    /// (`nutzanteil < 1`), muss der Ausschnitt entsprechend schrumpfen — sonst
+    /// zeigte der Player die Fuellung mit. Und der Zoom muss dabei
+    /// mitmultipliziert werden, nicht neben dem Faktor stehen: sonst zoomte man
+    /// in einen Ausschnitt, der die Fuellung wieder einschliesst.
+    #[test]
+    fn fuellzeilen_verkleinern_den_ausschnitt() {
+        let form = |anteil: [f32; 2]| Bildform {
+            layout: PixelLayout::BiPlanar420,
+            ten_bit: true,
+            wide: true,
+            nutzanteil: anteil,
+        };
+        let bauen = |f: Bildform, zoom: Option<f32>| {
+            build_uniforms(
+                wgpu::TextureFormat::Rgb10a2Unorm,
+                f,
+                &PlayerOptions { zoom, ..PlayerOptions::default() },
+                false,
+                Farbangaben::default(),
+                false,
+                0.0,
+            )
+        };
+        // Volle Textur, kein Zoom: der ganze Bereich.
+        let voll = bauen(form([1.0, 1.0]), None);
+        assert_eq!(voll.crop, [0.0, 0.0, 1.0, 1.0]);
+
+        // 1080 Bildzeilen in einer auf 1152 aufgerundeten Textur.
+        let anteil = 1080.0f32 / 1152.0;
+        let beschnitten = bauen(form([1.0, anteil]), None);
+        assert_eq!(beschnitten.crop[3], anteil, "Hoehe muss auf den Nutzanteil");
+        assert_eq!(beschnitten.crop[2], 1.0, "Breite bleibt voll");
+
+        // Mit Zoom 2: beides zusammen, nicht nur eines von beiden.
+        let gezoomt = bauen(form([1.0, anteil]), Some(2.0));
+        assert!(
+            (gezoomt.crop[3] - 0.5 * anteil).abs() < 1e-6,
+            "Zoom und Nutzanteil muessen sich multiplizieren: {}",
+            gezoomt.crop[3]
+        );
+        assert!(
+            (gezoomt.crop[1] - 0.25 * anteil).abs() < 1e-6,
+            "auch der Ursprung: {}",
+            gezoomt.crop[1]
+        );
+    }
+
     fn bau(farbe: Farbangaben, hdr_fenster: bool, format: wgpu::TextureFormat) -> crate::render::Uniforms {
         build_uniforms(
             format,
-            Bildform { layout: PixelLayout::BiPlanar420, ten_bit: true, wide: true },
+            Bildform::voll(PixelLayout::BiPlanar420, true, true),
             &PlayerOptions::default(),
             false,
             farbe,

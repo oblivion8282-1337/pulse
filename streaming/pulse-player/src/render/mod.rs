@@ -10,7 +10,9 @@
 //! braeuchte aber FFI-Bindungen. Die hier benoetigte Verarbeitung (Farbmatrix,
 //! Deband, Dither, Zoom) passt in einen WGSL-Shader, und wgpu ist MIT/Apache.
 
+mod bildquelle;
 mod farbe;
+mod fremdbild;
 mod hdr_fenster;
 mod setup;
 mod uniforms;
@@ -23,25 +25,13 @@ pub use uniforms::Uniforms;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
-use crate::decode::{DecodedFrame, Farbangaben, PixelLayout};
+use bildquelle::{planes_anlegen, planes_fuellen, Bildquelle, Fremdform};
+use crate::decode::{DecodedFrame, Farbangaben};
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::PlayerOptions;
 
 pub fn texture_binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource: wgpu::BindingResource::TextureView(view) }
-}
-
-struct Planes {
-    y: wgpu::Texture,
-    u: wgpu::Texture,
-    v: wgpu::Texture,
-    width: u32,
-    height: u32,
-    layout: PixelLayout,
-    ten_bit: bool,
-    /// Ob die TEXTUREN 16 bit tragen. Bei `false` liegen die Daten trotz
-    /// 10-bit-Quelle als 8 bit darin — der Shader darf dann nicht skalieren.
-    wide: bool,
 }
 
 pub struct Renderer {
@@ -53,7 +43,9 @@ pub struct Renderer {
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     uniform_buf: wgpu::Buffer,
-    planes: Option<Planes>,
+    bild: Option<Bildquelle>,
+    /// Eingehaengte Fremdtexturen samt ihrer Ebenen-Ansichten (Zero-Copy).
+    fremdbilder: fremdbild::Fremdbilder,
     bind_group: Option<wgpu::BindGroup>,
     frames_presented: u64,
     /// Ob 16-bit-Norm-Texturen erlaubt sind (s. `setup::GpuSetup`).
@@ -109,7 +101,8 @@ impl Renderer {
             bind_layout: gpu.bind_layout,
             sampler: gpu.sampler,
             uniform_buf: gpu.uniform_buf,
-            planes: None,
+            bild: None,
+            fremdbilder: fremdbild::Fremdbilder::neu(),
             bind_group: None,
             frames_presented: 0,
             wide_textures: gpu.wide_textures,
@@ -147,142 +140,82 @@ impl Renderer {
     }
 
     /// Laedt ein dekodiertes Bild in die GPU-Texturen.
+    ///
+    /// **Traegt das Bild eine Fremdtextur, wird hier gar nichts geladen** — es
+    /// liegt schon im Grafikspeicher, und der ganze Zweck dieses Weges ist,
+    /// dass es dort bleibt (s. [`crate::zerocopy`]).
     pub fn upload(&mut self, frame: &DecodedFrame) {
-        let needs_new = self.planes.as_ref().is_none_or(|p| {
-            p.width != frame.width
-                || p.height != frame.height
-                || p.layout != frame.format
-                || p.ten_bit != frame.ten_bit
-                || p.wide != (frame.ten_bit && self.wide_textures)
-        });
-        if needs_new {
-            self.planes = Some(self.create_planes(frame));
+        if let Some(gpu) = frame.gpu.as_ref() {
+            if self.fremdbild_binden(frame, gpu) {
+                return;
+            }
+            // Der Import ist nicht moeglich (falsches Backend, fehlendes
+            // Merkmal). Der Decoder haette dann eigentlich gar nicht erst
+            // umgestellt — aber ein leeres Bild zu zeichnen waere schlimmer als
+            // eines auszulassen.
+            return;
+        }
+        if !self.bild.as_ref().is_some_and(|b| b.passt_zu(frame, self.wide_textures)) {
+            self.bild =
+                Some(Bildquelle::Eigen(planes_anlegen(&self.device, frame, self.wide_textures)));
             self.bind_group = None;
         }
-        let Some(planes) = self.planes.as_ref() else { return };
-
-        let bytes_per_sample: u32 = if frame.ten_bit { 2 } else { 1 };
-        let chroma_w = frame.width.div_ceil(2);
-        let chroma_h = frame.height.div_ceil(2);
-
-        // Die dritte Ebene bleibt bei verschraenktem UV ungenutzt — der Shader
-        // liest sie dann nicht.
-        let targets = match frame.format {
-            PixelLayout::Planar420 => [
-                (&planes.y, frame.width, frame.height, Some(0usize)),
-                (&planes.u, chroma_w, chroma_h, Some(1)),
-                (&planes.v, chroma_w, chroma_h, Some(2)),
-            ],
-            PixelLayout::BiPlanar420 => [
-                (&planes.y, frame.width, frame.height, Some(0usize)),
-                (&planes.u, chroma_w, chroma_h, Some(1)),
-                (&planes.v, 1, 1, None),
-            ],
-        };
-
-        let narrow = frame.ten_bit && !self.wide_textures;
-        for (tex, w, h, plane_idx) in targets {
-            let Some(idx) = plane_idx else { continue };
-            let Some(source) = frame.planes.get(idx) else { continue };
-            // Ohne 16-bit-Texturen die Quelle verkleinern statt abzustuerzen.
-            if narrow {
-                // In einen wiederverwendeten Puffer, nicht in einen frischen:
-                // dieser Pfad laeuft pro Ebene und Bild, und die Ebenen sind
-                // megabytegross (s. `narrow_plane`).
-                let scratch = &mut self.narrow_scratch[idx.min(2)];
-                narrow_plane_into(source, frame.format, scratch);
-            }
-            let data: &[u8] =
-                if narrow { &self.narrow_scratch[idx.min(2)] } else { source };
-            let stride =
-                if narrow { frame.strides[idx] / 2 } else { frame.strides[idx] };
-            let bytes_per_sample: u32 = if narrow { 1 } else { bytes_per_sample };
-            // verschraenktes UV traegt zwei Komponenten je Bildpunkt
-            let components: u32 =
-                if frame.format == PixelLayout::BiPlanar420 && idx == 1 { 2 } else { 1 };
-            self.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: tex,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(stride as u32),
-                    rows_per_image: Some(h),
-                },
-                wgpu::Extent3d {
-                    width: w.min(stride as u32 / (bytes_per_sample * components)),
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
+        let Some(Bildquelle::Eigen(planes)) = self.bild.as_ref() else { return };
+        planes_fuellen(
+            &self.queue,
+            planes,
+            frame,
+            self.wide_textures,
+            &mut self.narrow_scratch,
+        );
     }
 
-    fn create_planes(&self, frame: &DecodedFrame) -> Planes {
-        // 16-bit-Texturen nur, wenn die GPU sie erlaubt. Sonst werden die
-        // Quelldaten beim Hochladen auf 8 bit heruntergerechnet.
-        let wide = frame.ten_bit && self.wide_textures;
-        let single = if wide {
-            wgpu::TextureFormat::R16Unorm
-        } else {
-            wgpu::TextureFormat::R8Unorm
+    /// Ein Fremdbild einhaengen und binden. `false` heisst: geht nicht, der
+    /// Aufrufer laesst das Bild aus.
+    ///
+    /// **Die Bindegruppe entsteht bei JEDEM Bild neu**, und das ist kein
+    /// Versehen: der Ring rotiert je Bild, die Ansichten sind also andere. Der
+    /// Import selbst laeuft nur einmal je Ringplatz (Zwischenspeicher in
+    /// `fremdbild`); was hier je Bild anfaellt, ist das Schreiben von drei
+    /// Deskriptoren.
+    fn fremdbild_binden(
+        &mut self,
+        frame: &DecodedFrame,
+        gpu: &std::sync::Arc<crate::zerocopy::GpuBild>,
+    ) -> bool {
+        let (tw, th) = gpu.textur_masse();
+        if tw == 0 || th == 0 || frame.width == 0 || frame.height == 0 {
+            return false;
+        }
+        let Some(ansichten) = self.fremdbilder.binden(&self.device, gpu) else {
+            return false;
         };
-        let chroma_format = match frame.format {
-            PixelLayout::Planar420 => single,
-            PixelLayout::BiPlanar420 if wide => wgpu::TextureFormat::Rg16Unorm,
-            PixelLayout::BiPlanar420 => wgpu::TextureFormat::Rg8Unorm,
-        };
-        let chroma_w = frame.width.div_ceil(2);
-        let chroma_h = frame.height.div_ceil(2);
-        Planes {
-            y: self.make_texture(frame.width, frame.height, single, "y"),
-            u: self.make_texture(chroma_w, chroma_h, chroma_format, "u"),
-            v: self.make_texture(chroma_w, chroma_h, single, "v"),
+        self.bind_group = Some(setup::bind_group_aus_teilen(
+            &self.device,
+            &self.bind_layout,
+            &self.sampler,
+            &self.uniform_buf,
+            ansichten,
+        ));
+        self.bild = Some(Bildquelle::Fremd(Fremdform {
             width: frame.width,
             height: frame.height,
-            layout: frame.format,
             ten_bit: frame.ten_bit,
-            wide,
-        }
-    }
-
-    fn make_texture(
-        &self,
-        width: u32,
-        height: u32,
-        format: wgpu::TextureFormat,
-        label: &str,
-    ) -> wgpu::Texture {
-        self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width: width.max(1),
-                height: height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        })
+            nutzanteil: [frame.width as f32 / tw as f32, frame.height as f32 / th as f32],
+        }));
+        true
     }
 
     fn build_uniforms(
         &self,
         opts: &PlayerOptions,
-        planes: &Planes,
+        form: Bildform,
         full_range: bool,
         farbe: Farbangaben,
     ) -> Uniforms {
         build_uniforms(
             self.config.format,
-            Bildform { layout: planes.layout, ten_bit: planes.ten_bit, wide: planes.wide },
+            form,
             opts,
             full_range,
             farbe,
@@ -344,31 +277,24 @@ impl Renderer {
         farbe: Farbangaben,
         overlay: Option<&mut OverlayPass<'_>>,
     ) -> Result<()> {
-        let Some(planes) = self.planes.as_ref() else { return Ok(()) };
+        let Some(quelle) = self.bild.as_ref() else { return Ok(()) };
+        let form = quelle.form();
+        let (bild_w, bild_h) = quelle.masse();
 
         if self.bind_group.is_none() {
+            let Some(Bildquelle::Eigen(planes)) = self.bild.as_ref() else { return Ok(()) };
             let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
             let (vy, vu, vv) = (view(&planes.y), view(&planes.u), view(&planes.v));
-            self.bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("pulse-player-bg"),
-                layout: &self.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    texture_binding(2, &vy),
-                    texture_binding(3, &vu),
-                    texture_binding(4, &vv),
-                ],
-            }));
+            self.bind_group = Some(setup::bind_group_aus_teilen(
+                &self.device,
+                &self.bind_layout,
+                &self.sampler,
+                &self.uniform_buf,
+                [&vy, &vu, &vv],
+            ));
         }
 
-        let uniforms = self.build_uniforms(opts, planes, full_range, farbe);
+        let uniforms = self.build_uniforms(opts, form, full_range, farbe);
         self.queue.write_buffer(&self.uniform_buf, 0, &uniforms.as_bytes());
 
         let Some(surface_texture) = self.acquire()? else { return Ok(()) };
@@ -406,8 +332,8 @@ impl Renderer {
             let (vx, vy, vw, vh) = fit_viewport(
                 self.config.width as f32,
                 self.config.height as f32,
-                planes.width as f32,
-                planes.height as f32,
+                bild_w as f32,
+                bild_h as f32,
             );
             pass.set_viewport(vx, vy, vw, vh, 0.0, 1.0);
             pass.draw(0..3, 0..1);
@@ -429,6 +355,14 @@ impl Renderer {
             );
         }
         self.queue.submit(Some(encoder.finish()));
+        // **Den Ringplatz erst freigeben, wenn die GPU ihn nicht mehr liest.**
+        // Der `DecodedFrame` ist zu diesem Zeitpunkt laengst verworfen (das
+        // Fenster laesst ihn direkt nach `upload` fallen); ohne diese zweite
+        // Referenz schriebe der Decoder in die Textur, aus der gerade gezeichnet
+        // wird — sichtbar als flackernder Riss quer durchs Bild.
+        if let Some(gehalten) = self.fremdbilder.gehalten() {
+            self.queue.on_submitted_work_done(move || drop(gehalten));
+        }
         surface_texture.present();
         self.frames_presented += 1;
         Ok(())

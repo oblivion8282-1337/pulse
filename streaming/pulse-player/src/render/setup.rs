@@ -304,11 +304,21 @@ pub async fn geraet_oeffnen(
              werden auf 8 bit heruntergerechnet"
         );
     }
-    let required_features = if wide_textures {
+    let mut required_features = if wide_textures {
         wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
     } else {
         wgpu::Features::empty()
     };
+    // NV12/P010 als Texturformat — die Voraussetzung dafuer, eine
+    // Decoder-Textur einzuhaengen, statt sie durch den Hauptspeicher zu
+    // schicken (s. `crate::zerocopy`).
+    //
+    // **Hier und nicht spaeter**, obwohl der Weg erst auf Anforderung laeuft:
+    // ein wgpu-Geraet laesst sich nachtraeglich nicht erweitern, und ob ein
+    // Strom 8 oder 10 bit fuehrt, steht erst beim ersten Bild fest. Angefordert
+    // wird nur, was die GPU anbietet — ein unerfuellbares `required_features`
+    // liesse `request_device` scheitern, und dann gaebe es gar kein Bild mehr.
+    required_features |= super::fremdbild::Fremdbilder::merkmale(adapter.features());
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some(label),
@@ -407,15 +417,32 @@ pub fn build_bind_group(
     gfx: &Graphics,
     ebenen: [&wgpu::TextureView; 3],
 ) -> wgpu::BindGroup {
+    bind_group_aus_teilen(device, &gfx.bind_layout, &gfx.sampler, &gfx.uniform_buf, ebenen)
+}
+
+/// Dieselbe Bindegruppe, aber aus Einzelteilen.
+///
+/// Es gibt sie, weil der Renderer im Fenster kein `Graphics` mehr zur Hand hat
+/// (er haelt dessen Teile einzeln) und ein nur zum Aufrufen gebauter
+/// `Graphics`-Zwilling drei ueberfluessige Kopien waere. Die Bindungsnummern
+/// bleiben damit trotzdem an EINER Stelle — das war der Zweck von
+/// [`build_bind_group`] und bleibt es.
+pub fn bind_group_aus_teilen(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    uniform_buf: &wgpu::Buffer,
+    ebenen: [&wgpu::TextureView; 3],
+) -> wgpu::BindGroup {
     use super::texture_binding as textur;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("pulse-player-bg"),
-        layout: &gfx.bind_layout,
+        layout,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: gfx.uniform_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 0, resource: uniform_buf.as_entire_binding() },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(&gfx.sampler),
+                resource: wgpu::BindingResource::Sampler(sampler),
             },
             textur(2, ebenen[0]),
             textur(3, ebenen[1]),
