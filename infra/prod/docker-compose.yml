@@ -26,7 +26,23 @@ x-app-labels: &app-labels
 x-pinned-labels: &pinned-labels
   com.centurylinklabs.watchtower.enable: "false"
 
+# Log-Begrenzung fuer JEDEN Container. Ohne das sammelt Dockers json-file-
+# Treiber UNBEGRENZT — die Container schreiben auf stdout, und niemand raeumt
+# ab. Aufgefallen am 2026-08-06 beim MediaMTX-Log: dort landen die
+# FEC-Tor-Bilanzen, die wir fuer die Diagnose auswerten wollen. Sie sind der
+# Grund, das Log zu BEGRENZEN statt abzuschalten.
+#
+# 10 MB x 5 = hoechstens 50 MB je Container. Bei MediaMTX (rund 200
+# Sitzungs-Bilanzen in 48 h) reicht das fuer Wochen zurueck.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
 x-app-common: &app-common
+  <<: *logging
   restart: unless-stopped
   env_file: .env
   networks: [pulse-net]
@@ -35,6 +51,7 @@ x-app-common: &app-common
 services:
   # ── data ───────────────────────────────────────────────────────────────────
   postgres:
+    <<: *logging
     image: postgres:16-alpine
     container_name: pulse_postgres
     restart: unless-stopped
@@ -54,6 +71,7 @@ services:
     labels: *pinned-labels
 
   redis:
+    <<: *logging
     image: redis:7-alpine
     container_name: pulse_redis
     restart: unless-stopped
@@ -76,6 +94,7 @@ services:
   # browsers can PUT/GET directly via Caddy → pulse_web → nginx → MinIO.
   # Bucket creation runs in the one-shot minio-init container below.
   minio:
+    <<: *logging
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: pulse_minio
     restart: unless-stopped
@@ -108,6 +127,7 @@ services:
     labels: *pinned-labels
 
   minio-init:
+    <<: *logging
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: pulse_minio_init
     depends_on:
@@ -143,6 +163,7 @@ services:
   # *not* a real backup against disk loss — an off-host move is tracked
   # as a TODO in DEPLOY.md.
   backup:
+    <<: *logging
     profiles: [backup]
     build: ./backup
     container_name: pulse_backup
@@ -185,6 +206,7 @@ services:
 
   # ── migrations (run once, then exit) ───────────────────────────────────────
   migrate-auth:
+    <<: *logging
     image: ghcr.io/oblivion8282-1337/pulse-auth:latest
     container_name: pulse_migrate_auth
     env_file: .env
@@ -200,6 +222,7 @@ services:
     labels: *pinned-labels
 
   migrate-chat:
+    <<: *logging
     image: ghcr.io/oblivion8282-1337/pulse-chat-gateway:latest
     container_name: pulse_migrate_chat
     env_file: .env
@@ -335,6 +358,7 @@ services:
       start_period: 10s
 
   frps:
+    <<: *logging
     image: snowdreamtech/frps:0.69.1
     container_name: pulse_frps
     restart: unless-stopped
@@ -393,6 +417,7 @@ services:
 
   # ── streaming / voice servers (host network — UDP ranges) ──────────────────
   mediamtx:
+    <<: *logging
     # Pulse fork of MediaMTX — injects OBU_TEMPORAL_DELIMITER for AMD-VAAPI AV1
     # (libwebrtc rejects the TD-less frames otherwise); see infra/mediamtx-fork/.
     #
@@ -504,6 +529,7 @@ services:
     labels: *pinned-labels
 
   livekit:
+    <<: *logging
     # v1.13.3: Parität mit dem Self-Host-Image (App-Hosting braucht 1.13.1+ für
     # skip_external_ip_validation hinter NAT). Cloud hat keinen NAT-Hairpin, aber
     # gleiche Version = eine Fehlerquelle weniger. Protocol-16-kompatibel zum
@@ -530,6 +556,7 @@ services:
   # Config ist self-contained (registry-config.yml) → kein env_file nötig.
   # GC läuft wöchentlich via Host-Cron (DEPLOY.md).
   registry:
+    <<: *logging
     image: registry:2.8.3
     container_name: pulse_registry
     restart: unless-stopped
