@@ -20,10 +20,22 @@
 param(
   [int]$Sekunden = 90,
   [switch]$Ohne,
+  [switch]$Voll,
   [int]$Bitrate = 12000,
   [int]$Fps = 60,
   [string]$Aufloesung = '1080p'
 )
+
+# -Voll: die VOLLSTAENDIGE Fehlerausgabe beider Programme in Dateien neben
+# diesem Skript, und der Rueckgabewert des Players dazu.
+#
+# WARUM DAS NOETIG WAR: die Zusammenfassung unten filtert stderr auf ein paar
+# Stichwoerter. Am 2026-08-06 hat genau das eine Stunde gekostet -- gemeldet war
+# "wenn sich da was bewegt schmiert der Player ab", und im gefilterten Auszug
+# stand davon nichts, weil keine der Zeilen ein Stichwort trug. Wer einem
+# Absturz oder einer Stockung nachgeht, braucht ALLES, samt Rueckgabewert:
+# ein Rust-Panic steht auf stderr, ein Abbruch der Grafikschicht gar nirgends.
+# Zusaetzlich lohnt dann RUST_BACKTRACE=1 in der Umgebung.
 
 $ErrorActionPreference = 'Continue'
 $sp     = $PSScriptRoot
@@ -118,6 +130,21 @@ while ((Get-Date) -lt $ende -and -not $p.HasExited) { Start-Sleep -Milliseconds 
 if (-not $p.HasExited) { $p.Kill() }
 $s.StandardInput.WriteLine('{"op":"stop","id":2}'); $s.StandardInput.Flush()
 if (-not $s.WaitForExit(8000)) { $s.Kill() }
+
+if ($Voll) {
+  $pDat = "$sp\hdr-ansehen-player.log"
+  $sDat = "$sp\hdr-ansehen-sender.log"
+  ($pErr.Result -replace 'token=[^\s"&]+', 'token=WEG') | Set-Content -Encoding utf8 $pDat
+  ($sErr.Result -replace 'token=[^\s"&]+', 'token=WEG') | Set-Content -Encoding utf8 $sDat
+  Write-Host ("Volle Ausgabe: {0} / {1}" -f $pDat, $sDat) -ForegroundColor Cyan
+  $rc = if ($p.HasExited) { $p.ExitCode } else { 'lief noch' }
+  Write-Host ("Rueckgabewert des Players: {0}" -f $rc) -ForegroundColor Cyan
+  $stock = ($pErr.Result -split "`n" | Where-Object { $_ -match 'Stockung' }).Count
+  if ($stock -gt 0) {
+    Write-Host ("ACHTUNG: {0} Stockungen im Decoder -- s. Messakte " -f $stock) -ForegroundColor Yellow
+    Write-Host "  streaming/testbench/profiles/player-2026-08-06-absturz-ist-eine-stockung.json"
+  }
+}
 
 Write-Host "=== Was der Player gemeldet hat ===" -ForegroundColor Cyan
 ($pErr.Result -replace 'token=[^\s"&]+', 'token=WEG') -split "`n" |

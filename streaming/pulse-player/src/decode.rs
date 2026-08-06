@@ -763,8 +763,18 @@ pub struct VideoDecoder {
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
     /// Wiederverwendetes Ziel fuer den Weg von der GPU in den Hauptspeicher
-    /// (s. [`in_den_hauptspeicher`]). Nur auf dem VAAPI-Weg benutzt.
+    /// (s. [`in_den_hauptspeicher`]).
+    ///
+    /// **Hier stand „Nur auf dem VAAPI-Weg benutzt" — das ist seit dem
+    /// 2026-08-04 falsch**, seit `drain` denselben Weg auch fuer
+    /// `Pixel::D3D11` nimmt. Unter Windows laeuft also jedes Bild hierdurch.
     hw_ziel: ffmpeg::util::frame::video::Video,
+    /// Wie lange das Ruecklesen aus dem Grafikspeicher im laufenden Durchgang
+    /// gedauert hat. Wird je `decode` zurueckgesetzt und dort ausgewertet
+    /// (s. [`crate::stockung`]).
+    ruecklesen_us: u64,
+    /// Zaehlt haengende Ruecklesevorgaenge (s. [`crate::stockung::Waechter`]).
+    stockungen: crate::stockung::Waechter,
 }
 
 impl VideoDecoder {
@@ -801,6 +811,8 @@ impl VideoDecoder {
                         letztes_keyframe: None,
                         plane_pool: PlanePool::default(),
                         hw_ziel: ffmpeg::util::frame::video::Video::empty(),
+                        ruecklesen_us: 0,
+                        stockungen: crate::stockung::Waechter::default(),
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -910,6 +922,10 @@ impl VideoDecoder {
         // ist — der Boden des Einfrier-Nachweises (s. [`crate::einfrieren`]).
         self.wacht.daten(data.len());
 
+        // Ab hier laeuft die Uhr fuer den Stockungs-Nachweis: die Statistik
+        // meldet nur, DASS ein Durchgang zwei Sekunden gedauert hat, nicht
+        // worin (s. `crate::stockung`).
+        let uhr = std::time::Instant::now();
         let packet = ffmpeg::codec::packet::Packet::copy(data);
         if let Err(e) = self.decoder.send_packet(&packet) {
             self.consecutive_errors += 1;
@@ -936,7 +952,44 @@ impl VideoDecoder {
             return Ok(Vec::new());
         }
         self.consecutive_errors = 0;
-        Ok(self.drain())
+        let hineingeben = uhr.elapsed().as_micros() as u64;
+        self.ruecklesen_us = 0;
+        let bilder = self.drain();
+        let abschnitte = crate::stockung::Abschnitte {
+            hineingeben,
+            herausholen: uhr.elapsed().as_micros() as u64 - hineingeben,
+            ruecklesen: self.ruecklesen_us,
+        };
+        crate::stockung::melden(abschnitte, bilder.len());
+        // Haengt die Grafikeinheit wiederholt, ist der Hardware-Weg aufzugeben.
+        // Das Bild wird dadurch teurer, aber es kommt wieder — vorher fiel die
+        // ganze Sitzung auseinander (s. [`crate::stockung::Waechter`]).
+        if self.hardware
+            && crate::stockung::rueckfall_erlaubt()
+            && crate::stockung::ist_grafikstockung(abschnitte)
+            && self.stockungen.stockung(std::time::Instant::now())
+        {
+            self.auf_software("das Ruecklesen aus dem Grafikspeicher blockiert wiederholt")?;
+        }
+        Ok(bilder)
+    }
+
+    /// Auf Software umstellen, weil der Hardware-Weg zwar liefert, aber zu
+    /// spaet (s. [`crate::stockung`]).
+    ///
+    /// **Zaehlt bewusst NICHT gegen `MAX_REBUILDS`.** Der Zaehler steht fuer
+    /// „dieser Decoder ist kaputt, und der Ersatz ist es womoeglich auch";
+    /// nach zwei Versuchen gibt er die Sitzung auf. Hier ist aber nichts
+    /// kaputt: die Umstellung ist eine einmalige, absichtliche
+    /// Strategieaenderung, und sie kann sich nicht wiederholen (danach ist
+    /// `hardware` falsch). Am 2026-08-06 im ersten Lauf mit dem Rueckfall
+    /// beobachtet: die Umstellung verbrauchte Versuch 1 von 2, der ohnehin
+    /// folgende Anlauffehler des frischen Decoders Versuch 2 — und die
+    /// naechste Fehlerserie haette die Sitzung beendet. Genau das, was der
+    /// Rueckfall verhindern soll.
+    fn auf_software(&mut self, grund: &str) -> Result<()> {
+        eprintln!("pulse-player: Decoder {} wird aufgegeben: {grund} — weiter in Software", self.name);
+        self.frischer_software_decoder()
     }
 
     /// Ersetzt den Decoder durch einen frischen Software-Decoder.
@@ -952,11 +1005,25 @@ impl VideoDecoder {
     /// deshalb bei null, sonst gaebe genau diese Anlaufphase sofort auf.
     fn rebuild(&mut self, cause: &str) -> Result<()> {
         self.rebuilds += 1;
+        // **Hier stand bis zum 2026-08-06 „lehnt dauerhaft ab" fest im Text.**
+        // Das stimmt nur fuer den einen Anlass, aus dem es die Funktion gab
+        // (abgelehnte Pakete); seit der zweite dazukam — eine haengende
+        // Grafikeinheit, bei der jedes Paket ANGENOMMEN wird — waere die Zeile
+        // schlicht falsch gewesen und haette die Suche in die Irre geschickt.
         eprintln!(
-            "pulse-player: Decoder {} lehnt dauerhaft ab ({cause}) — \
+            "pulse-player: Decoder {} wird aufgegeben: {cause} — \
              Neuaufbau {}/{MAX_REBUILDS} als Software",
             self.name, self.rebuilds
         );
+        self.frischer_software_decoder()
+    }
+
+    /// Den laufenden Decoder gegen einen frischen Software-Decoder tauschen.
+    ///
+    /// Der gemeinsame Rumpf von [`Self::rebuild`] (Fehlerserie) und
+    /// [`Self::auf_software`] (haengende Grafikeinheit) — bis auf den Zaehler
+    /// und die Meldung ist der Vorgang derselbe.
+    fn frischer_software_decoder(&mut self) -> Result<()> {
         let fresh = Self::new(self.codec, Some(false))?;
         self.decoder = fresh.decoder;
         self.name = fresh.name;
@@ -1159,7 +1226,10 @@ impl VideoDecoder {
                 ffmpeg::format::Pixel::VAAPI | ffmpeg::format::Pixel::D3D11
             );
             if auf_gpu {
-                if let Err(e) = in_den_hauptspeicher(&frame, &mut self.hw_ziel) {
+                let vor = std::time::Instant::now();
+                let ergebnis = in_den_hauptspeicher(&frame, &mut self.hw_ziel);
+                self.ruecklesen_us += vor.elapsed().as_micros() as u64;
+                if let Err(e) = ergebnis {
                     eprintln!("pulse-player: Bild von der GPU holen scheiterte: {e}");
                     continue;
                 }

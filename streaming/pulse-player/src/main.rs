@@ -33,6 +33,7 @@ mod recorder;
 mod render;
 mod rpc;
 mod session;
+mod stockung;
 mod theme;
 mod whep;
 

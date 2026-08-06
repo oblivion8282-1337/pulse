@@ -170,9 +170,33 @@ Ehrlich benannt, damit niemand danach sucht:
   (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
   auseinanderlaeuft, ist ungemessen.
 - **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
-- **Kein zero-copy.** Die cuvid-Decoder liefern in den Hauptspeicher, von dort
-  wird in GPU-Texturen hochgeladen. Ein direkter Weg NVDEC -> Vulkan-Textur
-  braeuchte `hw_frames_ctx` samt Interop.
+- **Kein zero-copy — und das kostet mehr als Rechenzeit.** Jedes Bild nimmt den
+  Weg GPU -> Hauptspeicher -> GPU zurueck (`decode.rs::in_den_hauptspeicher`,
+  dann `render/mod.rs::upload`). Die reinen Kosten stehen in
+  `streaming/testbench/profiles/player-2026-08-06-bildweg-kosten.json`: 1,5 ms
+  je Bild bei 1080p in 8 bit, 5,3 ms bei 1440p in 10 bit.
+
+  **Der teurere Teil ist aber nicht die Rechenzeit, sondern das Warten.** Am
+  2026-08-06 auf einer Radeon 780M gemessen: unter Bewegung blockiert
+  `av_hwframe_transfer_data` in Serien von 0,7 bis 2,4 Sekunden, waehrend
+  Windows die Grafikeinheit zuruecksetzt (40 Video-TDR in 200 Sekunden). Der
+  Player sieht davon keinen Fehler — der Aufruf kehrt erfolgreich zurueck, nur
+  spaet. Bis dahin fiel die Sitzung danach auseinander und das Fenster ging zu,
+  ohne dass irgendwo etwas stand; das sah wie ein Absturz aus und war keiner.
+  Volle Herleitung:
+  `streaming/testbench/profiles/player-2026-08-06-absturz-ist-eine-stockung.json`.
+
+  Seither meldet `stockung.rs` jeden Durchgang ueber 300 ms mit seinen drei
+  Abschnitten, und bei drei Stockungen in zehn Sekunden gibt der Player den
+  Hardware-Decoder auf und stellt auf Software um. Das Bild wird teurer, aber
+  es bleibt. `PULSE_PLAYER_STOCKUNGS_RUECKFALL=0` haelt den Hardware-Weg fest —
+  fuer den Fall, dass man genau dieses Verhalten vermessen will.
+
+  Ein Weg ohne Ruecklesen ist auf AMD machbar (geteilte D3D11-Textur nach wgpu,
+  NV12 wie P010, gemessen in
+  `player-2026-08-06-nv12-wgpu-import-amd.json` und
+  `player-2026-08-06-p010-und-stapel.json`), auf NVIDIA bisher nicht — er
+  muesste also beides koennen. Gebaut ist er nicht.
 - **Hier stand bis 2026-08-05 „Nur unter Linux getestet … Windows und macOS
   sind ungeprueft". Fuer Windows stimmt das nicht mehr.** Auf Windows + NVIDIA
   (RTX 5080) laeuft er mit Hardware-Dekodierung — `h264_cuvid` und `av1_cuvid`,
@@ -201,6 +225,9 @@ src/
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
 ├── decode.rs      FFmpeg, Hardware zuerst
 ├── einfrieren.rs  erkennt den haengenden Decoder und staffelt die Abhilfe
+├── stockung.rs    erkennt die haengende GRAFIKEINHEIT (das ist etwas anderes:
+│                  der Decoder liefert, nur Sekunden zu spaet) und gibt den
+│                  Hardware-Weg auf, bevor die Sitzung daran zerbricht
 ├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
 ├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
 ├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit
@@ -309,7 +336,16 @@ Drittanbieter-Seite im Web.
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung
    steht, und sie entscheidet, ob der Player auch fuer die Fernsteuerung
    der richtige Weg ist.
-4. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
+4. **Das Ruecklesen aus dem Grafikspeicher abschaffen** (Zero-Copy). Es kostet
+   nicht nur Rechenzeit, es ist die Stelle, an der der Player unter Last bis zu
+   2,4 Sekunden stillsteht (s. oben, „Was er noch NICHT kann"). Der Rueckfall
+   auf Software faengt das auf, beseitigt es aber nicht. **Bevor jemand
+   anfaengt:** die vorliegende Machbarkeitsstudie hat ueber Vulkan gemessen,
+   der Player faehrt unter Windows aber D3D12 (wegen HDR) — und der gemessene
+   wgpu-Aufruf gibt es dort nicht. Was das heisst und was zuerst zu pruefen
+   ist, steht in
+   `streaming/testbench/profiles/player-2026-08-06-zerocopy-blockiert-auf-d3d12.json`.
+5. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
    gegen die echte Kette geprueft (H.264 und AV1, 8 und 10 bit, jeweils
    `*_cuvid` in Hardware) und im Installer. Hier stand vorher „Windows und
    macOS"; nur macOS ist offen.
