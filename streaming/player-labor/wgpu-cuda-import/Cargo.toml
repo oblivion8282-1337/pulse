@@ -1,0 +1,57 @@
+[package]
+name = "wgpu-cuda-import"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Repo-Bauziel und KEIN Workspace-Mitglied — wie die
+# beiden Schwester-Proben daneben. Ein Fehlschlag hier kann nichts brechen.
+#
+# **Warum eine eigene Kiste und nicht `../cuda-vulkan-import` erweitert.**
+# Jene Probe steht ausdruecklich OHNE wgpu, und das ist dort keine Marotte,
+# sondern ihre Beweiskraft: sie beantwortet, ob Treiber und CUDA sich einig
+# sind, und ein Fehlschlag muss dort eindeutig dem Treiber zuzuordnen sein.
+# Kaeme wgpu als Abhaengigkeit hinein, brauechte sie sofort eine wgpu-eigene
+# Vulkan-Instanz, einen Allokator und ein anderes Geraet — und eine spaetere
+# Wiederholung der Bild-Messung liefe nicht mehr auf demselben Aufbau wie die
+# Messakte vom 2026-08-07. Der teure Teil (die von Hand nachgebauten
+# CUDA-Struct-Layouts) wird trotzdem NICHT verdoppelt, sondern per `#[path]`
+# aus der Nachbarkiste eingebunden: zwei Fassungen derselben FFI-Beschreibung
+# waeren genau die Fehlerklasse, gegen die dort der Layout-Selbsttest steht.
+
+[dependencies]
+# **29, nicht 30 — das ist der ganze Punkt dieser Probe.** Der Player steht auf
+# wgpu 29.0.4 (`streaming/pulse-player/Cargo.lock`). Gefragt ist, ob DIESE
+# Fassung ein fremd angelegtes `VkImage` mitsamt Inhalt uebernimmt; eine
+# Messung auf 30 saehe zwar besser aus, sagte aber ueber die ausgelieferte
+# Fassung nichts. `vulkan` ist unter Linux der einzige in Frage kommende
+# Unterbau, `wgsl` braucht der Abtast-Shader.
+wgpu = { version = "29", default-features = false, features = ["wgsl", "vulkan"] }
+
+# **Muss dieselbe ash-Fassung sein, die wgpu-hal 29 zieht** (0.38): sonst waeren
+# das `vk::Image`, das wir anlegen, und das, welches `texture_from_raw` nimmt,
+# fuer den Compiler verschiedene Typen — obwohl sie dieselbe Zahl bezeichnen.
+# Cargo vereinheitlicht 0.38.x von selbst; die Angabe hier ist bewusst nicht
+# schaerfer, damit die Vereinheitlichung nicht daran scheitert.
+ash = "0.38"
+
+# CUDA per dlopen: `libcuda.so.1` gehoert zum Treiber, nicht zum Toolkit.
+libloading = "0.8"
+
+anyhow = "1"
+pollster = "0.4"
+
+# **Nur damit die Vulkan-Pruefschicht ueberhaupt zu hoeren ist.** wgpu meldet
+# ihre Beanstandungen ueber `log`; ohne eingehaengten Empfaenger fallen sie
+# lautlos auf den Boden — und ein Lauf ohne Meldungen saehe dann aus wie ein
+# regelkonformer Lauf. Genau diese Falle hat hier zugeschlagen: der erste
+# Pruefschicht-Lauf meldete nichts, weil niemand zuhoerte, nicht weil nichts zu
+# melden war. Der Empfaenger sind zwanzig Zeilen in `main.rs`, kein
+# `env_logger`.
+log = "0.4"
+
+[[bin]]
+name = "wgpu-cuda-import"
+path = "src/main.rs"
+
+[profile.release]
+debug = true

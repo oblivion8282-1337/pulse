@@ -154,35 +154,47 @@ ohne einfache Regel. Die Zahl ist beim Treiber zu **erfragen** und in den
 CUDA-Import durchzureichen; sie aus Breite mal Höhe zu rechnen, geht bis zu
 18,5 Prozent daneben.
 
-## Wo wir stehen (Stand 2026-08-07)
+## Wo wir stehen (Stand 2026-08-07, abends)
 
 Zweig `feat/zero-copy-player-linux`.
 
-**Erledigt: die Grundfrage und der Bild-Import.** CUDA und Vulkan teilen sich auf
-Linux/NVIDIA denselben Speicher, und CUDA schreibt direkt in exportierte
-Vulkan-Bilder — NV12 wie P010, als getrennte Ebenen. Damit ist Zero-Copy hier
-grundsätzlich möglich, anders als auf Windows/NVIDIA, und der Weg über einen
-Zwischenpuffer ist nicht nötig.
+**Erledigt: die Grundfrage, der Bild-Import und die Anbindung an wgpu 29.**
+CUDA und Vulkan teilen sich auf Linux/NVIDIA denselben Speicher, CUDA schreibt
+direkt in exportierte Vulkan-Bilder (NV12 wie P010, als getrennte Ebenen), und
+**wgpu 29.0.4 übernimmt so ein Bild mitsamt Inhalt** — schon beim ersten
+Zugriff, über 720p bis 4K, und über 20 aufeinanderfolgende CUDA-Schreibrunden
+in die bereits eingehängte Textur.
 
-**Der nächste Schritt ist die Anbindung an das heutige wgpu 29**
-(`texture_from_raw` / `create_texture_from_hal`). Hält es den Inhalt, ist die
-ganze Update-Frage erledigt. Die Reihenfolge dahinter ist bewusst so gewählt und
-sollte nicht umgestellt werden:
+Die Probe dafür liegt in `../wgpu-cuda-import` (eigene Kiste, Begründung in
+ihrer README), die Messakte in
+`streaming/testbench/profiles/player-2026-08-07-wgpu29-vkimage-import.json`.
+
+**Damit entfällt der Fassungssprung.** Der Verdacht, wgpu 29 trage eingehängte
+Texturen als `UNINITIALIZED` ein und ein Übergang aus `VK_IMAGE_LAYOUT_UNDEFINED`
+verwerfe den Inhalt, ist am Quelltext bestätigt (`device/resource.rs:1253`,
+`vulkan/conv.rs:218`) — die **Folge** tritt auf dieser Karte aber nicht ein.
+„Darf verwerfen" ist keine Zusage zu verwerfen. Die Kette wgpu 30 →
+`egui-wgpu`/`egui-winit` 0.36 → Rust 1.95 wird für diesen Zweck nicht gebraucht.
+
+Die Reihenfolge, die hier stand, ist damit abgearbeitet:
 
 1. ~~Bild-Import in reinem Vulkan~~ — erledigt.
-2. **Anbindung mit wgpu 29.**
-3. **Erst wenn 29 nachweislich scheitert:** der Sprung auf wgpu 30. Das ist eine
-   Kette — wgpu 30 → `egui-wgpu`/`egui-winit` 0.36 → Rust 1.95 (diese Maschine
-   hat 1.93.1); Zahlen in der Puffer-Messakte. Sein Nutzen ist **unbelegt**: der
-   einzige einschlägige Neuzugang (`initial_state`) wurde auf der Windows-Seite
-   geprüft und als Ursache widerlegt.
+2. ~~Anbindung mit wgpu 29~~ — **erledigt, trägt.**
+3. ~~Sprung auf wgpu 30~~ — **entfällt** (bleibt eine Option aus anderen
+   Gründen; für den Bild-Import ist er unbegründet).
 
-Drei Auflagen, die zum Umbau gehören und leicht vergessen werden:
+**Was jetzt ansteht, in dieser Reihenfolge:**
 
-* **Synchronisierung ist ungeprüft.** Hier wird geschrieben, gewartet, gelesen;
-  im Betrieb schreibt der Decoder, während gezeichnet wird. Das verlangt
-  Semaphoren über dieselbe Grenze (`VK_KHR_external_semaphore_fd` gegen
-  `cuImportExternalSemaphore`). Ungemessen und ungebaut.
+1. **`av1_cuvid`**: gibt der Decoder seine Bilder als CUDA-Speicher heraus
+   (`hwaccel_output_format cuda` / `AV_PIX_FMT_CUDA`) statt in den
+   Hauptspeicher? Ohne das nützt der schönste Import nichts. Einstieg:
+   `streaming/pulse-player/src/decode.rs`.
+2. **Synchronisierung**: `VK_KHR_external_semaphore_fd` gegen
+   `cuImportExternalSemaphore` — im Betrieb schreibt der Decoder, während
+   gezeichnet wird.
+
+Zwei weitere Auflagen, die zum Umbau gehören und leicht vergessen werden:
+
 * **Die Einfrier-Erkennung verliert ihre Bildpunkte**, sobald die Ebenen nicht
   mehr im Hauptspeicher liegen. Der Fingerabdruck müsste in einen
   Compute-Shader (Reduktion über die Y-Ebene, Rückkanal von 8 Byte, ein bis
@@ -190,10 +202,7 @@ Drei Auflagen, die zum Umbau gehören und leicht vergessen werden:
   Auflage schon in `player-2026-08-06-nv12-wgpu-import.json`.
 * **Die Allokationsgröße vom Treiber erfragen**, nicht rechnen (s.o.).
 
-Offen und noch nicht angefasst: ob `av1_cuvid` seine Bilder überhaupt als
-CUDA-Speicher herausgibt statt in den Hauptspeicher (FFmpeg-Frage,
-`hwaccel_output_format cuda`). Ohne das nützt der schönste Import nichts. Und
-gemessen ist bisher **Korrektheit, nicht Tempo** — dass der Umbau die 5,26 ms je
+Gemessen ist bisher **Korrektheit, nicht Tempo** — dass der Umbau die 5,26 ms je
 Bild wirklich einspart, ist begründet erwartet, aber nicht belegt.
 
 Danach steht als eigenes Thema **HDR für Linux/NVIDIA** an (10 bit liegt
