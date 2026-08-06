@@ -100,3 +100,50 @@ ist eine Qualitätsroutine, keine Sicherheitsgrenze.
 Stop-Hooks werden erst **nach** einem Turn aktiv. Auf einer frischen Maschine
 greift der Gate deshalb nicht sofort: einmal `/hooks` öffnen oder die Session
 neu starten.
+
+---
+
+# Graphify-Gate (seit 2026-08-06)
+
+`graphify-gate.sh` + `graphify-stamp.sh` erzwingen eine einzige Regel:
+
+> Bevor in einer Sitzung roh gesucht wird (`grep`/`rg`/`git grep`, oder `Read`
+> auf eine Quelldatei), muss der Wissensgraph EINMAL befragt worden sein.
+
+## Warum es diese Gates gibt, obwohl die oberen abgeschaltet wurden
+
+Für graphify gab es bis dahin nur einen HINWEIS an denselben Werkzeugen
+("MANDATORY: run graphify query first"). Er wurde gelesen und überstimmt: in
+einer langen Sitzung am 2026-08-06 ist praktisch durchgehend direkt gegrept
+worden, obwohl der Graph danebenlag — unter anderem mit der Folge, dass ein
+Dateistand vom falschen Branch für den aktuellen gehalten wurde. Ein Hinweis
+lenkt nicht; eine Schranke tut es.
+
+## Warum es hoffentlich nicht dasselbe Schicksal erleidet
+
+Die Gates oben wurden entfernt, weil sie genervt haben — sie standen vor
+JEDEM Commit und JEDEM Turn-Ende. Dieses hier ist bewusst schmaler gebaut:
+
+* **Einmal je Sitzung**, nicht bei jedem Aufruf. Danach ist der Weg frei.
+* **Nur breite Suchen.** `ls`, `git status`, `cargo test`, Builds und alles
+  andere laufen unberührt durch; geprüft ist das an neun Fällen.
+* **Nur Quelltext.** Doku, Konfiguration und Messakten lösen nichts aus.
+* **Fail-open** an drei Stellen: ohne Graph, ohne Sitzungs-ID und bei jedem
+  inneren Fehler wird durchgelassen. Ein kaputtes Gate darf die Arbeit nicht
+  anhalten.
+* **Die Abfrage selbst ist nie gesperrt** — sonst gäbe es keinen Weg heraus.
+
+## Mechanik
+
+Der Stempel hängt an der SITZUNGS-ID (`.git/.graphify-used-<id>`), nicht an
+einer festen Datei. Deshalb gilt die Anforderung je Sitzung neu, und ein
+eigener SessionStart-Hook zum Aufräumen erübrigt sich; Marken älter als sieben
+Tage räumt `graphify-stamp.sh` nebenbei weg.
+
+`graphify update` stempelt NICHT — das ist Pflege, keine Orientierung. Sonst
+öffnete sich das Gate, ohne dass jemand etwas erfahren hätte.
+
+## Nachweis
+
+Am 2026-08-06 verdrahtet und belegt: ein `grep` wurde gesperrt, `graphify
+query` lief, der Stempel entstand, derselbe `grep` lief durch.
