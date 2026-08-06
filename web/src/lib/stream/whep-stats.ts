@@ -60,7 +60,29 @@ export type DiagnosticSnapshot = {
   framesDropped: number;
   pliCount: number;
   firCount: number;
+  /** NACK-Pakete, die DIESER Empfänger gesendet hat.
+   *
+   *  **Das ist NICHT die Zahl der verlorenen Pakete.** Chromium fordert
+   *  dieselbe Lücke 6-8x an; roh gemessen war der Zähler um den Faktor 9
+   *  aufgebläht (7442 gegen 801 tatsächliche Lücken). Wer ihn als Verlustmaß
+   *  liest, misst die Hartnäckigkeit des Empfängers statt den Zustand der
+   *  Leitung. Entdoppeln kann nur, wer die Sequenznummern sieht — also der
+   *  Server (`scripts/fec-tor-kennzahlen.py`), nicht der Browser.
+   *
+   *  Das Verlustmaß ist {@link packetsLost}, mit {@link packetsReceived} als
+   *  Bezugsgröße. */
   nackCount: number;
+  /** Vom Empfänger als verloren gemeldete RTP-Pakete (kumulativ). Das echte
+   *  Verlustmaß — anders als `nackCount` zählt es Pakete, nicht Anforderungen.
+   *
+   *  Kann laut Spezifikation negativ werden (Duplikate/Nachzügler); wir
+   *  klemmen nicht, sondern reichen den Wert durch — eine stille Korrektur
+   *  auf 0 würde genau den Fall verbergen, in dem etwas nicht stimmt. */
+  packetsLost: number;
+  /** Empfangene RTP-Pakete (kumulativ). Ohne diese Bezugsgröße ist
+   *  `packetsLost` keine Messung: 300 verlorene Pakete sind bei 3000
+   *  empfangenen eine Katastrophe und bei 3 Millionen ein Nichts. */
+  packetsReceived: number;
   jitter: number | null;
   decoderImplementation: string | null;
   frameWidth: number | null;
@@ -93,6 +115,8 @@ type InboundRtp = RTCInboundRtpStreamStats & {
   pliCount?: number;
   firCount?: number;
   nackCount?: number;
+  packetsLost?: number;
+  packetsReceived?: number;
   bytesReceived?: number;
   decoderImplementation?: string;
   freezeCount?: number;
@@ -227,6 +251,8 @@ export class WhepStatsReader {
       pliCount: v.pliCount ?? 0,
       firCount: v.firCount ?? 0,
       nackCount: v.nackCount ?? 0,
+      packetsLost: v.packetsLost ?? 0,
+      packetsReceived: v.packetsReceived ?? 0,
       jitter: typeof v.jitter === 'number' ? v.jitter : null,
       decoderImplementation: v.decoderImplementation ?? null,
       frameWidth: v.frameWidth ?? null,
@@ -284,6 +310,9 @@ export function formatDiagnostic(d: DiagnosticSnapshot, ctx?: { name?: string })
     `ua: ${navigator.userAgent}`,
   ];
   if (ctx?.name) lines.push(`stream: ${ctx.name}`);
+  // Bezugsgröße einmal ausrechnen statt dreimal in derselben Zeile: sie steht
+  // im Text, sie entscheidet über die Prozentangabe, und sie ist deren Nenner.
+  const paketeGesamt = d.packetsReceived + d.packetsLost;
   lines.push(
     '',
     `frozen: ${d.frozen ? `yes (${d.freezeSeconds.toFixed(1)}s)` : 'no'}`,
@@ -306,7 +335,12 @@ export function formatDiagnostic(d: DiagnosticSnapshot, ctx?: { name?: string })
     '',
     `PLI requests:   ${d.pliCount}`,
     `FIR requests:   ${d.firCount}`,
-    `NACK requests:  ${d.nackCount}`,
+    // Ausdrücklich als "requests" beschriftet und mit dem Hinweis versehen:
+    // die Zahl wird sonst als Verlustmaß gelesen, und das ist sie nicht
+    // (Faktor ~9 durch Mehrfachanforderung derselben Lücke).
+    `NACK requests:  ${d.nackCount}  (Anforderungen, nicht Verluste — mehrfach je Lücke)`,
+    `packets lost:   ${d.packetsLost} von ${paketeGesamt}` +
+      (paketeGesamt > 0 ? ` (${((d.packetsLost / paketeGesamt) * 100).toFixed(2)} %)` : ''),
   );
   return lines.join('\n');
 }
