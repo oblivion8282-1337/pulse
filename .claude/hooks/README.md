@@ -1,6 +1,6 @@
 # Simplifier-Gates
 
-> **Stand 2026-08-06: die beiden Gates sind WIEDER verdrahtet.**
+> **Stand 2026-08-06: nur das COMMIT-Gate ist verdrahtet, das Stop-Gate nicht.**
 > Sie waren am 2026-06-28 mit Commit `b345ca8d` aus `.claude/settings.json`
 > entfernt worden („Hooks haben hauptsächlich genervt"); die Skripte lagen
 > seither hier und feuerten für niemanden. In der Zwischenzeit war
@@ -15,6 +15,21 @@
 > GESTAGTE Dateien. Ein Test mit ungestagter Änderung läuft durch und sieht aus
 > wie ein totes Gate — genau dieser Fehlschluss ist beim Wiederverdrahten
 > beinahe passiert.
+>
+> **Warum das Stop-Gate wieder heraus ist** (noch am selben Tag): Es zählt
+> UNGETRACKTE Dateien mit und kann nicht erkennen, woher sie stammen. In einer
+> Sitzung mit parallel laufenden Agenten blockierte es das Turn-Ende wegen
+> Dateien, die ein anderer Agent gerade erst anlegte — bei völlig sauberem
+> Arbeitsbaum. Über fremde, im Entstehen begriffene Arbeit darf der Simplifier
+> aber nicht laufen, und ein Stempel darüber wäre in dem Moment veraltet, in
+> dem der Agent die nächste Zeile schreibt. Übrig bleibt dann nur die leere
+> Geste — genau das, wogegen die Gates gedacht sind.
+>
+> Das Commit-Gate hat diese Schwäche nicht: es prüft `git diff --cached`, also
+> ausschliesslich das, was jemand bewusst zum Commit vorgemerkt hat. Das ist
+> die saubere Grenze, und es steht nur vor Commits statt vor jedem Turn-Ende.
+> `stop-require-simplifier.sh` bleibt liegen, falls jemand es je wieder
+> verdrahten will — dann aber besser ohne ungetrackte Dateien.
 >
 > Dieser Abschnitt stand hier bis 2026-08-04 nicht, obwohl der Text darunter am
 > 2026-07-27 — fast einen Monat NACH der Abschaltung — neu geschrieben wurde und
