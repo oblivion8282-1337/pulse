@@ -62,19 +62,39 @@ die Anforderungen des Bildes plus `DEVICE_LOCAL`
 (`wgpu-hal vulkan/device.rs:578`). Jene Probe hat den Import **erfolgreich**
 gemacht — mit rohem Vulkan, nicht über wgpu.
 
-## Was auf einer AMD-Karte als Erstes zu tun ist
+## Stand 2026-08-06, morgens (Radeon 780M, Vulkan): **es trägt**
 
-Die geglückte Messung vom 1. August lief auf einer **Radeon 780M**, die
-gescheiterte hier auf **NVIDIA**. Es ist also offen, ob der Befund am Treiber
-hängt oder an wgpu.
+Die offene Frage von oben — Treiber oder wgpu — ist entschieden: **es ist der
+Treiber.** Auf der Radeon 780M kommt der Inhalt vollständig an, 4096 von 4096
+Bildpunkten, und zwar in **allen sechs** Läufen der Matrix (beide Teilungsarten,
+alle drei Anfangszustände, dazu die Gegenrichtung). Auf NVIDIA war dieselbe
+Matrix ausnahmslos schwarz. Import in 0,65–0,74 ms. Probe unverändert
+übernommen, kein Codeeingriff. Messakte
+`streaming/testbench/profiles/player-2026-08-06-nv12-wgpu-import-amd.json`.
 
-1. Die Probe unverändert laufen lassen. Kommt Stufe 4 grün, ist es ein
-   NVIDIA-Befund und der Weg über wgpus Helfer steht auf AMD offen.
-2. Kommt sie ebenfalls schwarz, ist es wgpu — dann ist der Weg der, den das
-   Labor schon gegangen ist: Import von Hand (Speichertyp aus der Schnittmenge),
-   danach `texture_from_raw` + `create_texture_from_hal(initial_state)`.
+**Der aussagekräftigste Einzelfall ist `SPIKE_ZUSTAND=uninit`.** Genau dieser
+Zustand stand auf NVIDIA im Zentrum der widerlegten Erklärung — ein Übergang aus
+`UNDEFINED` *darf* den Inhalt verwerfen. Auf AMD verwirft er ihn nicht, auch
+wenn man es ausdrücklich anfordert. Das Verhalten ist also erlaubt, aber nicht
+vorgeschrieben, und die beiden Treiber entscheiden es verschieden. Die
+Widerlegung bleibt damit richtig, ihr Grund wird nur klarer: der Zustand ist
+überhaupt nicht die entscheidende Größe.
 
-Beides bitte in eine Messakte, nicht nur in die Erinnerung.
+Was daraus folgt, ist unbequemer als ein einfaches „geht":
+
+* **Auf AMD** steht der Weg über wgpus eigenen Helfer offen. Kein Eigenbau,
+  kein Speichertyp aus der Schnittmenge, kein rohes Vulkan.
+* **Auf NVIDIA** bleibt es offen. Der nächste Schritt dort ist der Eigenbau-
+  Import aus `vulkan-2026-08-01-d3d11-import-zerocopy` — nicht mehr die
+  Zustands-Frage.
+* **Der Player müsste also beides können**: importieren, wo es geht, und
+  herunterladen, wo nicht. Das ist mehr Arbeit als „einmal umbauen", aber es ist
+  die Lage und keine Entscheidung.
+
+**Falle beim Nachstellen:** PowerShell meldet den geglückten Bau als Fehler
+(Rückgabewert 255) — Windows PowerShell 5.1 wertet jede stderr-Zeile eines
+nativen Programms als Fehlerdatensatz, und zwei harmlose cargo-Warnungen
+genügen. Über die Bash starten, oder den Rückgabewert getrennt prüfen.
 
 ## Was diese Probe NICHT zeigt
 
