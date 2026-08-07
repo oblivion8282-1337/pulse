@@ -1,0 +1,34 @@
+[package]
+name = "pulse-kms-helfer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+# Kein `license`-Feld wie bei den Nachbar-Crates: es gilt `streaming/LICENSE`
+# (Pulse Client License 1.0).
+description = "Reicht die Scanout-Puffer eines DRM-Ausgangs als DMABUF ueber einen Unix-Socket weiter — der einzige Teil von Pulse, der CAP_SYS_ADMIN traegt."
+
+# WARUM DIESE KISTE HIER LIEGT (unter dem Sidecar, nicht neben ihm):
+# Der Flatpak baut den Sidecar aus EINEM Verzeichnis (`type: dir,
+# path: ../streaming/linux-hq-sidecar` in `packaging/com.howispulse.Pulse.yml`).
+# Eine Schwester neben dem Sidecar waere in diesem Bau schlicht nicht vorhanden,
+# und eine Pfad-Abhaengigkeit darauf braeche ihn. Hier liegt sie im selben
+# kopierten Baum und ist zugleich ein Arbeitsbereich-Mitglied — ein
+# `cargo build --release` baut beide Programme.
+
+[[bin]]
+name = "pulse-kms-helfer"
+path = "src/main.rs"
+
+[lib]
+name = "pulse_kms_helfer"
+path = "src/lib.rs"
+
+[dependencies]
+# ABSICHTLICH NUR ZWEI, und beide sind im Projekt laengst in Gebrauch (der
+# Sidecar nebenan fuehrt sie ebenso). Dieses Programm traegt als einziges
+# `CAP_SYS_ADMIN`; jede Abhaengigkeit mehr ist Code, der diese Rechte mitliest.
+# Insbesondere: kein libdrm (die ioctls stehen in `drm.rs` von Hand, das
+# Kernel-ABI ist fest), kein Netz, kein Tokio, kein FFmpeg. Nachpruefbar mit
+# `ldd target/release/pulse-kms-helfer` — es bleibt libc uebrig.
+libc = "0.2"
+anyhow = "1"

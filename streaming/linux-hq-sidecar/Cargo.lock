@@ -1797,6 +1797,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse-kms-helfer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+]
+
+[[package]]
 name = "pulse-linux-hq-sidecar"
 version = "0.1.0"
 dependencies = [
@@ -1809,6 +1817,7 @@ dependencies = [
  "libloading",
  "libspa",
  "pipewire",
+ "pulse-kms-helfer",
  "reqwest",
  "rtcp",
  "serde",

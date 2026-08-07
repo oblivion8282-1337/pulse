@@ -15,7 +15,24 @@ description = "Pulse Linux HQ-streaming sidecar — stdio JSON-RPC over newline-
 name = "pulse-linux-hq-sidecar"
 path = "src/main.rs"
 
+# Der KMS-Helfer ist ein zweites, winziges Programm im selben Baum. Als
+# Arbeitsbereich-Mitglied baut `cargo build --release` beide, und der Flatpak
+# braucht dafuer keine zweite Modul-Definition (er kopiert ohnehin genau dieses
+# Verzeichnis). Begruendung fuer die Lage der Kiste: `kms-helfer/Cargo.toml`.
+[workspace]
+members = ["kms-helfer"]
+# `default-members` ist hier nicht Geschmackssache: ohne diese Zeile baut ein
+# schlichtes `cargo build --release` im Arbeitsbereichs-Wurzelverzeichnis NUR
+# das Wurzelpaket — der Helfer fehlte im Flatpak-Bau, und zwar ohne Fehler,
+# einfach als nicht vorhandene Datei.
+default-members = [".", "kms-helfer"]
+
 [dependencies]
+# Nur die Bibliothek (DRM-ioctls, Format auf dem Draht) — das Programm mit
+# `CAP_SYS_ADMIN` laeuft getrennt. Eine gemeinsame Quelle fuer beide Seiten des
+# Gespraechs; der Fassungs-Handschlag faengt nur ALT INSTALLIERTE Helfer ab,
+# nicht auseinandergelaufene Quelltexte.
+pulse-kms-helfer = { path = "kms-helfer" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
