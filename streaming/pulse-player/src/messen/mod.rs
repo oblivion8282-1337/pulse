@@ -21,6 +21,7 @@
 //! die sich die Ausgabe bezieht.
 
 pub mod farbwerte;
+pub mod flimmern;
 mod gpu;
 mod pixel;
 mod sollwerte;

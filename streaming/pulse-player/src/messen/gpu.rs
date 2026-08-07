@@ -51,12 +51,30 @@ pub struct Lauf {
     /// begrenzt auf 0..1 und schnitte genau die Spitzlichter ab, um die es
     /// geht.
     pub hdr_fenster: bool,
+    /// Der Stand der Uhr, mit dem Deband und Dither ihr Rauschmuster wuerfeln
+    /// (`shader.wgsl`, `u.params.w`).
+    ///
+    /// **Er steht hier, weil er der EINZIGE Unterschied zwischen zwei
+    /// aufeinanderfolgenden Bildern eines Standbilds ist.** Solange er fest auf
+    /// 0 stand, konnte der Messstand die Frage „flimmert der Shader?"
+    /// grundsaetzlich nicht stellen — jeder Lauf lieferte dasselbe Bild, und
+    /// das sah wie Stabilitaet aus, war aber nur eine eingefrorene Uhr.
+    /// Die Farb- und Stufenmessung lassen ihn weiter auf 0: dort sollen zwei
+    /// Laeufe gerade vergleichbar sein.
+    pub zeit: f32,
 }
 
 impl Lauf {
     /// Der gewoehnliche SDR-Fall: BT.709, keine PQ-Kurve, SDR-Fenster.
     pub fn sdr(format: wgpu::TextureFormat, deband: f32, dither: bool) -> Self {
-        Self { format, deband, dither, farbe: Farbangaben::default(), hdr_fenster: false }
+        Self {
+            format,
+            deband,
+            dither,
+            farbe: Farbangaben::default(),
+            hdr_fenster: false,
+            zeit: 0.0,
+        }
     }
 }
 
@@ -144,8 +162,10 @@ impl Messstand {
             .entry(lauf.format)
             .or_insert_with(|| build_graphics(device, lauf.format));
 
-        // Genau der Uniform-Block des Fensters. `zeit` (das Rauschmuster des
-        // Dithers) steht fest auf 0, damit zwei Laeufe vergleichbar sind.
+        // Genau der Uniform-Block des Fensters. `zeit` (das Rauschmuster von
+        // Deband und Dither) kommt aus dem [`Lauf`]: die Farb- und
+        // Stufenmessung lassen ihn auf 0, damit zwei Laeufe vergleichbar sind;
+        // die Flimmermessung ([`super::flimmern`]) veraendert genau ihn.
         let opts = PlayerOptions {
             deband: Some(lauf.deband),
             dither: Some(lauf.dither),
@@ -167,7 +187,7 @@ impl Messstand {
             self.voller_bereich,
             lauf.farbe,
             lauf.hdr_fenster,
-            0.0,
+            lauf.zeit,
         );
         self.queue.write_buffer(&gfx.uniform_buf, 0, &uniforms.as_bytes());
 
