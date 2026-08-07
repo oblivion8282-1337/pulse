@@ -220,7 +220,7 @@ impl Ausgabetakt {
     /// er kostet Glaettung im Millisekundenbereich, waehrend das Wegwerfen
     /// ganze Bilder kostet. Und er macht die Bildrate zu einer Zahl, die man
     /// frei waehlen kann — vorher gab es eine Klippe, die niemand sah.
-    fn wirksamer_vorhalt(&self) -> Duration {
+    pub fn wirksamer_vorhalt(&self) -> Duration {
         let Some(abstand) = self.bildabstand.filter(|d| !d.is_zero()) else {
             return self.vorhalt;
         };

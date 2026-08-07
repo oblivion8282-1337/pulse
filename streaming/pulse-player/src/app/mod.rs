@@ -138,6 +138,20 @@ impl PhaseTimes {
     }
 }
 
+/// Fassungsvermoegen des Kanals vom Decoder- zum Fenster-Faden.
+///
+/// Als Funktion und nicht als Ausdruck an der Anlagestelle, weil die
+/// Sitzungs-Zusammenfassung denselben Wert nennen muss — ein zweiter Ausdruck
+/// koennte auseinanderlaufen, und dann meldete das Log etwas anderes, als
+/// laeuft. Begruendung fuer die Groesse steht an der Anlagestelle.
+fn ev_kanal_groesse() -> usize {
+    std::env::var("PULSE_PLAYER_EV_KANAL")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (2..=256).contains(n))
+        .unwrap_or(32)
+}
+
 /// Ereignisse, die von aussen in die Fenster-Schleife getragen werden.
 pub enum UserEvent {
     Request(Box<Request>),
@@ -195,6 +209,9 @@ struct Session {
     /// Bezugspunkt der Statistik-Zeile (s. `App::stats_log`).
     last_log: Option<std::time::Instant>,
     presented_at_last_log: u64,
+    /// Stand der Verlust-Zaehler beim letzten Melden — s. [`App::bilanz_pruefen`].
+    /// Wurde die Bilanz-Warnung schon abgesetzt? (s. [`App::bilanz_pruefen`])
+    bilanz_gemeldet: bool,
     state: SessionState,
     /// Kopie von `req.can_reattach` (s. `proto.rs`) — steht bisher nur im
     /// Overlay (fuer den Reattach-Knopf), aber der Fenster-Schliessen-Handler
@@ -412,13 +429,7 @@ impl App {
         // Ring der Platz aus, liefert `Freigabe::nehmen` nichts und das Bild
         // nimmt den Weg ueber den Hauptspeicher — langsamer, aber vollstaendig.
         // Im Messbetrieb wurde der Ring dabei nie ausgeschoepft.
-        let (ev_tx, mut ev_rx) = mpsc::channel(
-            std::env::var("PULSE_PLAYER_EV_KANAL")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .filter(|n| (2..=256).contains(n))
-                .unwrap_or(32),
-        );
+        let (ev_tx, mut ev_rx) = mpsc::channel(ev_kanal_groesse());
         let proxy = self.proxy.clone();
         self.runtime.spawn(async move {
             let mut announced_end = false;
@@ -499,6 +510,7 @@ impl App {
                 last_frame_at: None,
                 last_log: None,
                 presented_at_last_log: 0,
+                bilanz_gemeldet: false,
                 state: SessionState::Connecting,
                 can_reattach: req.can_reattach.unwrap_or(true),
             },
@@ -845,6 +857,60 @@ impl App {
         }
         session.last_log = Some(now);
         session.presented_at_last_log = presented;
+        // Zuletzt, weil sie die Sitzung erneut ausleiht.
+        self.bilanz_pruefen(id, presented);
+    }
+
+    /// **Geht die Rechnung auf?** Jedes dekodierte Bild muss genau einen Ausgang
+    /// nehmen: gezeichnet, oder einen der Verlust-Zaehler.
+    ///
+    /// **Warum es das gibt.** Am 2026-08-07 standen 144 dekodierte gegen 85
+    /// gezeichnete Bilder, und die vorhandenen Zaehler erklaerten davon nur
+    /// zwanzig. Den fehlenden Ausgang habe ich von Hand gesucht — es war die
+    /// Warteschlange des Ausgabe-Takts, die ungezaehlt verwarf. Diese Pruefung
+    /// haette ihn in der ersten Minute genannt.
+    ///
+    /// **Sie meldet nur, wenn etwas fehlt.** Im gesunden Betrieb ist sie stumm
+    /// und kostet eine Subtraktion je Sekunde. Das ist Absicht: eine Zeile, die
+    /// immer dasteht, wird nicht gelesen — und jede Zeile kostet den
+    /// Diagnose-Upload Reichweite (er traegt nur die letzten 512 KB).
+    ///
+    /// **Sie rechnet KUMULIERT, nicht je Fenster** — das ist der Kern und war
+    /// im ersten Anlauf falsch. Zwischen „dekodiert" und „gezeichnet" liegen
+    /// Puffer (Kanal zum Fenster-Faden bis 32 Bilder, Warteschlange des Takts
+    /// bis 12). Ein Sekundenfenster sieht die als verschwunden und im naechsten
+    /// als zu viel: der erste Lauf meldete prompt „34 Bilder ohne Ausgang",
+    /// obwohl nichts fehlte. Kumuliert bleibt dieser Anteil beschraenkt, ein
+    /// echtes Leck waechst dagegen unbegrenzt weiter.
+    fn bilanz_pruefen(&mut self, id: u64, presented: u64) {
+        /// Wie viele Bilder hoechstens gleichzeitig unterwegs sein koennen,
+        /// ohne dass etwas fehlt: Kanal + Warteschlange + angezeigtes Bild +
+        /// was im Decoder steckt, grosszuegig aufgerundet. Alles darueber ist
+        /// kein Puffer mehr, sondern ein fehlender Zaehler.
+        const UNTERWEGS_MAX: i64 = 150;
+        let Some(session) = self.sessions.get_mut(&id) else { return };
+        let st = &session.stats;
+        let rest = st.frames_decoded as i64
+            - presented as i64
+            - st.frames_skipped as i64
+            - st.frames_dropped as i64
+            - session.frames_never_drawn as i64
+            - session.takt.verdraengt() as i64;
+        // Nur EINMAL melden, sonst steht die Zeile ab da jede Sekunde da und
+        // frisst die Reichweite des Diagnose-Uploads.
+        if rest.abs() > UNTERWEGS_MAX && !session.bilanz_gemeldet {
+            session.bilanz_gemeldet = true;
+            eprintln!(
+                "pulse-player: Sitzung {id}: BILANZ — {rest} Bilder ohne Ausgang \
+                 (dekodiert {}, gezeichnet {presented}, uebersprungen {}, nach Luecke {}, \
+                 nie gezeichnet {}, verdraengt {}). Ein Verlustzaehler fehlt.",
+                st.frames_decoded,
+                st.frames_skipped,
+                st.frames_dropped,
+                session.frames_never_drawn,
+                session.takt.verdraengt(),
+            );
+        }
     }
 
     /// Setzt um, was im Fenster bedient wurde.
@@ -987,6 +1053,28 @@ impl App {
                 session.decoder = decoder;
                 session.hardware = hardware;
                 session.state = SessionState::Playing;
+                // **Was WIRKLICH gilt, nicht was eingestellt wurde.** Mehrere
+                // Werte hier sind „die Vorgabe, ausser …": der Vorhalt kuerzt
+                // sich bei hoher Bildrate selbst (`takt::wirksamer_vorhalt`),
+                // die Ringgroesse schneidet die Speichergrenze zu
+                // (`zerocopy::bruecke`), und das Fassungsvermoegen des Kanals
+                // haengt an einer Umgebungsvariablen. Am 2026-08-07 musste ich
+                // fuer jeden dieser Werte den Quelltext lesen, um zu wissen, was
+                // der laufende Player gerade tut.
+                //
+                // EINMAL je Sitzung, nicht je Sekunde: es aendert sich nicht,
+                // und jede wiederkehrende Zeile kostet den Diagnose-Upload
+                // Reichweite (er traegt nur die letzten 512 KB).
+                eprintln!(
+                    "pulse-player: Sitzung {id}: wirksam — Vorhalt {} ms{}, Jitter {} ms, \
+                     Kanal {} Bilder, Decoder {} ({})",
+                    session.takt.wirksamer_vorhalt().as_millis(),
+                    if session.takt.aktiv() { "" } else { " (Takt aus)" },
+                    session.options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
+                    ev_kanal_groesse(),
+                    session.decoder,
+                    if session.hardware { "Hardware" } else { "Software" },
+                );
                 self.emit_state(id, SessionState::Playing, None);
             }
             SessionEvent::Ended { reason, failed } => {
