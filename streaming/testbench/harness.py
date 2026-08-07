@@ -201,6 +201,15 @@ def main() -> int:
     samples: list[dict] = []
     try:
         optionen = {"auto": {}, "hw": {"hwdec": True}, "sw": {"hwdec": False}}[args.hwdec]
+        # Weitere Player-Optionen als JSON durchreichen, z. B.
+        #   PULSE_HARNESS_PLAYER_OPTS='{"deband":0,"dither":false}'
+        # Gebraucht, seit am 2026-08-07 ein flaches HDR-Testbild sichtbar
+        # flimmerte: Deband streut Rauschen ein, dessen Muster je Bild wechselt
+        # — auf echtem Bildinhalt unauffaellig, auf einer flachen Flaeche nicht.
+        # Ohne diesen Schalter waere die Ursache nur durch Umbauen des
+        # Pruefstands von der Wirkung zu trennen gewesen.
+        if (roh := os.environ.get("PULSE_HARNESS_PLAYER_OPTS")):
+            optionen |= json.loads(roh)
         res = player.call("open", url=whep, title=f"Pruefstand {tag}", options=optionen)
         if not res.get("ok"):
             print(f"open fehlgeschlagen: {res}", file=sys.stderr)
