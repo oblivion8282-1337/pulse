@@ -208,7 +208,12 @@ impl JitterBuffer {
                     if oldest > next {
                         let missing = oldest - next;
                         self.lost += missing;
-                        self.forced_gap = Some(missing);
+                        // Aufaddieren, nicht ueberschreiben: laeuft der Puffer
+                        // zweimal zwischen zwei `poll`-Durchgaengen ueber, ginge
+                        // die erste Zahl sonst verloren und `lost` und die
+                        // gemeldete Luecke liefen auseinander. Der Resync-Zweig
+                        // oben macht es seit jeher richtig.
+                        *self.forced_gap.get_or_insert(0) += missing;
                     }
                 }
                 self.next = Some(oldest);

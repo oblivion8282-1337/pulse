@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-08",
+      "date": "2026-08-08",
+      "style": "Sachlich",
+      "title": "Wiedergabefenster und Tonaussetzer behoben",
+      "intro": "Zwei Fehler im eigenen Wiedergabefenster, die beim Zuschauen auffielen.",
+      "items": [
+        "Behoben: Wer die Vorgabe \"immer im eigenen Fenster\" gesetzt hatte, konnte das Fenster nicht mehr schliessen — es ging sofort wieder auf, und nach einigen Runden blieb die Kachel schwarz stehen. Ein geschlossenes Fenster gilt jetzt als Entscheidung des Zuschauers und wird nicht mehr ueberschrieben.",
+        "Behoben: Der Ton setzte nach jeder kleinen Schwankung der Leitung rund eine Zehntelsekunde lang aus, statt einfach weiterzulaufen. Neu gefuellt wird nur noch, wenn der Vorrat wirklich aufgebraucht ist.",
+        "Diese Aussetzer tauchten bisher in keiner Statistik auf und werden jetzt mitgezaehlt."
+      ]
+    },
+    {
       "id": "2026-08-07.8",
       "date": "2026-08-07",
       "style": "Sachlich",

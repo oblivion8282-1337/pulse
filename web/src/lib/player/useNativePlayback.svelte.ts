@@ -16,10 +16,10 @@ import { isPlayerAvailable } from './client';
 import {
   loadPlayerSettings,
   nativePlayerSessions,
-  nativeWindowRequests,
   playerSettings,
   type NativePlayerSession,
 } from './store.svelte';
+import { nativeWindowRequests } from './wuensche.svelte';
 
 export interface NativePlaybackArgs {
   channelId: string;
@@ -100,9 +100,26 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
     nativeWindowRequests.has(args().channelId, args().userId, args().slot)
   );
 
+  /**
+   * Der Zuschauer hat das Fenster DIESER Kachel selbst zugemacht.
+   *
+   * Dann schweigt die Automatik, bis er es wieder anfordert oder die Kachel neu
+   * aufgeht. Ohne das riss `playerSettings.useNativePlayer` das eben
+   * geschlossene Fenster sofort wieder auf, und nach fuenf Runden blieb die
+   * Kachel schwarz stehen — Begruendung samt Hergang bei `automatikAus` in
+   * `store.svelte.ts`.
+   *
+   * Ein ausdruecklicher Wunsch (`angefordert`) sticht das aus: er hebt den
+   * Merker beim Setzen ohnehin auf, und die Reihenfolge hier sagt dasselbe
+   * noch einmal fuer den Fall, dass beides gleichzeitig gilt.
+   */
+  const selbstGeschlossen = $derived(
+    nativeWindowRequests.automatikAus(args().channelId, args().userId, args().slot)
+  );
+
   const active = $derived(
     verfuegbar &&
-      (angefordert || playerSettings.useNativePlayer || erzwungen) &&
+      (angefordert || ((playerSettings.useNativePlayer || erzwungen) && !selbstGeschlossen)) &&
       !nativeFailed &&
       !nativeSkipped
   );

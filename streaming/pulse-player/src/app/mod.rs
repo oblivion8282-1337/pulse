@@ -530,7 +530,16 @@ impl App {
         if let Some(session) = self.sessions.get(&id) {
             session.window.request_redraw();
         }
-        self.emit_state(id, SessionState::Connecting, None);
+        // **Das `connecting` wird NICHT hier gemeldet, sondern erst nach der
+        // Antwort** (s. `requests.rs`, Zweig `"open"`). Bis zum 2026-08-07 stand
+        // es an dieser Stelle und ging damit VOR der Antwort ueber die Leitung —
+        // die Gegenseite kannte ihre Sitzungsnummer zu diesem Zeitpunkt noch
+        // nicht und verwarf die Meldung als "gehoert zu einer anderen Sitzung".
+        // Beim `connecting` war das folgenlos; die Reihenfolge als solche ist es
+        // nicht, denn stirbt eine Sitzung sofort (der fehlende
+        // rustls-Krypto-Anbieter ist der reale Fall, s. `main.rs`), traefe es
+        // dasselbe `failed` — und dann bliebe die Kachel ewig auf "verbinde"
+        // stehen, statt auf das <video>-Element zurueckzufallen.
         Ok(id)
     }
 
