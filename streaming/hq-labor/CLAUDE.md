@@ -334,10 +334,14 @@ gleichmäßig — die Bündelung entsteht dahinter.
 Gehoben von wgpu 29 auf 30 und der egui-Familie 0.35 auf 0.36 (Zweig
 `wgpu30-migration`, Messakte
 `profiles/player-2026-08-08-wgpu30-migration.json`). **Reine Migration, keine
-Verhaltensaenderung** — und das ist gemessen, nicht behauptet: 12 Laeufe je
-Arm ueber zwei Reihen, Zero-Copy in beiden Armen an, Dekodierzeit 1491,0 gegen
-1513,6 us, Bild-bis-Schirm 24133,4 gegen 24127,0 us, Bildrate gleich, Ring
-795 MiB in beiden. Vorzeichen kippt zwischen den Reihen — Rauschen.
+Verhaltensaenderung** — und das ist gemessen, nicht behauptet: 18 Laeufe je
+Arm ueber drei Reihen, Zero-Copy in beiden Armen an. Massgeblich ist Reihe C
+(beide Arme auf derselben Grundlage, einziger Unterschied die wgpu-Fassung):
+Dekodierzeit 1614,8 gegen 1627,5 us, Bild-bis-Schirm 24093,0 gegen
+24102,6 us, Bildrate gleich, Ring 795 MiB in beiden. Das Vorzeichen kippt
+zwischen den Reihen — Rauschen. Die **Positivkontrolle** macht daraus erst
+eine Aussage: derselbe Aufbau sieht mit abgeschaltetem Zero-Copy 3690,8 us,
+loest also das Hundertfache des Gesuchten auf.
 
 **Vier Dinge daran sind wichtiger als die Zahlen:**
 
@@ -355,11 +359,19 @@ Arm ueber zwei Reihen, Zero-Copy in beiden Armen an, Dekodierzeit 1491,0 gegen
 4. **Es kostet rustc >= 1.95** (egui 0.36). Flatpak und CI sind nicht
    betroffen; die Entwicklermaschine schon.
 
-**Was ungeprueft bleibt und vor einem Merge gehoert:** Windows und macOS sind
-nicht einmal probeweise uebersetzt — dort haengt mehr am Sprung als auf Linux
-(`SetColorSpace1` ueber `as_hal`, Zero-Copy ueber D3D11/D3D12-Griffe,
-`create_texture_from_hal` mit neuem Parameter). Und der HDR-Formatwechsel ist
-in der Messreihe nie ausgeloest worden; die Quelle war 10-bit-SDR.
+**Windows ist genau dort gebrochen, wo die Messakte es als ungeprueft benannt
+hatte** — `create_texture_from_hal` im Dx12-Zweig, im CI gefunden, in
+`bca6767d` behoben. Der Wert `UNINITIALIZED` traegt dort aus einem **anderen**
+Grund als auf Linux: auf D3D12 heisst er `RESOURCE_STATE_COMMON` (nicht
+„Inhalt darf weg"), und das ist genau der Zustand einer per
+`OpenSharedHandle` uebernommenen D3D11-Textur. macOS war gruen. **Lehre, weil
+sie sich wiederholen wird: eine Grenze der Aussage ist eine Vorhersage.** Die
+hier stand, ist innerhalb eines Tages eingetreten.
+
+**Was ungeprueft bleibt:** Windows ist nach dem Fix nur als *Uebersetzung*
+belegt — kein Bild, keine Zahl von dort (diese Maschine hat keinen
+Windows-Toolchain). Und der HDR-Formatwechsel ist in der Messreihe nie
+ausgeloest worden; die Quelle war 10-bit-SDR.
 
 **Nebenbefund fuer den Semaphor-Weg, der zweimal vertagt wurde:** wgpu 30
 bringt die fehlende Haelfte mit — `Queue::add_wait_semaphore` (Vulkan) und
