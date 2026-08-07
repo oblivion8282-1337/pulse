@@ -9,6 +9,15 @@
 //! dem Etikett „Intra-Refresh" weiterläuft, ist keine Messung, die scheitert,
 //! sondern eine, die täuscht.
 //!
+//! **Seit dem 2026-08-07 gilt das in beide Richtungen**, und der Anlass war der
+//! umgekehrte Fall: `h264_amf` frischte auch dann auf, wenn der Nutzer es
+//! ausdrücklich abgewählt hatte — die Betriebsart hängt dort an
+//! `usage=ultralowlatency`, das aus ganz anderen (Last-)Gründen gesetzt wird.
+//! Der Haken tat also nichts. Ein Strom mit Auffrischung unter dem Etikett
+//! „Vollbilder" täuscht genauso wie der Fall andersherum, nur fällt er später
+//! auf: erst beim Zuschauer, als schwarzes Bild. Deshalb gibt es neben
+//! [`optionen_fuer`] jetzt [`abschalt_optionen_fuer`].
+//!
 //! **Der Unterschied zu Linux liegt darin, woran die Antwort hängt.** Dort
 //! genügt es zu fragen, ob das gelinkte FFmpeg die Option kennt — auf VAAPI
 //! gibt es sie nur mit unserem Patch, auf NVENC immer, und wo sie da ist, wirkt
@@ -125,6 +134,10 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
         // einem funktionierenden Zyklus zu drehen, ohne dass jemand einen Grund
         // dafür gemessen hat. Messakte
         // `amd-2026-08-02-h264-intra-refresh.json`.
+        //
+        // **Die Kehrseite steht in [`abschalt_optionen_fuer`]** und ist der
+        // Grund, warum „läuft längst" hier zu wenig war: was von sich aus läuft,
+        // hört auch von sich aus nicht auf.
         "h264_amf" => Some(&[]),
         // Alles andere: nein, und zwar begründet.
         //
@@ -137,6 +150,61 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
         //   nicht bei `h264_qsv`/`av1_qsv`. HEVC wird ausgebaut.
         // * `hevc_amf` — ungemessen. Kein Grund, es zu behaupten.
         _ => None,
+    }
+}
+
+/// Was dieser Encoder braucht, um die Auffrischung **NICHT** zu fahren.
+///
+/// Die Gegenrichtung zu [`optionen_fuer`], und sie ist ausdrücklich kein
+/// Spiegelbild davon: fast jeder Encoder frischt nur auf, wenn man es ihm sagt
+/// — dort ist nichts abzuschalten, und die leere Liste ist die richtige
+/// Antwort. `h264_amf` ist die Ausnahme, und sie hat Geld gekostet.
+///
+/// **Warum es diese Funktion gibt** (2026-08-07, in der Produktion aufgefallen):
+/// `usage=ultralowlatency` setzt `opts::vendor_encoder_opts` seit dem
+/// 2026-07-30 unbedingt, aus Last-Gründen — und bei `h264_amf` bringt es die
+/// Auffrischung mit. Damit lief H.264 auf AMD **immer** im Auffrisch-Betrieb,
+/// auch für Nutzer, die ihn ausdrücklich abgewählt hatten. Das Kästchen tat
+/// nichts, und die Zeile „Vollbilder" im Log behauptete das Gegenteil dessen,
+/// was lief. Ein Schalter, der nichts schaltet, ist schlimmer als keiner: er
+/// erzeugt Vertrauen in eine Zusage, die niemand einlöst.
+///
+/// **`transcoding` ist der einzige Hebel, und das ist gemessen**, nicht
+/// geraten (Messakte `amd-2026-08-02-h264-intra-refresh.json`, Abschnitte 2+3;
+/// stehendes Bild, feste Quantisierung, 300 Bilder bei `-g 60`):
+///
+/// | `usage`            | Vollbilder in 300 Bildern |
+/// |--------------------|---------------------------|
+/// | Treiber-Vorgabe    | 5 — der bestellte Takt    |
+/// | `transcoding`      | 5                         |
+/// | `lowlatency`       | 1                         |
+/// | `ultralowlatency`  | 1                         |
+///
+/// Dieses eine Vollbild ist das beim Start; danach kommt keines mehr. Die
+/// naheliegende Alternative `intra_refresh_mb` **schaltet nichts ab** — sie
+/// dreht nur an einem bereits laufenden Zyklus (+14 % Last im aktiven Block).
+/// Wer sie hier einsetzen wollte, hat die Messung nicht gelesen.
+///
+/// **Der Preis, damit ihn niemand suchen muss:** Video-Engine 26,6 statt
+/// 10,3 Prozent (H.264, 2026-07-30) — zweieinhalbfache Last auf einer iGPU.
+/// Die Bildqualität wird dabei leicht **besser** (+0,4 VMAF). Er trifft nur,
+/// wer ausdrücklich abwählt; die Vorgabe ist seit dem 2026-08-06 Intra-Refresh
+/// und bleibt auf dem billigen Weg.
+///
+/// **Was NICHT gemessen ist: die Latenz.** `transcoding` heißt bei AMF
+/// „Generic Transcoding" und stellt Vorlauf und Voranalyse anders ein. Der Wert
+/// stand hier allerdings bis zum 2026-07-30 als Vorgabe und lief in dieser Zeit
+/// in Produktion — er ist also nicht neu, nur ungemessen. Wer die Zahl braucht,
+/// misst gegen `ultralowlatency` und trägt sie hier ein.
+fn abschalt_optionen_fuer(encoder: &str) -> &'static [(&'static str, &'static str)] {
+    match encoder {
+        "h264_amf" => &[("usage", "transcoding")],
+        // Alle übrigen frischen nur auf Ansage auf — `h264_d3d12va` frischt
+        // zwar durchgehend auf, ersetzt den Vollbild-Takt dabei aber NICHT
+        // (Messakte Abschnitt 5: bei `-g 60` bleiben die fünf Vollbilder
+        // stehen). Ein neu einsteigender Zuschauer kommt dort also ins Bild,
+        // und genau darum geht es hier.
+        _ => &[],
     }
 }
 
@@ -226,11 +294,20 @@ pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
     })
 }
 
-/// Die Optionen für diesen Encoder eintragen — oder den Start verweigern.
+/// Die Betriebsart durchsetzen — in **beide** Richtungen — oder den Start
+/// verweigern.
 ///
 /// Einmal je Encoder-Open aufrufen, nachdem die Vendor-Optionen stehen und
-/// **bevor** geöffnet wird. Ist die Betriebsart nicht verlangt, passiert
-/// nichts.
+/// **bevor** geöffnet wird. Die Reihenfolge ist wesentlich: die Abschaltung
+/// überschreibt ein `usage`, das `opts::vendor_encoder_opts` vorher gesetzt hat.
+///
+/// **„Ist die Betriebsart nicht verlangt, passiert nichts" stand hier bis zum
+/// 2026-08-07 — und war der Fehler.** Bei `h264_amf` hieß „nichts tun", dass
+/// die Auffrischung weiterlief, weil sie an `usage=ultralowlatency` hängt und
+/// niemand sie je eingeschaltet hatte. Ein abgewählter Haken blieb damit ohne
+/// Wirkung, und über RTMPS sah der Zuschauer dauerhaft nichts. Die
+/// Gegenrichtung ist deshalb kein Zusatz, sondern die zweite Hälfte derselben
+/// Zusage: [`abschalt_optionen_fuer`].
 ///
 /// **Warum hier ein Fehler steht, wo `output::warn_unknown_opts` nur warnt:**
 /// eine unbekannte Option aus `PULSE_ENCODER_OPTS` ist die Eingabe des
@@ -239,6 +316,9 @@ pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
 /// Etikett weiter.
 pub fn anwenden(opts: &mut Dictionary<'_>, encoder: &str, fps: u32) -> Result<()> {
     if !gewuenscht() {
+        for (key, wert) in abschalt_optionen_fuer(encoder) {
+            opts.set(key, wert);
+        }
         return Ok(());
     }
     let Some(liste) = optionen_fuer(encoder) else {
@@ -275,9 +355,30 @@ pub fn anwenden(opts: &mut Dictionary<'_>, encoder: &str, fps: u32) -> Result<()
 mod tests {
     use super::*;
 
+    /// Serialisiert die Tests, die an der prozessweiten Betriebsart drehen.
+    ///
+    /// **Ohne diese Sperre sind die Tests flüchtig**, und zwar nachweislich:
+    /// am 2026-08-07 in 12 Läufen dreimal rot, immer mit dem Muster
+    /// `left: Some("transcoding"), right: Some("ultralowlatency")`. Rust fährt
+    /// die Tests einer Kiste **parallel in EINEM Prozess**, und
+    /// `AUS_PARAMETERN` ist prozessweit (warum, steht an der Variablen selbst).
+    /// Ein Test, der die Betriebsart auf „an" stellt, sah also den „aus" eines
+    /// Nachbarn — geprüft wurde dann nicht der Code, sondern die Reihenfolge
+    /// des Schedulers.
+    ///
+    /// Die Anlage dafür bestand, seit es `mit_wunsch` gibt; die drei Tests vom
+    /// 2026-08-07 haben sie nur wahrscheinlich genug gemacht, um sichtbar zu
+    /// werden. Ein Rerun-Flag hätte den Befund verdeckt statt ihn zu beheben.
+    static TESTSPERRE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Der Zustand ist prozessweit — die Tests stellen ihn deshalb jeweils
-    /// selbst ein und am Ende zurück.
+    /// selbst ein und am Ende zurück, unter der Sperre.
     fn mit_wunsch<T>(an: bool, f: impl FnOnce() -> T) -> T {
+        // `unwrap_or_else(into_inner)` statt `unwrap`: scheitert ein Test
+        // INNERHALB der Sperre, vergiftet sein Panic den Mutex. Mit `unwrap`
+        // fielen danach alle übrigen mit „PoisonError" — eine Lawine, die den
+        // einen echten Befund zudeckt.
+        let _sperre = TESTSPERRE.lock().unwrap_or_else(|e| e.into_inner());
         setzen(an);
         let r = f();
         AUS_PARAMETERN.store(UNGESAGT, std::sync::atomic::Ordering::Relaxed);
@@ -370,6 +471,61 @@ mod tests {
             anwenden(&mut opts, "h264_d3d12va", 60).unwrap();
             anwenden(&mut opts, "av1_amf", 60).unwrap();
             assert_eq!(opts.get("intra_refresh_mode"), None);
+            // Und ihr `usage` bleibt, wie `vendor_encoder_opts` es gesetzt hat:
+            // sie frischen nur auf Ansage auf, es gibt nichts abzuschalten.
+            assert_eq!(opts.get("usage"), None);
+        });
+    }
+
+    /// **Der Haken muss etwas tun.** Wird die Betriebsart abgewählt, muss
+    /// `h264_amf` das `usage` verlieren, an dem sie hängt — sonst frischt der
+    /// Encoder weiter auf und der Strom trägt nach dem Start kein Vollbild
+    /// mehr. Genau das lief bis zum 2026-08-07 in Produktion: der Zuschauer
+    /// bekam alle Pakete, dekodierte null Bilder und baute zwanzigmal neu auf.
+    #[test]
+    fn abgewaehlt_nimmt_h264_amf_die_auffrischung_wirklich_weg() {
+        mit_wunsch(false, || {
+            let mut opts = super::super::opts::vendor_encoder_opts("amd", VideoCodec::H264, false);
+            assert_eq!(
+                opts.get("usage"),
+                Some("ultralowlatency"),
+                "Vorbedingung: der Vendor-Zweig setzt den Wert, an dem die Auffrischung haengt"
+            );
+            anwenden(&mut opts, "h264_amf", 60).unwrap();
+            assert_eq!(
+                opts.get("usage"),
+                Some("transcoding"),
+                "abgewaehlt heisst echte Vollbilder — gemessen: 5 statt 1 je 300 Bilder"
+            );
+            // `intra_refresh_mb` schaltet nichts ab (es dreht nur am laufenden
+            // Zyklus) und hat hier deshalb nichts verloren.
+            assert_eq!(opts.get("intra_refresh_mb"), None);
+        });
+    }
+
+    /// Die Gegenprobe, und sie ist der eigentliche Punkt dieser Änderung: am
+    /// Intra-Refresh-Weg ändert sich NICHTS. Er ist gemessen, ausgeliefert und
+    /// billig (10,3 statt 26,6 Prozent Video-Engine) — der teure Zweig darf nur
+    /// den treffen, der ausdrücklich abwählt.
+    #[test]
+    fn gewaehlt_laesst_h264_amf_auf_dem_billigen_weg() {
+        mit_wunsch(true, || {
+            let mut opts = super::super::opts::vendor_encoder_opts("amd", VideoCodec::H264, false);
+            anwenden(&mut opts, "h264_amf", 60).unwrap();
+            assert_eq!(opts.get("usage"), Some("ultralowlatency"));
+        });
+    }
+
+    /// **AV1 fasst die Abschaltung nicht an**, obwohl derselbe `usage` gesetzt
+    /// ist: bei `av1_amf` bringt `ultralowlatency` die Auffrischung NICHT mit
+    /// (sie braucht dort eigene Schlüssel). Den Wert auch hier zu tauschen
+    /// hieße, 23,9 statt 9,4 Prozent Video-Engine zu bezahlen — für nichts.
+    #[test]
+    fn abgewaehlt_laesst_av1_amf_unangetastet() {
+        mit_wunsch(false, || {
+            let mut opts = super::super::opts::vendor_encoder_opts("amd", VideoCodec::Av1, false);
+            anwenden(&mut opts, "av1_amf", 60).unwrap();
+            assert_eq!(opts.get("usage"), Some("ultralowlatency"));
         });
     }
 

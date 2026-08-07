@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07.3",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Der Schalter fuer die Bild-Auffrischung tut jetzt, was er sagt",
+      "items": [
+        "Wer die rollende Auffrischung abwaehlt, bekommt sie auf AMD-Grafik bei H.264 jetzt auch wirklich nicht mehr. Bisher lief sie unabhaengig von der Einstellung weiter.",
+        "Die Voreinstellung aendert sich nicht."
+      ]
+    },
+    {
       "id": "2026-08-07.2",
       "date": "2026-08-07",
       "style": "Sachlich",
