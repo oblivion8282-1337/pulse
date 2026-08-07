@@ -412,11 +412,11 @@ Vier Dinge daran sind nicht offensichtlich:
   `HDR_OUTPUT_METADATA` (`eotf == 2` = PQ), nicht im Fourcc.
 * **Der Weg braucht `CAP_SYS_ADMIN`.** `GETFB2` beantwortet der Kernel jedem,
   die **GEM-Handles** darin aber nur DRM-Master oder `CAP_SYS_ADMIN` — ohne
-  Handle kein DMABUF. Deshalb hat gpu-screen-recorder einen eigenen Helfer mit
-  gesetzter Capability. **Fuer die Flatpak-Auslieferung ist das ungeloest**
-  (ein Flatpak kann keine Datei-Capabilities tragen); bis dahin ist HDR eine
-  Laborfaehigkeit. Der Sidecar verweigert den Start mit Begruendung, statt
-  still auf SDR zurueckzufallen (`encode/hdr.rs`, Muster von
+  Handle kein DMABUF. **Hier stand bis zum 2026-08-08 „fuer die
+  Flatpak-Auslieferung ist das ungeloest, bis dahin ist HDR eine
+  Laborfaehigkeit" — das ist erledigt**, siehe den Abschnitt „Der KMS-Helfer"
+  weiter unten. Unveraendert gilt: der Sidecar verweigert den Start mit
+  Begruendung, statt still auf SDR zurueckzufallen (`encode/hdr.rs`, Muster von
   `win-hq-sidecar/src/encode/hdr.rs`).
 * **Der Mauszeiger fehlt** — er liegt auf einer eigenen DRM-Plane. Und es gibt
   keine Quellenauswahl: aufgenommen wird ein ganzer Ausgang. Der Weg ist kein
@@ -433,6 +433,60 @@ Scanout-Aufnahme, wo der Puffer bei jedem Bild wechselt, waere das ein
 **stehendes Bild** gewesen — mit voellig plausiblen Messwerten. Aufgefallen an
 der Log-Zeile „EGLImage-Cache: neuer Capture-Buffer aufgenommen buffers=1", die
 bei 180 Bildern genau einmal kam. Behoben.
+
+## Der KMS-Helfer — wie HDR im Flatpak an seine Rechte kommt (2026-08-08)
+
+Der Preis aus dem Abschnitt darueber ist bezahlt. `kms-helfer/` ist ein
+**zweites, winziges Programm**, das ausserhalb der Sandbox liegt, `cap_sys_admin`
+traegt und nichts weiter kann, als den Scanout-Puffer eines Ausgangs als DMABUF
+ueber einen Unix-Socket herauszureichen. Messakte:
+`streaming/testbench/profiles/hdr-2026-08-08-kms-helfer-linux.json`.
+
+Sieben Dinge, die man wissen muss, und keines davon ist offensichtlich:
+
+* **`setcap cap_sys_admin+ep`, nicht setuid root.** `setuid root` gaebe alle
+  Faehigkeiten des Systems und eine zweite Kennung dazu; die Faehigkeit gibt
+  genau die eine, an der der Kernel `GETFB2` festmacht, und laesst die Kennung
+  des Nutzers unangetastet. gpu-screen-recorder macht es ebenso
+  (`extra/meson_post_install.sh`).
+* **Er liegt in `streaming/linux-hq-sidecar/kms-helfer/`, also UNTER dem
+  Sidecar** — nicht daneben. Der Flatpak baut den Sidecar aus genau einem
+  Verzeichnis (`type: dir`); eine Schwester waere in diesem Bau nicht vorhanden.
+  Er ist Arbeitsbereich-Mitglied, und `default-members` in der `Cargo.toml`
+  sorgt dafuer, dass ein schlichtes `cargo build --release` **beide** Programme
+  baut. Ohne diese Zeile fehlte der Helfer im Flatpak-Bau, und zwar ohne Fehler.
+* **Die DRM-ioctls sind mit ihm umgezogen** (`src/system/drm_ioctl.rs` →
+  `kms-helfer/src/drm.rs`, die alte Datei ist nur noch eine Weiterleitung).
+  Beide Seiten brauchen sie in derselben Fassung; zwei Abschriften waeren beim
+  ersten Unterschied nur beim Nutzer aufgefallen, weil die eine Seite unter
+  Rechten laeuft, die die andere nicht hat.
+* **Der Sidecar versucht immer zuerst den unmittelbaren Weg.** Wer die Rechte
+  ohnehin hat (Labor, `sudo`, DRM-Master), merkt vom Helfer nichts. Die Wahl
+  faellt an einem Versuch, nicht an einer Rechteabfrage — DRM-Master zu sein
+  reicht ebenfalls, und das steht in keiner Rechteliste.
+* **Drei Schranken davor, und die dritte ist die tragende:** Socket in
+  `$XDG_RUNTIME_DIR/pulse-hq/` (Verzeichnis 0700, Socket 0600) und
+  `SO_PEERCRED` auf **beiden** Seiten. Gemessen: ein fremder Benutzer scheitert
+  schon am Verzeichnis; reisst man die Rechte absichtlich auf, verbindet er
+  sich und bekommt trotzdem kein Bild („Verbindung abgewiesen: Gegenseite
+  gehoert Benutzer 65534").
+* **Der Fassungs-Handschlag ist Pflicht, nicht Zierde.** Die App aktualisiert
+  sich selbst, der Helfer liegt auf dem Host. Die ersten zwoelf Byte der
+  Antwort (Kennung, Fassung, Ergebnis) liegen deshalb **auf ewig** fest — sonst
+  koennte eine neue App die Fassung einer alten Fassung gar nicht mehr lesen.
+  Wer `protokoll.rs` jenseits davon aendert, erhoeht `FASSUNG`.
+* **Er endet von selbst**, zehn Sekunden nach dem letzten Client (gemessen).
+  Ein Dienst, der dauerhaft mit `cap_sys_admin` in der Sitzung wartet, waere
+  mehr Angriffsflaeche fuer weniger Nutzen. Kosten: ein Programmstart je
+  Stream, rund 50 ms bis zur ersten Verbindung.
+
+Einrichten und wieder loswerden: `scripts/pulse-kms-helfer-einrichten.sh`
+(im Flatpak als `/app/libexec/pulse-kms-helfer-einrichten` mitgeliefert,
+`--entfernen` nimmt alles wieder weg). Die App zeigt den Befehl selbst an —
+`health.gsr.hdr_helfer_befehl`.
+
+Werkzeug: `examples/kms_helfer_probe.rs` (`--liste`, Bilder holen, und
+`--fassung <n>` stellt einen Client mit falscher Protokollfassung nach).
 
   Folge: „10 bit" heißt bei einem Bildschirm-Stream **10 bit Rechenraum im
   Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist real und gemessen (ein

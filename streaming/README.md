@@ -100,7 +100,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, intra_refresh?, hdr?, ...}` — `ten_bit`/`intra_refresh` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS und der Python-Auffang melden keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
+| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, intra_refresh?, hdr?, hdr_helfer?, hdr_helfer_befehl?, ...}` — `ten_bit`/`intra_refresh` melden Linux- und Windows-Sidecar; `hdr` meldet seit der Scanout-Aufnahme (2026-08-07) **auch Linux** (hier stand bis zum 2026-08-08 „nur Windows"), macOS und der Python-Auffang melden keines davon. `hdr_helfer`/`hdr_helfer_befehl` gibt es **nur unter Linux** (s.u.). **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
@@ -119,6 +119,23 @@ ob sie überhaupt zu haben ist, meldet `health.gsr.intra_refresh` vorab, damit
 die Oberfläche das Kästchen gar nicht erst anbietet. Ein solcher Strom hat nach
 dem Start **kein** Vollbild mehr — der Rückkanal (`keyframe` bzw. RTCP) ist
 deshalb Voraussetzung, nicht Zubehör.
+
+**HDR unter Linux hängt an einem Hilfsprogramm auf dem Host** (seit 2026-08-08).
+Die Bildpuffer des Bildschirms gibt der Kernel nur an DRM-Master oder an Träger
+von `CAP_SYS_ADMIN` heraus, und ein Flatpak kann diese Fähigkeit nicht tragen
+(die Sandbox setzt `no_new_privs`, gesetzte Datei-Fähigkeiten verfallen beim
+Betreten). Deshalb liegt neben dem Sidecar ein winziges zweites Programm,
+`pulse-kms-helfer` (Quelltext `streaming/linux-hq-sidecar/kms-helfer/`), das der
+Nutzer **einmalig** mit einem Befehl auf den Host kopiert; es reicht die Puffer
+als Dateideskriptoren über einen Unix-Socket herein und beendet sich, sobald der
+letzte Stream weg ist. `health.gsr.hdr_helfer` sagt, ob es da ist,
+`health.gsr.hdr_helfer_befehl` liefert den Befehl fertig zum Kopieren — die
+Oberfläche soll HDR **abwählen und begründen** können, statt es wortlos
+auszugrauen. Fehlt es beim Start, sagt `start` mit derselben Begründung ab;
+spricht es eine andere Protokollfassung, sagt der Handschlag *warum* („der
+installierte Helfer ist älter als die App"). Wer die Rechte ohnehin hat (Labor,
+`sudo`), braucht es nicht — der Sidecar versucht immer zuerst den unmittelbaren
+Weg. Auf Windows und macOS gibt es beides nicht.
 
 **Der Zuschauer erfährt die Bittiefe über die WHEP-Antwort** (`ten_bit`), nicht
 über `stream:events`: sie reist als `ten_bit` im Token-Record mit
