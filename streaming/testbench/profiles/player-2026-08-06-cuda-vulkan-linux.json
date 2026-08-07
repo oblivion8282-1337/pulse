@@ -1,0 +1,59 @@
+{
+  "id": "player-2026-08-06-cuda-vulkan-linux",
+  "gemessen_am": "2026-08-06 (nachmittags)",
+  "frage": "Teilen sich CUDA und Vulkan auf Linux/NVIDIA denselben Speicher? Davon haengt ab, ob Zero-Copy im pulse-player dort ueberhaupt moeglich ist — die Windows-Reihe (D3D11 -> Vulkan) war auf NVIDIA gescheitert.",
+  "antwort_kurz": "JA. Der Weg ueber VK_KHR_external_memory_fd gegen cuImportExternalMemory traegt in BEIDEN Richtungen, ueber alle geprueften Groessen bis 4K-P010, mit und ohne dedizierte Allokation, fuenf Wiederholungen stabil. Der NVIDIA-Fehlschlag von Windows uebertraegt sich NICHT auf Linux — es ist eine andere Schnittstelle.",
+  "aufbau": "RTX 5080, Treiber 610.43.03, Vulkan 1.4.341, CachyOS. Probe ohne Decoder, ohne Server, ohne Fenster, ohne wgpu: streaming/player-labor/cuda-vulkan-import. Geprueft wird nicht 'kein Fehler', sondern JEDES Byte gegen den geschriebenen Wert.",
+  "warum_diese_richtung": {
+    "was": "Vulkan legt den Speicher an und exportiert ihn, CUDA haengt ihn ein.",
+    "warum_nicht_umgekehrt": "Der Decoder-Frame liegt in Speicher, den FFmpeg mit `cuMemAlloc` anlegt — und der ist NICHT exportierbar. Exportieren kann nur, wer beim Anlegen das Flag setzt. Fuer den Player heisst das: Vulkan legt das Ziel an, CUDA bekommt es eingehaengt, der fertige Decoder-Frame wird GPU-lokal hineinkopiert. Keine Nullkopie im Wortsinn, aber die Kopie bleibt auf der Karte statt ueber PCIe zu laufen — und genau der PCIe-Weg ist der gemessene Posten von 5,26 ms."
+  },
+  "warum_ohne_wgpu": "Diese Stufe fragt nur, ob Treiber und CUDA sich einig sind. Kaeme wgpu dazu, waere ein Fehlschlag nicht mehr eindeutig zuzuordnen — auf der Windows-Seite ist genau diese Verwechslung passiert (es sah nach wgpu aus und war der Treiber, s. player-2026-08-06-nv12-wgpu-import.json gegen -amd.json).",
+  "ergebnis": {
+    "cuda_schreibt_vulkan_liest": "alle 3686400 Bytes stimmen",
+    "vulkan_schreibt_cuda_liest": "alle 3686400 Bytes stimmen",
+    "importdauer": "nicht gemessen — diese Stufe fragt nach Korrektheit, nicht nach Tempo"
+  },
+  "matrix": {
+    "dediziert, 1440p-Luma (3686400)": "traegt",
+    "NICHT dediziert, 1440p-Luma": "traegt",
+    "dediziert, 1440p NV12 gesamt (5529600)": "traegt",
+    "dediziert, 1440p P010 gesamt (11059200)": "traegt",
+    "dediziert, 4K P010 gesamt (24883200)": "traegt",
+    "krumme Groesse 1000003 (Versatz-Falle)": "traegt",
+    "fuenf Wiederholungen desselben Falls": "5 von 5 gruen"
+  },
+  "die_dedizierte_allokation_ist_KEIN_stolperstein": "Beide Wege tragen. Wichtig ist nur, dass die Flags auf beiden Seiten UEBEREINSTIMMEN: hat Vulkan mit `VkMemoryDedicatedAllocateInfo` alloziert, muss `CUDA_EXTERNAL_MEMORY_DEDICATED` gesetzt sein. Stimmen sie nicht ueberein, rechnet der Treiber mit einer anderen Speicherlage — das ist die wahrscheinlichste Fehlerquelle beim Nachbauen und faellt nicht als Fehler auf, sondern als falscher Inhalt.",
+  "drei_kontrollen_und_keine_ist_zierde": {
+    "struct_layouts": "Die CUDA-Beschreibungen sind von Hand nachgebaut (libcuda per dlopen, kein Toolkit noetig). Ein falscher Feld-Versatz erzeugt keinen Fehler, sondern stille Falschergebnisse — die Groessen werden beim Start gegen die Werte aus cuda.h geprueft (104 und 88 Bytes).",
+    "uuid_abgleich": "Vulkan-Karte und CUDA-Karte werden ueber ihre UUID verglichen (hier identisch: 1640a1b3...). Auf einer Maschine mit zwei GPUs schluege der Import sonst aus einem Grund fehl, der mit der Sache nichts zu tun hat.",
+    "verfaelschtes_byte": "Ein absichtlich gekipptes Byte MUSS auffallen. Ohne diese Kontrolle waere 'alle Bytes stimmen' nicht von 'die Pruefung vergleicht nichts' zu unterscheiden — dieselbe Klasse Werkzeugfehler, die in diesem Labor schon mehrfach falsche Befunde erzeugt hat."
+  },
+  "das_pruefmuster": "Positionsabhaengig und bewusst nicht gleichfoermig. Ein Weg, der versetzt liest oder nur den Anfang trifft, kaeme mit einem konstanten Muster als fehlerfrei durch — genau dieser Fehler ist auf der Windows-Seite beim Textur-Stapel aufgetreten (Schicht 1 lieferte Bruchstuecke des Nachbarn, nicht Null).",
+  "GRENZEN_DER_AUSSAGE": [
+    "Es ist ein PUFFER, keine Textur. Der Player braucht ein VkImage (NV12/P010), das ein Shader abtastet. Ob CUDA direkt in ein exportiertes BILD schreiben kann (cuExternalMemoryGetMappedMipmappedArray) oder ob eine Puffer-zu-Bild-Kopie dazwischen muss, ist die naechste Frage — der Unterschied ist eine GPU-lokale Kopie je Bild.",
+    "Kein wgpu. Der Player rendert ueber wgpu 29.0.4; ob dessen Vulkan-Schicht ein fremd angelegtes VkImage entgegennimmt (texture_from_raw) und ob dafuer ein Hauptversionssprung noetig ist, ist hier nicht beruehrt.",
+    "Keine Synchronisierung. Hier wird geschrieben, gewartet, gelesen. Im Betrieb schreibt der Decoder, waehrend gezeichnet wird — das verlangt Semaphoren ueber dieselbe Grenze (VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore) und ist ungeprueft.",
+    "Kein echter Decoder-Frame. Dass `av1_cuvid` seine Bilder ueberhaupt als CUDA-Speicher herausgeben kann statt in den Hauptspeicher, ist eine eigene Frage an FFmpeg (hwaccel_output_format cuda) und hier nicht beruehrt.",
+    "Nur diese Karte und dieser Treiber. Aeltere NVIDIA-Generationen ungeprueft; AMD/Intel unter Linux laufen ohnehin ueber VAAPI/dma-buf, also einen dritten Weg."
+  ],
+  "was_ein_wgpu_sprung_kosten_wuerde": {
+    "frage": "Die Windows-Akte nennt fuer den Eigenbau-Import wgpu 30 als Voraussetzung (dort nimmt `create_texture_from_hal` einen `initial_state` entgegen). Was kostet dieser Sprung im Player?",
+    "befund": "Er ist eine KETTE, kein Einzelschritt — am 2026-08-06 durch Aufloesen nachgeprueft, nicht geschaetzt.",
+    "gemessen": {
+      "wgpu 30 neben dem heutigen egui-wgpu 0.35": "ZWEI wgpu im Abhaengigkeitsbaum (29.0.4 fuer egui, 30.0.0 fuer den eigenen Code). Das baut, aber die Typen sind nicht dieselben — egui bekaeme ein anderes `Device` als der Renderer. Also unbrauchbar.",
+      "egui-wgpu 0.36": "zieht wgpu 30.0.0 — der Weg existiert",
+      "egui 0.36 verlangt": "Rust 1.95",
+      "diese Maschine hat": "Rust 1.93.1"
+    },
+    "kette": "wgpu 30 -> egui-wgpu/egui-winit 0.36 -> Rust-Toolchain hoch. Der Hinweis darauf steht bereits in der Cargo.toml des Players ('beim Anheben von wgpu oder winit MUSS egui im gleichen Schritt mitwandern').",
+    "ob_es_ueberhaupt_gebraucht_wird_ist_OFFEN": "Der einzige einschlaegige Neuzugang in wgpu 30 ist `initial_state` — und der wurde auf der Windows-Seite geprueft und als Ursache WIDERLEGT (alle drei Zustaende schwarz; auf AMD trug sogar `uninit`). Fuer Linux ist unbewiesen, dass er noetig ist.",
+    "empfohlene_reihenfolge": "Erst den Bild-Import in reinem Vulkan klaeren, dann die Anbindung mit dem heutigen wgpu 29 versuchen, und die Kette NUR anfassen, wenn 29 nachweislich scheitert. Ein Hauptversionssprung mitten im Renderer samt Toolchain-Update fuer ein Problem, das noch niemand hat, waere die falsche Reihenfolge."
+  },
+  "was_daraus_folgt": [
+    "Der Linux-Weg ist offen, waehrend der Windows-Weg auf NVIDIA zu ist. Das dreht die Reihenfolge um, in der die Plattformen sinnvoll umgebaut werden.",
+    "Naechster Schritt ist der BILD-Import (VkImage statt VkBuffer), danach die Anbindung an wgpu und erst zuletzt die Synchronisierung.",
+    "Mitzuplanen, unabhaengig vom Weg: ohne CPU-Zugriff auf die Ebenen hat die Einfrier-Erkennung keine Bildpunkte mehr. Der Fingerabdruck muesste in einen Compute-Shader — steht schon als Auflage in player-2026-08-06-nv12-wgpu-import.json."
+  ],
+  "reproduzieren": "cd streaming/player-labor/cuda-vulkan-import && cargo build --release && ./target/release/cuda-vulkan-import   (Schalter SPIKE_BYTES, SPIKE_DEDIZIERT; Rueckgabewert 0 = traegt)"
+}

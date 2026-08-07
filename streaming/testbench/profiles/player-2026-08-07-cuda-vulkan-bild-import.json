@@ -1,0 +1,131 @@
+{
+  "id": "player-2026-08-07-cuda-vulkan-bild-import",
+  "gemessen_am": "2026-08-06 nachts / 2026-08-07 frueh",
+  "frage": "Kann CUDA in ein von Vulkan exportiertes BILD schreiben (cuExternalMemoryGetMappedMipmappedArray), oder muss zwischen CUDA und der Textur eine Puffer-nach-Bild-Kopie liegen? Der Unterschied ist eine GPU-lokale Kopie je Bild. Die Vorstufe (player-2026-08-06-cuda-vulkan-linux) hat nur einen PUFFER geteilt; ein Puffer laesst sich nicht von einem Shader abtasten.",
+
+  "antwort_kurz": "JA, der Bild-Import traegt — aber nur mit GETRENNTEN Ebenen. CUDA schreibt fehlerfrei in exportierte VkImages, wenn NV12 als zwei Bilder (R8_UNORM + R8G8_UNORM) und P010 als zwei Bilder (R16_UNORM + R16G16_UNORM) angelegt wird: 4 von 4 Ebenen fehlerfrei, ueber 720p/1080p/1440p/4K, mit und ohne dedizierte Allokation, mit und ohne SURFACE_LDST, fuenf Wiederholungen stabil. Ein EINZIGES mehrplaniges VkImage (G8_B8R8_2PLANE_420_UNORM bzw. G10X6...3PACK16) wird abgewiesen — CUDA_ERROR_INVALID_VALUE, bei beiden Bittiefen. Eine Puffer-nach-Bild-Kopie ist damit NICHT noetig.",
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03 (nvidia-utils 610.43.03-1)",
+    "kernel": "7.1.4-1-cachyos",
+    "vulkan_loader": "vulkan-icd-loader 1.4.350.1-1.1, Instanz auf API 1.2 angefordert",
+    "rustc": "1.93.1",
+    "probe": "streaming/player-labor/cuda-vulkan-import, Modus SPIKE_MODUS=bild",
+    "ohne": "ohne wgpu, ohne Decoder, ohne Server, ohne Fenster, ohne CUDA-Toolkit (libcuda per dlopen)",
+    "warum_ohne_wgpu": "Diese Stufe fragt nur, ob Treiber und CUDA sich einig sind. Kaeme wgpu dazu, waere ein Fehlschlag nicht mehr eindeutig zuzuordnen — auf der Windows-Seite ist genau diese Verwechslung passiert (es sah nach wgpu aus und war der Treiber)."
+  },
+
+  "GEMESSEN": {
+    "getrennte_ebenen": {
+      "NV12 Y  (R8_UNORM, 2560x1440)": "alle 3686400 Bytes stimmen",
+      "NV12 UV (R8G8_UNORM, 1280x720)": "alle 1843200 Bytes stimmen",
+      "P010 Y  (R16_UNORM, 2560x1440)": "alle 7372800 Bytes stimmen",
+      "P010 UV (R16G16_UNORM, 1280x720)": "alle 3686400 Bytes stimmen",
+      "geschriebener_weg": "CUDA-Geraetespeicher (cuMemAlloc) -> cuMemcpy2D -> CUarray des Vulkan-Bildes. Bewusst nicht vom Host aus: so liegt der fertige Decoder-Frame im Player."
+    },
+    "ein_mehrplaniges_bild": {
+      "G8_B8R8_2PLANE_420_UNORM als CU_AD_FORMAT_NV12 (0xb0)": "cuExternalMemoryGetMappedMipmappedArray abgewiesen, Code 1 (invalid argument)",
+      "G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16 als CU_AD_FORMAT_P010 (0x9f)": "cuExternalMemoryGetMappedMipmappedArray abgewiesen, Code 1 (invalid argument)",
+      "vorher_erfolgreich": "Das Bild liess sich anlegen und exportieren, und cuImportExternalMemory nahm den Deskriptor an. Erst die Array-Zuordnung scheitert — der Fehlschlag liegt also an der Beschreibung des Bildes, nicht am Export.",
+      "warum_ueberhaupt_versucht": "cuda.h fuehrt CU_AD_FORMAT_NV12 und _P010 als eigene mehrplanige Formate, und cuArrayGetPlane ist fuer NV12-Arrays dokumentiert. 'Steht in der Doku zum externen Import nicht drin' ist kein Beleg fuer 'geht nicht'. Jetzt ist es gemessen."
+    },
+    "matrix": {
+      "2560x1440, fuenf Wiederholungen": "5 von 5 gruen, 4 von 4 Ebenen je Lauf",
+      "1280x720": "traegt",
+      "1920x1080": "traegt",
+      "2560x1440": "traegt",
+      "3840x2160 (4K)": "traegt",
+      "ohne dedizierte Allokation (SPIKE_DEDIZIERT=0)": "traegt",
+      "mit CUDA_ARRAY3D_SURFACE_LDST": "traegt",
+      "hinweis": "Alle Zeilen sind mit der Kopfzeile des Laufs belegt, die die tatsaechlich verwendete Aufloesung und Schalterstellung ausgibt — siehe 'werkzeugfehler_dieses_laufs'."
+    },
+    "allokationsaufschlag": {
+      "was": "Ein VkImage braucht wegen Kachelung und Ausrichtung mehr Speicher als die dichte Bildgroesse. CUDA muss beim Import DIESE Zahl bekommen, nicht breite*hoehe*bytes.",
+      "spanne": "0,74 bis 18,52 Prozent ueber den geprueften Faellen",
+      "beispiele": {
+        "4K Y R8 (8294400 dicht)": "8355840 = +0,74 %",
+        "1440p Y R8 (3686400 dicht)": "3932160 = +6,67 %",
+        "1080p UV R8G8 (1036800 dicht)": "1228800 = +18,52 %"
+      },
+      "keine_einfache_regel": "Ein erster Verdacht, die Hoehe werde auf ein Vielfaches von 256 aufgerundet, passte auf 1440p und 720p und faellt bei 1080p um (540 -> 640). Die Groesse ist beim Treiber zu ERFRAGEN (vkGetImageMemoryRequirements), nicht zu rechnen."
+    }
+  },
+
+  "die_drei_kontrollen_und_die_zwei_gegenproben": {
+    "warum_ueberhaupt": "In diesem Labor sind mehrfach Befunde entstanden, weil ein Werkzeug stillschweigend nichts gemessen hat. Ein 'alle Bytes stimmen' ist ohne Gegenprobe nicht von 'der Vergleich prueft nichts' zu unterscheiden.",
+    "kontrolle_A_vulkan_weg_messbar": "Das Bild wird vor dem CUDA-Zugriff per vkCmdCopyBufferToImage flaechendeckend mit 0x5A gefuellt und sofort zurueckgelesen. Kommt der Wert nicht unveraendert an, ist der Vulkan-eigene Bildweg kaputt und die CUDA-Frage hier gar nicht messbar — die Probe bricht dann ab, statt eine Zahl zu liefern. Gruen in allen Laeufen.",
+    "kontrolle_B_meint_cuda_dasselbe_bild": "cuArrayGetDescriptor fragt zurueck, was CUDA eingehaengt hat. Breite, Hoehe, Format und Kanalzahl muessen mit der Beschreibung uebereinstimmen. Ohne diese Rueckfrage koennte der Import etwas anderes eingehaengt haben und der Vergleich brav die falsche Sache pruefen. Gruen in allen Laeufen.",
+    "kontrolle_C_verfaelschtes_byte": "Ein absichtlich gekipptes Byte MUSS auffallen. Gruen in allen Laeufen.",
+    "gegenprobe_1_ohne_schreiben": {
+      "was": "SPIKE_OHNE_SCHREIBEN=1 laesst cuMemcpy2D aus. Alles andere laeuft unveraendert.",
+      "ergebnis": "BESTANDEN. Alle 4 Ebenen weichen ab, und zwar vollstaendig auf dem Vorher-Wert 0x5A (dezimal 90). Bei 1440p: 3672000 von 3686400 Byte abweichend — die fehlenden 14400 sind genau 3686400/256, also die Stellen, an denen das Pruefmuster zufaellig selbst 0x5A ist. Auch bei 4K bestanden.",
+      "bedeutung": "Das ist die schaerfste Kontrolle der Probe: ein Erfolg im Hauptlauf kann kein Artefakt der Pruefmechanik sein."
+    },
+    "gegenprobe_2_dedicated_fehlanpassung": {
+      "was": "Vulkan alloziert dediziert, CUDA bekommt das Flag nicht — und umgekehrt. Ausschliessendes Oder, damit BEIDE Richtungen geprueft sind.",
+      "erwartung_aus_der_recherche": "NVIDIA-Forum 278691 beschreibt fuer diese Fehlanpassung senkrechte Streifen im Bild, ohne Fehlermeldung.",
+      "ergebnis": "TRITT HIER NICHT EIN. In beiden Richtungen kamen 4 von 4 Ebenen fehlerfrei durch. Dieser Treiber laesst sich von dem falschen Flag nicht beirren.",
+      "wie_das_zu_lesen_ist": "Es ist ein Befund ueber DIESEN Treiber und DIESE Karte, keine Widerlegung der Forumsmeldung fuer andere. Fuer uns heisst es: das Flag ist an dieser Stelle kein Stolperstein. Als Empfindlichkeitsnachweis der Probe taugt diese Gegenprobe damit NICHT — diese Rolle traegt allein Gegenprobe 1."
+    },
+    "das_pruefmuster": "Positionsabhaengig und bewusst nicht gleichfoermig. Ein Weg, der versetzt liest, nur den Anfang trifft oder eine falsche Zeilenlaenge annimmt, kaeme mit einem konstanten Muster als fehlerfrei durch.",
+    "die_verteilungs_diagnose": "Bei einer Abweichung wird sie ueber die Zeilen aufgeschluesselt (voellig heile, voellig kaputte, Spanne je Zeile). Grund: die zwei bekannten stillen Fehlerbilder sehen unterschiedlich aus — eine Dedicated-Fehlanpassung erzeugt senkrechte Streifen (jede Zeile gleich stark betroffen), ein falsches depth-Feld ein Lochmuster (ganze Zeilen heil, andere ganz kaputt). Ohne die Aufschluesselung waere beides nur 'es stimmt nicht'."
+  },
+
+  "GELESEN": {
+    "quelle_der_struct_layouts": "/opt/cuda/include/cuda.h, KOMPILIERT abgelesen (gcc + sizeof/offsetof), nicht aus der Doku und nicht von Hand gerechnet.",
+    "groessen": {
+      "CUDA_ARRAY3D_DESCRIPTOR": 40,
+      "CUDA_EXTERNAL_MEMORY_MIPMAPPED_ARRAY_DESC": 120,
+      "CUDA_MEMCPY2D (_v2)": 128,
+      "CUDA_ARRAY_DESCRIPTOR (_v2)": 24
+    },
+    "symbolnamen": "cuExternalMemoryGetMappedMipmappedArray, cuMipmappedArrayGetLevel und cuMipmappedArrayDestroy tragen KEIN _v2; cuArrayGetDescriptor, cuMemAlloc, cuMemFree, cuMemcpy2D tragen eines. Mit nm -D gegen libcuda.so.1 geprueft, nicht angenommen.",
+    "depth_muss_null_sein": "Ein Vulkan-2D-Bild hat intern depth 1, das CUDA-Array eines 2D-Bildes verlangt 0. Die Eins erzeugt keinen Fehler, sondern ein Lochmuster (NVIDIA-Forum 278691). Die Probe setzt 0.",
+    "tiling": "VK_IMAGE_TILING_OPTIMAL, wie im offiziellen NVIDIA-Beispiel vulkanImageCUDA. Zu LINEAR gibt es einen Nutzerbericht ueber CUDA_ERROR_INVALID_VALUE (NVIDIA-Forum 236523), von NVIDIA nicht bestaetigt. Nicht selbst nachgemessen — OPTIMAL ist ohnehin die Lage, die der Player will.",
+    "numLevels": "muss den mipLevels des VkImage entsprechen (Header-Doku); beides ist hier 1.",
+    "warum_getrennte_ebenen_strukturell_noetig_sind": "CUDA_ARRAY3D_DESCRIPTOR kennt nur EIN Format und EINE Kanalzahl. NV12 hat zwei Ebenen mit unterschiedlicher Groesse und Kanalzahl — mit einem Deskriptor nicht beschreibbar. Die Messung oben bestaetigt, was die Struktur nahelegt."
+  },
+
+  "werkzeugfehler_dieses_laufs": {
+    "was_passierte": "Der erste Durchgang der Matrix meldete 1280x720, 1920x1080 und 3840x2160 als 'traegt'. In Wahrheit hat die Schleife die Aufloesung nicht gesetzt — alle drei Zeilen massen die Vorgabe 2560x1440. Die Splittung der Wertepaare in der Schleife griff nicht.",
+    "wie_es_auffiel": "Eine Anschlussmessung zum Allokationsaufschlag lieferte fuer VIER verschiedene Aufloesungen exakt dieselben Byte-Zahlen. Das ist unmoeglich und war der Anlass, den Schalter direkt zu pruefen.",
+    "was_daraus_folgt": "Alle Zeilen der Matrix sind neu gefahren, und jeder Lauf gibt jetzt seine Kopfzeile mit der TATSAECHLICH verwendeten Aufloesung und Schalterstellung aus. Wer die Matrix nachfaehrt, prueft diese Zeile, statt der Beschriftung des Laufs zu glauben.",
+    "die_lehre": "Sie steht schon in der Laborordnung ('Werkzeuge zuerst am eigenen Material pruefen') und ist hier zum wiederholten Mal aufgetreten: ein Schalter, der stillschweigend nicht greift, liefert plausible Zahlen zur falschen Frage. Der Fehler ist nur aufgefallen, weil eine ZWEITE Groesse mitgemessen wurde, die sich mit der Aufloesung aendern MUSSTE."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Synchronisierung ist NICHT geprueft. Die Probe schreibt, wartet (cuCtxSynchronize + vkQueueWaitIdle) und liest dann. Im Betrieb schreibt der Decoder, waehrend gezeichnet wird — das verlangt Semaphoren ueber dieselbe Grenze (VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore). Ungemessen und ungebaut.",
+    "Welches VkImageLayout CUDA beim Schreiben erwartet, ist in KEINER Primaerquelle dokumentiert (weder Header noch NVIDIA-Beispiel). Die Probe haelt das Bild auf GENERAL, weil das der konservative Wert ist. Dass es so funktioniert, ist gemessen; dass es die einzige zulaessige Wahl ist, nicht.",
+    "Es ist noch kein Shader beteiligt. Gemessen ist, dass die BYTES ankommen — nicht, dass ein Sampler daraus das richtige Bild liest. Farbdeutung, Ycbcr-Konversion und HDR sind nicht Gegenstand.",
+    "P010 wurde als 16-bit-SPEICHER geprueft (R16/R16G16), nicht als Farbformat. P010 legt seine 10 Bit in die oberen Bits eines 16-bit-Wortes; die Speicherlage ist damit dieselbe. Was gemessen ist, ist Speichertreue.",
+    "Der Inhalt kam aus cuMemAlloc, NICHT aus einem echten Decoder-Frame. Ob av1_cuvid seine Bilder ueberhaupt als CUDA-Speicher herausgibt statt in den Hauptspeicher, ist eine getrennte, hier NICHT beantwortete Frage — ohne sie nuetzt der Import nichts.",
+    "Eine Karte, ein Treiber, ein Kernel. Ueber aeltere NVIDIA-Treiber, andere Generationen oder gar AMD/Intel sagt der Lauf nichts.",
+    "Gemessen ist Korrektheit, nicht Tempo. Weder die Dauer des Imports noch die der cuMemcpy2D-Kopie ist erfasst — der Gewinn gegenueber den heutigen 5,26 ms je Bild ist damit BEGRUENDET ERWARTET, aber nicht belegt.",
+    "Der Ein-Bild-Weg ist auf DIESEM Treiber abgewiesen. Ob eine kuenftige Treiberfassung ihn annimmt, ist offen; die Probe versucht ihn weiterhin bei jedem Lauf und wuerde es melden."
+  ],
+
+  "was_daraus_folgt": [
+    "Der naechste Schritt der Reihenfolge ist frei: Anbindung an das heutige wgpu 29 (texture_from_raw / create_texture_from_hal). Der Sprung auf wgpu 30 bleibt unnoetig, solange 29 nicht nachweislich scheitert — seine Kette (wgpu 30 -> egui-wgpu/egui-winit 0.36 -> Rust 1.95, diese Maschine hat 1.93.1) steht in player-2026-08-06-cuda-vulkan-linux.json.",
+    "Der Renderer muss NV12/P010 als ZWEI Texturen fuehren, nicht als eine mehrplanige. Das ist kein Zugestaendnis: zwei Sampler sind ohnehin die Form, in der ein Shader die Ebenen am liebsten abtastet.",
+    "Die Allokationsgroesse ist beim Treiber zu erfragen und in den CUDA-Import durchzureichen. Sie aus Breite mal Hoehe zu rechnen, geht bis zu 18,5 Prozent daneben.",
+    "Die Einfrier-Erkennung verliert ihre Bildpunkte, sobald die Ebenen nicht mehr im Hauptspeicher liegen. Der Fingerabdruck muesste in einen Compute-Shader (Reduktion ueber die Y-Ebene, 8-Byte-Rueckkanal, ein bis zwei Bilder Verzug — bei 2,5 s Stillstandsschwelle bedeutungslos). Diese Auflage steht seit player-2026-08-06-nv12-wgpu-import.json und ist weiterhin offen.",
+    "Vor dem Umbau ist zu klaeren, ob av1_cuvid seine Bilder als CUDA-Speicher herausgibt (hwaccel_output_format cuda). Ohne das nuetzt der schoenste Import nichts."
+  ],
+
+  "reproduzieren": {
+    "hauptlauf": "cd streaming/player-labor/cuda-vulkan-import && cargo build --release && SPIKE_MODUS=bild ./target/release/cuda-vulkan-import   (Rueckgabe 0 = traegt)",
+    "vorstufe_puffer": "./target/release/cuda-vulkan-import   (SPIKE_MODUS ohne Angabe = puffer)",
+    "gegenprobe": "SPIKE_MODUS=bild SPIKE_OHNE_SCHREIBEN=1 ./target/release/cuda-vulkan-import   (Rueckgabe 0 heisst hier: die Gegenprobe ist BESTANDEN, also hat der Lauf richtigerweise Abweichungen gefunden)",
+    "schalter": {
+      "SPIKE_MODUS": "puffer (Vorgabe) | bild",
+      "SPIKE_BREITE / SPIKE_HOEHE": "2560 / 1440",
+      "SPIKE_DEDIZIERT": "1 (Vorgabe) | 0",
+      "SPIKE_SURFACE_LDST": "0 (Vorgabe) | 1",
+      "SPIKE_OHNE_SCHREIBEN": "0 (Vorgabe) | 1 — Gegenprobe, Urteil ist umgedreht",
+      "SPIKE_DEDI_FEHLANPASSUNG": "0 (Vorgabe) | 1 — Gegenprobe, gibt Befund statt Urteil",
+      "SPIKE_BYTES": "nur im Modus puffer"
+    },
+    "kopfzeile_pruefen": "Jeder Lauf gibt als erste Zeile der Stufe die tatsaechlich verwendete Aufloesung und Schalterstellung aus. Beim Nachfahren einer Matrix ist DIESE Zeile der Beleg, nicht die eigene Beschriftung des Laufs."
+  }
+}

@@ -11,14 +11,21 @@
 //! Deband, Dither, Zoom) passt in einen WGSL-Shader, und wgpu ist MIT/Apache.
 
 mod abdruck;
+mod ausgabe;
 mod bildquelle;
-mod farbe;
+// `pub(crate)`, weil die Linux-Zero-Copy-Bruecke ihre Ebenen-Formate GEGEN
+// diese hier prueft (`zerocopy::linux::ebene`). Sie stehen in zwei
+// Dateien, und eine Abweichung saehe man nicht als Fehler, sondern als falsche
+// Farben — der Test dort ist die einzige Stelle, die es bemerken kann.
+pub(crate) mod farbe;
 mod fremdbild;
 mod hdr_fenster;
+mod musterprobe;
 mod setup;
 mod uniforms;
 
 // Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
+pub use ausgabe::OverlayPass;
 pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
 // Die Farbmessung muss GENAU das HDR-Format pruefen, das das Fenster nimmt —
 // mit einer eigenen Eintragung meldete sie nach einem Wechsel hier „ok" fuer
@@ -30,9 +37,9 @@ pub use uniforms::Uniforms;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
+use ausgabe::fit_viewport;
 use bildquelle::{planes_anlegen, planes_fuellen, Bildquelle, Fremdform};
 use crate::decode::{DecodedFrame, Farbangaben};
-use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::PlayerOptions;
 
 pub fn texture_binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
@@ -55,6 +62,11 @@ pub struct Renderer {
     /// (s. [`abdruck`]). Nur auf dem Zero-Copy-Weg im Einsatz; auf dem Weg
     /// ueber den Hauptspeicher liest der Waechter die Ebenen selbst.
     abdruckwerk: abdruck::Abdruckwerk,
+    /// Holt die vier Musterzeilen der Latenz-Sonde aus der eingehaengten
+    /// Textur zurueck (s. [`musterprobe`]). **`None` ohne
+    /// `PULSE_PLAYER_LATENCY_PROBE=1`** — dann wird dafuer kein einziger Befehl
+    /// abgesetzt.
+    musterprobe: Option<musterprobe::Musterprobe>,
     bind_group: Option<wgpu::BindGroup>,
     frames_presented: u64,
     /// Ob 16-bit-Norm-Texturen erlaubt sind (s. `setup::GpuSetup`).
@@ -109,6 +121,7 @@ impl Renderer {
         // `device`, und danach ist es nicht mehr auszuleihen.
         let fremdbilder = fremdbild::Fremdbilder::neu(&gpu.device);
         let abdruckwerk = abdruck::Abdruckwerk::neu(&gpu.device);
+        let musterprobe = musterprobe::Musterprobe::neu_wenn_gebraucht(&gpu.device);
         Ok(Self {
             angebotene_formate: gpu.angebotene_formate,
             hwnd,
@@ -125,6 +138,7 @@ impl Renderer {
             bild: None,
             fremdbilder,
             abdruckwerk,
+            musterprobe,
             bind_group: None,
             frames_presented: 0,
             wide_textures: gpu.wide_textures,
@@ -161,6 +175,14 @@ impl Renderer {
 
     pub fn acquire_misses(&self) -> u64 {
         self.acquire_misses.get()
+    }
+
+    /// Ein Satz fertig abgeholter Musterzeilen fuer die Latenz-Sonde.
+    ///
+    /// **Abgeholt statt hineingereicht**: der Renderer kennt die Sonde nicht und
+    /// soll sie nicht kennen — sie ist ein Messwerkzeug, kein Betriebsteil.
+    pub fn musterzeilen_nehmen(&mut self) -> Option<crate::probe::Musterzeilen> {
+        self.musterprobe.as_mut()?.nehmen()
     }
 
     /// Laedt ein dekodiertes Bild in die GPU-Texturen.
@@ -341,14 +363,17 @@ impl Renderer {
         // EINEM Zugriff**: es ist dieselbe Fallunterscheidung und dieselbe
         // Suche ueber dasselbe Handle, zweimal gefragt liefen die Arme beim
         // naechsten `Bildquelle`-Zweig auseinander.
-        let (gebundene, zu_halten, abdruck_auftrag) = match self.bild.as_ref() {
+        // (`muster_bild` gehoert dazu: die Latenz-Sonde holt ihre Zeilen aus
+        // derselben Luma-Seite, s. [`musterprobe`].)
+        let (gebundene, zu_halten, abdruck_auftrag, muster_bild) = match self.bild.as_ref() {
             Some(Bildquelle::Fremd(f)) => (
                 self.fremdbilder.bindegruppe(f.gpu.handle()),
                 Some(f.gpu.clone()),
                 (self.fremdbilder.abdruckgruppe(f.gpu.handle()))
                     .map(|b| (b, abdruck::Bildangabe::vom_fremdbild(f), f.gpu.briefkasten())),
+                Some((f.gpu.handle(), f.gpu.zehn_bit())),
             ),
-            _ => (self.bind_group.as_ref(), None, None),
+            _ => (self.bind_group.as_ref(), None, None, None),
         };
 
         let uniforms = self.build_uniforms(opts, form, full_range, farbe);
@@ -370,18 +395,31 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pulse-player") });
+        // Das `take` raeumt die Vormerkung auch dann ab, wenn nichts
+        // aufzuzeichnen ist; sonst holte der naechste Durchgang ein laengst
+        // ersetztes Bild nach. **Einmal genommen, von BEIDEN Werken benutzt** —
+        // sie stellen dieselbe Frage („ist das ein neues Bild?"), und zwei
+        // Merkmale dafuer koennten auseinanderlaufen.
+        let neues_bild = std::mem::take(&mut self.abdruck_faellig);
         // Der Fingerabdruck des Einfrier-Waechters, **vor** dem Zeichnen und im
         // SELBEN Kommandopuffer (s. [`abdruck`]) — er liest dieselbe Luma-Ebene,
-        // aus der gleich gezeichnet wird, beides nur lesend. Das `take` raeumt
-        // die Vormerkung auch dann ab, wenn nichts aufzuzeichnen ist; sonst
-        // holte der naechste Durchgang ein laengst ersetztes Bild nach.
+        // aus der gleich gezeichnet wird, beides nur lesend. Die Musterzeilen
+        // der Latenz-Sonde fahren aus demselben Grund darin mit.
+        //
+        // Beide Werke haengen an DERSELBEN Bedingung, und sie steht deshalb an
+        // beiden Stellen gleich: `.filter(|_| neues_bild)`.
         let mut abdruck_platz = None;
-        if let (true, Some((bindung, bild, kasten))) =
-            (std::mem::take(&mut self.abdruck_faellig), abdruck_auftrag)
-        {
+        if let Some((bindung, bild, kasten)) = abdruck_auftrag.filter(|_| neues_bild) {
             let teile = abdruck::Werkteile { device: &self.device, queue: &self.queue, bindung };
             abdruck_platz = self.abdruckwerk.aufzeichnen(&mut encoder, teile, bild, kasten);
         }
+        let muster_platz = musterprobe::aufzeichnen_wenn_noetig(
+            &mut self.musterprobe,
+            &self.device,
+            &self.fremdbilder,
+            &mut encoder,
+            muster_bild.filter(|_| neues_bild),
+        );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("pulse-player-pass"),
@@ -436,6 +474,9 @@ impl Renderer {
         if let Some(abholung) = abdruck_platz {
             self.abdruckwerk.abholung_starten(abholung);
         }
+        if let (Some(abholung), Some(werk)) = (muster_platz, self.musterprobe.as_mut()) {
+            werk.abholung_starten(abholung);
+        }
         // **Den Ringplatz erst freigeben, wenn die GPU ihn nicht mehr liest.**
         // Der `DecodedFrame` ist zu diesem Zeitpunkt laengst verworfen (das
         // Fenster laesst ihn direkt nach `upload` fallen); ohne diese zweite
@@ -463,105 +504,6 @@ impl Renderer {
         }
         self.frames_presented += 1;
         Ok(())
-    }
-}
-
-/// Was der Renderer braucht, um das Overlay mitzuzeichnen — und der Rueckkanal
-/// fuer die ausgeloesten Aktionen (`actions` ist nach dem Aufruf gefuellt).
-pub struct OverlayPass<'a> {
-    pub overlay: &'a mut Overlay,
-    pub window: &'a winit::window::Window,
-    pub is_fullscreen: bool,
-    pub stats: &'a StatsView<'a>,
-    pub actions: Vec<OverlayAction>,
-}
-
-impl<'a> OverlayPass<'a> {
-    pub fn new(
-        overlay: &'a mut Overlay,
-        window: &'a winit::window::Window,
-        is_fullscreen: bool,
-        stats: &'a StatsView<'a>,
-    ) -> Self {
-        Self { overlay, window, is_fullscreen, stats, actions: Vec::new() }
-    }
-}
-
-
-/// Groesstes Rechteck mit dem Seitenverhaeltnis der Quelle, das ins Fenster
-/// passt, mittig gesetzt. Ergebnis: `(x, y, breite, hoehe)` in Pixeln.
-///
-/// Der Zoom-Ausschnitt (`crop`) aendert daran nichts: er ist quadratisch in
-/// normalisierten Koordinaten und behaelt damit das Verhaeltnis der Quelle.
-fn fit_viewport(win_w: f32, win_h: f32, src_w: f32, src_h: f32) -> (f32, f32, f32, f32) {
-    if win_w <= 0.0 || win_h <= 0.0 || src_w <= 0.0 || src_h <= 0.0 {
-        return (0.0, 0.0, win_w.max(1.0), win_h.max(1.0));
-    }
-    let src_ratio = src_w / src_h;
-    if win_w / win_h > src_ratio {
-        // Fenster breiter als das Bild: links und rechts bleibt Rand.
-        let w = win_h * src_ratio;
-        ((win_w - w) * 0.5, 0.0, w, win_h)
-    } else {
-        let h = win_w / src_ratio;
-        (0.0, (win_h - h) * 0.5, win_w, h)
-    }
-}
-
-
-
-#[cfg(test)]
-mod viewport_tests {
-    use super::*;
-
-    fn close(a: f32, b: f32) -> bool {
-        (a - b).abs() < 0.01
-    }
-
-    /// Passt das Verhaeltnis, fuellt das Bild das ganze Fenster.
-    #[test]
-    fn gleiches_verhaeltnis_fuellt_aus() {
-        let (x, y, w, h) = fit_viewport(1920.0, 1080.0, 2560.0, 1440.0);
-        assert!(close(x, 0.0) && close(y, 0.0), "kein Rand erwartet: {x},{y}");
-        assert!(close(w, 1920.0) && close(h, 1080.0), "{w}x{h}");
-    }
-
-    /// Breiteres Fenster: Rand links und rechts, Hoehe voll ausgenutzt.
-    #[test]
-    fn breiteres_fenster_bekommt_seitliche_raender() {
-        let (x, y, w, h) = fit_viewport(2000.0, 1000.0, 1920.0, 1080.0);
-        assert!(close(h, 1000.0), "Hoehe voll ausnutzen: {h}");
-        assert!(close(w, 1000.0 * 16.0 / 9.0), "Breite aus dem Verhaeltnis: {w}");
-        assert!(close(x, (2000.0 - w) * 0.5), "mittig: {x}");
-        assert!(close(y, 0.0), "oben/unten kein Rand: {y}");
-        assert!(w <= 2000.0, "darf nicht ueberstehen");
-    }
-
-    /// Hoeheres Fenster: Rand oben und unten.
-    #[test]
-    fn hoeheres_fenster_bekommt_raender_oben_und_unten() {
-        let (x, y, w, h) = fit_viewport(1000.0, 2000.0, 1920.0, 1080.0);
-        assert!(close(w, 1000.0), "Breite voll ausnutzen: {w}");
-        assert!(close(h, 1000.0 / (16.0 / 9.0)), "Hoehe aus dem Verhaeltnis: {h}");
-        assert!(close(x, 0.0) && close(y, (2000.0 - h) * 0.5), "mittig: {x},{y}");
-    }
-
-    /// Das Verhaeltnis muss erhalten bleiben — das ist der ganze Zweck.
-    #[test]
-    fn verhaeltnis_bleibt_in_jedem_fenster_erhalten() {
-        for (win_w, win_h) in [(640.0, 480.0), (3440.0, 1440.0), (800.0, 1200.0), (100.0, 99.0)] {
-            let (_, _, w, h) = fit_viewport(win_w, win_h, 2560.0, 1440.0);
-            assert!(close(w / h, 2560.0 / 1440.0), "{win_w}x{win_h} -> {w}x{h}");
-            assert!(w <= win_w + 0.01 && h <= win_h + 0.01, "passt nicht: {w}x{h}");
-        }
-    }
-
-    /// Ein Frame ohne Groesse darf keinen Nullviewport ergeben — wgpu lehnt
-    /// den ab und der Zeichenaufruf wuerde scheitern.
-    #[test]
-    fn entartete_eingaben_liefern_gueltigen_viewport() {
-        let (_, _, w, h) = fit_viewport(800.0, 600.0, 0.0, 0.0);
-        assert!(w > 0.0 && h > 0.0, "{w}x{h}");
     }
 }
 

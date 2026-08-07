@@ -17,7 +17,12 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_P010;
 
 use super::ffmpeg_geraet::{geraetekontext, quellmasse, quelltextur};
-use super::platz::{Freigabe, GpuBild};
+// `Freigabe` kommt aus `freigabe`, NICHT ueber `platz`. Beide Bruecken teilen
+// sich den Stapel freier Nummern, seit er aus `platz.rs` herausgeloest wurde;
+// `platz` importiert ihn selbst nur privat, und ein privater Import laesst sich
+// nicht weiterreichen (E0603). Der Linux-Weg holt ihn ebenfalls direkt.
+use super::freigabe::Freigabe;
+use super::platz::GpuBild;
 use windows::Win32::Graphics::Dxgi::{IDXGIKeyedMutex, IDXGIResource1};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
 
@@ -178,9 +183,15 @@ impl Bruecke {
     /// traegt seinen `hw_frames_ctx` mit, und darin steht dasselbe Geraet — der
     /// Weg ueber `AVCodecContext.hw_device_ctx` braeuchte zusaetzlich Zugriff
     /// auf den rohen Kontext des laufenden Decoders.
+    /// `geraet` bleibt hier ungenutzt, und das ist der Unterschied zur
+    /// Linux-Bruecke: ein NT-Handle laesst sich auf JEDEM D3D12-Geraet oeffnen,
+    /// waehrend ein `VkImage` unaufloesbar zu seinem `VkDevice` gehoert. Der
+    /// Parameter steht trotzdem in der Signatur, damit `uebergabe.rs`
+    /// plattformfrei bleibt.
     pub fn neu(
         frame: &ffmpeg::util::frame::video::Video,
         briefkasten: Arc<crate::einfrieren::Briefkasten>,
+        _geraet: &Option<wgpu::Device>,
     ) -> Result<Self> {
         let hwctx = geraetekontext(frame)?;
         // SAFETY: `hwctx` zeigt auf einen von FFmpeg angelegten, lebenden

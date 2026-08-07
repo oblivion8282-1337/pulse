@@ -1,0 +1,32 @@
+[package]
+name = "cuvid-cuda-ausgabe"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Repo-Bestandteil und KEIN Workspace-Mitglied —
+# genau wie die Nachbarn `../cuda-vulkan-import` und `../wgpu-cuda-import`.
+# Sie beruehrt kein Bauziel des Produkts, ein Fehlschlag hier kann nichts
+# brechen.
+
+[dependencies]
+# Dieselbe Fassung wie `streaming/pulse-player` — die Frage ist ausdruecklich,
+# was DIESER Player mit DIESER Bindung erreichen kann. Eine andere Fassung
+# koennte eine Antwort liefern, die im Produkt nicht gilt.
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "software-scaling",
+] }
+
+# CUDA per dlopen statt Bindungs-Crate: `libcuda.so.1` gehoert zum Treiber,
+# nicht zum Toolkit. Gleiche Bauart wie `../cuda-vulkan-import`.
+libloading = "0.8"
+
+anyhow = "1"
+
+[[bin]]
+name = "cuvid-cuda-ausgabe"
+path = "src/main.rs"
+
+[profile.release]
+debug = true

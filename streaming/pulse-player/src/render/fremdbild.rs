@@ -1,10 +1,32 @@
-//! Die andere Haelfte der Bruecke: eine geteilte D3D11-Textur in wgpu
-//! einhaengen und als Ebenen-Ansichten binden.
+//! Die andere Haelfte der Bruecke: ein fremdes GPU-Bild in wgpu einhaengen und
+//! als Ebenen-Ansichten binden.
 //!
 //! Gegenstueck zu [`crate::zerocopy`]; dort steht, warum es die Bruecke
 //! ueberhaupt gibt und was sie kostet.
 //!
-//! **Nur ueber D3D12.** `wgpu-hal` 29.0.4 kann eine D3D11-Textur auf zwei Wegen
+//! ## Zwei Plattformen, zwei Einhaengungen, EINE Bindegruppe
+//!
+//! Was der Shader sieht, ist auf beiden Seiten dasselbe: zwei Ansichten (Luma,
+//! Chroma) plus eine Blindtextur. Wie sie entstehen, ist verschieden — und der
+//! Unterschied ist nicht Geschmack, sondern von der jeweiligen Schnittstelle
+//! erzwungen:
+//!
+//! | | Windows | Linux |
+//! |---|---|---|
+//! | Was ankommt | EINE geteilte NV12/P010-Textur | ZWEI `VkImage` (R8+Rg8 bzw. R16+Rg16) |
+//! | Warum | D3D11 gibt den Decoder-Frame so heraus | CUDA weist ein mehrplaniges `VkImage` ab (gemessen) |
+//! | Die zwei Ansichten | zwei ASPEKTE (`Plane0`/`Plane1`) einer Textur | zwei eigenstaendige Texturen |
+//! | Noetige Merkmale | `TEXTURE_FORMAT_NV12`/`P010` | keine fuer 8 bit, `16BIT_NORM` fuer 10 bit |
+//!
+//! Daraus folgt die einzige Stelle, an der man beim Aendern aufpassen muss:
+//! [`Fremdbilder::moeglich`] fragt auf beiden Seiten **verschiedene** Merkmale
+//! ab. Wer dort das Windows-Merkmal auch fuer Linux verlangte, schaltete den
+//! Weg dort grundlos ab — `TEXTURE_FORMAT_NV12` gibt es im Vulkan-Unterbau von
+//! wgpu 29 nicht, obwohl der Weg selbst traegt.
+//!
+//! ## Windows: nur ueber D3D12
+//!
+//! `wgpu-hal` 29.0.4 kann eine D3D11-Textur auf zwei Wegen
 //! aufnehmen, und beide sind an ihr Backend gebunden:
 //! `texture_from_d3d11_shared_handle` gibt es ausschliesslich im
 //! Vulkan-Backend, `texture_from_raw` ausschliesslich im dx12-Backend. Der
@@ -21,13 +43,31 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(windows)]
 use crate::decode::PixelLayout;
 use crate::zerocopy::GpuBild;
 
 /// Ein eingehaengtes Bild samt seiner beiden Ebenen-Ansichten.
 pub struct Import {
-    /// Gehalten, weil die Bindegruppe daran haengt — sonst nirgends gebraucht.
-    _textur: wgpu::Texture,
+    /// Gehalten, weil die Bindegruppe daran haengt.
+    ///
+    /// Ein `Vec`, weil Linux ZWEI Texturen einhaengt und Windows eine
+    /// (s. Modulkopf). **Der erste Eintrag ist die Luma-Seite** — daraus holt
+    /// die Latenz-Sonde ihre Musterzeilen (s. [`Fremdbilder::luma_textur`]);
+    /// bis zum 2026-08-07 wurde hier nur festgehalten, nie gelesen.
+    texturen: Vec<wgpu::Texture>,
+    /// Ob sich die Luma-Seite als Kopierquelle benutzen laesst — die
+    /// Latenz-Sonde holt daraus ihre Musterzeilen (s. [`super::musterprobe`]).
+    ///
+    /// **Nur auf Linux und nur mit laufender Sonde `true`.** Zwei Gruende, und
+    /// beide zaehlen einzeln: ohne Sonde soll die eingehaengte Textur gar keine
+    /// zusaetzliche Nutzungsart tragen, und auf Windows ist der Fall nicht
+    /// beurteilt — dort ist die Luma-Seite ein ASPEKT einer NV12/P010-Textur,
+    /// deren Kopierbarkeit an der geteilten D3D11-Ressource haengt und hier
+    /// nicht nachgemessen werden konnte. Lieber eine Sonde, die auf Windows
+    /// deutlich sagt „hier nicht" (s. `musterprobe::nicht_kopierbar_melden`),
+    /// als eine Nutzungsart, die den dortigen Zero-Copy-Weg umwirft.
+    luma_kopierbar: bool,
     /// Die fertige Bindegruppe dieses Ringplatzes.
     ///
     /// **Hier stand die Bindegruppe frueher NICHT, sie entstand je Bild neu**,
@@ -90,13 +130,26 @@ impl Fremdbilder {
     /// erweitern, und ob ein Strom 8 oder 10 bit fuehrt, steht erst beim ersten
     /// Bild fest. P010 braucht ausserdem `TEXTURE_FORMAT_16BIT_NORM` fuer seine
     /// Ebenen-Ansichten — das fordert der Player ohnehin schon an.
+    ///
+    /// Auf Linux sind die beiden mehrplanigen Merkmale wirkungslos (dort
+    /// entstehen zwei einfache Texturen), aber `& vorhanden` macht das
+    /// harmlos: was die Karte nicht anbietet, wird nicht angefordert.
     pub fn merkmale(vorhanden: wgpu::Features) -> wgpu::Features {
         (wgpu::Features::TEXTURE_FORMAT_NV12 | wgpu::Features::TEXTURE_FORMAT_P010) & vorhanden
     }
 
     /// Traegt das Geraet den Weg fuer dieses Bild?
+    ///
+    /// **Die Antwort ist plattformabhaengig** — Begruendung im Modulkopf.
     pub fn moeglich(device: &wgpu::Device, zehn_bit: bool) -> bool {
         let f = device.features();
+        #[cfg(target_os = "linux")]
+        {
+            // Zwei eigenstaendige Texturen: `R8Unorm`/`Rg8Unorm` gehoeren zum
+            // Kern, nur die 16-bit-Fassungen haengen an einem Merkmal.
+            !zehn_bit || f.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+        }
+        #[cfg(not(target_os = "linux"))]
         if zehn_bit {
             f.contains(wgpu::Features::TEXTURE_FORMAT_P010)
                 && f.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
@@ -139,6 +192,17 @@ impl Fremdbilder {
         self.importe.get(&handle).map(|i| &i.abdruck_gruppe)
     }
 
+    /// Die Luma-Textur eines Ringplatzes, sofern sie sich kopieren laesst
+    /// (s. [`Import::luma_kopierbar`]). `None` heisst: die Latenz-Sonde kann
+    /// hier nichts holen.
+    pub fn luma_textur(&self, handle: isize) -> Option<&wgpu::Texture> {
+        let import = self.importe.get(&handle)?;
+        if !import.luma_kopierbar {
+            return None;
+        }
+        import.texturen.first()
+    }
+
     /// Die bereits gebaute Bindegruppe eines Ringplatzes.
     ///
     /// Getrennt von [`Fremdbilder::binden`], weil `render` sie mit `&self`
@@ -173,11 +237,10 @@ fn blindtextur(device: &wgpu::Device) -> wgpu::TextureView {
     .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-/// Ausserhalb von Windows gibt es weder NT-Handles noch ein D3D12-Geraet.
-/// Dass es diese Fassung gibt, haelt `render/mod.rs` frei von `#[cfg]`-Zweigen;
-/// erreicht wird sie ohnehin nie, weil `DecodedFrame::gpu` dort immer `None`
-/// ist (s. `zerocopy::leer`).
-#[cfg(not(windows))]
+/// Auf macOS gibt es weder NT-Handles noch CUDA. Dass es diese Fassung gibt,
+/// haelt `render/mod.rs` frei von `#[cfg]`-Zweigen; erreicht wird sie ohnehin
+/// nie, weil `DecodedFrame::gpu` dort immer `None` ist (s. `zerocopy::leer`).
+#[cfg(not(any(windows, target_os = "linux")))]
 fn einhaengen(
     _device: &wgpu::Device,
     _teile: &Bindeteile<'_>,
@@ -186,6 +249,127 @@ fn einhaengen(
     _werk: &super::abdruck::Abdruckwerk,
 ) -> Option<Import> {
     None
+}
+
+/// Linux: die beiden `VkImage` der Bruecke uebernehmen.
+///
+/// **Ohne eigene Vulkan-Aufrufe** — die Bilder sind bereits auf genau diesem
+/// Geraet angelegt (`zerocopy::linux::vkbild`), hier werden sie nur an wgpu
+/// uebergeben. Das ist der Unterschied zur Windows-Seite, wo erst noch ein
+/// Handle geoeffnet werden muss.
+///
+/// Belegt: wgpu 29.0.4 uebernimmt so ein Bild **mitsamt Inhalt**, ueber 720p
+/// bis 4K und ueber 20 aufeinanderfolgende CUDA-Schreibrunden in dieselbe
+/// eingehaengte Textur — `profiles/player-2026-08-07-wgpu29-vkimage-import.json`.
+/// Der begruendete Verdacht dagegen (wgpu traegt eingehaengte Texturen als
+/// `UNINITIALIZED` ein, der Uebergang aus `VK_IMAGE_LAYOUT_UNDEFINED` **darf**
+/// den Inhalt verwerfen) ist am Quelltext bestaetigt, tritt auf dieser Karte
+/// aber nicht ein. „Darf verwerfen" ist keine Zusage zu verwerfen.
+#[cfg(target_os = "linux")]
+fn einhaengen(
+    device: &wgpu::Device,
+    teile: &Bindeteile<'_>,
+    blind: &wgpu::TextureView,
+    bild: &Arc<GpuBild>,
+    werk: &super::abdruck::Abdruckwerk,
+) -> Option<Import> {
+    // **Der Lebensanker.** Er haelt die beiden `VkImage` am Leben, solange wgpu
+    // seine Texturen haelt — ohne ihn koennte die Bruecke sie unter einem
+    // laufenden Zeichendurchgang wegraeumen (Begruendung bei
+    // `zerocopy::linux::Ringplatz`).
+    let anker = bild.lebensanker();
+
+    // **Nur mit laufender Latenz-Sonde**, und dann fuer beide Ebenen statt nur
+    // fuer die Luma-Seite: die Farbebene braucht `COPY_SRC` nicht, aber sie
+    // entsteht in derselben Schleife, und ein zweiter Parameter dafuer waere
+    // teurer als die eine ungenutzte Nutzungsart. Gedeckt ist sie in jedem Fall
+    // — das `VkImage` traegt `TRANSFER_SRC` (`zerocopy::linux::vkbild`).
+    //
+    // **Einmal gefragt und beides daraus**: die angemeldete Nutzungsart und das
+    // Merkmal `luma_kopierbar` unten muessen dieselbe Antwort tragen. Sonst
+    // holte die Sonde aus einer Textur, die `COPY_SRC` gar nicht angemeldet hat.
+    let sonde_laeuft = crate::probe::sonde_aktiv();
+    let (hal_extra, wgpu_extra) = if sonde_laeuft {
+        (wgpu::TextureUses::COPY_SRC, wgpu::TextureUsages::COPY_SRC)
+    } else {
+        (wgpu::TextureUses::empty(), wgpu::TextureUsages::empty())
+    };
+
+    // Bild, Format und Masse kommen als Buendel von der Bruecke — sie rechnet
+    // die halbe Farbebene ohnehin aus, und hier ein zweites Mal zu halbieren
+    // hiesse, dieselbe Regel an zwei Stellen zu fuehren.
+    let uebernehmen = |(image, format, b, h): (ash::vk::Image, wgpu::TextureFormat, u32, u32),
+                       name: &'static str,
+                       anker: std::sync::Arc<crate::zerocopy::Ringplatz>| {
+        let masse = wgpu::Extent3d { width: b, height: h, depth_or_array_layers: 1 };
+        let hal_desc = wgpu::hal::TextureDescriptor {
+            label: Some(name),
+            size: masse,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUses::RESOURCE | hal_extra,
+            memory_flags: wgpu::hal::MemoryFlags::empty(),
+            // Leer, weil das Bild ohne `MUTABLE_FORMAT` angelegt ist —
+            // wgpu-hal verlangt das ausdruecklich in der Sicherheitsauflage
+            // von `texture_from_raw`.
+            view_formats: vec![],
+        };
+        // SAFETY: `image` wurde auf genau diesem Geraet angelegt
+        // (`zerocopy::linux`), die Masse stammen aus derselben Rechnung, und
+        // `anker` haelt es ueber die Lebensdauer der Textur am Leben.
+        let hal_tex = unsafe {
+            let hal = device.as_hal::<wgpu::hal::api::Vulkan>()?;
+            hal.texture_from_raw(
+                image,
+                &hal_desc,
+                // **Der Rueckruf MUSS gesetzt sein.** Ohne ihn naehme wgpu-hal
+                // das `VkImage` in Besitz und zerstoerte es beim Fallenlassen —
+                // waehrend der Speicher uns gehoert und CUDA ihn noch
+                // eingehaengt haelt. Ein doppeltes Zerstoeren faellt erst viel
+                // spaeter auf. Der Rumpf gibt zugleich den Lebensanker frei.
+                Some(Box::new(move || drop(anker))),
+                // Andernfalls uebernaehme wgpu-hal auch die Speicherverwaltung.
+                wgpu::hal::vulkan::TextureMemory::External,
+            )
+        };
+        // SAFETY: die hal-Textur gehoert ab hier wgpu.
+        Some(unsafe {
+            device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(
+                hal_tex,
+                &wgpu::TextureDescriptor {
+                    label: Some(name),
+                    size: masse,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu_extra,
+                    view_formats: &[],
+                },
+            )
+        })
+    };
+
+    let [y_ebene, uv_ebene] = bild.ebenen();
+    let y = uebernehmen(y_ebene, "fremdbild-y", anker.clone())?;
+    let uv = uebernehmen(uv_ebene, "fremdbild-uv", anker)?;
+    let luma = y.create_view(&wgpu::TextureViewDescriptor::default());
+    let chroma = uv.create_view(&wgpu::TextureViewDescriptor::default());
+    // Einmal je Ringplatz, nicht je Bild — Begruendung an `Import::bindegruppe`.
+    let bindegruppe = super::setup::bind_group_aus_teilen(
+        device,
+        teile.layout,
+        teile.sampler,
+        teile.uniform_buf,
+        [&luma, &chroma, blind],
+    );
+    // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
+    // `einfrieren::gpuabdruck`.
+    let abdruck_gruppe = werk.bindung(device, &luma);
+    let texturen = vec![y, uv];
+    Some(Import { texturen, luma_kopierbar: sonde_laeuft, bindegruppe, abdruck_gruppe })
 }
 
 #[cfg(windows)]
@@ -272,7 +456,12 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`. Die Chroma-Ansicht geht ihn nichts an.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    Some(Import { _textur: textur, bindegruppe, abdruck_gruppe })
+    // **Nicht kopierbar** — die Luma-Seite ist hier ein Aspekt EINER
+    // NV12/P010-Textur, und ob eine geteilte D3D11-Ressource sich als
+    // Kopierquelle hergibt, ist auf dieser Plattform nicht nachgemessen
+    // (Begruendung bei [`Import::luma_kopierbar`]). Die Sonde sagt das dann
+    // deutlich, statt still nichts zu messen.
+    Some(Import { texturen: vec![textur], luma_kopierbar: false, bindegruppe, abdruck_gruppe })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.

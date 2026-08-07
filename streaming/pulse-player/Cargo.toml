@@ -130,6 +130,25 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
 ] }
 
+# --- Zero-Copy unter Linux/NVIDIA (s. `src/zerocopy/linux/`) ---
+#
+# Beide waren VORHER schon im Abhaengigkeitsbaum (ash ueber wgpu-hal, libloading
+# ueber wgpu/winit) — sie werden hier nur ausdruecklich gemacht, es kommt kein
+# fremder Code hinzu. Lizenzen: ash MIT, libloading ISC. Beide passen.
+#
+# **ash MUSS dieselbe Fassung sein, die wgpu-hal 29 zieht (0.38).** Sonst waeren
+# das `vk::Image`, das wir anlegen, und das, welches `texture_from_raw` nimmt,
+# fuer den Compiler verschiedene Typen — obwohl sie dieselbe Zahl bezeichnen.
+# Die Angabe ist bewusst nicht schaerfer als `0.38`, damit Cargos
+# Vereinheitlichung nicht daran scheitert.
+#
+# libloading: `libcuda.so.1` gehoert zum NVIDIA-TREIBER, nicht zum CUDA-Toolkit.
+# Dynamisch nachladen heisst, dass der Player auf Maschinen ohne NVIDIA
+# unveraendert startet und nur den Zero-Copy-Weg nicht hat.
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = "0.38"
+libloading = "0.8"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

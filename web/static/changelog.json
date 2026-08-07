@@ -2,7 +2,7 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-      "id": "2026-08-07.5",
+      "id": "2026-08-07.6",
       "date": "2026-08-07",
       "style": "Sachlich",
       "title": "Eigenes Wiedergabefenster: noch einmal deutlich fluessiger",
@@ -12,6 +12,16 @@
         "Bei 1920x1080 mit 144 Bildern je Sekunde kommen damit jetzt alle 144 an; zuvor waren es 67 bis 91.",
         "Bei 2560x1440 mit 144 Bildern je Sekunde ist es besser, aber noch nicht vollstaendig geloest. Die Ursache dafuer liegt nach derzeitigem Stand nicht im Wiedergabefenster, sondern darin, dass die Bilder bereits ungleichmaessig ankommen.",
         "Das Fehlerprotokoll bremst die App nicht mehr aus: bei einer Stoerung konnten bisher tausende Meldungen je Sekunde auflaufen und dabei genau die Verzoegerungen erzeugen, die sie eigentlich festhalten sollten."
+      ]
+    },
+    {
+      "id": "2026-08-07.5",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Android-App: Sprachausgabe ueber Bluetooth verbessert",
+      "items": [
+        "Wer in der Android-App ueber eine Bluetooth-Anlage (etwa im Auto) in einem Sprachkanal war, hoerte die anderen oft nur sehr leise. Die Sprachausgabe wird jetzt ueber den Telefonkanal geleitet statt ueber den leiseren Medienkanal.",
+        "Zudem wird die Verbindung jetzt zuverlaessiger aufgebaut, wenn Bluetooth erst waehrend des Gespraechs dazukommt."
       ]
     },
     {
@@ -25,7 +35,11 @@
         "Das galt fuer jede Grafikkarte, auch fuer schnelle: die Ursache lag nicht an der Leistung, sondern an einem zu klein bemessenen Zwischenspeicher.",
         "Die Bildrate ist damit frei waehlbar. Auch bei 240 Bildern je Sekunde kommt jetzt alles an; reicht der Zwischenspeicher nicht, passt sich die Glaettung selbst an, statt Bilder zu opfern.",
         "Die Verzoegerung zwischen Sender und Bild ist etwa halbiert (von rund 61 auf 33 Millisekunden), ohne dass das Bild unruhiger wird.",
-        "Ausserdem behoben: gelegentliche Aussetzer von mehreren Sekunden, bei denen das Bild stehenblieb."
+        "Ausserdem behoben: gelegentliche Aussetzer von mehreren Sekunden, bei denen das Bild stehenblieb.",
+        "Auf Linux mit NVIDIA-Karte nimmt das Bild zusaetzlich einen kuerzeren Weg: es bleibt auf der Grafikkarte, statt zwischendurch in den Hauptspeicher zu wandern. Gemessen sinkt die Verzoegerung dadurch von 78 auf 73 Millisekunden.",
+        "Klappt dieser kuerzere Weg auf einem Rechner nicht, schaltet das Fenster von selbst auf den bisherigen zurueck.",
+        "Behoben (Linux): Das Fenster hat die Grafikkarte zum Entpacken des Bildes ueberhaupt nicht benutzt, sondern alles im Hauptprozessor gerechnet — auch dort, wo die Karte es laengst gekonnt haette. Es griff auf eine falsche, mitgelieferte Bildbibliothek zu, der die passenden Verfahren fehlten.",
+        "Am staerksten betroffen war H.264: dafuer war gar kein regulaeres Verfahren vorhanden, das Fenster wich auf einen Notbehelf aus. Gemessen kamen damit 12 bis 13 Bilder je Sekunde an statt 60."
       ],
       "outro": "Bei sehr hohen Aufloesungen mit sehr hohen Bildraten koennen weiterhin kurze Aussetzer auftreten. Die Ursache dafuer ist gefunden und wird als naechstes angegangen."
     },

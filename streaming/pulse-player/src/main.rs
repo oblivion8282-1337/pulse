@@ -53,6 +53,22 @@ fn main() -> Result<()> {
     match argv.first().map(String::as_str) {
         Some("--stufen") => return messen::ausfuehren(&argv[1..]),
         Some("--farbwerte") => return messen::farbwerte::ausfuehren(),
+        // Fragt nur die Decoder ab und beendet sich. Gehoert hierher zu den
+        // anderen Messpfaden: kein Fenster, kein Netz, kein JSON-RPC auf
+        // stdout. Der Weg, auf einer fremden Maschine zu erfahren, WARUM sie
+        // in Software dekodiert (`pulse-player --decoder`).
+        Some("--decoder") => {
+            for codec in [whep::Codec::Av1, whep::Codec::H264] {
+                println!("{}:", codec.as_str());
+                for (name, art, fehler) in decode::VideoDecoder::sonde(codec) {
+                    match fehler {
+                        None => println!("  {name} ({art}): geht"),
+                        Some(e) => println!("  {name} ({art}): geht nicht — {e}"),
+                    }
+                }
+            }
+            return Ok(());
+        }
         _ => {}
     }
 
