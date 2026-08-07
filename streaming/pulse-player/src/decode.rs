@@ -1019,10 +1019,59 @@ impl VideoDecoder {
                         geraet,
                     });
                 }
-                Err(e) => last_err = Some(e),
+                Err(e) => {
+                    // **Jeder uebersprungene Kandidat wird genannt.** Bis zum
+                    // 2026-08-07 stand hier nur `last_err = Some(e)`: die
+                    // Gruende wurden verworfen, und ueberlebt hat allein der
+                    // Fehler des LETZTEN Kandidaten — der wiederum nur zu sehen
+                    // war, wenn gar keiner aufging. Ein Rueckfall von
+                    // `av1_cuvid` auf `libdav1d` sah im Log deshalb aus wie
+                    // eine gewoehnliche Wahl, und die Frage „warum eigentlich
+                    // Software?" war aus dem Protokoll heraus nicht zu
+                    // beantworten (am 2026-08-07 genau so aufgeschlagen).
+                    //
+                    // Es ist eine Zeile je Kandidat und nur beim Anlegen des
+                    // Decoders, nicht je Bild.
+                    eprintln!(
+                        "pulse-player: Decoder {} ({}) nicht verwendbar: {e:#}",
+                        kandidat.name,
+                        kandidat.beschreibung()
+                    );
+                    last_err = Some(e);
+                }
             }
         }
         Err(last_err.unwrap_or_else(|| anyhow!("kein Decoder fuer {}", codec.as_str())))
+    }
+
+    /// Probiert alle Kandidaten durch und berichtet, was mit jedem passiert —
+    /// **ohne Fenster, ohne Netz, ohne Strom**.
+    ///
+    /// Dafuer gebaut, dass sich die Frage „warum dekodiert die Maschine in
+    /// Software?" auf der betroffenen Maschine beantworten laesst, statt sie
+    /// aus einem Fehlerbild zu erraten. Im Flatpak ist das der einzige
+    /// gangbare Weg: dort gibt es kein `ffmpeg`-Programm, mit dem man dasselbe
+    /// von Hand nachstellen koennte (`--disable-programs`), und die
+    /// gebuendelte Bibliothek ist eine andere als die des Systems.
+    ///
+    /// Es wird nur geOEFFNET und sofort wieder verworfen; dekodiert wird
+    /// nichts. Das genuegt, weil genau das Oeffnen die Stelle ist, an der ein
+    /// Kandidat ausfaellt.
+    ///
+    /// **Eine Grenze der Aussage:** ohne Fenster gibt es kein wgpu-Geraet,
+    /// der CUDA-Kandidat wird also ohne den geteilten Kontext geprueft. Sagt
+    /// die Sonde bei ihm „geht", ist damit belegt, dass Treiber und Decoder
+    /// da sind — nicht, dass die Bruecke im Betrieb aufgeht. Sagt sie
+    /// „geht nicht", ist der Ausfall echt und liegt vor der Bruecke.
+    pub fn sonde(codec: Codec) -> Vec<(&'static str, &'static str, Option<String>)> {
+        let _ = ffmpeg::init();
+        candidates(codec, hwdec_vorgabe())
+            .into_iter()
+            .map(|k| {
+                let fehler = Self::try_open(k, &None).err().map(|e| format!("{e:#}"));
+                (k.name, k.beschreibung(), fehler)
+            })
+            .collect()
     }
 
     fn try_open(
