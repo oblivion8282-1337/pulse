@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07.2",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "H.264-Streams kamen beim Zuschauer nicht an",
+      "intro": "Wer mit H.264 gestreamt hat, zeigte Zuschauern unter Umstaenden ein dauerhaft schwarzes Bild. Das ist behoben.",
+      "items": [
+        "Behoben: Bei H.264 sahen Zuschauer nichts, obwohl der Stream lief und die Daten vollstaendig ankamen. Es fehlte das erste vollstaendige Bild, an dem die Wiedergabe ansetzen kann — und auf dem bisherigen Uebertragungsweg konnte der Zuschauer es auch nicht anfordern.",
+        "H.264 nutzt jetzt denselben Uebertragungsweg wie die uebrigen Einstellungen. Der hat einen Rueckkanal: wer spaeter dazukommt, bekommt sein Bild auf Anforderung.",
+        "Nebenbei bringt dieser Weg den Verlustschutz mit, den es auf dem alten nicht gab. Bei unruhiger Leitung bleibt das Bild damit stabiler."
+      ]
+    },
+    {
       "id": "2026-08-07",
       "date": "2026-08-07",
       "style": "Sachlich",

@@ -252,14 +252,24 @@ export function tenBitPossible(): boolean {
  * Intra-Refresh-Strom über RTMPS, also ohne den Rückkanal, über den ein
  * beitretender Zuschauer sein erstes Vollbild anfordern könnte.
  *
+ * **Umgekehrt gilt das seit dem 2026-08-07 NICHT mehr:** ein `false` hier heißt
+ * nicht mehr „also RTMPS". Bei H.264 nimmt `pushProtokoll` unabhängig von
+ * diesem Wert WHIP, weil der Encoder die Betriebsart dort von sich aus fährt —
+ * die Begründung steht dort, nicht hier.
+ *
  * **`stream.intraRefreshAvailable` gehört zwingend dazu**, obwohl das Kästchen
  * bereits danach gated ist. Die Einstellung wird persistiert und wandert damit
  * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
  * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
  * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
- * Seit Windows dazugekommen ist, wandert er auch über Plattformgrenzen: dort
- * trägt die Betriebsart nur AV1 (über AMF), H.264 läuft über einen Encoder,
- * der die Option annimmt und nichts damit tut.
+ *
+ * **Hier stand bis zum 2026-08-07: „unter Windows trägt die Betriebsart nur
+ * AV1 (über AMF), H.264 läuft über einen Encoder, der die Option annimmt und
+ * nichts damit tut". Das ist falsch** — es beschreibt `h264_d3d12va`, und der
+ * ist auf AMD seit dem 2026-08-04 nicht mehr der Regelweg (nur noch über
+ * `PULSE_HQ_AMD_D3D12=1`). Heute geht AMD mit jedem Codec über AMF, und
+ * `h264_amf` trägt die Betriebsart sehr wohl — sogar ungefragt
+ * (`win-hq-sidecar/src/encode/auffrischung.rs`).
  */
 export function intraRefreshPossible(): boolean {
   return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
@@ -714,13 +724,45 @@ export interface ChannelStreamArg {
 }
 
 /**
- * Der Push-Weg, den die aktuelle Betriebsart verlangt.
+ * Der Push-Weg, den Betriebsart und Codec verlangen.
  *
- * Intra-Refresh braucht WHIP: nur dort gibt es den RTCP-Rueckkanal, ueber den
- * die Vollbild-Anforderung eines beitretenden Zuschauers den Encoder erreicht.
- * In einem Intra-Refresh-Strom stehen kaum Vollbilder, also bekommt er sein
- * erstes nur auf Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0
- * Bilder gegen 2228). Die Betriebsart entscheidet den Transport also mit.
+ * Nur WHIP hat den RTCP-Rueckkanal, ueber den die Vollbild-Anforderung eines
+ * beitretenden Zuschauers den Encoder erreicht. Wo ein Strom nach dem Start
+ * kaum noch Vollbilder fuehrt, bekommt der Zuschauer sein erstes nur auf
+ * Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0 Bilder gegen
+ * 2228). Zwei Faelle brauchen ihn deshalb:
+ *
+ * **1. Intra-Refresh.** Die Betriebsart selbst, ausdruecklich gewaehlt.
+ *
+ * **2. H.264, immer — auch mit abgewaehltem Intra-Refresh.** Das ist seit dem
+ * 2026-08-07 nicht mehr die Ausnahme, sondern der Regelfall, und der Grund
+ * liegt nicht hier, sondern im Encoder: `h264_amf` bekommt aus Last-Gruenden
+ * `usage=ultralowlatency` (`win-hq-sidecar/src/encode/opts.rs`, seit dem
+ * 2026-07-30, drittelt die Video-Engine-Last), und diese Einstellung schaltet
+ * die rollende Auffrischung von sich aus mit ein. **Das Kaestchen aendert
+ * daran nichts.** Ein H.264-Strom auf AMD hat also nach dem Start praktisch
+ * kein Vollbild mehr, ganz gleich, was die Oberflaeche glaubt zu bestellen —
+ * die Zeile „Vollbilder" im Sidecar-Log ist fuer diesen Encoder nur das
+ * Etikett des Wunsches, nicht die Beschreibung des Stroms
+ * (`encode/mod.rs::log_encoder_open`).
+ *
+ * Belegt in der Produktion am 2026-08-07: derselbe Kanal, dieselben Minuten.
+ * H.264 ueber RTMPS ohne Intra-Refresh — 1400 Pakete in 5 s, 0 Verlust, **0
+ * dekodierte Bilder**, 25 unbeantwortete Vollbild-Anforderungen, danach
+ * zwanzig Neuaufbauten in Folge ueber zwei Minuten, keiner davon mit Bild.
+ * Dieselbe Maschine ueber WHIP: 2681 Bilder. AV1 ueber RTMPS: 1146 Bilder (AV1
+ * braucht fuer die Auffrischung einen eigenen Schalter, der ohne Wunsch nicht
+ * gesetzt wird — deshalb ist dort ein Vollbild je zwei Sekunden im Strom).
+ *
+ * **Warum nicht auf AMD eingeschraenkt**, obwohl nur dieser Encoder betroffen
+ * ist: welchen Encoder der Sidecar wirklich oeffnet, entscheidet sich dort und
+ * haengt an Hersteller, Plattform und `PULSE_HQ_AMD_D3D12` — die Oberflaeche
+ * weiss es nicht zuverlaessig. Eine Regel, die auf eine Vermutung ueber den
+ * Encoder baut, waere genau die Sorte stiller Fehlannahme, die diesen Fehler
+ * erzeugt hat. Der Rueckkanal schadet nirgends: wo er nicht gebraucht wird,
+ * bleibt er ungenutzt, und die FlexFEC-Paritaet gibt es ohnehin nur ueber
+ * WHIP (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne, 75 von 131 WHIP-Sitzungen
+ * mit).
  *
  * **Warum als Funktion und nicht zweimal ausgeschrieben:** die Regel stand in
  * `StreamControls` und im Auto-Neustart getrennt, und im Auto-Neustart stand
@@ -729,7 +771,11 @@ export interface ChannelStreamArg {
  * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
  */
 export function pushProtokoll(): 'rtmp' | 'whip' {
-  return intraRefreshPossible() ? 'whip' : 'rtmp';
+  // Derselbe Rueckgriff auf `'h264'` wie in `tenBitPossible`: ein ungesetzter
+  // Codec IST H.264 (s. die Vorgabe in `loadSettings`), und der Fall haette
+  // sonst ausgerechnet bei einer frischen Installation gefehlt.
+  const codec = streamSettings.overrides.codec ?? 'h264';
+  return intraRefreshPossible() || codec === 'h264' ? 'whip' : 'rtmp';
 }
 
 /**
