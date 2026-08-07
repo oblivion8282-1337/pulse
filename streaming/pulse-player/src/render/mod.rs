@@ -397,8 +397,11 @@ impl Renderer {
         // SELBEN Kommandopuffer (s. [`abdruck`]) — er liest dieselbe Luma-Ebene,
         // aus der gleich gezeichnet wird, beides nur lesend. Die Musterzeilen
         // der Latenz-Sonde fahren aus demselben Grund darin mit.
+        //
+        // Beide Werke haengen an DERSELBEN Bedingung, und sie steht deshalb an
+        // beiden Stellen gleich: `.filter(|_| neues_bild)`.
         let mut abdruck_platz = None;
-        if let (true, Some((bindung, bild, kasten))) = (neues_bild, abdruck_auftrag) {
+        if let Some((bindung, bild, kasten)) = abdruck_auftrag.filter(|_| neues_bild) {
             let teile = abdruck::Werkteile { device: &self.device, queue: &self.queue, bindung };
             abdruck_platz = self.abdruckwerk.aufzeichnen(&mut encoder, teile, bild, kasten);
         }

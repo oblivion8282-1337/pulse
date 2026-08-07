@@ -17,7 +17,7 @@
 //! Zeilen der Hoehe 1 — bei 1080p10 rund 20 kB je Bild statt 4 MB fuer die ganze
 //! Ebene.
 //!
-//! **Kein Compute-Shader.** Es gibt nichts zu rechnen: die 24 Texte-Werte je
+//! **Kein Compute-Shader.** Es gibt nichts zu rechnen: die 24 Texel-Werte je
 //! Stelle wertet `probe` ohnehin aus, und ein Shader dafuer waere eine zweite
 //! Fassung derselben Bit-Auswertung — genau die Fehlerklasse, die in diesem
 //! Labor schon einmal eine Messreihe entwertet hat.
@@ -218,23 +218,28 @@ impl Musterprobe {
         // Ohne diesen Anstoss laufen die Rueckrufe des Treibers nie an.
         let _ = device.poll(wgpu::PollType::Poll);
         while let Some(i) = self.aeltester_fertiger() {
-            let gelesen: Vec<(usize, Vec<u8>)> = {
-                let sicht = self.ring[i].puffer.slice(..).get_mapped_range();
-                let p = &self.ring[i];
-                p.zeilen
+            // Eigener Block: die Sicht auf den abgebildeten Puffer muss fallen,
+            // BEVOR unten `unmap` kommt — und der Zeitstempel wird hier aus dem
+            // Platz uebernommen, nicht neu genommen (Begruendung im Modulkopf).
+            let ernte = {
+                let platz = &self.ring[i];
+                let sicht = platz.puffer.slice(..).get_mapped_range();
+                let zeilen = platz
+                    .zeilen
                     .iter()
                     .enumerate()
                     .map(|(n, y0)| {
                         let von = ZEILEN_BYTES as usize * n;
-                        (*y0, sicht[von..von + p.zeilenbytes].to_vec())
+                        (*y0, sicht[von..von + platz.zeilenbytes].to_vec())
                     })
-                    .collect()
+                    .collect();
+                Musterzeilen { stempel_ms: platz.stempel_ms, zehn_bit: platz.zehn_bit, zeilen }
             };
-            self.ring[i].puffer.unmap();
-            self.ring[i].fertig.store(false, Ordering::Release);
-            self.ring[i].belegt = false;
-            let (stempel_ms, zehn_bit) = (self.ring[i].stempel_ms, self.ring[i].zehn_bit);
-            self.melden(Musterzeilen { stempel_ms, zehn_bit, zeilen: gelesen });
+            let platz = &mut self.ring[i];
+            platz.puffer.unmap();
+            platz.fertig.store(false, Ordering::Release);
+            platz.belegt = false;
+            self.melden(ernte);
         }
     }
 

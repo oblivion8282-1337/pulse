@@ -167,37 +167,48 @@ in `src/render/fremdbild.rs`.
 
 Gemessen (Messakte
 `streaming/testbench/profiles/player-2026-08-07-zerocopy-linux-im-player.json`),
-1440p60 AV1 10 bit ueber die echte Kette, neun Laeufe je Arm, Arme abwechselnd:
+1440p60 AV1 10 bit ueber die echte Kette, fuenfzehn Laeufe je Arm in drei
+Reihen, Arme abwechselnd:
 
 | | Weg ueber den Hauptspeicher | neuer Weg |
 |---|---|---|
-| Dekodierzeit je Bild | 4,42 ms | **1,11 ms** |
-| Bild-bis-Schirm | 63,08 ms | **59,65 ms** |
-| dasselbe, Takt festgenagelt | 64,00 ms | **59,68 ms** |
+| **Ende-zu-Ende** (aus dem gemalten Zeitmuster) | 77,98 ms | **73,32 ms** |
+| Bild-bis-Schirm | 63,08 ms | 59,65 ms |
+| dasselbe, Takt festgenagelt | 64,00 ms | 59,68 ms |
+| Dekodierzeit je Bild | 4,42 ms | 1,11 ms |
 | Bildrate | 57,1 | 56,9 |
-| Grafikspeicher des Prozesses | 652 MiB | 795 MiB |
+| Grafikspeicher des Prozesses | 651 MiB | 795 MiB |
 
-**In keiner der beiden Kennzahlen ueberlappen die Arme.** Bei sechs gegen sechs
+**In keiner dieser Kennzahlen ueberlappen die Arme.** Bei sechs gegen sechs
 Werten hat eine vollstaendige Trennung durch Zufall eine Wahrscheinlichkeit von
 1 zu 924.
 
-Drei Dinge dazu, die man beim Weiterlesen wissen muss:
+Vier Dinge dazu, die man beim Weiterlesen wissen muss:
 
-* **Die Ende-zu-Ende-Zahl aus dem gemalten Zeitmuster fehlt fuer den neuen
-  Weg** — die Sonde liest die Luma-Ebene im Hauptspeicher, und die gibt es dort
-  nicht mehr. Gemessen ist stattdessen „Bild-bis-Schirm", und das ist
-  ausdruecklich der Teil der Kette, der im Player liegt (`app::PhaseTimes`);
-  alles davor beruehrt der Umbau nicht. Der Bezugsarm misst 77,2 ms
-  Ende-zu-Ende, davon 63 bis 64 ms im Player. Der Gewinn sind also rund fuenf
-  Prozent der ganzen Kette. **Eine Ende-zu-Ende-Zahl fuer den neuen Weg waere
-  gerechnet, nicht gemessen** — sie steht deshalb nirgends als Ergebnis.
-* **Die 143 MiB Grafikspeicher sind die schaerfste Kontrolle der Reihe.** Sie
+* **Die Ende-zu-Ende-Zahl ist erst messbar geworden, weil die Sonde umgebaut
+  wurde.** Sie las ihr Balkenmuster aus der Luma-Ebene im Hauptspeicher, und die
+  gibt es auf diesem Weg nicht mehr — sie war also genau bei der Zahl blind, an
+  der der Umbau zu messen ist. Jetzt kopiert sie die vier Musterzeilen aus der
+  eingehaengten GPU-Textur (`render/musterprobe.rs`, Bauart nach `render/abdruck.rs`).
+  **Der Zeitstempel wird beim Aufzeichnen genommen, nicht beim Abholen**: der
+  Abholverzug von ein bis zwei Bildern laege sonst einseitig zu Lasten des neuen
+  Weges, und zwar in genau der Groessenordnung des gesuchten Gewinns.
+* **Der neue Weg gewinnt MIT einem Handicap.** Die Sonde kostet dort eine
+  zusaetzliche Kopie je Bild; auf dem Bezugsarm liest sie die ohnehin
+  vorhandenen Hauptspeicher-Ebenen und kostet nichts.
+* **Die 144 MiB Grafikspeicher sind die schaerfste Kontrolle der Reihe.** Sie
   belegen unabhaengig vom Log, dass der Ring wirklich angelegt wurde, und sie
   decken sich mit der Vorausrechnung fuer zwoelf Plaetze bei 1440p10.
 * **Der Rueckfall ist einmal wirklich eingetreten**, und er hat getan, was er
   soll: ein fehlender `cuCtxSetCurrent` beim Ringbau liess
   `cuImportExternalMemory` scheitern — Ergebnis war ein langsameres Bild samt
   einer Logzeile, kein schwarzes Fenster.
+
+Was offen bleibt: der **VAAPI**-Weg auf Linux (AMD, Intel) hat weiterhin keine
+Bruecke, er braeuchte DMA-BUF statt eines CUDA-Imports. Der Gleichlauf laeuft
+ueber `cuCtxSynchronize` statt ueber ein Semaphor — begruendet im Modulkopf von
+`zerocopy/linux/`, aber nicht gegen einen Semaphor-Weg gemessen. Und ein
+Aufloesungswechsel im laufenden Strom ist nie ausgeloest worden.
 
 Der Abschnitt darunter (Stand 2026-08-07, Nacht) bleibt als Historie stehen; die
 dort unter Punkt 3 gefuehrte Aufgabe ist damit erledigt.

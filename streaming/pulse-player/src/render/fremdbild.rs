@@ -49,10 +49,12 @@ use crate::zerocopy::GpuBild;
 
 /// Ein eingehaengtes Bild samt seiner beiden Ebenen-Ansichten.
 pub struct Import {
-    /// Gehalten, weil die Bindegruppe daran haengt — sonst nirgends gebraucht.
+    /// Gehalten, weil die Bindegruppe daran haengt.
     ///
     /// Ein `Vec`, weil Linux ZWEI Texturen einhaengt und Windows eine
-    /// (s. Modulkopf). Der erste Eintrag ist die Luma-Seite.
+    /// (s. Modulkopf). **Der erste Eintrag ist die Luma-Seite** — daraus holt
+    /// die Latenz-Sonde ihre Musterzeilen (s. [`Fremdbilder::luma_textur`]);
+    /// bis zum 2026-08-07 wurde hier nur festgehalten, nie gelesen.
     texturen: Vec<wgpu::Texture>,
     /// Ob sich die Luma-Seite als Kopierquelle benutzen laesst — die
     /// Latenz-Sonde holt daraus ihre Musterzeilen (s. [`super::musterprobe`]).
@@ -281,7 +283,12 @@ fn einhaengen(
     // entsteht in derselben Schleife, und ein zweiter Parameter dafuer waere
     // teurer als die eine ungenutzte Nutzungsart. Gedeckt ist sie in jedem Fall
     // — das `VkImage` traegt `TRANSFER_SRC` (`zerocopy::linux::vkbild`).
-    let (hal_extra, wgpu_extra) = if crate::probe::sonde_aktiv() {
+    //
+    // **Einmal gefragt und beides daraus**: die angemeldete Nutzungsart und das
+    // Merkmal `luma_kopierbar` unten muessen dieselbe Antwort tragen. Sonst
+    // holte die Sonde aus einer Textur, die `COPY_SRC` gar nicht angemeldet hat.
+    let sonde_laeuft = crate::probe::sonde_aktiv();
+    let (hal_extra, wgpu_extra) = if sonde_laeuft {
         (wgpu::TextureUses::COPY_SRC, wgpu::TextureUsages::COPY_SRC)
     } else {
         (wgpu::TextureUses::empty(), wgpu::TextureUsages::empty())
@@ -360,12 +367,8 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    Some(Import {
-        texturen: vec![y, uv],
-        luma_kopierbar: crate::probe::sonde_aktiv(),
-        bindegruppe,
-        abdruck_gruppe,
-    })
+    let texturen = vec![y, uv];
+    Some(Import { texturen, luma_kopierbar: sonde_laeuft, bindegruppe, abdruck_gruppe })
 }
 
 #[cfg(windows)]

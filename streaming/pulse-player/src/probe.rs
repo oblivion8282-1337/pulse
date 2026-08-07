@@ -307,11 +307,11 @@ fn luma_at(frame: &DecodedFrame, x: usize, y: usize) -> Option<u8> {
     if frame.ten_bit {
         let off = y * stride + x * 2;
         let wort = u16::from_le_bytes([*plane.get(off)?, *plane.get(off + 1)?]);
-        let zehn_bit = match frame.format {
+        let zehn = match frame.format {
             PixelLayout::BiPlanar420 => wort >> 6,
             PixelLayout::Planar420 => wort & 0x03FF,
         };
-        Some((zehn_bit >> 2) as u8)
+        Some(auf_acht_bit(zehn))
     } else {
         Some(*plane.get(y * stride + x)?)
     }
@@ -328,10 +328,21 @@ fn luma_in_zeile(zeile: &[u8], zehn_bit: bool, x: usize) -> Option<u8> {
     if zehn_bit {
         let off = x * 2;
         let wort = u16::from_le_bytes([*zeile.get(off)?, *zeile.get(off + 1)?]);
-        Some(((wort >> 6) >> 2) as u8)
+        Some(auf_acht_bit(wort >> 6))
     } else {
         Some(*zeile.get(x)?)
     }
+}
+
+/// Zehn Bit auf 0..=255 bringen — **die eine Stelle**, an der das geschieht.
+///
+/// Beide Wege enden hier: die Ebene im Hauptspeicher ([`luma_at`]) und die
+/// kopierte GPU-Zeile ([`luma_in_zeile`]). Sie unterscheiden sich nur darin, WO
+/// im 16-bit-Wort die zehn Bit sitzen; was danach kommt, ist dieselbe Rechnung
+/// — und die darf es aus demselben Grund wie die Bit-Auswertung nur einmal
+/// geben (s. Modulkopf).
+fn auf_acht_bit(zehn: u16) -> u8 {
+    (zehn >> 2) as u8
 }
 
 /// Ein Klotz-Wert wird zu einem Bit — oder zu „das ist nicht unser Balken".
@@ -643,17 +654,24 @@ mod tests {
     /// nachzuziehen und nicht der Test abzuschalten.
     #[test]
     fn musterformat_stimmt_mit_dem_python_teil_ueberein() {
+        /// Eine Reihe so schreiben, wie die Python-Seite sie fuehrt:
+        /// `(64, 880, 1696)`. **Aus den Konstanten gebildet und nicht
+        /// abgeschrieben** — eine hier hinterlegte Zeichenkette waere eine
+        /// dritte Fassung des Formats und muesste bei jeder Aenderung
+        /// mitgepflegt werden, also genau das, wogegen dieser Test antritt.
+        fn python_tupel(werte: &[usize]) -> String {
+            let inhalt: Vec<String> = werte.iter().map(|v| v.to_string()).collect();
+            format!("({})", inhalt.join(", "))
+        }
+
         let py = std::fs::read_to_string(
             concat!(env!("CARGO_MANIFEST_DIR"), "/../testbench/pattern_format.py"),
         )
         .expect("pattern_format.py");
         assert!(py.contains(&format!("BLOCK = {BLOCK}")), "BLOCK");
         assert!(py.contains(&format!("COUNTER_BITS = {COUNTER_BITS}")), "COUNTER_BITS");
-        assert!(
-            py.contains("MARKER = [1, 0, 1, 1, 0, 0, 1, 0]"),
-            "MARKER"
-        );
-        assert!(py.contains("(64, 880, 1696)"), "Spalten");
-        assert!(py.contains("(64, 400, 800, 1200)"), "Zeilen");
+        assert!(py.contains(&format!("MARKER = {MARKER:?}")), "MARKER");
+        assert!(py.contains(&python_tupel(&POS_X)), "Spalten");
+        assert!(py.contains(&python_tupel(&POS_Y)), "Zeilen");
     }
 }
