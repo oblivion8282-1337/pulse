@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07.5",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Android-App: Sprachausgabe ueber Bluetooth verbessert",
+      "items": [
+        "Wer in der Android-App ueber eine Bluetooth-Anlage (etwa im Auto) in einem Sprachkanal war, hoerte die anderen oft nur sehr leise. Die Sprachausgabe wird jetzt ueber den Telefonkanal geleitet statt ueber den leiseren Medienkanal.",
+        "Zudem wird die Verbindung jetzt zuverlaessiger aufgebaut, wenn Bluetooth erst waehrend des Gespraechs dazukommt."
+      ]
+    },
+    {
       "id": "2026-08-07.4",
       "date": "2026-08-07",
       "style": "Sachlich",
