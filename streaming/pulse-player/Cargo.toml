@@ -2,7 +2,18 @@
 name = "pulse-player"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+# **1.95, und die Zahl ist nachgemessen, nicht von egui abgeschrieben.**
+# `cargo +1.95.0 check --release` laeuft durch; alles darunter lehnt cargo schon
+# beim Aufloesen ab, weil die egui-Familie 0.36 `rust-version = "1.95"`
+# deklariert (die Ablehnung kommt aus der Deklaration, nicht aus dem Compiler —
+# es gibt also keine Fassung dazwischen, die noch ginge). Bis zum 2026-08-07
+# stand hier 1.82; das galt fuer wgpu 29 / egui 0.35.
+#
+# **Was das praktisch kostet:** Flatpak und die CI sind nicht betroffen — das
+# Player-Modul in `packaging/com.howispulse.Pulse.yml` zieht sich seine eigene
+# Toolchain (1.97.1), `win-build`/`mac-build` nehmen `dtolnay/rust-toolchain@stable`.
+# Betroffen ist die Entwicklermaschine: wer hier baut, braucht rustc >= 1.95.
+rust-version = "1.95"
 description = "Nativer HQ-Stream-Player fuer Pulse (WHEP -> Decode -> eigenes Fenster)"
 publish = false
 
@@ -64,18 +75,20 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
 
 # --- Fenster + GPU-Darstellung ---
 winit = "0.30"
-wgpu = "29"
+wgpu = "30"
 raw-window-handle = "0.6"
 pollster = "0.4"
 
 # --- Bedienoberflaeche IM Fenster (Lautstaerke, Vollbild, Statistik) ---
 # Alle drei MIT OR Apache-2.0 (geprueft 2026-07-26), also lizenzkonform.
-# Die Versionen muessen zu wgpu/winit passen: egui-wgpu 0.35 verlangt
-# `wgpu ^29.0` und `winit ^0.30.13` — genau unsere. Beim Anheben von wgpu
+# Die Versionen muessen zu wgpu/winit passen: egui-wgpu 0.36 verlangt
+# `wgpu ^30.0` und `winit ^0.30.13` — genau unsere. Beim Anheben von wgpu
 # oder winit MUSS egui im gleichen Schritt mitwandern, sonst bricht der Build.
-egui = "0.35"
-egui-wgpu = "0.35"
-egui-winit = { version = "0.35", default-features = false }
+# (Bis zum 2026-08-07 stand hier 0.35 gegen `wgpu ^29.0`; der Sprung auf 30 hat
+# die egui-Familie deshalb mitgezogen.)
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = { version = "0.36", default-features = false }
 # Zeichnet die Lucide-Symbole der Kachel-Leiste (`assets/icons/`, aus derselben
 # Quelle wie die Web-App). Ohne das kann egui keine Vektorgrafik darstellen, und
 # die Symbole muessten als Bilder eingebacken werden — dann waeren sie beim
@@ -86,7 +99,7 @@ egui-winit = { version = "0.35", default-features = false }
 # GPL/AGPL und kein MPL: egui_extras/resvg/usvg/kurbo/svgtypes/simplecss/
 # roxmltree MIT OR Apache-2.0, tiny-skia BSD-3-Clause, imagesize/xmlwriter MIT.
 # (resvg stand frueher unter MPL-2.0; seit 0.45 nicht mehr.)
-egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 
 # --- Audio-Ausgabe ---
 cpal = "0.17"
@@ -136,7 +149,7 @@ windows = { version = "0.62", features = [
 # ueber wgpu/winit) — sie werden hier nur ausdruecklich gemacht, es kommt kein
 # fremder Code hinzu. Lizenzen: ash MIT, libloading ISC. Beide passen.
 #
-# **ash MUSS dieselbe Fassung sein, die wgpu-hal 29 zieht (0.38).** Sonst waeren
+# **ash MUSS dieselbe Fassung sein, die wgpu-hal 30 zieht (0.38).** Sonst waeren
 # das `vk::Image`, das wir anlegen, und das, welches `texture_from_raw` nimmt,
 # fuer den Compiler verschiedene Typen — obwohl sie dieselbe Zahl bezeichnen.
 # Die Angabe ist bewusst nicht schaerfer als `0.38`, damit Cargos

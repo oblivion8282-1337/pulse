@@ -67,9 +67,19 @@
 //! auseinandergelaufen: der Sidecar hatte `Flush()` und das Ueberspringen des
 //! Wartens bei bereits erreichtem Zaunwert, diese Seite nicht. **Sollte je ein
 //! dritter Verbraucher dazukommen oder der warteschlangenseitige Zaun
-//! (`ID3D12Fence::Wait`, auf wgpu 29 nicht erreichbar) gebaut werden, ist das
-//! der Zeitpunkt, eine gemeinsame Crate anzulegen** — jene Aenderung muss
-//! ohnehin in beide Dateien.
+//! (`ID3D12Fence::Wait`) gebaut werden, ist das der Zeitpunkt, eine gemeinsame
+//! Crate anzulegen** — jene Aenderung muss ohnehin in beide Dateien.
+//!
+//! **Hier stand bis zum 2026-08-08 „auf wgpu 29 nicht erreichbar". Der Satz
+//! war richtig und ist es seit dem Sprung auf wgpu 30 nicht mehr:**
+//! `wgpu-hal-30.0.0/src/dx12/mod.rs:824` bietet `Queue::add_wait_fence` und
+//! `:851` `Queue::add_signal_fence` an, die den Zaun in die naechste Abgabe
+//! einreihen; wgpu 29 hatte an derselben Stelle nur `as_raw` (`:793`). Auf dem
+//! Vulkan-Weg gilt dasselbe fuer `Queue::add_wait_semaphore`
+//! (`vulkan/mod.rs:1552`, in wgpu 29 gab es nur `add_signal_semaphore`).
+//! **Damit ist der Weg offen, nicht gebaut** — dass er sich lohnt, ist
+//! weiterhin unbelegt (s. `zerocopy::linux`), und diese Migration hat ihn
+//! ausdruecklich nicht angefasst.
 //!
 //! ## Wer auf diesem Weg noch mitliest — und wer nicht mehr
 //!

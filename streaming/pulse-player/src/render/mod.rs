@@ -18,6 +18,8 @@ mod bildquelle;
 // Dateien, und eine Abweichung saehe man nicht als Fehler, sondern als falsche
 // Farben — der Test dort ist die einzige Stelle, die es bemerken kann.
 pub(crate) mod farbe;
+/// Der Ausgabe-Farbraum des Fensters — die Wahl, die es vor wgpu 30 nicht gab.
+mod farbraum;
 mod fremdbild;
 mod hdr_fenster;
 mod musterprobe;
@@ -507,7 +509,11 @@ impl Renderer {
             dg::hoch(&dg::ENC_SUM_US, enc_uhr.elapsed().as_micros() as u64);
         }
         let pres_uhr = std::time::Instant::now();
-        surface_texture.present();
+        // Seit wgpu 30 gehoert das Ausgeben der Warteschlange, nicht mehr dem
+        // Swapchain-Bild (`SurfaceTexture::present` ist weg,
+        // `wgpu-30.0.0/src/api/queue.rs:377` ist der Nachfolger). Dieselbe
+        // Wirkung, nur ein anderer Empfaenger.
+        self.queue.present(surface_texture);
         {
             let us = pres_uhr.elapsed().as_micros() as u64;
             use crate::app::diagnose as dg;

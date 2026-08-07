@@ -208,6 +208,8 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            // s. `messen::gpu` — Vorgabe der Bibliothek, Verhalten wie wgpu 29.
+            apply_limit_buckets: false,
         })
         .await
         .context("keine passende GPU gefunden")?;
@@ -226,6 +228,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         "pulse-player: Oberflaechenformat {format:?} auf {} ({:?}) (angeboten: {:?})",
         info.name, info.backend, caps.formats
     );
+    super::farbraum::berichten(&caps, format);
 
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -240,8 +243,12 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         // **Die Quellenangabe hier war bis zum 2026-08-06 die falsche Datei**
         // (`wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:192`) — der Player
         // faehrt unter Windows seit dem HDR-Umbau ueber **D3D12**. Der Beleg
-        // ist `wgpu-hal-29.0.4/src/dx12/mod.rs:1344` (`maximum_frame_latency
-        // + 1`), und `mod.rs:1504` setzt zusaetzlich `SetMaximumFrameLatency`.
+        // ist `wgpu-hal-30.0.0/src/dx12/mod.rs:1501` (`maximum_frame_latency
+        // + 1`), und `mod.rs:1678` setzt zusaetzlich `SetMaximumFrameLatency`.
+        // (Vor dem Sprung auf wgpu 30 standen hier die Zeilen 1344 und 1504
+        // derselben Datei in `wgpu-hal-29.0.4` — die Regel ist unveraendert,
+        // nur die Zeilennummern sind gewandert. Die Vulkan-Fundstelle liegt in
+        // wgpu 30 bei `vulkan/swapchain/native.rs:214`.)
         // Die Schlussfolgerung war also richtig, nur am falschen Backend
         // nachgesehen; ohne diese Zeile prueft der Naechste wieder die
         // Vulkan-Datei. Auf Linux gilt die Vulkan-Fundstelle weiter.
@@ -261,6 +268,10 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         // 7 ms, bei 60 Hz rund 16 ms. Wer Latenz ueber Bildrate stellt, setzt
         // hier wieder 1.
         desired_maximum_frame_latency: 2,
+        // Neu in wgpu 30, und bewusst `Auto` — Begruendung samt Fundstellen in
+        // [`super::farbraum::AUSGABE_FARBRAUM`]. Kurz: `Auto` trifft genau die
+        // Wahl, die wgpu 29 fest verdrahtet hatte.
+        color_space: super::farbraum::AUSGABE_FARBRAUM,
     };
     // Ausgabe-Takt mitloggen, nicht raten: `Mailbox` gibt sofort aus und
     // verwirft ueberzaehlige Bilder, `Fifo` wartet auf den Bildschirmtakt. Bei

@@ -361,8 +361,15 @@ impl Overlay {
         self.painted = visible;
         self.state.handle_platform_output(window, full.platform_output);
         let tris = self.ctx.tessellate(full.shapes, full.pixels_per_point);
-        for (id, delta) in &full.textures_delta.set {
-            self.renderer.update_texture(device, queue, *id, delta);
+        // Seit egui 0.36 fuehrt `set` je Textur MEHRERE Teilaenderungen
+        // (`HashMap<TextureId, SmallVec<[ImageDelta; 1]>>` statt einer Liste von
+        // Paaren) — deshalb die zweite Schleife. Die Reihenfolge INNERHALB einer
+        // Textur muss bleiben, die zwischen den Texturen ist gleichgueltig;
+        // egui-wgpu macht es in `winit.rs:568` genauso.
+        for (id, teile) in &full.textures_delta.set {
+            for delta in teile {
+                self.renderer.update_texture(device, queue, *id, delta);
+            }
         }
         let descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [size.0.max(1), size.1.max(1)],

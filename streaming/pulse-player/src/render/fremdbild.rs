@@ -348,6 +348,24 @@ fn einhaengen(
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu_extra,
                     view_formats: &[],
                 },
+                // **Neu in wgpu 30, und `UNINITIALIZED` ist hier keine
+                // Bequemlichkeit, sondern die Sache selbst.**
+                //
+                // Der Parameter sagt wgpu, in welchem Zustand das fremde Bild
+                // gerade ist, damit die erste Sperre den richtigen `oldLayout`
+                // nennt. wgpu 29 hatte ihn nicht und trug intern immer
+                // `UNINITIALIZED` ein (`wgpu-core-29.0.4`,
+                // `device/resource.rs:1253`) — dieselbe Zeile nimmt in
+                // wgpu 30 den Wert von hier entgegen (`:1272`). Derselbe Wert
+                // heisst also unveraendertes Verhalten.
+                //
+                // Und er ist zugleich der richtige: das `VkImage` wird mit
+                // `initial_layout(UNDEFINED)` angelegt
+                // (`zerocopy::linux::vkbild`), und gefuellt wird es von CUDA
+                // ueber den geteilten Speicher, nicht ueber einen
+                // Vulkan-Uebergang. Es gibt also gar keinen Layout-Zustand, den
+                // man hier stattdessen angeben koennte.
+                wgpu::TextureUses::UNINITIALIZED,
             )
         })
     };
@@ -432,6 +450,32 @@ fn einhaengen(
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[ebene0, ebene1],
             },
+            // **Neu in wgpu 30 — und der Wert stimmt hier aus einem ANDEREN
+            // Grund als auf der Vulkan-Seite oben.**
+            //
+            // Dort ist „uninitialisiert" die Wahrheit: das `VkImage` wird mit
+            // `initial_layout(UNDEFINED)` angelegt. Hier nicht — die geteilte
+            // Textur kommt aus dem D3D11-Decoder und **hat Inhalt**, wenn wir
+            // sie einhaengen. Die naheliegende Sorge ist deshalb, wgpu duerfe
+            // ihn verwerfen. Es darf nicht, und das steht im Quelltext:
+            //
+            // * `wgpu-hal-30.0.0/src/dx12/conv.rs:188` gibt fuer
+            //   `UNINITIALIZED` `D3D12_RESOURCE_STATE_COMMON` zurueck — und
+            //   COMMON ist genau der Zustand, in dem eine per
+            //   `OpenSharedHandle` uebernommene D3D11-Ressource steht.
+            // * Der Uebergang davon nach `PIXEL_SHADER_RESOURCE` ist eine
+            //   gewoehnliche `ResourceBarrier`; die erhaelt den Inhalt.
+            //   Verwerfen kann in D3D12 nur `DiscardResource` oder eine
+            //   Aliasing-Sperre, und beides kommt im dx12-Befehlsschreiber
+            //   nicht vor (geprueft am 2026-08-08).
+            //
+            // Der Unterschied zu Vulkan ist also echt: dort HEISST
+            // `UNINITIALIZED` „Inhalt darf weg", hier heisst es „COMMON".
+            //
+            // Zusaetzlich ist es der Wert, mit dem dieser Weg ausgeliefert war:
+            // wgpu-core 29 trug ihn intern immer selbst ein
+            // (`device/resource.rs:1253`). Das Verhalten ist damit unveraendert.
+            wgpu::TextureUses::UNINITIALIZED,
         )
     };
     let ansicht = |name: &'static str, f: wgpu::TextureFormat, a: wgpu::TextureAspect| {

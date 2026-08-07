@@ -223,7 +223,14 @@ impl Musterprobe {
             // Platz uebernommen, nicht neu genommen (Begruendung im Modulkopf).
             let ernte = {
                 let platz = &self.ring[i];
-                let sicht = platz.puffer.slice(..).get_mapped_range();
+                // Zum `expect` s. den Zwilling in `render::abdruck`: wgpu 30
+                // gibt hier ein `Result`, wo wgpu 29 selbst panickte; die
+                // Fehlerfaelle sind unveraendert und hier ausgeschlossen.
+                let sicht = platz
+                    .puffer
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("Musterprobe-Puffer war als fertig gemeldet, ist aber nicht lesbar");
                 let zeilen = platz
                     .zeilen
                     .iter()
