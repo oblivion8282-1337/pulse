@@ -154,9 +154,40 @@ ohne einfache Regel. Die Zahl ist beim Treiber zu **erfragen** und in den
 CUDA-Import durchzureichen; sie aus Breite mal Höhe zu rechnen, geht bis zu
 18,5 Prozent daneben.
 
-## Wo wir stehen (Stand 2026-08-07, abends)
+## Wo wir stehen (Stand 2026-08-07, Nacht)
 
 Zweig `feat/zero-copy-player-linux`.
+
+**Die Kette steht jetzt an beiden Enden.** Zum bisherigen Stand (unten) ist der
+Anfang dazugekommen — und er trug die groesste Unsicherheit:
+
+**`av1_cuvid` gibt seine Bilder sehr wohl als CUDA-Speicher heraus.** Beide
+cuvid-Decoder bieten `AV_PIX_FMT_CUDA` an; gewaehlt wird es, sobald am
+Decoder-Kontext ein CUDA-Geraet haengt. Ein eigener `get_format`-Rueckruf ist
+nicht noetig. **Der Modulkopf von `decode.rs` war also nicht falsch beobachtet,
+aber falsch begruendet:** die Bilder landen im Hauptspeicher, *weil der Player
+kein Geraet anhaengt* — nicht, weil cuvid es nicht anders koennte.
+
+Probe: `../cuvid-cuda-ausgabe`, Messakte
+`streaming/testbench/profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`.
+Gemessen bei festgenageltem GPU-Takt (Streuung 1 bis 2 Prozent), vier Runden,
+Arme abwechselnd:
+
+| Fall | Bezugsarm | CUDA-Ausgabe | gespart je Bild |
+|---|---|---|---|
+| 1080p60 AV1 8 bit | 1,18 ms | 0,85 ms | 0,33 ms |
+| 1080p60 AV1 10 bit | 1,36 ms | 0,77 ms | 0,59 ms |
+| 1440p60 AV1 10 bit | 2,26 ms | 1,23 ms | **1,03 ms** |
+| 1080p60 H.264 8 bit | 0,85 ms | 0,52 ms | 0,33 ms |
+
+Prozessorzeit je Bild bei 1440p10: **0,854 auf 0,039 ms**. Die Ersparnis ist
+**zusaetzlich** zu den 5,26 ms aus `player-2026-08-06-bildweg-kosten.json` — die
+enthielten die Rueckholung nicht, weil sie unsichtbar in `send_packet` steckte.
+
+Die schaerfste Kontrolle dazu: ein dritter Arm mit CUDA-Ausgabe **und**
+ausdruecklichem Zurueckholen jedes Bildes landet in allen vier Faellen exakt auf
+dem Bezugsarm. Der Gewinn ist damit nachweislich die eingesparte Kopie und
+nicht bloss vorauseilende Arbeit.
 
 **Erledigt: die Grundfrage, der Bild-Import und die Anbindung an wgpu 29.**
 CUDA und Vulkan teilen sich auf Linux/NVIDIA denselben Speicher, CUDA schreibt
@@ -185,10 +216,27 @@ Die Reihenfolge, die hier stand, ist damit abgearbeitet:
 
 **Was jetzt ansteht, in dieser Reihenfolge:**
 
-1. **`av1_cuvid`**: gibt der Decoder seine Bilder als CUDA-Speicher heraus
-   (`hwaccel_output_format cuda` / `AV_PIX_FMT_CUDA`) statt in den
-   Hauptspeicher? Ohne das nützt der schönste Import nichts. Einstieg:
-   `streaming/pulse-player/src/decode.rs`.
+1. ~~**`av1_cuvid`**~~ — **erledigt, die Antwort ist JA** (s. oben). Dabei sind
+   vier Dinge angefallen, die der Umbau braucht und die man sonst erst im
+   Fehlerfall bemerkt:
+   * **Der CUDA-Kontext.** `av_hwdevice_ctx_create` mit Flag
+     `AV_CUDA_USE_CURRENT_CONTEXT` (Bit 1) ist der Weg — FFmpeg uebernimmt dann
+     den Kontext, den der Player fuer die Vulkan-Einhaengung ohnehin haelt.
+     `AV_CUDA_USE_PRIMARY_CONTEXT` (Bit 0) **scheitert genau in dieser Lage**
+     (`Primary context already active with incompatible flags`, 16 von 16
+     Laeufen), und ohne Flag haette der Prozess zwei Kontexte auf einer Karte.
+     Das erspart zugleich den Nachbau von `AVCUDADeviceContext` — dafuer gibt
+     es in `ffmpeg-sys-next` **keine** Bindung.
+   * **`decode.rs::drain` prueft auf `VAAPI | D3D11`.** `Pixel::CUDA` steht dort
+     nicht. Wer nur das Geraet anhaengt, bekommt ein **weisses Fenster**, weil
+     `convert` jedes Bild ablehnt — derselbe Fehler wie beim D3D11-Weg am
+     2026-08-04, und er sieht nach nichts aus.
+   * **Der Quell-Zeilenabstand ist `linesize[i]`, nicht Breite mal Tiefe.**
+     NVDEC fuellt auf: 1080p NV12 2048 statt 1920, 1080p P010 4096 statt 3840.
+     Bei 1440p sind beide zufaellig gleich — dort faellt der Fehler nicht auf.
+   * **Bilder festhalten ist unbedenklich.** Bis 256 gleichzeitig gehaltene
+     Bilder faellt der Durchsatz nicht (FFmpegs CUDA-Vorrat waechst dynamisch);
+     der Preis sind rund 12 MiB Grafikspeicher je Bild bei 1440p10.
 2. **Synchronisierung**: `VK_KHR_external_semaphore_fd` gegen
    `cuImportExternalSemaphore` — im Betrieb schreibt der Decoder, während
    gezeichnet wird. **Dazu ist schon etwas gemessen, und es kostet einen
@@ -208,8 +256,11 @@ Zwei weitere Auflagen, die zum Umbau gehören und leicht vergessen werden:
   Auflage schon in `player-2026-08-06-nv12-wgpu-import.json`.
 * **Die Allokationsgröße vom Treiber erfragen**, nicht rechnen (s.o.).
 
-Gemessen ist bisher **Korrektheit, nicht Tempo** — dass der Umbau die 5,26 ms je
-Bild wirklich einspart, ist begründet erwartet, aber nicht belegt.
+Gemessen ist am **Import** bisher Korrektheit, nicht Tempo. Am **Decoder** ist
+das Tempo inzwischen gemessen (1,03 ms je Bild bei 1440p10, s. oben) — dass der
+Umbau darüber hinaus auch die 5,26 ms des Bildwegs einspart, ist begründet
+erwartet, aber nicht belegt. Ein Lauf mit dem ganzen Player gegen einen echten
+Sender hat noch nicht stattgefunden.
 
 Danach steht als eigenes Thema **HDR für Linux/NVIDIA** an (10 bit liegt
 bereits vor).

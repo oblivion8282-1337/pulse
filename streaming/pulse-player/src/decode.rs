@@ -8,11 +8,24 @@
 //!
 //! Vorgehen: erst einen hardwaregestuetzten Decoder ueber seinen Namen suchen
 //! (`av1_cuvid`, `h264_cuvid`, `*_qsv`) oder den nativen mit angehaengtem
-//! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Die
-//! cuvid-Decoder liefern ihre Frames in den Hauptspeicher; der Decode selbst
-//! laeuft auf der GPU. Das ist noch nicht zero-copy — ein direkter Weg von
-//! NVDEC in eine Vulkan-Textur waere die naechste Ausbaustufe, verlangt aber
-//! `hw_frames_ctx` samt Interop und ist bewusst nicht Teil des ersten Wurfs.
+//! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Der
+//! Decode laeuft in allen diesen Faellen auf der GPU.
+//!
+//! **Die cuvid-Decoder liefern ihre Bilder heute in den Hauptspeicher — und die
+//! Begruendung dafuer stand hier bis 2026-08-07 falsch.** Hier hiess es, sie
+//! taeten das von sich aus. Gemessen ist das Gegenteil: `av1_cuvid` und
+//! `h264_cuvid` bieten `AV_PIX_FMT_CUDA` an, und sie waehlen es, sobald am
+//! Decoder-Kontext ein CUDA-Geraet haengt. Sie liefern in den Hauptspeicher,
+//! **weil dieser Code ihnen kein Geraet gibt** ([`candidates`] fuehrt sie mit
+//! `hw: None`). Die Rueckholung kostet 0,33 bis 1,03 ms je Bild und sitzt
+//! unsichtbar in `send_packet`, nicht in [`in_den_hauptspeicher`].
+//! Beleg: `streaming/testbench/profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`.
+//!
+//! Zero-Copy ist damit erreichbar, aber es ist **nicht** mit dem Anhaengen des
+//! Geraets getan: [`VideoDecoder::drain`] prueft auf `VAAPI | D3D11`, und ohne
+//! `Pixel::CUDA` dort lehnt [`convert`] jedes Bild ab — ein weisses Fenster
+//! ohne aussagekraeftigen Fehler. Die Auflagen des Umbaus stehen in der
+//! Messakte und in `streaming/player-labor/cuda-vulkan-import/README.md`.
 //!
 //! LIZENZ: FFmpeg muss in ausgelieferten Builds LGPL-konfiguriert und dynamisch
 //! gelinkt sein — siehe Cargo.toml und THIRD-PARTY-NOTICES.md.

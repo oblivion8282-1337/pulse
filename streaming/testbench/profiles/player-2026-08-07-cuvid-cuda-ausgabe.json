@@ -1,0 +1,152 @@
+{
+  "id": "player-2026-08-07-cuvid-cuda-ausgabe",
+  "gemessen_am": "2026-08-07",
+  "frage": "Gibt av1_cuvid (und h264_cuvid) seine Bilder als CUDA-Speicher heraus, oder landen sie im Hauptspeicher? Davon haengt ab, ob der Zero-Copy-Umbau im pulse-player ueberhaupt ankommen kann — die zweite Haelfte der Kette (CUDA schreibt in ein exportiertes VkImage, wgpu 29 uebernimmt es) ist bereits belegt.",
+
+  "antwort_kurz": "JA, und es kostet eine Zeile. Beide cuvid-Decoder bieten AV_PIX_FMT_CUDA an; gewaehlt wird es, sobald am Decoder-Kontext ein CUDA-Geraet haengt (av_hwdevice_ctx_create + hw_device_ctx). Ein eigener get_format-Rueckruf ist NICHT noetig. Der Modulkopf von decode.rs ist damit ueberholt: die cuvid-Decoder liefern in den Hauptspeicher, WEIL der Player ihnen kein Geraet gibt — nicht, weil sie es nicht anders koennten.",
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03",
+    "kernel": "7.1.4-1-cachyos",
+    "cpu": "Ryzen 7 5800X3D",
+    "ffmpeg": "n8.1.2 (System, Arch), --enable-nvdec --enable-nvenc",
+    "bindung": "ffmpeg-next 8.1 — dieselbe Fassung wie streaming/pulse-player. Eine andere Fassung koennte eine Antwort liefern, die im Produkt nicht gilt.",
+    "probe": "streaming/player-labor/cuvid-cuda-ausgabe (neue Kiste, KEIN Workspace-Mitglied)",
+    "ohne": "ohne Netz, ohne WHEP, ohne MediaMTX, ohne Fenster, ohne CUDA-Toolkit (libcuda per dlopen)",
+    "warum_ohne": "Die Frage ist, was der Decoder herausgibt. Jede weitere Station waere eine zusaetzliche Ursache fuer einen Unterschied, den man dann nicht mehr zuordnen kann.",
+    "nachgebildet_vom_player": "derselbe Decodername, dasselbe AV_CODEC_FLAG_LOW_DELAY, dieselbe Bindung.",
+    "material": "aus streaming/testbench/bewegt-60.mkv (1440p60 AV1 10 bit, 30 s, 1800 Bilder) abgeleitet: 1080p8/1080p10 mit av1_nvenc, 1080p8 mit h264_nvenc, je 12 Mbit/s. Bewegtbild, nicht Standbild — auf einem stehenden Schirm ist eine Decodier-Messung wertlos.",
+    "messstrecke": "je Lauf 120 Bilder Aufwaermen (nicht gezaehlt), dann 900 Bilder gemessen. Die Uhren werden erst nach dem Aufwaermen gestellt, damit Oeffnen und Anlauf nicht in den Schnitt eingehen."
+  },
+
+  "methodik": {
+    "arme_abwechselnd": "4 Runden, Reihenfolge je Runde gedreht, jeder Lauf ein eigener Prozess. Ein Lauf je Variante traegt in diesem Labor keine Entscheidung.",
+    "GPU_TAKT_FESTGENAGELT": {
+      "was": "nvidia-smi -pm 1; -lgc 2100,2100; -lmc 15001,15001 (Administratorrechte lagen diesmal vor). Nach der Messreihe mit -rgc/-rmc/-pm 0 zurueckgenommen, Zustand geprueft.",
+      "warum": "Die Kostenmessung player-2026-08-06-bildweg-kosten.json musste ohne das auskommen und hat deshalb einen Befund als 'zeitlich korreliert, kausal nicht bewiesen' stehenlassen: diese Karte faellt bei kleiner Last in einen Sparzustand und verschiebt damit alle Posten um ein Vielfaches.",
+      "wirkung_belegt": "Ein erster, vollstaendiger Durchgang OHNE Festlegung liegt als matrix-ergebnis-freier-takt.json daneben. Dort schwankte der SM-Takt zwischen 1072 und 2812 MHz, eine Zelle (1440p10, hauptspeicher_abholen) fiel in allen drei Runden auf ~1700 MHz und war dadurch um 30 Prozent langsamer — ein Unterschied, der beinahe einem Messarm zugeschrieben worden waere. Mit Festlegung stand der Takt in ALLEN 80 gueltigen Laeufen auf 2092 MHz, und die Streuung des Durchsatzes innerhalb einer Zelle liegt bei 1 bis 2 Prozent."
+    }
+  },
+
+  "kontrollen": {
+    "A_zeigertest_kann_anschlagen": "BESTANDEN, vor jedem Lauf. cuMemAlloc-Speicher -> 'Grafikspeicher (Geraet 0)', ein gewoehnlicher Vec<u8> -> 'Hauptspeicher (dem Treiber unbekannt)'. Ohne diese Kontrolle waere 'liegt im Hauptspeicher' nicht von 'der Test erkennt Grafikspeicher gar nicht' zu unterscheiden.",
+    "querprobe_zwei_quellen": "BESTANDEN in allen 80 Laeufen. Das Pixelformat (cuda gegen nv12/p010le) ist FFmpegs Auskunft ueber sich selbst, cuPointerGetAttribute die Auskunft des TREIBERS. Die Probe bricht ab, wenn sie sich widersprechen — sie tun es nie.",
+    "B_inhaltsgleichheit": "BESTANDEN. Beide Arme nacheinander im selben Prozess, 8 von 8 Bildern byte-gleich im Fingerabdruck (Bild 0: e64257fc849597dd in beiden). Eine Adresse auf der Karte, hinter der kein Bild steht, waere kein Ergebnis.",
+    "C_fingerabdruck_prueft_etwas": "BESTANDEN, vor jedem Lauf: ein gekipptes Bit aendert ihn (f4eafaaaa65b35f5 -> bec7f6602a260314).",
+    "nagelprobe_zeiger_und_zeilenabstand": "BESTANDEN in jedem CUDA-Lauf. Die Y-Ebene, zeilenweise per cuMemcpyDtoH ueber data[0] mit linesize[0] gelesen, ist byte-gleich mit der ueber av_hwframe_transfer_data. Das beantwortet Frage 2 des Auftrags: der Zeiger taugt als Quelle eines CUDA-Kopierbefehls.",
+    "gegenprobe_zur_nagelprobe": "BESTANDEN. SPIKE_ABSTAND_FALSCH=1 verstellt den Zeilenabstand um 64 Byte; der Vergleich scheitert dann und die Probe bricht mit Fehler ab. Eine Pruefung, die immer zustimmt, waere keine.",
+    "formatwahl_standard_als_ursachentrennung": "BESTANDEN. Ein eigener get_format-Rueckruf, der die Entscheidung an avcodec_default_get_format zurueckgibt, unterscheidet sich vom rohen Weg nicht — ein Befund aus 'Formatwahl=cuda' kommt also nicht vom Rueckruf.",
+    "abhol_schalter_ist_folgenlos_wo_er_folgenlos_sein_muss": "BESTANDEN. Im Hauptspeicher-Arm kostet SPIKE_ABHOLEN=1 nichts (850,0 gegen 850,7 B/s; 441,6 gegen 435,5; 734,5 gegen 737,6; 1173,0 gegen 1171,0). Der Schalter erzeugt also keinen Unterschied zwischen den Armen von sich aus."
+  },
+
+  "GEMESSEN_formatwahl": {
+    "angebotene_formate": {
+      "av1_cuvid": ["cuda", "p010le (bei 10 bit) bzw. nv12 (bei 8 bit)"],
+      "h264_cuvid": ["cuda", "nv12"],
+      "wie": "ueber einen eigenen get_format-Rueckruf protokolliert, der die Liste durchlaeuft und danach avcodec_default_get_format entscheiden laesst.",
+      "warum_das_der_wichtigste_einzelbeleg_ist": "Stuende AV_PIX_FMT_CUDA nicht in der Liste, waere die Frage negativ beantwortet und keine Einstellung der Welt aenderte das."
+    },
+    "DER_MECHANISMUS_DIREKT_GEZEIGT": "Die angebotene Liste ist in BEIDEN Faellen dieselbe ('cuda, p010le'). Ohne Geraet waehlt avcodec_default_get_format daraus 'p010le', mit Geraet 'cuda'. Es liegt also nicht am Angebot, sondern allein an der Auswahlregel — und die haengt am gesetzten hw_device_ctx.",
+    "ohne_hw_device_ctx": "gewaehlt wird p010le bzw. nv12, die Ebenen liegen im Hauptspeicher. Das ist der heutige Player-Weg.",
+    "mit_hw_device_ctx_CUDA": "gewaehlt wird cuda, die Ebenen liegen im Grafikspeicher. KEIN eigener get_format-Rueckruf noetig.",
+    "eigener_rueckruf_ohne_geraet": "funktioniert AUCH: erzwingt man AV_PIX_FMT_CUDA ohne hw_device_ctx, liegen die Bilder ebenfalls im Grafikspeicher, bei identischem Tempo (Arm 'nur_formatwahl', in allen vier Materialien innerhalb von 1 Prozent des Arms 'cuda'). hw_device_ctx ist also HINREICHEND, aber nicht NOTWENDIG. Fuer den Umbau ist der Geraete-Weg trotzdem der richtige, weil nur er den CUDA-Kontext bestimmt (s. cuda_kontext).",
+    "sw_format_hinter_cuda": "P010LE bei 10 bit, NV12 bei 8 bit — dieselben zwei Ebenen (Y und verschraenktes UV), fuer die ../cuda-vulkan-import den Bild-Import bereits belegt hat."
+  },
+
+  "GEMESSEN_zeilenabstand": {
+    "befund": "NVDEC gibt eine AUFGEFUELLTE Zeile heraus. linesize ist nicht Breite mal Bytes je Bildpunkt.",
+    "werte": [
+      {"fall": "1080p 8 bit (NV12)", "breite_mal_tiefe": 1920, "linesize": 2048},
+      {"fall": "1080p 10 bit (P010)", "breite_mal_tiefe": 3840, "linesize": 4096},
+      {"fall": "1440p 10 bit (P010)", "breite_mal_tiefe": 5120, "linesize": 5120}
+    ],
+    "folge_fuer_den_umbau": "Die Kopie in das eingehaengte Vulkan-Bild MUSS linesize[i] als Quell-Zeilenabstand nehmen. Aus Breite mal Tiefe gerechnet waere das Bild bei 1080p schraeg verzerrt — und bei 1440p faellt es nicht auf, weil dort zufaellig beides gleich ist. Das ist dieselbe Falle wie beim Zielbild, wo die Allokationsgroesse beim Treiber zu erfragen ist (player-2026-08-07-cuda-vulkan-bild-import.json).",
+    "gegenprobe_am_hauptspeicher_arm": "Dort ist linesize dicht (1080p P010: 3840). Die Auffuellung gehoert also zur NVDEC-Oberflaeche und nicht zu FFmpegs Bildpuffern — wer den heutigen Wert im Kopf hat, rechnet beim Umbau falsch.",
+    "abgesichert_durch": "die Nagelprobe samt ihrer Gegenprobe."
+  },
+
+  "GEMESSEN_tempo": {
+    "lesehinweis": "Alle Laeufe bei festgenageltem Takt (SM 2092 MHz, Speicher 15001 MHz), Median aus 4 Runden zu je 900 Bildern. 'B/s' ist der Durchsatz der reinen Decodierschleife, nicht 60 fps im Betrieb — die Schleife laeuft so schnell sie kann.",
+    "tabelle": [
+      {"material": "1080p60 AV1 8 bit", "arm_hauptspeicher_bs": 850.0, "arm_cuda_bs": 1175.6, "faktor": 1.38, "ms_je_bild_vorher": 1.18, "ms_je_bild_nachher": 0.85, "gespart_ms": 0.33, "cpu_ms_je_bild_vorher": 0.224, "cpu_ms_je_bild_nachher": 0.042},
+      {"material": "1080p60 AV1 10 bit", "arm_hauptspeicher_bs": 734.5, "arm_cuda_bs": 1296.4, "faktor": 1.77, "ms_je_bild_vorher": 1.36, "ms_je_bild_nachher": 0.77, "gespart_ms": 0.59, "cpu_ms_je_bild_vorher": 0.442, "cpu_ms_je_bild_nachher": 0.040},
+      {"material": "1440p60 AV1 10 bit", "arm_hauptspeicher_bs": 441.6, "arm_cuda_bs": 812.5, "faktor": 1.84, "ms_je_bild_vorher": 2.26, "ms_je_bild_nachher": 1.23, "gespart_ms": 1.03, "cpu_ms_je_bild_vorher": 0.854, "cpu_ms_je_bild_nachher": 0.039},
+      {"material": "1080p60 H.264 8 bit", "arm_hauptspeicher_bs": 1173.0, "arm_cuda_bs": 1914.8, "faktor": 1.63, "ms_je_bild_vorher": 0.85, "ms_je_bild_nachher": 0.52, "gespart_ms": 0.33, "cpu_ms_je_bild_vorher": 0.221, "cpu_ms_je_bild_nachher": 0.040}
+    ],
+    "wo_die_zeit_sass": "receive_frame kostet in BEIDEN Armen 0,3 bis 0,5 Mikrosekunden. Der ganze Unterschied steckt in send_packet — genau dort, wo die Kostenmessung vom 2026-08-06 ihn vermutet und nicht messen konnte.",
+    "DIE_SCHAERFSTE_KONTROLLE": {
+      "was": "Arm 'cuda_abholen': CUDA-Ausgabe, aber jedes gemessene Bild ausdruecklich per av_hwframe_transfer_data zurueckgeholt — also genau die Arbeit, die der Bezugsarm ohnehin tut.",
+      "warum": "Ein CUDA-Arm, der seine Bilder nie anfasst, koennte allein deshalb schneller aussehen, weil NVDEC im Hintergrund weiterlaeuft und die Schleife vorauseilt. Dann waere der Gewinn verschobene Arbeit und keine Ersparnis.",
+      "ergebnis": "Er landet auf dem Bezugsarm, in allen vier Materialien: 843,3 gegen 850,0 B/s; 718,1 gegen 734,5; 435,3 gegen 441,6; 1149,8 gegen 1173,0. Und in der Prozessorzeit: 0,194 gegen 0,190 Kerne; 0,327 gegen 0,325; 0,380 gegen 0,377; 0,264 gegen 0,260.",
+      "schluss": "Der Gewinn IST die eingesparte Kopie."
+    },
+    "zweite_unabhaengige_messung_derselben_kopie": {
+      "was": "Die Zeit, die av_hwframe_transfer_data im Arm 'cuda_abholen' als eigener Posten kostet.",
+      "werte_us": {"1080p8": 334, "1080p10": 612, "1440p10": 1048, "1080p8_h264": 340},
+      "abgleich": "Sie deckt sich mit der aus dem Durchsatz gerechneten Ersparnis (330 / 590 / 1030 / 330 Mikrosekunden). Zwei Wege zu derselben Zahl."
+    }
+  },
+
+  "GEMESSEN_cuda_kontext": {
+    "warum_das_zaehlt": "Der Player wird den primaeren CUDA-Kontext der Karte halten — das eingehaengte Vulkan-Bild haengt daran (../cuda-vulkan-import nimmt cuDevicePrimaryCtxRetain). FFmpeg muss denselben Kontext benutzen, sonst hat der Prozess zwei auf einer Karte.",
+    "flags_von_av_hwdevice_ctx_create": [
+      {"flag": 0, "bedeutung": "FFmpeg legt einen EIGENEN Kontext an", "ergebnis": "laeuft, 824,5 B/s bei 1440p10, Nagelprobe bestanden. Die Kopie ueber die Kontextgrenze funktioniert (vereinheitlichter Adressraum), aber der Prozess haelt zwei Kontexte."},
+      {"flag": 1, "bedeutung": "AV_CUDA_USE_PRIMARY_CONTEXT", "ergebnis": "SCHEITERT in 16 von 16 Laeufen: '[CUDA] Primary context already active with incompatible flags', rc=-95. Ursache ist die Reihenfolge: die Probe hatte den primaeren Kontext schon geholt, FFmpeg will dann seine Flags darauf setzen. GENAU DIESE REIHENFOLGE wird der Player haben."},
+      {"flag": 2, "bedeutung": "AV_CUDA_USE_CURRENT_CONTEXT", "ergebnis": "LAEUFT, und das ist der Weg fuer den Umbau: FFmpeg uebernimmt den Kontext, den der Player bereits aktuell gemacht hat. 824,6 gegen 824,5 B/s — kein Unterschied zu Flag 0, Nagelprobe bestanden."}
+    ],
+    "nebenbefund_der_arbeit_spart": "ffmpeg-sys-next erzeugt KEINE Bindung fuer hwcontext_cuda.h (0 Treffer auf AVCUDADeviceContext in bindings.rs, ebenso AVVAAPIDeviceContext). Um an FFmpegs CUDA-Kontext heranzukommen, muesste die Struktur von Hand nachgebaut werden — dieselbe Sorte Layout-Nachbau, die in ../cuda-vulkan-import eigens gegen ein kompiliertes sizeof/offsetof abgesichert werden musste. Mit Flag 2 entfaellt das vollstaendig, weil der Kontext dann von uns kommt."
+  },
+
+  "GEMESSEN_wie_viele_bilder_darf_der_player_halten": {
+    "frage": "Heute besitzt jedes DecodedFrame eigene Puffer im Hauptspeicher und darf beliebig lange in der Warteschlange liegen. Ein CUDA-Bild ist eine Decoder-Oberflaeche — wer zu viele haelt, koennte den Decoder stilllegen. Das war die wahrscheinlichste Stolperstelle des Umbaus.",
+    "messung": "1440p10, je 900 Bilder, N Bilder gleichzeitig per av_frame_ref festgehalten.",
+    "ergebnis": [
+      {"gehalten": 0, "bilder_je_s": 806.7, "grafikspeicher_ueber_grundlast_mib": 708},
+      {"gehalten": 16, "bilder_je_s": 813.3, "grafikspeicher_ueber_grundlast_mib": 900},
+      {"gehalten": 64, "bilder_je_s": 813.8, "grafikspeicher_ueber_grundlast_mib": 1476},
+      {"gehalten": 256, "bilder_je_s": 801.0, "grafikspeicher_ueber_grundlast_mib": 3780}
+    ],
+    "befund": "Keine Grenze in Sicht: bis 256 gleichzeitig gehaltene Bilder faellt der Durchsatz nicht. FFmpegs CUDA-Bildvorrat waechst dynamisch. Der Preis ist Grafikspeicher — rund 12 MiB je gehaltenem 1440p10-Bild, was der aufgefuellten Bildgroesse entspricht.",
+    "der_schalter_greift_nachweislich": "Der Grafikspeicher waechst linear mit der Haltezahl (+192, +768, +3072 MiB gegenueber der Haltezahl 0). Ohne diese mitprotokollierte Groesse waere 'kein Unterschied im Durchsatz' nicht von 'der Schalter tut nichts' zu unterscheiden — die Falle, die in diesem Labor zweimal drei Zeilen einer Matrix entwertet hat."
+  },
+
+  "GELESEN": [
+    "ffmpeg -h decoder=av1_cuvid meldet 'Supported hardware devices: cuda' — cuvid fuehrt also eine Hardware-Konfiguration mit Geraetetyp CUDA. Das ist die Bedingung, unter der avcodec_default_get_format ein Hardware-Format waehlen darf; decode.rs des Players stuetzt sich in hw_geraet_anhaengen bereits auf dieselbe Regel ('If a device was supplied when the codec was opened, assume that the user wants to use it').",
+    "libavutil/hwcontext_cuda.h (System, FFmpeg 8.1): AV_CUDA_USE_PRIMARY_CONTEXT = 1<<0, AV_CUDA_USE_CURRENT_CONTEXT = 1<<1; 'This API supports dynamic frame pools. AVHWFramesContext.pool must return AVBufferRefs whose data pointer is a CUdeviceptr.' Der erste Satz deckt sich mit dem Haltemess-Befund, der zweite mit dem Zeigertest.",
+    "av1_cuvid kennt die AVOptions deint, gpu, surfaces (Vorgabe -1 = automatisch), drop_second_field, crop, resize. 'surfaces' wurde NICHT verstellt; die Haltemessung lief mit der Vorgabe.",
+    "pulse-player/src/decode.rs::drain (Z. 987) prueft auf VAAPI | D3D11, um ein Bild herunterzuholen. Pixel::CUDA steht dort NICHT. Wer nur das Geraet anhaengt und sonst nichts aendert, bekommt deshalb ein weisses Fenster: convert lehnt jedes Bild ab. Der Kommentar an der Stelle warnt genau davor (der D3D11-Fall hat das am 2026-08-04 schon einmal ausgeloest)."
+  ],
+
+  "VERMUTET": [
+    "Dass Flag 1 (AV_CUDA_USE_PRIMARY_CONTEXT) in einem Prozess funktioniert, der den primaeren Kontext noch NICHT geholt hat, ist naheliegend, aber hier NICHT gemessen — die Probe holt ihn immer zuerst. Fuer den Umbau ist es gleichgueltig, weil dort Flag 2 der richtige Weg ist.",
+    "Dass der Gewinn auf schwaecherer Hardware groesser ausfaellt (die Kopie ist Bandbreite ueber PCIe, das Decodieren ist Festfunktion), ist plausibel und ungemessen."
+  ],
+
+  "was_der_umbau_daraus_mitnimmt": [
+    "Ein CUDA-Geraet an den Decoder-Kontext haengen, mit Flag 2 (AV_CUDA_USE_CURRENT_CONTEXT), NACHDEM der Player seinen Kontext aktuell gemacht hat. Ein eigener get_format-Rueckruf ist nicht noetig.",
+    "In decode.rs::drain muss Pixel::CUDA behandelt werden, sonst faellt jedes Bild in convert durch — weisses Fenster ohne aussagekraeftigen Fehler.",
+    "Quell-Zeilenabstand ist linesize[i], nicht Breite mal Tiefe (1080p: 2048 statt 1920 bzw. 4096 statt 3840).",
+    "Ziel-Allokationsgroesse beim Treiber erfragen, nicht rechnen (Auflage aus player-2026-08-07-cuda-vulkan-bild-import.json, bis 18,5 Prozent Abweichung).",
+    "Die Einfrier-Erkennung verliert ihre Bildpunkte und muss in einen Compute-Shader (Auflage aus player-2026-08-06-nv12-wgpu-import.json).",
+    "Bilder festhalten ist unbedenklich, kostet aber rund 12 MiB Grafikspeicher je Bild bei 1440p10."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur Linux und nur NVIDIA (RTX 5080, Treiber 610.43.03). Ueber den VAAPI-Weg auf AMD und den D3D11VA-Weg auf Windows sagt diese Messung NICHTS — dort liegt das Bild ohnehin schon im Grafikspeicher, dafuer kostet dort das Herunterholen 3,5 bis 5,4 ms (player-2026-08-06-bildweg-kosten.json).",
+    "Gemessen ist der DECODER, nicht die Kette. Der Zero-Copy-Weg endet erst, wenn der Renderer das CUDA-Bild ohne Umweg annimmt; dieser Schritt spart die Rueckholung (0,33 bis 1,03 ms je Bild), nicht die uebrigen Posten des Bildwegs (convert, Fingerabdruck, Hochladen — zusammen 5,26 ms bei 1440p10). Die fallen erst mit dem vollstaendigen Umbau weg.",
+    "Die Ersparnis ist gegenueber der frueheren Kostenmessung ZUSAETZLICH, nicht ein Teil davon: die 5,26 ms enthielten die Rueckholung nicht, weil sie unsichtbar in send_packet steckte.",
+    "Der Durchsatz ist der einer Decodierschleife, die so schnell laeuft wie sie kann — nicht der Betrieb bei 60 fps. Die Prozessorzeit je Bild ist die uebertragbare Groesse, der Durchsatz nur die Bezugsgroesse dafuer.",
+    "Das Material ist vorkodiert und wird von der Platte gelesen. Ein echter Strom kommt in Zugriffseinheiten ueber das Netz an und wird von webrtc-rs zusammengesetzt; ob sich in dieser Kette etwas anders verhaelt, ist ungeprueft.",
+    "Ein Lauf mit dem GESAMTEN Player (Fenster, Renderer, WHEP) gegen einen echten Sender hat NICHT stattgefunden. Dass der Umbau die versprochene Zeit im Betrieb wirklich einspart, ist begruendet erwartet und nicht belegt.",
+    "H.264 ist nur in 8 bit gemessen, AV1 in 8 und 10 bit. HEVC gar nicht.",
+    "Die Prozessorzeit stammt aus /proc/self/schedstat (ganzer Prozess). Sie enthaelt das Demuxen mit, in beiden Armen gleich."
+  ],
+
+  "werkzeugfehler_dieses_laufs": [
+    "Der erste vollstaendige Durchgang lief OHNE festgenagelten Takt und wies bei 1440p10 eine Zelle mit 30 Prozent geringerem Durchsatz aus, die sich vollstaendig ueber den SM-Takt erklaerte (1703 statt 2625 MHz). Sie waere beinahe als Eigenschaft des Messarms in die Akte gekommen. Der Durchgang liegt als matrix-ergebnis-freier-takt.json daneben, damit der Unterschied nachvollziehbar bleibt.",
+    "Waehrend jenes Durchgangs lief kurz eine zweite Messung auf derselben Karte (Kontrolle B). Ein weiterer Grund, ihn nicht als Beleg zu nehmen. Der ausgewertete Durchgang lief allein."
+  ],
+
+  "rohdaten": "streaming/player-labor/cuvid-cuda-ausgabe/matrix-ergebnis.json (festgenagelter Takt, 96 Laeufe, davon 16 der gescheiterte Flag-1-Arm) und matrix-ergebnis-freier-takt.json (Vorlauf)."
+}
