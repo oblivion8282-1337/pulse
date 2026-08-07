@@ -2,6 +2,7 @@ package com.howispulse.app;
 
 import android.app.Activity;
 import android.content.Context;
+import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
@@ -75,7 +76,7 @@ public class SpeakerphoneRouter {
      *  das BT-SCO-Gerät, das zum Voice-Join-Zeitpunkt noch nicht in
      *  getAvailableCommunicationDevices() steht (das „im Auto zu leise"-Race).
      *  Auf allen API-Leveln verfügbar (seit API 23), daher nicht ans API-31-Gate geknüpft. */
-    private AudioManager.AudioDeviceCallback audioDeviceCallback;
+    private AudioDeviceCallback audioDeviceCallback;
     /** True während eines aktiven Voice-Calls (setVoiceActive(true) … false). Der
      *  modeListener re-assertet COMMUNICATION nur, solange dies true ist. */
     private volatile boolean voiceActive = false;
@@ -137,7 +138,7 @@ public class SpeakerphoneRouter {
             }
         }
         if (audioDeviceCallback == null) {
-            audioDeviceCallback = new AudioManager.AudioDeviceCallback() {
+            audioDeviceCallback = new AudioDeviceCallback() {
                 @Override
                 public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
                     // Routing neu bewerten, wenn ein Ausgabegerät erscheint — vor
