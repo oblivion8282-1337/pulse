@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use super::pixel::{bytes_pro_punkt, punkte};
 use crate::decode::{Farbangaben, PixelLayout};
@@ -104,6 +104,12 @@ impl Messstand {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+                // Neu in wgpu 30: rundet die gemeldeten Grenzwerte auf
+                // vorgegebene Stufen, damit eine Web-Seite die Karte nicht am
+                // Zahlenprofil wiedererkennt. Wir sind kein Browser und zeigen
+                // die Karte ohnehin im Klartext an — `false` ist die Vorgabe
+                // der Bibliothek und haelt das Verhalten von wgpu 29.
+                apply_limit_buckets: false,
             })
             .await
             .context("keine GPU gefunden")?;
@@ -273,7 +279,11 @@ impl Messstand {
             .context("GPU-Warten fehlgeschlagen")?;
         rx.recv().context("Lesepuffer nie fertig")?.context("Lesepuffer nicht abbildbar")?;
 
-        let roh = slice.get_mapped_range();
+        // Seit wgpu 30 ein `Result` statt eines Panics — die Fehlerfaelle sind
+        // dieselben geblieben (falsch ausgerichteter Bereich, nicht
+        // abgebildeter Puffer). Hier steht ohnehin ein `Result` zur Verfuegung,
+        // also wird er weitergereicht statt in Ordnung gebracht.
+        let roh = slice.get_mapped_range().map_err(|e| anyhow!("Lesepuffer nicht lesbar: {e}"))?;
         let werte = punkte(&roh, format, w as usize, h as usize, zeile as usize);
         drop(roh);
         lese.unmap();

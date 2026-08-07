@@ -315,7 +315,17 @@ impl Abdruckwerk {
         let _ = device.poll(wgpu::PollType::Poll);
         while let Some(i) = self.aeltester_fertiger() {
             let wert = {
-                let sicht = self.ring[i].puffer.slice(..).get_mapped_range();
+                // `expect` und nicht `?`: seit wgpu 30 gibt `get_mapped_range`
+                // ein `Result` zurueck, wo es vorher selbst panickte — die
+                // Fehlerfaelle sind dieselben geblieben, und keiner von ihnen
+                // kann hier eintreten (`aeltester_fertiger` liefert nur Plaetze,
+                // deren `map_async` durch ist). Ein Ergebnis still zu
+                // verschlucken hiesse, einen falschen Abdruck zu melden.
+                let sicht = self.ring[i]
+                    .puffer
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("Abdruck-Puffer war als fertig gemeldet, ist aber nicht lesbar");
                 let roh: [u8; 8] = sicht[..8].try_into().unwrap_or([0; 8]);
                 // Zwei u32 in der Reihenfolge des Shaders; die obere Haelfte des
                 // Abdrucks ist die erste Summe (wie im Zwilling auf der CPU).

@@ -7,6 +7,26 @@
 //! aus. Der eine fehlende Aufruf ist `IDXGISwapChain3::SetColorSpace1`, und an
 //! ihn kommt man nur ueber `Surface::as_hal`.
 //!
+//! **Der vorige Absatz gilt fuer wgpu 29. Seit dem Sprung auf wgpu 30
+//! (2026-08-08) stimmt er nicht mehr, und wer hier aufraeumt, muss das wissen:**
+//! `wgpu-hal-30.0.0/src/dx12/mod.rs:1656` ruft `SetColorSpace1` inzwischen
+//! **selbst** auf, abgeleitet aus dem neuen Feld
+//! `SurfaceConfiguration::color_space` (`:1451` bildet es auf die
+//! DXGI-Konstanten ab — auf dieselben, die unten stehen). In wgpu 29 kam der
+//! Aufruf in der ganzen Datei kein einziges Mal vor.
+//!
+//! **Trotzdem bleibt unser Aufruf stehen**, aus zwei Gruenden. Erstens laeuft
+//! er in `Renderer::konfigurieren` NACH `surface.configure` und ist damit der
+//! massgebliche; zweitens sagt er bei `hdr == true` scRGB an, waehrend wgpu aus
+//! unserem `SurfaceColorSpace::Auto` nur das ableiten kann, was das Format
+//! hergibt. Solange die Migration verhaltensgleich sein soll, wird hier nichts
+//! entfernt. **Das ist die Stelle, an der beim Umstieg auf `Bt2100Pq`
+//! aufgeraeumt gehoert** — dann macht wgpu die Anmeldung vollstaendig, und
+//! zwei Stellen, die denselben Farbraum setzen, waeren eine zu viel.
+//! **Ungeprueft auf echter Windows-Hardware** (diese Maschine hat keine): dass
+//! sich die beiden Aufrufe nicht ins Gehege kommen, ist am Quelltext
+//! erschlossen, nicht gesehen.
+//!
 //! **Zwei Fragen, nicht eine.** Ob das Fenster HDR ausgeben KANN, entscheidet
 //! die Grafik-API; ob es etwas nuetzt, entscheidet der Bildschirm. Laeuft der
 //! in SDR, wird ein HDR-Puffer nicht heruntergerechnet, sondern **abgeschnitten**

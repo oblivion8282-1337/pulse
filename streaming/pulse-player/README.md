@@ -421,9 +421,22 @@ Muxers umgerechnet — 90 Bilder landeten in 49 ms statt in drei Sekunden.
 
 ## Bauen und testen
 
+**Zuerst: rustc >= 1.95.** Seit dem Sprung auf wgpu 30 / egui 0.36
+(2026-08-07) baut die Kiste unter aelteren Fassungen nicht mehr — cargo lehnt
+schon das Aufloesen ab („is not supported by the following packages"), es ist
+also kein stiller Fehlschlag. Die Zahl steht in `Cargo.toml` unter
+`rust-version` und ist dort begruendet. Wer auf einer Maschine mit aelterem
+`stable` sitzt: `rustup update stable`, oder
+`rustup toolchain install 1.97.1` und dann `cargo +1.97.1 …`, wenn die Vorgabe
+fuer andere Arbeit stehenbleiben soll.
+
+Die Auslieferwege sind davon **nicht** betroffen: das Player-Modul im
+Flatpak-Manifest zieht sich seine eigene Toolchain, `win-build` und `mac-build`
+nehmen die jeweils aktuelle stabile Fassung.
+
 ```
 cd streaming/pulse-player
-cargo test          # 36 Tests, keine Hardware noetig
+cargo test          # 232 Tests, keine Hardware noetig
 cargo build --release
 ```
 
