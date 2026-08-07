@@ -57,7 +57,25 @@
     "schluss": "Der Sender encodiert 2560x1440 bei 144 fps mit 29 % der Videoeinheit. Der Player braucht fuers Dekodieren desselben Stroms 39 % - plausibel. Die Zero-Copy-Bruecke legt darauf noch rund 70 Prozentpunkte. Sie ist damit teurer als Encodieren und Dekodieren zusammen.",
     "warum": "bruecke.rs::kopieren macht je Bild ein CopySubresourceRegion der vollen Bildflaeche auf FFMPEGS D3D11-Kontext - demselben, den der Decoder benutzt. Auf AMD landet eine Kopie aus einer DXVA-gebundenen Decoder-Textur damit auf der VIDEOEINHEIT und konkurriert unmittelbar mit dem Dekodieren. Dazu kommt je Bild ein Flush() plus WaitForSingleObject(INFINITE) auf der CPU, das Dekodieren und Kopieren vollstaendig serialisiert.",
     "das_wort_zero_copy_ist_irrefuehrend": "Der Weg heisst so, weil das Bild den Hauptspeicher nicht sieht. Eine Kopie IN DER GPU macht er sehr wohl - eine je Bild, 1440p, 144 mal je Sekunde.",
-    "richtung_der_behebung": "Die Kopie ganz vermeiden, statt sie zu verbilligen: AVD3D11VAFramesContext hat ein MiscFlags-Feld. Wird der Bilderpool des Decoders mit D3D11_RESOURCE_MISC_SHARED (+ NTHANDLE/KEYEDMUTEX) angelegt, sind SEINE Texturen schon teilbar und D3D12 kann sie unmittelbar einbinden. Dann entfaellt Kopie UND Zaun. Offen: ob Treiber ein Texturfeld mit BIND_DECODER und SHARED zugleich hergeben (AMD/NVIDIA/Intel je einzeln zu pruefen), und wie eine einzelne Schicht des Feldes in wgpu einzubinden ist. Zweitbester Weg, falls das scheitert: geteilter Zaun (D3D11_FENCE_FLAG_SHARED -> ID3D12Fence::Wait auf der wgpu-Warteschlange), damit wenigstens die CPU-Serialisierung je Bild wegfaellt - die API-Wege dafuer sind in bruecke.rs bereits nachgewiesen."
+    "richtung_der_behebung": "Die Kopie ganz vermeiden, statt sie zu verbilligen - ob das geht, beantwortet befund_4.",
+    "nicht_proportional": "Bei 720p und 240 fps kostet die Bruecke fast nichts: 17,1 % gesamt, gegenueber rund 16 % fuer das reine Dekodieren desselben Pixeldurchsatzes. Bei 1440p144 sind es 71 Prozentpunkte. Der Pixeldurchsatz steigt dabei nur um das 2,4-fache (221 auf 531 Mpix/s), die Last um das 6,4-fache. Der Aufwand waechst also ueberproportional mit der Bildgroesse - das passt zu einem Entkachel-Schritt beim Herauskopieren aus dem Decoder-Speicher, ist aber nicht bewiesen."
+  },
+
+  "befund_4_kann_die_kopie_ganz_entfallen": {
+    "frage": "Die Kopie waere vermeidbar, wenn FFmpegs Bilderpool selbst teilbar angelegt wird (AVD3D11VAFramesContext::MiscFlags) und D3D12 unmittelbar aus der Decoder-Textur liest. Bedingung dafuer ist, dass Treiber und API das hergeben.",
+    "probe_im_code": "streaming/pulse-player/src/zerocopy/bruecke.rs, Test `traegt_der_treiber_eine_teilbare_decoder_textur`. Er schlaegt bei Ablehnung NICHT fehl - das waere ein Befund ueber die Maschine, kein Fehler im Programm.",
+    "ergebnis_radeon_780m_treiber_32_0_31035_1003": {
+      "Decoder-Feld (ArraySize 16, BIND_DECODER), nur NT-teilbar": "NEIN (Falscher Parameter)",
+      "Decoder-Feld, NT-teilbar + Schluessel-Mutex": "Textur JA, Handle JA",
+      "Decoder-Feld, alt teilbar ohne NT": "Textur JA, Handle NEIN",
+      "Einzeltextur ohne BIND_DECODER, nur NT-teilbar": "NEIN (Falscher Parameter)",
+      "Einzeltextur, NT-teilbar + Schluessel-Mutex": "Textur JA, Handle JA",
+      "Einzeltextur, alt teilbar ohne NT": "Textur JA, Handle NEIN"
+    },
+    "messfehler_beim_ersten_anlauf": "Die Gegenprobe lief zuerst ebenfalls mit ArraySize 16. Ein Feld mit mehr als einer Schicht laesst sich ohne BIND_DECODER gar nicht teilen, also schlugen dort alle drei Faelle fehl - und die Gegenprobe sagte damit nichts ueber den Mutex aus. Mit einer Schicht wiederholt.",
+    "antwort": "Technisch offen, aber nicht ohne Preis - und der Preis liegt NICHT beim Treiber: (1) D3D12 kann nur NT-Handles einbinden. (2) Ein NT-Handle verlangt IMMER den Schluessel-Mutex; das gilt auch fuer eine gewoehnliche Einzeltextur, ist also eine allgemeine Regel von D3D11 und keine Eigenheit des Decoder-Merkers. (3) Der alte Teil-Merker kaeme ohne Mutex aus, liefert aber keinen NT-Handle. (4) FFmpeg fasst den Schluessel-Mutex NIE an: in libavutil/hwcontext_d3d11va.c kommen AcquireSync, ReleaseSync und IDXGIKeyedMutex kein einziges Mal vor; BindFlags und MiscFlags werden unveraendert an CreateTexture2D durchgereicht (geprueft am Quelltext von FFmpeg master, 2026-08-07).",
+    "was_das_bedeutet": "Wer die Kopie streichen will, muss den Schluessel-Mutex SELBST fuehren: um jeden Dekodier-Aufruf herum anmelden und freigeben, und ebenso um den Lesezugriff der Anzeige. Der Player besitzt seine Dekodier-Schleife, kann das also. Aber der Mutex gilt fuer das GANZE Texturfeld - Dekodieren und Anzeigen wuerden sich gegenseitig sperren, wo heute nur kopiert wird. Ob das unterm Strich gewinnt, ist eine Messfrage und keine Ueberlegung.",
+    "noch_offen": "NVIDIA und Intel sind ungeprueft - auf dieser Maschine ist keine solche Karte. Der Test laeuft dort mit und schreibt die Antwort hin."
   },
 
   "offen": {
