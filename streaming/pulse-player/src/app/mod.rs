@@ -8,6 +8,7 @@
 //!
 //! Was die einzelnen RPC-Operationen bedeuten, steht in [`requests`].
 
+pub mod diagnose;
 mod requests;
 mod takt;
 
@@ -140,7 +141,7 @@ impl PhaseTimes {
 /// Ereignisse, die von aussen in die Fenster-Schleife getragen werden.
 pub enum UserEvent {
     Request(Box<Request>),
-    Session { id: u64, event: SessionEvent },
+    Session { id: u64, event: SessionEvent, gesendet: std::time::Instant },
     StdinClosed,
 }
 
@@ -421,9 +422,26 @@ impl App {
         let proxy = self.proxy.clone();
         self.runtime.spawn(async move {
             let mut announced_end = false;
+            let mut zuletzt = std::time::Instant::now();
             while let Some(event) = ev_rx.recv().await {
+                // Wie lange dieser Task NICHT lief. Ist die Zahl gross, ist ein
+                // voller Kanal keine Aussage ueber den Fenster-Faden, sondern
+                // ueber die Tokio-Zuteilung.
+                let jetzt = std::time::Instant::now();
+                diagnose::hoechstens(
+                    &diagnose::FW_LUECKE_MAX_US,
+                    jetzt.duration_since(zuletzt).as_micros() as u64,
+                );
+                zuletzt = jetzt;
+                diagnose::FW_LAUF_US
+                    .store(diagnose::jetzt_us(), std::sync::atomic::Ordering::Relaxed);
                 announced_end |= matches!(&event, SessionEvent::Ended { .. });
-                if proxy.send_event(UserEvent::Session { id, event }).is_err() {
+                diagnose::hoch(&diagnose::ABGESCHICKT, 1);
+                diagnose::hoch(&diagnose::GES_GESENDET, 1);
+                if proxy
+                    .send_event(UserEvent::Session { id, event, gesendet: jetzt })
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -440,6 +458,7 @@ impl App {
                         reason: "Sitzung unerwartet beendet".to_string(),
                         failed: true,
                     },
+                    gesendet: std::time::Instant::now(),
                 });
             }
         });
@@ -498,6 +517,16 @@ impl App {
     /// was der Nutzer im Fenster ausgeloest hat — angewandt wird es erst danach
     /// (`apply_overlay_action`), weil dafuer die Sitzung erneut geliehen wird.
     fn draw(&mut self, id: u64) -> Vec<OverlayAction> {
+        let draw_uhr = std::time::Instant::now();
+        let ergebnis = self.draw_inner(id);
+        let us = draw_uhr.elapsed().as_micros() as u64;
+        diagnose::hoch(&diagnose::DRAW_SUM_US, us);
+        diagnose::hoechstens(&diagnose::DRAW_MAX_US, us);
+        diagnose::hoch(&diagnose::DRAW_N, 1);
+        ergebnis
+    }
+
+    fn draw_inner(&mut self, id: u64) -> Vec<OverlayAction> {
         let Some(session) = self.sessions.get_mut(&id) else { return Vec::new() };
         // Feldweise leihen: Renderer und Overlay brauchen beide `&mut`, sind
         // aber getrennte Felder — ueber Methoden waere das dem Borrow-Checker
@@ -597,6 +626,11 @@ impl App {
             .filter(|_| want_overlay)
             .map(|o| render::OverlayPass::new(o, window, window.fullscreen().is_some(), &view));
         let render_started = std::time::Instant::now();
+        // Der Abschnitt, den bisher KEINE Uhr sah: Farbraumpruefung,
+        // Statistik-Zusammenbau, Overlay-Vorbereitung.
+        let zwischen = render_started.duration_since(upload_started) - upload_took;
+        diagnose::hoch(&diagnose::ZWISCHEN_SUM_US, zwischen.as_micros() as u64);
+        diagnose::hoechstens(&diagnose::ZWISCHEN_MAX_US, zwischen.as_micros() as u64);
         if let Err(e) = renderer.render(options, *full_range, *farbe, pass.as_mut()) {
             eprintln!("pulse-player: Darstellung: {e:#}");
         }
@@ -729,6 +763,51 @@ impl App {
         if let Some(line) = takt_zeile {
             eprintln!("pulse-player: Sitzung {id}{line}");
         }
+        // Diagnose: WO zwischen Decoder und Schirm die Bilder liegenbleiben.
+        let d = diagnose::abholen();
+        eprintln!(
+            concat!(
+                "pulse-player: Sitzung {}: Weg — abgeschickt {}, angekommen {}, ",
+                "Weckverzug {:.1}/{:.1} ms, Weiterleitung-Luecke max {:.1} ms, ",
+                "Fenster belegt {:.1} %, draw {} x {:.2}/{:.1} ms, ",
+                "davon unbeobachtet {:.2}/{:.1} ms; ",
+                "holen {:.2}/{:.1} ms, aufzeichnen {:.2} ms, ausgeben {:.2}/{:.1} ms; ",
+                "Kanal max {}, Sendeluecke max {:.1} ms; ",
+                "beim Verwerfen: Weiterleitung seit {:.1} ms nicht gelaufen, ",
+                "Schlange {} Ereignisse; ",
+                "Schleife: max {} Bilder je Durchlauf, Durchlauf max {:.1} ms, ",
+                "Pause max {:.1} ms; ",
+                "Luecken im gleichen Fenster: Paket {:.1} ms → Einheit {:.1} ms ",
+                "→ Bild {:.1} ms"
+            ),
+            id,
+            d.abgeschickt,
+            d.angekommen,
+            d.weck_avg_us as f64 / 1000.0,
+            d.weck_max_us as f64 / 1000.0,
+            d.fw_luecke_max_us as f64 / 1000.0,
+            d.haupt_belegt_us as f64 / 10_000.0,
+            d.draw_n,
+            d.draw_avg_us as f64 / 1000.0,
+            d.draw_max_us as f64 / 1000.0,
+            d.zwischen_avg_us as f64 / 1000.0,
+            d.zwischen_max_us as f64 / 1000.0,
+            d.acq_avg_us as f64 / 1000.0,
+            d.acq_max_us as f64 / 1000.0,
+            d.enc_avg_us as f64 / 1000.0,
+            d.pres_avg_us as f64 / 1000.0,
+            d.pres_max_us as f64 / 1000.0,
+            d.kanal_max,
+            d.sende_luecke_max_us as f64 / 1000.0,
+            d.verworfen_fw_alter_max_us as f64 / 1000.0,
+            d.verworfen_schlange_max,
+            d.bilder_je_durchlauf_max,
+            d.durchlauf_max_us as f64 / 1000.0,
+            d.durchlauf_luecke_max_us as f64 / 1000.0,
+            d.ank_luecke_max_us as f64 / 1000.0,
+            d.einheit_luecke_max_us as f64 / 1000.0,
+            d.sende_luecke_max_us as f64 / 1000.0,
+        );
         // Der Ton ebenfalls in einer eigenen Zeile, aus demselben Grund.
         //
         // **Warum ueberhaupt:** Die Zahlen liegen seit jeher an (`counters()`
@@ -972,6 +1051,7 @@ impl ApplicationHandler<UserEvent> for App {
     /// jedem Durchlauf an. Wirkung minimal, aber die Begruendung stimmt so
     /// nicht mehr.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let _belegt = diagnose::Belegt::neu();
         if self.sessions.values().all(|s| s.takt.leer()) {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
             return;
@@ -997,6 +1077,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        let _belegt = diagnose::Belegt::neu();
         match event {
             UserEvent::Request(req) => self.handle_request(*req, event_loop),
             UserEvent::StdinClosed => {
@@ -1007,7 +1088,15 @@ impl ApplicationHandler<UserEvent> for App {
                 self.stop_all_sessions();
                 event_loop.exit();
             }
-            UserEvent::Session { id, event } => self.on_session_event(id, event),
+            UserEvent::Session { id, event, gesendet } => {
+                let verzug = gesendet.elapsed().as_micros() as u64;
+                diagnose::hoch(&diagnose::ANGEKOMMEN, 1);
+                diagnose::hoch(&diagnose::GES_EMPFANGEN, 1);
+                diagnose::hoch(&diagnose::WECK_SUM_US, verzug);
+                diagnose::hoechstens(&diagnose::WECK_MAX_US, verzug);
+                diagnose::hoch(&diagnose::WECK_N, 1);
+                self.on_session_event(id, event)
+            }
         }
     }
 
@@ -1017,6 +1106,7 @@ impl ApplicationHandler<UserEvent> for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        let _belegt = diagnose::Belegt::neu();
         let Some(&id) = self.by_window.get(&window_id) else { return };
         if let Some(session) = self.sessions.get_mut(&id) {
             // egui zuerst sehen lassen: es braucht auch Groessen- und

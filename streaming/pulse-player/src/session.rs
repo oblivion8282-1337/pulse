@@ -390,6 +390,10 @@ pub async fn run(
                     if let Some(prev) = last_video_arrival {
                         let gap = arrival.arrived.duration_since(prev).as_micros() as u64;
                         arrival_gap_max = arrival_gap_max.max(gap);
+                        crate::app::diagnose::hoechstens(
+                            &crate::app::diagnose::ANK_LUECKE_MAX_US,
+                            gap,
+                        );
                         if gap > 5_000 {
                             arrival_gaps_over_5ms += 1;
                         }
@@ -427,6 +431,22 @@ pub async fn run(
             },
 
             _ = ticker.tick() => {}
+        }
+
+        // Diagnose: Dauer und Ertrag EINES Durchlaufs — und die Pause davor.
+        let durchlauf_uhr = Instant::now();
+        {
+            use crate::app::diagnose as dg;
+            use std::sync::atomic::Ordering::Relaxed;
+            static LETZTER: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+            let vorher = LETZTER.lock().map(|mut g| g.replace(durchlauf_uhr)).unwrap_or(None);
+            if let Some(v) = vorher {
+                dg::hoechstens(
+                    &dg::DURCHLAUF_LUECKE_MAX_US,
+                    durchlauf_uhr.duration_since(v).as_micros() as u64,
+                );
+            }
+            dg::BILDER_LAUFEND.store(0, Relaxed);
         }
 
         // Auffangnetz gegen jede Art von haengendem Aufbau. Greift nur bis zum
@@ -515,6 +535,19 @@ pub async fn run(
                     }
                 };
                 let Some(unit) = unit else { continue };
+                if codec.is_video() {
+                    use crate::app::diagnose as dg;
+                    static LETZTE: std::sync::Mutex<Option<Instant>> =
+                        std::sync::Mutex::new(None);
+                    let jetzt = Instant::now();
+                    let vorher = LETZTE.lock().map(|mut g| g.replace(jetzt)).unwrap_or(None);
+                    if let Some(v) = vorher {
+                        dg::hoechstens(
+                            &dg::EINHEIT_LUECKE_MAX_US,
+                            jetzt.duration_since(v).as_micros() as u64,
+                        );
+                    }
+                }
 
                 // Jede Einheit geht an den Medien-Sink: Ton wird dort
                 // dekodiert und ausgegeben, und beide Spuren laufen in den
@@ -649,6 +682,16 @@ pub async fn run(
                 frames: stats.frames_decoded,
                 bytes: stats.bytes_received,
             };
+        }
+
+        {
+            use crate::app::diagnose as dg;
+            use std::sync::atomic::Ordering::Relaxed;
+            dg::hoechstens(&dg::DURCHLAUF_MAX_US, durchlauf_uhr.elapsed().as_micros() as u64);
+            dg::hoechstens(
+                &dg::BILDER_JE_DURCHLAUF_MAX,
+                dg::BILDER_LAUFEND.load(Relaxed),
+            );
         }
 
         if last_stats.elapsed() >= STATS_INTERVAL {
@@ -817,10 +860,39 @@ async fn emit_frames(
         // mitgewachsen, statt dass Bilder uebersprungen werden. Der
         // Rueckstau haette sich ausserdem bis in den Jitter-Puffer
         // fortgepflanzt, weil die Schleife dann kein RTP mehr abholt.
+        // Fuellstand VOR dem Einstellen und Abstand zum letzten Einstellen —
+        // die beiden Zahlen unterscheiden „der Fenster-Faden kommt nicht nach"
+        // von „der Decoder liefert in Schueben".
+        {
+            use crate::app::diagnose as dg;
+            let belegt = (events.max_capacity() - events.capacity()) as u64;
+            dg::hoechstens(&dg::KANAL_MAX, belegt);
+            dg::hoch(&dg::BILDER_LAUFEND, 1);
+            let jetzt = Instant::now();
+            // Global und nicht thread-lokal: `emit_frames` ist ein Future und
+            // kann zwischen Tokio-Arbeitern wandern.
+            static LETZTES: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+            let vorher = LETZTES.lock().map(|mut g| g.replace(jetzt)).unwrap_or(None);
+            if let Some(v) = vorher {
+                dg::hoechstens(
+                    &dg::SENDE_LUECKE_MAX_US,
+                    jetzt.duration_since(v).as_micros() as u64,
+                );
+            }
+        }
         match events.try_send(SessionEvent::Frame(Box::new(f))) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 stats.frames_skipped += 1;
+                use crate::app::diagnose as dg;
+                use std::sync::atomic::Ordering::Relaxed;
+                let alter =
+                    dg::jetzt_us().saturating_sub(dg::FW_LAUF_US.load(Relaxed));
+                dg::hoechstens(&dg::VERWORFEN_FW_ALTER_MAX_US, alter);
+                let schlange = dg::GES_GESENDET
+                    .load(Relaxed)
+                    .saturating_sub(dg::GES_EMPFANGEN.load(Relaxed));
+                dg::hoechstens(&dg::VERWORFEN_SCHLANGE_MAX, schlange);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                 return Err(EmitError::NoConsumer)
