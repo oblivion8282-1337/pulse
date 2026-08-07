@@ -19,7 +19,15 @@ mod bildquelle;
 // Farben — der Test dort ist die einzige Stelle, die es bemerken kann.
 pub(crate) mod farbe;
 mod fremdbild;
+/// **Wer HDR sucht, faengt hier an** — die Weiche und die Modul-Landkarte.
+pub mod hdr;
+#[cfg(target_os = "linux")]
+mod hdr_auskunft;
 mod hdr_fenster;
+#[cfg(target_os = "linux")]
+mod hdr_schirm;
+#[cfg(target_os = "linux")]
+mod hdr_vulkan;
 mod musterprobe;
 mod setup;
 mod uniforms;
@@ -88,9 +96,10 @@ pub struct Renderer {
     /// auf HDR und zurueck (`farbraum_fuer_quelle`) die Liste wieder braucht —
     /// den Adapter dafuer festzuhalten waere deutlich mehr.
     angebotene_formate: Vec<wgpu::TextureFormat>,
-    /// Fensterkennung (Windows). Fuer die Frage, ob der Schirm unter diesem
-    /// Fenster in HDR laeuft; `0`, wo es keine gibt.
-    hwnd: isize,
+    /// Woran der Schirm unter diesem Fenster zu erkennen ist (s. `hdr_fenster`).
+    schirmquelle: hdr_fenster::Schirmquelle,
+    /// Traegt die Oberflaeche laut Treiber scRGB-linear (s. `hdr`)?
+    weiter_farbraum: bool,
     /// Gibt das Fenster GERADE HDR aus? Nicht „koennte" — das hier ist das
     /// Ergebnis eines geglueckten `SetColorSpace1`, und nur darauf darf der
     /// Shader sich verlassen (s. `hdr_fenster`).
@@ -99,7 +108,7 @@ pub struct Renderer {
     /// fehlgeschlagener Versuch nicht bei jedem Bild wiederholt wird.
     hdr_gewuenscht: bool,
     /// Die letzte Antwort auf „laeuft der Schirm in HDR" samt Alter. Ohne sie
-    /// liefe bei jedem Bild eines PQ-Stroms eine DXGI-Aufzaehlung.
+    /// liefe die Abfrage bei jedem Bild eines PQ-Stroms.
     schirmwissen: hdr_fenster::Schirmwissen,
     /// Wartet ein frisch eingehaengtes Fremdbild auf seinen Fingerabdruck?
     /// Ohne dieses Merkmal bekaeme ein Durchgang ohne neues Bild (Bedienleiste,
@@ -114,7 +123,7 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<Self> {
-        let hwnd = hdr_fenster::fensterkennung(&window);
+        let schirmquelle = hdr_fenster::Schirmquelle::vom_fenster(&window);
         let gpu = setup::create(window, width, height).await?;
         let surface_format_name = format!("{:?}", gpu.config.format);
         // Vor dem Struktur-Ausdruck: dort wandert `gpu.device` in das Feld
@@ -124,7 +133,8 @@ impl Renderer {
         let musterprobe = musterprobe::Musterprobe::neu_wenn_gebraucht(&gpu.device);
         Ok(Self {
             angebotene_formate: gpu.angebotene_formate,
-            hwnd,
+            schirmquelle,
+            weiter_farbraum: gpu.weiter_farbraum,
             hdr_fenster: false,
             hdr_gewuenscht: false,
             device: gpu.device,

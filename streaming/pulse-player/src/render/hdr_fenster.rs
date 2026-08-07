@@ -18,6 +18,15 @@
 //! auf den eigenen Weg zurueck (PQ aufloesen, Spitzlichter zusammenschieben,
 //! als SDR ausgeben). Das ist sichtbar schlechter als echtes HDR, aber richtig
 //! — und es steht im Log, statt still zu passieren.
+//!
+//! **Hier stand bis zum 2026-08-07: „auf Vulkan liefert diese Funktion `false`,
+//! weil wir nicht pruefen koennen, ob es geklappt hat".** Der Satz war die
+//! richtige Haltung bei falschem Befund — pruefbar ist es, nur nicht an wgpu.
+//! Beide Fragen werden auf Linux jetzt beantwortet, jede in ihrer eigenen
+//! Datei: [`super::hdr_vulkan`] fragt den Treiber, ob die Oberflaeche
+//! scRGB-linear traegt, [`super::hdr_schirm`] fragt den Compositor, ob der
+//! Schirm gerade Spielraum ueber Weiss hat. Die Vorsicht bleibt: faellt eine
+//! der beiden aus, bleibt es beim Herunterrechnen.
 
 /// Das Oberflaechenformat des HDR-Betriebs.
 ///
@@ -36,13 +45,15 @@ pub const HDR_OBERFLAECHE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Floa
 /// Rueckgabe: hat es geklappt? Ein `false` ist kein Fehler, sondern eine
 /// Auskunft — der Aufrufer bleibt dann beim Herunterrechnen.
 ///
-/// **Nur der D3D12-Weg.** Auf dem Vulkan-Weg ist der Farbraum eine Eigenschaft
-/// der Swapchain und wird beim Anlegen festgelegt; nachtraeglich gibt es dort
-/// nichts zu setzen (wgpu tut es selbst, s. [`HDR_OBERFLAECHE`]). Wir koennen
-/// von aussen aber nicht pruefen, ob es geklappt hat — und was wir nicht
-/// pruefen koennen, behaupten wir nicht: auf Vulkan liefert diese Funktion
-/// `false`, der Player rechnet dann herunter. Das ist die vorsichtige Seite des
-/// Irrtums.
+/// **Nur der D3D12-Weg meldet an.** Auf dem Vulkan-Weg ist der Farbraum eine
+/// Eigenschaft der Swapchain und wird beim Anlegen festgelegt; nachtraeglich
+/// gibt es dort nichts zu setzen (wgpu tut es selbst, s. [`HDR_OBERFLAECHE`]).
+/// Dort wird deshalb nicht angemeldet, sondern **nachgesehen** — s.
+/// [`super::hdr_vulkan`].
+///
+/// `weiter_farbraum` ist die Antwort auf genau diese Nachschau, einmal beim
+/// Aufbau geholt (`setup::create`). Unter Windows spielt sie keine Rolle: dort
+/// entscheidet der Rueckgabewert von `SetColorSpace1`.
 ///
 /// **Nach JEDEM `surface.configure` erneut aufzurufen.** Eine neue Swapchain
 /// startet wieder im SDR-Farbraum — der Aufruf hier ist keine einmalige
@@ -50,7 +61,11 @@ pub const HDR_OBERFLAECHE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Floa
 /// das übersieht, bekommt HDR, das beim ersten Fenster-Vergrößern verschwindet;
 /// deshalb geht in `render::Renderer` jedes `configure` durch dieselbe Stelle.
 #[cfg(windows)]
-pub fn farbraum_anmelden(surface: &wgpu::Surface<'static>, hdr: bool) -> bool {
+pub fn farbraum_anmelden(
+    surface: &wgpu::Surface<'static>,
+    hdr: bool,
+    _weiter_farbraum: bool,
+) -> bool {
     use windows::Win32::Graphics::Dxgi::Common::{
         DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     };
@@ -97,12 +112,90 @@ pub fn farbraum_anmelden(surface: &wgpu::Surface<'static>, hdr: bool) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-pub fn farbraum_anmelden(_surface: &wgpu::Surface<'static>, _hdr: bool) -> bool {
-    // Auf Linux/macOS gibt es diesen Weg heute nicht — der Sidecar sendet dort
-    // ohnehin kein HDR (`encode/hdr.rs` im Windows-Sidecar ist der einzige
-    // belegte Sender). Kommt fremdes HDR-Material an, wird es heruntergerechnet.
+/// Der Vulkan-Weg: **nachsehen statt anmelden.**
+///
+/// Drei Bedingungen, und die dritte ist der Grund, warum hier nicht einfach
+/// `weiter_farbraum` durchgereicht wird: die Nachschau am Treiber ist beim
+/// Aufbau geschehen, die Swapchain wird aber bei jedem `configure` neu
+/// angelegt. Erst wenn eine native Vulkan-Swapchain wirklich steht, ist die
+/// Regel aus `wgpu-hal` auch angewandt worden.
+#[cfg(target_os = "linux")]
+pub fn farbraum_anmelden(
+    surface: &wgpu::Surface<'static>,
+    hdr: bool,
+    weiter_farbraum: bool,
+) -> bool {
+    if !hdr {
+        return false;
+    }
+    if !weiter_farbraum {
+        eprintln!(
+            "pulse-player: HDR-Ausgabe nicht moeglich — der Treiber meldet fuer diese \
+             Oberflaeche kein scRGB-linear. Der Strom wird auf SDR heruntergerechnet."
+        );
+        return false;
+    }
+    if !super::hdr_vulkan::swapchain_ist_nativ(surface) {
+        eprintln!("pulse-player: HDR-Ausgabe nicht moeglich — keine native Vulkan-Swapchain");
+        return false;
+    }
+    eprintln!("pulse-player: Farbraum des Fensters: scRGB-linear (Vulkan, geprueft am Treiber)");
+    true
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+pub fn farbraum_anmelden(
+    _surface: &wgpu::Surface<'static>,
+    _hdr: bool,
+    _weiter_farbraum: bool,
+) -> bool {
+    // macOS: der Weg ist hier nicht gebaut, und der Sidecar sendet dort kein
+    // HDR (`encode/hdr.rs` im Windows-Sidecar ist der einzige belegte Sender).
+    // Kommt fremdes HDR-Material an, wird es heruntergerechnet.
     false
+}
+
+/// Woran der Bildschirm unter diesem Fenster zu erkennen ist.
+///
+/// **Zwei Plattformen, zwei voellig verschiedene Kennungen** — unter Windows
+/// eine Fensternummer, mit der sich der Monitor erfragen laesst; unter Wayland
+/// der Name des Ausgangs (`"DP-2"`), unter dem der Compositor seine
+/// Farbangaben fuehrt. Beides in einer Struktur, damit der Renderer nicht zwei
+/// Felder mit je einem toten halten muss.
+#[derive(Default)]
+pub(super) struct Schirmquelle {
+    /// Win32-Fensterkennung, `0` wo es keine gibt.
+    #[cfg(windows)]
+    hwnd: isize,
+    /// Das Fenster selbst. Gebraucht unter Wayland, und zwar bei JEDER Frage
+    /// neu: der Nutzer kann das Fenster auf einen anderen Schirm ziehen.
+    #[cfg(target_os = "linux")]
+    fenster: Option<std::sync::Arc<winit::window::Window>>,
+    /// Der Beobachter der Ausgaenge. `None`, wo es ihn nicht gibt (X11,
+    /// Compositor ohne Farbverwaltung) — dann bleibt es beim Herunterrechnen.
+    #[cfg(target_os = "linux")]
+    wacht: Option<super::hdr_schirm::Schirmwacht>,
+}
+
+impl Schirmquelle {
+    /// Aus dem Fenster ableiten, was auf dieser Plattform zu holen ist.
+    pub(super) fn vom_fenster(window: &std::sync::Arc<winit::window::Window>) -> Self {
+        let _ = window;
+        Self {
+            #[cfg(windows)]
+            hwnd: fensterkennung(window),
+            #[cfg(target_os = "linux")]
+            fenster: Some(window.clone()),
+            #[cfg(target_os = "linux")]
+            wacht: super::hdr_schirm::Schirmwacht::starten(),
+        }
+    }
+
+    /// Der Name des Ausgangs, auf dem das Fenster gerade liegt.
+    #[cfg(target_os = "linux")]
+    fn ausgangsname(&self) -> Option<String> {
+        self.fenster.as_ref()?.current_monitor()?.name()
+    }
 }
 
 /// Laeuft der Bildschirm unter diesem Fenster gerade in HDR?
@@ -114,27 +207,27 @@ pub fn farbraum_anmelden(_surface: &wgpu::Surface<'static>, _hdr: bool) -> bool 
 /// Kopplung als die dreissig Zeilen wert sind.
 ///
 /// `false` bei jedem Zweifel: kein Ausgang gefunden, Abfrage fehlgeschlagen,
-/// nicht Windows. Ein falsches Ja kostet hier abgeschnittene Spitzlichter, ein
-/// falsches Nein nur die Genauigkeit des Herunterrechnens.
+/// keine Farbverwaltung. Ein falsches Ja kostet hier abgeschnittene
+/// Spitzlichter, ein falsches Nein nur die Genauigkeit des Herunterrechnens.
 #[cfg(windows)]
-pub fn schirm_ist_hdr(hwnd: isize) -> bool {
+pub(super) fn schirm_ist_hdr(quelle: &Schirmquelle) -> bool {
+    let hwnd = quelle.hwnd;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-    use windows::Win32::Graphics::Dxgi::{
-        CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput6,
-    };
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput6};
     use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
     use windows::core::Interface;
 
     let monitor = unsafe { MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST) };
     let Ok(factory) = (unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }) else { return false };
     let mut a = 0u32;
-    loop {
-        let adapter: IDXGIAdapter1 = match unsafe { factory.EnumAdapters1(a) } {
-            Ok(x) => x,
-            Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => return false,
-            Err(_) => return false,
-        };
+    // **Die beiden Enden der Aufzaehlung sind hier dasselbe Ergebnis.**
+    // `DXGI_ERROR_NOT_FOUND` heisst „kein Adapter mehr" und ist der Regelfall,
+    // jeder andere Fehler ein echter Fehlschlag — in beiden Faellen ist kein
+    // Ausgang zu diesem Monitor gefunden worden, und die vorsichtige Antwort
+    // ist Nein. Bis zum 2026-08-07 standen dafuer zwei Arme da, die beide
+    // `false` lieferten.
+    while let Ok(adapter) = unsafe { factory.EnumAdapters1(a) } {
         a += 1;
         let mut o = 0u32;
         while let Ok(output) = unsafe { adapter.EnumOutputs(o) } {
@@ -146,10 +239,20 @@ pub fn schirm_ist_hdr(hwnd: isize) -> bool {
             }
         }
     }
+    false
 }
 
-#[cfg(not(windows))]
-pub fn schirm_ist_hdr(_hwnd: isize) -> bool {
+/// Unter Wayland: hat der Ausgang, auf dem das Fenster liegt, Spielraum ueber
+/// Weiss? Begruendung der Kennzahl in [`super::hdr_schirm`].
+#[cfg(target_os = "linux")]
+pub(super) fn schirm_ist_hdr(quelle: &Schirmquelle) -> bool {
+    let Some(wacht) = quelle.wacht.as_ref() else { return false };
+    let Some(name) = quelle.ausgangsname() else { return false };
+    wacht.angabe(&name).is_some_and(|l| l.ist_hdr())
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+pub(super) fn schirm_ist_hdr(_quelle: &Schirmquelle) -> bool {
     false
 }
 
@@ -195,14 +298,14 @@ pub(super) struct Schirmwissen {
 impl Schirmwissen {
     /// Laeuft der Schirm in HDR? Fragt hoechstens einmal je [`SCHIRM_FRIST`]
     /// wirklich nach.
-    pub(super) fn ist_hdr(&mut self, hwnd: isize) -> bool {
+    pub(super) fn ist_hdr(&mut self, quelle: &Schirmquelle) -> bool {
         // Als Wachbedingung statt als verschachteltes `if let`: die Kiste steht
         // auf Edition 2021, `if let ... &&` gibt es erst ab 2024 — ein `match`
         // mit `if` am Arm tut dasselbe schon heute.
         match self.stand {
             Some((wert, seit)) if seit.elapsed() < SCHIRM_FRIST => wert,
             _ => {
-                let wert = schirm_ist_hdr(hwnd);
+                let wert = schirm_ist_hdr(quelle);
                 self.stand = Some((wert, std::time::Instant::now()));
                 wert
             }
@@ -231,13 +334,14 @@ mod tests {
     fn was_kostet_die_schirm_abfrage() {
         // Ein paar Durchlaeufe vorweg: der erste Aufruf zieht die DXGI-DLLs
         // und waere sonst der Ausreisser, den man hinterher erklaeren muss.
+        let quelle = Schirmquelle::default();
         for _ in 0..10 {
-            let _ = schirm_ist_hdr(0);
+            let _ = schirm_ist_hdr(&quelle);
         }
         let mut zeiten: Vec<u128> = (0..200)
             .map(|_| {
                 let t = std::time::Instant::now();
-                let _ = schirm_ist_hdr(0);
+                let _ = schirm_ist_hdr(&quelle);
                 t.elapsed().as_micros()
             })
             .collect();
@@ -255,17 +359,18 @@ mod tests {
     }
 
     /// Die Frist tut, was sie soll: innerhalb ihrer kommt die Antwort aus dem
-    /// Speicher. Geprueft ohne echte Abfrage — `hwnd = 0` liefert auf
-    /// Nicht-Windows ohnehin `false`, und worauf es hier ankommt, ist, dass
-    /// zweimal dasselbe herauskommt und der Stand gesetzt ist.
+    /// Speicher. Geprueft ohne echte Abfrage — eine leere [`Schirmquelle`]
+    /// liefert auf jeder Plattform `false`, und worauf es hier ankommt, ist,
+    /// dass zweimal dasselbe herauskommt und der Stand gesetzt ist.
     #[test]
     fn die_frist_haelt_die_antwort_fest() {
+        let quelle = Schirmquelle::default();
         let mut w = Schirmwissen::default();
-        let erst = w.ist_hdr(0);
+        let erst = w.ist_hdr(&quelle);
         let stand = w.stand.expect("nach der ersten Frage muss ein Stand dastehen");
-        assert_eq!(w.ist_hdr(0), erst, "innerhalb der Frist dieselbe Antwort");
+        assert_eq!(w.ist_hdr(&quelle), erst, "innerhalb der Frist dieselbe Antwort");
         assert_eq!(
-            w.stand.map(|(v, t)| (v, t)),
+            w.stand,
             Some(stand),
             "und ohne den Zeitstempel zu erneuern — sonst liefe die Frist nie ab"
         );
@@ -288,8 +393,11 @@ use super::{pick_format, build_graphics, Renderer};
 /// Die Win32-Fensterkennung, oder `0`, wo es keine gibt.
 ///
 /// Gebraucht fuer eine einzige Frage — laeuft der Schirm unter diesem Fenster
-/// in HDR ([`schirm_ist_hdr`]). Auf anderen Systemen ist die Antwort ohnehin
-/// Nein, deshalb genuegt dort die Null.
+/// in HDR ([`schirm_ist_hdr`])? Und nur unter Windows: dort geht sie ueber
+/// `MonitorFromWindow`. Unter Wayland fuehrt derselbe Weg ueber den
+/// **Ausgangsnamen** (`Schirmquelle::ausgangsname`), eine Fensternummer gibt es
+/// dort nicht.
+#[cfg(windows)]
 pub(super) fn fensterkennung(window: &winit::window::Window) -> isize {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     match window.window_handle().map(|h| h.as_raw()) {
@@ -310,7 +418,8 @@ impl Renderer {
     pub(super) fn konfigurieren(&mut self) {
         self.surface.configure(&self.device, &self.config);
         if self.hdr_gewuenscht || self.hdr_fenster {
-            self.hdr_fenster = farbraum_anmelden(&self.surface, self.hdr_gewuenscht);
+            self.hdr_fenster =
+                farbraum_anmelden(&self.surface, self.hdr_gewuenscht, self.weiter_farbraum);
         }
     }
 
@@ -337,7 +446,7 @@ impl Renderer {
     pub fn farbraum_fuer_quelle(&mut self, farbe: Farbangaben) -> Option<wgpu::TextureFormat> {
         let moeglich = farbe.uebertragung == Uebertragung::Pq
             && self.angebotene_formate.contains(&HDR_OBERFLAECHE)
-            && self.schirmwissen.ist_hdr(self.hwnd);
+            && self.schirmwissen.ist_hdr(&self.schirmquelle);
         if moeglich == self.hdr_gewuenscht {
             return None;
         }

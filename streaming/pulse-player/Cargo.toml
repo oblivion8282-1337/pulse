@@ -149,6 +149,26 @@ windows = { version = "0.62", features = [
 ash = "0.38"
 libloading = "0.8"
 
+# --- HDR-Ausgabe unter Wayland (s. `src/render/hdr_schirm.rs`) ---
+#
+# Auch diese beiden waren VORHER schon im Abhaengigkeitsbaum (ueber winit und
+# smithay-client-toolkit) — sie werden hier nur ausdruecklich gemacht, es kommt
+# kein fremder Code hinzu. Lizenzen: beide MIT, dazu `wayland-backend` MIT.
+#
+# **Warum sie ausdruecklich dastehen, und warum sie beim naechsten Aufraeumen
+# NICHT wegduerfen:** der Player muss wissen, ob der Bildschirm gerade in HDR
+# laeuft — sonst schiebt er einen HDR-Puffer auf einen SDR-Schirm. Vulkan gibt
+# die Bildschirm-Leuchtdichte nicht her (die Formatliste der Oberflaeche ist
+# gemessen in beiden Zustaenden dieselbe), X11 kennt gar kein HDR, und ein
+# KDE-Werkzeug abzufragen waere an einen Compositor gebunden. Bleibt das
+# Wayland-Protokoll `wp_color_manager_v1`, und das liegt im `staging`-Stand.
+#
+# `staging` ist deshalb kein bequemer Sammelschalter, sondern die einzige
+# Stelle, an der color-management-v1 liegt; `client` ist die Seite, die wir
+# sind. Mehr Merkmale werden nicht gebraucht.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

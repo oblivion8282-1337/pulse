@@ -69,6 +69,12 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
+        // Beide HDR-Fragen samt ihren Zahlen (`pulse-player --hdr-auskunft`) —
+        // durch DIESELBEN Funktionen wie der Betrieb, damit die Ausgabe ein
+        // Beleg ist und keine zweite Meinung. Oeffnet dafuer kurz ein Fenster
+        // und belegt die Grafikkarte; bei laufender Messreihe erst die
+        // GPU-Sperre nehmen.
+        Some("--hdr-auskunft") => return render::hdr::auskunft(),
         _ => {}
     }
 

@@ -60,12 +60,37 @@ nicht einsehbar.
 
   **Unter Windows laeuft der Player dafuer ueber D3D12 statt Vulkan**
   (`render/setup.rs::backends`). Das ist Voraussetzung, keine Vorliebe: nur
-  dort laesst sich der Farbraum des Fensters ueberhaupt anmelden
-  (`IDXGISwapChain3::SetColorSpace1`); unter Vulkan ist er eine Eigenschaft der
-  Swapchain, wird beim Anlegen gesetzt und ist von aussen weder zu setzen noch
-  zu pruefen — und was wir nicht pruefen koennen, behaupten wir nicht. Dort
-  wird deshalb heruntergerechnet. `PULSE_PLAYER_BACKEND=vulkan|dx12|gl` nagelt
-  die Wahl fest.
+  dort laesst sich der Farbraum des Fensters **anmelden**
+  (`IDXGISwapChain3::SetColorSpace1`). `PULSE_PLAYER_BACKEND=vulkan|dx12|gl`
+  nagelt die Wahl fest.
+
+  **Hier stand bis zum 2026-08-07 weiter: „unter Vulkan ist er eine Eigenschaft
+  der Swapchain, wird beim Anlegen gesetzt und ist von aussen weder zu setzen
+  noch zu pruefen — dort wird deshalb heruntergerechnet". Der zweite Teil ist
+  widerlegt.** Setzen laesst er sich dort tatsaechlich nicht; **pruefen** schon,
+  nur nicht an wgpu. Gefragt wird der Treiber selbst
+  (`vkGetPhysicalDeviceSurfaceFormatsKHR` muss fuer diese Oberflaeche
+  `R16G16B16A16_SFLOAT` + `EXTENDED_SRGB_LINEAR_EXT` melden — genau das Paar,
+  das wgpu-hal fuer `Rgba16Float` fest verdrahtet), und ob der Schirm gerade in
+  HDR laeuft, sagt der Compositor ueber `wp_color_manager_v1`.
+  **Unter Linux/Wayland gibt der Player deshalb seit dem 2026-08-07 echtes HDR
+  aus**, wenn beide Fragen mit Ja beantwortet sind; sonst bleibt es beim
+  Herunterrechnen. Module: `render/hdr.rs` (Weiche und Landkarte),
+  `render/hdr_vulkan.rs`, `render/hdr_schirm.rs`. Messakte
+  `streaming/testbench/profiles/player-2026-08-07-wayland-hdr.json`.
+
+  **Nachsehen, was auf DIESER Maschine gilt: `pulse-player --hdr-auskunft`.**
+  Es stellt beide Fragen durch dieselben Funktionen wie der Betrieb und gibt
+  die Zahlen dahinter aus — die Formatliste des Treibers und die Leuchtdichten
+  jedes Ausgangs. Ein Logsatz „HDR: nein" laesst sonst offen, ob der Schirm SDR
+  faehrt oder ob eine Abfrage fehlgeschlagen ist.
+
+  **Die Falle, wenn jemand die Schirmfrage nachbaut:** KWin meldet die
+  Uebertragungskurve des Ausgangs in **beiden** Zustaenden als `gamma22`. Eine
+  Pruefung auf `st2084_pq` sagt dort immer Nein und faellt still auf den alten
+  Weg zurueck. Das Kennzeichen ist die Leuchtdichte — HDR heisst
+  `max_lum > reference_lum` (gemessen 530 gegen 295 cd/m²; ohne HDR 200
+  gegen 200).
 
   **Die Farbrechnung selbst ist gemessen, nicht angesehen** (2026-08-06,
   `pulse-player --farbwerte`, Akte

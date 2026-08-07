@@ -73,6 +73,8 @@ pub struct GpuSetup {
     /// auf, weil der Wechsel auf ein HDR-Fenster und zurueck sie wieder
     /// braucht — sonst muesste dafuer der Adapter am Leben gehalten werden.
     pub angebotene_formate: Vec<wgpu::TextureFormat>,
+    /// Traegt die Oberflaeche laut Treiber scRGB-linear (s. `super::hdr`)?
+    pub weiter_farbraum: bool,
 }
 
 /// Erlaubt, die Formatwahl von aussen festzunageln: `PULSE_PLAYER_SURFACE`
@@ -226,6 +228,8 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         "pulse-player: Oberflaechenformat {format:?} auf {} ({:?}) (angeboten: {:?})",
         info.name, info.backend, caps.formats
     );
+    // Den Treiber fragen, nicht wgpu — Begruendung im Kopf von `super::hdr`.
+    let weiter_farbraum = super::hdr::weiter_farbraum(&adapter, &surface);
 
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -285,6 +289,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         uniform_buf: gfx.uniform_buf,
         wide_textures,
         angebotene_formate: caps.formats,
+        weiter_farbraum,
     })
 }
 
