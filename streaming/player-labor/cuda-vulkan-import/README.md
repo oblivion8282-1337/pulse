@@ -216,7 +216,17 @@ Die Reihenfolge, die hier stand, ist damit abgearbeitet:
 
 **Was jetzt ansteht, in dieser Reihenfolge:**
 
-1. ~~**`av1_cuvid`**~~ — **erledigt, die Antwort ist JA** (s. oben). Dabei sind
+1. ~~**`av1_cuvid`**~~ — **erledigt, die Antwort ist JA** (s. oben), und der Weg
+   ist seit dem 2026-08-07 **im echten Player eingebaut**: `Hwaccel::Cuda` in
+   `decode.rs`, `Pixel::CUDA` in `drain`, Notausgang
+   `PULSE_PLAYER_CUDA_AUSGABE=0`. Gemessen in der echten Kette (WHEP über den
+   lokalen MediaMTX): dasselbe Bild, kein Unterschied in Dekodierzeit,
+   Ende-zu-Ende-Latenz oder gezeichneten Bildern — **und das ist der
+   Erfolgsfall**, weil der Renderer das Bild weiterhin herunterholt. Belegt,
+   dass der Schalter wirkt, ist es über den Grafikspeicher des Player-Prozesses
+   (651 gegen 639 MiB, dreimal ohne Überlappung). Messakte
+   `streaming/testbench/profiles/player-2026-08-07-cuvid-cuda-im-player.json`.
+   Dabei sind
    vier Dinge angefallen, die der Umbau braucht und die man sonst erst im
    Fehlerfall bemerkt:
    * **Der CUDA-Kontext.** `av_hwdevice_ctx_create` mit Flag
@@ -237,15 +247,36 @@ Die Reihenfolge, die hier stand, ist damit abgearbeitet:
    * **Bilder festhalten ist unbedenklich.** Bis 256 gleichzeitig gehaltene
      Bilder faellt der Durchsatz nicht (FFmpegs CUDA-Vorrat waechst dynamisch);
      der Preis sind rund 12 MiB Grafikspeicher je Bild bei 1440p10.
-2. **Synchronisierung**: `VK_KHR_external_semaphore_fd` gegen
-   `cuImportExternalSemaphore` — im Betrieb schreibt der Decoder, während
-   gezeichnet wird. **Dazu ist schon etwas gemessen, und es kostet einen
-   Aufbauschritt:** wgpu 29 fordert diese Erweiterung *nicht* an (anders als
-   `VK_KHR_external_memory_fd`), obwohl die Karte sie anbietet. Der Player
-   müsste sein `VkDevice` dafür selbst anlegen und per
-   `hal::vulkan::Adapter::device_from_raw` an wgpu übergeben. Am hier
-   gemessenen Bild-Import ändert das nichts. Einzelheiten unter
-   `vorgriff_synchronisierung` in der wgpu-Messakte.
+2. ~~**Synchronisierung**~~ — **erledigt, beide Bauarten tragen.**
+   `cuImportExternalSemaphore` nimmt ein über `VK_KHR_external_semaphore_fd`
+   exportiertes Vulkan-Semaphor an, binär (`OPAQUE_FD`) wie als Zeitlinie
+   (`TIMELINE_SEMAPHORE_FD`); keine ist die schwächere, die Zeitlinie ist
+   trotzdem die naheliegendere (kein Buchhalten über signalisiert/nicht
+   signalisiert, und wgpu-hal fordert `VK_KHR_timeline_semaphore` ohnehin an).
+   Probe `../semaphor-kopplung`, Messakte
+   `streaming/testbench/profiles/player-2026-08-07-semaphor-kopplung.json`.
+
+   Drei Dinge daran zählen für den Umbau:
+   * **Der Aufbauschritt bleibt.** wgpu 29 fordert die Erweiterung nicht an;
+     ohne eigenes `VkDevice` führt das Gerät 6 statt 7 Erweiterungen und der
+     Weg ist gar nicht erst prüfbar (ausdrücklich gegengeprobt). Der Handweg
+     über `hal::vulkan::Adapter::device_from_raw` trägt — **kürzer ist
+     `Adapter::open_with_callback`** (`adapter.rs:2834`), dessen Rückruf die
+     Erweiterungsliste vor `vkCreateDevice` ergänzen darf.
+   * **Die Gegenprobe schlägt an**, und darauf kommt es an: ohne Semaphor sind
+     im selben Aufbau 16,9 bis 21,2 Prozent der gelesenen Bytes veraltet, in
+     jeder Wiederholung, nie null. Ein sauberer Lauf mit Semaphor heißt deshalb
+     wirklich etwas.
+   * **Die Rückrichtung ist NICHT belegt.** Dass CUDA auf ein von Vulkan
+     signalisiertes Semaphor wartet, ist ein Funktionsnachweis; dass dieses
+     Warten ein verfrühtes Überschreiben eines recycelten Puffers verhindert,
+     ist es nicht. Wer sie scharf schaltet, baut die Empfindlichkeitsstufe dafür
+     nach.
+
+3. **Der Renderer-Umbau (Stück 3)** — Vulkan legt das Zielbild an, CUDA bekommt
+   es eingehängt, `cuMemcpy2D` aus `data[i]`/`linesize[i]`, das Bild geht an
+   wgpu. Erst hier fällt die Rückholung wirklich weg; alles davor bereitet nur
+   vor.
 
 Zwei weitere Auflagen, die zum Umbau gehören und leicht vergessen werden:
 
