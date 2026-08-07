@@ -32,10 +32,34 @@
     const myId = currentServerUserId();
     // Each HQ tile id is `<userId>:<slot>`; keep a WHEP connection per (user,
     // slot) tile that's open, not our own, and not popped out.
-    const wanted = openedTiles
+    const offen = openedTiles
       .entriesOfKind('hq')
       .map((e) => ({ channelId: e.channelId, ...parseHqTileId(e.id) }))
-      .filter((e) => e.userId !== myId && !detachedStreams.has(e.channelId, e.userId, e.slot));
+      .filter((e) => !detachedStreams.has(e.channelId, e.userId, e.slot));
+
+    // **ZWEI Listen, weil die Frage zweimal verschieden beantwortet wird.**
+    //
+    // Bis zum 2026-08-07 gab es nur eine, gefiltert fuer die Browser-Verbindung
+    // — und `closeExcept()` unten bekam sie ebenfalls. Der eigene Stream faellt
+    // aus dieser Liste heraus (`userId !== myId`, s.u.), also schloss der
+    // Aufraeumer JEDES eigene Player-Fenster sofort wieder.
+    //
+    // Das war nicht nur ein totes Fenster: eine geschlossene Sitzung wird von
+    // `nativePlayerSessions.ensure()` bewusst durch eine neue ersetzt (damit
+    // eine Kachel nach einem Fehler nicht dauerhaft im Rueckfall haengt). Beide
+    // zusammen ergaben eine Endlosschleife aus Oeffnen und Schliessen, jede
+    // Runde mit einer neuen WHEP-Adresse vom Server und einem vollen
+    // WebRTC-Aufbau. Danach half nur noch, Pulse ganz zu beenden.
+    //
+    // Der eigene Stream im eigenen Fenster ist ausdruecklich gewollt: Chromium
+    // zeigt kein HDR und keine 10 bit, der Player schon — nur so laesst sich am
+    // eigenen Rechner beurteilen, was beim Zuschauer ankommt.
+    const fensterWanted = offen;
+
+    // Die Browser-Verbindung dagegen braucht der eigene Stream NICHT: das Bild
+    // liegt lokal ohnehin vor, und eine zweite WHEP-Kopie zu sich selbst waere
+    // reine Verschwendung.
+    const wanted = offen.filter((e) => e.userId !== myId);
     // Laeuft das Bild im eigenen Fenster, braucht der Browser den Stream NICHT
     // mehr — das Fenster gibt Bild UND Ton aus (`#setAudioOwner`). Die
     // Browser-Verbindung blieb bisher trotzdem offen und dekodierte die
@@ -55,6 +79,6 @@
     const imFenster = (e: { channelId: string; userId: string; slot: number }) =>
       nativePlayerSessions.get(e.channelId, e.userId, e.slot)?.phase === 'playing';
     hqStreams.reconcile(wanted.filter((e) => !imFenster(e)));
-    nativePlayerSessions.closeExcept(wanted);
+    nativePlayerSessions.closeExcept(fensterWanted);
   });
 </script>

@@ -340,6 +340,37 @@ export class NativePlayerSession {
 // `phase` liest und beim Wechsel auf `playing` erneut laeuft.
 const registry = new SvelteMap<string, NativePlayerSession>();
 
+/**
+ * Wie oft eine Sitzung ersetzt werden darf, bevor `ensure` aufgibt — und in
+ * welchem Zeitfenster gezaehlt wird.
+ *
+ * **Warum es diese Bremse gibt.** Das Ersetzen unten ist gewollt, aber es
+ * ergibt zusammen mit einem aeusseren Schliesser eine Endlosschleife: schliessen
+ * → ersetzen → oeffnen → schliessen. Am 2026-08-07 ist genau das passiert
+ * (`HqStreamKeepAlive` schloss jedes Fenster zum EIGENEN Stream, weil es eine
+ * fuer die Browser-Verbindung gefilterte Liste benutzte). Jede Runde holte eine
+ * neue WHEP-Adresse vom Server und baute eine volle WebRTC-Verbindung auf; die
+ * App war danach nur noch durch Beenden zu retten.
+ *
+ * Die Ursache ist behoben. Diese Bremse steht trotzdem hier, weil die Bauart
+ * — „wer schliesst" und „wer oeffnet" sind absichtlich getrennt — dieselbe
+ * Schleife jederzeit wieder hergeben kann. Aus einem Absturz der Bedienung
+ * wird damit ein Rueckfall auf `<video>` samt Logzeile.
+ */
+const ERSATZ_MAX = 5;
+const ERSATZ_FENSTER_MS = 10_000;
+
+/** Je Kachel: Zeitpunkte der letzten Ersetzungen (s. [`ERSATZ_MAX`]). */
+const ersetzt = new Map<string, number[]>();
+
+/** `true`, wenn fuer diese Kachel gerade zu oft ersetzt wurde. */
+function zuOftErsetzt(k: string, jetzt: number): boolean {
+  const bisher = (ersetzt.get(k) ?? []).filter((t) => jetzt - t < ERSATZ_FENSTER_MS);
+  bisher.push(jetzt);
+  ersetzt.set(k, bisher);
+  return bisher.length > ERSATZ_MAX;
+}
+
 export const nativePlayerSessions = {
   /**
    * Bestehende Sitzung holen oder neu anlegen (idempotent).
@@ -350,11 +381,22 @@ export const nativePlayerSessions = {
    * setzte sofort wieder `nativeFailed` und die Kachel hing endgueltig im
    * `<video>`-Rueckfall fest — obwohl der Rueckfall ausdruecklich nur bis zum
    * naechsten Mount gelten soll.
+   *
+   * **Ausser es geht zu schnell hintereinander** — dann bleibt die tote Sitzung
+   * liegen, und die Kachel faellt auf `<video>` zurueck (s. [`ERSATZ_MAX`]).
    */
   ensure(channelId: string, userId: string, slot = 0, title?: string): NativePlayerSession {
     const k = keyOf(channelId, userId, slot);
     let s = registry.get(k);
     if (s && (s.phase === 'failed' || s.phase === 'closed')) {
+      if (zuOftErsetzt(k, Date.now())) {
+        console.warn(
+          `[player] Fenster fuer ${k} wurde ${ERSATZ_MAX}x in ${
+            ERSATZ_FENSTER_MS / 1000
+          }s geschlossen und neu geoeffnet — gebe auf, Rueckfall auf <video>.`,
+        );
+        return s;
+      }
       void s.close();
       registry.delete(k);
       s = undefined;

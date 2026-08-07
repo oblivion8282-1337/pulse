@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07.8",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Eigenen Stream im eigenen Fenster ansehen — und die App bleibt bedienbar",
+      "intro": "Wer waehrend des Streamens auf sein eigenes Live-Symbol klickte und das eigene Wiedergabefenster waehlte, brachte damit die App zum Erliegen.",
+      "items": [
+        "Behoben: Das Fenster ging auf, zeigte kurz Bild und wurde sofort wieder geschlossen. Danach lief die App in einer Endlosschleife aus Oeffnen und Schliessen und war nur noch durch vollstaendiges Beenden zu retten; auch der laufende Stream liess sich nicht mehr stoppen.",
+        "Ursache war eine Aufraeumung, die den eigenen Stream absichtlich ausschliesst — das ist fuer die Verbindung im Hintergrund richtig, galt aber versehentlich auch fuer das bewusst geoeffnete Fenster.",
+        "Den eigenen Stream im eigenen Fenster anzusehen ist ausdruecklich vorgesehen: nur dort lassen sich HDR und 10 Bit beurteilen, das eingebaute Bild zeigt beides nicht.",
+        "Zusaetzlich gibt es jetzt eine Bremse: sollte ein Fenster nochmals wiederholt geschlossen und neu geoeffnet werden, faellt die Kachel auf die eingebaute Anzeige zurueck, statt die App zu blockieren."
+      ]
+    },
+    {
       "id": "2026-08-07.7",
       "date": "2026-08-07",
       "style": "Sachlich",
