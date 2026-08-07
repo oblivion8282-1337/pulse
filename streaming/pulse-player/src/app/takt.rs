@@ -178,11 +178,38 @@ impl Ausgabetakt {
         Some((self.vorhalt.as_nanos() / abstand.as_nanos()) as usize + 2)
     }
 
-    /// Das Noetige, begrenzt auf das Moegliche. Ohne bekannten Bildabstand
-    /// bleibt es bei [`MIN_WARTEND`] — das ist der Zustand, in dem es nichts zu
-    /// rechnen gibt, nicht einer, in dem acht richtig waeren.
+    /// Das Noetige, begrenzt auf das Moegliche.
+    ///
+    /// **Solange der Bildabstand unbekannt ist, gilt die OBERgrenze, nicht die
+    /// untere.** Die ersten Bilder sind genau die, bei denen die Bildrate noch
+    /// nicht feststeht — mit der Untergrenze zu beginnen hiesse, bei jedem
+    /// Sitzungsstart einige Bilder zu verdraengen, nur weil noch niemand
+    /// nachgesehen hat. Grosszuegig zu starten kostet nichts: der Ring ist
+    /// ohnehin fuer [`MAX_WARTEND`] ausgelegt.
     fn kapazitaet(&self) -> usize {
-        self.noetige_plaetze().unwrap_or(MIN_WARTEND).clamp(MIN_WARTEND, MAX_WARTEND)
+        self.noetige_plaetze().unwrap_or(MAX_WARTEND).clamp(MIN_WARTEND, MAX_WARTEND)
+    }
+
+    /// Der Vorhalt, den die Warteschlange bei dieser Bildrate wirklich tragen
+    /// kann — hoechstens der eingestellte.
+    ///
+    /// **Warum gekuerzt und nicht verworfen wird.** Passt der gewuenschte
+    /// Vorhalt nicht in die Plaetze, gab es bis zum 2026-08-07 nur eine
+    /// Antwort: Bilder vor ihrem Zeitpunkt wegwerfen. Bei 240 fps und 60 ms
+    /// waren das gemessen zwei Drittel des Stroms — von 240 dekodierten kamen
+    /// 17 bis 162 an, im Mittel rund 70.
+    ///
+    /// Ein etwas kuerzerer Vorhalt ist in jeder Hinsicht das bessere Geschaeft:
+    /// er kostet Glaettung im Millisekundenbereich, waehrend das Wegwerfen
+    /// ganze Bilder kostet. Und er macht die Bildrate zu einer Zahl, die man
+    /// frei waehlen kann — vorher gab es eine Klippe, die niemand sah.
+    fn wirksamer_vorhalt(&self) -> Duration {
+        let Some(abstand) = self.bildabstand.filter(|d| !d.is_zero()) else {
+            return self.vorhalt;
+        };
+        // Zwei Plaetze bleiben Reserve fuer Schwankung — dieselben zwei, die
+        // `noetige_plaetze` aufschlaegt.
+        self.vorhalt.min(abstand * (MAX_WARTEND as u32 - 2))
     }
 
     /// Laeuft der Takt ueberhaupt? Bei `0` ist alles hier ein Durchreichen.
@@ -303,9 +330,10 @@ impl Ausgabetakt {
                 self.gewarnt = true;
                 eprintln!(
                     "pulse-player: Ausgabe-Takt {} ms braucht {noetig} Plaetze, es gibt \
-                     {MAX_WARTEND} — Bilder werden vor ihrem Zeitpunkt verworfen. \
-                     Kleinerer Vorhalt hilft.",
+                     {MAX_WARTEND} — Vorhalt auf {} ms gekuerzt. Das kostet etwas \
+                     Glaettung und ist billiger als weggeworfene Bilder.",
                     self.vorhalt_ms(),
+                    self.wirksamer_vorhalt().as_millis(),
                 );
             }
         }
@@ -354,7 +382,11 @@ impl Ausgabetakt {
         if takt == 0 {
             return jetzt;
         }
-        let soll = jetzt + self.vorhalt;
+        // **Der WIRKSAME Vorhalt, nicht der eingestellte** — sonst bekaemen die
+        // Bilder Zielzeitpunkte, fuer die es keine Plaetze gibt, und faellt
+        // genau der Fehler wieder an, den `wirksamer_vorhalt` abwendet.
+        let vorhalt = self.wirksamer_vorhalt();
+        let soll = jetzt + vorhalt;
         let Some(anker) = self.anker.as_ref().filter(|a| a.takt == takt) else {
             self.anker = Some(Anker { rtp, lokal: soll, takt });
             return soll;
@@ -409,8 +441,8 @@ impl Ausgabetakt {
         // gewordene Strecke faengt `NEU_VERANKERN` ab); ein Anker, der
         // Ausreissern nach oben folgte, waere wieder der Fehler von eben.
         let vorlauf = z.saturating_duration_since(jetzt);
-        if vorlauf > self.vorhalt {
-            let zuviel = vorlauf - self.vorhalt;
+        if vorlauf > vorhalt {
+            let zuviel = vorlauf - vorhalt;
             self.nachgezogen += 1;
             if let Some(a) = self.anker.as_mut() {
                 if let Some(frueher) = a.lokal.checked_sub(zuviel) {
@@ -626,6 +658,51 @@ mod tests {
             t.kapazitaet() > MIN_WARTEND,
             "60 ms bei 144 fps brauchen mehr als {MIN_WARTEND} Plaetze, gerechnet wurden {}",
             t.kapazitaet()
+        );
+    }
+
+    /// **Die Bildrate darf keine Klippe mehr haben.** Bei 240 fps passt der
+    /// eingestellte Vorhalt von 60 ms nicht in die Plaetze (16 noetig, 12 da).
+    /// Statt Bilder wegzuwerfen — gemessen kamen von 240 nur 17 bis 162 an —
+    /// wird der Vorhalt gekuerzt.
+    #[test]
+    fn sehr_hohe_bildrate_kuerzt_den_vorhalt_statt_bilder_zu_verwerfen() {
+        let mut t = Ausgabetakt::neu(60);
+        let t0 = Instant::now();
+        // 375 RTP-Takte bei 90 kHz = 4,17 ms = 240 Bilder je Sekunde.
+        let schritt = Duration::from_micros(4_167);
+        let mut jetzt = t0;
+        for k in 0..50u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 375), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        // Beim Einstieg steht die Bildrate noch nicht fest und der Anker liegt
+        // auf dem vollen Vorhalt; ein paar Bilder gehen dabei verloren. Das ist
+        // hinzunehmen und wird deshalb nur gedeckelt, nicht wegdefiniert.
+        let nach_dem_anlauf = t.verdraengt();
+        assert!(nach_dem_anlauf <= 8, "der Anlauf darf nicht teuer sein, war {nach_dem_anlauf}");
+        // **Das ist die eigentliche Zusicherung:** im Dauerbetrieb faellt nichts
+        // mehr heraus, egal wie hoch die Bildrate ist.
+        for k in 50..300u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 375), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        assert_eq!(
+            t.verdraengt(),
+            nach_dem_anlauf,
+            "im Dauerbetrieb darf kein Bild mehr vorzeitig herausfallen"
+        );
+        assert!(
+            t.wirksamer_vorhalt() < Duration::from_millis(60),
+            "der Vorhalt muss gekuerzt worden sein, war {:?}",
+            t.wirksamer_vorhalt()
+        );
+        assert!(
+            t.wirksamer_vorhalt() >= Duration::from_millis(35),
+            "aber nicht mehr als noetig, war {:?}",
+            t.wirksamer_vorhalt()
         );
     }
 
