@@ -92,7 +92,23 @@ finish-args:
   # Sandbox ist fragil). `flatpak-spawn --host podman …` braucht diesen Bus-Namen
   # (Boxbuddy-Muster, Flathub-akzeptiert). containerRuntime.ts nutzt ihn nur,
   # wenn der User App-Hosting startet.
+  #
+  # **Diese Zeile stand hier schon vor HDR** (seit dem App-Hosting, 2026-07-02)
+  # und wird dafür NICHT hinzugefügt — HDR benutzt sie nur mit: der Sidecar
+  # startet damit `pulse-kms-helfer` auf dem Host. Wer sie eines Tages
+  # entfernen will, verliert also beides.
   - --talk-name=org.freedesktop.Flatpak
+  # HDR-Aufnahme: ein einzelnes Verzeichnis im Laufzeitverzeichnis des Nutzers,
+  # in dem der Unix-Socket zum KMS-Helfer liegt (`kms.sock`, 0600, Verzeichnis
+  # 0700). Der Helfer läuft auf dem HOST (er braucht `cap_sys_admin`, das ein
+  # Flatpak nicht tragen kann) — es braucht also einen Ort, den beide Seiten
+  # unter demselben absoluten Pfad sehen und auf dem beide schreiben dürfen.
+  # `--filesystem=host:ro` genügt dafür nicht: ein Unix-Socket lässt sich nur
+  # verbinden, wo man auch schreiben darf.
+  # **Nicht `xdg-run/pulse`** — das gehört PulseAudio und ist für den Ton
+  # bereits gebunden. Ohne diese Zeile schweigt HDR unter Linux; sie ist die
+  # schmalste Form, die das löst, und keine allgemeine Öffnung.
+  - --filesystem=xdg-run/pulse-hq:create
   # The sidecar's stderr is read line-by-line by the Electron bridge — flush promptly
   - --env=PYTHONUNBUFFERED=1
 
@@ -269,6 +285,18 @@ modules:
     build-commands:
       - cargo --offline build --release --verbose
       - install -Dm755 target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
+      # Der KMS-Helfer für HDR. Er wird hier nur MITGELIEFERT, nicht in Betrieb
+      # genommen: er braucht `cap_sys_admin`, und die kann ein Flatpak nicht
+      # tragen (die Sandbox setzt `no_new_privs`, gesetzte Datei-Fähigkeiten
+      # verfallen beim Betreten). Der Nutzer kopiert ihn einmalig mit dem
+      # Skript daneben auf den Host — dessen Pfad zeigt die App an, wenn HDR
+      # angefragt wird und der Helfer fehlt. Der Gewinn dieser Mitlieferung:
+      # ein `flatpak update` bringt immer das zur App passende Programm mit,
+      # und „bitte neu einrichten" ist damit eine Abhilfe, die in einen Satz
+      # passt. Gebaut wird er vom `cargo build` darüber mit
+      # (`default-members` in `streaming/linux-hq-sidecar/Cargo.toml`).
+      - install -Dm755 target/release/pulse-kms-helfer /app/libexec/pulse-kms-helfer
+      - install -Dm755 pulse-kms-helfer-einrichten.sh /app/libexec/pulse-kms-helfer-einrichten
     sources:
       # Liegt seit 2026-07-29 IM Repo (vorher eigenes Repo + fest gepinnter
       # Commit). Damit löst eine Sidecar-Änderung wieder automatisch einen
@@ -286,6 +314,13 @@ modules:
         # laeuft in einem anderen Praefix und uebersetzt ohnehin neu).
         skip:
           - target
+      # Das Einrichtungsskript für den KMS-Helfer. Es liegt im Repo unter
+      # `scripts/` (dort suchen Entwickler es) und wird hier daneben gelegt, weil
+      # es NEBEN dem Programm liegen muss, das es installiert: es findet seine
+      # Quelle über das eigene Verzeichnis, nicht über einen geratenen
+      # `/var/lib/flatpak/...`-Pfad.
+      - type: file
+        path: ../scripts/pulse-kms-helfer-einrichten.sh
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Nativer HQ-Player (Zuschauer-Seite) ────────────────────────────────────
