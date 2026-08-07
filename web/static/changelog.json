@@ -12,7 +12,9 @@
         "Das galt fuer jede Grafikkarte, auch fuer schnelle: die Ursache lag nicht an der Leistung, sondern an einem zu klein bemessenen Zwischenspeicher.",
         "Die Bildrate ist damit frei waehlbar. Auch bei 240 Bildern je Sekunde kommt jetzt alles an; reicht der Zwischenspeicher nicht, passt sich die Glaettung selbst an, statt Bilder zu opfern.",
         "Die Verzoegerung zwischen Sender und Bild ist etwa halbiert (von rund 61 auf 33 Millisekunden), ohne dass das Bild unruhiger wird.",
-        "Ausserdem behoben: gelegentliche Aussetzer von mehreren Sekunden, bei denen das Bild stehenblieb."
+        "Ausserdem behoben: gelegentliche Aussetzer von mehreren Sekunden, bei denen das Bild stehenblieb.",
+        "Auf Linux mit NVIDIA-Karte nimmt das Bild zusaetzlich einen kuerzeren Weg: es bleibt auf der Grafikkarte, statt zwischendurch in den Hauptspeicher zu wandern. Gemessen sinkt die Verzoegerung dadurch von 78 auf 73 Millisekunden.",
+        "Klappt dieser kuerzere Weg auf einem Rechner nicht, schaltet das Fenster von selbst auf den bisherigen zurueck."
       ],
       "outro": "Bei sehr hohen Aufloesungen mit sehr hohen Bildraten koennen weiterhin kurze Aussetzer auftreten. Die Ursache dafuer ist gefunden und wird als naechstes angegangen."
     },
