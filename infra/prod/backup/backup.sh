@@ -5,6 +5,7 @@
 #   minio       mc mirror bucket → restic    (tag: minio)
 #   avatars     restic /snapshot/avatars     (tag: avatars)
 #   icons       restic /snapshot/guild_icons (tag: guild_icons)
+#   config      restic /snapshot/config      (tag: config)
 #   maintenance restic forget --prune + check
 #
 # All snapshots use --host=pulse so the repo is portable across host renames.
@@ -66,6 +67,28 @@ snapshot_icons() {
     restic backup /snapshot/guild_icons --tag guild_icons --host pulse
 }
 
+# Konfiguration und Geheimnisse — .env, secrets/ (JWT-Schluessel), certs/.
+#
+# **Warum es das seit 2026-08-07 gibt.** Bis dahin sicherte dieses Skript
+# ausschliesslich NUTZERDATEN. Am 2026-08-07 hat ein `rsync --delete` gegen
+# `infra/prod/` genau die Dateien geloescht, die dort NICHT im Git liegen —
+# `.env`, `secrets/`, `certs/`. Das restic-Repo war intakt, die Datenbank
+# vollstaendig, und der private JWT-Schluessel trotzdem unrettbar verloren:
+# er stand in keinem Snapshot. Alle Sitzungen und alle Geraete-Zertifikate
+# mussten neu ausgestellt werden.
+#
+# Die Lehre ist nicht "kein rsync --delete" (das auch), sondern: was nicht im
+# Git liegt UND nicht im Backup, existiert genau einmal.
+#
+# Der Mount ist ABSICHTLICH nur lesbar (`:ro` in der compose-Datei) — ein
+# Backup-Container hat keinen Grund, Geheimnisse zu veraendern.
+snapshot_config() {
+    test -d /snapshot/config || { log "ERROR: /snapshot/config not mounted"; exit 1; }
+    test -e /snapshot/config/.env || log "WARN: /snapshot/config/.env fehlt — sichere trotzdem, was da ist"
+    log "restic backup /snapshot/config (tag=config)"
+    restic backup /snapshot/config --tag config --host pulse
+}
+
 run_maintenance() {
     log "restic forget --prune (retention: 7 daily / 4 weekly / 6 monthly per tag-group)"
     restic forget --prune \
@@ -94,8 +117,9 @@ case "${1:-}" in
     minio)       snapshot_minio ;;
     avatars)     snapshot_avatars ;;
     icons)       snapshot_icons ;;
+    config)      snapshot_config ;;
     maintenance) run_maintenance ;;
-    "")          echo "usage: backup.sh <pg|minio|avatars|icons|maintenance>" >&2; exit 64 ;;
+    "")          echo "usage: backup.sh <pg|minio|avatars|icons|config|maintenance>" >&2; exit 64 ;;
     *)           echo "unknown subcommand: $1" >&2; exit 64 ;;
 esac
 

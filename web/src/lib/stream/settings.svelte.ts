@@ -530,11 +530,40 @@ export async function loadCatalogs(): Promise<void> {
       const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
-    // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Haken
+    // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
     // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
     if (streamSettings.overrides.hdr === true && !hdrPossible()) {
       const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
+    }
+    // **Intra-Refresh ist seit 2026-08-06 die VORGABE, wo der Sidecar ihn
+    // meldet** — vorher musste ihn jeder Nutzer von Hand einschalten, und
+    // praktisch niemand tat das.
+    //
+    // Was daran hing, war mehr als die Betriebsart selbst: `pushProtokoll()`
+    // koppelt den Sendeweg daran (Intra-Refresh braucht den WHIP-Rückkanal),
+    // und nur über WHIP erzeugt der Server FlexFEC-Parität. Ohne den Haken lief
+    // also dreierlei nicht — rollender Refresh, Rückkanal und Verlustschutz —,
+    // obwohl alle drei gemessen, ausgeliefert und in Betrieb waren. In der
+    // Produktionsauswertung vom 2026-08-06 bekamen 71 von 71 RTMPS-Sitzungen
+    // KEINE Parität, während über WHIP 75 von 131 welche hatten.
+    //
+    // Der Gewinn ist gemessen (`profiles/hq-2026-07-31-intra-refresh-echter-
+    // sender.json`): bei gleicher Datenrate 1,4 statt 48,7 Prozent gestörte
+    // Sekunden und 92,8 statt 76,3 VMAF.
+    //
+    // Gesetzt wird ausdrücklich `true` statt nur die Prüfung umzudrehen: der
+    // Wert muss in `overrides` LANDEN, damit `buildStartArgs` ihn mitschickt.
+    // Fehlt er, entscheidet die Vorgabe im Sidecar — und die ist aus. Genau so
+    // ging der Wunsch am 2026-08-02 schon einmal verloren, ohne dass etwas
+    // auffiel.
+    //
+    // Ein ausdrückliches `false` bleibt unangetastet: eine Abwahl ist eine
+    // Willensbekundung, keine fehlende Vorgabe. Die Rücknahme oben schützt
+    // weiterhin davor, dass ein mitgereister Haken auf ungeeigneter Hardware
+    // liegen bleibt.
+    if (streamSettings.overrides.intra_refresh === undefined && stream.intraRefreshAvailable) {
+      streamSettings.overrides = { ...streamSettings.overrides, intra_refresh: true };
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
