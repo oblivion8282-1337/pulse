@@ -4,14 +4,12 @@
   "baut_auf": "hdr-2026-08-07-scanout-linux-nvidia — dort ist belegt, DASS der Scanout HDR traegt, und unter OFFEN steht die eine Frage, die alles blockierte: die Berechtigung im Flatpak. Diese Akte beantwortet genau die.",
   "frage": "Kann die ausgelieferte Flatpak-App an die Scanout-Puffer kommen, ohne selbst erhoehte Rechte zu tragen — und halten die Schranken davor auch dann, wenn man sie ernsthaft angeht?",
   "antwort_kurz": "JA. Ein eigenes kleines Programm auf dem Host (`pulse-kms-helfer`, cap_sys_admin+ep) reicht die Puffer als Dateideskriptoren ueber einen Unix-Socket herein; die Sandbox erreicht ihn ueber eine einzige neue Manifest-Zeile. Gemessen: das Bild kommt aus der ECHTEN Flatpak-Sandbox heraus an (2560x1440, AB30, 1 Deskriptor), ein fremder Benutzer bekommt keines — auch nicht, wenn man ihm die Datei-Rechte oeffnet —, eine falsche Protokollfassung wird abgewiesen ohne Bild, und der Helfer endet 10 s nach dem letzten Client.",
-
   "hardware_und_stand": {
     "maschine": "dieselbe wie in der Vorgaenger-Akte: RTX 5080, Treiber 610.43.03, Kernel 7.1.4-1-cachyos",
     "sitzung": "KWin/Wayland; **DP-2 (der HDR-Schirm) war ausgeschaltet** — gemessen wurde an DP-1 (SDR, 2560x1440). Das ist Absicht, s. GRENZEN_DER_AUSSAGE: geprueft wird der WEG, nicht die Farbe.",
     "flatpak": "com.howispulse.Pulse, im Benutzerverzeichnis installiert (Stand vom Zweig, noch OHNE die neue Manifest-Zeile — sie wurde als Laufzeit-Ausnahme `--filesystem=xdg-run/pulse-hq:create` nachgestellt)",
     "gebaut_aus": "Zweig feat/hdr-kms-helfer (von pruef/hdr-linux-lokal)"
   },
-
   "GEMESSEN": {
     "M1_die_abhaengigkeiten_bleiben_klein_genug_fuer_jede_distribution": {
       "verfahren": "`ldd target/release/pulse-kms-helfer` nach `cargo build --release`.",
@@ -25,21 +23,18 @@
       "bedeutung": "**Kein libdrm, kein libEGL, nichts aus dem Grafikstapel** — die ioctls stehen von Hand im Programm. Damit ist es EIN Programm fuer Arch, Debian und Fedora, kein Paket je Distribution. Das war die Vermutung im Auftrag; sie ist damit geprueft, nicht geglaubt.",
       "einschraenkung": "glibc. Auf einer musl-Distribution (Alpine, Void-musl) braeuchte es einen eigenen Bau. Ungeprueft, ob dort ueberhaupt jemand die Flatpak-App fuehrt."
     },
-
     "M2_das_bild_kommt_aus_der_echten_sandbox_heraus_an": {
       "verfahren": "Helfer auf dem Host gestartet (so, wie der Sidecar es mit `flatpak-spawn --host` tut), dann aus der INSTALLIERTEN Flatpak-App heraus ein Bild angefragt — mit einem eigenstaendigen Client (Python, `socket.recv_fds`), damit die Probe nicht an unserer eigenen Gegenstelle haengt.",
       "befund": "`ERGEBNIS bild: b'PKHR' fassung=1 ergebnis=0 2560x1440 deskriptoren=1`",
       "gegenprobe": "Derselbe Aufruf OHNE die neue Manifest-Zeile (also so, wie die App heute gebaut ist): `ls: Zugriff auf '/run/user/1000/pulse-hq/kms.sock' nicht moeglich`. Die Zeile ist also noetig und nicht Zierde — und das ist jetzt gemessen statt behauptet.",
       "bedeutung": "Der ganze Weg ist an der echten Sandbox belegt, nicht an einem Nachbau: gemeinsamer Socket-Pfad, SCM_RIGHTS ueber die Sandbox-Grenze, Deskriptor kommt an."
     },
-
     "M3_flatpak_spawn_traegt_und_die_berechtigung_dafuer_war_schon_da": {
       "verfahren": "Aus der installierten App heraus: `flatpak-spawn --host /usr/local/libexec/pulse-kms-helfer --fassung`.",
       "befund": "`pulse-kms-helfer Protokollfassung 1` — der Host-Start gelingt.",
       "wichtig": "`--talk-name=org.freedesktop.Flatpak` steht seit dem App-Hosting (2026-07-02) im Manifest. **Fuer HDR wird KEINE Rechteausweitung vorgenommen**; die einzige neue Zeile ist `--filesystem=xdg-run/pulse-hq:create`, ein einzelnes Verzeichnis im Laufzeitverzeichnis des Nutzers.",
       "nebenbefund": "`/usr/local/libexec` ist in der Sandbox NICHT unter seinem eigenen Pfad sichtbar, wohl aber unter `/run/host/usr/local/libexec` (Flatpak legt das Host-Wurzelverzeichnis dort ab). `health.gsr.hdr_helfer` prueft deshalb beide Orte."
     },
-
     "M4_ein_fremder_benutzer_bekommt_kein_bild": {
       "verfahren": "Drei Stufen, jede einzeln gemessen, dazu je eine Kontrolle mit dem eigenen Benutzer (sonst waere ein 'Nein' nicht von einem kaputten Aufbau zu unterscheiden).",
       "stufe_0_kontrolle_eigener_nutzer": "uid 1000 → Bild, 1 Deskriptor.",
@@ -49,21 +44,18 @@
       "bedeutung": "Die tragende Schranke ist `SO_PEERCRED`, nicht der Dateimodus. Genau das war zu belegen: wer mit dem Helfer reden darf, liest den Bildschirm mit.",
       "danach": "Alle Rechte wurden im selben Lauf wiederhergestellt (700/700/600, im Protokoll nachgewiesen)."
     },
-
     "M5_der_handschlag_erkennt_eine_fremde_fassung": {
       "verfahren": "`kms_helfer_probe DP-1 1 --fassung 99` und `--fassung 0` — ein Client, der absichtlich die falsche Protokollfassung sendet. Die eigene Gegenstelle kann das nicht von sich aus; das Werkzeug greift dafuer auf den rohen Socket zu.",
       "befund": "Beide Male `ergebnis=1` (FEHLER_FASSUNG), Helfer meldet seine eigene Fassung 1, und **0 Deskriptoren** — bei abgewiesener Fassung kommt kein Bild mit.",
       "meldung_an_den_nutzer": "'der installierte Helfer spricht Fassung X, diese App erwartet Fassung Y — der Helfer ist aelter als die App. Abhilfe: denselben Befehl noch einmal ausfuehren: <Befehl>'. Der umgekehrte Fall (Helfer neuer) wird anders benannt, damit niemand in die falsche Richtung sucht.",
       "bedeutung": "Die App aktualisiert sich selbst, der Helfer liegt auf dem Host — dieser Fall TRITT ein, er ist keine Theorie."
     },
-
     "M6_der_helfer_bleibt_nicht_liegen_und_leckt_nicht": {
       "leerlauf": "Nach dem letzten Client endet er nach **10 s** (gemessen; Anlauffrist ohne je einen Client: 15 s).",
       "deskriptoren": "Waehrend 400 000 Bildern in 16,4 s (24 422/s) haelt er stabil 6 offene Deskriptoren, mit einem einzelnen Ausschlag auf 7 (der gerade weitergereichte Puffer). Kein Wachstum.",
       "gem_handles": "Werden nach jedem `GETFB2` freigegeben, auch im Fehlerfall — bei 60 Bildern je Sekunde sammelten sich sonst in Minuten Zehntausende.",
       "nebenbefund": "`/proc/<pid>/fd` des Helfers ist fuer den eigenen Benutzer NICHT lesbar (der Kernel loescht `dumpable`, sobald ein Programm beim execve Faehigkeiten gewinnt). Ein anderer Prozess desselben Nutzers kann ihm also nicht in die Deskriptoren sehen. Fuer die Messung war `sudo` noetig — wer das nicht weiss, misst 0 und haelt es fuer ein Ergebnis."
     },
-
     "M7_der_helfer_nimmt_nur_pfade_im_eigenen_laufzeitverzeichnis": {
       "verfahren": "Vier Aufrufe von Hand.",
       "befund": [
@@ -74,7 +66,6 @@
       ],
       "bedeutung": "Der Pfad kommt von einem Programm mit WENIGER Rechten. Ohne diese Pruefung waere er die Moeglichkeit, ein Verzeichnis anzulegen oder eine Datei zu ueberschreiben, an die der Aufrufer selbst nicht herankaeme."
     },
-
     "M8_das_einrichtungsskript": {
       "installieren": "`sudo scripts/pulse-kms-helfer-einrichten.sh` → '/usr/local/libexec/pulse-kms-helfer cap_sys_admin=ep'. Zweimal ausgefuehrt: unveraendertes Ergebnis, kein Schaden.",
       "entfernen": "`--entfernen` nimmt Programm UND Skript weg und raeumt das Verzeichnis, wenn es leer bleibt; ein zweiter Aufruf meldet 'es war nichts installiert' und endet mit 0.",
@@ -82,20 +73,24 @@
       "kein_geratener_pfad": "Die Quelle findet sich NEBEN dem Skript (im Flatpak `/app/libexec`), nicht ueber ein geratenes `/var/lib/flatpak/...`. Der Befehl, den die App anzeigt, kommt ueber `flatpak info --show-location` an denselben Ort — der dokumentierte Weg, und er trifft Benutzer- wie System-Installation.",
       "atomar": "Erst daneben legen, `setcap`, dann umbenennen. Ein Abbruch mitten im Kopieren liesse sonst ein halbes Programm mit gesetzter Berechtigung zurueck."
     },
-
     "M9_ohne_helfer_sagt_die_app_was_zu_tun_ist": {
       "befund": "Ohne eingerichteten Helfer endet der Bildversuch mit: 'den Helfer starten. Ist er eingerichtet? Einmalig: sudo …' — und `ops::start` verweigert HDR schon vor dem Aufbau der Aufnahme mit derselben Begruendung samt Befehl.",
       "health": "`health.gsr.hdr_helfer` (liegt er da?) und `health.gsr.hdr_helfer_befehl` (Befehl zum Kopieren) sind neu. Beides steht ausdruecklich fuer 'die Datei ist da', NICHT fuer 'es wird gelingen' — sonst muesste `health` bei jedem Oeffnen der Einstellungen ein Programm mit erhoehten Rechten starten.",
       "bedeutung": "Der Unterschied zwischen 'HDR nicht verfuegbar' und 'der Helfer fehlt, hier ist der Befehl' entscheidet, ob jemand das in zehn Sekunden loest oder gar nicht."
     },
-
-    "M10_tests": {
+    "M10_die_ganze_kette_laeuft_ueber_den_helfer_und_der_unmittelbare_weg_ist_unveraendert": {
+      "verfahren": "`examples/kms_hdr_nachweis DP-1 <ziel> 180 60 --ohne-hdr` zweimal: einmal als gewoehnlicher Benutzer (nimmt zwangslaeufig den Helfer) und einmal mit `sudo` (nimmt den unmittelbaren Weg). Derselbe Bildschirm, dasselbe Werkzeug, dieselbe Kette Scanout → EGLImage → CUDA → av1_nvenc → IVF.",
+      "ueber_den_helfer": "Logzeile 'Scanout: ohne eigene Berechtigung — Bilder kommen ueber den Helfer'; 2560x1440, AB30, modifier 0x0300000000606014; 180 Bilder in 3,0 s (60,3 fps); Strom: yuv420p10le, bt709/bt709/bt709, 180 Bilder.",
+      "unmittelbar_als_root": "dieselbe Aufloesung, derselbe fourcc, derselbe Modifier; 180 Bilder in 3,0 s (60,5 fps); Strom byte-gleich beschrieben. **Die Helfer-Zeile fehlt** — der unmittelbare Weg wurde genommen.",
+      "bedeutung": "Zwei Antworten in einem Lauf. Erstens die Regression: der Umbau von `capture/kms.rs` auf die geteilte Kiste hat den gemessenen Weg nicht angefasst. Zweitens die Quellenwahl in beide Richtungen — wer die Rechte hat, merkt vom Helfer nichts; wer sie nicht hat, bekommt trotzdem sein Bild, bei gleicher Bildrate.",
+      "was_es_NICHT_zeigt": "DP-1 ist SDR. Der Strom traegt bt709, und das ist hier richtig so (`--ohne-hdr`). Ueber einen HDR-Strom sagt dieser Lauf nichts."
+    },
+    "M11_tests": {
       "befund": "`cargo test --release` im Arbeitsbereich: **96 Sidecar** + **14 Helfer** = 110, alle gruen.",
       "einordnung": "Der Sidecar-Stand war 91. Dazugekommen sind fuenf Tests fuer die Gegenstelle (Fassung zu alt / zu neu / fehlende Berechtigung / Socket-Ort / OK) und einer fuer den Scanout-Rahmen; ein Namenstest ist mit den ioctls in die Helfer-Kiste umgezogen und zaehlt jetzt dort.",
       "was_die_tests_koennen_und_was_nicht": "Sie pruefen Entscheidungen (Fassungsvergleich, Benutzerurteil, Format auf dem Draht) und die Socket-Mechanik am Paar. Was sie NICHT koennen: einen zweiten Benutzer herstellen. Deshalb steht diese Probe als M4 hier und nicht im Testlauf."
     }
   },
-
   "GEBAUT": {
     "streaming/linux-hq-sidecar/kms-helfer/": "Die Kiste: `main.rs` (das Programm mit cap_sys_admin), `drm.rs` (die ioctls, aus dem Sidecar hierher umgezogen), `karte.rs` (Ausgaenge aufzaehlen, Bild holen), `protokoll.rs` (Format auf dem Draht), `uebertragung.rs` (SCM_RIGHTS + SO_PEERCRED).",
     "streaming/linux-hq-sidecar/src/capture/kms_helfer.rs": "Die Gegenstelle: verbinden, notfalls ueber `flatpak-spawn --host` starten, Bilder holen, Fehlerfaelle in Meldungen mit Abhilfe uebersetzen.",
@@ -105,7 +100,6 @@
     "packaging/com.howispulse.Pulse.yml": "Zwei Install-Zeilen (Programm + Skript), eine Quelle (das Skript) und **eine** neue Berechtigung: `--filesystem=xdg-run/pulse-hq:create`.",
     "streaming/linux-hq-sidecar/examples/kms_helfer_probe.rs": "Das Werkzeug dieser Akte."
   },
-
   "OFFEN_die_oberflaeche_bietet_HDR_unter_linux_gar_nicht_an": {
     "befund": "`web/src/lib/stream/components/OverridesEditor.svelte` gattiert das HDR-Kaestchen auf `isWindows() && stream.hdrAvailable` — unter Linux gibt es die Option in der Oberflaeche also nicht, egal was der Sidecar kann. Das ist der letzte Rest; ohne ihn nuetzt der ganze Weg dem Nutzer nichts.",
     "was_der_sidecar_dafuer_schon_meldet": {
@@ -118,17 +112,15 @@
     "gelesen_werden_muss_es_in": "`web/src/lib/stream/gsr.ts` (Typen) und `state.svelte.ts` (`hdrAvailable`) — dort steht `hdr` bereits, die beiden neuen Felder fehlen noch.",
     "warum_es_hier_und_nicht_dort_steht": "`web/` lag ausserhalb des Reviers dieser Arbeit. Der Eintrag steht hier, damit derjenige, der es verdrahtet, nicht suchen muss."
   },
-
   "GRENZEN_DER_AUSSAGE": {
     "kein_HDR_bild_in_dieser_akte": "Der HDR-Schirm (DP-2) war ausgeschaltet, gemessen wurde an DP-1 (SDR). Belegt ist damit der WEG — dass Puffer, Groesse, Fourcc, Modifier und Deskriptor ueber die Sandbox-Grenze ankommen. NICHT belegt ist ein vollstaendiger HDR-Stream ueber diesen Weg: dass der Scanout eines HDR-Ausgangs 10 bit in PQ traegt, steht in der Vorgaenger-Akte, aber die beiden Messungen sind bisher nicht in EINEM Lauf zusammengekommen. Das ist der naechste Schritt und braucht den eingeschalteten Schirm.",
     "kein_lauf_ueber_den_ausgelieferten_sidecar_in_der_sandbox": "Der Client in M2 war ein eigenstaendiges Programm, nicht der Sidecar selbst — die installierte Flatpak-App ist ein aelterer Bau ohne diesen Quelltext. Was dort nachgestellt wurde (Socket-Pfad, SCM_RIGHTS, Sandbox-Grenze), ist genau das, woran es haette scheitern koennen; der Rest (`capture::kms_helfer`) ist auf dem Host gegen denselben Helfer gelaufen. Ein Flatpak-Bau dieses Zweigs und ein Sichttest darin stehen aus.",
-    "der_encode_weg_ist_nach_dem_umbau_nicht_erneut_gemessen": "`capture/kms.rs` ist auf die geteilte Kiste umgestellt worden. Die Umstellung ist ein Umzug, kein Umbau (dieselben ioctls, dieselbe Auswahl der groessten Plane), und die Tests laufen — aber `examples/kms_hdr_nachweis.rs`, das den ganzen Weg bis in den AV1-Strom faehrt, ist an diesem Tag NICHT gelaufen: die GPU war die ganze Zeit von einem anderen Messstand belegt. Vor dem Zusammenfuehren nachholen.",
+    "der_encode_weg_nach_dem_umbau": "**Nachgeholt, s. M10** — hier stand zwischenzeitlich 'nicht erneut gemessen, die GPU war belegt'. Der Lauf ist gefahren, beide Wege, mit gleichem Ergebnis. Offen bleibt allein, was M10 selbst benennt: er lief an einem SDR-Ausgang.",
     "ein_lauf_je_probe": "M4, M5 und M7 sind je ein Durchgang. Sie tragen hier trotzdem, weil es Ja/Nein-Entscheidungen ohne Streuung sind (ein Benutzer wird abgewiesen oder nicht) — anders als bei Bitraten oder Bildzahlen. M6 ist ueber 400 000 Bilder gemessen.",
     "nur_diese_maschine": "Ein Compositor, eine Distribution, eine Grafikkarte. Der Socket-Weg selbst ist von alldem unabhaengig; `flatpak-spawn --host` haengt an der Flatpak-Fassung des Nutzers (hier die des Systems, ungeprueft welche genau).",
     "musl_und_fremde_praefixe": "Feste Ablage unter `/usr/local/libexec`. Auf Systemen, die dort nicht schreiben lassen (immutable, NixOS), ist der Weg ungeprueft; `$PULSE_KMS_HELFER` ist der Ausweg, aber auch der ist nicht gemessen.",
     "was_der_helfer_NICHT_prueft": "Er fragt nicht, WER am Bildschirm etwas Vertrauliches zeigt, und er kann den Ausgang nicht auf 'nur der, den die App gerade streamt' einschraenken. Wer Zugriff auf den Socket hat (also der Benutzer selbst), kann jeden aktiven Ausgang lesen. Das ist dieselbe Grenze wie bei gpu-screen-recorder und keine Verschlechterung gegenueber dem Portal-Weg, wohl aber ein Unterschied: das Portal fragt den Nutzer, dieser Weg nicht."
   },
-
   "WIEDERHOLEN": [
     "cd streaming/linux-hq-sidecar && cargo build --release && cargo test --release",
     "ldd target/release/pulse-kms-helfer   — es darf nur libc/libgcc/vdso/ld uebrigbleiben",
@@ -136,10 +128,10 @@
     "./target/release/examples/kms_helfer_probe --liste",
     "./target/release/examples/kms_helfer_probe DP-1 400000",
     "./target/release/examples/kms_helfer_probe DP-1 1 --fassung 99   — muss abweisen, ohne Bild",
+    "./target/release/examples/kms_hdr_nachweis DP-1 /tmp/a.ivf 180 60 --ohne-hdr   — die ganze Kette ueber den Helfer; dasselbe mit sudo nimmt den unmittelbaren Weg (M10)",
     "sudo /usr/local/libexec/pulse-kms-helfer-einrichten --entfernen   — danach muss der Bildversuch den Einrichtungsbefehl nennen",
     "bash streaming/testbench/kms-helfer-schranken.sh DP-1   — fremder Benutzer (mit Kontrolle) UND die Runde durch die echte Flatpak-Sandbox (mit Gegenprobe ohne die Manifest-Zeile). Setzt Rechte absichtlich herunter und stellt sie im selben Lauf wieder her, auch bei Abbruch."
   ],
-
   "MESSFALLEN_dieses_tages": {
     "ein_nein_ohne_kontrolle_ist_kein_befund": "Der erste Lauf von M4 meldete fuer 'nobody' brav ein Nein — in Wahrheit konnte nobody nur das Testskript nicht lesen (es lag im Kritzelverzeichnis, 0700). Ohne die Kontrolle mit dem eigenen Benutzer im selben Zustand waere das als 'Schranke haelt' durchgegangen.",
     "null_deskriptoren_koennen_permission_denied_heissen": "`ls /proc/<pid>/fd | wc -l` lieferte 0 und sah nach einem sauberen Ergebnis aus. Der Kernel hatte `dumpable` geloescht, weil das Programm beim execve Faehigkeiten gewinnt; der Fehler ging in `2>/dev/null` unter.",
