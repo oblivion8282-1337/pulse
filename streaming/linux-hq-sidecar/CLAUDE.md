@@ -189,6 +189,16 @@ API :9997, HLS :8888). Self-signed Cert: `openssl req -x509 -newkey rsa:2048 -no
 **`test/certs/` ist gitignored — Private Keys niemals committen.**
 
 ## Dev-Umgebung
+
+**Zuerst nachsehen, nicht glauben.** Der Abschnitt unten beschreibt einen Stand,
+der am 2026-08-07 auf der Linux-Maschine so nicht mehr zutraf: dort lief
+**KWin 6.7.3** (nicht niri), auf einer **RTX 5080** (nicht 4090), mit PipeWire
+1.6.8 und dem **KDE**-Portal-Backend (nicht dem GNOME-Backend). Für jede Frage
+nach Aufnahme, Portal oder Farbraum entscheidet genau das — deshalb vor einer
+Messung `echo $XDG_CURRENT_DESKTOP`, `nvidia-smi -L` und
+`ls /run/user/1000/ | grep portal` ausführen. Die Angaben unten bleiben stehen,
+weil sie für die AMD-Seite und die dort begründeten Entscheidungen weiter gelten.
+
 - **NVIDIA RTX 4090 (Ada)** + **AMD Raphael-iGPU** (renderD129, im BIOS scharf), niri
   (Wayland), PipeWire 1.6.7. Beide Encode-Pfade live testbar: NVENC (H264+AV1),
   VAAPI (H264). AMD-Test erzwingen: `PULSE_HQ_VENDOR=amd` + im Portal den Monitor am
@@ -346,6 +356,83 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
   Der Schalter `PULSE_CAPTURE_10BIT=1` (`pipewire_stream.rs`, Vorgabe aus) bleibt
   als Messwerkzeug stehen, damit dieselbe Frage auf einem anderen Compositor ein
   Kommando statt eines Nachmittags kostet.
+
+  **Nachtrag 2026-08-07, KWin 6.7.3 auf NVIDIA (RTX 5080) — schärfer als oben,
+  und der Grund ist ein anderer als gedacht.** Der Befund oben liest sich, als
+  wähle KWins ScreenCast unter mehreren Möglichkeiten die 8 bit. Das stimmt
+  nicht: sein PipeWire-Producer **annonciert überhaupt nur `BGRA` und `BGRx`**
+  (alle drei EnumFormat-Einträge, per `pw-dump` am Node
+  `kwin-screencast-<Ausgang>` abgelesen). Es gibt kein 10-Bit-Gegenüber, mit dem
+  sich verhandeln ließe — unser Angebot ist dabei gleichgültig, PipeWire kann nur
+  schneiden, was beide Seiten führen. Ergänzend gemessen:
+  * Das Format-Pod trägt **keinerlei Farbfelder** (weder `color_matrix` noch
+    `transfer_function` noch `color_primaries`, obwohl `spa_video_info_raw` sie
+    kennt). Über die Aufnahme kommt also nicht einmal die Beschreibung eines
+    Farbraums herein — das bliebe auch dann so, wenn die Bittiefe morgen fiele.
+  * **Mit eingeschaltetem HDR am aufgenommenen Monitor ändert sich nichts:**
+    dieselbe Formatliste, dasselbe `XR24`, und die Aufnahme desselben
+    Bildschirminhalts ist **byte-identisch** zu der im SDR-Modus. KWin gibt den
+    ScreenCast in einem festen SDR-Raum heraus. Für den Betrieb ist das die gute
+    Nachricht (wer mit HDR-Monitor streamt, sendet kein verunstaltetes Bild);
+    für HDR ist es die Sackgasse.
+
+  Neu dafür: `examples/egl_modifier_probe.rs` — meldet die EGL-DMABUF-Modifier je
+  Fourcc ohne Portal und ohne Aufnahme. Auf NVIDIA liefert der Treiber für
+  `XB30`/`AB30` dieselben 14 Modifier wie für `XR24`/`AR24`; die Sonde trennt
+  damit „der Compositor kann nicht" von „wir haben falsch gefragt", und genau
+  diese Verwechslung hat die Frage seit dem 2026-08-04 offen gehalten.
+  Volle Messakte samt Encoder- und Zuschauerseite:
+  `streaming/testbench/profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.
+
+## HDR sendet der Sidecar — aber nur ueber die Scanout-Aufnahme (2026-08-07)
+
+**Der Absatz direkt darueber gilt weiter fuer den Portal-Weg — sein Schluss
+„fuer HDR ist es die Sackgasse" galt aber der ganzen Aufnahme, und das war zu
+breit.** Es gibt einen zweiten Aufnahmeweg, der den Compositor gar nicht fragt:
+**DRM/KMS**, direkt vom Scanout. Der liefert, was dem Portal fehlt.
+
+Gemessen am selben Tag, dieselbe Maschine (`profiles/hdr-2026-08-07-scanout-linux-nvidia.json`):
+
+| | Portal | Scanout (KMS) |
+|---|---|---|
+| Format bei HDR am Ausgang | `XR24`, 8 bit | **`AB30`, 10 bit** |
+| Format bei HDR aus | `XR24` | `AR24`, 8 bit |
+| Aufnahme aendert sich mit HDR | nein, byte-identisch | **ja**, Y max 723 statt 930 |
+| Farbraum-Beschreibung | keine | `HDR_OUTPUT_METADATA` je Ausgang |
+
+Vier Dinge daran sind nicht offensichtlich:
+
+* **Der Scanout ist bereits PQ-kodiert** — der Compositor hat die Kurve
+  angewandt, weil der Bildschirm sie so erwartet. Der Shader rechnet deshalb
+  **keine** Transferkurve, nur die BT.2020-Matrix (`nv_p010::Farbmodell`).
+  gpu-screen-recorder macht es auf Linux genauso; der Windows-Sidecar muss mehr
+  tun, weil WGC ihm lineares scRGB gibt.
+* **Die Bittiefe allein beweist nichts.** DP-1 lief in SDR und scannte trotzdem
+  `AB30`. Ob ein Ausgang HDR fuehrt, steht in der Property
+  `HDR_OUTPUT_METADATA` (`eotf == 2` = PQ), nicht im Fourcc.
+* **Der Weg braucht `CAP_SYS_ADMIN`.** `GETFB2` beantwortet der Kernel jedem,
+  die **GEM-Handles** darin aber nur DRM-Master oder `CAP_SYS_ADMIN` — ohne
+  Handle kein DMABUF. Deshalb hat gpu-screen-recorder einen eigenen Helfer mit
+  gesetzter Capability. **Fuer die Flatpak-Auslieferung ist das ungeloest**
+  (ein Flatpak kann keine Datei-Capabilities tragen); bis dahin ist HDR eine
+  Laborfaehigkeit. Der Sidecar verweigert den Start mit Begruendung, statt
+  still auf SDR zurueckzufallen (`encode/hdr.rs`, Muster von
+  `win-hq-sidecar/src/encode/hdr.rs`).
+* **Der Mauszeiger fehlt** — er liegt auf einer eigenen DRM-Plane. Und es gibt
+  keine Quellenauswahl: aufgenommen wird ein ganzer Ausgang. Der Weg ist kein
+  Ersatz fuer das Portal, sondern der Sonderweg fuer HDR.
+
+Werkzeug: `examples/kms_hdr_nachweis.rs`. `--liste` zeigt die Ausgaenge und
+ihren HDR-Zustand **ohne jede Berechtigung** — das ist der erste Griff bei
+jeder HDR-Frage auf dieser Plattform.
+
+**Ein Fehler, der dabei aufgefallen ist und den PipeWire-Weg nicht betraf:**
+`DmabufFrame::buffer_key` war seit jeher mit „0 = nicht cachen" dokumentiert,
+`nv_import` hat den Wert aber wie jeden anderen Schluessel behandelt. Bei der
+Scanout-Aufnahme, wo der Puffer bei jedem Bild wechselt, waere das ein
+**stehendes Bild** gewesen — mit voellig plausiblen Messwerten. Aufgefallen an
+der Log-Zeile „EGLImage-Cache: neuer Capture-Buffer aufgenommen buffers=1", die
+bei 180 Bildern genau einmal kam. Behoben.
 
   Folge: „10 bit" heißt bei einem Bildschirm-Stream **10 bit Rechenraum im
   Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist real und gemessen (ein

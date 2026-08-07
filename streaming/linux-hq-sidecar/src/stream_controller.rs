@@ -24,6 +24,7 @@ use crate::capture::pipewire_stream::{DmabufFrame, FrameMailbox, PipewireCapture
 use crate::capture::portal;
 use crate::encode::audio::{AudioEncoder, TonSenke};
 use crate::encode::nv_import::{self, NvDmabufImporter};
+use crate::encode::nv_p010;
 use crate::encode::va_import::VaapiImporter;
 use crate::encode::{AudioParams, EncoderConfig, VideoEncoder, hw};
 use crate::events;
@@ -55,6 +56,27 @@ impl FrameImporter {
         match self {
             FrameImporter::Nvenc { imp, hw } => imp.import(frame, hw),
             FrameImporter::Vaapi { imp } => imp.import(frame),
+        }
+    }
+}
+
+/// Woher die Bilder kommen. Beide Wege fuellen dieselbe [`FrameMailbox`] mit
+/// denselben [`DmabufFrame`]s — sie unterscheiden sich nur im Aufbau und im
+/// Abbau, deshalb ist das hier ein Zweizeiler und keine Abstraktion.
+enum Aufnahme {
+    /// xdg-desktop-portal + PipeWire. Der Regelweg: Auswahldialog, Fenster
+    /// oder Bildschirm, Mauszeiger auf Wunsch. Liefert nur SDR.
+    Portal(PipewireCapture),
+    /// DRM/KMS direkt vom Scanout (`capture::kms`). Der einzige Weg zu
+    /// HDR-Inhalt; dafuer ganzer Ausgang, kein Dialog, kein Mauszeiger.
+    Scanout(crate::capture::kms_aufnahme::KmsAufnahme),
+}
+
+impl Aufnahme {
+    fn stop(&mut self) {
+        match self {
+            Aufnahme::Portal(c) => c.stop(),
+            Aufnahme::Scanout(c) => c.stop(),
         }
     }
 }
@@ -229,6 +251,15 @@ pub struct StartParams {
     /// Trägt die aufnehmende Karte kein NVENC, fällt der Importer-Aufbau
     /// zusätzlich auf 8 bit zurück (der VAAPI-Pfad hat keinen 10-bit-Zweig).
     pub ten_bit: bool,
+    /// HDR senden (BT.2020 mit PQ, 10 bit). Zieht den Aufnahmeweg mit: statt
+    /// des Portals nimmt der Stream dann den **Scanout** auf
+    /// (`capture::kms`) — nur dort gibt es HDR-Bildpunkte. Von `ops::start`
+    /// bereits gegen Encoder und Ausgang geprüft (`encode::hdr::pruefen`);
+    /// hier steht nur noch ein erfüllbarer Wunsch.
+    pub hdr: bool,
+    /// Bei HDR: welcher Ausgang aufgenommen wird (`DP-2`). `None` = der erste
+    /// mit eingeschaltetem HDR. Ohne HDR bedeutungslos.
+    pub ausgang: Option<String>,
 }
 
 pub struct StreamSnapshot {
@@ -528,7 +559,25 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
         .map(|(v, _)| v)
         .ok_or_else(|| anyhow!("keine DRM-Render-Node gefunden"))?;
 
-    // 1) Portal-Dialog: User wählt Monitor/Fenster. Blockt bis zur Auswahl.
+    // 1) Aufnahmeweg wählen. **HDR zieht den Weg mit:** über das Portal kommt
+    //    auch bei eingeschaltetem HDR ein SDR-Bild herein (gemessen, Messakte
+    //    `hdr-2026-08-07-machbarkeit-linux-nvidia.json`) — es bliebe ein
+    //    SDR-Bild unter HDR-Etikett. HDR-Ströme laufen deshalb über den
+    //    Scanout (`capture::kms`). Ob das überhaupt geht, hat `ops::start`
+    //    bereits geprüft; scheitert es hier trotzdem, bricht der Start ab.
+    if params.hdr {
+        let (frames, ausgang, cap) =
+            crate::capture::kms_aufnahme::KmsAufnahme::start(params.ausgang.as_deref(), params.fps)?;
+        emit(Event::Log {
+            line: format!(
+                "[stream] HDR: Scanout-Aufnahme von {} (kein Auswahldialog, kein Mauszeiger)",
+                ausgang.name
+            ),
+        });
+        return run_stream_mit_aufnahme(params, stop_rx, shared, orig_vendor, frames, Aufnahme::Scanout(cap));
+    }
+
+    // Portal-Dialog: User wählt Monitor/Fenster. Blockt bis zur Auswahl.
     emit(Event::Log {
         line: "[stream] öffne Portal-Dialog zur Quellenauswahl …".to_string(),
     });
@@ -552,13 +601,36 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     });
 
     // 2) PipeWire-Capture auf fd + node_id starten.
-    let (frames, mut cap) = PipewireCapture::start(
+    let (frames, cap) = PipewireCapture::start(
         session.pw_fd,
         session.node_id,
         session.width,
         session.height,
     )?;
+    run_stream_mit_aufnahme(
+        params,
+        stop_rx,
+        shared,
+        orig_vendor,
+        frames,
+        Aufnahme::Portal(cap),
+    )
+}
 
+/// Der Teil hinter der Quellenwahl — identisch für beide Aufnahmewege.
+///
+/// Getrennt, weil sich Portal und Scanout **nur** darin unterscheiden, woher
+/// die Bilder kommen: beide fuellen dieselbe [`FrameMailbox`] mit demselben
+/// [`DmabufFrame`]. Eine zweite Fassung dieser 400 Zeilen waere die sichere
+/// Art, die beiden Wege auseinanderlaufen zu lassen.
+fn run_stream_mit_aufnahme(
+    params: StartParams,
+    stop_rx: Receiver<()>,
+    shared: &Shared,
+    orig_vendor: Vendor,
+    frames: Arc<FrameMailbox>,
+    mut cap: Aufnahme,
+) -> Result<Option<i32>> {
     // 3) Auf den ersten DMABUF-Frame warten → verbindliche (negotiierte) Maße.
     //    Stop-abbrechbar: `stop()` joint den Worker — bliebe das Warten blind
     //    für den Stop, hinge die ganze RPC-Schleife bis zu 10 s fest.
@@ -637,6 +709,14 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 } else {
                     nv_import::StagingFormat::Rgba8
                 };
+                // Matrix und Signalisierung kommen aus DERSELBEN Bedingung —
+                // liefen sie auseinander, waere das ein Farbfehler, den man dem
+                // Bildschirm anlastet (s. `nv_p010::Farbmodell`).
+                let farbmodell = if params.hdr {
+                    nv_p010::Farbmodell::Bt2020Ncl
+                } else {
+                    nv_p010::Farbmodell::Bt709
+                };
                 let hw_ctx = hw::HwContext::create(
                     hw::HwDeviceKind::Cuda,
                     None,
@@ -644,7 +724,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                     out_h,
                     staging.av_pix_fmt(),
                 )?;
-                let imp = NvDmabufImporter::new(out_w, out_h, staging)?;
+                let imp = NvDmabufImporter::new(out_w, out_h, staging, farbmodell)?;
                 Ok(FrameImporter::Nvenc { imp, hw: hw_ctx })
             }
             Vendor::Amd | Vendor::Intel => {
@@ -764,6 +844,10 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
         width: out_w,
         height: out_h,
         ten_bit,
+        // HDR haengt an 10 bit — faellt der 10-bit-Weg unterwegs weg (kein
+        // AV1, kein NVENC), faellt die HDR-Signalisierung mit. Sie ohne 10 bit
+        // stehen zu lassen hiesse PQ in 8 bit zu behaupten.
+        hdr: params.hdr && ten_bit,
     };
     let audio_params = params.audio.enabled().then(|| AudioParams {
         sample_rate: audio::SAMPLE_RATE,

@@ -88,9 +88,10 @@ fn main() -> anyhow::Result<()> {
         width: w,
         height: h,
         ten_bit,
+        hdr: false,
     };
     let mut enc = VideoEncoder::create(&cfg, &hw_ctx, &out)?;
-    let mut importer = NvDmabufImporter::new(w, h, staging)?;
+    let mut importer = NvDmabufImporter::new(w, h, staging, pulse_linux_hq_sidecar::encode::nv_p010::Farbmodell::Bt709)?;
     eprintln!("[capture_encode] Encoder + Importer bereit");
 
     let started = std::time::Instant::now();
@@ -98,10 +99,11 @@ fn main() -> anyhow::Result<()> {
     let mut sent: u64 = 0;
     loop {
         let mut hw_frame = importer.import(&frame, &hw_ctx)?;
-        // fds gehören uns — nach dem Import schließen.
-        for p in &frame.planes {
-            unsafe { libc::close(p.fd) };
-        }
+        // **Die fds NICHT von Hand schließen** — `DmabufPlane` besitzt sie und
+        // schließt sie beim Drop. Hier stand ein `libc::close` je Plane; seit
+        // der Drop dazugekommen ist, war das ein doppeltes Schließen, und das
+        // trifft im schlimmsten Fall einen fremden, inzwischen neu vergebenen
+        // Deskriptor. Aufgefallen am 2026-08-07 beim Bau der Scanout-Aufnahme.
         // SAFETY: frisch von `upload_swframe` bzw. dem Capture-Pfad geliefert,
         // noch nicht freigegeben, Format passt zum gebundenen Frames-Kontext.
         unsafe { enc.send_hw(hw_frame, sent as i64)? };

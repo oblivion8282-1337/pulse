@@ -10,6 +10,7 @@
 //! asynchrone Pacing-Loop + RTMPS-Push kommen in Phase 5.
 
 pub mod audio;
+pub mod hdr;
 pub mod hw;
 pub mod mux_writer;
 pub mod nv_import;
@@ -50,6 +51,11 @@ pub struct EncoderConfig {
     /// FARB-SIGNALISIERUNG hier — die Bittiefe selbst ergibt sich aus dem
     /// `sw_format` des gebundenen Frame-Pools.
     pub ten_bit: bool,
+    /// BT.2020 mit PQ statt BT.709 signalisieren. Setzt `ten_bit` voraus (PQ in
+    /// 8 bit waeren sichtbare Ringe) und dass die Aufnahme wirklich
+    /// PQ-kodierte Bildpunkte liefert — beides prueft [`hdr::pruefen`], bevor
+    /// ein Start zustande kommt.
+    pub hdr: bool,
 }
 
 /// Wohin die encodierten Pakete gehen.
@@ -608,7 +614,14 @@ unsafe fn open_encoder(
     // das Bild. Gemessen am 2026-08-01: weiss Y=255 statt 235, schwarz
     // Y=0 statt 16, rot Y=54 statt 62. Sichtbar, und es traf jeden
     // AMD-Sender.
-    if cfg.ten_bit || matches!(cfg.vendor, Vendor::Amd | Vendor::Intel) {
+    //
+    // **HDR ist der dritte Fall** und geht vor: dort rechnet `nv_p010` die
+    // BT.2020-Matrix, und die Werte kommen bereits PQ-kodiert aus dem Scanout
+    // (s. `capture::kms`). Hier BT.709 zu behaupten waere derselbe Fehler wie
+    // umgekehrt, nur andersherum sichtbar.
+    if cfg.hdr {
+        hdr::signalisieren(&mut encoder);
+    } else if cfg.ten_bit || matches!(cfg.vendor, Vendor::Amd | Vendor::Intel) {
         encoder.set_colorspace(ffmpeg::color::Space::BT709);
         encoder.set_color_range(ffmpeg::color::Range::MPEG);
         unsafe {

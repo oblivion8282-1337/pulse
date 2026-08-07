@@ -56,6 +56,19 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         // verweigert der Encoder-Open den Start. Ältere Sidecars melden das
         // Feld nicht; Konsumenten müssen `undefined` als false lesen.
         "intra_refresh": caps.intra_refresh,
+        // Zusatzfeld wie `ten_bit`: kann dieser Rechner HDR SENDEN?
+        //
+        // Bewusst die **Geraete**-Frage und nicht „laeuft gerade ein Schirm in
+        // HDR" — sonst verschwaende die Option spurlos, sobald jemand HDR am
+        // Bildschirm ausschaltet, und niemand kaeme darauf, woran es liegt.
+        // Ob die konkrete Lage traegt, entscheidet `ops::start` mit einer
+        // Meldung, die die Abhilfe nennt.
+        //
+        // **Was hier NICHT geprueft wird: die Berechtigung.** Die
+        // Scanout-Aufnahme braucht CAP_SYS_ADMIN; ob der Sidecar sie hat,
+        // zeigt sich erst beim Start. Ein `true` heisst also „die Karte und
+        // der Encoder koennen es", nicht „es wird gelingen".
+        "hdr": crate::encode::hdr::verfuegbar_hier(&caps.codecs),
         // Das Portal verhandelt Monitor ODER Window (`SourceType` in
         // portal.rs) — "region" hier zu bewerben hieße, einen Modus zu
         // versprechen, der still als Monitor/Window-Dialog endet.

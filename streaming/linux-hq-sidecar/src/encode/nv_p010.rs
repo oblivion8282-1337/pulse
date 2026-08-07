@@ -171,16 +171,65 @@ void main() {
 }
 "#;
 
-/// Gemeinsamer Kopf: BT.709-Matrix + P010-Quantisierung an EINER Stelle,
-/// damit Luma- und Chroma-Shader nicht auseinanderlaufen können.
-const COMMON: &str = r#"
+/// Welche Leuchtdichte-Matrix der Shader rechnet.
+///
+/// **Der Wert MUSS zu dem passen, was der Encoder signalisiert** — sonst zeigt
+/// der Zuschauer verschobene Farben, und zwar plausibel genug, dass man den
+/// Fehler beim Bildschirm sucht. Die Signalisierung sitzt in
+/// [`super::hdr::signalisieren`] bzw. im BT.709-Zweig von [`super::mod`].
+///
+/// Eine **Transferkurve rechnet dieses Modul nicht** und braucht es auch nicht:
+/// im SDR-Fall kommt gamma-kodiertes R'G'B' herein, im HDR-Fall bereits
+/// PQ-kodiertes — der Compositor hat die Kurve schon angewandt, weil der
+/// Bildschirm sie so erwartet. Zu wandeln bleibt allein YCbCr. (Der
+/// Windows-Sidecar muss mehr tun; er bekommt lineares scRGB.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Farbmodell {
+    /// SDR: BT.709, begrenzter Wertebereich.
+    Bt709,
+    /// HDR: BT.2020 nicht-konstante Leuchtdichte, begrenzter Wertebereich.
+    Bt2020Ncl,
+}
+
+impl Farbmodell {
+    /// Kr, Kg, Kb der jeweiligen Norm.
+    fn gewichte(self) -> [f64; 3] {
+        match self {
+            // ITU-R BT.709-6, Tabelle 3.
+            Farbmodell::Bt709 => [0.2126, 0.7152, 0.0722],
+            // ITU-R BT.2020-2, Tabelle 4.
+            Farbmodell::Bt2020Ncl => [0.2627, 0.6780, 0.0593],
+        }
+    }
+
+    /// Die beiden Nenner der Chroma-Gleichungen: 2*(1-Kb) und 2*(1-Kr).
+    /// Aus den Gewichten gerechnet statt abgeschrieben — die zwei Stellen
+    /// koennen so nicht auseinanderlaufen, und genau daran ist der Player unter
+    /// Windows schon einmal um 1e-4 danebengelegen.
+    fn nenner(self) -> (f64, f64) {
+        let [kr, _, kb] = self.gewichte();
+        (2.0 * (1.0 - kb), 2.0 * (1.0 - kr))
+    }
+
+    /// Gemeinsamer Shader-Kopf: Matrix + P010-Quantisierung an EINER Stelle,
+    /// damit Luma- und Chroma-Shader nicht auseinanderlaufen koennen.
+    fn common(self) -> String {
+        let [kr, kg, kb] = self.gewichte();
+        let (n_cb, n_cr) = self.nenner();
+        format!(
+            r#"
 uniform sampler2D src;
 in vec2 uv;
-const vec3 W709 = vec3(0.2126, 0.7152, 0.0722);
-float luma(vec3 c) { return dot(c, W709); }
-// 10-bit-Code → normalisierter 16-bit-Wert mit den 10 Bit OBEN.
-float p010(float code) { return clamp(floor(code + 0.5) * 64.0 / 65535.0, 0.0, 1.0); }
-"#;
+const vec3 KW = vec3({kr:.6}, {kg:.6}, {kb:.6});
+const float N_CB = {n_cb:.6};
+const float N_CR = {n_cr:.6};
+float luma(vec3 c) {{ return dot(c, KW); }}
+// 10-bit-Code -> normalisierter 16-bit-Wert mit den 10 Bit OBEN.
+float p010(float code) {{ return clamp(floor(code + 0.5) * 64.0 / 65535.0, 0.0, 1.0); }}
+"#
+        )
+    }
+}
 
 const FRAG_Y: &str = r#"#version 330
 out float outY;
@@ -203,9 +252,9 @@ void main() {
                    + texture(src, uv + vec2(-q.x,  q.y)).rgb
                    + texture(src, uv + vec2( q.x,  q.y)).rgb);
     float y = luma(c);
-    // BT.709-Nenner; begrenzter Bereich, 10 bit: Mitte 512, ±448.
-    float cb = (c.b - y) / 1.8556;
-    float cr = (c.r - y) / 1.5748;
+    // Nenner der jeweiligen Norm; begrenzter Bereich, 10 bit: Mitte 512, ±448.
+    float cb = (c.b - y) / N_CB;
+    float cr = (c.r - y) / N_CR;
     outUV = vec2(p010(cb * 896.0 + 512.0), p010(cr * 896.0 + 512.0));
 }
 "#;
@@ -230,8 +279,9 @@ pub struct RgbToP010 {
 
 impl RgbToP010 {
     /// `width`/`height` = Ausgabegröße (Encoder-Größe). Muss auf dem Thread
-    /// laufen, auf dem der EGL-Context current ist.
-    pub fn new(width: u32, height: u32) -> Result<Self> {
+    /// laufen, auf dem der EGL-Context current ist. `farbmodell` bestimmt die
+    /// Matrix und muss zur Signalisierung des Encoders passen.
+    pub fn new(width: u32, height: u32, farbmodell: Farbmodell) -> Result<Self> {
         let gl = unsafe { GlProcs::load()? };
         // P010 ist 4:2:0 — die Chroma-Ebene ist die halbe Größe. Bei ungerader
         // Kantenlänge aufrunden, damit kein Rand fehlt (`ResolutionRequest`
@@ -251,19 +301,20 @@ impl RgbToP010 {
             fbo: 0,
             vao: 0,
         };
-        unsafe { me.build()? };
+        unsafe { me.build(farbmodell)? };
         Ok(me)
     }
 
-    unsafe fn build(&mut self) -> Result<()> {
+    unsafe fn build(&mut self, farbmodell: Farbmodell) -> Result<()> {
         let gl = &self.gl;
+        let common = farbmodell.common();
         unsafe {
             self.y_tex = make_plane(gl, GL_R16, self.width, self.height)?;
             self.uv_tex = make_plane(gl, GL_RG16, self.uv_width, self.uv_height)?;
             (gl.gen_framebuffers)(1, &mut self.fbo);
             (gl.gen_vertex_arrays)(1, &mut self.vao);
-            self.prog_y = link_program(gl, VERT, &split_version(FRAG_Y))?;
-            self.prog_uv = link_program(gl, VERT, &split_version(FRAG_UV))?;
+            self.prog_y = link_program(gl, VERT, &split_version(FRAG_Y, &common))?;
+            self.prog_uv = link_program(gl, VERT, &split_version(FRAG_UV, &common))?;
             // `src` liegt fest auf Textureinheit 0.
             for p in [self.prog_y, self.prog_uv] {
                 (gl.use_program)(p);
@@ -413,12 +464,12 @@ unsafe fn make_plane(gl: &GlProcs, internal: u32, w: u32, h: u32) -> Result<u32>
     }
 }
 
-/// Setzt [`COMMON`] hinter die `#version`-Zeile des Fragment-Shaders — die
-/// muss in GLSL als Erstes stehen, die geteilten Helfer sollen aber trotzdem
-/// nur an einer Stelle leben.
-fn split_version(src: &str) -> String {
+/// Setzt den gemeinsamen Kopf hinter die `#version`-Zeile des
+/// Fragment-Shaders — die muss in GLSL als Erstes stehen, die geteilten Helfer
+/// sollen aber trotzdem nur an einer Stelle leben.
+fn split_version(src: &str, common: &str) -> String {
     match src.split_once('\n') {
-        Some((version, rest)) => format!("{version}\n{COMMON}{rest}"),
+        Some((version, rest)) => format!("{version}\n{common}{rest}"),
         None => src.to_string(),
     }
 }
@@ -482,4 +533,61 @@ fn info_log(mut get: impl FnMut(i32, *mut i32, *mut c_char)) -> String {
         .to_string_lossy()
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Die Gewichte jeder Norm summieren sich auf 1 — sonst waere Grau nicht
+    /// grau. Genau dieser Test haette den 1e-4-Fehler in der Farbmatrix des
+    /// Windows-Players NICHT gefunden (die Zeilensumme blieb dort 1); er faengt
+    /// die groben Faelle, das Rechnen der Nenner aus den Gewichten den Rest.
+    #[test]
+    fn gewichte_summieren_sich_auf_eins() {
+        for m in [Farbmodell::Bt709, Farbmodell::Bt2020Ncl] {
+            let s: f64 = m.gewichte().iter().sum();
+            assert!((s - 1.0).abs() < 1e-9, "{m:?}: Summe {s}");
+        }
+    }
+
+    /// Die Nenner sind die aus den Normen bekannten Zahlen — hier gegen die
+    /// veroeffentlichten Werte geprueft, nicht gegen die eigene Rechnung.
+    #[test]
+    fn nenner_entsprechen_den_normen() {
+        let (cb, cr) = Farbmodell::Bt709.nenner();
+        assert!((cb - 1.8556).abs() < 5e-5, "BT.709 Cb-Nenner {cb}");
+        assert!((cr - 1.5748).abs() < 5e-5, "BT.709 Cr-Nenner {cr}");
+        let (cb, cr) = Farbmodell::Bt2020Ncl.nenner();
+        assert!((cb - 1.8814).abs() < 5e-5, "BT.2020 Cb-Nenner {cb}");
+        assert!((cr - 1.4746).abs() < 5e-5, "BT.2020 Cr-Nenner {cr}");
+    }
+
+    /// Die beiden Modelle duerfen nicht denselben Shader-Kopf erzeugen — sonst
+    /// waere die Umstellung wirkungslos und niemand saehe es.
+    #[test]
+    fn hdr_und_sdr_erzeugen_verschiedene_shader() {
+        let a = Farbmodell::Bt709.common();
+        let b = Farbmodell::Bt2020Ncl.common();
+        assert_ne!(a, b);
+        assert!(a.contains("0.212600"), "{a}");
+        assert!(b.contains("0.262700"), "{b}");
+    }
+
+    /// Ein neutraler Eingang muss neutrales Chroma ergeben (Cb = Cr = 0),
+    /// unabhaengig vom Modell. Nachgerechnet mit denselben Formeln, die im
+    /// Shader stehen — die Eigenschaft, an der ein vertauschter Koeffizient
+    /// sofort auffiele.
+    #[test]
+    fn grau_bleibt_neutral() {
+        for m in [Farbmodell::Bt709, Farbmodell::Bt2020Ncl] {
+            let [kr, kg, kb] = m.gewichte();
+            let (n_cb, n_cr) = m.nenner();
+            for g in [0.0f64, 0.25, 0.5, 1.0] {
+                let y = kr * g + kg * g + kb * g;
+                assert!(((g - y) / n_cb).abs() < 1e-12, "{m:?} bei {g}");
+                assert!(((g - y) / n_cr).abs() < 1e-12, "{m:?} bei {g}");
+            }
+        }
+    }
 }

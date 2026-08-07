@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         width,
         height,
         ten_bit: false,
+        hdr: false,
     };
     let mut enc = VideoEncoder::create(&cfg, &hw_ctx, &out)?;
     eprintln!("[encode_smoke] Encoder offen, encodiere {n_frames} Frames …");

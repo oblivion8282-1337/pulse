@@ -5,4 +5,5 @@
 //! (sysfs-Vendor-Erkennung). Codec-Open-Probe kommt mit den HW-Modulen (Phase 4).
 
 pub mod drm;
+pub mod drm_ioctl;
 pub mod tls;

@@ -291,6 +291,8 @@ pub struct NvDmabufImporter {
     staging: Option<Staging>,
     /// Format der Staging-Textur (8 oder 10 bit je Kanal).
     staging_format: StagingFormat,
+    /// Matrix des 10-bit-Shaders (SDR BT.709 gegen HDR BT.2020).
+    farbmodell: super::nv_p010::Farbmodell,
     /// FBO-Paar für den Blit-Pfad (read = EGLImage-Textur, draw = Staging).
     fbos: [u32; 2],
     out_w: u32,
@@ -354,7 +356,15 @@ impl NvDmabufImporter {
     /// `staging_format` legt die Bittiefe des Encoder-Eingangs fest; der
     /// Frame-Pool des Callers MUSS mit [`StagingFormat::av_pix_fmt`] angelegt
     /// sein, sonst kopiert `cuMemcpy2D` Bytes in ein fremdes Layout.
-    pub fn new(out_w: u32, out_h: u32, staging_format: StagingFormat) -> Result<Self> {
+    /// `farbmodell` waehlt die Matrix des 10-bit-Shaders und **muss zur
+    /// Signalisierung des Encoders passen** (s. [`super::nv_p010::Farbmodell`]);
+    /// im 8-bit-Pfad ist er ohne Wirkung, weil dort NVENC selbst wandelt.
+    pub fn new(
+        out_w: u32,
+        out_h: u32,
+        staging_format: StagingFormat,
+        farbmodell: super::nv_p010::Farbmodell,
+    ) -> Result<Self> {
         unsafe {
             // Beide Libs prozessweit und OHNE dlclose (s. egl_library-Doku —
             // gilt für libcuda mit seinem Primary-Context-State genauso).
@@ -564,6 +574,7 @@ impl NvDmabufImporter {
                 gl_tex_sub_image_2d,
                 staging: None,
                 staging_format,
+                farbmodell,
                 fbos: [0; 2],
                 out_w,
                 out_h,
@@ -650,7 +661,7 @@ impl NvDmabufImporter {
     }
 
     fn create_p010_staging(&self, width: u32, height: u32) -> Result<StagingKind> {
-        let conv = Box::new(super::nv_p010::RgbToP010::new(width, height)?);
+        let conv = Box::new(super::nv_p010::RgbToP010::new(width, height, self.farbmodell)?);
         // Beide Ebenen einzeln registrieren; scheitert die zweite, muss die
         // erste wieder abgemeldet werden, bevor `conv` die Texturen löscht.
         let cu_y = self.register_image(conv.y_tex())?;
@@ -756,6 +767,26 @@ impl NvDmabufImporter {
         // eigene dma-buf-Referenz (EGL_EXT_image_dma_buf_import), das Image
         // bleibt also auch nach dem Schließen der dup'ten fds gültig und ist
         // eine LIVE-Sicht auf den Buffer-Inhalt.
+        //
+        // **`buffer_key == 0` heisst „nicht merken"** — so steht es seit jeher
+        // an [`DmabufFrame::buffer_key`], umgesetzt war es nicht: der Wert 0
+        // landete wie jeder andere Schluessel im Zwischenspeicher. Fuer den
+        // PipeWire-Weg blieb das folgenlos (dort vergibt jeder Puffer einen
+        // echten Schluessel), fuer die Scanout-Aufnahme waere es ein
+        // **stehendes Bild** gewesen: der Compositor tauscht dort den Puffer
+        // bei jedem Bild, und alle haetten sich denselben Eintrag geteilt.
+        // Aufgefallen am 2026-08-07 an der Zeile „EGLImage-Cache: neuer
+        // Capture-Buffer aufgenommen buffers=1", die bei einem 180-Bild-Lauf
+        // genau einmal kam.
+        if frame.buffer_key == 0 {
+            let (image, tex) = self.create_image_tex(frame)?;
+            let ergebnis = unsafe { self.blit_and_copy(tex, frame, dst) };
+            unsafe {
+                (self.gl_delete_textures)(1, &tex);
+                (self.egl_destroy_image)(self.dpy, image);
+            }
+            return ergebnis;
+        }
         let tex = match self.image_cache.get(&frame.buffer_key) {
             Some(cached) => cached.tex,
             None => {
