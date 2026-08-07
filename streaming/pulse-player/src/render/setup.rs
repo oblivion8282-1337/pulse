@@ -342,12 +342,14 @@ pub async fn geraet_oeffnen(
     Ok((device, queue, wide_textures))
 }
 
+/// Alles auf einmal — Bindungsvorlage, Sampler, Uniform-Puffer und die
+/// Pipeline fuer ein Zielformat.
+///
+/// **Nur beim AUFBAU eines Fensters (oder eines Messstands) aufrufen, nie beim
+/// Formatwechsel** — dafuer gibt es [`pipeline_bauen`], und dort steht auch,
+/// welches Flimmern der Austausch der drei formatunabhaengigen Stuecke am
+/// 2026-08-07 erzeugt hat.
 pub fn build_graphics(device: &wgpu::Device, format: wgpu::TextureFormat) -> Graphics {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("pulse-player-shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-    });
-
     let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("pulse-player-bind"),
         entries: &[
@@ -373,13 +375,57 @@ pub fn build_graphics(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gra
         ],
     });
 
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("pulse-player-layout"),
-        bind_group_layouts: &[Some(&bind_layout)],
-        immediate_size: 0,
+    let pipeline = pipeline_bauen(device, &bind_layout, format);
+
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("pulse-player-sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        ..Default::default()
     });
 
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("pulse-player-uniforms"),
+        contents: &[0u8; UNIFORM_BYTES],
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    Graphics { pipeline, bind_layout, sampler, uniform_buf }
+}
+
+/// Nur die Pipeline — fuer den Wechsel des Oberflaechenformats.
+///
+/// **Die Bindungsvorlage kommt von aussen und wird NICHT neu gebaut.** Daran
+/// haengt die Gueltigkeit aller bereits gebauten Bindegruppen: die
+/// Zero-Copy-Ringplaetze halten je eine, und sie zeigen auf den Sampler und den
+/// Uniform-Puffer, die beim Einhaengen galten. Wer beim Formatwechsel neue
+/// anlegt, hat Bindegruppen, die auf einen Puffer zeigen, in den niemand mehr
+/// schreibt — und weil der Ring die betroffenen Plaetze regelmaessig
+/// wiederverwendet, wechseln sich zwei Bilder ab: eines mit dem richtigen
+/// Uniformblock, eines mit dem eingefrorenen alten. Genau das war das
+/// HDR-Flimmern vom 2026-08-07, Messakte
+/// `testbench/profiles/player-2026-08-07-hdr-flimmern.json`. wgpu meldet dabei
+/// nichts — es fasst gleich beschriebene Bindungsvorlagen zusammen, die alte
+/// Bindegruppe ist also gueltig.
+///
+/// Vom Format haengt allein der Ausgabezustand der Fragmentstufe ab.
+pub fn pipeline_bauen(
+    device: &wgpu::Device,
+    bind_layout: &wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("pulse-player-shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("pulse-player-layout"),
+        bind_group_layouts: &[Some(bind_layout)],
+        immediate_size: 0,
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("pulse-player-pipeline"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
@@ -399,24 +445,7 @@ pub fn build_graphics(device: &wgpu::Device, format: wgpu::TextureFormat) -> Gra
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
-    });
-
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("pulse-player-sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        ..Default::default()
-    });
-
-    let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("pulse-player-uniforms"),
-        contents: &[0u8; UNIFORM_BYTES],
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    });
-
-    Graphics { pipeline, bind_layout, sampler, uniform_buf }
+    })
 }
 
 /// Die Bindungen fuer ein Bild: Uniform-Puffer, Sampler, drei Ebenen.
@@ -509,6 +538,107 @@ mod tests {
                 .poll(wgpu::PollType::wait_indefinitely())
                 .unwrap_or_else(|e| panic!("Geraet nach Pipeline-Bau fuer {format:?} krank: {e}"));
         }
+    }
+
+    /// **Der Formatwechsel darf bestehende Bindegruppen nicht entwerten.**
+    ///
+    /// Das ist die Regression zum Flimmern vom 2026-08-07: `farbraum_fuer_quelle`
+    /// rief `build_graphics` und tauschte damit Bindungsvorlage, Sampler und
+    /// Uniform-Puffer aus. Die Bindegruppen der Zero-Copy-Ringplaetze werden je
+    /// Platz einmal gebaut und ueberleben den Wechsel — sie zeigten danach auf
+    /// einen Puffer, in den niemand mehr schrieb.
+    ///
+    /// Geprueft wird die Zusage, auf die es ankommt: eine VOR dem Wechsel
+    /// gebaute Bindegruppe muss mit der NACH dem Wechsel gebauten Pipeline
+    /// zeichnen koennen. Waere sie es nicht, meldete wgpu einen Geraetefehler,
+    /// und der beendet diesen Test.
+    #[test]
+    fn eine_bindegruppe_ueberlebt_den_formatwechsel() {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
+            eprintln!("keine GPU — dieser Test hat NICHTS geprueft");
+            return;
+        };
+        let Ok((device, queue, _)) = pollster::block_on(geraet_oeffnen(&adapter, "wechseltest"))
+        else {
+            eprintln!("kein Geraet — dieser Test hat NICHTS geprueft");
+            return;
+        };
+
+        // Der Aufbau, wie das Fenster ihn hat: SDR-Format, dazu eine
+        // Bindegruppe aus GENAU diesen Teilen.
+        let vorher = wgpu::TextureFormat::Rgb10a2Unorm;
+        let gfx = build_graphics(&device, vorher);
+        let ebene = |format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("wechseltest-ebene"),
+                    size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let ebenen = [
+            ebene(wgpu::TextureFormat::R8Unorm),
+            ebene(wgpu::TextureFormat::R8Unorm),
+            ebene(wgpu::TextureFormat::R8Unorm),
+        ];
+        let bind = bind_group_aus_teilen(
+            &device,
+            &gfx.bind_layout,
+            &gfx.sampler,
+            &gfx.uniform_buf,
+            [&ebenen[0], &ebenen[1], &ebenen[2]],
+        );
+
+        // Der Wechsel auf HDR — nur die Pipeline wird erneuert.
+        let nachher = super::super::hdr_fenster::HDR_OBERFLAECHE;
+        let pipeline = pipeline_bauen(&device, &gfx.bind_layout, nachher);
+
+        let ziel = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("wechseltest-ziel"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: nachher,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let sicht = ziel.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut enc = device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("wechseltest") });
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("wechseltest-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &sicht,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        queue.submit(Some(enc.finish()));
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("die alte Bindegruppe muss mit der neuen Pipeline zeichnen koennen");
     }
 
     /// Bietet der Compositor alles an, faellt die Wahl auf 10-bit-Unorm —

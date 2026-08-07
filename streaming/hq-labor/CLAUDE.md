@@ -204,11 +204,23 @@ liegt im Repo; was noch fehlt, steht unter „Offene Punkte".
    Ein dunkler Schirm liefert keine Frames (der Compositor sendet nur bei
    Damage), und die Messung sieht aus wie ein Aussetzer des Senders. Ebenso
    wenig darf der Bildschirmschoner das Zeitmuster verdecken.
-   Der Idle-Manager dieser Maschine ist **`dms`** (Dank Material Shell), nicht
-   swayidle/hypridle; `systemd-inhibit` greift hier ins Leere, weil in
-   `logind.conf` `IdleAction` gar nicht gesetzt ist. Der Prüfstand hält den
-   Schirm deshalb über `dms ipc call inhibit enable` wach und nimmt es in
-   einem Trap zurück (`gemeinsam.py`), wie er es mit den `tc`-Regeln tut.
+   Der Idle-Manager hängt an der **Sitzung, nicht an der Maschine** — und
+   dieser Satz ist die Korrektur vom 2026-08-07. Hier stand: „Der Idle-Manager
+   dieser Maschine ist **`dms`** (Dank Material Shell)". Unter `dms` stimmt das
+   weiter; `systemd-inhibit` greift dort ins Leere, weil in `logind.conf`
+   `IdleAction` gar nicht gesetzt ist, und `gemeinsam.py::bildschirm_wachhalten`
+   nimmt deshalb `dms ipc call inhibit enable` samt Rücknahme im Trap.
+   **In einer Plasma-Sitzung ist `dms` gar nicht gestartet** (`dms ipc call`
+   antwortet „No running instances"), der Aufruf tut also nichts, und der
+   Schirm dunkelt mitten in der Messung ab. Vier Läufe der Flimmermessung sind
+   daran verdorben, und der Helligkeitssprung sah wie ein Befund aus
+   (`testbench/profiles/player-2026-08-07-hdr-flimmern.json`).
+   Auf Plasma ist der Weg `org.freedesktop.ScreenSaver.Inhibit` **plus**
+   `org.freedesktop.PowerManagement.Inhibit` — beides in
+   `testbench/schirmprobe.py::Wachhalter`. Zwei Dinge daran sind nicht
+   offensichtlich: es braucht **beide** (der Bildschirmschoner ist nicht das
+   Abdunkeln), und die Sperre hängt an der **D-Bus-Verbindung des Aufrufers**,
+   ein kurzer `qdbus6`-Aufruf hält sie also nicht.
 
 ## Fehlerkorrektur — Stand und Richtung
 
@@ -568,6 +580,24 @@ ist hier passiert.
       überhaupt). Genau dieser Zuschnitt-Fehler ist die Lehre des Tages: der
       vorhandene Weg wurde vollständig ausgemessen, ohne je zu fragen, ob es
       einen zweiten gibt.
+      **Nachtrag 2026-08-07 Abend — der Player zeigte das dann flimmernd, und
+      es lag nicht am Farbweg.** Messakte
+      `profiles/player-2026-08-07-hdr-flimmern.json`. Der Wechsel auf das
+      HDR-Fenster rief `build_graphics` und tauschte damit auch
+      Bindungsvorlage, Sampler und **Uniform-Puffer** aus; die Bindegruppen der
+      Zero-Copy-Ringplätze werden je Platz einmal gebaut und zeigten danach
+      weiter auf den alten Puffer. Diese Plätze liefen durch den
+      Tone-Mapping-Zweig, die übrigen durch den scRGB-Zweig, und der Ring
+      wechselte sie durch: am Schirm genau zwei feste Helligkeitsstufen im
+      Wechsel (132,64 gegen 195,97 von 255). Behoben, indem der Formatwechsel
+      nur noch die Pipeline erneuert (`render::setup::pipeline_bauen`).
+      Drei Dinge daraus, die sich wiederholen können: **wgpu fasst gleich
+      beschriebene Bindungsvorlagen zusammen**, eine veraltete Bindegruppe ist
+      deshalb gültig und es gibt weder Fehler noch Warnung; **Deband und Dither
+      waren es nicht** und das ist jetzt messbar (`pulse-player --flimmern`,
+      0,188 % Schwankung — der Messstand hielt seine Uhr vorher fest auf 0 und
+      konnte die Frage gar nicht stellen); und **eine Sichtprobe braucht es
+      dafür nicht** (`testbench/schirmprobe.py`).
 - [x] ~~**HDR — geklärt am 2026-08-07, die Antwort ist NEIN, und der Grund liegt
       nicht dort, wo man ihn sucht.**~~ (überholt, s. Eintrag darüber) Messakte
       `profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.

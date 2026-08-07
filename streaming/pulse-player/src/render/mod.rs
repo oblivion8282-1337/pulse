@@ -39,7 +39,9 @@ pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildfo
 // mit einer eigenen Eintragung meldete sie nach einem Wechsel hier „ok" fuer
 // ein Format, das gar nicht mehr benutzt wird.
 pub use hdr_fenster::HDR_OBERFLAECHE;
-pub use setup::{bind_group_aus_teilen, build_graphics, geraet_oeffnen, pick_format, Graphics};
+pub use setup::{
+    bind_group_aus_teilen, build_graphics, geraet_oeffnen, pick_format, pipeline_bauen, Graphics,
+};
 pub use uniforms::Uniforms;
 
 use anyhow::{anyhow, Result};

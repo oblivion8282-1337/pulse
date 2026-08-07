@@ -388,7 +388,7 @@ mod tests {
 // deshalb braucht es dafuer keine Lockerung der Sichtbarkeit.
 
 use crate::decode::{Farbangaben, Uebertragung};
-use super::{pick_format, build_graphics, Renderer};
+use super::{pick_format, Renderer};
 
 /// Die Win32-Fensterkennung, oder `0`, wo es keine gibt.
 ///
@@ -464,16 +464,21 @@ impl Renderer {
         if format_geaendert {
             self.config.format = ziel;
             self.surface_format_name = format!("{ziel:?}");
-            // Pipeline und Bindungen haengen am Format — der Shader wird fuer
-            // das Zielformat uebersetzt. Ohne diesen Neubau zeichnete die alte
-            // Pipeline in eine Flaeche, die sie nicht kennt.
-            let gfx = build_graphics(&self.device, ziel);
-            self.pipeline = gfx.pipeline;
-            self.bind_layout = gfx.bind_layout;
-            self.sampler = gfx.sampler;
-            self.uniform_buf = gfx.uniform_buf;
-            // Zeigt auf die alte Bindungsvorlage und den alten Uniform-Puffer.
-            self.bind_group = None;
+            // **Nur die Pipeline.** Sie ist das einzige Stueck, das am Format
+            // haengt (der Ausgabezustand der Fragmentstufe); ohne den Neubau
+            // zeichnete die alte in eine Flaeche, die sie nicht kennt.
+            //
+            // Bindungsvorlage, Sampler und Uniform-Puffer bleiben stehen, und
+            // das ist keine Sparsamkeit, sondern die Behebung des Flimmerns vom
+            // 2026-08-07: hier stand `build_graphics`, das alle vier erneuert.
+            // Die Bindegruppen der Zero-Copy-Ringplaetze werden je Platz EINMAL
+            // gebaut (`render::fremdbild`) und zeigten danach weiter auf den
+            // alten Uniform-Puffer, waehrend `render` in den neuen schrieb —
+            // diese Plaetze wurden mit einem eingefrorenen SDR-Uniformblock
+            // gezeichnet (Tone-Mapping statt scRGB), die uebrigen richtig, und
+            // der Ring wechselt sie durch. Begruendung und Messung an
+            // [`super::setup::pipeline_bauen`].
+            self.pipeline = super::pipeline_bauen(&self.device, &self.bind_layout, ziel);
         }
         self.konfigurieren();
         eprintln!(
