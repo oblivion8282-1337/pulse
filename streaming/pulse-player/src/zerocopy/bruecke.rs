@@ -92,6 +92,13 @@ const RING_SPEICHER_MAX: usize = 320 * 1024 * 1024;
 /// Stockungen aus dem Kopf dieser Datei kaemen zurueck.
 const RING_MIN: usize = 8;
 
+/// Ab wann ein einzelner Wartepunkt der Bruecke gemeldet wird.
+///
+/// Grosszuegig gewaehlt: im gesunden Betrieb liegen beide Wartepunkte unter
+/// einer Millisekunde, gemeldet werden soll nur das, was ein Zuschauer als
+/// Stocken merkt. 100 ms sind rund fuenfzehn ausgefallene Bilder bei 144 fps.
+const LANGSAM: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Die gewuenschte Zahl Plaetze, gedeckelt auf [`RING_SPEICHER_MAX`].
 fn plaetze_im_speicherrahmen(wunsch: usize, breite: u32, hoehe: u32, format: i32) -> usize {
     // NV12 und P010 tragen Luma plus halbes Chroma, also anderthalb Ebenen;
@@ -337,9 +344,23 @@ impl Bruecke {
         // Sperre faellt danach in JEDEM Fall — deshalb steht das `?` auf dem
         // Ergebnis erst hinter `entsperren`.
         // SAFETY: alle Ressourcen leben, der Schichtindex stammt aus dem Bild.
+        // **Getrennte Uhr fuer die Anmeldung.** Die Gesamtzeit der Bruecke sagt
+        // nur, DASS es hing (`crate::stockung`), nicht WO — und die beiden
+        // unbegrenzten Wartepunkte hier haben voellig verschiedene Ursachen:
+        // die Anmeldung wartet auf den Renderer, der Zaun auf die Grafikeinheit.
+        // Am 2026-08-07 kostete diese Unterscheidung einen halben Messtag.
+        let anmeldung_uhr = std::time::Instant::now();
         let ergebnis = (|| -> Result<()> {
             unsafe {
                 platz.mutex.AcquireSync(0, INFINITE).context("AcquireSync")?;
+                let angemeldet = anmeldung_uhr.elapsed();
+                if angemeldet >= LANGSAM {
+                    eprintln!(
+                        "pulse-player: Bruecke — Anmeldung am Platz {slot} dauerte {} ms \
+                         (wartet auf den Renderer)",
+                        angemeldet.as_millis()
+                    );
+                }
                 self.kontext
                     .CopySubresourceRegion(&platz.textur, 0, 0, 0, 0, &quelle, schicht, None);
                 platz.mutex.ReleaseSync(0).context("ReleaseSync")?;
@@ -387,6 +408,7 @@ impl Bruecke {
         // ist das der Regelfall.
         // SAFETY: Zaun, Kontext und Ereignis leben; das Ereignis wird nur hier
         // benutzt.
+        let zaun_uhr = std::time::Instant::now();
         unsafe {
             self.kontext.Flush();
             if self.zaun.GetCompletedValue() < self.zaun_wert {
@@ -394,6 +416,14 @@ impl Bruecke {
                     .SetEventOnCompletion(self.zaun_wert, self.zaun_ereignis)
                     .context("SetEventOnCompletion")?;
                 WaitForSingleObject(self.zaun_ereignis, INFINITE);
+            }
+            let gewartet = zaun_uhr.elapsed();
+            if gewartet >= LANGSAM {
+                eprintln!(
+                    "pulse-player: Bruecke — Zaun nach der Kopie dauerte {} ms \
+                     (wartet auf die Grafikeinheit)",
+                    gewartet.as_millis()
+                );
             }
         }
         Ok(())

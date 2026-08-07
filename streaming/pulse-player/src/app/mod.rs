@@ -648,7 +648,15 @@ impl App {
                 "Abstand {:.1}-{:.1} ms ({} zu spaet), ",
                 "Ankunft max {:.1} ms ({} ueber 5 ms), ",
                 "dekodieren {:.1}/{:.1} ms, Netz-bis-Schirm {:.1}/{:.1} ms, ",
-                "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}"
+                "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}, ",
+                // **Der Eimer, der bis zum 2026-08-07 fehlte.** Die Zeile nannte
+                // dekodierte und gezeichnete Bilder und zwei Verlustzaehler —
+                // aber nicht den groessten: nach einer Luecke gilt das Bild
+                // `refresh_dauer()` lang als unsauber (Vorgabe 2 s!), und JEDES
+                // Bild in dieser Zeit wird weggeworfen. Bei 144 fps sind das bis
+                // zu 288 Stueck je Luecke. Ohne diese Zahl gingen bei 1440p rund
+                // 60 Bilder je Sekunde verloren, ohne dass eine Zeile sagte wohin.
+                "davon nach Luecke verworfen {}"
             ),
             id,
             st.fps.map_or_else(|| "?".to_string(), |v| v.to_string()),
@@ -671,6 +679,7 @@ impl App {
             st.packets_lost,
             st.buffered_packets,
             st.frames_skipped,
+            st.frames_dropped,
         );
         // Getrennte Zeile statt eines weiteren Platzhalters in der grossen:
         // die Sonde laeuft nur im Pruefstand, und die Zeile oben soll im
