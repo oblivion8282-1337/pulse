@@ -619,11 +619,12 @@ impl App {
         let takt_zeile = session.takt.aktiv().then(|| {
             format!(
                 ": Ausgabe-Takt {} ms Vorhalt, verspaetet {}, neu verankert {}, \
-                 nachgezogen {}",
+                 nachgezogen {}, verworfen {}",
                 session.takt.vorhalt_ms(),
                 session.takt.verspaetet(),
                 session.takt.neu_verankert(),
                 session.takt.nachgezogen(),
+                session.takt.verworfen(),
             )
         });
         let st = &session.stats;

@@ -50,7 +50,16 @@ ZU_SPAET = re.compile(r"Abstand [\d.]+-[\d.]+ ms \((\d+) zu spaet\)")
 # wenn der Takt laeuft (`PULSE_PLAYER_AUSGABETAKT_MS`). `verspaetet` ist dessen
 # Kontrollzahl: steigt sie, ist der Vorhalt kleiner als die Schwankung der
 # Strecke und es taktet nichts mehr.
-TAKT = re.compile(r"Ausgabe-Takt (\d+) ms Vorhalt, verspaetet (\d+), neu verankert (\d+), nachgezogen (\d+)")
+# `verworfen` gibt es erst seit dem 2026-08-07 und ist deshalb OPTIONAL — ein
+# Log aus einem aelteren Player hat die Zahl nicht, und das darf die Auswertung
+# nicht stumm auf null Treffer laufen lassen. Sie zaehlt die Bilder, die das
+# Budget der Ausgabe-Warteschlange weggenommen hat; bis zu jenem Tag wurde
+# dieser Verlust ueberhaupt nicht gezaehlt, und genau daran ist der
+# Totalausfall ueber 133 fps jahrelang unbemerkt geblieben.
+TAKT = re.compile(
+    r"Ausgabe-Takt (\d+) ms Vorhalt, verspaetet (\d+), neu verankert (\d+), "
+    r"nachgezogen (\d+)(?:, verworfen (\d+))?"
+)
 BITRATE = re.compile(r"([\d.]+) kbit/s")
 DEKODIERT = re.compile(r"dekodiert (\d+)/s")
 GEZEICHNET = re.compile(r"gezeichnet (\d+)/s")
@@ -87,6 +96,7 @@ def auswerten(pfad: Path) -> dict:
     takt_verspaetet = 0
     takt_verankert = 0
     takt_nachgezogen = 0
+    takt_verworfen: int | None = None
 
     for zeile in pfad.read_text(errors="replace").splitlines():
         if VOLLBILD.search(zeile):
@@ -101,6 +111,7 @@ def auswerten(pfad: Path) -> dict:
             takt_verspaetet = int(t.group(2))
             takt_verankert = int(t.group(3))
             takt_nachgezogen = int(t.group(4))
+            takt_verworfen = int(t.group(5)) if t.group(5) is not None else None
         m = ABSTAND.search(zeile)
         if not m:
             continue
@@ -130,6 +141,26 @@ def auswerten(pfad: Path) -> dict:
                 "KEIN_URTEIL": "keine auswertbare Statistikzeile — Lauf hat nie "
                                "ein Bild ausgegeben, oder das Log ist unvollstaendig"}
 
+    # **Zweite Lebendkontrolle, ergaenzt am 2026-08-07.** Die erste oben faengt
+    # nur den Fall „gar keine Statistikzeile". Es gibt aber einen zweiten
+    # Totalausfall, der Zeilen schreibt und trotzdem keine Aussage zulaesst:
+    # der Player dekodiert, gibt aber NICHTS aus. Die Abstaende beschreiben
+    # dann die wenigen Durchgaenge, die die Oberflaeche anstoesst — im
+    # gemessenen Fall vier je Sekunde bei 250 ms Abstand — und sehen wie eine
+    # gemessene Groesse aus. Genau so wurde der Ausgabe-Takt-Fehler ueber
+    # 133 fps beinahe wieder uebersehen: `dekodiert 144/s, gezeichnet 0/s`.
+    if gezeichnet and statistics.median(gezeichnet) == 0:
+        dekodiert_median = statistics.median(dekodiert) if dekodiert else None
+        return {
+            "datei": pfad.name,
+            "KEIN_URTEIL": "der Player hat dekodiert, aber nichts gezeichnet "
+                           f"(dekodiert {dekodiert_median if dekodiert_median is not None else '?'}"
+                           "/s, gezeichnet 0/s) — die Abstaende beschreiben nur die "
+                           "Durchgaenge der Oberflaeche, nicht den Bildstrom",
+            "dekodiert_median_je_s": dekodiert_median,
+            "gezeichnet_median_je_s": 0,
+        }
+
     return {
         "datei": pfad.name,
         "sekunden_betrieb": len(groesster),
@@ -155,6 +186,7 @@ def auswerten(pfad: Path) -> dict:
         "ausgabetakt_verspaetet": takt_verspaetet if takt_vorhalt else None,
         "ausgabetakt_neu_verankert": takt_verankert if takt_vorhalt else None,
         "ausgabetakt_nachgezogen": takt_nachgezogen if takt_vorhalt else None,
+        "ausgabetakt_verworfen": takt_verworfen if takt_vorhalt else None,
         "abstaende_zwischen_den_haengern_s": [b - a for a, b in
                                               zip(haenger_bei, haenger_bei[1:])][:40],
         "bitrate_median_kbit": round(statistics.median(kbit), 0) if kbit else None,

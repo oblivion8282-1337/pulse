@@ -1,0 +1,92 @@
+{
+  "id": "player-2026-08-07-ausgabetakt-ueber-133fps",
+  "gemessen_am": "2026-08-07",
+  "frage": "Warum laeuft der native Player nicht bei jeder Bildrate fluessig? Wo geht die Zeit hin, aufgeschluesselt, ueber 60, 144 und 240 Bilder je Sekunde?",
+
+  "kurzfassung": "Ueber rund 133 Bildern je Sekunde gab der Player GAR KEIN Bild mehr aus — dekodiert 144/s, gezeichnet 0/s — und kein einziger Zaehler sagte es. Ursache ist eine feste Deckelung der Ausgabe-Warteschlange auf acht Bilder in `app/takt.rs`, die beim Ueberlauf das VORDERSTE, also das als naechstes faellige Bild wegwarf. Gebraucht werden Vorhalt mal Bildrate: 8,6 Bilder bei 144 fps, 14,4 bei 240 fps. Mit einem Speicherbudget statt der festen Anzahl: 144 und 240 Bilder je Sekunde werden vollstaendig ausgegeben, Ausgabe-Abstand 5,7-7,4 bzw. 3,9-5,1 ms, null Abstaende ueber dem doppelten Soll.",
+
+  "aufbau": {
+    "maschine": "Ryzen 7 5800X3D, RTX 5080, Treiber 610.43.03, Linux, Wayland",
+    "gpu_takt": "festgenagelt mit `nvidia-smi -lgc 1500,1500` und `-lmc 15001,15001` (Adminrechte lagen vor) — ohne das faellt die Karte nach rund zehn Sekunden in den Sparzustand und verschiebt jeden Posten um ein Vielfaches (Messakte player-2026-08-06-bildweg-kosten). Nach der Reihe zurueckgenommen.",
+    "kette": "live-vorlage.py (testsrc2, av1_nvenc, Sidecar-Optionen) -> ffmpeg -re -stream_loop -1 -c copy -> RTMPS an lokales MediaMTX 1.19.1-pulse2 -> pulse-player ueber WHEP, av1_cuvid (Hardware), Fenster sichtbar",
+    "vorlagen": "1920x1080 8 bit AV1, 8000 kbit/s, je 20 s, in 60 / 144 / 240 Bildern je Sekunde; zusaetzlich 2560x1440 10 bit, 12000 kbit/s, 144 fps",
+    "arme": "zwei Binaerprogramme aus DERSELBEN Quelle, Unterschied nur `app/takt.rs` + die Statistikzeile: `alt` = Stand vor dem 2026-08-07, `neu` = mit Speicherbudget. Pruefsummen im Lauf-Protokoll mitgeschrieben.",
+    "wiederholung": "drei Laeufe je Bildrate und Arm, Reihenfolge je Runde gedreht",
+    "lebendkontrolle": "jeder Lauf gibt die tatsaechliche Bildrate und Aufloesung der Vorlage aus ffprobe aus und die Pruefsumme des benutzten Binaerprogramms — die Falle „drei Varianten gemessen, alle dieselbe" ist damit ausgeschlossen"
+  },
+
+  "GEMESSEN_bauteil": {
+    "was": "Simulation des Ausgabe-Takts allein, gleichmaessige Ankunft, fuenf Sekunden je Bildrate (`app::takt::tests::ausgabetakt_ueber_bildraten`, mit `--ignored` zu fahren).",
+    "ausgegebene_bilder_prozent": {
+      "60": {"alt": 99.0, "neu": 99.0},
+      "100": {"alt": 98.8, "neu": 98.8},
+      "120": {"alt": 98.8, "neu": 98.8},
+      "133": {"alt": 98.9, "neu": 98.9},
+      "144": {"alt": 0.0, "neu": 98.9},
+      "165": {"alt": 0.0, "neu": 98.9},
+      "240": {"alt": 0.0, "neu": 98.8},
+      "280": {"alt": 0.0, "neu": 98.9}
+    },
+    "anmerkung": "Das fehlende Prozent sind die Bilder, die am Ende der fuenf Sekunden noch im Vorlauf liegen — genau Vorhalt mal Bildrate. Die Schwelle liegt rechnerisch bei 8 / 0,060 s = 133 fps, und genau dort springt es."
+  },
+
+  "GEMESSEN_ende_zu_ende": {
+    "hinweis": "Runde 2 ist ausgelassen und durch eine Runde 4 ersetzt: waehrend ihr lief eine NVENC-Kodierung auf derselben GPU (eigener Fehler beim Erzeugen einer weiteren Vorlage). Ausgewertet sind die Runden 1, 3 und 4.",
+    "spalten": "Kleinst- bis Groesstwert ueber drei Laeufe",
+    "1080p8": {
+      "60_fps": {
+        "alt": {"dekodiert_je_s": 60, "gezeichnet_je_s": 60, "sekunden_mit_zu_spaet_prozent": 0.0, "abstand_max_ms": "17,2-30,5", "netz_bis_schirm_ms": "61,9-62,0"},
+        "neu": {"dekodiert_je_s": 60, "gezeichnet_je_s": 60, "sekunden_mit_zu_spaet_prozent": 0.0, "abstand_max_ms": "17,4-19,4", "netz_bis_schirm_ms": "62,0"}
+      },
+      "144_fps": {
+        "alt": {"dekodiert_je_s": 144, "gezeichnet_je_s": 0, "sekunden_mit_zu_spaet_prozent": 100.0, "abstand_max_ms": "252,2-951,0", "netz_bis_schirm_ms": "0,0 (es wurde nichts ausgegeben)"},
+        "neu": {"dekodiert_je_s": 144, "gezeichnet_je_s": 144, "sekunden_mit_zu_spaet_prozent": 0.0, "abstand_max_ms": "7,3-10,6", "netz_bis_schirm_ms": "61,8-61,9"}
+      },
+      "240_fps": {
+        "alt": {"dekodiert_je_s": 240, "gezeichnet_je_s": 0, "sekunden_mit_zu_spaet_prozent": 100.0, "abstand_max_ms": "252,0-252,6", "netz_bis_schirm_ms": "0,0"},
+        "neu": {"dekodiert_je_s": 240, "gezeichnet_je_s": 240, "sekunden_mit_zu_spaet_prozent": "5,9-35,3", "abstand_max_ms": "46,2-73,5", "netz_bis_schirm_ms": "61,9"}
+      }
+    },
+    "1440p10_144fps_nur_neu": {
+      "gezeichnet_je_s": 144,
+      "abstand_ms": "5,7-7,4",
+      "zu_spaet": 0,
+      "dekodieren_ms": "4,4-4,9",
+      "hochladen_ms": 0.9,
+      "netz_bis_schirm_ms": 65.1,
+      "nie_gezeichnet": 85,
+      "uebersprungen": 247,
+      "rss_mb": 702,
+      "urteil": "Der schwerste realistische Fall traegt auf dieser Maschine — aber ohne Reserve: 247 uebersprungene Bilder in 20 s heisst, der Fensterfaden kam zeitweise nicht mit."
+    }
+  },
+
+  "wo_der_verlust_haette_auffallen_muessen_und_warum_nicht": [
+    "`frames_never_drawn` zaehlt nur die in `faellig` uebersprungenen und die im Fenster ueberschriebenen Bilder — die Deckelung warf VORHER weg und zaehlte nichts. Im Log stand `nie gezeichnet 0`, waehrend jedes Bild verlorenging.",
+    "`gezeichnet 0/s` stand die ganze Zeit im Log und in `frames_presented`. Es hat nur niemand bei hoher Bildrate hingesehen: der Vorhalt ist erst am 2026-08-05 auf 60 ms gestellt worden (Commit 42e10949), und JEDE Messreihe danach lief mit 60 Bildern je Sekunde. Die Schwelle liegt bei 133.",
+    "Der Ausgabe-Abstand sah nach einer gemessenen Groesse aus: 250 ms, weil die Bedienoberflaeche vier Durchgaenge je Sekunde anstoesst. Das Auswertwerkzeug `ausgabe-abstand.py` machte daraus Kennzahlen, ohne zu bemerken, dass gar kein Bildstrom dahinterstand. Es hat seit dem 2026-08-07 dafuer eine zweite Lebendkontrolle."
+  ],
+
+  "was_geaendert_wurde": {
+    "app/takt.rs": "Feste Anzahl (8) ersetzt durch ein Speicherbudget (192 MB) plus harte Notbremse (64 Bilder). Reicht der Platz nicht, wird NICHT mehr weggeworfen, sondern der Vorlauf gekuerzt (die vordersten Bilder sofort faellig gemacht) — der Takt bleibt erhalten, er laeuft nur mit weniger Vorhalt. Verworfen wird erst, wenn der Aufrufer gar nicht abholt, und dann gezaehlt (`verworfen`, in der Statistikzeile).",
+    "ausgabe-abstand.py": "liest `verworfen` mit (optional, aeltere Logs haben es nicht) und verweigert ein Urteil, wenn dekodiert wurde, aber nichts gezeichnet."
+  },
+
+  "wo_sich_nichts_holen_liess": {
+    "puffervorrat_der_ebenen": "Verdacht: mit dem tieferen Vorlauf sind mehr Bilder gleichzeitig unterwegs, als `PlanePool` (POOL_MAX = 8 Puffer) zurueckhaelt — jedes weitere Bild waere dann eine frische Anforderung von 3 bis 11 MB samt Seiteneinrichtung. GEMESSEN an den kleinen Seitenfehlern des Prozesses (aus /proc, GNU `time` ist auf dieser Maschine NICHT installiert — ein Wrapper darauf haette still nichts gemessen): 240 fps mit 60 ms Vorhalt 51240 Seitenfehler gegen 37919 ohne Vorhalt, also rund 600 je Sekunde Unterschied. Das ist nicht einmal ein Bild je Sekunde. Prozessorzeit 512 gegen 472 Uhrentakte. Der Vorrat ist hier NICHT der Engpass.",
+    "praesentationsart": "Bereits richtig eingestellt: `Mailbox` ist die Vorgabe (`render/setup.rs`), die Ausgabe wartet also nicht auf den Bildschirmtakt. Bei 240 fps waere `Fifo` eine harte Decke gewesen.",
+    "einfrier-waechter": "Seine Schwellen sind bildratenfest gebaut (`EINFRIER_DAUER` in Sekunden neben `EINFRIER_BILDER` in Bildern) — die naheliegende Sorge, dass 90 gleiche Bilder bei 240 fps schon nach 0,4 s erreicht sind, ist im Modul bereits beantwortet."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur NVIDIA/RTX 5080, nur Linux, nur `av1_cuvid`. Der Fehler selbst haengt an keiner Hardware — er sitzt in einer Warteschlange im Hauptthread — aber die Zahlen daneben schon.",
+    "Gemessen ueber die lokale Schleife, nicht ueber eine echte Leitung. Der Ausgabe-Takt zeigt seinen Nutzen erst bei schwankender Ankunft; hier ist er fast wirkungslos (ohne Vorhalt kamen die Abstaende bei 240 fps sogar gleichmaessiger heraus, 3,5-5,2 gegen 3,9-5,1 ms — beides innerhalb der Streuung).",
+    "Die 5,9 bis 35,3 Prozent Sekunden mit einem zu grossen Abstand bei 240 fps sind NICHT erklaert. In einem spaeteren Einzellauf derselben Einstellung waren es null. Ein Ausreisser von 46 bis 73 ms ist zu gross fuer die Zeitgeber-Koernung und sieht nach einem Aussetzer ausserhalb des Players aus; belegt ist das nicht.",
+    "Nicht gemessen: ob das Speicherbudget von 192 MB bei 4K mit hoher Bildrate reicht (dort wuerde es den Vorlauf kuerzen statt zu verwerfen — gewollt, aber ungeprueft)."
+  ],
+
+  "eigene_fehler_in_dieser_reihe": [
+    "Waehrend der Messreihe habe ich auf derselben GPU eine weitere Vorlage kodiert. Runde 2 ist deshalb unbrauchbar und wurde durch eine vierte Runde ersetzt, statt sie mitzuzaehlen.",
+    "Der erste Versuch, die Seitenfehler zu messen, lief ueber GNU `time` — das Programm gibt es hier nicht. Der zweite startete den Player als Hintergrundjob, der damit stdin von /dev/null bekam und sofort endete. Beide Male haette ein unaufmerksamer Blick eine Zahl gesehen (149 Seitenfehler) und sie fuer ein Ergebnis gehalten."
+  ]
+}
