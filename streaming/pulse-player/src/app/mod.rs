@@ -763,6 +763,21 @@ impl App {
         if let Some(line) = takt_zeile {
             eprintln!("pulse-player: Sitzung {id}{line}");
         }
+        // **Was der Sender wirklich schickt**, am Strom gemessen statt aus einer
+        // Einstellung gelesen. Eigene Zeile aus demselben Grund wie die
+        // Takt-Zeile: die grosse oben soll unveraendert bleiben, der Pruefstand
+        // liest sie.
+        //
+        // Warum das ueberhaupt gebraucht wird: am 2026-08-07 kostete es einen
+        // halben Messtag, dass der Testsender periodische Vollbilder fuhr,
+        // waehrend im Betrieb rollende Auffrischung laeuft. Ein 1440p-Vollbild
+        // ueber eine schmale Leitung braucht hunderte Millisekunden und reisst
+        // genau die Ankunftsloecher, die danach dem Player angelastet wurden.
+        // Diese Zeile beantwortet das beim Hinsehen — auf jedem Betriebssystem,
+        // weil nur der Bitstrom gelesen wird.
+        if st.sendeart.her_ms.is_some() {
+            eprintln!("pulse-player: Sitzung {id}: Sender — {}", st.sendeart.beschreibung());
+        }
         // Diagnose: WO zwischen Decoder und Schirm die Bilder liegenbleiben.
         let d = diagnose::abholen();
         eprintln!(

@@ -129,6 +129,60 @@ impl Kandidat {
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
 const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
 
+/// Ab wann „seit langem kein Vollbild" als rollende Auffrischung gilt.
+///
+/// Der uebliche Vollbild-Abstand liegt bei zwei Sekunden. Fuenf sind reichlich
+/// darueber und lassen einem ausgefallenen oder verspaeteten Vollbild Luft,
+/// bevor die Betriebsart umgedeutet wird.
+const OHNE_VOLLBILD_SCHWELLE_MS: u64 = 5_000;
+
+/// Was am Strom ueber die Sendeart abzulesen ist (s. [`VideoDecoder::sendeart`]).
+///
+/// `Copy`, weil es in `SessionStats` mitreist und die ganze Struktur dort
+/// kopiert wird. Deshalb hier auch KEINE Zeichenkette: die entsteht erst beim
+/// Ausgeben (`beschreibung`).
+/// `SessionStats` wird serialisiert und mit `Debug` geloggt — beides muss
+/// dieser Typ deshalb koennen. Die Zeiten reisen als Millisekunden mit, weil
+/// `Duration` in JSON sonst als Struktur aus Sekunden und Nanosekunden
+/// erschiene und niemand das lesen will.
+#[derive(Clone, Copy, Default, Debug, serde::Serialize)]
+pub struct Sendeart {
+    pub vollbilder: u64,
+    /// Abstand der letzten beiden Vollbilder in ms. `None` = es gab erst eins.
+    pub abstand_ms: Option<u64>,
+    /// Groesse des letzten Vollbilds in Byte.
+    pub bytes: usize,
+    /// Wie lange das letzte Vollbild her ist, in ms. `None` = noch keins.
+    pub her_ms: Option<u64>,
+}
+
+impl Sendeart {
+    /// Eine Zeile fuer das Log. Nennt Zahlen und haengt nur dann eine Deutung
+    /// an, wenn sie eindeutig ist.
+    pub fn beschreibung(&self) -> String {
+        let Some(her_ms) = self.her_ms else {
+            return "noch kein Vollbild gesehen".to_string();
+        };
+        let her_s = her_ms as f64 / 1000.0;
+        let kb = self.bytes as f64 / 1024.0;
+        if her_ms >= OHNE_VOLLBILD_SCHWELLE_MS {
+            return format!(
+                "{} Vollbilder, letztes vor {her_s:.0} s ({kb:.0} KB) — keine periodischen \
+                 Vollbilder, also rollende Auffrischung",
+                self.vollbilder
+            );
+        }
+        match self.abstand_ms {
+            Some(a) => format!(
+                "{} Vollbilder, Abstand {:.1} s, zuletzt {kb:.0} KB — periodische Vollbilder",
+                self.vollbilder,
+                a as f64 / 1000.0
+            ),
+            None => format!("erstes Vollbild vor {her_s:.1} s ({kb:.0} KB)"),
+        }
+    }
+}
+
 /// Wie lange das Bild nach einer Luecke als unsauber gilt — also die Dauer
 /// eines vollen Auffrisch-Durchlaufs beim Sender.
 ///
@@ -754,6 +808,11 @@ pub struct VideoDecoder {
     /// ueberlagern (Sender-Takt plus Server-Uhr).
     keyframes: u64,
     letztes_keyframe: Option<std::time::Instant>,
+    /// Abstand der letzten beiden Vollbilder und Groesse des letzten. Zusammen
+    /// mit `letztes_keyframe` ist das die Antwort auf „was schickt der Sender
+    /// eigentlich" — s. [`VideoDecoder::sendeart`].
+    keyframe_abstand: Option<std::time::Duration>,
+    keyframe_bytes: usize,
     /// Vorrat fuer die Ebenen-Puffer (s. [`PlanePool`]). Ueberlebt den
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
@@ -813,6 +872,8 @@ impl VideoDecoder {
                         wacht: EinfrierWacht::default(),
                         keyframes: 0,
                         letztes_keyframe: None,
+                        keyframe_abstand: None,
+                        keyframe_bytes: 0,
                         plane_pool: PlanePool::default(),
                         hw_ziel: ffmpeg::util::frame::video::Video::empty(),
                         ruecklesen_us: 0,
@@ -893,9 +954,11 @@ impl VideoDecoder {
             // unbemerkt doppelt so viele Stoesse wie noetig.
             let jetzt = std::time::Instant::now();
             self.keyframes += 1;
+            self.keyframe_abstand = self.letztes_keyframe.map(|t| jetzt.duration_since(t));
+            self.keyframe_bytes = data.len();
             let abstand = self
-                .letztes_keyframe
-                .map(|t: std::time::Instant| format!("{:.0} ms", jetzt.duration_since(t).as_millis()))
+                .keyframe_abstand
+                .map(|d| format!("{:.0} ms", d.as_millis()))
                 .unwrap_or_else(|| "erstes".to_string());
             self.letztes_keyframe = Some(jetzt);
             eprintln!(
@@ -1212,6 +1275,33 @@ impl VideoDecoder {
     /// stattdessen gar nichts schickt, laesst das letzte gute Bild stehen.
     /// Letzteres ist die bessere Antwort — und die einzige, die keine
     /// Anforderung an den Sender braucht.
+    /// Was der Sender WIRKLICH schickt — am ankommenden Strom gemessen, nicht
+    /// an einer Einstellung abgelesen.
+    ///
+    /// **Warum das hier gehoert und nicht in den Sender.** Der Sender weiss nur,
+    /// was er ANGEFORDERT hat. Am 2026-08-07 stellte sich heraus, dass
+    /// `h264_amf` die rollende Auffrischung wegen `usage=ultralowlatency`
+    /// ungefragt mitfaehrt — eine Meldung von dort haette also das Gegenteil
+    /// dessen behauptet, was auf der Leitung lag. Nur der Empfaenger sieht die
+    /// Wahrheit.
+    ///
+    /// **Und es gilt auf jedem Betriebssystem.** Gelesen wird der Bitstrom
+    /// (`recorder::is_keyframe`: AV1 ueber die OBU-Kette, H.264 ueber
+    /// Annex-B-IDR) — kein System-Aufruf, keine Treiberfrage. Dieselbe Quelle
+    /// laeuft unter Windows, Linux und macOS.
+    ///
+    /// **Was es NICHT unterscheiden kann:** ein Vollbild, das ein Zuschauer
+    /// angefordert hat, sieht genauso aus wie ein periodisches. Deshalb meldet
+    /// die Auswertung Zahlen und keine Diagnose — der Abstand entscheidet.
+    pub fn sendeart(&self) -> Sendeart {
+        Sendeart {
+            vollbilder: self.keyframes,
+            abstand_ms: self.keyframe_abstand.map(|d| d.as_millis() as u64),
+            bytes: self.keyframe_bytes,
+            her_ms: self.letztes_keyframe.map(|t| t.elapsed().as_millis() as u64),
+        }
+    }
+
     pub fn ist_sauber(&mut self) -> bool {
         match self.unsauber_bis {
             None => true,

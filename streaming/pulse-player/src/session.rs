@@ -133,6 +133,9 @@ pub struct SessionStats {
     /// Bilder, die verworfen wurden, weil die Darstellung nicht mitkam.
     /// Anders als `frames_dropped` (Paketverlust) ist das kein Netzproblem.
     pub frames_skipped: u64,
+    /// Was der Sender laut ankommendem Strom schickt — periodische Vollbilder
+    /// oder rollende Auffrischung (s. [`crate::decode::VideoDecoder::sendeart`]).
+    pub sendeart: crate::decode::Sendeart,
     pub buffered_packets: u64,
     pub jitter_target_ms: u64,
     /// Latenz-Posten des Dekodierens: Summe und Anzahl (Mittel wird erst bei
@@ -834,6 +837,9 @@ async fn emit_frames(
     // Bild im Fenster stehen; nach einem Auffrisch-Durchlauf stimmt das Bild
     // wieder und es geht scharf weiter.
     let vorzeigbar = dec.ist_sauber();
+    // Nach dem Dekodieren abgeholt, nicht davor: `decode` hat die Zaehler
+    // gerade fortgeschrieben, wenn diese Einheit ein Vollbild war.
+    stats.sendeart = dec.sendeart();
 
     for mut f in frames {
         f.arrived = zeit.arrived;
