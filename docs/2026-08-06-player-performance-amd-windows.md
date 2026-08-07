@@ -1,5 +1,26 @@
 # Wo der native Player auf AMD/Windows Zeit lässt — reine Code-Analyse
 
+> **Nachtrag 2026-08-07 — Punkt 5 ist widerlegt, und zwar in seiner
+> Kernaussage.** Dort steht „**Handlungsvorschlag:** keine Code-Änderung,
+> sondern eine **Entscheidung**" und der Vorhalt sei ein sauberer Tausch von
+> 55 ms Verzögerung gegen halbe Ungleichmässigkeit. **Es war ein Fehler im
+> Code, kein Kompromiss.** Die Warteschlange des Takts stand fest auf acht
+> Bildern, der Vorhalt braucht aber `Bildrate × Vorhalt` Plätze — ab 133 fps
+> mehr als acht. Darüber fielen die Bilder **vor ihrem Zielzeitpunkt** wieder
+> heraus, ungezählt: bei 144 fps rund 90 je Sekunde. Gemessen kamen von 144
+> dekodierten nur 42 bis 58 zur Anzeige, bei 720p genauso wie bei 1440p — die
+> Grafikeinheit war also nie beteiligt.
+>
+> Damit ist auch die Annahme am Ende dieses Dokuments erledigt, die Beschwerde
+> meine „Stocken und Ungleichmässigkeit" *oder* „Verzögerung: **beides kam aus
+> derselben Zeile.**
+>
+> Behoben, Zahlen und der Fehlversuch beim ersten Anlauf:
+> `streaming/testbench/profiles/player-2026-08-07-ausgabetakt-warteschlange.json`.
+> Punkt 2 (Stockungen) hat dabei eine zweite, unabhängige Ursache bekommen: der
+> Zero-Copy-Ring war überbucht, weil die Rechnung dort den Kanal zum
+> Fenster-Faden nicht mitzählte.
+
 **Datum:** 2026-08-06 · **Zweig:** `feat/hdr-windows-amd` · **Maschine des Anlasses:**
 Windows 11 26200, Radeon 780M (RDNA3-APU), Treiber 32.0.31035.1003, HDR-Schirm
 
