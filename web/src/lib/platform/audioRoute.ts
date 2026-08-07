@@ -37,6 +37,9 @@ export type AudioDiagnostic = {
     music: { volume: number; max: number };
   };
   outputDevices: { type: string }[];
+  /** Web-seitiger Fehler beim letzten setVoiceActive (z.B. Plugin nicht geladen).
+   *  Nur belegt, wenn der Aufruf scheiterte — wird vom Web in den Dump gesetzt. */
+  setVoiceActiveError?: string | null;
 };
 
 interface AudioRoutePlugin {
@@ -47,6 +50,10 @@ interface AudioRoutePlugin {
 }
 
 const plugin = registerPlugin<AudioRoutePlugin>('AudioRoute');
+
+/** Letzter Fehler aus setVoiceActive (null = erfolgreich). Landet im Diagnose-
+ *  Snapshot, damit ein stiller Routing-Fehlschlag im Feld sichtbar wird. */
+let lastSetVoiceActiveError: string | null = null;
 
 /** Force the native audio output route. No-op outside the Android wrapper. */
 export async function setAudioRoute(route: AudioRoute): Promise<void> {
@@ -68,7 +75,9 @@ export async function setVoiceActive(active: boolean): Promise<void> {
   if (!isCapacitorAndroid()) return;
   try {
     await plugin.setVoiceActive({ active });
+    lastSetVoiceActiveError = null;
   } catch (e) {
+    lastSetVoiceActiveError = e instanceof Error ? e.message : String(e);
     console.warn('[audioRoute] setVoiceActive failed', e);
   }
 }
@@ -114,5 +123,8 @@ export async function maybeSendAudioDiagnostic(): Promise<void> {
   if (!dump) return;
   const hasBluetooth = dump.outputDevices.some((d) => d.type.startsWith('BLUETOOTH'));
   if (!hasBluetooth) return;
+  // Web-seitigen Routing-Fehler in den Dump schreiben (Plugin nicht geladen etc.),
+  // damit er im Feld-Snapshot auftaucht statt nur in der Browser-Konsole.
+  dump.setVoiceActiveError = lastSetVoiceActiveError;
   await sendAudioDiagnostic(dump);
 }

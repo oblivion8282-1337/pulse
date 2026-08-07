@@ -1,0 +1,165 @@
+{
+  "id": "player-2026-08-07-wgpu29-vkimage-import",
+  "gemessen_am": "2026-08-07",
+  "frage": "Nimmt wgpu 29.0.4 ein fremd angelegtes VkImage entgegen (texture_from_raw + create_texture_from_hal) und behaelt es dessen Inhalt — auf Linux/NVIDIA, mit einem Bild, in das CUDA geschrieben hat?",
+  "antwort_kurz": "JA, uneingeschraenkt. wgpu 29 uebernimmt das fremde VkImage mitsamt Inhalt, schon beim ERSTEN Zugriff, fuer NV12 wie P010 als getrennte Ebenen, ueber 720p bis 4K, mit und ohne dedizierte Allokation, und ueber 20 aufeinanderfolgende CUDA-Schreibrunden. Der begruendete Verdacht (UNINITIALIZED -> VK_IMAGE_LAYOUT_UNDEFINED verwirft den Inhalt) trifft auf dieser Karte NICHT zu. Der Sprung auf wgpu 30 ist damit nicht noetig — die Kette wgpu 30 / egui 0.36 / Rust 1.95 entfaellt.",
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03 (NVIDIA UNIX Open Kernel Module)",
+    "kernel": "7.1.4-1-cachyos",
+    "vulkan_loader": "vulkan-icd-loader 1.4.350.1-1.1",
+    "vulkan_pruefschicht": "vulkan-validation-layers 1.4.357.0-1.1 (fuer diese Messung nachinstalliert, s. werkzeugfehler_dieses_laufs)",
+    "rustc": "1.93.1",
+    "wgpu": "29.0.4 — dieselbe Fassung, die streaming/pulse-player faehrt (Cargo.lock). Eine Messung auf 30 saehe womoeglich besser aus, sagte aber ueber die ausgelieferte Fassung nichts.",
+    "probe": "streaming/player-labor/wgpu-cuda-import (neue Kiste, neben cuda-vulkan-import)",
+    "ohne": "ohne Decoder, ohne Server, ohne Fenster, ohne CUDA-Toolkit (libcuda per dlopen)",
+    "warum_eine_eigene_kiste": "Die Nachbarprobe cuda-vulkan-import steht ausdruecklich OHNE wgpu, und das ist dort ihre Beweiskraft: ein Fehlschlag muss eindeutig dem Treiber zuzuordnen sein. Mit wgpu als Abhaengigkeit brauechte sie eine wgpu-eigene Vulkan-Instanz und ein anderes Geraet — eine Wiederholung der Bild-Messung liefe dann nicht mehr auf demselben Aufbau wie die Akte vom 2026-08-07. Der teure Teil (die von Hand nachgebauten CUDA-Struct-Layouts samt Selbsttest gegen ein kompiliertes sizeof/offsetof) wird trotzdem NICHT verdoppelt, sondern per #[path] aus der Nachbarkiste eingebunden."
+  },
+
+  "der_gepruefte_weg": {
+    "1": "wgpu legt Instanz, Adapter und Geraet an (Backends::VULKAN).",
+    "2": "Aus dem wgpu-Geraet werden die rohen Vulkan-Griffe entnommen (as_hal::<Vulkan>: raw_device, raw_instance, raw_physical_device, raw_queue, queue_family_index).",
+    "3": "Auf DIESEM Geraet wird ein exportierbares VkImage angelegt (OPTIMAL gekachelt, ExternalMemoryImageCreateInfo/OPAQUE_FD, Allokationsgroesse per vkGetImageMemoryRequirements ERFRAGT) und sein Speicher per vkGetMemoryFdKHR exportiert.",
+    "4": "CUDA haengt den Deskriptor ein (cuImportExternalMemory + cuExternalMemoryGetMappedMipmappedArray) und schreibt aus CUDA-Geraetespeicher hinein (cuMemcpy2D).",
+    "5": "Das VkImage geht an wgpu: hal::vulkan::Device::texture_from_raw(image, desc, Some(leerer drop_callback), TextureMemory::External) -> Device::create_texture_from_hal.",
+    "6": "Ein Compute-Shader tastet JEDEN Texel per textureLoad ab und schreibt den zurueckgerechneten Codewert in einen Speicherpuffer; der wird abgebildet und Texel fuer Texel gegen den geschriebenen Wert gehalten.",
+    "warum_texture_from_raw_und_nicht_wgpus_eigene_allokation": "Der Speicher muss exportierbar sein, und exportieren kann nur, wer beim Anlegen das Flag setzt. wgpu legt seine Texturen ohne dieses Flag an; die Zuteilung muss also an wgpu vorbei erfolgen und die fertige Textur eingehaengt werden.",
+    "warum_das_wgpu_geraet_und_kein_eigenes": "Ein VkImage gehoert unaufloesbar zu seinem VkDevice. texture_from_raw nimmt keins von einem fremden entgegen. Dass das ueberhaupt moeglich ist, haengt an wgpu-hal 29.0.4 src/vulkan/adapter.rs:1296: dort wird VK_KHR_external_memory_fd angefordert, wenn die Karte sie anbietet. Ohne diese Zeile waere der Weg bei wgpu 29 zu, ganz unabhaengig von jeder Zustandsfrage. Die Probe fragt sie deshalb am Geraet ab (enabled_device_extensions) statt sie anzunehmen — auf dieser Karte: an."
+  },
+
+  "der_verdacht_und_was_daraus_wurde": {
+    "verdacht": "wgpu-core 29.0.4 traegt eine eingehaengte Textur mit dem Zustand UNINITIALIZED in seine Nachverfolgung ein (device/resource.rs:1253), und der Vulkan-Unterbau bildet diesen Zustand auf VK_IMAGE_LAYOUT_UNDEFINED ab (vulkan/conv.rs:218). Der erste Zugriff erzeugt damit eine Sperre UNDEFINED -> SHADER_READ_ONLY_OPTIMAL, und ein Uebergang aus UNDEFINED DARF den Inhalt laut Spezifikation verwerfen.",
+    "belegklasse_des_verdachts": "GELESEN — beide Codestellen sind im Quelltext der benutzten Fassungen nachgesehen, nicht erinnert.",
+    "ergebnis": "Der Mechanismus ist da, die Folge tritt nicht ein. 0 von 3686400 (Y) bzw. 0 von 921600 (UV) Texeln weichen beim ERSTEN Zugriff ab — in allen fuenf Wiederholungen, allen vier Aufloesungen und beiden Bittiefen.",
+    "wie_das_zu_lesen_ist": "'Darf verwerfen' ist keine Zusage zu verwerfen. Fuer OPTIMAL gekachelte, unkomprimierte Bilder hat dieser Treiber offenbar keinen Grund, beim Uebergang etwas anzufassen. Das ist ein Befund ueber DIESEN Treiber und DIESE Karte. Er ist NICHT auf andere Hersteller uebertragbar und begruendet keinen Verzicht auf einen expliziten Anfangszustand, sobald wgpu 30 aus anderen Gruenden kommt.",
+    "verhaeltnis_zur_windows_seite": "Auf Windows/NVIDIA endete die entsprechende Reihe schwarz und die Zustandsfrage wurde dort bereits als Ursache WIDERLEGT (alle drei Anfangszustaende schwarz, auf AMD trug sogar uninit — player-2026-08-06-nv12-wgpu-import.json und -amd.json). Diese Messung widerspricht dem nicht, sie bestaetigt es von der anderen Seite: der Zustand ist auch hier nicht die entscheidende Groesse. Entscheidend ist die Schnittstelle — D3D11-Freigabe ueber NT-Handles gegen VK_KHR_external_memory_fd sind verschiedene Wege mit verschiedenem Ausgang."
+  },
+
+  "GEMESSEN": {
+    "hauptlauf_2560x1440": {
+      "wiederholungen": "5 von 5 gruen",
+      "je_lauf": "4 von 4 Ebenen in Stufe D fehlerfrei, 12 von 12 Betriebsrunden fehlerfrei",
+      "NV12 Y  (R8_UNORM -> wgpu R8Unorm, 2560x1440)": "0 von 3686400 Texeln abweichend",
+      "NV12 UV (R8G8_UNORM -> wgpu Rg8Unorm, 1280x720)": "0 von 921600 Texeln abweichend",
+      "P010 Y  (R16_UNORM -> wgpu R16Unorm, 2560x1440)": "0 von 3686400 Texeln abweichend",
+      "P010 UV (R16G16_UNORM -> wgpu Rg16Unorm, 1280x720)": "0 von 921600 Texeln abweichend"
+    },
+    "stufe_E_inhalt_nach_dem_wgpu_zugriff": "Alle vier Ebenen: der volle Inhalt steht nach dem wgpu-Zugriff noch byte-gleich im Speicher (3686400/3686400, 1843200/1843200, 7372800/7372800, 3686400/3686400 Byte). Diese Stufe ist der Trennschnitt, falls Stufe D je schwarz werden sollte: Inhalt weg = verworfen, Inhalt da = falscher Speicher gebunden.",
+    "stufe_F_betriebsfall": "20 aufeinanderfolgende CUDA-Schreibrunden in die BEREITS eingehaengte Textur, jede mit einem anderen Muster, jede danach abgetastet: 80 von 80 Runden (4 Ebenen x 20) fehlerfrei. Das ist der Fall, der im Player wirklich vorkommt — dort schreibt der Decoder jedes Bild neu, lange nachdem die Textur eingehaengt wurde.",
+    "matrix": {
+      "1280x720": "traegt (4/4 Ebenen, 12/12 Runden)",
+      "1920x1080": "traegt (4/4, 12/12)",
+      "2560x1440": "traegt (4/4, 12/12), fuenf Wiederholungen",
+      "3840x2160 (4K)": "traegt (4/4, 12/12)",
+      "ohne dedizierte Allokation (SPIKE_DEDIZIERT=0)": "traegt (4/4, 12/12)",
+      "ohne Layout-Wechsel um den CUDA-Zugriff (SPIKE_LAYOUT_UM=0)": "traegt (4/4, 12/12) — CUDA darf hier also auch schreiben, waehrend das Bild aus Vulkan-Sicht in SHADER_READ_ONLY_OPTIMAL liegt",
+      "20 Betriebsrunden (SPIKE_RUNDEN=20)": "traegt (4/4, 80/80)",
+      "hinweis": "Jede Zeile ist mit der Kopfzeile des Laufs belegt, die die tatsaechlich verwendete Aufloesung und Schalterstellung ausgibt — nicht mit der Beschriftung der Zeile. Der Grund steht unter werkzeugfehler_dieses_laufs."
+    },
+    "pruefschicht": {
+      "hauptlauf": "0 Meldungen. Der ganze Weg — eigene Bildanlage, Export, CUDA-Import, texture_from_raw, create_texture_from_hal, Abtastung — ist regelkonform.",
+      "kontrolle_dass_sie_anschlagen_kann": "SPIKE_VERSTOSS=1 laesst in Stufe E die Zwischen-Sperre weg und kopiert direkt aus SHADER_READ_ONLY_OPTIMAL: 8 Meldungen, VUID-vkCmdCopyImageToBuffer-srcImageLayout-01397. Ohne diesen Gegenlauf waere '0 Meldungen' nicht von 'niemand hoert zu' zu unterscheiden.",
+      "was_sie_gefunden_hat": "Genau diesen Verstoss — in der ersten Fassung der Probe selbst. Stufe E las mit SHADER_READ_ONLY_OPTIMAL aus, was vkCmdCopyImageToBuffer nicht zulaesst. Der Aufruf lieferte auf dieser Karte trotzdem RICHTIGE Werte und waere bei keiner Messung aufgefallen. Behoben: Sperre nach TRANSFER_SRC_OPTIMAL, kopieren, Sperre zurueck.",
+      "was_sie_NICHT_findet": "Eine Sperre, die ein falsches altes Layout behauptet (TRANSFER_DST_OPTIMAL statt GENERAL), wurde als Kontroll-Verstoss ausprobiert und NICHT gemeldet. Wer eine Kontrolle fuer diese Schicht braucht, nehme den Kopier-Layout-Verstoss."
+    },
+    "allokationsaufschlag": {
+      "was": "Ein VkImage belegt wegen Kachelung und Ausrichtung mehr als die dichte Bildgroesse. Die Zahl muss beim Treiber ERFRAGT und in den CUDA-Import durchgereicht werden.",
+      "spanne": "0,74 bis 18,52 Prozent ueber 16 geprueften Faellen",
+      "haeufigster_wert": "+6,67 Prozent (12 von 16 Faellen)",
+      "ausreisser": {
+        "4K Y R8 (8294400 dicht)": "8355840 = +0,74 %",
+        "4K Y R16 (16588800 dicht)": "16711680 = +0,74 %",
+        "1080p UV R8G8 (1036800 dicht)": "1228800 = +18,52 %",
+        "1080p UV R16G16 (2073600 dicht)": "2457600 = +18,52 %"
+      },
+      "bestaetigt": "Deckt sich mit der Nachbarprobe (player-2026-08-07-cuda-vulkan-bild-import.json) — dieselbe Spanne, unabhaengig davon, ob das Geraet von wgpu oder von der Probe selbst angelegt wurde."
+    }
+  },
+
+  "vorgriff_synchronisierung": {
+    "frage": "Die Synchronisierung im Betrieb (der Decoder schreibt, waehrend gezeichnet wird) verlangt VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore. Steht die Erweiterung auf wgpus Geraet zur Verfuegung, so wie VK_KHR_external_memory_fd es tut?",
+    "antwort": "NEIN. wgpu-hal 29 fordert sie nicht an. Im Quelltext steht bei den Semaphoren nur VK_KHR_timeline_semaphore (adapter.rs:1232); eine Zeile fuer external_semaphore_fd gibt es nicht — anders als fuer external_memory_fd (adapter.rs:1296) und external_memory_win32 (adapter.rs:1290).",
+    "am_laufenden_geraet_nachgesehen": "enabled_device_extensions() fuehrt VK_KHR_external_memory_fd, aber nicht VK_KHR_external_semaphore_fd.",
+    "warum_das_kein_kernfassungs_irrtum_ist": "Eine Erweiterung, die in eine Kernfassung uebernommen wurde, steht nicht in dieser Liste und ist trotzdem da — genau so verhaelt sich VK_KHR_timeline_semaphore, das seit Vulkan 1.2 Kernbestand ist und deshalb ebenfalls fehlt, ohne zu fehlen. Fuer VK_KHR_external_semaphore_fd gibt es keine solche Uebernahme (nur das elternlose VK_KHR_external_semaphore wurde in 1.1 uebernommen, und vkGetSemaphoreFdKHR steckt nicht darin). Ihr Fehlen ist also ein echtes Fehlen. Ohne diese Unterscheidung waere die Zeile eine Falle.",
+    "die_KARTE_bietet_sie_an": "JA — enumerate_device_extension_properties fuehrt sie. Es liegt also an wgpu, nicht an der Hardware.",
+    "folge_fuer_den_umbau": "Der Player kann sein VkDevice nicht von wgpu anlegen lassen, wenn er Semaphoren ueber die Grenze braucht. Der Weg waere: Geraet selbst anlegen (mit beiden Erweiterungen) und per hal::vulkan::Adapter::device_from_raw (adapter.rs:2439) an wgpu uebergeben. Das ist genau ein Aufbauschritt mehr und aendert am hier gemessenen Bild-Import nichts — er lief bereits auf einem Geraet mit VK_KHR_external_memory_fd.",
+    "belegklasse": "GEMESSEN (Erweiterungsliste am laufenden Geraet und Angebot der Karte) plus GELESEN (die Quelltextstellen). NICHT gemessen: dass der so gebaute Weg dann auch traegt — cuImportExternalSemaphore ist in dieser Probe nie aufgerufen worden."
+  },
+
+  "die_kontrollen": {
+    "warum_ueberhaupt": "In diesem Labor sind mehrfach Befunde entstanden, weil ein Werkzeug stillschweigend nichts gemessen hat. Jede Stufe traegt deshalb eine Kontrolle, die zeigt, dass sie anschlagen KANN.",
+    "stufe_A_vulkan_weg_messbar": "Das Bild wird vor allem anderen flaechendeckend mit 0x5A gefuellt und sofort zurueckgelesen. Kommt der Wert nicht unveraendert an, bricht die Probe ab, statt eine Zahl ueber wgpu zu liefern, die keine ist. Gruen in allen Laeufen.",
+    "stufe_B_cuda_hat_wirklich_geschrieben": "Der Inhalt wird VOR jedem wgpu-Zugriff ueber den Vulkan-eigenen Weg zurueckgelesen und Byte fuer Byte geprueft. Damit ist ausgeschlossen, dass ein spaeterer Fehlschlag CUDA statt wgpu zur Last faellt. Gruen in allen Laeufen.",
+    "stufe_C_der_abtastweg_misst": "Dieselbe Pruefung laeuft zuerst an einer wgpu-EIGENEN Textur mit demselben Inhalt (per write_texture gefuellt, ohne jede fremde Speicherquelle). Sie muss immer stimmen; tut sie es nicht, ist der Shader oder der Vergleich kaputt und jede Zahl ueber den Import bedeutungslos. Gruen in allen Laeufen.",
+    "verfaelschter_sollwert": "Ein absichtlich gekippter Sollwert MUSS auffallen. Gruen in allen Laeufen — sonst waere '0 abweichend' auch mit einem Vergleich vereinbar, der gar nichts prueft.",
+    "variante_je_runde": "Jede Betriebsrunde schreibt ein ANDERES Muster, und jede Runde wird zusaetzlich gegen die Erwartung der VORRUNDE gehalten. Passte der Inhalt zu beiden, waere der Vergleich blind; die Probe bricht dann ab. Gemessen: gegen die Vorrunde weichen stets ALLE Texel ab (3686400 von 3686400 bzw. 921600 von 921600) — die Runde hat also wirklich neu geschrieben.",
+    "das_pruefmuster": "Positionsabhaengig und bewusst nicht gleichfoermig (i*31 + i>>8 + 7, mit einem Versatz je Variante). Ein Weg, der versetzt liest, nur den Anfang trifft oder eine falsche Zeilenlaenge annimmt, kaeme mit einem gleichfoermigen Muster als fehlerfrei durch. Genau dieser Fehler ist auf der Windows-Seite beim Textur-Stapel aufgetreten.",
+    "gegenprobe_ohne_schreiben": {
+      "was": "SPIKE_OHNE_SCHREIBEN=1 laesst cuMemcpy2D aus. Alles andere laeuft unveraendert, das Urteil ist im Programm umgedreht.",
+      "ergebnis": "BESTANDEN, dreimal wiederholt. Alle 4 Ebenen weichen ab.",
+      "eine_zahl_die_stimmen_MUSS": "In der Gegenprobe bleiben genau 14400 von 3686400 Byte 'richtig' (bei R8, 1440p) — das sind 1/256, naemlich die Stellen, an denen das Muster zufaellig den Vorher-Wert 0x5A trifft. Dass diese Zahl exakt aufgeht, ist ein zusaetzlicher Beleg, dass Muster und Vergleich dieselbe Speicherlage meinen.",
+      "bedeutung": "Ein Erfolg im Hauptlauf kann kein Artefakt der Pruefmechanik sein."
+    }
+  },
+
+  "GELESEN": {
+    "wgpu_core_29.0.4_device_resource.rs:1253": "trackers.textures.insert_single(&texture, wgt::TextureUses::UNINITIALIZED) — der Eintragszustand einer per create_texture_from_hal eingehaengten Textur.",
+    "wgpu_hal_29.0.4_vulkan_conv.rs:218": "TextureUses::UNINITIALIZED => vk::ImageLayout::UNDEFINED",
+    "wgpu_hal_29.0.4_vulkan_conv.rs:221": "TextureUses::RESOURCE (Farbformat) => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL — das Layout, in dem wgpu die Textur nach dem ersten Zugriff hinterlaesst. Die Probe braucht es fuer ihr eigenes Nachlesen; wer dort UNDEFINED einsetzt, verwirft den Inhalt selbst und schiebt es dann wgpu zu.",
+    "wgpu_hal_29.0.4_vulkan_adapter.rs:1296": "VK_KHR_external_memory_fd wird angefordert, wenn die Karte sie anbietet. Ohne diese Zeile waere der ganze Weg bei wgpu 29 zu.",
+    "wgpu_hal_29.0.4_vulkan_device.rs:406": "texture_from_raw(vk_image, desc, drop_callback, memory). Zwei Auflagen aus der Sicherheitsdoku, die beim Nachbauen leicht falsch gemacht werden: ohne drop_callback nimmt wgpu-hal das VkImage in Besitz und zerstoert es (doppeltes Zerstoeren, faellt erst viel spaeter auf); und ohne TextureMemory::External uebernaehme es auch die Speicherverwaltung.",
+    "view_formats_muss_leer_sein": "wenn das Bild ohne ImageCreateFlags::MUTABLE_FORMAT angelegt ist — steht ausdruecklich in derselben Sicherheitsauflage.",
+    "ash_fassung": "wgpu-hal 29 zieht ash 0.38. Die Probe muss dieselbe nehmen, sonst waeren das angelegte vk::Image und das von texture_from_raw erwartete fuer den Compiler verschiedene Typen. Cargo vereinheitlicht 0.38.x von selbst."
+  },
+
+  "GRENZEN": {
+    "eine_karte_ein_treiber": "Gemessen auf einer RTX 5080 mit Treiber 610.43.03. Ueber andere NVIDIA-Generationen sagt das nichts, und ueber AMD/Intel unter Linux gar nichts — dort ist der Uebergabeweg ohnehin ein anderer (dma-buf statt OPAQUE_FD).",
+    "keine_nebenlaeufigkeit": "Die Probe schreibt, wartet, liest. Im Betrieb schreibt der Decoder, WAEHREND gezeichnet wird. Das verlangt Semaphoren ueber dieselbe Grenze (VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore). Ungemessen und ungebaut — das ist der naechste offene Punkt.",
+    "eigene_befehle_auf_wgpus_warteschlange": "Die Probe sendet ihre Vulkan-Befehle ueber raw_queue() an dieselbe Warteschlange, die wgpu benutzt, und leert wgpu vorher. Das ist fuer eine einfaedige Probe zulaessig, aber es ist NICHT die Bauart, die ein Player nehmen wuerde.",
+    "kein_decoder": "Der Inhalt kommt aus cuMemAlloc + cuMemcpy2D, nicht aus av1_cuvid. Ob der Decoder seine Bilder ueberhaupt als CUDA-Speicher herausgibt statt in den Hauptspeicher (hwaccel_output_format cuda), ist eine getrennte, noch offene Frage — und ohne sie nuetzt der schoenste Import nichts.",
+    "korrektheit_nicht_tempo": "Gemessen ist, dass der Inhalt ankommt. Dass der Umbau die 5,26 ms je Bild aus player-2026-08-06-bildweg-kosten.json wirklich einspart, ist begruendet erwartet, aber nicht belegt.",
+    "kein_shader_der_farbe_rechnet": "Abgetastet wird per textureLoad und in Codewerten verglichen. Die YCbCr-Umrechnung, die der Player braucht, ist nicht Gegenstand — sie ist ein reines Rechenproblem im Shader und beruehrt die Importfrage nicht.",
+    "was_die_pruefschicht_nicht_abdeckt": "Sie hat den Hauptlauf nicht beanstandet, aber sie meldet nicht jeden Regelverstoss (s. oben, der Barrieren-Verstoss blieb unbemerkt). 'Keine Meldung' heisst 'nichts gefunden', nicht 'nichts vorhanden'."
+  },
+
+  "werkzeugfehler_dieses_laufs": {
+    "1_die_wirkungslosen_schalter": {
+      "was_passierte": "Der erste Durchgang der Matrix meldete 1280x720, 1920x1080 und 3840x2160 als 'traegt'. Alle drei liefen in Wahrheit auf 2560x1440: die Schalter waren in einer Schleife als EIN Wort an env uebergeben worden ('SPIKE_BREITE=1280 SPIKE_HOEHE=720') und griffen nie.",
+      "wie_es_auffiel": "Die Probe gibt in jedem Lauf eine Kopfzeile mit der tatsaechlich verwendeten Aufloesung aus, und zusaetzlich die Allokationsgroesse je Ebene. Beide waren ueber alle drei angeblichen Aufloesungen identisch — was unmoeglich ist. Ohne diese mitgemessene Groesse waeren drei Zeilen der Matrix falsch als geprueft eingegangen.",
+      "die_lehre": "Genau diese Falle war aus dem vorigen Durchgang angekuendigt und ist trotzdem wieder eingetreten. Sie ist nicht durch Sorgfalt zu vermeiden, sondern nur durch eine Groesse, die sich aendern MUSS und mitprotokolliert wird."
+    },
+    "2_die_stumme_pruefschicht": {
+      "was_passierte": "Der erste Lauf mit SPIKE_PRUEFSCHICHT=1 meldete nichts. Das sah nach einem regelkonformen Lauf aus. In Wahrheit war die Pruefschicht auf dieser Maschine gar nicht installiert — und danach, nach der Installation, meldete sie immer noch nichts, weil wgpu ihre Beanstandungen ueber `log` weitergibt und kein Empfaenger eingehaengt war.",
+      "wie_es_auffiel": "Nachgesehen, ob /usr/share/vulkan/explicit_layer.d/ ueberhaupt eine Schicht enthaelt (leer), und danach ein absichtlicher Regelverstoss als Kontrolle.",
+      "die_folge": "Der Kontroll-Verstoss deckte einen ECHTEN Fehler in der Probe auf (Stufe E las mit einem unzulaessigen Layout aus und lieferte trotzdem richtige Zahlen). Ohne die Schicht waere er nie aufgefallen.",
+      "die_lehre": "Ein Werkzeug, das schweigt, hat drei moegliche Gruende: nichts zu melden, nicht installiert, oder niemand hoert zu. Nur der erste ist ein Befund."
+    }
+  },
+
+  "folgerungen": {
+    "fuer_den_player": "Der Zero-Copy-Weg unter Linux/NVIDIA ist bis zum Renderer durchgaengig gangbar, OHNE Fassungssprung: Vulkan legt das Ziel an (zwei Ebenen je Bild, R8/R8G8 bzw. R16/R16G16), CUDA bekommt es eingehaengt, der Decoder-Frame wird GPU-lokal hineinkopiert, wgpu 29 tastet es ab. Keine Nullkopie im Wortsinn, aber die Kopie bleibt auf der Karte statt ueber PCIe zu laufen.",
+    "wgpu_30_entfaellt": "Die Kette wgpu 30 -> egui-wgpu/egui-winit 0.36 -> Rust 1.95 (diese Maschine hat 1.93.1) wird fuer diesen Zweck NICHT gebraucht. Sie bleibt eine Option aus anderen Gruenden; fuer den Bild-Import ist sie unbegruendet.",
+    "was_als_naechstes_zu_klaeren_ist": [
+      "Gibt av1_cuvid seine Bilder als CUDA-Speicher heraus (hwaccel_output_format cuda / AV_PIX_FMT_CUDA) statt in den Hauptspeicher? Ohne das nuetzt der Import nichts. Einstieg: streaming/pulse-player/src/decode.rs.",
+      "Synchronisierung: VK_KHR_external_semaphore_fd gegen cuImportExternalSemaphore. Im Betrieb schreibt der Decoder, waehrend gezeichnet wird. ACHTUNG, s. vorgriff_synchronisierung: wgpu 29 fordert diese Erweiterung NICHT an, obwohl die Karte sie anbietet — der Player muesste sein VkDevice dafuer selbst anlegen und per Adapter::device_from_raw uebergeben.",
+      "Die Einfrier-Erkennung verliert ihre Bildpunkte, sobald die Ebenen nicht mehr im Hauptspeicher liegen — der Fingerabdruck muesste in einen Compute-Shader (Reduktion ueber die Y-Ebene, Rueckkanal von 8 Byte).",
+      "Der Tempo-Gewinn selbst ist unbelegt (s. GRENZEN)."
+    ]
+  },
+
+  "nachfahren": {
+    "bauen": "cd streaming/player-labor/wgpu-cuda-import && cargo build --release",
+    "hauptlauf": "./target/release/wgpu-cuda-import",
+    "schalter": {
+      "SPIKE_BREITE / SPIKE_HOEHE": "2560 / 1440",
+      "SPIKE_DEDIZIERT": "1 — 0 laesst VkMemoryDedicatedAllocateInfo weg",
+      "SPIKE_LAYOUT_UM": "1 — 0 laesst den Layout-Wechsel um den CUDA-Zugriff weg",
+      "SPIKE_RUNDEN": "3 — Zahl der Betriebsrunden (Stufe F)",
+      "SPIKE_OHNE_SCHREIBEN": "0 — GEGENPROBE, Urteil ist umgedreht",
+      "SPIKE_PRUEFSCHICHT": "0 — Vulkan-Pruefschicht an (braucht vulkan-validation-layers)",
+      "SPIKE_VERSTOSS": "0 — KONTROLLE, baut einen echten Regelverstoss ein, den die Schicht melden MUSS"
+    },
+    "beim_nachfahren_einer_matrix": "Die Kopfzeile des Laufs gilt als Beleg, nicht die eigene Beschriftung. Sie gibt Aufloesung UND jede Schalterstellung aus."
+  }
+}

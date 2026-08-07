@@ -1,0 +1,3666 @@
+[
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1363.0,
+  "send_median_us": 1353.6,
+  "send_p95_us": 1437.2,
+  "receive_us": 0.37,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 727.84,
+  "kerne": 0.323,
+  "wanduhr_s": 1.24,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 26
+  },
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 755.0,
+  "send_median_us": 752.9,
+  "send_p95_us": 788.1,
+  "receive_us": 0.36,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1307.23,
+  "kerne": 0.053,
+  "wanduhr_s": 0.69,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 18
+  },
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 761.6,
+  "send_median_us": 758.1,
+  "send_p95_us": 801.5,
+  "receive_us": 0.44,
+  "abholen": true,
+  "abholen_us": 619.4,
+  "fps": 718.1,
+  "kerne": 0.329,
+  "wanduhr_s": 1.25,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 26
+  },
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1345.2,
+  "send_median_us": 1337.7,
+  "send_p95_us": 1423.2,
+  "receive_us": 0.4,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 737.38,
+  "kerne": 0.322,
+  "wanduhr_s": 1.22,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 25
+  },
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55e4448bc800] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 756.8,
+  "send_median_us": 754.7,
+  "send_p95_us": 795.1,
+  "receive_us": 0.74,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1299.81,
+  "kerne": 0.052,
+  "wanduhr_s": 0.69,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 17
+  },
+  "runde": 0,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 759.9,
+  "send_median_us": 756.7,
+  "send_p95_us": 801.5,
+  "receive_us": 0.77,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1289.7,
+  "kerne": 0.051,
+  "wanduhr_s": 0.7,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 18
+  },
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 758.7,
+  "send_median_us": 756.4,
+  "send_p95_us": 795.0,
+  "receive_us": 0.54,
+  "abholen": true,
+  "abholen_us": 597.4,
+  "fps": 731.18,
+  "kerne": 0.323,
+  "wanduhr_s": 1.23,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 26
+  },
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1344.5,
+  "send_median_us": 1334.3,
+  "send_p95_us": 1431.2,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 737.81,
+  "kerne": 0.323,
+  "wanduhr_s": 1.22,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 25
+  },
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x5569525029c0] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 755.6,
+  "send_median_us": 753.5,
+  "send_p95_us": 790.3,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1305.89,
+  "kerne": 0.054,
+  "wanduhr_s": 0.69,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 17
+  },
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1343.7,
+  "send_median_us": 1333.0,
+  "send_p95_us": 1426.5,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 738.16,
+  "kerne": 0.323,
+  "wanduhr_s": 1.22,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 25
+  },
+  "runde": 1,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 781.3,
+  "send_median_us": 780.6,
+  "send_p95_us": 820.8,
+  "receive_us": 0.55,
+  "abholen": true,
+  "abholen_us": 604.1,
+  "fps": 715.77,
+  "kerne": 0.325,
+  "wanduhr_s": 1.26,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 26
+  },
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1336.0,
+  "send_median_us": 1327.2,
+  "send_p95_us": 1412.6,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 742.49,
+  "kerne": 0.321,
+  "wanduhr_s": 1.21,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 25
+  },
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55fc9876f000] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 755.1,
+  "send_median_us": 752.4,
+  "send_p95_us": 790.0,
+  "receive_us": 0.38,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1306.82,
+  "kerne": 0.052,
+  "wanduhr_s": 0.69,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 18
+  },
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1345.0,
+  "send_median_us": 1332.1,
+  "send_p95_us": 1437.4,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 737.49,
+  "kerne": 0.326,
+  "wanduhr_s": 1.22,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 25
+  },
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 761.2,
+  "send_median_us": 758.0,
+  "send_p95_us": 799.6,
+  "receive_us": 1.02,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1281.52,
+  "kerne": 0.05,
+  "wanduhr_s": 0.7,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 18
+  },
+  "runde": 2,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1348.7,
+  "send_median_us": 1336.4,
+  "send_p95_us": 1441.0,
+  "receive_us": 0.43,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 735.4,
+  "kerne": 0.325,
+  "wanduhr_s": 1.22,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 44,
+   "proben": 25
+  },
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x5609aa865180] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 764.3,
+  "send_median_us": 760.9,
+  "send_p95_us": 805.0,
+  "receive_us": 1.48,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1274.01,
+  "kerne": 0.051,
+  "wanduhr_s": 0.71,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 18
+  },
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 3840,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1356.3,
+  "send_median_us": 1346.5,
+  "send_p95_us": 1436.1,
+  "receive_us": 0.38,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 731.51,
+  "kerne": 0.328,
+  "wanduhr_s": 1.23,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 25
+  },
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 755.9,
+  "send_median_us": 753.8,
+  "send_p95_us": 790.5,
+  "receive_us": 0.52,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1303.1,
+  "kerne": 0.052,
+  "wanduhr_s": 0.69,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 37,
+   "proben": 18
+  },
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 4096,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 761.3,
+  "send_median_us": 758.3,
+  "send_p95_us": 801.8,
+  "receive_us": 0.67,
+  "abholen": true,
+  "abholen_us": 619.3,
+  "fps": 718.13,
+  "kerne": 0.331,
+  "wanduhr_s": 1.25,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 37,
+   "proben": 26
+  },
+  "runde": 3,
+  "material": "1080p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 837.5,
+  "send_median_us": 824.5,
+  "send_p95_us": 903.6,
+  "receive_us": 0.33,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1181.79,
+  "kerne": 0.259,
+  "wanduhr_s": 0.76,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 18
+  },
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 512.0,
+  "send_median_us": 504.5,
+  "send_p95_us": 561.5,
+  "receive_us": 0.34,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1922.47,
+  "kerne": 0.074,
+  "wanduhr_s": 0.47,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 31,
+   "proben": 14
+  },
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 517.4,
+  "send_median_us": 508.8,
+  "send_p95_us": 566.8,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 341.8,
+  "fps": 1151.37,
+  "kerne": 0.263,
+  "wanduhr_s": 0.78,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 31,
+   "proben": 19
+  },
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 841.2,
+  "send_median_us": 827.3,
+  "send_p95_us": 914.9,
+  "receive_us": 0.38,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 1174.05,
+  "kerne": 0.265,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 18
+  },
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55f2d60b7100] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 517.4,
+  "send_median_us": 508.7,
+  "send_p95_us": 565.8,
+  "receive_us": 0.66,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1899.03,
+  "kerne": 0.077,
+  "wanduhr_s": 0.47,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 32,
+   "proben": 14
+  },
+  "runde": 0,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 517.5,
+  "send_median_us": 508.0,
+  "send_p95_us": 571.5,
+  "receive_us": 0.45,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1898.49,
+  "kerne": 0.083,
+  "wanduhr_s": 0.47,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 44,
+   "proben": 14
+  },
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 547.1,
+  "send_median_us": 537.5,
+  "send_p95_us": 601.9,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 348.3,
+  "fps": 1104.93,
+  "kerne": 0.263,
+  "wanduhr_s": 0.81,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 44,
+   "proben": 20
+  },
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 845.7,
+  "send_median_us": 832.9,
+  "send_p95_us": 925.9,
+  "receive_us": 0.38,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 1167.95,
+  "kerne": 0.265,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 27,
+   "proben": 18
+  },
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55f8f91ee400] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 513.6,
+  "send_median_us": 505.6,
+  "send_p95_us": 557.8,
+  "receive_us": 0.38,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1914.9,
+  "kerne": 0.078,
+  "wanduhr_s": 0.47,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 14
+  },
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 847.4,
+  "send_median_us": 839.1,
+  "send_p95_us": 911.0,
+  "receive_us": 0.35,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1167.84,
+  "kerne": 0.257,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 18
+  },
+  "runde": 1,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 517.5,
+  "send_median_us": 508.3,
+  "send_p95_us": 576.4,
+  "receive_us": 0.39,
+  "abholen": true,
+  "abholen_us": 332.9,
+  "fps": 1161.15,
+  "kerne": 0.268,
+  "wanduhr_s": 0.78,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 19
+  },
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 841.4,
+  "send_median_us": 828.9,
+  "send_p95_us": 922.3,
+  "receive_us": 0.34,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 1175.93,
+  "kerne": 0.264,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 18
+  },
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55ea2a49b340] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 514.1,
+  "send_median_us": 505.6,
+  "send_p95_us": 562.4,
+  "receive_us": 0.53,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1912.58,
+  "kerne": 0.075,
+  "wanduhr_s": 0.47,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 14
+  },
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 846.1,
+  "send_median_us": 832.8,
+  "send_p95_us": 911.1,
+  "receive_us": 0.36,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1169.59,
+  "kerne": 0.263,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 18
+  },
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 513.6,
+  "send_median_us": 505.6,
+  "send_p95_us": 566.7,
+  "receive_us": 0.37,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1915.66,
+  "kerne": 0.075,
+  "wanduhr_s": 0.47,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 14
+  },
+  "runde": 2,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 850.1,
+  "send_median_us": 839.8,
+  "send_p95_us": 930.8,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 1163.87,
+  "kerne": 0.264,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 18
+  },
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x559398c1c400] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 515.3,
+  "send_median_us": 506.2,
+  "send_p95_us": 573.0,
+  "receive_us": 0.6,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1908.01,
+  "kerne": 0.075,
+  "wanduhr_s": 0.47,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 14
+  },
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 841.1,
+  "send_median_us": 828.8,
+  "send_p95_us": 915.6,
+  "receive_us": 0.36,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1176.46,
+  "kerne": 0.26,
+  "wanduhr_s": 0.77,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 18
+  },
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 512.7,
+  "send_median_us": 505.8,
+  "send_p95_us": 556.2,
+  "receive_us": 0.35,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1913.95,
+  "kerne": 0.079,
+  "wanduhr_s": 0.47,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 14
+  },
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8-h264.mkv",
+  "decoder": "h264_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 523.2,
+  "send_median_us": 513.9,
+  "send_p95_us": 577.8,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 338.0,
+  "fps": 1148.29,
+  "kerne": 0.265,
+  "wanduhr_s": 0.78,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 19
+  },
+  "runde": 3,
+  "material": "1080p8-h264.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1166.5,
+  "send_median_us": 1105.6,
+  "send_p95_us": 1612.6,
+  "receive_us": 0.39,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 849.38,
+  "kerne": 0.19,
+  "wanduhr_s": 1.06,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 837.4,
+  "send_median_us": 774.3,
+  "send_p95_us": 1273.6,
+  "receive_us": 0.46,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1179.11,
+  "kerne": 0.05,
+  "wanduhr_s": 0.76,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 19
+  },
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 840.0,
+  "send_median_us": 778.9,
+  "send_p95_us": 1282.8,
+  "receive_us": 0.41,
+  "abholen": true,
+  "abholen_us": 332.8,
+  "fps": 844.33,
+  "kerne": 0.195,
+  "wanduhr_s": 1.07,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 23
+  },
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1159.4,
+  "send_median_us": 1096.1,
+  "send_p95_us": 1603.9,
+  "receive_us": 0.35,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 854.72,
+  "kerne": 0.188,
+  "wanduhr_s": 1.05,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x562d4b8bf680] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 837.0,
+  "send_median_us": 775.4,
+  "send_p95_us": 1271.5,
+  "receive_us": 0.35,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1180.43,
+  "kerne": 0.049,
+  "wanduhr_s": 0.76,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 18
+  },
+  "runde": 0,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 844.8,
+  "send_median_us": 782.0,
+  "send_p95_us": 1284.2,
+  "receive_us": 0.44,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1169.08,
+  "kerne": 0.048,
+  "wanduhr_s": 0.77,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 19
+  },
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 850.9,
+  "send_median_us": 790.8,
+  "send_p95_us": 1300.3,
+  "receive_us": 0.4,
+  "abholen": true,
+  "abholen_us": 335.1,
+  "fps": 835.26,
+  "kerne": 0.19,
+  "wanduhr_s": 1.08,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1159.6,
+  "send_median_us": 1097.3,
+  "send_p95_us": 1597.8,
+  "receive_us": 0.38,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 854.34,
+  "kerne": 0.19,
+  "wanduhr_s": 1.05,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55b5500159c0] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 845.6,
+  "send_median_us": 782.1,
+  "send_p95_us": 1281.7,
+  "receive_us": 0.61,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1167.4,
+  "kerne": 0.049,
+  "wanduhr_s": 0.77,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 19
+  },
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1164.5,
+  "send_median_us": 1101.4,
+  "send_p95_us": 1590.5,
+  "receive_us": 0.39,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 850.59,
+  "kerne": 0.19,
+  "wanduhr_s": 1.06,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 23
+  },
+  "runde": 1,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 838.0,
+  "send_median_us": 777.3,
+  "send_p95_us": 1277.2,
+  "receive_us": 0.4,
+  "abholen": true,
+  "abholen_us": 332.5,
+  "fps": 846.16,
+  "kerne": 0.194,
+  "wanduhr_s": 1.06,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1176.3,
+  "send_median_us": 1111.8,
+  "send_p95_us": 1620.4,
+  "receive_us": 0.37,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 842.33,
+  "kerne": 0.197,
+  "wanduhr_s": 1.07,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55ec45551180] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 835.8,
+  "send_median_us": 773.8,
+  "send_p95_us": 1268.4,
+  "receive_us": 0.37,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1181.87,
+  "kerne": 0.049,
+  "wanduhr_s": 0.76,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 18
+  },
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1162.0,
+  "send_median_us": 1101.7,
+  "send_p95_us": 1596.6,
+  "receive_us": 0.39,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 852.78,
+  "kerne": 0.19,
+  "wanduhr_s": 1.06,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 34,
+   "proben": 23
+  },
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 841.1,
+  "send_median_us": 775.6,
+  "send_p95_us": 1280.5,
+  "receive_us": 0.55,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1174.05,
+  "kerne": 0.048,
+  "wanduhr_s": 0.77,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 19
+  },
+  "runde": 2,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1169.4,
+  "send_median_us": 1107.7,
+  "send_p95_us": 1611.0,
+  "receive_us": 0.38,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 847.09,
+  "kerne": 0.194,
+  "wanduhr_s": 1.06,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 33,
+   "proben": 23
+  },
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55593cf5f7c0] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "nv12"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 849.0,
+  "send_median_us": 785.4,
+  "send_p95_us": 1281.9,
+  "receive_us": 0.5,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1163.18,
+  "kerne": 0.048,
+  "wanduhr_s": 0.77,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 47,
+   "proben": 18
+  },
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "nv12",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 1920,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 1167.6,
+  "send_median_us": 1106.1,
+  "send_p95_us": 1602.8,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 848.44,
+  "kerne": 0.193,
+  "wanduhr_s": 1.06,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 45,
+   "proben": 23
+  },
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 838.9,
+  "send_median_us": 775.0,
+  "send_p95_us": 1270.3,
+  "receive_us": 0.45,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 1177.09,
+  "kerne": 0.051,
+  "wanduhr_s": 0.76,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 19
+  },
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1080p8.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 1920,
+  "hoehe": 1080,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "nv12",
+  "ebenen": [
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 2048,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 839.0,
+  "send_median_us": 776.5,
+  "send_p95_us": 1283.1,
+  "receive_us": 0.38,
+  "abholen": true,
+  "abholen_us": 336.9,
+  "fps": 842.22,
+  "kerne": 0.194,
+  "wanduhr_s": 1.07,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 46,
+   "proben": 23
+  },
+  "runde": 3,
+  "material": "1080p8.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2227.4,
+  "send_median_us": 2061.2,
+  "send_p95_us": 6985.5,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 447.01,
+  "kerne": 0.37,
+  "wanduhr_s": 2.01,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 27,
+   "proben": 38
+  },
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1217.5,
+  "send_median_us": 1076.8,
+  "send_p95_us": 5989.2,
+  "receive_us": 0.32,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 815.93,
+  "kerne": 0.031,
+  "wanduhr_s": 1.1,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1240.1,
+  "send_median_us": 1099.0,
+  "send_p95_us": 6024.0,
+  "receive_us": 0.46,
+  "abholen": true,
+  "abholen_us": 1053.3,
+  "fps": 434.07,
+  "kerne": 0.382,
+  "wanduhr_s": 2.07,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 40
+  },
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2233.8,
+  "send_median_us": 2059.5,
+  "send_p95_us": 7017.9,
+  "receive_us": 0.4,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 445.77,
+  "kerne": 0.376,
+  "wanduhr_s": 2.02,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 38
+  },
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x563d3808f200] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1219.7,
+  "send_median_us": 1071.2,
+  "send_p95_us": 5977.5,
+  "receive_us": 0.32,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 813.87,
+  "kerne": 0.031,
+  "wanduhr_s": 1.11,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 49,
+   "proben": 25
+  },
+  "runde": 0,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1219.5,
+  "send_median_us": 1073.1,
+  "send_p95_us": 5991.0,
+  "receive_us": 0.34,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 813.86,
+  "kerne": 0.032,
+  "wanduhr_s": 1.11,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 49,
+   "proben": 25
+  },
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1240.0,
+  "send_median_us": 1108.9,
+  "send_p95_us": 6038.7,
+  "receive_us": 0.35,
+  "abholen": true,
+  "abholen_us": 1013.0,
+  "fps": 441.84,
+  "kerne": 0.371,
+  "wanduhr_s": 2.04,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 39
+  },
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2250.3,
+  "send_median_us": 2094.5,
+  "send_p95_us": 7064.8,
+  "receive_us": 0.39,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 442.48,
+  "kerne": 0.375,
+  "wanduhr_s": 2.03,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 27,
+   "proben": 39
+  },
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x555bf7d748c0] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1218.8,
+  "send_median_us": 1071.4,
+  "send_p95_us": 5987.3,
+  "receive_us": 0.34,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 814.73,
+  "kerne": 0.032,
+  "wanduhr_s": 1.1,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2251.9,
+  "send_median_us": 2087.0,
+  "send_p95_us": 7032.7,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 442.2,
+  "kerne": 0.375,
+  "wanduhr_s": 2.04,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 38
+  },
+  "runde": 1,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1241.2,
+  "send_median_us": 1115.9,
+  "send_p95_us": 6028.6,
+  "receive_us": 0.44,
+  "abholen": true,
+  "abholen_us": 1090.0,
+  "fps": 426.95,
+  "kerne": 0.38,
+  "wanduhr_s": 2.11,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 40
+  },
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2322.8,
+  "send_median_us": 2127.2,
+  "send_p95_us": 7117.2,
+  "receive_us": 0.48,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 428.53,
+  "kerne": 0.38,
+  "wanduhr_s": 2.1,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 28,
+   "proben": 39
+  },
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x557143510380] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1225.9,
+  "send_median_us": 1082.4,
+  "send_p95_us": 5998.0,
+  "receive_us": 0.45,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 809.11,
+  "kerne": 0.038,
+  "wanduhr_s": 1.11,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2330.7,
+  "send_median_us": 2105.0,
+  "send_p95_us": 7110.3,
+  "receive_us": 0.5,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 426.98,
+  "kerne": 0.383,
+  "wanduhr_s": 2.11,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 39
+  },
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1226.7,
+  "send_median_us": 1080.3,
+  "send_p95_us": 5995.9,
+  "receive_us": 0.41,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 808.62,
+  "kerne": 0.038,
+  "wanduhr_s": 1.11,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 2,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2345.9,
+  "send_median_us": 2123.1,
+  "send_p95_us": 7136.6,
+  "receive_us": 0.48,
+  "abholen": true,
+  "abholen_us": 0.0,
+  "fps": 424.21,
+  "kerne": 0.387,
+  "wanduhr_s": 2.12,
+  "arm": "hauptspeicher_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 26,
+   "proben": 39
+  },
+  "runde": 3,
+  "material": "1440p10.mkv"
+ },
+ {
+  "arm": "cuda_primaer",
+  "fehler": "[CUDA @ 0x55e26564d000] Primary context already active with incompatible flags.\nError: CUDA-Geraet liess sich nicht anlegen (rc=-95)",
+  "runde": 3,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "cuda",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [
+   "cuda",
+   "p010le"
+  ],
+  "gewaehlt": "cuda",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1221.8,
+  "send_median_us": 1078.0,
+  "send_p95_us": 5997.9,
+  "receive_us": 0.36,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 812.41,
+  "kerne": 0.031,
+  "wanduhr_s": 1.11,
+  "arm": "nur_formatwahl",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 3,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": false,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "p010le",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "hauptspeicher"
+   }
+  ],
+  "im_grafikspeicher": false,
+  "zeilenkopie_gleich": null,
+  "bilder": 900,
+  "send_us": 2258.3,
+  "send_median_us": 2107.2,
+  "send_p95_us": 7071.3,
+  "receive_us": 0.38,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 441.04,
+  "kerne": 0.379,
+  "wanduhr_s": 2.04,
+  "arm": "hauptspeicher",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 39
+  },
+  "runde": 3,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1223.1,
+  "send_median_us": 1082.1,
+  "send_p95_us": 5994.8,
+  "receive_us": 0.29,
+  "abholen": false,
+  "abholen_us": 0.0,
+  "fps": 811.21,
+  "kerne": 0.029,
+  "wanduhr_s": 1.11,
+  "arm": "cuda",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 48,
+   "proben": 25
+  },
+  "runde": 3,
+  "material": "1440p10.mkv"
+ },
+ {
+  "datei": "/tmp/claude-1000/-home-michael-Dokumente-Pulse/2e34486e-30cf-49b5-b2f1-2837dc35c4c2/scratchpad/material/1440p10.mkv",
+  "decoder": "av1_cuvid",
+  "hwctx": true,
+  "formatwahl": "roh",
+  "breite": 2560,
+  "hoehe": 1440,
+  "bildformat": "cuda",
+  "angeboten": [],
+  "gewaehlt": "-",
+  "sw_format": "p010le",
+  "ebenen": [
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   },
+   {
+    "zeilenabstand": 5120,
+    "lage": "geraet"
+   }
+  ],
+  "im_grafikspeicher": true,
+  "zeilenkopie_gleich": true,
+  "bilder": 900,
+  "send_us": 1238.9,
+  "send_median_us": 1104.5,
+  "send_p95_us": 6024.5,
+  "receive_us": 0.43,
+  "abholen": true,
+  "abholen_us": 1042.0,
+  "fps": 436.54,
+  "kerne": 0.38,
+  "wanduhr_s": 2.06,
+  "arm": "cuda_abholen",
+  "gpu": {
+   "sm_mhz_min": 2092,
+   "sm_mhz_max": 2092,
+   "sm_mhz_mittel": 2092,
+   "decoder_prozent_max": 38,
+   "proben": 40
+  },
+  "runde": 3,
+  "material": "1440p10.mkv"
+ }
+]

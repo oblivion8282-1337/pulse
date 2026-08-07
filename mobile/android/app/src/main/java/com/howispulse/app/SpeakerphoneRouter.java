@@ -2,6 +2,7 @@ package com.howispulse.app;
 
 import android.app.Activity;
 import android.content.Context;
+import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
@@ -71,6 +72,17 @@ public class SpeakerphoneRouter {
 
     private AudioManager.OnModeChangedListener modeListener;
     private AudioManager.OnCommunicationDeviceChangedListener commDeviceListener;
+    /** Feuert, wenn Audio-Geräte erscheinen/verschwinden — der Recovery-Pfad für
+     *  das BT-SCO-Gerät, das zum Voice-Join-Zeitpunkt noch nicht in
+     *  getAvailableCommunicationDevices() steht (das „im Auto zu leise"-Race).
+     *  Auf allen API-Leveln verfügbar (seit API 23), daher nicht ans API-31-Gate geknüpft. */
+    private AudioDeviceCallback audioDeviceCallback;
+    /** True während eines aktiven Voice-Calls (setVoiceActive(true) … false). Der
+     *  modeListener re-assertet COMMUNICATION nur, solange dies true ist. */
+    private volatile boolean voiceActive = false;
+    /** Zeitstempel (ms) des letzten Mode-Re-Asserts — Schutz gegen einen Ping-Pong-
+     *  Loop, falls Chromium den Mode wiederholt wegzieht. */
+    private volatile long lastModeReassert = 0;
 
     public SpeakerphoneRouter(Context context, Activity activity, Executor mainExecutor) {
         this.audioManager = (AudioManager) context.getApplicationContext()
@@ -89,6 +101,22 @@ public class SpeakerphoneRouter {
                     if (mode == AudioManager.MODE_IN_COMMUNICATION) {
                         setVoiceVolumeStream();
                         apply();
+                    } else if (voiceActive) {
+                        // Chromium/FGS hat den Mode während eines aktiven Voice-Calls
+                        // weggezogen (z.B. bei Mic-Mute/Track-Stop) → re-assert, sonst
+                        // fällt das Audio auf den Medien-Pfad (A2DP) und die Lauter-Taste
+                        // regelt den falschen Stream. Rate-limit (500 ms) gegen Ping-Pong.
+                        long now = System.currentTimeMillis();
+                        if (now - lastModeReassert >= 500) {
+                            lastModeReassert = now;
+                            try {
+                                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            } catch (Exception e) {
+                                Log.w(TAG, "re-assert MODE_IN_COMMUNICATION failed", e);
+                            }
+                            setVoiceVolumeStream();
+                            apply();
+                        }
                     } else {
                         resetVolumeStream();
                     }
@@ -107,6 +135,42 @@ public class SpeakerphoneRouter {
                 } catch (Exception e) {
                     Log.w(TAG, "addOnCommunicationDeviceChangedListener failed", e);
                 }
+            }
+        }
+        if (audioDeviceCallback == null) {
+            audioDeviceCallback = new AudioDeviceCallback() {
+                @Override
+                public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+                    // Routing neu bewerten, wenn ein Ausgabegerät erscheint — vor
+                    // allem das BT-SCO-Gerät, das zum Join-Zeitpunkt noch fehlt.
+                    if (!voiceActive
+                            || audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+                    for (AudioDeviceInfo d : addedDevices) {
+                        if (d.isSink() && (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                                || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)) {
+                            // API<31: apply() hat keinen SCO-Hebel — startBluetoothSco
+                            // nachholen, falls BT erst nach dem Join verbindet (sonst
+                            // bleibt es trotz Recovery auf dem leisen A2DP).
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                try {
+                                    audioManager.startBluetoothSco();
+                                    audioManager.setBluetoothScoOn(true);
+                                } catch (Exception e) {
+                                    Log.w(TAG, "startBluetoothSco (recovery) failed", e);
+                                }
+                            }
+                            applyWithReassert();
+                            break;
+                        }
+                    }
+                }
+                @Override
+                public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { /* no-op */ }
+            };
+            try {
+                audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);
+            } catch (Exception e) {
+                Log.w(TAG, "registerAudioDeviceCallback failed", e);
             }
         }
         // Falls Chromium den Mode schon vor start() auf COMMUNICATION gestellt hat.
@@ -131,6 +195,11 @@ public class SpeakerphoneRouter {
                 catch (Exception e) { Log.w(TAG, "removeOnCommunicationDeviceChangedListener failed", e); }
                 commDeviceListener = null;
             }
+        }
+        if (audioDeviceCallback != null) {
+            try { audioManager.unregisterAudioDeviceCallback(audioDeviceCallback); }
+            catch (Exception e) { Log.w(TAG, "unregisterAudioDeviceCallback failed", e); }
+            audioDeviceCallback = null;
         }
         handler.removeCallbacksAndMessages(null);
     }
@@ -165,6 +234,9 @@ public class SpeakerphoneRouter {
      */
     public void setVoiceActive(boolean active) {
         if (audioManager == null) return;
+        // Vor dem Mode-Wechsel setzen: beim Leave (false) darf der modeListener den
+        // auf NORMAL gezogenen Mode NICHT wieder nach COMMUNICATION re-asserten.
+        this.voiceActive = active;
         if (active) {
             try {
                 if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) {
@@ -178,13 +250,35 @@ public class SpeakerphoneRouter {
             // auch nicht, dann ist dies der einzige Pfad, der Stream + Routing setzt.
             setVoiceVolumeStream();
             applyWithReassert();
-        } else {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.clearCommunicationDevice();
+            // API<31 (Android <12) hat kein setCommunicationDevice — startBluetoothSco()
+            // ist der einzige Hebel, der Bluetooth tatsächlich auf den Telefonkanal
+            // (SCO) lenkt statt auf dem leisen Medienkanal (A2DP) zu lassen.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && hasBluetoothAudioRoute()) {
+                try {
+                    audioManager.startBluetoothSco();
+                    audioManager.setBluetoothScoOn(true);
+                } catch (Exception e) {
+                    Log.w(TAG, "startBluetoothSco failed", e);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "clearCommunicationDevice failed", e);
+            }
+        } else {
+            // stopBluetoothSco() bedingungslos (auch falls SCO nie lief) — im
+            // Gegensatz zum active-Zweig, der hasBluetoothAudioRoute() prüft, weil
+            // Start nur bei verbundenem BT Sinn macht, Stopp aber immer sicher ist.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                try {
+                    audioManager.setBluetoothScoOn(false);
+                    audioManager.stopBluetoothSco();
+                } catch (Exception e) {
+                    Log.w(TAG, "stopBluetoothSco failed", e);
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    audioManager.clearCommunicationDevice();
+                } catch (Exception e) {
+                    Log.w(TAG, "clearCommunicationDevice failed", e);
+                }
             }
             try {
                 audioManager.setMode(AudioManager.MODE_NORMAL);
@@ -242,9 +336,13 @@ public class SpeakerphoneRouter {
                     }
                 }
             } else {
-                // API 24–30: deprecated, aber der einzige Weg. setSpeakerphoneOn
-                // deckt nur Speaker/earpiece ab; BT läuft hier ohnehin OS-gesteuert.
-                audioManager.setSpeakerphoneOn(targetDeviceType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
+                // API 24–30: deprecated, aber der einzige Weg. Bei ROUTE_AUTO + BT
+                // Speakerphone AUS, damit Bluetooth/SCO das Routing übernimmt (sonst
+                // zwei konfligierende Signale an AudioFlinger → unzuverlässig). Bei
+                // SPEAKER-Override oder ohne BT wie gewünscht an/aus.
+                boolean speakerOn = targetDeviceType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                        && !(route == ROUTE_AUTO && hasBluetoothAudioRoute());
+                audioManager.setSpeakerphoneOn(speakerOn);
             }
         } catch (Exception e) {
             Log.w(TAG, "audio routing failed", e);

@@ -198,12 +198,23 @@ pub enum SessionCommand {
 
 /// Fuehrt eine Sitzung von Anfang bis Ende. Kehrt zurueck, wenn die Sitzung
 /// endet (regulaer oder mit Fehler).
+///
+/// `geraet` ist das wgpu-Geraet des Fensters, in dem dieser Strom laeuft.
+///
+/// **Es wandert nur bis zum Decoder durch** — die Sitzung selbst tut nichts
+/// damit. Der Grund, es trotzdem hier durchzureichen statt es prozessweit
+/// abzulegen: die Linux-Zero-Copy-Bruecke legt ihre Zielbilder auf genau
+/// diesem Geraet an, und ein `VkImage` gehoert unaufloesbar zu seinem
+/// `VkDevice`. Der Player fuehrt mehrere Fenster mit je eigenem Geraet
+/// (`app::Session`); ein prozessweites waere fuer das zweite Fenster still das
+/// falsche.
 pub async fn run(
     url: String,
     ice: Vec<String>,
     mut options: PlayerOptions,
     events: mpsc::Sender<SessionEvent>,
     mut commands: mpsc::Receiver<SessionCommand>,
+    geraet: Option<wgpu::Device>,
 ) {
     let (rtp_tx, mut rtp_rx) = mpsc::channel::<RtpArrival>(1024);
 
@@ -564,7 +575,7 @@ pub async fn run(
 
                 let dec = match decoder.as_mut() {
                     Some(d) => d,
-                    None => match VideoDecoder::new(*codec, options.hwdec) {
+                    None => match VideoDecoder::new(*codec, options.hwdec, geraet.clone()) {
                         Ok(d) => decoder.insert(d),
                         Err(e) => break 'sitzung (format!("Decoder: {e:#}"), true),
                     },
@@ -923,6 +934,9 @@ mod tests {
             PlayerOptions::defaults(),
             tx,
             cmd_rx,
+            // Kein Fenster, also kein Geraet — dieser Test kommt gar nicht bis
+            // zum Decoder.
+            None,
         )
         .await;
 

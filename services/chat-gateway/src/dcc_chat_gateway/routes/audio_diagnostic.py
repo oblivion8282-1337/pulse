@@ -1,18 +1,19 @@
-"""Audio-diagnostic dump receiver — default INACTIVE.
+"""Audio-diagnostic dump receiver (Android-Audio-Routing-Snapshot).
 
 Empfängt einen Audio-Routing-Snapshot von der Android-APK (KEIN Audio-Inhalt —
 nur Routing-Metadaten: Audio-Mode, Ausgabegerät+Typ, Stream-Lautstärken,
-Android-Version, BT-Profil) zur Fern-Diagnose des „Bluetooth/Car zu leise"-
-Bugs (Weg C).
+Android-Version, BT-Profil, sowie den web-seitigen setVoiceActive-Status) zur
+Fern-Diagnose des „Bluetooth/Car zu leise"-Bugs.
 
-Die Pipeline steht, hat aber KEINEN Auto-Trigger: nichts wird gesendet, bis das
-Web-Frontend ``sendAudioDiagnostic()`` an einer gewählten Stelle aufruft
-(aktuell nirgends angebunden — bewusst „deaktiviert"). Scharfschalten = einen
-Aufruf einbauen.
+Die Pipeline ist angebunden: Beim Voice-Join feuert das Web nach ~2,5 s
+``maybeSendAudioDiagnostic()`` (in ``livekit.svelte.ts``), das den Snapshot nur
+verschickt, wenn ein Bluetooth-Ausgabegerät verbunden ist (das „im Auto zu
+leise"-Szenario). Trägt zusätzlich ``setVoiceActiveError``, falls der native
+Routing-Aufruf auf der Web-Seite scheiterte (Plugin nicht geladen etc.).
 
 Speicherung als structured Logs (keine DB, keine Migration — geringes Volumen,
 nur Dev-Zugriff):
-    docker logs pulse_chat 2>&1 | grep audio_diagnostic
+    docker logs pulse_chat_gateway 2>&1 | grep audio_diagnostic
 """
 
 from __future__ import annotations

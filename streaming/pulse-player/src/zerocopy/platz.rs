@@ -4,31 +4,9 @@
 //! heikelste Stelle des ganzen Weges und soll nicht zwischen COM-Aufrufen
 //! stehen.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-/// Freie Ringplaetze. Getrennt vom Ring selbst, weil die Rueckgabe von einem
-/// ANDEREN Thread kommt als die Entnahme: der Renderer gibt einen Platz erst
-/// frei, wenn die GPU mit ihm fertig ist.
-pub(super) struct Freigabe {
-    frei: Mutex<Vec<usize>>,
-}
-
-impl Freigabe {
-    pub fn mit(plaetze: usize) -> Arc<Self> {
-        Arc::new(Self { frei: Mutex::new((0..plaetze).collect()) })
-    }
-    pub fn leer() -> Arc<Self> {
-        Arc::new(Self { frei: Mutex::new(Vec::new()) })
-    }
-    pub fn nehmen(&self) -> Option<usize> {
-        self.frei.lock().ok()?.pop()
-    }
-    pub fn zurueck(&self, slot: usize) {
-        if let Ok(mut f) = self.frei.lock() {
-            f.push(slot);
-        }
-    }
-}
+use super::freigabe::Freigabe;
 
 /// Ein dekodiertes Bild, das im Grafikspeicher liegen bleibt.
 ///
