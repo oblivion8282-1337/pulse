@@ -1,0 +1,175 @@
+{
+  "id": "player-2026-08-08-wgpu30-migration",
+  "gemessen_am": "2026-08-08",
+  "frage": "Der Player ist von wgpu 29 auf wgpu 30 gehoben worden (und die egui-Familie von 0.35 auf 0.36). Tut er danach unveraendert dasselbe — insbesondere: ist der Zero-Copy-Weg unbeschaedigt und gleich schnell?",
+  "antwort_kurz": "Ja. Zwoelf Laeufe je Arm ueber zwei getrennte Reihen, Arme abwechselnd, beide Male mit eingeschaltetem Zero-Copy: Dekodierzeit 1491,0 gegen 1513,6 us (-1,5 %), Bild-bis-Schirm 24133,4 gegen 24127,0 us (+0,03 %), Bildrate in beiden Armen 58,9. Die Wertebereiche ueberlappen vollstaendig, und das Vorzeichen des Unterschieds KIPPT zwischen den beiden Reihen — es ist Rauschen, kein Effekt. Dass der Aufbau einen Unterschied dieser Groessenordnung sehr wohl saehe, belegt die Positivkontrolle: mit abgeschaltetem Zero-Copy steigt dieselbe Dekodierzeit auf 3690,8 us. Die Farbrechnung ist unveraendert (--farbwerte, 30 von 30 Faellen unter 1,02 Stufen), 237 Tests bestehen wie vorher.",
+  "warum_ueberhaupt_migriert": {
+    "ziel": "Den Ausgabe-Farbraum des Fensters selbst waehlen koennen — konkret SurfaceColorSpace::Bt2100Pq. Diese Migration ist die Vorbedingung dafuer, NICHT die Umstellung selbst; scharf geschaltet ist nichts.",
+    "BELEGT_AM_QUELLTEXT_wgpu_29": "wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:168-174 verdrahtet den Swapchain-Farbraum fest: `Rgba16Float` ergibt EXTENDED_SRGB_LINEAR_EXT, jedes andere Format SRGB_NONLINEAR. Kein Wert ergibt HDR10_ST2084_EXT, und SurfaceConfiguration hat gar kein Farbraum-Feld.",
+    "BELEGT_AM_QUELLTEXT_wgpu_30": "wgpu-types-30.0.0/src/surface.rs:242 (enum SurfaceColorSpace mit Bt2100Pq/Bt2100Hlg) und :914 (SurfaceConfiguration::color_space); wgpu-hal-30.0.0/src/vulkan/conv.rs:199-204 bildet Bt2100Pq auf HDR10_ST2084_EXT ab und Bt2100Hlg auf HDR10_HLG_EXT.",
+    "SPRACHREGELUNG": "wgpu 29 konnte HDR — ueber scRGB-linear, genau wie der Windows-Weg dieses Players (hdr_fenster.rs, SetColorSpace1 mit RGB_FULL_G10_NONE_P709). Es konnte nur kein PQ. Wo im Baum die Formulierung 'kann kein HDR' auftaucht, ist sie falsch und gehoert berichtigt."
+  },
+  "WARUM_VERHALTENSGLEICHHEIT_UEBERHAUPT_ERREICHBAR_IST": {
+    "fundstelle": "wgpu-core-30.0.0/src/device/surface_config.rs:24-40 (resolve_auto_color_space)",
+    "was_dort_steht": "SurfaceColorSpace::Auto loest fuer Rgba16Float auf ExtendedSrgbLinear auf, wenn die Oberflaeche das traegt, und sonst auf Srgb; fuer jedes andere Format auf Srgb. Das ist Zeile fuer Zeile dieselbe Regel, die wgpu-hal 29 fest verdrahtet hatte.",
+    "warum_das_zaehlt": "Ohne diesen Beleg waere 'gleiche Bilder, gleiche Zahlen' eine Hoffnung. Mit ihm ist die Wahl `color_space: Auto` nicht die bequemste Uebersetzung des alten Zustands, sondern die einzige, die ihn trifft — und die Messung unten pruefte danach nur noch, ob wir uns dabei irgendwo anders vertan haben.",
+    "und_der_gegenbeleg": "Auto kommt ausdruecklich nie bei einem weiten oder HDR-Farbraum heraus (ebenda, Zeilen 12-16). Die neue Faehigkeit ist also nicht versehentlich mit eingeschaltet."
+  },
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03",
+    "kernel": "7.1.4-1-cachyos",
+    "compositor": "KWin/Wayland (Plasma)",
+    "zweig": "wgpu30-migration (abgezweigt von pruef/hdr-linux-lokal, c920a93d)",
+    "kette": "streaming/testbench/harness.py — vorkodierte Datei (fern-4000.mkv, 1440p60 AV1 10 bit) -c copy per RTMPS in das laufende lokale MediaMTX -> WHEP -> pulse-player",
+    "warum_dieser_unterbau_und_nicht_real_harness": "Die urspruengliche Zero-Copy-Akte fuhr einen echten Sender ueber die Portal-Aufnahme des Bildschirms. Der Weg beantwortet Fragen an die GANZE Kette; hier ist nur der Empfangsweg strittig (Decoder, Einhaengung, Renderer, Ausgabe), und genau den isoliert harness.py. Dazu kam ein praktischer Grund: waehrend dieser Messung arbeitete ein zweiter Agent am selben Bildschirm, und ein Portal-Lauf haette dessen Bildinhalt aufgenommen.",
+    "decoder": "av1_cuvid, Hardware — in JEDER Probe beider Arme",
+    "oberflaechenformat": "Rgb10a2Unorm in beiden Armen (SDR-Weg; die Quelle ist 10 bit, aber nicht PQ)",
+    "messstrecke": "je Lauf 20 s, die ersten zwei Sekundenproben verworfen (harness.py), 17 bis 18 ausgewertete Proben je Lauf",
+    "werkzeug": "streaming/testbench/wgpu30-vergleich.py (neu; faehrt harness.py in abwechselnden Armen und liest die Kontrollen aus den Player-Logs)"
+  },
+  "methodik": {
+    "arme": {
+      "neu": "Binary aus diesem Zweig — wgpu 30.0.0, egui 0.36.1, uebersetzt mit rustc 1.97.1",
+      "alt": "Binary aus c920a93d — wgpu 29.0.4, egui 0.35.0, uebersetzt mit rustc 1.93.1"
+    },
+    "WAS_HIER_NICHT_VERGLICHEN_WIRD": "NICHT die beiden Arme des Zero-Copy-Weges. Zero-Copy ist in BEIDEN Armen eingeschaltet; verglichen werden zwei wgpu-Fassungen. Wer das verwechselt, liest die Zahlen als Widerlegung der Zero-Copy-Akte — sie sagen dazu nichts.",
+    "arme_abwechselnd": "Innerhalb jeder Runde erst 'neu', dann 'alt'; jeder Lauf ein eigener Player- und Sender-Prozess. Ein Drift der Maschine trifft damit beide Arme gleich.",
+    "zwei_reihen": "Reihe A: sechs Runden. Reihe B: sechs weitere Runden, nachdem nachgesehen war, dass kein zweiter Player-Prozess mehr auf der Karte liegt. Reihe B gibt es, weil waehrend Reihe A moeglicherweise der Player des anderen Agenten mitlief — nachweisbar ist das nicht mehr, und ein einzelner Durchgang traegt hier ohnehin keine Aussage.",
+    "der_uebersetzer_ist_MIT_getauscht": "Die egui-Familie 0.36 verlangt rustc >= 1.95; der alte Arm ist deshalb zwangslaeufig mit einem anderen Uebersetzer gebaut als der neue. Das ist kein sauberer Einzelfaktor-Vergleich, laesst sich aber nicht trennen — der neue Stand ist mit 1.93.1 gar nicht baubar. Es ist als Grenze unten aufgefuehrt."
+  },
+  "KONTROLLEN": {
+    "JEDER_LAUF_WEIST_SEINEN_ZERO_COPY_WEG_NACH": "Im Player-Log wird gezaehlt, wie oft 'Zero-Copy an' steht: in allen 24 Vergleichslaeufen genau 1, in allen drei Laeufen der Positivkontrolle 0. Ohne diese Zaehlung waere ein stiller Rueckfall auf den Hauptspeicher-Weg nicht von einem unveraenderten Ergebnis zu unterscheiden — und genau dieser Rueckfall ist in der urspruenglichen Messreihe einmal wirklich eingetreten (cuImportExternalMemory, rc=201), ohne dass das Bild etwas gezeigt haette.",
+    "DER_RING_LIEGT_IN_BEIDEN_ARMEN_IM_GRAFIKSPEICHER": "Grafikspeicher des Player-Prozesses waehrend eines Laufs, vom Treiber ueber nvidia-smi je PID erfragt: Spitzenwert 795 MiB in BEIDEN Armen (gegen 264 MiB im Anlauf, bevor der Ring steht). Das ist dieselbe Zahl, die die Zero-Copy-Akte fuer den eingeschalteten Arm ausweist. Die Einhaengung ueber create_texture_from_hal hat den Sprung also unbeschadet ueberstanden — was nicht selbstverstaendlich ist, weil genau diese Funktion in wgpu 30 einen neuen Parameter bekommen hat.",
+    "BEIDE_ARME_SAHEN_DENSELBEN_STROM": "Datenrate 4153,5 bis 4161,9 kbit/s ueber alle 24 Laeufe beider Arme (Streuung unter 0,2 Prozent); Paketverlust 0. Ein Arm mit anderer Datenrate haette eine andere Dekodierzeit, ohne dass es an wgpu laege.",
+    "BEIDE_ARME_NAHMEN_DENSELBEN_DECODER": "av1_cuvid, hardware_decode=true, in jeder Probe beider Arme. Ein stiller Rueckfall auf Software waere die naheliegendste Art, diese Messung zu entwerten.",
+    "BEIDE_ARME_NAHMEN_DASSELBE_AUSGABEFORMAT": "Rgb10a2Unorm. Ein Formatwechsel wuerde die Pipeline neu uebersetzen und die Zahlen verschieben."
+  },
+  "POSITIVKONTROLLE_der_aufbau_sieht_unterschiede_dieser_groesse": {
+    "warum": "Eine Messung, die keinen Unterschied findet, ist wertlos, solange nicht gezeigt ist, dass sie einen finden WUERDE. Dieselbe Kette, dasselbe Binary (wgpu 30), nur PULSE_PLAYER_ZEROCOPY=0.",
+    "dekodierzeit_us": {
+      "zerocopy_an": 1491.0,
+      "zerocopy_aus": {
+        "mittel": 3690.8,
+        "einzellaeufe": [
+          3726.9,
+          3705.2,
+          3640.3
+        ]
+      },
+      "unterschied": "+2199,8 us (+147 %). Der gesuchte Migrationseffekt liegt bei -22,6 us — der Aufbau loest also rund das Hundertfache dessen auf, was er hier zu finden hatte."
+    },
+    "bild_bis_schirm_us": {
+      "zerocopy_an": 24133.4,
+      "zerocopy_aus": {
+        "mittel": 28754.0,
+        "einzellaeufe": [
+          28704.3,
+          28901.1,
+          28656.6
+        ]
+      },
+      "unterschied": "+4620,6 us (+19,1 %)"
+    },
+    "nebenbefund": "Diese drei Laeufe bestaetigen zugleich den Befund der Zero-Copy-Akte auf dem NEUEN Stand: der Weg bringt weiterhin, was er gebracht hat. Die Absolutwerte sind mit denen der Akte nicht vergleichbar (anderer Unterbau, s. GRENZEN_DER_AUSSAGE)."
+  },
+  "GEMESSEN_dekodierzeit_je_bild_us": {
+    "reihe_A": {
+      "neu": [1657.8, 1529.4, 1506.6, 1405.8, 1393.1, 1590.8],
+      "alt": [1494.7, 1359.9, 1626.9, 1524.4, 1487.2, 1638.3],
+      "mittel": {"neu": 1513.9, "alt": 1521.9}
+    },
+    "reihe_B": {
+      "neu": [1413.2, 1412.2, 1598.9, 1325.9, 1596.2, 1461.9],
+      "alt": [1447.4, 1462.1, 1488.1, 1426.4, 1621.9, 1585.4],
+      "mittel": {"neu": 1468.1, "alt": 1505.2}
+    },
+    "zusammen": {
+      "neu": {"n": 12, "mittel": 1491.0, "median": 1484.2, "min": 1325.9, "max": 1657.8},
+      "alt": {"n": 12, "mittel": 1513.6, "median": 1491.4, "min": 1359.9, "max": 1638.3}
+    },
+    "bewertung": "-22,6 us (-1,5 %) zugunsten des neuen Standes. Das ist KEIN Befund: die Wertebereiche ueberlappen vollstaendig (neu 1325,9-1657,8 gegen alt 1359,9-1638,3), und in Reihe A war der alte Stand nominell der schnellere, in Reihe B der neue. Ein Unterschied, dessen Vorzeichen zwischen zwei Reihen kippt, ist Streuung."
+  },
+  "GEMESSEN_bild_bis_schirm_us": {
+    "reihe_A": {
+      "neu": [24133.2, 24133.7, 24184.8, 24153.4, 24108.9, 24106.0],
+      "alt": [24085.9, 24079.3, 24090.9, 24135.4, 24111.3, 24119.7],
+      "mittel": {"neu": 24136.7, "alt": 24103.8}
+    },
+    "reihe_B": {
+      "neu": [24113.3, 24152.4, 24106.8, 24165.1, 24155.4, 24087.6],
+      "alt": [24070.4, 24146.9, 24425.7, 24053.2, 24096.6, 24108.3],
+      "mittel": {"neu": 24130.1, "alt": 24150.2}
+    },
+    "zusammen": {
+      "neu": {"n": 12, "mittel": 24133.4, "median": 24133.4, "min": 24087.6, "max": 24184.8},
+      "alt": {"n": 12, "mittel": 24127.0, "median": 24102.4, "min": 24053.2, "max": 24425.7}
+    },
+    "bewertung": "+6,4 us (+0,03 %) zu Lasten des neuen Standes — das sind 0,4 Promille eines Bildbudgets von 16,7 ms. Auch hier kippt das Vorzeichen zwischen den Reihen (A: neu +32,9 us; B: neu -20,1 us)."
+  },
+  "GEMESSEN_bildrate_und_verworfene_bilder": {
+    "bildrate": {"neu": 58.9, "alt": 58.9, "anmerkung": "identisch in allen 24 Laeufen bis auf die zweite Nachkommastelle (Spanne neu 58,8-59,1, alt 58,9-59,2)"},
+    "nie_gezeichnete_bilder": {
+      "neu": {"mittel": 1.6, "spanne": [1, 2]},
+      "alt": {"mittel": 2.3, "spanne": [2, 4]},
+      "anmerkung": "Nominell weniger auf dem neuen Stand. NICHT als Gewinn ausgewiesen: es sind einstellige Zahlen je Lauf, in beiden Reihen nur ein oder zwei Zaehler Unterschied, und eine Erklaerung dafuer gibt es nicht. Wer ihn braucht, misst ihn eigens."
+    },
+    "paketverlust": 0
+  },
+  "GEMESSEN_farbrechnung_unveraendert": {
+    "wie": "pulse-player --farbwerte auf dem neuen Stand — fuenfzehn bekannte PQ-Codewerte durch den echten Shader, gegen Sollwerte aus SMPTE ST 2084 / BT.2020 / BT.709 / BT.2408, beide Ausgaenge (HDR-Fenster und Tone-Mapping).",
+    "ergebnis": "30 von 30 Faellen 'ok'. Groesste Abweichung 1,02 Stufen (BT.2020 Rot 100 cd/m2 im HDR-Fenster) — dieselbe Schranke, die vor der Migration galt. Bei neutralem Chroma ist die Spreizung zwischen R, G und B exakt 0,00000000 in beiden Ausgaengen.",
+    "gegenprobe_mit_den_player_vorgaben": "HDR-Fenster 0,85 Stufen, SDR-Fenster 0,11 Stufen (Deband 0,6, Dither an)."
+  },
+  "GEMESSEN_tests": {
+    "ergebnis": "237 bestanden, 0 gescheitert, 5 uebersprungen (cargo +1.97.1 test --release) — dieselbe Zahl wie vor der Migration.",
+    "EIN_LAUF_IST_EINMAL_UMGEFALLEN_UND_ICH_WEISS_NICHT_WELCHER": "Ein einzelner Durchgang meldete '236 passed; 1 failed'. Der Name des Tests ist mir durch die Lappen gegangen (die Ausgabe war abgeschnitten), und danach sind SIEBEN Durchgaenge hintereinander sauber gewesen. Es steht hier trotzdem, weil ein verschwiegener Fehlschlag schlimmer ist als ein unerklaerter: wer diese Zahlen prueft, soll wissen, dass es ihn gab. Der wahrscheinlichste Grund ist ein Wettlauf um die Grafikkarte — mehrere Tests fahren echte GPU-Arbeit (render::abdruck, overlay::wechsel, messen::farbwerte), und zur selben Zeit lief die Arbeit eines zweiten Agenten auf derselben Karte. BELEGT IST DAS NICHT. Wer denselben Fehlschlag wiedersieht, soll ihn festhalten, statt ihn wie ich als Flackern abzutun."
+  },
+  "WAS_DIE_MIGRATION_ANGEFASST_HAT": {
+    "kurz": "Sieben Stellen, jede am Quelltext der Bibliothek begruendet. Keine davon ist eine Verhaltensentscheidung, die wir neu getroffen haetten.",
+    "einzeln": [
+      "SurfaceConfiguration::color_space ist neu -> Auto (s. WARUM_VERHALTENSGLEICHHEIT_UEBERHAUPT_ERREICHBAR_IST).",
+      "RequestAdapterOptions::apply_limit_buckets ist neu -> false, die Vorgabe der Bibliothek (wgpu-types-30.0.0/src/adapter.rs:65). Sie rundet gemeldete Grenzwerte auf Stufen, damit untrusted content die Karte nicht am Zahlenprofil wiedererkennt; wir sind kein Browser.",
+      "Device::create_texture_from_hal nimmt den Ausgangszustand jetzt als Parameter -> TextureUses::UNINITIALIZED. Das ist genau der Wert, den wgpu-core 29 intern immer eintrug (device/resource.rs:1253; in wgpu 30 nimmt dieselbe Zeile bei :1272 den Parameter entgegen) — und zugleich der sachlich richtige, weil das VkImage mit initial_layout(UNDEFINED) angelegt und von CUDA ueber den geteilten Speicher gefuellt wird, es also gar keinen Vulkan-Layout-Zustand gibt, den man angeben koennte.",
+      "SurfaceTexture::present ist weg; die Warteschlange gibt aus (wgpu-30.0.0/src/api/queue.rs:377).",
+      "BufferSlice::get_mapped_range gibt ein Result, wo es vorher panickte. Die Fehlerfaelle sind unveraendert. An zwei Stellen im Bildtakt bleibt es beim Panic (expect), weil dort keiner davon eintreten kann und ein stilles Verschlucken einen falschen Messwert melden wuerde; an der dritten steht ohnehin ein Result zur Verfuegung.",
+      "egui fuehrt in TexturesDelta::set je Textur mehrere Teilaenderungen (HashMap<TextureId, SmallVec<[ImageDelta; 1]>>) statt einer Liste von Paaren — zwei geschachtelte Schleifen statt einer, wie egui-wgpu es in winit.rs:568 selbst tut.",
+      "Neu: src/render/farbraum.rs. Traegt die Farbraum-Wahl mit ihrer Begruendung und berichtet beim Start, was die Oberflaeche anbietet."
+    ]
+  },
+  "VORARBEIT_FUER_PQ_was_diese_maschine_meldet": {
+    "wie": "SurfaceCapabilities::color_spaces(format), neu in wgpu 30, ausgegeben von render::farbraum::berichten beim Start.",
+    "gemessen": {
+      "angebotene_formate": ["Rgba8UnormSrgb", "Bgra8UnormSrgb", "Rgb10a2Unorm", "Rgba8Unorm", "Bgra8Unorm", "Rgba16Float"],
+      "Rgb10a2Unorm": "SRGB | BT2100_PQ",
+      "Rgba16Float": "SRGB | EXTENDED_SRGB_LINEAR"
+    },
+    "DER_BEFUND_IST_DAS_GEGENTEIL_DER_ERWARTUNG": "PQ traegt hier das 10-bit-Ganzzahlformat, NICHT das Fliesskomma-Format. Rgba16Float bietet ueberhaupt kein PQ an. Wer die spaetere Umstellung auf Bt2100Pq plant und dabei stillschweigend von HDR_OBERFLAECHE (= Rgba16Float) ausgeht, laeuft also gegen eine Wand — und zwar mit einer Konfiguration, die wgpu ablehnt, nicht mit einem falschen Bild. Der PQ-Weg auf dieser Maschine hiesse: Rgb10a2Unorm plus color_space Bt2100Pq plus ein Shader, der PQ-kodiert ausgibt statt lineares Licht.",
+    "SCHARF_GESCHALTET_IST_NICHTS": "Der Player faehrt unveraendert ueber Auto und wandelt PQ-Material nach scRGB-linear (HDR-Schirm) oder rechnet es herunter (SDR-Schirm). Die Umstellung ist eine eigene Entscheidung mit eigener Messung."
+  },
+  "KOSTEN_DER_MIGRATION": {
+    "rustc": {
+      "was": "Die egui-Familie 0.36 deklariert rust-version = 1.95. cargo lehnt darunter schon das Aufloesen ab — die Sperre kommt aus der Deklaration, nicht aus dem Compiler, es gibt also keine Fassung dazwischen, die noch ginge.",
+      "nachgemessen": "cargo +1.95.0 check --release laeuft durch. rust-version in streaming/pulse-player/Cargo.toml steht jetzt auf 1.95 (vorher 1.82).",
+      "NICHT_betroffen": "Der Flatpak zieht sich fuer das Player-Modul seine eigene Toolchain (1.97.1, packaging/com.howispulse.Pulse.yml); win-build und mac-build nehmen dtolnay/rust-toolchain@stable. Der Linux-Sidecar im selben Manifest baut gegen /usr/lib/sdk/rust-stable — er ist von dieser Migration aber nicht angefasst.",
+      "betroffen": "Die Entwicklermaschine. Auf dieser stand stable auf 1.93.1 (vom 2026-02-11); aktuell waere 1.97.1. Waehrend dieser Arbeit ist 1.97.1 als ZUSAETZLICHE Toolchain installiert und die Vorgabe absichtlich nicht umgestellt worden, weil ein zweiter Agent daneben im Hauptbaum baut. Der Hinweis steht in streaming/pulse-player/README.md."
+    },
+    "laufzeit": "keine messbare (s. oben)",
+    "grafikspeicher": "unveraendert (795 MiB Spitze in beiden Armen)",
+    "quelltext": "sieben angefasste Stellen, eine neue Datei (render/farbraum.rs, 65 Zeilen)"
+  },
+  "GRENZEN_DER_AUSSAGE": [
+    "DER UEBERSETZER IST MITGETAUSCHT. Der alte Arm ist mit rustc 1.93.1 gebaut, der neue mit 1.97.1 — anders geht es nicht, der neue Stand ist mit 1.93.1 nicht baubar. Ein Teil des (ohnehin nicht nachweisbaren) Unterschieds koennte am Uebersetzer haengen statt an wgpu. Die Reihe trennt das nicht.",
+    "EINE KARTE, EIN TREIBER, EINE AUFLOESUNG, EIN CODEC: RTX 5080, 610.43.03, 1440p60 AV1 10 bit. Ueber AMD/VAAPI, Intel, 8 bit, H.264, 1080p oder 4K sagt sie nichts. Der VAAPI-Weg hat ohnehin keine Zero-Copy-Bruecke.",
+    "WINDOWS UND MACOS SIND UNGEPRUEFT. Beide sind vom Sprung betroffen — auf Windows sogar staerker, weil dort der D3D12-Weg mit SetColorSpace1 ueber Surface::as_hal laeuft und die Zero-Copy-Bruecke ueber D3D11/D3D12-Griffe geht. Der Quelltext uebersetzt dort nicht einmal probeweise; es gibt in dieser Reihe KEINE Aussage ueber Windows und macOS.",
+    "DER HDR-AUSGABEWEG IST NICHT UNTER LAST GEMESSEN. Die Quelle dieser Reihe ist 10 bit, aber SDR — das Fenster lief durchgehend auf Rgb10a2Unorm. Der Wechsel auf Rgba16Float samt Neuaufbau von Pipeline und egui-Seite (render/hdr_fenster.rs, overlay/wechsel.rs) ist in dieser Reihe NIE ausgeloest worden. Dass er auf wgpu 30 durchlaeuft, ist nur durch den Test overlay::wechsel::tests::der_formatwechsel_laeuft_auf_echter_gpu_durch belegt, nicht durch einen echten PQ-Strom.",
+    "DIE ENDE-ZU-ENDE-LATENZ AUS DEM GEMALTEN ZEITMUSTER IST NICHT GEMESSEN. Die Zahl 73,32 ms aus player-2026-08-07-zerocopy-linux-im-player.json stammt aus einem Aufbau mit echtem Sender und Portal-Aufnahme; hier lief ein Datei-Sender. Die Absolutwerte der beiden Akten sind deshalb NICHT vergleichbar (Bild-bis-Schirm 24,1 ms hier gegen 60,5 ms dort — das ist der Unterschied der Aufbauten, nicht des Standes). Verglichen wurden hier ausschliesslich zwei Binaere im SELBEN Aufbau.",
+    "DIE BILDQUALITAET IST NICHT VERGLICHEN. Kein Bildvergleich zwischen den Armen. Die Farbrechnung ist ueber --farbwerte belegt, das ist aber der Shader gegen Sollwerte, nicht das ausgegebene Bild gegen ein Referenzbild.",
+    "REIHE A LIEF MOEGLICHERWEISE MIT EINEM ZWEITEN PLAYER AUF DER KARTE. Ein anderer Agent arbeitete zeitgleich am selben Rechner; waehrend der Grafikspeicher-Kontrolle waren zwei fremde Player-Prozesse sichtbar. Ob sie schon waehrend Reihe A liefen, ist nicht mehr feststellbar. Deshalb Reihe B, nachdem die Karte nachweislich frei war — sie zeigt dasselbe Bild.",
+    "DIE POSITIVKONTROLLE HAT DREI LAEUFE, KEINE ZWOELF. Sie soll nur zeigen, dass der Aufbau Unterschiede dieser Groessenordnung aufloest; als Messung des Zero-Copy-Gewinns ist sie zu duenn, und dafuer gibt es die eigene Akte.",
+    "DIE PQ-FAEHIGKEITSANGABE GILT FUER DIESEN SCHIRM IN DIESEM ZUSTAND. Waehrend der Messung lief HDR auf DP-2; das Fenster lag nicht zwangslaeufig dort. Die Formatliste einer Oberflaeche kann sich mit dem Ausgang aendern. Wer auf der PQ-Angabe aufbaut, fragt sie zur Laufzeit ab, statt sie aus dieser Akte abzuschreiben.",
+    "DAS FLIMMERN IM HDR-BETRIEB, an dem parallel gearbeitet wurde, ist von dieser Migration NICHT beruehrt und durch sie NICHT behoben. Ob es mit dem Farbraum zu tun hat, ist offen; diese Reihe sagt dazu nichts."
+  ],
+  "rohdaten": "streaming/testbench/wgpu30-vergleich.json (Reihe B) sowie samples-wgpu30-{neu,alt}-*.json, player-wgpu30-*.log, samples-zcaus30-*.json im selben Verzeichnis. Reihe A liegt nur noch in dieser Akte.",
+  "werkzeug": "streaming/testbench/wgpu30-vergleich.py"
+}

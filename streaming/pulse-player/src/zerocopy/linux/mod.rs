@@ -41,9 +41,17 @@
 //!   Funktionsnachweis in EINER Richtung. Fuer die hier gebrauchte Rueckrichtung
 //!   (Vulkan signalisiert, CUDA wartet, damit kein Ringplatz zu frueh
 //!   ueberschrieben wird) sagt die Messakte ausdruecklich: **nicht belegt**.
-//! * Sie verlangt ausserdem ein selbst angelegtes `VkDevice`, weil wgpu 29
+//!   **Nachtrag 2026-08-08:** wgpu 30 bringt dafuer immerhin die fehlende
+//!   Haelfte mit — `Queue::add_wait_semaphore`
+//!   (`wgpu-hal-30.0.0/src/vulkan/mod.rs:1552`); in wgpu 29 gab es nur
+//!   `add_signal_semaphore`. Das aendert an der Belegfrage nichts, raeumt aber
+//!   ein Hindernis weg, falls die Rueckrichtung je gebaut wird.
+//! * Sie verlangt ausserdem ein selbst angelegtes `VkDevice`, weil wgpu
 //!   `VK_KHR_external_semaphore_fd` nicht anfordert — also einen zweiten
-//!   Aufbauweg fuer einen unbelegten Gewinn.
+//!   Aufbauweg fuer einen unbelegten Gewinn. **Das gilt fuer wgpu 30
+//!   unveraendert**, nachgesehen am 2026-08-08: `vulkan/adapter.rs` fordert
+//!   `external_memory_fd` an (`:1345`), `external_semaphore_fd` kommt dort
+//!   nicht vor.
 //! * `cuMemcpy2D` ist bei Geraet→Array nicht zwingend host-synchron; das
 //!   Warten ist also nicht bloss Vorsicht, sondern noetig.
 //!

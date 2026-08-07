@@ -317,6 +317,46 @@ in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
 13,2–13,5 Lücken/s, größte Lücke 36 ms). Der Referenzsender schickt
 gleichmäßig — die Bündelung entsteht dahinter.
 
+## Stand 2026-08-08 — der Player steht auf wgpu 30
+
+Gehoben von wgpu 29 auf 30 und der egui-Familie 0.35 auf 0.36 (Zweig
+`wgpu30-migration`, Messakte
+`profiles/player-2026-08-08-wgpu30-migration.json`). **Reine Migration, keine
+Verhaltensaenderung** — und das ist gemessen, nicht behauptet: 12 Laeufe je
+Arm ueber zwei Reihen, Zero-Copy in beiden Armen an, Dekodierzeit 1491,0 gegen
+1513,6 us, Bild-bis-Schirm 24133,4 gegen 24127,0 us, Bildrate gleich, Ring
+795 MiB in beiden. Vorzeichen kippt zwischen den Reihen — Rauschen.
+
+**Vier Dinge daran sind wichtiger als die Zahlen:**
+
+1. **Der Anlass war PQ, und der ist NICHT scharf.** wgpu 29 verdrahtete den
+   Swapchain-Farbraum fest (`wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:168-174`),
+   wgpu 30 macht ihn waehlbar. Der Player faehrt weiter auf `Auto` — was
+   belegbar dieselbe Wahl trifft wie vorher
+   (`wgpu-core-30.0.0/src/device/surface_config.rs:24-40`).
+2. **„wgpu 29 kann kein HDR" ist falsch, wo es steht.** Es konnte HDR ueber
+   scRGB-linear, genau wie der Windows-Weg. Es konnte kein **PQ**.
+3. **PQ traegt hier `Rgb10a2Unorm`, NICHT `Rgba16Float`** — das Gegenteil der
+   Erwartung, gemessen ueber die neue Abfrage `SurfaceCapabilities::color_spaces`.
+   Unser heutiges `HDR_OBERFLAECHE` ist fp16 und bietet ueberhaupt kein PQ an.
+   Wer die Umstellung plant, faengt bei diesem Befund an.
+4. **Es kostet rustc >= 1.95** (egui 0.36). Flatpak und CI sind nicht
+   betroffen; die Entwicklermaschine schon.
+
+**Was ungeprueft bleibt und vor einem Merge gehoert:** Windows und macOS sind
+nicht einmal probeweise uebersetzt — dort haengt mehr am Sprung als auf Linux
+(`SetColorSpace1` ueber `as_hal`, Zero-Copy ueber D3D11/D3D12-Griffe,
+`create_texture_from_hal` mit neuem Parameter). Und der HDR-Formatwechsel ist
+in der Messreihe nie ausgeloest worden; die Quelle war 10-bit-SDR.
+
+**Nebenbefund fuer den Semaphor-Weg, der zweimal vertagt wurde:** wgpu 30
+bringt die fehlende Haelfte mit — `Queue::add_wait_semaphore` (Vulkan) und
+`Queue::add_wait_fence`/`add_signal_fence` (D3D12); wgpu 29 hatte nur
+`add_signal_semaphore` bzw. `as_raw`. Der Weg ist damit **offen, nicht
+gebaut**, und dass er sich lohnt, ist unveraendert unbelegt.
+`VK_KHR_external_semaphore_fd` fordert auch wgpu 30 nicht an — das eigene
+`VkDevice` braeuchte es weiterhin.
+
 ## Stand 2026-08-04 — was auf `feat/intra-refresh-produktion` fehlt
 
 Die Labor-Fragen sind beantwortet; was hier steht, ist der Weg von „lauffaehig
