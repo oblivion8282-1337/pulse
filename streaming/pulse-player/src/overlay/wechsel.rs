@@ -190,10 +190,20 @@ mod tests {
             )),
             ..Default::default()
         };
-        let full = ctx.run_ui(input, |ui| {
+        let mut full = ctx.run_ui(input, |ui| {
             ui.label(text);
         });
-        full.textures_delta.set
+        // Seit egui 0.36 ist `set` eine Zuordnung Textur -> mehrere
+        // Teilaenderungen statt einer Liste von Paaren. Hier wieder flach
+        // gemacht, weil die Aussagen unten ueber die EINZELNEN Aenderungen
+        // gehen — welche Textur sie betreffen, spielt fuer sie keine Rolle.
+        // `drain` statt `into_iter`: `TexturesDelta` haengt an einem `Drop`,
+        // aus dem sich das Feld nicht herausbewegen laesst.
+        full.textures_delta
+            .set
+            .drain()
+            .flat_map(|(id, teile)| teile.into_iter().map(move |d| (id, d)))
+            .collect()
     }
 
     /// **Der Fehler, an dem der Player gestorben ist — als Tatsache

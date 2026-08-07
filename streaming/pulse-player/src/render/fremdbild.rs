@@ -348,6 +348,24 @@ fn einhaengen(
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu_extra,
                     view_formats: &[],
                 },
+                // **Neu in wgpu 30, und `UNINITIALIZED` ist hier keine
+                // Bequemlichkeit, sondern die Sache selbst.**
+                //
+                // Der Parameter sagt wgpu, in welchem Zustand das fremde Bild
+                // gerade ist, damit die erste Sperre den richtigen `oldLayout`
+                // nennt. wgpu 29 hatte ihn nicht und trug intern immer
+                // `UNINITIALIZED` ein (`wgpu-core-29.0.4`,
+                // `device/resource.rs:1253`) — dieselbe Zeile nimmt in
+                // wgpu 30 den Wert von hier entgegen (`:1272`). Derselbe Wert
+                // heisst also unveraendertes Verhalten.
+                //
+                // Und er ist zugleich der richtige: das `VkImage` wird mit
+                // `initial_layout(UNDEFINED)` angelegt
+                // (`zerocopy::linux::vkbild`), und gefuellt wird es von CUDA
+                // ueber den geteilten Speicher, nicht ueber einen
+                // Vulkan-Uebergang. Es gibt also gar keinen Layout-Zustand, den
+                // man hier stattdessen angeben koennte.
+                wgpu::TextureUses::UNINITIALIZED,
             )
         })
     };

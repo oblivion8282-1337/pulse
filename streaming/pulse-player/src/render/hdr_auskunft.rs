@@ -100,6 +100,8 @@ fn berichten(window: Arc<Window>) -> Result<()> {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
+        // s. `messen::gpu` — Vorgabe der Bibliothek, Verhalten wie wgpu 29.
+        apply_limit_buckets: false,
     }))
     .context("keine passende GPU")?;
 

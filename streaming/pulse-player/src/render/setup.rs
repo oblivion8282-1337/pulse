@@ -210,6 +210,8 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            // s. `messen::gpu` — Vorgabe der Bibliothek, Verhalten wie wgpu 29.
+            apply_limit_buckets: false,
         })
         .await
         .context("keine passende GPU gefunden")?;
@@ -228,6 +230,7 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         "pulse-player: Oberflaechenformat {format:?} auf {} ({:?}) (angeboten: {:?})",
         info.name, info.backend, caps.formats
     );
+    super::farbraum::berichten(&caps, format);
     // Den Treiber fragen, nicht wgpu — Begruendung im Kopf von `super::hdr`.
     let weiter_farbraum = super::hdr::weiter_farbraum(&adapter, &surface);
 
@@ -265,6 +268,10 @@ pub async fn create(window: Arc<winit::window::Window>, width: u32, height: u32)
         // 7 ms, bei 60 Hz rund 16 ms. Wer Latenz ueber Bildrate stellt, setzt
         // hier wieder 1.
         desired_maximum_frame_latency: 2,
+        // Neu in wgpu 30, und bewusst `Auto` — Begruendung samt Fundstellen in
+        // [`super::farbraum::AUSGABE_FARBRAUM`]. Kurz: `Auto` trifft genau die
+        // Wahl, die wgpu 29 fest verdrahtet hatte.
+        color_space: super::farbraum::AUSGABE_FARBRAUM,
     };
     // Ausgabe-Takt mitloggen, nicht raten: `Mailbox` gibt sofort aus und
     // verwirft ueberzaehlige Bilder, `Fifo` wartet auf den Bildschirmtakt. Bei
