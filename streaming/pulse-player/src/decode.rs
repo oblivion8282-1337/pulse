@@ -11,6 +11,13 @@
 //! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Der
 //! Decode laeuft in allen diesen Faellen auf der GPU.
 //!
+//! **Hier stand „Das ist noch nicht zero-copy … bewusst nicht Teil des ersten
+//! Wurfs". Das gilt fuer zwei Wege nicht mehr:** unter Windows bleibt das Bild
+//! seit dem 2026-08-06 auf dem D3D11VA-Weg im Grafikspeicher, unter Linux seit
+//! dem 2026-08-07 auf dem CUDA-Weg. Beide als VORGABE
+//! (`PULSE_PLAYER_ZEROCOPY=0` schaltet sie aus — s. [`crate::zerocopy`]). Fuer
+//! VAAPI gilt der Satz weiter: dort gibt es keine Bruecke.
+//!
 //! **Die cuvid-Decoder geben ihre Bilder auf der Karte heraus, seit sie ein
 //! CUDA-Geraet bekommen (2026-08-07).** Bis dahin landeten sie im
 //! Hauptspeicher, und die Begruendung dafuer stand hier falsch: es hiess, sie
@@ -22,15 +29,6 @@
 //! [`in_den_hauptspeicher`].
 //! Beleg: `streaming/testbench/profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`.
 //!
-//! **Dieser Schritt allein spart noch nichts.** Der Renderer erwartet Ebenen im
-//! Hauptspeicher, [`VideoDecoder::drain`] holt sie also weiterhin herunter — nur
-//! jetzt sichtbar per `av_hwframe_transfer_data` statt unsichtbar im Decoder.
-//! Gemessen kostet das dasselbe. Sein Zweck ist, den Weg vorzubereiten: erst
-//! wenn der Renderer das CUDA-Bild direkt annimmt (Vulkan legt das Ziel an,
-//! CUDA bekommt es eingehaengt, die Kopie bleibt auf der Karte), faellt die
-//! Rueckholung weg. Die Auflagen dafuer stehen in der Messakte und in
-//! `streaming/player-labor/cuda-vulkan-import/README.md`.
-//!
 //! LIZENZ: FFmpeg muss in ausgelieferten Builds LGPL-konfiguriert und dynamisch
 //! gelinkt sein — siehe Cargo.toml und THIRD-PARTY-NOTICES.md.
 
@@ -38,6 +36,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use ffmpeg_next as ffmpeg;
 
 use crate::einfrieren::EinfrierWacht;
+use crate::neuaufbau::{self, ErrorAction, Neuaufbauten};
 use crate::whep::Codec;
 
 /// Erkennt am Decoder-Namen, ob er selbst auf der GPU laeuft.
@@ -214,10 +213,6 @@ impl Kandidat {
     }
 }
 
-/// Aufeinanderfolgende abgelehnte Einheiten, ab denen der Decoder als defekt
-/// gilt. Bei 60 fps ist das eine halbe Sekunde.
-const ERROR_LIMIT: u32 = 30;
-
 /// Wie viele Einheiten auf einen Einstiegspunkt gewartet wird, bevor die
 /// Sitzung aufgibt. Bei 60 fps sind das zwanzig Sekunden.
 ///
@@ -233,9 +228,6 @@ const ERROR_LIMIT: u32 = 30;
 /// Ursache korrekt ("der Sender schickt zu selten ein Vollbild") — sie ging
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
 const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
-
-/// Wie oft neu aufgebaut wird, bevor die Sitzung als gescheitert gilt.
-const MAX_REBUILDS: u32 = 2;
 
 /// Wie lange das Bild nach einer Luecke als unsauber gilt — also die Dauer
 /// eines vollen Auffrisch-Durchlaufs beim Sender.
@@ -256,37 +248,6 @@ fn refresh_dauer() -> std::time::Duration {
         .filter(|ms| (100..=10_000).contains(ms))
         .unwrap_or(2000);
     std::time::Duration::from_millis(ms)
-}
-
-/// Was nach einer abgelehnten Einheit zu tun ist.
-///
-/// Der Unterschied ist der Kern der Sache: **einzelne** Ablehnungen sind
-/// normal — nach einer Paketluecke ist die naechste Einheit unvollstaendig,
-/// bis ein Keyframe kommt, und die darf die Wiedergabe nicht beenden. Ein
-/// **dauerhaft toter** Decoder sieht an der Stelle aber genau gleich aus.
-/// Beobachtet am 2026-07-26: beim zweiten Oeffnen einer Sitzung meldete
-/// `av1_cuvid` fuer jedes Paket `CUDA_ERROR_UNKNOWN`. Weil jeder Fehler
-/// einzeln als "kaputter Frame" durchging, blieb das Bild schwarz, ohne dass
-/// irgendwo ein Fehler ankam. Erst die Unterscheidung nach Haeufigkeit macht
-/// den Unterschied sichtbar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ErrorAction {
-    /// Vereinzelt — weitermachen.
-    Ignore,
-    /// Anhaltend — Decoder neu aufbauen.
-    Rebuild,
-    /// Auch nach Neuaufbau kaputt — Sitzung beenden.
-    GiveUp,
-}
-
-fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
-    if consecutive_errors < ERROR_LIMIT {
-        ErrorAction::Ignore
-    } else if rebuilds < MAX_REBUILDS {
-        ErrorAction::Rebuild
-    } else {
-        ErrorAction::GiveUp
-    }
 }
 
 /// Kandidaten in Reihenfolge der Bevorzugung. Am Ende stehen immer die
@@ -611,8 +572,15 @@ pub struct DecodedFrame {
     pub ten_bit: bool,
     /// Voller Wertebereich (`pc`) statt begrenztem (`tv`).
     pub full_range: bool,
-    /// Welche YUV-Matrix der Strom verlangt.
-    pub matrix: ColorMatrix,
+    /// Was der Strom ueber seine Farben sagt — YUV-Matrix, Transferkurve,
+    /// Farbraum und Spitzenhelligkeit.
+    ///
+    /// **Die Matrix stand hier bis zum 2026-08-06 zusaetzlich als eigenes
+    /// Feld.** Beim Ergaenzen der HDR-Angaben waeren daraus zwei Fassungen
+    /// derselben Auskunft geworden, die beim naechsten Umbau auseinanderlaufen
+    /// — und eine falsche Matrix sieht man dem Bild nicht an, es wirkt nur
+    /// flau. Deshalb nur noch hier.
+    pub farbe: Farbangaben,
     /// Wann das Paket eintraf, das die Zugriffseinheit dieses Bildes
     /// abschloss. Traegt die Latenzmessung bis zum gezeichneten Bild; `None`,
     /// wenn das Bild nicht aus einem Netzpaket stammt (Tests).
@@ -635,8 +603,24 @@ pub struct DecodedFrame {
     /// bis auf das letzte verworfen — dasselbe, was heute schon passiert.
     pub rtp_ts: Option<u32>,
     pub clock_rate: u32,
+    /// Das Bild liegt im Grafikspeicher (s. [`crate::zerocopy`]).
+    ///
+    /// **Ist das gesetzt, sind `planes` und `strides` leer.**
+    ///
+    /// **Hier stand bis zum 2026-08-06 „und damit fallen der Einfrier-Waechter
+    /// und die Latenz-Sonde aus, weil beide die Ebenen im Hauptspeicher lesen.
+    /// Genau deshalb ist der Weg ausdruecklich anzufordern und nicht die
+    /// Vorgabe." Fuer den Waechter ist das falsch** — sein Fingerabdruck
+    /// entsteht auf diesem Weg im Renderer, auf der GPU
+    /// (`render::abdruck`), und kommt ueber [`crate::einfrieren::Briefkasten`]
+    /// zurueck. Der Weg ist seither die Vorgabe.
+    ///
+    /// Was bleibt: die Latenz-Sonde misst hier nicht (sie sagt es, s.
+    /// [`crate::probe`]). Der RTP-Mitschnitt `PULSE_PLAYER_DUMP_RTP` war nie
+    /// betroffen — er sitzt vor dem Decoder.
+    pub gpu: Option<std::sync::Arc<crate::zerocopy::GpuBild>>,
     /// Wohin die Ebenen-Puffer zurueckgehen (s. [`PlanePool`]).
-    pool: PlanePool,
+    pub(crate) pool: PlanePool,
 }
 
 #[cfg(test)]
@@ -659,10 +643,11 @@ impl DecodedFrame {
             strides,
             ten_bit,
             full_range: false,
-            matrix: ColorMatrix::Bt709,
+            farbe: Farbangaben::default(),
             arrived: None,
             rtp_ts: None,
             clock_rate: 0,
+            gpu: None,
             pool: PlanePool::default(),
         }
     }
@@ -670,6 +655,12 @@ impl DecodedFrame {
 
 impl Drop for DecodedFrame {
     fn drop(&mut self) {
+        // Nichts zurueckzugeben heisst: gar nicht erst sperren. Auf dem
+        // Zero-Copy-Weg sind die Ebenen immer leer, und `give_back` nimmt sonst
+        // je Bild eine Sperre, um dann nichts zu tun.
+        if self.planes.is_empty() {
+            return;
+        }
         self.pool.give_back(std::mem::take(&mut self.planes));
     }
 }
@@ -685,6 +676,67 @@ impl Drop for DecodedFrame {
 pub enum ColorMatrix {
     Bt601,
     Bt709,
+    /// BT.2020 ohne konstante Leuchtdichte — die Matrix jedes HDR10-Stroms.
+    ///
+    /// **Eigene Zeile, obwohl die Koeffizienten denen von BT.709 aehneln.** Sie
+    /// tun es nur ungefaehr (1,4746 gegen 1,5748 fuer Rot), und der Unterschied
+    /// faellt genau dort auf, wo man ihn am wenigsten sucht: das Bild bleibt
+    /// vollstaendig plausibel, nur Hauttoene und gesaettigtes Gruen wandern.
+    /// Denselben Fehler hat der Player schon einmal gemacht, als er BT.601 als
+    /// BT.709 gelesen hat (2026-07-26).
+    Bt2020Ncl,
+}
+
+/// Wie die Codewerte des Stroms in Licht uebersetzt werden.
+///
+/// Der Unterschied ist nicht graduell: eine SDR-Kurve ist RELATIV (1,0 heisst
+/// „so hell der Schirm eben ist"), PQ ist ABSOLUT (1,0 heisst 10 000 cd/m²).
+/// Einen PQ-Strom wie SDR zu zeichnen ergibt ein Bild, das durchweg viel zu
+/// dunkel und entsaettigt ist — der haeufigste sichtbare HDR-Fehler ueberhaupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Uebertragung {
+    /// Alles, was keine PQ-Kurve ist — die uebliche Gamma-artige Kodierung.
+    Sdr,
+    /// SMPTE ST 2084 (PQ), die Kurve von HDR10.
+    Pq,
+}
+
+/// Was der Strom ueber Farbraum und Helligkeit sagt — alles, was der Shader
+/// braucht und was NICHT an der Form der Bildpunkte haengt.
+///
+/// Als eigener Typ statt dreier Felder in [`DecodedFrame`], weil die drei
+/// Angaben nur zusammen einen Sinn ergeben: PQ ohne BT.2020-Primaervalenzen
+/// gibt es in der Praxis nicht, und eine Spitzenhelligkeit ohne PQ ist
+/// bedeutungslos.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Farbangaben {
+    pub matrix: ColorMatrix,
+    pub uebertragung: Uebertragung,
+    /// Liegen die Primaervalenzen in BT.2020 statt BT.709? Getrennt von der
+    /// Kurve, weil beides unabhaengig voneinander falsch sein kann — es gibt
+    /// SDR-Stroeme in BT.2020, und ein PQ-Strom ohne Primaervalenzen-Angabe
+    /// waere zwar unueblich, aber nicht unmoeglich.
+    pub weiter_farbraum: bool,
+    /// Spitzenhelligkeit des Inhalts in cd/m², aus den Metadaten des Stroms.
+    ///
+    /// Gebraucht wird sie nur beim Herunterrechnen auf einen SDR-Schirm: sie
+    /// sagt, wo die Kurve enden muss. `None` heisst „der Strom sagt nichts" —
+    /// dann nimmt der Player einen Ersatzwert und sagt das auch (s.
+    /// `render::farbe`). Eine geratene Zahl als gemessene auszugeben waere hier
+    /// besonders teuer, weil man dem Ergebnis nicht ansieht, dass sie geraten
+    /// war.
+    pub spitze_nits: Option<f32>,
+}
+
+impl Default for Farbangaben {
+    fn default() -> Self {
+        Self {
+            matrix: ColorMatrix::Bt709,
+            uebertragung: Uebertragung::Sdr,
+            weiter_farbraum: false,
+            spitze_nits: None,
+        }
+    }
 }
 
 /// Ohne Angabe gilt die uebliche Regel: SD ist BT.601, HD ist BT.709.
@@ -704,6 +756,12 @@ fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
     match space {
         Space::BT470BG | Space::SMPTE170M | Space::SMPTE240M => ColorMatrix::Bt601,
         Space::BT709 => ColorMatrix::Bt709,
+        // Beide BT.2020-Fassungen landen hier. Der Player rechnet die
+        // NCL-Matrix; die CL-Fassung („constant luminance") kommt in der Praxis
+        // nicht vor — kein Encoder erzeugt sie —, und sie hier als NCL zu
+        // behandeln ist der weit kleinere Fehler, als sie auf BT.709
+        // zurueckfallen zu lassen.
+        Space::BT2020NCL | Space::BT2020CL => ColorMatrix::Bt2020Ncl,
         _ => {
             if height <= 576 {
                 ColorMatrix::Bt601
@@ -712,6 +770,102 @@ fn matrix_of(space: ffmpeg::color::Space, height: u32) -> ColorMatrix {
             }
         }
     }
+}
+
+/// Die Farbangaben eines dekodierten Bildes zusammentragen.
+///
+/// **Alles kommt aus dem Strom, nichts wird aus der Aufloesung geraten** —
+/// ausser der Matrix, die ihre eigene, alte Regel hat ([`matrix_of`]).
+///
+/// `PULSE_PLAYER_TRANSFER=sdr|pq` nagelt die Kurve fest, Gegenstueck zu
+/// `PULSE_PLAYER_MATRIX` und `PULSE_PLAYER_SURFACE`: nur so laesst sich
+/// „das Bild ist zu dunkel" auf eine der drei Ursachen eingrenzen, ohne den
+/// Player neu zu bauen.
+fn farbangaben_von(frame: &ffmpeg::util::frame::video::Video, height: u32) -> Farbangaben {
+    use ffmpeg::color::{Primaries, TransferCharacteristic};
+    let uebertragung = match std::env::var("PULSE_PLAYER_TRANSFER").as_deref().map(str::trim) {
+        Ok("sdr") => Uebertragung::Sdr,
+        Ok("pq") => Uebertragung::Pq,
+        _ => match frame.color_transfer_characteristic() {
+            TransferCharacteristic::SMPTE2084 => Uebertragung::Pq,
+            // **HLG faellt bewusst auf SDR zurueck und nicht auf PQ.** Die
+            // Kurve ist eine andere, und HLG als PQ zu lesen ergibt ein
+            // groteskes Bild. Als SDR gelesen ist es nur etwas flau — HLG ist
+            // rueckwaertskompatibel gebaut, genau dafuer. Wir erzeugen kein HLG;
+            // sollte es je hier ankommen, ist der milde Fehler der richtige.
+            _ => Uebertragung::Sdr,
+        },
+    };
+    Farbangaben {
+        matrix: matrix_of(frame.color_space(), height),
+        uebertragung,
+        weiter_farbraum: matches!(frame.color_primaries(), Primaries::BT2020),
+        spitze_nits: spitze_nits_von(frame),
+    }
+}
+
+/// Die Spitzenhelligkeit des Inhalts aus den Begleitdaten des Bildes.
+///
+/// Zwei Quellen, in dieser Reihenfolge — und die Reihenfolge ist die Aussage:
+///
+/// 1. **Content-Light-Level (`MaxCLL`)** beschreibt, was im INHALT wirklich
+///    vorkommt. Das ist die Zahl, die das Herunterrechnen braucht.
+/// 2. **Mastering-Display** beschreibt das GERAET, auf dem gemastert wurde —
+///    eine obere Schranke, oft deutlich zu hoch. Nur als Ersatz.
+///
+/// `None`, wenn der Strom nichts sagt. Der Aufrufer setzt dann einen
+/// Ersatzwert und meldet das (`render::farbe`), statt eine geratene Zahl wie
+/// eine gemessene zu behandeln.
+///
+/// Der Zugriff laeuft ueber `av_frame_get_side_data`, weil `ffmpeg-next` fuer
+/// diese beiden Nutzlasten keine sicheren Typen hat — dieselbe Lage wie im
+/// Sidecar (`encode/hdr.rs`), nur andersherum: dort schreiben wir sie, hier
+/// lesen wir sie.
+fn spitze_nits_von(frame: &ffmpeg::util::frame::video::Video) -> Option<f32> {
+    use ffmpeg::ffi::{AVFrameSideDataType, av_frame_get_side_data};
+
+    /// `AVContentLightMetadata` — zwei `unsigned` in cd/m².
+    #[repr(C)]
+    struct ContentLight {
+        max_cll: std::os::raw::c_uint,
+        max_fall: std::os::raw::c_uint,
+    }
+    /// `AVMasteringDisplayMetadata`; uns interessiert nur `max_luminance`, der
+    /// Rest steht fuer das richtige Speicherlayout da.
+    #[repr(C)]
+    struct Mastering {
+        display_primaries: [[ffmpeg::ffi::AVRational; 2]; 3],
+        white_point: [ffmpeg::ffi::AVRational; 2],
+        min_luminance: ffmpeg::ffi::AVRational,
+        max_luminance: ffmpeg::ffi::AVRational,
+        has_primaries: std::os::raw::c_int,
+        has_luminance: std::os::raw::c_int,
+    }
+
+    unsafe {
+        let ptr = frame.as_ptr();
+        let cll = av_frame_get_side_data(ptr, AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+        if !cll.is_null() {
+            let m = &*((*cll).data as *const ContentLight);
+            if m.max_cll > 0 {
+                return Some(m.max_cll as f32);
+            }
+        }
+        let md = av_frame_get_side_data(
+            ptr,
+            AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+        );
+        if !md.is_null() {
+            let m = &*((*md).data as *const Mastering);
+            if m.has_luminance != 0 && m.max_luminance.den != 0 {
+                let nits = m.max_luminance.num as f32 / m.max_luminance.den as f32;
+                if nits > 0.0 {
+                    return Some(nits);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -731,8 +885,10 @@ pub struct VideoDecoder {
     codec: Codec,
     /// Abgelehnte Einheiten in Folge; jede angenommene setzt zurueck.
     consecutive_errors: u32,
-    /// Bisherige Neuaufbauten (s. [`classify`]).
-    rebuilds: u32,
+    /// Neuaufbauten, die aktuell gegen den Decoder zaehlen — samt Bewaehrung
+    /// (s. [`crate::neuaufbau`]; dort stehen auch die Tests, die frueher hier
+    /// neben `classify` lagen).
+    rebuilds: Neuaufbauten,
     /// Solange gesetzt, wird jede Einheit verworfen, die kein Einstiegspunkt
     /// ist. Siehe [`VideoDecoder::decode`].
     awaiting_keyframe: bool,
@@ -752,9 +908,29 @@ pub struct VideoDecoder {
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
     /// Wiederverwendetes Ziel fuer den Weg von der GPU in den Hauptspeicher
-    /// (s. [`in_den_hauptspeicher`]). Nur benutzt, wenn das Bild dort liegt —
-    /// VAAPI, D3D11VA oder CUDA.
+    /// (s. [`in_den_hauptspeicher`]). Benutzt, wann immer das Bild im
+    /// Grafikspeicher liegt und die Bruecke es nicht uebernommen hat — also bei
+    /// VAAPI, D3D11VA und CUDA (s. [`AUF_GPU_FORMATE`]).
+    ///
+    /// **Hier stand „Nur auf dem VAAPI-Weg benutzt" — das ist seit dem
+    /// 2026-08-04 falsch**, seit `drain` denselben Weg auch fuer
+    /// `Pixel::D3D11` nimmt, und seit dem 2026-08-07 auch fuer `Pixel::CUDA`.
     hw_ziel: ffmpeg::util::frame::video::Video,
+    /// Wie lange das Ruecklesen aus dem Grafikspeicher im laufenden Durchgang
+    /// gedauert hat. Wird je `decode` zurueckgesetzt und dort ausgewertet
+    /// (s. [`crate::stockung`]).
+    ruecklesen_us: u64,
+    /// Dasselbe fuer den Weg am Hauptspeicher vorbei (s. [`crate::zerocopy`]).
+    bruecke_us: u64,
+    /// Zaehlt haengende Ruecklesevorgaenge (s. [`crate::stockung::Waechter`]).
+    stockungen: crate::stockung::Waechter,
+    /// Der Weg am Hauptspeicher vorbei. Die drei Zustaende dieses `Option` sind
+    /// in [`crate::zerocopy::bild_ohne_umweg`] erklaert, wo sie ausgewertet
+    /// werden.
+    bruecke: Option<Option<crate::zerocopy::Bruecke>>,
+    /// Der Rueckweg der auf der GPU gerechneten Fingerabdruecke (s.
+    /// [`crate::einfrieren::Zulauf`]). Nur auf dem Zero-Copy-Weg in Gebrauch.
+    zulauf: crate::einfrieren::Zulauf,
 }
 
 impl VideoDecoder {
@@ -782,7 +958,7 @@ impl VideoDecoder {
                         hardware,
                         codec,
                         consecutive_errors: 0,
-                        rebuilds: 0,
+                        rebuilds: Neuaufbauten::default(),
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
                         unsauber_bis: None,
@@ -791,6 +967,11 @@ impl VideoDecoder {
                         letztes_keyframe: None,
                         plane_pool: PlanePool::default(),
                         hw_ziel: ffmpeg::util::frame::video::Video::empty(),
+                        ruecklesen_us: 0,
+                        bruecke_us: 0,
+                        stockungen: crate::stockung::Waechter::default(),
+                        bruecke: None,
+                        zulauf: crate::einfrieren::Zulauf::default(),
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -900,6 +1081,10 @@ impl VideoDecoder {
         // ist — der Boden des Einfrier-Nachweises (s. [`crate::einfrieren`]).
         self.wacht.daten(data.len());
 
+        // Ab hier laeuft die Uhr fuer den Stockungs-Nachweis: die Statistik
+        // meldet nur, DASS ein Durchgang zwei Sekunden gedauert hat, nicht
+        // worin (s. `crate::stockung`).
+        let uhr = std::time::Instant::now();
         let packet = ffmpeg::codec::packet::Packet::copy(data);
         if let Err(e) = self.decoder.send_packet(&packet) {
             self.consecutive_errors += 1;
@@ -914,9 +1099,9 @@ impl VideoDecoder {
             // CUDA-Kontext, und genau dort wurde am 2026-07-28 ein Segfault
             // beobachtet. Fehlte bisher komplett.
             self.decoder.flush();
-            match classify(self.consecutive_errors, self.rebuilds) {
+            match neuaufbau::classify(self.consecutive_errors, self.rebuilds.anzahl()) {
                 ErrorAction::Ignore => {}
-                ErrorAction::Rebuild => self.rebuild(&e.to_string())?,
+                ErrorAction::Rebuild => self.rebuild(&e.to_string(), uhr)?,
                 ErrorAction::GiveUp => bail!(
                     "Decoder {} nimmt seit {} Einheiten keine Pakete mehr an ({e})",
                     self.name,
@@ -926,7 +1111,50 @@ impl VideoDecoder {
             return Ok(Vec::new());
         }
         self.consecutive_errors = 0;
-        Ok(self.drain())
+        // Ein angenommenes Paket traegt die Bewaehrung eines Neuaufbaus ab —
+        // ohne das zaehlte jede Fehlerserie einer langen Sitzung gegen die
+        // naechste, und die dritte beendete sie (s. `crate::neuaufbau`).
+        self.rebuilds.erfolg(uhr);
+        let hineingeben = uhr.elapsed().as_micros() as u64;
+        self.ruecklesen_us = 0;
+        self.bruecke_us = 0;
+        let bilder = self.drain();
+        let abschnitte = crate::stockung::Abschnitte {
+            hineingeben,
+            herausholen: uhr.elapsed().as_micros() as u64 - hineingeben,
+            ruecklesen: self.ruecklesen_us,
+            bruecke: self.bruecke_us,
+        };
+        crate::stockung::melden(abschnitte, bilder.len());
+        // Haengt die Grafikeinheit wiederholt, ist der Hardware-Weg aufzugeben.
+        // Das Bild wird dadurch teurer, aber es kommt wieder — vorher fiel die
+        // ganze Sitzung auseinander (s. [`crate::stockung::Waechter`]).
+        if self.hardware
+            && crate::stockung::rueckfall_erlaubt()
+            && crate::stockung::ist_grafikstockung(abschnitte)
+            && self.stockungen.stockung(std::time::Instant::now())
+        {
+            self.auf_software("das Warten auf die Grafikeinheit blockiert wiederholt")?;
+        }
+        Ok(bilder)
+    }
+
+    /// Auf Software umstellen, weil der Hardware-Weg zwar liefert, aber zu
+    /// spaet (s. [`crate::stockung`]).
+    ///
+    /// **Zaehlt bewusst NICHT gegen [`neuaufbau::MAX_REBUILDS`].** Der Zaehler steht fuer
+    /// „dieser Decoder ist kaputt, und der Ersatz ist es womoeglich auch";
+    /// nach zwei Versuchen gibt er die Sitzung auf. Hier ist aber nichts
+    /// kaputt: die Umstellung ist eine einmalige, absichtliche
+    /// Strategieaenderung, und sie kann sich nicht wiederholen (danach ist
+    /// `hardware` falsch). Am 2026-08-06 im ersten Lauf mit dem Rueckfall
+    /// beobachtet: die Umstellung verbrauchte Versuch 1 von 2, der ohnehin
+    /// folgende Anlauffehler des frischen Decoders Versuch 2 — und die
+    /// naechste Fehlerserie haette die Sitzung beendet. Genau das, was der
+    /// Rueckfall verhindern soll.
+    fn auf_software(&mut self, grund: &str) -> Result<()> {
+        eprintln!("pulse-player: Decoder {} wird aufgegeben: {grund} — weiter in Software", self.name);
+        self.frischer_software_decoder()
     }
 
     /// Ersetzt den Decoder durch einen frischen Software-Decoder.
@@ -940,13 +1168,32 @@ impl VideoDecoder {
     /// Nach dem Tausch fehlt dem neuen Decoder der Referenzrahmen; bis zum
     /// naechsten Keyframe bleiben Einheiten unbrauchbar. Der Zaehler startet
     /// deshalb bei null, sonst gaebe genau diese Anlaufphase sofort auf.
-    fn rebuild(&mut self, cause: &str) -> Result<()> {
-        self.rebuilds += 1;
+    ///
+    /// `jetzt` wird durchgereicht statt hier neu geholt: Zaehlen und Bewaehren
+    /// muessen auf DERSELBEN Uhr rechnen, sonst haengt die Bewaehrungsfrist an
+    /// der Laufzeit eines Aufrufs.
+    fn rebuild(&mut self, cause: &str, jetzt: std::time::Instant) -> Result<()> {
+        let nummer = self.rebuilds.gezaehlt(jetzt);
+        // **Hier stand bis zum 2026-08-06 „lehnt dauerhaft ab" fest im Text.**
+        // Das stimmt nur fuer den einen Anlass, aus dem es die Funktion gab
+        // (abgelehnte Pakete); seit der zweite dazukam — eine haengende
+        // Grafikeinheit, bei der jedes Paket ANGENOMMEN wird — waere die Zeile
+        // schlicht falsch gewesen und haette die Suche in die Irre geschickt.
         eprintln!(
-            "pulse-player: Decoder {} lehnt dauerhaft ab ({cause}) — \
-             Neuaufbau {}/{MAX_REBUILDS} als Software",
-            self.name, self.rebuilds
+            "pulse-player: Decoder {} wird aufgegeben: {cause} — \
+             Neuaufbau {nummer}/{} als Software",
+            self.name,
+            neuaufbau::MAX_REBUILDS
         );
+        self.frischer_software_decoder()
+    }
+
+    /// Den laufenden Decoder gegen einen frischen Software-Decoder tauschen.
+    ///
+    /// Der gemeinsame Rumpf von [`Self::rebuild`] (Fehlerserie) und
+    /// [`Self::auf_software`] (haengende Grafikeinheit) — bis auf den Zaehler
+    /// und die Meldung ist der Vorgang derselbe.
+    fn frischer_software_decoder(&mut self) -> Result<()> {
         let fresh = Self::new(self.codec, Some(false))?;
         self.decoder = fresh.decoder;
         self.name = fresh.name;
@@ -1137,15 +1384,51 @@ impl VideoDecoder {
             //
             // Welche Formate das sind und warum die Liste vollstaendig sein
             // MUSS, steht bei [`AUF_GPU_FORMATE`].
-            //
-            // **Fuer CUDA ist das die Zwischenstufe, nicht das Ziel.** Solange
-            // der Renderer nur Hauptspeicher-Ebenen annimmt, wird hier die
-            // Kopie nachgeholt, die vorher unsichtbar im Decoder steckte —
-            // gleiche Kosten, gleicher Bildinhalt. Nimmt der Renderer das
-            // CUDA-Bild spaeter direkt, faellt dieser Zweig fuer CUDA weg.
             let auf_gpu = AUF_GPU_FORMATE.contains(&frame.format());
+            // Der Weg am Hauptspeicher vorbei — nur wenn angefordert, nur bei
+            // einem Format, fuer das es eine Bruecke gibt, und nur, solange sie
+            // traegt. Scheitert sie, wird sie nicht wieder versucht und es geht
+            // unten normal weiter.
+            let zerocopy_versucht = crate::zerocopy::bruecke_moeglich(frame.format())
+                && crate::zerocopy::angefordert();
+            if zerocopy_versucht {
+                let (fertig, dauer) = crate::zerocopy::bild_ohne_umweg(
+                    &mut self.bruecke,
+                    &frame,
+                    self.zulauf.kasten(),
+                );
+                self.bruecke_us += dauer;
+                if let Some(f) = fertig {
+                    // Der Fingerabdruck dieses Bildes entsteht im Renderer und
+                    // kommt spaeter zurueck; hier wird nur vermerkt, dass eine
+                    // Antwort aussteht.
+                    self.zulauf.bild_hinaus();
+                    out.push(f);
+                    continue;
+                }
+            }
+            // Steht der GPU-Weg, sind die Abdruecke dieses Decoders GPU-Abdruecke
+            // — ein CPU-Abdruck dazwischen waere mit ihnen nicht vergleichbar
+            // und gaelte dem Waechter als „veraendert". Genau das passiert bei
+            // jedem Bild, das mangels freiem Ringplatz hier landet. Solche
+            // Bilder zaehlen deshalb gar nicht mit; es sind wenige, und eine
+            // Stichprobe weniger schadet nichts (s. `crate::einfrieren`).
+            //
+            // **Es muss DIESES Bild sein, nicht die Bruecke im Allgemeinen.**
+            // Zuerst stand hier `angefordert() && matches!(self.bruecke,
+            // Some(Some(_)))`, und das ist im Lauf am 2026-08-06 aufgefallen:
+            // nach dem Rueckfall auf Software (`auf_software`) bleibt die
+            // Bruecke gebaut stehen, waehrend die Bilder als `YUV420P10LE`
+            // ankommen. Die Bedingung war also weiter erfuellt, es gingen aber
+            // keine GPU-Bilder mehr hinaus — der Waechter bekam von KEINER
+            // Seite mehr ein Bild und war fuer den Rest der Sitzung blind.
+            // Sichtbar allein daran, dass die Takt-Diagnose verstummte.
+            let gpu_weg_steht = zerocopy_versucht && matches!(self.bruecke, Some(Some(_)));
             if auf_gpu {
-                if let Err(e) = in_den_hauptspeicher(&frame, &mut self.hw_ziel) {
+                let vor = std::time::Instant::now();
+                let ergebnis = in_den_hauptspeicher(&frame, &mut self.hw_ziel);
+                self.ruecklesen_us += vor.elapsed().as_micros() as u64;
+                if let Err(e) = ergebnis {
                     eprintln!("pulse-player: Bild von der GPU holen scheiterte: {e}");
                     continue;
                 }
@@ -1159,9 +1442,17 @@ impl VideoDecoder {
             if let Some(f) = umgewandelt {
                 // Aendert sich der Bildinhalt ueberhaupt noch? (s.
                 // [`VideoDecoder::eingefroren`])
-                self.wacht.bild(&f.planes);
+                if !gpu_weg_steht {
+                    self.wacht.bild(&f.planes);
+                }
                 out.push(f);
             }
+        }
+        // Was der Renderer inzwischen gerechnet hat, in den Waechter geben.
+        // `true` heisst: es kommt nichts mehr — dann ist der GPU-Weg
+        // aufzugeben, sonst liefe er ohne Waechter weiter.
+        if self.zulauf.einspeisen(&mut self.wacht) {
+            crate::zerocopy::abschalten("es kommen keine Fingerabdruecke zurueck");
         }
         out
     }
@@ -1241,9 +1532,16 @@ fn convert(
         strides,
         ten_bit,
         full_range: matches!(frame.color_range(), ffmpeg::color::Range::JPEG),
-        matrix: matrix_of(frame.color_space(), height),
+        farbe: farbangaben_von(frame, height),
+        gpu: None,
         pool: pool.clone(),
     })
+}
+
+/// Wie [`farbangaben_von`], aber auch fuer `zerocopy::uebergabe` erreichbar —
+/// eine zweite Ableitung dort liefe beim naechsten Umbau auseinander.
+pub(crate) fn farbangaben_fuer(frame: &ffmpeg::util::frame::video::Video) -> Farbangaben {
+    farbangaben_von(frame, frame.height())
 }
 
 #[cfg(test)]
@@ -1442,29 +1740,6 @@ mod tests {
         );
     }
 
-    /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit
-    /// nach einer Paketluecke) und duerfen nichts ausloesen.
-    #[test]
-    fn einzelne_fehler_werden_ignoriert() {
-        assert_eq!(classify(1, 0), ErrorAction::Ignore);
-        assert_eq!(classify(ERROR_LIMIT - 1, 0), ErrorAction::Ignore);
-    }
-
-    /// Anhaltende Ablehnung heisst kaputter Decoder — der Neuaufbau ist der
-    /// Unterschied zwischen "faengt sich" und "bleibt schwarz".
-    #[test]
-    fn anhaltende_fehler_loesen_neuaufbau_aus() {
-        assert_eq!(classify(ERROR_LIMIT, 0), ErrorAction::Rebuild);
-        assert_eq!(classify(ERROR_LIMIT * 3, MAX_REBUILDS - 1), ErrorAction::Rebuild);
-    }
-
-    /// Irgendwann muss Schluss sein: sonst baut der Player endlos neu auf und
-    /// der Nutzer sieht weiter nichts, ohne je einen Fehler zu bekommen.
-    #[test]
-    fn nach_den_versuchen_wird_aufgegeben() {
-        assert_eq!(classify(ERROR_LIMIT, MAX_REBUILDS), ErrorAction::GiveUp);
-    }
-
     /// Die Angabe des Stroms schlaegt jede Vermutung — auch wenn sie der
     /// Aufloesung widerspricht. Genau dieser Fall trat auf: 1440p mit
     /// BT470BG-Kennung, wo man BT.709 erwarten wuerde.
@@ -1609,7 +1884,7 @@ mod tests {
         let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
         d.awaiting_keyframe = false;
         d.skipped_before_keyframe = 7;
-        d.rebuild("Test").expect("Neuaufbau");
+        d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
         assert!(d.awaiting_keyframe, "nach dem Neuaufbau fehlt der Einstiegspunkt wieder");
         assert_eq!(d.skipped_before_keyframe, 0, "Zaehler gehoert zum neuen Anlauf");
     }
@@ -1619,11 +1894,11 @@ mod tests {
     #[test]
     fn neuaufbau_landet_auf_software() {
         let mut d = VideoDecoder::new(Codec::H264, Some(false)).expect("Software-Decoder");
-        d.consecutive_errors = ERROR_LIMIT;
-        d.rebuild("Test").expect("Neuaufbau");
+        d.consecutive_errors = neuaufbau::ERROR_LIMIT;
+        d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
         assert!(!d.hardware, "Neuaufbau muss Software sein, ist {}", d.name);
         assert_eq!(d.consecutive_errors, 0, "Zaehler muss fuer die Anlaufphase zurueckgesetzt sein");
-        assert_eq!(d.rebuilds, 1);
+        assert_eq!(d.rebuilds.anzahl(), 1);
     }
 
     /// Der Software-Weg muss auf jeder Maschine funktionieren — ohne den

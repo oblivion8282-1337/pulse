@@ -43,6 +43,12 @@ struct AVD3D11VADeviceContext {
     lock_ctx: *mut c_void,
 }
 
+/// **Zweite Spiegelung im Repo:** `AVD3D11VADeviceContext` (nicht dieselbe
+/// Struktur, aber dieselbe Kopfdatei und dieselbe Falle) wird auch in
+/// `streaming/pulse-player/src/zerocopy/ffmpeg_geraet.rs` von Hand abgebildet.
+/// Wer eine an FFmpeg-Aenderungen anpasst, sieht bitte auch dort nach — ein
+/// Fehler daran uebersetzt fehlerfrei und beschaedigt Speicher.
+///
 /// `AVD3D11VAFramesContext` aus FFmpeg 8.1 `libavutil/hwcontext_d3d11va.h`.
 /// **Achtung Layout:** das erste Feld ist `ID3D11Texture2D *texture` — eine
 /// frühere Spiegelung hier hat das weggelassen, dadurch landete `bind_flags`

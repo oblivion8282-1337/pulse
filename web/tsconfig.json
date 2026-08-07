@@ -2,6 +2,14 @@
   "extends": "./.svelte-kit/tsconfig.json",
   "compilerOptions": {
     "allowJs": true,
+    // Fuer die Node-Unit-Tests unter `test/`: Nodes Testlaeufer loest Pfade
+    // nach Node-Regeln auf und braucht die Dateiendung im Import, waehrend der
+    // Rest des Projekts erweiterungslos importiert (Bundler-Aufloesung). Ohne
+    // dieses Flag meldet `pnpm check` genau diese Importe als Fehler, obwohl
+    // die Tests laufen. Zulaessig nur zusammen mit `noEmit` (setzt die von
+    // SvelteKit erzeugte tsconfig), und genau deshalb harmlos: es kann kein
+    // Build entstehen, in dem eine `.ts`-Endung uebrig bliebe.
+    "allowImportingTsExtensions": true,
     "checkJs": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,

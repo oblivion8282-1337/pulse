@@ -160,12 +160,24 @@ des Systems — jetzt mit der Angebotsliste belegt statt nur behauptet.
   nicht in `FORMAT_PREFERENCE`, ist also nur über die Diagnose-Variable
   erreichbar — unangetastet gelassen, aber es ist eine Falle.
 
+## Nachgetragen am 2026-08-06: derselbe Prüfstand trägt jetzt auch HDR
+
+Der Messpfad hat hier ausdrücklich SDR gefahren, mit der Begründung, ein
+HDR-Lauf brauche eine eigene Fragestellung (welche **Helligkeiten** kommen an,
+nicht welche Codewerte) und eine PQ-Quelle. Beides ist am 2026-08-06 eingelöst:
+`pulse-player --farbwerte` bringt seine PQ-Quelle mit und prüft beide Ausgänge
+gegen unabhängig aus den Normen gerechnete Sollwerte
+(`streaming/testbench/profiles/player-2026-08-06-hdr-farbweg.json`). Die
+Farbwelt steckt seither im `Lauf`, nicht mehr fest im Messstand — die
+Stufenmessung hier bleibt davon unberührt und liefert dieselben Zahlen.
+
 ## Reproduzieren
 
 ```bash
 cd streaming/pulse-player
 cargo build
 ./target/debug/pulse-player --stufen <datei.yuv> --breite 2560 --hoehe 1440 --bild 50 [--werte]
+./target/debug/pulse-player --farbwerte     # HDR-Farbweg, braucht keine Datei
 ```
 
 Die Datei ist ein roher `yuv420p10le`-Strom

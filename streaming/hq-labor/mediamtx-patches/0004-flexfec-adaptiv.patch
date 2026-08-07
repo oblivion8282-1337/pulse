@@ -101,10 +101,19 @@ Vorher fiel die 0 auf 2 zurueck — wer damit einen Nullauf fahren wollte, mass
 unbemerkt 10+2 gegen 10+2.
 
 Baut gegen 1.19.1, go vet sauber, Pakettests gruen.
+
+NACHTRAG 2026-08-06 — die Bilanzzeile nennt jetzt auch den ausgehandelten
+Paritaetstyp und die Zahl der Medienpakete. Ohne sie beschreibt "0 gesendet,
+0 unterdrueckt" ZWEI voellig verschiedene Lagen gleich: der Zuschauer hat
+`flexfec-03` nie ausgehandelt (dann steht der Filter gar nicht in der Kette),
+oder er hat es ausgehandelt und pions Erzeuger lieferte trotzdem nichts. Bei
+der Untersuchung von 59 stillen Produktionssitzungen war aus dem Log allein
+nicht zu entscheiden, welcher Fall vorlag — das hat die Ursachensuche
+aufgehalten. Reine Diagnose, kein Verhalten geaendert.
 ---
  internal/protocols/webrtc/outbound_track.go  |  36 ++-
- internal/protocols/webrtc/peer_connection.go | 308 ++++++++++++++++++-
- 2 files changed, 337 insertions(+), 7 deletions(-)
+ internal/protocols/webrtc/peer_connection.go | 345 ++++++++++++++++++++++++++-
+ 2 files changed, 374 insertions(+), 7 deletions(-)
 
 diff --git a/internal/protocols/webrtc/outbound_track.go b/internal/protocols/webrtc/outbound_track.go
 index ad2282c..43a3955 100644
@@ -156,7 +165,7 @@ index ad2282c..43a3955 100644
  			}
  		}
 diff --git a/internal/protocols/webrtc/peer_connection.go b/internal/protocols/webrtc/peer_connection.go
-index 22aee87..d0ec625 100644
+index 22aee87..3b58f9a 100644
 --- a/internal/protocols/webrtc/peer_connection.go
 +++ b/internal/protocols/webrtc/peer_connection.go
 @@ -17,6 +17,7 @@ import (
@@ -167,7 +176,7 @@ index 22aee87..d0ec625 100644
  	"github.com/pion/sdp/v3"
  	"github.com/pion/transport/v4"
  	"github.com/pion/webrtc/v4"
-@@ -53,9 +54,266 @@ func pulseFlexFECConfig() (an bool, medien uint32, paritaet uint32) {
+@@ -53,9 +54,300 @@ func pulseFlexFECConfig() (an bool, medien uint32, paritaet uint32) {
  		}
  		return uint32(v)
  	}
@@ -285,6 +294,32 @@ index 22aee87..d0ec625 100644
 +	gemeldet      atomic.Uint64
 +	durchgelassen atomic.Uint64
 +	unterdrueckt  atomic.Uint64
++
++	// Der AUSGEHANDELTE Paritaets-Nutzlasttyp dieser Sitzung, 0 = keiner.
++	//
++	// WARUM DAS INS LOG GEHOERT: ohne ihn sind zwei voellig verschiedene Lagen
++	// nicht unterscheidbar, und beide schreiben "0 gesendet, 0 unterdrueckt":
++	//
++	//   1. Der Zuschauer hat `flexfec-03` gar nicht ausgehandelt. Dann steht
++	//      der Filter erst gar nicht in der Kette (`fecPT == 0` unten), es gibt
++	//      nichts zu regeln, und es lief in dieser Sitzung KEIN Schutz.
++	//   2. Der Typ ist ausgehandelt, aber pions Erzeuger hat nie ein
++	//      Paritaetspaket geliefert — etwa weil `EncodeFec` jede Gruppe
++	//      verwirft, deren zehn Sequenznummern nicht lueckenlos sind
++	//      (flexfec_encoder_03.go). Dann ist der Schutz zwar vereinbart, aber
++	//      wirkungslos, und die Ursache liegt am Medienstrom.
++	//
++	// Am 2026-08-06 hat genau diese Zweideutigkeit eine ganze Untersuchung
++	// aufgehalten: 59 Produktionssitzungen meldeten Verlust bei 0/0, und aus
++	// dem Log allein war nicht zu sagen, welcher der beiden Faelle vorlag.
++	// Ein Feld, das beide Lagen gleich beschreibt, ist kein Diagnosewert.
++	paritaetsTyp atomic.Uint32
++
++	// Wieviele MEDIENpakete ueberhaupt durch den Filter liefen. `medienPaket`
++	// fuehrt nur das gleitende Fenster und wird staendig zurueckgesetzt; ohne
++	// eine Gesamtzahl bleibt offen, ob eine stille Sitzung gar kein Video sah
++	// oder sehr wohl welches und trotzdem keine Paritaet bekam.
++	medienGesamt atomic.Uint64
 +}
 +
 +// fensterPruefen setzt das Messfenster weiter. Ruft nur auf, wer `mu` haelt.
@@ -368,6 +403,13 @@ index 22aee87..d0ec625 100644
 +	// er ueberhaupt Paritaet baut (encoder_interceptor.go). Ist es 0, gibt es
 +	// fuer diesen Strom keine Paritaet und nichts zu filtern.
 +	fecPT := uint8(info.PayloadTypeForwardErrorCorrection)
++	// Die 0 bleibt der unveraenderte Anfangswert und ist genau die Aussage
++	// "nicht ausgehandelt", die bisher im Log fehlte. Nur der VIDEOstrom traegt
++	// einen Paritaetstyp; der Tonstrom bindet ebenfalls hier ein und meldet 0 —
++	// deshalb wird nur ungleich null geschrieben, sonst loeschte er den Wert.
++	if fecPT != 0 {
++		f.tor.paritaetsTyp.Store(uint32(fecPT))
++	}
 +	if fecPT == 0 {
 +		return writer
 +	}
@@ -375,6 +417,7 @@ index 22aee87..d0ec625 100644
 +	return interceptor.RTPWriterFunc(
 +		func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
 +			if header.PayloadType != fecPT {
++				f.tor.medienGesamt.Add(1)
 +				f.tor.medienPaket()
 +			} else {
 +				if !f.tor.durchlassen() {
@@ -437,7 +480,7 @@ index 22aee87..d0ec625 100644
  }
  
  func interfaceIPs(interfaceList []string) ([]string, error) {
-@@ -117,6 +375,7 @@ func registerInterceptors(
+@@ -117,6 +409,7 @@ func registerInterceptors(
  	mediaEngine *webrtc.MediaEngine,
  	interceptorRegistry *interceptor.Registry,
  	onStatsInterceptor func(s *statsInterceptor),
@@ -445,7 +488,7 @@ index 22aee87..d0ec625 100644
  	sendet bool,
  ) error {
  	// FlexFEC MUSS als erstes stehen. pion sagt das in `ConfigureFlexFEC03`
-@@ -129,6 +388,25 @@ func registerInterceptors(
+@@ -129,6 +422,25 @@ func registerInterceptors(
  	// `session.go::runRead`). Auf der Empfangsseite waere es sinnlos: dort
  	// erzeugt MediaMTX keine Pakete, sondern nimmt sie entgegen.
  	if an, medien, paritaet := pulseFlexFECConfig(); an && sendet {
@@ -471,7 +514,7 @@ index 22aee87..d0ec625 100644
  		err := webrtc.ConfigureFlexFEC03(
  			pulseFlexFECPayloadType,
  			mediaEngine,
-@@ -232,6 +510,14 @@ type PeerConnection struct {
+@@ -232,6 +544,14 @@ type PeerConnection struct {
  	inboundTracks    []*InboundTrack
  	statsInterceptor *statsInterceptor
  
@@ -486,7 +529,7 @@ index 22aee87..d0ec625 100644
  	newLocalCandidate chan *webrtc.ICECandidateInit
  	inboundTrack      chan trackRecvPair
  
-@@ -359,6 +645,9 @@ func (co *PeerConnection) Start() error {
+@@ -359,6 +679,9 @@ func (co *PeerConnection) Start() error {
  		func(s *statsInterceptor) {
  			co.statsInterceptor = s
  		},
@@ -496,7 +539,7 @@ index 22aee87..d0ec625 100644
  		co.Publish,
  	)
  	if err != nil {
-@@ -475,6 +764,19 @@ func (co *PeerConnection) Start() error {
+@@ -475,6 +798,22 @@ func (co *PeerConnection) Start() error {
  
  // Close closes the connection.
  func (co *PeerConnection) Close() {
@@ -507,10 +550,13 @@ index 22aee87..d0ec625 100644
 +	// durchgehen lassen.
 +	if co.fecTor != nil {
 +		co.Log.Log(logger.Info,
-+			"Pulse FEC-Tor: %d Verluste gemeldet, %d Paritaetspakete gesendet, %d unterdrueckt",
++			"Pulse FEC-Tor: %d Verluste gemeldet, %d Paritaetspakete gesendet, %d unterdrueckt, "+
++				"Paritaetstyp %d, %d Medienpakete",
 +			co.fecTor.gemeldet.Load(),
 +			co.fecTor.durchgelassen.Load(),
-+			co.fecTor.unterdrueckt.Load())
++			co.fecTor.unterdrueckt.Load(),
++			co.fecTor.paritaetsTyp.Load(),
++			co.fecTor.medienGesamt.Load())
 +	}
 +
  	co.ctxCancel()

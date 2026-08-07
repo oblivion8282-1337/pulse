@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use crate::capture::RueckrufStand;
 use crate::events;
 
 /// Ein Tick gilt als „langsam", wenn die Iteration (ohne Pacing-Sleep) länger
@@ -56,6 +57,14 @@ pub struct TickSample {
     /// (CPU-Pfad), GPU-Scaler (`VideoProcessorBlt`, NVIDIA-Downscale) oder 0
     /// (NVIDIA-native — NVENC macht den Convert selbst). Auf dem CPU-Pfad bei
     /// hoher Auflösung der wahrscheinlichste Stutter-Kandidat.
+    ///
+    /// **Auf den GPU-Wegen ist das die Zeit des ABSENDENS, nicht die Arbeit.**
+    /// Der Treiber reiht Befehle ein und kehrt zurück; gerechnet wird danach.
+    /// Gemessen am 2026-08-06: 25 µs hier, während derselbe HDR-Shader auf der
+    /// Grafikeinheit 1,79 ms braucht — Faktor 70. Wer die *Last* einer
+    /// GPU-Stufe sucht, braucht die Windows-Leistungsindikatoren
+    /// (`streaming/testbench/profiles/leistung-2026-08-06-fp16-kopie-gemessen.json`);
+    /// dieser Wert beantwortet nur, ob der **Taktfaden** dort hängenbleibt.
     pub convert: Duration,
     /// NVENC-/AMF-Submit des Video-Frames (`(avcodec_)send_frame`).
     pub send: Duration,
@@ -72,7 +81,19 @@ pub struct TickSample {
     /// übersprungen = der sichtbare Ruckler.
     pub pts_delta: i64,
     /// Kumulativ verworfene Capture-Frames (Snapshot von `WgcHwCapture`).
+    ///
+    /// **Kennt nur die eigene Seite** (Pool erschöpft, Kanal voll, Größe
+    /// geändert). Was WGC selbst verwirft, steht in `rueckruf`.
     pub capture_drops: u64,
+    /// Abzug der Rückruf-Wacht (`capture::rueckruf`): Verweildauer im
+    /// Aufnahme-Rückruf und die **Obergrenze** der Bilder, die WGC deswegen
+    /// verworfen haben kann. Alle Werte kumulativ seit Start.
+    ///
+    /// Warum das hier steht, seit die Farbwandlung im Rückruf laufen kann:
+    /// ohne diese Zahl tauschte man messbare GPU-Last gegen unsichtbaren
+    /// Bildverlust. Eine Null in `verlust_obergrenze` ist ein Beweis, keine
+    /// Beobachtung — Herleitung im Modul.
+    pub rueckruf: RueckrufStand,
     /// Encode-Latenz der in DIESEM Tick herausgefallenen Pakete: (Summe,
     /// Maximum, Anzahl) in Mikrosekunden, aus `take_encode_latency()`.
     ///
@@ -114,6 +135,10 @@ pub struct TickMonitor {
     tick_index: u64,
     win_start_drops: u64,
     cur_drops: u64,
+    /// Stand der Rückruf-Wacht zu Beginn des Fensters und jetzt — die
+    /// Zusammenfassung meldet die Differenz, wie bei `drops`.
+    win_start_rueckruf: RueckrufStand,
+    cur_rueckruf: RueckrufStand,
     win: Window,
     /// `PULSE_ENC_LATENCY_LOG=1`: die 2s-Zusammenfassung auch dann ausgeben,
     /// wenn das Fenster sauber war. Fuer Messlaeufe — die Encode-Latenz ist
@@ -148,6 +173,8 @@ impl TickMonitor {
             tick_index: 0,
             win_start_drops: 0,
             cur_drops: 0,
+            win_start_rueckruf: Default::default(),
+            cur_rueckruf: Default::default(),
             win: Window::default(),
             enc_log: crate::env::flag("PULSE_ENC_LATENCY_LOG"),
         }
@@ -159,6 +186,7 @@ impl TickMonitor {
         let idx = self.tick_index;
         self.tick_index += 1;
         self.cur_drops = s.capture_drops;
+        self.cur_rueckruf = s.rueckruf;
 
         {
             let w = &mut self.win;
@@ -198,6 +226,15 @@ impl TickMonitor {
                 "pts": s.pts,
                 "pts_delta": s.pts_delta,
                 "drops": s.capture_drops,
+                // Die Rückruf-Wacht, kumulativ. `cb_n`/`cb_sum_us` erlauben
+                // den Mittelwert über ein beliebiges Fenster (Differenz durch
+                // Differenz), `cb_max_us` ist der grösste je gesehene Rückruf,
+                // `cb_verlust` die Obergrenze WGC-seitig verworfener Bilder.
+                "cb_n": s.rueckruf.anzahl,
+                "cb_sum_us": s.rueckruf.summe_us,
+                "cb_max_us": s.rueckruf.max_us,
+                "cb_lang": s.rueckruf.ueberlang,
+                "cb_verlust": s.rueckruf.verlust_obergrenze,
                 "enc_sum_us": s.enc_latency.0,
                 "enc_max_us": s.enc_latency.1,
                 "enc_n": s.enc_latency.2,
@@ -233,6 +270,12 @@ impl TickMonitor {
     pub fn flush_summary(&mut self) {
         let drops = self.cur_drops.saturating_sub(self.win_start_drops);
         self.win_start_drops = self.cur_drops;
+        let cb = self.cur_rueckruf.bericht_seit(&self.win_start_rueckruf);
+        let cb_verlust = self
+            .cur_rueckruf
+            .verlust_obergrenze
+            .saturating_sub(self.win_start_rueckruf.verlust_obergrenze);
+        self.win_start_rueckruf = self.cur_rueckruf;
         if let Some(trace) = self.trace.as_mut() {
             let _ = trace.flush();
         }
@@ -240,9 +283,15 @@ impl TickMonitor {
         let enc = enc_text(&w);
         // Sauberes Fenster → keine Zeile. Hält den Log ruhig, solange alles
         // flüssig läuft. Ausnahme: Messlauf (s. `enc_log`).
-        if w.slow == 0 && w.pts_gaps == 0 && drops == 0 {
+        //
+        // **`cb_verlust` gehört in diese Bedingung**, nicht nur in die Zeile
+        // darunter: ein Fenster, in dem WGC Bilder verloren haben kann, ist
+        // nicht sauber — und ohne diesen Term stünde die einzige Zahl, die das
+        // zeigt, ausgerechnet in den Fenstern nicht da, in denen sonst nichts
+        // auffällt.
+        if w.slow == 0 && w.pts_gaps == 0 && drops == 0 && cb_verlust == 0 {
             if self.enc_log {
-                emit_log(format!("{} ticks, sauber | {enc}", w.ticks));
+                emit_log(format!("{} ticks, sauber | {enc} | {cb}", w.ticks));
             }
             return;
         }
@@ -253,7 +302,7 @@ impl TickMonitor {
         };
         emit_log(format!(
             "{} ticks: {} slow, {} pts-gaps, {} capture-drops, {} dup-frames | \
-             iter avg={} max={} | {} | max conv={} send={} mux={} audio={} wake={} cap={}",
+             iter avg={} max={} | {} | {} | max conv={} send={} mux={} audio={} wake={} cap={}",
             w.ticks,
             w.slow,
             w.pts_gaps,
@@ -262,6 +311,7 @@ impl TickMonitor {
             ms(avg),
             ms(w.max_iter),
             enc,
+            cb,
             ms(w.max_convert),
             ms(w.max_send),
             ms(w.max_mux),

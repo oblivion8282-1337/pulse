@@ -1,18 +1,37 @@
 # Messstand-Werkzeuge des Windows-Labors
 
-Drei Dinge, die nicht in den Code gehören, aber auch nicht in ein
-Scratchpad — weil sie Ergebnisse liefern, die in Messakten landen, und
-nachvollziehbar bleiben müssen.
+Dinge, die nicht in den Code gehören, aber auch nicht in ein Scratchpad — weil
+sie Ergebnisse liefern, die in Messakten landen, und nachvollziehbar bleiben
+müssen.
 
-Alle drei setzen den Hetzner-Messstand voraus (`streaming/win-hq-labor/CLAUDE.md`,
+Die meisten setzen den Hetzner-Messstand voraus (`streaming/win-hq-labor/CLAUDE.md`,
 Abschnitt „Messen") und ein Token in `fern_token.txt`. **Das Token steht in
-keinem der Skripte** und wird in der Ausgabe maskiert.
+keinem der Skripte** und wird in der Ausgabe maskiert. Ausnahmen:
+`bewegung.ps1` und `mitschnitt.ps1` brauchen kein Netz.
 
 | Datei | Beantwortet |
 |---|---|
 | `intra-refresh-nachweis.ps1` | Läuft Intra-Refresh wirklich — auf dem **Vulkan**-Weg? |
 | `amd-intra-refresh-nachweis.ps1` | Dieselbe Frage für die **herstellereigenen** Wege, samt Einstieg und Erholung |
 | `browser-whep.ps1` + `browser-whep.html` | Sieht ein Browser-Nutzer den Strom? |
+| `hdr-ansehen.ps1` | Sieht das HDR-Bild richtig aus — mit oder ohne Zuschauer, mit Spur |
+| `last-messen.ps1` | Was kostet der Sender auf der **Grafikeinheit**? (Leistungsindikatoren je Prozess) |
+| `bewegung.ps1` | Eine billige Bildänderung — **Voraussetzung** jeder Lastmessung |
+| `mitschnitt.ps1` | Ein kurzer Dateimitschnitt für die Sichtprüfung an einem Bild aus der Mitte |
+
+## Die drei zusammen: eine Lastmessung an der Sendeseite
+
+`bewegung.ps1` läuft nebenher (sonst liefert WGC nichts und beide Arme messen
+dasselbe Nichts — die Falle, in die am 2026-08-06 **und** am 2026-08-07 je ein
+Messanlauf gelaufen ist), `last-messen.ps1` fährt je einen Arm und schreibt
+`last-<kennung>.csv` (GPU je Engine-Typ) plus `last-<kennung>.jsonl` (Spur des
+Senders), `mitschnitt.ps1` liefert danach das Bild zum Hinsehen.
+
+**Zwei Arme, ein Binary.** `last-messen.ps1 -Zwischenkopie` setzt
+`PULSE_HQ_HDR_ZWISCHENKOPIE=1` und stellt damit den Stand vor dem 2026-08-07
+her. Zwei Binaries zu vergleichen wäre schlechter — dann unterschieden sich auch
+Übersetzung und Anordnung im Speicher. Beispiel:
+`streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
 
 ## `amd-intra-refresh-nachweis.ps1`
 

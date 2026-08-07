@@ -55,6 +55,13 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         })
     });
     let intra_refresh = vendor.is_some_and(|v| auffrischung::verfuegbar(v, &video_codecs));
+    // **`hdr` ist bewusst die GERÄTE-Frage, nicht die Tages-Frage.** Ob HDR im
+    // Windows-Umschalter gerade an ist, steht hier NICHT drin — sonst
+    // verschwände das Kästchen aus der Oberfläche, sobald jemand HDR
+    // ausschaltet, und niemand käme darauf, woran es liegt. Ob der Schirm im
+    // Moment mitspielt, sagt der Start (`encode::hdr::pruefen`), und zwar mit
+    // einer Meldung, die den Windows-Schalter nennt.
+    let hdr = vendor.is_some_and(|v| crate::encode::hdr::verfuegbar(v, &video_codecs));
 
     let mut gsr = json!({
         "available": available,
@@ -66,6 +73,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "has_flv_patch": Value::Null,
         "ten_bit": ten_bit,
         "intra_refresh": intra_refresh,
+        "hdr": hdr,
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);

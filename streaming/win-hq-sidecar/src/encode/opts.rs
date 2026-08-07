@@ -88,6 +88,16 @@ pub(crate) fn vendor_encoder_opts(
             // Zweig (`encode_path`) — hier stand vorher, er sei dafür nur der
             // Notausgang. 0,4 VMAF für zweieinhalbfach weniger Video-Engine ist
             // trotzdem der richtige Tausch, und zwar erst recht auf einer iGPU.
+            //
+            // **Dieser Wert ist NICHT das letzte Wort, seit dem 2026-08-07.**
+            // Bei `h264_amf` bringt `ultralowlatency` die rollende Auffrischung
+            // mit — wer sie abwählt, bekam sie trotzdem, und der Zuschauer sah
+            // über RTMPS gar nichts. `auffrischung::anwenden` überschreibt den
+            // Wert deshalb mit `transcoding`, wenn die Betriebsart ausdrücklich
+            // NICHT verlangt ist. Es läuft direkt nach dieser Funktion, und die
+            // Begründung samt Messtabelle steht dort
+            // (`auffrischung::abschalt_optionen_fuer`). Wer hier liest und die
+            // Zeile für unbedingt hält, liegt falsch.
             opts.set("usage", "ultralowlatency");
             // **`quality` wirkt bei den beiden Encodern verschieden**, und der
             // Satz „unter `ultralowlatency` wirkungslos" galt nur für AV1:

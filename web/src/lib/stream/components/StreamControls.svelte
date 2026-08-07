@@ -114,7 +114,7 @@
         // Resolve the human-readable label (e.g. "Monitor 1", "Chrome") once at
         // start so viewers' picker can name this stream without the GSR catalogs.
         const label = resolveSlotLabel(slot).label;
-        // Warum die Betriebsart den Transport mitentscheidet: s. `pushProtokoll`.
+        // Warum Betriebsart UND Codec den Transport mitentscheiden: s. `pushProtokoll`.
         tok = await chatApi.getStreamToken(
           channelId,
           pushProtokoll(),

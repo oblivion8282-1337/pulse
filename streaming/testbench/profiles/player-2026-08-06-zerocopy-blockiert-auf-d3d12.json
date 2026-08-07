@@ -1,0 +1,34 @@
+{
+  "id": "player-2026-08-06-zerocopy-blockiert-auf-d3d12",
+  "erhoben_am": "2026-08-06",
+  "art": "KEINE Messung — eine Quelltext-Pruefung. Sie steht hier, weil sie eine Voraussetzung der Machbarkeitsstudie widerlegt und ohne diesen Hinweis der naechste Anlauf an derselben Stelle scheitert.",
+
+  "frage": "Der Zero-Copy-Weg ist auf dieser Karte als tragfaehig gemessen (`player-2026-08-06-nv12-wgpu-import-amd`, `player-2026-08-06-p010-und-stapel`). Laesst er sich so, wie gemessen, in den Player einbauen?",
+
+  "antwort": "Nein — nicht unveraendert. Die Studie hat ueber VULKAN gemessen. Der Player faehrt unter Windows seit der Nacht auf den 2026-08-06 D3D12, und zwar zwingend: nur dort laesst sich dem Fenster ein HDR-Farbraum anmelden (`render/setup.rs::backends`, `render/hdr_fenster.rs`). Beides zugleich geht heute nicht.",
+
+  "der_befund_im_einzelnen": {
+    "der_gemessene_aufruf_ist_vulkan_only": "`texture_from_d3d11_shared_handle` gibt es in wgpu-hal 29.0.4 an genau einer Stelle: `src/vulkan/device.rs:544`. Im dx12-Backend existiert er nicht. Nachgesehen in der gezogenen Fassung, nicht in der Doku.",
+    "was_es_auf_d3d12_stattdessen_braeuchte": "`ID3D12Device::OpenSharedHandle` auf das NT-Handle der D3D11-Textur, dann `wgpu_hal::dx12::Device::texture_from_raw` (`src/dx12/device.rs:448`) und `Device::create_texture_from_hal`. Das ist ein anderer Weg, kein Umbenennen — und er ist NICHT gemessen.",
+    "was_dafuer_spricht_dass_er_geht": [
+      "wgpu 29 kennt `TEXTURE_FORMAT_NV12` und `TEXTURE_FORMAT_P010` auch auf dx12 (`src/dx12/adapter.rs:480,562`) — es braucht also keinen wgpu-Sprung auf 30, anders als zunaechst angenommen.",
+      "Das dx12-Backend traegt Ebenen-Ansichten: `aspects_to_plane` in `src/dx12/view.rs`, und `TextureAspect::Plane0/1/2` in `src/dx12/command.rs:556-558`. Der Shader des Players koennte also unveraendert bleiben, genau wie auf dem Vulkan-Weg."
+    ],
+    "was_weiterhin_offen_ist": [
+      "Ob FFmpegs D3D11VA-Pool sich ueberhaupt mit Teilungs-Flags anlegen laesst (SHARED|SHARED_NTHANDLE neben BIND_DECODER) — dafuer muesste der Player den `hw_frames_ctx` selbst aufsetzen statt ihn dem Decoder zu ueberlassen.",
+      "Die Synchronisierung. Ein Keyed-Mutex scheidet praktisch aus, weil FFmpeg ihn nicht nimmt; ohne ihn schreibt der Decoder, waehrend gezeichnet wird.",
+      "NVIDIA. Dort kommt schon der Vulkan-Import schwarz an; ein Player, der beides koennen muss, braucht den Rueckfall auf das Ruecklesen ohnehin."
+    ]
+  },
+
+  "warum_das_jetzt_weniger_dringt_als_es_aussah": "Der Anlass fuer Zero-Copy war zuletzt nicht die Rechenzeit (1,5 ms bei 1080p8, 5,3 ms bei 1440p10), sondern das WARTEN im selben Aufruf — bis zu 2,4 Sekunden, wenn die Grafikeinheit haengt (`player-2026-08-06-absturz-ist-eine-stockung`). Dagegen steht seit heute ein Rueckfall auf den Software-Decoder, der im Nachweislauf 145 Sekunden lang 60 Bilder je Sekunde gehalten hat, wo vorher die Sitzung zerbrach. Die Stockung ist damit aufgefangen, nicht beseitigt.",
+
+  "empfehlung_fuer_den_naechsten_anlauf": "Zuerst die beiden offenen Punkte einzeln pruefen, jeden fuer sich und ohne den Player anzufassen: (1) legt libavutil einen D3D11VA-Pool mit SHARED_NTHANDLE an, und dekodiert FFmpeg dann noch hinein? (2) nimmt `OpenSharedHandle` eine so angelegte NV12/P010-Textur an, und stimmt der Inhalt in wgpu-dx12? Erst wenn beides steht, lohnt der Umbau — sonst baut man auf dieselbe Art Annahme, die schon die Vulkan-Studie ins Leere hat laufen lassen.",
+
+  "NACHTRAG_2026-08-06_NACHMITTAGS": {
+    "beide_punkte_sind_jetzt_beantwortet": "Punkt (2) mit ja, Punkt (1) mit einem gegenstandslos.",
+    "punkt_2": "`OpenSharedHandle` nimmt eine geteilte NV12- wie P010-EINZELtextur an, und der Inhalt stimmt in wgpu-dx12 vollstaendig — auch mit BIND_DECODER und auch nach wiederholtem Beschreiben. Gemessen: player-2026-08-06-zerocopy-d3d12-amd.",
+    "punkt_1": "Die Frage stellt sich nicht mehr. Der D3D11VA-Decoder verlangt eine ARRAY-Textur (libavcodec/dxva2.c:482 und :761), und ein geteilter Stapel nimmt auf D3D12 das Geraet mit. Der Player teilt FFmpegs Pool also gar nicht, sondern kopiert die Schicht GPU-intern in eine eigene, einschichtige, geteilte Textur.",
+    "was_hier_richtig_stand": "Die zentrale Warnung dieser Akte — 'die Studie hat ueber Vulkan gemessen, der Player faehrt D3D12, das ist ein anderer Weg' — hat sich als der entscheidende Punkt bestaetigt. Der Stapelfall verhaelt sich auf beiden Backends VERSCHIEDEN, und auf D3D12 schlimmer."
+  }
+}

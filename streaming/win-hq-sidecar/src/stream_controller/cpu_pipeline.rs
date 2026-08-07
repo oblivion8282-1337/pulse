@@ -313,6 +313,8 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 pts,
                 pts_delta: pts - prev_pts,
                 capture_drops: capture.dropped(),
+                // Nur der D3D11-Weg misst das, s. `pipeline_d3d12`.
+                rueckruf: Default::default(),
                 enc_latency: encoder.take_encode_latency(),
             });
             prev_pts = pts;

@@ -1,0 +1,59 @@
+{
+  "id": "player-2026-08-06-absturz-ist-eine-stockung",
+  "gemessen_am": "2026-08-06",
+  "frage": "Der Nutzer meldet: 'wenn sich da was bewegt schmiert der Player ab'. Bei stehendem Bildschirminhalt laeuft er. Was genau stuerzt ab, und woran liegt es?",
+
+  "kurzantwort": "Nichts stuerzt ab. Der Player blockiert. Die Zeit liegt zu ueber 99 % in EINEM Aufruf — `av_hwframe_transfer_data`, also im Ruecklesen des dekodierten Bildes aus dem Grafikspeicher in den Hauptspeicher. Windows setzt dabei 40-mal in 200 Sekunden die Grafikeinheit zurueck (LiveKernelEvent 141, Video-TDR). Der Player laeuft danach mit 2 bis 8 Bildern je Sekunde weiter, die WHEP-Verbindung faellt nach ein bis drei Minuten auseinander und das Fenster geht zu. Von aussen ist das ein Absturz; im Log stand bis heute nichts davon.",
+
+  "aufbau": {
+    "maschine": "Mini-PC, Radeon 780M (RDNA3-APU, geteilter Speicher), Windows 11 26200, HDR am Schirm an",
+    "strecke": "Sender und Empfaenger auf DERSELBEN Maschine ueber den Hetzner-Messstand (pulse.unicutmedia.com), also ueber die echte Leitung, aber auf einer GPU",
+    "sender": "pulse-win-hq-sidecar, WGC-Aufnahme 2560x1440 scRGB fp16 -> eigener Farbweg -> P010 -> av1_amf 10 bit, 1080p bzw. 1440p, 60 fps, 12000 kbps, HDR an",
+    "empfaenger": "pulse-player, AV1 ueber D3D11VA in Hardware, Ruecklesen in den Hauptspeicher, Hochladen in wgpu (D3D12)",
+    "bewegung": "ein Fenster mit 40 wandernden, staendig umgefaerbten Rechtecken, 16-ms-Takt. Ohne Bewegung liefert die WGC-Aufnahme kaum Bilder, der Encoder erzeugt fast nichts und die ganze Kette ist im Leerlauf — daher die Beobachtung des Nutzers.",
+    "laeufe": "sechs zu 45 bis 240 Sekunden, HDR und SDR, 1080p und 1440p"
+  },
+
+  "befund_1_es_ist_kein_absturz": {
+    "was_ausgeschlossen_wurde": [
+      "Rust-Panic: volle stderr-Mitschrift mit RUST_BACKTRACE=1, in keinem Lauf eine Panic-Zeile",
+      "wgpu-Geraetefehler / 'Parent device is lost': keine Meldung, kein Validierungsfehler",
+      "Speicher- oder Handle-Leck: Arbeitssatz 222-283 MB, Handles 1134-1150, ueber drei Minuten ohne Trend",
+      "Der naechtliche Umbau auf D3D12 und den umschaltbaren Farbraum: der SDR-Vergleichslauf (kein HDR, kein Formatwechsel, kein `schirm_ist_hdr`) bricht GENAUSO ein"
+    ],
+    "warum_das_im_log_nicht_stand": "`hdr-ansehen.ps1` filtert stderr auf 'Oberflaechenformat|Farbraum|Farbwelt|Decoder|HDR'. Selbst wenn etwas dagestanden haette, waere es nicht erschienen."
+  },
+
+  "befund_2_die_zeit_liegt_im_ruecklesen": {
+    "messung": "Neuer Nachweis `stockung.rs`: jeder Dekodierdurchgang ueber 300 ms wird mit seinen drei Abschnitten gemeldet.",
+    "lauf_1440p_200s": "120 Stockungen. In JEDER einzelnen: 0 ms hineingeben, alles im Herausholen, und davon 99 % im Ruecklesen.",
+    "beispiele": [
+      "2153 ms gesamt (0 hineingeben, 2153 herausholen, davon 2145 Ruecklesen)",
+      "2337 ms gesamt (0 hineingeben, 2337 herausholen, davon 2324 Ruecklesen)",
+      "897 ms gesamt (0 hineingeben, 897 herausholen, davon 896 Ruecklesen)"
+    ],
+    "verteilung": "Zwei Haeufungen: 2,08-2,37 s und 0,69-0,93 s, im Wechsel. Die obere Haeufung liegt genau auf Windows' Vorgabe fuer die Grafik-Zeitschranke (TdrDelay, 2 Sekunden).",
+    "gesund_zum_vergleich": "5,0-8,0 ms je Durchgang, 60 dekodierte und 60 gezeichnete Bilder je Sekunde"
+  },
+
+  "befund_3_windows_setzt_die_grafikeinheit_zurueck": {
+    "was": "Waehrend des 1440p-Laufs (200 s) erschienen im Anwendungsprotokoll 40 Ereignisse 'LiveKernelEvent 141' — das ist der Video-TDR: die Grafikeinheit hat nicht rechtzeitig geantwortet und wurde zurueckgesetzt.",
+    "dazu": "130 Ereignisse a1000001 und 32 a2000002 im selben Zeitraum.",
+    "warum_es_niemand_gesehen_hat": "Ein zurueckgesetzter Einzel-Engine erzeugt KEIN 'Display 4101' im Systemprotokoll und keinen Treiber-Neustart auf dem Schirm. Es sieht nach nichts aus.",
+    "gegenprobe_ohne_player": "Derselbe Sender, dieselbe Bewegung, 170 s, Ausgabe in eine Datei statt ins Netz, KEIN Player: null TDR-Ereignisse. Die Aufnahme- und Encodeseite allein bringt die Einheit nicht zum Haengen."
+  },
+
+  "befund_4_so_endet_die_sitzung": {
+    "kette": "HIER STAND: 'Ruecklesen blockiert -> der Dekodier-Thread steht -> 2 bis 8 statt 60 Bilder je Sekunde -> die Bilder stauen sich -> nach ein bis drei Minuten meldet webrtc-rs `ErrClosedPipe` (DataChannel is not opened), die Sitzung endet, das Fenster wird geschlossen.' DIE ZWEITE HAELFTE IST WIDERLEGT (2026-08-06 abends, `player-2026-08-06-zuschauer-fliegt-nach-zwei-minuten`): webrtc-rs meldet gar nichts von sich aus. Der Player BEENDET DIE SITZUNG SELBST, weil `VideoDecoder::rebuilds` ueber die ganze Sitzungsdauer zaehlte und nie zurueckgesetzt wurde — die dritte Fehlerserie greift auf `GiveUp`. Die ErrClosedPipe-Zeile ist die WIRKUNG des eigenen `close()`. Der Abbruch tritt deshalb auch OHNE jede Stockung auf, und er tritt bei ruhendem Schirm ueberhaupt nicht auf. Was von dieser Zeile stehen bleibt: die Stockung liefert Fehlerserien und beschleunigt den Abbruch — sie verursacht ihn nicht.",
+    "beobachtete_endzeiten": "134, 165, 172, 176 und 178 Sekunden nach dem Start. Die weite Streuung war der Hinweis, der hier nicht gedeutet wurde: eine Folge des Ruecklesens haette enger gelegen. Abgebrochen wird beim DRITTEN Verlust-Stoss, und wann der kommt, entscheidet die Leitung.",
+    "wichtig": "Die Pakete kommen die ganze Zeit puenktlich an ('Ankunft max' bleibt bei 17-25 ms). Es ist nichts an der Leitung."
+  },
+
+  "was_daraus_folgt": {
+    "sofort": "Der Player erkennt die Stockung jetzt und gibt bei drei Stockungen in zehn Sekunden den Hardware-Decoder auf (`stockung::Waechter` -> `VideoDecoder::rebuild`, der ohnehin auf Software umstellt). Das Bild wird teurer, aber es bleibt. `PULSE_PLAYER_STOCKUNGS_RUECKFALL=0` haelt den Hardware-Weg fest, wenn man das Verhalten vermessen will.",
+    "eigentlich": "HIER STAND: 'Der blockierende Aufruf ist genau der, den Zero-Copy ersetzt. Wer das Ruecklesen abschafft, schafft diese Stockung ab.' AUCH DAS IST WIDERLEGT (2026-08-06 abends): mit Zero-Copy als Vorgabe sind die Stockungen nicht verschwunden, sie sind umgezogen — dieselben 2,1-2,4 s stehen jetzt unter 'Zero-Copy-Bruecke' statt unter 'Ruecklesen'. Die Ersparnis von 1,5 ms (1080p8) bzw. 5,3 ms (1440p10) je Bild aus `player-2026-08-06-bildweg-kosten` bleibt richtig.",
+    "offen": "Die damals offene Frage ist beantwortet: die Grafikeinheit haengt auch OHNE das Ruecklesen. Gleichzeitiges AV1-Encodieren und -Dekodieren in 10 bit auf dieser einen APU reicht dafuer offenbar schon."
+  },
+
+  "reproduzieren": "streaming/win-hq-labor/testbench/hdr-ansehen.ps1 mit -Sekunden 200, dazu Bewegung auf dem Schirm. WICHTIG: das Skript filtert stderr — fuer den Nachweis die volle Ausgabe mitschreiben. Die Stockungszeilen erscheinen von selbst, sie haengen an keinem Schalter. TDR-Ereignisse: Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1001} und auf 'P1: 141' sehen."
+}

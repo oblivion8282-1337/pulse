@@ -70,6 +70,27 @@ impl LatencyProbe {
     /// Ein Bild auswerten. Wird unmittelbar vor dem Hochladen gerufen, weil die
     /// Ebenen danach dem Renderer gehören.
     pub fn note(&mut self, frame: &DecodedFrame) {
+        // **Auf dem Zero-Copy-Weg gibt es nichts zu lesen** — das Bild bleibt
+        // im Grafikspeicher, `planes` ist leer (s. `crate::zerocopy`). Die
+        // Sonde darf das: sie ist ein Messwerkzeug, kein Betriebsteil.
+        //
+        // Aber sie muss es SAGEN. Ohne diese Zeile zählte sie stumm jedes Bild
+        // als "ohne Muster" und meldete am Ende einen Mittelwert über null
+        // Bilder — eine Sonde, die wortlos nichts misst, ist schlimmer als
+        // keine. Genau dieser Fehler ist am 2026-08-01 schon einmal aufgetreten
+        // (32535 Bilder ohne Muster, weil das falsche Byte gelesen wurde), nur
+        // fiel er dort erst nach einer ganzen Messreihe auf.
+        if frame.gpu.is_some() {
+            static EINMAL: std::sync::Once = std::sync::Once::new();
+            EINMAL.call_once(|| {
+                eprintln!(
+                    "pulse-player: Latenz-Sonde AUS — das Bild bleibt im Grafikspeicher \
+                     (Zero-Copy), das gemalte Muster ist hier nicht lesbar. \
+                     Für eine Messung: PULSE_PLAYER_ZEROCOPY=0"
+                );
+            });
+            return;
+        }
         let Some(counter) = self.read_counter(frame) else {
             self.misses += 1;
             return;

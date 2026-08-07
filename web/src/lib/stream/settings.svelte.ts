@@ -50,6 +50,20 @@ export interface OverrideSet {
    * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
    */
   intra_refresh?: boolean;
+  /**
+   * HDR senden — der Bildschirminhalt wird in seinem vollen Helligkeitsumfang
+   * aufgenommen und als PQ/BT.2020 encodiert.
+   *
+   * **Anders als `bit_depth` kein Wunsch, der still zurückgenommen wird.**
+   * Kann der Sidecar HDR nicht liefern — Schirm läuft in SDR, falscher Codec,
+   * falscher Encode-Weg —, bricht er den Start mit einer Meldung ab. Das ist
+   * Absicht: 10 bit weniger als bestellt sieht man höchstens an einem Verlauf,
+   * SDR statt HDR sieht man am ganzen Bild.
+   *
+   * Setzt 10 bit voraus (PQ in 8 bit wäre in jedem Verlauf geringelt) und
+   * damit AV1; die Oberfläche erzwingt beides beim Anhaken.
+   */
+  hdr?: boolean;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
@@ -67,38 +81,61 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
 ];
 
 /**
- * Was im Codec-Feld steht. Codec und Bittiefe sind für den Nutzer EINE
- * Entscheidung — zwei Felder daraus zu machen hiesse, ihm die Kopplung zu
+ * Was im Codec-Feld steht. Codec, Bittiefe und HDR sind für den Nutzer EINE
+ * Entscheidung — mehrere Felder daraus zu machen hiesse, ihm Kopplungen zu
  * erklären, die der Sidecar ohnehin erzwingt: 10 bit gibt es nur mit AV1 (die
- * H.264-Variante wäre `High 10`, die kein Browser dekodiert).
+ * H.264-Variante wäre `High 10`, die kein Browser dekodiert), und HDR gibt es
+ * nur mit 10 bit (PQ in 8 bit wäre in jedem Verlauf sichtbar geringelt,
+ * `encode/hdr.rs`).
  *
- * `bit_depth` geht nur bei 10 mit auf die Leitung. Ein `bit_depth: 8` wäre
- * gleichbedeutend mit „fehlt", würde aber in jeder persistierten Einstellung
- * mitgeschleppt.
+ * **HDR war bis zum 2026-08-07 ein eigenes Kästchen**, das beim Anhaken das
+ * Codec-Feld von sich aus auf „AV1 10 bit" zog. Das ist derselbe Fall, den die
+ * Bittiefe am 2026-08-02 schon hatte, und er wird hier aus demselben Grund
+ * gleich gelöst: **zwei gekoppelte Bedienelemente zu erklären ist mehr Aufwand
+ * als eine Liste, in der die unmögliche Kombination gar nicht vorkommt.** Ein
+ * Kästchen, das ein anderes Feld umstellt, ist eine Fernwirkung, die niemand
+ * erwartet.
+ *
+ * `bit_depth` geht nur bei 10 mit auf die Leitung, `hdr` nur bei `true`. Ein
+ * `bit_depth: 8` bzw. `hdr: false` wäre gleichbedeutend mit „fehlt", würde aber
+ * in jeder persistierten Einstellung mitgeschleppt.
  */
 export const VIDEO_MODES: ReadonlyArray<{
   value: string;
   label: string;
   codec: string;
   tenBit: boolean;
+  hdr?: boolean;
 }> = [
   { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
   { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
   { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
+  { value: 'av1-10-hdr', label: 'AV1 10 bit HDR', codec: 'av1', tenBit: true, hdr: true },
 ];
 
 /** Welcher Eintrag zu den aktuellen Overrides passt. */
 export function videoModeOf(o: OverrideSet): string {
   const codec = o.codec ?? 'h264';
-  return codec === 'av1' && o.bit_depth === 10 ? 'av1-10' : codec;
+  if (codec !== 'av1' || o.bit_depth !== 10) return codec;
+  return o.hdr === true ? 'av1-10-hdr' : 'av1-10';
 }
 
-/** Auswahl zurück in Codec + Bittiefe übersetzen. */
+/**
+ * Auswahl zurück in Codec, Bittiefe und HDR übersetzen.
+ *
+ * **`hdr` wird bei jedem anderen Eintrag ENTFERNT**, nicht bloss nicht gesetzt.
+ * Sonst überlebte ein `hdr: true` den Wechsel auf H.264 in der gespeicherten
+ * Einstellung, und der Sidecar bräche den Start ab („HDR verlangt, aber H.264
+ * kann hier kein 10 bit") — für eine Kombination, die der Nutzer im Feld gar
+ * nicht mehr sieht.
+ */
 export function applyVideoMode(o: OverrideSet, value: string): OverrideSet {
   const mode = VIDEO_MODES.find((m) => m.value === value) ?? VIDEO_MODES[0];
   const next: OverrideSet = { ...o, codec: mode.codec };
   if (mode.tenBit) next.bit_depth = 10;
   else delete next.bit_depth;
+  if (mode.hdr) next.hdr = true;
+  else delete next.hdr;
   return next;
 }
 
@@ -215,17 +252,51 @@ export function tenBitPossible(): boolean {
  * Intra-Refresh-Strom über RTMPS, also ohne den Rückkanal, über den ein
  * beitretender Zuschauer sein erstes Vollbild anfordern könnte.
  *
+ * **Umgekehrt gilt das seit dem 2026-08-07 NICHT mehr:** ein `false` hier heißt
+ * nicht mehr „also RTMPS". Bei H.264 nimmt `pushProtokoll` unabhängig von
+ * diesem Wert WHIP, weil der Encoder die Betriebsart dort von sich aus fährt —
+ * die Begründung steht dort, nicht hier.
+ *
  * **`stream.intraRefreshAvailable` gehört zwingend dazu**, obwohl das Kästchen
  * bereits danach gated ist. Die Einstellung wird persistiert und wandert damit
  * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
  * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
  * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
- * Seit Windows dazugekommen ist, wandert er auch über Plattformgrenzen: dort
- * trägt die Betriebsart nur AV1 (über AMF), H.264 läuft über einen Encoder,
- * der die Option annimmt und nichts damit tut.
+ *
+ * **Hier stand bis zum 2026-08-07: „unter Windows trägt die Betriebsart nur
+ * AV1 (über AMF), H.264 läuft über einen Encoder, der die Option annimmt und
+ * nichts damit tut". Das ist falsch** — es beschreibt `h264_d3d12va`, und der
+ * ist auf AMD seit dem 2026-08-04 nicht mehr der Regelweg (nur noch über
+ * `PULSE_HQ_AMD_D3D12=1`). Heute geht AMD mit jedem Codec über AMF, und
+ * `h264_amf` trägt die Betriebsart sehr wohl — sogar ungefragt
+ * (`win-hq-sidecar/src/encode/auffrischung.rs`).
  */
 export function intraRefreshPossible(): boolean {
   return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
+}
+
+/**
+ * HDR — Wunsch UND Erfüllbarkeit?
+ *
+ * Dieselbe Bauart wie [`tenBitPossible`] und [`intraRefreshPossible`], und aus
+ * demselben Grund an EINER Stelle. Der Unterschied zu beiden: die Folge eines
+ * falschen Ja ist hier keine stille Rücknahme, sondern ein abgebrochener Start
+ * — der Sidecar verweigert HDR, das er nicht liefern kann (Begründung dort in
+ * `encode/hdr.rs`). Umso wichtiger, dass die Oberfläche gar nicht erst danach
+ * fragt, wenn es aussichtslos ist.
+ *
+ * **`stream.hdrAvailable` gehört zwingend dazu**, obwohl der Eintrag im
+ * Codec-Feld bereits danach gated ist: die Einstellung wird persistiert und
+ * wandert mit dem Konto zwischen Rechnern. Ein auf der HDR-Maschine gewählter
+ * Eintrag läge sonst auf einem Rechner ohne HDR-fähigen Encoder weiter an —
+ * unsichtbar, weil er dort im Feld gar nicht steht, und jeder Streamversuch
+ * bräche ab.
+ *
+ * Die Kopplung an 10 bit ist keine zweite Bedingung, sondern dieselbe: HDR
+ * gibt es nur mit AV1 in 10 bit, und genau das prüft `tenBitPossible`.
+ */
+export function hdrPossible(): boolean {
+  return streamSettings.overrides.hdr === true && stream.hdrAvailable && tenBitPossible();
 }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
@@ -469,6 +540,41 @@ export async function loadCatalogs(): Promise<void> {
       const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
+    // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
+    // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
+    if (streamSettings.overrides.hdr === true && !hdrPossible()) {
+      const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
+    // **Intra-Refresh ist seit 2026-08-06 die VORGABE, wo der Sidecar ihn
+    // meldet** — vorher musste ihn jeder Nutzer von Hand einschalten, und
+    // praktisch niemand tat das.
+    //
+    // Was daran hing, war mehr als die Betriebsart selbst: `pushProtokoll()`
+    // koppelt den Sendeweg daran (Intra-Refresh braucht den WHIP-Rückkanal),
+    // und nur über WHIP erzeugt der Server FlexFEC-Parität. Ohne den Haken lief
+    // also dreierlei nicht — rollender Refresh, Rückkanal und Verlustschutz —,
+    // obwohl alle drei gemessen, ausgeliefert und in Betrieb waren. In der
+    // Produktionsauswertung vom 2026-08-06 bekamen 71 von 71 RTMPS-Sitzungen
+    // KEINE Parität, während über WHIP 75 von 131 welche hatten.
+    //
+    // Der Gewinn ist gemessen (`profiles/hq-2026-07-31-intra-refresh-echter-
+    // sender.json`): bei gleicher Datenrate 1,4 statt 48,7 Prozent gestörte
+    // Sekunden und 92,8 statt 76,3 VMAF.
+    //
+    // Gesetzt wird ausdrücklich `true` statt nur die Prüfung umzudrehen: der
+    // Wert muss in `overrides` LANDEN, damit `buildStartArgs` ihn mitschickt.
+    // Fehlt er, entscheidet die Vorgabe im Sidecar — und die ist aus. Genau so
+    // ging der Wunsch am 2026-08-02 schon einmal verloren, ohne dass etwas
+    // auffiel.
+    //
+    // Ein ausdrückliches `false` bleibt unangetastet: eine Abwahl ist eine
+    // Willensbekundung, keine fehlende Vorgabe. Die Rücknahme oben schützt
+    // weiterhin davor, dass ein mitgereister Haken auf ungeeigneter Hardware
+    // liegen bleibt.
+    if (streamSettings.overrides.intra_refresh === undefined && stream.intraRefreshAvailable) {
+      streamSettings.overrides = { ...streamSettings.overrides, intra_refresh: true };
+    }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
     streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
@@ -618,13 +724,45 @@ export interface ChannelStreamArg {
 }
 
 /**
- * Der Push-Weg, den die aktuelle Betriebsart verlangt.
+ * Der Push-Weg, den Betriebsart und Codec verlangen.
  *
- * Intra-Refresh braucht WHIP: nur dort gibt es den RTCP-Rueckkanal, ueber den
- * die Vollbild-Anforderung eines beitretenden Zuschauers den Encoder erreicht.
- * In einem Intra-Refresh-Strom stehen kaum Vollbilder, also bekommt er sein
- * erstes nur auf Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0
- * Bilder gegen 2228). Die Betriebsart entscheidet den Transport also mit.
+ * Nur WHIP hat den RTCP-Rueckkanal, ueber den die Vollbild-Anforderung eines
+ * beitretenden Zuschauers den Encoder erreicht. Wo ein Strom nach dem Start
+ * kaum noch Vollbilder fuehrt, bekommt der Zuschauer sein erstes nur auf
+ * Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0 Bilder gegen
+ * 2228). Zwei Faelle brauchen ihn deshalb:
+ *
+ * **1. Intra-Refresh.** Die Betriebsart selbst, ausdruecklich gewaehlt.
+ *
+ * **2. H.264, immer — auch mit abgewaehltem Intra-Refresh.** Das ist seit dem
+ * 2026-08-07 nicht mehr die Ausnahme, sondern der Regelfall, und der Grund
+ * liegt nicht hier, sondern im Encoder: `h264_amf` bekommt aus Last-Gruenden
+ * `usage=ultralowlatency` (`win-hq-sidecar/src/encode/opts.rs`, seit dem
+ * 2026-07-30, drittelt die Video-Engine-Last), und diese Einstellung schaltet
+ * die rollende Auffrischung von sich aus mit ein. **Das Kaestchen aendert
+ * daran nichts.** Ein H.264-Strom auf AMD hat also nach dem Start praktisch
+ * kein Vollbild mehr, ganz gleich, was die Oberflaeche glaubt zu bestellen —
+ * die Zeile „Vollbilder" im Sidecar-Log ist fuer diesen Encoder nur das
+ * Etikett des Wunsches, nicht die Beschreibung des Stroms
+ * (`encode/mod.rs::log_encoder_open`).
+ *
+ * Belegt in der Produktion am 2026-08-07: derselbe Kanal, dieselben Minuten.
+ * H.264 ueber RTMPS ohne Intra-Refresh — 1400 Pakete in 5 s, 0 Verlust, **0
+ * dekodierte Bilder**, 25 unbeantwortete Vollbild-Anforderungen, danach
+ * zwanzig Neuaufbauten in Folge ueber zwei Minuten, keiner davon mit Bild.
+ * Dieselbe Maschine ueber WHIP: 2681 Bilder. AV1 ueber RTMPS: 1146 Bilder (AV1
+ * braucht fuer die Auffrischung einen eigenen Schalter, der ohne Wunsch nicht
+ * gesetzt wird — deshalb ist dort ein Vollbild je zwei Sekunden im Strom).
+ *
+ * **Warum nicht auf AMD eingeschraenkt**, obwohl nur dieser Encoder betroffen
+ * ist: welchen Encoder der Sidecar wirklich oeffnet, entscheidet sich dort und
+ * haengt an Hersteller, Plattform und `PULSE_HQ_AMD_D3D12` — die Oberflaeche
+ * weiss es nicht zuverlaessig. Eine Regel, die auf eine Vermutung ueber den
+ * Encoder baut, waere genau die Sorte stiller Fehlannahme, die diesen Fehler
+ * erzeugt hat. Der Rueckkanal schadet nirgends: wo er nicht gebraucht wird,
+ * bleibt er ungenutzt, und die FlexFEC-Paritaet gibt es ohnehin nur ueber
+ * WHIP (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne, 75 von 131 WHIP-Sitzungen
+ * mit).
  *
  * **Warum als Funktion und nicht zweimal ausgeschrieben:** die Regel stand in
  * `StreamControls` und im Auto-Neustart getrennt, und im Auto-Neustart stand
@@ -633,7 +771,11 @@ export interface ChannelStreamArg {
  * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
  */
 export function pushProtokoll(): 'rtmp' | 'whip' {
-  return intraRefreshPossible() ? 'whip' : 'rtmp';
+  // Derselbe Rueckgriff auf `'h264'` wie in `tenBitPossible`: ein ungesetzter
+  // Codec IST H.264 (s. die Vorgabe in `loadSettings`), und der Fall haette
+  // sonst ausgerechnet bei einer frischen Installation gefehlt.
+  const codec = streamSettings.overrides.codec ?? 'h264';
+  return intraRefreshPossible() || codec === 'h264' ? 'whip' : 'rtmp';
 }
 
 /**
@@ -713,6 +855,13 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
     // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
     if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
+    // HDR nur mitschicken, wenn es erfüllbar ist — ein `hdr: false` wäre
+    // dasselbe wie es wegzulassen, und ein `hdr: true`, das der Sidecar nicht
+    // einlösen kann, bräche den Start ab. Anders als bei Intra-Refresh gibt es
+    // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
+    // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
+    // Sidecar-Prozesses.
+    if (hdrPossible()) cleaned.hdr = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

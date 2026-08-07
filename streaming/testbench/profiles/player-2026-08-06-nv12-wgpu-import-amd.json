@@ -1,0 +1,47 @@
+{
+  "id": "player-2026-08-06-nv12-wgpu-import-amd",
+  "gemessen_am": "2026-08-06 (morgens)",
+  "frage": "Dieselbe wie in player-2026-08-06-nv12-wgpu-import, nur auf der anderen Karte: kommt der Inhalt einer geteilten D3D11-NV12-Textur ueber wgpus eigenen Helfer unveraendert im Shader an? Die NVIDIA-Messung sagte NEIN und liess offen, ob es am Treiber liegt oder an wgpu.",
+  "stand": "JA auf AMD. Der Befund haengt am TREIBER, nicht an wgpu. Damit steht der Weg ueber wgpus eigenen Helfer auf AMD offen — ein Eigenbau-Import ist dort NICHT noetig.",
+  "aufbau": "Radeon 780M (RADV nicht, sondern AMD proprietary driver), Treiber 32.0.31035.1003, Vulkan, Windows 11 26200. Probe UNVERAENDERT aus dem Zweig feat/zero-copy-player uebernommen — kein Codeeingriff, damit die beiden Laeufe vergleichbar bleiben. Geprueft wird nicht 'kein Fehler', sondern JEDER Bildpunkt gegen den geschriebenen Wert.",
+
+  "ergebnis": {
+    "urteil": "Der Weg traegt.",
+    "bildpunkte": "4096 geprueft, 0 abweichend — in JEDEM Lauf der Matrix.",
+    "importdauer_ms": "0,65 bis 0,74",
+    "ebenen_ansichten": "Plane0 als R8Unorm, Plane1 als Rg8Unorm angelegt und abgetastet. Dieselbe Form wie auf NVIDIA; dort war nur der Inhalt leer."
+  },
+
+  "matrix": {
+    "vorgabe (KEYEDMUTEX, Zustand general)": "0 abweichend",
+    "SPIKE_MUTEX=0 (NTHANDLE|SHARED)": "0 abweichend",
+    "SPIKE_ZUSTAND=uninit": "0 abweichend",
+    "SPIKE_ZUSTAND=resource": "0 abweichend",
+    "SPIKE_GEGENRICHTUNG=1 (zusaetzlich aus Vulkan schreiben, mit D3D11 lesen)": "0 abweichend",
+    "anmerkung": "Sechs von sechs gruen. Auf NVIDIA war dieselbe Matrix ausnahmslos schwarz."
+  },
+
+  "der_aussagekraeftigste_einzelfall": {
+    "fall": "SPIKE_ZUSTAND=uninit",
+    "warum": "Das ist der Zustand, der auf NVIDIA im Zentrum der (widerlegten) Erklaerung stand: wgpu traegt eingehaengte Texturen als UNINITIALIZED ein, das wird zu VK_IMAGE_LAYOUT_UNDEFINED, und ein Uebergang von dort DARF den Inhalt verwerfen. Auf AMD wird er nicht verworfen — auch dann nicht, wenn man UNINITIALIZED ausdruecklich anfordert. Das Verhalten ist also erlaubt, aber nicht vorgeschrieben, und die beiden Treiber entscheiden es verschieden.",
+    "folge": "Die Widerlegung aus der NVIDIA-Akte bleibt richtig (der Zustand ist dort nicht die Ursache), aber der Grund dafuer ist jetzt klarer: der Zustand ist ueberhaupt nicht die entscheidende Groesse. Sonst muesste AMD mit uninit scheitern."
+  },
+
+  "was_das_fuer_den_player_heisst": {
+    "auf_amd": "Der Weg ueber wgpus texture_from_d3d11_shared_handle steht offen. Kein Eigenbau-Import, kein Speichertyp aus der Schnittmenge, kein rohes Vulkan.",
+    "auf_nvidia": "Bleibt offen. Der naechste Schritt dort ist der Eigenbau-Import aus der Akte vulkan-2026-08-01-d3d11-import-zerocopy (Speichertyp aus Bild UND Handle) — nicht mehr die Zustands-Frage.",
+    "die_unbequeme_folge": "Zero-Copy waere damit vorerst ein AMD-Weg, und der Player muesste beide Faelle koennen: importieren, wo es geht, herunterladen, wo nicht. Das ist mehr Arbeit als 'einmal umbauen' — aber es ist die Lage, nicht eine Entscheidung."
+  },
+
+  "was_diese_probe_weiterhin_nicht_zeigt": [
+    "Synchronisierung. Hier wird einmal geschrieben und danach nur gelesen; im Betrieb schreibt der Decoder waehrend gezeichnet wird.",
+    "Das Textur-ARRAY des Decoders (eine Schicht je Bild) statt einer Einzeltextur.",
+    "10 bit (P010) — anderes Format, hier ungeprueft. Fuer den HDR-Weg ist genau das der Fall, der zaehlt."
+  ],
+
+  "eine_falle_beim_nachstellen": {
+    "was": "PowerShell meldete den geglueckten Bau als Fehler (Rueckgabewert 255).",
+    "warum": "Windows PowerShell 5.1 wertet jede stderr-Zeile eines nativen Programms als Fehlerdatensatz; zwei harmlose cargo-Warnungen genuegten. Der Bau war beide Male erfolgreich ('Finished release profile').",
+    "abhilfe": "Die Probe ueber die Bash starten, oder den Rueckgabewert getrennt pruefen statt der Ausgabe zu glauben."
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "id": "player-2026-08-06-p010-und-stapel",
+  "gemessen_am": "2026-08-06 (vormittags)",
+  "frage": "Die beiden Luecken aus player-2026-08-06-nv12-wgpu-import-amd: traegt der Zero-Copy-Weg auch 10 bit (P010), und traegt er den Textur-STAPEL, in dem ein Decoder seine Bilder liefert?",
+  "stand": "10 bit JA, Stapel NEIN — und zwar nicht schwarz, sondern falsch adressiert. Schicht 0 eines Stapels kommt vollstaendig an, jede weitere nicht.",
+  "aufbau": "Radeon 780M, Treiber 32.0.31035.1003, Vulkan, Windows 11 26200. Dieselbe Probe wie zuvor, um zwei Schalter erweitert (SPIKE_FORMAT, SPIKE_SCHICHTEN/SPIKE_SCHICHT). 64x64, jeder Bildpunkt gegen den geschriebenen Wert.",
+
+  "ergebnis": {
+    "NV12, Einzeltextur": "0 von 4096 abweichend",
+    "P010, Einzeltextur": "0 von 4096 abweichend",
+    "NV12, Stapel aus 4, Schicht 0": "0 von 4096 abweichend",
+    "NV12, Stapel aus 4, Schicht 1": "4096 abweichend",
+    "NV12, Stapel aus 4, Schicht 2": "4096 abweichend",
+    "NV12, Stapel aus 4, Schicht 3": "4096 abweichend",
+    "P010, Stapel aus 4 und aus 8": "ebenso — Schicht 0 gut, alle weiteren falsch"
+  },
+
+  "befund_1_zehn_bit_traegt": {
+    "was": "P010 kommt ueber denselben Weg unveraendert an. Ebenen-Ansichten Plane0 als R16Unorm, Plane1 als Rg16Unorm.",
+    "warum_das_zaehlt": "Das ist der Fall, an dem HDR haengt: ein HDR-Strom ist 10 bit. Waere P010 gescheitert, waere Zero-Copy und HDR ein Entweder-oder gewesen.",
+    "eine_falle_dabei": "P010 braucht ZWEI wgpu-Merkmale, nicht eines: TEXTURE_FORMAT_P010 fuer das Format und TEXTURE_FORMAT_16BIT_NORM fuer die Ebenen-Ansichten. Ohne das zweite gelingt der Import, und erst `create_view` scheitert — mit einer Meldung ueber Merkmale, mitten in einem Schritt, den man fuer den Import haelt.",
+    "warum_die_pruefung_streng_ist": "Die Testwerte sind bewusst KEINE Vielfachen von vier (Luma-Rampe mit Zusatzstufe, Chroma 257 und 771 statt 256 und 768). Ein Weg, der still auf 8 bit kappt, kaeme sonst als fehlerfrei durch — also genau der Fehler, um den es bei 10 bit geht."
+  },
+
+  "befund_2_der_stapel_traegt_nicht": {
+    "was": "Schicht 0 stimmt vollstaendig, jede weitere Schicht ist durchgehend falsch. In BEIDEN Formaten, bei 4 wie bei 8 Schichten.",
+    "und_das_ist_nicht_schwarz": "Die gelesenen Werte sind nicht null, sondern Bruchstuecke des Nachbarn — bei Schicht 1 steht an der ersten Stelle 64, und 64 ist der Chroma-Wert der Schicht davor. Der Import landet also auf dem RICHTIGEN Speicher, die Basis stimmt, und nur der ABSTAND zwischen den Schichten ist ein anderer, als D3D11 ihn benutzt.",
+    "warum_der_unterschied_wichtig_ist": "Ein schwarzes Ergebnis (so lag der NVIDIA-Fall) heisst 'der Speicher ist nicht da'. Ein verschobenes heisst 'der Speicher ist da, die Rechnung stimmt nicht'. Das sind zwei ganz verschiedene naechste Schritte.",
+    "verdacht": "Vulkan rechnet die Schichtgroesse dicht (Luma + Chroma), D3D11 legt zwischen den Schichten mehr Platz. Nachzusehen waere `vkGetImageSubresourceLayout` je Schicht gegen den Zeilenabstand, den D3D11s `Map` meldet."
+  },
+
+  "befund_3_ein_video_stapel_braucht_das_decoder_flag": {
+    "was": "`CreateTexture2D` lehnt einen NV12- oder P010-Stapel mit `E_INVALIDARG` ab, solange nur `BIND_SHADER_RESOURCE` gesetzt ist. Mit `BIND_DECODER|BIND_SHADER_RESOURCE` gelingt er — geteilt wie ungeteilt.",
+    "halbierung": "Vier Varianten geprueft: nur Shader-Ansicht ungeteilt (geht nicht), Decoder+Shader ungeteilt (geht), Decoder+Shader geteilt (geht), nur Decoder ungeteilt (geht).",
+    "warum_das_beruhigt": "Es ist genau die Bauart, die der Player vorfaende: libavutils D3D11VA-Pool legt seine Poolen mit DECODER|SHADER_RESOURCE an. Die Ablehnung war also ein Artefakt der Probe, kein Hindernis im Betrieb.",
+    "eine_zweite_falle_daraus": "Eine CPU-Ablage darf gar keine Bindungsflags tragen — ein Video-Stapel als Ablage ist damit unmoeglich. Fuellen und Zuruecklesen laufen deshalb ueber eine EINSCHICHTIGE Ablage und `CopySubresourceRegion` je Schicht."
+  },
+
+  "was_das_fuer_den_player_heisst": {
+    "kurz": "Zero-Copy ist auf AMD moeglich, aber nicht in der Form, in der der Decoder liefert.",
+    "drei_wege": [
+      "Je Bild eine eigene Textur statt eines Stapels — FFmpegs D3D11VA-Pool kann das (`initial_pool_size = 0`, libavutil `d3d11va_alloc_single`). Der Sidecar faehrt diese Bauart auf AMD ohnehin schon, aus einem anderen Grund (AMF liest aus dem Stapel falsch). Der wahrscheinlich kuerzeste Weg.",
+      "Den Schichtabstand selbst ausrechnen und von Hand importieren, statt wgpus Helfer zu nehmen — mehr Arbeit, aber es traegt den Decoder-Stapel unveraendert.",
+      "Je Schicht ein eigenes Handle. Ungeprueft, ob D3D11 das ueberhaupt hergibt."
+    ],
+    "empfehlung": "Zuerst den ersten Weg pruefen: er kostet eine Zeile im Pool-Aufbau und ist auf dieser Karte ohnehin die gefahrene Bauart.",
+    "WIDERLEGT_AM_2026-08-06_NACHMITTAGS": "Der erste Weg existiert nicht. `initial_pool_size = 0` gilt fuer den ENCODER-Pool des Sidecars; der D3D11VA-DECODER verlangt zwingend eine Array-Textur — `d3d11va_create_decoder` bricht ohne sie ab ('AVD3D11VAFramesContext.texture not set.', libavcodec/dxva2.c:482), und `get_surface` (Zeile 761) prueft jedes Bild gegen dieselbe Textur. Der zweite und dritte Weg sind damit ebenfalls gegenstandslos, denn auf D3D12 — dem Backend, das der Player faehrt — nimmt `OpenSharedHandle` auf einen geteilten Stapel das GERAET mit (DXGI_ERROR_DEVICE_REMOVED), statt nur falsche Werte zu liefern. Der tatsaechlich gangbare Weg steht in player-2026-08-06-zerocopy-d3d12-amd: die Schicht GPU-intern in eine eigene, einschichtige, geteilte Textur kopieren."
+  },
+
+  "was_weiterhin_nicht_geprueft_ist": [
+    "Synchronisierung. Hier wird einmal geschrieben und danach nur gelesen; im Betrieb schreibt der Decoder waehrend gezeichnet wird.",
+    "Ob FFmpegs Einzeltextur-Pool sich ueberhaupt als NT-Handle teilen laesst — der Sidecar legt seine Poolen ohne Teilungs-Flags an."
+  ],
+
+  "reproduzieren": "cd streaming/player-labor/nv12-wgpu-import && cargo build --release, dann SPIKE_FORMAT=nv12|p010, SPIKE_SCHICHTEN=N, SPIKE_SCHICHT=i. Ueber die Bash starten: PowerShell meldet den geglueckten Bau als Fehler (255), weil es cargo-Warnungen auf stderr als Fehlerdatensaetze wertet."
+}

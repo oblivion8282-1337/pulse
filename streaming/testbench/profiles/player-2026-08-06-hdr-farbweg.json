@@ -1,0 +1,140 @@
+{
+  "id": "player-2026-08-06-hdr-farbweg",
+  "gemessen_am": "2026-08-06",
+  "frage": "Rechnet der HDR-Farbweg des pulse-player richtig — ohne dass ein Mensch hinsieht? Die Senderseite ist am Bitstrom belegt (docs/2026-08-06-hdr-windows-amd.md), die Empfaengerseite war ungeprueft.",
+  "aufbau": "AMD Radeon 780M, Treiber 32.0.31035.1003, Windows 11 26200. Werkzeug: `pulse-player --farbwerte` (src/messen/farbwerte.rs) — faehrt den ECHTEN Shader ohne Fenster: dieselbe build_graphics, dieselbe shader.wgsl, derselbe Uniform-Block, nur ohne Swapchain. Quelle: erzeugtes Pruefbild 32x240, planar 10 bit (yuv420p10le), begrenzter Wertebereich, ein einfarbiges Band je Fall, Farbwelt BT.2020 NCL / PQ / weite Primaervalenzen, angemeldete Spitzenhelligkeit 1000 cd/m². Deband 0, Dither aus (die reine Rechnung); die Vorgaben des Players zusaetzlich als Gegenprobe.",
+  "vergleich_gegen": "docs/2026-08-04-player-farbwerte-messung.md",
+  "setzt_voraus": ["docs/2026-08-06-hdr-windows-amd.md"],
+
+  "warum_die_sollwerte_woanders_herkommen": {
+    "regel": "Die Sollwerte sind NICHT aus shader.wgsl abgeleitet, sondern feste Zahlen in src/messen/sollwerte.rs, gerechnet aus den Normformeln.",
+    "grund": "Ein Sollwert aus demselben Code prueft nichts. Genau daran ist am 2026-08-04 schon eine Aussage ueber den Player gescheitert: die numpy-Nachrechnung mass den Nachbau statt den Shader und liess zwei von vier Shader-Stufen weg.",
+    "rechenweg": [
+      "1. YCbCr -> R'G'B', BT.2020 ohne konstante Leuchtdichte, begrenzter Bereich, 10 bit: y=(Y-64)/876, cb=(Cb-512)/896, cr=(Cr-512)/896; Kr=0,2627 und Kb=0,0593 aus ITU-R BT.2020 Tabelle 4.",
+      "2. PQ-EOTF nach SMPTE ST 2084 je Kanal -> cd/m², absolut.",
+      "3. BT.2020 -> BT.709 in LINEAREM Licht; Matrix aus den Primaervalenzen beider Normen ueber D65 nach SMPTE RP 177 gerechnet, nicht aus einer Tabelle abgeschrieben.",
+      "4a. HDR-Ziel: durch 80 (scRGB, IEC 61966-2-2).",
+      "4b. SDR-Ziel: erweitertes Reinhard mit Bezug Diffusweiss 203 cd/m² (ITU-R BT.2408), x=L/203, w=Spitze/203, y=x(1+x/w²)/(1+x); danach auf 0..1 begrenzt und sRGB-kodiert (IEC 61966-2-1)."
+    ],
+    "eingabe_ist_ganzzahlig": "Der Sollwert gilt fuer GENAU die eingespeisten Codewerte, nicht fuer die runde Helligkeit, aus der sie entstanden. Bei „100 cd/m² -> Y=509\" sind es in Wahrheit 99,913 cd/m²; das ist die Quantisierung auf zehn Bit und gehoert zur Eingabe, nicht zum Fehler."
+  },
+
+  "der_massstab": {
+    "was": "Abweichungen sind in STUFEN DES AUSGABEFORMATS angegeben, nicht in einer gegriffenen Toleranz.",
+    "warum": "Was feiner ist als eine Stufe, kann in der Zieltextur gar nicht stehen. Eine Stufe ist damit die schaerfste Aussage, die eine Messung an dieser Stelle ueberhaupt zulaesst.",
+    "fp16": "Zehn Mantissenbits, Stufe = 2^(Exponent-10). Bei 1,15 sind das 9,8e-4, bei 28,1 sind es 1,56e-2.",
+    "rgb10a2": "1/1023 = 9,8e-4.",
+    "grenze_im_test": "1,5 Stufen — 1,0 fuer das Abschneiden beim Schreiben (s. Befund 2), der Rest fuer die Genauigkeit von `pow` auf fremder Hardware."
+  },
+
+  "ergebnis_in_einem_satz": "Der Farbweg stimmt. In BEIDEN Ausgaengen bleibt jeder der 45 Kanalwerte (15 Faelle x 3 Kanaele) unter EINER Stufe des Ausgabeformats, und bei neutralem Chroma sind R, G und B exakt gleich — die Spreizung ist 0,00000000, es gibt keinen Farbstich.",
+
+  "hdr_fenster_scrgb_rgba16float": {
+    "bedeutung": "Lineares Licht, 1,0 = 80 cd/m². Werte ueber 1,0 und unter 0,0 sind hier der Inhalt, nicht der Fehler — deshalb ein Fliesskomma-Ziel: Rgb10a2Unorm haette die Begrenzung gemessen statt der Rechnung.",
+    "spalten": ["fall", "eingabe Y/Cb/Cr", "erwartet R,G,B", "gemessen R,G,B", "abweichung_absolut", "abweichung_in_stufen"],
+    "zeilen": [
+      ["Grau Y=64 (Schwarz)",      "64/512/512",  [0.000000, 0.000000, 0.000000],   [0.000000, 0.000000, 0.000000],   0.000000, 0.00],
+      ["Grau Y=200",               "200/512/512", [0.013854, 0.013854, 0.013854],   [0.013847, 0.013847, 0.013847],   0.000007, 0.87],
+      ["Grau Y=400",               "400/512/512", [0.338110, 0.338110, 0.338110],   [0.337891, 0.337891, 0.337891],   0.000219, 0.90],
+      ["Grau Y=502 (Mitte)",       "502/512/512", [1.153071, 1.153071, 1.153071],   [1.152344, 1.152344, 1.152344],   0.000727, 0.74],
+      ["Grau Y=601 (echte Spitze)","601/512/512", [3.449873, 3.449873, 3.449873],   [3.449219, 3.449219, 3.449219],   0.000654, 0.33],
+      ["Grau Y=700",               "700/512/512", [9.863248, 9.863248, 9.863248],   [9.859375, 9.859375, 9.859375],   0.003873, 0.50],
+      ["Grau Y=800",               "800/512/512", [28.108391, 28.108391, 28.108391],[28.093750, 28.093750, 28.093750],0.014641, 0.94],
+      ["Grau Y=940 (Weiss)",       "940/512/512", [125.0, 125.0, 125.0],            [125.0, 125.0, 125.0],            0.000000, 0.00],
+      ["1 cd/m2 -> Y=195",         "195/512/512", [0.012402, 0.012402, 0.012402],   [0.012398, 0.012398, 0.012398],   0.000004, 0.55],
+      ["100 cd/m2 -> Y=509",       "509/512/512", [1.248910, 1.248910, 1.248910],   [1.248047, 1.248047, 1.248047],   0.000863, 0.88],
+      ["203 cd/m2 -> Y=573",       "573/512/512", [2.546287, 2.546287, 2.546287],   [2.544922, 2.544922, 2.544922],   0.001365, 0.70],
+      ["1000 cd/m2 -> Y=723",      "723/512/512", [12.552399, 12.552399, 12.552399],[12.546875, 12.546875, 12.546875],0.005524, 0.71],
+      ["BT.2020 Rot 100 cd/m2",    "181/448/740", [2.090476, -0.156803, -0.022851], [2.089844, -0.156738, -0.022842], 0.000632, 0.56],
+      ["BT.2020 Gruen 100 cd/m2",  "366/348/303", [-0.735010, 1.417011, -0.125802], [-0.734863, 1.416992, -0.125732], 0.000147, 0.57],
+      ["BT.2020 Blau 100 cd/m2",   "90/740/494",  [-0.091381, -0.010473, 1.403311], [-0.091370, -0.010468, 1.402344], 0.000967, 0.99]
+    ],
+    "spreizung_zwischen_r_g_b_bei_neutralem_chroma": 0.0
+  },
+
+  "sdr_fenster_tone_mapping_rgb10a2unorm": {
+    "bedeutung": "Zusammenschieben (erweitertes Reinhard, Bezug 203 cd/m²), begrenzen, sRGB-kodieren — in dieser Reihenfolge. Der Wert, der ins Fenster geschrieben wird.",
+    "zeilen": [
+      ["Grau Y=64 (Schwarz)",      "64/512/512",  [0.0, 0.0, 0.0],                  [0.0, 0.0, 0.0],                  0.000000, 0.00],
+      ["Grau Y=200",               "200/512/512", [0.065076, 0.065076, 0.065076],   [0.065494, 0.065494, 0.065494],   0.000418, 0.43],
+      ["Grau Y=400",               "400/512/512", [0.378391, 0.378391, 0.378391],   [0.378299, 0.378299, 0.378299],   0.000092, 0.09],
+      ["Grau Y=502 (Mitte)",       "502/512/512", [0.599778, 0.599778, 0.599778],   [0.599218, 0.599218, 0.599218],   0.000560, 0.57],
+      ["Grau Y=601 (echte Spitze)","601/512/512", [0.802735, 0.802735, 0.802735],   [0.802542, 0.802542, 0.802542],   0.000193, 0.20],
+      ["Grau Y=700",               "700/512/512", [0.965257, 0.965257, 0.965257],   [0.964809, 0.964809, 0.964809],   0.000448, 0.46],
+      ["Grau Y=800",               "800/512/512", [1.0, 1.0, 1.0],                  [1.0, 1.0, 1.0],                  0.000000, 0.00],
+      ["Grau Y=940 (Weiss)",       "940/512/512", [1.0, 1.0, 1.0],                  [1.0, 1.0, 1.0],                  0.000000, 0.00],
+      ["1 cd/m2 -> Y=195",         "195/512/512", [0.059689, 0.059689, 0.059689],   [0.059629, 0.059629, 0.059629],   0.000060, 0.06],
+      ["100 cd/m2 -> Y=509",       "509/512/512", [0.615161, 0.615161, 0.615161],   [0.614858, 0.614858, 0.614858],   0.000303, 0.31],
+      ["203 cd/m2 -> Y=573",       "573/512/512", [0.749393, 0.749393, 0.749393],   [0.748778, 0.748778, 0.748778],   0.000615, 0.63],
+      ["1000 cd/m2 -> Y=723",      "723/512/512", [1.0, 1.0, 1.0],                  [1.0, 1.0, 1.0],                  0.000000, 0.00],
+      ["BT.2020 Rot 100 cd/m2",    "181/448/740", [0.713215, 0.0, 0.0],             [0.712610, 0.0, 0.0],             0.000605, 0.62],
+      ["BT.2020 Gruen 100 cd/m2",  "366/348/303", [0.0, 0.639469, 0.0],             [0.0, 0.639296, 0.0],             0.000173, 0.18],
+      ["BT.2020 Blau 100 cd/m2",   "90/740/494",  [0.0, 0.0, 0.637602],             [0.0, 0.0, 0.637341],             0.000261, 0.27]
+    ],
+    "spreizung_zwischen_r_g_b_bei_neutralem_chroma": 0.0
+  },
+
+  "die_fuenf_zusagen_einzeln": {
+    "1_neutrales_grau_bleibt_neutral": "Zwoelf Faelle mit Chroma auf der Mitte, Luma von 64 bis 940. R, G und B kommen in JEDEM davon als IDENTISCHE Bitmuster heraus — Spreizung exakt 0,00000000, in beiden Zielen. Das schliesst einen Farbstich aus, und zwar nicht ungefaehr. Es hat auch einen Grund, der ohne Messung gilt: alle drei Zeilen der BT.2020->BT.709-Matrix summieren sich auf exakt 1.",
+    "2_schwarz_und_weiss": "Luma-Code 64 ergibt 0 cd/m² und damit 0 in beiden Zielen. Code 940 ergibt 10000 cd/m², im HDR-Fenster exakt 125,0 (= 10000/80), im SDR-Fenster 1,0.",
+    "3_bekannte_helligkeiten": "1 / 100 / 203 / 1000 cd/m² vorwaerts durch die PQ-Kurve in Codewerte (195 / 509 / 573 / 723), hinein, und hinten steht dieselbe Helligkeit: 0,0124 / 1,2480 / 2,5449 / 12,5469 in scRGB, also 0,992 / 99,84 / 203,59 / 1003,75 cd/m². Die Differenz zur runden Zahl ist die 10-bit-Quantisierung des Codes, nicht ein Fehler des Shaders.",
+    "4_bt2020_primaervalenzen_werden_negativ": "Rot: -0,1567 und -0,0228. Gruen: -0,7349 und -0,1257. Blau: -0,0914 und -0,0105. Alle stehen im HDR-Ziel unveraendert; ein Weg, der hier auf 0 abschnitte, verloere genau die weiten Farben. Im SDR-Ziel werden sie abgeschnitten — dort gibt es sie nicht.",
+    "5_tone_mapping": "0 bleibt 0. Der Inhalt bei genau der angemeldeten Spitze (1000 cd/m²) landet auf exakt 1,0. Dazwischen steigt die Kurve monoton (0 -> 0,0597 -> 0,0651 -> 0,3783 -> 0,5992 -> 0,6149 -> 0,7488 -> 0,8025 -> 0,9648 -> 1,0) und fresst nichts aus. Ueber der angemeldeten Spitze (Y=800, 2249 cd/m²) wird begrenzt — das ist die richtige Antwort auf Inhalt, der heller ist als seine eigene Ansage."
+  },
+
+  "befund_1_ein_echter_fehler_in_der_matrix": {
+    "was": "Zwei Koeffizienten der dritten Zeile der BT.2020->BT.709-Matrix waren um 1e-4 falsch: -0,01825 statt -0,0181508 und 1,11883 statt 1,1187297.",
+    "warum_es_nie_auffiel": "Die beiden Fehler heben sich auf, die Zeilensumme blieb exakt 1. Auf Grau — und damit auf jedem Bildschirminhalt ohne gesaettigte Farben — ist der Fehler damit NICHT vorhanden, nicht nur unsichtbar.",
+    "wo_er_messbar_wurde": "An einer reinen BT.2020-Primaervalenz. Fall „BT.2020 Rot 100 cd/m²\", blauer Kanal: gemessen -0,022958 gegen einen Sollwert von -0,022851 — 0,47 % daneben. Nach der Korrektur -0,022842, also 0,04 %.",
+    "behoben": "shader.wgsl::bt2020_zu_bt709 traegt jetzt siebenstellige Werte, aus den Primaervalenzen beider Normen ueber D65 gerechnet.",
+    "groessenordnung_ehrlich": "0,5 % auf einem Kanal, der ohnehin nahe null liegt — sichtbar ist das nicht. Der Wert der Korrektur liegt darin, dass die Zahlen jetzt eine nachvollziehbare Herkunft haben statt einer abgeschriebenen."
+  },
+
+  "befund_2_der_treiber_schneidet_ab_statt_zu_runden": {
+    "was": "Beim Schreiben eines f32-Werts in ein fp16-Ziel rundet dieser Treiber nicht zur naechsten darstellbaren Zahl, sondern schneidet zur Null hin ab.",
+    "wie_es_auffiel": "Der Fall „BT.2020 Blau\" wanderte durch die Matrix-Korrektur NAEHER an den Sollwert und sprang dabei eine Stufe nach UNTEN: gemessen vorher 1,4033203, nachher 1,4023438, Sollwert 1,403311. Die naechste darstellbare fp16-Zahl OBERHALB des Sollwerts ist 1,4033203 und nur 9,3e-6 entfernt — Runden zur naechsten Zahl haette also weiter dort landen muessen. Abschneiden zur Null hin erklaert beide Messungen zwanglos.",
+    "gegenprobe": "Vier weitere Faelle, in denen sich Runden und Abschneiden unterscheiden: Grau Y=400 (Soll 0,338110, gerundet waere 0,3381348, gemessen 0,3378906), Y=502 (1,153071 / 1,1533203 / 1,1523438), Y=800 (28,108391 / 28,109375 / 28,09375), 100 cd/m² (1,248910 / 1,2490234 / 1,2480469). In allen vier Faellen ist der gemessene Wert der abgeschnittene.",
+    "folge": "Der GESAMTE Rest der Abweichung in der HDR-Tabelle ist damit erklaert — die Rechnung selbst ist auf f32-Genauigkeit richtig. Und die Toleranz muss eine volle Stufe zulassen, nicht eine halbe."
+  },
+
+  "befund_3_d3d12_und_vulkan_rechnen_gleich": {
+    "was": "Derselbe Lauf mit WGPU_BACKEND=dx12 liefert in allen 15 Faellen und beiden Zielen BIT FUER BIT dieselben Zahlen wie Vulkan.",
+    "warum_das_zaehlt": "Der Player faehrt unter Windows D3D12, nicht Vulkan — das ist Voraussetzung fuer die Anmeldung des Farbraums (IDXGISwapChain3::SetColorSpace1). Eine Messung auf Vulkan allein waere fuer den Auslieferzustand nicht aussagekraeftig gewesen."
+  },
+
+  "gegenprobe_mit_den_vorgaben_des_players": {
+    "aufbau": "Dieselben 15 Faelle mit deband 0.6 und dither an, also so, wie der Player wirklich zeichnet. Gemessen wird das Mittel ueber die Flaeche.",
+    "hdr_fenster": "groesste Abweichung 0,90 Stufen (bei „1 cd/m2 -> Y=195\")",
+    "sdr_fenster": "groesste Abweichung 0,40 Stufen (bei „BT.2020 Blau\")",
+    "deutung": "Deband ist auf einer einfarbigen Flaeche wirkungslos (alle vier Nachbarn tragen denselben Wert). Dither rauscht um bis zu eine halbe Ausgabestufe, ist aber mittelwertfrei: ueber die Flaeche bleibt davon nichts uebrig. Die Vorgaben verschieben die Farbe also nicht."
+  },
+
+  "sdr_gegenprobe_die_stufenmessung_bleibt_unveraendert": {
+    "frage": "Hat die Aenderung am Shader den bestehenden SDR-Weg verschoben?",
+    "verfahren": "`pulse-player --stufen` auf demselben Testbild, einmal mit dem Shader aus HEAD und einmal mit dem geaenderten. Beide Ausgaben Zeichen fuer Zeichen verglichen.",
+    "ergebnis": "KEIN UNTERSCHIED. Das war zu erwarten — bt2020_zu_bt709 wird nur aus pq_ausgeben gerufen, und dorthin kommt nur eine PQ-Quelle —, ist aber gemessen statt nur behauptet.",
+    "zahlen_dieses_laufs": {
+      "Rgb10a2Unorm roh":     {"FLACH 8bit": [11, 11, 5.00], "FLACH 10bit": [40, 40, 2.00]},
+      "Bgra8Unorm roh":       {"FLACH 8bit": [11, 11, 8.02], "FLACH 10bit": [13, 13, 4.01]},
+      "Rgba16Float roh":      {"FLACH 8bit": [11, 11, 4.50], "FLACH 10bit": [41, 41, 1.12]},
+      "Rgb10a2Unorm Vorgabe": {"FLACH 8bit": [33, 19, 4.80], "FLACH 10bit": [48, 143, 0.67]},
+      "Bgra8Unorm Vorgabe":   {"FLACH 8bit": [13, 39, 4.97], "FLACH 10bit": [13, 158, 1.24]},
+      "Rgba16Float Vorgabe":  {"FLACH 8bit": [124, 16, 4.51], "FLACH 10bit": [346, 137, 0.52]},
+      "spalten": ["Stufen", "Spaltenmittel", "max. Sprung in 10-bit-Stufen"]
+    },
+    "warum_diese_zahlen_nicht_die_aus_dem_2026_08_04_dokument_sind": "Dort lief ein anderes Bild auf einer anderen Maschine: `dec_cbr8M_10bit.yuv` ist das Testbild NACH einem 8-Mbit-Encode und einer Dekodierung, gemessen auf RADV/Linux. Hier laeuft das UNVERSEHRTE Testbild auf dem Windows-Treiber. Die Zahlen liegen nahe beieinander (Rgb10a2 Vorgabe 48/143 gegen 48/144, Bgra8 Vorgabe 13/158 gegen 14/158), sind aber NICHT dieselbe Messung und duerfen nicht als Reproduktion gelesen werden. Beweiskraeftig ist hier allein der Vergleich vorher/nachher auf DERSELBEN Datei."
+  },
+
+  "was_diese_messung_nicht_beantwortet": [
+    "**Es wird bis zur geschriebenen Textur gemessen, nicht bis zum Auge.** Was der Compositor mit einem scRGB-Puffer auf dem konkreten Schirm macht — eigener Scanout, eigenes Tone-Mapping, Zusammensetzen mit dem SDR-Desktop —, steht hier nicht drin. Dafuer muss weiterhin jemand hinsehen.",
+    "**Die Wahl des Tone-Mapping-Verfahrens ist nicht geprueft, nur seine Umsetzung.** Dass erweitertes Reinhard mit Bezug 203 cd/m² die richtige Kurve fuer Bildschirminhalte IST, ist eine Entscheidung, keine Messung. Geprueft ist, dass die Kurve das tut, was sie zusagt.",
+    "**Nur eine GPU.** AMD Radeon 780M, beide Backends. Auf NVIDIA und Intel ungeprueft; das Abschneiden statt Runden (Befund 2) ist eine Treiber-Eigenschaft und dort moeglicherweise anders.",
+    "**Kein Chroma-Subsampling im Uebergang.** Das Pruefbild besteht aus einfarbigen Flaechen, und gemessen wird ihr Inneres. Wie der Shader an einer Farbkante rechnet, sagt diese Messung nicht."
+  ],
+
+  "reproduzieren": {
+    "farbweg": "cd streaming/pulse-player && cargo build && ./target/debug/pulse-player --farbwerte    (mit WGPU_BACKEND=dx12 fuer die Gegenprobe)",
+    "als_test": "cargo test der_hdr_farbweg_trifft_die_normwerte -- --nocapture   — ohne GPU wird uebersprungen statt rot",
+    "sdr_gegenprobe": "./target/debug/pulse-player --stufen <graustufen.yuv> --breite 2560 --hoehe 1440 --bild 50"
+  }
+}

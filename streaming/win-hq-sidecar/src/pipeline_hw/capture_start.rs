@@ -9,8 +9,31 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::capture::wgc::CaptureConfig;
-use crate::capture::{CaptureSource, HwCaptureItem, WgcHwCapture};
+use crate::capture::{HwCaptureItem, WgcHwCapture};
 use crate::encode::{HwContext, OwnedHwFrame};
+use crate::stream_controller::StartParams;
+
+/// Was nach dem ersten Bild feststeht.
+///
+/// **Ein Struct und keine Tupelreihe**, seit `direkt` dazugekommen ist: acht
+/// Rückgabewerte in einer Klammer sind an der Aufrufstelle nur noch über die
+/// Reihenfolge zu lesen, und zwei davon sind Maße desselben Typs.
+pub(super) struct Aufnahmestart {
+    pub capture: WgcHwCapture,
+    pub hw: Arc<HwContext>,
+    /// Maße der **Aufnahme** — auch dann, wenn schon verkleinert gewandelt wird.
+    pub width: u32,
+    pub height: u32,
+    /// Zielmaße, wenn die Aufnahme das Bild bereits nach P010 gewandelt hat.
+    /// Dann steht zwischen ihr und dem Encoder nichts mehr.
+    pub direkt: Option<(u32, u32)>,
+    pub first: OwnedHwFrame,
+    pub first_qpc: i64,
+    /// Wall-clock-Zeitpunkt des Video-Origins (≈ `first_qpc`) — Audio-Chunks
+    /// ohne QPC ankern hieran, NICHT an einen später genommenen Zeitpunkt (der
+    /// Setup-Versatz würde sonst zum konstanten A/V-Offset).
+    pub origin_instant: Instant,
+}
 
 /// Startet den WGC-Hardware-Capture-Worker und wartet auf dessen erstes
 /// Setup-Item (D3D11VA-Pool + erster Frame + Dimensionen).
@@ -22,23 +45,32 @@ use crate::encode::{HwContext, OwnedHwFrame};
 /// (Target/Permission/HDR), Zweiteres = Capture-Thread ist tatsächlich
 /// gecrasht/zu Ende.
 ///
-/// Rückgabe: `(capture, hw, width, height, first_frame, first_qpc, origin_instant)`.
-/// `origin_instant` ist der Wall-clock-Zeitpunkt des Video-Origins (≈
-/// `first_qpc`) — Audio-Chunks ohne QPC ankern hieran, NICHT an einen später
-/// genommenen Zeitpunkt (der Setup-Versatz würde sonst zum konstanten
-/// A/V-Offset).
+/// **Vier Angaben kommen aus `params`, zwei von aussen**, und das ist Absicht:
+/// Aufnahmequelle, Zeiger, Aufnahmeformat und Ziel-Box entscheiden sich hier
+/// alle beim Start der WGC-Sitzung und stehen ab dem ersten Bild im Pool fest.
+/// `fps` ist die bereits aufgelöste Zielbildrate (der Aufrufer braucht sie
+/// ohnehin), `hdr_direkt` eine Entscheidung über den Ablauf
+/// (`vorstufe::direktwandlung`) — beides gehört nicht in die Auftragsdaten.
 pub(super) fn start_and_wait_for_setup(
-    capture_source: CaptureSource,
+    params: &StartParams,
     fps: u32,
-    show_cursor: bool,
-) -> Result<(WgcHwCapture, Arc<HwContext>, u32, u32, OwnedHwFrame, i64, Instant)> {
+    hdr_direkt: bool,
+) -> Result<Aufnahmestart> {
     // Capture-D3D11VA-Pool: versorgt Capture-Queue + (im Native-Pfad) die
     // NVENC-In-Flight-Tiefe. Im Downscale-Pfad hat der Scaler einen eigenen
     // Ziel-Pool, dann muss dieser hier nur Capture-Queue + Scaler-Input-Halt
     // bedienen — 24 ist für beide Fälle robust.
     let mut capture = WgcHwCapture::start(
-        capture_source,
-        CaptureConfig { max_fps: fps, include_cursor: show_cursor, ..Default::default() },
+        params.capture.clone(),
+        CaptureConfig {
+            max_fps: fps,
+            include_cursor: params.show_cursor,
+            // In 16-Bit-Fließkomma aufnehmen statt in BGRA.
+            hdr: params.hdr,
+            hdr_direkt,
+            ziel_kasten: params.override_resolution,
+            ..Default::default()
+        },
         24,
     )?;
 
@@ -71,11 +103,17 @@ pub(super) fn start_and_wait_for_setup(
     // QPC ankern hieran — NICHT an `started` (das liegt erst NACH der Encoder-
     // Erzeugung; der Setup-Versatz würde zum konstanten A/V-Offset).
     let origin_instant = Instant::now();
-    let (hw, width, height, first, first_qpc) = match setup {
-        HwCaptureItem::Setup { hw, width, height, first, first_qpc } => {
-            (hw, width, height, first, first_qpc)
-        }
-        HwCaptureItem::Frame { .. } => return Err(anyhow!("first item was Frame, expected Setup")),
-    };
-    Ok((capture, hw, width, height, first, first_qpc, origin_instant))
+    match setup {
+        HwCaptureItem::Setup { hw, width, height, direkt, first, first_qpc } => Ok(Aufnahmestart {
+            capture,
+            hw,
+            width,
+            height,
+            direkt,
+            first,
+            first_qpc,
+            origin_instant,
+        }),
+        HwCaptureItem::Frame { .. } => Err(anyhow!("first item was Frame, expected Setup")),
+    }
 }

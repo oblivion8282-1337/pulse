@@ -19,8 +19,18 @@
 //! zusaetzliche Verzoegerung, jede Millisekunde davon. Fuer Zuschauen ist das
 //! ein guter Tausch (gleichmaessiges Bild gegen etwas Verzoegerung), fuer die
 //! Fernsteuerung ist er falsch — dort zaehlt allein, wie schnell die eigene
-//! Mausbewegung zurueckkommt. Vorgabe ist deshalb AUS (`vorhalt = 0`), und
-//! dann verhaelt sich der Player exakt wie vorher: [`Ausgabetakt::einreihen`]
+//! Mausbewegung zurueckkommt.
+//!
+//! **HIER STAND BIS ZUM 2026-08-06 „Vorgabe ist deshalb AUS (`vorhalt = 0`)".
+//! Das ist falsch, und zwar seit dem 2026-08-05:** die Vorgabe steht auf
+//! **60 ms** (`proto::AUSGABETAKT_MS_VORGABE`, in `PlayerOptions::defaults`
+//! gesetzt), der Takt ist also EINGESCHALTET, es sei denn, der Aufrufer
+//! schickt ausdruecklich etwas anderes. Die Messung, die das begruendet, steht
+//! an `proto.rs:142`; nachgezogen wurde sie damals nur dort, und diese Zeile
+//! ist eine von vier, die deshalb das Gegenteil behaupteten.
+//!
+//! Bei ausgeschaltetem Vorhalt — also nur noch auf ausdruecklichen Wunsch —
+//! verhaelt sich der Player wie vor diesem Modul: [`Ausgabetakt::einreihen`]
 //! setzt den Zielzeitpunkt auf „jetzt" und [`Ausgabetakt::faellig`] gibt das
 //! Bild im selben Atemzug wieder heraus.
 //!

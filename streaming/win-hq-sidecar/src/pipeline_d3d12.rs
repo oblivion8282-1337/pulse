@@ -113,17 +113,15 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
         }
     };
 
-    // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
-    // kein Upscale, gerade Maße — deckt auch die NV12-/hwframes-Pool-Anforderung
-    // #7 ab).
-    let (dst_w, dst_h) = match params.override_resolution {
-        Some((box_w, box_h)) => {
-            crate::stream_controller::fit_within_box(cap_w, cap_h, box_w, box_h)
-        }
-        // Native: nur die NV12-Gerade-Rundung (Fenster-Capture liefert
-        // beliebige Client-Größen), sonst unverändert.
-        None => (cap_w & !1, cap_h & !1),
-    };
+    // Capture aspektwahrend in die Override-Box einpassen (`zielmasse` →
+    // `fit_within_box`: kein Upscale, gerade Maße — deckt auch die
+    // NV12-/hwframes-Pool-Anforderung #7 ab). **Dieselbe Funktion wie auf dem
+    // D3D11-Weg und in der Aufnahme**: die Rechnung stand hier bis zum
+    // 2026-08-07 ein zweites Mal ausgeschrieben, und genau das darf sie nicht —
+    // liefen die Stellen auseinander, entstünde ein Pool in der einen und ein
+    // Encoder in der anderen Größe.
+    let (dst_w, dst_h) =
+        crate::stream_controller::zielmasse(cap_w, cap_h, params.override_resolution);
     eprintln!(
         "[pipeline-d3d12] zero-copy: capture {cap_w}x{cap_h} → encode {dst_w}x{dst_h}@{fps} via {}",
         codec.d3d12va_name()
@@ -360,6 +358,12 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
             pts,
             pts_delta: pts - prev_pts,
             capture_drops: capture.dropped(),
+            // Die Rückruf-Wacht gibt es nur auf dem D3D11-Weg — dort ist der
+            // Aufnahme-Rückruf seit dem 2026-08-07 mehr als eine Kopie
+            // (`capture::rueckruf`). Hier bleibt sie leer, und die
+            // Zusammenfassung schreibt dann `rueckruf n/a` statt einer Null,
+            // die wie ein Messwert aussähe.
+            rueckruf: Default::default(),
             enc_latency: encoder.take_encode_latency(),
         });
         prev_pts = pts;

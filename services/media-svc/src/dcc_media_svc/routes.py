@@ -247,6 +247,16 @@ async def issue_stream_token(
     # beitretender Zuschauer nie sein erstes Vollbild — er saehe gar nichts.
     # Die Betriebsart entscheidet den Transport also mit.
     #
+    # **Seit dem 2026-08-07 auch der CODEC**, und darauf ist beim Lesen der
+    # Zahlen zu achten: der Client wuenscht WHIP jetzt bei JEDEM H.264-Stream,
+    # auch bei abgewaehltem Intra-Refresh (`web/.../settings.svelte.ts::
+    # pushProtokoll`). Grund ist `h264_amf`, das die Auffrischung wegen
+    # `usage=ultralowlatency` ungefragt mitfaehrt — der Strom hat dann kaum
+    # Vollbilder, obwohl niemand welche abbestellt hat. In der Produktion am
+    # 2026-08-07 belegt: 0 dekodierte Bilder ueber RTMPS gegen 2681 ueber WHIP,
+    # derselbe Kanal, dieselben Minuten. Der RTMPS-Anteil faellt dadurch stark;
+    # das ist die Ursache, kein Messfehler.
+    #
     # Warum der Wunsch die Owner-Ausnahme schlaegt: die Ausnahme ist eine
     # Bequemlichkeit (der bewaehrte Weg, wo er ohnehin funktioniert), keine
     # Sicherheitsgrenze. Bliebe sie staerker, koennte ausgerechnet der Betreiber
