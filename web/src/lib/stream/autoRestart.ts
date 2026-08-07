@@ -66,9 +66,9 @@ export function maybeAutoRestart(slot: number): void {
     const session = streamForSlot(slot);
     try {
       const label = resolveSlotLabel(slot).label;
-      // Denselben Weg wie beim Start von Hand waehlen — warum die Betriebsart
-      // den Transport mitentscheidet und was das harte `'rtmp'` hier anrichtete:
-      // s. `pushProtokoll`.
+      // Denselben Weg wie beim Start von Hand waehlen — warum Betriebsart UND
+      // Codec den Transport mitentscheiden und was das harte `'rtmp'` hier
+      // anrichtete: s. `pushProtokoll`.
       const tok = await chatApi.getStreamToken(
         channelId,
         pushProtokoll(),
