@@ -377,3 +377,104 @@ impl Bruecke {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+    use windows::Win32::Graphics::Direct3D11::{
+        D3D11CreateDevice, D3D11_BIND_DECODER, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+        D3D11_SDK_VERSION,
+    };
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
+
+    /// **Die Frage, an der die naechste Ausbaustufe haengt.**
+    ///
+    /// Die Bruecke kopiert je Bild die volle Bildflaeche aus der Textur des
+    /// Decoders in einen eigenen, teilbaren Ring — gemessen am 2026-08-07 rund
+    /// 70 Prozentpunkte Videoeinheit bei 1440p144, mehr als Encodieren und
+    /// Dekodieren zusammen.
+    ///
+    /// Die Kopie liesse sich ganz vermeiden, WENN der Treiber ein Texturfeld
+    /// annimmt, das gleichzeitig `BIND_DECODER` (FFmpeg dekodiert hinein) und
+    /// die Teil-Merker traegt (D3D12 liest heraus). Dann bekaeme FFmpegs
+    /// Bilderpool die Merker ueber `AVD3D11VAFramesContext::MiscFlags` und der
+    /// Player laese unmittelbar aus der Decoder-Textur.
+    ///
+    /// Dieser Test beantwortet das fuer die Maschine, auf der er laeuft. Er
+    /// schlaegt NICHT fehl, wenn der Treiber ablehnt — das ist ein Befund, kein
+    /// Fehler. Er schreibt ihn hin, damit niemand ihn zweimal erhebt.
+    #[test]
+    fn traegt_der_treiber_eine_teilbare_decoder_textur() {
+        let mut device = None;
+        // SAFETY: Standardaufruf; alle Ausgaben optional und geprueft.
+        let hr = unsafe {
+            D3D11CreateDevice(
+                None,
+                D3D_DRIVER_TYPE_HARDWARE,
+                Default::default(),
+                D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                None,
+            )
+        };
+        let Some(device) = hr.ok().and(device) else {
+            eprintln!("PROBE: kein D3D11-Geraet — auf dieser Maschine nicht zu beantworten");
+            return;
+        };
+
+        for (name, format) in [("NV12", DXGI_FORMAT_NV12), ("P010", DXGI_FORMAT_P010)] {
+            for (was, misc) in [
+                ("nur teilbar", D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0),
+                (
+                    "teilbar + Schluessel-Mutex",
+                    D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0,
+                ),
+            ] {
+                let desc = D3D11_TEXTURE2D_DESC {
+                    Width: 1920,
+                    Height: 1088,
+                    MipLevels: 1,
+                    // Wie FFmpeg seinen Decoder-Pool anlegt: ein Feld, keine
+                    // Einzeltextur.
+                    ArraySize: 16,
+                    Format: format,
+                    SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: (D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: misc as u32,
+                };
+                let mut tex: Option<ID3D11Texture2D> = None;
+                // SAFETY: gueltiges Geraet, Deskriptor vollstaendig belegt.
+                let r = unsafe { device.CreateTexture2D(&desc, None, Some(&mut tex)) };
+                match r {
+                    Ok(()) => {
+                        let teilbar = tex
+                            .as_ref()
+                            .and_then(|t| t.cast::<IDXGIResource1>().ok())
+                            // SAFETY: lebende Ressource.
+                            .and_then(|r| unsafe {
+                                r.CreateSharedHandle(None, GENERIC_ALL.0, None).ok()
+                            });
+                        eprintln!(
+                            "PROBE {name} / {was}: Textur JA, Handle {}",
+                            if teilbar.is_some() { "JA" } else { "NEIN" }
+                        );
+                        if let Some(h) = teilbar {
+                            // SAFETY: eigener Handle, nur hier benutzt.
+                            unsafe { let _ = CloseHandle(h); }
+                        }
+                    }
+                    Err(e) => eprintln!("PROBE {name} / {was}: NEIN — {}", e.message()),
+                }
+            }
+        }
+    }
+}
