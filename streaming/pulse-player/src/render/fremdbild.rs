@@ -52,8 +52,20 @@ pub struct Import {
     /// Gehalten, weil die Bindegruppe daran haengt — sonst nirgends gebraucht.
     ///
     /// Ein `Vec`, weil Linux ZWEI Texturen einhaengt und Windows eine
-    /// (s. Modulkopf).
-    _texturen: Vec<wgpu::Texture>,
+    /// (s. Modulkopf). Der erste Eintrag ist die Luma-Seite.
+    texturen: Vec<wgpu::Texture>,
+    /// Ob sich die Luma-Seite als Kopierquelle benutzen laesst — die
+    /// Latenz-Sonde holt daraus ihre Musterzeilen (s. [`super::musterprobe`]).
+    ///
+    /// **Nur auf Linux und nur mit laufender Sonde `true`.** Zwei Gruende, und
+    /// beide zaehlen einzeln: ohne Sonde soll die eingehaengte Textur gar keine
+    /// zusaetzliche Nutzungsart tragen, und auf Windows ist der Fall nicht
+    /// beurteilt — dort ist die Luma-Seite ein ASPEKT einer NV12/P010-Textur,
+    /// deren Kopierbarkeit an der geteilten D3D11-Ressource haengt und hier
+    /// nicht nachgemessen werden konnte. Lieber eine Sonde, die auf Windows
+    /// deutlich sagt „hier nicht" (s. `musterprobe::nicht_kopierbar_melden`),
+    /// als eine Nutzungsart, die den dortigen Zero-Copy-Weg umwirft.
+    luma_kopierbar: bool,
     /// Die fertige Bindegruppe dieses Ringplatzes.
     ///
     /// **Hier stand die Bindegruppe frueher NICHT, sie entstand je Bild neu**,
@@ -177,6 +189,17 @@ impl Fremdbilder {
         self.importe.get(&handle).map(|i| &i.abdruck_gruppe)
     }
 
+    /// Die Luma-Textur eines Ringplatzes, sofern sie sich kopieren laesst
+    /// (s. [`Import::luma_kopierbar`]). `None` heisst: die Latenz-Sonde kann
+    /// hier nichts holen.
+    pub fn luma_textur(&self, handle: isize) -> Option<&wgpu::Texture> {
+        let import = self.importe.get(&handle)?;
+        if !import.luma_kopierbar {
+            return None;
+        }
+        import.texturen.first()
+    }
+
     /// Die bereits gebaute Bindegruppe eines Ringplatzes.
     ///
     /// Getrennt von [`Fremdbilder::binden`], weil `render` sie mit `&self`
@@ -253,6 +276,17 @@ fn einhaengen(
     // `zerocopy::linux::Ringplatz`).
     let anker = bild.lebensanker();
 
+    // **Nur mit laufender Latenz-Sonde**, und dann fuer beide Ebenen statt nur
+    // fuer die Luma-Seite: die Farbebene braucht `COPY_SRC` nicht, aber sie
+    // entsteht in derselben Schleife, und ein zweiter Parameter dafuer waere
+    // teurer als die eine ungenutzte Nutzungsart. Gedeckt ist sie in jedem Fall
+    // — das `VkImage` traegt `TRANSFER_SRC` (`zerocopy::linux::vkbild`).
+    let (hal_extra, wgpu_extra) = if crate::probe::sonde_aktiv() {
+        (wgpu::TextureUses::COPY_SRC, wgpu::TextureUsages::COPY_SRC)
+    } else {
+        (wgpu::TextureUses::empty(), wgpu::TextureUsages::empty())
+    };
+
     // Bild, Format und Masse kommen als Buendel von der Bruecke — sie rechnet
     // die halbe Farbebene ohnehin aus, und hier ein zweites Mal zu halbieren
     // hiesse, dieselbe Regel an zwei Stellen zu fuehren.
@@ -267,7 +301,7 @@ fn einhaengen(
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUses::RESOURCE,
+            usage: wgpu::TextureUses::RESOURCE | hal_extra,
             memory_flags: wgpu::hal::MemoryFlags::empty(),
             // Leer, weil das Bild ohne `MUTABLE_FORMAT` angelegt ist —
             // wgpu-hal verlangt das ausdruecklich in der Sicherheitsauflage
@@ -303,7 +337,7 @@ fn einhaengen(
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu_extra,
                     view_formats: &[],
                 },
             )
@@ -326,7 +360,12 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    Some(Import { _texturen: vec![y, uv], bindegruppe, abdruck_gruppe })
+    Some(Import {
+        texturen: vec![y, uv],
+        luma_kopierbar: crate::probe::sonde_aktiv(),
+        bindegruppe,
+        abdruck_gruppe,
+    })
 }
 
 #[cfg(windows)]
@@ -413,7 +452,12 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`. Die Chroma-Ansicht geht ihn nichts an.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    Some(Import { _texturen: vec![textur], bindegruppe, abdruck_gruppe })
+    // **Nicht kopierbar** — die Luma-Seite ist hier ein Aspekt EINER
+    // NV12/P010-Textur, und ob eine geteilte D3D11-Ressource sich als
+    // Kopierquelle hergibt, ist auf dieser Plattform nicht nachgemessen
+    // (Begruendung bei [`Import::luma_kopierbar`]). Die Sonde sagt das dann
+    // deutlich, statt still nichts zu messen.
+    Some(Import { texturen: vec![textur], luma_kopierbar: false, bindegruppe, abdruck_gruppe })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.
