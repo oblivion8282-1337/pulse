@@ -413,6 +413,117 @@ mod tests {
         assert_eq!(seqs(&j.poll(t0)), vec![9000], "Neustart darf nicht blockieren");
     }
 
+    /// **Diagnose, kein Regressionstest: was kostet der Empfangspfad je Paket?**
+    ///
+    /// Gemessen wird die Kette, die zwischen der Ankunft eines RTP-Pakets und
+    /// dem fertigen Bitstrom liegt und die deshalb JEDES Paket bezahlt:
+    /// [`JitterBuffer::push`], [`JitterBuffer::poll`] und
+    /// [`crate::depacket::Assembler::push`]. Der Decoder gehoert bewusst nicht
+    /// dazu — er ist die bekannte, andernorts gemessene Groesse; hier geht es
+    /// um das, was der Player selbst dazutut.
+    ///
+    /// **Wofuer die Zahl gebraucht wird.** Ohne sie ist jeder Fund im
+    /// Empfangsweg eine Zahl ohne Massstab: „78-mal teurer" sagt nichts,
+    /// solange nicht danebensteht, wovon 78-mal. Diese Messung ist der Nenner.
+    ///
+    /// Drei Faelle, weil sie sich grundsaetzlich unterscheiden:
+    /// lueckenlos (der Normalfall), mit Umsortierung (Puffer haelt und gibt
+    /// nach), und mit endgueltigen Luecken (Wartezeit laeuft ab).
+    ///
+    /// Laeuft nur mit `PULSE_PLAYER_PFAD_KOSTEN=1`; ohne die Variable schlaegt
+    /// er fehl statt still gruen zu melden.
+    #[test]
+    #[ignore = "Kostenmessung; braucht PULSE_PLAYER_PFAD_KOSTEN=1"]
+    fn kosten_des_empfangspfads_je_paket() {
+        use crate::depacket::Assembler;
+        use crate::whep::Codec;
+        use bytes::Bytes;
+
+        assert_eq!(
+            std::env::var("PULSE_PLAYER_PFAD_KOSTEN").as_deref(),
+            Ok("1"),
+            "PULSE_PLAYER_PFAD_KOSTEN=1 setzen"
+        );
+
+        /// Ein AV1-RTP-Paket mit genau einem vollstaendigen OBU (W=1, Z=0,
+        /// Y=0) — die einfachste Form, die der Zusammensetzer wirklich
+        /// verarbeitet. 1100 Byte entsprechen etwa einer vollen MTU.
+        fn nutzlast(fuellung: u8) -> Bytes {
+            let mut p = Vec::with_capacity(1102);
+            p.push(0b0001_0000); // W=1
+            p.push(0b0000_0010); // OBU-Kopf: Typ 0, kein Groessenfeld
+            p.extend(std::iter::repeat_n(fuellung, 1100));
+            Bytes::from(p)
+        }
+
+        /// Faehrt `anzahl` Pakete durch Puffer und Zusammensetzer und liefert
+        /// die Nanosekunden je Paket. `luecke_alle` = jedes n-te Paket wird
+        /// gar nicht erst eingespeist (0 = keine Luecken), `spaet_alle` =
+        /// jedes n-te kommt eine Position zu spaet (Umsortierung).
+        fn durchlauf(anzahl: u32, luecke_alle: u32, spaet_alle: u32) -> u64 {
+            let mut j = JitterBuffer::new(Duration::from_millis(100));
+            let mut a = Assembler::for_codec(Codec::Av1);
+            let last = nutzlast(0);
+            // Die Uhr laeuft synthetisch mit, sonst reisst die Wartezeit bei
+            // einer Luecke nie ab und der Puffer haelt alles fest.
+            let mut jetzt = Instant::now();
+            let mut zurueckgestellt: Option<u16> = None;
+            let start = Instant::now();
+            for i in 0..anzahl {
+                jetzt += Duration::from_micros(2200); // ~455 Pakete/s
+                let seq = i as u16;
+                if luecke_alle != 0 && i % luecke_alle == 0 && i > 0 {
+                    // Auslassen: der Puffer muss die Wartezeit abwarten.
+                } else if spaet_alle != 0 && i % spaet_alle == 0 && i > 0 {
+                    zurueckgestellt = Some(seq);
+                } else {
+                    let mut p = Packet::default();
+                    p.header.sequence_number = seq;
+                    p.header.marker = i % 8 == 7;
+                    p.payload = last.clone();
+                    j.push(p, jetzt);
+                    if let Some(alt) = zurueckgestellt.take() {
+                        let mut q = Packet::default();
+                        q.header.sequence_number = alt;
+                        q.payload = last.clone();
+                        j.push(q, jetzt);
+                    }
+                }
+                for release in j.poll(jetzt) {
+                    match release {
+                        Release::Gap { .. } => a.on_gap(),
+                        Release::Packet(p, _) => {
+                            std::hint::black_box(a.push(
+                                p.header.sequence_number,
+                                &p.payload,
+                                p.header.marker,
+                            ));
+                        }
+                    }
+                }
+            }
+            start.elapsed().as_nanos() as u64 / u64::from(anzahl)
+        }
+
+        const N: u32 = 200_000;
+        let sauber = durchlauf(N, 0, 0);
+        let sortiert = durchlauf(N, 0, 50); // 2 % umsortiert
+        let mit_luecken = durchlauf(N, 100, 0); // 1 % endgueltig weg
+
+        // Bezugsgroesse: 455 Videopakete je Sekunde entsprechen rund 4 Mbit/s
+        // bei 1100 Byte Nutzlast — der Zuschnitt, mit dem hier gemessen wird.
+        let pro_s = 455.0;
+        eprintln!(
+            "Empfangspfad (Puffer + Zusammensetzer), Kosten je Paket:\n  \
+             lueckenlos:            {sauber} ns  ({:.3} % einer CPU bei {pro_s:.0} Paketen/s)\n  \
+             2 % umsortiert:        {sortiert} ns  ({:.3} %)\n  \
+             1 % endgueltig weg:    {mit_luecken} ns  ({:.3} %)",
+            sauber as f64 * pro_s / 1e7,
+            sortiert as f64 * pro_s / 1e7,
+            mit_luecken as f64 * pro_s / 1e7,
+        );
+    }
+
     #[test]
     fn zielzeit_ist_zur_laufzeit_aenderbar() {
         let mut j = JitterBuffer::new(Duration::from_millis(20));
