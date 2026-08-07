@@ -14,7 +14,9 @@
         "Die Verzoegerung zwischen Sender und Bild ist etwa halbiert (von rund 61 auf 33 Millisekunden), ohne dass das Bild unruhiger wird.",
         "Ausserdem behoben: gelegentliche Aussetzer von mehreren Sekunden, bei denen das Bild stehenblieb.",
         "Auf Linux mit NVIDIA-Karte nimmt das Bild zusaetzlich einen kuerzeren Weg: es bleibt auf der Grafikkarte, statt zwischendurch in den Hauptspeicher zu wandern. Gemessen sinkt die Verzoegerung dadurch von 78 auf 73 Millisekunden.",
-        "Klappt dieser kuerzere Weg auf einem Rechner nicht, schaltet das Fenster von selbst auf den bisherigen zurueck."
+        "Klappt dieser kuerzere Weg auf einem Rechner nicht, schaltet das Fenster von selbst auf den bisherigen zurueck.",
+        "Behoben (Linux): Das Fenster hat die Grafikkarte zum Entpacken des Bildes ueberhaupt nicht benutzt, sondern alles im Hauptprozessor gerechnet — auch dort, wo die Karte es laengst gekonnt haette. Es griff auf eine falsche, mitgelieferte Bildbibliothek zu, der die passenden Verfahren fehlten.",
+        "Am staerksten betroffen war H.264: dafuer war gar kein regulaeres Verfahren vorhanden, das Fenster wich auf einen Notbehelf aus. Gemessen kamen damit 12 bis 13 Bilder je Sekunde an statt 60."
       ],
       "outro": "Bei sehr hohen Aufloesungen mit sehr hohen Bildraten koennen weiterhin kurze Aussetzer auftreten. Die Ursache dafuer ist gefunden und wird als naechstes angegangen."
     },
