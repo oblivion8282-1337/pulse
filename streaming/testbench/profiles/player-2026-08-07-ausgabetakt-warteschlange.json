@@ -142,6 +142,22 @@
     "noch_offen": "Ob die restliche Schubbildung vom Sender, von der Strecke oder vom Empfangs-Task des Players kommt, ist unentschieden. Sender und Player liefen auf DERSELBEN Maschine ueber einen Server in Hetzner; das ist nicht der Betriebsfall. Ein Lauf mit getrennten Rechnern entscheidet es."
   },
 
+  "befund_10_hat_zero_copy_sich_gelohnt": {
+    "frage": "Direkte Frage des Nutzers. Sie war ueberfaellig: mit dem heutigen Codestand war der Vergleich NIE sauber gefahren worden. Die frueheren Ruecklese-Laeufe stammten aus einem anderen Stand und aus Einzellaeufen.",
+    "aufbau": "1440p bei 144 fps, 3000 kbit/s, rollende Auffrischung (also produktionsnah), drei Paare abwechselnd, je 25 s. Einziger Unterschied: PULSE_PLAYER_ZEROCOPY=0.",
+    "ergebnis": {
+      "gezeichnet je Sekunde (Median)": "AN 117 / 102 / 100  ---  AUS 44 / 33 / 35",
+      "Kanalverluste je Lauf": "AN 363 / 356 / 328  ---  AUS 1073 / 1249 / 1189",
+      "dekodieren Mittel/Max in ms": "AN 3,8/6,7  3,9/7,9  4,0/9,4  ---  AUS 6,3/12,8  6,2/11,3  5,9/10,1",
+      "hochladen in ms": "AN 0,0 durchgehend  ---  AUS 2,3 bis 2,4",
+      "Videoeinheit des Players": "AN 24,2 / 24,5 / 23,7 %  ---  AUS 25,6 / 24,9 / 24,6 %",
+      "Stockungen": "in allen sechs Laeufen 0"
+    },
+    "antwort": "JA, eindeutig. Ohne Zero-Copy zeichnet der Player rund ein DRITTEL der Bilder (33 bis 44 statt 100 bis 117). Das Ruecklesen kostet je Bild rund 2,3 ms beim Hochladen plus rund 2,2 ms mehr beim Dekodieren (av_hwframe_transfer_data), zusammen etwa 4,5 ms - bei 144 fps also mehr als 600 ms je Sekunde zusaetzlich. Genau daran bricht es.",
+    "und_es_widerlegt_endgueltig_befund_3": "Die Videoeinheit ist mit und ohne Zero-Copy praktisch GLEICH belastet (24 gegen 25 %). Die Kopie in der Bruecke kostet dort also nichts Messbares. Die frueher behaupteten '70 Prozentpunkte fuer die Bruecke' waren nicht nur ein Ausreisser, sie sind hiermit positiv widerlegt: der teure Weg ist das Ruecklesen, nicht die Kopie.",
+    "was_daraus_folgt": "Die Ueberlegung, die Kopie durch eine teilbare Decoder-Textur ganz zu ersetzen (befund_4), verliert damit ihre Dringlichkeit. Sie wuerde ein paar Millisekunden holen, nicht die Groessenordnung, um die es beim verbleibenden Symptom geht. Der Ruecklese-Weg bleibt als Rueckfall wichtig, taugt aber bei 1440p144 nicht als gleichwertiger Ersatz."
+  },
+
   "offen": {
     "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
     "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."
