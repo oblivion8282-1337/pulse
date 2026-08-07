@@ -69,6 +69,25 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         // zeigt sich erst beim Start. Ein `true` heisst also „die Karte und
         // der Encoder koennen es", nicht „es wird gelingen".
         "hdr": crate::encode::hdr::verfuegbar_hier(&caps.codecs),
+        // **Der zweite Teil derselben Frage, und auf Linux der, an dem es in
+        // der Praxis haengt:** liegt das Helfer-Programm da, das die
+        // Bildpuffer herausreicht? Ohne es gibt es hier kein HDR, egal was
+        // Karte und Encoder koennen (der Kernel gibt die GEM-Handles nur an
+        // DRM-Master oder CAP_SYS_ADMIN, und ein Flatpak kann die Faehigkeit
+        // nicht tragen).
+        //
+        // Was hier steht, ist ausdruecklich „die Datei ist da", NICHT „es wird
+        // gelingen": ob sie die Berechtigung wirklich traegt und ob ihre
+        // Protokollfassung passt, zeigt der Handschlag beim Start — mit einer
+        // Meldung, die den Grund und den Befehl nennt. Eine Probe waere hier
+        // teuer (sie startete bei jedem Oeffnen der Einstellungen ein Programm
+        // mit erhoehten Rechten), und ein `false` genuegt fuer den Zweck: die
+        // Oberflaeche soll sagen koennen, WARUM das Kaestchen nicht greift.
+        "hdr_helfer": crate::capture::kms_helfer::vorhanden(),
+        // Der Befehl zum Einrichten, fertig zum Kopieren. Steht auch dann hier,
+        // wenn der Helfer da ist — die Oberflaeche braucht ihn ebenso fuer den
+        // Fall „Fassung passt nicht".
+        "hdr_helfer_befehl": crate::capture::kms_helfer::installationsbefehl(),
         // Das Portal verhandelt Monitor ODER Window (`SourceType` in
         // portal.rs) — "region" hier zu bewerben hieße, einen Modus zu
         // versprechen, der still als Monitor/Window-Dialog endet.

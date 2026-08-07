@@ -22,9 +22,34 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use pulse_kms_helfer::karte::BildFehler;
 
 use super::kms::{Ausgang, KmsKarte};
-use super::pipewire_stream::FrameMailbox;
+use super::kms_helfer::Helfer;
+use super::pipewire_stream::{DmabufFrame, FrameMailbox};
+
+/// Woher die Bilder kommen. **Die Wahl faellt an einem Versuch, nicht an einer
+/// Vermutung:** wer ohnehin die Rechte hat (Labor, `sudo`, gesetzte
+/// Faehigkeit), holt sich das Bild unmittelbar und braucht das Helfer-Programm
+/// nie; alle anderen gehen darueber. Eine Abfrage der eigenen Faehigkeiten
+/// waere die schlechtere Probe — DRM-Master zu sein reicht ebenfalls, und das
+/// steht in keiner Rechteliste.
+enum Bildquelle {
+    Unmittelbar(KmsKarte),
+    UeberHelfer { helfer: Helfer, ausgang: String },
+}
+
+impl Bildquelle {
+    fn bild(&mut self, crtc: u32, pts: u64) -> Result<DmabufFrame> {
+        match self {
+            Self::Unmittelbar(k) => k.bild(crtc, pts, 0).map_err(|e| anyhow::anyhow!("{e}")),
+            // `ausgang: &mut String` deref-coerct zu `&str` — kein Klonen bei
+            // jedem Bild noetig (das lief hier vorher mit, unnoetig, weil das
+            // Bild dutzende Male pro Sekunde geholt wird).
+            Self::UeberHelfer { helfer, ausgang } => helfer.bild(ausgang, pts, 0),
+        }
+    }
+}
 
 /// Laufende Scanout-Aufnahme. [`stop`](Self::stop) beendet den Thread.
 pub struct KmsAufnahme {
@@ -46,9 +71,26 @@ impl KmsAufnahme {
         // Ein Bild sofort holen: das ist die Probe auf die Berechtigung. Ohne
         // sie liefe der Worker an und der Fehler ("keine Handles") erschiene
         // erst als Zeitueberschreitung beim Warten auf das erste Bild.
-        let erstes = karte
-            .bild(ausgang.crtc_id, 0, 0)
-            .context("erstes Bild vom Scanout holen")?;
+        let (mut quelle, erstes) = match karte.bild(ausgang.crtc_id, 0, 0) {
+            Ok(bild) => (Bildquelle::Unmittelbar(karte), bild),
+            Err(BildFehler::KeineRechte) => {
+                // Der Regelfall in der ausgelieferten App. Kein Warnton: dass
+                // ein Flatpak die Faehigkeit nicht traegt, ist so vorgesehen.
+                tracing::info!(
+                    target: "stream",
+                    "Scanout: ohne eigene Berechtigung — Bilder kommen ueber den Helfer"
+                );
+                let mut helfer = Helfer::verbinden_oder_starten()?;
+                let bild = helfer
+                    .bild(&ausgang.name, 0, 0)
+                    .context("erstes Bild ueber den Helfer holen")?;
+                (
+                    Bildquelle::UeberHelfer { helfer, ausgang: ausgang.name.clone() },
+                    bild,
+                )
+            }
+            Err(e) => return Err(anyhow::anyhow!("{e}")).context("erstes Bild vom Scanout holen"),
+        };
 
         let frames = FrameMailbox::new();
         let laeuft = Arc::new(AtomicBool::new(true));
@@ -71,7 +113,7 @@ impl KmsAufnahme {
                     if !flagge.load(Ordering::SeqCst) {
                         break;
                     }
-                    match karte.bild(crtc, n, 0) {
+                    match quelle.bild(crtc, n) {
                         Ok(f) => ziel.put(f),
                         Err(e) => {
                             // Ein Ausgang kann verschwinden (Kabel, Umschalten

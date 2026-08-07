@@ -245,6 +245,25 @@ fn hdr_pruefen_oder_absagen(
     })?;
     let ausgang = karte.ausgang_waehlen(ausgang_wunsch)?;
     let angaben = crate::encode::hdr::pruefen(vendor, codec, &ausgang)?;
+    // Die Berechtigung ist die letzte Bedingung — und die einzige, die der
+    // Nutzer selbst herstellen muss. Sie wird hier VOR dem Start geprueft,
+    // damit die Absage am `start`-Aufruf haengt und nicht als Stream-Fehler
+    // erscheint, den niemand einem fehlenden Programm zuordnet.
+    //
+    // Geprueft wird die billige Frage („liegt der Helfer da?"); ob er die
+    // Faehigkeit wirklich traegt und ob seine Fassung passt, sagt der
+    // Handschlag Sekundenbruchteile spaeter — mit ebenso benannter Abhilfe.
+    // Wer die Rechte selbst hat (Labor, root), braucht ihn gar nicht: dann
+    // gelingt der unmittelbare Weg, und `KmsAufnahme` fragt nie nach.
+    if karte.bild(ausgang.crtc_id, 0, 0).is_err() && !crate::capture::kms_helfer::vorhanden() {
+        anyhow::bail!(
+            "HDR verlangt, aber das Hilfsprogramm fuer die Bildschirmaufnahme fehlt. Der Kernel \
+             gibt die Bildpuffer nur an Programme mit erhoehten Rechten heraus, und die kann die \
+             App als Flatpak nicht selbst tragen. Einmalig einrichten (fragt nach dem Passwort): \
+             {}",
+            crate::capture::kms_helfer::installationsbefehl()
+        );
+    }
     tracing::info!(
         target: "stream",
         ausgang = %ausgang.name, max_cll = angaben.max_cll,

@@ -17,19 +17,25 @@
 //! mit der BT.2020-Matrix. Dasselbe tut gpu-screen-recorder.
 //!
 //! **Preis: erhoehte Rechte.** Die GEM-Handles aus `GETFB2` bekommt nur, wer
-//! DRM-Master ist oder `CAP_SYS_ADMIN` traegt. Der Aufnehmer selbst soll das
-//! nicht sein — Trennung siehe [`crate::system::drm_ioctl`]. Fehlen die Rechte,
-//! meldet [`KmsKarte::bild`] das ausdruecklich, statt ein leeres Bild zu
-//! liefern.
+//! DRM-Master ist oder `CAP_SYS_ADMIN` traegt. Das **Aufzaehlen** der Ausgaenge
+//! und das Lesen ihres HDR-Zustands geht dagegen ohne jede Berechtigung — was
+//! dieses Modul unmittelbar tut. Fuer das Bild selbst gibt es zwei Wege:
+//! unmittelbar (als root oder mit gesetzter Faehigkeit, so laeuft das Labor)
+//! oder ueber das Helfer-Programm ([`super::kms_helfer`]), so laeuft die
+//! ausgelieferte App. Welcher genommen wird, entscheidet
+//! [`super::kms_aufnahme`] beim Start — an einem Versuch, nicht an einer
+//! Vermutung.
 //!
 //! **Was dieser Weg nicht kann.** Er nimmt einen ganzen Ausgang auf, kein
 //! einzelnes Fenster, und er kennt keine Auswahl durch den Nutzer. Er ist
 //! deshalb kein Ersatz fuer den Portal-Weg, sondern der Sonderweg fuer HDR.
 
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::IntoRawFd;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow};
+
+use pulse_kms_helfer::karte::{BildFehler, Karte};
 
 use crate::system::drm_ioctl as drm;
 
@@ -105,88 +111,40 @@ impl Ausgang {
     }
 }
 
-/// Namen der DRM-Connector-Typen, Index = `connector_type` aus `drm_mode.h`.
-const TYP_NAMEN: [&str; 21] = [
-    "Unknown", "VGA", "DVI-I", "DVI-D", "DVI-A", "Composite", "SVIDEO", "LVDS",
-    "Component", "DIN", "DP", "HDMI-A", "HDMI-B", "TV", "eDP", "Virtual", "DSI",
-    "DPI", "Writeback", "SPI", "USB",
-];
-
-fn ausgang_name(typ: u32, typ_id: u32) -> String {
-    let t = TYP_NAMEN.get(typ as usize).copied().unwrap_or("Unknown");
-    format!("{t}-{typ_id}")
-}
-
-/// Eine geoeffnete Karte (`/dev/dri/cardN`).
+/// Eine geoeffnete Karte (`/dev/dri/cardN`), um die HDR-Deutung erweitert.
 pub struct KmsKarte {
-    fd: OwnedFd,
+    karte: Karte,
 }
 
 impl KmsKarte {
-    /// Karte oeffnen und die Client-Faehigkeiten anmelden.
     pub fn oeffnen(pfad: &Path) -> Result<Self> {
-        let datei = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(pfad)
-            .with_context(|| format!("{} oeffnen", pfad.display()))?;
-        let fd: OwnedFd = datei.into();
-        drm::set_client_caps(fd.as_raw_fd())?;
-        Ok(Self { fd })
+        Ok(Self { karte: Karte::oeffnen(pfad)? })
     }
 
-    /// Die erste Karte, die ueberhaupt Ausgaenge fuehrt. Render-Nodes
-    /// (`renderD*`) scheiden aus — sie kennen die Mode-ioctls nicht.
+    /// Die erste Karte, die ueberhaupt Ausgaenge fuehrt.
     pub fn erste_mit_ausgaengen() -> Result<Self> {
-        let mut namen: Vec<_> = std::fs::read_dir("/dev/dri")
-            .context("/dev/dri lesen")?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with("card"))
-            })
-            .collect();
-        namen.sort();
-        let mut letzter = None;
-        for p in namen {
-            match Self::oeffnen(&p) {
-                Ok(k) if k.ausgaenge().is_ok_and(|a| !a.is_empty()) => return Ok(k),
-                Ok(_) => {}
-                Err(e) => letzter = Some(e),
-            }
-        }
-        Err(letzter.unwrap_or_else(|| anyhow!("keine DRM-Karte mit angeschlossenem Ausgang")))
-    }
-
-    fn raw(&self) -> RawFd {
-        self.fd.as_raw_fd()
+        Ok(Self { karte: Karte::erste_mit_ausgaengen()? })
     }
 
     /// Alle angeschlossenen Ausgaenge samt ihrem HDR-Zustand.
+    ///
+    /// Braucht **keine** Berechtigung — das ist der Grund, warum die Auswahl
+    /// und die Absage-Meldungen ohne den Helfer auskommen.
     pub fn ausgaenge(&self) -> Result<Vec<Ausgang>> {
-        let mut out = Vec::new();
-        for c in drm::connectors(self.raw())? {
-            let crtc_id = drm::crtc_of_encoder(self.raw(), c.encoder_id).unwrap_or(0);
-            if crtc_id == 0 {
-                // Angeschlossen, aber nicht aktiv — kein Scanout zu holen.
-                continue;
-            }
-            let hdr = if c.hdr_blob != 0 {
-                drm::blob(self.raw(), c.hdr_blob)
-                    .ok()
-                    .and_then(|b| HdrAngaben::aus_blob(&b))
-            } else {
-                None
-            };
-            out.push(Ausgang {
-                name: ausgang_name(c.connector_type, c.connector_type_id),
-                crtc_id,
-                hdr,
-            });
-        }
-        Ok(out)
+        let fd = self.karte.roh();
+        Ok(self
+            .karte
+            .ausgaenge_roh()?
+            .into_iter()
+            .map(|a| Ausgang {
+                hdr: (a.hdr_blob != 0)
+                    .then(|| drm::blob(fd, a.hdr_blob).ok())
+                    .flatten()
+                    .and_then(|b| HdrAngaben::aus_blob(&b)),
+                name: a.name,
+                crtc_id: a.crtc_id,
+            })
+            .collect())
     }
 
     /// Ausgang nach Namen (`DP-2`), sonst der erste mit eingeschaltetem HDR,
@@ -206,92 +164,71 @@ impl KmsKarte {
             .ok_or_else(|| anyhow!("kein aktiver Ausgang"))
     }
 
-    /// Das aktuelle Bild eines Ausgangs als DMABUF.
+    /// Das aktuelle Bild eines Ausgangs als DMABUF — auf dem unmittelbaren Weg.
     ///
-    /// Genommen wird die groesste Plane auf der CRTC — das ist die Bildebene.
-    /// Der Mauszeiger liegt auf einer eigenen, kleinen Plane und ist damit
-    /// **nicht** im Bild; das ist ein Unterschied zum Portal-Weg und gehoert
-    /// dem Nutzer gesagt, nicht stillschweigend hingenommen.
-    pub fn bild(&self, crtc_id: u32, pts: u64, epoch: u64) -> Result<DmabufFrame> {
-        let planes = drm::planes(self.raw())?;
-        let mut beste: Option<(u64, drm::Framebuffer)> = None;
-        for p in planes.iter().filter(|p| p.crtc_id == crtc_id && p.fb_id != 0) {
-            let fb = match drm::framebuffer(self.raw(), p.fb_id) {
-                Ok(fb) => fb,
-                Err(_) => continue,
-            };
-            let flaeche = fb.width as u64 * fb.height as u64;
-            if !beste.as_ref().is_none_or(|(f, _)| flaeche > *f) {
-                // Kleiner als die bisher beste — ihre Handles sofort zurueck,
-                // sonst sammelt jeder Aufruf die des Mauszeigers an.
-                Self::handles_freigeben(self.raw(), &fb);
-                continue;
-            }
-            if let Some((_, alt)) = beste.replace((flaeche, fb)) {
-                Self::handles_freigeben(self.raw(), &alt);
-            }
-        }
-        let (_, fb) = beste
-            .ok_or_else(|| anyhow!("CRTC {crtc_id} zeigt gerade keinen Framebuffer"))?;
-
-        if fb.ebenen.is_empty() {
-            bail!(
-                "GETFB2 hat keine Handles geliefert — der Aufnehmer ist weder DRM-Master \
-                 noch traegt er CAP_SYS_ADMIN. Die Scanout-Aufnahme (und damit HDR) ist \
-                 ohne diese Berechtigung nicht moeglich."
-            );
-        }
-
-        let mut planes_out = Vec::with_capacity(fb.ebenen.len());
-        let mut fehler = None;
-        for &(handle, pitch, offset) in &fb.ebenen {
-            match drm::handle_to_fd(self.raw(), handle) {
-                Ok(fd) => planes_out.push(DmabufPlane { fd, offset, stride: pitch as i32 }),
-                Err(e) => {
-                    fehler = Some(e);
-                    break;
-                }
-            }
-        }
-        Self::handles_freigeben(self.raw(), &fb);
-        if let Some(e) = fehler {
-            return Err(e.context("Scanout-Puffer als DMABUF ausgeben"));
-        }
-
-        Ok(DmabufFrame {
-            planes: planes_out,
-            width: fb.width,
-            height: fb.height,
-            drm_fourcc: fb.fourcc,
-            modifier: fb.modifier,
+    /// [`BildFehler::KeineRechte`] ist hier **kein** Fehlschlag im ueblichen
+    /// Sinn, sondern die Auskunft „nimm den Helfer". Deshalb reicht diese
+    /// Funktion den Fall getrennt heraus, statt ihn in eine Textmeldung zu
+    /// verpacken, die der Aufrufer wieder auseinandernehmen muesste.
+    pub fn bild(
+        &self,
+        crtc_id: u32,
+        pts: u64,
+        epoch: u64,
+    ) -> std::result::Result<DmabufFrame, BildFehler> {
+        let bild = self.karte.bild(crtc_id)?;
+        Ok(als_frame(
+            bild.width,
+            bild.height,
+            bild.fourcc,
+            bild.modifier,
+            bild.ebenen
+                .into_iter()
+                .map(|e| DmabufPlane {
+                    fd: e.fd.into_raw_fd(),
+                    offset: e.offset,
+                    stride: e.pitch as i32,
+                })
+                .collect(),
             pts,
-            // Der Compositor tauscht den Scanout-Puffer bei jedem Bild; ein
-            // Zwischenspeicher nach Puffer-Identitaet traegt hier nicht, und
-            // ein falscher Treffer waere ein stehendes Bild. 0 = nicht merken.
-            buffer_key: 0,
             epoch,
-        })
+        ))
     }
 
-    fn handles_freigeben(fd: RawFd, fb: &drm::Framebuffer) {
-        for &(handle, _, _) in &fb.ebenen {
-            drm::close_handle(fd, handle);
-        }
+    pub fn roh(&self) -> std::os::fd::RawFd {
+        self.karte.roh()
+    }
+}
+
+/// Aus den Angaben des Scanouts denselben Rahmen bauen, den der Portal-Weg
+/// liefert — alles dahinter (Import, Skalierung, Encode) bleibt unveraendert.
+pub(crate) fn als_frame(
+    width: u32,
+    height: u32,
+    drm_fourcc: u32,
+    modifier: u64,
+    planes: Vec<DmabufPlane>,
+    pts: u64,
+    epoch: u64,
+) -> DmabufFrame {
+    DmabufFrame {
+        planes,
+        width,
+        height,
+        drm_fourcc,
+        modifier,
+        pts,
+        // Der Compositor tauscht den Scanout-Puffer bei jedem Bild; ein
+        // Zwischenspeicher nach Puffer-Identitaet traegt hier nicht, und ein
+        // falscher Treffer waere ein stehendes Bild. 0 = nicht merken.
+        buffer_key: 0,
+        epoch,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ausgangsnamen_wie_in_sysfs() {
-        assert_eq!(ausgang_name(10, 2), "DP-2");
-        assert_eq!(ausgang_name(11, 1), "HDMI-A-1");
-        assert_eq!(ausgang_name(14, 1), "eDP-1");
-        // Unbekannter Typ darf nicht panisch werden, sondern faellt zurueck.
-        assert_eq!(ausgang_name(99, 1), "Unknown-1");
-    }
 
     #[test]
     fn hdr_blob_wird_gelesen() {
@@ -336,5 +273,15 @@ mod tests {
         assert!(!a.ist_pq(), "HLG signalisieren wir nicht");
         a.eotf = EOTF_SMPTE_ST2084;
         assert!(a.ist_pq());
+    }
+
+    /// Der Rahmen darf sich nicht merken lassen: bei der Scanout-Aufnahme
+    /// wechselt der Puffer je Bild, ein Treffer im EGLImage-Zwischenspeicher
+    /// waere ein stehendes Bild (Befund M9 der Messakte).
+    #[test]
+    fn scanout_rahmen_wird_nicht_zwischengespeichert() {
+        let f = als_frame(2560, 1440, 0x3033_4241, 7, Vec::new(), 5, 0);
+        assert_eq!(f.buffer_key, 0);
+        assert_eq!((f.width, f.pts), (2560, 5));
     }
 }

@@ -12,6 +12,7 @@ pub mod egl_modifiers;
 /// Scanout-Aufnahme (DRM/KMS) — der HDR-Sonderweg, s. Modul-Doku.
 pub mod kms;
 pub mod kms_aufnahme;
+pub mod kms_helfer;
 pub mod pipewire_stream;
 pub mod portal;
 
