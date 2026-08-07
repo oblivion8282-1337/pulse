@@ -30,11 +30,36 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFIN
 /// haengen damit allein dort vier Stueck. Dazu kommen das Bild in `pending`,
 /// das gerade gezeichnete und das, dessen Zeichendurchgang noch laeuft.
 ///
-/// Zwoelf deckt das mit Reserve und traegt auch 144 Bilder je Sekunde (dort
-/// sind es rund neun im Vorhalt). Der Preis ist Grafikspeicher: ein Platz ist
-/// bei 1080p10 rund 6,6 MB (die Textur ist auf 1920x1152 aufgerundet), bei
-/// 1440p10 rund 11 MB — also 80 bis 140 MB fuer den ganzen Ring. Auf einer
-/// eingebauten Grafikeinheit ist das Systemspeicher.
+/// **Hier stand bis zum 2026-08-07 „Zwoelf deckt das mit Reserve und traegt
+/// auch 144 Bilder je Sekunde (dort sind es rund neun im Vorhalt)". Die
+/// Aufzaehlung war unvollstaendig:** sie zaehlt den Vorhalt, `pending` und die
+/// zwei Bilder im Zeichendurchgang — aber **nicht den Kanal** zwischen
+/// Decoder-Faden und Fenster-Faden (`app/mod.rs`, Fassungsvermoegen 8). Auch
+/// dessen Bilder halten ihren Ringplatz.
+///
+/// Die vollstaendige Rechnung bei 144 fps und 60 ms Vorhalt:
+///
+/// | Wer | Plaetze |
+/// |---|---|
+/// | Warteschlange des Ausgabe-Takts (`app::takt::MAX_WARTEND`) | bis 12 |
+/// | Kanal zum Fenster-Faden | bis 8 |
+/// | `pending`, gezeichnetes und laufendes Bild | 3 |
+/// | Decoder selbst | 1 |
+///
+/// Zusammen genau vierundzwanzig. **Die beiden Zahlen gehoeren zusammen:** wer
+/// `MAX_WARTEND` erhoeht, muss hier mitgehen.
+///
+/// Mit zwoelf Plaetzen war der Ring damit dauerhaft ueberbucht, und der
+/// Decoder wartete in `AcquireSync(..., INFINITE)` auf einen freien Platz.
+/// **Gemessen am 2026-08-07: Stockungen von 0,7 bis 2,3 Sekunden, die mit
+/// `PULSE_PLAYER_ZEROCOPY_RING=24` restlos verschwanden** (Messakte
+/// `streaming/testbench/profiles/player-2026-08-07-ausgabetakt-warteschlange.json`).
+///
+/// Der Preis ist Grafikspeicher: ein Platz ist bei 1080p10 rund 6,6 MB (die
+/// Textur ist auf 1920x1152 aufgerundet), bei 1440p10 rund 11 MB — bei
+/// vierundzwanzig Plaetzen also 160 bis 265 MB. Auf einer eingebauten
+/// Grafikeinheit ist das Systemspeicher; auf der Radeon 780M mit knapp 2 GB
+/// gemessen unauffaellig.
 ///
 /// `PULSE_PLAYER_ZEROCOPY_RING` stellt es um, falls sich das auf einer anderen
 /// Maschine anders darstellt.
@@ -43,7 +68,49 @@ fn ringgroesse() -> usize {
         .ok()
         .and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|n| (2..=64).contains(n))
-        .unwrap_or(12)
+        .unwrap_or(24)
+}
+
+/// Wieviel Grafikspeicher der Ring hoechstens belegen darf.
+///
+/// **Warum ueberhaupt eine Grenze in Byte und nicht nur eine Zahl.** Die
+/// Plaetze sind als Anzahl bemessen, ihr Preis haengt aber an der Bildgroesse:
+/// vierundzwanzig sind bei 1080p10 rund 160 MB, bei 1440p10 rund 265 — und bei
+/// 4K10 rund 600. Auf einer eingebauten Grafikeinheit ist das Systemspeicher,
+/// den sich Player, Sender und Fenstersystem teilen. Eine feste Zahl, die bei
+/// 1440p unauffaellig ist, kann bei 4K das Doppelte des Noetigen binden.
+///
+/// **Ehrlich zur Herkunft der Zahl:** 320 MB sind NICHT gemessen. Auf dieser
+/// Maschine (2 GB fuer die 780M) waren 265 MB bei 1440p unauffaellig — drei
+/// Paare, abwechselnd gefahren, kein Unterschied zu zwoelf Plaetzen. 4K liess
+/// sich hier nicht pruefen, der Schirm gibt nur 1440p her. Die Grenze ist
+/// deshalb als Sicherung gegen den ungeprueften Fall gesetzt, nicht als
+/// gemessenes Optimum, und sie greift bei 1440p und darunter gar nicht.
+const RING_SPEICHER_MAX: usize = 320 * 1024 * 1024;
+
+/// Untergrenze: darunter faengt der Ring den Vorhalt nicht mehr ab, und die
+/// Stockungen aus dem Kopf dieser Datei kaemen zurueck.
+const RING_MIN: usize = 8;
+
+/// Ab wann ein einzelner Wartepunkt der Bruecke gemeldet wird.
+///
+/// Grosszuegig gewaehlt: im gesunden Betrieb liegen beide Wartepunkte unter
+/// einer Millisekunde, gemeldet werden soll nur das, was ein Zuschauer als
+/// Stocken merkt. 100 ms sind rund fuenfzehn ausgefallene Bilder bei 144 fps.
+const LANGSAM: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Die gewuenschte Zahl Plaetze, gedeckelt auf [`RING_SPEICHER_MAX`].
+fn plaetze_im_speicherrahmen(wunsch: usize, breite: u32, hoehe: u32, format: i32) -> usize {
+    // NV12 und P010 tragen Luma plus halbes Chroma, also anderthalb Ebenen;
+    // P010 zusaetzlich zwei Byte je Wert. Aufgerundet, die genaue Belegung
+    // entscheidet der Treiber.
+    let bytes_je_wert = if format == DXGI_FORMAT_P010.0 { 2 } else { 1 };
+    let je_platz = (breite as usize) * (hoehe as usize) * 3 / 2 * bytes_je_wert;
+    if je_platz == 0 {
+        return wunsch;
+    }
+    let passt = RING_SPEICHER_MAX / je_platz;
+    wunsch.min(passt).max(RING_MIN)
 }
 
 struct Ringplatz {
@@ -197,7 +264,7 @@ impl Bruecke {
             MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
                 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
         };
-        let anzahl = ringgroesse();
+        let anzahl = plaetze_im_speicherrahmen(ringgroesse(), breite, hoehe, format);
         let mut ring = Vec::with_capacity(anzahl);
         for i in 0..anzahl {
             let mut tex: Option<ID3D11Texture2D> = None;
@@ -283,9 +350,23 @@ impl Bruecke {
         // Sperre faellt danach in JEDEM Fall — deshalb steht das `?` auf dem
         // Ergebnis erst hinter `entsperren`.
         // SAFETY: alle Ressourcen leben, der Schichtindex stammt aus dem Bild.
+        // **Getrennte Uhr fuer die Anmeldung.** Die Gesamtzeit der Bruecke sagt
+        // nur, DASS es hing (`crate::stockung`), nicht WO — und die beiden
+        // unbegrenzten Wartepunkte hier haben voellig verschiedene Ursachen:
+        // die Anmeldung wartet auf den Renderer, der Zaun auf die Grafikeinheit.
+        // Am 2026-08-07 kostete diese Unterscheidung einen halben Messtag.
+        let anmeldung_uhr = std::time::Instant::now();
         let ergebnis = (|| -> Result<()> {
             unsafe {
                 platz.mutex.AcquireSync(0, INFINITE).context("AcquireSync")?;
+                let angemeldet = anmeldung_uhr.elapsed();
+                if angemeldet >= LANGSAM {
+                    eprintln!(
+                        "pulse-player: Bruecke — Anmeldung am Platz {slot} dauerte {} ms \
+                         (wartet auf den Renderer)",
+                        angemeldet.as_millis()
+                    );
+                }
                 self.kontext
                     .CopySubresourceRegion(&platz.textur, 0, 0, 0, 0, &quelle, schicht, None);
                 platz.mutex.ReleaseSync(0).context("ReleaseSync")?;
@@ -333,6 +414,7 @@ impl Bruecke {
         // ist das der Regelfall.
         // SAFETY: Zaun, Kontext und Ereignis leben; das Ereignis wird nur hier
         // benutzt.
+        let zaun_uhr = std::time::Instant::now();
         unsafe {
             self.kontext.Flush();
             if self.zaun.GetCompletedValue() < self.zaun_wert {
@@ -340,6 +422,14 @@ impl Bruecke {
                     .SetEventOnCompletion(self.zaun_wert, self.zaun_ereignis)
                     .context("SetEventOnCompletion")?;
                 WaitForSingleObject(self.zaun_ereignis, INFINITE);
+            }
+            let gewartet = zaun_uhr.elapsed();
+            if gewartet >= LANGSAM {
+                eprintln!(
+                    "pulse-player: Bruecke — Zaun nach der Kopie dauerte {} ms \
+                     (wartet auf die Grafikeinheit)",
+                    gewartet.as_millis()
+                );
             }
         }
         Ok(())
@@ -355,6 +445,143 @@ impl Bruecke {
         if let Some(f) = self.unlock {
             // SAFETY: wie `sperren`.
             unsafe { f(self.lock_ctx) };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+    use windows::Win32::Graphics::Direct3D11::{
+        D3D11CreateDevice, D3D11_BIND_DECODER, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+        D3D11_SDK_VERSION,
+    };
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
+
+    /// **Die Frage, an der die naechste Ausbaustufe haengt.**
+    ///
+    /// Die Bruecke kopiert je Bild die volle Bildflaeche aus der Textur des
+    /// Decoders in einen eigenen, teilbaren Ring — gemessen am 2026-08-07 rund
+    /// 70 Prozentpunkte Videoeinheit bei 1440p144, mehr als Encodieren und
+    /// Dekodieren zusammen.
+    ///
+    /// Die Kopie liesse sich ganz vermeiden, WENN der Treiber ein Texturfeld
+    /// annimmt, das gleichzeitig `BIND_DECODER` (FFmpeg dekodiert hinein) und
+    /// die Teil-Merker traegt (D3D12 liest heraus). Dann bekaeme FFmpegs
+    /// Bilderpool die Merker ueber `AVD3D11VAFramesContext::MiscFlags` und der
+    /// Player laese unmittelbar aus der Decoder-Textur.
+    ///
+    /// Bei 1440p und darunter greift die Speichergrenze nicht — dort bleibt es
+    /// beim Wunsch. Erst 4K schneidet sie zu, und genau dieser Fall liess sich
+    /// auf der Maschine nicht fahren, auf der die uebrigen Zahlen entstanden.
+    #[test]
+    fn die_speichergrenze_schneidet_erst_oberhalb_von_1440p() {
+        let p010 = DXGI_FORMAT_P010.0;
+        // 1080p und 1440p: unveraendert.
+        assert_eq!(plaetze_im_speicherrahmen(24, 1920, 1152, p010), 24);
+        assert_eq!(plaetze_im_speicherrahmen(24, 2560, 1536, p010), 24);
+        // 4K in 10 bit: rund 25 MB je Platz, also deutlich weniger Plaetze.
+        let vierk = plaetze_im_speicherrahmen(24, 3840, 2176, p010);
+        assert!(vierk < 24, "4K muss zugeschnitten werden, war {vierk}");
+        assert!(vierk >= RING_MIN, "aber nie unter die Untergrenze, war {vierk}");
+        // Auch ein absurd grosses Bild darf den Ring nicht unter RING_MIN
+        // druecken — lieber viel Speicher als ein Ring, der nicht traegt.
+        assert_eq!(plaetze_im_speicherrahmen(24, 15360, 8640, p010), RING_MIN);
+    }
+
+    /// Dieser Test beantwortet das fuer die Maschine, auf der er laeuft. Er
+    /// schlaegt NICHT fehl, wenn der Treiber ablehnt — das ist ein Befund, kein
+    /// Fehler. Er schreibt ihn hin, damit niemand ihn zweimal erhebt.
+    #[test]
+    fn traegt_der_treiber_eine_teilbare_decoder_textur() {
+        let mut device = None;
+        // SAFETY: Standardaufruf; alle Ausgaben optional und geprueft.
+        let hr = unsafe {
+            D3D11CreateDevice(
+                None,
+                D3D_DRIVER_TYPE_HARDWARE,
+                Default::default(),
+                D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                None,
+            )
+        };
+        let Some(device) = hr.ok().and(device) else {
+            eprintln!("PROBE: kein D3D11-Geraet — auf dieser Maschine nicht zu beantworten");
+            return;
+        };
+
+        // `MISC_SHARED` ohne NT-Handle ist der vierte Fall und der einzige, der
+        // ohne Schluessel-Mutex auskaeme. Er steht hier, weil FFmpeg genau ihn
+        // anbietet (`d3d11va_device_create`, Option "SHARED") — er liefert aber
+        // einen alten Handle, und `ID3D12Device::OpenSharedHandle` nimmt nur
+        // NT-Handles. Er ist deshalb nur zur Vollstaendigkeit dabei.
+        const MISC_SHARED_ALT: i32 = 0x2;
+        for (name, format, bind, felder) in [
+            ("NV12 Decoder-Feld", DXGI_FORMAT_NV12, D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0, 16),
+            ("P010 Decoder-Feld", DXGI_FORMAT_P010, D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0, 16),
+            // Gegenprobe OHNE `BIND_DECODER` und mit EINER Schicht: scheitert
+            // "nur NT-teilbar" auch hier, ist der Schluessel-Mutex eine
+            // allgemeine Regel von D3D11 und keine Eigenheit des
+            // Decoder-Merkers. Genau das entscheidet, ob es einen Ausweg gibt.
+            //
+            // Ein FELD mit mehr als einer Schicht laesst sich ohne
+            // `BIND_DECODER` ueberhaupt nicht teilen — mit `ArraySize: 16`
+            // schlugen hier zuerst alle drei Faelle fehl, und die Gegenprobe
+            // sagte damit nichts ueber den Mutex aus.
+            ("P010 einzeln", DXGI_FORMAT_P010, D3D11_BIND_SHADER_RESOURCE.0, 1),
+        ] {
+            for (was, misc) in [
+                ("nur NT-teilbar", D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0),
+                (
+                    "NT-teilbar + Schluessel-Mutex",
+                    D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0,
+                ),
+                ("alt teilbar (ohne NT)", MISC_SHARED_ALT),
+            ] {
+                let desc = D3D11_TEXTURE2D_DESC {
+                    Width: 1920,
+                    Height: 1088,
+                    MipLevels: 1,
+                    ArraySize: felder,
+                    Format: format,
+                    SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: bind as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: misc as u32,
+                };
+                let mut tex: Option<ID3D11Texture2D> = None;
+                // SAFETY: gueltiges Geraet, Deskriptor vollstaendig belegt.
+                let r = unsafe { device.CreateTexture2D(&desc, None, Some(&mut tex)) };
+                match r {
+                    Ok(()) => {
+                        let teilbar = tex
+                            .as_ref()
+                            .and_then(|t| t.cast::<IDXGIResource1>().ok())
+                            // SAFETY: lebende Ressource.
+                            .and_then(|r| unsafe {
+                                r.CreateSharedHandle(None, GENERIC_ALL.0, None).ok()
+                            });
+                        eprintln!(
+                            "PROBE {name} / {was}: Textur JA, Handle {}",
+                            if teilbar.is_some() { "JA" } else { "NEIN" }
+                        );
+                        if let Some(h) = teilbar {
+                            // SAFETY: eigener Handle, nur hier benutzt.
+                            unsafe { let _ = CloseHandle(h); }
+                        }
+                    }
+                    Err(e) => eprintln!("PROBE {name} / {was}: NEIN — {}", e.message()),
+                }
+            }
         }
     }
 }

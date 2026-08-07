@@ -21,13 +21,14 @@
 //! Fernsteuerung ist er falsch — dort zaehlt allein, wie schnell die eigene
 //! Mausbewegung zurueckkommt.
 //!
-//! **HIER STAND BIS ZUM 2026-08-06 „Vorgabe ist deshalb AUS (`vorhalt = 0`)".
-//! Das ist falsch, und zwar seit dem 2026-08-05:** die Vorgabe steht auf
-//! **60 ms** (`proto::AUSGABETAKT_MS_VORGABE`, in `PlayerOptions::defaults`
-//! gesetzt), der Takt ist also EINGESCHALTET, es sei denn, der Aufrufer
-//! schickt ausdruecklich etwas anderes. Die Messung, die das begruendet, steht
-//! an `proto.rs:142`; nachgezogen wurde sie damals nur dort, und diese Zeile
-//! ist eine von vier, die deshalb das Gegenteil behaupteten.
+//! **Die Vorgabe ist AN, nicht aus** (`proto::AUSGABETAKT_MS_VORGABE`, in
+//! `PlayerOptions::defaults` gesetzt) — der Takt laeuft, es sei denn, der
+//! Aufrufer schickt ausdruecklich etwas anderes. Der Wert steht seit dem
+//! 2026-08-07 auf **30 ms**; er war vom 2026-08-05 bis dahin 60, und hier
+//! stand davor „Vorgabe ist deshalb AUS (`vorhalt = 0`)". Beide Male wurde die
+//! Aenderung nur an der Konstanten nachgezogen, und diese Zeile war eine von
+//! vier, die danach das Gegenteil behaupteten. Herleitung und Messwerte
+//! stehen an [`crate::proto::PlayerOptions::ausgabetakt_ms`].
 //!
 //! Bei ausgeschaltetem Vorhalt — also nur noch auf ausdruecklichen Wunsch —
 //! verhaelt sich der Player wie vor diesem Modul: [`Ausgabetakt::einreihen`]
@@ -45,14 +46,41 @@ use std::time::{Duration, Instant};
 
 use crate::decode::DecodedFrame;
 
-/// Wie viele Bilder hoechstens warten duerfen.
+/// Untergrenze der Warteschlange — auch ohne bekannten Bildabstand.
 ///
-/// Nicht die Zeit begrenzt hier, sondern der Speicher: ein Bild in 1440p mit
-/// 10 bit sind rund 11 MB in den Ebenen-Puffern. Acht sind bei 60 fps ein
-/// Vorhalt von 133 ms — mehr als hier je sinnvoll ist. Laeuft es trotzdem
-/// voll, wird das aelteste verworfen und gezaehlt, statt den Speicher wachsen
-/// zu lassen.
-const MAX_WARTEND: usize = 8;
+/// **Hier stand bis zum 2026-08-07 eine FESTE Grenze von 8 Bildern, begruendet
+/// mit „Acht sind bei 60 fps ein Vorhalt von 133 ms — mehr als hier je sinnvoll
+/// ist". Die Rechnung stimmt, ihre Annahme nicht:** sie geht von 60 fps aus.
+/// Der Vorhalt braucht `Bildrate × Vorhalt` Plaetze, und das sind bei der
+/// Vorgabe von 60 ms erst ab **133 fps** mehr als acht. Darueber lief die
+/// Warteschlange dauerhaft ueber, und die Bilder wurden **vor ihrem
+/// Zielzeitpunkt** wieder herausgeworfen — sie kamen also nie zur Anzeige.
+///
+/// Gemessen bei 720p — damit die Grafikeinheit als Ursache ausscheidet: von
+/// 144 dekodierten Bildern kamen mit 60 ms Vorhalt nur 42 bis 58 je Sekunde
+/// zur Anzeige, mit 40 ms alle 144. Alle Arme und die Rechnung:
+/// `streaming/testbench/profiles/player-2026-08-07-ausgabetakt-warteschlange.json`.
+const MIN_WARTEND: usize = 8;
+
+/// Obergrenze der Warteschlange.
+///
+/// Hier begrenzt wirklich der Speicher, und zwar doppelt: ein Bild in 1440p mit
+/// 10 bit sind rund 11 MB in den Ebenen-Puffern, und auf dem Zero-Copy-Weg
+/// belegt **jedes wartende Bild einen Platz im Ring** der Bruecke.
+///
+/// **Diese Zahl haengt an der Ringgroesse und darf nicht allein geaendert
+/// werden.** Der Ring hat 24 Plaetze, und sie sind vergeben: 12 hier, 8 im
+/// Kanal zum Fenster-Faden, 4 fuer `pending`, das gezeichnete Bild, den
+/// laufenden Durchgang und den Decoder. Der Haushalt steht ausgeschrieben an
+/// `zerocopy::bruecke::ringgroesse`; wer hier erhoeht, muss dort mitgehen —
+/// sonst wartet der Decoder auf einen freien Platz, und das sind Stockungen
+/// von Sekunden.
+///
+/// Zwoelf tragen den Vorgabe-Vorhalt von 30 ms bis rund 360 Bilder je Sekunde
+/// (bei den 60 ms, die bis zum 2026-08-07 Vorgabe waren, nur bis 180).
+/// Darueber kuerzt [`Ausgabetakt::wirksamer_vorhalt`] den Vorhalt und meldet
+/// es einmal im Klartext, statt still zu verwerfen.
+const MAX_WARTEND: usize = 12;
 
 /// Ab dieser Abweichung zwischen Ziel und Sollzeit wird der Anker neu gesetzt.
 ///
@@ -106,6 +134,26 @@ pub struct Ausgabetakt {
     neu_verankert: u64,
     /// Wie oft der Anker auf eine kuerzere Laufzeit nachgezogen wurde.
     nachgezogen: u64,
+    /// Bilder, die die Warteschlange **vor ihrem Zielzeitpunkt** wieder
+    /// verlassen mussten, weil kein Platz mehr war. Bis zum 2026-08-07 gab es
+    /// den Zaehler nicht — der Kommentar an der Grenze behauptete „wird das
+    /// aelteste verworfen und gezaehlt", und gezaehlt wurde es nie. Genau
+    /// deshalb blieb der Fehler so lange unbemerkt.
+    verdraengt: u64,
+    /// Geschaetzter Abstand zweier Bilder auf der Senderuhr. Daraus folgt, wie
+    /// viele Plaetze der eingestellte Vorhalt ueberhaupt braucht.
+    ///
+    /// **Aus den RTP-Zeitstempeln, NICHT aus den Zielzeitpunkten.** Die
+    /// verschiebt [`Ausgabetakt::ziel`] selbst (Nachziehen, Neuverankern geben
+    /// `soll` zurueck); der erste Anlauf am 2026-08-07 schaetzte darueber 45 us
+    /// statt 6,9 ms und verlangte 1314 Plaetze statt zehn.
+    bildabstand: Option<Duration>,
+    /// Zeitstempel des zuletzt eingereihten Bildes — Bezugspunkt fuer den
+    /// Bildabstand.
+    letzter_rtp: Option<u32>,
+    /// Damit die Warnung „Vorhalt passt nicht in die Warteschlange" einmal
+    /// kommt und nicht je Bild.
+    gewarnt: bool,
 }
 
 impl Ausgabetakt {
@@ -117,7 +165,53 @@ impl Ausgabetakt {
             verspaetet: 0,
             neu_verankert: 0,
             nachgezogen: 0,
+            verdraengt: 0,
+            bildabstand: None,
+            letzter_rtp: None,
+            gewarnt: false,
         }
+    }
+
+    /// Wie viele Plaetze der eingestellte Vorhalt bei der aktuellen Bildrate
+    /// braucht — plus zwei Reserve fuer Schwankung. `None`, solange kein
+    /// Bildabstand bekannt ist (erstes Bild, Bilder ohne Zeitstempel).
+    fn noetige_plaetze(&self) -> Option<usize> {
+        let abstand = self.bildabstand.filter(|d| !d.is_zero())?;
+        Some((self.vorhalt.as_nanos() / abstand.as_nanos()) as usize + 2)
+    }
+
+    /// Das Noetige, begrenzt auf das Moegliche.
+    ///
+    /// **Solange der Bildabstand unbekannt ist, gilt die OBERgrenze, nicht die
+    /// untere.** Die ersten Bilder sind genau die, bei denen die Bildrate noch
+    /// nicht feststeht — mit der Untergrenze zu beginnen hiesse, bei jedem
+    /// Sitzungsstart einige Bilder zu verdraengen, nur weil noch niemand
+    /// nachgesehen hat. Grosszuegig zu starten kostet nichts: der Ring ist
+    /// ohnehin fuer [`MAX_WARTEND`] ausgelegt.
+    fn kapazitaet(&self) -> usize {
+        self.noetige_plaetze().unwrap_or(MAX_WARTEND).clamp(MIN_WARTEND, MAX_WARTEND)
+    }
+
+    /// Der Vorhalt, den die Warteschlange bei dieser Bildrate wirklich tragen
+    /// kann — hoechstens der eingestellte.
+    ///
+    /// **Warum gekuerzt und nicht verworfen wird.** Passt der gewuenschte
+    /// Vorhalt nicht in die Plaetze, gab es bis zum 2026-08-07 nur eine
+    /// Antwort: Bilder vor ihrem Zeitpunkt wegwerfen. Bei 240 fps und 60 ms
+    /// waren das gemessen zwei Drittel des Stroms — von 240 dekodierten kamen
+    /// 17 bis 162 an, im Mittel rund 70.
+    ///
+    /// Ein etwas kuerzerer Vorhalt ist in jeder Hinsicht das bessere Geschaeft:
+    /// er kostet Glaettung im Millisekundenbereich, waehrend das Wegwerfen
+    /// ganze Bilder kostet. Und er macht die Bildrate zu einer Zahl, die man
+    /// frei waehlen kann — vorher gab es eine Klippe, die niemand sah.
+    fn wirksamer_vorhalt(&self) -> Duration {
+        let Some(abstand) = self.bildabstand.filter(|d| !d.is_zero()) else {
+            return self.vorhalt;
+        };
+        // Zwei Plaetze bleiben Reserve fuer Schwankung — dieselben zwei, die
+        // `noetige_plaetze` aufschlaegt.
+        self.vorhalt.min(abstand * (MAX_WARTEND as u32 - 2))
     }
 
     /// Laeuft der Takt ueberhaupt? Bei `0` ist alles hier ein Durchreichen.
@@ -141,6 +235,13 @@ impl Ausgabetakt {
         self.nachgezogen
     }
 
+    /// Bilder, die vor ihrem Zielzeitpunkt aus der Warteschlange fielen.
+    /// **Muss im Betrieb 0 sein** — jeder andere Wert heisst, dass der Vorhalt
+    /// mehr Plaetze braucht, als es gibt.
+    pub fn verdraengt(&self) -> u64 {
+        self.verdraengt
+    }
+
     /// Vorhalt zur Laufzeit aendern (`set_option`).
     ///
     /// Der Anker faellt dabei weg: ein geaenderter Vorhalt verschiebt jeden
@@ -154,6 +255,9 @@ impl Ausgabetakt {
         }
         self.vorhalt = neu;
         self.anker = None;
+        // Ein anderer Vorhalt braucht eine andere Zahl Plaetze — die Warnung
+        // darf danach wieder kommen, sonst bleibt der neue Wert stumm falsch.
+        self.gewarnt = false;
         let jetzt = Instant::now();
         for (ziel, _) in self.warteschlange.iter_mut() {
             *ziel = jetzt;
@@ -171,6 +275,36 @@ impl Ausgabetakt {
         self.warteschlange.front().map(|(t, _)| *t)
     }
 
+    /// Den Bildabstand aus der Senderuhr fortschreiben.
+    ///
+    /// Geglaettet, weil ein einzelner Ausreisser die Kapazitaet sonst je Bild
+    /// springen liesse. Unplausible Spruenge — rueckwaerts oder ueber eine
+    /// Sekunde — gehen gar nicht erst ein: das ist ein Bruch der Zeitreihe, den
+    /// [`Ausgabetakt::ziel`] ueber `NEU_VERANKERN` abfaengt.
+    fn bildabstand_fortschreiben(&mut self, frame: &DecodedFrame) {
+        let (Some(rtp), takt) = (frame.rtp_ts, frame.clock_rate) else { return };
+        if takt == 0 {
+            return;
+        }
+        let vorher = self.letzter_rtp.replace(rtp);
+        let Some(vorher) = vorher else { return };
+        // Derselbe vorzeichenbehaftete Weg wie in `ziel` — der Zaehler laeuft
+        // bei 90 kHz nach gut 13 Stunden ueber.
+        let abstand = rtp.wrapping_sub(vorher) as i32;
+        if abstand <= 0 {
+            return;
+        }
+        let us = i64::from(abstand) * 1_000_000 / i64::from(takt);
+        if us <= 0 || us > 1_000_000 {
+            return;
+        }
+        let roh = Duration::from_micros(us as u64);
+        self.bildabstand = Some(match self.bildabstand {
+            Some(alt) => (alt * 7 + roh) / 8,
+            None => roh,
+        });
+    }
+
     /// Ein frisch dekodiertes Bild aufnehmen.
     pub fn einreihen(&mut self, frame: Box<DecodedFrame>, jetzt: Instant) {
         let ziel = self.ziel(&frame, jetzt);
@@ -186,9 +320,28 @@ impl Ausgabetakt {
             Some((letztes, _)) if *letztes > ziel => *letztes,
             _ => ziel,
         };
+        self.bildabstand_fortschreiben(&frame);
         self.warteschlange.push_back((ziel, frame));
-        while self.warteschlange.len() > MAX_WARTEND {
+
+        let kapazitaet = self.kapazitaet();
+        // Reicht selbst die Obergrenze nicht, ist der eingestellte Vorhalt bei
+        // dieser Bildrate nicht zu halten. Das EINMAL sagen — sonst verwirft
+        // der Player wieder still, nur mit anderen Zahlen.
+        if !self.gewarnt && self.aktiv() {
+            if let Some(noetig) = self.noetige_plaetze().filter(|n| *n > MAX_WARTEND) {
+                self.gewarnt = true;
+                eprintln!(
+                    "pulse-player: Ausgabe-Takt {} ms braucht {noetig} Plaetze, es gibt \
+                     {MAX_WARTEND} — Vorhalt auf {} ms gekuerzt. Das kostet etwas \
+                     Glaettung und ist billiger als weggeworfene Bilder.",
+                    self.vorhalt_ms(),
+                    self.wirksamer_vorhalt().as_millis(),
+                );
+            }
+        }
+        while self.warteschlange.len() > kapazitaet {
             self.warteschlange.pop_front();
+            self.verdraengt += 1;
         }
     }
 
@@ -231,7 +384,11 @@ impl Ausgabetakt {
         if takt == 0 {
             return jetzt;
         }
-        let soll = jetzt + self.vorhalt;
+        // **Der WIRKSAME Vorhalt, nicht der eingestellte** — sonst bekaemen die
+        // Bilder Zielzeitpunkte, fuer die es keine Plaetze gibt, und faellt
+        // genau der Fehler wieder an, den `wirksamer_vorhalt` abwendet.
+        let vorhalt = self.wirksamer_vorhalt();
+        let soll = jetzt + vorhalt;
         let Some(anker) = self.anker.as_ref().filter(|a| a.takt == takt) else {
             self.anker = Some(Anker { rtp, lokal: soll, takt });
             return soll;
@@ -286,8 +443,8 @@ impl Ausgabetakt {
         // gewordene Strecke faengt `NEU_VERANKERN` ab); ein Anker, der
         // Ausreissern nach oben folgte, waere wieder der Fehler von eben.
         let vorlauf = z.saturating_duration_since(jetzt);
-        if vorlauf > self.vorhalt {
-            let zuviel = vorlauf - self.vorhalt;
+        if vorlauf > vorhalt {
+            let zuviel = vorlauf - vorhalt;
             self.nachgezogen += 1;
             if let Some(a) = self.anker.as_mut() {
                 if let Some(frueher) = a.lokal.checked_sub(zuviel) {
@@ -455,7 +612,8 @@ mod tests {
         assert!(t.faellig(jetzt).0.is_some(), "ohne Zeitstempel sofort");
     }
 
-    /// Die Warteschlange darf nicht wachsen — ein Bild sind Megabyte.
+    /// Die Warteschlange darf nicht wachsen — ein Bild sind Megabyte, und auf
+    /// dem Zero-Copy-Weg ausserdem ein Ringplatz.
     #[test]
     fn die_warteschlange_ist_gedeckelt() {
         let mut t = Ausgabetakt::neu(500);
@@ -463,7 +621,108 @@ mod tests {
         for k in 0..40 {
             t.einreihen(bild(k * 1500), t0);
         }
-        assert_eq!(t.warteschlange.len(), MAX_WARTEND);
+        // Alle 40 zur SELBEN Uhrzeit: dann zieht `ziel` den Anker bei jedem
+        // Bild nach und gibt denselben Zeitpunkt zurueck, es gibt also gar
+        // keinen Bildabstand zu schaetzen. Die Kapazitaet bleibt deshalb bei
+        // der Untergrenze — geprueft wird hier die Deckelung als solche, nicht
+        // ihre Hoehe (die hat `bei_144_fps_und_60_ms_vorhalt_...`).
+        assert!(
+            t.warteschlange.len() <= MAX_WARTEND,
+            "die Warteschlange darf nie ueber die Obergrenze wachsen, war {}",
+            t.warteschlange.len()
+        );
+        assert!(t.verdraengt() > 0, "das Verdraengen muss gezaehlt werden");
+    }
+
+    /// **Der Fehler vom 2026-08-07.** Bei 144 fps und 60 ms Vorhalt braucht der
+    /// Takt 8,6 Plaetze. Mit der alten festen Grenze von acht fielen die Bilder
+    /// VOR ihrem Zielzeitpunkt wieder heraus — gemessen kamen von 144 nur 42
+    /// bis 58 je Sekunde zur Anzeige.
+    #[test]
+    fn bei_144_fps_und_60_ms_vorhalt_faellt_nichts_vorzeitig_heraus() {
+        let mut t = Ausgabetakt::neu(60);
+        let t0 = Instant::now();
+        // 625 RTP-Takte bei 90 kHz = 6,94 ms = 144 Bilder je Sekunde.
+        let schritt = Duration::from_micros(6_944);
+        let mut jetzt = t0;
+        for k in 0..200u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 625), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        assert_eq!(
+            t.verdraengt(),
+            0,
+            "kein Bild darf vor seinem Zeitpunkt herausfallen (Kapazitaet {})",
+            t.kapazitaet()
+        );
+        assert!(
+            t.kapazitaet() > MIN_WARTEND,
+            "60 ms bei 144 fps brauchen mehr als {MIN_WARTEND} Plaetze, gerechnet wurden {}",
+            t.kapazitaet()
+        );
+    }
+
+    /// **Die Bildrate darf keine Klippe mehr haben.** Bei 240 fps passt der
+    /// eingestellte Vorhalt von 60 ms nicht in die Plaetze (16 noetig, 12 da).
+    /// Statt Bilder wegzuwerfen — gemessen kamen von 240 nur 17 bis 162 an —
+    /// wird der Vorhalt gekuerzt.
+    #[test]
+    fn sehr_hohe_bildrate_kuerzt_den_vorhalt_statt_bilder_zu_verwerfen() {
+        let mut t = Ausgabetakt::neu(60);
+        let t0 = Instant::now();
+        // 375 RTP-Takte bei 90 kHz = 4,17 ms = 240 Bilder je Sekunde.
+        let schritt = Duration::from_micros(4_167);
+        let mut jetzt = t0;
+        for k in 0..50u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 375), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        // Beim Einstieg steht die Bildrate noch nicht fest und der Anker liegt
+        // auf dem vollen Vorhalt; ein paar Bilder gehen dabei verloren. Das ist
+        // hinzunehmen und wird deshalb nur gedeckelt, nicht wegdefiniert.
+        let nach_dem_anlauf = t.verdraengt();
+        assert!(nach_dem_anlauf <= 8, "der Anlauf darf nicht teuer sein, war {nach_dem_anlauf}");
+        // **Das ist die eigentliche Zusicherung:** im Dauerbetrieb faellt nichts
+        // mehr heraus, egal wie hoch die Bildrate ist.
+        for k in 50..300u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 375), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        assert_eq!(
+            t.verdraengt(),
+            nach_dem_anlauf,
+            "im Dauerbetrieb darf kein Bild mehr vorzeitig herausfallen"
+        );
+        assert!(
+            t.wirksamer_vorhalt() < Duration::from_millis(60),
+            "der Vorhalt muss gekuerzt worden sein, war {:?}",
+            t.wirksamer_vorhalt()
+        );
+        assert!(
+            t.wirksamer_vorhalt() >= Duration::from_millis(35),
+            "aber nicht mehr als noetig, war {:?}",
+            t.wirksamer_vorhalt()
+        );
+    }
+
+    /// Die Gegenprobe: bei 60 fps genuegen acht Plaetze weiterhin, es wird also
+    /// kein Speicher verschenkt.
+    #[test]
+    fn bei_60_fps_bleibt_es_bei_der_untergrenze() {
+        let mut t = Ausgabetakt::neu(60);
+        let t0 = Instant::now();
+        let schritt = Duration::from_micros(16_667);
+        let mut jetzt = t0;
+        for k in 0..60u32 {
+            jetzt = t0 + schritt * k;
+            t.einreihen(bild(k * 1500), jetzt);
+            let _ = t.faellig(jetzt);
+        }
+        assert_eq!(t.kapazitaet(), MIN_WARTEND);
+        assert_eq!(t.verdraengt(), 0);
     }
 
     /// Ein geaenderter Vorhalt darf keine Bilder mit Zeitpunkten aus der alten

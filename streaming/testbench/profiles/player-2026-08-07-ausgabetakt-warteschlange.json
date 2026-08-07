@@ -1,0 +1,113 @@
+{
+  "datum": "2026-08-07",
+  "titel": "Der Ausgabe-Takt warf Bilder weg, bevor sie faellig waren - und der Zero-Copy-Ring war ueberbucht",
+  "anlass": "Nutzermeldung: HQ-Streams laufen im nativen Player deutlich schlechter als im Electron-Fenster. Ausdruecklich auch auf einer dedizierten RTX 5080 auf einer anderen Maschine, und auch als reiner Zuschauer ohne eigenen Sender. Damit schied der Streit um die eine Videoeinheit der APU als Erklaerung aus.",
+
+  "maschine": {
+    "cpu_gpu": "AMD Radeon 780M (RDNA3-APU), Windows 11 26200",
+    "schirm": "LG ULTRAGEAR 2560x1440 bei 144 Hz",
+    "strecke": "Hetzner-Messstand pulse.unicutmedia.com, MediaMTX, WHIP hin / WHEP zurueck"
+  },
+
+  "verfahren": {
+    "werkzeug": "eigenes Skript nach dem Muster von streaming/win-hq-labor/testbench/hdr-ansehen.ps1: Sender (pulse-win-hq-sidecar) und Player (pulse-player) auf derselben Maschine ueber den Messstand, Player mit PULSE_PLAYER_STATS_LOG=1",
+    "quelle_der_zahlen": "die Statistikzeile des Players je Sekunde; angegeben ist die Spanne der letzten fuenf Zeilen eines Laufs",
+    "grenze": "Der Sender nimmt den Monitor auf, auf dem das Player-Fenster steht. Der Bildinhalt ist damit dauernd in Bewegung - fuer eine Bildraten-Messung unschaedlich, fuer eine Aussage ueber Duplizierung nicht brauchbar.",
+    "warum_720p": "Ein Neuntel der Bildpunkte von 1440p. Bleibt die gezeichnete Bildrate dabei gleich, kann die Grafikeinheit nicht die Ursache sein. Genau das war der Fall."
+  },
+
+  "befund_1": {
+    "was": "MAX_WARTEND (Warteschlange des Ausgabe-Takts) stand fest auf 8 Bildern. Der Vorhalt braucht aber Bildrate x Vorhalt Plaetze. Bei der Vorgabe von 60 ms sind das ab 133 fps mehr als acht - darueber fielen die Bilder VOR ihrem Zielzeitpunkt wieder heraus und erreichten die Anzeige nie.",
+    "warum_unbemerkt": "Der Doc-Kommentar an der Grenze behauptete 'wird das aelteste verworfen und gezaehlt'. Gezaehlt wurde es nie. Der Player warf bei 144 fps rund 90 Bilder je Sekunde weg und meldete in keiner Zeile etwas davon.",
+    "belegende_laeufe_720p_alle_sonst_gleich": [
+      { "arm": "144 fps, Vorhalt 60 ms (Vorgabe)", "dekodiert_pro_s": "143-145", "gezeichnet_pro_s": "42-58", "bildabstand_ms": "0,2-130", "netz_bis_schirm_ms": "57-60" },
+      { "arm": "144 fps, Vorhalt 40 ms", "dekodiert_pro_s": "143-145", "gezeichnet_pro_s": "127-144", "bildabstand_ms": "5,6-8,1 (0 zu spaet)", "netz_bis_schirm_ms": "39-43" },
+      { "arm": "144 fps, Vorhalt aus", "dekodiert_pro_s": "144-145", "gezeichnet_pro_s": "129-145", "bildabstand_ms": "0,2-24,7", "netz_bis_schirm_ms": "3,0" },
+      { "arm": "100 fps, Vorhalt 60 ms", "dekodiert_pro_s": "95-101", "gezeichnet_pro_s": "92-100", "bildabstand_ms": "8,8-11,3 (0 zu spaet)", "netz_bis_schirm_ms": "47-59" }
+    ],
+    "rechnung": "144 x 0,060 s = 8,6 Plaetze > 8 -> kaputt. 144 x 0,040 = 5,8 <= 8 -> heil. 100 x 0,060 = 6,0 <= 8 -> heil. Schwelle also 8 / 0,060 s = 133 fps.",
+    "ausgeschlossen": "Aufweckrate des Fensters. Eine Grenze durch die Windows-Timeraufloesung (15,6 ms = 64/s) haette auch bei 100 fps gegriffen; dort wurden 96/s gezeichnet."
+  },
+
+  "befund_2": {
+    "was": "Der Ring der Zero-Copy-Bruecke hatte 12 Plaetze. Jedes wartende Bild belegt einen - auch die im Kanal zwischen Decoder- und Fenster-Faden (Fassungsvermoegen 8). Die Begruendung im Code zaehlte den Kanal nicht mit.",
+    "haushalt_vorher": "Warteschlange 8 + Kanal 8 + pending/gezeichnet/laufend 3 + Decoder 1 = 20 bei 12 Plaetzen",
+    "wirkung": "Der Decoder wartete in AcquireSync(..., INFINITE) auf einen freien Platz. Gemessen als 'Stockung im Decoder' von 720 bis 2345 ms, davon die volle Zeit in der Zero-Copy-Bruecke.",
+    "gegenprobe": "Derselbe Lauf (1440p, 144 fps, Vorgabe-Takt) nur mit PULSE_PLAYER_ZEROCOPY_RING=24: keine einzige Stockung. Die Bildrate blieb dabei kaputt (19-41/s), weil Befund 1 unberuehrt war - die beiden Fehler sind damit sauber getrennt."
+  },
+
+  "behebung": {
+    "takt": "Kapazitaet wird aus Vorhalt und gemessenem Bildabstand gerechnet (+2 Reserve), zwischen 8 und 12 begrenzt. Verdraengte Bilder werden gezaehlt (neuer Zaehler 'verdraengt' in der Takt-Zeile) und ein nicht haltbarer Vorhalt wird einmal im Klartext gemeldet.",
+    "ring": "Vorgabe 12 -> 24, mit ausgeschriebenem Haushalt. MAX_WARTEND und Ringgroesse haengen zusammen und sind nur gemeinsam zu aendern.",
+    "fehlversuch_wert_zu_wissen": "Der erste Schaetzer nahm den Abstand ZWEIER ZIELZEITPUNKTE. Den verschiebt 'ziel' aber selbst (Nachziehen des Ankers, Neuverankern geben 'soll' zurueck), zwei aufeinanderfolgende liegen dann Mikrosekunden auseinander. Geschaetzt wurden 45 us statt 6,9 ms, der Takt verlangte 1314 Plaetze. Der Bildabstand muss aus den RTP-Zeitstempeln kommen - die Senderuhr ist die einzige Quelle, die nichts anderes misst."
+  },
+
+  "abnahme_720p_144fps_vorgabe_takt": {
+    "vorher": { "gezeichnet_pro_s": "42-58", "bildabstand_ms": "0,2-130", "verdraengt": "ungezaehlt, rund 90/s" },
+    "nachher": { "gezeichnet_pro_s": "126-144", "bildabstand_ms": "5,6-8,0 (0 zu spaet)", "verdraengt": "14 im ganzen Lauf", "stockungen": 0 }
+  },
+
+  "ZURUECKGEZOGEN_befund_3_und_5": {
+    "was_hier_stand": "Befund 3 behauptete, die Zero-Copy-Bruecke koste rund 70 Prozentpunkte Videoeinheit (110 % mit, 39 % ohne) und sei damit teurer als Encodieren und Dekodieren zusammen. Befund 5 leitete daraus eine 'Klippe bei rund 300 Mpix/s' ab: 1080p144 und 1440p60 unauffaellig, 1440p144 bei 110 %.",
+    "warum_es_faellt": "Beide Aussagen stuetzten sich auf EINZELLAEUFE von 20 bis 30 Sekunden. Eine saubere A/B mit drei Paaren, abwechselnd gefahren (1440p bei 144 fps, Ringgroesse 12 gegen 24), ergibt: Ring 12 -> 23,1 / 39,0 / 24,5 %, Ring 24 -> 24,4 / 24,1 / 23,9 %. Die Arme sind nicht unterscheidbar, und der uebliche Wert liegt bei rund 24 % - nicht bei 110. Die 110 % und die 76 % waren Ausreisser, vermutlich Laeufe mit einer Stockung oder mit Fremdlast.",
+    "lehre": "Die Streuung dieser Messung ist groesser als die Effekte, die hier gesucht wurden. Einzelne Laeufe taugen fuer den Ausgabe-Takt (Faktor drei, in jedem Lauf sichtbar), nicht fuer Unterschiede in der GPU-Last. Wer hier etwas behauptet, faehrt Paare, abwechselnd, und nennt alle Werte.",
+    "was_stattdessen_gilt": "Bei 1440p und 144 fps liegt die Videoeinheit des Players bei rund 24 %, und trotzdem werden nur 80 bis 94 von 144 Bildern gezeichnet. Die Grafikeinheit ist also NICHT der Engpass. Was den Deckel setzt, ist unbekannt - der Kanal zwischen Decoder- und Fenster-Faden laeuft mit rund 50 Bildern je Sekunde ueber, obwohl der Fenster-Faden je Bild nur rund 1 ms arbeitet (hochladen 0,0 ms, ausgeben 1,0 ms). Das ist die naechste offene Frage und ausdruecklich nicht beantwortet."
+  },
+
+  "HISTORISCH_befund_3_die_zero_copy_bruecke_kostet_die_videoeinheit": {
+    "korrektur": "In einer frueheren Fassung dieser Akte stand, der verbleibende Engpass bei 1440p144 sei 'plausibel die Videoeinheit der 780M, die gleichzeitig encodiert und dekodiert'. DAS IST WIDERLEGT. Gemessen wurde die GPU-Last je Prozess und Engine-Typ - der Sender ist gar nicht der Verursacher.",
+    "messung_1440p_144fps_videoeinheit_mittel_ueber_30_s": {
+      "pulse-player_zero_copy_an": "110 % (Spitze 216 %)",
+      "pulse-player_zero_copy_aus": "39 % (Spitze 210 %)",
+      "pulse-win-hq-sidecar_encodiert_denselben_strom": "29-32 % (Spitze 35-41 %)"
+    },
+    "schluss": "Der Sender encodiert 2560x1440 bei 144 fps mit 29 % der Videoeinheit. Der Player braucht fuers Dekodieren desselben Stroms 39 % - plausibel. Die Zero-Copy-Bruecke legt darauf noch rund 70 Prozentpunkte. Sie ist damit teurer als Encodieren und Dekodieren zusammen.",
+    "warum": "bruecke.rs::kopieren macht je Bild ein CopySubresourceRegion der vollen Bildflaeche auf FFMPEGS D3D11-Kontext - demselben, den der Decoder benutzt. Auf AMD landet eine Kopie aus einer DXVA-gebundenen Decoder-Textur damit auf der VIDEOEINHEIT und konkurriert unmittelbar mit dem Dekodieren. Dazu kommt je Bild ein Flush() plus WaitForSingleObject(INFINITE) auf der CPU, das Dekodieren und Kopieren vollstaendig serialisiert.",
+    "das_wort_zero_copy_ist_irrefuehrend": "Der Weg heisst so, weil das Bild den Hauptspeicher nicht sieht. Eine Kopie IN DER GPU macht er sehr wohl - eine je Bild, 1440p, 144 mal je Sekunde.",
+    "richtung_der_behebung": "Die Kopie ganz vermeiden, statt sie zu verbilligen - ob das geht, beantwortet befund_4.",
+    "nicht_proportional": "Bei 720p und 240 fps kostet die Bruecke fast nichts: 17,1 % gesamt, gegenueber rund 16 % fuer das reine Dekodieren desselben Pixeldurchsatzes. Bei 1440p144 sind es 71 Prozentpunkte. Der Pixeldurchsatz steigt dabei nur um das 2,4-fache (221 auf 531 Mpix/s), die Last um das 6,4-fache. Der Aufwand waechst also ueberproportional mit der Bildgroesse - das passt zu einem Entkachel-Schritt beim Herauskopieren aus dem Decoder-Speicher, ist aber nicht bewiesen."
+  },
+
+  "befund_4_kann_die_kopie_ganz_entfallen": {
+    "frage": "Die Kopie waere vermeidbar, wenn FFmpegs Bilderpool selbst teilbar angelegt wird (AVD3D11VAFramesContext::MiscFlags) und D3D12 unmittelbar aus der Decoder-Textur liest. Bedingung dafuer ist, dass Treiber und API das hergeben.",
+    "probe_im_code": "streaming/pulse-player/src/zerocopy/bruecke.rs, Test `traegt_der_treiber_eine_teilbare_decoder_textur`. Er schlaegt bei Ablehnung NICHT fehl - das waere ein Befund ueber die Maschine, kein Fehler im Programm.",
+    "ergebnis_radeon_780m_treiber_32_0_31035_1003": {
+      "Decoder-Feld (ArraySize 16, BIND_DECODER), nur NT-teilbar": "NEIN (Falscher Parameter)",
+      "Decoder-Feld, NT-teilbar + Schluessel-Mutex": "Textur JA, Handle JA",
+      "Decoder-Feld, alt teilbar ohne NT": "Textur JA, Handle NEIN",
+      "Einzeltextur ohne BIND_DECODER, nur NT-teilbar": "NEIN (Falscher Parameter)",
+      "Einzeltextur, NT-teilbar + Schluessel-Mutex": "Textur JA, Handle JA",
+      "Einzeltextur, alt teilbar ohne NT": "Textur JA, Handle NEIN"
+    },
+    "messfehler_beim_ersten_anlauf": "Die Gegenprobe lief zuerst ebenfalls mit ArraySize 16. Ein Feld mit mehr als einer Schicht laesst sich ohne BIND_DECODER gar nicht teilen, also schlugen dort alle drei Faelle fehl - und die Gegenprobe sagte damit nichts ueber den Mutex aus. Mit einer Schicht wiederholt.",
+    "antwort": "Technisch offen, aber nicht ohne Preis - und der Preis liegt NICHT beim Treiber: (1) D3D12 kann nur NT-Handles einbinden. (2) Ein NT-Handle verlangt IMMER den Schluessel-Mutex; das gilt auch fuer eine gewoehnliche Einzeltextur, ist also eine allgemeine Regel von D3D11 und keine Eigenheit des Decoder-Merkers. (3) Der alte Teil-Merker kaeme ohne Mutex aus, liefert aber keinen NT-Handle. (4) FFmpeg fasst den Schluessel-Mutex NIE an: in libavutil/hwcontext_d3d11va.c kommen AcquireSync, ReleaseSync und IDXGIKeyedMutex kein einziges Mal vor; BindFlags und MiscFlags werden unveraendert an CreateTexture2D durchgereicht (geprueft am Quelltext von FFmpeg master, 2026-08-07).",
+    "was_das_bedeutet": "Wer die Kopie streichen will, muss den Schluessel-Mutex SELBST fuehren: um jeden Dekodier-Aufruf herum anmelden und freigeben, und ebenso um den Lesezugriff der Anzeige. Der Player besitzt seine Dekodier-Schleife, kann das also. Aber der Mutex gilt fuer das GANZE Texturfeld - Dekodieren und Anzeigen wuerden sich gegenseitig sperren, wo heute nur kopiert wird. Ob das unterm Strich gewinnt, ist eine Messfrage und keine Ueberlegung.",
+    "noch_offen": "NVIDIA und Intel sind ungeprueft - auf dieser Maschine ist keine solche Karte. Der Test laeuft dort mit und schreibt die Antwort hin."
+  },
+
+  "befund_5_wieviel_vorhalt_es_braucht": {
+    "ZURUECKGEZOGEN_durchsatz_klippe": "Hier stand eine 'Klippe bei rund 300 Mpix/s'. Sie faellt mit befund_3, s. ZURUECKGEZOGEN_befund_3_und_5. Die Einzelwerte (720p240 = 17 %, 1440p60 = 11 %, 1080p144 = 16 %) sind fuer sich plausibel und untereinander vertraeglich; allein der Ausreisser bei 1440p144 machte daraus eine Klippe, und den gibt es nicht.",
+    "vorhalt_nachgemessen": "Die Messung vom 2026-08-05 deckte nur 0 und 60 ms ab. Nachgeholt bei 1080p144, sonst alles gleich: 60 ms -> 61 ms Netz-bis-Schirm, 2-5 zu spaet je Sekunde; 30 ms -> 33 ms, 2-4 zu spaet; 20 ms -> 21-27 ms, 3-13 zu spaet. Dreissig halbiert die Verzoegerung ohne Verlust an Gleichmaessigkeit; bei zwanzig broeckelt es. Vorgabe deshalb auf 30 ms gesetzt.",
+    "nebenwirkung": "Der Vorhalt braucht Bildrate x Vorhalt Plaetze. Mit 30 ms tragen die vorhandenen zwoelf bis rund 360 Bilder je Sekunde, mit 60 ms nur bis 180. Die kleinere Vorgabe entschaerft also zugleich die Klippe aus befund_1.",
+    "speichergrenze_fuer_den_ring": "Die Ringgroesse ist als ANZAHL bemessen, ihr Preis haengt aber an der Bildgroesse: 24 Plaetze sind bei 1080p10 rund 160 MB, bei 1440p10 rund 265, bei 4K10 rund 600. Deshalb deckelt `plaetze_im_speicherrahmen` den Ring jetzt zusaetzlich auf 320 MB (Untergrenze 8 Plaetze). Bei 1440p und darunter greift das gar nicht. **Die 320 MB sind NICHT gemessen** - 4K liess sich auf dieser Maschine nicht fahren, der Schirm gibt nur 1440p her. Es ist eine Sicherung gegen den ungeprueften Fall, kein Optimum.",
+    "abnahme_1080p_144_alles_zusammen": "gezeichnet 134 von 159 dekodiert, Netz-bis-Schirm 31,4 ms, Player auf der Videoeinheit 16 %, verdraengt 3, keine Stockung."
+  },
+
+  "befund_6_was_bei_1440p144_wirklich_fehlt": {
+    "frage": "Nach der Behebung des Ausgabe-Takts blieben bei 1440p und 144 fps im Median 80 bis 94 gezeichnete Bilder statt 144, bei nur rund 24 % Last auf der Videoeinheit. Die Grafikeinheit ist also nicht der Engpass. Was setzt den Deckel?",
+    "es_ist_kein_deckel_sondern_ein_aussetzer": "Die Sekundenwerte schwanken nicht um einen Mittelwert, sie springen: 144, 113, 4, 71, 57 / 143, 72, 112, 4, 28. In den gesunden Sekunden werden 112 bis 144 Bilder gezeichnet - also praktisch alles. In den uebrigen 0 bis 4. Der Median taeuscht einen Dauerzustand vor, den es nicht gibt.",
+    "widerlegte_zwischenannahme": "Erst vermutet, die 2-Sekunden-Anzeigesperre nach einer Luecke (`decode::refresh_dauer`, Vorgabe 2000 ms) fresse die Bilder - bei 144 fps waeren das 288 je Luecke. Dafuer wurde der bis dahin fehlende Zaehler `frames_dropped` in die Statistikzeile aufgenommen. Er steht in JEDER Zeile auf 0. Die Sperre feuert nicht.",
+    "wo_es_wirklich_haengt": "Drei Stockungen je 22-Sekunden-Lauf, jede vollstaendig in der Zero-Copy-Bruecke, jede auf einem EINZIGEN Bild: 720 bis 2424 ms. Die Bruecke hat zwei unbegrenzte Wartepunkte; sie wurden getrennt instrumentiert (Schwelle 100 ms). Ergebnis, in zwei Laeufen identisch: Anmeldung am Schluessel-Mutex (wartet auf den Renderer) 0 Meldungen, Zaun nach der Kopie (wartet auf die Grafikeinheit) 3 Meldungen mit 715, 2338, 2364 bzw. 715, 2384, 2399 ms.",
+    "das_heisst": "Die Grafikeinheit braucht fuer eine einfache Kopie zwischen 0,7 und 2,4 Sekunden, waehrend sie zu rund 76 % unbeschaeftigt ist. Es ist weder Saettigung noch ein Schloss im Programm noch der Renderer. Die Werte haeufen sich ausserdem eng um 715 und um 2350 ms - diese Regelmaessigkeit deutet auf eine feste Frist im Treiber, nicht auf Last.",
+    "kein_tdr": "Naheliegend waere ein Zuruecksetzen des Grafiktreibers (Windows-Vorgabe TdrDelay = 2 s, was gut zu 2350 ms passt). Das Systemprotokoll zeigt in drei Stunden Messbetrieb KEIN einziges Display-Ereignis (Id 4101/4102/13/14). Es sind also keine protokollierten TDRs.",
+    "warum_es_so_weh_tut": "Die Wartezeit blockiert den Decoder-Faden, und das ist derselbe Faden, der die RTP-Pakete abholt (`session::run`, kein Kanal zwischen Depacketisierung und Dekodierung). Zwei Sekunden ohne Abholung lassen den Puffer ueberlaufen, und der Verlust sieht hinterher aus wie Paketverlust auf der Leitung. Das ist der Verstaerker, der aus einem Ruckler eine Fehlerserie macht - beschrieben als Punkt 2 in docs/2026-08-06-player-performance-amd-windows.md.",
+    "naechster_schritt_nicht_gemacht": "Zwei Ebenen. (1) Abfedern, risikoarm: die Dekodierung vom RTP-Abholen entkoppeln, damit eine Stockung ein Ruckler bleibt statt einer Verlustserie zu werden. (2) Ursache: warum der Zaun so lange braucht. Kandidaten sind der Schluessel-Mutex-Weg des AMD-Treibers und das Auslagern der geteilten Textur. Beides ungeprueft."
+  },
+
+  "offen": {
+    "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
+    "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."
+  },
+
+  "rohdaten": "streaming/testbench/profiles/rohdaten/ - nicht abgelegt: die Laeufe stehen vollstaendig in den <arm>-player.log des Messlaufs, sie enthalten aber Pfade des Messstands. Die Zahlen oben sind die Statistikzeilen daraus."
+}

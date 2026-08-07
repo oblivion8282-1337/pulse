@@ -168,11 +168,11 @@ struct Session {
     farbe: decode::Farbangaben,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
-    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT 60 ms Vorhalt**
-    /// (`proto::AUSGABETAKT_MS_VORGABE`); hier stand bis zum 2026-08-06 „bei
-    /// ausgeschaltetem Vorhalt — der Vorgabe —", und das ist seit dem
-    /// 2026-08-05 falsch. Nur ausdruecklich abgeschaltet reicht er jedes Bild
-    /// unveraendert durch.
+    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT Vorhalt**
+    /// (`proto::AUSGABETAKT_MS_VORGABE`, seit 2026-08-07 30 ms, davor 60);
+    /// hier stand bis zum 2026-08-06 „bei ausgeschaltetem Vorhalt — der
+    /// Vorgabe —", und das war schon damals falsch. Nur ausdruecklich
+    /// abgeschaltet reicht er jedes Bild unveraendert durch.
     takt: Ausgabetakt,
     /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
     /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
@@ -628,7 +628,16 @@ impl App {
             )
         });
         // Der Ausgabe-Takt bekommt eine eigene Zeile, und nur wenn er laeuft.
-        // **`verspaetet` ist dabei die Kontrollzahl, nicht `gap_late`**: steigt
+        //
+        // **`verdraengt` ist die erste Zahl, auf die zu sehen ist, und sie muss
+        // 0 sein.** Alles andere heisst: der Vorhalt braucht mehr Plaetze in
+        // der Warteschlange, als es gibt, und Bilder fliegen VOR ihrem
+        // Zeitpunkt heraus — sie erreichen die Anzeige also nie. Genau das lief
+        // bis zum 2026-08-07 bei 144 fps, ungezaehlt und unbemerkt (rund 90
+        // Bilder je Sekunde). Begruendung und Messung: `app/takt.rs`.
+        //
+        // **`verspaetet` ist die Kontrollzahl fuer den Vorhalt selbst, nicht
+        // `gap_late`**: steigt
         // sie, ist der Vorhalt kleiner als die Schwankung der Strecke, und dann
         // taktet nichts mehr — die Ausgabe-Abstaende in der Zeile darueber
         // saehen aus wie ohne Takt, ohne dass etwas darauf hinweist.
@@ -638,11 +647,12 @@ impl App {
         let takt_zeile = session.takt.aktiv().then(|| {
             format!(
                 ": Ausgabe-Takt {} ms Vorhalt, verspaetet {}, neu verankert {}, \
-                 nachgezogen {}",
+                 nachgezogen {}, verdraengt {}",
                 session.takt.vorhalt_ms(),
                 session.takt.verspaetet(),
                 session.takt.neu_verankert(),
                 session.takt.nachgezogen(),
+                session.takt.verdraengt(),
             )
         });
         let st = &session.stats;
@@ -657,7 +667,15 @@ impl App {
                 "Abstand {:.1}-{:.1} ms ({} zu spaet), ",
                 "Ankunft max {:.1} ms ({} ueber 5 ms), ",
                 "dekodieren {:.1}/{:.1} ms, Netz-bis-Schirm {:.1}/{:.1} ms, ",
-                "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}"
+                "{} kbit/s, Paketverlust {}, Puffer {} Pakete, uebersprungen {}, ",
+                // **Der Eimer, der bis zum 2026-08-07 fehlte.** Die Zeile nannte
+                // dekodierte und gezeichnete Bilder und zwei Verlustzaehler —
+                // aber nicht den groessten: nach einer Luecke gilt das Bild
+                // `refresh_dauer()` lang als unsauber (Vorgabe 2 s!), und JEDES
+                // Bild in dieser Zeit wird weggeworfen. Bei 144 fps sind das bis
+                // zu 288 Stueck je Luecke. Ohne diese Zahl gingen bei 1440p rund
+                // 60 Bilder je Sekunde verloren, ohne dass eine Zeile sagte wohin.
+                "davon nach Luecke verworfen {}"
             ),
             id,
             st.fps.map_or_else(|| "?".to_string(), |v| v.to_string()),
@@ -680,6 +698,7 @@ impl App {
             st.packets_lost,
             st.buffered_packets,
             st.frames_skipped,
+            st.frames_dropped,
         );
         // Getrennte Zeile statt eines weiteren Platzhalters in der grossen:
         // die Sonde laeuft nur im Pruefstand, und die Zeile oben soll im
@@ -827,7 +846,7 @@ impl App {
                     return;
                 }
                 // Ueber den Ausgabe-Takt einreihen statt direkt uebernehmen.
-                // In der Vorgabe (60 ms Vorhalt) liegt das Bild danach
+                // In der Vorgabe (30 ms Vorhalt) liegt das Bild danach
                 // wirklich eine Weile, und der zweite Weg (`about_to_wait`)
                 // holt es ab. Nur bei ausdruecklich abgeschaltetem Vorhalt ist
                 // es im selben Zug wieder faellig — hier stand bis zum
@@ -927,7 +946,7 @@ impl ApplicationHandler<UserEvent> for App {
     ///
     /// **Hier stand bis zum 2026-08-06 „und das ist der Vorgabefall mit
     /// ausgeschaltetem Vorhalt". Das ist falsch, und es dreht die Aussage um:**
-    /// die Vorgabe sind 60 ms Vorhalt (seit 2026-08-05), damit ist die
+    /// die Vorgabe ist ein Vorhalt (seit 2026-08-07 30 ms), damit ist die
     /// Warteschlange im laufenden Betrieb praktisch NIE leer — der Schnellweg
     /// ist zum Ausnahmefall geworden und die `Vec` weiter unten faellt bei
     /// jedem Durchlauf an. Wirkung minimal, aber die Begruendung stimmt so
