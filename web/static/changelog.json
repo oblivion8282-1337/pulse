@@ -2,6 +2,55 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-08",
+      "date": "2026-08-08",
+      "style": "Sachlich",
+      "title": "Wiedergabefenster und Tonaussetzer behoben",
+      "intro": "Zwei Fehler im eigenen Wiedergabefenster, die beim Zuschauen auffielen.",
+      "items": [
+        "Behoben: Wer die Vorgabe \"immer im eigenen Fenster\" gesetzt hatte, konnte das Fenster nicht mehr schliessen — es ging sofort wieder auf, und nach einigen Runden blieb die Kachel schwarz stehen. Ein geschlossenes Fenster gilt jetzt als Entscheidung des Zuschauers und wird nicht mehr ueberschrieben.",
+        "Behoben: Der Ton setzte nach jeder kleinen Schwankung der Leitung rund eine Zehntelsekunde lang aus, statt einfach weiterzulaufen. Neu gefuellt wird nur noch, wenn der Vorrat wirklich aufgebraucht ist.",
+        "Diese Aussetzer tauchten bisher in keiner Statistik auf und werden jetzt mitgezaehlt."
+      ]
+    },
+    {
+      "id": "2026-08-07.8",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Eigenen Stream im eigenen Fenster ansehen — und die App bleibt bedienbar",
+      "intro": "Wer waehrend des Streamens auf sein eigenes Live-Symbol klickte und das eigene Wiedergabefenster waehlte, brachte damit die App zum Erliegen.",
+      "items": [
+        "Behoben: Das Fenster ging auf, zeigte kurz Bild und wurde sofort wieder geschlossen. Danach lief die App in einer Endlosschleife aus Oeffnen und Schliessen und war nur noch durch vollstaendiges Beenden zu retten; auch der laufende Stream liess sich nicht mehr stoppen.",
+        "Ursache war eine Aufraeumung, die den eigenen Stream absichtlich ausschliesst — das ist fuer die Verbindung im Hintergrund richtig, galt aber versehentlich auch fuer das bewusst geoeffnete Fenster.",
+        "Den eigenen Stream im eigenen Fenster anzusehen ist ausdruecklich vorgesehen: nur dort lassen sich HDR und 10 Bit beurteilen, das eingebaute Bild zeigt beides nicht.",
+        "Zusaetzlich gibt es jetzt eine Bremse: sollte ein Fenster nochmals wiederholt geschlossen und neu geoeffnet werden, faellt die Kachel auf die eingebaute Anzeige zurueck, statt die App zu blockieren."
+      ]
+    },
+    {
+      "id": "2026-08-07.7",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Fehlerberichte aus dem Wiedergabefenster sind jetzt aussagekraeftig",
+      "intro": "Betrifft nur, wer die Uebermittlung von Diagnosedaten eingeschaltet hat — sie bleibt unveraendert abwaehlbar, und die uebertragene Datenmenge aendert sich nicht.",
+      "items": [
+        "Das Wiedergabefenster kann seit heute je Sekunde festhalten, was der Sender wirklich schickt, welche Einstellungen tatsaechlich greifen und an welcher Stelle Bilder verlorengehen. Diese Angaben hingen an einem Schalter, den die App nie gesetzt hat — sie fehlten also in jedem Fehlerbericht.",
+        "Wer die Uebermittlung abgewaehlt hat, schreibt auch weiterhin nichts davon mit."
+      ]
+    },
+    {
+      "id": "2026-08-07.6",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Eigenes Wiedergabefenster: noch einmal deutlich fluessiger",
+      "intro": "Nachtrag zur Verbesserung von vorhin. Es gab eine zweite Stelle, an der fertig dekodierte Bilder weggeworfen wurden, bevor sie angezeigt werden konnten.",
+      "items": [
+        "Behoben: Zwischen Dekodieren und Anzeigen lag ein Zwischenspeicher fuer acht Bilder. Kamen kurzzeitig mehr an — was bei hohen Aufloesungen der Regelfall ist —, wurden die uebrigen verworfen, ohne dass ihr Anzeigezeitpunkt ueberhaupt betrachtet wurde.",
+        "Bei 1920x1080 mit 144 Bildern je Sekunde kommen damit jetzt alle 144 an; zuvor waren es 67 bis 91.",
+        "Bei 2560x1440 mit 144 Bildern je Sekunde ist es besser, aber noch nicht vollstaendig geloest. Die Ursache dafuer liegt nach derzeitigem Stand nicht im Wiedergabefenster, sondern darin, dass die Bilder bereits ungleichmaessig ankommen.",
+        "Das Fehlerprotokoll bremst die App nicht mehr aus: bei einer Stoerung konnten bisher tausende Meldungen je Sekunde auflaufen und dabei genau die Verzoegerungen erzeugen, die sie eigentlich festhalten sollten."
+      ]
+    },
+    {
       "id": "2026-08-07.5",
       "date": "2026-08-07",
       "style": "Sachlich",

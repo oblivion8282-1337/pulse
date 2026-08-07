@@ -278,6 +278,33 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    Schreiber getestet (400 Zeilen während der Rotation): keine Null-Bytes, keine
    beschädigte Zeile, alle Zeilen erhalten.
 
+   **Installer-Aufräumung** (wöchentlich, Host-Crontab): Jeder `win-build` legt
+   einen NSIS-Installer (~144 MB) in `~/pulse/updates-win` ab, und **nichts holte
+   ihn je wieder weg**. Am 2026-08-07 lagen dort 40 Stück mit zusammen 5,9 GB —
+   jede je veröffentlichte Version ab 0.1.0, bei aktuellem Tempo rund 2,5 GB im
+   Monat. `updates-prune.sh` behält die jüngsten fünf, die in `latest.yml`
+   genannte und `Pulse-Setup-latest.exe`:
+   ```sh
+   40 4 * * 0  ~/pulse/infra/prod/updates-prune.sh --apply >> ~/pulse/infra/prod/updates-prune.log 2>&1
+   ```
+   Erstlauf am 2026-08-07: 34 Installer gelöscht, 5,1 GB frei, 760 MB verbleibend;
+   danach `latest.yml`, der referenzierte Installer und der Direktdownload
+   nachweislich weiter über HTTPS abrufbar.
+
+   **Die `.blockmap`-Dateien bleiben ALLE liegen** (je ~155 KB, zusammen wenige
+   MB): aus ihnen rechnet electron-updater die differenzielle Aktualisierung.
+   Sie zu löschen spart nichts und kann Bestandsclients zum vollen Download
+   zwingen.
+
+   **Alte Installer sind kein Sicherheitsnetz für die Auto-Update-Kette** — der
+   Updater läuft mit `allowDowngrade=false` (s. `CLAUDE.md`), eine kaputte
+   Fassung lässt sich also *nicht* durch Zurückstellen von `latest.yml`
+   zurücknehmen. Sie dienen nur dem Aushelfen von Hand, und dafür genügen
+   wenige. Das Skript bricht ab, wenn `latest.yml` fehlt oder kein `path:`
+   nennt — ohne sie ist nicht bekannt, welche Fassung ausgeliefert wird, und ein
+   Fehlgriff nähme allen Bestandsclients das Update. Trockenlauf ist die
+   Vorgabe: ohne `--apply` wird nur angezeigt.
+
    **Warum zwei Schritte:** Ohne `--delete-untagged` (s. Warnung unten) räumt die GC
    allein nichts mehr auf — jede überschriebene Revision hält ihre Blobs weiter fest.
    Das Prune-Skript löscht deshalb gezielt Tags **samt Index und Kind-Manifesten**;

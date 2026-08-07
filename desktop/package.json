@@ -1,6 +1,6 @@
 {
   "name": "@dcc/desktop",
-  "version": "0.1.49",
+  "version": "0.1.52",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "Pulse desktop wrapper (Electron)",
@@ -16,7 +16,7 @@
     "dist:win": "pnpm run build:electron && electron-builder --win --publish never",
     "bundle:mac-sidecar": "cd ../streaming/mac-hq-sidecar && cargo build --release && bash scripts/bundle-dylibs.sh target/release/pulse-mac-hq-sidecar target/release/hq-sidecar",
     "dist:mac": "pnpm run build:electron && pnpm run bundle:mac-sidecar && electron-builder --mac --publish never",
-    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/hostLifecycle.test.ts test/serverSupersede.test.ts test/serverGiveUp.test.ts test/serverCloudStatus.test.ts test/autostart.test.ts test/sidecarLogNoise.test.ts test/sidecarCrashDetector.test.ts test/localBackend/*.test.ts"
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/hostLifecycle.test.ts test/serverSupersede.test.ts test/serverGiveUp.test.ts test/serverCloudStatus.test.ts test/autostart.test.ts test/sidecarLogNoise.test.ts test/sidecarLogDrossel.test.ts test/sidecarCrashDetector.test.ts test/localBackend/*.test.ts"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
