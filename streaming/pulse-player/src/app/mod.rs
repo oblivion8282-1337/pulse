@@ -609,7 +609,16 @@ impl App {
             )
         });
         // Der Ausgabe-Takt bekommt eine eigene Zeile, und nur wenn er laeuft.
-        // **`verspaetet` ist dabei die Kontrollzahl, nicht `gap_late`**: steigt
+        //
+        // **`verdraengt` ist die erste Zahl, auf die zu sehen ist, und sie muss
+        // 0 sein.** Alles andere heisst: der Vorhalt braucht mehr Plaetze in
+        // der Warteschlange, als es gibt, und Bilder fliegen VOR ihrem
+        // Zeitpunkt heraus — sie erreichen die Anzeige also nie. Genau das lief
+        // bis zum 2026-08-07 bei 144 fps, ungezaehlt und unbemerkt (rund 90
+        // Bilder je Sekunde). Begruendung und Messung: `app/takt.rs`.
+        //
+        // **`verspaetet` ist die Kontrollzahl fuer den Vorhalt selbst, nicht
+        // `gap_late`**: steigt
         // sie, ist der Vorhalt kleiner als die Schwankung der Strecke, und dann
         // taktet nichts mehr — die Ausgabe-Abstaende in der Zeile darueber
         // saehen aus wie ohne Takt, ohne dass etwas darauf hinweist.
@@ -619,11 +628,12 @@ impl App {
         let takt_zeile = session.takt.aktiv().then(|| {
             format!(
                 ": Ausgabe-Takt {} ms Vorhalt, verspaetet {}, neu verankert {}, \
-                 nachgezogen {}",
+                 nachgezogen {}, verdraengt {}",
                 session.takt.vorhalt_ms(),
                 session.takt.verspaetet(),
                 session.takt.neu_verankert(),
                 session.takt.nachgezogen(),
+                session.takt.verdraengt(),
             )
         });
         let st = &session.stats;

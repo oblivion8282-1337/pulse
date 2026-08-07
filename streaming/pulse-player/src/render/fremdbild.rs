@@ -33,14 +33,15 @@ pub struct Import {
     /// **Hier stand die Bindegruppe frueher NICHT, sie entstand je Bild neu**,
     /// mit der Begruendung „der Ring rotiert je Bild, die Ansichten sind also
     /// andere". Das erklaert nur, warum EINE feste Gruppe nicht reicht — nicht,
-    /// warum zwoelf feste es nicht taeten. Alle fuenf Bestandteile sind je
+    /// warum eine je Ringplatz es nicht taete. Alle fuenf Bestandteile sind je
     /// Ringplatz unveraenderlich (die beiden Ebenen-Ansichten, die Blindtextur,
     /// der Sampler und der Uniform-Puffer; letzterer wird beschrieben, nicht neu
     /// gebunden). `create_bind_group` ist in wgpu nicht billig — Layout-Pruefung,
     /// Deskriptoren in den shader-sichtbaren Haufen, fuenf Arc-Klone in die
     /// Ressourcen-Verfolgung —, und die alte Gruppe ging jedes Bild in die
     /// verzoegerte Zerstoerung. Bei 60 Bildern je Sekunde waren das 60 Gruppen
-    /// statt zwoelf.
+    /// je Sekunde statt einer je Ringplatz und Sitzung (heute 24, bis zum
+    /// 2026-08-07 zwoelf — hier stand deshalb „statt zwoelf").
     pub bindegruppe: wgpu::BindGroup,
     /// Die Bindung fuer den Fingerabdruck (nur die Luma-Ansicht, s.
     /// [`super::abdruck`]). Aus demselben Grund hier wie `bindegruppe`: je

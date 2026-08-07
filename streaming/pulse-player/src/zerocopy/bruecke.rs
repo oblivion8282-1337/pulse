@@ -30,11 +30,36 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFIN
 /// haengen damit allein dort vier Stueck. Dazu kommen das Bild in `pending`,
 /// das gerade gezeichnete und das, dessen Zeichendurchgang noch laeuft.
 ///
-/// Zwoelf deckt das mit Reserve und traegt auch 144 Bilder je Sekunde (dort
-/// sind es rund neun im Vorhalt). Der Preis ist Grafikspeicher: ein Platz ist
-/// bei 1080p10 rund 6,6 MB (die Textur ist auf 1920x1152 aufgerundet), bei
-/// 1440p10 rund 11 MB — also 80 bis 140 MB fuer den ganzen Ring. Auf einer
-/// eingebauten Grafikeinheit ist das Systemspeicher.
+/// **Hier stand bis zum 2026-08-07 „Zwoelf deckt das mit Reserve und traegt
+/// auch 144 Bilder je Sekunde (dort sind es rund neun im Vorhalt)". Die
+/// Aufzaehlung war unvollstaendig:** sie zaehlt den Vorhalt, `pending` und die
+/// zwei Bilder im Zeichendurchgang — aber **nicht den Kanal** zwischen
+/// Decoder-Faden und Fenster-Faden (`app/mod.rs`, Fassungsvermoegen 8). Auch
+/// dessen Bilder halten ihren Ringplatz.
+///
+/// Die vollstaendige Rechnung bei 144 fps und 60 ms Vorhalt:
+///
+/// | Wer | Plaetze |
+/// |---|---|
+/// | Warteschlange des Ausgabe-Takts (`app::takt::MAX_WARTEND`) | bis 12 |
+/// | Kanal zum Fenster-Faden | bis 8 |
+/// | `pending`, gezeichnetes und laufendes Bild | 3 |
+/// | Decoder selbst | 1 |
+///
+/// Zusammen genau vierundzwanzig. **Die beiden Zahlen gehoeren zusammen:** wer
+/// `MAX_WARTEND` erhoeht, muss hier mitgehen.
+///
+/// Mit zwoelf Plaetzen war der Ring damit dauerhaft ueberbucht, und der
+/// Decoder wartete in `AcquireSync(..., INFINITE)` auf einen freien Platz.
+/// **Gemessen am 2026-08-07: Stockungen von 0,7 bis 2,3 Sekunden, die mit
+/// `PULSE_PLAYER_ZEROCOPY_RING=24` restlos verschwanden** (Messakte
+/// `streaming/testbench/profiles/player-2026-08-07-ausgabetakt-warteschlange.json`).
+///
+/// Der Preis ist Grafikspeicher: ein Platz ist bei 1080p10 rund 6,6 MB (die
+/// Textur ist auf 1920x1152 aufgerundet), bei 1440p10 rund 11 MB — bei
+/// vierundzwanzig Plaetzen also 160 bis 265 MB. Auf einer eingebauten
+/// Grafikeinheit ist das Systemspeicher; auf der Radeon 780M mit knapp 2 GB
+/// gemessen unauffaellig.
 ///
 /// `PULSE_PLAYER_ZEROCOPY_RING` stellt es um, falls sich das auf einer anderen
 /// Maschine anders darstellt.
@@ -43,7 +68,7 @@ fn ringgroesse() -> usize {
         .ok()
         .and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|n| (2..=64).contains(n))
-        .unwrap_or(12)
+        .unwrap_or(24)
 }
 
 struct Ringplatz {

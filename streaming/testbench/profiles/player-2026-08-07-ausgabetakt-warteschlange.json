@@ -1,0 +1,56 @@
+{
+  "datum": "2026-08-07",
+  "titel": "Der Ausgabe-Takt warf Bilder weg, bevor sie faellig waren - und der Zero-Copy-Ring war ueberbucht",
+  "anlass": "Nutzermeldung: HQ-Streams laufen im nativen Player deutlich schlechter als im Electron-Fenster. Ausdruecklich auch auf einer dedizierten RTX 5080 auf einer anderen Maschine, und auch als reiner Zuschauer ohne eigenen Sender. Damit schied der Streit um die eine Videoeinheit der APU als Erklaerung aus.",
+
+  "maschine": {
+    "cpu_gpu": "AMD Radeon 780M (RDNA3-APU), Windows 11 26200",
+    "schirm": "LG ULTRAGEAR 2560x1440 bei 144 Hz",
+    "strecke": "Hetzner-Messstand pulse.unicutmedia.com, MediaMTX, WHIP hin / WHEP zurueck"
+  },
+
+  "verfahren": {
+    "werkzeug": "eigenes Skript nach dem Muster von streaming/win-hq-labor/testbench/hdr-ansehen.ps1: Sender (pulse-win-hq-sidecar) und Player (pulse-player) auf derselben Maschine ueber den Messstand, Player mit PULSE_PLAYER_STATS_LOG=1",
+    "quelle_der_zahlen": "die Statistikzeile des Players je Sekunde; angegeben ist die Spanne der letzten fuenf Zeilen eines Laufs",
+    "grenze": "Der Sender nimmt den Monitor auf, auf dem das Player-Fenster steht. Der Bildinhalt ist damit dauernd in Bewegung - fuer eine Bildraten-Messung unschaedlich, fuer eine Aussage ueber Duplizierung nicht brauchbar.",
+    "warum_720p": "Ein Neuntel der Bildpunkte von 1440p. Bleibt die gezeichnete Bildrate dabei gleich, kann die Grafikeinheit nicht die Ursache sein. Genau das war der Fall."
+  },
+
+  "befund_1": {
+    "was": "MAX_WARTEND (Warteschlange des Ausgabe-Takts) stand fest auf 8 Bildern. Der Vorhalt braucht aber Bildrate x Vorhalt Plaetze. Bei der Vorgabe von 60 ms sind das ab 133 fps mehr als acht - darueber fielen die Bilder VOR ihrem Zielzeitpunkt wieder heraus und erreichten die Anzeige nie.",
+    "warum_unbemerkt": "Der Doc-Kommentar an der Grenze behauptete 'wird das aelteste verworfen und gezaehlt'. Gezaehlt wurde es nie. Der Player warf bei 144 fps rund 90 Bilder je Sekunde weg und meldete in keiner Zeile etwas davon.",
+    "belegende_laeufe_720p_alle_sonst_gleich": [
+      { "arm": "144 fps, Vorhalt 60 ms (Vorgabe)", "dekodiert_pro_s": "143-145", "gezeichnet_pro_s": "42-58", "bildabstand_ms": "0,2-130", "netz_bis_schirm_ms": "57-60" },
+      { "arm": "144 fps, Vorhalt 40 ms", "dekodiert_pro_s": "143-145", "gezeichnet_pro_s": "127-144", "bildabstand_ms": "5,6-8,1 (0 zu spaet)", "netz_bis_schirm_ms": "39-43" },
+      { "arm": "144 fps, Vorhalt aus", "dekodiert_pro_s": "144-145", "gezeichnet_pro_s": "129-145", "bildabstand_ms": "0,2-24,7", "netz_bis_schirm_ms": "3,0" },
+      { "arm": "100 fps, Vorhalt 60 ms", "dekodiert_pro_s": "95-101", "gezeichnet_pro_s": "92-100", "bildabstand_ms": "8,8-11,3 (0 zu spaet)", "netz_bis_schirm_ms": "47-59" }
+    ],
+    "rechnung": "144 x 0,060 s = 8,6 Plaetze > 8 -> kaputt. 144 x 0,040 = 5,8 <= 8 -> heil. 100 x 0,060 = 6,0 <= 8 -> heil. Schwelle also 8 / 0,060 s = 133 fps.",
+    "ausgeschlossen": "Aufweckrate des Fensters. Eine Grenze durch die Windows-Timeraufloesung (15,6 ms = 64/s) haette auch bei 100 fps gegriffen; dort wurden 96/s gezeichnet."
+  },
+
+  "befund_2": {
+    "was": "Der Ring der Zero-Copy-Bruecke hatte 12 Plaetze. Jedes wartende Bild belegt einen - auch die im Kanal zwischen Decoder- und Fenster-Faden (Fassungsvermoegen 8). Die Begruendung im Code zaehlte den Kanal nicht mit.",
+    "haushalt_vorher": "Warteschlange 8 + Kanal 8 + pending/gezeichnet/laufend 3 + Decoder 1 = 20 bei 12 Plaetzen",
+    "wirkung": "Der Decoder wartete in AcquireSync(..., INFINITE) auf einen freien Platz. Gemessen als 'Stockung im Decoder' von 720 bis 2345 ms, davon die volle Zeit in der Zero-Copy-Bruecke.",
+    "gegenprobe": "Derselbe Lauf (1440p, 144 fps, Vorgabe-Takt) nur mit PULSE_PLAYER_ZEROCOPY_RING=24: keine einzige Stockung. Die Bildrate blieb dabei kaputt (19-41/s), weil Befund 1 unberuehrt war - die beiden Fehler sind damit sauber getrennt."
+  },
+
+  "behebung": {
+    "takt": "Kapazitaet wird aus Vorhalt und gemessenem Bildabstand gerechnet (+2 Reserve), zwischen 8 und 12 begrenzt. Verdraengte Bilder werden gezaehlt (neuer Zaehler 'verdraengt' in der Takt-Zeile) und ein nicht haltbarer Vorhalt wird einmal im Klartext gemeldet.",
+    "ring": "Vorgabe 12 -> 24, mit ausgeschriebenem Haushalt. MAX_WARTEND und Ringgroesse haengen zusammen und sind nur gemeinsam zu aendern.",
+    "fehlversuch_wert_zu_wissen": "Der erste Schaetzer nahm den Abstand ZWEIER ZIELZEITPUNKTE. Den verschiebt 'ziel' aber selbst (Nachziehen des Ankers, Neuverankern geben 'soll' zurueck), zwei aufeinanderfolgende liegen dann Mikrosekunden auseinander. Geschaetzt wurden 45 us statt 6,9 ms, der Takt verlangte 1314 Plaetze. Der Bildabstand muss aus den RTP-Zeitstempeln kommen - die Senderuhr ist die einzige Quelle, die nichts anderes misst."
+  },
+
+  "abnahme_720p_144fps_vorgabe_takt": {
+    "vorher": { "gezeichnet_pro_s": "42-58", "bildabstand_ms": "0,2-130", "verdraengt": "ungezaehlt, rund 90/s" },
+    "nachher": { "gezeichnet_pro_s": "126-144", "bildabstand_ms": "5,6-8,0 (0 zu spaet)", "verdraengt": "14 im ganzen Lauf", "stockungen": 0 }
+  },
+
+  "offen": {
+    "1440p_bei_144_fps": "Auf DIESER APU bleibt es auch nach der Behebung bei 34-83 gezeichneten Bildern je Sekunde. Dort greift ein zweiter, auflOesungsabhaengiger Engpass: 'dekodieren' steigt von 2,2 auf 4,9-7,3 ms je Bild, und der Kanal zum Fenster-Faden laeuft mit rund 50 Bildern je Sekunde ueber. Das ist NICHT der Ausgabe-Takt (verdraengt 12 im ganzen Lauf) und plausibel die Videoeinheit der 780M, die gleichzeitig 1440p144 encodiert und dekodiert. Auf einer dedizierten Karte ist dieser zweite Engpass nicht zu erwarten; ungeprueft, weil hier keine vorhanden.",
+    "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert."
+  },
+
+  "rohdaten": "streaming/testbench/profiles/rohdaten/ - nicht abgelegt: die Laeufe stehen vollstaendig in den <arm>-player.log des Messlaufs, sie enthalten aber Pfade des Messstands. Die Zahlen oben sind die Statistikzeilen daraus."
+}

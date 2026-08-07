@@ -305,10 +305,17 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
 
 **Was noch daran haengt:**
 
-- Ein Ring aus 12 geteilten Texturen, rund 80 MB bei 1080p10 und 140 MB bei
-  1440p10 (`PULSE_PLAYER_ZEROCOPY_RING`). Zwoelf, weil der Ausgabe-Takt allein
-  vier Bilder haelt; mit vier Plaetzen schaltete sich der Weg nach dem ersten
-  Bild ab.
+- Ein Ring aus 24 geteilten Texturen, rund 160 MB bei 1080p10 und 265 MB bei
+  1440p10 (`PULSE_PLAYER_ZEROCOPY_RING`). **Hier stand bis zum 2026-08-07
+  „12 … Zwoelf, weil der Ausgabe-Takt allein vier Bilder haelt" — die
+  Aufzaehlung war unvollstaendig:** sie vergass den Kanal zum Fenster-Faden
+  (Fassungsvermoegen 8), dessen Bilder ebenfalls einen Ringplatz halten. Mit
+  zwoelf war der Ring dauerhaft ueberbucht und der Decoder wartete in
+  `AcquireSync(..., INFINITE)` — gemessen als Stockungen von 0,7 bis 2,3
+  Sekunden, die mit 24 Plaetzen verschwanden. Der Haushalt steht jetzt
+  ausgeschrieben an `zerocopy::bruecke::ringgroesse` und haengt mit
+  `app::takt::MAX_WARTEND` zusammen; **die beiden Zahlen sind nur gemeinsam zu
+  aendern.**
 - Ein CPU-Zaun nach der Kopie. Eine ueber `OpenSharedHandle` geoeffnete
   Ressource stellt keinen `IDXGIKeyedMutex` bereit, und wgpu 29 bietet keinen
   Warte-Aufruf auf seiner Warteschlange an. Das ist die naechste Stelle, an der
@@ -318,7 +325,10 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
   (`Bildform::nutzanteil`), statt einen Ausschnitt zu kopieren.
 - Eine Bindegruppe je Ringplatz, nicht je Bild — sie liegt im
   `fremdbild`-Zwischenspeicher. Das ist der Unterschied zwischen 0,1-0,2 und
-  0,0-0,1 ms Hochladen (zwoelf statt sechzig Bindegruppen je Sekunde).
+  0,0-0,1 ms Hochladen (eine Bindegruppe je Ringplatz und Sitzung statt einer
+  je Bild, also vierundzwanzig statt sechzig je Sekunde bei 60 fps — vor dem
+  2026-08-07 stand hier „zwoelf statt sechzig", damals war der Ring zwoelf
+  gross).
 - **NVIDIA und Intel sind ungemessen.** Der Rueckfall auf das Ruecklesen bleibt
   deshalb Pflicht und ist es auch: scheitert irgendetwas, steht eine Logzeile im
   Protokoll und der Player laeuft wie vorher.
