@@ -379,7 +379,15 @@ impl Renderer {
         let uniforms = self.build_uniforms(opts, form, full_range, farbe);
         self.queue.write_buffer(&self.uniform_buf, 0, &uniforms.as_bytes());
 
+        let acq_uhr = std::time::Instant::now();
         let Some(surface_texture) = self.acquire()? else { return Ok(()) };
+        {
+            let us = acq_uhr.elapsed().as_micros() as u64;
+            use crate::app::diagnose as dg;
+            dg::hoch(&dg::ACQ_SUM_US, us);
+            dg::hoechstens(&dg::ACQ_MAX_US, us);
+        }
+        let enc_uhr = std::time::Instant::now();
         let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -482,7 +490,18 @@ impl Renderer {
         if let Some(gehalten) = zu_halten {
             self.queue.on_submitted_work_done(move || drop(gehalten));
         }
+        {
+            use crate::app::diagnose as dg;
+            dg::hoch(&dg::ENC_SUM_US, enc_uhr.elapsed().as_micros() as u64);
+        }
+        let pres_uhr = std::time::Instant::now();
         surface_texture.present();
+        {
+            let us = pres_uhr.elapsed().as_micros() as u64;
+            use crate::app::diagnose as dg;
+            dg::hoch(&dg::PRES_SUM_US, us);
+            dg::hoechstens(&dg::PRES_MAX_US, us);
+        }
         self.frames_presented += 1;
         Ok(())
     }

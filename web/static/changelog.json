@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07.6",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "Eigenes Wiedergabefenster: noch einmal deutlich fluessiger",
+      "intro": "Nachtrag zur Verbesserung von vorhin. Es gab eine zweite Stelle, an der fertig dekodierte Bilder weggeworfen wurden, bevor sie angezeigt werden konnten.",
+      "items": [
+        "Behoben: Zwischen Dekodieren und Anzeigen lag ein Zwischenspeicher fuer acht Bilder. Kamen kurzzeitig mehr an — was bei hohen Aufloesungen der Regelfall ist —, wurden die uebrigen verworfen, ohne dass ihr Anzeigezeitpunkt ueberhaupt betrachtet wurde.",
+        "Bei 1920x1080 mit 144 Bildern je Sekunde kommen damit jetzt alle 144 an; zuvor waren es 67 bis 91.",
+        "Bei 2560x1440 mit 144 Bildern je Sekunde ist es besser, aber noch nicht vollstaendig geloest. Die Ursache dafuer liegt nach derzeitigem Stand nicht im Wiedergabefenster, sondern darin, dass die Bilder bereits ungleichmaessig ankommen.",
+        "Das Fehlerprotokoll bremst die App nicht mehr aus: bei einer Stoerung konnten bisher tausende Meldungen je Sekunde auflaufen und dabei genau die Verzoegerungen erzeugen, die sie eigentlich festhalten sollten."
+      ]
+    },
+    {
       "id": "2026-08-07.5",
       "date": "2026-08-07",
       "style": "Sachlich",

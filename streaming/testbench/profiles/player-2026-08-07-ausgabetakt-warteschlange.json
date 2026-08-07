@@ -104,6 +104,60 @@
     "naechster_schritt_nicht_gemacht": "Zwei Ebenen. (1) Abfedern, risikoarm: die Dekodierung vom RTP-Abholen entkoppeln, damit eine Stockung ein Ruckler bleibt statt einer Verlustserie zu werden. (2) Ursache: warum der Zaun so lange braucht. Kandidaten sind der Schluessel-Mutex-Weg des AMD-Treibers und das Auslagern der geteilten Textur. Beides ungeprueft."
   },
 
+  "befund_7_der_kanal_zum_fenster_warf_die_meisten_bilder_weg": {
+    "ausgangspunkt": "Nach befund_6 war klar, dass die Grafikeinheit nicht der Engpass ist. Die Korrelation der Sekundenwerte mit den Stockungen zeigte dann, dass der Zaehler `uebersprungen` GLEICHMAESSIG waechst (35 bis 70 je Sekunde), auch weit weg von jeder Stockung. Der Dauerverlust haengt also nicht an den Aussetzern.",
+    "die_kette": "Decoder -> Kanal (Fassungsvermoegen 8, `try_send`, verwirft bei voll) -> Weiterleitung -> Fenster-Faden -> Ausgabe-Takt. Was am Kanal wegfaellt, bekommt der Takt nie zu sehen - es wird verworfen, ohne dass sein Zeitpunkt betrachtet wuerde, nur weil gerade acht andere unterwegs sind.",
+    "die_begruendung_war_ueberholt": "Am Kanal stand: 'Klein gehalten ... Ein grosser Puffer wuerde bei langsamer Darstellung Latenz aufbauen statt Bilder zu ueberspringen.' Das galt vor dem Ausgabe-Takt. Seit dem 2026-08-05 bestimmt der RTP-Zeitstempel, wann ein Bild erscheint, nicht die Position in einer Warteschlange. Ein Bild, das laenger im Kanal lag, wird deshalb nicht spaeter gezeigt - es wird zu seinem Zeitpunkt gezeigt oder als zu spaet gezaehlt. Rueckstand kann gar nicht entstehen.",
+    "messung_1440p144_zwei_paare_abwechselnd": {
+      "Kanal 8 (alt)": "gezeichnet 67 / 91 je Sekunde, Kanalverluste 859 / 876 je Lauf",
+      "Kanal 32": "gezeichnet 112 / 108, Kanalverluste 193 / 223"
+    },
+    "kopplung_an_den_ring": "Auf dem Zero-Copy-Weg haelt jedes Bild im Kanal einen Ringplatz. Mit Kanal 32 und Ring 24 ging dem Ring der Platz aus, bevor der Kanal voll war: 88 bis 93 gezeichnet statt der 112 aus dem Versuch mit groesserem Ring. Ring-Vorgabe deshalb 24 -> 32; die Speichergrenze aus befund_5 schneidet das bei grossen Bildern ohnehin zu (1440p10 -> 29 Plaetze).",
+    "abnahme": {
+      "1080p bei 144 fps": "dekodiert 144, gezeichnet 144 / 144, Kanalverluste 0 bis 4 je Lauf, Videoeinheit 16 bis 18 %, keine Stockung. Vollstaendig geheilt.",
+      "1440p bei 144 fps": "dekodiert 143 bis 144, gezeichnet 86 / 101 / 104, Kanalverluste 250 bis 287. Deutlich besser als die 67 bis 91 vorher, aber NICHT geheilt."
+    },
+    "warum_1440p_offen_bleibt": "Es ist eine Linderung, keine Behebung. Richtig waere, am Kanal gar nichts zu verwerfen und das Aussortieren dem Ausgabe-Takt zu ueberlassen, der die Zeitpunkte kennt. Das setzt ein blockierendes Einstellen voraus - und das geht nur, wenn die Dekodierung nicht mehr in derselben Schleife laeuft wie das Abholen der RTP-Pakete (`session::run`). Sonst blockierte ein voller Kanal den Empfang, und man taeuschte den Fehler nur in eine andere Ecke. Dieser Umbau steht aus; er ist der eigentliche Inhalt des Punktes 2 aus docs/2026-08-06-player-performance-amd-windows.md.",
+    "was_der_umbau_braucht": "Ein eigener Betriebssystem-Faden fuer die Dekodierung (kein spawn_blocking: der Decoder haelt COM-Zeiger und darf den Faden nicht wechseln), Kanal hinein fuer Zugriffseinheiten und Steuermeldungen (Luecke, Rueckfall auf Software), Kanal hinaus wie bisher. Die Sperre liegt bei den Zaehlern: `stats` wird heute von der Sitzungsschleife gefuehrt und enthaelt sowohl Paket- als auch Decoder-Zahlen; die muessen getrennt oder geteilt werden."
+  },
+
+  "befund_8_zweite_untersuchung_widerlegt_drei_weitere_annahmen": {
+    "herkunft": "Eigene Untersuchung durch einen zweiten, unvoreingenommenen Bearbeiter am 2026-08-07, mit neuer Instrumentierung (Weckverzug Weiterleitung->Fenster, Rueckstand der winit-Schlange, Belegung des Fenster-Fadens, Aufteilung von draw, Kanalfuellstand, und dieselbe Lueckenfrage an drei Kettenstellen im selben Zeitfenster).",
+    "1_die_verluste_sind_schubweise_nicht_gleichmaessig": "In befund_7 stand, `uebersprungen` wachse gleichmaessig um 35-70 je Sekunde. FALSCH. Sekunden mit 0 wechseln mit Sekunden um 50; das Muster folgt einem Zwei-Sekunden-Zyklus von Ankunftsloechern.",
+    "2_die_luecke_kommt_vor_dem_player": "Dieselbe Luecke an drei Kettenstellen gemessen (3 gepaarte Laeufe): 1440p Paket 76-205 ms -> Einheit 81-237 ms -> Bild 80-244 ms; 1080p Paket 26-151 -> Einheit 29-173 -> Bild 29-174. Der Player legt zwischen Paket und fertigem Bild nur 10-30 ms drauf. Die Schubbildung steckt bereits in der Paketankunft.",
+    "3_der_kanal_ist_ein_zeitfenster": "32 Plaetze sind bei 144 fps 222 ms. Gemessene mittlere Paketluecke: 720p 86,7 ms (13 Bilder), 1080p 94,6 ms (14), 1440p 133-143 ms mit Spitzen bis 256 ms (19 bis 37). Nur der letzte Fall uebersteigt das Fenster - und genau dort laeuft der Kanal ueber (Sekunden mit vollem Kanal: 1/56, 11/57, 32/55, 29/56; mittlerer Fuellstand 9,9 / 21,3 / 29,2).",
+    "4_blockierendes_einstellen_ist_gemessen_schaedlich": "In befund_7 stand, die richtige Behebung sei, am Kanal nicht mehr zu verwerfen. WIDERLEGT. Zwei gepaarte Laeufe mit Kanal 128, Takt-Warteschlange 128, Vorhalt 400 ms, Ring 64: `uebersprungen` fiel auf 0 und `verspaetet` auf 0 - aber GEZEICHNET fiel von 114,8 auf 60,4 bzw. von 114,3 auf 89,2. Ein Zwischenschritt (Vorhalt 150 ms, 40 Plaetze) war wirkungslos (109 gegen 113).",
+    "5_die_aussetzer_sind_KEIN_gpu_ereignis": "befund_6 schrieb die Aussetzer der Grafikeinheit zu, weil die Zeit vollstaendig im Zaun der Bruecke stand. WIDERLEGT: in der Sekunde mit 2347 ms Zaun stand gleichzeitig die Paketankunft 2265 ms still, die Weiterleitung 6390 ms, ein Schleifendurchlauf 3254 ms. Eine GPU-Kopie kann keinen UDP-Empfangs-Task anhalten. Es ist ein prozess- oder systemweiter Stillstand; der Zaun ist nur die Stelle, an der zufaellig eine Uhr laeuft. Sie treten ausserdem bei 1080p und 720p auf und in zwei 60-s-1440p-Laeufen gar nicht - also nicht aufloesungsabhaengig und nicht die Ursache des Symptoms. Werte ueber alle Laeufe: 703, 706, 2347, 2407, 2409, 2467 ms. Ursache offen.",
+    "6_der_fenster_faden_ist_im_augenblick_des_verwurfs_leer": "In jeder einzelnen Verwurfszeile steht `Schlange 0 Ereignisse`. Belegung des Fenster-Fadens 10-67 %, davon der Grossteil Wartezeit in `get_current_texture` mit Ausschlaegen auf 6,6 und 13,3 ms - Vielfache der Bildwiederholrate. Die Zeichenarbeit selbst ist aufloesungsunabhaengig (aufzeichnen 0,31-0,40 ms, ausgeben 0,10-0,11 ms); nur das Holen der Oberflaeche skaliert (0,31 / 1,22 / 2,37 ms).",
+    "7_der_anker_zieht_den_vorhalt_auf": "`Ausgabetakt::ziel()` zieht den Anker auf die SCHNELLSTE Laufzeit und gibt nach oben nur ueber NEU_VERANKERN (250 ms) nach. Bei der Vorgabe sind dadurch 1756-1968 von rund 3600 Bildern verspaetet, also rund die Haelfte. Bei Vorhalt 400 ms schoss `nachgezogen` auf 1976 und `verdraengt` auf 1452 - der Nachzug frisst genau die Reserve auf, die der Vorhalt bereitstellen soll. Das erklaert, warum Aufbohren der Puffer schadet. NICHT gebaut, nicht geprueft."
+  },
+
+  "befund_9_der_messaufbau_hat_das_problem_vergroessert": {
+    "beobachtung": "Der Messsender lief mit VOLLBILDERN (`Vollbilder` in der Encoder-Zeile) bei 3000 kbit/s. Bei 1440p und 144 fps ist ein Vollbild dutzendfach groesser als ein normales Bild; ueber eine 3000-kbit/s-Leitung braucht es hunderte Millisekunden. Das erzeugt genau den Zwei-Sekunden-Zyklus von Ankunftsloechern aus befund_8. Der Nutzer sendet in der Produktion dagegen mit ROLLENDER AUFFRISCHUNG, also ganz ohne Vollbilder.",
+    "gegenprobe_drei_paare_abwechselnd_1440p144_3000kbit": {
+      "Vollbilder": "gezeichnet 100 / 108 / 101, Kanalverluste 423 / 359 / 475",
+      "Auffrischung": "gezeichnet 130 / 111 / 113, Kanalverluste 291 / 334 / 281"
+    },
+    "schluss": "Die Betriebsart erklaert einen Teil, nicht alles. In allen drei Paaren ist die Auffrischung besser (Mittel rund 103 -> 113 gezeichnet, 419 -> 302 Verluste), aber auch dort kommen nur 111 bis 130 von 144 Bildern an. Der Messaufbau hat das Problem also VERGROESSERT, nicht erfunden. Wer kuenftig hier misst, sollte `-IntraRefresh` setzen - sonst misst er zu einem guten Teil den Keyframe-Takt seines eigenen Senders.",
+    "noch_offen": "Ob die restliche Schubbildung vom Sender, von der Strecke oder vom Empfangs-Task des Players kommt, ist unentschieden. Sender und Player liefen auf DERSELBEN Maschine ueber einen Server in Hetzner; das ist nicht der Betriebsfall. Ein Lauf mit getrennten Rechnern entscheidet es."
+  },
+
+  "befund_10_hat_zero_copy_sich_gelohnt": {
+    "frage": "Direkte Frage des Nutzers. Sie war ueberfaellig: mit dem heutigen Codestand war der Vergleich NIE sauber gefahren worden. Die frueheren Ruecklese-Laeufe stammten aus einem anderen Stand und aus Einzellaeufen.",
+    "aufbau": "1440p bei 144 fps, 3000 kbit/s, rollende Auffrischung (also produktionsnah), drei Paare abwechselnd, je 25 s. Einziger Unterschied: PULSE_PLAYER_ZEROCOPY=0.",
+    "ergebnis": {
+      "gezeichnet je Sekunde (Median)": "AN 117 / 102 / 100  ---  AUS 44 / 33 / 35",
+      "Kanalverluste je Lauf": "AN 363 / 356 / 328  ---  AUS 1073 / 1249 / 1189",
+      "dekodieren Mittel/Max in ms": "AN 3,8/6,7  3,9/7,9  4,0/9,4  ---  AUS 6,3/12,8  6,2/11,3  5,9/10,1",
+      "hochladen in ms": "AN 0,0 durchgehend  ---  AUS 2,3 bis 2,4",
+      "Videoeinheit des Players": "AN 24,2 / 24,5 / 23,7 %  ---  AUS 25,6 / 24,9 / 24,6 %",
+      "Stockungen": "in allen sechs Laeufen 0"
+    },
+    "antwort": "JA, eindeutig. Ohne Zero-Copy zeichnet der Player rund ein DRITTEL der Bilder (33 bis 44 statt 100 bis 117). Das Ruecklesen kostet je Bild rund 2,3 ms beim Hochladen plus rund 2,2 ms mehr beim Dekodieren (av_hwframe_transfer_data), zusammen etwa 4,5 ms - bei 144 fps also mehr als 600 ms je Sekunde zusaetzlich. Genau daran bricht es.",
+    "und_es_widerlegt_endgueltig_befund_3": "Die Videoeinheit ist mit und ohne Zero-Copy praktisch GLEICH belastet (24 gegen 25 %). Die Kopie in der Bruecke kostet dort also nichts Messbares. Die frueher behaupteten '70 Prozentpunkte fuer die Bruecke' waren nicht nur ein Ausreisser, sie sind hiermit positiv widerlegt: der teure Weg ist das Ruecklesen, nicht die Kopie.",
+    "was_daraus_folgt": "Die Ueberlegung, die Kopie durch eine teilbare Decoder-Textur ganz zu ersetzen (befund_4), verliert damit ihre Dringlichkeit. Sie wuerde ein paar Millisekunden holen, nicht die Groessenordnung, um die es beim verbleibenden Symptom geht. Der Ruecklese-Weg bleibt als Rueckfall wichtig, taugt aber bei 1440p144 nicht als gleichwertiger Ersatz."
+  },
+
   "offen": {
     "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
     "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."

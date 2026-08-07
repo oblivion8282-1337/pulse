@@ -29,6 +29,7 @@ import { appendFileSync, existsSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
+import { createDrossel } from './sidecar-log-drossel';
 import { createNoiseFilter } from './sidecar-log-noise';
 
 const FILE = 'sidecar.log';
@@ -60,15 +61,46 @@ function logPath(): string {
   return cachedPath;
 }
 
-function rotateIfNeeded(): void {
+/**
+ * Mitgeführte Dateigröße, damit nicht JEDE Zeile den Datenträger befragt.
+ *
+ * Vorher rief `rotateIfNeeded` je Zeile `existsSync` UND `statSync` — zusammen
+ * mit dem `appendFileSync` waren das drei synchrone Dateisystem-Zugriffe pro
+ * Protokollzeile, alle auf dem Electron-Hauptfaden. Bei der FFmpeg-Fehlerflut
+ * vom 2026-08-07 (rund 4400 Zeilen je Sekunde) sind das über 13 000 Zugriffe je
+ * Sekunde auf dem Faden, der auch die Oberfläche und die Fenster bedient.
+ *
+ * `null` = noch unbekannt, dann einmal nachsehen. Danach wird nur noch
+ * mitgezählt; ein Zählfehler kostet höchstens eine etwas zu späte Rotation.
+ */
+let groesse: number | null = null;
+
+function rotateIfNeeded(zusatz: number): void {
   try {
-    if (!existsSync(logPath())) return;
-    if (statSync(logPath()).size < MAX_BYTES) return;
+    if (groesse === null) {
+      groesse = existsSync(logPath()) ? statSync(logPath()).size : 0;
+    }
+    if (groesse + zusatz < MAX_BYTES) {
+      groesse += zusatz;
+      return;
+    }
     renameSync(logPath(), join(app.getPath('userData'), OLD_FILE));
+    groesse = zusatz;
   } catch {
     /* best-effort — a failed rotation must not stop logging */
+    // Größe verwerfen: nach einem Fehlschlag stimmt der mitgeführte Wert
+    // womöglich nicht mehr, und einmal nachsehen ist billiger als eine
+    // Rotation, die nie wieder auslöst.
+    groesse = null;
   }
 }
+
+/**
+ * Deckel gegen Protokollfluten (s. `sidecar-log-drossel.ts`). Bewusst EINER für
+ * alle Ströme: die Kosten entstehen am Datenträger und am Hauptfaden, also dort,
+ * wo alle zusammenlaufen.
+ */
+const drossel = createDrossel();
 
 /**
  * Append one sidecar output line. `stream` tags the source (`out` / `err` /
@@ -78,11 +110,23 @@ function rotateIfNeeded(): void {
 export function logSidecar(stream: 'out' | 'err' | 'lifecycle', line: string): void {
   const text = (line ?? '').trimEnd();
   if (!text.trim()) return;
-  if (suppressAsNoise(stream, text, Date.now())) return;
+  const now = Date.now();
+  if (suppressAsNoise(stream, text, now)) return;
+  // Überlastschutz NACH der Rausch-Politik: die dünnt gezielt aus (fps), die
+  // Drossel wehrt nur Fluten ab. Umgekehrt verbrauchten fps-Zeilen Vorrat, den
+  // im Fehlerfall die Fehlermeldungen brauchen.
+  if (!drossel.darf(now)) return;
+  const nachtrag = drossel.nachtrag(now);
   try {
-    rotateIfNeeded();
-    appendFileSync(logPath(), `${new Date().toISOString()} [${stream}] ${redact(text)}\n`, 'utf8');
+    if (nachtrag) schreiben('lifecycle', nachtrag);
+    schreiben(stream, redact(text));
   } catch {
     /* best-effort */
   }
+}
+
+function schreiben(stream: string, text: string): void {
+  const zeile = `${new Date().toISOString()} [${stream}] ${text}\n`;
+  rotateIfNeeded(Buffer.byteLength(zeile, 'utf8'));
+  appendFileSync(logPath(), zeile, 'utf8');
 }
