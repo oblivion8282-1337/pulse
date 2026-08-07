@@ -1,10 +1,32 @@
-//! Die andere Haelfte der Bruecke: eine geteilte D3D11-Textur in wgpu
-//! einhaengen und als Ebenen-Ansichten binden.
+//! Die andere Haelfte der Bruecke: ein fremdes GPU-Bild in wgpu einhaengen und
+//! als Ebenen-Ansichten binden.
 //!
 //! Gegenstueck zu [`crate::zerocopy`]; dort steht, warum es die Bruecke
 //! ueberhaupt gibt und was sie kostet.
 //!
-//! **Nur ueber D3D12.** `wgpu-hal` 29.0.4 kann eine D3D11-Textur auf zwei Wegen
+//! ## Zwei Plattformen, zwei Einhaengungen, EINE Bindegruppe
+//!
+//! Was der Shader sieht, ist auf beiden Seiten dasselbe: zwei Ansichten (Luma,
+//! Chroma) plus eine Blindtextur. Wie sie entstehen, ist verschieden — und der
+//! Unterschied ist nicht Geschmack, sondern von der jeweiligen Schnittstelle
+//! erzwungen:
+//!
+//! | | Windows | Linux |
+//! |---|---|---|
+//! | Was ankommt | EINE geteilte NV12/P010-Textur | ZWEI `VkImage` (R8+Rg8 bzw. R16+Rg16) |
+//! | Warum | D3D11 gibt den Decoder-Frame so heraus | CUDA weist ein mehrplaniges `VkImage` ab (gemessen) |
+//! | Die zwei Ansichten | zwei ASPEKTE (`Plane0`/`Plane1`) einer Textur | zwei eigenstaendige Texturen |
+//! | Noetige Merkmale | `TEXTURE_FORMAT_NV12`/`P010` | keine fuer 8 bit, `16BIT_NORM` fuer 10 bit |
+//!
+//! Daraus folgt die einzige Stelle, an der man beim Aendern aufpassen muss:
+//! [`Fremdbilder::moeglich`] fragt auf beiden Seiten **verschiedene** Merkmale
+//! ab. Wer dort das Windows-Merkmal auch fuer Linux verlangte, schaltete den
+//! Weg dort grundlos ab — `TEXTURE_FORMAT_NV12` gibt es im Vulkan-Unterbau von
+//! wgpu 29 nicht, obwohl der Weg selbst traegt.
+//!
+//! ## Windows: nur ueber D3D12
+//!
+//! `wgpu-hal` 29.0.4 kann eine D3D11-Textur auf zwei Wegen
 //! aufnehmen, und beide sind an ihr Backend gebunden:
 //! `texture_from_d3d11_shared_handle` gibt es ausschliesslich im
 //! Vulkan-Backend, `texture_from_raw` ausschliesslich im dx12-Backend. Der
@@ -21,13 +43,17 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(windows)]
 use crate::decode::PixelLayout;
 use crate::zerocopy::GpuBild;
 
 /// Ein eingehaengtes Bild samt seiner beiden Ebenen-Ansichten.
 pub struct Import {
     /// Gehalten, weil die Bindegruppe daran haengt — sonst nirgends gebraucht.
-    _textur: wgpu::Texture,
+    ///
+    /// Ein `Vec`, weil Linux ZWEI Texturen einhaengt und Windows eine
+    /// (s. Modulkopf).
+    _texturen: Vec<wgpu::Texture>,
     /// Die fertige Bindegruppe dieses Ringplatzes.
     ///
     /// **Hier stand die Bindegruppe frueher NICHT, sie entstand je Bild neu**,
@@ -89,13 +115,26 @@ impl Fremdbilder {
     /// erweitern, und ob ein Strom 8 oder 10 bit fuehrt, steht erst beim ersten
     /// Bild fest. P010 braucht ausserdem `TEXTURE_FORMAT_16BIT_NORM` fuer seine
     /// Ebenen-Ansichten — das fordert der Player ohnehin schon an.
+    ///
+    /// Auf Linux sind die beiden mehrplanigen Merkmale wirkungslos (dort
+    /// entstehen zwei einfache Texturen), aber `& vorhanden` macht das
+    /// harmlos: was die Karte nicht anbietet, wird nicht angefordert.
     pub fn merkmale(vorhanden: wgpu::Features) -> wgpu::Features {
         (wgpu::Features::TEXTURE_FORMAT_NV12 | wgpu::Features::TEXTURE_FORMAT_P010) & vorhanden
     }
 
     /// Traegt das Geraet den Weg fuer dieses Bild?
+    ///
+    /// **Die Antwort ist plattformabhaengig** — Begruendung im Modulkopf.
     pub fn moeglich(device: &wgpu::Device, zehn_bit: bool) -> bool {
         let f = device.features();
+        #[cfg(target_os = "linux")]
+        {
+            // Zwei eigenstaendige Texturen: `R8Unorm`/`Rg8Unorm` gehoeren zum
+            // Kern, nur die 16-bit-Fassungen haengen an einem Merkmal.
+            !zehn_bit || f.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+        }
+        #[cfg(not(target_os = "linux"))]
         if zehn_bit {
             f.contains(wgpu::Features::TEXTURE_FORMAT_P010)
                 && f.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
@@ -172,11 +211,10 @@ fn blindtextur(device: &wgpu::Device) -> wgpu::TextureView {
     .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-/// Ausserhalb von Windows gibt es weder NT-Handles noch ein D3D12-Geraet.
-/// Dass es diese Fassung gibt, haelt `render/mod.rs` frei von `#[cfg]`-Zweigen;
-/// erreicht wird sie ohnehin nie, weil `DecodedFrame::gpu` dort immer `None`
-/// ist (s. `zerocopy::leer`).
-#[cfg(not(windows))]
+/// Auf macOS gibt es weder NT-Handles noch CUDA. Dass es diese Fassung gibt,
+/// haelt `render/mod.rs` frei von `#[cfg]`-Zweigen; erreicht wird sie ohnehin
+/// nie, weil `DecodedFrame::gpu` dort immer `None` ist (s. `zerocopy::leer`).
+#[cfg(not(any(windows, target_os = "linux")))]
 fn einhaengen(
     _device: &wgpu::Device,
     _teile: &Bindeteile<'_>,
@@ -185,6 +223,110 @@ fn einhaengen(
     _werk: &super::abdruck::Abdruckwerk,
 ) -> Option<Import> {
     None
+}
+
+/// Linux: die beiden `VkImage` der Bruecke uebernehmen.
+///
+/// **Ohne eigene Vulkan-Aufrufe** — die Bilder sind bereits auf genau diesem
+/// Geraet angelegt (`zerocopy::linux::vkbild`), hier werden sie nur an wgpu
+/// uebergeben. Das ist der Unterschied zur Windows-Seite, wo erst noch ein
+/// Handle geoeffnet werden muss.
+///
+/// Belegt: wgpu 29.0.4 uebernimmt so ein Bild **mitsamt Inhalt**, ueber 720p
+/// bis 4K und ueber 20 aufeinanderfolgende CUDA-Schreibrunden in dieselbe
+/// eingehaengte Textur — `profiles/player-2026-08-07-wgpu29-vkimage-import.json`.
+/// Der begruendete Verdacht dagegen (wgpu traegt eingehaengte Texturen als
+/// `UNINITIALIZED` ein, der Uebergang aus `VK_IMAGE_LAYOUT_UNDEFINED` **darf**
+/// den Inhalt verwerfen) ist am Quelltext bestaetigt, tritt auf dieser Karte
+/// aber nicht ein. „Darf verwerfen" ist keine Zusage zu verwerfen.
+#[cfg(target_os = "linux")]
+fn einhaengen(
+    device: &wgpu::Device,
+    teile: &Bindeteile<'_>,
+    blind: &wgpu::TextureView,
+    bild: &Arc<GpuBild>,
+    werk: &super::abdruck::Abdruckwerk,
+) -> Option<Import> {
+    // **Der Lebensanker.** Er haelt die beiden `VkImage` am Leben, solange wgpu
+    // seine Texturen haelt — ohne ihn koennte die Bruecke sie unter einem
+    // laufenden Zeichendurchgang wegraeumen (Begruendung bei
+    // `zerocopy::linux::Ringplatz`).
+    let anker = bild.lebensanker();
+
+    // Bild, Format und Masse kommen als Buendel von der Bruecke — sie rechnet
+    // die halbe Farbebene ohnehin aus, und hier ein zweites Mal zu halbieren
+    // hiesse, dieselbe Regel an zwei Stellen zu fuehren.
+    let uebernehmen = |(image, format, b, h): (ash::vk::Image, wgpu::TextureFormat, u32, u32),
+                       name: &'static str,
+                       anker: std::sync::Arc<crate::zerocopy::Ringplatz>| {
+        let masse = wgpu::Extent3d { width: b, height: h, depth_or_array_layers: 1 };
+        let hal_desc = wgpu::hal::TextureDescriptor {
+            label: Some(name),
+            size: masse,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUses::RESOURCE,
+            memory_flags: wgpu::hal::MemoryFlags::empty(),
+            // Leer, weil das Bild ohne `MUTABLE_FORMAT` angelegt ist —
+            // wgpu-hal verlangt das ausdruecklich in der Sicherheitsauflage
+            // von `texture_from_raw`.
+            view_formats: vec![],
+        };
+        // SAFETY: `image` wurde auf genau diesem Geraet angelegt
+        // (`zerocopy::linux`), die Masse stammen aus derselben Rechnung, und
+        // `anker` haelt es ueber die Lebensdauer der Textur am Leben.
+        let hal_tex = unsafe {
+            let hal = device.as_hal::<wgpu::hal::api::Vulkan>()?;
+            hal.texture_from_raw(
+                image,
+                &hal_desc,
+                // **Der Rueckruf MUSS gesetzt sein.** Ohne ihn naehme wgpu-hal
+                // das `VkImage` in Besitz und zerstoerte es beim Fallenlassen —
+                // waehrend der Speicher uns gehoert und CUDA ihn noch
+                // eingehaengt haelt. Ein doppeltes Zerstoeren faellt erst viel
+                // spaeter auf. Der Rumpf gibt zugleich den Lebensanker frei.
+                Some(Box::new(move || drop(anker))),
+                // Andernfalls uebernaehme wgpu-hal auch die Speicherverwaltung.
+                wgpu::hal::vulkan::TextureMemory::External,
+            )
+        };
+        // SAFETY: die hal-Textur gehoert ab hier wgpu.
+        Some(unsafe {
+            device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(
+                hal_tex,
+                &wgpu::TextureDescriptor {
+                    label: Some(name),
+                    size: masse,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            )
+        })
+    };
+
+    let [y_ebene, uv_ebene] = bild.ebenen();
+    let y = uebernehmen(y_ebene, "fremdbild-y", anker.clone())?;
+    let uv = uebernehmen(uv_ebene, "fremdbild-uv", anker)?;
+    let luma = y.create_view(&wgpu::TextureViewDescriptor::default());
+    let chroma = uv.create_view(&wgpu::TextureViewDescriptor::default());
+    // Einmal je Ringplatz, nicht je Bild — Begruendung an `Import::bindegruppe`.
+    let bindegruppe = super::setup::bind_group_aus_teilen(
+        device,
+        teile.layout,
+        teile.sampler,
+        teile.uniform_buf,
+        [&luma, &chroma, blind],
+    );
+    // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
+    // `einfrieren::gpuabdruck`.
+    let abdruck_gruppe = werk.bindung(device, &luma);
+    Some(Import { _texturen: vec![y, uv], bindegruppe, abdruck_gruppe })
 }
 
 #[cfg(windows)]
@@ -271,7 +413,7 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`. Die Chroma-Ansicht geht ihn nichts an.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    Some(Import { _textur: textur, bindegruppe, abdruck_gruppe })
+    Some(Import { _texturen: vec![textur], bindegruppe, abdruck_gruppe })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.

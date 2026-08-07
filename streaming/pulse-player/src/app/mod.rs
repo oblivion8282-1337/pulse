@@ -265,6 +265,7 @@ impl App {
         options: PlayerOptions,
         ev_tx: mpsc::Sender<SessionEvent>,
         cmd_rx: mpsc::Receiver<SessionCommand>,
+        geraet: Option<wgpu::Device>,
     ) {
         let zuletzt_haupt = Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
 
@@ -309,10 +310,14 @@ impl App {
         });
 
         let netz_opts = options.clone();
-        self.runtime
-            .spawn(async move { session::run(url, vec![], options, haupt_tx, cmd_rx).await });
+        // Beide Sitzungen zeichnen ins selbe Fenster, also auch auf dasselbe
+        // Geraet.
+        let netz_geraet = geraet.clone();
         self.runtime.spawn(async move {
-            session::run(fallback_url, vec![], netz_opts, netz_tx, netz_cmd_rx).await
+            session::run(url, vec![], options, haupt_tx, cmd_rx, geraet).await
+        });
+        self.runtime.spawn(async move {
+            session::run(fallback_url, vec![], netz_opts, netz_tx, netz_cmd_rx, netz_geraet).await
         });
     }
 
@@ -405,17 +410,21 @@ impl App {
             }
         });
         let opts = options.clone();
+        // Das Geraet des gerade gebauten Renderers — die Sitzung reicht es bis
+        // zum Decoder durch (s. `session::run`).
+        let geraet = Some(renderer.device().clone());
         match req.fallback_url.clone() {
             None => {
-                self.runtime
-                    .spawn(async move { session::run(url, vec![], opts, ev_tx, cmd_rx).await });
+                self.runtime.spawn(async move {
+                    session::run(url, vec![], opts, ev_tx, cmd_rx, geraet).await
+                });
             }
             Some(fallback) => {
                 // Zwei Sitzungen, EIN Fenster: beide melden unter derselben
                 // Kennung, deshalb landet ihr Bild in derselben Anzeige. Was
                 // gezeigt wird, entscheidet der Filter unten — nicht der
                 // Renderer, der davon nichts wissen muss.
-                self.spawn_with_fallback(url, fallback, opts, ev_tx, cmd_rx);
+                self.spawn_with_fallback(url, fallback, opts, ev_tx, cmd_rx, geraet);
             }
         }
 

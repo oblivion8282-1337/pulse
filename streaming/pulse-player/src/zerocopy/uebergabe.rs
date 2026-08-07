@@ -1,5 +1,9 @@
-//! Die Naht zwischen Decoder und Bruecke: aus einem D3D11-Bild wird ein
+//! Die Naht zwischen Decoder und Bruecke: aus einem GPU-Bild wird ein
 //! `DecodedFrame`, der nichts im Hauptspeicher haelt.
+//!
+//! **Plattformfrei.** Was ein GPU-Bild ist, entscheidet die jeweilige Bruecke
+//! (D3D11 unter Windows, CUDA unter Linux); hier steht nur, wie aus ihrem
+//! Ergebnis ein `DecodedFrame` wird und was bei einem Fehlschlag geschieht.
 //!
 //! Getrennt von `decode.rs`, weil die dortige Datei mit 1600 Zeilen weit ueber
 //! der Groessengrenze liegt und nicht weiter wachsen soll.
@@ -31,9 +35,10 @@ pub fn bild_ohne_umweg(
     bruecke: &mut Option<Option<Bruecke>>,
     frame: &ffmpeg::util::frame::video::Video,
     briefkasten: &std::sync::Arc<crate::einfrieren::Briefkasten>,
+    geraet: &Option<wgpu::Device>,
 ) -> (Option<DecodedFrame>, u64) {
     let uhr = std::time::Instant::now();
-    let bild = versuchen(bruecke, frame, briefkasten);
+    let bild = versuchen(bruecke, frame, briefkasten, geraet);
     (bild, uhr.elapsed().as_micros() as u64)
 }
 
@@ -41,8 +46,10 @@ fn versuchen(
     bruecke: &mut Option<Option<Bruecke>>,
     frame: &ffmpeg::util::frame::video::Video,
     briefkasten: &std::sync::Arc<crate::einfrieren::Briefkasten>,
+    geraet: &Option<wgpu::Device>,
 ) -> Option<DecodedFrame> {
-    let eintrag = bruecke.get_or_insert_with(|| match Bruecke::neu(frame, briefkasten.clone()) {
+    let eintrag =
+        bruecke.get_or_insert_with(|| match Bruecke::neu(frame, briefkasten.clone(), geraet) {
         Ok(b) => {
             // **Hier stand bis zum 2026-08-06 „Einfrier-Waechter und
             // Latenz-Sonde arbeiten auf diesem Weg NICHT."** Fuer den Waechter
@@ -78,7 +85,7 @@ fn versuchen(
 
 /// Ein Bild, das im Grafikspeicher bleibt.
 ///
-/// Nimmt die Bildbeschreibung vom **GPU-Bild** (Format `D3D11`) statt von einer
+/// Nimmt die Bildbeschreibung vom **GPU-Bild** statt von einer
 /// heruntergeladenen Fassung — Groesse, Farbangaben und Bittiefe stehen dort
 /// genauso. `planes` und `strides` bleiben leer; wer sie liest, bekommt nichts,
 /// und das ist der dokumentierte Preis dieses Weges (Modulkopf von [`super`]).
@@ -93,9 +100,9 @@ fn gpu_bild(
         clock_rate: 0,
         width: frame.width(),
         height: frame.height(),
-        // D3D11 liefert NV12 oder P010 — beides zwei Ebenen mit verschraenktem
-        // Chroma. Etwas anderes kaeme hier gar nicht an: `Bruecke::neu` weist
-        // jedes andere DXGI-Format ab.
+        // Beide Bruecken liefern NV12 oder P010 — zwei Ebenen mit
+        // verschraenktem Chroma. Etwas anderes kaeme hier gar nicht an: beide
+        // `Bruecke::neu` weisen jedes andere Format ab.
         format: PixelLayout::BiPlanar420,
         planes: Vec::new(),
         strides: Vec::new(),

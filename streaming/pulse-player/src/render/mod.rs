@@ -12,7 +12,11 @@
 
 mod abdruck;
 mod bildquelle;
-mod farbe;
+// `pub(crate)`, weil die Linux-Zero-Copy-Bruecke ihre Ebenen-Formate GEGEN
+// diese hier prueft (`zerocopy::linux::ebene`). Sie stehen in zwei
+// Dateien, und eine Abweichung saehe man nicht als Fehler, sondern als falsche
+// Farben — der Test dort ist die einzige Stelle, die es bemerken kann.
+pub(crate) mod farbe;
 mod fremdbild;
 mod hdr_fenster;
 mod setup;

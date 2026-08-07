@@ -93,20 +93,22 @@ impl Hwaccel {
     /// Das `flags`-Argument von `av_hwdevice_ctx_create`.
     ///
     /// **Fuer CUDA steht hier 0, und das ist heute richtig — aber nur heute.**
-    /// Null heisst: FFmpeg legt sich einen EIGENEN CUDA-Kontext an. Solange der
-    /// Player selbst keinen haelt, ist das der einzige im Prozess und alles ist
-    /// gut.
+    /// Null heisst: FFmpeg legt sich einen EIGENEN Kontext an. Fuer VAAPI und
+    /// D3D11VA ist das richtig — dort holt sich die Bruecke ihr Geraet aus dem
+    /// Bild, statt eines vorzugeben.
     ///
-    /// Sobald der Renderer seinen eigenen Kontext haelt (er braucht ihn, um das
-    /// von Vulkan angelegte Zielbild per `cuImportExternalMemory` einzuhaengen),
-    /// muss hier `AV_CUDA_USE_CURRENT_CONTEXT` (Bit 1, also `2`) stehen — sonst
-    /// hat der Prozess zwei Kontexte auf einer Karte und die Kopie muss ueber
-    /// die Kontextgrenze.
+    /// **Fuer CUDA haengt es davon ab, ob der Player selbst schon einen Kontext
+    /// haelt** (`geteilter_kontext`). Haelt er einen — und das tut er, sobald
+    /// die Zero-Copy-Bruecke moeglich ist —, muss hier
+    /// `AV_CUDA_USE_CURRENT_CONTEXT` (Bit 1, also `2`) stehen: sonst hat der
+    /// Prozess zwei Kontexte auf einer Karte, und `cuMemcpy2D` aus dem
+    /// Decoder-Bild in unser Vulkan-Bild ginge ueber die Kontextgrenze, statt
+    /// zu funktionieren.
     ///
     /// **`AV_CUDA_USE_PRIMARY_CONTEXT` (Bit 0, also `1`) ist an dieser Stelle
     /// der falsche Weg**, auch wenn der Name naheliegt: hat der Player den
-    /// primaeren Kontext bereits geholt — und genau die Reihenfolge wird er
-    /// haben —, scheitert `av_hwdevice_ctx_create` mit
+    /// primaeren Kontext bereits geholt — und genau die Reihenfolge hat er —,
+    /// scheitert `av_hwdevice_ctx_create` mit
     /// `Primary context already active with incompatible flags` (rc=-95,
     /// 16 von 16 Laeufen). Beleg fuer beides:
     /// `profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`, Abschnitt
@@ -114,9 +116,11 @@ impl Hwaccel {
     ///
     /// `ffmpeg-sys-next` erzeugt fuer `hwcontext_cuda.h` keine Bindung, die
     /// Konstanten stehen deshalb als Zahl da statt als Symbol.
-    fn flags(self) -> std::os::raw::c_int {
+    fn flags(self, geteilter_kontext: bool) -> std::os::raw::c_int {
         match self {
-            Self::Vaapi | Self::D3d11va | Self::Cuda => 0,
+            Self::Vaapi | Self::D3d11va => 0,
+            Self::Cuda if geteilter_kontext => AV_CUDA_USE_CURRENT_CONTEXT,
+            Self::Cuda => 0,
         }
     }
 
@@ -144,6 +148,15 @@ impl Hwaccel {
         }
     }
 }
+
+/// `AV_CUDA_USE_CURRENT_CONTEXT` aus `libavutil/hwcontext_cuda.h`.
+///
+/// **Als Zahl und nicht als Symbol**, weil `ffmpeg-sys-next` fuer
+/// `hwcontext_cuda.h` keine Bindung erzeugt — dieselbe Luecke, die den Nachbau
+/// von `AVCUDADeviceContext` erzwungen haette, wenn wir den Kontext von FFmpeg
+/// holen wollten statt ihn ihm zu geben. Wer den Wert anzweifelt, sieht in
+/// `hwcontext_cuda.h` nach, nicht hier.
+const AV_CUDA_USE_CURRENT_CONTEXT: std::os::raw::c_int = 2;
 
 /// Die Pixelformate, die [`VideoDecoder::drain`] aus dem Grafikspeicher
 /// herunterholt.
@@ -429,10 +442,21 @@ fn vaapi_geraetepfad() -> String {
 ///
 /// Die Referenz auf das Geraet geht an den Kontext ueber; `avcodec_free_context`
 /// gibt sie frei.
-fn hw_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext, art: Hwaccel) -> Result<()> {
+fn hw_geraet_anhaengen(
+    ctx: *mut ffmpeg::ffi::AVCodecContext,
+    art: Hwaccel,
+    geraet_fuer_bruecke: &Option<wgpu::Device>,
+) -> Result<()> {
+    // **Der geteilte CUDA-Kontext muss VOR `av_hwdevice_ctx_create` stehen**,
+    // sonst gibt es keinen „current context", den FFmpeg uebernehmen koennte.
+    // Schlaegt es fehl, laeuft die Dekodierung trotzdem — nur eben mit FFmpegs
+    // eigenem Kontext und damit ohne Zero-Copy (s. `Hwaccel::flags`).
+    let geteilt =
+        art == Hwaccel::Cuda && crate::zerocopy::kontext_bereitstellen(geraet_fuer_bruecke);
     // Nur VAAPI braucht einen Pfad. D3D11VA und CUDA waehlen ohne Angabe den
     // Standard-Adapter bzw. Geraet 0 — auf einer Maschine mit zwei GPUs also
-    // dasselbe, das auch der Rest des Systems benutzt.
+    // dasselbe, das auch der Rest des Systems benutzt. Bei uebernommenem
+    // Kontext ist die Karte ohnehin schon entschieden.
     let pfad = match art {
         Hwaccel::Vaapi => Some(vaapi_geraetepfad()),
         Hwaccel::D3d11va | Hwaccel::Cuda => None,
@@ -452,7 +476,7 @@ fn hw_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext, art: Hwaccel) -> R
             art.geraetetyp(),
             c_pfad.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
             std::ptr::null_mut(),
-            art.flags(),
+            art.flags(geteilt),
         )
     };
     if rc < 0 || geraet.is_null() {
@@ -931,11 +955,31 @@ pub struct VideoDecoder {
     /// Der Rueckweg der auf der GPU gerechneten Fingerabdruecke (s.
     /// [`crate::einfrieren::Zulauf`]). Nur auf dem Zero-Copy-Weg in Gebrauch.
     zulauf: crate::einfrieren::Zulauf,
+    /// Das wgpu-Geraet des Fensters, in dem dieser Strom laeuft.
+    ///
+    /// **Nur die LINUX-Bruecke braucht es**, und sie braucht es zwingend: ein
+    /// `VkImage` gehoert unaufloesbar zu seinem `VkDevice`, das Zielbild muss
+    /// also auf genau dem Geraet entstehen, das der Renderer dieses Fensters
+    /// fuehrt. Ein prozessweites Geraet waere falsch — der Player fuehrt
+    /// mehrere Fenster mit je eigenem Geraet (`app::Session`).
+    ///
+    /// `None` heisst „kein Fenster dahinter": dann bleibt es beim Weg ueber den
+    /// Hauptspeicher. Die Windows-Bruecke laesst es ungenutzt (NT-Handles
+    /// lassen sich auf jedem D3D12-Geraet oeffnen).
+    geraet: Option<wgpu::Device>,
 }
 
 impl VideoDecoder {
     /// Legt einen Decoder an. `allow_hw = None` bedeutet automatisch.
-    pub fn new(codec: Codec, allow_hw: Option<bool>) -> Result<Self> {
+    ///
+    /// `geraet` ist das wgpu-Geraet des zugehoerigen Fensters (s. dem Feld
+    /// gleichen Namens); ohne es laeuft alles wie bisher, nur ohne die
+    /// Linux-Bruecke.
+    pub fn new(
+        codec: Codec,
+        allow_hw: Option<bool>,
+        geraet: Option<wgpu::Device>,
+    ) -> Result<Self> {
         ffmpeg::init().context("FFmpeg-Initialisierung")?;
         if !codec.is_video() {
             bail!("{} ist kein Video-Codec", codec.as_str());
@@ -944,7 +988,7 @@ impl VideoDecoder {
 
         let mut last_err = None;
         for kandidat in candidates(codec, allow) {
-            match Self::try_open(kandidat) {
+            match Self::try_open(kandidat, &geraet) {
                 Ok(decoder) => {
                     let hardware = kandidat.hardware();
                     eprintln!(
@@ -972,6 +1016,7 @@ impl VideoDecoder {
                         stockungen: crate::stockung::Waechter::default(),
                         bruecke: None,
                         zulauf: crate::einfrieren::Zulauf::default(),
+                        geraet,
                     });
                 }
                 Err(e) => last_err = Some(e),
@@ -980,7 +1025,10 @@ impl VideoDecoder {
         Err(last_err.unwrap_or_else(|| anyhow!("kein Decoder fuer {}", codec.as_str())))
     }
 
-    fn try_open(kandidat: Kandidat) -> Result<ffmpeg::decoder::Video> {
+    fn try_open(
+        kandidat: Kandidat,
+        geraet: &Option<wgpu::Device>,
+    ) -> Result<ffmpeg::decoder::Video> {
         let name = kandidat.name;
         let codec = ffmpeg::decoder::find_by_name(name)
             .ok_or_else(|| anyhow!("Decoder {name} nicht vorhanden"))?;
@@ -1007,7 +1055,7 @@ impl VideoDecoder {
             // SAFETY: der Kontext gehoert uns, ist frisch angelegt und noch
             // nicht geoeffnet; `hw_geraet_anhaengen` setzt genau ein Feld.
             let ptr = unsafe { ctx.as_mut_ptr() };
-            hw_geraet_anhaengen(ptr, art)
+            hw_geraet_anhaengen(ptr, art, geraet)
                 .with_context(|| format!("{} fuer {name}", art.beschreibung()))?;
         }
         ctx.decoder()
@@ -1194,7 +1242,7 @@ impl VideoDecoder {
     /// [`Self::auf_software`] (haengende Grafikeinheit) — bis auf den Zaehler
     /// und die Meldung ist der Vorgang derselbe.
     fn frischer_software_decoder(&mut self) -> Result<()> {
-        let fresh = Self::new(self.codec, Some(false))?;
+        let fresh = Self::new(self.codec, Some(false), self.geraet.clone())?;
         self.decoder = fresh.decoder;
         self.name = fresh.name;
         self.hardware = fresh.hardware;
@@ -1396,6 +1444,7 @@ impl VideoDecoder {
                     &mut self.bruecke,
                     &frame,
                     self.zulauf.kasten(),
+                    &self.geraet,
                 );
                 self.bruecke_us += dauer;
                 if let Some(f) = fertig {
@@ -1785,7 +1834,7 @@ mod tests {
         // Beide Wege pruefbar: der Befund entscheidet sich daran, ob nur der
         // Software-Rueckfall betroffen ist oder auch der Normalbetrieb.
         let hw = std::env::var("PULSE_PLAYER_TEST_HW").as_deref() == Ok("1");
-        let mut d = VideoDecoder::new(Codec::Av1, Some(hw)).expect("Decoder");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(hw), None).expect("Decoder");
         // Gleiches Format wie ein .rtpdump (4-Byte-LE-Laenge + 1 Fuellbyte +
         // Nutzlast) — `echter_mitschnitt_ergibt_syntaktisch_heile_einheiten`
         // schreibt es genau so, das zweite Feld bleibt hier ungenutzt.
@@ -1829,7 +1878,7 @@ mod tests {
     /// zerbricht er daran.
     #[test]
     fn einheit_ohne_sequence_header_wird_verworfen() {
-        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
         // OBU_FRAME (Typ 6) mit Groessenfeld, wie ihn der Depacketizer baut.
         let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
         let out = d.decode(&frame).expect("verwerfen ist kein Fehler");
@@ -1845,7 +1894,7 @@ mod tests {
     /// ohne Vollbild schreibt, waere das ein Einstieg auf ein Zwischenbild.
     #[test]
     fn sequence_header_mit_vollbild_beendet_das_warten() {
-        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
         // OBU_SEQUENCE_HEADER (Typ 1) mit Groessenfeld.
         let seq = [0x0Au8, 0x02, 0x00, 0x00];
         let _ = d.decode(&seq);
@@ -1863,7 +1912,7 @@ mod tests {
     /// Ursache. Nach der Grenze muss ein Fehler kommen.
     #[test]
     fn ewiges_warten_endet_mit_fehler() {
-        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
         let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
         for _ in 0..MAX_UNITS_WITHOUT_KEYFRAME {
             assert!(d.decode(&frame).is_ok(), "innerhalb der Grenze wird nur verworfen");
@@ -1881,7 +1930,7 @@ mod tests {
     /// sein Vorgaenger.
     #[test]
     fn neuaufbau_wartet_erneut_auf_einstiegspunkt() {
-        let mut d = VideoDecoder::new(Codec::Av1, Some(false)).expect("AV1-Software-Decoder");
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
         d.awaiting_keyframe = false;
         d.skipped_before_keyframe = 7;
         d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
@@ -1893,7 +1942,7 @@ mod tests {
     /// er in denselben defekten CUDA-Kontext zurueck.
     #[test]
     fn neuaufbau_landet_auf_software() {
-        let mut d = VideoDecoder::new(Codec::H264, Some(false)).expect("Software-Decoder");
+        let mut d = VideoDecoder::new(Codec::H264, Some(false), None).expect("Software-Decoder");
         d.consecutive_errors = neuaufbau::ERROR_LIMIT;
         d.rebuild("Test", std::time::Instant::now()).expect("Neuaufbau");
         assert!(!d.hardware, "Neuaufbau muss Software sein, ist {}", d.name);
@@ -1905,7 +1954,7 @@ mod tests {
     /// waere der Player auf fremder Hardware wertlos.
     #[test]
     fn software_decoder_laesst_sich_oeffnen() {
-        let d = VideoDecoder::new(Codec::H264, Some(false));
+        let d = VideoDecoder::new(Codec::H264, Some(false), None);
         assert!(d.is_ok(), "H.264-Software-Decoder fehlt: {:?}", d.err());
         assert!(!d.unwrap().hardware);
     }

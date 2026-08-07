@@ -3152,6 +3152,7 @@ name = "pulse-player"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bytes",
  "cpal",
  "egui",
@@ -3159,6 +3160,7 @@ dependencies = [
  "egui-winit",
  "egui_extras",
  "ffmpeg-next",
+ "libloading",
  "pollster",
  "raw-window-handle",
  "reqwest",
