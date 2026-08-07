@@ -1,0 +1,94 @@
+{
+  "id": "player-2026-08-07-semaphor-kopplung",
+  "gemessen_am": "2026-08-07",
+  "frage": "Zwei getrennte Fragen. (1) Traegt cuImportExternalSemaphore gegen ein Vulkan-Semaphor auf dieser Karte, ueber VK_KHR_external_semaphore_fd / OPAQUE_FD — binaer UND als Zeitlinie? (2) Nimmt wgpu 29 ein SELBST angelegtes VkDevice ueber hal::vulkan::Adapter::device_from_raw entgegen, mit der Erweiterung eingeschaltet? Beides entscheidet, ob der Zero-Copy-Umbau ueber den Betrieb hinwegkommt: die zwei Vorgaengerproben haben sich die Synchronisierung vom Hals gehalten, indem sie die Warteschlange vor jedem Schritt leerten. Im Betrieb geht das nicht — der Decoder schreibt, waehrend gezeichnet wird.",
+
+  "antwort_kurz": "Beide JA, und die Probe kann ein fehlendes Warten nachweislich bemerken. Binaer und Zeitlinie tragen gleichermassen; wgpu 29 nimmt das eigene Geraet an, und ohne diesen Umweg fehlt die Erweiterung (6 gegen 7 Erweiterungen am Geraet). Stueck 3 haengt damit nicht mehr an einer offenen Frage der Synchronisierung.",
+
+  "DIE_ENTSCHEIDENDE_KONTROLLE": {
+    "warum": "Eine Synchronisierung, die nichts tut, faellt nicht auf, wenn das Wettrennen zufaellig nie eintritt. Ein sauberer Lauf MIT Semaphor ist deshalb nur dann ein Beleg, wenn derselbe Aufbau OHNE Semaphor nachweislich falsche Bytes liefert.",
+    "aufbau": "CUDA legt 9 Kopien zu je 256 MiB auf einen Strom (rund 4,6 GiB Verkehr); die ersten 8 schreiben das ALTE Muster, nur die letzte das neue. Vulkan sendet unmittelbar danach seine Lesekopie ab. Wer zu frueh liest, sieht deshalb ALTE Bytes, nicht bloss halb geschriebene — der Unterschied zwischen einem auswertbaren und einem ratenden Befund. Der Zaehler weist beides getrennt aus (veraltet / fremd).",
+    "pruefmuster": "positionsabhaengig, und die beiden Varianten unterscheiden sich an JEDER Position (Variantenschluessel per XOR). Ein gleichfoermiges Muster liesse einen um einen Versatz daneben lesenden Weg als fehlerfrei durchgehen; gaebe es Stellen, an denen alt und neu zufaellig gleich sind, waeren das Stellen, an denen ein fehlendes Warten unsichtbar bliebe.",
+    "ergebnis": "Sie schlaegt an. Ohne Semaphor waren in JEDER Wiederholung 43,3 bis 54,2 MiB von 256 MiB veraltet (16,9 bis 21,2 Prozent), je Wiederholung ein anderer Wert — wie es bei einem Wettrennen sein muss — und nie null. Mit Semaphor: 268435456 von 268435456 Bytes neu, ausnahmslos.",
+    "der_dritte_ausgang": "Kaeme auch ohne Warten durchweg das Richtige heraus, waere das ein Befund ueber die PROBE und kein Erfolg. Dieser Fall hat einen eigenen benannten Ausgang im Programm (Ausgang::Unentscheidbar) und gibt NICHT 0 zurueck. Er ist vorgefuehrt: SPIKE_MIB=1 SPIKE_VORKOPIEN=0 loest ihn aus, Rueckgabewert 1, mit dem Wortlaut 'KANN DIESER LAUF DIE SACHE NICHT ENTSCHEIDEN'."
+  },
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03",
+    "kernel": "7.1.4-1-cachyos",
+    "probe": "streaming/player-labor/semaphor-kopplung (neue Kiste, KEIN Workspace-Mitglied)",
+    "wgpu": "29 — dieselbe Fassung wie streaming/pulse-player. Eine Messung auf 30 saehe vielleicht besser aus, sagte aber ueber die ausgelieferte Fassung nichts.",
+    "ohne": "ohne CUDA-Toolkit (libcuda per dlopen), ohne FFmpeg, ohne Server, ohne Fenster",
+    "geerbt_statt_verdoppelt": "Die von Hand nachgebauten CUDA-SPEICHER-Layouts kommen per #[path] aus ../cuda-vulkan-import, samt ihrem Selbsttest. Zwei Fassungen derselben FFI-Beschreibung waeren genau die Fehlerklasse, gegen die dieser Selbsttest steht.",
+    "arbeitet_mit_puffern_nicht_bildern": "Die Bild-Frage ist von den Nachbarn beantwortet. Ein Puffer laesst sich Byte fuer Byte gegen ein Muster halten, ohne dass eine undurchsichtige Kachelung dazwischensteht — ein Wettrennen saehe man in einem gekachelten Bild schlechter, nicht besser."
+  },
+
+  "GEMESSEN_frage_1_semaphoren": {
+    "stufen": "Vier, getrennt berichtet, weil ein Ja auf der ersten ueber die letzte nichts aussagt: A Import, B Rueckrichtung, C Empfindlichkeit (ohne Semaphor), D Hauptlauf (mit Semaphor).",
+    "binaer_OPAQUE_FD": {
+      "import": "ok",
+      "rueckrichtung": "ok — Funktionsnachweis, KEIN Wettrennen-Nachweis",
+      "stufe_C_ohne_semaphor_veraltete_bytes": [52152064, 46392320, 43509760, 48591360, 52095744],
+      "stufe_D_mit_semaphor": "5 von 5 Wiederholungen: 268435456 Bytes alle neu",
+      "urteil": "TRAEGT"
+    },
+    "zeitlinie_TIMELINE_SEMAPHORE_FD": {
+      "import": "ok",
+      "rueckrichtung": "ok — Funktionsnachweis, KEIN Wettrennen-Nachweis",
+      "stufe_C_ohne_semaphor_veraltete_bytes": [54157312, 45265152, 43348480, 47742464, 50487296],
+      "stufe_D_mit_semaphor": "5 von 5 Wiederholungen: 268435456 Bytes alle neu",
+      "urteil": "TRAEGT"
+    },
+    "beide_gleichwertig": "Keine der beiden Bauarten ist die schwaechere. Der Player kann sie sich nach seiner Zeichenschleife aussuchen und muss sie nicht nach dem Treiber waehlen. Die Zeitlinie ist trotzdem die naheliegendere: sie verlangt kein Buchhalten ueber signalisiert/nicht signalisiert, und wgpu-hal fordert VK_KHR_timeline_semaphore ohnehin schon an.",
+    "wiederholungen": "Der Agent fuhr vier volle Laeufe, der Hauptlauf zur Verifikation einen fuenften — gleiches Bild in allen."
+  },
+
+  "GEMESSEN_frage_2_eigenes_vkdevice": {
+    "antwort": "JA. wgpu 29 nimmt das selbst angelegte VkDevice ueber hal::vulkan::Adapter::device_from_raw und create_device_from_hal entgegen.",
+    "die_groesse_die_sich_aendern_MUSS": "die Zahl der am Geraet eingeschalteten Erweiterungen: 6 auf dem wgpu-Weg, 7 auf dem eigenen — plus die ausdrueckliche Zeile, ob VK_KHR_external_semaphore_fd darunter ist.",
+    "gegenprobe": "SPIKE_EIGENES_GERAET=0 laesst wgpu das Geraet oeffnen. Dann steht dort '6 Erweiterungen, VK_KHR_external_semaphore_fd ist NICHT an', und der Lauf bricht mit genau dieser Begruendung ab (Rueckgabewert 1). Der Umweg ueber device_from_raw ist also nicht Zierde, sondern die Bedingung.",
+    "wie_das_geraet_gebaut_wird": "auf genau dem Weg, den wgpu-hal intern nimmt (Adapter::open_with_callback, adapter.rs:2834): dieselben Hilfsfunktionen (required_device_extensions, physical_device_features, add_to_device_create), dieselbe Reihenfolge, nur ein Eintrag mehr in der Erweiterungsliste. Waere es ein anderer Weg, koennte ein Fehlschlag auch daran liegen, dass wir das Geraet anders bauen als wgpu es erwartet — Frage 2 waere dann nicht beantwortet, sondern verschoben.",
+    "NEBENBEFUND_der_arbeit_spart": "wgpu-hal 29 hat mit Adapter::open_with_callback einen bequemeren Weg als device_from_raw: der Rueckruf darf die Erweiterungsliste vor vkCreateDevice ergaenzen, ohne dass das Geraet von Hand gebaut werden muss. Die Probe geht bewusst den Handweg, weil er gefragt war; fuer den Einbau in den Player ist der Rueckruf die kuerzere Strecke."
+  },
+
+  "WERKZEUGFEHLER_den_der_selbsttest_gefangen_hat": {
+    "was": "Der allererste Lauf endete mit 'CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC: 92 Bytes, erwartet 96 — Layout weicht von cuda.h ab'.",
+    "ursache": "Alle Felder dieser Struktur sind vier Byte breit oder Byte-Felder; Rust rechnet daraus Ausrichtung 4 und Groesse 92. C kommt auf 96, weil die union eine Variante mit zwei Zeigern enthaelt und damit auf 8 ausgerichtet ist — eine Information, die verschwindet, sobald man die union durch ein Byte-Feld ersetzt.",
+    "warum_es_gerade_hier_zuschlaegt": "Das SPEICHER-Gegenstueck der Nachbarkiste hat das Problem nicht, weil es ein u64 size traegt, das die Ausrichtung von selbst erzwingt. Wer von dort abschreibt, uebersieht es deshalb.",
+    "behoben": "#[repr(C, align(8))].",
+    "was_ohne_den_selbsttest_passiert_waere": "Der Treiber haette flags und reserved um vier Byte verschoben gelesen. Kein Fehler, kein Absturz — es waere unbemerkt durchgelaufen. Genau die Fehlerklasse, gegen die der Selbsttest steht."
+  },
+
+  "kontrollen": {
+    "layout_selbsttest": "Groessen UND Versaetze der drei neuen Semaphor-Strukturen gegen ein KOMPILIERTES sizeof/offsetof aus /opt/cuda/include/cuda.h — nicht aus der Doku und nicht von Hand gerechnet.",
+    "uuid_abgleich": "Vulkan und CUDA muessen dieselbe Karte meinen. Auf einer Maschine mit zwei GPUs schluege der Import sonst aus einem Grund fehl, der mit der Frage nichts zu tun hat.",
+    "ausgangslage_je_wiederholung": "wird synchron hergestellt — eine Verschleppung ueber Wiederholungen hinweg ist damit ausgeschlossen.",
+    "kopfzeile_als_beleg": "Jeder Lauf gibt seine tatsaechliche Schalterstellung aus. Beim Nachfahren gilt sie, nicht die eigene Beschriftung.",
+    "PRUEFSCHICHT_ist_zu_hoeren": "Mit SPIKE_PRUEFSCHICHT=1 kommt genau eine Meldung, und zwar beim Beenden: VUID-vkDestroyDevice-device-05137, zehn nicht abgeraeumte Objekte. Das ist unsere eigene, absichtliche Unordnung am Ausgang (Puffer und Semaphoren werden bis zum Prozessende gehalten, weil CUDA sie ueber die importierten Deskriptoren haelt), KEIN Regelverstoss im geprueften Ablauf. Ihr Wert liegt darin, dass sie ueberhaupt kommt: 'die Schicht meldet nichts' waere sonst nicht von 'die Schicht ist nicht zu hoeren' zu unterscheiden — genau die Falle, in die ../wgpu-cuda-import zuerst getappt ist."
+  },
+
+  "GELESEN": [
+    "wgpu-hal 29, vulkan/adapter.rs:1232 — bei den Semaphoren steht nur VK_KHR_timeline_semaphore; eine Zeile fuer external_semaphore_fd gibt es nicht, anders als fuer external_memory_fd (1296) und external_memory_win32 (1290).",
+    "Eine Erweiterung, die in eine Kernfassung uebernommen wurde, steht nicht in der Liste und ist trotzdem da (so verhaelt sich timeline_semaphore seit Vulkan 1.2). Fuer VK_KHR_external_semaphore_fd gibt es keine solche Uebernahme — nur das elternlose VK_KHR_external_semaphore wurde in 1.1 uebernommen, und vkGetSemaphoreFdKHR steckt nicht darin. Ihr Fehlen ist also ein echtes Fehlen.",
+    "wgpu-hal 29, vulkan/adapter.rs:2439 device_from_raw und 2834 open_with_callback."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "STUFE B IST EIN FUNKTIONSNACHWEIS, KEIN WETTRENNEN-NACHWEIS. Dass CUDA auf ein von Vulkan signalisiertes Semaphor wartet und danach die richtigen Daten sieht, ist belegt; dass dieses Warten ein VERFRUEHTES UEBERSCHREIBEN verhindert, ist es NICHT. Wer die Rueckrichtung im Player scharf schaltet (recycelter Puffer), muss das Gegenstueck zu Stufe C dafuer nachbauen.",
+    "Nur Puffer, keine Bilder. Ein VkImage bringt zusaetzlich Layout-Uebergaenge mit, und welches Layout CUDA beim Schreiben erwartet, ist nirgends dokumentiert. Die Semaphor-Frage ist davon unabhaengig, die GESAMTkette nicht.",
+    "Nur eine Karte, ein Treiber (RTX 5080 / 610.43.03). Ueber aeltere NVIDIA-Treiber, ueber AMD (dort gibt es kein CUDA) und ueber Windows (dort OPAQUE_WIN32 statt OPAQUE_FD) sagt der Lauf nichts.",
+    "ES WIRD NICHTS UEBER ZEITEN GESAGT. Die GPU-Takte sind fuer diese Probe nicht festgenagelt; sie meldet ausschliesslich Korrektheit. Ob die Kopplung SCHNELLER ist als queue_wait_idle, ist eine andere Messung — und das ist die Frage, an der die Nutzer-Vorgabe 'kein Latenz-Verlust' haengt.",
+    "Ein Semaphor je Bauart, ein Strom, eine Warteschlange. Der Player wird mehrere Bilder in Flug haben; ob eine Kette aus mehreren Semaphoren dieselbe Ordnung haelt, ist damit nicht gezeigt.",
+    "Der gepruefte Ablauf ist ein kuenstliches Wettrennen mit 4,6 GiB Verkehr, nicht der Bildweg des Players. Er beantwortet, ob das Werkzeug traegt — nicht, ob es an der richtigen Stelle sitzt."
+  ],
+
+  "was_stueck_3_daraus_mitnimmt": [
+    "Die Synchronisierung ist kein offener Punkt mehr: beide Bauarten tragen, die Zeitlinie ist die naheliegendere.",
+    "Der Player muss sein VkDevice selbst anlegen — ODER, kuerzer, Adapter::open_with_callback nehmen und dort die Erweiterungsliste ergaenzen. Ohne das eine oder andere fehlt VK_KHR_external_semaphore_fd, und der ganze Weg ist gar nicht erst pruefbar.",
+    "Die Rueckrichtung (Puffer recyceln) braucht ihre EIGENE Empfindlichkeitsprobe, bevor man sich auf sie verlaesst.",
+    "Eine grobe Synchronisierung (cuStreamSynchronize plus Zaun) bleibt als Notbremse hinter einem Schalter richtig — aber sie ist nicht mehr der Zielzustand, weil der schnelle Weg belegt traegt."
+  ],
+
+  "rohdaten": "streaming/player-labor/semaphor-kopplung/README.md, Abschnitt 'Ergebnis' (Rohausgaben aller Ausgaenge samt der beiden Gegenproben)."
+}

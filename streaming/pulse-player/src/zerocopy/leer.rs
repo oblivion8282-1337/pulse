@@ -1,10 +1,15 @@
-//! Der Platzhalter fuer alles, was nicht Windows ist.
+//! Der Platzhalter fuer alles, was weder Windows noch Linux ist — heute also
+//! macOS.
 //!
 //! Es gibt ihn, damit `decode.rs` und `render/` keine `#[cfg]`-Zweige
-//! brauchen: dort steht ueberall `Option<Arc<GpuBild>>`, und ausserhalb von
-//! Windows ist dieses `Option` schlicht immer `None`. Der VAAPI-Weg unter Linux
-//! braeuchte eine eigene Bruecke (DMA-BUF statt NT-Handle) — die gibt es nicht,
-//! und sie hier vorzutaeuschen waere schlimmer als ihr Fehlen.
+//! brauchen: dort steht ueberall `Option<Arc<GpuBild>>`, und hier ist dieses
+//! `Option` schlicht immer `None`.
+//!
+//! **Hier stand bis zum 2026-08-07 „fuer alles, was nicht Windows ist".** Seit
+//! Linux seine eigene Bruecke hat (CUDA → Vulkan, `super::linux`), gilt das
+//! nicht mehr. Was auf Linux weiterhin ohne Bruecke laeuft, ist der
+//! **VAAPI**-Weg: der braeuchte DMA-BUF statt eines CUDA-Imports, und ihn hier
+//! vorzutaeuschen waere schlimmer als sein Fehlen.
 
 use anyhow::{bail, Result};
 
@@ -43,8 +48,9 @@ impl Bruecke {
     pub fn neu(
         _frame: &ffmpeg_next::util::frame::video::Video,
         _briefkasten: std::sync::Arc<crate::einfrieren::Briefkasten>,
+        _geraet: &Option<wgpu::Device>,
     ) -> Result<Self> {
-        bail!("Zero-Copy gibt es nur unter Windows")
+        bail!("Zero-Copy gibt es auf dieser Plattform nicht")
     }
 
     pub fn uebernehmen(

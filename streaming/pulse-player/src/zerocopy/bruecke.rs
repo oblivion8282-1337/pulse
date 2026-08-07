@@ -172,9 +172,15 @@ impl Bruecke {
     /// traegt seinen `hw_frames_ctx` mit, und darin steht dasselbe Geraet — der
     /// Weg ueber `AVCodecContext.hw_device_ctx` braeuchte zusaetzlich Zugriff
     /// auf den rohen Kontext des laufenden Decoders.
+    /// `geraet` bleibt hier ungenutzt, und das ist der Unterschied zur
+    /// Linux-Bruecke: ein NT-Handle laesst sich auf JEDEM D3D12-Geraet oeffnen,
+    /// waehrend ein `VkImage` unaufloesbar zu seinem `VkDevice` gehoert. Der
+    /// Parameter steht trotzdem in der Signatur, damit `uebergabe.rs`
+    /// plattformfrei bleibt.
     pub fn neu(
         frame: &ffmpeg::util::frame::video::Video,
         briefkasten: Arc<crate::einfrieren::Briefkasten>,
+        _geraet: &Option<wgpu::Device>,
     ) -> Result<Self> {
         let hwctx = geraetekontext(frame)?;
         // SAFETY: `hwctx` zeigt auf einen von FFmpeg angelegten, lebenden

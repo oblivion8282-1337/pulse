@@ -1,0 +1,64 @@
+[package]
+name = "semaphor-kopplung"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Repo-Bauziel und KEIN Workspace-Mitglied — wie die
+# drei Proben daneben. Ein Fehlschlag hier kann nichts brechen.
+#
+# **Warum eine eigene Kiste und nicht `../wgpu-cuda-import` erweitert.** Jene
+# Probe beantwortet eine abgeschlossene Frage (nimmt wgpu 29 ein fremdes
+# `VkImage` mitsamt Inhalt?) und hat dafuer einen Aufbau, der bewusst OHNE
+# Synchronisierung ueber die Grenze auskommt: sie leert die Warteschlange vor
+# jedem Schritt. Genau das ist hier der Gegenstand. Wuerde man beides in eine
+# Kiste legen, waere bei einem Fehlschlag nicht mehr zuzuordnen, ob die
+# Speicher- oder die Synchronisierungsseite gescheitert ist — und die Messakte
+# der Nachbarkiste liefe ab da nicht mehr auf demselben Aufbau.
+#
+# Der teure Teil wird trotzdem NICHT verdoppelt: die von Hand nachgebauten
+# CUDA-Struct-Layouts samt Layout-Selbsttest kommen per `#[path]` aus
+# `../cuda-vulkan-import`, so wie `../wgpu-cuda-import` es macht. Neu sind hier
+# allein die drei Semaphor-Strukturen — die stehen in `src/cudasem.rs` und
+# tragen ihren eigenen Selbsttest gegen ein kompiliertes `sizeof`/`offsetof`
+# aus `/opt/cuda/include/cuda.h`.
+
+[dependencies]
+# **29, nicht 30.** Der Player steht auf wgpu 29.0.4
+# (`streaming/pulse-player/Cargo.lock`). Gefragt ist, ob DIESE Fassung ein
+# selbst angelegtes `VkDevice` entgegennimmt; eine Messung auf 30 saehe
+# womoeglich besser aus, sagte aber ueber die ausgelieferte Fassung nichts.
+#
+# **`wgpu-core` wird hier gebraucht und ist nicht selbstverstaendlich.**
+# `Adapter::create_device_from_hal` steht hinter `#[cfg(wgpu_core)]`; ohne den
+# Unterbau gaebe es den Weg gar nicht, und der Fehler waere ein
+# Uebersetzungsfehler statt eines Befundes. Die Vorgabe-Merkmale von wgpu
+# ziehen wgpu-core mit, deshalb hier KEIN `default-features = false` — anders
+# als in `../wgpu-cuda-import`, die nur `as_hal` braucht.
+wgpu = { version = "29", features = ["wgsl", "vulkan"] }
+
+# **Muss dieselbe ash-Fassung sein, die wgpu-hal 29 zieht** (0.38): das
+# `ash::Device`, das wir anlegen, und das, welches `device_from_raw`
+# entgegennimmt, waeren sonst fuer den Compiler verschiedene Typen — obwohl sie
+# dasselbe Geraet bezeichnen. Cargo vereinheitlicht 0.38.x von selbst; die
+# Angabe ist bewusst nicht schaerfer, damit die Vereinheitlichung nicht daran
+# scheitert.
+ash = "0.38"
+
+# CUDA per dlopen: `libcuda.so.1` gehoert zum Treiber, nicht zum Toolkit.
+libloading = "0.8"
+
+anyhow = "1"
+pollster = "0.4"
+
+# Nur damit die Vulkan-Pruefschicht ueberhaupt zu hoeren ist — Begruendung an
+# derselben Stelle in `../wgpu-cuda-import/Cargo.toml`: ohne eingehaengten
+# Empfaenger fallen wgpus Meldungen lautlos auf den Boden, und ein Lauf ohne
+# Meldungen saehe aus wie ein regelkonformer Lauf.
+log = "0.4"
+
+[[bin]]
+name = "semaphor-kopplung"
+path = "src/main.rs"
+
+[profile.release]
+debug = true

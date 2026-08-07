@@ -1,0 +1,30 @@
+[package]
+name = "cuda-vulkan-import"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Repo-Bestandteil und KEIN Workspace-Mitglied —
+# genau wie `../nv12-wgpu-import`. Sie beruehrt kein Bauziel des Produkts, ein
+# Fehlschlag hier kann nichts brechen.
+
+[dependencies]
+# Rohes Vulkan. Bewusst OHNE wgpu in dieser Stufe: die Frage ist, ob Treiber
+# und CUDA sich ueber geteilten Speicher einig sind. Kaeme wgpu dazu, waere ein
+# Fehlschlag nicht mehr eindeutig zuzuordnen — genau diese Verwechslung hat auf
+# der Windows-Seite einen Abend gekostet (dort sah es nach wgpu aus und war der
+# Treiber).
+ash = "0.38"
+
+# CUDA per dlopen statt Bindungs-Crate: `libcuda.so` gehoert zum Treiber, nicht
+# zum Toolkit — eine Crate wie `cust` zoege ein CUDA-SDK nach, das hier niemand
+# hat. Dieselbe Bauart nutzt der Linux-Sidecar fuer EGL.
+libloading = "0.8"
+
+anyhow = "1"
+
+[[bin]]
+name = "cuda-vulkan-import"
+path = "src/main.rs"
+
+[profile.release]
+debug = true

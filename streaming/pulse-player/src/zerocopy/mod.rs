@@ -1,13 +1,35 @@
 //! Der Weg des dekodierten Bildes von der GPU zum Shader — **ohne** Umweg
 //! ueber den Hauptspeicher.
 //!
-//! Heute nimmt jedes Bild unter Windows den Weg GPU → Hauptspeicher → GPU
+//! Ohne diesen Weg nimmt jedes Bild die Strecke GPU → Hauptspeicher → GPU
 //! zurueck: `av_hwframe_transfer_data` legt eine Ablage-Textur an, bildet sie
 //! ab und kopiert byteweise ueber unbeschleunigten Speicher (gemessen 3,5 ms
 //! bei 1080p8, 5,2-5,5 ms bei 1080p10 — `player-2026-08-06-bildweg-kosten`),
 //! danach schiebt `write_texture` dieselben Daten wieder hinauf.
 //!
-//! ## Warum das hier eine Bruecke ist und kein reines Durchreichen
+//! ## Zwei Bruecken, ein Verhalten
+//!
+//! | | Windows | Linux |
+//! |---|---|---|
+//! | Decoder | D3D11VA | `av1_cuvid`/`h264_cuvid` mit CUDA-Geraet |
+//! | Uebergabe | geteilte Textur, NT-Handle | exportiertes `VkImage`, Dateideskriptor |
+//! | Wer legt das Ziel an | FFmpegs D3D11-Geraet | **wgpus** Vulkan-Geraet |
+//! | Datei | [`bruecke`] | [`linux`] |
+//!
+//! **Der Unterschied ist erzwungen, nicht gewaehlt**, und die Richtung ist
+//! sogar vertauscht: unter Windows gehoert die Quelle uns und wird geteilt,
+//! unter Linux gehoert das ZIEL uns und wird eingehaengt — weil FFmpegs
+//! CUDA-Speicher nicht exportierbar ist. Die Einzelheiten stehen im Kopf von
+//! [`linux`]; hier steht nur, was fuer beide gilt. Alles darunter
+//! ([`angefordert`], [`abschalten`], [`bild_ohne_umweg`], der GPU-Abdruck des
+//! Einfrier-Waechters, die Latenz-Sonde) ist plattformfrei und gilt fuer beide
+//! Wege.
+//!
+//! **Was auf Linux WEITERHIN ohne Bruecke laeuft: der VAAPI-Weg** (AMD, Intel).
+//! Er braeuchte DMA-BUF statt eines CUDA-Imports, das ist eine dritte Bruecke.
+//! Solange es sie nicht gibt, holt `drain` dort das Bild wie bisher herunter.
+//!
+//! ## Warum das unter Windows eine Bruecke ist und kein reines Durchreichen
 //!
 //! Naheliegend waere, FFmpegs Decoder-Textur selbst zu teilen. Das geht nicht,
 //! und zwar aus zwei unabhaengigen Gruenden, die beide gemessen bzw. im
@@ -81,6 +103,11 @@
 //! (`session.rs`, `dump.rs`) — er beruehrt `DecodedFrame` ueberhaupt nicht und
 //! laeuft auf diesem Weg unveraendert weiter.
 
+/// Der Ringplatz-Stapel — von BEIDEN Bruecken benutzt, deshalb ausserhalb der
+/// Plattform-Zweige.
+#[cfg(any(windows, target_os = "linux"))]
+mod freigabe;
+
 #[cfg(windows)]
 mod bruecke;
 #[cfg(windows)]
@@ -92,13 +119,58 @@ pub use bruecke::Bruecke;
 #[cfg(windows)]
 pub use platz::GpuBild;
 
-#[cfg(not(windows))]
+/// Der Linux-Weg: CUDA schreibt in ein von Vulkan angelegtes Bild.
+///
+/// **Nicht `unix`, sondern `linux`.** macOS ist ebenfalls `unix`, hat aber
+/// weder CUDA noch `VK_KHR_external_memory_fd`; dort gilt weiterhin der
+/// Platzhalter.
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{kontext_bereitstellen, Bruecke, GpuBild, Ringplatz};
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod leer;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub use leer::{Bruecke, GpuBild};
+
+/// Ausserhalb von Linux gibt es keinen geteilten CUDA-Kontext, den der Decoder
+/// uebernehmen koennte.
+#[cfg(not(target_os = "linux"))]
+pub fn kontext_bereitstellen(_geraet: &Option<wgpu::Device>) -> bool {
+    false
+}
 
 mod uebergabe;
 pub use uebergabe::bild_ohne_umweg;
+
+/// Gibt es fuer dieses Pixelformat auf DIESER Plattform eine Bruecke?
+///
+/// **Die Abfrage gehoert hierher und nicht in `decode.rs`.** Dort stand sie bis
+/// zum 2026-08-07 als `format == Pixel::D3D11`, also mit der Antwort einer
+/// einzigen Plattform fest verdrahtet — wer eine zweite Bruecke ergaenzt, muss
+/// sonst zwei Dateien treffen und merkt beim Vergessen der zweiten nichts:
+/// der Decoder liefert weiter GPU-Bilder, die Bruecke wird nur nie gefragt, und
+/// es faellt allein als ausgebliebene Ersparnis auf.
+///
+/// Der `#[cfg]` steht hier, weil `Pixel::D3D11` und `Pixel::CUDA` beide auf
+/// jeder Plattform existieren — ein plattformloser `matches!` wuerde unter
+/// Linux nach D3D11 fragen und die Bruecke bauen lassen, die es dort nicht gibt.
+pub fn bruecke_moeglich(format: ffmpeg_next::format::Pixel) -> bool {
+    #[cfg(windows)]
+    {
+        format == ffmpeg_next::format::Pixel::D3D11
+    }
+    #[cfg(target_os = "linux")]
+    {
+        format == ffmpeg_next::format::Pixel::CUDA
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = format;
+        false
+    }
+}
 
 /// Der Schalter, EINMAL aus der Umgebung gelesen.
 ///
