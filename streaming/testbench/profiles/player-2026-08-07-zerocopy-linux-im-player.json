@@ -1,0 +1,117 @@
+{
+  "id": "player-2026-08-07-zerocopy-linux-im-player",
+  "gemessen_am": "2026-08-07",
+  "frage": "Der Renderer nimmt das CUDA-Bild jetzt direkt, statt es in den Hauptspeicher zu holen und wieder hochzuladen. Wird die Wiedergabe dadurch messbar schneller — oder war der Umbau umsonst?",
+  "antwort_kurz": "Ja, messbar und in jedem Einzellauf. Bild-bis-Schirm faellt um 3,4 bis 4,3 ms (5,4 bzw. 6,8 Prozent), die Dekodierzeit je Bild um 3,2 bis 3,3 ms (70 bis 75 Prozent). Neun Laeufe je Arm, Arme abwechselnd, in KEINER der beiden Kennzahlen ueberlappen die Arme. Bezahlt ist es mit 143 MiB Grafikspeicher fuer den Ring.",
+  "WAS_DIESE_AKTE_NICHT_BELEGT": "Die Ende-zu-Ende-Latenz aus dem gemalten Zeitmuster ist auf dem NEUEN Weg nicht gemessen — die Sonde liest die Luma-Ebene im Hauptspeicher, und die gibt es dort nicht mehr. Gemessen ist stattdessen 'Bild-bis-Schirm' (im Player: Alter des Bildes beim Ausgeben, ab Ankunft des abschliessenden Pakets), und das ist ausdruecklich der Teil der Ende-zu-Ende-Kette, der in diesem Programm liegt. Alles davor (Aufnahme, Encoder, Netz, MediaMTX) beruehrt der Umbau nicht und ist in beiden Armen dieselbe Kette. Die absolute Ende-zu-Ende-Zahl des Bezugsarms steht mit 77,2 bis 79,4 ms daneben; daraus folgt fuer den neuen Weg rechnerisch rund 73 bis 75 ms. DIESE ZAHL IST GERECHNET, NICHT GEMESSEN.",
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03",
+    "kernel": "7.1.4-1-cachyos",
+    "zweig": "feat/zero-copy-player-linux",
+    "kette": "streaming/testbench/real-harness.py — echter Sender (streaming/hq-labor, Portal-Aufnahme des Bildschirms) -> av1_nvenc 1440p60 AV1 10 bit -> RTMPS -> lokales MediaMTX (pulse-mediamtx 1.19.1-pulse2) -> WHEP -> pulse-player",
+    "bitrate_vorgabe_kbps": 4000,
+    "warum_nur_4000": "Bei Messungen von hier schaut derselbe Anschluss zu, der auch sendet (10 Mbit Upload). Mit 8000 misst man die eigene Leitung am Anschlag statt den Sendeweg.",
+    "messstrecke": "je Lauf 20 s, die ersten zwei Sekundenproben verworfen; 17 bis 18 ausgewertete Proben je Lauf",
+    "auch_gelaufen": "latency-pattern.py (--e2e) in BEIDEN Armen — damit beide denselben Bildinhalt aufnehmen. Auf dem neuen Weg liefert es keine Zahl (s.o.), aber es muss trotzdem laufen, sonst waere der Bildinhalt verschieden."
+  },
+
+  "methodik": {
+    "arme": {
+      "an": "Vorgabe — der neue Weg (PULSE_PLAYER_ZEROCOPY nicht gesetzt)",
+      "aus": "PULSE_PLAYER_ZEROCOPY=0 — der Weg ueber den Hauptspeicher, also genau der Stand von vorher"
+    },
+    "arme_abwechselnd": "Innerhalb jeder Runde erst 'an', dann 'aus'; jeder Lauf ein eigener Player- und Sender-Prozess. Ein Drift der Maschine trifft damit beide Arme gleich.",
+    "zwei_reihen": "Reihe A: sechs Runden bei freiem GPU-Takt (Kennung zc-*). Reihe B: drei Runden bei festgenageltem Takt (Kennung takt-*, nvidia-smi -lgc 2100,2100 / -lmc 15001,15001, danach zurueckgesetzt). Reihe B gibt es, weil eine Taktschwankung in derselben Groessenordnung liegen koennte wie der gesuchte Unterschied.",
+    "quelle_der_zahlen": "samples-<kennung>.json (eine Probe je Sekunde, aus dem Player), plus die Logzeile 'Ende-zu-Ende' fuer den Bezugsarm."
+  },
+
+  "KONTROLLEN": {
+    "JEDER_LAUF_WEIST_SEINEN_ARM_NACH": "Je Lauf wird im Player-Log gezaehlt, wie oft 'Zero-Copy an' steht: in allen neun 'an'-Laeufen genau 1, in allen neun 'aus'-Laeufen 0. Ohne diese Zaehlung waere ein vertauschter Arm nicht von einem ausbleibenden Gewinn zu unterscheiden — und die Umgebungsvariable wird in einer Schleife gesetzt, wo genau das passieren kann.",
+    "BEIDE_ARME_SAHEN_DENSELBEN_STROM": "Datenrate 4008 bis 4027 kbit/s ueber alle Laeufe beider Arme (Streuung unter 0,5 Prozent). Ein Arm mit anderer Datenrate haette eine andere Dekodierzeit, ohne dass es am Weg laege.",
+    "DER_RING_IST_WIRKLICH_DA": "Grafikspeicher des Player-Prozesses waehrend des Laufs, vom Treiber erfragt: 795 MiB im 'an'-Arm gegen 651 bis 653 MiB im 'aus'-Arm, in allen drei Laeufen der Takt-Reihe identisch. Die Differenz von 143 MiB deckt sich mit der Vorausrechnung fuer zwoelf Ringplaetze bei 1440p10 (rund 11 MB je Platz plus Treiberaufschlag). Das ist die schaerfste Kontrolle dieser Akte: sie belegt unabhaengig vom Log, dass der neue Weg wirklich Speicher belegt hat und nicht bloss eine Zeile ausgab.",
+    "DER_RUECKFALL_HAT_SICH_BEWAEHRT": "Im ersten Rauchlauf scheiterte cuImportExternalMemory mit 'invalid device context' (rc=201, fehlender cuCtxSetCurrent beim Ringbau). Ergebnis war ein LANGSAMERES Bild samt einer Logzeile — kein schwarzes Fenster, kein Absturz. Genau das soll der Rueckfall leisten; er ist damit nicht bloss gebaut, sondern einmal unter echten Bedingungen eingetreten.",
+    "e2e_misses": "0 in allen achtzehn Laeufen — der gemalte Balken war nie verdeckt. Im 'an'-Arm ist die Sonde still abgeschaltet (0 Bilder ausgewertet, 0 verfehlt), das ist der dokumentierte Zustand und keine Fehlmessung."
+  },
+
+  "GEMESSEN_reihe_A_freier_takt": {
+    "laeufe_je_arm": 6,
+    "dekodierzeit_je_bild_us": {
+      "an": {"mittel": 1112.5, "einzellaeufe": [1097.1, 1095.2, 1119.2, 1098.2, 1177.4, 1088.0]},
+      "aus": {"mittel": 4423.0, "einzellaeufe": [4488.6, 4374.2, 4345.2, 4379.1, 4549.0, 4401.8]},
+      "unterschied": "-3310 us (-74,8 %), kein Ueberlappen der Wertebereiche"
+    },
+    "bild_bis_schirm_us": {
+      "an": {"mittel": 59645.9, "einzellaeufe": [60300.7, 60669.4, 57878.8, 60291.8, 57554.1, 61180.8]},
+      "aus": {"mittel": 63078.1, "einzellaeufe": [61336.4, 63998.1, 63620.1, 63822.5, 61432.7, 64258.9]},
+      "unterschied": "-3432 us (-5,4 %); groesster 'an'-Wert 61181, kleinster 'aus'-Wert 61336 — die Arme beruehren sich nicht. Bei sechs gegen sechs Werten hat eine vollstaendige Trennung durch Zufall eine Wahrscheinlichkeit von 1 zu 924."
+    },
+    "bildrate": {"an": 56.9, "aus": 57.1, "anmerkung": "gleich innerhalb der Streuung; der Umbau kauft keine Latenz mit Bildern"},
+    "nie_gezeichnete_bilder": {"an": 3.0, "aus": 3.7}
+  },
+
+  "GEMESSEN_reihe_B_festgenagelter_takt": {
+    "laeufe_je_arm": 3,
+    "dekodierzeit_je_bild_us": {
+      "an": {"mittel": 1360.5, "einzellaeufe": [1351.4, 1402.2, 1328.0]},
+      "aus": {"mittel": 4596.4, "einzellaeufe": [4633.8, 4604.7, 4550.6]},
+      "unterschied": "-3236 us (-70,4 %)"
+    },
+    "bild_bis_schirm_us": {
+      "an": {"mittel": 59677.3, "einzellaeufe": [60784.1, 57548.8, 60698.9]},
+      "aus": {"mittel": 64001.1, "einzellaeufe": [64031.2, 64039.3, 63932.8]},
+      "unterschied": "-4324 us (-6,8 %), ebenfalls ohne Ueberlappen"
+    },
+    "gpu_auslastung_prozent": {
+      "an": [56.9, 57.7, 57.3],
+      "aus": [59.2, 59.4, 58.4],
+      "anmerkung": "-1,7 Prozentpunkte. ACHTUNG: der Sender encodiert auf DERSELBEN Karte, ein grosser Teil dieser Last ist seine. Die Zahl ist ein Hinweis, kein Beleg fuer den Decoder-Anteil."
+    },
+    "grafikspeicher_mib": {"an": [795, 795, 795], "aus": [651, 653, 653]},
+    "warum_die_dekodierzeit_hier_hoeher_ist": "Der festgenagelte Kerntakt (2100 MHz) liegt unter dem, was die Karte sonst kurzzeitig faehrt. Das trifft BEIDE Arme, der Vergleich bleibt gueltig; die Absolutwerte der beiden Reihen sind nicht miteinander vergleichbar."
+  },
+
+  "GEMESSEN_ende_zu_ende_nur_bezugsarm": {
+    "was": "Aus dem gemalten Zeitmuster zurueckgelesen (latency-pattern.py + probe.rs), also ueber die GANZE Kette einschliesslich Aufnahme, Encoder, Netz und MediaMTX.",
+    "aus_reihe_A_ms": [85.7, 76.3, 76.6, 75.9, 85.8, 76.3],
+    "aus_reihe_B_ms": [76.5, 77.4, 76.5],
+    "an": "nicht messbar — s. WAS_DIESE_AKTE_NICHT_BELEGT",
+    "wozu_sie_trotzdem_dasteht": "Sie gibt den Massstab: von den rund 77 ms liegen 63 bis 64 ms im Player (bild_bis_schirm). Der gemessene Gewinn von 3,4 bis 4,3 ms sind also rund 5 Prozent der ganzen Kette und rund 7 Prozent des Player-Anteils."
+  },
+
+  "was_gebaut_wurde": {
+    "dateien": [
+      "streaming/pulse-player/src/zerocopy/linux/{mod,platz,ebene,kern,cuda,vkbild}.rs — die Bruecke",
+      "streaming/pulse-player/src/zerocopy/{mod,uebergabe,freigabe,leer,platz}.rs — plattformfrei gemacht",
+      "streaming/pulse-player/src/render/fremdbild.rs — die Einhaengung in wgpu",
+      "streaming/pulse-player/src/decode.rs — CUDA-Kontext teilen, Bruecke fuettern",
+      "streaming/pulse-player/src/{session,app/mod}.rs — das wgpu-Geraet bis zum Decoder durchreichen"
+    ],
+    "kurz": "Vulkan legt das Zielbild auf WGPUS Geraet an, CUDA bekommt es ueber einen Dateideskriptor eingehaengt, der fertige Decoder-Frame wird mit cuMemcpy2D GPU-lokal hineinkopiert, wgpu uebernimmt es mit texture_from_raw.",
+    "tests": "219 bestanden, 0 gescheitert (vorher 213)."
+  },
+
+  "FALLEN_DIE_ECHT_ZUGESCHLAGEN_HABEN": [
+    "cuCtxSetCurrent fehlte beim Ringbau. Der CUDA-Kontext haengt am THREAD, und der Decoder laeuft in einer tokio-Aufgabe, die zwischen zwei Bildern den Arbeitsthread wechseln darf: der Kontext war beim Oeffnen des Decoders gesetzt worden, auf einem anderen Thread als dem, auf dem das erste Bild ankam. cuImportExternalMemory antwortete mit 'invalid device context', der Weg schaltete sich beim ersten Bild ab. Sichtbar NUR an einer Logzeile — die Bildwiedergabe lief unauffaellig weiter.",
+    "Die Vulkan-Bilder brauchen einen Lebensanker. Der Ring wird abgebaut, wenn die Aufloesung wechselt oder die Sitzung endet — zu diesem Zeitpunkt kann der Renderer noch eine wgpu-Textur auf genau dieses VkImage halten. Die Windows-Bruecke hat das Problem nicht (OpenSharedHandle nimmt eine eigene Referenz), Vulkan kennt nichts Vergleichbares. Geloest ueber ein Arc, das auch der drop_callback von texture_from_raw haelt. NICHT durch einen Lauf belegt, sondern vorbeugend gebaut — ein Aufloesungswechsel im laufenden Strom ist nie ausgeloest worden."
+  ],
+
+  "GELESEN_nicht_gemessen": [
+    "Der Gleichlauf laeuft ueber cuCtxSynchronize (Warten auf der CPU), nicht ueber ein Semaphor. Begruendung: genau so lief die Probe, die belegt, dass wgpu den Inhalt sieht (player-2026-08-07-wgpu29-vkimage-import). Der Semaphor-Weg ist zwar belegt (player-2026-08-07-semaphor-kopplung), aber nur als Funktionsnachweis in EINER Richtung, und er verlangt ein selbst angelegtes VkDevice. Was das Warten kostet, ist NICHT einzeln ausgewiesen — es steckt in den gemessenen 1,1 bis 1,4 ms Dekodierzeit mit drin.",
+    "Die 143 MiB Ringkosten sind gemessen; dass zwoelf Plaetze die richtige Zahl sind, ist von der Windows-Bruecke uebernommen und hier nicht nachgeprueft. PULSE_PLAYER_ZEROCOPY_RING stellt es um."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Eine Karte (RTX 5080), ein Treiber, eine Aufloesung und ein Codec (1440p60 AV1 10 bit). Ueber 8 bit, H.264, 1080p oder 4K sagt die Reihe nichts.",
+    "Der Sender lief auf DERSELBEN Karte wie der Player. Die GPU-Auslastung ist deshalb keine Aussage ueber den Decoder allein.",
+    "Der VAAPI-Weg auf Linux (AMD, Intel) ist unberuehrt und hat weiterhin keine Bruecke — er braeuchte DMA-BUF statt eines CUDA-Imports.",
+    "Windows und macOS sind unberuehrt.",
+    "Ein Aufloesungswechsel im laufenden Strom ist nie ausgeloest worden; der Ringneubau ist gebaut, aber ungeprueft.",
+    "Mehrere Fenster gleichzeitig sind nicht gemessen. Der Fall ist im Code bedacht (das wgpu-Geraet wandert je Sitzung mit, der CUDA-Kontext wird gegen die Karten-UUID geprueft), aber nicht gefahren.",
+    "Die Bildqualitaet ist nicht verglichen. Der Weg kopiert Bytes, er rechnet nichts um — aber gepruefte Bildgleichheit zwischen den Armen gibt es in dieser Reihe nicht.",
+    "Die Ende-zu-Ende-Zahl des neuen Arms fehlt, s. oben."
+  ],
+
+  "rohdaten": "streaming/testbench/{samples,player,roh,vram}-{zc,takt}-{an,aus}-*.{json,log,txt}"
+}

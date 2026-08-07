@@ -154,7 +154,55 @@ ohne einfache Regel. Die Zahl ist beim Treiber zu **erfragen** und in den
 CUDA-Import durchzureichen; sie aus Breite mal Höhe zu rechnen, geht bis zu
 18,5 Prozent daneben.
 
-## Wo wir stehen (Stand 2026-08-07, Nacht)
+## Wo wir stehen (Stand 2026-08-07, Abend)
+
+Zweig `feat/zero-copy-player-linux`.
+
+**Die Kette ist geschlossen, und sie traegt.** Der Renderer nimmt das CUDA-Bild
+direkt: Vulkan legt das Zielbild auf **wgpus** Geraet an, CUDA bekommt es ueber
+einen Dateideskriptor eingehaengt, der fertige Decoder-Frame wird mit
+`cuMemcpy2D` GPU-lokal hineinkopiert, wgpu uebernimmt es mit `texture_from_raw`.
+Der Code liegt in `streaming/pulse-player/src/zerocopy/linux/`, die Einhaengung
+in `src/render/fremdbild.rs`.
+
+Gemessen (Messakte
+`streaming/testbench/profiles/player-2026-08-07-zerocopy-linux-im-player.json`),
+1440p60 AV1 10 bit ueber die echte Kette, neun Laeufe je Arm, Arme abwechselnd:
+
+| | Weg ueber den Hauptspeicher | neuer Weg |
+|---|---|---|
+| Dekodierzeit je Bild | 4,42 ms | **1,11 ms** |
+| Bild-bis-Schirm | 63,08 ms | **59,65 ms** |
+| dasselbe, Takt festgenagelt | 64,00 ms | **59,68 ms** |
+| Bildrate | 57,1 | 56,9 |
+| Grafikspeicher des Prozesses | 652 MiB | 795 MiB |
+
+**In keiner der beiden Kennzahlen ueberlappen die Arme.** Bei sechs gegen sechs
+Werten hat eine vollstaendige Trennung durch Zufall eine Wahrscheinlichkeit von
+1 zu 924.
+
+Drei Dinge dazu, die man beim Weiterlesen wissen muss:
+
+* **Die Ende-zu-Ende-Zahl aus dem gemalten Zeitmuster fehlt fuer den neuen
+  Weg** — die Sonde liest die Luma-Ebene im Hauptspeicher, und die gibt es dort
+  nicht mehr. Gemessen ist stattdessen „Bild-bis-Schirm", und das ist
+  ausdruecklich der Teil der Kette, der im Player liegt (`app::PhaseTimes`);
+  alles davor beruehrt der Umbau nicht. Der Bezugsarm misst 77,2 ms
+  Ende-zu-Ende, davon 63 bis 64 ms im Player. Der Gewinn sind also rund fuenf
+  Prozent der ganzen Kette. **Eine Ende-zu-Ende-Zahl fuer den neuen Weg waere
+  gerechnet, nicht gemessen** — sie steht deshalb nirgends als Ergebnis.
+* **Die 143 MiB Grafikspeicher sind die schaerfste Kontrolle der Reihe.** Sie
+  belegen unabhaengig vom Log, dass der Ring wirklich angelegt wurde, und sie
+  decken sich mit der Vorausrechnung fuer zwoelf Plaetze bei 1440p10.
+* **Der Rueckfall ist einmal wirklich eingetreten**, und er hat getan, was er
+  soll: ein fehlender `cuCtxSetCurrent` beim Ringbau liess
+  `cuImportExternalMemory` scheitern — Ergebnis war ein langsameres Bild samt
+  einer Logzeile, kein schwarzes Fenster.
+
+Der Abschnitt darunter (Stand 2026-08-07, Nacht) bleibt als Historie stehen; die
+dort unter Punkt 3 gefuehrte Aufgabe ist damit erledigt.
+
+## Wie es dahin kam (Stand 2026-08-07, Nacht)
 
 Zweig `feat/zero-copy-player-linux`.
 
