@@ -68,7 +68,13 @@ fn ringgroesse() -> usize {
         .ok()
         .and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|n| (2..=64).contains(n))
-        .unwrap_or(24)
+        // 32 statt 24 seit dem 2026-08-07: der Kanal zum Fenster-Faden fasst
+        // seither 32 Bilder, und jedes davon haelt hier einen Platz. Mit 24
+        // ging dem Ring bei 1440p144 der Platz aus, bevor der Kanal voll war —
+        // gemessen 88 bis 93 gezeichnete Bilder statt der 112, die mit
+        // groesserem Ring herauskamen. Die Speichergrenze unten schneidet das
+        // bei grossen Bildern ohnehin wieder zu.
+        .unwrap_or(32)
 }
 
 /// Wieviel Grafikspeicher der Ring hoechstens belegen darf.

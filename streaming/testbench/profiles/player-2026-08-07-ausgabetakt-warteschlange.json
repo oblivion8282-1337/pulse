@@ -104,6 +104,23 @@
     "naechster_schritt_nicht_gemacht": "Zwei Ebenen. (1) Abfedern, risikoarm: die Dekodierung vom RTP-Abholen entkoppeln, damit eine Stockung ein Ruckler bleibt statt einer Verlustserie zu werden. (2) Ursache: warum der Zaun so lange braucht. Kandidaten sind der Schluessel-Mutex-Weg des AMD-Treibers und das Auslagern der geteilten Textur. Beides ungeprueft."
   },
 
+  "befund_7_der_kanal_zum_fenster_warf_die_meisten_bilder_weg": {
+    "ausgangspunkt": "Nach befund_6 war klar, dass die Grafikeinheit nicht der Engpass ist. Die Korrelation der Sekundenwerte mit den Stockungen zeigte dann, dass der Zaehler `uebersprungen` GLEICHMAESSIG waechst (35 bis 70 je Sekunde), auch weit weg von jeder Stockung. Der Dauerverlust haengt also nicht an den Aussetzern.",
+    "die_kette": "Decoder -> Kanal (Fassungsvermoegen 8, `try_send`, verwirft bei voll) -> Weiterleitung -> Fenster-Faden -> Ausgabe-Takt. Was am Kanal wegfaellt, bekommt der Takt nie zu sehen - es wird verworfen, ohne dass sein Zeitpunkt betrachtet wuerde, nur weil gerade acht andere unterwegs sind.",
+    "die_begruendung_war_ueberholt": "Am Kanal stand: 'Klein gehalten ... Ein grosser Puffer wuerde bei langsamer Darstellung Latenz aufbauen statt Bilder zu ueberspringen.' Das galt vor dem Ausgabe-Takt. Seit dem 2026-08-05 bestimmt der RTP-Zeitstempel, wann ein Bild erscheint, nicht die Position in einer Warteschlange. Ein Bild, das laenger im Kanal lag, wird deshalb nicht spaeter gezeigt - es wird zu seinem Zeitpunkt gezeigt oder als zu spaet gezaehlt. Rueckstand kann gar nicht entstehen.",
+    "messung_1440p144_zwei_paare_abwechselnd": {
+      "Kanal 8 (alt)": "gezeichnet 67 / 91 je Sekunde, Kanalverluste 859 / 876 je Lauf",
+      "Kanal 32": "gezeichnet 112 / 108, Kanalverluste 193 / 223"
+    },
+    "kopplung_an_den_ring": "Auf dem Zero-Copy-Weg haelt jedes Bild im Kanal einen Ringplatz. Mit Kanal 32 und Ring 24 ging dem Ring der Platz aus, bevor der Kanal voll war: 88 bis 93 gezeichnet statt der 112 aus dem Versuch mit groesserem Ring. Ring-Vorgabe deshalb 24 -> 32; die Speichergrenze aus befund_5 schneidet das bei grossen Bildern ohnehin zu (1440p10 -> 29 Plaetze).",
+    "abnahme": {
+      "1080p bei 144 fps": "dekodiert 144, gezeichnet 144 / 144, Kanalverluste 0 bis 4 je Lauf, Videoeinheit 16 bis 18 %, keine Stockung. Vollstaendig geheilt.",
+      "1440p bei 144 fps": "dekodiert 143 bis 144, gezeichnet 86 / 101 / 104, Kanalverluste 250 bis 287. Deutlich besser als die 67 bis 91 vorher, aber NICHT geheilt."
+    },
+    "warum_1440p_offen_bleibt": "Es ist eine Linderung, keine Behebung. Richtig waere, am Kanal gar nichts zu verwerfen und das Aussortieren dem Ausgabe-Takt zu ueberlassen, der die Zeitpunkte kennt. Das setzt ein blockierendes Einstellen voraus - und das geht nur, wenn die Dekodierung nicht mehr in derselben Schleife laeuft wie das Abholen der RTP-Pakete (`session::run`). Sonst blockierte ein voller Kanal den Empfang, und man taeuschte den Fehler nur in eine andere Ecke. Dieser Umbau steht aus; er ist der eigentliche Inhalt des Punktes 2 aus docs/2026-08-06-player-performance-amd-windows.md.",
+    "was_der_umbau_braucht": "Ein eigener Betriebssystem-Faden fuer die Dekodierung (kein spawn_blocking: der Decoder haelt COM-Zeiger und darf den Faden nicht wechseln), Kanal hinein fuer Zugriffseinheiten und Steuermeldungen (Luecke, Rueckfall auf Software), Kanal hinaus wie bisher. Die Sperre liegt bei den Zaehlern: `stats` wird heute von der Sitzungsschleife gefuehrt und enthaelt sowohl Paket- als auch Decoder-Zahlen; die muessen getrennt oder geteilt werden."
+  },
+
   "offen": {
     "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
     "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."

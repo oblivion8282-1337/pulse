@@ -374,11 +374,50 @@ impl App {
         self.next_id += 1;
 
         let (cmd_tx, cmd_rx) = mpsc::channel(16);
-        // Klein gehalten: Frames werden mit `try_send` eingestellt und bei
-        // vollem Kanal verworfen. Ein grosser Puffer wuerde bei langsamer
-        // Darstellung Latenz aufbauen statt Bilder zu ueberspringen — bei
-        // 60 fps waeren 256 Eintraege ueber vier Sekunden Rueckstand.
-        let (ev_tx, mut ev_rx) = mpsc::channel(8);
+        // Kanal vom Decoder-Faden zum Fenster-Faden.
+        //
+        // **HIER STAND BIS ZUM 2026-08-07 „Klein gehalten … Ein grosser Puffer
+        // wuerde bei langsamer Darstellung Latenz aufbauen statt Bilder zu
+        // ueberspringen — bei 60 fps waeren 256 Eintraege ueber vier Sekunden
+        // Rueckstand." Die Begruendung ist seit dem Ausgabe-Takt hinfaellig:**
+        // seit dem 2026-08-05 bestimmt nicht mehr die Position in einer
+        // Warteschlange, WANN ein Bild erscheint, sondern sein RTP-Zeitstempel
+        // (`app::takt`). Ein Bild, das laenger im Kanal lag, wird deshalb nicht
+        // spaeter gezeigt — es wird zu seinem Zeitpunkt gezeigt oder als zu
+        // spaet gezaehlt und verworfen. Rueckstand kann so gar nicht entstehen.
+        //
+        // Was der kleine Kanal stattdessen tat: er warf fertig dekodierte
+        // Bilder weg, BEVOR der Takt sie ueberhaupt zu sehen bekam — und zwar
+        // ohne Rueckgriff auf ihren Zeitpunkt, nur weil gerade acht andere
+        // unterwegs waren. Gemessen am 2026-08-07 bei 1440p und 144 fps, zwei
+        // Paare abwechselnd (Akte `player-2026-08-07-...`):
+        //
+        // | Fassungsvermoegen | gezeichnet | hier verworfen |
+        // |---|---|---|
+        // | 8 (alt) | 67 / 91 je Sekunde | 859 / 876 je Lauf |
+        // | 32 (neu) | 112 / 108 | 193 / 223 |
+        //
+        // **Das ist eine Linderung, keine Behebung.** Richtig waere, hier gar
+        // nichts zu verwerfen und das Aussortieren dem Takt zu ueberlassen, der
+        // die Zeitpunkte kennt. Das setzt voraus, dass die Dekodierung nicht
+        // mehr in derselben Schleife laeuft wie das Abholen der RTP-Pakete —
+        // sonst blockiert ein blockierendes Einstellen den Empfang. Dieser
+        // Umbau steht aus und ist in der Messakte beschrieben.
+        //
+        // **Kopplung an den Ring:** auf dem Zero-Copy-Weg haelt jedes Bild im
+        // Kanal einen Platz im Ring der Bruecke. Kanal + Warteschlange des
+        // Takts + laufende Bilder koennen den Ring damit rechnerisch
+        // uebersteigen. Das ist hingenommen und nicht gefaehrlich: geht dem
+        // Ring der Platz aus, liefert `Freigabe::nehmen` nichts und das Bild
+        // nimmt den Weg ueber den Hauptspeicher — langsamer, aber vollstaendig.
+        // Im Messbetrieb wurde der Ring dabei nie ausgeschoepft.
+        let (ev_tx, mut ev_rx) = mpsc::channel(
+            std::env::var("PULSE_PLAYER_EV_KANAL")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|n| (2..=256).contains(n))
+                .unwrap_or(32),
+        );
         let proxy = self.proxy.clone();
         self.runtime.spawn(async move {
             let mut announced_end = false;
