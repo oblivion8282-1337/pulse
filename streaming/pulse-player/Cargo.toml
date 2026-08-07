@@ -2,7 +2,18 @@
 name = "pulse-player"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+# **1.95, und die Zahl ist nachgemessen, nicht von egui abgeschrieben.**
+# `cargo +1.95.0 check --release` laeuft durch; alles darunter lehnt cargo schon
+# beim Aufloesen ab, weil die egui-Familie 0.36 `rust-version = "1.95"`
+# deklariert (die Ablehnung kommt aus der Deklaration, nicht aus dem Compiler —
+# es gibt also keine Fassung dazwischen, die noch ginge). Bis zum 2026-08-07
+# stand hier 1.82; das galt fuer wgpu 29 / egui 0.35.
+#
+# **Was das praktisch kostet:** Flatpak und die CI sind nicht betroffen — das
+# Player-Modul in `packaging/com.howispulse.Pulse.yml` zieht sich seine eigene
+# Toolchain (1.97.1), `win-build`/`mac-build` nehmen `dtolnay/rust-toolchain@stable`.
+# Betroffen ist die Entwicklermaschine: wer hier baut, braucht rustc >= 1.95.
+rust-version = "1.95"
 description = "Nativer HQ-Stream-Player fuer Pulse (WHEP -> Decode -> eigenes Fenster)"
 publish = false
 
