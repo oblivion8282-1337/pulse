@@ -426,28 +426,46 @@ mod tests {
             return;
         };
 
-        for (name, format) in [("NV12", DXGI_FORMAT_NV12), ("P010", DXGI_FORMAT_P010)] {
+        // `MISC_SHARED` ohne NT-Handle ist der vierte Fall und der einzige, der
+        // ohne Schluessel-Mutex auskaeme. Er steht hier, weil FFmpeg genau ihn
+        // anbietet (`d3d11va_device_create`, Option "SHARED") — er liefert aber
+        // einen alten Handle, und `ID3D12Device::OpenSharedHandle` nimmt nur
+        // NT-Handles. Er ist deshalb nur zur Vollstaendigkeit dabei.
+        const MISC_SHARED_ALT: i32 = 0x2;
+        for (name, format, bind, felder) in [
+            ("NV12 Decoder-Feld", DXGI_FORMAT_NV12, D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0, 16),
+            ("P010 Decoder-Feld", DXGI_FORMAT_P010, D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0, 16),
+            // Gegenprobe OHNE `BIND_DECODER` und mit EINER Schicht: scheitert
+            // "nur NT-teilbar" auch hier, ist der Schluessel-Mutex eine
+            // allgemeine Regel von D3D11 und keine Eigenheit des
+            // Decoder-Merkers. Genau das entscheidet, ob es einen Ausweg gibt.
+            //
+            // Ein FELD mit mehr als einer Schicht laesst sich ohne
+            // `BIND_DECODER` ueberhaupt nicht teilen — mit `ArraySize: 16`
+            // schlugen hier zuerst alle drei Faelle fehl, und die Gegenprobe
+            // sagte damit nichts ueber den Mutex aus.
+            ("P010 einzeln", DXGI_FORMAT_P010, D3D11_BIND_SHADER_RESOURCE.0, 1),
+        ] {
             for (was, misc) in [
-                ("nur teilbar", D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0),
+                ("nur NT-teilbar", D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0),
                 (
-                    "teilbar + Schluessel-Mutex",
+                    "NT-teilbar + Schluessel-Mutex",
                     D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0,
                 ),
+                ("alt teilbar (ohne NT)", MISC_SHARED_ALT),
             ] {
                 let desc = D3D11_TEXTURE2D_DESC {
                     Width: 1920,
                     Height: 1088,
                     MipLevels: 1,
-                    // Wie FFmpeg seinen Decoder-Pool anlegt: ein Feld, keine
-                    // Einzeltextur.
-                    ArraySize: 16,
+                    ArraySize: felder,
                     Format: format,
                     SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
                         Count: 1,
                         Quality: 0,
                     },
                     Usage: D3D11_USAGE_DEFAULT,
-                    BindFlags: (D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                    BindFlags: bind as u32,
                     CPUAccessFlags: 0,
                     MiscFlags: misc as u32,
                 };
