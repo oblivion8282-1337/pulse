@@ -11,21 +11,25 @@
 //! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Der
 //! Decode laeuft in allen diesen Faellen auf der GPU.
 //!
-//! **Die cuvid-Decoder liefern ihre Bilder heute in den Hauptspeicher — und die
-//! Begruendung dafuer stand hier bis 2026-08-07 falsch.** Hier hiess es, sie
-//! taeten das von sich aus. Gemessen ist das Gegenteil: `av1_cuvid` und
-//! `h264_cuvid` bieten `AV_PIX_FMT_CUDA` an, und sie waehlen es, sobald am
-//! Decoder-Kontext ein CUDA-Geraet haengt. Sie liefern in den Hauptspeicher,
-//! **weil dieser Code ihnen kein Geraet gibt** ([`candidates`] fuehrt sie mit
-//! `hw: None`). Die Rueckholung kostet 0,33 bis 1,03 ms je Bild und sitzt
-//! unsichtbar in `send_packet`, nicht in [`in_den_hauptspeicher`].
+//! **Die cuvid-Decoder geben ihre Bilder auf der Karte heraus, seit sie ein
+//! CUDA-Geraet bekommen (2026-08-07).** Bis dahin landeten sie im
+//! Hauptspeicher, und die Begruendung dafuer stand hier falsch: es hiess, sie
+//! taeten das von sich aus. Gemessen ist das Gegenteil — `av1_cuvid` und
+//! `h264_cuvid` bieten `AV_PIX_FMT_CUDA` an und waehlen es, sobald am
+//! Decoder-Kontext ein CUDA-Geraet haengt. Sie lieferten in den Hauptspeicher,
+//! **weil dieser Code ihnen kein Geraet gab**. Die Rueckholung kostete 0,33 bis
+//! 1,03 ms je Bild und sass unsichtbar in `send_packet`, nicht in
+//! [`in_den_hauptspeicher`].
 //! Beleg: `streaming/testbench/profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`.
 //!
-//! Zero-Copy ist damit erreichbar, aber es ist **nicht** mit dem Anhaengen des
-//! Geraets getan: [`VideoDecoder::drain`] prueft auf `VAAPI | D3D11`, und ohne
-//! `Pixel::CUDA` dort lehnt [`convert`] jedes Bild ab — ein weisses Fenster
-//! ohne aussagekraeftigen Fehler. Die Auflagen des Umbaus stehen in der
-//! Messakte und in `streaming/player-labor/cuda-vulkan-import/README.md`.
+//! **Dieser Schritt allein spart noch nichts.** Der Renderer erwartet Ebenen im
+//! Hauptspeicher, [`VideoDecoder::drain`] holt sie also weiterhin herunter — nur
+//! jetzt sichtbar per `av_hwframe_transfer_data` statt unsichtbar im Decoder.
+//! Gemessen kostet das dasselbe. Sein Zweck ist, den Weg vorzubereiten: erst
+//! wenn der Renderer das CUDA-Bild direkt annimmt (Vulkan legt das Ziel an,
+//! CUDA bekommt es eingehaengt, die Kopie bleibt auf der Karte), faellt die
+//! Rueckholung weg. Die Auflagen dafuer stehen in der Messakte und in
+//! `streaming/player-labor/cuda-vulkan-import/README.md`.
 //!
 //! LIZENZ: FFmpeg muss in ausgelieferten Builds LGPL-konfiguriert und dynamisch
 //! gelinkt sein — siehe Cargo.toml und THIRD-PARTY-NOTICES.md.
@@ -48,18 +52,26 @@ fn is_hardware(name: &str) -> bool {
 /// Ein Geraetetyp, der an den NATIVEN Decoder gehaengt wird, statt einen
 /// eigenen Decoder zu benennen.
 ///
-/// Beides sind hwaccels, keine Decoder — genau die Verwechslung, an der die
-/// Kandidatenliste bis 2026-08-01 mit erfundenen `av1_vaapi`-Namen scheiterte.
-/// Die zwei Werte decken je eine Plattform ab: VAAPI unter Linux, D3D11VA
+/// `Vaapi` und `D3d11va` sind hwaccels, keine Decoder — genau die Verwechslung,
+/// an der die Kandidatenliste bis 2026-08-01 mit erfundenen `av1_vaapi`-Namen
+/// scheiterte. Sie decken je eine Plattform ab: VAAPI unter Linux, D3D11VA
 /// unter Windows.
-// Je Zielplattform ist genau EINE Variante in Gebrauch — die andere ist dort
-// tot, ohne dass etwas fehlt. Beide trotzdem hier zu fuehren haelt die
-// Fallunterscheidung an einer Stelle statt in `#[cfg]`-Zweigen quer durchs Modul.
+///
+/// **`Cuda` ist der Sonderfall und faellt aus der Reihe.** Es sitzt nicht auf
+/// dem nativen Decoder, sondern auf `av1_cuvid`/`h264_cuvid` — die sind sehr
+/// wohl eigene Decoder. Das Geraet steuert dort nicht, WER dekodiert, sondern
+/// nur, WOHIN das Ergebnis geht: ohne Geraet in den Hauptspeicher, mit Geraet
+/// in den Grafikspeicher (`AV_PIX_FMT_CUDA`).
+// Je Zielplattform ist genau EINE der beiden hwaccel-Varianten in Gebrauch —
+// die andere ist dort tot, ohne dass etwas fehlt. Beide trotzdem hier zu
+// fuehren haelt die Fallunterscheidung an einer Stelle statt in
+// `#[cfg]`-Zweigen quer durchs Modul.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Hwaccel {
     Vaapi,
     D3d11va,
+    Cuda,
 }
 
 impl Hwaccel {
@@ -67,6 +79,7 @@ impl Hwaccel {
         match self {
             Self::Vaapi => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
             Self::D3d11va => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
+            Self::Cuda => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
         }
     }
 
@@ -74,9 +87,80 @@ impl Hwaccel {
         match self {
             Self::Vaapi => "Hardware (VAAPI)",
             Self::D3d11va => "Hardware (D3D11VA)",
+            Self::Cuda => "Hardware (CUDA)",
+        }
+    }
+
+    /// Das `flags`-Argument von `av_hwdevice_ctx_create`.
+    ///
+    /// **Fuer CUDA steht hier 0, und das ist heute richtig — aber nur heute.**
+    /// Null heisst: FFmpeg legt sich einen EIGENEN CUDA-Kontext an. Solange der
+    /// Player selbst keinen haelt, ist das der einzige im Prozess und alles ist
+    /// gut.
+    ///
+    /// Sobald der Renderer seinen eigenen Kontext haelt (er braucht ihn, um das
+    /// von Vulkan angelegte Zielbild per `cuImportExternalMemory` einzuhaengen),
+    /// muss hier `AV_CUDA_USE_CURRENT_CONTEXT` (Bit 1, also `2`) stehen — sonst
+    /// hat der Prozess zwei Kontexte auf einer Karte und die Kopie muss ueber
+    /// die Kontextgrenze.
+    ///
+    /// **`AV_CUDA_USE_PRIMARY_CONTEXT` (Bit 0, also `1`) ist an dieser Stelle
+    /// der falsche Weg**, auch wenn der Name naheliegt: hat der Player den
+    /// primaeren Kontext bereits geholt — und genau die Reihenfolge wird er
+    /// haben —, scheitert `av_hwdevice_ctx_create` mit
+    /// `Primary context already active with incompatible flags` (rc=-95,
+    /// 16 von 16 Laeufen). Beleg fuer beides:
+    /// `profiles/player-2026-08-07-cuvid-cuda-ausgabe.json`, Abschnitt
+    /// `GEMESSEN_cuda_kontext`.
+    ///
+    /// `ffmpeg-sys-next` erzeugt fuer `hwcontext_cuda.h` keine Bindung, die
+    /// Konstanten stehen deshalb als Zahl da statt als Symbol.
+    fn flags(self) -> std::os::raw::c_int {
+        match self {
+            Self::Vaapi | Self::D3d11va | Self::Cuda => 0,
+        }
+    }
+
+    /// In welchem Pixelformat der Decoder seine Bilder herausgibt, wenn dieses
+    /// Geraet haengt. Das Bild liegt dann im Grafikspeicher und muss von
+    /// [`VideoDecoder::drain`] heruntergeholt werden.
+    ///
+    /// Der `match` ist vollstaendig und ohne Auffangzweig — wer eine vierte
+    /// Variante ergaenzt, kommt an dieser Stelle nicht vorbei.
+    ///
+    /// **Nur der Test ruft das auf, und das ist der Zweck.** [`drain`] kennt
+    /// den Geraetetyp gar nicht mehr, wenn das Bild bei ihm ankommt — es sieht
+    /// nur das Pixelformat und vergleicht gegen [`AUF_GPU_FORMATE`]. Beide
+    /// Listen absichtlich getrennt zu fuehren und gegeneinander zu pruefen ist
+    /// die einzige Art, das Auseinanderlaufen zu bemerken; leitete man eine aus
+    /// der anderen ab, waere die Pruefung eine Tautologie.
+    ///
+    /// [`drain`]: VideoDecoder::drain
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn bildformat(self) -> ffmpeg::format::Pixel {
+        match self {
+            Self::Vaapi => ffmpeg::format::Pixel::VAAPI,
+            Self::D3d11va => ffmpeg::format::Pixel::D3D11,
+            Self::Cuda => ffmpeg::format::Pixel::CUDA,
         }
     }
 }
+
+/// Die Pixelformate, die [`VideoDecoder::drain`] aus dem Grafikspeicher
+/// herunterholt.
+///
+/// **Warum das eine Konstante ist und keine Aufzaehlung im `matches!`.** Steht
+/// ein Geraetetyp in der Kandidatenliste, sein Bildformat aber nicht hier,
+/// liefert der Decoder sauber und [`convert`] lehnt jedes Bild ab: ein weisses
+/// Fenster, ohne dass irgendwo ein Fehler steht, der nach der Ursache aussieht.
+/// Genau so am 2026-08-04 mit D3D11 passiert und am 2026-08-07 fuer CUDA
+/// vorhergesagt. Als Konstante laesst sich der Zusammenhang gegen
+/// [`Hwaccel::bildformat`] pruefen, statt ihn zu hoffen.
+const AUF_GPU_FORMATE: [ffmpeg::format::Pixel; 3] = [
+    ffmpeg::format::Pixel::VAAPI,
+    ffmpeg::format::Pixel::D3D11,
+    ffmpeg::format::Pixel::CUDA,
+];
 
 /// Ein Weg, den Decoder zu oeffnen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +187,18 @@ impl Kandidat {
         #[cfg(not(windows))]
         let hw = Some(Hwaccel::Vaapi);
         Self { name, hw }
+    }
+
+    /// Ein cuvid-Decoder mit CUDA-Geraet, damit er auf der Karte herausgibt.
+    ///
+    /// Anders als [`nativ_hw`](Self::nativ_hw) aendert das nicht, WER
+    /// dekodiert — cuvid laeuft ohnehin auf der GPU. Es aendert nur, wo das
+    /// fertige Bild liegt.
+    const fn cuda(name: &'static str) -> Self {
+        Self {
+            name,
+            hw: Some(Hwaccel::Cuda),
+        }
     }
 
     fn hardware(&self) -> bool {
@@ -217,48 +313,98 @@ fn classify(consecutive_errors: u32, rebuilds: u32) -> ErrorAction {
 /// falsche. Im Log vom 2026-08-04 ist genau das zu sehen, hundertfach
 /// „Error creating a MFX session: -9", danach Software-Decode; die Radeon lag
 /// waehrenddessen still, obwohl sie AV1 in 8 UND 10 bit kann.
+///
+/// **Warum `*_cuvid` zweimal dasteht.** Der erste Eintrag haengt ein
+/// CUDA-Geraet an, der zweite ist derselbe Decoder ohne. Das ist kein
+/// Versehen, sondern der Rueckfall: laesst sich das Geraet nicht anlegen (kein
+/// NVIDIA-Treiber, `libcuda` fehlt, Karte belegt), waere cuvid sonst
+/// uebersprungen — obwohl er ohne Geraet genau so laeuft wie bis zum
+/// 2026-08-07. Ohne diesen zweiten Eintrag koennte ein Fehler im neuen Weg den
+/// Player still auf den nativen hwaccel oder auf Software werfen.
 fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
-    let (hw, sw): (&[Kandidat], &[Kandidat]) = match codec {
-        Codec::Av1 => (
-            &[
-                Kandidat::sw("av1_cuvid"),
-                Kandidat::nativ_hw("av1"),
-                Kandidat::sw("av1_qsv"),
-            ],
-            &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")],
-        ),
-        Codec::H264 => (
-            &[
-                Kandidat::sw("h264_cuvid"),
-                Kandidat::nativ_hw("h264"),
-                Kandidat::sw("h264_qsv"),
-            ],
-            // Nativer Decoder zuerst, `libopenh264` nur als Rueckfall.
-            //
-            // Der Rueckfall existiert, weil Distributionen die patentbehafteten
-            // Decoder ausbauen (Fedora `libavcodec-free`,
-            // `--disable-decoder='h264,hevc,vc1,vvc'`): dort gibt es `h264`
-            // nicht, und ohne diesen Eintrag ist H.264-Wiedergabe schlicht
-            // unmoeglich.
-            //
-            // **Die Reihenfolge ist nicht beliebig.** Am 2026-08-01 stand
-            // `libopenh264` zuerst, und ein Messlauf mit unserem eigenen Strom
-            // (High Profile, CABAC) lief damit ins Leere: 12-13 dekodierte
-            // Bilder je Sekunde statt 60, 78-101 ms Dekodierzeit je Bild,
-            // Ausgabe-Abstaende bis 1103 ms, dazu OpenH264-Warnungen. Der
-            // native Decoder macht dieselbe Arbeit in wenigen Millisekunden.
-            // OpenH264 ist auf Constrained Baseline ausgelegt — als Notnagel
-            // richtig, als erste Wahl falsch.
-            &[Kandidat::sw("h264"), Kandidat::sw("libopenh264")],
-        ),
-        Codec::Opus => (&[], &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
+    candidates_mit(codec, allow_hw, cuda_ausgabe_vorgabe())
+}
+
+/// Der eigentliche Aufbau der Liste, ohne die Umgebung zu befragen.
+///
+/// Getrennt, weil `PULSE_PLAYER_CUDA_AUSGABE` prozessglobal ist: ein Test, der
+/// sie setzt, veraendert jeden gleichzeitig laufenden Test mit. Beide
+/// Schalterstellungen sind so ohne Wettrennen pruefbar.
+fn candidates_mit(codec: Codec, allow_hw: bool, cuda_aus: bool) -> Vec<Kandidat> {
+    // Erst mit Geraet, dann ohne — der zweite Eintrag ist der Rueckfall (s.o.).
+    // Steht der Schalter auf aus, bleibt allein der Weg von vor dem 2026-08-07.
+    let cuvid = |name: &'static str| -> Vec<Kandidat> {
+        if cuda_aus {
+            vec![Kandidat::cuda(name), Kandidat::sw(name)]
+        } else {
+            vec![Kandidat::sw(name)]
+        }
+    };
+    let (hw, sw): (Vec<Kandidat>, &[Kandidat]) = match codec {
+        Codec::Av1 => {
+            let mut hw = cuvid("av1_cuvid");
+            hw.push(Kandidat::nativ_hw("av1"));
+            hw.push(Kandidat::sw("av1_qsv"));
+            (hw, &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")])
+        }
+        Codec::H264 => {
+            let mut hw = cuvid("h264_cuvid");
+            hw.push(Kandidat::nativ_hw("h264"));
+            hw.push(Kandidat::sw("h264_qsv"));
+            (
+                hw,
+                // Nativer Decoder zuerst, `libopenh264` nur als Rueckfall.
+                //
+                // Der Rueckfall existiert, weil Distributionen die patentbehafteten
+                // Decoder ausbauen (Fedora `libavcodec-free`,
+                // `--disable-decoder='h264,hevc,vc1,vvc'`): dort gibt es `h264`
+                // nicht, und ohne diesen Eintrag ist H.264-Wiedergabe schlicht
+                // unmoeglich.
+                //
+                // **Die Reihenfolge ist nicht beliebig.** Am 2026-08-01 stand
+                // `libopenh264` zuerst, und ein Messlauf mit unserem eigenen Strom
+                // (High Profile, CABAC) lief damit ins Leere: 12-13 dekodierte
+                // Bilder je Sekunde statt 60, 78-101 ms Dekodierzeit je Bild,
+                // Ausgabe-Abstaende bis 1103 ms, dazu OpenH264-Warnungen. Der
+                // native Decoder macht dieselbe Arbeit in wenigen Millisekunden.
+                // OpenH264 ist auf Constrained Baseline ausgelegt — als Notnagel
+                // richtig, als erste Wahl falsch.
+                &[Kandidat::sw("h264"), Kandidat::sw("libopenh264")],
+            )
+        }
+        Codec::Opus => (Vec::new(), &[Kandidat::sw("libopus"), Kandidat::sw("opus")]),
     };
     let mut out = Vec::new();
     if allow_hw {
-        out.extend_from_slice(hw);
+        out.extend_from_slice(&hw);
     }
     out.extend_from_slice(sw);
     out
+}
+
+/// Sollen die cuvid-Decoder ihre Bilder auf der Karte herausgeben?
+///
+/// `PULSE_PLAYER_CUDA_AUSGABE=0` schaltet es ab und stellt damit den Weg von
+/// vor dem 2026-08-07 her (cuvid ohne Geraet, Bild im Hauptspeicher).
+/// `=1` schaltet es ein, auch dort, wo es nicht die Vorgabe ist.
+///
+/// **Die Vorgabe haengt an der Plattform, und das ist Absicht.** Gemessen ist
+/// der Weg auf Linux/NVIDIA (RTX 5080), und er ist dort der Anfang der
+/// Zero-Copy-Kette. Unter Windows nimmt der Player den D3D11VA-Weg; dass cuvid
+/// mit CUDA-Geraet sich dort genauso verhaelt, ist plausibel und **ungemessen**
+/// — eine ungemessene Verhaltensaenderung auf einer Plattform, die niemand hier
+/// nachstellt, gehoert nicht in die Vorgabe. Der Schalter macht sie trotzdem
+/// pruefbar.
+///
+/// Kostet der eingeschaltete Weg fuer sich genommen nichts und bringt nichts:
+/// [`VideoDecoder::drain`] holt das Bild weiterhin herunter, nur sichtbar statt
+/// unsichtbar. Er ist die Vorbereitung, nicht der Gewinn (s. Modulkopf).
+fn cuda_ausgabe_vorgabe() -> bool {
+    match std::env::var("PULSE_PLAYER_CUDA_AUSGABE").as_deref() {
+        Ok("0") => false,
+        Ok("1") => true,
+        _ => cfg!(target_os = "linux"),
+    }
 }
 
 /// Hardware-Dekodierung benutzen, wenn der Aufrufer nichts dazu gesagt hat?
@@ -323,12 +469,12 @@ fn vaapi_geraetepfad() -> String {
 /// Die Referenz auf das Geraet geht an den Kontext ueber; `avcodec_free_context`
 /// gibt sie frei.
 fn hw_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext, art: Hwaccel) -> Result<()> {
-    // Nur VAAPI braucht einen Pfad. D3D11VA waehlt ohne Angabe den
-    // Standard-Adapter — auf einer Maschine mit zwei GPUs also denselben, den
-    // auch der Rest des Systems benutzt.
+    // Nur VAAPI braucht einen Pfad. D3D11VA und CUDA waehlen ohne Angabe den
+    // Standard-Adapter bzw. Geraet 0 — auf einer Maschine mit zwei GPUs also
+    // dasselbe, das auch der Rest des Systems benutzt.
     let pfad = match art {
         Hwaccel::Vaapi => Some(vaapi_geraetepfad()),
-        Hwaccel::D3d11va => None,
+        Hwaccel::D3d11va | Hwaccel::Cuda => None,
     };
     let c_pfad = pfad
         .as_deref()
@@ -345,7 +491,7 @@ fn hw_geraet_anhaengen(ctx: *mut ffmpeg::ffi::AVCodecContext, art: Hwaccel) -> R
             art.geraetetyp(),
             c_pfad.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
             std::ptr::null_mut(),
-            0,
+            art.flags(),
         )
     };
     if rc < 0 || geraet.is_null() {
@@ -441,9 +587,9 @@ impl PlanePool {
         self.0.lock().map(|p| p.len()).unwrap_or(0)
     }
 
-    fn give_back(&self, mut buffers: Vec<Vec<u8>>) {
+    fn give_back(&self, buffers: Vec<Vec<u8>>) {
         let Ok(mut pool) = self.0.lock() else { return };
-        for mut buf in buffers.drain(..) {
+        for mut buf in buffers {
             if pool.len() >= POOL_MAX {
                 return;
             }
@@ -606,7 +752,8 @@ pub struct VideoDecoder {
     /// Neuaufbau des Decoders, weil die Puffergroessen dieselben bleiben.
     plane_pool: PlanePool,
     /// Wiederverwendetes Ziel fuer den Weg von der GPU in den Hauptspeicher
-    /// (s. [`in_den_hauptspeicher`]). Nur auf dem VAAPI-Weg benutzt.
+    /// (s. [`in_den_hauptspeicher`]). Nur benutzt, wenn das Bild dort liegt —
+    /// VAAPI, D3D11VA oder CUDA.
     hw_ziel: ffmpeg::util::frame::video::Video,
 }
 
@@ -985,22 +1132,18 @@ impl VideoDecoder {
         let mut out = Vec::new();
         let mut frame = ffmpeg::util::frame::video::Video::empty();
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            // Auf den hwaccel-Wegen liegt das Bild im Grafikspeicher; der
-            // Renderer erwartet Ebenen im Hauptspeicher. Genau wie bei cuvid,
-            // das seine Bilder von sich aus herunterreicht — nur muss man es
-            // hier selbst tun.
+            // Liegt das Bild im Grafikspeicher, muss es herunter — der
+            // Renderer erwartet Ebenen im Hauptspeicher.
             //
-            // **Beide Formate MUESSEN hier stehen.** Als am 2026-08-04 der
-            // D3D11VA-Weg dazukam, stand er hier zunaechst nicht — mit der
-            // Folge, dass der Decoder sauber lieferte, `convert` aber jedes
-            // Bild mit "Pixelformat D3D11 wird nicht unterstuetzt" ablehnte
-            // und nie eines beim Renderer ankam: ein weisses Fenster, ohne
-            // dass irgendwo ein Fehler stand, der nach der Ursache aussieht.
-            // Wer einen dritten Geraetetyp ergaenzt, ergaenzt ihn auch hier.
-            let auf_gpu = matches!(
-                frame.format(),
-                ffmpeg::format::Pixel::VAAPI | ffmpeg::format::Pixel::D3D11
-            );
+            // Welche Formate das sind und warum die Liste vollstaendig sein
+            // MUSS, steht bei [`AUF_GPU_FORMATE`].
+            //
+            // **Fuer CUDA ist das die Zwischenstufe, nicht das Ziel.** Solange
+            // der Renderer nur Hauptspeicher-Ebenen annimmt, wird hier die
+            // Kopie nachgeholt, die vorher unsichtbar im Decoder steckte —
+            // gleiche Kosten, gleicher Bildinhalt. Nimmt der Renderer das
+            // CUDA-Bild spaeter direkt, faellt dieser Zweig fuer CUDA weg.
+            let auf_gpu = AUF_GPU_FORMATE.contains(&frame.format());
             if auf_gpu {
                 if let Err(e) = in_den_hauptspeicher(&frame, &mut self.hw_ziel) {
                     eprintln!("pulse-player: Bild von der GPU holen scheiterte: {e}");
@@ -1178,7 +1321,11 @@ mod tests {
     #[test]
     fn hwaccel_haengt_am_nativen_decoder() {
         for (codec, nativ) in [(Codec::Av1, "av1"), (Codec::H264, "h264")] {
-            let liste = candidates(codec, true);
+            // Ausdruecklich OHNE CUDA-Ausgabe: dieser Test gilt dem hwaccel auf
+            // dem nativen Decoder. Der CUDA-Kandidat traegt ebenfalls ein
+            // `hw`, sitzt aber auf `*_cuvid` und wuerde die Suche nach dem
+            // ersten `hw`-Kandidaten sonst abfangen.
+            let liste = candidates_mit(codec, true, false);
             let hw = liste.iter().find(|k| k.hw.is_some()).expect("hwaccel-Kandidat fehlt");
             assert_eq!(hw.name, nativ, "hwaccel muss den nativen Decoder nehmen");
             assert!(hw.hardware(), "hwaccel zaehlt als Hardware");
@@ -1197,7 +1344,7 @@ mod tests {
     /// halbe Sekunde Verzoegerung auf, nicht als Fehlermeldung.
     #[test]
     fn geraetetyp_passt_zur_plattform() {
-        let hw = candidates(Codec::Av1, true)
+        let hw = candidates_mit(Codec::Av1, true, false)
             .into_iter()
             .find_map(|k| k.hw)
             .expect("hwaccel-Kandidat fehlt");
@@ -1205,6 +1352,94 @@ mod tests {
         assert_eq!(hw, Hwaccel::D3d11va);
         #[cfg(not(windows))]
         assert_eq!(hw, Hwaccel::Vaapi);
+    }
+
+    /// Mit eingeschalteter CUDA-Ausgabe steht cuvid ZWEIMAL da: erst mit
+    /// Geraet, dann ohne. Der zweite Eintrag ist der Rueckfall — laesst sich
+    /// das CUDA-Geraet nicht anlegen, muss cuvid trotzdem drankommen, statt
+    /// still auf den nativen hwaccel oder auf Software durchzufallen.
+    #[test]
+    fn cuda_ausgabe_haelt_den_rueckfall_offen() {
+        for (codec, cuvid) in [(Codec::Av1, "av1_cuvid"), (Codec::H264, "h264_cuvid")] {
+            let liste = candidates_mit(codec, true, true);
+            let mit_geraet = liste
+                .iter()
+                .position(|k| k.name == cuvid && k.hw == Some(Hwaccel::Cuda))
+                .expect("cuvid mit CUDA-Geraet fehlt");
+            let ohne_geraet = liste
+                .iter()
+                .position(|k| k.name == cuvid && k.hw.is_none())
+                .expect("Rueckfall auf cuvid ohne Geraet fehlt");
+            assert_eq!(mit_geraet, 0, "der CUDA-Weg gehoert nach vorn: {liste:?}");
+            assert!(
+                mit_geraet < ohne_geraet,
+                "der Rueckfall muss HINTER dem CUDA-Weg stehen: {liste:?}"
+            );
+            // Und der native hwaccel darf dahinter nicht verlorengehen.
+            assert!(
+                liste.iter().any(|k| k.hw.is_some() && k.hw != Some(Hwaccel::Cuda)),
+                "der plattform-eigene hwaccel fehlt: {liste:?}"
+            );
+        }
+    }
+
+    /// Abgeschaltet muss GENAU der Weg von vor dem 2026-08-07 herauskommen:
+    /// cuvid einmal, ohne Geraet. Sonst waere der Notausgang keiner.
+    #[test]
+    fn cuda_ausgabe_abgeschaltet_ist_der_alte_weg() {
+        let liste = candidates_mit(Codec::Av1, true, false);
+        assert!(
+            !liste.iter().any(|k| k.hw == Some(Hwaccel::Cuda)),
+            "abgeschaltet darf kein CUDA-Geraet auftauchen: {liste:?}"
+        );
+        assert_eq!(
+            liste.iter().filter(|k| k.name == "av1_cuvid").count(),
+            1,
+            "cuvid genau einmal: {liste:?}"
+        );
+        assert_eq!(liste.first().unwrap().name, "av1_cuvid", "cuvid zuerst: {liste:?}");
+    }
+
+    /// Die Hardware-Sperre (`PULSE_PLAYER_HWDEC=0`) muss ueber dem
+    /// CUDA-Schalter stehen — sonst haette die Notbremse fuer den GPU-Haenger
+    /// auf AMD-APUs eine Luecke.
+    #[test]
+    fn hwdec_sperre_schlaegt_cuda_schalter() {
+        let liste = candidates_mit(Codec::Av1, false, true);
+        assert!(
+            !liste.iter().any(|k| k.hardware()),
+            "ohne Hardware darf auch kein CUDA-Weg entstehen: {liste:?}"
+        );
+    }
+
+    /// Der Grund, warum dieser Test existiert: `convert` lehnt jedes Bild ab,
+    /// dessen Pixelformat es nicht kennt. Steht ein Geraetetyp in der
+    /// Kandidatenliste, aber sein Bildformat nicht in der Abholung von
+    /// [`VideoDecoder::drain`], liefert der Decoder sauber und der Zuschauer
+    /// sieht ein weisses Fenster — ohne dass irgendwo ein Fehler steht, der
+    /// nach der Ursache aussieht. Am 2026-08-04 mit D3D11 genau so passiert.
+    #[test]
+    fn jeder_geraetetyp_hat_ein_abgeholtes_bildformat() {
+        for art in [Hwaccel::Vaapi, Hwaccel::D3d11va, Hwaccel::Cuda] {
+            let format = art.bildformat();
+            assert!(
+                AUF_GPU_FORMATE.contains(&format),
+                "{art:?} liefert {format:?}, aber drain holt es nicht herunter — \
+                 das gibt ein weisses Fenster ohne Fehlermeldung"
+            );
+        }
+    }
+
+    /// Gegenprobe zum Test darueber: er muss ein FEHLENDES Format bemerken
+    /// koennen. Ohne sie waere „alle drei sind dabei" nicht davon zu
+    /// unterscheiden, dass die Pruefung gar nichts vergleicht.
+    #[test]
+    fn die_formatpruefung_kann_anschlagen() {
+        let unbeteiligt = ffmpeg::format::Pixel::YUV420P;
+        assert!(
+            !AUF_GPU_FORMATE.contains(&unbeteiligt),
+            "ein Hauptspeicher-Format darf nicht als GPU-Format gelten"
+        );
     }
 
     /// Vereinzelte Ablehnungen sind Normalbetrieb (unvollstaendige Einheit

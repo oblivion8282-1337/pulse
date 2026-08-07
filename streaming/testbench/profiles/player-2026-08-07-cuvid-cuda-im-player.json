@@ -1,0 +1,95 @@
+{
+  "id": "player-2026-08-07-cuvid-cuda-im-player",
+  "gemessen_am": "2026-08-07",
+  "frage": "Traegt der CUDA-Ausgabeweg im ECHTEN pulse-player — nicht in einer Laborkiste? Die Probe player-2026-08-07-cuvid-cuda-ausgabe.json hat gezeigt, DASS av1_cuvid auf der Karte herausgibt. Hier steht die Frage, ob der Player mit dieser Umstellung laeuft, dasselbe Bild zeigt und nicht langsamer ist.",
+
+  "antwort_kurz": "JA. Der Player oeffnet av1_cuvid mit CUDA-Geraet, zeigt ein Bild (1396 gezeichnete Bilder im ersten Lauf, kein weisses Fenster), und in Dekodierzeit, Ende-zu-Ende-Latenz und gezeichneten Bildern je Sekunde ist KEIN Unterschied zum bisherigen Weg messbar. Das ist der Erfolgsfall: der Renderer holt das Bild weiterhin herunter, nur sichtbar statt unsichtbar — die Ersparnis kommt erst mit Stueck 3.",
+
+  "WAS_DIESER_SCHRITT_NICHT_IST": "Er bringt fuer sich genommen KEINEN Tempogewinn und soll keinen bringen. Die 0,33 bis 1,03 ms je Bild aus der Vorgaenger-Messakte werden hier nicht eingespart, sondern nur VERSCHOBEN: vorher kopierte cuvid das Bild unsichtbar in send_packet in den Hauptspeicher, jetzt tut es VideoDecoder::drain sichtbar per av_hwframe_transfer_data. Wer aus 'kein Unterschied' auf einen Fehlschlag schliesst, hat die Absicht des Schrittes missverstanden. Sein Wert ist, dass der Decoder-Weg im ausgelieferten Player nachweislich traegt, BEVOR am Renderer etwas angefasst wird.",
+
+  "aufbau": {
+    "karte": "NVIDIA GeForce RTX 5080",
+    "treiber": "610.43.03",
+    "kernel": "7.1.4-1-cachyos",
+    "zweig": "feat/zero-copy-player-linux",
+    "kette": "streaming/testbench/harness.py — vorkodierte Datei (synth10.mkv, 1440p AV1 10 bit) per ffmpeg -c copy ueber RTMPS in den lokalen MediaMTX (streaming-mediamtx, 1.19.1-dirty), Player holt sie per WHEP ab. Also die echte Kette mit Netzweg, Depaketierung und Fenster — nicht die Decodierschleife der Laborkiste.",
+    "warum_der_referenzsender": "Er schickt exakt gleichmaessig (-c copy, kein Encoder im Spiel). Buendelt es trotzdem, liegt es am Empfangsweg und nicht am Sender.",
+    "auch_gebraucht": "mediamtx-auth-hook auf [::1]:8005 — er fehlte zuerst, und MediaMTX wies den Sender dann mit 'authentication failed' ab. Der Fehler sieht im ffmpeg-Log wie ein Netzproblem aus ('Connection reset by peer'), steht aber nur im MediaMTX-Log.",
+    "messstrecke": "je Lauf 14 s, die ersten zwei Sekunden (ICE, erstes Vollbild) verworfen. 10 bis 11 ausgewertete Sekundenproben je Lauf."
+  },
+
+  "methodik": {
+    "arme_abwechselnd": "3 Runden, Reihenfolge je Runde gedreht, jeder Lauf ein eigener Player-Prozess. Ein Lauf je Variante traegt in diesem Labor keine Entscheidung.",
+    "GPU_TAKT_FESTGENAGELT": "nvidia-smi -pm 1; -lgc 2100,2100; -lmc 15001,15001 waehrend der ganzen Reihe; danach mit -rgc/-rmc/-pm 0 zurueckgenommen und der Zustand geprueft (clocks.max.sm wieder 3090 statt 2100). Ohne das faellt diese Karte bei kleiner Last in einen Sparzustand und verschiebt jede Zeitmessung — in der Vorgaenger-Akte war eine Zelle dadurch um 30 Prozent langsamer.",
+    "quelle_der_zahlen": "das PLAYER-Log, nicht die harness-Zusammenfassung: Dekodierzeit und Netz-bis-Schirm stehen nur dort."
+  },
+
+  "kontrollen": {
+    "DER_SCHALTER_GREIFT_NACHWEISLICH": {
+      "beleg_1_die_wahl": "Der Player schreibt seine Decoder-Zeile selbst: 'Decoder av1_cuvid (Hardware (CUDA))' im einen Arm, 'Decoder av1_cuvid (Hardware)' im anderen — in ALLEN sechs Laeufen, ohne Ausnahme. Sie kommt aus dem tatsaechlich gewaehlten Kandidaten, nicht aus der Beschriftung des Laufs.",
+      "beleg_2_die_wirkung": "Die Decoder-Zeile belegt nur, WAS gewaehlt wurde, nicht dass die Bilder danach woanders liegen. Dafuer der Grafikspeicher DES PLAYER-PROZESSES, vom Treiber erfragt (nvidia-smi --query-compute-apps): 651 MiB mit CUDA-Ausgabe gegen 639 MiB ohne, in drei Runden je Arm, ohne eine einzige Ueberlappung. Die Differenz von 12 MiB entspricht genau der aufgefuellten Bildgroesse eines 1440p10-Bildes aus der Vorgaenger-Akte.",
+      "warum_beides_noetig_war": "Ohne die zweite Groesse waere 'kein Unterschied im Tempo' nicht von 'der Schalter tut gar nichts' zu unterscheiden — die Falle, die in diesem Labor schon zweimal drei Zeilen einer Matrix entwertet hat."
+    },
+    "ES_KOMMT_WIRKLICH_EIN_BILD": "frames_presented steigt ueber den Lauf auf 1396 (erster Lauf), gezeichnet 114 bis 120 Bilder je Sekunde. Das ist die Kontrolle gegen den Fehler, den dieses Stueck riskiert: haette Pixel::CUDA in drain gefehlt, haette convert jedes Bild abgelehnt und der Zuschauer saehe ein weisses Fenster, ohne dass irgendwo ein Fehler stuende. Genau so am 2026-08-04 mit D3D11 passiert.",
+    "im_quelltext_abgesichert": "Der Test jeder_geraetetyp_hat_ein_abgeholtes_bildformat prueft Hwaccel::bildformat() gegen die Konstante AUF_GPU_FORMATE, die drain benutzt. Beide Listen sind absichtlich getrennt gefuehrt; leitete man eine aus der anderen ab, waere die Pruefung eine Tautologie. Dazu eine Gegenprobe (die_formatpruefung_kann_anschlagen), die zeigt, dass ein Hauptspeicher-Format NICHT durchkommt."
+  },
+
+  "GEMESSEN_kein_unterschied": {
+    "lesehinweis": "Median ueber 31 Sekundenproben je Arm (3 Laeufe), dahinter der Median je Einzellauf. Der Sender liefert 144 Bilder je Sekunde, der Schirm zeichnet mit 120 — 'gezeichnet' ist deshalb durch den Bildschirm begrenzt, nicht durch den Decoder.",
+    "tabelle": [
+      {"groesse": "Dekodierzeit je Bild (ms)", "cuda": 4.00, "hauptspeicher": 4.00, "je_lauf_cuda": [3.9, 4.0, 4.0], "je_lauf_hauptspeicher": [4.0, 4.0, 3.95]},
+      {"groesse": "Netz-bis-Schirm (ms)", "cuda": 60.8, "hauptspeicher": 61.4, "je_lauf_cuda": [60.7, 60.6, 61.6], "je_lauf_hauptspeicher": [60.95, 61.8, 61.8]},
+      {"groesse": "gezeichnete Bilder je s", "cuda": 118, "hauptspeicher": 117, "je_lauf_cuda": [119.5, 119, 114.0], "je_lauf_hauptspeicher": [119.0, 116, 116.5]},
+      {"groesse": "dekodierte Bilder je s", "cuda": 144, "hauptspeicher": 144, "je_lauf_cuda": [144, 144, 144], "je_lauf_hauptspeicher": [144, 144, 144]}
+    ],
+    "befund": "Die Unterschiede liegen unter der Streuung zwischen zwei Laeufen desselben Arms (bei Netz-bis-Schirm streut ein Arm um 1,0 ms, der Unterschied zwischen den Armen betraegt 0,6 ms). Das deckt sich mit der Erwartung: dieselbe Kopie, nur an anderer Stelle.",
+    "die_erwartung_war_ausdruecklich_kein_gewinn": "Die Vorgaenger-Akte hat mit dem Arm 'cuda_abholen' genau diesen Fall schon in der Laborkiste gemessen — CUDA-Ausgabe plus ausdrueckliches Zurueckholen landet auf dem Bezugsarm. Der Player bestaetigt das in der echten Kette."
+  },
+
+  "GEMESSEN_grafikspeicher": {
+    "was": "Speicherverbrauch des Prozesses 'pulse-player', vom Treiber erfragt, waehrend des Laufs alle 0,4 s abgetastet (29 Proben je Lauf).",
+    "werte_mib": [
+      {"runde": 1, "cuda": 651, "hauptspeicher": 639},
+      {"runde": 2, "cuda": 651, "hauptspeicher": 639},
+      {"runde": 3, "cuda": 651, "hauptspeicher": 639}
+    ],
+    "streuung": "Median und Maximum sind in jedem einzelnen Lauf identisch — der Verbrauch steht, er schwankt nicht.",
+    "deutung": "Der CUDA-Bildvorrat von FFmpeg kostet 12 MiB. Das ist die einzige gemessene Groesse, die sich durch den Schalter aendert, und sie aendert sich in die vorhergesagte Richtung und Groessenordnung."
+  },
+
+  "was_gebaut_wurde": {
+    "datei": "streaming/pulse-player/src/decode.rs",
+    "punkte": [
+      "Hwaccel::Cuda als dritte Variante, mit AV_HWDEVICE_TYPE_CUDA. Sie faellt aus der Reihe: Vaapi und D3d11va sitzen auf dem NATIVEN Decoder, Cuda sitzt auf av1_cuvid/h264_cuvid — dort steuert das Geraet nicht, WER dekodiert, sondern nur, WOHIN das Ergebnis geht.",
+      "Kandidat::cuda(name) und in candidates() cuvid ZWEIMAL: erst mit Geraet, dann ohne. Der zweite Eintrag ist der Rueckfall — laesst sich das CUDA-Geraet nicht anlegen, muss cuvid trotzdem drankommen, statt still auf den nativen hwaccel oder auf Software durchzufallen.",
+      "Hwaccel::flags() als eigene Stelle fuer das flags-Argument von av_hwdevice_ctx_create. Heute 0 fuer alle drei; die Begruendung, warum dort spaeter AV_CUDA_USE_CURRENT_CONTEXT stehen MUSS und warum AV_CUDA_USE_PRIMARY_CONTEXT der falsche Weg ist, steht als Kommentar an der Stelle.",
+      "AUF_GPU_FORMATE als Konstante, von drain benutzt und gegen Hwaccel::bildformat() gepruefbar.",
+      "PULSE_PLAYER_CUDA_AUSGABE als Notausgang, Vorgabe an unter Linux und aus anderswo.",
+      "candidates_mit(codec, allow_hw, cuda_ausgabe) als reine Funktion, damit die Tests beide Schalterstellungen ohne prozessglobale Umgebungsvariable pruefen koennen."
+    ],
+    "tests": "169 bestanden, 0 gescheitert (vorher 164). Fuenf neue: der Rueckfall steht hinter dem CUDA-Weg, abgeschaltet kommt genau der alte Weg heraus, PULSE_PLAYER_HWDEC=0 schlaegt den CUDA-Schalter, jeder Geraetetyp hat ein abgeholtes Bildformat, und die Gegenprobe dazu.",
+    "warum_die_vorgabe_an_der_plattform_haengt": "Gemessen ist der Weg auf Linux/NVIDIA. Unter Windows nimmt der Player den D3D11VA-Weg; dass cuvid mit CUDA-Geraet sich dort genauso verhaelt, ist plausibel und UNGEMESSEN. Eine ungemessene Verhaltensaenderung auf einer Plattform, die hier niemand nachstellt, gehoert nicht in die Vorgabe — der Schalter macht sie trotzdem pruefbar."
+  },
+
+  "GELESEN": [
+    "libavcodec/decode.c: 'If a device was supplied when the codec was opened, assume that the user wants to use it' — die Regel, nach der avcodec_default_get_format das Hardware-Format waehlt. Ein eigener get_format-Rueckruf ist deshalb nicht noetig, und der Player baut auch keinen.",
+    "Die Auflagen fuer Stueck 3 stehen unveraendert: Quell-Zeilenabstand ist linesize[i], Ziel-Allokationsgroesse beim Treiber erfragen, Einfrier-Erkennung in einen Compute-Shader."
+  ],
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur Linux und nur NVIDIA (RTX 5080, Treiber 610.43.03). Ueber Windows sagt diese Messung nichts, und die Vorgabe ist dort bewusst aus.",
+    "Nur AV1 10 bit bei 1440p. H.264 ist im Player NICHT ueber diesen Weg gelaufen, 8 bit ebenfalls nicht — beide sind in der Laborkiste gemessen, aber nicht in der echten Kette.",
+    "DER AUFGEFUELLTE ZEILENABSTAND IST HIER NICHT GEPRUEFT. Der Player meldet in allen Laeufen 'Zeilenabstand 5120', und das ist bei 1440p P010 genau die dichte Breite — der Fall, in dem ein Rechenfehler NICHT auffaellt. Bei 1080p waere linesize 4096 statt 3840. Solange drain das Bild per av_hwframe_transfer_data herunterholt, spielt das keine Rolle (FFmpeg rechnet selbst); fuer Stueck 3 spielt es die entscheidende Rolle, und es ist dort neu zu pruefen.",
+    "Gemessen ist NICHT, dass der Umbau spaeter Zeit spart. Er verschiebt sie heute nur. Der Nachweis der Ersparnis kann erst mit dem Renderer-Umbau gefuehrt werden.",
+    "Der Sender ist eine vorkodierte Datei, kein echter Bildschirm ueber das Sidecar. Ihre Struktur weicht ab (synth10.mkv enthaelt Alt-Ref-Bilder, die der Live-Encoder nicht erzeugt) — das trifft beide Arme gleich, taugt aber nicht als Aussage ueber den Livebetrieb.",
+    "Der Weg lief nur ueber den lokalen MediaMTX, nicht ueber die Produktion und nicht ueber eine echte Leitung. Verhalten unter Paketverlust ist ungeprueft; gerade beim Decoder ist das nicht gleichgueltig (der Player ist am 2026-08-04 unter Buendelverlust an einem GPU-Haenger gestorben, wenn auch auf AMD).",
+    "Der Rueckfall-Pfad (CUDA-Geraet laesst sich nicht anlegen) ist im Test geprueft, aber nie ausgeloest worden — auf dieser Maschine legt er sich immer an."
+  ],
+
+  "werkzeugfehler_dieses_laufs": [
+    "Der erste Versuch scheiterte, weil der mediamtx-auth-hook nicht lief. Das ffmpeg-Log zeigte 'Connection reset by peer' und sah nach einem Netzproblem aus; die Ursache stand nur im MediaMTX-Log ('authentication failed'). Wer den Pruefstand nach einer Pause wieder anwirft, prueft [::1]:8005 zuerst.",
+    "Der Hook muss auf ::1 lauschen, nicht nur auf 127.0.0.1: MediaMTX loest 'localhost' zu ::1 auf, und ein auf 127.0.0.1 gebundener Hook wird schlicht nicht gefunden."
+  ],
+
+  "rohdaten": "streaming/testbench/player-m1-{cuda,hauptspeicher}-r{1,2,3}.log (Player-Logs je Lauf) und player-vram-*.log."
+}
