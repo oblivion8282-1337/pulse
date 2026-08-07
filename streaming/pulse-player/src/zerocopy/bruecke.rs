@@ -71,6 +71,41 @@ fn ringgroesse() -> usize {
         .unwrap_or(24)
 }
 
+/// Wieviel Grafikspeicher der Ring hoechstens belegen darf.
+///
+/// **Warum ueberhaupt eine Grenze in Byte und nicht nur eine Zahl.** Die
+/// Plaetze sind als Anzahl bemessen, ihr Preis haengt aber an der Bildgroesse:
+/// vierundzwanzig sind bei 1080p10 rund 160 MB, bei 1440p10 rund 265 — und bei
+/// 4K10 rund 600. Auf einer eingebauten Grafikeinheit ist das Systemspeicher,
+/// den sich Player, Sender und Fenstersystem teilen. Eine feste Zahl, die bei
+/// 1440p unauffaellig ist, kann bei 4K das Doppelte des Noetigen binden.
+///
+/// **Ehrlich zur Herkunft der Zahl:** 320 MB sind NICHT gemessen. Auf dieser
+/// Maschine (2 GB fuer die 780M) waren 265 MB bei 1440p unauffaellig — drei
+/// Paare, abwechselnd gefahren, kein Unterschied zu zwoelf Plaetzen. 4K liess
+/// sich hier nicht pruefen, der Schirm gibt nur 1440p her. Die Grenze ist
+/// deshalb als Sicherung gegen den ungeprueften Fall gesetzt, nicht als
+/// gemessenes Optimum, und sie greift bei 1440p und darunter gar nicht.
+const RING_SPEICHER_MAX: usize = 320 * 1024 * 1024;
+
+/// Untergrenze: darunter faengt der Ring den Vorhalt nicht mehr ab, und die
+/// Stockungen aus dem Kopf dieser Datei kaemen zurueck.
+const RING_MIN: usize = 8;
+
+/// Die gewuenschte Zahl Plaetze, gedeckelt auf [`RING_SPEICHER_MAX`].
+fn plaetze_im_speicherrahmen(wunsch: usize, breite: u32, hoehe: u32, format: i32) -> usize {
+    // NV12 und P010 tragen Luma plus halbes Chroma, also anderthalb Ebenen;
+    // P010 zusaetzlich zwei Byte je Wert. Aufgerundet, die genaue Belegung
+    // entscheidet der Treiber.
+    let bytes_je_wert = if format == DXGI_FORMAT_P010.0 { 2 } else { 1 };
+    let je_platz = (breite as usize) * (hoehe as usize) * 3 / 2 * bytes_je_wert;
+    if je_platz == 0 {
+        return wunsch;
+    }
+    let passt = RING_SPEICHER_MAX / je_platz;
+    wunsch.min(passt).max(RING_MIN)
+}
+
 struct Ringplatz {
     textur: ID3D11Texture2D,
     mutex: IDXGIKeyedMutex,
@@ -216,7 +251,7 @@ impl Bruecke {
             MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
                 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
         };
-        let anzahl = ringgroesse();
+        let anzahl = plaetze_im_speicherrahmen(ringgroesse(), breite, hoehe, format);
         let mut ring = Vec::with_capacity(anzahl);
         for i in 0..anzahl {
             let mut tex: Option<ID3D11Texture2D> = None;
@@ -401,6 +436,24 @@ mod tests {
     /// Bilderpool die Merker ueber `AVD3D11VAFramesContext::MiscFlags` und der
     /// Player laese unmittelbar aus der Decoder-Textur.
     ///
+    /// Bei 1440p und darunter greift die Speichergrenze nicht — dort bleibt es
+    /// beim Wunsch. Erst 4K schneidet sie zu, und genau dieser Fall liess sich
+    /// auf der Maschine nicht fahren, auf der die uebrigen Zahlen entstanden.
+    #[test]
+    fn die_speichergrenze_schneidet_erst_oberhalb_von_1440p() {
+        let p010 = DXGI_FORMAT_P010.0;
+        // 1080p und 1440p: unveraendert.
+        assert_eq!(plaetze_im_speicherrahmen(24, 1920, 1152, p010), 24);
+        assert_eq!(plaetze_im_speicherrahmen(24, 2560, 1536, p010), 24);
+        // 4K in 10 bit: rund 25 MB je Platz, also deutlich weniger Plaetze.
+        let vierk = plaetze_im_speicherrahmen(24, 3840, 2176, p010);
+        assert!(vierk < 24, "4K muss zugeschnitten werden, war {vierk}");
+        assert!(vierk >= RING_MIN, "aber nie unter die Untergrenze, war {vierk}");
+        // Auch ein absurd grosses Bild darf den Ring nicht unter RING_MIN
+        // druecken — lieber viel Speicher als ein Ring, der nicht traegt.
+        assert_eq!(plaetze_im_speicherrahmen(24, 15360, 8640, p010), RING_MIN);
+    }
+
     /// Dieser Test beantwortet das fuer die Maschine, auf der er laeuft. Er
     /// schlaegt NICHT fehl, wenn der Treiber ablehnt — das ist ein Befund, kein
     /// Fehler. Er schreibt ihn hin, damit niemand ihn zweimal erhebt.

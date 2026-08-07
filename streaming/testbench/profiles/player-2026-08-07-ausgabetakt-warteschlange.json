@@ -47,7 +47,14 @@
     "nachher": { "gezeichnet_pro_s": "126-144", "bildabstand_ms": "5,6-8,0 (0 zu spaet)", "verdraengt": "14 im ganzen Lauf", "stockungen": 0 }
   },
 
-  "befund_3_die_zero_copy_bruecke_kostet_die_videoeinheit": {
+  "ZURUECKGEZOGEN_befund_3_und_5": {
+    "was_hier_stand": "Befund 3 behauptete, die Zero-Copy-Bruecke koste rund 70 Prozentpunkte Videoeinheit (110 % mit, 39 % ohne) und sei damit teurer als Encodieren und Dekodieren zusammen. Befund 5 leitete daraus eine 'Klippe bei rund 300 Mpix/s' ab: 1080p144 und 1440p60 unauffaellig, 1440p144 bei 110 %.",
+    "warum_es_faellt": "Beide Aussagen stuetzten sich auf EINZELLAEUFE von 20 bis 30 Sekunden. Eine saubere A/B mit drei Paaren, abwechselnd gefahren (1440p bei 144 fps, Ringgroesse 12 gegen 24), ergibt: Ring 12 -> 23,1 / 39,0 / 24,5 %, Ring 24 -> 24,4 / 24,1 / 23,9 %. Die Arme sind nicht unterscheidbar, und der uebliche Wert liegt bei rund 24 % - nicht bei 110. Die 110 % und die 76 % waren Ausreisser, vermutlich Laeufe mit einer Stockung oder mit Fremdlast.",
+    "lehre": "Die Streuung dieser Messung ist groesser als die Effekte, die hier gesucht wurden. Einzelne Laeufe taugen fuer den Ausgabe-Takt (Faktor drei, in jedem Lauf sichtbar), nicht fuer Unterschiede in der GPU-Last. Wer hier etwas behauptet, faehrt Paare, abwechselnd, und nennt alle Werte.",
+    "was_stattdessen_gilt": "Bei 1440p und 144 fps liegt die Videoeinheit des Players bei rund 24 %, und trotzdem werden nur 80 bis 94 von 144 Bildern gezeichnet. Die Grafikeinheit ist also NICHT der Engpass. Was den Deckel setzt, ist unbekannt - der Kanal zwischen Decoder- und Fenster-Faden laeuft mit rund 50 Bildern je Sekunde ueber, obwohl der Fenster-Faden je Bild nur rund 1 ms arbeitet (hochladen 0,0 ms, ausgeben 1,0 ms). Das ist die naechste offene Frage und ausdruecklich nicht beantwortet."
+  },
+
+  "HISTORISCH_befund_3_die_zero_copy_bruecke_kostet_die_videoeinheit": {
     "korrektur": "In einer frueheren Fassung dieser Akte stand, der verbleibende Engpass bei 1440p144 sei 'plausibel die Videoeinheit der 780M, die gleichzeitig encodiert und dekodiert'. DAS IST WIDERLEGT. Gemessen wurde die GPU-Last je Prozess und Engine-Typ - der Sender ist gar nicht der Verursacher.",
     "messung_1440p_144fps_videoeinheit_mittel_ueber_30_s": {
       "pulse-player_zero_copy_an": "110 % (Spitze 216 %)",
@@ -78,10 +85,11 @@
     "noch_offen": "NVIDIA und Intel sind ungeprueft - auf dieser Maschine ist keine solche Karte. Der Test laeuft dort mit und schreibt die Antwort hin."
   },
 
-  "befund_5_wo_die_klippe_liegt_und_wieviel_vorhalt_es_braucht": {
-    "durchsatz_nicht_aufloesung": "Die Bruecke ist nicht generell teuer. Player auf der Videoeinheit, je Lauf 22-30 s: 720p bei 240 fps (221 Mpix/s) = 17 %; 1440p bei 60 fps (221 Mpix/s) = 11 %; 1080p bei 144 fps (299 Mpix/s) = 16 %; 1440p bei 144 fps (531 Mpix/s) = 110 %. Bis rund 300 Mpix/s kostet die Kopie fast nichts, darueber bricht es ein. Es ist also der Durchsatz, nicht die Aufloesung - 1440p bei 60 fps ist voellig unauffaellig.",
+  "befund_5_wieviel_vorhalt_es_braucht": {
+    "ZURUECKGEZOGEN_durchsatz_klippe": "Hier stand eine 'Klippe bei rund 300 Mpix/s'. Sie faellt mit befund_3, s. ZURUECKGEZOGEN_befund_3_und_5. Die Einzelwerte (720p240 = 17 %, 1440p60 = 11 %, 1080p144 = 16 %) sind fuer sich plausibel und untereinander vertraeglich; allein der Ausreisser bei 1440p144 machte daraus eine Klippe, und den gibt es nicht.",
     "vorhalt_nachgemessen": "Die Messung vom 2026-08-05 deckte nur 0 und 60 ms ab. Nachgeholt bei 1080p144, sonst alles gleich: 60 ms -> 61 ms Netz-bis-Schirm, 2-5 zu spaet je Sekunde; 30 ms -> 33 ms, 2-4 zu spaet; 20 ms -> 21-27 ms, 3-13 zu spaet. Dreissig halbiert die Verzoegerung ohne Verlust an Gleichmaessigkeit; bei zwanzig broeckelt es. Vorgabe deshalb auf 30 ms gesetzt.",
     "nebenwirkung": "Der Vorhalt braucht Bildrate x Vorhalt Plaetze. Mit 30 ms tragen die vorhandenen zwoelf bis rund 360 Bilder je Sekunde, mit 60 ms nur bis 180. Die kleinere Vorgabe entschaerft also zugleich die Klippe aus befund_1.",
+    "speichergrenze_fuer_den_ring": "Die Ringgroesse ist als ANZAHL bemessen, ihr Preis haengt aber an der Bildgroesse: 24 Plaetze sind bei 1080p10 rund 160 MB, bei 1440p10 rund 265, bei 4K10 rund 600. Deshalb deckelt `plaetze_im_speicherrahmen` den Ring jetzt zusaetzlich auf 320 MB (Untergrenze 8 Plaetze). Bei 1440p und darunter greift das gar nicht. **Die 320 MB sind NICHT gemessen** - 4K liess sich auf dieser Maschine nicht fahren, der Schirm gibt nur 1440p her. Es ist eine Sicherung gegen den ungeprueften Fall, kein Optimum.",
     "abnahme_1080p_144_alles_zusammen": "gezeichnet 134 von 159 dekodiert, Netz-bis-Schirm 31,4 ms, Player auf der Videoeinheit 16 %, verdraengt 3, keine Stockung."
   },
 
