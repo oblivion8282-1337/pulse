@@ -30,6 +30,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { app } from 'electron';
 
+import { diagnoseEingeschaltet } from './experimental-log-upload';
 import { logSidecar } from './sidecar-log';
 
 /**
@@ -194,10 +195,30 @@ class PlayerManager {
       throw new Error('pulse-player nicht gefunden');
     }
 
-    const child = spawn(binary, [], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
+    // **Die Statistik-Zeilen folgen dem Diagnose-Schalter.**
+    //
+    // Der Player kann seit dem 2026-08-07 je Sekunde melden, was der Sender
+    // wirklich schickt (Vollbilder oder rollende Auffrischung), welche
+    // Einstellungen wirklich gelten, wo zwischen Netz und Schirm die Bilder
+    // liegenbleiben, und ob die Bilanz der Bilder aufgeht. Das alles hing an
+    // `PULSE_PLAYER_STATS_LOG`, und dieser Schalter wurde von NIEMANDEM
+    // gesetzt — die Zeilen waren gebaut, gemessen und im Betrieb nie zu sehen.
+    // Ein Fehlerbericht enthielt damit genau das nicht, wofuer es ihn gibt.
+    //
+    // Gekoppelt an die Uebermittlung und nicht dauerhaft an: wer ihr zugestimmt
+    // hat, will ein brauchbares Protokoll; wer sie abgewaehlt hat, soll auch
+    // nichts zusaetzlich mitschreiben. Der Preis sind rund vier Zeilen je
+    // Sekunde — der 512-KB-Ausschnitt des Uploads deckt damit noch etwa eine
+    // Viertelstunde ab, und das ist bei einem Fehlerbericht der interessante
+    // Zeitraum.
+    //
+    // Eine von aussen gesetzte Variable gewinnt: der Pruefstand faehrt den
+    // Player mit eigenen Einstellungen, und die darf die App nicht ueberschreiben.
+    const env = { ...process.env };
+    if (env.PULSE_PLAYER_STATS_LOG === undefined && diagnoseEingeschaltet()) {
+      env.PULSE_PLAYER_STATS_LOG = '1';
+    }
+    const child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'], env });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     log('lifecycle', `gestartet pid=${child.pid ?? '?'} ${binary}`);
