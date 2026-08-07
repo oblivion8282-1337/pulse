@@ -81,38 +81,61 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
 ];
 
 /**
- * Was im Codec-Feld steht. Codec und Bittiefe sind für den Nutzer EINE
- * Entscheidung — zwei Felder daraus zu machen hiesse, ihm die Kopplung zu
+ * Was im Codec-Feld steht. Codec, Bittiefe und HDR sind für den Nutzer EINE
+ * Entscheidung — mehrere Felder daraus zu machen hiesse, ihm Kopplungen zu
  * erklären, die der Sidecar ohnehin erzwingt: 10 bit gibt es nur mit AV1 (die
- * H.264-Variante wäre `High 10`, die kein Browser dekodiert).
+ * H.264-Variante wäre `High 10`, die kein Browser dekodiert), und HDR gibt es
+ * nur mit 10 bit (PQ in 8 bit wäre in jedem Verlauf sichtbar geringelt,
+ * `encode/hdr.rs`).
  *
- * `bit_depth` geht nur bei 10 mit auf die Leitung. Ein `bit_depth: 8` wäre
- * gleichbedeutend mit „fehlt", würde aber in jeder persistierten Einstellung
- * mitgeschleppt.
+ * **HDR war bis zum 2026-08-07 ein eigenes Kästchen**, das beim Anhaken das
+ * Codec-Feld von sich aus auf „AV1 10 bit" zog. Das ist derselbe Fall, den die
+ * Bittiefe am 2026-08-02 schon hatte, und er wird hier aus demselben Grund
+ * gleich gelöst: **zwei gekoppelte Bedienelemente zu erklären ist mehr Aufwand
+ * als eine Liste, in der die unmögliche Kombination gar nicht vorkommt.** Ein
+ * Kästchen, das ein anderes Feld umstellt, ist eine Fernwirkung, die niemand
+ * erwartet.
+ *
+ * `bit_depth` geht nur bei 10 mit auf die Leitung, `hdr` nur bei `true`. Ein
+ * `bit_depth: 8` bzw. `hdr: false` wäre gleichbedeutend mit „fehlt", würde aber
+ * in jeder persistierten Einstellung mitgeschleppt.
  */
 export const VIDEO_MODES: ReadonlyArray<{
   value: string;
   label: string;
   codec: string;
   tenBit: boolean;
+  hdr?: boolean;
 }> = [
   { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
   { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
   { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
+  { value: 'av1-10-hdr', label: 'AV1 10 bit HDR', codec: 'av1', tenBit: true, hdr: true },
 ];
 
 /** Welcher Eintrag zu den aktuellen Overrides passt. */
 export function videoModeOf(o: OverrideSet): string {
   const codec = o.codec ?? 'h264';
-  return codec === 'av1' && o.bit_depth === 10 ? 'av1-10' : codec;
+  if (codec !== 'av1' || o.bit_depth !== 10) return codec;
+  return o.hdr === true ? 'av1-10-hdr' : 'av1-10';
 }
 
-/** Auswahl zurück in Codec + Bittiefe übersetzen. */
+/**
+ * Auswahl zurück in Codec, Bittiefe und HDR übersetzen.
+ *
+ * **`hdr` wird bei jedem anderen Eintrag ENTFERNT**, nicht bloss nicht gesetzt.
+ * Sonst überlebte ein `hdr: true` den Wechsel auf H.264 in der gespeicherten
+ * Einstellung, und der Sidecar bräche den Start ab („HDR verlangt, aber H.264
+ * kann hier kein 10 bit") — für eine Kombination, die der Nutzer im Feld gar
+ * nicht mehr sieht.
+ */
 export function applyVideoMode(o: OverrideSet, value: string): OverrideSet {
   const mode = VIDEO_MODES.find((m) => m.value === value) ?? VIDEO_MODES[0];
   const next: OverrideSet = { ...o, codec: mode.codec };
   if (mode.tenBit) next.bit_depth = 10;
   else delete next.bit_depth;
+  if (mode.hdr) next.hdr = true;
+  else delete next.hdr;
   return next;
 }
 
