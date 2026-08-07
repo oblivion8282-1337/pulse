@@ -80,7 +80,21 @@ const MIN_WARTEND: usize = 8;
 /// (bei den 60 ms, die bis zum 2026-08-07 Vorgabe waren, nur bis 180).
 /// Darueber kuerzt [`Ausgabetakt::wirksamer_vorhalt`] den Vorhalt und meldet
 /// es einmal im Klartext, statt still zu verwerfen.
-const MAX_WARTEND: usize = 12;
+const MAX_WARTEND_VORGABE: usize = 12;
+
+/// Zur Messung umstellbar (`PULSE_PLAYER_TAKT_PLAETZE`). Die Vorgabe deckelt
+/// den wirksamen Vorhalt bei 144 fps auf `10 × 6,94 ms = 69 ms` — weniger als
+/// die gemessenen Ankunftsloecher. Genau das soll ein Arm pruefen koennen.
+fn max_wartend() -> usize {
+    static WERT: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+        std::env::var("PULSE_PLAYER_TAKT_PLAETZE")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .filter(|n| (4..=256).contains(n))
+            .unwrap_or(MAX_WARTEND_VORGABE)
+    });
+    *WERT
+}
 
 /// Ab dieser Abweichung zwischen Ziel und Sollzeit wird der Anker neu gesetzt.
 ///
@@ -187,9 +201,10 @@ impl Ausgabetakt {
     /// nicht feststeht — mit der Untergrenze zu beginnen hiesse, bei jedem
     /// Sitzungsstart einige Bilder zu verdraengen, nur weil noch niemand
     /// nachgesehen hat. Grosszuegig zu starten kostet nichts: der Ring ist
-    /// ohnehin fuer [`MAX_WARTEND`] ausgelegt.
+    /// ohnehin fuer [`max_wartend`] ausgelegt.
     fn kapazitaet(&self) -> usize {
-        self.noetige_plaetze().unwrap_or(MAX_WARTEND).clamp(MIN_WARTEND, MAX_WARTEND)
+        let max = max_wartend();
+        self.noetige_plaetze().unwrap_or(max).clamp(MIN_WARTEND.min(max), max)
     }
 
     /// Der Vorhalt, den die Warteschlange bei dieser Bildrate wirklich tragen
@@ -205,13 +220,13 @@ impl Ausgabetakt {
     /// er kostet Glaettung im Millisekundenbereich, waehrend das Wegwerfen
     /// ganze Bilder kostet. Und er macht die Bildrate zu einer Zahl, die man
     /// frei waehlen kann — vorher gab es eine Klippe, die niemand sah.
-    fn wirksamer_vorhalt(&self) -> Duration {
+    pub fn wirksamer_vorhalt(&self) -> Duration {
         let Some(abstand) = self.bildabstand.filter(|d| !d.is_zero()) else {
             return self.vorhalt;
         };
         // Zwei Plaetze bleiben Reserve fuer Schwankung — dieselben zwei, die
         // `noetige_plaetze` aufschlaegt.
-        self.vorhalt.min(abstand * (MAX_WARTEND as u32 - 2))
+        self.vorhalt.min(abstand * (max_wartend() as u32 - 2))
     }
 
     /// Laeuft der Takt ueberhaupt? Bei `0` ist alles hier ein Durchreichen.
@@ -328,11 +343,12 @@ impl Ausgabetakt {
         // dieser Bildrate nicht zu halten. Das EINMAL sagen — sonst verwirft
         // der Player wieder still, nur mit anderen Zahlen.
         if !self.gewarnt && self.aktiv() {
-            if let Some(noetig) = self.noetige_plaetze().filter(|n| *n > MAX_WARTEND) {
+            let max = max_wartend();
+            if let Some(noetig) = self.noetige_plaetze().filter(|n| *n > max) {
                 self.gewarnt = true;
                 eprintln!(
                     "pulse-player: Ausgabe-Takt {} ms braucht {noetig} Plaetze, es gibt \
-                     {MAX_WARTEND} — Vorhalt auf {} ms gekuerzt. Das kostet etwas \
+                     {max} — Vorhalt auf {} ms gekuerzt. Das kostet etwas \
                      Glaettung und ist billiger als weggeworfene Bilder.",
                     self.vorhalt_ms(),
                     self.wirksamer_vorhalt().as_millis(),
@@ -627,7 +643,7 @@ mod tests {
         // der Untergrenze — geprueft wird hier die Deckelung als solche, nicht
         // ihre Hoehe (die hat `bei_144_fps_und_60_ms_vorhalt_...`).
         assert!(
-            t.warteschlange.len() <= MAX_WARTEND,
+            t.warteschlange.len() <= max_wartend(),
             "die Warteschlange darf nie ueber die Obergrenze wachsen, war {}",
             t.warteschlange.len()
         );

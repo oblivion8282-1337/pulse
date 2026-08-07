@@ -1,0 +1,109 @@
+{
+  "id": "player-2026-08-07-hdr-flimmern",
+  "gemessen_am": "2026-08-07",
+  "frage": "Der native Player zeigte seit dem neuen HDR-Weg ein stark flimmerndes Bild, auch bei einem statischen Testbild. Woher kommt das Flimmern — und laesst es sich mit einer Zahl statt mit einem Blick zeigen?",
+
+  "aufbau": {
+    "maschine": "NVIDIA GeForce RTX 5080, Vulkan, KDE Plasma auf Wayland (KWin), Ausgang DP-2 mit eingeschaltetem HDR (Spitze 530 cd/m², SDR-Weiss 295 cd/m², 2560x1440 bei 279,96 Hz).",
+    "quelle": "streaming/testbench/hdr-testbild.mkv — AV1 10 bit, PQ/BT.2020, sechs waagerechte Streifen bekannter Leuchtdichte (1/10/100/203/400/1000 cd/m²), 60 Bilder je Sekunde.",
+    "kette": "ffmpeg -re -stream_loop -1 -c copy nach RTMPS in das lokale MediaMTX, Player holt per WHEP. Decoder av1_cuvid (Hardware/CUDA), Zero-Copy an, Fenster im Vollbild auf DP-2.",
+    "werkzeuge": [
+      "streaming/testbench/flimmer-messung.py (neu) — faehrt die Kette und misst parallel den Schirm",
+      "streaming/testbench/schirmprobe.py (neu) — nimmt einen Bildschirmausschnitt ueber spectacle ab und gibt Flaechenhelligkeit und Unterschied je Bildpunkt aus",
+      "pulse-player --flimmern (neu, src/messen/flimmern.rs) — derselbe Shader ohne Fenster, ueber fortlaufende Uhrenstaende"
+    ],
+    "messausschnitt": "1200x800 in der Mitte von DP-2 (3240,320) — innerhalb des Videos, weg von Rand und Panel."
+  },
+
+  "die_quelle_steht_wirklich": {
+    "geprueft": "framemd5 ueber alle 720 Bilder der Vorlage: drei verschiedene Pruefsummen, und die Unterschiede zwischen ihnen sind hoechstens EIN Codewert auf 9233 bis 28336 von 2073600 Bildpunkten.",
+    "folgerung": "Jede Aenderung von Bild zu Bild im Fenster ist damit ein Fehler des Empfangswegs, nicht der Vorlage. Das musste zuerst geklaert werden — sonst haette die ganze Messung den Sender gemessen."
+  },
+
+  "ergebnis_in_einem_satz": "Der Formatwechsel auf das HDR-Fenster tauschte den Uniform-Puffer aus, ohne die bereits gebauten Bindegruppen der Zero-Copy-Ringplaetze zu erneuern; die betroffenen Ringplaetze wurden danach mit einem eingefrorenen SDR-Uniformblock gezeichnet, die uebrigen richtig, und der Ring wechselte beide im Bildtakt durch — am Schirm zwei feste Helligkeitsstufen im Wechsel, 132,64 gegen 195,97 von 255.",
+
+  "ursache": {
+    "ort": "streaming/pulse-player/src/render/hdr_fenster.rs, Renderer::farbraum_fuer_quelle",
+    "was_dort_stand": "Beim Wechsel des Oberflaechenformats rief die Stelle `build_graphics(&self.device, ziel)` und ersetzte damit VIER Dinge auf einmal: Pipeline, Bindungsvorlage, Sampler und Uniform-Puffer.",
+    "warum_das_bricht": "Die Bindegruppen der Zero-Copy-Ringplaetze werden je Ringplatz GENAU EINMAL gebaut (render/fremdbild.rs::binden) und nur verworfen, wenn sich die Bauart der QUELLE aendert (Breite, Hoehe, Bittiefe) — nicht beim Formatwechsel. Ein Ringplatz, der vor der Umschaltung eingehaengt wurde, zeigt danach weiter auf den alten Uniform-Puffer. Geschrieben wird je Bild in den neuen.",
+    "warum_es_gerade_so_aussieht": "Der alte Puffer haelt den zuletzt hineingeschriebenen Block, und das ist der des Bildes, das die Umschaltung ausgeloest hat: Quelle PQ (hdr.x = 1), Fenster noch SDR (hdr.y = 0), Ziel noch Rgb10a2Unorm (output.x = 0). Diese Ringplaetze laufen also durch den Tone-Mapping-Zweig von shader.wgsl und schreiben sRGB-kodierte Werte in eine lineare fp16-Flaeche — sichtbar heller und flau. Die uebrigen Plaetze laufen richtig durch den scRGB-Zweig.",
+    "warum_es_flimmert_statt_nur_falsch_zu_sein": "Der Zero-Copy-Ring hat zwoelf Plaetze und `zerocopy::freigabe::Freigabe` gibt sie als Stapel zurueck (LIFO). Der vergiftete Platz kommt deshalb regelmaessig wieder — nicht einmal und nicht nie.",
+    "warum_es_kein_uebersetzer_und_kein_pruefschritt_faengt": "wgpu fasst gleich beschriebene Bindungsvorlagen zusammen; die alte Bindegruppe ist mit der neuen Pipeline also GUELTIG. Es gibt keinen Fehler, keine Warnung, keine Panik — nur den falschen Puffer."
+  },
+
+  "messung_am_schirm": {
+    "massstab": "Flaechenhelligkeit des Ausschnitts (0..255) je Aufnahme, und der mittlere Unterschied je Bildpunkt zwischen zwei aufeinanderfolgenden Aufnahmen. Die zweite Zahl faengt auch ein wechselndes Muster bei gleicher Gesamthelligkeit.",
+    "laeufe": [
+      {
+        "bauart": "alt (vor der Behebung)",
+        "label": "alt-6",
+        "flaechenhelligkeit": "wechselt ueber alle 30 Aufnahmen zwischen genau 132,64 und 195,97",
+        "spanne_prozent": 40.63,
+        "unterschied_je_bildpunkt_mittel_stufen": 42.32
+      },
+      {
+        "bauart": "alt (vor der Behebung)",
+        "label": "alt-4",
+        "flaechenhelligkeit": "132,64 / 195,97 im Wechsel ueber die ersten 19 Aufnahmen",
+        "spanne_prozent": 56.01,
+        "unterschied_je_bildpunkt_mittel_stufen": 36.05
+      },
+      {
+        "bauart": "neu (nach der Behebung)",
+        "label": "neu-5",
+        "flaechenhelligkeit": "30 von 30 Aufnahmen exakt 195,97",
+        "spanne_prozent": 0.0,
+        "unterschied_je_bildpunkt_mittel_stufen": 0.0211
+      },
+      {
+        "bauart": "neu (nach der Behebung)",
+        "label": "neu-6",
+        "flaechenhelligkeit": "30 von 30 Aufnahmen exakt 195,97",
+        "spanne_prozent": 0.0,
+        "unterschied_je_bildpunkt_mittel_stufen": 0.021
+      }
+    ],
+    "beide_richtungen": "Sechs Laeufe je Bauart, abwechselnd gefahren. Der Fehler kommt mit der alten Bauart JEDES Mal wieder und ist mit der neuen in KEINEM Lauf zu sehen; das alte Binary lag dafuer als Kopie bereit, es wurde also wirklich dieselbe Kette gemessen.",
+    "welcher_der_beiden_werte_der_richtige_ist": "195,97 — das ist der Wert, auf dem die neue Bauart steht, und er entsteht aus dem scRGB-Zweig. 132,64 ist der eingefrorene SDR-Block."
+  },
+
+  "was_es_NICHT_war": {
+    "deband_und_dither": "Der erste Verdacht (Rauschen auf flacher Flaeche) ist widerlegt, und zwar mit einer Zahl statt mit einem Lauf ohne beides: `pulse-player --flimmern` zeichnet dasselbe Bild 30-mal durch dieselbe Pipeline und veraendert dabei NUR die Uhr, aus der Deband und Dither ihr Muster wuerfeln. Groesste Schwankung des Flaechenmittels ueber alle Ziele und Einstellungen: 0,188 Prozent, im HDR-Ziel 0,069 Prozent. Unsichtbar.",
+    "warum_die_gegenprobe_vorher_nichts_zeigen_konnte": "Der Messstand hielt `zeit` fest auf 0 — er konnte die Frage gar nicht stellen. Der Wert steht jetzt im `Lauf`; die Farb- und Stufenmessung lassen ihn weiter auf 0, damit dort zwei Laeufe vergleichbar bleiben.",
+    "erreichen_die_optionen_den_player": "Ja. `harness.py` mischt PULSE_HARNESS_PLAYER_OPTS per `optionen |= json.loads(roh)` in den open-Aufruf, und `app::mod.rs` wendet sie ueber PlayerOptions::apply an (Test: proto.rs::apply_uebernimmt_nur_gesetzte_felder). Die frueher gefahrene Gegenprobe war also gueltig, nur ohne Beleg.",
+    "die_zustellung": "60 dekodiert / 60-61 gezeichnet je Sekunde, 0 Paketverlust, 0 verworfen, 0 neu verankert, genau eine Formatumschaltung, 0 Paniken — vor wie nach der Behebung."
+  },
+
+  "die_behebung": {
+    "was": "Der Formatwechsel erneuert nur noch die Pipeline. Bindungsvorlage, Sampler und Uniform-Puffer bleiben stehen; damit bleiben alle bereits gebauten Bindegruppen gueltig.",
+    "wo": [
+      "src/render/setup.rs: neue Funktion `pipeline_bauen(device, bind_layout, format)`; `build_graphics` benutzt sie und traegt jetzt die Warnung, dass es NUR beim Aufbau gerufen werden darf.",
+      "src/render/hdr_fenster.rs: `farbraum_fuer_quelle` ruft `pipeline_bauen` statt `build_graphics`."
+    ],
+    "warum_nicht_die_zwischenspeicher_leeren": "Das waere die zweite moegliche Behebung und die schlechtere: sie liesse den Austausch bestehen und verlangte, dass jede kuenftige Aenderung an dieser Stelle daran denkt. Vom Format haengt ohnehin nur die Pipeline ab — der Austausch der drei anderen Stuecke hatte nie einen Zweck.",
+    "regressionstest": "render::setup::tests::eine_bindegruppe_ueberlebt_den_formatwechsel — baut eine Bindegruppe VOR dem Wechsel und zeichnet mit ihr durch die Pipeline NACH dem Wechsel. Ohne GPU meldet er, dass er nichts geprueft hat, statt gruen zu sein."
+  },
+
+  "fallen_dieser_messung": {
+    "die_vorlage_kam_zu_spaet": "Der erste Lauf setzte PULSE_HARNESS_SOURCE erst NACH dem Import von harness.py — `harness.SOURCE` wird beim Import gelesen. Gemessen wurde still `synth10.mkv`: 144 Bilder je Sekunde, 25 Mbit/s, kein PQ, keine Formatumschaltung. Die Zahlen sahen plausibel aus. Erkannt allein daran, dass `surface_format` Rgb10a2Unorm meldete.",
+    "der_schirm_dunkelte_mitten_im_lauf_ab": "Ohne Maus- und Tastatureingabe dunkelt Plasma nach kurzer Zeit ab; die Flaechenhelligkeit fiel dann um 12 bis 30 Prozent und blieb unten — in der alten wie in der neuen Bauart. Vier Laeufe waren dadurch unbrauchbar, und der Schritt sah wie ein Befund aus. `dms ipc call inhibit`, wie es in hq-labor/CLAUDE.md steht, greift hier NICHT: auf dieser Maschine laeuft Plasma, `dms` ist gar nicht gestartet. Die Sperre haengt ausserdem an der D-Bus-Verbindung des Aufrufers — ein kurzer qdbus-Aufruf haelt sie nicht.",
+    "kwins_eigene_schnittstelle_ist_zu": "org.kde.KWin.ScreenShot2 weist fremde Aufrufer ab („The process is not authorized to take a screenshot\"). Spectacle steht auf der Liste, deshalb geht es ueber Spectacle."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Die Abtastrate der Schirmprobe liegt bei rund einer Aufnahme je Sekunde. Ein Flimmern im Bildtakt ist damit NICHT aufgeloest — gemessen ist, DASS zwei Zustaende abwechseln, nicht mit welcher Frequenz. Die genannte Spanne ist eine Untergrenze der Amplitude, nie ihr Wert.",
+    "Die Aufnahme ist 8 bit je Kanal und von KWin auf SDR zusammengeschoben. Unterschiede unter einer 8-bit-Stufe sind grundsaetzlich nicht messbar; die 195,97 sind ein SDR-Abbild des HDR-Inhalts, keine Leuchtdichte.",
+    "Gemessen ist EINE Maschine (NVIDIA/Vulkan/KWin) und EIN Weg (Zero-Copy ueber CUDA). Auf dem Weg ueber den Hauptspeicher wird `bind_group` beim Wechsel ohnehin neu gebaut — dort gab es den Fehler nicht, und die Behebung ist dort folgenlos. Windows (D3D12) ist NICHT nachgemessen; die Stelle ist dieselbe, der Fehler waere dort derselbe gewesen.",
+    "`pulse-player --flimmern` misst allein shader.wgsl samt Uniform-Bau — ohne Fenster, ohne Swapchain, ohne Compositor. Sein gruener Befund schliesst diese drei nicht aus; er hat hier nur Deband und Dither ausgeschlossen.",
+    "Das Pruefbild der Flimmermessung besteht aus einfarbigen Baendern. Deband ist auf einer flachen Flaeche baulich wirkungslos; ueber sein Verhalten auf strukturiertem Inhalt sagt die Zahl 0,188 Prozent nichts.",
+    "Die Restschwankung der neuen Bauart (0,021 Stufen je Bildpunkt) ist das Rauschen der Messkette selbst, nicht des Players — sie liegt in derselben Groessenordnung wie auf einem unbewegten Desktop-Ausschnitt.",
+    "Nicht beantwortet: ob es NEBEN diesem Fehler noch einen zweiten gibt, der unterhalb einer 8-bit-Stufe bleibt."
+  ],
+
+  "reproduzieren": [
+    "cd streaming/pulse-player && cargo build --release",
+    "cd ../testbench && python3 flimmer-messung.py --label neu --proben 30 --bereich 3240,320,1200,800",
+    "Fuer die alte Bauart: in src/render/hdr_fenster.rs::farbraum_fuer_quelle wieder `build_graphics` rufen und dessen vier Rueckgaben zuweisen, neu bauen, denselben Lauf mit PULSE_PLAYER_BIN auf das alte Binary.",
+    "Ohne Fenster und ohne Schirm: pulse-player --flimmern"
+  ]
+}

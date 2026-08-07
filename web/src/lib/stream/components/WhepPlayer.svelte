@@ -36,11 +36,8 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
   import { useNativePlayback } from '$lib/player/useNativePlayback.svelte';
-  import {
-    nativeChatRequests,
-    nativePlayerSessions,
-    nativeWindowRequests
-  } from '$lib/player/store.svelte';
+  import { nativePlayerSessions } from '$lib/player/store.svelte';
+  import { nativeChatRequests, nativeWindowRequests } from '$lib/player/wuensche.svelte';
 
   let {
     channelId,
@@ -236,7 +233,12 @@
         // Zurueck in die Kachel: erst die Anforderung zuruecknehmen, dann das
         // Fenster wirklich schliessen — sonst bliebe es offen stehen, waehrend
         // die Kachel schon wieder zeigt.
-        nativeWindowRequests.release(channelId, userId, streamSlot);
+        //
+        // `zugemacht` statt `release`: mit gesetzter Vorgabe-fuer-alles
+        // (`playerSettings.useNativePlayer`) reicht die Ruecknahme der
+        // Anforderung nicht — die Vorgabe schickte die Kachel sofort wieder ins
+        // Fenster, und dieser Knopf haette sichtbar nichts getan.
+        nativeWindowRequests.zugemacht(channelId, userId, streamSlot);
         nativePlayerSessions.close(channelId, userId, streamSlot);
       } else {
         nativeWindowRequests.request(channelId, userId, streamSlot);

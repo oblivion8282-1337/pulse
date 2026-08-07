@@ -91,6 +91,23 @@ export function migriereAufStandardAn(): void {
 }
 
 /**
+ * Ist die Diagnose-Übermittlung eingeschaltet?
+ *
+ * Seit 2026-08-06 ist der Schalter standardmäßig AN — deshalb `!== false`
+ * statt `!== true`: gesendet wird, solange niemand ausdrücklich abgewählt hat.
+ * Ein fehlender Schlüssel (frische Installation) zählt als „an".
+ *
+ * **Als Funktion und nicht als Vergleich an jeder Stelle**, weil daran seit dem
+ * 2026-08-07 mehr hängt als der Upload selbst: der Player schaltet seine
+ * Statistik-Zeilen danach ein (`player.ts`). Zwei Abfragen mit derselben
+ * Absicht laufen früher oder später auseinander — und dann lädt die App ein
+ * Protokoll hoch, in dem genau das fehlt, wofür sie es hochlädt.
+ */
+export function diagnoseEingeschaltet(): boolean {
+  return storeGet('uploadDiagnosticLogs') !== false;
+}
+
+/**
  * Im `gsr:event`-Handler aufrufen. Sammelt `error`-Zustand und triggert beim
  * `stopped`-Event den Upload — no-op, wenn ausdrücklich abgewählt.
  */
@@ -104,10 +121,7 @@ export function onSidecarEventForUpload(ev: { ev?: string }, slot: number): void
   const reason = sawError.has(slot) ? 'error' : 'stream_end';
   sawError.delete(slot);
 
-  // Seit 2026-08-06 ist der Schalter standardmäßig AN — deshalb `!== false`
-  // statt `!== true`: gesendet wird, solange niemand ausdrücklich abgewählt
-  // hat. Ein fehlender Schlüssel (frische Installation) zählt als „an".
-  if (storeGet('uploadDiagnosticLogs') === false) return;
+  if (!diagnoseEingeschaltet()) return;
 
   void uploadExperimentalLog(reason, slot).catch((e) => {
     logSidecar(

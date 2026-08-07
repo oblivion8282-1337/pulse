@@ -111,6 +111,29 @@ pub struct Fremdbilder {
     /// ein alter, und der Zwischenspeicher lieferte dann die Ansicht auf eine
     /// Textur, die es nicht mehr gibt.
     bauart: Option<(u32, u32, bool)>,
+    /// Die Teile, gegen die die eingetragenen Bindegruppen gebaut wurden.
+    ///
+    /// **Der Zwischenspeicher passt hier auf sich selbst auf, statt sich auf
+    /// einen Aufrufer zu verlassen, der daran denkt.** Eine Bindegruppe zeigt
+    /// auf GENAU diesen Sampler und GENAU diesen Uniform-Puffer; wer die
+    /// austauscht, hat Eintraege, die auf einen Puffer zeigen, in den niemand
+    /// mehr schreibt. Am 2026-08-07 hat genau das das HDR-Bild flimmern lassen
+    /// — der Formatwechsel rief `build_graphics` und erneuerte alle vier Teile
+    /// (Messakte `testbench/profiles/player-2026-08-07-hdr-flimmern.json`).
+    ///
+    /// Die Ursache ist an der Quelle behoben (`render::setup::pipeline_bauen`
+    /// erneuert nur noch die Pipeline), und dann greift diese Pruefung nie.
+    /// Sie steht trotzdem hier, weil der Fehler **stumm** war: wgpu fasst gleich
+    /// beschriebene Bindungsvorlagen zusammen, die veraltete Bindegruppe bleibt
+    /// also gueltig, es gibt weder Fehler noch Warnung. Ein Zustand, den man
+    /// beim Wechsel mitziehen muss und vergessen kann, ist auf diesem Zweig
+    /// zweimal hintereinander durchgerutscht — erst als Absturz, dann als
+    /// Flimmern.
+    ///
+    /// `wgpu` vergleicht diese Griffe ueber die Identitaet der Ressource
+    /// (`impl_eq_ord_hash_proxy`), nicht ueber ihren Inhalt — genau die Frage,
+    /// die hier zu stellen ist.
+    gebaut_gegen: Option<(wgpu::BindGroupLayout, wgpu::Sampler, wgpu::Buffer)>,
 }
 
 impl Fremdbilder {
@@ -119,7 +142,12 @@ impl Fremdbilder {
     /// zwaenge sie in ein `Option` und damit zwei Fehlerpfade in `binden`, die
     /// nie eintreten koennen.
     pub fn neu(device: &wgpu::Device) -> Self {
-        Self { importe: HashMap::new(), blind: blindtextur(device), bauart: None }
+        Self {
+            importe: HashMap::new(),
+            blind: blindtextur(device),
+            bauart: None,
+            gebaut_gegen: None,
+        }
     }
 
     /// Welche Merkmale das Geraet braucht, damit dieser Weg ueberhaupt offen
@@ -178,6 +206,13 @@ impl Fremdbilder {
             self.importe.clear();
             self.bauart = Some(bauart);
         }
+        if !self.teile_passen(teile) {
+            // Die Eintraege wuerden auf einen Sampler und einen Uniform-Puffer
+            // zeigen, die niemand mehr beschreibt (s. [`Fremdbilder::gebaut_gegen`]).
+            self.importe.clear();
+            self.gebaut_gegen =
+                Some((teile.layout.clone(), teile.sampler.clone(), teile.uniform_buf.clone()));
+        }
         match self.importe.entry(bild.handle()) {
             Entry::Occupied(e) => Some(&e.into_mut().bindegruppe),
             Entry::Vacant(e) => {
@@ -185,6 +220,18 @@ impl Fremdbilder {
                 Some(&e.insert(import).bindegruppe)
             }
         }
+    }
+
+    /// Gelten die Eintraege noch fuer DIESE Teile?
+    ///
+    /// Begruendung an [`Fremdbilder::gebaut_gegen`]. Beim allerersten Aufruf
+    /// gibt es noch nichts zu entwerten — dann ist die Antwort `false`, und der
+    /// Vermerk wird gesetzt, ohne dass ein leerer Zwischenspeicher geleert
+    /// wuerde.
+    fn teile_passen(&self, teile: &Bindeteile<'_>) -> bool {
+        self.gebaut_gegen.as_ref().is_some_and(|(layout, sampler, puffer)| {
+            layout == teile.layout && sampler == teile.sampler && puffer == teile.uniform_buf
+        })
     }
 
     /// Die Abdruck-Bindung eines Ringplatzes (s. [`Import::abdruck_gruppe`]).
@@ -450,6 +497,32 @@ fn einhaengen(
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[ebene0, ebene1],
             },
+            // **Neu in wgpu 30 — und der Wert stimmt hier aus einem ANDEREN
+            // Grund als auf der Vulkan-Seite oben.**
+            //
+            // Dort ist „uninitialisiert" die Wahrheit: das `VkImage` wird mit
+            // `initial_layout(UNDEFINED)` angelegt. Hier nicht — die geteilte
+            // Textur kommt aus dem D3D11-Decoder und **hat Inhalt**, wenn wir
+            // sie einhaengen. Die naheliegende Sorge ist deshalb, wgpu duerfe
+            // ihn verwerfen. Es darf nicht, und das steht im Quelltext:
+            //
+            // * `wgpu-hal-30.0.0/src/dx12/conv.rs:188` gibt fuer
+            //   `UNINITIALIZED` `D3D12_RESOURCE_STATE_COMMON` zurueck — und
+            //   COMMON ist genau der Zustand, in dem eine per
+            //   `OpenSharedHandle` uebernommene D3D11-Ressource steht.
+            // * Der Uebergang davon nach `PIXEL_SHADER_RESOURCE` ist eine
+            //   gewoehnliche `ResourceBarrier`; die erhaelt den Inhalt.
+            //   Verwerfen kann in D3D12 nur `DiscardResource` oder eine
+            //   Aliasing-Sperre, und beides kommt im dx12-Befehlsschreiber
+            //   nicht vor (geprueft am 2026-08-08).
+            //
+            // Der Unterschied zu Vulkan ist also echt: dort HEISST
+            // `UNINITIALIZED` „Inhalt darf weg", hier heisst es „COMMON".
+            //
+            // Zusaetzlich ist es der Wert, mit dem dieser Weg ausgeliefert war:
+            // wgpu-core 29 trug ihn intern immer selbst ein
+            // (`device/resource.rs:1253`). Das Verhalten ist damit unveraendert.
+            wgpu::TextureUses::UNINITIALIZED,
         )
     };
     let ansicht = |name: &'static str, f: wgpu::TextureFormat, a: wgpu::TextureAspect| {
@@ -506,5 +579,73 @@ fn oeffnen(
         roh.OpenSharedHandle(HANDLE(handle as *mut std::ffi::c_void), &mut res)
             .map_err(|e| format!("OpenSharedHandle: {e}"))?;
         res.ok_or_else(|| "OpenSharedHandle lieferte keine Ressource".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{build_graphics, geraet_oeffnen, pipeline_bauen};
+
+    fn geraet() -> Option<wgpu::Device> {
+        let instanz =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let adapter = pollster::block_on(instanz.request_adapter(&Default::default())).ok()?;
+        let (device, _queue, _) =
+            pollster::block_on(geraet_oeffnen(&adapter, "pulse-player-fremdbild-test")).ok()?;
+        Some(device)
+    }
+
+    /// **Der Wachhund am Zwischenspeicher, an beiden Enden geprueft.**
+    ///
+    /// Die Regression zum Flimmern vom 2026-08-07: der Formatwechsel darf die
+    /// Teile nicht austauschen, gegen die die Bindegruppen der Ringplaetze
+    /// gebaut sind. Geprueft wird beides —
+    ///
+    /// * der WEG, den der Player geht (`pipeline_bauen`): die Teile bleiben
+    ///   dieselben, der Zwischenspeicher wird NICHT entwertet;
+    /// * der Weg, der den Fehler erzeugt hat (`build_graphics` ein zweites Mal):
+    ///   die Teile sind andere, und der Zwischenspeicher merkt es von selbst.
+    ///
+    /// Der zweite Arm ist der wichtigere: er zeigt, dass die Erkennung
+    /// tatsaechlich anschlaegt. Ohne ihn wuerde ein `teile_passen`, das immer
+    /// `true` liefert, den Test genauso bestehen.
+    #[test]
+    fn der_zwischenspeicher_merkt_vertauschte_teile() {
+        let Some(device) = geraet() else {
+            eprintln!("keine GPU — dieser Test hat NICHTS geprueft");
+            return;
+        };
+        let sdr = wgpu::TextureFormat::Rgb10a2Unorm;
+        let hdr = super::super::hdr_fenster::HDR_OBERFLAECHE;
+        let gfx = build_graphics(&device, sdr);
+        fn teile(g: &crate::render::Graphics) -> Bindeteile<'_> {
+            Bindeteile {
+                layout: &g.bind_layout,
+                sampler: &g.sampler,
+                uniform_buf: &g.uniform_buf,
+            }
+        }
+
+        let mut f = Fremdbilder::neu(&device);
+        assert!(!f.teile_passen(&teile(&gfx)), "vor dem ersten Eintrag gibt es nichts zu halten");
+        f.gebaut_gegen =
+            Some((gfx.bind_layout.clone(), gfx.sampler.clone(), gfx.uniform_buf.clone()));
+        assert!(f.teile_passen(&teile(&gfx)), "dieselben Teile muessen als dieselben gelten");
+
+        // So wechselt der Player das Format: nur die Pipeline wird erneuert.
+        let _pipeline = pipeline_bauen(&device, &gfx.bind_layout, hdr);
+        assert!(
+            f.teile_passen(&teile(&gfx)),
+            "der Formatwechsel des Players darf den Zwischenspeicher nicht entwerten"
+        );
+
+        // Und so sah der Fehler aus: ein zweites `build_graphics`.
+        let neu = build_graphics(&device, hdr);
+        assert!(
+            !f.teile_passen(&teile(&neu)),
+            "vertauschte Teile muessen auffallen — sonst zeigten die Eintraege auf einen \
+             Uniform-Puffer, in den niemand mehr schreibt"
+        );
     }
 }

@@ -7,6 +7,26 @@
 //! aus. Der eine fehlende Aufruf ist `IDXGISwapChain3::SetColorSpace1`, und an
 //! ihn kommt man nur ueber `Surface::as_hal`.
 //!
+//! **Der vorige Absatz gilt fuer wgpu 29. Seit dem Sprung auf wgpu 30
+//! (2026-08-08) stimmt er nicht mehr, und wer hier aufraeumt, muss das wissen:**
+//! `wgpu-hal-30.0.0/src/dx12/mod.rs:1656` ruft `SetColorSpace1` inzwischen
+//! **selbst** auf, abgeleitet aus dem neuen Feld
+//! `SurfaceConfiguration::color_space` (`:1451` bildet es auf die
+//! DXGI-Konstanten ab — auf dieselben, die unten stehen). In wgpu 29 kam der
+//! Aufruf in der ganzen Datei kein einziges Mal vor.
+//!
+//! **Trotzdem bleibt unser Aufruf stehen**, aus zwei Gruenden. Erstens laeuft
+//! er in `Renderer::konfigurieren` NACH `surface.configure` und ist damit der
+//! massgebliche; zweitens sagt er bei `hdr == true` scRGB an, waehrend wgpu aus
+//! unserem `SurfaceColorSpace::Auto` nur das ableiten kann, was das Format
+//! hergibt. Solange die Migration verhaltensgleich sein soll, wird hier nichts
+//! entfernt. **Das ist die Stelle, an der beim Umstieg auf `Bt2100Pq`
+//! aufgeraeumt gehoert** — dann macht wgpu die Anmeldung vollstaendig, und
+//! zwei Stellen, die denselben Farbraum setzen, waeren eine zu viel.
+//! **Ungeprueft auf echter Windows-Hardware** (diese Maschine hat keine): dass
+//! sich die beiden Aufrufe nicht ins Gehege kommen, ist am Quelltext
+//! erschlossen, nicht gesehen.
+//!
 //! **Zwei Fragen, nicht eine.** Ob das Fenster HDR ausgeben KANN, entscheidet
 //! die Grafik-API; ob es etwas nuetzt, entscheidet der Bildschirm. Laeuft der
 //! in SDR, wird ein HDR-Puffer nicht heruntergerechnet, sondern **abgeschnitten**
@@ -388,7 +408,7 @@ mod tests {
 // deshalb braucht es dafuer keine Lockerung der Sichtbarkeit.
 
 use crate::decode::{Farbangaben, Uebertragung};
-use super::{pick_format, build_graphics, Renderer};
+use super::{pick_format, Renderer};
 
 /// Die Win32-Fensterkennung, oder `0`, wo es keine gibt.
 ///
@@ -464,16 +484,21 @@ impl Renderer {
         if format_geaendert {
             self.config.format = ziel;
             self.surface_format_name = format!("{ziel:?}");
-            // Pipeline und Bindungen haengen am Format — der Shader wird fuer
-            // das Zielformat uebersetzt. Ohne diesen Neubau zeichnete die alte
-            // Pipeline in eine Flaeche, die sie nicht kennt.
-            let gfx = build_graphics(&self.device, ziel);
-            self.pipeline = gfx.pipeline;
-            self.bind_layout = gfx.bind_layout;
-            self.sampler = gfx.sampler;
-            self.uniform_buf = gfx.uniform_buf;
-            // Zeigt auf die alte Bindungsvorlage und den alten Uniform-Puffer.
-            self.bind_group = None;
+            // **Nur die Pipeline.** Sie ist das einzige Stueck, das am Format
+            // haengt (der Ausgabezustand der Fragmentstufe); ohne den Neubau
+            // zeichnete die alte in eine Flaeche, die sie nicht kennt.
+            //
+            // Bindungsvorlage, Sampler und Uniform-Puffer bleiben stehen, und
+            // das ist keine Sparsamkeit, sondern die Behebung des Flimmerns vom
+            // 2026-08-07: hier stand `build_graphics`, das alle vier erneuert.
+            // Die Bindegruppen der Zero-Copy-Ringplaetze werden je Platz EINMAL
+            // gebaut (`render::fremdbild`) und zeigten danach weiter auf den
+            // alten Uniform-Puffer, waehrend `render` in den neuen schrieb —
+            // diese Plaetze wurden mit einem eingefrorenen SDR-Uniformblock
+            // gezeichnet (Tone-Mapping statt scRGB), die uebrigen richtig, und
+            // der Ring wechselt sie durch. Begruendung und Messung an
+            // [`super::setup::pipeline_bauen`].
+            self.pipeline = super::pipeline_bauen(&self.device, &self.bind_layout, ziel);
         }
         self.konfigurieren();
         eprintln!(

@@ -13,7 +13,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use super::{App, Session};
-use crate::proto::{PlayerOptions, Request, Response};
+use crate::proto::{PlayerOptions, Request, Response, SessionState};
 use crate::render;
 use crate::session::SessionCommand;
 use winit::event_loop::ActiveEventLoop;
@@ -31,10 +31,17 @@ impl App {
                 }),
             )),
 
+            // **Erst antworten, dann melden.** Die Gegenseite ordnet jede
+            // Zustandsmeldung ueber die Sitzungsnummer zu, und die erfaehrt sie
+            // aus dieser Antwort. Alles, was davor gemeldet wird, gehoert fuer
+            // sie zu keiner bekannten Sitzung und faellt weg — Begruendung samt
+            // Hergang bei `App::open`.
             "open" => match self.open(req, event_loop) {
-                Ok(session_id) => self
-                    .stdout
-                    .send(&Response::ok(id, serde_json::json!({ "session": session_id }))),
+                Ok(session_id) => {
+                    self.stdout
+                        .send(&Response::ok(id, serde_json::json!({ "session": session_id })));
+                    self.emit_state(session_id, SessionState::Connecting, None);
+                }
                 Err(e) => self.stdout.send(&Response::err(id, format!("{e:#}"))),
             },
 

@@ -33,7 +33,7 @@ const BREITE: u32 = 32;
 /// Hoehe eines Bandes in Luma-Zeilen. **Muss durch vier teilbar sein**: die
 /// Chroma-Ebenen sind halb so hoch, und das Messfenster braucht darin noch
 /// Rand.
-const BANDHOEHE: u32 = 16;
+pub(super) const BANDHOEHE: u32 = 16;
 
 /// Zeilen und Spalten am Rand eines Bandes, die nicht zaehlen.
 ///
@@ -42,7 +42,7 @@ const BANDHOEHE: u32 = 16;
 /// mischt er die Farbe zweier BENACHBARTER Faelle. Gemessen wuerde dort ein
 /// Zwischenwert, den es im Bild gar nicht gibt — genau der Fehler, vor dem die
 /// Stufenmessung mit ihrer 1:1-Bedingung warnt.
-const RAND: u32 = 4;
+pub(super) const RAND: u32 = 4;
 
 /// Das Ziel, in das gezeichnet wird — die zwei Betriebsarten aus `shader.wgsl`.
 ///
@@ -50,10 +50,10 @@ const RAND: u32 = 4;
 /// deshalb Methoden, keine Felder: als Felder waeren „HDR-Ziel mit
 /// SDR-Sollspalte" und „Unorm-Format mit fp16-Massstab" konstruierbar, und
 /// beides ergaebe eine Messung, die still am falschen Bezug misst.
-struct Ziel {
-    name: &'static str,
-    format: wgpu::TextureFormat,
-    hdr_fenster: bool,
+pub(super) struct Ziel {
+    pub(super) name: &'static str,
+    pub(super) format: wgpu::TextureFormat,
+    pub(super) hdr_fenster: bool,
 }
 
 /// **Das HDR-Ziel braucht ein Fliesskomma-Format.** `Rgb10a2Unorm` und
@@ -66,7 +66,7 @@ struct Ziel {
 /// einer Stelle stehen. Beim SDR-Ziel ist `Rgb10a2Unorm` die uebliche Wahl von
 /// `render::setup::pick_format` — hier bewusst festgeschrieben, weil `headless`
 /// keine Angebotsliste hat, gegen die man fragen koennte.
-const ZIELE: [Ziel; 2] = [
+pub(super) const ZIELE: [Ziel; 2] = [
     Ziel { name: "HDR-Fenster (scRGB)", format: HDR_OBERFLAECHE, hdr_fenster: true },
     Ziel {
         name: "SDR-Fenster (Tone-Mapping)",
@@ -77,12 +77,12 @@ const ZIELE: [Ziel; 2] = [
 
 impl Ziel {
     /// Welche Spalte der Sollwert-Tabelle gilt.
-    fn soll(&self, fall: &Fall) -> [f32; 3] {
+    pub(super) fn soll(&self, fall: &Fall) -> [f32; 3] {
         if self.hdr_fenster { fall.hdr } else { fall.sdr }
     }
 
     /// Wie gross eine Stufe des Ausgabeformats an dieser Stelle ist.
-    fn stufe(&self, wert: f32) -> f32 {
+    pub(super) fn stufe(&self, wert: f32) -> f32 {
         match self.format {
             // Fliesskomma hat kein festes Raster — der Abstand haengt am
             // Betrag. `output_levels` taugt hier NICHT: es liefert fuer fp16
@@ -113,7 +113,7 @@ const TOLERANZ_STUFEN: f32 = 1.5;
 
 /// Die Farbwelt, die der Windows-Sidecar seit dem 2026-08-06 sendet:
 /// BT.2020 ohne konstante Leuchtdichte, PQ, weite Primaervalenzen.
-fn pq_quelle() -> Farbangaben {
+pub(super) fn pq_quelle() -> Farbangaben {
     Farbangaben {
         matrix: ColorMatrix::Bt2020Ncl,
         uebertragung: Uebertragung::Pq,
@@ -127,7 +127,7 @@ const HOEHE: u32 = FAELLE.len() as u32 * BANDHOEHE;
 
 /// Das Pruefbild: ein einfarbiges Band je Fall, planar 10 bit, begrenzter
 /// Wertebereich — genau die Form, die der Software-Decoder abliefert.
-fn quelle_bauen() -> Quelle {
+pub(super) fn quelle_bauen() -> Quelle {
     let h = HOEHE;
     let (cw, ch) = (BREITE / 2, h / 2);
     let ebene = |breite: u32, hoehe: u32, code: fn(&Fall) -> u16| {
@@ -155,7 +155,7 @@ fn quelle_bauen() -> Quelle {
 /// Gemittelt statt einen Punkt gelesen, damit derselbe Aufruf auch mit
 /// eingeschaltetem Dither eine Aussage traegt: das Rauschen ist mittelwertfrei,
 /// ein Farbfehler nicht.
-fn mittel(aus: &Ausgabe, band: usize) -> [f32; 3] {
+pub(super) fn mittel(aus: &Ausgabe, band: usize) -> [f32; 3] {
     let rand = RAND as usize;
     let zeilen = band * BANDHOEHE as usize + rand..(band + 1) * BANDHOEHE as usize - rand;
     // Die Breite aus der Ausgabe, nicht die Modulkonstante: sie steht dort,
@@ -208,6 +208,7 @@ fn messen(stand: &mut Messstand, ziel: &Ziel, deband: f32, dither: bool) -> Resu
         dither,
         farbe: pq_quelle(),
         hdr_fenster: ziel.hdr_fenster,
+        zeit: 0.0,
     })?;
     Ok(FAELLE
         .iter()
