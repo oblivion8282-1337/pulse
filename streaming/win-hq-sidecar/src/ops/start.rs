@@ -91,8 +91,11 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         override_bitrate_kbps: overrides.bitrate_kbps,
         override_fps: overrides.fps,
         override_resolution: overrides.resolution,
-        // HDR schaltet 10 bit selbst ein — beides einzeln zu verlangen wären
-        // zwei Kästchen, die zusammengehören (Begründung: `StartParams::hdr`).
+        // HDR schaltet 10 bit selbst ein — beides einzeln zu verlangen hiesse,
+        // zwei Dinge zu trennen, die zusammengehören. In der Oberfläche ist
+        // das seit dem 2026-08-07 ohnehin EIN Eintrag im Codec-Feld
+        // („AV1 10 bit HDR"); hier stand bis dahin „zwei Kästchen", und das
+        // eine davon gibt es nicht mehr. (Begründung: `StartParams::hdr`.)
         ten_bit: overrides.ten_bit || overrides.hdr,
         hdr: overrides.hdr,
         // Wird erst vom Verteiler gefüllt, wenn `hdr` geprüft ist — hier steht

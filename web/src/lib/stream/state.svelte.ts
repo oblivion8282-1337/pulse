@@ -69,8 +69,9 @@ export const stream = $state({
    *  hat, der PQ/BT.2020 bis in den Strom trägt. **Nicht** die Frage, ob HDR
    *  in Windows gerade eingeschaltet ist: die beantwortet erst der Start, und
    *  zwar mit einer Meldung, die auf den Windows-Schalter zeigt. Wäre schon
-   *  das Kästchen daran gekoppelt, verschwände es beim Ausschalten spurlos und
-   *  niemand käme auf den Zusammenhang. Fehlt das Feld, bleibt es false. */
+   *  der Eintrag im Codec-Feld daran gekoppelt, verschwände er beim
+   *  Ausschalten spurlos und niemand käme auf den Zusammenhang. Fehlt das
+   *  Feld, bleibt es false. */
   hdrAvailable: false,
   ...freshSession(),
 });

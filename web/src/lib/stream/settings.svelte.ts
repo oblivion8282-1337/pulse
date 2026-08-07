@@ -275,11 +275,12 @@ export function intraRefreshPossible(): boolean {
  * `encode/hdr.rs`). Umso wichtiger, dass die Oberfläche gar nicht erst danach
  * fragt, wenn es aussichtslos ist.
  *
- * **`stream.hdrAvailable` gehört zwingend dazu**, obwohl das Kästchen bereits
- * danach gated ist: die Einstellung wird persistiert und wandert mit dem Konto
- * zwischen Rechnern. Ein auf der HDR-Maschine gesetzter Haken läge sonst auf
- * einem Rechner ohne HDR-fähigen Encoder weiter an — unsichtbar, weil das
- * Kästchen dort nicht erscheint, und jeder Streamversuch bräche ab.
+ * **`stream.hdrAvailable` gehört zwingend dazu**, obwohl der Eintrag im
+ * Codec-Feld bereits danach gated ist: die Einstellung wird persistiert und
+ * wandert mit dem Konto zwischen Rechnern. Ein auf der HDR-Maschine gewählter
+ * Eintrag läge sonst auf einem Rechner ohne HDR-fähigen Encoder weiter an —
+ * unsichtbar, weil er dort im Feld gar nicht steht, und jeder Streamversuch
+ * bräche ab.
  *
  * Die Kopplung an 10 bit ist keine zweite Bedingung, sondern dieselbe: HDR
  * gibt es nur mit AV1 in 10 bit, und genau das prüft `tenBitPossible`.
