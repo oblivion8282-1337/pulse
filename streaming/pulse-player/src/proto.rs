@@ -136,23 +136,31 @@ pub struct PlayerOptions {
     /// Vor dieser Option gab es also im ganzen Programm keine Stelle, an der
     /// ein Bild auf seinen Zeitpunkt gewartet haette.
     ///
-    /// **Vorgabe 60 ms — an, seit 2026-08-05.** Beim Einbau stand hier "aus",
-    /// weil der Vorhalt echte Verzoegerung kostet. Die Messung gegen die
-    /// PRODUKTION hat das entschieden (Messakte
-    /// `ausgabetakt-2026-08-05-windows-produktion.json`, drei Paare,
-    /// abwechselnd, gleiche Richtung ohne Ueberlappung):
+    /// **Vorgabe 30 ms — seit 2026-08-07.** Beim Einbau stand hier "aus", weil
+    /// der Vorhalt echte Verzoegerung kostet; am 2026-08-05 wurde daraus 60 ms,
+    /// weil eine Messung gegen die Produktion zeigte, dass der Takt die
+    /// Ungleichmaessigkeit halbiert (Messakte
+    /// `ausgabetakt-2026-08-05-windows-produktion.json`: zu spaete Bilder
+    /// 24/30/22 gegen 3/15/0, Netz bis Schirm 4,5 gegen 59,5 ms).
     ///
-    /// | | aus | 60 ms |
+    /// **Diese Messung deckte nur 0 und 60 ab, und dazwischen lag die
+    /// Antwort.** Nachgeholt am 2026-08-07, 1080p bei 144 fps, sonst alles
+    /// gleich (Akte `player-2026-08-07-ausgabetakt-warteschlange.json`):
+    ///
+    /// | Vorhalt | Netz bis Schirm | zu spaet je Sekunde |
     /// |---|---|---|
-    /// | zu spaete Bilder je Lauf | 24/30/22 | 3/15/0 |
-    /// | Sekunden ganz ohne | 54 % | 96 % |
-    /// | Netz bis Schirm | 4,5 ms | 59,5 ms |
+    /// | 60 ms | 61 ms | 2-5 |
+    /// | **30 ms** | **33 ms** | **2-4** |
+    /// | 20 ms | 21-27 ms | 3-13 |
     ///
-    /// Rund 55 ms Verzoegerung gegen ein Bild, das in 96 statt 54 Prozent der
-    /// Sekunden sauber laeuft — fuers Zuschauen der richtige Tausch, und der
-    /// Wert liegt damit in derselben Groessenordnung wie Chromiums eigener
-    /// Puffer (52 ms gemessen). **Aus als Vorgabe hiess: die Messung wird
-    /// ausgeliefert, die Wirkung nicht.**
+    /// Dreissig halbiert die Verzoegerung, ohne dass die Gleichmaessigkeit
+    /// leidet — die 60 waren schlicht mehr, als der Zweck braucht. Bei 20 faengt
+    /// es an zu broeckeln, das ist die Untergrenze und nicht mehr die Vorgabe.
+    ///
+    /// Nebenwirkung, die den Wert zusaetzlich stuetzt: der Vorhalt braucht
+    /// `Bildrate × Vorhalt` Plaetze in der Warteschlange (s. `app::takt`). Mit
+    /// 30 ms reichen die vorhandenen zwoelf bis rund 360 Bilder je Sekunde,
+    /// mit 60 ms nur bis 180.
     ///
     /// **Fuer die Fernsteuerung ist er falsch** — dort zaehlt jede
     /// Millisekunde, und dieser Weg wird sie auf `0` setzen, wenn er kommt.
@@ -209,7 +217,7 @@ pub const JITTER_MS_VORGABE: u32 = 100;
 
 /// Vorhalt des Ausgabe-Takts, Vorgabe. Herleitung und Messwerte stehen an
 /// [`PlayerOptions::ausgabetakt_ms`].
-pub const AUSGABETAKT_MS_VORGABE: u32 = 60;
+pub const AUSGABETAKT_MS_VORGABE: u32 = 30;
 
 impl PlayerOptions {
     /// Startwerte. Bewusst konservativ: Debanding an (der sichtbare Gewinn).

@@ -21,13 +21,14 @@
 //! Fernsteuerung ist er falsch — dort zaehlt allein, wie schnell die eigene
 //! Mausbewegung zurueckkommt.
 //!
-//! **HIER STAND BIS ZUM 2026-08-06 „Vorgabe ist deshalb AUS (`vorhalt = 0`)".
-//! Das ist falsch, und zwar seit dem 2026-08-05:** die Vorgabe steht auf
-//! **60 ms** (`proto::AUSGABETAKT_MS_VORGABE`, in `PlayerOptions::defaults`
-//! gesetzt), der Takt ist also EINGESCHALTET, es sei denn, der Aufrufer
-//! schickt ausdruecklich etwas anderes. Die Messung, die das begruendet, steht
-//! an `proto.rs:142`; nachgezogen wurde sie damals nur dort, und diese Zeile
-//! ist eine von vier, die deshalb das Gegenteil behaupteten.
+//! **Die Vorgabe ist AN, nicht aus** (`proto::AUSGABETAKT_MS_VORGABE`, in
+//! `PlayerOptions::defaults` gesetzt) — der Takt laeuft, es sei denn, der
+//! Aufrufer schickt ausdruecklich etwas anderes. Der Wert steht seit dem
+//! 2026-08-07 auf **30 ms**; er war vom 2026-08-05 bis dahin 60, und hier
+//! stand davor „Vorgabe ist deshalb AUS (`vorhalt = 0`)". Beide Male wurde die
+//! Aenderung nur an der Konstanten nachgezogen, und diese Zeile war eine von
+//! vier, die danach das Gegenteil behaupteten. Herleitung und Messwerte
+//! stehen an [`crate::proto::PlayerOptions::ausgabetakt_ms`].
 //!
 //! Bei ausgeschaltetem Vorhalt — also nur noch auf ausdruecklichen Wunsch —
 //! verhaelt sich der Player wie vor diesem Modul: [`Ausgabetakt::einreihen`]
@@ -75,9 +76,10 @@ const MIN_WARTEND: usize = 8;
 /// sonst wartet der Decoder auf einen freien Platz, und das sind Stockungen
 /// von Sekunden.
 ///
-/// Zwoelf tragen den Vorgabe-Vorhalt von 60 ms bis rund 165 Bilder je Sekunde.
-/// Darueber meldet [`Ausgabetakt::einreihen`] es einmal im Klartext, statt
-/// wieder still zu verwerfen.
+/// Zwoelf tragen den Vorgabe-Vorhalt von 30 ms bis rund 360 Bilder je Sekunde
+/// (bei den 60 ms, die bis zum 2026-08-07 Vorgabe waren, nur bis 180).
+/// Darueber kuerzt [`Ausgabetakt::wirksamer_vorhalt`] den Vorhalt und meldet
+/// es einmal im Klartext, statt still zu verwerfen.
 const MAX_WARTEND: usize = 12;
 
 /// Ab dieser Abweichung zwischen Ziel und Sollzeit wird der Anker neu gesetzt.

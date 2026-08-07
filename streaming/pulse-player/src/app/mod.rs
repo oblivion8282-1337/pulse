@@ -168,11 +168,11 @@ struct Session {
     farbe: decode::Farbangaben,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
-    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT 60 ms Vorhalt**
-    /// (`proto::AUSGABETAKT_MS_VORGABE`); hier stand bis zum 2026-08-06 „bei
-    /// ausgeschaltetem Vorhalt — der Vorgabe —", und das ist seit dem
-    /// 2026-08-05 falsch. Nur ausdruecklich abgeschaltet reicht er jedes Bild
-    /// unveraendert durch.
+    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT Vorhalt**
+    /// (`proto::AUSGABETAKT_MS_VORGABE`, seit 2026-08-07 30 ms, davor 60);
+    /// hier stand bis zum 2026-08-06 „bei ausgeschaltetem Vorhalt — der
+    /// Vorgabe —", und das war schon damals falsch. Nur ausdruecklich
+    /// abgeschaltet reicht er jedes Bild unveraendert durch.
     takt: Ausgabetakt,
     /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
     /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
@@ -818,7 +818,7 @@ impl App {
                     return;
                 }
                 // Ueber den Ausgabe-Takt einreihen statt direkt uebernehmen.
-                // In der Vorgabe (60 ms Vorhalt) liegt das Bild danach
+                // In der Vorgabe (30 ms Vorhalt) liegt das Bild danach
                 // wirklich eine Weile, und der zweite Weg (`about_to_wait`)
                 // holt es ab. Nur bei ausdruecklich abgeschaltetem Vorhalt ist
                 // es im selben Zug wieder faellig — hier stand bis zum
@@ -918,7 +918,7 @@ impl ApplicationHandler<UserEvent> for App {
     ///
     /// **Hier stand bis zum 2026-08-06 „und das ist der Vorgabefall mit
     /// ausgeschaltetem Vorhalt". Das ist falsch, und es dreht die Aussage um:**
-    /// die Vorgabe sind 60 ms Vorhalt (seit 2026-08-05), damit ist die
+    /// die Vorgabe ist ein Vorhalt (seit 2026-08-07 30 ms), damit ist die
     /// Warteschlange im laufenden Betrieb praktisch NIE leer — der Schnellweg
     /// ist zum Ausnahmefall geworden und die `Vec` weiter unten faellt bei
     /// jedem Durchlauf an. Wirkung minimal, aber die Begruendung stimmt so
