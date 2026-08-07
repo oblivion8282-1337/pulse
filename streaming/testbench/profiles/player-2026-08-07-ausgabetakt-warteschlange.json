@@ -78,6 +78,13 @@
     "noch_offen": "NVIDIA und Intel sind ungeprueft - auf dieser Maschine ist keine solche Karte. Der Test laeuft dort mit und schreibt die Antwort hin."
   },
 
+  "befund_5_wo_die_klippe_liegt_und_wieviel_vorhalt_es_braucht": {
+    "durchsatz_nicht_aufloesung": "Die Bruecke ist nicht generell teuer. Player auf der Videoeinheit, je Lauf 22-30 s: 720p bei 240 fps (221 Mpix/s) = 17 %; 1440p bei 60 fps (221 Mpix/s) = 11 %; 1080p bei 144 fps (299 Mpix/s) = 16 %; 1440p bei 144 fps (531 Mpix/s) = 110 %. Bis rund 300 Mpix/s kostet die Kopie fast nichts, darueber bricht es ein. Es ist also der Durchsatz, nicht die Aufloesung - 1440p bei 60 fps ist voellig unauffaellig.",
+    "vorhalt_nachgemessen": "Die Messung vom 2026-08-05 deckte nur 0 und 60 ms ab. Nachgeholt bei 1080p144, sonst alles gleich: 60 ms -> 61 ms Netz-bis-Schirm, 2-5 zu spaet je Sekunde; 30 ms -> 33 ms, 2-4 zu spaet; 20 ms -> 21-27 ms, 3-13 zu spaet. Dreissig halbiert die Verzoegerung ohne Verlust an Gleichmaessigkeit; bei zwanzig broeckelt es. Vorgabe deshalb auf 30 ms gesetzt.",
+    "nebenwirkung": "Der Vorhalt braucht Bildrate x Vorhalt Plaetze. Mit 30 ms tragen die vorhandenen zwoelf bis rund 360 Bilder je Sekunde, mit 60 ms nur bis 180. Die kleinere Vorgabe entschaerft also zugleich die Klippe aus befund_1.",
+    "abnahme_1080p_144_alles_zusammen": "gezeichnet 134 von 159 dekodiert, Netz-bis-Schirm 31,4 ms, Player auf der Videoeinheit 16 %, verdraengt 3, keine Stockung."
+  },
+
   "offen": {
     "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
     "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."
