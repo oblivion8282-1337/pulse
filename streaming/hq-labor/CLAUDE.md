@@ -364,14 +364,22 @@ hatte** — `create_texture_from_hal` im Dx12-Zweig, im CI gefunden, in
 `bca6767d` behoben. Der Wert `UNINITIALIZED` traegt dort aus einem **anderen**
 Grund als auf Linux: auf D3D12 heisst er `RESOURCE_STATE_COMMON` (nicht
 „Inhalt darf weg"), und das ist genau der Zustand einer per
-`OpenSharedHandle` uebernommenen D3D11-Textur. macOS war gruen. **Lehre, weil
-sie sich wiederholen wird: eine Grenze der Aussage ist eine Vorhersage.** Die
-hier stand, ist innerhalb eines Tages eingetreten.
+`OpenSharedHandle` uebernommenen D3D11-Textur. **Lehre, weil sie sich
+wiederholen wird: eine Grenze der Aussage ist eine Vorhersage.** Die hier
+stand, ist innerhalb eines Tages eingetreten.
 
-**Was ungeprueft bleibt:** Windows ist nach dem Fix nur als *Uebersetzung*
-belegt — kein Bild, keine Zahl von dort (diese Maschine hat keinen
-Windows-Toolchain). Und der HDR-Formatwechsel ist in der Messreihe nie
-ausgeloest worden; die Quelle war 10-bit-SDR.
+**Und der Fix ist in BEIDE Richtungen gegengeprobt**, mit Laufnummern statt mit
+Zusicherung: `win-build` **31223601184 rot** ohne ihn (b4cf7dca),
+**31224778796 gruen** mit ihm (bca6767d); `mac-build` ebenfalls gruen. Ein
+einzelner gruener Lauf haette nur gezeigt, dass es jetzt geht — nicht, dass es
+an diesem Fix lag.
+
+**Was ungeprueft bleibt:** Windows ist nur als *Uebersetzung auf der echten
+Zielumgebung* belegt — kein Bild, keine Zahl, kein Zero-Copy-Nachweis von dort
+(diese Maschine hat keinen Windows-Toolchain). Offen bleibt insbesondere, ob
+sich unser `SetColorSpace1`-Aufruf und der neue von wgpu ins Gehege kommen;
+das ist erschlossen und braucht Hardware. Und der HDR-Formatwechsel ist in der
+Messreihe nie ausgeloest worden; die Quelle war 10-bit-SDR.
 
 **Nebenbefund fuer den Semaphor-Weg, der zweimal vertagt wurde:** wgpu 30
 bringt die fehlende Haelfte mit — `Queue::add_wait_semaphore` (Vulkan) und
