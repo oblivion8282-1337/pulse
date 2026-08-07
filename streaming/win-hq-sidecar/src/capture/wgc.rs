@@ -52,6 +52,45 @@ pub struct CaptureConfig {
     /// Wieviele Frames buffern bevor send-blockt. Default `4` — kleiner Buffer
     /// = niedrige Latenz, höherer = toleriert kurze Encoder-Stalls.
     pub channel_capacity: usize,
+    /// Das Bild in **16-Bit-Fließkomma** abholen statt in 8-Bit-BGRA.
+    ///
+    /// Das ist der HDR-Eingang, und es ist die einzige Stelle, an der HDR
+    /// überhaupt entstehen kann: WGC gibt bei einem HDR-Desktop in
+    /// `Bgra8` ein bereits auf SDR heruntergerechnetes Bild heraus. Was dort
+    /// verlorengeht, holt keine spätere Stufe zurück — die Spitzlichter sind
+    /// dann abgeschnitten und die weiten Farben zusammengeschoben, und der
+    /// Strom trüge trotzdem das HDR-Etikett.
+    ///
+    /// Die Werte kommen als **scRGB**: lineares Licht mit BT.709-Primärvalenzen,
+    /// wobei 1,0 dem SDR-Weiß (per Vereinbarung 80 cd/m²) entspricht und
+    /// Spitzlichter darüber hinausgehen. Negative Werte sind erlaubt und
+    /// bedeuten Farben außerhalb von BT.709. Die Umrechnung nach PQ/BT.2020
+    /// macht der Farbwandler davor dem Encoder — **`encode::hdr_wandler`**,
+    /// ein eigener Shader.
+    ///
+    /// **Hier stand bis zum 2026-08-06 `encode::d3d11_scale`. Das ist falsch,
+    /// und der Irrtum ist der lehrreiche Teil:** der Video-Prozessor kann es
+    /// auf diesem Treiber gerade NICHT — er verneint jede Wandlung mit
+    /// 16-Bit-Fließkomma am Eingang und jede mit PQ am Ausgang (32 geprüfte
+    /// Kombinationen, Tabelle in
+    /// `encode::farbraum::tests::wandlungen_dieses_treibers`). Genau deshalb
+    /// gibt es `hdr_wandler` überhaupt.
+    ///
+    /// Kostet Bandbreite über den Bus: 8 Byte je Bildpunkt statt 4.
+    pub hdr: bool,
+    /// Die Farbwandlung nach P010 **schon im Aufnahme-Rückruf** rechnen statt
+    /// erst auf dem Taktfaden — dann entfällt die fp16-Zwischenkopie ganz.
+    ///
+    /// Gilt nur zusammen mit [`Self::hdr`]; entschieden wird es an einer Stelle
+    /// (`pipeline_hw::vorstufe::direktwandlung`), Begründung und Preis stehen in
+    /// [`crate::capture::aufnahmeziel`]. Der CPU-Pfad (dieses Modul) ignoriert
+    /// das Feld — er hat gar keinen Pool.
+    pub hdr_direkt: bool,
+    /// Die gewünschte Ziel-Box des Streams (`override_resolution`). Wird nur
+    /// gebraucht, wenn [`Self::hdr_direkt`] gilt: dann legt die Aufnahme ihren
+    /// Pool schon in Zielmaßen an und muss sie deshalb selbst ausrechnen
+    /// (`stream_controller::zielmasse`, dieselbe Funktion wie im Taktfaden).
+    pub ziel_kasten: Option<(u32, u32)>,
 }
 
 impl Default for CaptureConfig {
@@ -61,6 +100,9 @@ impl Default for CaptureConfig {
             draw_border: false,
             max_fps: 60,
             channel_capacity: 4,
+            hdr: false,
+            hdr_direkt: false,
+            ziel_kasten: None,
         }
     }
 }

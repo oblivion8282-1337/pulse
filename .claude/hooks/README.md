@@ -45,6 +45,35 @@ ungehindert durch.
 
 Verdrahtet sind die beiden Hooks in `.claude/settings.json`.
 
+# Der graphify-Hinweis — der einzige Hook, der wirklich feuert
+
+`graphify-hinweis.mjs` ist der fünfte Bewohner dieses Verzeichnisses und
+gehört **nicht** zu den Simplifier-Gates oben. Er erinnert daran, `graphify`
+zu fragen, bevor roh gesucht (`Bash`, Matcher auf grep/rg/find/…) oder roh
+gelesen wird (`Read|Glob`, Matcher auf Quell- und Doku-Endungen) — und nur,
+solange `graphify-out/graph.json` überhaupt existiert.
+
+**Seit dem 2026-08-06 ist es eine Datei statt zweier `python3 -c`-Einzeiler in
+`settings.json`.** Der Grund ist kein Schönheitsempfinden: auf dem
+Windows-Rechner (Sidecar- und Player-Bau) gibt es **kein Python** — `python3`
+ist dort der Microsoft-Store-Platzhalter, der mit „Python was not found"
+abbricht. Beide Einzeiler endeten auf `2>/dev/null || true`, **also fielen sie
+dort still aus und haben nie gefeuert.** Dasselbe Muster wie im Kasten ganz
+oben: ein Netz, das man für gespannt hält.
+
+Node ist stattdessen eine harte Voraussetzung dieses Repos auf jedem Rechner
+(pnpm-Workspace für `web` und `desktop`), Python nur für das Backend.
+
+**Nachprüfbar, und das war der zweite Gewinn:**
+
+```
+echo '{"tool_input":{"command":"grep -r foo ."}}' | node .claude/hooks/graphify-hinweis.mjs bash
+echo '{"tool_input":{"pattern":"**/*.ts"}}'       | node .claude/hooks/graphify-hinweis.mjs lesen
+```
+
+Ohne `graphify-out/graph.json` im Arbeitsverzeichnis bleibt beides stumm — das
+ist der Normalfall auf einem Rechner, auf dem noch kein Graph gebaut wurde.
+
 **Warum zwei Gates.** Das Commit-Gate allein käme zu spät: Nicht jede Änderung
 mündet sofort in einen Commit. Das Stop-Gate zieht den Simplifier ans Ende
 *jeder* Änderung.

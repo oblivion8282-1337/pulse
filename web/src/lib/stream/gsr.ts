@@ -54,6 +54,16 @@ export interface GsrHealth {
      *
      *  Fehlt das Feld (ältere Sidecars, macOS), heißt das "nein". */
     intra_refresh?: boolean;
+    /** Kann dieser Rechner HDR senden — also die Bildschirmaufnahme im vollen
+     *  Helligkeitsumfang holen und als PQ/BT.2020 encodieren?
+     *
+     *  Belegt ist das heute allein für AV1 über AMF (AMD, Windows); NVIDIA ist
+     *  ungemessen, nicht ausgeschlossen (`encode/hdr.rs` im Windows-Sidecar).
+     *
+     *  **Nicht** die Frage, ob HDR in Windows gerade eingeschaltet ist — das
+     *  entscheidet erst der Start, und zwar mit einer Meldung, die auf den
+     *  Windows-Schalter zeigt. Fehlt das Feld, heißt das "nein". */
+    hdr?: boolean;
   };
 }
 
@@ -140,6 +150,10 @@ export interface GsrStartArgs {
     fps?: number;
     resolution?: string;
     intra_refresh?: boolean;
+    /** HDR senden. Setzt `bit_depth: 10` und AV1 voraus; der Sidecar
+     *  VERWEIGERT den Start, wenn er es nicht liefern kann — anders als bei
+     *  `bit_depth`, das still zurückgenommen wird. */
+    hdr?: boolean;
   };
   /** Show the mouse cursor in the captured stream. Default true (GSR's
    *  built-in default); set to false to pass `-cursor no`. */

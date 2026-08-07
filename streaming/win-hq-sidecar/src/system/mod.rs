@@ -5,3 +5,4 @@ pub mod app_name;
 pub mod audio_sessions;
 pub mod codec_probe;
 pub mod dxgi;
+pub mod hdr;

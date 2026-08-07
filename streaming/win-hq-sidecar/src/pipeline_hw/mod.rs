@@ -39,7 +39,7 @@
 //! Skalierer gebraucht wird, muss erst ein Bild da sein.
 
 use anyhow::{Result, anyhow, bail};
-use ffmpeg_next::ffi::AVPixelFormat;
+
 use serde_json::json;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -47,14 +47,15 @@ use std::time::{Duration, Instant};
 use crate::audio::AudioCapture;
 use crate::capture::HwCaptureItem;
 use crate::encode::{
-    AudioStreamConfig, D3D11Scaler, EncodePath, HwEncoderConfig, OwnedHwFrame,
+    AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame,
 };
 use crate::events;
-use crate::stream_controller::{StartParams, StreamController};
+use crate::stream_controller::{StartParams, StreamController, zielmasse};
 use crate::system::dxgi::Adapter;
 use crate::tick_monitor::{TickMonitor, TickSample};
 
 mod capture_start;
+mod vorstufe;
 
 pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
@@ -65,8 +66,12 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);
 
-    let (capture, hw, width, height, first, first_qpc, origin_instant) =
-        capture_start::start_and_wait_for_setup(params.capture.clone(), fps, params.show_cursor)?;
+    // Ob die Farbwandlung schon im Aufnahme-Rückruf läuft, muss VOR dem Start
+    // feststehen — das Pool-Format entscheidet sich beim ersten Bild.
+    let direkt_an = vorstufe::direktwandlung(&params)?;
+    let capture_start::Aufnahmestart {
+        capture, hw, width, height, direkt, first, first_qpc, origin_instant,
+    } = capture_start::start_and_wait_for_setup(&params, fps, direkt_an)?;
     // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
     // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     // Massgeblich ist die GPU, auf der WGC sein Device gebaut hat (= die des
@@ -88,6 +93,20 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         drop(capture);
         drop(first);
         drop(hw);
+        // **Bei HDR wird hier NICHT delegiert, sondern abgebrochen.** Der
+        // Verteiler hat gegen den Adapter aus `select_adapter()` geprüft; auf
+        // Multi-GPU kann die echte Aufnahme-GPU eine andere sein, und dann
+        // stimmt seine Antwort nicht mehr. Weder der D3D12- noch der CPU-Weg
+        // trägt HDR (`encode::hdr`) — sie würden den Strom klaglos in SDR
+        // weiterfahren, unter dem Etikett, das der Nutzer bestellt hat.
+        if params.hdr {
+            bail!(
+                "HDR verlangt, aber die Aufnahme läuft auf einer {vendor}-GPU, für die {codec:?} \
+                 über {path:?} encodiert würde — dieser Weg trägt HDR nicht. Auf Rechnern mit \
+                 zwei Grafikchips hängt das daran, welcher den aufgenommenen Bildschirm \
+                 versorgt. Begründung je Weg: encode/hdr.rs"
+            );
+        }
         eprintln!(
             "[pipeline-hw] Capture-GPU ist {vendor}, Codec {codec:?} — Delegation an {path:?}"
         );
@@ -96,20 +115,22 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             _ => crate::stream_controller::run_cpu_pipeline(params, stop_rx),
         };
     }
-    // Capture aspektwahrend in die Override-Box einpassen (`fit_within_box`:
-    // kein Upscale, gerade Maße — deckt auch die NV12-Anforderung #7 ab). Bei
-    // dst==src geht der Capture-Frame direkt in den Encoder; sonst skaliert der
-    // `D3D11Scaler` per `VideoProcessorBlt` auf der GPU davor.
-    let (dst_w, dst_h) = match params.override_resolution {
-        Some((box_w, box_h)) => {
-            crate::stream_controller::fit_within_box(width, height, box_w, box_h)
-        }
-        // Native: nur die NV12-Gerade-Rundung (Fenster-Capture liefert
-        // beliebige Client-Größen), sonst unverändert.
-        None => (width & !1, height & !1),
-    };
+    // Zielmaße: bei Wandlung im Rückruf hat die Aufnahme sie schon gerechnet
+    // und ihren Pool danach angelegt — dann gilt IHRE Antwort, sonst dieselbe
+    // Rechnung hier (`zielmasse`: aspektwahrend in die Box, kein Upscale,
+    // gerade Maße für 4:2:0).
+    let (dst_w, dst_h) =
+        direkt.unwrap_or_else(|| zielmasse(width, height, params.override_resolution));
+    // **Das Aufnahmeformat gehört in diese Zeile**, nicht nur die Maße. Es ist
+    // die erste von vier Stufen, an denen HDR verlorengehen kann, und die
+    // einzige, die man später am fertigen Strom NICHT mehr nachweisen kann:
+    // eine in BGRA aufgenommene Szene, die danach korrekt nach PQ gewandelt
+    // wird, trägt alle HDR-Merkmale und enthält trotzdem kein HDR. Ohne diese
+    // Angabe bliebe die Frage „war die Quelle überhaupt HDR" unbeantwortbar.
+    let aufnahmeformat = if params.hdr { "RGBA16F (scRGB)" } else { "BGRA8" };
+    let wo = if direkt.is_some() { " (Wandlung im Rückruf)" } else { "" };
     eprintln!(
-        "[pipeline-hw] capture {width}x{height} → encode {dst_w}x{dst_h}@{fps} on {} (vendor={vendor})",
+        "[pipeline-hw] capture {width}x{height} {aufnahmeformat} → encode {dst_w}x{dst_h}@{fps}{wo} on {} (vendor={vendor})",
         adapter.description
     );
 
@@ -133,7 +154,6 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Codec sie wieder zu suchen. Den Rest entscheidet der Ziel-Pool, und zwar
     // an EINER Stelle (`bildencoder::pool_wahl`): dort weiss man, ob sich ein
     // Encode-Weg angemeldet hat und welches Format der braucht.
-    let fremder = crate::encode::bildencoder::angemeldet();
     let pool = crate::encode::bildencoder::pool_wahl(params.ten_bit && codec.supports_ten_bit());
     // **Die Bittiefe kommt aus dem Pool zurück, nicht aus dem Wunsch.** Sonst
     // liefe „10 bit" unverändert in die Encoder-Konfiguration weiter, während
@@ -152,55 +172,15 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     }
     let (dst_format, geteilt) = (pool.format, pool.geteilt);
 
-    // Downscale-Pfad: GPU-Scaler (VideoProcessorBlt) zwischen Capture und
-    // Encoder. Der Scaler hat einen eigenen D3D11VA-Ziel-Pool (dst-res,
-    // +RENDER_TARGET) — der Encoder bindet dann diesen statt des Capture-Pools.
-    // Bei dst==src und 8 bit bleibt `scaler` None und der Encoder bindet den
-    // Capture-Pool direkt. Im 10-bit-Fall ist er auch OHNE Verkleinerung nötig:
-    // er ist die einzige Stelle, die BGRA nach P010 wandelt.
-    //
-    // **Die Bedingung fragt nach Eigenschaften, nicht nach Anmeldungen.**
-    // „Es hat sich jemand angemeldet" wäre hier die falsche Frage — sie gehört
-    // nicht in den ausgelieferten Ablauf, und sie verdeckt, worum es geht:
-    // unterscheidet sich der Ziel-Pool vom Aufnahme-Pool? Ein fremder Weg
-    // bekommt den Skalierer damit weiterhin immer (er verlangt NV12 oder
-    // geteilte Texturen, beides ≠ Aufnahme-Pool) — aber weil das zutrifft, und
-    // nicht weil er fremd ist.
-    let anderes_format = dst_format != AVPixelFormat::AV_PIX_FMT_BGRA;
-    let scaler = if (dst_w, dst_h) != (width, height) || anderes_format || geteilt {
-        Some(
-            D3D11Scaler::new(
-                hw.device().clone(),
-                // Safety: nur ein Clone (atomarer COM-AddRef), kein GPU-Befehl —
-                // der Lock ist hier nicht nötig (s. `HwContext::device_context`).
-                unsafe { hw.device_context() }.clone(),
-                width,
-                height,
-                dst_w,
-                dst_h,
-                fps,
-                16,
-                hw.lock_ptr(), // Capture-Pool-Lock teilen → eine CS für Copy+Blt+NVENC (#2).
-                dst_format,
-                geteilt,
-            )
-            .map_err(|e| anyhow!("D3D11Scaler::new: {e:#}"))?,
-        )
-    } else if fremder.is_some() {
-        // **Abbrechen statt stillschweigend weitermachen.** Ohne Skalierer geht
-        // das Aufnahme-Bild direkt in den Encoder, und in das hat der
-        // Aufnahme-Faden längst geschrieben (`wgc_hw::copy_into_pool`) — die
-        // Zusage aus `BildEncoder::vor_dem_schreiben` (dort steht, was sonst
-        // passiert) ist auf diesem Weg gar nicht einzulösen. Heute unerreichbar;
-        // die Prüfung steht hier, damit die Zusage nicht davon abhängt, dass
-        // ein paar Zeilen weiter oben zufällig etwas anderes gilt.
-        bail!(
-            "angemeldeter Encode-Weg ohne eigenen Ziel-Pool: er verlangt weder ein anderes \
-             Pool-Format noch geteilte Texturen — dann kann die Pipeline ihm das Bild nicht \
-             vor dem Beschreiben zeigen"
-        )
-    } else {
-        None
+    // Was zwischen Aufnahme und Encoder passiert — Verkleinern, Farbwandlung,
+    // beides oder nichts. Die Entscheidung samt Begründungen steht in
+    // [`vorstufe::bauen`]; hat die Aufnahme schon gewandelt, steht dort nichts
+    // mehr, und der Encoder liest den Aufnahme-Pool direkt.
+    let scaler = match direkt {
+        Some(_) => None,
+        None => vorstufe::bauen(
+            &params, &hw, width, height, dst_w, dst_h, fps, dst_format, geteilt,
+        )?,
     };
 
     let hw_frames_ref = match &scaler {
@@ -215,6 +195,11 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         dst_w,
         dst_h,
         ten_bit,
+        // Die Angaben des Schirms sind bei HDR gesetzt und sonst `None` — der
+        // Encoder leitet daraus BEIDES ab: die Farb-Signalisierung im Strom
+        // und die Mastering-Metadaten. Ein getrenntes `hdr: bool` daneben
+        // wären zwei Wahrheiten über denselben Sachverhalt.
+        schirm: params.schirm,
     };
     // SAFETY: `hw_frames_ref` zeigt auf den Frames-Kontext des Scalers oder des
     // Capture-Pools. Beide leben in dieser Funktion (`scaler`, `hw`) und damit
@@ -426,8 +411,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         if pts <= last_pts {
             pts = last_pts + 1;
         }
-        // Convert-Zeit: GPU-Scaler bei Downscale, 0 bei Native (NVENC macht
-        // den BGRA→NV12-Convert selbst).
+        // Convert-Zeit: GPU-Scaler bei Downscale, 0 bei Native (NVENC macht den
+        // Convert selbst) — und **0 auch bei stehendem Bild** (s.u.).
         let mut convert = Duration::ZERO;
         if let Some(frame) = last_frame.as_mut() {
             match &mut *scaler {
@@ -439,9 +424,18 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                     // Video-Prozessor hineinschreibt — Begründung an
                     // `BildEncoder::vor_dem_schreiben`. Für den Regelweg ist
                     // das ein leerer Aufruf.
-                    let mut scaled = s.scale_mit(frame, |ziel| encoder.vor_dem_schreiben(ziel))?;
+                    //
+                    // **`captured == 0` heisst „die Quelle ist unverändert"**
+                    // (WGC ist änderungsgetrieben und liefert bei stehendem
+                    // Inhalt gar nichts); die Vorstufe rechnet dann nicht neu,
+                    // sondern gibt ihr letztes Ergebnis zurück. Warum sie das
+                    // darf und warum die Entscheidung von HIER kommen muss,
+                    // steht an `Vorstufe::verarbeiten`.
+                    let ziel = s.verarbeiten(frame, captured == 0, |z| {
+                        encoder.vor_dem_schreiben(z)
+                    })?;
                     convert = t_conv.elapsed();
-                    encoder.send_hw(&mut scaled, pts)?;
+                    encoder.send_hw(ziel, pts)?;
                 }
                 // Native: Capture-Frame direkt in den Encoder.
                 None => encoder.send_hw(frame, pts)?,
@@ -466,6 +460,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             pts,
             pts_delta: pts - prev_pts,
             capture_drops: capture.dropped(),
+            rueckruf: capture.rueckruf_stand(),
             enc_latency: encoder.take_encode_latency(),
         });
         prev_pts = pts;
@@ -485,7 +480,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // sind `ManuallyDrop` (s.o.) und werden weder gestoppt noch freigegeben.
     // `last_frame` ist kein eigenes Binding oben, weil es im Loop neu zugewiesen
     // wird (der alte Frame MUSS dabei in den Pool zurück); nur der allerletzte
-    // wird hier vom Teardown ausgenommen.
+    // wird hier vom Teardown ausgenommen. Das zuletzt GEWANDELTE Bild braucht
+    // keine eigene Zeile: es liegt in der Vorstufe, und die ist `ManuallyDrop`.
     std::mem::forget(last_frame);
     encoder.finish()?;
     Ok(())

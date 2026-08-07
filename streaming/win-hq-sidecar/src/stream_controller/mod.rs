@@ -36,7 +36,7 @@ use crate::profiles::StreamProfile;
 mod cpu_pipeline;
 mod helpers;
 pub(crate) use cpu_pipeline::run_cpu_pipeline;
-pub(crate) use helpers::{build_argv_redacted, emit_state, fit_within_box};
+pub(crate) use helpers::{build_argv_redacted, emit_state, fit_within_box, zielmasse};
 use helpers::select_adapter;
 
 /// Wie lange `stop()` maximal auf das Auslaufen des Worker-Threads wartet,
@@ -109,6 +109,30 @@ pub struct StartParams {
     /// Wer ihn in die Oberfläche holt, braucht dort dieselbe Absage-Regel,
     /// sonst bietet ein Schalter etwas an, das der Sidecar wortlos verwirft.
     pub ten_bit: bool,
+    /// HDR senden: die Aufnahme in scRGB holen und als PQ/BT.2020 encodieren.
+    ///
+    /// **Anders als [`ten_bit`](Self::ten_bit) ist das kein Wunsch, der still
+    /// zurückgenommen wird — unerfüllbar heißt hier Startverweigerung**
+    /// (`encode::hdr::pruefen`). Der Grund steht dort ausführlich: 10 bit
+    /// weniger zu bekommen als bestellt sieht man höchstens an einem Verlauf,
+    /// SDR statt HDR sieht man am ganzen Bild, und beides ohne Meldung wäre
+    /// eine Fehlersuche am falschen Ende.
+    ///
+    /// Schaltet 10 bit **selbst** ein: PQ in 8 bit wäre in jedem Verlauf
+    /// sichtbar geringelt. Der Nutzer muss also nicht zwei Kästchen finden,
+    /// die zusammengehören.
+    pub hdr: bool,
+    /// Die Angaben des aufgenommenen Bildschirms, sobald [`hdr`](Self::hdr)
+    /// geprüft ist — Leuchtdichten und Primärvalenzen für die
+    /// Mastering-Metadaten.
+    ///
+    /// **Wird vom Verteiler gesetzt, nicht vom Request.** Sie hier
+    /// mitzuführen statt sie später ein zweites Mal abzufragen ist kein
+    /// Zwischenspeichern aus Bequemlichkeit: der Nutzer kann HDR mitten im
+    /// Stream umschalten, und zwei Abfragen könnten dann verschiedene
+    /// Antworten geben — die Bildpunkte trügen die eine, die Metadaten die
+    /// andere.
+    pub schirm: Option<crate::system::hdr::SchirmFarbe>,
 }
 
 impl StartParams {
@@ -338,6 +362,38 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad.
         let disable_zc = crate::env::flag("PULSE_HQ_DISABLE_ZERO_COPY");
         let codec = params.codec();
+        // **HDR wird HIER entschieden, vor der Aufnahme** — und nicht in
+        // `pipeline_hw`, wo die übrige Bildarbeit sitzt. Zwei Gründe:
+        //
+        // * Das Aufnahmeformat hängt an der Antwort (`capture::bildformat`).
+        //   Eine Aufnahme, die schon in BGRA läuft, ließe sich hinterher nicht
+        //   mehr zu HDR machen — die Spitzlichter sind dann weg.
+        // * Nur hier ist die Absage für ALLE drei Wege zu haben. In
+        //   `pipeline_hw` stünde sie an einem Weg, und ein HDR-Wunsch auf dem
+        //   D3D12- oder CPU-Weg liefe daran vorbei; der Strom liefe dann in
+        //   SDR unter dem HDR-Etikett, also genau der Ausgang, gegen den
+        //   `encode::hdr` gebaut ist.
+        //
+        // Der Rückgabewert wird gebraucht (die Leuchtdichten des Schirms gehen
+        // als Metadaten in den Strom), deshalb wandert er in die Params statt
+        // später ein zweites Mal abgefragt zu werden — die Antwort könnte sich
+        // zwischen zwei Abfragen ändern, und dann sagten Bildpunkte und
+        // Metadaten Verschiedenes.
+        let mut params = params;
+        if params.hdr {
+            let schirm = crate::encode::hdr::pruefen(
+                adapter.vendor(),
+                codec,
+                &params.push_url,
+                &params.capture,
+            )?;
+            eprintln!("[hdr] Bildschirm: {}", schirm.beschreibung());
+            params.schirm = Some(schirm);
+            // PQ in 8 bit wäre in jedem Verlauf sichtbar geringelt —
+            // Begründung an `StartParams::hdr`.
+            params.ten_bit = true;
+        }
+        let params = params;
         if !disable_zc {
             match codec.encode_path(adapter.vendor(), &params.push_url) {
                 EncodePath::D3d11ZeroCopy => {

@@ -13,11 +13,14 @@
 //! das schon, der Picker-Dialog aus `windows-capture::graphics_capture_picker`
 //! wird *nicht* benutzt.
 
+mod aufnahmeziel;
+pub mod rueckruf;
 pub mod source;
 pub mod wgc;
 pub mod wgc_d3d12;
 pub mod wgc_hw;
 
+pub use rueckruf::RueckrufStand;
 pub use source::CaptureSource;
 pub use wgc_d3d12::{D3d12CaptureItem, WgcD3d12Capture};
 pub use wgc_hw::{HwCaptureItem, WgcHwCapture};
@@ -57,6 +60,51 @@ pub(crate) fn source_closed_err() -> anyhow::Error {
     anyhow!("{SOURCE_CLOSED_MARKER}")
 }
 
+/// In welchem Bildformat aufgenommen wird — **die eine Stelle**, an der das
+/// steht.
+///
+/// Drei Werte, die zueinander passen MÜSSEN und die drei verschiedene APIs
+/// verlangen: WGCs `ColorFormat`, das Pool-Format für libavutil und das
+/// DXGI-Format für die schwarze Ersatztextur. Sie standen hier zwischenzeitlich
+/// an drei Stellen — und ein Auseinanderlaufen fällt nicht als Fehler auf,
+/// sondern als schwarzes Bild: `CopySubresourceRegion` zwischen zwei
+/// verschiedenen Formaten ist im Release-Build ein wortloses No-Op.
+///
+/// * **SDR** — `Bgra8`, 4 Byte je Bildpunkt, wie seit jeher.
+/// * **HDR** — `Rgba16F`, 8 Byte je Bildpunkt, Werte in scRGB (lineares Licht,
+///   BT.709-Primärvalenzen, 1,0 = SDR-Weiß). Begründung, warum es nicht ohne
+///   geht, an [`wgc::CaptureConfig::hdr`].
+pub(crate) fn bildformat(
+    hdr: bool,
+) -> (
+    windows_capture::settings::ColorFormat,
+    ffmpeg_next::ffi::AVPixelFormat,
+    windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
+) {
+    use ffmpeg_next::ffi::AVPixelFormat;
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R16G16B16A16_FLOAT;
+    use windows_capture::settings::ColorFormat;
+    if hdr {
+        (
+            ColorFormat::Rgba16F,
+            // `AV_PIX_FMT_RGBAF16` heisst in FFmpegs Kopfdateien nur so, wenn
+            // man die Maschine schon kennt — es ist ein Alias auf die Fassung
+            // der eigenen Bytereihenfolge und existiert in den erzeugten
+            // Rust-Bindungen deshalb gar nicht. Windows ist immer
+            // little-endian; die Wahl ist damit keine, sondern eine
+            // Feststellung.
+            AVPixelFormat::AV_PIX_FMT_RGBAF16LE,
+            DXGI_FORMAT_R16G16B16A16_FLOAT,
+        )
+    } else {
+        (
+            ColorFormat::Bgra8,
+            AVPixelFormat::AV_PIX_FMT_BGRA,
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+        )
+    }
+}
+
 /// Schwarze BGRA-Textur in Capture-Größe — Ersatz-Quelltextur für den
 /// Privacy-Mask-Pfad (`source::SourceGuard`): ist das ursprünglich gewählte
 /// Fenster minimiert/geschlossen, kopieren die GPU-Pfade statt der WGC-Frame
@@ -66,27 +114,38 @@ pub(crate) fn source_closed_err() -> anyhow::Error {
 ///
 /// Einmal pro Session erzeugt (Default-Usage, nie beschrieben); zeroed BGRA
 /// = Schwarz nach jeder NV12-Konversion (Alpha wird überall verworfen).
+///
+/// **Das Format folgt der Aufnahme** (`hdr`), es ist also nicht immer BGRA.
+/// Genullte 16-Bit-Fließkommawerte sind ebenfalls Schwarz — in scRGB ist 0,0
+/// kein Licht, genau wie in BGRA. Nur die Bytebreite unterscheidet sich, und
+/// die muss stimmen: eine BGRA-Ersatztextur in einen Fließkomma-Pool zu
+/// kopieren wäre der wortlose No-Op aus [`bildformat`], und die Privacy-Maske
+/// zeigte dann statt Schwarz das letzte Bild — also genau den Desktop, den sie
+/// verbergen soll.
 pub(crate) fn black_bgra_texture(
     device: &ID3D11Device,
     width: u32,
     height: u32,
+    hdr: bool,
 ) -> Result<ID3D11Texture2D> {
+    let (_, _, dxgi_format) = bildformat(hdr);
+    let bytes_je_punkt: u32 = if hdr { 8 } else { 4 };
     let desc = D3D11_TEXTURE2D_DESC {
         Width: width,
         Height: height,
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        Format: dxgi_format,
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         Usage: D3D11_USAGE_DEFAULT,
         BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
         CPUAccessFlags: 0,
         MiscFlags: 0,
     };
-    let zeros = vec![0u8; width as usize * height as usize * 4];
+    let zeros = vec![0u8; width as usize * height as usize * bytes_je_punkt as usize];
     let init = D3D11_SUBRESOURCE_DATA {
         pSysMem: zeros.as_ptr() as *const _,
-        SysMemPitch: width * 4,
+        SysMemPitch: width * bytes_je_punkt,
         SysMemSlicePitch: 0,
     };
     let mut tex: Option<ID3D11Texture2D> = None;

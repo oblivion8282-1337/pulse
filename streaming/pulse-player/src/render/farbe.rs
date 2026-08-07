@@ -7,9 +7,21 @@
 //! Lesen des Zeichenablaufs nicht sucht. Die Messgrundlage der Zahlen:
 //! `docs/2026-08-04-player-farbwerte-messung.md`.
 
-use crate::decode::{ColorMatrix, PixelLayout};
+use crate::decode::{ColorMatrix, Farbangaben, PixelLayout, Uebertragung};
 use crate::proto::PlayerOptions;
 use crate::render::Uniforms;
+
+/// Ersatz-Spitzenhelligkeit, wenn der Strom keine nennt (cd/m²).
+///
+/// **Eine geratene Zahl, und sie steht deshalb hier oben mit Namen** statt
+/// irgendwo im Rechenweg. 1000 ist der Wert, auf den HDR10-Inhalte
+/// ueblicherweise gemastert werden; er ist beim Herunterrechnen die
+/// vorsichtige Wahl, weil ein zu HOHER Wert das Bild nur etwas dunkler macht,
+/// ein zu niedriger dagegen Spitzlichter ausfressen laesst.
+///
+/// Unsere eigenen Stroeme nennen ihre Spitze (der Sidecar haengt sie an jedes
+/// Bild) — dieser Wert greift also nur bei fremdem Material.
+const ERSATZ_SPITZE_NITS: f32 = 1000.0;
 
 
 /// Was der Uniform-Bau ueber das anliegende Bild wissen muss — der
@@ -20,6 +32,22 @@ pub struct Bildform {
     pub ten_bit: bool,
     /// Ob die TEXTUREN 16 bit tragen (nicht, ob die Quelle 10 bit hatte).
     pub wide: bool,
+    /// Welcher Anteil der Textur ueberhaupt Bild ist, in x und y.
+    ///
+    /// **Normalerweise `[1.0, 1.0]`** — die hochgeladenen Ebenen sind exakt so
+    /// gross wie das Bild. Auf dem Zero-Copy-Weg nicht: dort ist die Textur die
+    /// des Decoders, und der rundet auf (bei AV1 auf Vielfache von 128, aus
+    /// 1080 werden also 1152 Zeilen). Ohne diesen Faktor zeigte der Player die
+    /// Fuellzeilen mit an — schwarze oder muellige Raender, die kein Fehler des
+    /// Stroms waeren.
+    pub nutzanteil: [f32; 2],
+}
+
+impl Bildform {
+    /// Die uebliche Form: die Textur ist genau das Bild.
+    pub fn voll(layout: PixelLayout, ten_bit: bool, wide: bool) -> Self {
+        Self { layout, ten_bit, wide, nutzanteil: [1.0, 1.0] }
+    }
 }
 
 /// Der Uniform-Block, aus dem der Shader alles liest.
@@ -34,7 +62,13 @@ pub fn build_uniforms(
     form: Bildform,
     opts: &PlayerOptions,
     full_range: bool,
-    matrix: ColorMatrix,
+    farbe: Farbangaben,
+    // Kann das FENSTER HDR — also nimmt es lineares Licht ueber 1,0 an und
+    // gibt es als solches aus? Nicht dasselbe wie `surface_is_linear`: eine
+    // fp16-Oberflaeche in einer SDR-Sitzung ist linear, aber kein HDR-Fenster,
+    // und wer beides verwechselt, bekommt ein um Faktor 80/203 zu dunkles Bild.
+    // Entschieden wird das in `setup::hdr_fenster`.
+    hdr_fenster: bool,
     zeit: f32,
 ) -> Uniforms {
     let zoom = opts.zoom.unwrap_or(1.0).max(1.0);
@@ -45,8 +79,14 @@ pub fn build_uniforms(
     let flag = |on: bool| if on { 1.0 } else { 0.0 };
     let (abtast_skalierung, code_massstab) = scales(form.wide, form.layout);
 
+    // Der Zoom-Ausschnitt liegt in Bild-Koordinaten, der Shader tastet aber die
+    // TEXTUR ab. Traegt die Textur Fuellzeilen (Zero-Copy, s.
+    // `Bildform::nutzanteil`), muss beides zusammen — sonst zoomte man in einen
+    // Ausschnitt, der die Fuellung einschliesst.
+    let [nx, ny] = form.nutzanteil;
+
     Uniforms {
-        crop: [origin_x, origin_y, size, size],
+        crop: [origin_x * nx, origin_y * ny, size * nx, size * ny],
         params: [
             opts.deband.unwrap_or(0.0),
             flag(opts.dither.unwrap_or(true)),
@@ -61,10 +101,37 @@ pub fn build_uniforms(
         ],
         output: [
             flag(surface_is_linear(format)),
-            flag(matrix == ColorMatrix::Bt601),
+            matrix_kennzahl(farbe.matrix),
             code_massstab,
             0.0,
         ],
+        hdr: [
+            flag(farbe.uebertragung == Uebertragung::Pq),
+            // **Ein HDR-Fenster nuetzt nur einer HDR-Quelle.** Bliebe die
+            // Kennung bei einem SDR-Strom stehen, liefe er durch den PQ-Zweig
+            // des Shaders — den er nie erreicht, weil `hdr.x` dann 0 ist. Die
+            // Und-Verknuepfung hier ist trotzdem richtig und nicht doppelt
+            // gemoppelt: sie haelt die beiden Kennungen widerspruchsfrei,
+            // damit eine spaetere Auswertung von `hdr.y` allein nicht in die
+            // Irre laeuft.
+            flag(hdr_fenster && farbe.uebertragung == Uebertragung::Pq),
+            farbe.spitze_nits.unwrap_or(ERSATZ_SPITZE_NITS),
+            0.0,
+        ],
+    }
+}
+
+/// Welche YUV-Matrix der Shader nehmen soll, als Zahl.
+///
+/// **0 und 1 behalten ihre alte Bedeutung** (BT.709 bzw. BT.601). Das ist die
+/// Bedingung dafuer, dass die Erweiterung auf drei Matrizen an den beiden
+/// bestehenden Faellen nichts aendert — vorher stand an derselben Stelle ein
+/// Ja/Nein („BT.601?").
+fn matrix_kennzahl(matrix: ColorMatrix) -> f32 {
+    match matrix {
+        ColorMatrix::Bt709 => 0.0,
+        ColorMatrix::Bt601 => 1.0,
+        ColorMatrix::Bt2020Ncl => 2.0,
     }
 }
 
@@ -157,6 +224,33 @@ fn narrow_plane(source: &[u8], layout: PixelLayout) -> Vec<u8> {
 /// einen halben Code daneben (Grau bekam einen Blaustich). Gemessen am
 /// 2026-08-04 mit `pulse-player --stufen`,
 /// `docs/2026-08-04-player-farbwerte-messung.md`.
+/// Die Texturformate der beiden Ebenen — Luma und Chroma.
+///
+/// **Steht hier und nicht bei den Aufrufern, weil [`scales`] direkt darunter
+/// mit GENAU dieser Zuordnung rechnet.** Bis zum 2026-08-06 gab es die Tabelle
+/// dreimal (`render::bildquelle`, `render::fremdbild`, `messen::gpu`), und
+/// `scales` traegt seit jeher die Begruendung, warum das nicht sein darf:
+/// „zwei getrennte Tabellen koennten auseinanderlaufen, ohne dass man es dem
+/// Bild ansaehe". Ein Auseinanderlaufen hier ist ein Verstaerkungsfehler ueber
+/// das ganze Bild, kein sichtbarer Fehler.
+///
+/// `wide` heisst — wie bei [`scales`] — dass die TEXTUR 16 bit traegt, nicht
+/// dass die Quelle 10 bit hatte.
+pub fn ebenenformate(
+    wide: bool,
+    layout: PixelLayout,
+) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
+    let einzeln =
+        if wide { wgpu::TextureFormat::R16Unorm } else { wgpu::TextureFormat::R8Unorm };
+    let chroma = match layout {
+        // Planar: die Chroma-Ebenen sind einkanalig wie Luma.
+        PixelLayout::Planar420 => einzeln,
+        PixelLayout::BiPlanar420 if wide => wgpu::TextureFormat::Rg16Unorm,
+        PixelLayout::BiPlanar420 => wgpu::TextureFormat::Rg8Unorm,
+    };
+    (einzeln, chroma)
+}
+
 pub fn scales(wide_texture: bool, layout: PixelLayout) -> (f32, f32) {
     match (wide_texture, layout) {
         // 8-bit-Textur (auch heruntergerechnetes 10 bit): Abtastwert = Code/255.
@@ -166,6 +260,123 @@ pub fn scales(wide_texture: bool, layout: PixelLayout) -> (f32, f32) {
         (true, PixelLayout::Planar420) => (f32::from(u16::MAX) / 1023.0, 1023.0 / 4.0),
         // P010: die zehn Bit sitzen OBEN, der Wert stimmt bereits.
         (true, _) => (1.0, f32::from(u16::MAX) / 256.0),
+    }
+}
+
+#[cfg(test)]
+mod hdr_tests {
+    use super::*;
+
+    /// **Der Zero-Copy-Fall.** Traegt die Textur Fuellzeilen des Decoders
+    /// (`nutzanteil < 1`), muss der Ausschnitt entsprechend schrumpfen — sonst
+    /// zeigte der Player die Fuellung mit. Und der Zoom muss dabei
+    /// mitmultipliziert werden, nicht neben dem Faktor stehen: sonst zoomte man
+    /// in einen Ausschnitt, der die Fuellung wieder einschliesst.
+    #[test]
+    fn fuellzeilen_verkleinern_den_ausschnitt() {
+        let form = |anteil: [f32; 2]| Bildform {
+            layout: PixelLayout::BiPlanar420,
+            ten_bit: true,
+            wide: true,
+            nutzanteil: anteil,
+        };
+        let bauen = |f: Bildform, zoom: Option<f32>| {
+            build_uniforms(
+                wgpu::TextureFormat::Rgb10a2Unorm,
+                f,
+                &PlayerOptions { zoom, ..PlayerOptions::default() },
+                false,
+                Farbangaben::default(),
+                false,
+                0.0,
+            )
+        };
+        // Volle Textur, kein Zoom: der ganze Bereich.
+        let voll = bauen(form([1.0, 1.0]), None);
+        assert_eq!(voll.crop, [0.0, 0.0, 1.0, 1.0]);
+
+        // 1080 Bildzeilen in einer auf 1152 aufgerundeten Textur.
+        let anteil = 1080.0f32 / 1152.0;
+        let beschnitten = bauen(form([1.0, anteil]), None);
+        assert_eq!(beschnitten.crop[3], anteil, "Hoehe muss auf den Nutzanteil");
+        assert_eq!(beschnitten.crop[2], 1.0, "Breite bleibt voll");
+
+        // Mit Zoom 2: beides zusammen, nicht nur eines von beiden.
+        let gezoomt = bauen(form([1.0, anteil]), Some(2.0));
+        assert!(
+            (gezoomt.crop[3] - 0.5 * anteil).abs() < 1e-6,
+            "Zoom und Nutzanteil muessen sich multiplizieren: {}",
+            gezoomt.crop[3]
+        );
+        assert!(
+            (gezoomt.crop[1] - 0.25 * anteil).abs() < 1e-6,
+            "auch der Ursprung: {}",
+            gezoomt.crop[1]
+        );
+    }
+
+    fn bau(farbe: Farbangaben, hdr_fenster: bool, format: wgpu::TextureFormat) -> crate::render::Uniforms {
+        build_uniforms(
+            format,
+            Bildform::voll(PixelLayout::BiPlanar420, true, true),
+            &PlayerOptions::default(),
+            false,
+            farbe,
+            hdr_fenster,
+            0.0,
+        )
+    }
+
+    fn pq(spitze: Option<f32>) -> Farbangaben {
+        Farbangaben {
+            matrix: ColorMatrix::Bt2020Ncl,
+            uebertragung: Uebertragung::Pq,
+            weiter_farbraum: true,
+            spitze_nits: spitze,
+        }
+    }
+
+    /// **Ein SDR-Strom muss exakt den alten Weg nehmen.** Beide HDR-Kennungen
+    /// null, Matrix-Kennzahl 0 fuer BT.709 und 1 fuer BT.601 — genau die
+    /// Bedeutung, die die Stelle vor der Umstellung auf drei Matrizen hatte.
+    /// Waere das nicht so, haette die HDR-Arbeit nebenbei jedes bestehende Bild
+    /// veraendert.
+    #[test]
+    fn sdr_bleibt_unveraendert() {
+        let u = bau(Farbangaben::default(), false, wgpu::TextureFormat::Rgb10a2Unorm);
+        assert_eq!(u.hdr[0], 0.0, "Quelle ist nicht PQ");
+        assert_eq!(u.hdr[1], 0.0, "kein HDR-Fenster");
+        assert_eq!(u.output[1], 0.0, "BT.709");
+
+        let bt601 = Farbangaben { matrix: ColorMatrix::Bt601, ..Default::default() };
+        assert_eq!(bau(bt601, false, wgpu::TextureFormat::Rgb10a2Unorm).output[1], 1.0);
+    }
+
+    #[test]
+    fn hdr_quelle_setzt_kurve_matrix_und_spitze() {
+        let u = bau(pq(Some(600.0)), true, wgpu::TextureFormat::Rgba16Float);
+        assert_eq!(u.hdr[0], 1.0, "PQ-Kurve");
+        assert_eq!(u.hdr[1], 1.0, "HDR-Fenster");
+        assert_eq!(u.hdr[2], 600.0, "Spitze aus dem Strom");
+        assert_eq!(u.output[1], 2.0, "BT.2020 NCL");
+    }
+
+    /// Sagt der Strom nichts ueber seine Spitzenhelligkeit, muss der
+    /// Ersatzwert stehen — und zwar ein benannter, kein im Rechenweg
+    /// versteckter.
+    #[test]
+    fn ohne_angabe_greift_der_ersatzwert() {
+        assert_eq!(bau(pq(None), false, wgpu::TextureFormat::Rgb10a2Unorm).hdr[2], ERSATZ_SPITZE_NITS);
+    }
+
+    /// **Ein HDR-Fenster ohne HDR-Quelle darf nicht als solches gelten.**
+    /// Sonst liefe ein SDR-Strom mit der Kennung „lineares Licht" — und wenn
+    /// spaeter jemand `hdr.y` allein auswertet, bekommt er ein um mehr als das
+    /// Doppelte zu dunkles Bild, ohne dass die Ursache hier zu sehen waere.
+    #[test]
+    fn hdr_fenster_ohne_hdr_quelle_zaehlt_nicht() {
+        let u = bau(Farbangaben::default(), true, wgpu::TextureFormat::Rgba16Float);
+        assert_eq!(u.hdr[1], 0.0);
     }
 }
 

@@ -3170,6 +3170,7 @@ dependencies = [
  "tokio",
  "webrtc",
  "wgpu",
+ "windows",
  "winit",
 ]
 

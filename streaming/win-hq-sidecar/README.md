@@ -61,6 +61,44 @@ und tut nichts damit. Über den Gegenprobe-Schalter ist er weiter erreichbar, de
 bleibt die Prüfung — `health.gsr.intra_refresh` fragt den Encoder, der bei dieser
 Kombination **wirklich** läuft (`encode/auffrischung.rs::encoder_name`).
 
+### HDR (seit 2026-08-06)
+
+`overrides.hdr` schaltet ihn ein, `health.gsr.hdr` meldet, ob diese Maschine ihn
+überhaupt liefern kann. Belegt ist heute **allein AV1 über AMF**; NVIDIA ist
+ungemessen, nicht ausgeschlossen (Tabelle je Encoder: `encode/hdr.rs`).
+
+**Vier Bedingungen, alle notwendig** — Bildschirm läuft in HDR, Encode-Weg ist
+der über D3D11, Encoder trägt es, und es wird in 10 bit encodiert (das schaltet
+HDR selbst ein, PQ in 8 bit wäre in jedem Verlauf geringelt). Fehlt eine,
+**verweigert der Start** mit einer Meldung, die die Abhilfe nennt — anders als
+beim 10-bit-Wunsch, der still zurückfällt. Der Unterschied ist Absicht: 10 bit
+weniger als bestellt sieht man höchstens an einem Verlauf, SDR statt HDR am
+ganzen Bild.
+
+Der Weg unterscheidet sich an zwei Stellen vom SDR-Weg, und beide sind nicht
+offensichtlich:
+
+* **Die Aufnahme läuft in `Rgba16F` (scRGB)** statt BGRA (`capture::bildformat`).
+  In BGRA gibt WGC einen bereits auf SDR heruntergerechneten Desktop heraus —
+  was dort verlorengeht, holt keine spätere Stufe zurück.
+* **Die Farbwandlung macht ein eigener Shader** (`encode/hdr_zeichner.rs`), nicht
+  der Video-Prozessor. Der kann auf dieser AMD-Karte kein PQ: von 32 geprüften
+  Kombinationen sind zwei möglich, keine davon mit PQ, und 16-Bit-Fließkomma
+  wird am Eingang grundsätzlich abgelehnt. Nachfahrbar mit
+  `cargo test -- --ignored --nocapture wandlungen_dieses_treibers`.
+* **Und er läuft seit dem 2026-08-07 schon im Aufnahme-Rückruf**, direkt aus der
+  WGC-Textur nach P010 (`capture/aufnahmeziel.rs`). Damit entfällt die
+  fp16-Zwischenkopie, die es vorher je Bild gab; gemessen halbiert das die
+  3D-Last des Senders (21,2 → 10,6 %). Zurück auf den alten Weg:
+  `PULSE_HQ_HDR_ZWISCHENKOPIE=1`. Voraussetzung war ein Zähler für WGC-seitig
+  verworfene Bilder (`capture/rueckruf.rs`) — ohne ihn tauschte man messbare
+  Last gegen unsichtbaren Bildverlust. Messakte:
+  `streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
+
+Vollständige Messung samt der beiden Nebenbefunde (Mastering-Metadaten kommen
+mit falschen Zahlen an; der 10-bit-SDR-Weg hat sich bis dahin als PQ ausgegeben):
+`docs/2026-08-06-hdr-windows-amd.md`.
+
 ### D3D11 Zero-Copy (NVENC / AMF)
 `src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
 

@@ -1,0 +1,102 @@
+{
+  "id": "player-2026-08-06-zuschauer-fliegt-nach-zwei-minuten",
+  "gemessen_am": "2026-08-06",
+  "frage": "Jeder Lauf ueber zwei Minuten endet von selbst — die WHEP-Verbindung des nativen Players faellt nach 134 bis 178 Sekunden auseinander, waehrend der Sender fehlerfrei weiterlaeuft. Wer bricht ab, und warum ist die Streuung so weit?",
+
+  "kurzantwort": "Der Player beendet die Sitzung selbst. `VideoDecoder::rebuilds` zaehlte ueber die GANZE Sitzungsdauer und wurde nie zurueckgesetzt: nach der dritten Fehlerserie — je rund eine halbe Sekunde lang, dazwischen minutenlang 60 von 60 Bildern je Sekunde — greift `classify(.., MAX_REBUILDS)` auf `GiveUp`, `decode()` bricht ab, `session::run` schliesst die WHEP-Sitzung. Die einzige bis dahin sichtbare Zeile, `Track video/AV1 beendet: DataChannel is not opened`, ist die WIRKUNG dieses eigenen `close()` und kommt aus webrtc-rs — deshalb sah es wie ein Bibliotheks- oder Netzfehler aus. Die weite Streuung ist keine Frist: abgebrochen wird beim dritten Verlust-Stoss, und wann der kommt, entscheidet die Leitung.",
+
+  "aufbau": {
+    "maschine": "Mini-PC, Radeon 780M (RDNA3-APU), Windows 11 26200, HDR am Schirm an",
+    "strecke": "Sender und Empfaenger auf DERSELBEN Maschine ueber den Hetzner-Messstand (pulse.unicutmedia.com), Caddy davor, MediaMTX 1.19.1-pulse2 im Docker mit veroeffentlichten Ports, ~59 ms Umlauf",
+    "sender": "pulse-win-hq-sidecar, WGC 2560x1440 -> av1_amf, 1080p60, eigener WHIP-Sendeweg",
+    "empfaenger": "pulse-player, AV1 ueber D3D11VA, Zero-Copy, FlexFEC 10:2 an",
+    "bewegung": "eine Vollbildseite mit 40 wandernden, staendig umgefaerbten Rechtecken im 16-ms-Takt. OHNE Bewegung liefert die WGC-Aufnahme kaum Bilder, der Encoder erzeugt fast nichts — die Kette ist dann im Leerlauf und der Fehler tritt NICHT auf (Laeufe 1 und 2).",
+    "werkzeug": "zeitgestempelte stderr-Mitschrift beider Programme (jede Zeile mit Sekunden seit dem Start), dazu die Sitzungszeiten aus dem MediaMTX-Protokoll als unabhaengige zweite Quelle"
+  },
+
+  "laeufe": [
+    {
+      "nr": 1,
+      "was": "AV1 8 bit SDR, 1080p60, 8000 kbps, ruhender Schirm, 300 s",
+      "ergebnis": "kein Abbruch. Server: Lesesitzung 331 s (13:10:18-13:15:49)."
+    },
+    {
+      "nr": 2,
+      "was": "AV1 10 bit HDR, 1080p60, 12000 kbps — die urspruengliche Einstellung — ruhender Schirm, 300 s",
+      "ergebnis": "kein Abbruch. Server: Lesesitzung 330 s (13:16:31-13:22:01). Tatsaechlich angekommen sind nur ~2 Mbit/s, weil ein ruhender Schirm kaum Bits erzeugt."
+    },
+    {
+      "nr": 3,
+      "was": "wie 2, aber MIT Bewegung, 300 s",
+      "ergebnis": "ABBRUCH nach 160,75 s (Player-Uhr). Server: Lesesitzung 7ba2f8e9 152 s (13:22:39-13:25:11), 'closed: peer connection closed'. Der Sender lief unbeirrt bis 308 s weiter."
+    },
+    {
+      "nr": 4,
+      "was": "Wiederholung von 3 mit den neuen Diagnosezeilen, 300 s",
+      "ergebnis": "KEIN Abbruch — aber beide Neuaufbauten waren nach 56 s verbraucht (1/2 bei 27,8 s, 2/2 bei 56,4 s). Die naechste Fehlerserie haette die Sitzung beendet; sie kam in den restlichen 250 s zufaellig nicht. Genau das ist die Streuung."
+    },
+    {
+      "nr": 5,
+      "was": "Halbierung: derselbe Sender, dieselbe Bewegung, aber ein BROWSER (Edge) als Zuschauer, 300 s",
+      "ergebnis": "kein Abbruch. Server: Lesesitzung 0639c99b 336 s (13:40:37-13:46:13). Der Server wirft also niemanden hinaus; es liegt am Player."
+    },
+    {
+      "nr": 6,
+      "was": "Pruefung der Berichtigung, ERSTE Fassung (30 s Bewaehrung), mit Bewegung, 420 s",
+      "ergebnis": "Die Bewaehrung greift sichtbar — bei 115,5 s meldet der Player wieder `Neuaufbau 1/2` statt `2/2`. Sie ist aber ZU LANG: die folgenden Serien lagen 13,5 und 16,6 s auseinander, der Zaehler fiel dazwischen nicht, und die Sitzung endete nach 145,9 s. Daraus der endgueltige Wert von 5 s.",
+      "nebenbefund": "In diesem Lauf fehlte die neue Zeile `Sitzung endet nach … s`. Grund: der `GiveUp`-Ausgang lag tief in zwei verschachtelten `for`-Schleifen und verliess `session::run` mit `return`, am gemeinsamen Ende vorbei. Behoben ueber eine benannte Schleife (`'sitzung`); nebenbei bekommt eine laufende Aufnahme jetzt auch auf diesen drei Wegen ihren Matroska-Trailer."
+    },
+    {
+      "nr": 7,
+      "was": "Pruefung der Berichtigung, endgueltige Fassung (5 s Bewaehrung), mit Bewegung, 420 s",
+      "ergebnis": "Kein Abbruch, 426 s durchgelaufen, am Ende 60 von 60 Bildern je Sekunde. Server: Lesesitzung 1508905b 450 s (13:57:46-14:05:16), und sie endete mit 'terminated' — also weil der Sender wegging, nicht von selbst.",
+      "direkt_ablesbar": "SECHS Fehlerserien: `Neuaufbau 1/2` bei 17,7 s, `2/2` bei 18,8 s (1,0 s spaeter — keine Bewaehrung, genau der Fall, den der Zaehler abfangen soll), dann wieder `1/2` bei 31,7 s, 56,1 s, 153,2 s und 164,8 s. Mit dem alten Zaehler waere die Sitzung bei 31,65 s zu Ende gewesen."
+    }
+  ],
+
+  "die_kette_in_lauf_3": {
+    "38.67_s": "Stockung der Grafikeinheit -> `auf_software` (zaehlt bewusst NICHT gegen MAX_REBUILDS)",
+    "70.49_s": "Fehlerserie -> `Neuaufbau 1/2 als Software`",
+    "88.48_s": "Fehlerserie -> `Neuaufbau 2/2 als Software`",
+    "160.43_s": "naechste Fehlerserie -> `classify(30, 2)` = GiveUp -> `decode()` bricht ab -> `EmitError::Decoder` -> `session::run` schliesst die WHEP-Sitzung",
+    "160.75_s": "`Track video/AV1 beendet: buffer: closed` — die Folge des eigenen `close()`, 0,3 s spaeter",
+    "dazwischen": "zwischen 88,5 s und 160,4 s lief die Wiedergabe mit 59-65 Bildern je Sekunde und gemeldetem Paketverlust 0. Genau deshalb galt der Lauf als kerngesund."
+  },
+
+  "warum_es_niemand_gesehen_hat": "Der Grund fuer das Sitzungsende stand ausschliesslich im `Ended`-Ereignis, und das geht als JSON-RPC ueber **stdout** an die Desktop-App. Weder `hdr-ansehen.ps1` noch ein Aufruf von Hand liest stdout. Sichtbar war nur die Zeile aus webrtc-rs, die eine Zehntelsekunde spaeter kommt. Seit dem 2026-08-06 schreibt `session::run` den Grund VOR dem `close()` nach stderr, und `crate::abriss` meldet zusaetzlich jeden Wechsel des ICE- und Verbindungszustands.",
+
+  "was_ausgeschlossen_wurde": [
+    "Ablauf der UDP-Zuordnung im Router: webrtc-rs schickt im Zustand `connected` alle 2 s eine STUN-Zustimmungspruefung (`ice/src/agent/agent_internal.rs::check_keepalive`, `DEFAULT_KEEPALIVE_INTERVAL` 2 s). Ausserdem liefen Lauf 1 und 2 ueber dieselbe Zuordnung 300 s durch.",
+    "Der Server raeumt eine Sitzung ab: der Browser hielt ueber denselben Pfad, denselben Server und dieselbe Bewegung 336 s durch (Lauf 5).",
+    "Feste Zeitschranke (Caddy, Token-Laufzeit): die beiden ruhenden Laeufe stehen mit 300 s ueber jedem der beobachteten Endwerte.",
+    "Ueberlauf der RTP-Sequenznummer: bei der gemessenen Paketrate aus Lauf 1 (~725 Medienpakete/s, aus 145 Paritaetspaketen/s bei 10:2) faellt der Ueberlauf auf ~90 s. Lauf 1 lief ohne Auffaelligkeit darueber hinweg.",
+    "ICE oder DTLS scheitert: der ICE-Zustand blieb in allen Laeufen nach dem Aufbau auf `connected`, kein `disconnected` und kein `failed`. Der Abbau in Lauf 3 kam 0,3 s nach dem Decoder-Fehler, nicht nach der 25-s-Frist von ICE.",
+    "Rust-Panik oder Absturz: der Prozess lebte in Lauf 3 nach dem Sitzungsende weiter, bis das Messskript ihn beendete."
+  ],
+
+  "was_den_ausloeser_liefert": {
+    "befund": "Die Verluste entstehen auf der SENDESTRECKE dieser Maschine, nicht am Empfang. MediaMTX meldete fuer die Publish-Sitzung von Lauf 3 stossweise 417, 52, 48, 54 und 34 verlorene RTP-Pakete und 'received a subsequent fragment without previous fragments'.",
+    "deutung": "12 Mbit/s plus ~20 % Paritaet gehen hier ueber denselben Anschluss hinaus, ueber den der Player gleichzeitig zusieht. Das ist eine Eigenschaft dieses Messplatzes und NICHT die Ursache des Abbruchs — es ist nur der Lieferant der Fehlerserien. Auf jeder Leitung, die gelegentlich Pakete verliert, entstehen dieselben Serien, nur seltener.",
+    "folge": "Die Sitzung endete deshalb umso frueher, je mehr Bewegung im Bild war. Bei ruhendem Schirm passiert nichts — daher die Beobachtung 'wenn sich da was bewegt, schmiert der Player ab'."
+  },
+
+  "behoben": {
+    "wo": "neues Modul `streaming/pulse-player/src/neuaufbau.rs` (`classify`, `ERROR_LIMIT`, `MAX_REBUILDS` und die Buchfuehrung sind aus `decode.rs` dorthin gewandert — die Datei liegt weit ueber der Groessen-Grenze und sollte nicht wachsen)",
+    "was": "`MAX_REBUILDS` zaehlt jetzt Neuaufbauten HINTEREINANDER statt ueber die Sitzungsdauer. Ein Ersatz-Decoder, der 5 Sekunden lang Pakete ANNIMMT, hat sich bewaehrt; sein Neuaufbau zaehlt dann nicht mehr gegen ihn.",
+    "warum_5_s": "Der erste Anlauf stand auf 30 s und ist in Lauf 6 GEMESSEN widerlegt worden — auf einer stoerenden Leitung liegen die Serien 13 bis 17 Sekunden auseinander, und die Sitzung endete trotzdem. Der eigentliche Grund, warum die Zahl klein sein darf, haengt nicht an ihr: ein wirklich toter Decoder nimmt GAR KEIN Paket an und startet die Uhr deshalb nie. Beide belegten Faelle — `av1_cuvid` mit zerschossenem CUDA-Kontext (2026-07-26) und `av1_qsv` ohne Intel-Hardware (2026-08-01) — lehnten vom ersten Paket an durchgehend ab. Die urspruengliche Absicht des Zaehlers bleibt damit unangetastet; in Lauf 7 sind die 1,0 s zwischen `Neuaufbau 1/2` und `2/2` genau dieser Fall.",
+    "nicht_abgesessen": "Die Bewaehrung laeuft nur ueber angenommene Pakete, nicht ueber einen Zeitgeber. Ein Decoder, der gar nichts mehr annimmt, bewaehrt sich nie — sonst profitierte ausgerechnet der tote Decoder davon.",
+    "gegen_lauf_3_gerechnet": "Neuaufbau 1 bei 70,5 s, Neuaufbau 2 bei 88,5 s, naechste Serie bei 160,4 s. Mit der Bewaehrung faellt der Zaehler nach jeder der langen Arbeitsphasen auf null; statt `GiveUp` folgt ein weiterer Neuaufbau, die Sitzung laeuft weiter.",
+    "was_der_zuschauer_dafuer_bekommt": "Waehrend einer Fehlerserie sieht er weiter rund eine halbe Sekunde nichts, und bei anhaltender Stoerung wiederholt sich das. Behoben ist nur, dass die Sitzung darueber nicht mehr endet. Dass ein Bild wirklich tot ist oder die Verbindung steht, faengt nicht dieser Zaehler ab, sondern der Einfrier-Waechter und der Stille-Abbruch (drei Sekunden ohne ein Byte) — beide unabhaengig davon."
+  },
+
+  "produktion_betroffen": "JA. `MAX_REBUILDS` und `ERROR_LIMIT` liegen im Player, und der wird ausgeliefert (`win-build.yml` packt ihn in den Windows-Installer, `packaging/com.howispulse.Pulse.yml` nach `/app/bin/pulse-player`). Am Messstand ist nichts, was den Fehler dorthin bindet: er braucht nur drei Verlust-Stoesse in einer Sitzung. Der BROWSER-Weg (`web/src/lib/stream/whep.ts` mit `<video>`) ist NICHT betroffen — Chromium beendet keine WHEP-Sitzung wegen Dekodierfehlern (Lauf 5).",
+
+  "was_offen_bleibt": [
+    "Die Stockungen der Grafikeinheit (LiveKernelEvent 141) sind mit Zero-Copy NICHT verschwunden, sie sind nur umgezogen: in Lauf 3 und 4 stehen 2,1-2,4 s Stockung jetzt unter 'Zero-Copy-Bruecke' statt unter 'Ruecklesen'. Die Vermutung aus `player-2026-08-06-absturz-ist-eine-stockung`, das Ruecklesen sei der Verursacher, ist damit widerlegt — gleichzeitiges AV1-Encodieren und -Dekodieren in 10 bit auf dieser einen APU reicht offenbar schon.",
+    "Ob die Fehlerserien selbst vermeidbar sind: sie entstehen aus Verlust auf der Sendestrecke dieser Maschine. Auf einer Leitung mit genug Reserve waeren sie seltener, aber nie null.",
+    "Ein Zuschauer sieht waehrend einer Fehlerserie rund eine halbe Sekunde nichts. Das bleibt so; behoben ist nur, dass die Sitzung darueber nicht mehr endet.",
+    "DER TIEFERE SCHNITT, bewusst NICHT gemacht: ein Decoder-Fehler sollte die WHEP-Verbindung ueberhaupt nicht abbauen duerfen. Fuer die TONSPUR ist genau das schon so geloest (`audio.rs`: `decoder_failed = true`, 'bleibt stumm', die Sitzung laeuft weiter), fuer die Bildspur stirbt die Verbindung — dieselbe Frage, zwei Antworten. Sauberer waere: `GiveUp` gibt den DECODER auf statt der Sitzung (`decoder = None`, Vollbild anfordern, auf den naechsten Einstiegspunkt warten, `SessionState::Stalled` melden — den Zustand gibt es in `proto.rs` bereits als `#[allow(dead_code)]`); endet dann wirklich alles, greift der bestehende Stille-Abbruch. Danach waere der genaue Wert der Bewaehrungsfrist nicht mehr tragend: er entschiede ueber ein paar Sekunden Stocken statt ueber den Rauswurf. Nicht in diesem Zug gemacht, weil es das gemeldete Verhalten aendert und an die Kachel-Zustaende im Renderer reicht."
+  ],
+
+  "reproduzieren": "`bash streaming/win-hq-labor/testbench/abriss-messen.sh 420` — das Skript ist aus dieser Messung entstanden und stempelt beide stderr-Stroeme mit Sekunden seit dem Start. ZWEI Bedingungen, ohne die nichts zu sehen ist: Bewegung auf dem Schirm (eine Vollbildseite mit animierten Flaechen genuegt) und eine Dauer ueber 180 s. `hdr-ansehen.ps1` erfuellt beide nicht — seine Vorgabe sind 90 Sekunden, knapp unter jedem beobachteten Endwert, und deshalb hat der Fehler wochenlang niemand gesehen."
+}

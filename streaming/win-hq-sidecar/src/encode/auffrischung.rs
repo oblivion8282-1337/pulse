@@ -143,9 +143,16 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
 /// Der Encoder, den ein Stream mit dieser Kombination wirklich öffnen würde.
 ///
 /// Nicht `VideoCodec::ffmpeg_name` allein: unter Windows hängt der Name am
-/// **Encode-Weg**, und der ist bei AMD je Codec ein anderer (AV1 über AMF,
-/// H.264 über D3D12). Wer hier den Herstellernamen nähme, meldete für H.264 auf
-/// AMD eine Fähigkeit, die der tatsächlich laufende Encoder nicht hat.
+/// **Encode-Weg**, und der kann ein anderer sein, als der Herstellername
+/// vermuten lässt. Wer hier den Herstellernamen nähme, meldete eine Fähigkeit
+/// für einen Encoder, der gar nicht startet.
+///
+/// **Hier stand bis zum 2026-08-06 „und der ist bei AMD je Codec ein anderer
+/// (AV1 über AMF, H.264 über D3D12)". Das gilt seit dem 2026-08-04 nicht
+/// mehr** — AMD geht mit jedem Codec über AMF (`VideoCodec::encode_path`).
+/// Auseinander gehen die Namen heute noch bei aktivem `PULSE_HQ_AMD_D3D12=1`
+/// und auf Intel; die Abfrage über `encode_path` bleibt deshalb richtig, nur
+/// ihr Beispiel war überholt.
 ///
 /// `push_url` leer: die Fähigkeitsmeldung kennt das Ziel noch nicht, und der
 /// Regelweg ist der ohne angemeldeten Sendeweg.

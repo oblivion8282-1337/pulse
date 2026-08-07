@@ -16,6 +16,7 @@
 
 #[cfg(test)]
 mod ablage;
+mod abriss;
 mod app;
 mod audio;
 mod decode;
@@ -26,6 +27,7 @@ mod fec;
 mod jitter;
 mod mediasink;
 mod messen;
+mod neuaufbau;
 mod overlay;
 mod probe;
 mod proto;
@@ -33,8 +35,10 @@ mod recorder;
 mod render;
 mod rpc;
 mod session;
+mod stockung;
 mod theme;
 mod whep;
+mod zerocopy;
 
 use anyhow::Result;
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -46,8 +50,10 @@ fn main() -> Result<()> {
     // Tokio, und er darf stdout benutzen — im Normalbetrieb gehoert stdout
     // dem JSON-RPC, hier gibt es keins.
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.first().map(String::as_str) == Some("--stufen") {
-        return messen::ausfuehren(&argv[1..]);
+    match argv.first().map(String::as_str) {
+        Some("--stufen") => return messen::ausfuehren(&argv[1..]),
+        Some("--farbwerte") => return messen::farbwerte::ausfuehren(),
+        _ => {}
     }
 
     // Muss VOR dem ersten TLS-Aufbau stehen. Der Abhaengigkeitsbaum enthaelt

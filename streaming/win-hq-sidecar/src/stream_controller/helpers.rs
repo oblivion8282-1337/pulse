@@ -104,6 +104,23 @@ pub(crate) fn fit_within_box(native_w: u32, native_h: u32, box_w: u32, box_h: u3
     (even(w), even(h))
 }
 
+/// Die Zielmaße eines Streams aus Aufnahmemaßen und gewünschter Box.
+///
+/// **Eine Funktion und nicht zwei Zeilen an jeder Aufrufstelle**, seit es zwei
+/// Stellen gibt, die dieselbe Antwort brauchen und dabei nicht auseinanderlaufen
+/// dürfen: der Taktfaden (`pipeline_hw`) und — wenn die Farbwandlung schon im
+/// Aufnahme-Rückruf läuft — die Aufnahme selbst (`capture::aufnahmeziel`).
+/// Wichen sie ab, entstünde ein Pool in der einen Größe und ein Encoder in der
+/// anderen.
+pub(crate) fn zielmasse(breite: u32, hoehe: u32, kasten: Option<(u32, u32)>) -> (u32, u32) {
+    match kasten {
+        Some((box_w, box_h)) => fit_within_box(breite, hoehe, box_w, box_h),
+        // Native: nur die Gerade-Rundung für 4:2:0 (Fenster-Capture liefert
+        // beliebige Client-Größen), sonst unverändert.
+        None => (breite & !1, hoehe & !1),
+    }
+}
+
 #[cfg(test)]
 mod fit_tests {
     use super::fit_within_box;

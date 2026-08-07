@@ -1,0 +1,150 @@
+{
+  "id": "leistung-2026-08-06-fp16-kopie-gemessen",
+  "gemessen_am": "2026-08-06 (nachts)",
+  "frage": "Was kostet die fp16-Zwischenkopie der Aufnahme wirklich (capture/wgc_hw.rs::copy_into_pool)? Bisher stand dazu nur eine GERECHNETE Zahl (59 MB je aufgenommenem Bild) und eine daraus GESCHAETZTE Zuschreibung, die Kopie sei der groesste verbliebene Posten auf der 3D-Einheit des Senders.",
+  "vergleich_gegen": "leistung-2026-08-06-vier-befunde",
+
+  "stand": "Gemessen: EINE Kopie kostet 1,82 ms der 3D-Einheit des Senders (Aufnahme 2560x1440, fp16). Damit ist der Posten real und gross — aber die Zuschreibung aus der Vorgaengerakte ist WIDERLEGT: der HDR-Shader kostet mit 1,79 ms je Durchgang praktisch genau dasselbe. Die Kopie ist nicht der groesste verbliebene Posten, sondern einer von zwei gleich grossen.",
+
+  "die_wichtigste_zahl": {
+    "eine_fp16_kopie_ms": 1.82,
+    "was_das_ist": "GPU-Zeit auf der 3D-Einheit des Sender-Prozesses fuer eine CopySubresourceRegion von 2560x1440 in R16G16B16A16_FLOAT, also 29,5 MB lesen und 29,5 MB schreiben.",
+    "wirksame_bandbreite_gb_s": 32.4,
+    "gemessen_oder_gerechnet": "GEMESSEN (Stoerungsversuch, s. verfahren). Die 32,4 GB/s sind daraus GERECHNET (59 MB / 1,82 ms)."
+  },
+
+  "verfahren": {
+    "warum_nicht_einfach_weglassen": "Die Kopie laesst sich nicht abschalten — die WGC-Textur gilt nur innerhalb des Rueckrufs, der Taktfaden holt sie spaeter ab. Ein Arm ohne Kopie waere kein Stream, sondern ein Fehler.",
+    "der_griff": "Statt sie wegzunehmen, wird sie WIEDERHOLT. Ein Messarm laesst `copy_into_pool` n-mal dieselbe Kopie fahren (gleiche Quelle, gleiches Ziel, bitgleiches Ergebnis). Die Differenz der GPU-Auslastung zwischen n und n+1 ist der Preis genau einer Kopie. Dasselbe danach am HDR-Shader (`HdrWandler::zeichnen` zweimal je Wandlung).",
+    "warum_das_traegt": "Es misst den GRENZPREIS einer zusaetzlichen Kopie. Drei Stuetzpunkte (1x, 2x, 3x) liegen auf einer Geraden — waere die zweite Kopie durch Zwischenspeicher billiger als die erste, muesste die Gerade sich kruemmen. Sie tut es nicht (1,82 / 1,89 / 1,83 / 1,82 / 1,80 / 1,82 ms).",
+    "der_messarm_ist_NICHT_ausgeliefert": "Zwei Umgebungsvariablen (PULSE_MESS_KOPIEN, PULSE_MESS_SHADER) in einem Zweig-lokalen Stand, nach der Messung zurueckgenommen. Der Eingriff steht unter `nachbauen`.",
+    "bewegung_ohne_zuschauer": "Die Bildaenderung kommt aus einem eigenen kleinen Fenster (GDI, wandernder Balken), NICHT aus dem Player. Zwei Gruende: der Player streitet um dieselbe Grafikeinheit und verzerrt die Sender-Zahlen ueber die Taktregelung, und er lief in der ersten Reihe gar nicht (s. fallen_im_aufbau). Ergebnis: 48,9 Aufnahmen/s bei 60 Takten/s, 18,7 % stehende Takte.",
+    "auswertung": "Mediane ueber ~33 Sekundenproben der Leistungsindikatoren je Lauf und ueber ~3200 Ticks der Spur; die ersten 120 Ticks fallen weg (Encoder-Anlauf). Drei Runden, in jeder Runde alle Arme abwechselnd."
+  },
+
+  "aufbau": {
+    "maschine": "Windows 11 26200, Radeon 780M (integriert, RDNA3-APU), Treiber 32.0.31035.1003, HDR am Schirm an, EIN Bildschirm 2560x1440.",
+    "strecke": "Sender = streaming/win-hq-sidecar (av1_amf, Aufnahme 2560x1440 -> Ausgabe 1920x1080@60, 10 bit, HDR/PQ, 12000 kbps) ueber den Hetzner-Messstand. KEIN Zuschauer.",
+    "werkzeug": "streaming/win-hq-labor/testbench/hdr-ansehen.ps1 mit -Spur und -OhneZuschauer; GPU-Auslastung ueber '\\GPU Engine(*)\\Utilization Percentage', je Prozess und je Engine-Typ, rund eine Probe je 1,5 s.",
+    "lauflaenge": "50 s je Lauf, davon die ersten 10 s nicht gemessen (Verbindungsaufbau)."
+  },
+
+  "messwerte_3d_einheit_des_senders_prozent": {
+    "einheit": "Prozent, Median je Lauf. NUR innerhalb dieser Akte vergleichbar (Taktregelung der APU, s. grenzen).",
+    "hdr_eine_kopie": [21.27, 21.20, 21.28],
+    "hdr_zwei_kopien": [30.17, 30.08, 30.06],
+    "hdr_drei_kopien": [41.32, 39.91, 40.30],
+    "paarweise_differenz_1x_zu_2x": [8.90, 8.88, 8.78],
+    "aufnahmerate_je_lauf": {
+      "eine_kopie": [48.9, 49.0, 48.8],
+      "zwei_kopien": [48.9, 48.8, 48.8],
+      "drei_kopien": [51.6, 50.7, 51.1],
+      "anmerkung": "Die Rate steigt im 3x-Arm leicht, statt zu fallen. Mehr GPU-Last hat die Bildlieferung von WGC hier also NICHT gedrosselt — s. nebenbefund_das_risiko_ist_kleiner_als_angenommen."
+    },
+    "video_einheit_des_senders": {
+      "eine_kopie": [12.71, 12.65, 12.63],
+      "zwei_kopien": [12.14, 12.53, 12.52],
+      "drei_kopien": [12.40, 12.67, 12.76],
+      "befund": "unveraendert — die Kontrolle stimmt: am Encodieren aendert der Messarm nichts."
+    },
+    "verworfene_aufnahmebilder_und_pts_luecken": "0 in allen Laeufen, in jedem Arm."
+  },
+
+  "gegenprobe_sdr_halbiert_die_kosten": {
+    "warum": "Miss der Aufschlag wirklich die Kopie, muss er mit der Bytezahl gehen. In SDR nimmt WGC in Bgra8 auf: 4 statt 8 Byte je Bildpunkt, also 14,7 statt 29,5 MB.",
+    "eine_kopie": [12.26, 12.20],
+    "zwei_kopien": [16.84, 16.87],
+    "ms_je_kopie": 0.96,
+    "verhaeltnis_hdr_zu_sdr": 1.90,
+    "erwartet": 2.0,
+    "bewertung": "Das ist die eigentliche Beglaubigung der Messung: der gemessene Aufschlag folgt der Bytezahl. Waere er ein Aufbau-Artefakt, gaebe es keinen Grund fuer den Faktor zwei. Die 5 % Abweichung nach unten gehen plausibel auf die kleinere Kopie zurueck, von der relativ mehr im Zwischenspeicher der Karte liegen bleibt — GEMESSEN ist der Faktor, die Erklaerung der 5 % ist eine Vermutung."
+  },
+
+  "und_der_shader_kostet_genau_dasselbe": {
+    "warum_das_hier_steht": "Ohne diese Zahl waere die Empfehlung wieder eine Zuschreibung. Derselbe Stoerungsversuch, diesmal am HDR-Shader.",
+    "ein_durchgang": [21.12, 21.38],
+    "zwei_durchgaenge": [30.28, 29.94],
+    "ms_je_durchgang": 1.79,
+    "was_das_widerlegt": "Die Vorgaengerakte schrieb (als GESCHAETZT gekennzeichnet) den groesseren Teil der 3D-Einheit der Kopie zu. Das ist falsch: Kopie 1,82 ms, Shader 1,79 ms. Beide sind gleich gross.",
+    "warum_der_shader_so_teuer_ist_obwohl_er_weniger_schreibt": "Er liest dieselben 29,5 MB wie die Kopie und schreibt nur 6,2 — dafuer rechnet er je Bildpunkt die PQ-Kurve (sechs `pow`). Dass beide Posten trotz voellig verschiedener Arbeit gleich teuer sind, ist ein Zufall dieser Aufloesungen und keine Regel."
+  },
+
+  "bilanz_der_3d_einheit": {
+    "fall": "HDR, 1 Kopie, 1 Shader, 48,9 Aufnahmen/s, 48,8 Wandlungen/s, 60 Takte/s.",
+    "gemessen_gesamt_prozent": 21.27,
+    "sockel_ruhe_prozent": 0.45,
+    "sockel_wie_gemessen": "Zwei Laeufe desselben Aufbaus OHNE Bildaenderung (1,0 Aufnahmen/s, 98,3 % stehende Takte): 0,45 und 0,45 %. Dass dort fast nichts steht, ist zugleich die Gegenprobe auf die Behebung vom selben Tag — bei stehendem Bild laeuft weder Kopie noch Shader.",
+    "kopie_prozent": 8.90,
+    "shader_prozent": 8.74,
+    "unerklaerter_rest_prozent": 3.19,
+    "was_der_rest_sein_koennte": "UNGEKLAERT, und so bleibt es hier stehen. Drei Kandidaten, keiner geprueft: Arbeit des Treibers oder von AMF, die auf der 3D-Einheit desselben Prozesses verbucht wird; die Bildlieferung von WGC selbst; oder eine Unterschaetzung beider Posten, weil der Stoerungsversuch den GRENZPREIS misst und der erste Durchgang teurer sein kann als der zweite. 15 % des Gesamtwerts — genug, um es zu nennen, zu wenig, um die Aussage zu drehen."
+  },
+
+  "hochrechnung_auf_einen_echten_stream": {
+    "gekennzeichnet_als": "GERECHNET aus den gemessenen Millisekunden, nicht selbst gemessen.",
+    "annahme": "60 fps, durchgehend bewegtes Bild. Die Aufnahme ist auf 0,9/fps gedeckelt (`capture/mod.rs::min_interval_settings`), liefert also hoechstens 66,7 Bilder/s; der Takt verbraucht 60.",
+    "kopie_prozent_der_3d_einheit": 12.1,
+    "shader_prozent_der_3d_einheit": 10.7,
+    "speicherverkehr_der_kopie_gb_s": 3.9,
+    "was_ein_umbau_spart": {
+      "heute_ms_je_sekunde": 228,
+      "danach_ms_je_sekunde": 119,
+      "ersparnis_ms_je_sekunde": 109,
+      "rechnung": "Heute: 66,7 Kopien x 1,82 ms + 60 Shader x 1,79 ms. Nach einem Umbau (Farbwandlung im Aufnahme-Rueckruf, direkt aus der WGC-Textur nach P010): 66,7 Shader x 1,79 ms, keine Kopie. Der Shader liefe dann je AUFGENOMMENEM Bild statt je Takt, also 11 % oefter — das ist in der Zahl enthalten.",
+      "ergebnis_in_worten": "Rund die HAELFTE der 3D-Einheit des Senders. Dazu schrumpfen die Pool-Texturen von 29,5 auf 6,2 MB."
+    }
+  },
+
+  "nebenbefund_das_risiko_ist_kleiner_als_angenommen": {
+    "die_sorge": "Der Haupteinwand gegen den Umbau lautete: der Shader liefe auf dem WGC-Rueckruf-Faden, und bleibt er dort zu lange, verwirft WGC Bilder — ein Verlust, den KEIN Zaehler sieht (`capture_drops` kennt nur Pool-Erschoepfung und Rueckstau).",
+    "was_die_messung_dazu_sagt": "Der 3x-Arm hat auf demselben Faden die DREIFACHE Kopierlast abgesetzt (41 % statt 21 % der 3D-Einheit). Die Aufnahmerate ist dabei nicht gefallen, sondern leicht gestiegen (51,1 gegen 48,8/s), und `drops` blieb in allen Laeufen 0.",
+    "warum_das_plausibel_ist": "Was der Rueckruf tut, ist ein GPU-Befehl absetzen, keine GPU-Arbeit abwarten. Die CPU-Zeit im Rueckruf waechst um die Dauer eines zweiten Befehls, nicht um 1,8 ms.",
+    "was_es_NICHT_beweist": "Der Umbau setzt einen Zeichendurchgang ab, nicht eine Kopie — mehr Zustandswechsel, zwei Draws, Ansichten. Und der Nachweis gilt fuer DIESE Maschine. Der Zaehler fuer WGC-seitig verworfene Bilder bleibt Voraussetzung; er ist jetzt nur nicht mehr der Wall, hinter dem die Frage unbeantwortbar liegt."
+  },
+
+  "empfehlung": {
+    "kurz": "Umbauen — aber als eigener Schritt, mit dem Zaehler zuerst, und ohne die Erwartung, dass danach der groesste Posten weg ist.",
+    "was_dafuer_spricht": [
+      "Der Preis ist jetzt gemessen: 109 ms je Sekunde, rund die Haelfte der 3D-Einheit des Senders, dazu 3,9 GB/s Speicherverkehr. Auf einer integrierten Einheit, die sich Bandbreite und Leistungsbudget mit der CPU UND mit dem Spiel teilt, das gerade uebertragen wird, ist das kein Buchhaltungsposten.",
+      "Der Einwand 'Umbau auf Verdacht' ist erledigt — das war der dritte und schwerste der drei Gruende in der Durchsicht.",
+      "Der erste Grund (WGC verwirft still Bilder) ist messbar schwaecher als angenommen, s. nebenbefund."
+    ],
+    "was_dagegen_spricht": [
+      "Es gibt heute keinen Engpass, den der Umbau loesen wuerde: 0 verworfene Bilder, 0 PTS-Luecken, Arbeitszeit je Takt 0,6 von 16,7 ms, Video-Einheit 12,6 %. Der Gewinn ist Sparsamkeit, nicht Abhilfe.",
+      "Die Zustaendigkeiten verschieben sich spuerbar: der `HdrWandler` muesste aus `pipeline_hw` nach `capture`, und `capture/wgc_hw.rs` (429 Zeilen) waere danach eine Datei, die Aufnahme UND Farbwandlung kennt.",
+      "Die Erwartung, damit den groessten Posten zu treffen, war falsch — der Shader bleibt, und er ist genauso gross."
+    ],
+    "reihenfolge_wenn_es_gemacht_wird": [
+      "1. Zaehler fuer WGC-seitig verworfene Bilder (aus den QPC-Abstaenden der gelieferten Bilder ableitbar), sichtbar in `tick_monitor` und in der Spur. Ohne ihn tauscht man messbare Last gegen unsichtbaren Bildverlust.",
+      "2. Umbau: Farbwandlung im Aufnahme-Rueckruf, Pool fuehrt P010.",
+      "3. Vorher/Nachher nach genau diesem Verfahren (drei Paare, abwechselnd, Mediane).",
+      "4. Sichtpruefung an einem Bild aus der MITTE eines Mitschnitts, nicht an Bild 0."
+    ]
+  },
+
+  "grenzen_dieser_messung": {
+    "eine_video_einheit": "Die 780M hat EINE Video-Einheit; sie encodiert hier AV1 in 10 Bit. Ein Zuschauer lief nicht mit, die Video-Zahlen sind also unverzerrter als in der Vorgaengerakte — fuer die 3D-Aussagen spielt es keine Rolle.",
+    "prozente_nicht_zwischen_reihen_vergleichen": "Dieselbe Arbeit belegte die 3D-Einheit in frueheren Reihen zu 14,2 bzw. 21,2 % bei identischem Code (Taktregelung der APU). Alle Aussagen hier sind DIFFERENZEN innerhalb dieser Reihe. Die Millisekunden-Zahlen sind daraus abgeleitet und tragen dieselbe Einschraenkung: sie gelten fuer diese Maschine in diesem Taktzustand.",
+    "der_grenzpreis_ist_nicht_zwingend_der_erste_preis": "Der Stoerungsversuch misst, was eine ZUSAETZLICHE Kopie kostet. Waere die erste teurer als die zweite, waeren 1,82 ms eine Untergrenze. Die Geradlinigkeit ueber drei Stuetzpunkte und der Faktor 2 zwischen HDR und SDR sprechen dagegen, schliessen es aber nicht aus.",
+    "48_9_statt_66_7_aufnahmen_je_sekunde": "Die Bewegungsquelle liefert rund 49 Aenderungen/s, nicht die vollen 66,7 eines Spiels. Gemessen ist deshalb die Zahl je Bild; die Hochrechnung auf einen echten Stream ist gerechnet."
+  },
+
+  "fallen_im_aufbau": {
+    "der_player_als_bewegungsquelle_hat_nicht_getragen": "Die erste Reihe lief mit Player-Fenster (dessen Shader rechnet ein Rauschmuster ueber die Laufzeit ein, jedes Bild ist neu). Sie hat NICHTS gemessen: das Fenster zeichnete nicht (3D-Einheit des Players 0,15-0,55 %), der Bildschirm stand, 93 % der Takte waren Duplikate, Aufnahmerate 3,5/s. Beide Arme lagen dadurch bei 0,4 bzw. 0,6 % — ein 'kein Unterschied', das nur bedeutet, dass gar keine Arbeit anfiel. Verworfen und durch eine eigene, billige Bildaenderung ersetzt.",
+    "die_lehre": "Wer eine Last misst, prueft ZUERST an der Spur, dass die Last ueberhaupt anfaellt (`captured` je Sekunde, `dup%`). Ein Nullergebnis ohne diese Kontrolle sieht aus wie ein Befund.",
+    "regex_falle_bei_den_leistungsindikatoren": "Die Instanznamen heissen `pid_1234_luid_..._engtype_3d`. Ein `\\b` hinter der Prozessnummer greift NICHT, weil der Unterstrich fuer den Regex ein Wortzeichen ist — die erste Auswertung lieferte wortlos null Zeilen. `^pid_1234_` nehmen.",
+    "dezimalzeichen": "PowerShell schreibt auf einer deutschen Maschine ein Dezimalkomma. Werte mit ToString('0.000', InvariantCulture) ausgeben, sonst zerfaellt jede Semikolon-Tabelle."
+  },
+
+  "nachbauen": [
+    "Messarm setzen (Zweig-lokal, NICHT einchecken):",
+    "  a) capture/wgc_hw.rs::copy_into_pool — das CopySubresourceRegion in eine Schleife `for _ in 0..n` legen, n aus PULSE_MESS_KOPIEN (einmalig ueber OnceLock lesen, nicht je Bild).",
+    "  b) encode/hdr_wandler.rs::wandeln — den Aufruf von `zeichnen` ebenso, n aus PULSE_MESS_SHADER.",
+    "cd streaming/win-hq-sidecar && cargo build --release --bins",
+    "Bildaenderung herstellen (kleines Fenster, das im Bildtakt zeichnet) und je Arm 50 s fahren:",
+    "  powershell -File streaming/win-hq-labor/testbench/hdr-ansehen.ps1 -Sekunden 50 -Kennung <arm> -Spur <spur.jsonl> -OhneZuschauer",
+    "  dabei PULSE_MESS_KOPIEN/PULSE_MESS_SHADER in der Umgebung setzen (der Sidecar erbt sie)",
+    "GPU je Sekunde abgreifen: Get-Counter '\\GPU Engine(*)\\Utilization Percentage', Instanzen ^pid_<PID>_ nach engtype trennen",
+    "Auswerten: Median der Sekundenproben je Lauf; ms je Kopie = (Differenz in Prozentpunkten / Differenz der Kopien je Sekunde) x 10"
+  ]
+}

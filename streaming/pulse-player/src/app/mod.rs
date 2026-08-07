@@ -21,7 +21,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
-use crate::decode::{self, ColorMatrix};
+use crate::decode::{self};
 use crate::overlay::{Overlay, OverlayAction, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
@@ -157,13 +157,22 @@ struct Session {
     decoder: String,
     hardware: bool,
     full_range: bool,
-    /// Welche YUV-Matrix der laufende Strom verlangt.
-    matrix: ColorMatrix,
+    /// Was der laufende Strom ueber seine Farben sagt — YUV-Matrix,
+    /// Transferkurve, Farbraum und Spitzenhelligkeit.
+    ///
+    /// **Zusammen statt einzeln**, weil der Renderer sie nur zusammen auswerten
+    /// kann: eine PQ-Kurve mit der BT.709-Matrix gelesen ergibt ein Bild, das
+    /// plausibel aussieht und falsch ist. Frueher stand hier nur die Matrix,
+    /// und jede weitere Angabe waere ein zweites Feld gewesen, das an einer der
+    /// Zuweisungsstellen vergessen werden kann.
+    farbe: decode::Farbangaben,
     /// Zuletzt dekodiertes Bild — wird bei Pause weiter gezeigt.
     pending: Option<Box<decode::DecodedFrame>>,
-    /// Ausgabe-Takt (s. [`takt`]). Bei ausgeschaltetem Vorhalt — der Vorgabe —
-    /// reicht er jedes Bild unveraendert durch, das Verhalten ist dann exakt
-    /// das von vorher.
+    /// Ausgabe-Takt (s. [`takt`]). **Laeuft in der Vorgabe MIT 60 ms Vorhalt**
+    /// (`proto::AUSGABETAKT_MS_VORGABE`); hier stand bis zum 2026-08-06 „bei
+    /// ausgeschaltetem Vorhalt — der Vorgabe —", und das ist seit dem
+    /// 2026-08-05 falsch. Nur ausdruecklich abgeschaltet reicht er jedes Bild
+    /// unveraendert durch.
     takt: Ausgabetakt,
     /// Ende-zu-Ende-Sonde, nur mit `PULSE_PLAYER_LATENCY_PROBE=1` vorhanden
     /// (s. `crate::probe`). Ohne die Umgebungsvariable ist das `None` und
@@ -423,7 +432,7 @@ impl App {
                 decoder: String::new(),
                 hardware: false,
                 full_range: false,
-                matrix: ColorMatrix::Bt709,
+                farbe: decode::Farbangaben::default(),
                 pending: None,
                 takt: Ausgabetakt::neu(vorhalt_ms),
                 probe: crate::probe::LatencyProbe::from_env(),
@@ -463,7 +472,7 @@ impl App {
             decoder,
             hardware,
             full_range,
-            matrix,
+            farbe,
             pending,
             frames_never_drawn,
             phases,
@@ -498,6 +507,20 @@ impl App {
             renderer.upload(&frame);
         }
         let upload_took = upload_started.elapsed();
+
+        // Das Fenster auf die Farbwelt des Stroms stellen. Tut nur beim Wechsel
+        // etwas (erstes HDR-Bild, oder zurueck auf SDR).
+        //
+        // **Aendert sich dabei das Oberflaechenformat, muss die
+        // Bedienoberflaeche mitziehen** — sie zeichnet in dieselbe Flaeche, und
+        // ihre GPU-Pipeline ist auf das alte Format uebersetzt. Nur der
+        // Zeichner wird ersetzt, nicht das ganze Overlay: Titel, Lautstaerke
+        // und der Zustand der Leiste sollen den Wechsel ueberleben.
+        if let Some(neues_format) = renderer.farbraum_fuer_quelle(*farbe) {
+            if let Some(o) = overlay.as_mut() {
+                o.zeichner_neu(renderer.device(), neues_format);
+            }
+        }
 
         // Nur wenn das Overlay diesen Durchgang wirklich zeichnet, lohnt sich
         // ueberhaupt Arbeit fuer die Anzeige — sonst faellt hier alles weg.
@@ -535,7 +558,7 @@ impl App {
             .filter(|_| want_overlay)
             .map(|o| render::OverlayPass::new(o, window, window.fullscreen().is_some(), &view));
         let render_started = std::time::Instant::now();
-        if let Err(e) = renderer.render(options, *full_range, *matrix, pass.as_mut()) {
+        if let Err(e) = renderer.render(options, *full_range, *farbe, pass.as_mut()) {
             eprintln!("pulse-player: Darstellung: {e:#}");
         }
         // Soll-Abstand aus der gemessenen Bildrate der Quelle — nicht aus einer
@@ -785,10 +808,12 @@ impl App {
                     return;
                 }
                 // Ueber den Ausgabe-Takt einreihen statt direkt uebernehmen.
-                // Bei ausgeschaltetem Vorhalt — der Vorgabe — ist das Bild im
-                // selben Zug wieder faellig und `uebernehmen` laeuft genauso
-                // wie vorher; der zweite Weg (`about_to_wait`) bleibt dann
-                // ungenutzt.
+                // In der Vorgabe (60 ms Vorhalt) liegt das Bild danach
+                // wirklich eine Weile, und der zweite Weg (`about_to_wait`)
+                // holt es ab. Nur bei ausdruecklich abgeschaltetem Vorhalt ist
+                // es im selben Zug wieder faellig — hier stand bis zum
+                // 2026-08-06 „bei ausgeschaltetem Vorhalt — der Vorgabe —",
+                // und das trifft seit dem 2026-08-05 nicht mehr zu.
                 let jetzt = std::time::Instant::now();
                 session.takt.einreihen(frame, jetzt);
                 self.abliefern(id, jetzt);
@@ -860,7 +885,7 @@ impl App {
         let Some(session) = self.sessions.get_mut(&id) else { return };
         session.last_frame_at = Some(std::time::Instant::now());
         session.full_range = frame.full_range;
-        session.matrix = frame.matrix;
+        session.farbe = frame.farbe;
         session.pending = Some(frame);
         session.window.request_redraw();
     }
@@ -878,9 +903,16 @@ impl ApplicationHandler<UserEvent> for App {
     ///
     /// **Der Schnellweg zuerst.** Diese Methode laeuft bei JEDEM
     /// Schleifendurchlauf, und das sind ueber tausend je Sekunde (jedes
-    /// Statistik-Ereignis weckt den Faden). Solange nichts wartet — und das ist
-    /// der Vorgabefall mit ausgeschaltetem Vorhalt — kostet sie einen Blick auf
-    /// eine leere Warteschlange je Sitzung und sonst nichts.
+    /// Statistik-Ereignis weckt den Faden). Solange nichts wartet, kostet sie
+    /// einen Blick auf eine leere Warteschlange je Sitzung und sonst nichts.
+    ///
+    /// **Hier stand bis zum 2026-08-06 „und das ist der Vorgabefall mit
+    /// ausgeschaltetem Vorhalt". Das ist falsch, und es dreht die Aussage um:**
+    /// die Vorgabe sind 60 ms Vorhalt (seit 2026-08-05), damit ist die
+    /// Warteschlange im laufenden Betrieb praktisch NIE leer — der Schnellweg
+    /// ist zum Ausnahmefall geworden und die `Vec` weiter unten faellt bei
+    /// jedem Durchlauf an. Wirkung minimal, aber die Begruendung stimmt so
+    /// nicht mehr.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.sessions.values().all(|s| s.takt.leer()) {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);

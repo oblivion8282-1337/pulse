@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-07",
+      "date": "2026-08-07",
+      "style": "Sachlich",
+      "title": "HDR-Streaming unter Windows — und ein deutlich sparsamerer Sender",
+      "intro": "Wer einen HDR-Bildschirm hat, kann ihn jetzt auch in HDR uebertragen. Gleichzeitig gibt der Sender dem Rechner die Haelfte der Grafikleistung zurueck, die er bisher belegt hat.",
+      "items": [
+        "HDR laesst sich unter Windows senden und im Pulse-Fenster wieder anzeigen. Du waehlst es im Feld „Codec“ als „AV1 10 bit HDR“ — der Eintrag erscheint nur, wenn dein Rechner es wirklich kann.",
+        "Laeuft der aufgenommene Bildschirm gerade nicht in HDR, startet der Stream nicht und sagt warum, statt ein flaues Bild unter dem HDR-Etikett zu senden. In den Windows-Anzeigeeinstellungen laesst sich HDR fuer diesen Bildschirm einschalten.",
+        "Der Sender braucht nur noch etwa halb so viel Grafikleistung wie zuvor. Das merkst du vor allem, wenn nebenher ein Spiel laeuft — es teilt sich dieselbe Grafikeinheit.",
+        "Steht das Bild still, rechnet der Sender gar nicht mehr daran. Bisher wurde jedes Standbild sechzigmal in der Sekunde neu umgerechnet, obwohl sich nichts geaendert hatte.",
+        "Beim Zuschauen bleibt das Bild jetzt im Grafikspeicher, statt durch den Hauptspeicher zu wandern. Das senkt die Last auf der Zuschauerseite spuerbar.",
+        "Behoben: Zuschauer flogen nach etwa zwei Minuten aus einem HQ-Stream. Ursache war eine Stockung der Grafikeinheit, die faelschlich als Verbindungsabbruch gewertet wurde."
+      ]
+    },
+    {
       "id": "2026-08-06",
       "date": "2026-08-06",
       "style": "Sachlich",

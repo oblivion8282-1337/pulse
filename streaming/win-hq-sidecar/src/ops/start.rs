@@ -91,7 +91,16 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         override_bitrate_kbps: overrides.bitrate_kbps,
         override_fps: overrides.fps,
         override_resolution: overrides.resolution,
-        ten_bit: overrides.ten_bit,
+        // HDR schaltet 10 bit selbst ein — beides einzeln zu verlangen hiesse,
+        // zwei Dinge zu trennen, die zusammengehören. In der Oberfläche ist
+        // das seit dem 2026-08-07 ohnehin EIN Eintrag im Codec-Feld
+        // („AV1 10 bit HDR"); hier stand bis dahin „zwei Kästchen", und das
+        // eine davon gibt es nicht mehr. (Begründung: `StartParams::hdr`.)
+        ten_bit: overrides.ten_bit || overrides.hdr,
+        hdr: overrides.hdr,
+        // Wird erst vom Verteiler gefüllt, wenn `hdr` geprüft ist — hier steht
+        // noch nicht fest, ob der Schirm mitspielt.
+        schirm: None,
         show_cursor,
         av_offset_ms,
     })
@@ -264,6 +273,11 @@ struct Overrides {
     /// Fehler — er fällt still auf 8 bit zurück, wie jeder andere Override,
     /// den die Hardware nicht trägt.
     ten_bit: bool,
+    /// HDR senden. **Anders als [`ten_bit`](Self::ten_bit) kein Wunsch,
+    /// sondern eine Bedingung** — ist sie nicht erfüllbar, verweigert der
+    /// Start (`encode::hdr::pruefen`). Der Unterschied ist Absicht und in
+    /// `StartParams::hdr` begründet.
+    hdr: bool,
 }
 
 fn parse_overrides(params: &Map<String, Value>) -> Overrides {
@@ -308,5 +322,24 @@ fn parse_overrides(params: &Map<String, Value>) -> Overrides {
     // der Regelfall. Bewusst kein „alles über 8" — ein Tippfehler soll nicht
     // stillschweigend etwas anderes einschalten, als dasteht.
     let ten_bit = o.get("bit_depth").and_then(Value::as_u64) == Some(10);
-    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit }
+    // Gleiche Strenge wie oben: nur ein echtes `true` zählt. Ein `"true"` als
+    // Zeichenkette oder eine 1 wären ein Fehler beim Bauen des Requests, und
+    // den soll niemand als „hat ja funktioniert" abhaken.
+    // Sagt die Oberflaeche nichts, entscheidet `PULSE_HDR=1`.
+    //
+    // **Gleiche Bauart und gleicher Grund wie `PULSE_INTRA_REFRESH`**
+    // (`encode::auffrischung::gewuenscht`): der Sidecar wird auch ohne
+    // Oberflaeche gefahren — vom Messstand, und vor allem von der ECHTEN
+    // Desktop-App, solange das HDR-Kaestchen nur auf dem Feature-Zweig liegt
+    // und die App die veroeffentlichte Web-Fassung laedt. Ohne diesen Rueckfall
+    // liesse sich HDR im richtigen Programm erst nach dem Deploy ausprobieren,
+    // also genau dann nicht, wenn man es noch pruefen will.
+    //
+    // Die Reihenfolge ist die strengere: ein ausdrueckliches `hdr: false` aus
+    // der Oberflaeche schlaegt die Variable. Wer abwaehlt, meint es.
+    let hdr = match o.get("hdr").and_then(Value::as_bool) {
+        Some(gesagt) => gesagt,
+        None => crate::env::flag("PULSE_HDR"),
+    };
+    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit, hdr }
 }

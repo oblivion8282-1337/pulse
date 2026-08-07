@@ -46,11 +46,17 @@
   // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
   // Start still zurückgenommen wird: der Nutzer sähe sonst „AV1 10 bit" im Feld
   // und bekäme 8 bit, ohne dass irgendwo etwas dazu steht.
+  //
+  // HDR hat zusätzlich zwei eigene Bedingungen: die Maschine muss es tragen
+  // (`health.gsr.hdr` — belegt ist bisher allein AV1 über AMF auf AMD) und es
+  // gibt den Weg nur unter Windows. Fehlt eines, taucht der Eintrag gar nicht
+  // erst auf — dieselbe Regel wie oben, nur eine Zeile tiefer.
   let codecOptions = $derived(
     VIDEO_MODES.filter(
       (m) =>
         (m.codec !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs)) &&
-        (!m.tenBit || stream.tenBitAvailable),
+        (!m.tenBit || stream.tenBitAvailable) &&
+        (!m.hdr || (isWindows() && stream.hdrAvailable)),
     ),
   );
 
@@ -336,6 +342,22 @@
       </label>
     {/if}
 
+    <!-- HIER STAND BIS ZUM 2026-08-07 EIN HDR-KAESTCHEN. Es sitzt jetzt als
+         vierter Eintrag im Codec-Feld oben („AV1 10 bit HDR", `VIDEO_MODES`),
+         weil es beim Anhaken ohnehin das Codec-Feld umstellen musste — HDR gibt
+         es nur mit 10 bit. Dieselbe Auflösung wie bei der Bittiefe am
+         2026-08-02, und aus demselben Grund.
+
+         Die Bedingungen sind mitgewandert und unveraendert: nur Windows, und
+         nur wenn der Sidecar es meldet (`health.gsr.hdr` — belegt ist bisher
+         allein AV1 ueber AMF auf AMD). Linux und macOS koennen die Aufnahme
+         heute nicht in 16-Bit-Fliesskomma holen, dort gaebe es nichts zu senden.
+
+         **Der Eintrag haengt bewusst NICHT daran, ob HDR in Windows gerade
+         eingeschaltet ist.** Waere es so, verschwaende er beim Ausschalten
+         spurlos, und niemand kaeme auf den Zusammenhang. Der Sidecar sagt beim
+         Start klar, dass der Schirm in SDR laeuft, und nennt den Windows-
+         Schalter — das ist die Stelle, an der die Auskunft ankommt. -->
     <label class="flex cursor-pointer items-center gap-2 text-sm">
       <Checkbox
         checked={streamSettings.show_cursor}

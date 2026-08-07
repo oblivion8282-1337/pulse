@@ -2,9 +2,16 @@
 //! NVENC auf NVIDIA, `av1_amf` auf AMD).
 //!
 //! Variante von `wgc.rs::WgcCapture`. Statt im Callback einen BGRA-CPU-Buffer
-//! zu materialisieren, kopieren wir die WGC-Frame-Texture per
-//! `CopySubresourceRegion` in einen Pool-Frame aus `encode::HwContext`. Die
-//! Pipeline endet beim Encoder ohne PCIe-Hin-und-Her.
+//! zu materialisieren, bringen wir die WGC-Frame-Texture GPU-intern in einen
+//! Pool-Frame aus `encode::HwContext`. Die Pipeline endet beim Encoder ohne
+//! PCIe-Hin-und-Her.
+//!
+//! **Hier stand bis zum 2026-08-07 „kopieren wir … per `CopySubresourceRegion`"
+//! — das ist jetzt nur noch der eine von zwei Wegen.** In HDR rechnet der
+//! Farbwandler direkt aus der WGC-Textur nach P010, und die Kopie entfällt
+//! ganz; welcher Weg gilt und warum, steht in [`super::aufnahmeziel`]. Was das
+//! für WGC-seitigen Bildverlust bedeutet — und warum es dafür einen eigenen
+//! Zähler braucht — in [`super::rueckruf`].
 //!
 //! Lazy-Init: der `HwContext` braucht Dimensionen + WGCs `ID3D11Device`. Beides
 //! kennen wir erst im ersten `on_frame_arrived`. Erstes Item im Channel ist
@@ -18,24 +25,27 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_
 use std::thread::{self, JoinHandle};
 
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
-use windows::core::Interface;
 
 use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
-use windows_capture::settings::{
-    ColorFormat, DirtyRegionSettings, SecondaryWindowSettings, Settings,
-};
+use windows_capture::settings::{DirtyRegionSettings, SecondaryWindowSettings, Settings};
 
+use super::aufnahmeziel::{self, Aufnahmeziel};
+use super::rueckruf::{RueckrufStand, RueckrufWacht};
 use super::source::{CaptureSource, MaskGate, ResolvedTarget, SourceGuard};
 use super::wgc::CaptureConfig;
-use crate::encode::{HwContext, HwPoolConfig, OwnedHwFrame};
+use crate::encode::{HwContext, OwnedHwFrame};
 
 /// Items aus dem Capture-Thread. Erstes ist immer Setup, danach Frame.
 pub enum HwCaptureItem {
     Setup {
         width: u32,
         height: u32,
+        /// Gesetzt, wenn die Aufnahme das Bild **schon gewandelt** hat — dann
+        /// führt der Pool P010 in genau diesen Maßen, und zwischen Aufnahme und
+        /// Encoder steht nichts mehr. `None` = der alte Weg mit Zwischenkopie.
+        direkt: Option<(u32, u32)>,
         hw: Arc<HwContext>,
         first: OwnedHwFrame,
         /// WGC-HW-Capture-Timestamp (QPC, 100ns) des `first`-Frames — Ursprung
@@ -62,6 +72,11 @@ pub struct WgcHwCapture {
     /// geschrieben, vom Pacing-Loop pro Tick gelesen — ein Anstieg deutet auf
     /// Encode-/Push-Rückstau oder eine veränderte Quellgröße hin.
     dropped: Arc<AtomicU64>,
+    /// Verweildauer im Aufnahme-Rückruf und die daraus folgende Obergrenze
+    /// WGC-seitig verworfener Bilder — s. [`super::rueckruf`]. **Der einzige
+    /// Zähler, der überhaupt etwas über WGC-seitigen Verlust sagt**; `dropped`
+    /// kennt nur unsere eigene Seite.
+    wacht: Arc<RueckrufWacht>,
 }
 
 impl WgcHwCapture {
@@ -79,6 +94,8 @@ impl WgcHwCapture {
         let cfg_for_thread = cfg.clone();
         let dropped = Arc::new(AtomicU64::new(0));
         let dropped_for_thread = dropped.clone();
+        let wacht = Arc::new(RueckrufWacht::neu(cfg.max_fps));
+        let wacht_for_thread = wacht.clone();
         let worker = thread::spawn(move || -> Result<(), String> {
             run_capture(
                 target,
@@ -87,15 +104,21 @@ impl WgcHwCapture {
                 stop_rx,
                 pool_size_for_thread,
                 dropped_for_thread,
+                wacht_for_thread,
             )
             .map_err(|e| format!("{e:#}"))
         });
-        Ok(Self { items, stop_tx, worker: Some(worker), dropped })
+        Ok(Self { items, stop_tx, worker: Some(worker), dropped, wacht })
     }
 
     /// Kumulativ verworfene Capture-Frames seit Start. Lock-frei pollbar.
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Abzug der Rückruf-Zähler. Lock-frei pollbar, wie [`Self::dropped`].
+    pub fn rueckruf_stand(&self) -> RueckrufStand {
+        self.wacht.stand()
     }
 
     pub fn stop(&mut self) {
@@ -150,6 +173,16 @@ struct HwFrameSink {
     /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
     /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
     is_window: bool,
+    /// Wird in 16-Bit-Fließkomma aufgenommen (HDR)? Entscheidet über Pool- und
+    /// Ersatztextur-Format, s. `super::bildformat`.
+    hdr: bool,
+    /// Wandlung im Rückruf gewünscht? Dann die Ziel-Box (`Some(None)` =
+    /// Aufnahmegröße). Beim ersten Bild werden daraus die Zielmaße.
+    kasten: Option<Option<(u32, u32)>>,
+    /// Wie das Bild in die Pool-Textur kommt: Kopie oder Farbwandlung. Steht
+    /// erst ab dem ersten Bild fest (mit dem Pool zusammen).
+    ziel: Option<Aufnahmeziel>,
+    wacht: Arc<RueckrufWacht>,
 }
 
 /// Aufeinanderfolgende Größen-Mismatches, bevor der Pool als endgültig
@@ -164,6 +197,11 @@ struct HwHandlerFlags {
     dropped: Arc<AtomicU64>,
     guard: Option<SourceGuard>,
     is_window: bool,
+    hdr: bool,
+    /// Wandlung im Rückruf: die Ziel-Box, in die dabei verkleinert wird
+    /// (`Some(None)` = Aufnahmegröße). `None` = alter Weg mit Zwischenkopie.
+    direkt_kasten: Option<Option<(u32, u32)>>,
+    wacht: Arc<RueckrufWacht>,
 }
 
 impl GraphicsCaptureApiHandler for HwFrameSink {
@@ -182,14 +220,44 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             mask: MaskGate::new(ctx.flags.guard),
             black: None,
             is_window: ctx.flags.is_window,
+            hdr: ctx.flags.hdr,
+            kasten: ctx.flags.direkt_kasten,
+            ziel: None,
+            wacht: ctx.flags.wacht,
         })
     }
 
+    /// **Die Verweildauer wird hier gemessen, nicht drinnen**, damit sie jeden
+    /// Ausgang erfasst — auch die frühen Rückkehrpunkte und den Fehlerfall.
+    /// Sie ist die einzige Größe, aus der sich WGC-seitiger Bildverlust
+    /// überhaupt beschränken lässt (`super::rueckruf`).
     fn on_frame_arrived(
         &mut self,
         frame: &mut Frame,
         capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
+        let beginn = std::time::Instant::now();
+        let ergebnis = self.bild_verarbeiten(frame, capture_control);
+        self.wacht.verbuchen(beginn.elapsed());
+        ergebnis
+    }
+
+    fn on_closed(&mut self) -> Result<(), Self::Error> {
+        // Fenster-Target zerstört (App beendet) → sauberer Stop via Marker;
+        // Begründung s. `wgc.rs::on_closed`.
+        if self.is_window {
+            return Err(super::source_closed_err());
+        }
+        Ok(())
+    }
+}
+
+impl HwFrameSink {
+    fn bild_verarbeiten(
+        &mut self,
+        frame: &mut Frame,
+        capture_control: InternalCaptureControl,
+    ) -> Result<()> {
         if self.stop_rx.try_recv().is_ok() {
             capture_control.stop();
             return Ok(());
@@ -210,26 +278,41 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             let width = frame.width();
             let height = frame.height();
             self.expected_dims = (width, height);
-            // Bind-Flags, Format und Lock bleiben auf Default: der Capture-Pool
-            // nimmt libavutils BGRA-Default und besitzt den Lock selbst — der
-            // Scaler teilt ihn dann (#2).
-            let hw = HwContext::new(
-                frame.device().clone(),
-                frame.device_context().clone(),
+            // Zielmaße aus der Box — dieselbe Funktion, die auch der Taktfaden
+            // nimmt, damit Pool und Encoder nicht auseinanderlaufen können.
+            let direkt = self
+                .kasten
+                .map(|k| crate::stream_controller::zielmasse(width, height, k));
+            // Lock bleibt auf Default: der Capture-Pool besitzt ihn selbst —
+            // Scaler bzw. Farbwandler teilen ihn dann (#2). Welches Format der
+            // Pool führt und was hineinschreibt, entscheidet `aufnahmeziel`.
+            let aufbau = aufnahmeziel::bauen(
+                frame.device(),
+                frame.device_context(),
                 width,
                 height,
-                HwPoolConfig { pool_size: self.pool_size, ..Default::default() },
+                self.pool_size,
+                self.hdr,
+                direkt,
             )
-            .context("HwContext::new")?;
-            let hw = Arc::new(hw);
+            .context("Aufnahme-Pool")?;
+            let hw = Arc::new(aufbau.hw);
+            self.ziel = Some(aufbau.ziel);
             if self.mask.has_guard() {
-                self.black = Some(super::black_bgra_texture(frame.device(), width, height)?);
+                self.black =
+                    Some(super::black_bgra_texture(frame.device(), width, height, self.hdr)?);
             }
             let mut pool_frame = hw.acquire_frame().context("acquire first pool frame")?;
             pool_frame.set_pts(0);
-            copy_into_pool(&hw, self.source_texture(frame, masked), &pool_frame)?;
-            let setup =
-                HwCaptureItem::Setup { width, height, hw: hw.clone(), first: pool_frame, first_qpc: qpc };
+            self.ins_pool(&hw, frame, masked, &pool_frame)?;
+            let setup = HwCaptureItem::Setup {
+                width,
+                height,
+                direkt,
+                hw: hw.clone(),
+                first: pool_frame,
+                first_qpc: qpc,
+            };
             self.hw = Some(hw);
             // Setup ist one-shot; falls Channel ge-disconnected ist sofort stoppen.
             if self.tx.try_send(setup).is_err() {
@@ -238,7 +321,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             return Ok(());
         }
 
-        let hw = self.hw.as_ref().unwrap();
+        let hw = self.hw.clone().unwrap();
         // WGC kann die Größe mitten im Stream ändern → der Pool ist auf
         // `expected_dims` gebaut. `CopySubresourceRegion` wird bei Mismatch im
         // Release-Build still zum No-Op (kein Fehler, kein Frame) — deshalb
@@ -283,7 +366,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
                 return Ok(());
             }
         };
-        copy_into_pool(hw, self.source_texture(frame, masked), &pool_frame)?;
+        self.ins_pool(&hw, frame, masked, &pool_frame)?;
         match self.tx.try_send(HwCaptureItem::Frame { frame: pool_frame, qpc }) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
@@ -297,56 +380,32 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         Ok(())
     }
 
-    fn on_closed(&mut self) -> Result<(), Self::Error> {
-        // Fenster-Target zerstört (App beendet) → sauberer Stop via Marker;
-        // Begründung s. `wgc.rs::on_closed`.
-        if self.is_window {
-            return Err(super::source_closed_err());
-        }
-        Ok(())
+    /// Quelltextur dieses Frames in die Pool-Textur bringen — kopieren oder
+    /// gleich wandeln, s. [`Aufnahmeziel`].
+    ///
+    /// Bei aktiver Privacy-Mask ist die Quelle die schwarze Ersatztextur, sonst
+    /// die WGC-Frame-Textur. `masked` kann nur `true` sein, wenn ein Guard
+    /// existiert — dann hat der erste Frame `black` gebaut.
+    fn ins_pool(
+        &mut self,
+        hw: &HwContext,
+        frame: &Frame,
+        masked: bool,
+        dst: &OwnedHwFrame,
+    ) -> Result<()> {
+        // Die Felder einzeln ausleihen: `black` wird gelesen, während `ziel`
+        // verändert wird. Ohne die Zerlegung bräuchte die Quelltextur einen
+        // Klon — ein COM-Zählerpaar je Bild, ausgerechnet in dem Rückruf,
+        // dessen Verweildauer die Wacht beschränkt.
+        let Self { black, ziel, .. } = self;
+        let src = if masked { black.as_ref().unwrap() } else { frame.as_raw_texture() };
+        ziel.as_mut()
+            .ok_or_else(|| anyhow!("Aufnahmeziel fehlt"))?
+            .schreiben(hw, src, dst)
     }
 }
 
-impl HwFrameSink {
-    /// Quelltextur dieses Frames: bei aktiver Privacy-Mask die schwarze
-    /// Ersatztextur, sonst die WGC-Frame-Textur. `masked` kann nur `true`
-    /// sein, wenn ein Guard existiert — dann hat der erste Frame `black`
-    /// gebaut.
-    fn source_texture<'a>(&'a self, frame: &'a Frame, masked: bool) -> &'a ID3D11Texture2D {
-        if masked {
-            self.black.as_ref().unwrap()
-        } else {
-            frame.as_raw_texture()
-        }
-    }
-}
-
-fn copy_into_pool(hw: &HwContext, src: &ID3D11Texture2D, dst: &OwnedHwFrame) -> Result<()> {
-    hw.lock();
-    let result = unsafe {
-        let dst_raw = dst.texture_raw();
-        // `from_raw_borrowed` braucht `&*mut c_void` — benannter Slot reicht.
-        match ID3D11Texture2D::from_raw_borrowed(&dst_raw) {
-            Some(dst_tex) => {
-                hw.device_context().CopySubresourceRegion(
-                    dst_tex,
-                    dst.subresource_index(),
-                    0,
-                    0,
-                    0,
-                    src,
-                    0,
-                    None,
-                );
-                Ok(())
-            }
-            None => Err(anyhow!("pool frame texture is null")),
-        }
-    };
-    hw.unlock();
-    result
-}
-
+#[allow(clippy::too_many_arguments)]
 fn run_capture(
     target: ResolvedTarget,
     cfg: CaptureConfig,
@@ -354,6 +413,7 @@ fn run_capture(
     stop_rx: Receiver<()>,
     pool_size: u32,
     dropped: Arc<AtomicU64>,
+    wacht: Arc<RueckrufWacht>,
 ) -> Result<()> {
     // OS-Support-gated (Win10 kennt z.B. IsBorderRequired nicht) — s. capture/mod.rs.
     let cursor = super::cursor_settings(cfg.include_cursor);
@@ -366,7 +426,12 @@ fn run_capture(
         dropped,
         guard: target.guard(),
         is_window: target.is_window(),
+        hdr: cfg.hdr,
+        direkt_kasten: cfg.hdr_direkt.then_some(cfg.ziel_kasten),
+        wacht,
     };
+    // Farbformat und Pool-Format kommen aus derselben Quelle — s. `bildformat`.
+    let farbformat = super::bildformat(cfg.hdr).0;
 
     match target {
         ResolvedTarget::Monitor { monitor, .. } => {
@@ -377,7 +442,7 @@ fn run_capture(
                 SecondaryWindowSettings::Default,
                 min_interval,
                 DirtyRegionSettings::Default,
-                ColorFormat::Bgra8,
+                farbformat,
                 flags,
             );
             HwFrameSink::start(settings).context("Monitor capture failed")?;
@@ -390,7 +455,7 @@ fn run_capture(
                 SecondaryWindowSettings::Default,
                 min_interval,
                 DirtyRegionSettings::Default,
-                ColorFormat::Bgra8,
+                farbformat,
                 flags,
             );
             HwFrameSink::start(settings).context("Window capture failed")?;

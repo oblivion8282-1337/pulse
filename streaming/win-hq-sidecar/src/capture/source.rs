@@ -64,6 +64,31 @@ impl ResolvedTarget {
     pub fn is_window(&self) -> bool {
         matches!(self, ResolvedTarget::Window(_))
     }
+
+    /// Der Bildschirm, auf dem dieses Ziel liegt — als `HMONITOR`.
+    ///
+    /// Gebraucht für die Frage, ob dort HDR läuft (`system::hdr`). Beim
+    /// Fenster-Ziel ist es der Schirm, auf dem das Fenster gerade LIEGT, und
+    /// das ist die einzig sinnvolle Antwort: die Aufnahme bekommt genau die
+    /// Bildpunkte, die dieser Schirm darstellt. Zieht der Nutzer das Fenster
+    /// während des Streams auf einen anderen Schirm, bleibt die Farbdeutung
+    /// die vom Start — das ist bewusst so, weil ein Farbraumwechsel mitten im
+    /// Strom für den Zuschauer schlimmer wäre als eine leicht veraltete
+    /// Annahme; ein Wechsel verlangt einen neuen Stream.
+    ///
+    /// `MONITOR_DEFAULTTONEAREST` statt `..TONULL`: ein Fenster, das gerade
+    /// keinen Schirm überschneidet (halb aus dem Bild gezogen, minimiert),
+    /// soll den nächstgelegenen liefern statt gar keinen — sonst hinge die
+    /// Farbentscheidung an der Fensterposition.
+    pub fn hmonitor(&self) -> *mut std::ffi::c_void {
+        match self {
+            ResolvedTarget::Monitor { monitor, .. } => monitor.as_raw_hmonitor(),
+            ResolvedTarget::Window(window) => {
+                let hwnd = HWND(window.as_raw_hwnd());
+                unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) }.0
+            }
+        }
+    }
 }
 
 /// Sichtbarkeits-Zustand der Quelle, pro Frame vom `MaskGate` ausgewertet.

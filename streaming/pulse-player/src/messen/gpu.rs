@@ -3,7 +3,7 @@
 //!
 //! Kein Fenster, keine Swapchain — sonst nichts anders. Geteilt mit dem
 //! Fenster sind Geraeteanforderung ([`geraet_oeffnen`]), Pipeline
-//! ([`build_graphics`]), Bindungen ([`build_bind_group`]), der Uniform-Block
+//! ([`build_graphics`]), Bindungen ([`bind_group_aus_teilen`]), der Uniform-Block
 //! ([`build_uniforms`]) und das Herunterrechnen ([`narrow_plane_into`]). Das
 //! ist der ganze Zweck der Uebung: ein Nachbau haette den Nachbau gemessen,
 //! und genau daran ist die numpy-Nachrechnung vom 2026-08-04 gescheitert (sie
@@ -13,11 +13,12 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 
-use super::pixel::{bytes_pro_punkt, rot_kanal};
-use crate::decode::{ColorMatrix, PixelLayout};
+use super::pixel::{bytes_pro_punkt, punkte};
+use crate::decode::{Farbangaben, PixelLayout};
 use crate::proto::PlayerOptions;
 use crate::render::{
-    build_bind_group, build_graphics, build_uniforms, geraet_oeffnen, narrow_plane_into, scales,
+    bind_group_aus_teilen, build_graphics, build_uniforms, geraet_oeffnen, narrow_plane_into,
+    scales,
     Bildform, Graphics,
 };
 
@@ -38,16 +39,35 @@ pub struct Lauf {
     pub format: wgpu::TextureFormat,
     pub deband: f32,
     pub dither: bool,
+    /// Die Farbwelt der QUELLE, so wie sie sonst aus dem Strom kommt
+    /// ([`crate::decode::farbangaben_fuer`]). Entscheidet ueber YUV-Matrix,
+    /// Transferkurve und die Spitzenhelligkeit fuers Tone-Mapping.
+    pub farbe: Farbangaben,
+    /// Ist das ZIEL ein HDR-Fenster (scRGB, lineares Licht, 1,0 = 80 cd/m²)?
+    ///
+    /// Getrennt von [`Self::farbe`], weil es dieselbe getrennte Frage ist wie
+    /// im Fenster: was die Quelle mitbringt, und was die Ausgabe annimmt. Nur
+    /// ein Fliesskomma-Ziel kann hier `true` vertragen — jedes Unorm-Format
+    /// begrenzt auf 0..1 und schnitte genau die Spitzlichter ab, um die es
+    /// geht.
+    pub hdr_fenster: bool,
 }
 
-/// Rote Komponente je Bildpunkt, auf 0..1 normiert.
+impl Lauf {
+    /// Der gewoehnliche SDR-Fall: BT.709, keine PQ-Kurve, SDR-Fenster.
+    pub fn sdr(format: wgpu::TextureFormat, deband: f32, dither: bool) -> Self {
+        Self { format, deband, dither, farbe: Farbangaben::default(), hdr_fenster: false }
+    }
+}
+
+/// Rot, Gruen und Blau je Bildpunkt, auf 0..1 normiert (fp16-Ziele auch
+/// darueber und darunter — s. [`punkte`]).
 ///
-/// Rot genuegt: das Testbild ist farblos (Chroma auf der Mitte), R, G und B
-/// tragen dort denselben Wert. Normiert statt roh, damit sich 8-, 10- und
-/// 16-bit-Ausgaben ueberhaupt vergleichen lassen — die Stufenzahl zaehlt der
-/// Aufrufer auf dem jeweiligen Raster.
+/// **Alle drei Kanaele, obwohl die Stufenmessung nur Rot braucht.** Fuer die
+/// Farbmessung ([`super::farbwerte`]) ist der Unterschied ZWISCHEN den
+/// Kanaelen die ganze Frage; im roten allein ist ein Farbstich unsichtbar.
 pub struct Ausgabe {
-    pub werte: Vec<f32>,
+    pub punkte: Vec<[f32; 3]>,
     pub breite: usize,
     pub hoehe: usize,
 }
@@ -93,11 +113,7 @@ impl Messstand {
             geraet_oeffnen(&adapter, "pulse-player-messung").await?;
 
         // Die Quelle ist immer planares 10 bit (s. Modul-Doku von `super`).
-        let form = Bildform {
-            layout: PixelLayout::Planar420,
-            ten_bit: true,
-            wide: breite_texturen,
-        };
+        let form = Bildform::voll(PixelLayout::Planar420, true, breite_texturen);
         let ebenen = hochladen(&device, &queue, form, q);
         Ok(Self {
             device,
@@ -135,12 +151,22 @@ impl Messstand {
             dither: Some(lauf.dither),
             ..Default::default()
         };
+        // **Hier stand bis zum 2026-08-06, der Messstand fahre grundsaetzlich
+        // SDR** — mit der Begruendung, ein HDR-Lauf brauche eine eigene
+        // Fragestellung und eine PQ-Quelle. Die erste Haelfte stimmt weiter und
+        // ist eingeloest: die Stufenmessung ([`super::ausfuehren`]) fragt nach
+        // Codewerten und faehrt deshalb `Lauf::sdr`, die Farbmessung
+        // ([`super::farbwerte`]) fragt nach Helligkeiten und bringt ihre
+        // PQ-Quelle mit. Die zweite Haelfte — dass der Messstand deshalb kein
+        // HDR koenne — ist damit falsch: die Farbwelt kommt jetzt aus dem
+        // [`Lauf`], und beide Messungen teilen denselben Weg durch den Shader.
         let uniforms = build_uniforms(
             lauf.format,
             self.form,
             &opts,
             self.voller_bereich,
-            ColorMatrix::Bt709,
+            lauf.farbe,
+            lauf.hdr_fenster,
             0.0,
         );
         self.queue.write_buffer(&gfx.uniform_buf, 0, &uniforms.as_bytes());
@@ -158,7 +184,13 @@ impl Messstand {
 
         let ansicht = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
         let [vy, vu, vv] = std::array::from_fn(|i| ansicht(&self.ebenen[i]));
-        let bind = build_bind_group(&self.device, gfx, [&vy, &vu, &vv]);
+        let bind = bind_group_aus_teilen(
+            &self.device,
+            &gfx.bind_layout,
+            &gfx.sampler,
+            &gfx.uniform_buf,
+            [&vy, &vu, &vv],
+        );
 
         let mut enc = self
             .device
@@ -188,16 +220,16 @@ impl Messstand {
         self.queue.submit(Some(enc.finish()));
 
         let werte = self.zurueck_lesen(&ziel, lauf.format)?;
-        Ok(Ausgabe { werte, breite: w as usize, hoehe: h as usize })
+        Ok(Ausgabe { punkte: werte, breite: w as usize, hoehe: h as usize })
     }
 
-    /// Die gezeichnete Textur in den Hauptspeicher holen und den roten Kanal
-    /// herausziehen.
+    /// Die gezeichnete Textur in den Hauptspeicher holen und die drei
+    /// Farbkanaele herausziehen.
     fn zurueck_lesen(
         &self,
         ziel: &wgpu::Texture,
         format: wgpu::TextureFormat,
-    ) -> Result<Vec<f32>> {
+    ) -> Result<Vec<[f32; 3]>> {
         let (w, h) = (self.breite, self.hoehe);
         let bpp = bytes_pro_punkt(format);
         // `copy_texture_to_buffer` verlangt 256-Byte-Zeilen.
@@ -242,7 +274,7 @@ impl Messstand {
         rx.recv().context("Lesepuffer nie fertig")?.context("Lesepuffer nicht abbildbar")?;
 
         let roh = slice.get_mapped_range();
-        let werte = rot_kanal(&roh, format, w as usize, h as usize, zeile as usize);
+        let werte = punkte(&roh, format, w as usize, h as usize, zeile as usize);
         drop(roh);
         lese.unmap();
         Ok(werte)

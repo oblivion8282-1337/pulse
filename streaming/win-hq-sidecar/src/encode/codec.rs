@@ -105,8 +105,14 @@ impl VideoCodec {
     ///   `pipeline_d3d12::run`), und über die CPU-Pipeline kostete AV1 113 %
     ///   einer CPU-Kerne samt 42 übersprungenen Bildern in 20 s; über D3D11
     ///   sind es ~10 % und 0 (2026-07-30, Radeon 780M, 1440p nativ).
-    /// - **AMD, H.264/HEVC** → D3D12: `h264_d3d12va` ist um das
-    ///   Zweieinhalbfache latenzärmer als `h264_amf` (6,8 gegen 17,2 ms).
+    /// - **AMD, H.264/HEVC** → **ebenfalls D3D11** (`h264_amf`), seit dem
+    ///   2026-08-04. **Hier stand bis zum 2026-08-06 „→ D3D12: `h264_d3d12va`
+    ///   ist um das Zweieinhalbfache latenzärmer als `h264_amf` (6,8 gegen
+    ///   17,2 ms)" — das ist falsch**, und zwar seit derselben Umstellung, die
+    ///   zwanzig Zeilen weiter unten an `amd_forces_d3d12` begründet steht:
+    ///   ein Encode-Weg statt zwei. Die Latenzzahlen stimmen weiterhin, sie
+    ///   sind der **Preis** der Entscheidung, nicht ihr Ergebnis. Zurück auf
+    ///   D3D12 kommt man nur noch über `PULSE_HQ_AMD_D3D12=1`.
     /// - **Rest (Intel)** → CPU.
     ///
     /// **AMD+AV1 war hier schon einmal auf D3D11 und wurde zurückgenommen**,
@@ -175,9 +181,15 @@ impl VideoCodec {
     ///
     /// Heute nur AV1, und zwar nicht aus Prinzip, sondern weil nur dieser Weg
     /// gemessen ist (2026-08-01, Radeon 780M: P010-Pool + `bitdepth=10` an
-    /// `av1_amf`, am Server als 10-bit-Strom bestätigt). H.264 läuft auf AMD
-    /// über D3D12 (`encode_path`) und damit an diesem Pool vorbei; für HEVC
-    /// gibt es keinen Anlass, weil der Codec ausgebaut wird.
+    /// `av1_amf`, am Server als 10-bit-Strom bestätigt).
+    ///
+    /// **Hier stand bis zum 2026-08-06 „H.264 läuft auf AMD über D3D12
+    /// (`encode_path`) und damit an diesem Pool vorbei". Das ist falsch** —
+    /// seit dem 2026-08-04 geht AMD mit JEDEM Codec über AMF und damit über
+    /// genau diesen Pool. Der Grund für das Nein bei H.264 ist ein anderer und
+    /// hat mit dem Pool nichts zu tun: 10-bit-H.264 wäre High 10, und das
+    /// dekodiert kein Browser (dieselbe Begründung wie in `encode::hdr`). Für
+    /// HEVC gibt es keinen Anlass, weil der Codec ausgebaut wird.
     ///
     /// Wer hier eine Zeile ergänzt, misst sie — die Kette aus Pool-Format,
     /// Farbraum am Video-Prozessor (`d3d11_scale.rs`), Hersteller-Option

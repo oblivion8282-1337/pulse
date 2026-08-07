@@ -50,6 +50,20 @@ export interface OverrideSet {
    * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
    */
   intra_refresh?: boolean;
+  /**
+   * HDR senden — der Bildschirminhalt wird in seinem vollen Helligkeitsumfang
+   * aufgenommen und als PQ/BT.2020 encodiert.
+   *
+   * **Anders als `bit_depth` kein Wunsch, der still zurückgenommen wird.**
+   * Kann der Sidecar HDR nicht liefern — Schirm läuft in SDR, falscher Codec,
+   * falscher Encode-Weg —, bricht er den Start mit einer Meldung ab. Das ist
+   * Absicht: 10 bit weniger als bestellt sieht man höchstens an einem Verlauf,
+   * SDR statt HDR sieht man am ganzen Bild.
+   *
+   * Setzt 10 bit voraus (PQ in 8 bit wäre in jedem Verlauf geringelt) und
+   * damit AV1; die Oberfläche erzwingt beides beim Anhaken.
+   */
+  hdr?: boolean;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
@@ -67,38 +81,61 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
 ];
 
 /**
- * Was im Codec-Feld steht. Codec und Bittiefe sind für den Nutzer EINE
- * Entscheidung — zwei Felder daraus zu machen hiesse, ihm die Kopplung zu
+ * Was im Codec-Feld steht. Codec, Bittiefe und HDR sind für den Nutzer EINE
+ * Entscheidung — mehrere Felder daraus zu machen hiesse, ihm Kopplungen zu
  * erklären, die der Sidecar ohnehin erzwingt: 10 bit gibt es nur mit AV1 (die
- * H.264-Variante wäre `High 10`, die kein Browser dekodiert).
+ * H.264-Variante wäre `High 10`, die kein Browser dekodiert), und HDR gibt es
+ * nur mit 10 bit (PQ in 8 bit wäre in jedem Verlauf sichtbar geringelt,
+ * `encode/hdr.rs`).
  *
- * `bit_depth` geht nur bei 10 mit auf die Leitung. Ein `bit_depth: 8` wäre
- * gleichbedeutend mit „fehlt", würde aber in jeder persistierten Einstellung
- * mitgeschleppt.
+ * **HDR war bis zum 2026-08-07 ein eigenes Kästchen**, das beim Anhaken das
+ * Codec-Feld von sich aus auf „AV1 10 bit" zog. Das ist derselbe Fall, den die
+ * Bittiefe am 2026-08-02 schon hatte, und er wird hier aus demselben Grund
+ * gleich gelöst: **zwei gekoppelte Bedienelemente zu erklären ist mehr Aufwand
+ * als eine Liste, in der die unmögliche Kombination gar nicht vorkommt.** Ein
+ * Kästchen, das ein anderes Feld umstellt, ist eine Fernwirkung, die niemand
+ * erwartet.
+ *
+ * `bit_depth` geht nur bei 10 mit auf die Leitung, `hdr` nur bei `true`. Ein
+ * `bit_depth: 8` bzw. `hdr: false` wäre gleichbedeutend mit „fehlt", würde aber
+ * in jeder persistierten Einstellung mitgeschleppt.
  */
 export const VIDEO_MODES: ReadonlyArray<{
   value: string;
   label: string;
   codec: string;
   tenBit: boolean;
+  hdr?: boolean;
 }> = [
   { value: 'h264', label: 'H.264', codec: 'h264', tenBit: false },
   { value: 'av1', label: 'AV1 8 bit', codec: 'av1', tenBit: false },
   { value: 'av1-10', label: 'AV1 10 bit', codec: 'av1', tenBit: true },
+  { value: 'av1-10-hdr', label: 'AV1 10 bit HDR', codec: 'av1', tenBit: true, hdr: true },
 ];
 
 /** Welcher Eintrag zu den aktuellen Overrides passt. */
 export function videoModeOf(o: OverrideSet): string {
   const codec = o.codec ?? 'h264';
-  return codec === 'av1' && o.bit_depth === 10 ? 'av1-10' : codec;
+  if (codec !== 'av1' || o.bit_depth !== 10) return codec;
+  return o.hdr === true ? 'av1-10-hdr' : 'av1-10';
 }
 
-/** Auswahl zurück in Codec + Bittiefe übersetzen. */
+/**
+ * Auswahl zurück in Codec, Bittiefe und HDR übersetzen.
+ *
+ * **`hdr` wird bei jedem anderen Eintrag ENTFERNT**, nicht bloss nicht gesetzt.
+ * Sonst überlebte ein `hdr: true` den Wechsel auf H.264 in der gespeicherten
+ * Einstellung, und der Sidecar bräche den Start ab („HDR verlangt, aber H.264
+ * kann hier kein 10 bit") — für eine Kombination, die der Nutzer im Feld gar
+ * nicht mehr sieht.
+ */
 export function applyVideoMode(o: OverrideSet, value: string): OverrideSet {
   const mode = VIDEO_MODES.find((m) => m.value === value) ?? VIDEO_MODES[0];
   const next: OverrideSet = { ...o, codec: mode.codec };
   if (mode.tenBit) next.bit_depth = 10;
   else delete next.bit_depth;
+  if (mode.hdr) next.hdr = true;
+  else delete next.hdr;
   return next;
 }
 
@@ -226,6 +263,30 @@ export function tenBitPossible(): boolean {
  */
 export function intraRefreshPossible(): boolean {
   return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
+}
+
+/**
+ * HDR — Wunsch UND Erfüllbarkeit?
+ *
+ * Dieselbe Bauart wie [`tenBitPossible`] und [`intraRefreshPossible`], und aus
+ * demselben Grund an EINER Stelle. Der Unterschied zu beiden: die Folge eines
+ * falschen Ja ist hier keine stille Rücknahme, sondern ein abgebrochener Start
+ * — der Sidecar verweigert HDR, das er nicht liefern kann (Begründung dort in
+ * `encode/hdr.rs`). Umso wichtiger, dass die Oberfläche gar nicht erst danach
+ * fragt, wenn es aussichtslos ist.
+ *
+ * **`stream.hdrAvailable` gehört zwingend dazu**, obwohl der Eintrag im
+ * Codec-Feld bereits danach gated ist: die Einstellung wird persistiert und
+ * wandert mit dem Konto zwischen Rechnern. Ein auf der HDR-Maschine gewählter
+ * Eintrag läge sonst auf einem Rechner ohne HDR-fähigen Encoder weiter an —
+ * unsichtbar, weil er dort im Feld gar nicht steht, und jeder Streamversuch
+ * bräche ab.
+ *
+ * Die Kopplung an 10 bit ist keine zweite Bedingung, sondern dieselbe: HDR
+ * gibt es nur mit AV1 in 10 bit, und genau das prüft `tenBitPossible`.
+ */
+export function hdrPossible(): boolean {
+  return streamSettings.overrides.hdr === true && stream.hdrAvailable && tenBitPossible();
 }
 
 // ── Reactive state ──────────────────────────────────────────────────────────
@@ -467,6 +528,12 @@ export async function loadCatalogs(): Promise<void> {
     // tote Wert zusätzlich weggeräumt, damit er nicht dauerhaft mitreist.
     if (streamSettings.overrides.intra_refresh === true && !intraRefreshPossible()) {
       const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
+    // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
+    // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
+    if (streamSettings.overrides.hdr === true && !hdrPossible()) {
+      const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
     // **Intra-Refresh ist seit 2026-08-06 die VORGABE, wo der Sidecar ihn
@@ -742,6 +809,13 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
     // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
     if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
+    // HDR nur mitschicken, wenn es erfüllbar ist — ein `hdr: false` wäre
+    // dasselbe wie es wegzulassen, und ein `hdr: true`, das der Sidecar nicht
+    // einlösen kann, bräche den Start ab. Anders als bei Intra-Refresh gibt es
+    // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
+    // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
+    // Sidecar-Prozesses.
+    if (hdrPossible()) cleaned.hdr = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;
