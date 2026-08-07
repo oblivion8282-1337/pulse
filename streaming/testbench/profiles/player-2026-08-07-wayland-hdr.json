@@ -2,8 +2,7 @@
   "id": "player-2026-08-07-wayland-hdr",
   "gemessen_am": "2026-08-07",
   "frage": "Kann der native Player unter Linux/Wayland echtes HDR ausgeben, statt es auf SDR herunterzurechnen — und laesst sich das PRUEFEN, statt es zu behaupten? Die beiden Teilfragen des Modulkopfs von render/hdr_fenster.rs: (1) kann das Fenster HDR ausgeben, (2) nuetzt es etwas, weil der Schirm gerade in HDR laeuft?",
-  "antwort_kurz": "Beide Fragen sind pruefbar, beide sind hier mit JA beantwortet, und sie sind GEMESSEN unabhaengig voneinander. Frage 1 beantwortet der Vulkan-Treiber selbst (vkGetPhysicalDeviceSurfaceFormatsKHR meldet fuer die Wayland-Oberflaeche das Paar R16G16B16A16_SFLOAT + EXTENDED_SRGB_LINEAR_EXT — genau das, was wgpu-hal fuer Rgba16Float fest verdrahtet); eine Probeschaltung der Oberflaeche auf dieses Format kommt zustande und liefert ein Bild. Frage 2 beantwortet der Compositor ueber wp_color_manager_v1 — und zwar NICHT ueber die Uebertragungskurve, die in beiden Zustaenden gamma22 meldet, sondern ueber die Leuchtdichte: 530 gegen 295 cd/m² mit HDR, 200 gegen 200 ohne. Die frueher im Modulkopf stehende Aussage, auf dem Vulkan-Weg sei das von aussen nicht pruefbar, ist damit widerlegt.",
-
+  "antwort_kurz": "Beide Fragen sind pruefbar, beide sind hier mit JA beantwortet, und sie sind GEMESSEN unabhaengig voneinander. Frage 1 beantwortet der Vulkan-Treiber selbst (vkGetPhysicalDeviceSurfaceFormatsKHR meldet fuer die Wayland-Oberflaeche das Paar R16G16B16A16_SFLOAT + EXTENDED_SRGB_LINEAR_EXT — genau das, was wgpu-hal fuer Rgba16Float fest verdrahtet); eine Probeschaltung der Oberflaeche auf dieses Format kommt zustande und liefert ein Bild. Frage 2 beantwortet der Compositor ueber wp_color_manager_v1 — und zwar NICHT ueber die Uebertragungskurve, die in beiden Zustaenden gamma22 meldet, sondern ueber die Leuchtdichte: 530 gegen 295 cd/m² mit HDR, 200 gegen 200 ohne. Die frueher im Modulkopf stehende Aussage, auf dem Vulkan-Weg sei das von aussen nicht pruefbar, ist damit widerlegt. NACHTRAG 2026-08-07: gegen einen echten PQ-Strom gefahren — die Umschaltung greift (2315 ausgegebene Bilder in 40 s), aber der erste Lauf hat den Player umgebracht. Ursache und Behebung unter GEMESSEN_nachtrag_echter_pq_strom; sie lag nicht im HDR-Weg, sondern in der Bedienoberflaeche, die beim Formatwechsel mitziehen muss.",
   "aufbau": {
     "karte": "NVIDIA GeForce RTX 5080",
     "treiber": "610.43.03 (NVIDIA UNIX Open Kernel Module)",
@@ -15,7 +14,6 @@
     "werkzeug": "pulse-player --hdr-auskunft (in diesem Zweig neu). Es geht durch DIESELBEN Funktionen wie der Betrieb (render::hdr_vulkan, render::hdr_schirm) und legt dafuer ein echtes Fenster mit echter Oberflaeche an — ein Nachbau waere als Beleg wertlos.",
     "gegenprobe_mit_fremdem_werkzeug": "vulkaninfo (vulkan-tools) und kscreen-doctor, beide unabhaengig vom Player."
   },
-
   "GEMESSEN_frage_1_kann_das_fenster": {
     "der_gepruefte_weg": [
       "1. wgpu legt Instanz, Adapter und Oberflaeche fuer ein echtes winit-Fenster an.",
@@ -36,7 +34,6 @@
     "gegenprobe_dass_die_pruefung_auch_NEIN_sagen_kann": "vulkaninfo meldet fuer dieselbe Karte auf der **xcb/xlib**-Oberflaeche nur ZWEI Paare, beide B8G8R8A8 mit SRGB_NONLINEAR — kein fp16, kein weiter Farbraum. Auf X11 faellt die Pruefung also auf 'nein', und der Player bleibt beim Herunterrechnen. Ohne diesen Gegenpunkt waere 'ja' nicht von 'die Pruefung sagt immer ja' zu unterscheiden.",
     "was_wgpu_dabei_tut_GELESEN": "wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:168 setzt EXTENDED_SRGB_LINEAR_EXT genau dann, wenn das Swapchain-Format Rgba16Float ist — sonst SRGB_NONLINEAR. Es gibt keine Stelle, an der sich das von aussen setzen liesse; die einzige Handhabe ist die Formatwahl. Deshalb ist Rgba16Float im Player nicht 'das praezisere Format', sondern der Schalter."
   },
-
   "GEMESSEN_frage_2_nuetzt_es_etwas": {
     "der_gepruefte_weg": "Eigene Wayland-Verbindung, wl_registry -> wp_color_manager_v1 (Fassung 1) -> get_output(wl_output) -> get_image_description() -> get_information() -> die Ereignisse der Bildbeschreibung mitlesen. Der Ausgang wird ueber sein wl_output-name-Ereignis ('DP-2') mit dem Fenster verbunden, das winit ueber current_monitor().name() nennt.",
     "die_zahlen": {
@@ -65,7 +62,6 @@
     "DIE_FALLE_die_naheliegende_pruefung_biegt_still_falsch_ab": "Wer auf die Uebertragungskurve prueft (tf_named == st2084_pq), bekommt auf diesem Compositor IMMER 'nein' — KWin meldet in BEIDEN Zustaenden Gamma22. Der Code haette dann nie HDR ausgegeben, ohne dass ein Fehler sichtbar geworden waere: das Bild saehe genauso aus wie vorher, nur waere die Ursache eine andere. Das Kennzeichen ist die Leuchtdichte, nicht die Kurve. (Der Compositor gibt damit auch keine PQ-Signalisierung an den Client weiter — er rechnet selbst, und der Client liefert scRGB-linear. Das passt zu dem, was Frage 1 anbietet.)",
     "warum_nicht_kscreen_doctor": "kscreen-doctor liefert dieselbe Auskunft (HDR: enabled, Peak 530 nits, SDR brightness 295 nits) und ist als Gegenprobe benutzt worden — aber es ist ein KDE-Werkzeug. wp_color_manager_v1 beantwortet dieselbe Frage auf jedem Compositor mit Farbverwaltung."
   },
-
   "GEMESSEN_die_beiden_fragen_sind_unabhaengig": {
     "versuch": "HDR auf DP-2 per kscreen-doctor aus- und wieder eingeschaltet, dazwischen beide Fragen erneut gestellt (mit dem Player-Werkzeug und mit vulkaninfo).",
     "frage_1_mit_HDR_an": "28 Paare, davon 8 mit fp16, scRGB-linear dabei: JA",
@@ -74,16 +70,15 @@
     "frage_2_mit_HDR_aus": "DP-2 1,00 -> SDR",
     "was_daraus_folgt": "Die Vulkan-Formatliste ist eine Aussage ueber Treiber und Compositor, nicht ueber den Bildschirmzustand. Wer nur Frage 1 stellt und daraus auf HDR schliesst, schoebe einen HDR-Puffer auch auf einen SDR-Schirm. Die Trennung der beiden Fragen im Modulkopf war also richtig — sie ist jetzt belegt statt begruendet."
   },
-
   "was_gebaut_wurde": {
     "render/hdr_vulkan.rs": "Frage 1: fragt den Treiber direkt (weiter_farbraum_moeglich, oberflaechenformate, swapchain_ist_nativ). Nur Linux.",
     "render/hdr_schirm.rs": "Frage 2: Hintergrundfaden mit eigener Wayland-Verbindung, haelt eine Tabelle Ausgangsname -> Leuchtdichte und schreibt nur mit, wenn der Compositor image_description_changed meldet. Nur Linux.",
     "render/hdr.rs": "Die Plattform-Weiche und die Modul-Landkarte.",
     "render/hdr_auskunft.rs": "pulse-player --hdr-auskunft — beide Fragen samt ihren Zahlen, durch dieselben Funktionen wie der Betrieb.",
     "render/hdr_fenster.rs": "farbraum_anmelden bekommt einen Linux-Zweig (nachsehen statt anmelden); die Schirmkennung wird von einer rohen hwnd auf eine Schirmquelle umgestellt, weil es unter Wayland keine Fensternummer gibt, sondern einen Ausgangsnamen.",
-    "die_schwelle": "MINDEST_SPIELRAUM = 1,2 in hdr_schirm.rs. Ab diesem Verhaeltnis max_lum/reference_lum gilt ein Ausgang als HDR."
+    "die_schwelle": "MINDEST_SPIELRAUM = 1,2 in hdr_schirm.rs. Ab diesem Verhaeltnis max_lum/reference_lum gilt ein Ausgang als HDR.",
+    "overlay/wechsel.rs": "Der Formatwechsel der Bedienoberflaeche. Kontext, Fenster-Anbindung und Zeichner in EINEM Feld (Eguiseite), damit sie nur gemeinsam erneuert werden koennen. Nachgereicht am 2026-08-07 nach dem Absturz beim ersten echten PQ-Strom."
   },
-
   "kontrollen": {
     "rueckfall_ohne_farbverwaltung": "Mit unerreichbarem Wayland-Socket meldet das Werkzeug 'kein wp_color_manager_v1 erreichbar — die Frage ist hier nicht zu stellen' und der Player bleibt beim Herunterrechnen. Kein Absturz.",
     "rueckfall_ohne_vulkan": "weiter_farbraum_moeglich liefert None (nicht false) — die Unterscheidung 'nicht gefragt' gegen 'gefragt und nein' steht im Log und in der Auskunft.",
@@ -91,9 +86,33 @@
     "tests": "cargo test: 234 bestanden, 0 fehlgeschlagen, 5 uebersprungen (vorher 230 — vier neue).",
     "ausgangszustand": "HDR auf DP-2 nach den Umschaltversuchen wieder eingeschaltet und mit kscreen-doctor nachgeprueft (HDR: enabled, Peak 530 nits, SDR brightness 295 nits)."
   },
-
+  "GEMESSEN_nachtrag_echter_pq_strom": {
+    "was_hier_stand": "Unter GRENZEN_DER_AUSSAGE stand als wichtigster offener Punkt: 'die Kette ist NICHT end-zu-end gemessen'. Das ist am selben Tag nachgeholt worden. Die alte Aussage bleibt dort als erledigt stehen, weil die Lehre daran haengt.",
+    "aufbau": "streaming/testbench/hdr-testbild.py erzeugt hdr-testbild.mkv (AV1, yuv420p10le, colorspace bt2020nc / transfer smpte2084 / primaries bt2020 — mit ffprobe nachgesehen), sechs Streifen mit bekannten Leuchtdichten 1 bis 1000 cd/m². Gesendet mit `-c copy` ueber harness.py an das lokale MediaMTX, angesehen mit pulse-player (av1_cuvid, Hardware). Das Testbild stammt vom Koordinator und ist noch nicht committet.",
+    "die_erkennung_greift": [
+      "pulse-player: Oberflaechenformat Rgb10a2Unorm auf NVIDIA GeForce RTX 5080 (Vulkan) (angeboten: [Rgba8UnormSrgb, Bgra8UnormSrgb, Rgb10a2Unorm, Rgba8Unorm, Bgra8Unorm, Rgba16Float])",
+      "pulse-player: weiter Farbraum (scRGB-linear, fp16) laut Treiber: ja",
+      "pulse-player: Farbraum des Fensters: scRGB-linear (Vulkan, geprueft am Treiber)",
+      "pulse-player: Farbwelt des Stroms HDR (PQ) -> Fenster HDR (Rgba16Float)"
+    ],
+    "DER_FEHLER_den_dieser_lauf_gefunden_hat": {
+      "was_passierte": "Im selben Durchgang, in dem umgeschaltet wurde, starb der Player. Drei Paniken hintereinander: (1) egui-wgpu-0.35.0/src/renderer.rs:669 'Tried to update a texture that has not been allocated yet.', (2) wgpu-hal-29.0.4/src/vulkan/swapchain/native.rs:359 'Trying to destroy a SwapchainAcquireSemaphore that is still in use by a SurfaceTexture', (3) 'panic in a destructor during cleanup'.",
+      "ursache": "Der Formatwechsel tauschte NUR den egui_wgpu::Renderer aus (frueher Overlay::zeichner_neu), mit der ausdruecklichen Begruendung, egui lade seine Texturen beim naechsten Durchgang von selbst neu. DIESE BEGRUENDUNG WAR FALSCH. egui fuehrt seinen Texturbestand im egui::Context, nicht im Zeichner, und schickt ihn nur EINMAL vollstaendig; danach kommen Teilstuecke (ImageDelta mit gesetztem pos), die ein frisch angelegter Zeichner nicht annehmen kann.",
+      "drei_paniken_ein_fehler": "Nachgemessen, nicht geschlossen: mit der alten Bauart kommen alle drei, mit der neuen keine einzige. Die beiden hinteren sind Folgen der ersten — sie faellt mitten im Zeichendurchgang an, waehrend das Swapchain-Bild abgeholt in der Hand liegt. Wer nur die zweite liest, sucht den Fehler in der Swapchain; dort ist keiner.",
+      "behebung": "Kontext, Fenster-Anbindung und Zeichner werden gemeinsam erneuert und liegen dafuer in EINEM Feld (overlay::wechsel::Eguiseite) — der Zeichner laesst sich damit gar nicht mehr allein tauschen. Ein Test kann das nicht absichern (er braeuchte Fenster und Ereignisschleife auf dem Hauptfaden, cargo test laeuft auf Arbeitsfaeden), deshalb ist es strukturell geloest statt geprueft. Drei Tests halten dafuer das WARUM fest, einer davon auf echter GPU."
+    },
+    "GEGENLAUF": {
+      "alte_bauart": "0 ausgegebene Bilder, 3 Paniken, Player-stdout geschlossen — dieselben drei Zeilen wie beim Erstbefund, in derselben Reihenfolge.",
+      "neue_bauart_20_s": "1116 ausgegebene Bilder, 58,4 fps im Mittel, 0 Paniken.",
+      "neue_bauart_40_s": "2315 ausgegebene Bilder, 59,3 fps im Mittel, 0 Paniken.",
+      "warum_der_gegenlauf_noetig_war": "Ohne ihn waere '0 Paniken' nicht von 'der Wechsel hat gar nicht stattgefunden' zu unterscheiden — und die Zuordnung der beiden Folge-Paniken zur ersten waere eine Vermutung geblieben."
+    },
+    "nebenbefund_uebernommen": "Codewert 723 entspricht exakt 1000 cd/m² (aus hdr-testbild.json). Der Sidecar-Lauf, der als Maximum 723 gemessen und daraus ~1000 cd/m² zurueckgerechnet hat, ist damit in sich stimmig."
+  },
   "GRENZEN_DER_AUSSAGE": [
-    "**Der wichtigste offene Punkt: die Kette ist NICHT end-zu-end gemessen.** Belegt sind die beiden Vorbedingungen und die Probeschaltung der Oberflaeche. Dass ein echter PQ-Strom im Fenster dann auch RICHTIG aussieht, ist nicht geprueft — es gibt unter Linux keinen HDR-Sender (nur der Windows-Sidecar kann es, s. docs/2026-08-06-hdr-windows-amd.md). Ein Sichtvergleich HDR gegen heruntergerechnet steht damit aus und ist der naechste Schritt, sobald ein HDR-Strom auf diese Maschine kommt.",
+    "**ERLEDIGT am 2026-08-07 — siehe GEMESSEN_nachtrag_echter_pq_strom.** Hier stand als wichtigster offener Punkt: 'die Kette ist NICHT end-zu-end gemessen. Belegt sind die beiden Vorbedingungen und die Probeschaltung der Oberflaeche.' Der Lauf gegen einen echten PQ-Strom hat stattgefunden — und er hat sofort einen Absturz im Umschaltmoment gefunden, den keine der drei Vorbedingungs-Messungen sehen konnte. Das ist die Lehre daran, nicht bloss die Erledigung: eine Kette aus drei belegten Gliedern ist keine belegte Kette.",
+    "**Was auch jetzt nicht belegt ist: dass das Bild RICHTIG aussieht.** Gemessen ist, dass umgeschaltet wird und dass der Player durchlaeuft (2315 Bilder in 40 s, 0 Paniken). Ein Sichtvergleich HDR gegen heruntergerechnet steht aus, und erst recht eine Messung der ausgegebenen Leuchtdichte gegen die sechs bekannten Streifen des Testbilds — das Testbild traegt die Sollwerte dafuer bereits (hdr-testbild.json), benutzt wurden sie hier nicht.",
+    "**Der Weg zurueck ist ungemessen.** Geprueft ist SDR -> HDR. Der umgekehrte Wechsel (Fenster von einem HDR- auf einen SDR-Schirm ziehen) geht durch dieselbe Stelle und sollte damit ebenso halten, ist aber nicht gefahren worden.",
     "**Dass der Compositor die Werte wirklich als lineares scRGB auf den Schirm bringt, ist nicht belegt.** Geprueft ist, dass Treiber und wgpu den Farbraum annehmen und eine Swapchain damit zustande kommt. Was KWin danach damit tut, waere nur mit einem Messgeraet vor dem Bildschirm zu belegen.",
     "**Die Schwelle 1,2 hat genau zwei Messpunkte hinter sich**: 1,00 (SDR) und 1,80 (dieser Monitor mit HDR). Alles dazwischen ist ungemessen. Ein HDR-Geraet mit knappem Spielraum — etwa ein Notebook-Schirm, der 400 nits meldet und 250 als Bezugsweiss (1,60), oder ein Geraet mit 250/200 (1,25) — faellt entweder knapp darueber oder knapp darunter, und welche der beiden Antworten dort richtig waere, weiss diese Messung nicht. Die Schwelle ist bewusst zur SDR-Seite gewaehlt: ein falsches Nein kostet die Genauigkeit des Herunterrechnens, ein falsches Ja kann Spitzlichter kosten.",
     "**Nur ein Compositor, nur eine Fassung.** Gemessen ist KWin 6.7.3 mit wp_color_manager_v1 in Fassung 2; der Player bindet Fassung 1. Wie Mutter, Hyprland oder wlroots-Compositoren ihre Ausgangs-Bildbeschreibung fuellen, ist ungeprueft — insbesondere, ob sie ueberhaupt Leuchtdichten nennen. Bietet ein Compositor das Protokoll gar nicht oder nur in einer hoeheren, unvertraeglichen Hauptfassung an, greift der Rueckfall (Tabelle bleibt leer -> kein HDR); das ist geprueft, aber nur ueber den Fall 'Verbindung nicht moeglich', nicht gegen einen echten Compositor ohne Farbverwaltung.",
@@ -103,7 +122,6 @@
     "**Ueber Windows und macOS sagt diese Akte nichts.** Der Windows-Weg (SetColorSpace1 + DXGI-Ausgangsabfrage) ist unveraendert; der Umbau der Schirmkennung beruehrt ihn, ist dort aber nicht uebersetzt und nicht ausgefuehrt worden — auf dieser Maschine gibt es keinen Windows-Uebersetzer. macOS hat den Weg gar nicht.",
     "**Die Kosten des neuen Fadens sind nicht gemessen.** hdr_schirm haelt eine zweite Wayland-Verbindung und einen Faden, der auf Ereignisse wartet; im Ruhezustand sollte er nichts kosten. Belegt ist das nicht. Ebenso wenig gemessen: was current_monitor() im Zeichenfaden kostet — es laeuft hoechstens einmal je Sekunde (SCHIRM_FRIST), aber die Zahl dahinter fehlt, genau wie sie der Windows-Seite bis zum 2026-08-06 gefehlt hat."
   ],
-
   "rohdaten": {
     "werkzeug_hdr_an": "== Frage 2 ==\\n  DP-1: max 200 cd/m², Bezugsweiss 200 cd/m², Verhaeltnis 1.00 -> SDR\\n  DP-2: max 530 cd/m², Bezugsweiss 295 cd/m², Verhaeltnis 1.80 -> HDR\\n  HDMI-A-1: max 200 cd/m², Bezugsweiss 200 cd/m², Verhaeltnis 1.00 -> SDR\\n== Frage 1 ==\\n  Karte: NVIDIA GeForce RTX 5080 (Vulkan)\\n  Der Treiber meldet 28 Format/Farbraum-Paare fuer diese Oberflaeche.\\n  Davon mit fp16 (8 Stueck): SRGB_NONLINEAR, PASS_THROUGH_EXT, EXTENDED_SRGB_LINEAR_EXT, DISPLAY_P3_LINEAR_EXT, BT709_LINEAR_EXT, BT709_NONLINEAR_EXT, BT2020_LINEAR_EXT, ADOBERGB_LINEAR_EXT\\n  scRGB-linear in fp16: JA\\n  Probeschaltung auf Rgba16Float: native Vulkan-Swapchain ja, Bild abholbar ja",
     "werkzeug_hdr_aus": "== Frage 2 ==\\n  DP-1: 1.00 -> SDR\\n  DP-2: max 200 cd/m², Bezugsweiss 200 cd/m², Verhaeltnis 1.00 -> SDR\\n  HDMI-A-1: 1.00 -> SDR\\n== Frage 1 == identisch zu oben (28 Paare, 8 mit fp16, scRGB-linear: JA)",

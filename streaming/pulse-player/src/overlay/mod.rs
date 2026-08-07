@@ -36,12 +36,12 @@
 //! [`controls`]; hier liegt die Schleife, die entscheidet, WANN.
 
 mod controls;
+/// Der Formatwechsel zur Laufzeit — und warum er Kontext UND Zeichner erneuert.
+mod wechsel;
 
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-
-use crate::theme;
 use winit::window::Window;
 
 /// Wie lange das Overlay nach der letzten Mausbewegung sichtbar bleibt.
@@ -119,9 +119,10 @@ struct PresentRate {
 }
 
 pub struct Overlay {
-    ctx: egui::Context,
-    state: egui_winit::State,
-    renderer: egui_wgpu::Renderer,
+    /// Kontext, Fenster-Anbindung und Zeichner — **als EIN Feld**, weil sie nur
+    /// gemeinsam erneuert werden duerfen. Begruendung in [`wechsel::Eguiseite`];
+    /// kurz: den Zeichner allein zu tauschen hat den Player umgebracht.
+    egui: wechsel::Eguiseite,
     last_activity: Instant,
     /// Es liegt Eingabe an, die egui sehen MUSS, auch wenn nichts sichtbar ist:
     /// Doppelklick (Vollbild) und `Esc` haengen am egui-Durchgang, und `Esc`
@@ -162,33 +163,14 @@ impl Overlay {
         window: &Window,
         volume: f32,
     ) -> Result<Self> {
-        let ctx = egui::Context::default();
-        let state = egui_winit::State::new(
-            ctx.clone(),
-            egui::ViewportId::ROOT,
-            window,
-            Some(window.scale_factor() as f32),
-            None,
-            None,
-        );
-        // `dithering` aus: das Bild bringt sein eigenes Dither mit (shader.wgsl),
-        // und die Oberflaeche traegt 10 bit — egui hat hier nichts zu glaetten.
-        let renderer = egui_wgpu::Renderer::new(
-            device,
-            surface_format,
-            egui_wgpu::RendererOptions { dithering: false, ..Default::default() },
-        );
-        // Aussehen der App uebernehmen + den SVG-Lader anmelden, sonst bleiben
-        // die Symbole leer.
-        theme::install_fonts(&ctx);
-        theme::apply_style(&ctx);
-        egui_extras::install_image_loaders(&ctx);
+        // Aussehen der App, SVG-Lader — an EINER Stelle mit dem Formatwechsel
+        // (`wechsel::kontext_aufsetzen`), damit die Leiste nach einem Wechsel
+        // auf HDR nicht anders aussieht als vorher.
+        let egui = wechsel::Eguiseite::neu(device, surface_format, window);
 
         let percent = (volume * 100.0).clamp(0.0, MAX_VOLUME_PERCENT);
         Ok(Self {
-            ctx,
-            state,
-            renderer,
+            egui,
             // Beim Oeffnen kurz zeigen, damit sichtbar ist, dass es Bedienung gibt.
             last_activity: Instant::now(),
             input_pending: true,
@@ -201,36 +183,6 @@ impl Overlay {
             stats_visible: true,
             can_reattach: true,
         })
-    }
-
-    /// Den GPU-Zeichner gegen einen fuer ein anderes Oberflaechenformat
-    /// tauschen.
-    ///
-    /// Gebraucht, wenn der Player wegen eines HDR-Stroms das Format der
-    /// Oberflaeche wechselt (`render::Renderer::farbraum_fuer_quelle`): egui
-    /// uebersetzt seine Pipeline beim Anlegen fuer ein bestimmtes Ziel, und
-    /// eine Pipeline fuer `Rgb10a2Unorm` darf nicht in eine
-    /// `Rgba16Float`-Flaeche zeichnen.
-    ///
-    /// **Nur der Zeichner, nicht das ganze Overlay.** Titel, Lautstaerke,
-    /// Sichtbarkeit der Leiste und der Zustand von egui selbst haengen an
-    /// diesem Objekt; sie beim Formatwechsel zu verlieren waere ein sichtbarer
-    /// Ruckler in der Bedienung fuer ein Problem, das nur die GPU hat.
-    ///
-    /// Was dabei verlorengeht, sind die hochgeladenen Texturen (Symbole,
-    /// Schrift). egui laedt sie beim naechsten Durchgang von selbst neu — es
-    /// haelt seinen eigenen Bestand und schickt ihn als `textures_delta` mit.
-    pub fn zeichner_neu(&mut self, device: &wgpu::Device, surface_format: wgpu::TextureFormat) {
-        self.renderer = egui_wgpu::Renderer::new(
-            device,
-            surface_format,
-            egui_wgpu::RendererOptions { dithering: false, ..Default::default() },
-        );
-        // Alles neu zeichnen lassen — sonst bliebe die Leiste bis zur naechsten
-        // Eingabe leer.
-        self.ctx.request_repaint();
-        self.input_pending = true;
-        self.stats_dirty = true;
     }
 
     /// Fenster-Ereignis an egui geben. `true` = ein Durchgang ist angefordert.
@@ -277,7 +229,7 @@ impl Overlay {
         if is_input {
             self.input_pending = true;
         }
-        let response = self.state.on_window_event(window, event);
+        let response = self.egui.state.on_window_event(window, event);
         // Der Repaint-Wunsch gilt nur fuer Eingabe — bei Groessen- und
         // Zustandswechseln fordert das Fenster den Durchgang ohnehin selbst an.
         response.repaint && is_input
@@ -331,11 +283,11 @@ impl Overlay {
         let visible = self.visible();
         self.update_present_rate(stats.frames_presented);
 
-        // Eigene Handle-Kopie: `run_ui` leiht sonst `self.ctx`, waehrend der
+        // Eigene Handle-Kopie: `run_ui` leiht sonst `self.egui.ctx`, waehrend der
         // Aufbau `&mut self` braucht (die Bedienleiste haelt den Schieberwert).
         // `egui::Context` ist ein Arc-Handle — die Kopie ist derselbe Kontext.
-        let ctx_handle = self.ctx.clone();
-        let input = self.state.take_egui_input(window);
+        let ctx_handle = self.egui.ctx.clone();
+        let input = self.egui.state.take_egui_input(window);
         let full = ctx_handle.run_ui(input, |ui| {
             let ctx = ui.ctx();
             // Doppelklick ins Bild schaltet Vollbild — auch wenn das Overlay
@@ -359,16 +311,16 @@ impl Overlay {
         self.input_pending = false;
         self.stats_dirty = false;
         self.painted = visible;
-        self.state.handle_platform_output(window, full.platform_output);
-        let tris = self.ctx.tessellate(full.shapes, full.pixels_per_point);
+        self.egui.state.handle_platform_output(window, full.platform_output);
+        let tris = self.egui.ctx.tessellate(full.shapes, full.pixels_per_point);
         for (id, delta) in &full.textures_delta.set {
-            self.renderer.update_texture(device, queue, *id, delta);
+            self.egui.renderer.update_texture(device, queue, *id, delta);
         }
         let descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [size.0.max(1), size.1.max(1)],
             pixels_per_point: full.pixels_per_point,
         };
-        self.renderer.update_buffers(device, queue, encoder, &tris, &descriptor);
+        self.egui.renderer.update_buffers(device, queue, encoder, &tris, &descriptor);
         {
             // `Load`: das Bild steht schon in der Textur, es darf nicht
             // ueberschrieben werden.
@@ -388,10 +340,10 @@ impl Overlay {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            self.renderer.render(&mut pass.forget_lifetime(), &tris, &descriptor);
+            self.egui.renderer.render(&mut pass.forget_lifetime(), &tris, &descriptor);
         }
         for id in &full.textures_delta.free {
-            self.renderer.free_texture(id);
+            self.egui.renderer.free_texture(id);
         }
         actions
     }

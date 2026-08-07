@@ -522,12 +522,16 @@ impl App {
         //
         // **Aendert sich dabei das Oberflaechenformat, muss die
         // Bedienoberflaeche mitziehen** — sie zeichnet in dieselbe Flaeche, und
-        // ihre GPU-Pipeline ist auf das alte Format uebersetzt. Nur der
-        // Zeichner wird ersetzt, nicht das ganze Overlay: Titel, Lautstaerke
-        // und der Zustand der Leiste sollen den Wechsel ueberleben.
+        // ihre GPU-Pipeline ist auf das alte Format uebersetzt.
+        //
+        // **Hier stand „nur der Zeichner wird ersetzt, nicht das ganze
+        // Overlay". Genau daran ist der Player am 2026-08-07 beim ersten
+        // echten HDR-Strom gestorben** — die Begruendung und der Beleg stehen
+        // im Kopf von `overlay::wechsel`. Titel, Lautstaerke und Sichtbarkeit
+        // ueberleben weiterhin; sie liegen im Overlay, nicht in egui.
         if let Some(neues_format) = renderer.farbraum_fuer_quelle(*farbe) {
             if let Some(o) = overlay.as_mut() {
-                o.zeichner_neu(renderer.device(), neues_format);
+                o.egui_neu(renderer.device(), neues_format, window);
             }
         }
 
