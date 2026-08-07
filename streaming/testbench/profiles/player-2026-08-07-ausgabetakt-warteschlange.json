@@ -47,9 +47,22 @@
     "nachher": { "gezeichnet_pro_s": "126-144", "bildabstand_ms": "5,6-8,0 (0 zu spaet)", "verdraengt": "14 im ganzen Lauf", "stockungen": 0 }
   },
 
+  "befund_3_die_zero_copy_bruecke_kostet_die_videoeinheit": {
+    "korrektur": "In einer frueheren Fassung dieser Akte stand, der verbleibende Engpass bei 1440p144 sei 'plausibel die Videoeinheit der 780M, die gleichzeitig encodiert und dekodiert'. DAS IST WIDERLEGT. Gemessen wurde die GPU-Last je Prozess und Engine-Typ - der Sender ist gar nicht der Verursacher.",
+    "messung_1440p_144fps_videoeinheit_mittel_ueber_30_s": {
+      "pulse-player_zero_copy_an": "110 % (Spitze 216 %)",
+      "pulse-player_zero_copy_aus": "39 % (Spitze 210 %)",
+      "pulse-win-hq-sidecar_encodiert_denselben_strom": "29-32 % (Spitze 35-41 %)"
+    },
+    "schluss": "Der Sender encodiert 2560x1440 bei 144 fps mit 29 % der Videoeinheit. Der Player braucht fuers Dekodieren desselben Stroms 39 % - plausibel. Die Zero-Copy-Bruecke legt darauf noch rund 70 Prozentpunkte. Sie ist damit teurer als Encodieren und Dekodieren zusammen.",
+    "warum": "bruecke.rs::kopieren macht je Bild ein CopySubresourceRegion der vollen Bildflaeche auf FFMPEGS D3D11-Kontext - demselben, den der Decoder benutzt. Auf AMD landet eine Kopie aus einer DXVA-gebundenen Decoder-Textur damit auf der VIDEOEINHEIT und konkurriert unmittelbar mit dem Dekodieren. Dazu kommt je Bild ein Flush() plus WaitForSingleObject(INFINITE) auf der CPU, das Dekodieren und Kopieren vollstaendig serialisiert.",
+    "das_wort_zero_copy_ist_irrefuehrend": "Der Weg heisst so, weil das Bild den Hauptspeicher nicht sieht. Eine Kopie IN DER GPU macht er sehr wohl - eine je Bild, 1440p, 144 mal je Sekunde.",
+    "richtung_der_behebung": "Die Kopie ganz vermeiden, statt sie zu verbilligen: AVD3D11VAFramesContext hat ein MiscFlags-Feld. Wird der Bilderpool des Decoders mit D3D11_RESOURCE_MISC_SHARED (+ NTHANDLE/KEYEDMUTEX) angelegt, sind SEINE Texturen schon teilbar und D3D12 kann sie unmittelbar einbinden. Dann entfaellt Kopie UND Zaun. Offen: ob Treiber ein Texturfeld mit BIND_DECODER und SHARED zugleich hergeben (AMD/NVIDIA/Intel je einzeln zu pruefen), und wie eine einzelne Schicht des Feldes in wgpu einzubinden ist. Zweitbester Weg, falls das scheitert: geteilter Zaun (D3D11_FENCE_FLAG_SHARED -> ID3D12Fence::Wait auf der wgpu-Warteschlange), damit wenigstens die CPU-Serialisierung je Bild wegfaellt - die API-Wege dafuer sind in bruecke.rs bereits nachgewiesen."
+  },
+
   "offen": {
-    "1440p_bei_144_fps": "Auf DIESER APU bleibt es auch nach der Behebung bei 34-83 gezeichneten Bildern je Sekunde. Dort greift ein zweiter, auflOesungsabhaengiger Engpass: 'dekodieren' steigt von 2,2 auf 4,9-7,3 ms je Bild, und der Kanal zum Fenster-Faden laeuft mit rund 50 Bildern je Sekunde ueber. Das ist NICHT der Ausgabe-Takt (verdraengt 12 im ganzen Lauf) und plausibel die Videoeinheit der 780M, die gleichzeitig 1440p144 encodiert und dekodiert. Auf einer dedizierten Karte ist dieser zweite Engpass nicht zu erwarten; ungeprueft, weil hier keine vorhanden.",
-    "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert."
+    "kanaltiefe": "Der Kanal zwischen Decoder- und Fenster-Faden fasst 8 Bilder und haelt damit 8 Ringplaetze. Da der Ausgabe-Takt der eigentliche Puffer ist, waere eine flachere Tiefe vermutlich besser - weniger Ringdruck, weniger Verzoegerung. Nicht gemessen, deshalb nicht geaendert.",
+    "ruecklesen_ist_kein_ausweg": "Mit abgeschaltetem Zero-Copy faellt die Videoeinheit auf 39 %, die gezeichnete Bildrate aber auf 6-41/s - die Last wandert nur auf CPU und Hauptspeicher. Der Weg ueber den Grafikspeicher bleibt richtig, er ist nur falsch gebaut."
   },
 
   "rohdaten": "streaming/testbench/profiles/rohdaten/ - nicht abgelegt: die Laeufe stehen vollstaendig in den <arm>-player.log des Messlaufs, sie enthalten aber Pfade des Messstands. Die Zahlen oben sind die Statistikzeilen daraus."
