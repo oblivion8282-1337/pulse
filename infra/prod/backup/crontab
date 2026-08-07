@@ -15,5 +15,10 @@
 30 4 * * * /usr/local/bin/backup.sh avatars >/proc/1/fd/1 2>&1
 35 4 * * * /usr/local/bin/backup.sh icons >/proc/1/fd/1 2>&1
 
+# Konfiguration + Geheimnisse — taeglich, gestaffelt nach den Icons.
+# Siehe die Begruendung in backup.sh: bis 2026-08-07 lag hiervon nichts im
+# Backup, und ein versehentliches Loeschen war deshalb endgueltig.
+40 4 * * * /usr/local/bin/backup.sh config >/proc/1/fd/1 2>&1
+
 # Weekly maintenance — Sunday 05:00 (forget+prune+check)
 0 5 * * 0 /usr/local/bin/backup.sh maintenance >/proc/1/fd/1 2>&1

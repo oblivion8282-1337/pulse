@@ -188,6 +188,14 @@ services:
       - pulse_minio_stage:/var/cache/pulse-backup
       - pulse_avatars:/snapshot/avatars:ro
       - pulse_guild_icons:/snapshot/guild_icons:ro
+      # Konfiguration und Geheimnisse — NUR LESEND. Ohne diesen Mount lag von
+      # `.env`, `secrets/` (JWT-Schlüssel) und `certs/` nichts im Backup: das
+      # restic-Repo sicherte ausschliesslich Nutzerdaten. Am 2026-08-07 hat ein
+      # `rsync --delete` genau diese Dateien geloescht — Datenbank und Uploads
+      # waren vollstaendig gesichert, der private JWT-Schluessel trotzdem
+      # endgueltig weg. Alle Sitzungen und Geraete-Zertifikate mussten neu
+      # ausgestellt werden.
+      - ./:/snapshot/config:ro
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
