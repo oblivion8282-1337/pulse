@@ -9,8 +9,11 @@
 pub mod audio;
 pub mod audio_router;
 pub mod egl_modifiers;
-pub mod portal;
+/// Scanout-Aufnahme (DRM/KMS) — der HDR-Sonderweg, s. Modul-Doku.
+pub mod kms;
+pub mod kms_aufnahme;
 pub mod pipewire_stream;
+pub mod portal;
 
 use std::time::Duration;
 

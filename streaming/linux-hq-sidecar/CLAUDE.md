@@ -384,6 +384,56 @@ nachgelinkt). `list_application_audio` enumeriert real (`application.name`-Dedup
   Volle Messakte samt Encoder- und Zuschauerseite:
   `streaming/testbench/profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.
 
+## HDR sendet der Sidecar — aber nur ueber die Scanout-Aufnahme (2026-08-07)
+
+**Der Absatz direkt darueber gilt weiter fuer den Portal-Weg — sein Schluss
+„fuer HDR ist es die Sackgasse" galt aber der ganzen Aufnahme, und das war zu
+breit.** Es gibt einen zweiten Aufnahmeweg, der den Compositor gar nicht fragt:
+**DRM/KMS**, direkt vom Scanout. Der liefert, was dem Portal fehlt.
+
+Gemessen am selben Tag, dieselbe Maschine (`profiles/hdr-2026-08-07-scanout-linux-nvidia.json`):
+
+| | Portal | Scanout (KMS) |
+|---|---|---|
+| Format bei HDR am Ausgang | `XR24`, 8 bit | **`AB30`, 10 bit** |
+| Format bei HDR aus | `XR24` | `AR24`, 8 bit |
+| Aufnahme aendert sich mit HDR | nein, byte-identisch | **ja**, Y max 723 statt 930 |
+| Farbraum-Beschreibung | keine | `HDR_OUTPUT_METADATA` je Ausgang |
+
+Vier Dinge daran sind nicht offensichtlich:
+
+* **Der Scanout ist bereits PQ-kodiert** — der Compositor hat die Kurve
+  angewandt, weil der Bildschirm sie so erwartet. Der Shader rechnet deshalb
+  **keine** Transferkurve, nur die BT.2020-Matrix (`nv_p010::Farbmodell`).
+  gpu-screen-recorder macht es auf Linux genauso; der Windows-Sidecar muss mehr
+  tun, weil WGC ihm lineares scRGB gibt.
+* **Die Bittiefe allein beweist nichts.** DP-1 lief in SDR und scannte trotzdem
+  `AB30`. Ob ein Ausgang HDR fuehrt, steht in der Property
+  `HDR_OUTPUT_METADATA` (`eotf == 2` = PQ), nicht im Fourcc.
+* **Der Weg braucht `CAP_SYS_ADMIN`.** `GETFB2` beantwortet der Kernel jedem,
+  die **GEM-Handles** darin aber nur DRM-Master oder `CAP_SYS_ADMIN` — ohne
+  Handle kein DMABUF. Deshalb hat gpu-screen-recorder einen eigenen Helfer mit
+  gesetzter Capability. **Fuer die Flatpak-Auslieferung ist das ungeloest**
+  (ein Flatpak kann keine Datei-Capabilities tragen); bis dahin ist HDR eine
+  Laborfaehigkeit. Der Sidecar verweigert den Start mit Begruendung, statt
+  still auf SDR zurueckzufallen (`encode/hdr.rs`, Muster von
+  `win-hq-sidecar/src/encode/hdr.rs`).
+* **Der Mauszeiger fehlt** — er liegt auf einer eigenen DRM-Plane. Und es gibt
+  keine Quellenauswahl: aufgenommen wird ein ganzer Ausgang. Der Weg ist kein
+  Ersatz fuer das Portal, sondern der Sonderweg fuer HDR.
+
+Werkzeug: `examples/kms_hdr_nachweis.rs`. `--liste` zeigt die Ausgaenge und
+ihren HDR-Zustand **ohne jede Berechtigung** — das ist der erste Griff bei
+jeder HDR-Frage auf dieser Plattform.
+
+**Ein Fehler, der dabei aufgefallen ist und den PipeWire-Weg nicht betraf:**
+`DmabufFrame::buffer_key` war seit jeher mit „0 = nicht cachen" dokumentiert,
+`nv_import` hat den Wert aber wie jeden anderen Schluessel behandelt. Bei der
+Scanout-Aufnahme, wo der Puffer bei jedem Bild wechselt, waere das ein
+**stehendes Bild** gewesen — mit voellig plausiblen Messwerten. Aufgefallen an
+der Log-Zeile „EGLImage-Cache: neuer Capture-Buffer aufgenommen buffers=1", die
+bei 180 Bildern genau einmal kam. Behoben.
+
   Folge: „10 bit" heißt bei einem Bildschirm-Stream **10 bit Rechenraum im
   Encoder**, nicht 10 bit Bildinhalt. Der Gewinn ist real und gemessen (ein
   absichtlich auf 8 bit gerastertes Band kommt im 10-bit-Lauf mit 42 statt 11

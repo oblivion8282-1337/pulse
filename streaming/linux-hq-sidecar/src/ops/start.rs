@@ -92,10 +92,25 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     // entfernten `traegt_intra_refresh` in `encode/opts.rs`. Ob der Encoder
     // die Betriebsart wirklich annimmt, entscheidet ohnehin
     // `intra_refresh_pruefen` vor dem Open, und zwar mit Abbruch statt Warnung.
-    let wants_ten_bit = requested_ten_bit(overrides);
+    // HDR schaltet 10 bit SELBST ein, statt es vom Nutzer zu verlangen: PQ
+    // verteilt seine Codewerte ueber 0,0001 bis 10 000 cd/m2, und in 8 bit
+    // stuenden dafuer 256 Stufen zur Verfuegung (Begruendung `encode::hdr`).
+    let hdr_gewuenscht = requested_hdr(overrides);
+    let ausgang_wunsch = overrides
+        .and_then(|o| o.get("hdr_ausgang"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let wants_ten_bit = requested_ten_bit(overrides) || hdr_gewuenscht;
     let ten_bit = wants_ten_bit && ten_bit_possible(&codec);
     if wants_ten_bit && !ten_bit {
         log_ten_bit_refusal(&codec);
+    }
+    // **Unerfuellbar heisst Startverweigerung, nicht stiller Rueckfall.** Ein
+    // SDR-Bild unter HDR-Etikett sieht der Zuschauer am ganzen Bild, und er
+    // sucht den Fehler bei seinem Schirm. Geprueft wird hier, VOR dem Aufbau
+    // der Aufnahme — der Aufnahmeweg haengt an der Antwort.
+    if hdr_gewuenscht {
+        hdr_pruefen_oder_absagen(&codec, ten_bit, ausgang_wunsch.as_deref())?;
     }
     let fps = overrides
         .and_then(|o| o.get("fps"))
@@ -170,6 +185,8 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             show_cursor,
             resolution,
             ten_bit,
+            hdr: hdr_gewuenscht && ten_bit,
+            ausgang: ausgang_wunsch,
         },
         argv.clone(),
     )?;
@@ -190,6 +207,50 @@ pub(crate) fn requested_ten_bit(overrides: Option<&Map<String, Value>>) -> bool 
         .and_then(|o| o.get("bit_depth"))
         .and_then(Value::as_u64)
         == Some(10)
+}
+
+/// Wunsch aus dem Wire-Format lesen: `overrides.hdr` = true. Fehlt das Feld
+/// oder steht etwas anderes darin, heisst es Nein — HDR darf nie versehentlich
+/// angehen, denn es zieht den ganzen Aufnahmeweg mit (Scanout statt Portal).
+pub(crate) fn requested_hdr(overrides: Option<&Map<String, Value>>) -> bool {
+    overrides
+        .and_then(|o| o.get("hdr"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// HDR gegen Encoder und Ausgang pruefen; bei Absage bricht der `start`-Op ab.
+///
+/// Die Meldung nennt jeweils die Abhilfe, nicht nur den Befund — ein „HDR nicht
+/// moeglich" ohne Grund fuehrt zur Fehlersuche an der falschen Stelle.
+fn hdr_pruefen_oder_absagen(
+    codec: &str,
+    ten_bit: bool,
+    ausgang_wunsch: Option<&str>,
+) -> anyhow::Result<()> {
+    if !ten_bit {
+        anyhow::bail!(
+            "HDR verlangt, aber dieser Stream laeuft in 8 bit ({codec}). HDR ohne 10 bit \
+             waeren sichtbare Ringe in jedem Verlauf. Abhilfe: AV1 waehlen."
+        );
+    }
+    let (vendor, _) = crate::system::drm::detect()
+        .ok_or_else(|| anyhow::anyhow!("HDR verlangt, aber keine DRM-Render-Node gefunden"))?;
+    let karte = crate::capture::kms::KmsKarte::erste_mit_ausgaengen().map_err(|e| {
+        anyhow::anyhow!(
+            "HDR verlangt, aber die Scanout-Aufnahme laesst sich nicht oeffnen: {e:#}. \
+             Sie ist der einzige Weg zu HDR-Bildpunkten — der Portal-Weg liefert auch bei \
+             eingeschaltetem HDR ein SDR-Bild."
+        )
+    })?;
+    let ausgang = karte.ausgang_waehlen(ausgang_wunsch)?;
+    let angaben = crate::encode::hdr::pruefen(vendor, codec, &ausgang)?;
+    tracing::info!(
+        target: "stream",
+        ausgang = %ausgang.name, max_cll = angaben.max_cll,
+        "HDR: Scanout-Aufnahme, BT.2020 mit PQ"
+    );
+    Ok(())
 }
 
 /// Wunsch aus dem Wire-Format lesen: `overrides.intra_refresh` = true|false.

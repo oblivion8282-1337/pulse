@@ -9,6 +9,7 @@
 //! `cargo run --release --example staging_format_probe`
 
 use pulse_linux_hq_sidecar::encode::nv_import::{NvDmabufImporter, StagingFormat};
+use pulse_linux_hq_sidecar::encode::nv_p010::Farbmodell;
 
 /// 4×2 Blöcke à 2×2 Bildpunkte — jeder Block einfarbig, damit das
 /// 2×2-Chroma-Mittel eindeutig der Blockfarbe entspricht.
@@ -62,13 +63,13 @@ fn main() {
         ("RGBA8 (8 bit, Textur direkt bei CUDA)", StagingFormat::Rgba8),
         ("R16 + RG16 (P010-Ebenen)", StagingFormat::P010),
     ] {
-        match NvDmabufImporter::new(W, H, fmt) {
+        match NvDmabufImporter::new(W, H, fmt, Farbmodell::Bt709) {
             Ok(_) => println!("{label}: angelegt + bei CUDA registriert"),
             Err(e) => println!("{label}: FEHLER — {e:#}"),
         }
     }
 
-    let mut imp = match NvDmabufImporter::new(W, H, StagingFormat::P010) {
+    let mut imp = match NvDmabufImporter::new(W, H, StagingFormat::P010, Farbmodell::Bt709) {
         Ok(i) => i,
         Err(e) => {
             println!("Farbmathematik nicht prüfbar: {e:#}");

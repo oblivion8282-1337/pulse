@@ -1,0 +1,139 @@
+{
+  "id": "hdr-2026-08-07-scanout-linux-nvidia",
+  "gemessen_am": "2026-08-07",
+  "loest_ab": "hdr-2026-08-07-machbarkeit-linux-nvidia (Zweig feat/hdr-machbarkeit-linux) — dessen Befunde bleiben richtig, sein URTEIL war zu breit gefasst. Siehe Abschnitt KORREKTUR.",
+  "frage": "Laesst sich unter Linux/NVIDIA echter HDR-Inhalt aufnehmen und als AV1 10 bit PQ/BT.2020 senden — im Pulse-Rust-Sidecar, nicht ueber gpu-screen-recorder?",
+  "antwort_kurz": "JA, ueber die Scanout-Aufnahme (DRM/KMS) statt ueber das Portal. Gebaut und gemessen: der Scanout eines HDR-Ausgangs ist ein 10-Bit-Puffer (AB30) und wechselt beim Abschalten von HDR auf 8 bit (AR24) — der Aufnahmeweg folgt dem HDR-Zustand also, anders als der Portal-Weg. Derselbe Bildschirminhalt ergibt mit und ohne HDR messbar verschiedene Bilder (Y max 723 gegen 930, Y Mittel 351,6 gegen 437,2). Der erzeugte AV1-Strom traegt BT.2020 + SMPTE ST 2084 + 10 bit, am Bitstrom nachgewiesen. Der PREIS ist eine Berechtigung: die GEM-Handles aus GETFB2 gibt der Kernel nur an DRM-Master oder CAP_SYS_ADMIN — das ist ungeloest und fuer die Flatpak-Auslieferung die offene Frage.",
+
+  "hardware_und_stand": {
+    "compositor": "KWin 6.7.3 (Plasma 6.7.3) auf Wayland",
+    "gpu": "NVIDIA GeForce RTX 5080, Treiber 610.43.03, nvidia-drm mit color_pipeline=Y",
+    "kernel": "7.1.4-1-cachyos",
+    "ffmpeg": "n8.1.2 (Arch-System), Encoder av1_nvenc",
+    "libdrm": "2.4.134 (nur als Referenz fuer die Strukturen — der Sidecar ruft die ioctls selbst)",
+    "monitore": "DP-2 (2560x1440, HDR EIN, PQ), DP-1 und HDMI-A-1 (SDR). Genau die Aufteilung, die der Nutzer eingerichtet hatte.",
+    "schirm_dp2_laut_kwin": "SDR-Helligkeit 295 nits, Spitze 530 nits, Minimum 0,0003 nits, Farbprofil aus EDID, 'Allow EDR: unsupported'"
+  },
+
+  "GEMESSEN": {
+    "M1_der_portal_weg_bleibt_die_sackgasse": {
+      "status": "uebernommen aus der Vorgaenger-Akte, hier NICHT neu gemessen",
+      "kurz": "KWins ScreenCast-Erzeuger fuehrt in allen EnumFormat-Eintraegen nur BGRA/BGRx und traegt keine Farbfelder; bei eingeschaltetem HDR ist die Aufnahme byte-identisch zur SDR-Aufnahme.",
+      "unabhaengig_bestaetigt": "Quelltextpruefung von kwin/src/plugins/screencast/screencaststream.cpp auf dem heutigen master: dieselbe reine 8-Bit-Formatliste, keine Farbfelder. Ein Nutzerbericht auf discuss.kde.org vom 2026-02-04 (Plasma 6.5.5) meldet denselben Befund. Es ist also keine Eigenheit dieser Maschine und auch keine Frage der Plasma-Fassung."
+    },
+
+    "M2_der_scanout_eines_HDR_ausgangs_ist_10_bit": {
+      "verfahren": "Eigene DRM-Sonde (spaeter `capture::kms`): DRM_IOCTL_MODE_GETPLANERESOURCES → GETPLANE → GETFB2 je Plane, dazu die Connector-Properties.",
+      "befund": [
+        "DP-2 (HDR EIN): Plane 632 auf CRTC 778, 2560x1440, fourcc AB30 (ABGR2101010), modifier 0x0300000000606014",
+        "DP-1 (SDR): Plane 343 auf CRTC 489, 2560x1440, fourcc AB30 — ein SDR-Ausgang kann also AUCH 10 bit scannen; die Bittiefe allein beweist nichts",
+        "HDMI-A-1 (SDR): Plane 54 auf CRTC 200, fourcc AR24 (ARGB8888)",
+        "Der Mauszeiger liegt auf einer eigenen Plane (256x256, AR24) und ist im Bild NICHT enthalten"
+      ],
+      "bedeutung": "Anders als beim Portal gibt es hier ueberhaupt einen 10-Bit-Puffer zu holen."
+    },
+
+    "M3_der_scanout_folgt_dem_HDR_zustand": {
+      "verfahren": "DP-2 mit `kscreen-doctor output.DP-2.hdr.disable` abgeschaltet, 3 s Beruhigung, Scanout-Format erneut gelesen; danach wieder eingeschaltet.",
+      "befund": "HDR EIN → AB30 (10 bit). HDR AUS → AR24 (8 bit). Derselbe Ausgang, dieselbe Aufloesung, derselbe Modifier.",
+      "bedeutung": "**Das ist der Unterschied, an dem der Portal-Weg gescheitert ist.** Dort blieb das Format in beiden Zustaenden XR24 und die Aufnahme byte-identisch. Hier aendert sich das Format mit dem Zustand — die Aufnahme sieht also wirklich, was am Bildschirm anliegt."
+    },
+
+    "M4_die_HDR_angaben_kommen_aus_dem_kernel_nicht_aus_einer_annahme": {
+      "verfahren": "DRM-Property `HDR_OUTPUT_METADATA` je Connector lesen, Blob dekodieren (`struct hdr_output_metadata`, CTA-861-Infoframe).",
+      "befund_dp2": "eotf=2 (SMPTE ST 2084 / PQ), metadata_type=1, MaxCLL=295, MaxFALL=295, Leuchtdichte 3..295 (in den Einheiten des Infoframes), Primaervalenzen [(34521,15430),(11865,35840),(7568,2002)], Weisspunkt (15674,16455). Property `Colorspace` = 9.",
+      "befund_dp1_hdmi": "Property vorhanden, Blob-Nummer 0 — also nicht gesetzt.",
+      "bedeutung": "Ob ein Ausgang in HDR laeuft, ist ablesbar und muss nicht geraten werden. `encode::hdr::pruefen` haengt genau daran."
+    },
+
+    "M5_derselbe_inhalt_sieht_mit_und_ohne_HDR_verschieden_aus": {
+      "verfahren": "DP-2, unveraenderter Bildschirminhalt, zweimal 120 Bilder ueber dieselbe Kette (Scanout → EGLImage → GL-Shader → P010 → av1_nvenc 10 bit → IVF), einmal mit abgeschaltetem und einmal mit eingeschaltetem HDR. Ausgewertet mit `signalstats` ueber den dekodierten Strom.",
+      "ergebnisse": [
+        {"zustand": "HDR AUS", "fourcc": "AR24", "y_max": 930, "y_mittel": 437.2},
+        {"zustand": "HDR EIN", "fourcc": "AB30", "y_max": 723, "y_mittel": 351.6}
+      ],
+      "bedeutung": "Die Werte unterscheiden sich deutlich, und zwar in der Richtung, die eine PQ-Kurve erzeugt: die Spitzen rutschen nach unten und stossen nicht mehr oben an. Im SDR-Lauf liegt das Maximum bei 930 von 940 (nomineller Weisspunkt im begrenzten Bereich, 10 bit) — es klemmt praktisch an. Im HDR-Lauf liegt es bei 723 und hat Luft.",
+      "einschraenkung": "Der Bildschirminhalt war der laufende Arbeitsplatz, kein kontrolliertes Testbild — s. GRENZEN_DER_AUSSAGE."
+    },
+
+    "M6_der_erzeugte_strom_traegt_volles_HDR": {
+      "verfahren": "Ausgabe nach IVF — ein Container OHNE eigene Farbtags, damit die Angabe nachweislich aus dem AV1-Sequenzkopf stammt und nicht aus etwas, das wir selbst in einen Container geschrieben haben.",
+      "hdr_lauf": "pix_fmt=yuv420p10le, color_range=tv, color_space=bt2020nc, color_transfer=smpte2084, color_primaries=bt2020",
+      "gegenprobe_gleicher_weg_ohne_HDR_signalisierung": "pix_fmt=yuv420p10le, color_range=tv, color_space=bt709, color_transfer=bt709, color_primaries=bt709",
+      "bedeutung": "Beide Richtungen belegt. Die Gegenprobe ist der wichtigere Teil: sie zeigt, dass die Meldung dem Strom folgt und nicht fest im Werkzeug steht. Und sie schliesst den Fehler aus, an dem der Windows-Weg gelitten hat (10-bit-SDR, das sich als PQ ausgab)."
+    },
+
+    "M7_unerfuellbar_fuehrt_zur_startverweigerung": {
+      "verfahren": "Dasselbe Werkzeug gegen DP-1 (SDR) mit HDR-Wunsch.",
+      "befund": "Kein Strom. Meldung: 'HDR verlangt, aber der Ausgang DP-1 meldet keine HDR-Angaben (DRM-Property HDR_OUTPUT_METADATA ist nicht gesetzt). ... Abhilfe: HDR fuer diesen Bildschirm einschalten (Plasma: Anzeige-Einstellungen, oder kscreen-doctor output.DP-1.hdr.enable).'",
+      "bedeutung": "Muster von `win-hq-sidecar/src/encode/hdr.rs` uebernommen. Ein SDR-Bild unter HDR-Etikett sieht man am ganzen Bild; ein Start, der abbricht und den Grund nennt, ist billiger."
+    },
+
+    "M8_die_rechte_frage_ist_gemessen_nicht_vermutet": {
+      "verfahren": "Dieselbe Sonde einmal als gewoehnlicher Nutzer und einmal als root.",
+      "als_nutzer": "GETPLANERESOURCES, GETPLANE und GETFB2 gelingen alle. Die Antwort enthaelt Groesse, fourcc und modifier — aber `handles[] == 0`. Ohne Handle kein PRIME_HANDLE_TO_FD und damit kein Bild.",
+      "als_root": "Dieselben Aufrufe liefern Handles, `drmPrimeHandleToFD` gibt einen DMABUF-fd, der Import ueber EGL/CUDA und der Encode laufen durch.",
+      "kernel_regel": "`drm_mode_getfb2_ioctl` gibt die Handles nur an DRM-Master oder an Traeger von CAP_SYS_ADMIN heraus.",
+      "wie_gpu_screen_recorder_es_loest": "Ein eigener kleiner Helfer `gsr-kms-server`, dem beim Installieren `cap_sys_admin+ep` gesetzt wird (`extra/meson_post_install.sh`); fehlt die Capability, faellt GSR auf `pkexec` zurueck (Passwortabfrage bei jedem Start). Der Hauptprozess bleibt unprivilegiert; die DMABUF-fds reisen als SCM_RIGHTS ueber einen Unix-Socket.",
+      "bedeutung": "Der Weg ist technisch offen, aber nicht ohne erhoehte Rechte. Fuer Pulse ist das eine Produktfrage, keine technische — s. OFFEN."
+    },
+
+    "M9_ein_fehler_im_bestehenden_code_der_ohne_diese_arbeit_nicht_aufgefallen_waere": {
+      "befund": "`DmabufFrame::buffer_key` ist seit jeher dokumentiert mit '0 = kein Key (nicht cachen)'. Umgesetzt war das nicht: der Wert 0 landete wie jeder andere Schluessel im EGLImage-Zwischenspeicher.",
+      "wie_es_auffiel": "Die Zeile 'EGLImage-Cache: neuer Capture-Buffer aufgenommen buffers=1' kam bei einem Lauf ueber 180 Bilder genau EINMAL. Beim Portal-Weg ist das richtig (dort kreisen 2-8 Puffer mit echten Schluesseln); bei der Scanout-Aufnahme, wo der Compositor den Puffer bei jedem Bild tauscht, haette es ein **stehendes Bild** ergeben.",
+      "folge": "Behoben in `nv_import`. Der erste Messlauf dieser Akte ist verworfen und wiederholt worden. Fuer den PipeWire-Weg aendert sich nichts.",
+      "lehre": "Eine Zaehlerzeile, die im Log 'alles in Ordnung' bedeutet, bedeutet in einem anderen Aufnahmeweg das Gegenteil. Der Wert stand da, und nur weil er nicht zum erwarteten Bereich passte, ist er gelesen worden."
+    }
+  },
+
+  "GEBAUT": {
+    "system/drm_ioctl.rs": "Die rohen DRM/KMS-ioctls von Hand (kein neues Cargo-Paket): Plane-Aufzaehlung, GETFB2, PRIME-Ausgabe, GEM-Handle-Freigabe, Connector-Properties und Property-Blobs.",
+    "capture/kms.rs": "Die Scanout-Quelle: Ausgangsauswahl nach Namen (DP-2), HDR-Angaben aus dem Blob, groesste Plane der CRTC als Bild, Ausgabe als derselbe `DmabufFrame`, den der PipeWire-Weg liefert. Damit haengt der ganze bestehende Import- und Encode-Weg unveraendert daran.",
+    "encode/hdr.rs": "Die Absage-Tabelle je Encoder nach dem Muster von `win-hq-sidecar/src/encode/hdr.rs`, die Pruefung vor dem Start und die Signalisierung (BT.2020/PQ/Studio).",
+    "encode/nv_p010.rs": "Der Shader kennt jetzt zwei Farbmodelle (BT.709 und BT.2020 NCL). Die Chroma-Nenner werden aus den Gewichten GERECHNET statt abgeschrieben — genau dort lag im Windows-Player ein 1e-4-Fehler, der an Grau unsichtbar war.",
+    "capture/kms_aufnahme.rs": "Der laufende Teil: ein getakteter Thread, der Bilder in dieselbe `FrameMailbox` legt wie der Portal-Weg. `stream_controller` verzweigt an `params.hdr` zwischen beiden Wegen; alles dahinter ist unveraendert.",
+    "examples/kms_hdr_nachweis.rs": "Das Werkzeug dieser Akte. `--liste` zeigt die Ausgaenge und ihren HDR-Zustand ohne jede Berechtigung. Es faehrt **denselben** Aufnahme-Thread wie der ausgelieferte Sidecar, nicht eine zweite Schleife daneben — sonst misst es etwas anderes, als der Nutzer bekommt. Der abschliessende Lauf ueber diesen Weg ist bestaetigt (180 Bilder, 60,3 fps, bt2020nc/smpte2084/bt2020).",
+    "keine_transferkurve_im_shader": "Bewusst. Der Scanout ist bereits PQ-kodiert — der Compositor hat die Kurve angewandt, weil der Bildschirm sie so erwartet. Zu wandeln bleibt allein YCbCr. Der Windows-Sidecar muss mehr tun, weil er lineares scRGB bekommt; gpu-screen-recorder macht es auf Linux genau wie wir (feste RGB→YUV-BT.2020-Matrix in `color_conversion.c`, keine eigene PQ-Rechnung)."
+  },
+
+  "KORREKTUR_der_vorgaenger_akte": {
+    "was_dort_steht": "'NEIN, heute nicht — und der Engpass ist die AUFNAHME, nicht der Encoder.' Und unter was_fehlen_wuerde: 'Compositor-seitig: ein ScreenCast-Erzeuger, der 10-Bit-Formate anbietet ... Beides liegt ausserhalb unseres Codes.'",
+    "was_daran_richtig_bleibt": "Jeder einzelne Befund M1-M10 dieser Akte. Der Portal-Weg kann es nicht, KWin bietet nichts anderes an, das PipeWire-Format traegt keine Farbfelder, und `av1_nvenc` kann es. Nichts davon ist widerlegt.",
+    "was_daran_zu_breit_war": "Der Schluss von 'der Portal-Weg kann es nicht' auf 'die Aufnahme kann es nicht'. Es gibt eine zweite Aufnahme, die den Compositor gar nicht fragt — und die liefert genau das, was dort fehlte. Der Satz 'beides liegt ausserhalb unseres Codes' war damit falsch: es lag innerhalb, nur an einer anderen Stelle.",
+    "warum_der_fehlschluss_naheliegt": "Die Untersuchung hat den vorhandenen Aufnahmeweg vollstaendig ausgemessen und dabei nie die Frage gestellt, ob es einen anderen gibt. Das ist derselbe Zuschnitt-Fehler wie bei Befund 5 der Windows-HDR-Akte: eine ausbleibende Bestaetigung wurde als Aussage ueber die Sache gelesen, obwohl sie eine ueber das benutzte Werkzeug war.",
+    "was_stehen_bleibt": "Die alte Akte wird NICHT geloescht und ihr Urteil nicht umgeschrieben — es steht dort jetzt als widerlegt markiert mit Verweis hierher."
+  },
+
+  "GRENZEN_DER_AUSSAGE": {
+    "die_zahlen_passen_nicht_zur_erwarteten_leuchtdichte": "Das ist die wichtigste offene Stelle, und sie steht hier vorn, damit sie niemand uebersieht. Rechnet man das gemessene Y-Maximum des HDR-Laufs (723, begrenzter Bereich) durch die PQ-Kurve zurueck, kommen rund 1000 cd/m2 heraus — mehr, als dieser Bildschirm laut KWin kann (Spitze 530, SDR-Weiss 295). Zwei Erklaerungen sind moeglich und KEINE ist geprueft: (a) auf dem Arbeitsplatz lief zur Messzeit echter HDR-Inhalt (am selben Rechner arbeitete gleichzeitig ein Agent am Player), und KWin klemmt nicht auf die Panel-Spitze; (b) der Scanout-Puffer ist nicht schlicht PQ, sondern der NVIDIA-Farb-Pipeline vorgelagert kodiert. Was FEHLT, um das zu entscheiden: ein Lauf mit einem KONTROLLIERTEN Bildschirminhalt (Vollbild-Weiss und eine bekannte Grautreppe) und ein Auslesen der Bildpunktwerte. Solange das offen ist, gilt: dass sich der Inhalt mit HDR aendert und die Spitzen nicht mehr anklemmen, ist belegt; dass die Codewerte den Leuchtdichten entsprechen, die ein Zuschauer erwarten wuerde, ist es NICHT.",
+    "ein_lauf_je_variante": "M5 ist ein Durchgang je Zustand. Nach Laborregel traegt das keine Entscheidung. Es traegt hier trotzdem etwas, weil die Groessenordnung des Unterschieds (Y max 723 gegen 930) weit ausserhalb der Streuung liegt, die derselbe Lauf ueber seine Bilder zeigt (351,55 bis 351,56 im Mittel) — aber es ersetzt keine Wiederholung an einem anderen Tag.",
+    "nur_diese_maschine_dieser_compositor": "KWin 6.7.3 auf NVIDIA. Ob ein anderer Compositor seinen Scanout ebenso kodiert, ist ungeprueft. Der KMS-Weg selbst ist compositor-unabhaengig — was in dem Puffer steht, ist es nicht.",
+    "nur_NVIDIA": "`av1_vaapi` steht in der Tabelle auf Nein, und zwar als 'ungemessen', nicht als 'kann nicht'. Auf AMD fehlt sowohl der Lauf am HDR-Schirm als auch die Frage, ob der Scanout dort ebenso vorliegt.",
+    "der_zuschauer_ist_nicht_geprueft": "Diese Akte endet am Bitstrom. Ob der native Player das Bild richtig zeigt, ist Sache der Empfangsseite (eigene Messakte). Browser und Electron koennen 10-bit-AV1 ohnehin nicht — HDR waere damit ein Weg, den nur der native Player geht, und das ist nach Labor-Vorgabe eine Zwischenloesung, kein Ergebnis.",
+    "der_ton_und_die_dauerlast_fehlen": "Gemessen sind Laeufe ueber 2-3 Sekunden ohne Ton. Bildrate hielt 60,3 fps; GPU-Last, Verhalten ueber Minuten und das Zusammenspiel mit dem Ton-Raster sind ungemessen.",
+    "keine_mastering_metadaten_im_strom": "Die Angaben aus dem DRM-Blob werden gelesen und protokolliert, aber NICHT als Begleitdaten an die Bilder gehaengt. Ob `av1_nvenc` sie ueberhaupt weiterreichte, ist ungeprueft (die Vorgaenger-Akte zeigt in M10, dass es die CLI-Optionen dafuer nicht gibt). Kein Blocker: PQ kodiert Helligkeit absolut, die Mastering-Angaben steuern nur das Tone-Mapping des Zuschauers.",
+    "der_mauszeiger_fehlt_im_bild": "Er liegt auf einer eigenen Plane. Das ist ein sichtbarer Unterschied zum Portal-Weg und noch nicht entschieden (zusammensetzen oder dem Nutzer sagen).",
+    "kein_fenster_keine_auswahl": "Der Weg nimmt einen ganzen Ausgang auf. Es gibt keinen Auswahldialog und keine Fensteraufnahme. Er ist deshalb kein Ersatz fuer den Portal-Weg, sondern ein Sonderweg."
+  },
+
+  "OFFEN_entscheidung_des_nutzers": {
+    "die_berechtigung_und_das_flatpak": "Der Weg braucht CAP_SYS_ADMIN (oder root). Pulse wird unter Linux als Flatpak ausgeliefert, und ein Flatpak kann keine Datei-Capabilities tragen. Drei Moeglichkeiten, alle mit Preis: (1) kleiner Helfer mit gesetzter Capability, ausserhalb des Flatpak installiert — verlangt einen zweiten Installationsweg; (2) `pkexec` wie bei gpu-screen-recorder ohne Capability — eine Passwortabfrage bei jedem Streamstart; (3) HDR bleibt eine Laborfaehigkeit und wird nicht ausgeliefert. Bis das entschieden ist, verweigert der Sidecar den HDR-Start mit der Meldung, ohne Rechte gehe es nicht — er faellt NICHT still auf SDR zurueck.",
+    "was_zuerst_zu_messen_waere": "Der kontrollierte Bildschirminhalt (s. GRENZEN_DER_AUSSAGE, erster Punkt). Das ist eine halbe Stunde und schliesst die einzige Luecke, die an der Sache selbst zweifeln laesst."
+  },
+
+  "WIEDERHOLEN": [
+    "cargo build --release --examples   (in streaming/linux-hq-sidecar)",
+    "./target/release/examples/kms_hdr_nachweis --liste   — Ausgaenge + HDR-Zustand, braucht KEINE Rechte",
+    "sudo -n ./target/release/examples/kms_hdr_nachweis DP-2 /tmp/hdr.ivf 180 60",
+    "sudo -n ./target/release/examples/kms_hdr_nachweis DP-2 /tmp/sdr.ivf 180 60 --ohne-hdr   — Gegenprobe, gleicher Weg ohne HDR-Signalisierung",
+    "ffprobe -v error -show_entries stream=pix_fmt,color_space,color_transfer,color_primaries -of default=nw=1 /tmp/hdr.ivf",
+    "ffmpeg -v error -i /tmp/hdr.ivf -vf signalstats,metadata=mode=print:file=st.txt -f null -   — dann YMAX/YAVG in st.txt lesen",
+    "kscreen-doctor output.DP-2.hdr.disable   — fuer M3/M5; danach WIEDER EINSCHALTEN"
+  ],
+
+  "MESSFALLEN_dieses_tages": {
+    "ein_zwischenspeicher_kann_ein_stehendes_bild_erzeugen": "s. M9. Ohne den Blick auf die Zaehlerzeile waere die ganze Akte an einem einzigen Bild gemessen worden — und haette plausible Zahlen geliefert.",
+    "die_bittiefe_allein_beweist_nichts": "DP-1 laeuft in SDR und scannt trotzdem AB30. Wer nur das Format ansieht, haelt einen SDR-Ausgang fuer HDR. Entscheidend ist die Property HDR_OUTPUT_METADATA, nicht der fourcc.",
+    "sudo_ohne_kontrolle_des_bildschirminhalts": "Die Aufnahme laeuft als root und sieht, was gerade am Schirm ist. Wer zwei Laeufe vergleicht, muss dafuer sorgen, dass sich dazwischen nichts aendert — und dazusagen, dass er es nicht kontrolliert hat, wenn er es nicht konnte."
+  }
+}

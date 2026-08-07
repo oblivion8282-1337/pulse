@@ -547,8 +547,29 @@ ist hier passiert.
 
 **Wichtig, aber nicht blockierend:**
 
-- [x] **HDR — geklärt am 2026-08-07, die Antwort ist NEIN, und der Grund liegt
-      nicht dort, wo man ihn sucht.** Messakte
+- [x] **HDR — die Antwort ist JA, seit dem Abend des 2026-08-07: über die
+      Scanout-Aufnahme (DRM/KMS), nicht über das Portal.** Messakte
+      `profiles/hdr-2026-08-07-scanout-linux-nvidia.json`, gebaut im Rust-
+      Sidecar (`capture/kms.rs`, `encode/hdr.rs`, `nv_p010::Farbmodell`).
+      Der Scanout eines HDR-Ausgangs ist ein 10-Bit-Puffer (`AB30`) und fällt
+      beim Abschalten von HDR auf 8 bit (`AR24`) zurück — er folgt dem Zustand
+      also, anders als das Portal. Derselbe Bildschirminhalt ergibt mit und
+      ohne HDR messbar verschiedene Bilder (Y max 723 gegen 930), und der
+      erzeugte AV1-Strom trägt BT.2020 + PQ + 10 bit, am Bitstrom nachgewiesen.
+      **Der Preis ist eine Berechtigung** (`CAP_SYS_ADMIN` für die GEM-Handles
+      aus `GETFB2`), und die ist im Flatpak ungelöst — bis zu einer Entscheidung
+      des Nutzers ist HDR eine Laborfähigkeit. **Offen und in der Akte unter
+      `GRENZEN_DER_AUSSAGE` benannt:** die zurückgerechneten Leuchtdichten
+      passen nicht zur Spitze dieses Schirms; dafür fehlt ein Lauf mit
+      kontrolliertem Bildschirminhalt.
+      **Der Absatz darunter ist die Fassung von vormittags und bleibt stehen —
+      seine Befunde stimmen alle, sein Schluss war zu breit gefasst** („die
+      Aufnahme kann es nicht" galt dem Portal-Weg, nicht der Aufnahme
+      überhaupt). Genau dieser Zuschnitt-Fehler ist die Lehre des Tages: der
+      vorhandene Weg wurde vollständig ausgemessen, ohne je zu fragen, ob es
+      einen zweiten gibt.
+- [x] ~~**HDR — geklärt am 2026-08-07, die Antwort ist NEIN, und der Grund liegt
+      nicht dort, wo man ihn sucht.**~~ (überholt, s. Eintrag darüber) Messakte
       `profiles/hdr-2026-08-07-machbarkeit-linux-nvidia.json`.
       Der **Encoder** kann es: `av1_nvenc` schreibt BT.2020 (`color_primaries=9`),
       PQ (`transfer_characteristics=16`) und 10 bit korrekt in den

@@ -63,10 +63,9 @@ fn main() {
                     f.modifier,
                     planes.join(", ")
                 );
-                // fds schließen (Smoke verbraucht sie nicht).
-                for p in &f.planes {
-                    unsafe { libc::close(p.fd) };
-                }
+                // fds schließen sich beim Drop von `f` — `DmabufPlane` besitzt
+                // sie. Ein zusätzliches `libc::close` (stand hier) wäre ein
+                // doppeltes Schließen.
             }
             Err(_) => {
                 eprintln!("[capture_smoke] channel geschlossen (Capture-Thread beendet?)");
