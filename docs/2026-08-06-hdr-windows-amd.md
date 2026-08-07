@@ -151,6 +151,63 @@ liegt bei 601. **Der Shader rechnet also wirklich.**
   zu setzen noch zu prüfen. `PULSE_PLAYER_BACKEND=vulkan` holt den alten Weg
   zurück. Nachgesehen: das Fenster geht auf, D3D12 bietet `Rgba16Float` an.
 
+## Befund 7 (2026-08-07): „Über die Live-Strecke geht die HDR-Kennzeichnung verloren" — sie geht nicht
+
+> **Hier stand als offener, blockierender Punkt: der Sender schicke BT.2020/PQ,
+> beim Player komme `space=BT709 transfer=BT709 primaries=BT709` an, die
+> Signalisierung überlebe den WHIP/WHEP-Weg also nicht.** Das ist widerlegt.
+> Der Satz bleibt stehen, weil der Fehlschluss zweimal derselbe war wie bei
+> Befund 5: eine ausbleibende Bestätigung wurde als Aussage über die **Farbe**
+> gelesen, obwohl sie eine über das **Werkzeug** war.
+
+Gemessen am 2026-08-07 über den Hetzner-Messstand, Sender und Zuschauer auf
+dieser Maschine, 45 s:
+
+```
+[encode] HDR-Signalisierung: BT.2020 mit PQ (SMPTE 2084), Studio-Bereich
+pulse-player: Decoder av1 (Hardware (D3D11VA))
+pulse-player: Farbwelt des Stroms HDR (PQ) -> Fenster HDR (Rgba16Float)
+```
+
+**Die Kennzeichnung übersteht den Live-Weg unverändert.** Kontrolllauf mit
+`-Ohne` (SDR) über dieselbe Strecke: die `Farbwelt`-Zeile erscheint gar nicht,
+das Fenster bleibt SDR. Die Meldung folgt also dem Strom und steht nicht fest.
+
+**Woher die BT.709-Beobachtung dann kam.** Sie stammt aus einem Lauf in der
+**App**, und dort war HDR nie eingeschaltet: das Kästchen liegt nur auf diesem
+Zweig, die Electron-App lädt aber die *ausgelieferte* Web-Oberfläche aus
+`main`. In `origin/main` kommt `hdr` weder in `web/src/lib/stream/gsr.ts` noch
+in `OverridesEditor.svelte` überhaupt vor, und `PULSE_HDR` setzt die App nicht.
+Der Sidecar lief damit in SDR — `BT709/BT709/BT709` war die **richtige**
+Antwort auf das, was gesendet wurde.
+
+**Warum es niemandem auffiel, dass die Gegenprobe fehlte.** `hdr-ansehen.ps1`
+konnte den Gegenbeweis gar nicht liefern: mit Zuschauer lief es überhaupt
+nicht. Der Player quittierte jede Anfrage mit
+`ungueltiger Request: expected value at line 1 column 1` und öffnete kein
+Fenster.
+
+Ursache ist eine Byte-Reihenfolge-Marke, die **nicht vom Schreiben kommt,
+sondern vom Start**: .NET setzt auf den stdin-Schreiber eines Kindprozesses
+`AutoFlush = true`, und dieser Setzer ruft `Flush()` — die Marke der
+Konsolen-Kodierung liegt damit in der Leitung, bevor der Aufrufer ein Byte
+geschrieben hat. Bei Codepage 65001 (PowerShell-Vorgabe hier) sind das drei
+Bytes. Das Skript trug an genau dieser Stelle einen Kommentar, der das Problem
+als gelöst auswies („ASCII-Bytes direkt in den Strom"); die Abhilfe konnte
+nicht wirken, weil sie am falschen Ende ansetzte. Und `trim()` fasst U+FEFF
+nicht an — in Rust ist es kein Leerraum.
+
+Behoben an beiden Enden, weil beide Seiten auch auf ältere Gegenstücke
+treffen: der Player überliest die Marke (`rpc.rs::zeile_saeubern`, vier Tests),
+und das Skript stellt die Konsolen-Kodierung vor dem ersten `Process.Start` auf
+eine ohne Marke. Nebenbei nahm die Zusammenfassung des Skripts die
+`Farbe:`-Zeile des Players nicht auf — ausgerechnet die, die die Frage
+beantwortet.
+
+**Was weiterhin offen ist:** wie das Bild für ein menschliches Auge auf dem
+HDR-Schirm aussieht. Das kann kein Skript entscheiden, und ein Bildschirmfoto
+auch nicht (es zeigt eine Fließkomma-Oberfläche grün, s. Nebenbefunde).
+
 ## Befund 5: Das Gruen war KEIN Farbfehler — der Einfrier-Waechter war es
 
 > **Der Abschnitt darunter ist die Fassung von vormittags, und seine Deutung war
