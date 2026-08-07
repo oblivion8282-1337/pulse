@@ -361,6 +361,23 @@ modules:
         # `ldd /app/bin/pulse-player | grep libavcodec` auf /app/lib zeigen, und
         # `pulse-player --decoder` muss `av1_cuvid ... geht` melden.
         PKG_CONFIG_PATH: /app/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+        # **PKG_CONFIG_PATH allein genuegt NICHT — die REIHENFOLGE entscheidet.**
+        #
+        # Mit dem Pfad oben findet pkg-config /app, und der Bau uebergibt
+        # `-L native=/app/lib`. Trotzdem blieb es beim FFmpeg des SDK, denn im
+        # Binder-Aufruf stand DAVOR `-L native=/usr/lib/x86_64-linux-gnu` — der
+        # Binder nimmt den ersten Treffer. Der Pfad kommt von `alsa-sys`
+        # (Tonausgabe): dessen pkg-config-Abfrage liefert das Systemverzeichnis,
+        # und der Crate wird vor `ffmpeg-sys-next` abgearbeitet.
+        #
+        # **Das ist zugleich die Erklaerung, warum der Sidecar nie betroffen
+        # war**: er hat keine ALSA-Abhaengigkeit, bei ihm steht kein
+        # Systempfad vor /app/lib. Die beiden Modulbloecke sehen deshalb gleich
+        # aus und verhalten sich verschieden.
+        #
+        # RUSTFLAGS wird VOR den Pfaden aus den Bauskripten eingesetzt
+        # (nachgemessen an `cargo build -v`), damit gewinnt /app/lib.
+        RUSTFLAGS: -L native=/app/lib
     build-commands:
       # `--disable-ldconfig`: im Bau-Sandkasten gibt es kein schreibbares
       # /etc, das Skript scheiterte sonst am letzten Schritt.
