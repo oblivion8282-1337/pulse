@@ -402,6 +402,15 @@ class VoiceRoom {
     // `.on()` dedupliziert nicht — genau einmal aufrufen.
     this.#wireEvents(room);
 
+    // Android: force MODE_IN_COMMUNICATION BEFORE room.connect(). LiveKit creates
+    // the remote <audio> elements during the handshake (TrackSubscribed → attach →
+    // play()) and Android pins an already-running AudioTrack to its current stream
+    // — setting the mode only AFTER connect (the old order) left those tracks on the
+    // media channel (A2DP) → "too quiet in the car". Awaiting here gives the native
+    // mode switch a head start before any track exists. No-op off Capacitor-Android;
+    // cleared again in #teardown on leave.
+    await setVoiceActive(true);
+
     try {
       await room.connect(resp.ws_url, resp.token);
     } catch (e) {
@@ -496,10 +505,6 @@ class VoiceRoom {
     // backgrounded / screen-locked (paired with the unmuted <audio> path in
     // RemoteAudioElements). No-op off mobile.
     setVoiceMediaSession(this.channelName);
-    // Android: force MODE_IN_COMMUNICATION now so voice routes to the phone-call
-    // channel (Bluetooth SCO) instead of the media channel (A2DP) — the "too quiet
-    // in the car" fix. No-op off Capacitor-Android. Cleared in #teardown on leave.
-    void setVoiceActive(true);
     // Capture a routing snapshot once the OS has settled the route (~2.5s), to
     // verify the SCO/mode result in the field. No-op off Capacitor-Android.
     // Tracked so #teardown cancels it on a fast leave/channel-switch.
