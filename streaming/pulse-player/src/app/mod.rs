@@ -570,6 +570,16 @@ impl App {
         if let Err(e) = renderer.render(options, *full_range, *farbe, pass.as_mut()) {
             eprintln!("pulse-player: Darstellung: {e:#}");
         }
+        // Musterzeilen aus dem Grafikspeicher nachreichen — der Weg der
+        // Latenz-Sonde, wenn das Bild den Hauptspeicher nie gesehen hat
+        // (`render::musterprobe`). Sie hinken ein bis zwei Bilder hinterher und
+        // fuehren deshalb ihren eigenen Zeitstempel mit; hier wird nichts mehr
+        // gemessen, nur weitergegeben.
+        if let Some(p) = probe.as_mut() {
+            while let Some(zeilen) = renderer.musterzeilen_nehmen() {
+                p.note_gpu(&zeilen);
+            }
+        }
         // Soll-Abstand aus der gemessenen Bildrate der Quelle — nicht aus einer
         // angenommenen: die Rate bestimmt der Sender.
         let expected_gap = stats
