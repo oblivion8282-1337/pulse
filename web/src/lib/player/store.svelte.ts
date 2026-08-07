@@ -17,12 +17,18 @@
  * `useNativePlayer` + `isPlayerAvailable()`) — die Kachel weiss, wann sie den
  * nativen Weg WILL; der Keep-Alive weiss nur, wann eine Kachel weg ist.
  */
-import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { SvelteMap } from 'svelte/reactivity';
 
 import { chatApi } from '$lib/api/chat';
 import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 import { getStreamVolume, setStreamVolume } from '$lib/stream/streamVolume';
 import { loadAll, saveAll } from '$lib/stream/persistence';
+import {
+  keyOf,
+  merkerAufraeumen,
+  nativeChatRequests,
+  nativeWindowRequests,
+} from './wuensche.svelte';
 import {
   closePlayer,
   focusPlayer,
@@ -95,60 +101,6 @@ export function setNativePlayerOnlyTenBit(v: boolean): void {
   playerSettings.onlyTenBit = v;
   void saveAll({ nativePlayerOnlyTenBit: v });
 }
-
-// ── Anforderung „ins eigene Fenster" ────────────────────────────────────────
-
-const keyOf = (channelId: string, userId: string, slot: number): string =>
-  `${channelId}:${userId}:${slot}`;
-
-/**
- * Welche Kacheln der Zuschauer ins eigene Fenster geschickt hat — je
- * *(channel, user, slot)*, wie bei `detachedStreams`.
- *
- * WARUM NEBEN `playerSettings.useNativePlayer`: Der Schalter ist eine
- * **Vorgabe für alle** Streams; das hier ist eine **Entscheidung fuer einen**.
- * Seit der Abkoppel-Knopf unter Electron das eigene Fenster oeffnet (statt
- * eines zweiten Chromium-Fensters), ist das der uebliche Weg — der Nutzer
- * waehlt pro Stream, nicht ein fuer alle Mal.
- *
- * Zurueckgenommen wird sie an zwei Stellen: beim `closed` der Sitzung (Fenster
- * zugemacht → Bild zurueck in die Kachel) und beim Schliessen-Knopf im Fenster
- * (dann zusaetzlich die Kachel weg). Ohne das Erste hing die Kachel dauerhaft
- * im Zustand `connecting` ohne Bild, obwohl Verbindung und Ton weiterliefen.
- */
-const requests = new SvelteSet<string>();
-
-/**
- * „Chat aufmachen" aus dem Player-Fenster — ein Zaehler je Stream.
- *
- * Ein Zaehler statt eines Ja/Nein: der Nutzer kann den Knopf mehrfach
- * druecken, und beim zweiten Mal muss die Kachel wieder reagieren. Ein `true`,
- * das schon `true` war, loest keinen Effect aus.
- */
-const chatWuensche = new SvelteMap<string, number>();
-
-export const nativeChatRequests = {
-  /** Wie oft der Chat fuer diesen Stream angefordert wurde. */
-  count(channelId: string, userId: string, slot = 0): number {
-    return chatWuensche.get(keyOf(channelId, userId, slot)) ?? 0;
-  },
-  bump(channelId: string, userId: string, slot = 0): void {
-    const k = keyOf(channelId, userId, slot);
-    chatWuensche.set(k, (chatWuensche.get(k) ?? 0) + 1);
-  },
-};
-
-export const nativeWindowRequests = {
-  has(channelId: string, userId: string, slot = 0): boolean {
-    return requests.has(keyOf(channelId, userId, slot));
-  },
-  request(channelId: string, userId: string, slot = 0): void {
-    requests.add(keyOf(channelId, userId, slot));
-  },
-  release(channelId: string, userId: string, slot = 0): void {
-    requests.delete(keyOf(channelId, userId, slot));
-  },
-};
 
 // ── Sitzung ─────────────────────────────────────────────────────────────────
 
@@ -226,6 +178,12 @@ export class NativePlayerSession {
       // um die Frage ueberhaupt stellen zu koennen.
       if (playerSettings.onlyTenBit && ten_bit !== true) {
         this.skipped = true;
+        // Hier endet die Sitzung, ohne je ein Fenster geoeffnet zu haben — dann
+        // braucht sie auch keine Ereignisse mehr. Ohne dieses Abmelden blieb sie
+        // mit drei angemeldeten Empfaengern in der Registry stehen, solange die
+        // Kachel offen war, und bekam jede Meldung jeder anderen Sitzung zur
+        // Pruefung vorgelegt.
+        this.#abmelden();
         return;
       }
       // Der Player gibt den Ton aus, nicht die App — sonst liefe er doppelt
@@ -275,7 +233,7 @@ export class NativePlayerSession {
       // zeigt absichtlich kein Bild, solange das Fenster zustaendig ist.
       // `failed` bleibt aussen vor, das faengt `useNativePlayback` als
       // Stoerfall ab (und merkt sich ihn bis zum naechsten Mount).
-      nativeWindowRequests.release(this.channelId, this.userId, this.slot);
+      nativeWindowRequests.zugemacht(this.channelId, this.userId, this.slot);
     }
   }
 
@@ -312,15 +270,22 @@ export class NativePlayerSession {
     hqStreams.get(this.channelId, this.userId, this.slot)?.setNativeAudio(native);
   }
 
-  close(): void {
-    this.#disposed = true;
-    this.#setAudioOwner(false);
+  /** Alle Ereignis-Empfaenger abmelden. Getrennt von [`close`], weil eine
+   *  uebersprungene Sitzung sie ebenfalls nicht mehr braucht — ohne dabei als
+   *  geschlossen zu gelten. */
+  #abmelden(): void {
     this.#unlisten?.();
     this.#unlisten = null;
     this.#unlistenOptions?.();
     this.#unlistenOptions = null;
     this.#unlistenWindow?.();
     this.#unlistenWindow = null;
+  }
+
+  close(): void {
+    this.#disposed = true;
+    this.#setAudioOwner(false);
+    this.#abmelden();
     if (this.#session !== null) void closePlayer(this.#session);
     this.#session = null;
   }
@@ -413,6 +378,10 @@ export const nativePlayerSessions = {
   },
 
   close(channelId: string, userId: string, slot = 0): void {
+    // Der Merker „vom Nutzer zugemacht" wird hier ABSICHTLICH nicht geloescht:
+    // der Abkoppel-Knopf schliesst die Sitzung, waehrend die Kachel offen
+    // bleibt, und genau dort ist der Merker der Punkt. Weg kommt er erst, wenn
+    // die Kachel selbst verschwindet (`closeExcept` → `merkerAufraeumen`).
     const k = keyOf(channelId, userId, slot);
     const s = registry.get(k);
     if (s) {
@@ -433,5 +402,6 @@ export const nativePlayerSessions = {
         registry.delete(k);
       }
     }
+    merkerAufraeumen(wantedKeys);
   },
 };

@@ -64,6 +64,23 @@ struct Shared {
     dropped: u64,
     /// Rueckfuehrung auf `target_fill` (s. [`ringregelung`]).
     regelung: Ringregelung,
+    /// Die Ausgabe wartet auf den Sollfuellstand, bevor sie (wieder) anlaeuft.
+    ///
+    /// **Warum das ein Zustand sein muss und keine Bedingung je Aufruf.** Bis
+    /// zum 2026-08-07 stand in [`fill_output`] schlicht
+    /// `if ring.len() < target_fill { Stille }`. Gemeint war der Anlauf, gewirkt
+    /// hat es bei JEDEM Geraete-Aufruf: fiel der Ring einmal unter die 60 ms des
+    /// Sollwerts, schwieg die Ausgabe, bis die vollen 60 ms wieder beisammen
+    /// waren — bei 10-ms-Aufrufen also rund sechs stille Runden nach jeder
+    /// Schwankung. Aus einer Delle von 20 ms wurde so ein hoerbarer Aussetzer,
+    /// und `underruns` zaehlte davon **nichts**, weil der frueh verlassene Zweig
+    /// am Zaehler vorbeiging. Die Kennzahl, an der dieser Weg beurteilt wird,
+    /// mass den haeufigsten Fall nicht mit.
+    ///
+    /// Jetzt greift die Sperre nur, wenn der Ring wirklich leerlief — dann ist
+    /// erneutes Vorfuellen richtig, weil sofortiges Weiterspielen mit ein paar
+    /// Millisekunden Vorrat nur den naechsten Unterlauf holt.
+    anlauf: bool,
     /// Solange der Ausgabe-Thread laeuft. Faellt er weg (vergiftete Sperre,
     /// Geraetefehler), meldete die Statistik sonst weiter "Ton aktiv",
     /// waehrend nichts mehr ankommt.
@@ -88,10 +105,17 @@ fn fill_output(shared: &Mutex<Shared>, out: &mut [f32]) {
         return;
     };
     // Erst anlaufen lassen, wenn der Zielfuellstand da ist — sonst startet die
-    // Wiedergabe direkt mit Unterlauf.
-    if s.ring.len() < s.target_fill {
-        out.fill(0.0);
-        return;
+    // Wiedergabe direkt mit Unterlauf. Das gilt beim Start und nach einem
+    // leergelaufenen Ring, NICHT bei jeder Delle darunter (s. [`Shared::anlauf`]).
+    if s.anlauf {
+        if s.ring.len() < s.target_fill {
+            out.fill(0.0);
+            // Vorfuellen heisst: dem Geraet kommt nichts. Das gehoert gezaehlt,
+            // sonst ist es genau die Sorte stiller Eingriff, die hier behoben wird.
+            s.underruns += 1;
+            return;
+        }
+        s.anlauf = false;
     }
     let volume = s.volume;
     let written = s.ring.len().min(out.len());
@@ -101,6 +125,9 @@ fn fill_output(shared: &Mutex<Shared>, out: &mut [f32]) {
     out[written..].fill(0.0);
     if written < out.len() {
         s.underruns += 1;
+        // Der Ring ist jetzt leer — erst wieder vorfuellen, statt die naechsten
+        // Aufrufe einzeln hungern zu lassen.
+        s.anlauf = true;
     }
 }
 
@@ -279,6 +306,7 @@ impl AudioOutput {
             underruns: 0,
             dropped: 0,
             regelung: Ringregelung::default(),
+            anlauf: true,
             alive: true,
         }));
         let max_ring_samples =
@@ -478,6 +506,7 @@ mod tests {
             underruns: 0,
             dropped: 0,
             regelung: Ringregelung::default(),
+            anlauf: true,
             alive: true,
         })
     }
@@ -490,6 +519,64 @@ mod tests {
     /// 48 kHz stereo — dieselbe Rechnung wie zur Laufzeit.
     const TEST_PER_MS: usize = 96;
     const TEST_MAX_RING: usize = MAX_RING_SECONDS * 48_000 * 2;
+
+    /// **Der Fehler vom 2026-08-07.** Die Anlaufsperre war als Startbedingung
+    /// gemeint, wirkte aber bei jedem Geraete-Aufruf: ein Ring unter dem
+    /// Sollwert hiess Stille, bis die vollen 60 ms wieder beisammen waren. Aus
+    /// einer Delle wurde damit ein Aussetzer von rund sechs Aufrufen — und
+    /// gezaehlt wurde er nirgends.
+    #[test]
+    fn eine_delle_unter_dem_sollwert_haelt_die_ausgabe_nicht_an() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let soll = RING_SOLL_MS * TEST_PER_MS;
+        shared.lock().unwrap().ring.extend(vec![0.5f32; soll]);
+
+        // Anlauf: mit vollem Sollwert geht die Ausgabe los.
+        let mut out = vec![0.0f32; 32];
+        fill_output(&shared, &mut out);
+        assert!(out.iter().all(|v| *v == 0.5), "nach dem Anlauf muss Ton kommen");
+
+        // Unter den Sollwert fallen lassen, ohne leerzulaufen.
+        {
+            let mut s = shared.lock().unwrap();
+            s.ring.clear();
+            s.ring.extend(vec![0.25f32; 64]);
+            s.underruns = 0;
+        }
+        let mut out = vec![0.0f32; 32];
+        fill_output(&shared, &mut out);
+        assert!(
+            out.iter().all(|v| *v == 0.25),
+            "eine Delle unter dem Sollwert darf die Ausgabe nicht anhalten"
+        );
+        assert_eq!(shared.lock().unwrap().underruns, 0, "und ist kein Unterlauf");
+    }
+
+    /// Die Gegenprobe: laeuft der Ring wirklich leer, wird wieder vorgefuellt —
+    /// und JEDE dabei ausgegebene Stille zaehlt als Unterlauf. Ohne das misst
+    /// die Kennzahl den haeufigsten Fall nicht mit.
+    #[test]
+    fn ein_leergelaufener_ring_fuellt_wieder_vor_und_zaehlt_die_stille() {
+        let shared = shared_mit_soll(TEST_PER_MS);
+        let soll = RING_SOLL_MS * TEST_PER_MS;
+        shared.lock().unwrap().ring.extend(vec![0.5f32; soll]);
+
+        // Mehr verlangt, als da ist: der Ring laeuft mitten im Aufruf leer.
+        let mut out = vec![0.0f32; soll + 16];
+        fill_output(&shared, &mut out);
+        {
+            let s = shared.lock().unwrap();
+            assert_eq!(s.underruns, 1, "der Unterlauf gehoert gezaehlt");
+            assert!(s.anlauf, "nach dem Leerlaufen wird wieder vorgefuellt");
+        }
+
+        // Zu wenig Nachschub: es bleibt still, und die Stille wird gezaehlt.
+        shared.lock().unwrap().ring.extend(vec![0.5f32; 32]);
+        let mut out = vec![0.0f32; 32];
+        fill_output(&shared, &mut out);
+        assert!(out.iter().all(|v| *v == 0.0), "unter dem Sollwert bleibt es beim Vorfuellen");
+        assert_eq!(shared.lock().unwrap().underruns, 2);
+    }
 
     /// **Der Fall, um den es geht.** Ein Nachhol-Schwall nach einer
     /// Lieferpause schiebt den Ring weit ueber den Sollwert. Ohne Grobkappung

@@ -239,6 +239,14 @@ class PlayerManager {
 
     child.on('exit', (code, signal) => {
       log('lifecycle', `beendet (code=${code}, signal=${signal})`);
+      // **Nur aufraeumen, wenn dieser Prozess noch der aktuelle ist.** `exit`
+      // kommt asynchron: nach einem `shutdown()` kann laengst ein neuer Player
+      // laufen. Ohne diese Pruefung nahm der ALTE Prozess dem NEUEN beim
+      // Sterben den Zeilenleser weg und setzte den Verweis auf null — der neue
+      // lief dann weiter und antwortete auf nichts mehr, und alle offenen
+      // Anfragen wurden faelschlich abgewiesen. Der `stdin`-Handler unten
+      // prueft aus genau demselben Grund; hier fehlte es.
+      if (this.child !== child) return;
       this.failAllPending(new Error('pulse-player wurde beendet'));
       this.rl?.close();
       this.rl = null;
@@ -261,6 +269,10 @@ class PlayerManager {
 
     child.on('error', (err) => {
       log('lifecycle', `Start fehlgeschlagen: ${err.message}`);
+      // Gleiche Pruefung wie beim `exit`: ein sterbender Vorgaenger darf weder
+      // den Player dauerhaft als "nicht verfuegbar" markieren noch die
+      // Anfragen seines Nachfolgers abweisen.
+      if (this.child !== child) return;
       this.startFailed = true;
       this.failAllPending(err);
     });
@@ -414,6 +426,11 @@ class PlayerManager {
         });
       });
     }
+    // Selbst aufraeumen, statt es dem `exit`-Handler zu ueberlassen: der prueft
+    // seit dem 2026-08-07, ob er noch zustaendig ist, und ein spaet
+    // eintreffendes `exit` findet den Verweis dann schon geleert vor.
+    this.rl?.close();
+    this.rl = null;
     this.child = null;
   }
 }
