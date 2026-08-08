@@ -225,6 +225,101 @@ mod tests {
         assert!(a.push(seq(), &nal, true).is_some(), "danach wieder normal");
     }
 
+    /// Reproduktion Befund 3: STAP-A (NAL-Typ 24) mit einem ueberzaehligen
+    /// Byte am Ende. Der Depacketizer des `rtp`-Crates prueft in der
+    /// Schleifenbedingung nur `curr_offset < packet.len()`, liest im Rumpf
+    /// aber `packet[curr_offset]` UND `packet[curr_offset + 1]`. Bleibt genau
+    /// ein Byte uebrig, greift der zweite Zugriff hinter den Puffer.
+    /// `Err(_) => dropped = true` faengt nur `Result`, keine Panik.
+    ///
+    /// Erwartet nach der Behebung: der Aufruf kehrt zurueck und liefert `None`
+    /// (Einheit verworfen), statt den Sitzungs-Task zu erschlagen.
+    #[test]
+    #[ignore = "Reproduktion Befund 3 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_3_stapa_ueberzaehliges_byte() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        // 0x18 = NAL-Typ 24 (STAP-A); Laengenfeld 0x0000, dann ein Fuellbyte.
+        let out = a.push(1, &Bytes::from_static(&[0x18, 0x00, 0x00, 0xAA]), true);
+        assert!(out.is_none(), "kaputtes STAP-A darf keine Einheit ergeben");
+
+        // Gegenprobe: wohlgeformtes STAP-A (ein NAL der Laenge 1) plus ein
+        // Fuellbyte — derselbe Weg, nur mit echtem Inhalt davor.
+        let mut b = Assembler::for_codec(Codec::H264);
+        let out = b.push(1, &Bytes::from_static(&[0x18, 0x00, 0x01, 0x41, 0xAA]), true);
+        assert!(out.is_none(), "STAP-A mit Fuellbyte darf keine Einheit ergeben");
+    }
+
+    /// Reproduktion Befund 5: `on_gap` leert nur `unit` und setzt `dropped`,
+    /// fasst den `fua_buffer` IM `H264Packet` aber nicht an. Ein
+    /// Marker-Paket, das selbst kein FU-A-Ende ist, setzt `dropped` zurueck —
+    /// die danach folgende, lueckenlose FU-A-NAL uebernimmt dann die alten
+    /// Fragmentreste und gilt trotzdem als sauber.
+    #[test]
+    #[ignore = "Reproduktion Befund 5 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_5_gap_laesst_fua_reste_stehen() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        let mut seq = folge(1);
+
+        // FU-A-Anfang (Indikator 0x7C = Typ 28, S-Bit gesetzt, NAL-Typ 5)
+        // mit erkennbarem Fuellmuster — das E-Bit kommt nie.
+        let angefangen = Bytes::from_static(&[0x7C, 0x85, 0xAA, 0xAA, 0xAA, 0xAA]);
+        assert!(a.push(seq(), &angefangen, false).is_none());
+
+        a.on_gap();
+
+        // Einzelnes NAL mit Marker: schliesst eine Einheit ab und setzt
+        // `dropped` zurueck, ohne den `fua_buffer` zu leeren.
+        let einzeln = Bytes::from_static(&[0x41, 0x9A, 0x00]);
+        assert!(a.push(seq(), &einzeln, true).is_none(), "verworfene Einheit nach der Luecke");
+
+        // Jetzt eine vollstaendige, lueckenlose FU-A-IDR.
+        assert!(a.push(seq(), &Bytes::from_static(&[0x7C, 0x85, 0x11, 0x22]), false).is_none());
+        let out = a
+            .push(seq(), &Bytes::from_static(&[0x7C, 0x45, 0x33, 0x44]), true)
+            .expect("die heile IDR muss ausgeliefert werden");
+
+        assert!(
+            !out.windows(2).any(|w| w == [0xAA, 0xAA]),
+            "Reste der abgebrochenen FU-A stecken in der IDR: {out:02X?}"
+        );
+    }
+
+    /// Reproduktion Befund 13: der H.264-Deckel misst nur `unit`. Das
+    /// Gegenstueck zu AV1s `partial` liegt hier als `fua_buffer` im
+    /// `H264Packet` und wird erst beim E-Bit herausgegeben — bis dahin
+    /// liefert `depacketize` ein leeres `Ok` und `unit` bleibt 0.
+    #[test]
+    #[ignore = "Reproduktion Befund 13 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_13_fua_puffer_waechst_am_deckel_vorbei() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        let mut seq = folge(1);
+
+        // FU-A-Anfang, danach nur Fortsetzungen — nie ein E-Bit.
+        let mut anfang = vec![0x7C, 0x85];
+        anfang.extend(std::iter::repeat_n(0xAAu8, 1198));
+        assert!(a.push(seq(), &Bytes::from(anfang), false).is_none());
+
+        let mut weiter = vec![0x7C, 0x05];
+        weiter.extend(std::iter::repeat_n(0xAAu8, 1198));
+        let weiter = Bytes::from(weiter);
+        let mut angehaeuft = 1198usize;
+        // Rund 20 MB anhaeufen — unter MAX_ACCESS_UNIT_BYTES, damit die
+        // Einheit am Ende ueberhaupt herauskommt.
+        for _ in 0..17_500 {
+            assert!(a.push(seq(), &weiter, false).is_none());
+            angehaeuft += 1198;
+        }
+        eprintln!("angehaeuft {angehaeuft} Bytes, Deckel sieht buffered_len={}", a.buffered_len());
+
+        // Kleines FU-A-Ende mit Marker.
+        let out = a.push(seq(), &Bytes::from_static(&[0x7C, 0x45, 0x33, 0x44]), true);
+        let geliefert = out.map_or(0, |u| u.len());
+        assert!(
+            geliefert <= 4 * 1200,
+            "der Deckel hat {angehaeuft} Bytes nicht gesehen — ausgeliefert wurden {geliefert}"
+        );
+    }
+
     /// Diagnose, kein Regressionstest: schickt einen echten RTP-Mitschnitt
     /// durch den Assembler und schreibt die entstehenden Einheiten heraus,
     /// damit `testbench/obu-schnitt.py` sie einzeln auf OBU-Syntax pruefen

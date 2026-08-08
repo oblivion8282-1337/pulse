@@ -377,4 +377,229 @@ mod tests {
             }
         }
     }
+
+    // ── Reproduktionen aus dem vierten Bughunt ──────────────────────────────
+    //
+    // Die beiden folgenden Tests bauen Befunde nach, sie beheben nichts. Sie
+    // sind `#[ignore]`, damit die Suite gruen bleibt und der Beweis trotzdem
+    // jederzeit abrufbar ist.
+
+    /// Ein Pruefbild aus einfarbigen Baendern mit FREI gewaehlten Codes —
+    /// dieselbe Form wie [`quelle_bauen`] (planar 10 bit, begrenzter Bereich),
+    /// nur ohne die PQ-Falltabelle.
+    fn baender_quelle(baender: &[[u16; 3]]) -> Quelle {
+        let h = baender.len() as u32 * BANDHOEHE;
+        let (cw, ch) = (BREITE / 2, h / 2);
+        let ebene = |breite: u32, hoehe: u32, k: usize| {
+            let mut out = Vec::with_capacity((breite * hoehe * 2) as usize);
+            for zeile in 0..hoehe {
+                let band = &baender[(zeile as usize * baender.len()) / hoehe as usize];
+                out.extend(std::iter::repeat_n(band[k].to_le_bytes(), breite as usize).flatten());
+            }
+            out
+        };
+        Quelle {
+            breite: BREITE,
+            hoehe: h,
+            y: ebene(BREITE, h, 0),
+            u: ebene(cw, ch, 1),
+            v: ebene(cw, ch, 2),
+            voller_bereich: false,
+        }
+    }
+
+    /// R'G'B' (gamma-kodiert) nach Y'CbCr, begrenzter Bereich, 10-bit-Codes.
+    /// Genau die Umkehrung dessen, was `yuv_to_rgb` im Shader rechnet.
+    fn codes_begrenzt_10bit(rgb: [f64; 3], kr: f64, kb: f64) -> [u16; 3] {
+        let kg = 1.0 - kr - kb;
+        let y = kr * rgb[0] + kg * rgb[1] + kb * rgb[2];
+        let cb = (rgb[2] - y) / (2.0 * (1.0 - kb));
+        let cr = (rgb[0] - y) / (2.0 * (1.0 - kr));
+        [
+            (64.0 + 876.0 * y).round() as u16,
+            (512.0 + 896.0 * cb).round() as u16,
+            (512.0 + 896.0 * cr).round() as u16,
+        ]
+    }
+
+    /// Die Umkehrung davon in Rust — was der Shader aus den Codes machen MUSS,
+    /// bevor irgendeine Farbraumfrage gestellt ist. `koeff` sind die drei
+    /// Faktoren aus `yuv_to_rgb` fuer die jeweilige Matrix.
+    fn decode_begrenzt(codes: [u16; 3], koeff: [f64; 4]) -> [f64; 3] {
+        let y = (f64::from(codes[0]) / 4.0 - 16.0) / 219.0;
+        let cb = (f64::from(codes[1]) / 4.0 - 128.0) / 224.0;
+        let cr = (f64::from(codes[2]) / 4.0 - 128.0) / 224.0;
+        [y + koeff[0] * cr, y - koeff[1] * cb - koeff[2] * cr, y + koeff[3] * cb]
+    }
+
+    /// Die Koeffizienten aus `shader.wgsl::yuv_to_rgb`.
+    const KOEFF_BT2020: [f64; 4] = [1.4746, 0.16455, 0.57135, 1.8814];
+    const KOEFF_BT709: [f64; 4] = [1.5748, 0.1873, 0.4681, 1.8556];
+
+    fn srgb_zu_linear(c: f64) -> f64 {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn linear_zu_srgb(c: f64) -> f64 {
+        let c = c.max(0.0);
+        if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    /// Dieselbe Matrix wie `shader.wgsl::bt2020_zu_bt709`, in `f64`.
+    fn bt2020_zu_bt709(c: [f64; 3]) -> [f64; 3] {
+        let zeile = |m: [f64; 3]| m[0] * c[0] + m[1] * c[1] + m[2] * c[2];
+        [
+            zeile([1.6604910, -0.5876411, -0.0728499]),
+            zeile([-0.1245505, 1.1328999, -0.0083494]),
+            zeile([-0.0181508, -0.1005789, 1.1187297]),
+        ]
+    }
+
+    /// Groesste Abweichung ueber die drei Kanaele.
+    fn spanne(a: [f32; 3], b: [f64; 3]) -> f64 {
+        (0..3).map(|k| (f64::from(a[k]) - b[k]).abs()).fold(0.0, f64::max)
+    }
+
+    /// Ein Messstand ueber ein Pruefbild — oder `None`, wenn diese Maschine
+    /// keine GPU hat. Ein fehlendes Geraet ist keine Aussage ueber den Shader.
+    fn stand_fuer(q: &Quelle) -> Option<Messstand> {
+        match pollster::block_on(Messstand::aufbauen(q)) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("keine GPU ({e}) — dieser Test hat NICHTS geprueft");
+                None
+            }
+        }
+    }
+
+    /// **Reproduktion Befund 19** (`src/render/shader.wgsl:321`).
+    ///
+    /// Eine BT.2020-Quelle OHNE PQ-Kurve — ein SDR-Strom in weiten
+    /// Primaervalenzen, den `farbangaben_von` ausdruecklich fuer moeglich
+    /// haelt. `yuv_to_rgb` nimmt die BT.2020-Matrix (`output.y = 2.0`), aber
+    /// `hdr.x` bleibt 0, und `bt2020_zu_bt709` steht nur im PQ-Zweig. Die
+    /// Primaervalenzen bleiben damit unangetastet, und das Bild geht in
+    /// BT.2020-Koordinaten auf eine BT.709-Oberflaeche.
+    ///
+    /// Gemessen wird an einer Farbe, die den Unterschied sichtbar macht: die
+    /// BT.2020-Primaervalenz Gruen selbst taugt NICHT dafuer, weil ihre
+    /// BT.709-Entsprechung ausserhalb des Wuerfels liegt und der SDR-Zweig sie
+    /// auf genau dasselbe Gruen zurueckschneidet.
+    #[test]
+    #[ignore = "Reproduktion Befund 19 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_19_bt2020_sdr_bleibt_unkonvertiert() {
+        // Gesaettigtes Gruen, aber nicht die Primaervalenz — so bleibt die
+        // BT.709-Entsprechung in zwei von drei Kanaelen darstellbar.
+        let quellfarbe = [0.2, 0.8, 0.35];
+        let codes = codes_begrenzt_10bit(quellfarbe, 0.2627, 0.0593);
+        let q = baender_quelle(&[codes]);
+        let Some(mut stand) = stand_fuer(&q) else { return };
+
+        let zeichnen = |stand: &mut Messstand, matrix: ColorMatrix| -> [f32; 3] {
+            let aus = stand
+                .zeichnen(&Lauf {
+                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    deband: 0.0,
+                    dither: false,
+                    farbe: Farbangaben {
+                        matrix,
+                        uebertragung: Uebertragung::Sdr,
+                        weiter_farbraum: matrix == ColorMatrix::Bt2020Ncl,
+                        spitze_nits: None,
+                    },
+                    hdr_fenster: false,
+                })
+                .expect("Messlauf");
+            mittel(&aus, 0)
+        };
+
+        // Gegenprobe zuerst: derselbe Lauf als BT.709 muss die BT.709-Matrix
+        // aus dem Shader treffen. Faellt schon das um, misst der Stand etwas
+        // anderes als gedacht und alles Weitere waere wertlos.
+        let bt709_soll = decode_begrenzt(codes, KOEFF_BT709).map(|c| c.clamp(0.0, 1.0));
+        let bt709_ist = zeichnen(&mut stand, ColorMatrix::Bt709);
+        assert!(
+            spanne(bt709_ist, bt709_soll) < 0.01,
+            "Gegenprobe BT.709: erwartet {bt709_soll:?}, gemessen {bt709_ist:?}"
+        );
+
+        // Was der Shader heute liefert, wenn die Umrechnung fehlt: genau das
+        // Ergebnis der BT.2020-Matrix, unveraendert.
+        let ohne_umrechnung = decode_begrenzt(codes, KOEFF_BT2020).map(|c| c.clamp(0.0, 1.0));
+        // Und was dastehen muesste: dieselbe Farbe in BT.709-Primaervalenzen.
+        // In LINEAREM Licht gerechnet — der Shader-Kommentar ueber
+        // `bt2020_zu_bt709` verlangt das ausdruecklich.
+        let soll = {
+            let linear = ohne_umrechnung.map(srgb_zu_linear);
+            bt2020_zu_bt709(linear).map(|c| linear_zu_srgb(c).clamp(0.0, 1.0))
+        };
+
+        let ist = zeichnen(&mut stand, ColorMatrix::Bt2020Ncl);
+        assert!(
+            spanne(ist, ohne_umrechnung) > 0.01,
+            "der SDR-Zweig laesst die Primaervalenzen stehen: gemessen {ist:?}, \
+             das ist die reine BT.2020-Ausgabe {ohne_umrechnung:?}; \
+             in BT.709 muesste dort {soll:?} stehen"
+        );
+        assert!(
+            spanne(ist, soll) < 0.03,
+            "BT.709-Sollwert {soll:?}, gemessen {ist:?}"
+        );
+    }
+
+    /// **Reproduktion Befund 29** (`src/render/farbe.rs:167`).
+    ///
+    /// Steht hier statt in `render::farbe`, weil der belastbare Teil den
+    /// [`Messstand`] braucht und `messen::gpu` von dort aus nicht sichtbar ist
+    /// (privates Modul). Der Ein-Zeilen-Nachweis am Praedikat selbst steht
+    /// unten mit drin.
+    ///
+    /// Derselbe Graukeil in zwei Ziele: `Bgra8Unorm` und `Bgra8UnormSrgb`. Die
+    /// ROP behandelt die Shader-Werte eines `*_SRGB`-Ziels als LINEAR und legt
+    /// die sRGB-Kurve beim Speichern darauf. Da `surface_is_linear` fuer dieses
+    /// Format `false` liefert, linearisiert der Shader nicht — die Werte sind
+    /// bereits gamma-kodiert und werden ein zweites Mal kodiert. Beide Ziele
+    /// muessten dieselbe Helligkeitskurve zurueckgeben.
+    #[test]
+    #[ignore = "Reproduktion Befund 29 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_29_srgb_ziel_wird_doppelt_kodiert() {
+        // Neutraler Keil: Chroma auf der Mitte, Luma von Schwarz bis Weiss.
+        let stufen: Vec<[u16; 3]> =
+            [64u16, 200, 340, 480, 620, 760, 940].iter().map(|y| [*y, 512, 512]).collect();
+        let q = baender_quelle(&stufen);
+        let Some(mut stand) = stand_fuer(&q) else { return };
+
+        let keil = |stand: &mut Messstand, format| -> Vec<[f32; 3]> {
+            let aus = stand.zeichnen(&Lauf::sdr(format, 0.0, false)).expect("Messlauf");
+            (0..stufen.len()).map(|b| mittel(&aus, b)).collect()
+        };
+        let unorm = keil(&mut stand, wgpu::TextureFormat::Bgra8Unorm);
+        let srgb = keil(&mut stand, wgpu::TextureFormat::Bgra8UnormSrgb);
+
+        // Zwei Ausgabestufen Spielraum — mehr ist zwischen zwei 8-bit-Zielen
+        // desselben Bildes nicht zu erklaeren.
+        let toleranz = 2.0 / 255.0;
+        for (i, (a, b)) in unorm.iter().zip(&srgb).enumerate() {
+            let d = (0..3).map(|k| (a[k] - b[k]).abs()).fold(0.0, f32::max);
+            assert!(
+                d <= toleranz,
+                "Stufe {i} (Luma-Code {}): Bgra8Unorm {a:?}, Bgra8UnormSrgb {b:?} — \
+                 {d:.4} auseinander, das sRGB-Ziel ist doppelt kodiert",
+                stufen[i][0]
+            );
+        }
+
+        assert!(
+            crate::render::farbe::surface_is_linear(wgpu::TextureFormat::Bgra8UnormSrgb),
+            "ein *_SRGB-Ziel kodiert selbst und braucht deshalb LINEARE Shader-Werte"
+        );
+    }
 }

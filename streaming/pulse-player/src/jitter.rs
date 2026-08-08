@@ -529,6 +529,62 @@ mod tests {
         );
     }
 
+    /// Reproduktion Befund 7: Ein dupliziertes Kopf-Paket erneuert in `push`
+    /// die `arrived`-Zeit (`entries.insert` ueberschreibt die ganze `Entry`),
+    /// und `poll` misst die Geduldsgrenze fuer eine offene Luecke genau daran.
+    /// Eine Folge von Dopplungen des vordersten wartenden Pakets haelt die
+    /// Wartezeit damit dauerhaft unter `target` — die Luecke wird nie gemeldet,
+    /// der Zusammensetzer bekommt kein `on_gap()`, der Video-Weg steht.
+    #[test]
+    #[ignore = "Reproduktion Befund 7 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_7_duplikat_erneuert_ankunftszeit() {
+        let t0 = Instant::now();
+        let target = Duration::from_millis(50);
+        let mut j = JitterBuffer::new(target);
+
+        // Paket 1 laeuft regulaer durch, danach ist `next` = 2.
+        j.push(pkt(1), t0);
+        assert_eq!(seqs(&j.poll(t0)), vec![1]);
+
+        // Paket 5 trifft ein, 2..4 fehlen. Ab JETZT laeuft die Geduldsgrenze.
+        j.push(pkt(5), t0);
+        assert!(j.poll(t0).is_empty(), "vor Ablauf von target darf nichts kommen");
+
+        // Dopplungen von 5 im Abstand von 10 ms — jede fuer sich unterhalb
+        // von `target`. Insgesamt vergehen 200 ms, also das Vierfache.
+        let mut luecke_gemeldet = None;
+        for n in 1..=20u32 {
+            let jetzt = t0 + Duration::from_millis(10) * n;
+            j.push(pkt(5), jetzt);
+            for r in j.poll(jetzt) {
+                if let Release::Gap { missing } = r {
+                    luecke_gemeldet = Some((n, missing));
+                    break;
+                }
+            }
+            if luecke_gemeldet.is_some() {
+                break;
+            }
+        }
+
+        assert!(
+            luecke_gemeldet.is_some(),
+            "nach {:?} (dem Vierfachen von target={:?}) ab dem ERSTEN Eintreffen von \
+             Paket 5 muss die Luecke 2..4 als Release::Gap gemeldet sein; \
+             stattdessen kam keine — {} Dopplungen haben die Ankunftszeit \
+             immer wieder erneuert (buffered={}, duplicates={}, lost={})",
+            Duration::from_millis(200),
+            target,
+            j.duplicates,
+            j.buffered(),
+            j.duplicates,
+            j.lost,
+        );
+        let (n, missing) = luecke_gemeldet.unwrap();
+        assert_eq!(missing, 3, "2, 3 und 4 fehlen");
+        assert!(n <= 5, "die Luecke muss spaetestens 50 ms nach dem ersten 5er kommen, kam bei {n}0 ms");
+    }
+
     #[test]
     fn zielzeit_ist_zur_laufzeit_aenderbar() {
         let mut j = JitterBuffer::new(Duration::from_millis(20));

@@ -838,4 +838,103 @@ mod tests {
         // fremder Host wird verworfen
         assert_eq!(resolve_resource_url(base, "https://evil.example/x"), None);
     }
+
+    /// Ein WHEP-Endpunkt antwortet mit HTTP 200 und kuendigt 200 MB Body an.
+    /// Der Client liest ihn mit `res.text()` vollstaendig in einen `String`,
+    /// BEVOR er prueft, ob ueberhaupt SDP drinsteht — es gibt keine
+    /// Groessenbegrenzung, nur den 15-s-Zeit-Timeout.
+    ///
+    /// Gemessen wird nicht der Speicher (schlecht beobachtbar), sondern was
+    /// die Gegenstelle loswerden konnte: mit einer Obergrenze bricht der
+    /// Client nach wenigen KB ab, der Stub kommt dann ueber ~1 MB nicht
+    /// hinaus. Heute nimmt der Client alle 200 MB an.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "Reproduktion Befund 22 — schlaegt bis zur Behebung absichtlich fehl"]
+    async fn repro_22_whep_antwort_ohne_groessengrenze() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        /// Was der Stub hoechstens loswerden koennen DARF. SDP-Antworten sind
+        /// wenige KB; 1 MB ist bereits sehr grosszuegig.
+        const ERLAUBT: u64 = 1024 * 1024;
+        /// Was er heute loswird.
+        const ANGEKUENDIGT: u64 = 200 * 1024 * 1024;
+
+        fn kopfende(roh: &[u8]) -> Option<usize> {
+            roh.windows(4).position(|f| f == b"\r\n\r\n").map(|p| p + 4)
+        }
+        fn content_length(kopf: &[u8]) -> usize {
+            String::from_utf8_lossy(kopf)
+                .lines()
+                .find_map(|l| {
+                    let (k, v) = l.split_once(':')?;
+                    k.eq_ignore_ascii_case("content-length").then(|| v.trim().parse().ok())?
+                })
+                .unwrap_or(0)
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let geschrieben = Arc::new(AtomicU64::new(0));
+        let zaehler = geschrieben.clone();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            // Erst die Anfrage (Kopf + Offer-SDP) abnehmen, sonst haengt der
+            // Client im Senden statt im Lesen.
+            let mut roh = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).expect("read");
+                if n == 0 {
+                    break;
+                }
+                roh.extend_from_slice(&buf[..n]);
+                if let Some(p) = kopfende(&roh) {
+                    if roh.len() - p >= content_length(&roh[..p]) {
+                        break;
+                    }
+                }
+            }
+            let kopf = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/sdp\r\n\
+                 Content-Length: {ANGEKUENDIGT}\r\n\r\n"
+            );
+            if stream.write_all(kopf.as_bytes()).is_err() {
+                return;
+            }
+            let block = vec![0u8; 64 * 1024];
+            let mut rest = ANGEKUENDIGT;
+            while rest > 0 {
+                let n = (block.len() as u64).min(rest) as usize;
+                if stream.write_all(&block[..n]).is_err() {
+                    break; // Client hat abgebrochen — genau das waere der Fix
+                }
+                zaehler.fetch_add(n as u64, Ordering::Relaxed);
+                rest -= n as u64;
+            }
+        });
+
+        let (tx, _rx) = mpsc::channel(64);
+        let ergebnis = connect(&format!("http://{addr}/whep"), &[], tx).await;
+        let fehler = match ergebnis {
+            Ok(_) => panic!("die Sitzung darf mit dieser Antwort nicht zustande kommen"),
+            Err(e) => format!("{e:#}"),
+        };
+        let _ = server.join();
+
+        let n = geschrieben.load(Ordering::Relaxed);
+        eprintln!("Stub konnte {n} Bytes absetzen; Fehler des Clients: {fehler}");
+        // Beweis, dass der Body VOLLSTAENDIG gelesen wurde, bevor der Inhalt
+        // geprueft wird: der Abbruch kommt aus der SDP-Pruefung dahinter.
+        assert!(
+            fehler.contains("kein gueltiges SDP"),
+            "unerwarteter Abbruchgrund (Test misst dann etwas anderes): {fehler}"
+        );
+        assert!(
+            n <= ERLAUBT,
+            "der Client hat {n} Bytes Antwortkoerper geschluckt \
+             (erlaubt waeren hoechstens {ERLAUBT}) — keine Groessenbegrenzung"
+        );
+    }
 }

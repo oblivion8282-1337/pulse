@@ -539,4 +539,107 @@ mod tests {
         assert_eq!(e.mehrfach_loch, 1, "der Grenzfall bleibt gezaehlt");
         assert!(rx.try_recv().is_ok());
     }
+
+    /// **Reproduktion Befund 21, zweiter Teil — der Empfangsweg.**
+    ///
+    /// Eine Schutzgruppe mit genau einem Mitglied kommt an, das geschuetzte
+    /// Medienpaket fehlt. `versuchen()` sieht genau ein Loch, `vorhanden` ist
+    /// leer, beide XOR-Schleifen laufen null Mal — und die Paritaetsnutzlast
+    /// wandert unveraendert als "repariertes" Paket in `tx`, gezaehlt als
+    /// `repariert`. Die Zahl soll belegen, dass Paritaet wirkt; hier belegt
+    /// sie nur, dass der Absender Bytes schicken kann.
+    ///
+    /// Erwartet nach der Behebung: `repariert == 0` (Gruppe wird verworfen).
+    #[tokio::test]
+    #[ignore = "Reproduktion Befund 21 — schlaegt bis zur Behebung absichtlich fehl"]
+    async fn repro_21_einzelgruppe_wird_als_repariert_gezaehlt() {
+        let einzel = medienpaket(BASIS, 9000, SSRC, &[0xAB; 40]);
+        let erwartete_bytes = einzel.bytes.clone();
+        let paritaet = paritaet_bauen(std::slice::from_ref(&einzel), SSRC, BASIS);
+
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);
+
+        // KEIN Medienpaket eintreffen lassen — die Gruppe hat kein einziges
+        // echtes Vergleichspaket.
+        e.paritaetspaket(&paritaet).await;
+
+        let eingespeist = rx.try_recv().ok();
+        assert_eq!(
+            e.repariert, 0,
+            "eine Gruppe ohne ein einziges echtes Vergleichspaket darf nicht als \
+             repariert zaehlen; heute wird die Paritaetsnutzlast unveraendert \
+             eingespeist (eingespeist: {}, bytegleich mit dem Original: {})",
+            eingespeist.is_some(),
+            eingespeist
+                .map(|a| a.packet.payload.as_ref() == &erwartete_bytes[12..])
+                .unwrap_or(false),
+        );
+    }
+
+    /// **Reproduktion Befund 34 — ein Paritaetspaket zu einer bereits
+    /// wartenden Basis verdraengt eine unbeteiligte Gruppe.**
+    ///
+    /// Die Kapazitaetspruefung in [`Empfaenger::paritaetspaket`] sieht nur
+    /// `self.wartend.len() >= WARTENDE_PARITAET` und entfernt daraufhin einen
+    /// beliebigen Eintrag — ohne zu pruefen, ob `kopf.basis_sequenz` schon
+    /// drinsteht. Steht sie drin, haette das folgende `insert()` bloss
+    /// ueberschrieben, und die Verdraengung war umsonst: eine fremde, noch
+    /// loesbare Gruppe ist weg.
+    ///
+    /// Erreichbar ueber den Umlauf der 16-bit-`basis_sequenz` (alle 65536
+    /// Medienpakete, bei 500 Paketen/s rund zwei Minuten).
+    ///
+    /// Erwartet nach der Behebung: `verworfen` bleibt 0, und alle 64 Gruppen
+    /// werden von ihrem Nachzuegler geloest (`repariert == 64`).
+    #[tokio::test]
+    #[ignore = "Reproduktion Befund 34 — schlaegt bis zur Behebung absichtlich fehl"]
+    async fn repro_34_doppelte_basis_verdraengt_fremde_wartegruppe() {
+        let (tx, _rx) = mpsc::channel(4096);
+        let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);
+
+        // 64 Gruppen zu je fuenf Paketen, Basen 10 auseinander (keine
+        // Ueberlappung). Von jeder kommen die ersten DREI an, es fehlen also
+        // zwei — unloesbar, aber jede wird durch genau EIN Nachzueglerpaket
+        // (basis+3) loesbar.
+        let mut paritaeten: Vec<(u16, Vec<u8>)> = Vec::new();
+        let mut nachzuegler: Vec<Medienpaket> = Vec::new();
+        for g in 0..WARTENDE_PARITAET as u16 {
+            let basis = BASIS + g * 10;
+            let medien: Vec<_> =
+                (0..5).map(|i| medienpaket(basis + i, 9000, SSRC, &[i as u8; 40])).collect();
+            let paritaet = paritaet_bauen(&medien, SSRC, basis);
+            for p in medien.iter().take(3) {
+                e.medienpaket(p.sequenz, p.bytes.clone()).await;
+            }
+            e.paritaetspaket(&paritaet).await;
+            nachzuegler.push(medienpaket(basis + 3, 9000, SSRC, &[3u8; 40]));
+            paritaeten.push((basis, paritaet));
+        }
+
+        assert_eq!(e.wartend.len(), WARTENDE_PARITAET, "der Wartestand muss voll sein");
+        assert_eq!(e.verworfen, 0, "bis hierher wurde nichts verdraengt");
+
+        // Jetzt dasselbe Paritaetspaket einer BEREITS wartenden Basis noch
+        // einmal — der Schluessel existiert, das `insert()` wuerde nur
+        // ueberschreiben.
+        let (_, ref erneut) = paritaeten[0];
+        e.paritaetspaket(erneut).await;
+        let verworfen_nach_duplikat = e.verworfen;
+        let wartend_nach_duplikat = e.wartend.len();
+
+        // Jeder Gruppe ihren Nachzuegler geben: alle 64 waeren jetzt loesbar.
+        for p in &nachzuegler {
+            e.medienpaket(p.sequenz, p.bytes.clone()).await;
+        }
+
+        assert_eq!(
+            verworfen_nach_duplikat, 0,
+            "eine bereits wartende Basis darf keine fremde Gruppe verdraengen \
+             (Wartestand danach {wartend_nach_duplikat} statt {WARTENDE_PARITAET}, \
+             von 64 loesbaren Gruppen wurden {} repariert)",
+            e.repariert,
+        );
+        assert_eq!(e.repariert, WARTENDE_PARITAET as u64, "alle 64 Gruppen waren loesbar");
+    }
 }

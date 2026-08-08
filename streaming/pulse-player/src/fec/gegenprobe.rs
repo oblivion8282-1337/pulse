@@ -271,3 +271,57 @@ fn nachlauf_melden(p: &Pruefstand) {
         werte.len()
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fec::flexfec03::tests::{medienpaket as bau_medienpaket, paritaet_bauen};
+
+    /// **Reproduktion Befund 31 — `nachlauf_us` waechst unbegrenzt.**
+    ///
+    /// `Pruefstand::medien` ist auf [`VORRAT`] gedeckelt, das direkt daneben
+    /// liegende `nachlauf_us` nicht: bei JEDEM verwertbaren Paritaetspaket
+    /// kommt ein Eintrag dazu, entfernt wird nie einer. `PRUEFSTAND` ist ein
+    /// prozessweiter `OnceLock<Mutex<…>>` und lebt ueber die ganze Laufzeit,
+    /// also ueber beliebig viele Sitzungen hinweg.
+    ///
+    /// **Nur EIN Test darf den Pruefstand anfassen** — er ist prozessweit.
+    ///
+    /// Erwartet nach der Behebung: gedeckelt wie `medien`, also
+    /// `nachlauf_us.len() <= VORRAT`.
+    #[test]
+    #[ignore = "Reproduktion Befund 31 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_31_nachlauf_waechst_unbegrenzt() {
+        const SSRC: u32 = 0xDEAD_BEEF;
+        const GRUPPEN: u16 = 2000;
+
+        for g in 0..GRUPPEN {
+            let basis = g.wrapping_mul(5);
+            let medien: Vec<_> = (0..5u16)
+                .map(|i| bau_medienpaket(basis.wrapping_add(i), 9000, SSRC, &[i as u8; 40]))
+                .collect();
+            let paritaet = paritaet_bauen(&medien, SSRC, basis);
+            for p in &medien {
+                medienpaket(p.sequenz, p.bytes.clone());
+            }
+            paritaetspaket(&paritaet);
+        }
+
+        let p = pruefstand().lock().unwrap();
+        assert_eq!(
+            p.gruppen_geprueft, GRUPPEN as u64,
+            "alle Gruppen mussten vollstaendig sein, sonst misst der Test etwas anderes"
+        );
+        assert!(
+            p.medien.len() <= VORRAT,
+            "Gegenprobe: `medien` ist gedeckelt (Kontrollgruppe), hat aber {}",
+            p.medien.len()
+        );
+        assert!(
+            p.nachlauf_us.len() <= VORRAT,
+            "`nachlauf_us` muss wie `medien` gedeckelt sein, haelt aber {} Eintraege \
+             nach {GRUPPEN} Gruppen — waechst monoton ueber die ganze Prozesslaufzeit",
+            p.nachlauf_us.len()
+        );
+    }
+}

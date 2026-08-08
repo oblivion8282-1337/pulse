@@ -462,6 +462,76 @@ mod tests {
         assert!(out.is_none(), "leere Elemente ergeben keine Einheit");
     }
 
+    /// Reproduktion Befund 14: Marker und `Y` werden unabhaengig behandelt.
+    /// Ein Paket, das gleichzeitig "wird fortgesetzt" (Y=1) und "Einheit
+    /// endet hier" (Marker) sagt, ist ein Widerspruch — heute flusht der
+    /// Marker-Zweig bedingungslos, `append_obu_with_size` schreibt die
+    /// Bruchstuecklaenge als LEB128 und behauptet damit, das halbe Fragment
+    /// sei ein vollstaendiger OBU. `poisoned` bleibt ungesetzt.
+    #[test]
+    #[ignore = "Reproduktion Befund 14 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_14_marker_mit_y_liefert_bruchstueck_aus() {
+        let mut a = Av1Assembler::new();
+        let header = 6u8 << 3; // OBU_FRAME, kein Groessenfeld
+
+        // Paket A: Z=0 Y=1 W=1 — erste Haelfte eines OBU.
+        let mut p1 = vec![0b0101_0000u8];
+        p1.extend_from_slice(&[header, 0xAA, 0xAA]);
+        assert!(a.push(&p1, false).is_none(), "ohne Marker noch nichts");
+
+        // Paket B: Z=1 Y=1 (geht weiter!) UND Marker.
+        let mut p2 = vec![0b1101_0000u8];
+        p2.extend_from_slice(&[0xBB, 0xBB]);
+        let out = a.push(&p2, true);
+        assert!(
+            out.is_none(),
+            "Y=1 und Marker widersprechen sich — ausgeliefert wurde {:02X?}",
+            out.as_deref()
+        );
+    }
+
+    /// Reproduktion Befund 28: traegt ein RTP-Element bereits ein
+    /// `obu_has_size_field`, uebernimmt `append_obu_with_size` es
+    /// byte-gleich, ohne das Feld gegen die verbindliche Elementlaenge zu
+    /// halten. Ein fremder Sender bestimmt damit frei, wo nachgelagerte
+    /// Parser OBU-Grenzen sehen.
+    #[test]
+    #[ignore = "Reproduktion Befund 28 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_28_gelogenes_obu_size_wird_durchgereicht() {
+        let mut a = Av1Assembler::new();
+        let header = (6u8 << 3) | OBU_HAS_SIZE_BIT; // OBU_FRAME mit Groessenfeld
+
+        // 400-Byte-Element, dessen Kopf `obu_size = 1` behauptet.
+        let mut element = vec![header];
+        element.extend_from_slice(&leb(1));
+        // Nutzlast, die hinter dem gelogenen Groessenfeld wie ein
+        // Keyframe-Einstiegspunkt aussieht: erst ein Frame-Kopf-Byte mit
+        // show_existing_frame=0/frame_type=KEY, dann ein Sequence-Header-OBU.
+        element.push(0x00);
+        element.push((1u8 << 3) | OBU_HAS_SIZE_BIT);
+        element.push(0x00);
+        element.extend(std::iter::repeat_n(0x5Cu8, 400 - element.len()));
+        assert_eq!(element.len(), 400);
+
+        let mut pkt = vec![0b0001_0000u8]; // Z=0 Y=0 W=1
+        pkt.extend_from_slice(&element);
+
+        let out = a.push(&pkt, true);
+        if let Some(unit) = &out {
+            eprintln!(
+                "durchgereicht: {} Byte, is_keyframe={}",
+                unit.len(),
+                crate::recorder::is_keyframe(crate::whep::Codec::Av1, unit)
+            );
+        }
+        assert!(
+            out.is_none(),
+            "Kopflaenge + LEB128 + obu_size ({}) passt nicht zur Elementlaenge ({})",
+            1 + 1 + 1,
+            element.len()
+        );
+    }
+
     #[test]
     fn gap_verwirft_laufende_einheit() {
         let mut a = Av1Assembler::new();
