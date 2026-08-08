@@ -1,21 +1,87 @@
 # Vierter Bughunt — nativer HQ-Player (`streaming/pulse-player`)
 
-Stand 2026-08-08. Rein lesende Prüfung (der Crate baut hier nicht, `vendor/webrtc-rs` fehlt).
-Grundlage: 35 Befunde aus sechs Prüf-Linsen, jeder von drei unabhängigen Skeptikern
-gegengelesen. Nach dem Entdoppeln bleiben **34** Befunde; drei davon sind gegenüber der
-Erstmeldung **herabgestuft**, einer ist nur eingeschränkt erreichbar.
+Stand 2026-08-08, am selben Tag um den **Reproduktionsstand** (Stufe 2) ergänzt.
+
+**Hier stand bis zur Reproduktion:** "Rein lesende Prüfung (der Crate baut hier nicht,
+`vendor/webrtc-rs` fehlt). Grundlage: 35 Befunde aus **sechs** Prüf-Linsen." Beides ist
+falsch und bleibt hier als widerlegt stehen. Richtig ist: es waren **zwölf Prüf-Linsen plus
+ein Vollständigkeits-Kritiker**, jeder Befund von drei unabhängigen Skeptikern gegengelesen —
+und der Crate **baut und testet inzwischen**. `vendor/webrtc-rs` ist eingerichtet (v0.17.2 +
+zwei Pulse-Patches); Grundlinie auf der Prüfmaschine: `cargo build --all-targets` erfolgreich
+mit 5 Warnungen (nur toter Code), `cargo test` **226 bestanden / 0 fehlgeschlagen / 5
+ignoriert** (die fünf sind Diagnose- und Messwerkzeuge hinter Umgebungsvariablen bzw. echter
+HDR-Hardware, keine stillgelegten Fehlschläge). Ein Vollbau dauert rund 75 s.
+
+Nach dem Entdoppeln bleiben **34** Befunde; drei davon sind gegenüber der Erstmeldung
+**herabgestuft**, einer ist nur eingeschränkt erreichbar.
+
+Jeder Befund trägt jetzt direkt unter der Ortsangabe eine **Standzeile** mit dem
+Reproduktionsergebnis. Die Prüfmaschine ist ein **Mac (Apple Silicon)**: kein Windows, kein
+D3D11/D3D12, kein Vulkan, kein CUDA, kein HDR-Schirm, kein echter WHEP-Sender. "NUR MIT
+HARDWARE", "NUR MIT ECHTEM SENDER" und "NICHT NACHBAUBAR" sind deshalb ein eigenes Ergebnis
+und ausdrücklich **keine Widerlegung**. Alle Reproduktionen sind reine Tests — der
+Produktivcode ist unverändert.
 
 ## Zusammenfassung
+
+### Reproduktionsstand
+
+| Stand | Zahl | Befunde |
+|---|---|---|
+| **REPRODUZIERT** (Test rot, Ursache am benannten Ort belegt) | **18** | 3, 5, 7, 10, 11, 13, 14, 15, 17, 19, 21, 22, 24, 27, 28, 29, 31, 34 |
+| **WIDERLEGT** | **0** | — |
+| **NUR MIT HARDWARE** (Windows/D3D11, Linux/Vulkan/CUDA, NVDEC, HDR-Schirm) | **6** | 1, 2, 4, 6, 16, 18 |
+| **NUR MIT ECHTEM SENDER** (WHEP-Gegenstelle, ausgehandelte PeerConnection) | **6** | 8, 9, 20, 25, 30, 32 |
+| **NICHT NACHBAUBAR** (kein Injektionspunkt, kein Testmodul, Fenster nötig) | **4** | 12, 23, 26, 33 |
+
+**18 von 18 versuchten Reproduktionen sind gelungen, keine einzige ist umgefallen.** Die
+übrigen 16 sind auf dieser Maschine nicht ausführbar — sie bleiben ungeprüft, nicht
+entkräftet. Vier davon (12, 23, 26, 33) scheitern nicht an fehlender Hardware, sondern daran,
+dass der betroffene Code **keinen Prüfeinstieg besitzt**: `AudioOutput::new()` holt sich das
+Gerät selbst, `app/mod.rs` hat kein Testmodul und keine `Session` ohne Fenster,
+`Renderer::render` braucht eine echte Oberfläche. Diese Untestbarkeit ist selbst ein Befund
+und gehört auf die Behebungsliste.
+
+### Was das über die adversarische Prüfung in Stufe 1 sagt
+
+In Stufe 1 hat jeder Befund drei Skeptiker durchlaufen, 105 Urteile insgesamt — und **nur drei
+davon haben etwas verworfen** (21 und 27 herabgestuft, 34 als unsicher geführt). Das ist eine
+Verwerfungsquote von **3 Prozent**, und eine so milde Quote ist normalerweise ein Warnzeichen:
+Sie sieht nach Zustimmungsdruck aus. Die Reproduktion sagt dazu zweierlei, und beides gehört
+nebeneinander:
+
+- **Für das Ob war die Quote berechtigt.** 18 von 18 ausführbaren Befunden ließen sich
+  auslösen; keiner erwies sich als Fehldeutung, und in mehreren Fällen (3, 13, 22, 28) traf
+  nicht nur die Behauptung, sondern auch die genannte Codezeile. Auch die drei Herabstufungen
+  waren richtig: bei 21 und 27 hatten die Skeptiker den *Schaden* korrigiert, nicht die
+  Beobachtung — und beide Beobachtungen stehen jetzt als roter Test da.
+- **Für das Wie war die Prüfung zu mild.** In mindestens acht der 18 Fälle stimmte die
+  mitgelieferte Testskizze oder der Behebungsvorschlag nicht: die Lückengröße bei 7, der
+  Zeitpunkt bei 34 (die Wirkung tritt beim *ersten* Duplikat ein — wer der Skizze folgt, hält
+  den Befund fälschlich für widerlegt), ein untaugliches Prüfbild **und ein sachlich falscher
+  Behebungsvorschlag** bei 19 (die Matrix muss in linearem Licht laufen), ein unerreichbarer
+  Zielzustand bei 24, eine nicht schreibbare Gegenprobe bei 11, ein nicht assertierbarer
+  zweiter Teil bei 15, eine Zusatzbehauptung bei 14, die die eigene Minimalbehebung überlebt,
+  und die nur zur Hälfte prüfbare Aussage bei 17. **Kein Skeptiker hat einen dieser Fehler
+  gefunden** — sie haben die Behauptung geprüft, nicht den Beweisweg. Genau dort liegt die
+  Lücke der Stufe 1.
+- **Und die schwersten Befunde sind weiterhin ungeprüft.** Beide *kritischen* (1 und 2) hängen
+  an Hardware, die es hier nicht gibt. Die 3 Prozent stehen damit über gut der Hälfte der
+  Befunde bestätigt da — ausgerechnet über die zwei, die den Prozess abstürzen lassen, nicht.
+
+### Sachstand (unverändert gültig)
 
 Der Player ist nach drei vorherigen Durchgängen im Kern stabil — die tragenden Wege
 (Jitter, Nachforderung, Neuaufbau, Tonanlauf) sind mit Messungen belegt und größtenteils
 getestet. Das verbliebene Risiko sitzt fast vollständig in den **jungen Randpfaden**:
 Zero-Copy/GPU-Bilder (zwei Speichersicherheitsfehler, davon einer bei praktisch jedem
-Sitzungsende auf Linux), HDR (ein sicherer wgpu-Absturz beim ersten HDR-Bild auf Windows)
+Sitzungsende auf Linux — beide hier nicht nachstellbar), HDR (ein wgpu-Absturz beim ersten
+HDR-Bild auf Windows; die Erstmeldung nannte ihn "sicher", geprüft ist er nicht)
 und die neu eingezogenen Nebenwege (FlexFEC, Auffangnetz, Aufnahme). Zwei Fehler kann ein
 **fremder Sender** unmittelbar auslösen: ein STAP-A-Paket mit einem überzähligen Byte
-lässt den H.264-Depacketizer über das Pufferende lesen, und ein Auflösungswechsel mitten
-im Strom liefert dauerhaft ein falsch beschnittenes Bild. Auffällig ist ein Muster, das
+lässt den H.264-Depacketizer über das Pufferende lesen (**mit Test belegt**, Befund 3), und
+ein Auflösungswechsel mitten im Strom liefert dauerhaft ein falsch beschnittenes Bild
+(Befund 6, nur mit Hardware prüfbar). Auffällig ist ein Muster, das
 sich durch mehrere Befunde zieht: **Wächter und Zähler decken den Weg nicht ab, den sie
 zu decken behaupten** (Einfrier-Wächter, Bilanz-Wache, `alive`, `fec_repariert`) — die
 Kommentare versprechen dort mehr als der Code hält.
@@ -26,6 +92,13 @@ Kommentare versprechen dort mehr als der Code hält.
 
 ### 1. HDR-Formatwechsel macht zwischengespeicherte Bindegruppen inkompatibel — wgpu bricht mit Panik ab
 `src/render/fremdbild.rs:175` — **kritisch, Absturz**
+
+**Stand: NUR MIT HARDWARE** — auf der Prüfmaschine (Mac) nicht auslösbar. `Fremdbilder::importe`
+liegt vollständig hinter `#[cfg(windows)]` bzw. `#[cfg(target_os="linux")]`
+(`fremdbild.rs:46/268`); hier gilt der Leerzweig ab Zeile 243, es gibt also gar keine
+Fremdbild-Bindegruppe. Zusätzlich nötig: eine echte Oberfläche, die `Rgba16Float` anbietet, und
+`schirmwissen.ist_hdr(hwnd)` — das ist die DXGI-Abfrage aus `hdr_fenster.rs` und liefert außerhalb
+von Windows immer false. Der Befund ist damit **ungeprüft, nicht widerlegt**.
 
 `Fremdbilder::importe` (Cache der Bindegruppen je NT-Handle/VkImage) wird nur geleert, wenn
 sich `bauart` (Breite/Höhe/Bittiefe) ändert. Ein Wechsel des Oberflächenformats (SDR→HDR)
@@ -49,6 +122,12 @@ einem Formatwechsel ein `Fremdbilder::invalidieren()` rufen lassen.
 
 ### 2. Ringplatz gibt seine VkImages frei, nachdem wgpu das VkDevice schon zerstört hat
 `src/zerocopy/linux/platz.rs:176` — **kritisch, Speichersicherheit**
+
+**Stand: NUR MIT HARDWARE** — das ganze Modul `zerocopy::linux` hängt an
+`#[cfg(target_os = "linux")]` (`zerocopy/mod.rs:127`) und wird auf dem Mac nicht einmal übersetzt;
+`Ringplatz::drop` ruft `cuMipmappedArrayDestroy`/`cuDestroyExternalMemory`/`vkDestroyImage` und
+braucht CUDA plus ein Vulkan-Gerät. Die Reihenfolge-Frage sitzt zwar in `app::close_session`, ist
+aber ohne die Linux-Typen nicht auslösbar. **Ungeprüft, nicht widerlegt.**
 
 `Vkseite` hält nur geklonte ash-Griffe (`src/zerocopy/linux/vkbild.rs:29-42`); sie halten
 das wgpu-Gerät nicht am Leben — der Modulkopf formuliert genau das als Auflage und
@@ -79,6 +158,14 @@ Ergänzend `pending`/`takt` in `close_session` ausdrücklich vor dem Renderer ve
 ### 3. STAP-A mit einem überzähligen Byte liest über das Pufferende — Panik im Sitzungs-Task
 `src/depacket/mod.rs:110` — **hoch, Absturz, von außen auslösbar**
 
+**Stand: REPRODUZIERT** — Test `depacket::tests::repro_3_stapa_ueberzaehliges_byte`.
+Die Panik entsteht genau an der benannten Stelle, `vendor/webrtc-rs/rtp/src/codecs/h264/mod.rs:239`
+(`packet[curr_offset + 1]`, "index out of bounds: the len is 4 but the index is 4"), also im
+vendorten Crate und nicht im Pulse-Code. Damit ist zugleich belegt, dass `Err(_) => *dropped = true`
+(Zeile 114) wirkungslos ist: es wird nie erreicht, weil eine Panik kein `Result` ist. Die im Test
+mitgeführte Gegenprobe (wohlgeformtes STAP-A plus Füllbyte, `[0x18,0x00,0x01,0x41,0xAA]`) wird heute
+nicht mehr erreicht und deckt nach der Behebung denselben Weg mit echtem Inhalt davor ab.
+
 `Kind::H264` reicht die rohe Sendernutzlast an `H264Packet::depacketize`. Dessen
 STAP-A-Zweig (rtp-0.17.2, `src/codecs/h264/mod.rs:237-239`) prüft in der Schleifenbedingung
 nur `curr_offset < packet.len()`, liest im Rumpf aber `packet[curr_offset]` **und**
@@ -98,6 +185,12 @@ Sitzungs-Tasks ihren `JoinHandle` auswerten und bei `is_panic()` ein `Ended` mel
 
 ### 4. Windows-Brücke schließt die NT-Handles des alten Rings, während Bilder mit genau diesen Handles noch unterwegs sind
 `src/zerocopy/bruecke.rs:293` — **hoch, Speichersicherheit**
+
+**Stand: NUR MIT HARDWARE** — `bruecke.rs` steht unter `#[cfg(windows)]`
+(`zerocopy/mod.rs:111`) und benutzt durchgehend D3D11 (`CreateTexture2D`, `CreateSharedHandle`,
+`CloseHandle`); auch das bestehende Testmodul der Datei legt ein echtes D3D11-Gerät an. Der Ablauf
+braucht zusätzlich einen laufenden Auflösungswechsel mit gefüllter Takt-Warteschlange.
+**Ungeprüft, nicht widerlegt.**
 
 `ring_bauen` schließt am Ende alle Handles des alten Rings, obwohl `GpuBild` nur den
 Zahlenwert `handle` mitführt und Bilder des alten Rings noch im Kanal zum Fenster-Faden
@@ -122,6 +215,13 @@ seinen Platz halten lassen (wie auf Linux). Billiger: Generationsnummer je `GpuB
 ### 5. `on_gap` setzt den H.264-Depacketizer nicht zurück — Fragmentreste überleben die Lücke
 `src/depacket/mod.rs:83` — **hoch, Korrektheit**
 
+**Stand: REPRODUZIERT** — Test `depacket::tests::repro_5_gap_laesst_fua_reste_stehen`.
+Die angeblich heile IDR lautet `00 00 00 01 65 AA AA AA AA 11 22 33 44`: Startcode, NAL-Kopf 0x65
+(IDR, ref_idc 3), dann die vier Füllbytes der **vor** der Lücke abgebrochenen FU-A, erst danach die
+eigenen Bytes. Der Weg braucht wirklich alle drei Schritte — das Marker-Paket dazwischen (einzelnes
+NAL 0x41) setzt `dropped` zurück, während `fua_buffer` im `H264Packet` unberührt bleibt. Die
+Präzisierung der Skeptiker ist damit vollständig bestätigt.
+
 `Assembler::on_gap` leert nur `unit` und setzt `dropped`, fasst den Zustand **im**
 `H264Packet` nicht an. Der hält in `fua_buffer` die eingesammelten FU-A-Bruchstücke; das
 Crate wertet das S-Bit nie aus und leert den Puffer ausschließlich beim E-Bit. Geht das
@@ -145,6 +245,14 @@ enthält.
 ### 6. Auflösungswechsel mitten im Strom: `hw_ziel` wird weiterbenutzt, die Bildmaße stammen aus dem alten Puffer
 `src/decode.rs:569` — **hoch, Korrektheit, von außen auslösbar**
 
+**Stand: NUR MIT HARDWARE** — `in_den_hauptspeicher` (`decode.rs:565`) ruft
+`av_hwframe_transfer_data` auf ein GPU-Bild mit `hw_frames_ctx`; solche Bilder entstehen nur über
+VAAPI (Linux) oder D3D11VA (Windows), und die Kandidatenliste vergibt auf Nicht-Windows
+`Hwaccel::Vaapi` (Test `geraetetyp_passt_zur_plattform`), das es auf dem Mac nicht gibt. Ohne den
+Transfer lässt sich weder der asymmetrische Größenvergleich noch das Weiterbenutzen des alten Ziels
+auslösen; der Folgefehler in `convert` (Maße aus `ziel` statt aus der Quelle) ist ebenfalls nicht
+sichtbar, weil `convert` nur EIN Bild bekommt. **Ungeprüft, nicht widerlegt.**
+
 `in_den_hauptspeicher` benutzt `self.hw_ziel` wieder und prüft nicht selbst, ob Maße oder
 Format sich geändert haben; die Neuanlage hängt allein daran, dass FFmpeg den Transfer
 ablehnt. Die Ablehnung ist aber nicht symmetrisch: `vaapi_transfer_data_from` prüft nur
@@ -165,6 +273,15 @@ die Maße des Quellbildes übergeben.
 ### 7. Ein dupliziertes Kopf-Paket erneuert im Jitter-Puffer die Ankunftszeit und hält die Geduldsgrenze an
 `src/jitter.rs:195` — **hoch, Korrektheit**
 
+**Stand: REPRODUZIERT** — Test `jitter::tests::repro_7_duplikat_erneuert_ankunftszeit`.
+20 Dopplungen von Paket 5 im 10-ms-Takt bei `target = 50 ms` halten die Lücke 2..4 über 200 ms (das
+Vierfache der Geduldsgrenze) offen: kein `Release::Gap`, `lost` bleibt 0. Die Zähler schließen die
+Alternativen aus — `duplicates=20` (die Dopplungen kamen an und wurden erkannt), `buffered=1`
+(`MAX_BUFFERED` kann also nicht greifen). Gegenprobe ist der vorhandene Test
+`luecke_wird_nach_zielzeit_uebersprungen`: dieselbe Konstellation ohne Dopplungen meldet die Lücke
+zuverlässig. **Korrektur an der Testskizze des Berichts:** die Lücke ist `missing: 3` (Pakete 2, 3
+und 4), nicht 4 — der Fließtext daneben war richtig, die Zahl in der Skizze nicht.
+
 `push()` fügt jedes Paket unbedingt per `entries.insert(seq, Entry { packet, arrived })`
 ein; bei einem Duplikat überschreibt das die vorhandene `Entry` samt `arrived`. `poll()`
 misst die Geduldsgrenze für eine offene Lücke aber genau daran
@@ -183,6 +300,13 @@ Behebung: `arrived` nur beim ersten Einfügen setzen.
 ### 8. Die 3-Sekunden-Stille-Erkennung greift schon während des Verbindungsaufbaus
 `src/session.rs:721` — **hoch, Korrektheit**
 
+**Stand: NUR MIT ECHTEM SENDER** — die Prüfung (`stille_fenster >= STILLE_FENSTER_BIS_ABBRUCH`)
+liegt inmitten der rund 600 Zeilen langen `select!`-Schleife von `session::run`; es gibt keine
+herausgelöste Funktion und keinen Uhr-Parameter. Um sie zu erreichen, muss `whep::connect`
+**erfolgreich** zurückkehren — dafür braucht es eine Gegenstelle mit gültiger SDP-Antwort, die
+ICE/DTLS zu Ende bringt. Der vorhandene Test der Datei nutzt genau deshalb eine unerreichbare URL und
+kommt nie so weit. **Ungeprüft, nicht widerlegt.**
+
 `STILLE_FENSTER_BIS_ABBRUCH` (12 × 250 ms) bricht ab, sobald `bytes_received` drei Sekunden
 unverändert bleibt — ohne Bindung an `announced_playing`. Beide Startwerte sind 0 und
 `last_stats` läuft ab Sitzungsbeginn; die Prüfung greift also auch, wenn **nie** ein Paket
@@ -199,6 +323,13 @@ empfangenen Byte starten.
 
 ### 9. FlexFEC-Parität wird höchstens einmal je Prozesslauf eingesammelt
 `src/fec/mod.rs:192` — **hoch, Korrektheit**
+
+**Stand: NUR MIT ECHTEM SENDER** — `aufsammeln(transport: Arc<RTCDtlsTransport>, …)` braucht
+einen echten DTLS-Transport; den gibt es nur aus `receiver.transport()` einer laufenden
+PeerConnection mit angemeldeter Spur, und `RTCDtlsTransport` hat keinen öffentlichen Konstruktor.
+Die statische Flagge `GESTARTET` hat zudem keinen Lesezugriff von außen. Der sichtbare Beweis
+(zweite Sitzung sieht kein Paritätspaket) verlangt zwei aufeinanderfolgende echte WHEP-Sitzungen im
+selben Prozess. **Ungeprüft, nicht widerlegt.**
 
 `aufsammeln()` schützt sich mit einem prozessweiten `static GESTARTET: AtomicBool`. Einziger
 Aufrufer ist `starten()`, und der läuft je Sitzung genau einmal, nur für Videospuren
@@ -222,6 +353,15 @@ Ausgang geben, wenn der Transport tot ist.
 ### 10. Feinabbau des Audio-Ringpuffers entfernt einzelne Samples statt ganzer Kanal-Frames
 `src/audio/ringregelung.rs:118` — **hoch, Korrektheit**
 
+**Stand: REPRODUZIERT** — Tests
+`audio::ringregelung::tests::repro_10_feinabbau_kippt_die_kanalzuordnung` und `…_wieder_zurueck`.
+Ring mit verschränktem Stereo (L=+1,0 / R=-1,0), Länge `soll+1` bei `soll = RING_SOLL_MS*96`
+(48 kHz Stereo wie zur Laufzeit): ein einziger `nach_anhaengen(…, RING_FEIN_TEILER)` geht in den
+Feinzweig, verwirft per `pop_front()` genau ein Sample (Zeile 118), und der Ring beginnt danach auf
+dem **rechten** Kanal. Der zweite Test belegt die Korrektur der Skeptiker ausdrücklich: es ist kein
+einmaliger dauerhafter Tausch — der nächste Feinabbau-Schritt kippt zurück (-1,0 dann +1,0), das
+Umkippen läuft im Takt der angehängten Pakete.
+
 Der Feinabbau-Zweig entfernt mit `pop_front()` genau **ein** f32-Sample, unabhängig von der
 Kanalzahl. Der Ring enthält verschränktes Multi-Channel-PCM, das `fill_output`
 (`src/audio.rs:121-124`) unverändert in den interleaved Ausgabepuffer kopiert. Die
@@ -241,6 +381,21 @@ Behebung: Kanalzahl an `Ringregelung` übergeben und immer ein ganzes Frame
 
 ### 11. Fensterminimierung wird als toter Zero-Copy-Weg fehlgedeutet und schaltet ihn prozessweit dauerhaft ab
 `src/einfrieren/gpuabdruck.rs:228` — **hoch, Korrektheit**
+
+**Stand: REPRODUZIERT** — Test
+`einfrieren::gpuabdruck::tests::repro_11_verdecktes_fenster_gilt_als_toter_rueckweg`. 400 GPU-Bilder
+in 6,4 s ohne einen einzigen eingeworfenen Abdruck — genau das Bild, das ein minimiertes Fenster
+erzeugt — lassen `einspeisen_zur_zeit` ab Bild 313 (5,008 s) "Rückweg tot" melden. Bindend ist dabei
+`STUMME_DAUER` (5 s), nicht `STUMME_BILDER` (schon nach 0,96 s erreicht). Die Kette ist im Code
+belegt: `acquire()` liefert bei `Cst::Occluded | Cst::Timeout` `Ok(None)` (`render/mod.rs:309-312`),
+`render` steigt in Zeile 383 aus und zeichnet den Abdruck erst in Zeile 414 auf, während der
+Decoder-Thread unbeirrt jedes Bild meldet (`decode.rs:1593`) und bei `true` `zerocopy::abschalten`
+ruft (`decode.rs:1642-1644`, prozessweiter, nicht rücksetzbarer `swap(false)`).
+**Einschränkung:** die im Bericht vorgeschlagene Gegenprobe `z.verdeckt(true)` ließ sich nicht
+schreiben — `Zulauf` besitzt heute überhaupt kein Sichtbarkeitssignal (das wäre ein
+Übersetzungsfehler statt eines Testfehlschlags). Der Test stellt den verdeckten Zustand deshalb über
+das ausbleibende Einwerfen dar und wird grün, sobald ein Signal nachgerüstet ist. Der vorhandene
+`eine_kurze_pause_reicht_nicht` deckt tatsächlich nur 1,9 s ab und konnte das nie zeigen.
 
 `Zulauf::einspeisen_zur_zeit` erklärt den GPU-Rückweg nach `STUMME_BILDER=60` unbeantworteten
 Bildern **und** `STUMME_DAUER=5s` für tot und ruft `zerocopy::abschalten`
@@ -266,6 +421,13 @@ prozessweit abschalten.
 ### 12. Sitzungsbefehle können in vertauschter Reihenfolge ankommen, weil jeder Sender einen eigenen Task spawnt
 `src/app/requests.rs:168` — **hoch, Nebenläufigkeit**
 
+**Stand: NICHT NACHBAUBAR** — alle drei Sendestellen hängen an `&mut App` und greifen über
+`self.sessions.get_mut(&id)` auf ein `Session`-Struct zu, das ein `Arc<winit::Window>`, einen
+`render::Renderer` und einen `Ausgabetakt` führt (`app/mod.rs:163ff`). `app/mod.rs` hat kein
+Testmodul und keinen Weg, eine `Session` ohne Fenster zu bauen; der Nachweis der Vertauschung
+braucht außerdem eine laufende `session::run`, die die Befehle beantwortet. **Ungeprüft, nicht
+widerlegt** — die Untestbarkeit ist hier selbst ein Befund.
+
 Der Kommando-Kanal `session.commands` hat drei Sendestellen, die je einen losgelösten Task
 erzeugen: `apply_options` (Zeilen 168-171, `Options`), `session_reply` (181-201,
 `Record`/`StopRecord`/`Clip`) und `close_session` (`src/app/mod.rs:1036-1044`, `Stop`).
@@ -290,6 +452,14 @@ Tasks.
 ### 13. Die H.264-Obergrenze misst nur `unit` — der FU-A-Puffer wächst daran vorbei unbegrenzt
 `src/depacket/mod.rs:116` — **mittel, Ressourcenleck**
 
+**Stand: REPRODUZIERT** — Test `depacket::tests::repro_13_fua_puffer_waechst_am_deckel_vorbei`.
+Nach 17 501 FU-A-Paketen ohne E-Bit liegen **20 966 198 Byte** im `fua_buffer`, während
+`buffered_len()` — also `unit.len()`, das Einzige, was `MAX_ACCESS_UNIT_BYTES` misst — durchgehend
+**0** meldet. Ein kleines FU-A-Ende mit Marker fördert danach eine Einheit von 20 966 205 Byte
+zutage (7 Zusatzbytes: Startcode, rekonstruierter NAL-Kopf, 4 eigene Bytes). Der bestehende
+Regressionstest `h264_einheit_waechst_nicht_unbegrenzt` erwischt das nicht, weil er
+Einzel-NAL-Pakete benutzt, die sofort in `unit` landen — genau wie im Befund vermutet.
+
 Der Kommentar (Zeilen 17-23) behauptet, für H.264 gelte dasselbe wie für AV1. Der AV1-Deckel
 prüft ausdrücklich `unit.len() + partial.len()` (`av1.rs:199`, dort schon einmal gemessen:
 82 MB bei 32 MB Grenze); der H.264-Deckel prüft nur `unit.len()`. Das Gegenstück zu
@@ -307,6 +477,16 @@ beim E-Bit/Marker nullen, zusammen mit `unit.len()` gegen `MAX_ACCESS_UNIT_BYTES
 ### 14. Marker-Bit zusammen mit Y=1 liefert ein abgeschnittenes Fragment als vollständigen OBU aus
 `src/depacket/av1.rs:209` — **mittel, Korrektheit**
 
+**Stand: REPRODUZIERT** — Test
+`depacket::av1::tests::repro_14_marker_mit_y_liefert_bruchstueck_aus`. Ausgeliefert wird
+`[32, 04, AA, AA, BB, BB]`: 0x32 ist der OBU-Kopf mit nachträglich **gesetztem** Größen-Bit, 0x04 das
+von `append_obu_with_size` geschriebene LEB128-Feld — es trägt die Länge des Bruchstücks und
+behauptet damit, der halbe OBU sei vollständig. `poisoned` bleibt ungesetzt.
+**Bewusst nicht mitgeprüft:** der Zusatz aus Zeile 210 (zurückgesetztes `expect_continuation`, das
+die nächste heile Einheit ebenfalls fallen lässt). Er überlebt die unten vorgeschlagene
+Minimalbehebung und würde den Test dann aus einem zweiten, anderen Grund rot halten — er ist ein
+eigener Punkt, kein Teil dieses Beweises.
+
 `push` behandelt Marker und Y unabhängig: Zeile 194 merkt sich `expect_continuation = y` und
 lässt `partial` bewusst stehen, Zeile 209 flusht im Marker-Zweig bedingungslos.
 `append_obu_with_size` schreibt dabei `payload.len()` als LEB128 und behauptet, das
@@ -321,6 +501,19 @@ Behebung: Im Marker-Zweig vor dem Flush `if self.expect_continuation { self.pois
 
 ### 15. Ein unbekanntes Pixelformat ergibt ein dauerhaftes Standbild, das kein Wächter sieht
 `src/decode.rs:1663` — **mittel, Fehlerbehandlung**
+
+**Stand: REPRODUZIERT (erster Teil)** — Test
+`decode::tests::repro_15_unbekanntes_pixelformat_meldet_ohne_ratenbremse`. 100 Ablehnungen ergeben
+100 stderr-Zeilen, je 100 für YUV444P und YUV422P; ein Formatwechsel ändert daran nichts. Bei 60 fps
+sind das 60 identische Zeilen je Sekunde, während das Bild steht — es ist damit die einzige
+Wiederholmeldung der Datei ohne Ratenbremse. Der Nachweis braucht ein zweites Exemplar des
+Testbinärs (`PULSE_REPRO15_KIND=1`), weil `convert` per `eprintln!` meldet und der Testläufer stderr
+nicht programmatisch herausgibt. **Der zweite Teil** (fehlender Zähler "Einheit angenommen, kein
+Bild geliefert") ist per Lesen bestätigt — `drain` ruft `wacht.bild(&f.planes)` nur im
+`if let Some(f)`-Zweig (`decode.rs:1626-1637`), `consecutive_errors` steht nach dem erfolgreichen
+`send_packet` auf 0, `letzte_aenderung` bleibt `None` — aber **nicht als Zusicherung schreibbar**: es
+gibt kein Feld und keine Kennzahl, gegen die man prüfen könnte. Genau das ist der Befund; er steht
+als Doc-Kommentar am Test statt als erfundene Behauptung.
 
 `convert` lehnt jedes Format außer YUV420P/YUV420P10LE/NV12/P010LE ab und meldet das per
 `eprintln!` ohne Ratenbremse (anders als jede andere Wiederholmeldung der Datei). Schwerer
@@ -341,6 +534,12 @@ kein Bild geliefert" führen und nach einer Serie denselben Weg wie `classify` n
 ### 16. `drain` unterscheidet EAGAIN/EOF nicht von echten Fehlern aus `receive_frame`
 `src/decode.rs:1568` — **mittel, Fehlerbehandlung**
 
+**Stand: NUR MIT HARDWARE** — der Unterschied wird nur sichtbar, wenn `receive_frame` einen
+**anderen** Fehler als EAGAIN/EOF liefert; genau das ist der cuvid-Fall. Auf dieser Maschine gibt es
+weder CUDA noch einen Hardware-Decoder in der Kandidatenliste, und mit dem Software-Decoder kommt in
+`while … .is_ok()` praktisch nur EAGAIN heraus. Der Rückgabewert ist nicht injizierbar
+(`self.decoder` ist ein konkreter `ffmpeg::decoder::Video`). **Ungeprüft, nicht widerlegt.**
+
 `while self.decoder.receive_frame(&mut frame).is_ok()` beendet die Schleife bei jedem
 negativen Rückgabewert gleich. Ein harter Fehler wird weder gemeldet noch gezählt — die
 einzige Fehlerbuchführung hängt an `send_packet` (1249-1272), und `consecutive_errors` ist
@@ -355,6 +554,17 @@ Meldung, `classify`).
 ### 17. Nach dem Rückfall auf Software bleiben Zero-Copy-Ring und `hw_ziel` bis zum Sitzungsende belegt
 `src/decode.rs:1356` — **mittel, Ressourcenleck**
 *(zwei Linsen haben denselben Fehler gemeldet — hier zusammengefasst)*
+
+**Stand: REPRODUZIERT (für `hw_ziel`)** — Test
+`decode::tests::repro_17_rueckfall_gibt_hw_ziel_nicht_frei`. `frischer_software_decoder` ersetzt
+`decoder`, `name`, `hardware`, `consecutive_errors`, `awaiting_keyframe` und
+`skipped_before_keyframe` — den Bildpuffer nicht: ein 1280x720-NV12-Ziel (1 382 400 Byte, 2 Ebenen)
+steht nach dem Rückfall unverändert da und wird nie wieder angefasst, weil der Software-Decoder
+YUV420P/YUV420P10LE liefert und `auf_gpu` damit falsch ist. Bei 1440p10 ist es ein Vielfaches davon.
+**Einschränkung:** der Zero-Copy-Ring hängt an D3D11 und ist hier nicht herstellbar — ein
+`Some(Some(Bruecke))` lässt sich auf dem Mac nicht bauen; der Test prüft dort nur, dass der Rückfall
+den Zustand nicht nach `None` zurücksetzt. Der Codepfad ist derselbe (das Feld wird schlicht nicht
+angefasst), belegt sind hier die 1,4 MB von `hw_ziel`.
 
 `frischer_software_decoder` ersetzt nur `decoder`, `name`, `hardware` und die Zähler;
 `self.bruecke` und `self.hw_ziel` bleiben unangetastet. Danach liefert der Decoder
@@ -375,6 +585,11 @@ das hieße "noch nicht versucht") und `self.hw_ziel = Video::empty()`.
 ### 18. Scheitert der Ringaufbau in der Mitte, bleiben die schon erzeugten NT-Handles für immer offen
 `src/zerocopy/bruecke.rs:291` — **mittel, Ressourcenleck**
 
+**Stand: NUR MIT HARDWARE** — wie Befund 4: `#[cfg(windows)]`, das Modul wird hier nicht
+übersetzt. Der Ablauf braucht zusätzlich ein `CreateTexture2D`, das mitten in der Schleife an
+Grafikspeichermangel scheitert, also ein echtes D3D11-Gerät unter Speicherdruck. **Ungeprüft, nicht
+widerlegt.**
+
 `Ringplatz` hat keinen `Drop`; geschlossen wird ausschließlich in `Bruecke::drop`
 (163-177) und in der Aufräumschleife von `ring_bauen` (293-299) — beide über `self.ring`.
 Die neuen Plätze sammelt `ring_bauen` aber lokal (279-292) und weist sie erst nach der
@@ -393,6 +608,21 @@ Aufräumschleifen entfallen und jeder Abbruchpfad ist gedeckt.
 
 ### 19. BT.2020-Matrix ohne PQ bleibt im SDR-Zweig des Shaders unkonvertiert
 `src/render/shader.wgsl:321` — **mittel, Korrektheit**
+
+**Stand: REPRODUZIERT** — Test
+`messen::farbwerte::tests::repro_19_bt2020_sdr_bleibt_unkonvertiert`. Eine BT.2020-NCL-Quelle mit
+`Uebertragung::Sdr` (`hdr.x = 0`) kommt in BT.2020-Primärvalenzen wieder heraus: gemessen
+`[0.200, 0.800, 0.349]`, das deckt sich auf drei Nachkommastellen mit der reinen BT.2020-YUV-Matrix
+`[0.1989, 0.7999, 0.3486]`; in BT.709 müssten dort `[0.000, 0.8429, 0.2483]` stehen. Es findet also
+**überhaupt keine** Gamut-Umrechnung statt. Die vorangestellte Gegenprobe mit `ColorMatrix::Bt709`
+läuft durch (< 0,01 Abweichung), der Messstand misst also richtig.
+**Zwei Präzisierungen der Testskizze:** (1) Gesättigtes Grün als BT.2020-**Primärvalenz** taugt NICHT
+als Prüfbild — seine BT.709-Entsprechung ist (-0,588; 1,133; -0,101), und der SDR-Zweig clamped sie
+auf exakt dasselbe (0; 1; 0) zurück, der Test wäre auch nach der Behebung grün; genommen ist deshalb
+0,2/0,8/0,35, wo der rote Kanal um 0,2 danebenliegt (51 von 255 Codes). (2) Die unten vorgeschlagene
+Behebung ist **unvollständig**: die Matrix muss in LINEAREM Licht laufen (das verlangt der
+Shader-Kommentar selbst) — auf die gamma-kodierten Werte angewandt ergäbe sie (0; 0,878; 0,307) statt
+(0; 0,843; 0,248), also 0,057 Fehler im Blau, mehr als die Toleranz des Tests.
 
 `matrix_of` setzt `Bt2020Ncl` für jeden BT2020-Farbraum unabhängig von der Transferkennung
 (`src/decode.rs:834-850`), und `farbangaben_von` fällt für jede nicht als SMPTE2084 erkannte
@@ -413,6 +643,12 @@ Primärvalenzen, ohne PQ-Kurve.
 ### 20. Ein zur Laufzeit geändertes Jitter-Ziel wirkt nicht auf danach angelegte Puffer
 `src/session.rs:443` — **mittel, Korrektheit**
 
+**Stand: NUR MIT ECHTEM SENDER** — `target` ist eine lokale Variable in `session::run`, und
+`buffers.entry(codec).or_insert_with(…)` wird nur erreicht, wenn über `rtp_rx` ein Paket eines bis
+dahin unbekannten Codecs eintrifft. Beides setzt eine erfolgreich aufgebaute WHEP-Verbindung mit
+echten Spuren voraus (Video zuerst, Ton später); `run` baut die Verbindung selbst, es gibt keinen
+Injektionspunkt. **Ungeprüft, nicht widerlegt.**
+
 `target` ist eine einmal beim Sitzungsstart berechnete lokale Variable.
 `SessionCommand::Options` aktualisiert nur die bereits existierenden Puffer
 (`for b in buffers.values_mut() { b.set_target(t); }`, Zeilen 381-387); die äußere Variable
@@ -428,6 +664,17 @@ Behebung: `target` im Options-Zweig mit aktualisieren oder beim Anlegen
 
 ### 21. FEC-Rückrechnung akzeptiert Schutzgruppen mit genau einem Mitglied
 `src/fec/flexfec03.rs:189` — **mittel, Robustheit** *(herabgestuft von "hoch/Sicherheit")*
+
+**Stand: REPRODUZIERT (beide Hälften)** — Tests
+`fec::flexfec03::tests::repro_21_einzelgruppe_wird_angenommen` und
+`fec::empfaenger::tests::repro_21_einzelgruppe_wird_als_repariert_gezaehlt`. Drei Zwischenschritte
+laufen im ersten Test grün durch und belegen den Ablauf: `kopf_lesen()` nimmt die Ein-Bit-Maske an
+(`geschuetzte_sequenzen == [1000]`), und `zurueckrechnen()` gelingt mit einem **leeren**
+`vorhanden`-Slice und liefert exakt die Originalbytes zurück — es wurde also nichts gerechnet, die
+Paritätsnutzlast wird nur durchgereicht. Im Empfangsweg zählt das als `repariert == 1`, und das Paket
+geht über `tx` in den Jitter-/Decoder-Pfad (der Beleg führt beides mit: "eingespeist: true,
+bytegleich mit dem Original: true"). Die Einordnung der Skeptiker bestätigt sich: nicht falsch
+gerechnet, sondern ein Zähler, der Wirkung behauptet, wo keine stattfand.
 
 `kopf_lesen()` lehnt nur eine völlig leere Maske ab (Zeilen 132-134), nicht eine mit genau
 einem gesetzten Bit. Fehlt ausgerechnet dieses eine Element, ist `vorhanden` in
@@ -451,6 +698,15 @@ leerem `vorhanden` abbrechen.
 ### 22. WHEP-Antwortkörper wird ohne Größenbegrenzung vollständig in den Speicher gepuffert
 `src/whep.rs:685` — **mittel, Sicherheit**
 
+**Stand: REPRODUZIERT** — Test `whep::tests::repro_22_whep_antwort_ohne_groessengrenze`. Ein
+Stub-Server auf 127.0.0.1 kündigt per `Content-Length: 209715200` 200 MB an; `whep::connect` nimmt
+alle 209 715 200 Byte an, in 1,17 s — weit innerhalb des 15-s-Timeouts, das die einzige Schranke ist.
+Zwei Dinge sind mitbewiesen: der Abbruch kommt erst aus `answer.contains("v=")` **dahinter**
+(Fehlertext "WHEP-Antwort war kein gültiges SDP"), der Body war also komplett im Speicher, bevor
+überhaupt geprüft wurde; und der Stub bekam kein EPIPE, der Client hat also nicht früh zugemacht.
+Gemessen wird bewusst die abgesetzte Byte-Menge der Gegenstelle — von außen beobachtbar und nach
+einer Behebung (gestreamtes Lesen mit kleiner Obergrenze) automatisch bei wenigen KB.
+
 Der HTTP-Client wird nur mit einem Zeit-Timeout gebaut (15 s, Zeilen 553-556), ohne
 Größenbegrenzung. `res.text().await` liest den kompletten Body in einen `String`, bevor
 überhaupt geprüft wird, ob es plausibles SDP ist (`answer.contains("v=")`, Zeile 686).
@@ -466,6 +722,14 @@ sind wenige KB).
 ### 23. Fehlschlag beim Öffnen des Ausgabegeräts markiert `alive` nie als `false`
 `src/audio.rs:341` — **mittel, Fehlerbehandlung**
 
+**Stand: NICHT NACHBAUBAR** — die fehlenden `alive = false` liegen in den `return`-Zweigen der
+Thread-Closure **innerhalb** von `AudioOutput::new()`. `new()` holt Host und Gerät selbst über
+`cpal::default_host().default_output_device()`; es gibt keinen Parameter, über den ein scheiterndes
+Gerät oder eine unpassende Konfiguration untergeschoben werden könnte, und auf diesem Mac öffnet
+`build_output_stream` mit der Standardkonfiguration erfolgreich. Die zweite Hälfte (Panik im Thread)
+hängt an derselben Closure. Der Befund ist damit **nicht widerlegt, sondern unerreichbar** — was
+zugleich zeigt, dass dieser Fehlerpfad überhaupt nicht testbar gebaut ist.
+
 `s.alive = false` wird ausschließlich nach der Rückkehr aus `pump_commands()` gesetzt
 (Zeilen 349-352). Schlägt `build_output_stream()` (337-343) oder `stream.play()` (344-347)
 fehl, kehrt der Thread per `return` zurück, ohne diese Zeilen — ebenso bei jeder Panik im
@@ -479,6 +743,15 @@ Verlassen des Thread-Scopes (regulär, `return` oder Panik) greift.
 
 ### 24. Der 60-Sekunden-Clip-Ringpuffer kopiert jede Zugriffseinheit per `to_vec()`
 `src/recorder.rs:395` — **mittel, Performance**
+
+**Stand: REPRODUZIERT** — Test `recorder::tests::repro_24_ring_kopiert_jede_einheit`. 600 Pushes
+desselben 100-kB-Puffers ohne jede laufende Aufnahme (`is_recording()` ist false) erzeugen
+60 000 000 Byte an Kopien — genau die eingespeiste Menge, nichts wird geteilt. Der eigentliche Beweis
+ist der Adressvergleich: `r.ring.back().unwrap().data.as_ptr()` unterscheidet sich vom `as_ptr()` des
+Aufrufer-Puffers, also liegt in `recorder.rs:395` ein vollständiges memcpy je Zugriffseinheit.
+**Abweichung von der Testskizze:** deren Zielzustand `sum == 0` wäre auch nach der `Bytes`-Umstellung
+nicht erreichbar (`Bytes` haben weiterhin eine Länge) — prüfbar ist die Adressgleichheit, die
+kopierte Bytemenge wird nur protokolliert.
 
 In `session.rs` entsteht `unit: Bytes` (referenzgezählt, im Depacketizer bewusst so
 gewählt). `MediaSink::handle_unit(&[u8])` entwertet den Typ zu einem Slice und ruft
@@ -496,6 +769,13 @@ umstellen; am Aufrufort genügt dann ein `unit.clone()`.
 ### 25. Mit Auffangnetz läuft der Hauptstrom wieder durch einen 8-Bilder-Kanal — die gemessene Vergrößerung auf 32 ist wirkungslos
 `src/app/mod.rs:290` — **mittel, Performance**
 
+**Stand: NUR MIT ECHTEM SENDER** — `spawn_with_fallback` ist eine Methode auf `App` (braucht
+`self.runtime`) und startet zwei echte `session::run`-Aufgaben gegen zwei URLs. Die Kapazität des
+Zwischenkanals ist ein Literal (`mpsc::channel::<SessionEvent>(8)`) und von außen nicht abfragbar;
+um die Wirkung (verworfene Bilder) zu sehen, braucht es einen Sender, der schneller liefert als der
+Fenster-Faden zeichnet — also einen echten Strom plus Fenster. `app/mod.rs` hat kein Testmodul, und
+`Session` verlangt ein `Arc<Window>`. **Ungeprüft, nicht widerlegt.**
+
 `spawn_with_fallback` legt für den Hauptstrom einen eigenen Zwischenkanal fester Größe 8 an;
 dieser Kanal ist es, den `session::run` als `events` bekommt und in den `emit_frames` per
 `try_send` einstellt. Der absichtlich vergrößerte `ev_tx` (`ev_kanal_groesse()`, Vorgabe 32)
@@ -512,6 +792,13 @@ tatsächliche `max_capacity()` des benutzten Senders melden lassen.
 
 ### 26. Vor dem ersten dekodierten Bild zeichnet der Renderer gar nichts
 `src/render/mod.rs:340` — **mittel, Korrektheit**
+
+**Stand: NICHT NACHBAUBAR** — der frühe Ausstieg steht in `Renderer::render`, und `Renderer`
+hält eine `wgpu::Surface` samt Konfiguration, die nur aus einem winit-Fenster entsteht. Der
+vorhandene kopflose Weg (`messen::gpu::Messstand`) umgeht `render()` ausdrücklich und zeichnet in
+eine eigene Textur, er kann diesen Zweig also nicht prüfen. Auf macOS kommt hinzu, dass ein Fenster
+den Haupt-Thread und eine laufende EventLoop braucht, was `cargo test` nicht bietet. **Ungeprüft,
+nicht widerlegt.**
 
 `Renderer::render` steigt in der ersten Zeile aus, solange kein Bild hochgeladen ist:
 `let Some(quelle) = self.bild.as_ref() else { return Ok(()) };`. Damit wird weder die
@@ -538,6 +825,17 @@ ausführen, nur den Bild-Zeichenaufruf hinter `if let Some(quelle)` stellen.
 ### 27. Dateipfad aus den RPC-Ops `record`/`clip` landet ungeprüft im Dateisystem
 `src/recorder.rs:245` — **niedrig, Verteidigungstiefe** *(herabgestuft von "hoch/Sicherheit")*
 
+**Stand: REPRODUZIERT (beide Teile)** — Tests
+`recorder::tests::repro_27_pfad_verlaesst_das_aufnahmeverzeichnis` und
+`recorder::tests::repro_27_aufnahme_kennt_keine_obergrenze`. Erstens: `Recorder::start` nimmt einen
+Pfad mit `..` an, `with_container` hängt nur `.ts` an, und `ffmpeg::format::output`
+(`recorder.rs:245`) legt die Datei tatsächlich **zwei Ebenen über** dem vorgesehenen Verzeichnis an —
+nachgewiesen über `exists()` am aufgelösten Ort. Zweitens: 10 000 Einheiten über 1000 s Aufnahmezeit
+werden vollständig geschrieben (15,4 MB bei 1-kB-Einheiten; bei realer Bitrate entsprechend mehr),
+und die Aufnahme läuft danach unverändert weiter — playerseitig gibt es weder eine Dauer- noch eine
+Größenobergrenze. Die Einordnung bleibt wie unten: das ist die fehlende **zweite** Schicht im Player,
+kein offener Weg. Beide Tests räumen ihre Dateien vor der Behauptung auf.
+
 `Request.path` wird für `record` und `clip` ohne jede Prüfung übernommen und landet über
 `session.rs` direkt in `ffmpeg::format::output(&path)`. Keine Kanonisierung, keine
 `..`-Prüfung, kein Basisverzeichnis, kein Symlink-Schutz; `with_container()` ersetzt nur die
@@ -562,6 +860,16 @@ kanonisieren, und für laufende Aufnahmen eine Maximaldauer/-größe erzwingen.
 ### 28. Ein mitgeliefertes `obu_size` wird ungeprüft durchgereicht
 `src/depacket/av1.rs:89` — **niedrig, Korrektheit**
 
+**Stand: REPRODUZIERT (beide Hälften)** — Test
+`depacket::av1::tests::repro_28_gelogenes_obu_size_wird_durchgereicht`. Ein 400-Byte-Element, dessen
+Kopf `obu_size = 1` behauptet, kommt byte-gleich mit 400 Byte heraus — `append_obu_with_size` hält
+das Feld nirgends gegen die verbindliche RTP-Elementlänge (1 Kopfbyte + 1 LEB128-Byte + 1 = 3, nicht
+400). Und der Anschluss an den Mitschnitt trägt: dieselbe Einheit meldet über
+`recorder::is_keyframe(Codec::Av1, ..)` **true**, obwohl kein Einstiegspunkt vorliegt —
+`scan_av1_for_keyframe` springt nach dem gelogenen Größenfeld weiter, deutet das Füllbyte 0x00 als
+Vollbild-Kopf mit `frame_type=KEY` und das darauffolgende 0x0A als Sequence-Header-OBU. Der Sender
+bestimmt also frei, worauf der Decoder einsteigt.
+
 `append_obu_with_size` übernimmt einen OBU mit gesetztem `obu_has_size_field` byte-gleich,
 ohne das Feld gegen die tatsächliche RTP-Elementlänge zu halten — die verbindlich ist und an
 dieser Stelle vorliegt (Zeilen 168-181). Der Zweig ist laut Kommentar (394-400) ausdrücklich
@@ -581,6 +889,17 @@ verwerfen und `poisoned` setzen.
 ### 29. `surface_is_linear()` schließt `*_SRGB`-Formate aus, obwohl die Hardware dort selbst kodiert
 `src/render/farbe.rs:167` — **niedrig, Korrektheit**
 
+**Stand: REPRODUZIERT** — Test
+`messen::farbwerte::tests::repro_29_srgb_ziel_wird_doppelt_kodiert`. Derselbe Graukeil in zwei Ziele
+gezeichnet: Luma-Code 200 (10 bit) landet nach `Bgra8Unorm` bei 0,1569, nach `Bgra8UnormSrgb` bei
+0,4314 — das ist genau `srgb_kodieren(0,1553) = 0,4306`; die ROP behandelt den bereits
+gamma-kodierten Shader-Wert als linear und legt die sRGB-Kurve ein zweites Mal darauf. Die
+Richtungskorrektur des Berichts (Mitten werden **heller**, nicht dunkler) ist damit gemessen, nicht
+nur behauptet. Schwarz (Code 64) bleibt in beiden Zielen 0, deshalb fällt erst die zweite Keilstufe.
+Die Direktzusicherung `assert!(surface_is_linear(Bgra8UnormSrgb))` ist im selben Test enthalten und
+wäre ebenfalls rot. Der Test steht in `messen/farbwerte.rs` statt in `render/farbe.rs`, weil
+`messen::gpu` ein privates Modul von `messen` ist.
+
 `surface_is_linear()` liefert nur für `Rgba16Float` `true`. Der Kommentar begründet den
 Ausschluss der `*_SRGB`-Formate damit, die Hardware kodiere beim Schreiben selbst, eine
 zusätzliche Umrechnung wäre doppelt. Tatsächlich ist es umgekehrt: Die ROP behandelt die
@@ -598,6 +917,12 @@ Behebung: Für `*_SRGB` ebenfalls `true` liefern, damit der Shader linearisiert.
 ### 30. Bei aktivem FlexFEC wird jedes Video-RTP-Paket per `to_vec()` kopiert
 `src/whep.rs:749` — **niedrig, Performance**
 
+**Stand: NUR MIT ECHTEM SENDER** — die Kopie steht in `pump_track`, dessen erstes Argument ein
+`Arc<TrackRemote>` ist; den gibt es nur aus `on_track` einer ausgehandelten Verbindung, und
+`TrackRemote` lässt sich nicht ohne PeerConnection bauen. Der Kern des Befunds ist ohnehin eine
+Typumstellung (Kanal auf `bytes::Bytes`), deren Nutzen nur unter echtem Paketdurchsatz messbar ist.
+**Ungeprüft, nicht widerlegt.**
+
 `pump_track` marshalt jedes Videopaket zurück nach `Bytes` und ruft dann
 `m.try_send((seq, bytes.to_vec()))`; ist zusätzlich die Gegenprobe eingeschaltet (eigener
 Diagnoseschalter, im Normalbetrieb aus), kommt ein zweites `to_vec()` dazu. FlexFEC ist seit
@@ -610,6 +935,16 @@ Behebung: Kanal und `Vorrat::inhalt` auf `bytes::Bytes` umstellen; dann genügt 
 ### 31. Gegenprobe-Diagnose sammelt Nachlauf-Zeiten unbegrenzt
 `src/fec/gegenprobe.rs:145` — **niedrig, Ressourcenleck**
 
+**Stand: REPRODUZIERT** — Test `fec::gegenprobe::tests::repro_31_nachlauf_waechst_unbegrenzt`.
+Nach 2000 Gruppen hält `nachlauf_us` 2000 Einträge; der Test führt das direkt benachbarte
+`medien`-Feld als **Kontrollgruppe** mit, dessen Zusicherung (`len() <= VORRAT`, 512) hält. Damit
+steht der Unterschied zwischen den zwei Feldern im Beleg und nicht nur eine absolute Zahl; die eigene
+Ausgabe des Prüfstands quittiert es nebenbei selbst ("aus 2000 Gruppen"). **Ergänzung, die der
+Bericht nicht nennt und die die Einstufung "niedrig" stützt:** `nachlauf_melden()` klont und sortiert
+den Vektor bei JEDEM `MELDEABSTAND`-Ausdruck (alle 50 Gruppen), der Aufwand wächst also mit n log n
+mit — spürbar erst bei sehr langen Sitzungen, und der ganze Pfad hängt an
+`PULSE_PLAYER_FEC_GEGENPROBE=1`.
+
 `Pruefstand::nachlauf_us` ist ein `Vec<u64>`, das bei jedem verwertbaren Paritätspaket
 wächst und nie verkleinert wird — anders als das direkt daneben liegende `medien`-Feld, das
 auf `VORRAT` (512) gedeckelt ist. `PRUEFSTAND` ist ein `static OnceLock<Mutex<…>>`, lebt
@@ -620,6 +955,11 @@ Behebung: Analog zu `medien` deckeln oder bei jedem `MELDEABSTAND`-Ausdruck leer
 
 ### 32. Die Auffangnetz-Sitzung bekommt niemals `Options`
 `src/app/mod.rs:292` — **niedrig, Korrektheit**
+
+**Stand: NUR MIT ECHTEM SENDER** — wie Befund 25: `spawn_with_fallback` hängt an `App` mit
+`self.runtime`, `apply_options` an `self.sessions.get_mut(...)` mit einer `Session`, die ein Fenster
+führt. Der sichtbare Beweis (Hauptstrom stumm, Netz spielt weiter) verlangt zwei laufende Sitzungen
+mit echter Tonausgabe, also zwei echte Sender. **Ungeprüft, nicht widerlegt.**
 
 In `spawn_with_fallback` bekommt die Netz-Sitzung einen eigenen Befehlskanal, in den
 ausschließlich `SessionCommand::Stop` gestellt wird (Zeilen 302, 309). `apply_options`
@@ -639,6 +979,13 @@ Netz-Sitzung den Ton von vornherein nehmen (kein Audio-Transceiver bzw.
 ### 33. Bei Pause verworfene Bilder laufen in keinen Verlustzähler — die Bilanz-Wache meldet Fehlalarm und verstummt danach
 `src/app/mod.rs:1053` — **niedrig, Korrektheit**
 
+**Stand: NICHT NACHBAUBAR** — `bilanz_pruefen(&mut self, id, presented)` liest
+`self.sessions.get_mut(&id)` und damit `session.stats`, `session.frames_never_drawn` und
+`session.takt.verdraengt()`. Eine `Session` verlangt `Arc<Window>`, `render::Renderer`, `Overlay` und
+einen Befehlskanal; `app/mod.rs` hat kein Testmodul und keinen Konstruktor ohne Fenster. Die Rechnung
+selbst wäre trivial prüfbar, sobald sie aus `App` herausgelöst wäre — heute ist sie es nicht.
+**Ungeprüft, nicht widerlegt.**
+
 Im Pause-Zustand kehrt `on_session_event` beim `Frame` zurück, ohne einen Zähler zu
 erhöhen. `bilanz_pruefen` rechnet aber `frames_decoded - presented - frames_skipped -
 frames_dropped - frames_never_drawn - takt.verdraengt()` und meldet ab `|rest| >
@@ -657,6 +1004,19 @@ Meldung ausweisen).
 
 ### 34. Ein dupliziertes Paritätspaket verdrängt eine unbeteiligte, noch lösbare Wartegruppe
 `src/fec/empfaenger.rs:179` — **niedrig, Korrektheit — eingeschränkt erreichbar, unsicher**
+
+**Stand: REPRODUZIERT** — Test
+`fec::empfaenger::tests::repro_34_doppelte_basis_verdraengt_fremde_wartegruppe` (8 Wiederholungen,
+jedes Mal identisch). **Korrektur an der Testskizze:** sie erwartet die Wirkung beim ZWEITEN gleichen
+Paritätspaket — tatsächlich schlägt schon das **erste** Duplikat zu, denn in dem Moment ist
+`wartend.len() == WARTENDE_PARITAET`; danach stehen nur noch 63 Einträge, und ein zweites Duplikat
+löst gar keine Verdrängung mehr aus (63 >= 64 ist falsch). Wer nur auf das zweite schaut, sähe
+`verworfen` unverändert und hielte den Befund fälschlich für widerlegt. Über die Skizze hinaus zeigt
+der Test **echten Schaden** statt nur eines Zählerstands: alle 64 Wartegruppen haben genau zwei
+Löcher und sind mit je einem Nachzügler lösbar, repariert werden aber nur 63 — die verdrängte Gruppe
+ist endgültig weg. Die Verdrängung per `HashMap::keys().next()` könnte theoretisch die gerade
+eingefügte Basis treffen (dann bliebe der Schaden aus); in acht Läufen ist das kein einziges Mal
+passiert, und die tragende Zusicherung (`verworfen == 0`) fällt ohnehin deterministisch.
 
 Die Kapazitätsprüfung prüft nur `self.wartend.len() >= WARTENDE_PARITAET`, bevor sie einen
 beliebigen Eintrag entfernt und danach unter `kopf.basis_sequenz` einfügt — ohne zu prüfen,
@@ -702,7 +1062,25 @@ Drei Beobachtungen für die Behebung:
    (13, 23, 26, 29, 9, 27). Das deckt sich mit der Projektregel, Aussagen nie nur an einer
    Stelle zu korrigieren.
 
-Nicht geprüft werden konnte: alles, was Ausführung braucht (der Crate baut hier nicht).
-Die Befunde 1, 2 und 4 sind Kandidaten für eine gezielte Laufzeit-Bestätigung, sobald
-`vendor/webrtc-rs` verfügbar ist — 1 und 2 sollten sich mit einem HDR-Strom bzw. einem
-regulären Sitzungsende auf Linux binnen Minuten reproduzieren lassen.
+**Hier stand vor der Reproduktion:** "Nicht geprüft werden konnte: alles, was Ausführung
+braucht (der Crate baut hier nicht). Die Befunde 1, 2 und 4 sind Kandidaten für eine gezielte
+Laufzeit-Bestätigung, sobald `vendor/webrtc-rs` verfügbar ist." Der erste Satz ist überholt:
+`vendor/webrtc-rs` ist da, der Crate baut und testet, und **18 Befunde sind mit einem roten
+Test belegt** (siehe Standzeilen und die Übersicht in der Zusammenfassung). Der zweite Satz
+gilt weiter, aber aus einem anderen Grund als angenommen: 1, 2 und 4 scheitern nicht am
+fehlenden Vendor-Verzeichnis, sondern an fehlender **Hardware** — sie sind auf einem Windows-
+bzw. Linux-Rechner mit echter Grafikeinheit binnen Minuten nachstellbar, auf einem Mac
+grundsätzlich nicht (`#[cfg]`-Zweige, die hier nicht einmal übersetzt werden).
+
+Was Stufe 3 als Erstes braucht:
+
+1. **Die 18 roten Tests behebungsbegleitend grün ziehen** — sie liegen als
+   `repro_<nummer>_…` in den jeweiligen Modulen, alle mit `#[ignore]` bzw. isoliert lauffähig,
+   und der Produktivcode ist unangetastet.
+2. **Zwei Prüfläufe auf fremder Hardware:** ein Windows-Rechner mit HDR-Schirm (1, 4, 6, 16, 18)
+   und ein Linux-Rechner mit Vulkan/CUDA (2, 6). Beides sind die schwersten Befunde des
+   Berichts.
+3. **Prüfeinstiege nachrüsten, wo es heute keine gibt** (12, 23, 26, 33): `bilanz_pruefen` aus
+   `App` herauslösen, `AudioOutput::new()` Host/Gerät übergeben lassen, `Zulauf` ein
+   Sichtbarkeitssignal geben (das fehlt auch Befund 11 als saubere Gegenprobe). Ohne diese
+   Einstiege bleibt der nächste Bughunt an denselben Stellen wieder rein lesend.

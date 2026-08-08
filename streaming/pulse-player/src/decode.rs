@@ -2097,4 +2097,124 @@ mod tests {
         assert!(d.is_ok(), "H.264-Software-Decoder fehlt: {:?}", d.err());
         assert!(!d.unwrap().hardware);
     }
+
+    /// **Reproduktion Befund 15** — ein unbekanntes Pixelformat ergibt ein
+    /// dauerhaftes Standbild, und die Meldung dazu hat als einzige
+    /// Wiederholmeldung der Datei KEINE Ratenbremse.
+    ///
+    /// Geprueft wird der messbare Teil: dieselbe Ablehnung 100 Mal
+    /// hintereinander muss EINE Zeile ergeben (bzw. eine je Formatwechsel),
+    /// nicht 100. Bei 60 fps sind das sonst 60 identische Zeilen je Sekunde.
+    ///
+    /// Der zweite Teil des Befunds — es fehlt ein Zaehler „Einheit angenommen,
+    /// aber kein Bild geliefert", weshalb weder `neuaufbau::classify`
+    /// (`consecutive_errors` steht nach dem erfolgreichen `send_packet` auf 0)
+    /// noch der Einfrier-Waechter (`letzte_aenderung` bleibt `None`, weil nie
+    /// ein Bild ankommt) je ausloesen kann — ist hier nur festgehalten und
+    /// nicht als Zusicherung pruefbar: es gibt kein Feld und keine Kennzahl,
+    /// gegen die sich das schreiben liesse. Genau das IST der Befund.
+    ///
+    /// Der Umweg ueber ein zweites Exemplar des Testbinaers ist noetig, weil
+    /// `convert` per `eprintln!` meldet und der Testlaeufer stderr nicht
+    /// programmatisch zugaenglich macht.
+    #[test]
+    #[ignore = "Reproduktion Befund 15 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_15_unbekanntes_pixelformat_meldet_ohne_ratenbremse() {
+        use ffmpeg::format::Pixel;
+        const KIND: &str = "PULSE_REPRO15_KIND";
+        const WIEDERHOLUNGEN: usize = 100;
+
+        // Kindlauf: nur ablehnen lassen, nicht pruefen.
+        if std::env::var(KIND).is_ok() {
+            let pool = PlanePool::default();
+            for format in [Pixel::YUV444P, Pixel::YUV422P] {
+                for _ in 0..WIEDERHOLUNGEN {
+                    let f = ffmpeg::util::frame::video::Video::new(format, 320, 240);
+                    assert!(
+                        convert(&f, &pool).is_none(),
+                        "{format:?} darf nicht angenommen werden"
+                    );
+                }
+            }
+            return;
+        }
+
+        let exe = std::env::current_exe().expect("Testbinary");
+        let aus = std::process::Command::new(exe)
+            .args([
+                "repro_15_unbekanntes_pixelformat_meldet_ohne_ratenbremse",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(KIND, "1")
+            .output()
+            .expect("Kindlauf startbar");
+        let err = String::from_utf8_lossy(&aus.stderr);
+        assert!(
+            aus.status.success(),
+            "Kindlauf fehlgeschlagen:\n{}\n{err}",
+            String::from_utf8_lossy(&aus.stdout)
+        );
+
+        let zaehle = |muster: &str| {
+            err.lines()
+                .filter(|z| z.contains("Pixelformat") && z.contains(muster))
+                .count()
+        };
+        let yuv444 = zaehle("YUV444P");
+        let yuv422 = zaehle("YUV422P");
+        eprintln!("Meldezeilen bei je {WIEDERHOLUNGEN} Ablehnungen: YUV444P={yuv444}, YUV422P={yuv422}");
+        assert_eq!(
+            yuv444, 1,
+            "{WIEDERHOLUNGEN} gleiche Ablehnungen duerfen EINE Zeile ergeben, nicht {yuv444}"
+        );
+        assert_eq!(
+            yuv422, 1,
+            "der Formatwechsel darf genau eine weitere Zeile ergeben, nicht {yuv422}"
+        );
+    }
+
+    /// **Reproduktion Befund 17** — nach dem Rueckfall auf Software bleiben
+    /// Zero-Copy-Bruecke und `hw_ziel` belegt.
+    ///
+    /// `frischer_software_decoder` ersetzt `decoder`, `name`, `hardware` und
+    /// die Zaehler; `self.bruecke` und `self.hw_ziel` bleiben unangetastet.
+    /// Danach liefert der Decoder `YUV420P`/`YUV420P10LE`, fuer die
+    /// `bruecke_moeglich` falsch ist — beide Halden werden nie wieder
+    /// angefasst und nie freigegeben, und zwar genau in dem Moment, in dem die
+    /// Grafikeinheit ohnehin in Not war.
+    ///
+    /// Hier geprueft wird der Anteil, der ohne Grafikhardware nachweisbar ist:
+    /// der Bildpuffer in `hw_ziel`. Der Ring der Bruecke haengt an D3D11 und
+    /// ist auf diesem Rechner nicht herstellbar; `bruecke` wird deshalb nur
+    /// darauf geprueft, dass der Rueckfall den Zustand „versucht, keine
+    /// Bruecke" nicht nach `None` (= „noch nicht versucht") zurueckdreht.
+    #[test]
+    #[ignore = "Reproduktion Befund 17 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_17_rueckfall_gibt_hw_ziel_nicht_frei() {
+        use ffmpeg::format::Pixel;
+        let mut d = VideoDecoder::new(Codec::H264, Some(false), None).expect("Software-Decoder");
+
+        // Ein echter 1280x720-NV12-Puffer, wie ihn `in_den_hauptspeicher`
+        // hinterlaesst — rund 1,4 MB, bei 1440p10 ein Vielfaches davon.
+        d.hw_ziel = ffmpeg::util::frame::video::Video::new(Pixel::NV12, 1280, 720);
+        d.bruecke = Some(None);
+        let vorher: usize = (0..d.hw_ziel.planes()).map(|i| d.hw_ziel.data(i).len()).sum();
+        assert!(vorher > 0, "der Vorher-Zustand muss wirklich Speicher halten");
+
+        d.frischer_software_decoder().expect("Rueckfall auf Software");
+
+        assert!(
+            matches!(d.bruecke, Some(None)),
+            "der Rueckfall darf „versucht, keine Bruecke\" nicht auf „noch nicht versucht\" zuruecksetzen"
+        );
+        let nachher: usize = (0..d.hw_ziel.planes()).map(|i| d.hw_ziel.data(i).len()).sum();
+        eprintln!("hw_ziel: vor dem Rueckfall {vorher} Byte, danach {nachher} Byte");
+        assert_eq!(
+            d.hw_ziel.planes(),
+            0,
+            "hw_ziel muss nach dem Rueckfall leer sein, haelt aber weiter {nachher} Byte"
+        );
+    }
 }

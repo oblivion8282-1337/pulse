@@ -855,4 +855,110 @@ mod tests {
         r.note_dimensions(1920, 1080);
         assert!(r.clip_snapshot(5.0).is_err());
     }
+
+    /// Befund 24: `push` legt fuer JEDE Zugriffseinheit eine eigene Kopie an
+    /// (`data: data.to_vec()`), auch wenn gar keine Aufnahme laeuft. Der Ring
+    /// muesste sich den Speicher mit dem Aufrufer teilen (`bytes::Bytes`), dann
+    /// waere die Adresse dieselbe.
+    #[test]
+    #[ignore = "Reproduktion Befund 24 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_24_ring_kopiert_jede_einheit() {
+        let mut r = Recorder::default();
+        // Ein einziger Puffer, wie ihn der Depacketizer referenzgezaehlt
+        // weiterreicht — der Ring duerfte ihn nur festhalten, nicht kopieren.
+        let quelle = vec![0u8; 100_000];
+        for i in 0..600 {
+            r.push(Codec::H264, &quelle, i * 16);
+        }
+        assert!(!r.is_recording(), "es laeuft absichtlich keine Aufnahme");
+
+        let kopiert: usize = r.ring.iter().map(|u| u.data.len()).sum();
+        eprintln!(
+            "Ring: {} Einheiten, {kopiert} Bytes kopiert, obwohl keine Aufnahme laeuft",
+            r.ring.len()
+        );
+
+        let geteilt = r.ring.back().unwrap().data.as_ptr() == quelle.as_ptr();
+        assert!(
+            geteilt,
+            "der Ring haelt eine eigene Kopie statt denselben Speicher: \
+             {kopiert} Bytes memcpy fuer 600 Einheiten ohne laufende Aufnahme"
+        );
+    }
+
+    /// Befund 27, erster Teil: der Zielpfad wird ungeprueft uebernommen — kein
+    /// Basisverzeichnis, keine Kanonisierung, keine `..`-Pruefung. Die Datei
+    /// landet ausserhalb des vorgesehenen Aufnahmeverzeichnisses.
+    #[test]
+    #[ignore = "Reproduktion Befund 27 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_27_pfad_verlaesst_das_aufnahmeverzeichnis() {
+        let basis = crate::ablage::temp("pulse-player-repro27");
+        let unterordner = basis.join("unterordner");
+        std::fs::create_dir_all(&unterordner).expect("Testverzeichnis anlegbar");
+
+        let mut r = Recorder::default();
+        r.note_dimensions(1280, 720);
+        r.push(Codec::H264, &[0, 0, 1, 0x67, 0x42], 0); // SPS, macht den Codec bekannt
+
+        // Das vorgesehene Verzeichnis ist `basis` — dieser Pfad zeigt hinaus.
+        let ziel = unterordner.join("..").join("..").join("pulse-player-repro27-ausserhalb");
+        let ergebnis = r.start(&ziel);
+
+        let entkommen = crate::ablage::temp("pulse-player-repro27-ausserhalb.ts");
+        let existiert = entkommen.exists();
+        eprintln!(
+            "start({}) -> {:?}; Datei ausserhalb ({}) vorhanden: {existiert}",
+            ziel.display(),
+            ergebnis.as_ref().map(|p| p.display().to_string()),
+            entkommen.display()
+        );
+        // Aufraeumen, bevor die Behauptung geprueft wird — sonst bleibt sie liegen.
+        let _ = r.stop();
+        let _ = std::fs::remove_file(&entkommen);
+        let _ = std::fs::remove_dir_all(&basis);
+
+        assert!(
+            ergebnis.is_err(),
+            "ein Pfad mit `..` ausserhalb des Aufnahmeverzeichnisses wurde angenommen \
+             (Datei ausserhalb angelegt: {existiert})"
+        );
+    }
+
+    /// Befund 27, zweiter Teil: eine laufende Aufnahme kennt playerseitig weder
+    /// eine Dauer- noch eine Groessenobergrenze.
+    #[test]
+    #[ignore = "Reproduktion Befund 27 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_27_aufnahme_kennt_keine_obergrenze() {
+        let ziel = crate::ablage::temp("pulse-player-repro27-grenzenlos");
+        let mut r = Recorder::default();
+        r.note_dimensions(1280, 720);
+        let key = [0u8, 0, 1, 0x65, 0x88]; // IDR
+        r.push(Codec::H264, &key, 0);
+        let benutzt = r.start(&ziel).expect("Aufnahme startet");
+
+        // 10 000 Einheiten im Abstand von 100 ms = rund 16 Minuten Aufnahme.
+        let mut nutzlast = vec![0u8; 1024];
+        nutzlast[..5].copy_from_slice(&key);
+        for i in 0..10_000i64 {
+            r.push(Codec::H264, &nutzlast, i * 100);
+        }
+        let dauer_ms = 10_000i64 * 100;
+        let laeuft_noch = r.is_recording();
+        let geschrieben = r.written_units;
+        let _ = r.stop();
+        let groesse = std::fs::metadata(&benutzt).map(|m| m.len()).unwrap_or(0);
+        let _ = std::fs::remove_file(&benutzt);
+        eprintln!(
+            "nach {} s Aufnahmezeit: {geschrieben} Einheiten, {groesse} Bytes, \
+             laeuft noch: {laeuft_noch}",
+            dauer_ms / 1000
+        );
+
+        assert!(
+            !laeuft_noch || geschrieben < 10_000,
+            "keine Dauer- oder Groessengrenze: {geschrieben} Einheiten / {groesse} Bytes \
+             ueber {} s hinweg geschrieben, die Aufnahme laeuft unbegrenzt weiter",
+            dauer_ms / 1000
+        );
+    }
 }

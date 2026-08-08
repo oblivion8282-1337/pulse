@@ -377,4 +377,46 @@ pub(crate) mod tests {
         roh[8] = 1;
         assert!(kopf_lesen(&roh).is_err());
     }
+
+    /// **Reproduktion Befund 21 — Schutzgruppe mit genau EINEM Mitglied.**
+    ///
+    /// `kopf_lesen()` lehnt nur die voellig leere Maske ab, nicht eine mit
+    /// genau einem gesetzten Bit. Eine solche Gruppe hat kein einziges echtes
+    /// Vergleichspaket: beide XOR-Schleifen in `zurueckrechnen()` laufen null
+    /// Mal, und das "reparierte" Paket besteht woertlich aus den Bytes, die
+    /// der Absender in der Paritaetsnutzlast mitgeschickt hat.
+    ///
+    /// Erwartet nach der Behebung: Mindestgruppengroesse 2, also `is_err()`.
+    #[test]
+    #[ignore = "Reproduktion Befund 21 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_21_einzelgruppe_wird_angenommen() {
+        let medien: Vec<_> = (0..1)
+            .map(|i| medienpaket(1000 + i, 9000, 0xDEAD_BEEF, &[0xAB; 40]))
+            .collect();
+        let paritaet = paritaet_bauen(&medien, 0xDEAD_BEEF, 1000);
+
+        // Nachweis, dass die Maske wirklich genau ein Bit traegt.
+        let kopf = kopf_lesen(&paritaet).expect("heute lesbar — genau das ist der Befund");
+        assert_eq!(
+            kopf.geschuetzte_sequenzen,
+            vec![1000],
+            "die Gruppe hat genau ein Mitglied"
+        );
+
+        // Und die Rueckrechnung OHNE ein einziges Vergleichspaket gelingt:
+        // sie gibt die Paritaetsnutzlast unveraendert zurueck.
+        let wieder = zurueckrechnen(&kopf, &paritaet, &[], 1000)
+            .expect("heute erfolgreich — ohne jedes Vergleichspaket");
+        assert_eq!(
+            wieder, medien[0].bytes,
+            "die Nutzlast ist bytegleich mit dem Original — es wurde nichts gerechnet"
+        );
+
+        assert!(
+            kopf_lesen(&paritaet).is_err(),
+            "eine Schutzgruppe mit nur einem Mitglied muss abgelehnt werden \
+             (Mindestgruppengroesse 2); heute wird sie angenommen und ihre \
+             Rueckrechnung liefert die Paritaetsnutzlast unveraendert zurueck"
+        );
+    }
 }

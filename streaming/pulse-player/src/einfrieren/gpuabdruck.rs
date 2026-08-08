@@ -384,6 +384,57 @@ mod tests {
         assert!(gemeldet, "60 Bilder und 5 Sekunden ohne Abdruck muessen auffallen");
     }
 
+    /// **Reproduktion Befund 11.** Ein minimiertes (oder laenger verdecktes)
+    /// Fenster ist kein toter Rueckweg — heute wird es aber als einer gewertet.
+    ///
+    /// Der Ablauf, den dieser Test nachstellt, steht so im Code:
+    /// `Renderer::render` holt in `src/render/mod.rs:383` erst die
+    /// Oberflaechen-Textur (`let Some(surface_texture) = self.acquire()? else {
+    /// return Ok(()) };`) und zeichnet den Abdruck erst danach auf (Zeile 414).
+    /// `acquire()` liefert bei `Cst::Occluded`/`Cst::Timeout` — also bei
+    /// minimiertem oder verdecktem Fenster — `Ok(None)`
+    /// (`src/render/mod.rs:309-312`), es wird also **kein Abdruck gerechnet und
+    /// keiner eingeworfen**. Der Decoder-Thread laeuft davon voellig unberuehrt
+    /// weiter und meldet jedes hinausgehende GPU-Bild (`src/decode.rs:1593`).
+    ///
+    /// Also: 400 Bilder in 6,4 s, kein einziger Abdruck — genau das, was ein
+    /// minimiertes Fenster erzeugt. `einspeisen_zur_zeit` meldet daraufhin
+    /// „Rueckweg tot", und der Aufrufer schaltet mit `zerocopy::abschalten`
+    /// (`src/decode.rs:1642-1644`) ein **prozessweites** `AtomicBool` ab, das
+    /// nicht wieder angeht — samt aller anderen, sichtbaren Sitzungen.
+    ///
+    /// `Zulauf` hat heute kein Sichtbarkeitssignal; nach der Behebung muss ein
+    /// gesetztes (`z.verdeckt(true)` o.ae.) diesen Test gruen machen. Die
+    /// Gegenprobe — sichtbares Fenster, ausbleibende Abdruecke, weiterhin
+    /// `true` — steht schon oben in `ein_stummer_rueckweg_wird_aufgegeben` und
+    /// muss gruen bleiben.
+    #[test]
+    #[ignore = "Reproduktion Befund 11 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_11_verdecktes_fenster_gilt_als_toter_rueckweg() {
+        let mut z = Zulauf::default();
+        let mut w = super::super::EinfrierWacht::default();
+        let start = Instant::now();
+        // Das Fenster ist ab Bild 0 minimiert: der Renderer kommt nie bis zum
+        // Aufzeichnen, es wird nie ein Abdruck eingeworfen. Der Decoder
+        // dekodiert unbeirrt weiter.
+        let mut gemeldet_bei: Option<u64> = None;
+        for i in 0..400u64 {
+            let jetzt = start + Duration::from_millis(i * 16); // 400 Bilder in 6,4 s
+            z.bild_hinaus_zur_zeit(jetzt);
+            if z.einspeisen_zur_zeit(&mut w, jetzt) && gemeldet_bei.is_none() {
+                gemeldet_bei = Some(i);
+            }
+        }
+        assert!(
+            gemeldet_bei.is_none(),
+            "ein minimiertes Fenster liefert keine Abdruecke — das darf den \
+             Zero-Copy-Weg nicht prozessweit abschalten; gemeldet ab Bild {:?} \
+             (nach {:?})",
+            gemeldet_bei,
+            gemeldet_bei.map(|i| Duration::from_millis(i * 16)),
+        );
+    }
+
     /// Eine kurze Pause im Zeichnen ist kein toter Rueckweg — sonst faellt der
     /// Weg bei jedem Fensterwechsel um.
     #[test]

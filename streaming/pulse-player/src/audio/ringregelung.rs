@@ -127,3 +127,69 @@ impl Ringregelung {
         0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verschraenktes Stereo, an dem sich die Kanaele unterscheiden lassen:
+    /// links immer `+1.0`, rechts immer `-1.0`. Index 0 ist eine Kanalgrenze.
+    fn stereo_ring(laenge: usize) -> VecDeque<f32> {
+        (0..laenge).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect()
+    }
+
+    /// **Reproduktion Befund 10.** Der Feinabbau entfernt mit `pop_front()`
+    /// genau EIN f32-Sample, kennt aber die Kanalzahl nicht. Der Ring haelt
+    /// verschraenktes Multi-Channel-PCM, das `fill_output` unveraendert in den
+    /// interleaved Ausgabepuffer kopiert — ein Pop kippt damit die Paritaet:
+    /// aus L,R,L,R wird R,L,R,L. Richtig waere, immer ein volles Frame zu
+    /// entfernen (`drain(..channels)`).
+    #[test]
+    #[ignore = "Reproduktion Befund 10 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_10_feinabbau_kippt_die_kanalzuordnung() {
+        // 48 kHz Stereo, Sollwert wie zur Laufzeit: 60 ms * 96 Samples/ms.
+        let soll = RING_SOLL_MS * 96;
+        let mut ring = stereo_ring(soll + 1);
+        let mut r = Ringregelung::default();
+        assert_eq!(ring[0], 1.0, "Vorbedingung: der Ring beginnt auf dem linken Kanal");
+
+        // Genau ein Feinabbau-Schritt: `RING_FEIN_TEILER` angehaengte Samples.
+        let verworfen = r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
+        assert_eq!(verworfen, 1, "Vorbedingung: der Feinzweig hat gegriffen");
+
+        assert_eq!(
+            ring[0], 1.0,
+            "nach dem Feinabbau muss der Ring weiter auf dem linken Kanal beginnen — \
+             heute steht hier {} (R), die Kanaele sind vertauscht",
+            ring[0]
+        );
+        assert_eq!(
+            ring.len(),
+            soll - 1,
+            "und es muss ein VOLLES Frame (2 Samples) verschwunden sein, nicht eines"
+        );
+    }
+
+    /// Die zweite Haelfte des Befunds: es ist kein einmaliger dauerhafter
+    /// Tausch, sondern ein wiederholtes Umkippen im Opus-Pakettakt. Der zweite
+    /// Feinabbau-Schritt dreht die Zuordnung zurueck.
+    #[test]
+    #[ignore = "Reproduktion Befund 10 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn repro_10_feinabbau_kippt_die_kanalzuordnung_wieder_zurueck() {
+        let soll = RING_SOLL_MS * 96;
+        let mut ring = stereo_ring(soll + 2);
+        let mut r = Ringregelung::default();
+
+        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
+        let nach_eins = ring[0];
+        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
+        let nach_zwei = ring[0];
+
+        assert_eq!(
+            (nach_eins, nach_zwei),
+            (1.0, 1.0),
+            "beide Feinabbau-Schritte muessen den Ring auf dem linken Kanal lassen — \
+             heute kippt er auf {nach_eins} und wieder zurueck auf {nach_zwei}"
+        );
+    }
+}
