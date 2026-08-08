@@ -27,23 +27,43 @@ Fehlt alles, meldet die App den Zustand `local-host-no-runtime` mit Setup-Hinwei
 ## Ablauf von `start()`
 
 `containerBackendManager.ts`: Runtime finden → Env-Datei rendern → Registry-Login mit den
-Instanz-Creds (`--password-stdin`) → `pull` → alten Container ersetzen → `run` → Health-Poll auf
-`127.0.0.1:55580/api/chat/health`. `stop()` stoppt den Container; das Volume bleibt.
+Instanz-Creds (`--password-stdin`) → `pull` → Netzwerk-Modus wählen → alten Container ersetzen →
+`run` → Health-Poll → Relays hochziehen. `stop()` stoppt den Container; das Volume bleibt.
 
 | Konstante | Wert |
 |---|---|
 | Container | `pulse-host` |
 | Volume | `pulse-host-data` |
 | Image | `registry.howispulse.com/pulse-allinone:edge` |
-| Host-Port (HTTP, nur 127.0.0.1) | `55580` |
+| Host-Port (HTTP) | `55580` |
 
 Nur die `PULSE_*`-Pairing-Werte gehen in die Env-Datei (0600); DB, Secrets und Keys erzeugt das
 Image selbst in `/data`. **Secrets stehen nie in argv und nie im Log** — nur in der Env-Datei und
 im `--password-stdin`-Login.
 
-Die Medien-Ports (`3478/tcp+udp`, `7882-7892/udp`, `1936/tcp`, `8189/udp`, `7900/udp`) werden direkt
-gemappt, weil Voice und Streams zum Gerät gehen statt über den Relay. **Sie müssen mit
-`portMapper.ts` synchron bleiben.**
+## Netzwerk — zwei Wege, und der Unterschied ist der Grund für die Relays
+
+Der Netzwerk-Modus hängt an der Runtime, nicht am Wunsch:
+
+**Linux / Docker** — klassisches Port-Publishing. HTTP auf `127.0.0.1:55580`, dazu die
+Medien-Ports `3478/tcp+udp`, `7882-7892/udp`, `1936/tcp`, `8189/udp` und `7900/udp` direkt
+gemappt (Voice und Streams gehen zum Gerät, nicht über den Relay). **Diese Liste muss mit
+`portMapper.ts` synchron bleiben.** Health-Poll auf `127.0.0.1:55580`.
+
+**Windows / macOS mit podman** — `--network host`, und der Container bindet auf der
+podman-machine-VM statt auf dem Host. Grund: rootless podman leitet eingehendes **UDP** nicht
+über published Ports in die VM (TCP schon) — Direktpfad und Voice bekämen nie ein Paket.
+Health-Poll geht dann auf die VM-IP, Port 8080.
+
+Die Lücke zwischen Host und VM schließen die beiden Relays dieses Branches, hochgezogen von
+`ensureRelay()`:
+
+- **`udpRelay.ts`** — pro Port ein Listener auf `0.0.0.0`, Datagramme an die VM. Der Rückweg ist
+  NAT-artig: pro Peer ein Wegwerf-Socket, und die Antwort muss den **angekündigten** Port als
+  Quelle tragen, sonst verwirft ICE sie.
+- **`tcpRelay.ts`** — transparenter Byte-Durchreicher für die TCP-Medienpfade. Ohne ihn läuft der
+  RTMPS-Ingest des Owners ins Leere: media-svc mintet ihm bewusst eine
+  `rtmps://localhost:1936`-Push-URL, aber MediaMTX liegt in der VM.
 
 ## Auto-Port-Mapping
 
