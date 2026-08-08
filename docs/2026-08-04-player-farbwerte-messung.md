@@ -160,6 +160,13 @@ des Systems — jetzt mit der Angebotsliste belegt statt nur behauptet.
   nicht in `FORMAT_PREFERENCE`, ist also nur über die Diagnose-Variable
   erreichbar — unangetastet gelassen, aber es ist eine Falle.
 
+  **Erledigt am 2026-08-08** (Befund 29 des vierten Bughunts): `surface_is_linear`
+  liefert jetzt auch für `*_SRGB` `true`, der Shader linearisiert also und die
+  ROP kodiert genau einmal. Gemessen wurde die Falle vorher am Graukeil —
+  Luma-Code 200 (10 bit) landete nach `Bgra8Unorm` bei 0,1569, nach
+  `Bgra8UnormSrgb` bei 0,4314 = `srgb_kodieren(0,1553)`. Der Nachweis steht als
+  `messen::farbwerte::tests::repro_29_srgb_ziel_wird_doppelt_kodiert` im Baum.
+
 ## Nachgetragen am 2026-08-06: derselbe Prüfstand trägt jetzt auch HDR
 
 Der Messpfad hat hier ausdrücklich SDR gefahren, mit der Begründung, ein

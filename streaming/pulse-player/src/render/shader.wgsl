@@ -235,8 +235,10 @@ fn pq_zu_nits(e: vec3<f32>) -> vec3<f32> {
 // BT.2020 nach BT.709, beides in LINEAREM Licht.
 //
 // Muss linear passieren — auf kodierte Werte angewandt ergaebe dieselbe Matrix
-// Unsinn. Deshalb steht sie hier hinter der PQ-Kurve und nicht bei der
-// YUV-Matrix, obwohl beide „Farbraum" heissen.
+// Unsinn. Deshalb steht sie hinter der Kurve und nicht bei der YUV-Matrix,
+// obwohl beide „Farbraum" heissen. **Hier stand bis zum 2026-08-08 „hinter der
+// PQ-Kurve"; das war zu eng gefasst** — sie wird auch auf dem SDR-Weg
+// gebraucht (BT.2020-Strom ohne PQ, s. `fs_main`), dort hinter der sRGB-EOTF.
 //
 // **Die Werte duerfen negativ werden, und das ist richtig so.** BT.2020 kann
 // Farben, die BT.709 nicht darstellt; sie landen ausserhalb des Wuerfels. Auf
@@ -319,6 +321,32 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+
+    // **Weite Primaervalenzen gibt es auch OHNE PQ.** `matrix_of` waehlt die
+    // BT.2020-Matrix allein nach `color_space`, unabhaengig von der Kurve, und
+    // `farbangaben_von` faellt fuer jede nicht als SMPTE2084 erkannte Kurve
+    // (auch HLG, auch „nicht gesetzt") absichtlich auf SDR zurueck. So ein
+    // Strom lief bis zum 2026-08-08 in BT.2020-Koordinaten auf eine
+    // BT.709-Oberflaeche: sichtbar zu gesaettigt, vor allem Gruen und
+    // Hauttoene. Die Umrechnung stand nur in `pq_ausgeben`, also nur bei
+    // `hdr.x > 0.5`.
+    //
+    // Sie muss in LINEAREM Licht laufen (s. `bt2020_zu_bt709`) — auf die
+    // gamma-kodierten Werte angewandt laege sie bei einem gesaettigten Gruen um
+    // 0,057 im blauen Kanal daneben. Deshalb hier: EOTF, Matrix, und erst dann
+    // die Frage, in welcher Form die Oberflaeche es haben will.
+    if (u.output.y > 1.5) {
+        let linear = clamp(
+            bt2020_zu_bt709(srgb_to_linear(rgb)),
+            vec3<f32>(0.0),
+            vec3<f32>(1.0),
+        );
+        if (u.output.x > 0.5) {
+            return vec4<f32>(linear, 1.0);
+        }
+        return vec4<f32>(linear_to_srgb(linear), 1.0);
+    }
+
     // Ganz zum Schluss: alles davor (Matrix, Deband, Dither) ist im
     // gamma-kodierten Raum gedacht, dort liegen die sichtbaren Stufen.
     if (u.output.x > 0.5) {

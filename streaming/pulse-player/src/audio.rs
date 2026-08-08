@@ -91,9 +91,16 @@ impl Shared {
     /// Ring nach dem Anhaengen auf den Sollwert zurueckfuehren. Der harte
     /// Deckel darueber (`max_ring_samples`) ist ein Notausgang, keine Regelung
     /// — die steht in [`ringregelung`].
-    fn zurueckfuehren(&mut self, angehaengt: usize) {
-        self.dropped +=
-            self.regelung.nach_anhaengen(&mut self.ring, self.target_fill, angehaengt);
+    ///
+    /// `kanaele` muss die Kanalzahl des Ausgabegeraets sein: der Ring haelt
+    /// verschraenktes PCM, und die Regelung darf nur ganze Frames abbauen.
+    fn zurueckfuehren(&mut self, angehaengt: usize, kanaele: usize) {
+        self.dropped += self.regelung.nach_anhaengen(
+            &mut self.ring,
+            self.target_fill,
+            angehaengt,
+            kanaele,
+        );
     }
 }
 
@@ -189,7 +196,7 @@ fn pump_commands(
                     s.ring.drain(..excess);
                     s.dropped += excess as u64;
                 }
-                s.zurueckfuehren(angehaengt);
+                s.zurueckfuehren(angehaengt, channels as usize);
             }
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {

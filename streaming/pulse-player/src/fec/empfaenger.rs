@@ -176,7 +176,16 @@ impl Empfaenger {
         // und KEIN Mass fuer Verlust.
         self.mehrfach_loch += 1;
         // Noch nicht loesbar — aufheben, vielleicht kommt das zweite Paket noch.
-        if self.wartend.len() >= WARTENDE_PARITAET {
+        //
+        // **`contains_key` gehoert in die Bedingung.** Bis zum 2026-08-08 stand
+        // hier nur die Laengenpruefung. Traf ein Paritaetspaket zu einer BEREITS
+        // wartenden Basis ein, haette das `insert()` darunter bloss ueber-
+        // schrieben — verdraengt wurde trotzdem, und zwar eine fremde, noch
+        // loesbare Gruppe. Erreichbar ueber den Umlauf der 16-bit-Basis (alle
+        // 65536 Medienpakete, bei 500 Paketen/s rund zwei Minuten).
+        if self.wartend.len() >= WARTENDE_PARITAET
+            && !self.wartend.contains_key(&kopf.basis_sequenz)
+        {
             // `keys().next()` einer HashMap ist NICHT die aelteste, sondern
             // eine beliebige — fuer die Speicherbegrenzung gleichgueltig.
             // Hier verschwindet eine ungeloeste Gruppe endgueltig; gezaehlt
@@ -550,8 +559,10 @@ mod tests {
     /// sie nur, dass der Absender Bytes schicken kann.
     ///
     /// Erwartet nach der Behebung: `repariert == 0` (Gruppe wird verworfen).
+    /// Behoben an der Engstelle davor — `kopf_lesen()` erzwingt seit dem
+    /// 2026-08-08 Mindestgruppengroesse 2, `paritaetspaket()` steigt damit
+    /// schon beim Lesen des Kopfes aus.
     #[tokio::test]
-    #[ignore = "Reproduktion Befund 21 — schlaegt bis zur Behebung absichtlich fehl"]
     async fn repro_21_einzelgruppe_wird_als_repariert_gezaehlt() {
         let einzel = medienpaket(BASIS, 9000, SSRC, &[0xAB; 40]);
         let erwartete_bytes = einzel.bytes.clone();
@@ -593,7 +604,6 @@ mod tests {
     /// Erwartet nach der Behebung: `verworfen` bleibt 0, und alle 64 Gruppen
     /// werden von ihrem Nachzuegler geloest (`repariert == 64`).
     #[tokio::test]
-    #[ignore = "Reproduktion Befund 34 — schlaegt bis zur Behebung absichtlich fehl"]
     async fn repro_34_doppelte_basis_verdraengt_fremde_wartegruppe() {
         let (tx, _rx) = mpsc::channel(4096);
         let mut e = Empfaenger::neu(Codec::Av1, 90_000, tx);

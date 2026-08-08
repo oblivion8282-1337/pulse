@@ -161,10 +161,17 @@ pub fn output_levels(format: wgpu::TextureFormat) -> f32 {
 /// rechnet in gamma-kodiertem R'G'B', weil das Video so vorliegt; fuer fp16
 /// muss deshalb umgerechnet werden.
 ///
-/// `*UnormSrgb` ist hier bewusst NICHT dabei: dort kodiert die Hardware beim
-/// Schreiben selbst, eine zusaetzliche Umrechnung waere doppelt.
+/// **Hier stand bis zum 2026-08-08: „`*UnormSrgb` ist hier bewusst NICHT
+/// dabei: dort kodiert die Hardware beim Schreiben selbst, eine zusaetzliche
+/// Umrechnung waere doppelt." Das ist falsch — es ist genau andersherum.** Die
+/// ROP eines `*_SRGB`-Ziels nimmt den Shader-Wert als LINEARES Licht und legt
+/// die sRGB-Kurve beim Speichern darauf. Wer ihr gamma-kodierte Werte gibt,
+/// laesst ein zweites Mal kodieren: gemessen am 2026-08-08 landete Luma-Code
+/// 200 (10 bit) nach `Bgra8Unorm` bei 0,1569 und nach `Bgra8UnormSrgb` bei
+/// 0,4314 = `srgb_kodieren(0,1553)` — Mitten und Schatten deutlich zu hell.
+/// Ein `*_SRGB`-Ziel braucht deshalb dieselbe Linearisierung wie `Rgba16Float`.
 pub fn surface_is_linear(format: wgpu::TextureFormat) -> bool {
-    matches!(format, wgpu::TextureFormat::Rgba16Float)
+    matches!(format, wgpu::TextureFormat::Rgba16Float) || format.is_srgb()
 }
 
 /// Faktor, mit dem ein als `*16Unorm` gelesener Abtastwert multipliziert

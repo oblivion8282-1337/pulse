@@ -242,6 +242,31 @@ impl Kandidat {
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
 const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
 
+/// Wie viele Bilder hintereinander der Decoder liefern darf, die sich nicht
+/// anzeigen lassen, bevor die Sitzung endet.
+///
+/// **Das ist die Luecke, in der KEIN Waechter mehr greift.** Der Decoder nimmt
+/// jedes Paket an (`consecutive_errors` steht danach auf 0, also kann
+/// [`neuaufbau::classify`] nie ausloesen), er liefert auch Bilder — nur kann
+/// [`convert`] sie nicht uebersetzen, etwa `YUV444P` aus AV1 Profile 1 oder
+/// H.264 High 4:4:4. Damit kommt beim Einfrier-Waechter nie ein Bild an,
+/// `letzte_aenderung` bleibt `None` und [`crate::einfrieren`] schweigt
+/// ebenfalls; Bytes fliessen weiter, also greift auch der Stille-Abbruch
+/// nicht. Ohne diese Grenze steht das letzte Bild endlos.
+///
+/// 60 sind eine Sekunde bei 60 fps. Ein einzelner Fehlschlag, dem wieder
+/// brauchbare Bilder folgen, ist nicht zu erwarten — welche vier Formate
+/// tragen, entscheidet der Bitstrom und nicht der Zufall. Der Zaehler faellt
+/// trotzdem bei jedem gelieferten Bild auf null zurueck, damit nur eine
+/// wirklich durchgehende Serie zaehlt.
+///
+/// **Neu aufgebaut wird hier NICHT**, obwohl das der naheliegende Weg waere
+/// (`neuaufbau::classify`): der Ersatz ist immer Software, und Software
+/// dekodiert einen 4:4:4-Strom genauso nach `YUV444P`. Ein Neuaufbau kann das
+/// Pixelformat des Stroms nicht aendern, er kostet nur weitere Sekunden
+/// Standbild vor demselben Ende.
+const MAX_UNBRAUCHBARE_BILDER: u32 = 60;
+
 /// Ab wann „seit langem kein Vollbild" als rollende Auffrischung gilt.
 ///
 /// Der uebliche Vollbild-Abstand liegt bei zwei Sekunden. Fuenf sind reichlich
@@ -1007,6 +1032,9 @@ pub struct VideoDecoder {
     bruecke_us: u64,
     /// Zaehlt haengende Ruecklesevorgaenge (s. [`crate::stockung::Waechter`]).
     stockungen: crate::stockung::Waechter,
+    /// Bilder in Folge, die der Decoder geliefert hat und [`convert`] nicht
+    /// uebersetzen konnte (s. [`MAX_UNBRAUCHBARE_BILDER`]).
+    unbrauchbare_bilder: u32,
     /// Der Weg am Hauptspeicher vorbei. Die drei Zustaende dieses `Option` sind
     /// in [`crate::zerocopy::bild_ohne_umweg`] erklaert, wo sie ausgewertet
     /// werden.
@@ -1075,6 +1103,7 @@ impl VideoDecoder {
                         ruecklesen_us: 0,
                         bruecke_us: 0,
                         stockungen: crate::stockung::Waechter::default(),
+                        unbrauchbare_bilder: 0,
                         bruecke: None,
                         zulauf: crate::einfrieren::Zulauf::default(),
                         geraet,
@@ -1296,6 +1325,17 @@ impl VideoDecoder {
         {
             self.auf_software("das Warten auf die Grafikeinheit blockiert wiederholt")?;
         }
+        // Der Decoder nimmt an und liefert, nur ist nichts davon anzeigbar.
+        // Kein Waechter faengt das ab (s. [`MAX_UNBRAUCHBARE_BILDER`]) — ohne
+        // diesen Abbruch stuende das letzte Bild bis zum Sitzungsende.
+        if self.unbrauchbare_bilder >= MAX_UNBRAUCHBARE_BILDER {
+            bail!(
+                "Decoder {} liefert seit {} Bildern nur Formate, die nicht \
+                 angezeigt werden koennen",
+                self.name,
+                self.unbrauchbare_bilder
+            );
+        }
         Ok(bilder)
     }
 
@@ -1359,10 +1399,47 @@ impl VideoDecoder {
         self.name = fresh.name;
         self.hardware = fresh.hardware;
         self.consecutive_errors = 0;
+        // Der Ersatz liefert andere Pixelformate als der abgeloeste Decoder —
+        // was er vorher nicht uebersetzen konnte, zaehlt nicht gegen ihn.
+        self.unbrauchbare_bilder = 0;
         // Ein frischer Decoder hat weder Sequence-Header noch Referenzbild —
         // er braucht denselben Einstiegspunkt wie beim Sitzungsbeginn.
         self.awaiting_keyframe = true;
         self.skipped_before_keyframe = 0;
+        // Der Ersatz ist IMMER Software, liefert also `YUV420P`/`YUV420P10LE`
+        // — und fuer die ist `crate::zerocopy::bruecke_moeglich` falsch (sie
+        // kennt nur `D3D11` und `CUDA`). Beide Halden des Hardware-Wegs werden
+        // hier also nie wieder angefasst: `hw_ziel` ein volles Bild (1,4 MB bei
+        // 720p NV12, ein Vielfaches bei 1440p10) und der Windows-Ring bis zu
+        // `RING_SPEICHER_MAX` (320 MB). Ausgerechnet in dem Moment, in dem die
+        // Grafikeinheit ohnehin in Not war — das war ja der Anlass des
+        // Rueckfalls.
+        //
+        // **Freigegeben wird trotzdem nur `hw_ziel`.** Hier stand am 2026-08-08
+        // kurzzeitig auch `self.bruecke = Some(None)`, um den Ring mitzunehmen.
+        // Das ist FALSCH und wurde in derselben Sitzung von der Gegenprobe
+        // gefangen: `Some(None)` laesst die `Bruecke` sofort fallen, und deren
+        // `Drop` macht `CloseHandle` auf JEDEN Ringplatz (`zerocopy/bruecke.rs`).
+        // Ein ausgeliefertes `GpuBild` haelt unter Windows aber nur den
+        // Zahlenwert `handle: isize` (`zerocopy/platz.rs`) — anders als unter
+        // Linux, wo es ein `Arc<Ringplatz>` fuehrt. Die Invariante steht als
+        // Zusicherung an `GpuBild::handle()`: „Bleibt ueber die ganze
+        // Lebensdauer der Bruecke gueltig."
+        //
+        // Und der Aufrufer verletzt sie sofort: `neuaufbau_wenn_noetig` sammelt
+        // die Bilder mit `self.drain()` ein, BEVOR es `auf_software` ruft, und
+        // gibt sie danach zurueck. Dazu die schon abgeschickten im Kanal zum
+        // Fenster-Faden (32) und in der Takt-Warteschlange (12). Jedes davon
+        // laeuft im Renderer in `Fremdbilder::binden`; war sein Platz noch nicht
+        // gezeichnet, folgt `OpenSharedHandle` auf ein geschlossenes Handle.
+        //
+        // Das ist Befund 4 aus demselben Bughunt, mit einem neuen Ausloeser.
+        // Der Ring darf hier erst mitgehen, wenn Befund 4 behoben ist, also
+        // wenn `Ringplatz` wie unter Linux in einem `Arc` steckt, das jedes
+        // `GpuBild` mithaelt. Bis dahin ist ein belegter Ring das kleinere
+        // Uebel: 320 MB kosten Speicher, ein geschlossenes Handle kostet den
+        // Prozess.
+        self.hw_ziel = ffmpeg::util::frame::video::Video::empty();
         Ok(())
     }
 
@@ -1611,6 +1688,14 @@ impl VideoDecoder {
             // keine GPU-Bilder mehr hinaus — der Waechter bekam von KEINER
             // Seite mehr ein Bild und war fuer den Rest der Sitzung blind.
             // Sichtbar allein daran, dass die Takt-Diagnose verstummte.
+            //
+            // **Der Satz „nach dem Rueckfall bleibt die Bruecke gebaut stehen"
+            // gilt seit dem 2026-08-08 nicht mehr**:
+            // `frischer_software_decoder` gibt sie jetzt frei (`Some(None)`),
+            // weil sie sonst bis zum Sitzungsende Speicher hielte. Die
+            // Bedingung bleibt trotzdem bildweise — der zweite, haeufigere Fall
+            // (kein freier Ringplatz, waehrend die Bruecke steht) ist davon
+            // unberuehrt.
             let gpu_weg_steht = zerocopy_versucht && matches!(self.bruecke, Some(Some(_)));
             if auf_gpu {
                 let vor = std::time::Instant::now();
@@ -1633,7 +1718,13 @@ impl VideoDecoder {
                 if !gpu_weg_steht {
                     self.wacht.bild(&f.planes);
                 }
+                self.unbrauchbare_bilder = 0;
                 out.push(f);
+            } else {
+                // Ein Bild kam heraus, anzeigen laesst es sich nicht — der
+                // einzige Weg, auf dem ein Standbild an ALLEN Waechtern
+                // vorbeikommt (s. [`MAX_UNBRAUCHBARE_BILDER`]).
+                self.unbrauchbare_bilder = self.unbrauchbare_bilder.saturating_add(1);
             }
         }
         // Was der Renderer inzwischen gerechnet hat, in den Waechter geben.
@@ -1660,7 +1751,17 @@ fn convert(
         Pixel::NV12 => (PixelLayout::BiPlanar420, false, 2),
         Pixel::P010LE => (PixelLayout::BiPlanar420, true, 2),
         other => {
-            eprintln!("pulse-player: Pixelformat {other:?} wird nicht unterstuetzt");
+            // Nur beim WECHSEL melden. Ein Format, das wir nicht koennen, kommt
+            // in JEDEM Bild wieder — bei 60 fps waeren das 60 gleiche Zeilen je
+            // Sekunde, waehrend das Bild steht. Das war die einzige
+            // Wiederholmeldung dieser Datei ohne Bremse; `send_packet` meldet
+            // seit jeher nur den ersten einer Serie.
+            static ZULETZT: std::sync::Mutex<Option<Pixel>> = std::sync::Mutex::new(None);
+            let mut zuletzt = ZULETZT.lock().unwrap_or_else(|e| e.into_inner());
+            if *zuletzt != Some(other) {
+                *zuletzt = Some(other);
+                eprintln!("pulse-player: Pixelformat {other:?} wird nicht unterstuetzt");
+            }
             return None;
         }
     };
@@ -2114,11 +2215,17 @@ mod tests {
     /// nicht als Zusicherung pruefbar: es gibt kein Feld und keine Kennzahl,
     /// gegen die sich das schreiben liesse. Genau das IST der Befund.
     ///
+    /// **Der Satz „es gibt kein Feld und keine Kennzahl" gilt seit dem
+    /// 2026-08-08 nicht mehr**: es gibt jetzt `unbrauchbare_bilder` samt
+    /// [`MAX_UNBRAUCHBARE_BILDER`], und nach einer Sekunde solcher Bilder endet
+    /// die Sitzung mit einer Meldung statt mit einem Standbild. Hier
+    /// nachgewiesen wird das trotzdem nicht — dafuer braeuchte es einen
+    /// Decoder, der wirklich `YUV444P` liefert, also einen 4:4:4-Strom.
+    ///
     /// Der Umweg ueber ein zweites Exemplar des Testbinaers ist noetig, weil
     /// `convert` per `eprintln!` meldet und der Testlaeufer stderr nicht
     /// programmatisch zugaenglich macht.
     #[test]
-    #[ignore = "Reproduktion Befund 15 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_15_unbekanntes_pixelformat_meldet_ohne_ratenbremse() {
         use ffmpeg::format::Pixel;
         const KIND: &str = "PULSE_REPRO15_KIND";
@@ -2143,7 +2250,11 @@ mod tests {
         let aus = std::process::Command::new(exe)
             .args([
                 "repro_15_unbekanntes_pixelformat_meldet_ohne_ratenbremse",
-                "--ignored",
+                // `--include-ignored` statt `--ignored`: seit die Behebung
+                // steht, traegt der Test kein `#[ignore]` mehr — mit
+                // `--ignored` liefe im Kindlauf gar kein Test und stderr
+                // bliebe leer.
+                "--include-ignored",
                 "--nocapture",
                 "--test-threads=1",
             ])
@@ -2191,7 +2302,6 @@ mod tests {
     /// darauf geprueft, dass der Rueckfall den Zustand „versucht, keine
     /// Bruecke" nicht nach `None` (= „noch nicht versucht") zurueckdreht.
     #[test]
-    #[ignore = "Reproduktion Befund 17 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_17_rueckfall_gibt_hw_ziel_nicht_frei() {
         use ffmpeg::format::Pixel;
         let mut d = VideoDecoder::new(Codec::H264, Some(false), None).expect("Software-Decoder");

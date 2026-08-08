@@ -26,9 +26,10 @@
 //! Anfang Bildmuell, bis das naechste vollstaendige Bild kommt.
 
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use anyhow::{anyhow, bail, Context as _, Result};
+use bytes::Bytes;
 use ffmpeg_next as ffmpeg;
 
 use crate::depacket::av1::read_leb128;
@@ -61,6 +62,38 @@ fn with_container(path: &Path, codec: Codec) -> std::path::PathBuf {
     path.with_extension(container_extension(codec))
 }
 
+/// Prueft ein Schreibziel, bevor irgendetwas angelegt wird.
+///
+/// **Zweite Schicht, nicht die erste.** Die einzige Aufruferseite verhindert
+/// eine Pfad-Einschleusung bereits: `desktop/electron/preload.ts` reicht
+/// `record`/`clip` **ohne** Pfad-Parameter durch, `main.ts` nimmt beide Ops
+/// ausdruecklich aus den vom Renderer erreichbaren heraus, und
+/// `player.ts::recordingDir` baut das Ziel allein aus `app.getPath('videos')`.
+/// Der Player selbst nahm den Pfad aus dem RPC bis 2026-08-08 trotzdem
+/// ungeprueft an: ein `..` darin legte die Datei nachweislich zwei Ebenen
+/// ueber dem vorgesehenen Verzeichnis an. Ein zweiter Aufrufer haette also
+/// keinerlei Netz.
+///
+/// Ein festes Aufnahmeverzeichnis kann der Player nicht erzwingen — welches
+/// das ist, weiss nur der Hauptprozess, der es uebergibt. Geprueft wird
+/// deshalb die Form: absolut (nicht abhaengig vom Arbeitsverzeichnis), ohne
+/// `..` (zeigt sonst irgendwohin), und das Verzeichnis muss es schon geben
+/// (sonst legte der Muxer nichts an und die Meldung zeigte auf ihn statt auf
+/// den Pfad).
+fn pruefe_ziel(path: &Path) -> Result<()> {
+    if !path.is_absolute() {
+        bail!("Aufnahmeziel muss ein absoluter Pfad sein: {}", path.display());
+    }
+    if path.components().any(|c| c == Component::ParentDir) {
+        bail!("Aufnahmeziel darf kein `..` enthalten: {}", path.display());
+    }
+    match path.parent() {
+        Some(dir) if dir.is_dir() => Ok(()),
+        Some(dir) => bail!("Aufnahmeverzeichnis {} gibt es nicht", dir.display()),
+        None => bail!("Aufnahmeziel {} ist kein Dateipfad", path.display()),
+    }
+}
+
 /// Zeitbasis, in der WIR rechnen: Millisekunden.
 ///
 /// Der Muxer setzt seine eigene durch (MPEG-TS erzwingt 1/90000). Die Pakete
@@ -74,7 +107,13 @@ struct Unit {
     ts_ms: i64,
     codec: Codec,
     keyframe: bool,
-    data: Vec<u8>,
+    /// Referenzgezaehlt, **nicht** kopiert. Hier stand bis 2026-08-08 ein
+    /// `Vec<u8>`, das `push` fuer JEDE Zugriffseinheit per `to_vec()` neu
+    /// anlegte — auch ohne laufende Aufnahme, denn der Ring laeuft immer mit.
+    /// Das war ein vollstaendiges memcpy in Hoehe der gesamten Bitrate, das 60
+    /// Sekunden liegenblieb. Der Depacketizer gibt die Einheit ohnehin schon
+    /// als [`Bytes`] heraus; der Ring haelt jetzt denselben Speicher fest.
+    data: Bytes,
 }
 
 /// Erkennt, ob eine Zugriffseinheit als Einstiegspunkt taugt.
@@ -385,14 +424,15 @@ impl Recorder {
 
     /// Nimmt eine Zugriffseinheit entgegen: in den Ring und, falls aktiv, in
     /// die laufende Aufnahme.
-    pub fn push(&mut self, codec: Codec, data: &[u8], ts_ms: i64) {
+    pub fn push(&mut self, codec: Codec, data: Bytes, ts_ms: i64) {
         if codec.is_video() {
             self.video_codec = Some(codec);
         }
         if codec == Codec::Av1 && self.av1_seq_header.is_none() {
-            self.av1_seq_header = find_av1_sequence_header(data);
+            self.av1_seq_header = find_av1_sequence_header(&data);
         }
-        let unit = Unit { ts_ms, codec, keyframe: is_keyframe(codec, data), data: data.to_vec() };
+        let keyframe = is_keyframe(codec, &data);
+        let unit = Unit { ts_ms, codec, keyframe, data };
 
         // Erst ab dem ersten Keyframe schreiben — sonst beginnt die Datei mit
         // Bildern, die kein Decoder auflösen kann.
@@ -443,6 +483,7 @@ impl Recorder {
         if self.active.is_some() {
             bail!("es laeuft bereits eine Aufnahme");
         }
+        pruefe_ziel(path)?;
         let (codec, _, _) = self.video_info()?;
         let target = with_container(path, codec);
         self.active = Some(self.make_writer(&target)?);
@@ -523,6 +564,8 @@ pub struct ClipData {
 /// Schreibt einen zuvor eingesammelten Clip. Blockiert — gehoert deshalb auf
 /// einen Blocking-Thread, nicht in die Sitzungsschleife.
 pub fn write_clip(path: &Path, data: &ClipData) -> Result<(u64, std::path::PathBuf)> {
+    // Derselbe Weg aus dem RPC wie bei `start` — also dieselbe Pruefung.
+    pruefe_ziel(path)?;
     let target = with_container(path, data.video.0);
     let mut writer =
         Writer::create(&target, Some(data.video), data.extradata.as_deref(), true)?;
@@ -552,6 +595,12 @@ impl Drop for Recorder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Testeinheit aus einem Slice. Im Betrieb kommt sie referenzgezaehlt aus
+    /// dem Depacketizer; hier ist die eine Kopie beim Anlegen egal.
+    fn puffer(v: &[u8]) -> Bytes {
+        Bytes::copy_from_slice(v)
+    }
 
     /// OBU-Typ mit Groessenfeld und einem Byte Nutzlast.
     fn obu(typ: u8, nutzlast: u8) -> [u8; 3] {
@@ -606,14 +655,14 @@ mod tests {
         r.note_dimensions(640, 360);
         let inter = [0u8, 0, 1, 0x41, 0x9A]; // NAL 1, kein Keyframe
         let key = [0u8, 0, 1, 0x65, 0x88]; // NAL 5 (IDR)
-        r.push(Codec::H264, &key, 0); // Codec bekannt machen
+        r.push(Codec::H264, puffer(&key), 0); // Codec bekannt machen
         r.start(&crate::ablage::temp("pulse-player-keyframe-gate")).expect("startet");
 
-        r.push(Codec::H264, &inter, 10);
-        r.push(Codec::H264, &inter, 20);
+        r.push(Codec::H264, puffer(&inter), 10);
+        r.push(Codec::H264, puffer(&inter), 20);
         assert_eq!(r.written_units, 0, "Inter-Frames vor dem Keyframe geschrieben");
 
-        r.push(Codec::H264, &key, 30);
+        r.push(Codec::H264, puffer(&key), 30);
         assert!(r.written_units > 0, "ab dem Keyframe muss geschrieben werden");
     }
 
@@ -622,7 +671,7 @@ mod tests {
         let mut r = Recorder::default();
         r.note_dimensions(1920, 1080);
         for i in 0..200 {
-            r.push(Codec::H264, &[0, 0, 1, 0x65], i * 1000);
+            r.push(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65]), i * 1000);
         }
         // Ring haelt nur RING_SECONDS vor.
         assert!(r.buffered_seconds() <= RING_SECONDS, "Ring: {}", r.buffered_seconds());
@@ -712,10 +761,10 @@ mod tests {
         let mut r = Recorder::default();
         r.note_dimensions(640, 360);
         // Erst eine Einheit einspeisen, damit der Codec bekannt ist.
-        r.push(Codec::H264, &units[0], 0);
+        r.push(Codec::H264, puffer(&units[0]), 0);
         let used = r.start(Path::new(&out)).expect("Aufnahme startet");
         for (i, u) in units.iter().enumerate() {
-            r.push(Codec::H264, u, (i as i64) * 33);
+            r.push(Codec::H264, puffer(u), (i as i64) * 33);
         }
         r.stop().expect("Aufnahme schliesst ab");
 
@@ -801,10 +850,10 @@ mod tests {
 
         let mut r = Recorder::default();
         r.note_dimensions(320, 180);
-        r.push(Codec::Av1, &units[0], 0);
+        r.push(Codec::Av1, puffer(&units[0]), 0);
         let used = r.start(Path::new(&out)).expect("Aufnahme startet");
         for (i, u) in units.iter().enumerate() {
-            r.push(Codec::Av1, u, (i as i64) * 33);
+            r.push(Codec::Av1, puffer(u), (i as i64) * 33);
         }
         r.stop().expect("Aufnahme schliesst ab");
 
@@ -837,11 +886,11 @@ mod tests {
         let out = &crate::ablage::temp_str("pulse-player-dupts");
         let mut r = Recorder::default();
         r.note_dimensions(320, 180);
-        r.push(Codec::Av1, &units[0], 0);
+        r.push(Codec::Av1, puffer(&units[0]), 0);
         let used = r.start(Path::new(out)).expect("Aufnahme startet");
         // ALLE Einheiten mit demselben Zeitstempel — der Extremfall.
         for u in &units {
-            r.push(Codec::Av1, u, 0);
+            r.push(Codec::Av1, puffer(u), 0);
         }
         assert!(!r.failed, "Aufnahme ist bei gleichen Zeitstempeln abgebrochen");
         r.stop().expect("Aufnahme schliesst ab");
@@ -856,19 +905,20 @@ mod tests {
         assert!(r.clip_snapshot(5.0).is_err());
     }
 
-    /// Befund 24: `push` legt fuer JEDE Zugriffseinheit eine eigene Kopie an
+    /// Befund 24: `push` legte fuer JEDE Zugriffseinheit eine eigene Kopie an
     /// (`data: data.to_vec()`), auch wenn gar keine Aufnahme laeuft. Der Ring
-    /// muesste sich den Speicher mit dem Aufrufer teilen (`bytes::Bytes`), dann
-    /// waere die Adresse dieselbe.
+    /// muss sich den Speicher mit dem Aufrufer teilen (`bytes::Bytes`), dann
+    /// ist die Adresse dieselbe.
     #[test]
-    #[ignore = "Reproduktion Befund 24 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_24_ring_kopiert_jede_einheit() {
         let mut r = Recorder::default();
         // Ein einziger Puffer, wie ihn der Depacketizer referenzgezaehlt
-        // weiterreicht — der Ring duerfte ihn nur festhalten, nicht kopieren.
-        let quelle = vec![0u8; 100_000];
+        // weiterreicht — der Ring darf ihn nur festhalten, nicht kopieren.
+        // `Bytes::from(Vec)` uebernimmt die vorhandene Allokation, kopiert
+        // also nicht; `clone()` ist danach nur ein Zaehler hoch.
+        let quelle = Bytes::from(vec![0u8; 100_000]);
         for i in 0..600 {
-            r.push(Codec::H264, &quelle, i * 16);
+            r.push(Codec::H264, quelle.clone(), i * 16);
         }
         assert!(!r.is_recording(), "es laeuft absichtlich keine Aufnahme");
 
@@ -886,11 +936,10 @@ mod tests {
         );
     }
 
-    /// Befund 27, erster Teil: der Zielpfad wird ungeprueft uebernommen — kein
+    /// Befund 27, erster Teil: der Zielpfad wurde ungeprueft uebernommen — kein
     /// Basisverzeichnis, keine Kanonisierung, keine `..`-Pruefung. Die Datei
-    /// landet ausserhalb des vorgesehenen Aufnahmeverzeichnisses.
+    /// landete ausserhalb des vorgesehenen Aufnahmeverzeichnisses.
     #[test]
-    #[ignore = "Reproduktion Befund 27 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_27_pfad_verlaesst_das_aufnahmeverzeichnis() {
         let basis = crate::ablage::temp("pulse-player-repro27");
         let unterordner = basis.join("unterordner");
@@ -898,7 +947,7 @@ mod tests {
 
         let mut r = Recorder::default();
         r.note_dimensions(1280, 720);
-        r.push(Codec::H264, &[0, 0, 1, 0x67, 0x42], 0); // SPS, macht den Codec bekannt
+        r.push(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x67, 0x42]), 0); // SPS, macht den Codec bekannt
 
         // Das vorgesehene Verzeichnis ist `basis` — dieser Pfad zeigt hinaus.
         let ziel = unterordner.join("..").join("..").join("pulse-player-repro27-ausserhalb");
@@ -933,14 +982,14 @@ mod tests {
         let mut r = Recorder::default();
         r.note_dimensions(1280, 720);
         let key = [0u8, 0, 1, 0x65, 0x88]; // IDR
-        r.push(Codec::H264, &key, 0);
+        r.push(Codec::H264, puffer(&key), 0);
         let benutzt = r.start(&ziel).expect("Aufnahme startet");
 
         // 10 000 Einheiten im Abstand von 100 ms = rund 16 Minuten Aufnahme.
         let mut nutzlast = vec![0u8; 1024];
         nutzlast[..5].copy_from_slice(&key);
         for i in 0..10_000i64 {
-            r.push(Codec::H264, &nutzlast, i * 100);
+            r.push(Codec::H264, puffer(&nutzlast), i * 100);
         }
         let dauer_ms = 10_000i64 * 100;
         let laeuft_noch = r.is_recording();

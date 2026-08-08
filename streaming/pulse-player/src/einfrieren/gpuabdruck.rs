@@ -49,6 +49,7 @@
 //! Wert liefern. Wer eine der beiden Seiten aendert, aendert beide.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -139,6 +140,14 @@ const PLAETZE: usize = 16;
 #[derive(Default)]
 pub struct Briefkasten {
     schlange: Mutex<VecDeque<u64>>,
+    /// Der Renderer war da, hatte aber **keine Oberflaeche zum Zeichnen**.
+    ///
+    /// Das ist die Gegenauskunft zum ausbleibenden Abdruck: ohne sie sieht der
+    /// [`Zulauf`] ein verdecktes oder minimiertes Fenster genauso wie einen
+    /// wirklich toten Rueckweg (kein Abdruck, Bild um Bild) — und gibt den
+    /// schnellen Weg fuer den GANZEN Prozess auf. Gesetzt wird sie im
+    /// `render`-Durchgang, der an `acquire()` scheitert, verbraucht vom Zulauf.
+    ohne_oberflaeche: AtomicBool,
 }
 
 impl Briefkasten {
@@ -159,6 +168,25 @@ impl Briefkasten {
     pub fn nehmen(&self) -> Option<u64> {
         self.schlange.lock().ok()?.pop_front()
     }
+
+    /// Vom Renderer: dieser Durchgang fiel aus, weil `acquire()` keine
+    /// Oberflaechen-Textur hergab — verdecktes oder minimiertes Fenster,
+    /// Zeitueberschreitung, oder eine Oberflaeche, die gerade neu aufgesetzt
+    /// wird.
+    ///
+    /// **Der Renderer LEBT in diesem Fall** — er ist bis zum Anfordern der
+    /// Oberflaeche gekommen. Es fehlt nur das Ziel, in das er den Abdruck
+    /// rechnen wuerde (`render` steigt vor `abdruckwerk.aufzeichnen` aus).
+    pub fn ohne_oberflaeche_melden(&self) {
+        self.ohne_oberflaeche.store(true, Ordering::Relaxed);
+    }
+
+    /// Vom Zulauf: lag seit der letzten Frage so ein Durchgang dazwischen? Die
+    /// Meldung wird dabei **verbraucht** — sonst hielte ein einziger
+    /// Fensterwechsel die Aufsicht fuer immer still.
+    fn ausfall_nehmen(&self) -> bool {
+        self.ohne_oberflaeche.swap(false, Ordering::Relaxed)
+    }
 }
 
 /// Ab wie vielen unbeantworteten GPU-Bildern der Rueckweg als tot gilt.
@@ -175,12 +203,23 @@ const STUMME_DAUER: Duration = Duration::from_secs(5);
 /// Der Zulauf der GPU-Abdruecke auf der Decoder-Seite.
 ///
 /// **Er ist zur Haelfte eine Wache ueber die Wache.** Rechnet der Renderer die
-/// Abdruecke nicht (Pipeline liess sich nicht bauen, Bindung abgelehnt, das
-/// Fenster zeichnet gar nicht mehr), dann kaeme beim Einfrier-Waechter nie ein
-/// Bild an — er zaehlte nichts, meldete nichts, und der schnelle Weg liefe
-/// ungesichert. Genau der Zustand, den es hier zu vermeiden gilt. Deshalb
-/// zaehlt der Zulauf mit, wie viele GPU-Bilder ohne Antwort hinausgegangen
-/// sind, und sagt dem Aufrufer, wann er den Weg aufzugeben hat.
+/// Abdruecke nicht (Pipeline liess sich nicht bauen, Bindung abgelehnt), dann
+/// kaeme beim Einfrier-Waechter nie ein Bild an — er zaehlte nichts, meldete
+/// nichts, und der schnelle Weg liefe ungesichert. Genau der Zustand, den es
+/// hier zu vermeiden gilt. Deshalb zaehlt der Zulauf mit, wie viele GPU-Bilder
+/// ohne Antwort hinausgegangen sind, und sagt dem Aufrufer, wann er den Weg
+/// aufzugeben hat.
+///
+/// **Ein Fenster, das nicht zeichnet, ist dabei ausdruecklich NICHT gemeint.**
+/// Hier stand bis zum 2026-08-08 „das Fenster zeichnet gar nicht mehr" als
+/// dritter Grund in derselben Aufzaehlung — das ist falsch. Ein minimiertes
+/// oder laenger verdecktes Fenster liefert genau dasselbe Bild wie ein toter
+/// Rueckweg (kein Abdruck, Bild um Bild), ist aber ein voellig normaler
+/// Vorgang; nach fuenf Sekunden Minimierung galt der Weg fuer den **ganzen
+/// Prozess** als tot, samt aller sichtbaren Sitzungen, und ging nie wieder an
+/// (`zerocopy::abschalten` ist bleibend). Der Renderer meldet solche
+/// Durchgaenge deshalb ueber [`Briefkasten::ohne_oberflaeche_melden`], und die
+/// Zaehlung faengt dann von vorn an.
 pub struct Zulauf {
     kasten: Arc<Briefkasten>,
     /// GPU-Bilder seit dem letzten eingetroffenen Abdruck.
@@ -226,12 +265,19 @@ impl Zulauf {
     }
 
     fn einspeisen_zur_zeit(&mut self, wacht: &mut super::EinfrierWacht, jetzt: Instant) -> bool {
+        // **Unbedingt abholen, auch wenn schon Abdruecke da sind** — eine
+        // liegengebliebene Meldung wuerde sonst irgendwann einen echten
+        // Aussetzer verschlucken.
+        let ohne_oberflaeche = self.kasten.ausfall_nehmen();
         let mut gekommen = false;
         while let Some(abdruck) = self.kasten.nehmen() {
             wacht.bild_von_der_gpu(abdruck);
             gekommen = true;
         }
-        if gekommen {
+        // Kein Abdruck, weil der Renderer keine Oberflaeche hatte, ist kein
+        // toter Rueckweg (s. Kopf dieses Typs): Zaehler und Uhr fangen von
+        // vorn an, statt auf die Schwelle zuzulaufen.
+        if gekommen || ohne_oberflaeche {
             self.stumm = 0;
             return false;
         }
@@ -403,13 +449,14 @@ mod tests {
     /// (`src/decode.rs:1642-1644`) ein **prozessweites** `AtomicBool` ab, das
     /// nicht wieder angeht — samt aller anderen, sichtbaren Sitzungen.
     ///
-    /// `Zulauf` hat heute kein Sichtbarkeitssignal; nach der Behebung muss ein
-    /// gesetztes (`z.verdeckt(true)` o.ae.) diesen Test gruen machen. Die
-    /// Gegenprobe — sichtbares Fenster, ausbleibende Abdruecke, weiterhin
-    /// `true` — steht schon oben in `ein_stummer_rueckweg_wird_aufgegeben` und
-    /// muss gruen bleiben.
+    /// **Behoben:** hier stand „`Zulauf` hat heute kein Sichtbarkeitssignal" —
+    /// das gilt nicht mehr. Der Renderer meldet den ausgefallenen Durchgang
+    /// jetzt ueber den Briefkasten, den er ohnehin in der Hand hat
+    /// ([`Briefkasten::ohne_oberflaeche_melden`], gesetzt am `acquire`-Ausstieg
+    /// in `src/render/mod.rs`); der Test stellt genau das nach. Die Gegenprobe
+    /// — sichtbares Fenster, ausbleibende Abdruecke, weiterhin `true` — steht
+    /// oben in `ein_stummer_rueckweg_wird_aufgegeben` und muss gruen bleiben.
     #[test]
-    #[ignore = "Reproduktion Befund 11 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_11_verdecktes_fenster_gilt_als_toter_rueckweg() {
         let mut z = Zulauf::default();
         let mut w = super::super::EinfrierWacht::default();
@@ -421,6 +468,9 @@ mod tests {
         for i in 0..400u64 {
             let jetzt = start + Duration::from_millis(i * 16); // 400 Bilder in 6,4 s
             z.bild_hinaus_zur_zeit(jetzt);
+            // Was der Renderer in diesem Durchgang tut: er laeuft, bekommt aber
+            // keine Oberflaechen-Textur und steigt vor dem Abdruck aus.
+            z.kasten().ohne_oberflaeche_melden();
             if z.einspeisen_zur_zeit(&mut w, jetzt) && gemeldet_bei.is_none() {
                 gemeldet_bei = Some(i);
             }
@@ -433,6 +483,30 @@ mod tests {
             gemeldet_bei,
             gemeldet_bei.map(|i| Duration::from_millis(i * 16)),
         );
+    }
+
+    /// Die Gegenprobe zur Behebung von Befund 11: die Meldung „keine
+    /// Oberflaeche" darf die Aufsicht nur so lange stillhalten, wie sie kommt.
+    /// Wird das Fenster wieder sichtbar und der Rueckweg ist WIRKLICH tot, muss
+    /// das auffallen — sonst waere aus dem Fehlalarm ein blinder Fleck
+    /// geworden.
+    #[test]
+    fn nach_dem_verdecktsein_wird_ein_toter_rueckweg_wieder_bemerkt() {
+        let mut z = Zulauf::default();
+        let mut w = super::super::EinfrierWacht::default();
+        let start = Instant::now();
+        let mut gemeldet = false;
+        for i in 0..600u64 {
+            let jetzt = start + Duration::from_millis(i * 16);
+            z.bild_hinaus_zur_zeit(jetzt);
+            // Die ersten 3,2 s ist das Fenster verdeckt, danach zeichnet es
+            // wieder — liefert aber keinen Abdruck mehr.
+            if i < 200 {
+                z.kasten().ohne_oberflaeche_melden();
+            }
+            gemeldet |= z.einspeisen_zur_zeit(&mut w, jetzt);
+        }
+        assert!(gemeldet, "nach dem Wiederauftauchen muss ein stummer Rueckweg auffallen");
     }
 
     /// Eine kurze Pause im Zeichnen ist kein toter Rueckweg — sonst faellt der
