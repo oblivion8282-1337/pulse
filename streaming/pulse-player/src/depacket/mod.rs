@@ -235,7 +235,6 @@ mod tests {
     /// Erwartet nach der Behebung: der Aufruf kehrt zurueck und liefert `None`
     /// (Einheit verworfen), statt den Sitzungs-Task zu erschlagen.
     #[test]
-    #[ignore = "Reproduktion Befund 3 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_3_stapa_ueberzaehliges_byte() {
         let mut a = Assembler::for_codec(Codec::H264);
         // 0x18 = NAL-Typ 24 (STAP-A); Laengenfeld 0x0000, dann ein Fuellbyte.

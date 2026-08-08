@@ -1,0 +1,19 @@
+diff --git a/rtp/src/codecs/h264/mod.rs b/rtp/src/codecs/h264/mod.rs
+index 64e06f0..0f494ff 100644
+--- a/rtp/src/codecs/h264/mod.rs
++++ b/rtp/src/codecs/h264/mod.rs
+@@ -235,6 +235,14 @@ impl Depacketizer for H264Packet {
+             STAPA_NALU_TYPE => {
+                 let mut curr_offset = STAPA_HEADER_SIZE;
+                 while curr_offset < packet.len() {
++                    // The loop condition only guarantees ONE readable byte, but
++                    // the size prefix is two. A STAP-A packet with a single
++                    // trailing byte therefore made `packet[curr_offset + 1]`
++                    // panic with "index out of bounds" — reachable from any
++                    // remote sender, since this parses unvalidated RTP payload.
++                    if curr_offset + STAPA_NALU_LENGTH_SIZE > packet.len() {
++                        return Err(Error::ErrShortPacket);
++                    }
+                     let nalu_size =
+                         ((packet[curr_offset] as usize) << 8) | packet[curr_offset + 1] as usize;
+                     curr_offset += STAPA_NALU_LENGTH_SIZE;
