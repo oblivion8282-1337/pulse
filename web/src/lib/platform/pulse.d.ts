@@ -205,7 +205,7 @@ export interface HostPhaseEvent {
 
 /** Optionen für window.pulse.host.start(). */
 export interface HostStartOpts {
-  /** Electron userData-Pfad (app.getPath('userData')). Wird intern an LocalBackendManager gereicht. */
+  /** Electron userData-Pfad (app.getPath('userData')). Wird intern an den ContainerBackendManager gereicht. */
   userData?: string;
   [key: string]: unknown;
 }
