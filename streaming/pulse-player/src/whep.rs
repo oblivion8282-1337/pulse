@@ -45,6 +45,19 @@ const DEFAULT_STUN: &str = "stun:stun.l.google.com:19302";
 /// Obergrenze fuers ICE-Gathering, bevor der Offer trotzdem rausgeht.
 const ICE_GATHERING_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Groesster Antwortkoerper, den der WHEP-POST annimmt. Eine SDP-Answer ist
+/// wenige Kilobyte gross; 256 KiB lassen selbst fuer eine ungewoehnlich lange
+/// Kandidatenliste reichlich Luft.
+///
+/// **Warum das eine Grenze braucht.** Bis zum 2026-08-08 war der 15-s-Timeout
+/// des HTTP-Clients die einzige Schranke, und der Koerper wurde mit
+/// `res.text()` vollstaendig in den Speicher geholt, BEVOR ueberhaupt geprueft
+/// wurde, ob SDP drinsteht. Nachgemessen (Bughunt 4, Befund 22): ein Stub, der
+/// `Content-Length: 209715200` ankuendigt, wurde alle 200 MB los — in 1,17 s,
+/// also weit innerhalb des Timeouts. Ein boesartiger oder uebernommener
+/// WHEP-Endpunkt konnte damit jeden Zuschauer-Prozess beliebig aufblaehen.
+const MAX_ANSWER_BYTES: usize = 256 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Codec {
     H264,
@@ -682,7 +695,7 @@ async fn negotiate(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
-    let answer = res.text().await.context("Answer-Body")?;
+    let answer = lies_answer_begrenzt(res).await?;
     if !answer.contains("v=") {
         bail!("WHEP-Antwort war kein gueltiges SDP");
     }
@@ -692,6 +705,36 @@ async fn negotiate(
         .context("set_remote_description")?;
 
     Ok(location.and_then(|loc| resolve_resource_url(whep_url, &loc)))
+}
+
+/// Liest den Antwortkoerper des WHEP-POST **gestreamt** und bricht ab, sobald
+/// er `MAX_ANSWER_BYTES` ueberschreitet. Ein angekuendigtes `Content-Length`
+/// darueber wird gar nicht erst gelesen; fehlt der Kopf oder luegt er, faengt
+/// die laufende Zaehlung ueber die Stuecke es ab.
+///
+/// Der Abbruchgrund ist derselbe wie bei einer inhaltlich unbrauchbaren
+/// Antwort ("kein gueltiges SDP") — was diese Groesse hat, IST keine
+/// SDP-Answer mehr, und der Anrufer muss beide Faelle gleich behandeln.
+async fn lies_answer_begrenzt(mut res: reqwest::Response) -> Result<String> {
+    if res.content_length().is_some_and(|n| n > MAX_ANSWER_BYTES as u64) {
+        bail!(
+            "WHEP-Antwort war kein gueltiges SDP: angekuendigte {} Byte \
+             ueberschreiten die Obergrenze von {MAX_ANSWER_BYTES} Byte",
+            res.content_length().unwrap_or(0)
+        );
+    }
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(stueck) = res.chunk().await.context("Answer-Body")? {
+        if body.len() + stueck.len() > MAX_ANSWER_BYTES {
+            bail!(
+                "WHEP-Antwort war kein gueltiges SDP: laenger als die \
+                 Obergrenze von {MAX_ANSWER_BYTES} Byte"
+            );
+        }
+        body.extend_from_slice(&stueck);
+    }
+    String::from_utf8(body)
+        .map_err(|_| anyhow!("WHEP-Antwort war kein gueltiges SDP: kein UTF-8"))
 }
 
 /// Nur gleiche Herkunft folgen — verhindert, dass ein manipulierter
@@ -840,16 +883,21 @@ mod tests {
     }
 
     /// Ein WHEP-Endpunkt antwortet mit HTTP 200 und kuendigt 200 MB Body an.
-    /// Der Client liest ihn mit `res.text()` vollstaendig in einen `String`,
-    /// BEVOR er prueft, ob ueberhaupt SDP drinsteht — es gibt keine
-    /// Groessenbegrenzung, nur den 15-s-Zeit-Timeout.
+    ///
+    /// Hier stand bis zur Behebung: "Der Client liest ihn mit `res.text()`
+    /// vollstaendig in einen `String`, BEVOR er prueft, ob ueberhaupt SDP
+    /// drinsteht — es gibt keine Groessenbegrenzung, nur den 15-s-Zeit-Timeout
+    /// ... Heute nimmt der Client alle 200 MB an." Das war der Befund 22 und
+    /// gilt nicht mehr: `lies_answer_begrenzt` weist ein `Content-Length`
+    /// ueber `MAX_ANSWER_BYTES` ab, ohne den Koerper zu lesen, und zaehlt
+    /// beim gestreamten Lesen mit, falls der Kopf fehlt oder luegt.
     ///
     /// Gemessen wird nicht der Speicher (schlecht beobachtbar), sondern was
     /// die Gegenstelle loswerden konnte: mit einer Obergrenze bricht der
-    /// Client nach wenigen KB ab, der Stub kommt dann ueber ~1 MB nicht
-    /// hinaus. Heute nimmt der Client alle 200 MB an.
+    /// Client sofort ab, und der Stub bringt nur noch das los, was die
+    /// Socket-Puffer schon geschluckt hatten (gemessen 0,5-0,7 MB) statt der
+    /// vollen 200 MB.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "Reproduktion Befund 22 — schlaegt bis zur Behebung absichtlich fehl"]
     async fn repro_22_whep_antwort_ohne_groessengrenze() {
         use std::io::{Read, Write};
         use std::sync::atomic::{AtomicU64, Ordering};

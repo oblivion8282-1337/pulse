@@ -494,7 +494,6 @@ mod tests {
     /// BT.709-Entsprechung ausserhalb des Wuerfels liegt und der SDR-Zweig sie
     /// auf genau dasselbe Gruen zurueckschneidet.
     #[test]
-    #[ignore = "Reproduktion Befund 19 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_19_bt2020_sdr_bleibt_unkonvertiert() {
         // Gesaettigtes Gruen, aber nicht die Primaervalenz — so bleibt die
         // BT.709-Entsprechung in zwei von drei Kanaelen darstellbar.
@@ -569,7 +568,6 @@ mod tests {
     /// bereits gamma-kodiert und werden ein zweites Mal kodiert. Beide Ziele
     /// muessten dieselbe Helligkeitskurve zurueckgeben.
     #[test]
-    #[ignore = "Reproduktion Befund 29 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_29_srgb_ziel_wird_doppelt_kodiert() {
         // Neutraler Keil: Chroma auf der Mitte, Luma von Schwarz bis Weiss.
         let stufen: Vec<[u16; 3]> =

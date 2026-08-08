@@ -10,6 +10,8 @@
 
 use std::path::Path;
 
+use bytes::Bytes;
+
 use crate::audio::AudioOutput;
 use crate::proto::PlayerOptions;
 use crate::recorder::Recorder;
@@ -82,10 +84,15 @@ impl MediaSink {
     }
 
     /// Nimmt eine fertige Zugriffseinheit entgegen.
-    pub fn handle_unit(&mut self, codec: Codec, data: &[u8], ts_ms: i64) {
-        self.recorder.push(codec, data, ts_ms);
+    ///
+    /// Bewusst [`Bytes`] statt `&[u8]`: der Ringpuffer im Rekorder haelt die
+    /// Einheit 60 Sekunden fest. Ueber ein Slice muesste er sie dafuer
+    /// kopieren; referenzgezaehlt teilt er sich den Speicher mit dem
+    /// Depacketizer, aus dem sie ohnehin schon als `Bytes` kommt.
+    pub fn handle_unit(&mut self, codec: Codec, data: Bytes, ts_ms: i64) {
+        self.recorder.push(codec, data.clone(), ts_ms);
         if codec == Codec::Opus {
-            self.play_audio(data);
+            self.play_audio(&data);
         }
     }
 
@@ -205,7 +212,7 @@ mod tests {
     fn nullgroesse_wird_nicht_als_bekannt_uebernommen() {
         let mut m = MediaSink::new();
         m.note_dimensions(0, 0);
-        m.handle_unit(Codec::H264, &[0, 0, 1, 0x65, 0x11], 0);
+        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0);
         assert!(
             m.start_recording(&crate::ablage::temp_str("pulse-player-nullgroesse.mkv")).is_err(),
             "ohne echte Bildgroesse darf keine Aufnahme starten"
@@ -216,7 +223,7 @@ mod tests {
     fn video_einheiten_landen_im_ring_ohne_ton_anzufassen() {
         let mut m = MediaSink::new();
         m.note_dimensions(1280, 720);
-        m.handle_unit(Codec::H264, &[0, 0, 1, 0x65, 0x11], 0);
+        m.handle_unit(Codec::H264, Bytes::from_static(&[0, 0, 1, 0x65, 0x11]), 0);
         let s = m.stats();
         assert!(!s.audio_active, "Video darf keine Tonausgabe oeffnen");
         assert!(!s.recording);

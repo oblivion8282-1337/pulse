@@ -380,7 +380,19 @@ impl Renderer {
         self.queue.write_buffer(&self.uniform_buf, 0, &uniforms.as_bytes());
 
         let acq_uhr = std::time::Instant::now();
-        let Some(surface_texture) = self.acquire()? else { return Ok(()) };
+        let Some(surface_texture) = self.acquire()? else {
+            // Kein Ziel zum Zeichnen (verdeckt, minimiert, Zeitueberschreitung,
+            // Oberflaeche wird neu aufgesetzt) — also auch kein Abdruck, denn
+            // der entsteht erst weiter unten im Kommandopuffer dieses
+            // Durchgangs. Dem Zulauf auf der Decoder-Seite sieht das genauso
+            // aus wie ein toter Rueckweg; ohne diese Meldung gaebe er nach
+            // fuenf Sekunden Minimierung den Zero-Copy-Weg **prozessweit und
+            // dauerhaft** auf (Befund 11 vom 2026-08-08).
+            if let Some((_, _, kasten)) = &abdruck_auftrag {
+                kasten.ohne_oberflaeche_melden();
+            }
+            return Ok(());
+        };
         {
             let us = acq_uhr.elapsed().as_micros() as u64;
             use crate::app::diagnose as dg;

@@ -59,13 +59,23 @@ const RING_KAPP_FAKTOR: usize = 3;
 /// aendert, misst nach.
 const RING_KAPP_SPERRE: Duration = Duration::from_secs(5);
 
-/// Feinabbau: ein Sample je so vielen angehaengten.
+/// Feinabbau: ein FRAME je so vielen angehaengten Samples.
 ///
-/// 1 von 2000 sind 0,05 % Tonhoehenfehler — unter der Wahrnehmungsschwelle und
-/// baut 40 ms in gut einer Minute ab. Resampling waere die Alternative und
-/// scheidet aus: der Weg hat schon einen Resampler, und ihn laufend zu
-/// verstimmen zieht hoerbar die Tonhoehe. Fuer die gemessene Groessenordnung
-/// (Sekunden) waere es entweder unhoerbar langsam oder hoerbar falsch.
+/// **Hier stand bis 2026-08-08 "ein Sample je so vielen angehaengten" — das war
+/// die Beschreibung eines Fehlers**, nicht der Absicht: der Ring haelt
+/// verschraenktes PCM, ein einzeln entferntes Sample kippt die Kanalzuordnung
+/// (s. [`Ringregelung::nach_anhaengen`]). Entfernt wird jetzt immer ein volles
+/// Frame.
+///
+/// Ebenso widerlegt: die frueher hier genannten "0,05 % Tonhoehenfehler … baut
+/// 40 ms in gut einer Minute ab". Ein Frame je 2000 angehaengter Samples sind
+/// bei Stereo 0,1 % und damit 40 ms in gut 40 Sekunden — der Abbau ist doppelt
+/// so schnell wie beschrieben. Er bleibt weit unter der Wahrnehmungsschwelle,
+/// und schneller abzubauen ist hier die richtige Richtung; die Zahl gehoert nur
+/// richtig dagestanden. Resampling waere die Alternative und scheidet aus: der
+/// Weg hat schon einen Resampler, und ihn laufend zu verstimmen zieht hoerbar
+/// die Tonhoehe. Fuer die gemessene Groessenordnung (Sekunden) waere es
+/// entweder unhoerbar langsam oder hoerbar falsch.
 const RING_FEIN_TEILER: usize = 2000;
 
 /// Zustand der Regelung. Liegt in `Shared` und wird nur vom Fuetter-Thread
@@ -88,11 +98,22 @@ pub(super) struct Ringregelung {
 impl Ringregelung {
     /// Nach dem Anhaengen frischer Samples anwenden. Gibt zurueck, wie viele
     /// Samples dabei verworfen wurden (fuer den `dropped`-Zaehler).
+    ///
+    /// `kanaele` = Kanalzahl des Ausgabegeraets, als Parameter wie `soll` und
+    /// nicht als Feld, damit die Regelung keinen zweiten Stand der
+    /// Geraetedaten haelt. Der Ring enthaelt **verschraenktes** PCM, das
+    /// `fill_output` unveraendert in den Geraetepuffer kopiert — jeder Abbau
+    /// muss deshalb ein ganzes Frame entfernen. Ein einzelnes `pop_front()`
+    /// (so stand es bis 2026-08-08 im Feinzweig) kippt die Paritaet: aus
+    /// L,R,L,R wird R,L,R,L, und der naechste Feinschritt kippt sie wieder
+    /// zurueck — ein Umkippen der Kanalzuordnung im Pakettakt, das kein Zaehler
+    /// anzeigt.
     pub(super) fn nach_anhaengen(
         &mut self,
         ring: &mut VecDeque<f32>,
         soll: usize,
         angehaengt: usize,
+        kanaele: usize,
     ) -> u64 {
         if soll == 0 {
             return 0;
@@ -109,14 +130,18 @@ impl Ringregelung {
             return excess as u64;
         }
         if ring.len() > soll {
-            // Fein: ein Sample je `RING_FEIN_TEILER` angehaengten. Baut den Rest
-            // stetig ab, ohne dass man es hoert.
+            // Fein: ein ganzes Frame je `RING_FEIN_TEILER` angehaengten
+            // Samples. Baut den Rest stetig ab, ohne dass man es hoert.
+            // Ein einzelnes Sample waere hier falsch — s. den Kanal-Absatz an
+            // dieser Funktion.
+            let frame = kanaele.max(1);
             self.fein_zaehler += angehaengt;
             let mut verworfen = 0;
             while self.fein_zaehler >= RING_FEIN_TEILER && ring.len() > soll {
                 self.fein_zaehler -= RING_FEIN_TEILER;
-                ring.pop_front();
-                verworfen += 1;
+                let n = frame.min(ring.len());
+                ring.drain(..n);
+                verworfen += n as u64;
             }
             return verworfen;
         }
@@ -145,7 +170,6 @@ mod tests {
     /// aus L,R,L,R wird R,L,R,L. Richtig waere, immer ein volles Frame zu
     /// entfernen (`drain(..channels)`).
     #[test]
-    #[ignore = "Reproduktion Befund 10 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_10_feinabbau_kippt_die_kanalzuordnung() {
         // 48 kHz Stereo, Sollwert wie zur Laufzeit: 60 ms * 96 Samples/ms.
         let soll = RING_SOLL_MS * 96;
@@ -154,8 +178,12 @@ mod tests {
         assert_eq!(ring[0], 1.0, "Vorbedingung: der Ring beginnt auf dem linken Kanal");
 
         // Genau ein Feinabbau-Schritt: `RING_FEIN_TEILER` angehaengte Samples.
-        let verworfen = r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
-        assert_eq!(verworfen, 1, "Vorbedingung: der Feinzweig hat gegriffen");
+        let verworfen = r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
+        // Der Rueckgabewert zaehlt SAMPLES (so wie im Grobzweig und wie
+        // `AudioCounters::dropped` es fuehrt), nicht Frames — ein Stereo-Frame
+        // sind also 2. Hier stand in der Reproduktion `1`; das war der Stand
+        // des Fehlers (ein einzelnes `pop_front()`), nicht die Sollgroesse.
+        assert_eq!(verworfen, 2, "Vorbedingung: der Feinzweig hat gegriffen");
 
         assert_eq!(
             ring[0], 1.0,
@@ -174,15 +202,14 @@ mod tests {
     /// Tausch, sondern ein wiederholtes Umkippen im Opus-Pakettakt. Der zweite
     /// Feinabbau-Schritt dreht die Zuordnung zurueck.
     #[test]
-    #[ignore = "Reproduktion Befund 10 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_10_feinabbau_kippt_die_kanalzuordnung_wieder_zurueck() {
         let soll = RING_SOLL_MS * 96;
         let mut ring = stereo_ring(soll + 2);
         let mut r = Ringregelung::default();
 
-        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
+        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
         let nach_eins = ring[0];
-        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER);
+        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
         let nach_zwei = ring[0];
 
         assert_eq!(

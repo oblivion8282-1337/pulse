@@ -19,7 +19,7 @@
 //! Reine Pruefbetriebsart: sie repariert nichts und veraendert den
 //! Empfangsweg nicht.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -39,7 +39,17 @@ struct Pruefstand {
     /// Wie lange die Paritaet dem LETZTEN Paket ihrer Gruppe nachlaeuft, in
     /// Mikrosekunden. Das ist die Groesse, die entscheidet, ob eine Reparatur
     /// den Jitter-Puffer noch rechtzeitig erreicht.
-    nachlauf_us: Vec<u64>,
+    ///
+    /// **Auf [`VORRAT`] gedeckelt, aeltestes vorn.** Bis zum 2026-08-08 war das
+    /// ein `Vec`, das bei jedem verwertbaren Paritaetspaket wuchs und nie
+    /// verkleinert wurde — anders als das direkt daneben liegende `medien`.
+    /// `PRUEFSTAND` lebt als prozessweiter `OnceLock` ueber beliebig viele
+    /// Sitzungen, das Feld wuchs also monoton ueber die ganze Laufzeit, und
+    /// `nachlauf_melden()` klonte und sortierte es alle [`MELDEABSTAND`]
+    /// Gruppen mit. Gemessen wird seither das gleitende Fenster der letzten
+    /// `VORRAT` Gruppen — fuer die Frage „ist die Paritaet rechtzeitig da"
+    /// ohnehin die aussagekraeftigere Menge als der Durchschnitt seit Start.
+    nachlauf_us: VecDeque<u64>,
     /// Der KLEINSTE Abstand zwischen zwei geschuetzten Sequenznummern je
     /// Gruppe. Diese Zahl allein entscheidet, was ein Buendelverlust anrichtet:
     /// XOR loest genau eine Unbekannte je Gruppe, also ist ein Buendel dieser
@@ -62,7 +72,7 @@ fn pruefstand() -> &'static Mutex<Pruefstand> {
     PRUEFSTAND.get_or_init(|| {
         Mutex::new(Pruefstand {
             medien: BTreeMap::new(),
-            nachlauf_us: Vec::new(),
+            nachlauf_us: VecDeque::new(),
             mindestabstand: BTreeMap::new(),
             gruppen_geprueft: 0,
             pakete_gleich: 0,
@@ -142,7 +152,10 @@ pub fn paritaetspaket(nutzlast: &[u8]) {
         .filter_map(|s| p.medien.get(s).map(|(_, t)| *t))
         .max()
     {
-        p.nachlauf_us.push(jetzt.duration_since(spaeteste).as_micros() as u64);
+        p.nachlauf_us.push_back(jetzt.duration_since(spaeteste).as_micros() as u64);
+        while p.nachlauf_us.len() > VORRAT {
+            p.nachlauf_us.pop_front();
+        }
     }
 
     let mut gleich = 0u64;
@@ -257,13 +270,13 @@ fn nachlauf_melden(p: &Pruefstand) {
     if p.nachlauf_us.is_empty() {
         return;
     }
-    let mut werte = p.nachlauf_us.clone();
+    let mut werte: Vec<u64> = p.nachlauf_us.iter().copied().collect();
     werte.sort_unstable();
     let bei = |anteil: f64| werte[((werte.len() - 1) as f64 * anteil) as usize] as f64 / 1000.0;
     eprintln!(
         "pulse-player: NACHLAUF der Paritaet (ms nach dem letzten geschuetzten \
          Paket): Median {:.1}, 90 % unter {:.1}, 99 % unter {:.1}, Maximum {:.1} \
-         — aus {} Gruppen",
+         — aus den letzten {} Gruppen",
         bei(0.5),
         bei(0.9),
         bei(0.99),
@@ -280,7 +293,8 @@ mod tests {
     /// **Reproduktion Befund 31 — `nachlauf_us` waechst unbegrenzt.**
     ///
     /// `Pruefstand::medien` ist auf [`VORRAT`] gedeckelt, das direkt daneben
-    /// liegende `nachlauf_us` nicht: bei JEDEM verwertbaren Paritaetspaket
+    /// liegende `nachlauf_us` war es bis zum 2026-08-08 nicht: bei JEDEM
+    /// verwertbaren Paritaetspaket
     /// kommt ein Eintrag dazu, entfernt wird nie einer. `PRUEFSTAND` ist ein
     /// prozessweiter `OnceLock<Mutex<…>>` und lebt ueber die ganze Laufzeit,
     /// also ueber beliebig viele Sitzungen hinweg.
@@ -290,7 +304,6 @@ mod tests {
     /// Erwartet nach der Behebung: gedeckelt wie `medien`, also
     /// `nachlauf_us.len() <= VORRAT`.
     #[test]
-    #[ignore = "Reproduktion Befund 31 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_31_nachlauf_waechst_unbegrenzt() {
         const SSRC: u32 = 0xDEAD_BEEF;
         const GRUPPEN: u16 = 2000;

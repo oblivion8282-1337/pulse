@@ -77,23 +77,44 @@ fn write_leb128(out: &mut BytesMut, mut value: u32) {
 /// Setzt einen vollstaendigen, aus RTP stammenden OBU in die Form um, die ein
 /// Decoder erwartet: Header, optionales Extension-Byte, LEB128-Groesse, Nutzlast.
 /// Traegt der OBU bereits ein Groessenfeld, wird er unveraendert uebernommen.
-fn append_obu_with_size(out: &mut BytesMut, obu: &[u8]) {
-    let Some(&header) = obu.first() else { return };
+///
+/// Liefert `false`, wenn das Element in sich widerspruechlich ist und die
+/// Einheit deshalb zu verwerfen ist.
+fn append_obu_with_size(out: &mut BytesMut, obu: &[u8]) -> bool {
+    let Some(&header) = obu.first() else { return true };
 
     // Temporal Delimiter tragen keine Nutzlast und werden ueber RTP ohnehin
     // weggelassen; ein durchgereichter waere harmlos, aber unnoetig.
     if (header & OBU_TYPE_MASK) >> 3 == OBU_TYPE_TEMPORAL_DELIMITER {
-        return;
-    }
-
-    if header & OBU_HAS_SIZE_BIT != 0 {
-        out.put_slice(obu);
-        return;
+        return true;
     }
 
     let header_len = if header & OBU_HAS_EXTENSION_BIT != 0 { 2 } else { 1 };
+
+    if header & OBU_HAS_SIZE_BIT != 0 {
+        // Bis 2026-08-08 wurde hier bedingungslos `put_slice(obu)` gemacht:
+        // "traegt schon ein Groessenfeld, also unveraendert uebernehmen". Das
+        // war zu gutglaeubig — verbindlich ist die RTP-Elementlaenge, und der
+        // AV1-RTP-Spezifikation nach MUSS `obu_size` genau dazu passen. Ein
+        // fremder Sender bestimmte sonst frei, wo nachgelagerte Parser
+        // OBU-Grenzen sehen: mit `obu_size = 1` in einem 400-Byte-Element
+        // meldete `recorder::is_keyframe` einen Einstiegspunkt, den es nicht
+        // gibt.
+        let Some((size, n)) = obu.get(header_len..).and_then(read_leb128) else {
+            return false;
+        };
+        if header_len + n + size as usize != obu.len() {
+            return false;
+        }
+        out.put_slice(obu);
+        return true;
+    }
+
     if obu.len() < header_len {
-        return; // abgeschnitten, unbrauchbar
+        // Abgeschnitten, unbrauchbar. Bleibt wie gehabt ein stilles
+        // Weglassen — der Fall gehoert zum Fragment-Zustand, nicht zum
+        // mitgelieferten Groessenfeld.
+        return true;
     }
     let payload = &obu[header_len..];
 
@@ -103,6 +124,7 @@ fn append_obu_with_size(out: &mut BytesMut, obu: &[u8]) {
     }
     write_leb128(out, payload.len() as u32);
     out.put_slice(payload);
+    true
 }
 
 /// Setzt AV1-Zugriffseinheiten aus RTP-Paketen zusammen.
@@ -205,7 +227,15 @@ impl Av1Assembler {
             return None;
         }
 
-        // Marker = Ende der Zugriffseinheit.
+        // Marker = Ende der Zugriffseinheit. Sagt dasselbe Paket ueber `Y`
+        // zugleich "der letzte OBU wird fortgesetzt", widerspricht es sich
+        // selbst: der Flush unten schriebe die Bruchstuecklaenge als LEB128
+        // und behauptete damit, das halbe Fragment sei ein vollstaendiger OBU.
+        // Ueberall sonst antwortet der Zusammensetzer auf eine Inkonsistenz
+        // mit `poisoned`; dieser Widerspruch rutschte bis 2026-08-08 durch.
+        if self.expect_continuation {
+            self.poisoned = true;
+        }
         self.flush_partial();
         self.expect_continuation = false;
         let poisoned = std::mem::take(&mut self.poisoned);
@@ -218,7 +248,9 @@ impl Av1Assembler {
             return;
         }
         let obu = self.partial.split();
-        append_obu_with_size(&mut self.unit, &obu);
+        if !append_obu_with_size(&mut self.unit, &obu) {
+            self.poisoned = true;
+        }
     }
 }
 
@@ -469,7 +501,6 @@ mod tests {
     /// Bruchstuecklaenge als LEB128 und behauptet damit, das halbe Fragment
     /// sei ein vollstaendiger OBU. `poisoned` bleibt ungesetzt.
     #[test]
-    #[ignore = "Reproduktion Befund 14 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_14_marker_mit_y_liefert_bruchstueck_aus() {
         let mut a = Av1Assembler::new();
         let header = 6u8 << 3; // OBU_FRAME, kein Groessenfeld
@@ -496,7 +527,6 @@ mod tests {
     /// halten. Ein fremder Sender bestimmt damit frei, wo nachgelagerte
     /// Parser OBU-Grenzen sehen.
     #[test]
-    #[ignore = "Reproduktion Befund 28 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_28_gelogenes_obu_size_wird_durchgereicht() {
         let mut a = Av1Assembler::new();
         let header = (6u8 << 3) | OBU_HAS_SIZE_BIT; // OBU_FRAME mit Groessenfeld

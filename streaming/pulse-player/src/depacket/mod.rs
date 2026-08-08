@@ -20,14 +20,49 @@ use crate::whep::Codec;
 /// gilt dasselbe fuer H.264. Ohne die Grenze laesst ein Sender, der nie ein
 /// Marker-Bit setzt, den Speicher volllaufen — die Einheit wird ja nur beim
 /// Marker freigegeben.
+///
+/// Gilt fuer `unit` **und** die noch nicht herausgegebenen FU-A-Bruchstuecke
+/// zusammen (`fua_bytes`, s. dort). Hier stand bis 2026-08-08 nur der erste
+/// Halbsatz, und gemessen wurde auch nur `unit.len()` — das war falsch: der
+/// AV1-Deckel prueft `unit + partial`, das H.264-Gegenstueck zu `partial` liegt
+/// aber als `fua_buffer` IM `H264Packet` und wurde von dieser Grenze gar nicht
+/// gesehen (20 966 198 Byte angehaeuft bei durchgehend `unit.len() == 0`).
 const MAX_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// Codec-abhaengiger Teil des Zusammensetzens.
 enum Kind {
     Av1(av1::Av1Assembler),
-    H264 { depacketizer: Box<H264Packet>, unit: BytesMut, dropped: bool },
+    H264 {
+        depacketizer: Box<H264Packet>,
+        unit: BytesMut,
+        dropped: bool,
+        /// Mitzaehlung dessen, was im `fua_buffer` des Depacketizers liegt —
+        /// das Feld selbst ist `pub(crate)` im `rtp`-Crate und von aussen
+        /// weder lesbar noch leerbar. Spiegelt dessen Regeln exakt: jedes
+        /// FU-A-Paket haengt `payload.len() - 2` an, das E-Bit gibt den Puffer
+        /// heraus (und damit auf 0).
+        fua_bytes: usize,
+    },
     /// Opus: ein RTP-Paket ist genau ein Frame, nichts zusammenzusetzen.
     Opus,
+}
+
+/// NAL-Typ 28 = FU-A (fragmentierte NAL-Einheit), RFC 6184 §5.8.
+const FUA_NALU_TYPE: u8 = 28;
+/// Groesse von FU-Indikator + FU-Kopf; alles danach ist Fragment-Nutzlast.
+const FUA_HEADER_SIZE: usize = 2;
+/// E-Bit im FU-Kopf: letztes Fragment, der Depacketizer gibt die NAL heraus.
+const FU_END_BITMASK: u8 = 0x40;
+
+/// Setzt den H.264-Depacketizer in den Anfangszustand zurueck — der einzige
+/// Weg, seinen privaten `fua_buffer` zu leeren.
+fn h264_reset(depacketizer: &mut H264Packet, fua_bytes: &mut usize) {
+    // `fua_buffer` ist privat, ein Struct-Update-Ausdruck geht deshalb nicht;
+    // die einzige oeffentliche Einstellung wird von Hand herueber gerettet.
+    let is_avc = depacketizer.is_avc;
+    *depacketizer = H264Packet::default();
+    depacketizer.is_avc = is_avc;
+    *fua_bytes = 0;
 }
 
 /// Zusammensetzer fuer genau einen Track.
@@ -58,6 +93,7 @@ impl Assembler {
                 depacketizer: Box::new(H264Packet::default()),
                 unit: BytesMut::new(),
                 dropped: false,
+                fua_bytes: 0,
             },
             Codec::Opus => Kind::Opus,
         };
@@ -69,7 +105,8 @@ impl Assembler {
     #[cfg(test)]
     pub fn buffered_len(&self) -> usize {
         match &self.kind {
-            Kind::H264 { unit, .. } => unit.len(),
+            // Mit den FU-A-Bruchstuecken: genau das, was der Deckel misst.
+            Kind::H264 { unit, fua_bytes, .. } => unit.len() + fua_bytes,
             _ => 0,
         }
     }
@@ -77,11 +114,19 @@ impl Assembler {
     /// Meldet eine Luecke im Paketstrom (der Jitter-Puffer hat aufgegeben).
     /// Angefangene Einheiten werden verworfen — ein halber Frame ergibt keinen
     /// gueltigen Bitstrom.
+    ///
+    /// Dazu gehoert der Zustand **im** Depacketizer: das `H264Packet` haelt in
+    /// seinem `fua_buffer` die bisher eingesammelten FU-A-Bruchstuecke und
+    /// leert ihn ausschliesslich beim E-Bit. Ohne den Neuaufbau hier ueberlebte
+    /// ein abgebrochenes Fragment die Luecke und wurde vor die naechste FU-A-NAL
+    /// geklebt — die galt dann als sauber (ein Marker-Paket dazwischen setzt
+    /// `dropped` zurueck), und der Decoder stieg auf einer verfaelschten IDR ein.
     pub fn on_gap(&mut self) {
         match &mut self.kind {
             Kind::Av1(a) => a.on_gap(),
-            Kind::H264 { unit, dropped, .. } => {
+            Kind::H264 { depacketizer, unit, dropped, fua_bytes } => {
                 unit.clear();
+                h264_reset(depacketizer, fua_bytes);
                 *dropped = true;
             }
             Kind::Opus => {}
@@ -106,17 +151,49 @@ impl Assembler {
 
         match &mut self.kind {
             Kind::Av1(a) => a.push(payload, marker),
-            Kind::H264 { depacketizer, unit, dropped } => {
+            Kind::H264 { depacketizer, unit, dropped, fua_bytes } => {
                 match depacketizer.depacketize(payload) {
                     // Der H264-Depacketizer liefert bereits Annex-B mit
                     // Startcodes; anhaengen reicht.
-                    Ok(nal) => unit.extend_from_slice(&nal),
-                    Err(_) => *dropped = true,
+                    Ok(nal) => {
+                        // Buchfuehrung ueber den fremden `fua_buffer`: nur ein
+                        // angenommenes FU-A-Paket hat ihn veraendert (bei einem
+                        // `Err` bleibt er unberuehrt), und `payload.len() > 2`
+                        // ist dann vom Depacketizer schon geprueft.
+                        if payload[0] & 0x1F == FUA_NALU_TYPE {
+                            if payload[1] & FU_END_BITMASK != 0 {
+                                *fua_bytes = 0;
+                            } else {
+                                *fua_bytes += payload.len() - FUA_HEADER_SIZE;
+                            }
+                        }
+                        unit.extend_from_slice(&nal);
+                    }
+                    // Verworfenes Paket: der Depacketizer-Zustand gehoert mit
+                    // weg. Hier stand bis 2026-08-08 nur `*dropped = true` —
+                    // das war ein DRITTER Weg zu genau dem Bildmuell aus
+                    // Befund 5, und einer, den die Gegenstelle allein waehlen
+                    // kann: FU-A-Anfang ohne Ende, dann ein Paket mit einem
+                    // unbehandelten NAL-Typ (0x7D = FU-B, ebenso Typ 0/30/31
+                    // oder eine auf zwei Byte gekuerzte FU-A). Das gibt `Err`,
+                    // setzt `dropped` — aber `on_gap` ruft niemand, denn die
+                    // Sequenznummern sind lueckenlos. Ein einzelnes NAL mit
+                    // Marker verzehrt danach `dropped`, und die naechste,
+                    // voellig saubere FU-A-IDR kommt mit den Resten davor
+                    // heraus und gilt als heil — `decode.rs` hebt darauf sein
+                    // `awaiting_keyframe` auf und steigt auf einer
+                    // verfaelschten IDR ein.
+                    Err(_) => {
+                        h264_reset(depacketizer, fua_bytes);
+                        *dropped = true;
+                    }
                 }
-                if unit.len() > MAX_ACCESS_UNIT_BYTES {
+                if unit.len() + *fua_bytes > MAX_ACCESS_UNIT_BYTES {
                     // Der Marker ist offenbar verlorengegangen. Verwerfen ist
-                    // besser als weiterwachsen.
+                    // besser als weiterwachsen — samt der Bruchstuecke im
+                    // Depacketizer, die sonst spaeter doch noch herauskaemen.
                     unit.clear();
+                    h264_reset(depacketizer, fua_bytes);
                     *dropped = true;
                 }
                 if !marker {
@@ -254,7 +331,6 @@ mod tests {
     /// die danach folgende, lueckenlose FU-A-NAL uebernimmt dann die alten
     /// Fragmentreste und gilt trotzdem als sauber.
     #[test]
-    #[ignore = "Reproduktion Befund 5 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_5_gap_laesst_fua_reste_stehen() {
         let mut a = Assembler::for_codec(Codec::H264);
         let mut seq = folge(1);
@@ -287,13 +363,74 @@ mod tests {
     /// Gegenstueck zu AV1s `partial` liegt hier als `fua_buffer` im
     /// `H264Packet` und wird erst beim E-Bit herausgegeben — bis dahin
     /// liefert `depacketize` ein leeres `Ok` und `unit` bleibt 0.
+    ///
+    /// Ein verworfenes Paket muss den Depacketizer-Zustand mitnehmen.
+    ///
+    /// Der dritte Weg zu dem Bildmuell aus Befund 5, gefunden von der
+    /// Gegenprobe zu dessen Behebung: er kommt ohne jede Luecke aus, die
+    /// Sequenznummern sind durchgehend, `on_gap` ruft also niemand. Es genuegt
+    /// ein Paket mit einem NAL-Typ, den der Depacketizer nicht behandelt.
     #[test]
-    #[ignore = "Reproduktion Befund 13 — schlaegt bis zur Behebung absichtlich fehl"]
+    fn verworfenes_paket_leert_die_fua_reste() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        let mut seq = folge(1);
+
+        // FU-A-Anfang mit Muell-Fuellung, kein E-Bit.
+        let mut anfang = vec![0x7C, 0x85];
+        anfang.extend(std::iter::repeat_n(0xAAu8, 40));
+        assert!(a.push(seq(), &Bytes::from(anfang), false).is_none());
+
+        // NAL-Typ 29 (FU-B) — der Depacketizer behandelt ihn nicht und gibt
+        // `Err`. KEINE Luecke: die Sequenznummer ist die naechste.
+        assert!(a.push(seq(), &Bytes::from_static(&[0x7D, 0x85, 0x00]), false).is_none());
+
+        // Einzelnes NAL mit Marker: verzehrt `dropped`, reine Weste danach.
+        assert!(a.push(seq(), &Bytes::from_static(&[0x41, 0x11, 0x22]), true).is_none());
+
+        // Eine vollstaendige, saubere FU-A-IDR mit anderem Fuellbyte.
+        let mut neu_anfang = vec![0x7C, 0x85];
+        neu_anfang.extend(std::iter::repeat_n(0xBBu8, 8));
+        assert!(a.push(seq(), &Bytes::from(neu_anfang), false).is_none());
+        let mut neu_ende = vec![0x7C, 0x45];
+        neu_ende.extend(std::iter::repeat_n(0xBBu8, 8));
+        let einheit = a
+            .push(seq(), &Bytes::from(neu_ende), true)
+            .expect("die saubere FU-A muss herauskommen");
+
+        assert!(
+            !einheit.contains(&0xAA),
+            "die Reste des verworfenen Fragments kleben vor der neuen IDR: {einheit:02x?}"
+        );
+    }
+
+    /// **Zwei Entwuerfe dieses Tests waren wertlos, beide aus demselben Grund**
+    /// — sie massen, was der Assembler NICHT liefert, und das tut er in beiden
+    /// Fassungen nicht:
+    ///
+    /// 1. Der erste haeufte 17 500 Fortsetzungen an (20 MB, unter dem 32-MB-
+    ///    Deckel) und forderte `geliefert <= 4800`. Unerfuellbar: eine Einheit
+    ///    unter dem Deckel DARF herauskommen, auch nach der Behebung.
+    /// 2. Der zweite ueberschritt den Deckel und forderte dasselbe. Er bestand
+    ///    dann in BEIDEN Fassungen — nachgemessen am 2026-08-08, indem der
+    ///    Deckel auf `unit.len()` zurueckgedreht wurde: ohne Behebung
+    ///    materialisiert das E-Bit die ganze Riesen-NAL auf einmal in `unit`,
+    ///    und dort greift der ALTE Deckel dann eben doch. Ausgeliefert wird so
+    ///    oder so nichts, die Zusicherung war unfehlbar statt unterscheidend.
+    ///
+    /// Der Unterschied liegt nicht im Deckel-Paket selbst, sondern **danach**:
+    /// mit der Behebung ist der fremde `fua_buffer` beim Ueberschreiten mit
+    /// geleert, die naechste saubere FU-A kommt unverfaelscht heraus. Ohne sie
+    /// klebt der ganze Rest davor, und die naechste Einheit ist entweder
+    /// verseucht oder faellt selbst dem Deckel zum Opfer. Also wird hier
+    /// gemessen, ob nach dem Ueberlauf wieder ein BRAUCHBARES Bild entsteht.
+    #[test]
     fn repro_13_fua_puffer_waechst_am_deckel_vorbei() {
         let mut a = Assembler::for_codec(Codec::H264);
         let mut seq = folge(1);
 
-        // FU-A-Anfang, danach nur Fortsetzungen — nie ein E-Bit.
+        // FU-A-Anfang, danach nur Fortsetzungen — nie ein E-Bit. Fuellbyte
+        // 0xAA, damit sich dieser Muell spaeter im Ergebnis wiedererkennen
+        // laesst.
         let mut anfang = vec![0x7C, 0x85];
         anfang.extend(std::iter::repeat_n(0xAAu8, 1198));
         assert!(a.push(seq(), &Bytes::from(anfang), false).is_none());
@@ -301,21 +438,58 @@ mod tests {
         let mut weiter = vec![0x7C, 0x05];
         weiter.extend(std::iter::repeat_n(0xAAu8, 1198));
         let weiter = Bytes::from(weiter);
-        let mut angehaeuft = 1198usize;
-        // Rund 20 MB anhaeufen — unter MAX_ACCESS_UNIT_BYTES, damit die
-        // Einheit am Ende ueberhaupt herauskommt.
-        for _ in 0..17_500 {
-            assert!(a.push(seq(), &weiter, false).is_none());
-            angehaeuft += 1198;
-        }
-        eprintln!("angehaeuft {angehaeuft} Bytes, Deckel sieht buffered_len={}", a.buffered_len());
 
-        // Kleines FU-A-Ende mit Marker.
-        let out = a.push(seq(), &Bytes::from_static(&[0x7C, 0x45, 0x33, 0x44]), true);
-        let geliefert = out.map_or(0, |u| u.len());
+        // Anhaeufen, bis der Deckel greift — erkennbar daran, dass die
+        // gemessene Menge FAELLT statt zu wachsen. Die Obergrenze ist nur ein
+        // Notausstieg: greift der Deckel nie (der Fehlerfall), laeuft die
+        // Schleife bis dorthin und `buffered_len` steht dann weit ueber
+        // MAX_ACCESS_UNIT_BYTES.
+        let mut vorher = a.buffered_len();
+        let mut runden = 0usize;
+        let gedeckelt = loop {
+            assert!(a.push(seq(), &weiter, false).is_none());
+            runden += 1;
+            let jetzt = a.buffered_len();
+            if jetzt < vorher {
+                break true;
+            }
+            vorher = jetzt;
+            if runden >= 40_000 {
+                break false;
+            }
+        };
+        eprintln!(
+            "nach {runden} Fortsetzungen: buffered_len={}, Deckel griff: {gedeckelt}",
+            a.buffered_len()
+        );
+
+        // `dropped` steht jetzt; ein Marker-Paket verbraucht es, damit der
+        // naechste Durchgang mit reiner Weste beginnt.
+        assert!(a.push(seq(), &Bytes::from_static(&[0x41, 0x11, 0x22]), true).is_none());
+
+        // Eine frische, vollstaendige FU-A mit ANDEREM Fuellbyte.
+        let mut neu_anfang = vec![0x7C, 0x85];
+        neu_anfang.extend(std::iter::repeat_n(0xBBu8, 100));
+        assert!(a.push(seq(), &Bytes::from(neu_anfang), false).is_none());
+        let mut neu_ende = vec![0x7C, 0x45];
+        neu_ende.extend(std::iter::repeat_n(0xBBu8, 100));
+        let out = a.push(seq(), &Bytes::from(neu_ende), true);
+
+        let einheit = out.expect(
+            "nach dem Ueberlauf kommt keine saubere Einheit mehr heraus — der \
+             fremde fua_buffer wurde beim Deckeln nicht mit geleert, seine \
+             Reste kleben vor der naechsten NAL und reissen sie selbst ueber \
+             den Deckel",
+        );
         assert!(
-            geliefert <= 4 * 1200,
-            "der Deckel hat {angehaeuft} Bytes nicht gesehen — ausgeliefert wurden {geliefert}"
+            einheit.len() < 1024,
+            "die Einheit traegt {} Byte statt der erwarteten gut 200 — da haengen \
+             Reste aus dem fua_buffer davor",
+            einheit.len()
+        );
+        assert!(
+            !einheit.windows(2).any(|w| w == [0xAA, 0xAA]),
+            "die saubere Einheit enthaelt Fuellbytes aus der verworfenen Anhaeufung"
         );
     }
 

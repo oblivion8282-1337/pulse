@@ -192,8 +192,22 @@ impl JitterBuffer {
             }
         }
 
-        if self.entries.insert(seq, Entry { packet, arrived }).is_some() {
+        // Hier stand bis 2026-08-08 ein unbedingtes
+        // `entries.insert(seq, Entry { packet, arrived })` — das ist falsch:
+        // eine Dopplung ueberschrieb damit auch die Ankunftszeit, und `poll`
+        // misst die Geduldsgrenze einer offenen Luecke genau daran (unten,
+        // `now.duration_since(entry.get().arrived) < self.target`). Eine Folge
+        // von Dopplungen des vordersten wartenden Pakets setzte die Wartezeit
+        // dadurch immer wieder auf 0 zurueck: `Release::Gap` blieb aus, der
+        // Zusammensetzer bekam kein `on_gap()`, das Bild stand — bis der
+        // MAX_BUFFERED-Deckel griff, und kein Zaehler zeigte es an.
+        // Richtig ist: `arrived` gehoert dem ERSTEN Eintreffen, nur die
+        // Nutzlast wird ersetzt (identische Kopie im Regelfall).
+        if let Some(vorhanden) = self.entries.get_mut(&seq) {
             self.duplicates += 1;
+            vorhanden.packet = packet;
+        } else {
+            self.entries.insert(seq, Entry { packet, arrived });
         }
 
         if self.entries.len() > MAX_BUFFERED {
@@ -536,7 +550,6 @@ mod tests {
     /// Wartezeit damit dauerhaft unter `target` — die Luecke wird nie gemeldet,
     /// der Zusammensetzer bekommt kein `on_gap()`, der Video-Weg steht.
     #[test]
-    #[ignore = "Reproduktion Befund 7 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_7_duplikat_erneuert_ankunftszeit() {
         let t0 = Instant::now();
         let target = Duration::from_millis(50);

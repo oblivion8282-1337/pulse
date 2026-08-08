@@ -567,7 +567,10 @@ pub async fn run(
                 // dekodiert und ausgegeben, und beide Spuren laufen in den
                 // Ringpuffer fuer Aufnahme und Clip.
                 let ts_ms = started.elapsed().as_millis() as i64;
-                media.handle_unit(*codec, &unit, ts_ms);
+                // `clone()` ist hier nur ein Zaehler hoch: `unit` ist `Bytes`,
+                // und der Ringpuffer im Rekorder haelt genau diesen Speicher
+                // fest, statt ihn zu kopieren.
+                media.handle_unit(*codec, unit.clone(), ts_ms);
 
                 if !codec.is_video() {
                     continue;

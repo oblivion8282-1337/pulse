@@ -129,8 +129,22 @@ pub fn kopf_lesen(nutzlast: &[u8]) -> Result<Paritaetskopf> {
         }
     }
 
-    if sequenzen.is_empty() {
-        bail!("Paritaetspaket schuetzt nichts (leere Maske)");
+    // **Mindestgruppengroesse 2.** Hier stand bis zum 2026-08-08 nur
+    // `sequenzen.is_empty()` — „schuetzt nichts (leere Maske)". Das ist zu
+    // wenig, und zwar nicht als Randfall: eine Maske mit GENAU EINEM gesetzten
+    // Bit kam damit durch, und so eine Gruppe hat kein einziges echtes
+    // Vergleichspaket. Fehlt ihr eines Mitglied, laufen beide XOR-Schleifen in
+    // `zurueckrechnen()` null Mal, und das „reparierte" Paket besteht woertlich
+    // aus den Bytes, die der Absender in der Paritaetsnutzlast mitgeschickt hat
+    // (bei Gruppengroesse 1 ist die Paritaet durch die XOR-Identitaet zwangs-
+    // laeufig das Paket selbst). Der Empfangsweg zaehlte das als `repariert` —
+    // eine Zahl, die Wirkung der Paritaet belegen soll, wo keine stattfand.
+    // Erst ab zwei Mitgliedern rechnet XOR ueberhaupt etwas.
+    if sequenzen.len() < 2 {
+        bail!(
+            "Paritaetspaket schuetzt nur {} Paket(e) — Mindestgruppengroesse 2",
+            sequenzen.len()
+        );
     }
 
     Ok(Paritaetskopf {
@@ -380,43 +394,44 @@ pub(crate) mod tests {
 
     /// **Reproduktion Befund 21 — Schutzgruppe mit genau EINEM Mitglied.**
     ///
-    /// `kopf_lesen()` lehnt nur die voellig leere Maske ab, nicht eine mit
-    /// genau einem gesetzten Bit. Eine solche Gruppe hat kein einziges echtes
+    /// Bis zum 2026-08-08 lehnte `kopf_lesen()` nur die voellig leere Maske
+    /// ab, nicht eine mit genau einem gesetzten Bit. Eine solche Gruppe hat
+    /// kein einziges echtes
     /// Vergleichspaket: beide XOR-Schleifen in `zurueckrechnen()` laufen null
     /// Mal, und das "reparierte" Paket besteht woertlich aus den Bytes, die
     /// der Absender in der Paritaetsnutzlast mitgeschickt hat.
     ///
     /// Erwartet nach der Behebung: Mindestgruppengroesse 2, also `is_err()`.
+    ///
+    /// **Umgebaut bei der Behebung.** Die Reproduktionsfassung liess sich
+    /// `kopf_lesen()` erst gelingen (Nachweis der Ein-Bit-Maske) und verlangte
+    /// dieselbe Rueckgabe danach als Fehler — nach der Behebung kann nur noch
+    /// eines von beidem zutreffen. Geblieben ist die Zusicherung, die die
+    /// Behebung beschreibt; der Ablauf, den sie ersetzt, steht oben im Text.
     #[test]
-    #[ignore = "Reproduktion Befund 21 — schlaegt bis zur Behebung absichtlich fehl"]
     fn repro_21_einzelgruppe_wird_angenommen() {
         let medien: Vec<_> = (0..1)
             .map(|i| medienpaket(1000 + i, 9000, 0xDEAD_BEEF, &[0xAB; 40]))
             .collect();
         let paritaet = paritaet_bauen(&medien, 0xDEAD_BEEF, 1000);
 
-        // Nachweis, dass die Maske wirklich genau ein Bit traegt.
-        let kopf = kopf_lesen(&paritaet).expect("heute lesbar — genau das ist der Befund");
-        assert_eq!(
-            kopf.geschuetzte_sequenzen,
-            vec![1000],
-            "die Gruppe hat genau ein Mitglied"
-        );
-
-        // Und die Rueckrechnung OHNE ein einziges Vergleichspaket gelingt:
-        // sie gibt die Paritaetsnutzlast unveraendert zurueck.
-        let wieder = zurueckrechnen(&kopf, &paritaet, &[], 1000)
-            .expect("heute erfolgreich — ohne jedes Vergleichspaket");
-        assert_eq!(
-            wieder, medien[0].bytes,
-            "die Nutzlast ist bytegleich mit dem Original — es wurde nichts gerechnet"
-        );
-
-        assert!(
-            kopf_lesen(&paritaet).is_err(),
+        let fehler = kopf_lesen(&paritaet).expect_err(
             "eine Schutzgruppe mit nur einem Mitglied muss abgelehnt werden \
-             (Mindestgruppengroesse 2); heute wird sie angenommen und ihre \
-             Rueckrechnung liefert die Paritaetsnutzlast unveraendert zurueck"
+             (Mindestgruppengroesse 2) — sonst liefert ihre Rueckrechnung die \
+             Paritaetsnutzlast unveraendert zurueck und zaehlt als repariert",
         );
+        assert!(
+            fehler.to_string().contains("Mindestgruppengroesse"),
+            "abgelehnt, aber aus einem anderen Grund: {fehler}"
+        );
+
+        // Gegenprobe, damit der Test nicht aus irgendeinem Grund gruen ist:
+        // dieselbe Gruppe mit ZWEI Mitgliedern bleibt lesbar.
+        let zwei: Vec<_> = (0..2)
+            .map(|i| medienpaket(1000 + i, 9000, 0xDEAD_BEEF, &[0xAB; 40]))
+            .collect();
+        let kopf = kopf_lesen(&paritaet_bauen(&zwei, 0xDEAD_BEEF, 1000))
+            .expect("ab zwei Mitgliedern unveraendert lesbar");
+        assert_eq!(kopf.geschuetzte_sequenzen, vec![1000, 1001]);
     }
 }

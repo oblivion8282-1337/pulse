@@ -57,8 +57,11 @@ pub struct Request {
     pub key: Option<String>,
     #[serde(default)]
     pub value: Option<serde_json::Value>,
-    /// Zielpfad fuer `screenshot`/`clip` — beide Ops sind noch nicht gebaut,
-    /// die Felder stehen aber schon im Protokoll.
+    /// Zielpfad fuer `record`/`clip`/`screenshot`. Hier stand bis 2026-08-08
+    /// "beide Ops sind noch nicht gebaut, die Felder stehen aber schon im
+    /// Protokoll" — das ist falsch: `record` und `clip` sind laengst verdrahtet
+    /// (`app/requests.rs`) und schreiben mit diesem Pfad in das Dateisystem
+    /// (geprueft in `recorder::pruefe_ziel`). Nur `screenshot` fehlt noch.
     #[allow(dead_code)]
     #[serde(default)]
     pub path: Option<String>,
