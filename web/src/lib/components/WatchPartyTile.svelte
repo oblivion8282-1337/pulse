@@ -45,6 +45,7 @@
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
   import { CaptionsState } from '$lib/watch/captionsState.svelte';
+  import { QualityState } from '$lib/watch/qualityState.svelte';
   import { PartyController } from '$lib/watch/partyController.svelte';
   import type { PlayerEvent, PlayerHandle } from '$lib/watch/sync';
 
@@ -163,6 +164,9 @@
   // `controls:0` nimmt ihm den CC-Knopf, die Kachel gibt ihn zurück. Rein
   // lokal, nicht synchronisiert. Details in CaptionsState.
   const captions = new CaptionsState(controller);
+  // Aktuell gelieferte Auflösung des Zuschauer-/Host-Players als read-only Badge
+  // (siehe quality_changed). Rein lokal, nicht synchronisiert.
+  const quality = new QualityState(controller);
 
   function handleEvent(e: PlayerEvent): void {
     // YouTube meldet seine Untertitel-Spuren erst nach dem Wiedergabestart
@@ -171,12 +175,19 @@
       captions.refresh();
       return;
     }
+    if (e.type === 'quality_changed') {
+      quality.refresh();
+      return;
+    }
     // Netz gegen ein verpasstes captions_changed: onApiChange feuert nur EINMAL,
     // kurz nach dem Player-Start. War der Player-Handle in dem Moment noch nicht
     // im Controller (Reihenfolge onReady/onApiChange ist nicht garantiert), las
     // refresh() eine leere Spurliste — und ein zweites Event kommt nie. Beim
     // Wiedergabestart deshalb nachsehen, solange wir keine Spuren haben.
     if (e.type === 'play' && captions.tracks.length === 0) captions.refresh();
+    // Gleiches Netz für die Auflösung: onPlaybackQualityChange kann vor dem
+    // ersten play schon gefeuert sein, ohne dass sich ein Wert gemerkt hat.
+    if (e.type === 'play' && quality.quality === null) quality.refresh();
     controller.onEvent(e);
   }
 
@@ -302,6 +313,7 @@
       // seine eigenen per captions_changed. Die Sprachwahl des Zuschauers
       // überlebt das (siehe CaptionsState).
       captions.reset();
+      quality.reset();
     }
     prevSourceKey = sourceKey;
   });
@@ -402,6 +414,15 @@
         data-testid="watch-party-watcher-count"
       >
         {m.watch_party_tile_watching({ count: watcherCount })}
+      </span>
+    {/if}
+    {#if isYouTube && quality.label}
+      <span
+        class="rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+        title={m.watch_party_tile_quality_title()}
+        data-testid="watch-party-quality"
+      >
+        {quality.label}
       </span>
     {/if}
   {/snippet}

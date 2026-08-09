@@ -302,6 +302,13 @@ export class PartyController {
     this.#player?.setCaptionTrack?.(languageCode);
   }
 
+  /** Aktuell gelieferte Auflösung des Players (Roh-Code) oder null. Rein zum
+   *  Anzeigen im Qualitäts-Badge — jeder Zuschauer hat seinen eigenen Stream,
+   *  der Wert ist also rein lokal und nicht synchronisiert. */
+  getPlaybackQuality(): string | null {
+    return this.#player?.getPlaybackQuality?.() ?? null;
+  }
+
   dispose(): void {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.#onVisibility);

@@ -164,6 +164,13 @@
                 getCaptionTracks: captions.getCaptionTracks,
                 getActiveCaptionTrack: captions.getActiveCaptionTrack,
                 setCaptionTrack: captions.setCaptionTrack,
+                getPlaybackQuality: () => {
+                  try {
+                    return (p()?.getPlaybackQuality?.() as string | null) ?? null;
+                  } catch {
+                    return null;
+                  }
+                },
                 destroy: () => {
                   killed = true;
                   try {
@@ -204,6 +211,11 @@
             // appears a moment into the video, not at mount.
             onApiChange: () => {
               onEvent?.({ type: 'captions_changed' });
+            },
+            // Adaptive Bitrate hat die gelieferte Auflösung geändert (oder sie
+            // steht nach dem Pufferwechsel erstmals fest). Das Badge liest neu.
+            onPlaybackQualityChange: () => {
+              onEvent?.({ type: 'quality_changed' });
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             onError: (e: any) => {
