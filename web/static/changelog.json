@@ -5,11 +5,11 @@
       "id": "2026-08-09.4",
       "date": "2026-08-09",
       "style": "Sachlich",
-      "title": "Watchparty: Vollbild aufgeraeumt, Aufloesung sichtbar",
+      "title": "Watchparty: Vollbild aufgeräumt, Auflösung sichtbar",
       "intro": "Zwei kleine Verbesserungen beim gemeinsamen Schauen.",
       "items": [
-        "Im Vollbild der Watchparty verschwindet die Steuerleiste jetzt nach kurzem Warten und kommt bei Mausbewegung zurueck. Bislang blieb sie dauerhaft stehen, sodass das Video den Bildschirm nicht ausfuellte.",
-        "Die Watchparty zeigt jetzt die aktuell gespielte Aufloesung an, etwa 1080p oder 720p. YouTube waehlt sie automatisch passend zur Leitung."
+        "Im Vollbild der Watchparty verschwindet die Steuerleiste jetzt nach kurzem Warten und kommt bei Mausbewegung zurück. Bislang blieb sie dauerhaft stehen, sodass das Video den Bildschirm nicht ausfüllte.",
+        "Die Watchparty zeigt jetzt die aktuell gespielte Auflösung an, etwa 1080p oder 720p. YouTube wählt sie automatisch passend zur Leitung."
       ]
     },
     {
@@ -20,19 +20,19 @@
       "intro": "Pulse lief auf dem Handy weiter, auch wenn niemand in einem Sprachkanal war.",
       "items": [
         "Behoben: Die Android-App hat sich nach dem Start dauerhaft im Hintergrund gehalten und den Akku belastet. Android hat das mit einem Hinweis auf aktive Apps angezeigt.",
-        "Jetzt laeuft die Hintergrund-Aktivitaet nur noch, solange du wirklich in einem Sprachkanal bist. Beim Schreiben oder wenn die App nicht benutzt wird, geht sie wie andere Apps in den Ruhezustand."
+        "Jetzt läuft die Hintergrund-Aktivität nur noch, solange du wirklich in einem Sprachkanal bist. Beim Schreiben oder wenn die App nicht benutzt wird, geht sie wie andere Apps in den Ruhezustand."
       ]
     },
     {
       "id": "2026-08-09.2",
       "date": "2026-08-09",
       "style": "Sachlich",
-      "title": "Watchparty im eigenen Fenster aufgeraeumt",
-      "intro": "Das abgekoppelte Watchparty-Fenster laesst sich uebersichtlicher bedienen.",
+      "title": "Watchparty im eigenen Fenster aufgeräumt",
+      "intro": "Das abgekoppelte Watchparty-Fenster lässt sich übersichtlicher bedienen.",
       "items": [
         "Der Andocken-Knopf liegt jetzt unten in der Steuerleiste, nicht mehr als einzelner Knopf oben rechts.",
         "Das zweite, verwirrende Ausblenden-X im eigenen Fenster ist entfallen.",
-        "Schliessen und Beenden sind nun klar getrennt: Andocken fuegt das Fenster wieder ins Hauptfenster ein, Watchparty beenden stoppt die Party fuer alle."
+        "Schließen und Beenden sind nun klar getrennt: Andocken fügt das Fenster wieder ins Hauptfenster ein, Watchparty beenden stoppt die Party für alle."
       ]
     },
     {
@@ -42,10 +42,10 @@
       "title": "Absturz beim Ansehen behoben, dazu Ton- und Farbfehler",
       "intro": "Ein Fehlersuchlauf durch den Wiedergabefenster-Code hat mehrere Probleme gefunden, die beim Zuschauen auffallen konnten.",
       "items": [
-        "Behoben: Ein einzelnes fehlerhaftes Datenpaket vom Sender konnte das Wiedergabefenster abstuerzen lassen. Ein einzelnes betroffenes Paket reichte aus; jetzt wird es sauber verworfen.",
-        "Behoben: Nach einer kleinen Tonstoerung konnten linker und rechter Kanal kurzzeitig vertauschen.",
+        "Behoben: Ein einzelnes fehlerhaftes Datenpaket vom Sender konnte das Wiedergabefenster abstürzen lassen. Ein einzelnes betroffenes Paket reichte aus; jetzt wird es sauber verworfen.",
+        "Behoben: Nach einer kleinen Tonstörung konnten linker und rechter Kanal kurzzeitig vertauschen.",
         "Behoben: Bei bestimmten Farbeinstellungen (HDR-Nachbearbeitung, ein spezielles Bildformat) waren Farben minimal falsch dargestellt.",
-        "Dazu mehrere kleinere Fehler behoben, die nur unter seltenen Bedingungen auftraten -- etwa unnoetig hoher Speicherverbrauch bei langen Sitzungen und eine Leistungsbremse, die nach dem Minimieren des Fensters manchmal haengen blieb."
+        "Dazu mehrere kleinere Fehler behoben, die nur unter seltenen Bedingungen auftraten -- etwa unnötig hoher Speicherverbrauch bei langen Sitzungen und eine Leistungsbremse, die nach dem Minimieren des Fensters manchmal hängen blieb."
       ]
     },
     {
