@@ -8,9 +8,11 @@
  * Gateway-WS-Heartbeats. Host-Duties wandern automatisch mit, weil nur ein
  * Fenster zur Zeit den `<WatchPartyTile>` gemountet hat: Main *oder* Popup.
  *
- * BroadcastChannel-Sync mit dem Hauptfenster: 'close' (Main fordert Popup
- * zum Schließen auf, z.B. wenn die Party endet) + 'closed' (Popup meldet
- * Schließung beim Hauptfenster, damit der Player wieder inline mountet).
+ * BroadcastChannel-Sync mit dem Hauptfenster:
+ *  - 'close'  (Main → Popup): fordert das Popup zum Schließen auf, z. B. der
+ *             User klickt im Hauptfenster auf „Andocken".
+ *  - 'closed' (Popup → Main): Popup meldet seine Schließung, damit der Player
+ *             wieder inline am Hauptfenster mountet.
  */
 const CHANNEL_NAME = 'pulse:watch-party-detach';
 /** Window-scoped suppress marker. sessionStorage (not the reactive `#set`) is

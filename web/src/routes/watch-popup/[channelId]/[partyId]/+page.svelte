@@ -17,7 +17,6 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
-  import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
   import { m } from '$lib/paraglide/messages.js';
 
   let channelId = $derived(page.params.channelId ?? '');
@@ -25,6 +24,17 @@
   let party = $derived(
     channelId && partyId ? watchPartyPresence.partyIn(channelId, partyId) : undefined
   );
+
+  // `window.close()` wirft in manchen Browsern, wenn das Fenster nicht per
+  // `window.open` geöffnet wurde — hier ist es immer eins. Einmal gekapselt,
+  // damit die vier Aufrufstellen identisch bleiben.
+  function closeThisWindow(): void {
+    try {
+      window.close();
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Channel-Subscribe: ohne diese Subscribe-Op kriegen wir die per-channel-
   // Pushes (watch_state, watch_chat_message) nicht. Re-subscribe übernimmt
@@ -53,11 +63,7 @@
         if (cancelled) return;
         setTimeout(() => {
           if (!cancelled && !watchPartyPresence.partyIn(channelId, partyId)) {
-            try {
-              window.close();
-            } catch {
-              /* ignore */
-            }
+            closeThisWindow();
           }
         }, 600);
       })
@@ -76,7 +82,7 @@
     if (exists) hadParty = true;
     else if (hadParty) {
       // Party ist gegangen → Fenster zu.
-      try { window.close(); } catch {}
+      closeThisWindow();
     }
   });
 
@@ -84,9 +90,7 @@
     // Main hat „close" geschickt (User hat im Hauptfenster auf „Andocken"
     // geklickt) → wir schließen uns.
     const offClose = detachedWatchParties.onCloseRequest((cid, pid) => {
-      if (cid === channelId && pid === partyId) {
-        try { window.close(); } catch {}
-      }
+      if (cid === channelId && pid === partyId) closeThisWindow();
     });
 
     function onUnload(): void {
@@ -107,18 +111,7 @@
 
 <div class="relative h-full w-full" data-testid="watch-popup">
   {#if party && channelId}
-    <WatchPartyTile {channelId} {party} canDetach={false} />
-    <button
-      type="button"
-      onclick={() => { try { window.close(); } catch {} }}
-      class="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/85"
-      title={m.watch_popup_reattach_title()}
-      aria-label={m.watch_popup_reattach_label()}
-      data-testid="popup-reattach"
-    >
-      <PictureInPicture2Icon class="size-3.5" />
-      <span>{m.watch_popup_reattach_label()}</span>
-    </button>
+    <WatchPartyTile {channelId} {party} canDetach={false} canHide={false} onDock={closeThisWindow} />
   {:else}
     <div class="flex h-full w-full items-center justify-center">
       <LoadingState density="page" label={m.watch_popup_loading()} />
