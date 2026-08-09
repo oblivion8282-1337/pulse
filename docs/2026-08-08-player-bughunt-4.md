@@ -32,19 +32,28 @@ Produktivcode ist unverändert.
 
 ### Behebungsstand (Stufe 3, 2026-08-08)
 
-Gemessene Grundlinie im Crate nach der Behebungsrunde:
-`cargo test` → **247 bestanden, 0 fehlgeschlagen, 6 ignoriert** (vor Stufe 3: 227/0/25).
+Gemessene Grundlinie im Crate, Stand 2026-08-09 nach Auflösung der beiden Vorbehalte (s.u.):
+`cargo test` → **248 bestanden, 0 fehlgeschlagen, 6 ignoriert** (vor Stufe 3: 227/0/25; direkt
+nach Stufe 3, mit den beiden noch offenen Vorbehalten: 247/0/6).
 Die sechs verbliebenen `#[ignore]` sind fünf Diagnose- und Messwerkzeuge hinter
 Umgebungsvariablen bzw. echter HDR-Hardware — **plus einer echten offenen Reproduktion**:
 `recorder::tests::repro_27_aufnahme_kennt_keine_obergrenze`.
 
 | Stand | Zahl | Befunde |
 |---|---|---|
-| **BEHOBEN**, Reproduktionstest grün, Gegenprobe ohne Einwand | **15** | 3, 5, 7, 10, 11, 14, 15, 19, 21, 22, 24, 28, 29, 31, 34 |
-| **BEHOBEN MIT VORBEHALT** — Code richtig, aber ein Einwand steht | **2** | 13 (Test beweist nichts mehr), 17 (zweite Hälfte ist ein Rückschritt) |
+| **BEHOBEN**, Reproduktionstest grün, kein offener Einwand | **16** | 3, 5, 7, 10, 11, 13, 14, 15, 19, 21, 22, 24, 28, 29, 31, 34 |
+| **BEHOBEN, bewusst unvollständig** — der Rest hängt an Befund 4 | **1** | 17 (`hw_ziel` frei, Ring bleibt absichtlich belegt) |
 | **TEILWEISE BEHOBEN** | **1** | 27 (Pfadprüfung ja, Aufnahme-Obergrenze bewusst nein) |
 | **OFFEN — nicht auf dieser Maschine prüfbar** | **16** | 1, 2, 4, 6, 8, 9, 12, 16, 18, 20, 23, 25, 26, 30, 32, 33 |
 | **BEFUND WAR FALSCH** | **0** | — |
+
+**Hier standen bis 2026-08-09 15 + "2 mit Vorbehalt" (13, 17) — beide Vorbehalte sind aufgelöst,
+noch am selben Tag und vor dem ersten Push:** Befund 13 hat einen dritten, tatsächlich
+unterscheidenden Testentwurf bekommen (s. Abschnitt dort); Befund 17s riskante Zeile
+(`self.bruecke = Some(None)`) ist wieder heraus, bevor sie je auf `main` stand. Zusätzlich hat
+das Gegenlesen von Befund 5 einen bis dahin unbekannten **dritten Weg** zu demselben Bildmüll
+aufgedeckt und mitbehoben — Befund 5 zählt deshalb weiterhin zu den vollständig behobenen, nur
+gründlicher als ursprünglich gemeldet.
 
 **Kein einziger der 34 Befunde hat sich bei der Behebung als Fehldeutung erwiesen.** Was sich
 in acht Fällen als falsch erwies, war der mitgelieferte **Behebungsvorschlag oder die
@@ -60,17 +69,21 @@ an einem fehlenden **Prüfeinstieg** im Code selbst (12, 23, 26, 33). Die dritte
 einzige, die sich ohne fremde Maschine schließen ließe, und sie ist damit auch der einzige
 Posten der Stufe-3-Liste, der ohne Vorbedingung liegen geblieben ist.
 
-**Zwei Punkte, die vor dem Landen Aufmerksamkeit brauchen:**
+**Zwei Punkte, die vor dem Landen Aufmerksamkeit brauchten — beide aufgelöst am 2026-08-09,
+bevor der Stapel zum ersten Mal gepusht wurde:**
 
-1. **Befund 17** — die Zeile `self.bruecke = Some(None)` gibt auf Windows die NT-Handles frei,
-   während bis zu ~45 `GpuBild` mit genau diesen Handles noch unterwegs sind. Das ist
-   wortwörtlich **Befund 4**, mit einem neuen Auslöser, und Befund 4 ist unbehoben. Von keinem
-   Test auf keiner Plattform gedeckt. Die `hw_ziel`-Hälfte ist sauber und kann bleiben.
-2. **Befund 13** — der Produktivcode ist richtig, aber der Reproduktionstest wurde von
-   *unerfüllbar* auf *unfehlbar* repariert: er besteht auch mit zurückgedrehtem Fix. Das
-   `#[ignore]` ist trotzdem gefallen, im Baum steht damit ein grüner Regressionstest ohne
-   Aussagekraft — genau die Sorte, vor der der Doc-Kommentar an
-   `echter_mitschnitt_ergibt_syntaktisch_heile_einheiten` selbst warnt.
+1. **Befund 17** — die Zeile `self.bruecke = Some(None)` hätte auf Windows die NT-Handles
+   freigegeben, während bis zu ~45 `GpuBild` mit genau diesen Handles noch unterwegs gewesen
+   wären. Das war wortwörtlich **Befund 4**, mit einem neuen Auslöser, und Befund 4 ist
+   unbehoben. **Behoben durch Entfernen der Zeile, nicht durch Reparieren** — die `hw_ziel`-Hälfte
+   bleibt, der Ring bleibt bis zur strukturellen Lösung von Befund 4 absichtlich belegt. Ein
+   ausführlicher Kommentar an der Stelle hält fest, warum, damit niemand denselben Griff
+   wiederholt.
+2. **Befund 13** — der Produktivcode war richtig, der Reproduktionstest aber von
+   *unerfüllbar* auf *unfehlbar* repariert: er bestand auch mit zurückgedrehtem Fix. **Behoben
+   durch einen dritten Testentwurf**, der misst, ob nach dem Überlauf wieder eine saubere Einheit
+   herauskommt — eigens gegengeprüft: rot ohne Fix, grün mit Fix, und deckt auch den zuvor
+   ungedeckten `h264_reset`-Aufruf im Deckel-Zweig selbst ab.
 
 Dazu kommt ein wiederkehrender Nebenbefund aus den Gegenproben, der keinem einzelnen Befund
 gehört: **mehrere Behebungen führen neue stille Verwurfspfade ein** (14, 21, 28 — vergiftete
@@ -276,16 +289,20 @@ seinen Platz halten lassen (wie auf Linux). Billiger: Generationsnummer je `GpuB
 ### 5. `on_gap` setzt den H.264-Depacketizer nicht zurück — Fragmentreste überleben die Lücke
 `src/depacket/mod.rs:83` — **hoch, Korrektheit**
 
-**Stand (Stufe 3): BEHOBEN** — `on_gap` baut den `H264Packet`-Depacketizer neu auf
+**Stand (Stufe 3): BEHOBEN, in zwei Schritten** — `on_gap` baut den `H264Packet`-Depacketizer neu auf
 (`h264_reset()`, `depacket/mod.rs:59`), weil dessen `fua_buffer` privat und anders nicht leerbar ist;
 der im Vorschlag genannte Struct-Update-Ausdruck übersetzt deshalb nicht (E0451).
-**Einwand der Gegenprobe (offen):** die Fehlerklasse ist nur über den *Lücken*-Weg geschlossen. Der Zweig
-`Err(_) => *dropped = true` (`depacket/mod.rs:172`) setzt weiterhin nur das Flag und lässt den
-`fua_buffer` stehen — mit einem unbehandelten NAL-Typ (FU-B 0x7D, Typ 0/30/31, gekürzte FU-A) lässt sich
-byteweise dasselbe Schadbild `00 00 00 01 65 AA AA AA AA 11 22 33 44` erzeugen, ohne dass `on_gap` läuft.
-Von der Gegenstelle aus erreichbar, kein Test deckt es ab; ein `h264_reset()` auch im `Err`-Zweig würde es
-schließen. Zweitens rettet `h264_reset` das Feld `is_avc` von Hand — kommt im `rtp`-Crate ein weiteres
-öffentliches Einstellfeld dazu, fällt es beim Bump still unter den Tisch.
+**Der Einwand der Gegenprobe stand hier bis 2026-08-09 als offen — das ist überholt.** Er hatte
+recht: die Fehlerklasse war nur über den *Lücken*-Weg geschlossen, der Zweig
+`Err(_) => *dropped = true` ließ `fua_buffer` unangetastet stehen, und mit einem unbehandelten
+NAL-Typ (FU-B 0x7D, Typ 0/30/31, gekürzte FU-A) ließ sich dasselbe Schadbild ganz ohne `on_gap`
+erzeugen — unvalidierte RTP-Nutzlast, also von der Gegenstelle wählbar. Jetzt ruft auch der
+`Err`-Zweig `h264_reset()`. Test `depacket::tests::verworfenes_paket_leert_die_fua_reste`: ohne
+den zweiten Schritt rot (Ausgabe zeigt die `0xAA`-Reste vor der neuen IDR), mit ihm grün.
+Zweitens rettet `h264_reset` weiterhin das Feld `is_avc` von Hand — kommt im `rtp`-Crate ein
+weiteres öffentliches Einstellfeld dazu, fällt es beim Bump still unter den Tisch. Heute
+folgenlos (`is_avc` wird im Player nirgends gesetzt), aber ungedeckt: **bleibt offen**, kein
+Test kann eine stille Regression bei einem künftigen `rtp`-Bump fangen.
 
 **Stand: REPRODUZIERT** — Test `depacket::tests::repro_5_gap_laesst_fua_reste_stehen`.
 Die angeblich heile IDR lautet `00 00 00 01 65 AA AA AA AA 11 22 33 44`: Startcode, NAL-Kopf 0x65
@@ -557,27 +574,29 @@ Tasks.
 ### 13. Die H.264-Obergrenze misst nur `unit` — der FU-A-Puffer wächst daran vorbei unbegrenzt
 `src/depacket/mod.rs:116` — **mittel, Ressourcenleck**
 
-**Stand (Stufe 3): CODE BEHOBEN, ABNAHMEKRITERIUM WERTLOS** — der Produktivcode stimmt:
+**Stand (Stufe 3): BEHOBEN, Test dritte Fassung.** Der Produktivcode stimmt seit Stufe 3:
 `Kind::H264` führt jetzt ein Feld `fua_bytes`, das den fremden `fua_buffer` exakt nachrechnet
 (`payload.len() - 2` je angenommenem FU-A-Paket, beim E-Bit auf 0 — geprüft gegen
 `vendor/webrtc-rs/rtp/src/codecs/h264/mod.rs:268-300`), der Deckel misst `unit.len() + fua_bytes` und räumt
 beim Überschreiten auch den Depacketizer aus.
-**Der Test belegt das aber nicht.** Die Stufe-2-Fassung war unerfüllbar (20 MB unter dem 32-MB-Deckel und
-gleichzeitig `geliefert <= 4800`); die Reparatur hat die Iterationszahl auf 30 000 (35,9 MB) angehoben, und
-damit ist der Test *unfehlbar* statt unerfüllbar geworden: die Gegenprobe mit zurückgedrehtem Produktivcode
-besteht ihn ebenfalls (`geliefert == 0`, weil das fertige Riesen-NAL am alten Deckel hängenbleibt). Falsch
-war die **Form** der Zusicherung, nicht die Zahl. Die Behauptung der Behebungsnotiz, ohne Fix würden dort
-35 941 405 Byte ausgeliefert, ist gemessen falsch. Der Test trägt trotzdem kein `#[ignore]` mehr — im Baum
-steht damit ein grüner Regressionstest, der die Rückkehr des Lecks nicht bemerken würde.
-**Unterscheidend wäre:** Fortsetzungen bis knapp über den Deckel, dann ein kleines Einzel-NAL *mit Marker*
-(verbraucht `dropped`), dann eine frische vollständige FU-A mit anderem Füllbyte — und zusichern, dass die
-gelieferte Einheit klein ist und keine `0xAA`-Folge enthält. Das deckt beide Hälften der Behebung ab.
-**Weitere Einwände:** der `h264_reset` im Deckel-Zweig ist von keinem Test gedeckt (entfernt man ihn, bleibt
-`depacket::` grün) und öffnet dieselbe Klasse wie Befund 5, nur über den Deckel statt über `on_gap`. Und
-`fua_bytes` ist eine zweite Kopie fremder Regeln: ändert der Upstream die FU-A-Behandlung (S-Bit-Prüfung nach
-RFC 6184, DON im interleaved-Modus), driftet der Zähler lautlos in beide Richtungen. Das Crate ist bereits
-gevendort und dreifach gepatcht — ein Patch 0004 mit `pub fn fua_buffered()`/`pub fn reset()` hätte die
-Duplikation vermieden und dem hier üblichen Muster gefolgt.
+**Hier stand bis 2026-08-09 "Test belegt das nicht" — das war richtig für die zweite Fassung des Tests, nicht
+mehr für die dritte.** Zwei Entwürfe waren tatsächlich wertlos: der erste unerfüllbar (20 MB unter dem
+32-MB-Deckel und gleichzeitig `geliefert <= 4800`), der zweite *unfehlbar* (die Gegenprobe mit
+zurückgedrehtem Produktivcode bestand ihn ebenfalls, weil das fertige Riesen-NAL beim E-Bit auch am alten
+Deckel hängenbleibt — `geliefert == 0` in beiden Fassungen). Der dritte Entwurf misst, was wirklich
+unterscheidet: er häuft Fortsetzungen an, bis `buffered_len()` beim Überschreiten des Deckels **fällt** statt
+zu wachsen, verzehrt `dropped` mit einem Marker-Paket, und prüft dann, dass eine frische FU-A mit anderem
+Füllbyte sauber (klein, ohne `0xAA`-Reste) herauskommt. Eigens nachgemessen (2026-08-09): mit
+zurückgedrehtem Deckel läuft der Test bis zum Notausstieg bei 40 000 Fortsetzungen (47,9 MB, Deckel greift
+nie) und schlägt fehl — der Test ist jetzt scharf.
+**Der Einwand zum `h264_reset` im Deckel-Zweig war ebenfalls berechtigt, ist aber jetzt gedeckt:** eigens
+geprüft, indem NUR dieser eine Aufruf entfernt wurde (der `Err`-Zweig-Aufruf aus Befund 5 blieb stehen) —
+`repro_13` schlägt dann fehl. Der dritte Testentwurf deckt also beide `h264_reset`-Stellen ab, die zur
+Behebung dieses Befunds gehören.
+**Bleibt offen, gehört aber zu Befund 5, nicht hierher:** `fua_bytes` ist eine zweite Kopie fremder Regeln —
+ändert der Upstream die FU-A-Behandlung, driftet der Zähler lautlos. Ein Patch 0004 mit
+`pub fn fua_buffered()`/`pub fn reset()` im vendorten Crate wäre der sauberere Weg, ist aber eine größere
+Umbauarbeit und war nicht Teil dieser Behebungsrunde.
 
 **Stand: REPRODUZIERT** — Test `depacket::tests::repro_13_fua_puffer_waechst_am_deckel_vorbei`.
 Nach 17 501 FU-A-Paketen ohne E-Bit liegen **20 966 198 Byte** im `fua_buffer`, während
@@ -714,27 +733,23 @@ Meldung, `classify`).
 `src/decode.rs:1356` — **mittel, Ressourcenleck**
 *(zwei Linsen haben denselben Fehler gemeldet — hier zusammengefasst)*
 
-**Stand (Stufe 3): HALB BEHOBEN — die zweite Hälfte ist ein Rückschritt und sollte zurückgenommen
-werden.** `hw_ziel` wird beim Rückfall auf `Video::empty()` gesetzt (`decode.rs:1410`) — sauber, genau der
+**Stand (Stufe 3): BEHOBEN, bewusst nur zur Hälfte — der Rest ist an Befund 4 gebunden.**
+`hw_ziel` wird beim Rückfall auf `Video::empty()` gesetzt (`decode.rs:1410`) — sauber, genau der
 Zustand aus `VideoDecoder::new`, `in_den_hauptspeicher` verträgt ein leeres Ziel ausdrücklich, Test
-`repro_17_rueckfall_gibt_hw_ziel_nicht_frei` unverändert grün.
-**Das mitgelieferte `self.bruecke = Some(None)` ist auf Windows aber nicht verhaltenstreu — es öffnet
-Befund 4.** `Some(None)` droppt die `Bruecke` sofort, und `Bruecke::drop` (`zerocopy/bruecke.rs:161`) macht
+`repro_17_rueckfall_gibt_hw_ziel_nicht_frei` grün.
+**Hier stand bis 2026-08-09 kurzzeitig zusätzlich `self.bruecke = Some(None)` — das war falsch und ist
+noch am selben Tag wieder entfernt worden, bevor es auf `main` landete.** Die Gegenprobe hatte richtig
+gefangen: `Some(None)` droppt die `Bruecke` sofort, und `Bruecke::drop` (`zerocopy/bruecke.rs:161`) macht
 `CloseHandle` auf alle NT-Handles des Rings. Die schon ausgelieferten `GpuBild` halten auf Windows nur den
 Zahlenwert `handle: isize` (`zerocopy/platz.rs:22`), **kein** `Arc<Ringplatz>` wie auf Linux. Der Ablauf
 steht in derselben Funktion: `decode.rs:1310` holt `let bilder = self.drain();`, erst danach läuft
-`auf_software(...)` — und `Ok(bilder)` geht mit bereits geschlossenen Handles in die Pipeline, dazu bis zu
-32 + 12 früher abgeschickte. Trifft eines davon in `Fremdbilder::binden` auf einen noch nicht importierten
-Ringplatz, läuft `OpenSharedHandle` auf ein geschlossenes Handle. Bis heute lebte die Brücke bis zum
-Sitzungsende — der Rückfall war der eine Moment, in dem garantiert nichts geschlossen wurde. Die
-Lebensdauer-Zusicherungen in `platz.rs:53` und `render/fremdbild.rs:469` sind damit gebrochen und wurden
-nicht mitgezogen. **Das Abnahmekriterium deckt diese Hälfte gar nicht ab:** der Stufe-2-Test setzt
-`d.bruecke = Some(None)` schon *vor* dem Rückfall und prüft es danach — das wäre auch ohne jede Änderung
-erfüllt. Die Zeile ist von keinem Test auf keiner Plattform belegt.
-**Empfehlung:** `hw_ziel` behalten, `self.bruecke = Some(None)` erst landen, wenn `Ringplatz` per `Arc` an
-den `GpuBild`ern hängt (= Behebung von Befund 4), bis dahin weglassen oder `#[cfg(not(windows))]`. Sonst
-wird ein Leck mittlerer Schwere gegen eine breitere Angriffsfläche für einen Speichersicherheitsfehler
-hoher Schwere getauscht.
+`auf_software(...)` — und `Ok(bilder)` wäre mit bereits geschlossenen Handles in die Pipeline gegangen, dazu
+bis zu 32 + 12 früher abgeschickte. Das hätte Befund 4 einen zweiten, neuen Auslöser gegeben: bis dahin lebte
+die Brücke bis zum Sitzungsende, der Rückfall wäre der eine Moment gewesen, in dem garantiert etwas
+geschlossen wird. **Der Ring bleibt jetzt bewusst belegt, bis Befund 4 behoben ist** — `self.bruecke = Some(None)`
+darf erst landen, wenn `Ringplatz` per `Arc` an den `GpuBild`ern hängt. Ein ausführlicher Kommentar an der
+Stelle (`decode.rs`, `frischer_software_decoder`) hält die Begründung fest, damit niemand denselben Griff
+ein zweites Mal macht. Kein Test kann das auf dieser Maschine sehen — der Pfad existiert auf macOS nicht.
 
 **Stand: REPRODUZIERT (für `hw_ziel`)** — Test
 `decode::tests::repro_17_rueckfall_gibt_hw_ziel_nicht_frei`. `frischer_software_decoder` ersetzt
@@ -1089,7 +1104,7 @@ Renderer kann `record` nicht auslösen, nur der Hauptprozess), und der Bericht s
 „niedrig, Verteidigungstiefe" und die Behebung als „optional" ein. **Vor einer Behebung braucht es eine
 Produktentscheidung über die Grenze und eine Meldung dafür nach vorn — und der Test gehört auf einen
 realistischen Zeitraum umgeschrieben.**
-**Weitere Einwände:** der Wächter in `write_clip` ist von keinem der 247 Tests erreicht; unter Windows sind
+**Weitere Einwände:** der Wächter in `write_clip` ist von keinem der 248 Tests erreicht; unter Windows sind
 die Randfälle des `is_absolute()`/`is_dir()`-Zweigs ungeprüft (fehlender Laufwerksbuchstabe, MAX_PATH ohne
 `\\?\`); und `proto.rs:65/68` tragen weiterhin `#[allow(dead_code)]` auf `path`/`seconds`, obwohl beide
 gelesen werden — genau die Behauptung in Maschinenform, deren Prosa daneben gerade korrigiert wurde.
@@ -1405,15 +1420,24 @@ ein Ausfallsignal bekommen — allerdings als verbrauchtes **Ereignis** über de
 nicht als der dort vorgeschlagene Sichtbarkeits-**Zustand**, weil ein hängengebliebener
 Zustand die Aufsicht dauerhaft ausschalten würde.
 
-Was jetzt als Nächstes ansteht:
+**Stand 2026-08-09, vor dem Deploy:** Punkt 1 unten ist erledigt — beide Vorbehalte sind aufgelöst,
+nicht durch Zurücknehmen, sondern durch echte Behebung (Befund 13: dritter, scharfer Testentwurf;
+Befund 17: die riskante Zeile ist wieder raus, noch am selben Tag, vor dem ersten Push). Dazu ist beim
+Gegenlesen ein **dritter, bis dahin unbekannter Weg** zum Bildmüll aus Befund 5 aufgetaucht (der
+`Err`-Zweig ließ `fua_buffer` unangetastet) und ebenfalls behoben — siehe Befund 5. Damit sind
+**18 von 34 Befunden behoben**, alle mit grünem statt rotem Test. Die Punkte 2-6 stehen unverändert
+offen; 2 ist jetzt der wichtigste, weil er die beiden einzigen kritischen Befunde trägt.
 
-1. **Die zwei Vorbehalte auflösen, bevor der Stapel landet:** Befund 17 (`self.bruecke =
-   Some(None)` zurücknehmen oder Befund 4 vorziehen) und Befund 13 (unterscheidenden Test
-   nachziehen oder das `#[ignore]` wieder setzen). Beides ist im jeweiligen Abschnitt
-   ausformuliert.
-2. **Zwei Prüfläufe auf fremder Hardware:** ein Windows-Rechner mit HDR-Schirm (1, 4, 6, 16, 18)
-   und ein Linux-Rechner mit Vulkan/CUDA (2, 6). Das sind weiterhin die schwersten Befunde des
-   Berichts, und Befund 4 hat mit der Behebung von 17 zusätzlich an Dringlichkeit gewonnen.
+Was als Nächstes ansteht:
+
+1. ~~Die zwei Vorbehalte auflösen~~ **ERLEDIGT 2026-08-09**, s.o.
+2. **Zwei Prüfläufe auf fremder Hardware — der wichtigste offene Punkt:** ein Windows-Rechner mit
+   HDR-Schirm (Befunde 1, 4, 6, 16, 18) und ein Linux-Rechner mit Vulkan/CUDA (2, 6). Befund 1 und 2
+   sind die beiden **kritischen** Befunde des ganzen Berichts (Absturz bzw. Speichersicherheit) und
+   bislang auf keiner Plattform auch nur ausführbar geprüft — auf dem Mac übersetzen ihre `#[cfg]`-Zweige
+   nicht einmal. Befund 4 hat mit der Behebung von 17 zusätzlich an Dringlichkeit gewonnen: der Ring
+   bleibt jetzt absichtlich bis zum Sitzungsende belegt, bis 4 seine strukturelle Lösung bekommt
+   (`Ringplatz` per `Arc` an den `GpuBild`ern).
 3. **Prüfeinstiege nachrüsten, wo es heute keine gibt** (12, 23, 26, 33): `bilanz_pruefen` aus
    `App` herauslösen, `AudioOutput::new()` Host/Gerät übergeben lassen. Ohne diese Einstiege
    bleibt der nächste Bughunt an denselben Stellen wieder rein lesend.
@@ -1421,12 +1445,14 @@ Was jetzt als Nächstes ansteht:
    `poisoned`- und `kopf_lesen`-Ablehnungen): ein Zähler je Verwurfsgrund im Empfangsweg, damit
    ein dauerhaft schwarzes Bild in der Ferndiagnose nicht wie eine ruhige Leitung aussieht.
 5. **Restarbeit an Kommentaren**, die eine gerade korrigierte Aussage anderswo weitertragen —
-   gesammelt aus den Gegenproben: `depacket/mod.rs:40` (`fua_buffer` ist privat, nicht
-   `pub(crate)`), `depacket/av1.rs:79` und `:141`, `decode.rs:1740` und `:255`,
+   gesammelt aus den Gegenproben: `depacket/mod.rs:40` (**erledigt 2026-08-09**, `fua_buffer` ist
+   modulprivat, nicht `pub(crate)`), `depacket/av1.rs:79` und `:141`, `decode.rs:1740` und `:255`,
    `recorder.rs:507`, `render/shader.wgsl:186`, `whep.rs:976`, `proto.rs:65/68`
    (`#[allow(dead_code)]` auf gelesenen Feldern), `zerocopy/platz.rs:53` und
-   `render/fremdbild.rs:469` (gebrochene Lebensdauer-Zusicherung), `bruecke.rs:63`
+   `render/fremdbild.rs:469` (Lebensdauer-Zusicherung — bleibt vorerst korrekt, weil Befund 17 den
+   Bruch zurückgenommen hat, statt ihn zu begehen), `bruecke.rs:63`
    (Ringgröße noch mit 24 Plätzen gerechnet) sowie `streaming/pulse-player/README.md:279`
    (Einfrier-Wächter ohne die neue Ausnahme).
 6. **Changelog:** der Stapel enthält mit Befund 19 und 29 sichtbare Farbänderungen; dafür gibt
-   es noch keinen Eintrag in `web/static/changelog.json`.
+   es noch keinen Eintrag in `web/static/changelog.json`. Wird Teil des Deploys, den dieser Bericht
+   begleitet.

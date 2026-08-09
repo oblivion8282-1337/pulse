@@ -37,8 +37,9 @@ enum Kind {
         unit: BytesMut,
         dropped: bool,
         /// Mitzaehlung dessen, was im `fua_buffer` des Depacketizers liegt —
-        /// das Feld selbst ist `pub(crate)` im `rtp`-Crate und von aussen
-        /// weder lesbar noch leerbar. Spiegelt dessen Regeln exakt: jedes
+        /// das Feld selbst ist modulprivat im `rtp`-Crate (kein Sichtbarkeits-
+        /// Attribut, hier stand bis 2026-08-09 faelschlich `pub(crate)`) und
+        /// von aussen weder lesbar noch leerbar. Spiegelt dessen Regeln exakt: jedes
         /// FU-A-Paket haengt `payload.len() - 2` an, das E-Bit gibt den Puffer
         /// heraus (und damit auf 0).
         fua_bytes: usize,

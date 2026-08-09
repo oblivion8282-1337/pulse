@@ -420,16 +420,23 @@ modules:
         tag: v0.17.2
         commit: 1da3fe8ee84db8d266322cbcfcb357c745959a8e
         dest: vendor/webrtc-rs
-      # Beide Patches, in derselben Reihenfolge wie im Skript. Der erste macht
-      # die Ströme sichtbar, deren SSRC zu keiner angemeldeten Spur passt (dort
-      # liegen die FlexFEC-Paritätspakete), der zweite setzt die NACK-Sperrfrist.
-      # Ohne den zweiten verhielte sich der ausgelieferte Player anders als der
-      # gemessene.
+      # Alle drei Patches, in derselben Reihenfolge wie im Skript. Der erste
+      # macht die Ströme sichtbar, deren SSRC zu keiner angemeldeten Spur passt
+      # (dort liegen die FlexFEC-Paritätspakete), der zweite setzt die
+      # NACK-Sperrfrist, der dritte schließt eine Index-Panik im STAP-A-Zweig
+      # (Bughunt 4, 2026-08-08: ein Paket mit einem überzähligen Byte ließ
+      # `packet[curr_offset + 1]` über das Pufferende lesen — von jedem Sender
+      # auslösbar). Fehlt einer, verhält sich der ausgelieferte Player anders
+      # als der gemessene, und bei diesem hier fehlt nicht nur eine Messung,
+      # sondern der Absturzschutz.
       - type: patch
         path: ../streaming/pulse-player/patches/0001-webrtc-rs-expose-undeclared-ssrc-streams.patch
         dest: vendor/webrtc-rs
       - type: patch
         path: ../streaming/pulse-player/patches/0002-nack-generator-resend-delay.patch
+        dest: vendor/webrtc-rs
+      - type: patch
+        path: ../streaming/pulse-player/patches/0003-h264-stapa-bounds-check.patch
         dest: vendor/webrtc-rs
       # Wie beim Sidecar: ändert sich `Cargo.lock`, muss diese Datei neu
       # generiert werden (flatpak-cargo-generator).

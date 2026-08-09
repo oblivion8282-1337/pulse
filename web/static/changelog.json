@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-09",
+      "date": "2026-08-09",
+      "style": "Sachlich",
+      "title": "Absturz beim Ansehen behoben, dazu Ton- und Farbfehler",
+      "intro": "Ein Fehlersuchlauf durch den Wiedergabefenster-Code hat mehrere Probleme gefunden, die beim Zuschauen auffallen konnten.",
+      "items": [
+        "Behoben: Ein einzelnes fehlerhaftes Datenpaket vom Sender konnte das Wiedergabefenster abstuerzen lassen. Ein einzelnes betroffenes Paket reichte aus; jetzt wird es sauber verworfen.",
+        "Behoben: Nach einer kleinen Tonstoerung konnten linker und rechter Kanal kurzzeitig vertauschen.",
+        "Behoben: Bei bestimmten Farbeinstellungen (HDR-Nachbearbeitung, ein spezielles Bildformat) waren Farben minimal falsch dargestellt.",
+        "Dazu mehrere kleinere Fehler behoben, die nur unter seltenen Bedingungen auftraten -- etwa unnoetig hoher Speicherverbrauch bei langen Sitzungen und eine Leistungsbremse, die nach dem Minimieren des Fensters manchmal haengen blieb."
+      ]
+    },
+    {
       "id": "2026-08-08",
       "date": "2026-08-08",
       "style": "Sachlich",
