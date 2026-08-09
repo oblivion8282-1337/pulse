@@ -326,7 +326,6 @@
   kind="party"
   containerTestid="watch-party-tile"
   testidPrefix="watch-party"
-  staticHud
   name={sourceLabel}
   nameTestid="watch-party-source-label"
   volume={viewerReadonly ? viewerVolume : undefined}
