@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-09.2",
+      "date": "2026-08-09",
+      "style": "Sachlich",
+      "title": "Watchparty im eigenen Fenster aufgeraeumt",
+      "intro": "Das abgekoppelte Watchparty-Fenster laesst sich uebersichtlicher bedienen.",
+      "items": [
+        "Der Andocken-Knopf liegt jetzt unten in der Steuerleiste, nicht mehr als einzelner Knopf oben rechts.",
+        "Das zweite, verwirrende Ausblenden-X im eigenen Fenster ist entfallen.",
+        "Schliessen und Beenden sind nun klar getrennt: Andocken fuegt das Fenster wieder ins Hauptfenster ein, Watchparty beenden stoppt die Party fuer alle."
+      ]
+    },
+    {
       "id": "2026-08-09",
       "date": "2026-08-09",
       "style": "Sachlich",

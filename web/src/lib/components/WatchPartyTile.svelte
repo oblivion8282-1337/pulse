@@ -23,6 +23,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import RewindIcon from '@lucide/svelte/icons/rewind';
   import ReplaceIcon from '@lucide/svelte/icons/replace';
+  import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import WatchQueuePanel from './WatchQueuePanel.svelte';
@@ -53,9 +54,18 @@
     /** Wenn false (Popup-Modus), kein Detach-Button — wir sind ja schon
      *  entkoppelt. */
     canDetach?: boolean;
+    /** Wenn false (Popup-Modus), kein Ausblenden-X: im eigenen Fenster wäre
+     *  „Ausblenden" der einzige Inhalt, und als Host würde ein watch_leave die
+     *  Party ohnehin sofort beenden (`end_if_host`). Schließen läuft dort über
+     *  „Andocken" / Fenster-X, Beenden über „Watchparty beenden". */
+    canHide?: boolean;
+    /** Nur im Popup gesetzt: legt den „Andocken"-Knopf in die Steuerleiste
+     *  (statt als Overlay oben rechts), der das Popup schließt und die Kachel
+     *  wieder inline andockt. */
+    onDock?: () => void;
   }
 
-  let { channelId, party, canDetach = true }: Props = $props();
+  let { channelId, party, canDetach = true, canHide = true, onDock }: Props = $props();
 
   // Rechtes Seitenpanel: Chat ODER Warteschlange, nie beide gleichzeitig
   // (teilen sich den Slot). Die beiden Toggles schliessen sich gegenseitig.
@@ -81,6 +91,17 @@
         description: m.watch_party_tile_popup_blocked_description()
       });
     }
+  }
+
+  // Explizites Schließen der Kachel per X: ein Zuschauer verlässt damit die
+  // Party aktiv (raus aus der Watcher-Registry), auch wenn er im Voice bleibt
+  // — im Gegensatz zu reinem UI-Wegnavigieren, das der inVoiceChannel-Guard im
+  // Unmount abfängt. Der Host behält seine Party (Host-sticky); für ihn ist das
+  // X nur Verstecken, kein Beenden. Der Unmount-Guard unterdrückt danach das
+  // doppelte watch_leave (er ist ja noch im Voice).
+  function hideTile(): void {
+    if (!isHost) gateway.sendWatchLeave(channelId, partyId);
+    watchBackground.closeParty(channelId, partyId);
   }
 
   const isHost = $derived(!!myId && party.host_user_id === myId);
@@ -316,16 +337,7 @@
   {queueOpen}
   onToggleQueue={toggleQueue}
   onDetach={canDetach ? handleDetach : undefined}
-  onHide={() => {
-    // Explizites Schließen der Kachel per X: ein Zuschauer verlässt damit die
-    // Party aktiv (raus aus der Watcher-Registry), auch wenn er im Voice bleibt
-    // — im Gegensatz zu reinem UI-Wegnavigieren, das der inVoiceChannel-Guard im
-    // Unmount abfängt. Der Host behält seine Party (Host-sticky); für ihn ist das
-    // X nur Verstecken, kein Beenden. Der Unmount-Guard unterdrückt danach das
-    // doppelte watch_leave (er ist ja noch im Voice).
-    if (!isHost) gateway.sendWatchLeave(channelId, partyId);
-    watchBackground.closeParty(channelId, partyId);
-  }}
+  onHide={canHide ? hideTile : undefined}
 >
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">
@@ -395,6 +407,18 @@
     {/if}
   {/snippet}
   {#snippet controlsExtra()}
+    {#if onDock}
+      <button
+        type="button"
+        onclick={onDock}
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+        aria-label={m.watch_popup_reattach_label()}
+        title={m.watch_popup_reattach_title()}
+        data-testid="watch-party-dock"
+      >
+        <PictureInPicture2Icon class="size-5 md:size-3.5" />
+      </button>
+    {/if}
     {#if viewerReadonly && captions.tracks.length > 0}
       <WatchCaptionsMenu
         tracks={captions.tracks}
