@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-09.3",
+      "date": "2026-08-09",
+      "style": "Sachlich",
+      "title": "Android-App belastet den Akku im Hintergrund nicht mehr",
+      "intro": "Pulse lief auf dem Handy weiter, auch wenn niemand in einem Sprachkanal war.",
+      "items": [
+        "Behoben: Die Android-App hat sich nach dem Start dauerhaft im Hintergrund gehalten und den Akku belastet. Android hat das mit einem Hinweis auf aktive Apps angezeigt.",
+        "Jetzt laeuft die Hintergrund-Aktivitaet nur noch, solange du wirklich in einem Sprachkanal bist. Beim Schreiben oder wenn die App nicht benutzt wird, geht sie wie andere Apps in den Ruhezustand."
+      ]
+    },
+    {
       "id": "2026-08-09.2",
       "date": "2026-08-09",
       "style": "Sachlich",

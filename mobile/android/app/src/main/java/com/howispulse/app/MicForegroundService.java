@@ -12,11 +12,16 @@ import android.os.IBinder;
 import androidx.core.app.NotificationCompat;
 
 /**
- * Minimaler Foreground Service vom Typ "microphone". Zweck (Test-Hypothese):
+ * Minimaler Foreground Service vom Typ "microphone". Zweck:
  * Auf OS-Ebene die Voraussetzung schaffen, dass die Mikrofon-Aufnahme bei
- * gesperrtem Bildschirm / im Hintergrund nicht gekappt wird. OB das auch den
- * WebView-internen getUserMedia/LiveKit-Stream am Leben hält, ist genau das,
- * was dieser Build verifizieren soll.
+ * gesperrtem Bildschirm / im Hintergrund während eines Voice-Calls nicht
+ * gekappt wird.
+ *
+ * Gesteuert wird er ausschließlich über {@link MainActivity#setMicServiceActive}
+ * (getrieben vom setVoiceActive-Signal aus dem Web): startet beim Voice-Join,
+ * stoppt beim Leave. Er läuft also NIE pausenlos ab App-Start — das früher
+ * bedingungslose Starten in onCreate erzeugte den Android-Hinweis „läuft im
+ * Hintergrund" und kostete Akku, weil der Prozess nie suspendiert wurde.
  *
  * Der Service tut selbst NICHTS mit dem Mikrofon — er öffnet keinen eigenen
  * Aufnahme-Pfad (das würde mit dem WebView um das Mic konkurrieren). Er hält
@@ -42,8 +47,11 @@ public class MicForegroundService extends Service {
         } else {
             startForeground(NOTIF_ID, n);
         }
-        // Neustart durch das System, falls gekillt (best effort gegen OEM-Killer).
-        return START_STICKY;
+        // START_NOT_STICKY: wird der Service gekillt, soll er NICHT von selbst
+        // wiederkommen — ein Start erfolgt nur gezielt bei einem neuen Voice-Join
+        // (MainActivity.setMicServiceActive). START_STICKY hätte ihn auch ohne
+        // aktiven Call reproduziert → dauerhafter Hintergrund-Prozess + Akku.
+        return START_NOT_STICKY;
     }
 
     private void createChannel() {

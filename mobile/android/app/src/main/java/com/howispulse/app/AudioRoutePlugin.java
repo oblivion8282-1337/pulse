@@ -52,6 +52,9 @@ public class AudioRoutePlugin extends Plugin {
      * Voice-Join/-Leave-Signal aus dem Web. Lässt den {@link SpeakerphoneRouter}
      * den Comm-Modus aktiv halten, damit Voice über den Telefon-Kanal (BT-SCO)
      * statt den Medien-Kanal (A2DP) läuft. Siehe {@link SpeakerphoneRouter#setVoiceActive}.
+     * Startet zusätzlich den {@link MicForegroundService} (nur während des Calls),
+     * damit die WebView-Mic-Aufnahme bei Screen-Lock am Leben bleibt — und eben
+     * nicht dauerhaft ab App-Start (sonst „läuft im Hintergrund" + Akku).
      */
     @PluginMethod
     public void setVoiceActive(PluginCall call) {
@@ -61,7 +64,12 @@ public class AudioRoutePlugin extends Plugin {
             call.reject("audio router unavailable");
             return;
         }
-        getActivity().runOnUiThread(() -> r.setVoiceActive(active));
+        getActivity().runOnUiThread(() -> {
+            r.setVoiceActive(active);
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).setMicServiceActive(active);
+            }
+        });
         call.resolve();
     }
 
