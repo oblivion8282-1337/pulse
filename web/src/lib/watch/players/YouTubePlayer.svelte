@@ -99,6 +99,10 @@
     const canControl = untrack(() => interactive);
     let player: YTPlayer | undefined;
     let disposed = false;
+    // Set by BOTH destroy paths (the handle and this $effect cleanup) so the
+    // handle's methods no-op against a player whose iframe is already gone.
+    // See the onReady comment for why this is reachable from teardown order.
+    let killed = false;
     // CyTube's `pauseSeekRaceCondition` (player/youtube.coffee): calling
     // pause() before the player has ever fired a PLAYING event makes the YT
     // iframe "do weird things" — historically a hard crash, today a swallowed
@@ -129,28 +133,39 @@
           },
           events: {
             onReady: () => {
+              // Once destroy() has run, the underlying YT.Player still exists
+              // as an object but its iframe is gone — every method then throws
+              // ("Cannot read properties of null (reading 'src')"). Teardown
+              // order makes this reachable: Svelte destroys the child player
+              // (this $effect cleanup) BEFORE the parent tile's onDestroy fires
+              // controller.dispose() → cancelNudge() → setPlaybackRate(). A
+              // pending drift-nudge timer (2–3s) can fire the same call even
+              // with no dispose in between. Guard at the handle so every caller
+              // is safe, not just the one we noticed.
+              const p = () => (killed ? undefined : player);
               const handle: PlayerHandle = {
                 play: () => {
                   // Cancel any pause deferred before the first PLAYING event.
                   pendingPause = false;
-                  player?.playVideo();
+                  p()?.playVideo();
                 },
                 pause: () => {
                   // Before the first PLAYING event, don't pause directly (the
                   // race above) — defer and replay it in onStateChange.
-                  if (firstPlayingSeen) player?.pauseVideo();
+                  if (firstPlayingSeen) p()?.pauseVideo();
                   else pendingPause = true;
                 },
-                seek: (t: number) => player?.seekTo(t, true),
-                getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
-                getDuration: () => Number(player?.getDuration() ?? 0),
-                setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
-                setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
+                seek: (t: number) => p()?.seekTo(t, true),
+                getCurrentTime: () => Number(p()?.getCurrentTime() ?? 0),
+                getDuration: () => Number(p()?.getDuration() ?? 0),
+                setPlaybackRate: (r: number) => p()?.setPlaybackRate(r),
+                setVolume: (pp: number) => p()?.setVolume(Math.max(0, Math.min(100, pp))),
                 hasCaptionSupport: captions.isAvailable,
                 getCaptionTracks: captions.getCaptionTracks,
                 getActiveCaptionTrack: captions.getActiveCaptionTrack,
                 setCaptionTrack: captions.setCaptionTrack,
                 destroy: () => {
+                  killed = true;
                   try {
                     player?.destroy();
                   } catch {
@@ -205,6 +220,7 @@
 
     return () => {
       disposed = true;
+      killed = true;
       try {
         player?.destroy();
       } catch {
