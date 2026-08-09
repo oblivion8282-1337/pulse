@@ -9,9 +9,10 @@
   in einer soliden Leiste DARUNTER (`TileDock overlay=false`). Nur im Vollbild
   wird die Leiste zum fadenden Overlay über dem unteren Bildrand
   (`overlay=true`) — immersiv, taucht bei Maus-/Tap-Aktivität auf und fadet nach
-  2,5 s weg. Für die Watch-Party (iframe) ist die Leiste-darunter ideal: der
-  alte Klick-Fänger über dem iframe (`staticHud`) entfällt, weil nichts mehr
-  über dem Video liegt.
+  2,5 s weg. Das gilt für alle Kacheln inkl. Watch-Party. Der transparente
+  Klick-Fänger (Doppelklick → Vollbild) liegt nur über <video>-Kacheln, NICHT
+  über der Watch-Party (kind 'party'): dort ist das Medium ein iframe, dessen
+  native Controls der Fänger sonst blockieren würde.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -36,7 +37,6 @@
     nameTestid,
     video = null,
     forceHud = false,
-    staticHud = false,
     volume,
     onVolumeChange,
     onToggleMute,
@@ -72,8 +72,6 @@
     video?: HTMLVideoElement | null;
     /** HUD im Vollbild erzwungen sichtbar (Verbinde-/Fehler-Overlay). */
     forceHud?: boolean;
-    /** Watch Party: Leiste im Vollbild dauerhaft sichtbar (iframe-Controls). */
-    staticHud?: boolean;
     /** Gesetzt → Lautstärke-Regler wird gerendert (HQ + Screenshare). */
     volume?: number;
     onVolumeChange?: (e: Event) => void;
@@ -124,7 +122,7 @@
   let dockWide = $state(true);
   const DOCK_WIDE_MIN = 340;
 
-  const hudEffective = $derived(staticHud || hudVisible || forceHud);
+  const hudEffective = $derived(hudVisible || forceHud);
   const fadeClass = $derived(
     `transition-opacity duration-300 ${hudEffective ? 'opacity-100' : 'pointer-events-none opacity-0'}`
   );
@@ -135,7 +133,7 @@
   const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.isMobile);
 
   function pokeHud(): void {
-    if (!isFullscreen || staticHud) return;
+    if (!isFullscreen) return;
     hudVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -226,10 +224,11 @@
       {@render media()}
       {@render overlay?.()}
 
-      {#if !staticHud}
+      {#if kind !== 'party'}
         <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
              Doppelklick → Fullscreen (Desktop), Tap → Leiste toggeln nur im
-             Vollbild (Mobile). -->
+             Vollbild (Mobile). Die Watch-Party (kind 'party') nutzt ein
+             iframe — dort würde der Fänger die nativen Controls blockieren. -->
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div
           class="absolute inset-0 cursor-pointer"
@@ -247,11 +246,9 @@
         </div>
       {/if}
 
-      <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand.
-           NICHT bei der Watch-Party (staticHud) — dort würde das Overlay die
-           nativen iframe-Controls verdecken; die kriegt stattdessen die
-           solide Leiste darunter (siehe unten). -->
-      {#if isFullscreen && !staticHud && !hideDock}
+      <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand,
+           das nach Inaktivität (HUD_HIDE_AFTER_MS) ausgeblendet wird. -->
+      {#if isFullscreen && !hideDock}
         <div
           class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
         >
@@ -275,11 +272,9 @@
       {/if}
     </div>
 
-    <!-- Solide Steuerleiste UNTER dem Video. Normalerweise nur außerhalb des
-         Vollbilds — aber die Watch-Party (staticHud) behält sie auch im
-         Vollbild solide darunter, damit das iframe (leicht kleiner) seine
-         nativen Controls frei darüber behält. -->
-    {#if (!isFullscreen || staticHud) && !hideDock}
+    <!-- Solide Steuerleiste UNTER dem Video, nur außerhalb des Vollbilds.
+         Im Vollbild übernimmt das fadende Overlay oben. -->
+    {#if !isFullscreen && !hideDock}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>
