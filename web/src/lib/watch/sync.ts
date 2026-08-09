@@ -56,6 +56,10 @@ export type PlayerEvent =
   // The player's caption support appeared or changed (YouTube: onApiChange).
   // The tile re-reads the track list and shows/hides its CC control.
   | { type: 'captions_changed' }
+  // YouTube's adaptive bitrate switched the delivered resolution — the tile
+  // re-reads it for its quality badge. Read-only display; there is no setter
+  // (setPlaybackQuality is deprecated and would only be an empty promise).
+  | { type: 'quality_changed' }
   | { type: 'error'; reason: string };
 
 /** One selectable subtitle/caption track of the current media. */
@@ -97,6 +101,11 @@ export interface PlayerHandle {
   getActiveCaptionTrack?(): string | null;
   /** Activate a track by language code; null turns captions off. */
   setCaptionTrack?(languageCode: string | null): void;
+  /** Aktuelle Wiedergabe-Auflösung als Roh-Code ('hd1080', 'medium', 'auto', …),
+   *  oder null wenn unbekannt. OPTIONAL — nur YouTube implementiert das heute.
+   *  Liefert den WERT, den der Player gerade ausspielt (Adaptive Bitrate), nicht
+   *  einen Wunsch — deshalb verlässlich, anders als der deaktivierte Setter. */
+  getPlaybackQuality?(): string | null;
   destroy(): void;
 }
 

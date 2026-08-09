@@ -2317,6 +2317,7 @@
   "watch_party_tile_handoff_to": "Übergeben an {name}",
   "watch_party_tile_host_label": "Host: {name}",
   "watch_party_tile_watching": "Zuschauer: {count}",
+  "watch_party_tile_quality_title": "Aktuell gelieferte Auflösung — YouTube wählt automatisch (Adaptive Bitrate)",
   "watch_party_tile_live_badge_title": "Live-Stream — kein zentraler Sync, Viewer landen auf ihrer eigenen Buffer-Position",
   "watch_party_tile_now_controlling": "Du steuerst jetzt die Watch Party",
   "watch_party_tile_popup_blocked": "Popup blockiert",
