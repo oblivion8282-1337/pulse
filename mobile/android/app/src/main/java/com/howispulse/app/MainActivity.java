@@ -19,9 +19,13 @@ import java.util.List;
  *  - Runtime-Anfrage von RECORD_AUDIO (+ POST_NOTIFICATIONS ab API 33). Capacitor
  *    reicht die WebView-getUserMedia-Permission selbst durch, sobald RECORD_AUDIO
  *    granted ist (BridgeWebChromeClient.onPermissionRequest).
- *  - Start des microphone-Foreground-Service, solange die Activity sichtbar ist
- *    (while-in-use-Regel ab API 34). Der FGS läuft danach durchgehend und soll
- *    die Mic-Aufnahme bei Screen-Lock am Leben halten — die Test-Hypothese.
+ *  - Start/Stopp des microphone-Foreground-Service GEBUNDEN an einen aktiven
+ *    Voice-Call (while-in-use-Regel ab API 34). {@link #setMicServiceActive}
+ *    wird vom {@link AudioRoutePlugin} gerufen, sobald das Web „voice beigetreten"
+ *    bzw. „verlassen" signalisiert (setVoiceActive). Der Service läuft also NUR
+ *    während eines Calls und soll die Mic-Aufnahme bei Screen-Lock am Leben
+ *    halten — beim App-Start wird er bewusst NICHT mehr gezogen (sonst liefe
+ *    Pulse dauerhaft im Hintergrund → Akku + „aktive Apps"-Hinweis).
  *  - SpeakerphoneRouter: zwingt die WebRTC-Wiedergabe auf den lauten Medien-
  *    Lautsprecher statt die Hörmuschel (Chromium setzt bei aktivem WebRTC den
  *    Audio-Modus auf MODE_IN_COMMUNICATION → Android routet sonst auf earpiece).
@@ -36,6 +40,10 @@ public class MainActivity extends BridgeActivity {
 
     private SpeakerphoneRouter speakerRouter;
 
+    /** Service-Start steht aus, weil die Mic-Permission erst eingeholt wird.
+     *  Setzt voraus, dass der User gerade einen Voice-Join ausgelöst hat. */
+    private boolean micStartPending = false;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // MUSS vor super.onCreate registriert werden, damit die Bridge das Plugin
@@ -44,13 +52,27 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
-        ensurePermissionsThenStartMicService();
     }
 
     /** Vom {@link AudioRoutePlugin} genutzt, damit der UI-Umschalter und das
      *  automatische Routing denselben Router-Zustand teilen. */
     public SpeakerphoneRouter getSpeakerphoneRouter() {
         return speakerRouter;
+    }
+
+    /**
+     * Vom {@link AudioRoutePlugin} gerufen, sobald das Web „voice beigetreten"
+     * ({@code active=true}) bzw. „verlassen" ({@code false}) signalisiert.
+     * Startet bzw. stoppt den {@link MicForegroundService} passend — er läuft
+     * also nur, solange Voice aktiv ist, nie pausenlos ab App-Start.
+     */
+    public void setMicServiceActive(boolean active) {
+        if (active) {
+            startMicService();
+        } else {
+            micStartPending = false;
+            stopService(new Intent(this, MicForegroundService.class));
+        }
     }
 
     @Override
@@ -67,44 +89,46 @@ public class MainActivity extends BridgeActivity {
             speakerRouter.stop();
             speakerRouter = null;
         }
+        // Sicherheitsnetz: falls das Web das Leave-Signal nicht (mehr) schicken
+        // konnte (Prozess-Wechsel, Absturz). Ohne das könnte der FGS hängenbleiben.
+        stopService(new Intent(this, MicForegroundService.class));
         super.onDestroy();
-    }
-
-    private void ensurePermissionsThenStartMicService() {
-        List<String> need = new ArrayList<>();
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.RECORD_AUDIO);
-        }
-        if (Build.VERSION.SDK_INT >= 33
-                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
-        if (need.isEmpty()) {
-            startMicService();
-        } else {
-            ActivityCompat.requestPermissions(this, need.toArray(new String[0]), REQ_VOICE_PERMS);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_VOICE_PERMS) {
-            startMicService();
-        }
     }
 
     private void startMicService() {
         // Ohne Mic-Permission ist ein microphone-FGS sinnlos (und würde ab API 34
-        // mit SecurityException starten).
+        // mit SecurityException starten). Noch nicht erteilt → runtime anfragen
+        // und den Start zurückstellen, bis der Grant eintrifft.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
+            micStartPending = true;
+            List<String> need = new ArrayList<>();
+            need.add(Manifest.permission.RECORD_AUDIO);
+            if (Build.VERSION.SDK_INT >= 33
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                            != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+            ActivityCompat.requestPermissions(this, need.toArray(new String[0]), REQ_VOICE_PERMS);
             return;
         }
         // ContextCompat wählt intern startForegroundService (API 26+) bzw.
         // startService (darunter) — entspricht der bisherigen Version-Branch.
         ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Nur nachholen, wenn der Start auf den Permission-Grant gewartet hat.
+        if (requestCode == REQ_VOICE_PERMS && micStartPending) {
+            micStartPending = false;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED) {
+                ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
+            }
+            // Abgewiesen → kein Service. Der WebView-getUserMedia wird ohnehin
+            // fehlschlagen, der User bleibt ohne Mic, aber ohne Hintergrund-Last.
+        }
     }
 }

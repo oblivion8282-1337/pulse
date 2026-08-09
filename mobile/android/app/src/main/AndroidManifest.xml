@@ -34,7 +34,9 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
-        <!-- Hält die WebView-Mic-Aufnahme bei Screen-Lock am Leben (Test-Hypothese). -->
+        <!-- Hält die WebView-Mic-Aufnahme bei Screen-Lock am Leben. Start/Stop
+             ist an einen aktiven Voice-Call gebunden (MainActivity.setMicServiceActive),
+             nicht an den App-Start — sonst liefe Pulse dauerhaft im Hintergrund. -->
         <service
             android:name=".MicForegroundService"
             android:foregroundServiceType="microphone"
