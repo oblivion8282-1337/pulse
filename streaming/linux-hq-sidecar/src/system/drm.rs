@@ -40,7 +40,8 @@ impl Vendor {
     }
 }
 
-/// Treibername → Vendor.
+/// Treibername → Vendor. Reine Abbildung — wer nichts findet, protokolliert es
+/// selbst (s. [`enumerate_render_nodes`], Schwesterfunktion [`parse_vendor`]).
 fn driver_to_vendor(driver: &str) -> Option<Vendor> {
     match driver {
         "nvidia" | "nvidia-drm" => Some(Vendor::Nvidia),
@@ -58,6 +59,7 @@ struct Node {
 
 fn enumerate_render_nodes() -> Vec<Node> {
     let mut nodes = Vec::new();
+    let mut uebersprungen: Vec<String> = Vec::new();
     let class = Path::new("/sys/class/drm");
     let Ok(entries) = fs::read_dir(class) else {
         return nodes;
@@ -75,10 +77,30 @@ fn enumerate_render_nodes() -> Vec<Node> {
         };
         let driver = driver_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let Some(vendor) = driver_to_vendor(driver) else {
+            uebersprungen.push(driver.to_string());
             continue;
         };
         let dev_path = Path::new("/dev/dri").join(name);
         nodes.push(Node { path: dev_path, vendor });
+    }
+    // **Der Treibername ist die eine Information, die die Fehlersuche vom
+    // Binary weg auf die GPU lenkt.** `caps::probe_all` warnt zwar schon, wenn
+    // gar keine Karte uebrig bleibt — aber ohne den Namen: „keine bekannte GPU
+    // erkannt" laesst offen, ob eine da war. Reale Faelle, die hier
+    // haengenbleiben: `nouveau`/NVK (Fedora-Standard, bis der proprietaere
+    // Treiber installiert ist; NVENC waere darueber ohnehin nicht erreichbar),
+    // `radeon` (vor GCN 1.1), `virtio_gpu` und `vmwgfx` (virtuelle Maschine,
+    // Remote-Desktop).
+    //
+    // Hier und nicht in `driver_to_vendor`: die Abbildung bleibt rein, die
+    // Meldung faellt einmal je Aufzaehlung statt einmal je uebersprungener
+    // Karte — und `detect()` laeuft je Vorgang mehrfach (health ruft es zweimal,
+    // der Start dreimal).
+    if !uebersprungen.is_empty() && nodes.is_empty() {
+        tracing::warn!(
+            target: "stream", treiber = uebersprungen.join(", "),
+            "keine unterstuetzte GPU — alle gefundenen DRM-Treiber sind fuer HQ ungeeignet"
+        );
     }
     nodes
 }
