@@ -1,0 +1,41 @@
+[package]
+name = "vaapi-dmabuf-export"
+version = "0.0.0"
+edition = "2021"
+
+# Machbarkeitsnachweis, KEIN Workspace-Mitglied. Beruehrt kein Bauziel des
+# Produkts; ein Fehlschlag hier kann nichts brechen.
+#
+# **Die Frage, die diese Probe beantwortet:** In welcher Gestalt gibt FFmpeg
+# eine VAAPI-Surface als DMA-BUF heraus? Davon haengt ab, ob die dritte
+# Zero-Copy-Bruecke den fertigen Helfer aus wgpu-hal 30 benutzen kann
+# (`texture_from_dmabuf_fd`) — der nimmt ausdruecklich nur **einplanige**
+# DMA-BUFs. Kommt ein Layer mit mehr als einer Plane zurueck (Modifier mit
+# Kompressions-Metadaten), traegt der bequeme Weg nicht und es braucht ein
+# eigenes VkImage mit `VkImageDrmFormatModifierExplicitCreateInfoEXT`.
+#
+# Deshalb nur Ausgabe, kein wgpu: die Antwort steht im Deskriptor, nicht im
+# Renderer. Eine Probe, die schon importiert, verwechselt zwei Fragen.
+
+[dependencies]
+# Dieselbe Fassung wie der Player (`streaming/pulse-player/Cargo.toml`), sonst
+# sagt die Messung ueber den Player nichts. `hwcontext_drm.h` kommt ueber
+# ffmpeg-sys-next herein — ob es das tut, ist Teil der Frage.
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "software-scaling",
+] }
+anyhow = "1"
+# **30, weil es genau darum geht.** `texture_from_dmabuf_fd` gibt es erst dort
+# (wgpu-hal 30.0.0, `src/vulkan/device.rs:525`); auf 29 muesste die Bruecke ein
+# eigenes VkImage bauen. Dieselbe Fassung wie der Player auf `chore/player-wgpu30`.
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
+pollster = "0.4"
+
+[[bin]]
+name = "vaapi-dmabuf-export"
+path = "src/main.rs"
+
+[profile.release]
+debug = true
