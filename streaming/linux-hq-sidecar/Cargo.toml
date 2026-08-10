@@ -52,7 +52,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 # --enable-gnutls --enable-libdrm --enable-nvenc --enable-vulkan.
 # KEIN `build`-Feature (würde FFmpeg aus Source bauen). `filter` kommt dazu,
 # sobald scale_vaapi für den BGRA→NV12-Convert gebraucht wird (Phase 5).
-ffmpeg-next = { version = "8.1", default-features = false, features = [
+ffmpeg-next = { version = "9.0", default-features = false, features = [
     "codec",
     "format",
     "filter",              # scale_vaapi (BGRx→NV12 CSC) für den VAAPI-Import

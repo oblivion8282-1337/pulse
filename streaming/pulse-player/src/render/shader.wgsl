@@ -21,7 +21,8 @@ struct Uniforms {
     // (s. render::farbe::scales und `yuv_to_rgb`), w frei
     output: vec4<f32>,
     // x = Quelle ist PQ (sonst SDR-artig), y = Ausgabe ist ein HDR-Fenster
-    // (scRGB), z = Spitzenhelligkeit des Inhalts in cd/m², w frei
+    // (scRGB), z = Spitzenhelligkeit des Inhalts in cd/m²,
+    // w = Ausgabe ist ein PQ-Fenster (BT.2020/ST 2084 unveraendert durchgereicht)
     hdr: vec4<f32>,
 };
 
@@ -334,6 +335,24 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 // unveraendert weitergereicht (HDR-Fenster) oder zusammengeschoben wird
 // (SDR-Fenster).
 fn pq_ausgeben(kodiert: vec3<f32>) -> vec4<f32> {
+    // **PQ-Fenster: nichts zu tun.** Der Strom ist BT.2020 mit PQ, und genau
+    // das erwartet die Oberflaeche — sie ist mit ebendiesen Angaben beim
+    // Compositor angemeldet (`render::hdr_tag`). Kurve aufloesen und wieder
+    // anwenden waere zweimal Rechnen fuer dasselbe Ergebnis, nur mit
+    // Rundungsverlust.
+    //
+    // **Und es ist der einzige Weg ohne Bezugsweiss-Frage.** scRGB ist relativ:
+    // es sagt „1,0 = 80 cd/m²", verraet aber nicht, wo in diesem Signal das
+    // Diffusweiss des Inhalts liegt — der Compositor muss es annehmen (203 cd/m²
+    // laut BT.2408) und verankert daran seine ganze Helligkeit. Unser Inhalt ist
+    // aber ein Bildschirm-Scanout, dessen Weiss dort liegt, wo der aufgenommene
+    // Schirm es hat (auf dieser Maschine 295 cd/m²). Aus dieser Luecke wird ein
+    // um Faktor 1,45 zu helles, ausgeblasenes Bild. PQ hat die Luecke nicht:
+    // jeder Codewert IST eine absolute Leuchtdichte, es gibt nichts zu verankern.
+    if (u.hdr.w > 0.5) {
+        return vec4<f32>(kodiert, 1.0);
+    }
+
     // Codewerte -> Licht in cd/m². Ab hier sind die Zahlen Helligkeiten, keine
     // Bildpunktwerte mehr; 100 heisst 100 cd/m².
     let nits = pq_zu_nits(kodiert);

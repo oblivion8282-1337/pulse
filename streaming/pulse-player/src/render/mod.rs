@@ -27,6 +27,8 @@ mod hdr_fenster;
 #[cfg(target_os = "linux")]
 mod hdr_schirm;
 #[cfg(target_os = "linux")]
+mod hdr_tag;
+#[cfg(target_os = "linux")]
 mod hdr_vulkan;
 mod musterprobe;
 mod setup;

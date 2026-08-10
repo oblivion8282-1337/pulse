@@ -28,15 +28,39 @@
 //! Schirm gerade Spielraum ueber Weiss hat. Die Vorsicht bleibt: faellt eine
 //! der beiden aus, bleibt es beim Herunterrechnen.
 
-/// Das Oberflaechenformat des HDR-Betriebs.
+/// Das Oberflaechenformat des HDR-Betriebs — **auf jeder Plattform ein anderes,
+/// und das ist keine Bequemlichkeit, sondern der Kern der Sache.**
 ///
-/// `Rgba16Float` und nichts anderes, weil daran zwei Dinge haengen, die sich
-/// nicht trennen lassen: nur Fliesskomma traegt Werte ueber 1,0 (also
-/// Spitzlichter) und unter 0,0 (also Farben ausserhalb von BT.709) — und auf
-/// dem Vulkan-Weg schaltet wgpu **allein an diesem Format** den weiten Farbraum
-/// ein (`wgpu-hal`, `vulkan/swapchain/native.rs`: `EXTENDED_SRGB_LINEAR_EXT`
-/// genau dann, wenn das Format `Rgba16Float` ist). Ein anderes Format hier
-/// waere auf beiden Wegen falsch, auf jedem aus einem anderen Grund.
+/// *Windows (`Rgba16Float`, scRGB):* Nur Fliesskomma traegt Werte ueber 1,0
+/// (Spitzlichter) und unter 0,0 (Farben ausserhalb BT.709). Der Farbraum wird
+/// per `IDXGISwapChain3::SetColorSpace1` angemeldet; scRGB ist dort der
+/// vorgesehene Weg, und Windows rechnet ihn selbst in Bildschirmhelligkeit um.
+///
+/// *Linux/Wayland (`Rgb10a2Unorm`, BT.2020 mit PQ):* **scRGB ist hier die
+/// falsche Waehrung, gemessen am 2026-08-10.** Der NVIDIA-Treiber meldet eine
+/// `Rgba16Float`-Oberflaeche von sich aus beim Compositor an — als
+/// `primaries=srgb`, `tf=ext_linear`, `luminances(0, 80, 203)`
+/// (`WAYLAND_DEBUG`-Mitschnitt). Das ist regelkonform, aber scRGB ist eine
+/// RELATIVE Kodierung: der Compositor muss annehmen, wo im Signal das
+/// Diffusweiss liegt (203 cd/m² nach BT.2408), und verankert daran seine
+/// Helligkeit. Unser Inhalt ist ein Bildschirm-Scanout, dessen Weiss dort
+/// liegt, wo der aufgenommene Schirm es hat — auf dieser Maschine 295 cd/m².
+/// Aus der Luecke wird ein um 295/203 = 1,45 zu helles Bild, sichtbar als
+/// ausgeblasener Kontrast.
+///
+/// PQ hat die Luecke nicht: jeder Codewert ist eine absolute Leuchtdichte, es
+/// gibt nichts zu verankern und nichts zu raten. Der Strom IST bereits BT.2020
+/// mit PQ — er wird damit unveraendert durchgereicht statt zweimal umgerechnet.
+/// Die Oberflaeche wird passend dazu selbst angemeldet ([`super::hdr_tag`]);
+/// dass sie **nicht** `Rgba16Float` ist, ist dafuer Voraussetzung, denn sonst
+/// kaeme der Treiber uns zuvor und ein zweites `get_surface` waere ein
+/// Protokollfehler, der die ganze Wayland-Verbindung beendet.
+///
+/// 10 bit reichen dafuer und sind der Normalfall: HDR10 ist genau das —
+/// 10 bit mit PQ.
+#[cfg(target_os = "linux")]
+pub const HDR_OBERFLAECHE: wgpu::TextureFormat = wgpu::TextureFormat::Rgb10a2Unorm;
+#[cfg(not(target_os = "linux"))]
 pub const HDR_OBERFLAECHE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Meldet den Farbraum des Fensters bei Windows an: **scRGB**, also lineares
@@ -65,6 +89,7 @@ pub fn farbraum_anmelden(
     surface: &wgpu::Surface<'static>,
     hdr: bool,
     _weiter_farbraum: bool,
+    _quelle: &Schirmquelle,
 ) -> bool {
     use windows::Win32::Graphics::Dxgi::Common::{
         DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
@@ -112,34 +137,55 @@ pub fn farbraum_anmelden(
     }
 }
 
-/// Der Vulkan-Weg: **nachsehen statt anmelden.**
+/// Der Wayland-Weg: **die Oberflaeche selbst als BT.2020/PQ anmelden.**
 ///
-/// Drei Bedingungen, und die dritte ist der Grund, warum hier nicht einfach
-/// `weiter_farbraum` durchgereicht wird: die Nachschau am Treiber ist beim
-/// Aufbau geschehen, die Swapchain wird aber bei jedem `configure` neu
-/// angelegt. Erst wenn eine native Vulkan-Swapchain wirklich steht, ist die
-/// Regel aus `wgpu-hal` auch angewandt worden.
+/// Hier stand bis zum 2026-08-10 „nachsehen statt anmelden" — die Nachschau, ob
+/// der Treiber der `Rgba16Float`-Oberflaeche scRGB-linear zugesteht. Der Befund
+/// war richtig und die Schlussfolgerung trotzdem zu kurz: der Treiber meldet
+/// eine solche Oberflaeche auch gleich selbst beim Compositor an, und zwar mit
+/// einem Bezugsweiss von 203 cd/m², das zu einem Bildschirm-Scanout nicht passt
+/// (Begruendung samt Messung an [`HDR_OBERFLAECHE`]). Deshalb wird jetzt
+/// angemeldet statt nachgesehen, und zwar in der Waehrung, in der der Strom
+/// ohnehin vorliegt.
+///
+/// `weiter_farbraum` (die alte Treiber-Nachschau) wird auf diesem Weg nicht
+/// mehr gebraucht: sie beantwortet eine Frage ueber `Rgba16Float`, das hier
+/// gerade nicht mehr benutzt wird.
 #[cfg(target_os = "linux")]
 pub fn farbraum_anmelden(
-    surface: &wgpu::Surface<'static>,
+    _surface: &wgpu::Surface<'static>,
     hdr: bool,
-    weiter_farbraum: bool,
+    _weiter_farbraum: bool,
+    quelle: &Schirmquelle,
 ) -> bool {
+    let Some(taeger) = quelle.taeger.as_ref() else {
+        if hdr {
+            eprintln!(
+                "pulse-player: HDR-Ausgabe nicht moeglich — der Compositor bietet keine \
+                 Farbverwaltung (wp_color_manager_v1 mit BT.2020/PQ). Der Strom wird auf SDR \
+                 heruntergerechnet."
+            );
+        }
+        return false;
+    };
     if !hdr {
+        // Zurueck auf SDR: die Anmeldung muss weg, sonst deutet der Compositor
+        // gewoehnliche sRGB-Bildpunkte weiter als PQ — dasselbe Bild, nur in
+        // die andere Richtung falsch.
+        taeger.zuruecknehmen();
         return false;
     }
-    if !weiter_farbraum {
+    if !taeger.anwenden() {
         eprintln!(
-            "pulse-player: HDR-Ausgabe nicht moeglich — der Treiber meldet fuer diese \
-             Oberflaeche kein scRGB-linear. Der Strom wird auf SDR heruntergerechnet."
+            "pulse-player: HDR-Ausgabe nicht moeglich — die Oberflaeche liess sich nicht als \
+             BT.2020/PQ anmelden. Der Strom wird auf SDR heruntergerechnet."
         );
         return false;
     }
-    if !super::hdr_vulkan::swapchain_ist_nativ(surface) {
-        eprintln!("pulse-player: HDR-Ausgabe nicht moeglich — keine native Vulkan-Swapchain");
-        return false;
-    }
-    eprintln!("pulse-player: Farbraum des Fensters: scRGB-linear (Vulkan, geprueft am Treiber)");
+    eprintln!(
+        "pulse-player: Farbraum des Fensters: BT.2020 mit PQ (Oberflaeche beim Compositor \
+         angemeldet, absolute Leuchtdichten)"
+    );
     true
 }
 
@@ -148,6 +194,7 @@ pub fn farbraum_anmelden(
     _surface: &wgpu::Surface<'static>,
     _hdr: bool,
     _weiter_farbraum: bool,
+    _quelle: &Schirmquelle,
 ) -> bool {
     // macOS: der Weg ist hier nicht gebaut, und der Sidecar sendet dort kein
     // HDR (`encode/hdr.rs` im Windows-Sidecar ist der einzige belegte Sender).
@@ -175,6 +222,11 @@ pub(super) struct Schirmquelle {
     /// Compositor ohne Farbverwaltung) — dann bleibt es beim Herunterrechnen.
     #[cfg(target_os = "linux")]
     wacht: Option<super::hdr_schirm::Schirmwacht>,
+    /// Die Anmeldung der eigenen Oberflaeche als BT.2020/PQ
+    /// (s. [`super::hdr_tag`]). `None`, wo der Compositor die dafuer noetigen
+    /// Bausteine nicht fuehrt — dann bleibt es beim Herunterrechnen.
+    #[cfg(target_os = "linux")]
+    taeger: Option<super::hdr_tag::OberflaechenTaeger>,
 }
 
 impl Schirmquelle {
@@ -188,6 +240,8 @@ impl Schirmquelle {
             fenster: Some(window.clone()),
             #[cfg(target_os = "linux")]
             wacht: super::hdr_schirm::Schirmwacht::starten(),
+            #[cfg(target_os = "linux")]
+            taeger: super::hdr_tag::OberflaechenTaeger::einrichten(window),
         }
     }
 
@@ -418,8 +472,12 @@ impl Renderer {
     pub(super) fn konfigurieren(&mut self) {
         self.surface.configure(&self.device, &self.config);
         if self.hdr_gewuenscht || self.hdr_fenster {
-            self.hdr_fenster =
-                farbraum_anmelden(&self.surface, self.hdr_gewuenscht, self.weiter_farbraum);
+            self.hdr_fenster = farbraum_anmelden(
+                &self.surface,
+                self.hdr_gewuenscht,
+                self.weiter_farbraum,
+                &self.schirmquelle,
+            );
         }
     }
 

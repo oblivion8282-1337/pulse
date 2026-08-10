@@ -116,9 +116,23 @@ pub fn build_uniforms(
             // Irre laeuft.
             flag(hdr_fenster && farbe.uebertragung == Uebertragung::Pq),
             farbe.spitze_nits.unwrap_or(ERSATZ_SPITZE_NITS),
-            0.0,
+            flag(hdr_fenster && farbe.uebertragung == Uebertragung::Pq && ist_pq_fenster(format)),
         ],
     }
+}
+
+/// Erwartet dieses Oberflaechenformat **PQ-kodierte** Werte (BT.2020/ST 2084)
+/// statt linearem scRGB-Licht?
+///
+/// **Die Antwort haengt am Format, weil beides zusammen gewaehlt wird.** Ein
+/// HDR-Fenster nimmt entweder Fliesskomma und lineares Licht (scRGB — der
+/// Windows-Weg ueber `SetColorSpace1`) oder 10-bit-Ganzzahlen mit der
+/// PQ-Kurve (der Wayland-Weg, bei dem die Oberflaeche selbst als
+/// BT.2020/ST 2084 angemeldet wird, s. [`super::hdr_tag`]). Es gibt keinen
+/// dritten Fall und keine Kombination — deshalb steht die Entscheidung hier an
+/// einer Stelle statt als weiteres Argument durch fuenf Signaturen zu wandern.
+pub fn ist_pq_fenster(format: wgpu::TextureFormat) -> bool {
+    format == wgpu::TextureFormat::Rgb10a2Unorm
 }
 
 /// Welche YUV-Matrix der Shader nehmen soll, als Zahl.

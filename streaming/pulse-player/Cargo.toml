@@ -55,7 +55,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] 
 bytes = "1"
 
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
-ffmpeg-next = { version = "8.1", default-features = false, features = [
+ffmpeg-next = { version = "9.0", default-features = false, features = [
     "codec",
     "format",
     "software-resampling",
