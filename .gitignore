@@ -143,3 +143,6 @@ desktop/resources-podman-mac/*
 
 # Nebenprodukte der Pruefstand-Browserlaeufe (SDP-Mitschriften je Lauf)
 streaming/testbench/sdp-*.txt
+
+# Bau-Cache der VAAPI-DMA-BUF-Probe (wie die uebrigen player-labor-Kisten).
+streaming/player-labor/vaapi-dmabuf-export/target/

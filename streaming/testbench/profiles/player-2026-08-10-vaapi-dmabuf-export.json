@@ -1,0 +1,41 @@
+{
+  "id": "player-2026-08-10-vaapi-dmabuf-export",
+  "gemessen_am": "2026-08-10, Radeon 780M (Phoenix, VCN 4), Mesa 26.1.5 / RADV PHOENIX, Fedora 44",
+  "frage": "Kann die dritte Zero-Copy-Bruecke (VAAPI -> wgpu ueber DMA-BUF) den fertigen Helfer texture_from_dmabuf_fd aus wgpu-hal 30 benutzen, oder braucht sie ein eigenes VkImage wie die CUDA-Bruecke? Und kommt der Inhalt unveraendert an?",
+  "ANTWORT": "Der Helfer traegt, und der Inhalt kommt BITGENAU an — in allen drei Faellen und in beiden Ebenen. Ein Objekt, zwei Layer, je EINE Plane; damit ist die Bedingung des Helfers ('only single-plane DMA-bufs') erfuellt. Kein eigenes VkImage noetig.",
+  "aufbau": {
+    "werkzeug": "streaming/player-labor/vaapi-dmabuf-export",
+    "weg": "av_hwframe_map nach AV_PIX_FMT_DRM_PRIME mit AV_HWFRAME_MAP_READ, dann je Layer dup() + texture_from_dmabuf_fd + create_texture_from_hal(TextureUses::UNINITIALIZED)",
+    "gegenprobe": "av_hwframe_transfer_data desselben Bildes, byteweiser Vergleich beider Ebenen ueber die volle Flaeche (nicht stichprobenartig — ein verschobenes Chroma faellt bei Stichproben durch)",
+    "material": "testsrc2 1920x1080, 60 fps, 4000 kbps, mit h264_vaapi bzw. av1_vaapi erzeugt"
+  },
+  "gestalt": {
+    "objekte": 1,
+    "layer": 2,
+    "planes_je_layer": 1,
+    "modifier": "0x0200000010401b04 (AMD, gekachelt, KEINE Metadaten-Plane)",
+    "stabil_ueber_bilder": true,
+    "h264_8bit": { "L0": "R8 pitch 2048 offset 0", "L1": "GR88 pitch 2048 offset 2621440", "objekt_groesse": 3932160 },
+    "av1_8bit": { "L0": "R8", "L1": "GR88" },
+    "av1_10bit": { "L0": "R16 pitch 4096 offset 0", "L1": "GR32 pitch 4096 offset 4718592", "objekt_groesse": 7340032 }
+  },
+  "inhalt": {
+    "h264_8bit": { "luma": "bitgenau (max 0)", "chroma": "bitgenau (max 0)" },
+    "av1_8bit": { "luma": "bitgenau (max 0)", "chroma": "bitgenau (max 0)" },
+    "av1_10bit": { "luma": "bitgenau (max 0)", "chroma": "bitgenau (max 0)" }
+  },
+  "damit_erledigte_risiken": {
+    "mehrplanigkeit": "Je Layer genau eine Plane — der wgpu-Helfer ist anwendbar. War das schwerste Risiko: mit Metadaten-Plane haette es ein eigenes VkImage mit VkImageDrmFormatModifierExplicitCreateInfoEXT gebraucht, also CUDA-Bruecken-Aufwand.",
+    "versatz": "Beide Layer teilen EIN Objekt, das Chroma sitzt bei 2621440 (8 bit) bzw. 4718592 (10 bit). Offen war, ob die Allokationsgroesse, die wgpu aus den Anforderungen des einplanigen Bildes nimmt, den Versatz abdeckt. Sie tut es: Chroma bitgenau.",
+    "layout_uebergang": "create_texture_from_hal mit TextureUses::UNINITIALIZED heisst oldLayout=UNDEFINED, und der Uebergang DARF den Inhalt verwerfen. Auf dieser Karte tut er es nicht — auch fuer ein Bild mit DRM-Modifier."
+  },
+  "noch_offen": {
+    "decoder_aushungern": "Nicht gemessen. Haelt der Renderer zu viele Surfaces fest, liefert der Decoder nichts mehr — anders als beim CUDA-Ring gibt es kein Ok(None) als Ventil. Gehoert in die Bruecke selbst (harte Deckelung + extra_hw_frames), nicht in eine spaetere Runde.",
+    "zwei_gpus": "Nicht gemessen. PULSE_PLAYER_VAAPI_DEVICE zeigt fest auf renderD128, wgpu waehlt seinen Adapter unabhaengig; ueber GPU-Grenzen scheitert der Import oder ist still langsam. Die CUDA-Bruecke hat dafuer den UUID-Abgleich, hier fehlt das Pendant.",
+    "nvidia_vaapi": "Nur AMD gemessen. Intel faehrt denselben VAAPI-Weg, ist aber ungeprueft."
+  },
+  "fallen": {
+    "standard_decoder": "avcodec_find_decoder liefert fuer AV1 libdav1d (keine hwaccel) — der erste Lauf meldete deshalb 'nicht VAAPI', was wie 'AMD kann kein AV1' aussieht. Der Decoder muss benannt werden.",
+    "flag": "AV_HWFRAME_MAP_DIRECT ist auf diesem Weg wirkungslos (gilt nur fuer vaapi_map_to_memory). Richtig ist AV_HWFRAME_MAP_READ — es setzt VA_EXPORT_SURFACE_READ_ONLY und loest vaSyncSurface aus."
+  }
+}
