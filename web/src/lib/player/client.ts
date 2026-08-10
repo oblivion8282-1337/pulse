@@ -21,6 +21,14 @@ export interface PlayerStateEvent {
   session?: number;
   state: PlayerState;
   error?: string;
+  /**
+   * Warum es schiefging — gesetzt nur dort, wo der Grund eine ANDERE Reaktion
+   * verlangt als der Regelfall. `gpu-reset`: der Treiber hat die Karte
+   * zurueckgesetzt und den Player-Prozess mitgerissen; der Hauptprozess faehrt
+   * den naechsten Start ohne Hardware-Dekodierung, ein Neuversuch ist deshalb
+   * inhaltlich ein anderer und lohnt (s. `desktop/electron/player-hwdec-wacht.ts`).
+   */
+  reason?: 'gpu-reset';
 }
 
 function api() {

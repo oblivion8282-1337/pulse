@@ -487,10 +487,12 @@ fn cuda_ausgabe_vorgabe() -> bool {
 /// **Abfangen laesst es sich hier NICHT.** Der Coredump zeigt `abort()` in
 /// `amdgpu_ctx_set_sw_reset_status` auf Mesas eigenem Submit-Thread
 /// (`util_queue_thread_func`) — kein Rueckgabewert, kein Panic, nichts, was
-/// dieser Prozess sehen koennte. Der Rettungsweg gehoert deshalb in den
-/// Aufseher (`desktop/electron/player.ts`, `exit`-Handler): SIGABRT erkennen
-/// und einmalig mit `PULSE_PLAYER_HWDEC=0` neu starten. Bewusst noch nicht
-/// gebaut, s. `streaming/hq-labor/CLAUDE.md`.
+/// dieser Prozess sehen koennte. Der Rettungsweg liegt deshalb im Aufseher und
+/// ist dort **gebaut**: `desktop/electron/player-hwdec-wacht.ts` erkennt am
+/// `exit` des Kindprozesses SIGABRT und faehrt den naechsten Start einmalig mit
+/// `PULSE_PLAYER_HWDEC=0`. Der Renderer wiederholt genau einmal, sonst bliebe
+/// die Abschaltung ohne Wirkung (`wiederholbar` in
+/// `web/src/lib/player/useNativePlayback.svelte.ts`).
 ///
 /// Ohne gleichzeitiges Encoden dekodiert dieselbe Karte mit rund 185 fps.
 ///

@@ -115,6 +115,10 @@ export class NativePlayerSession {
    *  bleibt beim `<video>`-Weg. KEIN Fehler: es wird nie ein Fenster geoeffnet,
    *  und der Aufrufer (`useNativePlayback`) schaltet still zurueck. */
   skipped = $state(false);
+  /** Gescheitert, aber ein Neuversuch laeuft nachweislich anders — heute nur
+   *  nach einem GPU-Reset (s. `PlayerStateEvent['reason']`). Der Aufrufer
+   *  entscheidet, ob er ihn nutzt; hier steht nur die Tatsache. */
+  wiederholbar = $state(false);
 
   // Bewusst KEINE Messwerte hier: Bildrate, Bitrate und alles andere zeigt das
   // Overlay IM Fenster (`streaming/pulse-player/src/overlay.rs`), das die Zahlen
@@ -222,6 +226,7 @@ export class NativePlayerSession {
     if (ev.session !== undefined && ev.session !== this.#session) return;
     this.phase = ev.state;
     if (ev.error) this.error = ev.error;
+    this.wiederholbar = ev.reason === 'gpu-reset';
     if (ev.state === 'closed' || ev.state === 'failed') {
       // Fenster weg → der Ton muss zurück in die App, sonst ist der Stream
       // stumm (die Kachel fällt gleichzeitig auf den `<video>`-Weg zurück).
