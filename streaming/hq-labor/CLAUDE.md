@@ -498,11 +498,17 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       meldete. Ursache war eine Pool-Bauart, die allein am Vendor hing; behoben
       in `hwctx.rs`, Gegenprobe samt Sichtpruefung in der Messakte.
 
-**Vorgemerkt, bewusst nicht gebaut (2026-08-04) — der Player stirbt an einem
-GPU-Hänger, und das trifft ausgelieferte Nutzer:**
+**Gebaut am 2026-08-10 — der Player stirbt an einem GPU-Hänger, und das trifft
+ausgelieferte Nutzer:**
 
-Untersucht am 2026-08-04, Entscheidung des Nutzers: erst merken, nicht bauen.
-Wer das aufgreift, braucht die drei Befunde und die eine Sackgasse:
+Untersucht am 2026-08-04 (Entscheidung damals: erst merken, nicht bauen),
+umgesetzt am 2026-08-10 in `desktop/electron/player-hwdec-wacht.ts` samt
+Neuversuch im Renderer (`wiederholbar` in `useNativePlayback.svelte.ts`) — der
+Rückfall allein wäre wirkungslos geblieben, weil `nativeFailed` jeden zweiten
+Versuch verriegelt. **Am echten Absturz noch nicht belegt**, nur an
+Unit-Tests: dafür muss ein GPU-Reset provoziert werden, und das setzt die
+Sitzung des Nutzers kurz aus. Die drei Befunde und die eine Sackgasse, die zu
+der Umsetzung geführt haben:
 
 - **Der Player kann es nicht abfangen.** Der Coredump zeigt `abort()` in
   `amdgpu_ctx_set_sw_reset_status` auf **Mesas eigenem** Submit-Thread
@@ -512,7 +518,7 @@ Wer das aufgreift, braucht die drei Befunde und die eine Sackgasse:
   Mesas Abbruch ist von außen auch nicht abschaltbar (kein `drirc`-Schalter,
   keine Umgebungsvariable — geprüft, negativ).
 - **Der kleinste Eingriff sitzt im Aufseher**, `desktop/electron/player.ts`
-  (`exit`-Handler, ~Z. 165): `signal === 'SIGABRT'` erkennen und einmalig mit
+  (`exit`-Handler): `signal === 'SIGABRT'` erkennen und einmalig mit
   `PULSE_PLAYER_HWDEC=0` neu starten. Am Player ist **keine Zeile** zu ändern,
   den Schalter gibt es (`decode.rs::hwdec_vorgabe`). Ein Merker gegen die
   Neustartschleife. Kosten: Software-AV1 — im Gegenprobe-Lauf gemessen 60 B/s

@@ -31,6 +31,7 @@ import * as readline from 'node:readline';
 import { app } from 'electron';
 
 import { diagnoseEingeschaltet } from './experimental-log-upload';
+import { createHwdecWacht } from './player-hwdec-wacht';
 import { logSidecar } from './sidecar-log';
 
 /**
@@ -170,6 +171,11 @@ class PlayerManager {
   private nextId = 1;
   /** Merkt einen gescheiterten Start, damit nicht bei jedem Aufruf neu probiert wird. */
   private startFailed = false;
+  /**
+   * Merkt einen GPU-Reset, damit der naechste Start die Hardware-Dekodierung
+   * auslaesst. Begruendung im Kopf von `player-hwdec-wacht.ts`.
+   */
+  private hwdecWacht = createHwdecWacht();
 
   isAvailable(): boolean {
     if (this.startFailed) return false;
@@ -218,6 +224,11 @@ class PlayerManager {
     if (env.PULSE_PLAYER_STATS_LOG === undefined && diagnoseEingeschaltet()) {
       env.PULSE_PLAYER_STATS_LOG = '1';
     }
+    // Nach einem GPU-Reset ohne Hardware-Dekodierung weiter (s.
+    // `player-hwdec-wacht.ts`); von aussen gesetzt gewinnt, wie oben.
+    if (env.PULSE_PLAYER_HWDEC === undefined && this.hwdecWacht.hardwareAbgeschaltet()) {
+      env.PULSE_PLAYER_HWDEC = '0';
+    }
     const child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'], env });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -239,6 +250,19 @@ class PlayerManager {
 
     child.on('exit', (code, signal) => {
       log('lifecycle', `beendet (code=${code}, signal=${signal})`);
+      // **Vor der Zustaendigkeitspruefung, mit Absicht.** Ein GPU-Reset gilt
+      // fuer die Karte, nicht fuer den Prozess, der ihn zufaellig gesehen hat —
+      // stirbt ein abgeloester Vorgaenger daran, ist die naechste
+      // Hardware-Dekodierung genauso betroffen. Diese Zeile hinter das `return`
+      // zu schieben hiesse, den Sturz genau dann zu verlernen, wenn er
+      // waehrend eines Fensterwechsels kommt.
+      const gpuReset = this.hwdecWacht.absturzGemeldet(code, signal);
+      if (gpuReset) {
+        log(
+          'lifecycle',
+          'mit abort() beendet (GPU-Reset) — naechster Start ohne Hardware-Dekodierung',
+        );
+      }
       // **Nur aufraeumen, wenn dieser Prozess noch der aktuelle ist.** `exit`
       // kommt asynchron: nach einem `shutdown()` kann laengst ein neuer Player
       // laufen. Ohne diese Pruefung nahm der ALTE Prozess dem NEUEN beim
@@ -253,7 +277,22 @@ class PlayerManager {
       this.child = null;
       // Laufende Sitzungen sind mit dem Prozess weg — den Renderer informieren,
       // damit er auf den Standardweg zurueckfaellt.
-      this.emit({ ev: 'player:state', state: 'failed', error: 'Player-Prozess beendet' });
+      //
+      // **`reason` entscheidet, ob der Renderer es nochmal versucht.** Ohne das
+      // Feld verriegelt er nach JEDEM `failed` (`nativeFailed` in
+      // `useNativePlayback.svelte.ts`) und nimmt den Abkoppel-Knopf weg — der
+      // Rueckfall auf Software-Dekodierung waere zwar scharf, aber niemand
+      // wuerde ihn ausloesen, und die Kachel haenge bis zum naechsten Mount auf
+      // Chromiums `<video>` (unter Wayland immer 8 bit). Seine bisherige
+      // Begruendung fuers Nicht-Wiederholen — „derselbe Fehler nur wiederholen"
+      // — trifft fuer genau diesen Fall nicht zu: der naechste Versuch laeuft
+      // mit anderer Umgebung.
+      this.emit({
+        ev: 'player:state',
+        state: 'failed',
+        error: 'Player-Prozess beendet',
+        ...(gpuReset ? { reason: 'gpu-reset' } : {}),
+      });
     });
 
     // EPIPE-Fehler beim Schreiben auf einen gerade gestorbenen Kindprozess

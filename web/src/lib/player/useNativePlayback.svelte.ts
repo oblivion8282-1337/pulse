@@ -138,20 +138,37 @@ export function useNativePlayback(args: () => NativePlaybackArgs): {
   // bleibt die Kachel bis zum naechsten Mount beim <video>-Weg (derselbe
   // Stream neu ueber den Player zu versuchen wuerde denselben Fehler nur
   // wiederholen, z.B. ein zu altes Binary oder ein kaputter Codec-Pfad).
+  //
+  // **Eine Ausnahme, und die ist begruendet: `wiederholbar`.** Nach einem
+  // GPU-Reset faehrt der Hauptprozess den naechsten Player ohne
+  // Hardware-Dekodierung (`desktop/electron/player-hwdec-wacht.ts`) — der
+  // zweite Versuch wiederholt also gerade NICHT denselben Fehler. Ohne diese
+  // Ausnahme waere jener Rettungsweg scharf, aber niemand loeste ihn aus: die
+  // Kachel faellt auf Chromiums `<video>` zurueck (unter Wayland immer 8 bit),
+  // und `nativeFailed` nimmt zusaetzlich den Abkoppel-Knopf weg
+  // (`nativMoeglich` in `WhepPlayer.svelte`). Genau einmal — laeuft es danach
+  // wieder auf, ist die Ursache eine andere.
   // 8-bit-Stream: still auf den `<video>`-Weg zurueck. Bewusst OHNE Warnung —
   // das ist der Normalfall und kein Fehler.
   $effect(() => {
     if (session?.skipped) nativeSkipped = true;
   });
 
+  let gpuResetVersucht = false;
   $effect(() => {
-    if (session?.phase === 'failed') {
-      console.warn(
-        '[whep-player] nativer Player gescheitert, Rueckfall auf <video>:',
-        session.error,
-      );
-      nativeFailed = true;
+    if (session?.phase !== 'failed') return;
+    if (session.wiederholbar && !gpuResetVersucht) {
+      gpuResetVersucht = true;
+      console.warn('[whep-player] GPU-Reset — neuer Versuch ohne Hardware-Dekodierung');
+      const a = args();
+      session = nativePlayerSessions.ensure(a.channelId, a.userId, a.slot, a.title);
+      return;
     }
+    console.warn(
+      '[whep-player] nativer Player gescheitert, Rueckfall auf <video>:',
+      session.error,
+    );
+    nativeFailed = true;
   });
 
   // Auf den `ManagedHqStream`-Phasenraum abgebildet, damit der Aufrufer
