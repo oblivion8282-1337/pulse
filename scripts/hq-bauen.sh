@@ -36,8 +36,22 @@ bash "$repo_root/streaming/ffmpeg-patches/bootstrap-ffmpeg.sh"
 # libavcodec wuerde von hier kommen, das libavutil DAHINTER aber wieder aus
 # /usr/lib64. Zwei FFmpeg-Haelften in einem Prozess — der Fehler zeigt sich
 # nicht beim Bauen, sondern als Absturz oder als still fehlende Option.
+#
+# `-L native=$prefix/lib` (VOR dem RPATH-Teil, als eigenes rustc-Flag statt als
+# `-C link-arg=-L…`) ist beim Player zwingend, beim Sidecar nur folgenlos
+# mitgefuehrt. Grund: `pulse-player` haengt (ueber cpal) an `alsa-sys`, dessen
+# eigenes Build-Skript `/usr/lib` als Suchpfad meldet — und das landet VOR den
+# Pfaden, die `ffmpeg-sys-next` selbst meldet. Ein `-C link-arg=-L…` haengt
+# rustc ans Ende der Linker-Zeile und verliert dieses Wettrennen; `-L
+# native=…` reiht sich dagegen in denselben Topf wie die Build-Skript-Pfade
+# ein und gewinnt, weil es zuerst steht. Ohne das linkt der Player klaglos
+# gegen das System-FFmpeg statt gegen dieses hier — die Gegenprobe unten faengt
+# das ab, aber besser, es passiert gar nicht erst. Dieselbe Falle (und derselbe
+# Fix) steht bereits im Flatpak-Manifest (`packaging/com.howispulse.Pulse.yml`,
+# Modul `pulse-player`, dort mit `/app/lib` statt diesem Praefix) — dort seit
+# 2026-08-07 bekannt, hier bis 2026-08-10 nicht nachgezogen.
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-export RUSTFLAGS="-C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags${RUSTFLAGS:+ $RUSTFLAGS}"
+export RUSTFLAGS="-L native=$prefix/lib -C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags${RUSTFLAGS:+ $RUSTFLAGS}"
 
 # --- 2. Sidecar (Sender) ----------------------------------------------------
 echo ""
