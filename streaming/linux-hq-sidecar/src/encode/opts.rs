@@ -14,8 +14,23 @@ use ffmpeg::Dictionary;
 
 use crate::system::drm::Vendor;
 
+/// PULSE_VULKAN_ENCODE=1: der NVENC-Slice-Pfad kann die Intra-Refresh-
+/// Richtung nicht waehlen (nur Zeilen). Der Vulkan-Pfad (`h264_vulkan`,
+/// Patch 0004) liefert COLUMN (Spalten) — der einzige Weg zur anderen
+/// Richtung auf NVIDIA. Setzt das gepatchte FFmpeg (9.0) voraus.
+pub fn vulkan_gewuenscht() -> bool {
+    std::env::var("PULSE_VULKAN_ENCODE").as_deref() == Ok("1")
+}
+
 /// ffmpeg-Encoder-Name für Vendor + Pulse-Codec-Id (h264/av1).
 pub fn encoder_name(vendor: Vendor, codec: &str) -> Option<&'static str> {
+    if vulkan_gewuenscht() && matches!(vendor, Vendor::Nvidia) {
+        return match codec {
+            "h264" => Some("h264_vulkan"),
+            "av1" => Some("av1_vulkan"),
+            _ => None,
+        };
+    }
     match (vendor, codec) {
         (Vendor::Nvidia, "h264") => Some("h264_nvenc"),
         (Vendor::Nvidia, "av1") => Some("av1_nvenc"),
@@ -319,6 +334,12 @@ pub fn intra_refresh_gewuenscht() -> bool {
 /// upstream gibt es die Option in keiner Version. Fehlt sie, bricht der
 /// Encoder-Open mit klarer Meldung ab, statt still weiterzulaufen.
 pub fn intra_refresh_opts(vendor: Vendor) -> &'static [(&'static str, &'static str)] {
+    if vulkan_gewuenscht() {
+        // Vulkan (Patch 0004): intra_refresh + Periode. COLUMN wird im Patch
+        // per vendor-bedingtem Workaround gewaehlt (NVIDIA 610.x meldet COLUMN
+        // nicht in den caps, fuehrt es aber aus).
+        return &[("intra_refresh", "1"), ("intra_refresh_period", "30")];
+    }
     match vendor {
         // `no-scenecut` gehoert dazu und fehlte bis 2026-08-02. Ohne die Option
         // schiebt NVENC bei Szenenwechseln von sich aus I-Bilder ein — mitten

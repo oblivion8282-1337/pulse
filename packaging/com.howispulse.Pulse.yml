@@ -215,6 +215,14 @@ modules:
       # gelten deshalb auch fuer die ausgelieferte App.
       - type: patch
         path: ../streaming/ffmpeg-patches/0001-vaapi_encode-rollender-intra-refresh.patch
+      # NVENC-Entkopplung: `*_nvenc` hat die Basis-Option upstream, aber keine
+      # einstellbare Zykluslaenge. 0003 entkoppelt intraRefreshPeriod/Cnt von -g
+      # (Default 0 = altes Verhalten, byte-identisch). Greift nur, weil das
+      # Flatpak ffnvcodec baut (Modul unten) — sonst ist NVENC nicht im Bau und
+      # der Patch wirkungslos. Gegen denselben Commit oben geprueft. Details:
+      # `streaming/ffmpeg-patches/README.md` (Sektion 0003).
+      - type: patch
+        path: ../streaming/ffmpeg-patches/0003-nvenc-rollender-intra-refresh-period-cnt.patch
     modules:
       - name: ffnvcodec
         no-autogen: true

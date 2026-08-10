@@ -25,6 +25,7 @@ use crate::capture::portal;
 use crate::encode::audio::{AudioEncoder, TonSenke};
 use crate::encode::nv_import::{self, NvDmabufImporter};
 use crate::encode::va_import::VaapiImporter;
+use crate::encode::vk_import::VulkanImporter;
 use crate::encode::{AudioParams, EncoderConfig, VideoEncoder, hw};
 use crate::events;
 use crate::proto::{Event, StreamState};
@@ -37,6 +38,7 @@ use crate::system::drm::{self, Vendor};
 enum FrameImporter {
     Nvenc { imp: NvDmabufImporter, hw: hw::HwContext },
     Vaapi { imp: VaapiImporter },
+    Vulkan { imp: VulkanImporter },
 }
 
 impl FrameImporter {
@@ -47,6 +49,9 @@ impl FrameImporter {
             FrameImporter::Vaapi { imp } => {
                 (ffmpeg::format::Pixel::VAAPI, imp.output_frames_ctx())
             }
+            FrameImporter::Vulkan { imp } => {
+                (ffmpeg::format::Pixel::VULKAN, imp.output_frames_ctx())
+            }
         }
     }
 
@@ -55,6 +60,7 @@ impl FrameImporter {
         match self {
             FrameImporter::Nvenc { imp, hw } => imp.import(frame, hw),
             FrameImporter::Vaapi { imp } => imp.import(frame),
+            FrameImporter::Vulkan { imp } => imp.import(frame),
         }
     }
 }
@@ -627,6 +633,20 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let build_importer = |cand: Vendor, node: &str| -> Result<FrameImporter> {
         match cand {
             Vendor::Nvidia => {
+                // PULSE_VULKAN_ENCODE=1: DMABUF→Vulkan-Importer + h264_vulkan
+                // (COLUMN-Intra-Refresh, s. opts.rs::vulkan_gewuenscht).
+                if crate::encode::opts::vulkan_gewuenscht() {
+                    let imp = VulkanImporter::new(
+                        node,
+                        first.drm_fourcc,
+                        width,
+                        height,
+                        params.fps,
+                        out_w,
+                        out_h,
+                    )?;
+                    return Ok(FrameImporter::Vulkan { imp });
+                }
                 // Staging-Format und Pool-`sw_format` MÜSSEN aus derselben
                 // Quelle kommen — kopiert werden rohe Bytes, ein Auseinander-
                 // laufen wäre ein Farbfehler, kein Fehlschlag. 8 bit: RGB0

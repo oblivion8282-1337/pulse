@@ -21,6 +21,11 @@ use crate::system::drm::Vendor;
 
 /// Welche HW-Device-Art für den Vendor angelegt wird.
 pub fn kind_for(vendor: Vendor) -> HwDeviceKind {
+    // PULSE_VULKAN_ENCODE=1: Vulkan-Device statt CUDA (für h264_vulkan +
+    // COLUMN-Intra-Refresh). Nur NVIDIA; AMD/Intel bleiben auf VAAPI.
+    if super::opts::vulkan_gewuenscht() && matches!(vendor, Vendor::Nvidia) {
+        return HwDeviceKind::Vulkan;
+    }
     match vendor {
         Vendor::Nvidia => HwDeviceKind::Cuda,
         Vendor::Amd | Vendor::Intel => HwDeviceKind::Vaapi,
@@ -31,6 +36,7 @@ pub fn kind_for(vendor: Vendor) -> HwDeviceKind {
 pub enum HwDeviceKind {
     Cuda,
     Vaapi,
+    Vulkan,
 }
 
 impl HwDeviceKind {
@@ -38,14 +44,16 @@ impl HwDeviceKind {
         match self {
             HwDeviceKind::Cuda => AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
             HwDeviceKind::Vaapi => AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+            HwDeviceKind::Vulkan => AVHWDeviceType::AV_HWDEVICE_TYPE_VULKAN,
         }
     }
 
-    /// ffmpeg-Pixelformat der HW-Frames (AV_PIX_FMT_CUDA / AV_PIX_FMT_VAAPI).
+    /// ffmpeg-Pixelformat der HW-Frames (AV_PIX_FMT_CUDA / AV_PIX_FMT_VAAPI / VULKAN).
     pub fn pix_fmt(self) -> AVPixelFormat {
         match self {
             HwDeviceKind::Cuda => AVPixelFormat::AV_PIX_FMT_CUDA,
             HwDeviceKind::Vaapi => AVPixelFormat::AV_PIX_FMT_VAAPI,
+            HwDeviceKind::Vulkan => AVPixelFormat::AV_PIX_FMT_VULKAN,
         }
     }
 
@@ -53,6 +61,7 @@ impl HwDeviceKind {
         match self {
             HwDeviceKind::Cuda => ffmpeg::format::Pixel::CUDA,
             HwDeviceKind::Vaapi => ffmpeg::format::Pixel::VAAPI,
+            HwDeviceKind::Vulkan => ffmpeg::format::Pixel::VULKAN,
         }
     }
 }
@@ -91,6 +100,7 @@ impl HwContext {
         let flags = match kind {
             HwDeviceKind::Cuda => AV_CUDA_USE_PRIMARY_CONTEXT,
             HwDeviceKind::Vaapi => 0,
+            HwDeviceKind::Vulkan => 0,
         };
 
         let mut dev_ref: *mut AVBufferRef = ptr::null_mut();

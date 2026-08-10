@@ -1,19 +1,23 @@
 # FFmpeg-Patches des Labors
 
-Zwei, und beide haben denselben Zweck: **Intra-Refresh auf AMD zugänglich
-machen.** Die Hardware kann es auf beiden Betriebssystemen — es fehlt jeweils
-nur die Durchreichung in FFmpeg.
+Drei Patches. Zwei machen Intra-Refresh auf AMD zugänglich — die Hardware
+kann es auf beiden Betriebssystemen, es fehlt jeweils nur die Durchreichung in
+FFmpeg. Der dritte (`0003`) ist ein anderer Fall: NVENC hat Intra-Refresh
+upstream, aber **keine einstellbare Zykluslänge**, und genau die entkoppelt er.
 
-| Patch | Für | Betrifft |
+| Patch | Für | Zweck |
 |---|---|---|
-| `0001-vaapi_encode-…` | Linux, AMD/Intel (`*_vaapi`) | H.264 **und** AV1 |
-| `0002-amfenc_av1-…` | Windows, AMD (`av1_amf`) | **nur** AV1 |
+| `0001-vaapi_encode-…` | Linux, AMD/Intel (`*_vaapi`) | Intra-Refresh überhaupt (`intra_refresh`/`intra_refresh_period`) |
+| `0002-amfenc_av1-…` | Windows, AMD (`av1_amf`) | Intra-Refresh für AV1 (`intra_refresh_mode`/`stripes`) |
+| `0003-nvenc-…` | NVENC, alle OS (`*_nvenc`) | Zykluslänge entkoppeln (`intra_refresh_period`/`intra_refresh_cnt`) |
 
 **Windows braucht ihn nur für AV1.** `h264_amf` reicht sein Gegenstück
 (`intra_refresh_mb`) upstream durch — und mehr noch: unter
 `usage=ultralowlatency`, das der Sidecar ohnehin setzt, frischt der Encoder von
 sich aus auf. H.264 auf AMD/Windows braucht also **gar nichts**. `*_nvenc` hat
-die Option auf beiden Betriebssystemen upstream.
+die Option auf beiden Betriebssystemen upstream — aber nur die Basis-Option
+(`intra_refresh`), **ohne** einstellbare Zykluslänge. Für Letztere gibt es
+`0003`.
 
 **Und `0002` ist nicht durch ein neueres FFmpeg zu ersetzen.** Hier stand am
 2026-08-04 zwischenzeitlich, die Optionen gäbe es ab 8.1.2 — das war falsch und
@@ -183,3 +187,42 @@ nicht enthalten, weil es sie nirgends gibt.
 **Wo kein gepatchtes FFmpeg liegt, trägt Windows die Betriebsart nur mit
 H.264** (dort braucht es nichts). Der Sidecar meldet das ehrlich und bricht bei
 AV1 mit einer Meldung ab, die hierher zeigt (`encode/auffrischung.rs`).
+
+## 0003 — Zykluslänge für `*_nvenc` entkoppeln (alle OS)
+
+Ein anderer Fall als `0001`/`0002`: NVENC kann Intra-Refresh schon immer
+upstream, es fehlt nichts an der Durchreichung. Was fehlt, ist jede Wahlmöglichkeit
+für die **Zykluslänge** — `nvenc.c` schreibt im `intra_refresh`-Block hart
+`intraRefreshPeriod = gopLength` und `intraRefreshCnt = gopLength - 1` und
+setzt danach `gopLength = NVENC_INFINITE_GOPLENGTH`. Die Zykluslänge hängt also
+starr an `-g`, und der einzige Hebel des Aufrufers ist der Keyframe-Abstand —
+nicht der Parameter, den man für Erholung-vs.-Qualität drehen will.
+
+Die NVENC-API modelliert beides ohnehin als getrennte Felder
+(`NV_ENC_CONFIG_INTRA_REFRESH`: `intraRefreshPeriod` und `intraRefreshCnt`,
+in `nvEncodeAPI.h` für H264/HEVC/AV1 je identisch), sie wird nur nicht
+freigegeben. Der Patch fügt zwei Encoder-Optionen hinzu:
+
+| Option | Bedeutung |
+|---|---|
+| `intra_refresh_period` | Bilder je vollem Umlauf (0 = aus `-g` abgeleitet, NVENC-Default) |
+| `intra_refresh_cnt` | Sweep-Breite in Bildern, muss `< period` sein (0 = aus `-g` abgeleitet) |
+
+Bei 0 (Default) ist das Verhalten **byte-identisch** mit heute. Die
+`NVENC_INFINITE_GOPLENGTH`-Zuweisung bleibt unangetastet. NVENC weist ungültige
+Kombinationen (`cnt >= period`) beim `InitializeEncoder` zurück, was ffmpeg als
+Encoder-Open-Fehler durchreicht — kein stiller Rückfall.
+
+Gleich für H.264, HEVC und AV1, weil der Setup-Block in allen drei Codec-Wegen
+identisch steht. Gegen `n8.1.1` (Commit `239f2c733`) entwickelt und per
+`git apply --check` geprüft. Greift nur, wenn NVENC auch gebaut wurde
+(`pkg-config --exists ffnvcodec`); die Gegenprobe in `bootstrap-ffmpeg.sh` prüft
+NVENC deshalb **bedingt** und auf `intra_refresh_period` (die Basis-Option hat
+NVENC ohnehin — nur die neue beweist den Patch).
+
+**Warum die Länge ein Hebel ist:** ein sichtbarer Auffrisch-Streifen zieht durchs
+Bild, am deutlichsten bei niedriger Bitrate. Die Zykluslänge ist der Drehpunkt —
+kürzere Periode erholt sich schneller von Verlust, kostet aber mehr Bitrate für
+Intra-Inhalt; der Count verteilt dieselbe Welle über weniger Bilder. Beides ist
+ein Trade-off des Aufrufers, nicht der GOP. Messreihe zu A/B/C-Varianten:
+`streaming/testbench/profiles/` (NVENC, RTX 4090).

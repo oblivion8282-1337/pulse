@@ -17,6 +17,7 @@ pub mod nv_p010;
 pub mod opts;
 pub mod raw_dump;
 pub mod va_import;
+pub mod vk_import;
 
 use std::sync::Arc;
 

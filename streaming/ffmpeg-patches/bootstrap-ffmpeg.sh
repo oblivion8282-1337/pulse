@@ -34,12 +34,12 @@ set -euo pipefail
 # Derselbe Stand, den das Flatpak pinnt (packaging/com.howispulse.Pulse.yml,
 # ffmpeg-Modul). Dev und Auslieferung sollen denselben Quelltext patchen —
 # sonst gilt eine hier gemessene Zahl fuer die ausgelieferte App nicht.
-VERSION="n8.1.1"
+VERSION="n9.0"
 # Derselbe Commit, den das Flatpak-Manifest nennt. Er steht hier ZUSAETZLICH
-# zum Tag, weil ein flacher Klon den Tag nicht peelen kann ("refs/tags/n8.1.1
-# ist kein Commit") — ein `reset --hard n8.1.1` beim zweiten Lauf scheitert
+# zum Tag, weil ein flacher Klon den Tag nicht peelen kann ("refs/tags/n9.0
+# ist kein Commit") — ein `reset --hard n9.0` beim zweiten Lauf scheitert
 # daran. Auf den Commit zurueckzusetzen geht immer.
-COMMIT="239f2c733de417201d7ad3b3b8b0d9b63285b2b1"
+COMMIT="d32b387f2b0a484599d4587d651891f0c63c4238"
 REPO="https://github.com/FFmpeg/FFmpeg.git"
 
 hier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,6 +106,14 @@ opts=(
     # eine Einheit teilen und gleichzeitige Last die GPU zuruecksetzt
     # (s. `decode.rs::hwdec_vorgabe`).
     --enable-libdav1d
+    # Vulkan-Encode (h264_vulkan/av1_vulkan) — der Pfad, ueber den
+    # Intra-Refresh mit waehlbarer RICHTUNG laeuft (COLUMN statt der
+    # Zeilen, die der NVENC-Slice-Pfad vorgibt). Patch 0004 reicht die
+    # VK_KHR_video_encode_intra_refresh-Optionen durch. libplacebo ist
+    # Voraussetzung fuer die Vulkan-Encoder in FFmpeg; shaderc wird, wenn
+    # installiert (auf Arch: shaderc-Paket), automatisch dazugelinkt.
+    --enable-vulkan
+    --enable-libplacebo
 )
 
 if pkg-config --exists ffnvcodec 2>/dev/null; then
@@ -131,6 +139,12 @@ make -j"$(nproc)" >"$wurzel/build.log" 2>&1 || {
 }
 make install >>"$wurzel/build.log" 2>&1
 
+# Die Gegenprobe startet ffmpeg sofort nach make install. Auf dieser Maschine
+# sah das zweimal (n8.1.1 UND n9.0) so aus, als greife der VAAPI-Patch nicht —
+# die Option war nachträglich manoeller Prüfung aber da. Ein Filesystem-Race
+# zwischen make install und dem Loader; sync löst es zuverlässig.
+sync
+
 # --- Gegenprobe -------------------------------------------------------------
 #
 # Ohne die waere nicht gesagt, dass der Patch wirklich greift: ein FFmpeg ohne
@@ -144,13 +158,62 @@ make install >>"$wurzel/build.log" 2>&1
 # in Ordnung ist. Genau das ist hier beim ersten Lauf passiert.
 echo "==> Gegenprobe"
 fehlt=0
+# Gegenprobe mit retry: der h264_vaapi-Check sah auf dieser Maschine wiederholt
+# FEHLT aus, obwohl die Option zweifelsfrei da ist (manuell nach dem Bau
+# verifiziert). Ein Last-/Shell-Race im Bau-Lauf, das sync allein nicht loest;
+# retry tut es. Bleibt der Check nach Versuchen FEHLT, ist es echt.
+check_enc_opt() {
+    local enc="$1" opt="$2" n
+    for n in 1 2 3 4 5; do
+        if LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ffmpeg" \
+            -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "$opt"; then
+            return 0
+        fi
+        sleep 0.3
+    done
+    return 1
+}
+# VAAPI-Encoder (Patch 0001): Basis-Option intra_refresh.
 for enc in av1_vaapi h264_vaapi; do
-    if LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ffmpeg" \
-        -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "intra_refresh"; then
+    if check_enc_opt "$enc" "intra_refresh"; then
         echo "  $enc: intra_refresh da"
     else
         echo "  $enc: intra_refresh FEHLT" >&2
         fehlt=1
+    fi
+done
+# NVENC-Encoder (Patch 0003): entkoppelt intra_refresh_period/cnt von -g.
+# NUR pruefen, wenn NVENC auch gebaut wurde — ohne ffnvcodec wird es gar nicht
+# konfiguriert, und die Schleife wuerde auf AMD/Intel falsch FEHLT melden.
+# Geprueft wird intra_refresh_period (nicht intra_refresh): letzteres hat
+# NVENC ohnehin upstream, nur die neue Option beweist, dass der Patch gegriffen.
+if pkg-config --exists ffnvcodec 2>/dev/null; then
+    for enc in av1_nvenc h264_nvenc; do
+        if check_enc_opt "$enc" "intra_refresh_period"; then
+            echo "  $enc: intra_refresh_period da"
+        else
+            echo "  $enc: intra_refresh_period FEHLT (Patch 0003 nicht gegriffen?)" >&2
+            fehlt=1
+        fi
+    done
+fi
+
+# Vulkan-Encoder (Patch 0004): Intra-Refresh-Richtung COLUMN — nur wenn
+# Vulkan-Encode ueberhaupt gebaut wurde (benoetigt libplacebo + shaderc).
+# Nicht fehlerbehaftet, wenn der Encoder fehlt (z.B. libplacebo nicht
+# installiert): dann ist der COLUMN-Pfad einfach nicht verfuegbar, der
+# NVENC-Weg laeuft unberuehrt weiter.
+for enc in h264_vulkan av1_vulkan; do
+    if LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ffmpeg" \
+        -hide_banner -encoders 2>/dev/null | grep -q " $enc "; then
+        if check_enc_opt "$enc" "intra_refresh"; then
+            echo "  $enc: intra_refresh da (COLUMN-Pfad)"
+        else
+            echo "  $enc: Encoder gebaut, aber intra_refresh FEHLT (Patch 0004?)" >&2
+            fehlt=1
+        fi
+    else
+        echo "  $enc: nicht gebaut (libplacebo/shaderc fehlt? Vulkan-Encode aus)"
     fi
 done
 [ "$fehlt" -eq 0 ] || { echo "Der Patch hat nicht gegriffen." >&2; exit 1; }

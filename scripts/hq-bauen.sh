@@ -37,7 +37,12 @@ bash "$repo_root/streaming/ffmpeg-patches/bootstrap-ffmpeg.sh"
 # /usr/lib64. Zwei FFmpeg-Haelften in einem Prozess — der Fehler zeigt sich
 # nicht beim Bauen, sondern als Absturz oder als still fehlende Option.
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-export RUSTFLAGS="-C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags${RUSTFLAGS:+ $RUSTFLAGS}"
+# `-L native=$prefix/lib` VOR den restlichen Flags: ohne das linkt der Player
+# (anders als der Sidecar) reproduzierbar ans SYSTEM-FFmpeg, weil ein spaeterer
+# link-search-Pfad (/usr/lib) die Link-Reihenfolge vor dem ffmpeg-sys-next-Eintrag
+# gewinnt. Der Prefix als erste native Suche zwingt beide Crates auf dieselbe
+# Bibliothek. -Wl,--disable-new-dtags (s. naechster Block) nicht weglassen.
+export RUSTFLAGS="-L native=$prefix/lib -C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags${RUSTFLAGS:+ $RUSTFLAGS}"
 
 # --- 2. Sidecar (Sender) ----------------------------------------------------
 echo ""

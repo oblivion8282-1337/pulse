@@ -1,0 +1,116 @@
+From 65bfe34fe586b7ef1462507f5d336f233a88acdf Mon Sep 17 00:00:00 2001
+From: Michael de Meyer <249562202+oblivion8282-1337@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 12:45:37 +0200
+Subject: [PATCH] avcodec/nvenc: decouple intra refresh period and count from
+ -g (9.0)
+
+Ported to FFmpeg 9.0. Identical to the n8.1.1 version: adds intra_refresh_period
+and intra_refresh_cnt encoder options, decoupling the refresh cycle from gopLength.
+
+Signed-off-by: Michael de Meyer <249562202+oblivion8282-1337@users.noreply.github.com>
+---
+ libavcodec/nvenc.c      | 12 ++++++------
+ libavcodec/nvenc.h      |  2 ++
+ libavcodec/nvenc_av1.c  |  4 ++++
+ libavcodec/nvenc_h264.c |  4 ++++
+ libavcodec/nvenc_hevc.c |  4 ++++
+ 5 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/libavcodec/nvenc.c b/libavcodec/nvenc.c
+index 9203fb65c0..490acd253b 100644
+--- a/libavcodec/nvenc.c
++++ b/libavcodec/nvenc.c
+@@ -1175,8 +1175,8 @@ static av_cold int nvenc_setup_h264_config(AVCodecContext *avctx)
+ 
+     if (ctx->intra_refresh) {
+         h264->enableIntraRefresh = 1;
+-        h264->intraRefreshPeriod = cc->gopLength;
+-        h264->intraRefreshCnt = cc->gopLength - 1;
++        h264->intraRefreshPeriod = ctx->intra_refresh_period > 0 ? ctx->intra_refresh_period : cc->gopLength;
++        h264->intraRefreshCnt    = ctx->intra_refresh_cnt    > 0 ? ctx->intra_refresh_cnt    : cc->gopLength - 1;
+         cc->gopLength = NVENC_INFINITE_GOPLENGTH;
+         h264->outputRecoveryPointSEI = 1;
+         h264->singleSliceIntraRefresh = ctx->single_slice_intra_refresh;
+@@ -1354,8 +1354,8 @@ static av_cold int nvenc_setup_hevc_config(AVCodecContext *avctx)
+ 
+     if (ctx->intra_refresh) {
+         hevc->enableIntraRefresh = 1;
+-        hevc->intraRefreshPeriod = cc->gopLength;
+-        hevc->intraRefreshCnt = cc->gopLength - 1;
++        hevc->intraRefreshPeriod = ctx->intra_refresh_period > 0 ? ctx->intra_refresh_period : cc->gopLength;
++        hevc->intraRefreshCnt    = ctx->intra_refresh_cnt    > 0 ? ctx->intra_refresh_cnt    : cc->gopLength - 1;
+         cc->gopLength = NVENC_INFINITE_GOPLENGTH;
+ #ifdef NVENC_HAVE_HEVC_OUTPUT_RECOVERY_POINT_SEI
+         hevc->outputRecoveryPointSEI = 1;
+@@ -1539,8 +1539,8 @@ static av_cold int nvenc_setup_av1_config(AVCodecContext *avctx)
+ 
+     if (ctx->intra_refresh) {
+         av1->enableIntraRefresh = 1;
+-        av1->intraRefreshPeriod = cc->gopLength;
+-        av1->intraRefreshCnt = cc->gopLength - 1;
++        av1->intraRefreshPeriod = ctx->intra_refresh_period > 0 ? ctx->intra_refresh_period : cc->gopLength;
++        av1->intraRefreshCnt    = ctx->intra_refresh_cnt    > 0 ? ctx->intra_refresh_cnt    : cc->gopLength - 1;
+         cc->gopLength = NVENC_INFINITE_GOPLENGTH;
+     }
+ 
+diff --git a/libavcodec/nvenc.h b/libavcodec/nvenc.h
+index ad6ddaa434..28de9ae8b9 100644
+--- a/libavcodec/nvenc.h
++++ b/libavcodec/nvenc.h
+@@ -262,6 +262,8 @@ typedef struct NvencContext
+     int intra_refresh;
+     int single_slice_intra_refresh;
+     int constrained_encoding;
++    int intra_refresh_period;
++    int intra_refresh_cnt;
+     int udu_sei;
+     int timing_info;
+     int highbitdepth;
+diff --git a/libavcodec/nvenc_av1.c b/libavcodec/nvenc_av1.c
+index b687260ef7..ecc1356647 100644
+--- a/libavcodec/nvenc_av1.c
++++ b/libavcodec/nvenc_av1.c
+@@ -156,6 +156,10 @@ static const AVOption options[] = {
+                                                             OFFSET(ldkfs),        AV_OPT_TYPE_INT,   { .i64 = 0 }, 0, UCHAR_MAX, VE },
+     { "intra-refresh","Use Periodic Intra Refresh instead of IDR frames",
+                                                             OFFSET(intra_refresh),AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
++    { "intra_refresh_period", "Intra refresh period in frames (0 = derive from -g, NVENC default)",
++                                                            OFFSET(intra_refresh_period), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
++    { "intra_refresh_cnt", "Intra refresh length in frames; must be < intra_refresh_period (0 = derive from -g)",
++                                                            OFFSET(intra_refresh_cnt), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+     { "timing-info",  "Include timing info in sequence/frame headers",
+                                                             OFFSET(timing_info),  AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
+     { "extra_sei",    "Pass on extra SEI data (e.g. a53 cc) to be included in the bitstream",
+diff --git a/libavcodec/nvenc_h264.c b/libavcodec/nvenc_h264.c
+index 103c9a95fd..909b33e666 100644
+--- a/libavcodec/nvenc_h264.c
++++ b/libavcodec/nvenc_h264.c
+@@ -168,6 +168,10 @@ static const AVOption options[] = {
+                                                             OFFSET(udu_sei),      AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
+     { "intra-refresh","Use Periodic Intra Refresh instead of IDR frames",
+                                                             OFFSET(intra_refresh),AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
++    { "intra_refresh_period", "Intra refresh period in frames (0 = derive from -g, NVENC default)",
++                                                            OFFSET(intra_refresh_period), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
++    { "intra_refresh_cnt", "Intra refresh length in frames; must be < intra_refresh_period (0 = derive from -g)",
++                                                            OFFSET(intra_refresh_cnt), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+     { "single-slice-intra-refresh", "Use single slice intra refresh",
+                                                             OFFSET(single_slice_intra_refresh), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
+     { "max_slice_size", "Maximum encoded slice size in bytes",
+diff --git a/libavcodec/nvenc_hevc.c b/libavcodec/nvenc_hevc.c
+index 94ba34c48b..2be3355142 100644
+--- a/libavcodec/nvenc_hevc.c
++++ b/libavcodec/nvenc_hevc.c
+@@ -154,6 +154,10 @@ static const AVOption options[] = {
+                                                             OFFSET(udu_sei),      AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
+     { "intra-refresh","Use Periodic Intra Refresh instead of IDR frames",
+                                                             OFFSET(intra_refresh),AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
++    { "intra_refresh_period", "Intra refresh period in frames (0 = derive from -g, NVENC default)",
++                                                            OFFSET(intra_refresh_period), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
++    { "intra_refresh_cnt", "Intra refresh length in frames; must be < intra_refresh_period (0 = derive from -g)",
++                                                            OFFSET(intra_refresh_cnt), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+     { "single-slice-intra-refresh", "Use single slice intra refresh",
+                                                             OFFSET(single_slice_intra_refresh), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
+     { "max_slice_size", "Maximum encoded slice size in bytes",
+-- 
+2.55.0
+
