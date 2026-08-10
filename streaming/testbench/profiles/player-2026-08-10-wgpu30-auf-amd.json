@@ -1,0 +1,24 @@
+{
+  "id": "player-2026-08-10-wgpu30-auf-amd",
+  "gemessen_am": "2026-08-10, Radeon 780M (Phoenix, VCN 4), Mesa 26.1.5, Fedora 44, Wayland/KDE",
+  "frage": "Trägt die wgpu-30-Migration (aus wgpu30-migration-only, dort auf anderer Hardware gemessen) auch auf AMD unter Linux? Das war die Plattform, auf der sie noch nicht gegengeprüft war.",
+  "ANTWORT": "Ja. 254 von 254 Tests bestanden, und der Farbwerte-Selbsttest liegt in jedem Fall unter einer Stufe — größte Abweichung 0,90 Stufen im HDR-Fenster (scRGB) und 0,40 im SDR-Fenster, jeweils mit den Vorgaben des Players (Deband 0,6, Dither an). Die Ausgangsmessung nannte 1,02 Stufen auf ihrer Hardware; der Abstand liegt in derselben Größenordnung und in derselben Richtung.",
+  "aufbau": {
+    "zweig": "chore/player-wgpu30 — der EINE Migrations-Commit e1d8030 aus wgpu30-migration-only, auf a2d6e0d0 (main) gepflückt. Ein Konflikt in render/mod.rs, automatisch aufgelöst. Bewusst NICHT der 16-Commit-Zweig wgpu30-migration: der führt HDR-Arbeit mit, und HDR ist auf Linux vorerst zurückgestellt.",
+    "werkzeug": "cargo test --release (rustc 1.97.1) und pulse-player --farbwerte",
+    "grenze": "Kein Wiedergabe-Sichttest und kein echter Stream. Der Farbwerte-Selbsttest rechnet gegen Sollwerte aus messen::sollwerte (SMPTE ST 2084, ITU-R BT.2020/BT.709, IEC 61966-2-1/-2-2, ITU-R BT.2408) und NICHT gegen shader.wgsl — er belegt die Rechenkette, nicht das Bild auf dem Schirm."
+  },
+  "ergebnis": {
+    "tests": { "bestanden": 254, "gescheitert": 0, "uebersprungen": 6 },
+    "farbwerte_hdr_scrgb": { "groesste_abweichung_stufen": 0.9, "bei": "1 cd/m2 -> Y=195" },
+    "farbwerte_sdr_tonemapping": { "groesste_abweichung_stufen": 0.4, "bei": "BT.2020 Blau 100 cd/m2" },
+    "chroma_spreizung": "0.00000000 in beiden Fenstern"
+  },
+  "nebenbefund": {
+    "was": "Der erste Testlauf scheiterte an EINEM Test (repro_3_stapa_ueberzaehliges_byte, Index-Überlauf in vendor/webrtc-rs/rtp/src/codecs/h264/mod.rs:239) — und das lag NICHT an wgpu.",
+    "ursache": "Der vendorierte webrtc-rs auf dieser Maschine war ohne patches/0003-h264-stapa-bounds-check.patch gebaut. vendor/ ist ignoriert, git meldet also nicht, dass der Baum veraltet ist; nach bash scripts/bootstrap-webrtc.sh war der Lauf grün.",
+    "warum_es_zaehlt": "Der Patch schließt eine aus der Ferne auslösbare Panik im ungeprüften RTP-Inhalt. Ein Player aus einem ungepatchten Baum trägt die Lücke. Festgehalten in streaming/hq-labor/EINRICHTUNG.md, weil die Falle jede neue Maschine und jeden Pull trifft, der patches/ anfasst.",
+    "messfalle": "Ein Testausfall während einer Migration sieht nach einem Fehler der Migration aus. Hätte hier jemand am wgpu-Zweig 'repariert', wäre die Sicherheitslücke bestehen geblieben und der Zweig zu Unrecht belastet."
+  },
+  "offen": "Ein echter Wiedergabe-Sichttest und ein Zero-Copy-Vergleich auf dieser Karte stehen aus. Die Ausgangsmessung hatte den Zero-Copy-Vergleich dreimal gefahren und keinen Effekt gefunden (Rauschen, Vorzeichen kippt zwischen den Reihen); das ist hier nicht wiederholt."
+}

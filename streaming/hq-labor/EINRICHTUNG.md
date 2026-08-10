@@ -30,16 +30,32 @@ ab, weil `Cargo.toml` über `[patch.crates-io]` dorthin zeigt.
 cd streaming/pulse-player
 bash scripts/bootstrap-webrtc.sh    # klont v0.17.2, wendet patches/*.patch an
 cargo build --release
-cargo test --release                # muss grün sein (122 Tests)
+cargo test --release                # muss grün sein (254 Tests, Stand 2026-08-10)
 ```
 
-Das Skript wendet **alle** Patches aus `patches/` an. Zwei sind es derzeit:
+**Nicht nur nach dem Klonen — auch nach jedem `git pull`, der `patches/`
+anfasst.** Der Vendor-Baum ist ignoriert, also merkt git nicht, dass er
+veraltet ist: ein neuer Patch liegt dann im Repo, aber nicht im Baum, und
+`cargo build` läuft stillschweigend gegen den ungepatchten Stand weiter. Am
+2026-08-10 genau so passiert — `0003` fehlte, der zugehörige Test fiel um, und
+der Ausfall sah zunächst nach einem Fehler des gerade bearbeiteten Themas aus
+(einer wgpu-Migration, mit der er nichts zu tun hatte). Die teurere Richtung
+desselben Fehlers: den Ausfall dem eigenen Zweig zuschreiben und ihn
+„wegreparieren", statt den Baum herzustellen.
+
+Das Skript wendet **alle** Patches aus `patches/` an. Drei sind es derzeit:
 
 * `0001-…-expose-undeclared-ssrc-streams` — nötig, damit der Paritätsstrom
   überhaupt sichtbar wird (er trägt eine eigene, im SDP nicht angekündigte
   Quellkennung).
 * `0002-nack-generator-resend-delay` — die NACK-Sperrfrist, ohne die dieselbe
   Lücke sechs- bis achtmal angefordert wird.
+* `0003-h264-stapa-bounds-check` — Grenzprüfung im STAP-A-Entpacker. Die
+  Schleifenbedingung sichert **ein** lesbares Byte zu, die Größenangabe ist
+  aber zwei Byte lang; ein STAP-A-Paket mit einem einzelnen überzähligen Byte
+  liest darüber hinaus und bringt den Player zum Absturz. Das ist ungeprüfter
+  RTP-Inhalt, also **aus der Ferne auslösbar** — der Patch ist kein
+  Schönheitsfehler, und ein Player aus einem ungepatchten Baum trägt die Lücke.
 
 ## 3. Den Messstand bauen
 
