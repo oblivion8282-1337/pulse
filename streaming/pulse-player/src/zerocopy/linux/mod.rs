@@ -203,10 +203,15 @@ impl Bruecke {
     /// Ein Bild ueber die Bruecke nehmen. `Ok(None)` heisst „kein freier
     /// Ringplatz" — dieses eine Bild nimmt den alten Weg, der naechste Versuch
     /// laeuft wieder.
+    ///
+    /// **Das Bild kommt nackt heraus, nicht in einem `Arc`.** Die gemeinsame
+    /// Huelle setzt die Weiche darueber (`zerocopy::linuxweg`), damit beide
+    /// Linux-Wege dieselbe tragen — hier eines anzulegen ergaebe ein `Arc` im
+    /// `Arc`, also zwei Zaehler fuer eine Lebensdauer.
     pub fn uebernehmen(
         &mut self,
         frame: &ffmpeg::util::frame::video::Video,
-    ) -> Result<Option<Arc<GpuBild>>> {
+    ) -> Result<Option<GpuBild>> {
         let bauart = Bauart::von_frame(frame)?;
         if bauart != self.bauart {
             // Aufloesung oder Bittiefe gewechselt. Der alte Ring passt nicht
@@ -218,13 +223,13 @@ impl Bruecke {
         }
         let Some(slot) = self.frei.nehmen() else { return Ok(None) };
         match self.kopieren(frame, slot) {
-            Ok(()) => Ok(Some(Arc::new(GpuBild::neu(
+            Ok(()) => Ok(Some(GpuBild::neu(
                 self.ring[slot].clone(),
                 self.bauart,
                 slot,
                 self.frei.clone(),
                 self.briefkasten.clone(),
-            )))),
+            ))),
             Err(e) => {
                 // Der Platz war entnommen und ist nie in ein `GpuBild`
                 // gewandert — ohne diese Zeile bliebe er auf Dauer verloren,

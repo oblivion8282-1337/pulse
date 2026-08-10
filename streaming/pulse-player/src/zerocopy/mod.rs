@@ -7,27 +7,30 @@
 //! bei 1080p8, 5,2-5,5 ms bei 1080p10 — `player-2026-08-06-bildweg-kosten`),
 //! danach schiebt `write_texture` dieselben Daten wieder hinauf.
 //!
-//! ## Zwei Bruecken, ein Verhalten
+//! ## Drei Bruecken, ein Verhalten
 //!
-//! | | Windows | Linux |
-//! |---|---|---|
-//! | Decoder | D3D11VA | `av1_cuvid`/`h264_cuvid` mit CUDA-Geraet |
-//! | Uebergabe | geteilte Textur, NT-Handle | exportiertes `VkImage`, Dateideskriptor |
-//! | Wer legt das Ziel an | FFmpegs D3D11-Geraet | **wgpus** Vulkan-Geraet |
-//! | Datei | [`bruecke`] | [`linux`] |
+//! | | Windows | Linux/NVIDIA | Linux/AMD+Intel |
+//! |---|---|---|---|
+//! | Decoder | D3D11VA | `av1_cuvid`/`h264_cuvid` mit CUDA-Geraet | nativ mit VAAPI-Geraet |
+//! | Uebergabe | geteilte Textur, NT-Handle | exportiertes `VkImage`, Dateideskriptor | DMA-BUF der Decoder-Surface |
+//! | Wer legt das Ziel an | FFmpegs D3D11-Geraet | **wgpus** Vulkan-Geraet | niemand — es wird nichts kopiert |
+//! | Datei | [`bruecke`] | [`linux`] | [`vaapi`] |
 //!
-//! **Der Unterschied ist erzwungen, nicht gewaehlt**, und die Richtung ist
-//! sogar vertauscht: unter Windows gehoert die Quelle uns und wird geteilt,
-//! unter Linux gehoert das ZIEL uns und wird eingehaengt — weil FFmpegs
-//! CUDA-Speicher nicht exportierbar ist. Die Einzelheiten stehen im Kopf von
-//! [`linux`]; hier steht nur, was fuer beide gilt. Alles darunter
+//! **Die Unterschiede sind erzwungen, nicht gewaehlt**, und die Richtung ist
+//! bei den ersten beiden sogar vertauscht: unter Windows gehoert die Quelle uns
+//! und wird geteilt, auf dem CUDA-Weg gehoert das ZIEL uns und wird eingehaengt
+//! — weil FFmpegs CUDA-Speicher nicht exportierbar ist. Der VAAPI-Weg faellt
+//! aus beiden heraus: dort wird ueberhaupt nicht kopiert, die Textur zeigt auf
+//! die Decoder-Surface selbst. Was das nach sich zieht (Lebensanker und
+//! Deckel), steht im Kopf von [`vaapi`]; die Einzelheiten des CUDA-Weges im
+//! Kopf von [`linux`]. Hier steht nur, was fuer alle gilt. Alles darunter
 //! ([`angefordert`], [`abschalten`], [`bild_ohne_umweg`], der GPU-Abdruck des
-//! Einfrier-Waechters, die Latenz-Sonde) ist plattformfrei und gilt fuer beide
-//! Wege.
+//! Einfrier-Waechters, die Latenz-Sonde) ist plattformfrei und gilt fuer alle
+//! drei Wege.
 //!
-//! **Was auf Linux WEITERHIN ohne Bruecke laeuft: der VAAPI-Weg** (AMD, Intel).
-//! Er braeuchte DMA-BUF statt eines CUDA-Imports, das ist eine dritte Bruecke.
-//! Solange es sie nicht gibt, holt `drain` dort das Bild wie bisher herunter.
+//! **Hier stand bis zum 2026-08-10 „Was auf Linux WEITERHIN ohne Bruecke
+//! laeuft: der VAAPI-Weg".** Er laeuft seither ueber [`vaapi`]; welche der
+//! beiden Linux-Bruecken greift, entscheidet [`linuxweg`] am Pixelformat.
 //!
 //! ## Warum das unter Windows eine Bruecke ist und kein reines Durchreichen
 //!
@@ -129,15 +132,50 @@ pub use bruecke::Bruecke;
 #[cfg(windows)]
 pub use platz::GpuBild;
 
-/// Der Linux-Weg: CUDA schreibt in ein von Vulkan angelegtes Bild.
+/// Der eine Linux-Weg: CUDA schreibt in ein von Vulkan angelegtes Bild.
 ///
 /// **Nicht `unix`, sondern `linux`.** macOS ist ebenfalls `unix`, hat aber
 /// weder CUDA noch `VK_KHR_external_memory_fd`; dort gilt weiterhin der
 /// Platzhalter.
 #[cfg(target_os = "linux")]
 mod linux;
+/// Der andere: die VAAPI-Surface wird als DMA-BUF eingehaengt.
 #[cfg(target_os = "linux")]
-pub use linux::{kontext_bereitstellen, Bruecke, GpuBild, Ringplatz};
+mod vaapi;
+/// Die Weiche dazwischen — sie traegt die Typen, die alle anderen sehen.
+#[cfg(target_os = "linux")]
+mod linuxweg;
+#[cfg(target_os = "linux")]
+pub use linux::{kontext_bereitstellen, Ringplatz};
+#[cfg(target_os = "linux")]
+pub use linuxweg::{Bruecke, Einhaengung, GpuBild};
+#[cfg(target_os = "linux")]
+pub use vaapi::Dmabufebene;
+
+/// Wie viele Surfaces der VAAPI-Decoder ueber seinen Bedarf hinaus anlegen
+/// soll, damit ihn der Renderer nicht aushungert (`extra_hw_frames`, s.
+/// [`vaapi::zusatzbilder`]).
+///
+/// **Plattformfrei erreichbar und ausserhalb von Linux null**, damit
+/// `decode.rs` dafuer keinen `#[cfg]`-Zweig braucht. Null heisst dort schlicht
+/// „FFmpegs Vorgabe", also unveraendertes Verhalten.
+///
+/// **Die beiden Schalter werden HIER geprueft und nur hier** — der Aufrufer ist
+/// die eine Stelle, an der die Frage gestellt wird, und eine zweite Abfrage in
+/// `vaapi::zusatzbilder` waere dieselbe Bedingung an zwei Orten.
+pub fn zusatzbilder_vaapi() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        if angefordert() && vaapi::erlaubt() {
+            return vaapi::zusatzbilder();
+        }
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
 
 #[cfg(not(any(windows, target_os = "linux")))]
 mod leer;
@@ -173,7 +211,15 @@ pub fn bruecke_moeglich(format: ffmpeg_next::format::Pixel) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        format == ffmpeg_next::format::Pixel::CUDA
+        match format {
+            ffmpeg_next::format::Pixel::CUDA => true,
+            // Der VAAPI-Weg hat einen eigenen Schalter (Begruendung im Kopf von
+            // [`vaapi`]). Er steht hier und nicht in `vaapi::Bruecke::neu`,
+            // damit ein abgeschalteter Weg gar nicht erst als Fehlschlag
+            // gemeldet wird — das saehe im Log aus wie ein Defekt.
+            ffmpeg_next::format::Pixel::VAAPI => vaapi::erlaubt(),
+            _ => false,
+        }
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {

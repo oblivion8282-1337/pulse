@@ -6,10 +6,12 @@
 //! `Option` schlicht immer `None`.
 //!
 //! **Hier stand bis zum 2026-08-07 „fuer alles, was nicht Windows ist".** Seit
-//! Linux seine eigene Bruecke hat (CUDA → Vulkan, `super::linux`), gilt das
-//! nicht mehr. Was auf Linux weiterhin ohne Bruecke laeuft, ist der
-//! **VAAPI**-Weg: der braeuchte DMA-BUF statt eines CUDA-Imports, und ihn hier
-//! vorzutaeuschen waere schlimmer als sein Fehlen.
+//! Linux seine eigenen Bruecken hat (CUDA → Vulkan in `super::linux`, VAAPI →
+//! DMA-BUF in `super::vaapi`), gilt das nicht mehr. **Und hier stand bis zum
+//! 2026-08-10 weiter „was auf Linux ohne Bruecke laeuft, ist der VAAPI-Weg" —
+//! auch das ist ueberholt.** Fuer macOS bleibt es beim Platzhalter:
+//! VideoToolbox gaebe seine Bilder als `IOSurface` heraus, das waere eine
+//! vierte Bruecke, und sie hier vorzutaeuschen waere schlimmer als ihr Fehlen.
 
 use anyhow::{bail, Result};
 

@@ -4,25 +4,25 @@
 //! Gegenstueck zu [`crate::zerocopy`]; dort steht, warum es die Bruecke
 //! ueberhaupt gibt und was sie kostet.
 //!
-//! ## Zwei Plattformen, zwei Einhaengungen, EINE Bindegruppe
+//! ## Zwei Plattformen, drei Einhaengungen, EINE Bindegruppe
 //!
-//! Was der Shader sieht, ist auf beiden Seiten dasselbe: zwei Ansichten (Luma,
-//! Chroma) plus eine Blindtextur. Wie sie entstehen, ist verschieden — und der
-//! Unterschied ist nicht Geschmack, sondern von der jeweiligen Schnittstelle
-//! erzwungen:
+//! Was der Shader sieht, ist auf allen Seiten dasselbe: zwei Ansichten (Luma,
+//! Chroma) plus eine Blindtextur. Wie sie entstehen, ist von der jeweiligen
+//! Schnittstelle erzwungen:
 //!
 //! | | Windows | Linux |
 //! |---|---|---|
-//! | Was ankommt | EINE geteilte NV12/P010-Textur | ZWEI `VkImage` (R8+Rg8 bzw. R16+Rg16) |
-//! | Warum | D3D11 gibt den Decoder-Frame so heraus | CUDA weist ein mehrplaniges `VkImage` ab (gemessen) |
+//! | Was ankommt | EINE geteilte NV12/P010-Textur | ZWEI Ebenen (R8+Rg8 bzw. R16+Rg16) |
+//! | Warum | D3D11 gibt den Decoder-Frame so heraus | CUDA weist ein mehrplaniges `VkImage` ab, VAAPI exportiert getrennte Layer (beides gemessen) |
 //! | Die zwei Ansichten | zwei ASPEKTE (`Plane0`/`Plane1`) einer Textur | zwei eigenstaendige Texturen |
-//! | Noetige Merkmale | `TEXTURE_FORMAT_NV12`/`P010` | keine fuer 8 bit, `16BIT_NORM` fuer 10 bit |
+//! | Noetige Merkmale | `TEXTURE_FORMAT_NV12`/`P010` | `16BIT_NORM` fuer 10 bit, `VULKAN_EXTERNAL_MEMORY_DMA_BUF` fuer VAAPI |
 //!
-//! Daraus folgt die einzige Stelle, an der man beim Aendern aufpassen muss:
-//! [`Fremdbilder::moeglich`] fragt auf beiden Seiten **verschiedene** Merkmale
-//! ab. Wer dort das Windows-Merkmal auch fuer Linux verlangte, schaltete den
-//! Weg dort grundlos ab — `TEXTURE_FORMAT_NV12` gibt es im Vulkan-Unterbau von
-//! wgpu 29 nicht, obwohl der Weg selbst traegt.
+//! Die beiden Linux-Wege stehen in [`super::fremdlinux`] und unterscheiden sich
+//! erst darin, WOHER die zwei Texturen kommen. Daraus folgt die Stelle, an der
+//! man beim Aendern aufpassen muss: [`Fremdbilder::moeglich`] fragt je Seite
+//! **verschiedene** Merkmale ab. Wer dort das Windows-Merkmal auch fuer Linux
+//! verlangte, schaltete den Weg dort grundlos ab — `TEXTURE_FORMAT_NV12` gibt
+//! es im Vulkan-Unterbau von wgpu 29 nicht, obwohl der Weg traegt.
 //!
 //! ## Windows: nur ueber D3D12
 //!
@@ -38,8 +38,16 @@
 //! Gemessen als tragend auf einer Radeon 780M, NV12 und P010, auch beim
 //! wiederholten Beschreiben derselben Textur:
 //! `streaming/testbench/profiles/player-2026-08-06-zerocopy-d3d12-amd.json`.
+//!
+//! ## Zur Laenge dieser Datei
+//!
+//! Sie liegt ueber der Groessengrenze des Projekts, und das ist gesehen und
+//! stehengelassen: der einzige sinnvolle Schnitt waere die Windows-Haelfte
+//! (`einhaengen`/`oeffnen`) als Gegenstueck zu [`super::fremdlinux`]. Genau die
+//! laesst sich auf der Entwicklungsmaschine nicht uebersetzen — ein Verschieben
+//! ohne jede Probe waere teurer als die ueberzaehligen Zeilen. Wer das naechste
+//! Mal unter Windows baut, hat den passenden Zeitpunkt.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -47,14 +55,30 @@ use std::sync::Arc;
 use crate::decode::PixelLayout;
 use crate::zerocopy::GpuBild;
 
+/// Wie viele Einhaengungen des VAAPI-Weges gleichzeitig aufgehoben bleiben (s.
+/// [`Fremdbilder::aufraeumen`]).
+///
+/// Drei, weil so viele Bilder hoechstens zugleich unterwegs sind: das gerade
+/// eingetragene, das gezeichnete und das, dessen Zeichendurchgang noch laeuft
+/// (die Swapchain fuehrt `desired_maximum_frame_latency + 1`). Weniger hiesse,
+/// eine Surface freizugeben, auf die noch gezeichnet wird; mehr hielte dem
+/// Decoder ohne Gewinn Vorrat vor — und der ist hier die knappe Groesse
+/// (`zerocopy::vaapi::anker`).
+///
+/// **Die Zahl zaehlt das eben eingetragene Bild MIT**, denn [`Fremdbilder::aufraeumen`]
+/// laeuft direkt nach dem Eintragen: nachgehalten sind also zwei Vorgaenger,
+/// nicht drei. Bis zum 2026-08-10 stand daneben „drei volle Bilddurchgaenge
+/// Abstand" — das war eine Verwechslung mit dieser Grenze; die drei
+/// gleichzeitig lebenden Bilder oben sind gemeint und gedeckt.
+const NACHHUT: usize = 3;
+
 /// Ein eingehaengtes Bild samt seiner beiden Ebenen-Ansichten.
 pub struct Import {
     /// Gehalten, weil die Bindegruppe daran haengt.
     ///
     /// Ein `Vec`, weil Linux ZWEI Texturen einhaengt und Windows eine
     /// (s. Modulkopf). **Der erste Eintrag ist die Luma-Seite** — daraus holt
-    /// die Latenz-Sonde ihre Musterzeilen (s. [`Fremdbilder::luma_textur`]);
-    /// bis zum 2026-08-07 wurde hier nur festgehalten, nie gelesen.
+    /// die Latenz-Sonde ihre Musterzeilen ([`Fremdbilder::luma_textur`]).
     texturen: Vec<wgpu::Texture>,
     /// Ob sich die Luma-Seite als Kopierquelle benutzen laesst — die
     /// Latenz-Sonde holt daraus ihre Musterzeilen (s. [`super::musterprobe`]).
@@ -88,6 +112,12 @@ pub struct Import {
     /// Ringplatz unveraenderlich, also einmal gebaut statt sechzigmal je
     /// Sekunde.
     pub abdruck_gruppe: wgpu::BindGroup,
+    /// Das Bild, dessen Speicher diese Texturen benutzen — **nur auf dem
+    /// VAAPI-Weg gesetzt**, wo der Lebensanker nicht in den `drop_callback` der
+    /// hal-Textur passt (Kopf von [`super::fremdlinux`]). Zugleich das Merkmal,
+    /// an dem [`Fremdbilder`] erkennt, dass dieser Eintrag **nicht** dauerhaft
+    /// bleibt.
+    festhalten: Option<Arc<GpuBild>>,
 }
 
 /// Zwischenspeicher der Einhaengungen, ein Eintrag je Ringplatz.
@@ -99,6 +129,10 @@ pub struct Import {
 /// Bildnummer waere falsch.
 pub struct Fremdbilder {
     importe: HashMap<isize, Import>,
+    /// Die Schluessel der Eintraege, die **nicht** dauerhaft bleiben duerfen,
+    /// in der Reihenfolge ihres Entstehens (s. [`Fremdbilder::aufraeumen`]).
+    /// Auf den Wegen mit festem Ring bleibt sie leer.
+    nachhut: Vec<isize>,
     /// Fuellt die dritte Bindung. Der Shader liest sie bei verschraenktem UV
     /// nicht, binden muss man sie trotzdem.
     blind: wgpu::TextureView,
@@ -119,23 +153,41 @@ impl Fremdbilder {
     /// zwaenge sie in ein `Option` und damit zwei Fehlerpfade in `binden`, die
     /// nie eintreten koennen.
     pub fn neu(device: &wgpu::Device) -> Self {
-        Self { importe: HashMap::new(), blind: blindtextur(device), bauart: None }
+        Self {
+            importe: HashMap::new(),
+            nachhut: Vec::new(),
+            blind: blindtextur(device),
+            bauart: None,
+        }
     }
 
     /// Welche Merkmale das Geraet braucht, damit dieser Weg ueberhaupt offen
     /// ist — so weit die GPU sie anbietet.
     ///
-    /// **Beide Format-Merkmale zusammen anfordern und nicht je Strom
-    /// nachfordern:** ein Geraet laesst sich in wgpu nicht nachtraeglich
-    /// erweitern, und ob ein Strom 8 oder 10 bit fuehrt, steht erst beim ersten
-    /// Bild fest. P010 braucht ausserdem `TEXTURE_FORMAT_16BIT_NORM` fuer seine
+    /// **Alle Merkmale zusammen anfordern und nicht je Strom nachfordern:** ein
+    /// Geraet laesst sich in wgpu nicht nachtraeglich erweitern, und ob ein
+    /// Strom 8 oder 10 bit fuehrt, steht erst beim ersten Bild fest. P010
+    /// braucht ausserdem `TEXTURE_FORMAT_16BIT_NORM` fuer seine
     /// Ebenen-Ansichten — das fordert der Player ohnehin schon an.
     ///
     /// Auf Linux sind die beiden mehrplanigen Merkmale wirkungslos (dort
     /// entstehen zwei einfache Texturen), aber `& vorhanden` macht das
     /// harmlos: was die Karte nicht anbietet, wird nicht angefordert.
+    ///
+    /// **Dazu auf Linux `VULKAN_EXTERNAL_MEMORY_DMA_BUF`** — ohne dieses
+    /// Merkmal weist `texture_from_dmabuf_fd` jeden Import ab
+    /// (`wgpu-hal-30.0.0/src/vulkan/device.rs:535`), und den VAAPI-Weg gaebe es
+    /// gar nicht. Der `#[cfg]` steht dabei, damit die Anforderung nur auf der
+    /// Plattform gestellt wird, die sie braucht: dass `& vorhanden` sie auf
+    /// einem D3D12-Geraet ohnehin verschluckt, waere Zufall und keine
+    /// Begruendung.
     pub fn merkmale(vorhanden: wgpu::Features) -> wgpu::Features {
-        (wgpu::Features::TEXTURE_FORMAT_NV12 | wgpu::Features::TEXTURE_FORMAT_P010) & vorhanden
+        let mut noetig = wgpu::Features::TEXTURE_FORMAT_NV12 | wgpu::Features::TEXTURE_FORMAT_P010;
+        #[cfg(target_os = "linux")]
+        {
+            noetig |= wgpu::Features::VULKAN_EXTERNAL_MEMORY_DMA_BUF;
+        }
+        noetig & vorhanden
     }
 
     /// Traegt das Geraet den Weg fuer dieses Bild?
@@ -176,14 +228,37 @@ impl Fremdbilder {
             // Nach einem Formatwechsel zeigen die alten Handles auf Texturen,
             // die es nicht mehr gibt (s. [`Fremdbilder::bauart`]).
             self.importe.clear();
+            self.nachhut.clear();
             self.bauart = Some(bauart);
         }
-        match self.importe.entry(bild.handle()) {
-            Entry::Occupied(e) => Some(&e.into_mut().bindegruppe),
-            Entry::Vacant(e) => {
-                let import = einhaengen(device, teile, &self.blind, bild, werk)?;
-                Some(&e.insert(import).bindegruppe)
+        let schluessel = bild.handle();
+        if !self.importe.contains_key(&schluessel) {
+            let import = einhaengen(device, teile, &self.blind, bild, werk)?;
+            let verganglich = import.festhalten.is_some();
+            self.importe.insert(schluessel, import);
+            if verganglich {
+                self.nachhut.push(schluessel);
+                self.aufraeumen();
             }
+        }
+        self.importe.get(&schluessel).map(|i| &i.bindegruppe)
+    }
+
+    /// Alte Einhaengungen des VAAPI-Weges wieder loswerden.
+    ///
+    /// **Ohne das waere der Zwischenspeicher eine Falle statt einer Hilfe.**
+    /// Jeder Eintrag haelt ueber sein `festhalten` eine Decoder-Surface fest;
+    /// ein Eintrag je Bild, dauerhaft aufgehoben, naehme dem Decoder binnen
+    /// Sekunden seinen ganzen Vorrat, und das Bild bliebe stehen. Auf den Wegen
+    /// mit festem Ring passiert hier nichts — dort gibt es nur so viele
+    /// Schluessel wie Ringplaetze, und die sollen bleiben. Nicht sofort,
+    /// sondern mit [`NACHHUT`] Abstand: dieser Weg kann den Rueckruf nicht
+    /// haben, an dem die anderen erkennen, wann die GPU fertig ist (Kopf von
+    /// [`super::fremdlinux`]).
+    fn aufraeumen(&mut self) {
+        while self.nachhut.len() > NACHHUT {
+            let alt = self.nachhut.remove(0);
+            self.importe.remove(&alt);
         }
     }
 
@@ -251,20 +326,12 @@ fn einhaengen(
     None
 }
 
-/// Linux: die beiden `VkImage` der Bruecke uebernehmen.
+/// Linux: die beiden Ebenen des Bildes uebernehmen — CUDA-Weg wie VAAPI-Weg.
 ///
-/// **Ohne eigene Vulkan-Aufrufe** — die Bilder sind bereits auf genau diesem
-/// Geraet angelegt (`zerocopy::linux::vkbild`), hier werden sie nur an wgpu
-/// uebergeben. Das ist der Unterschied zur Windows-Seite, wo erst noch ein
-/// Handle geoeffnet werden muss.
-///
-/// Belegt: wgpu 29.0.4 uebernimmt so ein Bild **mitsamt Inhalt**, ueber 720p
-/// bis 4K und ueber 20 aufeinanderfolgende CUDA-Schreibrunden in dieselbe
-/// eingehaengte Textur — `profiles/player-2026-08-07-wgpu29-vkimage-import.json`.
-/// Der begruendete Verdacht dagegen (wgpu traegt eingehaengte Texturen als
-/// `UNINITIALIZED` ein, der Uebergang aus `VK_IMAGE_LAYOUT_UNDEFINED` **darf**
-/// den Inhalt verwerfen) ist am Quelltext bestaetigt, tritt auf dieser Karte
-/// aber nicht ein. „Darf verwerfen" ist keine Zusage zu verwerfen.
+/// **Wie die zwei Texturen entstehen, steht in [`super::fremdlinux`]**; hier
+/// steht nur, was danach mit ihnen geschieht, und das ist auf beiden Wegen
+/// dasselbe — der Unterschied betrifft ausschliesslich das Einhaengen. Wer hier
+/// eine Fallunterscheidung sieht, hat einen Fehler vor sich.
 #[cfg(target_os = "linux")]
 fn einhaengen(
     device: &wgpu::Device,
@@ -273,109 +340,16 @@ fn einhaengen(
     bild: &Arc<GpuBild>,
     werk: &super::abdruck::Abdruckwerk,
 ) -> Option<Import> {
-    // **Der Lebensanker.** Er haelt die beiden `VkImage` am Leben, solange wgpu
-    // seine Texturen haelt — ohne ihn koennte die Bruecke sie unter einem
-    // laufenden Zeichendurchgang wegraeumen (Begruendung bei
-    // `zerocopy::linux::Ringplatz`).
-    let anker = bild.lebensanker();
-
-    // **Nur mit laufender Latenz-Sonde**, und dann fuer beide Ebenen statt nur
-    // fuer die Luma-Seite: die Farbebene braucht `COPY_SRC` nicht, aber sie
-    // entsteht in derselben Schleife, und ein zweiter Parameter dafuer waere
-    // teurer als die eine ungenutzte Nutzungsart. Gedeckt ist sie in jedem Fall
-    // — das `VkImage` traegt `TRANSFER_SRC` (`zerocopy::linux::vkbild`).
-    //
     // **Einmal gefragt und beides daraus**: die angemeldete Nutzungsart und das
     // Merkmal `luma_kopierbar` unten muessen dieselbe Antwort tragen. Sonst
     // holte die Sonde aus einer Textur, die `COPY_SRC` gar nicht angemeldet hat.
     let sonde_laeuft = crate::probe::sonde_aktiv();
-    let (hal_extra, wgpu_extra) = if sonde_laeuft {
-        (wgpu::TextureUses::COPY_SRC, wgpu::TextureUsages::COPY_SRC)
-    } else {
-        (wgpu::TextureUses::empty(), wgpu::TextureUsages::empty())
-    };
-
-    // Bild, Format und Masse kommen als Buendel von der Bruecke — sie rechnet
-    // die halbe Farbebene ohnehin aus, und hier ein zweites Mal zu halbieren
-    // hiesse, dieselbe Regel an zwei Stellen zu fuehren.
-    let uebernehmen = |(image, format, b, h): (ash::vk::Image, wgpu::TextureFormat, u32, u32),
-                       name: &'static str,
-                       anker: std::sync::Arc<crate::zerocopy::Ringplatz>| {
-        let masse = wgpu::Extent3d { width: b, height: h, depth_or_array_layers: 1 };
-        let hal_desc = wgpu::hal::TextureDescriptor {
-            label: Some(name),
-            size: masse,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUses::RESOURCE | hal_extra,
-            memory_flags: wgpu::hal::MemoryFlags::empty(),
-            // Leer, weil das Bild ohne `MUTABLE_FORMAT` angelegt ist —
-            // wgpu-hal verlangt das ausdruecklich in der Sicherheitsauflage
-            // von `texture_from_raw`.
-            view_formats: vec![],
-        };
-        // SAFETY: `image` wurde auf genau diesem Geraet angelegt
-        // (`zerocopy::linux`), die Masse stammen aus derselben Rechnung, und
-        // `anker` haelt es ueber die Lebensdauer der Textur am Leben.
-        let hal_tex = unsafe {
-            let hal = device.as_hal::<wgpu::hal::api::Vulkan>()?;
-            hal.texture_from_raw(
-                image,
-                &hal_desc,
-                // **Der Rueckruf MUSS gesetzt sein.** Ohne ihn naehme wgpu-hal
-                // das `VkImage` in Besitz und zerstoerte es beim Fallenlassen —
-                // waehrend der Speicher uns gehoert und CUDA ihn noch
-                // eingehaengt haelt. Ein doppeltes Zerstoeren faellt erst viel
-                // spaeter auf. Der Rumpf gibt zugleich den Lebensanker frei.
-                Some(Box::new(move || drop(anker))),
-                // Andernfalls uebernaehme wgpu-hal auch die Speicherverwaltung.
-                wgpu::hal::vulkan::TextureMemory::External,
-            )
-        };
-        // SAFETY: die hal-Textur gehoert ab hier wgpu.
-        Some(unsafe {
-            device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(
-                hal_tex,
-                &wgpu::TextureDescriptor {
-                    label: Some(name),
-                    size: masse,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu_extra,
-                    view_formats: &[],
-                },
-                // **Neu in wgpu 30, und `UNINITIALIZED` ist hier keine
-                // Bequemlichkeit, sondern die Sache selbst.**
-                //
-                // Der Parameter sagt wgpu, in welchem Zustand das fremde Bild
-                // gerade ist, damit die erste Sperre den richtigen `oldLayout`
-                // nennt. wgpu 29 hatte ihn nicht und trug intern immer
-                // `UNINITIALIZED` ein (`wgpu-core-29.0.4`,
-                // `device/resource.rs:1253`) — dieselbe Zeile nimmt in
-                // wgpu 30 den Wert von hier entgegen (`:1272`). Derselbe Wert
-                // heisst also unveraendertes Verhalten.
-                //
-                // Und er ist zugleich der richtige: das `VkImage` wird mit
-                // `initial_layout(UNDEFINED)` angelegt
-                // (`zerocopy::linux::vkbild`), und gefuellt wird es von CUDA
-                // ueber den geteilten Speicher, nicht ueber einen
-                // Vulkan-Uebergang. Es gibt also gar keinen Layout-Zustand, den
-                // man hier stattdessen angeben koennte.
-                wgpu::TextureUses::UNINITIALIZED,
-            )
-        })
-    };
-
-    let [y_ebene, uv_ebene] = bild.ebenen();
-    let y = uebernehmen(y_ebene, "fremdbild-y", anker.clone())?;
-    let uv = uebernehmen(uv_ebene, "fremdbild-uv", anker)?;
+    let [y, uv] = super::fremdlinux::einhaengen(device, bild, sonde_laeuft)?;
     let luma = y.create_view(&wgpu::TextureViewDescriptor::default());
     let chroma = uv.create_view(&wgpu::TextureViewDescriptor::default());
     // Einmal je Ringplatz, nicht je Bild — Begruendung an `Import::bindegruppe`.
+    // Auf dem VAAPI-Weg ist beides dasselbe: dort ist jedes Bild eine eigene
+    // Surface, es gibt gar nichts wiederzuverwenden (s. `zerocopy::vaapi`).
     let bindegruppe = super::setup::bind_group_aus_teilen(
         device,
         teile.layout,
@@ -386,8 +360,13 @@ fn einhaengen(
     // Der Fingerabdruck liest NUR die Luma-Ebene — Begruendung bei
     // `einfrieren::gpuabdruck`.
     let abdruck_gruppe = werk.bindung(device, &luma);
-    let texturen = vec![y, uv];
-    Some(Import { texturen, luma_kopierbar: sonde_laeuft, bindegruppe, abdruck_gruppe })
+    Some(Import {
+        texturen: vec![y, uv],
+        luma_kopierbar: sonde_laeuft,
+        bindegruppe,
+        abdruck_gruppe,
+        festhalten: super::fremdlinux::festhalten(bild),
+    })
 }
 
 #[cfg(windows)]
@@ -505,7 +484,16 @@ fn einhaengen(
     // Kopierquelle hergibt, ist auf dieser Plattform nicht nachgemessen
     // (Begruendung bei [`Import::luma_kopierbar`]). Die Sonde sagt das dann
     // deutlich, statt still nichts zu messen.
-    Some(Import { texturen: vec![textur], luma_kopierbar: false, bindegruppe, abdruck_gruppe })
+    // `festhalten: None` — der Lebensanker ist hier das NT-Handle der Bruecke,
+    // und D3D12 nimmt beim Oeffnen eine eigene Referenz auf die Ressource
+    // (s. [`oeffnen`]).
+    Some(Import {
+        texturen: vec![textur],
+        luma_kopierbar: false,
+        bindegruppe,
+        abdruck_gruppe,
+        festhalten: None,
+    })
 }
 
 /// Das NT-Handle auf wgpus eigenem D3D12-Geraet oeffnen.

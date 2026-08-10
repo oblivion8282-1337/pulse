@@ -12,11 +12,12 @@
 //! Decode laeuft in allen diesen Faellen auf der GPU.
 //!
 //! **Hier stand „Das ist noch nicht zero-copy … bewusst nicht Teil des ersten
-//! Wurfs". Das gilt fuer zwei Wege nicht mehr:** unter Windows bleibt das Bild
-//! seit dem 2026-08-06 auf dem D3D11VA-Weg im Grafikspeicher, unter Linux seit
-//! dem 2026-08-07 auf dem CUDA-Weg. Beide als VORGABE
-//! (`PULSE_PLAYER_ZEROCOPY=0` schaltet sie aus — s. [`crate::zerocopy`]). Fuer
-//! VAAPI gilt der Satz weiter: dort gibt es keine Bruecke.
+//! Wurfs". Das gilt fuer keinen der drei Hardware-Wege mehr:** unter Windows
+//! bleibt das Bild seit dem 2026-08-06 auf dem D3D11VA-Weg im Grafikspeicher,
+//! unter Linux seit dem 2026-08-07 auf dem CUDA- und seit dem 2026-08-10 auf
+//! dem VAAPI-Weg. Alle drei als VORGABE (`PULSE_PLAYER_ZEROCOPY=0` schaltet
+//! sie aus, `PULSE_PLAYER_ZEROCOPY_VAAPI=0` nur den letzten — s.
+//! [`crate::zerocopy`]).
 //!
 //! **Die cuvid-Decoder geben ihre Bilder auf der Karte heraus, seit sie ein
 //! CUDA-Geraet bekommen (2026-08-07).** Bis dahin landeten sie im
@@ -1023,6 +1024,9 @@ pub struct VideoDecoder {
     /// **Hier stand „Nur auf dem VAAPI-Weg benutzt" — das ist seit dem
     /// 2026-08-04 falsch**, seit `drain` denselben Weg auch fuer
     /// `Pixel::D3D11` nimmt, und seit dem 2026-08-07 auch fuer `Pixel::CUDA`.
+    /// Seit dem 2026-08-10 ist es auf dem VAAPI-Weg sogar der Ausnahmefall: dort
+    /// landet nur noch, was der Deckel der Bruecke nicht durchgelassen hat
+    /// (`zerocopy::vaapi::anker`).
     hw_ziel: ffmpeg::util::frame::video::Video,
     /// Wie lange das Ruecklesen aus dem Grafikspeicher im laufenden Durchgang
     /// gedauert hat. Wird je `decode` zurueckgesetzt und dort ausgewertet
@@ -1196,6 +1200,19 @@ impl VideoDecoder {
             let ptr = unsafe { ctx.as_mut_ptr() };
             hw_geraet_anhaengen(ptr, art, geraet)
                 .with_context(|| format!("{} fuer {name}", art.beschreibung()))?;
+            // **Der Decoder braucht mehr Surfaces, wenn der Renderer welche
+            // festhaelt** — was, wie viele und warum, steht bei
+            // `zerocopy::vaapi::zusatzbilder`. **VOR `avcodec_open2`**, sonst
+            // ist der Pool schon angelegt; ohne Fenster bleibt es bei FFmpegs
+            // Vorgabe, denn ohne wgpu-Geraet kommt die Bruecke gar nicht
+            // zustande und der Messpfad (`VideoDecoder::sonde`) haette nur
+            // vorgehaltenen Grafikspeicher davon.
+            if art == Hwaccel::Vaapi && geraet.is_some() {
+                let zusatz = crate::zerocopy::zusatzbilder_vaapi();
+                // SAFETY: wie oben — ein einzelnes Feld an einem ungeoeffneten
+                // Kontext.
+                unsafe { (*ptr).extra_hw_frames = zusatz };
+            }
         }
         ctx.decoder()
             .video()
@@ -1408,7 +1425,7 @@ impl VideoDecoder {
         self.skipped_before_keyframe = 0;
         // Der Ersatz ist IMMER Software, liefert also `YUV420P`/`YUV420P10LE`
         // — und fuer die ist `crate::zerocopy::bruecke_moeglich` falsch (sie
-        // kennt nur `D3D11` und `CUDA`). Beide Halden des Hardware-Wegs werden
+        // kennt nur `D3D11`, `CUDA` und `VAAPI`). Beide Halden des Hardware-Wegs werden
         // hier also nie wieder angefasst: `hw_ziel` ein volles Bild (1,4 MB bei
         // 720p NV12, ein Vielfaches bei 1440p10) und der Windows-Ring bis zu
         // `RING_SPEICHER_MAX` (320 MB). Ausgerechnet in dem Moment, in dem die
