@@ -21,6 +21,10 @@ pub(crate) mod farbe;
 /// Der Ausgabe-Farbraum des Fensters — die Wahl, die es vor wgpu 30 nicht gab.
 mod farbraum;
 mod fremdbild;
+/// Die beiden Linux-Einhaengungen (CUDA und VAAPI) — herausgeloest, weil
+/// `fremdbild` sonst ueber die Groessengrenze liefe.
+#[cfg(target_os = "linux")]
+mod fremdlinux;
 mod hdr_fenster;
 mod musterprobe;
 mod setup;

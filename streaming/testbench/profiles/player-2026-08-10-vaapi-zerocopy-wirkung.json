@@ -1,0 +1,44 @@
+{
+  "id": "player-2026-08-10-vaapi-zerocopy-wirkung",
+  "gemessen_am": "2026-08-10, Radeon 780M (Phoenix, VCN 4), Mesa 26.1.5 / RADV PHOENIX, Fedora 44, Wayland/KDE",
+  "frage": "Was bringt die dritte Zero-Copy-Bruecke (VAAPI -> wgpu ueber DMA-BUF) am laufenden Strom — und laeuft sie ueberhaupt sauber durch?",
+  "ANTWORT": "Sie halbiert bis drittelt die Dekodierzeit je Bild und laeuft ueber alle Laeufe fehlerfrei. 10 bit: 2,8 statt 8,0-8,6 ms. 8 bit: 2,2 statt 4,8-5,3 ms. Das Hochladen faellt von 1,0-1,3 auf 0,3 ms (10 bit) bzw. 0,4 auf 0,2 ms (8 bit). Die Wertebereiche der beiden Varianten ueberlappen in keinem Lauf.",
+  "aufbau": {
+    "kette": "MediaMTX 1.19.1-pulse (host-net, ohne Auth) <- ffmpeg -re -stream_loop -c copy ueber RTSP; Player als WHEP-Zuschauer auf derselben Maschine",
+    "einzelfaktor": "Gleiche Binaerdatei, gleicher Strom, gleiche Sitzungslaenge; einziger Unterschied PULSE_PLAYER_ZEROCOPY_VAAPI=0",
+    "material": "testsrc2 1920x1080 60 fps 4000 kbps; AV1 10 bit und H.264 8 bit (letzteres mit -bf 0)",
+    "laeufe": "10 bit: zwei Durchgaenge je Variante. 8 bit: je ein Durchgang vor und einer nach dem Vereinfachungs-Umbau.",
+    "quelle_der_zahlen": "Die Statistikzeile des Players selbst (PULSE_PLAYER_STATS_LOG=1), Median/Maximum je Sekunde"
+  },
+  "ergebnis": {
+    "av1_10bit": {
+      "bruecke_an": { "dekodieren_ms": "2,8 / 3,0-3,1", "hochladen_ms": 0.3, "gezeichnet": "60/s", "nie_gezeichnet": 0 },
+      "bruecke_aus": { "dekodieren_ms": "8,0-8,6 / 8,5-13,3", "hochladen_ms": "1,0-1,3", "gezeichnet": "60/s", "nie_gezeichnet": 2 }
+    },
+    "h264_8bit": {
+      "bruecke_an": { "dekodieren_ms": "2,0-2,2 / 2,6-3,8", "hochladen_ms": 0.2, "gezeichnet": "60/s", "nie_gezeichnet": 0 },
+      "bruecke_aus": { "dekodieren_ms": "4,8-5,3 / 5,3-6,5", "hochladen_ms": 0.4, "gezeichnet": "60/s", "nie_gezeichnet": "0-1" }
+    }
+  },
+  "deutung": {
+    "wo_der_gewinn_sitzt": "Die Dekodierzeit enthaelt im Aus-Fall das Herunterladen (av_hwframe_transfer_data laeuft in drain). Die Differenz von rund 5,7 ms (10 bit) und 2,8 ms (8 bit) deckt sich mit den frueher gemessenen Kosten des Bildwegs (5,2-5,5 bzw. 3,5 ms, player-2026-08-06-bildweg-kosten) — die Bruecke nimmt genau diesen Posten weg und nichts anderes.",
+    "bildbudget": "Bei 60 Bildern je Sekunde stehen 16,7 ms je Bild zur Verfuegung. 10 bit gibt die Bruecke davon rund ein Drittel zurueck.",
+    "keine_kopie_mehr": "Anders als die CUDA-Bruecke (die GPU-intern kopiert) faellt hier gar keine Kopie an — das ist der erste Weg im Projekt, der den Namen woertlich verdient."
+  },
+  "keine_stoerung": {
+    "panik_oder_fehler": "0 in allen Laeufen",
+    "decoder_aushungern": "nicht beobachtet; 60/s dekodiert und gezeichnet ueber die volle Laufzeit, keine Einfrier-Meldung",
+    "nach_dem_vereinfachungs_umbau_wiederholt": "ja — der Umbau hat Lebensanker und Freigabe-Reihenfolge angefasst, deshalb erneut am laufenden Strom geprueft statt nur mit Tests"
+  },
+  "grenzen": {
+    "nur_amd": "Intel faehrt denselben VAAPI-Weg, ist aber ungeprueft.",
+    "kein_sichttest": "Die Zahlen sagen nichts ueber das Aussehen. Die Bitgenauigkeit ist getrennt belegt (player-2026-08-10-vaapi-dmabuf-export), ein Sichttest am Fenster steht aus.",
+    "kurze_laeufe": "18-25 s je Lauf. Ein Dauerlauf ueber Stunden (Fragmentierung, Deskriptor-Leck) ist nicht gefahren.",
+    "zwei_gpus": "Nicht geprueft — kein Adapter-Abgleich gebaut (die CUDA-Bruecke hat einen)."
+  },
+  "falle": {
+    "was": "Der erste 8-bit-Lauf lieferte lauter Nullen — kein Bild kam an.",
+    "ursache": "Das Testschnipsel hatte B-Frames (h264_vaapi setzt sie von sich aus); MediaMTX lehnt das fuer WebRTC ab ('WebRTC doesn't support H264 streams with B-frames'). Mit -bf 0 neu erzeugt.",
+    "lehre": "Nullen sind kein Messwert. Ohne den Blick ins MediaMTX-Log haette hier 'die Bruecke bringt bei 8 bit nichts' gestanden."
+  }
+}
