@@ -18,6 +18,45 @@ keinem der Skripte** und wird in der Ausgabe maskiert. Ausnahmen:
 | `last-messen.ps1` | Was kostet der Sender auf der **Grafikeinheit**? (Leistungsindikatoren je Prozess) |
 | `bewegung.ps1` | Eine billige Bildänderung — **Voraussetzung** jeder Lastmessung |
 | `mitschnitt.ps1` | Ein kurzer Dateimitschnitt für die Sichtprüfung an einem Bild aus der Mitte |
+| `bruecke-einrichten.ps1` | Richtet den SSH-Zugang der Linux-Maschine ein (**als Administrator**) |
+| `sitzungs-helfer.ps1` | Zeiger, Bildschirmfoto, Monitorliste, Prozessstart — **in der angemeldeten Sitzung** |
+
+## Die Brücke zur Linux-Maschine
+
+Auftrag und Begründung: `docs/plans/2026-08-11-windows-bruecke-einrichten.md`.
+
+Die beiden Skripte gehören zusammen und sind **kein Produktbestandteil** — sie
+gehören nicht in den Installer und nicht in den Autostart einer Auslieferung.
+
+**Warum es zwei sind.** Windows trennt die am Monitor angemeldete Sitzung streng
+von der, die eine SSH-Anmeldung erzeugt; jeder Prozess sieht nur den Desktop
+seiner eigenen. Über SSH nimmt ein gestarteter Sidecar deshalb **nicht** den
+echten Bildschirm auf, `GetCursorPos` liefert den Zeiger der unsichtbaren
+Sitzung, und ein Bildschirmfoto ist schwarz. **SSH allein kann bauen, lesen und
+Dateien schieben — sehen und prüfen kann es nicht.** Genau das leistet der
+Helfer, und deshalb ist er nicht optional.
+
+```powershell
+powershell -File sitzungs-helfer.ps1            # in der angemeldeten Sitzung starten
+curl.exe -s http://127.0.0.1:47615/gesundheit   # von der SSH-Seite, lokal
+curl.exe -s http://127.0.0.1:47615/zeiger
+curl.exe -s http://127.0.0.1:47615/monitore
+curl.exe -s "http://127.0.0.1:47615/bild?monitor=0&pfad=C:\Temp\schirm.png"
+```
+
+**Bindung ausschließlich `127.0.0.1`**, niemals `0.0.0.0` oder `+`. Keine
+Authentifizierung — Absicht: wer SSH auf der Maschine hat, hat ohnehin alles.
+
+**`SetProcessDPIAware` steht ganz oben und muss dort bleiben.** Ohne das
+spiegelt Windows dem Prozess eine hochgerechnete Fläche vor: Zeiger und
+Monitor-Rechtecke kämen in virtuellen Punkten heraus, das Bildschirmfoto in
+echten Pixeln — die Fernsteuerung rechnete mit zwei Maßstäben. Aus demselben
+Grund meldet `/monitore` die **Skalierung**, nicht nur die Pixelgröße.
+
+**Ein Bild, das 1 MB groß ist, ist noch kein Beweis** — aber ein schwarzes ist
+klein. Die belastbare Probe ist eine Stichprobe über die Farbtöne (leere Fläche
+= 1 Ton) plus ein Blick auf den Zeiger vor und nach einer sichtbaren
+Mausbewegung.
 
 ## Die drei zusammen: eine Lastmessung an der Sendeseite
 
