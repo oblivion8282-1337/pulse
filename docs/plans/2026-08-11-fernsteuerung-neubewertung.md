@@ -135,26 +135,40 @@ Peer-Prüfung und Teardown bleiben, wie sie sind.
 - **Der Host muss HQ streamen.** Steuern ohne laufenden Stream (das alte M2d)
   bleibt zurückgestellt und ist jetzt ein Wesensmerkmal, keine Abkürzung.
 
-### Mehrere Monitore: mehrere Streams, zuschaltbar (entschieden 2026-08-11)
+### Mehrere Monitore: ist bereits da (korrigiert 2026-08-12)
 
-Aufgenommen wird heute **eine** Quelle (`CaptureSource`: Primärmonitor, Monitor
-per Index, Fenster per Titel/HWND). Vorbild Parsec: **der Hauptmonitor startet,
-weitere Monitore sind während der Sitzung zuschaltbar** — je Monitor ein eigener
-Stream. Die Slot-Mechanik dafür existiert
-(`docs/plans/2026-06-23-multi-hq-stream.md`, Pfad `…-s<slot>-<nonce>`); es fehlt
-die Bedienung und eine Protokoll-Ergänzung:
+**Hier stand, mehrere Monitore gleichzeitig müssten erst gebaut werden. Das war
+falsch** — es ging aus „eine Aufnahmequelle je Stream" hervor, was nur je Stream
+stimmt. Mehrere Streams gleichzeitig gibt es längst, mit eigener Monitorwahl je
+Stream und Bedienung in der Oberfläche.
+
+Seit dem 2026-08-12 (PR #321) zusätzlich:
+
+- Die Obergrenze von vier gleichzeitigen Streams ist auf 99 gehoben — praktisch
+  also weg; was möglich ist, entscheiden Encoder und Uplink. Die Zahl liegt
+  jetzt an **einer** Stelle (`shared/src/dcc_shared/streaming.py`), vorher an
+  fünf, eine davon unter anderem Namen.
+- Ein Fehler behoben, der mit steigender Slot-Zahl gefährlich geworden wäre: Es
+  gab nur zwei Merkfelder für die Aufnahmequelle, ab Slot 2 überschrieb eine
+  Auswahl die von Slot 0 (`web/src/lib/stream/captureSource.ts`).
+
+**Was für die Fernsteuerung offen bleibt** — und das ist jetzt der ganze Rest:
 
 - **Eingabe-Frames brauchen eine Ziel-Angabe (Slot).** Das Wire-Protokoll v1
-  kennt keine — es setzt genau eine Quelle voraus. Bei zwei zugeschalteten
-  Monitoren landete ein Klick sonst auf dem falschen. **Von Anfang an
+  kennt keine — es setzt genau eine Quelle voraus. Bei zwei laufenden Streams
+  landete ein Klick sonst auf dem falschen Bildschirm. **Von Anfang an
   einbauen**, nachträglich ist es ein Protokollbruch.
-- **Kosten sind linear**: je zugeschaltetem Monitor ein voller Encode und eine
-  volle Bandbreite. Die Auflösungsstufen (unten) sind der Hebel dagegen.
+- **Kosten sind linear**: je Monitor ein voller Encode und eine volle Bandbreite.
+  Die Auflösungsstufen (unten) sind der Hebel dagegen.
 - **Grenze, bewusst akzeptiert**: Zwei Streams sind zwei Bilder. Der Zeiger
   springt zwischen ihnen, statt über die Bildschirmkante zu wandern; ein Fenster
   von Monitor 1 nach 2 zu ziehen geht nicht.
 - Verworfen: alle Monitore in **ein** Bild (vier 4K nebeneinander = 15360×2160;
   auf eine übliche Box heruntergerechnet ist jeder Monitor darin briefmarkengroß).
+- Billige Zwischenstufe, die Sunshine so fährt: **Monitor-Umschalten per
+  Tastenkürzel** am steuernden Rechner (dort Strg+Alt+Umschalt+F1…F12), statt
+  einen zweiten Stream zuzuschalten. Deckt den häufigsten Fall zu einem Bruchteil
+  des Aufwands.
 
 ### Auflösung: das Herunterrechnen existiert bereits
 
@@ -163,14 +177,49 @@ eingepasst wird (`fit_within_box`, kein Upscale), plus die Server-Obergrenze
 `hq_resolution_max`. Für die Fernsteuerung ist damit nichts zu bauen — vier 4K
 Monitore sind kein Problem, man sendet sie kleiner.
 
-**Offen, und ein echter Unterschied zu Parsec:** Parsec schaltet die
-*tatsächliche* Bildschirmauflösung des gesteuerten Rechners um, wir rechnen nur
-das fertige Bild klein. Ein 4K-Desktop auf 720p geschrumpft ist flüssig, aber
-die Schrift ist nicht mehr lesbar — zum Zusehen egal, zum Arbeiten der
-Unterschied zwischen brauchbar und unbrauchbar. Windows kann das
-(`ChangeDisplaySettingsEx`); der Preis ist, dass die Fenster des Gesteuerten
-dabei umgeräumt werden und nach Sitzungsende nicht von selbst zurückspringen.
-**Noch nicht entschieden.**
+**Offen, und ein echter Unterschied zu Parsec:** Parsec und Sunshine ändern die
+*tatsächliche* Anzeige des gesteuerten Rechners, wir rechnen nur das fertige Bild
+klein. Ein 4K-Desktop auf 720p geschrumpft ist flüssig, aber die Schrift ist nicht
+mehr lesbar — zum Zusehen egal, zum Arbeiten der Unterschied zwischen brauchbar
+und unbrauchbar. **Noch nicht entschieden**, aber nach der 4:4:4-Untersuchung
+(unten) der einzige verbliebene Weg mit großer Wirkung.
+
+Wie es die beiden lösen (recherchiert 2026-08-11, Quellen am Ende):
+
+| | Weg | Preis |
+|---|---|---|
+| **Sunshine** | ändert die echte Anzeige: `dd_resolution_option: auto` setzt die vom Client angeforderte Auflösung, `dd_configuration_option: ensure_only_display` schaltet die übrigen Monitore ab, `dd_config_revert_on_disconnect` stellt zurück | Windows öffnet Programme auf dem abgeschalteten Monitor → unerreichbare Fenster; ohne das Zurückstellen verändert man die Konfiguration eines Rechners dauerhaft, an dem man nicht sitzt |
+| **Parsec** | fasst die echten Monitore nicht an, sondern legt über einen eigenen Treiber (IddCx) bis zu drei **virtuelle** Bildschirme an, je Client mit passender Auflösung | ein Windows-Treiber, den wir ausliefern und signieren lassen müssten |
+| **Apollo** (Sunshine-Ableger) | dasselbe über SudoVDA (640×480 bis 8K, 60–500 Hz), ein virtueller Schirm je Client, angelegt beim Start, entfernt beim Ende | wie Parsec |
+| **wir heute** | nur das fertige Bild verkleinern | fasst nichts am fremden Rechner an — aber die Schrift bleibt unlesbar |
+
+`ChangeDisplaySettingsEx` wäre der Sunshine-Weg; ein eigener Anzeigetreiber der
+Parsec-Weg. Beides ist eine bewusste Entscheidung, keine Kleinigkeit.
+
+### Farbschärfe (4:4:4): geprüft und verworfen (2026-08-11)
+
+Volle Farbauflösung ist der Hebel, den ein Sunshine-Nutzer als **wichtiger als
+die Auflösung** für lesbaren Text beschreibt, und Microsofts eigene Fernwartung
+erzwingt sie. Vollständig untersucht in `docs/2026-08-11-farbschaerfe-444.md`.
+Ergebnis:
+
+- **Geht auf unserer Hardware nicht.** Nicht Transport und nicht Browser sind das
+  Hindernis — die könnten es beide —, sondern der **Encoder**. VAAPI auf der
+  780M lehnt in allen drei Codecs ab (gemessen). Der einzige mögliche Weg wäre
+  NVIDIA-H.264, also unter Aufgabe von AV1; in Software scheitert es an der
+  Lizenz (libx264 ist GPL, unsere FFmpeg-Bauten sind LGPL ohne Software-Encoder).
+- **Nicht mit Bitrate zu erkaufen:** die Zehnfachung von 4 auf 40 Mbit/s bringt
+  Luma +7,3 dB und Chroma **+0,005 dB**. Der Verlust ist strukturell.
+- **Und er trifft weniger, als gedacht:** 4:2:0 kostet bei **grauem** Text 7,1 dB
+  (visuell verlustfrei), bei **farbigem** 28,2 dB. Terminal, Dokument und
+  Dateimanager sind unbeschädigt; der Leidtragende ist die Syntaxhervorhebung.
+- **Gegenprobe:** unterhalb von rund 4 Mbit/s wäre 4:4:4 sogar **schlechter** —
+  die Farbebenen nehmen dem Luma die Bits.
+
+Damit bleibt als Reihenfolge: **1. Auflösung am Host umstellen** (greift Luma an,
+wirkt überall, senkt sogar die Bitrate), **2. Nachschärfen im Player-Shader**
+(CAS/FSR1, MIT-lizenziert; die Andockstelle zwischen Deband und Dither ist frei),
+**3. Encoder-Abstimmung** (laut Messung fast wirkungslos).
 
 ### Koordinaten bleiben Anteile, nicht Pixel (geprüft 2026-08-11)
 
@@ -202,6 +251,63 @@ zusätzlich die rohen Gerätebewegungen; damit lässt sich zwischen zwei
 Fensterpunkten weiter auflösen, und das Ergebnis passt bequem in die 65536
 Stufen. Genau das kann ein Browser-`<video>` nicht liefern.
 
+**Bestätigt durch Moonlight/Sunshine:** Die schicken die Pixel des
+Zuschauer-Fensters **plus die Bezugsgröße** und rechnen erst beim Host in einen
+Anteil zurück (`touch_port`, `scalar_inv`). Also derselbe Rechenweg, nur mit
+einem Übertragungsschritt mehr. Dass unserer der robustere ist, steht in ihrem
+eigenen Quelltext: dort ist ein Rundungsfehler von Nvidias Skalierung umschifft,
+der den Zeiger nicht an den äußersten Bildrand kommen ließ — behoben, indem von
+den Maßen eins abgezogen wird. Diese Fehlerklasse entsteht bei einem Anteil gar
+nicht erst.
+
+### Der lokale Mauszeiger (empfohlen, 2026-08-11)
+
+Moonlight kann den Zeiger **beim Zuschauer** zeichnen, statt auf den fernen
+Zeiger im Videobild zu warten (Strg+Alt+Umschalt+C). Nutzer beschreiben den
+Unterschied als groß: mit fernem Zeiger fühlt es sich schlechter an als eine
+gewöhnliche Fernwartung — man wartet, um zu sehen, wo der Zeiger landet, bevor
+man klickt; mit lokalem Zeiger „als säße man am eigenen PC".
+
+Das senkt die Latenz **nicht**, es versteckt sie — und zwar an der Stelle, an der
+Verzögerung am stärksten auffällt. Für uns billig, weil der Player sein Fenster
+ohnehin selbst zeichnet. Zwei Haken: der ferne Zeiger muss dann ausgeblendet
+werden (sonst zwei Zeiger), und die Zeigerform (Textmarke, Größenänderung) müsste
+mitübertragen werden, sonst zeigt man immer den Pfeil.
+
+### Weiteres aus dem Vergleich (2026-08-11)
+
+- **Hartes Abbruch-Kürzel** auf beiden Seiten (Moonlight: Strg+Alt+Umschalt+Q).
+  Unser Not-Aus ist bisher nur ein Knopf.
+- **Eingabe-Übernahme umschaltbar** — man will die Tastatur nicht dauerhaft am
+  fernen Rechner haben.
+- **Ihr Protokoll deckt sich sonst mit unserem**: relative Bewegungen als
+  16-Bit-Werte und bei großen Sprüngen aufgeteilt, Scancodes statt Zeichen
+  (ausdrücklich der Spielekompatibilität wegen), Sonderbehandlung der
+  Extended-Tasten, zuverlässig und in Reihenfolge — mit der einen Ausnahme, dass
+  veraltete Mausbewegungen verworfen werden dürfen. Das ist Wort für Wort unsere
+  Flutkontroll-Regel. Sie haben zusätzlich waagerechtes Scrollen, Stift, Touch
+  und Gamepad; Gamepad ist bei uns bewusst ausgeklammert.
+- **Ihr Kopplungsmodell brauchen wir nicht.** Sunshine muss Vertrauen zwischen
+  zwei Rechnern erst herstellen (PIN, danach Client-Zertifikat) — mit einer
+  Sicherheitsmeldung in der Historie (Reihenfolge der Anfragen ungeprüft →
+  Angreifer konnte sich einkoppeln, PIN offline durchprobierbar). Bei uns kennen
+  sich beide Seiten bereits über das Konto; Zustimmung je Sitzung plus
+  `REMOTE_CONTROL` ist weniger Arbeit **und** die sicherere Bauform.
+
+**Quellen:** [Sunshine-Konfiguration](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2configuration.html)
+· [Sunshine Tastatur/Maus](https://deepwiki.com/LizardByte/Sunshine/7.3-keyboard-and-mouse-input)
+· [Sunshine `input.cpp`](https://github.com/LizardByte/Sunshine/blob/master/src/input.cpp)
+· [moonlight-common-c `InputStream.c`](https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/InputStream.c)
+· [Erfahrungsbericht Mehrmonitor](https://zenn.dev/toki_mwc/articles/sunshine-moonlight-dev-remote-desktop?locale=en)
+· [Sunshine-Anzeigeumschaltung](https://niquette.ca/articles/sunshine-displays/)
+· [Apollo](https://github.com/ClassicOldSong/Apollo/blob/master/README.md)
+· [SudoVDA](https://github.com/SudoMaker/SudoVDA)
+· [Parsec VDD](https://support.parsec.app/hc/en-us/articles/32381178803604-VDD-Overview-Prerequisites-and-Installation)
+· [parsec-vdd (Technik)](https://github.com/nomi-san/parsec-vdd)
+· [Moonlight: lokaler Zeiger](https://github.com/moonlight-stream/moonlight-qt/issues/1268)
+· [Moonlight-Tastenkürzel](https://docs.cloudypad.gg/help/moonlight-usage.html)
+· [Sunshine-Sicherheitsmeldung](https://github.com/LizardByte/Sunshine/security/advisories/GHSA-3hrw-xv8h-9499)
+
 ## Reihenfolge
 
 Jeder Schritt ist für sich prüfbar; nach Schritt 3 ist das Feature erlebbar.
@@ -226,9 +332,16 @@ zwei Antworten der Gegenstelle kamen am 2026-08-11 nie an, und ein ausbleibendes
 Zustellen ist von hier aus nicht erkennbar (es gibt keinen abfragbaren
 Posteingang).
 
-Vorgeschlagen und **noch nicht entschieden**: OpenSSH-Server auf der
-Windows-Maschine einschalten. Damit wird jede Prüfung eine Messung statt einer
-Beschreibung:
+**Entschieden und angefangen (2026-08-11/12):** OpenSSH-Server auf der
+Windows-Maschine. Einrichtungs-Anweisung:
+`docs/plans/2026-08-11-windows-bruecke-einrichten.md` (Branch
+`docs/windows-bruecke`). **Stand:** Der Dienst läuft und ist im LAN erreichbar
+(192.168.178.72, „OpenSSH for Windows 9.5"), die Schlüssel-Anmeldung wird aber
+noch abgelehnt — offen ist der genaue Kontoname und ob der Schlüssel in
+`C:\ProgramData\ssh\administrators_authorized_keys` mit den geforderten Rechten
+liegt (die Falle aus §2 der Anweisung).
+
+Damit wird jede Prüfung eine Messung statt einer Beschreibung:
 
 | Frage | Verfahren |
 |---|---|
@@ -262,13 +375,35 @@ electron-updater ignoriert gleiche Versionen still (CLAUDE.md).
 - **`streaming/win-input-poc/`** ist bisher nirgends erwähnt; beim Übernehmen
   in `THIRD-PARTY-NOTICES.md`/Größen-Policy mitdenken.
 
-## Nächste offene Entscheidungen (Stand 2026-08-11, hier unterbrochen)
+## Nächste offene Entscheidungen (Stand 2026-08-12)
 
-1. **SSH-Zugang auf der Windows-Maschine einschalten?** — Voraussetzung dafür,
-   dass der Zwei-Geräte-Test überprüfbar statt beschrieben ist (s. „Wie geprüft
-   wird"). Einmalige Einrichtung durch den User.
-2. **Auflösungs-Umschaltung am gesteuerten Rechner nach Parsec-Art?** — der
-   Unterschied zwischen „flüssig, aber unlesbar" und „arbeitsfähig" bei einem
-   4K-Host (s. „Auflösung").
+1. **Brücke fertigstellen** — SSH läuft, die Schlüssel-Anmeldung noch nicht
+   (s. „Wie geprüft wird"). Danach der Sitzungs-Helfer aus §3 der Anweisung; ohne
+   ihn kann SSH bauen und lesen, aber nicht sehen.
+2. **Auflösungs-Umschaltung am gesteuerten Rechner?** — nach der
+   4:4:4-Untersuchung der einzige verbliebene Weg mit großer Wirkung. Zu
+   entscheiden ist dabei nicht nur ob, sondern **welcher**: echte Anzeige ändern
+   (Sunshine, billig, mit Nebenwirkungen) oder virtueller Bildschirm über einen
+   eigenen Treiber (Parsec, sauber, aber ein signierter Windows-Treiber).
+3. **Lokaler Mauszeiger** — aus meiner Sicht ein klares Ja, geringe Kosten, große
+   Wirkung auf das Gefühl.
 
 Danach beginnt Schritt 1 der Reihenfolge.
+
+## Randfunde, die hier nicht hingehören, aber nicht verlorengehen dürfen
+
+Beide sind bei der 4:4:4-Untersuchung angefallen und haben mit der Fernsteuerung
+nichts zu tun:
+
+- **`av1_vaapi` hat auf Standbild-Eingabe den Videoblock der GPU zum Absturz
+  gebracht** (`vcn_unified_0 ring reset`, Bildschirm unbeeinträchtigt, saubere
+  Erholung). Ob das im echten Sidecar-Betrieb auftreten kann — etwa bei einem
+  statischen Bildschirm während einer Fernsteuerungssitzung — ist ungeklärt.
+  Naheliegender Zusammenhang mit der seit 2026-08-06 bekannten „Stockung" der
+  AMD-Video-Einheit (`streaming/pulse-player/src/stockung.rs`).
+- **Die SDP-Zusage des WHIP-Sendewegs war falsch**: `sdp.rs` rechnete die
+  H.264-Stufe aus der Bildgröße aus, `register_default_codecs()` überschrieb sie
+  mit einer festen Liste. Am 2026-08-12 gemessen (1440p und 4K erzeugten
+  Zeichen für Zeichen dasselbe Angebot) und auf Branch `fix/whip-sdp-zusage`
+  repariert; dabei fiel auf, dass auch die Stereo-Zusage des Tons nie
+  hinausging.
