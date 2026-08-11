@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-12",
+      "date": "2026-08-12",
+      "style": "Sachlich",
+      "title": "Mehrere Bildschirme gleichzeitig streamen",
+      "items": [
+        "Die Zahl gleichzeitiger Streams ist nicht mehr auf vier begrenzt. Wie viele möglich sind, entscheiden jetzt deine Grafikkarte und deine Internetleitung.",
+        "Jeder Stream merkt sich ab sofort seine eigene Aufnahmequelle. Bisher übernahm der dritte Stream den Bildschirm des ersten, sobald man dort etwas umstellte.",
+        "Bereits gespeicherte Bildschirmauswahlen bleiben erhalten."
+      ]
+    },
+    {
       "id": "2026-08-11.2",
       "date": "2026-08-11",
       "style": "Sachlich",
