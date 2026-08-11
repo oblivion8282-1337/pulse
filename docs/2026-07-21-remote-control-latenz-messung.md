@@ -8,6 +8,19 @@ Gamepad und Virtual Displays bewusst ausgeklammert.
 **Ergebnis vorweg: Ja.** Glass-to-glass ~45–90 ms sind mit P2P-WebRTC erreichbar
 (gemessen, s. u.). Der Engineering-Aufwand steckt im Transport, nicht im Encoder.
 
+> **Überholt am 2026-08-11 — die Architektur-Entscheidung dieses Papiers gilt
+> nicht mehr.** Die Messungen unten stehen; was daraus gefolgert wurde, nicht.
+> Der Satz „der bestehende MediaMTX-Relay-Pfad liegt bei 300 ms+" (§2.3) ist
+> **unbelegt** und war der einzige Grund für P2P + TURN. Nachgemessen sind
+> 107–119 ms über einen doppelt so weit entfernten Server als den produktiven,
+> hochgerechnet **rund 55–85 ms über howispulse.com** — dieselbe Klasse wie die
+> hier für P2P geschätzten 45–70 ms und schneller als die in §6.2 real
+> gemessenen 90 ms über TURN. Messakte
+> `streaming/testbench/profiles/fern-2026-08-11-serverweg-gegen-p2p.json`,
+> neue Architektur `docs/plans/2026-08-11-fernsteuerung-neubewertung.md`.
+> Unverändert gültig bleiben: §4 (MoQ verworfen), §6.2 (direktes P2P scheitert
+> zwischen Privatanschlüssen), §7 (fremde Stacks, Plattform-Realität).
+
 ## 1. Architektur-Entscheidungen (mit User getroffen)
 
 - **Additiver Feature-Slice, kein Umbau**: Fernsteuerung teilt mit HQ-Streaming nur
@@ -73,9 +86,16 @@ Round-Trip auf einer Uhr per RTP-Seqnum gematcht (~7000 Pakete pro Lauf):
 | **≈ glass-to-glass** | **~45–70 ms** | **~65–90 ms** |
 
 Input-Round-Trip (Maus → sichtbare Reaktion) = glass-to-glass + DataChannel-Hinweg
-(≈ Netz one-way). Zum Vergleich: der bestehende MediaMTX-Relay-Pfad liegt bei
-300 ms+ — fürs Zuschauen fein, für Steuern unbrauchbar. **Fazit: Parsec-Klasse ist
+(≈ Netz one-way). ~~Zum Vergleich: der bestehende MediaMTX-Relay-Pfad liegt bei
+300 ms+ — fürs Zuschauen fein, für Steuern unbrauchbar.~~ **Fazit: Parsec-Klasse ist
 mit P2P erreichbar; die Latenz wird vom Netz dominiert, nicht von unserer Pipeline.**
+
+> **Die 300 ms sind falsch (2026-08-11).** Sie stehen hier ohne Messung und ohne
+> Quelle — und sie waren der einzige Grund, den Serverweg zu verwerfen. Gemessen:
+> 107–119 ms über den Labor-Server, rund 55–85 ms hochgerechnet auf
+> howispulse.com. Der Server selbst ist mit rund 10 ms der **kleinste** Posten
+> der Kette. Siehe `fern-2026-08-11-serverweg-gegen-p2p.json` und die
+> unabhängige Verortung `latenz-2026-07-28-verortung.json` (schon vom 28.07.).
 
 ### 2.4 Was NICHT gemessen wurde (offene Risiken)
 

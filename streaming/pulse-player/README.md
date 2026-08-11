@@ -543,6 +543,15 @@ Drittanbieter-Seite im Web.
    `docs/2026-07-21-remote-control-latenz-messung.md` §2.4 noch als Schaetzung
    steht, und sie entscheidet, ob der Player auch fuer die Fernsteuerung
    der richtige Weg ist.
+
+   **Fuer die Fernsteuerung ist das am 2026-08-11 entschieden — aber nicht ueber
+   die Latenz.** Der Player ist gesetzt, weil HQ-Zuschauen ohnehin ueber ihn
+   laeuft, weil ein `<video>` 10 bit und HDR gar nicht darstellen kann und weil
+   eine zweite, nur dafuer gepflegte Browser-Haelfte Doppelarbeit waere. Sein
+   Latenzvorteil auf einem P2P-Pfad ist mit 5-10 ms von 65-90 gemessen
+   (`profiles/remote-2026-08-02-chromium-jitterpuffer.json`) und auf dem
+   inzwischen gewaehlten Serverweg gegenstandslos. Siehe
+   `docs/plans/2026-08-11-fernsteuerung-neubewertung.md`.
 4. **Erledigt am 2026-08-06 nachts: Zero-Copy ist die Vorgabe.** Hier stand
    „was ihn noch als Schalter festhaelt, ist der Einfrier-Waechter — er braucht
    die Ebenen im Hauptspeicher. Der Schritt dorthin ist, seinen Fingerabdruck

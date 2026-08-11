@@ -213,11 +213,30 @@ erlebt — und der Unterschied ist keine Feinheit: dieselbe Kette lag lokal bei
 ./fern-harness.py --proto srt --codec h264 --bits 8 --label srt1
 ```
 
-Die Token legt es per `ssh` + `docker exec … redis-cli` direkt in die Redis des
-Zielcontainers; media-svc ist nicht im Spiel, die Push-Adresse baut der
-Prüfstand selbst. Genau deshalb kann er auch Wege fahren, die media-svc gar
-nicht ausgibt — `--proto srt` etwa. Server, Zugang und Ports stehen in
-`PULSE_FERN_*`.
+Zugang und Push-Adresse baut der Prüfstand selbst; media-svc ist nicht im Spiel.
+Genau deshalb kann er auch Wege fahren, die media-svc gar nicht ausgibt —
+`--proto srt` etwa. Server, Zugang und Ports stehen in `PULSE_FERN_*`; die
+Zugangsdaten des Labor-MediaMTX liegen auf dem Server in
+`~/mediamtx-labor/zugang.txt`. Einen Serverzugriff je Lauf braucht es seit dem
+2026-07-31 nicht mehr (bis dahin legte der Prüfstand die Token per `ssh` +
+`docker exec … redis-cli` in die Redis des Zielcontainers).
+
+**Der Laborserver ist seit dem 2026-08-11 auf Produktivstand festgenagelt.**
+Vorher lief dort ein selbst gebautes Image (`pulse-mediamtx:v2`) mit eigener
+Konfiguration — gemessen wurde also an einem Stand, von dem niemand belegen
+konnte, dass er dem Betrieb entspricht. Jetzt läuft das Image des
+Produktivservers, über seinen Digest geholt und per `sha256` gegen das
+produktive Binary verglichen; die Konfiguration folgt `infra/prod/mediamtx.yml`
+bis auf drei begründete Abweichungen (Anmeldung intern statt gegen den
+Auth-Hook, eigener Hostname, Zertifikat-Dateinamen). `PULSE_FLEXFEC_ADAPTIV=1`
+fehlte und ist nachgezogen. `neustart.sh` hält das fest; die alten Fassungen
+liegen als `*.vor-prodangleich-2026-08-11` daneben. Belege in
+`profiles/fern-2026-08-11-serverweg-gegen-p2p.json`.
+
+**Der Laborserver ist doppelt so weit weg wie der produktive** — 59 ms
+Umlaufzeit gegen 28 ms von der Entwicklungsmaschine (2026-08-11). Diese 30 ms
+stecken in jeder Fern-Messung und müssen herausgerechnet werden, bevor eine
+Zahl mit „was ein Nutzer erlebt" beschriftet wird.
 
 Zwei Dinge, die man vorher wissen muss:
 

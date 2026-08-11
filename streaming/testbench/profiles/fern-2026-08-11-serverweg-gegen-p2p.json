@@ -1,0 +1,61 @@
+{
+ "id": "fern-2026-08-11-serverweg-gegen-p2p",
+ "gemessen_am": "2026-08-11",
+ "frage": "Wie schnell ist der Weg ueber unseren Server HEUTE — und traegt er die Fernsteuerung, statt sie ueber eine direkte Verbindung zwischen den Nutzern zu fuehren?",
+ "warum_die_frage_zaehlt": "Das Fernsteuer-Konzept (docs/2026-07-21-remote-control-latenz-messung.md) verwarf den Serverweg mit dem Satz 'der bestehende MediaMTX-Relay-Pfad liegt bei 300 ms+ — fuers Zuschauen fein, fuer Steuern unbrauchbar'. Diese Zahl steht dort OHNE Messung und ohne Quelle; sie ist der einzige Grund, warum das Konzept auf P2P + TURN setzt (mehrere coturn-Regionen, Betriebskosten, rund 3,5 GB/h je Sitzung ueber den Relay). Alle spaeteren Ende-zu-Ende-Messungen des Players widersprechen ihr um den Faktor 3.",
+ "aufbau": {
+  "maschine": "Fedora-Laptop, AMD Radeon 780M (HawkPoint APU), Wayland/KDE. NICHT die RTX-5080-Maschine der Juli-Messungen — die absoluten Zahlen der eigenen Kette sind deshalb hoeher.",
+  "sender": "streaming/hq-labor (Messstand-Fassung des Linux-Sidecars), Portal-Capture des echten Bildschirms, AV1 10 bit, 60 fps, 4000 kbps",
+  "empfaenger": "streaming/pulse-player (Stand main 2ab808ff), WHEP",
+  "server": "Labor-MediaMTX auf dem Hetzner (77.42.71.166)",
+  "verfahren": "Zeitmuster im Bild (streaming/testbench/latency-pattern.py -> src/probe.rs, PULSE_PLAYER_LATENCY_PROBE=1). Misst die GANZE Kette: Aufnahme, Encoder, Leitung, Server, Jitter, Decoder, Fenster.",
+  "aufruf": "fern-harness.py --secs 30 --codec av1 --bits 10 --e2e --proto {rtmps|whip} bzw. real-harness.py fuer den lokalen Bezugswert"
+ },
+ "labor_erst_auf_produktivstand_gebracht": {
+  "warum": "Der Labor-MediaMTX lief in einer selbst gebauten Verpackung (pulse-mediamtx:v2, buildah, 2026-08-04) mit einer eigenen Konfiguration. Ob das misst, was Nutzer erleben, war damit nicht belegbar — genau der Einwand des Users.",
+  "programm": "ghcr.io/oblivion8282-1337/pulse-mediamtx@sha256:39dc2830651f25647eb3d680f92bdafd92a9f274d33975222172a51705d1b2c9 (der Digest, den infra/prod faehrt) auf den Hetzner geholt. Binary aus BEIDEN Images extrahiert und verglichen: sha256 4012e526100df7a5227412b16c002b6ba82ba887380f16b3069db8cb8bbcc74f, 37888162 Byte, identisch. Das alte v2-Image trug zufaellig dasselbe Binary — belegbar war das vorher nicht.",
+  "konfiguration": "mediamtx.yml an infra/prod/mediamtx.yml angeglichen. Entfernt: hls+hlsAlwaysRemux (Dauer-Remux je Stream, kostet Serverzeit), srt, rtmp-Klartext, rtmpEncryption: optional. Es bleiben drei begruendete Abweichungen: authMethod internal statt http (der Pulse-Auth-Hook laeuft im Labor nicht; wirkt nur beim Verbindungsaufbau, nicht beim Durchleiten), webrtcAdditionalHosts auf den Labor-Hostnamen, Zertifikat-Dateinamen.",
+  "fehlende_umgebungsvariable": "PULSE_FLEXFEC_ADAPTIV=1 war im Labor NICHT gesetzt, produktiv schon. Nachgezogen — sonst haette der Server die Fehlerkorrektur anders gefahren als im Betrieb.",
+  "dauerhaft": "neustart.sh zeigt jetzt auf pulse-mediamtx:prod und setzt ADAPTIV. Sicherungen: mediamtx.yml.vor-prodangleich-2026-08-11, neustart.sh.vor-prodangleich-2026-08-11."
+ },
+ "messwerte_ms": {
+  "hinweis": "Median und Mittel je Lauf, aus den Sekundenproben des Players. Nullwerte (erste Probe vor dem ersten Musterfund) verworfen.",
+  "ueber_den_labor_server": [
+   {"lauf": "rtmps-ton", "sendeweg": "RTMPS (alt)", "ton": "Desktop", "n": 29, "median": 119.3, "mittel": 117.8, "min": 113.0, "max": 127.1},
+   {"lauf": "rtmps-ohneton", "sendeweg": "RTMPS (alt)", "ton": "aus", "n": 27, "median": 115.2, "mittel": 114.5, "min": 108.7, "max": 142.7},
+   {"lauf": "rtmps-2", "sendeweg": "RTMPS (alt)", "ton": "aus", "n": 29, "median": 115.0, "mittel": 123.9, "min": 109.0, "max": 389.8},
+   {"lauf": "whip-ohneton", "sendeweg": "WHIP (eigener WebRTC-Sendeweg)", "ton": "aus", "n": 28, "median": 106.8, "mittel": 109.0, "min": 104.0, "max": 124.7},
+   {"lauf": "whip-2", "sendeweg": "WHIP (eigener WebRTC-Sendeweg)", "ton": "aus", "n": 27, "median": 112.5, "mittel": 117.6, "min": 104.3, "max": 196.2}
+  ],
+  "lokaler_bezugswert_ohne_leitung_und_server": [
+   {"lauf": "lokal", "n": 18, "median": 46.0, "mittel": 147.9, "min": 41.5, "max": 1864.5, "hinweis": "Ein Ausreisser von 1,86 s verzerrt den Mittelwert; der Median traegt."},
+   {"lauf": "lokal-2", "n": 23, "median": 42.4, "mittel": 43.1, "min": 38.8, "max": 53.3}
+  ],
+  "umlaufzeiten_von_dieser_maschine": {
+   "labor_hetzner_ms": 59.1,
+   "produktiv_netcup_ms": 28.4,
+   "verfahren": "ping -c 10, waehrend und nach den Laeufen wiederholt, Streuung unter 2 ms"
+  }
+ },
+ "aufschluesselung": {
+  "rechnung": "44 ms eigene Kette (Median der beiden lokalen Laeufe) + 59 ms Umlaufzeit zum Labor + rund 10 ms Server = 113 ms. Gemessen 115 ms (RTMPS). Die Rechnung geht ohne Rest auf.",
+  "warum_die_volle_umlaufzeit_zaehlt": "Sender und Empfaenger laufen auf DERSELBEN Maschine; der Strom geht zum Server hin und wieder zurueck. Das ist dieselbe Falle, die in latenz-2026-07-28-verortung.json korrigiert wurde.",
+  "server_anteil": "rund 10 ms — deckt sich mit der unabhaengigen Verortung vom 2026-07-28 und bleibt der KLEINSTE Posten der Kette."
+ },
+ "befunde": [
+  "**Die 300 ms des Fernsteuer-Konzepts gibt es nicht.** Gemessen sind 107-119 ms ueber einen doppelt so weit entfernten Server wie den produktiven. Die Zahl im Konzeptpapier ist unbelegt und war es immer.",
+  "**Der eigene WHIP-Sendeweg bringt 5-8 ms gegenueber RTMPS, nicht 37.** Zwei Laufpaare: 115,2/115,0 (RTMPS) gegen 106,8/112,5 (WHIP). Die Spannen ueberlappen, die Richtung ist in beiden Paaren gleich. Die 37 ms aus latenz-2026-07-28-verortung.json waren kein reiner Sendeweg-Aufschlag.",
+  "**Ton kostet rund 4 ms** (119,3 gegen 115,2 bei sonst gleicher Vorgabe, ein Paar).",
+  "**Hochgerechnet auf howispulse.com** (28,4 statt 59,1 ms Umlaufzeit, also 30 ms weniger): rund 85 ms von diesem Laptop, rund 55 ms von einer Maschine mit der 16-ms-Kette der Juli-Messung. Damit liegt der Serverweg IN DERSELBEN KLASSE wie die fuer P2P geschaetzten 45-70 ms — und unter den 90 ms, die im Juli zwischen zwei Privatanschluessen ueber TURN tatsaechlich gemessen wurden.",
+  "**Konsequenz fuer die Fernsteuerung:** Der einzige belegte Grund fuer P2P + TURN faellt weg. Damit entfaellt auch die groesste Baustelle des Konzepts (coturn in mehreren Regionen, rund 3,5 GB/h Relay-Verkehr je Sitzung)."
+ ],
+ "GRENZEN_DER_AUSSAGE": [
+  "**Andere Maschine als die Juli-Messungen.** Radeon 780M statt RTX 5080. Die 44 ms eigene Kette sind die dieses Laptops; die Juli-Kette lag bei 16 ms. Vergleiche INNERHALB dieser Akte (RTMPS gegen WHIP) sind davon unberuehrt, absolute Zahlen nicht.",
+  "**Nicht gegen howispulse.com gemessen.** Die 55-85 ms sind aus der Umlaufzeit hochgerechnet, nicht gefahren. Der Produktivserver laesst den Pruefstand nicht mehr publishen (die Token-Praegung per SSH ist seit 2026-07-31 ausgebaut), und ein Testbild durch den laufenden Betrieb waere unerwuenscht.",
+  "**Sender und Empfaenger am selben Ort.** Ein echter Nutzer hat zwei getrennte Beine (Sender->Server, Server->Zuschauer). Die Hochrechnung nimmt an, dass beide Nutzer aehnlich weit vom Server sitzen. Bei einem Zuschauer in Uebersee stimmt das nicht.",
+  "**Der Rueckweg ist NICHT gemessen.** Tastendruck vom Steuernden zum gesteuerten PC. Ueber den Server ist das die halbe Umlaufzeit (rund 15 ms zu netcup), aber reine Laufzeit-Rechnung, keine Messung.",
+  "**Die direkte Verbindung ist weiterhin nicht gemessen.** Die 45-70 ms des Konzeptpapiers sind gerechnet. Gemessen sind nur die 90 ms ueber TURN zwischen zwei Privatanschluessen (2026-07-21).",
+  "**Ein Lauf je Bedingung ist duenn.** RTMPS und WHIP wurden je zweimal gefahren, die Ton-Bedingung nur einmal. Der Ausreisser in rtmps-2 (389,8 ms Einzelprobe) und in whip-2 (196,2) zeigt, dass die Strecke nicht stoerungsfrei ist.",
+  "**Nur AV1 10 bit.** H.264 traegt laut bild-2026-07-28-dreiervergleich.json einen eigenen Aufschlag von rund 33 ms und wurde hier nicht gefahren."
+ ]
+}
