@@ -38,6 +38,7 @@ import {
   allSidecars,
   getLinuxBackend,
   getSidecar,
+  onSidecarCreated,
   resetSpawnTargetCache,
 } from './sidecar';
 import { playerManager } from './player';
@@ -775,8 +776,15 @@ function wireSidecar(): void {
   // One sidecar manager per slot; tag each slot's events with its slot so the
   // renderer can route them to the right stream's state. Registering the
   // callback does NOT spawn the child (still lazy on the first `call()`).
-  for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
-    getSidecar(slot).onEvent((ev) => {
+  //
+  // Über einen Hook statt einer Schleife über alle Slots: die Obergrenze ist
+  // eine reine Sicherungsschranke (99), keine erwartete Streamzahl. Eine
+  // Schleife legte für jeden, der einen einzigen Schirm teilt, 99 Verwalter
+  // samt Rückruf an. So entsteht der Verwalter eines Slots erst, wenn der
+  // Renderer ihn wirklich anspricht — und bekommt seine Verdrahtung im selben
+  // Zug, noch bevor der erste `call()` etwas senden kann.
+  onSidecarCreated((manager, slot) => {
+    manager.onEvent((ev) => {
       // Experimental-Version: bei Stream-Ende/Fehler die sidecar.log hochladen
       // (no-op, wenn die Rust-Version aus ist — prüft den Store selbst).
       onSidecarEventForUpload(ev, slot);
@@ -784,7 +792,7 @@ function wireSidecar(): void {
         mainWindow.webContents.send('gsr:event', { ...ev, slot });
       }
     });
-  }
+  });
 
   // Generic handler — the renderer calls `gsr:call` with an op name + params +
   // an optional slot. Catch everything so a bad op / dead sidecar surfaces as
@@ -901,8 +909,14 @@ const ALLOWED_STORE_KEYS = new Set([
   'profile_name',
   'server_name',
   'capture_source',
-  // Capture source for the second HQ stream (slot 1).
+  // Capture source for the second HQ stream (slot 1). Superseded by
+  // `capture_sources` below and no longer written — kept allowed so an existing
+  // store file stays readable (the renderer migrates the value on load).
   'capture_source_1',
+  // Capture sources for every HQ stream slot ≥ 1, as `{ "<slot>": "<source>" }`.
+  // One field per slot would mean one allowlist entry per slot, and the slot
+  // ceiling is a sanity bound (99), not an expected stream count.
+  'capture_sources',
   'audio_mode',
   // Persisted stream-settings that were missing from the allowlist (they are
   // in the renderer's PERSIST_KEYS, so without these the store rejected them).

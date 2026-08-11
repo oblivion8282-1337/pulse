@@ -19,7 +19,7 @@
  * Änderungen an einer der beiden Seiten also die andere mitziehen.
  */
 import type { GsrMonitor, GsrWindow } from './gsr';
-import { MONITOR_CAPTURE_PREFIX, WINDOW_CAPTURE_PREFIX } from './settings.svelte';
+import { MONITOR_CAPTURE_PREFIX, WINDOW_CAPTURE_PREFIX } from './settingsCatalog';
 
 /** Pixel-Box je Stufe — muss zu `ops/start.rs::parse_overrides` und
  *  `gsr-sidecar/stream_controller.py::_RESOLUTIONS` passen. */

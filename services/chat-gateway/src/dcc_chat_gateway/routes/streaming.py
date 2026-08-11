@@ -33,14 +33,17 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import channel_membership, require_member
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
+from dcc_shared.streaming import SLOT_MAX
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Highest per-user stream slot — kept in sync with media-svc's _SLOT_MAX. A
-# user may run slots 0.._SLOT_MAX concurrently (e.g. one per monitor).
-_SLOT_MAX = 3
+# Highest per-user stream slot — a user may run slots 0.._SLOT_MAX concurrently
+# (e.g. one per monitor). Shared with media-svc via ``dcc_shared.streaming``
+# rather than copied: a lower value here would 422 a slot the other half is
+# perfectly willing to mint. The reasoning for the number lives there.
+_SLOT_MAX = SLOT_MAX
 SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 
 

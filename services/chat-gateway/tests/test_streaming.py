@@ -291,7 +291,8 @@ async def test_whep_proxy_passes_ten_bit_to_viewer(client, _auth_signer, mock_me
 @pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock_media_svc):
     """Slot is clamped at the gateway (0.._SLOT_MAX); a slot past it → 422,
-    never forwarded."""
+    never forwarded. Derived from the constant instead of a literal so raising
+    the ceiling can't turn this into a test of a slot that is now legal."""
     token, _ = await _register(_auth_signer)
     g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
     vc = (
@@ -300,7 +301,9 @@ async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock
         )
     ).json()
     r = await client.post(
-        f"/channels/{vc['id']}/stream-token", json={"slot": 99}, headers=_auth(token)
+        f"/channels/{vc['id']}/stream-token",
+        json={"slot": streaming_routes._SLOT_MAX + 1},
+        headers=_auth(token),
     )
     assert r.status_code == 422
     assert mock_media_svc.calls == []

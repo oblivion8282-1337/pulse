@@ -13,7 +13,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
-  import { RESOLUTION_VALUES } from '$lib/stream/settings.svelte';
+  import { RESOLUTION_VALUES } from '$lib/stream/settingsCatalog';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input/index.js';
