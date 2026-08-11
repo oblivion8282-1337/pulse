@@ -1,0 +1,122 @@
+{
+ "id": "player-2026-08-11-robustheit-d3d11va-gegen-cuvid",
+ "gemessen_am": "2026-08-11 (abends)",
+ "frage": "Ist der D3D11VA-Weg im pulse-player genauso robust wie av1_cuvid, wenn der Strom NICHT sauber ist? Die Kostenseite ist am selben Tag entschieden worden (player-2026-08-11-zerocopy-nvidia.json: 2,8 bis 5,15 ms je Bild zugunsten der Zero-Copy-Bruecke), die Vorgabe aber bewusst nicht gedreht worden — decode.rs traegt fuer cuvid mehrere hart erarbeitete Sonderbehandlungen, und fuer D3D11VA war keine davon geprueft.",
+
+ "stand": "Die DECODER sind gleichwertig — und zwar nicht 'aehnlich', sondern in jedem Vergleich BIT-GLEICH. Kein Absturz, kein Neuaufbau, kein Aufgeben in 138 Laeufen ueber beide Arme. Die einzige Abweichung der Reihe lag NICHT am Decoder, sondern an der Zero-Copy-Bruecke im fensterlosen Messstand, und sie verschwindet vollstaendig, sobald man beiden Armen die Bruecke nimmt. Was damit NICHT belegt ist: die Bruecke selbst unter Last mit Fenster — genau der Teil, den ein Vorgabewechsel einschalten wuerde.",
+
+ "pruefliste_aus_decode_rs": {
+  "warum_diese_liste": "Nicht ausgedacht, sondern aus dem Quelltext gelesen: jede dieser Stellen nennt av1_cuvid oder libnvcuvid als ANLASS. Sie ist der Massstab, an dem der Herausforderer zu messen war.",
+  "bemerkenswert": "Die Liste beschreibt zum groesseren Teil SCHWAECHEN DES HEUTIGEN VORGABE-WEGES, nicht Vorsichtsmassnahmen gegen einen Neuling. Zwei davon sind hart: ein Segfault, der den ganzen Prozess mitnimmt, und ein stilles Kippen, bei dem jede Kennzahl gesund aussieht. Wer 'cuvid ist der erprobte Weg' sagt, sagt damit auch 'cuvid ist der Weg, fuer den dieses Rettungswerk gebaut werden musste'.",
+  "punkte": [
+   {"nr": 1, "stelle": "decode.rs::decode, awaiting_keyframe (MAX_UNITS_WITHOUT_KEYFRAME = 1200)", "faengt_ab": "Einstieg mitten im Strom ohne Sequence-Header", "cuvid_anlass": "2026-07-26: av1_cuvid las aus einer kopflosen Einheit eine Bittiefe von 16 (die es in AV1 nicht gibt) und riss den CUDA-Kontext mit; libdav1d meldete 'Error parsing OBU data'. Grenze 2026-07-28 von 600 auf 1200 angehoben, weil unter Verlust auch das angeforderte Vollbild beschaedigt ankommt."},
+   {"nr": 2, "stelle": "decode.rs::decode, self.decoder.flush() nach abgelehntem Paket", "faengt_ab": "Weiterarbeiten auf dem Zustand, in dem der Decoder gescheitert ist", "cuvid_anlass": "Woertlich im Quelltext: 'bei cuvid steht dahinter ein CUDA-Kontext, und genau dort wurde am 2026-07-28 ein Segfault beobachtet. Fehlte bisher komplett.'"},
+   {"nr": 3, "stelle": "neuaufbau::classify -> rebuild() -> frischer_software_decoder()", "faengt_ab": "Fehlerserien; Ersatz ist IMMER Software (MAX_REBUILDS = 2, mit Bewaehrung)", "cuvid_anlass": "'beim beobachteten Fall ein zerschossener CUDA-Kontext'; neuaufbau.rs nennt 2026-07-26, av1_cuvid lehnte nach dem zweiten Oeffnen JEDES Paket ab."},
+   {"nr": 4, "stelle": "decode.rs::on_gap (Anzeigesperre unsauber_bis, refresh_dauer 2000 ms)", "faengt_ab": "Differenzbilder ohne je angekommenes Referenzbild nach einer Luecke", "cuvid_anlass": "DER HARTE FALL. 2026-07-28, 1 % kuenstlicher Paketverlust: 'libnvcuvid stuerzt ab (segfault ... in libnvcuvid.so), der ganze Player-Prozess ist weg — kein Standbild, kein Fehler, kein Log.' Die A/B-Gegenprobe in nack-2026-07-29 zeigte: gleiche Daten, libdav1d lehnt sie nur ab. Der Absturz liegt in libnvcuvid, nicht in der Ablaufsteuerung."},
+   {"nr": 5, "stelle": "decode.rs::eingefroren / wegen_einfrieren_neu (crate::einfrieren, 90 Bilder UND 2500 ms)", "faengt_ab": "Decoder liefert volle Bildrate, aber immer dasselbe Bild", "cuvid_anlass": "DER ZWEITE HARTE FALL. 'av1_cuvid kippt nach einem Aussetzer in einen Zustand, in dem er weiter 60 Bilder je Sekunde ausgibt — immer dasselbe.' 2026-07-31 ueber 90 Sekunden bei NULL verlorenen Paketen reproduziert; keine Luecke heisst keine Rettung, und jede Kennzahl sah gesund aus."},
+   {"nr": 6, "stelle": "decode.rs::wartet_auf_einstieg + Nachforderung in session.rs", "faengt_ab": "Intra-Refresh-Betrieb: es gibt kein periodisches Vollbild mehr, das einzige kommt auf Anforderung", "cuvid_anlass": "Nicht cuvid-spezifisch, aber der Fall, der den Regelbetrieb traegt. 2026-07-31: 150 Sekunden 'dekodiert 0/s', weil die eine Anforderung im Verbindungsaufbau verpuffte."},
+   {"nr": 7, "stelle": "candidates_mit: *_cuvid steht ZWEIMAL (mit und ohne CUDA-Geraet)", "faengt_ab": "Rueckfall, wenn sich das CUDA-Geraet nicht anlegen laesst", "cuvid_anlass": "Reine cuvid-Buchhaltung; auf dem D3D11VA-Weg gegenstandslos."},
+   {"nr": 8, "stelle": "MAX_UNBRAUCHBARE_BILDER = 60", "faengt_ab": "Decoder nimmt an und liefert, aber in einem Format, das convert() nicht uebersetzen kann", "cuvid_anlass": "Nicht cuvid-spezifisch (AV1 Profile 1 / H.264 High 4:4:4)."},
+   {"nr": 9, "stelle": "stockung::Waechter -> auf_software()", "faengt_ab": "Grafikeinheit haengt wiederholt beim Herausholen", "cuvid_anlass": "Nicht cuvid-spezifisch; auf dem D3D11VA-Weg genauso zustaendig."}
+  ],
+  "davon_mit_diesem_lauf_geprueft": [1, 2, 3, 4, 5, 6],
+  "nicht_geprueft": [7, 8, 9]
+ },
+
+ "aufbau": {
+  "maschine": "GeForce RTX 5080, Treiber 610.47 (32.0.16.1047), Windows 11 26200",
+  "player": "streaming/pulse-player, Zweig feat/win-nvidia-10bit-hdr, cargo build --release",
+  "material": "win-hq-sidecar (ausgeliefertes Binary), push_url = Dateipfad, roher AV1-OBU-Strom, av1_nvenc, 1920x1080@60, 12000 kbps, 8 bit, Ton aus, Bildquelle ffplay testsrc2 im Vollbild mit SDL_RENDER_DRIVER=software. Zwei Stroeme zu je 30 s: 'keyframes' (intra_refresh false, 15 Vollbilder) und 'intraref' (intra_refresh true, GENAU 1 Vollbild, am Anfang). Am Mitschnitt mit ffprobe nachgeprueft, nicht am Log des Senders.",
+  "warum_zwei_stroeme": "Intra-Refresh ist der Regelbetrieb (der Sender faehrt ihn), Keyframes sind die Gegenprobe, an der sich Heilung ueberhaupt zeigen KANN.",
+  "arme": {
+   "cuvid": "PULSE_PLAYER_DECODER=av1_cuvid — was der Player heute tut. Bild im Hauptspeicher.",
+   "d3d11va": "PULSE_PLAYER_DECODER=av1+hw — nativer Decoder mit D3D11VA, der Weg zur Zero-Copy-Bruecke.",
+   "software": "libdav1d, nur auf der Decoder-Ebene, als dritter Bezugspunkt."
+  }
+ },
+
+ "verfahren": {
+  "ebene_1_decoder": "Das etablierte Verfahren aus decoder-2026-07-29-intra-refresh.json, unveraendert uebernommen: obu-schnitt.py verwirft ganze Zugriffseinheiten (bildet nach, was depacket/mod.rs::Assembler bei Paketverlust tut), ffmpeg dekodiert mit dem jeweiligen Arm, heilung.py vergleicht Bild fuer Bild gegen das ungestoerte Original (PSNR) UND gegen den Vorgaenger (unterscheidet 'eingefroren' von 'laeuft, aber falsch'). NEU ist ausschliesslich der zweite Arm.",
+  "ebene_2_player": "Neu gebaut: `pulse-player --robustheit` (src/messen/robustheit.rs). Speist Zugriffseinheiten EINZELN ueber VideoDecoder::decode ein — wie session.rs, nicht wie der obu-Demuxer —, meldet Luecken ueber on_gap, und fuehrt die Rettungsschleife aus session.rs nach: Einfrier-Waechter, Nachforderung, Vollbild auf Anforderung. Ohne diesen Pfad misst man die FFmpeg-Bibliothek und nicht diesen Player; decoder-2026-07-29 sagt das unter 'uebertragbarkeit/unterschiede_zum_player' selbst und empfiehlt woertlich, 'den Weg im Player selbst nachzubauen'.",
+  "takt": "16 ms je Einheit. Nicht Zierde: der Einfrier-Waechter bindet an ZWEI Schwellen, 90 Bilder UND 2500 ms. Ein Durchlauf in Hoechstgeschwindigkeit laesst die Uhr stehen und der Waechter schluege nie an."
+ },
+
+ "kontrollen_vor_dem_ergebnis": [
+  "Werkzeug-Rundlauf: das Schneidewerkzeug ohne Verwerfen liefert eine byte-gleiche Kopie (SHA256).",
+  "Struktur am Material geprueft: 'keyframes' hat 15 Vollbilder (alle 120 Bilder), 'intraref' genau 1. Der Schalter wirkt also wirklich.",
+  "Alt-Ref-Falle vermieden: die Verlustpunkte sind allesamt grosse Einheiten (28-55 kB). Der Nebenbefund aus decoder-2026-07-29 (eine 5-Byte-Einheit ist nur eine Anzeigeanweisung, ihr Verwerfen kostet gar kein Referenzbild) haette den Test sonst als 'kein Problem' durchgehen lassen. Kleine Einheiten (<100 B) gibt es im Material: 38 bzw. 30 Stueck.",
+  "REFERENZ BELASTBAR: auf dem HEILEN Strom liefern av1_cuvid, D3D11VA und libdav1d byte-gleiche Ausgabe (SHA256 ueber 250 Bilder, beide Stroeme). Jeder gemessene Unterschied ist damit echt und kein Decoder-Rundungseffekt.",
+  "ARM WIRKLICH AKTIV: `ffmpeg -v debug` belegt fuer den zweiten Arm 'Format d3d11 chosen by get_format()' und 'requires hwaccel av1_d3d11va2 initialisation'. Ohne diese Kontrolle waere 'beide Arme gleich' auch mit 'beide liefen in Software' vereinbar gewesen.",
+  "Im Player meldet der Arm sich selbst: 'Decoder av1 (Hardware (D3D11VA))' gegen 'Decoder av1_cuvid (Hardware)'."
+ ],
+
+ "ergebnis_ebene_1_decoder": {
+  "verworfene_einheit": {
+   "laeufe": "2 Stroeme x 3 Verlustpunkte x 3 Arme = 18",
+   "befund": "cuvid und D3D11VA sind in JEDER Zeile identisch — gleiche Bildzahl, gleiche PSNR (auf 0,1 dB), gleiche Zahl eingefrorener Bilder, gleicher Heilungspunkt.",
+   "keyframes_beide_hw_arme": "249 von 250 Bildern, PSNR-Minimum 30,9-31,4 dB, 38-78 Bilder eingefroren, danach ab Bild 119 wieder sauber — also exakt am naechsten Vollbild.",
+   "intraref_beide_hw_arme": "249 Bilder, PSNR 29,6-31,6 dB, ALLE Bilder nach dem Verlust eingefroren (148-208), NIE wieder ueber 40 dB.",
+   "software_libdav1d": "deutlich schlechter: bei Keyframes 170-210 Bilder und nie wieder sauber, bei Intra-Refresh bricht die Ausgabe am Verlustpunkt ganz ab (40/80/100 Bilder, rc=69).",
+   "reproduziert": "Das ist Zeile fuer Zeile der Befund vom 2026-07-29 (Intra-Refresh heilt nach Verlust NICHT, Keyframes heilen byte-perfekt am naechsten Vollbild) — hier auf anderer Hardware, anderem Betriebssystem und mit 1080p statt 720p bestaetigt."
+  },
+  "beschaedigte_einheit": {
+   "laeufe": "2 Stroeme x 3 Schadensgrade (0,05 % / 0,5 % / 5 % der Bytes umgekippt) x 5 Saaten x 2 Arme = 60",
+   "befund": "0 Abstuerze, 0 Zeitueberschreitungen, beide Arme in jedem Lauf gleich.",
+   "was_wirklich_passiert": "Nachgeprueft statt geglaubt, weil die Zahlen zunaechst verdaechtig aussahen (23 und 2304 umgekippte Bytes ergaben dieselbe Ausgabe): der Decoder VERWIRFT die beschaedigte Einheit und wiederholt das letzte Bild — Bild 80 ist byte-gleich mit Bild 79 —, und zwar unabhaengig davon, wie schwer der Schaden ist. Bei Keyframes erholt er sich am naechsten Vollbild byte-perfekt (100 dB ab Bild 120).",
+   "folge_fuer_die_aussage": "Der Fall 'beschaedigte Einheit' faellt damit auf den Fall 'verworfene Einheit' zusammen. Er ist NICHT der Nachweis, dass Muell im Entropiestrom harmlos ist — er zeigt, dass dieser Muell den Entropie-Decoder gar nicht erst erreicht. Der OBU-Kopf blieb in diesem Aufbau absichtlich heil."
+  }
+ },
+
+ "ergebnis_ebene_2_player": {
+  "matrix": "2 Stroeme x 5 Belastungen x 2 Arme x 3 Laeufe = 60 Laeufe",
+  "harte_zahlen": "exitcode != 0: 0. Abbrueche ('Decoder endgueltig hin'): 0. Neuaufbauten: 0. Abgelehnte Einheiten: 0. In BEIDEN Armen.",
+  "identisch_in_8_von_10_zellen": {
+   "sauber": "beide 600/600 Bilder",
+   "keyframes_verlust_einzeln": "beide 599 Bilder, 19 Bilder Anzeigesperre",
+   "keyframes_verlust_buendel_5_einheiten": "beide 595 Bilder, 15 Bilder Anzeigesperre",
+   "keyframes_einstieg_mitten": "beide 360 Bilder, erstes Bild bei Einheit 240, 90 Einheiten verworfen — also punktgenau am naechsten Vollbild",
+   "keyframes_einstieg_mit_vollbild": "beide 450 Bilder, erstes Bild bei Einheit 151 (das angeforderte Vollbild kommt sofort)",
+   "intraref_einstieg_mitten": "beide 0 Bilder, 450 Einheiten verworfen — der Zuschauer sieht NIE etwas. Das ist kein Arm-Unterschied, sondern die Betriebsart: ohne Vollbild auf Anforderung gibt es im Intra-Refresh-Strom keinen Einstieg. Beide Arme fordern 449 Mal an."
+  },
+  "die_anzeigesperre_arbeitet_nachweislich": "19 Bilder bei Keyframes (die Sperre endet vorzeitig, weil das Vollbild bei Einheit 120 sie loescht) gegen 123 Bilder bei Intra-Refresh (2000 ms / 16 ms, kein Vollbild loescht sie). Beide Arme gleich. Die Zahlen fallen aus dem Mechanismus heraus und bestaetigen, dass der Messstand das echte Verhalten trifft."
+ },
+
+ "die_eine_abweichung_und_ihre_aufloesung": {
+  "befund": "In zwei Zellen (intraref + Verlust) wichen die Arme reproduzierbar ab: cuvid 256 Bilder, D3D11VA 462-467. Beide meldeten genau EIN Einfrieren.",
+  "erste_lesart_waere_falsch_gewesen": "'D3D11VA erholt sich schneller' — das haette man als Vorteil verbucht.",
+  "was_wirklich_dahintersteckt": "Die Abweichung korreliert exakt mit dem neuen Zaehler bilder_auf_gpu: sie tritt nur auf, wenn die Zero-Copy-Bruecke aktiv war (306-310 Bilder). Auf diesem Weg entsteht der Einfrier-Fingerabdruck im RENDERER auf der GPU — und einen Renderer gibt es im fensterlosen Messstand nicht. Die Bruecke schaltet sich nach rund zwei Sekunden selbst ab ('es kommen keine Fingerabdruecke zurueck'), aber bis dahin ist der Waechter anders getaktet.",
+  "kontrolle": "Dieselben Laeufe mit PULSE_PLAYER_ZEROCOPY=0 in BEIDEN Armen, 3 Laeufe je Zelle: die Abweichung verschwindet restlos. verlust-einzeln 255-256 (cuvid) gegen 256-256 (D3D11VA), verlust-buendel 255-256 gegen 256-257. Das verbleibende Rauschen von +/-1 Bild tritt in BEIDEN Armen auf.",
+  "schluss": "Der Unterschied lag nicht am Decoder, sondern an der Bruecke im fensterlosen Aufbau. Decoder gegen Decoder sind die Arme gleichwertig."
+ },
+
+ "ergebnis_bildvergleich": {
+  "verfahren": "Der Messpfad schreibt je Bild einen Abdruck (ein Achtel je Kante der Luma-Ebene, 240x135 Byte). Verglichen wird NUR Arm gegen Arm im selben Fall, mit abgeschalteter Bruecke, damit beide Arme ueberhaupt Ebenen im Hauptspeicher haben.",
+  "befund": "In allen acht vergleichbaren Zellen BYTE-GLEICH: 0 abweichende Bilder, groesste Abweichung 0 von 255. Auch in den gestoerten Faellen, auch beim Einstieg mitten im Strom.",
+  "bedeutung": "Nicht nur 'ungefaehr gleich gut' — die beiden Wege liefern unter Stoerung dieselben Bildpunkte."
+ },
+
+ "GRENZEN_DER_AUSSAGE": [
+  "DIE BRUECKE UNTER LAST MIT FENSTER IST NICHT BELEGT. Der fensterlose Messstand zeigt gerade, dass die Bruecke die Einfrier-Erkennung beeinflusst, solange kein Renderer Fingerabdruecke zurueckschickt. Im Betrieb tut er das (render::abdruck -> einfrieren::Briefkasten) — gemessen ist es hier NICHT. Das ist genau der Teil, den ein Vorgabewechsel einschalten wuerde.",
+  "Nur AV1, nur 8 bit, nur 1080p60. H.264 ist ungemessen (der zweite ausgelieferte Codec), 10 bit und HDR unter Stoerung ebenfalls.",
+  "Der Verlust ist auf EINHEITEN-Ebene nachgebildet, nicht auf RTP-Ebene. FEC, NACK und der Jitter-Puffer sind damit umgangen; ihr Zusammenspiel mit dem Decoder-Weg ist nicht geprueft.",
+  "Das Vollbild auf Anforderung kommt im Messstand mit der NAECHSTEN Einheit — ohne Umlaufzeit. Das ist dem Player gegenueber wohlwollend.",
+  "Die Zelle 'intraref + einstieg-mit-vollbild' streut zwischen den Laeufen (452 gegen 339 Bilder bei je zwei Einfrier-Meldungen). Die Streuung haengt daran, wie oft der zeitgebundene Waechter zuschlaegt, und sie tritt in beiden Armen auf; sie traegt keine Aussage ueber den Decoder.",
+  "Kein Abzug des Fensterinhalts, keine Sichtpruefung. 'Bleiben Artefakte stehen' ist ueber PSNR und Bildgleichheit beantwortet, nicht mit dem Auge.",
+  "Der Absturz aus der Pruefliste (Punkt 4, libnvcuvid-Segfault) ist auf DIESER Maschine in KEINEM Lauf aufgetreten — auch nicht im cuvid-Arm. Der Beweisgegenstand fehlt hier also; die Messung zeigt nicht, dass es ihn nicht gibt, sondern nur, dass dieser Aufbau ihn nicht ausloest (Windows/610.47 statt Linux/610.43)."
+ ],
+
+ "werkzeug_neu": {
+  "src/messen/robustheit.rs": "`pulse-player --robustheit <einheiten.dump> [--ab N] [--weg a,b] [--takt ms] [--vollbild N] [--abdruck datei]`. Kein Fenster, kein Netz. Der Arm kommt ueber PULSE_PLAYER_DECODER.",
+  "src/dump.rs::read_dump": "war #[cfg(test)]; jetzt auch im ausgelieferten Programm verfuegbar, weil der Messpfad dieselben Dateien liest."
+ },
+
+ "FALLEN_IM_VERFAHREN": {
+  "1_das_messwerkzeug_hat_den_d3d11va_arm_abstuerzen_lassen": "Der Abdruck griff blind auf planes[0] zu. Auf dem D3D11VA-Weg liegt das Bild aber im Grafikspeicher, dann sind planes und strides LEER — Panik, exitcode 101, in jedem Lauf, der ueberhaupt ein Bild lieferte. Das sah wie ein Fehler im Player aus und war einer im Werkzeug. Dieselbe Sorte wie Falle 1 der Vorgaenger-Akte.",
+  "2_und_die_ursache_widerlegt_eine_annahme": "Der Modulkopf des neuen Messpfads behauptete zuerst, die Bruecke laufe ohne Fenster gar nicht mit ('sie braucht das wgpu-Geraet'). Unter Windows ist das FALSCH: NT-Handles lassen sich auf jedem D3D12-Geraet oeffnen, nur die LINUX-Bruecke braucht das Geraet des Fensters. Die Bruecke stand also die ganze Zeit — und hat spaeter die einzige Abweichung der Reihe erzeugt.",
+  "3_verdaechtig_gleiche_zahlen_nachgeprueft": "23 und 2304 umgekippte Bytes ergaben dieselbe Ausgabe. Statt das als 'beide Arme robust' zu verbuchen, ist nachgesehen worden, was der Decoder mit der Einheit macht — er verwirft sie. Ohne diese Nachpruefung waere aus einem Test, der nichts testet, ein Beleg geworden.",
+  "4_PowerShell_5_1_zweimal": "`2>$datei` an einer nativen .exe verpackt jede stderr-Zeile in einen ErrorRecord (NativeCommandError) und bricht den Lauf ab; und ProcessStartInfo.ArgumentList gibt es erst in .NET Core, unter 5.1 muss es die eine Zeichenkette sein. Beide Male sah es nach einem Fehler im Player aus.",
+  "5_niedrige_CPU_last_ist_kein_haenger": "Ein Lauf im Fall 'einstieg-mitten' dekodiert NICHTS (jede Einheit wird vor dem Einstiegspunkt verworfen) und schlaeft 16 ms je Einheit. Ein Blick auf die Prozessliste zeigt dann 0,1 s CPU-Zeit — das sieht aus wie ein blockierter Prozess und ist der Normalfall dieser Zelle."
+  },
+
+ "tests": "cargo test --release im pulse-player: siehe Abschnitt tests_ergebnis."
+}
