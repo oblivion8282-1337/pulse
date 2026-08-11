@@ -6,6 +6,14 @@ Schwarz, 8 bit je Kanal, Primärvalenzen weiter als BT.709.
 Encoder `av1_amf`, FFmpeg n8.1.1 (der ausgelieferte Bau).
 Alles hier ist **am fertigen Bitstrom** nachgesehen, nicht am Log des Senders.
 
+> **Für NVIDIA gibt es seit dem 2026-08-11 ein Gegenstück:**
+> `2026-08-11-hdr-windows-nvidia.md`. Die Kette **bis zum Encoder** ist
+> dieselbe und wird dort nicht wiederholt; auseinander gehen die beiden genau
+> am Encoder. Zwei Stellen in diesem Dokument sind dadurch nicht mehr
+> allgemeingültig und stehen dort berichtigt: Befund 2 (AMFs Vorgabe „PQ bei
+> 10 bit" ist eine AMF-Eigenheit, NVENC hat sie nicht) und Befund 3 (die
+> falschen Mastering-Zahlen sind AMFs; NVENC schreibt stattdessen **gar keine**).
+
 ## Ergebnis in einem Satz
 
 Der Sidecar sendet HDR: der Strom trägt PQ, BT.2020 und beide HDR10-Metadaten,

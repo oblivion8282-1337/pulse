@@ -1,0 +1,156 @@
+{
+  "id": "nvidia-2026-08-11-windows-zehnbit",
+  "gemessen_am": "2026-08-11",
+  "frage": "Liefert der Windows-HQ-Sidecar auf NVIDIA wirklich einen 10-bit-Strom, wenn 10 bit angefordert wird — oder einen 8-bit-Strom unter 10-bit-Etikett? Anlass: `encode/opts.rs::vendor_encoder_opts` setzt die Bittiefe NUR im AMD-Zweig (`bitdepth=10`), der NVIDIA-Zweig setzt dazu nichts, und der Kommentar dort sagt ausdruecklich, dass ein P010-Pool ALLEIN nicht genuegt (bei AMF liefert er trotz P010-Eingang 8 bit). Gleichzeitig meldet `health` auf dieser Karte `ten_bit: true`, die Oberflaeche bietet es also an.",
+  "stand": "JA, echte 10 bit — an beiden Enden belegt, drei Laeufe je Variante. KEINE Code-Aenderung am Verhalten noetig; die Asymmetrie in `opts.rs` ist korrekt und war nur unbegruendet.",
+
+  "was_diese_akte_IST_und_was_nicht": {
+    "ist": "Eine UNABHAENGIGE BESTAETIGUNG auf heutigem Stand, mit einem eigenen, wiederholbaren Werkzeug und einer zweiten Kennzahl (Sequenzkopf) neben der schon bekannten (Bildpunkt-Praezision).",
+    "ist_nicht": "Ein neuer Befund. Die Frage ist am 2026-08-04 auf DERSELBEN Karte schon einmal beantwortet worden — `nvidia-2026-08-04-windows-intra-refresh.json`, Abschnitt 7d: Reste 21,5/29,6/28,8/20,1 % gegen 100,0 % im Kontrollfall. Diese Akte legt nichts frei, was dort fehlte.",
+    "und_der_treiber_ist_derselbe": "610.47 = 32.0.16.1047, identisch mit der Akte vom 2026-08-04. Die Wiederholung beantwortet also NICHT die Frage 'haelt es auf einem neueren Treiberstand' — dafuer haette sich der Treiber aendern muessen."
+  },
+
+  "aufbau": {
+    "maschine": "GeForce RTX 5080, Treiber 610.47 (Windows-Fassung 32.0.16.1047), Windows 11 26200, drei Bildschirme 2560x1440",
+    "sidecar": "AUSGELIEFERTER `win-hq-sidecar`, Zweig `feat/win-nvidia-10bit-hdr`, `cargo build --release --bins`. Kein Labor-Binary, kein Netz, kein Server.",
+    "ziel": "`channel.push_url` ist ein Dateipfad — `url_format_hint` liefert dafuer `None`, der Muxer schreibt den rohen AV1-Bitstrom in eine Datei.",
+    "auftrag": "codec=av1, capture=monitor (Primaerbildschirm 2560x1440), resolution=1080p, fps=60, bitrate=12000 kbps, Ton aus, bit_depth 10 bzw. 8",
+    "inhalt": "ffplay mit `gradients=s=2400x1320:n=6:rate=60:speed=0.05` in einem rahmenlosen Fenster — weiche Verlaeufe ueber die ganze Flaeche, die ueber die Zeit wandern. Verlaeufe UND Bewegung sind hier Pflicht: ein einfarbiges Bild hat immer wenige Y-Werte, dann sagt die Rest-Verteilung nichts.",
+    "werkzeug": "`win-hq-labor/testbench/nvidia-zehnbit-nachweis.ps1` (neu) + `win-hq-labor/testbench/zehnbit-praezision.py` (vorhanden)",
+    "messendes_ffmpeg": "das gebuendelte, gepatchte `win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared`"
+  },
+
+  "warum_zwei_getrennte_nachweise": "Sie fangen verschiedene Fehler. (1) Was der Strom UEBER SICH SAGT — `high_bitdepth` im AV1-Sequenzkopf, gelesen mit `trace_headers` am Bitstrom. (2) Was WIRKLICH DRINSTECKT — Verteilung von (Y mod 4) im dekodierten Bild: ein aus 8 bit hochgeschobener Wert ist immer durch 4 teilbar (`v << 2`), eine echte 10-bit-Rechnung trifft alle vier Reste. Nur (1) waere kein Beleg: das Etikett schreibt der Encoder aus seiner KONFIGURATION, ein Encoder, der intern auf 8 bit kappt und trotzdem `high_bitdepth=1` schreibt, faellt dort nicht auf. Genau diese Fehlerklasse hat das Projekt zweimal getroffen (`h264_d3d12va` nimmt `-intra-refresh` an und tut nichts damit; `avcodec_open2` schluckt Farbfelder, die der Encoder nie weiterreicht).",
+
+  "encode_weg_jedes_laufs": {
+    "gemeldet": "[pipeline-hw] capture 2560x1440 BGRA8 -> encode 1920x1080@60 on NVIDIA GeForce RTX 5080 (vendor=nvidia) / [encode] Encoder offen: av1_nvenc (vendor=nvidia, 1920x1080@60, 12000 kbps, 10 bit, Vollbilder)",
+    "geprueft": "In allen sechs stderr-Protokollen KEINE Zeile mit `Delegation an`, `CPU-Pipeline` oder `Fallback`. Der Weg war durchgehend D3D11-Zero-Copy (`EncodePath::D3d11ZeroCopy`), kein CPU-Umweg.",
+    "warum_das_dazugehoert": "Der CPU- und der D3D12-Weg tragen strukturell kein 10 bit (s. `nebenbefund_stiller_rueckfall`). Ein Lauf, der still dorthin gefallen waere, haette 8 bit geliefert und dabei voellig gesund ausgesehen."
+  },
+
+  "ergebnis_10_bit": {
+    "was_der_strom_sagt": {
+      "high_bitdepth_im_sequenzkopf": 1,
+      "pix_fmt": "yuv420p10le",
+      "masse": "1920x1080",
+      "color_space": "bt709",
+      "color_transfer": "bt709",
+      "color_primaries": "bt709",
+      "anmerkung_farbe": "bt709 kommt aus `encode::hdr::sdr_signalisieren`, das nur im 10-bit-Pfad laeuft."
+    },
+    "was_drinsteckt_bild_90": [
+      { "lauf": 1, "bytes": 29647150, "verschiedene_y_werte": 885, "reste_prozent": [14.6, 10.5, 61.2, 13.7], "urteil": "zwischen den 8-bit-Stufen" },
+      { "lauf": 2, "bytes": 29799201, "verschiedene_y_werte": 885, "reste_prozent": [14.6, 18.1, 31.4, 35.8], "urteil": "zwischen den 8-bit-Stufen" },
+      { "lauf": 3, "bytes": 25402135, "verschiedene_y_werte": 881, "reste_prozent": [33.3, 8.0, 41.5, 17.2], "urteil": "zwischen den 8-bit-Stufen" }
+    ]
+  },
+
+  "ergebnis_8_bit_die_negativ_kontrolle": {
+    "warum_es_dazugehoert": "Ohne einen bekannten Negativfall waere die Verteilung oben nicht einzuordnen — Kompressionsrauschen allein koennte die Reste ebenfalls streuen. Der 8-bit-Lauf durchlaeuft dieselbe Kette und wird beim Auswerten mit demselben Befehl nach yuv420p10le gehoben; swscale schiebt dabei glatt (`<< 2`).",
+    "was_der_strom_sagt": {
+      "high_bitdepth_im_sequenzkopf": 0,
+      "pix_fmt": "yuv420p",
+      "color_space": "bt470bg",
+      "color_transfer": "unknown",
+      "color_primaries": "unknown"
+    },
+    "was_drinsteckt_bild_90": [
+      { "lauf": 1, "bytes": 29882717, "verschiedene_y_werte": 223, "reste_prozent": [100.0, 0.0, 0.0, 0.0] },
+      { "lauf": 2, "bytes": 29917586, "verschiedene_y_werte": 222, "reste_prozent": [100.0, 0.0, 0.0, 0.0] },
+      { "lauf": 3, "bytes": 29944824, "verschiedene_y_werte": 223, "reste_prozent": [100.0, 0.0, 0.0, 0.0] }
+    ],
+    "befund": "Genau 100,0 % auf Rest 0 und rund 222 verschiedene Werte gegen rund 883 im 10-bit-Lauf. So saehe ein blosses Etikett aus — und der 10-bit-Lauf sieht dem nicht im Entferntesten aehnlich."
+  },
+
+  "befund": "**Der Windows-Sidecar liefert auf NVIDIA echte 10 bit.** `av1_nvenc` zieht die Bittiefe aus dem Pixelformat des gebundenen Frames-Pools (`hw_frames_ctx.sw_format = P010LE`, gesetzt in `bildencoder::pool_wahl`); es braucht dafuer KEINE Hersteller-Option. Die Asymmetrie in `opts.rs` — `bitdepth=10` nur im AMD-Zweig — ist damit kein vergessener Zweig, sondern richtig: `bitdepth` ist ein AMF-Name, den `av1_nvenc` gar nicht kennt.",
+
+  "warum_hier_KEINE_option_fehlt": {
+    "bitdepth": "Der AMF-Name. `av1_nvenc` kennt ihn nicht — gesetzt haette ihn `output::warn_unknown_opts` bei JEDEM gesunden Stream angemahnt, und eine Warnung, die im gesunden Fall feuert, erzieht dazu, Warnungen zu ueberlesen.",
+    "highbitdepth": "Den Schluessel gibt es bei `av1_nvenc` sehr wohl (`-highbitdepth <boolean>`), und der Name legt eine Verwechslung nahe. Er bedeutet aber 'Enable 10 bit encode for 8 bit input' — also 10 bit encodieren, OBWOHL der Eingang 8 bit ist. Unser Eingang ist P010. Die Option ist fuer diesen Weg gegenstandslos.",
+    "geprueft_an": "`ffmpeg -h encoder=av1_nvenc` des gebuendelten Baus. **Das ist eine Optionstabelle und damit KEIN Beleg fuer Verhalten** — sie steht hier nur, um den Namen zu klaeren; das Verhalten steht oben am Strom."
+  },
+
+  "FALLEN_IM_VERFAHREN": {
+    "1_zu_niedrige_bitrate_macht_die_kennzahl_blind": {
+      "befund": "Bei 4000 kbps auf glattem Verlauf liefert ein nachweislich echter 10-bit-Weg das Urteil 'unklar'. Nicht weil die Tiefe fehlte, sondern weil die Quantisierung die Rekonstruktion auf grobe Stufen zieht.",
+      "gemessen_ueber_die_kommandozeile": {
+        "quelle": "`gradients` 1280x720 in p010le, `av1_nvenc` mit den Sidecar-Optionen (preset p2, tune ull, rc cbr, zerolatency 1, delay 0), Bild 90",
+        "bei_4000_kbps": { "reste_prozent": [81.3, 3.2, 3.2, 12.3], "verschiedene_werte": 433, "urteil": "unklar" },
+        "bei_12000_kbps": { "reste_prozent": [12.8, 12.9, 32.2, 42.1], "verschiedene_werte": 447, "urteil": "zwischen den 8-bit-Stufen" },
+        "bei_50000_kbps": { "reste_prozent": [23.8, 30.7, 25.4, 20.1], "verschiedene_werte": 247, "urteil": "zwischen den 8-bit-Stufen" }
+      },
+      "folge": "Die Messreihe oben laeuft deshalb auf 12000 kbps und nicht auf den 4000 der Profil-Vorgabe. Wer sie senkt, misst die Ratensteuerung statt der Bittiefe. Die Akte vom 2026-08-04 hat aus demselben Grund 20000 kbps genommen; dort stand der Grund als 'damit die Kompression die Feinstruktur nicht zudeckt', hier steht die Zahl dazu."
+    },
+    "2_der_SDL_renderer_nimmt_schwarz_auf": {
+      "befund": "Mit SDLs Vorgabe-Renderer bleibt der ffplay-FENSTERINHALT in der WGC-Aufnahme schwarz, waehrend der Desktop drumherum sauber ankommt. Abhilfe: `SDL_RENDER_DRIVER=software`.",
+      "halbierung": "Mittlere Helligkeit eines Bildabzugs aus dem Fensterinneren, 0..765: direct3d/Vollbild 0,0 — direct3d/Fenster 0,0 — software/Vollbild 621,7 — software/Fenster 553,5.",
+      "was_zuerst_falsch_vermutet_wurde": "Der erste Verdacht fiel auf das VOLLBILD (`-fs`, Independent Flip/MPO), weil der erste gelungene Lauf zufaellig BEIDES aenderte (Fenster statt Vollbild UND Software-Renderer). Die Halbierung ueber alle vier Kombinationen widerlegt das: es entscheidet allein der Renderer. Steht hier, weil die falsche Fassung eine Stunde lang voellig plausibel aussah.",
+      "wie_es_auffiel": "Ein 20-s-Lauf bei 12000 kbps wog 31 KB statt 30 MB, und Bild 90 trug genau EINEN Y-Wert. Die Dateigroesse ist die Warnlampe; das Skript meldet sie jetzt von sich aus.",
+      "betrifft_auch": "`nvidia-intra-refresh-nachweis.ps1` und `hdr-nachweis.ps1` starten ffplay ohne diese Variable. Beide haben sie am 2026-08-11 nachgetragen bekommen.",
+      "NICHT_bestimmt": "Am 2026-08-04 hat `nvidia-intra-refresh-nachweis.ps1` auf DIESER Maschine nachweislich echten Inhalt aufgenommen (700 Bilder, 4132 kbit/s), mit `-fs` und ohne die Variable. Der Treiber ist unveraendert. Was sich dazwischen geaendert hat, ist offen — moeglich sind ein Windows-Update oder eine geaenderte Bildschirmanordnung. Nicht weiter verfolgt."
+    },
+    "3_werkzeugprobe_vorweg": {
+      "frage": "Zeigt (Y mod 4) den 8-bit-Fall ueberhaupt an, oder schiebt swscale mit Bit-Replikation und streut die Reste dabei selbst?",
+      "gemessen": "`gradients` 640x360 als yuv420p geschrieben und mit `-pix_fmt yuv420p10le` gehoben: Reste 100,0/0,0/0,0/0,0, 48 verschiedene Werte. Dieselbe Quelle direkt in 10 bit: 3,7/40,6/51,3/4,4, 206 Werte.",
+      "befund": "swscale schiebt glatt (`<< 2`). Der 8-bit-Arm oben ist damit eine gueltige Negativ-Kontrolle und keine Eigenschaft des Umrechners."
+    }
+  },
+
+  "nebenbefund_stiller_rueckfall": {
+    "frage": "Was passiert mit einem 10-bit-WUNSCH, wenn der Lauf NICHT auf dem D3D11-Zero-Copy-Weg landet?",
+    "gemessen": "`PULSE_HQ_DISABLE_ZERO_COPY=1`, sonst derselbe Auftrag (av1, bit_depth 10, 12000 kbps, 1080p60). Ergebnis: `pix_fmt=yuv420p`, 14 853 558 Bytes, kein Abbruch und kein Fehler-Event.",
+    "ursache": "Der CPU-Weg (`encode/encoder.rs`) kennt das Feld `ten_bit` gar nicht, der D3D12-Weg (`encode/encoder_d3d12.rs`) hat einen fest auf NV12 stehenden Pool. `stream_controller::mod.rs` waehlt den Weg, ohne den 10-bit-Wunsch dabei zu pruefen — anders als bei HDR, das genau dort hart abbricht.",
+    "ehrlich_ist_es_halb": "Die Zeile `[encode] Encoder offen: ... 8 bit` sagt die Wahrheit. Sie steht aber nur im stderr des Senders, und das ist in diesem Projekt ausdruecklich keine Quelle, der man glaubt; zum Aufrufer und zur Oberflaeche geht nichts.",
+    "auf_NVIDIA_praktisch_nicht_erreichbar": "`encode_path` schickt NVIDIA mit jedem Codec ueber D3D11; der einzige Weg auf den CPU-Zweig ist dieser Notschalter. **Auf INTEL dagegen ist es der Regelweg** — dort meldet `health` trotzdem `ten_bit: true`, weil die Pruefung nur fragt, ob es ueberhaupt einen Encoder gibt.",
+    "NICHT_repariert_und_warum_STAND_BIS_ZUM_2026-08-11": "Ausserhalb der gestellten Frage (NVIDIA), und die Intel-Seite ist auf dieser Maschine nicht messbar — es steckt keine Intel-GPU darin. Eine Absage auf Verdacht einzubauen hiesse, ungemessenes Verhalten zu aendern. Die Luecke stand als benannte Luecke im Kommentar an `ops/health.rs` und an `VideoCodec::supports_ten_bit`, samt der Richtung der Reparatur (Encode-Weg mitpruefen, Absage beim Start wie in `encode::hdr::pruefen`).",
+    "REPARIERT_2026-08-11": {
+      "was": "Neues Modul `encode/zehnbit.rs`, strukturgleich zu `encode/hdr.rs`. `pruefen(disable_zc, pfad)` bricht den Start ab, wenn 10 bit verlangt ist und der EFFEKTIVE Encode-Weg (nach `PULSE_HQ_DISABLE_ZERO_COPY`) nicht D3D11-Zero-Copy ist; aufgerufen in `stream_controller::run_pipeline`, VOR jedem Encoder-Open, in einem `else if params.ten_bit`-Zweig NEBEN dem bestehenden `if params.hdr`-Zweig (nicht darin — s. Gegenprobe 3 unten). `verfuegbar(vendor, codecs)` macht dieselbe Reparatur fuer `health.gsr.ten_bit`: verlangt jetzt zusaetzlich zu `supports_ten_bit()`, dass `encode_path(vendor, \"\") == D3d11ZeroCopy` ist — schliesst genau die Intel-Luecke aus der Zeile darueber.",
+      "gegenprobe_1_der_nachgemessene_fehler_ist_weg": {
+        "aufbau": "Derselbe Auftrag wie in `nebenbefund_stiller_rueckfall.gemessen` oben (`PULSE_HQ_DISABLE_ZERO_COPY=1`, av1, bit_depth 10, 12000 kbps, 1080p60), diesmal gegen den reparierten Sidecar (`cargo build --release`, dieselbe Maschine, RTX 5080, Treiber 610.47).",
+        "ergebnis": "Start bricht nach 13,7 ms ab, KEINE Datei entsteht (vorher: 14 853 558 Bytes `yuv420p` ohne jeden Hinweis). JSON-RPC-Events: `{\"ev\":\"state\",\"state\":\"error\",...}` gefolgt von `{\"ev\":\"error\",\"message\":\"10 bit verlangt, aber PULSE_HQ_DISABLE_ZERO_COPY erzwingt den CPU-Weg — der hat kein `ten_bit`-Feld in seiner Encoder-Konfiguration (encode/encoder.rs) und liefert deshalb immer 8 bit. 10 bit und dieser Schalter schließen sich aus: entweder den Schalter weglassen, oder ohne 10 bit starten.\"}`.",
+        "beleg": "Wortlaut oben ist der ECHTE Event-Text aus stdout des laufenden Prozesses, nicht der Quelltext der Meldung — der Notschalter bleibt dabei benutzbar, die Absage nennt ihn nur explizit als Grund."
+      },
+      "gegenprobe_2_regressionsschutz_der_belegte_weg_bleibt_unveraendert": {
+        "aufbau": "`nvidia-zehnbit-nachweis.ps1 -Laeufe 1 -Tiefen 10 -Sekunden 15 -Bitrate 12000` (derselbe Nachweis wie im Hauptteil dieser Akte), OHNE den Schalter, gegen den reparierten Sidecar.",
+        "ergebnis": "`[pipeline-hw] capture 2560x1440 BGRA8 -> encode 1920x1080@60 on NVIDIA GeForce RTX 5080`, `[encode] Encoder offen: av1_nvenc (... 10 bit, Vollbilder)`. Selbstauskunft: `pix_fmt=yuv420p10le high_bitdepth=1`. Praezision (Bild 90): 888 verschiedene Y-Werte, Reste 40,2/8,4/12,7/38,8 % — Werte zwischen den 8-bit-Stufen, dieselbe Signatur wie die drei Laeufe im Hauptteil oben. Keine `Delegation an`/`CPU-Pipeline`/`Fallback`-Zeile.",
+        "schluss": "Der belegte NVIDIA-10-bit-Weg ist byte-fuer-byte unveraendert; die neue Pruefung greift nur dort ein, wo vorher stillschweigend 8 bit herauskam."
+      },
+      "gegenprobe_3_reihenfolge_hdr_vor_zehnbit": {
+        "aufbau": "`overrides.hdr=true` (kein `bit_depth` noetig, HDR schaltet `ten_bit` selbst ein), OHNE `PULSE_HQ_DISABLE_ZERO_COPY`, 10 s Lauf, derselbe Schirm wie in `nvidia-2026-08-11-windows-hdr.json` (HDR an, 530 cd/m2 Spitze).",
+        "ergebnis": "Stream lief 10 s vollstaendig durch (`state: live` -> `stopped`, kein `error`-Event). stderr zeigt `[hdr] Bildschirm: HDR an, 10 bit/Kanal, 530 cd/m2 Spitze ...` — der `if params.hdr`-Zweig hat `hdr::pruefen` erfolgreich durchlaufen, der `else if params.ten_bit`-Zweig mit `zehnbit::pruefen` wurde dabei NIE erreicht (in keiner Zeile von stdout oder stderr die Zeichenkette \"10 bit verlangt\"). Selbstauskunft der entstandenen Datei (7 056 694 Bytes): `pix_fmt=yuv420p10le color_space=bt2020nc color_transfer=smpte2084 color_primaries=bt2020` — echtes PQ/BT.2020, deckungsgleich mit `nvidia-2026-08-11-windows-hdr.json`.",
+        "schluss": "Ein HDR-Start bekommt ausschliesslich den HDR-Weg (Erfolg oder `hdr::pruefen`s eigene Absage), nie die neue 10-bit-Meldung — die im Auftrag verlangte Reihenfolge-Bedingung ist damit nicht nur am Quelltext (if/else-if), sondern an einem echten Lauf belegt."
+      },
+      "tests": "`cargo test --release` im `win-hq-sidecar`: 93 bestanden, 0 fehlgeschlagen, 2 ignoriert (vorher 87 — 6 neue Tests in `encode::zehnbit::tests`).",
+      "geaenderte_stellen": [
+        "streaming/win-hq-sidecar/src/encode/zehnbit.rs — NEU: `pruefen()` + `verfuegbar()`, strukturgleich zu `encode/hdr.rs`, 6 Tests.",
+        "streaming/win-hq-sidecar/src/encode/mod.rs — Modul registriert; `log_encoder_open`-Kommentar korrigiert (Encode-Weg-Ruecknahme bricht jetzt vorher ab).",
+        "streaming/win-hq-sidecar/src/encode/codec.rs — `supports_ten_bit`-Kommentar: die dort beschriebene Luecke ist geschlossen.",
+        "streaming/win-hq-sidecar/src/stream_controller/mod.rs — `zehnbit::pruefen` verdrahtet (else-if neben dem HDR-Zweig, `pfad` einmal berechnet statt zweimal); `StartParams::ten_bit`-Kommentar korrigiert.",
+        "streaming/win-hq-sidecar/src/ops/start.rs — `Overrides::ten_bit`-Kommentar korrigiert.",
+        "streaming/win-hq-sidecar/src/ops/health.rs — `ten_bit`-Feld nutzt jetzt `zehnbit::verfuegbar` (schliesst die Intel-Luecke); Kommentar nachgezogen."
+      ]
+    }
+  },
+
+  "offen_und_nicht_gemessen": [
+    "**Der 8-bit-Lauf meldet `color_space=bt470bg`** (BT.601 625) bei unbekannter Kurve und unbekannten Primaervalenzen — das schreibt `av1_nvenc` von sich aus, denn im 8-bit-Pfad signalisiert der Sidecar bewusst nichts (`encode::hdr::signalisieren` laeuft nur bei `ten_bit`). Ob NVENC die Bildpunkte auch WIRKLICH nach BT.601 wandelt (dann ist es stimmig) oder nach BT.709 (dann waeren die Farben beim Zuschauer verschoben), ist hier NICHT geprueft. Das ist eine eigene Frage an den 8-bit-Regelweg und ein Fund am Rande dieser Messung, keine Aussage.",
+    "Kein Zuschauer im Bild. Geprueft ist, WAS encodiert wird, nicht wie es ankommt — Chromiums Software-Rueckfall kann kein 10 bit (`win-hq-labor/CLAUDE.md`).",
+    "Keine Qualitaets- oder Lastmessung. Was 10 bit bringt und kostet, steht in `nvidia-2026-08-04-windows-intra-refresh.json`, Abschnitt 7b/7c (rund 2,1 dB PSNR auf Verlaeufen, kein messbarer GPU-Mehraufwand) — hier nicht wiederholt.",
+    "Ton war aus. Der A/V-Sync-Weg ist in diesen Laeufen nicht beruehrt.",
+    "**Kein `PULSE_DUMP_RAW` auf Windows.** Der Encoder-Eingang laesst sich hier nicht verlustfrei mitschreiben — die Einrichtung gibt es nur im Linux-Sidecar (`linux-hq-sidecar/src/encode/raw_dump.rs`). Der Vergleich Eingang gegen Ausgang war damit nicht zu haben; belegt ist der Ausgang.",
+    "Die Aufnahme selbst ist und bleibt 8-bit-BGRA (`params.hdr` steuert das Aufnahmeformat, nicht `ten_bit`). Die zusaetzliche Praezision entsteht erst bei der Wandlung BGRA nach P010 im Video-Prozessor. '10 bit' heisst hier also 10 bit Rechenraum, nicht 10 bit Bildinhalt — dieselbe Einschraenkung wie auf der Linux-Seite."
+  ],
+
+  "geaenderte_stellen": [
+    "NUR Kommentare und Doku — am Verhalten des Sidecars wurde nichts geaendert, weil nichts kaputt war.",
+    "encode/opts.rs: NVIDIA-Zweig begruendet jetzt, warum dort KEINE Bittiefen-Option steht (mit diesen Zahlen); der AMD-Zweig sagt dazu, dass 'der P010-Pool allein genuegt nicht' eine Aussage ueber AMF ist und nicht ueber Encoder im Allgemeinen.",
+    "encode/codec.rs: `supports_ten_bit` nennt jetzt beide Hersteller-Messungen und sagt, dass die Antwort nur fuer den D3D11-Weg gilt.",
+    "encode/encoder_hw.rs: `HwEncoderConfig::ten_bit` — der Satz 'die Bittiefe ergibt sich aus dem Eingangsformat' ist jetzt gemessen statt plausibel.",
+    "ops/health.rs: die Intel-Luecke steht als benannte Luecke da statt als stille Behauptung.",
+    "win-hq-sidecar/README.md: NVIDIA-Bestaetigung im Abschnitt zur Pool-Bauart.",
+    "win-hq-labor/testbench/nvidia-zehnbit-nachweis.ps1: NEU, das Werkzeug dieser Akte.",
+    "win-hq-labor/testbench/{nvidia-intra-refresh,hdr}-nachweis.ps1: `SDL_RENDER_DRIVER=software` nachgetragen (Falle 2)."
+  ],
+
+  "tests": "cargo test --release im win-hq-sidecar: 86 bestanden, 0 fehlgeschlagen, 2 ignoriert."
+}

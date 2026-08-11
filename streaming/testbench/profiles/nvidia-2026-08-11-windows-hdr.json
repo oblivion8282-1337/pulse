@@ -1,0 +1,112 @@
+{
+  "id": "nvidia-2026-08-11-windows-hdr",
+  "gemessen_am": "2026-08-11",
+  "frage": "Traegt `av1_nvenc` HDR bis in den Strom — so wie `av1_amf` es seit dem 2026-08-06 tut? `encode/hdr.rs` sagte dazu bis heute 'ungemessen, nicht ausgeschlossen' und verweigerte den Start; die Kette davor (WGC in scRGB/fp16, eigener PQ-Shader, Farbfelder ueber reine FFmpeg-Felder) ist vendorneutral und lief fuer NVIDIA schon mit.",
+  "stand": "JA fuer die Signalisierung, NEIN fuer die Mastering-Angaben. Der Sequenzkopf traegt PQ, BT.2020 und 10 bit vollstaendig und korrekt; der Inhalt ist echtes PQ bis 9678 cd/m2. Ein `OBU_METADATA` (Typ 5) steht dagegen in KEINEM der Stroeme — auf diesem Treiber schreibt NVENCs AV1-Encoder die HDR10-Mastering-Angaben nicht, obwohl FFmpeg sie ihm uebergibt. `traegt_hdr(\"av1_nvenc\")` steht deshalb auf `true`, und die Luecke wird beim Start angesagt.",
+
+  "warum_diese_akte_und_nicht_die_amd_akte": {
+    "gemeinsam": "Aufnahme, Farbwandlung und Signalisierungs-Code sind dieselben. `docs/2026-08-06-hdr-windows-amd.md` bleibt fuer die Kette bis zum Encoder gueltig.",
+    "neu_hier": "Der Encoder. Und ausgerechnet dort gehen AMD und NVIDIA auseinander: AMF nimmt die Mastering-Angaben vom BILD und schreibt sie mit falscher Skalierung; NVENC verlangt zusaetzlich einen Schalter am KONTEXT und schreibt sie danach trotzdem nicht.",
+    "und_das_ist_der_bessere_ausgang_als_er_klingt": "AMDs Zahlen sind da und falsch (Befund 3 der AMD-Akte: Spitzenhelligkeit 351 gesendet, 13721 im Strom). NVIDIAs sind gar nicht da. Fuer einen Zuschauer, der MaxCLL zuerst liest, ist 'nichts' ehrlicher als 'falsch' — er nimmt dann seinen benannten Ersatzwert, statt einer erfundenen Zahl zu glauben."
+  },
+
+  "aufbau": {
+    "maschine": "GeForce RTX 5080, Treiber 610.47 (Windows-Fassung 32.0.16.1047), Windows 11 26200",
+    "schirm": "Primaerbildschirm \\\\.\\DISPLAY2, 2560x1440, HDR in Windows EIN. DXGI meldet: DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, 10 bit/Kanal, 530 cd/m2 Spitze, 295 cd/m2 ueber die volle Flaeche, 0.0003 cd/m2 Schwarz, Weisspunkt (0.3135, 0.3291). Die beiden anderen Schirme sind SDR und nicht Teil der Messung.",
+    "sidecar": "AUSGELIEFERTER `win-hq-sidecar`, Zweig `feat/win-nvidia-10bit-hdr`, `cargo build --release --bins`. Kein Labor-Binary, kein Netz, kein Server.",
+    "ziel": "`channel.push_url` ist ein Dateipfad — `url_format_hint` liefert dafuer `None`, der Muxer schreibt den rohen AV1-Bitstrom in eine Datei.",
+    "auftrag": "codec=av1, capture=monitor, resolution=1080p, fps=60, bitrate=12000 kbps, bit_depth=10, Ton aus, hdr true bzw. false",
+    "warum_12000_kbps": "Uebernommen aus `nvidia-2026-08-11-windows-zehnbit.json`: bei 4000 kbps zieht die Quantisierung die Rekonstruktion auf grobe Stufen und macht Praezisionskennzahlen blind. Fuer die Y-Verteilung hier gilt dasselbe.",
+    "werkzeug": "`win-hq-labor/testbench/hdr-nachweis.ps1` (erweitert: Bildpunkt-Nachweis, VLC-Inhalt, FFmpeg-Rueckfall)",
+    "messendes_ffmpeg": "das gebuendelte `win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared` (n8.1, ffnvcodec 13.0, `--enable-nvenc`)",
+    "encode_weg_jedes_laufs": "[pipeline-hw] capture 2560x1440 RGBA16F (scRGB) -> encode 1920x1080@60 (Wandlung im Rueckruf) / [encode] Encoder offen: av1_nvenc — in KEINEM Protokoll eine Delegations- oder Rueckfall-Zeile. Der Weg war durchgehend D3D11-Zero-Copy."
+  },
+
+  "warum_zwei_getrennte_nachweise": "Sie fangen verschiedene Fehler. (1) Was der Strom UEBER SICH SAGT — die Farbfelder im AV1-Sequenzkopf, mit `trace_headers` am Bitstrom gelesen. (2) Was WIRKLICH DRINSTECKT — die Y-Verteilung eines Bildes aus der Mitte (`signalstats`), gegen dieselbe Aufnahme ohne HDR gehalten. Nur (1) waere kein Beleg: eine SDR-Aufnahme mit PQ-Etikett sieht in jeder Kennzahl gesund aus, und genau dieser Strom — der HDR behauptet und SDR enthaelt — ist der schlimmste Ausgang.",
+
+  "ergebnis_1_was_der_strom_ueber_sich_sagt": {
+    "sequenzkopf_bitweise": {
+      "high_bitdepth": 1,
+      "color_description_present_flag": 1,
+      "color_primaries": "9 (BT.2020)",
+      "transfer_characteristics": "16 (SMPTE ST 2084, PQ)",
+      "matrix_coefficients": "9 (BT.2020 non-constant luminance)",
+      "color_range": "0 (Studio)"
+    },
+    "ffprobe_hdr_lauf": "pix_fmt=yuv420p10le color_space=bt2020nc color_transfer=smpte2084 color_primaries=bt2020 color_range=tv",
+    "ffprobe_sdr_lauf": "pix_fmt=yuv420p10le color_space=bt709 color_transfer=bt709 color_primaries=bt709 color_range=tv",
+    "warum_der_sdr_lauf_dazugehoert": "Er ist die Gegenprobe zu Befund 2 der AMD-Akte: dort meldete ein 10-bit-SDR-Strom `transfer=smpte2084`, behauptete also PQ ohne welches zu enthalten. Auf NVENC tut er das nicht — `sdr_signalisieren` wirkt hier wie dort.",
+    "begleitdaten_im_strom": "KEINE. Weder 'Mastering display metadata' noch 'Content light level metadata', in keinem Lauf."
+  },
+
+  "ergebnis_2_was_wirklich_drinsteckt": {
+    "verfahren": "Bild 45 (NICHT Bild 0 — das erste Bild ist das Vollbild und auch dann richtig, wenn alle folgenden es nicht sind), `signalstats`, 10-bit-Codes. Der Y-Wert wird ueber die PQ-EOTF (SMPTE ST 2084, Studio-Bereich 64..940) in cd/m2 zurueckgerechnet.",
+    "a_gewoehnlicher_inhalt": {
+      "inhalt": "ffplay mit `testsrc2` im Vollbild — ein SDR-Programm auf einem HDR-Desktop",
+      "sdr_lauf": { "y_min": 98, "y_mittel": 507.1, "y_max": 889 },
+      "hdr_lauf": { "y_min": 209, "y_mittel": 465.5, "y_max": 579, "spitze_cd_m2": 217, "mittel_cd_m2": 60.33 },
+      "lesart": "Derselbe Bildschirminhalt liegt im HDR-Lauf 310 Codewerte TIEFER. Der SDR-Lauf klemmt oben an (889 nahe am nominellen Weisspunkt 940), der HDR-Lauf tut das nicht. Waere die PQ-Kurve nicht angewandt worden, laege die Spitze wieder bei 889 bis 940. Sie liegt bei 579. Der Shader rechnet also wirklich — derselbe Schluss wie Befund 4 der AMD-Akte (601 -> 275 cd/m2), auf anderer Hardware."
+    },
+    "b_echte_hdr_spitzlichter": {
+      "inhalt": "Ein selbst erzeugter PQ/BT.2020-Clip (waagerechte Rampe Schwarz->Weiss, `gradients` + `setparams`, mit `av1_nvenc` nach mp4, 10 bit) im VLC im Vollbild. VLC reicht PQ auf einem HDR-Schirm durch, ohne herunterzurechnen.",
+      "sdr_lauf": { "y_min": 63, "y_mittel": 483.6, "y_max": 946 },
+      "hdr_lauf": { "y_min": 63, "y_mittel": 411.5, "y_max": 937, "spitze_cd_m2": 9678, "mittel_cd_m2": 31.28 },
+      "lesart": "9678 cd/m2 sind das 40-Fache des SDR-Weisspunkts dieses Desktops (245 cd/m2, s. unten). Werte weit oberhalb dessen, was SDR ueberhaupt darstellen kann, ueberstehen also die ganze Kette: WGC in fp16, den PQ-Shader, P010 und den Encoder.",
+      "warum_dieser_lauf_die_klemm_frage_NICHT_beantwortet": "Der Inhalt reicht absichtlich bis ans obere Ende des PQ-Bereichs. Damit liegen SDR-Lauf (946) und HDR-Lauf (937) beide knapp unter 940, und die Klemm-Pruefung trennt sie nicht mehr. Sie trennt scharf bei gewoehnlichem Inhalt — deshalb gehoeren A und B beide zur Messung, nicht nur der spektakulaere.",
+      "und_das_schliesst_eine_luecke": "`nvidia-2026-08-04-windows-intra-refresh.json` fuehrte unter `8_was_offen_bleibt`, dass alle bisherigen HDR-Messungen an SDR-Inhalt auf einem HDR-Desktop gefahren wurden. Das ist hiermit nachgeholt."
+    }
+  },
+
+  "ergebnis_3_die_mastering_angaben_fehlen_und_woran_es_liegt": {
+    "befund": "In 11.9 MB HDR-Strom (581 Bilder): 5 OBU_SEQUENCE_HEADER, 581 OBU_TEMPORAL_DELIMITER, 581 OBU_FRAME, 0 OBU_METADATA. Am rohen Byte-Strom ausgezaehlt, nicht ueber ffprobe — die OBU-Kette wurde mit einem eigenen Laufwerk durchgegangen, damit kein Werkzeug die Antwort faelschen kann.",
+    "schritt_1_was_der_sidecar_tat": "`encode/hdr_metadaten.rs::am_bild` haengt beide Nutzlasten an JEDES Bild (fuer AMF ist das der richtige und einzige Weg). Nachgewiesen durch `tests::wiederholtes_anhaengen_waechst_nicht`. Trotzdem kam nichts an.",
+    "schritt_2_die_stelle_in_ffmpeg": "`libavcodec/nvenc.c`, `nvenc_setup_av1_config`: `ctx->mdm = av1->outputMasteringDisplay = !!av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);`. NVENC bekommt den Schalter EINMAL beim Oeffnen, und FFmpeg macht ihn ausschliesslich an `decoded_side_data` fest — den Begleitdaten am KONTEXT, nicht denen am Bild. Ist er aus, ueberspringt `nvenc_set_mastering_display_data` den Bild-Weg vollstaendig (`if (ctx->mdm || ctx->cll)`). Nichts daran schlaegt fehl, nichts wird geloggt.",
+    "schritt_3_die_abhilfe_gebaut_und_geprueft": "`encode/hdr_metadaten.rs::am_kontext` legt beide Nutzlasten vor `avcodec_open2` in `decoded_side_data`. Zur Laufzeit nachgesehen: `nb_decoded_side_data = 2`. Ergebnis am Strom: unveraendert 0 OBU_METADATA.",
+    "gegenprobe_1_ohne_unseren_code": {
+      "aufbau": "Ein Quellstrom, der die Metadaten nachweislich TRAEGT (die beiden OBUs von Hand eingesetzt; ffprobe liest sie: r(0.6416,0.3300) ... max_luminance 530, MaxCLL 530, MaxFALL 295), dann `ffmpeg -f obu -i quelle.obu -c:v av1_nvenc -pix_fmt p010le -b:v 12000k -frames:v 60 -f obu`. `fftools/ffmpeg_enc.c:208` klont die Begleitdaten des ersten Bildes nach `enc_ctx->decoded_side_data` — also genau dorthin.",
+      "beleg_dass_der_schalter_an_war": "ffmpeg meldet fuer den AUSGANGSSTROM `Side data: Mastering display metadata: ... max_luminance=530.000000 / Content light level metadata: MaxCLL=530, MaxFALL=295`.",
+      "ergebnis": "Im Ausgang: 1 SEQUENCE_HEADER, 60 TEMPORAL_DELIMITER, 29 FRAME_HEADER, 60 FRAME, 0 METADATA. Unser Code ist damit vollstaendig aus der Frage heraus."
+    },
+    "gegenprobe_2_derselbe_treiber_kann_es_bei_hevc": {
+      "aufbau": "Derselbe Quellstrom, dasselbe FFmpeg, dieselbe Codestelle, nur `-c:v hevc_nvenc`.",
+      "ergebnis": "ffprobe am Ausgang: `side_data_type=\"Mastering display metadata\"` mit `max_luminance=5300000/10000` und `side_data_type=\"Content light level metadata\"` mit `max_content=530, max_average=295`.",
+      "schluss": "FFmpeg, der Treiber und der Weg funktionieren. Was nicht funktioniert, ist genau eines: NVENCs AV1-Encoder schreibt die Metadaten-OBUs nicht, obwohl `outputMasteringDisplay`/`outputMaxCll` gesetzt sind. Das ist eine Treiber-Aussage, keine Vermutung ueber ihn."
+    },
+    "was_der_abhilfe_bleibt": "`am_kontext` bleibt im Code, obwohl es heute nichts bewirkt. Ohne den Schalter am Kontext ginge es auch nach einem Treiber-Update nicht — und dann suchte jemand die Ursache erneut. Auf AMD ist es folgenlos: `decoded_side_data` kommt in `amfenc*.c` nicht vor.",
+    "was_es_den_zuschauer_kostet": "Ohne MaxCLL nimmt `pulse-player` 1000 cd/m2 an (`render/farbe.rs::ERSATZ_SPITZE_NITS`), waehrend dieser Schirm 530 meldet. Auf einem SDR-Fenster rechnet er das Bild damit staerker herunter als noetig. Die Bilddeutung (Kurve, Primaervalenzen, Matrix) haengt NICHT daran — die steht im Sequenzkopf und ist vollstaendig."
+  },
+
+  "nebenbefund_welcher_abspieler_ueberhaupt_hdr_ausgibt": {
+    "warum_das_hier_steht": "Der zweite Nachweis braucht Inhalt mit echten Spitzlichtern. Der erste Anlauf nahm dafuer Chrome — und haette die Messung fast entwertet, weil die Zahl dann plausibel aussah und trotzdem nur SDR-Weiss war.",
+    "gemessen": "derselbe Clip, derselbe Bildindex, derselbe Aufbau",
+    "vlc": { "y_max": 937, "spitze_cd_m2": 9678, "urteil": "reicht PQ durch" },
+    "chrome": { "y_max": 590, "spitze_cd_m2": 245, "urteil": "gibt SDR aus" },
+    "edge": { "y_max": 592, "spitze_cd_m2": 250, "urteil": "gibt SDR aus" },
+    "ohne_wirkung_geprueft": "--force-color-profile=scrgb-linear und --force-color-profile=hdr10 aendern an Chrome nichts (590 bzw. 589).",
+    "und_die_zahl_245_ist_nuetzlich": "Sie ist der SDR-Weisspunkt dieses Desktops, wie ihn der Compositor in scRGB ablegt. Alles darunter ist kein Spitzlicht."
+  },
+
+  "FALLEN_IM_VERFAHREN": {
+    "ffprobe_json_verschweigt_die_begleitdaten": "`-show_entries frame=side_data_list -of json` liefert die Liste mit LEEREN Objekten. Das sieht aus wie 'keine Metadaten' und war am 2026-08-06 ein Fehlalarm. Hier durchgehend `-show_frames -of flat` benutzt — und fuer die Kernaussage zusaetzlich am rohen Byte-Strom ausgezaehlt.",
+    "das_labor_ffmpeg_gibt_es_hier_nicht": "`hdr-nachweis.ps1` zeigte fest auf `win-hq-labor/ffmpeg-patched/bin`. Das Verzeichnis existiert nur auf der AMD-Maschine; auf dieser scheiterte jeder ffprobe-Aufruf still an einem Pfad, den es nicht gibt. Das Skript faellt jetzt auf das ausgelieferte `ffmpeg-dist` zurueck.",
+    "die_klemm_pruefung_braucht_gewoehnlichen_inhalt": "s. `ergebnis_2.b.warum_dieser_lauf_die_klemm_frage_NICHT_beantwortet`.",
+    "ffmpeg_cli_uebernimmt_color_trc_nicht_aus_der_option": "`-color_trc smpte2084 -color_primaries bt2020` am Encoder blieb wirkungslos, der erzeugte Clip meldete `transfer=unknown primaries=unknown`. Erst `setparams=...` im Filtergraph taggt die Bilder so, dass der Encoder es uebernimmt.",
+    "Args_ist_in_powershell_belegt": "Ein Skript-Parameter namens `$Args` kollidiert mit der automatischen Variablen und kommt als NULL an. Kostet fuenf Minuten und sieht wie ein Fehler beim Aufruf aus."
+  },
+
+  "offen_und_nicht_gemessen": {
+    "ob_ein_neuerer_treiber_die_metadaten_schreibt": "Nicht pruefbar ohne einen zweiten Treiberstand. 610.47 ist der einzige hier vorhandene — derselbe wie in den beiden Akten vom 2026-08-04 und 2026-08-11.",
+    "wie_es_am_bildschirm_aussieht": "Gemessen wird bis zum Bitstrom. Was ein Zuschauer sieht, entscheidet kein Skript — dieselbe Grenze wie in der AMD-Akte.",
+    "der_weg_ueber_die_leitung": "Alles hier ist am Dateimitschnitt gemessen. Dass die Signalisierung den WHIP/WHEP-Weg uebersteht, ist auf AMD belegt (AMD-Akte, Befund 7) und haengt nicht am Encoder — hier aber nicht wiederholt.",
+    "hevc": "Dass `hevc_nvenc` die Mastering-SEI schreibt, ist oben beilaeufig belegt. Es aendert nichts: 10 bit laesst `VideoCodec::supports_ten_bit` nur bei AV1 durch, und HEVC wird ausgebaut."
+  },
+
+  "geaenderte_stellen": [
+    "streaming/win-hq-sidecar/src/encode/hdr.rs — `traegt_hdr(\"av1_nvenc\")` von false auf true, mit der Messung als Begruendung; neue `mastering_fehlt()` sagt die Luecke beim Start an; Absage-Text und Tests nachgezogen. Der Metadaten-Teil ist ausgezogen (Groessen-Policy).",
+    "streaming/win-hq-sidecar/src/encode/hdr_metadaten.rs — NEU: `am_bild` (frueher `hdr::metadaten_anhaengen`) und `am_kontext` (neu, `decoded_side_data`), gemeinsame `nutzlasten()`.",
+    "streaming/win-hq-sidecar/src/encode/mod.rs, encoder_hw.rs, pipeline_hw/vorstufe.rs — Aufrufstellen und Verweise.",
+    "streaming/win-hq-labor/testbench/hdr-nachweis.ps1 — FFmpeg-Rueckfall, Bildpunkt-Nachweis mit PQ-Rueckrechnung, `-Inhalt` fuer echte HDR-Spitzlichter, dreigeteiltes Urteil."
+  ],
+
+  "tests": "`cargo test --release` im `win-hq-sidecar`: 87 bestanden, 0 fehlgeschlagen, 2 ignoriert (vorher 86 — `nvidia_und_intel_sind_hier_noch_nein` ist zu `auf_nvidia_traegt_nur_av1_hdr_intel_nichts` geworden, `nur_nvenc_meldet_die_fehlenden_mastering_angaben` ist neu)."
+}

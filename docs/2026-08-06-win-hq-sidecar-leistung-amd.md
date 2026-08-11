@@ -115,7 +115,11 @@ Punkt, der beim Abwägen leicht untergeht:
 * `av1_d3d12va` liefert auf dieser Hardware einen Bitstrom, den kein Decoder
   liest (`pipeline_d3d12::run`).
 * HDR verlangt 10 Bit, 10 Bit verlangt AV1 (`codec.rs::supports_ten_bit`), und
-  HDR trägt heute allein `av1_amf` bis in den Strom (`encode/hdr.rs::traegt_hdr`).
+  **auf dieser Karte** trägt HDR nur `av1_amf` bis in den Strom
+  (`encode/hdr.rs::traegt_hdr`). *(Hier stand „heute allein `av1_amf`" ohne die
+  Einschränkung auf AMD — seit dem 2026-08-11 trägt es auf NVIDIA auch
+  `av1_nvenc`, `docs/2026-08-11-hdr-windows-nvidia.md`. Für die Abwägung in
+  diesem Dokument, die von einer Radeon 780M handelt, ändert das nichts.)*
 
 Wer über HDR spricht, spricht also über AMF, und die 17,2 ms sind dort keine
 Entscheidung, sondern eine Randbedingung. Zur Disposition steht der D3D12-Weg

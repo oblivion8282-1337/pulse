@@ -1,0 +1,138 @@
+{
+  "id": "player-2026-08-11-zerocopy-nvidia",
+  "gemessen_am": "2026-08-11",
+  "frage": "Dekodiert der pulse-player auf einer NVIDIA-Karte unter Windows wirklich zero-copy — und stimmt das Bild? Die Bruecke (`zerocopy/bruecke.rs`, D3D11VA, geteilte Textur mit NT-Handle) ist vendorneutral geschrieben und auf einer Radeon 780M verifiziert; auf NVIDIA stand sie als 'keine bekannten Blocker', was nur heisst, dass niemand nachgesehen hat.",
+
+  "stand": "NEIN — die Bruecke greift auf dieser Maschine UEBERHAUPT NICHT, und zwar nicht, weil sie fehlschlaegt, sondern weil sie nie gefragt wird. Sie traegt, wo man sie hinstellt (isoliert und im Player erzwungen, Bild in beiden Faellen richtig, HDR laeuft mit). Der Player kommt nur nicht dorthin: `av1_cuvid` gewinnt die Kandidatenwahl vor dem nativen Decoder mit D3D11VA und legt sein Bild bereits im Hauptspeicher ab. Kosten des Umwegs: 1,20 + 1,75 ms je Bild bei 1080p8, 2,20 + 2,95 ms bei 1080p10.",
+
+  "warum_das_niemand_bemerkt_hat": {
+    "kein_fehlerfall": "`zerocopy::abschalten` faengt den lauten Fall — Bruecke steht, traegt nicht, meldet sich. Der Fall hier ist der leise: `bruecke_moeglich(NV12)` ist falsch, es wird gar nichts gebaut, und `uebergabe::versuchen` meldet sich ausschliesslich, wenn ein Aufbau ZUSTANDE KOMMT. Im Protokoll stand dazu bis heute kein einziges Wort.",
+    "und_die_doku_sagte_das_gegenteil": "`decode.rs` (Modulkopf und `cuda_ausgabe_vorgabe`), `pulse-player/README.md` an drei Stellen und `player-labor/nv12-wgpu-import/README.md` sagten uebereinstimmend 'unter Windows nimmt der Player den D3D11VA-Weg' bzw. 'Zero-Copy ist unter Windows die Vorgabe'. Beides beschreibt AMD und Intel und liest sich wie eine Aussage ueber Windows. Alle vier Stellen sind mitgezogen (s. `geaenderte_stellen`).",
+    "die_kennzahl_die_es_zeigt": "`hochladen` in der Statistikzeile. Mit Bruecke ist der Posten 0,00 ms — es gibt nichts hochzuladen. Ohne sie 1,2 bzw. 2,2 ms. Das Log des Decoders allein haette es nicht gezeigt: `Decoder av1_cuvid (Hardware)` sieht voellig gesund aus und IST auch Hardware-Dekodierung."
+  },
+
+  "aufbau": {
+    "maschine": "GeForce RTX 5080, Treiber 610.47 (32.0.16.1047), Windows 11 26200, Primaerschirm 2560x1440 mit HDR ein",
+    "player": "`streaming/pulse-player`, Zweig `feat/win-nvidia-10bit-hdr`, `cargo build --release`, wgpu 30, Backend D3D12 (`setup::backends`, Vorgabe unter Windows)",
+    "kette": "win-hq-sidecar (Dateimitschnitt) -> `ffmpeg -re -stream_loop -1 -c copy` -> lokales MediaMTX 1.19.1 (RTSP rein, WHEP raus) -> Player",
+    "warum_kein_encoder_waehrend_der_messung": "Uebernommen aus `player-2026-08-06-bildweg-kosten`: identischer Bitstrom in jedem Arm, und kein Encoder, der sich auf derselben Karte mit dem Decoder um Takt und Videoeinheit streitet.",
+    "material": "win-hq-sidecar, `push_url` = Dateipfad, av1, 1080p60, 12000 kbps, Ton aus, bit_depth 8 bzw. 10, aufgenommen wird ffplay mit `gradients` (mit `SDL_RENDER_DRIVER=software`, sonst nimmt WGC Schwarz auf — Falle 2 in `nvidia-2026-08-11-windows-zehnbit.json`). Fuer den Bildvergleich zusaetzlich ein STANDBILD (`testsrc2`, ein einziges Bild in Schleife encodiert), damit sich Aufnahmen aus verschiedenen Laeufen ueberhaupt Bildpunkt fuer Bildpunkt vergleichen lassen.",
+    "verfahren": "Drei Arme, je drei Laeufe zu 45 s, Reihenfolge je Runde rotiert. Ausgewertet ab Sekunde 15 (s. `die_falle_die_alle_zahlen_einfaerbt`), Median ueber die Sekundenzeilen und dann ueber die Laeufe.",
+    "werkzeug": "`messreihe.py` im Kratzverzeichnis der Sitzung (nicht im Repo — es haengt an lokalen Pfaden und an dem einen MediaMTX). Der Player braucht dafuer nichts ausser `PULSE_PLAYER_STATS_LOG` und dem neuen `PULSE_PLAYER_DECODER`."
+  },
+
+  "die_drei_arme": {
+    "standard": "was der Player heute tut. Keine Umgebungsvariable. -> `av1_cuvid`, Bild im Hauptspeicher.",
+    "bruecke": "`PULSE_PLAYER_DECODER=av1+hw` -> nativer Decoder mit D3D11VA -> Zero-Copy-Bruecke.",
+    "ruecklesen": "`PULSE_PLAYER_DECODER=av1+hw` PLUS `PULSE_PLAYER_ZEROCOPY=0` -> derselbe Decoder, dasselbe Bildformat, aber `av_hwframe_transfer_data`.",
+    "warum_drei_und_nicht_zwei": "Arm 2 gegen Arm 1 vermischt zwei Aenderungen (anderer Decoder UND Bruecke). Erst Arm 2 gegen Arm 3 isoliert die Bruecke: identischer Decoder, identisches Pixelformat, einziger Unterschied ist der Weg des fertigen Bildes."
+  },
+
+  "ergebnis_kosten_je_bild": {
+    "einheit": "Millisekunden je Bild, Median. `hochladen` = `phases.upload_avg_us`, `dekodieren` = `decode_avg_us` (enthaelt beim Ruecklesen `av_hwframe_transfer_data`, bei cuvid dessen interne Rueckholung innerhalb von `send_packet`, bei der Bruecke deren Kopie samt Zaun).",
+    "1080p60_8bit_NV12": {
+      "standard": { "hochladen": 1.20, "dekodieren": 4.35, "laeufe": [4.20, 4.40, 4.35] },
+      "bruecke": { "hochladen": 0.00, "dekodieren": 2.60, "laeufe": [2.60, 2.60, 2.70] },
+      "ruecklesen": { "hochladen": 1.20, "dekodieren": 4.20, "laeufe": [4.20, 4.20, 4.25] },
+      "ersparnis_der_bruecke": "1,20 ms hochladen + 1,60 ms dekodieren = rund 2,8 ms je Bild"
+    },
+    "1080p60_10bit_P010": {
+      "standard": { "hochladen": 2.20, "dekodieren": 5.90, "laeufe": [5.95, 5.90, 5.70] },
+      "bruecke": { "hochladen": 0.00, "dekodieren": 2.95, "laeufe": [2.90, 3.00, 2.95] },
+      "ruecklesen": { "hochladen": 2.20, "dekodieren": 5.90, "laeufe": [5.80, 5.90, 5.90] },
+      "ersparnis_der_bruecke": "2,20 ms hochladen + 2,95 ms dekodieren = rund 5,15 ms je Bild"
+    },
+    "1080p60_10bit_HDR_PQ": {
+      "standard": { "hochladen": 2.20, "dekodieren": 5.85, "laeufe": 2 },
+      "bruecke": { "hochladen": 0.00, "dekodieren": 2.95, "laeufe": 2 },
+      "anmerkung": "HDR kostet gegenueber SDR-10-bit nichts Messbares — dieselben Zahlen innerhalb der Streuung. Nur zwei Laeufe je Arm."
+    },
+    "gezeichnete_bilder": "60/s in JEDEM der 20 Laeufe, 0 Stockungen (`stockung.rs` meldete in keinem Lauf). Der Unterschied ist reine Reserve, kein sichtbarer Ausfall — bei 1080p60 und 16,7 ms Budget reicht auch der teure Weg.",
+    "was_die_zahlen_bestaetigen": "Das Paar bruecke/ruecklesen trifft die AMD-Messung `player-2026-08-06-bildweg-kosten` (3,5 ms bei 1080p8, 5,2-5,5 ms bei 1080p10 fuer `av_hwframe_transfer_data`) der Groessenordnung nach, gemessen hier als Differenz beider Arme ueber beide Posten. Und `standard` liegt auf beiden Tiefen praktisch GLEICHAUF mit `ruecklesen` — cuvids unsichtbare Rueckholung kostet dasselbe wie die sichtbare."
+  },
+
+  "ergebnis_stimmt_das_bild": {
+    "verfahren": "Standbild-Quelle (ein einziges `testsrc2`-Bild in Schleife), Fensterinhalt des Players je Arm abgenommen (GDI, Client-Bereich 1280x720), dann Bildpunkt fuer Bildpunkt verglichen. Der Vergleich zwischen den ARMEN ist der scharfe Test: gleicher Renderer, gleicher Shader, einziger Unterschied ist der Weg des Bildes.",
+    "1080p_10bit": [
+      { "paar": "bruecke vs ruecklesen", "mittlere_abweichung_von_255": 0.066, "max": 155, "abweichende_teilwerte_prozent": 5.6 },
+      { "paar": "bruecke vs standard", "mittlere_abweichung_von_255": 0.063, "max": 23, "abweichende_teilwerte_prozent": 5.5 },
+      { "paar": "ruecklesen vs standard", "mittlere_abweichung_von_255": 0.058, "max": 155, "abweichende_teilwerte_prozent": 5.6 }
+    ],
+    "1080p_8bit": [
+      { "paar": "bruecke vs ruecklesen", "mittlere_abweichung_von_255": 0.035, "max": 23, "abweichende_teilwerte_prozent": 2.6 },
+      { "paar": "bruecke vs standard", "mittlere_abweichung_von_255": 0.037, "max": 155, "abweichende_teilwerte_prozent": 2.7 },
+      { "paar": "ruecklesen vs standard", "mittlere_abweichung_von_255": 0.027, "max": 155, "abweichende_teilwerte_prozent": 2.6 }
+    ],
+    "lesart": "Die mittlere Abweichung liegt bei 0,03 bis 0,07 von 255 und ist zwischen ALLEN drei Paaren gleich gross — auch zwischen den zwei Armen, die beide ueber den Hauptspeicher gehen. Das ist der Dither (`dither: true` ist Vorgabe, `proto.rs`), aufgenommen zu verschiedenen Zeitpunkten. Ein Fehler in der Textur-Auslegung saehe voellig anders aus: eine Farbverschiebung oder ein vertauschter Chroma-Kanal traefe JEDEN Bildpunkt und laege im zweistelligen Bereich, ein Zeilenversatz oder ein Halbbild-Muster ebenso.",
+    "die_ausreisser": "`max=155` taucht nur in Paaren auf, an denen eine bestimmte Aufnahme beteiligt ist, und liegt in einem 5x5-Block bei x 0..4, y 715..719 — die Ecke des FENSTERS, nicht das Video. 36 von 2,7 Mio. Teilwerten. Die Bruecke ist an keinem dieser Ausreisser beteiligt: `bruecke vs standard` (10 bit) und `bruecke vs ruecklesen` (8 bit) haben max=23.",
+    "zusaetzlich_isoliert": "Die Probe `player-labor/nv12-wgpu-import` (D3D11-Textur -> `OpenSharedHandle` -> `texture_from_raw` -> Shader, ohne FFmpeg und ohne Netz) auf derselben Karte: NV12 und P010, je drei Laeufe, **0 von 4096 Bildpunkten abweichend**, auch in allen drei Wiederholungen mit neu beschriebener Textur. Import 0,18-0,26 ms gegen 0,46-0,73 ms auf der Radeon. Damit ist die Halbwegs-Frage 'traegt der Import auf NVIDIA' getrennt vom Player beantwortet."
+  },
+
+  "ergebnis_hdr": {
+    "frage": "Laeuft der scRGB-Pfad (`Rgba16Float`, `render/hdr_fenster.rs`) auf NVIDIA — und laeuft er AUCH auf dem Zero-Copy-Weg?",
+    "befund": "JA, beides. In 6 von 6 Laeufen (2 Abzuege + 4 Messlaeufe, beide Arme) meldet der Player `Farbraum des Fensters: scRGB (lineares Licht, 1,0 = 80 cd/m2)` und `Farbwelt des Stroms HDR (PQ) -> Fenster HDR (Rgba16Float)`. Die zweite Zeile nennt das TATSAECHLICH gesetzte Oberflaechenformat, nicht den Wunsch (`hdr_fenster.rs:390-394`).",
+    "material": "win-hq-sidecar mit `hdr: true` — Aufnahme in RGBA16F/scRGB, Encode als PQ/BT.2020 10 bit. Am Strom nachgeprueft: `color_space=bt2020nc color_transfer=smpte2084 color_primaries=bt2020 color_range=tv`.",
+    "auf_dem_zerocopy_weg": "`Zero-Copy an` und `Fenster HDR (Rgba16Float)` stehen im selben Protokoll — die P010-Textur wird eingehaengt UND der scRGB-Pfad laeuft. Beides zusammen war vorher auf keiner NVIDIA-Karte belegt.",
+    "NICHT_gemessen": "Wie das Bild auf dem HDR-Schirm AUSSIEHT. Ein GDI-Bildschirmabzug eines HDR-Fensters liefert eine SDR-Fassung; die Abzuege oben taugen zum Vergleich der Arme untereinander, nicht als Aussage ueber Spitzenhelligkeit oder Farbvolumen. Wer das braucht, misst am Strom (wie `nvidia-2026-08-11-windows-hdr.json`), nicht am Fenster."
+  },
+
+  "die_falle_die_alle_zahlen_einfaerbt": {
+    "was": "Die Karte taktet nach rund zehn Sekunden herunter, und die Posten vervielfachen sich dabei.",
+    "gemessen": "10-bit-Lauf, Arm `standard`: Sekunde 4-11 `hochladen 0,3 ms / dekodieren 2,2 ms`, ab Sekunde 12 `hochladen 2,2 ms / dekodieren 5,8 ms`. Derselbe Strom, derselbe Prozess, kein Eingriff.",
+    "folge": "Die ersten 15 Sekunden jedes Laufs sind verworfen. Wer sie mitnimmt, misst je nach Lauflaenge irgendetwas dazwischen — und ein kurzer Lauf im Arm `bruecke` gegen einen langen im Arm `standard` haette hier bequem das GEGENTEIL zeigen koennen.",
+    "schon_bekannt": "Derselbe Befund steht in `player-2026-08-06-bildweg-kosten` unter `befund_der_alle_zahlen_einfaerbt`, dort ebenfalls ohne kausalen Beweis (nvidia-smi -lgc braeuchte Administratorrechte). Hier nur bestaetigt, nicht weiter verfolgt."
+  },
+
+  "FALLEN_IM_VERFAHREN": {
+    "1_das_messwerkzeug_hat_den_player_angehalten": {
+      "befund": "Die erste Fassung von `messreihe.py` startete den Player, schlief 45 s und las stderr erst danach. Ergebnis: neun Laeufe hintereinander 'KEINE STATISTIK'.",
+      "ursache": "Mit `PULSE_PLAYER_STATS_LOG` schreibt der Player vier lange Zeilen je Sekunde. Der Rohrpuffer (64 KB) ist nach wenigen Sekunden voll, und dann BLOCKIERT der Player mitten im Betrieb beim Schreiben auf stderr.",
+      "warum_es_hier_steht": "Es sah wie ein Fehler im Player aus (er lieferte ja wirklich keine Bilder mehr) und war einer im Werkzeug. Wer eine Messreihe gegen dieses Programm baut, liest stderr nebenher — mit einem Faden, nicht mit `communicate()` am Ende.",
+      "und_es_ist_ein_echter_hinweis": "Ein Aufrufer, der den Player startet und seinen stderr nicht leert, haelt ihn an. Electron liest ihn (`sidecar.ts`); ein Skript womoeglich nicht."
+    },
+    "2_ein_windows_dialog_im_bildabzug": {
+      "befund": "Die erste Abzugsreihe verglich sich zu PSNR 19,9 dB — scheinbar ein grober Bildfehler. In Wahrheit lag ein Firewall-Dialog ueber dem Fenster.",
+      "abhilfe": "Dialog weg, neu abgenommen: 54-57 dB. Wer Fensterabzuege vergleicht, sieht sie sich vorher AN, statt nur die Kennzahl zu lesen."
+    },
+    "3_PULSE_PLAYER_DECODER_gab_es_gar_nicht_mehr": {
+      "befund": "`player-2026-08-06-bildweg-kosten` nennt im Abschnitt `kosten_je_bild_d3d11va_weg` woertlich 'Erzwungen ueber PULSE_PLAYER_DECODER=av1+hw'. Im Quelltext war die Variable am 2026-08-11 nirgends zu finden (`grep -rn PULSE_PLAYER_DECODER src/`: null Treffer).",
+      "folge": "Die Akte beschreibt einen Aufbau, den niemand nachstellen konnte, und ohne den Schalter ist der zweite Bildweg auf einer NVIDIA-Maschine ueberhaupt nicht messbar.",
+      "abhilfe": "Neu gebaut als `src/decoderwahl.rs`, mit derselben Schreibweise. Er faellt bei einem Tippfehler ausdruecklich NICHT auf die volle Liste zurueck — ein stiller Rueckfall lieferte ein tadelloses Messergebnis vom falschen Weg."
+    },
+    "4_ein_roter_test_der_keiner_war": {
+      "befund": "`cargo test --release` schlug fehl: `depacket::tests::repro_3_stapa_ueberzaehliges_byte`, 'index out of bounds' im vendorierten webrtc-rs.",
+      "geprueft": "Dieselbe Panik auf UNVERAENDERTEM HEAD (Quellbaum in ein Kratzverzeichnis kopiert, die drei geaenderten Dateien aus `git show HEAD:` zurueckgeholt). Also nicht durch diese Arbeit verursacht.",
+      "ursache": "`vendor/webrtc-rs/` ist gitignored und wird von `scripts/bootstrap-webrtc.sh` hergestellt. Der Baum auf dieser Maschine war vor `patches/0003-h264-stapa-bounds-check.patch` geholt worden — genau dem Patch, den dieser Test prueft. Kein Repo-Fehler, ein veralteter lokaler Baum.",
+      "abhilfe": "Patch nachtraeglich angewendet; danach 255 bestanden, 0 fehlgeschlagen, 6 ignoriert. Der Hinweis steht jetzt in `pulse-player/README.md` unter 'Bauen und testen', damit die naechste Maschine es nicht wieder fuer eine Regression haelt."
+    }
+  },
+
+  "warum_die_vorgabe_NICHT_umgestellt_wurde": {
+    "was_belegt_ist": "Die Kostenseite, und sie ist eindeutig: 2,8 bis 5,15 ms je Bild, dazu ein identisches Bild und laufendes HDR.",
+    "was_nicht_belegt_ist": "Die Robustheitsseite. `decode.rs` fuehrt fuer die cuvid-Decoder mehrere hart erarbeitete Sonderbehandlungen — Verhalten nach einem Aussetzer (`av1_cuvid` kippt in einen Zustand, aus dem nur ein Neuaufbau hilft), der doppelte Kandidateneintrag als Rueckfall, der Umgang mit beschaedigten Sequenzkoepfen. Fuer den D3D11VA-Weg ist NICHTS davon geprueft. Ein Tausch der Vorgabe auf Grundlage einer Kostenmessung waere genau die Sorte Entscheidung, gegen die die Regeln dieses Projekts geschrieben sind.",
+    "was_stattdessen_getan_wurde": "Der Fall ist sichtbar gemacht (eine Zeile beim ersten Bild), messbar gemacht (`PULSE_PLAYER_DECODER`) und in vier Dokumenten berichtigt. Wer die Vorgabe drehen will, hat jetzt das Werkzeug und weiss, was noch fehlt.",
+    "der_naechste_schritt_waere": "Dieselben drei Arme unter Paketverlust und mit Intra-Refresh-Einstieg (kein periodisches Vollbild) fahren, plus `h264`. Erst dann ist die Frage 'welcher Decoder gehoert auf NVIDIA nach vorn' entscheidbar."
+  },
+
+  "GRENZEN_DER_AUSSAGE": [
+    "Nur 1080p60 und nur AV1. 1440p und 4K sind nicht gemessen — und dort wird der Unterschied groesser, nicht kleiner (die Posten skalieren mit der Bildflaeche). H.264 ist gar nicht gefahren; die Kandidatenwahl dort ist dieselbe (`h264_cuvid` vor `h264`+D3D11VA), die Kosten sind es vermutlich, aber ungemessen.",
+    "Nur diese eine Karte und dieser eine Treiber (RTX 5080, 610.47). Ob eine aeltere GeForce ohne AV1-NVDEC sich genauso verhaelt, ist offen — dort faellt die Kandidatenwahl womoeglich anders aus.",
+    "Der Bildvergleich laeuft ueber einen FENSTERABZUG, also nach Shader, Deband, Dither und Skalierung auf 1280x720. Ein Fehler, den die Pipeline zufaellig auf beiden Wegen gleich verformt, faellt darin nicht auf. Ein Abzug des dekodierten Bildes VOR dem Shader gibt es im Player nicht (`dump.rs` schreibt RTP-Pakete, `recorder.rs` den Bitstrom) — das ist die eigentliche Luecke im Werkzeugkasten und war schon 2026-08-06 als 'Kein Standbild-Export' notiert.",
+    "Es ist kein absoluter Bildvergleich gegen die Quelle. Belegt ist, dass die drei Wege DASSELBE zeigen, und dass die isolierte Probe die Textur bitgenau durchreicht — nicht, dass die Farbmatrix des Players stimmt. Das ist eine andere Frage mit eigener Messung (`player-2026-08-06-hdr-farbweg`, `--farbwerte`).",
+    "Der GPU-Sparzustand ist umgangen, nicht verstanden. Alle Zahlen gelten fuer den heruntergetakteten Dauerbetrieb. Auf einer Karte, die ein 1080p60-AV1-Strom wirklich auslastet, faellt der Unterschied kleiner aus.",
+    "Ton war in jedem Lauf aus.",
+    "Der Bildvergleich benutzt EINEN Abzug je Arm und Tiefe, nicht drei. Wiederholt sind die Kostenzahlen (3 Laeufe) und die isolierte Import-Probe (3 Laeufe je Format), nicht die Fensterabzuege."
+  ],
+
+  "geaenderte_stellen": [
+    "NEU `pulse-player/src/decoderwahl.rs`: `PULSE_PLAYER_DECODER` (Komma-Liste, `name` / `name+hw` / `name+cuda`, Reihenfolge = Probierreihenfolge, kein stiller Rueckfall bei Fehlgriff). Drei Unit-Tests. Eigene Datei, weil `decode.rs` mit 2400 Zeilen weit ueber der Groessengrenze liegt und nicht weiter wachsen soll — `decode.rs` waechst dadurch um zwei Zeilen Aufruf plus `Kandidat::geraetetag`.",
+    "NEU `zerocopy::weg_melden`: eine Zeile je Sitzung, welchen Weg das Bild nimmt. Das ist die Reparatur des eigentlichen Befunds — der Fall 'Bruecke wird nie gefragt' hatte keine Stimme. Aufgerufen in `decode.rs::drain`.",
+    "`decode.rs` Modulkopf und `cuda_ausgabe_vorgabe`: die Behauptung 'unter Windows nimmt der Player den D3D11VA-Weg' steht als widerlegt da, mit den Zahlen. Dazu der Hinweis, dass `PULSE_PLAYER_CUDA_AUSGABE=1` unter Windows NICHT hilft (die CUDA-Bruecke gibt es nur auf Linux/Vulkan, wgpu steht hier auf D3D12).",
+    "`pulse-player/README.md`: Ueberschrift des Zero-Copy-Abschnitts von '(Windows, Vorgabe)' auf '(Windows — AMD und Intel)', Kasten mit dem NVIDIA-Befund samt Tabelle, derselbe Zusatz am Stichpunkt unter 'Was er noch NICHT kann', Verzeichnisbaum, Testzahl 232 -> 255, `PULSE_PLAYER_DECODER` dokumentiert, und der Hinweis auf den veralteten `vendor/`-Baum.",
+    "`player-labor/nv12-wgpu-import/README.md`: 'auf NVIDIA ungemessen' ist beantwortet (0 von 4096, NV12 und P010, drei Laeufe je Format), mit der ausdruecklichen Einschraenkung, dass die Probe die Haelfte misst, die traegt.",
+    "KEINE Verhaltensaenderung an der Vorgabe. Der Player waehlt seinen Decoder unveraendert wie vorher.",
+    "Ausserhalb des Repos: `vendor/webrtc-rs/` hat `patches/0003` nachtraeglich bekommen (gitignored, lokaler Baum)."
+  ],
+
+  "tests": "`cargo test --release` im pulse-player: 255 bestanden, 0 fehlgeschlagen, 6 ignoriert (davon 3 neue in `decoderwahl`). Vor dem Nachziehen von `patches/0003` im vendorierten Baum: 254 bestanden, 1 fehlgeschlagen — derselbe Fehlschlag auf unveraendertem HEAD, s. Falle 4."
+}

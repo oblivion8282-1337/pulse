@@ -46,6 +46,13 @@ $LaborRoot   = Split-Path $PSScriptRoot -Parent
 $SidecarRoot = Join-Path (Split-Path $LaborRoot -Parent) 'win-hq-sidecar'
 $Bin         = Join-Path $SidecarRoot 'target\release\pulse-win-hq-sidecar.exe'
 $FfBin       = Join-Path $SidecarRoot 'ffmpeg-dist\n8.1-lgpl-shared\bin'
+# `ffplay` fehlt im ausgelieferten Bau (ohne SDL gebaut, s. Kommentar in
+# `nvidia-zehnbit-nachweis.ps1`). Nachgetragen am 2026-08-11: dieses Skript
+# zeigte bis dahin fest auf $FfBin\ffplay.exe und scheiterte damit auf JEDER
+# Maschine ohne den alten "vorher"-Bau daneben -- entdeckt beim Nachmessen der
+# Intra-Refresh-Regression, weil die anderen beiden Nachweis-Skripte diesen
+# Fallback schon hatten und nur dieses eine nicht.
+$PlayBin     = Join-Path $SidecarRoot 'ffmpeg-dist\n8.1-lgpl-shared.vorher\bin\ffplay.exe'
 if (-not $Ablage) { $Ablage = Join-Path $env:TEMP 'pulse-nvidia-ir' }
 New-Item -ItemType Directory -Force -Path $Ablage | Out-Null
 
@@ -70,10 +77,30 @@ function Invoke-Lauf {
 
   # Bewegtbild ist Pflicht. Auf einem stehenden Schirm sagt weder die
   # Bitverteilung noch die Bildgroesse etwas aus (Lehre des Linux-Pruefstands).
-  $ffplay = Start-Process -FilePath (Join-Path $FfBin 'ffplay.exe') -PassThru -ArgumentList @(
-    '-hide_banner','-loglevel','error','-fs','-autoexit',
-    '-f','lavfi','-i',"testsrc2=size=1920x1080:rate=$Fps")
-  Start-Sleep -Seconds 3
+  #
+  # **`SDL_RENDER_DRIVER=software` nachgetragen am 2026-08-11.** Ohne die
+  # Variable bleibt der ffplay-FENSTERINHALT in der WGC-Aufnahme schwarz,
+  # waehrend der Desktop drumherum sauber ankommt -- gemessen an einem
+  # Bildabzug (mittlere Helligkeit 0..765): `direct3d` 0,0 im Vollbild wie im
+  # Fenster, `software` 621,7 bzw. 553,5. Am Vollbild liegt es NICHT.
+  # Am 2026-08-04 hat dieses Skript auf derselben Maschine nachweislich
+  # echten Inhalt aufgenommen (700 Bilder, 4132 kbit/s), der Treiber ist
+  # unveraendert 32.0.16.1047 -- **was sich geaendert hat, ist nicht
+  # bestimmt.** Die Variable kostet nichts und schliesst die Falle.
+  # Herleitung: `nvidia-zehnbit-nachweis.ps1`.
+  #
+  # Woran man den Fall erkennt, wenn er doch wieder auftritt: der Mitschnitt
+  # wiegt Kilobyte statt Megabyte.
+  $ffplay = $null
+  if (Test-Path $PlayBin) {
+    $env:SDL_RENDER_DRIVER = 'software'
+    $ffplay = Start-Process -FilePath $PlayBin -PassThru -ArgumentList @(
+      '-hide_banner','-loglevel','error','-fs','-autoexit',
+      '-f','lavfi','-i',"testsrc2=size=1920x1080:rate=$Fps")
+    Start-Sleep -Seconds 3
+  } else {
+    Write-Host "  (kein ffplay -- Aufnahme ist der Schirm, wie er ist)" -ForegroundColor Red
+  }
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $Bin

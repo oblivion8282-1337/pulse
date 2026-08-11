@@ -7,6 +7,15 @@ Intra-Refresh raeumt das Pumpen der periodischen Keyframes weg — Haenger ueber
 dafuer LANGE Standbilder: acht Stueck in 1248 Sekunden, das laengste 2466 ms,
 jedes begleitet von einer Vollbild-Anforderung des Players.
 
+**Die 2466 ms sind ein STANDBILD, nicht die Wartezeit auf ein angefordertes
+Vollbild.** Der Unterschied ist mehrfach verlorengegangen — aus der Zahl wurde
+„bis zu 2466 ms, bis ein angefordertes Vollbild ankommt". Der Sender braucht
+dafuer ein bis zwei Bildabstaende: 130 Anforderungen auf NVIDIA, Median
+11,6 ms, groesster Wert 22,7 ms
+(`profiles/nvidia-2026-08-11-anforderung-bis-vollbild.json`). Was die
+Standbilder lang macht, ist alles ANDERE in der Kette — und genau danach fragt
+dieses Skript.
+
 **Die offene Frage ist nicht OB Verlust auftritt, sondern warum er nicht
 repariert wird.** Die Kette hat dafuer zwei Mittel: FlexFEC (Paritaet, 10+2)
 und NACK (Nachforderung). Greift keines, bleibt nur das ganze Vollbild — und

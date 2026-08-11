@@ -1,0 +1,94 @@
+{
+  "id": "nvidia-2026-08-11-windows-auffrischung-regression-und-kombinationen",
+  "gemessen_am": "2026-08-11",
+  "frage": "Zwei Fragen, beide veranlasst durch Aenderungen am selben Tag im selben Modulbereich (`stream_controller::run_pipeline` ruft seit heute zusaetzlich `encode::zehnbit::pruefen`, `encode/hdr.rs` ist umgebaut, HDR ist auf NVIDIA seit heute freigeschaltet): (1) Traegt Intra-Refresh auf dieser Karte noch unveraendert, ueber 120 Commits und die heutigen Aenderungen hinweg? (2) NEU, nie zuvor moeglich: traegt es auch KOMBINIERT mit 10 bit und mit HDR? Ein HDR-Start schaltet 10 bit selbst ein -- das ist die Kombination, die ein Nutzer ab heute tatsaechlich faehrt.",
+  "stand": "JA zu beiden Fragen. Regression: unveraendert -- 1 Vollbild statt 10 bei gleicher Datenrate, mit beiden Codecs, und 9 recovery-point-SEI gegen 0 bei H.264 (identisch zur Akte vom 2026-08-04). Kombination: traegt in allen 12 Laeufen (AV1, je 3 mit/ohne fuer 10 bit und fuer HDR) -- 1 Vollbild statt 10, Farbsignalisierung (10-bit-Etikett bzw. BT.2020/PQ) bleibt in beiden Modi unveraendert, kein stiller Rueckfall auf CPU/D3D12.",
+
+  "aufbau": {
+    "maschine": "GeForce RTX 5080, Treiber 610.47 (32.0.16.1047), Windows 11 26200, Primaerbildschirm HDR AN (530 cd/m2 Spitze, gemessen ueber `probe_ausgabe_farbtiefe.exe` vor der Messreihe bestaetigt)",
+    "sidecar": "AUSGELIEFERTER `win-hq-sidecar`, Branch `feat/win-nvidia-10bit-hdr`, `target/release/pulse-win-hq-sidecar.exe` -- Binary war bereits aktuell (keine Quelldatei neuer als das Binary), kein Neubau noetig. Kein Labor-Binary, kein Netz, kein Server: `push_url` ist ein Dateipfad, `open_output` schreibt den rohen Bitstrom.",
+    "cargo_test": "93 bestanden, 0 fehlgeschlagen, 2 ignoriert -- unveraendert gegenueber dem in der Aufgabe genannten Stand.",
+    "werkzeuge": {
+      "regression": "`win-hq-labor/testbench/nvidia-intra-refresh-nachweis.ps1` -Laeufe 3 -Codecs h264,av1 -Bitrate 12000 -Sekunden 20, PLUS eigene `trace_headers`-Auszaehlung der recovery-point-SEI (H.264) an allen drei mit/ohne-Dateipaaren.",
+      "kombination": "NEUES Skript `win-hq-labor/testbench/nvidia-2026-08-11-auffrischung-zehnbit-hdr-nachweis.ps1` (fehlte bisher -- keines der vorhandenen Skripte kombiniert `intra_refresh` mit `bit_depth`/`hdr` in einem Auftrag), -Laeufe 3 -Bitrate 12000 -Sekunden 20. Nur AV1: H.264 traegt auf dieser Karte kein 10 bit (`VideoCodec::supports_ten_bit`), die Kombination ist fuer H.264 also nicht herstellbar, nicht nur ungetestet."
+    },
+    "bitrate_warum_12000": "Unter 12000 kbps macht die Quantisierung die Bildpunkt-Praezision blind (nachgemessen in `nvidia-2026-08-11-windows-zehnbit.json`, Falle 1: bei 4000 kbps 'unklar' statt 'zwischen den 8-bit-Stufen'). Fuer BEIDE Teile dieser Akte auf 12000 kbps gehalten, damit die Zahlen vergleichbar bleiben.",
+    "sdl_render_driver": "Alle Laeufe mit `SDL_RENDER_DRIVER=software` (ffplay), sonst nimmt WGC den Fensterinhalt schwarz auf -- dieselbe Falle wie in den Nachbarakten vom 2026-08-11."
+  },
+
+  "0_ein_werkzeugfund_am_rande": {
+    "was": "`nvidia-intra-refresh-nachweis.ps1` zeigte fest auf `$FfBin\\ffplay.exe` (der ausgelieferte, gepatchte FFmpeg-Bau). Dieser Bau ist seit einer Weile ohne SDL gebaut und enthaelt kein `ffplay.exe` mehr -- die beiden Nachbarskripte (`nvidia-zehnbit-nachweis.ps1`, `hdr-nachweis.ps1`) haben deshalb laengst einen Fallback auf den `.vorher`-Bau, dieses eine Skript hatte ihn nicht. Erster Lauf brach sofort mit `Start-Process : ... kann die angegebene Datei nicht finden` ab.",
+    "einordnung": "Reiner Testgeschirr-Fehler, keine Sidecar-Aenderung. Klein, isoliert, derselbe Fallback-Code wie in den beiden funktionierenden Nachbarskripten -- deshalb direkt behoben statt nur gemeldet.",
+    "fix": "`nvidia-intra-refresh-nachweis.ps1`: `$PlayBin`-Fallback auf `ffmpeg-dist\\n8.1-lgpl-shared.vorher\\bin\\ffplay.exe` ergaenzt, `Invoke-Lauf` faellt jetzt wie die Nachbarskripte auf 'kein ffplay' zurueck statt abzubrechen. Nach dem Fix lief die Regression durch."
+  },
+
+  "1_regression_traegt_intra_refresh_unveraendert": {
+    "h264_nvenc": {
+      "mit": { "bilder": [1163, 1183, 1181], "vollbilder": [1, 1, 1], "kbit_s": [11898, 11934, 11881], "max_bild_bytes": [24786, 24862, 24752] },
+      "ohne": { "bilder": [1182, 1182, 1182], "vollbilder": [10, 10, 10], "kbit_s": [11884, 11886, 11961], "max_bild_bytes": [104916, 106209, 102956], "max_ohne_voll_bytes": [82922, 68732, 66875] },
+      "recovery_point_sei_trace_headers": { "mit": [9, 9, 9], "ohne": [0, 0, 0] },
+      "befund": "Deckungsgleich mit `nvidia-2026-08-04-windows-intra-refresh.json` (dort ebenfalls 1 gegen 10 Vollbilder, 9 gegen 0 recovery points). Datenrate mit/ohne praktisch identisch (~11,9 Mbit/s)."
+    },
+    "av1_nvenc": {
+      "mit": { "bilder": [1182, 1182, 1182], "vollbilder": [1, 1, 1], "kbit_s": [12222, 12224, 12224], "max_bild_bytes": [89456, 87027, 88058] },
+      "ohne": { "bilder": [1182, 1182, 1181], "vollbilder": [10, 10, 10], "kbit_s": [12215, 12209, 12209], "max_bild_bytes": [128137, 101634, 126741], "max_ohne_voll_bytes": [104947, 100317, 111951] },
+      "recovery_point_sei": "Nicht erhoben -- AV1 kennt kein SEI-Recovery-Point (H.264/HEVC-Konzept). Der 'tut der Encoder wirklich Intra-Refresh'-Nachweis lief in der 08-04-Akte fuer AV1 ueber dieselbe Vollbild-Zaehlung, die hier reproduziert ist; die SEI-Zusatzpruefung war dort ausdruecklich am H.264-Pfad (PPS/Slices).",
+      "befund": "Deckungsgleich mit der 08-04-Akte (dort 1 gegen 10, ~3960 kbit/s bei 4000-kbps-Vorgabe; hier ~12200 kbit/s bei 12000-kbps-Vorgabe -- Ratensteuerung folgt der Vorgabe wie erwartet)."
+    },
+    "nicht_erneut_geprueft": "Vollbild auf Anforderung (`forced-idr`/`{\"op\":\"keyframe\"}`) -- die Aufgabe verlangt fuer diese Frage ausdruecklich nur Vollbilder/IDR und recovery-point-SEI, nicht den Rueckkanal. Der Rueckkanal ist in der 08-04-Akte belegt und liegt nicht im Bereich der heutigen Aenderungen (die betreffen die Wegwahl VOR dem Encoder-Open, nicht `keyframe.rs`).",
+    "schluss": "Intra-Refresh traegt unveraendert. Die heutigen Aenderungen (`zehnbit::pruefen`, umgebautes `hdr.rs`) sitzen beide VOR dem Encoder-Open und BEEINFLUSSEN `auffrischung::anwenden` nicht -- das bestaetigt sich auch am Code (siehe `2_warum_das_so_erwartbar_war`)."
+  },
+
+  "2_warum_das_so_erwartbar_war": {
+    "code_lage": "`stream_controller::run_pipeline` entscheidet HDR/10-bit VOR jedem Encoder-Open (`hdr::pruefen`/`zehnbit::pruefen`, beide koennen nur den START verweigern oder `params.ten_bit`/`params.schirm` setzen). `auffrischung::anwenden` sitzt in `encoder_hw.rs`, NACH `hdr::signalisieren`, auf demselben `Dictionary`, aber an anderen Schluesseln (Farbfelder vs. `intra-refresh`/`no-scenecut`). Keine der beiden heutigen Aenderungen fasst die Auffrischungs-Tabelle in `encode/auffrischung.rs` an -- dort steht fuer `h264_nvenc`/`av1_nvenc` unveraendert `intra-refresh=1, no-scenecut=1`.",
+    "warum_die_gegenprobe_trotzdem_noetig_war": "Eine Code-Lesung zeigt nur, DASS sich die Pfade nicht ueberschneiden -- nicht, ob eine der beiden neuen Pruefungen (z. B. durch einen falsch gesetzten `pfad`/`disable_zc`) den Encoder auf einen anderen, auffrischungslosen Weg umlenkt, ohne dass die Tabelle das melden wuerde. Genau das war am 2026-08-02 der tatsaechliche Fehlermodus bei `h264_d3d12va` (Option angenommen, nichts bewirkt) -- eine Codelesung allein haette den damals nicht gefunden."
+  },
+
+  "3_neu_intra_refresh_zusammen_mit_10_bit": {
+    "aufbau": "av1_nvenc, `overrides.bit_depth=10` (kein `hdr`), 3 Laeufe je Modus, Bewegtbild (`gradients`, wie in `nvidia-2026-08-11-windows-zehnbit.json`).",
+    "mit": { "bilder": [1182, 1182, 1181], "vollbilder": [1, 1, 1], "bei_bild": [[0],[0],[0]], "kbit_s": [3018, 4956, 12058], "bytes": [7432941, 12204440, 29668840] },
+    "ohne": { "bilder": [1179, 1181, 1181], "vollbilder": [10, 10, 10], "bei_bild": [[0,120,240,360,480,600,720,840,960,1080]], "kbit_s": [12146, 5393, 6890], "bytes": [29832704, 13270065, 16953281] },
+    "pix_fmt_alle_laeufe": "yuv420p10le, in JEDEM der 6 Laeufe -- die Bittiefe kippt weder mit noch ohne Auffrischung.",
+    "praezision_y_mod_4": {
+      "verfahren": "Wie in `nvidia-2026-08-11-windows-zehnbit.json`: Bild 90, `zehnbit-praezision.py`. Je EIN niedrigbitratiger und ein hochbitratiger Lauf je Modus, weil die Kennzahl bei zu niedriger lokaler Bitrate blind wird (s. u.).",
+      "mit_lauf1_niedrig_7_4mb": { "reste_prozent": [82.7, 5.3, 5.2, 6.8], "urteil": "UNKLAR -- niedrige lokale Bitrate an dieser Bildstelle, dieselbe Falle wie in der Zehnbit-Akte" },
+      "mit_lauf3_hoch_29_6mb": { "reste_prozent": [57.3, 14.0, 14.5, 14.1], "urteil": "zwischen den 8-bit-Stufen -- echte 10-bit-Rechnung" },
+      "ohne_lauf1": { "reste_prozent": [27.9, 23.5, 24.0, 24.6], "urteil": "zwischen den 8-bit-Stufen" },
+      "befund": "Wo die lokale Bitrate hoch genug ist, ist die Praezision in BEIDEN Modi echt -- Intra-Refresh veraendert die 10-Bit-Eigenschaft nicht. Der eine 'unklar'-Fall ist eine Eigenschaft dieser Bildstelle (Ratensteuerung), keine Eigenschaft von Intra-Refresh: derselbe Lauf zeigt an anderer Stelle (Vollbild-Zaehlung, Byte-Groesse) ganz normales Verhalten."
+    },
+    "kein_fallback": "In allen 6 Laeufen keine 'Delegation an'/'CPU-Pipeline'/'Fallback'-Zeile und kein `error`-Event -- durchgehend D3D11-Zero-Copy.",
+    "schluss": "Intra-Refresh und 10 bit vertragen sich. 1 Vollbild statt 10 in jedem der drei Laeufepaare, das 10-bit-Etikett und die echte Praezision bleiben in beiden Modi erhalten."
+  },
+
+  "4_neu_intra_refresh_zusammen_mit_hdr": {
+    "aufbau": "av1_nvenc, `overrides.hdr=true` (schaltet 10 bit selbst ein, kein `bit_depth` noetig), 3 Laeufe je Modus, derselbe Schirm wie in `nvidia-2026-08-11-windows-hdr.json` (530 cd/m2 Spitze, HDR an).",
+    "mit": { "bilder": [1181, 1179, 1180], "vollbilder": [1, 1, 1], "bei_bild": [[0],[0],[0]], "kbit_s": [4828, 3438, 8429], "bytes": [11878021, 8444326, 20720162] },
+    "ohne": { "bilder": [1180, 1179, 1178], "vollbilder": [10, 10, 10], "bei_bild": [[0,120,240,360,480,600,720,840,960,1080]], "kbit_s": [5247, 9406, 11205], "bytes": [12899420, 23102445, 27500049] },
+    "farbsignalisierung_alle_laeufe": "pix_fmt=yuv420p10le, color_space=bt2020nc, color_transfer=smpte2084, color_primaires=bt2020 -- in JEDEM der 6 Laeufe identisch, mit wie ohne Auffrischung. Kein Lauf faellt auf BT.709/SDR-Signalisierung zurueck.",
+    "hdr_pfad_bestaetigt_pro_lauf": "`[hdr] Bildschirm: HDR an, 10 bit/Kanal, 530 cd/m2 Spitze ...` steht in allen 6 stderr-Protokollen -- `hdr::pruefen` lief durch, nicht `zehnbit::pruefen` (erwartete Reihenfolge, s. `nvidia-2026-08-11-windows-zehnbit.json`, Gegenprobe 3).",
+    "bekannte_luecke_unveraendert": "`[hdr] NVENC schreibt auf diesem Treiber keine HDR10-Mastering-Angaben ...` steht in allen 6 Laeufen -- dieselbe, bereits dokumentierte und bewusst nicht als Fehler behandelte Luecke aus `nvidia-2026-08-11-windows-hdr.json`. Sie ist unabhaengig von Intra-Refresh: taucht mit wie ohne auf.",
+    "praezision_y_mod_4": {
+      "mit_lauf1": { "reste_prozent": [43.5, 25.5, 7.9, 23.2], "urteil": "zwischen den 8-bit-Stufen" },
+      "mit_lauf3": { "reste_prozent": [23.7, 27.3, 21.1, 27.9], "urteil": "zwischen den 8-bit-Stufen" },
+      "ohne_lauf1": { "reste_prozent": [12.9, 35.4, 14.7, 36.9], "urteil": "zwischen den 8-bit-Stufen" },
+      "befund": "Anders als bei 10 bit ohne HDR trat hier in keinem Sample das 'unklar'-Urteil auf -- alle drei gepruften Bilder liegen eindeutig zwischen den 8-bit-Stufen."
+    },
+    "kein_fallback": "In allen 6 Laeufen keine 'Delegation an'/'CPU-Pipeline'/'Fallback'-Zeile und kein `error`-Event -- durchgehend D3D11-Zero-Copy mit dem RGBA16F-scRGB-Aufnahmeweg.",
+    "schluss": "Intra-Refresh und HDR vertragen sich. 1 Vollbild statt 10 in jedem der drei Laeufepaare, die vollstaendige HDR10-Signalisierung (Kurve, Primaervalenzen, Farbraum) bleibt in beiden Modi unveraendert erhalten. Die bekannte Mastering-Metadaten-Luecke bleibt exakt das, was sie vor dieser Messung war -- Intra-Refresh macht sie nicht schlimmer und behebt sie nicht."
+  },
+
+  "offen_und_nicht_ermittelt": [
+    "**Die Datenrate der Kombinations-Laeufe streute stark** (3,0 bis 12,1 Mbit/s bei 12000-kbps-Vorgabe), deutlich mehr als in der Regression (dort 11,9 bis 12,2 Mbit/s, eng um die Vorgabe) und mehr als in der frueheren reinen Zehnbit-Akte (dort 12,2 bis 12,2 Mbit/s bei 4000-kbps-Vorgabe mit demselben `gradients`-Inhalt). Geprueft und AUSGESCHLOSSEN: kein Standbild/Stall (Bildgroessen wechseln ueber die ganze Datei sichtbar), kein Fallback auf CPU/D3D12, kein Fehler-Event. Die Streuung betrifft 'mit' UND 'ohne' etwa gleichermassen und ist damit kein Intra-Refresh-Effekt -- sie beeintraechtigt weder die Vollbild-Zaehlung noch die Farbsignalisierung, macht aber EINE Praezisionsprobe (`zehnbit-lauf1-mit`) unbrauchbar (Falle 1 aus der Zehnbit-Akte: zu geringe lokale Bitrate). Ursache NICHT gefunden -- moegliche Kandidaten (Renderer-Performance des Software-SDL-Pfads bei `gradients` im echten Vollbild-Modus, GPU-Zustand zwischen Laeufen) sind nicht geprueft. Nicht repariert, weil die Ursache nicht eindeutig ist.",
+    "Vollbild auf Anforderung (`forced-idr`) ist in dieser Akte NICHT erneut geprueft -- ausserhalb der gestellten Frage (Vollbilder/IDR + recovery-point-SEI), belegt in der 08-04-Akte, und der Rueckkanal-Code (`keyframe.rs`) liegt nicht im Bereich der heutigen Aenderungen.",
+    "H.264 + 10 bit / HDR ist nicht herstellbar (`VideoCodec::supports_ten_bit` laesst nur AV1 durch) -- keine Luecke in dieser Messung, sondern eine Produktentscheidung ausserhalb des Encoders.",
+    "HEVC ist weiterhin nicht gemessen (wird ausgebaut).",
+    "Kein Zuschauer im Bild -- gemessen ist der Bitstrom, nicht die Leitung. Dieselbe Grenze wie in allen Nachbarakten vom 2026-08-11."
+  ],
+
+  "geaenderte_stellen": [
+    "streaming/win-hq-labor/testbench/nvidia-intra-refresh-nachweis.ps1 -- `$PlayBin`-Fallback auf den `.vorher`-FFmpeg-Bau ergaenzt (fehlte bisher, im Gegensatz zu den beiden Nachbarskripten); ohne den Fix brach jeder Lauf sofort ab.",
+    "streaming/win-hq-labor/testbench/nvidia-2026-08-11-auffrischung-zehnbit-hdr-nachweis.ps1 -- NEU: kombiniert `intra_refresh` erstmals mit `bit_depth`/`hdr` in einem Auftrag."
+  ],
+
+  "tests": "cargo test --release im win-hq-sidecar: 93 bestanden, 0 fehlgeschlagen, 2 ignoriert -- unveraendert."
+}

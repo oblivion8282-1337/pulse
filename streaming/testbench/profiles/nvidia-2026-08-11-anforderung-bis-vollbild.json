@@ -1,0 +1,102 @@
+{
+  "id": "nvidia-2026-08-11-anforderung-bis-vollbild",
+  "gemessen_am": "2026-08-11",
+  "frage": "Wie lange dauert es vom Anfordern eines Vollbilds bis zu dem Bild, mit dem der Zuschauer wieder sehen kann? Im Intra-Refresh-Betrieb haengt das Dazukommen an genau dieser Zahl: der Strom hat nach dem Start kein Vollbild mehr, der Einstieg passiert ausschliesslich ueber die Anforderung (PLI/FIR auf dem Rueckkanal -> `keyframe::request_keyframe()` -> erzwungenes IDR).",
+  "stand": "KURZ, und zwar auf einen Bildabstand genau. 130 Anforderungen, alle eingeloest: Median 11,6 ms, p95 20,9 ms, groesster Einzelwert 22,7 ms. Das angeforderte Bild ist in jedem Fall ein echtes Vollbild MIT Kopf (H.264: SPS+PPS+IDR; AV1: Sequenzkopf+KEY_FRAME) -- belegt nicht nur am Etikett, sondern dadurch, dass der ab dieser Stelle abgeschnittene Mitschnitt fehlerfrei von vorn dekodiert.",
+
+  "anlass": {
+    "der_zahlenmissbrauch": "In `hq-2026-07-31-intra-refresh-echter-sender.json` steht `ausgabe_abstand_max_ms: 2466.5` -- der LAENGSTE EINZELNE STILLSTAND eines Laufs ueber 1248 s unter Paketverlust (Median 26,3 ms, p99 153,8 ms, 17 Haenger ueber 100 ms, 8 Anforderungen im ganzen Lauf). Daraus ist spaeter 'bis zu 2466 ms, bis ein angefordertes Vollbild ankommt' geworden. Das ist NICHT dasselbe: ein Stillstand von 2466 ms enthaelt das Verlustereignis selbst, die Zeit bis der Zuschauer es bemerkt und anfordert, den Weg der Anforderung ueber Leitung und Server, und -- unter anhaltendem Verlust -- moeglicherweise mehrere zerschossene Vollbilder hintereinander. Die Wartezeit auf ein angefordertes Vollbild ist EIN Posten davon und war nie gemessen. Die Akte von damals sagt selbst nur, der Weg greife, sei aber 'grob'.",
+    "erwartung_aus_dem_code": "Ein bis zwei Bildabstaende. `keyframe.rs` laesst die ERSTE Anforderung ausdruecklich ungebremst durch (gestaffelt wird nur die Wiederholung), `opts.rs` setzt bei NVENC `forced-idr=1`, und `encoder_hw.rs::send_avframe` holt den Merker beim naechsten eingeschobenen Bild ab. Die Messung bestaetigt das -- sie war trotzdem noetig: genau dieselbe Erwartung war am 2026-08-02 auf AMD falsch (Sender meldete zwei eingeloeste Vollbilder, in der Datei stand keines)."
+  },
+
+  "aufbau": {
+    "maschine": "GeForce RTX 5080, Treiber 610.47 (32.0.16.1047), Windows 11 26200",
+    "sidecar": "AUSGELIEFERTER `win-hq-sidecar`, Branch `feat/win-nvidia-10bit-hdr`, `target/release/pulse-win-hq-sidecar.exe`. Binary war aktuell (keine Quelldatei neuer), kein Neubau. Kein Labor-Binary.",
+    "encoder": "`h264_nvenc` und `av1_nvenc`, 1920x1080@60, 12000 kbps, 8 bit, Intra-Refresh AN (Log: 'Encoder offen: … Intra-Refresh'). GOP = 2*fps = 120 Bilder; unter Auffrischung liefert NVENC in diesem Rahmen KEINE periodischen Vollbilder mehr -- in jeder der 16 Dateien stehen genau 1 + (Zahl der Anforderungen) Vollbilder.",
+    "ziel": "`push_url` ist ein DATEIPFAD -- roher Bitstrom, kein Netz, kein Server, kein Player. Damit misst diese Akte ausschliesslich den Anteil, den der SENDER zu verantworten hat.",
+    "bewegtbild": "ffplay mit `testsrc2` im Vollbild, `SDL_RENDER_DRIVER=software` (ohne die Variable nimmt WGC den Fensterinhalt schwarz auf -- dieselbe Falle wie in den Nachbarakten vom 2026-08-11). Bitrate 12000 kbps, weil darunter die Quantisierung Messungen an dieser Karte blind macht.",
+    "werkzeug": "NEU: `win-hq-labor/testbench/nvidia-2026-08-11-anforderung-wartezeit.ps1` (Messung) und `win-hq-labor/testbench/bitstrom-einstieg.ps1` (Bitstrom-Leser + Einstiegsprobe, dot-gesourced). Keines der vorhandenen Skripte misst eine ZEIT am Rueckkanal -- `nvidia-intra-refresh-nachweis.ps1 -Anfordern` zaehlt nur, ob ein angefordertes Vollbild in der Datei landet.",
+    "cargo_test": "93 bestanden, 0 fehlgeschlagen, 2 ignoriert -- unveraendert (an Rust-Code wurde nichts geaendert).",
+    "nach_der_werkzeug_vereinfachung_nachgemessen": "Die Zahlen unten stammen aus 16 Laeufen. Danach wurde das Messskript aufgeteilt und vereinfacht; zwei Kontrolllaeufe (je 3 Anforderungen, H.264 und AV1) liefen mit der Endfassung und liegen im selben Bereich (Gesamt 6,8 bis 22,3 ms, 0 Vollbilder ohne Kopf, Einstiegsprobe 0 Fehler). Sie sind NICHT in die Verteilung eingerechnet."
+  },
+
+  "messverfahren": {
+    "was_gestempelt_wird": "Eine einzige `Stopwatch` stempelt (a) das Absenden von `{\"op\":\"keyframe\"}` auf stdin und (b) die stderr-Zeile `[encode] Vollbild auf Anforderung (pts=N)`, die der Sidecar beim EINSCHIEBEN genau dieses Bildes schreibt -- laut Kommentar in `send_avframe` bewusst VOR dem Encoder-Zeitstempel, also vor jeder Encoder-Arbeit. Die Differenz ist A.",
+    "warum_kein_poll": "Der stderr-Leser laeuft in einem eigenen Runspace mit BLOCKIERENDEM `ReadLine`. Eine Poll-Schleife mit `Task.Wait(1)` haengt an der Windows-Timeraufloesung (15,6 ms) und haette genau die Groessenordnung verwischt, um die es hier geht. Nebenbei erfuellt der Leser die zweite Pflicht: die Pipe wird durchgehend geleert, sonst blockiert der Sidecar am vollen Rohrpuffer.",
+    "teil_b": "Vom Einschub bis zum fertigen Paket desselben pts. Quelle ist `PULSE_HQ_TRACE` (`enc_sum_us`/`enc_n` des Ticks mit demselben pts) -- das ist die Zuordnung Einschub->Paket aus `encode/latency.rs`, NICHT die Dauer des Submit-Aufrufs. NVENC laeuft hier mit `delay=0`, das Paket faellt im selben Aufruf heraus.",
+    "uhrenabgleich": "Der Abgleich zwischen Stopwatch und Sidecar-Trace ist der Median der Einzelversaetze (stderr-Zeitpunkt minus `t_ms` des Ticks mit demselben pts). Seine STREUUNG ueber einen Lauf ist gleichzeitig die Guete der Zuordnung: gemessen 1,6 bis 4,7 ms ueber alle Laeufe. Sie geht nur in die abgeleitete Spalte 'Bildabstaende' ein, nicht in A oder B.",
+    "gegenprobe_an_der_datei": "Regel aus `win-hq-labor/CLAUDE.md` -- dem Log des Senders wird nicht geglaubt. Jede Anforderung wird im MITSCHNITT nachgezaehlt (eigener Bitstrom-Leser in C#: H.264-Annex-B bzw. AV1-OBU). In allen 16 Laeufen: Vollbilder in der Datei = 1 (Start) + Anforderungen, und der Bildindex des Vollbilds ist durchgehend `pts - 3`.",
+    "die_eigentliche_probe": "Der Mitschnitt wird AB dem ersten angeforderten Vollbild abgeschnitten und von vorn dekodiert -- genau die Lage eines Einsteigers. Ein Intra-Only-Bild ohne Sequenzkopf faellt hier durch, ein echtes IDR nicht."
+  },
+
+  "ergebnis": {
+    "n": 130,
+    "laeufe": "16 (je 8 pro Codec), 130 Anforderungen, davon 130 eingeloest (0 zurueckgestellt)",
+    "einheit": "Millisekunden",
+    "h264_nvenc": {
+      "n": 65,
+      "A_anforderung_bis_einschub": { "min": 0.19, "median": 9.51, "mittel": 9.46, "p90": 16.23, "max": 17.46 },
+      "B_einschub_bis_paket": { "min": 1.68, "median": 3.04, "mittel": 3.30, "p90": 5.22, "max": 6.49 },
+      "gesamt": { "min": 3.33, "median": 11.89, "mittel": 12.75, "p90": 20.51, "p95": 21.46, "max": 22.66 },
+      "bildabstaende_dazwischen": { "1": 42, "2": 23 }
+    },
+    "av1_nvenc": {
+      "n": 65,
+      "A_anforderung_bis_einschub": { "min": 0.25, "median": 8.01, "mittel": 8.71, "p90": 15.57, "max": 18.55 },
+      "B_einschub_bis_paket": { "min": 1.41, "median": 2.71, "mittel": 2.77, "p90": 4.34, "max": 5.42 },
+      "gesamt": { "min": 2.34, "median": 10.83, "mittel": 11.48, "p90": 18.76, "p95": 20.18, "max": 22.24 },
+      "bildabstaende_dazwischen": { "0": 2, "1": 54, "2": 9 }
+    },
+    "beide": { "median": 11.55, "p90": 20.03, "p95": 20.89, "max": 22.66 },
+    "verteilung_statt_einzelwert": "A ist ueber einen Bildabstand gleichverteilt -- 0,19 bis 18,55 ms bei einer Bildperiode von 16,67 ms (60 fps), Mittelwert ueber beide Codecs 9,1 ms gegen 8,33 ms bei idealer Gleichverteilung. Die wenigen Werte oberhalb von 16,67 ms sind Taktschwankung des Aufnahme-/Pacing-Laufs, kein zweiter Bildabstand. Das ist genau das, was der Code vorhersagt: der Merker ist ein Flag, das das NAECHSTE eingeschobene Bild abholt; wo die Anforderung im Bildtakt landet, ist Zufall. Ein Einzelwert traegt hier deshalb keine Aussage -- das ist derselbe Fehler, der die 2466 ms in Umlauf gebracht hat.",
+    "warum_die_anforderungen_gestreut_wurden": "2,5 bis 3,5 s Abstand, zufaellig. Ueber der Ruhe-Schwelle von `keyframe.rs::RUHE` (2 s), damit jede Anforderung wieder 'die erste' ist -- also der Einstiegsfall. Und NICHT im festen Takt: 3,0 s waeren bei 60 fps exakt 180 Bilder, die Anforderung fiele jedes Mal an dieselbe Stelle im Bildtakt und die Messung zeigte eine Konstante, wo eine Verteilung steht.",
+    "null_bildabstaende": "Zwei AV1-Werte (A = 0,25 und 0,75 ms) liegen rechnerisch bei 0 Bildabstaenden. Das ist kein 'schneller als moeglich', sondern die Kante des Uhrenabgleichs: die Anforderung traf Bruchteile einer Millisekunde vor dem Einschub desselben Bildes ein. A und B sind davon unberuehrt."
+  },
+
+  "ist_es_ein_echtes_idr": {
+    "warum_die_frage": "Am 2026-08-02 war auf AMD ein 'angefordertes Vollbild' gar keines -- bei AV1 ein Intra-Only-Bild ohne Sequenzkopf, mit dem ein Einsteiger nichts anfangen kann (`rueckkanal-2026-08-02-windows.json`). Ein zu frueh gezaehltes Bild waere eine schoene Zahl ohne Wert.",
+    "etikett": "H.264: NAL-Typ 5 (IDR), und in JEDER der 8 Dateien lagen SPS (7) und PPS (8) unmittelbar davor -- 0 Vollbilder ohne Kopf. AV1: `frame_type = 0` (KEY_FRAME) mit `show_existing_frame = 0`, und in jedem Fall ein Sequenzkopf-OBU (Typ 1) im selben Zeitabschnitt -- ebenfalls 0 ohne Kopf.",
+    "die_haerte_probe": "Mitschnitt ab dem ersten angeforderten Vollbild abgeschnitten und mit dem gebuendelten FFmpeg von vorn dekodiert (`-v error`, 180 Bilder): H.264 0 Fehler, AV1 0 Fehler. Der Zuschauer kann an dieser Stelle wirklich einsteigen -- nicht nur laut Etikett.",
+    "und_danach": "Anschliessend hat `ffprobe -count_frames` den GANZEN Rest durchdekodiert (H.264 676, AV1 658 Bilder) -- ebenfalls ohne eine Fehlerzeile, obwohl der Strom im Auffrisch-Betrieb laeuft. Der Auffrischungs-Zyklus nach einem erzwungenen IDR greift also nicht auf Bilder vor dem IDR zurueck."
+  },
+
+  "was_diese_zahl_NICHT_enthaelt": [
+    "**Den Weg der Anforderung vom Zuschauer zum Sender.** Gemessen wird ab dem Eintreffen im Sidecar (stdin-Op). Auf der Leitung kommt der RTCP-Weg dazu: halbe Umlaufzeit (am Hetzner-Messstand rund 59 ms Umlauf, also ~30 ms) plus die Drossel im MediaMTX-Fork -- `keyFrameRequestMinInterval = 300 ms` in Patch 0002 leitet hoechstens eine Anforderung je 300 ms weiter. Im ungluecklichsten Fall kostet allein diese Drossel bis zu 300 ms. NICHT gemessen.",
+    "**Den Sendeweg nach dem Encoder.** Diese Akte endet beim fertigen Encoder-Paket. Paketierung, Pacer und Netz kommen darauf.",
+    "**Den Zuschauer.** Jitter-Puffer (`pulse-player`: 100 ms Vorgabe), Dekodierung und Anzeige. Der Player fordert seinerseits hoechstens alle 500 ms an (`session.rs::EINSTIEG_REQUEST_INTERVAL`).",
+    "**Wiederholte Anforderungen unter der Staffelung.** Gemessen ist ausdruecklich die ERSTE Anforderung nach Ruhe -- der Einstiegsfall. `keyframe.rs` bremst ab der dritten Anforderung binnen 2 s auf 1/s und ab der sechsten auf 1/2 s; dort kaeme die Staffelzeit als beherrschender Posten dazu. Das ist Absicht (ein kaputter Browser-Decoder hat am 2026-08-01 425 Anforderungen in einem Lauf gestellt) und in `keyframe.rs` samt Tests festgehalten -- aber es ist eine ANDERE Zahl als die hier gemessene.",
+    "**Den Fall Paketverlust.** Ein angefordertes Vollbild ist selbst ein Schwall aus 25-35 Paketen; bei 5 % Verlust kommt es nur mit rund 28 % Wahrscheinlichkeit heil an (`pulse-player/src/session.rs`). Dann war die Anforderung umsonst und es beginnt von vorn. Genau dieser Effekt steckt in den 2466 ms, nicht die Wartezeit auf den Sender.",
+    "**Stufe 2, den ganzen Weg.** Player ueber WHEP an einen echten Sendeweg, PLI abschicken, Zeit bis zum ersten dargestellten Bild -- NICHT gemessen, siehe `warum_stufe_2_ausblieb`."
+  ],
+
+  "warum_stufe_2_ausblieb": "Bewusst weggelassen, nicht vergessen. Ein Voll-Weg-Lauf braucht auf dieser Maschine MediaMTX, einen WHEP-Zuschauer mit Rueckkanal und eine Zeitmessung im Zuschauer. Der einzige Zuschauer mit brauchbarer Instrumentierung ist `pulse-player` -- und der liegt im Arbeitsbaum mit uncommitteten Aenderungen mehrerer Vorgaenger (`decode.rs`, `main.rs`, `messen/`, `zerocopy/`, dazu zwei neue Module). Ihn zu bauen und zu messen haette fremde, halbfertige Arbeit zur Messgrundlage gemacht. Die Alternative (Browser ueber `browser-whep.html`) misst 'Zeit bis zum ersten Bild' nur ueber `framesDecoded`-Abtastung, also mit einer Aufloesung in derselben Groessenordnung wie die ganze gesuchte Zahl. Stufe 1 beantwortet 'sofort oder nicht' allein und eindeutig; Stufe 2 haette die Aussage nicht praeziser gemacht, sondern eine zweite, unschaerfere daneben gestellt.",
+
+  "werkzeugfunde": {
+    "ein_bild_ist_nicht_eine_nal": "Der erste Bitstrom-Leser zaehlte jede Slice-NAL als Bild und kam auf 1552 statt 796 (ffprobe). NVENC schreibt hier rund zwei Slices je Bild. Folge war nicht nur eine falsche Bildzahl: die zweite Slice eines IDR galt als 'Vollbild OHNE Parametersaetze' -- ein Fehlbefund genau an der Stelle, an der die Akte etwas belegen soll. Behoben ueber `first_mb_in_slice == 0` (erstes ue(v) im Slice-Kopf, also das oberste Bit hinter dem NAL-Kopf).",
+    "der_schnitt_lag_zu_frueh": "Die Einstiegsprobe schnitt zunaechst an der ersten NAL/OBU nach dem vorigen Bild ab -- das ist bei mehreren Slices bzw. bei FRAME_HEADER+TILE_GROUP noch der REST des vorigen Bildes. H.264 meldete dann dreimal 'non-existing PPS 0 referenced', AV1 'Missing Temporal Delimiter' und 'No sequence header available'. Das sah nach einem kaputten Vollbild aus und war ein Fehler im Messwerkzeug; von Hand am richtigen Versatz geschnitten dekodierte dieselbe Datei fehlerfrei. Behoben: Zugriffseinheit beginnt bei der ersten NICHT-Slice-NAL (H.264) bzw. bei einem Zeitabschnitts-Trenner oder Sequenzkopf (AV1). Merkposten -- ein Fehlbefund aus dem Werkzeug haette hier fast eine Regression im Encoder behauptet.",
+    "leere_liste_wird_null": "PowerShell rollt eine zurueckgegebene Sammlung aus; eine leere `ArrayList` kam beim Aufrufer als `$null` an. Fuehrendes Komma."
+  },
+
+  "berichtigt": [
+    "`streaming/testbench/profiles/hq-2026-07-31-intra-refresh-echter-sender.json`, Schluessel `die_langen_standbilder_sind_verlust_nicht_intra_refresh` -- die alte Aussage bleibt stehen und ist als widerlegt gekennzeichnet.",
+    "`streaming/testbench/intraref-verlust.py`, Kopf-Dokumentation -- Hinweis ergaenzt, wofuer die 2466 ms stehen und wofuer nicht.",
+    "NICHT anfassbar: `docs/2026-08-09-intra-refresh-best-practices-recherche.md` (Zeilen 27 und 129) liegt auf dem Zweig `origin/docs/intra-refresh-recherche`, nicht auf diesem. Dort steht die Fehlaussage in ihrer schaerfsten Form ('Gemessen: bis zu 2466 ms, bis so ein echtes Vollbild angefordert wird' und 'Das deckt sich exakt mit der eigenen Messung (bis zu 2466 ms fuer ein angefordertes Vollbild)'). Beides ist mit dieser Akte widerlegt und muss beim Landen jenes Zweigs mitgezogen werden."
+  ],
+
+  "offen_und_nicht_ermittelt": [
+    "Die Zahl gilt fuer 60 fps. Sie skaliert mit dem Bildabstand: A ist gleichverteilt ueber eine Bildperiode, bei 30 fps waere der Median also rund 16,7 statt 8,3 ms. NICHT nachgemessen.",
+    "Nur NVIDIA (RTX 5080). Auf AMD ist derselbe Weg belegt, aber nie gestoppt worden; auf Intel gibt es die Betriebsart nicht.",
+    "Nur 8 bit. Ob 10 bit oder HDR die Encode-Zeit B verschieben, ist nicht erhoben -- B ist mit ~3 ms ohnehin der kleinere Posten.",
+    "Der Fall 'Anforderung waehrend eines laufenden Auffrischungs-Zyklus, kurz vor dessen Ende' ist nicht gesondert herausgegriffen. Die 130 Anforderungen liegen zufaellig im Zyklus verteilt; ein systematischer Effekt waere in der Verteilung sichtbar geworden und ist es nicht.",
+    "Kein Zuschauer, kein Netz, kein Server -- siehe `was_diese_zahl_NICHT_enthaelt`."
+  ],
+
+  "geaenderte_stellen": [
+    "streaming/win-hq-labor/testbench/nvidia-2026-08-11-anforderung-wartezeit.ps1 -- NEU: misst erstmals eine ZEIT am Rueckkanal statt nur zu zaehlen.",
+    "streaming/win-hq-labor/testbench/bitstrom-einstieg.ps1 -- NEU: Bitstrom-Leser (H.264-Annex-B, AV1-OBU) und Einstiegsprobe am abgeschnittenen Mitschnitt. Eigene Datei, weil die Frage 'echtes Vollbild mit Kopf, und kann ein Einsteiger ab dort lesen' zu jedem Rueckkanal-Nachweis gehoert und nicht zu dieser einen Messung.",
+    "streaming/testbench/profiles/hq-2026-07-31-intra-refresh-echter-sender.json -- Berichtigung der Deutung (Zahl selbst unveraendert).",
+    "streaming/testbench/intraref-verlust.py -- Hinweis im Kopf ergaenzt."
+  ],
+
+  "tests": "cargo test --release im win-hq-sidecar: 93 bestanden, 0 fehlgeschlagen, 2 ignoriert. An Rust-Code wurde nichts geaendert."
+}
