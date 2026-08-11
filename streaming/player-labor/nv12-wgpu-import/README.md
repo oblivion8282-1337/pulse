@@ -120,15 +120,35 @@ für die Aufnahmerichtung bereits fährt. Kein PCIe-Rückweg, keine CPU-Kopie.
 * **2026-08-06, P010 und Stapel:** P010 trägt; der Stapel nicht — Schicht 0 gut,
   jede weitere um den Schichtabstand verschoben.
 
-Auf NVIDIA ist damit weiterhin **beides** offen: der Vulkan-Weg ist dort
-schwarz, der D3D12-Weg ungemessen (keine NVIDIA-Karte an dieser Maschine). Der
-Player braucht den Rückfall auf das Rücklesen ohnehin.
+**Hier stand bis zum 2026-08-11 „Auf NVIDIA ist damit weiterhin beides offen:
+der Vulkan-Weg ist dort schwarz, der D3D12-Weg ungemessen (keine NVIDIA-Karte an
+dieser Maschine)." Die zweite Hälfte ist erledigt.**
+
+## Stand 2026-08-11 (RTX 5080, Treiber 610.47, D3D12, wgpu 29)
+
+**Der D3D12-Weg trägt auf NVIDIA genauso.** Drei Läufe je Format, NV12 und
+P010: 0 von 4096 Bildpunkten abweichend, in Stufe 4 wie in allen drei
+Wiederholungen von Stufe 4b. Import in 0,18–0,26 ms — schneller als die
+0,46–0,73 ms der Radeon. Rückgabewert 0 in allen sechs Läufen.
+
+Damit ist der Unterschied zwischen den beiden Herstellern **allein der
+Vulkan-Weg**: dort ist NVIDIA schwarz und AMD in Ordnung, über D3D12 sind beide
+in Ordnung. Der Player fährt unter Windows ohnehin D3D12.
+
+**Was das für den Player NICHT heißt:** dass die Brücke dort im Betrieb liefe.
+Sie läuft nicht — nicht weil sie nicht trüge, sondern weil der Player auf
+NVIDIA gar nicht erst auf dem D3D11VA-Bild landet (`av1_cuvid` gewinnt die
+Kandidatenwahl). Diese Probe misst die Hälfte, die trägt; die andere steht in
+`streaming/testbench/profiles/player-2026-08-11-zerocopy-nvidia.json`.
+
+Der Player braucht den Rückfall auf das Rücklesen ohnehin.
 
 ## Was diese Probe NICHT zeigt
 
 * **Nebenläufige Synchronisierung.** Stufe 4b schreibt und liest abwechselnd auf
   EINEM Thread. Im Betrieb schreibt der Decoder, während gezeichnet wird.
-* **NVIDIA und Intel.** Nur auf einer Radeon 780M gemessen.
+* **Intel.** Ungemessen. **Hier stand „NVIDIA und Intel. Nur auf einer Radeon
+  780M gemessen" — für NVIDIA gilt das seit dem 2026-08-11 nicht mehr** (s.o.).
 
 **Falle beim Nachstellen:** PowerShell meldet den geglückten Bau als Fehler
 (Rückgabewert 255) — Windows PowerShell 5.1 wertet jede stderr-Zeile eines

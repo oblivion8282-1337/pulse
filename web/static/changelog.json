@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-11.2",
+      "date": "2026-08-11",
+      "style": "Sachlich",
+      "title": "HDR-Streaming auf NVIDIA-Grafikkarten",
+      "items": [
+        "HQ-Streaming überträgt jetzt auch mit NVIDIA-Grafikkarten in HDR, also mit dem vollen Helligkeitsumfang deines Bildschirms. Bisher war das AMD-Karten vorbehalten. Voraussetzung bleibt, dass HDR in den Windows-Anzeigeeinstellungen für den aufgenommenen Bildschirm eingeschaltet ist.",
+        "Das eigene Stream-Fenster nimmt beim Zusehen auf NVIDIA-Karten jetzt den direkten Weg über die Grafikkarte. Bisher lief jedes einzelne Bild zusätzlich über den Arbeitsspeicher, was je Bild spürbar Zeit gekostet hat.",
+        "Wird eine Übertragung in 10 Bit angefordert, die der gewählte Weg nicht leisten kann, sagt der Start das jetzt mit einer Begründung. Bisher lief die Übertragung stillschweigend in 8 Bit weiter, ohne dass es irgendwo stand.",
+        "Hinweis für HDR auf NVIDIA: Der Farbraum wird vollständig übertragen, die Angabe zur Spitzenhelligkeit deines Monitors fehlt jedoch im Bild — der Grafiktreiber schreibt sie dort nicht mit. Zuschauergeräte schätzen die Helligkeit dann selbst. Der Start weist darauf hin."
+      ]
+    },
+    {
       "id": "2026-08-11",
       "date": "2026-08-11",
       "style": "sachlich",

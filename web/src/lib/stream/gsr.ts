@@ -57,8 +57,10 @@ export interface GsrHealth {
     /** Kann dieser Rechner HDR senden — also die Bildschirmaufnahme im vollen
      *  Helligkeitsumfang holen und als PQ/BT.2020 encodieren?
      *
-     *  Belegt ist das heute allein für AV1 über AMF (AMD, Windows); NVIDIA ist
-     *  ungemessen, nicht ausgeschlossen (`encode/hdr.rs` im Windows-Sidecar).
+     *  Belegt ist das heute für AV1 über AMF (AMD, Windows, 2026-08-06) und
+     *  AV1 über NVENC (NVIDIA, Windows, 2026-08-11) — Tabelle je Encoder in
+     *  `encode/hdr.rs` im Windows-Sidecar. *(Hier stand bis zum 2026-08-11
+     *  „allein AV1 über AMF; NVIDIA ist ungemessen" — eingelöst.)*
      *
      *  **Nicht** die Frage, ob HDR in Windows gerade eingeschaltet ist — das
      *  entscheidet erst der Start, und zwar mit einer Meldung, die auf den

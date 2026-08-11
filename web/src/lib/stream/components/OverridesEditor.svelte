@@ -48,7 +48,8 @@
   // und bekäme 8 bit, ohne dass irgendwo etwas dazu steht.
   //
   // HDR hat zusätzlich zwei eigene Bedingungen: die Maschine muss es tragen
-  // (`health.gsr.hdr` — belegt ist bisher allein AV1 über AMF auf AMD) und es
+  // (`health.gsr.hdr` — belegt für AV1 über AMF auf AMD und AV1 über NVENC auf
+  // NVIDIA; hier stand bis zum 2026-08-11 „allein AV1 über AMF auf AMD") und es
   // gibt den Weg nur unter Windows. Fehlt eines, taucht der Eintrag gar nicht
   // erst auf — dieselbe Regel wie oben, nur eine Zeile tiefer.
   let codecOptions = $derived(
@@ -349,8 +350,9 @@
          2026-08-02, und aus demselben Grund.
 
          Die Bedingungen sind mitgewandert und unveraendert: nur Windows, und
-         nur wenn der Sidecar es meldet (`health.gsr.hdr` — belegt ist bisher
-         allein AV1 ueber AMF auf AMD). Linux und macOS koennen die Aufnahme
+         nur wenn der Sidecar es meldet (`health.gsr.hdr` — belegt fuer AV1
+         ueber AMF auf AMD und AV1 ueber NVENC auf NVIDIA; hier stand bis zum
+         2026-08-11 „allein AV1 ueber AMF auf AMD"). Linux und macOS koennen die Aufnahme
          heute nicht in 16-Bit-Fliesskomma holen, dort gaebe es nichts zu senden.
 
          **Der Eintrag haengt bewusst NICHT daran, ob HDR in Windows gerade
