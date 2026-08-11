@@ -51,6 +51,26 @@ Skalierung 100 %): Der Prüfling meldete Ziel (1280,720), Ist (1280,720), Δ 0 p
 exakt derselben Koordinate. Damit ist die Zustellung belegt, nicht nur die
 Zeigerposition.
 
+**Tasten kommen aus der rohen Windows-Nachricht, nicht aus den
+WinForms-Ereignissen** — und das ist keine Feinheit. WinForms meldet linke und
+rechte Zusatztasten als **dieselbe** Taste (`KeyCode = ControlKey` für beide);
+wer daraus per `MapVirtualKey` einen Scancode zurückrechnet, bekommt immer den
+linken, und die `0xE0`-Kennung ist weg. Im Selbsttest am 2026-08-12 wurde aus
+einer gesendeten rechten Strg-Taste (`0xE01D`) eine empfangene linke (`0x1D`,
+`erweitert=false`). **Der Fehler lag im Prüfziel und hätte wie einer des
+Injektors ausgesehen.** Gelesen wird jetzt `lParam`: Bits 16–23 der Scancode,
+Bit 24 die Erweitert-Kennung. Danach: `0xE01D` gesendet, `0xE01D` empfangen.
+
+Zwei Fallen beim Bauen, beide kosten sonst eine Weile:
+
+* **`Environment.TickCount64` gibt es nicht.** PowerShell 5.1 läuft auf dem
+  .NET Framework; die Typdefinition scheitert dann beim Übersetzen und das
+  Fenster startet **wortlos gar nicht** — es entsteht einfach keine
+  Protokolldatei. `Stopwatch.GetTimestamp()` statt dessen.
+* **Die Warteschlange wird im Zeichentakt geleert, nicht über
+  `Register-ObjectEvent`.** Das hat in diesem Repo schon einmal ausgerechnet die
+  aussagekräftigen Zeilen verschluckt (siehe oben, Fallen im Messaufbau).
+
 **Was damit weiter nicht geprüft ist:** gemischte DPI. Dafür braucht es zwei
 Monitore mit unterschiedlicher Skalierung; hier lief einer mit 100 %.
 `SetProcessDPIAware` steht im Skript trotzdem ganz oben — ohne das misst es den
