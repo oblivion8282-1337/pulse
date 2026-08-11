@@ -135,6 +135,73 @@ Peer-Prüfung und Teardown bleiben, wie sie sind.
 - **Der Host muss HQ streamen.** Steuern ohne laufenden Stream (das alte M2d)
   bleibt zurückgestellt und ist jetzt ein Wesensmerkmal, keine Abkürzung.
 
+### Mehrere Monitore: mehrere Streams, zuschaltbar (entschieden 2026-08-11)
+
+Aufgenommen wird heute **eine** Quelle (`CaptureSource`: Primärmonitor, Monitor
+per Index, Fenster per Titel/HWND). Vorbild Parsec: **der Hauptmonitor startet,
+weitere Monitore sind während der Sitzung zuschaltbar** — je Monitor ein eigener
+Stream. Die Slot-Mechanik dafür existiert
+(`docs/plans/2026-06-23-multi-hq-stream.md`, Pfad `…-s<slot>-<nonce>`); es fehlt
+die Bedienung und eine Protokoll-Ergänzung:
+
+- **Eingabe-Frames brauchen eine Ziel-Angabe (Slot).** Das Wire-Protokoll v1
+  kennt keine — es setzt genau eine Quelle voraus. Bei zwei zugeschalteten
+  Monitoren landete ein Klick sonst auf dem falschen. **Von Anfang an
+  einbauen**, nachträglich ist es ein Protokollbruch.
+- **Kosten sind linear**: je zugeschaltetem Monitor ein voller Encode und eine
+  volle Bandbreite. Die Auflösungsstufen (unten) sind der Hebel dagegen.
+- **Grenze, bewusst akzeptiert**: Zwei Streams sind zwei Bilder. Der Zeiger
+  springt zwischen ihnen, statt über die Bildschirmkante zu wandern; ein Fenster
+  von Monitor 1 nach 2 zu ziehen geht nicht.
+- Verworfen: alle Monitore in **ein** Bild (vier 4K nebeneinander = 15360×2160;
+  auf eine übliche Box heruntergerechnet ist jeder Monitor darin briefmarkengroß).
+
+### Auflösung: das Herunterrechnen existiert bereits
+
+`Native / 4K / 1440p / 1080p / 720p / 480p` als **Box**, in die aspektwahrend
+eingepasst wird (`fit_within_box`, kein Upscale), plus die Server-Obergrenze
+`hq_resolution_max`. Für die Fernsteuerung ist damit nichts zu bauen — vier 4K
+Monitore sind kein Problem, man sendet sie kleiner.
+
+**Offen, und ein echter Unterschied zu Parsec:** Parsec schaltet die
+*tatsächliche* Bildschirmauflösung des gesteuerten Rechners um, wir rechnen nur
+das fertige Bild klein. Ein 4K-Desktop auf 720p geschrumpft ist flüssig, aber
+die Schrift ist nicht mehr lesbar — zum Zusehen egal, zum Arbeiten der
+Unterschied zwischen brauchbar und unbrauchbar. Windows kann das
+(`ChangeDisplaySettingsEx`); der Preis ist, dass die Fenster des Gesteuerten
+dabei umgeräumt werden und nach Sitzungsende nicht von selbst zurückspringen.
+**Noch nicht entschieden.**
+
+### Koordinaten bleiben Anteile, nicht Pixel (geprüft 2026-08-11)
+
+Rückfrage war, ob echte Pixelwerte genauer wären, jetzt wo der Player da ist.
+**Nein — sie wären gröber.** Die 16-Bit-Normierung des Wire-Protokolls sind
+65536 Stufen über die Bildbreite:
+
+| Ziel | Stufen je Pixel |
+|---|---|
+| 1080p | 34 |
+| 1440p | 26 |
+| 4K | 17 |
+| 8K | 8,5 |
+| vier 4K nebeneinander | 4,3 |
+
+Selbst über vier 4K-Monitore bleibt die Übertragung unterhalb der Pixelgrenze.
+Dazu kommt der Robustheitsgrund, der mit der Monitor-Entscheidung oben direkt
+zusammenhängt: Ein Anteil bedeutet auf jeder Auflösung dasselbe. Pixelwerte
+verlangten, dass beide Seiten die Geometrie des Hosts kennen und einig sind —
+bei Monitor-Wechsel, Auflösungsstufe oder zugeschaltetem Bildschirm müsste das
+neu abgeglichen werden, und jede Verzögerung dabei setzt Klicks an die falsche
+Stelle.
+
+**Wo der Player die Genauigkeit wirklich hebt:** Die Grenze sitzt beim
+Steuernden. Ein 800 Punkte breites Fenster auf einen 4K-Desktop bedeutet knapp
+5 echte Pixel je Fensterpunkt — daran ändert kein Übertragungsformat etwas.
+`winit` liefert Zeigerpositionen als `f64` und über `DeviceEvent::MouseMotion`
+zusätzlich die rohen Gerätebewegungen; damit lässt sich zwischen zwei
+Fensterpunkten weiter auflösen, und das Ergebnis passt bequem in die 65536
+Stufen. Genau das kann ein Browser-`<video>` nicht liefern.
+
 ## Reihenfolge
 
 Jeder Schritt ist für sich prüfbar; nach Schritt 3 ist das Feature erlebbar.
@@ -145,7 +212,33 @@ Jeder Schritt ist für sich prüfbar; nach Schritt 3 ist das Feature erlebbar.
 | 2 | Eingabe-Erfassung im Player + stdio-Op + Durchreichen in Electron | Ein Tastendruck im Player-Fenster landet als Frame beim chat-gateway |
 | 3 | Host-Seite: Frame → Sidecar → `remote_input.rs` | **2-Geräte-Test.** Klick im Player bewegt den Windows-Cursor |
 | 4 | Rückweg messen (Tastendruck bis sichtbare Reaktion) | Die letzte offene Zahl |
-| 5 | Feinschliff: Not-Aus, Anzeige beim Host, Mehrfach-Monitor | Auslieferbar |
+| 5 | Feinschliff: Not-Aus, Anzeige beim Host, Monitore zuschalten | Auslieferbar |
+
+Die **Slot-Angabe in den Eingabe-Frames** gehört in Schritt 1/2, nicht in
+Schritt 5 — auch wenn das Zuschalten weiterer Monitore erst dort gebaut wird.
+
+## Wie geprüft wird (offen, 2026-08-11 aufgeworfen)
+
+Der Zwei-Geräte-Test braucht einen Weg, auf dem **belegt** wird, was am anderen
+Rechner geschieht — nicht ein „sieht gut aus" aus zweiter Hand. Die
+Sitzungs-Kopplung über Remote Control hat sich dafür als untauglich erwiesen:
+zwei Antworten der Gegenstelle kamen am 2026-08-11 nie an, und ein ausbleibendes
+Zustellen ist von hier aus nicht erkennbar (es gibt keinen abfragbaren
+Posteingang).
+
+Vorgeschlagen und **noch nicht entschieden**: OpenSSH-Server auf der
+Windows-Maschine einschalten. Damit wird jede Prüfung eine Messung statt einer
+Beschreibung:
+
+| Frage | Verfahren |
+|---|---|
+| Landet ein Klick, wo er soll? | Zielpunkt senden, danach die echte Cursor-Position abfragen, Δ in Pixeln — das Verfahren des M0-PoC (Δ 0 px) |
+| Kommen Tastendrücke an? | Editor öffnen, Text senden, Datei zurücklesen und vergleichen |
+| Kommt das Bild, und wie schnell? | `latency-pattern.py` auf dem Windows-Schirm, `probe.rs` im Player liest zurück |
+| Sieht es richtig aus? | Bildschirmfotos beider Seiten nebeneinander |
+
+Nicht automatisierbar und **bewusst beim Menschen**: der Zustimmungs-Klick des
+Gesteuerten.
 
 **Windows-Release braucht einen Versions-Bump** (`desktop/package.json`) —
 electron-updater ignoriert gleiche Versionen still (CLAUDE.md).
@@ -168,3 +261,14 @@ electron-updater ignoriert gleiche Versionen still (CLAUDE.md).
   Schnellpfad neben einem funktionierenden Feature statt seine Voraussetzung.
 - **`streaming/win-input-poc/`** ist bisher nirgends erwähnt; beim Übernehmen
   in `THIRD-PARTY-NOTICES.md`/Größen-Policy mitdenken.
+
+## Nächste offene Entscheidungen (Stand 2026-08-11, hier unterbrochen)
+
+1. **SSH-Zugang auf der Windows-Maschine einschalten?** — Voraussetzung dafür,
+   dass der Zwei-Geräte-Test überprüfbar statt beschrieben ist (s. „Wie geprüft
+   wird"). Einmalige Einrichtung durch den User.
+2. **Auflösungs-Umschaltung am gesteuerten Rechner nach Parsec-Art?** — der
+   Unterschied zwischen „flüssig, aber unlesbar" und „arbeitsfähig" bei einem
+   4K-Host (s. „Auflösung").
+
+Danach beginnt Schritt 1 der Reihenfolge.
