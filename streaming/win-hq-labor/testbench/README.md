@@ -20,6 +20,41 @@ keinem der Skripte** und wird in der Ausgabe maskiert. Ausnahmen:
 | `mitschnitt.ps1` | Ein kurzer Dateimitschnitt für die Sichtprüfung an einem Bild aus der Mitte |
 | `bruecke-einrichten.ps1` | Richtet den SSH-Zugang der Linux-Maschine ein (**als Administrator**) |
 | `sitzungs-helfer.ps1` | Zeiger, Bildschirmfoto, Monitorliste, Prozessstart — **in der angemeldeten Sitzung** |
+| `eingabe-pruefziel.ps1` | Vollbild-Fenster, das injizierte Maus- und Tastatureingaben auffängt und protokolliert |
+
+## `eingabe-pruefziel.ps1` — das Messmittel der Fernsteuerung
+
+Legt sich über **alle** Bildschirme, fängt Maus und Tastatur ab und schreibt
+jedes Ereignis als JSONL-Zeile.
+
+**Zwei Gründe, und der zweite ist der wichtigere.** Erstens Sicherheit: Eingabe
+zu injizieren heißt, auf einem benutzten Rechner blind zu klicken und zu tippen.
+Liegt das Prüfziel darüber, kann nichts danebengehen, weil daneben nichts mehr
+liegt. Zweitens die Messgüte: `GetCursorPos` zurückzulesen sagt nur, wo der
+Zeiger steht. Das Prüfziel sagt, was Windows an einem **echten Fenster**
+ankommen lässt — also die Strecke, die es im Ernstfall auch geht. Dazwischen
+liegen genau die Fallen, um die es geht: Monitor-Zuordnung
+(`MOUSEEVENTF_VIRTUALDESK`), DPI-Skalierung, erweiterte Tasten.
+
+```powershell
+.\eingabe-pruefziel.ps1 -Pfad C:\Temp\lauf.jsonl -Sekunden 60
+```
+
+**Die Zwangsabschaltung ist Pflicht, keine Bequemlichkeit.** Ein Vollbildfenster,
+das Eingaben schluckt und hängenbleibt, sperrt den Rechner aus. Es endet nach
+`-Sekunden` von selbst; Strg+Alt+Umschalt+Q beendet von Hand (dasselbe Kürzel
+wie bei Moonlight).
+
+**Erster Lauf gegen den M0-Prüfling** (2026-08-12, ein Monitor, 2560×1440,
+Skalierung 100 %): Der Prüfling meldete Ziel (1280,720), Ist (1280,720), Δ 0 px
+— und das Prüfziel empfing `maus_bewegt` sowie `maus_taste` runter/hoch auf
+exakt derselben Koordinate. Damit ist die Zustellung belegt, nicht nur die
+Zeigerposition.
+
+**Was damit weiter nicht geprüft ist:** gemischte DPI. Dafür braucht es zwei
+Monitore mit unterschiedlicher Skalierung; hier lief einer mit 100 %.
+`SetProcessDPIAware` steht im Skript trotzdem ganz oben — ohne das misst es den
+Fehler, den es aufdecken soll.
 
 ## Die Brücke zur Linux-Maschine
 
