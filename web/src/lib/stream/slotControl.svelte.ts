@@ -29,7 +29,12 @@ export async function stopSlot(slot: number): Promise<void> {
   }
 }
 
-/** Stop every currently-running slot. */
+/** Stop every currently-running slot. Parallel, not one after another: each
+ *  slot owns its own sidecar process, and under the Windows respawn-on-stop
+ *  model a single `stop` can take seconds. Sequentially that added up per
+ *  running stream while the user waited on one click. Same shape as the
+ *  channel-leave path in `livekit.svelte.ts`; `stopSlot` swallows its own
+ *  errors, so no rejection escapes. */
 export async function stopAll(): Promise<void> {
-  for (const slot of runningStreamSlots()) await stopSlot(slot);
+  await Promise.all(runningStreamSlots().map(stopSlot));
 }

@@ -16,6 +16,7 @@ import json
 import os
 import random
 
+import dcc_chat_gateway.routes.stream_chat as stream_chat_routes
 import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
@@ -169,6 +170,27 @@ async def test_post_stream_chat_accepts_hq_without_screen_share(
         assert r.status_code == 201, r.text
     finally:
         await redis.delete(active_key, f"stream:chat:channel-{cid}-{uid}")
+
+
+@pytest.mark.asyncio
+async def test_post_stream_chat_accepts_high_slot_only(client, _auth_signer, redis):
+    """A streamer who is live on a HIGH slot only (nothing on slot 0) can still
+    be chatted at. Guards the liveness probe, which asks about every slot up to
+    ``_STREAM_SLOT_MAX`` in ONE multi-key ``EXISTS`` — a per-slot command would
+    put ~100 of them on the message hot path."""
+    token, uid = await _register(_auth_signer)
+    _, cid = await _setup_voice_channel(client, token)
+    key = f"stream:active:channel-{cid}-{uid}-s{stream_chat_routes._STREAM_SLOT_MAX}"
+    await redis.set(key, json.dumps({"user_id": str(uid), "path": "x"}))
+    try:
+        r = await client.post(
+            f"/channels/{cid}/streams/{uid}/chat",
+            json={"content": "letzter slot"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 201, r.text
+    finally:
+        await redis.delete(key, f"stream:chat:channel-{cid}-{uid}")
 
 
 @pytest.mark.asyncio

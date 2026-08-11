@@ -48,6 +48,15 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import channel_membership
+
+# Highest per-user HQ stream slot. IMPORTIERT, nicht abgeschrieben: media-svc
+# und der auth-hook führen ihre Kopien bewusst getrennt (die Dienste teilen
+# absichtlich keinen Code), aber ``streaming.py`` liegt im SELBEN Dienst und ist
+# einen Import entfernt. Zwei Zahlen hier wären ein halb vergessener Edit weit
+# von einem stillen Fehler entfernt: läge diese niedriger, verweigerte der
+# Stream-Chat mit 410 „streamer is not live" für einen Slot, für den die
+# Token-Route eben noch ein Token ausgestellt hat.
+from dcc_chat_gateway.routes.streaming import _SLOT_MAX as _STREAM_SLOT_MAX
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_shared.events import StreamChatMessageEvent, StreamChatMessagePayload
@@ -60,9 +69,8 @@ router = APIRouter()
 # Duplicated rather than imported because the services share no code on purpose
 # (see CLAUDE.md / streamkeys.py note) — keep in sync if either key renames.
 _ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
-# Highest per-user HQ stream slot (mirrors media-svc's _SLOT_MAX). Slots
-# 1.._STREAM_SLOT_MAX append a ``-s<slot>`` suffix to the active key.
-_STREAM_SLOT_MAX = 3
+# Slots 1.._STREAM_SLOT_MAX append a ``-s<slot>`` suffix to the active key
+# (slot 0 keeps the legacy, suffix-less spelling).
 _VOICE_STREAMING_KEY = "voice:room:channel-{channel_id}:streaming"
 _CHAT_KEY = "stream:chat:channel-{channel_id}-{user_id}"
 
@@ -139,15 +147,24 @@ async def post_stream_chat(
     # live slot counts. Slot 0 is the legacy key; slots 1.._STREAM_SLOT_MAX add
     # the ``-s<slot>`` suffix (mirrors media-svc's _SLOT_MAX). Pipeline so every
     # check shares one RTT (chat is hot-path).
+    #
+    # ONE multi-key ``EXISTS`` for all slots, not one per slot: this runs on
+    # every posted stream-chat message, and the slot ceiling is a sanity bound
+    # (98) rather than a realistic stream count — a command per slot would put
+    # ~100 round-trip-free-but-not-free commands on the hot path for a user who
+    # is almost always streaming exactly one screen. ``EXISTS k1 k2 …`` returns
+    # the COUNT of keys that exist, which is exactly the "any slot live?"
+    # question asked here.
     active_key = _ACTIVE_KEY.format(channel_id=channel_id, user_id=streamer_id)
     voice_streaming_key = _VOICE_STREAMING_KEY.format(channel_id=channel_id)
     pipe = redis.pipeline(transaction=False)
-    pipe.exists(active_key)
-    for slot in range(1, _STREAM_SLOT_MAX + 1):
-        pipe.exists(f"{active_key}-s{slot}")
+    pipe.exists(
+        active_key,
+        *(f"{active_key}-s{slot}" for slot in range(1, _STREAM_SLOT_MAX + 1)),
+    )
     pipe.sismember(voice_streaming_key, str(streamer_id))
-    *hq_live, ss_live = await pipe.execute()
-    if not (any(hq_live) or ss_live):
+    hq_live, ss_live = await pipe.execute()
+    if not (hq_live or ss_live):
         raise HTTPException(status.HTTP_410_GONE, detail="streamer is not live")
 
     if not ratelimit.check("message", current.id):

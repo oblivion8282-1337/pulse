@@ -17,8 +17,15 @@ const MAX_LOG_LINES = 50;
 
 /** How many concurrent HQ streams one user may run (slots 0..MAX-1, e.g. one
  *  per monitor). Keep in sync with the Electron `MAX_STREAM_SLOTS` and the
- *  backend `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
-export const MAX_STREAM_SLOTS = 4;
+ *  backend `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1).
+ *
+ *  The ceiling is deliberately far above anything sensible: what a machine can
+ *  really push is decided by its encoder and uplink, not by this number, and
+ *  nobody has 99 monitors. It only bounds the slot index. The consequence for
+ *  this file is the note on `extraSessions` below — and the rule that no UI may
+ *  render per *possible* slot, only per *running* one (every `#each` in the
+ *  stream components goes through `runningStreamSlots()` for that reason). */
+export const MAX_STREAM_SLOTS = 99;
 
 /** Per-slot session fields — the live state of ONE of a user's HQ streams. */
 type StreamSession = {
@@ -78,7 +85,23 @@ export const stream = $state({
 
 /** The additional streams (slots 1..MAX-1) — each a second/third/… monitor as
  *  its own viewer tile. Session-only: the global flags live on `stream`.
- *  Deep-`$state` array → mutating `extraSessions[i].running` is reactive. */
+ *  Deep-`$state` array → mutating `extraSessions[i].running` is reactive.
+ *
+ *  Allocated eagerly for every possible slot, and that stays so at a ceiling of
+ *  99: these are six-field plain objects with no timers, listeners or child
+ *  processes behind them — a few kB in total, allocated once at module load.
+ *  Filling the array lazily would mean creating state while READING it —
+ *  `streamForSlot()` is called from `$derived` blocks, and a write there is
+ *  exactly the kind of thing runes are unhappy about. The cheap thing is also
+ *  the safe thing here.
+ *
+ *  What the ceiling DOES cost is `runningStreamSlots()` below: it reads
+ *  `.running` on all 99, so every `$derived` that calls it takes 99
+ *  dependencies instead of one, and all 99 proxies are materialised on the
+ *  first render. That is pointer-cheap and was measured against nothing, but it
+ *  is the place to look first if the stream UI ever feels sluggish — the fix
+ *  would be to track the running set incrementally in `applyEvent`, which
+ *  already computes exactly that edge. */
 const extraSessions = $state<StreamSession[]>(
   Array.from({ length: MAX_STREAM_SLOTS - 1 }, freshSession)
 );

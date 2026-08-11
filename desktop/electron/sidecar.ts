@@ -749,10 +749,31 @@ class SidecarManager {
 
 /** How many concurrent HQ streams one user may run (e.g. one per monitor) as
  *  separate viewer tiles. Slots are 0..MAX_STREAM_SLOTS-1; kept in sync with
- *  the web `MAX_STREAM_SLOTS` and the backend's `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
-export const MAX_STREAM_SLOTS = 4;
+ *  the web `MAX_STREAM_SLOTS` and the backend's `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1).
+ *
+ *  The ceiling is deliberately far above anything sensible — what a machine can
+ *  really push is decided by its encoder and uplink, not by this number. It is
+ *  only here so a renderer-supplied slot stays bounded. Because of that, NOTHING
+ *  may cost anything per *possible* slot: slot managers are created on demand
+ *  (see below), not up front. */
+export const MAX_STREAM_SLOTS = 99;
 
 const instances = new Map<number, SidecarManager>();
+
+/** Run once for every slot manager the moment it is created — the hook main.ts
+ *  uses to wire its renderer relay. Exists because the relay used to be
+ *  installed by looping over every possible slot at startup; with a ceiling of
+ *  99 that would build 99 managers for a user who streams one screen. */
+let onCreated: ((manager: SidecarManager, slot: number) => void) | null = null;
+
+/** Register the creation hook (once, from main.ts). Also runs over the managers
+ *  that already exist, so the caller carries no "register before the first
+ *  `getSidecar()`" obligation — an ordering rule that would be invisible at the
+ *  call site and silently drop a slot's events if it were ever broken. */
+export function onSidecarCreated(cb: (manager: SidecarManager, slot: number) => void): void {
+  onCreated = cb;
+  for (const [slot, manager] of instances) cb(manager, slot);
+}
 
 /** The sidecar manager for one stream slot (0 = the primary stream, 1 = a
  *  second concurrent stream). Each slot owns its OWN child process — running a
@@ -765,6 +786,7 @@ export function getSidecar(slot = 0): SidecarManager {
   if (!m) {
     m = new SidecarManager();
     instances.set(slot, m);
+    onCreated?.(m, slot);
   }
   return m;
 }

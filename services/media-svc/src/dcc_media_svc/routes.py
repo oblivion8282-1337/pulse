@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
 from dcc_shared.events import StreamDescriptor
+from dcc_shared.streaming import SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.security import CurrentUser
@@ -128,8 +129,9 @@ router = APIRouter()
 
 # Highest per-user stream slot. Slots 0.._SLOT_MAX — one user may run that many
 # HQ streams at once (e.g. one per monitor). The path/key schema, auth-hook and
-# poller already generalise to any slot; only this clamp limits it.
-_SLOT_MAX = 3
+# poller already generalise to any slot; only this clamp limits it. Shared with
+# chat-gateway via ``dcc_shared.streaming``, which carries the reasoning.
+_SLOT_MAX = SLOT_MAX
 
 ChannelId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$")]
@@ -472,13 +474,22 @@ async def stop_stream(
     uid = str(user.id)
     targets = [slot] if slot is not None else list(range(_SLOT_MAX + 1))
 
-    # Gepipelined statt einzeln: bis zu 4 Slots waren bis zu 8 sequentielle
+    # Gepipelined statt einzeln: schon vier Slots waren acht sequentielle
     # Round-Trips für einen einzigen Stop-Klick. Dasselbe Muster begründet der
     # Poller für sich schon ("reduces O(N) sequential round-trips to O(1)").
+    #
+    # Ohne ``slot`` geht das über ALLE Slots bis ``_SLOT_MAX``, nicht nur über
+    # die laufenden — welche Pfade MediaMTX noch führt, weiß hier niemand, und
+    # genau dagegen ist der Grabstein gedacht. Bei einer Obergrenze von 99 sind
+    # das rund hundert Schreibvorgänge je Stop-Klick, die meisten für Slots, die
+    # nie existiert haben; sie verfallen nach ``stop_suppression_s`` von selbst.
+    # In Kauf genommen, weil der Klick selten ist und alles in EINEM Round-Trip
+    # geht. Die Löschungen gehen als ein ``DEL k1 k2 …``; das ``SET`` kann das
+    # wegen der Ablaufzeit je Schlüssel nicht.
     pipe = redis.pipeline()
     for s in targets:
         pipe.set(stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s)
-        pipe.delete(active_key(channel_id, uid, s))
+    pipe.delete(*(active_key(channel_id, uid, s) for s in targets))
     await pipe.execute()
 
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))

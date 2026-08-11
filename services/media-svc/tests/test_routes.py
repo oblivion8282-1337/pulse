@@ -6,6 +6,7 @@ import json
 import uuid
 
 import pytest
+from dcc_media_svc.routes import _SLOT_MAX
 from dcc_media_svc.streamkeys import (
     ACTIVE_KEY,
     CHANNEL_STATE_KEY,
@@ -130,9 +131,13 @@ async def test_stream_token_label_stamped_into_record(client, auth_signer, redis
 @pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, auth_signer):
     """Slot is clamped to the 0.._SLOT_MAX range; a slot past it is rejected, not
-    silently accepted (which would mint an un-viewable path)."""
+    silently accepted (which would mint an un-viewable path). Derived from the
+    constant, so raising the ceiling can't turn this into a test of a slot that
+    is now legal."""
     access = auth_signer.issue_access(7, "bob")
-    r = await client.post("/channels/1/stream-token", json={"slot": 99}, headers=_auth(access))
+    r = await client.post(
+        "/channels/1/stream-token", json={"slot": _SLOT_MAX + 1}, headers=_auth(access)
+    )
     assert r.status_code == 422
 
 
