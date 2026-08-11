@@ -1,5 +1,28 @@
 # localBackend — Self-Host-Orchestrator
 
+> **AUF EIS (Stand 2026-08-11).** Self-Hosting läuft vorerst ausschliesslich über
+> einen eigenen Server (Container-Stack, s. `IDENTITY_CONCEPT.md` und
+> `infra/prod/DEPLOY.md`) — dieser Weg ist in Betrieb und bewährt. Der hier
+> beschriebene Weg, bei dem die **Desktop-App selbst** den Stack auf dem Rechner
+> des Nutzers hochfährt, wird derzeit nicht weiterverfolgt.
+>
+> **Der Code bleibt liegen, er wird nicht entfernt** — nur nicht gepflegt.
+>
+> **Folge für die Tests:** die beiden Integrationstests binden echte Ports
+> (7882, 8189, 7881, 1936) und kollidieren deshalb mit jedem laufenden
+> Medien-Stack — auch mit `scripts/dev-up.fish`. Genau das ist am 2026-08-11
+> passiert: `reachability.int.test.ts` schlug fehl, obwohl nichts an ihm kaputt
+> war, und der Ausfall sah nach einer Regression der gerade bearbeiteten
+> Änderung aus. Sie laufen deshalb **nicht mehr im Standardlauf** (`test:unit`),
+> sondern nur noch auf Zuruf:
+>
+> ```bash
+> cd desktop && pnpm test:localbackend-int   # nur mit gestopptem Dev-Stack
+> ```
+>
+> Die sieben reinen Unit-Tests daneben (`reachability.test.ts`, `natpmp.test.ts`,
+> `stun.test.ts` …) laufen unverändert mit — sie fassen kein Netz an.
+
 Orchestriert den vollständigen lokalen Self-Host-Stack (Postgres, Redis, MinIO, auth-svc, media-svc,
 mediamtx-auth-hook, chat-gateway) sowie optional einen frpc-Client-Tunnel zum Cloud-Relay.
 
