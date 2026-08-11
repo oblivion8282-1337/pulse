@@ -51,9 +51,54 @@ Add-Type -AssemblyName System.Drawing
 # Sidecar: PER_MONITOR_AWARE_V2 vor der ersten Injektion.)
 Add-Type -Namespace Pruefziel -Name Nativ -MemberDefinition @'
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-  [DllImport("user32.dll")] public static extern uint MapVirtualKeyW(uint code, uint art);
 '@
 try { [void][Pruefziel.Nativ]::SetProcessDPIAware() } catch { }
+
+# TASTEN WERDEN AUS DER ROHEN WINDOWS-NACHRICHT GELESEN, NICHT AUS DEN
+# WINFORMS-EREIGNISSEN. Das ist keine Feinheit, sondern der Unterschied zwischen
+# einem brauchbaren und einem luegenden Messmittel:
+#
+# WinForms meldet linke und rechte Zusatztasten als DIESELBE Taste
+# (KeyCode = ControlKey fuer beide). Wer daraus per MapVirtualKey einen Scancode
+# zurueckrechnet, bekommt immer den linken -- die 0xE0-Kennung ist weg. Beim
+# Selbsttest am 2026-08-12 ging so aus einer gesendeten rechten Strg-Taste
+# (0xE01D) eine empfangene linke (0x1D) mit erweitert=false. Der Fehler lag im
+# Pruefziel, haette aber wie ein Fehler des Injektors ausgesehen.
+#
+# In lParam steht beides unverfaelscht: Bits 16..23 der Scancode, Bit 24 die
+# Erweitert-Kennung. Der Filter schluckt nichts (liefert false), er sieht nur zu.
+Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Concurrent;
+using System.Windows.Forms;
+
+namespace Pruefziel {
+  public class TastenEreignis {
+    public int Scan; public int Vk; public bool Erweitert; public bool Runter; public long Tick;
+  }
+  public class TastenFilter : IMessageFilter {
+    public ConcurrentQueue<TastenEreignis> Warteschlange = new ConcurrentQueue<TastenEreignis>();
+    public bool PreFilterMessage(ref Message m) {
+      const int WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
+      if (m.Msg == WM_KEYDOWN || m.Msg == WM_KEYUP || m.Msg == WM_SYSKEYDOWN || m.Msg == WM_SYSKEYUP) {
+        long l = m.LParam.ToInt64();
+        int scan = (int)((l >> 16) & 0xFF);
+        bool ext = ((l >> 24) & 1) != 0;
+        if (ext) { scan |= 0xE000; }
+        Warteschlange.Enqueue(new TastenEreignis {
+          Scan = scan, Vk = m.WParam.ToInt32(), Erweitert = ext,
+          Runter = (m.Msg == WM_KEYDOWN || m.Msg == WM_SYSKEYDOWN),
+          // NICHT Environment.TickCount64 -- das gibt es im .NET Framework, auf
+          // dem PowerShell 5.1 laeuft, noch nicht; die Typdefinition scheitert
+          // dann beim Uebersetzen und das Fenster startet wortlos gar nicht.
+          Tick = System.Diagnostics.Stopwatch.GetTimestamp()
+        });
+      }
+      return false;
+    }
+  }
+}
+'@
 
 $verz = Split-Path -Parent $Pfad
 if ($verz -and -not (Test-Path $verz)) { New-Item -ItemType Directory -Force $verz | Out-Null }
@@ -181,31 +226,37 @@ $f.Add_MouseWheel({
   Zeile 'rad' @{ delta = $e.Delta; x = $p.x; y = $p.y }
 })
 
-function TasteZeile($e, $runter) {
-  $vk = [int]$e.KeyCode
-  # Art 4 = MAPVK_VK_TO_VSC_EX: liefert bei erweiterten Tasten den 0xE0-Praefix
-  # im oberen Byte. Ohne EX faellt genau die Unterscheidung weg, die das
-  # Protokoll fuer rechte Strg-Taste und Pfeiltasten braucht.
-  $scan = [int][Pruefziel.Nativ]::MapVirtualKeyW([uint32]$vk, 4)
-  Zeile 'taste' @{ vk = $vk; name = "$($e.KeyCode)"; scan = $scan
-                   erweitert = (($scan -band 0xE000) -ne 0); runter = $runter }
-}
-
+# Nur noch das Abbruch-Kuerzel haengt an den WinForms-Ereignissen -- protokolliert
+# wird ausschliesslich aus dem Nachrichtenfilter (Begruendung ganz oben).
 $f.Add_KeyDown({
   param($absender, $e)
-  $script:nTaste++
-  TasteZeile $e $true
   if ($e.Control -and $e.Alt -and $e.Shift -and $e.KeyCode -eq [Windows.Forms.Keys]::Q) {
     $script:grund = 'kuerzel'
     $f.Close()
   }
 })
 
-$f.Add_KeyUp({ param($absender, $e); TasteZeile $e $false })
+$filter = New-Object Pruefziel.TastenFilter
+[Windows.Forms.Application]::AddMessageFilter($filter)
+$script:tickBasis = [Diagnostics.Stopwatch]::GetTimestamp()
+$script:tickProMs = [Diagnostics.Stopwatch]::Frequency / 1000.0
 
 $zeichnen = New-Object Windows.Forms.Timer
 $zeichnen.Interval = 50
-$zeichnen.Add_Tick({ $f.Invalidate() })
+$zeichnen.Add_Tick({
+  # Die Warteschlange wird im Zeichentakt geleert, nicht ueber
+  # Register-ObjectEvent: das hat in diesem Repo schon einmal ausgerechnet die
+  # aussagekraeftigen Zeilen verschluckt (siehe testbench/README.md).
+  $ev = $null
+  while ($filter.Warteschlange.TryDequeue([ref]$ev)) {
+    $script:nTaste++
+    $o = [ordered]@{ t = [int](($ev.Tick - $script:tickBasis) / $script:tickProMs); art = 'taste'
+                     vk = $ev.Vk; scan = $ev.Scan; erweitert = $ev.Erweitert
+                     runter = $ev.Runter }
+    $schreiber.WriteLine(($o | ConvertTo-Json -Depth 3 -Compress))
+  }
+  $f.Invalidate()
+})
 
 $schluss = New-Object Windows.Forms.Timer
 $schluss.Interval = [Math]::Max(1000, $Sekunden * 1000)
