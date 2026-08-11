@@ -83,9 +83,9 @@ impl Vorstufe {
     ///    beiden Lagen, nicht die riskantere.
     /// 2. *Die HDR-Begleitdaten wachsen nicht an.* Sie hängen am Bild, und
     ///    `av_frame_new_side_data` hängt AN, statt zu ersetzen (Nachweis:
-    ///    `encode::hdr::tests::ffmpeg_haengt_begleitdaten_an`). Solange jeder
+    ///    `encode::hdr_metadaten::tests::ffmpeg_haengt_begleitdaten_an`). Solange jeder
     ///    Tick ein frisches `AVFrame` zog, war das folgenlos; jetzt räumt
-    ///    `hdr::metadaten_anhaengen` vorher weg.
+    ///    `encode::hdr_metadaten::am_bild` vorher weg.
     /// 3. *Der Pool verliert ein Bild*, solange es gehalten wird. Auf dem
     ///    Einzeltextur-Weg (AMD, P010) folgenlos, weil er ohnehin bis zur
     ///    Arbeitsmenge wächst; auf dem Array-Pool eines von sechzehn.

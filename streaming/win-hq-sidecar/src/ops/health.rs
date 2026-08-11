@@ -20,7 +20,7 @@
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
-use crate::encode::{VideoCodec, auffrischung};
+use crate::encode::{auffrischung, zehnbit};
 use crate::system::dxgi;
 
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
@@ -44,16 +44,25 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // Ältere Sidecars melden sie nicht — Konsumenten lesen `undefined` als
     // `false` (`web/src/lib/stream/state.svelte.ts`).
     //
-    // `ten_bit` hängt am AV1-Zero-Copy-Weg (P010-Pool + `bitdepth=10` an
-    // `av1_amf`), nicht am Codec allein; `intra_refresh` daran, ob der Encoder,
-    // der bei dieser Kombination WIRKLICH läuft, die Betriebsart trägt — auf
-    // AMD ist das AV1, nicht H.264 (`encode::auffrischung`).
-    let ten_bit = vendor.is_some_and(|v| {
-        video_codecs.iter().any(|c| {
-            VideoCodec::from_slug(c).supports_ten_bit()
-                && auffrischung::encoder_name(v, VideoCodec::from_slug(c), "").is_some()
-        })
-    });
+    // `ten_bit` hängt am AV1-Zero-Copy-Weg (P010-Pool; auf AMD zusätzlich
+    // `bitdepth=10` an `av1_amf`, auf NVIDIA genügt der Pool — Begründung und
+    // Messung in `encode::opts`), nicht am Codec allein; `intra_refresh` daran,
+    // ob der Encoder, der bei dieser Kombination WIRKLICH läuft, die
+    // Betriebsart trägt — auf AMD ist das AV1, nicht H.264
+    // (`encode::auffrischung`).
+    //
+    // **Für AMD und NVIDIA ist das Ja am fertigen Strom belegt** (2026-08-01
+    // Radeon 780M, 2026-08-11 RTX 5080). **Für Intel ist es Nein, und das
+    // stimmt jetzt auch.** Bis zum 2026-08-11 fragte die Zeile hier nur, ob es
+    // überhaupt einen Encoder für (Vendor, Codec) gibt — Intel hat `av1_qsv`
+    // im Angebot, also stand hier `true`, obwohl Intel über die CPU-Pipeline
+    // läuft (`VideoCodec::encode_path`), die 10 bit strukturell nicht trägt.
+    // Ein 10-bit-Wunsch kam dort als 8-bit-Strom heraus, und die
+    // Fähigkeitsmeldung hatte es zugesagt. `zehnbit::verfuegbar` fragt jetzt
+    // denselben Encode-Weg mit, den `zehnbit::pruefen` beim Start prüft
+    // (`stream_controller::run_pipeline`, Gegenstück zu `encode::hdr::pruefen`
+    // für HDR) — die Lücke ist damit geschlossen, nicht nur benannt.
+    let ten_bit = vendor.is_some_and(|v| zehnbit::verfuegbar(v, &video_codecs));
     let intra_refresh = vendor.is_some_and(|v| auffrischung::verfuegbar(v, &video_codecs));
     // **`hdr` ist bewusst die GERÄTE-Frage, nicht die Tages-Frage.** Ob HDR im
     // Windows-Umschalter gerade an ist, steht hier NICHT drin — sonst

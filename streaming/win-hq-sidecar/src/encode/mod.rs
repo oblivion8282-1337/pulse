@@ -29,6 +29,7 @@ pub mod encoder;
 pub mod farbraum;
 pub mod hdr;
 mod hdr_ansichten;
+pub mod hdr_metadaten;
 pub mod hdr_wandler;
 pub mod hdr_zeichner;
 mod fail_slot;
@@ -42,6 +43,7 @@ pub mod opts;
 pub mod output;
 pub mod senke;
 pub mod senke_writer;
+pub mod zehnbit;
 
 /// **`rc_buffer_size` (VBV) wurde probiert und wirkt auf keinem AMD-Zweig** —
 /// nicht eingebaut, damit es niemand ein zweites Mal versucht.
@@ -72,9 +74,13 @@ pub mod senke_writer;
 /// nirgends, was am Ende lief — und eine Messung unter falschem Etikett sieht
 /// vollkommen plausibel aus.
 /// **Bittiefe und Betriebsart gehoeren dazu, und zwar aus demselben Grund wie
-/// der Encoder-Name.** Beide koennen bis hierher still zurueckgenommen worden
-/// sein: ein 10-bit-Wunsch faellt auf 8 zurueck, wenn Codec oder Encode-Weg ihn
-/// nicht tragen, und die Auffrischung haengt am Encoder. Ohne diese Zeile
+/// der Encoder-Name.** Ein 10-bit-Wunsch, dessen Encode-Weg es strukturell
+/// nicht kann (CPU/D3D12), bricht seit `encode::zehnbit::pruefen` schon VOR
+/// diesem Punkt ab — bis hierher kommen nur noch die feineren Ruecknahmen
+/// INNERHALB des D3D11-Zero-Copy-Wegs: ein Codec, der 10 bit gar nicht traegt
+/// (nur AV1), oder ein angemeldeter Encode-Weg, der einen 8-bit-Pool verlangt
+/// (`bildencoder::pool_wahl`, eigene Log-Zeile in `pipeline_hw::run`). Die
+/// Auffrischung haengt unveraendert am Encoder. Ohne diese Zeile
 /// stand nirgends, was am Ende wirklich lief — und beim ersten
 /// 10-bit-Fehlversuch am 2026-08-04 war genau das die Luecke: das Log meldete
 /// `av1_amf`, aber nicht, ob der Strom 8 oder 10 bit trug. Damit war nicht zu

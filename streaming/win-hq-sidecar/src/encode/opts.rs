@@ -57,6 +57,42 @@ pub(crate) fn vendor_encoder_opts(
             // im Mitschnitt, nicht im Log des Senders; genau dort ist der
             // Fehler auf AMD zuerst durchgerutscht.
             opts.set("forced-idr", "1");
+            // **Hier steht mit Absicht KEINE Bittiefen-Option** — anders als im
+            // AMD-Zweig unten, der ohne `bitdepth=10` trotz P010-Eingang 8 bit
+            // liefert. Die Asymmetrie ist der naheliegendste Verdacht an dieser
+            // Datei („da wurde eine Zeile vergessen"), deshalb steht die Antwort
+            // hier ausgeschrieben statt als Leerstelle.
+            //
+            // **Bei NVENC folgt die Bittiefe dem Pool-Format**
+            // (`hw_frames_ctx.sw_format`, gesetzt in `bildencoder::pool_wahl`
+            // → `hwctx.rs`). Ein P010-Pool genügt; `ten_bit` wird in diesem Arm
+            // deshalb gar nicht gelesen.
+            //
+            // **Am 2026-08-11 auf dieser Karte an BEIDEN Enden nachgemessen**
+            // (RTX 5080, Treiber 610.47 = 32.0.16.1047, Windows 11 26200;
+            // Messakte `testbench/profiles/nvidia-2026-08-11-windows-zehnbit.json`),
+            // weil eine Optionstabelle in genau dieser Frage schon zweimal
+            // gelogen hat:
+            //
+            // * *Was der Strom über sich sagt* — `high_bitdepth = 1` im
+            //   AV1-Sequenzkopf (`trace_headers` am Bitstrom, nicht am Log des
+            //   Senders), `pix_fmt = yuv420p10le`.
+            // * *Was wirklich drinsteckt* — die dekodierten Y-Werte liegen
+            //   ZWISCHEN den 8-bit-Stufen: Anteil auf Rest 0 über drei Läufe
+            //   14,6 / 14,6 / 33,3 %. Der 8-bit-Lauf desselben Aufbaus liegt
+            //   bei 100,0 % — so sähe ein bloßes Etikett aus.
+            //
+            // Das bestätigt unabhängig, was die Messakte
+            // `nvidia-2026-08-04-windows-intra-refresh.json` (Abschnitt 7d)
+            // schon einmal gezeigt hatte, auf demselben Treiberstand.
+            //
+            // **`-highbitdepth` ist NICHT die fehlende Zeile**, obwohl der Name
+            // danach klingt: `av1_nvenc` kennt den Schlüssel, aber er heißt
+            // „10 bit encodieren, obwohl der Eingang 8 bit ist". Unser Eingang
+            // ist P010. Einen `bitdepth`-Schlüssel (den AMF-Namen) kennt
+            // `av1_nvenc` gar nicht — `warn_unknown_opts` mahnte ihn dann bei
+            // jedem gesunden Stream an, und eine Warnung, die im gesunden Fall
+            // feuert, erzieht dazu, Warnungen zu überlesen.
         }
         "amd" => {
             // `usage` ist bei AMF kein Etikett, sondern ein Bündel: es stellt
@@ -163,6 +199,13 @@ pub(crate) fn vendor_encoder_opts(
             // P010-Eingang einen 8-bit-Strom — der P010-Pool allein genügt
             // also nicht. Nur `av1_amf` kennt den Schlüssel; bei H.264 über
             // diesen Zweig gibt es ohnehin kein 10 bit.
+            //
+            // **Das ist eine Aussage über AMF, nicht über Encoder im
+            // Allgemeinen** — bei NVENC genügt der Pool sehr wohl, am
+            // 2026-08-11 am fertigen Strom nachgemessen (Begründung im
+            // NVIDIA-Zweig oben). Wer den Satz „der P010-Pool allein genügt
+            // nicht" aus dieser Zeile mitnimmt, trägt ihn an die falsche
+            // Stelle weiter.
             if ten_bit {
                 opts.set("bitdepth", "10");
             }

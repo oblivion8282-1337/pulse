@@ -269,9 +269,13 @@ struct Overrides {
     resolution: Option<(u32, u32)>,
     /// 10 bit statt 8. Vom Renderer angefragt, hier aber nur ein Wunsch: ob er
     /// erfüllt wird, entscheidet [`VideoCodec::supports_ten_bit`] zusammen mit
-    /// dem Encode-Weg (`pipeline_hw`). Ein unerfüllbarer Wunsch ist kein
-    /// Fehler — er fällt still auf 8 bit zurück, wie jeder andere Override,
-    /// den die Hardware nicht trägt.
+    /// dem Encode-Weg. **Kann der effektive Encode-Weg gar kein 10 bit (CPU
+    /// oder D3D12), ist das seit dem 2026-08-11 ein Fehler** — der Start
+    /// bricht ab (`encode::zehnbit::pruefen`) statt still auf 8 bit
+    /// zurückzufallen, wie ein Override es sonst täte. Nur die feinere
+    /// Rücknahme innerhalb des D3D11-Zero-Copy-Wegs (Codec ohne 10-bit-Träger,
+    /// oder ein angemeldeter Encode-Weg mit 8-bit-Pool) bleibt still, mit
+    /// einer Log-Zeile statt einem Abbruch (`pipeline_hw`).
     ten_bit: bool,
     /// HDR senden. **Anders als [`ten_bit`](Self::ten_bit) kein Wunsch,
     /// sondern eine Bedingung** — ist sie nicht erfüllbar, verweigert der

@@ -180,8 +180,29 @@ impl VideoCodec {
     /// Av1` im Aufrufer landet und dort beim nächsten Codec vergessen wird.
     ///
     /// Heute nur AV1, und zwar nicht aus Prinzip, sondern weil nur dieser Weg
-    /// gemessen ist (2026-08-01, Radeon 780M: P010-Pool + `bitdepth=10` an
-    /// `av1_amf`, am Server als 10-bit-Strom bestätigt).
+    /// gemessen ist — inzwischen auf **beiden** Herstellern:
+    ///
+    /// * **AMD** (2026-08-01, Radeon 780M): P010-Pool + `bitdepth=10` an
+    ///   `av1_amf`, am Server als 10-bit-Strom bestätigt.
+    /// * **NVIDIA** (2026-08-11, RTX 5080, Treiber 610.47): P010-Pool an
+    ///   `av1_nvenc`, **ohne** Hersteller-Option — die Bittiefe folgt dort dem
+    ///   Pool-Format (`opts.rs`, NVIDIA-Zweig). Belegt an beiden Enden:
+    ///   `high_bitdepth = 1` im Sequenzkopf UND Bildpunkte zwischen den
+    ///   8-bit-Stufen (Rest 0 bei 14,6 / 14,6 / 33,3 % über drei Läufe, gegen
+    ///   100,0 % im 8-bit-Lauf desselben Aufbaus). Messakte
+    ///   `testbench/profiles/nvidia-2026-08-11-windows-zehnbit.json`.
+    ///
+    /// **Die Antwort gilt nur für den D3D11-Zero-Copy-Weg.** Auf dem CPU- und
+    /// dem D3D12-Weg gibt es 10 bit strukturell nicht (`EncoderConfig` kennt
+    /// das Feld nicht, der D3D12-Pool liegt fest auf NV12). **Bis zum
+    /// 2026-08-11 wurde ein 10-bit-Wunsch dort still auf 8 bit
+    /// zurückgenommen** — nachgemessen über `PULSE_HQ_DISABLE_ZERO_COPY=1`:
+    /// `yuv420p` statt `yuv420p10le`, ohne Abbruch. Das ist geschlossen:
+    /// `encode::zehnbit::pruefen` bricht den Start jetzt ab, wenn der
+    /// effektive Encode-Weg 10 bit nicht trägt (`stream_controller::mod::
+    /// run_pipeline`, vor jeder Encoder-Öffnung). Das steht trotzdem hier,
+    /// weil diese Funktion codec-, nicht wegabhängig antwortet und deshalb
+    /// leicht als Gesamt-Zusage gelesen wird.
     ///
     /// **Hier stand bis zum 2026-08-06 „H.264 läuft auf AMD über D3D12
     /// (`encode_path`) und damit an diesem Pool vorbei". Das ist falsch** —

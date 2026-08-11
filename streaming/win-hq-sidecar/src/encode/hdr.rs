@@ -25,13 +25,17 @@
 //! weiterreicht, klaglos entgegen. Ein `h264_amf`, dem man BT.2020 und PQ
 //! anschreibt, öffnet ohne Murren — und schreibt es nicht in den Strom. Was ein
 //! Encoder wirklich tut, steht am fertigen Strom, und was hier steht, ist dort
-//! nachgesehen (`docs/2026-08-06-hdr-windows-amd.md`).
+//! nachgesehen (`docs/2026-08-06-hdr-windows-amd.md` für AMD,
+//! `docs/2026-08-11-hdr-windows-nvidia.md` für NVIDIA).
+//!
+//! **Die Nutzlasten selbst stehen nicht hier, sondern in
+//! [`super::hdr_metadaten`]** (abgetrennt am 2026-08-11 wegen der
+//! Größen-Policy). Der Schnitt liegt an der ohnehin vorhandenen Naht: hier
+//! steht, WER HDR trägt und was in den Sequenzkopf geht; dort, welche
+//! Mastering-Angaben mitgehen und an welche der zwei Stellen sie müssen.
 
 use anyhow::{Result, bail};
 use ffmpeg_next as ffmpeg;
-use ffmpeg_next::ffi::{
-    AVFrame, AVFrameSideDataType, AVRational, av_frame_new_side_data, av_frame_remove_side_data,
-};
 
 use super::codec::VideoCodec;
 use crate::capture::CaptureSource;
@@ -54,6 +58,36 @@ fn traegt_hdr(encoder: &str) -> bool {
         // `AMF_VIDEO_ENCODER_AV1_INPUT_HDR_METADATA` an. Ohne Patch, in der
         // ausgelieferten Fassung.
         "av1_amf" => true,
+        // **Der zweite belegte Weg** (2026-08-11, RTX 5080, Treiber 610.47 =
+        // 32.0.16.1047). `av1_nvenc` schreibt die Farb-Signalisierung
+        // vollständig in den AV1-Sequenzkopf — am Bitstrom nachgesehen, nicht
+        // an einer Optionstabelle: `transfer_characteristics = 16` (PQ),
+        // `color_primaries = 9` und `matrix_coefficients = 9` (BT.2020),
+        // `color_range = 0`, `high_bitdepth = 1`. Und der Inhalt ist echtes PQ,
+        // nicht bloß so beschriftet (Messakte
+        // `testbench/profiles/nvidia-2026-08-11-windows-hdr.json`).
+        //
+        // **Hier stand bis zum 2026-08-11 „ungemessen, nicht ausgeschlossen".**
+        // Das ist eingelöst — mit einer benannten Einschränkung, die die alte
+        // Zeile nicht vorhergesehen hat: **die HDR10-Mastering-Angaben kommen
+        // NICHT im Strom an.** Kein einziges `OBU_METADATA` (Typ 5), auf der
+        // ganzen Datei ausgezählt. Woran es liegt, ist eingegrenzt und liegt
+        // nicht bei uns: derselbe Quellstrom, dasselbe FFmpeg und dieselbe
+        // Codestelle (`nvenc_set_mastering_display_data`) schreiben über
+        // `hevc_nvenc` beide SEI-Nachrichten anstandslos, über `av1_nvenc`
+        // nichts. Der Weg dorthin ist trotzdem gebaut, weil er sonst auch nach
+        // einem Treiber-Update nicht ginge — s. `hdr_metadaten::am_kontext`.
+        //
+        // **Warum das trotzdem `true` ist.** Die Tabelle fragt, ob der Encoder
+        // eine HDR-**Signalisierung** bis in den Strom trägt, und die ist
+        // vollständig. Der Fehler, gegen den es dieses Modul gibt, ist der
+        // Strom, der HDR behauptet und SDR enthält; das ist hier nicht der
+        // Fall. Was fehlt, sind Hinweise fürs Tone-Mapping des Zuschauers —
+        // dieselbe Klasse von Mangel, mit der AV1 über AMF seit dem 2026-08-06
+        // ausgeliefert wird (dort sind die Zahlen da, aber falsch skaliert).
+        // Damit niemand ihn beim Zuschauer sucht, sagt [`mastering_fehlt`] ihn
+        // beim Start an.
+        "av1_nvenc" => true,
         // Alles andere: nein, und zwar begründet.
         //
         // * `h264_amf`/`hevc_amf` — HDR verlangt 10 bit (s. Modul-Kopf), und
@@ -66,13 +100,30 @@ fn traegt_hdr(encoder: &str) -> bool {
         //   nur noch die Gegenprobe hinter `PULSE_HQ_AMD_D3D12=1`.
         // * `*_qsv` — läuft über die CPU-Pipeline, also über swscale aus einem
         //   BGRA-Puffer. Derselbe Grund.
-        // * `av1_nvenc` — **ungemessen, nicht ausgeschlossen.** NVENC kann
-        //   HDR10, und FFmpegs `nvenc` reicht die Farbfelder durch; was fehlt,
-        //   ist ein Lauf auf einer NVIDIA-Karte mit HDR-Schirm. Bis den jemand
-        //   gemacht hat, wäre ein `true` hier eine Behauptung. Wer ihn macht:
-        //   diese Zeile, ein Eintrag in `docs/` und die Absage unten fällt weg.
+        // * `h264_nvenc`/`hevc_nvenc` — dieselbe Produktentscheidung wie bei
+        //   AMD: 10 bit lässt `VideoCodec::supports_ten_bit` nur bei AV1 durch.
+        //   Für HEVC ist beiläufig belegt, dass NVENC die Mastering-SEI
+        //   schreibt (s. `av1_nvenc` oben) — das ändert an der Entscheidung
+        //   nichts, HEVC wird ausgebaut.
         _ => false,
     }
+}
+
+/// Trägt dieser Encoder zwar die Signalisierung, aber **nicht** die
+/// Mastering-Hinweise? Dann sagt er es beim Start — sonst sucht der Nächste den
+/// Fehler beim Zuschauer.
+///
+/// Die Unterscheidung ist keine Spitzfindigkeit: ohne `MaxCLL` nimmt der eigene
+/// Player 1000 cd/m² an (`render/farbe.rs::ERSATZ_SPITZE_NITS`), während dieser
+/// Schirm 530 meldet. Auf einem SDR-Fenster rechnet er das Bild damit stärker
+/// herunter als nötig — ein Bild, das „irgendwie flau" aussieht, ohne dass
+/// irgendwo etwas fehlschlägt.
+fn mastering_fehlt(encoder: &str) -> Option<&'static str> {
+    (encoder == "av1_nvenc").then_some(
+        "NVENC schreibt auf diesem Treiber keine HDR10-Mastering-Angaben in den AV1-Strom \
+         (gemessen 2026-08-11, docs/2026-08-11-hdr-windows-nvidia.md). Die Farb-Signalisierung \
+         ist vollständig; Zuschauer ohne MaxCLL nehmen einen Ersatzwert fürs Tone-Mapping.",
+    )
 }
 
 /// Der Encoder, den diese Kombination wirklich öffnen würde — dieselbe Frage
@@ -96,8 +147,7 @@ fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&'sta
 pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
     codecs.iter().any(|slug| {
         let codec = VideoCodec::from_slug(slug);
-        codec.supports_ten_bit()
-            && encoder_name(vendor, codec, "").is_some_and(traegt_hdr)
+        codec.supports_ten_bit() && encoder_name(vendor, codec, "").is_some_and(traegt_hdr)
     })
 }
 
@@ -130,9 +180,12 @@ pub fn pruefen(
     if !traegt_hdr(encoder) {
         bail!(
             "HDR verlangt, aber '{encoder}' trägt es nicht bis in den Strom. Belegt ist heute \
-             allein AV1 über AMF (AMD); NVIDIA ist ungemessen, nicht ausgeschlossen. \
+             AV1 über AMF (AMD) und AV1 über NVENC (NVIDIA). \
              Begründung je Encoder: encode/hdr.rs"
         );
+    }
+    if let Some(fehlt) = mastering_fehlt(encoder) {
+        eprintln!("[hdr] {fehlt}");
     }
 
     // Der Schirm. **Zuletzt geprüft, obwohl es die häufigste Absage sein wird**
@@ -157,43 +210,6 @@ pub fn pruefen(
     }
     Ok(schirm)
 }
-
-// ── Was der Encoder in den Strom schreibt ───────────────────────────────────
-
-/// `AVMasteringDisplayMetadata` aus FFmpeg 8.1
-/// (`libavutil/mastering_display_metadata.h`).
-///
-/// **Von Hand gespiegelt, weil `ffmpeg-sys-next` diesen Struct nicht bindet** —
-/// es kennt den Aufzählungswert für die Nutzlast und `av_frame_new_side_data`,
-/// aber nicht die Form der Nutzlast selbst. Gleiche Lage und gleiche Lösung wie
-/// bei `AVD3D11VADeviceContext` in `hwctx.rs`; ein Layout-Fehler fällt dort wie
-/// hier sofort auf (falsche Zahlen im Strom, nicht stiller Unsinn).
-#[repr(C)]
-struct AVMasteringDisplayMetadata {
-    /// Rot, Grün, Blau — je x und y in CIE-1931.
-    display_primaries: [[AVRational; 2]; 3],
-    white_point: [AVRational; 2],
-    min_luminance: AVRational,
-    max_luminance: AVRational,
-    has_primaries: std::os::raw::c_int,
-    has_luminance: std::os::raw::c_int,
-}
-
-/// `AVContentLightMetadata` aus derselben Kopfdatei.
-#[repr(C)]
-#[allow(non_snake_case)]
-struct AVContentLightMetadata {
-    MaxCLL: std::os::raw::c_uint,
-    MaxFALL: std::os::raw::c_uint,
-}
-
-/// **Der Nenner, mit dem `amfenc.c` rechnet.** Es multipliziert unsere Brüche
-/// mit 50 000 (Primärvalenzen) bzw. 10 000 (Leuchtdichten) und schneidet ab.
-/// Wählen wir genau diese Nenner, geht beim Umweg über den Bruch nichts
-/// verloren; mit einem anderen Nenner käme je nach Wert eine Einheit weniger
-/// heraus, als der Schirm gemeldet hat.
-const NENNER_FARBORT: i32 = 50_000;
-const NENNER_LEUCHTDICHTE: i32 = 10_000;
 
 /// Die Farb-Signalisierung, die in den AV1-Sequenzkopf geht.
 ///
@@ -234,6 +250,9 @@ pub fn signalisieren(encoder: &mut ffmpeg::encoder::video::Video, schirm: Option
         (*ctx).color_primaries = ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT2020;
         (*ctx).color_trc = ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084;
     }
+    // **Vor dem Öffnen, nicht danach** — NVENC entscheidet beim Öffnen ein für
+    // alle Mal, ob es die Metadaten überhaupt schreibt. Begründung dort.
+    super::hdr_metadaten::am_kontext(encoder, schirm);
 }
 
 /// Der 10-bit-SDR-Fall — und **das ist eine Fehlerbehebung, keine
@@ -265,203 +284,9 @@ fn sdr_signalisieren(encoder: &mut ffmpeg::encoder::video::Video) {
     }
 }
 
-/// Einem Bild die HDR10-Metadaten anhängen, die AMF in den Strom schreibt.
-///
-/// **Warum je Bild und nicht einmal.** FFmpegs AMF-Zweig liest sie aus den
-/// Begleitdaten des Bildes (`amf_save_hdr_metadata`), und zwar bei jedem
-/// Einschieben; er kennt keinen Weg, sie einmal zu hinterlegen. Bei einem Strom
-/// mit rollendem Intra-Refresh ist das sogar der bessere Weg: dort gibt es nach
-/// dem Start keine Vollbilder mehr, an denen sich statische Metadaten sonst
-/// üblicherweise wiederholen — ein später dazukommender Zuschauer bekäme sie
-/// nie.
-///
-/// Die Kosten sind zwei kleine Speicheranforderungen je Bild. Bei 60 Bildern in
-/// der Sekunde ist das gegenüber allem anderen in diesem Weg nicht messbar; und
-/// FFmpeg fordert auf demselben Pfad ohnehin je Bild einen AMF-Puffer an.
-///
-/// **Mehrfach auf DASSELBE Bild anwendbar — und das ist eine Zusage, keine
-/// Nebenwirkung.** `av_frame_new_side_data` hängt an, es ersetzt nicht: zweimal
-/// gerufen, stehen zwei Mastering-Einträge am Bild (nachgewiesen in
-/// `tests::ffmpeg_haengt_begleitdaten_an`). Solange jeder Tick ein frisches
-/// `AVFrame` aus dem Pool zog, war das folgenlos. Seit die Pipeline bei
-/// stehendem Bild dasselbe gewandelte Bild erneut einschiebt
-/// (`pipeline_hw::run`), ist es das nicht mehr — ein Standbild ließe die
-/// Begleitdaten über die Laufzeit des Streams unbegrenzt anwachsen. Deshalb
-/// räumt diese Funktion beide Arten vorher weg.
-///
-/// **`color_trc` am BILD ist die Zündung**, nicht nur eine Wiederholung der
-/// Encoder-Einstellung: `amfenc.c` prüft `frame->color_trc == AVCOL_TRC_SMPTE2084`
-/// und überspringt die Metadaten sonst vollständig. Ohne diese Zeile bliebe
-/// alles Weitere hier wirkungslos, ohne dass irgendwo etwas fehlschlüge.
-///
-/// # Safety
-///
-/// `frame` muss ein gültiges, beschreibbares `AVFrame` sein, das anschließend
-/// eingeschoben und danach freigegeben wird — die Begleitdaten hängen an ihm
-/// und werden mit ihm frei.
-pub unsafe fn metadaten_anhaengen(frame: *mut AVFrame, schirm: &SchirmFarbe) -> Result<()> {
-    unsafe {
-        (*frame).color_trc = ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084;
-        (*frame).colorspace = ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL;
-        (*frame).color_primaries = ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT2020;
-        (*frame).color_range = ffmpeg::ffi::AVColorRange::AVCOL_RANGE_MPEG;
-
-        let ort = |v: f32| AVRational {
-            num: (v * NENNER_FARBORT as f32).round() as i32,
-            den: NENNER_FARBORT,
-        };
-        let leuchte = |v: f32| AVRational {
-            num: (v * NENNER_LEUCHTDICHTE as f32).round() as i32,
-            den: NENNER_LEUCHTDICHTE,
-        };
-        let display = AVMasteringDisplayMetadata {
-            display_primaries: [
-                [ort(schirm.primaervalenzen[0][0]), ort(schirm.primaervalenzen[0][1])],
-                [ort(schirm.primaervalenzen[1][0]), ort(schirm.primaervalenzen[1][1])],
-                [ort(schirm.primaervalenzen[2][0]), ort(schirm.primaervalenzen[2][1])],
-            ],
-            white_point: [ort(schirm.weisspunkt[0]), ort(schirm.weisspunkt[1])],
-            min_luminance: leuchte(schirm.min_nits),
-            max_luminance: leuchte(schirm.max_nits),
-            has_primaries: 1,
-            has_luminance: 1,
-        };
-        seitendaten_schreiben(
-            frame,
-            AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
-            &display,
-        )?;
-
-        // Was wirklich im Bild vorkommt, wissen wir nicht — der Schirm ist die
-        // obere Schranke, und eine wahre obere Schranke ist besser als eine
-        // geratene genaue Zahl (Begründung ausführlich in
-        // `farbraum::hdr10_metadaten`).
-        let licht = AVContentLightMetadata {
-            MaxCLL: schirm.max_nits as u32,
-            MaxFALL: schirm.max_vollbild_nits as u32,
-        };
-        seitendaten_schreiben(
-            frame,
-            AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
-            &licht,
-        )?;
-    }
-    Ok(())
-}
-
-/// Begleitdaten der passenden Größe anlegen und den Wert hineinkopieren.
-///
-/// # Safety
-///
-/// Wie [`metadaten_anhaengen`]; `T` muss die Form haben, die FFmpeg unter
-/// `art` erwartet.
-unsafe fn seitendaten_schreiben<T>(
-    frame: *mut AVFrame,
-    art: AVFrameSideDataType,
-    wert: &T,
-) -> Result<()> {
-    let groesse = std::mem::size_of::<T>();
-    // **Erst weg, dann neu.** `av_frame_new_side_data` prüft nicht, ob diese
-    // Art schon am Bild hängt — es hängt eine zweite an.
-    //
-    // Das ist kein Sonderfall der Standbild-Wiederverwendung, sondern dieselbe
-    // Regel, unter der `encoder_hw::send_avframe` seit jeher `pict_type` je
-    // Bild ZURÜCKSETZT statt nur zu setzen: **die Bilder kommen aus einem Pool
-    // und werden wiederverwendet, also muss jedes bildgebundene Feld gesetzt
-    // werden, nicht ergänzt.** Wer hier eine dritte Begleitdaten-Art aufnimmt,
-    // räumt sie ebenso vorher weg. Der Aufruf ist ein Nulltarif, wenn nichts
-    // da ist.
-    unsafe { av_frame_remove_side_data(frame, art) };
-    let sd = unsafe { av_frame_new_side_data(frame, art, groesse) };
-    if sd.is_null() {
-        bail!("av_frame_new_side_data({art:?}) lieferte NULL — kein Speicher");
-    }
-    unsafe { std::ptr::copy_nonoverlapping(std::ptr::from_ref(wert).cast::<u8>(), (*sd).data, groesse) };
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Ein Schirm, wie ihn DXGI meldet — Zahlen aus dem Gerät dieser Maschine,
-    /// damit sie plausibel sind. Für die Begleitdaten-Tests ist ihr Wert
-    /// gleichgültig, ihre Form nicht.
-    fn schirm() -> SchirmFarbe {
-        SchirmFarbe {
-            hdr_aktiv: true,
-            bits_je_kanal: 10,
-            max_nits: 463.0,
-            max_vollbild_nits: 463.0,
-            min_nits: 0.5,
-            primaervalenzen: [[0.6416, 0.3300], [0.2939, 0.6220], [0.1494, 0.0546]],
-            weisspunkt: [0.3125, 0.3291],
-        }
-    }
-
-    /// **Der Nachweis, dass die Sorge berechtigt war.** Die Analyse vom
-    /// 2026-08-06 nannte das Anwachsen der Begleitdaten als ungeprüften
-    /// Fallstrick der Bild-Wiederverwendung; hier steht die Antwort. FFmpegs
-    /// `av_frame_new_side_data` **hängt an** — zweimal gerufen, hat das Bild
-    /// zwei Einträge derselben Art.
-    ///
-    /// Der Test prüft FFmpeg, nicht uns. Er steht trotzdem hier: fiele die
-    /// Zusicherung eines Tages weg (FFmpeg räumte selbst), wäre das Entfernen
-    /// in [`seitendaten_schreiben`] überflüssig — und wer es entfernen will,
-    /// soll sehen, worauf es sich stützt.
-    #[test]
-    fn ffmpeg_haengt_begleitdaten_an() {
-        unsafe {
-            let frame = ffmpeg::ffi::av_frame_alloc();
-            assert!(!frame.is_null());
-            for _ in 0..2 {
-                let sd = av_frame_new_side_data(
-                    frame,
-                    AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
-                    std::mem::size_of::<AVContentLightMetadata>(),
-                );
-                assert!(!sd.is_null());
-            }
-            assert_eq!(
-                (*frame).nb_side_data,
-                2,
-                "wenn FFmpeg hier 1 liefert, räumt es selbst — dann ist das \
-                 av_frame_remove_side_data in seitendaten_schreiben überflüssig"
-            );
-            let mut f = frame;
-            ffmpeg::ffi::av_frame_free(&mut f);
-        }
-    }
-
-    /// Und der Nachweis, dass unser Weg es abfängt: dasselbe Bild dreimal
-    /// beschrieben trägt danach **zwei** Einträge, nicht sechs.
-    ///
-    /// Das ist die Bedingung, unter der `pipeline_hw::run` bei stehendem Bild
-    /// dasselbe gewandelte Bild erneut einschieben darf.
-    #[test]
-    fn wiederholtes_anhaengen_waechst_nicht() {
-        unsafe {
-            let frame = ffmpeg::ffi::av_frame_alloc();
-            assert!(!frame.is_null());
-            let s = schirm();
-            for _ in 0..3 {
-                metadaten_anhaengen(frame, &s).expect("Begleitdaten anhängen");
-            }
-            assert_eq!(
-                (*frame).nb_side_data,
-                2,
-                "je Art genau einer — sonst wächst ein stehendes Bild über die \
-                 Laufzeit des Streams zu"
-            );
-            assert_eq!(
-                (*frame).color_trc,
-                ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084,
-                "die Zündung für amfenc muss stehenbleiben"
-            );
-            let mut f = frame;
-            ffmpeg::ffi::av_frame_free(&mut f);
-        }
-    }
 
     /// AV1 über AMF ist der belegte Weg — und H.264 auf derselben Karte ist es
     /// nicht. Der Test hält beides fest, weil AMD seit dem 2026-08-04 mit
@@ -483,13 +308,31 @@ mod tests {
         assert!(verfuegbar("amd", &["h264".to_string(), "av1".to_string()]));
     }
 
-    /// Ungemessen heißt Nein. Der Test steht hier, damit ein späteres `true`
-    /// für NVIDIA eine bewusste Änderung ist und nicht als Nebenwirkung
-    /// hereinrutscht — zusammen mit der Messung, die es dann trägt.
+    /// **Hier stand bis zum 2026-08-11 `nvidia_und_intel_sind_hier_noch_nein`**
+    /// — „ungemessen heißt Nein", damit ein späteres `true` für NVIDIA eine
+    /// bewusste Änderung ist. Die Messung ist gefahren, die Änderung ist
+    /// bewusst, der Test dreht sich um: **auf NVIDIA trägt AV1 HDR, H.264
+    /// nicht** (10 bit lässt `supports_ten_bit` nur bei AV1 durch).
+    ///
+    /// Intel bleibt Nein und aus einem anderen Grund als „ungemessen": der Weg
+    /// dorthin führt über die CPU-Pipeline, die BGRA entgegennimmt und gar
+    /// keinen Farbwandler hat.
     #[test]
-    fn nvidia_und_intel_sind_hier_noch_nein() {
-        assert!(!verfuegbar("nvidia", &["av1".to_string(), "h264".to_string()]));
+    fn auf_nvidia_traegt_nur_av1_hdr_intel_nichts() {
+        assert!(verfuegbar("nvidia", &["av1".to_string()]));
+        assert!(!verfuegbar("nvidia", &["h264".to_string()]));
         assert!(!verfuegbar("intel", &["av1".to_string(), "h264".to_string()]));
+    }
+
+    /// **Die Lücke muss angesagt werden, nicht nur dokumentiert.** Ein Strom,
+    /// dem die Mastering-Hinweise fehlen, sieht beim Zuschauer flau aus, ohne
+    /// dass irgendwo etwas fehlschlägt — genau dann sucht jemand tagelang am
+    /// Player. Der Test hält fest, dass die Meldung an den Encoder gebunden
+    /// ist, der sie betrifft, und nicht an den Hersteller.
+    #[test]
+    fn nur_nvenc_meldet_die_fehlenden_mastering_angaben() {
+        assert!(mastering_fehlt("av1_nvenc").is_some());
+        assert!(mastering_fehlt("av1_amf").is_none());
     }
 
     /// Der Gegenprobe-Schalter auf D3D12 nimmt H.264 vom AMF-Weg — und damit
