@@ -19,6 +19,28 @@
 //! sie aus, `PULSE_PLAYER_ZEROCOPY_VAAPI=0` nur den letzten — s.
 //! [`crate::zerocopy`]).
 //!
+//! **Und genau dieser Absatz war fuer NVIDIA unter Windows falsch, bis zum
+//! 2026-08-11.** „Unter Windows bleibt das Bild auf dem D3D11VA-Weg" gilt fuer
+//! AMD und Intel; auf einer NVIDIA-Karte wird der D3D11VA-Weg **nie
+//! betreten**. In der Liste unten steht `*_cuvid` VOR dem nativen Decoder, es
+//! oeffnet dort ohne Weiteres, und ohne CUDA-Geraet (die Vorgabe ausserhalb
+//! von Linux, s. [`cuda_ausgabe_vorgabe`]) legt es sein Bild als NV12/P010 im
+//! Hauptspeicher ab. Damit ist `zerocopy::bruecke_moeglich` falsch und die
+//! Bruecke wird nicht einmal gefragt. Am Bild aendert das nichts, an den Kosten
+//! rund 2,8 ms je Bild bei 1080p8 und 5,15 ms bei 1080p10 (Messakte
+//! `streaming/testbench/profiles/player-2026-08-11-zerocopy-nvidia.json`).
+//!
+//! **Behoben am selben Tag: die Reihenfolge ist umgedreht** ([`ZUERST_NATIV_HW`]),
+//! unter Windows steht der native Decoder mit D3D11VA jetzt VOR `*_cuvid`.
+//! Damit gilt der Absatz darueber wieder fuer alle drei Hersteller. `*_cuvid`
+//! bleibt als Rueckfall dahinter, Linux bleibt unberuehrt — Begruendung,
+//! Kosten- und Robustheitszahlen an der Konstanten selbst.
+//!
+//! **Hier stand bis dahin „die Vorgabe ist bewusst NICHT umgestellt worden —
+//! dafuer fehlt der Beleg auf der Robustheitsseite".** Der Beleg ist
+//! nachgereicht (`profiles/player-2026-08-11-robustheit-d3d11va-gegen-cuvid.json`),
+//! der Satz damit erledigt.
+//!
 //! **Die cuvid-Decoder geben ihre Bilder auf der Karte heraus, seit sie ein
 //! CUDA-Geraet bekommen (2026-08-07).** Bis dahin landeten sie im
 //! Hauptspeicher, und die Begruendung dafuer stand hier falsch: es hiess, sie
@@ -218,6 +240,20 @@ impl Kandidat {
         self.hw.is_some() || is_hardware(self.name)
     }
 
+    /// Die Kurzform des angehaengten Geraets fuer `PULSE_PLAYER_DECODER`.
+    ///
+    /// **`hw` fuer beide plattform-eigenen hwaccels und nicht `vaapi`/`d3d11va`
+    /// getrennt**: dieselbe Vorgabe soll auf Linux wie unter Windows den
+    /// nativen Weg treffen, sonst braeuchte jede Messanleitung zwei Fassungen.
+    /// Denselben Kniff macht [`Kandidat::nativ_hw`] auf der anderen Seite.
+    fn geraetetag(&self) -> Option<&'static str> {
+        match self.hw {
+            Some(Hwaccel::Vaapi) | Some(Hwaccel::D3d11va) => Some("hw"),
+            Some(Hwaccel::Cuda) => Some("cuda"),
+            None => None,
+        }
+    }
+
     fn beschreibung(&self) -> &'static str {
         match self.hw {
             Some(hw) => hw.beschreibung(),
@@ -375,9 +411,66 @@ fn refresh_dauer() -> std::time::Duration {
 /// uebersprungen — obwohl er ohne Geraet genau so laeuft wie bis zum
 /// 2026-08-07. Ohne diesen zweiten Eintrag koennte ein Fehler im neuen Weg den
 /// Player still auf den nativen hwaccel oder auf Software werfen.
+///
+/// **`PULSE_PLAYER_DECODER` sticht diese Reihenfolge** (`crate::decoderwahl`).
+/// Das ist ein Messschalter und keine Betriebseinstellung; er ist der einzige
+/// Weg, auf einer Maschine den jeweils ANDEREN Decoder zu messen, ohne die
+/// Vorgabe anzufassen.
+///
+/// **Hier stand bis zum 2026-08-11 „auf einer NVIDIA-Karte gewinnt `*_cuvid`
+/// hier, und damit ist der D3D11VA-Weg samt Zero-Copy-Bruecke aus dem Spiel".
+/// Das war richtig und ist es nicht mehr** — seit [`ZUERST_NATIV_HW`] gewinnt
+/// unter Windows der native Decoder, und `*_cuvid` ist der Rueckfall. Auf
+/// Linux gilt der alte Satz unveraendert weiter, dort aber als Absicht: cuvid
+/// mit CUDA-Geraet IST dort der Zero-Copy-Weg.
 fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
-    candidates_mit(codec, allow_hw, cuda_ausgabe_vorgabe())
+    let liste = candidates_mit(codec, allow_hw, cuda_ausgabe_vorgabe());
+    crate::decoderwahl::filtern(liste, |k| (k.name, k.geraetetag()))
 }
+
+/// Steht der native Decoder mit dem plattform-eigenen hwaccel VOR `*_cuvid`?
+///
+/// **Unter Windows ja, seit dem 2026-08-11 — und das ist eine Umkehr.** Bis
+/// dahin gewann `av1_cuvid` die Liste auf jeder NVIDIA-Karte, und damit wurde
+/// der D3D11VA-Weg dort **nie betreten**: cuvid oeffnet anstandslos und legt
+/// sein Bild ohne CUDA-Geraet (die Vorgabe ausserhalb von Linux) im
+/// Hauptspeicher ab, womit `zerocopy::bruecke_moeglich` falsch ist und die
+/// Bruecke gar nicht erst gefragt wird.
+///
+/// Gemessen auf einer RTX 5080 (Treiber 610.47), je drei Laeufe zu 45 s,
+/// 1080p60, Messakte `profiles/player-2026-08-11-zerocopy-nvidia.json`:
+///
+/// | je Bild | `av1_cuvid` (bis dahin die Vorgabe) | nativ + D3D11VA (jetzt) |
+/// |---|---|---|
+/// | 8 bit — hochladen / dekodieren | 1,20 / 4,35 ms | **0,00 / 2,60 ms** |
+/// | 10 bit — hochladen / dekodieren | 2,20 / 5,90 ms | **0,00 / 2,95 ms** |
+///
+/// Das Bild ist auf beiden Wegen dasselbe (0 von 4096 Bildpunkten Abweichung in
+/// der isolierten Import-Probe), HDR laeuft auf beiden.
+///
+/// **Die Robustheitsseite ist nachgereicht** (`profiles/`
+/// `player-2026-08-11-robustheit-d3d11va-gegen-cuvid.json`): unter verworfenen
+/// und unter beschaedigten Zugriffseinheiten sowie beim Einstieg mitten in
+/// einen Intra-Refresh-Strom liefern beide Wege **bitgleiche** Bilder, in 138
+/// Laeufen kein Absturz, kein Neuaufbau, kein Aufgeben. Was dabei auffiel und
+/// hierher gehoert: bei einem wirklich UNGUELTIGEN Bitstrom gehen die Wege
+/// auseinander — der native Decoder weist ihn zurueck (er benutzt FFmpegs
+/// eigenen AV1-Parser) und eskaliert ueber `neuaufbau::classify` bis zum Ende
+/// der Sitzung, waehrend cuvid ihn schluckt und weiter ein (falsches) Bild
+/// zeigt. Welches Verhalten das bessere ist, ist eine Abwaegung und keine
+/// Messfrage; dass es der Unterschied ist, steht in der Akte.
+///
+/// **Linux bleibt unangetastet, und zwar absichtlich.** Dort ist `*_cuvid`
+/// MIT CUDA-Geraet selbst der Anfang der Zero-Copy-Kette (belegt am
+/// 2026-08-07); es nach hinten zu schieben hiesse, einen gemessenen Weg gegen
+/// einen ungemessenen zu tauschen. Deshalb haengt die Reihenfolge hier an der
+/// Plattform und nicht an `cuda_ausgabe_vorgabe` — der Ausdruck ueber den
+/// CUDA-Schalter waere eleganter, wuerde aber Linux mitdrehen, sobald jemand
+/// `PULSE_PLAYER_CUDA_AUSGABE=0` setzt.
+///
+/// `*_cuvid` bleibt in BEIDEN Faellen in der Liste, nur eben dahinter: laesst
+/// sich der hwaccel nicht anlegen, kommt es weiterhin zum Zug.
+const ZUERST_NATIV_HW: bool = cfg!(windows);
 
 /// Der eigentliche Aufbau der Liste, ohne die Umgebung zu befragen.
 ///
@@ -394,17 +487,27 @@ fn candidates_mit(codec: Codec, allow_hw: bool, cuda_aus: bool) -> Vec<Kandidat>
             vec![Kandidat::sw(name)]
         }
     };
-    let (hw, sw): (Vec<Kandidat>, &[Kandidat]) = match codec {
-        Codec::Av1 => {
-            let mut hw = cuvid("av1_cuvid");
-            hw.push(Kandidat::nativ_hw("av1"));
-            hw.push(Kandidat::sw("av1_qsv"));
-            (hw, &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")])
+    // Die Hardware-Wege in Probierreihenfolge. Welcher vorn steht, entscheidet
+    // [`ZUERST_NATIV_HW`]; der jeweils andere bleibt als Rueckfall dahinter.
+    let hw_liste = |cuvid_name: &'static str, nativ: &'static str, qsv: &'static str| {
+        let mut hw = Vec::new();
+        if ZUERST_NATIV_HW {
+            hw.push(Kandidat::nativ_hw(nativ));
         }
+        hw.extend(cuvid(cuvid_name));
+        if !ZUERST_NATIV_HW {
+            hw.push(Kandidat::nativ_hw(nativ));
+        }
+        hw.push(Kandidat::sw(qsv));
+        hw
+    };
+    let (hw, sw): (Vec<Kandidat>, &[Kandidat]) = match codec {
+        Codec::Av1 => (
+            hw_liste("av1_cuvid", "av1", "av1_qsv"),
+            &[Kandidat::sw("libdav1d"), Kandidat::sw("av1")],
+        ),
         Codec::H264 => {
-            let mut hw = cuvid("h264_cuvid");
-            hw.push(Kandidat::nativ_hw("h264"));
-            hw.push(Kandidat::sw("h264_qsv"));
+            let hw = hw_liste("h264_cuvid", "h264", "h264_qsv");
             (
                 hw,
                 // Nativer Decoder zuerst, `libopenh264` nur als Rueckfall.
@@ -444,11 +547,25 @@ fn candidates_mit(codec: Codec, allow_hw: bool, cuda_aus: bool) -> Vec<Kandidat>
 ///
 /// **Die Vorgabe haengt an der Plattform, und das ist Absicht.** Gemessen ist
 /// der Weg auf Linux/NVIDIA (RTX 5080), und er ist dort der Anfang der
-/// Zero-Copy-Kette. Unter Windows nimmt der Player den D3D11VA-Weg; dass cuvid
-/// mit CUDA-Geraet sich dort genauso verhaelt, ist plausibel und **ungemessen**
-/// — eine ungemessene Verhaltensaenderung auf einer Plattform, die niemand hier
-/// nachstellt, gehoert nicht in die Vorgabe. Der Schalter macht sie trotzdem
-/// pruefbar.
+/// Zero-Copy-Kette. Dass cuvid mit CUDA-Geraet sich unter Windows genauso
+/// verhaelt, ist plausibel und **ungemessen** — eine ungemessene
+/// Verhaltensaenderung auf einer Plattform, die niemand hier nachstellt,
+/// gehoert nicht in die Vorgabe. Der Schalter macht sie trotzdem pruefbar.
+///
+/// **Hier stand bis zum 2026-08-11 zusaetzlich „Unter Windows nimmt der Player
+/// den D3D11VA-Weg". Das ist falsch, und es war die Begruendung dafuer, dass
+/// die Sache hier folgenlos sei:** auf einer NVIDIA-Karte nimmt er ihn nicht.
+/// `av1_cuvid` steht in der Liste vor dem nativen Decoder und oeffnet; ohne
+/// Geraet liefert es in den Hauptspeicher, und die Zero-Copy-Bruecke bleibt
+/// ungefragt. Der Satz beschrieb also AMD und Intel und las sich wie eine
+/// Aussage ueber Windows. Nachgemessen am 2026-08-11 auf einer RTX 5080
+/// (`profiles/player-2026-08-11-zerocopy-nvidia.json`).
+///
+/// **Ein `=1` unter Windows hilft dagegen NICHT**, auch wenn der Name das
+/// nahelegt: cuvid gaebe dann `AV_PIX_FMT_CUDA` heraus, und eine Bruecke von
+/// CUDA nach wgpu gibt es nur auf Linux/Vulkan (`zerocopy::linux`, dort
+/// `#[cfg(target_os = "linux")]`). Unter Windows steht wgpu auf D3D12. Der Weg
+/// zur Bruecke fuehrt hier ueber `PULSE_PLAYER_DECODER=av1+hw`, nicht hierher.
 ///
 /// Kostet der eingeschaltete Weg fuer sich genommen nichts und bringt nichts:
 /// [`VideoDecoder::drain`] holt das Bild weiterhin herunter, nur sichtbar statt
@@ -1692,6 +1809,10 @@ impl VideoDecoder {
             // unten normal weiter.
             let zerocopy_versucht = crate::zerocopy::bruecke_moeglich(frame.format())
                 && crate::zerocopy::angefordert();
+            // Einmal je Sitzung protokollieren, WELCHEN Weg das Bild nimmt —
+            // der Fall „Bruecke wird nie gefragt" hat sonst keine Stimme
+            // (Begruendung und Zahlen bei `zerocopy::weg_melden`).
+            crate::zerocopy::weg_melden(frame.format(), zerocopy_versucht);
             if zerocopy_versucht {
                 let (fertig, dauer) = crate::zerocopy::bild_ohne_umweg(
                     &mut self.bruecke,
@@ -1920,7 +2041,12 @@ mod tests {
     #[test]
     fn kandidaten_enden_immer_auf_software() {
         let av1 = candidates(Codec::Av1, true);
-        assert!(av1.first().unwrap().name.contains("cuvid"), "Hardware zuerst: {av1:?}");
+        // **Hier stand bis zum 2026-08-11 `first().name.contains("cuvid")`.**
+        // Das schrieb die Reihenfolge fest statt der Absicht: geprueft gehoert
+        // „Hardware zuerst, Software zuletzt". WELCHER Hardware-Weg vorn steht,
+        // haengt seit [`ZUERST_NATIV_HW`] an der Plattform und wird eigens
+        // geprueft (`nativer_hwaccel_zuerst_unter_windows`).
+        assert!(av1.first().unwrap().hardware(), "Hardware zuerst: {av1:?}");
         assert!(av1.iter().any(|k| k.name == "libdav1d"), "Software-Rueckfall fehlt: {av1:?}");
         assert!(!av1.last().unwrap().hardware(), "zuletzt Software: {av1:?}");
 
@@ -1994,11 +2120,18 @@ mod tests {
                 .iter()
                 .position(|k| k.name == cuvid && k.hw.is_none())
                 .expect("Rueckfall auf cuvid ohne Geraet fehlt");
-            assert_eq!(mit_geraet, 0, "der CUDA-Weg gehoert nach vorn: {liste:?}");
+            // **Hier stand `assert_eq!(mit_geraet, 0)`.** Das galt, solange
+            // `*_cuvid` die Liste anfuehrte; seit [`ZUERST_NATIV_HW`] steht
+            // unter Windows der native Decoder davor. Die Zusicherung, um die
+            // es hier geht, ist das VERHAELTNIS der beiden cuvid-Eintraege
+            // zueinander — die bleibt auf beiden Plattformen dieselbe.
             assert!(
                 mit_geraet < ohne_geraet,
                 "der Rueckfall muss HINTER dem CUDA-Weg stehen: {liste:?}"
             );
+            if !ZUERST_NATIV_HW {
+                assert_eq!(mit_geraet, 0, "der CUDA-Weg gehoert nach vorn: {liste:?}");
+            }
             // Und der native hwaccel darf dahinter nicht verlorengehen.
             assert!(
                 liste.iter().any(|k| k.hw.is_some() && k.hw != Some(Hwaccel::Cuda)),
@@ -2021,7 +2154,42 @@ mod tests {
             1,
             "cuvid genau einmal: {liste:?}"
         );
-        assert_eq!(liste.first().unwrap().name, "av1_cuvid", "cuvid zuerst: {liste:?}");
+        // **Hier stand `assert_eq!(first().name, "av1_cuvid")`.** „Der alte
+        // Weg" meint den Zustand OHNE CUDA-Geraet, nicht die alte
+        // Listenreihenfolge — die haengt seit [`ZUERST_NATIV_HW`] an der
+        // Plattform und gehoert nicht in diesen Test.
+        let erwartet = if ZUERST_NATIV_HW { "av1" } else { "av1_cuvid" };
+        assert_eq!(liste.first().unwrap().name, erwartet, "falscher Kopf: {liste:?}");
+    }
+
+    /// Der Zero-Copy-Weg muss unter Windows GEWINNEN, nicht nur vorhanden sein.
+    ///
+    /// Der Fall, den dieser Test festhaelt, hat rund drei Monate unbemerkt
+    /// bestanden: `av1_cuvid` oeffnet auf einer NVIDIA-Karte anstandslos, legt
+    /// sein Bild aber ohne CUDA-Geraet im Hauptspeicher ab — die
+    /// Zero-Copy-Bruecke wurde dadurch **nie gefragt**, ohne dass irgendwo
+    /// etwas fehlschlug. Genau deshalb prueft das hier die REIHENFOLGE und
+    /// nicht die Anwesenheit: anwesend war der native Decoder die ganze Zeit.
+    #[test]
+    fn nativer_hwaccel_zuerst_unter_windows() {
+        for (codec, nativ, cuvid) in
+            [(Codec::Av1, "av1", "av1_cuvid"), (Codec::H264, "h264", "h264_cuvid")]
+        {
+            let liste = candidates_mit(codec, true, cuda_ausgabe_vorgabe());
+            let nativ_pos = liste
+                .iter()
+                .position(|k| k.name == nativ && k.hw.is_some())
+                .expect("nativer Decoder mit Geraet fehlt");
+            let cuvid_pos = liste
+                .iter()
+                .position(|k| k.name == cuvid)
+                .expect("cuvid fehlt als Rueckfall");
+            if ZUERST_NATIV_HW {
+                assert!(nativ_pos < cuvid_pos, "D3D11VA gehoert vor cuvid: {liste:?}");
+            } else {
+                assert!(cuvid_pos < nativ_pos, "auf Linux fuehrt cuvid: {liste:?}");
+            }
+        }
     }
 
     /// Die Hardware-Sperre (`PULSE_PLAYER_HWDEC=0`) muss ueber dem

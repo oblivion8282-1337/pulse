@@ -71,7 +71,11 @@ impl Drop for RtpDump {
 
 /// Liest ein Dump zurueck. Gegenstueck zu [`RtpDump::write`]; von den Tests
 /// des Depacketizers benutzt, um gegen echte Daten zu pruefen.
-#[cfg(test)]
+///
+/// **Hier stand bis zum 2026-08-11 `#[cfg(test)]`.** Seit `--robustheit`
+/// (`messen::robustheit`) liest auch ein Messpfad im ausgelieferten Programm
+/// diese Dateien; unter der Test-Sperre haette es die Funktion dort nicht
+/// gegeben. Sie kostet nichts, solange niemand sie ruft.
 pub fn read_dump(bytes: &[u8]) -> Vec<(Vec<u8>, bool)> {
     let mut out = Vec::new();
     let mut i = 0;
