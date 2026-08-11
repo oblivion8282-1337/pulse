@@ -494,6 +494,24 @@ fn cuda_ausgabe_vorgabe() -> bool {
 /// die Abschaltung ohne Wirkung (`wiederholbar` in
 /// `web/src/lib/player/useNativePlayback.svelte.ts`).
 ///
+/// **STAND 2026-08-11: auf aktuellem Unterbau nicht mehr reproduzierbar.** Auf
+/// Kernel 7.1.5 / Mesa 26.1.5 (Radeon 780M) tritt der Haenger weiterhin ein —
+/// die Signatur `ring vcn_unified_0 timeout, signaled seq=N, emitted seq=N+1`
+/// mit `Process pulse-player` steht wortgleich im Kernel-Log —, aber der
+/// Treiber setzt danach nur noch den RING zurueck statt das Geraet:
+/// „Ring vcn_unified_0 reset succeeded", „device wedged, but no recovery
+/// needed". Der Kontext ueberlebt, der Prozess laeuft weiter. In drei Laeufen
+/// von je 100 s bei bis zu 15 % Buendelverlust kein einziger Absturz
+/// (`profiles/player-2026-08-11-gpu-reset-nicht-mehr.json`).
+///
+/// **Der Wächter bleibt trotzdem richtig**, und zwar aus einem Grund, der
+/// nichts mit dieser Maschine zu tun hat: wer einen aelteren Kernel oder eine
+/// aeltere Mesa faehrt, bekommt weiter den harten Weg ueber den Geraete-Reset,
+/// und das Flatpak liefert den Player seit dem 2026-08-03 an genau die aus. Er
+/// kostet nichts, wenn er nie greift. Was fehlt, ist der Beleg am echten
+/// Absturz — der Beweisgegenstand ist hier abhanden gekommen, nicht der Beweis
+/// misslungen.
+///
 /// Ohne gleichzeitiges Encoden dekodiert dieselbe Karte mit rund 185 fps.
 ///
 /// Software-Dekodierung ist dafuer nur brauchbar, wenn `libdav1d` im
