@@ -267,6 +267,54 @@ pub fn angefordert() -> bool {
     schalter().load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Einmal je PROZESS sagen, welchen Weg das Bild nimmt.
+///
+/// **Je Prozess und nicht je Sitzung**, wie [`schalter`] und die Sonde auch.
+/// Der Preis steht hier, damit ihn niemand fuer einen Fehler haelt: oeffnet der
+/// Player nacheinander zwei Sitzungen mit verschiedenem Codec und damit
+/// womoeglich verschiedenem Bildweg, bekommt die zweite keine Zeile. Eine
+/// Meldung je Sitzung braeuchte einen Zaehler am `VideoDecoder`; das ist
+/// dieselbe Zeile mehr Zustand, als die Auskunft wert ist.
+///
+/// **Der Grund ist der eine Fehlerfall dieses Moduls, den niemand bemerkt.**
+/// [`abschalten`] faengt den lauten Fall — die Bruecke steht und traegt nicht.
+/// Der leise ist der andere: sie wird gar nicht erst gefragt, weil der Decoder
+/// sein Bild in einem Format herausgibt, fuer das es hier keine Bruecke gibt.
+/// Dann laeuft alles fehlerfrei, nur eben ueber den Hauptspeicher, und im
+/// Protokoll steht dazu **kein einziges Wort** — der Aufbau meldet sich ja nur,
+/// wenn er zustande kommt (`uebergabe::versuchen`).
+///
+/// **Gemessen am 2026-08-11 auf einer RTX 5080 unter Windows** (Messakte
+/// `streaming/testbench/profiles/player-2026-08-11-zerocopy-nvidia.json`): genau
+/// das ist dort der Regelfall. Die Kandidatenliste stellt `av1_cuvid` vor den
+/// nativen Decoder mit D3D11VA, cuvid ohne CUDA-Geraet legt sein Bild als
+/// NV12/P010 im Hauptspeicher ab, und damit ist [`bruecke_moeglich`] falsch,
+/// bevor irgendetwas eine Bruecke bauen koennte. Kosten: 1,2 ms Hochladen und
+/// rund 1,7 ms mehr Dekodierzeit je Bild bei 1080p8, 2,2 und 2,95 ms bei
+/// 1080p10. Nichts davon ist ein Fehler, es ist nur langsamer — und deshalb war
+/// es zweieinhalb Monate lang unbemerkt.
+///
+/// Eine Zeile je Sitzung, nicht je Bild.
+pub fn weg_melden(format: ffmpeg_next::format::Pixel, versucht: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static GESAGT: AtomicBool = AtomicBool::new(false);
+    if versucht || GESAGT.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    if angefordert() {
+        eprintln!(
+            "pulse-player: Bildweg ueber den Hauptspeicher — fuer {format:?} gibt es auf \
+             dieser Plattform keine Zero-Copy-Bruecke (der Decoder gibt sein Bild bereits \
+             dort heraus)"
+        );
+    } else {
+        eprintln!(
+            "pulse-player: Bildweg ueber den Hauptspeicher — Zero-Copy ist abgeschaltet \
+             (PULSE_PLAYER_ZEROCOPY=0)"
+        );
+    }
+}
+
 /// Den Weg abschalten — der Decoder holt die Bilder ab jetzt wieder herunter.
 ///
 /// **Das ist der Rueckkanal vom Renderer zum Decoder, und ohne ihn fehlte der

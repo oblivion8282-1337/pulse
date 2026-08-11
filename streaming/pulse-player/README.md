@@ -178,8 +178,11 @@ Ehrlich benannt, damit niemand danach sucht:
   (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
   auseinanderlaeuft, ist ungemessen.
 - **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
-- **Zero-copy ist unter Windows die Vorgabe** (`PULSE_PLAYER_ZEROCOPY=0`
-  schaltet ihn aus). **Hier stand bis zum 2026-08-06 abends „Kein zero-copy",
+- **Zero-copy ist unter Windows die Vorgabe — aber auf NVIDIA wird er nie
+  erreicht** (`PULSE_PLAYER_ZEROCOPY=0` schaltet ihn aus). Der Zusatz ist am
+  2026-08-11 dazugekommen; bis dahin stand hier nur die erste Haelfte, und die
+  liest sich wie eine Aussage ueber Windows, ist aber eine ueber AMD und Intel.
+  Einzelheiten und Zahlen unter „Zero-Copy". **Hier stand bis zum 2026-08-06 abends „Kein zero-copy",
   danach „nur auf Anforderung (`PULSE_PLAYER_ZEROCOPY=1`)"; beides ist
   ueberholt** — die Einzelheiten stehen weiter unten unter „Zero-Copy". Mit
   `=0` gilt der ganze folgende Absatz unveraendert: jedes Bild nimmt den
@@ -221,12 +224,42 @@ Ehrlich benannt, damit niemand danach sucht:
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
-## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows, Vorgabe)
+## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows — AMD und Intel)
 
 **Seit dem 2026-08-06 (nachts) die Vorgabe**; `PULSE_PLAYER_ZEROCOPY=0` schaltet
 ihn aus. **Hier stand bis dahin „auf Anforderung, `PULSE_PLAYER_ZEROCOPY=1`" —
 der Schalter zeigt jetzt in die andere Richtung**, und der Grund fuer die
 Sonderstellung ist weggefallen (s. „Wer noch mitliest").
+
+> **Auf NVIDIA laeuft dieser ganze Abschnitt nicht.** Die Ueberschrift hiess bis
+> zum 2026-08-11 „(Windows, Vorgabe)", und das war zu breit: der Weg haengt am
+> **D3D11VA**-Bild, und auf einer NVIDIA-Karte kommt der Player dort nie an.
+> `av1_cuvid`/`h264_cuvid` stehen in der Kandidatenliste **vor** dem nativen
+> Decoder, sie oeffnen anstandslos, und ohne CUDA-Geraet (die Vorgabe ausserhalb
+> von Linux) legen sie ihr Bild schon im Hauptspeicher ab. `bruecke_moeglich`
+> ist damit falsch, und die Bruecke wird nicht gefragt — kein Fehler, keine
+> Meldung, nur der langsamere Weg.
+>
+> Nachgemessen am 2026-08-11 auf einer RTX 5080 (Treiber 610.47), je drei
+> abwechselnde Laeufe zu 45 s, 1080p60 ueber die echte WHEP-Kette; Messakte
+> `streaming/testbench/profiles/player-2026-08-11-zerocopy-nvidia.json`:
+>
+> | je Bild | heute (`av1_cuvid`) | mit Bruecke (`PULSE_PLAYER_DECODER=av1+hw`) |
+> |---|---|---|
+> | 8 bit — hochladen / dekodieren | 1,20 / 4,35 ms | **0,00 / 2,60 ms** |
+> | 10 bit — hochladen / dekodieren | 2,20 / 5,90 ms | **0,00 / 2,95 ms** |
+>
+> Das Bild ist auf beiden Wegen dasselbe (mittlere Abweichung 0,03 bzw. 0,06 von
+> 255 — Dither, kein Versatz und keine Farbverschiebung), HDR laeuft auf beiden.
+> **Die Vorgabe ist trotzdem nicht umgestellt worden:** belegt ist die
+> Kostenseite, nicht die Robustheitsseite (Verhalten nach Paketverlust,
+> Wiederaufsetzen, Intra-Refresh-Einstieg), und `decode.rs` fuehrt fuer cuvid
+> mehrere hart erarbeitete Sonderbehandlungen, die fuer D3D11VA niemand geprueft
+> hat. Wer die Vorgabe drehen will, misst das zuerst.
+>
+> Sichtbar ist der Fall jetzt wenigstens: der Player schreibt beim ersten Bild
+> `Bildweg ueber den Hauptspeicher — fuer NV12 gibt es auf dieser Plattform
+> keine Zero-Copy-Bruecke`.
 
 Gemessen an der laufenden Kette (Radeon 780M, 1080p60 in 10 bit, HDR, je zwei
 Runden zu 75 s, Vorgabe gegen `=0` auf demselben Material):
@@ -360,7 +393,7 @@ src/
 ├── audio.rs       Opus-Decode + cpal-Ausgabe auf eigenem Thread
 ├── recorder.rs    Matroska-Mux ohne Neukodierung + Clip-Ringpuffer
 ├── mediasink.rs   buendelt Ton und Mitschnitt je Einheit
-├── zerocopy/      das Bild im Grafikspeicher lassen (Windows, Vorgabe)
+├── zerocopy/      das Bild im Grafikspeicher lassen (Windows: AMD/Intel)
 │   ├── bruecke.rs   Ring geteilter D3D11-Texturen samt Zaun
 │   ├── platz.rs     ein Ringplatz und wer ihn haelt (Lebensdauer-Regel)
 │   ├── ffmpeg_geraet.rs  was FFmpeg an einem D3D11-Bild mitgibt
@@ -436,9 +469,32 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 232 Tests, keine Hardware noetig
+cargo test          # 255 Tests, keine Hardware noetig
 cargo build --release
 ```
+
+**Schlaegt `depacket::tests::repro_3_stapa_ueberzaehliges_byte` mit „index out
+of bounds" im `vendor/`-Baum fehl, ist nicht der Test kaputt, sondern der
+Baum veraltet**: `vendor/webrtc-rs/` ist gitignored und wird von
+`scripts/bootstrap-webrtc.sh` hergestellt, und dieser Test haengt an
+`patches/0003-h264-stapa-bounds-check.patch`. Wer seinen Baum vor diesem Patch
+geholt hat, hat ihn nicht drin. Abhilfe: Skript erneut laufen lassen, oder
+`cd vendor/webrtc-rs && git apply ../../patches/0003-*.patch`. Am 2026-08-11 auf
+der Windows-Maschine genau so aufgeschlagen und eine Weile fuer eine Regression
+gehalten.
+
+**Den Decoder von aussen festlegen** (`PULSE_PLAYER_DECODER`, s.
+`src/decoderwahl.rs`) — Komma-Liste in Probierreihenfolge, `name`,
+`name+hw` (plattform-eigener hwaccel: D3D11VA/VAAPI) oder `name+cuda`:
+
+```
+PULSE_PLAYER_DECODER=av1+hw        # D3D11VA statt av1_cuvid -> Zero-Copy-Weg
+PULSE_PLAYER_DECODER=libdav1d      # Software, zum Gegenmessen
+```
+
+Trifft die Vorgabe keinen Kandidaten, scheitert der Decoder **laut** statt auf
+die volle Liste zurueckzufallen — ein stiller Rueckfall lieferte ein sauberes
+Messergebnis vom falschen Weg.
 
 Rauchtest ohne Stream (oeffnet kein Fenster):
 

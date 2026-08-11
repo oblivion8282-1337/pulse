@@ -20,6 +20,7 @@ mod abriss;
 mod app;
 mod audio;
 mod decode;
+mod decoderwahl;
 mod depacket;
 mod dump;
 mod einfrieren;
@@ -53,6 +54,9 @@ fn main() -> Result<()> {
     match argv.first().map(String::as_str) {
         Some("--stufen") => return messen::ausfuehren(&argv[1..]),
         Some("--farbwerte") => return messen::farbwerte::ausfuehren(),
+        // Haelt der Bildweg einen unsauberen Strom aus? Gehoert zu den
+        // Messpfaden: kein Fenster, kein Netz, kein JSON-RPC auf stdout.
+        Some("--robustheit") => return messen::robustheit::ausfuehren(&argv[1..]),
         // Fragt nur die Decoder ab und beendet sich. Gehoert hierher zu den
         // anderen Messpfaden: kein Fenster, kein Netz, kein JSON-RPC auf
         // stdout. Der Weg, auf einer fremden Maschine zu erfahren, WARUM sie

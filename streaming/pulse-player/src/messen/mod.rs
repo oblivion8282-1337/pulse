@@ -22,6 +22,7 @@
 
 pub mod farbwerte;
 mod gpu;
+pub mod robustheit;
 mod pixel;
 mod sollwerte;
 
