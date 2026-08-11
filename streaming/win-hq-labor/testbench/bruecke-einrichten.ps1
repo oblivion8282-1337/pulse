@@ -30,7 +30,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')) {
+# NICHT IsInRole('Administrators') -- die Zeichenketten-Fassung vergleicht den
+# GRUPPENNAMEN, und der heisst auf deutschem Windows "Administratoren". Die
+# Pruefung liefert dort immer False, auch in einem erhoehten Fenster, und das
+# Skript weist dann seine eigene Voraussetzung ab. Die Aufzaehlung geht ueber
+# die feste Kennung der Gruppe und ist damit sprachunabhaengig. (Dieselbe Falle
+# wie LC_ALL=C beim git-tidy-Alias in CLAUDE.md.)
+$ich = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $ich.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   throw "Nicht erhoeht gestartet. PowerShell als Administrator oeffnen und erneut aufrufen."
 }
 
@@ -62,8 +69,11 @@ if ($istAdminKonto) {
   if (-not (Select-String -Path $datei -SimpleMatch $Schluessel -Quiet)) {
     Add-Content -Path $datei -Value $Schluessel -Encoding ascii
   }
-  icacls $datei /inheritance:r /grant 'Administratoren:F' /grant 'SYSTEM:F' 2>$null | Out-Null
-  icacls $datei /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' 2>$null | Out-Null
+  # Auch hier die festen Kennungen statt der Namen (S-1-5-32-544 = Administratoren,
+  # S-1-5-18 = SYSTEM). Mit Namen gearbeitet, schlaegt icacls auf einem anders
+  # eingestellten Windows fehl -- und OpenSSH lehnt die Datei dann wegen zu
+  # weiter Rechte ab, ohne dass die Anmeldung sagt, woran es liegt.
+  icacls $datei /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
 } else {
   $datei = "$env:USERPROFILE\.ssh\authorized_keys"
   New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
