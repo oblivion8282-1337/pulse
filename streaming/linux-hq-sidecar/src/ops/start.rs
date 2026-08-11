@@ -15,7 +15,7 @@
 //! - `audio.excluded_apps`: nur für Desktop-Modi relevant (Pulse selbst wird
 //!   IMMER zusätzlich ausgeschlossen — Echo-Schutz, siehe `AudioSelection`)
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Map, Value};
 
 use crate::capture::audio::AudioSelection;
@@ -49,7 +49,9 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     // zu lassen. Die UI bietet AV1 auf solcher HW zwar gar nicht erst an (der
     // `health`-Report filtert über dieselbe Probe), aber ein veralteter Client
     // oder ein Direktaufruf käme sonst zum harten Fehler. Geht auch H.264
-    // nicht, bleibt der Wunsch stehen → echter, ehrlicher Encoder-Fehler.
+    // nicht, kann diese Karte gar nicht encodieren — dann bricht der Start
+    // sofort mit einer Erklärung ab, statt später am Encoder-Open zu scheitern
+    // (Begründung im dritten Zweig).
     //
     // **Der zweite Rückfall ist am 2026-08-02 entfallen.** Er nahm bei jedem
     // WHIP-Ziel AV1 zurück, weil ffmpegs WHIP-Muxer ausschließlich H.264 trägt
@@ -66,7 +68,33 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         );
         "h264".to_string()
     } else {
-        requested_codec
+        // **Diese Karte hat gar keinen Encoder** — ein eigener Fall, kein
+        // Encoder-Fehler.
+        //
+        // Hier stand bis zum 2026-08-11 `requested_codec`: der Start lief
+        // weiter und scheiterte Schritte später beim Oeffnen des Encoders. Was
+        // der Nutzer davon sah, war die rohe Treibermeldung — die Web-Schicht
+        // zeigt `Event::Error` woertlich an. Aus „VAAPI kann diesen
+        // Profileintrag nicht" schliesst niemand „meine Grafikkarte hat keine
+        // Encode-Einheit".
+        //
+        // Betrifft real **Radeon RX 6400 und RX 6500 XT**, denen AMD den
+        // VCN-Encode-Block weggelassen hat: sie dekodieren, `drm::detect()`
+        // erkennt sie sauber (`health.available` ist deshalb `true` und der
+        // HQ-Knopf sichtbar) — encodieren koennen sie nicht.
+        //
+        // **Dass der Knopf sichtbar bleibt, ist Absicht.** Die Alternative
+        // waere, ihn an eine nicht-leere Codec-Liste zu haengen; dann
+        // verschwaende HQ **wortlos**, sobald die Probe einmal aus einem
+        // anderen Grund leer zurueckkommt (Treiber neu geladen, Rechte auf
+        // `/dev/dri` kurz weg, Zeitablauf unter Last). Ein Knopf mit klarer
+        // Absage ist besser als einer, der ohne Spur fehlt.
+        bail!(
+            "Diese Grafikkarte hat keinen Video-Encoder — HQ-Streaming ist \
+             damit nicht möglich (betrifft unter anderem Radeon RX 6400 und \
+             RX 6500 XT). Bildschirmteilen in normaler Qualität funktioniert \
+             davon unabhängig weiter."
+        );
     };
     // 10 bit ist an AV1 GEBUNDEN und hängt an der Hardware. Reihenfolge der
     // Absagen (jede mit Log, damit „warum sind es 8 bit" beantwortbar bleibt):
