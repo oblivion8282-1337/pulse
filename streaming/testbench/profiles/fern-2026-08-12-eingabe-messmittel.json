@@ -1,0 +1,91 @@
+{
+  "id": "fern-2026-08-12-eingabe-messmittel",
+  "gemessen_am": "2026-08-12",
+  "frage": "Taugt ein Vollbild-Fenster als Messmittel fuer die Eingabe-Injektion der Fernsteuerung, und wie genau trifft die absolute Injektion ueber den virtuellen Desktop?",
+
+  "stand": "Vorbereitung. Der Injektor des Sidecars ist zu diesem Zeitpunkt noch nicht portiert; gemessen wird das MESSMITTEL selbst und die Windows-Schnittstelle darunter, damit ein spaeterer Befund am Sidecar nicht mit einem Fehler des Pruefstands verwechselt wird.",
+
+  "anlass": [
+    "Der Zwei-Geraete-Test der Fernsteuerung steht seit Juli aus. Das Plandokument 2026-08-11-fernsteuerung-neubewertung.md nennt als Verfahren: Zielpunkt senden, danach die echte Cursor-Position abfragen, Delta in Pixeln.",
+    "Zwei Einwaende dagegen. Erstens Sicherheit: Eingabe zu injizieren heisst auf einem benutzten Rechner blind zu klicken und zu tippen. Zweitens Messguete: GetCursorPos zurueckzulesen sagt nur, wo der Zeiger steht, nicht ob ein Fenster die Eingabe auch zugestellt bekommt.",
+    "Beides loest dasselbe Werkzeug: ein Fenster ueber allen Bildschirmen, das die Eingaben auffaengt und protokolliert."
+  ],
+
+  "aufbau": {
+    "maschine": "MICHI-PC-2, Windows 11 26200, ein Monitor",
+    "bildflaeche": "2560x1440, Skalierung 100 Prozent, virtueller Desktop Ursprung 0,0",
+    "messmittel": "streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1",
+    "eingabequelle_maus_1": "streaming/win-input-poc (M0-Pruefling vom 2026-07-22, hier erstmals gegen ein Pruefziel gefahren)",
+    "eingabequelle_maus_2": "SendInput direkt, MOUSEEVENTF_MOVE|ABSOLUTE|VIRTUALDESK, Wegwerf-Skript im Scratchpad",
+    "eingabequelle_tastatur": "SendInput direkt, KEYEVENTF_SCANCODE (+EXTENDEDKEY), Wegwerf-Skript im Scratchpad"
+  },
+
+  "messverfahren": [
+    "Das Pruefziel spannt sich ueber den gesamten virtuellen Desktop, liegt obenauf und schreibt jedes Maus- und Tastenereignis als JSONL-Zeile mit Bildschirmkoordinaten.",
+    "Injiziert wird von einem zweiten Prozess. Verglichen wird, was gesendet wurde, gegen das, was am Fenster ankam.",
+    "Bei der Tastatur wird SCANCODE gegen SCANCODE verglichen, nicht Zeichen gegen Zeichen. Das Protokoll ist absichtlich belegungsunabhaengig; ein Zeichenvergleich wuerde auf einer deutschen Belegung die Belegung mitpruefen statt der Uebertragung."
+  ],
+
+  "ergebnis": {
+    "maus_m0_pruefling": {
+      "ziel": "1280,720",
+      "vom_pruefling_zurueckgelesen": "1280,720, Delta 0 px",
+      "vom_pruefziel_empfangen": "maus_bewegt 1280,720 sowie maus_taste Left runter und hoch auf derselben Koordinate",
+      "bedeutung": "Die Zustellung an ein echtes Fenster ist belegt, nicht nur die Zeigerposition."
+    },
+    "maus_raster": {
+      "ziele": 12,
+      "abgedeckt": "alle vier Ecken, die je zweitaeussersten Pixel, Mitte, und vier Punkte dazwischen",
+      "groesste_abweichung_px": 0,
+      "formel_A": "n = round(px * 65535 / (breite - 1)) -- alle 12 Ziele exakt",
+      "formel_B": "n = floor((px + 0.5) * 65536 / breite) -- alle 12 Ziele exakt",
+      "befund": "Auf dieser Aufloesung treffen BEIDE Rechnungen. Die Rundungsfalle, die Moonlight in seinem Quelltext eigens umschifft (dort wird von den Massen eins abgezogen, weil Nvidias Skalierung den Zeiger sonst nicht an den aeussersten Bildrand kommen laesst), tritt hier nicht auf. Die Spezifikation schreibt Formel A vor; sie ist damit bestaetigt, nicht bloss angenommen."
+    },
+    "tastatur": {
+      "gesendet": ["0x1E", "0x30", "0xE01D"],
+      "empfangen": ["0x1E", "0x30", "0xE01D"],
+      "erweitert_kennung": "bei 0xE01D gesetzt",
+      "runter_und_hoch": "je Taste beide Ereignisse, in Reihenfolge"
+    }
+  },
+
+  "werkzeugfunde": [
+    {
+      "fund": "Das Pruefziel verlor die Erweitert-Kennung von Tasten.",
+      "symptom": "Gesendet 0xE01D (rechte Strg-Taste), empfangen 0x1D mit erweitert=false.",
+      "ursache": "WinForms meldet linke und rechte Zusatztasten als DIESELBE Taste (KeyCode ControlKey fuer beide). Der Rueckweg ueber MapVirtualKey raet daraus immer den linken Scancode.",
+      "warum_es_teuer_gewesen_waere": "Der Fehler lag im Messmittel und haette wie ein Fehler des Injektors ausgesehen. Genau diese Unterscheidung braucht das Protokoll fuer die rechte Strg-Taste und die Pfeiltasten.",
+      "behoben": "Gelesen wird jetzt lParam ueber einen Nachrichtenfilter: Bits 16..23 der Scancode, Bit 24 die Erweitert-Kennung."
+    },
+    {
+      "fund": "Environment.TickCount64 gibt es im .NET Framework nicht, auf dem PowerShell 5.1 laeuft.",
+      "symptom": "Die Typdefinition scheitert beim Uebersetzen, das Fenster startet wortlos gar nicht -- es entsteht schlicht keine Protokolldatei.",
+      "behoben": "Stopwatch.GetTimestamp()."
+    },
+    {
+      "fund": "Die Ereignis-Warteschlange wird im Zeichentakt geleert, nicht ueber Register-ObjectEvent.",
+      "grund": "Register-ObjectEvent hat in diesem Repo schon einmal ausgerechnet die aussagekraeftigen Zeilen verschluckt (testbench/README.md, Fallen im Messaufbau)."
+    }
+  ],
+
+  "was_diese_zahlen_NICHT_enthalten": [
+    "Keinen Netzweg. Injiziert wird lokal von einem zweiten Prozess; die Strecke ueber Player, Electron, chat-gateway und zurueck ist hier nicht beteiligt.",
+    "Keine Aussage ueber den Sidecar. Sein Injektor war zum Messzeitpunkt noch nicht portiert.",
+    "Keine Latenz. Gemessen wurde Genauigkeit und Zustellung, nicht Zeit."
+  ],
+
+  "offen_und_nicht_ermittelt": [
+    "Gemischte DPI. Dafuer braucht es zwei Monitore mit unterschiedlicher Skalierung; hier lief einer mit 100 Prozent. Das Plandokument fuehrt das seit dem 2026-07-22 als offen, und es bleibt offen.",
+    "Mehrere Monitore ueberhaupt. Der zweite Bildschirm dieser Maschine war aus. Die MOUSEEVENTF_VIRTUALDESK-Falle ist damit nicht ausgeuebt worden -- sie faellt erst auf, wenn ein nicht-primaerer Monitor im Spiel ist.",
+    "Fenster-Aufnahme. Die Regel, dass DWMWA_EXTENDED_FRAME_BOUNDS statt GetWindowRect zu nehmen ist (sonst rund 7 px Versatz), ist unveraendert uebernommen und hier nicht nachgemessen."
+  ],
+
+  "geaenderte_stellen": [
+    "streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1 (neu)",
+    "streaming/win-hq-labor/testbench/eingabe-frames.ps1 (neu)",
+    "streaming/win-hq-labor/testbench/README.md",
+    "docs/plans/2026-08-12-input-wire-protokoll-v2.md (neu)"
+  ],
+
+  "tests": "Der Frame-Erzeuger ist Byte fuer Byte gegen die Spezifikation gegengeprueft: Hello, MouseMoveAbs mit Randwert 65535, MouseMoveRel mit negativem Vorzeichen, MouseButton, MouseWheel mit einer Raste, erweiterte Taste 0xE01D. Ebenso die Normierung an beiden Raendern: 0.0 ergibt 0, 1.0 ergibt 65535."
+}
