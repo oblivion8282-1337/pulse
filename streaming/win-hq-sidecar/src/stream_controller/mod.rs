@@ -97,17 +97,25 @@ pub struct StartParams {
     /// neutral. Reicht bis in die `AudioPipeline` durch (dort Sample-Offset).
     pub av_offset_ms: i32,
     /// 10 bit je Kanal statt 8 — der WUNSCH aus dem Request, nicht das
-    /// Ergebnis. Ob er erfüllt wird, entscheidet `pipeline_hw` aus
-    /// [`VideoCodec::supports_ten_bit`](crate::encode::VideoCodec::supports_ten_bit)
-    /// und dem gewählten Encode-Weg; unerfüllbar heißt still 8 bit, nicht
-    /// Startverweigerung. Als `bool` statt als Bittiefe, damit hier keine 12
-    /// stehen kann, die nirgends behandelt wird — gleiche Form wie im
-    /// Linux-Sidecar (`StartParams::ten_bit`).
+    /// Ergebnis. **Trägt der effektive Encode-Weg gar kein 10 bit (CPU oder
+    /// D3D12), verweigert `run_pipeline` den Start**
+    /// (`encode::zehnbit::pruefen`) — seit dem 2026-08-11, vorher fiel der
+    /// Wunsch dort still auf 8 bit zurück. Innerhalb des D3D11-Zero-Copy-Wegs
+    /// bleibt die feinere Rücknahme bestehen: trägt der gewählte CODEC 10 bit
+    /// nicht ([`VideoCodec::supports_ten_bit`](crate::encode::VideoCodec::supports_ten_bit)
+    /// sagt nur AV1 zu) oder verlangt ein angemeldeter Encode-Weg einen
+    /// 8-bit-Pool, entscheidet `pipeline_hw` das weiterhin mit einer
+    /// Log-Zeile statt einem Abbruch (`bildencoder::pool_wahl`) — dort ist
+    /// „8 bit statt 10" die einzig sichtbare Abweichung, kein ganzer Weg, der
+    /// die Bittiefe nicht kennt. Als `bool` statt als Bittiefe, damit hier
+    /// keine 12 stehen kann, die nirgends behandelt wird — gleiche Form wie
+    /// im Linux-Sidecar (`StartParams::ten_bit`).
     ///
     /// **Das Frontend schickt `bit_depth` heute nicht.** Der Weg ist nur über
     /// einen von Hand gebauten Request erreichbar (Labor, `/app/dev/stream`).
-    /// Wer ihn in die Oberfläche holt, braucht dort dieselbe Absage-Regel,
-    /// sonst bietet ein Schalter etwas an, das der Sidecar wortlos verwirft.
+    /// Wer ihn in die Oberfläche holt, muss den Abbruch aus
+    /// `encode::zehnbit::pruefen` im Renderer abfangen und anzeigen — sonst
+    /// meldet ein Schalter dort einfach nichts, wenn der Sidecar ablehnt.
     pub ten_bit: bool,
     /// HDR senden: die Aufnahme in scRGB holen und als PQ/BT.2020 encodieren.
     ///
@@ -359,9 +367,17 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         // `select_adapter()` liefert auf Multi-GPU evtl. die dGPU statt der
         // Display-GPU; `pipeline_hw` wertet `encode_path` deshalb mit der
         // ECHTEN WGC-GPU noch einmal aus und delegiert nötigenfalls weiter.
-        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad.
+        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad —
+        // auch das ist ein Grund, aus dem 10 bit ausfallen kann, s.
+        // `encode::zehnbit::pruefen` unten.
         let disable_zc = crate::env::flag("PULSE_HQ_DISABLE_ZERO_COPY");
         let codec = params.codec();
+        // Roh ausgewertet, VOR dem Schalter — dieselbe Auswertung, die gleich
+        // beim Dispatch nochmal gebraucht wird (`pfad`, unten), und dieselbe,
+        // die `encode::zehnbit::pruefen` als effektiven Weg braucht (den
+        // Schalter prüft sie selbst zuerst). Eine Stelle statt zwei, damit
+        // Prüfung und Dispatch nicht auseinanderlaufen können.
+        let pfad = codec.encode_path(adapter.vendor(), &params.push_url);
         // **HDR wird HIER entschieden, vor der Aufnahme** — und nicht in
         // `pipeline_hw`, wo die übrige Bildarbeit sitzt. Zwei Gründe:
         //
@@ -392,10 +408,22 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             // PQ in 8 bit wäre in jedem Verlauf sichtbar geringelt —
             // Begründung an `StartParams::hdr`.
             params.ten_bit = true;
+        } else if params.ten_bit {
+            // Ein reiner 10-bit-Wunsch (ohne HDR) verdient dieselbe
+            // Disziplin wie HDR: abbrechen statt still auf 8 bit
+            // zurückzufallen (`encode::zehnbit`, Gegenstück zu `encode::hdr`).
+            //
+            // **Bewusst NICHT im HDR-Zweig oben** — HDR hat mit
+            // `hdr::pruefen` bereits die genauere Absage geprüft (`traegt_hdr`
+            // schließt „kein 10 bit" mit ein, s. Modulkopf dort). Ein zweiter
+            // Check hier würde bei einem HDR-Start entweder dieselbe Absage
+            // doppeln oder die genauere HDR-Meldung durch die allgemeinere
+            // 10-bit-Meldung verdrängen.
+            crate::encode::zehnbit::pruefen(disable_zc, pfad)?;
         }
         let params = params;
         if !disable_zc {
-            match codec.encode_path(adapter.vendor(), &params.push_url) {
+            match pfad {
                 EncodePath::D3d11ZeroCopy => {
                     return crate::pipeline_hw::run(adapter, params, stop_rx);
                 }

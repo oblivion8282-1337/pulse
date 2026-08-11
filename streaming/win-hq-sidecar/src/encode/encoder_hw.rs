@@ -74,6 +74,9 @@ pub struct HwEncoderConfig {
     /// bereits P010 führt (`pipeline_hw` erzwingt dafür den Scaler) — die
     /// Bittiefe des Ausgangs ergibt sich aus dem Eingangsformat, dieses Flag
     /// steuert nur die Encoder-Option und die Farb-Signalisierung.
+    /// „Ergibt sich aus dem Eingangsformat" ist seit dem 2026-08-11 **gemessen**
+    /// statt plausibel — auf NVIDIA ohne jede Bittiefen-Option, auf AMD nur
+    /// zusammen mit `bitdepth=10`. Zahlen: `opts.rs`, NVIDIA-Zweig.
     pub ten_bit: bool,
     /// Gesetzt heißt **HDR**: die Bildpunkte kommen als PQ/BT.2020 aus dem
     /// Video-Prozessor, und diese Angaben des Bildschirms gehen als
@@ -108,7 +111,7 @@ pub struct FfmpegHwEncoder {
     /// `zerolatency`/`delay` veraendern; `last_send_us` sieht ihn NICHT.
     enc_latency: EncodeLatency,
     /// Bei HDR die Angaben des Bildschirms — sie hängen an JEDEM Bild
-    /// (Begründung an `super::hdr::metadaten_anhaengen`), der Encoder muss sie
+    /// (Begründung an `super::hdr_metadaten::am_bild`), der Encoder muss sie
     /// also über seine Lebensdauer behalten.
     schirm: Option<crate::system::hdr::SchirmFarbe>,
 }
@@ -396,7 +399,7 @@ impl FfmpegHwEncoder {
             // Sequenzkopf steht davon unberührt — der Zuschauer sieht also
             // weiterhin HDR, nur ohne die Angabe zum Mastering-Gerät.
             if let Some(schirm) = &self.schirm
-                && let Err(e) = super::hdr::metadaten_anhaengen(frame_ptr, schirm)
+                && let Err(e) = super::hdr_metadaten::am_bild(frame_ptr, schirm)
             {
                 eprintln!("[encode] HDR-Metadaten für dieses Bild nicht angehängt: {e:#}");
             }

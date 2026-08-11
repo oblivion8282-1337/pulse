@@ -64,8 +64,21 @@ Kombination **wirklich** läuft (`encode/auffrischung.rs::encoder_name`).
 ### HDR (seit 2026-08-06)
 
 `overrides.hdr` schaltet ihn ein, `health.gsr.hdr` meldet, ob diese Maschine ihn
-überhaupt liefern kann. Belegt ist heute **allein AV1 über AMF**; NVIDIA ist
-ungemessen, nicht ausgeschlossen (Tabelle je Encoder: `encode/hdr.rs`).
+überhaupt liefern kann. Belegt ist er heute für **AV1 über AMF** (AMD,
+2026-08-06) und **AV1 über NVENC** (NVIDIA, 2026-08-11) — Tabelle je Encoder in
+`encode/hdr.rs`, Messungen in `docs/2026-08-06-hdr-windows-amd.md` und
+`docs/2026-08-11-hdr-windows-nvidia.md`. *(Hier stand bis zum 2026-08-11
+„allein AV1 über AMF; NVIDIA ist ungemessen" — das ist eingelöst.)*
+
+**Die HDR10-Mastering-Angaben sind auf beiden Herstellern mangelhaft, und zwar
+verschieden.** Auf AMD stehen sie im Strom, aber mit falscher Skalierung (AMF
+rechnet die HDR10-Nenner nicht in die AV1-Festkommaformate um; bewusst nicht
+vorkompensiert). Auf NVIDIA fehlen sie ganz — NVENCs AV1-Encoder schreibt auf
+Treiber 610.47 kein `OBU_METADATA`, obwohl FFmpeg sie ihm übergibt; belegt
+gegen `hevc_nvenc`, das sie über dieselbe Codestelle schreibt. Der Sidecar sagt
+das beim Start an (`hdr::mastering_fehlt`). Die **Signalisierung** — Kurve,
+Primärvalenzen, Matrix, Bittiefe — ist in beiden Fällen vollständig, und nur an
+ihr hängt die Bilddeutung.
 
 **Vier Bedingungen, alle notwendig** — Bildschirm läuft in HDR, Encode-Weg ist
 der über D3D11, Encoder trägt es, und es wird in 10 bit encodiert (das schaltet
@@ -123,6 +136,16 @@ P010-Pool. Zwei getrennte Gründe:
   (`CreateTexture2D` → `E_INVALIDARG`), womit **jeder 10-bit-Stream vor dem
   Encoder-Open starb**, während `health` die Fähigkeit meldete. Messakte
   `streaming/testbench/profiles/nvidia-2026-08-04-windows-intra-refresh.json`.
+
+**Auf NVIDIA trägt der 10-bit-Weg echte 10 bit — unabhängig bestätigt am
+2026-08-11** (RTX 5080, Treiber 610.47), an beiden Enden geprüft:
+`high_bitdepth = 1` im AV1-Sequenzkopf UND dekodierte Bildpunkte zwischen den
+8-bit-Stufen (Anteil auf Rest 0: 14,6 / 14,6 / 33,3 % über drei Läufe, gegen
+100,0 % im 8-bit-Lauf desselben Aufbaus). **`av1_nvenc` bekommt dafür KEINE
+Bittiefen-Option** — die Tiefe folgt dem Pool-Format; `bitdepth=10` ist eine
+AMF-Eigenheit (`encode/opts.rs`). Werkzeug
+`win-hq-labor/testbench/nvidia-zehnbit-nachweis.ps1`, Messakte
+`streaming/testbench/profiles/nvidia-2026-08-11-windows-zehnbit.json`.
 
 Messschalter: `PULSE_HQ_D3D11_SINGLE_TEX=1|0` übersteuert beides.
 
