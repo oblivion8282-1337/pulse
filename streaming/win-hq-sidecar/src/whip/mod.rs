@@ -49,11 +49,8 @@ use bytes::Bytes;
 use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use tokio::runtime::Runtime;
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1};
-use webrtc::api::APIBuilder;
+use webrtc::api::media_engine::MIME_TYPE_AV1;
 use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::interceptor::registry::Registry;
 use webrtc::media::Sample;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
@@ -228,15 +225,11 @@ impl WhipSender {
         // Rest (24/25/30/50/60...) exakt, sonst der naechstliegende Wert.
         let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
         let bild_sample_dauer = dauer_fuer_takte((90_000 + fps / 2) / fps, 90_000);
-        let mut media = MediaEngine::default();
-        media.register_default_codecs().context("Codecs registrieren")?;
-        let mut registry = Registry::new();
-        registry = register_default_interceptors(registry, &mut media)
-            .context("Interceptor-Registry")?;
-        let api = APIBuilder::new()
-            .with_media_engine(media)
-            .with_interceptor_registry(registry)
-            .build();
+
+        // Baut die Media-Engine so, dass im Angebot GENAU unsere beiden
+        // Fassungen stehen (Begruendung und Messung im Kopf von [`sdp`]).
+        let audio_cap = sdp::opus_capability();
+        let api = sdp::baue_api(&cap, &audio_cap)?;
 
         // Kein STUN: der Weg zum eigenen Server laeuft entweder ueber die
         // Schleife oder ueber eine gewoehnliche ausgehende Verbindung. Ein
@@ -280,7 +273,7 @@ impl WhipSender {
         // und stumme Spur kostet dagegen nichts — anders als beim Muxer, wo ein
         // angekuendigter, aber stummer Strom den Interleaver puffern liesse.
         let audio = Arc::new(TrackLocalStaticSample::new(
-            sdp::opus_capability(),
+            audio_cap,
             "audio".to_owned(),
             "pulse-hq".to_owned(),
         ));
