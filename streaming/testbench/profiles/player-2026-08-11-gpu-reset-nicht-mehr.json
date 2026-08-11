@@ -1,0 +1,30 @@
+{
+  "id": "player-2026-08-11-gpu-reset-nicht-mehr",
+  "gemessen_am": "2026-08-11, Radeon 780M (Phoenix, VCN 4), Mesa 26.1.5, Kernel 7.1.5-200.fc44",
+  "frage": "Stirbt der Player unter Buendelverlust noch am GPU-Haenger (Befund 2026-08-04, SIGABRT in amdgpu_ctx_set_sw_reset_status)? Der Neustart-Waechter sollte daran belegt werden.",
+  "ANTWORT": "Der Haenger tritt weiterhin ein, der Absturz NICHT. Der Treiber setzt nur noch den Ring zurueck statt das Geraet; der Kontext ueberlebt, der Prozess laeuft weiter. Drei Laeufe, kein Absturz. Der Waechter ist auf diesem Unterbau nicht mehr ausloesbar — und damit an der echten Stoerung nicht belegbar.",
+  "aufbau": {
+    "kette": "MediaMTX 1.19.1-pulse (host-net) <- ffmpeg -re -stream_loop -c copy (AV1 10 bit, 1080p60) ueber RTSP; Player als WHEP-Zuschauer",
+    "stoerung": "tc netem auf lo, Buendelverlust (loss X% 40-60% Korrelation)",
+    "laeufe": [
+      { "verlust": "30% / 60%", "dauer_s": 6, "ergebnis": "Verbindung brach ab, bevor dekodiert wurde — als Messung wertlos, hier nur der Vollstaendigkeit halber" },
+      { "verlust": "8% / 40%", "dauer_s": 100, "ergebnis": "57 Bilder/s dekodiert, 657 Pakete verloren, kein Absturz, Beendigungscode 0" },
+      { "verlust": "15% / 50%", "dauer_s": 110, "ergebnis": "21 Bilder/s dekodiert, kein Absturz, Beendigungscode 0" }
+    ]
+  },
+  "kernel_belege": {
+    "ausloeser_trat_ein": "amdgpu: ring vcn_unified_0 timeout, signaled seq=32930, emitted seq=32931 — mit 'Process pulse-player', also wortgleich zur Signatur vom 2026-08-04",
+    "was_jetzt_anders_ist": "Starting vcn_unified_0 ring reset / Ring vcn_unified_0 reset succeeded / [drm] device wedged, but no recovery needed",
+    "was_NICHT_mehr_vorkam": "kein amdgpu_ctx_set_sw_reset_status, kein 'context is lost', kein SIGABRT — in 20 Minuten Kernel-Log null Treffer",
+    "haeufigkeit": "zweimal je Lauf beobachtet, jedes Mal folgenlos"
+  },
+  "deutung": {
+    "ursache_der_aenderung": "Der weiche Ring-Reset (statt Geraete-Reset mit Kontextverlust) kommt aus Kernel/Mesa, nicht aus Pulse. Auf dem Stand vom 2026-08-04 gab es ihn hier offenbar noch nicht.",
+    "folge_fuer_den_waechter": "Er bleibt gebaut und richtig: aeltere Kernel/Mesa haben den harten Weg weiterhin, und das Flatpak liefert den Player seit dem 2026-08-03 an genau die aus. Er kostet nichts, wenn er nie greift. Belegt ist er weiterhin nur durch Unit-Tests.",
+    "was_das_NICHT_heisst": "Nicht 'der Fehler ist behoben'. Er ist auf DIESEM Unterbau nicht mehr ausloesbar. Ueber andere Karten, aeltere Treiber oder andere Lastbilder sagt das nichts."
+  },
+  "falle": {
+    "was": "Der erste Lauf mit 30 % Verlust sah nach 'kein Absturz' aus, war aber wertlos: die WebRTC-Verbindung brach nach 6 s ab, es wurde nie dekodiert.",
+    "lehre": "Bei einer Stoerungsmessung zuerst pruefen, ob die Kette unter der Stoerung ueberhaupt noch das tut, was gemessen werden soll. Ein sauberer Beendigungscode ohne dekodierte Bilder ist kein Ergebnis."
+  }
+}

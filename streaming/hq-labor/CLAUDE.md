@@ -498,8 +498,18 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       meldete. Ursache war eine Pool-Bauart, die allein am Vendor hing; behoben
       in `hwctx.rs`, Gegenprobe samt Sichtpruefung in der Messakte.
 
-**Gebaut am 2026-08-10 — der Player stirbt an einem GPU-Hänger, und das trifft
-ausgelieferte Nutzer:**
+**Gebaut am 2026-08-10, am 2026-08-11 nicht mehr reproduzierbar — der Player
+starb an einem GPU-Hänger:**
+
+> **Nachtrag 2026-08-11.** Auf Kernel 7.1.5 / Mesa 26.1.5 tritt der Hänger
+> weiterhin ein (`ring vcn_unified_0 timeout`, `Process pulse-player`), aber der
+> Treiber setzt nur noch den **Ring** zurück statt das Gerät — „reset
+> succeeded", „device wedged, but no recovery needed". Der Kontext überlebt,
+> der Player läuft weiter. Drei Läufe bis 15 % Bündelverlust, kein Absturz:
+> `profiles/player-2026-08-11-gpu-reset-nicht-mehr.json`. Der Wächter bleibt
+> trotzdem — ältere Kernel/Mesa haben den harten Weg weiterhin, und das Flatpak
+> liefert an genau die aus. Nur belegen lässt er sich hier nicht mehr.
+
 
 Untersucht am 2026-08-04 (Entscheidung damals: erst merken, nicht bauen),
 umgesetzt am 2026-08-10 in `desktop/electron/player-hwdec-wacht.ts` samt
