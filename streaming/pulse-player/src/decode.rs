@@ -611,23 +611,39 @@ fn cuda_ausgabe_vorgabe() -> bool {
 /// die Abschaltung ohne Wirkung (`wiederholbar` in
 /// `web/src/lib/player/useNativePlayback.svelte.ts`).
 ///
-/// **STAND 2026-08-11: auf aktuellem Unterbau nicht mehr reproduzierbar.** Auf
-/// Kernel 7.1.5 / Mesa 26.1.5 (Radeon 780M) tritt der Haenger weiterhin ein —
-/// die Signatur `ring vcn_unified_0 timeout, signaled seq=N, emitted seq=N+1`
-/// mit `Process pulse-player` steht wortgleich im Kernel-Log —, aber der
-/// Treiber setzt danach nur noch den RING zurueck statt das Geraet:
-/// „Ring vcn_unified_0 reset succeeded", „device wedged, but no recovery
-/// needed". Der Kontext ueberlebt, der Prozess laeuft weiter. In drei Laeufen
-/// von je 100 s bei bis zu 15 % Buendelverlust kein einziger Absturz
-/// (`profiles/player-2026-08-11-gpu-reset-nicht-mehr.json`).
+/// **STAND 2026-08-11 (ueberholt, s. naechster Absatz): auf aktuellem Unterbau
+/// nicht mehr reproduzierbar.** Auf Kernel 7.1.5 / Mesa 26.1.5 (Radeon 780M)
+/// tritt der Haenger weiterhin ein — die Signatur `ring vcn_unified_0 timeout,
+/// signaled seq=N, emitted seq=N+1` mit `Process pulse-player` steht wortgleich
+/// im Kernel-Log —, aber der Treiber setzt danach nur noch den RING zurueck
+/// statt das Geraet: „Ring vcn_unified_0 reset succeeded", „device wedged, but
+/// no recovery needed". Der Kontext ueberlebt, der Prozess laeuft weiter. In
+/// drei Laeufen von je 100 s bei bis zu 15 % Buendelverlust kein einziger
+/// Absturz (`profiles/player-2026-08-11-gpu-reset-nicht-mehr.json`).
 ///
-/// **Der Wächter bleibt trotzdem richtig**, und zwar aus einem Grund, der
-/// nichts mit dieser Maschine zu tun hat: wer einen aelteren Kernel oder eine
-/// aeltere Mesa faehrt, bekommt weiter den harten Weg ueber den Geraete-Reset,
-/// und das Flatpak liefert den Player seit dem 2026-08-03 an genau die aus. Er
-/// kostet nichts, wenn er nie greift. Was fehlt, ist der Beleg am echten
-/// Absturz — der Beweisgegenstand ist hier abhanden gekommen, nicht der Beweis
-/// misslungen.
+/// **KORREKTUR 2026-08-12: doch, und der fehlende Beleg liegt jetzt vor.** Auf
+/// demselben Unterbau (Kernel 7.1.5-200.fc44, Mesa 26.1.5, Radeon 780M) ist der
+/// Player an EINEM Tag ZWEIMAL an genau diesem Haenger gestorben — `beendet
+/// (code=null, signal=SIGABRT)`, der Waechter hat beide Male gegriffen und auf
+/// `libdav1d` umgestellt. Der Ring-Reset allein heilt es also nicht; ob der
+/// Prozess ihn ueberlebt, haengt am Zeitpunkt, nicht am Treiberstand.
+///
+/// **Warum die Messbank es nicht sah — und das ist der eigentliche Befund.**
+/// Dort laeuft der Player ALLEIN. In der App lief er nie allein: die Kachel
+/// hielt ihre WHEP-Verbindung offen, waehrend das eigene Fenster das Bild
+/// zeigte, und Chromium dekodierte dieselbe AV1-Spur ein zweites Mal in
+/// Hardware — unsichtbar, denn ein `<video>` gab es da gar nicht mehr. Zwei
+/// Decoder auf der EINEN Video-Einheit, die sich Encode und Decode ohnehin
+/// schon teilt. Das Kernel-Log desselben Tages benennt beide als Verursacher:
+/// dreimal `Process pulse-player`, viermal `Process electron`. Behoben in
+/// `web/src/lib/stream/hqStreamManager.svelte.ts` (`setRuhend`) — die
+/// Kachel-Verbindung ruht jetzt, solange das Fenster den Stream hat.
+///
+/// **Der Waechter bleibt trotzdem richtig**, jetzt aus zwei Gruenden: die
+/// doppelte Last ist weg, aber die Einheit haengt auch einzeln (der Lauf vom
+/// 2026-08-04 hatte nur einen Decoder und nur Buendelverlust), und wer einen
+/// aelteren Kernel oder eine aeltere Mesa faehrt, bekommt weiter den harten Weg
+/// ueber den Geraete-Reset. Er kostet nichts, wenn er nie greift.
 ///
 /// Ohne gleichzeitiges Encoden dekodiert dieselbe Karte mit rund 185 fps.
 ///

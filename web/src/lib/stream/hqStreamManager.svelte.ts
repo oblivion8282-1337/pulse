@@ -151,6 +151,69 @@ export class ManagedHqStream {
     this.#applyVolume();
   }
 
+  // ---- Ruhen, solange das eigene Fenster den Stream hat --------------------
+  /**
+   * Läuft das Bild im nativen Player, ruht diese Verbindung ganz.
+   *
+   * **Warum das nötig ist — der Ton war nur die halbe Doppelung.** Für den Ton
+   * gibt es [`nativeAudio`] seit jeher; das BILD lief bis 2026-08-12 weiter
+   * doppelt, nur unsichtbar. `connectWhep` meldet immer eine `video`-Spur an
+   * (`whep.ts`), und Chromium dekodiert sie in Hardware — auch wenn die Kachel
+   * längst das `NativeWindowPanel` zeigt und gar kein `<video>` mehr existiert.
+   * Derselbe Stream wurde damit zweimal geladen und zweimal dekodiert.
+   *
+   * **Was das anrichtet.** Auf AMD-APUs (Phoenix/VCN 4, z. B. Radeon 780M)
+   * teilen sich beide Decoder EINE Video-Einheit. Unter der doppelten Last
+   * hängt sie: `ring vcn_unified_0 timeout` im Kernel-Log, danach ist der
+   * Player-Prozess weg (SIGABRT) und die App fällt auf Software-Dekodierung
+   * zurück. Am 2026-08-12 sieben Mal belegt — dreimal mit `Process
+   * pulse-player`, viermal mit `Process electron`, also von BEIDEN Decodern
+   * aus. Warum die Messbank das nie sah: dort läuft der Player allein.
+   * Ursachenakte: `streaming/pulse-player/src/decode.rs` bei `hwdec_vorgabe`.
+   *
+   * **Gesetzt wird es von der `NativePlayerSession`, nicht von der Kachel** —
+   * aus demselben Grund wie beim Ton: das Fenster überlebt deren Unmount
+   * (Keep-Alive). Und nur sie kennt den Zustand `playing`: an `useNative`
+   * allein hinge das Ruhen schon während des Verbindens, es gäbe also ein
+   * Abbauen und sofortiges Wiederaufbauen bei jedem Fensterstart.
+   */
+  ruhend = $state(false);
+
+  setRuhend(on: boolean): void {
+    if (this.ruhend === on) return;
+    this.ruhend = on;
+    if (on) void this.#ruhenLegen();
+    else void this.#aufwecken();
+  }
+
+  /**
+   * Verbindung abbauen, Manager behalten.
+   *
+   * Lautstärke, Registry-Eintrag und Keep-Alive bleiben bestehen — es geht nur
+   * die WHEP-Sitzung. `phase` fällt auf `connecting` zurück: käme die Kachel
+   * später zurück, zeigte ein stehengebliebenes `playing` sonst einen Zustand
+   * an, hinter dem kein Bild mehr steht.
+   *
+   * Der Zustand wird VOR dem `await` gesetzt — `#teardown()` merkt sich die
+   * Sitzung synchron und schliesst danach, ein zwischenzeitliches Aufwecken
+   * kann seine frische Sitzung also nicht mehr verlieren.
+   */
+  async #ruhenLegen(): Promise<void> {
+    this.#removeAudioEl();
+    this.stream = null;
+    this.stats = null;
+    this.phase = 'connecting';
+    this.detail = '';
+    await this.#teardown('uebernahme');
+  }
+
+  /** Zurück auf den Kachel-Weg: das Fenster ist zu oder gescheitert. */
+  async #aufwecken(): Promise<void> {
+    if (this.#disposed || this.ruhend) return;
+    this.#attempt = 0;
+    await this.#start();
+  }
+
   setVolume(v: number): void {
     if (v > 0) this.#prevVolume = v;
     this.volume = v;
@@ -258,11 +321,14 @@ export class ManagedHqStream {
     );
   }
 
-  async #teardown(): Promise<void> {
+  async #teardown(grund = 'wiederaufbau'): Promise<void> {
     this.#clearTimers();
     // `disposed` heisst: die Kachel wurde geschlossen. Alles andere, was hier
-    // durchkommt, ist ein Wiederaufbau — und der hat einen Grund.
-    this.#diagnoseAbschliessen(this.#disposed ? 'beendet' : 'wiederaufbau');
+    // durchkommt, ist ein Wiederaufbau oder die Übernahme durch das eigene
+    // Fenster (`uebernahme`) — und beides hat einen Grund, der in den Bericht
+    // gehört: ein als `wiederaufbau` gebuchtes Ruhen sähe im Nachhinein wie ein
+    // Verbindungsabbruch aus.
+    this.#diagnoseAbschliessen(this.#disposed ? 'beendet' : grund);
     const s = this.#session;
     this.#session = null;
     if (s && this.#connListener) {
@@ -311,7 +377,10 @@ export class ManagedHqStream {
   }
 
   async #start(): Promise<void> {
-    if (this.#disposed) return;
+    // `ruhend` gehört hierher und nicht nur an die Aufrufstellen: ein bereits
+    // laufender Retry-Timer (`#scheduleRetry`) würde die Verbindung sonst
+    // wieder aufbauen, während das eigene Fenster den Stream hat.
+    if (this.#disposed || this.ruhend) return;
     await this.#teardown();
     if (this.#disposed) return;
     if (this.#attempt === 0) this.phase = 'connecting';

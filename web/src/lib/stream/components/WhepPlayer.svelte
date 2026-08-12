@@ -174,7 +174,14 @@
   // zurueckgeben kann, waehrend der Manager frisch ist — dann hat die Sitzung
   // ihr `open()` schon hinter sich und wuerde nie mehr stummschalten.
   $effect(() => {
-    mgr?.setNativeAudio(useNative && native.phase === 'playing');
+    const uebernommen = useNative && native.phase === 'playing';
+    mgr?.setNativeAudio(uebernommen);
+    // Dasselbe fuers Bild, und aus demselben Grund nochmal hier: ein frischer
+    // Manager an einer bestehenden Sitzung hat das `playing`-Ereignis nie
+    // gesehen und wuerde den Stream ein zweites Mal laden und dekodieren
+    // (`ManagedHqStream.setRuhend`). Dieselbe Bedingung wie oben — die Sitzung
+    // und diese Kachel koennen sich also nicht widersprechen.
+    mgr?.setRuhend(uebernommen);
   });
 
   // Zwei Bedienleisten fuer denselben Stream sind Murks: sobald das Bild im
