@@ -114,6 +114,11 @@ CORE_OPS: frozenset[str] = frozenset({
     "watch_queue_remove",
     "watch_queue_move",
     "watch_queue_advance",
+    "remote_request",
+    "remote_respond",
+    "remote_signal",
+    "remote_input",
+    "remote_end",
     "profile_statement",
 })
 

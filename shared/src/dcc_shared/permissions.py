@@ -57,6 +57,11 @@ class Permissions(IntFlag):
     MUTE_MEMBERS = 1 << 34
     DEAFEN_MEMBERS = 1 << 35
     MOVE_MEMBERS = 1 << 36
+    # Darf eine Fernsteuerung eines anderen Mitglieds ANFRAGEN. Der Host stimmt
+    # jeder Sitzung zusätzlich per Consent zu — dieses Bit ist die Vorabhürde,
+    # nicht die Erlaubnis selbst. Bewusst NICHT in DEFAULT_EVERYONE_PERMISSIONS
+    # (sensibelste Fähigkeit; ein Admin muss sie explizit an eine Rolle geben).
+    REMOTE_CONTROL = 1 << 37
 
     # Bypass all checks. Owner is granted this implicitly by the resolver.
     ADMINISTRATOR = 1 << 51
