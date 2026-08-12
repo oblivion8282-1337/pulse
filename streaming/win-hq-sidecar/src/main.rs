@@ -19,6 +19,18 @@ use std::thread;
 use pulse_win_hq_sidecar::{dispatch, events};
 
 fn main() -> anyhow::Result<()> {
+    // **Per-Monitor-DPI-Bewusstsein v2 als ALLERERSTES** — vor jeder Fenster-,
+    // Bildschirm- oder Zeigerabfrage. Zwei Gründe: (1) die Eingabe-Injektion der
+    // Fernsteuerung trifft sonst bei einer Skalierung ≠ 100 % systematisch
+    // daneben (ganze Begründung an `injektion::dpi_bewusstsein_setzen`);
+    // (2) die Aufnahme-/FSE-Logik in `capture/source.rs` rechnet ohnehin in
+    // physischen Bildpunkten, und DPI-bewusst sind ihre Rechtecke durchgängig
+    // physisch statt je nach Schirm anders gemeint. Ein Fehlschlag ist nicht
+    // tödlich (älteres Windows, oder schon gesetzt): melden und weiterlaufen.
+    if let Err(e) = pulse_win_hq_sidecar::remote_input::injektion::dpi_bewusstsein_setzen() {
+        eprintln!("[hq-sidecar] Per-Monitor-DPI-Bewusstsein nicht gesetzt: {e}");
+    }
+
     // Diagnose-Schalter: `PULSE_HQ_FFMPEG_DEBUG=1` hebt das FFmpeg-Log-Level auf
     // Debug — nötig um hinter „Writing encrypted data to socket failed" den
     // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)
@@ -55,6 +67,11 @@ fn main() -> anyhow::Result<()> {
                 // in Reihenfolge ab) → Prozess jetzt beenden.
                 if value.is_null() {
                     let _ = out.flush();
+                    // Fehler-Exit-Pfad (`events::request_exit`): eine noch
+                    // laufende Fernsteuer-Sitzung ließe sonst jede gedrückte
+                    // Taste am Host hängen — „Alles loslassen beim Ende" gilt
+                    // auch für dieses Ende.
+                    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden();
                     std::process::exit(0);
                 }
                 let json = match serde_json::to_string(&value) {
@@ -133,7 +150,9 @@ fn main() -> anyhow::Result<()> {
     drop(out_tx);
     let _ = writer.join();
 
-    // Falls noch ein Stream läuft, stoppen.
+    // Eine noch laufende Fernsteuer-Sitzung schließen (gibt Gedrücktes frei),
+    // dann einen noch laufenden Stream stoppen.
+    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

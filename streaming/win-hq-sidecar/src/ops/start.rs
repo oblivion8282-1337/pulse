@@ -79,6 +79,16 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         .unwrap_or(0)
         .clamp(-1000, 1000) as i32;
 
+    // Welchen Stream-Platz dieser Prozess bedient. Optional und heute von
+    // niemandem gesetzt — Electron fährt je Platz einen eigenen Sidecar. Wer es
+    // setzt, bekommt dafür die strenge Zuordnung in der Fernsteuerung: Frames
+    // eines anderen Slots landen dann nicht auf diesem Bildschirm
+    // (`remote_input::ziel`).
+    let slot = params
+        .get("slot")
+        .and_then(Value::as_u64)
+        .map(|n| n.min(u32::MAX as u64) as u32);
+
     Ok(StartParams {
         profile,
         profile_name: profile_name.to_string(),
@@ -86,6 +96,7 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         token,
         push_url,
         capture,
+        slot,
         audio,
         override_codec: overrides.codec,
         override_bitrate_kbps: overrides.bitrate_kbps,

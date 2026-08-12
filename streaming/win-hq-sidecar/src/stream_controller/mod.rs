@@ -81,6 +81,14 @@ pub struct StartParams {
     pub token: String,
     pub push_url: String,
     pub capture: CaptureSource,
+    /// Welchen **Stream-Platz** dieser Prozess bedient (`slot` aus der
+    /// `start`-Anfrage). Nur die Fernsteuerung liest ihn: sie muss den Slot aus
+    /// der Eingabe-Hülle in eine Aufnahmequelle auflösen
+    /// (`remote_input::ziel`). `None` = nicht genannt, der heutige Regelfall —
+    /// Electron fährt je Platz einen eigenen Sidecar
+    /// (`desktop/electron/sidecar.ts::getSidecar`) und braucht die Nummer
+    /// deshalb nicht mitzuschicken.
+    pub slot: Option<u32>,
     pub audio: Option<AudioSource>,
     pub override_codec: Option<VideoCodec>,
     pub override_bitrate_kbps: Option<u32>,
@@ -209,6 +217,11 @@ impl StreamController {
         inner.stop_tx = Some(stop_tx);
         inner.started_at = Some(Instant::now());
 
+        // Die Aufnahmequelle für die Fernsteuerung sichtbar machen: sie löst den
+        // Slot einer Eingabe-Nachricht daraus in das Quell-Rechteck auf. Vor dem
+        // Spawn, weil `params` gleich in den Worker wandert.
+        crate::remote_input::ziel::strom_gestartet(params.slot, params.capture.clone());
+
         // Worker spawnen — der hält den ganzen Pipeline-State, wir behalten
         // hier nur ein Stop-Signal + JoinHandle.
         let worker = thread::Builder::new()
@@ -231,6 +244,10 @@ impl StreamController {
         if let Some(tx) = inner.stop_tx.take() {
             let _ = tx.send(());
         }
+        // Sofort abmelden, nicht erst wenn der Worker ausgelaufen ist: bis dahin
+        // vergehen im schlimmsten Fall Sekunden, und in denen zeigte die
+        // Fernsteuerung noch auf eine Quelle, die keiner mehr aufnimmt.
+        crate::remote_input::ziel::strom_beendet();
         let worker = inner.worker.take();
         drop(inner);
 
@@ -274,6 +291,9 @@ impl StreamController {
 
     /// Vom Worker-Thread aufgerufen wenn die Pipeline beendet (regular oder Fehler).
     fn worker_finished(&self, error: Option<String>) {
+        // Kein Stream mehr → die Fernsteuerung findet zu diesem Slot keine
+        // Quelle mehr und verwirft ankommende Frames still (unbekannter Slot).
+        crate::remote_input::ziel::strom_beendet();
         // „Quell-Fenster geschlossen" (Spiel beendet) läuft technisch über den
         // Fehler-Kanal des Capture-Workers, ist aber GEWOLLTES Verhalten —
         // auf den sauberen Stop-Pfad mappen statt ein error-Event zu zeigen.

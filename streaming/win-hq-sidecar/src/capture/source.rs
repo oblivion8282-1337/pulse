@@ -128,6 +128,14 @@ impl SourceGuard {
         Self { hwnd }
     }
 
+    /// Ist die bewachte Quelle gerade sichtbar (nicht minimiert, nicht
+    /// geschlossen)? Die Fernsteuerung verwirft jede Eingabe, solange sie es
+    /// nicht ist — der Steuernde sieht dann Schwarzbild und darf nicht blind
+    /// klicken (`remote_input::Sitzung::frames`).
+    pub fn is_source_visible(&self) -> bool {
+        matches!(self.probe(), MaskVerdict::Show)
+    }
+
     fn probe(&self) -> MaskVerdict {
         let win = Window::from_raw_hwnd(self.hwnd as usize as *mut std::ffi::c_void);
         if !win.is_valid() {

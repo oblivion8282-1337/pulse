@@ -210,6 +210,42 @@ und noch einmal in `pipeline_hw::run` auf der ECHTEN WGC-D3D11-Device-GPU
 `pipeline_hw` selbst weiter — an `pipeline_d3d12` oder den CPU-Pfad, je nachdem,
 was `encode_path` sagt.
 
+## Fernsteuerung — Eingabe-Injektion (`src/remote_input/`)
+
+Der Sidecar ist der **Host** des Eingabe-Wire-Protokolls **v2** (verbindlich:
+`docs/plans/2026-08-12-input-wire-protokoll-v2.md`). Der Steuernde erzeugt die
+Frames, der chat-gateway reicht sie unangetastet durch, hier werden sie geparst
+und per `SendInput` gespielt. Zwei Operationen:
+
+```jsonc
+{"op":"remote_input", "id":7, "slot":0, "session_id":"…", "frames":["AAI=","AwAB"]}
+// → {"ok":true, "processed":2, "state":"live"}
+{"op":"remote_input_end", "id":8}
+// → {"ok":true, "state":"ended", "released":0}
+```
+
+`state` ist neben `live` auch `unknown_slot` (kein Stream auf diesem Platz),
+`unresolved_source` (Quelle weg) oder `masked` (Sichtschutz schwärzt gerade) —
+alle drei verwerfen still und lassen die Sitzung stehen. `ok:false` heißt
+**fail-closed**: die Sitzung ist stillgelegt, es kommt zusätzlich ein
+`{"ev":"remote_state","state":"input_error"}`, und weiter geht es erst nach
+`remote_input_end`.
+
+Drei Dinge, die man beim Lesen sucht:
+
+- **Der Slot** benennt einen der gleichzeitig laufenden Streams, nicht einen
+  Monitor. Auf Windows liegt je Platz ein **eigener Sidecar-Prozess**
+  (`desktop/electron/sidecar.ts::getSidecar`), innerhalb eines Prozesses gibt es
+  genau einen Stream. Nennt die `start`-Anfrage ein `slot`-Feld, nimmt der Stream
+  nur diesen Platz an; ohne das Feld trägt er jeden (Regelfall). Auflösung und
+  Begründung: `src/remote_input/ziel.rs`.
+- **DPI-Pflicht.** `main.rs` setzt `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
+  als allererstes. Ohne das sind alle Koordinaten-Schnittstellen bei Skalierung
+  ≠ 100 % virtualisiert und jede Injektion trifft systematisch daneben.
+- **Alles loslassen beim Ende.** Gedrückte Tasten und Knöpfe werden mitgeführt und
+  bei jedem Ende freigegeben: `remote_input_end`, Sitzungswechsel (neue
+  `session_id`), fail-closed, Sichtschutz, Prozessende.
+
 ## Env-Overrides (Test/Debug)
 
 **Für alle Schalter gilt dieselbe Auslegung** (`src/env.rs`): nicht gesetzt =
@@ -246,6 +282,13 @@ einzeln beschrieben.
 - `PULSE_WHIP_PACING=1` — verteilt die RTP-Pakete eines Bildes über die Zeit, statt
   sie als Schwall zu senden. **Aus als Vorgabe**: in dieser Fassung gemessen
   schlechter, nicht besser (Zahlen in `src/whip/pacer.rs`).
+- `PULSE_LABOR_EINGABE_OHNE_STREAM=1` — lässt die Fernsteuerung **ohne laufenden
+  Stream** injizieren; Quell-Rechteck ist dann der primäre Bildschirm. Nur zum
+  Messen, ob eine gesendete Koordinate am Host auf dem Punkt ankommt
+  (`streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1`), ohne dafür einen
+  echten Bildschirm-Push aufbauen zu müssen. **Kein Produktweg** — angeschaltet
+  fällt die Kopplung „du kannst nur dorthin klicken, wo du auch hinsiehst" weg;
+  nichts im ausgelieferten Pfad setzt die Variable.
 - `PULSE_HQ_FFMPEG_DEBUG=1` — FFmpegs eigenes Log auf `Debug` hochdrehen.
 - `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
 - `PULSE_HQ_NO_AV_OFFSET=1` — schaltet die QPC-A/V-Verankerung ab (reine Wall-clock,
