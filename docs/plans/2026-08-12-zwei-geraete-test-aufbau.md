@@ -6,6 +6,16 @@ den Server aufgesetzt und ihre eigene Seite bereits vorbereitet hat.
 
 Windows ist der **gesteuerte** Host, Linux der **steuernde**.
 
+> **Kurzfassung, falls du nur eines liest:**
+> ```bash
+> git fetch origin && git checkout feat/windows-bruecke && git pull
+> ./scripts/fern-test-linux.sh
+> ```
+> Danach auf `https://pulse.unicutmedia.com` registrieren, der Community
+> beitreten, dem Windows-Stream **im nativen Player-Fenster** zusehen und dort
+> „Fernsteuerung anfragen". Alles Weitere steht unten; §3 erklärt, warum der
+> Player zwingend gebaut werden muss.
+
 ---
 
 ## 1. Was schon steht
@@ -72,17 +82,35 @@ nicht „sieht gut aus".
 
 ---
 
-## 3. Linux-Seite starten
+## 3. Linux-Seite bauen und starten
+
+**Ein Befehl macht alles:**
 
 ```bash
-cd ~/…/pulse
-git fetch && git checkout feat/windows-bruecke && git pull
-pnpm install                      # falls noch nicht geschehen
-cd desktop && pnpm run build:electron
+git fetch origin && git checkout feat/windows-bruecke && git pull
+./scripts/fern-test-linux.sh
 ```
 
-Starten — **mit eigenem Datenverzeichnis**, sonst greift die
-Einzelinstanz-Sperre und es kommt nur die vorhandene App nach vorn:
+Das Skript baut den nativen Player, baut Electron und startet gegen die
+Testinstanz. `--nur-bauen` lässt das Starten weg.
+
+### Drei Dinge, die es tut — und warum jedes davon nötig ist
+
+**1. Nativen Player bauen** (`streaming/pulse-player`, `cargo build --release`).
+**Das ist Pflicht, kein Zubehör.** Die Erfassung von Maus und Tastatur passiert
+IM Player-Fenster — Zeigerfang und rohe Scancodes kann ein `<video>` im Browser
+nicht liefern —, und der Anfrage-Knopf hängt genau an dieser Kachel
+(`NativeWindowPanel.svelte`). Fehlt das Binary, fällt die App **still** auf das
+Browser-Videoelement zurück (`player.ts`: „rein additiv"), der Knopf erscheint
+nie, und der Fehler sieht aus wie „die Funktion ist kaputt".
+
+Scheitert der Bau, liegt es auf Linux fast immer an fehlenden
+FFmpeg-Entwicklungspaketen; das Skript nennt die Paketnamen für Fedora und
+Debian.
+
+**2. Electron bauen** (`pnpm install && pnpm run build:electron`).
+
+**3. Starten mit `PULSE_URL` und eigenem Datenverzeichnis:**
 
 ```bash
 PULSE_URL=https://pulse.unicutmedia.com \
@@ -90,7 +118,10 @@ PULSE_URL=https://pulse.unicutmedia.com \
 ```
 
 `PULSE_URL` wirkt **nur in unverpackten Läufen** und akzeptiert nur `https://`
-(`desktop/electron/main.ts`, Zeile ~199). Ein Codeeingriff ist nicht nötig.
+(`desktop/electron/main.ts`, Abschnitt `PROD_URL`). Ein Codeeingriff ist nicht
+nötig. Das eigene Datenverzeichnis ist Pflicht, sonst greift die
+Einzelinstanz-Sperre und es kommt bloß die vorhandene App nach vorn — nebenbei
+bleiben so die echten Einstellungen unangetastet.
 
 **Warum das ohne Änderung am Client funktioniert:** `isCloud` wird immer aus dem
 Hostnamen abgeleitet und ist auf `howispulse.com` festgenagelt — aber die
