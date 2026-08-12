@@ -23,7 +23,12 @@ param(
   [string]$Sidecar = "$PSScriptRoot\..\..\win-hq-sidecar\target\release\pulse-win-hq-sidecar.exe",
   [string]$Arbeitsverzeichnis = "$env:TEMP\pulse-fern-nachweis",
   [string]$Akte = '',
-  [int]$Fenster = 45
+  [int]$Fenster = 45,
+  # 0 = primaerer Bildschirm (Vorgabe). Sonst 1-basiert wie in `list_monitors`.
+  # Der zweite Bildschirm ist der interessante Fall: dort ist das Quell-Rechteck
+  # gegen den Ursprung des virtuellen Desktops verschoben, und genau daran
+  # scheitern fremde Fernsteuerungen.
+  [int]$Monitor = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,8 +87,15 @@ function Clear-Fremdfenster([int]$x, [int]$y) {
   Start-Sleep -Seconds 2
   return $o
 }
-$schirm = [Windows.Forms.Screen]::PrimaryScreen.Bounds
-Write-Host "Primaerer Bildschirm: $($schirm.Width)x$($schirm.Height) ab $($schirm.X),$($schirm.Y)"
+$alle = [Windows.Forms.Screen]::AllScreens
+if ($Monitor -gt 0) {
+  if ($Monitor -gt $alle.Count) { throw "Bildschirm $Monitor gibt es nicht (es sind $($alle.Count))" }
+  $schirm = $alle[$Monitor - 1].Bounds
+} else {
+  $schirm = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+}
+Write-Host ("Quell-Bildschirm: {0}x{1} ab {2},{3}{4}" -f $schirm.Width, $schirm.Height,
+            $schirm.X, $schirm.Y, $(if ($Monitor -gt 0) { " (Nr. $Monitor)" } else { ' (primaer)' }))
 
 # --- Pruefziel hochfahren ------------------------------------------------
 
@@ -126,6 +138,7 @@ $psi.RedirectStandardError = $true
 # dann den primaeren Bildschirm -- nur damit sich die Injektion ohne echten
 # Bildschirm-Push pruefen laesst. Kein Produktweg.
 $psi.EnvironmentVariables['PULSE_LABOR_EINGABE_OHNE_STREAM'] = '1'
+if ($Monitor -gt 0) { $psi.EnvironmentVariables['PULSE_LABOR_EINGABE_MONITOR'] = "$Monitor" }
 $proc = [Diagnostics.Process]::Start($psi)
 
 $script:opId = 0
@@ -143,22 +156,30 @@ function SendeFrames($frames, $slot = 0) {
 
 # --- Der Ablauf ----------------------------------------------------------
 
-# Ziele in Pixeln. Der Anteil bezieht sich auf das Quell-Rechteck, und das ist
-# hier der primaere Bildschirm; px = u * (breite - 1) laut Spezifikation.
-$zielPixel = @(
+# Ziele in ABSOLUTEN Bildschirmkoordinaten. Der Anteil bezieht sich auf das
+# Quell-Rechteck (px = u * (breite - 1) laut Spezifikation), das Pruefziel meldet
+# aber Bildschirmkoordinaten des virtuellen Desktops — deshalb wird der Ursprung
+# des Quell-Bildschirms aufgeschlagen. Bei einem Bildschirm ab 0,0 faellt das
+# zusammen; ab dem zweiten nicht mehr, und genau dort saesse der Fehler.
+$innen = @(
   @(0, 0), @(($schirm.Width - 1), 0), @(0, ($schirm.Height - 1)),
   @(($schirm.Width - 1), ($schirm.Height - 1)),
   @([int]($schirm.Width / 2), [int]($schirm.Height / 2)),
-  @(100, 100), @(1000, 500), @(2000, 1200)
+  @(100, 100), @([int]($schirm.Width * 0.4), [int]($schirm.Height * 0.35)),
+  @([int]($schirm.Width * 0.8), [int]($schirm.Height * 0.83))
 )
+$zielPixel = @()
+foreach ($p in $innen) { $zielPixel += ,@(($schirm.X + $p[0]), ($schirm.Y + $p[1])) }
 $scancodes = Get-ScancodeFolge 'pulse fern 2026'
 
 Sende @{ op = 'remote_input'; slot = 0; session_id = 'nachweis'
         frames = (ConvertTo-FrameBase64 @(, (New-HelloFrame))) }
 
 foreach ($z in $zielPixel) {
-  $nx = ConvertTo-Anteil ($z[0] / ($schirm.Width - 1.0))
-  $ny = ConvertTo-Anteil ($z[1] / ($schirm.Height - 1.0))
+  # Der Ursprung des Quell-Bildschirms muss wieder heraus: der Anteil ist IM
+  # Quell-Rechteck definiert, nicht auf dem virtuellen Desktop.
+  $nx = ConvertTo-Anteil ((($z[0] - $schirm.X)) / ($schirm.Width - 1.0))
+  $ny = ConvertTo-Anteil ((($z[1] - $schirm.Y)) / ($schirm.Height - 1.0))
   SendeFrames @(, (New-MausAbsFrame -X $nx -Y $ny))
 }
 
