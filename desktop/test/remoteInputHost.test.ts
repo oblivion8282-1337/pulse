@@ -32,14 +32,60 @@ test('Frames gehen an den Sidecar des gemeinten Platzes, Huelle unveraendert', a
   ]);
 });
 
-test('ein ungueltiger Platz wird abgewiesen statt auf 0 zurechtgebogen', async () => {
+test('ein Platz ausserhalb der Schranke verwirft still und beendet die Sitzung NICHT', async () => {
+  // Wire-Spec v2: „Unbekannt" schliesst ausserhalb des Bereichs ein. Bei
+  // ok:false liesse der Renderer die Sitzung fallen — ein `slot: 999` genuegte
+  // dann, um eine laufende Fernsteuerung abzuwuergen.
   const { rufe, ruf } = stubRuf();
   const r = new RemoteEingabe(ruf, MAX_SLOTS);
-  for (const schlecht of [-1, 1.5, MAX_SLOTS, '0', null, undefined, NaN]) {
-    const res = await r.frames(schlecht, 'sit-a', ['AAI=']);
-    assert.equal(res.ok, false, `Platz ${String(schlecht)} haette abgewiesen werden muessen`);
+  for (const draussen of [-1, MAX_SLOTS, 999]) {
+    const res = await r.frames(draussen, 'sit-a', ['AAI=']);
+    assert.equal(res.ok, true, `Platz ${draussen} darf die Sitzung nicht beenden`);
+    assert.equal(res.state, 'unknown_slot');
   }
   assert.deepEqual(rufe, [], 'kein einziger Sidecar wurde angefasst');
+  assert.deepEqual(r.offen(), [], 'und keiner wurde gemerkt — auch nicht Platz 0');
+});
+
+test('ein Platz, der keine ganze Zahl ist, bleibt ein Protokollfehler', async () => {
+  // Der kann aus keinem Rennen stammen, nur aus einer missgeformten Nachricht.
+  const { rufe, ruf } = stubRuf();
+  const r = new RemoteEingabe(ruf, MAX_SLOTS);
+  for (const kaputt of [1.5, '0', null, undefined, NaN]) {
+    const res = await r.frames(kaputt, 'sit-a', ['AAI=']);
+    assert.equal(res.ok, false, `Platz ${String(kaputt)} haette abgewiesen werden muessen`);
+  }
+  assert.deepEqual(rufe, []);
+});
+
+test('ein Platz ohne laufenden Sidecar startet keinen — er gilt als unbekannt', async () => {
+  // Sonst waeren 99 Nachrichten mit verschiedenen Plaetzen 99 Prozesse: `ruf`
+  // spawnt lazy, und der frische Sidecar antwortete nur `unknown_slot`.
+  const { rufe, ruf } = stubRuf();
+  const r = new RemoteEingabe(ruf, MAX_SLOTS, (slot) => slot === 1);
+  const res = await r.frames(3, 'sit-a', ['AAI=']);
+  assert.equal(res.ok, true);
+  assert.equal(res.state, 'unknown_slot');
+  assert.deepEqual(rufe, []);
+  assert.equal((await r.frames(1, 'sit-a', ['AAI='])).ok, true, 'der belegte Platz geht durch');
+  assert.equal(rufe.length, 1);
+});
+
+test('auch beim Verwerfen wird die vorige Sitzung freigegeben', async () => {
+  // Sonst bliebe beim vorigen Gegenueber eine Taste gedrueckt, nur weil die
+  // erste Nachricht der neuen Sitzung einen Platz nannte, den es nicht gibt.
+  const { rufe, ruf } = stubRuf();
+  const r = new RemoteEingabe(ruf, MAX_SLOTS);
+  await r.frames(0, 'sit-a', ['x']);
+  rufe.length = 0;
+  const res = await r.frames(MAX_SLOTS + 5, 'sit-b', ['y']);
+  assert.equal(res.state, 'unknown_slot');
+  assert.deepEqual(
+    rufe.map((c) => ({ slot: c.slot, op: c.op })),
+    [{ slot: 0, op: 'remote_input_end' }],
+  );
+  assert.deepEqual(r.offen(), [], 'die neue Sitzung hat noch keinen Platz');
+  assert.equal(r.sitzung, 'sit-b');
 });
 
 test('ohne session_id oder brauchbare Frames geht nichts hinaus', async () => {

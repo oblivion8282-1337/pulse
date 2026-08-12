@@ -361,6 +361,96 @@ async def test_pending_disconnect_dismisses_all_host_tabs(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_kick_ends_the_remote_session_at_once(ws_app, _auth_signer):
+    """Rauswurf trennt SOFORT. Der Takt-Prueflauf braucht bis zu 30 s; bis dahin
+    tippt der Rausgeworfene sonst weiter auf einem fremden Rechner (im
+    schlimmsten Fall bis der Zugangstoken nach 15 Minuten ablaeuft)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, gid, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                assert (
+                    tc.delete(
+                        f"/guilds/{gid}/members/{member_uid}", headers=_auth(owner_token)
+                    ).status_code
+                    == 204
+                )
+                for ws in (ctrl_ws, host_ws):
+                    ended = _drain_for(ws, "remote_ended")
+                    assert ended["session_id"] == sid
+                    assert ended["reason"] == "membership_revoked"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ban_ends_the_remote_session_at_once(ws_app, _auth_signer):
+    """Ein Bann, der dem Gebannten noch eine halbe Minute Tastatur auf dem
+    Rechner eines Mitglieds laesst, ist kein Bann."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, gid, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                resp = tc.put(
+                    f"/guilds/{gid}/bans/{member_uid}",
+                    json={"reason": "weil"},
+                    headers=_auth(owner_token),
+                )
+                assert resp.status_code == 200
+                for ws in (ctrl_ws, host_ws):
+                    ended = _drain_for(ws, "remote_ended", max_drained=40)
+                    assert ended["session_id"] == sid
+                    assert ended["reason"] == "membership_revoked"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_decline_starts_a_cooldown_before_the_next_invite(ws_app, _auth_signer):
+    """Nach einer Absage darf derselbe Steuernde nicht sofort wieder klingeln —
+    sonst kostet das "Nein" nichts und der modale Zustimmungsdialog laesst sich
+    beliebig oft vor die Nase des Hosts setzen."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                ctrl_ws.send_json(
+                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                )
+                sid = _drain_for(host_ws, "remote_request")["session_id"]
+                host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": False})
+                assert _drain_for(ctrl_ws, "remote_response")["accepted"] is False
+                # Sofortiger zweiter Anlauf → 4055, und beim Host klingelt nichts.
+                ctrl_ws.send_json(
+                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                )
+                assert _drain_for(ctrl_ws, "error")["code"] == 4055
+                ping_barrier(host_ws)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:
@@ -539,5 +629,33 @@ async def test_input_limits_and_malformed_payloads(ws_app, _auth_signer):
                 )
                 # Empty frame list carries nothing to inject.
                 _assert_input_rejected_but_session_alive(ctrl_ws, host_ws, sid, [])
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_input_with_out_of_range_slot_is_dropped_silently(ws_app, _auth_signer):
+    """Ein Platz jenseits der Platzgrenze ist ein UNBEKANNTER Platz (Protokoll
+    v2, praezisiert 2026-08-12): still verwerfen, keine Fehlerantwort, Sitzung
+    bleibt stehen — sonst genuegt ein ``slot: 999``, um eine laufende
+    Fernsteuerung abzuwuergen. Zurechtgebogen wird er auch nicht: ein
+    verbogener Platz waere ein Klick auf dem falschen Bildschirm."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+
+                _send_input(ctrl_ws, sid, [_MOVE], slot=999)
+                ping_barrier(host_ws)  # nichts weitergereicht, auch nicht als slot 0
+                ping_barrier(ctrl_ws)  # und keine Fehlerantwort
+                # Die Sitzung lebt: der naechste gueltige Platz kommt an.
+                _send_input(ctrl_ws, sid, [_CLICK], slot=1)
+                got = _drain_for(host_ws, "remote_input")
+                assert got["slot"] == 1 and got["frames"] == [_CLICK]
 
     await asyncio.to_thread(_run)

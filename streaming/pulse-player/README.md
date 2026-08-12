@@ -128,9 +128,19 @@ nicht einsehbar.
   Player Maus und Tastatur in die Frames der Wire-Spec
   (`docs/plans/2026-08-12-input-wire-protokoll-v2.md`) und meldet sie als
   `player:input`-Ereignis nach vorne. Die absolute Zeigerposition ist ein Anteil
-  am **Bild**, nicht am Fenster — Rand und Zoom werden herausgerechnet, und
-  ausserhalb des Bildes wird nichts gesendet. Tastenzuordnung ist Scancode
-  Satz 1 und damit layoutunabhaengig. Was der Player NICHT tut: die Frames
+  am **Bild**, nicht am Fenster — Rand und Zoom werden herausgerechnet, der
+  Nenner ist dabei `Breite − 1` (sonst waere die letzte Bildspalte unerreichbar,
+  s. Wire-Spec), und ausserhalb des Bildes wird nichts gesendet. **Das gilt
+  nicht nur fuer die Bewegung, sondern auch fuer Knopf und Rad**: ein Klick auf
+  dem Briefkasten-Rand oder auf der Bedienleiste (die ueber dem Bild liegt, egui
+  meldet ihn als „verbraucht") kaeme beim Host dort an, wo der Zeiger zuletzt IM
+  Bild stand. Das **Loslassen** geht dagegen immer hinaus, sobald der Knopf beim
+  Host wirklich unten ist — sonst klemmte er am fremden Rechner. Bruchteile
+  (Praezisions-Touchpad, Wayland-`relative_pointer`) werden **aufgehoben statt
+  gerundet**: einzeln gerundet ergaben sie dreifache Scrollgeschwindigkeit bzw.
+  einen Zeiger, der sich bei langsamem Zielen gar nicht bewegte.
+  Tastenzuordnung ist Scancode Satz 1 und damit layoutunabhaengig; was sich
+  nicht abbilden laesst, wird nicht geraten, aber gezaehlt und einmal gemeldet. Was der Player NICHT tut: die Frames
   absetzen. Das macht die App (`desktop/electron/remoteInput.ts` buendelt,
   der Renderer sendet auf seiner Gateway-Verbindung).
 - **Ehrliche Statistik**: empfangene, verlorene, umsortierte und doppelte Pakete,
@@ -390,8 +400,9 @@ src/
 ├── jitter.rs      Umsortieren nach Sequenznummer + zeitgesteuerte Freigabe
 ├── fernsteuerung/ Eingabe-Erfassung: die Seite des STEUERNDEN. Ein ZWEITER
 │   │              Abnehmer der winit-Ereignisse neben egui, Standard AUS.
-│   ├── mod.rs       Warteschlange, Zusammenfassen, Flutkontrolle
-│   ├── rahmen.rs    Frame-Format Byte fuer Byte + Base64
+│   ├── mod.rs       Uebersetzung: welches Ereignis welchen Frame ergibt
+│   ├── schlange.rs  Auslieferung: Zusammenfassen, Flutkontrolle, Takt
+│   ├── rahmen.rs    Frame-Format Byte fuer Byte + Base64 + Rasten-Sammler
 │   ├── tasten.rs    KeyCode -> Windows Scancode Satz 1
 │   ├── bildlage.rs  Zeigerposition -> Anteil am BILD (Rand und Zoom heraus)
 │   └── winit_abbild.rs  Knopf- und Rad-Zuordnung (Vorzeichen!)
@@ -486,7 +497,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 303 Tests, keine Hardware noetig
+cargo test          # 326 Tests, keine Hardware noetig
 cargo build --release
 ```
 

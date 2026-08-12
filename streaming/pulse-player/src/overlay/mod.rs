@@ -49,6 +49,25 @@ const HIDE_AFTER: Duration = Duration::from_secs(3);
 /// Obergrenze des Schiebers. Ueber 100 % verstaerkt der Player (wie die App).
 const MAX_VOLUME_PERCENT: f32 = 200.0;
 
+/// Was ein Fensterereignis fuer das Overlay bedeutet hat.
+///
+/// **`verbraucht` ist nicht nur Beiwerk.** Die Bedienleiste liegt ueber dem
+/// Bild; ein Klick auf ihr ist also im Bildrechteck und trotzdem keiner fuer
+/// den fernen Rechner. Ohne diese Auskunft schickte die Eingabe-Erfassung
+/// (`crate::fernsteuerung`) jeden Griff an den Lautstaerkeregler zusaetzlich als
+/// Klick ueber die Leitung.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ereignisantwort {
+    /// Ein Zeichen-Durchgang ist angefordert.
+    pub durchgang: bool,
+    /// egui hat den Zeiger fuer sich beansprucht.
+    pub verbraucht: bool,
+}
+
+impl Ereignisantwort {
+    pub const NICHTS: Self = Self { durchgang: false, verbraucht: false };
+}
+
 /// Was der Nutzer im Fenster ausgeloest hat. Angewandt wird es von
 /// [`crate::app`] — dort liegen Sitzung und Fenster.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -233,8 +252,12 @@ impl Overlay {
         self.stats_dirty = true;
     }
 
-    /// Fenster-Ereignis an egui geben. `true` = ein Durchgang ist angefordert.
-    pub fn on_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
+    /// Fenster-Ereignis an egui geben.
+    pub fn on_window_event(
+        &mut self,
+        window: &Window,
+        event: &winit::event::WindowEvent,
+    ) -> Ereignisantwort {
         use winit::event::WindowEvent as We;
 
         // `RedrawRequested` NICHT an egui geben. egui-winit antwortet darauf mit
@@ -244,7 +267,7 @@ impl Overlay {
         // Sekunde bei 144 ankommenden Bildern, aus zwei je einzeln sinnvollen
         // Zeilen. egui braucht das Ereignis auch nicht; es ist keine Eingabe.
         if matches!(event, We::RedrawRequested) {
-            return false;
+            return Ereignisantwort::NICHTS;
         }
 
         // Nur ECHTE Eingabe zaehlt als Grund fuer einen Durchgang. Vorher stand
@@ -278,9 +301,12 @@ impl Overlay {
             self.input_pending = true;
         }
         let response = self.state.on_window_event(window, event);
-        // Der Repaint-Wunsch gilt nur fuer Eingabe — bei Groessen- und
-        // Zustandswechseln fordert das Fenster den Durchgang ohnehin selbst an.
-        response.repaint && is_input
+        Ereignisantwort {
+            // Der Repaint-Wunsch gilt nur fuer Eingabe — bei Groessen- und
+            // Zustandswechseln fordert das Fenster den Durchgang ohnehin selbst an.
+            durchgang: response.repaint && is_input,
+            verbraucht: response.consumed,
+        }
     }
 
     /// Ist das Overlay gerade sichtbar? Nur dann lohnt ein Neuzeichnen wegen

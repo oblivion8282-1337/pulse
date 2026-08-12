@@ -82,6 +82,10 @@ pub struct WgcHwCapture {
 impl WgcHwCapture {
     pub fn start(source: CaptureSource, cfg: CaptureConfig, pool_size: u32) -> Result<Self> {
         let target = source.resolve()?;
+        // Dasselbe aufgelöste Ziel, auf das die Fernsteuerung ihre Koordinaten
+        // klemmt — ein zweites `resolve()` dort zeigte womöglich woanders hin
+        // (Begründung: `remote_input::ziel::ziel_gebunden`).
+        crate::remote_input::ziel::ziel_gebunden(&target);
         // Channel-Kapazität bewusst KLEINER als der D3D11VA-Pool: der Channel
         // teilt sich die `pool_size` Surfaces mit scale_cuda (hwmap D3D11→CUDA)
         // und der NVENC-In-Flight-Tiefe. Wäre die Kapazität == pool_size, könnte

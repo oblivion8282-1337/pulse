@@ -217,10 +217,12 @@ impl StreamController {
         inner.stop_tx = Some(stop_tx);
         inner.started_at = Some(Instant::now());
 
-        // Die Aufnahmequelle für die Fernsteuerung sichtbar machen: sie löst den
-        // Slot einer Eingabe-Nachricht daraus in das Quell-Rechteck auf. Vor dem
-        // Spawn, weil `params` gleich in den Worker wandert.
-        crate::remote_input::ziel::strom_gestartet(params.slot, params.capture.clone());
+        // Den Stream-Platz für die Fernsteuerung anmelden. Das Aufnahme-ZIEL
+        // meldet die Aufnahme selbst, sobald sie es aufgelöst hat
+        // (`capture/wgc*` → `ziel::ziel_gebunden`) — hier ist es noch nicht
+        // bestimmt, und selbst aufzulösen hieße, eine zweite Meinung zu bilden,
+        // die von der aufgenommenen abweichen kann (`remote_input::ziel`).
+        crate::remote_input::ziel::strom_gestartet(params.slot);
 
         // Worker spawnen — der hält den ganzen Pipeline-State, wir behalten
         // hier nur ein Stop-Signal + JoinHandle.

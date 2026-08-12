@@ -8,7 +8,7 @@
 
 use winit::event::{MouseButton, MouseScrollDelta};
 
-use super::rahmen::{self, Knopf};
+use super::rahmen::Knopf;
 
 /// winit-Knopf -> Knopf der Leitung. `Other` faellt weg: ein unbekannter Knopf
 /// beendet beim Host die Sitzung, also wird er gar nicht erst gesendet.
@@ -34,7 +34,12 @@ pub(super) fn knopf_aus_nummer(nummer: u8) -> Option<Knopf> {
     }
 }
 
-/// winit-Radbewegung -> Windows-Rastschritte `(dv, dh)`.
+/// winit-Radbewegung -> Zeilen in Windows-Vorzeichen `(senkrecht, waagerecht)`.
+///
+/// **Zeilen, nicht Rasten.** Gerundet wird erst im [`super::rahmen::Rastensammler`],
+/// weil das nur mit dem Rest der vorigen Ereignisse richtig geht: hier
+/// aufgerundet wurde aus jedem 0,33-Schritt eines Praezisions-Touchpads eine
+/// volle Raste (s. dort).
 ///
 /// **Die Vorzeichen sind nicht dieselben wie im Browser.** winit: positive Werte
 /// heissen „der Inhalt soll sich nach rechts und unten bewegen". Windows:
@@ -47,10 +52,10 @@ pub(super) fn knopf_aus_nummer(nummer: u8) -> Option<Knopf> {
 ///
 /// Pixel (Touchpad) werden mit rund 100 px je Raste in Zeilen umgerechnet — die
 /// Naeherung, die Chromium fuer dieselbe Umrechnung benutzt.
-pub(super) fn rad_von_winit(delta: MouseScrollDelta) -> (i16, i16) {
+pub(super) fn rad_von_winit(delta: MouseScrollDelta) -> (f64, f64) {
     let (waagerecht, senkrecht) = match delta {
         MouseScrollDelta::LineDelta(x, y) => (f64::from(x), f64::from(y)),
         MouseScrollDelta::PixelDelta(p) => (p.x / 100.0, p.y / 100.0),
     };
-    (rahmen::rasten(senkrecht), rahmen::rasten(-waagerecht))
+    (senkrecht, -waagerecht)
 }

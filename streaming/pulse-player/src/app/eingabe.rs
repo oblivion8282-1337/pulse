@@ -33,12 +33,50 @@ impl App {
             zeiger_fangen(&session.window, false);
         }
         session.window.set_cursor_visible(!fang);
+        // Der WUNSCH wird getrennt vom Erreichten aufgehoben: nach einem
+        // Fokuswechsel muss er neu vollzogen werden (s. [`Self::fokus_gewechselt`]).
+        session.fang_gewuenscht = fang_gewuenscht;
         session.eingabe.setzen(aktiv, slot, fang);
         Ok(serde_json::json!({
             "enabled": aktiv,
             "slot": slot,
             "pointer_lock": fang,
+            // Was auf dem Weg verlorengegangen ist, steht in der Antwort statt
+            // nur im Log: Bewegungen darf die Flutkontrolle verwerfen, Tasten
+            // ohne Scancode-Abbildung koennen wir nicht senden — beides sind
+            // aber die einzigen Stellen, an denen eine Eingabe lautlos
+            // verschwindet, und wer „meine Taste kommt nicht an" meldet,
+            // braucht dafuer eine Zahl.
+            "dropped_moves": session.eingabe.verworfene_bewegungen(),
+            "unmapped_keys": session.eingabe.unbekannte_tasten(),
         }))
+    }
+
+    /// Das Fenster hat den Tastaturfokus bekommen oder verloren.
+    ///
+    /// **Windows loest `ClipCursor` beim Fokusverlust auf, und winit stellt es
+    /// nicht wieder her.** Ohne diese Stelle kam der Nutzer nach Alt+Tab und
+    /// zurueck mit einem Zeiger wieder, der frei UND unsichtbar war, waehrend
+    /// die Erfassung ihn weiter fuer gefangen hielt und `CursorMoved` deshalb
+    /// verwarf — die Bedienleiste im Fenster war damit nicht mehr zu treffen.
+    ///
+    /// Beim Fokusverlust wird der Griff ausdruecklich abgegeben und der Zeiger
+    /// wieder sichtbar gemacht: ein unsichtbarer Zeiger ueber einem Fenster,
+    /// das gerade nicht bedient wird, ist ein verlorener Zeiger.
+    pub(super) fn fokus_gewechselt(&mut self, id: u64, fokus: bool) {
+        let Some(session) = self.sessions.get_mut(&id) else { return };
+        if !session.eingabe.aktiv() && !session.fang_gewuenscht {
+            return;
+        }
+        let fang = fokus
+            && session.fang_gewuenscht
+            && session.eingabe.aktiv()
+            && zeiger_fangen(&session.window, true);
+        if !fang {
+            zeiger_fangen(&session.window, false);
+        }
+        session.window.set_cursor_visible(!fang);
+        session.eingabe.zeigerfang_nachfuehren(fang);
     }
 
     /// Fertige Eingabe-Frames aller Sitzungen nach vorne melden.
@@ -77,11 +115,22 @@ impl App {
     pub(super) fn eingabe_raeumen(&mut self, id: u64) {
         let stdout = self.stdout.clone();
         let Some(session) = self.sessions.get_mut(&id) else { return };
+        session.fang_gewuenscht = false;
         if session.eingabe.aktiv() {
             session.eingabe.setzen(false, session.eingabe.slot(), false);
         }
         if let Some(frames) = session.eingabe.raeumen() {
             stdout.send(&eingabe_ereignis(id, session.eingabe.slot(), frames));
+        }
+        // Bilanz am Ende der Erfassung — die beiden einzigen Stellen, an denen
+        // eine Eingabe lautlos verschwindet.
+        let (bewegungen, tasten) =
+            (session.eingabe.verworfene_bewegungen(), session.eingabe.unbekannte_tasten());
+        if bewegungen > 0 || tasten > 0 {
+            eprintln!(
+                "pulse-player: Sitzung {id}: Eingabe — {bewegungen} Bewegungen verworfen, \
+                 {tasten} Tasten ohne Scancode-Abbildung"
+            );
         }
     }
 }

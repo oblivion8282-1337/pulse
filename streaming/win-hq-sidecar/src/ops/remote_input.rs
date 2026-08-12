@@ -18,6 +18,10 @@
 //! | `unknown_slot` | kein Stream auf diesem Platz → still verworfen, Sitzung steht |
 //! | `unresolved_source` | Stream da, Quelle weg (Fenster zu) → verworfen |
 //! | `masked` | Sichtschutz schwärzt gerade → verworfen, Gedrücktes freigegeben |
+//! | `ended` | Prozess fährt herunter, die Sitzung ist endgültig zu |
+//!
+//! **Jeder verworfene Zustand gibt alles Gedrückte frei** — die Spezifikation
+//! verlangt das ausdrücklich, sonst klemmt eine Taste am fremden Rechner.
 //!
 //! `ok:false` heißt **fail-closed**: Protokollfehler, die Sitzung ist stillgelegt
 //! und muss mit `remote_input_end` beendet werden. Zusätzlich geht ein
@@ -37,12 +41,40 @@ use crate::remote_input::{Sitzung, base64};
 const MAX_FRAMES: usize = 32;
 const MAX_BYTES: usize = 1024;
 
+/// Der Platz aus der Hülle — **nicht zurechtgebogen**.
+///
+/// Hier stand `.and_then(Value::as_u64).unwrap_or(0)`: `slot: -1`, `slot: 1.5`
+/// und `slot: "0"` liefen damit still auf Platz 0. Auf einem Rechner mit
+/// mehreren Streams heißt das ein Klick auf dem falschen Bildschirm — und
+/// niemand erfährt davon. Missgeformt ist deshalb ein **Protokollfehler**
+/// (fail-closed: stilllegen und alles freigeben).
+///
+/// Ein Platz **außerhalb des Bereichs** ist etwas anderes und bleibt harmlos:
+/// er wandert unverändert weiter und wird eine Ebene tiefer zum „unbekannten
+/// Slot" — still verworfen, Sitzung läuft weiter (Spezifikation, „Der `slot`":
+/// sonst genügte ein `slot: 999`, um eine laufende Fernsteuerung abzuwürgen).
+/// Deshalb wird hier auch **nicht** auf `u32` gekappt, sondern der volle Wert
+/// gereicht.
+///
+/// Fehlt das Feld ganz, ist Platz 0 gemeint: der Prozess fährt genau einen
+/// Stream, und das Feld gibt es erst, seit es mehrere geben kann.
+fn slot_aus(params: &Map<String, Value>) -> Result<u64, String> {
+    match params.get("slot") {
+        None | Some(Value::Null) => Ok(0),
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .ok_or_else(|| format!("slot {n} ist keine nicht-negative ganze Zahl")),
+        Some(anderes) => Err(format!("slot muss eine Zahl sein, war {anderes}")),
+    }
+}
+
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let slot = params
-        .get("slot")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        .min(u32::MAX as u64) as u32;
+    let slot = match slot_aus(&params) {
+        Ok(s) => s,
+        // Über die Sitzung, nicht als blankes `Err`: ein Protokollfehler legt
+        // still UND gibt frei — auch dieser hier.
+        Err(grund) => return Err(Sitzung::singleton().protokollfehler(grund)),
+    };
     let sitzungs_id = params.get("session_id").and_then(Value::as_str);
     let roh = params
         .get("frames")
@@ -71,4 +103,66 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     out.insert("processed".to_string(), Value::from(bericht.verarbeitet));
     out.insert("state".to_string(), Value::from(bericht.zustand));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn params(wert: Value) -> Map<String, Value> {
+        json!({"slot": wert, "frames": ["AAI="]})
+            .as_object()
+            .unwrap()
+            .clone()
+    }
+
+    /// Fehlt der Platz, ist 0 gemeint; steht er da, gilt er genau so.
+    #[test]
+    fn platz_wird_genommen_wie_er_dasteht() {
+        assert_eq!(slot_aus(&Map::new()), Ok(0));
+        assert_eq!(slot_aus(&params(json!(0))), Ok(0));
+        assert_eq!(slot_aus(&params(json!(3))), Ok(3));
+        // Außerhalb des Bereichs wird NICHT gekappt — eine Ebene tiefer wird
+        // daraus „unbekannter Slot", und dafür muss die Zahl echt sein.
+        assert_eq!(slot_aus(&params(json!(999))), Ok(999));
+        assert_eq!(slot_aus(&params(json!(5_000_000_000u64))), Ok(5_000_000_000));
+    }
+
+    /// **Der Fund:** `-1`, `1.5` und `"0"` wurden still auf Platz 0 gebogen —
+    /// also auf einen Klick auf dem falschen Bildschirm. Jetzt sind es
+    /// Protokollfehler.
+    #[test]
+    fn missgeformter_platz_wird_nicht_zurechtgebogen() {
+        for wert in [json!(-1), json!(1.5), json!("0"), json!(true), json!([0])] {
+            assert!(
+                slot_aus(&params(wert.clone())).is_err(),
+                "slot {wert} hätte abgewiesen werden müssen"
+            );
+        }
+    }
+
+    /// Und über die ganze Operation: missgeformt → `Err` (fail-closed, die
+    /// Sitzung ist danach stillgelegt und alles Gedrückte freigegeben).
+    #[test]
+    fn missgeformter_platz_ist_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
+        assert!(handle(params(json!(-1))).is_err());
+        // Stillgelegt — ein wohlgeformter Aufruf kommt jetzt auch nicht durch.
+        assert!(handle(params(json!(0))).is_err());
+        Sitzung::singleton().beenden();
+    }
+
+    /// Ein Platz außerhalb des Bereichs dagegen: still verworfen, die Sitzung
+    /// läuft weiter. Ein `slot: 999` darf keine Fernsteuerung abwürgen.
+    #[test]
+    fn platz_ausserhalb_des_bereichs_verwirft_nur() {
+        let _sperre = crate::remote_input::pruefstand();
+        for wert in [json!(999), json!(5_000_000_000u64)] {
+            let out = handle(params(wert.clone())).expect("kein Protokollfehler");
+            assert_eq!(out["state"], json!("unknown_slot"), "slot {wert}");
+            assert_eq!(out["processed"], json!(0));
+        }
+        Sitzung::singleton().beenden();
+    }
 }

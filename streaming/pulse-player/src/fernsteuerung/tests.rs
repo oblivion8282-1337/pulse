@@ -2,11 +2,12 @@
 //!
 //! `WindowEvent::KeyboardInput` fehlt hier: `KeyEvent` traegt ein
 //! `pub(crate)`-Feld und ist ausserhalb von winit nicht zu bauen. Die
-//! Tastenseite wird deshalb ueber [`Erfassung::taste`] und
-//! [`super::tasten::scancode`] geprueft — zusammen decken die beiden denselben
-//! Weg ab, den `on_window_event` fuer Tasten nimmt.
+//! Tastenseite wird deshalb ueber [`Erfassung::taste_von_code`],
+//! [`Erfassung::taste`] und [`super::tasten::scancode`] geprueft — zusammen
+//! decken sie denselben Weg ab, den `on_window_event` fuer Tasten nimmt.
 
 use super::*;
+use super::schlange::{BEWEGUNGSTAKT, MAX_WARTEND};
 use winit::dpi::PhysicalPosition;
 use winit::event::{DeviceId, MouseButton, MouseScrollDelta};
 
@@ -53,8 +54,15 @@ fn lage() -> Bildlage {
 fn eingeschaltet() -> Erfassung {
     let mut e = Erfassung::neu();
     e.setzen(true, 0, false);
-    // Hello wegnehmen, damit die Tests nur ihren eigenen Frame sehen.
-    assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]]);
+    // Zeiger in die Bildmitte stellen: Knopf und Rad gehen nur hinaus, wenn der
+    // Zeiger IM Bild steht, und ohne ein `CursorMoved` weiss die Erfassung
+    // nicht, wo er ist (die Ereignisse selbst tragen keine Position).
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    // Hello und diese Bewegung wegnehmen, damit die Tests nur ihren eigenen
+    // Frame sehen.
+    let vorlauf = alles(&mut e);
+    assert_eq!(vorlauf.len(), 2, "Hello und Zeigerlage: {vorlauf:?}");
+    assert_eq!(vorlauf[0], vec![0x00, 0x02]);
     e
 }
 
@@ -80,8 +88,8 @@ fn zeiger_ereignis(x: f64, y: f64) -> WindowEvent {
 fn standard_ist_aus() {
     let mut e = Erfassung::neu();
     assert!(!e.aktiv());
-    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()));
-    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None);
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None, false);
     e.taste(0x1e, true);
     assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts, "ausgeschaltet kodiert nichts");
 }
@@ -100,22 +108,29 @@ fn einschalten_stellt_hello_voran() {
     assert_eq!(e.slot(), 3);
 }
 
-/// Ein ZWEITES Hello mitten im Strom waere beim Host ein Protokollfehler und
-/// beendete die Sitzung. Wiederholtes Einschalten (etwa nur mit anderem Slot)
-/// darf deshalb keins erzeugen — und darf auch nicht die Menge der gedrueckten
-/// Tasten vergessen.
+/// **Jedes Einschalten beginnt einen neuen Strom und schickt ein Hello** —
+/// auch wenn die Erfassung im Player schon an war.
+///
+/// Hier stand das Gegenteil („ein zweites Hello waere ein Protokollfehler").
+/// Der Vertrag sagt seit dem 2026-08-12 ausdruecklich, dass ein weiteres Hello
+/// erlaubt ist und „neuer Eingabestrom" heisst; im Zwei-Geraete-Test war genau
+/// das fehlende zweite Hello der Grund, warum der Host jede Eingabe abwies
+/// (`Eingabe vor dem Hello-Handschlag`) und die Fernsteuerung stillstand.
+/// Der Host gibt beim Hello alles frei — die Menge des Gedrueckten muss der
+/// Player deshalb mit vergessen, sonst schickte er spaeter Hoch-Ereignisse
+/// fuer Tasten, die drueben laengst oben sind.
 #[test]
-fn wiederholtes_einschalten_erzeugt_kein_zweites_hello() {
+fn wiederholtes_einschalten_beginnt_einen_neuen_strom() {
     let mut e = eingeschaltet();
     e.taste(0x11, true);
     let _ = alles(&mut e);
 
     e.setzen(true, 5, false);
-    assert_eq!(e.slot(), 5, "der Slot wandert trotzdem nach");
-    assert!(e.raeumen().is_none(), "kein zweites Hello");
+    assert_eq!(e.slot(), 5, "der Slot wandert mit");
+    assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "ein zweites Hello, sonst nichts");
 
     e.setzen(false, 5, false);
-    assert_eq!(alles(&mut e), vec![vec![0x05, 0x11, 0x00, 0x00]], "W ist noch bekannt");
+    assert!(e.raeumen().is_none(), "W hat der Host beim Hello selbst freigegeben");
 }
 
 /// Zweimal ausschalten reicht die Hoch-Ereignisse nicht zweimal nach.
@@ -136,9 +151,10 @@ fn wiederholtes_ausschalten_reicht_nichts_doppelt_nach() {
 fn jeder_opcode_einmal() {
     let mut e = Erfassung::neu();
     e.setzen(true, 0, false); // 0x00
-    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage())); // 0x01
-    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None); // 0x03
-    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 1.0)), None); // 0x04
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false); // 0x01
+    let m = || Some(lage());
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), m(), false); // 0x03
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 1.0)), m(), false); // 0x04
     e.taste(0x1e, true); // 0x05
     let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
     assert_eq!(opcodes, vec![0x00, 0x01, 0x03, 0x04, 0x05]);
@@ -157,7 +173,7 @@ fn jeder_opcode_einmal() {
 fn zeigerfang_schaltet_die_absolute_form_ab() {
     let mut e = Erfassung::neu();
     e.setzen(true, 0, true);
-    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
     assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "nur das Hello");
 }
 
@@ -168,11 +184,11 @@ fn zeigerfang_schaltet_die_absolute_form_ab() {
 #[test]
 fn randwerte_der_normierung_am_ganzen_weg() {
     let mut e = eingeschaltet();
-    e.on_window_event(&zeiger_ereignis(0.0, 0.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(0.0, 0.0), Some(lage()), false);
     assert_eq!(rahmen_von(e.abholen(Instant::now()))[0], vec![0x01, 0x00, 0x00, 0x00, 0x00]);
 
     let mut e = eingeschaltet();
-    e.on_window_event(&zeiger_ereignis(1920.0, 1080.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(1920.0, 1080.0), Some(lage()), false);
     assert_eq!(rahmen_von(e.abholen(Instant::now()))[0], vec![0x01, 0xff, 0xff, 0xff, 0xff]);
 }
 
@@ -180,7 +196,7 @@ fn randwerte_der_normierung_am_ganzen_weg() {
 #[test]
 fn ohne_bild_keine_bewegung() {
     let mut e = eingeschaltet();
-    e.on_window_event(&zeiger_ereignis(10.0, 10.0), None);
+    e.on_window_event(&zeiger_ereignis(10.0, 10.0), None, false);
     assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
 }
 
@@ -189,8 +205,91 @@ fn ohne_bild_keine_bewegung() {
 fn rand_wird_nicht_gesendet() {
     let mut e = eingeschaltet();
     let breit = Bildlage::neu((2000, 1000), (1920, 1080), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
-    e.on_window_event(&zeiger_ereignis(5.0, 500.0), Some(breit));
+    e.on_window_event(&zeiger_ereignis(5.0, 500.0), Some(breit), false);
     assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
+}
+
+// ── „Auch Knopf und Rad gehoeren ins Bild" ──────────────────────────────────
+
+/// **Der Kern von Fund 1.** Ein Klick auf dem Briefkasten-Rand kaeme beim Host
+/// dort an, wo der Zeiger zuletzt IM Bild stand — also irgendwo. Die Wire-Spec
+/// sagt seit dem 2026-08-12 ausdruecklich, dass auch Knopf und Rad ins Bild
+/// gehoeren.
+#[test]
+fn klick_und_rad_auf_dem_rand_gehen_nicht_hinaus() {
+    let breit = Bildlage::neu((2000, 1000), (1920, 1080), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(5.0, 500.0), Some(breit), false); // auf den Rand
+    let _ = alles(&mut e);
+
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(breit), false);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(breit), false);
+    assert!(e.raeumen().is_none(), "vom Rand geht weder Klick noch Rad hinaus");
+
+    // Ein Punkt im Bild derselben Lage geht dagegen durch.
+    e.on_window_event(&zeiger_ereignis(1000.0, 500.0), Some(breit), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(breit), false);
+    let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
+    assert_eq!(opcodes, vec![0x01, 0x03]);
+}
+
+/// Die Bedienleiste liegt ueber dem Bild — der Bild-Test allein kann sie nicht
+/// aussparen. egui sagt deshalb, wenn es den Zeiger fuer sich beansprucht.
+#[test]
+fn klick_auf_der_bedienleiste_geht_nicht_hinaus() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), true);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(lage()), true);
+    assert!(e.raeumen().is_none(), "der Lautstaerkeregler ist kein Klick am fernen Rechner");
+}
+
+/// **Die Kehrseite, und sie ist die wichtigere:** wer im Bild drueckt und
+/// ausserhalb loslaesst, darf keinen klemmenden Knopf am fremden Rechner
+/// hinterlassen. Das Hoch-Ereignis geht deshalb immer hinaus, solange der Knopf
+/// wirklich unten ist.
+#[test]
+fn loslassen_ausserhalb_des_bildes_geht_trotzdem_hinaus() {
+    let breit = Bildlage::neu((2000, 1000), (1920, 1080), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(1000.0, 500.0), Some(breit), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(breit), false);
+    let _ = alles(&mut e);
+
+    // Weiterziehen auf den Rand, dort loslassen — auch ueber der Bedienleiste.
+    e.on_window_event(&zeiger_ereignis(5.0, 500.0), Some(breit), false);
+    e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Left), Some(breit), true);
+    assert_eq!(alles(&mut e), vec![vec![0x03, 0x00, 0x00]], "das Loslassen MUSS hinaus");
+}
+
+/// Ein Loslassen ohne Druck davor (der Druck fiel auf dem Rand weg) darf nicht
+/// als einzelnes Hoch-Ereignis beim Host ankommen.
+#[test]
+fn loslassen_ohne_druck_wird_nicht_gesendet() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Left), Some(lage()), false);
+    assert!(e.raeumen().is_none());
+}
+
+/// Verlaesst der Zeiger das Fenster, ist seine letzte Lage wertlos — ein
+/// Rad-Ereignis danach gehoert nicht mehr ins Bild.
+#[test]
+fn nach_cursor_left_ist_die_lage_unbekannt() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&WindowEvent::CursorLeft { device_id: DeviceId::dummy() }, None, false);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(lage()), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    assert!(e.raeumen().is_none(), "ohne bekannte Lage wird nicht geklickt");
+}
+
+/// Bei gefangenem Zeiger ist die Frage gegenstandslos: der Zeiger steht still,
+/// gefuehrt wird ueber Differenzen. Ein Klick muss trotzdem durchgehen.
+#[test]
+fn mit_zeigerfang_klickt_es_auch_ohne_bekannte_lage() {
+    let mut e = Erfassung::neu();
+    e.setzen(true, 0, true);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None, false);
+    let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
+    assert_eq!(opcodes, vec![0x00, 0x03]);
 }
 
 // ── Tasten ──────────────────────────────────────────────────────────────────
@@ -198,7 +297,7 @@ fn rand_wird_nicht_gesendet() {
 #[test]
 fn erweiterte_taste_geht_mit_e0_ueber_die_leitung() {
     let mut e = eingeschaltet();
-    e.on_window_event(&zeiger_ereignis(0.0, 0.0), Some(lage())); // damit etwas davor steht
+    e.on_window_event(&zeiger_ereignis(0.0, 0.0), Some(lage()), false); // damit etwas davor steht
     e.taste(tasten::scancode(winit::keyboard::KeyCode::ArrowLeft).expect("Pfeil links"), true);
     let frames = rahmen_von(e.abholen(Instant::now()));
     assert_eq!(frames.last().expect("Taste"), &vec![0x05, 0x4b, 0xe0, 0x01]);
@@ -212,7 +311,7 @@ fn erweiterte_taste_geht_mit_e0_ueber_die_leitung() {
 fn absolute_bewegungen_werden_zusammengefasst() {
     let mut e = eingeschaltet();
     for x in [10.0, 20.0, 30.0, 960.0] {
-        e.on_window_event(&zeiger_ereignis(x, 540.0), Some(lage()));
+        e.on_window_event(&zeiger_ereignis(x, 540.0), Some(lage()), false);
     }
     let frames = alles(&mut e);
     assert_eq!(frames.len(), 1, "nur die letzte Position bleibt");
@@ -237,6 +336,50 @@ fn relative_bewegungen_werden_aufsummiert() {
     assert_eq!(i16::from_le_bytes([frames[0][3], frames[0][4]]), -5);
 }
 
+/// **Der Wayland-Fall (Fund 3).** `relative_pointer` liefert beschleunigte
+/// Bruchteile; jedes Ereignis fuer sich gerundet ergab bei langsamem Zielen
+/// null — der Zeiger beim Host bewegte sich GAR NICHT. Mit Rest summieren sich
+/// drei Ereignisse zum ersten ganzen Punkt.
+#[test]
+fn relative_bruchteile_gehen_nicht_verloren() {
+    let mut e = Erfassung::neu();
+    e.setzen(true, 0, true);
+    let _ = alles(&mut e);
+    for _ in 0..2 {
+        e.zeigerbewegung(0.4, -0.4);
+    }
+    assert!(e.raeumen().is_none(), "0,8 Punkte sind noch kein Punkt");
+    e.zeigerbewegung(0.4, -0.4);
+    let frames = alles(&mut e);
+    assert_eq!(frames.len(), 1, "der dritte Bruchteil fuellt den Punkt");
+    assert_eq!(i16::from_le_bytes([frames[0][1], frames[0][2]]), 1);
+    assert_eq!(i16::from_le_bytes([frames[0][3], frames[0][4]]), -1);
+
+    // Und ueber eine ganze Bewegung stimmt die Summe: 25 x 0,4 = 10 Punkte.
+    let mut e = Erfassung::neu();
+    e.setzen(true, 0, true);
+    let _ = alles(&mut e);
+    for _ in 0..25 {
+        e.zeigerbewegung(0.4, 0.0);
+    }
+    let frames = alles(&mut e);
+    assert_eq!(i16::from_le_bytes([frames[0][1], frames[0][2]]), 10);
+}
+
+/// Der Rest gehoert zum Strom, nicht zum Zeiger: ein neuer Strom faengt bei
+/// null an.
+#[test]
+fn der_bewegungsrest_ueberlebt_den_stromwechsel_nicht() {
+    let mut e = Erfassung::neu();
+    e.setzen(true, 0, true);
+    e.zeigerbewegung(0.9, 0.9);
+    let _ = alles(&mut e);
+    e.setzen(true, 0, true);
+    let _ = alles(&mut e);
+    e.zeigerbewegung(0.2, 0.2);
+    assert!(e.raeumen().is_none(), "0,9 aus dem alten Strom zaehlt nicht mit");
+}
+
 /// Der Kern der Flutkontrolle: staut sich die Abgabe, fallen **Bewegungen** —
 /// **Tasten nie**. Ein verschlucktes Key-Up waere eine klemmende Taste.
 #[test]
@@ -246,7 +389,7 @@ fn unter_last_fallen_bewegungen_und_keine_tasten() {
     let runden = MAX_WARTEND * 4;
     for i in 0..runden {
         e.taste(0x1e, i % 2 == 0);
-        e.on_window_event(&zeiger_ereignis((i % 1920) as f64, 540.0), Some(lage()));
+        e.on_window_event(&zeiger_ereignis((i % 1920) as f64, 540.0), Some(lage()), false);
     }
     let frames = alles(&mut e);
     let tasten = frames.iter().filter(|f| f[0] == 0x05).count();
@@ -280,10 +423,10 @@ fn ohne_bewegungen_wird_nichts_verworfen() {
 fn bewegungen_warten_auf_den_takt_tasten_nicht() {
     let mut e = eingeschaltet();
     let t0 = Instant::now();
-    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
     assert!(matches!(e.abholen(t0), Abgabe::Jetzt(_)), "die erste Abgabe darf sofort");
 
-    e.on_window_event(&zeiger_ereignis(200.0, 100.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(200.0, 100.0), Some(lage()), false);
     match e.abholen(t0) {
         Abgabe::Spaeter(termin) => assert_eq!(termin, t0 + BEWEGUNGSTAKT),
         andere => panic!("Bewegung muss warten, bekam {andere:?}"),
@@ -294,7 +437,7 @@ fn bewegungen_warten_auf_den_takt_tasten_nicht() {
     assert_eq!(frames.iter().map(|f| f[0]).collect::<Vec<_>>(), vec![0x01, 0x05]);
 
     // Nach dem Takt darf die Bewegung wieder.
-    e.on_window_event(&zeiger_ereignis(300.0, 100.0), Some(lage()));
+    e.on_window_event(&zeiger_ereignis(300.0, 100.0), Some(lage()), false);
     assert!(matches!(e.abholen(t0 + BEWEGUNGSTAKT), Abgabe::Jetzt(_)));
 }
 
@@ -314,7 +457,7 @@ fn ausschalten_laesst_alles_los() {
     let mut e = eingeschaltet();
     e.taste(0x11, true); // W
     e.taste(0x1e, true); // A
-    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
     let _ = alles(&mut e);
 
     e.setzen(false, 0, false);
@@ -334,8 +477,8 @@ fn losgelassenes_wird_nicht_nachgereicht() {
     let mut e = eingeschaltet();
     e.taste(0x11, true);
     e.taste(0x11, false);
-    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Right), None);
-    e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Right), None);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Right), Some(lage()), false);
+    e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Right), Some(lage()), false);
     let _ = alles(&mut e);
     e.setzen(false, 0, false);
     assert!(e.raeumen().is_none(), "nichts mehr nachzureichen");
@@ -348,9 +491,107 @@ fn fokusverlust_laesst_alles_los_ohne_abzuschalten() {
     let mut e = eingeschaltet();
     e.taste(0x11, true);
     let _ = alles(&mut e);
-    e.on_window_event(&WindowEvent::Focused(false), None);
+    e.on_window_event(&WindowEvent::Focused(false), None, false);
     assert_eq!(alles(&mut e), vec![vec![0x05, 0x11, 0x00, 0x00]]);
     assert!(e.aktiv(), "Fokusverlust ist kein Abschalten");
+}
+
+/// **Fund 4, und er hing an einem Rennen:** liegt zwischen Aus und Ein kein
+/// Abholen, warf das fruehere `clear()` genau die Hoch-Ereignisse weg, die das
+/// Ausschalten gerade eingereiht hatte — die Taste blieb beim Host gedrueckt.
+///
+/// Das Hello steht dabei VORNE: der Host ist fail-closed und beendet den Strom
+/// beim ersten Frame vor dem Handschlag (`Eingabe vor dem Hello-Handschlag`,
+/// im Zwei-Geraete-Test am 2026-08-12 belegt).
+#[test]
+fn hoch_ereignisse_ueberleben_das_wiedereinschalten() {
+    let mut e = eingeschaltet();
+    e.taste(0x11, true); // W
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    let _ = alles(&mut e);
+
+    e.setzen(false, 0, false); // reiht W-hoch und Knopf-hoch ein
+    e.setzen(true, 0, false); // ... und hier gingen sie frueher verloren
+    let frames = alles(&mut e);
+    assert_eq!(frames[0], vec![0x00, 0x02], "das Hello zuerst");
+    assert!(frames.contains(&vec![0x05, 0x11, 0x00, 0x00]), "W-hoch fehlt: {frames:?}");
+    assert!(frames.contains(&vec![0x03, 0x00, 0x00]), "Knopf-hoch fehlt: {frames:?}");
+    assert_eq!(frames.len(), 3);
+}
+
+/// Bewegungen des alten Stroms duerfen dabei fallen — sie sind ueberholt, und
+/// die Wire-Spec erlaubt genau das. Gezaehlt werden sie trotzdem.
+#[test]
+fn beim_stromwechsel_fallen_nur_bewegungen() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.taste(0x11, true);
+    e.setzen(true, 0, false);
+    let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
+    assert_eq!(opcodes, vec![0x00, 0x05], "die Bewegung faellt, die Taste bleibt");
+    assert_eq!(e.verworfene_bewegungen(), 1);
+}
+
+// ── Zeigerfang nachfuehren ──────────────────────────────────────────────────
+
+/// **Fund 6.** Windows loest den Griff beim Fokusverlust auf. Wird das nicht
+/// nachgefuehrt, verwirft die Erfassung weiter jedes `CursorMoved` — der
+/// Nutzer haette einen freien Zeiger, mit dem er nichts mehr treffen kann.
+#[test]
+fn verlorener_zeigerfang_schaltet_auf_absolute_bewegungen_zurueck() {
+    let mut e = Erfassung::neu();
+    e.setzen(true, 0, true);
+    let _ = alles(&mut e);
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    assert!(e.raeumen().is_none(), "gefangen: die Fensterposition sagt nichts");
+
+    e.zeigerfang_nachfuehren(false); // Fokus weg, Griff aufgeloest
+    assert!(!e.zeigerfang());
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    assert_eq!(alles(&mut e).len(), 1, "jetzt gilt wieder die absolute Form");
+
+    e.zeigerfang_nachfuehren(true); // Fokus zurueck, neu gefangen
+    assert!(e.zeigerfang());
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    assert!(e.raeumen().is_none());
+    e.zeigerbewegung(4.0, 0.0);
+    assert_eq!(alles(&mut e)[0][0], 0x02, "und wieder die relative");
+}
+
+/// Ohne Erfassung gibt es keinen Fang — auch nicht ueber diesen Weg.
+#[test]
+fn nachfuehren_faengt_nicht_ohne_erfassung() {
+    let mut e = Erfassung::neu();
+    e.zeigerfang_nachfuehren(true);
+    assert!(!e.zeigerfang());
+}
+
+// ── Tasten ohne Abbildung ───────────────────────────────────────────────────
+
+/// **Fund 7.** Nicht raten ist richtig, schweigend fallen lassen war es nicht:
+/// fuer verworfene Bewegungen gab es laengst einen Zaehler, fuer Tasten nichts.
+#[test]
+fn tasten_ohne_abbildung_werden_gezaehlt_statt_zu_verschwinden() {
+    use winit::keyboard::KeyCode;
+    let mut e = eingeschaltet();
+    e.taste_von_code(KeyCode::F13, true);
+    e.taste_von_code(KeyCode::F13, false);
+    e.taste_von_code(KeyCode::MediaPlayPause, true);
+    assert!(e.raeumen().is_none(), "geraten wird weiterhin nicht");
+    assert_eq!(e.unbekannte_tasten(), 3);
+
+    // Was abgebildet ist, geht davon unberuehrt hinaus.
+    e.taste_von_code(KeyCode::KeyW, true);
+    assert_eq!(alles(&mut e), vec![vec![0x05, 0x11, 0x00, 0x01]]);
+    assert_eq!(e.unbekannte_tasten(), 3);
+}
+
+/// Ausgeschaltet zaehlt auch das nicht — es gibt dann keinen Strom.
+#[test]
+fn ausgeschaltet_zaehlt_keine_unbekannten_tasten() {
+    let mut e = Erfassung::neu();
+    e.taste_von_code(winit::keyboard::KeyCode::F13, true);
+    assert_eq!(e.unbekannte_tasten(), 0);
 }
 
 // ── Zuordnungen von winit ───────────────────────────────────────────────────
@@ -367,27 +608,66 @@ fn knopf_zuordnung_ist_die_der_leitung() {
 }
 
 /// Die senkrechte Achse stimmt zwischen winit und Windows ueberein, die
-/// waagerechte nicht (Herleitung an [`rad_von_winit`]).
+/// waagerechte nicht (Herleitung an [`rad_von_winit`]). Gerechnet wird in
+/// ZEILEN — die Rasten entstehen erst im Sammler.
 #[test]
 fn rad_vorzeichen() {
-    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(0.0, 1.0)), (120, 0));
-    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(0.0, -1.0)), (-120, 0));
-    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(1.0, 0.0)), (0, -120));
-    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(-1.0, 0.0)), (0, 120));
+    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(0.0, 1.0)), (1.0, 0.0));
+    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(0.0, -1.0)), (-1.0, 0.0));
+    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(1.0, 0.0)), (0.0, -1.0));
+    assert_eq!(rad_von_winit(MouseScrollDelta::LineDelta(-1.0, 0.0)), (0.0, 1.0));
     // Touchpad: rund 100 px je Raste.
     let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 200.0));
-    assert_eq!(rad_von_winit(px), (240, 0));
-    // Ein Streichen unter einer Raste bleibt eine Raste, sonst bewegte sich
-    // nichts.
-    let winzig = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
-    assert_eq!(rad_von_winit(winzig), (120, 0));
+    assert_eq!(rad_von_winit(px), (2.0, 0.0));
+}
+
+/// **Der Touchpad-Fall am ganzen Weg.** Ein Windows-Praezisions-Touchpad
+/// liefert `LineDelta` in Schritten von rund 0,33; bis zum 2026-08-12 wurde
+/// daraus je eine volle Raste — dreifache Scrollgeschwindigkeit beim Host.
+#[test]
+fn teilrasten_sammeln_sich_ueber_ereignisse() {
+    let mut e = eingeschaltet();
+    let stups = rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.33));
+    for _ in 0..3 {
+        e.on_window_event(&stups, Some(lage()), false);
+    }
+    assert!(e.raeumen().is_none(), "drei Drittel sind noch keine ganze Raste");
+    e.on_window_event(&stups, Some(lage()), false);
+    assert_eq!(alles(&mut e), vec![vec![0x04, 0x78, 0x00, 0x00, 0x00]], "jetzt eine Raste");
+
+    // Und ueber eine ganze Geste stimmt die Summe: 30 Stupser sind 9,9 Zeilen.
+    let mut e = eingeschaltet();
+    for _ in 0..30 {
+        e.on_window_event(&stups, Some(lage()), false);
+    }
+    let rasten: i32 = alles(&mut e)
+        .iter()
+        .map(|f| i32::from(i16::from_le_bytes([f[1], f[2]])) / 120)
+        .sum();
+    assert_eq!(rasten, 9, "30 x 0,33 Zeilen = 9 volle Rasten, nicht 30");
+}
+
+/// Ein neuer Strom faengt ohne den Rest des alten an — sonst loeste der erste
+/// Stups im neuen Strom eine Raste aus, die zum vorigen gehoerte.
+#[test]
+fn der_radrest_ueberlebt_den_stromwechsel_nicht() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.9)), Some(lage()), false);
+    assert!(e.raeumen().is_none());
+    e.setzen(true, 0, false); // neuer Strom
+    // Der neue Strom weiss noch nicht, wo der Zeiger steht — erst damit ist das
+    // Rad ueberhaupt wieder im Bild.
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    let _ = alles(&mut e);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.2)), Some(lage()), false);
+    assert!(e.raeumen().is_none(), "0,9 aus dem alten Strom zaehlt nicht mit");
 }
 
 /// Ein Rad-Ereignis ohne Bewegung erzeugt keinen Frame.
 #[test]
 fn rad_ohne_bewegung_erzeugt_nichts() {
     let mut e = eingeschaltet();
-    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.0)), None);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.0)), Some(lage()), false);
     assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
 }
 

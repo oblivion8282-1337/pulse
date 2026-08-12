@@ -104,6 +104,35 @@ export const gateway = {
 };
 
 /**
+ * Die Connection des aktiven Servers als **Objekt** statt als Proxy.
+ *
+ * Für Zustände, die über mehrere Ops hinweg an GENAU einer Verbindung hängen:
+ * `gateway.*` löst bei jedem Ruf neu auf, ein Server-Wechsel mitten in einem
+ * laufenden Vorgang schickt die Folge-Ops also an einen fremden Server, der die
+ * Sitzung gar nicht kennt. Wer eine Sitzung führt, holt sich die Connection
+ * einmal hier und hält sie fest (s. `remote/session.svelte.ts`). Wirft wie
+ * `_active()`, wenn kein Server aktiv ist.
+ */
+export function activeGatewayConnection(): GatewayConnection {
+  return _active();
+}
+
+/**
+ * Die Connection eines bestimmten Servers, oder `null`, wenn es sie nicht (mehr)
+ * gibt. Gegenstück zu [`activeGatewayConnection`] für die Empfangsseite: dort
+ * steht die Herkunft eines Events als `serverId` fest
+ * (`gateway-connection.ts::dispatchingServerId`), und die Antwort darauf gehört
+ * auf dieselbe Verbindung.
+ */
+export function gatewayForServer(serverId: string): GatewayConnection | null {
+  try {
+    return gatewayPool.for(serverId);
+  } catch {
+    return null; // Server-Eintrag entfernt — der Aufrufer behandelt das wie „weg"
+  }
+}
+
+/**
  * Wechselt die Active-Server-Connection. Effekt: nachfolgende
  * `gateway.*`-Aufrufe gehen an die neue Connection. Listener und
  * Subscriptions wandern NICHT mit — die UI-Schicht (Phase 4.3) muss

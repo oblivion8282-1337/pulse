@@ -131,6 +131,110 @@ async def test_pending_timeout_notifies_controller_and_drops():
 
 
 @pytest.mark.asyncio
+async def test_pending_timeout_dismisses_every_host_tab():
+    """Der Ablauf der Zustimmungsfrist muss AUCH die Dialoge des Hosts
+    abraeumen. Bleibt einer stehen, verwirft das Frontend (phase != 'idle')
+    jede weitere Einladung still — der Host waere danach fuer alle
+    unerreichbar, und sein spaeteres "Zulassen" liefe in 4053."""
+    reg = _Reg()
+    ctrl_ws, host_a, host_b = _Sock(), _Sock(), _Sock()
+    reg._user_conns[10] = {host_a, host_b}
+    sess = await reg.remote_create("chan", "10", host_a, "20", ctrl_ws)
+    reg.remote_schedule_timeout(sess.session_id, ctrl_ws, delay=0.02)
+    await asyncio.sleep(0.05)
+    cancel = {"op": "remote_canceled", "session_id": sess.session_id}
+    assert host_a.sent == [cancel]
+    assert host_b.sent == [cancel]
+    assert ctrl_ws.sent == [
+        {"op": "remote_ended", "session_id": sess.session_id, "reason": "timeout"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_timeout_pops_atomically_not_check_then_end():
+    """Der Zeitgeber darf die Sitzung nur ueber den atomaren
+    ``remote_end_if_pending`` abraeumen. Mit lesen-dann-entfernen liegt
+    zwischen Pruefung und ``await`` ein Fenster, in dem ein Accept gewinnt —
+    der Zeitgeber entfernte dann eine AKTIVE Sitzung."""
+
+    class _NoPlainEnd(_Reg):
+        async def remote_end(self, session_id):
+            raise AssertionError("timeout must use remote_end_if_pending")
+
+    reg = _NoPlainEnd()
+    ctrl_ws = _Sock()
+    sess = await reg.remote_create("chan", "10", _Sock(), "20", ctrl_ws)
+    reg.remote_schedule_timeout(sess.session_id, ctrl_ws, delay=0.02)
+    await asyncio.sleep(0.05)
+    # Kam der Zeitgeber ueber den atomaren Weg, ist die Sitzung sauber weg und
+    # der Steuernde benachrichtigt; sonst haette die Zusicherung oben zugeschlagen.
+    assert reg.remote_get(sess.session_id) is None
+    assert ctrl_ws.sent[-1]["reason"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_refusal_cooldown_after_decline_and_timeout():
+    reg = _Reg()
+    assert reg.remote_refusal_wait_s("10", "20") == 0.0
+    reg.remote_note_refused("10", "20")
+    assert 0.0 < reg.remote_refusal_wait_s("10", "20") <= 30.0
+    # Paar-genau: ein anderer Steuernder ist von der Absage nicht betroffen.
+    assert reg.remote_refusal_wait_s("10", "21") == 0.0
+    assert reg.remote_refusal_wait_s("11", "20") == 0.0
+    # Auch das Aussitzen zaehlt als Absage — sonst waere der Zeitablauf der
+    # billigste Weg, den Dialog erneut aufzuziehen.
+    ctrl_ws = _Sock()
+    sess = await reg.remote_create("chan", "30", _Sock(), "40", ctrl_ws)
+    reg.remote_schedule_timeout(sess.session_id, ctrl_ws, delay=0.02)
+    await asyncio.sleep(0.05)
+    assert reg.remote_refusal_wait_s("30", "40") > 0.0
+
+
+@pytest.mark.asyncio
+async def test_terminate_notifies_both_peers_of_an_active_session():
+    reg = _Reg()
+    host_ws, ctrl_ws = _Sock(), _Sock()
+    reg._user_conns[10] = {host_ws}
+    sess = await reg.remote_create("chan", "10", host_ws, "20", ctrl_ws)
+    await reg.remote_activate(sess.session_id)
+    removed = await reg.remote_terminate(sess.session_id, "membership_revoked")
+    assert removed is sess
+    ended = {
+        "op": "remote_ended",
+        "session_id": sess.session_id,
+        "reason": "membership_revoked",
+    }
+    assert host_ws.sent == [ended]
+    assert ctrl_ws.sent == [ended]
+    # Idempotent — ein zweiter Abbau findet nichts mehr vor.
+    assert await reg.remote_terminate(sess.session_id, "membership_revoked") is None
+
+
+@pytest.mark.asyncio
+async def test_terminate_of_a_pending_session_clears_the_dialogs():
+    """Solange die Sitzung wartet, hat der Host keinen Kanal, sondern einen
+    Dialog — den raeumt ``remote_canceled`` ab, und zwar auf JEDEM Tab."""
+    reg = _Reg()
+    host_a, host_b, ctrl_ws = _Sock(), _Sock(), _Sock()
+    reg._user_conns[10] = {host_a, host_b}
+    sess = await reg.remote_create("chan", "10", host_a, "20", ctrl_ws)
+    await reg.remote_terminate(sess.session_id, "membership_revoked")
+    cancel = {"op": "remote_canceled", "session_id": sess.session_id}
+    assert host_a.sent == [cancel] and host_b.sent == [cancel]
+    assert ctrl_ws.sent[-1]["reason"] == "membership_revoked"
+
+
+@pytest.mark.asyncio
+async def test_session_age_is_readable():
+    """``created_at`` wird gelesen — die Rechte-Wache haengt ihre absolute
+    Sitzungsdauer daran."""
+    reg = _Reg()
+    sess = await reg.remote_create("chan", "10", _Sock(), "20", _Sock())
+    assert sess.age_s() >= 0.0
+    assert sess.age_s(now_ms=sess.created_at + 5000) == pytest.approx(5.0)
+
+
+@pytest.mark.asyncio
 async def test_cancel_timeout_prevents_expiry():
     reg = _Reg()
     ctrl_ws = _Sock()

@@ -21,17 +21,33 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Normierte Videobild-Koordinate (0..65535) → physischer Bildschirmpunkt im
 /// Quell-Rechteck. Ins Rechteck geklemmt: der Steuernde kann nur dorthin
 /// klicken, wo er per Aufnahme auch hinsehen darf.
-pub fn anteil_auf_punkt(x: u16, y: u16, rect: &RECT) -> (i32, i32) {
-    let w = (rect.right - rect.left).max(1);
-    let h = (rect.bottom - rect.top).max(1);
+///
+/// `None` bei einem **entarteten Rechteck** (keine Breite oder keine Höhe) — es
+/// gibt dann keinen Bildpunkt, auf den sich ein Anteil abbilden ließe. Der
+/// Aufrufer verwirft die Bewegung, wie bei einem Ziel ohne Rechteck.
+///
+/// Das ist kein Vorsichts-`if`: `DwmGetWindowAttribute` liefert für ein
+/// **gecloaktes** Fenster (anderer virtueller Desktop, minimiertes UWP-Fenster)
+/// ein leeres Rechteck. Bei `right == left` panikte `clamp(left, right - 1)`
+/// („min > max") — und zwar im Dispatch-Faden, also im Haupt-Faden: die Panik
+/// propagierte aus `main` heraus, übersprang `Sitzung::beenden` und
+/// `StreamController::stop`, vergiftete die Sperre der Sitzung und nahm damit
+/// alles auf einmal mit — Prozess tot, Stream weg, und alles Gedrückte blieb
+/// gedrückt.
+pub fn anteil_auf_punkt(x: u16, y: u16, rect: &RECT) -> Option<(i32, i32)> {
+    let w = rect.right - rect.left;
+    let h = rect.bottom - rect.top;
+    if w <= 0 || h <= 0 {
+        return None;
+    }
     // Auf (w-1)/(h-1) skalieren, damit 65535 exakt auf den letzten Bildpunkt
     // fällt — sonst erreicht der Zeiger den rechten/unteren Rand nie.
     let px = rect.left + ((x as i64 * (w - 1) as i64 + 32767) / 65535) as i32;
     let py = rect.top + ((y as i64 * (h - 1) as i64 + 32767) / 65535) as i32;
-    (
+    Some((
         px.clamp(rect.left, rect.right - 1),
         py.clamp(rect.top, rect.bottom - 1),
-    )
+    ))
 }
 
 /// Grenzen des virtuellen Desktops (alle Bildschirme), physische Bildpunkte.
@@ -72,9 +88,19 @@ pub fn punkt_auf_absolut(px: i32, py: i32, vd: &VirtualDesktop) -> (i32, i32) {
     // aufgefallen, und deshalb ist eine Messung über MEHRERE Bildschirme keine
     // Kür.
     //
-    // `px - vd.x` ist nie negativ: `vd.x` ist das Minimum über alle Bildschirme.
+    // **`px - vd.x` KANN negativ sein** — hier stand das Gegenteil, und für
+    // Bildschirm-Ziele stimmt es auch (`vd.x` ist das Minimum über alle
+    // Bildschirme). Für FENSTER-Ziele nicht: das Quell-Rechteck kommt aus
+    // `DWMWA_EXTENDED_FRAME_BOUNDS`, und ein Fenster darf über den Rand des
+    // Desktops hinausragen (halb aus dem Bild gezogen) — DWM gibt genau das
+    // zurück. Ungeklemmt ginge daraus eine negative Absolutkoordinate an
+    // `SendInput`, das sie als riesigen Wert liest. Also erst auf den Desktop
+    // klemmen, dann normieren; der Zeiger kann ohnehin nirgends hin, wo kein
+    // Bildschirm ist.
     let n = |p: i32, v: i32, span: i32| -> i32 {
-        (((p - v) as i64 * 65536 + 32768) / span.max(1) as i64) as i32
+        let span = span.max(1);
+        let p = p.clamp(v, v + span - 1);
+        ((((p - v) as i64 * 65536 + 32768) / span as i64) as i32).clamp(0, 65535)
     };
     (n(px, vd.x, vd.cx), n(py, vd.y, vd.cy))
 }
@@ -90,15 +116,15 @@ mod tests {
     #[test]
     fn ecken_treffen_die_raender() {
         let r = rect(100, 200, 1100, 800); // 1000x600 an (100,200)
-        assert_eq!(anteil_auf_punkt(0, 0, &r), (100, 200));
+        assert_eq!(anteil_auf_punkt(0, 0, &r), Some((100, 200)));
         // 65535 muss den LETZTEN Bildpunkt treffen, nicht den ersten daneben.
-        assert_eq!(anteil_auf_punkt(65535, 65535, &r), (1099, 799));
+        assert_eq!(anteil_auf_punkt(65535, 65535, &r), Some((1099, 799)));
     }
 
     #[test]
     fn mitte_bleibt_mitte() {
         let r = rect(0, 0, 1921, 1081);
-        let (px, py) = anteil_auf_punkt(32767, 32767, &r);
+        let (px, py) = anteil_auf_punkt(32767, 32767, &r).unwrap();
         assert!((px - 960).abs() <= 1, "px={px}");
         assert!((py - 540).abs() <= 1, "py={py}");
     }
@@ -106,8 +132,27 @@ mod tests {
     #[test]
     fn geklemmt_bleibt_im_rechteck() {
         let r = rect(0, 0, 100, 100);
-        let (px, py) = anteil_auf_punkt(65535, 65535, &r);
+        let (px, py) = anteil_auf_punkt(65535, 65535, &r).unwrap();
         assert!(px < 100 && py < 100, "innerhalb: {px},{py}");
+    }
+
+    /// Ein entartetes Rechteck (leer oder verdreht) wird abgewiesen statt
+    /// darin gerechnet. Genau das liefert `DwmGetWindowAttribute` für ein
+    /// gecloaktes Fenster — vorher panikte hier `clamp` (min > max) und riss im
+    /// Dispatch-Faden den ganzen Prozess mit.
+    #[test]
+    fn entartetes_rechteck_wird_abgewiesen() {
+        assert_eq!(anteil_auf_punkt(0, 0, &rect(0, 0, 0, 0)), None);
+        assert_eq!(anteil_auf_punkt(3000, 3000, &rect(0, 0, 0, 0)), None);
+        // Nur die Breite leer (rechte Kante = linke Kante) — der Panik-Fall.
+        assert_eq!(anteil_auf_punkt(65535, 0, &rect(500, 100, 500, 700)), None);
+        // Nur die Höhe leer.
+        assert_eq!(anteil_auf_punkt(0, 65535, &rect(0, 100, 800, 100)), None);
+        // Verdreht (rechts < links) — kommt aus keiner gesunden Abfrage, wäre
+        // aber derselbe Panik-Fall.
+        assert_eq!(anteil_auf_punkt(0, 0, &rect(800, 600, 100, 100)), None);
+        // Ein Rechteck von genau einem Bildpunkt trägt dagegen.
+        assert_eq!(anteil_auf_punkt(65535, 65535, &rect(7, 9, 8, 10)), Some((7, 9)));
     }
 
     /// Zweitbildschirm links vom Primären: der Ursprung des virtuellen Desktops
@@ -122,6 +167,28 @@ mod tests {
         // `absolut_rechnet_sich_zurueck` unten.
         assert_eq!(punkt_auf_absolut(-2560, 0, &vd).0, 6);
         assert_eq!(punkt_auf_absolut(2559, 0, &vd).0, 65529);
+    }
+
+    /// Ein Fenster darf über den Rand des Desktops hinausragen (halb aus dem
+    /// Bild gezogen); `DWMWA_EXTENDED_FRAME_BOUNDS` gibt das so zurück. Die
+    /// Absolutkoordinate muss trotzdem im Bereich bleiben — ungeklemmt ging
+    /// hier eine NEGATIVE Zahl an `SendInput`, die Windows als riesigen Wert
+    /// liest.
+    #[test]
+    fn punkte_ausserhalb_des_desktops_bleiben_im_bereich() {
+        let vd = VirtualDesktop { x: 0, y: 0, cx: 2560, cy: 1440 };
+        for (px, py) in [(-300, -80), (-1, -1), (5000, 4000), (2560, 1440)] {
+            let (nx, ny) = punkt_auf_absolut(px, py, &vd);
+            assert!((0..=65535).contains(&nx), "x={px} → {nx}");
+            assert!((0..=65535).contains(&ny), "y={py} → {ny}");
+        }
+        // Links über die Kante hinaus landet auf der ersten Spalte, nicht im
+        // Negativen; rechts darüber hinaus auf der letzten.
+        assert_eq!(punkt_auf_absolut(-300, 0, &vd), punkt_auf_absolut(0, 0, &vd));
+        assert_eq!(
+            punkt_auf_absolut(5000, 0, &vd),
+            punkt_auf_absolut(2559, 0, &vd)
+        );
     }
 
     /// Die eigentliche Zusage: Windows muss aus der Absolutkoordinate WIEDER

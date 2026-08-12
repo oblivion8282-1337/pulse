@@ -47,12 +47,28 @@ Add-Type -AssemblyName System.Drawing
 # Monitor-Rechtecke kaemen dann in virtuellen Punkten heraus, das Bildschirmfoto
 # in echten Pixeln -- und die Fernsteuerung rechnete mit zwei Massstaeben.
 Add-Type -Namespace Bruecke -Name Nativ -MemberDefinition @'
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(System.Drawing.Point pt, uint flags);
   [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr hmon, int typ, out uint dpiX, out uint dpiY);
 '@ -ReferencedAssemblies System.Drawing
 
-try { [void][Bruecke.Nativ]::SetProcessDPIAware() } catch { }
+# PER_MONITOR_AWARE_V2 (-4), NICHT das aeltere SetProcessDPIAware.
+#
+# Das aeltere meldet den Prozess als SYSTEM-DPI-bewusst an. Solange alle
+# Bildschirme dieselbe Skalierung fahren, faellt der Unterschied nicht auf --
+# sobald sie sich unterscheiden, virtualisiert Windows fuer jeden abweichenden
+# Schirm. Der Helfer meldete dann Groessen wie 1707x960 fuer einen 2560x1440-
+# Schirm auf 150 Prozent und "Skalierung 1" fuer alle. Wer darauf zielt, klickt
+# daneben, und das Bildschirmfoto zeigt einen hochgerechneten Ausschnitt.
+#
+# Am 2026-08-12 genau so aufgefallen, nachdem Pruefziel und Nachweis-Treiber
+# bereits umgestellt waren -- diese dritte Datei blieb zurueck.
+try {
+  if (-not [Bruecke.Nativ]::SetProcessDpiAwarenessContext([IntPtr](-4))) { throw 'abgelehnt' }
+} catch {
+  try { [void][Bruecke.Nativ]::SetProcessDPIAware() } catch { }
+}
 
 function Skalierung([int]$x, [int]$y) {
   # 96 dpi ist 100 Prozent. Faellt die Abfrage aus (aeltere Windows-Fassung),

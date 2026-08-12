@@ -19,7 +19,6 @@
   import { remoteSession } from '$lib/remote/session.svelte';
   import { nativePlayerSessions } from '$lib/player/store.svelte';
   import { aufNachrichten, erfassungAn, erfassungAus } from '$lib/remote/playerInput';
-  import { gateway } from '$lib/ws/connection';
 
   const steuernd = $derived(
     remoteSession.phase === 'active' && remoteSession.role === 'controller'
@@ -49,7 +48,15 @@
       return;
     }
     hatteFenster = true;
-    void erfassungAn(fenster, sessionId, slot);
+    // Scheitert das Einschalten, wird die Sitzung beendet statt weiterlaufen zu
+    // lassen. Sonst steht beim Host das Warnbanner „wird ferngesteuert", der
+    // Steuernde sieht einen „beenden"-Knopf — und es fließt kein einziges
+    // Frame. Genau davor warnt `playerInput.ts::erfassungAn`, wenn es `false`
+    // liefert. Erneut prüfen: zwischen Ruf und Antwort kann die Sitzung schon
+    // eine andere sein, und dann gehörte dieses `end()` einer fremden.
+    void erfassungAn(fenster, sessionId, slot).then((ok) => {
+      if (!ok && remoteSession.sessionId === sessionId) remoteSession.end();
+    });
     return () => {
       // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
       // nach; die gehen über dasselbe Abonnement unten hinaus.
@@ -62,11 +69,12 @@
   // nicht verloren gehen.
   $effect(() =>
     aufNachrichten((n) => {
-      // Nur was zur eigenen, laufenden Sitzung gehört. Ein Nachzügler einer
-      // beendeten Sitzung würde vom Gateway ohnehin mit 4053 abgewiesen.
-      if (remoteSession.role !== 'controller') return;
-      if (!n.session_id || n.session_id !== remoteSession.sessionId) return;
-      gateway.sendRemoteInput(n.session_id, n.slot, n.frames);
+      // Abgesetzt wird über den Store, nicht über `gateway`: nur der Store
+      // kennt die Verbindung, auf der die Sitzung wirklich läuft. Über den
+      // Proxy gingen die Frames samt `session_id` nach einem Serverwechsel an
+      // einen fremden Server, der die Sitzung nicht kennt. Die Prüfung „gehört
+      // zur eigenen, laufenden Sitzung" macht `sendInput` selbst.
+      remoteSession.sendInput(n.session_id, n.slot, n.frames);
     })
   );
 </script>

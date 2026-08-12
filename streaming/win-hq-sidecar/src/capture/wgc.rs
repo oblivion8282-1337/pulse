@@ -127,6 +127,12 @@ impl WgcCapture {
         // Resolve auf Caller-Thread — billig, will früh fehlen wenn das Fenster
         // nicht da ist, statt nach dem Thread-Spawn.
         let target = source.resolve()?;
+        // Genau DIESES Ziel bekommt die Fernsteuerung. Sie löste die Quelle
+        // früher selbst noch einmal auf, und zwei Auflösungen laufen
+        // auseinander (exklusives Vollbild, Titel-Treffer) — die Eingabe zielte
+        // dann irgendwohin, wo der Zuschauer nichts sieht. Begründung:
+        // `remote_input::ziel::ziel_gebunden`.
+        crate::remote_input::ziel::ziel_gebunden(&target);
 
         // mpsc::sync_channel für bounded queue → Backpressure-Signal an Capture
         // (Sender::try_send wirft TrySendError::Full statt zu blockieren).

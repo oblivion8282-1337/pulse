@@ -40,7 +40,9 @@ export type SidecarRuf = (slot: number, op: string, params?: unknown) => Promise
 export interface EingabeAntwort {
   ok: boolean;
   error?: string;
-  /** `live` | `unknown_slot` | `unresolved_source` | `masked` (s. Sidecar-Op). */
+  /** `live` | `unknown_slot` | `unresolved_source` | `masked` (s. Sidecar-Op).
+   *  `unknown_slot` kann auch von hier kommen, ohne dass ein Sidecar gefragt
+   *  wurde — s. [`RemoteEingabe.frames`]. */
   state?: unknown;
   processed?: unknown;
 }
@@ -52,8 +54,13 @@ function fehlertext(e: unknown): string {
 /** Nur eine nicht-leere Liste aus Zeichenketten innerhalb der Wire-Grenze geht
  *  durch; sonst `null`. Der Inhalt bleibt ungeprueft — das Frame-Format kennt
  *  der Sidecar, und es an zwei Stellen zu pflegen waere genau das, was die
- *  Spezifikation dem Gateway ausdruecklich erspart. */
-function frameListe(wert: unknown): string[] | null {
+ *  Spezifikation dem Gateway ausdruecklich erspart.
+ *
+ *  Nicht zu verwechseln mit `frameListe` in `remoteInput.ts`: die SIEBT auf der
+ *  Senderseite Unbrauchbares aus und schickt den Rest, hier wird die ganze
+ *  Nachricht verworfen. Der Unterschied ist Absicht — eingespielt wird
+ *  fail-closed, gesendet wird best-effort. */
+function gepruefteFrames(wert: unknown): string[] | null {
   if (!Array.isArray(wert) || wert.length === 0) return null;
   if (wert.length > MAX_FRAMES_PRO_NACHRICHT) return null;
   if (!wert.every((f) => typeof f === 'string' && f.length > 0)) return null;
@@ -66,41 +73,72 @@ export class RemoteEingabe {
   #sitzung: string | null = null;
   readonly #ruf: SidecarRuf;
   readonly #maxSlots: number;
+  readonly #belegt: (slot: number) => boolean;
 
-  /** `maxSlots` kommt aus `sidecar.ts::MAX_STREAM_SLOTS` — hereingereicht statt
-   *  importiert, damit dieses Modul electron-frei bleibt. */
-  constructor(ruf: SidecarRuf, maxSlots: number) {
+  /**
+   * `maxSlots` kommt aus `sidecar.ts::MAX_STREAM_SLOTS` — hereingereicht statt
+   * importiert, damit dieses Modul electron-frei bleibt.
+   *
+   * `belegt` beantwortet „laeuft auf diesem Platz ueberhaupt ein Sidecar?".
+   * Vorgabe ist „ja" (dieses Modul kann es allein nicht wissen); `main.ts`
+   * reicht die echte Auskunft herein. Warum das noetig ist, steht bei
+   * [`frames`].
+   */
+  constructor(ruf: SidecarRuf, maxSlots: number, belegt: (slot: number) => boolean = () => true) {
     this.#ruf = ruf;
     this.#maxSlots = maxSlots;
+    this.#belegt = belegt;
   }
 
   /**
    * Frames einspielen.
    *
-   * Ein Platz ausserhalb der Schranke wird ABGEWIESEN und nicht auf 0
-   * zurechtgebogen: ein verbogener Platz waere ein Klick auf dem falschen
-   * Bildschirm, ein abgewiesener ist nur ein verlorener Klick.
+   * **Ein unbrauchbarer Platz beendet die Sitzung NICHT** (Wire-Spec v2,
+   * „Unbekannter Slot", praezisiert am 2026-08-12). Der Renderer laesst die
+   * Sitzung bei `ok:false` fallen — ein `slot: 999` genuegte sonst, um eine
+   * laufende Fernsteuerung abzuwuergen, und genau das Rennen, das die Regel
+   * tolerieren soll (ein Stream endet zwischen Absenden und Ankunft), fiele
+   * durch. Verworfen wird still; zurechtgebogen auf 0 wird NICHT: ein
+   * verbogener Platz waere ein Klick auf dem falschen Bildschirm.
+   *
+   * „Unbrauchbar" heisst dabei zweierlei — ausserhalb der Schranke, ODER ohne
+   * laufenden Sidecar. Das zweite ist kein Feinschliff: `#ruf` spawnt lazy,
+   * also startete jede Nachricht mit einem fremden Platz einen Prozess, nur
+   * damit dieser `unknown_slot` antwortet. 99 Nachrichten mit verschiedenen
+   * Plaetzen waeren 99 Prozesse. `beenden()` vermeidet das seit jeher, `frames`
+   * bisher nicht.
    */
   async frames(slot: unknown, sessionId: unknown, frames: unknown): Promise<EingabeAntwort> {
     const platz = this.#platz(slot);
-    if (platz === null) return { ok: false, error: 'slot ungueltig' };
+    // Ein Platz, der keine ganze Zahl ist, ist etwas anderes als ein
+    // unbekannter: er kann aus keinem Rennen stammen, sondern nur aus einer
+    // missgeformten Nachricht — und dafuer gilt fail-closed.
+    if (platz === 'kaputt') return { ok: false, error: 'slot ungueltig' };
     if (typeof sessionId !== 'string' || !sessionId) {
       return { ok: false, error: 'session_id fehlt' };
     }
-    const liste = frameListe(frames);
+    const liste = gepruefteFrames(frames);
     if (liste === null) {
       return { ok: false, error: `frames: 1..${MAX_FRAMES_PRO_NACHRICHT} Zeichenketten` };
     }
+    // `null` heisst ab hier „unbekannter Platz": ausserhalb der Schranke oder
+    // ohne laufenden Sidecar.
+    const ziel = platz !== null && this.#belegt(platz) ? platz : null;
     try {
       // Sitzungswechsel: erst das Gedrueckte der alten freigeben, dann die neue
       // beginnen. Der Sidecar erkennt den Wechsel zwar selbst an der
       // `session_id` — aber nur in SEINEM Prozess; die anderen Plaetze der
       // alten Sitzung wuessten nichts davon.
-      for (const alt of this.#wechsel(sessionId, platz)) {
+      //
+      // Das laeuft AUCH, wenn die Frames gleich verworfen werden: sonst bliebe
+      // beim vorigen Gegenueber eine Taste gedrueckt, nur weil die erste
+      // Nachricht der neuen Sitzung einen Platz nannte, den es nicht mehr gibt.
+      for (const alt of this.#wechsel(sessionId, ziel)) {
         await this.#ruf(alt, 'remote_input_end');
       }
-      const res = (await this.#ruf(platz, 'remote_input', {
-        slot: platz,
+      if (ziel === null) return { ok: true, state: 'unknown_slot' };
+      const res = (await this.#ruf(ziel, 'remote_input', {
+        slot: ziel,
         session_id: sessionId,
         frames: liste,
       })) as Record<string, unknown> | undefined;
@@ -144,21 +182,25 @@ export class RemoteEingabe {
     return this.#sitzung;
   }
 
-  #platz(wert: unknown): number | null {
-    if (typeof wert !== 'number' || !Number.isInteger(wert)) return null;
+  /** Drei Ausgaenge, weil sie drei verschiedene Antworten verdienen: eine Zahl
+   *  = brauchbarer Platz, `null` = ausserhalb der Schranke (unbekannt, still
+   *  verwerfen), `'kaputt'` = keine ganze Zahl (missgeformt, fail-closed). */
+  #platz(wert: unknown): number | null | 'kaputt' {
+    if (typeof wert !== 'number' || !Number.isInteger(wert)) return 'kaputt';
     return wert >= 0 && wert < this.#maxSlots ? wert : null;
   }
 
   /** Buchfuehrung fuer `frames()`. Liefert die Plaetze, die wegen eines
-   *  Sitzungswechsels vorher zu beenden sind (im Regelfall leer). */
-  #wechsel(sessionId: string, platz: number): number[] {
+   *  Sitzungswechsels vorher zu beenden sind (im Regelfall leer). `platz`
+   *  `null` = die Frames werden verworfen, dann ist nichts zu merken. */
+  #wechsel(sessionId: string, platz: number | null): number[] {
     let zuBeenden: number[] = [];
     if (this.#sitzung !== null && this.#sitzung !== sessionId) {
       zuBeenden = [...this.#slots];
       this.#slots.clear();
     }
     this.#sitzung = sessionId;
-    this.#slots.add(platz);
+    if (platz !== null) this.#slots.add(platz);
     return zuBeenden;
   }
 }

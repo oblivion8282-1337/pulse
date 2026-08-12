@@ -253,6 +253,18 @@ Grund.
   auf einem fremden Rechner, nachdem ein Admin die Rolle genommen hat. Zulässig
   ist eine kurze Verzögerung (Prüfung im Takt, höchstens eine Minute); ein
   ausdrücklicher Rauswurf oder Bann muss **sofort** trennen.
+* **Eine Absage hält eine Weile** (ergänzt 2026-08-12). Nach „Ablehnen" *und*
+  nach dem Aussitzen einer Einladung gilt zwischen genau diesem Paar (Host,
+  Steuernder) eine Sperrfrist; ein früherer Versuch wird mit **4055** und der
+  Restzeit abgewiesen. Ohne sie kostet ein „Nein" nichts, und der Host lässt
+  sich mit Dialogen zumüllen, bis er aus Entnervung zustimmt. Die Prüfung liegt
+  **hinter** der Rechteprüfung — sonst verriete der Code einem Unberechtigten,
+  dass zwischen zwei fremden Nutzern gerade eine Anfrage lief.
+* **Eine Sitzung endet auch ohne Anlass** (ergänzt 2026-08-12). Zusätzlich zu
+  jeder Untätigkeitsgrenze läuft eine absolute Höchstdauer (derzeit 8 Stunden).
+  Eine Fernsteuerung, die niemand beendet — vergessenes Fenster, eingeschlafener
+  Host — ist sonst unbegrenzter Zugriff, und die Zustimmung war für eine
+  Sitzung gedacht, nicht für ein Dauerrecht.
 * **Alles loslassen beim Ende.** Der Host führt die Menge der gedrückten Tasten
   und Knöpfe mit und injiziert bei Sitzungsende für alles Gedrückte das
   Hoch-Ereignis — egal ob regulär beendet, Verbindung weg, oder fail-closed.

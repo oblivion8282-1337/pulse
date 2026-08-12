@@ -16,7 +16,11 @@
 //! * **Alles loslassen beim Ende.** Die Menge des Gedrückten wird mitgeführt und
 //!   bei jedem Sitzungsende freigegeben — regulär, bei Verbindungsverlust, bei
 //!   fail-closed und beim Prozessende. Ohne das läuft nach einem Abbruch die
-//!   W-Taste im Spiel für immer weiter.
+//!   W-Taste im Spiel für immer weiter. **Auch eine VERWORFENE Nachricht gibt
+//!   frei** (unbekannter Slot, unauflösbare Quelle, geschwärzter Sichtschutz) —
+//!   sonst genügt es, dass der Host sein gestreamtes Fenster minimiert, damit
+//!   ein Hoch-Ereignis verschluckt wird und die Taste am fremden Rechner
+//!   weiterläuft.
 //! * **Fail-closed.** Unbekannter Opcode, falsche Länge, fehlendes oder falsches
 //!   Hello, unbekannter Knopf → Sitzung stilllegen, alles freigeben, Zustand
 //!   melden. Die Eingabe kommt vom einzigen, per Consent bestätigten Gegenüber;
@@ -70,6 +74,9 @@ struct Zustand {
     /// Nach einem Protokollfehler stillgelegt → weitere Frames werden abgewiesen,
     /// bis die Sitzung beendet wird.
     stillgelegt: bool,
+    /// Endgültig zu (Prozess fährt herunter) → gar nichts wird mehr injiziert,
+    /// auch keine neue Sitzung. Nur [`Sitzung::beenden_endgueltig`] setzt es.
+    geschlossen: bool,
     /// Gedrückte Maustasten (btn-Code) — fürs Loslassen beim Ende.
     knoepfe: HashSet<u8>,
     /// Gedrückte Tasten (voller Scancode inkl. `0xE0`-Präfix) — dito.
@@ -90,11 +97,20 @@ impl Sitzung {
     /// Sitzung steht weiter.
     pub fn frames(
         &self,
-        slot: u32,
+        slot: u64,
         sitzungs_id: Option<&str>,
         frames: &[Vec<u8>],
     ) -> Result<Bericht> {
         let mut z = self.inner.lock().unwrap();
+
+        // Endgültig zu: der Prozess ist auf dem Weg nach draußen und hat schon
+        // freigegeben. Ab hier nichts mehr drücken — sonst stürbe er mit einer
+        // physisch gedrückten Taste, und niemand wäre mehr da, der sie löst
+        // (s. [`Self::beenden_endgueltig`]). Vor dem Sitzungswechsel unten,
+        // der den Zustand sonst zurücksetzte.
+        if z.geschlossen {
+            return Ok(Bericht { verarbeitet: 0, zustand: "ended" });
+        }
 
         // Sitzungswechsel ohne vorheriges Ende (Verbindung weg, Gegenüber
         // gewechselt): erst die alte auflösen, sonst hinge deren Gedrücktes.
@@ -115,21 +131,17 @@ impl Sitzung {
             Zielsuche::Gefunden(b) => b,
             // Unbekannter Slot: still verwerfen, Sitzung bleibt stehen (die
             // Ausnahme von fail-closed, begründet in [`ziel`]).
-            Zielsuche::KeinStrom => {
-                return Ok(Bericht { verarbeitet: 0, zustand: "unknown_slot" });
-            }
+            Zielsuche::KeinStrom => return Ok(verworfen(&mut z, "unknown_slot")),
             Zielsuche::NichtAufloesbar(grund) => {
                 eprintln!("[remote-input] Slot {slot}: Quelle nicht auflösbar ({grund}) → verworfen");
-                return Ok(Bericht { verarbeitet: 0, zustand: "unresolved_source" });
+                return Ok(verworfen(&mut z, "unresolved_source"));
             }
         };
 
         // Sichtschutz: solange geschwärzt wird, sieht der Steuernde nichts und
-        // darf auch nichts tun — **sämtliche** Eingabe fällt weg. Freigeben, was
-        // schon gedrückt war, sonst klemmte es für die Dauer der Schwärzung.
+        // darf auch nichts tun — **sämtliche** Eingabe fällt weg.
         if bindung.wacht.is_some_and(|w| !w.is_source_visible()) {
-            loslassen(&mut z);
-            return Ok(Bericht { verarbeitet: 0, zustand: "masked" });
+            return Ok(verworfen(&mut z, "masked"));
         }
 
         for roh in frames {
@@ -154,6 +166,42 @@ impl Sitzung {
         *z = Zustand::default();
         n
     }
+
+    /// Wie [`Self::beenden`], aber die Sitzung nimmt danach **nichts mehr an**.
+    ///
+    /// Für das Prozessende. Auf dem Fehler-Exit-Pfad gibt der Writer-Faden frei
+    /// und ruft unmittelbar danach `process::exit` (`main.rs`) — ohne diese
+    /// Sperre könnte der Dispatch-Faden in genau diesem Fenster noch eine
+    /// wartende Nachricht einspielen. Der Prozess stürbe dann mit einer
+    /// physisch gedrückten Taste, und es gäbe niemanden mehr, der sie löst.
+    pub fn beenden_endgueltig(&self) -> usize {
+        let mut z = self.inner.lock().unwrap();
+        let n = loslassen(&mut z);
+        *z = Zustand { geschlossen: true, ..Zustand::default() };
+        n
+    }
+
+    /// Protokollfehler aus der **Hülle** statt aus einem Frame — heute der
+    /// missgeformte Slot ([`crate::ops::remote_input`]). Gleiche Folge wie bei
+    /// einem missgeformten Frame: stilllegen, alles freigeben, melden. Ohne
+    /// diesen Weg bliebe Gedrücktes ausgerechnet auf dem Pfad liegen, auf dem
+    /// die Gegenseite nachweislich etwas falsch macht.
+    pub fn protokollfehler(&self, grund: String) -> anyhow::Error {
+        let mut z = self.inner.lock().unwrap();
+        stilllegen(&mut z, grund)
+    }
+}
+
+/// Eine Nachricht verwerfen — **mit Freigabe**. Die Spezifikation sagt das
+/// ausdrücklich: „Wird wegen unbekannten Slots, unauflösbarer Quelle oder
+/// geschwärzten Sichtschutzes verworfen, gibt der Host trotzdem alles Gedrückte
+/// frei." Es genügt, dass der Host sein gestreamtes Fenster minimiert — die
+/// Quelle löst dann nicht mehr auf, und ohne Freigabe verschluckt genau dieser
+/// Pfad das Hoch-Ereignis: die Taste läuft am fremden Rechner weiter, bis die
+/// ganze Sitzung endet.
+fn verworfen(z: &mut Zustand, zustand: &'static str) -> Bericht {
+    loslassen(z);
+    Bericht { verarbeitet: 0, zustand }
 }
 
 /// Einen geprüften Frame ausführen. `Err(grund)` = fail-closed.
@@ -175,10 +223,14 @@ fn einspielen(z: &mut Zustand, bindung: &Bindung, frame: InputFrame) -> Result<(
     match frame {
         InputFrame::Hello { .. } => {} // oben behandelt
         InputFrame::MouseMoveAbs { x, y } => {
-            // Kein Rechteck (Bildschirm abgesteckt, Fenster zu) → nichts
-            // zu rechnen. Kein Protokollfehler: die Welt hat sich geändert.
-            if let Some(rect) = bindung.ziel.screen_rect() {
-                let (px, py) = zuordnung::anteil_auf_punkt(x, y, &rect);
+            // Kein Rechteck (Bildschirm abgesteckt, Fenster zu) oder ein
+            // entartetes (gecloaktes Fenster, s. `zuordnung`) → nichts zu
+            // rechnen. Kein Protokollfehler: die Welt hat sich geändert.
+            let punkt = bindung
+                .ziel
+                .screen_rect()
+                .and_then(|rect| zuordnung::anteil_auf_punkt(x, y, &rect));
+            if let Some((px, py)) = punkt {
                 let vd = zuordnung::virtueller_desktop();
                 let (nx, ny) = zuordnung::punkt_auf_absolut(px, py, &vd);
                 injektion::maus(
@@ -209,6 +261,14 @@ fn einspielen(z: &mut Zustand, bindung: &Bindung, frame: InputFrame) -> Result<(
             }
         }
         InputFrame::Key { scan, down } => {
+            // Missgeformter Scancode → beenden statt raten (Spezifikation). Ein
+            // `0xE11D` würde sonst als linke Strg-Taste injiziert, weil `wScan`
+            // nur das niederwertige Byte trägt — und bliebe gedrückt.
+            if !injektion::scancode_gueltig(scan) {
+                return Err(format!(
+                    "missgeformter Scancode {scan:#06x} — Satz 1 kennt nur 0x00xx und 0xE0xx"
+                ));
+            }
             injektion::taste(scan, down);
             vermerken(&mut z.tasten, scan, down);
         }
@@ -246,6 +306,24 @@ fn loslassen(z: &mut Zustand) -> usize {
     n
 }
 
+/// Prüfstand-Sperre für alle Tests, die an den **prozessweiten** Singletons
+/// hängen (Sitzung und Stream-Registrierung).
+///
+/// Ohne Reihenfolge liefen die Tests beider Module ineinander: einer meldet
+/// einen Strom an, während der andere „kein Strom" erwartet. Beim Nehmen wird
+/// gleich aufgeräumt, damit kein Test die Hinterlassenschaft eines anderen
+/// sieht. Vergiftete Sperre (Panik in einem Test) wird übernommen — sonst
+/// scheiterten danach alle übrigen an der Sperre statt an ihrer eigenen Sache.
+#[cfg(test)]
+pub(crate) fn pruefstand() -> std::sync::MutexGuard<'static, ()> {
+    static SPERRE: Mutex<()> = Mutex::new(());
+    let sperre = SPERRE.lock().unwrap_or_else(|e| e.into_inner());
+    ziel::strom_beendet();
+    Sitzung::singleton().beenden();
+    let _ = injektion::pruefspur::nimm();
+    sperre
+}
+
 /// Druckzustand nachführen: runter merkt sich die Taste, hoch vergisst sie.
 fn vermerken<T: Eq + std::hash::Hash>(menge: &mut HashSet<T>, was: T, down: bool) {
     if down {
@@ -258,17 +336,32 @@ fn vermerken<T: Eq + std::hash::Hash>(menge: &mut HashSet<T>, was: T, down: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use injektion::pruefspur::{self, Ereignis};
+
+    /// Ohne echten Stream lässt sich kein Gedrücktes über die Frames aufbauen
+    /// (es gäbe kein Ziel). Für die Freigabe-Tests wird der Druckzustand
+    /// deshalb direkt gesetzt — geprüft wird ja, was beim VERWERFEN passiert,
+    /// nicht wie es dazu kam.
+    fn gedrueckt(s: &Sitzung, tasten: &[u16], knoepfe: &[u8]) {
+        let mut z = s.inner.lock().unwrap();
+        z.tasten.extend(tasten.iter().copied());
+        z.knoepfe.extend(knoepfe.iter().copied());
+    }
+
+    fn ist_noch_gedrueckt(s: &Sitzung) -> usize {
+        let z = s.inner.lock().unwrap();
+        z.tasten.len() + z.knoepfe.len()
+    }
 
     /// Ohne Stream (und ohne Labor-Schalter) ist der Slot unbekannt: still
     /// verworfen, **kein** Fehler — die Sitzung darf daran nicht sterben.
     #[test]
     fn unbekannter_slot_beendet_die_sitzung_nicht() {
-        ziel::strom_beendet();
+        let _sperre = pruefstand();
         if crate::env::flag("PULSE_LABOR_EINGABE_OHNE_STREAM") {
             return; // Labor-Weg: dann gibt es ein Ersatzrechteck, s. `ziel`.
         }
         let s = Sitzung::singleton();
-        s.beenden();
         let b = s
             .frames(9, Some("test-unbekannter-slot"), &[vec![0x00, 2]])
             .expect("unbekannter Slot ist kein Fehler");
@@ -277,12 +370,115 @@ mod tests {
         s.beenden();
     }
 
+    /// **Der Fund:** eine verworfene Nachricht gab früher zurück, ohne
+    /// freizugeben — alles Gedrückte blieb am Host physisch gedrückt. Es
+    /// genügt, dass der Host sein gestreamtes Fenster minimiert, damit die
+    /// Quelle nicht mehr auflöst und das Key-Up in diesem Zweig verschwindet.
+    #[test]
+    fn verworfene_nachricht_gibt_trotzdem_frei() {
+        let _sperre = pruefstand();
+        if crate::env::flag("PULSE_LABOR_EINGABE_OHNE_STREAM") {
+            return;
+        }
+        let s = Sitzung::singleton();
+        gedrueckt(s, &[0x11, 0xE01D], &[0]); // W, rechte Strg, linke Maustaste
+        let b = s
+            .frames(9, Some("test-freigabe"), &[vec![0x00, 2]])
+            .expect("unbekannter Slot ist kein Fehler");
+        assert_eq!(b.zustand, "unknown_slot");
+        assert_eq!(ist_noch_gedrueckt(s), 0, "nichts darf gedrückt bleiben");
+
+        // Und es wurde wirklich losgelassen, nicht nur vergessen: für jede
+        // Taste ein Hoch-Ereignis, für den Knopf ein Maus-Ereignis.
+        let spur = pruefspur::nimm();
+        assert!(
+            spur.contains(&Ereignis::Taste { scan: 0x11, hoch: true }),
+            "W-Taste nicht losgelassen: {spur:?}"
+        );
+        assert!(
+            spur.contains(&Ereignis::Taste { scan: 0x1D, hoch: true }),
+            "rechte Strg-Taste nicht losgelassen: {spur:?}"
+        );
+        assert_eq!(
+            spur.iter().filter(|e| matches!(e, Ereignis::Maus { .. })).count(),
+            1,
+            "genau ein Knopf-Hoch: {spur:?}"
+        );
+        s.beenden();
+    }
+
+    /// Dieselbe Zusage auf dem Weg über die Hülle: ein missgeformter Slot ist
+    /// ein Protokollfehler — stilllegen, aber nicht ohne Freigabe.
+    #[test]
+    fn protokollfehler_der_huelle_gibt_frei_und_legt_still() {
+        let _sperre = pruefstand();
+        let s = Sitzung::singleton();
+        gedrueckt(s, &[0x11], &[]);
+        let fehler = s.protokollfehler("slot ist keine Zahl".to_string());
+        assert!(fehler.to_string().contains("slot"));
+        assert_eq!(ist_noch_gedrueckt(s), 0);
+        assert!(
+            pruefspur::nimm().contains(&Ereignis::Taste { scan: 0x11, hoch: true }),
+            "die gedrückte Taste muss losgelassen worden sein"
+        );
+        // Stillgelegt: weitere Frames werden abgewiesen, bis beendet wird.
+        assert!(s.frames(0, None, &[vec![0x00, 2]]).is_err());
+        s.beenden();
+        s.beenden();
+    }
+
+    /// Nach dem endgültigen Schluss (Prozessende) darf **nichts** mehr
+    /// injiziert werden — auch nicht von einer Nachricht, die im Dispatch-Faden
+    /// schon auf der Sperre wartete, während der Writer-Faden freigab und
+    /// `process::exit` ansteuerte.
+    #[test]
+    fn nach_endgueltigem_schluss_wird_nichts_mehr_eingespielt() {
+        let _sperre = pruefstand();
+        let s = Sitzung::singleton();
+        gedrueckt(s, &[0x11], &[]);
+        assert_eq!(s.beenden_endgueltig(), 1);
+        let _ = pruefspur::nimm();
+        let b = s
+            .frames(0, Some("test-nach-schluss"), &[vec![0x05, 0x11, 0x00, 1]])
+            .expect("geschlossen ist kein Fehler, nur folgenlos");
+        assert_eq!(b.zustand, "ended");
+        assert_eq!(b.verarbeitet, 0);
+        assert!(pruefspur::nimm().is_empty(), "es darf nichts injiziert werden");
+        s.beenden(); // wieder öffnen, sonst sähe der nächste Test „ended"
+    }
+
     /// Nichts gedrückt → nichts freizugeben, und das beliebig oft.
     #[test]
     fn beenden_ist_idempotent() {
+        let _sperre = pruefstand();
         let s = Sitzung::singleton();
         assert_eq!(s.beenden(), 0);
         assert_eq!(s.beenden(), 0);
+    }
+
+    /// Ein Scancode außerhalb von Satz 1 wird abgewiesen, statt als eine
+    /// ANDERE Taste injiziert zu werden (`0xE11D` → linke Strg-Taste). Geprüft
+    /// auf der Ebene, die entscheidet: `einspielen`.
+    #[test]
+    fn missgeformter_scancode_ist_fail_closed() {
+        let _ = pruefspur::nimm(); // eigene Spur, unabhängig von der Sperre
+        let mut z = Zustand { begruesst: true, ..Zustand::default() };
+        let bindung = Bindung {
+            ziel: ziel::InjectTarget::Monitor(0),
+            wacht: None,
+        };
+        let fehler = einspielen(
+            &mut z,
+            &bindung,
+            InputFrame::Key { scan: 0xE11D, down: true },
+        )
+        .expect_err("0xE11D darf nicht injiziert werden");
+        assert!(fehler.contains("0xe11d"), "{fehler}");
+        assert!(z.tasten.is_empty(), "nichts darf gemerkt worden sein");
+        assert!(
+            pruefspur::nimm().is_empty(),
+            "und schon gar nichts injiziert"
+        );
     }
 
     #[test]

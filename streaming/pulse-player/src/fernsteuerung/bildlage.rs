@@ -21,11 +21,14 @@
 //! verloren, die es umsonst gibt.
 
 /// Bild-Rechteck im Fenster (physische Punkte) samt sichtbarem Ausschnitt der
-/// Quelle (Anteile 0..1).
+/// Quelle (Anteile 0..1) und der Groesse des Videobildes in Bildpunkten.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bildlage {
     rechteck: (f64, f64, f64, f64),
     ausschnitt: (f64, f64, f64, f64),
+    /// Bildpunkte des VIDEOBILDES (nicht des Ausschnitts). Nur fuer den Nenner
+    /// `Breite − 1` (s. [`auf_bildpunktmitte`]).
+    quelle: (f64, f64),
 }
 
 impl Bildlage {
@@ -53,6 +56,7 @@ impl Bildlage {
                 f64::from(ausschnitt[2]),
                 f64::from(ausschnitt[3]),
             ),
+            quelle: (f64::from(quelle.0), f64::from(quelle.1)),
         })
     }
 
@@ -70,8 +74,31 @@ impl Bildlage {
             return None;
         }
         let (ax, ay, ab, ah) = self.ausschnitt;
-        Some((ax + u * ab, ay + v * ah))
+        Some((
+            auf_bildpunktmitte(ax + u * ab, self.quelle.0),
+            auf_bildpunktmitte(ay + v * ah, self.quelle.1),
+        ))
     }
+}
+
+/// Anteil an der BILDFLAECHE -> Anteil zwischen erster und letzter Bildspalte.
+///
+/// **Der Nenner ist `Breite − 1`, nicht `Breite`** (Wire-Spec, praezisiert am
+/// 2026-08-12): der Host rechnet mit `px = u·(w−1)` zurueck. Ohne diese
+/// Umrechnung waechst der Fehler linear zum Rand, und die letzte Spalte bzw.
+/// Zeile ist gar nicht zu treffen — man kommt am fernen Rechner nicht in die
+/// rechte untere Ecke, und genau dort liegen Schliessknopf und Startknopf.
+///
+/// Gerechnet wird ueber die MITTE der getroffenen Bildspalte: Spalte `i` deckt
+/// den Flaechenanteil `[i/w, (i+1)/w)` ab, ihre Mitte liegt bei `(i+0,5)/w`,
+/// und ankommen soll sie als `i/(w−1)`. Die Mitte des Bildes bleibt dabei exakt
+/// die Mitte. Geklemmt, weil die aeussere halbe Spalte sonst negativ bzw. ueber
+/// 1 laege — dort steht der Zeiger aber noch IM Bild und muss gesendet werden.
+fn auf_bildpunktmitte(anteil: f64, punkte: f64) -> f64 {
+    if punkte < 2.0 {
+        return 0.0;
+    }
+    ((anteil * punkte - 0.5) / (punkte - 1.0)).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -109,14 +136,18 @@ mod tests {
     }
 
     /// Zweifacher Zoom auf die Bildmitte: das Fenster zeigt dann die mittleren
-    /// 50 Prozent, ein Klick oben links meint also den Punkt (0,25 / 0,25).
+    /// 50 Prozent, ein Klick oben links meint also die Bildspalte 480 —
+    /// und die kommt als `480/(1920−1)` an, nicht als `480/1920`.
     #[test]
     fn zoom_verschiebt_den_bezug_auf_den_ausschnitt() {
         let lage = Bildlage::neu((1920, 1080), (1920, 1080), [0.25, 0.25, 0.5, 0.5]).expect("Lage");
         let (u, v) = lage.anteil(0.0, 0.0).expect("Ecke");
-        assert!((u - 0.25).abs() < 1e-9 && (v - 0.25).abs() < 1e-9, "{u},{v}");
+        assert!((u - 479.5 / 1919.0).abs() < 1e-9 && (v - 269.5 / 1079.0).abs() < 1e-9, "{u},{v}");
         let (u, v) = lage.anteil(1920.0, 1080.0).expect("Ecke");
-        assert!((u - 0.75).abs() < 1e-9 && (v - 0.75).abs() < 1e-9, "{u},{v}");
+        assert!((u - 1439.5 / 1919.0).abs() < 1e-9 && (v - 809.5 / 1079.0).abs() < 1e-9, "{u},{v}");
+        // Und beim Host landet das wieder auf genau der gemeinten Spalte.
+        assert_eq!((479.5f64 / 1919.0 * 1919.0).round(), 480.0);
+        assert_eq!((1439.5f64 / 1919.0 * 1919.0).round(), 1440.0);
     }
 
     /// Bruchteile bleiben erhalten — genau dafuer wird in `f64` gerechnet.
@@ -124,7 +155,45 @@ mod tests {
     fn bruchteile_gehen_nicht_verloren() {
         let lage = Bildlage::neu((1000, 1000), (1000, 1000), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
         let (u, _) = lage.anteil(500.5, 500.0).expect("innen");
-        assert!((u - 0.5005).abs() < 1e-9, "{u}");
+        // Punkt 500,5 im Fenster = Bildspalte 500 (halb getroffen) -> 500/999.
+        assert!((u - 500.0 / 999.0).abs() < 1e-12, "{u}");
+    }
+
+    /// **Der Rand-Fehler, wegen dem der Nenner `Breite − 1` ist.** Der Host
+    /// rechnet `px = round(u·(w−1))`; jede Spalte muss dabei erreichbar sein —
+    /// besonders die letzte, sonst kommt man nicht in die rechte untere Ecke.
+    #[test]
+    fn jede_spalte_und_zeile_ist_erreichbar() {
+        let (breite, hoehe) = (1920u32, 1080u32);
+        let lage = Bildlage::neu((breite, hoehe), (breite, hoehe), [0.0, 0.0, 1.0, 1.0])
+            .expect("Lage");
+        let host = |u: f64, punkte: u32| (u * f64::from(punkte - 1)).round() as u32;
+
+        // Mitte jeder Bildspalte -> genau diese Spalte, ueber die volle Breite.
+        for i in 0..breite {
+            let (u, _) = lage.anteil(f64::from(i) + 0.5, 0.5).expect("innen");
+            assert_eq!(host(u, breite), i, "Spalte {i} kommt als {} an", host(u, breite));
+        }
+        for j in 0..hoehe {
+            let (_, v) = lage.anteil(0.5, f64::from(j) + 0.5).expect("innen");
+            assert_eq!(host(v, hoehe), j, "Zeile {j}");
+        }
+
+        // Und die aeussersten Punkte des Bildes klemmen auf die Randspalten,
+        // statt aus dem Bild zu fallen.
+        let (u, v) = lage.anteil(1920.0, 1080.0).expect("rechte untere Ecke");
+        assert_eq!((host(u, breite), host(v, hoehe)), (1919, 1079));
+        let (u, v) = lage.anteil(0.0, 0.0).expect("linke obere Ecke");
+        assert_eq!((host(u, breite), host(v, hoehe)), (0, 0));
+    }
+
+    /// Ein Bild von einer einzigen Spalte hat keinen Nenner — dann ist der
+    /// Anteil 0, nicht unendlich.
+    #[test]
+    fn ein_bildpunkt_breite_teilt_nicht_durch_null() {
+        let lage = Bildlage::neu((100, 100), (1, 1), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
+        let (u, v) = lage.anteil(50.0, 50.0).expect("innen");
+        assert_eq!((u, v), (0.0, 0.0));
     }
 
     #[test]

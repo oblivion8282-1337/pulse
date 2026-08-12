@@ -142,19 +142,61 @@ pub fn anteil_zu_u16(anteil: f64) -> u16 {
     (anteil.clamp(0.0, 1.0) * 65535.0).round() as u16
 }
 
-/// Rastschritte aus einer Radbewegung. `zeilen` sind winit-Zeilen oder aus
-/// Pixeln abgeleitete Zeilen; das Ergebnis ist ein Vielfaches von [`RASTE`].
+/// Rastschritte aus Radbewegungen — **mit Rest ueber Ereignisse hinweg**.
 ///
-/// Mindestens eine Raste, solange die Bewegung nicht null ist: ein Touchpad
-/// liefert Bruchteile, und ein auf null gerundeter Wert waere ein Rad, das sich
-/// beim Streichen gar nicht dreht.
-pub fn rasten(zeilen: f64) -> i16 {
-    if zeilen == 0.0 || !zeilen.is_finite() {
-        return 0;
+/// **Hier stand bis zum 2026-08-12 eine reine Funktion, die jede Teilbewegung
+/// auf mindestens eine ganze Raste aufrundete.** Die Absicht war richtig (ein
+/// Streichen darf nicht wirkungslos bleiben), die Rechnung nicht: ein
+/// Windows-Praezisions-Touchpad liefert `LineDelta` in Schritten von rund 0,33,
+/// aus denen so je 120 wurden — **dreifache Scrollgeschwindigkeit** beim Host.
+/// Unter Wayland (`PixelDelta`, rund 100 Ereignisse je Sekunde) noch weit mehr.
+///
+/// Deshalb wird der Bruchteil jetzt aufgehoben und beim naechsten Ereignis
+/// mitgezaehlt: drei Schritte zu 0,33 ergeben zusammen eine Raste statt drei,
+/// und die Summe ueber eine Geste stimmt. Ein einzelner winziger Stups bewirkt
+/// dafuer nichts mehr — das ist der Preis und der richtige: das Rad dreht sich
+/// dann eben erst beim naechsten.
+///
+/// Je Achse ein eigener Rest: senkrecht und waagerecht sind unabhaengige
+/// Gesten, und ein gemeinsamer Rest liesse eine waagerechte Bewegung eine
+/// senkrechte ausloesen.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Rastensammler {
+    rest_v: f64,
+    rest_h: f64,
+}
+
+impl Rastensammler {
+    /// `zeilen` sind winit-Zeilen oder aus Pixeln abgeleitete Zeilen, bereits in
+    /// Windows-Vorzeichen. Das Ergebnis ist ein Vielfaches von [`RASTE`].
+    pub fn schritte(&mut self, senkrecht: f64, waagerecht: f64) -> (i16, i16) {
+        (Self::achse(&mut self.rest_v, senkrecht), Self::achse(&mut self.rest_h, waagerecht))
     }
-    let ganze = zeilen.abs().round().max(1.0);
-    let wert = ganze * f64::from(RASTE) * zeilen.signum();
-    wert.clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16
+
+    /// Rest verwerfen — beim Beginn eines neuen Eingabestroms. Was von der
+    /// vorigen Geste liegenblieb, gehoert nicht in die naechste.
+    pub fn zuruecksetzen(&mut self) {
+        *self = Self::default();
+    }
+
+    fn achse(rest: &mut f64, zeilen: f64) -> i16 {
+        if !zeilen.is_finite() || !rest.is_finite() {
+            *rest = 0.0;
+            return 0;
+        }
+        *rest += zeilen;
+        // Hoechstens so viele Rasten, wie in ein `i16` passen (273·120 = 32760).
+        let grenze = f64::from(i16::MAX / RASTE as i16);
+        let ganze = rest.trunc().clamp(-grenze, grenze);
+        *rest -= ganze;
+        // Was die Klemmung abgeschnitten hat, wird verworfen statt aufgehoben:
+        // sonst rollte das Rad nach einem Ausreisser noch sekundenlang nach.
+        // Regulaer liegt der Rest immer unter einer ganzen Raste.
+        if rest.abs() >= 1.0 {
+            *rest = 0.0;
+        }
+        (ganze * f64::from(RASTE)) as i16
+    }
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -246,15 +288,69 @@ mod tests {
     }
 
     #[test]
-    fn rasten_runden_auf_ganze_schritte() {
-        assert_eq!(rasten(1.0), 120);
-        assert_eq!(rasten(-1.0), -120);
-        assert_eq!(rasten(3.0), 360);
-        assert_eq!(rasten(0.0), 0);
-        // Ein Bruchteil vom Touchpad ergibt trotzdem eine ganze Raste — sonst
-        // drehte sich das Rad beim Streichen gar nicht.
-        assert_eq!(rasten(0.2), 120);
-        assert_eq!(rasten(-0.2), -120);
+    fn ganze_zeilen_werden_zu_ganzen_rasten() {
+        let mut s = Rastensammler::default();
+        assert_eq!(s.schritte(1.0, 0.0), (120, 0));
+        assert_eq!(s.schritte(-1.0, 0.0), (-120, 0));
+        assert_eq!(s.schritte(3.0, -2.0), (360, -240));
+        assert_eq!(s.schritte(0.0, 0.0), (0, 0));
+    }
+
+    /// **Der Touchpad-Fall.** Drei Teilschritte zu 0,33 sind zusammen eine
+    /// Raste — vorher waren es drei, also dreifache Geschwindigkeit.
+    #[test]
+    fn teilbewegungen_sammeln_sich_statt_sich_zu_verdreifachen() {
+        let mut s = Rastensammler::default();
+        assert_eq!(s.schritte(0.33, 0.0), (0, 0));
+        assert_eq!(s.schritte(0.33, 0.0), (0, 0));
+        assert_eq!(s.schritte(0.33, 0.0), (0, 0));
+        assert_eq!(s.schritte(0.33, 0.0), (120, 0), "der vierte Schritt fuellt die Raste");
+        // Und die Summe stimmt weiter: 30 Schritte zu 0,33 sind 9,9 Zeilen.
+        let mut ganze = 1;
+        for _ in 0..26 {
+            ganze += s.schritte(0.33, 0.0).0 / 120;
+        }
+        assert_eq!(ganze, 9, "30 x 0,33 = 9,9 Zeilen -> 9 volle Rasten");
+    }
+
+    /// Der Rest gilt je Achse. Sonst loeste eine waagerechte Geste senkrechte
+    /// Rasten aus.
+    #[test]
+    fn die_achsen_haben_getrennte_reste() {
+        let mut s = Rastensammler::default();
+        assert_eq!(s.schritte(0.6, 0.6), (0, 0));
+        assert_eq!(s.schritte(0.6, 0.0), (120, 0));
+        assert_eq!(s.schritte(0.0, 0.6), (0, 120));
+    }
+
+    /// Vor- und zurueckstreichen hebt sich auf, statt zwei Rasten in
+    /// Gegenrichtung zu erzeugen.
+    #[test]
+    fn gegenlaeufige_teilbewegungen_heben_sich_auf() {
+        let mut s = Rastensammler::default();
+        assert_eq!(s.schritte(0.5, 0.0), (0, 0));
+        assert_eq!(s.schritte(-0.5, 0.0), (0, 0));
+        assert_eq!(s.schritte(1.0, 0.0), (120, 0), "der Rest steht wieder bei null");
+    }
+
+    /// Ein neuer Eingabestrom faengt ohne den Rest des alten an.
+    #[test]
+    fn zuruecksetzen_verwirft_den_rest() {
+        let mut s = Rastensammler::default();
+        assert_eq!(s.schritte(0.9, 0.9), (0, 0));
+        s.zuruecksetzen();
+        assert_eq!(s.schritte(0.9, 0.9), (0, 0), "der alte Rest zaehlt nicht mit");
+    }
+
+    /// Ausreisser klemmen ins `i16` und rollen danach nicht nach.
+    #[test]
+    fn ausreisser_klemmen_und_rollen_nicht_nach() {
+        let mut s = Rastensammler::default();
+        let (v, h) = s.schritte(100_000.0, -100_000.0);
+        assert_eq!((v, h), (32_760, -32_760));
+        assert_eq!(s.schritte(0.0, 0.0), (0, 0), "kein Nachlauf aus dem Rest");
+        assert_eq!(s.schritte(f64::NAN, f64::INFINITY), (0, 0));
+        assert_eq!(s.schritte(1.0, 1.0), (120, 120), "nach Unsinn wieder brauchbar");
     }
 
     #[test]

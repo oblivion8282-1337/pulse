@@ -40,6 +40,7 @@ import {
   getSidecar,
   onSidecarCreated,
   resetSpawnTargetCache,
+  sidecarRunning,
 } from './sidecar';
 import { playerManager } from './player';
 import { EingabeWeiche } from './remoteInput';
@@ -335,6 +336,30 @@ function createWindow(): void {
       return { action: 'deny' };
     });
   });
+
+  // Fernsteuerung: der Renderer ist die einzige Stelle, die `remoteInputEnd`
+  // ruft — und beim Neuladen (F5/Strg+R) oder nach einem abgestuerzten Renderer
+  // kommt sie nie dazu. Der Sidecar-Prozess ueberlebt beides, also bliebe am
+  // System gedrueckt, was in dem Moment gedrueckt war. Deshalb haengt das
+  // Aufraeumen hier am Fenster, nicht am Renderer (s. `fernsteuerungAufraeumen`).
+  mainWindow.webContents.on('did-start-navigation', (...args: unknown[]) => {
+    // ZWEI SIGNATUREN, wie bei `console-message` weiter unten: neuer ein
+    // Ereignis-Objekt mit den Feldern, aelter die Stellung
+    // (event, url, isInPlace, isMainFrame, …).
+    const d = args[0] as { isMainFrame?: boolean; isSameDocument?: boolean } | undefined;
+    const hauptrahmen = typeof d?.isMainFrame === 'boolean' ? d.isMainFrame : args[3] === true;
+    const imSelbenDokument =
+      typeof d?.isSameDocument === 'boolean' ? d.isSameDocument : args[2] === true;
+    // Nur echte Seitenwechsel des Hauptrahmens. Die SPA-Navigation der Web-App
+    // und jedes eingebettete Fremdfenster (Watch-Party) feuern hier ebenfalls —
+    // darauf die Eingabe freizugeben hiesse, eine laufende Fernsteuerung
+    // abzuwuergen, weil jemand ein Video geoeffnet hat.
+    if (!hauptrahmen || imSelbenDokument) return;
+    fernsteuerungAufraeumen('Seitenwechsel/Neuladen');
+  });
+  mainWindow.webContents.on('render-process-gone', () =>
+    fernsteuerungAufraeumen('Renderer weg'),
+  );
 
   // Reload + DevTools accelerators used to come from Electron's default menu,
   // which we remove (setApplicationMenu(null)) to hide the menu bar. Re-add just
@@ -774,6 +799,42 @@ function normaliseSlot(slot: unknown): number {
   return Number.isInteger(n) && n >= 0 && n < MAX_STREAM_SLOTS ? n : 0;
 }
 
+/**
+ * Fernsteuerung, Host-Seite: Buchfuehrung darueber, welche Stream-Plaetze eine
+ * Eingabe-Sitzung haben (s. `remoteInputHost.ts`).
+ *
+ * Auf Modulebene statt in `wireSidecar()`, weil nicht nur die IPC-Handler sie
+ * brauchen: bei einem Neuladen des Renderers muss auch der Fensterteil unten
+ * herankommen (s. `fernsteuerungAufraeumen`).
+ */
+const remoteEingabe = new RemoteEingabe(
+  (slot, op, params) => getSidecar(slot).call(op, params),
+  MAX_STREAM_SLOTS,
+  // Ein Platz ohne laufenden Sidecar ist ein unbekannter Platz. Die Auskunft
+  // muss von hier kommen: `remoteInputHost.ts` bleibt electron-frei, und
+  // `getSidecar()` waere die falsche Frage — sie legt den Verwalter an.
+  sidecarRunning,
+);
+
+/**
+ * Alles fallen lassen, was an einer Fernsteuerung haengt.
+ *
+ * Gerufen, wenn die Gegenstelle im Renderer verschwindet: Neuladen (F5,
+ * Strg+R), abgestuerzter Renderer, Wechsel der geladenen Seite. `#reset()` im
+ * Renderer laeuft dabei NICHT — und der Sidecar-Prozess lebt weiter. Ohne
+ * dieses Aufraeumen bliebe am System gedrueckt, was im Moment des Neuladens
+ * gedrueckt war: im Spiel liefe die W-Taste weiter, und niemand kann sie
+ * loslassen, weil die Sitzung, die sie gedrueckt hat, nicht mehr existiert.
+ */
+function fernsteuerungAufraeumen(grund: string): void {
+  const offen = remoteEingabe.offen();
+  const angemeldet = eingabeWeiche.angemeldet();
+  if (offen.length === 0 && angemeldet.length === 0) return;
+  console.log('[fernsteuerung] aufgeraeumt wegen', grund, { offen, angemeldet });
+  void remoteEingabe.beenden(); // Host: alles Gedrueckte freigeben
+  eingabeWeiche.alleAbmelden(); // Steuernder: Zuordnungen zeigen ins Leere
+}
+
 function wireSidecar(): void {
   // One sidecar manager per slot; tag each slot's events with its slot so the
   // renderer can route them to the right stream's state. Registering the
@@ -822,10 +883,6 @@ function wireSidecar(): void {
   // — der Hauptprozess führt Buch darüber, welche Plätze eine Eingabe-Sitzung
   // haben, damit „alles loslassen" beim Ende genau die erreicht und keinen
   // Sidecar startet, der nichts zu tun hat (s. `remoteInputHost.ts`).
-  const remoteEingabe = new RemoteEingabe(
-    (slot, op, params) => getSidecar(slot).call(op, params),
-    MAX_STREAM_SLOTS,
-  );
   ipcMain.handle('gsr:remoteInput', (_e, slot: unknown, sessionId: unknown, frames: unknown) =>
     remoteEingabe.frames(slot, sessionId, frames),
   );
@@ -933,8 +990,10 @@ function wirePlayer(): void {
       if (enabled && res.ok !== false) eingabeWeiche.anmelden(session, sessionId, slot);
       // Beim Abschalten NICHT sofort abmelden: der Player reicht danach noch
       // die Hoch-Ereignisse fuer alles Gedrueckte nach, und die duerfen nicht
-      // an der Weiche haengenbleiben — sonst klemmt beim Host eine Taste.
-      else if (!enabled) setTimeout(() => eingabeWeiche.abmelden(session), 1_000);
+      // an der Weiche haengenbleiben — sonst klemmt beim Host eine Taste. Der
+      // Nachlauf gehoert in die Weiche, nicht in ein freies `setTimeout`: nur
+      // dort kann ihn ein spaeteres `anmelden` wieder abraeumen (s. dort).
+      else if (!enabled) eingabeWeiche.abmeldenVerzoegert(session);
       return res;
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -1214,6 +1273,44 @@ async function bootClient(): Promise<void> {
       console.error('[render-process-gone]', contents.getURL().slice(0, 80), JSON.stringify(details));
     });
     contents.on('unresponsive', () => console.error('[unresponsive]', contents.getURL().slice(0, 80)));
+
+    // Renderer-Konsole ins Log spiegeln — NUR mit PULSE_RENDERER_LOG=1 und nur
+    // in unverpackten Builds.
+    //
+    // WOZU: Bei einem Fehler in der Oberfläche steht die einzige Spur in der
+    // Konsole des Renderers. Wer die App auf einem anderen Rechner betreut,
+    // kommt da nicht heran — und ein Fehler, der nur „der Knopf tut nichts"
+    // aussieht, ist ohne diese Zeile nicht zu finden. Genau so am 2026-08-12
+    // beim Zwei-Geräte-Test aufgelaufen.
+    //
+    // WARUM STRENG ABGESCHALTET: In der Konsole landen Nutzdaten — Nachrichten,
+    // Namen, im schlimmsten Fall Bruchstücke von Tokens aus einer
+    // Fehlermeldung. `sidecar.log` kann per Diagnose-Upload den Rechner
+    // verlassen. Deshalb Opt-in über eine Umgebungsvariable, nicht über eine
+    // Einstellung, und in einem gepackten Build gar nicht.
+    if (!app.isPackaged && process.env.PULSE_RENDERER_LOG === '1') {
+      // ZWEI SIGNATUREN. Electron hat `console-message` umgestellt: früher
+      // (event, level:number, message, line, sourceId), neuer ein einzelnes
+      // Objekt {level:string, message, lineNumber, sourceId}. Beim ersten
+      // Versuch am 2026-08-12 fing die alte Form unter Electron 43 nichts —
+      // still, ohne Fehler. Deshalb beide, statt sich auf eine zu verlassen.
+      contents.on('console-message', (...args: unknown[]) => {
+        const erst = args[0] as Record<string, unknown> | undefined;
+        let stufe: unknown;
+        let text: unknown;
+        let zeile: unknown;
+        let quelle: unknown;
+        if (erst && typeof erst === 'object' && 'message' in erst) {
+          ({ level: stufe, message: text, lineNumber: zeile, sourceId: quelle } = erst as never);
+        } else {
+          [, stufe, text, zeile, quelle] = args;
+          stufe = ['debug', 'info', 'warn', 'error'][Number(stufe)] ?? String(stufe);
+        }
+        const datei = String(quelle ?? '').split('/').pop()?.slice(0, 40) ?? '';
+        console.log(`[renderer:${String(stufe)}] ${String(text)}  (${datei}:${String(zeile)})`);
+      });
+      console.log('[renderer-log] Spiegelung aktiv für', contents.getURL().slice(0, 60));
+    }
   });
   app.on('child-process-gone', (_e, details) => {
     console.error('[child-process-gone]', JSON.stringify(details));

@@ -218,6 +218,11 @@ struct Session {
     /// die Fernsteuerung (s. [`crate::fernsteuerung`]). **Standard aus** — ohne
     /// `input_capture` kostet sie nur ein `if` je Ereignis.
     eingabe: crate::fernsteuerung::Erfassung,
+    /// Ob die Sitzung den Zeigerfang WILL — getrennt davon, ob er gerade
+    /// besteht. Windows gibt den Griff beim Fokusverlust zurueck; ohne den
+    /// gemerkten Wunsch waere beim Zurueckkommen nicht zu wissen, ob er
+    /// erneuert werden muss (s. `App::fokus_gewechselt`).
+    fang_gewuenscht: bool,
     /// Kopie von `req.can_reattach` (s. `proto.rs`) — steht bisher nur im
     /// Overlay (fuer den Reattach-Knopf), aber der Fenster-Schliessen-Handler
     /// braucht sie ebenso und hat kein `overlay` (kann `None` sein, wenn die
@@ -527,6 +532,7 @@ impl App {
                 bilanz_gemeldet: false,
                 state: SessionState::Connecting,
                 eingabe: crate::fernsteuerung::Erfassung::neu(),
+                fang_gewuenscht: false,
                 can_reattach: req.can_reattach.unwrap_or(true),
             },
         );
@@ -1280,24 +1286,30 @@ impl ApplicationHandler<UserEvent> for App {
         let Some(&id) = self.by_window.get(&window_id) else { return };
         if let Some(session) = self.sessions.get_mut(&id) {
             // egui zuerst sehen lassen: es braucht auch Groessen- und
-            // Skalierungswechsel. Sein `consumed` wird bewusst NICHT beachtet —
-            // die drei Faelle unten (Schliessen, Groesse, Zeichnen) gehoeren
-            // uns, egui reklamiert nur Zeiger- und Tastenereignisse.
-            let repaint = session
-                .overlay
-                .as_mut()
-                .is_some_and(|o| o.on_window_event(&session.window, &event));
+            // Skalierungswechsel. Fuer die vier Faelle unten (Fokus,
+            // Schliessen, Groesse, Zeichnen) bleibt sein `consumed` bewusst
+            // unbeachtet — die gehoeren uns, egui reklamiert nur Zeiger- und
+            // Tastenereignisse. Die Eingabe-Erfassung dagegen fragt danach
+            // (s. unten).
+            let antwort = session.overlay.as_mut().map_or(
+                crate::overlay::Ereignisantwort::NICHTS,
+                |o| o.on_window_event(&session.window, &event),
+            );
             // Nur wenn gerade KEINE Bilder fliessen — sonst zeichnet das
             // naechste Bild das Overlay ohnehin mit (s. `FRAME_FLOW_WINDOW`).
             let frames_flowing =
                 session.last_frame_at.is_some_and(|t| t.elapsed() < FRAME_FLOW_WINDOW);
-            if repaint && !frames_flowing {
+            if antwort.durchgang && !frames_flowing {
                 session.window.request_redraw();
             }
-            // **Der zweite Abnehmer, neben egui.** Bewusst ohne Ruecksicht auf
-            // dessen `consumed`: hier geht es nicht um die Bedienleiste,
-            // sondern darum, was der Steuernde am fernen Rechner tut. Ist die
-            // Erfassung aus (die Vorgabe), kostet das nur dieses `if`.
+            // **Der zweite Abnehmer, neben egui.** Fuer Tasten ohne Ruecksicht
+            // auf dessen `consumed` — es geht nicht um die Bedienleiste,
+            // sondern darum, was der Steuernde am fernen Rechner tut. Nur der
+            // ZEIGER wird geteilt: die Leiste liegt ueber dem Bild, und wer an
+            // ihrem Lautstaerkeregler zieht, will nicht zugleich am fernen
+            // Rechner klicken (`antwort.verbraucht`, s. Wire-Spec „auch Knopf
+            // und Rad gehoeren ins Bild"). Ist die Erfassung aus (die Vorgabe),
+            // kostet das nur dieses `if`.
             if session.eingabe.aktiv() {
                 let fenster = session.window.inner_size();
                 let lage = crate::fernsteuerung::Bildlage::neu(
@@ -1305,10 +1317,13 @@ impl ApplicationHandler<UserEvent> for App {
                     (session.stats.width, session.stats.height),
                     render::zoom_ausschnitt(&session.options),
                 );
-                session.eingabe.on_window_event(&event, lage);
+                session.eingabe.on_window_event(&event, lage, antwort.verbraucht);
             }
         }
         match event {
+            // Der Zeigerfang ueberlebt den Fokuswechsel NICHT (s.
+            // `App::fokus_gewechselt`).
+            WindowEvent::Focused(fokus) => self.fokus_gewechselt(id, fokus),
             WindowEvent::CloseRequested => {
                 // Der Nutzer hat das Fenster ueber das OS geschlossen (Kreuz,
                 // Alt+F4, Fenstermanager) — dieselbe Entscheidung wie beim
