@@ -18,6 +18,8 @@
 //! | start                    | stub       | Stages 5-8 (capture + audio + encode + RTMPS) |
 //! | stop                     | stub       | Stage 8 |
 //! | state                    | stub       | Stage 8 |
+//! | remote_input             | real       | Fernsteuerung — Eingabe-Frames (Wire v2) |
+//! | remote_input_end         | real       | Fernsteuerung — Sitzung schließen |
 
 pub mod build_argv;
 pub mod gpu_info;
@@ -26,6 +28,8 @@ pub mod keyframe;
 pub mod list_application_audio;
 pub mod list_monitors;
 pub mod list_windows;
+pub mod remote_input;
+pub mod remote_input_end;
 pub mod start;
 pub mod state;
 pub mod stop;

@@ -38,6 +38,8 @@ windows = { version = "0.62", features = [
     "Win32_System_ProcessStatus",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging", # IsIconic + GetWindowPlacement: Minimiert-Check vor dem FSE-Fallback (capture/source.rs)
+    "Win32_UI_Input_KeyboardAndMouse", # SendInput: Maus-/Tastatur-Injektion der Fernsteuerung (remote_input/)
+    "Win32_UI_HiDpi", # SetProcessDpiAwarenessContext: ohne das trifft die Injektion bei Skalierung != 100 % daneben (remote_input/injektion.rs)
     "Win32_System_Variant",
 ] }
 
