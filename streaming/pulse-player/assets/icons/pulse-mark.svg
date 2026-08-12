@@ -1,8 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <title>Pulse — monochrome</title>
-  <desc>Pulse mark in monochrome white. For use on emerald, dark, or photographic backgrounds.</desc>
-  <circle cx="256" cy="256" r="205" fill="none" stroke="#FFFFFF" stroke-width="9" opacity="0.3"/>
-  <circle cx="256" cy="256" r="140" fill="none" stroke="#FFFFFF" stroke-width="12" opacity="0.6"/>
-  <circle cx="256" cy="256" r="74" fill="none" stroke="#FFFFFF" stroke-width="14" opacity="0.95"/>
+  <title>Pulse</title>
+  <desc>Pulse app mark — sonar ping in emerald.</desc>
+  <rect width="512" height="512" rx="120" ry="120" fill="#10B981"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="#FFFFFF" stroke-width="9" opacity="0.28"/>
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#FFFFFF" stroke-width="12" opacity="0.55"/>
+  <circle cx="256" cy="256" r="74" fill="none" stroke="#FFFFFF" stroke-width="14" opacity="0.92"/>
   <circle cx="256" cy="256" r="28" fill="#FFFFFF"/>
 </svg>

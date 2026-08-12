@@ -264,7 +264,13 @@ impl Overlay {
     /// Gruende sind: es liegt Eingabe an, es gibt neue Zahlen, oder das Overlay
     /// muss ein letztes Mal ohne sich selbst gezeichnet werden (Ausblenden).
     pub fn wants_redraw(&self) -> bool {
-        self.input_pending || self.stats_dirty || (self.painted && !self.visible())
+        // Der dritte Grund ist der Ausblende-Durchgang. Im Fernsteuerungs-Modus
+        // gibt es kein Ausblenden — der Griff steht dauerhaft —, und ohne diese
+        // Ausnahme waere `painted && !visible()` dort ab der ersten ruhigen
+        // Sekunde immer wahr. Der Sparweg in `App::draw_inner` bliebe fuer die
+        // ganze Fernsteuerung abgeschaltet.
+        let ausblenden_faellig = self.painted && !self.visible() && !self.fernsteuerung;
+        self.input_pending || self.stats_dirty || ausblenden_faellig
     }
 
     /// Neue Zahlen liegen vor — beim naechsten Durchgang neu zeichnen, wenn das
@@ -300,27 +306,42 @@ impl Overlay {
         let input = self.state.take_egui_input(window);
         let full = ctx_handle.run_ui(input, |ui| {
             let ctx = ui.ctx();
-            // Doppelklick ins Bild schaltet Vollbild — auch wenn das Overlay
-            // ausgeblendet ist, sonst waere Vollbild ohne Mausbewegung nicht
-            // erreichbar.
-            if ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
-                actions.push(OverlayAction::Fullscreen(!is_fullscreen));
-            }
-            if is_fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                actions.push(OverlayAction::Fullscreen(false));
-            }
             // **Fernsteuerung: der Griff statt der Leiste, und zwar IMMER.**
             // `visible` haengt an der letzten Mausbewegung — beim Steuern
             // bewegt sich die Maus dauernd, die Leiste stuende also praktisch
-            // ohne Unterbrechung ueber dem fernen Bild und machte einen
-            // Streifen ueber die volle Breite unerreichbar (Begruendung in
+            // ohne Unterbrechung ueber dem fernen Bild (Begruendung in
             // `fernbedienung`). Der Griff ist klein, verschiebbar und braucht
             // deshalb kein Ausblenden.
+            //
+            // **Vor Doppelklick und Escape, nicht danach.** Beide gehoeren dem
+            // FENSTER, und beim Steuern gehoert dieselbe Geste dem fernen
+            // Rechner: ein Doppelklick oeffnet dort eine Datei, Escape schliesst
+            // dort einen Dialog. Standen sie davor, riss jeder Doppelklick
+            // drueben zusaetzlich das eigene Fenster ins Vollbild und jedes Esc
+            // wieder heraus — und zweimal schnell auf den Griff tat dasselbe.
             if self.fernsteuerung {
-                if ctx.input(|i| {
-                    let m = i.modifiers;
-                    m.ctrl && m.alt && m.shift && i.key_pressed(FERN_MENUE_TASTE)
-                }) {
+                // `key_pressed` schliesst die Tastenwiederholung ein
+                // (`egui::InputState`, „Includes key-repeat events"): gehalten
+                // klappte das Menue rund 30-mal je Sekunde auf und zu, und was
+                // am Ende stand, war Zufall. Deshalb ueber die Ereignisliste mit
+                // `repeat: false`.
+                //
+                // **Physische UND logische Taste**: die Erfassung nebenan
+                // schluckt `KeyCode::KeyP`, also die POSITION. Pruefte hier nur
+                // die logische Taste, bliebe auf Belegungen, die dort kein „p"
+                // liefern (Dvorak), die Kombination wirkungslos — geschluckt
+                // wuerde sie trotzdem, sie kaeme also nirgends an.
+                let umschalten = ctx.input(|i| {
+                    i.events.iter().any(|e| match e {
+                        egui::Event::Key { key, physical_key, pressed: true, repeat: false, modifiers }
+                            if modifiers.ctrl && modifiers.alt && modifiers.shift =>
+                        {
+                            *key == FERN_MENUE_TASTE || *physical_key == Some(FERN_MENUE_TASTE)
+                        }
+                        _ => false,
+                    })
+                });
+                if umschalten {
                     self.fern_menue_offen = !self.fern_menue_offen;
                 }
                 if self.stats_visible {
@@ -333,6 +354,16 @@ impl Overlay {
                 }
                 self.build_fernbedienung(ctx, is_fullscreen, &mut actions);
                 return;
+            }
+            // Doppelklick ins Bild schaltet Vollbild — auch wenn das Overlay
+            // ausgeblendet ist, sonst waere Vollbild ohne Mausbewegung nicht
+            // erreichbar. Im Fernsteuerungs-Modus ist dieser Zweig unerreichbar,
+            // und das ist Absicht (s. oben); dort sitzt Vollbild im Menue.
+            if ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
+                actions.push(OverlayAction::Fullscreen(!is_fullscreen));
+            }
+            if is_fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                actions.push(OverlayAction::Fullscreen(false));
             }
             if !visible {
                 return;
@@ -433,6 +464,14 @@ impl Overlay {
         if !aktiv {
             self.fern_menue_offen = false;
         }
+        // **Einen Durchgang anfordern, sonst bleibt der Griff aus.** Der Ruf
+        // kommt aus `input_capture`, also ohne Mausbewegung: `visible()` ist
+        // dann falsch, `painted` ebenfalls, und die Sperre in `App::draw_inner`
+        // („kein neues Bild und das Overlay will nichts") liesse den
+        // `request_redraw` von dort ins Leere laufen. Bei laufendem Video faellt
+        // das nicht auf — bei Standbild, Pause oder abgerissenem Strom bliebe
+        // der Griff weg, bis der Nutzer zufaellig die Maus bewegt.
+        self.input_pending = true;
     }
 
     /// Statistikfeld umschalten (Knopf in der Leiste).

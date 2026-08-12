@@ -67,6 +67,9 @@ impl Erfassung {
         }
         self.aktiv = false;
         self.zeigerfang = false;
+        // Wie in `strom_beginnen`: kein Merker darf die Erfassung ueberleben,
+        // sonst schluckt der naechste Lauf ein Loslassen, das ihm nicht gehoert.
+        self.menue_geschluckt = false;
     }
 
     /// Einen neuen Eingabestrom beginnen: Hello nach VORN, Zustand auf null.
@@ -108,6 +111,13 @@ impl Erfassung {
         self.rasten.zuruecksetzen();
         self.rest_dx = 0.0;
         self.rest_dy = 0.0;
+        // Auch der Merker fuer die geschluckte Menue-Taste (s.
+        // `Erfassung::menue_kombination`). Ohne das hier ueberlebt er einen
+        // Fokusverlust zwischen Druck und Loslassen der Kombination — und das
+        // NAECHSTE Loslassen eines ganz gewoehnlichen P wuerde geschluckt,
+        // waehrend sein Druck hinausging. Beim Gesteuerten liefe die
+        // Tastenwiederholung dann bis zum Ende der Erfassung weiter.
+        self.menue_geschluckt = false;
     }
 
     /// Den Zeigerfang nachfuehren, ohne den Strom anzufassen.
