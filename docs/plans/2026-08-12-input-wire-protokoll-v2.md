@@ -64,8 +64,15 @@ Stellen pflegen zu müssen, und der Gateway hat keinen Nutzen davon.
 
 **Grenzen (Flutschutz, Gateway-seitig erzwungen):** höchstens **32 Frames** je
 Nachricht und **1024 Byte** dekodiert insgesamt. Darüber → Fehler 4050, Frames
-verworfen, Sitzung bleibt bestehen. Die Grenze schützt den Gateway, nicht den
-Host — der Host schützt sich selbst über fail-closed.
+verworfen, Sitzung bleibt bestehen.
+
+**Dazu ein Deckel je Sekunde** (ergänzt 2026-08-12). Die Grenzen oben formen nur
+eine *einzelne* Nachricht; ohne Takt-Deckel kostet ein Verstoß nichts, und ein
+Steuernder kann mit Leitungsgeschwindigkeit sowohl das Protokoll des Gateways
+als auch den Host fluten. Die Flutkontrolle des Steuernden ist normativ, aber
+nicht überprüfbar — der Gateway muss sich selbst schützen. Anhaltswert: der
+Steuernde gibt Bewegungen im Bildtakt ab, also grob 120 Nachrichten je Sekunde
+bei 120 Hz; der Deckel liegt darüber und trennt nicht, sondern verwirft.
 
 ### Der `slot`
 
@@ -82,6 +89,20 @@ Transportwegen wortgleich** — der DataChannel-Weg trägt den Slot dann im Hell
 still und beendet die Sitzung **nicht**. Das ist die eine Abweichung von
 fail-closed, und sie hat einen Grund: Streams enden asynchron, ein Slot kann
 zwischen Absenden und Ankunft verschwinden. Das ist ein Rennen, kein Angriff.
+
+**„Unbekannt" schließt AUSSERHALB DES BEREICHS ein** (präzisiert 2026-08-12).
+Ein Slot jenseits der Platzgrenze wird genauso still verworfen wie ein leerer.
+Er darf **nicht** als Protokollfehler behandelt werden und **nicht** die Sitzung
+beenden — sonst genügt ein `slot: 999`, um eine laufende Fernsteuerung
+abzuwürgen, und genau das Rennen, das diese Regel tolerieren soll, fällt durch.
+Der Slot darf dabei nirgends stillschweigend auf 0 zurechtgebogen werden: ein
+verbogener Platz wäre ein Klick auf dem falschen Bildschirm.
+
+**Und die Freigabe gilt auch hier.** Wird wegen unbekannten Slots, unauflösbarer
+Quelle oder geschwärzten Sichtschutzes verworfen, gibt der Host trotzdem alles
+Gedrückte frei. Sonst verschluckt genau dieser Pfad ein Hoch-Ereignis, und die
+Taste klemmt am fremden Rechner, bis die ganze Sitzung endet — es genügt, dass
+der Host sein gestreamtes Fenster minimiert.
 
 ## Frame-Format
 
@@ -103,6 +124,17 @@ MUSS der **erste** Frame der Sitzung sein, `version = 2`. Alles andere zuerst,
 oder eine unbekannte Version → Sitzung beenden. Der Host antwortet nicht; der
 Kanal ist eine Einbahnstraße.
 
+**Ein weiteres Hello ist erlaubt und bedeutet „neuer Eingabestrom".** Der Host
+**gibt dabei alles Gedrückte frei** und beginnt mit leerem Zustand.
+
+*Präzisiert am 2026-08-12.* Hier stand, ein zweites Hello beende die Sitzung.
+Das war aus drei Gründen falsch: der Host hat es nie so umgesetzt, der
+Steuernde erzeugt bei jedem Aus-/Einschalten der Erfassung legitim eines
+(dieselbe Host-Sitzung, neuer Strom), und ein Beenden hätte jede Umschaltung
+still stillgelegt. Als **Neuanfang mit Freigabe** gelesen ist es zugleich die
+Selbstheilung gegen klemmende Tasten: wer beim Umschalten ein Hoch-Ereignis
+verliert, bekommt es beim nächsten Hello zurück.
+
 **v1-Sender werden abgewiesen.** Es gibt keine Übergangsfassung: v1 hat nie
 ausgeliefert, es gibt also keinen Bestand, auf den Rücksicht zu nehmen wäre.
 
@@ -115,6 +147,17 @@ auf den Bildschirm des Steuernden und nicht auf den Desktop des Hosts.
   `round(u*65535)` senden. Der Player kennt sein Bildrechteck genau und liefert
   über `winit` Zeigerpositionen als `f64`; Ränder außerhalb des Bildes werden
   **nicht** gesendet.
+
+  **Der Nenner ist `Breite − 1`, nicht `Breite`** (präzisiert 2026-08-12): der
+  Anteil spannt von der ersten bis zur *letzten* Bildspalte, weil der Host mit
+  `px = u*(w−1)` zurückrechnet. Mit `Breite` als Nenner wächst der Fehler linear
+  zum Rand, und die letzte Spalte wird nie getroffen — man kommt am fernen
+  Rechner nicht in die rechte untere Ecke.
+
+  **Nicht nur die Bewegung, auch Knopf und Rad gehören ins Bild.** Ein Klick
+  außerhalb des Bildinhalts — auf einem Briefkasten-Rand oder auf der Bedienleiste
+  des Players — darf **nicht** gesendet werden. Sonst kommt er beim Host an der
+  Stelle an, an der der Zeiger zuletzt *im* Bild stand, also irgendwo.
 * **Host:** Quell-Rechteck `R` bestimmen (siehe Koordinaten-Zuordnung),
   `px = R.left + u*(R.width-1)` (analog y), ins Rechteck klemmen, dann absolut
   injizieren mit `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`, normiert auf
@@ -202,6 +245,14 @@ Grund.
   Eingabe kommt vom einzigen, per Consent bestätigten Gegenüber; alles
   Missgeformte ist ein Fehler oder ein Angriff. In beiden Fällen ist Beenden
   richtiger als Raten. **Ausnahme:** unbekannter Slot (siehe oben).
+* **Das Recht wird nicht nur beim Aufbau geprüft** (ergänzt 2026-08-12). Eine
+  laufende Sitzung endet, sobald der Steuernde `REMOTE_CONTROL` oder
+  `VIEW_CHANNEL` im Kanal verliert, aus der Community fliegt oder gebannt wird.
+  Ohne das überlebt eine Fernsteuerung den Rechteentzug bis zum Ablauf des
+  Zugangstokens — bei 15 Minuten Gültigkeit sind das 15 Minuten Tastaturzugriff
+  auf einem fremden Rechner, nachdem ein Admin die Rolle genommen hat. Zulässig
+  ist eine kurze Verzögerung (Prüfung im Takt, höchstens eine Minute); ein
+  ausdrücklicher Rauswurf oder Bann muss **sofort** trennen.
 * **Alles loslassen beim Ende.** Der Host führt die Menge der gedrückten Tasten
   und Knöpfe mit und injiziert bei Sitzungsende für alles Gedrückte das
   Hoch-Ereignis — egal ob regulär beendet, Verbindung weg, oder fail-closed.
