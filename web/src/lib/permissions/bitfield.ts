@@ -9,7 +9,7 @@
  */
 
 // 0-4 server admin · 5-7 reserved · 8-12 member admin · 13-19 reserved
-// 20-27 channel · 28-29 reserved · 30-36 voice · 37-50 reserved · 51 admin
+// 20-27 channel · 28-29 reserved · 30-37 voice · 38-50 reserved · 51 admin
 export const Perm = {
   MANAGE_CHANNELS: 1n << 0n,
   MANAGE_GUILD: 1n << 1n,
@@ -38,6 +38,9 @@ export const Perm = {
   MUTE_MEMBERS: 1n << 34n,
   DEAFEN_MEMBERS: 1n << 35n,
   MOVE_MEMBERS: 1n << 36n,
+  // Darf eine Fernsteuerung anfragen (Host stimmt zusätzlich per Consent zu).
+  // Spiegel von dcc_shared/permissions.py::REMOTE_CONTROL — synchron halten.
+  REMOTE_CONTROL: 1n << 37n,
 
   ADMINISTRATOR: 1n << 51n
 } as const;

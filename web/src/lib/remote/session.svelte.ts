@@ -1,0 +1,164 @@
+/**
+ * Fernsteuerung — Session-Store / Consent-Zustandsmaschine.
+ *
+ * Treibt ausschließlich den Consent-Handshake (Anfrage → Zustimmung/Ablehnung
+ * → Beenden) über die App-WebSocket. Video und Eingabe laufen komplett daneben
+ * (nativer Player / win-hq-sidecar über den `remote_input`-Serverweg, s.
+ * `docs/plans/2026-08-12-input-wire-protokoll-v2.md`) — dieser Store kennt kein
+ * WebRTC und keine Verhandlungsphase: eine Zustimmung schaltet direkt auf
+ * `'active'`.
+ *
+ * Op-Fluss (Gegenstück zu `ws_remote_handlers.py`):
+ *   Controller  request()        → remote_request  → Host: _incomingRequest → phase 'incoming'
+ *   Host        accept()/deny()   → remote_respond
+ *   beide       remote_response   → _response → phase 'active' (oder Reset bei Ablehnung)
+ *   beide       end()/remote_ended→ Teardown
+ */
+
+import { gateway } from '$lib/ws/connection';
+
+export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
+export type RemoteRole = 'controller' | 'host';
+
+class RemoteSessionStore {
+  phase = $state<RemotePhase>('idle');
+  role = $state<RemoteRole | null>(null);
+  sessionId = $state<string | null>(null);
+  /** Gegenüber: beim Controller der Host, beim Host der Controller. */
+  peerUserId = $state<string | null>(null);
+  channelId = $state<string | null>(null);
+  /** Zuletzt aufgetretener Fehler (bleibt bis zur nächsten Anfrage sichtbar). */
+  error = $state<string | null>(null);
+
+  #errUnsub: (() => void) | null = null;
+
+  // ── Controller-Seite ──────────────────────────────────────────────────────
+  request(channelId: string, hostUserId: string): void {
+    if (this.phase !== 'idle') return;
+    this.error = null;
+    this.role = 'controller';
+    this.peerUserId = hostUserId;
+    this.channelId = channelId;
+    this.sessionId = null; // vergibt der Server, kommt erst mit remote_response
+    this.phase = 'requesting';
+    this.#watchErrors(); // Host offline / belegt → op:'error' abfangen
+    gateway.sendRemoteRequest(channelId, hostUserId);
+  }
+
+  /** Anfrage abbrechen, während noch auf die Freigabe gewartet wird. */
+  cancel(): void {
+    if (this.phase === 'requesting') this.#reset();
+  }
+
+  // ── Host-Seite ────────────────────────────────────────────────────────────
+  accept(): void {
+    if (this.phase !== 'incoming' || !this.sessionId) return;
+    // Übergang nach 'active' macht das remote_response-Echo (beide Peers
+    // laufen denselben Pfad), damit Host und Controller synchron umschalten.
+    gateway.sendRemoteRespond(this.sessionId, true);
+  }
+
+  deny(): void {
+    if (this.phase !== 'incoming' || !this.sessionId) return;
+    gateway.sendRemoteRespond(this.sessionId, false);
+    this.#reset();
+  }
+
+  // ── Beide ─────────────────────────────────────────────────────────────────
+  end(): void {
+    if (this.sessionId) gateway.sendRemoteEnd(this.sessionId);
+    this.#reset();
+  }
+
+  // ── Inbound (vom Handler-Modul `handlers/remote.ts`) ──────────────────────
+  _incomingRequest(sessionId: string, channelId: string, fromUserId: string): void {
+    if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
+    this.error = null;
+    this.role = 'host';
+    this.sessionId = sessionId;
+    this.channelId = channelId;
+    this.peerUserId = fromUserId;
+    this.phase = 'incoming';
+  }
+
+  _response(sessionId: string, accepted: boolean): void {
+    // Eine Response ist nur zu erwarten, solange wir wirklich darauf warten:
+    // Controller in 'requesting', Host in 'incoming'. Ein Duplikat/verspätetes
+    // Echo im 'active'-Zustand würde sonst eine tote Session wiederbeleben.
+    if (this.phase !== 'requesting' && this.phase !== 'incoming') return;
+    // Der Controller kennt seine sessionId erst hier (der Server vergibt sie).
+    if (this.sessionId !== null && sessionId !== this.sessionId) return;
+    if (this.role === null) return;
+    this.sessionId = sessionId;
+    this.#unwatchErrors();
+    if (!accepted) {
+      this.error = 'Anfrage abgelehnt.';
+      this.#reset();
+      return;
+    }
+    this.phase = 'active';
+  }
+
+  _ended(sessionId: string, _reason: string): void {
+    if (sessionId !== this.sessionId) return;
+    this.#reset();
+  }
+
+  /** Eine andere Host-Tab hat die Anfrage schon beantwortet — nur den offenen
+   *  Consent-Dialog dieser Tab schließen. */
+  _dismissIncoming(sessionId: string): void {
+    if (this.phase === 'incoming' && this.role === 'host' && sessionId === this.sessionId) {
+      this.#reset();
+    }
+  }
+
+  _error(code: number, msg: string): void {
+    if (this.phase !== 'requesting') return;
+    this.error = remoteErrorMessage(code, msg);
+    this.#reset();
+  }
+
+  // ── intern ────────────────────────────────────────────────────────────────
+  #reset(): void {
+    this.#unwatchErrors();
+    this.phase = 'idle';
+    this.role = null;
+    this.sessionId = null;
+    this.peerUserId = null;
+    this.channelId = null;
+    // `error` bleibt bewusst stehen — die UI zeigt ihn bis zur nächsten Anfrage.
+  }
+
+  #watchErrors(): void {
+    this.#unwatchErrors();
+    this.#errUnsub = gateway.on((evt) => {
+      // NUR die Fernsteuerungs-Fehlercodes (4050–4059) — sonst würde ein
+      // beliebiger anderer `error`-Frame (fehlgeschlagener Chat-Send, Rate-Limit)
+      // im langen Warte-auf-Consent-Fenster die Anfrage fälschlich abbrechen.
+      if (evt.op === 'error' && evt.code >= 4050 && evt.code <= 4059) {
+        this._error(evt.code, evt.msg);
+      }
+    });
+  }
+
+  #unwatchErrors(): void {
+    this.#errUnsub?.();
+    this.#errUnsub = null;
+  }
+}
+
+/** Consent-/Erreichbarkeits-Fehlercodes (s. `ws_remote_handlers.py`). */
+function remoteErrorMessage(code: number, fallback: string): string {
+  switch (code) {
+    case 4051:
+      return 'Keine Berechtigung für Fernsteuerung in diesem Kanal.';
+    case 4052:
+      return 'Der Host ist gerade nicht erreichbar.';
+    case 4054:
+      return 'Der Host hat bereits eine aktive Fernsteuerungs-Sitzung.';
+    default:
+      return fallback || 'Fernsteuerung fehlgeschlagen.';
+  }
+}
+
+export const remoteSession = new RemoteSessionStore();
