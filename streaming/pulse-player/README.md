@@ -490,6 +490,25 @@ cargo test          # 303 Tests, keine Hardware noetig
 cargo build --release
 ```
 
+**Unter Windows braucht es `FFMPEG_DIR`, und zwar von Hand.** Der Nachbar
+`win-hq-sidecar` setzt die Variable in seiner eigenen `.cargo/config.toml`;
+diese Kiste hat keine, und ohne die Variable sucht `ffmpeg-sys-next` per
+`pkg-config` — das es unter Windows regulaer nicht gibt. Die Fehlermeldung nennt
+dann `pkg-config`, nicht FFmpeg, und zeigt damit in die falsche Richtung.
+
+```powershell
+$env:FFMPEG_DIR   = "$PWD\..\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared"
+$env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+cargo test
+```
+
+**Warum das nicht einfach in eine `.cargo/config.toml` wandert:** deren
+`[env]`-Block gilt fuer JEDE Plattform und laesst sich nicht auf Windows
+einschraenken. Unter Linux und macOS wuerde er `FFMPEG_DIR` auf einen Pfad
+setzen, den es dort nicht gibt, und den bis dahin funktionierenden Weg ueber
+`pkg-config` abschneiden. Ein Eintrag, der zwei Plattformen bricht, um einer
+eine Zeile zu sparen, ist kein guter Tausch.
+
 **Schlaegt `depacket::tests::repro_3_stapa_ueberzaehliges_byte` mit „index out
 of bounds" im `vendor/`-Baum fehl, ist nicht der Test kaputt, sondern der
 Baum veraltet**: `vendor/webrtc-rs/` ist gitignored und wird von
