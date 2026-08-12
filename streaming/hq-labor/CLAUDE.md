@@ -509,6 +509,18 @@ starb an einem GPU-Hänger:**
 > `profiles/player-2026-08-11-gpu-reset-nicht-mehr.json`. Der Wächter bleibt
 > trotzdem — ältere Kernel/Mesa haben den harten Weg weiterhin, und das Flatpak
 > liefert an genau die aus. Nur belegen lässt er sich hier nicht mehr.
+>
+> **Korrektur 2026-08-12 — doch belegbar, und der Grund war ein zweiter
+> Decoder.** Auf demselben Unterbau ist der Player an einem Tag **zweimal**
+> gestorben (`signal=SIGABRT`, Wächter griff, danach `libdav1d`). Der
+> Unterschied zur Messbank: dort läuft der Player allein, in der App nicht. Die
+> Kachel hielt ihre WHEP-Verbindung offen, während das eigene Fenster das Bild
+> zeigte — Chromium dekodierte dieselbe AV1-Spur ein zweites Mal in Hardware,
+> ohne dass ein `<video>` sie noch angezeigt hätte. Das Kernel-Log benennt an
+> diesem Tag beide: dreimal `Process pulse-player`, viermal `Process electron`.
+> Behoben in `web/src/lib/stream/hqStreamManager.svelte.ts` (`setRuhend`).
+> **Lehre für künftige Messungen:** ein Player-Lauf auf der Messbank bildet die
+> Last der App nicht ab, solange die Kachel nebenher mitdekodiert.
 
 
 Untersucht am 2026-08-04 (Entscheidung damals: erst merken, nicht bauen),

@@ -232,10 +232,17 @@ export class NativePlayerSession {
     this.phase = ev.state;
     if (ev.error) this.error = ev.error;
     this.wiederholbar = ev.reason === 'gpu-reset';
+    // Ab `playing` hat das Fenster den Stream — dann darf die Verbindung der
+    // Kachel ruhen, sonst läuft derselbe Strom zweimal über die Leitung UND
+    // zweimal durch die Hardware-Dekodierung (voll begründet an
+    // `ManagedHqStream.setRuhend`). Erst ab `playing`, nicht schon beim Öffnen:
+    // scheitert der Start, bleibt die Kachel der Weg, der noch Bild hat.
+    if (ev.state === 'playing') this.#setRuhend(true);
     if (ev.state === 'closed' || ev.state === 'failed') {
       // Fenster weg → der Ton muss zurück in die App, sonst ist der Stream
       // stumm (die Kachel fällt gleichzeitig auf den `<video>`-Weg zurück).
       this.#setAudioOwner(false);
+      this.#setRuhend(false);
     }
     if (ev.state === 'closed') {
       // Der Nutzer hat das Fenster zugemacht — das ist die Rücknahme der
@@ -287,6 +294,12 @@ export class NativePlayerSession {
     hqStreams.get(this.channelId, this.userId, this.slot)?.setNativeAudio(native);
   }
 
+  /** Dasselbe fürs Bild: solange das Fenster es zeigt, ruht die Verbindung der
+   *  Kachel ganz (Begründung an `ManagedHqStream.setRuhend`). */
+  #setRuhend(on: boolean): void {
+    hqStreams.get(this.channelId, this.userId, this.slot)?.setRuhend(on);
+  }
+
   /** Alle Ereignis-Empfaenger abmelden. Getrennt von [`close`], weil eine
    *  uebersprungene Sitzung sie ebenfalls nicht mehr braucht — ohne dabei als
    *  geschlossen zu gelten. */
@@ -302,6 +315,7 @@ export class NativePlayerSession {
   close(): void {
     this.#disposed = true;
     this.#setAudioOwner(false);
+    this.#setRuhend(false);
     this.#abmelden();
     if (this.#session !== null) void closePlayer(this.#session);
     this.#session = null;
