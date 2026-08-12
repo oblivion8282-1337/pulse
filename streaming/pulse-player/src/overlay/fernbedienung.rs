@@ -7,8 +7,10 @@
 //! wiegt aber, was sie dabei anrichtet: solange sie sichtbar ist, meldet egui
 //! den Zeiger als „verbraucht" (`Ereignisantwort::verbraucht`), und die
 //! Erfassung schickt in diesem Bereich weder Bewegung noch Klick an den fernen
-//! Rechner. Ein Streifen ueber die **volle Fensterbreite** ist damit tot — und
-//! zwar genau unten, wo bei Windows die Taskleiste liegt.
+//! Rechner. Dieser Bereich ist damit tot — mittig am unteren Rand, in der
+//! Breite ihres Inhalts (keine volle Fensterbreite, das stand hier bis zum
+//! 2026-08-13 falsch), also genau dort, wo bei Windows die Mitte der
+//! Taskleiste liegt.
 //!
 //! Der Griff hier ist dieselbe Idee auf der kleinsten moeglichen Flaeche: ein
 //! Symbol, das man **wegziehen** kann, wenn es doch einmal im Weg ist. Das
@@ -21,7 +23,7 @@
 //! mit dem sich irgendetwas anklicken liesse. Deshalb oeffnet
 //! [`super::FERN_MENUE_TASTE`] das Menue auch per Tastatur, und die Erfassung
 //! schluckt genau diese Kombination, statt sie weiterzureichen
-//! (`crate::fernsteuerung::Erfassung::menue_taste`).
+//! (`crate::fernsteuerung::Erfassung::menue_kombination`).
 
 use super::{Overlay, OverlayAction};
 use crate::theme;
@@ -50,25 +52,40 @@ impl Overlay {
     ) {
         let griff = egui::Area::new(egui::Id::new("pulse-fern-griff"))
             .default_pos(egui::pos2(RAND, RAND))
-            // Der Griff bewegt sich nur am eigenen Symbol — `movable` allein
-            // machte auch das aufgeklappte Menue zur Ziehflaeche, und dann
-            // verschoebe jeder Griff an den Lautstaerkeregler das Ganze.
+            // Ausdruecklich, obwohl es die Vorgabe von `Area::new` ist: hier
+            // haengt Bedienbarkeit daran, und ein spaeteres `fixed_pos` oder
+            // `anchor` schaltete es stillschweigend ab (`egui::Area`). Das Menue
+            // unten bekommt genau deshalb `fixed_pos` — es soll am Griff
+            // haengen und nicht selbst ziehbar sein.
             .movable(true)
             .constrain(true)
             .show(ctx, |ui| {
-                let bild = egui::Image::new(theme::icon::pulse_mark())
-                    .fit_to_exact_size(egui::vec2(GRIFF - 10.0, GRIFF - 10.0))
-                    .tint(if self.fern_menue_offen { theme::PRIMARY } else { theme::TEXT });
-                let knopf = ui.add_sized(
-                    egui::vec2(GRIFF, GRIFF),
-                    egui::Button::image(bild)
-                        .fill(theme::LEISTE_BG)
-                        .corner_radius(theme::RADIUS_MD),
+                // **Von Hand gezeichnet statt `Button::image`.** Der Knopf
+                // deckelt sein Bild auf Schriftzeilenhoehe (`limit_image_size`,
+                // rund 15 px bei unserer Schrift) — die Marke sass verloren in
+                // einem 34er-Feld. `fill` schaltet ausserdem die Hover-Wirkung
+                // ab, der Griff sah damit aus wie ein Wasserzeichen und nicht
+                // wie etwas, das man druecken kann.
+                let (flaeche, antwort) =
+                    ui.allocate_exact_size(egui::vec2(GRIFF, GRIFF), egui::Sense::click());
+                let hell = antwort.hovered() || self.fern_menue_offen;
+                ui.painter().rect_filled(
+                    flaeche,
+                    theme::RADIUS_MD,
+                    if hell { theme::GRIFF_BG_AKTIV } else { theme::LEISTE_BG },
                 );
-                if knopf.clicked() {
+                // **Nicht einfaerben.** `tint` multipliziert, und die Marke
+                // bringt ihre eigenen Farben mit: aus Smaragd mal Blau wurde ein
+                // schmutziges Petrol, in dem der Zustand „Menue offen" kaum vom
+                // Ruhezustand zu unterscheiden war. Der Zustand haengt deshalb
+                // an der Flaeche dahinter, nicht am Symbol.
+                egui::Image::new(theme::icon::pulse_mark())
+                    .corner_radius(theme::RADIUS_MD)
+                    .paint_at(ui, flaeche.shrink(5.0));
+                if antwort.clicked() {
                     self.fern_menue_offen = !self.fern_menue_offen;
                 }
-                knopf.on_hover_text(super::FERN_MENUE_HINWEIS)
+                antwort.on_hover_text(super::FERN_MENUE_HINWEIS)
             });
 
         if !self.fern_menue_offen {
@@ -96,8 +113,38 @@ impl Overlay {
                                     .color(theme::TEXT),
                             );
                         }
-                        self.volume_group(ui, actions);
-                        ui.with_layout(
+                        // **Jede waagerechte Zeile bekommt eine AUSDRUECKLICHE
+                        // Hoehe.** Ohne sie wuchs das Menue endlos, und zwar so:
+                        // `Layout::left_to_right(Align::Center)` fuellt die
+                        // gesamte verfuegbare Hoehe (egui `layout.rs`, „fill full
+                        // height"), das Ergebnis wird ueber `Area::end` zur
+                        // verfuegbaren Hoehe des NAECHSTEN Durchgangs — und weil
+                        // unter der zentrierten Zeile noch Geschwister stehen
+                        // (Symbolzeile, Beenden-Knopf), kam deren Hoehe jedes Mal
+                        // obendrauf. Rund 60 px je Durchgang, bei 60 Bildern je
+                        // Sekunde also mehrere tausend Pixel Zuwachs pro Sekunde.
+                        // Sichtbar wurde daraus eine bildschirmhohe, fast leere
+                        // Flaeche (am 2026-08-13 am Bild beobachtet).
+                        //
+                        // Die Leiste unten (`controls.rs`) hat das Problem nicht:
+                        // dort ist die zentrierte Zeile das EINZIGE Kind des
+                        // Rahmens, damit ist die Hoehe ein Fixpunkt statt einer
+                        // Treppe. Genau deshalb bleibt sie hier unangetastet.
+                        //
+                        // Nicht 0 als Hoehe (auch das traegt): dann faende
+                        // `Align::Center` gar keine Hoehe mehr zum Zentrieren,
+                        // und kurze Texte saessen an der Oberkante statt auf der
+                        // Mittellinie der Knoepfe.
+                        let breite = ui.available_width();
+                        // 32 = Knopfhoehe 24 + 2x 4 Innenrand des Gruppenrahmens.
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(breite, 32.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| self.volume_group(ui, actions),
+                        );
+                        // 24 = Symbol 16 + 2x 4 Knopfpolsterung.
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(breite, 24.0),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
                                 Self::action_button(

@@ -37,6 +37,14 @@ pub const PRIMARY: Color32 = Color32::from_rgb(0x3b, 0x82, 0xf6);
 pub const LEISTE_BG: Color32 = Color32::from_black_alpha(215);
 /// Die Lautstaerke-Gruppe innerhalb der Leiste, eine Stufe heller abgesetzt.
 pub const GRUPPE_BG: Color32 = Color32::from_rgba_premultiplied(20, 20, 22, 150);
+/// Untergrund des Fernsteuerungs-Griffs, wenn der Zeiger darauf steht oder das
+/// Menue offen ist.
+///
+/// Der Zustand haengt an der FLAECHE und nicht am Symbol: die Pulse-Marke
+/// bringt ihre eigenen Farben mit, und `tint` multipliziert nur — eine
+/// „aktive" Einfaerbung machte daraus ein schmutziges Dunkelpetrol, das sich
+/// vom Ruhezustand kaum unterschied.
+pub const GRIFF_BG_AKTIV: Color32 = Color32::from_rgba_premultiplied(60, 60, 66, 220);
 /// Schiene des Lautstaerke-Reglers. MUSS gesetzt werden: `apply_style` macht
 /// alle Knopfflaechen durchsichtig, und egui zeichnet die Schiene aus
 /// derselben Farbe (`widgets.inactive.bg_fill`, `slider.rs`) — sie verschwand
@@ -186,9 +194,11 @@ pub mod icon {
     /// Die Pulse-Marke — der Griff der Fernbedienung im Fernsteuerungs-Modus.
     ///
     /// Kein Lucide-Symbol wie die uebrigen, sondern die Kopie von
-    /// `Logo/files/pulse-mark-white.svg`. Bewusst die WEISSE Fassung: alle
-    /// Symbole hier liegen weiss vor und werden erst beim Zeichnen eingefaerbt
-    /// (`icon_button`), die farbige Marke koennte das nicht mitmachen.
+    /// `Logo/files/pulse-mark.svg` — die FARBIGE Fassung mit smaragdgruener
+    /// Flaeche, und als einziges Symbol hier **ungetoent**. Zuerst stand hier
+    /// die weisse: die hat keinen Hintergrund, war ueber dem Bild also
+    /// durchsichtig, und die uebliche Einfaerbung dunkelte den Rest ab — uebrig
+    /// blieb ein kaum sichtbarer Schatten (am 2026-08-13 am Bild gesehen).
     pub fn pulse_mark() -> ImageSource<'static> {
         svg!("pulse-mark")
     }

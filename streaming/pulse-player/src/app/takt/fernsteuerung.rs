@@ -11,13 +11,32 @@ use super::Ausgabetakt;
 
 /// Vorhalt waehrend einer Fernsteuerung (s. [`Ausgabetakt::fernsteuerung`]).
 ///
-/// **Nicht 0.** Die Ankunft schwankt ueber eine echte Leitung messbar: am
-/// 2026-08-12 ueber den Serverweg bis 21 ms, mit rund 15 Bildern je Sekunde
-/// mehr als 5 ms daneben. Ohne jeden Vorhalt wird daraus sichtbares Ruckeln
-/// statt Verzoegerung — und wer steuert, braucht ein ruhiges Bild noch mehr als
-/// wer zusieht. 15 ms liegen unter der gemessenen Schwankung und sparen
-/// trotzdem die Haelfte.
-pub const FERN_VORHALT_MS: u32 = 15;
+/// **Gemessen, nicht gerechnet.** Der erste Ansatz waren 15 ms, hergeleitet aus
+/// der Ankunfts-Schwankung (bis 21 ms ueber den Serverweg). Der Feldversuch am
+/// 2026-08-12 mit 5 ms war deutlich besser als diese Rechnung erwarten liess —
+/// derselbe Weg, dieselbe Leitung, 227 Messfenster:
+///
+/// | | Vorhalt 30 ms | Vorhalt 5 ms |
+/// |---|---|---|
+/// | Netz-bis-Schirm | 26-33 ms | **5,5 ms** |
+/// | Bildabstand | 15,8-17,4 ms | 0,7-24,3 ms |
+/// | „verspaetet" | 451 im Lauf | rund 55 je Sekunde |
+///
+/// **Was 5 ms wirklich bedeuten:** der Puffer haelt fast nichts mehr zurueck,
+/// die Bilder gehen heraus, sobald sie da sind. Der Abstand schwankt dadurch
+/// messbar — das ist die Gegenleistung, und sie ist bewusst eingekauft. Beim
+/// Steuern zaehlt der geschlossene Kreis aus Eingabe hin und Bild zurueck; von
+/// den rund 116 ms Netz laesst sich nichts abziehen, von diesen 26 ms fast
+/// alles. Am Bild beurteilt war das Ruckeln dabei nicht wahrnehmbar.
+///
+/// **Nicht 0.** Auch bei 5 ms bleibt eine Warteschlange, die eine verspaetete
+/// Einheit noch einsortieren kann. Bei 0 faellt die Reihenfolge-Korrektur ganz
+/// weg — das ist ein anderer Zustand, kein „noch etwas schneller".
+///
+/// Wer es ruhiger will, stellt es am Pruefstand ueber
+/// `PULSE_PLAYER_AUSGABETAKT_MS` gegen — dieser Wert hebt einen tiefer
+/// gesetzten nie an.
+pub const FERN_VORHALT_MS: u32 = 5;
 
 impl Ausgabetakt {
 /// Vorhalt fuer die Dauer einer Fernsteuerung absenken — und danach genau
@@ -73,14 +92,15 @@ mod tests {
 
     #[test]
     fn hebt_einen_selbst_gesetzten_tieferen_wert_nicht_an() {
-        // `PULSE_PLAYER_AUSGABETAKT_MS=5` am Pruefstand: die Fernsteuerung darf
-        // daraus keine 15 machen, sonst misst der Pruefstand etwas anderes, als
-        // er eingestellt hat.
-        let mut takt = Ausgabetakt::neu(5);
+        // `PULSE_PLAYER_AUSGABETAKT_MS=2` am Pruefstand: die Fernsteuerung darf
+        // daraus keine 5 machen, sonst misst der Pruefstand etwas anderes, als
+        // er eingestellt hat. Bewusst UNTER [`FERN_VORHALT_MS`] gewaehlt —
+        // gleichauf wuerde der Test bestehen, ohne irgendetwas zu pruefen.
+        let mut takt = Ausgabetakt::neu(2);
         takt.fernsteuerung(true);
-        assert_eq!(ms(&takt), 5);
+        assert_eq!(ms(&takt), 2);
         takt.fernsteuerung(false);
-        assert_eq!(ms(&takt), 5);
+        assert_eq!(ms(&takt), 2);
     }
 
     #[test]
