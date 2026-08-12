@@ -67,6 +67,13 @@ export const stream = $state({
    *  Nur der Linux-Rust-Sidecar meldet das Feld — fehlt es, bleibt es false,
    *  und die 10-bit-Einstellung wird gar nicht angeboten. */
   tenBitAvailable: false,
+  /** True iff der Sidecar Eingaben einspielen kann (`gsr.remote_input`), also
+   *  ferngesteuert werden KANN. Heute meldet das nur der Windows-Sidecar; unter
+   *  Linux gibt es das Modul nicht, und auf Wayland wäre es auch keine
+   *  Kleinigkeit (jedes Programm darf dort nur seine eigenen Fenster bedienen).
+   *  Der Wert reist mit dem Stream bis zum Zuschauer — dort entscheidet er, ob
+   *  „Fernsteuerung anfragen" überhaupt erscheint. */
+  fernsteuerbar: false,
   /** True iff das FFmpeg des Sidecars rollenden Intra-Refresh durchreicht
    *  (`gsr.intra_refresh`). Ohne das verweigert der Encoder-Open den Start —
    *  der Schalter wird deshalb gar nicht erst angeboten, statt eine
@@ -211,6 +218,7 @@ export async function initStream(): Promise<() => void> {
       if (!h.ok) stream.error = 'sidecar health probe failed';
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
+      stream.fernsteuerbar = !!h.gsr?.remote_input;
       stream.intraRefreshAvailable = !!h.gsr?.intra_refresh;
       stream.hdrAvailable = !!h.gsr?.hdr;
     }

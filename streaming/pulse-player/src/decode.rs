@@ -628,16 +628,26 @@ fn cuda_ausgabe_vorgabe() -> bool {
 /// `libdav1d` umgestellt. Der Ring-Reset allein heilt es also nicht; ob der
 /// Prozess ihn ueberlebt, haengt am Zeitpunkt, nicht am Treiberstand.
 ///
-/// **Warum die Messbank es nicht sah — und das ist der eigentliche Befund.**
-/// Dort laeuft der Player ALLEIN. In der App lief er nie allein: die Kachel
-/// hielt ihre WHEP-Verbindung offen, waehrend das eigene Fenster das Bild
-/// zeigte, und Chromium dekodierte dieselbe AV1-Spur ein zweites Mal in
-/// Hardware — unsichtbar, denn ein `<video>` gab es da gar nicht mehr. Zwei
-/// Decoder auf der EINEN Video-Einheit, die sich Encode und Decode ohnehin
-/// schon teilt. Das Kernel-Log desselben Tages benennt beide als Verursacher:
-/// dreimal `Process pulse-player`, viermal `Process electron`. Behoben in
-/// `web/src/lib/stream/hqStreamManager.svelte.ts` (`setRuhend`) — die
-/// Kachel-Verbindung ruht jetzt, solange das Fenster den Stream hat.
+/// **KORREKTUR 2026-08-13: die Erklaerung vom Vortag war falsch.** Hier stand,
+/// die Kachel der App habe waehrend der Fensterwiedergabe unsichtbar
+/// mitdekodiert und zwei Decoder auf einer Video-Einheit haetten den Haenger
+/// erzeugt. Nachgeprueft und widerlegt:
+///
+/// * Fuer fremde Streams klemmt die App die Browser-Verbindung seit dem
+///   2026-08-03 ab (`web/src/lib/stream/components/HqStreamKeepAlive.svelte`,
+///   verfolgt bis `pc.close()`). Ein Parallelbetrieb fand dort nicht statt.
+/// * Die vier Vorfaelle mit `Process electron` am 2026-08-12 liegen **26 bis 32
+///   Sekunden nach dem Schliessen des Player-Fensters**. Da war die Kachel
+///   planmaessig wieder zustaendig und der EINZIGE Decoder.
+/// * Die Auftragszaehlung des Rings stuetzt das: zwischen den beiden
+///   Zeitpunkten rund 41 Auftraege je Sekunde. Bei zwei Decodern auf einem
+///   60-fps-Strom waeren es rund 60 mehr gewesen.
+///
+/// **Was bleibt: EIN Decoder genuegt fuer diesen Haenger.** Belegt mehrfach —
+/// am 2026-08-04 unter Buendelverlust, am 2026-08-11 dreimal, am 2026-08-12
+/// zweimal mit Absturz, und am 2026-08-12 um 23:17 noch einmal, also NACH der
+/// Aenderung an der Kachel. Warum die Messbank es seltener sieht, ist damit
+/// offen und nicht mehr mit der App-Last erklaert.
 ///
 /// **Der Waechter bleibt trotzdem richtig**, jetzt aus zwei Gruenden: die
 /// doppelte Last ist weg, aber die Einheit haengt auch einzeln (der Lauf vom

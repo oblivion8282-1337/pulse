@@ -73,6 +73,12 @@ class StreamTokenIn(BaseModel):
     # bis in die WHEP-Antwort, aus der der Zuschauer seinen Wiedergabeweg
     # ableitet (nur der native Player kann mehr als 8 bit ausgeben).
     ten_bit: bool = False
+    # Kann der Sidecar dieses Streamers Eingaben einspielen? Ebenfalls nur
+    # durchgereicht. Daran haengt beim Zuschauer, ob „Fernsteuerung anfragen"
+    # ueberhaupt erscheint — nur der Windows-Sidecar kann Eingaben einspielen,
+    # und ein Knopf, der beim Gegenueber nichts bewirken kann, gehoert nicht
+    # angeboten.
+    remote_input: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -87,6 +93,8 @@ class WhepOut(BaseModel):
     whep_url: str
     # Von media-svc durchgereicht: sendet dieser Stream mit 10 bit?
     ten_bit: bool = False
+    # Ebenso: kann dieser Streamer ferngesteuert werden?
+    remote_input: bool = False
 
 
 # --- media-svc client (thin; tests monkeypatch these two) -------------------
@@ -200,6 +208,8 @@ async def issue_stream_token(
     # unverändert bleibt.
     if payload.ten_bit:
         token_body["ten_bit"] = True
+    if payload.remote_input:
+        token_body["remote_input"] = True
     try:
         resp = await _media_svc_request(
             "POST",

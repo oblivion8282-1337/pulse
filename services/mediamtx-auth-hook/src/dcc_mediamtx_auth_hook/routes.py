@@ -156,7 +156,7 @@ return 1
 
 async def _consume_token_and_mark_active(
     redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str,
-    label: str | None = None, ten_bit: bool = False,
+    label: str | None = None, ten_bit: bool = False, remote_input: bool = False,
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -187,6 +187,12 @@ async def _consume_token_and_mark_active(
     # Nur bei True schreiben: der Record bleibt im Normalfall byte-identisch.
     if ten_bit:
         active["ten_bit"] = True
+    # Ebenso ``remote_input``: sagt dem Zuschauer, ob dieser Streamer ueberhaupt
+    # ferngesteuert werden KANN (nur der Windows-Sidecar spielt Eingaben ein).
+    # Ohne die Weitergabe erschiene der Anfrage-Knopf auch bei Streamern, bei
+    # denen er nie etwas bewirken kann.
+    if remote_input:
+        active["remote_input"] = True
     payload = json.dumps(active, separators=(",", ":"))
     consumed = await redis.eval(  # type: ignore[arg-type]
         _LUA_CONSUME_AND_MARK,
@@ -258,6 +264,7 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
         if not await _consume_token_and_mark_active(
             redis, req.credential, channel_id, path_user_id, path_slot, req.path, label,
             rec.get("ten_bit") is True,
+            rec.get("remote_input") is True,
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
         log.info(
