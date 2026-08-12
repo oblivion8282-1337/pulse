@@ -82,6 +82,16 @@ pub struct Request {
     /// ueber die Leitung, und das Fenster versteckt den Zeiger.
     #[serde(default)]
     pub pointer_lock: Option<bool>,
+    /// Kennung der Fernsteuerungs-Sitzung, fuer die erfasst wird.
+    ///
+    /// Sie geht **nicht** ueber die Leitung — der Player deutet sie nicht und
+    /// vergleicht sie nur mit der vorigen. Sie beantwortet genau eine Frage:
+    /// gehen liegengebliebene Hoch-Ereignisse des vorigen Stroms noch an
+    /// dasselbe Ziel, oder haengt inzwischen eine andere Sitzung am Fenster?
+    /// Ohne sie gingen die Tastenfreigaben einer beendeten Sitzung mit der
+    /// Kennung der naechsten hinaus (s. `fernsteuerung::Erfassung::einschalten`).
+    #[serde(default)]
+    pub remote_session: Option<String>,
 
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]

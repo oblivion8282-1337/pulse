@@ -67,9 +67,23 @@ async def _end_reason(session, manager, sess, max_session_s: float) -> str | Non
     controller = manager.remote_socket_user(sess.controller_socket)
     host = manager.remote_socket_user(sess.host_socket)
     if controller is None or host is None:
-        # Ein Peer-Socket ist schon weg — den Abbau besitzt der Disconnect-Pfad.
-        # Hier abzuraeumen wuerde ihm die Sitzung unter den Haenden wegziehen.
-        return None
+        # Fail-closed: ein Peer-Socket, den der Manager nicht mehr kennt, hat
+        # keinen Nutzer mehr — und ohne Nutzer kann die Wache seine Rechte nicht
+        # pruefen. Hier stand "den Abbau besitzt der Disconnect-Pfad"; das war
+        # falsch, denn ``_ws_user`` wird an einer ZWEITEN Stelle geleert: der
+        # Pubsub-Verteiler meldet einen Socket bei Sendefehler oder abgelaufener
+        # Sendefrist ueber ``remove_socket`` ab, OHNE ihn zu schliessen und ohne
+        # den Disconnect-Pfad zu rufen. Ein Steuernder, der kurz nicht liest
+        # (TCP-Gegendruck, Mobilclient mit Sendestau), verlor damit seinen
+        # Eintrag, steuerte aber weiter — und die Wache sagte fuer diese Sitzung
+        # fuer immer "leben lassen": Rollenentzug und Kanal-Overwrite blieben
+        # bis zu acht Stunden wirkungslos.
+        #
+        # Ein Wettlauf mit dem Disconnect-Pfad kostet nichts: ``remote_terminate``
+        # poppt unter dem Lock und ist idempotent, der Zweite findet nichts mehr
+        # vor. Der Grund heisst wie dort ``peer_disconnected`` — fuer die
+        # Gegenseite ist es genau das, und das Frontend kennt kein neues Wort.
+        return "peer_disconnected"
     try:
         cid = int(sess.channel_id)
     except ValueError:

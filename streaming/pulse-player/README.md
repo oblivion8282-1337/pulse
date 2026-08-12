@@ -140,8 +140,19 @@ nicht einsehbar.
   gerundet**: einzeln gerundet ergaben sie dreifache Scrollgeschwindigkeit bzw.
   einen Zeiger, der sich bei langsamem Zielen gar nicht bewegte.
   Tastenzuordnung ist Scancode Satz 1 und damit layoutunabhaengig; was sich
-  nicht abbilden laesst, wird nicht geraten, aber gezaehlt und einmal gemeldet. Was der Player NICHT tut: die Frames
-  absetzen. Das macht die App (`desktop/electron/remoteInput.ts` buendelt,
+  nicht abbilden laesst, wird nicht geraten, aber gezaehlt und einmal gemeldet.
+  **Der Platz (`slot`) wird nur beim EINSCHALTEN gesetzt** — beim Ausschalten
+  behaelt der Player ihn, denn die dann nachgereichten Hoch-Ereignisse gehoeren
+  dem Stream, der gerade gesteuert wurde. **`remote_session`** benennt die
+  Fernsteuerungs-Sitzung; der Player deutet sie nicht, sondern entscheidet
+  daran, ob Liegengebliebenes des vorigen Stroms noch an dasselbe Ziel geht
+  (anderes Ziel = verwerfen, der Host gibt beim Hello ohnehin alles frei).
+  Verworfen werden sonst nur **ueberholte Bewegungen** — nie eine, an der ein
+  Knopf oder das Rad haengt, sonst klickte der Host dort, wo sein Zeiger
+  zufaellig steht. Steht die Abgabe so lange, dass selbst die unverwerfbaren
+  Frames eine harte Grenze reissen, wird der Strom neu begonnen (Notbremse,
+  in der Antwort als `emergency_resets`/`dropped_frames`). Was der Player NICHT
+  tut: die Frames absetzen. Das macht die App (`desktop/electron/remoteInput.ts` buendelt,
   der Renderer sendet auf seiner Gateway-Verbindung).
 - **Ehrliche Statistik**: empfangene, verlorene, umsortierte und doppelte Pakete,
   dekodierte und verworfene Frames, Pufferfuellstand, gewaehlter Decoder,

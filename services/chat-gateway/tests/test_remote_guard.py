@@ -5,18 +5,21 @@ Robustheit"): Rechte werden nicht nur beim Aufbau geprueft. Ohne die Wache
 ueberlebt eine laufende Sitzung Rollenentzug und Kanal-Overwrite bis der
 Zugangstoken abgelaufen ist — 15 Minuten Tastatur auf fremdem Rechner.
 
-Die Rechteabfrage selbst (``peer_channel_perms``) wird ersetzt: sie ist im
-Aufbau-Pfad bereits durch die WS-Tests gedeckt, und hier geht es um die
-Entscheidung *nach* der Abfrage.
+Die Rechteabfrage selbst (``peer_channel_perms``) wird in den meisten Tests
+ersetzt: dort geht es um die Entscheidung *nach* der Abfrage. Der letzte Test im
+Modul laeuft bewusst OHNE Ersatz durch die echte Rechteauflösung auf der
+Datenbank — sonst waere nirgends belegt, dass die Wache dort ueberhaupt ankommt.
 """
 
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 import pytest
 from dcc_chat_gateway import remote_guard
 from dcc_chat_gateway.remote_registry import _RemoteRegistryMixin
+from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_shared.permissions import Permissions
 
 ALLOWED = Permissions.VIEW_CHANNEL | Permissions.REMOTE_CONTROL
@@ -71,11 +74,13 @@ class _Mgr(_RemoteRegistryMixin):
     """Minimaler ConnectionManager-Ersatz — die Wache braucht nur die Registry,
     die Socket→Nutzer-Zuordnung und die Session-Factory."""
 
-    def __init__(self, session=None) -> None:
+    def __init__(self, session=None, *, factory=None) -> None:
         self._lock = asyncio.Lock()
         self._user_conns: dict[int, set] = {}
         self._ws_user: dict = {}
-        self._session_factory = _Factory(session)
+        # ``factory`` = echte ``async_sessionmaker`` (Test mit Datenbank),
+        # sonst der Attrappen-Kontextmanager um ``session``.
+        self._session_factory = factory or _Factory(session)
         self._init_remote_registry()
 
 
@@ -136,15 +141,35 @@ async def test_audit_ends_when_the_host_may_no_longer_see_the_channel(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_audit_leaves_a_session_whose_peer_socket_is_already_gone(monkeypatch):
-    """Ist ein Peer-Socket weg, gehoert der Abbau dem Disconnect-Pfad — die
-    Wache wuerde ihm die Sitzung sonst unter den Haenden wegziehen."""
+async def test_audit_ends_a_session_whose_peer_socket_is_already_gone(monkeypatch):
+    """UMGEDREHT (vorher: "die Wache laesst sie leben").
+
+    Die alte Begruendung — "ein abgemeldeter Socket heisst, der Disconnect-Pfad
+    raeumt gleich auf" — stimmt nicht: ``_ws_user`` wird an einer ZWEITEN Stelle
+    geleert. Der Pubsub-Verteiler meldet einen Socket bei Sendefehler oder
+    abgelaufener Sendefrist ueber ``remove_socket`` ab, ohne ihn zu schliessen
+    und ohne den Disconnect-Pfad zu rufen (``pubsub.py``/``pubsub_listener.py``).
+    Damit konnte der Steuernde die Wache fuer seine eigene Sitzung dauerhaft
+    abschalten: kurz nicht lesen, ein Broadcast laeuft in die Sendefrist, Socket
+    abgemeldet — Eingaben flossen weiter (der Weiterleiter prueft nur Sitzung
+    und Socket-Identitaet), aber jeder Prueflauf sagte fuer immer "leben
+    lassen". Rollenentzug und Kanal-Overwrite blieben bis zu acht Stunden
+    wirkungslos.
+
+    Fail-closed ist billig: ``remote_terminate`` poppt unter dem Lock und ist
+    idempotent, ein Wettlauf mit dem Disconnect-Pfad kostet nichts."""
     mgr = _Mgr(_FakeSession())
-    sess, host_ws, _ctrl_ws = await _live_session(mgr)
+    sess, host_ws, ctrl_ws = await _live_session(mgr)
+    # Genau das, was ``remove_socket`` tut: Abmeldung ohne Schliessen.
     del mgr._ws_user[host_ws]
-    _perms(monkeypatch, {})
-    assert await remote_guard.audit_remote_sessions(mgr) == 0
-    assert mgr.remote_get(sess.session_id) is not None
+
+    async def _boom(*_a, **_k):
+        raise AssertionError("ohne Nutzer darf gar keine Rechteabfrage laufen")
+
+    monkeypatch.setattr(remote_guard, "peer_channel_perms", _boom)
+    assert await remote_guard.audit_remote_sessions(mgr) == 1
+    assert mgr.remote_get(sess.session_id) is None
+    assert ctrl_ws.sent[-1]["reason"] == "peer_disconnected"
 
 
 @pytest.mark.asyncio
@@ -200,3 +225,88 @@ async def test_kick_teardown_without_sessions_touches_no_db():
     assert await remote_guard.end_remote_sessions_for_member(_Boom(), mgr, 1, 10) == 0
     # Und ohne Manager (Tests/Teilaufbauten) ist es ein No-op statt eines Absturzes.
     assert await remote_guard.end_remote_sessions_for_member(_Boom(), None, 1, 10) == 0
+
+
+# ─── Mit echter Rechteauflösung (ohne monkeypatch) ─────────────────────────
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _token(signer) -> tuple[str, int]:
+    uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    return signer.issue_access(uid, f"u{uid}"), uid
+
+
+def _real_user(uid: int) -> AuthenticatedUser:
+    """Der Resolver liest ``id``/``is_admin``/``is_owner`` vom Nutzerobjekt —
+    hier also ein echtes, kein Platzhalter mit nur einer id."""
+    return AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
+
+
+@pytest.mark.asyncio
+async def test_audit_uses_the_real_permission_resolution(
+    client, _auth_signer, session_factory
+):
+    """Ohne Ersatz fuer ``peer_channel_perms``: Community, Kanal und Rolle
+    liegen wirklich in der Datenbank, und die Wache laeuft durch dieselbe
+    Aufloesung wie der Aufbau-Pfad.
+
+    Bis hierher ersetzten ALLE Wachen-Tests die Rechteabfrage — die eine Zeile,
+    an der die Wache ihre Entscheidung holt, war damit nirgends durchlaufen. Ein
+    Tippfehler im Kanal-/Nutzerbezug haette die Wache stumm gemacht, ohne dass
+    ein Test rot geworden waere."""
+    owner_t, owner_uid = await _token(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner_t))).json()
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "Voice", "type": 1},
+            headers=_auth(owner_t),
+        )
+    ).json()
+    member_t, member_uid = await _token(_auth_signer)
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(member_uid)},
+        headers=_auth(owner_t),
+    )
+
+    mgr = _Mgr(factory=session_factory)
+    host_ws, ctrl_ws = _Sock(), _Sock()
+    mgr._ws_user[host_ws] = _real_user(owner_uid)  # Owner = Host
+    mgr._ws_user[ctrl_ws] = _real_user(member_uid)  # einfaches Mitglied steuert
+    mgr._user_conns[owner_uid] = {host_ws}
+
+    async def _live() -> str:
+        sess = await mgr.remote_create(
+            ch["id"], str(owner_uid), host_ws, str(member_uid), ctrl_ws
+        )
+        await mgr.remote_activate(sess.session_id)
+        return sess.session_id
+
+    # REMOTE_CONTROL steckt nicht in @everyone: das Mitglied sieht den Kanal,
+    # darf aber nicht steuern → die Wache beendet.
+    sid = await _live()
+    assert await remote_guard.audit_remote_sessions(mgr) == 1
+    assert mgr.remote_get(sid) is None
+    assert ctrl_ws.sent[-1]["reason"] == "permission_revoked"
+
+    # Mit einer Rolle, die das Bit traegt, laesst dieselbe Abfrage sie stehen.
+    role = (
+        await client.post(
+            f"/guilds/{g['id']}/roles",
+            json={"name": "Fernsteuerer", "permissions": str(int(ALLOWED))},
+            headers=_auth(owner_t),
+        )
+    ).json()
+    assert (
+        await client.put(
+            f"/guilds/{g['id']}/members/{member_uid}/roles/{role['id']}",
+            headers=_auth(owner_t),
+        )
+    ).status_code == 204
+    sid = await _live()
+    assert await remote_guard.audit_remote_sessions(mgr) == 0
+    assert mgr.remote_get(sid) is not None

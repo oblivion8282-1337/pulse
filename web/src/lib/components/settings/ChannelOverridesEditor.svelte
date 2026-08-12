@@ -37,7 +37,8 @@
 
   // Compact list of editable bits — matches PermissionToggleGrid order
   // but keeps the per-channel scope (we omit server-admin / member-admin
-  // bits that don't apply at channel scope; they're guild-wide).
+  // bits that don't apply at channel scope; they're guild-wide). Ein Bit
+  // gehört hierher, sobald der Server es channel-scoped auflöst.
   const channelBits: GridEntry[] = [
     { perm: Perm.VIEW_CHANNEL, label: m.channel_overrides_perm_view_channel() },
     { perm: Perm.READ_HISTORY, label: m.channel_overrides_perm_read_history() },
@@ -52,7 +53,14 @@
     { perm: Perm.CONNECT, label: m.channel_overrides_perm_connect() },
     { perm: Perm.SPEAK, label: m.channel_overrides_perm_speak() },
     { perm: Perm.STREAM, label: m.channel_overrides_perm_stream() },
-    { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() }
+    { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() },
+    // Fernsteuerung gehört hierher, obwohl das Recht nicht in
+    // DEFAULT_EVERYONE_PERMISSIONS steht: der Gateway löst es KANALSKOPIERT auf
+    // (`resolve_permissions(..., cid_int)` in `ws_remote_handlers.py`), und der
+    // Anfrage-Knopf tut dasselbe. Ohne diesen Eintrag ließ sich ausgerechnet
+    // das empfindlichste Bit in keinem einzelnen Kanal erlauben oder entziehen
+    // — nur serverweit über die Rolle.
+    { perm: Perm.REMOTE_CONTROL, label: m.channel_overrides_perm_remote_control() }
   ];
 
   let overwrites = $derived<Overwrite[]>(channelPermissions.byChannel[channelId] ?? []);

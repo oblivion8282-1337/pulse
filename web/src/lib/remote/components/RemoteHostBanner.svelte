@@ -9,12 +9,22 @@
   import MousePointerIcon from '@lucide/svelte/icons/mouse-pointer-click';
   import XIcon from '@lucide/svelte/icons/x';
   import { remoteSession } from '$lib/remote/session.svelte';
+  import { gegenstelle, ort } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   // Nur für den Host und nur, solange die Session wirklich läuft.
   let show = $derived(remoteSession.role === 'host' && remoteSession.phase === 'active');
-  let peerName = $derived(userCache.displayName(remoteSession.peerUserId ?? ''));
+  // Wie im Zustimmungsdialog: Anzeigename UND Nutzername, dazu der Ort. Wer
+  // während der Sitzung nachliest, wer da steuert, braucht dieselbe Auskunft
+  // wie beim Zustimmen (Begründung in `$lib/remote/gegenstelle.ts`).
+  let peer = $derived(gegenstelle(remoteSession.peerUserId));
+  let herkunft = $derived(ort(remoteSession.channelId));
+
+  $effect(() => {
+    const id = remoteSession.peerUserId;
+    if (id) userCache.queue(id);
+  });
 </script>
 
 {#if show}
@@ -28,10 +38,18 @@
       <MousePointerIcon class="size-4" />
     </span>
     <span class="min-w-0">
-      <span class="text-text-bright block text-sm font-semibold">
-        {m.remote_host_banner_title({ user: peerName })}
+      <span class="text-text-bright block truncate text-sm font-semibold">
+        {m.remote_host_banner_title({ user: peer.anzeige })}
       </span>
-      <span class="text-text-base block text-xs">{m.remote_host_banner_since()}</span>
+      <span class="text-text-base block truncate text-xs" data-testid="remote-host-banner-peer">
+        {peer.benutzername ? `@${peer.benutzername}` : m.remote_peer_unknown_hint()}
+        ·
+        {herkunft
+          ? m.remote_host_banner_place({ community: herkunft.community, channel: herkunft.kanal })
+          : m.remote_place_unknown_short()}
+        ·
+        {m.remote_host_banner_since()}
+      </span>
     </span>
     <Button
       size="sm"

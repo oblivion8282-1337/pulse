@@ -28,6 +28,18 @@
   // geschrieben, der ihn setzt — als Rune wäre das eine Endlosschleife.
   let hatteFenster = false;
 
+  // Ein- und Ausschalten der Erfassung laufen über EINE Kette, nie nebeneinander.
+  // Beide Rufe sind asynchron (IPC in den Hauptprozess und weiter ins
+  // Player-Fenster); ohne Kette konnte das Ausschalten des vorigen Durchlaufs
+  // das Einschalten des neuen überholen, sobald sich `slot` oder `sessionId`
+  // mitten in der Sitzung änderten — die Erfassung war danach still aus, obwohl
+  // die Sitzung lief. Fehler werden verschluckt, damit ein einzelner Wurf die
+  // Kette nicht für den Rest der Sitzung stilllegt.
+  let kette: Promise<void> = Promise.resolve();
+  function nacheinander(schritt: () => Promise<void>): void {
+    kette = kette.then(schritt).catch(() => undefined);
+  }
+
   $effect(() => {
     const sessionId = remoteSession.sessionId;
     const channelId = remoteSession.channelId;
@@ -54,13 +66,14 @@
     // Frame. Genau davor warnt `playerInput.ts::erfassungAn`, wenn es `false`
     // liefert. Erneut prüfen: zwischen Ruf und Antwort kann die Sitzung schon
     // eine andere sein, und dann gehörte dieses `end()` einer fremden.
-    void erfassungAn(fenster, sessionId, slot).then((ok) => {
+    nacheinander(async () => {
+      const ok = await erfassungAn(fenster, sessionId, slot);
       if (!ok && remoteSession.sessionId === sessionId) remoteSession.end();
     });
     return () => {
       // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
       // nach; die gehen über dasselbe Abonnement unten hinaus.
-      void erfassungAus(fenster);
+      nacheinander(() => erfassungAus(fenster));
     };
   });
 

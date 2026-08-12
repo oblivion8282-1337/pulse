@@ -14,6 +14,7 @@
  */
 
 import type { ServerEvent } from './handlers/types';
+import type { GatewayConnection } from './gateway-connection';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 
 /**
@@ -91,4 +92,45 @@ export function backgroundEligible(evt: ServerEvent): boolean {
   if (PRESENCE_OPS.has(evt.op)) return true;
   if (MESSAGE_FAMILY_OPS.has(evt.op)) return isDmChannel(channelIdOf(evt));
   return false;
+}
+
+/**
+ * Die Frames einer LAUFENDEN Fernsteuerungs-Sitzung — der zweite Grund, warum
+ * eine nicht-aktive Verbindung dispatchen darf.
+ *
+ * Eine Fernsteuerung hängt an genau der Verbindung, auf der sie zustande kam
+ * (`remote/session.svelte.ts::#conn`). Wechselt eine der beiden Seiten während
+ * der Sitzung die Community, ist diese Verbindung nicht mehr die aktive — und
+ * ohne diese Ausnahme fiel ihr `remote_ended` in die Regel oben und wurde
+ * verworfen: beim Steuernden blieb die Erfassung von Maus und Tastatur an, beim
+ * Host das Warnbanner stehen, und die Sitzung war nur noch von Hand zu beenden.
+ *
+ * `remote_request` steht bewusst NICHT in der Liste: eine NEUE Einladung zur
+ * Hergabe des eigenen Rechners soll nur dort auftauchen, wo man gerade ist —
+ * ein Zustimmungsdialog aus einer Community, die man nicht ansieht, wäre genau
+ * der Klick, der aus Versehen passiert.
+ */
+const REMOTE_SESSION_OPS: ReadonlySet<ServerEvent['op']> = new Set([
+  'remote_pending',
+  'remote_response',
+  'remote_ended',
+  'remote_canceled',
+  'remote_input',
+]);
+
+/** Die Verbindung der laufenden Sitzung. Der Session-Store meldet sie an und
+ *  beim Ende wieder ab — außerhalb einer Sitzung ist die Ausnahme also gar
+ *  nicht scharf. */
+let sitzungsVerbindung: GatewayConnection | null = null;
+
+export function setRemoteSessionConnection(conn: GatewayConnection | null): void {
+  sitzungsVerbindung = conn;
+}
+
+/** True, wenn `conn` die Verbindung der laufenden Fernsteuerung ist UND `evt`
+ *  zu deren Frames gehört. Identitätsvergleich, nicht `serverId`: die Sitzung
+ *  hängt am Objekt, das sie trägt. */
+export function remoteSessionEligible(conn: GatewayConnection, evt: ServerEvent): boolean {
+  if (sitzungsVerbindung === null || conn !== sitzungsVerbindung) return false;
+  return REMOTE_SESSION_OPS.has(evt.op);
 }

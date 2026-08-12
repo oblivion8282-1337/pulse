@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import time
 from typing import Any
 
 from dcc_shared.streaming import SLOT_MAX
@@ -46,21 +45,24 @@ MAX_INPUT_MESSAGES_PER_S = 300
 
 
 def _within_rate(ctx: WSOpContext) -> bool:
-    """Zaehlt diese Nachricht in ein rollendes Ein-Sekunden-Fenster und sagt, ob
-    sie noch durchdarf. Der Zustand haengt am ``ctx`` (pro Verbindung) — genau
-    wie bei ``typing``/``resync`` — und ist damit beim Disconnect von selbst weg.
-    """
-    now = time.monotonic()
-    if now - ctx.remote_input_window >= 1.0:
-        ctx.remote_input_window = now
-        ctx.remote_input_count = 0
-    ctx.remote_input_count += 1
-    if ctx.remote_input_count <= MAX_INPUT_MESSAGES_PER_S:
+    """Zaehlt diese Nachricht in das Ein-Sekunden-Fenster der Verbindung und
+    sagt, ob sie noch durchdarf.
+
+    Das Fenster **springt**, es rollt nicht (Begruendung an
+    :class:`~routes.ws_ops_registry.SecondWindow`): an der Fenstergrenze passen
+    kurz bis zu 600 Nachrichten durch. Bei hoechstens 1024 dekodierten Byte je
+    Nachricht ist das folgenlos — hier stand frueher "rollend", was schlicht
+    falsch war."""
+    count = ctx.remote_input_rate.hit()
+    if count <= MAX_INPUT_MESSAGES_PER_S:
         return True
-    if ctx.remote_input_count == MAX_INPUT_MESSAGES_PER_S + 1:
+    if count == MAX_INPUT_MESSAGES_PER_S + 1:
         # Genau einmal je Fenster: eine Zeile je verworfener Nachricht waere
-        # dieselbe Flut, nur im Log.
-        log.info("remote input rate cap hit for user=%s — dropping", ctx.user.id)
+        # dieselbe Flut, nur im Log. Und auf DEBUG, nicht INFO: der Deckel
+        # greift VOR jeder Autorisierung — genau die Stelle, an der ein
+        # beliebiger eingeloggter Nutzer sonst das Protokoll fluten kann
+        # (dieselbe Regelung wie ``_err(audit=...)``).
+        log.debug("remote input rate cap hit for user=%s — dropping", ctx.user.id)
     return False
 
 

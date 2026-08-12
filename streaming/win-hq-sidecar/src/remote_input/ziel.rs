@@ -103,6 +103,15 @@ pub const SLOT_MAX: u64 = 98;
 /// Gesetzt beim `start`, geleert wenn der Worker endet.
 static AKTIVER_STROM: Mutex<Option<AktiverStrom>> = Mutex::new(None);
 
+/// Die Registrierung nehmen — **auch eine vergiftete Sperre**. Aus demselben
+/// Grund wie in [`crate::remote_input::Sitzung::sperre`]: eine Panik unter der
+/// Sperre darf nicht dazu führen, dass danach jeder Zugriff panikt. Hier hinge
+/// sonst ausgerechnet [`strom_beendet`] auf dem Abbau-Pfad, und die
+/// Fernsteuerung zielte weiter auf einen Stream, den es nicht mehr gibt.
+fn registrierung() -> std::sync::MutexGuard<'static, Option<AktiverStrom>> {
+    AKTIVER_STROM.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 struct AktiverStrom {
     /// Der erklärte Platz — `None` = nicht genannt (s. Modul-Doku).
     slot: Option<u32>,
@@ -121,7 +130,7 @@ fn traegt_slot(erklaert: Option<u32>, angefragt: u64) -> bool {
 /// Vom [`crate::stream_controller`] beim Start gerufen — der Platz steht da
 /// schon fest, das Aufnahmeziel noch nicht (das meldet [`ziel_gebunden`]).
 pub fn strom_gestartet(slot: Option<u32>) {
-    *AKTIVER_STROM.lock().unwrap() = Some(AktiverStrom { slot, bindung: None });
+    *registrierung() = Some(AktiverStrom { slot, bindung: None });
 }
 
 /// Von der Aufnahme gerufen, sobald sie ihr Ziel aufgelöst hat (`capture/wgc*`).
@@ -134,7 +143,7 @@ pub fn strom_gestartet(slot: Option<u32>) {
 /// Ohne angemeldeten Stream folgenlos: die `examples/` und das Labor starten
 /// dieselbe Aufnahme, ohne dass eine Fernsteuerung dazugehört.
 pub fn ziel_gebunden(aufgeloest: &ResolvedTarget) {
-    if let Some(strom) = AKTIVER_STROM.lock().unwrap().as_mut() {
+    if let Some(strom) = registrierung().as_mut() {
         strom.bindung = Some(Bindung {
             ziel: InjectTarget::aus(aufgeloest),
             wacht: aufgeloest.guard(),
@@ -144,7 +153,7 @@ pub fn ziel_gebunden(aufgeloest: &ResolvedTarget) {
 
 /// Vom [`crate::stream_controller`] gerufen, wenn der Worker endet.
 pub fn strom_beendet() {
-    *AKTIVER_STROM.lock().unwrap() = None;
+    *registrierung() = None;
 }
 
 /// Was die Auflösung eines Slots ergeben hat.
@@ -178,7 +187,7 @@ pub fn bindung_fuer_slot(slot: u64) -> Zielsuche {
         return Zielsuche::KeinStrom;
     }
     let eintrag = {
-        let reg = AKTIVER_STROM.lock().unwrap();
+        let reg = registrierung();
         reg.as_ref()
             .filter(|s| traegt_slot(s.slot, slot))
             .map(|s| s.bindung)

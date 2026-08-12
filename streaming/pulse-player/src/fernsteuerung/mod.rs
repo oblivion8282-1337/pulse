@@ -17,6 +17,7 @@
 mod bildlage;
 mod rahmen;
 mod schlange;
+mod strom;
 mod tasten;
 mod winit_abbild;
 
@@ -30,8 +31,9 @@ use std::time::Instant;
 use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
+use rahmen::ganze_punkte;
 use schlange::Schlange;
-use winit_abbild::{knopf_aus_nummer, knopf_von_winit, rad_von_winit};
+use winit_abbild::{knopf_von_winit, rad_von_winit};
 
 /// Der zweite Abnehmer der Fensterereignisse.
 pub struct Erfassung {
@@ -64,6 +66,15 @@ pub struct Erfassung {
     /// Welche Tasten das waren — nur, damit jede genau einmal im Protokoll
     /// landet. Eine gehaltene Taste schriebe es sonst voll.
     unbekannte_codes: BTreeSet<KeyCode>,
+    /// Kennung der Fernsteuerungs-Sitzung, fuer die zuletzt eingeschaltet
+    /// wurde. Geht **nicht** ueber die Leitung und wird hier nicht gedeutet —
+    /// sie beantwortet allein, ob liegengebliebene Frames noch an dasselbe Ziel
+    /// gehen (s. [`Self::einschalten`]).
+    sitzung: Option<String>,
+    /// Wie oft die Notbremse gezogen wurde (Warteschlange uebervoll, s.
+    /// [`Self::einreihen`]). Ein Betriebsfehler, kein Normalfall — deshalb
+    /// getrennt von den verworfenen Bewegungen gezaehlt.
+    notbremsen: u64,
 }
 
 impl Default for Erfassung {
@@ -87,6 +98,8 @@ impl Erfassung {
             rest_dy: 0.0,
             unbekannte_tasten: 0,
             unbekannte_codes: BTreeSet::new(),
+            sitzung: None,
+            notbremsen: 0,
         }
     }
 
@@ -109,98 +122,6 @@ impl Erfassung {
     /// Wie viele Tastenereignisse mangels Abbildung gefallen sind.
     pub fn unbekannte_tasten(&self) -> u64 {
         self.unbekannte_tasten
-    }
-
-    /// Erfassung ein- oder ausschalten.
-    ///
-    /// **Jedes Einschalten beginnt einen neuen Eingabestrom** und stellt ihm
-    /// ein Hello voran — auch wenn die Erfassung aus Sicht des Players schon an
-    /// war (s. [`Self::strom_beginnen`]).
-    ///
-    /// **Beim Ausschalten** wird fuer alles Gedrueckte das Hoch-Ereignis
-    /// nachgereicht. Der Host laesst zwar bei Sitzungsende ebenfalls alles los,
-    /// aber „Erfassung aus" ist kein Sitzungsende: wer den Mauszeiger aus dem
-    /// Fenster nimmt, waehrend W gedrueckt ist, liefe sonst im Spiel weiter.
-    pub fn setzen(&mut self, aktiv: bool, slot: u32, zeigerfang: bool) {
-        if aktiv {
-            self.strom_beginnen();
-        } else if self.aktiv {
-            self.alles_loslassen();
-        }
-        self.aktiv = aktiv;
-        self.slot = slot;
-        self.zeigerfang = aktiv && zeigerfang;
-    }
-
-    /// Einen neuen Eingabestrom beginnen: Hello nach VORN, Zustand auf null.
-    ///
-    /// **Am Strom, nicht an der Flanke** (2026-08-12). Vorher entstand das
-    /// Hello nur beim Uebergang aus→an. Der Host haelt seinen Zustand aber ueber
-    /// die ganze stdio-Sitzung und die ueberlebt Sitzungswechsel: war die
-    /// Erfassung im Player schon „an", als drueben ein neuer Eingabestrom
-    /// begann, kam als erstes eine Bewegung an — und der Host ist fail-closed
-    /// (`Eingabe vor dem Hello-Handschlag`, im Zwei-Geraete-Test am 2026-08-12
-    /// belegt, danach stand die Sitzung still). Ein weiteres Hello ist laut
-    /// Wire-Spec ausdruecklich erlaubt und heisst „neuer Strom"; es zu wenig zu
-    /// senden legt die Fernsteuerung lahm, es zu oft zu senden kostet nichts.
-    ///
-    /// **Das Hello geht nach VORN, das Liegengebliebene dahinter.** Beides hat
-    /// je einen Grund:
-    /// * Die Hoch-Ereignisse des vorigen Stroms (aus [`Self::alles_loslassen`])
-    ///   bleiben stehen — **hier stand bis zum 2026-08-12 ein `clear()`**, das
-    ///   sie wegwarf, wenn zwischen Aus und Ein kein Abholen lag; die Taste
-    ///   blieb dann beim Host gedrueckt.
-    /// * Vor dem Hello duerfen sie trotzdem nicht liegen: hat der Host in
-    ///   diesem Strom noch kein Hello gesehen, beendet ihn schon das erste
-    ///   Frame davor. Dahinter sind sie hoechstens ueberfluessig, denn der Host
-    ///   gibt beim Hello ohnehin alles frei — und genau deshalb vergisst der
-    ///   Player hier auch seine eigene Menge des Gedrueckten.
-    ///
-    /// Bewegungen fallen: sie sind ueberholt, und die Wire-Spec erlaubt genau
-    /// das.
-    fn strom_beginnen(&mut self) {
-        self.warteschlange.neuer_strom(rahmen::hello());
-        self.tasten_unten.clear();
-        self.knoepfe_unten.clear();
-        // Der Zeiger kann inzwischen woanders stehen, und Reste einer alten
-        // Geste gehoeren nicht in die neue.
-        self.letzte_zeigerlage = None;
-        self.rasten.zuruecksetzen();
-        self.rest_dx = 0.0;
-        self.rest_dy = 0.0;
-    }
-
-    /// Den Zeigerfang nachfuehren, ohne den Strom anzufassen.
-    ///
-    /// **Windows loest `ClipCursor` beim Fokusverlust auf, und winit stellt es
-    /// nicht wieder her.** Ohne diese Stelle glaubte die Erfassung nach
-    /// Alt+Tab und zurueck weiter an einen gefangenen Zeiger: `CursorMoved`
-    /// wuerde weiter ignoriert, relative Bewegungen kaemen von einem freien
-    /// Zeiger, und die Bedienleiste waere nicht mehr zu treffen. Wer den Griff
-    /// erneuert (oder ihn verliert), sagt es hier.
-    pub fn zeigerfang_nachfuehren(&mut self, gefangen: bool) {
-        let neu = self.aktiv && gefangen;
-        if neu == self.zeigerfang {
-            return;
-        }
-        self.zeigerfang = neu;
-        // Betriebsartwechsel: die Reste gehoeren zur alten Art, und wo der
-        // Zeiger jetzt steht, weiss vor dem naechsten `CursorMoved` niemand.
-        self.rest_dx = 0.0;
-        self.rest_dy = 0.0;
-        self.letzte_zeigerlage = None;
-    }
-
-    /// Hoch-Ereignisse fuer alles Gedrueckte, in fester Reihenfolge.
-    fn alles_loslassen(&mut self) {
-        for scan in std::mem::take(&mut self.tasten_unten) {
-            self.warteschlange.einreihen(rahmen::taste(scan, false));
-        }
-        for nummer in std::mem::take(&mut self.knoepfe_unten) {
-            if let Some(knopf) = knopf_aus_nummer(nummer) {
-                self.warteschlange.einreihen(rahmen::maus_knopf(knopf, false));
-            }
-        }
     }
 
     /// Ein Fensterereignis uebersetzen. `lage` ist `None`, solange kein Bild
@@ -339,7 +260,8 @@ impl Erfassung {
             return;
         }
         let Some((u, v)) = lage.anteil(x, y) else { return };
-        self.warteschlange.bewegung(rahmen::maus_abs(rahmen::anteil_zu_u16(u), rahmen::anteil_zu_u16(v)));
+        let (x, y) = (rahmen::anteil_zu_u16(u), rahmen::anteil_zu_u16(v));
+        self.bewegung_einreihen(rahmen::maus_abs(x, y));
     }
 
     /// Maustaste. Wird fuer „alles loslassen" mitgefuehrt.
@@ -358,7 +280,7 @@ impl Erfassung {
         } else if !self.knoepfe_unten.remove(&(knopf as u8)) {
             return;
         }
-        self.warteschlange.einreihen(rahmen::maus_knopf(knopf, runter));
+        self.einreihen(rahmen::maus_knopf(knopf, runter));
     }
 
     /// Mausrad in ZEILEN (Windows-Vorzeichen, `senkrecht > 0` = vom Nutzer weg).
@@ -376,7 +298,7 @@ impl Erfassung {
         if dv == 0 && dh == 0 {
             return;
         }
-        self.warteschlange.einreihen(rahmen::maus_rad(dv, dh));
+        self.einreihen(rahmen::maus_rad(dv, dh));
     }
 
     /// Taste als Scancode Satz 1. Wird fuer „alles loslassen" mitgefuehrt.
@@ -389,7 +311,7 @@ impl Erfassung {
         } else {
             self.tasten_unten.remove(&scan);
         }
-        self.warteschlange.einreihen(rahmen::taste(scan, runter));
+        self.einreihen(rahmen::taste(scan, runter));
     }
 
     /// Relative Bewegung bei gefangenem Zeiger (`DeviceEvent::MouseMotion`).
@@ -410,7 +332,7 @@ impl Erfassung {
         if dx == 0 && dy == 0 {
             return;
         }
-        self.warteschlange.bewegung(rahmen::maus_rel(dx, dy));
+        self.bewegung_einreihen(rahmen::maus_rel(dx, dy));
     }
 
     /// Abholen, wenn es Zeit ist (s. [`Schlange::abholen`]).
@@ -419,32 +341,11 @@ impl Erfassung {
     }
 
     /// Alles herausnehmen, ohne auf den Takt zu warten. Fuer den Abbau einer
-    /// Sitzung: die Hoch-Ereignisse aus [`Self::setzen`] duerfen nicht mit dem
+    /// Sitzung: die Hoch-Ereignisse aus [`Self::ausschalten`] duerfen nicht mit dem
     /// Fenster verschwinden.
     pub fn raeumen(&mut self) -> Option<Vec<String>> {
         self.warteschlange.raeumen()
     }
-}
-
-/// Ganze Bildpunkte aus einer Bruchteil-Bewegung — der Rest bleibt liegen und
-/// zaehlt beim naechsten Ereignis mit.
-///
-/// Abgeschnitten statt gerundet (`trunc`): so ist der Rest immer kleiner als
-/// ein Punkt und traegt nie ein Vorzeichen gegen die Bewegungsrichtung.
-fn ganze_punkte(rest: &mut f64, wert: f64) -> i16 {
-    if !wert.is_finite() || !rest.is_finite() {
-        *rest = 0.0;
-        return 0;
-    }
-    *rest += wert;
-    let ganz = rest.trunc().clamp(f64::from(i16::MIN), f64::from(i16::MAX));
-    *rest -= ganz;
-    // Nur, wenn die Klemmung oben zugeschlagen hat: der Ueberschuss wird
-    // verworfen statt aufgehoben, sonst liefe der Zeiger danach nach.
-    if rest.abs() >= 1.0 {
-        *rest = 0.0;
-    }
-    ganz as i16
 }
 
 #[cfg(test)]

@@ -44,10 +44,36 @@ pub fn anteil_auf_punkt(x: u16, y: u16, rect: &RECT) -> Option<(i32, i32)> {
     // fällt — sonst erreicht der Zeiger den rechten/unteren Rand nie.
     let px = rect.left + ((x as i64 * (w - 1) as i64 + 32767) / 65535) as i32;
     let py = rect.top + ((y as i64 * (h - 1) as i64 + 32767) / 65535) as i32;
+    klemmen(px, py, rect)
+}
+
+/// Einen Bildschirmpunkt ins Quell-Rechteck klemmen. `None` bei einem entarteten
+/// Rechteck (keine Breite oder keine Höhe) — dort gibt es keinen Punkt, auf den
+/// sich klemmen ließe (Begründung des Falls s. [`anteil_auf_punkt`]).
+///
+/// Die **eine** Stelle, an der die Klemm-Zusage der Spezifikation rechnerisch
+/// eingelöst wird: absolute Bewegung, relative Bewegung und das Orts-Tor für
+/// Knopf und Rad (`super::ausfuehrung`) gehen alle hier durch. Halboffen —
+/// rechte und untere Kante gehören dem Nachbarn.
+pub fn klemmen(px: i32, py: i32, rect: &RECT) -> Option<(i32, i32)> {
+    if rect.right <= rect.left || rect.bottom <= rect.top {
+        return None;
+    }
     Some((
         px.clamp(rect.left, rect.right - 1),
         py.clamp(rect.top, rect.bottom - 1),
     ))
+}
+
+/// Die Mitte des Quell-Rechtecks — Startpunkt für relative Bewegung ohne
+/// bekannte Zeigerlage (`super::ausfuehrung::relatives_ziel`). `None` bei
+/// entartetem Rechteck.
+pub fn mitte(rect: &RECT) -> Option<(i32, i32)> {
+    klemmen(
+        rect.left + (rect.right - rect.left) / 2,
+        rect.top + (rect.bottom - rect.top) / 2,
+        rect,
+    )
 }
 
 /// Grenzen des virtuellen Desktops (alle Bildschirme), physische Bildpunkte.
@@ -74,6 +100,14 @@ pub fn virtueller_desktop() -> VirtualDesktop {
 
 /// Physischer Bildschirmpunkt → `SendInput`-Absolutkoordinate (0..65535 über den
 /// GESAMTEN virtuellen Desktop, wie im M0-Prüfling nachgemessen).
+///
+/// **Grenze der exakten Umkehrung** (nachgerechnet 2026-08-12, alle Bildpunkte
+/// je Spannweite): Bis zu einer Spannweite von **32770 px** rechnet sich jeder
+/// Punkt lückenlos zurück. Ab 32771 gibt es Spannweiten, bei denen es nicht mehr
+/// aufgeht (32771 px: 2 Punkte daneben; 40000 px: 17,9 %) — die Kachel ist dann
+/// schmaler als zwei Stufen, und die Abrundung fällt über die Kante. Heute
+/// unerreichbar (acht 4K-Schirme nebeneinander sind 30720 px), aber die Grenze
+/// gehört hingeschrieben, bevor jemand sie unbemerkt überschreitet.
 pub fn punkt_auf_absolut(px: i32, py: i32, vd: &VirtualDesktop) -> (i32, i32) {
     // Auf die MITTE der Kachel zielen, die Windows diesem Bildpunkt zuweist:
     // beim Einspielen rechnet es `p = n * cx / 65536` zurück, also ist
@@ -83,8 +117,10 @@ pub fn punkt_auf_absolut(px: i32, py: i32, vd: &VirtualDesktop) -> (i32, i32) {
     // Windows-Rechnung nur eine Näherung und trifft daneben, sobald der
     // virtuelle Desktop breit genug ist. Gemessen am 2026-08-12 über drei
     // Bildschirme (7680 px breit, Ursprung −2560): die alte Fassung traf 42 von
-    // 45 Punkten, die neue 45 von 45. Bei einem einzelnen 2560er Schirm hob
-    // sich der Fehler zufällig auf — deshalb ist er wochenlang nicht
+    // 45 Punkten, die neue 45 von 45. Bei einem einzelnen 2560er Schirm hob sich
+    // der Fehler **nicht** auf — hier stand das, und es ist falsch: die alte
+    // Formel lag dort auf 42 von 2560 Bildpunkten daneben (bei 5120 auf 174, bei
+    // 7680 auf 474). Seltener, nicht weg — deshalb ist es wochenlang nicht
     // aufgefallen, und deshalb ist eine Messung über MEHRERE Bildschirme keine
     // Kür.
     //
@@ -153,6 +189,36 @@ mod tests {
         assert_eq!(anteil_auf_punkt(0, 0, &rect(800, 600, 100, 100)), None);
         // Ein Rechteck von genau einem Bildpunkt trägt dagegen.
         assert_eq!(anteil_auf_punkt(65535, 65535, &rect(7, 9, 8, 10)), Some((7, 9)));
+    }
+
+    /// Die dokumentierte Grenze, ausgefahren: bis zur Spannweite 32770 rechnet
+    /// sich **jeder** Bildpunkt zurück — auch acht 4K-Schirme nebeneinander
+    /// (30720 px) liegen darunter. Ab 32771 hält die Zusage nicht mehr für alle
+    /// Spannweiten; das steht als Grenze an [`punkt_auf_absolut`], damit es
+    /// niemand unbemerkt überschreitet.
+    #[test]
+    fn die_umkehrung_gilt_bis_zur_spannweite_32770() {
+        for &span in &[30720, 32770] {
+            let vd = VirtualDesktop { x: 0, y: 0, cx: span, cy: 1440 };
+            for px in 0..span {
+                let (nx, _) = punkt_auf_absolut(px, 0, &vd);
+                let zurueck = ((nx as i64 * span as i64) / 65536) as i32;
+                assert_eq!(zurueck, px, "span={span} px={px} n={nx}");
+            }
+        }
+    }
+
+    /// Klemmen ist die eine Stelle, an der die Klemm-Zusage rechnerisch
+    /// eingelöst wird — halboffen, und bei entartetem Rechteck `None`.
+    #[test]
+    fn klemmen_haelt_das_rechteck_halboffen() {
+        let r = rect(100, 200, 1100, 800);
+        assert_eq!(klemmen(600, 500, &r), Some((600, 500)));
+        assert_eq!(klemmen(-9999, -9999, &r), Some((100, 200)));
+        assert_eq!(klemmen(9999, 9999, &r), Some((1099, 799)));
+        assert_eq!(klemmen(0, 0, &rect(0, 0, 0, 10)), None);
+        assert_eq!(mitte(&r), Some((600, 500)));
+        assert_eq!(mitte(&rect(5, 5, 5, 5)), None);
     }
 
     /// Zweitbildschirm links vom Primären: der Ursprung des virtuellen Desktops

@@ -43,7 +43,7 @@ import {
   sidecarRunning,
 } from './sidecar';
 import { playerManager } from './player';
-import { EingabeWeiche } from './remoteInput';
+import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
@@ -968,36 +968,17 @@ function wirePlayer(): void {
   );
 
   // Fernsteuerung: Eingabe-Erfassung im Player-Fenster schalten und zugleich
-  // die Zuordnung zur Fernsteuerungs-Sitzung anlegen. Erst danach koennen
-  // Frames herausgehen — ohne Zuordnung verwirft `EingabeWeiche` sie.
+  // die Zuordnung zur Fernsteuerungs-Sitzung anlegen. Ohne Zuordnung verwirft
+  // `EingabeWeiche` die Frames — die REIHENFOLGE der beiden Schritte ist
+  // deshalb sicherheitsrelevant und steht bei `erfassungSchalten`.
   ipcMain.handle('player:inputCapture', async (_e, args: unknown) => {
-    const a = (args ?? {}) as Record<string, unknown>;
-    const session = typeof a.session === 'number' ? a.session : null;
-    if (session === null) return { ok: false, error: 'session fehlt' };
-    const enabled = a.enabled === true;
-    const sessionId = typeof a.sessionId === 'string' ? a.sessionId : '';
-    // Ohne Sitzungskennung gaebe es kein Ziel — dann lieber gar nicht erfassen,
-    // als Eingaben zu erzeugen, die nirgends ankommen.
-    if (enabled && !sessionId) return { ok: false, error: 'sessionId fehlt' };
-    const slot = Number.isInteger(a.slot) ? (a.slot as number) : 0;
-    try {
-      const res = await playerManager.call('input_capture', {
-        session,
-        enabled,
-        slot,
-        pointer_lock: a.pointerLock === true,
-      });
-      if (enabled && res.ok !== false) eingabeWeiche.anmelden(session, sessionId, slot);
-      // Beim Abschalten NICHT sofort abmelden: der Player reicht danach noch
-      // die Hoch-Ereignisse fuer alles Gedrueckte nach, und die duerfen nicht
-      // an der Weiche haengenbleiben — sonst klemmt beim Host eine Taste. Der
-      // Nachlauf gehoert in die Weiche, nicht in ein freies `setTimeout`: nur
-      // dort kann ihn ein spaeteres `anmelden` wieder abraeumen (s. dort).
-      else if (!enabled) eingabeWeiche.abmeldenVerzoegert(session);
-      return res;
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
+    const gelesen = auftragLesen(args);
+    if (!gelesen.ok) return { ok: false, error: gelesen.error };
+    return erfassungSchalten(
+      eingabeWeiche,
+      (params) => playerManager.call('input_capture', params),
+      gelesen.auftrag,
+    );
   });
 
   ipcMain.handle('player:call', async (_e, op: string, params: unknown) => {

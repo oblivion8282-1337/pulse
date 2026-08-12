@@ -171,7 +171,12 @@ contextBridge.exposeInMainWorld('pulse', {
      */
     input: {
       /** Erfassung einschalten. `sessionId` ist die per Consent bestaetigte
-       *  Fernsteuerungs-Sitzung, `slot` der gemeinte Stream des Hosts. */
+       *  Fernsteuerungs-Sitzung, `slot` der gemeinte Stream des Hosts.
+       *
+       *  **`pointerLock` erreicht heute keinen Aufrufer** (die steuernde Seite
+       *  ruft mit drei Argumenten). Der Zeigerfang samt relativer Bewegungen
+       *  ist im Player gebaut und geprueft, aber in der Auslieferung nicht
+       *  angeschaltet — hier steht der Draht, der dafuer zu legen waere. */
       start: (
         session: number,
         sessionId: string,
@@ -186,7 +191,16 @@ contextBridge.exposeInMainWorld('pulse', {
           pointerLock,
         }),
       /** Erfassung ausschalten. Der Player reicht danach fuer alles Gedrueckte
-       *  das Hoch-Ereignis nach — die kommen noch ueber `onFrames`. */
+       *  das Hoch-Ereignis nach — die kommen noch ueber `onFrames`.
+       *
+       *  **Ohne `slot`, und das ist Absicht.** Die nachgereichten
+       *  Hoch-Ereignisse gehoeren dem Stream, der gerade gesteuert wurde; hier
+       *  weiss den niemand. Bis zum 2026-08-12 machte der Hauptprozess aus dem
+       *  fehlenden Feld eine 0 und der Player uebernahm sie — die Freigaben
+       *  einer Steuerung von Platz 2 gingen dann an Platz 0 und legten dort
+       *  einen fremden, laufenden Stream fail-closed still. Der Platz liegt
+       *  jetzt dort, wo er entsteht: beim Einschalten, und der Player behaelt
+       *  ihn (s. `Erfassung::ausschalten`). */
       stop: (session: number): Promise<unknown> =>
         ipcRenderer.invoke('player:inputCapture', { session, enabled: false }),
       /** Fertige `remote_input`-Nachrichten. Liefert eine Abmelde-Funktion. */

@@ -135,6 +135,15 @@ still stillgelegt. Als **Neuanfang mit Freigabe** gelesen ist es zugleich die
 Selbstheilung gegen klemmende Tasten: wer beim Umschalten ein Hoch-Ereignis
 verliert, bekommt es beim nächsten Hello zurück.
 
+**Der Handschlag ist Sitzungszustand, keine Eingabe** (ergänzt 2026-08-12). Er
+MUSS auch dann verarbeitet werden, wenn die Eingabe-Frames derselben Nachricht
+verworfen werden — unbekannter Slot, noch nicht aufgelöste Quelle, schwärzender
+Sichtschutz. Verworfen wird die Eingabe, nicht der Handschlag. Ohne diese Regel
+gilt: wer das Hello verwirft, verwirft es endgültig, denn der Steuernde erzeugt
+je Einschalten genau eines und erfährt vom Verwerfen nichts. Die nächste
+Nachricht ist dann eine Bewegung, der Host geht fail-closed, und die ganze
+Sitzung stirbt an einem Stream, der eine Sekunde zu spät angelaufen ist.
+
 **v1-Sender werden abgewiesen.** Es gibt keine Übergangsfassung: v1 hat nie
 ausgeliefert, es gibt also keinen Bestand, auf den Rücksicht zu nehmen wäre.
 
@@ -172,9 +181,22 @@ werden, und jede Verzögerung dabei setzt Klicks an die falsche Stelle.
 
 ### MouseMoveRel (`0x02`)
 
-`dx`/`dy` in Pixeln (+x rechts, +y runter). Host injiziert `MOUSEEVENTF_MOVE`
-**ohne** `ABSOLUTE` — Windows wendet seine Beschleunigung an, was für den
-Zeigerfang-Fall (Spiele) erwünscht ist.
+`dx`/`dy` in Pixeln (+x rechts, +y runter).
+
+**Der Host rechnet das Delta auf die von ihm zuletzt gesetzte Lage, klemmt ins
+Quell-Rechteck und setzt absolut** (geändert 2026-08-12). Hier stand vorher
+`MOUSEEVENTF_MOVE` **ohne** `ABSOLUTE`, damit Windows seine Beschleunigung
+anwendet — für den Zeigerfang-Fall (Spiele) erwünscht. Das ist gestrichen,
+weil es die Klemm-Zusage aushebelte: ein Delta lässt sich ohne Rückmeldung
+nicht klemmen, und `GetCursorPos` nach `SendInput` ist nicht verlässlich
+aktuell (Rohreingabe läuft asynchron) — ein darauf gestütztes Tor verwürfe
+echte Klicks. Die Beschleunigung fällt damit weg.
+
+**Der Weg zurück ist offen, aber teuer:** er verlangt eine belegte Rückmeldung
+über die tatsächliche Zeigerlage, nicht ein ungeklemmtes `SendInput`. Praktisch
+kostet die Änderung heute nichts — der Zeigerfang ist in der Auslieferung gar
+nicht verdrahtet (`preload.ts` setzt `pointerLock = false`), MoveRel entsteht
+also derzeit nirgends.
 
 **Kein Protokollschalter für den Modus:** Der Steuernde sendet MoveRel genau
 dann, wenn er den Zeiger gefangen hält, sonst MoveAbs. Der Host behandelt beide
@@ -187,11 +209,22 @@ Host: `MOUSEEVENTF_{LEFT,RIGHT,MIDDLE}{DOWN,UP}`; X1/X2 über
 `MOUSEEVENTF_X{DOWN,UP}` mit `mouseData=XBUTTON1/2`. **Unbekannter `btn` →
 Sitzung beenden.**
 
+**Ein Druck braucht eine gültige Zeigerlage im heutigen Quell-Rechteck**
+(ergänzt 2026-08-12) — der Frame trägt keine eigene Position, er feuert sonst
+dort, wo der Zeiger des Host-Nutzers gerade steht. Der Host behauptet die Lage
+vor dem Druck neu; eine verworfene Bewegung entwertet sie. Das **Loslassen**
+eines bereits vermerkten Knopfes geht immer durch, sonst klemmte die Maustaste.
+Siehe „Klemmen" unter Sicherheit und Robustheit.
+
 ### MouseWheel (`0x04`)
 
 `dv` (senkrecht) / `dh` (waagerecht) in **Windows-Rastschritten**
 (`WHEEL_DELTA` = 120 je Raste). Vorzeichen in Windows-Konvention: `dv > 0` =
 vom Nutzer weg. Host: `MOUSEEVENTF_WHEEL` / `MOUSEEVENTF_HWHEEL`.
+
+Das Rad trägt wie der Knopf keine Position und unterliegt **derselben
+Ortsprüfung** (ergänzt 2026-08-12) — ohne sie scrollte der Steuernde in dem
+Fenster, über dem der Host-Nutzer gerade seinen Zeiger hat.
 
 ### Key (`0x05`)
 
@@ -260,6 +293,30 @@ Grund.
   sich mit Dialogen zumüllen, bis er aus Entnervung zustimmt. Die Prüfung liegt
   **hinter** der Rechteprüfung — sonst verriete der Code einem Unberechtigten,
   dass zwischen zwei fremden Nutzern gerade eine Anfrage lief.
+* **Der Steuernde muss seine Sitzung kennen, bevor der Host antwortet**
+  (ergänzt 2026-08-12). Der Gateway schickt ihm dazu unmittelbar nach dem
+  Anlegen und **vor** der Fächerung an die Host-Tabs
+  `{"op":"remote_pending","session_id","channel_id","host_user_id"}`.
+  Abgebrochen wird mit dem bestehenden `remote_end`; der Gateway setzt dabei
+  dieselbe Sperrfrist wie bei einer Absage, sonst wäre die Bremse durch
+  Anfragen-und-sofort-Abbrechen wirkungslos.
+  **Warum das nötig ist:** ohne eigene Kennung kann der Steuernde weder
+  abbrechen noch eine Antwort einer *fremden* Sitzung erkennen. Er nimmt dann
+  die Zustimmung von Host A an, während seine Oberfläche längst auf Host B
+  zeigt — und schickt Eingaben, die auf das Bild von B zielen, an den Rechner
+  von A. Jeder eingehende `remote_*`-Frame ist deshalb gegen die gemerkte
+  Kennung zu prüfen und Fremdes zu verwerfen.
+* **Jeder Relay-Op des Gateways ist gedeckelt, nicht nur `remote_input`**
+  (ergänzt 2026-08-12). `remote_signal` ist derselbe Weiterleiter an denselben
+  Empfänger und blieb beim ersten Deckel übersehen — die Fehlerklasse ist „ein
+  Peer flutet den anderen über einen Gateway-Relay-Op", nicht „`remote_input`
+  ist gefährlich". Dazu eine Mindestpause zwischen zwei `remote_request`
+  (Code **4056**, je Verbindung): eine Anfrage kostet drei Datenbank-Abfragen,
+  eine Kleinstnachricht kostet nichts. Der Deckel ist ein **Sprungfenster**,
+  kein rollendes; an der Fenstergrenze passieren also kurzzeitig zwei
+  Kontingente. In Byte gerechnet ist das folgenlos, weil die gedeckelten
+  Nachrichten selbst eng begrenzt sind — ein rollendes Fenster kostete je
+  Verbindung eine Zeitstempelliste.
 * **Eine Sitzung endet auch ohne Anlass** (ergänzt 2026-08-12). Zusätzlich zu
   jeder Untätigkeitsgrenze läuft eine absolute Höchstdauer (derzeit 8 Stunden).
   Eine Fernsteuerung, die niemand beendet — vergessenes Fenster, eingeschlafener
@@ -271,6 +328,18 @@ Grund.
   Ohne das läuft nach einem Abbruch die W-Taste im Spiel für immer weiter.
 * **Klemmen.** Absolute Koordinaten werden ins Quell-Rechteck geklemmt. Der
   Steuernde kann nur dorthin klicken, wo er per Aufnahme auch hinsehen darf.
+  **Das gilt für jeden Weg, nicht nur für die absolute Bewegung** (geschärft
+  2026-08-12). Relative Bewegung darf das Rechteck ebenso wenig verlassen, und
+  ein Knopf trägt keine eigene Position — er feuert dort, wo der Zeiger steht.
+  Beides zusammen hebelte die Zusage mit zwei Frames aus: ein paar relative
+  Bewegungen weit nach außen, dann ein Klick, und der Steuernde klickt auf
+  einen Teil des fremden Desktops, den er nie zu sehen bekam. Derselbe Schaden
+  ohne Angreifer: wird eine absolute Bewegung verworfen, feuert der nachfolgende
+  Klick sonst trotzdem — an der Zeigerposition des *Host-Nutzers*. Ein Knopf
+  ohne gültige, ins Rechteck geklemmte Zeigerlage geht deshalb nicht hinaus.
+  Das **Loslassen** eines bereits vermerkten Knopfes bleibt davon ausgenommen,
+  sonst klemmte die Maustaste. Dass der eigene Steuernde sich brav verhält, ist
+  keine Durchsetzung — der Host ist die fail-closed-Grenze.
 * **Grenzen der Injektion (dokumentiert, kein Fehler):** `SendInput` erreicht
   weder Strg+Alt+Entf noch Fenster mit höherer Integrität (Rechteabfragen,
   Administrator-Fenster bei nicht erhöhtem Sidecar). Die Windows-Taste geht

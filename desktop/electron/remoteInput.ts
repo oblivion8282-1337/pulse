@@ -168,10 +168,128 @@ export class EingabeWeiche {
     if (!zuordnung) return [];
     const frames = frameListe(ev.frames);
     if (frames.length === 0) return [];
-    // Der Slot aus dem Ereignis gewinnt: der Player kennt ihn aus demselben
-    // `input_capture`, das hier die Zuordnung angelegt hat, und ist damit die
-    // frischere Quelle, falls beides auseinanderlaeuft.
-    const slot = typeof ev.slot === 'number' ? ev.slot : zuordnung.slot;
-    return buendeln(zuordnung.sessionId, slot, frames);
+    // **Sitzung und Platz sind ein Paar.** Beide stammen aus DEMSELBEN
+    // `input_capture`; sie zu trennen hiesse, Frames mit der Kennung der einen
+    // Steuerung an den Bildschirm einer anderen zu schicken.
+    //
+    // Hier gewann bis zum 2026-08-12 der Platz aus dem Ereignis. Das klang nach
+    // „frischere Quelle" und war eine Falle: kam von unten eine 0 (ein
+    // Vorgabewert statt eines echten Platzes), gingen die Frames an Platz 0 —
+    // einen fremden, laufenden Stream, dessen Sidecar nie ein Hello gesehen
+    // hatte und der deshalb fail-closed stehenblieb.
+    //
+    // Weicht der Platz ab, wird deshalb weder das eine noch das andere
+    // genommen, sondern gar nichts: die Frames gehoeren zu einer Erfassung, die
+    // diese Zuordnung nicht beschreibt. Verworfen wird still, wie bei einer
+    // unbekannten Sitzung — es ist dasselbe Rennen und kein Angriff.
+    if (typeof ev.slot === 'number' && ev.slot !== zuordnung.slot) return [];
+    return buendeln(zuordnung.sessionId, zuordnung.slot, frames);
+  }
+}
+
+/** Was der Renderer beim Schalten der Erfassung angibt. */
+export interface Schaltauftrag {
+  /** Sitzung des Player-FENSTERS (nicht die der Fernsteuerung). */
+  session: number;
+  enabled: boolean;
+  /** Die per Consent bestaetigte Fernsteuerungs-Sitzung. Nur beim Einschalten
+   *  von Belang — beim Ausschalten gilt die angemeldete weiter. */
+  sessionId: string;
+  /** Welcher der gleichzeitig laufenden Streams des Hosts gemeint ist. */
+  slot: number;
+  pointerLock: boolean;
+}
+
+export type AuftragErgebnis =
+  | { ok: true; auftrag: Schaltauftrag }
+  | { ok: false; error: string };
+
+/**
+ * Die Argumente aus dem Renderer pruefen.
+ *
+ * **Ein ungueltiger Platz wird abgewiesen, nicht zurechtgebogen.** Ein
+ * verbogener Platz waere ein Klick auf dem falschen Bildschirm; fehlt die
+ * Angabe ganz, gilt Platz 0 — so steht „erster Stream" in der Wire-Spec, und
+ * das ist eine Vorgabe, keine Korrektur.
+ */
+export function auftragLesen(args: unknown): AuftragErgebnis {
+  const a = (args ?? {}) as Record<string, unknown>;
+  if (typeof a.session !== 'number') return { ok: false, error: 'session fehlt' };
+  const enabled = a.enabled === true;
+  const sessionId = typeof a.sessionId === 'string' ? a.sessionId : '';
+  // Ohne Sitzungskennung gaebe es kein Ziel — dann lieber gar nicht erfassen,
+  // als Eingaben zu erzeugen, die nirgends ankommen.
+  if (enabled && !sessionId) return { ok: false, error: 'sessionId fehlt' };
+  if (a.slot !== undefined && (!Number.isInteger(a.slot) || (a.slot as number) < 0)) {
+    return { ok: false, error: 'slot ungueltig' };
+  }
+  return {
+    ok: true,
+    auftrag: {
+      session: a.session,
+      enabled,
+      sessionId,
+      slot: a.slot === undefined ? 0 : (a.slot as number),
+      pointerLock: a.pointerLock === true,
+    },
+  };
+}
+
+/**
+ * Erfassung im Player schalten und die Zuordnung dazu fuehren.
+ *
+ * **Die Zuordnung entsteht VOR dem Aufruf** — das ist der ganze Punkt dieser
+ * Funktion. Der Player schreibt die Antwort auf `input_capture` und das erste
+ * `player:input` (mit dem Hello darin) im selben Schleifendurchlauf in dieselbe
+ * Pipe; `readline` arbeitet alle Zeilen eines Chunks **synchron** ab, waehrend
+ * die Fortsetzung hinter einem `await` nur ein Microtask ist und erst danach
+ * laeuft. Wer sich erst nach dem `await` anmeldet, verwirft damit
+ * zuverlaessig das Hello des ersten Einschaltens — die naechste Abgabe ist dann
+ * eine Bewegung, und der Host geht fail-closed („Eingabe vor dem
+ * Hello-Handschlag"). Betroffen war jedes erste Einschalten je Player-Fenster.
+ *
+ * Scheitert der Aufruf, wird die Zuordnung wieder abgemeldet: dann erfasst der
+ * Player nicht, und was hier noch stuende, zeigte auf eine Erfassung, die es
+ * nicht gibt.
+ */
+export async function erfassungSchalten(
+  weiche: EingabeWeiche,
+  ruf: (params: Record<string, unknown>) => Promise<Record<string, unknown>>,
+  auftrag: Schaltauftrag,
+): Promise<Record<string, unknown>> {
+  const { session, enabled, sessionId, slot, pointerLock } = auftrag;
+  if (enabled) weiche.anmelden(session, sessionId, slot);
+  try {
+    // **Beim Ausschalten geht kein Platz mit.** Die Hoch-Ereignisse fuer alles
+    // Gedrueckte gehoeren dem Stream, der gerade gesteuert wurde; nur der
+    // Player weiss, welcher das ist, und er behaelt ihn ueber das Ausschalten
+    // hinweg (`Erfassung::ausschalten`). Ein Feld, das hier mitginge, koennte
+    // nur falsch sein — `stop()` kennt den Platz nicht.
+    const res = enabled
+      ? await ruf({
+          session,
+          enabled: true,
+          slot,
+          pointer_lock: pointerLock,
+          // Der Player deutet die Kennung nicht; er vergleicht sie nur mit der
+          // vorigen. Daran entscheidet sich, ob liegengebliebene
+          // Hoch-Ereignisse des alten Stroms noch an dasselbe Ziel gehen.
+          remote_session: sessionId,
+        })
+      : await ruf({ session, enabled: false });
+    if (enabled && res.ok === false) {
+      weiche.abmelden(session);
+      return res;
+    }
+    // Beim Abschalten NICHT sofort abmelden: der Player reicht danach noch die
+    // Hoch-Ereignisse fuer alles Gedrueckte nach, und die duerfen nicht an der
+    // Weiche haengenbleiben — sonst klemmt beim Host eine Taste. Der Nachlauf
+    // gehoert in die Weiche, nicht in ein freies `setTimeout`: nur dort kann
+    // ihn ein spaeteres `anmelden` wieder abraeumen (s. dort).
+    if (!enabled) weiche.abmeldenVerzoegert(session);
+    return res;
+  } catch (e) {
+    if (enabled) weiche.abmelden(session);
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

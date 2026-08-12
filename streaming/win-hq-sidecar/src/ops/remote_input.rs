@@ -10,6 +10,11 @@
 //!  "frames":["AAI=", "AwAB"]}      // Base64, IN REIHENFOLGE
 //! ```
 //!
+//! **Auch das Fehlen von `session_id` ist ein Wechsel** (`Sitzung::frames`): eine
+//! Nachricht ohne Feld setzt die Sitzung zurück, statt `begruesst` und die
+//! Gedrückt-Menge der Vorgängersitzung zu erben. Dieser Sidecar verlässt sich
+//! ausdrücklich nicht darauf, dass vor ihm jemand geprüft hat.
+//!
 //! Antwort: `{"ok":true, "processed":<n>, "state":"live"}`. Andere Zustände:
 //!
 //! | `state` | heißt |
@@ -30,7 +35,7 @@
 //! Frame-Format und Koordinaten-Zuordnung: `crate::remote_input` bzw.
 //! `docs/plans/2026-08-12-input-wire-protokoll-v2.md`.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use serde_json::{Map, Value};
 
 use crate::remote_input::{Sitzung, base64};
@@ -68,20 +73,35 @@ fn slot_aus(params: &Map<String, Value>) -> Result<u64, String> {
     }
 }
 
-pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let slot = match slot_aus(&params) {
-        Ok(s) => s,
-        // Über die Sitzung, nicht als blankes `Err`: ein Protokollfehler legt
-        // still UND gibt frei — auch dieser hier.
-        Err(grund) => return Err(Sitzung::singleton().protokollfehler(grund)),
-    };
-    let sitzungs_id = params.get("session_id").and_then(Value::as_str);
+/// Die Kennung aus der Hülle. Fehlt sie, ist es eine Sitzung **ohne** Kennung —
+/// und damit eine eigene, nicht die Fortsetzung der vorherigen (s. Modul-Doku).
+/// Ein Feld, das keine Zeichenkette ist, ist missgeformt: dann lieber
+/// fail-closed als eine fremde Sitzung stillschweigend weiterführen.
+fn sitzungs_id_aus(params: &Map<String, Value>) -> Result<Option<&str>, String> {
+    match params.get("session_id") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s.as_str())),
+        Some(anderes) => Err(format!("session_id muss eine Zeichenkette sein, war {anderes}")),
+    }
+}
+
+/// Die Frames aus der Hülle dekodieren.
+///
+/// **Jeder** Fehler hier ist ein Protokollfehler und geht über
+/// [`Sitzung::protokollfehler`] (s. [`handle`]) — zu viele Frames, kaputtes
+/// Base64, ein Eintrag der keine Zeichenkette ist, ein fehlendes Feld. Hier
+/// standen nackte `anyhow!`: die gingen zwar als `ok:false` zurück, legten die
+/// Sitzung aber weder still noch gaben sie das Gedrückte frei — die im Modulkopf
+/// zugesagte Eigenschaft „jeder verworfene Zustand gibt frei" galt damit nur
+/// meistens. Die Grenzen erzwingt schon der Gateway; kommt hier trotzdem etwas
+/// darüber an, stimmt etwas nicht, und dann ist Beenden richtiger als Raten.
+fn frames_aus(params: &Map<String, Value>) -> Result<Vec<Vec<u8>>, String> {
     let roh = params
         .get("frames")
         .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("frames ist Pflicht (Liste von Base64-Zeichenketten)"))?;
+        .ok_or_else(|| "frames ist Pflicht (Liste von Base64-Zeichenketten)".to_string())?;
     if roh.len() > MAX_FRAMES {
-        return Err(anyhow!("höchstens {MAX_FRAMES} Frames je Nachricht"));
+        return Err(format!("höchstens {MAX_FRAMES} Frames je Nachricht"));
     }
 
     let mut frames: Vec<Vec<u8>> = Vec::with_capacity(roh.len());
@@ -89,16 +109,39 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     for wert in roh {
         let text = wert
             .as_str()
-            .ok_or_else(|| anyhow!("frames müssen Base64-Zeichenketten sein"))?;
-        let bytes = base64::dekodiere(text).map_err(|e| anyhow!("frames: {e}"))?;
+            .ok_or_else(|| "frames müssen Base64-Zeichenketten sein".to_string())?;
+        let bytes = base64::dekodiere(text).map_err(|e| format!("frames: {e}"))?;
         summe += bytes.len();
         if summe > MAX_BYTES {
-            return Err(anyhow!("höchstens {MAX_BYTES} dekodierte Byte je Nachricht"));
+            return Err(format!("höchstens {MAX_BYTES} dekodierte Byte je Nachricht"));
         }
         frames.push(bytes);
     }
+    Ok(frames)
+}
 
-    let bericht = Sitzung::singleton().frames(slot, sitzungs_id, &frames)?;
+/// Die ganze Hülle lesen. Ein Fehler ist an **jeder** Stelle derselbe: ein
+/// Protokollfehler, der die Sitzung stilllegt und alles Gedrückte freigibt.
+type Huelle<'a> = (u64, Option<&'a str>, Vec<Vec<u8>>);
+
+fn huelle_lesen(params: &Map<String, Value>) -> Result<Huelle<'_>, String> {
+    Ok((
+        slot_aus(params)?,
+        sitzungs_id_aus(params)?,
+        frames_aus(params)?,
+    ))
+}
+
+pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
+    let sitzung = Sitzung::singleton();
+    let (slot, sitzungs_id, frames) = match huelle_lesen(&params) {
+        Ok(teile) => teile,
+        // Über die Sitzung, nicht als blankes `Err`: ein Protokollfehler legt
+        // still UND gibt frei — auch der aus der Hülle.
+        Err(grund) => return Err(sitzung.protokollfehler(grund)),
+    };
+
+    let bericht = sitzung.frames(slot, sitzungs_id, &frames)?;
     let mut out = Map::new();
     out.insert("processed".to_string(), Value::from(bericht.verarbeitet));
     out.insert("state".to_string(), Value::from(bericht.zustand));
@@ -150,6 +193,56 @@ mod tests {
         assert!(handle(params(json!(-1))).is_err());
         // Stillgelegt — ein wohlgeformter Aufruf kommt jetzt auch nicht durch.
         assert!(handle(params(json!(0))).is_err());
+        Sitzung::singleton().beenden();
+    }
+
+    /// **Der Fund:** zu viele Frames, kaputtes Base64 und ein Nicht-String
+    /// gingen als nacktes `anyhow!` zurück — also ohne Freigabe und ohne
+    /// Stilllegen. Der missgeformte Slot direkt darüber macht es richtig; hier
+    /// galt die Zusage „jeder verworfene Zustand gibt frei" nur meistens.
+    ///
+    /// Geprüft wird die Stilllegung, denn sie entsteht **nur** über
+    /// `Sitzung::protokollfehler` — und der gibt frei (belegt in
+    /// `remote_input::tests`).
+    #[test]
+    fn kaputte_frames_sind_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
+        let zu_viele: Vec<Value> = (0..=MAX_FRAMES).map(|_| json!("AAI=")).collect();
+        let zu_lang = json!(["A".repeat(2048)]); // 1536 Byte > MAX_BYTES
+        for frames in [
+            json!(["***"]),        // kein Base64
+            json!(["AAI"]),        // Füllung fehlt
+            json!([7]),            // kein String
+            json!("AAI="),         // gar keine Liste
+            json!(zu_viele),
+            zu_lang,
+        ] {
+            let p = json!({"slot": 0, "frames": frames}).as_object().unwrap().clone();
+            assert!(handle(p).is_err(), "{frames} hätte fail-closed sein müssen");
+            assert!(
+                handle(params(json!(0))).is_err(),
+                "{frames} hätte die Sitzung stilllegen müssen"
+            );
+            Sitzung::singleton().beenden();
+        }
+    }
+
+    /// Eine Kennung, die keine Zeichenkette ist, wäre stillschweigend „keine
+    /// Kennung" geworden — fail-closed ist hier billiger als raten.
+    #[test]
+    fn missgeformte_kennung_ist_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
+        assert_eq!(sitzungs_id_aus(&Map::new()), Ok(None));
+        let mit = |wert: Value| {
+            json!({"slot": 0, "session_id": wert, "frames": ["AAI="]})
+                .as_object()
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(sitzungs_id_aus(&mit(json!(null))), Ok(None));
+        assert_eq!(sitzungs_id_aus(&mit(json!("abc"))), Ok(Some("abc")));
+        assert!(sitzungs_id_aus(&mit(json!(7))).is_err());
+        assert!(handle(mit(json!(7))).is_err());
         Sitzung::singleton().beenden();
     }
 
