@@ -497,10 +497,18 @@ diese Kiste hat keine, und ohne die Variable sucht `ffmpeg-sys-next` per
 dann `pkg-config`, nicht FFmpeg, und zeigt damit in die falsche Richtung.
 
 ```powershell
-$env:FFMPEG_DIR   = "$PWD\..\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared"
+$env:FFMPEG_DIR    = "$PWD\..\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared"
 $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+$env:PATH          = "$env:FFMPEG_DIR\bin;$env:PATH"   # <- fuer die LAUFZEIT
 cargo test
 ```
+
+**Die PATH-Zeile ist kein Beiwerk.** `FFMPEG_DIR` sagt nur, wogegen gelinkt
+wird; zur Laufzeit sucht Windows die DLLs erneut. Diese Kiste hat — anders als
+`win-hq-sidecar` — **kein `build.rs`, das sie neben die Testdatei kopiert**, also
+findet sie sie nur ueber den PATH. Fehlt er, stirbt die Testdatei mit
+`STATUS_DLL_NOT_FOUND` (`0xC0000135`), **bevor eine Zeile Code laeuft**, und
+`cargo test` meldet bloss „test failed" ohne Grund.
 
 **Warum das nicht einfach in eine `.cargo/config.toml` wandert:** deren
 `[env]`-Block gilt fuer JEDE Plattform und laesst sich nicht auf Windows
