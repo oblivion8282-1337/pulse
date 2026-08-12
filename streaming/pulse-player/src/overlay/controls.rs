@@ -15,10 +15,13 @@ use crate::theme;
 
 impl Overlay {
     /// Statistik oben links.
-    pub(super) fn build_stats(&self, ctx: &egui::Context, s: &StatsView<'_>) {
+    /// `oben` ist der Abstand zur Fensteroberkante. Er ist ein Parameter, weil
+    /// im Fernsteuerungs-Modus der Griff der Fernbedienung genau hier sitzt —
+    /// das Feld weicht ihm dann nach unten aus (`super::paint`).
+    pub(super) fn build_stats(&self, ctx: &egui::Context, oben: f32, s: &StatsView<'_>) {
         let (fps, kbps) = (s.fps, s.kbps);
         egui::Area::new(egui::Id::new("pulse-stats"))
-            .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
+            .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, oben))
             .interactable(false)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
@@ -92,7 +95,7 @@ impl Overlay {
     }
 
     /// Ein Symbolknopf im Stil der App-Leiste.
-    fn icon_button(
+    pub(super) fn icon_button(
         ui: &mut egui::Ui,
         src: egui::ImageSource<'static>,
         tooltip: &str,
@@ -109,7 +112,7 @@ impl Overlay {
 
     /// Symbolknopf, der bei Klick genau eine Aktion meldet — der Regelfall in
     /// der Leiste.
-    fn action_button(
+    pub(super) fn action_button(
         ui: &mut egui::Ui,
         actions: &mut Vec<OverlayAction>,
         src: egui::ImageSource<'static>,
@@ -212,7 +215,7 @@ impl Overlay {
 
     /// Stumm-Knopf, Schieber und Prozentwert in einer abgesetzten Gruppe —
     /// `bg-black/40 rounded-md` wie in der App.
-    fn volume_group(&mut self, ui: &mut egui::Ui, actions: &mut Vec<OverlayAction>) {
+    pub(super) fn volume_group(&mut self, ui: &mut egui::Ui, actions: &mut Vec<OverlayAction>) {
         egui::Frame::NONE
             .fill(theme::GRUPPE_BG)
             .corner_radius(theme::RADIUS_MD)

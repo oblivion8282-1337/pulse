@@ -45,6 +45,20 @@ impl App {
         } else {
             session.eingabe.ausschalten();
         }
+        // Die Bedienung im Fenster wechselt mit: waehrend der Fernsteuerung
+        // tritt der verschiebbare Griff an die Stelle der Leiste, die sonst bei
+        // jeder Mausbewegung aufginge und einen Streifen ueber die volle Breite
+        // fuer den fernen Rechner unerreichbar machte (`overlay::fernbedienung`).
+        if let Some(overlay) = session.overlay.as_mut() {
+            overlay.set_fernsteuerung(aktiv);
+        }
+        // Und der Vorhalt sinkt fuer die Dauer der Fernsteuerung: beim Steuern
+        // zaehlt der geschlossene Kreis aus Eingabe hin und Bild zurueck, und
+        // dort schlaegt jede Millisekunde Glaettung voll durch
+        // (`takt::Ausgabetakt::fernsteuerung`). Der vorherige Wert kommt danach
+        // von selbst zurueck.
+        session.takt.fernsteuerung(aktiv);
+        session.window.request_redraw();
         Ok(serde_json::json!({
             "enabled": aktiv,
             // Der Platz, der WIRKLICH gilt — nicht der erfragte. Beim

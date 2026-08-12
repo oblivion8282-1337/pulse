@@ -183,4 +183,13 @@ pub mod icon {
     pub fn stats() -> ImageSource<'static> {
         svg!("activity")
     }
+    /// Die Pulse-Marke — der Griff der Fernbedienung im Fernsteuerungs-Modus.
+    ///
+    /// Kein Lucide-Symbol wie die uebrigen, sondern die Kopie von
+    /// `Logo/files/pulse-mark-white.svg`. Bewusst die WEISSE Fassung: alle
+    /// Symbole hier liegen weiss vor und werden erst beim Zeichnen eingefaerbt
+    /// (`icon_button`), die farbige Marke koennte das nicht mitmachen.
+    pub fn pulse_mark() -> ImageSource<'static> {
+        svg!("pulse-mark")
+    }
 }

@@ -154,7 +154,7 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
  * Fensterkreuz hiesse dort „zeig es wieder in der App", was nicht geht.
  */
 export function onPlayerWindowRequest(
-  cb: (kind: 'close' | 'chat', session: number) => void,
+  cb: (kind: 'close' | 'chat' | 'remote-disconnect', session: number) => void,
 ): () => void {
   const p = api();
   if (!p) return () => {};
@@ -163,6 +163,12 @@ export function onPlayerWindowRequest(
     if (typeof ev?.session !== 'number') return;
     if (ev.ev === 'player:closeRequest') cb('close', ev.session);
     else if (ev.ev === 'player:chatRequest') cb('chat', ev.session);
+    // „Fernsteuerung beenden" aus dem Menü am Griff im Player-Fenster. Der
+    // Player schaltet dabei NICHTS selbst ab: die Sitzung lebt hier, und nur
+    // von hier aus lässt sie sich beim Gegenüber sauber auflösen. Das
+    // Abschalten der Erfassung kommt anschließend auf dem gewohnten Weg
+    // zurück (`RemoteControllerInput.svelte`).
+    else if (ev.ev === 'player:remoteDisconnect') cb('remote-disconnect', ev.session);
   });
 }
 
