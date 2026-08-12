@@ -72,6 +72,15 @@ def _manager(websocket: WebSocket):
 
 
 async def _err(websocket: WebSocket, code: int, msg: str) -> None:
+    """Reject one op. **Logged**, weil eine Ablehnung am Client nur als
+    ausbleibende Wirkung ankommt: die Anfrage setzt sich still zurück, kein
+    Dialog erscheint, und von aussen sieht das aus wie ein toter Knopf.
+
+    Am 2026-08-12 im Zwei-Geraete-Test genau so aufgelaufen — ohne diese Zeile
+    liess sich nicht unterscheiden, ob die Anfrage nie ankam oder abgewiesen
+    wurde. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host nicht
+    erreichbar, …); Nutzdaten stehen bewusst nicht drin."""
+    log.info("remote op rejected: code=%s msg=%s", code, msg)
     await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
@@ -111,8 +120,16 @@ async def handle_request(
             return
     host_sockets = mgr.remote_user_sockets(host_uid)
     if not host_sockets:
+        # Der haeufigste Grund fuer "der Knopf tut nichts": der Host ist zwar
+        # Mitglied, hat aber gerade keine offene Verbindung. Die Zahl im Log
+        # trennt das von "gar nicht angekommen".
         await _err(websocket, 4052, "host not reachable")
         return
+    log.info(
+        "remote request accepted for relay: channel=%s host_sockets=%d",
+        cid,
+        len(host_sockets),
+    )
     sess = await mgr.remote_create(cid, host_uid, host_sockets[0], user.id, websocket)
     if sess is None:
         await _err(websocket, 4054, "host already has an active remote session")
