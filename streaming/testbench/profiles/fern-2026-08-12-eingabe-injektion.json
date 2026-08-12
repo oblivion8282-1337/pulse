@@ -1,0 +1,71 @@
+{
+  "id": "fern-2026-08-12-eingabe-injektion",
+  "gemessen_am": "2026-08-12",
+  "frage": "Kommt ein Eingabe-Frame, das der Spezifikation entspricht, durch den ausgelieferten Windows-Sidecar als die richtige Eingabe am richtigen Punkt an?",
+
+  "stand": "Host-Haelfte der Fernsteuerung, Serverweg. Der Injektor ist auf den heutigen main-Stand portiert; gemessen wird er gegen das Eingabe-Pruefziel.",
+
+  "warum_das_ohne_zweiten_rechner_geht": "Der Steuernde erzeugt Frames, der Host spielt sie ein. Wer die Frames erzeugt, ist dem Host gleichgueltig -- deshalb darf sie hier der Pruefstand erzeugen. Der Nachweis ist damit vollstaendig fuer diese Haelfte und sagt nichts ueber die andere.",
+
+  "aufbau": {
+    "maschine": "MICHI-PC-2, Windows 11 26200, ein Monitor 2560x1440 bei 100 Prozent",
+    "host": "streaming/win-hq-sidecar, cargo build --release, stdio-Op remote_input",
+    "frames": "streaming/win-hq-labor/testbench/eingabe-frames.ps1 (Byte fuer Byte gegen die Spezifikation gegengeprueft)",
+    "messmittel": "streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1",
+    "treiber": "streaming/win-hq-labor/testbench/fern-eingabe-nachweis.ps1",
+    "labor_schalter": "PULSE_LABOR_EINGABE_OHNE_STREAM=1 -- ohne laufenden Stream gibt es kein Quell-Rechteck; dann wird der primaere Bildschirm genommen. Messweg, kein Produktweg."
+  },
+
+  "ergebnis": {
+    "maus_ziele": 8,
+    "abgedeckt": "alle vier Ecken, Mitte, drei Punkte dazwischen",
+    "groesste_abweichung_px": 0,
+    "klick_ereignisse": "2 von 2 (runter und hoch)",
+    "rad": "1 von 1, Delta 120 -- genau eine Raste",
+    "scancodes_gesendet": 16,
+    "scancodes_empfangen": 16,
+    "scancodes_identisch": true,
+    "erweiterte_taste": "0xE01D (rechte Strg-Taste) gesendet und mit gesetzter Erweitert-Kennung empfangen",
+    "buendelung": "30 Frames in einer Nachricht verarbeitet (v2 erlaubt bis 32; v1 liess genau einen zu)",
+    "sidecar_antworten": "durchgehend ok:true, processed 1/3/1/30/2, state live; remote_input_end meldet released:0"
+  },
+
+  "werkzeugfunde": [
+    {
+      "fund": "Ein Systemdialog entwertet jede Messung, und zwar lautlos.",
+      "symptom": "Der Sidecar meldete ok:true, processed:30 -- das Pruefziel sah null Ereignisse. Mehrere Anlaeufe gingen so verloren.",
+      "ursache": "Windows fragt beim ersten Netzzugriff einer neuen Binaerdatei nach der Firewall-Freigabe. Unter den Dialog legt es eine bildschirmfuellende Abdunklung (Fensterklasse Shell_SystemDim, Prozess PickerHost), die UEBER allem liegt -- auch ueber einem Topmost-Fenster -- und saemtliche Eingabe schluckt.",
+      "warum_es_wiederkommt": "Cargo-Testbinaerdateien tragen einen Inhalts-Hash im Namen, sind nach jedem Bau also eine neue Datei. Die Frage stellt Windows dann erneut.",
+      "behoben": "Der Treiber prueft POSITIV, ob unter der Bildschirmmitte ein Fenster des Pruefziel-Prozesses liegt -- vor dem Lauf und danach. Liegt etwas anderes darueber, wird es geschlossen; bleibt es, gilt der Lauf als ungueltig und bricht ab, statt falsche Zahlen auszugeben.",
+      "warum_nicht_nach_titel_gesucht_wird": "Der Titel ist uebersetzt, und eine Liste bekannter Stoerer muesste man jeder kuenftigen Windows-Variante nachpflegen."
+    },
+    {
+      "fund": "PowerShell loest zurueckgegebene Byte-Felder auf.",
+      "symptom": "Der Hello-Frame ging als Zeichenkette statt als Liste hinaus, der Host wies ihn ab, und ab da war die Sitzung fail-closed -- JEDE folgende Nachricht wurde abgelehnt.",
+      "bewertung": "Der Sidecar hat sich dabei vollkommen richtig verhalten. Der Fehler sah wie ein kaputter Injektor aus und war einer im Pruefstand.",
+      "behoben": "Komma-Operator an jedem return der Frame-Funktionen; bei der Liste von Frames ausdruecklich NICHT."
+    }
+  ],
+
+  "was_diese_zahlen_NICHT_enthalten": [
+    "Keinen Netzweg. Die Frames entstehen lokal im Pruefstand; Player, Electron und chat-gateway sind nicht beteiligt.",
+    "Keine Latenz. Gemessen wurde Genauigkeit und Zustellung, nicht Zeit.",
+    "Keinen laufenden Stream. Das Quell-Rechteck kam ueber den Labor-Schalter vom primaeren Bildschirm, nicht von einer echten Aufnahmequelle."
+  ],
+
+  "offen_und_nicht_ermittelt": [
+    "Die Slot-Aufloesung an einem ECHTEN Stream. Geprueft ist der Weg mit dem Labor-Schalter; dass Slot 1 bei zwei laufenden Streams das richtige Rechteck trifft, ist damit nicht gezeigt.",
+    "Gemischte DPI und mehrere Monitore -- der zweite Bildschirm dieser Maschine war aus.",
+    "Fenster-Aufnahme mit DWMWA_EXTENDED_FRAME_BOUNDS (rund 7 px Versatz, falls falsch gemacht).",
+    "Der Sichtschutz-Fall: bei geschwaerztem Bild soll saemtliche Eingabe wegfallen. Im Sidecar umgesetzt und unit-getestet, hier nicht am lebenden Bild nachgemessen.",
+    "Die Strecke ueber zwei Rechner."
+  ],
+
+  "geaenderte_stellen": [
+    "streaming/win-hq-sidecar/src/remote_input/ (neu, 6 Module)",
+    "streaming/win-hq-sidecar/src/ops/remote_input.rs, ops/remote_input_end.rs (neu)",
+    "streaming/win-hq-labor/testbench/fern-eingabe-nachweis.ps1 (neu)"
+  ],
+
+  "tests": "cargo test im Sidecar: 122 bestanden, 0 gescheitert, 2 uebersprungen (26 davon neu). Dazu diese Abnahme gegen das Pruefziel."
+}
