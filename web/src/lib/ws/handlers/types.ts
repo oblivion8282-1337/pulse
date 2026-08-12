@@ -343,6 +343,15 @@ export type ServerEvent =
   // Ephemeral "user is typing" signal for a text channel / DM. No persistence;
   // the client tracks a short TTL per (channel, user) and shows "… schreibt".
   | { op: 'typing'; channel_id: string; user_id: string }
+  // Fernsteuerung (remote control) — Consent-Handshake über den Serverweg (kein
+  // `remote_signal`: SDP/ICE für den WebRTC-P2P-Pfad liegt auf
+  // feat/remote-control-windows und ist hier bewusst nicht mitportiert).
+  | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
+  | { op: 'remote_response'; session_id: string; accepted: boolean }
+  | { op: 'remote_ended'; session_id: string; reason: string }
+  // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
+  // offenen Consent-Dialog.
+  | { op: 'remote_canceled'; session_id: string }
   | { op: 'error'; code: number; msg: string };
 
 export type ClientEvent =
@@ -393,6 +402,10 @@ export type ClientEvent =
   | { op: 'watch_queue_advance'; channel_id: string; party_id: string; item_id?: string }
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
+  // Fernsteuerung — Outbound-Ops des Consent-Handshakes (s. ws_remote_handlers.py).
+  | { op: 'remote_request'; channel_id: string; host_user_id: string }
+  | { op: 'remote_respond'; session_id: string; accept: boolean }
+  | { op: 'remote_end'; session_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
   // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —
