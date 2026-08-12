@@ -17,13 +17,16 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ffmpeg_next as ffmpeg;
 
+mod opus;
 mod ringregelung;
+mod uhrenabgleich;
 
+use opus::OpusDecoder;
 use ringregelung::{Ringregelung, RING_SOLL_MS};
+use uhrenabgleich::Uhrenabgleich;
 
 /// Wie viel Ton der Ring hoechstens vorhaelt. Laeuft die Wiedergabe davon,
 /// ist er ohnehin verloren — dann lieber verwerfen als Speicher fressen.
@@ -62,8 +65,13 @@ struct Shared {
     target_fill: usize,
     underruns: u64,
     dropped: u64,
-    /// Rueckfuehrung auf `target_fill` (s. [`ringregelung`]).
+    /// Notausgang fuer grobe Ausreisser (s. [`ringregelung`]). Die laufende
+    /// Regelung macht der [`Uhrenabgleich`].
     regelung: Ringregelung,
+    /// Nachfuehrung der Abspielrate gegen die Senderuhr (s. [`uhrenabgleich`]).
+    /// **Das** ist die Regelung; `regelung` daneben faengt nur noch ab, was sie
+    /// nicht mehr einholen kann.
+    abgleich: Uhrenabgleich,
     /// Die Ausgabe wartet auf den Sollfuellstand, bevor sie (wieder) anlaeuft.
     ///
     /// **Warum das ein Zustand sein muss und keine Bedingung je Aufruf.** Bis
@@ -94,13 +102,8 @@ impl Shared {
     ///
     /// `kanaele` muss die Kanalzahl des Ausgabegeraets sein: der Ring haelt
     /// verschraenktes PCM, und die Regelung darf nur ganze Frames abbauen.
-    fn zurueckfuehren(&mut self, angehaengt: usize, kanaele: usize) {
-        self.dropped += self.regelung.nach_anhaengen(
-            &mut self.ring,
-            self.target_fill,
-            angehaengt,
-            kanaele,
-        );
+    fn zurueckfuehren(&mut self) {
+        self.dropped += self.regelung.nach_anhaengen(&mut self.ring, self.target_fill);
     }
 }
 
@@ -153,6 +156,8 @@ fn pump_commands(
     // angelegt (das Geraet steht zu diesem Zeitpunkt schon).
     let mut decoder: Option<OpusDecoder> = None;
     let mut decoder_failed = false;
+    // Einmalige Meldung, falls der Umrechner die Nachfuehrung nicht annimmt.
+    let mut abgleich_gemeldet = false;
     while let Ok(cmd) = rx.recv() {
         // Dekodieren VOR der Sperre: auf dieselbe Sperre wartet der
         // Geraete-Callback, und ein Decode unter ihr wuerde ihn ausbremsen —
@@ -180,6 +185,10 @@ fn pump_commands(
             other => other,
         };
         let Ok(mut s) = shared.lock() else { break };
+        // Was der Uhrenabgleich verlangt — gesetzt wird es NACH der Sperre: der
+        // Umrechner gehoert dem Decoder, und unter der Sperre wartet der
+        // Geraete-Callback.
+        let mut stellgroesse = None;
         match cmd {
             // Oben in fertiges PCM verwandelt — hier kann es nicht mehr
             // auftreten.
@@ -196,7 +205,16 @@ fn pump_commands(
                     s.ring.drain(..excess);
                     s.dropped += excess as u64;
                 }
-                s.zurueckfuehren(angehaengt, channels as usize);
+                s.zurueckfuehren();
+                // Der eigentliche Ausgleich: die Abspielrate gegen die
+                // Senderuhr nachfuehren, statt Ton wegzuschneiden. Beobachtet
+                // wird der geglaettete Fuellstand — ausdruecklich nicht der
+                // Wert hier und jetzt, der ist der Hochpunkt der Saegezahnkurve
+                // (Begruendung in `uhrenabgleich`).
+                let soll = s.target_fill;
+                let fuellstand = s.ring.len();
+                stellgroesse =
+                    s.abgleich.beobachten(fuellstand, soll, angehaengt, per_ms, channels as usize);
             }
             AudioCommand::Volume(v) => s.volume = v,
             AudioCommand::OffsetMs(ms) => {
@@ -216,6 +234,20 @@ fn pump_commands(
                 }
             }
             AudioCommand::Stop => break,
+        }
+        drop(s);
+        if let Some(stell) = stellgroesse {
+            let angenommen =
+                decoder.as_mut().is_some_and(|d| d.nachfuehren(stell.delta, stell.distanz));
+            if !angenommen && !abgleich_gemeldet {
+                abgleich_gemeldet = true;
+                eprintln!(
+                    "pulse-player: Uhren-Nachfuehrung abgelehnt (delta {}, Strecke {}) — \
+                     der Ton laeuft ohne Ratenabgleich, der Ring haelt dann nur die \
+                     Grobkappung",
+                    stell.delta, stell.distanz
+                );
+            }
         }
     }
 }
@@ -243,6 +275,10 @@ pub struct AudioCounters {
     pub buffered: usize,
     /// Grobkappungen der Rueckfuehrung (s. `audio::ringregelung`).
     pub resyncs: u64,
+    /// Aktuelle Nachfuehrung der Abspielrate in Millionstel (s.
+    /// `audio::uhrenabgleich`). Steht im Protokoll, weil ein Eingriff, den
+    /// niemand sieht, genau die Sorte Fehler ist, die hier behoben wurde.
+    pub abgleich_ppm: i32,
     /// Ob der Ausgabe-Thread noch laeuft.
     pub alive: bool,
 }
@@ -313,6 +349,7 @@ impl AudioOutput {
             underruns: 0,
             dropped: 0,
             regelung: Ringregelung::default(),
+            abgleich: Uhrenabgleich::default(),
             anlauf: true,
             alive: true,
         }));
@@ -391,6 +428,7 @@ impl AudioOutput {
                 dropped: s.dropped,
                 buffered: s.ring.len(),
                 resyncs: s.regelung.resyncs,
+                abgleich_ppm: s.abgleich.letzte_ppm,
                 alive: s.alive,
             })
             .unwrap_or_default()
@@ -404,105 +442,12 @@ impl Drop for AudioOutput {
 }
 
 /// Opus-Dekoder samt Umrechnung auf das Format des Ausgabegeraets.
-pub struct OpusDecoder {
-    decoder: ffmpeg::decoder::Audio,
-    resampler: Option<ffmpeg::software::resampling::Context>,
-    out_rate: u32,
-    out_channels: u16,
-}
-
-impl OpusDecoder {
-    pub fn new(out_rate: u32, out_channels: u16) -> Result<Self> {
-        ffmpeg::init().ok();
-        let codec = ffmpeg::decoder::find_by_name("libopus")
-            .or_else(|| ffmpeg::decoder::find_by_name("opus"))
-            .ok_or_else(|| anyhow!("kein Opus-Decoder in diesem FFmpeg-Build"))?;
-
-        let mut context = ffmpeg::codec::context::Context::new_with_codec(codec);
-        // Opus ueber RTP ist immer 48 kHz; die Kanalzahl steht im TOC-Byte, der
-        // Decoder braucht aber eine gesetzte Ausgangs-Konfiguration. ffmpeg-next
-        // hat dafuer keinen sicheren Setter — deshalb direkt am Kontext.
-        unsafe {
-            let ptr = context.as_mut_ptr();
-            (*ptr).sample_rate = 48_000;
-            ffmpeg::ffi::av_channel_layout_default(&raw mut (*ptr).ch_layout, 2);
-        }
-        let decoder = context.decoder().audio().context("Opus-Decoder oeffnen")?;
-
-        Ok(Self { decoder, resampler: None, out_rate, out_channels })
-    }
-
-    /// Dekodiert ein Opus-Paket und liefert verschraenkte f32-Samples in der
-    /// Rate und Kanalzahl des Ausgabegeraets.
-    pub fn decode(&mut self, packet: &[u8]) -> Result<Vec<f32>> {
-        let pkt = ffmpeg::codec::packet::Packet::copy(packet);
-        if let Err(e) = self.decoder.send_packet(&pkt) {
-            // Ein kaputtes Paket nach einer Luecke darf den Ton nicht beenden.
-            eprintln!("pulse-player: Opus send_packet: {e}");
-            return Ok(Vec::new());
-        }
-
-        let mut out = Vec::new();
-        let mut frame = ffmpeg::util::frame::audio::Audio::empty();
-        while self.decoder.receive_frame(&mut frame).is_ok() {
-            let converted = self.resample_for_device(&frame)?;
-            out.extend_from_slice(&converted);
-        }
-        Ok(out)
-    }
-
-    fn resample_for_device(&mut self, frame: &ffmpeg::util::frame::audio::Audio) -> Result<Vec<f32>> {
-        use ffmpeg::util::format::sample::{Sample, Type};
-
-        let target_layout =
-            ffmpeg::util::channel_layout::ChannelLayout::default(self.out_channels.into());
-        let target_format = Sample::F32(Type::Packed);
-
-        if self.resampler.is_none() {
-            self.resampler = Some(
-                ffmpeg::software::resampling::Context::get(
-                    frame.format(),
-                    frame.channel_layout(),
-                    frame.rate(),
-                    target_format,
-                    target_layout,
-                    self.out_rate,
-                )
-                .context("Resampler")?,
-            );
-        }
-        let resampler = self.resampler.as_mut().expect("gerade gesetzt");
-
-        let mut converted = ffmpeg::util::frame::audio::Audio::empty();
-        resampler.run(frame, &mut converted).context("Resampling")?;
-
-        // NICHT `plane::<f32>(0)` benutzen: das liefert eine Slice der Laenge
-        // `samples()` — also nur die FRAME-Anzahl, ohne Kanalfaktor (belegt in
-        // ffmpeg-next `util/frame/audio.rs`, `from_raw_parts(.., self.samples())`).
-        // Bei verschraenktem Stereo liegen dort aber `samples * 2` Werte. Der
-        // frueher hier gerechnete Index `samples() * channels` lief damit ueber
-        // das Slice-Ende und riss den Audio-Thread mit einem Panic weg — bei
-        // jedem Geraet ausser Mono, also praktisch immer.
-        //
-        // `data(0)` traegt die echte Puffergroesse (`linesize[0]`).
-        let frames = converted.samples();
-        let wanted = frames * self.out_channels as usize;
-        let bytes = converted.data(0);
-        let needed = wanted * std::mem::size_of::<f32>();
-        if bytes.len() < needed {
-            bail!("Audio-Ebene zu kurz: {} < {needed} Bytes", bytes.len());
-        }
-        // FFmpegs `AV_SAMPLE_FMT_FLT` ist in der Bytereihenfolge der Maschine.
-        Ok(bytes[..needed]
-            .chunks_exact(std::mem::size_of::<f32>())
-            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-            .collect())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Nur die Tests brauchen FFmpeg noch unmittelbar (echte Opus-Dateien); der
+    // Ausgabepfad selbst kommt seit der Auslagerung des Decoders ohne aus.
+    use ffmpeg_next as ffmpeg;
 
     /// Ein frisches `Shared` mit dem gewuenschten Zielfuellstand, Ring leer.
     fn shared_mit(target_fill: usize) -> Mutex<Shared> {
@@ -513,6 +458,7 @@ mod tests {
             underruns: 0,
             dropped: 0,
             regelung: Ringregelung::default(),
+            abgleich: Uhrenabgleich::default(),
             anlauf: true,
             alive: true,
         })
