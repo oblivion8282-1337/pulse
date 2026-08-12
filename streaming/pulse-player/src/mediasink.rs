@@ -29,6 +29,10 @@ pub struct MediaStats {
     pub audio_resyncs: u64,
     /// Aktueller Fuellstand des Ausgabepuffers in Samples.
     pub audio_buffered: u64,
+    /// Nachfuehrung der Abspielrate in Millionstel (s. `audio::uhrenabgleich`).
+    /// Gehoert ins Protokoll: eine stille Regelung, die niemand sieht, war
+    /// genau der Fehler, der hier behoben wurde.
+    pub audio_abgleich_ppm: i32,
     /// Ob ueberhaupt eine Tonausgabe zustande kam.
     pub audio_active: bool,
     pub recording: bool,
@@ -171,6 +175,7 @@ impl MediaSink {
             audio_underruns: ton.underruns,
             audio_dropped: ton.dropped,
             audio_buffered: ton.buffered as u64,
+            audio_abgleich_ppm: ton.abgleich_ppm,
             audio_resyncs: ton.resyncs,
             // Nicht `is_some()`: der Griff bleibt bestehen, auch wenn der
             // Ausgabe-Thread laengst weg ist.

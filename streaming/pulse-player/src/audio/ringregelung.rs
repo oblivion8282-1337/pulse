@@ -5,8 +5,11 @@
 //! (`MAX_RING_SECONDS`) greift erst bei sechs Sekunden und ist damit keine
 //! Regelung, sondern ein Notausgang.
 //!
-//! Zwei Kreise mit sehr verschiedenen Zeitkonstanten, weil ein einzelner nicht
-//! beides kann: Sekunden Rueckstand abbauen UND dabei unhoerbar bleiben.
+//! **Seit 2026-08-13 ist das hier nur noch der Notausgang.** Die laufende
+//! Regelung macht [`super::uhrenabgleich`], indem er die Abspielrate nachfuehrt.
+//! Was bleibt, ist der eine grobe Schnitt fuer Rueckstaende, die keine
+//! Ratenkorrektur mehr einholt — ein Vielfaches des Sollwerts, wie es nach
+//! einem Nachhol-Schwall entsteht.
 //!
 //! Eigenes Modul, damit `audio.rs` der Ausgabepfad bleibt: die Regelung ist ein
 //! abgeschlossenes Stueck mit eigenen Messbegruendungen, und die Datei war mit
@@ -47,7 +50,7 @@ pub(super) const RING_SOLL_MS: usize = 60;
 
 /// Ab dem Wievielfachen des Sollwerts grob gekappt wird.
 ///
-/// Darunter regelt der Feinabbau. Der Schnitt klingt wie ein kurzer Aussetzer —
+/// Darunter regelt der Uhrenabgleich, ohne zu schneiden. Der Schnitt klingt wie ein kurzer Aussetzer —
 /// verglichen mit sechs Sekunden bleibendem Versatz ist das der bessere Tausch,
 /// aber er ist teuer genug, dass er nicht bei jedem Jitter feuern darf.
 const RING_KAPP_FAKTOR: usize = 3;
@@ -59,24 +62,7 @@ const RING_KAPP_FAKTOR: usize = 3;
 /// aendert, misst nach.
 const RING_KAPP_SPERRE: Duration = Duration::from_secs(5);
 
-/// Feinabbau: ein FRAME je so vielen angehaengten Samples.
-///
-/// **Hier stand bis 2026-08-08 "ein Sample je so vielen angehaengten" — das war
-/// die Beschreibung eines Fehlers**, nicht der Absicht: der Ring haelt
-/// verschraenktes PCM, ein einzeln entferntes Sample kippt die Kanalzuordnung
-/// (s. [`Ringregelung::nach_anhaengen`]). Entfernt wird jetzt immer ein volles
-/// Frame.
-///
-/// Ebenso widerlegt: die frueher hier genannten "0,05 % Tonhoehenfehler … baut
-/// 40 ms in gut einer Minute ab". Ein Frame je 2000 angehaengter Samples sind
-/// bei Stereo 0,1 % und damit 40 ms in gut 40 Sekunden — der Abbau ist doppelt
-/// so schnell wie beschrieben. Er bleibt weit unter der Wahrnehmungsschwelle,
-/// und schneller abzubauen ist hier die richtige Richtung; die Zahl gehoert nur
-/// richtig dagestanden. Resampling waere die Alternative und scheidet aus: der
-/// Weg hat schon einen Resampler, und ihn laufend zu verstimmen zieht hoerbar
-/// die Tonhoehe. Fuer die gemessene Groessenordnung (Sekunden) waere es
-/// entweder unhoerbar langsam oder hoerbar falsch.
-const RING_FEIN_TEILER: usize = 2000;
+
 
 /// Zustand der Regelung. Liegt in `Shared` und wird nur vom Fuetter-Thread
 /// beschrieben.
@@ -89,8 +75,6 @@ pub(super) struct Ringregelung {
     /// behoben wird: der alte 6-Sekunden-Deckel kappte auch, nur eben zu spaet
     /// und lautlos.
     pub(super) resyncs: u64,
-    /// Zaehlt angehaengte Samples fuer den Feinabbau (s. [`RING_FEIN_TEILER`]).
-    fein_zaehler: usize,
     /// Wann zuletzt grob gekappt wurde — fuer [`RING_KAPP_SPERRE`].
     letzte_kappung: Option<Instant>,
 }
@@ -99,22 +83,12 @@ impl Ringregelung {
     /// Nach dem Anhaengen frischer Samples anwenden. Gibt zurueck, wie viele
     /// Samples dabei verworfen wurden (fuer den `dropped`-Zaehler).
     ///
-    /// `kanaele` = Kanalzahl des Ausgabegeraets, als Parameter wie `soll` und
-    /// nicht als Feld, damit die Regelung keinen zweiten Stand der
-    /// Geraetedaten haelt. Der Ring enthaelt **verschraenktes** PCM, das
-    /// `fill_output` unveraendert in den Geraetepuffer kopiert — jeder Abbau
-    /// muss deshalb ein ganzes Frame entfernen. Ein einzelnes `pop_front()`
-    /// (so stand es bis 2026-08-08 im Feinzweig) kippt die Paritaet: aus
-    /// L,R,L,R wird R,L,R,L, und der naechste Feinschritt kippt sie wieder
-    /// zurueck — ein Umkippen der Kanalzuordnung im Pakettakt, das kein Zaehler
-    /// anzeigt.
-    pub(super) fn nach_anhaengen(
-        &mut self,
-        ring: &mut VecDeque<f32>,
-        soll: usize,
-        angehaengt: usize,
-        kanaele: usize,
-    ) -> u64 {
+    /// Der Schnitt geht auf den Sollwert und trifft damit von selbst eine
+    /// Frame-Grenze, solange der Sollwert eine ist (`RING_SOLL_MS * per_ms`).
+    /// Die Kanalzahl braucht es hier deshalb nicht mehr — sie war nur fuer den
+    /// entfernten Feinabbau noetig, der einzelne Samples anfasste und dabei bis
+    /// 2026-08-08 die Kanalzuordnung kippen konnte.
+    pub(super) fn nach_anhaengen(&mut self, ring: &mut VecDeque<f32>, soll: usize) -> u64 {
         if soll == 0 {
             return 0;
         }
@@ -129,26 +103,20 @@ impl Ringregelung {
             self.letzte_kappung = Some(Instant::now());
             return excess as u64;
         }
-        if ring.len() > soll {
-            // Fein: ein ganzes Frame je `RING_FEIN_TEILER` angehaengten
-            // Samples. Baut den Rest stetig ab, ohne dass man es hoert.
-            // Ein einzelnes Sample waere hier falsch — s. den Kanal-Absatz an
-            // dieser Funktion.
-            let frame = kanaele.max(1);
-            self.fein_zaehler += angehaengt;
-            let mut verworfen = 0;
-            while self.fein_zaehler >= RING_FEIN_TEILER && ring.len() > soll {
-                self.fein_zaehler -= RING_FEIN_TEILER;
-                let n = frame.min(ring.len());
-                ring.drain(..n);
-                verworfen += n as u64;
-            }
-            return verworfen;
-        }
-        // Unter dem Sollwert wird NICHT abgebaut — sonst arbeitete die Regelung
-        // gegen den normalen Jitter und erzeugte die Unterlaeufe, die sie
-        // verhindern soll.
-        self.fein_zaehler = 0;
+        // **Hier stand bis zum 2026-08-13 ein Feinabbau, und er war die Ursache
+        // des Fehlers, den er verhindern sollte.** Ein Frame je 2000 angehaengter
+        // Samples, gemessen am Fuellstand unmittelbar NACH dem Anhaengen — also
+        // im Hochpunkt der Saegezahnkurve. Der Ring pendelte damit um die halbe
+        // Paketgroesse unter den Sollwert, die Sicherheitsreserve war
+        // aufgezehrt, ein normaler Ankunftsjitter reichte zum Leerlaufen, und
+        // der Unterlauf schob den Fuellstand schlagartig wieder hoch. In einem
+        // Lauf von 307 s: rund 0,8 s Stille in etwa zwoelf Stuecken und 70 390
+        // verworfene Samples — kein Ueberlauf, sondern ein Regelkreis gegen sich
+        // selbst (Messakte in den Protokollen vom 2026-08-13).
+        //
+        // Ersetzt durch [`super::uhrenabgleich`]: der fuehrt die Abspielrate um
+        // Bruchteile eines Promille nach, statt Ton zu schneiden — stetig,
+        // unhoerbar, und erstmals auch in der Gegenrichtung.
         0
     }
 }
@@ -163,60 +131,85 @@ mod tests {
         (0..laenge).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect()
     }
 
-    /// **Reproduktion Befund 10.** Der Feinabbau entfernt mit `pop_front()`
-    /// genau EIN f32-Sample, kennt aber die Kanalzahl nicht. Der Ring haelt
-    /// verschraenktes Multi-Channel-PCM, das `fill_output` unveraendert in den
-    /// interleaved Ausgabepuffer kopiert — ein Pop kippt damit die Paritaet:
-    /// aus L,R,L,R wird R,L,R,L. Richtig waere, immer ein volles Frame zu
-    /// entfernen (`drain(..channels)`).
+    /// **Die beiden Reproduktionen zu Befund 10 sind hier entfallen**, und zwar
+    /// gegenstandslos geworden statt stillgelegt: sie belegten, dass der
+    /// Feinabbau einzelne Samples entfernte und dabei die Kanalzuordnung
+    /// kippte. Den Feinabbau gibt es seit dem 2026-08-13 nicht mehr — die
+    /// laufende Regelung macht `super::uhrenabgleich`, ohne den Ring
+    /// anzufassen. Ein Test auf einen entfernten Zweig haette nur noch
+    /// bewiesen, dass er entfernt ist.
+    ///
+    /// Was bleibt, ist der Grobschnitt, und der wird hier geprueft.
+
+    /// Ueber dem Vielfachen des Sollwerts wird in EINEM Schnitt zurueckgesetzt.
     #[test]
-    fn repro_10_feinabbau_kippt_die_kanalzuordnung() {
-        // 48 kHz Stereo, Sollwert wie zur Laufzeit: 60 ms * 96 Samples/ms.
+    fn ueber_der_kappschwelle_geht_es_zurueck_auf_den_sollwert() {
         let soll = RING_SOLL_MS * 96;
-        let mut ring = stereo_ring(soll + 1);
+        let mut ring = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
+        let mut r = Ringregelung::default();
+
+        let verworfen = r.nach_anhaengen(&mut ring, soll);
+
+        assert_eq!(ring.len(), soll);
+        assert_eq!(verworfen, (soll * RING_KAPP_FAKTOR + 100 - soll) as u64);
+        assert_eq!(r.resyncs, 1);
+    }
+
+    /// Der Schnitt trifft eine Kanalgrenze, solange der Sollwert eine ist —
+    /// sonst waeren nach dem Schnitt links und rechts vertauscht.
+    #[test]
+    fn der_grobschnitt_laesst_die_kanalzuordnung_stehen() {
+        let soll = RING_SOLL_MS * 96;
+        let mut ring = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
         let mut r = Ringregelung::default();
         assert_eq!(ring[0], 1.0, "Vorbedingung: der Ring beginnt auf dem linken Kanal");
 
-        // Genau ein Feinabbau-Schritt: `RING_FEIN_TEILER` angehaengte Samples.
-        let verworfen = r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
-        // Der Rueckgabewert zaehlt SAMPLES (so wie im Grobzweig und wie
-        // `AudioCounters::dropped` es fuehrt), nicht Frames — ein Stereo-Frame
-        // sind also 2. Hier stand in der Reproduktion `1`; das war der Stand
-        // des Fehlers (ein einzelnes `pop_front()`), nicht die Sollgroesse.
-        assert_eq!(verworfen, 2, "Vorbedingung: der Feinzweig hat gegriffen");
+        r.nach_anhaengen(&mut ring, soll);
 
-        assert_eq!(
-            ring[0], 1.0,
-            "nach dem Feinabbau muss der Ring weiter auf dem linken Kanal beginnen — \
-             heute steht hier {} (R), die Kanaele sind vertauscht",
-            ring[0]
-        );
-        assert_eq!(
-            ring.len(),
-            soll - 1,
-            "und es muss ein VOLLES Frame (2 Samples) verschwunden sein, nicht eines"
-        );
+        assert_eq!(ring[0], 1.0, "nach dem Schnitt muss der Ring links beginnen");
     }
 
-    /// Die zweite Haelfte des Befunds: es ist kein einmaliger dauerhafter
-    /// Tausch, sondern ein wiederholtes Umkippen im Opus-Pakettakt. Der zweite
-    /// Feinabbau-Schritt dreht die Zuordnung zurueck.
+    /// Unterhalb der Kappschwelle wird **nichts** mehr angefasst. Genau das ist
+    /// die Aenderung vom 2026-08-13: hier lag der Feinabbau, der die
+    /// Sicherheitsreserve aufzehrte und damit die Unterlaeufe erzeugte, die er
+    /// verhindern sollte.
     #[test]
-    fn repro_10_feinabbau_kippt_die_kanalzuordnung_wieder_zurueck() {
+    fn unter_der_kappschwelle_bleibt_der_ring_unberuehrt() {
         let soll = RING_SOLL_MS * 96;
-        let mut ring = stereo_ring(soll + 2);
+        // Deutlich ueber dem Sollwert, aber unter dem Kappfaktor.
+        let laenge = soll * 2;
+        let mut ring = stereo_ring(laenge);
         let mut r = Ringregelung::default();
 
-        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
-        let nach_eins = ring[0];
-        r.nach_anhaengen(&mut ring, soll, RING_FEIN_TEILER, 2);
-        let nach_zwei = ring[0];
+        let verworfen = r.nach_anhaengen(&mut ring, soll);
 
-        assert_eq!(
-            (nach_eins, nach_zwei),
-            (1.0, 1.0),
-            "beide Feinabbau-Schritte muessen den Ring auf dem linken Kanal lassen — \
-             heute kippt er auf {nach_eins} und wieder zurueck auf {nach_zwei}"
-        );
+        assert_eq!(verworfen, 0, "kein Schnitt unterhalb der Schwelle");
+        assert_eq!(ring.len(), laenge, "und der Ring bleibt unveraendert lang");
+        assert_eq!(r.resyncs, 0);
+    }
+
+    /// Nach einem Schnitt gilt die Sperrfrist — mehrere Lieferpausen kurz
+    /// hintereinander duerfen nicht mehrere Schnitte erzeugen.
+    #[test]
+    fn nach_einem_schnitt_gilt_die_sperrfrist() {
+        let soll = RING_SOLL_MS * 96;
+        let mut r = Ringregelung::default();
+        let mut ring = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
+        r.nach_anhaengen(&mut ring, soll);
+
+        let mut wieder_voll = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
+        let verworfen = r.nach_anhaengen(&mut wieder_voll, soll);
+
+        assert_eq!(verworfen, 0, "innerhalb der Sperrfrist wird nicht erneut geschnitten");
+        assert_eq!(r.resyncs, 1);
+    }
+
+    /// Ohne Sollwert (Geraet noch nicht bekannt) passiert gar nichts.
+    #[test]
+    fn ohne_sollwert_passiert_nichts() {
+        let mut ring = stereo_ring(10_000);
+        let mut r = Ringregelung::default();
+        assert_eq!(r.nach_anhaengen(&mut ring, 0), 0);
+        assert_eq!(ring.len(), 10_000);
     }
 }

@@ -890,9 +890,13 @@ impl App {
             eprintln!(
                 concat!(
                     "pulse-player: Sitzung {}: Ton — Unterlaeufe {}, verworfen {}, ",
-                    "Puffer {} Samples"
+                    "Puffer {} Samples, Uhrenabgleich {:+} ppm"
                 ),
-                id, media.audio_underruns, media.audio_dropped, media.audio_buffered,
+                id,
+                media.audio_underruns,
+                media.audio_dropped,
+                media.audio_buffered,
+                media.audio_abgleich_ppm,
             );
         }
         session.last_log = Some(now);
