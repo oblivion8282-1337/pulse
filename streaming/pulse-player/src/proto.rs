@@ -69,6 +69,20 @@ pub struct Request {
     #[serde(default)]
     pub seconds: Option<f64>,
 
+    // --- input_capture (Fernsteuerung, s. `crate::fernsteuerung`) ---
+    /// Erfassung an oder aus. **Ohne Angabe gilt `false`** — der Schalter fuer
+    /// fremde Eingabe darf sich nicht aus einem fehlenden Feld ergeben.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Welcher der gleichzeitig laufenden Streams des Hosts gemeint ist. Steht
+    /// in der Huelle der Leitung, nicht im Frame (s. Wire-Spec v2).
+    #[serde(default)]
+    pub slot: Option<u32>,
+    /// Zeiger fangen (Spiele): dann gehen relative statt absoluter Bewegungen
+    /// ueber die Leitung, und das Fenster versteckt den Zeiger.
+    #[serde(default)]
+    pub pointer_lock: Option<bool>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

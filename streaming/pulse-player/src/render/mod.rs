@@ -32,7 +32,12 @@ mod uniforms;
 
 // Nur das, was der Messpfad wirklich braucht — nicht die ganzen Module.
 pub use ausgabe::OverlayPass;
-pub use farbe::{build_uniforms, narrow_plane_into, output_levels, scales, Bildform};
+// Beide fuer die Eingabe-Erfassung (`crate::fernsteuerung::Bildlage`): sie muss
+// den Zeiger auf denselben Bildausschnitt beziehen, den auch gezeichnet wird.
+pub use ausgabe::fit_viewport;
+pub use farbe::{
+    build_uniforms, narrow_plane_into, output_levels, scales, zoom_ausschnitt, Bildform,
+};
 // Die Farbmessung muss GENAU das HDR-Format pruefen, das das Fenster nimmt —
 // mit einer eigenen Eintragung meldete sie nach einem Wechsel hier „ok" fuer
 // ein Format, das gar nicht mehr benutzt wird.
@@ -43,7 +48,6 @@ pub use uniforms::Uniforms;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
-use ausgabe::fit_viewport;
 use bildquelle::{planes_anlegen, planes_fuellen, Bildquelle, Fremdform};
 use crate::decode::{DecodedFrame, Farbangaben};
 use crate::proto::PlayerOptions;

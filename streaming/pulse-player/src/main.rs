@@ -25,6 +25,7 @@ mod depacket;
 mod dump;
 mod einfrieren;
 mod fec;
+mod fernsteuerung;
 mod jitter;
 mod mediasink;
 mod messen;

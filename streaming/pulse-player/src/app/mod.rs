@@ -9,6 +9,7 @@
 //! Was die einzelnen RPC-Operationen bedeuten, steht in [`requests`].
 
 pub mod diagnose;
+mod eingabe;
 mod requests;
 mod takt;
 
@@ -213,6 +214,10 @@ struct Session {
     /// Wurde die Bilanz-Warnung schon abgesetzt? (s. [`App::bilanz_pruefen`])
     bilanz_gemeldet: bool,
     state: SessionState,
+    /// Zweiter Abnehmer der Fensterereignisse: kodiert Maus und Tastatur fuer
+    /// die Fernsteuerung (s. [`crate::fernsteuerung`]). **Standard aus** — ohne
+    /// `input_capture` kostet sie nur ein `if` je Ereignis.
+    eingabe: crate::fernsteuerung::Erfassung,
     /// Kopie von `req.can_reattach` (s. `proto.rs`) — steht bisher nur im
     /// Overlay (fuer den Reattach-Knopf), aber der Fenster-Schliessen-Handler
     /// braucht sie ebenso und hat kein `overlay` (kann `None` sein, wenn die
@@ -521,6 +526,7 @@ impl App {
                 presented_at_last_log: 0,
                 bilanz_gemeldet: false,
                 state: SessionState::Connecting,
+                eingabe: crate::fernsteuerung::Erfassung::neu(),
                 can_reattach: req.can_reattach.unwrap_or(true),
             },
         );
@@ -1034,6 +1040,8 @@ impl App {
     }
 
     fn close_session(&mut self, id: u64) {
+        // VOR dem Entfernen: danach gibt es die Warteschlange nicht mehr.
+        self.eingabe_raeumen(id);
         if let Some(session) = self.sessions.remove(&id) {
             self.by_window.remove(&session.window.id());
             let tx = session.commands;
@@ -1183,11 +1191,20 @@ impl ApplicationHandler<UserEvent> for App {
     /// nicht mehr.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let _belegt = diagnose::Belegt::neu();
+        let jetzt = std::time::Instant::now();
+        // Eingabe-Frames zuerst und VOR dem Schnellweg unten: sie fallen auch
+        // an, wenn kein einziges Bild wartet (Standbild, abgerissener Strom),
+        // und ein zurueckgehaltener Termin muss in den Kontrollfluss eingehen —
+        // sonst bliebe die letzte Bewegung einer Geste liegen, bis zufaellig
+        // das naechste Ereignis eintrifft.
+        let eingabe_termin = self.eingaben_abgeben(jetzt);
         if self.sessions.values().all(|s| s.takt.leer()) {
-            event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+            event_loop.set_control_flow(match eingabe_termin {
+                Some(t) => winit::event_loop::ControlFlow::WaitUntil(t),
+                None => winit::event_loop::ControlFlow::Wait,
+            });
             return;
         }
-        let jetzt = std::time::Instant::now();
         // Kennungen erst einsammeln: `abliefern` leiht die Sitzung erneut aus
         // (es zeichnet), eine laufende Iteration ueber `self.sessions` waere
         // damit nicht vertraeglich. Die Sammlung kostet nur, wenn ueberhaupt
@@ -1200,6 +1217,7 @@ impl ApplicationHandler<UserEvent> for App {
             .sessions
             .values()
             .filter_map(|s| s.takt.naechster_termin())
+            .chain(eingabe_termin)
             .min();
         event_loop.set_control_flow(match naechster {
             Some(t) => winit::event_loop::ControlFlow::WaitUntil(t),
@@ -1231,6 +1249,27 @@ impl ApplicationHandler<UserEvent> for App {
         }
     }
 
+    /// Rohe Zeigerbewegung — die einzige Quelle fuer relative Eingaben.
+    ///
+    /// **Kommt NICHT als Fensterereignis**: bei gefangenem Zeiger steht der
+    /// Zeiger still, `CursorMoved` schweigt, und nur `DeviceEvent::MouseMotion`
+    /// traegt die Differenz. Geraeteereignisse gehoeren zu keinem Fenster,
+    /// deshalb bekommen sie alle Sitzungen mit gefangenem Zeiger — praktisch
+    /// eine, weil das Fangen den Tastaturfokus voraussetzt.
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        let winit::event::DeviceEvent::MouseMotion { delta } = event else { return };
+        for session in self.sessions.values_mut() {
+            if session.eingabe.zeigerfang() {
+                session.eingabe.zeigerbewegung(delta.0, delta.1);
+            }
+        }
+    }
+
     fn window_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -1254,6 +1293,19 @@ impl ApplicationHandler<UserEvent> for App {
                 session.last_frame_at.is_some_and(|t| t.elapsed() < FRAME_FLOW_WINDOW);
             if repaint && !frames_flowing {
                 session.window.request_redraw();
+            }
+            // **Der zweite Abnehmer, neben egui.** Bewusst ohne Ruecksicht auf
+            // dessen `consumed`: hier geht es nicht um die Bedienleiste,
+            // sondern darum, was der Steuernde am fernen Rechner tut. Ist die
+            // Erfassung aus (die Vorgabe), kostet das nur dieses `if`.
+            if session.eingabe.aktiv() {
+                let fenster = session.window.inner_size();
+                let lage = crate::fernsteuerung::Bildlage::neu(
+                    (fenster.width, fenster.height),
+                    (session.stats.width, session.stats.height),
+                    render::zoom_ausschnitt(&session.options),
+                );
+                session.eingabe.on_window_event(&event, lage);
             }
         }
         match event {

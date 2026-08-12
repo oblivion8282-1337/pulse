@@ -440,6 +440,43 @@ export interface PulsePlayerApi {
   /** Letzte `seconds` Sekunden aus dem Ringpuffer sichern (1-60). */
   clip(session: number, seconds?: number): Promise<PulsePlayerResult>;
   onEvent(cb: (ev: unknown) => void): () => void;
+  /** Fernsteuerung — Eingabe-Erfassung im Player-Fenster. Fehlt in aelteren
+   *  Shells, deshalb optional. */
+  input?: PulsePlayerInputApi;
+}
+
+/** Die Huelle des Eingabewegs auf dem Serverweg — Byte-Format und Grenzen in
+ *  `docs/plans/2026-08-12-input-wire-protokoll-v2.md`. Der Renderer setzt diese
+ *  Nachricht **unveraendert** auf seiner bestehenden Gateway-WebSocket ab; der
+ *  Hauptprozess hat keine eigene Verbindung dorthin. */
+export interface PulseRemoteInputNachricht {
+  op: 'remote_input';
+  /** Die per Consent bestaetigte Fernsteuerungs-Sitzung. */
+  session_id: string;
+  /** Welcher der gleichzeitig laufenden Streams des Hosts gemeint ist. */
+  slot: number;
+  /** Base64-Frames, in Reihenfolge — hoechstens 32 je Nachricht (der
+   *  Hauptprozess teilt bereits auf). */
+  frames: string[];
+}
+
+export interface PulsePlayerInputApi {
+  /** Erfassung einschalten. Erst danach gehen Frames heraus. `pointerLock`
+   *  faengt den Zeiger im Fenster (Spiele): dann werden relative statt
+   *  absoluter Bewegungen gesendet. Ob der Fang wirklich gelang, steht als
+   *  `pointer_lock` in der Antwort. */
+  start(
+    session: number,
+    sessionId: string,
+    slot?: number,
+    pointerLock?: boolean,
+  ): Promise<PulsePlayerResult>;
+  /** Erfassung ausschalten. Fuer alles Gedrueckte kommt danach noch das
+   *  Hoch-Ereignis ueber `onFrames` — ohne das bliebe beim Host eine Taste
+   *  haengen. */
+  stop(session: number): Promise<PulsePlayerResult>;
+  /** Fertige Nachrichten zum Absetzen. Liefert eine Abmelde-Funktion. */
+  onFrames(cb: (nachricht: PulseRemoteInputNachricht) => void): () => void;
 }
 
 declare global {

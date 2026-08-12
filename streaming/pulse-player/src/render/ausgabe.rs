@@ -35,7 +35,12 @@ impl<'a> OverlayPass<'a> {
 ///
 /// Der Zoom-Ausschnitt (`crop`) aendert daran nichts: er ist quadratisch in
 /// normalisierten Koordinaten und behaelt damit das Verhaeltnis der Quelle.
-pub(super) fn fit_viewport(win_w: f32, win_h: f32, src_w: f32, src_h: f32) -> (f32, f32, f32, f32) {
+///
+/// **`pub(crate)`, weil die Eingabe-Erfassung dasselbe Rechteck braucht**
+/// (`crate::fernsteuerung::Bildlage`): der absolute Zeigeranteil bezieht sich
+/// auf das Bild, nicht auf das Fenster. Eine zweite Fassung dort hiesse, dass
+/// Klick und Bild auseinanderlaufen koennen, sobald hier etwas geaendert wird.
+pub fn fit_viewport(win_w: f32, win_h: f32, src_w: f32, src_h: f32) -> (f32, f32, f32, f32) {
     if win_w <= 0.0 || win_h <= 0.0 || src_w <= 0.0 || src_h <= 0.0 {
         return (0.0, 0.0, win_w.max(1.0), win_h.max(1.0));
     }

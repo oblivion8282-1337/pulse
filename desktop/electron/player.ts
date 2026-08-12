@@ -323,10 +323,6 @@ class PlayerManager {
   private handleLine(line: string): void {
     const trimmed = line.trim();
     if (!trimmed) return;
-    // Der Protokollstrom des Players ist duenn (Zustandswechsel, Knopfdruecke
-    // im Fenster) — anders als beim Capture-Sidecar gibt es hier keine
-    // fps-Flut, die auszuduennen waere. Deshalb vollstaendig mit.
-    log('out', trimmed);
     let msg: PlayerMessage;
     try {
       msg = JSON.parse(trimmed) as PlayerMessage;
@@ -334,6 +330,17 @@ class PlayerManager {
       log('err', `unlesbare Zeile: ${trimmed.slice(0, 200)}`);
       return;
     }
+    // Der Protokollstrom des Players ist duenn (Zustandswechsel, Knopfdruecke
+    // im Fenster) — anders als beim Capture-Sidecar gibt es hier keine
+    // fps-Flut, die auszuduennen waere. Deshalb vollstaendig mit.
+    //
+    // **Eine Ausnahme: die Eingabe-Frames der Fernsteuerung.** Die kommen bis zu
+    // 125-mal je Sekunde und wuerden `sidecar.log` binnen Minuten fuellen —
+    // damit waere der 512-KB-Ausschnitt des Diagnose-Uploads wertlos, weil
+    // darin nichts anderes mehr staende. Ihr Inhalt taugt ohnehin nicht als
+    // Diagnose: es sind Base64-Bytes. Dass eine Sitzung erfasst, steht am
+    // `input_capture`-Aufruf.
+    if (msg.ev !== 'player:input') log('out', trimmed);
 
     // Ereignis (`ev`) statt Antwort (`id`/`ok`) — gleiche Unterscheidung wie
     // bei den Capture-Sidecars.

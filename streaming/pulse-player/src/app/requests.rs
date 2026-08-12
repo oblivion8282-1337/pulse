@@ -72,6 +72,14 @@ impl App {
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
             },
 
+            // Fernsteuerung, Seite des Steuernden: Erfassung ein-/ausschalten.
+            // Das Gegenstueck sind die `player:input`-Ereignisse — der eine Op
+            // schaltet, das eine Ereignis liefert (s. `crate::fernsteuerung`).
+            "input_capture" => match self.input_capture(&req) {
+                Ok(data) => self.stdout.send(&Response::ok(id, data)),
+                Err(e) => self.stdout.send(&Response::err(id, e)),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
