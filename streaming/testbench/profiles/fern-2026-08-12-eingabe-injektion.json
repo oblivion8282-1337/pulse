@@ -98,10 +98,44 @@
     }
   },
 
+  "nachtrag_drei_monitore_gemischte_dpi": {
+    "gemessen_am": "2026-08-12, nachgereicht",
+    "anlass": "Ein dritter Bildschirm kam LINKS vom primaeren dazu, und die Skalierungen wurden auseinandergezogen. Damit fielen die beiden letzten offenen Faelle gleichzeitig: negativer Ursprung des virtuellen Desktops und gemischte DPI.",
+    "aufbau": {
+      "monitor_1": "DISPLAY1, primaer, Lage 0,0, 2560x1440, Skalierung 100 Prozent",
+      "monitor_2": "DISPLAY2, Lage 2560,0, 2560x1440, Skalierung 150 Prozent",
+      "monitor_3": "DISPLAY3, Lage -2560,0, 2560x1440, Skalierung 125 Prozent",
+      "virtueller_desktop": "Ursprung -2560,0, 7680x1440"
+    },
+
+    "GEFUNDENER_FEHLER": {
+      "was": "punkt_auf_absolut rechnete Bildpunkt -> SendInput-Absolutkoordinate mit p * 65535 / (cx - 1), also Kante auf Kante.",
+      "warum_falsch": "Windows rechnet beim Einspielen p = n * cx / 65536 zurueck. Kante auf Kante ist dazu nur eine Naeherung; die echte Umkehrung zielt auf die MITTE der Kachel, n = (p * 65536 + 32768) / cx.",
+      "symptom": "Auf dem linken Bildschirm kam -2460,100 als -2461,100 an. Am Rand nie, in der Flaeche an jedem fuenfzehnten Punkt.",
+      "warum_es_so_lange_unentdeckt_blieb": "Bei einem einzelnen 2560 px breiten Schirm hebt sich der Fehler zufaellig auf -- alle zwoelf Ziele der ersten Messung trafen exakt. Er braucht einen breiten virtuellen Desktop, um sichtbar zu werden.",
+      "belegt_durch": "Beide Formeln gegen dieselben 45 Punkte quer ueber den 7680 px breiten Desktop: alt 42 von 45 exakt (bis 1 px daneben), neu 45 von 45.",
+      "behoben": "zuordnung.rs::punkt_auf_absolut auf die Kachelmitte umgestellt.",
+      "neuer_test": "absolut_rechnet_sich_zurueck stellt Windows' Rueckrechnung nach und prueft 200 Punkte je Achse ueber vier verschiedene Desktop-Geometrien. Der vorherige Test prueft nur die Raender -- dort war die alte Fassung richtig, und deshalb hat er nichts gemerkt."
+    },
+
+    "ergebnis_nach_der_berichtigung": {
+      "monitor_1": "8 von 8, 0 px",
+      "monitor_2": "8 von 8, 0 px (Skalierung 150 Prozent)",
+      "monitor_3": "8 von 8, 0 px (Skalierung 125 Prozent, negative Koordinaten von -2560 bis -1)",
+      "tasten_und_rad": "auf allen drei Laeufen vollstaendig"
+    },
+
+    "werkzeugfund": {
+      "fund": "Das Pruefziel war nur SYSTEM-DPI-bewusst.",
+      "warum_das_bei_gemischter_Skalierung_luegt": "SetProcessDPIAware meldet den Prozess als system-DPI-bewusst an. Sobald sich Skalierungen zwischen Bildschirmen unterscheiden, virtualisiert Windows fuer jeden abweichenden Schirm -- Groessen und Koordinaten kommen hochgerechnet statt physisch heraus.",
+      "folge_wenn_uebersehen": "Das Messmittel haette genau den Fehler gemessen, den es aufdecken soll, und die Schuld waere beim Injektor gelandet. Derselbe Fehlertyp wie bei der verlorenen Erweitert-Kennung.",
+      "behoben": "Pruefziel und Treiber melden sich jetzt ueber SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) an -- dieselbe Stufe wie der Sidecar. Die gewaehlte Stufe steht in der bereit-Zeile des Protokolls."
+    }
+  },
+
   "offen_und_nicht_ermittelt": [
     "Die Slot-Aufloesung an einem ECHTEN Stream. Geprueft ist der Weg mit dem Labor-Schalter; dass Slot 1 bei zwei laufenden Streams das richtige Rechteck trifft, ist damit nicht gezeigt.",
-    "GEMISCHTE DPI weiterhin nicht. Beide Bildschirme laufen auf 100 Prozent; verschiedene Aufloesung und Bildrate allein loesen die DPI-Virtualisierung nicht aus.",
-    "Ein Bildschirm LINKS oder OBERHALB des primaeren. Dann bekommt der virtuelle Desktop einen negativen Ursprung, und genau daran haengt die Subtraktion in punkt_auf_absolut. Hier lag der zweite rechts, der Ursprung blieb 0,0.",
+    "OBERHALB des primaeren hat noch keiner gelegen -- nur links und rechts. Ein negativer Ursprung in y ist damit rechnerisch abgedeckt (dieselbe Formel, beide Achsen, und der neue Test faehrt sie), aber nicht am lebenden System nachgemessen.",
     "Fenster-Aufnahme mit DWMWA_EXTENDED_FRAME_BOUNDS (rund 7 px Versatz, falls falsch gemacht).",
     "Der Sichtschutz-Fall: bei geschwaerztem Bild soll saemtliche Eingabe wegfallen. Im Sidecar umgesetzt und unit-getestet, hier nicht am lebenden Bild nachgemessen.",
     "Die Strecke ueber zwei Rechner."

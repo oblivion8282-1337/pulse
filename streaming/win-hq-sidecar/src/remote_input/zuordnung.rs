@@ -59,9 +59,24 @@ pub fn virtueller_desktop() -> VirtualDesktop {
 /// Physischer Bildschirmpunkt → `SendInput`-Absolutkoordinate (0..65535 über den
 /// GESAMTEN virtuellen Desktop, wie im M0-Prüfling nachgemessen).
 pub fn punkt_auf_absolut(px: i32, py: i32, vd: &VirtualDesktop) -> (i32, i32) {
-    let nx = ((px - vd.x) as i64 * 65535 / (vd.cx - 1).max(1) as i64) as i32;
-    let ny = ((py - vd.y) as i64 * 65535 / (vd.cy - 1).max(1) as i64) as i32;
-    (nx, ny)
+    // Auf die MITTE der Kachel zielen, die Windows diesem Bildpunkt zuweist:
+    // beim Einspielen rechnet es `p = n * cx / 65536` zurück, also ist
+    // `n = (p * 65536 + 32768) / cx` die echte Umkehrung.
+    //
+    // HIER STAND `p * 65535 / (cx - 1)` — Kante auf Kante. Das ist zur
+    // Windows-Rechnung nur eine Näherung und trifft daneben, sobald der
+    // virtuelle Desktop breit genug ist. Gemessen am 2026-08-12 über drei
+    // Bildschirme (7680 px breit, Ursprung −2560): die alte Fassung traf 42 von
+    // 45 Punkten, die neue 45 von 45. Bei einem einzelnen 2560er Schirm hob
+    // sich der Fehler zufällig auf — deshalb ist er wochenlang nicht
+    // aufgefallen, und deshalb ist eine Messung über MEHRERE Bildschirme keine
+    // Kür.
+    //
+    // `px - vd.x` ist nie negativ: `vd.x` ist das Minimum über alle Bildschirme.
+    let n = |p: i32, v: i32, span: i32| -> i32 {
+        (((p - v) as i64 * 65536 + 32768) / span.max(1) as i64) as i32
+    };
+    (n(px, vd.x, vd.cx), n(py, vd.y, vd.cy))
 }
 
 #[cfg(test)]
@@ -101,7 +116,39 @@ mod tests {
     #[test]
     fn absolut_spannt_den_ganzen_virtuellen_desktop() {
         let vd = VirtualDesktop { x: -2560, y: 0, cx: 5120, cy: 1440 };
-        assert_eq!(punkt_auf_absolut(-2560, 0, &vd).0, 0);
-        assert_eq!(punkt_auf_absolut(2559, 0, &vd).0, 65535);
+        // Nicht exakt 0 und 65535: gezielt wird auf die MITTE der Kachel, die
+        // Windows dem Bildpunkt zuweist. Entscheidend ist, dass die Rückrechnung
+        // `n * cx / 65536` wieder auf demselben Bildpunkt landet — das prüft
+        // `absolut_rechnet_sich_zurueck` unten.
+        assert_eq!(punkt_auf_absolut(-2560, 0, &vd).0, 6);
+        assert_eq!(punkt_auf_absolut(2559, 0, &vd).0, 65529);
+    }
+
+    /// Die eigentliche Zusage: Windows muss aus der Absolutkoordinate WIEDER
+    /// den gesendeten Bildpunkt machen. Nachgestellt wird dessen Rechenweg
+    /// (`p = n * cx / 65536`), über den ganzen Desktop und beide Achsen.
+    ///
+    /// Genau diese Zusage hat die vorherige Fassung verletzt — am Rand nie, in
+    /// der Fläche an jedem fünfzehnten Punkt. Ein Test auf die Ränder allein
+    /// hätte das nie gefunden.
+    #[test]
+    fn absolut_rechnet_sich_zurueck() {
+        for &(cx, cy, x0, y0) in &[
+            (5120, 1440, -2560, 0),
+            (7680, 1440, -2560, 0),
+            (2560, 1440, 0, 0),
+            (4480, 1440, 0, 0),
+        ] {
+            let vd = VirtualDesktop { x: x0, y: y0, cx, cy };
+            for schritt in 0..200 {
+                let px = x0 + (schritt * (cx - 1)) / 199;
+                let py = y0 + (schritt * (cy - 1)) / 199;
+                let (nx, ny) = punkt_auf_absolut(px, py, &vd);
+                let zurueck_x = x0 + ((nx as i64 * cx as i64) / 65536) as i32;
+                let zurueck_y = y0 + ((ny as i64 * cy as i64) / 65536) as i32;
+                assert_eq!(zurueck_x, px, "x bei cx={cx} px={px} n={nx}");
+                assert_eq!(zurueck_y, py, "y bei cy={cy} py={py} n={ny}");
+            }
+        }
     }
 }

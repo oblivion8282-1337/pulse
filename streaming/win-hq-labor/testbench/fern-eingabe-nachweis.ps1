@@ -43,13 +43,23 @@ Remove-Item $log -ErrorAction SilentlyContinue
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Namespace Nachweis -Name Nativ -MemberDefinition @'
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(System.Drawing.Point p);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
 '@ -ReferencedAssemblies System.Drawing
-try { [void][Nachweis.Nativ]::SetProcessDPIAware() } catch { }
+# PER_MONITOR_AWARE_V2 (-4), aus demselben Grund wie im Pruefziel: bei
+# unterschiedlich skalierten Bildschirmen liefert die aeltere Stufe
+# hochgerechnete statt physischer Koordinaten, und der Prueflauf berechnete seine
+# Ziele dann auf einem Bildschirm, den es so nicht gibt.
+try {
+  if (-not [Nachweis.Nativ]::SetProcessDpiAwarenessContext([IntPtr](-4))) { throw 'abgelehnt' }
+} catch {
+  try { [void][Nachweis.Nativ]::SetProcessDPIAware() } catch { }
+  Write-Host 'WARNUNG: nur system-DPI-bewusst -- Zahlen bei gemischter Skalierung unbrauchbar.'
+}
 
 # EIN SYSTEMDIALOG ENTWERTET JEDE MESSUNG, UND ZWAR LAUTLOS.
 #
@@ -158,7 +168,7 @@ function SendeFrames($frames, $slot = 0) {
 
 # Ziele in ABSOLUTEN Bildschirmkoordinaten. Der Anteil bezieht sich auf das
 # Quell-Rechteck (px = u * (breite - 1) laut Spezifikation), das Pruefziel meldet
-# aber Bildschirmkoordinaten des virtuellen Desktops — deshalb wird der Ursprung
+# aber Bildschirmkoordinaten des virtuellen Desktops -- deshalb wird der Ursprung
 # des Quell-Bildschirms aufgeschlagen. Bei einem Bildschirm ab 0,0 faellt das
 # zusammen; ab dem zweiten nicht mehr, und genau dort saesse der Fehler.
 $innen = @(

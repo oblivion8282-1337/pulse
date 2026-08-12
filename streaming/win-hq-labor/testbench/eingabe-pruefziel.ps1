@@ -50,9 +50,29 @@ Add-Type -AssemblyName System.Drawing
 # es aufdecken soll. (Dieselbe Pflicht steht im Wire-Protokoll fuer den
 # Sidecar: PER_MONITOR_AWARE_V2 vor der ersten Injektion.)
 Add-Type -Namespace Pruefziel -Name Nativ -MemberDefinition @'
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 '@
-try { [void][Pruefziel.Nativ]::SetProcessDPIAware() } catch { }
+# PER_MONITOR_AWARE_V2 (-4), NICHT das aeltere SetProcessDPIAware.
+#
+# WARUM DER UNTERSCHIED ZAEHLT: SetProcessDPIAware meldet den Prozess als
+# SYSTEM-DPI-bewusst an. Das genuegt, solange alle Bildschirme dieselbe
+# Skalierung fahren. Sobald sie sich unterscheiden, virtualisiert Windows fuer
+# jeden Bildschirm, dessen Skalierung von der des primaeren abweicht -- Groessen
+# und Koordinaten kommen dann hochgerechnet statt physisch heraus. Das Pruefziel
+# haette damit genau den Fehler gemessen, den es aufdecken soll, und die Schuld
+# waere beim Injektor gelandet.
+#
+# Der Sidecar meldet sich ueber dieselbe Stufe an (remote_input::injektion::
+# dpi_bewusstsein_setzen); ein Messmittel, das darunter bleibt, misst eine
+# andere Welt als der Prueflaufling.
+$dpiStufe = 'per-monitor-v2'
+try {
+  if (-not [Pruefziel.Nativ]::SetProcessDpiAwarenessContext([IntPtr](-4))) { throw 'abgelehnt' }
+} catch {
+  try { [void][Pruefziel.Nativ]::SetProcessDPIAware() } catch { }
+  $dpiStufe = 'nur-system'
+}
 
 # TASTEN WERDEN AUS DER ROHEN WINDOWS-NACHRICHT GELESEN, NICHT AUS DEN
 # WINFORMS-EREIGNISSEN. Das ist keine Feinheit, sondern der Unterschied zwischen
@@ -269,7 +289,7 @@ $f.Add_Shown({
   $feld.Focus() | Out-Null
   Zeile 'bereit' @{ desktop = @{ x = $desktop.X; y = $desktop.Y
                                  breite = $desktop.Width; hoehe = $desktop.Height }
-                    monitore = $monitore; pid = $PID }
+                    monitore = $monitore; pid = $PID; dpi = $dpiStufe }
 })
 
 $zeichnen.Start()
