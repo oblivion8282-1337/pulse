@@ -16,6 +16,7 @@
  */
 
 import { gateway } from '$lib/ws/connection';
+import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben } from './sidecarInput';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
@@ -50,6 +51,22 @@ class RemoteSessionStore {
   request(channelId: string, hostUserId: string, slot = 0): void {
     if (this.phase !== 'idle') return;
     this.error = null;
+    // ERST senden, DANN den Zustand setzen.
+    //
+    // `sendRemoteRequest` liefert `false`, wenn die WebSocket gerade nicht
+    // offen ist — still, ohne Ausnahme. Wurde der Zustand vorher auf
+    // 'requesting' gesetzt, bleibt er dort für immer hängen: die Antwort, die
+    // ihn auflösen würde, kann nicht kommen, weil die Anfrage nie hinausging.
+    // Und weil oben `phase !== 'idle'` früh zurückspringt, ist damit JEDER
+    // weitere Klick wirkungslos — der Knopf ist tot bis zum Neuladen.
+    //
+    // Genau so am 2026-08-12 im Zwei-Geräte-Test aufgelaufen, nach einem
+    // Neustart des Gateways: geklickt, während die Verbindung noch neu
+    // aufgebaut wurde. Von außen sah es aus, als täte der Knopf nichts.
+    if (!gateway.sendRemoteRequest(channelId, hostUserId)) {
+      this.error = m.remote_error_offline();
+      return;
+    }
     this.role = 'controller';
     this.peerUserId = hostUserId;
     this.channelId = channelId;
@@ -57,7 +74,6 @@ class RemoteSessionStore {
     this.sessionId = null; // vergibt der Server, kommt erst mit remote_response
     this.phase = 'requesting';
     this.#watchErrors(); // Host offline / belegt → op:'error' abfangen
-    gateway.sendRemoteRequest(channelId, hostUserId);
   }
 
   /** Anfrage abbrechen, während noch auf die Freigabe gewartet wird. */
