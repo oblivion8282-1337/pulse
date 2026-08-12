@@ -41,6 +41,8 @@
 //! Strecke, passiert genau das dauernd — dann taktet nichts mehr, und der
 //! Zaehler sagt es.
 
+mod fernsteuerung;
+
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -168,6 +170,11 @@ pub struct Ausgabetakt {
     /// Damit die Warnung „Vorhalt passt nicht in die Warteschlange" einmal
     /// kommt und nicht je Bild.
     gewarnt: bool,
+    /// Der Vorhalt, der vor der Fernsteuerung galt (s. [`Self::fernsteuerung`]).
+    /// `None` heisst „keine Fernsteuerung aktiv" — der Wert ist damit zugleich
+    /// der Merker, und es kann kein zweites Absenken den ersten Stand
+    /// ueberschreiben.
+    vorhalt_vor_fern: Option<Duration>,
 }
 
 impl Ausgabetakt {
@@ -183,6 +190,7 @@ impl Ausgabetakt {
             bildabstand: None,
             letzter_rtp: None,
             gewarnt: false,
+            vorhalt_vor_fern: None,
         }
     }
 
@@ -257,7 +265,7 @@ impl Ausgabetakt {
         self.verdraengt
     }
 
-    /// Vorhalt zur Laufzeit aendern (`set_option`).
+        /// Vorhalt zur Laufzeit aendern (`set_option`).
     ///
     /// Der Anker faellt dabei weg: ein geaenderter Vorhalt verschiebt jeden
     /// Zielzeitpunkt, und die wartenden Bilder haetten sonst Zeitpunkte aus der

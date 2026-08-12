@@ -36,6 +36,11 @@
 //! [`controls`]; hier liegt die Schleife, die entscheidet, WANN.
 
 mod controls;
+mod fernbedienung;
+mod typen;
+
+pub use typen::{Ereignisantwort, OverlayAction, StatsView};
+use typen::PresentRate;
 
 use std::time::{Duration, Instant};
 
@@ -46,96 +51,19 @@ use winit::window::Window;
 
 /// Wie lange das Overlay nach der letzten Mausbewegung sichtbar bleibt.
 const HIDE_AFTER: Duration = Duration::from_secs(3);
+/// Taste, die im Fernsteuerungs-Modus das Menue am Griff auf- und zuklappt.
+///
+/// **Warum eine Dreierkombination und keine einzelne Taste.** Waehrend der
+/// Fernsteuerung geht JEDE Taste an den fernen Rechner — was hier abgefangen
+/// wird, fehlt dort. Ein `F8` waere bequem und naehme dem Gesteuerten eine
+/// Funktionstaste weg, ohne dass er es je erfuehre. `Strg+Alt+Umschalt` traegt
+/// kaum ein Programm als Kuerzel, und der Verlust ist damit fast sicher keiner.
+const FERN_MENUE_TASTE: egui::Key = egui::Key::P;
+/// Was am Griff im Hinweisfeld steht — an EINER Stelle, damit Hinweis und
+/// abgefangene Kombination nicht auseinanderlaufen.
+const FERN_MENUE_HINWEIS: &str = "Pulse-Menue (Strg+Alt+Umschalt+P) — zum Verschieben ziehen";
 /// Obergrenze des Schiebers. Ueber 100 % verstaerkt der Player (wie die App).
 const MAX_VOLUME_PERCENT: f32 = 200.0;
-
-/// Was ein Fensterereignis fuer das Overlay bedeutet hat.
-///
-/// **`verbraucht` ist nicht nur Beiwerk.** Die Bedienleiste liegt ueber dem
-/// Bild; ein Klick auf ihr ist also im Bildrechteck und trotzdem keiner fuer
-/// den fernen Rechner. Ohne diese Auskunft schickte die Eingabe-Erfassung
-/// (`crate::fernsteuerung`) jeden Griff an den Lautstaerkeregler zusaetzlich als
-/// Klick ueber die Leitung.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Ereignisantwort {
-    /// Ein Zeichen-Durchgang ist angefordert.
-    pub durchgang: bool,
-    /// egui hat den Zeiger fuer sich beansprucht.
-    pub verbraucht: bool,
-}
-
-impl Ereignisantwort {
-    pub const NICHTS: Self = Self { durchgang: false, verbraucht: false };
-}
-
-/// Was der Nutzer im Fenster ausgeloest hat. Angewandt wird es von
-/// [`crate::app`] — dort liegen Sitzung und Fenster.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OverlayAction {
-    /// Neue Lautstaerke als Faktor (1.0 = 100 %).
-    Volume(f32),
-    Fullscreen(bool),
-    /// Zurueck in die Kachel: Fenster zu, Bild wieder in der App. Entfaellt,
-    /// wenn die App das Fenster erzwingt (10 bit kann das `<video>` nicht).
-    Reattach,
-    /// Diesen Stream nicht mehr ansehen — die App schliesst die Kachel. Das ist
-    /// der Weg, den es bei erzwungenem Fenster vorher gar nicht gab: dort war
-    /// Zumachen wirkungslos, weil sofort ein neues Fenster aufging.
-    Close,
-    /// Chat zu diesem Stream — die App holt ihr Fenster nach vorne und oeffnet
-    /// ihn. Bewusst NICHT hier im Fenster: der Chat waere ein vollstaendiger
-    /// Nachbau samt eigener Serververbindung.
-    Chat,
-    /// Statistikfeld ein- oder ausblenden.
-    ToggleStats,
-}
-
-/// Alles, was das Statistik-Feld anzeigt. Als Kopie herein, damit das Overlay
-/// keine Sitzungsstruktur kennen muss.
-pub struct StatsView<'a> {
-    pub width: u32,
-    pub height: u32,
-    pub decoder: &'a str,
-    pub hardware: bool,
-    pub surface_format: &'a str,
-    /// Gemessen von der Sitzung (eine Quelle fuer alle Anzeigen) — `None`, bis
-    /// das erste Messfenster voll ist. Das ist die DEKODIERTE Rate.
-    pub fps: Option<u64>,
-    pub kbps: Option<u64>,
-    /// Wie viele Bilder wirklich ausgegeben wurden (Zaehler, live nach jedem
-    /// `present` erhoeht). Die Rate daraus rechnet dieses Modul selbst — hier
-    /// ist das richtig, anders als bei `fps`: der Zaehler ist im Moment der
-    /// Abfrage aktuell und nicht bis zu 250 ms alt.
-    pub frames_presented: u64,
-    /// Bilder, die dekodiert wurden, aber nie auf den Schirm kamen, weil das
-    /// naechste schon da war. Ohne diesen Zaehler war genau dieser Verlust
-    /// unsichtbar: er taucht weder unter „verworfen" noch unter
-    /// „uebersprungen" auf.
-    pub never_drawn: u64,
-    /// Mittlere Dauer der beiden Abschnitte auf dem Fenster-Thread in
-    /// Mikrosekunden. Bei 144 fps stehen zusammen nur 6900 zur Verfuegung.
-    pub upload_us: u64,
-    pub render_us: u64,
-    /// Durchgaenge, in denen die Oberflaeche kein Bild hergab — das Bild ist
-    /// dann verloren, ohne bei „nie gezeichnet" zu erscheinen. 0 = gesund.
-    pub acquire_misses: u64,
-    pub frames_dropped: u64,
-    pub frames_skipped: u64,
-    pub packets_lost: u64,
-    pub buffered_packets: u64,
-    pub jitter_target_ms: u64,
-    pub ten_bit_source: bool,
-    pub audio_active: bool,
-    pub audio_underruns: u64,
-    pub recording: bool,
-}
-
-/// Bezugspunkt fuer die Rate der ausgegebenen Bilder.
-struct PresentRate {
-    at: Instant,
-    frames: u64,
-    per_second: Option<u64>,
-}
 
 pub struct Overlay {
     ctx: egui::Context,
@@ -170,6 +98,12 @@ pub struct Overlay {
     /// Gibt es ein Zurueck in die Kachel? Bei 10 bit nicht — dort kann das
     /// `<video>` der App das Bild nicht darstellen (gemessen 2026-07-26).
     can_reattach: bool,
+    /// Steuert dieser Zuschauer den fernen Rechner gerade? Dann tritt der Griff
+    /// an die Stelle der Leiste (`fernbedienung`).
+    fernsteuerung: bool,
+    /// Ist das Menue am Griff aufgeklappt? Ueberlebt das Ende der Fernsteuerung
+    /// nicht — sonst haenge es beim naechsten Mal schon offen da.
+    fern_menue_offen: bool,
 }
 
 impl Overlay {
@@ -219,6 +153,8 @@ impl Overlay {
             title: String::new(),
             stats_visible: true,
             can_reattach: true,
+            fernsteuerung: false,
+            fern_menue_offen: false,
         })
     }
 
@@ -373,18 +309,47 @@ impl Overlay {
             if is_fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 actions.push(OverlayAction::Fullscreen(false));
             }
+            // **Fernsteuerung: der Griff statt der Leiste, und zwar IMMER.**
+            // `visible` haengt an der letzten Mausbewegung — beim Steuern
+            // bewegt sich die Maus dauernd, die Leiste stuende also praktisch
+            // ohne Unterbrechung ueber dem fernen Bild und machte einen
+            // Streifen ueber die volle Breite unerreichbar (Begruendung in
+            // `fernbedienung`). Der Griff ist klein, verschiebbar und braucht
+            // deshalb kein Ausblenden.
+            if self.fernsteuerung {
+                if ctx.input(|i| {
+                    let m = i.modifiers;
+                    m.ctrl && m.alt && m.shift && i.key_pressed(FERN_MENUE_TASTE)
+                }) {
+                    self.fern_menue_offen = !self.fern_menue_offen;
+                }
+                if self.stats_visible {
+                    // Unter den Griff, nicht darunter DURCH: beide sitzen in
+                    // der Vorgabelage oben links. Zieht der Nutzer den Griff
+                    // weg, bleibt hier eine Luecke — das ist der guenstigere
+                    // Fehler gegenueber zwei Flaechen uebereinander.
+                    let oben = fernbedienung::RAND + fernbedienung::GRIFF + 8.0;
+                    self.build_stats(ctx, oben, stats);
+                }
+                self.build_fernbedienung(ctx, is_fullscreen, &mut actions);
+                return;
+            }
             if !visible {
                 return;
             }
             if self.stats_visible {
-                self.build_stats(ctx, stats);
+                self.build_stats(ctx, fernbedienung::RAND, stats);
             }
             self.build_controls(ctx, is_fullscreen, &mut actions);
         });
 
         self.input_pending = false;
         self.stats_dirty = false;
-        self.painted = visible;
+        // Im Fernsteuerungs-Modus steht der Griff dauerhaft — es wurde also
+        // gezeichnet, auch wenn `visible` (letzte Mausbewegung) laengst
+        // abgelaufen ist. Ohne das haelt `wants_redraw` einen Ausblende-
+        // Durchgang fuer faellig, den es hier nie gibt.
+        self.painted = visible || self.fernsteuerung;
         self.state.handle_platform_output(window, full.platform_output);
         let tris = self.ctx.tessellate(full.shapes, full.pixels_per_point);
         // Seit egui 0.36 fuehrt `set` je Textur MEHRERE Teilaenderungen
@@ -453,6 +418,21 @@ impl Overlay {
     /// Ob der Knopf „wieder in der App zeigen" angeboten wird.
     pub fn set_can_reattach(&mut self, can: bool) {
         self.can_reattach = can;
+    }
+
+    /// Fernsteuerungs-Modus ein- oder ausschalten (`input_capture`).
+    ///
+    /// Beim Ausschalten faellt das Menue zu: es gehoert zum Griff, und der ist
+    /// dann weg. Bliebe der Zustand stehen, stuende es beim naechsten Start der
+    /// Fernsteuerung ungefragt offen ueber dem Bild.
+    pub fn set_fernsteuerung(&mut self, aktiv: bool) {
+        if self.fernsteuerung == aktiv {
+            return;
+        }
+        self.fernsteuerung = aktiv;
+        if !aktiv {
+            self.fern_menue_offen = false;
+        }
     }
 
     /// Statistikfeld umschalten (Knopf in der Leiste).

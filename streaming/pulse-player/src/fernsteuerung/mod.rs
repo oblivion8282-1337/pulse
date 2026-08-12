@@ -75,6 +75,15 @@ pub struct Erfassung {
     /// [`Self::einreihen`]). Ein Betriebsfehler, kein Normalfall — deshalb
     /// getrennt von den verworfenen Bewegungen gezaehlt.
     notbremsen: u64,
+    /// Zustand der Umschalttasten, mitgefuehrt fuer die eine Kombination, die
+    /// hier bleibt statt hinauszugehen (s. [`Self::menue_kombination`]).
+    /// Winit liefert ihn nur als eigenes Ereignis, nicht am Tastendruck.
+    modifikatoren: winit::keyboard::ModifiersState,
+    /// Wurde das Druecken der Menue-Taste geschluckt? Dann muss ihr Loslassen
+    /// ebenfalls geschluckt werden — **auch wenn die Umschalttasten inzwischen
+    /// los sind**. Sonst bekaeme der Host ein Hoch-Ereignis zu einer Taste, die
+    /// bei ihm nie gedrueckt wurde.
+    menue_geschluckt: bool,
 }
 
 impl Default for Erfassung {
@@ -100,6 +109,8 @@ impl Erfassung {
             unbekannte_codes: BTreeSet::new(),
             sitzung: None,
             notbremsen: 0,
+            modifikatoren: winit::keyboard::ModifiersState::empty(),
+            menue_geschluckt: false,
         }
     }
 
@@ -190,9 +201,19 @@ impl Erfassung {
                 let (senkrecht, waagerecht) = rad_von_winit(*delta);
                 self.rad(senkrecht, waagerecht);
             }
+            WindowEvent::ModifiersChanged(neu) => self.modifikatoren = neu.state(),
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
-                self.taste_von_code(code, event.state == ElementState::Pressed);
+                let runter = event.state == ElementState::Pressed;
+                // Die Kombination fuer das Menue am Griff bleibt HIER. Sie geht
+                // nicht hinaus, weil sie sonst auf dem gesteuerten Rechner
+                // ankaeme und dort etwas ausloeste — und weil ein Kuerzel, das
+                // beide Seiten sehen, keines ist. Das Umschalten selbst macht
+                // das Overlay (es bekommt dieselben Ereignisse ueber egui).
+                if self.menue_kombination(code, runter) {
+                    return;
+                }
+                self.taste_von_code(code, runter);
             }
             // Fokus weg = die Tasten kommen nicht mehr an, das Hoch-Ereignis
             // also auch nicht. Ohne diese Zeile bliebe die Taste beim Host
@@ -239,6 +260,36 @@ impl Erfassung {
     /// Wiederholungen gehen im Uebrigen MIT: der Host injiziert Scancodes roh,
     /// und die Tastenwiederholung entsteht auf dem sendenden Rechner. Ohne sie
     /// liesse sich am anderen Ende kein Zeichen halten.
+    /// Ist das die Tastenkombination fuer das Menue am Griff — und damit nichts,
+    /// was hinausgehen darf?
+    ///
+    /// **Nur die Buchstabentaste wird geschluckt, nicht die Umschalttasten.**
+    /// Strg, Alt und Umschalt gehen weiter an den Host; sie kommen dort als
+    /// Druck und Loslassen an und richten fuer sich genommen nichts an. Sie
+    /// zurueckzuhalten hiesse zu raten, wann eine Kombination gemeint ist und
+    /// wann der Nutzer wirklich Strg gedrueckt haelt — und ein verschlucktes
+    /// Strg bleibt am anderen Ende haengen.
+    ///
+    /// Der Name spiegelt [`crate::overlay`]: dort steht dieselbe Kombination
+    /// als `FERN_MENUE_TASTE` samt Begruendung fuer die Wahl. Zwei Stellen,
+    /// bewusst — die eine schaltet, die andere schluckt, und beide muessen
+    /// dasselbe meinen.
+    fn menue_kombination(&mut self, code: KeyCode, runter: bool) -> bool {
+        if code != KeyCode::KeyP {
+            return false;
+        }
+        if runter {
+            let m = self.modifikatoren;
+            if m.control_key() && m.alt_key() && m.shift_key() {
+                self.menue_geschluckt = true;
+                return true;
+            }
+            return false;
+        }
+        // Loslassen: nur schlucken, wenn das Druecken geschluckt wurde.
+        std::mem::take(&mut self.menue_geschluckt)
+    }
+
     pub fn taste_von_code(&mut self, code: KeyCode, runter: bool) {
         if !self.aktiv {
             return;

@@ -1010,6 +1010,20 @@ impl App {
                 }
                 session.window.request_redraw();
             }
+            // Die Fernsteuerung beendet die APP, nicht das Fenster: dort liegt
+            // die Sitzung mit dem Gegenueber, und nur sie kann sie sauber
+            // aufloesen. Hier wird deshalb nur gemeldet — das anschliessende
+            // `input_capture` mit `enabled: false` kommt von aussen zurueck und
+            // schaltet Erfassung, Zeigerfang und Griff zusammen ab. Selbst
+            // abzuschalten und die Meldung nur mitzuschicken waere schneller
+            // und falsch: dann liefe die Sitzung beim Gegenueber weiter,
+            // waehrend hier schon nichts mehr erfasst wird.
+            OverlayAction::RemoteDisconnect => {
+                self.stdout.send(&Event::new(
+                    "player:remoteDisconnect",
+                    serde_json::json!({ "session": id }),
+                ));
+            }
         }
     }
 

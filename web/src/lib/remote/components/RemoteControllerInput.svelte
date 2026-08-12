@@ -19,6 +19,7 @@
   import { remoteSession } from '$lib/remote/session.svelte';
   import { nativePlayerSessions } from '$lib/player/store.svelte';
   import { aufNachrichten, erfassungAn, erfassungAus } from '$lib/remote/playerInput';
+  import { onPlayerWindowRequest } from '$lib/player/client';
 
   const steuernd = $derived(
     remoteSession.phase === 'active' && remoteSession.role === 'controller'
@@ -76,6 +77,31 @@
       nacheinander(() => erfassungAus(fenster));
     };
   });
+
+  // „Fernsteuerung beenden" aus dem Menü am Griff im Player-Fenster. Beendet
+  // wird HIER, nicht dort: die Sitzung lebt in der App, und nur von hier aus
+  // erfährt das Gegenüber davon. Der Player meldet deshalb bloß den Wunsch
+  // (`OverlayAction::RemoteDisconnect`).
+  //
+  // Die Fenster-Nummer wird erst beim Ereignis nachgeschlagen, nicht beim
+  // Abonnieren: sie ändert sich, wenn das Fenster zwischendurch neu aufgeht,
+  // und ein beim Abonnieren eingefrorener Wert ließe den Knopf danach still
+  // ins Leere laufen.
+  $effect(() =>
+    onPlayerWindowRequest((kind, session) => {
+      if (kind !== 'remote-disconnect') return;
+      const channelId = remoteSession.channelId;
+      const hostId = remoteSession.peerUserId;
+      if (remoteSession.phase !== 'active' || !channelId || !hostId) return;
+      const fenster =
+        nativePlayerSessions.get(channelId, hostId, remoteSession.targetSlot)?.fensterSitzung ??
+        null;
+      // Nur das Fenster, das zu DIESER Sitzung gehört — bei mehreren offenen
+      // Player-Fenstern beendet der Griff sonst die falsche.
+      if (session !== fenster) return;
+      remoteSession.end();
+    })
+  );
 
   // Ein Abonnement für die ganze Laufzeit. Es endet NICHT mit der Sitzung: die
   // Hoch-Ereignisse des Abschaltens kommen erst danach, und genau die dürfen
