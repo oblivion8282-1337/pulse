@@ -226,10 +226,11 @@ und per `SendInput` gespielt. Zwei Operationen:
 
 `state` ist neben `live` auch `unknown_slot` (kein Stream auf diesem Platz),
 `unresolved_source` (Quelle weg) oder `masked` (Sichtschutz schwärzt gerade) —
-alle drei verwerfen still und lassen die Sitzung stehen. `ok:false` heißt
-**fail-closed**: die Sitzung ist stillgelegt, es kommt zusätzlich ein
-`{"ev":"remote_state","state":"input_error"}`, und weiter geht es erst nach
-`remote_input_end`.
+alle drei verwerfen still, **geben aber alles Gedrückte frei** und lassen die
+Sitzung stehen. `ended` heißt: der Prozess fährt herunter, die Sitzung ist
+endgültig zu. `ok:false` heißt **fail-closed**: die Sitzung ist stillgelegt, es
+kommt zusätzlich ein `{"ev":"remote_state","state":"input_error"}`, und weiter
+geht es erst nach `remote_input_end`.
 
 Drei Dinge, die man beim Lesen sucht:
 
@@ -237,14 +238,25 @@ Drei Dinge, die man beim Lesen sucht:
   Monitor. Auf Windows liegt je Platz ein **eigener Sidecar-Prozess**
   (`desktop/electron/sidecar.ts::getSidecar`), innerhalb eines Prozesses gibt es
   genau einen Stream. Nennt die `start`-Anfrage ein `slot`-Feld, nimmt der Stream
-  nur diesen Platz an; ohne das Feld trägt er jeden (Regelfall). Auflösung und
-  Begründung: `src/remote_input/ziel.rs`.
+  nur diesen Platz an; ohne das Feld trägt er jeden bis zur Schranke
+  (`SLOT_MAX = 98`, dieselbe wie `sidecar.ts::MAX_STREAM_SLOTS`). Ein
+  **missgeformter** Platz (`-1`, `1.5`, `"0"`) ist ein Protokollfehler und wird
+  nicht auf 0 zurechtgebogen; ein Platz **außerhalb** des Bereichs ist nur
+  „unbekannt". Auflösung und Begründung: `src/remote_input/ziel.rs`.
+- **Das Ziel kommt von der Aufnahme.** Welches Fenster bzw. welcher Bildschirm
+  gemeint ist, meldet die Aufnahme selbst (`capture/wgc*` →
+  `ziel::ziel_gebunden`); die Fernsteuerung löst die Quelle **nicht** ein zweites
+  Mal auf. Sonst liefen beide Antworten auseinander (exklusives Vollbild,
+  Titel-Treffer) und die Eingabe zielte dorthin, wo der Zuschauer nichts sieht.
 - **DPI-Pflicht.** `main.rs` setzt `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
   als allererstes. Ohne das sind alle Koordinaten-Schnittstellen bei Skalierung
   ≠ 100 % virtualisiert und jede Injektion trifft systematisch daneben.
 - **Alles loslassen beim Ende.** Gedrückte Tasten und Knöpfe werden mitgeführt und
   bei jedem Ende freigegeben: `remote_input_end`, Sitzungswechsel (neue
-  `session_id`), fail-closed, Sichtschutz, Prozessende.
+  `session_id`), fail-closed, Sichtschutz, Prozessende — **und bei jeder
+  verworfenen Nachricht** (unbekannter Slot, unauflösbare Quelle). Es genügt,
+  dass der Host sein gestreamtes Fenster minimiert; ohne die Freigabe liefe die
+  Taste am fremden Rechner weiter.
 
 ## Env-Overrides (Test/Debug)
 

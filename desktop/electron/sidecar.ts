@@ -436,6 +436,15 @@ class SidecarManager {
     this.eventCb = cb;
   }
 
+  /** Is a child process alive right now? Asked by callers that must NOT cause a
+   *  spawn — remote-control input frames name a slot chosen by the far side, and
+   *  `call()` would happily start a sidecar for every slot named, just to have it
+   *  answer `unknown_slot` (see `remoteInputHost.ts`). A dying child counts as
+   *  gone: `call()` refuses during shutdown anyway. */
+  get isRunning(): boolean {
+    return this.child !== null && this._shuttingDown === null;
+  }
+
   /** Send `{op, id, ...params}` to the sidecar and resolve with the full response
    *  JSON. Spawns the sidecar on first use. Rejects on timeout, on a non-object
    *  response, on `ok === false`, or if the sidecar dies before replying.
@@ -789,6 +798,14 @@ export function getSidecar(slot = 0): SidecarManager {
     onCreated?.(m, slot);
   }
   return m;
+}
+
+/** Does slot `slot` have a live sidecar process? Answers WITHOUT creating a
+ *  manager or spawning anything — that is the whole point: it lets a caller
+ *  decide "there is no stream on that slot" for free, where `getSidecar(slot)`
+ *  would build state for a slot nobody streams on (see `SidecarManager.isRunning`). */
+export function sidecarRunning(slot: number): boolean {
+  return instances.get(slot)?.isRunning === true;
 }
 
 /** Every sidecar manager that has been created (for fan-out shutdown on quit). */

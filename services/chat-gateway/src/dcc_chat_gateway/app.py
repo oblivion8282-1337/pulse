@@ -28,6 +28,7 @@ from dcc_chat_gateway.plugins import (
 from dcc_chat_gateway.plugins.permissions import log_startup_mode_warning
 from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.pubsub import ConnectionManager
+from dcc_chat_gateway.remote_guard import remote_perm_audit_loop
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
@@ -199,6 +200,7 @@ async def lifespan(app: FastAPI):
     suspend_poller: asyncio.Task | None = None
     cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
+    remote_audit: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -239,6 +241,13 @@ async def lifespan(app: FastAPI):
         # never connected to). See voice_pull_cleanup.voice_pull_reaper_loop.
         voice_pull_reaper = asyncio.create_task(
             voice_pull_reaper_loop(settings, engine, redis, manager), name="dcc-voice-pull-reaper"
+        )
+        # Rechte-Wache der Fernsteuerung — prueft laufende Sitzungen im Takt
+        # nach. Ohne sie ueberlebt eine Sitzung Rollenentzug und Overwrite bis
+        # der Zugangstoken ablaeuft (15 Minuten Tastatur auf fremdem Rechner);
+        # Rauswurf/Bann trennen zusaetzlich sofort (remote_guard).
+        remote_audit = asyncio.create_task(
+            remote_perm_audit_loop(manager), name="dcc-remote-perm-audit"
         )
         # CRL poller — fetches revoked-cert list from Cloud every 30 s.
         # Without this task the ``auth:revoked:certs`` Redis set stays empty
@@ -350,7 +359,7 @@ async def lifespan(app: FastAPI):
             bg_tasks = (
                 supervisor, reaper, push_cleanup, idle_sweeper,
                 voice_pull_reaper, crl_poller, suspend_poller, cloud_policy_task,
-                jwks_retry, dropbox_sweep_task,
+                jwks_retry, dropbox_sweep_task, remote_audit,
             )
             for task in bg_tasks:
                 if task is None:

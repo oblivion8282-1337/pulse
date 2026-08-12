@@ -32,6 +32,7 @@ from dcc_chat_gateway.models import (
     Role,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
@@ -609,6 +610,17 @@ async def _remove_guild_member(
     # channel of this guild. Fire-and-forget — failure is logged but doesn't
     # unwind the removal (the WS event already went out, membership is gone).
     await evict_user_from_guild_voice(session, guild_id, user_id)
+    # Und aus jeder Fernsteuerung dieses Servers — in BEIDEN Rollen. Der
+    # Takt-Prueflauf (remote_guard) braucht bis zu 30 s; ein ausdruecklicher
+    # Rauswurf muss laut Wire-Protokoll v2 sofort trennen, sonst tippt der
+    # Rausgeworfene noch eine halbe Minute auf einem fremden Rechner.
+    await end_remote_sessions_for_member(
+        session,
+        getattr(request.app.state, "connection_manager", None),
+        guild_id,
+        user_id,
+        reason="membership_revoked",
+    )
     await _publish_guild_event(
         request,
         GuildMemberRemovedEvent(guild_id=str(guild_id), user_id=str(user_id)),

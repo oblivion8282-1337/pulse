@@ -45,6 +45,16 @@ interface Zuordnung {
 }
 
 /**
+ * Nachlauf beim Abschalten der Erfassung: so lange bleibt die Zuordnung noch
+ * stehen.
+ *
+ * Der Player reicht nach dem Abschalten noch die Hoch-Ereignisse fuer alles
+ * Gedrueckte nach. Wer sofort abmeldet, verwirft genau die — und beim Host
+ * klemmt die Taste.
+ */
+const ABMELDE_NACHLAUF_MS = 1_000;
+
+/**
  * Frames in Nachrichten zu hoechstens [`MAX_FRAMES_PRO_NACHRICHT`] aufteilen.
  *
  * Die Reihenfolge bleibt erhalten — sie ist bedeutungstragend: ein Klick, der
@@ -83,19 +93,64 @@ function frameListe(wert: unknown): string[] {
  */
 export class EingabeWeiche {
   private zuordnungen = new Map<number, Zuordnung>();
+  /** Laufende Nachlauf-Fristen je Player-Sitzung (s. `abmeldenVerzoegert`). */
+  private nachlauf = new Map<number, ReturnType<typeof setTimeout>>();
 
   /** Erfassung fuer eine Player-Sitzung anmelden. `slot` gilt ab sofort. */
   anmelden(playerSession: number, sessionId: string, slot: number): void {
+    // Eine noch laufende Nachlauf-Frist galt der ALTEN Zuordnung — sie muss
+    // hier weg. Sonst loescht sie kurz darauf die eben gesetzte neue, und ab da
+    // fliesst still gar keine Eingabe mehr. Der Effect der steuernden Seite
+    // macht bei jeder Aenderung von Sitzung oder Platz genau diese Abfolge:
+    // erst aus (mit Nachlauf), sofort danach wieder an.
+    this.nachlaufAbraeumen(playerSession);
     this.zuordnungen.set(playerSession, { sessionId, slot });
   }
 
   abmelden(playerSession: number): void {
+    this.nachlaufAbraeumen(playerSession);
     this.zuordnungen.delete(playerSession);
+  }
+
+  /**
+   * Abmelden mit Nachlauf (s. [`ABMELDE_NACHLAUF_MS`]) — der Weg beim
+   * Abschalten der Erfassung. Eine neue [`anmelden`] fuer dieselbe
+   * Player-Sitzung raeumt die Frist ab.
+   */
+  abmeldenVerzoegert(playerSession: number, ms = ABMELDE_NACHLAUF_MS): void {
+    this.nachlaufAbraeumen(playerSession);
+    const frist = setTimeout(() => {
+      this.nachlauf.delete(playerSession);
+      this.zuordnungen.delete(playerSession);
+    }, ms);
+    // Der Nachlauf darf das Beenden der App nicht aufhalten.
+    frist.unref?.();
+    this.nachlauf.set(playerSession, frist);
+  }
+
+  /**
+   * Alles vergessen — fuer den Fall, dass die Gegenstelle im Renderer
+   * verschwindet (Neuladen, abgestuerzter Renderer). Die Zuordnungen zeigen
+   * dann auf Fernsteuerungs-Sitzungen, die es nicht mehr gibt; Frames darauf
+   * wuerde der Gateway ohnehin mit 4053 abweisen.
+   */
+  alleAbmelden(): void {
+    for (const frist of this.nachlauf.values()) clearTimeout(frist);
+    this.nachlauf.clear();
+    this.zuordnungen.clear();
   }
 
   /** Fuer Tests und den Abbau: welche Sitzungen noch angemeldet sind. */
   angemeldet(): number[] {
     return [...this.zuordnungen.keys()];
+  }
+
+  private nachlaufAbraeumen(playerSession: number): void {
+    const frist = this.nachlauf.get(playerSession);
+    if (frist !== undefined) {
+      clearTimeout(frist);
+      this.nachlauf.delete(playerSession);
+    }
   }
 
   /**

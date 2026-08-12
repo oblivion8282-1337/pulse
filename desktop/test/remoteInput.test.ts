@@ -109,6 +109,60 @@ test('nur Zeichenketten gehen durch — der Gateway reicht ungeprueft weiter', (
   assert.deepEqual(n[0].frames, ['AAI=', 'AwAB']);
 });
 
+/** Kurz warten — die Nachlauf-Frist laeuft ueber echte Timer. */
+const warten = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+test('der Nachlauf vergisst die Zuordnung erst nach seiner Frist', async () => {
+  const w = new EingabeWeiche();
+  w.anmelden(7, 'sit-abc', 0);
+  w.abmeldenVerzoegert(7, 20);
+  assert.equal(
+    w.verteilen({ session: 7, frames: ['x'] }).length,
+    1,
+    'die nachgereichten Hoch-Ereignisse gehen noch hinaus',
+  );
+  await warten(40);
+  assert.deepEqual(w.angemeldet(), []);
+  assert.deepEqual(w.verteilen({ session: 7, frames: ['x'] }), []);
+});
+
+test('eine neue Anmeldung raeumt den laufenden Nachlauf ab', async () => {
+  // Der Effect der steuernden Seite macht bei jeder Aenderung von Sitzung oder
+  // Platz genau diese Abfolge: erst aus (mit Nachlauf), sofort danach wieder
+  // an. Raeumt die neue Anmeldung die Frist nicht ab, loescht diese kurz
+  // darauf die frische Zuordnung — und es fliesst still gar keine Eingabe mehr.
+  const w = new EingabeWeiche();
+  w.anmelden(7, 'sit-alt', 0);
+  w.abmeldenVerzoegert(7, 20);
+  w.anmelden(7, 'sit-neu', 1);
+  await warten(40);
+  const n = w.verteilen({ session: 7, slot: 1, frames: ['x'] });
+  assert.equal(n.length, 1, 'die neue Zuordnung hat den Nachlauf ueberlebt');
+  assert.equal(n[0].session_id, 'sit-neu');
+});
+
+test('sofortiges Abmelden raeumt den Nachlauf mit ab', async () => {
+  const w = new EingabeWeiche();
+  w.anmelden(7, 'sit-alt', 0);
+  w.abmeldenVerzoegert(7, 20);
+  w.abmelden(7);
+  w.anmelden(7, 'sit-neu', 0);
+  await warten(40);
+  assert.deepEqual(w.angemeldet(), [7]);
+});
+
+test('alleAbmelden vergisst jede Zuordnung — der Renderer laedt neu', async () => {
+  const w = new EingabeWeiche();
+  w.anmelden(1, 'sit-a', 0);
+  w.anmelden(2, 'sit-b', 1);
+  w.abmeldenVerzoegert(2, 20);
+  w.alleAbmelden();
+  assert.deepEqual(w.angemeldet(), []);
+  w.anmelden(2, 'sit-c', 0);
+  await warten(40);
+  assert.deepEqual(w.angemeldet(), [2], 'die abgeraeumte Frist schlaegt nicht mehr zu');
+});
+
 test('fehlt der Slot im Ereignis, gilt der aus der Anmeldung', () => {
   const w = new EingabeWeiche();
   w.anmelden(7, 'sit-abc', 3);

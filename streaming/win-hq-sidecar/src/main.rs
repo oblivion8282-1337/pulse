@@ -71,7 +71,13 @@ fn main() -> anyhow::Result<()> {
                     // laufende Fernsteuer-Sitzung ließe sonst jede gedrückte
                     // Taste am Host hängen — „Alles loslassen beim Ende" gilt
                     // auch für dieses Ende.
-                    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden();
+                    //
+                    // **Endgültig**, nicht nur beenden: der `exit(0)` in der
+                    // nächsten Zeile beendet den Prozess sofort, während der
+                    // Dispatch-Faden in `frames()` auf der Sperre warten kann.
+                    // Käme der gleich danach dran, drückte er noch etwas —
+                    // und niemand wäre mehr da, der es löst.
+                    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden_endgueltig();
                     std::process::exit(0);
                 }
                 let json = match serde_json::to_string(&value) {
@@ -151,8 +157,9 @@ fn main() -> anyhow::Result<()> {
     let _ = writer.join();
 
     // Eine noch laufende Fernsteuer-Sitzung schließen (gibt Gedrücktes frei),
-    // dann einen noch laufenden Stream stoppen.
-    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden();
+    // dann einen noch laufenden Stream stoppen. Endgültig: stdin ist zu, es
+    // kommt nichts mehr — und was doch noch käme, dürfte nichts mehr drücken.
+    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden_endgueltig();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

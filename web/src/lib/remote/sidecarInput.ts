@@ -33,7 +33,9 @@ export function eingabeMoeglich(): boolean {
  *
  * Ein unbekannter Platz oder ein aktiver Sichtschutz sind ausdruecklich KEIN
  * Fehlschlag: die Frames werden dann still verworfen und die Sitzung bleibt
- * stehen (Spezifikation, „Unbekannter Slot").
+ * stehen (Spezifikation, „Unbekannter Slot"). „Unbekannt" schliesst einen Platz
+ * ausserhalb der Schranke ein — den beantwortet schon die Bruecke so
+ * (`remoteInputHost.ts`), ohne dafuer einen Sidecar zu starten.
  */
 export async function eingabeEinspielen(
   slot: number,

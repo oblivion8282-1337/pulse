@@ -36,6 +36,7 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
@@ -265,6 +266,16 @@ async def ban_user(
         # the WS broadcast goes out so by the time other clients see
         # "member_removed" the target is already disconnected.
         await evict_user_from_guild_voice(session, guild_id, user_id)
+        # Dasselbe fuer laufende Fernsteuerungen: ein Bann, der dem Gebannten
+        # noch 30 s Tastatur auf dem Rechner eines Mitglieds laesst (bis der
+        # Takt-Prueflauf greift), ist kein Bann.
+        await end_remote_sessions_for_member(
+            session,
+            getattr(request.app.state, "connection_manager", None),
+            guild_id,
+            user_id,
+            reason="membership_revoked",
+        )
         await _publish_member_removed(request, guild_id, user_id)
         # Tell the banned user directly (with the reason) — otherwise the
         # community just silently vanishes from their client.

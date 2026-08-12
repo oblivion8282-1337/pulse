@@ -78,6 +78,14 @@ class WSOpContext:
     # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
     # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
     last_resync: float = 0.0
+    # Rollendes Ein-Sekunden-Fenster fuer ``remote_input``: Startzeitpunkt
+    # (monotonic) und Zahl der Nachrichten darin. Die Grenzen je Nachricht
+    # formen nur eine einzelne Nachricht — ohne diesen Deckel kostet ein
+    # Verstoss nichts und ein Steuernder flutet mit Leitungsgeschwindigkeit.
+    # Liegt auf dem Kontext (pro Verbindung), also beim Disconnect von selbst
+    # weg — gleiches Muster wie ``last_typing``/``last_resync``.
+    remote_input_window: float = 0.0
+    remote_input_count: int = 0
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.

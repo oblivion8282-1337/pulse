@@ -6,15 +6,27 @@
 //! Pflege, als sie spart — und der Sidecar hat heute keine.
 //!
 //! **Streng, nicht großzügig:** nur das Standard-Alphabet, kein URL-safe, keine
-//! Leerzeichen, kein Zeilenumbruch. Der Gateway prüft mit `validate=True` gegen
-//! genau dieses Alphabet; wer hier großzügiger wäre, ließe Frames durch, die
-//! eine Ebene tiefer nie ankommen dürfen — und die Fernsteuerung ist der
-//! falsche Ort, um beim Format zu raten (fail-closed).
+//! Leerzeichen, kein Zeilenumbruch, und die **Füllung ist Pflicht**. Der Gateway
+//! prüft mit `base64.b64decode(..., validate=True)`, und das verlangt genau das;
+//! wer hier großzügiger wäre, ließe Frames durch, die eine Ebene tiefer nie
+//! ankommen dürfen — und die Fernsteuerung ist der falsche Ort, um beim Format
+//! zu raten (fail-closed). Beide Sender füllen ohnehin auf (`btoa` im Renderer,
+//! `pulse-player::fernsteuerung::rahmen::base64`), es gibt also niemanden, der
+//! auf Nachsicht angewiesen wäre.
 
 /// Ein Base64-Wort dekodieren. Fehler → der Aufrufer weist die ganze Nachricht
 /// ab; ein halb dekodierter Frame wäre schlimmer als gar keiner.
 pub fn dekodiere(s: &str) -> Result<Vec<u8>, String> {
     let roh = s.as_bytes();
+    // Die Länge muss ein Vielfaches von vier sein — das ist die Prüfung, die
+    // hier gefehlt hat. Vorher wurde nur EIN `=` oder `==` abgeschnitten, ohne
+    // zu prüfen, ob die Füllung zur Länge passt: `"AAI=="` und `"="` gingen
+    // durch, obwohl der Gateway beide abweist. Ungefährlich, aber dieses Modul
+    // sagt Gleichheit mit dem Gateway zu, und eine Zusage, die nur meistens
+    // gilt, ist keine.
+    if roh.len() % 4 != 0 {
+        return Err("Länge ist kein Vielfaches von vier (Füllzeichen fehlen?)".to_string());
+    }
     // Füllzeichen nur am Ende, höchstens zwei.
     let kern = roh
         .strip_suffix(b"==")
@@ -22,11 +34,6 @@ pub fn dekodiere(s: &str) -> Result<Vec<u8>, String> {
         .unwrap_or(roh);
     if kern.contains(&b'=') {
         return Err("Füllzeichen '=' mitten im Wort".to_string());
-    }
-    // Vier Zeichen tragen drei Byte; ein Rest von genau einem Zeichen trägt
-    // nichts und ist deshalb kein gültiges Wort.
-    if kern.len() % 4 == 1 {
-        return Err("ungültige Länge".to_string());
     }
     let mut aus = Vec::with_capacity(kern.len() * 3 / 4);
     let mut sammler: u32 = 0;
@@ -78,10 +85,26 @@ mod tests {
         assert_eq!(dekodiere("").unwrap(), Vec::<u8>::new());
     }
 
-    /// Ohne Füllzeichen ist es dasselbe Wort — manche Kodierer lassen sie weg.
+    /// Die Füllung ist **Pflicht**, nicht Zierde: der Gateway
+    /// (`b64decode(validate=True)`) weist ein ungefülltes Wort ab, und beide
+    /// Sender füllen auf. Was hier durchkäme, käme dort nie an.
     #[test]
-    fn fuellung_ist_freiwillig() {
-        assert_eq!(dekodiere("AAI").unwrap(), dekodiere("AAI=").unwrap());
+    fn fuellung_ist_pflicht() {
+        assert!(dekodiere("AAI").is_err());
+        assert!(dekodiere("/w").is_err());
+        assert_eq!(dekodiere("AAI=").unwrap(), vec![0x00, 0x02]);
+    }
+
+    /// **Der Fund:** die Füllung muss zur Länge passen. `"AAI=="` (ein Zeichen
+    /// zu viel gefüllt) und `"="` (Füllung ohne Inhalt) gingen früher durch,
+    /// obwohl der Gateway beide abweist.
+    #[test]
+    fn fuellung_muss_zur_laenge_passen() {
+        assert!(dekodiere("AAI==").is_err());
+        assert!(dekodiere("=").is_err());
+        assert!(dekodiere("==").is_err());
+        assert!(dekodiere("====").is_err());
+        assert!(dekodiere("A===").is_err());
     }
 
     #[test]

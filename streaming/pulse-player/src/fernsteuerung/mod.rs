@@ -16,53 +16,22 @@
 
 mod bildlage;
 mod rahmen;
+mod schlange;
 mod tasten;
 mod winit_abbild;
 
 pub use bildlage::Bildlage;
 pub use rahmen::Knopf;
+pub use schlange::Abgabe;
 
 use std::collections::BTreeSet;
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use winit::event::{ElementState, WindowEvent};
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{KeyCode, PhysicalKey};
 
-use rahmen::Rahmen;
+use schlange::Schlange;
 use winit_abbild::{knopf_aus_nummer, knopf_von_winit, rad_von_winit};
-
-/// Hoechstens eine Bewegung je Takt — so steht es in der Wire-Spec.
-///
-/// **8 ms**, also 125 Abgaben je Sekunde: knapp unter dem Bildabstand bei
-/// 144 fps (6,9 ms) und weit ueber allem, was ein Mensch als Verzoegerung
-/// bemerkt. Ohne diesen Takt schriebe der Player eine JSON-Zeile je
-/// Mausabtastung — gemessen bis zu 900 je Sekunde (s. `FRAME_FLOW_WINDOW` in
-/// `app`), und das fuer Positionen, die die naechste ohnehin ueberholt.
-///
-/// **Tasten, Knoepfe und Rad warten NICHT auf den Takt** (s. [`Erfassung::abholen`]):
-/// sie sind selten, und bei ihnen zaehlt jede Millisekunde.
-const BEWEGUNGSTAKT: Duration = Duration::from_millis(8);
-
-/// Obergrenze der Warteschlange, ab der Bewegungen fallen.
-///
-/// Sie greift nur, wenn die Abgabe steht (Electron liest nicht mehr) — im
-/// Normalbetrieb liegt hoechstens eine Handvoll Frames darin, weil
-/// aufeinanderfolgende Bewegungen zusammengefasst werden. **Tasten, Knoepfe und
-/// Rad zaehlen mit, werden aber nie verworfen:** ein verschlucktes Key-Up ist
-/// eine klemmende Taste, eine verschluckte Bewegung ist nichts.
-const MAX_WARTEND: usize = 256;
-
-/// Was bei einer Abholung herauskommt.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Abgabe {
-    /// Nichts angefallen.
-    Nichts,
-    /// Es liegt etwas an, aber erst zu diesem Zeitpunkt (Bewegungstakt).
-    Spaeter(Instant),
-    /// Fertige Frames, Base64, in Reihenfolge.
-    Jetzt(Vec<String>),
-}
 
 /// Der zweite Abnehmer der Fensterereignisse.
 pub struct Erfassung {
@@ -74,15 +43,27 @@ pub struct Erfassung {
     /// absoluter. Es gibt dafuer keinen Protokollschalter: der Host behandelt
     /// beide Opcodes zustandslos.
     zeigerfang: bool,
-    warteschlange: VecDeque<Rahmen>,
+    /// Die fertigen Frames samt Takt und Flutkontrolle (s. [`schlange`]).
+    warteschlange: Schlange,
     /// Was gerade gedrueckt ist — Grundlage fuer „alles loslassen".
     tasten_unten: BTreeSet<u16>,
     knoepfe_unten: BTreeSet<u8>,
-    /// Wann zuletzt abgegeben wurde. `None` = noch nie, dann darf sofort.
-    letzte_abgabe: Option<Instant>,
-    /// Wie viele Bewegungen die Flutkontrolle verworfen hat. Reine Diagnose,
-    /// aber die einzige Stelle, an der ein Frame lautlos verschwindet.
-    verworfene_bewegungen: u64,
+    /// Wo der Zeiger zuletzt stand (physische Fensterpunkte), auch ausserhalb
+    /// des Bildes. **Knopf und Rad tragen keine Position** — ohne diese hier
+    /// waere nicht zu entscheiden, ob sie ins Bild gehoeren.
+    letzte_zeigerlage: Option<(f64, f64)>,
+    /// Bruchteile des Mausrades, die noch keine ganze Raste ergeben haben.
+    rasten: rahmen::Rastensammler,
+    /// Bruchteile relativer Bewegungen (Wayland liefert beschleunigte
+    /// Bruchteile). Getrennt je Achse, wie beim Rad.
+    rest_dx: f64,
+    rest_dy: f64,
+    /// Wie viele Tastenereignisse mangels Scancode-Abbildung gefallen sind
+    /// (F13-F24, IntlRo/IntlYen, Lang1/Lang2, Medientasten, ...).
+    unbekannte_tasten: u64,
+    /// Welche Tasten das waren — nur, damit jede genau einmal im Protokoll
+    /// landet. Eine gehaltene Taste schriebe es sonst voll.
+    unbekannte_codes: BTreeSet<KeyCode>,
 }
 
 impl Default for Erfassung {
@@ -97,11 +78,15 @@ impl Erfassung {
             aktiv: false,
             slot: 0,
             zeigerfang: false,
-            warteschlange: VecDeque::new(),
+            warteschlange: Schlange::default(),
             tasten_unten: BTreeSet::new(),
             knoepfe_unten: BTreeSet::new(),
-            letzte_abgabe: None,
-            verworfene_bewegungen: 0,
+            letzte_zeigerlage: None,
+            rasten: rahmen::Rastensammler::default(),
+            rest_dx: 0.0,
+            rest_dy: 0.0,
+            unbekannte_tasten: 0,
+            unbekannte_codes: BTreeSet::new(),
         }
     }
 
@@ -118,90 +103,175 @@ impl Erfassung {
     }
 
     pub fn verworfene_bewegungen(&self) -> u64 {
-        self.verworfene_bewegungen
+        self.warteschlange.verworfene_bewegungen()
+    }
+
+    /// Wie viele Tastenereignisse mangels Abbildung gefallen sind.
+    pub fn unbekannte_tasten(&self) -> u64 {
+        self.unbekannte_tasten
     }
 
     /// Erfassung ein- oder ausschalten.
     ///
-    /// **Beim Einschalten** wird die Warteschlange geleert und der Hello-Frame
-    /// als erster eingereiht — die Wire-Spec verlangt ihn als ersten Frame der
-    /// Sitzung, und alles davor Liegengebliebene gehoerte zu einer anderen.
-    ///
-    /// **Nur beim Uebergang aus, und das ist wichtig:** ein zweites Hello mitten
-    /// im Strom ist beim Host ein Protokollfehler und beendet die Sitzung
-    /// (fail-closed). Ein wiederholtes Einschalten — etwa weil nur der Slot
-    /// wechselt — darf deshalb keins erzeugen.
+    /// **Jedes Einschalten beginnt einen neuen Eingabestrom** und stellt ihm
+    /// ein Hello voran — auch wenn die Erfassung aus Sicht des Players schon an
+    /// war (s. [`Self::strom_beginnen`]).
     ///
     /// **Beim Ausschalten** wird fuer alles Gedrueckte das Hoch-Ereignis
     /// nachgereicht. Der Host laesst zwar bei Sitzungsende ebenfalls alles los,
     /// aber „Erfassung aus" ist kein Sitzungsende: wer den Mauszeiger aus dem
     /// Fenster nimmt, waehrend W gedrueckt ist, liefe sonst im Spiel weiter.
     pub fn setzen(&mut self, aktiv: bool, slot: u32, zeigerfang: bool) {
-        match (self.aktiv, aktiv) {
-            (false, true) => {
-                self.warteschlange.clear();
-                self.tasten_unten.clear();
-                self.knoepfe_unten.clear();
-                self.warteschlange.push_back(rahmen::hello());
-            }
-            (true, false) => self.alles_loslassen(),
-            // Schon an bzw. schon aus: nur Slot und Zeigerfang wandern nach.
-            _ => {}
+        if aktiv {
+            self.strom_beginnen();
+        } else if self.aktiv {
+            self.alles_loslassen();
         }
         self.aktiv = aktiv;
         self.slot = slot;
         self.zeigerfang = aktiv && zeigerfang;
     }
 
+    /// Einen neuen Eingabestrom beginnen: Hello nach VORN, Zustand auf null.
+    ///
+    /// **Am Strom, nicht an der Flanke** (2026-08-12). Vorher entstand das
+    /// Hello nur beim Uebergang aus→an. Der Host haelt seinen Zustand aber ueber
+    /// die ganze stdio-Sitzung und die ueberlebt Sitzungswechsel: war die
+    /// Erfassung im Player schon „an", als drueben ein neuer Eingabestrom
+    /// begann, kam als erstes eine Bewegung an — und der Host ist fail-closed
+    /// (`Eingabe vor dem Hello-Handschlag`, im Zwei-Geraete-Test am 2026-08-12
+    /// belegt, danach stand die Sitzung still). Ein weiteres Hello ist laut
+    /// Wire-Spec ausdruecklich erlaubt und heisst „neuer Strom"; es zu wenig zu
+    /// senden legt die Fernsteuerung lahm, es zu oft zu senden kostet nichts.
+    ///
+    /// **Das Hello geht nach VORN, das Liegengebliebene dahinter.** Beides hat
+    /// je einen Grund:
+    /// * Die Hoch-Ereignisse des vorigen Stroms (aus [`Self::alles_loslassen`])
+    ///   bleiben stehen — **hier stand bis zum 2026-08-12 ein `clear()`**, das
+    ///   sie wegwarf, wenn zwischen Aus und Ein kein Abholen lag; die Taste
+    ///   blieb dann beim Host gedrueckt.
+    /// * Vor dem Hello duerfen sie trotzdem nicht liegen: hat der Host in
+    ///   diesem Strom noch kein Hello gesehen, beendet ihn schon das erste
+    ///   Frame davor. Dahinter sind sie hoechstens ueberfluessig, denn der Host
+    ///   gibt beim Hello ohnehin alles frei — und genau deshalb vergisst der
+    ///   Player hier auch seine eigene Menge des Gedrueckten.
+    ///
+    /// Bewegungen fallen: sie sind ueberholt, und die Wire-Spec erlaubt genau
+    /// das.
+    fn strom_beginnen(&mut self) {
+        self.warteschlange.neuer_strom(rahmen::hello());
+        self.tasten_unten.clear();
+        self.knoepfe_unten.clear();
+        // Der Zeiger kann inzwischen woanders stehen, und Reste einer alten
+        // Geste gehoeren nicht in die neue.
+        self.letzte_zeigerlage = None;
+        self.rasten.zuruecksetzen();
+        self.rest_dx = 0.0;
+        self.rest_dy = 0.0;
+    }
+
+    /// Den Zeigerfang nachfuehren, ohne den Strom anzufassen.
+    ///
+    /// **Windows loest `ClipCursor` beim Fokusverlust auf, und winit stellt es
+    /// nicht wieder her.** Ohne diese Stelle glaubte die Erfassung nach
+    /// Alt+Tab und zurueck weiter an einen gefangenen Zeiger: `CursorMoved`
+    /// wuerde weiter ignoriert, relative Bewegungen kaemen von einem freien
+    /// Zeiger, und die Bedienleiste waere nicht mehr zu treffen. Wer den Griff
+    /// erneuert (oder ihn verliert), sagt es hier.
+    pub fn zeigerfang_nachfuehren(&mut self, gefangen: bool) {
+        let neu = self.aktiv && gefangen;
+        if neu == self.zeigerfang {
+            return;
+        }
+        self.zeigerfang = neu;
+        // Betriebsartwechsel: die Reste gehoeren zur alten Art, und wo der
+        // Zeiger jetzt steht, weiss vor dem naechsten `CursorMoved` niemand.
+        self.rest_dx = 0.0;
+        self.rest_dy = 0.0;
+        self.letzte_zeigerlage = None;
+    }
+
     /// Hoch-Ereignisse fuer alles Gedrueckte, in fester Reihenfolge.
     fn alles_loslassen(&mut self) {
         for scan in std::mem::take(&mut self.tasten_unten) {
-            self.warteschlange.push_back(rahmen::taste(scan, false));
+            self.warteschlange.einreihen(rahmen::taste(scan, false));
         }
         for nummer in std::mem::take(&mut self.knoepfe_unten) {
             if let Some(knopf) = knopf_aus_nummer(nummer) {
-                self.warteschlange.push_back(rahmen::maus_knopf(knopf, false));
+                self.warteschlange.einreihen(rahmen::maus_knopf(knopf, false));
             }
         }
     }
 
     /// Ein Fensterereignis uebersetzen. `lage` ist `None`, solange kein Bild
-    /// steht — dann fallen Bewegungen aus, Tasten laufen weiter.
+    /// steht — dann fallen Zeigerereignisse aus, Tasten laufen weiter.
+    ///
+    /// `leiste_greift` sagt, ob die Bedienleiste im Fenster den Zeiger gerade
+    /// für sich beansprucht (egui `consumed`). Sie liegt ÜBER dem Bild, ein
+    /// Klick auf ihr ist also im Bildrechteck und trotzdem keiner fuer den
+    /// fernen Rechner — wer die Lautstaerke zieht, will nicht zugleich
+    /// dorthin klicken.
     ///
     /// Diese Stelle ist bewusst duenn: sie ordnet winit-Typen den Methoden
     /// darunter zu, mehr nicht. **`KeyEvent` laesst sich ausserhalb von winit
     /// nicht bauen** (das Feld `platform_specific` ist `pub(crate)`), ein Test
     /// gegen `WindowEvent::KeyboardInput` ist also unmoeglich — geprueft werden
     /// deshalb [`Self::taste`] und [`tasten::scancode`] einzeln.
-    pub fn on_window_event(&mut self, ereignis: &WindowEvent, lage: Option<Bildlage>) {
+    pub fn on_window_event(
+        &mut self,
+        ereignis: &WindowEvent,
+        lage: Option<Bildlage>,
+        leiste_greift: bool,
+    ) {
         if !self.aktiv {
             return;
         }
         match ereignis {
-            WindowEvent::CursorMoved { position, .. } if !self.zeigerfang => {
+            WindowEvent::CursorMoved { position, .. } => {
+                // IMMER merken, auch auf dem Rand und auf der Leiste: Knopf und
+                // Rad tragen keine Position, und ohne die letzte waere nicht zu
+                // entscheiden, ob sie ins Bild gehoeren.
+                self.letzte_zeigerlage = Some((position.x, position.y));
+                if self.zeigerfang || leiste_greift {
+                    return;
+                }
                 let Some(lage) = lage else { return };
                 self.zeigerposition(lage, position.x, position.y);
             }
+            // Zeiger aus dem Fenster: seine letzte Lage sagt nichts mehr, und
+            // ein Rad-Ereignis danach gehoert nicht mehr ins Bild.
+            WindowEvent::CursorLeft { .. } => self.letzte_zeigerlage = None,
             WindowEvent::MouseInput { state, button, .. } => {
                 // `Other` faellt hier weg — ein unbekannter Knopf beendet beim
                 // Host die Sitzung, also wird er gar nicht erst gesendet.
-                if let Some(knopf) = knopf_von_winit(*button) {
-                    self.knopf(knopf, *state == ElementState::Pressed);
+                let Some(knopf) = knopf_von_winit(*button) else { return };
+                let runter = *state == ElementState::Pressed;
+                // **Der DRUCK gehoert ins Bild** (Wire-Spec, praezisiert am
+                // 2026-08-12): sonst kommt ein Klick auf dem Briefkasten-Rand
+                // oder auf der Bedienleiste beim Host dort an, wo der Zeiger
+                // zuletzt IM Bild stand — also irgendwo.
+                //
+                // **Das LOSLASSEN geht immer durch**, sofern der Knopf beim
+                // Host wirklich unten ist (das prueft [`Self::knopf`]). Wer
+                // im Bild drueckt und auf dem Rand loslaesst, haette sonst
+                // einen klemmenden Knopf am fremden Rechner.
+                if runter && !self.zeiger_im_bild(lage, leiste_greift) {
+                    return;
                 }
+                self.knopf(knopf, runter);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let (dv, dh) = rad_von_winit(*delta);
-                self.rad(dv, dh);
+                // Rad ebenso: ein Streichen ueber der Leiste oder dem Rand ist
+                // keine Eingabe fuer den fernen Rechner.
+                if !self.zeiger_im_bild(lage, leiste_greift) {
+                    return;
+                }
+                let (senkrecht, waagerecht) = rad_von_winit(*delta);
+                self.rad(senkrecht, waagerecht);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
-                // Nicht abgebildet heisst: gar nicht senden. Der Host ist
-                // fail-closed, ein geratener Scancode kaeme als falsche Taste an.
-                let Some(scan) = tasten::scancode(code) else { return };
-                // Wiederholungen gehen MIT: der Host injiziert Scancodes roh,
-                // und die Tastenwiederholung entsteht auf dem sendenden Rechner.
-                // Ohne sie liesse sich am anderen Ende kein Zeichen halten.
-                self.taste(scan, event.state == ElementState::Pressed);
+                self.taste_von_code(code, event.state == ElementState::Pressed);
             }
             // Fokus weg = die Tasten kommen nicht mehr an, das Hoch-Ereignis
             // also auch nicht. Ohne diese Zeile bliebe die Taste beim Host
@@ -211,6 +281,57 @@ impl Erfassung {
         }
     }
 
+    /// Steht der Zeiger auf dem BILDINHALT — und zwar so, dass ein Klick dort
+    /// gemeint ist?
+    ///
+    /// Bei gefangenem Zeiger gegenstandslos: der Zeiger steht still, der ferne
+    /// wird ueber Differenzen gefuehrt, und die Leiste ist dann nicht zu
+    /// treffen. Ohne bekannte Zeigerlage lautet die Antwort **nein** — der Host
+    /// ist fail-closed, und wo wir nicht hinsehen, klicken wir nicht.
+    fn zeiger_im_bild(&self, lage: Option<Bildlage>, leiste_greift: bool) -> bool {
+        if self.zeigerfang {
+            return true;
+        }
+        if leiste_greift {
+            return false;
+        }
+        let (Some(lage), Some((x, y))) = (lage, self.letzte_zeigerlage) else { return false };
+        lage.anteil(x, y).is_some()
+    }
+
+    /// Taste als winit-Kennung. Getrennt von [`Self::taste`], weil hier die
+    /// Abbildung entschieden wird — und damit auch, was mit dem passiert, was
+    /// sich NICHT abbilden laesst (F13-F24, IntlRo/IntlYen, Lang1/Lang2,
+    /// NumpadEqual, NumpadComma, Medientasten).
+    ///
+    /// Nicht abgebildet heisst: gar nicht senden. Der Host ist fail-closed, ein
+    /// geratener Scancode kaeme als falsche Taste an.
+    ///
+    /// **Nicht raten bleibt richtig, schweigend fallen lassen war es nicht:**
+    /// bis zum 2026-08-12 verschwanden diese Ereignisse ohne Zaehler, Log und
+    /// Statistik, waehrend es fuer verworfene Bewegungen laengst einen Zaehler
+    /// gab. Wer meldete „meine Taste kommt am fernen Rechner nicht an",
+    /// hinterliess damit keine einzige Spur. Gezaehlt wird jedes Ereignis,
+    /// gemeldet jede Taste genau einmal — eine gehaltene Taste schriebe das Log
+    /// sonst voll (Tastenwiederholung).
+    ///
+    /// Wiederholungen gehen im Uebrigen MIT: der Host injiziert Scancodes roh,
+    /// und die Tastenwiederholung entsteht auf dem sendenden Rechner. Ohne sie
+    /// liesse sich am anderen Ende kein Zeichen halten.
+    pub fn taste_von_code(&mut self, code: KeyCode, runter: bool) {
+        if !self.aktiv {
+            return;
+        }
+        let Some(scan) = tasten::scancode(code) else {
+            self.unbekannte_tasten += 1;
+            if self.unbekannte_codes.insert(code) {
+                eprintln!("pulse-player: Taste ohne Scancode-Abbildung, nicht gesendet: {code:?}");
+            }
+            return;
+        };
+        self.taste(scan, runter);
+    }
+
     /// Absolute Zeigerposition (physische Fensterpunkte). Ausserhalb des
     /// Bildrechtecks wird nichts gesendet — so verlangt es die Wire-Spec.
     pub fn zeigerposition(&mut self, lage: Bildlage, x: f64, y: f64) {
@@ -218,28 +339,44 @@ impl Erfassung {
             return;
         }
         let Some((u, v)) = lage.anteil(x, y) else { return };
-        self.bewegung(rahmen::maus_abs(rahmen::anteil_zu_u16(u), rahmen::anteil_zu_u16(v)));
+        self.warteschlange.bewegung(rahmen::maus_abs(rahmen::anteil_zu_u16(u), rahmen::anteil_zu_u16(v)));
     }
 
     /// Maustaste. Wird fuer „alles loslassen" mitgefuehrt.
+    ///
+    /// **Ein Loslassen ohne vorheriges Druecken wird nicht gesendet.** Das ist
+    /// die Kehrseite der Bild-Pruefung in [`Self::on_window_event`]: wird der
+    /// Druck verworfen (Rand, Bedienleiste), darf das Loslassen nicht als
+    /// einzelnes Hoch-Ereignis beim Host ankommen. Umgekehrt gilt: was hier
+    /// als unten vermerkt ist, kommt beim Ausschalten sicher hoch.
     pub fn knopf(&mut self, knopf: Knopf, runter: bool) {
         if !self.aktiv {
             return;
         }
         if runter {
             self.knoepfe_unten.insert(knopf as u8);
-        } else {
-            self.knoepfe_unten.remove(&(knopf as u8));
-        }
-        self.warteschlange.push_back(rahmen::maus_knopf(knopf, runter));
-    }
-
-    /// Mausrad in Windows-Rastschritten. Null-Bewegungen fallen weg.
-    pub fn rad(&mut self, dv: i16, dh: i16) {
-        if !self.aktiv || (dv == 0 && dh == 0) {
+        } else if !self.knoepfe_unten.remove(&(knopf as u8)) {
             return;
         }
-        self.warteschlange.push_back(rahmen::maus_rad(dv, dh));
+        self.warteschlange.einreihen(rahmen::maus_knopf(knopf, runter));
+    }
+
+    /// Mausrad in ZEILEN (Windows-Vorzeichen, `senkrecht > 0` = vom Nutzer weg).
+    ///
+    /// Gerundet wird im [`rahmen::Rastensammler`], der die Bruchteile ueber
+    /// Ereignisse hinweg mitnimmt — ein Praezisions-Touchpad liefert rund 0,33
+    /// je Schritt, und jeden davon auf eine volle Raste aufzurunden ergab
+    /// dreifache Scrollgeschwindigkeit beim Host. Was noch keine ganze Raste
+    /// ist, erzeugt deshalb keinen Frame.
+    pub fn rad(&mut self, senkrecht: f64, waagerecht: f64) {
+        if !self.aktiv {
+            return;
+        }
+        let (dv, dh) = self.rasten.schritte(senkrecht, waagerecht);
+        if dv == 0 && dh == 0 {
+            return;
+        }
+        self.warteschlange.einreihen(rahmen::maus_rad(dv, dh));
     }
 
     /// Taste als Scancode Satz 1. Wird fuer „alles loslassen" mitgefuehrt.
@@ -252,97 +389,62 @@ impl Erfassung {
         } else {
             self.tasten_unten.remove(&scan);
         }
-        self.warteschlange.push_back(rahmen::taste(scan, runter));
+        self.warteschlange.einreihen(rahmen::taste(scan, runter));
     }
 
     /// Relative Bewegung bei gefangenem Zeiger (`DeviceEvent::MouseMotion`).
     /// Getrennt vom Fensterereignis, weil winit sie dort nicht liefert.
+    ///
+    /// **Mit Rest ueber Ereignisse hinweg.** Jede Differenz fuer sich zu runden
+    /// hiess: unter Wayland liefert `relative_pointer` beschleunigte
+    /// Bruchteile, und langsames Zielen (0,4 Punkte je Ereignis) bewegte den
+    /// Zeiger beim Host **gar nicht** — jedes Ereignis rundete auf null, der
+    /// Rest ging verloren. Aufgehoben summieren sich zwei bis drei solcher
+    /// Ereignisse zum ersten Punkt.
     pub fn zeigerbewegung(&mut self, dx: f64, dy: f64) {
         if !self.aktiv || !self.zeigerfang {
             return;
         }
-        let kurz = |v: f64| v.round().clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16;
-        let (dx, dy) = (kurz(dx), kurz(dy));
+        let dx = ganze_punkte(&mut self.rest_dx, dx);
+        let dy = ganze_punkte(&mut self.rest_dy, dy);
         if dx == 0 && dy == 0 {
             return;
         }
-        self.bewegung(rahmen::maus_rel(dx, dy));
+        self.warteschlange.bewegung(rahmen::maus_rel(dx, dy));
     }
 
-    /// Eine Bewegung einreihen — mit Zusammenfassung und Flutkontrolle.
-    ///
-    /// Absolute Bewegungen **ersetzen** die letzte (die alte Position ist
-    /// ueberholt), relative werden **aufsummiert** (jede Differenz zaehlt).
-    /// Genau so steht es in der Wire-Spec.
-    fn bewegung(&mut self, neu: Rahmen) {
-        if let Some(letzter) = self.warteschlange.back_mut() {
-            if letzter.opcode() == neu.opcode() {
-                match (letzter.rel_werte(), neu.rel_werte()) {
-                    (Some((ax, ay)), Some((bx, by))) => {
-                        *letzter = rahmen::maus_rel(ax.saturating_add(bx), ay.saturating_add(by));
-                    }
-                    _ => *letzter = neu,
-                }
-                return;
-            }
-        }
-        self.warteschlange.push_back(neu);
-        self.bewegungen_kappen();
-    }
-
-    /// Staut sich die Warteschlange, fallen die AELTESTEN Bewegungen — und nur
-    /// die. Bleibt nichts Verwerfbares uebrig, waechst sie weiter: Tasten,
-    /// Knoepfe und Rad werden nie verworfen.
-    fn bewegungen_kappen(&mut self) {
-        while self.warteschlange.len() > MAX_WARTEND {
-            let Some(pos) = self.warteschlange.iter().position(Rahmen::ist_bewegung) else {
-                return;
-            };
-            self.warteschlange.remove(pos);
-            self.verworfene_bewegungen += 1;
-        }
-    }
-
-    /// Abholen, wenn es Zeit ist.
-    ///
-    /// Sofort, sobald etwas Unverzichtbares wartet (Taste, Knopf, Rad, Hello);
-    /// sonst hoechstens einmal je [`BEWEGUNGSTAKT`]. Der Ruecklauf
-    /// [`Abgabe::Spaeter`] sagt dem Aufrufer, wann er wiederkommen muss — ohne
-    /// ihn bliebe die letzte Bewegung einer Geste liegen, bis zufaellig das
-    /// naechste Ereignis eintrifft.
+    /// Abholen, wenn es Zeit ist (s. [`Schlange::abholen`]).
     pub fn abholen(&mut self, jetzt: Instant) -> Abgabe {
-        if self.warteschlange.is_empty() {
-            return Abgabe::Nichts;
-        }
-        let nur_bewegung = self.warteschlange.iter().all(Rahmen::ist_bewegung);
-        if nur_bewegung {
-            if let Some(letzte) = self.letzte_abgabe {
-                let faellig = letzte + BEWEGUNGSTAKT;
-                if jetzt < faellig {
-                    return Abgabe::Spaeter(faellig);
-                }
-            }
-        }
-        self.letzte_abgabe = Some(jetzt);
-        Abgabe::Jetzt(self.leeren())
+        self.warteschlange.abholen(jetzt)
     }
 
     /// Alles herausnehmen, ohne auf den Takt zu warten. Fuer den Abbau einer
     /// Sitzung: die Hoch-Ereignisse aus [`Self::setzen`] duerfen nicht mit dem
     /// Fenster verschwinden.
     pub fn raeumen(&mut self) -> Option<Vec<String>> {
-        if self.warteschlange.is_empty() {
-            return None;
-        }
-        Some(self.leeren())
+        self.warteschlange.raeumen()
     }
+}
 
-    fn leeren(&mut self) -> Vec<String> {
-        self.warteschlange
-            .drain(..)
-            .map(|r| rahmen::base64(r.as_slice()))
-            .collect()
+/// Ganze Bildpunkte aus einer Bruchteil-Bewegung — der Rest bleibt liegen und
+/// zaehlt beim naechsten Ereignis mit.
+///
+/// Abgeschnitten statt gerundet (`trunc`): so ist der Rest immer kleiner als
+/// ein Punkt und traegt nie ein Vorzeichen gegen die Bewegungsrichtung.
+fn ganze_punkte(rest: &mut f64, wert: f64) -> i16 {
+    if !wert.is_finite() || !rest.is_finite() {
+        *rest = 0.0;
+        return 0;
     }
+    *rest += wert;
+    let ganz = rest.trunc().clamp(f64::from(i16::MIN), f64::from(i16::MAX));
+    *rest -= ganz;
+    // Nur, wenn die Klemmung oben zugeschlagen hat: der Ueberschuss wird
+    // verworfen statt aufgehoben, sonst liefe der Zeiger danach nach.
+    if rest.abs() >= 1.0 {
+        *rest = 0.0;
+    }
+    ganz as i16
 }
 
 #[cfg(test)]

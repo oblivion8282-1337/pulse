@@ -94,6 +94,10 @@ pub struct WgcD3d12Capture {
 impl WgcD3d12Capture {
     pub fn start(source: CaptureSource, cfg: CaptureConfig) -> Result<Self> {
         let target = source.resolve()?;
+        // Dasselbe aufgelöste Ziel, auf das die Fernsteuerung ihre Koordinaten
+        // klemmt — ein zweites `resolve()` dort zeigte womöglich woanders hin
+        // (Begründung: `remote_input::ziel::ziel_gebunden`).
+        crate::remote_input::ziel::ziel_gebunden(&target);
         let (items_tx, items) = channel();
         let (free_tx, free_rx) = channel::<usize>();
         // Alle Slots starten frei.

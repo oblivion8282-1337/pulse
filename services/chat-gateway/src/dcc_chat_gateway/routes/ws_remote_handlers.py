@@ -14,23 +14,23 @@ Op flow::
     controller --remote_input----> gateway --remote_input----> host
     peer       --remote_end------> gateway --remote_ended----> the *other* peer
 
-``remote_input`` carries the input wire protocol v2 (spec:
-``docs/plans/2026-08-12-input-wire-protokoll-v2.md``, "Die Hülle auf dem
-Serverweg"). The gateway checks session, role and size and **does not parse the
-frames** — that would mean maintaining the format in two places for no gain.
+``remote_input`` lives in :mod:`routes.ws_remote_input` (wire protocol v2, spec:
+``docs/plans/2026-08-12-input-wire-protokoll-v2.md``) — its own module because
+the relay carries per-connection flood state that the consent handshake here
+has no business knowing, and both together burst the §12.1 size policy.
 
 Error frames are fire-and-forget (``_err``) — the socket is never closed:
   * 4050 required field missing / invalid (input: bad slot, bad base64, or a
     batch over the limits — those frames are dropped, the session survives)
   * 4051 no access (not a member / no VIEW_CHANNEL / no REMOTE_CONTROL)
-  * 4052 host not reachable (offline or not a member of the channel)
+  * 4052 host not reachable (offline, not a member, or cannot see the channel)
   * 4053 no matching session / not a peer / input from the host, not the controller
   * 4054 host already has an active session
+  * 4055 the host just refused (or ignored) an invite — cooldown running
 """
 
 from __future__ import annotations
 
-import base64
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -38,17 +38,12 @@ from typing import Any
 from fastapi import WebSocket
 
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
+from dcc_chat_gateway.remote_guard import peer_channel_perms
 from dcc_chat_gateway.remote_registry import send_to_socket
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import AuthenticatedUser
 
 log = logging.getLogger(__name__)
-
-# Flood limits for ``remote_input`` (protocol v2, "Grenzen"). They protect the
-# *gateway*, not the host — the host is fail-closed on its own. The largest
-# frame is 5 bytes, so a well-behaved controller never comes near them.
-MAX_INPUT_FRAMES = 32
-MAX_INPUT_DECODED_BYTES = 1024
 
 
 def _int_or_none(value: object) -> int | None:
@@ -71,16 +66,22 @@ def _manager(websocket: WebSocket):
     return getattr(websocket.app.state, "connection_manager", None)
 
 
-async def _err(websocket: WebSocket, code: int, msg: str) -> None:
-    """Reject one op. **Logged**, weil eine Ablehnung am Client nur als
-    ausbleibende Wirkung ankommt: die Anfrage setzt sich still zurück, kein
-    Dialog erscheint, und von aussen sieht das aus wie ein toter Knopf.
+async def _err(websocket: WebSocket, code: int, msg: str, *, audit: bool = False) -> None:
+    """Reject one op. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host
+    nicht erreichbar, …); Nutzdaten stehen bewusst nicht drin.
 
-    Am 2026-08-12 im Zwei-Geraete-Test genau so aufgelaufen — ohne diese Zeile
-    liess sich nicht unterscheiden, ob die Anfrage nie ankam oder abgewiesen
-    wurde. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host nicht
-    erreichbar, …); Nutzdaten stehen bewusst nicht drin."""
-    log.info("remote op rejected: code=%s msg=%s", code, msg)
+    ``audit=True`` heisst INFO, sonst DEBUG. Am 2026-08-12 im Zwei-Geraete-Test
+    war eine Ablehnung am Client nur als ausbleibende Wirkung sichtbar (toter
+    Knopf) — deshalb ueberhaupt eine Zeile. Sie stand aber VOR jeder
+    Autorisierung: ein beliebiger eingeloggter Nutzer konnte mit missgeformten
+    ``remote_*``-Ops unbegrenzt INFO-Zeilen erzeugen und damit das Protokoll
+    fluten. INFO gibt es jetzt nur noch, wenn der Rufer die Rechtepruefung
+    bereits bestanden hat — genau die Faelle, die im Test die Frage
+    beantworteten ("Host nicht erreichbar", "schon belegt")."""
+    if audit:
+        log.info("remote op rejected: code=%s msg=%s", code, msg)
+    else:
+        log.debug("remote op rejected: code=%s msg=%s", code, msg)
     await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
@@ -100,6 +101,12 @@ async def handle_request(
     if mgr is None:
         return
     cid = str(cid_int)
+    host_sockets = mgr.remote_user_sockets(host_uid)
+    # Den Host als ``AuthenticatedUser`` aus seiner offenen Verbindung holen,
+    # nicht aus der id nachbauen: der Resolver liest ``is_admin``/``is_owner``
+    # daraus, und ein nachgebauter Nutzer mit is_admin=False wuerde einem
+    # Instanz-Admin faelschlich VIEW_CHANNEL absprechen.
+    host_user = mgr.remote_socket_user(host_sockets[0]) if host_sockets else None
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
         if channel is None:
@@ -113,17 +120,31 @@ async def handle_request(
         ):
             await _err(websocket, 4051, "no access")
             return
-        # The host must be a member of the same channel (its guild). No stream
-        # check — remote control is independent of HQ streaming.
-        if await channel_membership(session, cid_int, host_uid) is None:
+        if not host_sockets or host_user is None:
+            # Der haeufigste Grund fuer "der Knopf tut nichts": der Host ist zwar
+            # Mitglied, hat aber gerade keine offene Verbindung. Die Zeile im Log
+            # trennt das von "gar nicht angekommen".
+            await _err(websocket, 4052, "host not reachable", audit=True)
+            return
+        # Der Host muss Mitglied sein UND den Kanal sehen duerfen. Ohne den
+        # VIEW_CHANNEL-Teil wurde bisher jemand zur Hergabe seines Rechners in
+        # einem Kanal eingeladen, den er selbst nicht sehen darf. Dieselbe
+        # Funktion, die die Rechte-Wache spaeter im Takt anlegt — die beiden
+        # Latten duerfen nicht auseinanderlaufen, sonst beendet der Prueflauf
+        # sofort, was der Aufbau gerade erlaubt hat. Kein Stream-Check:
+        # Fernsteuerung ist unabhaengig vom HQ-Streaming.
+        host_perms = await peer_channel_perms(session, cid_int, host_user)
+        if host_perms is None or not has_permission(host_perms, Permissions.VIEW_CHANNEL):
             await _err(websocket, 4052, "host not reachable")
             return
-    host_sockets = mgr.remote_user_sockets(host_uid)
-    if not host_sockets:
-        # Der haeufigste Grund fuer "der Knopf tut nichts": der Host ist zwar
-        # Mitglied, hat aber gerade keine offene Verbindung. Die Zahl im Log
-        # trennt das von "gar nicht angekommen".
-        await _err(websocket, 4052, "host not reachable")
+    # Sperrfrist nach Absage/Aussitzen. Sie steht hinter der Rechtepruefung,
+    # damit ein Unberechtigter aus der Antwort nicht ablesen kann, ob der Host
+    # gerade jemand anderem abgesagt hat.
+    wait_s = mgr.remote_refusal_wait_s(str(host_uid), str(user.id))
+    if wait_s > 0:
+        await _err(
+            websocket, 4055, f"host declined recently, retry in {int(wait_s) + 1}s", audit=True
+        )
         return
     log.info(
         "remote request accepted for relay: channel=%s host_sockets=%d",
@@ -132,7 +153,7 @@ async def handle_request(
     )
     sess = await mgr.remote_create(cid, host_uid, host_sockets[0], user.id, websocket)
     if sess is None:
-        await _err(websocket, 4054, "host already has an active remote session")
+        await _err(websocket, 4054, "host already has an active remote session", audit=True)
         return
     frame = {
         "op": "remote_request",
@@ -140,9 +161,14 @@ async def handle_request(
         "channel_id": cid,
         "from_user_id": str(user.id),
     }
+    # Zeitgeber VOR der Faecherung scharfstellen. Jedes ``send_to_socket``
+    # unten ist ein await: antwortet ein Host-Tab mitten in der Faecherung,
+    # loeschte der Accept einen Zeitgeber, den es noch gar nicht gab — und der
+    # danach gestellte liefe 30 s lang auf einer bereits beendeten Sitzung
+    # weiter und hielte deren Socket-Referenz am Leben.
+    mgr.remote_schedule_timeout(sess.session_id, websocket)
     for hs in host_sockets:
         await send_to_socket(hs, frame)
-    mgr.remote_schedule_timeout(sess.session_id, websocket)
 
 
 async def handle_respond(
@@ -172,7 +198,7 @@ async def handle_respond(
         return
     # EVERY side effect (dismiss/notify/teardown) must happen only AFTER this tab
     # atomically wins the answer — otherwise, in a concurrent double-answer, a
-    # losing tab's `_dismiss_other_host_tabs` broadcast could reach and reset the
+    # losing tab's `remote_dismiss_host_tabs` broadcast could reach and reset the
     # winning tab (orphaning a live session). Accept wins via `remote_activate`
     # (pending→active CAS), decline via `remote_end_if_pending` (pop-if-pending);
     # the loser gets 4053 and touches nothing.
@@ -182,7 +208,11 @@ async def handle_respond(
             await _err(websocket, 4053, "session already answered")
             return
         mgr.remote_cancel_timeout(session_id)
-        await _dismiss_other_host_tabs(mgr, removed, answered=websocket)
+        # "Nein" haelt eine Weile. Ohne Sperrfrist kostet eine Absage nichts und
+        # ein Berechtigter kann dem Host den modalen Dialog beliebig oft vor die
+        # Nase setzen — Belaestigung mit Bordmitteln.
+        mgr.remote_note_refused(removed.host_user_id, removed.controller_user_id)
+        await mgr.remote_dismiss_host_tabs(removed, answered=websocket)
         await send_to_socket(
             removed.controller_socket,
             {"op": "remote_response", "session_id": session_id, "accepted": False},
@@ -196,19 +226,10 @@ async def handle_respond(
     # forwarding). Only the winner dismisses the other tabs → no tab can dismiss
     # the winner.
     sess.host_socket = websocket
-    await _dismiss_other_host_tabs(mgr, sess, answered=websocket)
+    await mgr.remote_dismiss_host_tabs(sess, answered=websocket)
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
-
-
-async def _dismiss_other_host_tabs(mgr, sess, *, answered) -> None:
-    """Tell every host tab except the one that answered to drop the pending
-    consent prompt for this session."""
-    frame = {"op": "remote_canceled", "session_id": sess.session_id}
-    for hs in mgr.remote_user_sockets(sess.host_user_id):
-        if hs is not answered:
-            await send_to_socket(hs, frame)
 
 
 async def handle_signal(
@@ -240,69 +261,33 @@ async def handle_signal(
     )
 
 
-def _input_payload_error(msg: dict[str, Any]) -> str | None:
-    """``None`` when ``slot`` and ``frames`` are well-formed and within the
-    flood limits, else the reason for the 4050. Frames are only *measured*:
-    the decoded bytes are discarded, never interpreted."""
-    slot = msg.get("slot")
-    if not isinstance(slot, int) or isinstance(slot, bool) or slot < 0:
-        return "slot must be a non-negative integer"
-    frames = msg.get("frames")
-    if not isinstance(frames, list) or not frames:
-        return "frames must be a non-empty list"
-    if len(frames) > MAX_INPUT_FRAMES:
-        return f"at most {MAX_INPUT_FRAMES} frames per message"
-    total = 0
-    for frame in frames:
-        if not isinstance(frame, str):
-            return "frames must be base64 strings"
-        try:
-            total += len(base64.b64decode(frame, validate=True))
-        except ValueError:  # bad alphabet/padding, or a non-ASCII string
-            return "frames must be base64 strings"
-        if total > MAX_INPUT_DECODED_BYTES:
-            return f"at most {MAX_INPUT_DECODED_BYTES} decoded bytes per message"
-    return None
+async def _end_and_notify_peer(mgr, session_id: str, websocket: WebSocket, reason: str) -> None:
+    """Tear a session down on behalf of ``websocket`` and tell the other peer.
 
-
-async def handle_input(
-    websocket: WebSocket, user: AuthenticatedUser, msg: dict[str, Any]
-) -> None:
-    """Forward input frames from the controller to the host, unchanged. Checks
-    session, role and size — nothing else. Every rejection drops the frames of
-    *this* message only and leaves the session standing: overstepping a gateway
-    limit should cost the controller a mouse move, not its session."""
-    session_id = _session_id(msg.get("session_id"))
-    if not session_id:
-        await _err(websocket, 4050, "session_id required")
+    Ein Abbauweg fuer beide Ausloeser (``remote_end`` und Disconnect): Zeitgeber
+    loeschen, Sitzung atomar entfernen, Gegenseite benachrichtigen. Die Reihenfolge
+    ist Absicht — ohne das ``remote_end``-Ergebnis abzuwarten wuerden zwei
+    gleichzeitige Abbauten die Gegenseite doppelt benachrichtigen."""
+    mgr.remote_cancel_timeout(session_id)
+    removed = await mgr.remote_end(session_id)
+    if removed is None:
         return
-    mgr = _manager(websocket)
-    if mgr is None:
-        return
-    sess = mgr.remote_get(session_id)
-    if sess is None or sess.state != "active":
-        await _err(websocket, 4053, "no active session")
-        return
-    # One-way street: only the controller sends. The host is the injector, so
-    # input arriving from it would mean it is driving itself.
-    if websocket is not sess.controller_socket:
-        await _err(websocket, 4053, "only the controlling peer may send input")
-        return
-    problem = _input_payload_error(msg)
-    if problem is not None:
-        await _err(websocket, 4050, problem)
-        return
-    # ``slot`` selects one of the host's concurrent streams; resolving it to a
-    # source rectangle is the host's job.
-    await send_to_socket(
-        sess.host_socket,
-        {
-            "op": "remote_input",
-            "session_id": session_id,
-            "slot": msg["slot"],
-            "frames": msg["frames"],
-        },
+    other = (
+        removed.controller_socket
+        if websocket is removed.host_socket
+        else removed.host_socket
     )
+    await send_to_socket(
+        other,
+        {"op": "remote_ended", "session_id": removed.session_id, "reason": reason},
+    )
+    # War die Sitzung noch nicht angenommen, steht der Zustimmungsdialog auf
+    # JEDEM Host-Tab (``host_socket`` ist nur der Stellvertreter). Bleibt er
+    # stehen, haengt der Dialog, und ein spaeteres "Zulassen" laeuft in 4053, was
+    # das Frontend in der Phase 'incoming' verschluckt: der Host waere danach
+    # fuer alle unerreichbar.
+    if removed.state != "active":
+        await mgr.remote_dismiss_host_tabs(removed, answered=websocket)
 
 
 async def handle_end(
@@ -321,19 +306,7 @@ async def handle_end(
     if websocket is not sess.host_socket and websocket is not sess.controller_socket:
         await _err(websocket, 4053, "not a session peer")
         return
-    mgr.remote_cancel_timeout(session_id)
-    removed = await mgr.remote_end(session_id)
-    if removed is None:
-        return
-    other = (
-        removed.controller_socket
-        if websocket is removed.host_socket
-        else removed.host_socket
-    )
-    await send_to_socket(
-        other,
-        {"op": "remote_ended", "session_id": session_id, "reason": "peer_ended"},
-    )
+    await _end_and_notify_peer(mgr, session_id, websocket, "peer_ended")
 
 
 async def cleanup_remote_on_disconnect(websocket: WebSocket, manager) -> None:
@@ -341,28 +314,6 @@ async def cleanup_remote_on_disconnect(websocket: WebSocket, manager) -> None:
     tell the other peer immediately — no grace window (unlike watch parties)."""
     for sess in manager.remote_sessions_for_socket(websocket):
         try:
-            manager.remote_cancel_timeout(sess.session_id)
-            removed = await manager.remote_end(sess.session_id)
-            if removed is None:
-                continue
-            other = (
-                removed.controller_socket
-                if websocket is removed.host_socket
-                else removed.host_socket
-            )
-            await send_to_socket(
-                other,
-                {
-                    "op": "remote_ended",
-                    "session_id": removed.session_id,
-                    "reason": "peer_disconnected",
-                },
-            )
-            # A pending session's invite is still up on EVERY host tab (only the
-            # representative socket is `host_socket`); tell the rest to dismiss,
-            # else their consent dialog hangs (a later accept hits 4053, which
-            # the host frontend ignores in the 'incoming' phase).
-            if removed.state != "active":
-                await _dismiss_other_host_tabs(manager, removed, answered=websocket)
+            await _end_and_notify_peer(manager, sess.session_id, websocket, "peer_disconnected")
         except Exception:  # noqa: BLE001
             log.exception("remote disconnect cleanup failed for session %s", sess.session_id)

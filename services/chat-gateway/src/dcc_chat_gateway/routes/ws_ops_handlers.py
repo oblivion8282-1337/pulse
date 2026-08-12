@@ -39,6 +39,7 @@ from dcc_chat_gateway.presence_status import (
 from dcc_chat_gateway.routes import (
     watch_handoff,
     ws_remote_handlers,
+    ws_remote_input,
     ws_watch,
     ws_watch_queue,
 )
@@ -265,7 +266,9 @@ async def handle_remote_signal(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 
 @register_ws_op("remote_input")
 async def handle_remote_input(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await ws_remote_handlers.handle_input(ctx.websocket, ctx.user, msg)
+    # Bekommt als einziger ``remote_*``-Op den ganzen Kontext: der Deckel je
+    # Sekunde ist verbindungsgebundener Zustand und lebt auf ``ctx``.
+    await ws_remote_input.handle_input(ctx, msg)
 
 
 @register_ws_op("remote_end")
