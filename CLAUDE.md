@@ -190,6 +190,8 @@ Einzel-Infra: MediaMTX `docker compose -f streaming/server/docker-compose.yml up
 
 - Backend: `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q`. Pro-Service `services/*/tests/` (MediaMTX/LiveKit gemockt; Redis `/1`).
 - **Flake-Retry**: CI-pytest `--reruns 2 --only-rerun AssertionError --only-rerun RuntimeError`. Root-Cause = Cache-Mutation-Races (Fix `SELECT FOR UPDATE` aus `state_store.py`).
+- **Den Volllauf NICHT neben schwere Builds legen.** Läuft parallel `cargo build`/`pnpm build`, **hängt** ein WS-Test bis ins Zeitlimit statt nur langsamer zu werden (2026-08-12 zweimal, jeweils in `test_remote_handlers.py`; `--reruns` greift nicht, weil ein Timeout kein `AssertionError` ist). Auf ruhiger Maschine: **1961 grün in 9 min**. Wer einen Hänger sieht, prüft zuerst die Maschinenlast, nicht den Test.
+- **Playwright-Grundlinie (2026-08-12, lokal Windows): 99 grün, 3 rot** — `attachments`, `dropbox`, `watch-party/detach handover`. Die drei fallen **auf `main` genauso** (A/B gefahren), sind also Bestand. Ohne diese Grundlinie hält man sie für eigene Regressionen.
 - Frontend: `cd web && pnpm check && pnpm build` + `pnpm exec playwright test`. Kein Vitest im Web.
 - E2E-DB = `dcc_test` (separat; Dev-DB `dcc` unangetastet). Test-Redis `/1`. Playwright lokal braucht `PULSE_INSTANCE_MODE=cloud`.
 - **Manuell, nicht automatisiert**: echter GSR-`start` (Portal + realer Push), Electron-GUI-Sichttest, HQ-Stream-E2E (2 Clients).
