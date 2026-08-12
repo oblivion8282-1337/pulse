@@ -25,45 +25,50 @@ Belegt: Oberfläche 200, `/api/auth/health` grün, Registrierung 201, und ein
 echter WebSocket-Handschlag über TLS endet mit `4001 unauthorized` — die
 dokumentierte Antwort auf ein ungültiges Token. Die ganze Kette trägt.
 
-**Was bewusst FEHLT:** media-svc, mediamtx-auth-hook, MediaMTX, LiveKit, MinIO.
-Es gibt also **kein HQ-Streaming und kein Bild**. Absicht: zuerst die eine Zahl
-messen, die fehlt — die Laufzeit des Eingabewegs über das echte Internet. Die
-Bildstrecke ist über denselben Server längst mit 59 ms gemessen.
+**Die Bildstufe steht ebenfalls** (nachgezogen am 2026-08-12, Weg B): MediaMTX,
+media-svc und mediamtx-auth-hook laufen. HQ-Streaming ist damit möglich, und der
+Test läuft durch die **echte Oberfläche** — mit Bild, Anfrage-Knopf und
+Zustimmungs-Dialog.
 
-**Der MediaMTX-Messstand ist dafür gestoppt.** Er lag auf derselben Adresse.
+| Strecke | Stand |
+|---|---|
+| RTMPS-Einspeisung `pulse.unicutmedia.com:1936` | offen, von Windows aus erreichbar |
+| WebRTC-ICE `:8189/udp` | offen |
+| WHEP über `/whep/*` | nginx → MediaMTX → Auth-Hook, geprüft |
+
+Belegt: eine WHEP-Anfrage ohne Token von außen endet mit **401**, und der
+Auth-Hook protokolliert den Grund (`read_non_channel_path`). Die Kette
+nginx → MediaMTX → Hook trägt also.
+
+**Was weiterhin fehlt:** LiveKit (kein Voice) und MinIO (keine Anhänge). Für den
+Fernsteuer-Test belanglos.
+
+**Der MediaMTX-Messstand ist gestoppt.** Er lag auf derselben Adresse.
 Rückholanleitung auf dem Server: `~/messstand-gestoppt-2026-08-12.txt`. Solange
-er steht, laufen die Messwerkzeuge in `streaming/win-hq-labor/testbench/` nicht.
+die Testinstanz dort liegt, laufen die Messwerkzeuge in
+`streaming/win-hq-labor/testbench/` nicht.
 
 ---
 
-## 2. Das Hindernis — bitte zuerst lesen
+## 2. Ablauf des Tests
 
-**Der Anfrage-Knopf ist über die Oberfläche nicht erreichbar, solange kein Bild
-läuft.** Er sitzt in der Kachel des nativen Player-Fensters
-(`web/src/lib/player/components/NativeWindowPanel.svelte`), und die gibt es nur,
-während man einem Streamer im Player zusieht. Ohne HQ-Streaming gibt es keinen
-Player und damit keinen Knopf.
+1. **Windows** registriert sich zuerst → wird Bootstrap-Admin, legt eine
+   Community mit einem Sprachkanal an, vergibt `REMOTE_CONTROL` (Bit 37) an
+   eine Rolle und lädt Linux ein.
+2. **Windows startet einen HQ-Stream** in diesem Kanal.
+3. **Linux** öffnet den Stream im **nativen Player** (nicht im Browser-Element)
+   — nur dort sitzt der Anfrage-Knopf, und nur dort wird Eingabe erfasst
+   (Zeigerfang, rohe Scancodes).
+4. **Linux** klickt „Fernsteuerung anfragen".
+5. **Windows** bekommt den Zustimmungs-Dialog und akzeptiert. Dieser Klick ist
+   bewusst nicht automatisierbar.
+6. Ab da bewegt Linux Maus und Tastatur des Windows-Rechners.
 
-Der **Zustimmungs-Dialog** beim Host hängt dagegen global in
-`routes/app/+layout.svelte` — der erscheint also sehr wohl.
-
-Daraus folgen zwei Wege, und die Entscheidung gehört dem User:
-
-**Weg A — Eingabeweg messen, ohne Bild.** Ein kleines Skript auf der
-Linux-Seite öffnet die WebSocket zur Testinstanz, sendet `remote_request`, der
-Mensch am Windows-Rechner klickt die Zustimmung, danach schickt das Skript
-Eingabe-Frames. Auf der Windows-Seite fängt das Prüfziel
-(`streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1`) auf, was ankommt.
-Damit ist die Laufzeit des Eingabewegs über das Internet gemessen. Kein Bild,
-keine Oberfläche auf der steuernden Seite.
-
-**Weg B — die Bildstufe nachziehen.** media-svc, mediamtx-auth-hook und
-MediaMTX dazustellen. Dann läuft der Test durch die echte Oberfläche, mit Bild,
-Knopf und allem. Deutlich mehr Aufbau, und MediaMTX müsste sich die Adresse mit
-der Instanz teilen.
-
-Empfehlung der Windows-Seite: **A zuerst.** Trägt der Eingabeweg nicht, ist B
-hinfällig.
+**Auf der Windows-Seite läuft dabei das Prüfziel**
+(`streaming/win-hq-labor/testbench/eingabe-pruefziel.ps1`) über alle
+Bildschirme und protokolliert jede ankommende Eingabe als JSONL — Zeitstempel,
+Koordinate, Scancode, Erweitert-Kennung. Damit ist der Nachweis objektiv und
+nicht „sieht gut aus".
 
 ---
 
@@ -119,10 +124,10 @@ an, lädt Linux ein und vergibt das Recht), Linux ist der Steuernde.
 * Electron läuft dort bereits gegen die Testinstanz, mit eigenem
   Datenverzeichnis (`%LOCALAPPDATA%\PulseTest`) — die reguläre Pulse-App und
   ihre Stream-Einstellungen bleiben unangetastet.
-* Der Sidecar wird mit `PULSE_LABOR_EINGABE_OHNE_STREAM=1` gefahren. Ohne
-  laufenden Stream gibt es kein Quell-Rechteck; der Schalter nimmt dann einen
-  Bildschirm. **Kein Produktweg**, nur damit sich ohne Bild überhaupt messen
-  lässt.
+* Der Sidecar läuft **ohne** Labor-Schalter — mit laufendem Stream gibt es ein
+  echtes Quell-Rechteck, und genau dessen Auflösung soll ja mitgeprüft werden.
+  (`PULSE_LABOR_EINGABE_OHNE_STREAM=1` gibt es weiterhin, aber nur für Messungen
+  ohne Bild.)
 * Das **Prüfziel** legt sich über alle Bildschirme, fängt jede injizierte
   Eingabe ab und protokolliert sie als JSONL — mit Zeitstempel, Koordinate,
   Scancode und Erweitert-Kennung.
@@ -140,17 +145,16 @@ Sitzungsende freigegeben.
 Zwei Rechner haben nie dieselbe Uhr — ein Zeitstempel-Vergleich über die
 Maschinen hinweg ist wertlos.
 
-**Für Weg A** (ohne Bild) ist die ehrliche Zahl: Absendezeit auf der
-Linux-Seite gegen die Ankunft im Prüfziel-Protokoll, **beide Uhren getrennt
-notiert**, und die Differenz nur als Größenordnung gelesen. Belastbarer ist die
-halbe HTTPS-Umlaufzeit zum Server als Untergrenze (rund 40 ms je Richtung von
-Windows aus).
-
-**Für Weg B** (mit Bild) gibt es die saubere Messung: ein **geschlossener
+Weil die Bildstufe steht, gibt es die **saubere** Messung: ein **geschlossener
 Kreis**, komplett auf der Linux-Seite. Tastendruck raus, Windows spielt ihn ein,
 die Eingabe verändert sichtbar das Windows-Bild, und dieses Bild läuft ohnehin
-als Stream zurück. Start und Stopp liegen auf derselben Uhr. Das ist die Zahl,
-die Schritt 4 der Neubewertung verlangt.
+als Stream zurück in den Player. Start und Stopp liegen damit auf **derselben**
+Uhr. Das ist die Zahl, die Schritt 4 der Neubewertung verlangt.
+
+Als Ziel eignet sich alles, was auf Eingabe sichtbar und schlagartig reagiert;
+das Prüfziel zeichnet bei jeder Bewegung eine Marke an der Zeigerposition. Zum
+Gegenrechnen: die HTTPS-Umlaufzeit Windows↔Server liegt bei 80 ms, ICMP bei
+58 ms — die halbe Strecke je Richtung ist die Untergrenze für den Eingabeweg.
 
 ---
 
