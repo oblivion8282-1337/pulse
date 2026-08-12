@@ -42,6 +42,7 @@ import {
   resetSpawnTargetCache,
 } from './sidecar';
 import { playerManager } from './player';
+import { EingabeWeiche } from './remoteInput';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -826,12 +827,29 @@ function wireSidecar(): void {
  */
 // `record`/`clip` fehlen hier bewusst: die tragen einen Dateipfad und laufen
 // deshalb ueber eigene Kanaele, bei denen der Hauptprozess das Ziel bestimmt.
+// `input_capture` fehlt hier ebenfalls bewusst: die Operation legt zugleich die
+// Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung an, und die gehoert in den
+// Hauptprozess (s. `remoteInput.ts`). Sie laeuft deshalb ueber `player:inputCapture`.
 const ALLOWED_PLAYER_OPS = new Set(['health', 'open', 'close', 'set_option', 'stats', 'focus']);
+
+/** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */
+const eingabeWeiche = new EingabeWeiche();
 
 function wirePlayer(): void {
   // Registrieren startet den Prozess NICHT — der Start bleibt lazy bis zum
   // ersten `call()`.
   playerManager.onEvent((ev) => {
+    // Eingabe-Frames der Fernsteuerung: eigener Kanal, nicht der allgemeine
+    // `player:event`-Strom. Zwei Gruende — sie kommen bis zu 125-mal je Sekunde
+    // (der allgemeine Strom ist duenn und wird vollstaendig geloggt), und der
+    // Renderer soll sie ohne Umformung absetzen koennen.
+    if (ev?.ev === 'player:input') {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+      for (const nachricht of eingabeWeiche.verteilen(ev)) {
+        mainWindow.webContents.send('player:remoteInput', nachricht);
+      }
+      return;
+    }
     // Chat-Knopf im Player-Fenster: das App-Fenster nach vorne holen. Das kann
     // nur der Hauptprozess — ein `window.focus()` im Renderer bewirkt hier
     // nichts, und das Fenster kann obendrein im Tray versteckt sein
@@ -876,6 +894,37 @@ function wirePlayer(): void {
   handleRecording('player:clip', (session, seconds) =>
     playerManager.saveClip(session, Number(seconds) || 30),
   );
+
+  // Fernsteuerung: Eingabe-Erfassung im Player-Fenster schalten und zugleich
+  // die Zuordnung zur Fernsteuerungs-Sitzung anlegen. Erst danach koennen
+  // Frames herausgehen — ohne Zuordnung verwirft `EingabeWeiche` sie.
+  ipcMain.handle('player:inputCapture', async (_e, args: unknown) => {
+    const a = (args ?? {}) as Record<string, unknown>;
+    const session = typeof a.session === 'number' ? a.session : null;
+    if (session === null) return { ok: false, error: 'session fehlt' };
+    const enabled = a.enabled === true;
+    const sessionId = typeof a.sessionId === 'string' ? a.sessionId : '';
+    // Ohne Sitzungskennung gaebe es kein Ziel — dann lieber gar nicht erfassen,
+    // als Eingaben zu erzeugen, die nirgends ankommen.
+    if (enabled && !sessionId) return { ok: false, error: 'sessionId fehlt' };
+    const slot = Number.isInteger(a.slot) ? (a.slot as number) : 0;
+    try {
+      const res = await playerManager.call('input_capture', {
+        session,
+        enabled,
+        slot,
+        pointer_lock: a.pointerLock === true,
+      });
+      if (enabled && res.ok !== false) eingabeWeiche.anmelden(session, sessionId, slot);
+      // Beim Abschalten NICHT sofort abmelden: der Player reicht danach noch
+      // die Hoch-Ereignisse fuer alles Gedrueckte nach, und die duerfen nicht
+      // an der Weiche haengenbleiben — sonst klemmt beim Host eine Taste.
+      else if (!enabled) setTimeout(() => eingabeWeiche.abmelden(session), 1_000);
+      return res;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
 
   ipcMain.handle('player:call', async (_e, op: string, params: unknown) => {
     if (!ALLOWED_PLAYER_OPS.has(op)) {

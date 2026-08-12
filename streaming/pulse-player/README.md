@@ -123,6 +123,16 @@ nicht einsehbar.
 - **Clip der letzten Sekunden** (`clip`): ein Ringpuffer haelt 60 s vor, auch
   wenn nicht aufgenommen wird. Der Schnitt beginnt am letzten Keyframe davor,
   sonst waere der Anfang unbrauchbar.
+- **Eingabe-Erfassung fuer die Fernsteuerung** (`src/fernsteuerung/`), **Standard
+  aus**. Der Op `input_capture` schaltet sie je Sitzung ein; danach kodiert der
+  Player Maus und Tastatur in die Frames der Wire-Spec
+  (`docs/plans/2026-08-12-input-wire-protokoll-v2.md`) und meldet sie als
+  `player:input`-Ereignis nach vorne. Die absolute Zeigerposition ist ein Anteil
+  am **Bild**, nicht am Fenster — Rand und Zoom werden herausgerechnet, und
+  ausserhalb des Bildes wird nichts gesendet. Tastenzuordnung ist Scancode
+  Satz 1 und damit layoutunabhaengig. Was der Player NICHT tut: die Frames
+  absetzen. Das macht die App (`desktop/electron/remoteInput.ts` buendelt,
+  der Renderer sendet auf seiner Gateway-Verbindung).
 - **Ehrliche Statistik**: empfangene, verlorene, umsortierte und doppelte Pakete,
   dekodierte und verworfene Frames, Pufferfuellstand, gewaehlter Decoder,
   Hardware ja/nein, Oberflaechenformat, dazu Ton-Unterlaeufe und Puffer-Stand
@@ -378,6 +388,13 @@ src/
 ├── proto.rs       Protokolltypen, Optionen, Grenzen
 ├── whep.rs        WHEP-Aushandlung, liefert rohe RTP-Pakete
 ├── jitter.rs      Umsortieren nach Sequenznummer + zeitgesteuerte Freigabe
+├── fernsteuerung/ Eingabe-Erfassung: die Seite des STEUERNDEN. Ein ZWEITER
+│   │              Abnehmer der winit-Ereignisse neben egui, Standard AUS.
+│   ├── mod.rs       Warteschlange, Zusammenfassen, Flutkontrolle
+│   ├── rahmen.rs    Frame-Format Byte fuer Byte + Base64
+│   ├── tasten.rs    KeyCode -> Windows Scancode Satz 1
+│   ├── bildlage.rs  Zeigerposition -> Anteil am BILD (Rand und Zoom heraus)
+│   └── winit_abbild.rs  Knopf- und Rad-Zuordnung (Vorzeichen!)
 ├── depacket/      Zusammensetzen von Zugriffseinheiten
 │   ├── mod.rs     H.264 (ueber das rtp-Crate) und Opus
 │   └── av1.rs     AV1 — SELBST GESCHRIEBEN, s. u.
@@ -469,7 +486,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 255 Tests, keine Hardware noetig
+cargo test          # 303 Tests, keine Hardware noetig
 cargo build --release
 ```
 

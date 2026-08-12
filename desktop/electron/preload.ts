@@ -144,6 +144,43 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.on('player:event', handler);
       return () => ipcRenderer.removeListener('player:event', handler);
     },
+
+    /**
+     * Fernsteuerung — Eingabe-Erfassung im Player-Fenster.
+     *
+     * **Gesendet wird hier, nicht im Hauptprozess.** Der hat keine WebSocket
+     * zum Gateway; die App-Verbindung samt Token und Reconnect lebt im
+     * Renderer. Er buendelt nur (hoechstens 32 Frames je Nachricht, s.
+     * `remoteInput.ts`) und schiebt fertige `remote_input`-Nachrichten ueber
+     * `onFrames` herueber — der Renderer setzt sie unveraendert ab.
+     */
+    input: {
+      /** Erfassung einschalten. `sessionId` ist die per Consent bestaetigte
+       *  Fernsteuerungs-Sitzung, `slot` der gemeinte Stream des Hosts. */
+      start: (
+        session: number,
+        sessionId: string,
+        slot = 0,
+        pointerLock = false,
+      ): Promise<unknown> =>
+        ipcRenderer.invoke('player:inputCapture', {
+          session,
+          enabled: true,
+          sessionId,
+          slot,
+          pointerLock,
+        }),
+      /** Erfassung ausschalten. Der Player reicht danach fuer alles Gedrueckte
+       *  das Hoch-Ereignis nach — die kommen noch ueber `onFrames`. */
+      stop: (session: number): Promise<unknown> =>
+        ipcRenderer.invoke('player:inputCapture', { session, enabled: false }),
+      /** Fertige `remote_input`-Nachrichten. Liefert eine Abmelde-Funktion. */
+      onFrames: (cb: (nachricht: unknown) => void): (() => void) => {
+        const handler = (_e: unknown, nachricht: unknown): void => cb(nachricht);
+        ipcRenderer.on('player:remoteInput', handler);
+        return () => ipcRenderer.removeListener('player:remoteInput', handler);
+      },
+    },
   },
 
   // Invite deep-link bridge (Phase 5.3). Main parses + validates pulse://invite

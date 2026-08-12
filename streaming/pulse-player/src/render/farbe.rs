@@ -50,6 +50,26 @@ impl Bildform {
     }
 }
 
+/// Welcher Teil der QUELLE gerade zu sehen ist, als `[x, y, breite, hoehe]` in
+/// Anteilen 0..1. Ohne Zoom `[0, 0, 1, 1]`.
+///
+/// Frei statt eingebaut in [`build_uniforms`], weil die Eingabe-Erfassung
+/// dieselbe Rechnung braucht: wer hineingezoomt hat, sieht nur einen Ausschnitt,
+/// und ein Klick in die Fenstermitte meint dann dessen Mitte — nicht die Mitte
+/// des Bildschirms des Hosts. Zwei Fassungen hiessen, dass Klick und Bild
+/// auseinanderlaufen koennen.
+///
+/// **Ohne den Fuellzeilen-Faktor** (`Bildform::nutzanteil`): der gehoert zur
+/// Textur, nicht zum Bild, und die Erfassung rechnet in Bild-Koordinaten.
+pub fn zoom_ausschnitt(opts: &PlayerOptions) -> [f32; 4] {
+    let zoom = opts.zoom.unwrap_or(1.0).max(1.0);
+    let size = 1.0 / zoom;
+    // Ausschnitt so verschieben, dass er im Bild bleibt.
+    let origin_x = (opts.pan_x.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
+    let origin_y = (opts.pan_y.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
+    [origin_x, origin_y, size, size]
+}
+
 /// Der Uniform-Block, aus dem der Shader alles liest.
 ///
 /// Frei statt Methode, damit der Messpfad ([`crate::messen`]) ihn TEILT statt
@@ -71,11 +91,7 @@ pub fn build_uniforms(
     hdr_fenster: bool,
     zeit: f32,
 ) -> Uniforms {
-    let zoom = opts.zoom.unwrap_or(1.0).max(1.0);
-    let size = 1.0 / zoom;
-    // Ausschnitt so verschieben, dass er im Bild bleibt.
-    let origin_x = (opts.pan_x.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
-    let origin_y = (opts.pan_y.unwrap_or(0.5) - size / 2.0).clamp(0.0, 1.0 - size);
+    let [origin_x, origin_y, size, _] = zoom_ausschnitt(opts);
     let flag = |on: bool| if on { 1.0 } else { 0.0 };
     let (abtast_skalierung, code_massstab) = scales(form.wide, form.layout);
 
