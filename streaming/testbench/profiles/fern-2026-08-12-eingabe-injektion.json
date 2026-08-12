@@ -133,9 +133,25 @@
     }
   },
 
+  "nachtrag_senkrecht_und_versetzt": {
+    "gemessen_am": "2026-08-12, nachgereicht",
+    "anlass": "Die Bildschirme wurden untereinander gestellt, der obere zusaetzlich seitlich versetzt. Damit wird der Ursprung des virtuellen Desktops in BEIDEN Achsen negativ, und der x-Versatz ist eine krumme Zahl statt eines Vielfachen der Bildschirmbreite.",
+    "aufbau": {
+      "monitor_1": "DISPLAY1, primaer, Lage 0,0, 2560x1440, 100 Prozent",
+      "monitor_2": "DISPLAY2, Lage 0,1440 (darunter), 2560x1440, 150 Prozent",
+      "monitor_3": "DISPLAY3, Lage -626,-1440 (darueber und 626 px nach links versetzt), 2560x1440, 125 Prozent",
+      "virtueller_desktop": "Ursprung -626,-1440, 3186x4320"
+    },
+    "ergebnis": {
+      "abnahme_je_bildschirm": "8 von 8 Zielen, 0 px, auf allen dreien -- einschliesslich negativer y-Koordinaten von -1440 bis -1",
+      "dichte_reihe": "126 Punkte (Raster 7x6 je Bildschirm), 126 exakt, 0 px",
+      "tasten_und_rad": "auf allen drei Laeufen vollstaendig"
+    },
+    "WICHTIGER_VORBEHALT": "Auf DIESER Geometrie treffen BEIDE Umrechnungen -- die alte wie die neue, je 126 von 126. Der Unterschied haengt an der Breite des virtuellen Desktops (hier 3186, beim Fund 7680). Dieser Lauf bestaetigt also die Korrektheit der neuen Fassung, er weist den Fehler der alten NICHT erneut nach. Wer die Berichtigung nachvollziehen will, braucht die 7680er Anordnung oder den Unit-Test absolut_rechnet_sich_zurueck, der Windows' Rueckrechnung ueber vier Geometrien nachstellt."
+  },
+
   "offen_und_nicht_ermittelt": [
     "Die Slot-Aufloesung an einem ECHTEN Stream. Geprueft ist der Weg mit dem Labor-Schalter; dass Slot 1 bei zwei laufenden Streams das richtige Rechteck trifft, ist damit nicht gezeigt.",
-    "OBERHALB des primaeren hat noch keiner gelegen -- nur links und rechts. Ein negativer Ursprung in y ist damit rechnerisch abgedeckt (dieselbe Formel, beide Achsen, und der neue Test faehrt sie), aber nicht am lebenden System nachgemessen.",
     "Fenster-Aufnahme mit DWMWA_EXTENDED_FRAME_BOUNDS (rund 7 px Versatz, falls falsch gemacht).",
     "Der Sichtschutz-Fall: bei geschwaerztem Bild soll saemtliche Eingabe wegfallen. Im Sidecar umgesetzt und unit-getestet, hier nicht am lebenden Bild nachgemessen.",
     "Die Strecke ueber zwei Rechner."
