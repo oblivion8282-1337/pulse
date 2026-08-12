@@ -30,7 +30,7 @@ import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
 import { gapFillAll, gapFillChannel } from './gapFill';
-import { backgroundEligible } from './dispatch-rules';
+import { backgroundEligible, remoteSessionEligible } from './dispatch-rules';
 import * as senders from './gateway-senders';
 import { compareVersions } from '$lib/utils/semver';
 import type { ServerEvent, ClientEvent } from './handlers/types';
@@ -134,6 +134,7 @@ export class GatewayConnection {
   private listeners = new Set<WsListener>();
   private channelDeletedHooks = new Set<ChannelDeletedHook>();
   private guildDeletedHooks = new Set<GuildDeletedHook>();
+  private closeHooks = new Set<() => void>();
   private wantConnected = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -265,6 +266,22 @@ export class GatewayConnection {
   onGuildDeleted(hook: GuildDeletedHook): () => void {
     this.guildDeletedHooks.add(hook);
     return () => this.guildDeletedHooks.delete(hook);
+  }
+
+  /**
+   * Der Socket ist zu — auch bei einem transparenten Reconnect und beim
+   * absichtlichen `disconnect()`.
+   *
+   * Für alles, was einen Abriss SOFORT erfahren muss, statt ihn im Takt
+   * abzufragen: ein Zeitgeber wird in einem verdeckten oder minimierten Fenster
+   * von Chromium gedrosselt (≥1/min), Ereignisse nicht. Die Fernsteuerung hängt
+   * daran (`remote/wachten.ts`) — dort ist „Verbindung weg" gleichbedeutend mit
+   * „der Gateway hat die Sitzung längst beendet", und genau der Fall tritt ein,
+   * während der Host im Vollbild spielt.
+   */
+  onClose(hook: () => void): () => void {
+    this.closeHooks.add(hook);
+    return () => this.closeHooks.delete(hook);
   }
 
   async connect(): Promise<void> {
@@ -456,6 +473,10 @@ export class GatewayConnection {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this._stopHeartbeat();
+        // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
+        // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
+        // Kopie, weil ein Hörer sich im Ruf abmelden darf.
+        for (const h of [...this.closeHooks]) h();
         // Only map the close code (and potentially overwrite the state) when
         // the disconnect was NOT intentional. disconnect() already sets state
         // to 'idle' synchronously before ws.close(); letting _mapCloseCode run
@@ -520,7 +541,16 @@ export class GatewayConnection {
       // ready-Handler wendet dann via `_isActive`/`_isCloud` nur den Social-
       // Teil an, nie den Server-Teil. Alles andere bleibt auf die
       // `backgroundEligible`-Allowlist beschränkt.
-      const allowed = evt.op === 'ready' ? this.isCloud : this.isCloud && backgroundEligible(evt);
+      //
+      // Zweite Ausnahme: die Frames einer laufenden Fernsteuerungs-Sitzung auf
+      // GENAU deren Verbindung (`remoteSessionEligible`) — sonst endet eine
+      // Sitzung nach einem Community-Wechsel nicht mehr sauber (Begründung in
+      // `dispatch-rules.ts`). Gilt für Cloud und Self-Host gleichermaßen: eine
+      // Fernsteuerung läuft auf dem Server, auf dem sie zustande kam.
+      const allowed =
+        evt.op === 'ready'
+          ? this.isCloud
+          : remoteSessionEligible(this, evt) || (this.isCloud && backgroundEligible(evt));
       if (!allowed) return;
     }
     // Mark this as the dispatching connection so the global handler-context

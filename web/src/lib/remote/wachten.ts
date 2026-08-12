@@ -54,19 +54,29 @@ export class WachtSchalter {
  * Warnbanner stehen, beim Steuernden liefe die Erfassung weiter, und der
  * Sidecar hielte alles Gedrückte fest.
  *
- * Poll statt Effect, weil der Verbindungszustand bewusst keine Rune ist (s.
- * `ws/gateway-connection.ts`) — dieselbe Begründung wie in
- * `ws/server-state.svelte.ts`.
+ * **Ereignis statt Takt.** Bis 2026-08-12 fragte diese Wacht den Zustand jede
+ * Sekunde ab. Das ist ausgerechnet im Normalfall unzuverlässig: der Host spielt
+ * im Vollbild, das Pulse-Fenster ist verdeckt oder minimiert, und Chromium
+ * drosselt dort jeden Zeitgeber auf höchstens einen Lauf pro Minute — der erste
+ * Reconnect-Backoff ist aber genau 1000 ms (`api/constants.ts`), sodass der
+ * Abriss zwischen zwei Läufen komplett verschwinden konnte. Ereignisse werden
+ * nicht gedrosselt, deshalb hängt die Wacht jetzt an `conn.onClose`.
+ *
+ * Der Zustand wird zusätzlich EINMAL sofort geprüft: die Verbindung kann
+ * bereits weg sein, wenn die Wacht startet — dann käme nie ein Ereignis mehr.
+ * `beiVerlust` läuft in dem Fall noch aus diesem Ruf heraus (der Aufrufer,
+ * `WachtSchalter.an`, verträgt das: er räumt die vorige Wacht vorher ab).
  */
 export function verbindungsWacht(
   conn: GatewayConnection | null,
-  taktMs: number,
   beiVerlust: () => void,
 ): Abbruch {
-  const timer = setInterval(() => {
-    if (!istOffen(conn)) beiVerlust();
-  }, taktMs);
-  return () => clearInterval(timer);
+  if (!istOffen(conn)) {
+    beiVerlust();
+    return () => {};
+  }
+  const ab = conn?.onClose(beiVerlust);
+  return () => ab?.();
 }
 
 /** Ein Wurf zählt als „nicht offen": die Verbindung wurde abgeräumt (abgemeldet

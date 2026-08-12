@@ -347,6 +347,12 @@ export type ServerEvent =
   // `remote_signal`: SDP/ICE für den WebRTC-P2P-Pfad liegt auf
   // feat/remote-control-windows und ist hier bewusst nicht mitportiert).
   | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
+  // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
+  // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
+  // `session_id` — vorher konnte er weder serverseitig abbrechen noch eine
+  // hereinkommende Antwort der eigenen Sitzung zuordnen (jede fremde galt als
+  // die eigene, s. `remote/session.svelte.ts::_pending`).
+  | { op: 'remote_pending'; session_id: string; channel_id: string; host_user_id: string }
   | { op: 'remote_response'; session_id: string; accepted: boolean }
   | { op: 'remote_ended'; session_id: string; reason: string }
   // Eingabe-Frames des Steuernden, vom Gateway unverändert durchgereicht (nur

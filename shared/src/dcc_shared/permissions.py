@@ -14,8 +14,8 @@ Bit budget:
     13-19  reserved
     20-27  channel
     28-29  reserved
-    30-36  voice
-    37-50  reserved (deep room for growth)
+    30-37  voice (37 = REMOTE_CONTROL, Fernsteuerung)
+    38-50  reserved (deep room for growth)
     51     ADMINISTRATOR (bypass)
     52-63  do not use (cross 53-bit JS-safe-int boundary)
 """

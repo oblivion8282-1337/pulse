@@ -37,6 +37,28 @@ pub const BEWEGUNGSTAKT: Duration = Duration::from_millis(8);
 /// Rad zaehlen mit, werden aber nie verworfen.**
 pub const MAX_WARTEND: usize = 256;
 
+/// Harte Obergrenze — ab hier gibt die Schlange den Strom auf (Notbremse).
+///
+/// [`MAX_WARTEND`] deckelt nur, was verwerfbar ist. Eine reine Tasten- oder
+/// Knopfflut (gehaltene Taste mit Tastenwiederholung, waehrend die Abgabe
+/// steht) enthaelt nichts Verwerfbares und liesse die Schlange sonst
+/// **unbegrenzt** wachsen — in einem Prozess, der fremde Eingabe verarbeitet,
+/// ist ein unbegrenzter Puffer keine Option.
+///
+/// **16 x [`MAX_WARTEND`]**: die Flutkontrolle haelt eine Schlange schon ab 256
+/// fuer verstopft; erst das Sechzehnfache davon heisst „die Abgabe steht
+/// wirklich still". In Zeit gerechnet sind 4096 unverwerfbare Frames bei
+/// Tastenwiederholung (rund 30 Ereignisse je Sekunde) ueber zwei Minuten
+/// ununterbrochenes Tippen ohne eine einzige Abholung — im gesunden Betrieb
+/// holt die Fensterschleife alle 8 ms ab.
+///
+/// **Was dann passiert, steht bei [`Schlange::uebervoll`]**: nicht kappen,
+/// sondern den Strom neu beginnen. Ein Hello gibt beim Host alles Gedrueckte
+/// frei — die Reparatur ist damit im Protokoll schon vorgesehen, waehrend
+/// blindes Wegwerfen einzelner Frames genau das Hoch-Ereignis erwischen kann,
+/// dessen Verlust eine Taste am fremden Rechner klemmen laesst.
+pub const MAX_GESAMT: usize = MAX_WARTEND * 16;
+
 /// Was bei einer Abholung herauskommt.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Abgabe {
@@ -57,11 +79,30 @@ pub struct Schlange {
     /// Wie viele Bewegungen gefallen sind. Reine Diagnose, aber die einzige
     /// Stelle, an der ein Frame lautlos verschwindet.
     verworfene_bewegungen: u64,
+    /// Wie viele UNVERWERFBARE Frames gefallen sind — das passiert nur bei der
+    /// Notbremse (s. [`MAX_GESAMT`]) und ist ein Betriebsfehler, kein
+    /// Normalfall. Getrennt gezaehlt, damit beides im Protokoll auseinander zu
+    /// halten ist.
+    verworfene_frames: u64,
 }
 
 impl Schlange {
     pub fn verworfene_bewegungen(&self) -> u64 {
         self.verworfene_bewegungen
+    }
+
+    pub fn verworfene_frames(&self) -> u64 {
+        self.verworfene_frames
+    }
+
+    /// Ist die harte Grenze erreicht (s. [`MAX_GESAMT`])?
+    ///
+    /// Der Aufrufer ([`super::Erfassung`]) beginnt daraufhin einen neuen Strom,
+    /// statt hier einzelne Frames zu opfern: nur er kennt die Menge des
+    /// Gedrueckten und kann sie mit vergessen, und nur ueber den Weg „neuer
+    /// Strom" bekommt der Host sein Hello, mit dem er alles freigibt.
+    pub fn uebervoll(&self) -> bool {
+        self.frames.len() >= MAX_GESAMT
     }
 
     /// Einen unverzichtbaren Frame einreihen (Taste, Knopf, Rad, Hello). Wird
@@ -93,29 +134,86 @@ impl Schlange {
     }
 
     /// Einen neuen Eingabestrom beginnen: `hello` nach VORN, Liegengebliebenes
-    /// dahinter, Bewegungen weg.
+    /// dahinter (nur wenn es `uebernehmen` erlaubt), ueberholte Bewegungen weg.
     ///
-    /// Die Begruendung fuer jede der drei Halbsaetze steht bei
+    /// Die Begruendung fuer jeden der Halbsaetze steht bei
     /// [`super::Erfassung::strom_beginnen`] — sie ist protokollarisch, nicht
     /// technisch, und gehoert deshalb dorthin.
-    pub fn neuer_strom(&mut self, hello: Rahmen) {
-        let vorher = self.frames.len();
-        self.frames.retain(|r| !r.ist_bewegung());
-        self.verworfene_bewegungen += (vorher - self.frames.len()) as u64;
+    pub fn neuer_strom(&mut self, hello: Rahmen, uebernehmen: bool) {
+        if uebernehmen {
+            let behalten = self.behaltmaske();
+            let (mut i, mut gefallen) = (0usize, 0u64);
+            self.frames.retain(|_| {
+                let bleibt = behalten[i];
+                i += 1;
+                gefallen += u64::from(!bleibt);
+                bleibt
+            });
+            self.verworfene_bewegungen += gefallen;
+        } else {
+            for rahmen in self.frames.drain(..) {
+                if rahmen.ist_bewegung() {
+                    self.verworfene_bewegungen += 1;
+                } else {
+                    self.verworfene_frames += 1;
+                }
+            }
+        }
         self.frames.push_front(hello);
     }
 
     /// Staut sich die Warteschlange, fallen die AELTESTEN Bewegungen — und nur
-    /// die. Bleibt nichts Verwerfbares uebrig, waechst sie weiter: Tasten,
-    /// Knoepfe und Rad werden nie verworfen.
+    /// die verwerfbaren. Bleibt nichts uebrig, waechst sie weiter: Tasten,
+    /// Knoepfe und Rad werden nie verworfen (die harte Grenze zieht dann
+    /// [`MAX_GESAMT`]).
+    ///
+    /// **Bleibt O(n) je Bewegung, und das mit Absicht.** Welche Bewegung fallen
+    /// darf, haengt daran, was NACH ihr steht (s. [`Self::behaltmaske`]) — das
+    /// ist ohne Blick auf die Folge nicht zu beantworten, und ein Zaehler oder
+    /// ein zweiter Index waere ein Zustand, der beim Zusammenfassen, Leeren und
+    /// Neubeginnen mitgepflegt werden muesste. Der Preis ist klein: der
+    /// Durchlauf beginnt erst ueber [`MAX_WARTEND`], laeuft also nur im Stau,
+    /// [`MAX_GESAMT`] deckelt ihn nach oben, und **eine reine Tasten- oder
+    /// Knopfflut kommt hier gar nicht vorbei** — sie laeuft ueber
+    /// `Erfassung::einreihen`, das nicht kappt, sondern die Notbremse prueft
+    /// (O(1)).
     fn kappen(&mut self) {
         while self.frames.len() > MAX_WARTEND {
-            let Some(pos) = self.frames.iter().position(Rahmen::ist_bewegung) else {
+            let Some(pos) = self.behaltmaske().iter().position(|behalten| !behalten) else {
                 return;
             };
             self.frames.remove(pos);
             self.verworfene_bewegungen += 1;
         }
+    }
+
+    /// Fuer jeden Frame: darf er bleiben, wenn Bewegungen gekuerzt werden?
+    ///
+    /// `false` steht ausschliesslich bei Bewegungen — alles andere bleibt
+    /// immer. Eine Bewegung bleibt, wenn sie die **Positionierung** eines
+    /// Knopf- oder Rad-Frames ist, also die letzte Bewegung vor ihm
+    /// (s. [`Rahmen::braucht_position`]). Ohne diese Ausnahme klickte der Host
+    /// dort, wo sein Zeiger zufaellig steht.
+    ///
+    /// Ein Durchlauf von HINTEN: `haengt_dran` sagt, ob seit der zuletzt
+    /// gesehenen Bewegung noch etwas kam, das eine Position braucht. Eine
+    /// Bewegung, auf die das zutrifft, ist die Positionierung genau dieses
+    /// Anhaengsels; alles davor haengt nicht mehr an ihr.
+    ///
+    /// Die Regel steht nur hier — [`Self::kappen`] und [`Self::neuer_strom`]
+    /// nehmen beide diese Maske, damit sie nicht auseinanderlaufen koennen.
+    fn behaltmaske(&self) -> Vec<bool> {
+        let mut behalten = vec![true; self.frames.len()];
+        let mut haengt_dran = false;
+        for (i, rahmen) in self.frames.iter().enumerate().rev() {
+            if rahmen.braucht_position() {
+                haengt_dran = true;
+            } else if rahmen.ist_bewegung() {
+                behalten[i] = haengt_dran;
+                haengt_dran = false;
+            }
+        }
+        behalten
     }
 
     /// Abholen, wenn es Zeit ist.
@@ -143,7 +241,7 @@ impl Schlange {
     }
 
     /// Alles herausnehmen, ohne auf den Takt zu warten. Fuer den Abbau einer
-    /// Sitzung: die Hoch-Ereignisse aus `Erfassung::setzen` duerfen nicht mit
+    /// Sitzung: die Hoch-Ereignisse aus `Erfassung::ausschalten` duerfen nicht mit
     /// dem Fenster verschwinden.
     pub fn raeumen(&mut self) -> Option<Vec<String>> {
         if self.frames.is_empty() {

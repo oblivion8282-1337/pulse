@@ -13,6 +13,7 @@
 import { registerWsHandler } from '../handler-registry';
 import { remoteSession } from '$lib/remote/session.svelte';
 import { eingabeEinspielen } from '$lib/remote/sidecarInput';
+import { userCache } from '$lib/stores/users.svelte';
 
 /**
  * Eingabe-Frames einspielen — aber nur, wenn für genau diese Sitzung wirklich
@@ -41,8 +42,19 @@ async function eingabe(evt: {
 }
 
 export function register(): void {
-  registerWsHandler('remote_request', (evt) =>
-    remoteSession._incomingRequest(evt.session_id, evt.channel_id, evt.from_user_id),
+  registerWsHandler('remote_request', (evt) => {
+    // Namen des Anfragenden holen, BEVOR der Dialog aufgeht. Ohne das steht im
+    // Zustimmungsdialog wörtlich „… möchte deinen Bildschirm fernsteuern"
+    // (`userCache.displayName` für Unbekannte) — und darauf soll jemand seinen
+    // Rechner hergeben. Der Abruf ist gebündelt und entprellt; der Dialog
+    // rendert nach, sobald er da ist. Gleiche Schiene wie beim
+    // Freundschaftsanfrage-Toast (`handlers/friends.ts`).
+    userCache.queue(evt.from_user_id);
+    remoteSession._incomingRequest(evt.session_id, evt.channel_id, evt.from_user_id);
+  });
+  // Nur an den Steuernden: die Kennung seiner gerade angelegten Sitzung.
+  registerWsHandler('remote_pending', (evt) =>
+    remoteSession._pending(evt.session_id, evt.channel_id, evt.host_user_id),
   );
   registerWsHandler('remote_response', (evt) =>
     remoteSession._response(evt.session_id, evt.accepted),

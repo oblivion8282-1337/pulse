@@ -251,12 +251,30 @@ Drei Dinge, die man beim Lesen sucht:
 - **DPI-Pflicht.** `main.rs` setzt `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
   als allererstes. Ohne das sind alle Koordinaten-Schnittstellen bei Skalierung
   ≠ 100 % virtualisiert und jede Injektion trifft systematisch daneben.
+- **Nichts verlässt das Quell-Rechteck** (`src/remote_input/ausfuehrung.rs`). Der
+  Sidecar führt die zuletzt von ihm gesetzte Zeigerlage mit; sie ist immer
+  geklemmt. **Auch die relative Bewegung** rechnet darauf und wird geklemmt
+  **absolut** gesetzt — die Windows-Beschleunigung fällt damit weg, weil ein
+  Delta sich sonst nicht klemmen ließe (`GetCursorPos` nach `SendInput` trägt
+  nicht: die Rohreingabe wird asynchron verarbeitet). **Knopf und Rad tragen
+  keine Position** und feuern deshalb nur mit gültiger Lage im aktuellen
+  Rechteck, die sie vorher noch einmal behaupten. Ohne beides genügten zwei
+  Frames (`0x02` mit `dx=dy=-32768`, dann `0x03`) für einen Klick irgendwo auf
+  dem Desktop des Hosts. **Ausnahme:** das Hoch-Ereignis eines von uns
+  gedrückten Knopfes geht immer durch, sonst klemmt eine Maustaste.
 - **Alles loslassen beim Ende.** Gedrückte Tasten und Knöpfe werden mitgeführt und
-  bei jedem Ende freigegeben: `remote_input_end`, Sitzungswechsel (neue
-  `session_id`), fail-closed, Sichtschutz, Prozessende — **und bei jeder
+  bei jedem Ende freigegeben: `remote_input_end`, Sitzungswechsel (andere
+  `session_id` — **auch eine fehlende**), jedes **weitere Hello** („neuer
+  Eingabestrom"), fail-closed, Sichtschutz, Prozessende — **und bei jeder
   verworfenen Nachricht** (unbekannter Slot, unauflösbare Quelle). Es genügt,
   dass der Host sein gestreamtes Fenster minimiert; ohne die Freigabe liefe die
   Taste am fremden Rechner weiter.
+- **Der Handschlag ist Sitzungszustand, keine Eingabe.** Ein Hello gilt auch
+  dann, wenn die Frames derselben Nachricht verworfen werden (Slot unbekannt,
+  Quelle nicht auflösbar, Sichtschutz). Sonst tötete ein Hello, das in eine
+  Verwerf-Lage fällt — Stream läuft gerade an, Sidecar nach `stop` neu
+  gestartet —, die Sitzung eine Nachricht später mit „Eingabe vor dem
+  Hello-Handschlag".
 
 ## Env-Overrides (Test/Debug)
 

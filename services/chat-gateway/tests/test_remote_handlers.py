@@ -419,11 +419,42 @@ async def test_ban_ends_the_remote_session_at_once(ws_app, _auth_signer):
     await asyncio.to_thread(_run)
 
 
+def _request(ws, cid, host_uid) -> None:
+    ws.send_json(
+        {"op": "remote_request", "channel_id": cid, "host_user_id": str(host_uid)}
+    )
+
+
+def _frames_until_pong(ws, *, max_drained: int = 20) -> list[dict]:
+    """Alles, was dieser Socket noch schuldet, bis zum eigenen ``pong``.
+
+    Der Op-Loop arbeitet je Verbindung der Reihe nach ab (``routes/ws_ops.py``),
+    ein ``pong`` beweist also, dass die vorher gesendeten Ops fertig sind. Ohne
+    diesen Umweg wartet ein Test, der ein bestimmtes Frame erwartet, bei
+    kaputtem Code bis ins Zeitlimit statt mit einer Aussage zu scheitern — und
+    ein haengender Test sagt niemandem, was falsch ist."""
+    ws.send_json({"op": "ping"})
+    out: list[dict] = []
+    for _ in range(max_drained):
+        m = ws.receive_json()
+        if m.get("op") == "pong":
+            return out
+        if m.get("op") in ("presence_update", "hello"):
+            continue
+        out.append(m)
+    raise AssertionError(f"no pong after draining {max_drained}; got {out!r}")
+
+
 @pytest.mark.asyncio
 async def test_decline_starts_a_cooldown_before_the_next_invite(ws_app, _auth_signer):
     """Nach einer Absage darf derselbe Steuernde nicht sofort wieder klingeln —
     sonst kostet das "Nein" nichts und der modale Zustimmungsdialog laesst sich
-    beliebig oft vor die Nase des Hosts setzen."""
+    beliebig oft vor die Nase des Hosts setzen.
+
+    Der zweite Anlauf laeuft ueber eine ZWEITE Verbindung desselben Steuernden:
+    das umgeht die verbindungsgebundene Mindestpause (die sonst schon vorher
+    greift) und belegt nebenbei, dass die Sperrfrist am Nutzerpaar haengt und
+    nicht am Socket — ein neuer Tab hebt sie nicht auf."""
 
     def _run():
         with TestClient(ws_app) as tc:
@@ -434,18 +465,187 @@ async def test_decline_starts_a_cooldown_before_the_next_invite(ws_app, _auth_si
                  tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
                 skip_init_frames(ctrl_ws)
                 skip_init_frames(host_ws)
-                ctrl_ws.send_json(
-                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
-                )
+                _request(ctrl_ws, cid, member_uid)
                 sid = _drain_for(host_ws, "remote_request")["session_id"]
                 host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": False})
                 assert _drain_for(ctrl_ws, "remote_response")["accepted"] is False
                 # Sofortiger zweiter Anlauf → 4055, und beim Host klingelt nichts.
-                ctrl_ws.send_json(
-                    {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws2:
+                    skip_init_frames(ctrl_ws2)
+                    _request(ctrl_ws2, cid, member_uid)
+                    assert [f.get("code") for f in _frames_until_pong(ctrl_ws2)] == [4055]
+                    ping_barrier(host_ws)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_controller_is_told_its_pending_session_id(ws_app, _auth_signer):
+    """Drahtvertrag: der Steuernde bekommt ``remote_pending``, sobald die
+    Sitzung angelegt ist — mit ``session_id``, ``channel_id`` und
+    ``host_user_id`` als Strings. Ohne dieses Frame kennt er seine Sitzung erst
+    mit der Zustimmung und kann bis dahin weder abbrechen noch eine fremde
+    Antwort von seiner eigenen unterscheiden. Der Abbruch danach belegt, dass
+    die id sofort benutzbar ist."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                _request(ctrl_ws, cid, member_uid)
+                antwort = _frames_until_pong(ctrl_ws)
+                assert len(antwort) == 1, f"genau ein Frame erwartet, kam {antwort!r}"
+                pending = antwort[0]
+                assert pending == {
+                    "op": "remote_pending",
+                    "session_id": pending.get("session_id"),
+                    "channel_id": cid,
+                    "host_user_id": str(member_uid),
+                }
+                assert isinstance(pending["session_id"], str) and pending["session_id"]
+                assert _drain_for(host_ws, "remote_request")["session_id"] == (
+                    pending["session_id"]
                 )
-                assert _drain_for(ctrl_ws, "error")["code"] == 4055
-                ping_barrier(host_ws)
+                # Mit dieser id kann der Steuernde die wartende Sitzung sofort
+                # zuruecknehmen — der Zustimmungsdialog des Hosts verschwindet.
+                ctrl_ws.send_json(
+                    {"op": "remote_end", "session_id": pending["session_id"]}
+                )
+                assert _drain_for(host_ws, "remote_canceled")["session_id"] == (
+                    pending["session_id"]
+                )
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_self_abort_of_a_pending_request_also_starts_the_cooldown(
+    ws_app, _auth_signer
+):
+    """Das Schlupfloch in der Belaestigungsbremse: anfragen, der modale Dialog
+    springt auf jedem Host-Tab auf, sofort selbst abbrechen — die Sperrfrist
+    wurde nur bei Absage und Aussitzen gesetzt, blieb also null, und das Spiel
+    liess sich unbegrenzt wiederholen. Eine wartende Sitzung, die ohne Antwort
+    stirbt, zaehlt jetzt wie ein "Nein"."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                _request(ctrl_ws, cid, member_uid)
+                sid = _drain_for(ctrl_ws, "remote_pending")["session_id"]
+                _drain_for(host_ws, "remote_request")
+                ctrl_ws.send_json({"op": "remote_end", "session_id": sid})
+                _drain_for(host_ws, "remote_canceled")
+                # Zweite Verbindung desselben Steuernden (die Mindestpause haengt
+                # am Socket, die Sperrfrist am Nutzerpaar) → 4055.
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws2:
+                    skip_init_frames(ctrl_ws2)
+                    _request(ctrl_ws2, cid, member_uid)
+                    assert [f.get("code") for f in _frames_until_pong(ctrl_ws2)] == [4055]
+                    ping_barrier(host_ws)  # kein zweiter Dialog beim Host
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_request_is_throttled_per_connection(ws_app, _auth_signer):
+    """``remote_request`` kostet drei DB-Abfragen und hatte als einziger teurer
+    Op auf diesem Socket keine Bremse (``resync``/``typing``/``send`` haben
+    laengst eine). Die Mindestpause greift VOR der Rechtepruefung — deshalb
+    genuegt hier ein Rufer, der ohnehin abgewiesen wird: die erste Anfrage
+    beantwortet die Rechtepruefung (4051), die zweite gar nicht mehr (4056)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            _, owner_uid, member_token, _, _, cid = _setup_remote(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={member_token}") as ws:
+                skip_init_frames(ws)
+                _request(ws, cid, owner_uid)
+                assert _drain_for(ws, "error")["code"] == 4051
+                _request(ws, cid, owner_uid)
+                assert [f.get("code") for f in _frames_until_pong(ws)] == [4056]
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_any_host_tab_may_end_the_session(ws_app, _auth_signer):
+    """Der Host darf seine Fernsteuerung von JEDEM seiner Tabs beenden — es ist
+    sein Rechner. Geprueft wurde bisher die Socket-Identitaet, und ``host_socket``
+    ist nur EIN Tab (waehrend der Wartezeit sogar nur der Stellvertreter): jeder
+    andere Tab bekam auf ``remote_end`` ein 4053 und konnte nichts abbrechen.
+    Mitgeprueft: die Gegenseite haengt an der Rolle — der Steuernde wird
+    benachrichtigt, nicht etwa der Host selbst."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_a:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_a)
+                # Nur host_a ist offen → er ist zweifelsfrei der ``host_socket``.
+                sid = _open_session(ctrl_ws, host_a, cid, member_uid)
+                with tc.websocket_connect(f"/ws?token={member_token}") as host_b:
+                    skip_init_frames(host_b)
+                    host_b.send_json({"op": "remote_end", "session_id": sid})
+                    # Zuerst der beendende Tab: kein 4053 — und der ``pong``
+                    # beweist, dass der Abbau durch ist, bevor wir die anderen
+                    # Sockets lesen (sonst haengt der Test bei kaputtem Code).
+                    assert _frames_until_pong(host_b) == []
+                    ended = _drain_for(ctrl_ws, "remote_ended")
+                    assert ended["session_id"] == sid and ended["reason"] == "peer_ended"
+                    # Auch der Tab, der zugestimmt hatte, erfaehrt das Ende —
+                    # sonst zeigt er weiter eine laufende Fernsteuerung an.
+                    assert _drain_for(host_a, "remote_ended")["session_id"] == sid
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_signal_payload_over_the_limit_is_rejected(ws_app, _auth_signer):
+    """``remote_signal`` ist derselbe Weiterleiter zum selben Empfaenger wie
+    ``remote_input``, hatte aber ausser der globalen Frame-Grenze keine eigene
+    Nutzlastgrenze. Die Ablehnung verwirft nur diese Nachricht — die Sitzung
+    bleibt stehen, genau wie beim Eingabe-Weiterleiter."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                ctrl_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "offer",
+                    "data": {"sdp": "v=0" + "a" * 9000},
+                })
+                assert [f.get("code") for f in _frames_until_pong(ctrl_ws)] == [4050]
+                ping_barrier(host_ws)  # nichts weitergereicht
+                # Ein normal grosses Angebot geht weiter durch.
+                ctrl_ws.send_json(
+                    {"op": "remote_signal", "session_id": sid, "kind": "offer",
+                     "data": {"sdp": "v=0"}}
+                )
+                assert _drain_for(host_ws, "remote_signal")["data"] == {"sdp": "v=0"}
 
     await asyncio.to_thread(_run)
 

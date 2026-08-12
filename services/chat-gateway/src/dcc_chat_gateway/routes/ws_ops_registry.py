@@ -34,6 +34,7 @@ unknown-op error frame (``code 4007``) when ``get_handler`` returns ``None``.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,38 @@ if TYPE_CHECKING:
 
     from dcc_chat_gateway.pubsub import ConnectionManager
     from dcc_chat_gateway.security import AuthenticatedUser
+
+
+class SecondWindow:
+    """Nachrichtenzaehler in einem festen Ein-Sekunden-Fenster.
+
+    **Sprungfenster, kein rollendes** — laeuft die Sekunde ab, faengt der
+    Zaehler wieder bei null an. An der Fenstergrenze passen dadurch kurz bis zu
+    zwei Deckel-Mengen durch. Das ist eine bewusste Entscheidung, kein Versehen:
+    die Deckel schuetzen Gateway und Host vor einer *Dauer*flut, und die
+    Nachrichten, die sie deckeln, sind selbst eng begrenzt (Eingabe ≤1024
+    dekodierte Byte, Signal ≤8 KiB). Ein wirklich rollendes Fenster braeuchte je
+    Verbindung eine Zeitstempelliste — Speicher und Aufwand pro Nachricht fuer
+    einen Unterschied, der in Byte gerechnet folgenlos ist.
+
+    Liegt auf dem :class:`WSOpContext` (pro Verbindung) und ist damit beim
+    Disconnect von selbst weg — gleiches Muster wie ``last_typing``.
+    """
+
+    __slots__ = ("start", "count")
+
+    def __init__(self) -> None:
+        self.start = 0.0
+        self.count = 0
+
+    def hit(self) -> int:
+        """Zaehlt eine Nachricht und gibt ihren Stand im laufenden Fenster."""
+        now = time.monotonic()
+        if now - self.start >= 1.0:
+            self.start = now
+            self.count = 0
+        self.count += 1
+        return self.count
 
 
 @dataclass
@@ -78,14 +111,18 @@ class WSOpContext:
     # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
     # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
     last_resync: float = 0.0
-    # Rollendes Ein-Sekunden-Fenster fuer ``remote_input``: Startzeitpunkt
-    # (monotonic) und Zahl der Nachrichten darin. Die Grenzen je Nachricht
-    # formen nur eine einzelne Nachricht — ohne diesen Deckel kostet ein
-    # Verstoss nichts und ein Steuernder flutet mit Leitungsgeschwindigkeit.
-    # Liegt auf dem Kontext (pro Verbindung), also beim Disconnect von selbst
-    # weg — gleiches Muster wie ``last_typing``/``last_resync``.
-    remote_input_window: float = 0.0
-    remote_input_count: int = 0
+    # Sekunden-Deckel der Fernsteuerung. Die Grenzen je Nachricht formen nur
+    # eine EINZELNE Nachricht — ohne diese Zaehler kostet ein Verstoss nichts
+    # und ein Steuernder flutet Gateway und Host mit Leitungsgeschwindigkeit.
+    # ``remote_signal`` bekam seinen Deckel spaeter als ``remote_input``: es ist
+    # derselbe Weiterleiter zum selben Empfaenger, nur mit anderer Nutzlast.
+    remote_input_rate: SecondWindow = field(default_factory=SecondWindow)
+    remote_signal_rate: SecondWindow = field(default_factory=SecondWindow)
+    # Monotonic-Zeitpunkt der letzten ``remote_request``-Anfrage dieses Sockets.
+    # Anders als die beiden Deckel oben eine Mindestpause statt eines Zaehlers:
+    # eine Anfrage kostet drei DB-Abfragen und legt beim Gegenueber einen
+    # modalen Dialog auf — der legitime Takt ist ein Klick, nicht ein Strom.
+    last_remote_request: float = 0.0
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.

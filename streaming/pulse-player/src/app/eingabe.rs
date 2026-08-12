@@ -24,7 +24,6 @@ impl App {
     pub(super) fn input_capture(&mut self, req: &Request) -> Result<serde_json::Value, String> {
         let session_id = req.session.ok_or("session fehlt")?;
         let aktiv = req.enabled.unwrap_or(false);
-        let slot = req.slot.unwrap_or(0);
         let fang_gewuenscht = aktiv && req.pointer_lock.unwrap_or(false);
         let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
 
@@ -36,10 +35,22 @@ impl App {
         // Der WUNSCH wird getrennt vom Erreichten aufgehoben: nach einem
         // Fokuswechsel muss er neu vollzogen werden (s. [`Self::fokus_gewechselt`]).
         session.fang_gewuenscht = fang_gewuenscht;
-        session.eingabe.setzen(aktiv, slot, fang);
+        if aktiv {
+            // **Der Platz wird NUR beim Einschalten gesetzt.** `slot: 0` ist
+            // hier die Vorgabe der Wire-Spec fuer „erster Stream" und kommt aus
+            // einem ausdruecklichen Einschalten; beim AUSSCHALTEN darf er
+            // dagegen nirgends herkommen — die Hoch-Ereignisse gehoeren dem
+            // Stream, der gerade gesteuert wurde (s. `Erfassung::ausschalten`).
+            session.eingabe.einschalten(req.slot.unwrap_or(0), fang, req.remote_session.as_deref());
+        } else {
+            session.eingabe.ausschalten();
+        }
         Ok(serde_json::json!({
             "enabled": aktiv,
-            "slot": slot,
+            // Der Platz, der WIRKLICH gilt — nicht der erfragte. Beim
+            // Ausschalten ist das der noch laufende, nicht die 0 aus einem
+            // fehlenden Feld.
+            "slot": session.eingabe.slot(),
             "pointer_lock": fang,
             // Was auf dem Weg verlorengegangen ist, steht in der Antwort statt
             // nur im Log: Bewegungen darf die Flutkontrolle verwerfen, Tasten
@@ -49,6 +60,12 @@ impl App {
             // braucht dafuer eine Zahl.
             "dropped_moves": session.eingabe.verworfene_bewegungen(),
             "unmapped_keys": session.eingabe.unbekannte_tasten(),
+            // Notbremse: die Warteschlange war uebervoll und der Strom wurde
+            // neu begonnen (s. `fernsteuerung::Erfassung::einreihen`). Steht
+            // hier, weil es die dritte — und einzige unerwartete — Stelle ist,
+            // an der Eingabe verschwindet.
+            "emergency_resets": session.eingabe.notbremsen(),
+            "dropped_frames": session.eingabe.verworfene_frames(),
         }))
     }
 
@@ -109,27 +126,26 @@ impl App {
 
     /// Was noch in der Warteschlange steht, bevor eine Sitzung verschwindet.
     ///
-    /// Wichtig fuer die Hoch-Ereignisse aus `Erfassung::setzen(false, ..)`:
+    /// Wichtig fuer die Hoch-Ereignisse aus `Erfassung::ausschalten`:
     /// gingen die mit dem Fenster verloren, bliebe beim Host eine Taste
     /// gedrueckt, bis er selbst aufraeumt.
     pub(super) fn eingabe_raeumen(&mut self, id: u64) {
         let stdout = self.stdout.clone();
         let Some(session) = self.sessions.get_mut(&id) else { return };
         session.fang_gewuenscht = false;
-        if session.eingabe.aktiv() {
-            session.eingabe.setzen(false, session.eingabe.slot(), false);
-        }
+        session.eingabe.ausschalten();
         if let Some(frames) = session.eingabe.raeumen() {
             stdout.send(&eingabe_ereignis(id, session.eingabe.slot(), frames));
         }
-        // Bilanz am Ende der Erfassung — die beiden einzigen Stellen, an denen
-        // eine Eingabe lautlos verschwindet.
+        // Bilanz am Ende der Erfassung — die einzigen Stellen, an denen eine
+        // Eingabe lautlos verschwindet.
         let (bewegungen, tasten) =
             (session.eingabe.verworfene_bewegungen(), session.eingabe.unbekannte_tasten());
-        if bewegungen > 0 || tasten > 0 {
+        let notbremsen = session.eingabe.notbremsen();
+        if bewegungen > 0 || tasten > 0 || notbremsen > 0 {
             eprintln!(
                 "pulse-player: Sitzung {id}: Eingabe — {bewegungen} Bewegungen verworfen, \
-                 {tasten} Tasten ohne Scancode-Abbildung"
+                 {tasten} Tasten ohne Scancode-Abbildung, {notbremsen}x Notbremse"
             );
         }
     }

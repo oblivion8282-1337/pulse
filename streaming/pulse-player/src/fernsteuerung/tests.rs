@@ -7,9 +7,14 @@
 //! decken sie denselben Weg ab, den `on_window_event` fuer Tasten nimmt.
 
 use super::*;
-use super::schlange::{BEWEGUNGSTAKT, MAX_WARTEND};
+use super::schlange::{BEWEGUNGSTAKT, MAX_GESAMT, MAX_WARTEND};
 use winit::dpi::PhysicalPosition;
 use winit::event::{DeviceId, MouseButton, MouseScrollDelta};
+
+/// Die Kennung der Fernsteuerungs-Sitzung, unter der die meisten Tests
+/// einschalten. Sie entscheidet, ob Liegengebliebenes an dasselbe Ziel geht —
+/// wer sie weglaesst, prueft den Zielwechsel (s. `fremde_sitzung_...`).
+const SITZUNG: &str = "sit-a";
 
 /// Base64 rueckwaerts — pruefen will man Opcodes, nicht Buchstaben. Zugleich
 /// die Gegenprobe zum Kodierer in [`super::rahmen`].
@@ -53,7 +58,7 @@ fn lage() -> Bildlage {
 
 fn eingeschaltet() -> Erfassung {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, false);
+    e.einschalten(0, false, Some(SITZUNG));
     // Zeiger in die Bildmitte stellen: Knopf und Rad gehen nur hinaus, wenn der
     // Zeiger IM Bild steht, und ohne ein `CursorMoved` weiss die Erfassung
     // nicht, wo er ist (die Ereignisse selbst tragen keine Position).
@@ -100,7 +105,7 @@ fn standard_ist_aus() {
 fn einschalten_stellt_hello_voran() {
     let mut e = Erfassung::neu();
     e.taste(0x1e, true); // vor dem Einschalten — gehoert zu keiner Sitzung
-    e.setzen(true, 3, false);
+    e.einschalten(3, false, Some(SITZUNG));
     e.taste(0x1e, true);
     let frames = alles(&mut e);
     assert_eq!(frames[0], vec![super::rahmen::OP_HELLO, 2]);
@@ -125,11 +130,11 @@ fn wiederholtes_einschalten_beginnt_einen_neuen_strom() {
     e.taste(0x11, true);
     let _ = alles(&mut e);
 
-    e.setzen(true, 5, false);
+    e.einschalten(5, false, Some(SITZUNG));
     assert_eq!(e.slot(), 5, "der Slot wandert mit");
     assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "ein zweites Hello, sonst nichts");
 
-    e.setzen(false, 5, false);
+    e.ausschalten();
     assert!(e.raeumen().is_none(), "W hat der Host beim Hello selbst freigegeben");
 }
 
@@ -139,9 +144,9 @@ fn wiederholtes_ausschalten_reicht_nichts_doppelt_nach() {
     let mut e = eingeschaltet();
     e.taste(0x11, true);
     let _ = alles(&mut e);
-    e.setzen(false, 0, false);
+    e.ausschalten();
     assert_eq!(alles(&mut e).len(), 1);
-    e.setzen(false, 0, false);
+    e.ausschalten();
     assert!(e.raeumen().is_none());
 }
 
@@ -150,7 +155,7 @@ fn wiederholtes_ausschalten_reicht_nichts_doppelt_nach() {
 #[test]
 fn jeder_opcode_einmal() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, false); // 0x00
+    e.einschalten(0, false, Some(SITZUNG)); // 0x00
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false); // 0x01
     let m = || Some(lage());
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), m(), false); // 0x03
@@ -161,7 +166,7 @@ fn jeder_opcode_einmal() {
 
     // 0x02 nur mit gefangenem Zeiger — sonst gilt die absolute Form.
     let mut f = Erfassung::neu();
-    f.setzen(true, 0, true);
+    f.einschalten(0, true, Some(SITZUNG));
     f.zeigerbewegung(-3.0, 7.0);
     let frames = alles(&mut f);
     assert_eq!(frames[1], vec![0x02, 0xfd, 0xff, 0x07, 0x00]);
@@ -172,7 +177,7 @@ fn jeder_opcode_einmal() {
 #[test]
 fn zeigerfang_schaltet_die_absolute_form_ab() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
     assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "nur das Hello");
 }
@@ -286,7 +291,7 @@ fn nach_cursor_left_ist_die_lage_unbekannt() {
 #[test]
 fn mit_zeigerfang_klickt_es_auch_ohne_bekannte_lage() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None, false);
     let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
     assert_eq!(opcodes, vec![0x00, 0x03]);
@@ -325,7 +330,7 @@ fn absolute_bewegungen_werden_zusammengefasst() {
 #[test]
 fn relative_bewegungen_werden_aufsummiert() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     for _ in 0..5 {
         e.zeigerbewegung(3.0, -1.0);
@@ -343,7 +348,7 @@ fn relative_bewegungen_werden_aufsummiert() {
 #[test]
 fn relative_bruchteile_gehen_nicht_verloren() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     for _ in 0..2 {
         e.zeigerbewegung(0.4, -0.4);
@@ -357,7 +362,7 @@ fn relative_bruchteile_gehen_nicht_verloren() {
 
     // Und ueber eine ganze Bewegung stimmt die Summe: 25 x 0,4 = 10 Punkte.
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     for _ in 0..25 {
         e.zeigerbewegung(0.4, 0.0);
@@ -371,10 +376,10 @@ fn relative_bruchteile_gehen_nicht_verloren() {
 #[test]
 fn der_bewegungsrest_ueberlebt_den_stromwechsel_nicht() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     e.zeigerbewegung(0.9, 0.9);
     let _ = alles(&mut e);
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     e.zeigerbewegung(0.2, 0.2);
     assert!(e.raeumen().is_none(), "0,9 aus dem alten Strom zaehlt nicht mit");
@@ -460,7 +465,7 @@ fn ausschalten_laesst_alles_los() {
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
     let _ = alles(&mut e);
 
-    e.setzen(false, 0, false);
+    e.ausschalten();
     let frames = alles(&mut e);
     assert_eq!(frames.len(), 3, "zwei Tasten und ein Knopf: {frames:?}");
     assert!(frames.iter().all(|f| f[f.len() - 1] == 0), "alles muss HOCH sein: {frames:?}");
@@ -480,7 +485,7 @@ fn losgelassenes_wird_nicht_nachgereicht() {
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Right), Some(lage()), false);
     e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Right), Some(lage()), false);
     let _ = alles(&mut e);
-    e.setzen(false, 0, false);
+    e.ausschalten();
     assert!(e.raeumen().is_none(), "nichts mehr nachzureichen");
 }
 
@@ -510,8 +515,8 @@ fn hoch_ereignisse_ueberleben_das_wiedereinschalten() {
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
     let _ = alles(&mut e);
 
-    e.setzen(false, 0, false); // reiht W-hoch und Knopf-hoch ein
-    e.setzen(true, 0, false); // ... und hier gingen sie frueher verloren
+    e.ausschalten(); // reiht W-hoch und Knopf-hoch ein
+    e.einschalten(0, false, Some(SITZUNG)); // ... und hier gingen sie frueher verloren
     let frames = alles(&mut e);
     assert_eq!(frames[0], vec![0x00, 0x02], "das Hello zuerst");
     assert!(frames.contains(&vec![0x05, 0x11, 0x00, 0x00]), "W-hoch fehlt: {frames:?}");
@@ -526,7 +531,7 @@ fn beim_stromwechsel_fallen_nur_bewegungen() {
     let mut e = eingeschaltet();
     e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
     e.taste(0x11, true);
-    e.setzen(true, 0, false);
+    e.einschalten(0, false, Some(SITZUNG));
     let opcodes: Vec<u8> = alles(&mut e).iter().map(|f| f[0]).collect();
     assert_eq!(opcodes, vec![0x00, 0x05], "die Bewegung faellt, die Taste bleibt");
     assert_eq!(e.verworfene_bewegungen(), 1);
@@ -540,7 +545,7 @@ fn beim_stromwechsel_fallen_nur_bewegungen() {
 #[test]
 fn verlorener_zeigerfang_schaltet_auf_absolute_bewegungen_zurueck() {
     let mut e = Erfassung::neu();
-    e.setzen(true, 0, true);
+    e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
     assert!(e.raeumen().is_none(), "gefangen: die Fensterposition sagt nichts");
@@ -654,7 +659,7 @@ fn der_radrest_ueberlebt_den_stromwechsel_nicht() {
     let mut e = eingeschaltet();
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.9)), Some(lage()), false);
     assert!(e.raeumen().is_none());
-    e.setzen(true, 0, false); // neuer Strom
+    e.einschalten(0, false, Some(SITZUNG)); // neuer Strom
     // Der neue Strom weiss noch nicht, wo der Zeiger steht — erst damit ist das
     // Rad ueberhaupt wieder im Bild.
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
@@ -676,4 +681,200 @@ fn base64_hin_und_zurueck() {
     for probe in [&b""[..], b"M", b"Ma", b"Man", b"Manx", &[0x00, 0x02], &[0xff, 0xfe, 0xfd]] {
         assert_eq!(entziffern(&rahmen::base64(probe)), probe, "{probe:?}");
     }
+}
+
+// ── Der Platz ueberlebt das Ausschalten ─────────────────────────────────────
+
+/// **Der Platz darf beim Ausschalten nirgends auf 0 zurechtgebogen werden.**
+///
+/// Die Hoch-Ereignisse aus [`Erfassung::ausschalten`] gehoeren zu dem Stream,
+/// der gerade gesteuert wurde. Bis zum 2026-08-12 trug das Ausschalten einen
+/// Platz in der Signatur, den die IPC-Strecke nicht mitfuehrte: aus `stop()`
+/// wurde oben eine 0, und die Freigaben einer Steuerung von Platz 2 gingen an
+/// Platz 0 — dessen Sidecar nie ein Hello gesehen hatte und deshalb
+/// fail-closed einen FREMDEN, laufenden Stream stilllegte.
+#[test]
+fn ausschalten_behaelt_den_platz_der_steuerung() {
+    let mut e = Erfassung::neu();
+    e.einschalten(2, false, Some(SITZUNG));
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    e.taste(0x11, true);
+    let _ = alles(&mut e);
+
+    e.ausschalten();
+    assert_eq!(e.slot(), 2, "die Hoch-Ereignisse gehoeren zu Platz 2");
+    assert_eq!(alles(&mut e), vec![vec![0x05, 0x11, 0x00, 0x00]]);
+    assert_eq!(e.slot(), 2, "und er bleibt stehen, bis ein Einschalten einen neuen nennt");
+
+    e.einschalten(3, false, Some(SITZUNG));
+    assert_eq!(e.slot(), 3);
+}
+
+// ── Liegengebliebenes und der Zielwechsel ───────────────────────────────────
+
+/// **Frames eines alten Stroms duerfen nicht an eine neue Sitzung gehen.**
+///
+/// Endet Sitzung A und beginnt binnen einer Sekunde Sitzung B am selben
+/// Fenster, gingen A's Hoch-Ereignisse mit B's Kennung hinaus — der Host von B
+/// bekaeme ein Loslassen fuer eine Taste, die er nie gedrueckt sah. Verwerfen
+/// ist sicher: beim Hello gibt der Host ohnehin alles frei.
+#[test]
+fn liegengebliebenes_geht_nicht_an_eine_fremde_sitzung() {
+    let mut e = eingeschaltet();
+    e.taste(0x11, true);
+    let _ = alles(&mut e);
+
+    e.ausschalten(); // reiht W-hoch ein
+    e.einschalten(0, false, Some("sit-b"));
+    assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "nur das Hello, kein fremdes W-hoch");
+}
+
+/// Derselbe Fehler ueber den Platz: jeder Stream-Platz hat drueben seinen
+/// eigenen Sidecar mit eigener Menge des Gedrueckten.
+#[test]
+fn liegengebliebenes_geht_nicht_an_einen_anderen_platz() {
+    let mut e = eingeschaltet();
+    e.taste(0x11, true);
+    let _ = alles(&mut e);
+
+    e.ausschalten();
+    e.einschalten(1, false, Some(SITZUNG));
+    assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "Platz 1 sah dieses W nie");
+}
+
+/// Ohne Kennung ist das Ziel unbekannt — und wer nicht weiss, wem er etwas
+/// schickt, schickt es nicht.
+#[test]
+fn ohne_sitzungskennung_gilt_der_zielwechsel() {
+    let mut e = eingeschaltet();
+    e.taste(0x11, true);
+    let _ = alles(&mut e);
+
+    e.ausschalten();
+    e.einschalten(0, false, None);
+    assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]]);
+}
+
+// ── Knopf und seine Positionierung ──────────────────────────────────────────
+
+/// Jeder positionsgebundene Frame (Knopf, Rad) MUSS eine Bewegung vor sich
+/// haben, die im selben Strom steht — sonst klickt der Host dort, wo sein
+/// Zeiger zufaellig steht.
+///
+/// Gilt nur fuer Stroeme OHNE Zeigerfang: bei gefangenem Zeiger wird der ferne
+/// Zeiger ueber Differenzen gefuehrt, eine absolute Positionierung gibt es
+/// dort gar nicht.
+fn positionierung_pruefen(frames: &[Vec<u8>]) {
+    let mut positioniert = false;
+    for f in frames {
+        match f[0] {
+            // Hello = neuer Strom; was der Host vorher wusste, gilt nicht mehr.
+            rahmen::OP_HELLO => positioniert = false,
+            rahmen::OP_MAUS_ABS | rahmen::OP_MAUS_REL => positioniert = true,
+            rahmen::OP_MAUS_KNOPF | rahmen::OP_MAUS_RAD => {
+                assert!(positioniert, "Knopf/Rad ohne Positionierung davor: {frames:?}");
+            }
+            _ => {}
+        }
+    }
+}
+
+/// **Beim Stromwechsel fallen Bewegungen — aber nicht die, an der ein Knopf
+/// haengt.** Sonst geht der Klick allein hinaus und landet beim Host an der
+/// Stelle, an der dessen Zeiger gerade steht.
+#[test]
+fn der_knopf_behaelt_seine_positionierung_beim_stromwechsel() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    // Diese hier haengt an nichts mehr und ist ueberholt — sie darf fallen.
+    e.on_window_event(&zeiger_ereignis(200.0, 200.0), Some(lage()), false);
+
+    e.einschalten(0, false, Some(SITZUNG));
+    let frames = alles(&mut e);
+    positionierung_pruefen(&frames);
+    assert_eq!(
+        frames.iter().map(|f| f[0]).collect::<Vec<_>>(),
+        vec![rahmen::OP_HELLO, rahmen::OP_MAUS_ABS, rahmen::OP_MAUS_KNOPF],
+    );
+    let (u, _) = lage().anteil(100.0, 100.0).expect("innen");
+    assert_eq!(
+        u16::from_le_bytes([frames[1][1], frames[1][2]]),
+        rahmen::anteil_zu_u16(u),
+        "es muss GENAU die Positionierung des Klicks sein",
+    );
+    assert_eq!(e.verworfene_bewegungen(), 1, "nur die ueberholte faellt");
+}
+
+/// Dasselbe unter Last: die Flutkontrolle kappt die AELTESTEN Bewegungen, und
+/// die aelteste ist hier genau die Positionierung des Klicks.
+#[test]
+fn der_knopf_behaelt_seine_positionierung_auch_unter_last() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    // Tasten treiben die Laenge hoch (sie sind unverwerfbar), die Bewegungen
+    // dazwischen loesen das Kappen aus.
+    for i in 0..(MAX_WARTEND * 4) {
+        e.taste(0x1e, i % 2 == 0);
+        e.on_window_event(&zeiger_ereignis((i % 1920) as f64, 540.0), Some(lage()), false);
+    }
+    let frames = alles(&mut e);
+    positionierung_pruefen(&frames);
+    assert!(e.verworfene_bewegungen() > 0, "es muss ueberhaupt gekappt worden sein");
+}
+
+/// Das Rad haengt genauso an seiner Positionierung wie der Knopf — es traegt
+/// ebenfalls keine eigene Koordinate.
+#[test]
+fn das_rad_behaelt_seine_positionierung_beim_stromwechsel() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 1.0)), Some(lage()), false);
+
+    e.einschalten(0, false, Some(SITZUNG));
+    let frames = alles(&mut e);
+    positionierung_pruefen(&frames);
+    assert_eq!(
+        frames.iter().map(|f| f[0]).collect::<Vec<_>>(),
+        vec![rahmen::OP_HELLO, rahmen::OP_MAUS_ABS, rahmen::OP_MAUS_RAD],
+    );
+}
+
+// ── Notbremse ───────────────────────────────────────────────────────────────
+
+/// **Eine reine Tastenflut darf die Warteschlange nicht unbegrenzt wachsen
+/// lassen.** Gekappt werden nur Bewegungen; enthaelt die Schlange keine, gab es
+/// bis zum 2026-08-12 gar keine Obergrenze. Statt blind Frames zu opfern —
+/// es koennte das Hoch-Ereignis sein, dessen Verlust eine Taste am fremden
+/// Rechner klemmen laesst — wird der Strom neu begonnen; das Hello gibt beim
+/// Host alles frei.
+#[test]
+fn eine_reine_tastenflut_deckelt_die_warteschlange() {
+    let mut e = eingeschaltet();
+    for i in 0..(MAX_GESAMT * 3) {
+        e.taste(0x1e, i % 2 == 0);
+    }
+    assert!(e.notbremsen() >= 1, "die Notbremse muss gegriffen haben");
+    assert!(e.verworfene_frames() > 0, "und sie zaehlt, was sie gekostet hat");
+
+    let frames = alles(&mut e);
+    assert!(frames.len() <= MAX_GESAMT + 1, "gedeckelt, aber {} Frames", frames.len());
+    assert_eq!(frames[0], vec![0x00, 0x02], "nach der Notbremse steht ein Hello vorn");
+    assert_eq!(e.verworfene_bewegungen(), 0, "es gab hier gar keine Bewegungen");
+}
+
+/// Auch eine Flut aus Knopf-Ereignissen (jedes ist unverwerfbar) laeuft in die
+/// Notbremse statt ins Unendliche.
+#[test]
+fn eine_knopfflut_deckelt_die_warteschlange() {
+    let mut e = eingeschaltet();
+    for i in 0..(MAX_GESAMT * 2) {
+        let zustand =
+            if i % 2 == 0 { ElementState::Pressed } else { ElementState::Released };
+        e.on_window_event(&maus_ereignis(zustand, MouseButton::Left), Some(lage()), false);
+    }
+    let frames = alles(&mut e);
+    assert!(frames.len() <= MAX_GESAMT + 1, "{}", frames.len());
+    assert!(e.notbremsen() >= 1);
 }

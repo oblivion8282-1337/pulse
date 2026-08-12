@@ -77,6 +77,23 @@ impl Rahmen {
         matches!(self.opcode(), OP_MAUS_ABS | OP_MAUS_REL)
     }
 
+    /// Braucht dieser Frame eine Positionierung VOR sich?
+    ///
+    /// Knopf und Rad tragen **keine eigene Koordinate**: der Host wendet sie
+    /// dort an, wo sein Zeiger gerade steht. Faellt die Bewegung weg, die
+    /// unmittelbar vor ihnen stand, klickt der ferne Rechner an einer
+    /// beliebigen Stelle — beim Ziehen und Ablegen auch noch an einer anderen
+    /// als beim Druecken. Deshalb SCHUETZEN diese Frames ihre Positionierung
+    /// gegen die Flutkontrolle (s. [`super::schlange`]); die Invariante lautet:
+    /// entweder gehen Positionierung und Anhaengsel gemeinsam hinaus, oder
+    /// keines von beiden.
+    ///
+    /// Tasten stehen bewusst nicht in dieser Liste — ein Scancode trifft die
+    /// Tastatur, nicht den Zeiger.
+    pub fn braucht_position(&self) -> bool {
+        matches!(self.opcode(), OP_MAUS_KNOPF | OP_MAUS_RAD)
+    }
+
     /// Die beiden i16-Werte einer relativen Bewegung. Nur fuer das Aufsummieren
     /// beim Zusammenfassen (s. [`super::Erfassung`]).
     pub fn rel_werte(&self) -> Option<(i16, i16)> {
@@ -197,6 +214,32 @@ impl Rastensammler {
         }
         (ganze * f64::from(RASTE)) as i16
     }
+}
+
+/// Ganze Bildpunkte aus einer Bruchteil-Bewegung — der Rest bleibt liegen und
+/// zaehlt beim naechsten Ereignis mit.
+///
+/// Dieselbe Idee wie beim [`Rastensammler`] und aus demselben Grund: Wayland
+/// liefert ueber `relative_pointer` beschleunigte Bruchteile, und jedes
+/// Ereignis fuer sich gerundet ergab bei langsamem Zielen null — der Zeiger
+/// beim Host bewegte sich gar nicht.
+///
+/// Abgeschnitten statt gerundet (`trunc`): so ist der Rest immer kleiner als
+/// ein Punkt und traegt nie ein Vorzeichen gegen die Bewegungsrichtung.
+pub fn ganze_punkte(rest: &mut f64, wert: f64) -> i16 {
+    if !wert.is_finite() || !rest.is_finite() {
+        *rest = 0.0;
+        return 0;
+    }
+    *rest += wert;
+    let ganz = rest.trunc().clamp(f64::from(i16::MIN), f64::from(i16::MAX));
+    *rest -= ganz;
+    // Nur, wenn die Klemmung oben zugeschlagen hat: der Ueberschuss wird
+    // verworfen statt aufgehoben, sonst liefe der Zeiger danach nach.
+    if rest.abs() >= 1.0 {
+        *rest = 0.0;
+    }
+    ganz as i16
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -361,6 +404,33 @@ mod tests {
         assert!(!maus_knopf(Knopf::Links, true).ist_bewegung());
         assert!(!maus_rad(120, 0).ist_bewegung());
         assert!(!hello().ist_bewegung());
+    }
+
+    /// Knopf und Rad haengen an der Bewegung vor ihnen — Tasten nicht.
+    #[test]
+    fn knopf_und_rad_brauchen_eine_positionierung() {
+        assert!(maus_knopf(Knopf::Links, true).braucht_position());
+        assert!(maus_knopf(Knopf::Links, false).braucht_position());
+        assert!(maus_rad(120, 0).braucht_position());
+        assert!(!taste(0x1e, true).braucht_position());
+        assert!(!hello().braucht_position());
+        assert!(!maus_abs(1, 2).braucht_position());
+        assert!(!maus_rel(1, 2).braucht_position());
+    }
+
+    /// Bruchteile relativer Bewegungen sammeln sich, statt zu verschwinden —
+    /// und ein Ausreisser rollt danach nicht nach.
+    #[test]
+    fn ganze_punkte_heben_den_rest_auf() {
+        let mut rest = 0.0;
+        assert_eq!(ganze_punkte(&mut rest, 0.4), 0);
+        assert_eq!(ganze_punkte(&mut rest, 0.4), 0);
+        assert_eq!(ganze_punkte(&mut rest, 0.4), 1, "drei Bruchteile ergeben den ersten Punkt");
+        assert_eq!(ganze_punkte(&mut rest, -1.5), -1);
+        assert_eq!(ganze_punkte(&mut rest, 100_000.0), i16::MAX);
+        assert_eq!(ganze_punkte(&mut rest, 0.0), 0, "kein Nachlauf aus dem Rest");
+        assert_eq!(ganze_punkte(&mut rest, f64::NAN), 0);
+        assert_eq!(ganze_punkte(&mut rest, 2.0), 2, "nach Unsinn wieder brauchbar");
     }
 
     #[test]

@@ -104,6 +104,22 @@ fn auf_bildpunktmitte(anteil: f64, punkte: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fernsteuerung::rahmen::anteil_zu_u16;
+
+    /// **Die Rueckrechnung des Hosts, Byte fuer Byte wie sie drueben steht**
+    /// (`win-hq-sidecar/src/remote_input/zuordnung.rs::anteil_auf_punkt`):
+    /// ganzzahlig, mit Aufrundungszugabe, auf `Breite − 1` bezogen.
+    ///
+    /// Sie nimmt den **quantisierten** Wert der Leitung, nicht den `f64`-Anteil
+    /// — dazwischen liegen die 65536 Stufen der Wire-Spec, und genau die
+    /// entscheiden, ob eine Bildspalte erreichbar ist. Hier stand bis zum
+    /// 2026-08-12 `(u·(w−1)).round()`: das ist weder die Formel des Hosts noch
+    /// enthaelt es die Quantisierung — die Zusage stimmte, der Test belegte sie
+    /// nicht.
+    fn host_punkt(anteil: f64, punkte: u32) -> u32 {
+        let q = i64::from(anteil_zu_u16(anteil));
+        ((q * i64::from(punkte - 1) + 32767) / 65535) as u32
+    }
 
     /// Ganzes Bild, gleiches Seitenverhaeltnis: die Ecken sind exakt 0 und 1.
     #[test]
@@ -145,9 +161,20 @@ mod tests {
         assert!((u - 479.5 / 1919.0).abs() < 1e-9 && (v - 269.5 / 1079.0).abs() < 1e-9, "{u},{v}");
         let (u, v) = lage.anteil(1920.0, 1080.0).expect("Ecke");
         assert!((u - 1439.5 / 1919.0).abs() < 1e-9 && (v - 809.5 / 1079.0).abs() < 1e-9, "{u},{v}");
-        // Und beim Host landet das wieder auf genau der gemeinten Spalte.
-        assert_eq!((479.5f64 / 1919.0 * 1919.0).round(), 480.0);
-        assert_eq!((1439.5f64 / 1919.0 * 1919.0).round(), 1440.0);
+
+        // Und beim Host landet das wieder auf der gemeinten Spalte — gerechnet
+        // mit SEINER Formel und ueber die Stufen der Leitung ([`host_punkt`]).
+        //
+        // Gemessen wird einen halben Fensterpunkt INNERHALB der Ecken: bei
+        // zweifachem Zoom deckt ein Fensterpunkt einen halben Bildpunkt ab, die
+        // Ecke selbst liegt damit exakt auf der Grenze zwischen zwei Spalten
+        // (479,5 bzw. 1439,5). Wohin eine Grenze faellt, ist keine Zusage, die
+        // sich pruefen laesst — hier stand bis zum 2026-08-12 genau eine solche
+        // Behauptung, gestuetzt auf eine erfundene Host-Formel.
+        let (u, v) = lage.anteil(0.5, 0.5).expect("innen");
+        assert_eq!((host_punkt(u, 1920), host_punkt(v, 1080)), (480, 270));
+        let (u, v) = lage.anteil(1919.5, 1079.5).expect("innen");
+        assert_eq!((host_punkt(u, 1920), host_punkt(v, 1080)), (1439, 809));
     }
 
     /// Bruchteile bleiben erhalten — genau dafuer wird in `f64` gerechnet.
@@ -159,32 +186,55 @@ mod tests {
         assert!((u - 500.0 / 999.0).abs() < 1e-12, "{u}");
     }
 
-    /// **Der Rand-Fehler, wegen dem der Nenner `Breite − 1` ist.** Der Host
-    /// rechnet `px = round(u·(w−1))`; jede Spalte muss dabei erreichbar sein —
-    /// besonders die letzte, sonst kommt man nicht in die rechte untere Ecke.
+    /// **Der Rand-Fehler, wegen dem der Nenner `Breite − 1` ist.** Jede Spalte
+    /// muss erreichbar sein — besonders die letzte, sonst kommt man nicht in
+    /// die rechte untere Ecke.
+    ///
+    /// Gemessen wird ueber den ganzen Weg: Anteil → **u16 der Leitung** →
+    /// Rueckrechnung des Hosts ([`host_punkt`]). Die Quantisierung gehoert
+    /// dazu, denn sie ist der Teil, der zwischen den beiden Seiten wirklich
+    /// steht.
     #[test]
     fn jede_spalte_und_zeile_ist_erreichbar() {
         let (breite, hoehe) = (1920u32, 1080u32);
         let lage = Bildlage::neu((breite, hoehe), (breite, hoehe), [0.0, 0.0, 1.0, 1.0])
             .expect("Lage");
-        let host = |u: f64, punkte: u32| (u * f64::from(punkte - 1)).round() as u32;
 
         // Mitte jeder Bildspalte -> genau diese Spalte, ueber die volle Breite.
         for i in 0..breite {
             let (u, _) = lage.anteil(f64::from(i) + 0.5, 0.5).expect("innen");
-            assert_eq!(host(u, breite), i, "Spalte {i} kommt als {} an", host(u, breite));
+            let angekommen = host_punkt(u, breite);
+            assert_eq!(angekommen, i, "Spalte {i} kommt als {angekommen} an");
         }
         for j in 0..hoehe {
             let (_, v) = lage.anteil(0.5, f64::from(j) + 0.5).expect("innen");
-            assert_eq!(host(v, hoehe), j, "Zeile {j}");
+            assert_eq!(host_punkt(v, hoehe), j, "Zeile {j}");
         }
 
         // Und die aeussersten Punkte des Bildes klemmen auf die Randspalten,
         // statt aus dem Bild zu fallen.
         let (u, v) = lage.anteil(1920.0, 1080.0).expect("rechte untere Ecke");
-        assert_eq!((host(u, breite), host(v, hoehe)), (1919, 1079));
+        assert_eq!((host_punkt(u, breite), host_punkt(v, hoehe)), (1919, 1079));
         let (u, v) = lage.anteil(0.0, 0.0).expect("linke obere Ecke");
-        assert_eq!((host(u, breite), host(v, hoehe)), (0, 0));
+        assert_eq!((host_punkt(u, breite), host_punkt(v, hoehe)), (0, 0));
+    }
+
+    /// Dieselbe Kette bei einer **anderen Aufloesung**, damit der Nachweis
+    /// nicht an einer glatten Zahl haengt: 2560×1440 ist der Schirm, auf dem
+    /// die Injektion am 2026-08-12 auf 0 px genau gemessen wurde.
+    #[test]
+    fn jede_spalte_ist_auch_bei_1440p_erreichbar() {
+        let (breite, hoehe) = (2560u32, 1440u32);
+        let lage = Bildlage::neu((breite, hoehe), (breite, hoehe), [0.0, 0.0, 1.0, 1.0])
+            .expect("Lage");
+        for i in 0..breite {
+            let (u, _) = lage.anteil(f64::from(i) + 0.5, 0.5).expect("innen");
+            assert_eq!(host_punkt(u, breite), i, "Spalte {i}");
+        }
+        for j in 0..hoehe {
+            let (_, v) = lage.anteil(0.5, f64::from(j) + 0.5).expect("innen");
+            assert_eq!(host_punkt(v, hoehe), j, "Zeile {j}");
+        }
     }
 
     /// Ein Bild von einer einzigen Spalte hat keinen Nenner — dann ist der

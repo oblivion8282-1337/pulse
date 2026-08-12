@@ -40,6 +40,7 @@ from dcc_chat_gateway.routes import (
     watch_handoff,
     ws_remote_handlers,
     ws_remote_input,
+    ws_remote_teardown,
     ws_watch,
     ws_watch_queue,
 )
@@ -249,9 +250,9 @@ async def handle_watch_queue_advance(ctx: WSOpContext, msg: dict[str, Any]) -> N
 
 @register_ws_op("remote_request")
 async def handle_remote_request(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await ws_remote_handlers.handle_request(
-        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
-    )
+    # Bekommt den ganzen Kontext: die Mindestpause zwischen zwei Anfragen ist
+    # verbindungsgebundener Zustand und lebt auf ``ctx``.
+    await ws_remote_handlers.handle_request(ctx, msg, session_factory=SessionLocal)
 
 
 @register_ws_op("remote_respond")
@@ -261,7 +262,8 @@ async def handle_remote_respond(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 
 @register_ws_op("remote_signal")
 async def handle_remote_signal(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await ws_remote_handlers.handle_signal(ctx.websocket, ctx.user, msg)
+    # Wie ``remote_input``: der Sekunden-Deckel haengt am Verbindungskontext.
+    await ws_remote_handlers.handle_signal(ctx, msg)
 
 
 @register_ws_op("remote_input")
@@ -273,7 +275,7 @@ async def handle_remote_input(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 
 @register_ws_op("remote_end")
 async def handle_remote_end(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await ws_remote_handlers.handle_end(ctx.websocket, ctx.user, msg)
+    await ws_remote_teardown.handle_end(ctx.websocket, ctx.user, msg)
 
 
 @register_ws_op("ping")
