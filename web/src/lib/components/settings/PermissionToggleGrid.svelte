@@ -60,6 +60,21 @@
       ]
     },
     {
+      // Eigene Gruppe, obwohl es nur ein Eintrag ist. Das Recht erlaubt, die
+      // Fernsteuerung eines anderen Mitglieds ANZUFRAGEN — es zwischen
+      // „Mikrofon stummschalten" und „Video senden" zu stellen würde seine
+      // Tragweite verwischen. Der Gesteuerte stimmt jeder Sitzung zusätzlich
+      // zu; dieses Bit ist die Vorabhürde, nicht die Erlaubnis selbst.
+      title: m.permission_toggle_grid_group_remote(),
+      entries: [
+        {
+          perm: Perm.REMOTE_CONTROL,
+          label: m.permission_toggle_grid_label_remote_control(),
+          desc: m.permission_toggle_grid_desc_remote_control()
+        }
+      ]
+    },
+    {
       title: m.permission_toggle_grid_group_admin_override(),
       entries: [
         {
