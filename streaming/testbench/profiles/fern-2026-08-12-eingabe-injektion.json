@@ -75,9 +75,33 @@
     "Keinen laufenden Stream. Das Quell-Rechteck kam ueber den Labor-Schalter vom primaeren Bildschirm, nicht von einer echten Aufnahmequelle."
   ],
 
+  "nachtrag_zwei_monitore": {
+    "gemessen_am": "2026-08-12, nachgereicht",
+    "anlass": "Ein zweiter Bildschirm wurde zugeschaltet. Damit ist der Fall pruefbar, an dem fremde Fernsteuerungen scheitern: ein Quell-Rechteck, das gegen den Ursprung des virtuellen Desktops verschoben ist.",
+    "aufbau": {
+      "monitor_1": "DISPLAY1, primaer, Lage 0,0, 2560x1440, Skalierung 100 Prozent",
+      "monitor_2": "DISPLAY2, Lage 2560,0, 1920x1200, Skalierung 100 Prozent",
+      "virtueller_desktop": "Ursprung 0,0, 4480x1440",
+      "neuer_schalter": "PULSE_LABOR_EINGABE_MONITOR (1-basiert) waehlt den Ersatz-Bildschirm; ohne ihn bleibt es der primaere. Ohne diesen Schalter waere der zweite Bildschirm unerreichbar geblieben."
+    },
+    "ergebnis": {
+      "monitor_1": "8 von 8 Zielen, groesste Abweichung 0 px",
+      "monitor_2": "8 von 8 Zielen, groesste Abweichung 0 px -- einschliesslich der Ecken bei absolut 2560,0 und 4479,1199",
+      "tasten_und_rad": "unveraendert vollstaendig auf beiden Laeufen"
+    },
+    "nebenbefund_totzone": "Die Monitore sind verschieden hoch, das umschliessende Rechteck ist also 1440 hoch, waehrend Monitor 2 nur bis 1199 reicht. Eine Injektion auf 4479,1439 landet auf 4479,1199 -- Windows klemmt auf den naechsten gueltigen Punkt. Das ist richtig so und keine Fehlerquelle, weil das Protokoll Anteile IM Quell-Rechteck traegt und dieser Punkt darin gar nicht vorkommt.",
+    "werkzeugfund": {
+      "fund": "Runden ist hier NICHT die sichere Wahl.",
+      "beobachtung": "Ein Wegwerf-Skript, das die Umrechnung Pixel -> Absolutkoordinate mit Math.Round machte, lag bei zwei von zehn Zielen 1 px daneben, sobald der virtuelle Desktop 4480 statt 2560 breit war. Bei einem Monitor war es zufaellig exakt.",
+      "warum_der_sidecar_richtig_liegt": "zuordnung.rs::punkt_auf_absolut schneidet ganzzahlig ab (px * 65535 / (cx-1)) statt zu runden; Runden ueberschiesst genau um einen Punkt. Der Produktivweg trifft deshalb auf beiden Bildschirmen exakt.",
+      "lehre": "Ein Pruefstand, der anders rechnet als der Prueflaufling, misst seine eigene Formel mit."
+    }
+  },
+
   "offen_und_nicht_ermittelt": [
     "Die Slot-Aufloesung an einem ECHTEN Stream. Geprueft ist der Weg mit dem Labor-Schalter; dass Slot 1 bei zwei laufenden Streams das richtige Rechteck trifft, ist damit nicht gezeigt.",
-    "Gemischte DPI und mehrere Monitore -- der zweite Bildschirm dieser Maschine war aus.",
+    "GEMISCHTE DPI weiterhin nicht. Beide Bildschirme laufen auf 100 Prozent; verschiedene Aufloesung und Bildrate allein loesen die DPI-Virtualisierung nicht aus.",
+    "Ein Bildschirm LINKS oder OBERHALB des primaeren. Dann bekommt der virtuelle Desktop einen negativen Ursprung, und genau daran haengt die Subtraktion in punkt_auf_absolut. Hier lag der zweite rechts, der Ursprung blieb 0,0.",
     "Fenster-Aufnahme mit DWMWA_EXTENDED_FRAME_BOUNDS (rund 7 px Versatz, falls falsch gemacht).",
     "Der Sichtschutz-Fall: bei geschwaerztem Bild soll saemtliche Eingabe wegfallen. Im Sidecar umgesetzt und unit-getestet, hier nicht am lebenden Bild nachgemessen.",
     "Die Strecke ueber zwei Rechner."

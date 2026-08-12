@@ -55,6 +55,18 @@ use crate::capture::source::{CaptureSource, ResolvedTarget, SourceGuard};
 /// ausgelieferten Pfad setzt die Variable.
 const LABOR_OHNE_STROM: &str = "PULSE_LABOR_EINGABE_OHNE_STREAM";
 
+/// Labor-Schalter: WELCHER Bildschirm als Quell-Rechteck dient, wenn
+/// [`LABOR_OHNE_STROM`] an ist. 1-basiert wie in `ops::list_monitors` und wie
+/// `Monitor::from_index` es erwartet; ohne die Variable bleibt es der primäre.
+///
+/// **Wozu.** Ohne das lässt sich nur der primäre Bildschirm prüfen — und genau
+/// die Fälle, an denen Fremdstacks scheitern, liegen auf dem ZWEITEN: die
+/// Verschiebung des Quell-Rechtecks gegen den Ursprung des virtuellen Desktops
+/// und die Zuordnung eines Punktes auf einen nicht-primären Bildschirm. Am
+/// 2026-08-12 wurde ein zweiter Monitor angeschlossen (1920x1200 rechts neben
+/// 2560x1440); ohne diesen Schalter wäre er unerreichbar geblieben.
+const LABOR_MONITOR: &str = "PULSE_LABOR_EINGABE_MONITOR";
+
 /// Der laufende Stream dieses Prozesses, für die Fernsteuerung sichtbar.
 /// Gesetzt beim `start`, geleert wenn der Worker endet.
 static AKTIVER_STROM: Mutex<Option<AktiverStrom>> = Mutex::new(None);
@@ -123,15 +135,16 @@ pub fn bindung_fuer_slot(slot: u32) -> Zielsuche {
 }
 
 /// Ohne laufenden Stream: entweder unbekannter Slot (Regelfall) oder — mit
-/// gesetztem Labor-Schalter — der primäre Bildschirm als Ersatzrechteck.
+/// gesetztem Labor-Schalter — ein Bildschirm als Ersatzrechteck. Welcher,
+/// entscheidet [`LABOR_MONITOR`]; ohne die Variable der primäre.
 fn labor_rueckfall(slot: u32) -> Zielsuche {
     if !crate::env::flag(LABOR_OHNE_STROM) {
         return Zielsuche::KeinStrom;
     }
-    match Monitor::primary() {
-        Ok(m) => {
+    match labor_bildschirm() {
+        Ok((m, woher)) => {
             eprintln!(
-                "[remote-input] {LABOR_OHNE_STROM}: Slot {slot} ohne Stream → primärer Bildschirm \
+                "[remote-input] {LABOR_OHNE_STROM}: Slot {slot} ohne Stream → {woher} \
                  als Quell-Rechteck (Messweg, kein Produktweg)"
             );
             Zielsuche::Gefunden(Bindung {
@@ -139,7 +152,33 @@ fn labor_rueckfall(slot: u32) -> Zielsuche {
                 wacht: None,
             })
         }
-        Err(e) => Zielsuche::NichtAufloesbar(format!("primärer Bildschirm nicht auflösbar: {e}")),
+        Err(e) => Zielsuche::NichtAufloesbar(e),
+    }
+}
+
+/// Den Labor-Bildschirm auflösen, samt Klartext für die Meldung.
+///
+/// Ein unbrauchbarer Wert in [`LABOR_MONITOR`] wird **nicht** stillschweigend
+/// auf den primären zurückgedreht: Wer den Schalter setzt, misst gezielt einen
+/// bestimmten Bildschirm, und ein stiller Rückfall lieferte Zahlen für den
+/// falschen — also ein Ergebnis, das plausibel aussieht und nichts belegt.
+fn labor_bildschirm() -> Result<(Monitor, String), String> {
+    // `crate::env` kennt nur Schalter (an/aus); hier wird eine Zahl gebraucht.
+    match std::env::var(LABOR_MONITOR).ok().filter(|s| !s.trim().is_empty()) {
+        Some(roh) => {
+            let n: u32 = roh
+                .trim()
+                .parse()
+                .map_err(|_| format!("{LABOR_MONITOR}={roh:?} ist keine Zahl (1-basiert)"))?;
+            let m = Monitor::from_index(n as usize)
+                .map_err(|e| format!("{LABOR_MONITOR}={n}: Bildschirm nicht auflösbar: {e}"))?;
+            Ok((m, format!("Bildschirm {n}")))
+        }
+        None => {
+            let m = Monitor::primary()
+                .map_err(|e| format!("primärer Bildschirm nicht auflösbar: {e}"))?;
+            Ok((m, "primärer Bildschirm".to_string()))
+        }
     }
 }
 
