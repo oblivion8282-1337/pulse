@@ -27,7 +27,19 @@
     "scancodes_identisch": true,
     "erweiterte_taste": "0xE01D (rechte Strg-Taste) gesendet und mit gesetzter Erweitert-Kennung empfangen",
     "buendelung": "30 Frames in einer Nachricht verarbeitet (v2 erlaubt bis 32; v1 liess genau einen zu)",
-    "sidecar_antworten": "durchgehend ok:true, processed 1/3/1/30/2, state live; remote_input_end meldet released:0"
+    "sidecar_antworten": "durchgehend ok:true, processed 1/3/1/30/2, state live; remote_input_end meldet released:0",
+    "fail_closed_gegenprobe": {
+      "verfahren": "Hello, dann ein Frame mit dem nicht vergebenen Opcode 0x09, dann eine gueltige Bewegung, dann remote_input_end, dann eine neue Sitzung.",
+      "beobachtet": [
+        "Hello -> ok:true, state live",
+        "Opcode 0x09 -> Ereignis remote_state/input_error mit Begruendung, dazu ok:false",
+        "gueltige Bewegung danach -> abgewiesen (Sitzung stillgelegt)",
+        "remote_input_end -> ok:true, state ended",
+        "neues Hello -> ok:true, state live",
+        "Bewegung -> ok:true"
+      ],
+      "bewertung": "Genau das Verhalten, das die Spezifikation verlangt: nach einem Protokollfehler geht nichts mehr durch, bis ausdruecklich beendet wurde. Ein missgeformtes Frame ist ein Fehler oder ein Angriff; in beiden Faellen ist Beenden richtiger als Raten."
+    }
   },
 
   "werkzeugfunde": [
