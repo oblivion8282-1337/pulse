@@ -95,6 +95,8 @@ export const gateway = {
   sendRemoteRespond: (sessionId: string, accept: boolean) =>
     _active().sendRemoteRespond(sessionId, accept),
   sendRemoteEnd: (sessionId: string) => _active().sendRemoteEnd(sessionId),
+  sendRemoteInput: (sessionId: string, slot: number, frames: string[]) =>
+    _active().sendRemoteInput(sessionId, slot, frames),
   // State (reaktiv im Sinne von Re-Read pro Zugriff)
   get state() { return _active().state; },
   get helloMeta() { return _active().helloMeta; },

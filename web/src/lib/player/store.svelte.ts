@@ -125,7 +125,12 @@ export class NativePlayerSession {
   // ohne Umweg hat. Eine Abfrage von hier aus waere eine JSON-RPC-Runde durch
   // zwei Prozesse je Sekunde und Kachel — fuer Werte, die niemand anzeigt.
 
-  #session: number | null = null;
+  /** Reaktiv, und das ist keine Kosmetik: die Fernsteuerung wartet darauf, dass
+   *  dieses Fenster wirklich offen ist, bevor sie die Eingabe-Erfassung darin
+   *  einschaltet (`$lib/remote/components/RemoteControllerInput.svelte`). Als
+   *  gewöhnliches Feld gesetzt liefe der Effect dort nie wieder — das Öffnen
+   *  passiert asynchron, lange nach dem Anlegen der Sitzung. */
+  #session = $state<number | null>(null);
   #unlisten: (() => void) | null = null;
   #unlistenOptions: (() => void) | null = null;
   #unlistenWindow: (() => void) | null = null;
@@ -262,6 +267,13 @@ export class NativePlayerSession {
   setVolume(percent: number): void {
     if (this.#session === null) return;
     void setPlayerOptions(this.#session, { volume: percent / 100 });
+  }
+
+  /** Die Sitzungsnummer IM Player-Prozess. `null`, solange kein Fenster offen
+   *  ist. Die Fernsteuerung braucht sie, um die Eingabe-Erfassung in genau
+   *  diesem Fenster zu schalten. */
+  get fensterSitzung(): number | null {
+    return this.#session;
   }
 
   /** Fenster nach vorne holen (Knopf in der Kachel). */

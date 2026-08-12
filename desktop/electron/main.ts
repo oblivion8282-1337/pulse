@@ -43,6 +43,7 @@ import {
 } from './sidecar';
 import { playerManager } from './player';
 import { EingabeWeiche } from './remoteInput';
+import { RemoteEingabe } from './remoteInputHost';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -815,6 +816,20 @@ function wireSidecar(): void {
   // Plattformen oder wenn gar kein Sidecar auffindbar ist (getLinuxBackend()
   // wirft nicht — Auflösungsfehler sind dort bereits `null`).
   ipcMain.handle('gsr:backend', () => getLinuxBackend());
+
+  // Fernsteuerung, Host-Seite: die im Renderer empfangenen `remote_input`-Frames
+  // in den Sidecar des gemeinten Stream-Platzes. Eigene Kanäle statt `gsr:call`
+  // — der Hauptprozess führt Buch darüber, welche Plätze eine Eingabe-Sitzung
+  // haben, damit „alles loslassen" beim Ende genau die erreicht und keinen
+  // Sidecar startet, der nichts zu tun hat (s. `remoteInputHost.ts`).
+  const remoteEingabe = new RemoteEingabe(
+    (slot, op, params) => getSidecar(slot).call(op, params),
+    MAX_STREAM_SLOTS,
+  );
+  ipcMain.handle('gsr:remoteInput', (_e, slot: unknown, sessionId: unknown, frames: unknown) =>
+    remoteEingabe.frames(slot, sessionId, frames),
+  );
+  ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
 }
 
 /**

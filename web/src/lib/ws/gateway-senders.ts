@@ -109,3 +109,14 @@ export function sendRemoteRespond(send: SendRaw, sessionId: string, accept: bool
 export function sendRemoteEnd(send: SendRaw, sessionId: string): boolean {
   return send({ op: 'remote_end', session_id: sessionId });
 }
+/**
+ * Eingabe-Frames zum Host (Wire-Protokoll v2, „Die Hülle auf dem Serverweg").
+ * `frames` sind Base64 und **in Reihenfolge** — ein Klick, der seine
+ * Positionierung überholt, landet am falschen Ort. Gebündelt hat der
+ * Electron-Hauptprozess bereits (höchstens 32 je Nachricht).
+ */
+export function sendRemoteInput(
+  send: SendRaw, sessionId: string, slot: number, frames: string[],
+): boolean {
+  return send({ op: 'remote_input', session_id: sessionId, slot, frames });
+}
