@@ -39,6 +39,16 @@
         "Bewegung -> ok:true"
       ],
       "bewertung": "Genau das Verhalten, das die Spezifikation verlangt: nach einem Protokollfehler geht nichts mehr durch, bis ausdruecklich beendet wurde. Ein missgeformtes Frame ist ein Fehler oder ein Angriff; in beiden Faellen ist Beenden richtiger als Raten."
+    },
+    "alles_loslassen_gegenprobe": {
+      "verfahren": "Linke Maustaste, Taste 0x1E und die erweiterte Taste 0xE01D druecken und NIE loslassen, dann remote_input_end.",
+      "sidecar_meldung": "released: 3",
+      "am_pruefziel_beobachtet": [
+        "maus_taste Left runter=false",
+        "taste scan 30 runter=false",
+        "taste scan 57373 (0xE01D) erweitert=true runter=false"
+      ],
+      "bewertung": "Nicht nur die Meldung des Sidecars, sondern die tatsaechliche Zustellung an ein echtes Fenster. Damit ist die Zusage gegen klemmende Tasten gemessen und nicht behauptet -- und die erweiterte Taste geht dabei mit dem richtigen Scancode zurueck, nicht als linke Variante."
     }
   },
 
