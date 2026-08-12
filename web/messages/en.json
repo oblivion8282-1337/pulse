@@ -2709,5 +2709,6 @@
     "instance_setup_env_reissue_confirm_btn":  "Re-issue",
     "permission_toggle_grid_group_remote":  "Remote control",
     "permission_toggle_grid_label_remote_control":  "Request remote control",
-    "permission_toggle_grid_desc_remote_control":  "May ask another member for remote control. Controlling only starts once the other side explicitly consents to that one session."
+    "permission_toggle_grid_desc_remote_control":  "May ask another member for remote control. Controlling only starts once the other side explicitly consents to that one session.",
+    "remote_error_offline":  "No connection to the server — request not sent."
 }

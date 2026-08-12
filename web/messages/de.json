@@ -2709,5 +2709,6 @@
     "instance_setup_env_reissue_confirm_btn":  "Neu ausstellen",
     "permission_toggle_grid_group_remote":  "Fernsteuerung",
     "permission_toggle_grid_label_remote_control":  "Fernsteuerung anfragen",
-    "permission_toggle_grid_desc_remote_control":  "Darf ein anderes Mitglied um Fernsteuerung bitten. Steuern kann man erst, wenn die andere Seite der einzelnen Sitzung ausdruecklich zustimmt."
+    "permission_toggle_grid_desc_remote_control":  "Darf ein anderes Mitglied um Fernsteuerung bitten. Steuern kann man erst, wenn die andere Seite der einzelnen Sitzung ausdruecklich zustimmt.",
+    "remote_error_offline":  "Keine Verbindung zum Server — Anfrage nicht gesendet."
 }
