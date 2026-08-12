@@ -164,6 +164,14 @@ class StreamTokenIn(BaseModel):
     # Wiedergabeweg entschieden hat. Fehlt das Feld (ältere Clients), gilt
     # 8 bit.
     ten_bit: bool = False
+    # **Kann der Sidecar dieses Streamers Eingaben einspielen?** Reist genau wie
+    # ``ten_bit`` mit bis zum Zuschauer — dort entscheidet sich, ob der Knopf
+    # „Fernsteuerung anfragen" ueberhaupt erscheint. Der Wert kommt aus der
+    # Fähigkeitsmeldung des Sidecars (``health.gsr.remote_input``), nicht aus
+    # dem Betriebssystem des Streamers: massgeblich ist, was das Programm kann,
+    # das die Frames am Ende einspielen muesste. Fehlt das Feld (Linux-Sidecar,
+    # aeltere Clients), gilt ``False`` — fail-closed.
+    remote_input: bool = False
 
 
 class StreamTokenOut(BaseModel):
@@ -189,6 +197,8 @@ class WhepOut(BaseModel):
     # Zuschauer entscheidet daran, ob er den nativen Player nimmt (nur der
     # kann mehr als 8 bit ausgeben) oder das ``<video>``-Element.
     ten_bit: bool = False
+    # Siehe ``StreamTokenIn.remote_input``. Aus dem ``stream:active``-Record.
+    remote_input: bool = False
 
 
 def _get_redis(request: Request) -> Redis:
@@ -302,6 +312,8 @@ async def issue_stream_token(
     # byte-identisch zur alten Form bleibt.
     if payload.ten_bit:
         record["ten_bit"] = True
+    if payload.remote_input:
+        record["remote_input"] = True
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),
@@ -438,6 +450,7 @@ async def get_whep_url(
     return WhepOut(
         whep_url=f"{base}/{path}/whep?token={read_token}",
         ten_bit=data.get("ten_bit") is True,
+        remote_input=data.get("remote_input") is True,
     )
 
 

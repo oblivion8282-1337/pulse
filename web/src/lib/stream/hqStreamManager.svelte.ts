@@ -68,6 +68,12 @@ export class ManagedHqStream {
    * heisst „8 bit oder noch nicht bekannt" — nie „bestimmt nicht".
    */
   tenBit = $state(false);
+  /** Kann der Streamer dieses Streams ferngesteuert werden? Aus der
+   *  WHEP-Antwort (`remote_input`), die ihn vom Sidecar des Streamers
+   *  durchreicht. Nur der Windows-Sidecar kann Eingaben einspielen — bei allen
+   *  anderen bleibt der Anfrage-Knopf weg, statt eine Zustimmung einzuholen und
+   *  danach zu scheitern. */
+  fernsteuerbar = $state(false);
 
   #session: WhepSession | null = null;
   #connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
@@ -153,29 +159,37 @@ export class ManagedHqStream {
 
   // ---- Ruhen, solange das eigene Fenster den Stream hat --------------------
   /**
-   * Läuft das Bild im nativen Player, ruht diese Verbindung ganz.
+   * Läuft das Bild im nativen Player, ruht diese Verbindung.
    *
-   * **Warum das nötig ist — der Ton war nur die halbe Doppelung.** Für den Ton
-   * gibt es [`nativeAudio`] seit jeher; das BILD lief bis 2026-08-12 weiter
-   * doppelt, nur unsichtbar. `connectWhep` meldet immer eine `video`-Spur an
-   * (`whep.ts`), und Chromium dekodiert sie in Hardware — auch wenn die Kachel
-   * längst das `NativeWindowPanel` zeigt und gar kein `<video>` mehr existiert.
-   * Derselbe Stream wurde damit zweimal geladen und zweimal dekodiert.
+   * **KORREKTUR 2026-08-13 gegenüber der ersten Fassung.** Hier stand, die
+   * Kachel habe bei JEDEM Stream im eigenen Fenster weiter mitdekodiert und das
+   * sei die Ursache der GPU-Hänger auf AMD. Beides war falsch:
    *
-   * **Was das anrichtet.** Auf AMD-APUs (Phoenix/VCN 4, z. B. Radeon 780M)
-   * teilen sich beide Decoder EINE Video-Einheit. Unter der doppelten Last
-   * hängt sie: `ring vcn_unified_0 timeout` im Kernel-Log, danach ist der
-   * Player-Prozess weg (SIGABRT) und die App fällt auf Software-Dekodierung
-   * zurück. Am 2026-08-12 sieben Mal belegt — dreimal mit `Process
-   * pulse-player`, viermal mit `Process electron`, also von BEIDEN Decodern
-   * aus. Warum die Messbank das nie sah: dort läuft der Player allein.
-   * Ursachenakte: `streaming/pulse-player/src/decode.rs` bei `hwdec_vorgabe`.
+   * * Für **fremde** Streams klemmt `HqStreamKeepAlive.svelte` die Verbindung
+   *   schon seit dem 2026-08-03 ab — `imFenster()` nimmt den Stream aus
+   *   `wanted`, und `reconcile` schliesst den Manager dann ganz. Nachgeprüft
+   *   bis `pc.close()`. Für diesen Fall ist das hier nur einen Microtask
+   *   früher, also wirkungslos.
+   * * Die GPU-Hänger sind damit NICHT erklärt. Die vier Vorfälle mit
+   *   `Process electron` am 2026-08-12 liegen 26 bis 32 Sekunden NACH dem
+   *   Schliessen des Fensters — die Kachel hatte planmässig übernommen und war
+   *   der einzige Decoder. Die Auftragszählung des Rings stützt das: rund
+   *   41 Aufträge je Sekunde, also einer statt zweier Decoder.
    *
-   * **Gesetzt wird es von der `NativePlayerSession`, nicht von der Kachel** —
-   * aus demselben Grund wie beim Ton: das Fenster überlebt deren Unmount
-   * (Keep-Alive). Und nur sie kennt den Zustand `playing`: an `useNative`
-   * allein hinge das Ruhen schon während des Verbindens, es gäbe also ein
-   * Abbauen und sofortiges Wiederaufbauen bei jedem Fensterstart.
+   * **Wofür es trotzdem gebraucht wird: den EIGENEN Stream.**
+   * `HqStreamKeepAlive.svelte` nimmt ihn ausdrücklich aus `wanted` heraus (die
+   * Browser-Verbindung braucht er nicht), `WhepPlayer.svelte` legt ihn über
+   * `hqStreams.ensure()` aber trotzdem an — und niemand räumt ihn wieder weg.
+   * Wer sich selbst im eigenen Fenster zusieht, hatte dadurch dauerhaft zwei
+   * Decoder auf einer Video-Einheit. Genau diese Lücke schliesst `setRuhend`.
+   *
+   * Der eigentliche Fehler sitzt eine Ebene höher: dass der eigene Stream
+   * überhaupt über die Leitung zurückgeholt wird. Das gehört behoben, ist aber
+   * ein anderer Eingriff.
+   *
+   * Gesetzt wird es von der `NativePlayerSession`, nicht von der Kachel: das
+   * Fenster überlebt deren Unmount (Keep-Alive), und nur sie kennt den Zustand
+   * `playing`.
    */
   ruhend = $state(false);
 
@@ -315,10 +329,15 @@ export class ManagedHqStream {
     const sammler = this.#diagnose;
     this.#diagnose = null;
     if (!sammler || !sammler.lohntSich()) return;
-    void sendeDiagnoseBericht(
-      sammler.bericht(grund),
-      grund === 'beendet' ? 'stream_end' : 'error',
-    );
+    // **`uebernahme` zählt wie ein reguläres Ende, nicht wie ein Fehler.** Sie
+    // ist ein geplanter Wechsel: das eigene Fenster übernimmt, die Verbindung
+    // wird absichtlich abgebaut. Ohne diese Zeile wurde seit dem 2026-08-13
+    // JEDE Fensterübernahme als Fehlerbericht abgesetzt — besonders zuverlässig
+    // dann, wenn die Kachel noch gar kein Bild dekodiert hatte, denn genau dann
+    // hält `lohntSich()` den Bericht für interessant. Das verrauscht die
+    // Sammlung, die echte Abbrüche finden soll.
+    const planmaessig = grund == 'beendet' || grund == 'uebernahme';
+    void sendeDiagnoseBericht(sammler.bericht(grund), planmaessig ? 'stream_end' : 'error');
   }
 
   async #teardown(grund = 'wiederaufbau'): Promise<void> {
@@ -385,7 +404,7 @@ export class ManagedHqStream {
     if (this.#disposed) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url, ten_bit } = await chatApi.getWhepUrl(
+      const { whep_url, ten_bit, remote_input } = await chatApi.getWhepUrl(
         this.channelId,
         this.userId,
         this.slot,
@@ -397,6 +416,7 @@ export class ManagedHqStream {
       // erfahren, solange das eigene Fenster nicht laeuft, und genau das ist
       // die Lage, in der die Entscheidung faellt.
       this.tenBit = ten_bit === true;
+      this.fernsteuerbar = remote_input === true;
       if (this.#disposed) return;
       // **10 bit ohne eigenes Fenster: gar nicht erst verbinden.**
       //

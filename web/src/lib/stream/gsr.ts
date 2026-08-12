@@ -66,6 +66,16 @@ export interface GsrHealth {
      *  entscheidet erst der Start, und zwar mit einer Meldung, die auf den
      *  Windows-Schalter zeigt. Fehlt das Feld, heißt das "nein". */
     hdr?: boolean;
+    /** Kann dieser Sidecar Eingaben einspielen, ist dieser Rechner also
+     *  fernsteuerbar? Heute meldet das **nur der Windows-Sidecar** — er ist der
+     *  einzige mit einem `remote_input`-Modul.
+     *
+     *  Der Wert reist von hier über den Stream-Token bis in die WHEP-Antwort
+     *  beim Zuschauer und entscheidet dort, ob der Knopf „Fernsteuerung
+     *  anfragen" überhaupt erscheint. Fehlt das Feld, heißt das „nein" —
+     *  fail-closed, denn ein angebotener Knopf, der beim Gegenüber nichts
+     *  bewirken kann, holt sich erst eine Zustimmung und scheitert dann. */
+    remote_input?: boolean;
   };
 }
 

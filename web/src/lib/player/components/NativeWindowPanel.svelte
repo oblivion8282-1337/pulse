@@ -23,7 +23,15 @@
   import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  let { session }: { session: NativePlayerSession | null } = $props();
+  let {
+    session,
+    /** Kann der Streamer ueberhaupt ferngesteuert werden? Kommt aus der
+     *  WHEP-Antwort und stammt vom Sidecar des Streamers. Ohne das erschiene
+     *  der Knopf auch bei einem Linux-Streamer: der Gastgeber bekaeme den
+     *  Zustimmungs-Dialog fuer etwas, das nie funktionieren kann, und erst die
+     *  ersten Frames liefen dann in einen Sidecar ohne `remote_input`-Modul. */
+    fernsteuerbar = false
+  }: { session: NativePlayerSession | null; fernsteuerbar?: boolean } = $props();
 </script>
 
 <!--
@@ -58,7 +66,7 @@
     >
       {m.native_panel_focus_window()}
     </Button>
-    {#if session}
+    {#if session && fernsteuerbar}
       <RemoteRequestButton
         channelId={session.channelId}
         hostUserId={session.userId}

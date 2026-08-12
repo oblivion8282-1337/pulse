@@ -120,7 +120,12 @@
           pushProtokoll(),
           slot,
           label,
-          tenBitPossible()
+          tenBitPossible(),
+          // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen
+          // kann — heute allein der Windows-Sidecar. Der Wert reist mit dem
+          // Stream bis zum Zuschauer und entscheidet dort, ob der Anfrage-Knopf
+          // erscheint (`RemoteRequestButton`).
+          stream.fernsteuerbar
         );
       } catch (e) {
         const msg =

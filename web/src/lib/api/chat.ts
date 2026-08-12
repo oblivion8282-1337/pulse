@@ -529,11 +529,20 @@ export const chatApi = {
     protocol: 'rtmp' | 'whip' = 'rtmp',
     slot = 0,
     label?: string,
-    tenBit = false
+    tenBit = false,
+    /** Kann der eigene Sidecar Eingaben einspielen? Reist bis zum Zuschauer und
+     *  entscheidet dort, ob der Anfrage-Knopf der Fernsteuerung erscheint. */
+    remoteInput = false
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
-      body: { protocol, slot, ...(label ? { label } : {}), ...(tenBit ? { ten_bit: true } : {}) }
+      body: {
+        protocol,
+        slot,
+        ...(label ? { label } : {}),
+        ...(tenBit ? { ten_bit: true } : {}),
+        ...(remoteInput ? { remote_input: true } : {})
+      }
     });
   },
   /**
@@ -557,7 +566,7 @@ export const chatApi = {
     channelId: string,
     userId: string,
     slot = 0
-  ): Promise<{ whep_url: string; ten_bit?: boolean }> {
+  ): Promise<{ whep_url: string; ten_bit?: boolean; remote_input?: boolean }> {
     return request<{ whep_url: string; ten_bit?: boolean }>(
       `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
     );

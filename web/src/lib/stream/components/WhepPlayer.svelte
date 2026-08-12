@@ -75,6 +75,15 @@
   $effect(() => {
     if (mgr?.tenBit) tenBitGesehen = true;
   });
+  // Dasselbe Spiel fuer die Fernsteuerbarkeit, und aus demselben Grund: sobald
+  // das eigene Fenster spielt, wird `mgr` hier abgeklemmt (s. unten) — genau
+  // dann zeigt die Kachel aber das `NativeWindowPanel` mit dem Anfrage-Knopf.
+  // Direkt gelesen waere der Wert also immer `false`, und der Knopf erschiene
+  // nie. Aendern kann er sich waehrend eines Streams ohnehin nicht.
+  let fernsteuerbarGesehen = $state(false);
+  $effect(() => {
+    if (mgr?.fernsteuerbar) fernsteuerbarGesehen = true;
+  });
   $effect(() => {
     // Solange das Bild NICHT im eigenen Fenster laeuft, haelt der Browser die
     // Verbindung — auch waehrend das Fenster erst hochkommt, damit ein
@@ -174,14 +183,17 @@
   // zurueckgeben kann, waehrend der Manager frisch ist — dann hat die Sitzung
   // ihr `open()` schon hinter sich und wuerde nie mehr stummschalten.
   $effect(() => {
-    const uebernommen = useNative && native.phase === 'playing';
-    mgr?.setNativeAudio(uebernommen);
-    // Dasselbe fuers Bild, und aus demselben Grund nochmal hier: ein frischer
-    // Manager an einer bestehenden Sitzung hat das `playing`-Ereignis nie
-    // gesehen und wuerde den Stream ein zweites Mal laden und dekodieren
-    // (`ManagedHqStream.setRuhend`). Dieselbe Bedingung wie oben — die Sitzung
-    // und diese Kachel koennen sich also nicht widersprechen.
-    mgr?.setRuhend(uebernommen);
+    // **Diese Zeile ist seit dem 2026-08-03 wirkungslos, und das ist belegt.**
+    // `useNative && native.phase === 'playing'` ist genau die Bedingung, unter
+    // der der Effect weiter oben `mgr = null` setzt — hier steht dann nie ein
+    // Manager zur Verfuegung. Sie bleibt trotzdem stehen: sie schadet nicht,
+    // und wer die Abklemmung im Keep-Alive einmal zurueckbaut, braucht sie
+    // wieder. Wer sie anfasst, lese `HqStreamKeepAlive.svelte` mit.
+    //
+    // Das Ruhen der Verbindung setzt die `NativePlayerSession` selbst
+    // (`store.svelte.ts::#setRuhend`) — die ueberlebt den Unmount dieser Kachel
+    // und ist damit die einzige Stelle, die es zuverlaessig kann.
+    mgr?.setNativeAudio(useNative && native.phase === 'playing');
   });
 
   // Zwei Bedienleisten fuer denselben Stream sind Murks: sobald das Bild im
@@ -354,7 +366,7 @@
       <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
            dann das Cockpit: Lautstaerke/Chat liefert die TileShell, die
            Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
-      <NativeWindowPanel session={native.session} />
+      <NativeWindowPanel session={native.session} fernsteuerbar={fernsteuerbarGesehen} />
     {:else}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video

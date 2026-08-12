@@ -83,6 +83,18 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "ten_bit": ten_bit,
         "intra_refresh": intra_refresh,
         "hdr": hdr,
+        // **Kann dieser Sidecar Eingaben einspielen?** Fest `true`, weil das Op
+        // `remote_input` zu diesem Programm gehoert — die Aussage ist damit
+        // nicht geraten, sondern gilt fuer genau den Prozess, der sie macht.
+        //
+        // Der Linux-Sidecar hat das Modul nicht und meldet das Feld deshalb gar
+        // nicht; beim Zuschauer wird daraus `false`. Genau daran haengt, ob der
+        // Knopf „Fernsteuerung anfragen" ueberhaupt erscheint. Ohne diese
+        // Auskunft sah ein Zuschauer den Knopf auch bei einem Linux-Streamer,
+        // der Gastgeber bekam den Zustimmungs-Dialog fuer etwas, das nie
+        // funktionieren konnte, und erst die ersten Frames liefen dann in einen
+        // Sidecar, der das Op nicht kennt.
+        "remote_input": true,
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);

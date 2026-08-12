@@ -6,11 +6,10 @@
       "date": "2026-08-12",
       "style": "Sachlich",
       "title": "Weniger Last beim Zuschauen im eigenen Fenster",
-      "intro": "Wer einen HQ-Stream im eigenen Fenster ansieht, hat ihn bisher unbemerkt doppelt empfangen.",
+      "intro": "Wer sich selbst im eigenen Fenster zusieht, hat seinen Stream bisher unbemerkt ein zweites Mal empfangen.",
       "items": [
-        "Die App hat den Stream im Hintergrund weiter geladen und entpackt, obwohl das Bild längst im eigenen Fenster lief. Diese zweite Verbindung wird jetzt beendet, solange das Fenster den Stream zeigt.",
-        "Das spart rund die Hälfte der Rechenlast und des Datenverbrauchs beim Zuschauen.",
-        "Auf Rechnern mit AMD-Grafikeinheit unter Linux konnte die doppelte Last die Video-Einheit blockieren. Das Fenster kam dann zwar von selbst zurück, danach aber mit langsamerer Wiedergabe über den Hauptprozessor.",
+        "Sieht man sich den EIGENEN Stream im eigenen Fenster an, hat die App ihn im Hintergrund zusätzlich über das Netz zurückgeholt und entpackt. Diese zweite Verbindung wird jetzt beendet, solange das Fenster den Stream zeigt.",
+        "Bei Streams anderer Leute war das schon vorher in Ordnung — dort wird die Verbindung seit längerem abgeklemmt.",
         "Schließt du das Fenster, übernimmt die Kachel wie bisher wieder."
       ]
     },

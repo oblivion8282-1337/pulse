@@ -24,7 +24,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { chatApi } from '$lib/api/chat';
 import { gsr } from './gsr';
 import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
-import { streamForSlot, markStarting } from './state.svelte';
+import { stream, streamForSlot, markStarting } from './state.svelte';
 import { resolveSlotLabel } from './label';
 
 const RESTART_WINDOW_MS = 60_000;
@@ -74,7 +74,9 @@ export function maybeAutoRestart(slot: number): void {
         pushProtokoll(),
         slot,
         label,
-        tenBitPossible()
+        tenBitPossible(),
+        // Wie beim Start von Hand: die Fernsteuerbarkeit reist mit.
+        stream.fernsteuerbar
       );
       const args = buildStartArgs({ channelId, token: tok.token, pushUrl: tok.push_url }, slot);
       const r = await gsr.start(args, slot);

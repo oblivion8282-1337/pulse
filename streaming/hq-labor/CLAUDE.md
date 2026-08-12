@@ -510,17 +510,23 @@ starb an einem GPU-Hänger:**
 > trotzdem — ältere Kernel/Mesa haben den harten Weg weiterhin, und das Flatpak
 > liefert an genau die aus. Nur belegen lässt er sich hier nicht mehr.
 >
-> **Korrektur 2026-08-12 — doch belegbar, und der Grund war ein zweiter
-> Decoder.** Auf demselben Unterbau ist der Player an einem Tag **zweimal**
-> gestorben (`signal=SIGABRT`, Wächter griff, danach `libdav1d`). Der
-> Unterschied zur Messbank: dort läuft der Player allein, in der App nicht. Die
-> Kachel hielt ihre WHEP-Verbindung offen, während das eigene Fenster das Bild
-> zeigte — Chromium dekodierte dieselbe AV1-Spur ein zweites Mal in Hardware,
-> ohne dass ein `<video>` sie noch angezeigt hätte. Das Kernel-Log benennt an
-> diesem Tag beide: dreimal `Process pulse-player`, viermal `Process electron`.
-> Behoben in `web/src/lib/stream/hqStreamManager.svelte.ts` (`setRuhend`).
-> **Lehre für künftige Messungen:** ein Player-Lauf auf der Messbank bildet die
-> Last der App nicht ab, solange die Kachel nebenher mitdekodiert.
+> **Korrektur 2026-08-12, ihrerseits am 2026-08-13 berichtigt.** Auf demselben
+> Unterbau ist der Player an einem Tag **zweimal** gestorben (`signal=SIGABRT`,
+> Wächter griff, danach `libdav1d`). Der Stand vom 2026-08-11 („nicht mehr
+> reproduzierbar") ist damit **überholt** — das bleibt.
+>
+> **Nicht** haltbar war die Erklärung, die am 2026-08-12 dazu geschrieben
+> wurde: ein zweiter Decoder in der App-Kachel. Nachgeprüft am 2026-08-13:
+> für fremde Streams klemmt die App die Browser-Verbindung seit dem
+> 2026-08-03 ab, und die vier `Process electron`-Vorfälle liegen 26 bis 32
+> Sekunden **nach** dem Schließen des Fensters — also im planmäßigen Rückfall
+> auf die Kachel, mit genau einem Decoder. Die Auftragszählung des Rings
+> (rund 41/s) stützt das.
+>
+> **Lehre, diesmal die richtige:** ein einzelner Decoder genügt für diesen
+> Hänger. Vor der nächsten Ursachenbehauptung den Zeitstrahl aus Kernel- und
+> Anwendungsprotokoll nebeneinanderlegen, statt zwei gleichzeitige Zähler für
+> gleichzeitige Ursachen zu halten.
 
 
 Untersucht am 2026-08-04 (Entscheidung damals: erst merken, nicht bauen),
