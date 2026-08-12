@@ -26,8 +26,24 @@
   let { session }: { session: NativePlayerSession | null } = $props();
 </script>
 
+<!--
+  `relative z-10` ist PFLICHT, nicht Kosmetik.
+
+  TileShell legt einen transparenten Klick-Faenger (`absolute inset-0`) UEBER
+  den Medieninhalt — fuer Doppelklick-Vollbild und den Tap auf Mobilgeraeten.
+  Er steht nach `media()` im DOM und hat kein `pointer-events-none`, liegt in
+  der Trefferpruefung also oben. Bis hierher war unter ihm immer nur ein
+  `<video>`, also nie etwas Klickbares; dieses Panel ist der erste Fall mit
+  Knoepfen.
+
+  Ohne diese Zeile sind BEIDE Knoepfe tot: sie werden gezeichnet, zeigen aber
+  keinen Hover, und der Klick landet im Faenger, der ausserhalb von
+  „mobil + Vollbild" nichts tut. Kein Fehler, keine Meldung, nichts auf der
+  Leitung — am 2026-08-12 hat genau das den Zwei-Geraete-Test blockiert und
+  wie ein kaputtes Backend ausgesehen.
+-->
 <div
-  class="flex h-full w-full flex-col items-center justify-center gap-3 bg-black p-4 text-white/70"
+  class="relative z-10 flex h-full w-full flex-col items-center justify-center gap-3 bg-black p-4 text-white/70"
   data-testid="hq-stream-native-panel"
 >
   <AppWindowIcon class="size-7 shrink-0" />
