@@ -16,9 +16,16 @@
 # die aufrufende Sitzung durchschlagen. Das hat beim ersten Versuch die
 # Fehlerbehandlung des Aufrufers zerlegt.
 
+# JEDES return TRAEGT EIN KOMMA. PowerShell loest ein zurueckgegebenes Feld auf
+# dem Weg nach draussen auf: aus einem byte[] mit zwei Eintraegen werden zwei
+# lose Bytes, und der Aufrufer haelt danach ein Object[] statt eines Frames. Das
+# Komma unterdrueckt genau diese Aufloesung. Ohne es scheiterte am 2026-08-12
+# die ganze Abnahme -- der Hello-Frame ging als Zeichenkette statt als Liste
+# hinaus, der Host wies ihn ab, und ab da war die Sitzung fail-closed. Es sah
+# nach einem kaputten Injektor aus und war der Pruefstand.
 function New-HelloFrame {
   param([byte]$Version = 2)
-  return [byte[]]@(0x00, $Version)
+  return ,([byte[]]@(0x00, $Version))
 }
 
 function New-MausAbsFrame {
@@ -31,7 +38,7 @@ function New-MausAbsFrame {
   $b[0] = 0x01
   [BitConverter]::GetBytes([uint16]$X).CopyTo($b, 1)
   [BitConverter]::GetBytes([uint16]$Y).CopyTo($b, 3)
-  return $b
+  return ,$b
 }
 
 function New-MausRelFrame {
@@ -40,13 +47,13 @@ function New-MausRelFrame {
   $b[0] = 0x02
   [BitConverter]::GetBytes([int16]$Dx).CopyTo($b, 1)
   [BitConverter]::GetBytes([int16]$Dy).CopyTo($b, 3)
-  return $b
+  return ,$b
 }
 
 function New-MausTasteFrame {
   # 0=links 1=rechts 2=mitte 3=X1 4=X2
   param([int]$Taste, [bool]$Runter)
-  return [byte[]]@(0x03, [byte]$Taste, [byte]($(if ($Runter) { 1 } else { 0 })))
+  return ,([byte[]]@(0x03, [byte]$Taste, [byte]($(if ($Runter) { 1 } else { 0 }))))
 }
 
 function New-RadFrame {
@@ -56,7 +63,7 @@ function New-RadFrame {
   $b[0] = 0x04
   [BitConverter]::GetBytes([int16]$Dv).CopyTo($b, 1)
   [BitConverter]::GetBytes([int16]$Dh).CopyTo($b, 3)
-  return $b
+  return ,$b
 }
 
 function New-TasteFrame {
@@ -66,14 +73,22 @@ function New-TasteFrame {
   $b[0] = 0x05
   [BitConverter]::GetBytes([uint16]$Scan).CopyTo($b, 1)
   $b[3] = [byte]($(if ($Runter) { 1 } else { 0 }))
-  return $b
+  return ,$b
 }
 
 function ConvertTo-FrameBase64 {
   # Nimmt eine Liste von Byte-Feldern und liefert die Base64-Zeichenketten fuer
   # das frames-Feld der Huelle.
+  #
+  # DAS KOMMA VOR @( IST PFLICHT. Ohne es loest PowerShell ein einelementiges
+  # Feld beim Zurueckgeben auf, ConvertTo-Json schreibt dann eine Zeichenkette
+  # statt einer Liste, und der Host weist die Nachricht mit "frames ist Pflicht"
+  # ab. Beim ersten Lauf am 2026-08-12 traf das ausgerechnet den Hello-Frame --
+  # danach war die Sitzung fail-closed und JEDE folgende Nachricht wurde
+  # abgewiesen. Der Fehler sah wie ein kaputter Injektor aus und war einer im
+  # Pruefstand.
   param([object[]]$Frames)
-  return @($Frames | ForEach-Object { [Convert]::ToBase64String([byte[]]$_) })
+  return ,@($Frames | ForEach-Object { [Convert]::ToBase64String([byte[]]$_) })
 }
 
 function ConvertTo-Anteil {
@@ -127,11 +142,20 @@ function Get-ScancodeFolge {
 
 function New-TastenFolge {
   # Runter/Hoch-Paare fuer eine Scancode-Folge.
+  # Erst in eine Variable holen, DANN mit Komma anhaengen. `$aus += ,(Aufruf)`
+  # waere eine Verpackung zu viel, seit die Frame-Funktionen sich selbst gegen
+  # das Aufloesen schuetzen -- dabei entstuende eine Liste von Listen, und der
+  # Base64-Wandler bekaeme ein Object[] statt eines Frames.
   param([int[]]$Scancodes)
   $aus = @()
   foreach ($s in $Scancodes) {
-    $aus += ,(New-TasteFrame -Scan $s -Runter $true)
-    $aus += ,(New-TasteFrame -Scan $s -Runter $false)
+    $runter = New-TasteFrame -Scan $s -Runter $true
+    $hoch   = New-TasteFrame -Scan $s -Runter $false
+    $aus += ,$runter
+    $aus += ,$hoch
   }
-  return ,$aus
+  # HIER KEIN KOMMA -- anders als bei den Frame-Funktionen. Zurueckgegeben wird
+  # eine LISTE von Frames, und die soll der Aufrufer als Liste bekommen. Mit
+  # Komma erhielte er ein einziges Element, das die Liste enthaelt.
+  return $aus
 }
