@@ -349,6 +349,9 @@ export type ServerEvent =
   | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
   | { op: 'remote_response'; session_id: string; accepted: boolean }
   | { op: 'remote_ended'; session_id: string; reason: string }
+  // Eingabe-Frames des Steuernden, vom Gateway unverändert durchgereicht (nur
+  // der Host bekommt sie). Format: `docs/plans/2026-08-12-input-wire-protokoll-v2.md`.
+  | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
   // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
   // offenen Consent-Dialog.
   | { op: 'remote_canceled'; session_id: string }
@@ -405,6 +408,9 @@ export type ClientEvent =
   // Fernsteuerung — Outbound-Ops des Consent-Handshakes (s. ws_remote_handlers.py).
   | { op: 'remote_request'; channel_id: string; host_user_id: string }
   | { op: 'remote_respond'; session_id: string; accept: boolean }
+  // Eingabe-Frames zum Host. Nur der Steuernde sendet; der Gateway prüft
+  // Sitzung, Rolle und Größe und schaut nicht in die Frames hinein.
+  | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
   | { op: 'remote_end'; session_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte

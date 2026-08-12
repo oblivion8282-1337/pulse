@@ -60,6 +60,24 @@ export interface PulseGsrApi {
   /** Welcher Linux-Sidecar läuft und warum. `null` auf anderen Plattformen
    *  oder wenn gar kein Sidecar auffindbar ist. Startet nichts. */
   backend(): Promise<PulseLinuxBackend | null>;
+  /**
+   * Fernsteuerung, HOST-Seite: Eingabe-Frames in den Sidecar des gemeinten
+   * Stream-Platzes einspielen. Der Renderer empfaengt sie als `remote_input`
+   * auf seiner App-WebSocket und reicht sie unveraendert weiter — der
+   * Hauptprozess hat keine Verbindung zum Gateway.
+   *
+   * Antwort wie ueberall hier lose typisiert; `$lib/remote/sidecarInput.ts`
+   * wertet daraus nur `ok` aus. **`ok:false` heisst fail-closed** — der Sidecar
+   * hat die Eingabe-Sitzung stillgelegt, und der Renderer beendet daraufhin die
+   * Fernsteuerung.
+   *
+   * Fehlt in aelteren Shells, deshalb optional: ohne sie kann dieser Rechner
+   * nicht ferngesteuert werden, und der Renderer laesst die Sitzung fallen.
+   */
+  remoteInput?(slot: number, sessionId: string, frames: string[]): Promise<unknown>;
+  /** Sitzungsende — der Sidecar gibt alles Gedrueckte frei. Ohne diesen Ruf
+   *  bliebe nach einem Abbruch eine Taste gedrueckt. Idempotent. */
+  remoteInputEnd?(): Promise<unknown>;
   /** Subscribe to sidecar events. Each event carries a `slot` field tagged by
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */

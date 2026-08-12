@@ -16,9 +16,15 @@
  */
 
 import { gateway } from '$lib/ws/connection';
+import { eingabeFreigeben } from './sidecarInput';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
 export type RemoteRole = 'controller' | 'host';
+
+/** Wie oft geprüft wird, ob die Verbindung noch steht (nur während einer
+ *  Sitzung). `gateway.state` ist keine Rune, also gibt es dafür keinen Effect;
+ *  1 Hz reicht — dieselbe Taktung nutzt `ws/server-state.svelte.ts`. */
+const VERBINDUNGS_TAKT_MS = 1000;
 
 class RemoteSessionStore {
   phase = $state<RemotePhase>('idle');
@@ -27,18 +33,27 @@ class RemoteSessionStore {
   /** Gegenüber: beim Controller der Host, beim Host der Controller. */
   peerUserId = $state<string | null>(null);
   channelId = $state<string | null>(null);
+  /**
+   * Welcher der gleichzeitig laufenden Streams des Hosts gesteuert wird
+   * (Wire-Protokoll v2, „Der `slot`"). Nur beim Steuernden gesetzt: er wählt
+   * ihn mit der Kachel, an der er die Anfrage stellt. Der Host braucht ihn
+   * nicht — dort steht er in jeder einzelnen Nachricht.
+   */
+  targetSlot = $state(0);
   /** Zuletzt aufgetretener Fehler (bleibt bis zur nächsten Anfrage sichtbar). */
   error = $state<string | null>(null);
 
   #errUnsub: (() => void) | null = null;
+  #verbindungsWacht: ReturnType<typeof setInterval> | null = null;
 
   // ── Controller-Seite ──────────────────────────────────────────────────────
-  request(channelId: string, hostUserId: string): void {
+  request(channelId: string, hostUserId: string, slot = 0): void {
     if (this.phase !== 'idle') return;
     this.error = null;
     this.role = 'controller';
     this.peerUserId = hostUserId;
     this.channelId = channelId;
+    this.targetSlot = slot;
     this.sessionId = null; // vergibt der Server, kommt erst mit remote_response
     this.phase = 'requesting';
     this.#watchErrors(); // Host offline / belegt → op:'error' abfangen
@@ -78,6 +93,7 @@ class RemoteSessionStore {
     this.sessionId = sessionId;
     this.channelId = channelId;
     this.peerUserId = fromUserId;
+    this.targetSlot = 0; // Host-Seite: der Slot steht in jeder einzelnen Nachricht.
     this.phase = 'incoming';
   }
 
@@ -97,6 +113,7 @@ class RemoteSessionStore {
       return;
     }
     this.phase = 'active';
+    this.#watchVerbindung();
   }
 
   _ended(sessionId: string, _reason: string): void {
@@ -121,12 +138,54 @@ class RemoteSessionStore {
   // ── intern ────────────────────────────────────────────────────────────────
   #reset(): void {
     this.#unwatchErrors();
+    this.#unwatchVerbindung();
+    // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
+    // Ausgang aus jeder Sitzung ist: reguläres Beenden, Ablehnung, Gegenüber
+    // weg, Verbindungsverlust, Fehler. Ohne diesen Ruf liefe nach einem
+    // Abbruch die W-Taste im Spiel für immer weiter. Idempotent und ohne
+    // laufende Eingabe-Sitzung folgenlos, deshalb ungefiltert nach Rolle: der
+    // Host ist der einzige, der je eine hatte.
+    void eingabeFreigeben();
     this.phase = 'idle';
     this.role = null;
     this.sessionId = null;
     this.peerUserId = null;
     this.channelId = null;
+    this.targetSlot = 0;
     // `error` bleibt bewusst stehen — die UI zeigt ihn bis zur nächsten Anfrage.
+  }
+
+  /**
+   * Verbindung weg = Sitzung weg.
+   *
+   * Der Gateway beendet jede Sitzung eines abgerissenen Sockets sofort und
+   * ohne Schonfrist (`cleanup_remote_on_disconnect`) — nur erfährt genau die
+   * Seite, deren Socket abriss, davon nichts mehr. Ohne diese Wacht bliebe
+   * beim Host das Warnbanner stehen, beim Steuernden liefe die Erfassung
+   * weiter, und der Sidecar hielte alles Gedrückte fest.
+   *
+   * Poll statt Effect, weil `gateway.state` bewusst keine Rune ist (s.
+   * `ws/gateway-connection.ts`) — dieselbe Begründung wie in
+   * `ws/server-state.svelte.ts`.
+   */
+  #watchVerbindung(): void {
+    this.#unwatchVerbindung();
+    this.#verbindungsWacht = setInterval(() => {
+      let offen = false;
+      try {
+        offen = gateway.state === 'open';
+      } catch {
+        offen = false; // kein aktiver Server mehr (abgemeldet / Server entfernt)
+      }
+      if (!offen) this.#reset();
+    }, VERBINDUNGS_TAKT_MS);
+  }
+
+  #unwatchVerbindung(): void {
+    if (this.#verbindungsWacht !== null) {
+      clearInterval(this.#verbindungsWacht);
+      this.#verbindungsWacht = null;
+    }
   }
 
   #watchErrors(): void {

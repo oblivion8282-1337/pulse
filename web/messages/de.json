@@ -2089,6 +2089,7 @@
   "stream_stopped_sidecar_exit": "Stream unerwartet beendet — der Streaming-Helfer ist abgestürzt.",
   "remote_request_button": "Fernsteuerung anfragen",
   "remote_request_pending": "Warte auf Freigabe von {user} …",
+  "remote_request_stop": "Fernsteuerung beenden",
   "remote_consent_title": "Fernsteuerung erlauben?",
   "remote_consent_body": "{user} möchte Maus und Tastatur auf deinem geteilten Bildschirm übernehmen.",
   "remote_consent_scope": "Maus & Tastatur — nur, solange du überträgst",

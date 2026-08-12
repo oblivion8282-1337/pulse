@@ -28,6 +28,7 @@
   import RemoteConsentDialog from '$lib/remote/components/RemoteConsentDialog.svelte';
   import RemoteHostBanner from '$lib/remote/components/RemoteHostBanner.svelte';
   import RemoteErrorToast from '$lib/remote/components/RemoteErrorToast.svelte';
+  import RemoteControllerInput from '$lib/remote/components/RemoteControllerInput.svelte';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
@@ -304,10 +305,13 @@
 <StreamPickerDialog />
 
 <!-- Fernsteuerung: Consent-Dialog + Host-Banner + Fehler-Toast. Alle
-     store-getrieben (remoteSession), rendern nichts, wenn keine Session. -->
+     store-getrieben (remoteSession), rendern nichts, wenn keine Session.
+     RemoteControllerInput ist der Antrieb der steuernden Seite (Erfassung im
+     Player-Fenster an/aus, Frames auf die WebSocket) — ebenfalls ohne Markup. -->
 <RemoteConsentDialog />
 <RemoteHostBanner />
 <RemoteErrorToast />
+<RemoteControllerInput />
 
 <!-- Keeps HQ stream connections alive across navigation (audio keeps
      playing, video is back instantly on return). Renders nothing. -->

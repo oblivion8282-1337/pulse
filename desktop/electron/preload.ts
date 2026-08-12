@@ -96,6 +96,21 @@ contextBridge.exposeInMainWorld('pulse', {
      *  Main-Prozess-Auskunft über die Pfadauflösung, keine Sidecar-Op. */
     backend: () => ipcRenderer.invoke('gsr:backend'),
 
+    /**
+     * Fernsteuerung, HOST-Seite: Eingabe-Frames in den Sidecar des gemeinten
+     * Stream-Platzes einspielen. Der Renderer bekommt sie auf seiner
+     * App-WebSocket (`remote_input`) und reicht sie hier unveraendert weiter —
+     * der Hauptprozess hat keine Verbindung zum Gateway.
+     *
+     * Eigene Kanaele statt `gsr:call`: der Hauptprozess fuehrt Buch darueber,
+     * welche Plaetze eine Eingabe-Sitzung haben (s. `remoteInputHost.ts`).
+     */
+    remoteInput: (slot: number, sessionId: string, frames: string[]): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:remoteInput', slot, sessionId, frames),
+    /** Sitzungsende — der Sidecar gibt alles Gedrueckte frei (sonst klemmt eine
+     *  Taste). Idempotent, und ohne Frames zuvor folgenlos. */
+    remoteInputEnd: (): Promise<unknown> => ipcRenderer.invoke('gsr:remoteInputEnd'),
+
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —
      *  contextBridge allows calling a function the renderer passed in. */
