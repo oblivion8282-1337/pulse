@@ -32,7 +32,7 @@ from dcc_chat_gateway.db import SessionLocal  # noqa: F401
 # registry is fully populated.
 from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plugin_op
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
-from dcc_chat_gateway.routes import ws_watch
+from dcc_chat_gateway.routes import ws_remote_handlers, ws_watch
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
 from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -210,6 +210,15 @@ async def run_session_op_loop(
             )
         except Exception:  # noqa: BLE001
             log.exception("watch cleanup_on_disconnect failed for user=%s", user.id)
+        # Remote-control sessions: end every session this socket was a peer of
+        # and notify the other peer. No grace (unlike watch) — a dropped socket
+        # means the input path is dead, and the host must not be left with keys
+        # held down. Must also run before remove_socket so the per-user socket
+        # set is still intact for the registry lookup.
+        try:
+            await ws_remote_handlers.cleanup_remote_on_disconnect(websocket, manager)
+        except Exception:  # noqa: BLE001
+            log.exception("remote cleanup_on_disconnect failed for user=%s", user.id)
         await manager.remove_socket(websocket)
         if manager.user_socket_count(user.id) == 0:
             try:
