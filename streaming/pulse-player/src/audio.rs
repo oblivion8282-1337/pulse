@@ -93,6 +93,16 @@ struct Shared {
     /// Geraetefehler), meldete die Statistik sonst weiter "Ton aktiv",
     /// waehrend nichts mehr ankommt.
     alive: bool,
+    /// Das Ausgabegeraet hat einen Fehler gemeldet — Kopfhoerer abgezogen,
+    /// USB-Ton abgesteckt, Geraet verschwunden.
+    ///
+    /// **Warum das ein Zustand sein muss und keine Log-Zeile.** Der
+    /// Fehler-Rueckruf von cpal schrieb bis 2026-08-13 nur ein `eprintln!`.
+    /// Der Ausgabe-Thread laeuft danach WEITER (`alive` bleibt wahr), der Ring
+    /// fuellt sich, der Geraete-Rueckruf kommt aber nie wieder — der Ton war
+    /// fuer den Rest der Sitzung stumm, und die Anzeige meldete unveraendert
+    /// "laeuft". Ein Ausfall, den niemand sieht, ist der schlimmere Ausfall.
+    geraetefehler: bool,
 }
 
 impl Shared {
@@ -281,6 +291,8 @@ pub struct AudioCounters {
     pub abgleich_ppm: i32,
     /// Ob der Ausgabe-Thread noch laeuft.
     pub alive: bool,
+    /// Das Ausgabegeraet hat einen Fehler gemeldet (s. `Shared::geraetefehler`).
+    pub geraetefehler: bool,
 }
 
 /// Abtastrate von Opus. Der Codec kennt nur diese eine — alles andere
@@ -352,6 +364,7 @@ impl AudioOutput {
             abgleich: Uhrenabgleich::default(),
             anlauf: true,
             alive: true,
+            geraetefehler: false,
         }));
         let max_ring_samples =
             MAX_RING_SECONDS * sample_rate as usize * channels as usize;
@@ -365,6 +378,9 @@ impl AudioOutput {
         }
         let cb_shared = Arc::clone(&shared);
         let thread_shared = Arc::clone(&shared);
+        // Eigene Kopie fuer den Fehler-Rueckruf: er lebt so lange wie der
+        // Strom, und `shared` wandert gleich in den Thread.
+        let fehler_shared = Arc::clone(&shared);
 
         // Der Stream lebt auf diesem Thread und stirbt mit ihm.
         std::thread::Builder::new()
@@ -375,7 +391,17 @@ impl AudioOutput {
                     move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
                         fill_output(&cb_shared, out);
                     },
-                    |err| eprintln!("pulse-player: Audio-Stream: {err}"),
+                    {
+                        move |err| {
+                            eprintln!("pulse-player: Audio-Stream: {err}");
+                            // NICHT nur melden: der Thread laeuft weiter, und
+                            // ohne diesen Zustand bliebe die Anzeige auf
+                            // "Ton laeuft" stehen (s. `Shared::geraetefehler`).
+                            if let Ok(mut s) = fehler_shared.lock() {
+                                s.geraetefehler = true;
+                            }
+                        }
+                    },
                     None,
                 );
                 let stream = match stream {
@@ -430,6 +456,7 @@ impl AudioOutput {
                 resyncs: s.regelung.resyncs,
                 abgleich_ppm: s.abgleich.letzte_ppm,
                 alive: s.alive,
+                geraetefehler: s.geraetefehler,
             })
             .unwrap_or_default()
     }
@@ -461,6 +488,7 @@ mod tests {
             abgleich: Uhrenabgleich::default(),
             anlauf: true,
             alive: true,
+            geraetefehler: false,
         })
     }
 

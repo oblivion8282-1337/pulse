@@ -212,6 +212,31 @@ class RemoteSessionStore {
     this.#reset();
   }
 
+  /**
+   * Abmelden: alles fallen lassen, ohne dem Gegenüber etwas zu schicken.
+   *
+   * **Warum das gebraucht wird.** Dieser Store ist ein Modul-Singleton und
+   * überlebt einen Kontowechsel, denn die Anmeldung läuft ohne Neuladen der
+   * Seite. `signOut()` räumt zwei Dutzend Speicher auf — dieser fehlte, und
+   * eine noch offene Anfrage blieb stehen: der NÄCHSTE Nutzer am selben Tab
+   * bekam bis zu 40 Sekunden lang den Zustimmungs-Dialog eines Fremden
+   * vorgesetzt, samt „Erlauben"-Knopf. Der Klick liefe zwar ins Leere (die
+   * Verbindung ist mit `gatewayPool.closeAll()` weg), aber angezeigt wird ein
+   * Vorgang, der ihn nichts angeht — und bei einer Anzeige über Kontrolle am
+   * eigenen Rechner ist das der falsche Ort für „läuft schon ins Leere".
+   *
+   * Der Verbindungswächter fängt es NICHT ab: er läuft erst ab `active`
+   * (s. `#watchVerbindung`), eine wartende Anfrage kennt ihn nicht.
+   *
+   * Bewusst ohne Nachricht an den Server: die Verbindung ist beim Abmelden
+   * ohnehin geschlossen, und der Gateway räumt seine Seite über den
+   * Socket-Abbau selbst auf (`cleanup_remote_on_disconnect`).
+   */
+  abmelden(): void {
+    this.#reset();
+    this.error = null; // beim Kontowechsel auch keine Fehlermeldung erben
+  }
+
   // ── Inbound (vom Handler-Modul `handlers/remote.ts`) ──────────────────────
   _incomingRequest(sessionId: string, channelId: string, fromUserId: string): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab

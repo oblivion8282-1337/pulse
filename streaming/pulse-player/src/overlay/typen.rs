@@ -91,6 +91,9 @@ pub struct StatsView<'a> {
     pub ten_bit_source: bool,
     pub audio_active: bool,
     pub audio_underruns: u64,
+    /// Das Ausgabegeraet hat einen Fehler gemeldet — dann kommt gar nichts
+    /// mehr heraus, und "laeuft" waere eine Falschaussage.
+    pub audio_geraetefehler: bool,
     pub recording: bool,
 }
 

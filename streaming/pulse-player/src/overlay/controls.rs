@@ -81,7 +81,12 @@ impl Overlay {
                         row("Puffer", format!("{} Pakete · Ziel {} ms", s.buffered_packets, s.jitter_target_ms));
                         row(
                             "Ton",
-                            if s.audio_active {
+                            // Der Geraetefehler steht VOR allem anderen: er
+                            // bedeutet, dass nichts mehr herauskommt, und
+                            // "laeuft" waere dann schlicht falsch.
+                            if s.audio_geraetefehler {
+                                "AUSGABEGERAET GESTOERT".to_string()
+                            } else if s.audio_active {
                                 format!("laeuft · {} Aussetzer", s.audio_underruns)
                             } else {
                                 "stumm".to_string()
