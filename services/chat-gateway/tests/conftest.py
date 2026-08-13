@@ -486,6 +486,33 @@ def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update", "hello
         return m
 
 
+def trenne(ws):
+    """Die Trennung schicken — ohne den Abbruch, den der ``with``-Block gleich
+    hinterherwirft.
+
+    ``WebSocketTestSession.__exit__`` (starlette ``testclient.py``) tut ZWEI
+    Dinge unmittelbar nacheinander: es stellt ``websocket.disconnect`` zu und
+    bricht danach **sofort die Server-Task ab**. Der Abbau einer Verbindung
+    läuft aber im ``finally`` GENAU DIESER Task (``routes/ws_ops.py``) und
+    verschickt dort Frames an ANDERE Sockets. Trifft der Abbruch ihn vorher,
+    fällt das Frame lautlos aus (``CancelledError`` ist eine ``BaseException``
+    und geht an jedem ``except Exception`` vorbei), und die Gegenseite wartet
+    ewig. Gemessen am 2026-08-13: rund 25 % Hänger in
+    ``test_remote_disconnect_notifies_peer``.
+
+    **Reines Artefakt des TestClients.** uvicorn bricht die Task beim Trennen
+    nicht ab, es legt ``websocket.disconnect`` nur in die Warteschlange — im
+    Betrieb gibt es dieses Fenster derzeit nicht (es entstünde erst mit einem
+    gesetzten ``timeout_graceful_shutdown``, und das ist nirgends gesetzt).
+
+    Zugedeckt wird damit nichts: wer die Trennung selbst schickt und die Folge
+    NOCH IM Block liest, prüft dieselbe Zusage — bleibt das Frame aus, hängt
+    der Test genauso wie zuvor. Während der Test im Empfangen blockiert, läuft
+    die Serverschleife frei.
+    """
+    ws.close(1000)
+
+
 def ping_barrier(ws):
     """Block until every op sent on ``ws`` so far has been processed.
 

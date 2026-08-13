@@ -23,7 +23,7 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
-from .conftest import ping_barrier, skip_init_frames
+from .conftest import ping_barrier, skip_init_frames, trenne
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -226,10 +226,13 @@ async def test_remote_disconnect_notifies_peer(ws_app, _auth_signer):
                     host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
                     _drain_for(ctrl_ws, "remote_response")
                     _drain_for(host_ws, "remote_response")
-                # Controller socket closed here → host is told peer_disconnected.
-                ended = _drain_for(host_ws, "remote_ended")
-                assert ended["session_id"] == sid
-                assert ended["reason"] == "peer_disconnected"
+                    # Trennung HIER schicken und die Folge NOCH IM Block lesen
+                    # — sonst bricht `__exit__` die Server-Task ab, bevor ihr
+                    # `finally` das Frame verschickt hat (s. `conftest.trenne`).
+                    trenne(ctrl_ws)
+                    ended = _drain_for(host_ws, "remote_ended")
+                    assert ended["session_id"] == sid
+                    assert ended["reason"] == "peer_disconnected"
 
     await asyncio.to_thread(_run)
 
@@ -353,9 +356,11 @@ async def test_pending_disconnect_dismisses_all_host_tabs(ws_app, _auth_signer):
                     )
                     sid = _drain_for(host_a, "remote_request")["session_id"]
                     _drain_for(host_b, "remote_request")
-                # Controller socket closed here, still pending → both host tabs dismiss.
-                assert _drain_for(host_a, "remote_canceled")["session_id"] == sid
-                assert _drain_for(host_b, "remote_canceled")["session_id"] == sid
+                    # Wie oben: trennen und die Folge im Block lesen. Hier ist
+                    # das Fenster sogar breiter — es gehen ZWEI Frames hinaus.
+                    trenne(ctrl_ws)
+                    assert _drain_for(host_a, "remote_canceled")["session_id"] == sid
+                    assert _drain_for(host_b, "remote_canceled")["session_id"] == sid
 
     await asyncio.to_thread(_run)
 
