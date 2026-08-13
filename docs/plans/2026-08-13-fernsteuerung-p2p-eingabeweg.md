@@ -1,9 +1,15 @@
-# Fernsteuerung: P2P-Eingabeweg — Integrationsplan (kein Neubau)
+# Fernsteuerung: P2P-Eingabeweg
 
 Stand 2026-08-13. Gehört zur Latenz-Offensive vom selben Tag
 (Branch `feat/fernsteuerung-latenz`: Cursor-Echo, Player-Quickwins,
-Senden-bei-Ankunft). Dieses Dokument beschreibt den vierten Baustein, der
-dort bewusst NICHT mitgebaut wurde — und warum.
+Senden-bei-Ankunft). **Stufe 1 ist auf diesem Branch umgesetzt**
+(`web/src/lib/remote/p2p.ts`) — anders als unten zuerst geplant nicht als
+Peers in pulse-player und Sidecar, sondern **zwischen den beiden
+Renderern**: die Frames laufen dort ohnehin schon durch (Player → Electron
+→ Renderer → … → Renderer → Electron → Sidecar), es wechselt also nur der
+Träger in der Mitte, und die gesamte Erfassungs- und Injektionskette
+bleibt unangetastet. Details und die Transportwechsel-Regel („nur in
+Ruhe", sonst klemmen Tasten) stehen im Modulkopf von `p2p.ts`.
 
 ## Ausgangslage
 
@@ -32,8 +38,9 @@ Latenz-Offensive dupliziert bzw. zerlegt gehärtete Arbeit.
 
 ## Der Plan: Eingabe zuerst, Bild später
 
-**Stufe 1 — nur der Eingabeweg über den DataChannel.** Kleinster Schnitt
-mit größtem Verhältnis von Gewinn zu Risiko:
+**Stufe 1 — nur der Eingabeweg über den DataChannel** (umgesetzt,
+`web/src/lib/remote/p2p.ts`). Kleinster Schnitt mit größtem Verhältnis
+von Gewinn zu Risiko:
 
 - Die **Frames bleiben wortgleich** — die Wire-Spec v2 hat den `slot`
   bewusst in die Hülle gelegt, damit Serverweg und P2P dasselbe
@@ -42,18 +49,17 @@ mit größtem Verhältnis von Gewinn zu Risiko:
 - **Signaling über `remote_signal`** — der Weiterleiter steht auf `main`
   im Gateway (ws_remote_handlers.py) und ist genau dafür stehengeblieben
   („billige Rückfahrkarte").
-- **Controller-Seite im pulse-player**, nicht im Renderer: die Erfassung
-  sitzt dort (`fernsteuerung/`), und webrtc-rs ist wegen WHEP ohnehin im
-  Binary. Ein zweiter PeerConnection mit einem DataChannel
-  (unreliable wäre falsch: die Spec verlangt zuverlässig + in Reihenfolge
-  je Strom — DataChannel im Default-Modus liefert genau das).
-- **Host-Seite im win-hq-sidecar**: webrtc-rs steckt auch dort (WHIP).
-  Der Answer-Peer nimmt DataChannel-Nachrichten an und ruft dieselbe
-  `Sitzung::frames`-Kette wie der stdio-Weg.
+- **Beide Kanal-Enden im Renderer** (Chromiums WebRTC-Stack): der
+  Steuernde macht das Angebot, der Host antwortet; `ondatachannel`-Frames
+  laufen durch DENSELBEN `eingabe()`-Wächter wie der Serverweg
+  (`ws/handlers/remote.ts`). Zuverlässig + in Reihenfolge = der
+  DataChannel-Default; unreliable wäre gegen die Spec.
 - **Serverweg bleibt als Rückfallebene** und für die Übergangszeit, in
   der ICE noch verhandelt: Frames laufen über WS, bis der Kanal offen
   ist; dann Umschalten mit frischem Hello (= „neuer Eingabestrom", die
-  Spec deckt das ab).
+  Spec deckt das ab) — und NUR in einem Moment, in dem nichts gedrückt
+  ist, sonst kann ein via WS abgeschicktes Drücken das freigebende Hello
+  überholen und die Taste klemmt (Begründung im Modulkopf).
 
 **Stufe 2 — auch das Bild P2P** (Sidecar-Abgriff aus dem Branch): erst
 wenn Stufe 1 im Feld läuft. Das Bild über den Server zu lassen ist

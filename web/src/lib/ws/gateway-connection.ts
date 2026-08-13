@@ -697,6 +697,9 @@ export class GatewayConnection {
     senders.sendRemoteEnd(this._raw, sessionId);
   sendRemoteInput = (sessionId: string, slot: number, frames: string[]): boolean =>
     senders.sendRemoteInput(this._raw, sessionId, slot, frames);
+  sendRemoteSignal = (
+    sessionId: string, kind: 'offer' | 'answer' | 'ice', data: unknown,
+  ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);
 
