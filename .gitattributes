@@ -1,0 +1,4 @@
+# Patch-Dateien niemals in CRLF umschreiben: `git apply` vergleicht sie
+# byteweise mit LF-Quellbäumen (webrtc-rs, windows-capture, FFmpeg), und ein
+# per autocrlf=true ausgecheckter CRLF-Patch passt dann nicht mehr.
+*.patch -text

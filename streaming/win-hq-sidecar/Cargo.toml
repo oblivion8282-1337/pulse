@@ -18,6 +18,7 @@ anyhow = "1"
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [
     "Foundation_Metadata", # ApiInformation: WGC-Session-Properties OS-gated prüfen (capture/mod.rs)
+    "Graphics_Capture", # GraphicsCaptureSession: Cursor zur Laufzeit aus dem Stream nehmen (capture/cursorsteuerung.rs)
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D_Fxc",
@@ -141,3 +142,13 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Der Zweig unter `vendor/` wird von `scripts/bootstrap-windows-capture.sh`
+# hergestellt (crates.io-Tarball 2.0.0, SHA-gepinnt, plus
+# `patches/0001-...patch`) und ist gitignored. Delta gegen 2.0.0: die Crate
+# reicht die WGC-Session einmal an den Handler durch (`on_session_ready`),
+# damit der Cursor während der Fernsteuerung zur Laufzeit aus der Aufnahme
+# genommen werden kann (`capture/cursorsteuerung.rs`). Ohne den Zweig bricht
+# cargo beim Auflösen ab — erst das Bootstrap-Skript laufen lassen.
+[patch.crates-io]
+windows-capture = { path = "vendor/windows-capture" }

@@ -1,0 +1,68 @@
+diff --git a/src/capture.rs b/src/capture.rs
+index 9413ca6..d87055e 100644
+--- a/src/capture.rs
++++ b/src/capture.rs
+@@ -242,6 +242,12 @@ pub trait GraphicsCaptureApiHandler: Sized {
+     /// [`CaptureControl`] and [`GraphicsCaptureApiHandler::start`] functions.
+     type Error: Send + Sync;
+ 
++    /// Pulse patch: called exactly once after the capture session has been
++    /// created and configured, before the first frame arrives. Lets handlers
++    /// keep a clone of the session to toggle session properties (e.g.
++    /// `IsCursorCaptureEnabled`) while the capture is running. Default: no-op.
++    fn on_session_ready(&mut self, _session: &::windows::Graphics::Capture::GraphicsCaptureSession) {}
++
+     /// Starts the capture and takes control of the current thread.
+     #[inline]
+     fn start<T: TryInto<GraphicsCaptureItemType>>(
+@@ -283,7 +289,7 @@ pub trait GraphicsCaptureApiHandler: Sized {
+             d3d_device,
+             d3d_device_context,
+             settings.item.try_into().map_err(|_| GraphicsCaptureApiError::ItemConvertFailed)?,
+-            callback,
++            callback.clone(),
+             settings.cursor_capture_settings,
+             settings.draw_border_settings,
+             settings.secondary_window_settings,
+@@ -294,6 +300,10 @@ pub trait GraphicsCaptureApiHandler: Sized {
+             result.clone(),
+         )
+         .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
++        // Pulse patch: hand the session to the handler before frames flow.
++        if let Some(session) = capture.session() {
++            callback.lock().on_session_ready(session);
++        }
+         capture.start_capture().map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
+ 
+         // Message loop
+@@ -397,6 +407,10 @@ pub trait GraphicsCaptureApiHandler: Sized {
+             )
+             .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
+ 
++            // Pulse patch: hand the session to the handler before frames flow.
++            if let Some(session) = capture.session() {
++                callback.lock().on_session_ready(session);
++            }
+             capture.start_capture().map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
+ 
+             // Send halt handle
+diff --git a/src/graphics_capture_api.rs b/src/graphics_capture_api.rs
+index b1f054c..7279248 100644
+--- a/src/graphics_capture_api.rs
++++ b/src/graphics_capture_api.rs
+@@ -437,6 +437,15 @@ impl GraphicsCaptureApi {
+         self.halt.clone()
+     }
+ 
++    /// Pulse patch: access to the running capture session, so callers can
++    /// change session properties (e.g. `IsCursorCaptureEnabled`) at runtime.
++    /// `None` after `stop_capture` has taken the session down.
++    #[inline]
++    #[must_use]
++    pub fn session(&self) -> Option<&GraphicsCaptureSession> {
++        self.session.as_ref()
++    }
++
+     /// Checks if the Windows Graphics Capture API is supported.
+     #[inline]
+     pub fn is_supported() -> Result<bool, Error> {

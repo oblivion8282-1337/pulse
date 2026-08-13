@@ -162,6 +162,8 @@ impl WgcCapture {
 
     /// Stoppt die Capture (best-effort). `Drop` ruft das selber.
     pub fn stop(&mut self) {
+        // Cursor-Platz mit räumen — die Session stirbt mit der Aufnahme.
+        super::cursorsteuerung::abmelden();
         let _ = self.stop_tx.send(());
         if let Some(handle) = self.worker.take() {
             // Capture::start blockiert — der Stop-Signal-Pfad geht über den
@@ -209,6 +211,7 @@ struct FrameSink {
     /// Fenster-Target? Dann heißt `on_closed` „Quell-Fenster zerstört" →
     /// gleicher saubere-Stop-Pfad wie der Guard (`SOURCE_CLOSED_MARKER`).
     is_window: bool,
+    include_cursor: bool,
 }
 
 /// `Flags`-Payload — `windows-capture` reicht den 1:1 an `new()` durch.
@@ -218,6 +221,9 @@ struct HandlerFlags {
     dropped: Arc<AtomicU64>,
     guard: Option<SourceGuard>,
     is_window: bool,
+    /// `show_cursor` der `start`-Anfrage — Ausgangszustand fürs Cursor-Echo
+    /// der Fernsteuerung (`super::cursorsteuerung`).
+    include_cursor: bool,
 }
 
 impl GraphicsCaptureApiHandler for FrameSink {
@@ -231,7 +237,15 @@ impl GraphicsCaptureApiHandler for FrameSink {
             dropped: ctx.flags.dropped,
             mask: MaskGate::new(ctx.flags.guard),
             is_window: ctx.flags.is_window,
+            include_cursor: ctx.flags.include_cursor,
         })
+    }
+
+    /// Pulse-Patch der windows-capture-Crate (s. `patches/0001-...`): die
+    /// Session einmal entgegennehmen, damit die Fernsteuerung den Cursor zur
+    /// Laufzeit aus dem Stream nehmen kann.
+    fn on_session_ready(&mut self, session: &windows::Graphics::Capture::GraphicsCaptureSession) {
+        super::cursorsteuerung::anmelden(session.clone(), self.include_cursor);
     }
 
     fn on_frame_arrived(
@@ -323,6 +337,7 @@ fn run_capture(
         dropped,
         guard: target.guard(),
         is_window: target.is_window(),
+        include_cursor: cfg.include_cursor,
     };
 
     match target {
