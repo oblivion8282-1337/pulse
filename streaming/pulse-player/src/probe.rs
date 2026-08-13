@@ -521,8 +521,20 @@ mod tests {
 
     #[test]
     fn unglaubwuerdige_latenz_verwirft_die_stelle() {
-        let mut probe = LatencyProbe { hit: Some((64, 64)), ..Default::default() };
-        // Zaehler 0 bei einer Epoche von 1970 ergibt eine absurde Differenz.
+        // **Die Epoche wird gesetzt, nicht der Vorgabe ueberlassen.** Bis zum
+        // 2026-08-13 stand hier `..Default::default()`, also Epoche 0 — und
+        // damit hing der Test an der Wanduhr: `werten` rechnet die Differenz
+        // modulo 65536 ms, und in den ersten `MAX_PLAUSIBLE_MS` jedes solchen
+        // Fensters sah die absurde Differenz glaubwuerdig aus. Der Test fiel
+        // also rund zwei von je 65,5 Sekunden, ohne dass sich etwas am Code
+        // geaendert haette. Ein fester Abstand macht daraus eine Aussage.
+        let mut probe = LatencyProbe {
+            hit: Some((64, 64)),
+            epoch_ms: jetzt_ms().saturating_sub(MAX_PLAUSIBLE_MS + 1_000),
+            ..Default::default()
+        };
+        // Zaehler 0 bei einer Epoche, die laenger zurueckliegt als eine
+        // glaubwuerdige Latenz, ergibt eine absurde Differenz.
         probe.note(&frame_with_bar(64, 64, 0, false));
         assert_eq!(probe.count, 0, "darf nicht mitzaehlen");
         assert_eq!(probe.misses, 1);

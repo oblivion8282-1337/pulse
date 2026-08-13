@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-13.2",
+      "date": "2026-08-13",
+      "style": "Sachlich",
+      "title": "Der Stream friert nicht mehr wortlos ein",
+      "intro": "Im Streamfenster konnte das Bild stehenbleiben, ohne dass eine Meldung kam oder sich etwas von selbst erholte.",
+      "items": [
+        "Wartete der Bildweg auf die Grafikkarte, gab es dafür bisher keine Zeitgrenze. Antwortete sie nicht mehr, stand das Bild — und zwar dauerhaft, weil auch die eingebaute Überwachung erst nach einem fertigen Bild anspringt.",
+        "Jetzt gibt der Player nach kurzer Zeit auf und zeichnet auf dem anderen Weg weiter. Der Ton und die Verbindung laufen dabei durch.",
+        "Betrifft nur Windows. Im Normalbetrieb ändert sich nichts."
+      ]
+    },
+    {
       "id": "2026-08-13",
       "date": "2026-08-13",
       "style": "Sachlich",

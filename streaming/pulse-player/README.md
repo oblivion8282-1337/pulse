@@ -375,8 +375,8 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
   Aufzaehlung war unvollstaendig:** sie vergass den Kanal zum Fenster-Faden
   (Fassungsvermoegen 8), dessen Bilder ebenfalls einen Ringplatz halten. Mit
   zwoelf war der Ring dauerhaft ueberbucht und der Decoder wartete in
-  `AcquireSync(..., INFINITE)` — gemessen als Stockungen von 0,7 bis 2,3
-  Sekunden, die mit 24 Plaetzen verschwanden. Der Haushalt steht jetzt
+  `AcquireSync` — damals ohne Zeitgrenze, gemessen als Stockungen von 0,7 bis
+  2,3 Sekunden, die mit 24 Plaetzen verschwanden. Der Haushalt steht jetzt
   ausgeschrieben an `zerocopy::bruecke::ringgroesse` und haengt mit
   `app::takt::MAX_WARTEND` zusammen; **die beiden Zahlen sind nur gemeinsam zu
   aendern.**
@@ -384,6 +384,17 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
   Ressource stellt keinen `IDXGIKeyedMutex` bereit, und wgpu 29 bietet keinen
   Warte-Aufruf auf seiner Warteschlange an. Das ist die naechste Stelle, an der
   sich etwas holen liesse.
+- **Beide Wartepunkte haben seit dem 2026-08-13 eine Zeitgrenze** (Vorgabe
+  250 ms, `PULSE_PLAYER_BRUECKE_WARTE_MS`). Vorher stand an beiden `INFINITE`,
+  und beide liegen im Dekodier-Pfad der Sitzung: blockierte einer, stand das
+  Bild ohne Meldung und ohne Rueckfall, weil der Einfrier-Waechter erst NACH
+  einem fertig dekodierten Bild misst. Wird die Grenze gerissen, geht dieses
+  eine Bild ueber den Hauptspeicher; passiert es dreimal in Folge, gibt die
+  Bruecke auf und der Player liest dauerhaft zurueck. **Wer das anfasst, liest
+  zuerst `anmelden` in `zerocopy/bruecke.rs`:** `AcquireSync` liefert
+  `WAIT_TIMEOUT` als ERFOLGREICHEN HRESULT, der sichere Aufsatz der
+  windows-Kiste verschluckt ihn, und wer ihn benutzt, schreibt in eine Flaeche,
+  die der Renderer noch haelt.
 - Die Textur des Decoders ist aufgerundet (bei AV1 auf Vielfache von 128, aus
   1080 werden 1152 Zeilen). Der Renderer schneidet beim Abtasten zu
   (`Bildform::nutzanteil`), statt einen Ausschnitt zu kopieren.

@@ -23,8 +23,13 @@ use super::ffmpeg_geraet::{geraetekontext, quellmasse, quelltextur};
 // nicht weiterreichen (E0603). Der Linux-Weg holt ihn ebenfalls direkt.
 use super::freigabe::Freigabe;
 use super::platz::GpuBild;
+// Die beiden Wartepunkte samt Zeitgrenzen und ihren Begruendungen. Ausgelagert,
+// weil diese Datei sonst ueber die harte Groessengrenze waechst (`PLAN.md` §12.1).
+use super::warten::{
+    anmelden, auf_zaun_warten, warte_ms, Kopierstand, WO_ANMELDUNG, ZEITUEBERSCHREITUNGEN_MAX,
+};
 use windows::Win32::Graphics::Dxgi::{IDXGIKeyedMutex, IDXGIResource1};
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+use windows::Win32::System::Threading::CreateEventW;
 
 /// Wie viele geteilte Texturen im Umlauf sind.
 ///
@@ -55,7 +60,10 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFIN
 /// `MAX_WARTEND` erhoeht, muss hier mitgehen.
 ///
 /// Mit zwoelf Plaetzen war der Ring damit dauerhaft ueberbucht, und der
-/// Decoder wartete in `AcquireSync(..., INFINITE)` auf einen freien Platz.
+/// Decoder wartete in `AcquireSync` auf einen freien Platz — damals ohne
+/// Zeitgrenze, seit dem 2026-08-13 gedeckelt (s. [`WARTE_MS_VORGABE`]). **Der
+/// Deckel ersetzt diese Rechnung nicht:** ein zu kleiner Ring hiesse jetzt
+/// nicht mehr Stockung, sondern reihenweise Bilder ueber den Hauptspeicher.
 /// **Gemessen am 2026-08-07: Stockungen von 0,7 bis 2,3 Sekunden, die mit
 /// `PULSE_PLAYER_ZEROCOPY_RING=24` restlos verschwanden** (Messakte
 /// `streaming/testbench/profiles/player-2026-08-07-ausgabetakt-warteschlange.json`).
@@ -103,13 +111,6 @@ const RING_SPEICHER_MAX: usize = 320 * 1024 * 1024;
 /// Stockungen aus dem Kopf dieser Datei kaemen zurueck.
 const RING_MIN: usize = 8;
 
-/// Ab wann ein einzelner Wartepunkt der Bruecke gemeldet wird.
-///
-/// Grosszuegig gewaehlt: im gesunden Betrieb liegen beide Wartepunkte unter
-/// einer Millisekunde, gemeldet werden soll nur das, was ein Zuschauer als
-/// Stocken merkt. 100 ms sind rund fuenfzehn ausgefallene Bilder bei 144 fps.
-const LANGSAM: std::time::Duration = std::time::Duration::from_millis(100);
-
 /// Die gewuenschte Zahl Plaetze, gedeckelt auf [`RING_SPEICHER_MAX`].
 fn plaetze_im_speicherrahmen(wunsch: usize, breite: u32, hoehe: u32, format: i32) -> usize {
     // NV12 und P010 tragen Luma plus halbes Chroma, also anderthalb Ebenen;
@@ -146,6 +147,12 @@ pub struct Bruecke {
     zaun_wert: u64,
     ring: Vec<Ringplatz>,
     frei: Arc<Freigabe>,
+    /// Zeitgrenze beider Wartepunkte, s. [`WARTE_MS_VORGABE`]. Einmal gelesen
+    /// und nicht je Bild — bei 144 fps waere ein `getenv` je Bild Unfug.
+    warte_ms: u32,
+    /// Zeitueberschreitungen **in Folge**; jedes fertige Bild setzt sie zurueck.
+    /// Ab [`ZEITUEBERSCHREITUNGEN_MAX`] gibt die Bruecke auf.
+    zeitueberschreitungen: u32,
     /// Masse und Format, fuer die der Ring angelegt wurde. Aendert sich etwas
     /// davon, wird der Ring verworfen und neu gebaut.
     bauart: (u32, u32, i32),
@@ -246,6 +253,8 @@ impl Bruecke {
             zaun_wert: 0,
             ring: Vec::new(),
             frei: Freigabe::leer(),
+            warte_ms: warte_ms(),
+            zeitueberschreitungen: 0,
             bauart: (0, 0, 0),
             briefkasten,
         };
@@ -307,11 +316,16 @@ impl Bruecke {
     /// als [`GpuBild`] zurueck.
     ///
     /// **`Ok(None)` ist kein Fehler**, sondern Gegendruck: gerade ist kein
-    /// Ringplatz frei, weil Taktgeber und Renderer alle halten. Das geht
-    /// vorueber, und dieses eine Bild nimmt den Weg ueber den Hauptspeicher.
-    /// Die Unterscheidung zu `Err` ist der ganze Punkt — beim ersten Lauf am
+    /// Ringplatz frei, weil Taktgeber und Renderer alle halten, oder einer der
+    /// beiden Wartepunkte hat seine Zeitgrenze gerissen. Beides geht vorueber,
+    /// und dieses eine Bild nimmt den Weg ueber den Hauptspeicher. Die
+    /// Unterscheidung zu `Err` ist der ganze Punkt — beim ersten Lauf am
     /// 2026-08-06 hat ein leerer Ring den Weg DAUERHAFT abgeschaltet, nach
     /// genau einem Bild.
+    ///
+    /// `Err` heisst dagegen „dieser Weg traegt nicht mehr": ein echter
+    /// D3D-Fehler, oder [`ZEITUEBERSCHREITUNGEN_MAX`] Zeitueberschreitungen in
+    /// Folge. `uebergabe.rs` schaltet die Bruecke danach ab.
     pub fn uebernehmen(
         &mut self,
         frame: &ffmpeg::util::frame::video::Video,
@@ -323,12 +337,38 @@ impl Bruecke {
         let Some(slot) = self.frei.nehmen() else { return Ok(None) };
 
         let ergebnis = self.kopieren(frame, slot);
-        if ergebnis.is_err() {
+        if !matches!(ergebnis, Ok(Kopierstand::Fertig)) {
             // Sonst waere der Platz nach einem Fehlschlag dauerhaft verloren
-            // und der Weg nach `RINGGROESSE` Fehlern still tot.
+            // und der Weg nach `RINGGROESSE` Fehlern still tot. Gilt fuer die
+            // Zeitueberschreitung genauso: der Platz wurde nie herausgegeben,
+            // es gibt also keinen D3D12-Leser darauf. Auch beim Zaun nicht, wo
+            // die Kopie noch laufen kann — eine spaetere Kopie in denselben
+            // Platz haengt an DEMSELBEN unmittelbaren Kontext und damit hinter
+            // der ersten.
             self.frei.zurueck(slot);
         }
-        ergebnis?;
+        if let Kopierstand::Zeitueberschreitung(wo) = ergebnis? {
+            self.zeitueberschreitungen += 1;
+            // **Zaehlen und melden, nicht still schlucken.** Ein Rueckfall, den
+            // niemand sieht, ist die Sorte Fehler, die dieses Projekt schon
+            // mehrfach eingeholt hat.
+            eprintln!(
+                "pulse-player: Bruecke — {wo} riss die Zeitgrenze von {} ms \
+                 ({} von {} in Folge) — dieses Bild ueber den Hauptspeicher",
+                self.warte_ms, self.zeitueberschreitungen, ZEITUEBERSCHREITUNGEN_MAX
+            );
+            if self.zeitueberschreitungen >= ZEITUEBERSCHREITUNGEN_MAX {
+                // Als Fehler nach oben: `uebergabe.rs` schaltet den Weg ab, und
+                // der Player liest wieder ueber den Hauptspeicher zurueck.
+                bail!(
+                    "{wo} riss die Zeitgrenze von {} ms in {} Bildern in Folge",
+                    self.warte_ms,
+                    self.zeitueberschreitungen
+                );
+            }
+            return Ok(None);
+        }
+        self.zeitueberschreitungen = 0;
 
         Ok(Some(Arc::new(GpuBild {
             handle: self.ring[slot].handle.0 as isize,
@@ -345,7 +385,7 @@ impl Bruecke {
         &mut self,
         frame: &ffmpeg::util::frame::video::Video,
         slot: usize,
-    ) -> Result<()> {
+    ) -> Result<Kopierstand> {
         let quelle = quelltextur(frame)?;
         // SAFETY: das Bild lebt; bei `AV_PIX_FMT_D3D11` traegt `data[1]` den
         // Schichtindex innerhalb des Decoder-Stapels (so legt es libavutil ab).
@@ -361,32 +401,33 @@ impl Bruecke {
         // Sperre faellt danach in JEDEM Fall — deshalb steht das `?` auf dem
         // Ergebnis erst hinter `entsperren`.
         // SAFETY: alle Ressourcen leben, der Schichtindex stammt aus dem Bild.
-        // **Getrennte Uhr fuer die Anmeldung.** Die Gesamtzeit der Bruecke sagt
-        // nur, DASS es hing (`crate::stockung`), nicht WO — und die beiden
-        // unbegrenzten Wartepunkte hier haben voellig verschiedene Ursachen:
-        // die Anmeldung wartet auf den Renderer, der Zaun auf die Grafikeinheit.
-        // Am 2026-08-07 kostete diese Unterscheidung einen halben Messtag.
-        let anmeldung_uhr = std::time::Instant::now();
-        let ergebnis = (|| -> Result<()> {
+        // **Die Gesamtzeit der Bruecke sagt nur, DASS es hing**
+        // (`crate::stockung`), nicht WO — und die beiden Wartepunkte haben
+        // voellig verschiedene Ursachen: die Anmeldung wartet auf den Renderer,
+        // der Zaun auf die Grafikeinheit. Am 2026-08-07 kostete diese
+        // Unterscheidung einen halben Messtag. Beide messen und melden deshalb
+        // getrennt (`super::warten`), zaehlen aber auf denselben Zaehler.
+        let ergebnis = (|| -> Result<Kopierstand> {
             unsafe {
-                platz.mutex.AcquireSync(0, INFINITE).context("AcquireSync")?;
-                let angemeldet = anmeldung_uhr.elapsed();
-                if angemeldet >= LANGSAM {
-                    eprintln!(
-                        "pulse-player: Bruecke — Anmeldung am Platz {slot} dauerte {} ms \
-                         (wartet auf den Renderer)",
-                        angemeldet.as_millis()
-                    );
+                // **`ReleaseSync` darf bei Zeitueberschreitung NICHT laufen** —
+                // die Sperre wurde ja nie erlangt. Deshalb der fruehe Ausstieg
+                // hier und nicht erst hinter der Kopie.
+                if !anmelden(&platz.mutex, self.warte_ms, slot)? {
+                    return Ok(Kopierstand::Zeitueberschreitung(WO_ANMELDUNG));
                 }
                 self.kontext
                     .CopySubresourceRegion(&platz.textur, 0, 0, 0, 0, &quelle, schicht, None);
                 platz.mutex.ReleaseSync(0).context("ReleaseSync")?;
                 self.kontext4.Signal(&self.zaun, zaun_wert).context("Signal")?;
             }
-            Ok(())
+            Ok(Kopierstand::Fertig)
         })();
         self.entsperren();
-        ergebnis?;
+        if let Kopierstand::Zeitueberschreitung(wo) = ergebnis? {
+            // Ohne Anmeldung wurde weder kopiert noch der Zaun gesetzt —
+            // `zaun_wert` bleibt deshalb, wo er war.
+            return Ok(Kopierstand::Zeitueberschreitung(wo));
+        }
         self.zaun_wert = zaun_wert;
 
         // **Auf der CPU warten, bis die Kopie durch ist.** Ohne das koennte der
@@ -425,25 +466,10 @@ impl Bruecke {
         // ist das der Regelfall.
         // SAFETY: Zaun, Kontext und Ereignis leben; das Ereignis wird nur hier
         // benutzt.
-        let zaun_uhr = std::time::Instant::now();
         unsafe {
             self.kontext.Flush();
-            if self.zaun.GetCompletedValue() < self.zaun_wert {
-                self.zaun
-                    .SetEventOnCompletion(self.zaun_wert, self.zaun_ereignis)
-                    .context("SetEventOnCompletion")?;
-                WaitForSingleObject(self.zaun_ereignis, INFINITE);
-            }
-            let gewartet = zaun_uhr.elapsed();
-            if gewartet >= LANGSAM {
-                eprintln!(
-                    "pulse-player: Bruecke — Zaun nach der Kopie dauerte {} ms \
-                     (wartet auf die Grafikeinheit)",
-                    gewartet.as_millis()
-                );
-            }
+            auf_zaun_warten(&self.zaun, self.zaun_ereignis, self.zaun_wert, self.warte_ms)
         }
-        Ok(())
     }
 
     fn sperren(&self) {
