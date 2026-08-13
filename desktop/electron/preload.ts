@@ -143,6 +143,11 @@ contextBridge.exposeInMainWorld('pulse', {
      *  die Bedienung sitzt in der App). Unter Wayland eine Bitte an den
      *  Compositor, keine Garantie. */
     focus: (session: number) => playerCall('focus', { session }),
+    /** Fernsteuerung: Anzeigetext des Eingabewegs fuers Statistik-Feld
+     *  („Direktverbindung" / „Serverweg — …"). Der Player deutet ihn nicht —
+     *  die Zustandsmaschine lebt im Renderer (`$lib/remote/p2p.ts`). */
+    transportStatus: (session: number, transport: string) =>
+      playerCall('remote_transport', { session, transport }),
 
     /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
      *  kommt als `path` in der Antwort zurueck. */

@@ -93,6 +93,14 @@ pub struct Request {
     #[serde(default)]
     pub remote_session: Option<String>,
 
+    // --- remote_transport ---
+    /// Anzeigetext fuer den Eingabeweg der Fernsteuerung („Direktverbindung",
+    /// „Serverweg — …"). Der Player DEUTET ihn nicht, er zeigt ihn im
+    /// Statistik-Feld — der Zustand lebt im Renderer (`p2p.ts`), und eine
+    /// zweite Zustandsmaschine hier koennte nur auseinanderlaufen.
+    #[serde(default)]
+    pub transport: Option<String>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

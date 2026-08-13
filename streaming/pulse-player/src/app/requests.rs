@@ -80,6 +80,14 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fernsteuerung: welcher Traeger die Eingabe gerade traegt
+            // (Direktverbindung/Serverweg) — reiner Anzeigetext fuers
+            // Statistik-Feld, der Zustand lebt im Renderer.
+            "remote_transport" => match self.remote_transport(&req) {
+                Ok(()) => self.stdout.send(&Response::bare(id)),
+                Err(e) => self.stdout.send(&Response::err(id, e)),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),

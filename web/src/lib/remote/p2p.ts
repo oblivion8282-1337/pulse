@@ -113,6 +113,10 @@ class RemoteP2P {
   /** Wann zuletzt ein Player-Hello im Strom vorbeikam (`performance.now()`) —
    *  sperrt den Transportwechsel kurz (s. [`senden`]). */
   #helloGesehenAm: number | null = null;
+  /** Anzeige des Eingabewegs (s. [`setStatusSink`]). Die Texte entstehen
+   *  HIER, an der Zustandsmaschine — der Player zeigt sie nur. */
+  #statusSink: ((transport: string) => void) | null = null;
+  #letzterStatus = '';
 
   /** Wohin hereinkommende Frames gehen — setzt `handlers/remote.ts` beim
    *  Registrieren (derselbe geprüfte Pfad wie der Serverweg). Als Injektion
@@ -122,6 +126,24 @@ class RemoteP2P {
     this.#frameSink = sink;
   }
 
+  /**
+   * Wohin der Anzeigetext des Eingabewegs geht (Statistik-Feld im
+   * Player-Fenster). Beim Setzen wird der AKTUELLE Stand sofort nachgereicht:
+   * der Kanalaufbau beginnt mit der Zustimmung, das Player-Fenster meldet
+   * sich oft erst danach — ohne Wiederholung verpasste die Anzeige jeden
+   * Übergang, der vor ihrem Anschluss lag.
+   */
+  setStatusSink(sink: ((transport: string) => void) | null): void {
+    this.#statusSink = sink;
+    if (sink && this.#letzterStatus !== '') sink(this.#letzterStatus);
+  }
+
+  #status(transport: string): void {
+    if (transport === this.#letzterStatus) return;
+    this.#letzterStatus = transport;
+    this.#statusSink?.(transport);
+  }
+
   /** Mit dem Übergang der Sitzung nach 'active' rufen. Der Steuernde macht
    *  das Angebot; der Host wartet auf dessen `offer`. */
   start(role: 'controller' | 'host', sessionId: string, sendSignal: SignalSender): void {
@@ -129,7 +151,10 @@ class RemoteP2P {
     this.#role = role;
     this.#sessionId = sessionId;
     this.#sendSignal = sendSignal;
-    if (role === 'controller') void this.#anbieten();
+    if (role === 'controller') {
+      this.#status('Serverweg — Direktverbindung wird verhandelt');
+      void this.#anbieten();
+    }
   }
 
   /** Sitzungsende — der eine Ausgang, wie `RemoteSessionStore.#reset`. */
@@ -146,6 +171,7 @@ class RemoteP2P {
     this.#unten.clear();
     this.#letzteAbsB64 = null;
     this.#helloGesehenAm = null;
+    this.#letzterStatus = '';
   }
 
   /**
@@ -201,6 +227,7 @@ class RemoteP2P {
       this.#ueberKanal = true;
       this.#kanalSenden(sessionId, slot, this.helloBuendel());
       console.info('[remote-p2p] Eingabe läuft jetzt direkt (DataChannel)');
+      this.#status('Direktverbindung');
     }
     this.#kanalSenden(sessionId, slot, frames);
     return 'p2p';
@@ -212,6 +239,7 @@ class RemoteP2P {
     if (this.#ueberKanal) {
       this.#ueberKanal = false;
       console.info('[remote-p2p] Kanal weg — zurück auf den Serverweg');
+      this.#status('Serverweg — Direktverbindung abgerissen');
     }
   }
 
@@ -268,6 +296,10 @@ class RemoteP2P {
         if (this.#pc === pc) {
           this.#pc = null;
           this.#dc = null;
+          // Präziser als der Browser es hergibt, wird es nicht: „failed"
+          // heißt, keine der probierten Routen trug — der klassische Fall
+          // sind strenge Router/Provider-NAT auf mindestens einer Seite.
+          this.#status('Serverweg — Direktverbindung fehlgeschlagen (Router/NAT)');
         }
       }
     };
@@ -285,6 +317,7 @@ class RemoteP2P {
       this.#sendSignal?.('offer', { type: offer.type, sdp: offer.sdp });
     } catch (e) {
       console.warn('[remote-p2p] Angebot scheiterte — Serverweg bleibt:', e);
+      this.#status('Serverweg — Direktverbindung fehlgeschlagen (kein WebRTC?)');
     }
   }
 

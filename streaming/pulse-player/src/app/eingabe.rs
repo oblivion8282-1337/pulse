@@ -44,6 +44,10 @@ impl App {
             session.eingabe.einschalten(req.slot.unwrap_or(0), fang, req.remote_session.as_deref());
         } else {
             session.eingabe.ausschalten();
+            // Der Anzeigetext des Eingabewegs gehoert der Sitzung, die gerade
+            // endet — stehen bleiben duerfte er nur, um beim naechsten Start
+            // etwas Falsches zu behaupten.
+            session.fern_transport.clear();
         }
         // Die Bedienung im Fenster wechselt mit: waehrend der Fernsteuerung
         // tritt der verschiebbare Griff an die Stelle der Leiste, die sonst bei
@@ -108,6 +112,26 @@ impl App {
         }))
     }
 
+    /// `remote_transport` — der Eingabeweg fuers Statistik-Feld.
+    ///
+    /// Der Renderer meldet, worueber die Eingabe-Frames gerade fahren
+    /// (Direktverbindung oder Serverweg, samt Grund bei Rueckfall). Der Player
+    /// zeigt den Text nur an — die Zustandsmaschine dazu lebt in `p2p.ts`,
+    /// und eine zweite hier koennte nur auseinanderlaufen.
+    pub(super) fn remote_transport(&mut self, req: &Request) -> Result<(), String> {
+        let session_id = req.session.ok_or("session fehlt")?;
+        let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
+        session.fern_transport = req.transport.clone().unwrap_or_default();
+        // Waehrend einer Fernsteuerung fliessen Bilder — der naechste Durchgang
+        // zeichnet den Text ohnehin mit. Das `request_redraw` deckt Standbild
+        // und abgerissenen Strom, wo sonst kein Durchgang kaeme.
+        if let Some(overlay) = session.overlay.as_mut() {
+            overlay.mark_stats_dirty();
+        }
+        session.window.request_redraw();
+        Ok(())
+    }
+
     /// Das Fenster hat den Tastaturfokus bekommen oder verloren.
     ///
     /// **Windows loest `ClipCursor` beim Fokusverlust auf, und winit stellt es
@@ -156,6 +180,8 @@ impl App {
                     frueheste = Some(frueheste.map_or(t, |f: std::time::Instant| f.min(t)));
                 }
                 Abgabe::Jetzt(frames) => {
+                    // Zaehler fuers Statistik-Feld: was WIRKLICH hinausgeht.
+                    session.eingabe_frames += frames.len() as u64;
                     stdout.send(&eingabe_ereignis(*id, session.eingabe.slot(), frames));
                 }
             }

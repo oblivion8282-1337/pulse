@@ -17,8 +17,14 @@
 -->
 <script lang="ts">
   import { remoteSession } from '$lib/remote/session.svelte';
+  import { remoteP2P } from '$lib/remote/p2p';
   import { nativePlayerSessions } from '$lib/player/store.svelte';
-  import { aufNachrichten, erfassungAn, erfassungAus } from '$lib/remote/playerInput';
+  import {
+    aufNachrichten,
+    erfassungAn,
+    erfassungAus,
+    transportMelden,
+  } from '$lib/remote/playerInput';
   import { onPlayerWindowRequest } from '$lib/player/client';
 
   const steuernd = $derived(
@@ -71,7 +77,13 @@
       const ok = await erfassungAn(fenster, sessionId, slot);
       if (!ok && remoteSession.sessionId === sessionId) remoteSession.end();
     });
+    // Anzeigetext des Eingabewegs ins Statistik-Feld des Player-Fensters.
+    // Der Sink wird beim Setzen mit dem aktuellen Stand nachbeliefert —
+    // Übergänge vor dem Fenster-Anschluss (die Verhandlung beginnt mit der
+    // Zustimmung) gehen also nicht verloren. Best-effort, reine Diagnose.
+    remoteP2P.setStatusSink((transport) => void transportMelden(fenster, transport));
     return () => {
+      remoteP2P.setStatusSink(null);
       // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
       // nach; die gehen über dasselbe Abonnement unten hinaus.
       nacheinander(() => erfassungAus(fenster));

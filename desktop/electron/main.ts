@@ -916,7 +916,12 @@ function wireSidecar(): void {
 // `input_capture` fehlt hier ebenfalls bewusst: die Operation legt zugleich die
 // Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung an, und die gehoert in den
 // Hauptprozess (s. `remoteInput.ts`). Sie laeuft deshalb ueber `player:inputCapture`.
-const ALLOWED_PLAYER_OPS = new Set(['health', 'open', 'close', 'set_option', 'stats', 'focus']);
+// `remote_transport` darf ueber den generischen Kanal: es traegt nur den
+// Anzeigetext des Eingabewegs fuers Statistik-Feld (keine Zuordnung, keine
+// Eingabe) — anders als `input_capture`, s. oben.
+const ALLOWED_PLAYER_OPS = new Set([
+  'health', 'open', 'close', 'set_option', 'stats', 'focus', 'remote_transport',
+]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */
 const eingabeWeiche = new EingabeWeiche();

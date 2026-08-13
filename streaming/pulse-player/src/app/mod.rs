@@ -223,6 +223,13 @@ struct Session {
     /// gemerkten Wunsch waere beim Zurueckkommen nicht zu wissen, ob er
     /// erneuert werden muss (s. `App::fokus_gewechselt`).
     fang_gewuenscht: bool,
+    /// Anzeigetext des Eingabewegs waehrend einer Fernsteuerung
+    /// („Direktverbindung", „Serverweg — …"); leer = nichts gemeldet. Kommt
+    /// per `remote_transport`-RPC aus dem Renderer (s. `eingabe.rs`).
+    fern_transport: String,
+    /// Wieviele Eingabe-Frames diese Sitzung nach vorne gemeldet hat — das
+    /// Statistik-Feld rechnet daraus die Rate (sichtbar, OB etwas fliesst).
+    eingabe_frames: u64,
     /// Kopie von `req.can_reattach` (s. `proto.rs`) — steht bisher nur im
     /// Overlay (fuer den Reattach-Knopf), aber der Fenster-Schliessen-Handler
     /// braucht sie ebenso und hat kein `overlay` (kann `None` sein, wenn die
@@ -568,6 +575,8 @@ impl App {
                 state: SessionState::Connecting,
                 eingabe: crate::fernsteuerung::Erfassung::neu(),
                 fang_gewuenscht: false,
+                fern_transport: String::new(),
+                eingabe_frames: 0,
                 can_reattach: req.can_reattach.unwrap_or(true),
             },
         );
@@ -622,6 +631,9 @@ impl App {
             frames_never_drawn,
             phases,
             probe,
+            eingabe,
+            fern_transport,
+            eingabe_frames,
             ..
         } = session;
         let Some(renderer) = renderer.as_mut() else { return Vec::new() };
@@ -698,6 +710,11 @@ impl App {
             audio_underruns: stats.media.audio_underruns,
             audio_geraetefehler: stats.media.audio_geraetefehler,
             recording: stats.media.recording,
+            fern_aktiv: eingabe.aktiv(),
+            fern_transport,
+            input_frames: *eingabe_frames,
+            input_verworfen: eingabe.verworfene_bewegungen(),
+            input_ohne_abbildung: eingabe.unbekannte_tasten(),
         };
         let mut pass = overlay
             .as_mut()
