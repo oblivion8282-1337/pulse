@@ -116,6 +116,7 @@ const REMOTE_SESSION_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'remote_ended',
   'remote_canceled',
   'remote_input',
+  'remote_signal',
 ]);
 
 /** Die Verbindung der laufenden Sitzung. Der Session-Store meldet sie an und

@@ -343,9 +343,7 @@ export type ServerEvent =
   // Ephemeral "user is typing" signal for a text channel / DM. No persistence;
   // the client tracks a short TTL per (channel, user) and shows "… schreibt".
   | { op: 'typing'; channel_id: string; user_id: string }
-  // Fernsteuerung (remote control) — Consent-Handshake über den Serverweg (kein
-  // `remote_signal`: SDP/ICE für den WebRTC-P2P-Pfad liegt auf
-  // feat/remote-control-windows und ist hier bewusst nicht mitportiert).
+  // Fernsteuerung (remote control) — Consent-Handshake über den Serverweg.
   | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
   // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
   // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
@@ -358,6 +356,9 @@ export type ServerEvent =
   // Eingabe-Frames des Steuernden, vom Gateway unverändert durchgereicht (nur
   // der Host bekommt sie). Format: `docs/plans/2026-08-12-input-wire-protokoll-v2.md`.
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
+  // SDP/ICE des P2P-Eingabewegs, peer-gebunden weitergereicht — das Gegenüber
+  // der aktiven Sitzung verhandelt darüber den DataChannel (`$lib/remote/p2p.ts`).
+  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: unknown }
   // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
   // offenen Consent-Dialog.
   | { op: 'remote_canceled'; session_id: string }
@@ -417,6 +418,7 @@ export type ClientEvent =
   // Eingabe-Frames zum Host. Nur der Steuernde sendet; der Gateway prüft
   // Sitzung, Rolle und Größe und schaut nicht in die Frames hinein.
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
+  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: unknown }
   | { op: 'remote_end'; session_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte

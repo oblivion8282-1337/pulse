@@ -6,12 +6,14 @@
  * Die `op:'error'`-Codes (4050–4054) fängt der Store selbst per `gateway.on()`
  * ab, solange er auf eine Freigabe wartet — deshalb hier kein error-Handler.
  *
- * Kein `remote_signal`-Handler: das trägt SDP/ICE für den WebRTC-P2P-Pfad
- * (liegt auf `feat/remote-control-windows`) — diese Oberfläche fährt nur den
- * Consent-Handshake über den Serverweg, ohne Verhandlungsphase.
+ * `remote_signal` trägt SDP/ICE für den direkten Eingabekanal
+ * (`$lib/remote/p2p.ts`): der Consent bleibt vollständig auf dem Serverweg,
+ * nur die Eingabe-Frames wechseln nach der Verhandlung auf den DataChannel —
+ * und fallen ohne ihn wortlos auf den Serverweg zurück.
  */
 import { registerWsHandler } from '../handler-registry';
 import { remoteSession } from '$lib/remote/session.svelte';
+import { remoteP2P } from '$lib/remote/p2p';
 import { eingabeEinspielen } from '$lib/remote/sidecarInput';
 import { userCache } from '$lib/stores/users.svelte';
 
@@ -64,4 +66,16 @@ export function register(): void {
   );
   registerWsHandler('remote_canceled', (evt) => remoteSession._dismissIncoming(evt.session_id));
   registerWsHandler('remote_input', (evt) => eingabe(evt));
+  // SDP/ICE des direkten Eingabekanals — nur für die eigene, laufende Sitzung
+  // (dieselbe Zuordnungsregel wie bei `eingabe`: die Kennung ist alles).
+  registerWsHandler('remote_signal', (evt) => {
+    if (remoteSession.phase !== 'active') return;
+    if (!evt.session_id || evt.session_id !== remoteSession.sessionId) return;
+    remoteSession._signal(evt.kind, evt.data);
+  });
+  // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN
+  // Wächter wie der Serverweg — die Autorisierung hängt an der Sitzung, nicht
+  // am Träger. Injektion statt Import, sonst schlösse sich der Kreis
+  // session → p2p → handlers → session.
+  remoteP2P.setFrameSink((evt) => void eingabe(evt));
 }

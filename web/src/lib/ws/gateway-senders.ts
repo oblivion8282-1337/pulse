@@ -120,3 +120,13 @@ export function sendRemoteInput(
 ): boolean {
   return send({ op: 'remote_input', session_id: sessionId, slot, frames });
 }
+/**
+ * SDP/ICE für den P2P-Eingabeweg (`$lib/remote/p2p.ts`) — der Gateway reicht
+ * es peer-gebunden an das Gegenüber der aktiven Sitzung weiter
+ * (`ws_remote_handlers.py::handle_signal`, 8 KiB, 60/s).
+ */
+export function sendRemoteSignal(
+  send: SendRaw, sessionId: string, kind: 'offer' | 'answer' | 'ice', data: unknown,
+): boolean {
+  return send({ op: 'remote_signal', session_id: sessionId, kind, data });
+}

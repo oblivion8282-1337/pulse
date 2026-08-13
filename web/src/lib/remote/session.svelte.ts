@@ -1,12 +1,14 @@
 /**
  * Fernsteuerung — Session-Store / Consent-Zustandsmaschine.
  *
- * Treibt ausschließlich den Consent-Handshake (Anfrage → Zustimmung/Ablehnung
- * → Beenden) über die App-WebSocket. Video und Eingabe laufen komplett daneben
- * (nativer Player / win-hq-sidecar über den `remote_input`-Serverweg, s.
- * `docs/plans/2026-08-12-input-wire-protokoll-v2.md`) — dieser Store kennt kein
- * WebRTC und keine Verhandlungsphase: eine Zustimmung schaltet direkt auf
- * `'active'`.
+ * Treibt den Consent-Handshake (Anfrage → Zustimmung/Ablehnung → Beenden)
+ * über die App-WebSocket. Video läuft komplett daneben (nativer Player /
+ * win-hq-sidecar); die Eingabe geht über den `remote_input`-Serverweg
+ * (`docs/plans/2026-08-12-input-wire-protokoll-v2.md`) und — sobald der
+ * DataChannel steht — direkt zwischen den Renderern (`p2p.ts`, Stufe 1 des
+ * P2P-Plans). Eine Verhandlungsphase gibt es weiterhin nicht: die Zustimmung
+ * schaltet direkt auf `'active'`, der Kanalaufbau läuft daneben, und bis er
+ * trägt (oder falls nie), trägt der Serverweg.
  *
  * Op-Fluss (Gegenstück zu `ws_remote_handlers.py`):
  *   Controller  request()        → remote_request  → Host: _incomingRequest → phase 'incoming'
@@ -28,6 +30,7 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben } from './sidecarInput';
+import { remoteP2P, HELLO_FRAME_B64, type SignalKind } from './p2p';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -212,7 +215,20 @@ class RemoteSessionStore {
   sendInput(sessionId: string, slot: number, frames: string[]): boolean {
     if (this.phase !== 'active' || this.role !== 'controller') return false;
     if (!this.sessionId || sessionId !== this.sessionId) return false;
+    // Erst der direkte Kanal (`p2p.ts`) — er sagt, ob er getragen hat oder was
+    // dem Serverweg noch vorangehen muss (frisches Hello nach Kanal-Ausfall).
+    const weg = remoteP2P.senden(sessionId, slot, frames);
+    if (weg === 'p2p') return true;
+    if (weg === 'ws_mit_hello') {
+      this.#senden((c) => c.sendRemoteInput(sessionId, slot, [HELLO_FRAME_B64]));
+    }
     return this.#senden((c) => c.sendRemoteInput(sessionId, slot, frames));
+  }
+
+  /** Hereinkommendes SDP/ICE der eigenen Sitzung (Handler prüft die Kennung
+   *  bereits; hier nur noch weitergeben). */
+  _signal(kind: SignalKind, data: unknown): void {
+    remoteP2P.signal(kind, data);
   }
 
   // ── Host-Seite ────────────────────────────────────────────────────────────
@@ -319,6 +335,14 @@ class RemoteSessionStore {
     }
     this.phase = 'active';
     this.#watchVerbindung();
+    // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
+    // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert
+    // er (NAT), bleibt es wortlos dabei.
+    if (this.role !== null) {
+      remoteP2P.start(this.role, sessionId, (kind, data) =>
+        this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+      );
+    }
   }
 
   _ended(sessionId: string, reason: string): void {
@@ -367,6 +391,9 @@ class RemoteSessionStore {
     this.#fehler.aus();
     this.#verbindung.aus();
     this.#frist.aus();
+    // Der direkte Kanal endet mit der Sitzung — #reset ist der EINZIGE Ausgang
+    // (s. den Kommentar unten), also auch seiner.
+    remoteP2P.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
     // Verbindungsverlust, Fehler. Ohne diesen Ruf liefe nach einem Abbruch die
