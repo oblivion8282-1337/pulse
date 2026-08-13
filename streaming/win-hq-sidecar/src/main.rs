@@ -31,6 +31,19 @@ fn main() -> anyhow::Result<()> {
         eprintln!("[hq-sidecar] Per-Monitor-DPI-Bewusstsein nicht gesetzt: {e}");
     }
 
+    // Systemtimer auf 1 ms (Windows-Vorgabe: 15,6 ms). Der Pacing-Loop braucht
+    // das NICHT (`thread::sleep` läuft über den High-Resolution-Waitable-Timer,
+    // s. `pipeline_hw`), wohl aber die Tokio-Seite des WHIP-Sendewegs: deren
+    // Wartezeiten (Timeouts, `tokio::time::sleep` — der gemessene Grund, warum
+    // der Pacer-Versuch in `whip/pacer.rs` 7,9-ms-Schlafzeiten als 13,1 ms
+    // ausführte) laufen über Timeouts mit Systemtimer-Auflösung. Prozessweit
+    // seit Win10 2004, fällt mit dem Prozess.
+    unsafe {
+        if windows::Win32::Media::timeBeginPeriod(1) != 0 {
+            eprintln!("[hq-sidecar] timeBeginPeriod(1) abgelehnt — Systemtimer bleibt grob");
+        }
+    }
+
     // Diagnose-Schalter: `PULSE_HQ_FFMPEG_DEBUG=1` hebt das FFmpeg-Log-Level auf
     // Debug — nötig um hinter „Writing encrypted data to socket failed" den
     // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)
