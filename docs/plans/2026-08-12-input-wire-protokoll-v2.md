@@ -340,10 +340,66 @@ Grund.
   Das **Loslassen** eines bereits vermerkten Knopfes bleibt davon ausgenommen,
   sonst klemmte die Maustaste. Dass der eigene Steuernde sich brav verhält, ist
   keine Durchsetzung — der Host ist die fail-closed-Grenze.
+* **Der Host hat Vorrang** (ergänzt 2026-08-14, eigener Abschnitt unten).
 * **Grenzen der Injektion (dokumentiert, kein Fehler):** `SendInput` erreicht
   weder Strg+Alt+Entf noch Fenster mit höherer Integrität (Rechteabfragen,
   Administrator-Fenster bei nicht erhöhtem Sidecar). Die Windows-Taste geht
   durch.
+
+## Vorrang des Hosts (ergänzt 2026-08-14)
+
+Bis hierher wirken beide Seiten **gleichzeitig**: die Injektion läuft in denselben
+Eingabestrom wie die Hardware des Hosts, und wer zeitgleich die Maus bewegt,
+erzeugt Durcheinander. Der Not-Aus (Sitzung beenden) war die einzige Möglichkeit,
+den eigenen Rechner zurückzubekommen — für „ich will nur kurz etwas anklicken"
+eine viel zu grobe Kelle.
+
+**Die Regel.** Regt sich der Host körperlich an Maus oder Tastatur, verwirft sein
+Sidecar jede hereinkommende Fremdeingabe. Die Frist ist gleitend: sie läuft
+`letzte Regung + 5 s` aus, jede weitere Regung schiebt sie neu
+(`PULSE_FERN_VORRANG_MS` stellt sie um, geklemmt auf 100 ms … 60 s). Wer arbeitet,
+behält den Rechner durchgehend; wer nur kurz hinlangt, gibt nach fünf Sekunden von
+selbst wieder ab.
+
+**Es ist ein Stummschalten, kein Abbruch.** Consent, Slot, Handschlag und Stream
+bleiben stehen; verworfen wird über denselben Pfad wie Sichtschutz und unbekannter
+Slot (`state: "host_active"`), also **samt Freigabe alles Gedrückten** — sonst
+liefe die W-Taste des Steuernden weiter, während der Host übernimmt. Ebenso wird
+die gemerkte Zeigerlage entwertet und der Host-Cursor zurück ins Bild geholt.
+
+**Erkannt wird über einen systemweiten Low-Level-Hook**
+(`remote_input/wache.rs`), nicht über einen Vergleich der Zeigerlage: `SendInput`
+wirkt verzögert, und vor allem bewegt ein Klick den Zeiger nicht — Tastatur und
+Maustasten wären unsichtbar. Die **eigene** Injektion trägt dafür eine Marke in
+`dwExtraInfo` (`PULSE_MARKE`); ohne sie löste die erste Mausbewegung des
+Steuernden den Vorrang aus und sperrte ihn dauerhaft aus. **Fremde** Injektion
+gilt ausdrücklich als Host (`LLMHF_INJECTED` wird nicht ausgewertet): ein
+Fehlalarm kostet fünf Sekunden und heilt von selbst, ein verpasster Alarm kostet
+die zugesagte Übernahme. Mausbewegung trägt eine Schwelle (8 px in 250 ms), Knopf
+und Taste nicht.
+
+**Ohne Wache keine Fernsteuerung.** Lässt sich der Hook nicht anmelden, verweigert
+schon der Handschlag die Sitzung — dieselbe Linie wie bei Intra-Refresh und HDR:
+lieber gar nicht als still etwas Schwächeres unter demselben Etikett. Nicht
+erkennbar bleibt ein Hook, den Windows zur Laufzeit wegen Zeitüberschreitung
+entfernt; dagegen hilft nur, dass der Rückruf nichts tut als einen Zeitstempel
+abzulegen (die Übergänge fährt ein eigener Faden).
+
+**Der Steuernde erfährt es** — über `remote_signal` mit `kind: "vorrang"` und
+`data: {aktiv, rest_ms}`, die einzige Auskunft, die vom Host zum Steuernden
+fließt (der DataChannel ist eine Einbahnstraße). Ohne sie sieht der Vorrang aus
+wie ein Verbindungsabbruch.
+
+**Nachziehen beim Ende (Pflicht des Steuernden).** Über die Leitung gehen
+Ereignisse, keine Zustände: hält der Steuernde W, ging dafür genau ein „W runter"
+hinaus, und der Host hat es beim Übernehmen freigegeben. Danach entsteht bei ihm
+kein neues Ereignis, weil sich für seinen Finger nichts geändert hat — die Taste
+bliebe tot. Der Steuernde schickt deshalb beim Ende des Vorrangs für alles noch
+Gehaltene erneut ein Drück-Ereignis. **Kein Hello davor** (das wäre ein neuer
+Strom und gäbe genau das frei, was gerade hergestellt wird). Wird ein **Knopf**
+nachgezogen, geht eine Zeigerlage voran — die zuletzt gesendete absolute, im
+Zeigerfang ersatzweise eine relative Bewegung um null (der Host rechnet die von
+der Mitte des Quell-Rechtecks aus). Ohne gültige Lage feuert dort kein Knopf.
 
 ## Was sich gegenüber v1 geändert hat
 

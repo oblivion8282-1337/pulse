@@ -35,22 +35,13 @@
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
+import { Gedruecktbuch } from './buchfuehrung';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
 type FrameSink = (evt: { session_id: string; slot: number; frames: string[] }) => void;
 
 /** Wie der Sender einer Nachricht verfahren soll (`RemoteSessionStore.sendInput`). */
 export type Transportwahl = 'p2p' | 'ws' | 'ws_mit_hello';
-
-/**
- * Der Handschlag-Frame des Wire-Protokolls v2: Opcode 0x00 + Fassung 2
- * (`rahmen.rs::PROTOKOLL_VERSION`). Normal erzeugt ihn der pulse-player beim
- * Einschalten der Erfassung; beim TRANSPORTWECHSEL muss er hier entstehen,
- * denn der Player weiß nichts vom Träger. Als eigene Nachricht gesendet, nie
- * in eine bestehende gemischt — eine volle 32-Frame-Nachricht plus Hello wäre
- * 33 und damit fail-closed.
- */
-const HELLO_FRAME_B64 = btoa(String.fromCharCode(0x00, 0x02));
 
 /** Dieselbe STUN-Adresse wie der WHEP-Zuschauerweg (`stream/whep.ts`). */
 const STUN = 'stun:stun.l.google.com:19302';
@@ -69,9 +60,6 @@ const MAX_NACHRICHT_BYTES = 1024;
  *  (`dcc_shared/streaming.py`: `MAX_SLOTS - 1`, Client-Kopie
  *  `stream/state.svelte.ts::MAX_STREAM_SLOTS`). */
 const SLOT_MAX = 98;
-/** Wie lange nach einem im Strom gesehenen Player-Hello NICHT auf den Kanal
- *  gewechselt wird — eine WS-Laufzeit plus Reserve (s. `senden`). */
-const HELLO_WECHSEL_SPERRE_MS = 300;
 
 /** Strenges Base64, wie es Gateway (`b64decode(validate=True)`) und Sidecar
  *  verlangen — `atob` allein ist „forgiving" und schluckt fehlende Füllung
@@ -104,19 +92,19 @@ class RemoteP2P {
   #eisPuffer: RTCIceCandidateInit[] = [];
   /** Läuft der Versand gerade über den Kanal? Erst nach dem Ruhe-Wechsel. */
   #ueberKanal = false;
-  /** Was laut den GESENDETEN Frames gerade unten ist ('k<scan>' / 'b<btn>').
-   *  Grundlage der Ruhe-Bedingung für den Transportwechsel. */
-  readonly #unten = new Set<string>();
-  /** Letzte gesendete absolute Zeigerlage (roher Base64-Frame) — geht jedem
-   *  Umschalt-Hello hinterher (s. [`helloBuendel`]). */
-  #letzteAbsB64: string | null = null;
-  /** Wann zuletzt ein Player-Hello im Strom vorbeikam (`performance.now()`) —
-   *  sperrt den Transportwechsel kurz (s. [`senden`]). */
-  #helloGesehenAm: number | null = null;
+  /** Was laut den GESENDETEN Frames gerade unten ist, samt letzter Zeigerlage
+   *  (`buchfuehrung.ts`). Grundlage der Ruhe-Bedingung für den
+   *  Transportwechsel — und des Nachziehens nach einem Vorrang des Hosts. */
+  readonly #buch = new Gedruecktbuch();
   /** Anzeige des Eingabewegs (s. [`setStatusSink`]). Die Texte entstehen
    *  HIER, an der Zustandsmaschine — der Player zeigt sie nur. */
   #statusSink: ((transport: string) => void) | null = null;
   #letzterStatus = '';
+  /** Text, der die Anzeige vorübergehend übernommen hat (`vorrang.ts`) —
+   *  `null` = der Eingabeweg zeigt sich selbst. Der Eingabeweg wird darunter
+   *  weitergeführt, damit nach dem Vorrang der aktuelle Stand erscheint und
+   *  nicht der von vorhin. */
+  #uebernommen: string | null = null;
 
   /** Wohin hereinkommende Frames gehen — setzt `handlers/remote.ts` beim
    *  Registrieren (derselbe geprüfte Pfad wie der Serverweg). Als Injektion
@@ -135,13 +123,17 @@ class RemoteP2P {
    */
   setStatusSink(sink: ((transport: string) => void) | null): void {
     this.#statusSink = sink;
-    if (sink && this.#letzterStatus !== '') sink(this.#letzterStatus);
+    const text = this.#uebernommen ?? this.#letzterStatus;
+    if (sink && text !== '') sink(text);
   }
 
   #status(transport: string): void {
     if (transport === this.#letzterStatus) return;
     this.#letzterStatus = transport;
-    this.#statusSink?.(transport);
+    // Unter einer Übernahme wird weiter Buch geführt, aber nicht gezeigt: der
+    // Vorrang des Hosts ist die dringendere Auskunft, und ein Wechsel des
+    // Eingabewegs mitten darin überschriebe sie.
+    if (this.#uebernommen === null) this.#statusSink?.(transport);
   }
 
   /** Mit dem Übergang der Sitzung nach 'active' rufen. Der Steuernde macht
@@ -168,10 +160,9 @@ class RemoteP2P {
     this.#sendSignal = null;
     this.#eisPuffer.length = 0;
     this.#ueberKanal = false;
-    this.#unten.clear();
-    this.#letzteAbsB64 = null;
-    this.#helloGesehenAm = null;
+    this.#buch.leeren();
     this.#letzterStatus = '';
+    this.#uebernommen = null;
   }
 
   /**
@@ -191,9 +182,9 @@ class RemoteP2P {
     // (leert die Buchführung ohne Hoch-Ereignisse). Vor der Nachricht ruhig
     // heißt dagegen: jedes Paar aus Drücken und Loslassen liegt vollständig
     // auf einem in sich geordneten Träger.
-    const ruhigVorher = this.#unten.size === 0;
+    const ruhigVorher = this.#buch.ruhig;
     // Gedrückt-Buchführung IMMER, egal welcher Träger.
-    for (const frame of frames) this.#buchen(frame);
+    for (const frame of frames) this.#buch.buchen(frame);
 
     const kanalOffen =
       this.#dc?.readyState === 'open' && this.#sessionId === sessionId;
@@ -220,10 +211,7 @@ class RemoteP2P {
       // seither über den Kanal gedrückt wurde (Bughunt R2). Eine
       // WS-Laufzeit plus Reserve warten kostet nichts — der Serverweg trägt
       // währenddessen.
-      const helloFrisch =
-        this.#helloGesehenAm !== null &&
-        performance.now() - this.#helloGesehenAm < HELLO_WECHSEL_SPERRE_MS;
-      if (!ruhigVorher || helloFrisch) return 'ws';
+      if (!ruhigVorher || this.#buch.helloFrisch) return 'ws';
       this.#ueberKanal = true;
       this.#kanalSenden(sessionId, slot, this.helloBuendel());
       console.info('[remote-p2p] Eingabe läuft jetzt direkt (DataChannel)');
@@ -243,23 +231,28 @@ class RemoteP2P {
     }
   }
 
-  /**
-   * Was ein Transportwechsel dem Host als Erstes schickt: das Hello — und,
-   * wenn bekannt, die letzte absolute Zeigerlage gleich hinterher.
-   *
-   * **Warum die Lage dazugehört** (Bughunt 2026-08-13): Das Hello leert beim
-   * Host auch die gemerkte Zeigerlage, und ohne gültige Lage feuert laut
-   * Wire-Spec kein Knopf und kein Rad. Der Player stellt seinem eigenen Hello
-   * deshalb eine Lage nach; der Transportwechsel kennt sie nur aus der
-   * Buchführung — steht der Zeiger gerade still und der Nutzer klickt, wäre
-   * der Klick sonst still verschluckt. Ohne bekannte Lage bleibt es beim
-   * nackten Hello (gleiches Verhalten wie ein frischer Player-Strom vor der
-   * ersten Bewegung).
-   */
+  /** Was ein Transportwechsel dem Host als Erstes schickt (`buchfuehrung.ts`). */
   helloBuendel(): string[] {
-    return this.#letzteAbsB64 === null
-      ? [HELLO_FRAME_B64]
-      : [HELLO_FRAME_B64, this.#letzteAbsB64];
+    return this.#buch.helloBuendel();
+  }
+
+  /** Den gehaltenen Zustand nach einem Vorrang des Hosts erneut behaupten —
+   *  in Nachrichten zu je höchstens 32 Frames (`buchfuehrung.ts`). */
+  nachziehBuendel(): string[][] {
+    return this.#buch.nachziehBuendel();
+  }
+
+  /**
+   * Anzeigetext von außen setzen — für den Vorrang des Hosts (`vorrang.ts`),
+   * der das Statistik-Feld für seine Dauer übernimmt.
+   *
+   * `null` heißt „zurück auf den Eingabeweg": den Text dafür kennt nur diese
+   * Zustandsmaschine, und ihn beim Steuernden zwischenzulagern hieße, ihn an
+   * zwei Stellen zu führen.
+   */
+  anzeigeUebernehmen(text: string | null): void {
+    this.#uebernommen = text;
+    this.#statusSink?.(text ?? this.#letzterStatus);
   }
 
   /** Hereinkommendes `remote_signal` der eigenen Sitzung (Zuordnung prüft der
@@ -441,49 +434,6 @@ class RemoteP2P {
     });
   }
 
-  // ── Gedrückt-Buchführung ──────────────────────────────────────────────────
-
-  /** Frame-Opcode lesen und die Gedrückt-Menge nachführen. Layout aus
-   *  `rahmen.rs`: 0x01 = absolute Maus (5 Byte), 0x03 = Maustaste
-   *  [op, btn, down], 0x05 = Taste [op, scan_lo, scan_hi, down]. Unlesbares
-   *  wird ignoriert — die Prüfung der Frames selbst ist Sache des Sidecars
-   *  (fail-closed). */
-  #buchen(frameB64: string): void {
-    let bytes: string;
-    try {
-      bytes = atob(frameB64);
-    } catch {
-      return;
-    }
-    const op = bytes.charCodeAt(0);
-    if (op === 0x01 && bytes.length === 5) {
-      // Für das Umschalt-Hello aufheben (s. `helloBuendel`).
-      this.#letzteAbsB64 = frameB64;
-      return;
-    }
-    if (op === 0x03 && bytes.length === 3) {
-      const id = `b${bytes.charCodeAt(1)}`;
-      if (bytes.charCodeAt(2) !== 0) this.#unten.add(id);
-      else this.#unten.delete(id);
-    } else if (op === 0x05 && bytes.length === 4) {
-      const id = `k${bytes.charCodeAt(1) | (bytes.charCodeAt(2) << 8)}`;
-      if (bytes.charCodeAt(3) !== 0) this.#unten.add(id);
-      else this.#unten.delete(id);
-    } else if (op === 0x02) {
-      // Relative Bewegung (Zeigerfang): die gemerkte absolute Lage ist ab
-      // jetzt Vergangenheit — ein Umschalt-Hello mit ihr positionierte den
-      // Host-Zeiger falsch UND ließe das Cursor-Echo einmal umschlagen
-      // (das Bündel endete auf MouseMoveAbs = „verbergen").
-      this.#letzteAbsB64 = null;
-    } else if (op === 0x00) {
-      // Ein Hello aus dem Player (Erfassung neu eingeschaltet, Notbremse)
-      // leert auch unsere Buchführung — der Host gibt dabei ohnehin alles
-      // frei. Der Zeitstempel sperrt den Transportwechsel kurz: dieses Hello
-      // fliegt noch als WS-Nachricht (s. `senden`).
-      this.#unten.clear();
-      this.#helloGesehenAm = performance.now();
-    }
-  }
 }
 
 export const remoteP2P = new RemoteP2P();
