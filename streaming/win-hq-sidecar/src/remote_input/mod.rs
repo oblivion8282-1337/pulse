@@ -51,6 +51,7 @@ pub mod zuordnung;
 #[cfg(test)]
 mod tests;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use anyhow::{Result, anyhow};
@@ -65,6 +66,21 @@ pub struct Bericht {
     pub verarbeitet: usize,
     /// `live` · `unknown_slot` · `unresolved_source` · `masked` · `ended`
     pub zustand: &'static str,
+}
+
+/// Läuft gerade eine Fernsteuerung? Gesetzt vom Hello-Handschlag, gelöscht
+/// von jedem Sitzungsende (auch fail-closed und Prozessende).
+///
+/// **Wofür.** Der Pacing-Loop (`pipeline_hw`) schaltet daran auf „Senden bei
+/// Ankunft" um: beim Zusehen glättet das feste Tick-Raster, beim Steuern
+/// kostet es im Mittel einen halben Bildabstand im geschlossenen Kreis.
+/// Atomar statt über [`Sitzung::sperre`], weil der Pacing-Loop das bis zu
+/// 60-mal je Sekunde liest und dafür nicht die Eingabe-Sperre anfassen soll.
+static FERN_AKTIV: AtomicBool = AtomicBool::new(false);
+
+/// Für den Pacing-Loop: läuft gerade eine Fernsteuerung?
+pub fn fern_aktiv() -> bool {
+    FERN_AKTIV.load(Ordering::Relaxed)
 }
 
 /// Die eine Fernsteuer-Sitzung dieses Prozesses.
@@ -229,6 +245,7 @@ impl Sitzung {
         // die JEDER Ausstiegsweg passiert (regulär, Verbindungsverlust,
         // fail-closed über `remote_input_end`).
         crate::capture::cursorsteuerung::zeigen();
+        FERN_AKTIV.store(false, Ordering::Relaxed);
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand::default();
@@ -244,6 +261,7 @@ impl Sitzung {
     /// physisch gedrückten Taste, und es gäbe niemanden mehr, der sie löst.
     pub fn beenden_endgueltig(&self) -> usize {
         crate::capture::cursorsteuerung::zeigen();
+        FERN_AKTIV.store(false, Ordering::Relaxed);
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand { geschlossen: true, ..Zustand::default() };
@@ -284,6 +302,7 @@ fn handschlag(z: &mut Zustand, version: u8) -> Result<(), String> {
     z.druck.loslassen();
     z.zeiger = None;
     z.begruesst = true;
+    FERN_AKTIV.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -329,8 +348,10 @@ fn stilllegen(z: &mut Zustand, grund: String) -> anyhow::Error {
     z.druck.loslassen();
     z.zeiger = None;
     // Fail-closed heißt: diese Sitzung steuert nichts mehr — der Stream läuft
-    // aber weiter, und seine Zuschauer bekommen den Cursor zurück.
+    // aber weiter, seine Zuschauer bekommen den Cursor zurück und der
+    // Pacing-Loop sein glättendes Tick-Raster.
     crate::capture::cursorsteuerung::zeigen();
+    FERN_AKTIV.store(false, Ordering::Relaxed);
     eprintln!("[remote-input] fail-closed: {grund}");
     crate::events::emit(serde_json::json!({
         "ev": "remote_state",

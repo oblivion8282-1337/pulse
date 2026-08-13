@@ -315,29 +315,81 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // langsame Ticks/pts-Gaps und loggt sie. Details: `tick_monitor.rs`.
     let mut monitor = TickMonitor::new(fps);
     let mut prev_pts: i64 = 0;
+    // Notausgang für die A/B-Messung (gleiche Bauart wie PULSE_HQ_NO_AV_OFFSET):
+    // erzwingt das feste Tick-Raster auch während einer Fernsteuerung.
+    let fern_sofort = !crate::env::flag("PULSE_HQ_FERN_TICKRASTER");
 
     loop {
         if stop_rx.try_recv().is_ok() {
             break;
         }
 
-        // Bis zum nächsten Tick warten. `thread::sleep` nutzt auf Win10+/aktuellem
-        // Rust einen High-Resolution-Waitable-Timer (~1 ms genau).
+        // Zwei Wartearten:
+        //   * ZUSEHEN: bis zum nächsten Tick schlafen — das feste Raster
+        //     glättet, und genau dafür ist es da. `thread::sleep` nutzt auf
+        //     Win10+/aktuellem Rust einen High-Resolution-Waitable-Timer.
+        //   * FERNSTEUERUNG (`remote_input::fern_aktiv`): auf die ANKUNFT des
+        //     nächsten Bildes warten, höchstens bis zum Tick (der bleibt als
+        //     Heartbeat für stehende Bilder — ohne ihn stürbe der Push am
+        //     MediaMTX-readTimeout). Das Raster kostete sonst im Mittel einen
+        //     halben Bildabstand (8,3 ms bei 60 fps): ein Bild, das 1 ms nach
+        //     dem Tick ankommt, wartete fast einen vollen. Beim Steuern zahlt
+        //     das der geschlossene Kreis aus Eingabe hin und Bild zurück.
         let planned = next_tick;
+        let fern = fern_sofort && crate::remote_input::fern_aktiv();
+        // Das im Wartefenster angekommene Bild (nur Fern-Weg) — zählt zum
+        // Drain unten dazu.
+        let mut gewartetes: u32 = 0;
         let now = Instant::now();
-        if next_tick > now {
-            std::thread::sleep(next_tick - now);
+        if !fern {
+            if next_tick > now {
+                std::thread::sleep(next_tick - now);
+            }
+        } else if next_tick > now {
+            match capture.items.recv_timeout(next_tick - now) {
+                Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
+                    last_frame = Some(f);
+                    if qpc != 0 {
+                        newest_qpc = qpc;
+                    }
+                    gewartetes = 1;
+                }
+                Ok(HwCaptureItem::Setup { .. }) => {
+                    return Err(anyhow!("unexpected Setup item after pipeline init"));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    let worker_err = capture.join_error();
+                    return Err(anyhow!(
+                        "hw capture channel disconnected mid-stream{}",
+                        crate::capture::worker_err_suffix(
+                            worker_err,
+                            "clean exit, keine Fehlermeldung"
+                        )
+                    ));
+                }
+            }
         }
-        next_tick += frame_dur;
-        // Rückstand nicht akkumulieren — sonst Frame-Burst nach einem Stall.
         let now = Instant::now();
-        if next_tick < now {
-            next_tick = now;
+        if fern {
+            // Heartbeat-Frist ab JETZT, kein Raster: das Raster wäre genau die
+            // Quantisierung, die dieser Zweig wegnimmt. Encodiert wird trotzdem
+            // höchstens im fps-Takt — die PTS-Platz-Bremse unten hält Bilder,
+            // deren Platz schon bedient ist, bis zum nächsten Heartbeat.
+            next_tick = now + frame_dur;
+        } else {
+            next_tick += frame_dur;
+            // Rückstand nicht akkumulieren — sonst Frame-Burst nach einem Stall.
+            if next_tick < now {
+                next_tick = now;
+            }
         }
 
         // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep): `iter_start`
         // ist der echte Wieder-Aufwach-Zeitpunkt, `wake_jitter` der Verzug
         // gegenüber dem geplanten Tick (Sleep-Überschuss + Vortick-Rückstand).
+        // Im Fern-Weg ist eine FRÜHE Ankunft der Normalfall — `saturating`
+        // macht daraus 0, die Zahl misst dort nur noch verspätete Heartbeats.
         let iter_start = Instant::now();
         let wake_jitter = iter_start.saturating_duration_since(planned);
 
@@ -345,7 +397,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // Ältere droppen → zurück in den Pool. Kommt nichts Neues, bleibt
         // `last_frame` erhalten = Duplizierung bei statischem Bild.
         let t_capture = Instant::now();
-        let mut captured: u32 = 0;
+        let mut captured: u32 = gewartetes;
         loop {
             match capture.items.try_recv() {
                 Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
@@ -408,6 +460,15 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             started.elapsed().as_secs_f64()
         };
         let mut pts = (elapsed * fps as f64).round() as i64;
+        // Fern-Weg: höchstens ein Bild je PTS-Platz. WGC liefert bis 0,9/fps
+        // (Deckel in `capture::min_interval_settings`) — encodierte jede
+        // Ankunft sofort, liefen die Zeitstempel dauerhaft schneller als die
+        // Echtzeit, und der Ausgabe-Takt des Zuschauers verankerte sich
+        // laufend neu. Das gehaltene Bild liegt in `last_frame` und geht
+        // spätestens mit dem nächsten Heartbeat hinaus (ein Bildabstand).
+        if fern && captured > 0 && pts <= last_pts {
+            continue;
+        }
         if pts <= last_pts {
             pts = last_pts + 1;
         }
