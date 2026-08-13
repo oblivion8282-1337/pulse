@@ -45,7 +45,6 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::audio::AudioCapture;
-use crate::capture::{HwCaptureItem, WgcHwCapture};
 use crate::encode::{
     AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame,
 };
@@ -56,21 +55,7 @@ use crate::tick_monitor::{TickMonitor, TickSample};
 
 mod capture_start;
 mod vorstufe;
-
-/// Der Capture-Kanal ist mitten im Stream tot — die Fehlermeldung dazu.
-///
-/// **An einer Stelle**, weil zwei Wege sie brauchen (das Warten auf die
-/// Ankunft im Fern-Weg und das Nachziehen der wartenden Bilder) und beide
-/// dieselbe Auskunft geben müssen: ohne den echten Worker-Fehler aus
-/// `join_error` bliebe nur „channel disconnected", und die eigentliche
-/// Ursache (WGC-Close ohne Frame, Pool-Fehler, …) ginge verloren.
-fn kanal_tot(capture: &mut WgcHwCapture) -> anyhow::Error {
-    let worker_err = capture.join_error();
-    anyhow!(
-        "hw capture channel disconnected mid-stream{}",
-        crate::capture::worker_err_suffix(worker_err, "clean exit, keine Fehlermeldung")
-    )
-}
+mod warten;
 
 pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
@@ -342,91 +327,21 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             break;
         }
 
-        // Zwei Wartearten:
-        //   * ZUSEHEN: bis zum nächsten Tick schlafen — das feste Raster
-        //     glättet, und genau dafür ist es da. `thread::sleep` nutzt auf
-        //     Win10+/aktuellem Rust einen High-Resolution-Waitable-Timer.
-        //   * FERNSTEUERUNG (`remote_input::fern_aktiv`): auf die ANKUNFT des
-        //     nächsten Bildes warten, höchstens bis zum Tick (der bleibt als
-        //     Heartbeat für stehende Bilder — ohne ihn stürbe der Push am
-        //     MediaMTX-readTimeout). Das Raster kostete sonst im Mittel einen
-        //     halben Bildabstand (8,3 ms bei 60 fps): ein Bild, das 1 ms nach
-        //     dem Tick ankommt, wartete fast einen vollen. Beim Steuern zahlt
-        //     das der geschlossene Kreis aus Eingabe hin und Bild zurück.
-        let planned = next_tick;
+        // Warten (Tick-Raster beim Zusehen, Ankunft bei Fernsteuerung) und
+        // die Capture-Queue leeren — samt Begründung in [`warten`].
         let fern = fern_sofort && crate::remote_input::fern_aktiv();
-        // Zählt bereits das im Wartefenster angekommene Bild mit (nur
-        // Fern-Weg); der Drain unten zählt weiter.
-        let mut captured: u32 = 0;
-        let now = Instant::now();
-        if next_tick > now {
-            if fern {
-                match capture.items.recv_timeout(next_tick - now) {
-                    Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
-                        last_frame = Some(f);
-                        if qpc != 0 {
-                            newest_qpc = qpc;
-                        }
-                        captured = 1;
-                    }
-                    Ok(HwCaptureItem::Setup { .. }) => {
-                        return Err(anyhow!("unexpected Setup item after pipeline init"));
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        return Err(kanal_tot(&mut capture));
-                    }
-                }
-            } else {
-                std::thread::sleep(next_tick - now);
-            }
-        }
-        let now = Instant::now();
-        if fern {
-            // Heartbeat-Frist ab JETZT, kein Raster: das Raster wäre genau die
-            // Quantisierung, die dieser Zweig wegnimmt. Encodiert wird trotzdem
-            // höchstens im fps-Takt — die PTS-Platz-Bremse unten hält Bilder,
-            // deren Platz schon bedient ist, bis zum nächsten Heartbeat.
-            next_tick = now + frame_dur;
-        } else {
-            next_tick += frame_dur;
-            // Rückstand nicht akkumulieren — sonst Frame-Burst nach einem Stall.
-            if next_tick < now {
-                next_tick = now;
-            }
-        }
-
-        // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep): `iter_start`
-        // ist der echte Wieder-Aufwach-Zeitpunkt, `wake_jitter` der Verzug
-        // gegenüber dem geplanten Tick (Sleep-Überschuss + Vortick-Rückstand).
-        // Im Fern-Weg ist eine FRÜHE Ankunft der Normalfall — `saturating`
-        // macht daraus 0, die Zahl misst dort nur noch verspätete Heartbeats.
-        let iter_start = Instant::now();
-        let wake_jitter = iter_start.saturating_duration_since(planned);
-
-        // Alle wartenden Capture-Frames abholen, nur den neuesten behalten.
-        // Ältere droppen → zurück in den Pool. Kommt nichts Neues, bleibt
-        // `last_frame` erhalten = Duplizierung bei statischem Bild.
-        let t_capture = Instant::now();
-        loop {
-            match capture.items.try_recv() {
-                Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
-                    last_frame = Some(f);
-                    if qpc != 0 {
-                        newest_qpc = qpc;
-                    }
-                    captured += 1;
-                }
-                Ok(HwCaptureItem::Setup { .. }) => {
-                    return Err(anyhow!("unexpected Setup item after pipeline init"));
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    return Err(kanal_tot(&mut capture));
-                }
-            }
-        }
-        let capture_drain = t_capture.elapsed();
+        let abholung = warten::warten_und_abholen(
+            &mut capture,
+            fern,
+            frame_dur,
+            &mut next_tick,
+            &mut last_frame,
+            &mut newest_qpc,
+        )?;
+        let captured = abholung.captured;
+        let iter_start = abholung.iter_start;
+        let wake_jitter = iter_start.saturating_duration_since(abholung.geplant);
+        let capture_drain = abholung.capture_drain;
 
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();

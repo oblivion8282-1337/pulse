@@ -289,7 +289,12 @@ export async function erfassungSchalten(
     if (!enabled) weiche.abmeldenVerzoegert(session);
     return res;
   } catch (e) {
+    // Auch der WURF beim Ausschalten braucht einen Ausgang (Bughunt R2):
+    // ohne den Nachlauf bliebe die Zuordnung stehen, wenn der Player-Ruf
+    // scheitert (Fenster schon zu, Prozess tot) — genau die Buchfuehrung, an
+    // der haengt, welche Frames welche Sitzungskennung bekommen.
     if (enabled) weiche.abmelden(session);
+    else weiche.abmeldenVerzoegert(session);
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

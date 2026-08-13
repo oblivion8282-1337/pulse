@@ -140,6 +140,9 @@ impl Pacer {
                 // geschlossenen Kreis genau die Latenz zurueck, die das
                 // Senden-bei-Ankunft (`pipeline_hw`) dort gerade einspart.
                 // Glaettung ist ein Zuschauer-Tausch, kein Steuer-Tausch.
+                // Prozessweit wie das Cursor-Echo: der Sidecar faehrt EINEN
+                // Stream, also verlieren waehrend einer Fernsteuerung ALLE
+                // seine Zuschauer die Glaettung — dieselbe bewusste Abwaegung.
                 let eilig = !rx.is_empty() || crate::remote_input::fern_aktiv();
                 let n = pakete.len();
                 let begonnen = Instant::now();

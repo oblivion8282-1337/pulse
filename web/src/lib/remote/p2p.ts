@@ -50,7 +50,7 @@ export type Transportwahl = 'p2p' | 'ws' | 'ws_mit_hello';
  * in eine bestehende gemischt — eine volle 32-Frame-Nachricht plus Hello wäre
  * 33 und damit fail-closed.
  */
-export const HELLO_FRAME_B64 = btoa(String.fromCharCode(0x00, 0x02));
+const HELLO_FRAME_B64 = btoa(String.fromCharCode(0x00, 0x02));
 
 /** Dieselbe STUN-Adresse wie der WHEP-Zuschauerweg (`stream/whep.ts`). */
 const STUN = 'stun:stun.l.google.com:19302';
@@ -61,20 +61,33 @@ const STUN = 'stun:stun.l.google.com:19302';
  *  ganze Sitzung still, hier ist es nur eine kaputte Nachricht. */
 const MAX_FRAMES = 32;
 const MAX_NACHRICHT_ZEICHEN = 16 * 1024;
-/** Größter dekodierter Frame (Gateway: `MAX_INPUT_DECODED_BYTES`). */
-const MAX_FRAME_BYTES = 1024;
+/** Größte dekodierte Nutzlast JE NACHRICHT (Gateway:
+ *  `MAX_INPUT_DECODED_BYTES` — dort ist 1024 die Summe, nicht der
+ *  Einzel-Frame; Bughunt R2). */
+const MAX_NACHRICHT_BYTES = 1024;
 /** Höchster zulässiger Slot — Spiegel von `SLOT_MAX` im Gateway
  *  (`dcc_shared/streaming.py`: `MAX_SLOTS - 1`, Client-Kopie
  *  `stream/state.svelte.ts::MAX_STREAM_SLOTS`). */
 const SLOT_MAX = 98;
+/** Wie lange nach einem im Strom gesehenen Player-Hello NICHT auf den Kanal
+ *  gewechselt wird — eine WS-Laufzeit plus Reserve (s. `senden`). */
+const HELLO_WECHSEL_SPERRE_MS = 300;
 
-/** Ist der Frame gültiges Base64 in den Größengrenzen? Dieselbe Frage, die
- *  der Gateway je Frame stellt (`b64decode(validate=True)` + Deckel). */
-function frameInGrenzen(frameB64: string): boolean {
+/** Strenges Base64, wie es Gateway (`b64decode(validate=True)`) und Sidecar
+ *  verlangen — `atob` allein ist „forgiving" und schluckt fehlende Füllung
+ *  und Leerraum, die weiter hinten fail-closed wären (Bughunt R2). Verlangt
+ *  mindestens ein Zeichen: der Leer-Frame ist beim Sidecar ein
+ *  Protokollfehler. */
+const BASE64_STRENG = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Dekodierte Länge des Frames, oder `null`, wenn er die strenge
+ *  Base64-Form verfehlt. */
+function frameBytes(frameB64: string): number | null {
+  if (frameB64.length % 4 !== 0 || !BASE64_STRENG.test(frameB64)) return null;
   try {
-    return atob(frameB64).length <= MAX_FRAME_BYTES;
+    return atob(frameB64).length;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -97,6 +110,9 @@ class RemoteP2P {
   /** Letzte gesendete absolute Zeigerlage (roher Base64-Frame) — geht jedem
    *  Umschalt-Hello hinterher (s. [`helloBuendel`]). */
   #letzteAbsB64: string | null = null;
+  /** Wann zuletzt ein Player-Hello im Strom vorbeikam (`performance.now()`) —
+   *  sperrt den Transportwechsel kurz (s. [`senden`]). */
+  #helloGesehenAm: number | null = null;
 
   /** Wohin hereinkommende Frames gehen — setzt `handlers/remote.ts` beim
    *  Registrieren (derselbe geprüfte Pfad wie der Serverweg). Als Injektion
@@ -129,6 +145,7 @@ class RemoteP2P {
     this.#ueberKanal = false;
     this.#unten.clear();
     this.#letzteAbsB64 = null;
+    this.#helloGesehenAm = null;
   }
 
   /**
@@ -157,10 +174,11 @@ class RemoteP2P {
     if (!kanalOffen) {
       if (this.#ueberKanal) {
         // Der Kanal ist unter uns weggebrochen: zurück auf den Serverweg, und
-        // zwar mit frischem Hello (unbekannt, was noch ankam). Genau EINMAL —
-        // ab dem nächsten Ruf ist `#ueberKanal` falsch und es bleibt bei 'ws'.
-        this.#ueberKanal = false;
-        console.info('[remote-p2p] Kanal weg — zurück auf den Serverweg');
+        // zwar mit frischem Hello (unbekannt, was noch ankam). `#ueberKanal`
+        // löscht erst [`wsHelloGesendet`] — ging das Hello nicht hinaus
+        // (Reconnect-Blip, Bughunt R2), verlangt der nächste Ruf es erneut;
+        // ohne das bliebe ein Down, dessen Up im sterbenden Kanal verschwand,
+        // beim Host bis Sitzungsende unten.
         return 'ws_mit_hello';
       }
       return 'ws';
@@ -168,14 +186,33 @@ class RemoteP2P {
 
     if (!this.#ueberKanal) {
       // Ruhe-Bedingung: erst wechseln, wenn VOR dieser Nachricht nichts
-      // unten war (s. oben).
-      if (!ruhigVorher) return 'ws';
+      // unten war (s. oben) — und nicht im Nachlauf eines Player-Hellos:
+      // GENAU das Hello, das die Ruhe herstellt (es leert die Buchführung
+      // ohne Hoch-Ereignisse — Erfassung neu eingeschaltet, Notbremse),
+      // fliegt in diesem Moment noch als WS-Nachricht. Wechselte man sofort,
+      // träfe es NACH dem Kanal-Hello ein und gäbe beim Host alles frei, was
+      // seither über den Kanal gedrückt wurde (Bughunt R2). Eine
+      // WS-Laufzeit plus Reserve warten kostet nichts — der Serverweg trägt
+      // währenddessen.
+      const helloFrisch =
+        this.#helloGesehenAm !== null &&
+        performance.now() - this.#helloGesehenAm < HELLO_WECHSEL_SPERRE_MS;
+      if (!ruhigVorher || helloFrisch) return 'ws';
       this.#ueberKanal = true;
       this.#kanalSenden(sessionId, slot, this.helloBuendel());
       console.info('[remote-p2p] Eingabe läuft jetzt direkt (DataChannel)');
     }
     this.#kanalSenden(sessionId, slot, frames);
     return 'p2p';
+  }
+
+  /** Der Aufrufer hat das Rückfall-Hello ERFOLGREICH über den Serverweg
+   *  abgesetzt — erst jetzt gilt der Rückweg als vollzogen. */
+  wsHelloGesendet(): void {
+    if (this.#ueberKanal) {
+      this.#ueberKanal = false;
+      console.info('[remote-p2p] Kanal weg — zurück auf den Serverweg');
+    }
   }
 
   /**
@@ -349,7 +386,13 @@ class RemoteP2P {
     if (typeof msg.session_id !== 'string' || msg.session_id !== this.#sessionId) return;
     if (!Array.isArray(msg.frames) || msg.frames.length === 0) return;
     if (msg.frames.length > MAX_FRAMES) return;
-    if (!msg.frames.every((f) => typeof f === 'string' && frameInGrenzen(f))) return;
+    let summe = 0;
+    for (const f of msg.frames) {
+      const bytes = typeof f === 'string' ? frameBytes(f) : null;
+      if (bytes === null) return;
+      summe += bytes;
+    }
+    if (summe > MAX_NACHRICHT_BYTES) return;
     // Der Slot wird NICHT zurechtgebogen (Wire-Spec: „ein verbogener Platz
     // wäre ein Klick auf dem falschen Bildschirm") — ungültig heißt verwerfen,
     // wie beim Gateway. Obergrenze wie dort (`SLOT_MAX`, s. state.svelte.ts
@@ -393,10 +436,19 @@ class RemoteP2P {
       const id = `k${bytes.charCodeAt(1) | (bytes.charCodeAt(2) << 8)}`;
       if (bytes.charCodeAt(3) !== 0) this.#unten.add(id);
       else this.#unten.delete(id);
+    } else if (op === 0x02) {
+      // Relative Bewegung (Zeigerfang): die gemerkte absolute Lage ist ab
+      // jetzt Vergangenheit — ein Umschalt-Hello mit ihr positionierte den
+      // Host-Zeiger falsch UND ließe das Cursor-Echo einmal umschlagen
+      // (das Bündel endete auf MouseMoveAbs = „verbergen").
+      this.#letzteAbsB64 = null;
     } else if (op === 0x00) {
-      // Ein Hello aus dem Player (Erfassung neu eingeschaltet) leert auch
-      // unsere Buchführung — der Host gibt dabei ohnehin alles frei.
+      // Ein Hello aus dem Player (Erfassung neu eingeschaltet, Notbremse)
+      // leert auch unsere Buchführung — der Host gibt dabei ohnehin alles
+      // frei. Der Zeitstempel sperrt den Transportwechsel kurz: dieses Hello
+      // fliegt noch als WS-Nachricht (s. `senden`).
       this.#unten.clear();
+      this.#helloGesehenAm = performance.now();
     }
   }
 }
