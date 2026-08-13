@@ -30,7 +30,10 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_caps import enforce_role_cap
 from dcc_chat_gateway.models import Guild, Role
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.role_hierarchy import highest_role_position
+from dcc_chat_gateway.role_hierarchy import (
+    assert_actor_outranks_role,
+    highest_role_position,
+)
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import (
     RoleIn,
@@ -172,6 +175,17 @@ async def patch_role(
     # an admin role. Owners + ADMINISTRATOR-holders resolve to
     # GRANT_ALL_SAFE so `role.permissions & ~GRANT_ALL_SAFE == 0` → they
     # always pass. Mirrors delete_role.
+    # Rang zusaetzlich zu den Bits: zwei Moderator-Rollen mit denselben Rechten
+    # und verschiedenem Rang kamen sonst aneinander (s.
+    # `assert_actor_outranks_role`). Beim Umsortieren wird der Rang laengst
+    # geprueft — hier fehlte er.
+    await assert_actor_outranks_role(
+        session,
+        current,
+        await session.get(Guild, guild_id),
+        role,
+        detail="cannot edit a role at or above your highest role",
+    )
     if role.permissions & ~editor_perms:
         raise HTTPException(
             403, detail="cannot edit a role granting bits you do not yourself have"
@@ -237,6 +251,13 @@ async def delete_role(
     # blast-radius as un-assigning it from each one individually. Apply
     # the same gate as create/patch_role: the editor must hold every bit
     # the role carries (Owner/ADMINISTRATOR short-circuit via the resolver).
+    await assert_actor_outranks_role(
+        session,
+        current,
+        await session.get(Guild, guild_id),
+        role,
+        detail="cannot delete a role at or above your highest role",
+    )
     if role.permissions & ~editor_perms:
         raise HTTPException(
             403, detail="cannot delete a role granting bits you do not yourself have"

@@ -550,3 +550,90 @@ async def test_bulk_member_roles_requires_membership(client, _auth_signer):
     t_stranger, _ = await _register_user(_auth_signer)
     r = await client.get(f"/guilds/{g['id']}/member-roles", headers=auth(t_stranger))
     assert r.status_code == 403
+
+
+# ---- Rang: gleich berechtigt, verschieden hoch ------------------------------
+
+
+async def _zwei_mod_rollen(client, _auth_signer):
+    """Owner, ein Mitglied mit einer NIEDRIGEN Mod-Rolle, und eine HOEHERE
+    Mod-Rolle mit denselben Rechten.
+    Liefert (t_owner, t_other, gid, hohe_rolle_id).
+
+    Beide Rollen tragen exakt MANAGE_ROLES — die Bit-Schranke greift hier also
+    nicht, nur der Rang unterscheidet sie.
+    """
+    t_owner, t_other, uid_other, g = await _make_guild_with_member(client, _auth_signer)
+    bits = str(int(Permissions.MANAGE_ROLES) | int(Permissions.VIEW_CHANNEL))
+    niedrig = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod unten", "permissions": bits},
+        headers=auth(t_owner),
+    )).json()
+    hoch = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod oben", "permissions": bits},
+        headers=auth(t_owner),
+    )).json()
+    # Neu angelegte Rollen bekommen max+1 — die zweite steht also hoeher.
+    assert hoch["position"] > niedrig["position"]
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_other}/roles/{niedrig['id']}",
+        headers=auth(t_owner),
+    )
+    return t_owner, t_other, g["id"], hoch["id"]
+
+
+@pytest.mark.asyncio
+async def test_niedrige_rolle_kann_hoehere_nicht_bearbeiten(client, _auth_signer):
+    """**Der Rang zaehlt, nicht nur die Bits.**
+
+    Zwei Mod-Rollen mit identischen Rechten: die Bit-Schranke laesst den
+    Zugriff durch (der Bearbeiter haelt jedes Bit der Zielrolle). Bis
+    2026-08-13 konnte die niedrigere die hoehere damit umbenennen, leerraeumen
+    und loeschen — und ihre Traeger serverweit entmachten. Beim Umsortieren
+    wurde der Rang laengst geprueft, hier nicht.
+    """
+    _t_owner, t_other, gid, hoch_id = await _zwei_mod_rollen(client, _auth_signer)
+
+    r = await client.patch(
+        f"/guilds/{gid}/roles/{hoch_id}",
+        json={"name": "gekapert"},
+        headers=auth(t_other),
+    )
+    assert r.status_code == 403, r.text
+
+    r = await client.delete(f"/guilds/{gid}/roles/{hoch_id}", headers=auth(t_other))
+    assert r.status_code == 403, r.text
+
+    # Und sie steht unveraendert da.
+    rollen = (await client.get(f"/guilds/{gid}/roles", headers=auth(t_other))).json()
+    assert any(x["id"] == hoch_id and x["name"] == "Mod oben" for x in rollen)
+
+
+@pytest.mark.asyncio
+async def test_niedrige_rolle_kann_hoehere_nicht_im_kanal_aussperren(
+    client, _auth_signer
+):
+    """Dieselbe Luecke eine Ebene tiefer: die Kanal-Ausnahme. Ohne Rang-Pruefung
+    konnte der rangniedrige Moderator der hoeheren Rolle in einem Kanal die
+    Sicht nehmen — die Anti-Eskalation daneben prueft nur, welche BITS er
+    selbst haelt, nicht, wen er trifft.
+    """
+    t_owner, t_other, gid, hoch_id = await _zwei_mod_rollen(client, _auth_signer)
+    # Kanal legt der Owner an — der rangniedrige Moderator braucht ihn nur, um
+    # darin eine Ausnahme zu setzen, und soll genau daran scheitern.
+    kanal = await client.post(
+        f"/guilds/{gid}/channels",
+        json={"name": "geheim", "type": 0},
+        headers=auth(t_owner),
+    )
+    assert kanal.status_code == 201, kanal.text
+    cid = kanal.json()["id"]
+
+    r = await client.put(
+        f"/channels/{cid}/permissions/0/{hoch_id}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=auth(t_other),
+    )
+    assert r.status_code == 403, r.text

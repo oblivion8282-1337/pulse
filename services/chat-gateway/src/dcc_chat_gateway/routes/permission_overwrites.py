@@ -18,7 +18,14 @@ from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, GuildMember, PermissionOverwrite, Role
+from dcc_chat_gateway.models import (
+    Channel,
+    Guild,
+    GuildMember,
+    PermissionOverwrite,
+    Role,
+)
+from dcc_chat_gateway.role_hierarchy import assert_actor_outranks_role
 from dcc_chat_gateway.permissions import (
     OVERWRITE_TARGET_ROLE,
     OVERWRITE_TARGET_USER,
@@ -181,6 +188,17 @@ async def set_overwrite(
         role = await session.get(Role, target_id)
         if role is None or role.guild_id != channel.guild_id:
             raise HTTPException(400, detail="role not found in this guild")
+        # Rang wie beim Bearbeiten der Rolle selbst: ohne das konnte ein
+        # Moderator mit MANAGE_CHANNELS einer RANGHOEHEREN Rolle in diesem Kanal
+        # die Sicht oder das Schreiben nehmen. Die Anti-Eskalation daneben
+        # prueft nur die BITS, die er selbst haelt — nicht, wen er trifft.
+        await assert_actor_outranks_role(
+            session,
+            current,
+            await session.get(Guild, channel.guild_id),
+            role,
+            detail="cannot set an overwrite for a role at or above your highest role",
+        )
     else:  # OVERWRITE_TARGET_USER
         member = await session.get(GuildMember, (channel.guild_id, target_id))
         if member is None:
