@@ -35,6 +35,7 @@
 //! (Begruendung an `av1::Av1Zustand::zeitstempel`).
 
 pub mod av1;
+mod bandbreite;
 mod pacer;
 mod sdp;
 pub mod senke;
@@ -48,6 +49,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use bytes::Bytes;
 use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+use rtcp::payload_feedbacks::receiver_estimated_maximum_bitrate::ReceiverEstimatedMaximumBitrate;
 use tokio::runtime::Runtime;
 use webrtc::api::media_engine::MIME_TYPE_AV1;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -211,13 +213,25 @@ pub struct WhipSender {
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
-    pub fn connect(url: &str, codec: &str, fps: u32, breite: u32, hoehe: u32) -> Result<Self> {
+    pub fn connect(
+        url: &str,
+        codec: &str,
+        fps: u32,
+        breite: u32,
+        hoehe: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         let cap = sdp::codec_capability(codec, breite, hoehe, fps)?;
         let fps = fps.max(1);
-        runtime().block_on(async move { Self::connect_async(url, cap, fps).await })
+        runtime().block_on(async move { Self::connect_async(url, cap, fps, bitrate_kbps).await })
     }
 
-    async fn connect_async(url: &str, cap: RTCRtpCodecCapability, fps: u32) -> Result<Self> {
+    async fn connect_async(
+        url: &str,
+        cap: RTCRtpCodecCapability,
+        fps: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         // Zwei Dauern, und sie sind NICHT dasselbe: `frame_duration` ist der
         // echte Bildabstand und geht an den Taktgeber, `bild_sample_dauer` ist
         // die Uebergabe an webrtc-rs (s. `dauer_fuer_takte`). Takte je Bild
@@ -300,6 +314,10 @@ impl WhipSender {
         let antworten = std::env::var("PULSE_WHIP_IGNORE_PLI").as_deref() != Ok("1");
         tokio::spawn(async move {
             let mut angefordert: u64 = 0;
+            // REMB nicht mehr wegwerfen: die Bandbreitenschätzung der
+            // Gegenseite wird eingeordnet und als Event gemeldet
+            // (`bandbreite.rs` — Meldung, keine automatische Adaption).
+            let mut bandbreite = bandbreite::BandbreitenWacht::neu(bitrate_kbps);
             // Fehler beim Lesen duerfen den Rueckkanal NICHT dauerhaft
             // schliessen.
             //
@@ -331,6 +349,41 @@ impl WhipSender {
                 };
                 for p in &pakete {
                     let any = p.as_any();
+                    if let Some(remb) = any.downcast_ref::<ReceiverEstimatedMaximumBitrate>() {
+                        let jetzt = std::time::Instant::now();
+                        match bandbreite.messung(remb.bitrate, jetzt) {
+                            Some(bandbreite::Meldung::Eng { schaetzung_kbps }) => {
+                                eprintln!(
+                                    "[whip] Leitung eng: Gegenseite schätzt {schaetzung_kbps} kbps, \
+                                     Ziel {bitrate_kbps} kbps"
+                                );
+                                crate::events::emit(serde_json::json!({
+                                    "ev": "bandwidth_low",
+                                    "estimate_kbps": schaetzung_kbps,
+                                    "target_kbps": bitrate_kbps,
+                                }));
+                            }
+                            Some(bandbreite::Meldung::Erholt { schaetzung_kbps }) => {
+                                eprintln!(
+                                    "[whip] Leitung wieder tragfähig: {schaetzung_kbps} kbps \
+                                     (Ziel {bitrate_kbps})"
+                                );
+                                crate::events::emit(serde_json::json!({
+                                    "ev": "bandwidth_ok",
+                                    "estimate_kbps": schaetzung_kbps,
+                                    "target_kbps": bitrate_kbps,
+                                }));
+                            }
+                            None => {}
+                        }
+                        if bandbreite.log_faellig(jetzt) {
+                            eprintln!(
+                                "[whip] REMB: Gegenseite schätzt {:.0} kbps",
+                                remb.bitrate / 1000.0
+                            );
+                        }
+                        continue;
+                    }
                     if any.downcast_ref::<PictureLossIndication>().is_some()
                         || any.downcast_ref::<FullIntraRequest>().is_some()
                     {

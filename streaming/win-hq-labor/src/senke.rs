@@ -71,7 +71,9 @@ pub fn baue_sendeweg(
     hoehe: u32,
 ) -> Result<Box<dyn PaketSenke>> {
     if pulse_win_hq_sidecar::encode::output::is_whip_url(url) {
-        return verbinde(&SenkenAuftrag { url, codec, fps, breite, hoehe });
+        // `bitrate_kbps: 0` = Ziel unbekannt: das Labor misst den Transport,
+        // nicht die Bandbreiten-Wacht — die bleibt bei 0 stumm (`whip::bandbreite`).
+        return verbinde(&SenkenAuftrag { url, codec, fps, breite, hoehe, bitrate_kbps: 0 });
     }
     Ok(Box::new(DateiSenke::neu(url)?))
 }

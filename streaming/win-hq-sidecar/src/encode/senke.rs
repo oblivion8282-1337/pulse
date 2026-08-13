@@ -84,6 +84,11 @@ pub struct SenkenAuftrag<'a> {
     /// (Level 3.0 bei 720p), Herleitung in `whip::sdp`.
     pub breite: u32,
     pub hoehe: u32,
+    /// Ziel-Bitrate des Encoders. Kein Aufbau-Parameter, sondern der Maßstab
+    /// für den REMB-Rückkanal (`whip::bandbreite`): erst mit dem Ziel wird aus
+    /// der Bandbreitenschätzung der Gegenseite eine Aussage („die Leitung
+    /// trägt das Ziel nicht"). `0` = unbekannt, die Wacht bleibt dann stumm.
+    pub bitrate_kbps: u32,
 }
 
 /// Baut die Sitzung auf. **Läuft erst, wenn die Encoder offen sind** — würde

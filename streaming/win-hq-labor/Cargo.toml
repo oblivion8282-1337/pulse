@@ -75,3 +75,12 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 # Kein `[build-dependencies]` und kein `build.rs`: die FFmpeg-Header und -Libs
 # findet ffmpeg-sys-next ueber `../win-hq-sidecar/.cargo/config.toml`.
+
+# Derselbe gepatchte windows-capture-Zweig wie im Sidecar — das Labor bindet
+# `pulse-win-hq-sidecar` per Pfad ein, ist aber ein EIGENER Workspace, und
+# `[patch]` wirkt nur am Workspace-Wurzel-Manifest. Ohne diesen Eintrag löste
+# das Labor windows-capture ungepatcht auf und der Sidecar-Lib fehlte
+# `on_session_ready`. Vorher `win-hq-sidecar/scripts/bootstrap-windows-capture.sh`
+# laufen lassen (stellt `../win-hq-sidecar/vendor/windows-capture` her).
+[patch.crates-io]
+windows-capture = { path = "../win-hq-sidecar/vendor/windows-capture" }
