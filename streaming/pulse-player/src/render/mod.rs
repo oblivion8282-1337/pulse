@@ -116,9 +116,6 @@ pub struct Renderer {
     /// Mausbewegung) einen zweiten Abdruck desselben Bildes, und der
     /// Einfrier-Waechter zaehlte eine Unveraenderlichkeit, die es nicht gab.
     abdruck_faellig: bool,
-    /// Swapchain-Tiefe VOR einer Fernsteuerung — dasselbe Merk-und-Zurueck-
-    /// Muster wie `takt::Ausgabetakt::fernsteuerung` (s. [`Self::fernsteuerung`]).
-    frame_latency_vor_fern: Option<u32>,
 }
 
 impl Renderer {
@@ -161,46 +158,7 @@ impl Renderer {
             start: std::time::Instant::now(),
             schirmwissen: Default::default(),
             abdruck_faellig: false,
-            frame_latency_vor_fern: None,
         })
-    }
-
-    /// Swapchain-Tiefe fuer die Dauer einer Fernsteuerung auf 1 senken — und
-    /// danach genau den Wert wiederherstellen, der vorher galt.
-    ///
-    /// **Warum.** Drei Swapchain-Bilder (`desired_maximum_frame_latency: 2`,
-    /// Begruendung in `setup::create`) kaufen Bildrate: der Fenster-Thread kann
-    /// Bild N+1 vorbereiten, waehrend der Compositor Bild N haelt. Der Preis
-    /// ist bis zu eine Bildwiederholung mehr Verzug — bei 60 Hz rund 16 ms, bei
-    /// 144 Hz rund 7 ms. Beim ZUSEHEN ist das ein guter Tausch; beim STEUERN
-    /// zaehlt der geschlossene Kreis, und dort ist es der zweitgroesste Posten,
-    /// den der Player selbst beitraegt (nach dem Vorhalt, den
-    /// `takt::Ausgabetakt::fernsteuerung` bereits senkt). Der Kommentar an der
-    /// Anlagestelle sagt es selbst: „Wer Latenz ueber Bildrate stellt, setzt
-    /// hier wieder 1."
-    ///
-    /// **Nur senken, nie anheben** — und ueber [`Self::konfigurieren`], nicht
-    /// per direktem `surface.configure`: `configure` legt eine neue Swapchain
-    /// an, und die faengt wieder im SDR-Farbraum an (s. `hdr_fenster`).
-    pub fn fernsteuerung(&mut self, aktiv: bool) {
-        let ziel = if aktiv {
-            // Steht schon etwas im Merkfeld, laeuft die Senkung bereits — ein
-            // zweiter Ruf duerfte sonst den GESENKTEN Wert als „vorher"
-            // merken, und die Wiederherstellung landete nie beim Original.
-            if self.frame_latency_vor_fern.is_some() {
-                return;
-            }
-            self.frame_latency_vor_fern = Some(self.config.desired_maximum_frame_latency);
-            self.config.desired_maximum_frame_latency.min(1)
-        } else {
-            // Nichts gemerkt heisst: nichts gesenkt, also nichts herzustellen.
-            let Some(alt) = self.frame_latency_vor_fern.take() else { return };
-            alt
-        };
-        if self.config.desired_maximum_frame_latency != ziel {
-            self.config.desired_maximum_frame_latency = ziel;
-            self.konfigurieren();
-        }
     }
 
     /// Name des tatsaechlich verhandelten Oberflaechenformats — geht in die

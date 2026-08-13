@@ -48,6 +48,19 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use app::{App, UserEvent};
 
 fn main() -> Result<()> {
+    // Systemtimer auf 1 ms, VOR der Messpfad-Weiche (Bughunt 2026-08-13):
+    // dahinter platziert hatte dasselbe Binary zwei Uhrengranularitaeten —
+    // die Messpfade (`--robustheit` taktet ueber `thread::sleep`) fuhren mit
+    // 15,6 ms, der Live-Betrieb mit 1 ms, und `erstes_bild_ms` aus dem
+    // Messstand war gegen Live-Laeufe nicht vergleichbar. Der Rest der
+    // Begruendung steht unten am zweiten Kommentar dieser Art.
+    #[cfg(windows)]
+    unsafe {
+        if windows::Win32::Media::timeBeginPeriod(1) != 0 {
+            eprintln!("pulse-player: timeBeginPeriod(1) abgelehnt — Systemtimer bleibt grob");
+        }
+    }
+
     // Messpfad VOR allem anderen: er braucht weder TLS noch Fenster noch
     // Tokio, und er darf stdout benutzen — im Normalbetrieb gehoert stdout
     // dem JSON-RPC, hier gibt es keins.
@@ -89,9 +102,9 @@ fn main() -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("rustls-CryptoProvider bereits installiert"))?;
 
-    // Systemtimer auf 1 ms (Windows-Vorgabe: 15,6 ms). Winits `WaitUntil`
-    // braucht das NICHT — es laeuft seit 0.30 ueber
-    // `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` (in winit-0.30.13
+    // (Der `timeBeginPeriod(1)`-Ruf steht oben VOR der Messpfad-Weiche.)
+    // Warum ueberhaupt: Winits `WaitUntil` braucht das NICHT — es laeuft seit
+    // 0.30 ueber `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` (in winit-0.30.13
     // `platform_impl/windows/event_loop.rs:642` nachgelesen, nicht vermutet).
     // Was daran haengt, sind die Tokio-Seiten des Players: der 2-ms-Poll des
     // Jitter-Puffers (`session::POLL_INTERVAL`), der 10-ms-NACK-Erzeuger und
@@ -100,13 +113,6 @@ fn main() -> Result<()> {
     // 10-ms-Takt nur 15,6 sein — bei der Fernsteuerung zahlt das der
     // geschlossene Kreis. Prozessweit seit Win10 2004, faellt mit dem Prozess;
     // ein Scheitern ist eine Meldung wert, kein Abbruchgrund.
-    #[cfg(windows)]
-    unsafe {
-        if windows::Win32::Media::timeBeginPeriod(1) != 0 {
-            eprintln!("pulse-player: timeBeginPeriod(1) abgelehnt — Systemtimer bleibt grob");
-        }
-    }
-
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();

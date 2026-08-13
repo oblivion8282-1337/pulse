@@ -61,6 +61,22 @@ const STUN = 'stun:stun.l.google.com:19302';
  *  ganze Sitzung still, hier ist es nur eine kaputte Nachricht. */
 const MAX_FRAMES = 32;
 const MAX_NACHRICHT_ZEICHEN = 16 * 1024;
+/** Größter dekodierter Frame (Gateway: `MAX_INPUT_DECODED_BYTES`). */
+const MAX_FRAME_BYTES = 1024;
+/** Höchster zulässiger Slot — Spiegel von `SLOT_MAX` im Gateway
+ *  (`dcc_shared/streaming.py`: `MAX_SLOTS - 1`, Client-Kopie
+ *  `stream/state.svelte.ts::MAX_STREAM_SLOTS`). */
+const SLOT_MAX = 98;
+
+/** Ist der Frame gültiges Base64 in den Größengrenzen? Dieselbe Frage, die
+ *  der Gateway je Frame stellt (`b64decode(validate=True)` + Deckel). */
+function frameInGrenzen(frameB64: string): boolean {
+  try {
+    return atob(frameB64).length <= MAX_FRAME_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 class RemoteP2P {
   #pc: RTCPeerConnection | null = null;
@@ -78,6 +94,9 @@ class RemoteP2P {
   /** Was laut den GESENDETEN Frames gerade unten ist ('k<scan>' / 'b<btn>').
    *  Grundlage der Ruhe-Bedingung für den Transportwechsel. */
   readonly #unten = new Set<string>();
+  /** Letzte gesendete absolute Zeigerlage (roher Base64-Frame) — geht jedem
+   *  Umschalt-Hello hinterher (s. [`helloBuendel`]). */
+  #letzteAbsB64: string | null = null;
 
   /** Wohin hereinkommende Frames gehen — setzt `handlers/remote.ts` beim
    *  Registrieren (derselbe geprüfte Pfad wie der Serverweg). Als Injektion
@@ -109,6 +128,7 @@ class RemoteP2P {
     this.#eisPuffer.length = 0;
     this.#ueberKanal = false;
     this.#unten.clear();
+    this.#letzteAbsB64 = null;
   }
 
   /**
@@ -119,8 +139,17 @@ class RemoteP2P {
    * gestorben, der Host braucht einen frischen Eingabestrom).
    */
   senden(sessionId: string, slot: number, frames: string[]): Transportwahl {
-    // Gedrückt-Buchführung IMMER, egal welcher Träger — sie entscheidet, wann
-    // ein Wechsel gefahrlos ist.
+    // Ruhe wird gegen den Stand VOR dieser Nachricht gemessen (Bughunt
+    // 2026-08-13): Die Nachricht mit dem LETZTEN Loslassen leert `#unten` —
+    // erst danach geprüft, schaltete genau sie um, und ihr Loslassen fuhr
+    // über den Kanal, während sein Drücken noch als WS-Nachricht unterwegs
+    // war. Das DC-Hello gab beim Host alles frei, das verspätete WS-Drücken
+    // kam danach an: Taste klemmt. Dasselbe Loch öffnete jedes Player-Hello
+    // (leert die Buchführung ohne Hoch-Ereignisse). Vor der Nachricht ruhig
+    // heißt dagegen: jedes Paar aus Drücken und Loslassen liegt vollständig
+    // auf einem in sich geordneten Träger.
+    const ruhigVorher = this.#unten.size === 0;
+    // Gedrückt-Buchführung IMMER, egal welcher Träger.
     for (const frame of frames) this.#buchen(frame);
 
     const kanalOffen =
@@ -138,14 +167,34 @@ class RemoteP2P {
     }
 
     if (!this.#ueberKanal) {
-      // Ruhe-Bedingung: erst wechseln, wenn nichts unten ist (s. Kopf).
-      if (this.#unten.size > 0) return 'ws';
+      // Ruhe-Bedingung: erst wechseln, wenn VOR dieser Nachricht nichts
+      // unten war (s. oben).
+      if (!ruhigVorher) return 'ws';
       this.#ueberKanal = true;
-      this.#kanalSenden(sessionId, slot, [HELLO_FRAME_B64]);
+      this.#kanalSenden(sessionId, slot, this.helloBuendel());
       console.info('[remote-p2p] Eingabe läuft jetzt direkt (DataChannel)');
     }
     this.#kanalSenden(sessionId, slot, frames);
     return 'p2p';
+  }
+
+  /**
+   * Was ein Transportwechsel dem Host als Erstes schickt: das Hello — und,
+   * wenn bekannt, die letzte absolute Zeigerlage gleich hinterher.
+   *
+   * **Warum die Lage dazugehört** (Bughunt 2026-08-13): Das Hello leert beim
+   * Host auch die gemerkte Zeigerlage, und ohne gültige Lage feuert laut
+   * Wire-Spec kein Knopf und kein Rad. Der Player stellt seinem eigenen Hello
+   * deshalb eine Lage nach; der Transportwechsel kennt sie nur aus der
+   * Buchführung — steht der Zeiger gerade still und der Nutzer klickt, wäre
+   * der Klick sonst still verschluckt. Ohne bekannte Lage bleibt es beim
+   * nackten Hello (gleiches Verhalten wie ein frischer Player-Strom vor der
+   * ersten Bewegung).
+   */
+  helloBuendel(): string[] {
+    return this.#letzteAbsB64 === null
+      ? [HELLO_FRAME_B64]
+      : [HELLO_FRAME_B64, this.#letzteAbsB64];
   }
 
   /** Hereinkommendes `remote_signal` der eigenen Sitzung (Zuordnung prüft der
@@ -168,10 +217,21 @@ class RemoteP2P {
       // den Serverweg zurück. Kein Neuversuch innerhalb der Sitzung — der
       // Serverweg trägt, und ein Kanal, der einmal scheiterte, scheitert an
       // derselben Netzlage meist wieder.
+      //
+      // WIRKLICH schließen, nicht nur die Verweise nullen (Bughunt
+      // 2026-08-13): eine nur vergessene PeerConnection lebt samt ICE-Agent
+      // bis zum Seitenende weiter, und ihr `onicecandidate` schösse über das
+      // Singleton-`#sendSignal` in die NÄCHSTE Sitzung. Identitätsgeprüft
+      // nullen — `this.#pc` kann inzwischen schon zu einer neuen Sitzung
+      // gehören.
       if (pc.connectionState === 'failed') {
         console.info('[remote-p2p] Verbindung fehlgeschlagen — Serverweg bleibt');
-        this.#pc = null;
-        this.#dc = null;
+        pc.onicecandidate = null;
+        pc.close();
+        if (this.#pc === pc) {
+          this.#pc = null;
+          this.#dc = null;
+        }
       }
     };
     this.#pc = pc;
@@ -192,6 +252,12 @@ class RemoteP2P {
   }
 
   async #antworten(data: unknown): Promise<void> {
+    // Genau EIN Angebot je Sitzung (Bughunt 2026-08-13): jedes weitere baute
+    // eine neue PeerConnection, ohne die alte zu schließen — der Gateway lässt
+    // 60 Signale/s durch, und wer die Maus führen darf, soll nicht nebenbei
+    // den WebRTC-Stack des Hosts erschöpfen können. Verhandelt wird nicht neu;
+    // scheitert der Kanal, trägt der Serverweg.
+    if (this.#pc !== null) return;
     try {
       const beschreibung = data as RTCSessionDescriptionInit;
       const pc = this.#neuerPeer();
@@ -219,7 +285,10 @@ class RemoteP2P {
     const kandidat = (data as { candidate?: RTCIceCandidateInit }).candidate;
     if (!kandidat) return;
     if (!this.#pc?.remoteDescription) {
-      this.#eisPuffer.push(kandidat);
+      // Gedeckelt: ein Gegenüber, das trickelt, aber nie antwortet, füllte
+      // den Puffer sonst über die ganze Sitzungsdauer. Ein echter
+      // Trickle-Schwall sind einige Dutzend Kandidaten.
+      if (this.#eisPuffer.length < 64) this.#eisPuffer.push(kandidat);
       return;
     }
     try {
@@ -270,14 +339,25 @@ class RemoteP2P {
       return;
     }
     // Still verwerfen statt fail-closed: die Grenzen spiegeln den Gateway
-    // (eine Grenzüberschreitung kostet eine Nachricht, nicht die Sitzung).
-    // Die eigentliche Autorisierung macht der eingehängte Pfad — derselbe
-    // `eingabe()`-Wächter, den auch der Serverweg passiert.
+    // VOLLSTÄNDIG (Bughunt 2026-08-13 — es fehlten Base64-Prüfung und
+    // 1024-Byte-Deckel je Frame). Der Unterschied ist nicht kosmetisch: was
+    // hier durchrutscht, trifft im Sidecar auf fail-closed und beendet die
+    // ganze Sitzung; über den Serverweg kostete dieselbe kaputte Nachricht
+    // nur ein 4050. Eine Grenzüberschreitung kostet eine Nachricht, nie die
+    // Sitzung. Die eigentliche Autorisierung macht der eingehängte Pfad —
+    // derselbe `eingabe()`-Wächter, den auch der Serverweg passiert.
     if (typeof msg.session_id !== 'string' || msg.session_id !== this.#sessionId) return;
     if (!Array.isArray(msg.frames) || msg.frames.length === 0) return;
     if (msg.frames.length > MAX_FRAMES) return;
-    if (!msg.frames.every((f) => typeof f === 'string')) return;
-    const slot = typeof msg.slot === 'number' && Number.isInteger(msg.slot) ? msg.slot : 0;
+    if (!msg.frames.every((f) => typeof f === 'string' && frameInGrenzen(f))) return;
+    // Der Slot wird NICHT zurechtgebogen (Wire-Spec: „ein verbogener Platz
+    // wäre ein Klick auf dem falschen Bildschirm") — ungültig heißt verwerfen,
+    // wie beim Gateway. Obergrenze wie dort (`SLOT_MAX`, s. state.svelte.ts
+    // `MAX_STREAM_SLOTS`).
+    const slot = msg.slot;
+    if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0 || slot > SLOT_MAX) {
+      return;
+    }
     this.#frameSink?.({
       session_id: msg.session_id,
       slot,
@@ -288,9 +368,10 @@ class RemoteP2P {
   // ── Gedrückt-Buchführung ──────────────────────────────────────────────────
 
   /** Frame-Opcode lesen und die Gedrückt-Menge nachführen. Layout aus
-   *  `rahmen.rs`: 0x03 = Maustaste [op, btn, down], 0x05 = Taste
-   *  [op, scan_lo, scan_hi, down]. Unlesbares wird ignoriert — die Prüfung
-   *  der Frames selbst ist Sache des Sidecars (fail-closed). */
+   *  `rahmen.rs`: 0x01 = absolute Maus (5 Byte), 0x03 = Maustaste
+   *  [op, btn, down], 0x05 = Taste [op, scan_lo, scan_hi, down]. Unlesbares
+   *  wird ignoriert — die Prüfung der Frames selbst ist Sache des Sidecars
+   *  (fail-closed). */
   #buchen(frameB64: string): void {
     let bytes: string;
     try {
@@ -299,6 +380,11 @@ class RemoteP2P {
       return;
     }
     const op = bytes.charCodeAt(0);
+    if (op === 0x01 && bytes.length === 5) {
+      // Für das Umschalt-Hello aufheben (s. `helloBuendel`).
+      this.#letzteAbsB64 = frameB64;
+      return;
+    }
     if (op === 0x03 && bytes.length === 3) {
       const id = `b${bytes.charCodeAt(1)}`;
       if (bytes.charCodeAt(2) !== 0) this.#unten.add(id);

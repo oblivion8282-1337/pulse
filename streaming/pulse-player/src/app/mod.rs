@@ -301,6 +301,34 @@ impl App {
         let (netz_tx, mut netz_rx) = mpsc::channel::<SessionEvent>(8);
         let (netz_cmd_tx, netz_cmd_rx) = mpsc::channel::<SessionCommand>(4);
 
+        // Steuerbefehle erreichen BEIDE Sitzungen (Bughunt 2026-08-13): vorher
+        // sah das Auffangnetz nur `Stop` — eine Fernsteuerung (oder ein
+        // Options-Patch) senkte die Geduld nur im Hauptstrom, und gezeigt wird
+        // das Netz genau dann, wenn der Hauptstrom ausfällt. Weitergereicht
+        // werden nur die klonbaren Befehle; `Record`/`Clip` tragen einen
+        // Antwortkanal und gehören ohnehin dem Hauptstrom.
+        let (haupt_cmd_tx, haupt_cmd_rx) = mpsc::channel::<SessionCommand>(16);
+        let netz_cmd_fuer_befehle = netz_cmd_tx.clone();
+        self.runtime.spawn(async move {
+            let mut cmd_rx = cmd_rx;
+            while let Some(cmd) = cmd_rx.recv().await {
+                let kopie = match &cmd {
+                    SessionCommand::Fernsteuerung(aktiv) => {
+                        Some(SessionCommand::Fernsteuerung(*aktiv))
+                    }
+                    SessionCommand::Options(patch) => Some(SessionCommand::Options(patch.clone())),
+                    _ => None,
+                };
+                if let Some(kopie) = kopie {
+                    // Fehler heisst: das Netz ist schon beendet — folgenlos.
+                    let _ = netz_cmd_fuer_befehle.send(kopie).await;
+                }
+                if haupt_cmd_tx.send(cmd).await.is_err() {
+                    break;
+                }
+            }
+        });
+
         // Hauptstrom: unverändert durchreichen, Bilder stempeln.
         let uhr = zuletzt_haupt.clone();
         let weiter = ev_tx.clone();
@@ -342,7 +370,7 @@ impl App {
         // Geraet.
         let netz_geraet = geraet.clone();
         self.runtime.spawn(async move {
-            session::run(url, vec![], options, haupt_tx, cmd_rx, geraet).await
+            session::run(url, vec![], options, haupt_tx, haupt_cmd_rx, geraet).await
         });
         self.runtime.spawn(async move {
             session::run(fallback_url, vec![], netz_opts, netz_tx, netz_cmd_rx, netz_geraet).await

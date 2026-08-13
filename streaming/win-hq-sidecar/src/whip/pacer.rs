@@ -133,7 +133,14 @@ impl Pacer {
                 // mehrere Bilder in der Schlange. Dann NICHT verteilen — sonst
                 // wuechse der Rueckstand weiter. Der Schwall ist in diesem Fall
                 // das kleinere Uebel.
-                let eilig = !rx.is_empty();
+                //
+                // Waehrend einer FERNSTEUERUNG ebenfalls nicht verteilen
+                // (Bughunt 2026-08-13): die Verteilung verzoegert das letzte
+                // Paket eines Bildes um bis zu ~11 ms — sie gaebe im
+                // geschlossenen Kreis genau die Latenz zurueck, die das
+                // Senden-bei-Ankunft (`pipeline_hw`) dort gerade einspart.
+                // Glaettung ist ein Zuschauer-Tausch, kein Steuer-Tausch.
+                let eilig = !rx.is_empty() || crate::remote_input::fern_aktiv();
                 let n = pakete.len();
                 let begonnen = Instant::now();
                 if eilig || n < MIN_PAKETE {

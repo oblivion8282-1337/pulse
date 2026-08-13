@@ -30,7 +30,7 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben } from './sidecarInput';
-import { remoteP2P, HELLO_FRAME_B64 } from './p2p';
+import { remoteP2P } from './p2p';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -220,7 +220,9 @@ class RemoteSessionStore {
     const weg = remoteP2P.senden(sessionId, slot, frames);
     if (weg === 'p2p') return true;
     if (weg === 'ws_mit_hello') {
-      this.#senden((c) => c.sendRemoteInput(sessionId, slot, [HELLO_FRAME_B64]));
+      // Hello plus letzte Zeigerlage — ein nacktes Hello löscht beim Host
+      // die Lage, und ohne Lage feuert kein Knopf (s. `helloBuendel`).
+      this.#senden((c) => c.sendRemoteInput(sessionId, slot, remoteP2P.helloBuendel()));
     }
     return this.#senden((c) => c.sendRemoteInput(sessionId, slot, frames));
   }
