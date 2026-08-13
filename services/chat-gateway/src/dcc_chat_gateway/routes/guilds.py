@@ -33,6 +33,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
+from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
@@ -620,6 +621,17 @@ async def _remove_guild_member(
         guild_id,
         user_id,
         reason="membership_revoked",
+    )
+    # Und die Lese-Token für laufende Streams: sie sind an Kanal und
+    # Streamer gebunden, nicht an die Person, und werden nicht verbraucht —
+    # ohne das hier schaut der Entfernte bis zu eine Stunde weiter und kann
+    # die Adresse weitergeben (s. `stream_revoke`).
+    await revoke_read_tokens_for_viewer(
+        getattr(request.app.state, "redis", None),
+        session,
+        guild_id,
+        user_id,
+        grund="membership_revoked",
     )
     await _publish_guild_event(
         request,

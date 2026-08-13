@@ -37,6 +37,7 @@ from dcc_shared.streaming import SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.security import CurrentUser
+from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
     STREAM_EVENTS_CHANNEL,
@@ -412,7 +413,9 @@ async def get_whep_url(
     # minting a new one; both are channel+publisher-bound (not viewer-bound) by
     # design, so sharing them across reconnects from the same viewer is safe.
     viewer_id = str(user.id)
-    cache_key = f"stream:read-cache:{viewer_id}:{channel_id}:{user_id}:{slot}"
+    # Form in `dcc_shared.streaming` — chat-gateway loescht diese Schluessel
+    # beim Bann, und zwei Fassungen davon waeren eine stille Fehlerquelle.
+    cache_key = read_cache_key(viewer_id, channel_id, user_id, slot)
     cached = await redis.get(cache_key)
     if cached is not None:
         read_token = cached.decode() if isinstance(cached, bytes) else cached

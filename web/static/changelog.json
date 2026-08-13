@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-13.3",
+      "date": "2026-08-13",
+      "style": "Sachlich",
+      "title": "Rauswurf beendet jetzt auch den laufenden Stream",
+      "intro": "Wer aus einer Community entfernt oder gebannt wird, verliert damit sofort den Zugang zu den Bildschirmübertragungen dieser Community.",
+      "items": [
+        "Bisher lief eine bereits geöffnete Übertragung beim Entfernten weiter — im schlechtesten Fall bis zu eine Stunde lang, weil die Zugangsberechtigung nur beim Öffnen geprüft wurde.",
+        "Jetzt wird sie beim Rauswurf aktiv zurückgezogen. Für alle anderen Zuschauer ändert sich nichts, ihre Übertragung läuft unverändert weiter.",
+        "Das Gleiche gilt beim freiwilligen Verlassen einer Community. Wer zurückkehrt, bekommt beim nächsten Öffnen ganz normal einen neuen Zugang."
+      ]
+    },
+    {
       "id": "2026-08-13.2",
       "date": "2026-08-13",
       "style": "Sachlich",

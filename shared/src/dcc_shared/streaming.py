@@ -38,3 +38,73 @@ MAX_SLOTS = 99
 
 # Highest legal slot index — the form the request validators want.
 SLOT_MAX = MAX_SLOTS - 1
+
+
+# ---- Lese-Token je Zuschauer ----------------------------------------------
+
+# Nachschlage-Schluessel fuer das WHEP-Lese-Token EINES Zuschauers auf EINEN
+# Stream. media-svc legt ihn beim Ausstellen an (``GET /whep``), damit ein
+# Zuschauer im Wiederverbinden nicht bei jedem Anlauf ein frisches Token
+# bekommt.
+#
+# **Warum er hier steht und nicht nur in media-svc**: seit 2026-08-13 muss ihn
+# auch chat-gateway kennen. Wer aus einer Community entfernt oder gebannt wird,
+# behielt sein Lese-Token sonst bis zu einer Stunde — es ist an Kanal und
+# Streamer gebunden, nicht an ihn, und wird nicht verbraucht. Er konnte also
+# weiterschauen und die Adresse weitergeben (Bughunt 2026-08-13). Der Bann
+# loescht das Token deshalb aktiv, und dafuer braucht der Gateway die Form.
+#
+# Dieselbe Begruendung wie oben fuer ``MAX_SLOTS``: der mediamtx-auth-hook, um
+# dessentwillen die Schluesselnamen sonst bewusst doppelt gefuehrt werden, kennt
+# diesen Schluessel gar nicht — er liest nur ``stream:token:<token>``. Eine
+# dritte Kopie in chat-gateway waere also kein bewusst getrennter Stand, sondern
+# eine stille Fehlerquelle: aendert media-svc die Form, sperrt der Bann
+# lautlos nichts mehr.
+READ_CACHE_KEY = "stream:read-cache:{viewer_id}:{channel_id}:{user_id}:{slot}"
+
+# Der Token-Datensatz selbst. Aus demselben Grund hier: der Bann muss ihn
+# loeschen, nicht nur den Nachschlage-Schluessel oben — sonst gilt das bereits
+# ausgehaendigte Token weiter und der Bann meldet trotzdem Erfolg. media-svc
+# reicht diese Form in ``streamkeys.py`` nur noch durch; der mediamtx-auth-hook
+# behaelt seine eigene Kopie (keine ``dcc-shared``-Abhaengigkeit, siehe dort).
+TOKEN_KEY = "stream:token:{token}"
+
+
+def token_key(token: str) -> str:
+    return TOKEN_KEY.format(token=token)
+
+
+def read_cache_key(viewer_id: str, channel_id: str, user_id: str, slot: int | str) -> str:
+    """Der Nachschlage-Schluessel fuer genau ein (Zuschauer, Kanal, Streamer,
+    Platz)."""
+    return READ_CACHE_KEY.format(
+        viewer_id=viewer_id, channel_id=channel_id, user_id=user_id, slot=slot
+    )
+
+
+def read_cache_scan_pattern(viewer_id: str) -> str:
+    """Suchmuster fuer ``SCAN``: alle Lese-Token EINES Zuschauers.
+
+    Der Doppelpunkt ist literal, deshalb trennt das Muster ``4`` sauber von
+    ``42`` — Praefix-Kollision ausgeschlossen.
+
+    Das Muster geht ueber **alle** Communities: die Community steht nicht im
+    Schluessel, nur der Kanal. Wer auf eine Community eingrenzen will, filtert
+    die Treffer mit ``read_cache_channel()`` gegen deren Kanalliste — so macht
+    es der Bann-Pfad in chat-gateway.
+    """
+    return f"stream:read-cache:{viewer_id}:*"
+
+
+def read_cache_channel(key: bytes | str) -> str:
+    """Den Kanal aus einem Lese-Token-Schluessel zurueckholen; ``""`` wenn die
+    Form nicht passt.
+
+    Gehoert neben ``read_cache_key()``, weil beide dieselbe Form kennen: ein
+    informeller Nachbau anderswo (etwa ein fester Index) faellt bei einer
+    Formaenderung lautlos aus und laesst den Bann ins Leere greifen.
+    """
+    text = key.decode() if isinstance(key, bytes) else key
+    teile = text.split(":")
+    # "stream", "read-cache", viewer, channel, user, slot
+    return teile[3] if len(teile) == 6 and text.startswith("stream:read-cache:") else ""

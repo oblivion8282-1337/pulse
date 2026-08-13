@@ -407,9 +407,8 @@ async def test_unban_mints_rejoin_invite_and_notifies(client, app, _auth_signer)
 
 
 async def _dm_messages(session_factory, uid_a: int, uid_b: int):
-    from sqlalchemy import select
-
     from dcc_chat_gateway.models import DirectMessageChannel, Message
+    from sqlalchemy import select
 
     a, b = sorted((uid_a, uid_b))
     async with session_factory() as sess:
@@ -491,3 +490,46 @@ async def test_unban_sends_dm_with_rejoin_invite_link(
     assert len(rejoin) == 1
     assert rejoin[0].author_id == s["uid_owner"]
     assert "http" in rejoin[0].content
+
+
+@pytest.mark.asyncio
+async def test_ban_zieht_lese_token_des_streams_zurueck(client, app, _auth_signer):
+    """Ende-zu-Ende: nach dem Bann darf das WHEP-Lese-Token nicht mehr gelten.
+
+    Es ist an Kanal und Streamer gebunden, nicht an den Zuschauer, und wird
+    nicht verbraucht — ohne aktives Zuruecknehmen schaut der Gebannte bis zu
+    eine Stunde weiter (Bughunt 2026-08-13)."""
+    from dcc_shared.streaming import read_cache_key
+
+    s = await _setup(client, _auth_signer)
+    gid = s["g"]["id"]
+    kanal = (
+        await client.post(
+            f"/guilds/{gid}/channels",
+            json={"name": "buehne", "type": 1},
+            headers=auth(s["t_owner"]),
+        )
+    ).json()
+
+    redis = app.state.redis
+    cache = read_cache_key(str(s["uid_a"]), str(kanal["id"]), str(s["uid_owner"]), 0)
+    fremd = read_cache_key(str(s["uid_b"]), str(kanal["id"]), str(s["uid_owner"]), 0)
+    await redis.set(cache, "token-a")
+    await redis.set("stream:token:token-a", "{}")
+    await redis.set(fremd, "token-b")
+    await redis.set("stream:token:token-b", "{}")
+    try:
+        r = await client.put(
+            f"/guilds/{gid}/bans/{s['uid_a']}",
+            json={"reason": "spam"},
+            headers=auth(s["t_owner"]),
+        )
+        assert r.status_code in (200, 201, 204), r.text
+
+        assert await redis.get(cache) is None
+        assert await redis.get("stream:token:token-a") is None
+        # Der andere Zuschauer schaut unveraendert weiter.
+        assert await redis.get(fremd) is not None
+        assert await redis.get("stream:token:token-b") is not None
+    finally:
+        await redis.delete(cache, fremd, "stream:token:token-a", "stream:token:token-b")
