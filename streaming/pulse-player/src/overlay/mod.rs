@@ -90,9 +90,9 @@ pub struct Overlay {
     /// Lautstaerke vor dem Stummschalten, fuer den Weg zurueck.
     volume_before_mute: f32,
     present_rate: PresentRate,
-    /// Rate der EINGABE-Frames der Fernsteuerung — gleiche Mechanik wie
-    /// [`Self::update_present_rate`], nur fuer den Zaehler der Erfassung. Sie
-    /// beantwortet im Statistik-Feld die Frage „fliesst ueberhaupt etwas".
+    /// Rate der EINGABE-Frames der Fernsteuerung — gleiche Mechanik wie beim
+    /// Bild ([`Self::rate_nachziehen`]), nur fuer den Zaehler der Erfassung.
+    /// Sie beantwortet im Statistik-Feld die Frage „fliesst ueberhaupt etwas".
     input_rate: PresentRate,
     /// Wer hier streamt — steht links in der Leiste, wie in der App.
     title: String,
@@ -153,8 +153,8 @@ impl Overlay {
             painted: false,
             volume_percent: percent,
             volume_before_mute: if percent > 0.0 { percent } else { 100.0 },
-            present_rate: PresentRate { at: Instant::now(), frames: 0, per_second: None },
-            input_rate: PresentRate { at: Instant::now(), frames: 0, per_second: None },
+            present_rate: PresentRate::neu(),
+            input_rate: PresentRate::neu(),
             title: String::new(),
             stats_visible: true,
             can_reattach: true,
@@ -302,7 +302,7 @@ impl Overlay {
     ) -> Vec<OverlayAction> {
         let mut actions = Vec::new();
         let visible = self.visible();
-        self.update_present_rate(stats.frames_presented);
+        Self::rate_nachziehen(&mut self.present_rate, stats.frames_presented);
         Self::rate_nachziehen(&mut self.input_rate, stats.input_frames);
 
         // Eigene Handle-Kopie: `run_ui` leiht sonst `self.ctx`, waehrend der
@@ -431,14 +431,9 @@ impl Overlay {
         actions
     }
 
-    /// Rate der ausgegebenen Bilder aus dem live gefuehrten Zaehler. Mindestens
-    /// eine halbe Sekunde Abstand, damit die Anzeige nicht zappelt.
-    fn update_present_rate(&mut self, frames: u64) {
-        Self::rate_nachziehen(&mut self.present_rate, frames);
-    }
-
-    /// Eine Rate aus einem kumulierten Zaehler fortschreiben — fuer die
-    /// gezeichneten Bilder UND die Eingabe-Frames der Fernsteuerung.
+    /// Eine Rate aus einem live gefuehrten Zaehler fortschreiben — fuer die
+    /// ausgegebenen Bilder UND die Eingabe-Frames der Fernsteuerung.
+    /// Mindestens eine halbe Sekunde Abstand, damit die Anzeige nicht zappelt.
     fn rate_nachziehen(rate: &mut PresentRate, stand: u64) {
         let elapsed = rate.at.elapsed();
         if elapsed < Duration::from_millis(500) {

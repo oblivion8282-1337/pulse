@@ -31,6 +31,24 @@ fn kanal_tot(capture: &mut WgcHwCapture) -> anyhow::Error {
     )
 }
 
+/// Ein angekommenes Bild übernehmen: das vorige geht dabei in den Pool zurück,
+/// nur der neueste QPC-Zeitstempel bleibt (`0` heißt „nicht verfügbar" und
+/// überschreibt den letzten gültigen deshalb nicht).
+///
+/// An einer Stelle, weil beide Wege sie brauchen — das Wartefenster des
+/// Fern-Zweigs und der Drain danach.
+fn frame_uebernehmen(
+    frame: OwnedHwFrame,
+    qpc: i64,
+    last_frame: &mut Option<OwnedHwFrame>,
+    newest_qpc: &mut i64,
+) {
+    *last_frame = Some(frame);
+    if qpc != 0 {
+        *newest_qpc = qpc;
+    }
+}
+
 /// Ergebnis einer Wartephase — die Zähler und Messpunkte, die der
 /// Tick-Monitor in `mod.rs` weiterverbucht.
 pub(super) struct Abholung {
@@ -77,11 +95,8 @@ pub(super) fn warten_und_abholen(
     if *next_tick > now {
         if fern {
             match capture.items.recv_timeout(*next_tick - now) {
-                Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
-                    *last_frame = Some(f);
-                    if qpc != 0 {
-                        *newest_qpc = qpc;
-                    }
+                Ok(HwCaptureItem::Frame { frame, qpc }) => {
+                    frame_uebernehmen(frame, qpc, last_frame, newest_qpc);
                     captured = 1;
                 }
                 Ok(HwCaptureItem::Setup { .. }) => {
@@ -111,16 +126,13 @@ pub(super) fn warten_und_abholen(
         }
     }
 
-    // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep).
+    // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep) — derselbe
+    // Zeitpunkt trägt den Iterationsbeginn und den Anfang des Drains.
     let iter_start = Instant::now();
-    let t_capture = Instant::now();
     loop {
         match capture.items.try_recv() {
-            Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
-                *last_frame = Some(f);
-                if qpc != 0 {
-                    *newest_qpc = qpc;
-                }
+            Ok(HwCaptureItem::Frame { frame, qpc }) => {
+                frame_uebernehmen(frame, qpc, last_frame, newest_qpc);
                 captured += 1;
             }
             Ok(HwCaptureItem::Setup { .. }) => {
@@ -132,5 +144,5 @@ pub(super) fn warten_und_abholen(
             }
         }
     }
-    Ok(Abholung { captured, geplant, iter_start, capture_drain: t_capture.elapsed() })
+    Ok(Abholung { captured, geplant, iter_start, capture_drain: iter_start.elapsed() })
 }

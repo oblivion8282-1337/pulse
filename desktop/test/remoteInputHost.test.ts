@@ -127,9 +127,8 @@ test('beenden startet keinen Sidecar fuer einen Platz, dessen Prozess weg ist', 
   // frischen Prozess starten, nur um ihm `released: 0` zu entlocken
   // (Bughunt R2). Dieselbe Zurueckhaltung, die `frames` laengst uebt.
   const { rufe, ruf } = stubRuf();
-  const laufend = new Set([2]);
+  const laufend = new Set([0, 2]);
   const r = new RemoteEingabe(ruf, MAX_SLOTS, (slot) => laufend.has(slot));
-  laufend.add(0);
   await r.frames(0, 'sit-a', ['x']);
   await r.frames(2, 'sit-a', ['y']);
   laufend.delete(0); // Platz 0: Stream (und Prozess) sind inzwischen weg

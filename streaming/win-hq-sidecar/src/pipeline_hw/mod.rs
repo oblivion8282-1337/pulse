@@ -45,9 +45,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::audio::AudioCapture;
-use crate::encode::{
-    AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame,
-};
+use crate::encode::{AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame};
 use crate::events;
 use crate::stream_controller::{StartParams, StreamController, zielmasse};
 use crate::system::dxgi::Adapter;
@@ -330,18 +328,16 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // Warten (Tick-Raster beim Zusehen, Ankunft bei Fernsteuerung) und
         // die Capture-Queue leeren — samt Begründung in [`warten`].
         let fern = fern_sofort && crate::remote_input::fern_aktiv();
-        let abholung = warten::warten_und_abholen(
-            &mut capture,
-            fern,
-            frame_dur,
-            &mut next_tick,
-            &mut last_frame,
-            &mut newest_qpc,
-        )?;
-        let captured = abholung.captured;
-        let iter_start = abholung.iter_start;
-        let wake_jitter = iter_start.saturating_duration_since(abholung.geplant);
-        let capture_drain = abholung.capture_drain;
+        let warten::Abholung { captured, geplant, iter_start, capture_drain } =
+            warten::warten_und_abholen(
+                &mut capture,
+                fern,
+                frame_dur,
+                &mut next_tick,
+                &mut last_frame,
+                &mut newest_qpc,
+            )?;
+        let wake_jitter = iter_start.saturating_duration_since(geplant);
 
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
