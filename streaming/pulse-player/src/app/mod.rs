@@ -661,6 +661,7 @@ impl App {
             ten_bit_source: stats.ten_bit_source,
             audio_active: stats.media.audio_active,
             audio_underruns: stats.media.audio_underruns,
+            audio_geraetefehler: stats.media.audio_geraetefehler,
             recording: stats.media.recording,
         };
         let mut pass = overlay
@@ -890,13 +891,17 @@ impl App {
             eprintln!(
                 concat!(
                     "pulse-player: Sitzung {}: Ton — Unterlaeufe {}, verworfen {}, ",
-                    "Puffer {} Samples, Uhrenabgleich {:+} ppm"
+                    "Puffer {} Samples, Uhrenabgleich {:+} ppm{}"
                 ),
                 id,
                 media.audio_underruns,
                 media.audio_dropped,
                 media.audio_buffered,
                 media.audio_abgleich_ppm,
+                // Ein Geraetefehler heisst: es kommt nichts mehr heraus. Das
+                // gehoert in dieselbe Zeile und nicht in eine einmalige
+                // Meldung, die im Protokoll nach oben wegscrollt.
+                if media.audio_geraetefehler { " — AUSGABEGERAET GESTOERT" } else { "" },
             );
         }
         session.last_log = Some(now);

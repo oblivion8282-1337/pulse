@@ -299,6 +299,11 @@ class AuthStore {
     privacy.clear();
     serverAdmin.clear();
     serverUser.clear();
+    // Fernsteuerung: der Store ist ein Modul-Singleton und ueberlebt den
+    // Kontowechsel (die Anmeldung laeuft ohne Neuladen). Ohne das hier bekam
+    // der naechste Nutzer am selben Tab eine offene Anfrage des Vorgaengers
+    // vorgesetzt — Begruendung an `remoteSession.abmelden`.
+    void import('$lib/remote/session.svelte').then((m) => m.remoteSession.abmelden());
     settings.resetUserScoped();
     // Sidebar-Variante-B-Snapshot: pro-Server-Community-Liste wegwerfen.
     void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
