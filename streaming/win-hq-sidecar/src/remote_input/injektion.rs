@@ -17,6 +17,19 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{XBUTTON1, XBUTTON2};
 
+/// Die Unterschrift dieses Prozesses unter jedem selbst injizierten Ereignis.
+///
+/// **Wofür.** Die Wache (`super::wache`) hört systemweit mit, ob der Host
+/// selbst an Maus und Tastatur sitzt — und sieht dabei auch alles, was hier
+/// abgefeuert wird. Ohne Unterschrift hielte sie die Fremdeingabe für den Host,
+/// löste den Vorrang aus und sperrte den Steuernden mit seiner eigenen ersten
+/// Mausbewegung dauerhaft aus.
+///
+/// `dwExtraInfo` wandert unverändert bis in den Hook — dafür ist das Feld da.
+/// Der Wert ist beliebig und nur hier gebunden ("PULS" in ASCII); es geht nicht
+/// um Geheimhaltung, sondern darum, die eigene Spur wiederzuerkennen.
+pub const PULSE_MARKE: usize = 0x5055_4C53;
+
 /// Prozess auf Per-Monitor-DPI-Bewusstsein v2 setzen.
 ///
 /// **Pflicht vor der ersten Injektion** (Spezifikation, Abschnitt
@@ -78,7 +91,9 @@ pub fn maus(dx: i32, dy: i32, data: i32, flags: MOUSE_EVENT_FLAGS) {
                 mouseData: data as u32,
                 dwFlags: flags,
                 time: 0,
-                dwExtraInfo: 0,
+                // Die eigene Spur, damit die Wache sie nicht für den Host hält
+                // (s. [`PULSE_MARKE`]).
+                dwExtraInfo: PULSE_MARKE,
             },
         },
     };
@@ -108,7 +123,9 @@ pub fn taste(scan: u16, down: bool) {
                 wScan: (scan & 0xFF) as u16,
                 dwFlags: flags,
                 time: 0,
-                dwExtraInfo: 0,
+                // s. [`PULSE_MARKE`] — ohne die Marke übersteuerte sich die
+                // Fernsteuerung mit ihren eigenen Tastendrücken selbst.
+                dwExtraInfo: PULSE_MARKE,
             },
         },
     };

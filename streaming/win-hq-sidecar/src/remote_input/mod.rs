@@ -10,7 +10,8 @@
 //!
 //! Aufteilung: [`rahmen`] parst, [`ausfuehrung`] entscheidet was injiziert wird,
 //! [`zuordnung`] rechnet Koordinaten um, [`ziel`] löst den Slot in eine
-//! Aufnahmequelle auf, [`injektion`] ruft `SendInput`. Dieses Modul hält die
+//! Aufnahmequelle auf, [`injektion`] ruft `SendInput`, [`wache`] merkt, ob der
+//! Host selbst an seinem Gerät sitzt, und [`vorrang`] zieht die Folgen daraus. Dieses Modul hält die
 //! **Sitzung** zusammen — und damit die Zusagen, an denen die Fernsteuerung
 //! hängt:
 //!
@@ -35,6 +36,13 @@
 //!   Verwerf-Lage fällt (Stream läuft gerade an, Sichtschutz schwärzt genau
 //!   dann), die Sitzung eine Nachricht später mit „Eingabe vor dem
 //!   Hello-Handschlag".
+//! * **Der Host hat Vorrang.** Regt sich der Host selbst an Maus oder Tastatur,
+//!   wird die Fremdeingabe verworfen, bis er einige Sekunden Ruhe gegeben hat
+//!   ([`wache`], [`vorrang`]). Die Sitzung bleibt dabei stehen — es ist ein Stummschalten,
+//!   kein Abbruch; der Not-Aus daneben bleibt der harte Weg. Umgesetzt über
+//!   denselben Verwerf-Pfad wie Sichtschutz und unbekannter Slot, und damit
+//!   samt Freigabe: sonst liefe die W-Taste des Steuernden weiter, während der
+//!   Host übernimmt.
 //! * **Keine Panik nimmt die Freigabe mit.** Alle Zugriffe auf den Zustand gehen
 //!   über [`Sitzung::sperre`], das eine **vergiftete** Sperre übernimmt. Sonst
 //!   panikte ausgerechnet [`Sitzung::beenden_endgueltig`] und alles Gedrückte
@@ -45,6 +53,8 @@ pub mod base64;
 mod druck;
 pub mod injektion;
 pub mod rahmen;
+mod vorrang;
+mod wache;
 pub mod ziel;
 pub mod zuordnung;
 
@@ -64,7 +74,8 @@ use ziel::Zielsuche;
 /// Aufrufer und ist damit das, woran die Abnahme misst.
 pub struct Bericht {
     pub verarbeitet: usize,
-    /// `live` · `unknown_slot` · `unresolved_source` · `masked` · `ended`
+    /// `live` · `unknown_slot` · `unresolved_source` · `masked` · `host_active`
+    /// · `ended`
     pub zustand: &'static str,
 }
 
@@ -94,6 +105,10 @@ pub fn fern_aktiv() -> bool {
 fn fern_abschalten() {
     crate::capture::cursorsteuerung::zeigen();
     FERN_AKTIV.store(false, Ordering::Relaxed);
+    // Die Wache hört systemweit mit; sie hat nur zu stehen, solange wirklich
+    // jemand steuert. Wartet NICHT auf ihren Faden — dieser Weg läuft auch
+    // unter der Sitzungssperre und beim Prozessende (s. [`wache::stoppen`]).
+    wache::stoppen();
 }
 
 /// Die eine Fernsteuer-Sitzung dieses Prozesses.
@@ -126,6 +141,10 @@ pub(in crate::remote_input) struct Zustand {
     pub(in crate::remote_input) zeiger: Option<(i32, i32)>,
     /// Alles, was gerade physisch unten ist — fürs Loslassen.
     pub(in crate::remote_input) druck: Druck,
+    /// Hat der Host gerade Vorrang? Gespiegelt aus [`wache`], damit die
+    /// Übergänge (freigeben, Zeiger zurück, Meldung) genau **einmal** laufen
+    /// und nicht bei jeder Nachricht.
+    vorrang: bool,
 }
 
 impl Sitzung {
@@ -188,6 +207,15 @@ impl Sitzung {
                 "Eingabe-Sitzung nach Protokollfehler stillgelegt — mit `remote_input_end` \
                  beenden und neu beginnen"
             ));
+        }
+
+        // **Vorrang des Hosts** — vor der Slot-Auflösung, denn er gilt
+        // unabhängig davon, welcher Stream gemeint ist. Nachgeführt wird hier
+        // ein zweites Mal (der Wecker der Wache tut es alle 100 ms): eine
+        // Nachricht, die zwischen zwei Weckern eintrifft, soll nicht noch
+        // injiziert werden, nachdem der Host schon die Maus angefasst hat.
+        if vorrang::nachfuehren(&mut z) {
+            return nur_handschlag(&mut z, frames, "host_active");
         }
 
         let bindung = match ziel::bindung_fuer_slot(slot) {
@@ -310,6 +338,16 @@ fn handschlag(z: &mut Zustand, version: u8) -> Result<(), String> {
             "Eingabe-Protokoll Fassung {version}, erwartet {PROTOKOLL_VERSION}"
         ));
     }
+    // **Ohne Wache keine Fernsteuerung.** Der Host hat zugestimmt, weil ihm
+    // zugesagt ist, dass er jederzeit mit einer Handbewegung übernimmt. Lässt
+    // sich das auf diesem System nicht durchsetzen, ist die Zusage nicht
+    // einlösbar — dann verweigert der Start, statt still etwas Schwächeres
+    // unter demselben Etikett zu liefern (dieselbe Linie wie Intra-Refresh und
+    // HDR, s. `encode/auffrischung.rs`). Idempotent: das zweite Hello einer
+    // Sitzung findet die Wache stehend vor.
+    wache::starten().map_err(|e| {
+        format!("Vorrang des Hosts nicht durchsetzbar, Fernsteuerung verweigert: {e}")
+    })?;
     z.druck.loslassen();
     z.zeiger = None;
     z.begruesst = true;
@@ -324,7 +362,9 @@ fn handschlag(z: &mut Zustand, version: u8) -> Result<(), String> {
 ///
 /// * *Freigabe.* „Wird wegen unbekannten Slots, unauflösbarer Quelle oder
 ///   geschwärzten Sichtschutzes verworfen, gibt der Host trotzdem alles
-///   Gedrückte frei." Es genügt, dass der Host sein gestreamtes Fenster
+///   Gedrückte frei." Für den Vorrang des Hosts gilt dasselbe — dort gibt schon
+///   [`vorrang::nachfuehren`] beim Übergang frei, und hier bleibt es bei jeder
+///   weiteren Nachricht dabei. Es genügt, dass der Host sein gestreamtes Fenster
 ///   minimiert — die Quelle löst dann nicht mehr auf, und ohne Freigabe
 ///   verschluckt genau dieser Pfad das Hoch-Ereignis.
 /// * *Handschlag.* Der ist **Sitzungszustand**, keine Eingabe. Lag er in dieser
@@ -385,6 +425,9 @@ pub(crate) fn pruefstand() -> std::sync::MutexGuard<'static, ()> {
     let sperre = SPERRE.lock().unwrap_or_else(|e| e.into_inner());
     ziel::strom_beendet();
     Sitzung::singleton().beenden();
+    // Auch der Vorrang ist prozessweit: ohne dieses Zurücksetzen erbte der
+    // nächste Test die gestellte Regung des vorigen und verwürfe seine Eingabe.
+    wache::pruefhilfe::ruhe();
     let _ = injektion::pruefspur::nimm();
     sperre
 }

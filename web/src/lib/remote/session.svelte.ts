@@ -32,6 +32,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
 import { isWindows } from '$lib/platform/runtime';
 import { remoteP2P } from './p2p';
+import { remoteVorrang } from './vorrang';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -355,6 +356,15 @@ class RemoteSessionStore {
     remoteP2P.start(this.role, sessionId, (kind, data) =>
       this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
     );
+    // Vorrang des Hosts (`vorrang.ts`): der Host meldet, wenn er selbst an
+    // Maus und Tastatur greift, der Steuernde zeigt es an und zieht danach
+    // sein Gehaltenes nach. Läuft neben dem Eingabeweg und über denselben
+    // Signalweg wie dessen Verhandlung.
+    remoteVorrang.start(
+      this.role,
+      (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+      (frames) => void this.sendInput(sessionId, this.targetSlot, frames),
+    );
   }
 
   _ended(sessionId: string, reason: string): void {
@@ -404,8 +414,11 @@ class RemoteSessionStore {
     this.#verbindung.aus();
     this.#frist.aus();
     // Der direkte Kanal endet mit der Sitzung — #reset ist der EINZIGE Ausgang
-    // (s. den Kommentar unten), also auch seiner.
+    // (s. den Kommentar unten), also auch seiner. Der Vorrang-Melder ebenso:
+    // er hängt am Sidecar-Ereignisstrom und hätte sonst einen Zuhörer über die
+    // Sitzung hinaus.
     remoteP2P.stop();
+    remoteVorrang.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
     // Verbindungsverlust, Fehler. Ohne diesen Ruf liefe nach einem Abbruch die

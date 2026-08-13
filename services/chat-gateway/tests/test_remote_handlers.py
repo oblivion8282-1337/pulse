@@ -656,6 +656,48 @@ async def test_signal_payload_over_the_limit_is_rejected(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_vorrang_signal_reaches_the_controller(ws_app, _auth_signer):
+    """Der Vorrang des Hosts ist die einzige Auskunft, die vom HOST zum
+    Steuernden laeuft (er meldet, dass er selbst an Maus und Tastatur sitzt).
+    Sie reitet auf demselben Weiterleiter wie SDP/ICE — und muss deshalb in
+    dessen Pruefliste stehen, sonst holte sich der Host wortlos ein 4050 ab und
+    der Steuernde saehe eine Fernsteuerung, die grundlos nicht reagiert.
+
+    Eine erfundene Art bleibt dagegen abgewiesen: die Liste ist eine Liste."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                host_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "vorrang",
+                    "data": {"aktiv": True, "rest_ms": 5000},
+                })
+                sig = _drain_for(ctrl_ws, "remote_signal")
+                assert sig["kind"] == "vorrang"
+                assert sig["data"] == {"aktiv": True, "rest_ms": 5000}
+
+                host_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "erfunden",
+                    "data": {"x": 1},
+                })
+                assert [f.get("code") for f in _frames_until_pong(host_ws)] == [4050]
+                ping_barrier(ctrl_ws)  # nichts weitergereicht
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:

@@ -23,6 +23,7 @@
 //! | `unknown_slot` | kein Stream auf diesem Platz → still verworfen, Sitzung steht |
 //! | `unresolved_source` | Stream da, Quelle weg (Fenster zu) → verworfen |
 //! | `masked` | Sichtschutz schwärzt gerade → verworfen, Gedrücktes freigegeben |
+//! | `host_active` | der Host sitzt selbst an Maus/Tastatur → verworfen, bis er Ruhe gibt |
 //! | `ended` | Prozess fährt herunter, die Sitzung ist endgültig zu |
 //!
 //! **Jeder verworfene Zustand gibt alles Gedrückte frei** — die Spezifikation

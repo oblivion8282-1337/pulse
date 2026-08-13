@@ -273,6 +273,119 @@ fn beenden_ist_idempotent() {
     assert_eq!(s.beenden(), 0);
 }
 
+// ── Vorrang des Hosts ────────────────────────────────────────────────────────
+//
+// Im Testbau steht keine echte Wache (kein System-Hook, s. `wache::starten`);
+// die Regung des Hosts stellt `wache::pruefhilfe`. Geprüft wird also genau das
+// Stück, das dieser Datei gehört: was die SITZUNG aus einem Vorrang macht.
+
+/// Der Kern der Zusage: regt sich der Host, wird die Fremdeingabe verworfen —
+/// und alles Gedrückte geht dabei hoch. Ohne die Freigabe hielte der Host seine
+/// eigene Maus, während die W-Taste des Steuernden weiterläuft.
+#[test]
+fn vorrang_verwirft_die_eingabe_und_gibt_frei() {
+    let _sperre = pruefstand();
+    let s = Sitzung::singleton();
+    gedrueckt(s, &[0x11], &[0]); // W und linke Maustaste
+    wache::pruefhilfe::regung();
+
+    let b = s
+        .frames(0, Some("test-vorrang"), &[vec![0x05, 0x11, 0x00, 1]])
+        .expect("Vorrang ist kein Protokollfehler");
+    assert_eq!(b.zustand, "host_active");
+    assert_eq!(b.verarbeitet, 0);
+    assert_eq!(ist_noch_gedrueckt(s), 0, "nichts darf gedrückt bleiben");
+
+    let spur = pruefspur::nimm();
+    assert!(
+        spur.contains(&Ereignis::Taste { scan: 0x11, hoch: true }),
+        "W-Taste nicht losgelassen: {spur:?}"
+    );
+    assert!(
+        !spur.contains(&Ereignis::Taste { scan: 0x11, hoch: false }),
+        "und nichts Neues gedrückt: {spur:?}"
+    );
+    s.beenden();
+}
+
+/// Der Vorrang ist ein Stummschalten, **kein** Abbruch: die Sitzung steht
+/// weiter, und sobald der Host Ruhe gibt, läuft die Eingabe von selbst wieder.
+/// Ein Abbruch verlangte einen neuen Consent-Durchgang für jede Handbewegung.
+#[test]
+fn nach_dem_vorrang_laeuft_die_eingabe_weiter() {
+    let _sperre = pruefstand();
+    if labor_weg() {
+        return;
+    }
+    let s = Sitzung::singleton();
+    wache::pruefhilfe::regung();
+    assert_eq!(
+        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]]).unwrap().zustand,
+        "host_active"
+    );
+    wache::pruefhilfe::ruhe();
+    // Ohne Stream ist der Slot unbekannt — entscheidend ist, dass der Vorrang
+    // NICHT mehr greift und die Sitzung nie einen Fehler geliefert hat.
+    assert_eq!(
+        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]]).unwrap().zustand,
+        "unknown_slot"
+    );
+    s.beenden();
+}
+
+/// **Der Handschlag überlebt den Vorrang.** Fiele er weg, liefe die nächste
+/// Nachricht in „Eingabe vor dem Hello-Handschlag" — also in fail-closed —, und
+/// eine Handbewegung des Hosts beendete die ganze Sitzung. Dieselbe Regel wie
+/// bei Sichtschutz und unbekanntem Slot.
+#[test]
+fn hello_gilt_auch_unter_vorrang() {
+    let _sperre = pruefstand();
+    let s = Sitzung::singleton();
+    wache::pruefhilfe::regung();
+    s.frames(0, Some("test-vorrang-hello"), &[vec![0x00, 2]]).expect("kein Fehler");
+    assert!(s.sperre().begruesst, "das Hello muss trotz Vorrang gelten");
+    s.beenden();
+}
+
+/// **Die gemerkte Zeigerlage wird entwertet.** Während des Vorrangs führt der
+/// Host seinen Zeiger selbst; der erste Klick danach dürfte nicht auf der alten
+/// Lage feuern, sondern erst nach einer frischen Bewegung des Steuernden (die
+/// binnen eines Bildtakts kommt). Dieselbe Regel wie bei einer verworfenen
+/// Bewegung.
+#[test]
+fn vorrang_entwertet_die_zeigerlage() {
+    let _sperre = pruefstand();
+    let s = Sitzung::singleton();
+    {
+        let mut z = s.sperre();
+        z.begruesst = true;
+        z.zeiger = Some((600, 500));
+    }
+    wache::pruefhilfe::regung();
+    s.frames(0, Some("test-vorrang-lage"), &[vec![0x00, 2]]).expect("kein Fehler");
+    assert_eq!(s.sperre().zeiger, None, "die Lage darf nicht stehen bleiben");
+    s.beenden();
+}
+
+/// Der Übergang läuft **einmal**, nicht bei jeder Nachricht: die Freigabe ist
+/// an den Wechsel gebunden, nicht an den Zustand. Ohne das flösse bei 125
+/// Nachrichten je Sekunde ein Strom aus Meldungen und WinRT-Aufrufen.
+#[test]
+fn der_uebergang_laeuft_nur_einmal() {
+    let _sperre = pruefstand();
+    let s = Sitzung::singleton();
+    wache::pruefhilfe::regung();
+    assert!(vorrang::nachfuehren(&mut s.sperre()), "erster Ruf stellt den Vorrang");
+    gedrueckt(s, &[0x11], &[]);
+    let _ = pruefspur::nimm();
+    assert!(vorrang::nachfuehren(&mut s.sperre()), "zweiter Ruf: unverändert");
+    assert!(
+        pruefspur::nimm().is_empty(),
+        "ein unveränderter Zustand darf nichts erneut freigeben"
+    );
+    s.beenden();
+}
+
 #[test]
 fn vermerken_fuehrt_den_druckzustand() {
     let mut druck = Druck::default();

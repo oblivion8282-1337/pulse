@@ -19,10 +19,13 @@ import type { CommunityInviteNotification } from '$lib/api/communityInvites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
 
-/** Art einer `remote_signal`-Nutzlast (SDP-Angebot, SDP-Antwort, ICE-Kandidat).
+/** Art einer `remote_signal`-Nutzlast: SDP-Angebot, SDP-Antwort, ICE-Kandidat
+ *  (`$lib/remote/p2p.ts`) — und der Vorrang des Hosts (`$lib/remote/vorrang.ts`),
+ *  die einzige Auskunft, die vom Host zum Steuernden fließt.
  *  An EINER Stelle, weil derselbe Satz Werte in beiden Richtungen der Leitung
- *  und in jedem Sender-Baustein auftaucht (`$lib/remote/p2p.ts`). */
-export type RemoteSignalKind = 'offer' | 'answer' | 'ice';
+ *  und in jedem Sender-Baustein auftaucht. **Mit der Prüfliste des Gateways
+ *  synchron halten** (`ws_remote_handlers.py::handle_signal`). */
+export type RemoteSignalKind = 'offer' | 'answer' | 'ice' | 'vorrang';
 
 export type ChannelPayload = {
   id: string;

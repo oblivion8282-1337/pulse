@@ -78,6 +78,21 @@ _REQUEST_MIN_INTERVAL_S = 2.0
 _SIGNAL_MAX_MESSAGES_PER_S = 60
 _SIGNAL_MAX_DATA_BYTES = 8 * 1024
 
+# Welche Arten der Weiterleiter durchlaesst. Drei davon sind die Verhandlung des
+# direkten Eingabekanals (SDP/ICE); ``vorrang`` ist die einzige Auskunft, die in
+# die GEGENRICHTUNG laeuft — der Host meldet, dass er selbst an Maus und
+# Tastatur sitzt und die Fremdeingabe deshalb gerade verwirft
+# (``streaming/win-hq-sidecar/src/remote_input/wache.rs``). Sie reitet hier mit,
+# statt eine eigene Op zu bekommen: derselbe Empfaenger, dieselbe Bindung an die
+# per Consent bestaetigte Sitzung, derselbe Deckel — und zwei Nachrichten je
+# Uebernahme fallen daneben nicht ins Gewicht.
+#
+# Der Gateway deutet den Inhalt so wenig wie bei SDP/ICE; wer eine Art an die
+# falsche Seite schickt, findet dort keinen Abnehmer (``$lib/remote/vorrang.ts``
+# hoert nur als Steuernder zu). **Mit ``RemoteSignalKind`` synchron halten**
+# (``web/src/lib/ws/handlers/types.ts``).
+_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang")
+
 
 def _int_or_none(value: object) -> int | None:
     """Parse a stringified snowflake (channel_id / host_user_id) to int, or
@@ -322,7 +337,7 @@ async def handle_signal(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     session_id = _session_id(msg.get("session_id"))
     kind = msg.get("kind")
     data = msg.get("data")
-    if not session_id or kind not in ("offer", "answer", "ice") or data is None:
+    if not session_id or kind not in _SIGNAL_KINDS or data is None:
         await _err(websocket, 4050, "session_id, kind and data required")
         return
     mgr = _manager(websocket)
