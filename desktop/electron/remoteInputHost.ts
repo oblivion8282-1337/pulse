@@ -160,6 +160,12 @@ export class RemoteEingabe {
     this.#sitzung = null;
     let fehler: string | undefined;
     for (const platz of plaetze) {
+      // Nur Plaetze mit LAUFENDEM Sidecar (Bughunt R2): `#ruf` spawnt lazy,
+      // und ein Prozess ohne Sidecar hat auch nichts gedrueckt — endet der
+      // Stream vor der Sitzung (Windows-Respawn-Modell), startete das Beenden
+      // sonst einen frischen Sidecar, nur um ihm `released: 0` zu entlocken.
+      // Dieselbe Zurueckhaltung, die `frames` laengst uebt.
+      if (!this.#belegt(platz)) continue;
       // Jeder Platz wird versucht, auch wenn ein frueherer scheiterte: eine
       // haengende Taste auf Bildschirm 2 waere kein Grund, sie auf Bildschirm 1
       // ebenfalls haengen zu lassen.

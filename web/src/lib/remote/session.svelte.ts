@@ -29,7 +29,8 @@ import { activeGatewayConnection } from '$lib/ws/connection';
 import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
-import { eingabeFreigeben } from './sidecarInput';
+import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
+import { isWindows } from '$lib/platform/runtime';
 import { remoteP2P } from './p2p';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
@@ -222,7 +223,11 @@ class RemoteSessionStore {
     if (weg === 'ws_mit_hello') {
       // Hello plus letzte Zeigerlage — ein nacktes Hello löscht beim Host
       // die Lage, und ohne Lage feuert kein Knopf (s. `helloBuendel`).
-      this.#senden((c) => c.sendRemoteInput(sessionId, slot, remoteP2P.helloBuendel()));
+      // Erst ein ERFOLGREICHER Send vollzieht den Rückweg (`wsHelloGesendet`);
+      // scheitert er, verlangt die nächste Nachricht das Hello erneut.
+      if (this.#senden((c) => c.sendRemoteInput(sessionId, slot, remoteP2P.helloBuendel()))) {
+        remoteP2P.wsHelloGesendet();
+      }
     }
     return this.#senden((c) => c.sendRemoteInput(sessionId, slot, frames));
   }
@@ -293,6 +298,18 @@ class RemoteSessionStore {
   // ── Inbound (vom Handler-Modul `handlers/remote.ts`) ──────────────────────
   _incomingRequest(sessionId: string, channelId: string, fromUserId: string): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
+    // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
+    // (Browser, Android) oder außerhalb von Windows (der einzige Sidecar mit
+    // Injektion) wird OHNE Dialog abgelehnt (Bughunt R2): der reguläre Weg
+    // zeigt den Anfrage-Knopf nur an fernsteuerbaren Streams, aber der
+    // Gateway prüft die Fähigkeit bewusst nicht — eine selbstgebaute Anfrage
+    // brächte sonst den vollen Zustimmungs-Dialog auf einen Rechner, dessen
+    // zugestimmte Sitzung beim ersten Frame wortlos stürbe. Ein Dialog, dem
+    // man nur zustimmen kann, damit nichts passiert, ist der falsche Dialog.
+    if (!eingabeMoeglich() || !isWindows()) {
+      sendenAuf(herkunftsVerbindung(), (c) => c.sendRemoteRespond(sessionId, false));
+      return;
+    }
     this.error = null;
     // Die Verbindung, über die die Anfrage hereinkam, festhalten: die Antwort
     // gehört auf dieselbe (Begründung in `draht.ts`).

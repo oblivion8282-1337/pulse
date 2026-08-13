@@ -320,8 +320,15 @@ impl App {
                     _ => None,
                 };
                 if let Some(kopie) = kopie {
-                    // Fehler heisst: das Netz ist schon beendet — folgenlos.
-                    let _ = netz_cmd_fuer_befehle.send(kopie).await;
+                    // `try_send`, NIE blockierend (Bughunt R2): der Netz-Kanal
+                    // hat Tiefe 4, und das Auffangnetz pollt seine Befehle erst
+                    // nach dem WHEP-Aufbau (bis 15 s + 2 s ICE). Ein
+                    // blockierendes Send hier hielte den WEITERLEITER an — und
+                    // damit erreichte den HAUPTSTROM gar nichts mehr, auch kein
+                    // Stop. Ein verlorener Patch im Auffangnetz ist der billigere
+                    // Fehler; der naechste Statistik-Takt bzw. Options-Patch
+                    // zieht ihn nach.
+                    let _ = netz_cmd_fuer_befehle.try_send(kopie);
                 }
                 if haupt_cmd_tx.send(cmd).await.is_err() {
                     break;

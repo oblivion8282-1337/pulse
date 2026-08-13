@@ -121,6 +121,29 @@ test('beenden ohne vorherige Frames fasst keinen Sidecar an — sonst startete e
   assert.deepEqual(rufe, []);
 });
 
+test('beenden startet keinen Sidecar fuer einen Platz, dessen Prozess weg ist', async () => {
+  // Windows-Respawn-Modell: der Stream endet, der Sidecar-Prozess stirbt —
+  // beendet der Host DANACH die Fernsteuerung, darf das Beenden keinen
+  // frischen Prozess starten, nur um ihm `released: 0` zu entlocken
+  // (Bughunt R2). Dieselbe Zurueckhaltung, die `frames` laengst uebt.
+  const { rufe, ruf } = stubRuf();
+  const laufend = new Set([2]);
+  const r = new RemoteEingabe(ruf, MAX_SLOTS, (slot) => laufend.has(slot));
+  laufend.add(0);
+  await r.frames(0, 'sit-a', ['x']);
+  await r.frames(2, 'sit-a', ['y']);
+  laufend.delete(0); // Platz 0: Stream (und Prozess) sind inzwischen weg
+  rufe.length = 0;
+  const res = await r.beenden();
+  assert.equal(res.ok, true);
+  assert.deepEqual(
+    rufe.map((c) => ({ slot: c.slot, op: c.op })),
+    [{ slot: 2, op: 'remote_input_end' }],
+    'nur der noch laufende Platz wird angefasst',
+  );
+  assert.deepEqual(r.offen(), [], 'aufgeraeumt ist trotzdem alles');
+});
+
 test('beenden trifft JEDEN Platz, der Frames gesehen hat', async () => {
   const { rufe, ruf } = stubRuf();
   const r = new RemoteEingabe(ruf, MAX_SLOTS);

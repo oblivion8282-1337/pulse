@@ -112,15 +112,26 @@ fn setzen(verbergen: bool) {
                 if verbergen { "aus dem Stream genommen" } else { "wieder im Stream" }
             );
         }
-        // Scheitert der Aufruf (Session im Abbau, Property vom Treiber
-        // abgelehnt), wird der Platz GERÄUMT statt nur gemeldet: setzen()
-        // läuft je Eingabe-Nachricht — bis 125/s —, und ohne das Räumen
-        // wiederholte sich derselbe WinRT-Fehlschlag samt stderr-Zeile mit
-        // jeder Nachricht (der Zustandswechsel-Filter oben greift nur nach
+        // Scheitert das VERBERGEN, wird der Platz GERÄUMT statt nur gemeldet:
+        // setzen() läuft je Eingabe-Nachricht — bis 125/s —, und ohne das
+        // Räumen wiederholte sich derselbe WinRT-Fehlschlag samt stderr-Zeile
+        // mit jeder Nachricht (der Zustandswechsel-Filter oben greift nur nach
         // einem ERFOLG). Eine neue Aufnahme meldet ohnehin frisch an.
+        //
+        // Scheitert dagegen das ZEIGEN, während der Cursor verborgen ist,
+        // bleibt der Platz stehen (Bughunt R2): er ist die EINZIGE
+        // Möglichkeit, den Host-Cursor zurückzuholen — geräumt liefe jedes
+        // weitere zeigen() ins Leere, und alle Zuschauer verlören den Zeiger
+        // bis zum Stream-Ende. Eine Wiederholungsflut gibt es auf diesem Weg
+        // nicht: zeigen() läuft je Sitzungsende bzw. je relativem
+        // Bewegungswechsel, nicht je Nachricht (verbergen bleibt bei
+        // `verborgen == true` ein No-op, bis das Zeigen geglückt ist).
         Err(e) => {
-            eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e} — Cursor-Echo aus", !verbergen);
-            *platz = None;
+            eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e}", !verbergen);
+            if verbergen {
+                eprintln!("[cursor] Cursor-Echo aus");
+                *platz = None;
+            }
         }
     }
 }
