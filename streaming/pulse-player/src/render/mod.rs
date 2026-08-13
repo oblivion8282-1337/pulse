@@ -183,21 +183,23 @@ impl Renderer {
     /// per direktem `surface.configure`: `configure` legt eine neue Swapchain
     /// an, und die faengt wieder im SDR-Farbraum an (s. `hdr_fenster`).
     pub fn fernsteuerung(&mut self, aktiv: bool) {
-        if aktiv {
+        let ziel = if aktiv {
+            // Steht schon etwas im Merkfeld, laeuft die Senkung bereits — ein
+            // zweiter Ruf duerfte sonst den GESENKTEN Wert als „vorher"
+            // merken, und die Wiederherstellung landete nie beim Original.
             if self.frame_latency_vor_fern.is_some() {
                 return;
             }
             self.frame_latency_vor_fern = Some(self.config.desired_maximum_frame_latency);
-            let ziel = self.config.desired_maximum_frame_latency.min(1);
-            if self.config.desired_maximum_frame_latency != ziel {
-                self.config.desired_maximum_frame_latency = ziel;
-                self.konfigurieren();
-            }
-        } else if let Some(alt) = self.frame_latency_vor_fern.take() {
-            if self.config.desired_maximum_frame_latency != alt {
-                self.config.desired_maximum_frame_latency = alt;
-                self.konfigurieren();
-            }
+            self.config.desired_maximum_frame_latency.min(1)
+        } else {
+            // Nichts gemerkt heisst: nichts gesenkt, also nichts herzustellen.
+            let Some(alt) = self.frame_latency_vor_fern.take() else { return };
+            alt
+        };
+        if self.config.desired_maximum_frame_latency != ziel {
+            self.config.desired_maximum_frame_latency = ziel;
+            self.konfigurieren();
         }
     }
 

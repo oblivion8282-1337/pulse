@@ -45,7 +45,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use crate::audio::AudioCapture;
-use crate::capture::HwCaptureItem;
+use crate::capture::{HwCaptureItem, WgcHwCapture};
 use crate::encode::{
     AudioStreamConfig, EncodePath, HwEncoderConfig, OwnedHwFrame,
 };
@@ -56,6 +56,21 @@ use crate::tick_monitor::{TickMonitor, TickSample};
 
 mod capture_start;
 mod vorstufe;
+
+/// Der Capture-Kanal ist mitten im Stream tot — die Fehlermeldung dazu.
+///
+/// **An einer Stelle**, weil zwei Wege sie brauchen (das Warten auf die
+/// Ankunft im Fern-Weg und das Nachziehen der wartenden Bilder) und beide
+/// dieselbe Auskunft geben müssen: ohne den echten Worker-Fehler aus
+/// `join_error` bliebe nur „channel disconnected", und die eigentliche
+/// Ursache (WGC-Close ohne Frame, Pool-Fehler, …) ginge verloren.
+fn kanal_tot(capture: &mut WgcHwCapture) -> anyhow::Error {
+    let worker_err = capture.join_error();
+    anyhow!(
+        "hw capture channel disconnected mid-stream{}",
+        crate::capture::worker_err_suffix(worker_err, "clean exit, keine Fehlermeldung")
+    )
+}
 
 pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
@@ -337,37 +352,30 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         //     das der geschlossene Kreis aus Eingabe hin und Bild zurück.
         let planned = next_tick;
         let fern = fern_sofort && crate::remote_input::fern_aktiv();
-        // Das im Wartefenster angekommene Bild (nur Fern-Weg) — zählt zum
-        // Drain unten dazu.
-        let mut gewartetes: u32 = 0;
+        // Zählt bereits das im Wartefenster angekommene Bild mit (nur
+        // Fern-Weg); der Drain unten zählt weiter.
+        let mut captured: u32 = 0;
         let now = Instant::now();
-        if !fern {
-            if next_tick > now {
-                std::thread::sleep(next_tick - now);
-            }
-        } else if next_tick > now {
-            match capture.items.recv_timeout(next_tick - now) {
-                Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
-                    last_frame = Some(f);
-                    if qpc != 0 {
-                        newest_qpc = qpc;
+        if next_tick > now {
+            if fern {
+                match capture.items.recv_timeout(next_tick - now) {
+                    Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
+                        last_frame = Some(f);
+                        if qpc != 0 {
+                            newest_qpc = qpc;
+                        }
+                        captured = 1;
                     }
-                    gewartetes = 1;
+                    Ok(HwCaptureItem::Setup { .. }) => {
+                        return Err(anyhow!("unexpected Setup item after pipeline init"));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(kanal_tot(&mut capture));
+                    }
                 }
-                Ok(HwCaptureItem::Setup { .. }) => {
-                    return Err(anyhow!("unexpected Setup item after pipeline init"));
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    let worker_err = capture.join_error();
-                    return Err(anyhow!(
-                        "hw capture channel disconnected mid-stream{}",
-                        crate::capture::worker_err_suffix(
-                            worker_err,
-                            "clean exit, keine Fehlermeldung"
-                        )
-                    ));
-                }
+            } else {
+                std::thread::sleep(next_tick - now);
             }
         }
         let now = Instant::now();
@@ -397,7 +405,6 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // Ältere droppen → zurück in den Pool. Kommt nichts Neues, bleibt
         // `last_frame` erhalten = Duplizierung bei statischem Bild.
         let t_capture = Instant::now();
-        let mut captured: u32 = gewartetes;
         loop {
             match capture.items.try_recv() {
                 Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
@@ -412,14 +419,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    let worker_err = capture.join_error();
-                    return Err(anyhow!(
-                        "hw capture channel disconnected mid-stream{}",
-                        crate::capture::worker_err_suffix(
-                            worker_err,
-                            "clean exit, keine Fehlermeldung"
-                        )
-                    ));
+                    return Err(kanal_tot(&mut capture));
                 }
             }
         }

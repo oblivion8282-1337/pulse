@@ -110,6 +110,35 @@ fn fern_jitter_ziel(rtt_ms: u64, basis_ms: u64) -> u64 {
     (rtt_ms + FERN_JITTER_RTT_AUFSCHLAG_MS).clamp(FERN_JITTER_MIN_MS.min(basis_ms), basis_ms)
 }
 
+/// Die Puffergeduld, die der Nutzer eingestellt hat — die Basis, auf die jede
+/// Absenkung wieder zurueckfaellt.
+///
+/// Der Rueckfallwert muss mit `PlayerOptions::defaults` uebereinstimmen —
+/// sonst haengt die Puffergeduld davon ab, ob der Aufrufer das Feld gesetzt
+/// hat, und eine Messung trifft je nach Weg einen anderen Wert.
+fn basis_jitter_ms(options: &PlayerOptions) -> u64 {
+    u64::from(options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE))
+}
+
+/// Puffergeduld aller Stroeme setzen und die gemeldete Zahl mitziehen.
+///
+/// **An einer Stelle**, weil drei Wege genau das brauchen (Options-Patch, Ende
+/// einer Fernsteuerung, RTT-Kopplung im Statistik-Takt): liefe einer davon an
+/// `stats.jitter_target_ms` vorbei, zeigte die Anzeige eine Wartezeit, die die
+/// Puffer gar nicht mehr einhalten — und genau diese Zahl ist es, an der eine
+/// Messung spaeter abgelesen wird.
+fn jitter_setzen(
+    buffers: &mut HashMap<Codec, JitterBuffer>,
+    stats: &mut SessionStats,
+    ziel_ms: u64,
+) {
+    stats.jitter_target_ms = ziel_ms;
+    let ziel = Duration::from_millis(ziel_ms);
+    for b in buffers.values_mut() {
+        b.set_target(ziel);
+    }
+}
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -258,12 +287,7 @@ pub async fn run(
         }
     };
 
-    // Der Rueckfallwert muss mit `PlayerOptions::defaults` uebereinstimmen —
-    // sonst haengt die Puffergeduld davon ab, ob der Aufrufer das Feld gesetzt
-    // hat, und eine Messung trifft je nach Weg einen anderen Wert.
-    let target = Duration::from_millis(u64::from(
-        options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
-    ));
+    let target = Duration::from_millis(basis_jitter_ms(&options));
     // Video und Audio haben eigene Sequenznummernkreise und brauchen deshalb
     // je einen eigenen Puffer.
     let mut buffers: HashMap<Codec, JitterBuffer> = HashMap::new();
@@ -406,13 +430,7 @@ pub async fn run(
                         // erst beim naechsten Statistik-Fenster: die Sitzung
                         // laeuft als Zuschauer weiter und soll dort wieder
                         // die volle Nachlieferungs-Toleranz haben.
-                        let basis = Duration::from_millis(u64::from(
-                            options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
-                        ));
-                        stats.jitter_target_ms = basis.as_millis() as u64;
-                        for b in buffers.values_mut() {
-                            b.set_target(basis);
-                        }
+                        jitter_setzen(&mut buffers, &mut stats, basis_jitter_ms(&options));
                     }
                 }
                 Some(SessionCommand::Options(patch)) => {
@@ -428,11 +446,7 @@ pub async fn run(
                         decoder = None;
                     }
                     if let Some(ms) = options.jitter_ms {
-                        let t = Duration::from_millis(u64::from(ms));
-                        stats.jitter_target_ms = ms.into();
-                        for b in buffers.values_mut() {
-                            b.set_target(t);
-                        }
+                        jitter_setzen(&mut buffers, &mut stats, ms.into());
                     }
                 }
             },
@@ -801,16 +815,9 @@ pub async fn run(
             // auf jedem der >1000 Durchlaeufe je Sekunde waere Laerm.
             if fernsteuerung {
                 if let Some(rtt) = stats.rtt_ms {
-                    let basis = u64::from(
-                        options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
-                    );
-                    let ziel = fern_jitter_ziel(rtt, basis);
+                    let ziel = fern_jitter_ziel(rtt, basis_jitter_ms(&options));
                     if ziel != stats.jitter_target_ms {
-                        stats.jitter_target_ms = ziel;
-                        let t = Duration::from_millis(ziel);
-                        for b in buffers.values_mut() {
-                            b.set_target(t);
-                        }
+                        jitter_setzen(&mut buffers, &mut stats, ziel);
                     }
                 }
             }
