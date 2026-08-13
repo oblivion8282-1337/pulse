@@ -67,8 +67,21 @@ def _patch_auth_verify(monkeypatch, *, sign_count: int = 1):
     )
 
 
-async def _enrol(client, monkeypatch, bearer, *, cred_id: bytes = FAKE_CRED_ID, name="Laptop"):
-    """Run a full options→verify registration, return the verify response."""
+async def _enrol(
+    client,
+    monkeypatch,
+    bearer,
+    *,
+    cred_id: bytes = FAKE_CRED_ID,
+    name="Laptop",
+    password: str = REG["password"],
+):
+    """Run a full options→verify registration, return the verify response.
+
+    ``password`` ist seit 2026-08-13 Pflicht (ein untergeschobener Schluessel
+    waere eine dauerhafte Kontouebernahme) und hier ueberschreibbar, damit der
+    Gegentest ein falsches schicken kann.
+    """
     r = await client.post("/webauthn/register/options", headers=bearer)
     assert r.status_code == 200, r.text
     ticket = r.json()["challenge_ticket"]
@@ -86,6 +99,7 @@ async def _enrol(client, monkeypatch, bearer, *, cred_id: bytes = FAKE_CRED_ID, 
                 "response": {"transports": ["internal", "hybrid"]},
             },
             "name": name,
+            "password": password,
         },
     )
 
@@ -141,6 +155,7 @@ async def test_register_verify_rejects_wrong_purpose_ticket(client, monkeypatch)
             "challenge_ticket": login_ticket,
             "credential": {"id": cred_b64, "rawId": cred_b64, "response": {}},
             "name": "x",
+            "password": REG["password"],
         },
     )
     assert r.status_code == 401, r.text
@@ -173,7 +188,12 @@ async def test_list_rename_delete(client, monkeypatch):
     )
     assert r.status_code == 200 and r.json()["name"] == "New name"
 
-    r = await client.delete(f"/webauthn/credentials/{cred_id}", headers=bearer)
+    r = await client.request(
+        "DELETE",
+        f"/webauthn/credentials/{cred_id}",
+        headers=bearer,
+        json={"password": REG["password"]},
+    )
     assert r.status_code == 200, r.text
     assert (await client.get("/webauthn/credentials", headers=bearer)).json() == []
 
@@ -185,7 +205,12 @@ async def test_delete_foreign_credential_404(client, monkeypatch):
     other = _bearer(
         await _register(client, username="intruder", email="intruder@dcc-test.example.com")
     )
-    r = await client.delete(f"/webauthn/credentials/{cred_id}", headers=other)
+    r = await client.request(
+        "DELETE",
+        f"/webauthn/credentials/{cred_id}",
+        headers=other,
+        json={"password": REG["password"]},
+    )
     assert r.status_code == 404, r.text
 
 
@@ -285,3 +310,40 @@ async def test_login_webauthn_verify_rejects_unknown_credential(client):
         },
     )
     assert r.status_code == 401, r.text
+
+
+@pytest.mark.asyncio
+async def test_enrol_requires_the_password(client, monkeypatch):
+    """**Ein gestohlenes Zugangs-Token allein darf keinen Schluessel anlegen.**
+
+    Sonst haengt ein Angreifer seinen eigenen Sicherheitsschluessel an ein
+    fremdes Konto und meldet sich danach passwortlos an — auch nachdem das
+    Token abgelaufen ist UND nachdem der echte Inhaber sein Passwort geaendert
+    hat, denn das entfernt fremde Schluessel nicht. Das Abschalten von 2FA
+    verlangte das Passwort laengst; das Anlegen bis 2026-08-13 nicht.
+    """
+    bearer = _bearer(await _register(client))
+    r = await _enrol(client, monkeypatch, bearer, password="falsch-falsch-falsch")
+    assert r.status_code == 401, r.text
+    # Und nichts wurde angelegt.
+    liste = await client.get("/webauthn/credentials", headers=bearer)
+    assert liste.json() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_requires_the_password(client, monkeypatch):
+    """Das Loeschen des LETZTEN Schluessels nimmt dem Konto den zweiten Faktor
+    mit — es war damit der stillste Weg, ein fremdes Konto zu entschaerfen."""
+    bearer = _bearer(await _register(client))
+    assert (await _enrol(client, monkeypatch, bearer)).status_code == 201
+    cred_id = (await client.get("/webauthn/credentials", headers=bearer)).json()[0]["id"]
+
+    r = await client.request(
+        "DELETE",
+        f"/webauthn/credentials/{cred_id}",
+        headers=bearer,
+        json={"password": "falsch-falsch-falsch"},
+    )
+    assert r.status_code == 401, r.text
+    # Der Schluessel steht noch.
+    assert len((await client.get("/webauthn/credentials", headers=bearer)).json()) == 1

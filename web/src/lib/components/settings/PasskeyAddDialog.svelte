@@ -30,6 +30,7 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let name = $state('');
+  let password = $state('');
   let backupCodes = $state<string[]>([]);
   let saved = $state(false);
 
@@ -52,10 +53,18 @@
       error = m.passkey_add_dialog_name_required();
       return;
     }
+    // Seit 2026-08-13 verlangt der Server das Passwort: ein untergeschobener
+    // Schlüssel wäre eine dauerhafte Kontoübernahme, die auch ein
+    // Passwortwechsel nicht mehr aufhebt. Hier abfangen, damit die
+    // Browser-Zeremonie gar nicht erst startet.
+    if (!password) {
+      error = m.passkey_add_dialog_password_required();
+      return;
+    }
     busy = true;
     error = null;
     try {
-      const res = await registerPasskey(trimmed);
+      const res = await registerPasskey(trimmed, password);
       onAdded(res.credential);
       toast.success(m.passkey_add_dialog_added());
       if (res.backup_codes && res.backup_codes.length > 0) {
@@ -108,6 +117,22 @@
               maxlength={64}
               autocomplete="off"
               data-testid="passkey-name-input"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <Label
+              for="passkey-password"
+              class="text-text-muted text-xs font-semibold uppercase"
+            >
+              {m.passkey_add_dialog_password_label()}
+            </Label>
+            <Input
+              id="passkey-password"
+              type="password"
+              autocomplete="current-password"
+              bind:value={password}
+              required
+              data-testid="passkey-password-input"
             />
           </div>
           <Dialog.Footer>

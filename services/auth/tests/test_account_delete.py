@@ -138,7 +138,7 @@ async def _enable_2fa(client, bearer) -> str:
     """Mirror of the helper in test_recovery.py — returns the TOTP secret."""
     setup = (await client.post("/totp/setup", headers=bearer)).json()
     code = pyotp.TOTP(setup["secret"]).now()
-    r = await client.post("/totp/verify-setup", json={"code": code}, headers=bearer)
+    r = await client.post("/totp/verify-setup", json={"code": code, "password": REG["password"]}, headers=bearer)
     assert r.status_code == 200
     return setup["secret"]
 

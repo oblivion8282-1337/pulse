@@ -290,7 +290,7 @@ async def test_totp_verify_setup_enables_and_returns_backup_codes(
     code = pyotp.TOTP(setup["secret"]).now()
 
     r = await client.post(
-        "/totp/verify-setup", json={"code": code}, headers=bearer
+        "/totp/verify-setup", json={"code": code, "password": REG["password"]}, headers=bearer
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -318,7 +318,7 @@ async def test_totp_disable_requires_password_and_code(client):
 
     setup = (await client.post("/totp/setup", headers=bearer)).json()
     code = pyotp.TOTP(setup["secret"]).now()
-    await client.post("/totp/verify-setup", json={"code": code}, headers=bearer)
+    await client.post("/totp/verify-setup", json={"code": code, "password": REG["password"]}, headers=bearer)
 
     # Wrong password — rejected.
     r1 = await client.post(
@@ -357,7 +357,7 @@ async def test_totp_disable_requires_password_and_code(client):
 async def _enable_2fa(client, bearer) -> str:
     setup = (await client.post("/totp/setup", headers=bearer)).json()
     code = pyotp.TOTP(setup["secret"]).now()
-    r = await client.post("/totp/verify-setup", json={"code": code}, headers=bearer)
+    r = await client.post("/totp/verify-setup", json={"code": code, "password": REG["password"]}, headers=bearer)
     assert r.status_code == 200
     return setup["secret"]
 
@@ -728,3 +728,30 @@ async def test_email_verify_token_in_db(client, session_factory):
         assert len(rows) == 2  # one from register, one from /send
         # plaintext never leaked
         assert all(len(r.token_hash) == 64 for r in rows)  # sha256 hex
+
+
+@pytest.mark.asyncio
+async def test_totp_enable_requires_the_password(client):
+    """**Auch das EINschalten braucht das Passwort, nicht nur das Abschalten.**
+
+    Wer kurz an ein gueltiges Zugangs-Token kommt, koennte sonst ein eigenes
+    TOTP-Geraet scharfschalten — der echte Inhaber ist beim naechsten Login
+    ausgesperrt, und einen Admin-Weg zurueck gibt es nicht. Die Schranke gab es
+    beim Abschalten laengst (`totp_disable`), beim Einschalten bis 2026-08-13
+    nicht.
+    """
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+    setup = (await client.post("/totp/setup", headers=bearer)).json()
+    code = pyotp.TOTP(setup["secret"]).now()
+
+    r = await client.post(
+        "/totp/verify-setup",
+        json={"code": code, "password": "falsch-falsch-falsch"},
+        headers=bearer,
+    )
+    assert r.status_code == 401, r.text
+
+    # Und 2FA ist NICHT an — der richtige Code allein hat nichts bewirkt.
+    me = (await client.get("/me", headers=bearer)).json()
+    assert me.get("totp_enabled") is not True

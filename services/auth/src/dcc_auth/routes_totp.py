@@ -130,6 +130,12 @@ async def totp_verify_setup(
     await _check_rate(
         request, "totp_verify_setup", settings.rate_limit_totp_verify_setup
     )
+    # Passwort wie beim Abschalten (s. `totp_disable`): ein gestohlenes
+    # Zugangs-Token allein darf die Anmeldung dieses Kontos nicht umbauen. Ein
+    # untergeschobenes TOTP-Geraet sperrt den echten Inhaber beim naechsten
+    # Login aus, und einen Admin-Weg zurueck gibt es nicht.
+    if not await asyncio.to_thread(verify_password, payload.password, current.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     if current.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="totp already enabled")
