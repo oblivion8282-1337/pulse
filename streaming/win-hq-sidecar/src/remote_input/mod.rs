@@ -184,11 +184,24 @@ impl Sitzung {
         // die Bewegung davor.
         let rechteck = bindung.ziel.screen_rect();
 
+        // Cursor-Echo: welcher Zeiger führt, sagt der Frame-Opcode. Absolute
+        // Bewegungen heißen „der Steuernde sieht seinen eigenen Zeiger überm
+        // Bild" → der Host-Cursor im Stream wäre nur ein nachlaufendes
+        // Geisterbild und fliegt raus. Relative Bewegungen (Zeigerfang)
+        // heißen „der lokale Zeiger ist versteckt" → der Host-Cursor ist der
+        // einzige, den es gibt, und muss zurück ins Bild. Entschieden wird
+        // NACH der Schleife, damit der letzte Opcode einer Nachricht gewinnt.
+        let mut cursor_wunsch: Option<bool> = None;
         for roh in frames {
             let frame = match InputFrame::parse(roh) {
                 Ok(f) => f,
                 Err(e) => return Err(stilllegen(&mut z, format!("ungültiger Frame: {e}"))),
             };
+            match frame {
+                InputFrame::MouseMoveAbs { .. } => cursor_wunsch = Some(true),
+                InputFrame::MouseMoveRel { .. } => cursor_wunsch = Some(false),
+                _ => {}
+            }
             let ergebnis = match frame {
                 InputFrame::Hello { version } => handschlag(&mut z, version),
                 // Handschlag-Tor: der erste Frame MUSS ein gültiges Hello sein.
@@ -199,6 +212,11 @@ impl Sitzung {
                 return Err(stilllegen(&mut z, grund));
             }
         }
+        match cursor_wunsch {
+            Some(true) => crate::capture::cursorsteuerung::verbergen(),
+            Some(false) => crate::capture::cursorsteuerung::zeigen(),
+            None => {}
+        }
         Ok(Bericht { verarbeitet: frames.len(), zustand: "live" })
     }
 
@@ -207,6 +225,10 @@ impl Sitzung {
     /// auch nach fail-closed und ohne je begonnene Sitzung aufrufbar.
     /// Liefert die Anzahl der freigegebenen Tasten und Knöpfe.
     pub fn beenden(&self) -> usize {
+        // Cursor zurück in den Stream — das Sitzungsende ist die eine Stelle,
+        // die JEDER Ausstiegsweg passiert (regulär, Verbindungsverlust,
+        // fail-closed über `remote_input_end`).
+        crate::capture::cursorsteuerung::zeigen();
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand::default();
@@ -221,6 +243,7 @@ impl Sitzung {
     /// wartende Nachricht einspielen. Der Prozess stürbe dann mit einer
     /// physisch gedrückten Taste, und es gäbe niemanden mehr, der sie löst.
     pub fn beenden_endgueltig(&self) -> usize {
+        crate::capture::cursorsteuerung::zeigen();
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand { geschlossen: true, ..Zustand::default() };
@@ -305,6 +328,9 @@ fn stilllegen(z: &mut Zustand, grund: String) -> anyhow::Error {
     z.stillgelegt = true;
     z.druck.loslassen();
     z.zeiger = None;
+    // Fail-closed heißt: diese Sitzung steuert nichts mehr — der Stream läuft
+    // aber weiter, und seine Zuschauer bekommen den Cursor zurück.
+    crate::capture::cursorsteuerung::zeigen();
     eprintln!("[remote-input] fail-closed: {grund}");
     crate::events::emit(serde_json::json!({
         "ev": "remote_state",

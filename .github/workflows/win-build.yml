@@ -64,6 +64,13 @@ jobs:
         shell: pwsh
         run: ./streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1
 
+      # Wie der webrtc-rs-Zweig des Players unten: `[patch.crates-io]` zeigt
+      # auf `vendor/windows-capture/` (gitignored), ohne den Zweig bricht
+      # cargo schon beim Auflösen ab.
+      - name: windows-capture-Zweig herstellen (Sidecar)
+        shell: bash
+        run: ./streaming/win-hq-sidecar/scripts/bootstrap-windows-capture.sh
+
       # Baut pulse-win-hq-sidecar.exe + kopiert die FFmpeg-DLLs daneben
       # (build.rs). LLVM/libclang für bindgen liegt auf dem Runner unter
       # C:\Program Files\LLVM — der Pfad in .cargo/config.toml passt.

@@ -14,6 +14,7 @@
 //! wird *nicht* benutzt.
 
 mod aufnahmeziel;
+pub mod cursorsteuerung;
 pub mod rueckruf;
 pub mod source;
 pub mod wgc;

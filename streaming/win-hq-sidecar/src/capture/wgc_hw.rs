@@ -126,6 +126,9 @@ impl WgcHwCapture {
     }
 
     pub fn stop(&mut self) {
+        // Die Session stirbt mit der Aufnahme — den Cursor-Platz gleich mit
+        // räumen, damit kein Toggle mehr auf einer toten Session landet.
+        super::cursorsteuerung::abmelden();
         let _ = self.stop_tx.send(());
         if let Some(h) = self.worker.take() {
             // Zeitlimit statt hartem `join()` — s. `super::join_or_detach`.
@@ -187,6 +190,7 @@ struct HwFrameSink {
     /// erst ab dem ersten Bild fest (mit dem Pool zusammen).
     ziel: Option<Aufnahmeziel>,
     wacht: Arc<RueckrufWacht>,
+    include_cursor: bool,
 }
 
 /// Aufeinanderfolgende Größen-Mismatches, bevor der Pool als endgültig
@@ -206,6 +210,9 @@ struct HwHandlerFlags {
     /// (`Some(None)` = Aufnahmegröße). `None` = alter Weg mit Zwischenkopie.
     direkt_kasten: Option<Option<(u32, u32)>>,
     wacht: Arc<RueckrufWacht>,
+    /// `show_cursor` der `start`-Anfrage — der Ausgangszustand, den das
+    /// Cursor-Echo der Fernsteuerung wiederherstellt (`cursorsteuerung`).
+    include_cursor: bool,
 }
 
 impl GraphicsCaptureApiHandler for HwFrameSink {
@@ -228,7 +235,15 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             kasten: ctx.flags.direkt_kasten,
             ziel: None,
             wacht: ctx.flags.wacht,
+            include_cursor: ctx.flags.include_cursor,
         })
+    }
+
+    /// Pulse-Patch der windows-capture-Crate (s. `patches/0001-...`): die
+    /// Session einmal entgegennehmen, damit die Fernsteuerung den Cursor zur
+    /// Laufzeit aus dem Stream nehmen kann.
+    fn on_session_ready(&mut self, session: &windows::Graphics::Capture::GraphicsCaptureSession) {
+        super::cursorsteuerung::anmelden(session.clone(), self.include_cursor);
     }
 
     /// **Die Verweildauer wird hier gemessen, nicht drinnen**, damit sie jeden
@@ -433,6 +448,7 @@ fn run_capture(
         hdr: cfg.hdr,
         direkt_kasten: cfg.hdr_direkt.then_some(cfg.ziel_kasten),
         wacht,
+        include_cursor: cfg.include_cursor,
     };
     // Farbformat und Pool-Format kommen aus derselben Quelle — s. `bildformat`.
     let farbformat = super::bildformat(cfg.hdr).0;
