@@ -1,5 +1,28 @@
 # Zwei unbegrenzte Wartepunkte im Windows-Bildweg (2026-08-13)
 
+> **Erledigt am 2026-08-13 auf der Windows-Maschine.** Beide Wartepunkte haben
+> eine Zeitgrenze (Vorgabe 250 ms, `PULSE_PLAYER_BRUECKE_WARTE_MS`), der Fall
+> wird gezählt und gemeldet, und nach drei Zeitüberschreitungen in Folge gibt
+> die Brücke auf, sodass der vorhandene Rückfall auf den Hauptspeicher greift.
+> Die Falle unten hat sich als real bestätigt: ein Test hält jetzt fest, dass
+> der sichere Aufsatz der windows-Kiste die Zeitüberschreitung als Erfolg
+> meldet — deshalb der rohe Aufruf in `anmelden`.
+>
+> **Was weiterhin offen ist**, in der Reihenfolge der Wichtigkeit:
+>
+> 1. **Ob 250 ms passen** — der Wert ist immer noch geraten (s. „Was nicht
+>    geprüft ist"). Die Umgebungsvariable ist genau dafür da: am laufenden
+>    Bildweg messen, ohne neu zu übersetzen.
+> 2. **Ob der Rückfall mitten in einer Sitzung wirklich trägt.** Das ist der
+>    eigentliche Prüfpunkt und braucht einen echten Lauf mit zwei Clients.
+> 3. Zwei Dinge, die beim Schreiben dazukamen und in der Vorlage fehlten: das
+>    Ereignis des Zauns muss vor jeder Anmeldung zurückgesetzt und das Ende an
+>    seinem Zählwert entschieden werden (eine abgebrochene Wartezeit lässt eine
+>    Anmeldung stehen, die später fälschlich weckt), und ein zweites
+>    D3D11-Gerät ist nötig, um die Zeitüberschreitung überhaupt zu erzeugen —
+>    auf demselben Gerät antwortet DXGI sofort mit `DXGI_ERROR_INVALID_CALL`.
+>    Beides steht ausgeschrieben im Code.
+
 **Für die Windows-Maschine.** Der Befund stammt aus einem Bughunt über Player
 und Fernsteuerung, ist am Code bestätigt — und lässt sich auf dem Linux-Rechner
 **nicht umsetzen**: der Code steht hinter `cfg(windows)`, dort gibt es kein

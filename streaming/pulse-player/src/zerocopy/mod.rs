@@ -127,6 +127,10 @@ mod bruecke;
 mod ffmpeg_geraet;
 #[cfg(windows)]
 mod platz;
+/// Die beiden Wartepunkte der Windows-Bruecke samt ihren Zeitgrenzen — eigene
+/// Datei, weil `bruecke.rs` sonst ueber die Groessengrenze waechst.
+#[cfg(windows)]
+mod warten;
 #[cfg(windows)]
 pub use bruecke::Bruecke;
 #[cfg(windows)]
