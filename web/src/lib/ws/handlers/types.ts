@@ -19,6 +19,11 @@ import type { CommunityInviteNotification } from '$lib/api/communityInvites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
 
+/** Art einer `remote_signal`-Nutzlast (SDP-Angebot, SDP-Antwort, ICE-Kandidat).
+ *  An EINER Stelle, weil derselbe Satz Werte in beiden Richtungen der Leitung
+ *  und in jedem Sender-Baustein auftaucht (`$lib/remote/p2p.ts`). */
+export type RemoteSignalKind = 'offer' | 'answer' | 'ice';
+
 export type ChannelPayload = {
   id: string;
   guild_id: string;
@@ -358,7 +363,7 @@ export type ServerEvent =
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
   // SDP/ICE des P2P-Eingabewegs, peer-gebunden weitergereicht — das Gegenüber
   // der aktiven Sitzung verhandelt darüber den DataChannel (`$lib/remote/p2p.ts`).
-  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: unknown }
+  | { op: 'remote_signal'; session_id: string; kind: RemoteSignalKind; data: unknown }
   // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
   // offenen Consent-Dialog.
   | { op: 'remote_canceled'; session_id: string }
@@ -418,7 +423,7 @@ export type ClientEvent =
   // Eingabe-Frames zum Host. Nur der Steuernde sendet; der Gateway prüft
   // Sitzung, Rolle und Größe und schaut nicht in die Frames hinein.
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
-  | { op: 'remote_signal'; session_id: string; kind: 'offer' | 'answer' | 'ice'; data: unknown }
+  | { op: 'remote_signal'; session_id: string; kind: RemoteSignalKind; data: unknown }
   | { op: 'remote_end'; session_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
