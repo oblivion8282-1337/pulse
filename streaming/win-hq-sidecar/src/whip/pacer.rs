@@ -96,6 +96,18 @@ fn zuschnitt(n_pakete: usize, fenster: Duration) -> (usize, usize, Duration) {
     (gruppen, je_gruppe, abstand)
 }
 
+/// Einen Block Pakete herausschreiben. `false` heisst „die Spur ist zu" — dann
+/// hat der Verteil-Task nichts mehr zu tun und endet. Beide Wege (Schwall und
+/// Gruppen) gehen hier durch, damit das Ende der Spur an EINER Stelle steht.
+async fn schreibe(track: &TrackLocalStaticRTP, block: &[Packet]) -> bool {
+    for p in block {
+        if track.write_rtp(p).await.is_err() {
+            return false;
+        }
+    }
+    true
+}
+
 pub struct Pacer {
     tx: mpsc::UnboundedSender<Vec<Packet>>,
 }
@@ -125,10 +137,8 @@ impl Pacer {
                 let n = pakete.len();
                 let begonnen = Instant::now();
                 if eilig || n < MIN_PAKETE {
-                    for p in &pakete {
-                        if track.write_rtp(p).await.is_err() {
-                            return; // Spur ist zu, der Task hat nichts mehr zu tun
-                        }
+                    if !schreibe(&track, &pakete).await {
+                        return;
                     }
                 } else {
                     let (_, je_gruppe, abstand) = zuschnitt(n, fenster);
@@ -146,10 +156,8 @@ impl Pacer {
                             let termin = begonnen + abstand * i as u32;
                             tokio::time::sleep_until(termin.into()).await;
                         }
-                        for p in block {
-                            if track.write_rtp(p).await.is_err() {
-                                return;
-                            }
+                        if !schreibe(&track, block).await {
+                            return;
                         }
                     }
                     soll_us += (abstand.as_micros() as u64) * (bloecke as u64 - 1);

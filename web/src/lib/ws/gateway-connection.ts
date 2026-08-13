@@ -33,7 +33,7 @@ import { gapFillAll, gapFillChannel } from './gapFill';
 import { backgroundEligible, remoteSessionEligible } from './dispatch-rules';
 import * as senders from './gateway-senders';
 import { compareVersions } from '$lib/utils/semver';
-import type { ServerEvent, ClientEvent } from './handlers/types';
+import type { ServerEvent, ClientEvent, RemoteSignalKind } from './handlers/types';
 
 const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
   'channel_created', 'channel_updated', 'channel_deleted', 'channel_bump', 'dm_bump',
@@ -698,7 +698,7 @@ export class GatewayConnection {
   sendRemoteInput = (sessionId: string, slot: number, frames: string[]): boolean =>
     senders.sendRemoteInput(this._raw, sessionId, slot, frames);
   sendRemoteSignal = (
-    sessionId: string, kind: 'offer' | 'answer' | 'ice', data: unknown,
+    sessionId: string, kind: RemoteSignalKind, data: unknown,
   ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);

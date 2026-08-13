@@ -34,8 +34,9 @@
  * auf `feat/remote-control-windows`, s. Plan).
  */
 
-export type SignalKind = 'offer' | 'answer' | 'ice';
-type SignalSender = (kind: SignalKind, data: unknown) => boolean;
+import type { RemoteSignalKind } from '$lib/ws/handlers/types';
+
+type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
 type FrameSink = (evt: { session_id: string; slot: number; frames: string[] }) => void;
 
 /** Wie der Sender einer Nachricht verfahren soll (`RemoteSessionStore.sendInput`). */
@@ -74,8 +75,6 @@ class RemoteP2P {
   #eisPuffer: RTCIceCandidateInit[] = [];
   /** Läuft der Versand gerade über den Kanal? Erst nach dem Ruhe-Wechsel. */
   #ueberKanal = false;
-  /** Nach einem Kanal-Ausfall: die nächste WS-Nachricht braucht ein Hello. */
-  #wsHelloFaellig = false;
   /** Was laut den GESENDETEN Frames gerade unten ist ('k<scan>' / 'b<btn>').
    *  Grundlage der Ruhe-Bedingung für den Transportwechsel. */
   readonly #unten = new Set<string>();
@@ -109,7 +108,6 @@ class RemoteP2P {
     this.#sendSignal = null;
     this.#eisPuffer.length = 0;
     this.#ueberKanal = false;
-    this.#wsHelloFaellig = false;
     this.#unten.clear();
   }
 
@@ -129,14 +127,11 @@ class RemoteP2P {
       this.#dc?.readyState === 'open' && this.#sessionId === sessionId;
     if (!kanalOffen) {
       if (this.#ueberKanal) {
-        // Der Kanal ist unter uns weggebrochen: zurück auf den Serverweg,
-        // einmal mit frischem Hello (unbekannt, was noch ankam).
+        // Der Kanal ist unter uns weggebrochen: zurück auf den Serverweg, und
+        // zwar mit frischem Hello (unbekannt, was noch ankam). Genau EINMAL —
+        // ab dem nächsten Ruf ist `#ueberKanal` falsch und es bleibt bei 'ws'.
         this.#ueberKanal = false;
-        this.#wsHelloFaellig = true;
         console.info('[remote-p2p] Kanal weg — zurück auf den Serverweg');
-      }
-      if (this.#wsHelloFaellig) {
-        this.#wsHelloFaellig = false;
         return 'ws_mit_hello';
       }
       return 'ws';
@@ -155,7 +150,7 @@ class RemoteP2P {
 
   /** Hereinkommendes `remote_signal` der eigenen Sitzung (Zuordnung prüft der
    *  Handler). */
-  signal(kind: SignalKind, data: unknown): void {
+  signal(kind: RemoteSignalKind, data: unknown): void {
     if (kind === 'offer' && this.#role === 'host') void this.#antworten(data);
     else if (kind === 'answer' && this.#role === 'controller') void this.#annehmen(data);
     else if (kind === 'ice') void this.#kandidat(data);

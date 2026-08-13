@@ -30,7 +30,7 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben } from './sidecarInput';
-import { remoteP2P, HELLO_FRAME_B64, type SignalKind } from './p2p';
+import { remoteP2P, HELLO_FRAME_B64 } from './p2p';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -223,12 +223,6 @@ class RemoteSessionStore {
       this.#senden((c) => c.sendRemoteInput(sessionId, slot, [HELLO_FRAME_B64]));
     }
     return this.#senden((c) => c.sendRemoteInput(sessionId, slot, frames));
-  }
-
-  /** Hereinkommendes SDP/ICE der eigenen Sitzung (Handler prüft die Kennung
-   *  bereits; hier nur noch weitergeben). */
-  _signal(kind: SignalKind, data: unknown): void {
-    remoteP2P.signal(kind, data);
   }
 
   // ── Host-Seite ────────────────────────────────────────────────────────────

@@ -68,10 +68,12 @@ export function register(): void {
   registerWsHandler('remote_input', (evt) => eingabe(evt));
   // SDP/ICE des direkten Eingabekanals — nur für die eigene, laufende Sitzung
   // (dieselbe Zuordnungsregel wie bei `eingabe`: die Kennung ist alles).
+  // Direkt an `p2p`, wie der Frame-Weg unten: der Store hält die Sitzung, aber
+  // die Verhandlung geht ihn nichts an.
   registerWsHandler('remote_signal', (evt) => {
     if (remoteSession.phase !== 'active') return;
     if (!evt.session_id || evt.session_id !== remoteSession.sessionId) return;
-    remoteSession._signal(evt.kind, evt.data);
+    remoteP2P.signal(evt.kind, evt.data);
   });
   // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN
   // Wächter wie der Serverweg — die Autorisierung hängt an der Sitzung, nicht

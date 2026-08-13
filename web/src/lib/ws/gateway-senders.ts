@@ -4,7 +4,7 @@
  * Builder → der gegebene `sendRaw` queuet sie.
  */
 
-import type { ClientEvent } from './handlers/types';
+import type { ClientEvent, RemoteSignalKind } from './handlers/types';
 
 export type SendRaw = (evt: ClientEvent) => boolean;
 
@@ -126,7 +126,7 @@ export function sendRemoteInput(
  * (`ws_remote_handlers.py::handle_signal`, 8 KiB, 60/s).
  */
 export function sendRemoteSignal(
-  send: SendRaw, sessionId: string, kind: 'offer' | 'answer' | 'ice', data: unknown,
+  send: SendRaw, sessionId: string, kind: RemoteSignalKind, data: unknown,
 ): boolean {
   return send({ op: 'remote_signal', session_id: sessionId, kind, data });
 }

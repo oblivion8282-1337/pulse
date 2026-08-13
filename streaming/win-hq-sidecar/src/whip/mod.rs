@@ -210,6 +210,42 @@ pub struct WhipSender {
     bild_sample_dauer: Duration,
 }
 
+/// Eine REMB-Schaetzung der Gegenseite einordnen: melden, was die Wacht sagt,
+/// und im eigenen Takt eine Zeile fuers Messprotokoll.
+///
+/// Getrennt vom RTCP-Leser, damit dessen Schleife von Lesefehlern handelt und
+/// nicht von Bandbreite. Die beiden Meldungen unterscheiden sich NUR im
+/// Ereignisnamen und im Wortlaut der Log-Zeile — das Ereignis selbst wird
+/// deshalb an einer Stelle abgesetzt.
+fn remb_auswerten(wacht: &mut bandbreite::BandbreitenWacht, bps: f32, ziel_kbps: u32) {
+    let jetzt = std::time::Instant::now();
+    if let Some(meldung) = wacht.messung(bps, jetzt) {
+        let (ev, schaetzung_kbps) = match meldung {
+            bandbreite::Meldung::Eng { schaetzung_kbps } => {
+                eprintln!(
+                    "[whip] Leitung eng: Gegenseite schätzt {schaetzung_kbps} kbps, \
+                     Ziel {ziel_kbps} kbps"
+                );
+                ("bandwidth_low", schaetzung_kbps)
+            }
+            bandbreite::Meldung::Erholt { schaetzung_kbps } => {
+                eprintln!(
+                    "[whip] Leitung wieder tragfähig: {schaetzung_kbps} kbps (Ziel {ziel_kbps})"
+                );
+                ("bandwidth_ok", schaetzung_kbps)
+            }
+        };
+        crate::events::emit(serde_json::json!({
+            "ev": ev,
+            "estimate_kbps": schaetzung_kbps,
+            "target_kbps": ziel_kbps,
+        }));
+    }
+    if wacht.log_faellig(jetzt) {
+        eprintln!("[whip] REMB: Gegenseite schätzt {:.0} kbps", bps / 1000.0);
+    }
+}
+
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
@@ -350,38 +386,7 @@ impl WhipSender {
                 for p in &pakete {
                     let any = p.as_any();
                     if let Some(remb) = any.downcast_ref::<ReceiverEstimatedMaximumBitrate>() {
-                        let jetzt = std::time::Instant::now();
-                        match bandbreite.messung(remb.bitrate, jetzt) {
-                            Some(bandbreite::Meldung::Eng { schaetzung_kbps }) => {
-                                eprintln!(
-                                    "[whip] Leitung eng: Gegenseite schätzt {schaetzung_kbps} kbps, \
-                                     Ziel {bitrate_kbps} kbps"
-                                );
-                                crate::events::emit(serde_json::json!({
-                                    "ev": "bandwidth_low",
-                                    "estimate_kbps": schaetzung_kbps,
-                                    "target_kbps": bitrate_kbps,
-                                }));
-                            }
-                            Some(bandbreite::Meldung::Erholt { schaetzung_kbps }) => {
-                                eprintln!(
-                                    "[whip] Leitung wieder tragfähig: {schaetzung_kbps} kbps \
-                                     (Ziel {bitrate_kbps})"
-                                );
-                                crate::events::emit(serde_json::json!({
-                                    "ev": "bandwidth_ok",
-                                    "estimate_kbps": schaetzung_kbps,
-                                    "target_kbps": bitrate_kbps,
-                                }));
-                            }
-                            None => {}
-                        }
-                        if bandbreite.log_faellig(jetzt) {
-                            eprintln!(
-                                "[whip] REMB: Gegenseite schätzt {:.0} kbps",
-                                remb.bitrate / 1000.0
-                            );
-                        }
+                        remb_auswerten(&mut bandbreite, remb.bitrate, bitrate_kbps);
                         continue;
                     }
                     if any.downcast_ref::<PictureLossIndication>().is_some()
