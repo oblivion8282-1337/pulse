@@ -83,6 +83,19 @@ pub fn fern_aktiv() -> bool {
     FERN_AKTIV.load(Ordering::Relaxed)
 }
 
+/// Was ein Sitzungsende nach AUSSEN bedeutet: Host-Cursor zurück in den
+/// Stream, Pacing-Loop zurück auf sein glättendes Tick-Raster.
+///
+/// **An einer Stelle, weil beides zusammengehört.** Es gibt drei Ausstiegswege
+/// ([`Sitzung::beenden`], [`Sitzung::beenden_endgueltig`] und fail-closed in
+/// [`stilllegen`]); einer, der nur die Hälfte täte, ließe entweder den Zeiger
+/// für alle Zuschauer aus dem Bild verschwunden oder den Stream dauerhaft im
+/// ungeglätteten Fern-Takt.
+fn fern_abschalten() {
+    crate::capture::cursorsteuerung::zeigen();
+    FERN_AKTIV.store(false, Ordering::Relaxed);
+}
+
 /// Die eine Fernsteuer-Sitzung dieses Prozesses.
 ///
 /// Eine reicht: der Consent bestätigt genau ein Gegenüber, und der Sidecar fährt
@@ -244,8 +257,7 @@ impl Sitzung {
         // Cursor zurück in den Stream — das Sitzungsende ist die eine Stelle,
         // die JEDER Ausstiegsweg passiert (regulär, Verbindungsverlust,
         // fail-closed über `remote_input_end`).
-        crate::capture::cursorsteuerung::zeigen();
-        FERN_AKTIV.store(false, Ordering::Relaxed);
+        fern_abschalten();
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand::default();
@@ -260,8 +272,7 @@ impl Sitzung {
     /// wartende Nachricht einspielen. Der Prozess stürbe dann mit einer
     /// physisch gedrückten Taste, und es gäbe niemanden mehr, der sie löst.
     pub fn beenden_endgueltig(&self) -> usize {
-        crate::capture::cursorsteuerung::zeigen();
-        FERN_AKTIV.store(false, Ordering::Relaxed);
+        fern_abschalten();
         let mut z = self.sperre();
         let n = z.druck.loslassen();
         *z = Zustand { geschlossen: true, ..Zustand::default() };
@@ -350,8 +361,7 @@ fn stilllegen(z: &mut Zustand, grund: String) -> anyhow::Error {
     // Fail-closed heißt: diese Sitzung steuert nichts mehr — der Stream läuft
     // aber weiter, seine Zuschauer bekommen den Cursor zurück und der
     // Pacing-Loop sein glättendes Tick-Raster.
-    crate::capture::cursorsteuerung::zeigen();
-    FERN_AKTIV.store(false, Ordering::Relaxed);
+    fern_abschalten();
     eprintln!("[remote-input] fail-closed: {grund}");
     crate::events::emit(serde_json::json!({
         "ev": "remote_state",
