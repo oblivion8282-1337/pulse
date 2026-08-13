@@ -13,8 +13,12 @@
 
 import type { PulseRemoteInputNachricht } from '$lib/platform/pulse.d';
 
+function player() {
+  return typeof window !== 'undefined' ? window.pulse?.player : undefined;
+}
+
 function input() {
-  return typeof window !== 'undefined' ? window.pulse?.player?.input : undefined;
+  return player()?.input;
 }
 
 /** Steht die Eingabe-Erfassung zur Verfuegung (Electron + Player-Binary +
@@ -53,7 +57,7 @@ export async function erfassungAn(
  */
 export async function transportMelden(fensterSitzung: number, transport: string): Promise<void> {
   try {
-    await (window.pulse?.player?.transportStatus?.(fensterSitzung, transport) ?? Promise.resolve());
+    await player()?.transportStatus?.(fensterSitzung, transport);
   } catch (e) {
     console.warn('[remote] Transport-Anzeige warf:', e);
   }

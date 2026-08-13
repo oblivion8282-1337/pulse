@@ -13,13 +13,18 @@
 use super::{MAX_VOLUME_PERCENT, Overlay, OverlayAction, StatsView};
 use crate::theme;
 
+/// Eine Messzahl oder „—", solange noch keine vorliegt. An einer Stelle, damit
+/// alle Zeilen des Feldes dieselbe Schreibweise fuer „noch nichts" tragen.
+fn zahl(wert: Option<u64>) -> String {
+    wert.map_or_else(|| "—".into(), |v| v.to_string())
+}
+
 impl Overlay {
     /// Statistik oben links.
     /// `oben` ist der Abstand zur Fensteroberkante. Er ist ein Parameter, weil
     /// im Fernsteuerungs-Modus der Griff der Fernbedienung genau hier sitzt —
     /// das Feld weicht ihm dann nach unten aus (`super::paint`).
     pub(super) fn build_stats(&self, ctx: &egui::Context, oben: f32, s: &StatsView<'_>) {
-        let (fps, kbps) = (s.fps, s.kbps);
         egui::Area::new(egui::Id::new("pulse-stats"))
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, oben))
             .interactable(false)
@@ -35,16 +40,11 @@ impl Overlay {
                             });
                         };
                         row("Bild", format!("{}x{}{}", s.width, s.height, if s.ten_bit_source { " · 10 bit" } else { "" }));
-                        row("Bilder/s", fps.map_or_else(|| "—".into(), |v| v.to_string()));
+                        row("Bilder/s", zahl(s.fps));
                         // Der Vergleich der beiden Zeilen ist der Kern: oben
                         // wie viele Bilder ankommen und dekodiert werden, hier
                         // wie viele davon wirklich auf dem Schirm landen.
-                        row(
-                            "Gezeichnet/s",
-                            self.present_rate
-                                .per_second
-                                .map_or_else(|| "—".into(), |v| v.to_string()),
-                        );
+                        row("Gezeichnet/s", zahl(self.present_rate.per_second));
                         if s.never_drawn > 0 {
                             row("Nie gezeichnet", s.never_drawn.to_string());
                         }
@@ -62,7 +62,7 @@ impl Overlay {
                             );
                             row("Ausgeben", format!("{:.1} ms", s.render_us as f64 / 1000.0));
                         }
-                        row("Bitrate", kbps.map_or_else(|| "—".into(), |v| format!("{v} kbit/s")));
+                        row("Bitrate", s.kbps.map_or_else(|| "—".into(), |v| format!("{v} kbit/s")));
                         row(
                             "Decoder",
                             if s.decoder.is_empty() {
@@ -100,22 +100,15 @@ impl Overlay {
                         // reine Zuschauer waeren die Zeilen eine Behauptung
                         // ueber eine Erfassung, die es nicht gibt.
                         if s.fern_aktiv {
-                            row(
-                                "Eingabe",
-                                if s.fern_transport.is_empty() {
-                                    // Noch nichts gemeldet: jede Sitzung
-                                    // beginnt auf dem Serverweg.
-                                    "Serverweg".to_string()
-                                } else {
-                                    s.fern_transport.to_string()
-                                },
-                            );
-                            row(
-                                "Eingabe-Frames/s",
-                                self.input_rate
-                                    .per_second
-                                    .map_or_else(|| "—".into(), |v| v.to_string()),
-                            );
+                            // Noch nichts gemeldet: jede Sitzung beginnt auf
+                            // dem Serverweg.
+                            let weg = if s.fern_transport.is_empty() {
+                                "Serverweg"
+                            } else {
+                                s.fern_transport
+                            };
+                            row("Eingabe", weg.to_string());
+                            row("Eingabe-Frames/s", zahl(self.input_rate.per_second));
                             if s.input_verworfen > 0 {
                                 row("Bewegungen verworfen", s.input_verworfen.to_string());
                             }

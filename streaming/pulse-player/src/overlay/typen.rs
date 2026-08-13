@@ -109,9 +109,18 @@ pub struct StatsView<'a> {
     pub input_ohne_abbildung: u64,
 }
 
-/// Bezugspunkt fuer die Rate der ausgegebenen Bilder.
+/// Bezugspunkt einer laufend fortgeschriebenen Rate — die ausgegebenen Bilder
+/// und die Eingabe-Frames der Fernsteuerung teilen sich die Mechanik
+/// (`Overlay::rate_nachziehen`).
 pub(super) struct PresentRate {
     pub(super) at: Instant,
     pub(super) frames: u64,
     pub(super) per_second: Option<u64>,
+}
+
+impl PresentRate {
+    /// Frischer Bezugspunkt: ab jetzt zaehlen, noch keine Rate.
+    pub(super) fn neu() -> Self {
+        Self { at: Instant::now(), frames: 0, per_second: None }
+    }
 }

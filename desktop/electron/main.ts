@@ -920,7 +920,13 @@ function wireSidecar(): void {
 // Anzeigetext des Eingabewegs fuers Statistik-Feld (keine Zuordnung, keine
 // Eingabe) — anders als `input_capture`, s. oben.
 const ALLOWED_PLAYER_OPS = new Set([
-  'health', 'open', 'close', 'set_option', 'stats', 'focus', 'remote_transport',
+  'health',
+  'open',
+  'close',
+  'set_option',
+  'stats',
+  'focus',
+  'remote_transport',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */

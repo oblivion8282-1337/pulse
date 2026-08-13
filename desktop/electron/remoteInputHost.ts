@@ -133,8 +133,11 @@ export class RemoteEingabe {
       // Das laeuft AUCH, wenn die Frames gleich verworfen werden: sonst bliebe
       // beim vorigen Gegenueber eine Taste gedrueckt, nur weil die erste
       // Nachricht der neuen Sitzung einen Platz nannte, den es nicht mehr gibt.
+      // Und nur fuer LAUFENDE Sidecars — das dritte Geschwister derselben
+      // Regel wie in `frames` (unbekannter Platz) und `beenden`: ein toter
+      // Prozess hat nichts gedrueckt, und `#ruf` spawnt lazy.
       for (const alt of this.#wechsel(sessionId, ziel)) {
-        await this.#ruf(alt, 'remote_input_end');
+        if (this.#belegt(alt)) await this.#ruf(alt, 'remote_input_end');
       }
       if (ziel === null) return { ok: true, state: 'unknown_slot' };
       const res = (await this.#ruf(ziel, 'remote_input', {

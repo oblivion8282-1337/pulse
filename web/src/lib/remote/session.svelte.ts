@@ -350,12 +350,11 @@ class RemoteSessionStore {
     this.#watchVerbindung();
     // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
     // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert
-    // er (NAT), bleibt es wortlos dabei.
-    if (this.role !== null) {
-      remoteP2P.start(this.role, sessionId, (kind, data) =>
-        this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
-      );
-    }
+    // er (NAT), bleibt es wortlos dabei. Die Rolle steht fest: ohne sie ist
+    // oben schon zurückgesprungen.
+    remoteP2P.start(this.role, sessionId, (kind, data) =>
+      this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+    );
   }
 
   _ended(sessionId: string, reason: string): void {
