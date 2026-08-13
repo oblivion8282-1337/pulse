@@ -74,7 +74,14 @@ export interface PulseGsrApi {
    * Fehlt in aelteren Shells, deshalb optional: ohne sie kann dieser Rechner
    * nicht ferngesteuert werden, und der Renderer laesst die Sitzung fallen.
    */
-  remoteInput?(slot: number, sessionId: string, frames: string[]): Promise<unknown>;
+  remoteInput?(
+    slot: number,
+    sessionId: string,
+    frames: string[],
+    /** Ein ANDERER Stream-Platz meldet gerade Vorrang des Hosts — die Frames
+     *  werden dann auch dort verworfen (`$lib/remote/vorrang.ts`). */
+    hostAktiv?: boolean,
+  ): Promise<unknown>;
   /** Sitzungsende — der Sidecar gibt alles Gedrueckte frei. Ohne diesen Ruf
    *  bliebe nach einem Abbruch eine Taste gedrueckt. Idempotent. */
   remoteInputEnd?(): Promise<unknown>;

@@ -10,7 +10,31 @@
 //! denselben Pfad wie Sichtschutz und unbekannter Slot, `super::nur_handschlag`),
 //! die Sitzung bleibt aber stehen — es ist ein Stummschalten, kein Abbruch.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use super::{Sitzung, Zustand, wache};
+
+/// Wie oft ein geltender Vorrang **wiederholt** gemeldet wird, gezählt in
+/// Weckern à 100 ms (`wache::WECKER_MS`) — also einmal je Sekunde.
+///
+/// **Warum überhaupt wiederholt** (Bughunt 2026-08-14): die Meldung fährt über
+/// den `remote_signal`-Weiterleiter des Gateways, und der verwirft über seinem
+/// Sekundendeckel **still**. Geht ausgerechnet das „Vorrang beginnt" verloren,
+/// bleibt der Steuernde bei „kein Vorrang" — und die spätere Ende-Meldung
+/// fällt bei ihm in die Flankenprüfung und wird verschluckt. Dann zieht er
+/// sein Gehaltenes nicht nach, und die W-Taste bleibt tot, obwohl der Finger
+/// darauf liegt. Eine Wiederholung je Sekunde repariert das binnen einer
+/// Sekunde und kostet gegen den 60/s-Deckel nichts.
+///
+/// **Warum hier und nicht im Renderer:** Chromium drosselt Zeitgeber in
+/// verdeckten Fenstern auf höchstens einen Lauf je Minute, und der Host spielt
+/// typischerweise im Vollbild (dieselbe Falle, an der die Verbindungswacht
+/// schon einmal hing, s. `web/src/lib/remote/wachten.ts`). Dieser Faden ist
+/// nativ und wird von niemandem gedrosselt.
+const WIEDERHOLUNG_TAKTE: u64 = 10;
+
+/// Wecker seit der letzten Meldung (s. [`WIEDERHOLUNG_TAKTE`]).
+static SEIT_MELDUNG: AtomicU64 = AtomicU64::new(0);
 
 /// Den Vorrang des Hosts nachführen. Liefert, ob er **jetzt** gilt.
 ///
@@ -47,14 +71,23 @@ pub(super) fn nachfuehren(z: &mut Zustand) -> bool {
         "[remote-input] Vorrang des Hosts {}",
         if jetzt { "beginnt — Fremdeingabe wird verworfen" } else { "endet" }
     );
+    melden(jetzt);
+    jetzt
+}
+
+/// Den Zustand nach vorn melden. Der Renderer reicht ihn an den Steuernden
+/// weiter (`web/src/lib/remote/vorrang.ts`).
+fn melden(gilt: bool) {
+    SEIT_MELDUNG.store(0, Ordering::Relaxed);
     crate::events::emit(serde_json::json!({
         "ev": "remote_state",
-        "state": if jetzt { "host_active" } else { "live" },
+        "state": if gilt { "host_active" } else { "live" },
         // Wie lange der Vorrang noch gilt — damit der Steuernde „noch 4 s"
-        // sehen kann statt nur „gesperrt".
+        // sehen kann statt nur „gesperrt". Zugleich die Verfallszeit, an der
+        // der Host-Renderer einen Platz aussortiert, dessen Sidecar
+        // verschwunden ist (s. `vorrang.ts`).
         "hold_ms": wache::rest_ms(),
     }));
-    jetzt
 }
 
 /// Der Wecker der Wache (alle 100 ms, aus ihrem eigenen Faden).
@@ -65,17 +98,30 @@ pub(super) fn nachfuehren(z: &mut Zustand) -> bool {
 /// nur eine Taste hält und nichts sendet, nie davon: seine Taste bliebe tot, bis
 /// er zufällig die Maus bewegt.
 ///
-/// **`try_lock` und nicht `lock`:** der Wache-Faden darf niemals auf die
-/// Sitzungssperre warten. Er trägt den Hook-Rückruf, und ein Hook, der zu lange
-/// braucht, wird von Windows stillschweigend entfernt. Ein übersprungener
-/// Wecker kostet 100 ms Verzug, ein hängender Faden die ganze Wache. Eine
-/// **vergiftete** Sperre wird dagegen übernommen — aus demselben Grund wie in
-/// [`Sitzung::sperre`].
+/// **`try_lock` und nicht `lock`:** der Wecker läuft blind, ohne Anlass und
+/// alle 100 ms. Wartete er auf die Sitzungssperre, stauten sich unter Last
+/// Wecker hinter einer Nachricht, die gerade injiziert — und feuerten danach
+/// alle hintereinander los. Ein übersprungener Wecker kostet dagegen 100 ms
+/// Verzug, und der nächste holt ihn ein; nachzuführen gibt es nichts, denn er
+/// liest einen Zustand und keine Ereignisfolge. (Den Hook-Rückruf trägt er
+/// **nicht** — dafür gibt es den zweiten Faden, s. [`wache::wecker_starten`].)
+/// Eine **vergiftete** Sperre wird dagegen übernommen — aus demselben Grund wie
+/// in [`Sitzung::sperre`].
 pub(super) fn tick() {
-    let mut z = match Sitzung::singleton().inner.try_lock() {
-        Ok(z) => z,
-        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-        Err(std::sync::TryLockError::WouldBlock) => return,
+    let gilt = {
+        let mut z = match Sitzung::singleton().inner.try_lock() {
+            Ok(z) => z,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        nachfuehren(&mut z)
     };
-    nachfuehren(&mut z);
+    // Die Wiederholung läuft OHNE die Sitzungssperre — sie liest nichts aus
+    // dem Zustand, und `emit` reiht nur ein.
+    if !gilt {
+        return;
+    }
+    if SEIT_MELDUNG.fetch_add(1, Ordering::Relaxed) + 1 >= WIEDERHOLUNG_TAKTE {
+        melden(true);
+    }
 }

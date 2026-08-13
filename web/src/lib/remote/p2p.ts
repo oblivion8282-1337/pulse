@@ -35,7 +35,7 @@
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
-import { Gedruecktbuch } from './buchfuehrung';
+import { Gedruecktbuch, MAX_FRAMES } from './buchfuehrung';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
 type FrameSink = (evt: { session_id: string; slot: number; frames: string[] }) => void;
@@ -49,8 +49,8 @@ const STUN = 'stun:stun.l.google.com:19302';
 /** Obergrenzen je hereinkommender Kanal-Nachricht — Spiegel der Gateway-
  *  Grenzen (`ws_remote_input.py`). Überschreitung wird STILL verworfen statt
  *  an den Sidecar gereicht: dort wäre >32 ein Protokollfehler und legte die
- *  ganze Sitzung still, hier ist es nur eine kaputte Nachricht. */
-const MAX_FRAMES = 32;
+ *  ganze Sitzung still, hier ist es nur eine kaputte Nachricht. Die Frame-Zahl
+ *  teilen sich beide Dateien (`buchfuehrung.ts`). */
 const MAX_NACHRICHT_ZEICHEN = 16 * 1024;
 /** Größte dekodierte Nutzlast JE NACHRICHT (Gateway:
  *  `MAX_INPUT_DECODED_BYTES` — dort ist 1024 die Summe, nicht der

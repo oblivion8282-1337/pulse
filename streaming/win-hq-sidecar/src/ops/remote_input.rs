@@ -7,6 +7,7 @@
 //! {"op":"remote_input", "id":7,
 //!  "slot":0,                       // welcher der laufenden Streams gemeint ist
 //!  "session_id":"…",               // optional; ein Wechsel beendet die alte Sitzung
+//!  "host_active":false,            // optional; ein ANDERER Platz meldet Vorrang
 //!  "frames":["AAI=", "AwAB"]}      // Base64, IN REIHENFOLGE
 //! ```
 //!
@@ -142,7 +143,11 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         Err(grund) => return Err(sitzung.protokollfehler(grund)),
     };
 
-    let bericht = sitzung.frames(slot, sitzungs_id, &frames)?;
+    // Fehlt das Feld oder ist es missgeformt, gilt „kein fremder Vorrang" —
+    // es kann die Eingabe nur einschränken, und eine ältere Shell schickt es
+    // gar nicht erst.
+    let fremder_vorrang = params.get("host_active").and_then(Value::as_bool).unwrap_or(false);
+    let bericht = sitzung.frames(slot, sitzungs_id, &frames, fremder_vorrang)?;
     let mut out = Map::new();
     out.insert("processed".to_string(), Value::from(bericht.verarbeitet));
     out.insert("state".to_string(), Value::from(bericht.zustand));

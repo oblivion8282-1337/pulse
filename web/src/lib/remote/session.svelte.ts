@@ -228,6 +228,15 @@ class RemoteSessionStore {
       // scheitert er, verlangt die nächste Nachricht das Hello erneut.
       if (this.#senden((c) => c.sendRemoteInput(sessionId, slot, remoteP2P.helloBuendel()))) {
         remoteP2P.wsHelloGesendet();
+        // Das Hello gibt beim Host ALLES frei (Wire-Spec, „neuer
+        // Eingabestrom"). Was der Nutzer noch physisch hält, muss deshalb
+        // erneut behauptet werden — sonst ist seine Taste nach einem
+        // Kanalausfall tot, obwohl der Finger daraufliegt. Dieselbe Lücke wie
+        // nach einem Vorrang des Hosts, und derselbe Baustein
+        // (`buchfuehrung.ts::nachziehBuendel`).
+        for (const buendel of remoteP2P.nachziehBuendel()) {
+          this.#senden((c) => c.sendRemoteInput(sessionId, slot, buendel));
+        }
       }
     }
     return this.#senden((c) => c.sendRemoteInput(sessionId, slot, frames));
@@ -417,8 +426,10 @@ class RemoteSessionStore {
     // (s. den Kommentar unten), also auch seiner. Der Vorrang-Melder ebenso:
     // er hängt am Sidecar-Ereignisstrom und hätte sonst einen Zuhörer über die
     // Sitzung hinaus.
-    remoteP2P.stop();
+    // **Reihenfolge trägt:** der Vorrang gibt eine übernommene Anzeige zurück
+    // und braucht dafür den Eingabeweg-Text, den `remoteP2P.stop()` löscht.
     remoteVorrang.stop();
+    remoteP2P.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
     // Verbindungsverlust, Fehler. Ohne diesen Ruf liefe nach einem Abbruch die

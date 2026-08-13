@@ -30,9 +30,11 @@
 //! deshalb genügt EIN Platz — eine neue Aufnahme überschreibt ihn.
 //!
 //! `SetIsCursorCaptureEnabled` ist auf der WGC-Session jederzeit erlaubt
-//! (WinRT-agiles Objekt, die Property ist dafür gebaut); der Aufruf kommt vom
-//! Dispatch-Faden, während der Capture-Faden liefert — das ist der gedeckte
-//! Fall, kein Rennen.
+//! (WinRT-agiles Objekt, die Property ist dafür gebaut); die Aufrufe kommen vom
+//! Dispatch-Faden und — seit dem Vorrang des Hosts
+//! (`remote_input::vorrang::tick`) — vom Wecker-Faden der Wache, während der
+//! Capture-Faden liefert. Beides ist der gedeckte Fall, kein Rennen: ein agiles
+//! Objekt verlangt keinen bestimmten Faden und keine eigene COM-Anmeldung.
 
 use std::sync::Mutex;
 

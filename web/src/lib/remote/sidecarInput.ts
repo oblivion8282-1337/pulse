@@ -31,6 +31,12 @@ export function eingabeMoeglich(): boolean {
  * Sidecar hat die Eingabe-Sitzung stillgelegt (Protokollfehler), oder es gibt
  * gar keine Bruecke. Der Aufrufer beendet die Fernsteuerungs-Sitzung.
  *
+ * `hostAktiv` sagt, dass ein ANDERER Stream-Platz gerade Vorrang des Hosts
+ * meldet — die Wache sitzt je Sidecar-Prozess, und nur der Renderer kennt alle
+ * Plaetze (Begruendung in `vorrang.ts`). Die Frames werden dann auch auf dem
+ * angesprochenen Platz verworfen, aber ueber den regulaeren Verwerf-Pfad: der
+ * Handschlag ueberlebt, alles Gedrueckte geht hoch.
+ *
  * Ein unbekannter Platz oder ein aktiver Sichtschutz sind ausdruecklich KEIN
  * Fehlschlag: die Frames werden dann still verworfen und die Sitzung bleibt
  * stehen (Spezifikation, „Unbekannter Slot"). „Unbekannt" schliesst einen Platz
@@ -41,11 +47,12 @@ export async function eingabeEinspielen(
   slot: number,
   sessionId: string,
   frames: string[],
+  hostAktiv = false,
 ): Promise<boolean> {
   const bruecke = gsr();
   if (typeof bruecke?.remoteInput !== 'function') return false;
   try {
-    const res = (await bruecke.remoteInput(slot, sessionId, frames)) as
+    const res = (await bruecke.remoteInput(slot, sessionId, frames, hostAktiv)) as
       | { ok?: unknown; error?: unknown }
       | undefined;
     if (res?.ok === false) {

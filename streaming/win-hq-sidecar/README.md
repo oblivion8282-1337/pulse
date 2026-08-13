@@ -223,16 +223,32 @@ Frames, der chat-gateway reicht sie unangetastet durch, hier werden sie geparst
 und per `SendInput` gespielt. Zwei Operationen:
 
 ```jsonc
-{"op":"remote_input", "id":7, "slot":0, "session_id":"…", "frames":["AAI=","AwAB"]}
+{"op":"remote_input", "id":7, "slot":0, "session_id":"…", "host_active":false, "frames":["AAI=","AwAB"]}
 // → {"ok":true, "processed":2, "state":"live"}
 {"op":"remote_input_end", "id":8}
 // → {"ok":true, "state":"ended", "released":0}
 ```
 
 `state` ist neben `live` auch `unknown_slot` (kein Stream auf diesem Platz),
-`unresolved_source` (Quelle weg) oder `masked` (Sichtschutz schwärzt gerade) —
-alle drei verwerfen still, **geben aber alles Gedrückte frei** und lassen die
-Sitzung stehen. `ended` heißt: der Prozess fährt herunter, die Sitzung ist
+`unresolved_source` (Quelle weg), `masked` (Sichtschutz schwärzt gerade) oder
+`host_active` (**Vorrang des Hosts**, s. unten) — alle vier verwerfen still,
+**geben aber alles Gedrückte frei** und lassen die Sitzung stehen.
+
+`host_active` in der ANFRAGE ist etwas anderes als in der Antwort: es meldet,
+dass ein **anderer** Stream-Platz dieses Rechners gerade Vorrang meldet. Die
+Wache sitzt je Sidecar-Prozess, und ein Prozess sieht die anderen nicht — nur
+der Renderer des Hosts kennt alle Plätze. Fehlt das Feld, gilt „kein fremder
+Vorrang"; es kann die Eingabe ausschließlich einschränken.
+
+**Vorrang des Hosts** (`remote_input/{wache,vorrang}.rs`): Regt sich der Host
+körperlich an Maus oder Tastatur, wird die Fremdeingabe für 5 s verworfen
+(gleitend, `PULSE_FERN_VORRANG_MS`). Erkannt über einen systemweiten
+Low-Level-Hook; die eigene Injektion trägt dafür `PULSE_MARKE` in
+`dwExtraInfo`. Lässt sich der Hook nicht anmelden, **verweigert der Handschlag
+die Sitzung**. Solange der Vorrang gilt, wird er einmal je Sekunde als
+`{"ev":"remote_state","state":"host_active","hold_ms":…}` wiederholt — der
+Renderer reicht das an den Steuernden weiter, dessen Client daran das Ende
+erkennt und sein Gehaltenes nachzieht. `ended` heißt: der Prozess fährt herunter, die Sitzung ist
 endgültig zu. `ok:false` heißt **fail-closed**: die Sitzung ist stillgelegt, es
 kommt zusätzlich ein `{"ev":"remote_state","state":"input_error"}`, und weiter
 geht es erst nach `remote_input_end`.
@@ -288,6 +304,11 @@ Vorgabe · leer oder `0` = aus · jeder andere Wert (`1`, `true`, `yes`, …) = 
 Variablen, die einen *Wert* tragen (Pfade, Zahlen, Optionslisten), sind unten
 einzeln beschrieben.
 
+- `PULSE_FERN_VORRANG_MS=<zahl>` — wie lange die Fremdeingabe nach einer Regung
+  des Hosts verworfen wird (Vorgabe 5000, geklemmt auf 100…60000). Gedacht für
+  den Zwei-Geräte-Test, wo fünf Sekunden je Durchgang die Messung beherrschen.
+- `PULSE_HQ_FERN_TICKRASTER=1` — Notausgang: im Fern-Modus wieder starr takten
+  statt bei Ankunft zu senden (A/B gegen den Latenzgewinn).
 - `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt
   DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU (dGPU+iGPU) der einzige Weg, einen
   bestimmten Vendor-Pfad zu validieren, ohne den Default umzustellen.

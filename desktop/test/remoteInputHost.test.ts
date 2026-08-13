@@ -27,7 +27,24 @@ test('Frames gehen an den Sidecar des gemeinten Platzes, Huelle unveraendert', a
     {
       slot: 1,
       op: 'remote_input',
-      params: { slot: 1, session_id: 'sit-a', frames: ['AAI=', 'AwAB'] },
+      params: { slot: 1, session_id: 'sit-a', host_active: false, frames: ['AAI=', 'AwAB'] },
+    },
+  ]);
+});
+
+test('der fremde Vorrang wird an den Sidecar durchgereicht', async () => {
+  // Die Wache des Vorrangs sitzt je Sidecar-PROZESS, und ein Prozess sieht die
+  // anderen nicht. Nur der Renderer kennt alle Plaetze — ginge das Flag hier
+  // verloren, koennte ein Steuernder auf einen Platz ausweichen, dessen Wache
+  // noch gar nicht steht (Bughunt 2026-08-14).
+  const { rufe, ruf } = stubRuf();
+  const r = new RemoteEingabe(ruf, MAX_SLOTS);
+  await r.frames(1, 'sit-a', ['AAI='], true);
+  assert.deepEqual(rufe, [
+    {
+      slot: 1,
+      op: 'remote_input',
+      params: { slot: 1, session_id: 'sit-a', host_active: true, frames: ['AAI='] },
     },
   ]);
 });
@@ -206,7 +223,7 @@ test('Sitzungswechsel gibt die Plaetze der alten Sitzung vorher frei', async () 
     {
       slot: 2,
       op: 'remote_input',
-      params: { slot: 2, session_id: 'sit-b', frames: ['z'] },
+      params: { slot: 2, session_id: 'sit-b', host_active: false, frames: ['z'] },
     },
   ]);
   assert.deepEqual(r.offen(), [2], 'die neue Sitzung faengt bei ihrem Platz an');

@@ -105,8 +105,13 @@ contextBridge.exposeInMainWorld('pulse', {
      * Eigene Kanaele statt `gsr:call`: der Hauptprozess fuehrt Buch darueber,
      * welche Plaetze eine Eingabe-Sitzung haben (s. `remoteInputHost.ts`).
      */
-    remoteInput: (slot: number, sessionId: string, frames: string[]): Promise<unknown> =>
-      ipcRenderer.invoke('gsr:remoteInput', slot, sessionId, frames),
+    remoteInput: (
+      slot: number,
+      sessionId: string,
+      frames: string[],
+      hostAktiv?: boolean,
+    ): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:remoteInput', slot, sessionId, frames, hostAktiv === true),
     /** Sitzungsende — der Sidecar gibt alles Gedrueckte frei (sonst klemmt eine
      *  Taste). Idempotent, und ohne Frames zuvor folgenlos. */
     remoteInputEnd: (): Promise<unknown> => ipcRenderer.invoke('gsr:remoteInputEnd'),

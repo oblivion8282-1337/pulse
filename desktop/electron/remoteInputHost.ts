@@ -40,9 +40,9 @@ export type SidecarRuf = (slot: number, op: string, params?: unknown) => Promise
 export interface EingabeAntwort {
   ok: boolean;
   error?: string;
-  /** `live` | `unknown_slot` | `unresolved_source` | `masked` (s. Sidecar-Op).
-   *  `unknown_slot` kann auch von hier kommen, ohne dass ein Sidecar gefragt
-   *  wurde — s. [`RemoteEingabe.frames`]. */
+  /** `live` | `unknown_slot` | `unresolved_source` | `masked` | `host_active`
+   *  | `ended` (s. Sidecar-Op). `unknown_slot` kann auch von hier kommen, ohne
+   *  dass ein Sidecar gefragt wurde — s. [`RemoteEingabe.frames`]. */
   state?: unknown;
   processed?: unknown;
 }
@@ -108,7 +108,12 @@ export class RemoteEingabe {
    * Plaetzen waeren 99 Prozesse. `beenden()` vermeidet das seit jeher, `frames`
    * bisher nicht.
    */
-  async frames(slot: unknown, sessionId: unknown, frames: unknown): Promise<EingabeAntwort> {
+  async frames(
+    slot: unknown,
+    sessionId: unknown,
+    frames: unknown,
+    hostAktiv = false,
+  ): Promise<EingabeAntwort> {
     const platz = this.#platz(slot);
     // Ein Platz, der keine ganze Zahl ist, ist etwas anderes als ein
     // unbekannter: er kann aus keinem Rennen stammen, sondern nur aus einer
@@ -143,6 +148,12 @@ export class RemoteEingabe {
       const res = (await this.#ruf(ziel, 'remote_input', {
         slot: ziel,
         session_id: sessionId,
+        // Vorrang des Hosts: die Wache sitzt je Sidecar-PROZESS, und ein
+        // Prozess sieht die anderen nicht. Nur der Renderer kennt alle Plaetze
+        // — ohne diese Weitergabe koennte ein Steuernder auf einen Platz
+        // ausweichen, dessen Wache noch gar nicht steht (Bughunt 2026-08-14,
+        // Begruendung in `web/src/lib/remote/vorrang.ts`).
+        host_active: hostAktiv === true,
         frames: liste,
       })) as Record<string, unknown> | undefined;
       return { ok: true, state: res?.state, processed: res?.processed };
