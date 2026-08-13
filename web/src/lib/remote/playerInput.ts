@@ -46,6 +46,20 @@ export async function erfassungAn(
 }
 
 /**
+ * Den Anzeigetext des Eingabewegs ins Statistik-Feld des Player-Fensters
+ * melden („Direktverbindung" / „Serverweg — …"). Best-effort: die Anzeige ist
+ * Diagnose, kein Betriebsteil — ein Wurf (Fenster gerade zu) darf den
+ * Eingabefluss nicht beruehren.
+ */
+export async function transportMelden(fensterSitzung: number, transport: string): Promise<void> {
+  try {
+    await (window.pulse?.player?.transportStatus?.(fensterSitzung, transport) ?? Promise.resolve());
+  } catch (e) {
+    console.warn('[remote] Transport-Anzeige warf:', e);
+  }
+}
+
+/**
  * Erfassung ausschalten. Der Player reicht danach fuer alles Gedrueckte noch
  * das Hoch-Ereignis nach — die kommen ueber [`aufNachrichten`] und muessen noch
  * abgesetzt werden, sonst klemmt beim Host eine Taste.

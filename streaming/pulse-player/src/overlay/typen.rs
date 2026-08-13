@@ -95,6 +95,18 @@ pub struct StatsView<'a> {
     /// mehr heraus, und "laeuft" waere eine Falschaussage.
     pub audio_geraetefehler: bool,
     pub recording: bool,
+    /// Laeuft die Eingabe-Erfassung (= dieser Zuschauer steuert gerade)? Erst
+    /// dann zeigt das Feld die Eingabe-Zeilen.
+    pub fern_aktiv: bool,
+    /// Worueber die Eingabe faehrt („Direktverbindung" / „Serverweg — …");
+    /// leer = noch nichts gemeldet, dann steht dort schlicht „Serverweg" (der
+    /// Weg, mit dem jede Sitzung beginnt).
+    pub fern_transport: &'a str,
+    /// Kumulierte Eingabe-Frames — die Rate rechnet das Overlay selbst, wie
+    /// bei `frames_presented`.
+    pub input_frames: u64,
+    pub input_verworfen: u64,
+    pub input_ohne_abbildung: u64,
 }
 
 /// Bezugspunkt fuer die Rate der ausgegebenen Bilder.

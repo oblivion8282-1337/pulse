@@ -95,6 +95,34 @@ impl Overlay {
                         if s.recording {
                             row("Mitschnitt", "laeuft".to_string());
                         }
+                        // Fernsteuerung: worueber die Eingabe faehrt und ob
+                        // ueberhaupt etwas fliesst. Nur beim STEUERNDEN — fuer
+                        // reine Zuschauer waeren die Zeilen eine Behauptung
+                        // ueber eine Erfassung, die es nicht gibt.
+                        if s.fern_aktiv {
+                            row(
+                                "Eingabe",
+                                if s.fern_transport.is_empty() {
+                                    // Noch nichts gemeldet: jede Sitzung
+                                    // beginnt auf dem Serverweg.
+                                    "Serverweg".to_string()
+                                } else {
+                                    s.fern_transport.to_string()
+                                },
+                            );
+                            row(
+                                "Eingabe-Frames/s",
+                                self.input_rate
+                                    .per_second
+                                    .map_or_else(|| "—".into(), |v| v.to_string()),
+                            );
+                            if s.input_verworfen > 0 {
+                                row("Bewegungen verworfen", s.input_verworfen.to_string());
+                            }
+                            if s.input_ohne_abbildung > 0 {
+                                row("Tasten ohne Abbildung", s.input_ohne_abbildung.to_string());
+                            }
+                        }
                     });
             });
     }

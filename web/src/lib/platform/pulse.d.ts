@@ -442,6 +442,10 @@ export interface PulsePlayerApi {
     options?: PulsePlayerOptions;
   }): Promise<PulsePlayerResult>;
   close(session: number): Promise<PulsePlayerResult>;
+  /** Fernsteuerung: Anzeigetext des Eingabewegs fürs Statistik-Feld
+   *  („Direktverbindung" / „Serverweg — …"). Nur Anzeige — die
+   *  Zustandsmaschine lebt in `$lib/remote/p2p.ts`. */
+  transportStatus(session: number, transport: string): Promise<PulsePlayerResult>;
   setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist
