@@ -135,8 +135,14 @@ function ceremonyError(err: unknown): Error {
 
 /** Enrol a new passkey. `backup_codes` is non-null only when this is the
  *  account's first MFA factor — the caller must then show them once. */
+/** Passkey anlegen. `password` ist seit 2026-08-13 Pflicht: ein
+ *  untergeschobener Sicherheitsschlüssel wäre eine dauerhafte Kontoübernahme —
+ *  der Angreifer meldet sich danach passwortlos an, auch nachdem das gestohlene
+ *  Token abgelaufen ist und der echte Inhaber sein Passwort geändert hat (das
+ *  entfernt fremde Schlüssel nicht). Das Abschalten von 2FA verlangte es längst. */
 export async function registerPasskey(
-  name: string
+  name: string,
+  password: string
 ): Promise<{ credential: WebAuthnCredentialSummary; backup_codes: string[] | null }> {
   const opts = await request<OptionsResponse>('/webauthn/register/options', {
     method: 'POST',
@@ -157,7 +163,8 @@ export async function registerPasskey(
     body: {
       challenge_ticket: opts.challenge_ticket,
       credential: encodeRegistration(cred as PublicKeyCredential),
-      name
+      name,
+      password
     }
   });
 }
@@ -212,6 +219,13 @@ export function renamePasskey(id: string, name: string): Promise<WebAuthnCredent
   });
 }
 
-export function deletePasskey(id: string): Promise<void> {
-  return request<void>(`/webauthn/credentials/${id}`, { method: 'DELETE', endpoint: 'auth' });
+/** Passkey löschen. `password` ist Pflicht: das Löschen des LETZTEN Schlüssels
+ *  nimmt dem Konto seinen zweiten Faktor mit — es war damit der stillste Weg,
+ *  ein fremdes Konto zu entschärfen. */
+export function deletePasskey(id: string, password: string): Promise<void> {
+  return request<void>(`/webauthn/credentials/${id}`, {
+    method: 'DELETE',
+    body: { password },
+    endpoint: 'auth'
+  });
 }

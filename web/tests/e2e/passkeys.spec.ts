@@ -119,8 +119,12 @@ test.describe('passkey settings UI', () => {
     await expect(page.getByTestId('passkey-row')).toHaveCount(2);
     const dropRow = page.getByTestId('passkey-row').filter({ hasText: 'Alter YubiKey' });
 
-    // Two-tap delete: first tap reveals the confirm button.
+    // Two-tap delete: first tap reveals the confirm button — und seit
+    // 2026-08-13 auch ein Passwortfeld. Das Löschen des letzten Schlüssels
+    // nimmt dem Konto seinen zweiten Faktor mit, deshalb verlangt der Server
+    // das Passwort; die Oberfläche fängt es vorher ab.
     await dropRow.getByTestId('passkey-delete').click();
+    await dropRow.getByTestId('passkey-delete-password').fill('sup3r-secret-pass');
     await dropRow.getByTestId('passkey-delete-confirm').click();
 
     await expect(page.getByTestId('passkey-row')).toHaveCount(1, { timeout: 3_000 });

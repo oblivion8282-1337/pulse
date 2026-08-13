@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-13",
+      "date": "2026-08-13",
+      "style": "Sachlich",
+      "title": "Zwei-Faktor-Schutz lässt sich nur noch mit Passwort ändern",
+      "intro": "Wer die Zwei-Faktor-Anmeldung einrichtet oder einen Sicherheitsschlüssel entfernt, muss dabei ab sofort sein Passwort eingeben.",
+      "items": [
+        "Betroffen sind drei Vorgänge: einen Passkey hinzufügen, einen Passkey löschen und die Authenticator-App einschalten. Das Abschalten verlangte das Passwort schon vorher.",
+        "Grund: Wer für kurze Zeit Zugriff auf ein angemeldetes Gerät hat, konnte bisher einen eigenen Sicherheitsschlüssel an ein fremdes Konto hängen und sich damit dauerhaft anmelden — auch nach einem Passwortwechsel des Inhabers.",
+        "An deinen bestehenden Schlüsseln und Einstellungen ändert sich nichts."
+      ]
+    },
+    {
       "id": "2026-08-12.2",
       "date": "2026-08-12",
       "style": "Sachlich",

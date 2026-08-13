@@ -12,6 +12,7 @@ keep them in sync as factors come and go.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 import jwt
@@ -37,11 +38,12 @@ from dcc_auth.schemas import (
     MessageOut,
     WebAuthnCredentialOut,
     WebAuthnCredentialRenameIn,
+    WebAuthnDeleteIn,
     WebAuthnOptionsOut,
     WebAuthnRegisterVerifyIn,
     WebAuthnRegisterVerifyOut,
 )
-from dcc_auth.security import JwtSigner
+from dcc_auth.security import JwtSigner, verify_password
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
@@ -109,6 +111,12 @@ async def webauthn_register_verify(
     """
     settings = get_settings()
     await _check_rate(request, "webauthn_register", settings.rate_limit_webauthn_register)
+    # Passwort VOR der Attestierungs-Pruefung: wer kein Passwort hat, soll auch
+    # nicht erfahren, ob sein Ticket noch gueltig waere. Begruendung an
+    # `WebAuthnRegisterVerifyIn.password` — ein untergeschobener Schluessel ist
+    # eine dauerhafte Kontouebernahme, die ein Passwortwechsel nicht aufhebt.
+    if not await asyncio.to_thread(verify_password, payload.password, current.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     try:
         challenge, ticket_user_id, challenge_jti = decode_challenge_ticket(
             signer, payload.challenge_ticket, expected_purpose=PURPOSE_REGISTER
@@ -230,12 +238,22 @@ async def webauthn_rename_credential(
 @router.delete("/webauthn/credentials/{credential_id}", response_model=MessageOut)
 async def webauthn_delete_credential(
     credential_id: int,
+    payload: WebAuthnDeleteIn,
+    request: Request,
     session: SessionDep,
     current: Annotated[User, Depends(_get_current_user)],
 ):
     """Remove a passkey. If it was the account's last MFA factor, the now-
     orphaned recovery codes are dropped so a future re-enrol issues fresh ones.
+
+    Verlangt das Passwort: genau weil der letzte Schluessel den zweiten Faktor
+    des Kontos MITNIMMT, war das Loeschen bis 2026-08-13 der stillste Weg, ein
+    fremdes Konto zu entschaerfen — ein gueltiges Zugangs-Token genuegte.
     """
+    settings = get_settings()
+    await _check_rate(request, "webauthn_register", settings.rate_limit_webauthn_register)
+    if not await asyncio.to_thread(verify_password, payload.password, current.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     row = await session.get(WebAuthnCredential, credential_id)
     if row is None or row.user_id != current.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="passkey not found")

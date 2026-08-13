@@ -29,6 +29,7 @@
   let error = $state<string | null>(null);
   let setupData = $state<TotpSetup | null>(null);
   let codeRaw = $state('');
+  let password = $state('');
   let backupCodes = $state<string[]>([]);
   let saved = $state(false);
 
@@ -42,6 +43,7 @@
       error = null;
       setupData = null;
       codeRaw = '';
+      password = '';
       backupCodes = [];
       saved = false;
     }
@@ -68,10 +70,16 @@
       error = m.totp_enable_dialog_code_length_error();
       return;
     }
+    // Der Server verlangt es seit 2026-08-13 (ein untergeschobenes Gerät sperrt
+    // den echten Inhaber aus) — hier abfangen, damit daraus kein 422 wird.
+    if (!password) {
+      error = m.totp_enable_dialog_password_required();
+      return;
+    }
     busy = true;
     error = null;
     try {
-      const res = await totpVerifySetup(digits);
+      const res = await totpVerifySetup(digits, password);
       backupCodes = res.backup_codes;
       step = 'codes';
       if (auth.user) auth.setUser({ ...auth.user, totp_enabled: true });
@@ -85,7 +93,9 @@
   function onCodeInput(e: Event) {
     const digits = stripTotpFormatting((e.currentTarget as HTMLInputElement).value).slice(0, 6);
     codeRaw = formatTotpDisplay(digits);
-    if (digits.length === 6) void verify();
+    // Nur automatisch absenden, wenn das Passwort schon dasteht — sonst
+    // scheiterte die Eingabe des sechsten Zeichens jedes Mal mit einer Meldung.
+    if (digits.length === 6 && password) void verify();
   }
 
   function close() {
@@ -156,6 +166,23 @@
         </Dialog.Footer>
       {:else if step === 'verify'}
         <form onsubmit={verify} class="space-y-3">
+          <div class="space-y-1.5">
+            <FieldLabel
+              for="totp-setup-password"
+              required
+              class="text-text-muted text-xs font-semibold uppercase"
+            >
+              {m.totp_enable_dialog_password_label()}
+            </FieldLabel>
+            <Input
+              id="totp-setup-password"
+              type="password"
+              autocomplete="current-password"
+              bind:value={password}
+              required
+              data-testid="totp-enable-password"
+            />
+          </div>
           <div class="space-y-1.5">
             <FieldLabel for="totp-setup-code" required class="text-text-muted text-xs font-semibold uppercase">
               {m.totp_enable_dialog_code_label()}

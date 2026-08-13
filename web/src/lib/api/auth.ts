@@ -197,10 +197,13 @@ export async function totpSetup(): Promise<TotpSetup> {
   return request<TotpSetup>('/totp/setup', { method: 'POST', endpoint: 'auth' });
 }
 
-export async function totpVerifySetup(code: string): Promise<BackupCodes> {
+/** 2FA einschalten. `password` ist seit 2026-08-13 Pflicht — wie beim
+ *  Abschalten: ein untergeschobenes TOTP-Gerät sperrt den echten Inhaber beim
+ *  nächsten Login aus, und einen Weg zurück gibt es nicht. */
+export async function totpVerifySetup(code: string, password: string): Promise<BackupCodes> {
   return request<BackupCodes>('/totp/verify-setup', {
     method: 'POST',
-    body: { code },
+    body: { code, password },
     endpoint: 'auth'
   });
 }

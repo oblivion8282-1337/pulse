@@ -24,6 +24,7 @@
 
   let editing = $state(false);
   let confirmDelete = $state(false);
+  let loeschPasswort = $state('');
   let busy = $state(false);
   // Filled by `startEdit` — editing is only ever entered through it, so the
   // empty initial value is never shown.
@@ -61,15 +62,24 @@
   }
 
   async function remove() {
+    // Seit 2026-08-13 verlangt der Server das Passwort: das Löschen des LETZTEN
+    // Schlüssels nimmt dem Konto seinen zweiten Faktor mit — es war damit der
+    // stillste Weg, ein fremdes Konto zu entschärfen.
+    if (!loeschPasswort) {
+      toast.error(m.passkey_row_password_required());
+      return;
+    }
     busy = true;
     try {
-      await deletePasskey(passkey.id);
+      await deletePasskey(passkey.id, loeschPasswort);
       onRemoved(passkey.id);
       toast.success(m.passkey_row_removed());
     } catch (err) {
       toast.error((err as Error).message);
       busy = false;
-      confirmDelete = false;
+      // Den Bestätigungs-Zustand STEHEN lassen: ein Tippfehler im Passwort soll
+      // nicht bedeuten, dass man von vorn anfängt.
+      loeschPasswort = '';
     }
   }
 </script>
@@ -125,6 +135,14 @@
         <XIcon class="size-4" />
       </Button>
     {:else if confirmDelete}
+      <Input
+        type="password"
+        autocomplete="current-password"
+        bind:value={loeschPasswort}
+        placeholder={m.passkey_row_password_label()}
+        class="h-7 w-40 text-xs"
+        data-testid="passkey-delete-password"
+      />
       <Button
         variant="destructive"
         size="xs"
@@ -137,7 +155,10 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        onclick={() => (confirmDelete = false)}
+        onclick={() => {
+          confirmDelete = false;
+          loeschPasswort = '';
+        }}
         disabled={busy}
         aria-label={m.passkey_row_cancel()}
       >

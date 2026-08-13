@@ -341,6 +341,12 @@ class TotpSetupOut(BaseModel):
 
 class TotpVerifySetupIn(BaseModel):
     code: Annotated[str, Field(pattern=TOTP_CODE_PATTERN)]
+    # **Das Passwort gehoert hierher, nicht nur zum Abschalten.** Wer 2FA
+    # EINschaltet, aendert die Anmeldung des Kontos genauso grundlegend wie wer
+    # sie abschaltet: ein untergeschobenes TOTP-Geraet sperrt den echten
+    # Inhaber beim naechsten Login aus. Bis 2026-08-13 genuegte dafuer ein
+    # gueltiges Zugangs-Token — also ein gestohlenes.
+    password: _CurrentPasswordField
 
 
 class TotpVerifySetupOut(BaseModel):
@@ -413,6 +419,25 @@ class WebAuthnRegisterVerifyIn(BaseModel):
     challenge_ticket: _TicketField
     credential: dict[str, Any]
     name: Annotated[str, Field(min_length=1, max_length=64)]
+    # **Passwort auch beim Anlegen.** Ein untergeschobener Sicherheitsschluessel
+    # ist eine dauerhafte Kontouebernahme: der Angreifer meldet sich danach
+    # passwortlos an, auch nachdem das gestohlene Token abgelaufen ist UND
+    # nachdem der echte Inhaber sein Passwort geaendert hat — das entfernt
+    # fremde Schluessel nicht. Das Abschalten von 2FA verlangte es laengst
+    # (`routes_totp.py::totp_disable`), das Anlegen bis 2026-08-13 nicht.
+    password: _CurrentPasswordField
+
+
+class WebAuthnDeleteIn(BaseModel):
+    """Body fuer ``DELETE /webauthn/credentials/{id}``.
+
+    Ein Rumpf an einem DELETE ist unueblich, hier aber richtig: das Loeschen
+    des LETZTEN Schluessels nimmt dem Konto seinen zweiten Faktor komplett weg.
+    Das Passwort als Abfrage-Parameter zu schicken kaeme nicht in Frage — es
+    landete in jedem Zugriffsprotokoll.
+    """
+
+    password: _CurrentPasswordField
 
 
 class WebAuthnCredentialOut(BaseModel):
