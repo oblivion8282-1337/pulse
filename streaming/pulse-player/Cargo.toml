@@ -131,6 +131,7 @@ rtp = "0.17"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Media", # timeBeginPeriod: Systemtimer auf 1 ms fuer die Tokio-Wartezeiten (main.rs)
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",

@@ -84,6 +84,32 @@ const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(200);
 /// waeren nur Last auf dem Rueckkanal.
 const EINSTIEG_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
 
+/// Jitter-Geduld waehrend einer Fernsteuerung: Untergrenze und Aufschlag auf
+/// die gemessene Umlaufzeit.
+///
+/// **Warum RTT-gekoppelt statt fester Zahl.** Die Geduld (`jitter_ms`, Vorgabe
+/// 100 ms) wirkt NUR bei einer Luecke: so lange wartet der Puffer auf ein
+/// fehlendes Paket, bevor er die Luecke meldet — und die Meldung kostet ein
+/// angefordertes Vollbild plus Anzeigesperre. Die Nachlieferung braucht
+/// mindestens eine Umlaufzeit: NACK-Erzeuger (10-ms-Takt) + Sperrfrist (20 ms)
+/// + Strecke. Eine Geduld UNTER RTT + Aufschlag hiesse also: jede Nachlieferung
+/// kommt zu spaet, jeder einzelne Verlust wird zur Luecke — schneller wird es
+/// davon nicht, nur kaputter. Deshalb senkt die Fernsteuerung nicht blind auf
+/// einen kleinen Wert, sondern auf `max(40, RTT + 30)`, gedeckelt auf die
+/// Geduld des Nutzers: auf der 58-ms-Teststrecke bleibt fast alles beim Alten
+/// (~88 ms), im Stadtnetz (RTT 10) faellt die Wartezeit je Verlust von 100 auf
+/// 40 ms.
+///
+/// Ohne RTT-Messung (Verbindungsaufbau) bleibt die Geduld unveraendert.
+const FERN_JITTER_MIN_MS: u64 = 40;
+const FERN_JITTER_RTT_AUFSCHLAG_MS: u64 = 30;
+
+/// Die Zielgeduld waehrend einer Fernsteuerung — pure Rechnung, getrennt von
+/// der Schleife, damit die Grenzen pruefbar sind.
+fn fern_jitter_ziel(rtt_ms: u64, basis_ms: u64) -> u64 {
+    (rtt_ms + FERN_JITTER_RTT_AUFSCHLAG_MS).clamp(FERN_JITTER_MIN_MS.min(basis_ms), basis_ms)
+}
+
 /// Laufende Zaehler einer Sitzung, wie sie `stats` nach vorne meldet.
 #[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 pub struct SessionStats {
@@ -193,6 +219,10 @@ pub enum SessionCommand {
     Record { path: String, reply: MediaReply },
     StopRecord { reply: MediaReply },
     Clip { path: String, seconds: f64, reply: MediaReply },
+    /// Fernsteuerung laeuft (true) bzw. ist beendet (false). Die Sitzung senkt
+    /// dafuer die Jitter-Geduld RTT-gekoppelt ab (s. [`FERN_JITTER_MIN_MS`])
+    /// und stellt danach die Geduld des Nutzers wieder her.
+    Fernsteuerung(bool),
     Stop,
 }
 
@@ -310,6 +340,9 @@ pub async fn run(
     // (`fallback_url`), nicht das Weglassen der Anforderung.
     let ohne_anforderung =
         std::env::var("PULSE_PLAYER_NO_KEYFRAME_REQUEST").as_deref() == Ok("1");
+    // Fernsteuerung aktiv? Dann zieht der Statistik-Takt unten die
+    // Jitter-Geduld an die gemessene Umlaufzeit heran (s. FERN_JITTER_*).
+    let mut fernsteuerung = false;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -363,6 +396,22 @@ pub async fn run(
                         }
                         Err(e) => {
                             let _ = reply.send(Err(e));
+                        }
+                    }
+                }
+                Some(SessionCommand::Fernsteuerung(aktiv)) => {
+                    fernsteuerung = aktiv;
+                    if !aktiv {
+                        // Zurueck auf die Geduld des Nutzers — sofort, nicht
+                        // erst beim naechsten Statistik-Fenster: die Sitzung
+                        // laeuft als Zuschauer weiter und soll dort wieder
+                        // die volle Nachlieferungs-Toleranz haben.
+                        let basis = Duration::from_millis(u64::from(
+                            options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
+                        ));
+                        stats.jitter_target_ms = basis.as_millis() as u64;
+                        for b in buffers.values_mut() {
+                            b.set_target(basis);
                         }
                     }
                 }
@@ -746,6 +795,25 @@ pub async fn run(
             // laeuft — bei jedem Schleifendurchlauf waere das ueber 1000-mal
             // je Sekunde.
             stats.rtt_ms = whep_session.rtt_ms();
+            // Fernsteuerung: Jitter-Geduld an die gemessene Umlaufzeit koppeln
+            // (Begruendung bei FERN_JITTER_MIN_MS). Im Statistik-Takt, nicht je
+            // Durchlauf — die RTT aendert sich nicht schneller, und `set_target`
+            // auf jedem der >1000 Durchlaeufe je Sekunde waere Laerm.
+            if fernsteuerung {
+                if let Some(rtt) = stats.rtt_ms {
+                    let basis = u64::from(
+                        options.jitter_ms.unwrap_or(crate::proto::JITTER_MS_VORGABE),
+                    );
+                    let ziel = fern_jitter_ziel(rtt, basis);
+                    if ziel != stats.jitter_target_ms {
+                        stats.jitter_target_ms = ziel;
+                        let t = Duration::from_millis(ziel);
+                        for b in buffers.values_mut() {
+                            b.set_target(t);
+                        }
+                    }
+                }
+            }
             // Erst hier abfragen: `media.stats()` nimmt die Sperre des
             // Audio-Ringpuffers, auf die auch der Geraete-Callback wartet.
             // Bei jedem Durchlauf waere das ueber 1000-mal pro Sekunde.
@@ -925,6 +993,21 @@ async fn emit_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Die Grenzen der Fernsteuerungs-Geduld: nie unter die NACK-Umlaufzeit,
+    /// nie ueber die Geduld des Nutzers.
+    #[test]
+    fn fern_jitter_haelt_beide_grenzen() {
+        // Teststrecke Hetzner (RTT ~58): fast beim Alten — Nachlieferungen
+        // muessen weiter ankommen koennen.
+        assert_eq!(fern_jitter_ziel(58, 100), 88);
+        // Stadtnetz: der eigentliche Gewinn.
+        assert_eq!(fern_jitter_ziel(10, 100), 40);
+        // Lange Strecke: die Geduld des Nutzers ist der Deckel.
+        assert_eq!(fern_jitter_ziel(90, 100), 100);
+        // Nutzer hat selbst tiefer gestellt (Pruefstand): nie anheben.
+        assert_eq!(fern_jitter_ziel(58, 20), 20);
+    }
 
     #[tokio::test]
     async fn unerreichbare_url_meldet_fehler_statt_zu_haengen() {

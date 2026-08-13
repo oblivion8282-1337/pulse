@@ -89,6 +89,24 @@ fn main() -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("rustls-CryptoProvider bereits installiert"))?;
 
+    // Systemtimer auf 1 ms (Windows-Vorgabe: 15,6 ms). Winits `WaitUntil`
+    // braucht das NICHT — es laeuft seit 0.30 ueber
+    // `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` (in winit-0.30.13
+    // `platform_impl/windows/event_loop.rs:642` nachgelesen, nicht vermutet).
+    // Was daran haengt, sind die Tokio-Seiten des Players: der 2-ms-Poll des
+    // Jitter-Puffers (`session::POLL_INTERVAL`), der 10-ms-NACK-Erzeuger und
+    // die NACK-Sperrfrist (`whep.rs`) warten ueber Condvar/IOCP-Timeouts, und
+    // deren Aufloesung ist die des Systemtimers. Mit 15,6 ms kann ein
+    // 10-ms-Takt nur 15,6 sein — bei der Fernsteuerung zahlt das der
+    // geschlossene Kreis. Prozessweit seit Win10 2004, faellt mit dem Prozess;
+    // ein Scheitern ist eine Meldung wert, kein Abbruchgrund.
+    #[cfg(windows)]
+    unsafe {
+        if windows::Win32::Media::timeBeginPeriod(1) != 0 {
+            eprintln!("pulse-player: timeBeginPeriod(1) abgelehnt — Systemtimer bleibt grob");
+        }
+    }
+
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();

@@ -58,6 +58,18 @@ impl App {
         // (`takt::Ausgabetakt::fernsteuerung`). Der vorherige Wert kommt danach
         // von selbst zurueck.
         session.takt.fernsteuerung(aktiv);
+        // Dieselbe Merk-und-Zurueck-Mechanik fuer die beiden anderen Posten,
+        // die der Player im geschlossenen Kreis selbst beitraegt: die
+        // Swapchain-Tiefe (bis zu eine Bildwiederholung, `render`) und die
+        // Jitter-Geduld bei Luecken (RTT-gekoppelt, `session`). `try_send` ist
+        // hier richtig: ist der Kanal voll, laeuft die Sitzung gerade heiss,
+        // und der naechste `input_capture`-Ruf traegt denselben Zustand.
+        if let Some(r) = session.renderer.as_mut() {
+            r.fernsteuerung(aktiv);
+        }
+        let _ = session
+            .commands
+            .try_send(crate::session::SessionCommand::Fernsteuerung(aktiv));
         session.window.request_redraw();
         Ok(serde_json::json!({
             "enabled": aktiv,
