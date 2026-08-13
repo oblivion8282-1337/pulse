@@ -122,6 +122,34 @@ async def handle_guild_events(
         targets = await manager._filter_by_view_channel(
             targets, str(payload.get("channel_id", ""))
         )
+    # **Die Kanal-Ereignisse selbst — dieselbe Sicht-Schranke.** Sie waren bis
+    # 2026-08-13 nur nach Guild-Mitgliedschaft gefiltert, gingen also auch an
+    # Mitglieder, denen der Kanal ausdruecklich verborgen ist. Bei
+    # ``channel_permissions_updated`` wiegt das am schwersten: das Ereignis
+    # traegt die VOLLSTAENDIGE Ausnahmeliste, also genau, wer den privaten
+    # Kanal sehen darf. An anderer Stelle versteckt das Programm dessen blosse
+    # Existenz ausdruecklich (ein verbotener Kanal antwortet 404 statt 403) —
+    # ueber diesen Nebenkanal war das ausgehebelt.
+    #
+    # ``channel_deleted`` bleibt BEWUSST ungefiltert: den Kanal gibt es dann
+    # nicht mehr, ``_resolve_channel_perms`` loest ihn auf 0 auf, und der
+    # Filter wuerde JEDEN Empfaenger verwerfen — auch die, die ihn sehen
+    # durften und ihn jetzt aus ihrer Liste nehmen muessen. Das Ereignis traegt
+    # ohnehin nur die Kennung, keine Inhalte.
+    elif op in ("channel_created", "channel_updated"):
+        cid = str((payload.get("channel") or {}).get("id", ""))
+        if cid:
+            targets = await manager._filter_by_view_channel(targets, cid)
+    # ``channel_permissions_updated`` bleibt bewusst UNGEFILTERT, obwohl es die
+    # vollstaendige Ausnahmeliste traegt — s.
+    # `docs/plans/2026-08-13-kanal-ereignisse-sichtschranke.md`. Kurz: der
+    # Client leitet AUS DIESER LISTE ab, dass er den Zugriff gerade verloren
+    # hat (`channels.ts::channel_permissions_updated` → `channelPermissions
+    # .apply`). Wer sie ihm vorenthaelt, schliesst das Leck und laesst ihm
+    # denselben Kanal in der Seitenleiste stehen. Die saubere Loesung ist ein
+    # eigenes „du siehst ihn nicht mehr"-Ereignis (`ChannelHiddenEvent` gibt es
+    # bereits fuer den Sprachkanal-Fall) — ein groesserer Eingriff, der die
+    # Seitenleiste aller Nutzer beruehrt.
     # Dropbox events carry entry payloads (incl. presigned GET URLs
     # for files) — same VIEW_CHANNEL gate as ``channel_bump`` so a
     # member without ``@everyone`` access to the dropbox channel
