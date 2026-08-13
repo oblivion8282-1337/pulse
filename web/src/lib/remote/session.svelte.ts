@@ -86,6 +86,28 @@ class RemoteSessionStore {
    */
   #conn: GatewayConnection | null = null;
 
+  /**
+   * Ziele von Anfragen, die abgebrochen wurden, BEVOR ihre Kennung ankam.
+   *
+   * **Warum es das braucht.** Zwischen `remote_request` und dem `remote_pending`
+   * mit der Kennung liegt ein Serverumlauf. Wer in diesem Fenster abbricht und
+   * sofort erneut anfragt, bekommt die verspätete Kennung der ERSTEN Anfrage —
+   * und `_pending` erkannte die passende Anfrage nur an Ziel und Zustand, hatte
+   * also keine Möglichkeit, sie von der zweiten zu unterscheiden.
+   *
+   * Die Folge war schlimmer als ein hängender Zustand: die alte Kennung wurde
+   * der neuen Anfrage untergeschoben, und die danach eintreffende ECHTE Kennung
+   * galt als fremd — `fremdeSitzungBeenden` beendete damit die gerade erst
+   * entstandene, legitime Sitzung. Der Steuernde lief in „keine Antwort", der
+   * Host blieb in „wird ferngesteuert" stehen.
+   *
+   * Eine Warteschlange und kein Zähler: so kann nur eine Kennung verworfen
+   * werden, die WIRKLICH zum abgebrochenen Ziel gehört — eine Anfrage an
+   * jemand anderen wird nicht mitverschluckt. Die Reihenfolge stimmt, weil
+   * beide Rahmen über dieselbe Verbindung laufen.
+   */
+  readonly #verworfeneAnfragen: { channelId: string; hostUserId: string }[] = [];
+
   // ── Controller-Seite ──────────────────────────────────────────────────────
   request(channelId: string, hostUserId: string, slot = 0): void {
     if (this.phase !== 'idle') return;
@@ -133,6 +155,16 @@ class RemoteSessionStore {
    * keine Kennung, und dieser Frame bringt sie nach.
    */
   _pending(sessionId: string, channelId: string, hostUserId: string): void {
+    // Zuerst: gehört diese Kennung zu einer Anfrage, die wir längst abgebrochen
+    // haben? Dann beenden und NICHT übernehmen (s. `#verworfeneAnfragen`).
+    const i = this.#verworfeneAnfragen.findIndex(
+      (v) => v.channelId === channelId && v.hostUserId === hostUserId,
+    );
+    if (i >= 0) {
+      this.#verworfeneAnfragen.splice(i, 1);
+      fremdeSitzungBeenden(sessionId);
+      return;
+    }
     const passend =
       this.phase === 'requesting' &&
       this.role === 'controller' &&
@@ -161,6 +193,14 @@ class RemoteSessionStore {
     // Kennung noch nicht da (Abbruch innerhalb des einen Umlaufs bis
     // `remote_pending`), räumt `_pending` das gleich nach.
     if (id) this.#senden((c) => c.sendRemoteEnd(id));
+    else if (this.channelId && this.peerUserId) {
+      // Kennung noch unterwegs: Ziel merken, damit `_pending` sie gleich
+      // verwirft statt sie der nächsten Anfrage unterzuschieben.
+      this.#verworfeneAnfragen.push({
+        channelId: this.channelId,
+        hostUserId: this.peerUserId,
+      });
+    }
     this.#reset();
   }
 
@@ -233,6 +273,7 @@ class RemoteSessionStore {
    * Socket-Abbau selbst auf (`cleanup_remote_on_disconnect`).
    */
   abmelden(): void {
+    this.#verworfeneAnfragen.length = 0;
     this.#reset();
     this.error = null; // beim Kontowechsel auch keine Fehlermeldung erben
   }
