@@ -26,7 +26,12 @@ ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
 
 ## Stack
 
-- **Capture:** `windows-capture` v2 (WGC, ID3D11-Texture-Output).
+- **Capture:** `windows-capture` v2 (WGC, ID3D11-Texture-Output) — **gepatchter
+  Zweig** unter `vendor/windows-capture/` (gitignored,
+  `scripts/bootstrap-windows-capture.sh` stellt ihn her): die Crate reicht die
+  WGC-Session einmal an den Handler durch (`on_session_ready`), damit das
+  Cursor-Echo der Fernsteuerung den Host-Cursor zur Laufzeit aus dem Stream
+  nehmen kann (`capture/cursorsteuerung.rs`).
 - **Audio:** `wasapi` (Desktop-Loopback + Mikrofon). Der **„Desktop"**-Modus nutzt
   WASAPI-Process-Loopback im **EXCLUDE-Modus** über den Pulse-Prozess-Tree
   (`new_application_loopback_client(pid, include_tree=false)` →
