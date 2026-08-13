@@ -31,6 +31,10 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 #                                                  ten_bit? (omitted when false)}
 #   stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?}  (written here on publish-auth)
 #   stream:channel:<cid>                        → JSON {user_ids: [...], streams?: [...], since}  (owned by poller)
+# ``TOKEN_KEY`` steht seit 2026-08-13 kanonisch in ``dcc_shared.streaming``
+# (chat-gateway loescht den Datensatz beim Bann). Diese Kopie bleibt bewusst
+# stehen: dieser Dienst hat keine ``dcc-shared``-Abhaengigkeit. Aendert sich
+# das Praefix dort, muss es hier mit.
 TOKEN_KEY = "stream:token:{token}"
 ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
 CHANNEL_STATE_KEY = "stream:channel:{channel_id}"

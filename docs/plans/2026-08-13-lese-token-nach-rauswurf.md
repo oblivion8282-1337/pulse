@@ -1,8 +1,8 @@
 # Das Lese-Token überlebt den Rauswurf (2026-08-13)
 
-Befund aus dem zweiten Bughunt, am Code bestätigt. **Nicht behoben** — jeder
-denkbare Fix berührt den laufenden Streaming-Weg, und keiner davon ist ohne
-Messung am echten Stream verantwortbar.
+Befund aus dem zweiten Bughunt, am Code bestätigt. **Weg 2 ist seit dem
+2026-08-13 umgesetzt** (s. unten „Was jetzt gebaut ist"). Weg 1 bleibt offen und
+braucht weiterhin eine Messung am echten Stream.
 
 ## Der Befund
 
@@ -54,7 +54,30 @@ Beobachtbares verhindern (IP, Sitzungs-Cookie). Beides bringt eigene Probleme
 (wechselnde Mobilfunk-IPs, Cookie über die MediaMTX-Domain) und ist die
 schwerste der drei Varianten.
 
-## Empfehlung
+## Was jetzt gebaut ist
+
+Weg 2, mit einer Vereinfachung gegenüber dem Vorschlag oben: **kein interner
+Endpunkt in media-svc**. Der Gateway räumt die Schlüssel selbst aus Redis, weil
+beide Dienste ohnehin dieselbe Redis-Instanz benutzen und die Schlüsselnamen
+jetzt gemeinsam in `dcc_shared/streaming.py` stehen (`read_cache_key`,
+`read_cache_scan_pattern`) statt doppelt. Ein HTTP-Sprung dazwischen hätte nur
+eine weitere Ausfallstelle in den Bann-Weg gehängt.
+
+`chat_gateway/stream_revoke.py::revoke_read_tokens_for_viewer` löscht **beides**:
+den Nachschlage-Schlüssel (damit ein Wiederverbinden ein frisches Token holt und
+dabei erneut geprüft wird) und den Token-Datensatz selbst (damit das bereits
+ausgehändigte sofort ungültig ist — darum geht es eigentlich). Gerufen wird es an
+denselben zwei Stellen wie `end_remote_sessions_for_member`: beim Bann
+(`bans.py`) und in `_remove_guild_member` (`guilds.py`, deckt Rauswurf **und**
+freiwilliges Verlassen ab). Best-effort: ein klemmender Redis lässt den Bann
+nicht scheitern, der Fehler landet im Protokoll.
+
+**Was weiterhin offen ist:** der blosse Verlust von `VIEW_CHANNEL` (ohne
+Rauswurf) sperrt noch nicht — und wer die Adresse vor dem Rauswurf weitergegeben
+hat, dem nimmt der Weg sie zwar mit, aber eine ausserhalb kopierte Adresse zu
+einem anderen Pfad bleibt unberührt. Dafür bräuchte es Weg 1.
+
+## Empfehlung (Stand vor der Umsetzung)
 
 Weg 2, und Weg 1 erst nach der Messung. Weg 2 schliesst genau das, was ein
 Administrator erwartet: wer hinausgeworfen wird, schaut nicht weiter zu. Die

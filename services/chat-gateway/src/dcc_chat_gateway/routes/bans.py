@@ -40,6 +40,7 @@ from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.system_dm import send_moderation_dm
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
 
@@ -275,6 +276,17 @@ async def ban_user(
             guild_id,
             user_id,
             reason="membership_revoked",
+        )
+        # Und die Lese-Token für laufende Streams: sie sind an Kanal und
+        # Streamer gebunden, nicht an die Person, und werden nicht verbraucht —
+        # ohne das hier schaut der Entfernte bis zu eine Stunde weiter und kann
+        # die Adresse weitergeben (s. `stream_revoke`).
+        await revoke_read_tokens_for_viewer(
+            getattr(request.app.state, "redis", None),
+            session,
+            guild_id,
+            user_id,
+            grund="membership_revoked",
         )
         await _publish_member_removed(request, guild_id, user_id)
         # Tell the banned user directly (with the reason) — otherwise the

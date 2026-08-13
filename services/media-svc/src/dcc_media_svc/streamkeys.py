@@ -35,6 +35,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from dcc_shared.streaming import TOKEN_KEY as _TOKEN_KEY
+
 CHANNEL_PATH_PREFIX = "channel-"
 # channel-<channel_id>-<user_id>[-s<slot>]-<nonce>
 #   cid + uid are snowflakes (all digits), slot is an optional small int
@@ -60,7 +62,16 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 # stream:channel:<cid>                   → JSON {user_ids: [str, ...], streams?: [{user_id, slot, label?}], since: iso8601}
 #                                          the public per-channel set of HQ streamers, owned by the poller.
 #                                          ``streams`` is additive + only present when a user runs slot ≥ 1.
-TOKEN_KEY = "stream:token:{token}"
+#
+# ``TOKEN_KEY`` steht seit 2026-08-13 kanonisch in ``dcc_shared.streaming`` und
+# wird hier nur weitergereicht — nicht neu geschrieben. Grund: chat-gateway
+# loescht diesen Datensatz beim Bann (``stream_revoke.py``). Eine dritte, frei
+# stehende Kopie waere dort eine stille Fehlerquelle — aendert sich das Praefix,
+# faellt der Nachschlage-Schluessel, der Token-Datensatz aber nicht, und der
+# Gebannte schaut weiter, waehrend der Bann Erfolg meldet. Die Kopie im
+# mediamtx-auth-hook bleibt bestehen: der Dienst hat bewusst keine
+# ``dcc-shared``-Abhaengigkeit und kann nicht importieren.
+TOKEN_KEY = _TOKEN_KEY
 ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
 CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 # stream:stopping:channel-<cid>-<uid>[-s<slot>] → "1" (short TTL = stop_suppression_s)
