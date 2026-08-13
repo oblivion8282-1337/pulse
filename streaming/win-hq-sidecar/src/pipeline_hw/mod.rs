@@ -333,6 +333,9 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Notausgang für die A/B-Messung (gleiche Bauart wie PULSE_HQ_NO_AV_OFFSET):
     // erzwingt das feste Tick-Raster auch während einer Fernsteuerung.
     let fern_sofort = !crate::env::flag("PULSE_HQ_FERN_TICKRASTER");
+    // Liegt in `last_frame` ein Bild, das die PTS-Platz-Bremse zurückgestellt
+    // hat und das die Vorstufe noch NICHT gesehen hat? (s. die Bremse unten)
+    let mut gehaltenes_ungewandelt = false;
 
     loop {
         if stop_rx.try_recv().is_ok() {
@@ -465,8 +468,18 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // Ankunft sofort, liefen die Zeitstempel dauerhaft schneller als die
         // Echtzeit, und der Ausgabe-Takt des Zuschauers verankerte sich
         // laufend neu. Das gehaltene Bild liegt in `last_frame` und geht
-        // spätestens mit dem nächsten Heartbeat hinaus (ein Bildabstand).
+        // spätestens mit dem nächsten Heartbeat hinaus (ein Bildabstand) —
+        // der Merker darunter sorgt dafür, dass es dann auch WIRKLICH
+        // gewandelt wird.
         if fern && captured > 0 && pts <= last_pts {
+            // Bughunt 2026-08-13: Das Halten allein genügte NICHT. Beim
+            // Heartbeat ist `captured == 0`, und `captured == 0` heißt für die
+            // Vorstufe „Quelle unverändert — gib dein letztes Ergebnis zurück".
+            // Das gehaltene Bild wäre damit NIE gewandelt worden: der Zuschauer
+            // blieb dauerhaft auf dem Stand davor stehen, und zwar genau am
+            // Ende jeder Interaktion (danach ändert sich nichts mehr, WGC
+            // liefert nichts mehr — mit verborgenem Cursor der Normalfall).
+            gehaltenes_ungewandelt = true;
             continue;
         }
         if pts <= last_pts {
@@ -486,13 +499,17 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                     // `BildEncoder::vor_dem_schreiben`. Für den Regelweg ist
                     // das ein leerer Aufruf.
                     //
-                    // **`captured == 0` heisst „die Quelle ist unverändert"**
-                    // (WGC ist änderungsgetrieben und liefert bei stehendem
-                    // Inhalt gar nichts); die Vorstufe rechnet dann nicht neu,
-                    // sondern gibt ihr letztes Ergebnis zurück. Warum sie das
-                    // darf und warum die Entscheidung von HIER kommen muss,
-                    // steht an `Vorstufe::verarbeiten`.
-                    let ziel = s.verarbeiten(frame, captured == 0, |z| {
+                    // **„Die Quelle ist unverändert" heisst `captured == 0`
+                    // UND kein zurückgehaltenes Bild** (WGC ist
+                    // änderungsgetrieben und liefert bei stehendem Inhalt gar
+                    // nichts); die Vorstufe rechnet dann nicht neu, sondern
+                    // gibt ihr letztes Ergebnis zurück. Warum sie das darf und
+                    // warum die Entscheidung von HIER kommen muss, steht an
+                    // `Vorstufe::verarbeiten`. Der Gehalten-Merker gehört in
+                    // diese Bedingung: ein von der PTS-Platz-Bremse
+                    // zurückgestelltes Bild erreicht diese Stelle mit
+                    // `captured == 0` und ist trotzdem NEU.
+                    let ziel = s.verarbeiten(frame, captured == 0 && !gehaltenes_ungewandelt, |z| {
                         encoder.vor_dem_schreiben(z)
                     })?;
                     convert = t_conv.elapsed();
@@ -501,6 +518,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                 // Native: Capture-Frame direkt in den Encoder.
                 None => encoder.send_hw(frame, pts)?,
             }
+            gehaltenes_ungewandelt = false;
             last_pts = pts;
             frames_sent += 1;
         }

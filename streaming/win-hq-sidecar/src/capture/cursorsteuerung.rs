@@ -64,7 +64,17 @@ fn sperre() -> std::sync::MutexGuard<'static, Option<Platz>> {
 /// Eine frisch gestartete Aufnahme meldet ihre Session an. Überschreibt einen
 /// eventuellen Vorgänger (Stream-Neustart) — dessen Session ist dann ohnehin
 /// tot.
+///
+/// **Mit demselben OS-Gate wie `cursor_settings`** (`super::session_has`): auf
+/// einem Windows ohne `IsCursorCaptureEnabled` wird gar nicht erst angemeldet,
+/// statt dass später jeder Umschaltversuch fehlschlägt — die Vorgeschichte zu
+/// solchen Properties ist der Win10-Supportfall bei `IsBorderRequired`
+/// (`capture/mod.rs`).
 pub fn anmelden(session: GraphicsCaptureSession, basis_sichtbar: bool) {
+    if !super::session_has("IsCursorCaptureEnabled") {
+        eprintln!("[cursor] IsCursorCaptureEnabled fehlt auf diesem Windows — Cursor-Echo aus");
+        return;
+    }
     *sperre() = Some(Platz { session, basis_sichtbar, verborgen: false });
 }
 
@@ -102,9 +112,16 @@ fn setzen(verbergen: bool) {
                 if verbergen { "aus dem Stream genommen" } else { "wieder im Stream" }
             );
         }
-        // Session gerade im Abbau (Stream endet): einmal melden reicht — der
-        // nächste Versuch trifft entweder eine neue Session oder keinen Platz.
-        Err(e) => eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e}", !verbergen),
+        // Scheitert der Aufruf (Session im Abbau, Property vom Treiber
+        // abgelehnt), wird der Platz GERÄUMT statt nur gemeldet: setzen()
+        // läuft je Eingabe-Nachricht — bis 125/s —, und ohne das Räumen
+        // wiederholte sich derselbe WinRT-Fehlschlag samt stderr-Zeile mit
+        // jeder Nachricht (der Zustandswechsel-Filter oben greift nur nach
+        // einem ERFOLG). Eine neue Aufnahme meldet ohnehin frisch an.
+        Err(e) => {
+            eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e} — Cursor-Echo aus", !verbergen);
+            *platz = None;
+        }
     }
 }
 

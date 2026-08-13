@@ -130,12 +130,17 @@ fn basis_jitter_ms(options: &PlayerOptions) -> u64 {
 fn jitter_setzen(
     buffers: &mut HashMap<Codec, JitterBuffer>,
     stats: &mut SessionStats,
+    ziel_aktuell: &mut Duration,
     ziel_ms: u64,
 ) {
     stats.jitter_target_ms = ziel_ms;
-    let ziel = Duration::from_millis(ziel_ms);
+    // `ziel_aktuell` ist die Geduld für Puffer, die es noch gar nicht gibt
+    // (Bughunt 2026-08-13): eine Spur, deren erstes Paket NACH einer
+    // Absenkung eintrifft (Ton kommt später dazu, Republish), bekam sonst den
+    // Anfangswert — und die Statistik behauptete etwas anderes, als galt.
+    *ziel_aktuell = Duration::from_millis(ziel_ms);
     for b in buffers.values_mut() {
-        b.set_target(ziel);
+        b.set_target(*ziel_aktuell);
     }
 }
 
@@ -287,7 +292,10 @@ pub async fn run(
         }
     };
 
-    let target = Duration::from_millis(basis_jitter_ms(&options));
+    // Die GELTENDE Geduld — `jitter_setzen` schreibt sie fort, und neue Puffer
+    // (spät startende Spur, Republish) entstehen mit ihr statt mit dem
+    // Anfangswert.
+    let mut target = Duration::from_millis(basis_jitter_ms(&options));
     // Video und Audio haben eigene Sequenznummernkreise und brauchen deshalb
     // je einen eigenen Puffer.
     let mut buffers: HashMap<Codec, JitterBuffer> = HashMap::new();
@@ -367,6 +375,11 @@ pub async fn run(
     // Fernsteuerung aktiv? Dann zieht der Statistik-Takt unten die
     // Jitter-Geduld an die gemessene Umlaufzeit heran (s. FERN_JITTER_*).
     let mut fernsteuerung = false;
+    // Die zuletzt GERECHNETE Fern-Geduld — damit ein Options-Patch sie sofort
+    // wieder anwenden kann, statt bis zum nächsten Statistik-Takt auf der
+    // Basis zu stehen. `None` = noch keine RTT-Messung oder keine
+    // Fernsteuerung.
+    let mut fern_geduld: Option<u64> = None;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -430,7 +443,8 @@ pub async fn run(
                         // erst beim naechsten Statistik-Fenster: die Sitzung
                         // laeuft als Zuschauer weiter und soll dort wieder
                         // die volle Nachlieferungs-Toleranz haben.
-                        jitter_setzen(&mut buffers, &mut stats, basis_jitter_ms(&options));
+                        fern_geduld = None;
+                        jitter_setzen(&mut buffers, &mut stats, &mut target, basis_jitter_ms(&options));
                     }
                 }
                 Some(SessionCommand::Options(patch)) => {
@@ -446,7 +460,20 @@ pub async fn run(
                         decoder = None;
                     }
                     if let Some(ms) = options.jitter_ms {
-                        jitter_setzen(&mut buffers, &mut stats, ms.into());
+                        jitter_setzen(&mut buffers, &mut stats, &mut target, ms.into());
+                    }
+                    // Ein Options-Patch darf die Fern-Absenkung nicht aufheben
+                    // (Bughunt 2026-08-13): `options.jitter_ms` ist nach den
+                    // Vorgaben IMMER gesetzt, der Zweig darüber stellt also bei
+                    // JEDEM set_option die Basis her — und der Lautstärkeregler
+                    // sitzt ausgerechnet im Fernsteuerungs-Menü. Ohne diese
+                    // Zeile stünde die Geduld bis zum nächsten Statistik-Takt
+                    // (bzw. ohne RTT-Messung dauerhaft) wieder auf 100 ms.
+                    if fernsteuerung {
+                        if let Some(g) = fern_geduld {
+                            let ziel = g.min(basis_jitter_ms(&options));
+                            jitter_setzen(&mut buffers, &mut stats, &mut target, ziel);
+                        }
                     }
                 }
             },
@@ -816,8 +843,9 @@ pub async fn run(
             if fernsteuerung {
                 if let Some(rtt) = stats.rtt_ms {
                     let ziel = fern_jitter_ziel(rtt, basis_jitter_ms(&options));
+                    fern_geduld = Some(ziel);
                     if ziel != stats.jitter_target_ms {
-                        jitter_setzen(&mut buffers, &mut stats, ziel);
+                        jitter_setzen(&mut buffers, &mut stats, &mut target, ziel);
                     }
                 }
             }

@@ -25,8 +25,10 @@
 set -euo pipefail
 
 VERSION="2.0.0"
-# Prüfsumme des .crate-Tarballs — identisch mit dem `checksum`-Eintrag für
-# windows-capture im Cargo.lock. Beim Anheben der Version BEIDE nachziehen.
+# Prüfsumme des .crate-Tarballs. Beim Anheben der Version neu bestimmen:
+# `curl -fsSL <URL> | sha256sum`. (Der frühere Verweis „steht im Cargo.lock"
+# gilt nicht mehr — mit `[patch.crates-io]` führt das Lock keinen
+# checksum-Eintrag für windows-capture.)
 SHA256="0f9460c7b82f6b7d314d85b45610481f26a1159a42dadf1e13a329041553e060"
 URL="https://static.crates.io/crates/windows-capture/windows-capture-${VERSION}.crate"
 

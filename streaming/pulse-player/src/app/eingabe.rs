@@ -58,18 +58,31 @@ impl App {
         // (`takt::Ausgabetakt::fernsteuerung`). Der vorherige Wert kommt danach
         // von selbst zurueck.
         session.takt.fernsteuerung(aktiv);
-        // Dieselbe Merk-und-Zurueck-Mechanik fuer die beiden anderen Posten,
-        // die der Player im geschlossenen Kreis selbst beitraegt: die
-        // Swapchain-Tiefe (bis zu eine Bildwiederholung, `render`) und die
-        // Jitter-Geduld bei Luecken (RTT-gekoppelt, `session`). `try_send` ist
-        // hier richtig: ist der Kanal voll, laeuft die Sitzung gerade heiss,
-        // und der naechste `input_capture`-Ruf traegt denselben Zustand.
-        if let Some(r) = session.renderer.as_mut() {
-            r.fernsteuerung(aktiv);
+        // Dieselbe Merk-und-Zurueck-Mechanik fuer die Jitter-Geduld bei
+        // Luecken (RTT-gekoppelt, `session`).
+        //
+        // **Die Swapchain-Tiefe bleibt bewusst bei 2** (Bughunt 2026-08-13):
+        // eine Absenkung auf 1 laesst Mailbox auf Windows/DX12 zu Fifo
+        // entarten — `get_current_texture` blockiert dann bis zur naechsten
+        // Bildwiederholung, und zwar auf GENAU dem winit-Thread, der auch die
+        // Eingabe-Erfassung traegt. Der vermeintliche Gewinn auf dem Bildweg
+        // wanderte als Blockade auf den Eingabeschenkel; die Messung dazu
+        // steht seit jeher an der Anlagestelle (`render/setup.rs`: 7-11 ms
+        // Schleifendauer statt ~4, nur 90-140 von 144 Bildern gezeichnet).
+        //
+        // `try_send` mit Netz darunter: verwirft der volle Kanal ausgerechnet
+        // das AUS, bliebe die Geduld dauerhaft abgesenkt — es gibt danach
+        // keinen weiteren Ruf, der es nachtraegt. Der Nachschub laeuft dann
+        // ueber die Laufzeit (blockierendes send auf einem Tokio-Task).
+        let cmd = crate::session::SessionCommand::Fernsteuerung(aktiv);
+        if let Err(tokio::sync::mpsc::error::TrySendError::Full(cmd)) =
+            session.commands.try_send(cmd)
+        {
+            let tx = session.commands.clone();
+            self.runtime.spawn(async move {
+                let _ = tx.send(cmd).await;
+            });
         }
-        let _ = session
-            .commands
-            .try_send(crate::session::SessionCommand::Fernsteuerung(aktiv));
         session.window.request_redraw();
         Ok(serde_json::json!({
             "enabled": aktiv,
