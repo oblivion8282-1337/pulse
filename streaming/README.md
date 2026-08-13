@@ -238,7 +238,9 @@ landet ausschließlich in der Push-URL (GSR auf Linux, ffmpeg-next auf Windows).
 ## Windows-Sidecar (`win-hq-sidecar/`)
 
 Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
-identisch). Stack: `windows-capture` v2 (WGC), `wasapi` (Desktop-Loopback +
+identisch). Stack: `windows-capture` v2 (WGC; gepatchter Zweig unter
+`win-hq-sidecar/vendor/`, s. dortiges README — Cursor-Echo der Fernsteuerung),
+`wasapi` (Desktop-Loopback +
 Mikrofon), `ffmpeg-next` 8.1 gegen ein **selbst gebautes, gepatchtes** FFmpeg
 unter `ffmpeg-dist/n8.1-lgpl-shared/` (n8.1.2 + `ffmpeg-patches/0002-amfenc_av1-…`;
 seit 2026-08-04 nicht mehr BtbNs Fertigpaket, weil es die AMF-Intra-Refresh-Optionen
