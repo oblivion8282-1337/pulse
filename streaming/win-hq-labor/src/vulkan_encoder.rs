@@ -247,6 +247,9 @@ impl VulkanEncoder {
             a.cfg.dst_h,
             a.cfg.fps,
             a.cfg.bitrate_kbps,
+            // Die Vulkan-Probe encodiert 8 bit (NV12) — das Bibliotheks-Log hat
+            // die Bittiefe später dazubekommen, das Labor war nie nachgezogen.
+            false,
         );
         if intra_refresh {
             eprintln!(

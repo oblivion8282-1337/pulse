@@ -274,6 +274,7 @@ impl FfmpegHwEncoder {
                     // beschreiben, was wirklich über die Leitung geht.
                     breite: cfg.dst_w,
                     hoehe: cfg.dst_h,
+                    bitrate_kbps: cfg.bitrate_kbps,
                 })
                 .context("fremden Sendeweg aufbauen")?;
                 // **Sagen, welcher Weg genommen wurde.** Die beiden Wege sind
