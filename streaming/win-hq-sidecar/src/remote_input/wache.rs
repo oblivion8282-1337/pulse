@@ -87,10 +87,12 @@ static LAUFEND: Mutex<Option<u32>> = Mutex::new(None);
 /// Laufnummer des Weckers (s. [`wecker_starten`]).
 static WECKER_NR: AtomicU64 = AtomicU64::new(0);
 
-/// Sammelstelle für die Bewegungsschwelle. Nur der Wache-Faden fasst sie an
-/// (der Rückruf läuft in seinem Zusammenhang); die Sperre ist deshalb immer
-/// frei und der Rückruf nimmt sie mit `try_lock`, damit er unter keinen
-/// Umständen wartet.
+/// Sammelstelle für die Bewegungsschwelle. Im Betrieb fasst sie nur der
+/// Hook-Rückruf an (der läuft im Zusammenhang des Wache-Fadens); die Sperre ist
+/// deshalb praktisch immer frei, und er nimmt sie mit `try_lock`, damit er
+/// unter keinen Umständen wartet. Der einzige weitere Zugriff ist das
+/// Zurücksetzen in [`starten`] — aus dem Faden des Aufrufers, aber zu einem
+/// Zeitpunkt, an dem noch kein Hook hängt.
 static BEWEGUNG: Mutex<Bewegung> = Mutex::new(Bewegung::neu());
 
 #[derive(Clone, Copy)]
@@ -153,13 +155,20 @@ pub fn starten() -> Result<(), String> {
     if laufend.is_some() {
         return Ok(());
     }
-    // **Der Zähler beginnt bei null, nicht bei „gerade eben".** Die Zustimmung
-    // kommt aus einem Klick des Hosts — seine letzte Regung liegt beim Start
-    // also Millisekunden zurück, und ohne dieses Zurücksetzen begänne JEDE
-    // Sitzung mit fünf Sekunden Vorrang, in denen der Steuernde nichts kann.
-    // Nur hier, nicht bei jedem Hello: ein Hello mitten in der Sitzung
-    // (Transportwechsel, Notbremse) würde sonst einen laufenden Vorrang löschen,
-    // während der Host tippt.
+    // **Der Zähler beginnt bei null.** Zu räumen gibt es hier nur eine
+    // Hinterlassenschaft: [`stoppen`] nullt zwar selbst, hängt die Hooks aber
+    // nicht sofort aus (es wartet bewusst nicht auf den Faden) — regt sich der
+    // Host in diesem Spalt, trägt der noch lebende alte Hook einen Zeitstempel
+    // nach, und die nächste Sitzung begänne mit einem Vorrang, den niemand
+    // ausgelöst hat. Nur hier, nicht bei jedem Hello: ein Hello mitten in der
+    // Sitzung (Transportwechsel, Notbremse) würde sonst einen laufenden
+    // Vorrang löschen, während der Host tippt.
+    //
+    // **Was das NICHT leistet:** den Zeitpunkt bestimmt der Steuernde, denn
+    // gerufen wird aus dem Handschlag. Ein Sidecar, der sein erstes Hello erst
+    // spät sieht, stellt seine Wache erst dann auf und weiß nichts von einer
+    // Regung davor. Die maschinenweite Sperre dagegen sitzt im Renderer des
+    // Hosts (`web/src/lib/remote/vorrang.ts`, Begründung dort).
     LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
     *BEWEGUNG.lock().unwrap_or_else(|e| e.into_inner()) = Bewegung::neu();
 
@@ -265,7 +274,8 @@ fn faden(melden: std::sync::mpsc::Sender<Result<u32, String>>) {
             return;
         }
     };
-    if melden.send(Ok(unsafe { GetCurrentThreadId() })).is_err() {
+    let ich = unsafe { GetCurrentThreadId() };
+    if melden.send(Ok(ich)).is_err() {
         // Niemand wartet mehr (Aufrufer weg) — nicht anfangen zu wachen.
         abmelden(hooks);
         return;
@@ -281,6 +291,22 @@ fn faden(melden: std::sync::mpsc::Sender<Result<u32, String>>) {
     let mut msg = MSG::default();
     while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {}
     abmelden(hooks);
+    // **Den eigenen Eintrag räumen, falls er noch uns meint** (Bughunt
+    // 2026-08-14). Der Regelfall ist [`stoppen`], das ihn vorher entnimmt —
+    // aber die Schleife endet auch von selbst, wenn `GetMessageW` einen Fehler
+    // meldet. Bliebe der Eintrag dann stehen, hätte das zwei üble Folgen:
+    // [`starten`] meldete für den Rest der Prozesslebenszeit Erfolg, obwohl
+    // kein Hook mehr hängt (die Startverweigerung fiele lautlos um, der Host
+    // bekäme eine Sitzung ohne Vorrang), und ein späteres `WM_QUIT` ginge an
+    // eine Faden-Kennung, die Windows längst neu vergeben hat — im eigenen
+    // Prozess trifft das im schlimmsten Fall die Nachrichtenschleife der
+    // Aufnahme.
+    let mut laufend = LAUFEND.lock().unwrap_or_else(|e| e.into_inner());
+    if *laufend == Some(ich) {
+        *laufend = None;
+        WECKER_NR.fetch_add(1, Ordering::SeqCst);
+        eprintln!("[remote-input] Wache unerwartet beendet — nächste Sitzung stellt sie neu auf");
+    }
 }
 
 fn anmelden() -> Result<(HHOOK, HHOOK), String> {
@@ -323,18 +349,19 @@ fn eigene(extra: usize) -> bool {
 unsafe extern "system" fn maus_wache(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let daten = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
-        if !eigene(daten.dwExtraInfo) {
-            if wparam.0 as u32 == WM_MOUSEMOVE {
-                // Nur Bewegung trägt eine Schwelle (s. [`BEWEGUNGS_SCHWELLE_PX`]).
-                if let Ok(mut b) = BEWEGUNG.try_lock()
-                    && bewegung_zaehlt(&mut b, jetzt_ms(), daten.pt.x, daten.pt.y)
-                {
-                    vermerken();
-                }
-            } else {
-                // Knopf und Rad: sofort.
+        let eigen = eigene(daten.dwExtraInfo);
+        if wparam.0 as u32 == WM_MOUSEMOVE {
+            // **Auch die eigene Bewegung wird eingetragen**, nur eben nicht
+            // gezählt (s. [`bewegung_zaehlt`]) — sonst misst die Schwelle
+            // Unsinn. Nur Bewegung trägt überhaupt eine Schwelle.
+            if let Ok(mut b) = BEWEGUNG.try_lock()
+                && bewegung_zaehlt(&mut b, jetzt_ms(), daten.pt.x, daten.pt.y, eigen)
+            {
                 vermerken();
             }
+        } else if !eigen {
+            // Knopf und Rad: sofort.
+            vermerken();
         }
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
@@ -358,8 +385,24 @@ unsafe extern "system" fn tasten_wache(code: i32, wparam: WPARAM, lparam: LPARAM
 /// zur vorigen Lage summiert sich über ein Zeitfenster, und erst die Schwelle
 /// löst aus. Nach dem Auslösen beginnt die Summe von vorn — sonst zählte jede
 /// weitere Regung derselben Bewegung noch einmal.
-fn bewegung_zaehlt(b: &mut Bewegung, jetzt_ms: u64, x: i32, y: i32) -> bool {
+///
+/// **`eigen` trägt die Lage nach, ohne zu zählen — und daran hing die ganze
+/// Schwelle** (Bughunt 2026-08-14). `MSLLHOOKSTRUCT.pt` ist die **absolute**
+/// Zeigerlage. Wurde die eigene Injektion einfach übersprungen, blieb die
+/// Vergleichslage dort stehen, wo der Host seinen Zeiger zuletzt hatte,
+/// während der Steuernde ihn quer über den Schirm führte. Die nächste echte
+/// Regung des Hosts — auch ein 2-px-Zittern — maß dann den Abstand zwischen
+/// beiden Zeigern, also hunderte Pixel, und löste sofort aus. Die Schwelle war
+/// damit genau in der Lage wirkungslos, für die sie geschrieben wurde.
+///
+/// Die Summe bleibt dabei ausdrücklich **unangetastet**: eine dazwischen
+/// gefunkte Injektion darf dem Host nicht den Weg löschen, den er schon
+/// zurückgelegt hat. Der Irrtum geht so zu seinen Gunsten.
+fn bewegung_zaehlt(b: &mut Bewegung, jetzt_ms: u64, x: i32, y: i32, eigen: bool) -> bool {
     let vorige = b.lage.replace((x, y));
+    if eigen {
+        return false;
+    }
     let Some((vx, vy)) = vorige else {
         // Die erste gesehene Lage ist der Nullpunkt, keine Bewegung: beim
         // Aufstellen der Wache steht der Zeiger irgendwo, und das ist kein
@@ -413,7 +456,7 @@ mod tests {
     #[test]
     fn erste_lage_zaehlt_nicht() {
         let mut b = frisch();
-        assert!(!bewegung_zaehlt(&mut b, 0, 500, 500));
+        assert!(!bewegung_zaehlt(&mut b, 0, 500, 500, false));
     }
 
     /// Ein Ruckeln unterhalb der Schwelle löst nichts aus — der Fall, für den
@@ -421,10 +464,10 @@ mod tests {
     #[test]
     fn zittern_unter_der_schwelle_loest_nicht_aus() {
         let mut b = frisch();
-        bewegung_zaehlt(&mut b, 0, 500, 500);
+        bewegung_zaehlt(&mut b, 0, 500, 500, false);
         for (i, (x, y)) in [(501, 500), (500, 501), (501, 501), (500, 500)].iter().enumerate() {
             assert!(
-                !bewegung_zaehlt(&mut b, i as u64 * 10, *x, *y),
+                !bewegung_zaehlt(&mut b, i as u64 * 10, *x, *y, false),
                 "({x},{y}) hätte nicht auslösen dürfen"
             );
         }
@@ -436,18 +479,18 @@ mod tests {
     #[test]
     fn gewollte_bewegung_loest_aus() {
         let mut b = frisch();
-        bewegung_zaehlt(&mut b, 0, 500, 500);
-        assert!(!bewegung_zaehlt(&mut b, 10, 503, 500));
-        assert!(!bewegung_zaehlt(&mut b, 20, 506, 500));
-        assert!(bewegung_zaehlt(&mut b, 30, 509, 500), "9 px müssen reichen");
+        bewegung_zaehlt(&mut b, 0, 500, 500, false);
+        assert!(!bewegung_zaehlt(&mut b, 10, 503, 500, false));
+        assert!(!bewegung_zaehlt(&mut b, 20, 506, 500, false));
+        assert!(bewegung_zaehlt(&mut b, 30, 509, 500, false), "9 px müssen reichen");
     }
 
     /// Ein Sprung über die Schwelle löst sofort aus.
     #[test]
     fn sprung_loest_sofort_aus() {
         let mut b = frisch();
-        bewegung_zaehlt(&mut b, 0, 500, 500);
-        assert!(bewegung_zaehlt(&mut b, 10, 900, 200));
+        bewegung_zaehlt(&mut b, 0, 500, 500, false);
+        assert!(bewegung_zaehlt(&mut b, 10, 900, 200, false));
     }
 
     /// **Der Grund für das Zeitfenster:** ein über Minuten kriechender Zeiger
@@ -456,11 +499,11 @@ mod tests {
     #[test]
     fn kriechen_ueber_die_zeit_erreicht_die_schwelle_nie() {
         let mut b = frisch();
-        bewegung_zaehlt(&mut b, 0, 0, 0);
+        bewegung_zaehlt(&mut b, 0, 0, 0, false);
         for i in 1..200u64 {
             let t = i * (BEWEGUNGS_FENSTER_MS + 50);
             assert!(
-                !bewegung_zaehlt(&mut b, t, i as i32, 0),
+                !bewegung_zaehlt(&mut b, t, i as i32, 0, false),
                 "Schritt {i} (1 px je {}ms) hätte nicht auslösen dürfen",
                 BEWEGUNGS_FENSTER_MS + 50
             );
@@ -472,14 +515,56 @@ mod tests {
     #[test]
     fn nach_dem_ausloesen_beginnt_die_summe_von_vorn() {
         let mut b = frisch();
-        bewegung_zaehlt(&mut b, 0, 0, 0);
-        assert!(bewegung_zaehlt(&mut b, 10, 20, 0));
-        assert!(!bewegung_zaehlt(&mut b, 20, 21, 0), "1 px nach dem Auslösen");
+        bewegung_zaehlt(&mut b, 0, 0, 0, false);
+        assert!(bewegung_zaehlt(&mut b, 10, 20, 0, false));
+        assert!(!bewegung_zaehlt(&mut b, 20, 21, 0, false), "1 px nach dem Auslösen");
+    }
+
+    /// **Der Fund (Bughunt 2026-08-14):** die eigene Injektion darf die
+    /// Vergleichslage nicht stehen lassen. `pt` ist absolut — führt der
+    /// Steuernde den Zeiger quer über den Schirm, während die Wache noch die
+    /// Lage des Hosts merkt, misst das nächste 2-px-Zittern des Hosts den
+    /// Abstand zwischen beiden Zeigern und löst sofort aus. Die Schwelle wäre
+    /// damit ausgerechnet während einer laufenden Fernsteuerung wirkungslos.
+    #[test]
+    fn eigene_injektion_traegt_die_lage_nach_ohne_zu_zaehlen() {
+        let mut b = frisch();
+        bewegung_zaehlt(&mut b, 0, 500, 500, false); // Host: Nullpunkt
+        // Der Steuernde führt den Zeiger weit weg — zählt nicht.
+        assert!(!bewegung_zaehlt(&mut b, 10, 1900, 100, true));
+        // Und jetzt das Zittern des Hosts, gemessen ab der NEUEN Lage.
+        assert!(
+            !bewegung_zaehlt(&mut b, 20, 1902, 100, false),
+            "2 px nach einer eigenen Bewegung dürfen nicht auslösen"
+        );
+        // Eine echte Bewegung löst weiter aus.
+        assert!(bewegung_zaehlt(&mut b, 30, 1912, 100, false));
+    }
+
+    /// Die Summe des Hosts überlebt eine dazwischenfunkende Injektion — der
+    /// Irrtum geht zu seinen Gunsten, nicht zu denen des Steuernden.
+    #[test]
+    fn eigene_injektion_loescht_den_weg_des_hosts_nicht() {
+        let mut b = frisch();
+        bewegung_zaehlt(&mut b, 0, 500, 500, false);
+        assert!(!bewegung_zaehlt(&mut b, 10, 505, 500, false), "5 px");
+        bewegung_zaehlt(&mut b, 15, 900, 900, true); // Injektion dazwischen
+        assert!(
+            bewegung_zaehlt(&mut b, 20, 903, 900, false),
+            "5 + 3 px müssen zusammen weiter reichen"
+        );
     }
 
     /// Ohne Regung gibt es keinen Vorrang — und die Frist ist eine echte Zahl.
+    ///
+    /// **Mit Prüfstand-Sperre** (Bughunt 2026-08-14): der Test fasst einen
+    /// prozessweiten Zustand an, und `cargo test` fährt Testfunktionen auf
+    /// mehreren Fäden. Ohne die Sperre landet sein `store(0)` irgendwann
+    /// zwischen `regung()` und `frames(...)` eines Sitzungs-Tests — ein
+    /// Flake, den man später der Maschinenlast zuschreibt.
     #[test]
     fn ohne_regung_kein_vorrang() {
+        let _sperre = crate::remote_input::pruefstand();
         LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
         assert_eq!(rest_ms(), 0);
         assert!(!host_regt_sich());

@@ -30,15 +30,23 @@ const OP_TASTE = 0x05;
  * ihn der pulse-player beim Einschalten der Erfassung; beim Transportwechsel
  * muss er hier entstehen, denn der Player weiß nichts vom Träger.
  */
-export const HELLO_FRAME_B64 = btoa(String.fromCharCode(OP_HELLO, 0x02));
+const HELLO_FRAME_B64 = btoa(String.fromCharCode(OP_HELLO, 0x02));
 
 /** Wie lange nach einem im Strom gesehenen Player-Hello NICHT auf den Kanal
  *  gewechselt wird — eine WS-Laufzeit plus Reserve (s. `p2p.ts::senden`). */
 const HELLO_WECHSEL_SPERRE_MS = 300;
 
-/** Höchstzahl Frames je Nachricht (Wire-Spec; darüber ist der Sidecar
- *  fail-closed). Das Nachziehen stückelt daran. */
-const MAX_FRAMES = 32;
+/**
+ * Höchstzahl Frames je Nachricht — Spiegel der Gateway-Grenze
+ * (`ws_remote_input.py`), an der der Sidecar fail-closed ist.
+ *
+ * Steht HIER und wird von `p2p.ts` mitbenutzt: seit dem Nachziehen brauchen
+ * beide Dateien dieselbe Zahl, und zwei Kopien im selben Verzeichnis laufen
+ * auseinander. Wäre die Kopie hier die größere, wiese der Gateway ausgerechnet
+ * die Nachzieh-Nachricht mit 4050 ab und die gehaltenen Tasten kämen nicht
+ * zurück.
+ */
+export const MAX_FRAMES = 32;
 
 function frame(...bytes: number[]): string {
   return btoa(String.fromCharCode(...bytes));
@@ -98,10 +106,17 @@ export class Gedruecktbuch {
    * bleibt begrüßt; ein Hello wäre ein neuer Eingabestrom und gäbe genau das
    * frei, was hier gerade wiederhergestellt wird.
    *
-   * **Eine Zeigerlage voran, wenn ein KNOPF gehalten wird.** Der Host hat die
-   * gemerkte Lage beim Übernehmen entwertet, und ohne gültige Lage feuert dort
-   * weder Knopf noch Rad — der nachgezogene Knopf verschwände still. Woher die
-   * Lage kommt, hängt an der Betriebsart:
+   * **Eine Zeigerlage geht IMMER voran — auch wenn gar nichts gehalten wird.**
+   * Der Host entwertet seine gemerkte Lage beim Übernehmen und stellt sie von
+   * sich aus nie wieder her; ohne gültige Lage feuert dort weder Knopf noch
+   * Rad. Bis zum Bughunt 2026-08-14 stand die Lage nur bei gehaltenen Knöpfen
+   * voran, und das ließ den häufigsten Fall offen: wer nach einem Vorrang
+   * weiterscrollt oder an Ort und Stelle klickt, ohne die Maus zu bewegen,
+   * dessen Eingaben wurden **still verschluckt** — die Fernsteuerung meldete
+   * „läuft", tat aber nichts, bis der Zeiger sich um ein Pixel bewegte. Der
+   * Player erfindet keine Bewegungsframes, es kommt also nichts nach.
+   *
+   * Woher die Lage kommt, hängt an der Betriebsart:
    *
    * * *Freier Zeiger:* die zuletzt gesendete absolute Lage, wie beim
    *   Transportwechsel.
@@ -111,15 +126,15 @@ export class Gedruecktbuch {
    *   hat danach eine gültige. Im Zeigerfang liest das Spiel ohnehin
    *   Differenzen, nicht die Lage, also kostet das nichts.
    *
-   * Für gehaltene TASTEN wird nichts vorangestellt: die hängen am Fokus, nicht
-   * am Ort, und ein Zeiger, der sich ohne Not in die Mitte setzt, wäre eine
-   * sichtbare Nebenwirkung ohne Zweck.
+   * Der eine Preis: hat der Steuernde in dieser Sitzung noch nie eine absolute
+   * Lage gesendet (frisch begonnen, Zeiger nie bewegt), setzt der Nullschritt
+   * den Host-Zeiger in die Mitte des aufgenommenen Bereichs. Das ist derselbe
+   * Punkt, an dem auch seine erste eigene Bewegung ansetzte.
    *
    * Stückelt auf die Wire-Grenze, statt still zu kappen: wer mit 40 gehaltenen
    * Tasten aus einem Vorrang kommt, soll sie alle zurückbekommen.
    */
   nachziehBuendel(): string[][] {
-    const frames: string[] = [];
     const knoepfe: string[] = [];
     const tasten: string[] = [];
     for (const id of this.#unten) {
@@ -128,9 +143,9 @@ export class Gedruecktbuch {
       if (id[0] === 'k') tasten.push(frame(OP_TASTE, wert & 0xff, (wert >> 8) & 0xff, 1));
       else knoepfe.push(frame(OP_KNOPF, wert & 0xff, 1));
     }
-    if (knoepfe.length > 0) {
-      frames.push(this.#letzteAbsB64 ?? frame(OP_MAUS_REL, 0, 0, 0, 0));
-    }
+    // Lage zuerst, dann Knöpfe, dann Tasten — der Sidecar arbeitet die Frames
+    // einer Nachricht in Reihenfolge ab.
+    const frames: string[] = [this.#letzteAbsB64 ?? frame(OP_MAUS_REL, 0, 0, 0, 0)];
     frames.push(...knoepfe, ...tasten);
     const buendel: string[][] = [];
     for (let i = 0; i < frames.length; i += MAX_FRAMES) {

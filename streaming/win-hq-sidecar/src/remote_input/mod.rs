@@ -172,11 +172,17 @@ impl Sitzung {
     /// `Err` = fail-closed: die Sitzung ist danach stillgelegt und der Aufrufer
     /// soll sie beenden. `Ok` mit `zustand != "live"` = still verworfen, die
     /// Sitzung steht weiter.
+    /// `fremder_vorrang` meldet, dass ein **anderer** Stream-Platz dieses
+    /// Rechners gerade Vorrang meldet. Nur der Renderer des Hosts weiß das: die
+    /// Wache sitzt je Sidecar-PROZESS, und ein Prozess sieht die anderen nicht
+    /// (Begründung in `web/src/lib/remote/vorrang.ts`). Der Wert kann die
+    /// Eingabe ausschließlich einschränken, nie erweitern.
     pub fn frames(
         &self,
         slot: u64,
         sitzungs_id: Option<&str>,
         frames: &[Vec<u8>],
+        fremder_vorrang: bool,
     ) -> Result<Bericht> {
         let mut z = self.sperre();
 
@@ -214,7 +220,12 @@ impl Sitzung {
         // ein zweites Mal (der Wecker der Wache tut es alle 100 ms): eine
         // Nachricht, die zwischen zwei Weckern eintrifft, soll nicht noch
         // injiziert werden, nachdem der Host schon die Maus angefasst hat.
-        if vorrang::nachfuehren(&mut z) {
+        // Der eigene Vorrang wird nachgeführt (Übergänge, Freigabe, Meldung),
+        // der fremde nur beachtet — er gehört der Wache eines anderen
+        // Prozesses, und zwei Wachen dürfen sich nicht gegenseitig die
+        // Übergänge melden.
+        let eigener = vorrang::nachfuehren(&mut z);
+        if eigener || fremder_vorrang {
             return nur_handschlag(&mut z, frames, "host_active");
         }
 

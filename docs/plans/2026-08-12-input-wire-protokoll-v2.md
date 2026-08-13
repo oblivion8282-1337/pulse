@@ -385,10 +385,33 @@ erkennbar bleibt ein Hook, den Windows zur Laufzeit wegen Zeitüberschreitung
 entfernt; dagegen hilft nur, dass der Rückruf nichts tut als einen Zeitstempel
 abzulegen (die Übergänge fährt ein eigener Faden).
 
+**Er gilt für den RECHNER, nicht für einen Bildschirm** (geschärft 2026-08-14).
+Die Wache sitzt je Sidecar-Prozess, und Windows fährt je Stream-Platz einen
+eigenen; jeder stellt seine Wache erst mit seinem ersten Hello auf. Ein
+Steuernder, der am Signal unten auf die Millisekunde genau erfährt, wann der
+Host eingreift, könnte deshalb auf einen Platz ausweichen, dessen Wache noch gar
+nicht steht — und dort die Restzeit weiterarbeiten, auf dem Bildschirm, auf den
+der Host gerade nicht schaut. Der **Renderer des Hosts** kennt als einziger alle
+Plätze; er führt die Meldungen zusammen und hängt an jede eingehende
+`remote_input`-Nachricht ein `host_active`, das der angesprochene Sidecar wie
+seinen eigenen Vorrang behandelt. Weitergereicht statt dort verworfen, damit ein
+Hello in derselben Nachricht ankommt — sonst liefe die nächste Eingabe in
+„Eingabe vor dem Hello-Handschlag" und risse die Sitzung fail-closed ab.
+
 **Der Steuernde erfährt es** — über `remote_signal` mit `kind: "vorrang"` und
 `data: {aktiv, rest_ms}`, die einzige Auskunft, die vom Host zum Steuernden
 fließt (der DataChannel ist eine Einbahnstraße). Ohne sie sieht der Vorrang aus
 wie ein Verbindungsabbruch.
+
+**Ein geltender Vorrang wird wiederholt gemeldet, einmal je Sekunde.** Der
+Weiterleiter des Gateways verwirft über seinem Sekundendeckel still; geht
+ausgerechnet das „beginnt" verloren, fällt das spätere „endet" beim Steuernden
+in die Flankenprüfung und wird verschluckt — dann zieht er nicht nach, und die
+gehaltene Taste bleibt tot. Die Wiederholung entsteht im **Sidecar**, nicht im
+Renderer: Chromium drosselt Zeitgeber in verdeckten Fenstern auf einen Lauf je
+Minute, und der Host spielt typischerweise im Vollbild. Bleiben die
+Auffrischungen aus, behandelt der Steuernde den Vorrang nach drei Sekunden als
+beendet.
 
 **Nachziehen beim Ende (Pflicht des Steuernden).** Über die Leitung gehen
 Ereignisse, keine Zustände: hält der Steuernde W, ging dafür genau ein „W runter"
@@ -396,10 +419,44 @@ hinaus, und der Host hat es beim Übernehmen freigegeben. Danach entsteht bei ih
 kein neues Ereignis, weil sich für seinen Finger nichts geändert hat — die Taste
 bliebe tot. Der Steuernde schickt deshalb beim Ende des Vorrangs für alles noch
 Gehaltene erneut ein Drück-Ereignis. **Kein Hello davor** (das wäre ein neuer
-Strom und gäbe genau das frei, was gerade hergestellt wird). Wird ein **Knopf**
-nachgezogen, geht eine Zeigerlage voran — die zuletzt gesendete absolute, im
-Zeigerfang ersatzweise eine relative Bewegung um null (der Host rechnet die von
-der Mitte des Quell-Rechtecks aus). Ohne gültige Lage feuert dort kein Knopf.
+Strom und gäbe genau das frei, was gerade hergestellt wird). Eine **Zeigerlage
+geht immer voran**, auch wenn gar nichts gehalten wird — die zuletzt gesendete
+absolute, im Zeigerfang ersatzweise eine relative Bewegung um null (der Host
+rechnet die von der Mitte des Quell-Rechtecks aus). Der Host entwertet seine
+gemerkte Lage beim Übernehmen und stellt sie von sich aus nie wieder her; ohne
+sie feuert dort weder Knopf noch Rad, und wer nach einem Vorrang weiterscrollt
+oder an Ort und Stelle klickt, ohne die Maus zu bewegen, dessen Eingaben würden
+still verschluckt (der Player erfindet keine Bewegungsframes).
+
+Denselben Baustein braucht der **Rückfall vom direkten Kanal auf den
+Serverweg**: auch dort geht ein Hello voran, und auch dort war eine gehaltene
+Taste danach tot.
+
+### Was der Vorrang nicht leistet
+
+Damit niemand mehr hineinliest, als gebaut ist:
+
+* **Er beginnt mit dem ersten Hello, und dessen Zeitpunkt bestimmt der
+  Steuernde.** Wer nach der Zustimmung wartet, bis der Host innehält, und erst
+  dann sein erstes Hello schickt, verschenkt dem Host das Restfenster seiner
+  letzten Regung. Einmal je Sitzung, höchstens die Frist lang.
+* **`PULSE_MARKE` ist eine feste, öffentliche Konstante.** Wer auf dem
+  Host-Rechner Code ausführt, kann sie in eigenen `SendInput`-Aufrufen setzen
+  und damit für „eigene Injektion" gehalten werden. Ein zufälliger Wert je Start
+  müsste von Electron an alle Platz-Prozesse verteilt werden (Prozess 0 muss die
+  Injektion von Prozess 1 als eigen erkennen), und wer Code auf dem Host
+  ausführt, braucht diesen Umweg ohnehin nicht.
+* **Die Meldung ist ein Aktivitäts-Seitenkanal.** Der Hook ist systemweit: der
+  Steuernde erfährt „der Host regt sich", auch wenn der Sichtschutz gerade
+  schwärzt oder der Host auf einem nicht geteilten Monitor arbeitet. Inhalt oder
+  Tastenzahl gehen daraus nicht hervor, und ohne die Meldung merkte er es an der
+  ausbleibenden Wirkung ebenso — nur ungenauer.
+* **Ein Nachzieh-Bündel, das in einen Sichtschutz oder einen verschwundenen
+  Slot läuft, wird nicht wiederholt.** Es gibt keinen Empfangsvermerk (die
+  Eingabe ist eine Einbahnstraße). Dieselbe Lücke besteht seit jeher für den
+  Sichtschutz allein: auch er gibt beim Host alles frei, ohne dass jemand danach
+  nachzieht. Ein allgemeiner „der Host verwirft gerade"-Kanal wäre die saubere
+  Antwort und ist nicht gebaut.
 
 ## Was sich gegenüber v1 geändert hat
 

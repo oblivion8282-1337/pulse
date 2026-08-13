@@ -35,7 +35,13 @@ async function eingabe(evt: {
   if (remoteSession.phase !== 'active' || remoteSession.role !== 'host') return;
   if (!evt.session_id || evt.session_id !== remoteSession.sessionId) return;
   if (!Array.isArray(evt.frames) || evt.frames.length === 0) return;
-  if (await eingabeEinspielen(evt.slot, evt.session_id, evt.frames)) return;
+  // Der Vorrang des Hosts gilt maschinenweit, nicht je Stream-Platz: die Wache
+  // sitzt in jedem Sidecar-Prozess einzeln, und nur hier ist bekannt, ob
+  // IRGENDEINER gerade meldet (Begruendung in `$lib/remote/vorrang.ts`).
+  // Weitergereicht statt hier verworfen, damit ein Hello in derselben Nachricht
+  // ankommt — sonst liefe die naechste Eingabe in „Eingabe vor dem
+  // Hello-Handschlag" und riesse die Sitzung fail-closed ab.
+  if (await eingabeEinspielen(evt.slot, evt.session_id, evt.frames, remoteVorrang.aktiv)) return;
   // Fail-closed: der Sidecar hat die Eingabe-Sitzung stillgelegt (oder es gibt
   // gar keine Brücke). Ab hier käme nichts mehr an, auch kein Hoch-Ereignis —
   // eine Sitzung, die nur noch Tasten drückt, ist schlimmer als keine.

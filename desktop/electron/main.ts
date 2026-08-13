@@ -897,8 +897,10 @@ function wireSidecar(): void {
   // — der Hauptprozess führt Buch darüber, welche Plätze eine Eingabe-Sitzung
   // haben, damit „alles loslassen" beim Ende genau die erreicht und keinen
   // Sidecar startet, der nichts zu tun hat (s. `remoteInputHost.ts`).
-  ipcMain.handle('gsr:remoteInput', (_e, slot: unknown, sessionId: unknown, frames: unknown) =>
-    remoteEingabe.frames(slot, sessionId, frames),
+  ipcMain.handle(
+    'gsr:remoteInput',
+    (_e, slot: unknown, sessionId: unknown, frames: unknown, hostAktiv: unknown) =>
+      remoteEingabe.frames(slot, sessionId, frames, hostAktiv === true),
   );
   ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
 }

@@ -39,7 +39,7 @@ fn unbekannter_slot_beendet_die_sitzung_nicht() {
     }
     let s = Sitzung::singleton();
     let b = s
-        .frames(9, Some("test-unbekannter-slot"), &[vec![0x00, 2]])
+        .frames(9, Some("test-unbekannter-slot"), &[vec![0x00, 2]], false)
         .expect("unbekannter Slot ist kein Fehler");
     assert_eq!(b.zustand, "unknown_slot");
     assert_eq!(b.verarbeitet, 0);
@@ -59,7 +59,7 @@ fn verworfene_nachricht_gibt_trotzdem_frei() {
     let s = Sitzung::singleton();
     gedrueckt(s, &[0x11, 0xE01D], &[0]); // W, rechte Strg, linke Maustaste
     let b = s
-        .frames(9, Some("test-freigabe"), &[vec![0x00, 2]])
+        .frames(9, Some("test-freigabe"), &[vec![0x00, 2]], false)
         .expect("unbekannter Slot ist kein Fehler");
     assert_eq!(b.zustand, "unknown_slot");
     assert_eq!(ist_noch_gedrueckt(s), 0, "nichts darf gedrückt bleiben");
@@ -157,7 +157,7 @@ fn handschlag_ueberlebt_den_unbekannten_slot() {
         return;
     }
     let s = Sitzung::singleton();
-    let b = s.frames(9, Some("test-handschlag"), &[vec![0x00, 2]]).unwrap();
+    let b = s.frames(9, Some("test-handschlag"), &[vec![0x00, 2]], false).unwrap();
     assert_eq!(b.zustand, "unknown_slot");
     assert!(
         s.sperre().begruesst,
@@ -176,12 +176,12 @@ fn nachricht_ohne_kennung_erbt_die_vorgaengersitzung_nicht() {
         return;
     }
     let s = Sitzung::singleton();
-    s.frames(9, Some("test-A"), &[vec![0x00, 2]]).unwrap();
+    s.frames(9, Some("test-A"), &[vec![0x00, 2]], false).unwrap();
     assert!(s.sperre().begruesst);
     gedrueckt(s, &[0x11], &[0]);
     let _ = pruefspur::nimm();
 
-    let b = s.frames(9, None, &[]).expect("kein Protokollfehler");
+    let b = s.frames(9, None, &[], false).expect("kein Protokollfehler");
     assert_eq!(b.zustand, "unknown_slot");
     assert_eq!(ist_noch_gedrueckt(s), 0, "das Gedrückte der alten Sitzung");
     assert!(!s.sperre().begruesst, "und ihr Handschlag");
@@ -207,7 +207,7 @@ fn protokollfehler_der_huelle_gibt_frei_und_legt_still() {
         "die gedrückte Taste muss losgelassen worden sein"
     );
     // Stillgelegt: weitere Frames werden abgewiesen, bis beendet wird.
-    assert!(s.frames(0, None, &[vec![0x00, 2]]).is_err());
+    assert!(s.frames(0, None, &[vec![0x00, 2]], false).is_err());
     s.beenden();
     s.beenden();
 }
@@ -224,7 +224,7 @@ fn nach_endgueltigem_schluss_wird_nichts_mehr_eingespielt() {
     assert_eq!(s.beenden_endgueltig(), 1);
     let _ = pruefspur::nimm();
     let b = s
-        .frames(0, Some("test-nach-schluss"), &[vec![0x05, 0x11, 0x00, 1]])
+        .frames(0, Some("test-nach-schluss"), &[vec![0x05, 0x11, 0x00, 1]], false)
         .expect("geschlossen ist kein Fehler, nur folgenlos");
     assert_eq!(b.zustand, "ended");
     assert_eq!(b.verarbeitet, 0);
@@ -290,7 +290,7 @@ fn vorrang_verwirft_die_eingabe_und_gibt_frei() {
     wache::pruefhilfe::regung();
 
     let b = s
-        .frames(0, Some("test-vorrang"), &[vec![0x05, 0x11, 0x00, 1]])
+        .frames(0, Some("test-vorrang"), &[vec![0x05, 0x11, 0x00, 1]], false)
         .expect("Vorrang ist kein Protokollfehler");
     assert_eq!(b.zustand, "host_active");
     assert_eq!(b.verarbeitet, 0);
@@ -320,14 +320,14 @@ fn nach_dem_vorrang_laeuft_die_eingabe_weiter() {
     let s = Sitzung::singleton();
     wache::pruefhilfe::regung();
     assert_eq!(
-        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]]).unwrap().zustand,
+        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]], false).unwrap().zustand,
         "host_active"
     );
     wache::pruefhilfe::ruhe();
     // Ohne Stream ist der Slot unbekannt — entscheidend ist, dass der Vorrang
     // NICHT mehr greift und die Sitzung nie einen Fehler geliefert hat.
     assert_eq!(
-        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]]).unwrap().zustand,
+        s.frames(9, Some("test-vorrang-ende"), &[vec![0x00, 2]], false).unwrap().zustand,
         "unknown_slot"
     );
     s.beenden();
@@ -342,7 +342,7 @@ fn hello_gilt_auch_unter_vorrang() {
     let _sperre = pruefstand();
     let s = Sitzung::singleton();
     wache::pruefhilfe::regung();
-    s.frames(0, Some("test-vorrang-hello"), &[vec![0x00, 2]]).expect("kein Fehler");
+    s.frames(0, Some("test-vorrang-hello"), &[vec![0x00, 2]], false).expect("kein Fehler");
     assert!(s.sperre().begruesst, "das Hello muss trotz Vorrang gelten");
     s.beenden();
 }
@@ -362,8 +362,37 @@ fn vorrang_entwertet_die_zeigerlage() {
         z.zeiger = Some((600, 500));
     }
     wache::pruefhilfe::regung();
-    s.frames(0, Some("test-vorrang-lage"), &[vec![0x00, 2]]).expect("kein Fehler");
+    s.frames(0, Some("test-vorrang-lage"), &[vec![0x00, 2]], false).expect("kein Fehler");
     assert_eq!(s.sperre().zeiger, None, "die Lage darf nicht stehen bleiben");
+    s.beenden();
+}
+
+/// **Der Fund (Bughunt 2026-08-14):** die Wache sitzt je Sidecar-PROZESS, und
+/// Windows fährt je Stream-Platz einen eigenen. Ein Steuernder, der am
+/// Vorrang-Signal sieht, wann der Host eingreift, konnte auf einen Platz
+/// ausweichen, dessen Wache noch nie aufgestellt wurde — und dort die Restzeit
+/// weiterarbeiten. Der Renderer des Hosts kennt alle Plätze und meldet den
+/// fremden Vorrang deshalb mit; hier wird er beachtet, ohne die eigenen
+/// Übergänge anzufassen.
+#[test]
+fn fremder_vorrang_verwirft_auch_ohne_eigene_regung() {
+    let _sperre = pruefstand();
+    let s = Sitzung::singleton();
+    gedrueckt(s, &[0x11], &[]);
+    let b = s
+        .frames(0, Some("test-fremd"), &[vec![0x00, 2]], true)
+        .expect("ein fremder Vorrang ist kein Protokollfehler");
+    assert_eq!(b.zustand, "host_active");
+    assert_eq!(ist_noch_gedrueckt(s), 0, "auch der fremde Vorrang gibt frei");
+    assert!(s.sperre().begruesst, "und der Handschlag überlebt ihn");
+    // Er hinterlässt aber KEINEN eigenen Vorrang: die nächste Nachricht ohne
+    // Flag läuft wieder durch (hier bis zum unbekannten Slot).
+    if !labor_weg() {
+        assert_eq!(
+            s.frames(9, Some("test-fremd"), &[vec![0x00, 2]], false).unwrap().zustand,
+            "unknown_slot"
+        );
+    }
     s.beenden();
 }
 
