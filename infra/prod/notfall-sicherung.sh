@@ -5,7 +5,10 @@
 # Produktivserver `.env`, `secrets/` und `certs/` gelöscht. Das restic-Backup
 # lief einwandfrei — es sicherte nur Nutzerdaten, keine Konfiguration. Der
 # private JWT-Schlüssel war damit endgültig weg: alle Sitzungen und alle
-# Geräte-Zertifikate mussten neu ausgestellt werden.
+# Geräte-Zertifikate mussten neu ausgestellt werden — und, erst am 2026-08-14
+# bemerkt, jedes ruhende Geheimnis, dessen Schlüssel daraus abgeleitet ist.
+# Heute ist das das SMTP-Passwort; es ging still kaputt und blieb eine Woche
+# unbemerkt (s. `backup/backup.sh`).
 #
 # Seither sichert `backup/backup.sh config` die Konfiguration mit. Das hilft
 # aber nur, solange der SERVER steht: restic-Repo, Konfiguration und Dienste

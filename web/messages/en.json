@@ -402,6 +402,8 @@
   "admin_smtp_save_failed": "Save failed",
   "admin_smtp_save_success": "SMTP configuration saved",
   "admin_smtp_ssl_label": "Implicit TLS (port 465). Without this: STARTTLS (port 587).",
+  "admin_smtp_broken_hint": "The stored password can no longer be decrypted — its key is derived from the JWT keypair, and that has been replaced since. No mail goes out until you re-enter the password below and save.",
+  "admin_smtp_status_broken": "Password unreadable",
   "admin_smtp_status_active": "Active",
   "admin_smtp_status_not_configured": "Not configured",
   "admin_smtp_test_failed": "Test failed",

@@ -402,6 +402,8 @@
   "admin_smtp_save_failed": "Speichern fehlgeschlagen",
   "admin_smtp_save_success": "SMTP-Config gespeichert",
   "admin_smtp_ssl_label": "Implizites TLS (Port 465). Ohne Häkchen: STARTTLS (Port 587).",
+  "admin_smtp_broken_hint": "Das gespeicherte Passwort lässt sich nicht mehr entschlüsseln — der Schlüssel dafür wird aus dem JWT-Schlüsselpaar abgeleitet, und das wurde seither ersetzt. Es geht keine Mail hinaus, bis du das Passwort unten neu einträgst und speicherst.",
+  "admin_smtp_status_broken": "Passwort nicht lesbar",
   "admin_smtp_status_active": "Aktiv",
   "admin_smtp_status_not_configured": "Nicht eingerichtet",
   "admin_smtp_test_failed": "Test fehlgeschlagen",

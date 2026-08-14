@@ -45,6 +45,17 @@ openssl rsa -in secrets/jwt_private.pem -pubout -out secrets/jwt_public.pem
 sudo chown 10001:10001 secrets/jwt_private.pem secrets/jwt_public.pem
 chmod 0600 secrets/jwt_private.pem
 chmod 0644 secrets/jwt_public.pem   # public key is fine readable
+# ACHTUNG bei einem ERSATZ dieses Schlüsselpaars (Rotation, Verlust, Neuaufbau):
+# daran hängen drei Dinge, und nur zwei melden sich von selbst.
+#   1. Sitzungen — alle Nutzer müssen sich neu anmelden (fällt sofort auf).
+#   2. Geräte-Zertifikate — müssen neu ausgestellt werden (fällt sofort auf).
+#   3. Ruhende Geheimnisse, deren Schlüssel daraus ABGELEITET ist: heute das
+#      SMTP-Passwort in `auth.smtp_settings` (`dcc_auth/crypto.py`, HKDF). Das
+#      wird unlesbar, der Mailversand fällt still auf "nicht konfiguriert"
+#      zurück und muss von Hand über /admin (E-Mail) neu eingetragen werden.
+#      Am 2026-08-07 übersehen, erst am 2026-08-14 bemerkt — eine Woche ohne
+#      Passwort-Zurücksetzung. Seit 2026-08-14 zeigt das Admin-Panel dafür
+#      "Passwort nicht lesbar" statt "Aktiv".
 # self-signed cert for MediaMTX RTMPS (port 1936) — FFmpeg's rtmps client
 # doesn't verify the cert, so self-signed is fine; long validity to avoid churn
 mkdir -p certs
