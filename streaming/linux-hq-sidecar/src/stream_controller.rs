@@ -848,10 +848,13 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     // den Jitter ab: dupliziert wird erst, wenn wirklich kein Bild kam.
     let grace = frame_interval / 2;
     let mut next_slot = Instant::now() + frame_interval;
-    // Nächster erlaubter pts (strikte Monotonie-Untergrenze). Der reale pts wird
-    // pro Bild aus seiner Aufnahmezeit abgeleitet (s. u.), nicht simpel
-    // hochgezählt.
-    let mut next_pts: i64 = 0;
+    // Ein Bildabstand und die Lücken-Schwelle in Takten der Video-Zeitbasis
+    // (1/90000 — s. `crate::zeitbasis`, dort steht auch, warum nicht 1/fps).
+    let takt_bild = crate::zeitbasis::takte_je_bild(params.fps);
+    let luecke_ab = crate::zeitbasis::lueckenschwelle(params.fps);
+    // pts des zuletzt encodierten Bildes (Takte). Startet einen Bildabstand
+    // vor null, damit auch ein allererstes Duplikat auf 0 landet.
+    let mut last_pts: i64 = -takt_bild;
     // Referenz-Mitschnitt (Messwerkzeug, s. `encode::raw_dump`). Ein Fehler beim
     // Aufsetzen bricht den Stream NICHT ab — er ist nie der Zweck des Laufs.
     let mut raw_dump = match crate::encode::raw_dump::RawDump::from_env(
@@ -966,46 +969,47 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
             }
 
             // Video-pts: echte Bilder aus ihrer AUFNAHMEZEIT, abgeleitet aus
-            // DERSELBEN Monotonic-Uhr wie der Audio-Anker (GSR-Modell:
-            // `pts = (captured - record_start) * fps`; `saturating` fängt das
-            // allererste Bild ab, das noch VOR record_start entstand). Nicht
-            // die Tick-Zeit des Loops: die liegt bis zu einen Bildabstand
-            // neben der Aufnahme, und der Fehler wandert mit der Phasenlage —
-            // Mikro-Judder trotz sauberer fps-Zahlen.
+            // DERSELBEN Monotonic-Uhr wie der Audio-Anker (GSR-Modell;
+            // `saturating` fängt das allererste Bild ab, das noch VOR
+            // record_start entstand) — in Takten der 90-kHz-Zeitbasis, damit
+            // die echte Ungleichmäßigkeit der Abtastung erhalten bleibt (auf
+            // 143 Hz bei 60 fps: 13,9/13,9/20,8 ms statt dreimal „16,7").
+            // Nicht die Tick-Zeit des Loops: die liegt bis zu einen
+            // Bildabstand neben der Aufnahme, und der Fehler wandert mit der
+            // Phasenlage — Mikro-Judder trotz sauberer fps-Zahlen.
             //
-            // Duplikate dagegen kommen aus dem ZÄHLER (`next_pts`): ein
-            // Duplikat steht für „ein Slot verging", mehr weiß niemand. Sie
-            // an der Wanduhr zu verankern mischte zwei Anker — ein einziges
-            // aufgerundetes Duplikat hob den Monotonie-Zähler über die
-            // Bild-Uhr, und weil der Zähler nie sinkt, feuerte die Klemmung
-            // danach DAUERHAFT (Messlauf 2026-08-14: 36-55 pts_clamps/s).
+            // Duplikate dagegen gehen einen BILDABSTAND weiter: ein Duplikat
+            // hat keine eigene Aufnahmezeit — die Uhr steht still, und die
+            // nackte Monotonie-Untergrenze (`last_pts + 1`) wären 11 µs. Der
+            // Windows-Zwilling hat beide Fallen gemessen (Messanleitung
+            // 2026-08-14, Abschnitt „Feinere Zeitbasis"): Wanduhr-verankerte
+            // Duplikate hoben den Zähler dauerhaft über die Bild-Uhr
+            // (Dauer-Klemmung), Takt-verankerte schrumpften eine Sekunde
+            // Standbild auf Millisekunden.
             //
             // Zwei echte Störungen der Zeitachse werden gezählt, beide
             // sichtbar als Ruckeln bzw. Springen:
-            //   * LUECKE: die Bild-Uhr springt um >1 (Stau) — beim Zuschauer
-            //     steht ein Bild doppelt so lange.
-            //   * KLEMMUNG: die Bild-Uhr hängt um MINDESTENS ZWEI Schritte
-            //     hinter dem Zähler. Genau EIN Schritt darunter ist normales
-            //     Runden: liegt die Aufnahme-Phase nahe der Halbslot-Grenze,
-            //     kippt `round` je Bild zufällig zwischen zwei Schritten,
-            //     während die Ausgabe perfekt gleichmäßig bleibt — gezählt
-            //     wäre das eine Schein-Klemmung je Kipp-Bild (Messlauf
-            //     2026-08-14: bis zu 53/s bei fehlerfreier Ausgabe).
+            //   * LUECKE: die Bild-Uhr springt über die Schwelle (anderthalb
+            //     Bildabstände — die normale Abtast-Schwankung reicht bis
+            //     1,25, ein ausgefallenes Bild bringt mindestens 2).
+            //   * KLEMMUNG: die Bild-Uhr hängt mehr als einen Bildabstand
+            //     hinter dem zuletzt vergebenen pts (nach Duplikat-Strecken
+            //     ist bis zu ein Bildabstand Versatz konstruktionsbedingt).
             let pts = match captured {
                 Some(at) => {
-                    let clock_pts = (at.saturating_duration_since(record_start).as_secs_f64()
-                        * params.fps.max(1) as f64)
-                        .round() as i64;
-                    if clock_pts > next_pts {
+                    let clock_pts = crate::zeitbasis::pts_aus_sekunden(
+                        at.saturating_duration_since(record_start).as_secs_f64(),
+                    );
+                    if clock_pts > last_pts + luecke_ab {
                         window_pts_gaps += 1;
-                    } else if clock_pts < next_pts - 1 {
+                    } else if clock_pts + takt_bild < last_pts {
                         window_pts_clamps += 1;
                     }
-                    clock_pts.max(next_pts)
+                    clock_pts.max(last_pts + 1)
                 }
-                None => next_pts,
+                None => last_pts + takt_bild,
             };
-            next_pts = pts + 1;
+            last_pts = pts;
 
             // Aktuelles (ggf. dupliziertes) Bild encodieren.
             // SAFETY: `last_hw` besitzt den zuletzt vom Capture-/Filter-Pfad

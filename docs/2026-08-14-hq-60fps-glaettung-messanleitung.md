@@ -247,11 +247,15 @@ Streuung kommt vom WASAPI-Start, nicht von der Zeitbasis; der Bildstart ist
 statt eines festen Rundungsartefakts von 16,7 ms jetzt die echte
 Aufnahmezeit, 13 ms).
 
-**Der Linux-Sidecar steht weiter auf `1/fps`** und braucht dieselbe Änderung —
-er ist auf dieser Maschine nicht baubar, und ungetesteten Rust auf eine
-Plattform zu schieben ist genau der Zustand, den dieses Dokument oben für
-Windows beklagt. Betroffen wären `stream_controller.rs` (pts-Ableitung und
-Duplikat-Zähler), die Encoder-Zeitbasis und `whip/av1.rs::zeitstempel`.
+**Der Linux-Sidecar ist am 2026-08-14 nachgezogen** (eigenes `zeitbasis.rs`,
+Encoder-Zeitbasis, pts-Ableitung + Duplikat-Zähler in `stream_controller.rs`,
+`whip/av1.rs::zeitstempel` als Identität — beide Fallen von oben eingebaut).
+Nachweis, 30 s Aufnahme in Datei (mpv-Testbild 60 fps auf 143,9-Hz-Schirm,
+AMD 780M): **1800 Bilder in 30,0 s**, Abstände min 8,4 / max 30,4 ms mit
+breiter echter Streuung um 16,7 (vorher: alle exakt 16,7) — die Streuung ist
+hier weicher als das Windows-2-2-3-Muster, weil der Zeitstempel aus dem
+PipeWire-Callback kommt, nicht aus der Compositor-Uhr. Keine
+11-µs-Artefakte, 0 Duplikate, 92 Tests grün.
 
 **Die Messquelle taugt nur mit Bildschirmtakt.** `testbench/bewegung.ps1`
 zeichnet alle 15,6 ms und passt damit ohnehin durch den Aufnahme-Deckel — ein
