@@ -22,6 +22,32 @@ Stand 2026-08-14, Branch `fix/hq-60fps-glaettung`. Hintergrund: Nutzerbericht
 - Browser-Glättungspuffer (`jitterBufferTarget`) und pulse-player-Vorhalt —
   vom Nutzer zurückgestellt.
 
+## Windows-Verifikation (VOR dem Merge nach main — Auftrag an die KI auf dem Windows-PC)
+
+Der Windows-Sidecar-Anteil dieses Branches (`streaming/win-hq-sidecar/src/whip/`)
+ist auf der Linux-Entwicklungsmaschine **nicht kompilierbar** und darum noch
+unverifiziert; der Code ist wortgleich zum auf Linux end-to-end geprüften Weg.
+Auf dem Windows-PC ist zu tun, in dieser Reihenfolge:
+
+1. **Bauen:**
+   ```
+   git fetch && git checkout fix/hq-60fps-glaettung
+   bash streaming/win-hq-sidecar/scripts/bootstrap-windows-capture.sh
+   cd streaming/win-hq-sidecar && cargo build --release
+   ```
+   Falls das FFmpeg-Paket fehlt (frische Maschine): vorher einmal
+   `scripts/fetch-ffmpeg.ps1` (Details `.github/workflows/win-build.yml`).
+   Compile-Fehler wären in `src/whip/mod.rs` zu erwarten (der Umbau auf die
+   eigene RTP-Spur + `H264Payloader`); die Linux-Zwillinge
+   `streaming/linux-hq-sidecar/src/whip/{mod,pacer,av1}.rs` sind die
+   kompilierende Referenz — dieselbe webrtc-rs-Fassung (0.17).
+2. **`cargo test`** im selben Verzeichnis (u. a. `zuschnitt_haelt_die_grenzen`).
+3. **Messung 1** (nächster Abschnitt) auf dem 280-Hz-Schirm fahren — sie
+   verifiziert den Stream real UND beantwortet den offenen Deckel-Verdacht.
+4. Ergebnis (Bau grün/rot, dups-Zahlen) hier im Dokument unter „Bereits
+   gelaufen" nachtragen und auf dem Branch committen — der Merge nach main
+   wartet darauf.
+
 ## Messung 1 — Windows, 60-fps-Stream auf dem 144/280-Hz-Schirm
 
 Trennt die Sender-Verdachte: Doppelbilder ohne Netzlast = Takt/Deckel-Problem,
