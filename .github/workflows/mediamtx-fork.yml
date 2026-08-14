@@ -51,7 +51,7 @@ jobs:
       # wirklich gebaut wird. Quelle der Wahrheit bleibt das Dockerfile.
       #
       # `PULSE_REVISION` ist unser Patch-Stand und steht seit 2026-08-04 im
-      # Tag (`1.19.1-pulse2`). Vorher hiess jeder Bau `<version>-pulse` — bei
+      # Tag (`1.19.1-pulse3`). Vorher hiess jeder Bau `<version>-pulse` — bei
       # einer Aenderung am Patch-Satz zeigte derselbe Tag danach auf anderen
       # Inhalt, ohne Rueckweg ausser einem Rebuild. Begruendung am ARG selbst.
       - name: Read MediaMTX version + patch revision from Dockerfile

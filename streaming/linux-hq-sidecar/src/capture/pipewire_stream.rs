@@ -70,7 +70,15 @@ pub struct DmabufFrame {
     pub drm_fourcc: u32,
     /// DRM-Format-Modifier des Buffers (für av_hwframe_map / CUDA-Import).
     pub modifier: u64,
-    pub pts: u64,
+    /// Ankunftszeit im `process`-Callback — die beste hier verfügbare
+    /// Näherung an den Aufnahmezeitpunkt; der Encode-Takt leitet daraus die
+    /// pts ab (warum: Kommentar an der pts-Ableitung in
+    /// `stream_controller.rs`).
+    /// SPA_META_Header trüge die Compositor-Zeit exakt, aber pipewire-rs
+    /// legt die Buffer-Metas nicht offen — bewusst nicht per unsafe
+    /// nachgebaut, solange der Callback-Stempel reicht (event-getrieben,
+    /// Restfehler ist Scheduling-Rauschen weit unter einem Bildabstand).
+    pub captured_at: Instant,
     /// Stabile Identität des zugrundeliegenden PipeWire-Buffers (Hash über die
     /// ORIGINAL-fds + Offsets, vor dem dup). Der Compositor reicht dieselben
     /// 2–8 Buffer im Kreis — der NVENC-Importer cachet EGLImage+GL-Textur pro
@@ -766,7 +774,7 @@ fn run_pipewire(
                     height: ud.height,
                     drm_fourcc: ud.drm_fourcc,
                     modifier: ud.modifier,
-                    pts: 0, // PTS vom Capture-Clock — folgt mit A/V-Sync.
+                    captured_at: Instant::now(),
                     buffer_key,
                     epoch: ud.epoch,
                 });
@@ -798,15 +806,16 @@ fn run_pipewire(
 mod mailbox_tests {
     use super::*;
 
-    fn frame(pts: u64) -> DmabufFrame {
+    /// `marke` landet in `buffer_key` — nur zum Wiedererkennen im Test.
+    fn frame(marke: u64) -> DmabufFrame {
         DmabufFrame {
             planes: Vec::new(),
             width: 1,
             height: 1,
             drm_fourcc: 0,
             modifier: 0,
-            pts,
-            buffer_key: 1,
+            captured_at: Instant::now(),
+            buffer_key: marke,
             epoch: 0,
         }
     }
@@ -817,7 +826,7 @@ mod mailbox_tests {
         assert!(mb.take().unwrap().is_none());
         mb.put(frame(1));
         mb.put(frame(2));
-        assert_eq!(mb.take().unwrap().unwrap().pts, 2, "immer der NEUESTE Frame");
+        assert_eq!(mb.take().unwrap().unwrap().buffer_key, 2, "immer der NEUESTE Frame");
         assert!(mb.take().unwrap().is_none());
     }
 
@@ -833,7 +842,7 @@ mod mailbox_tests {
         let mb = FrameMailbox::new();
         mb.put(frame(7));
         mb.close();
-        assert_eq!(mb.take().unwrap().unwrap().pts, 7);
+        assert_eq!(mb.take().unwrap().unwrap().buffer_key, 7);
         assert!(mb.take().is_err());
     }
 
@@ -855,7 +864,7 @@ mod mailbox_tests {
         });
         let start = std::time::Instant::now();
         let got = mb.wait_take(Duration::from_secs(2)).unwrap();
-        assert_eq!(got.unwrap().pts, 3);
+        assert_eq!(got.unwrap().buffer_key, 3);
         assert!(start.elapsed() < Duration::from_secs(1), "muss auf put aufwachen, nicht voll warten");
         t.join().unwrap();
     }
@@ -884,7 +893,7 @@ mod frame_drop_tests {
             height: 1,
             drm_fourcc: 0,
             modifier: 0,
-            pts: 0,
+            captured_at: Instant::now(),
             buffer_key: 1,
             epoch: 0,
         };

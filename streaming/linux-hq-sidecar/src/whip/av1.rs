@@ -345,12 +345,17 @@ fn baue(
     Nutzlast { daten, letztes: false }
 }
 
-/// Fortlaufender Zustand des eigenen AV1-Paketierers.
+/// Fortlaufender Spur-Zustand: Sequenznummern + Zeitstempel.
 ///
 /// Beides gehoert hierher und nicht in den Encode-Faden: `TrackLocalStaticRTP`
 /// vergibt weder Sequenznummern noch Zeitstempel — es ueberschreibt nur SSRC
 /// und Payload-Typ je Bindung.
-pub(super) struct Av1Zustand {
+///
+/// Codec-frei: seit 2026-08-14 stempelt auch die H.264-Spur hierueber
+/// (s. Modulkopf von [`super`]) — genau das Fehlen dieser Rechnung war der
+/// H.264-Judder. Er wohnt weiter in `av1.rs`, weil der AV1-Paketierer sein
+/// erster und dokumentierender Nutzer ist.
+pub(super) struct SpurZustand {
     seq: u16,
     /// Ersatz-Takt, falls ein Encoder-Paket ausnahmsweise KEINEN `pts` traegt.
     /// Zaehlt dann dort weiter, wo der letzte Zeitstempel lag — sonst laegen
@@ -359,7 +364,7 @@ pub(super) struct Av1Zustand {
     fps: u32,
 }
 
-impl Av1Zustand {
+impl SpurZustand {
     pub(super) fn neu(fps: u32) -> Self {
         // Zufaelliger Startpunkt fuer die Sequenznummern, wie es auch
         // webrtc-rs' eigener Zaehler macht. Die Uhr reicht dafuer — eine
@@ -711,7 +716,7 @@ mod tests {
 
 #[cfg(test)]
 mod zeitstempel_tests {
-    use super::Av1Zustand;
+    use super::SpurZustand;
 
     /// Der Kern der Sache: ein AUSGELASSENES Bild darf die Uhr nicht
     /// verschieben. Genau das konnte der frühere Bildzähler nicht — er hätte
@@ -719,7 +724,7 @@ mod zeitstempel_tests {
     /// verworfenen Bild weiter zurückgefallen.
     #[test]
     fn ausgelassene_bilder_verschieben_die_uhr_nicht() {
-        let mut z = Av1Zustand::neu(60);
+        let mut z = SpurZustand::neu(60);
         assert_eq!(z.zeitstempel(Some(0)), 0);
         assert_eq!(z.zeitstempel(Some(1)), 1_500, "ein Bildabstand bei 60 fps");
         // Bilder 2, 3, 4 sind im Encoder verworfen worden.
@@ -730,7 +735,7 @@ mod zeitstempel_tests {
     /// Uhrzeit zu legen.
     #[test]
     fn fehlender_pts_faellt_auf_den_ersatz_takt_zurueck() {
-        let mut z = Av1Zustand::neu(60);
+        let mut z = SpurZustand::neu(60);
         assert_eq!(z.zeitstempel(Some(10)), 15_000);
         assert_eq!(z.zeitstempel(None), 16_500, "weiter bei Takt 11");
         assert_eq!(z.zeitstempel(None), 18_000, "und bei 12");
@@ -742,7 +747,7 @@ mod zeitstempel_tests {
     /// krummen Bildraten davon (90000/280 ist keine ganze Zahl).
     #[test]
     fn krumme_bildrate_laeuft_nicht_davon() {
-        let mut z = Av1Zustand::neu(280);
+        let mut z = SpurZustand::neu(280);
         // Ein aufaddierter Schritt waere 321 (90000/280 abgerundet) und laege
         // nach einer Sekunde bei 89880 statt 90000 — 1,3 ms zu frueh, und das
         // je Sekunde erneut.

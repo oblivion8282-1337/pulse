@@ -96,9 +96,9 @@ exakt das Image aus `infra/mediamtx-fork/` (Patches 0001–0005), dasselbe, das
 der Dev-Stack fährt. Neu einspielen von der Entwicklungsmaschine:
 
 ```bash
-docker build -t pulse-mediamtx:1.19.1-pulse2 infra/mediamtx-fork/
-docker save pulse-mediamtx:1.19.1-pulse2 | gzip | ssh pulse-test 'gunzip | docker load'
-ssh pulse-test 'docker tag localhost/pulse-mediamtx:1.19.1-pulse2 pulse-mediamtx:1.19.1-pulse2'
+docker build -t pulse-mediamtx:1.19.1-pulse3 infra/mediamtx-fork/
+docker save pulse-mediamtx:1.19.1-pulse3 | gzip | ssh pulse-test 'gunzip | docker load'
+ssh pulse-test 'docker tag localhost/pulse-mediamtx:1.19.1-pulse3 pulse-mediamtx:1.19.1-pulse3'
 ```
 
 Das `localhost/`-Präfix entsteht, weil die Entwicklungsmaschine podman fährt
