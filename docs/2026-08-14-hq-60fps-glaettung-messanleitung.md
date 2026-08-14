@@ -21,7 +21,7 @@ Die Messung ist gelaufen und hat beide entschieden:
 | Strecke | Änderung | Wo |
 |---|---|---|
 | Windows-Aufnahme | Deckel `0.9/max_fps` → **`0.5/max_fps`**, und die Zahl steht jetzt an EINER Stelle (`DECKEL_ANTEIL`) statt zweimal als Literal | `capture/{mod,rueckruf}.rs` |
-| Windows-Sender | Bild-Zeitstempel in **1/90000** statt in Bildplätzen (`1/fps`) | `zeitbasis.rs` (neu) + 3 Pipelines, 3 Encoder, `whip/av1.rs` |
+| Beide Sender | Bild-Zeitstempel in **1/90000** statt in Bildplätzen (`1/fps`) | `zeitbasis.rs` (neu, beide Sidecars) + Pipelines, Encoder, `whip/av1.rs` |
 
 Beide Abschnitte weiter unten tragen die Zahlen. Weiterhin **nicht** angefasst:
 Browser-Glättungspuffer (`jitterBufferTarget`) und pulse-player-Vorhalt — vom
@@ -230,6 +230,16 @@ stand auf anderthalb Bildabständen, hergeleitet aus dem 60-fps-Fall allein. Bei
 120 fps hätte das 640 von 3202 Ticks als Lücke gemeldet, obwohl die Ausgabe
 fehlerfrei war. Die echte Abtast-Schwankung ist jetzt für alle vier Bildraten
 gemessen und steht als Tabelle am Wert.
+
+> **OFFEN für Linux:** der Linux-Sidecar hat `zeitbasis.rs` als wortgleiche
+> Vorlage übernommen — **mitsamt der falschen `* 3 / 2`**. Zu ändern sind dort
+> genau zwei Dinge: `lueckenschwelle` auf `takte_je_bild(fps) * 2`, und der
+> Test `luecke_trennt_schwankung_von_ausfall`, der die Schwelle aus dem
+> 60-fps-Fall herleitet. Die Messtabelle steht am Windows-Wert; sie gilt für
+> beide, weil sie nur vom Verhältnis Wiederholrate zu Zielrate abhängt. Ohne
+> die Korrektur meldet der Linux-Log bei Zielraten nahe der Wiederholrate
+> Lücken, die keine sind — eine Diagnose, die Phantome zählt, ist schlimmer
+> als keine.
 
 ## Feinere Zeitbasis — der dritte Schritt (Windows, 2026-08-14)
 
