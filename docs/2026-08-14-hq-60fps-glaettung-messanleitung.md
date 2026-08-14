@@ -15,15 +15,17 @@ Stand 2026-08-14, Branch `fix/hq-60fps-glaettung`. Hintergrund: Nutzerbericht
 | Server | PLI-Drossle 300 ms → 2 s (ein Zuschauer mit schlechtem WLAN kann nicht mehr fünf Vollbilder je 2 s für alle erzwingen) — Fork-Tag `1.19.1-pulse3` | `infra/mediamtx-fork/` |
 | Server (Host) | Kernel-UDP-Puffer-Obergrenze 16 MB (`sysctl-pulse.conf`) — einmalig auf dem VPS einspielen | `infra/prod/DEPLOY.md` |
 
-**Bewusst NICHT geändert** (erst messen):
-- Windows-Aufnahme-Deckel `0.9/max_fps` (`capture/mod.rs`) — Verdacht: drückt
-  auf 144/280-Hz-Schirmen die Aufnahme per VSync-Rundung unter 60 fps.
-  **Messung 1 hat entschieden: der Verdacht stimmt** (Zahlen unten, mitsamt
-  Gegenprobe). Der Deckel steht trotzdem noch unverändert im Branch — die
-  Änderung ist eine eigene Entscheidung und gehört nicht unangekündigt in einen
-  Branch, der über den Installer an Bestandsclients geht.
-- Browser-Glättungspuffer (`jitterBufferTarget`) und pulse-player-Vorhalt —
-  vom Nutzer zurückgestellt.
+Zwei Dinge standen hier zunächst als **„bewusst NICHT geändert, erst messen"**.
+Die Messung ist gelaufen und hat beide entschieden:
+
+| Strecke | Änderung | Wo |
+|---|---|---|
+| Windows-Aufnahme | Deckel `0.9/max_fps` → **`0.5/max_fps`**, und die Zahl steht jetzt an EINER Stelle (`DECKEL_ANTEIL`) statt zweimal als Literal | `capture/{mod,rueckruf}.rs` |
+| Windows-Sender | Bild-Zeitstempel in **1/90000** statt in Bildplätzen (`1/fps`) | `zeitbasis.rs` (neu) + 3 Pipelines, 3 Encoder, `whip/av1.rs` |
+
+Beide Abschnitte weiter unten tragen die Zahlen. Weiterhin **nicht** angefasst:
+Browser-Glättungspuffer (`jitterBufferTarget`) und pulse-player-Vorhalt — vom
+Nutzer zurückgestellt.
 
 ## Windows-Verifikation (VOR dem Merge nach main — Auftrag an die KI auf dem Windows-PC)
 
@@ -194,6 +196,40 @@ sein kann.
 Leitung statt Loopback, zweiter Rechner, HDR/10 bit, Ankunftslücken beim
 Zuschauer — dafür braucht es den Messstand, der seit 2026-08-12 für die
 Fernsteuer-Testinstanz gestoppt ist.
+
+## Aufnahme-Deckel abgesenkt (Windows, 2026-08-14)
+
+`0.9/max_fps` → `0.5/max_fps`. Die Herleitung steht am Wert selbst
+(`capture/mod.rs`, `DECKEL_ANTEIL`) und ist hier nicht zweitgefasst; kurz: die
+Drossel wirkt nicht wie ein Ventil, sondern wie ein Tor, das sich nur zu den
+Zeitpunkten des Schirms öffnet. „Mindestens 15,0 ms" trifft bei 143 Hz keinen
+erlaubten Zeitpunkt, der nächste liegt bei 20,8 ms — 48 Bilder je Sekunde statt
+60.
+
+**Bestätigungsmessung mit dem Endstand** (je 30 s, Quelle mit Bildschirmtakt,
+2560x1440@143 Hz):
+
+| Ziel | Aufnahmerate | Duplikate | Lücken | Verwürfe |
+|---|---|---|---|---|
+| 30 fps | 48,5/s | **0** | 0 | 0 |
+| 60 fps | 96,1/s | **0** | 0 | 0 |
+| 120 fps | 144,1/s | **0** | 0 | 0 |
+| 144 fps | 147,9/s | **0** | 1 in 27 s | 0 |
+
+Vorher lagen dieselben vier bei 1,1 / 7,8 / 13,2 / 0 Duplikaten je Sekunde.
+
+**Die Zahl steht jetzt an einer Stelle.** `rueckruf.rs` prüft die
+Rückruf-Dauer gegen denselben Deckel und trug ihn als zweites Literal — unter
+einem Kommentar, der ausdrücklich behauptete, er stehe „nicht noch einmal als
+Literal". Beim Absenken wäre das die Falle gewesen: eine Schranke, die gegen
+einen Deckel prüft, den es nicht mehr gibt, meldet weiter Nullen und beweist
+dabei nichts.
+
+**Die Lücken-Schwelle musste mit** (`zeitbasis::lueckenschwelle`, s. u.): sie
+stand auf anderthalb Bildabständen, hergeleitet aus dem 60-fps-Fall allein. Bei
+120 fps hätte das 640 von 3202 Ticks als Lücke gemeldet, obwohl die Ausgabe
+fehlerfrei war. Die echte Abtast-Schwankung ist jetzt für alle vier Bildraten
+gemessen und steht als Tabelle am Wert.
 
 ## Feinere Zeitbasis — der dritte Schritt (Windows, 2026-08-14)
 

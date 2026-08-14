@@ -10,7 +10,7 @@
       "items": [
         "Der Sender verschickt die Datenpakete eines Bildes jetzt gleichmäßig verteilt statt in einem Schub. Solche Schübe kamen beim Zuschauer als kleine Aussetzer an.",
         "Jedes Bild trägt jetzt seinen echten Aufnahmezeitpunkt — und zwar genau, statt auf den nächsten Bildtakt gerundet zu werden. Auf schnellen Bildschirmen entstehen die Bilder zwangsläufig in leicht ungleichen Abständen; ausgegeben wurden sie bisher als gleichmäßig, wodurch die Bewegung abwechselnd minimal zu langsam und zu schnell lief.",
-        "Unter Linux tastet die Aufnahme den Bildschirm jetzt sauber im Takt der Bildquelle ab — das beseitigt Doppel- und Auslassbilder, die genau bei 60 fps auftreten konnten.",
+        "Die Aufnahme tastet den Bildschirm jetzt sauber im Takt der Bildquelle ab — das beseitigt Doppel- und Auslassbilder. Unter Windows fehlten auf schnellen Bildschirmen bisher bis zu ein Fünftel aller Bilder und wurden als Wiederholung verschickt; bei 120 fps war es am meisten. Gemessen bleibt jetzt bei 30, 60, 120 und 144 Bildern pro Sekunde keine einzige Wiederholung übrig.",
         "Ein einzelner Zuschauer mit schlechter Leitung kann das Bild der anderen nicht mehr regelmäßig kurz unscharf machen."
       ],
       "outro": "Ein Teil der Verbesserungen erreicht Windows mit dem nächsten Desktop-Update."

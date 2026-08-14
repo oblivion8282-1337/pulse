@@ -101,9 +101,15 @@ impl RueckrufStand {
 
 impl RueckrufWacht {
     /// `max_fps` ist die Zielbildrate des Streams; daraus folgt der Deckel, mit
-    /// dem [`super::min_interval_settings`] die Lieferung drosselt. **Dieselbe
-    /// Zahl wie dort**, und deshalb steht sie hier nicht noch einmal als
-    /// Literal: `0,9/fps` — der Zehntel Sicherheitsabstand ist dort begründet.
+    /// dem [`super::min_interval_settings`] die Lieferung drosselt.
+    ///
+    /// **Die Zahl kommt jetzt aus [`super::DECKEL_ANTEIL`] statt als zweites
+    /// Literal hier zu stehen.** Der Kommentar behauptete schon vorher, sie
+    /// stehe „nicht noch einmal als Literal" — sie stand es doch (`0.9`), an
+    /// beiden Stellen. Beim Absenken auf 0,5 am 2026-08-14 wäre genau das die
+    /// Falle gewesen: eine Schranke, die still gegen einen Deckel prüft, den
+    /// es nicht mehr gibt, hätte weiter Nullen gemeldet und dabei nichts mehr
+    /// bewiesen.
     pub fn neu(max_fps: u32) -> Self {
         let abstand_us = if max_fps == 0 {
             // Ohne Zielbildrate gibt es keinen Deckel; dann ist jede Dauer
@@ -111,7 +117,7 @@ impl RueckrufWacht {
             // eine erfundene Zahl, an der man sich später festhält.
             u64::MAX
         } else {
-            (0.9 / max_fps as f64 * 1_000_000.0) as u64
+            (super::DECKEL_ANTEIL / max_fps as f64 * 1_000_000.0) as u64
         };
         Self {
             abstand_us,
@@ -154,21 +160,27 @@ impl RueckrufWacht {
 mod tests {
     use super::*;
 
-    /// Bei 60 Bildern je Sekunde liegt der Deckel bei 15,0 ms. Ein Rückruf
-    /// darunter kostet nichts — das ist die ganze Aussage der Wacht, und sie
-    /// gehört festgehalten, damit ein späteres „Vereinfachen" des Abstands
-    /// nicht still eine andere Schranke einsetzt.
+    /// Bei 60 Bildern je Sekunde liegt der Deckel bei 8,33 ms (`0,5/fps`, seit
+    /// 2026-08-14 — vorher 15,0). Ein Rückruf darunter kostet nichts — das ist
+    /// die ganze Aussage der Wacht, und sie gehört festgehalten, damit ein
+    /// späteres „Vereinfachen" des Abstands nicht still eine andere Schranke
+    /// einsetzt.
+    ///
+    /// **Die Zahlen stehen hier absichtlich ausgeschrieben** statt aus
+    /// [`super::DECKEL_ANTEIL`] gerechnet: wer den Anteil ändert, soll hier
+    /// stolpern und die Schranke bewusst nachziehen, nicht von einem Test
+    /// begleitet werden, der jeden Wert mitmacht.
     #[test]
     fn kurze_rueckrufe_kosten_nichts() {
         let w = RueckrufWacht::neu(60);
-        for us in [10u64, 900, 1_820, 5_000, 14_999] {
+        for us in [10u64, 900, 1_820, 5_000, 8_332] {
             w.verbuchen(Duration::from_micros(us));
         }
         let s = w.stand();
         assert_eq!(s.anzahl, 5);
         assert_eq!(s.ueberlang, 0);
         assert_eq!(s.verlust_obergrenze, 0);
-        assert_eq!(s.max_us, 14_999);
+        assert_eq!(s.max_us, 8_332);
     }
 
     /// Und darüber zählt sie vollständig verstrichene Lieferzeitpunkte, nicht
@@ -176,8 +188,8 @@ mod tests {
     #[test]
     fn lange_rueckrufe_zaehlen_verstrichene_lieferzeitpunkte() {
         let w = RueckrufWacht::neu(60);
-        w.verbuchen(Duration::from_micros(15_000)); // genau einer
-        w.verbuchen(Duration::from_micros(46_000)); // drei
+        w.verbuchen(Duration::from_micros(8_333)); // genau einer
+        w.verbuchen(Duration::from_micros(25_000)); // drei
         let s = w.stand();
         assert_eq!(s.ueberlang, 2);
         assert_eq!(s.verlust_obergrenze, 4);
