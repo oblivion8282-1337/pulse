@@ -369,9 +369,10 @@ impl WhipSender {
 
     /// Ein encodiertes Bild senden.
     ///
-    /// `pts` ist der Zeitstempel des Encoder-Pakets in der ENCODER-Zeitbasis
-    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten. Beide
-    /// Codec-Wege rechnen ihn selbst um (`av1::SpurZustand::zeitstempel`).
+    /// `pts` ist der Zeitstempel des Encoder-Pakets in der ENCODER-Zeitbasis —
+    /// und die IST seit 2026-08-14 die 90-kHz-RTP-Uhr (`crate::zeitbasis`),
+    /// die Uebergabe an die Spur also eine Identitaet
+    /// (`av1::SpurZustand::zeitstempel`).
     pub fn send(&self, data: &[u8], pts: Option<i64>) -> Result<()> {
         let Bildspur { zustand, pacer, track } = &self.track;
         let pakete: Vec<Packet> = {

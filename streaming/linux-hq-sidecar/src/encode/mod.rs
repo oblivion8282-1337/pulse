@@ -301,7 +301,7 @@ impl VideoEncoder {
         output.write_header().context("write_header")?;
 
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
-        let encoder_time_base = Rational::new(1, cfg.fps as i32);
+        let encoder_time_base = Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32);
 
         // Vom Muxer zugewiesene Audio-Stream-Timebase nachreichen.
         if let Some(ae) = audio_enc.as_mut() {
@@ -371,7 +371,7 @@ impl VideoEncoder {
         let sender = WhipSender::connect(url, &cfg.codec, cfg.fps, cfg.width, cfg.height)
             .with_context(|| format!("WHIP-Aufbau zu {}", redact_url(url)))?;
 
-        let tb = Rational::new(1, cfg.fps as i32);
+        let tb = Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32);
         Ok((
             Self {
                 mux: Ausgabe::Whip(Arc::new(sender)),
@@ -405,7 +405,8 @@ impl VideoEncoder {
     }
 
     /// Schicke einen HW-Frame (CUDA/VAAPI, `*mut AVFrame`) in den Encoder.
-    /// `pts` in Encoder-Timebase (1/fps), strikt monoton.
+    /// `pts` in Encoder-Zeitbasis-Takten (1/90000, s. `crate::zeitbasis`),
+    /// strikt monoton.
     ///
     /// # Safety
     ///
@@ -580,7 +581,10 @@ unsafe fn open_encoder(
     encoder.set_width(cfg.width);
     encoder.set_height(cfg.height);
     encoder.set_format(hw_pixel);
-    encoder.set_time_base(Rational::new(1, cfg.fps as i32));
+    // Zeitbasis 1/90000, NICHT 1/fps — Begruendung in [`crate::zeitbasis`].
+    // Die Bildrate steht in der Zeile darunter und bleibt damit die Grundlage
+    // von Ratenregelung und GOP; nur die EINHEIT der Zeitstempel wird feiner.
+    encoder.set_time_base(Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32));
     encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
     let bitrate_bps = (cfg.bitrate_kbps as usize).saturating_mul(1000);
     encoder.set_bit_rate(bitrate_bps);
