@@ -389,10 +389,17 @@ impl SpurZustand {
     /// auflaeuft. Auf einer iGPU bei 1440p60 — also genau dort, wo der Encoder
     /// die Bildrate nicht immer haelt — faellt das sofort auf.
     ///
-    /// Der `pts` liegt in der Encoder-Zeitbasis 1/fps, ein Takt ist also ein
-    /// Bildabstand. Gerechnet wird JEDES MAL neu statt aufaddiert: bei 280 fps
-    /// sind 90000/fps keine ganze Zahl, und ein aufaddierter Schritt liefe um
-    /// rund eine Millisekunde je Sekunde davon.
+    /// **Seit 2026-08-14 ist das eine Identitaet, und das ist der Zweck.** Der
+    /// `pts` liegt in der Encoder-Zeitbasis, und die ist dieselbe 90-kHz-Uhr
+    /// wie die RTP-Uhr ([`crate::zeitbasis`] begruendet die Wahl genau damit).
+    /// Vorher stand hier `takt * 90000 / fps`, weil ein Takt ein BILDPLATZ war
+    /// — und diese Umrechnung war die Stelle, an der die echten Aufnahme-
+    /// Abstaende verlorengingen: sie kamen schon gerundet an.
+    ///
+    /// Die Rechnung faellt damit weg, nicht die Wachsamkeit: laufen
+    /// Encoder-Zeitbasis und [`RTP_TAKT_HZ`] je auseinander, rechnet der
+    /// Empfaenger falsch, ohne dass irgendetwas scheitert. Der Test
+    /// `zeitbasis_und_rtp_uhr_sind_dieselbe` haelt die beiden zusammen.
     ///
     /// `as u32` schneidet oben ab — genau das erwartet RFC 3550 von einer
     /// RTP-Uhr (sie laeuft ueber und faengt von vorn an).
@@ -401,8 +408,11 @@ impl SpurZustand {
             Some(p) if p >= 0 => p as u64,
             _ => self.ersatz_takt,
         };
-        self.ersatz_takt = takt + 1;
-        (takt * u64::from(RTP_TAKT_HZ) / u64::from(self.fps)) as u32
+        // Der Ersatz-Takt geht um einen BILDABSTAND weiter, nicht um einen
+        // Takt: ein Takt sind 11 µs, zwei Bilder laegen damit praktisch auf
+        // derselben Uhrzeit — genau das, was der Ersatz verhindern soll.
+        self.ersatz_takt = takt + crate::zeitbasis::takte_je_bild(self.fps) as u64;
+        takt as u32
     }
 
     /// Sequenznummer fuer das naechste Paket; laeuft bei 65535 ueber.
@@ -716,43 +726,66 @@ mod tests {
 
 #[cfg(test)]
 mod zeitstempel_tests {
-    use super::SpurZustand;
+    use super::{RTP_TAKT_HZ, SpurZustand};
+    use crate::zeitbasis::{VIDEO_HZ, pts_aus_sekunden};
+
+    /// Die Voraussetzung der ganzen Identitaet: dieselbe Uhr auf beiden
+    /// Seiten. Faellt sie, rechnet der Empfaenger jeden Zeitstempel falsch um,
+    /// ohne dass irgendetwas scheitert — deshalb ein eigener Test und keine
+    /// Bemerkung im Fliesstext.
+    #[test]
+    fn zeitbasis_und_rtp_uhr_sind_dieselbe() {
+        assert_eq!(VIDEO_HZ, RTP_TAKT_HZ);
+    }
 
     /// Der Kern der Sache: ein AUSGELASSENES Bild darf die Uhr nicht
-    /// verschieben. Genau das konnte der frühere Bildzähler nicht — er hätte
-    /// hier 3000 geliefert, also 40 ms zu früh, und wäre bei jedem weiteren
-    /// verworfenen Bild weiter zurückgefallen.
+    /// verschieben. Der `pts` kommt aus der echten Aufnahmezeit und geht
+    /// unveraendert hinaus.
     #[test]
     fn ausgelassene_bilder_verschieben_die_uhr_nicht() {
         let mut z = SpurZustand::neu(60);
         assert_eq!(z.zeitstempel(Some(0)), 0);
-        assert_eq!(z.zeitstempel(Some(1)), 1_500, "ein Bildabstand bei 60 fps");
+        assert_eq!(z.zeitstempel(Some(1_500)), 1_500, "ein Bildabstand bei 60 fps");
         // Bilder 2, 3, 4 sind im Encoder verworfen worden.
-        assert_eq!(z.zeitstempel(Some(5)), 7_500, "5 * 1500 — nicht 3000");
+        assert_eq!(z.zeitstempel(Some(7_500)), 7_500, "die Uhr des fuenften Bildes");
+    }
+
+    /// **Der eigentliche Gewinn der feineren Zeitbasis.** Drei Bilder, wie sie
+    /// ein 143,9-Hz-Schirm bei 60 fps liefert (Muster 2-2-3 Bildschirmtakte),
+    /// muessen mit DREI VERSCHIEDENEN Abstaenden auf die Leitung gehen. Im
+    /// alten Raster kamen hier dreimal 1500 heraus — die Bewegung lief also
+    /// abwechselnd zu langsam und zu schnell.
+    #[test]
+    fn ungleiche_aufnahmeabstaende_gehen_ungleich_hinaus() {
+        let takt = 1.0 / 143.9;
+        let mut z = SpurZustand::neu(60);
+        let stempel: Vec<u32> = [0.0, 2.0, 4.0, 7.0]
+            .iter()
+            .map(|n| z.zeitstempel(Some(pts_aus_sekunden(n * takt))))
+            .collect();
+        let abstaende: Vec<u32> = stempel.windows(2).map(|w| w[1] - w[0]).collect();
+        assert_eq!(abstaende, vec![1_251, 1_251, 1_876]);
     }
 
     /// Ohne `pts` läuft der Ersatz-Takt weiter, statt zwei Bilder auf dieselbe
-    /// Uhrzeit zu legen.
+    /// Uhrzeit zu legen — und zwar um einen BILDABSTAND, nicht um einen Takt.
     #[test]
     fn fehlender_pts_faellt_auf_den_ersatz_takt_zurueck() {
         let mut z = SpurZustand::neu(60);
-        assert_eq!(z.zeitstempel(Some(10)), 15_000);
-        assert_eq!(z.zeitstempel(None), 16_500, "weiter bei Takt 11");
-        assert_eq!(z.zeitstempel(None), 18_000, "und bei 12");
+        assert_eq!(z.zeitstempel(Some(15_000)), 15_000);
+        assert_eq!(z.zeitstempel(None), 16_500, "ein Bildabstand weiter");
+        assert_eq!(z.zeitstempel(None), 18_000, "und noch einer");
         // Kommt der pts zurück, gilt wieder er.
-        assert_eq!(z.zeitstempel(Some(20)), 30_000);
+        assert_eq!(z.zeitstempel(Some(30_000)), 30_000);
     }
 
-    /// Jedes Mal neu gerechnet statt aufaddiert — sonst liefe die Uhr bei
-    /// krummen Bildraten davon (90000/280 ist keine ganze Zahl).
+    /// Krumme Bildraten koennen nicht mehr davonlaufen, weil gar nicht mehr
+    /// gerechnet wird — der Ersatz-Takt rundet auf und bleibt damit
+    /// mindestens einen echten Bildabstand auseinander.
     #[test]
     fn krumme_bildrate_laeuft_nicht_davon() {
         let mut z = SpurZustand::neu(280);
-        // Ein aufaddierter Schritt waere 321 (90000/280 abgerundet) und laege
-        // nach einer Sekunde bei 89880 statt 90000 — 1,3 ms zu frueh, und das
-        // je Sekunde erneut.
-        assert_eq!(z.zeitstempel(Some(1)), 321);
-        assert_eq!(z.zeitstempel(Some(140)), 45_000, "eine halbe Sekunde");
-        assert_eq!(z.zeitstempel(Some(280)), 90_000, "genau eine Sekunde");
+        assert_eq!(z.zeitstempel(Some(90_000)), 90_000, "genau eine Sekunde");
+        assert_eq!(z.zeitstempel(None), 90_322, "90000/280 ist 321,4 — aufgerundet");
     }
 }

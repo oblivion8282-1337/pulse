@@ -49,7 +49,8 @@ use crate::audio::CapturedAudio;
 /// Sendeweg über [`super::senke_writer`]).
 pub trait BildEncoder {
     /// Ein Pool-Bild einschieben. `pts` ist die aus der Wanduhr abgeleitete
-    /// Präsentationszeit in Encoder-Zeitbasis (1/fps), streng monoton.
+    /// Präsentationszeit in Encoder-Zeitbasis (1/90000, s. `crate::zeitbasis`),
+    /// streng monoton.
     fn send_hw(&mut self, frame: &mut OwnedHwFrame, pts: i64) -> Result<()>;
 
     /// Wird gerufen, **bevor** in dieses Pool-Bild geschrieben wird.

@@ -36,6 +36,7 @@ use super::mux_writer::MuxWriter;
 use super::output::{open_output, warn_unknown_opts};
 use super::senke::SenkenAuftrag;
 use super::senke_writer::SenkenWriter;
+use crate::zeitbasis::VIDEO_HZ;
 use crate::audio::CapturedAudio;
 
 /// Wohin die fertigen Pakete gehen. Begründung der Gabelung: `senke.rs`.
@@ -173,7 +174,11 @@ impl FfmpegHwEncoder {
         encoder.set_width(cfg.dst_w);
         encoder.set_height(cfg.dst_h);
         encoder.set_format(format::Pixel::D3D11);
-        encoder.set_time_base(Rational::new(1, cfg.fps as i32));
+        // Zeitbasis 1/90000, NICHT 1/fps — Begruendung in [`crate::zeitbasis`].
+        // Die Bildrate steht in der Zeile darunter und bleibt damit die
+        // Grundlage von Ratenregelung und GOP; nur die EINHEIT der
+        // Zeitstempel wird feiner.
+        encoder.set_time_base(Rational::new(1, VIDEO_HZ as i32));
         encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
@@ -228,7 +233,7 @@ impl FfmpegHwEncoder {
             cfg.ten_bit,
         );
 
-        let encoder_time_base = Rational::new(1, cfg.fps as i32);
+        let encoder_time_base = Rational::new(1, VIDEO_HZ as i32);
 
         // Der Ton MUSS vor dem Verbinden stehen: WHIP kennt keine
         // Nachverhandlung, die Tonspur muss also schon im Angebot liegen. Wer
@@ -353,7 +358,8 @@ impl FfmpegHwEncoder {
     }
 
     /// Schickt einen Pool-Frame in den Encoder. `pts` ist die wall-clock-
-    /// abgeleitete Präsentations-Zeit in Encoder-Timebase-Einheiten (1/fps) —
+    /// abgeleitete Präsentations-Zeit in Encoder-Zeitbasis-Takten (1/90000,
+    /// s. `crate::zeitbasis`) —
     /// vom Pacing-Loop in `pipeline_hw.rs` vergeben, muss streng monoton sein.
     /// Bei statischem Bild wird derselbe Frame mehrfach mit fortlaufender PTS
     /// gesendet (Duplizierung) — daher PTS als Parameter, kein interner Zähler.

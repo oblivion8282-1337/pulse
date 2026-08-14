@@ -34,6 +34,7 @@ use super::latency::EncodeLatency;
 use super::mux_writer::MuxWriter;
 use super::output::{open_output, warn_unknown_opts};
 use crate::audio::CapturedAudio;
+use crate::zeitbasis::VIDEO_HZ;
 
 /// FFmpeg verlangt `AV_INPUT_BUFFER_PADDING_SIZE` Null-Bytes hinter extradata.
 const EXTRADATA_PADDING: usize = 64;
@@ -97,7 +98,7 @@ pub struct FfmpegD3d12Encoder {
     device: ID3D12Device,
     video_stream_idx: usize,
     encoder_time_base: Rational,
-    /// Erst nach der Aktivierung gültig (vorher Platzhalter 1/fps).
+    /// Erst nach der Aktivierung gültig (vorher Platzhalter 1/90000).
     stream_time_base: Rational,
     audio: Option<AudioPipeline>,
     /// Diagnose-Timings (µs) für den `TickMonitor`.
@@ -138,7 +139,10 @@ impl FfmpegD3d12Encoder {
             .video()?;
         encoder.set_width(cfg.dst_width);
         encoder.set_height(cfg.dst_height);
-        encoder.set_time_base(Rational::new(1, cfg.fps as i32));
+        // Zeitbasis 1/90000, NICHT 1/fps — Begruendung in [`crate::zeitbasis`].
+        // Die Bildrate darunter bleibt die Grundlage von Ratenregelung und
+        // GOP; nur die EINHEIT der Zeitstempel wird feiner.
+        encoder.set_time_base(Rational::new(1, VIDEO_HZ as i32));
         encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
@@ -202,8 +206,9 @@ impl FfmpegD3d12Encoder {
             frames_ref,
             device,
             video_stream_idx,
-            encoder_time_base: Rational::new(1, cfg.fps as i32),
-            stream_time_base: Rational::new(1, cfg.fps as i32),
+            encoder_time_base: Rational::new(1, VIDEO_HZ as i32),
+            // Platzhalter bis `write_header` — s. `set_stream_time_base`.
+            stream_time_base: Rational::new(1, VIDEO_HZ as i32),
             audio,
             last_send_us: 0,
             last_mux_us: 0,
@@ -252,7 +257,8 @@ impl FfmpegD3d12Encoder {
     }
 
     /// Schickt einen (vom Converter beschriebenen) Pool-Frame in den Encoder.
-    /// `pts` ist die wall-clock-abgeleitete PTS in Encoder-Timebase (1/fps).
+    /// `pts` ist die aus der Aufnahmezeit abgeleitete PTS in Encoder-Zeitbasis
+    /// (1/90000 — s. `crate::zeitbasis`).
     pub fn send_frame(&mut self, frame: &mut OwnedD3d12Frame, pts: i64) -> Result<()> {
         unsafe { (*frame.frame).pts = pts };
         // VOR dem Einschieben stempeln (s. `latency.rs`).

@@ -140,6 +140,11 @@ pub struct TickMonitor {
     win_start_rueckruf: RueckrufStand,
     cur_rueckruf: RueckrufStand,
     win: Window,
+    /// Ab welchem pts-Sprung eine LUECKE gemeldet wird. Kommt aus
+    /// `zeitbasis::lueckenschwelle` — mit ehrlichen Zeitstempeln ist ein
+    /// Sprung ueber einen Bildabstand der Normalfall und keine Luecke mehr
+    /// (Begruendung dort).
+    lueckenschwelle: i64,
     /// `PULSE_ENC_LATENCY_LOG=1`: die 2s-Zusammenfassung auch dann ausgeben,
     /// wenn das Fenster sauber war. Fuer Messlaeufe — die Encode-Latenz ist
     /// gerade dann interessant, wenn NICHTS auffaellig ist, und die
@@ -176,6 +181,7 @@ impl TickMonitor {
             win_start_rueckruf: Default::default(),
             cur_rueckruf: Default::default(),
             win: Window::default(),
+            lueckenschwelle: crate::zeitbasis::lueckenschwelle(fps),
             enc_log: crate::env::flag("PULSE_ENC_LATENCY_LOG"),
         }
     }
@@ -202,7 +208,7 @@ impl TickMonitor {
             if s.captured == 0 {
                 w.dups += 1;
             }
-            if s.pts_delta > 1 {
+            if s.pts_delta > self.lueckenschwelle {
                 w.pts_gaps += 1;
             }
             let (enc_sum, enc_max, enc_n) = s.enc_latency;
@@ -243,7 +249,8 @@ impl TickMonitor {
         }
 
         // Anomalie = langsame Iteration ODER übersprungener Frame (pts-gap).
-        let anomaly = idx >= WARMUP_TICKS && (s.iter > self.slow_threshold || s.pts_delta > 1);
+        let anomaly =
+            idx >= WARMUP_TICKS && (s.iter > self.slow_threshold || s.pts_delta > self.lueckenschwelle);
         if anomaly {
             self.win.slow += 1;
             if self.win.slow_logged < MAX_SLOW_LOGS_PER_WINDOW {

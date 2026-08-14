@@ -195,6 +195,72 @@ Leitung statt Loopback, zweiter Rechner, HDR/10 bit, Ankunftslücken beim
 Zuschauer — dafür braucht es den Messstand, der seit 2026-08-12 für die
 Fernsteuer-Testinstanz gestoppt ist.
 
+## Feinere Zeitbasis — der dritte Schritt (Windows, 2026-08-14)
+
+Nach dem Aufnahme-Deckel bleibt ein Rest, den kein Deckel beheben kann: die
+Bilder entstehen auf einem 143-Hz-Schirm bei 60 fps im Muster 2-2-3
+Bildschirmtakte, also mit Abständen von 13,9 / 13,9 / 20,8 ms. Die ANZAHL
+stimmt, die ABSTÄNDE nicht — und im alten Zeitraster (Encoder-Zeitbasis
+`1/fps`) konnte ein Zeitstempel nur Vielfache eines Bildabstands ausdrücken.
+Die Ungleichmäßigkeit wurde also wegge­rundet: der Zuschauer bekam Bilder, die
+13,9 ms auseinander aufgenommen wurden, als wären es 16,7.
+
+**Geändert**: Encoder-Zeitbasis von `1/fps` auf **1/90000** — dieselbe Uhr, die
+RTP für Video ohnehin führt. Volle Begründung samt Alternativen in
+`streaming/win-hq-sidecar/src/zeitbasis.rs`; die Umrechnung im WHIP-Sendeweg
+wird dadurch zur Identität und kann nicht mehr falsch runden.
+
+**Nachweis, A/B mit derselben Bewegungsquelle** (je 25 s, 60 fps, H.264,
+Abstände zweier aufeinanderfolgender Bilder im Mitschnitt):
+
+| | Abstände | Bilder | Dauer | Datenrate |
+|---|---|---|---|---|
+| Branch-Stand | **1421 von 1421 exakt 16,7 ms** | 1482 | 24,7 s | 11,9 Mbit/s |
+| Feine Zeitbasis | **13,9 ms (662x) · 20,8 ms (610x)** · 16,7 ms (71x) · 4,2 ms (52x) | 1480 | 24,7 s | 11,9 Mbit/s |
+
+Gleich viele Bilder, gleiche Dauer, gleiche Datenrate — nur die Zeitstempel
+sind ehrlich geworden. Die 16,7-ms-Einträge sind die Duplikate (Zähler, s. u.),
+die 4,2 ms ein echtes Bild direkt nach einem Duplikat: 16,7 + 4,2 = 20,8, die
+Summe stimmt also.
+
+**Zwei Fallen, beide gemessen und beide teuer:**
+
+1. **Duplikate müssen am ZÄHLER hängen, nicht an der Aufnahme-Uhr.** Ein
+   Duplikat hat keine eigene Aufnahmezeit; die Uhr steht dann still, und die
+   Monotonie-Untergrenze `last_pts + 1` griff. Im alten Raster war dieses „+1"
+   zufällig genau ein Bildabstand — in Takten sind es 11 µs. Im ersten Messlauf
+   standen deshalb Siebenergruppen im 11-µs-Abstand mit 111-ms-Sprüngen
+   dazwischen: eine Sekunde Standbild schrumpft im Strom auf Millisekunden. Der
+   Linux-Zwilling verankert Duplikate aus demselben Grund am Zähler.
+2. **Die Lücken-Diagnose zählt sonst Phantome.** `pts_delta > 1` hiess „ein
+   Bildplatz übersprungen" und war richtig, solange es keine Zwischenwerte gab.
+   Mit ehrlichen Zeitstempeln sind Zwischenwerte der Normalfall — die Schwelle
+   liegt jetzt bei anderthalb Bildabständen (`zeitbasis::lueckenschwelle`),
+   oberhalb der echten Abtast-Schwankung (1,25) und unterhalb eines wirklich
+   ausgefallenen Bildes (2,0).
+
+**Gegengeprüft**: 191 Tests grün · WHIP publiziert (`1 track (H264)`), in
+diesem Lauf ganz ohne Verlustmeldung · Datenrate unverändert (Ratenregelung
+hängt an `set_frame_rate`, die bleibt) · **A/V-Versatz ohne erkennbare
+Änderung** (je drei Läufe mit Ton: alt 17/19/48 ms, neu 58/26/29 ms — die
+Streuung kommt vom WASAPI-Start, nicht von der Zeitbasis; der Bildstart ist
+statt eines festen Rundungsartefakts von 16,7 ms jetzt die echte
+Aufnahmezeit, 13 ms).
+
+**Der Linux-Sidecar steht weiter auf `1/fps`** und braucht dieselbe Änderung —
+er ist auf dieser Maschine nicht baubar, und ungetesteten Rust auf eine
+Plattform zu schieben ist genau der Zustand, den dieses Dokument oben für
+Windows beklagt. Betroffen wären `stream_controller.rs` (pts-Ableitung und
+Duplikat-Zähler), die Encoder-Zeitbasis und `whip/av1.rs::zeitstempel`.
+
+**Die Messquelle taugt nur mit Bildschirmtakt.** `testbench/bewegung.ps1`
+zeichnet alle 15,6 ms und passt damit ohnehin durch den Aufnahme-Deckel — ein
+Lauf dagegen ist falsch grün. Ebenso wertlos ist ein Lauf bei
+**eingeschlafenem Bildschirm**: die Zusammensetzung fällt dann auf ~11 Hz, die
+Aufnahme liefert fast nichts, und es sieht aus wie ein Fehler im Sender (am
+2026-08-14 einmal hineingelaufen). Vor jeder Messung die gemessene Rate der
+Quelle ablesen, nicht annehmen.
+
 ## Messung 2 — Linux, Duplikat-/PTS-Log
 
 Der Sidecar meldet seit je her je Sekunde `duplicates` / `pts_gaps` /
