@@ -20,6 +20,7 @@ use crate::events;
 use crate::tick_monitor::{TickMonitor, TickSample};
 
 use super::{StartParams, StreamController, emit_state, fit_within_box, select_adapter};
+use crate::zeitbasis;
 
 pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
@@ -287,7 +288,17 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             } else {
                 started.elapsed().as_secs_f64()
             };
-            let mut pts = (elapsed * fps as f64).round() as i64;
+            // In Takten der Video-Zeitbasis, NICHT in Bildplaetzen — die echte
+            // Aufnahmezeit bleibt damit erhalten (Begruendung in `crate::zeitbasis`).
+            // Duplikate (`captured == 0`) kommen aus dem ZAEHLER: sie haben keine
+            // eigene Aufnahmezeit, `newest_qpc` steht still. In Takten waere die
+            // Monotonie-Untergrenze nur 11 us — ein Standbild schrumpfte damit im
+            // Strom zusammen. Ausfuehrlich an derselben Stelle in `pipeline_hw`.
+            let mut pts = if captured > 0 {
+                zeitbasis::pts_aus_sekunden(elapsed)
+            } else {
+                last_pts + zeitbasis::takte_je_bild(fps)
+            };
             if pts <= last_pts {
                 pts = last_pts + 1;
             }

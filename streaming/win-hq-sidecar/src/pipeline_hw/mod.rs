@@ -50,6 +50,7 @@ use crate::events;
 use crate::stream_controller::{StartParams, StreamController, zielmasse};
 use crate::system::dxgi::Adapter;
 use crate::tick_monitor::{TickMonitor, TickSample};
+use crate::zeitbasis;
 
 mod capture_start;
 mod vorstufe;
@@ -373,8 +374,28 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         } else {
             started.elapsed().as_secs_f64()
         };
-        let mut pts = (elapsed * fps as f64).round() as i64;
-        // Fern-Weg: höchstens ein Bild je PTS-Platz. WGC liefert bis 0,9/fps
+        // In Takten der Video-Zeitbasis, NICHT in Bildplätzen — die echte
+        // Aufnahmezeit bleibt damit erhalten statt auf das fps-Raster gerundet
+        // zu werden (Begründung in `crate::zeitbasis`).
+        //
+        // **Duplikate kommen aus dem ZÄHLER, echte Bilder aus der Uhr.** Ein
+        // Duplikat hat keine eigene Aufnahmezeit — `newest_qpc` steht dann
+        // still, und `elapsed` mit ihm. Im alten Raster fiel das nicht auf:
+        // die Monotonie-Untergrenze `last_pts + 1` war dort ein ganzer
+        // Bildabstand und damit zufällig genau das Richtige. In Takten sind
+        // daraus 11 µs geworden — ein Duplikat stünde 11 µs nach seinem
+        // Vorgänger, und eine Sekunde Standbild schrumpfte im Strom auf
+        // Millisekunden. Beim ersten Messlauf am 2026-08-14 sah man es sofort:
+        // Siebenergruppen im 11-µs-Abstand, dazwischen Sprünge von 111 ms.
+        // Der Linux-Zwilling verankert Duplikate aus demselben Grund am
+        // Zähler (`stream_controller.rs`, „Duplikate dagegen kommen aus dem
+        // ZÄHLER") — dort in Bildplätzen, hier in Takten.
+        let mut pts = if captured > 0 {
+            zeitbasis::pts_aus_sekunden(elapsed)
+        } else {
+            last_pts + zeitbasis::takte_je_bild(fps)
+        };
+        // Fern-Weg: höchstens ein Bild je Bildabstand. WGC liefert bis 0,9/fps
         // (Deckel in `capture::min_interval_settings`) — encodierte jede
         // Ankunft sofort, liefen die Zeitstempel dauerhaft schneller als die
         // Echtzeit, und der Ausgabe-Takt des Zuschauers verankerte sich
@@ -382,7 +403,12 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // spätestens mit dem nächsten Heartbeat hinaus (ein Bildabstand) —
         // der Merker darunter sorgt dafür, dass es dann auch WIRKLICH
         // gewandelt wird.
-        if fern && captured > 0 && pts <= last_pts {
+        //
+        // **Die Grenze ist ein BILDABSTAND, nicht ein Takt.** Im alten Raster
+        // fielen beide zusammen (ein Takt war ein Bildabstand); seit der
+        // feineren Zeitbasis ist ein Takt 11 µs, und `pts <= last_pts` liesse
+        // hier praktisch jede Ankunft durch — die Bremse wäre wortlos weg.
+        if fern && captured > 0 && pts < last_pts + zeitbasis::takte_je_bild(fps) {
             // Bughunt 2026-08-13: Das Halten allein genügte NICHT. Beim
             // Heartbeat ist `captured == 0`, und `captured == 0` heißt für die
             // Vorstufe „Quelle unverändert — gib dein letztes Ergebnis zurück".

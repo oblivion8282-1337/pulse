@@ -42,10 +42,10 @@ pub trait PaketSenke: Send {
     /// Ein fertiges Videopaket, roh.
     ///
     /// `pts` ist der Zeitstempel des Encoder-Pakets in der **Encoder**-Zeitbasis
-    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten, und nicht
-    /// umgerechnet. Ob er gebraucht wird, entscheidet der Sendeweg: der
-    /// H.264-Weg stempelt aus der Bilddauer und ignoriert ihn, der eigene
-    /// AV1-Paketierer rechnet ihn um.
+    /// (1/90000, s. `crate::zeitbasis`) und nicht umgerechnet. Seit dem
+    /// 2026-08-14 ist das zugleich die RTP-Uhr — der Sendeweg reicht ihn also
+    /// unveraendert durch, statt zu rechnen, und BEIDE Codec-Wege brauchen ihn
+    /// (vorher stempelte der H.264-Weg aus der Bilddauer und ignorierte ihn).
     ///
     /// **Hier stand bis 2026-08-04 „kein Zeitstempel, die Zeit setzt der
     /// Sendeweg selbst".** Das war die Bauart, bevor der Linux-Zweig den

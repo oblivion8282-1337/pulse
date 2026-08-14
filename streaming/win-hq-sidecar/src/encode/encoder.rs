@@ -36,6 +36,7 @@ use crate::capture::wgc::CapturedFrame;
 // `codec`-Modulnamen aus `ffmpeg_next`, das in dieser Datei durchgehend als
 // `codec::encoder::Video` etc. verwendet wird.
 use super::codec::VideoCodec;
+use crate::zeitbasis::VIDEO_HZ;
 
 /// Konfiguration für die optionale Audio-Spur. Wenn `None` an
 /// `FfmpegEncoder::create` übergeben wird, hat der Output nur eine Video-Spur.
@@ -152,7 +153,10 @@ impl FfmpegEncoder {
         encoder.set_width(cfg.dst_width);
         encoder.set_height(cfg.dst_height);
         encoder.set_format(pix_fmt);
-        encoder.set_time_base(Rational::new(1, cfg.fps as i32));
+        // Zeitbasis 1/90000, NICHT 1/fps — Begruendung in [`crate::zeitbasis`].
+        // Die Bildrate darunter bleibt die Grundlage von Ratenregelung und
+        // GOP; nur die EINHEIT der Zeitstempel wird feiner.
+        encoder.set_time_base(Rational::new(1, VIDEO_HZ as i32));
         encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
@@ -204,7 +208,7 @@ impl FfmpegEncoder {
         output.write_header().context("write_header")?;
 
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
-        let encoder_time_base = Rational::new(1, cfg.fps as i32);
+        let encoder_time_base = Rational::new(1, VIDEO_HZ as i32);
         // Audio-Stream-Timebase erst JETZT (nach write_header) lesen + setzen.
         if let Some(a) = audio.as_mut() {
             let audio_tb = output.stream(a.stream_idx).unwrap().time_base();
@@ -310,7 +314,8 @@ impl FfmpegEncoder {
     }
 
     /// Schickt einen Capture-Frame in den Encoder. `pts` ist die wall-clock-
-    /// abgeleitete Präsentations-Zeit in Encoder-Timebase-Einheiten (1/fps),
+    /// abgeleitete Präsentations-Zeit in Encoder-Zeitbasis-Takten (1/90000,
+    /// s. `crate::zeitbasis`),
     /// vergeben vom Pacing-Loop — muss streng monoton sein. Bei statischem
     /// Bild wird derselbe Frame mehrfach mit fortlaufender PTS gesendet.
     /// Drained interne Packets auf den Output.
