@@ -77,6 +77,17 @@ snapshot_icons() {
 # er stand in keinem Snapshot. Alle Sitzungen und alle Geraete-Zertifikate
 # mussten neu ausgestellt werden.
 #
+# **Und eine dritte Folge, die damals niemand auf der Liste hatte** (bemerkt
+# erst am 2026-08-14): jedes ruhende Geheimnis, dessen Schluessel aus dem
+# JWT-Schluessel ABGELEITET ist, wird mit ihm unlesbar. Heute ist das genau
+# eines — das SMTP-Passwort (`dcc_auth/crypto.py` leitet den Fernet-Schluessel
+# per HKDF daraus ab). Sitzungen und Zertifikate gehen laut kaputt, niemand
+# kann sich mehr anmelden; das SMTP-Passwort ging STILL kaputt: der Versand
+# faellt auf "nicht konfiguriert" zurueck, das Admin-Panel zeigte weiter
+# "Aktiv", und eine Woche lang kam keine Passwort-Zurueksetzung an. Wer nach
+# einem Schluesselverlust aufraeumt, muss deshalb auch diese Klasse durchgehen
+# — sie meldet sich nicht von selbst.
+#
 # Die Lehre ist nicht "kein rsync --delete" (das auch), sondern: was nicht im
 # Git liegt UND nicht im Backup, existiert genau einmal.
 #

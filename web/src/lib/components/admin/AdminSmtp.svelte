@@ -157,7 +157,18 @@
         {m.admin_smtp_description()}
       </p>
     </div>
-    {#if current?.configured}
+    {#if current?.password_unreadable}
+      <!-- VOR dem Aktiv-Zweig: eingerichtet ist die Konfiguration ja, nur
+           unbrauchbar. Ein gruenes „Aktiv" ueber einem toten Versand ist die
+           schlimmste der drei Anzeigen — genau daran blieb der Ausfall vom
+           2026-08-07 eine Woche lang unbemerkt. -->
+      <span
+        class="bg-warning/10 text-warning inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
+        data-testid="smtp-status-broken"
+      >
+        <AlertCircleIcon class="size-3" /> {m.admin_smtp_status_broken()}
+      </span>
+    {:else if current?.configured}
       <span
         class="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs text-success"
         data-testid="smtp-status-configured"
@@ -180,6 +191,14 @@
     <LoadingState label={m.admin_smtp_loading()} />
   {:else}
     <div class="flex flex-col gap-3">
+      {#if current.password_unreadable}
+        <p
+          class="border-warning/30 bg-warning/10 text-warning rounded-md border px-3 py-2 text-xs"
+          data-testid="smtp-broken-hint"
+        >
+          {m.admin_smtp_broken_hint()}
+        </p>
+      {/if}
       <div class="flex flex-col gap-1.5">
         <Label for="smtp-provider">Provider</Label>
         <select

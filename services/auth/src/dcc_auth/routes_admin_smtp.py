@@ -25,7 +25,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import update
 
-from dcc_auth.crypto import decrypt_secret, encrypt_secret
+from dcc_auth.crypto import InvalidToken, decrypt_secret, encrypt_secret
 from dcc_auth.db import SessionDep
 from dcc_auth.email import SmtpConfig, compose_test_email, send_email_with
 from dcc_auth.models import SmtpSettings, User
@@ -41,6 +41,27 @@ from dcc_auth.schemas import (
 router = APIRouter(prefix="/admin")
 
 
+def _password_unreadable(row: SmtpSettings) -> bool:
+    """Is a password stored that no longer decrypts?
+
+    The Fernet key is derived from the JWT private key (``crypto.py``), so a
+    lost or replaced keypair orphans the stored ciphertext. ``email.py`` then
+    treats SMTP as unconfigured and sends nothing — silently. This is the only
+    place that can tell the operator, so it is worth one decrypt per panel
+    load (the panel is admin-only and rarely opened).
+
+    Costs nothing when no password is stored, and never surfaces the
+    plaintext — only the yes/no.
+    """
+    if not row.password_encrypted:
+        return False
+    try:
+        decrypt_secret(row.password_encrypted)
+    except InvalidToken:
+        return True
+    return False
+
+
 def _smtp_out(row: SmtpSettings) -> SmtpSettingsOut:
     """Shape a DB row into the admin-facing payload — no password leakage."""
     return SmtpSettingsOut(
@@ -52,6 +73,7 @@ def _smtp_out(row: SmtpSettings) -> SmtpSettingsOut:
         use_ssl=row.use_ssl,
         configured=row.configured,
         has_password=bool(row.password_encrypted),
+        password_unreadable=_password_unreadable(row),
     )
 
 

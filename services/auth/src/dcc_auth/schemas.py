@@ -194,6 +194,16 @@ class SmtpSettingsOut(BaseModel):
     password to change it; sending an empty/null password on PATCH means
     "leave the existing password alone", so the UI can pre-fill all other
     fields without clobbering the secret on every save.
+
+    ``password_unreadable`` is the loud half of that: a password IS stored,
+    but it no longer decrypts (the Fernet key is derived from the JWT private
+    key — see ``crypto.py`` — so losing or replacing that key orphans the
+    ciphertext). Sending then fails silently, because ``email.py`` treats an
+    undecryptable password as "not configured" and falls through. Without
+    this field the panel keeps reporting ``configured: true`` and the operator
+    sees a green badge over a dead mailer: exactly what happened between
+    2026-08-07 and 2026-08-14 (a week of unsent password-reset mails, found by
+    accident in a log). Defaults to ``False`` so older clients keep working.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -206,6 +216,7 @@ class SmtpSettingsOut(BaseModel):
     use_ssl: bool
     configured: bool
     has_password: bool
+    password_unreadable: bool = False
 
 
 class SmtpSettingsPatch(BaseModel):

@@ -100,6 +100,11 @@ export type SmtpSettings = {
    * the value. Lets the password input render as "leave blank to keep" vs
    * "empty" without a separate flag. */
   has_password: boolean;
+  /** Ein Passwort ist gespeichert, laesst sich aber nicht mehr entschluesseln
+   *  (JWT-Schluesselpaar ersetzt — s. `dcc_auth/crypto.py`). Der Versand
+   *  scheitert dann still; nur diese Anzeige sagt es. Optional, damit ein
+   *  aelterer Server ohne das Feld weiter bedient werden kann. */
+  password_unreadable?: boolean;
 };
 
 /** PATCH payload — every field except ``password`` is required (sent every

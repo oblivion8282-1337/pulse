@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from dcc_auth.crypto import decrypt_secret, encrypt_secret
 from dcc_auth.models import AdminAuditLog, SmtpSettings, User
@@ -143,6 +143,64 @@ async def test_get_smtp_returns_unconfigured_defaults(client, admin_token):
     assert body["configured"] is False
     assert body["has_password"] is False
     # No plaintext OR ciphertext password ever crosses the wire.
+    assert "password" not in body
+    assert "password_encrypted" not in body
+
+
+@pytest.mark.asyncio
+async def test_get_smtp_reports_an_undecryptable_password(
+    client, admin_token, session_factory
+):
+    """Ein gespeichertes, aber nicht mehr entschluesselbares Passwort MUSS
+    sichtbar sein.
+
+    **Der Vorfall:** Am 2026-08-07 loeschte ein `rsync --delete` das
+    JWT-Schluesselpaar auf dem Produktivserver; es wurde neu erzeugt. Der
+    Fernet-Schluessel fuer das SMTP-Passwort wird daraus abgeleitet
+    (``crypto.py``), das gespeicherte Passwort war damit Datenmuell. ``email.py``
+    behandelt das als "nicht konfiguriert" und sendet stillschweigend nichts,
+    waehrend ``configured`` in der Datenbank weiter ``true`` stand — die
+    Oberflaeche zeigte also eine Woche lang "Aktiv" ueber einem toten Versand.
+    Aufgefallen ist es nur zufaellig in einem Log.
+
+    Geprueft wird deshalb beides: dass der Zustand gemeldet wird UND dass
+    ``configured`` dabei wahr bleibt (die Konfiguration IST eingerichtet, nur
+    unbrauchbar — wer beides vermischt, verliert die Unterscheidung).
+    """
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    r = await client.patch(
+        "/admin/smtp",
+        json={
+            "provider": "custom",
+            "host": "smtp.example.com",
+            "port": 587,
+            "username": "user",
+            "password": "geheim",
+            "from_email": "noreply@example.com",
+            "use_ssl": False,
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["password_unreadable"] is False
+
+    # Den Schluesselwechsel nachstellen: der Geheimtext bleibt stehen, laesst
+    # sich aber nicht mehr entschluesseln.
+    async with session_factory() as session:
+        await session.execute(
+            update(SmtpSettings)
+            .where(SmtpSettings.id == 1)
+            .values(password_encrypted="gAAAAABmFremdKeinGueltigerFernetToken==")
+        )
+        await session.commit()
+
+    r = await client.get("/admin/smtp", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["password_unreadable"] is True, "der Ausfall muss sichtbar sein"
+    assert body["configured"] is True, "eingerichtet ist sie ja — nur unbrauchbar"
+    assert body["has_password"] is True
+    # Auch im Fehlerfall geht nichts vom Geheimnis ueber die Leitung.
     assert "password" not in body
     assert "password_encrypted" not in body
 
