@@ -133,6 +133,26 @@ docker exec -u root pulse_auth chown -R 10001:10001 /app/services/auth/uploads
 The JWT PEM keys have the same uid-10001 constraint — see step 2 above
 (`jwt_private.pem` `0600` + chowned, `jwt_public.pem` `0644`).
 
+## UDP buffers for WebRTC (one-time host setup, 2026-08-14)
+
+MediaMTX multiplexes **every** WebRTC session (WHIP ingest + each WHEP viewer)
+over one UDP socket (`:8189`), and LiveKit asks the kernel for large socket
+buffers on startup. Debian's default cap (`net.core.rmem_max` ≈ 212 KB) silently
+clamps both — under load that means packet loss *on the server itself*, visible
+as viewer stutter that no FEC can repair. Raise the caps once:
+
+```sh
+# on the server
+sudo cp ~/pulse/infra/prod/sysctl-pulse.conf /etc/sysctl.d/99-pulse.conf
+sudo sysctl --system
+sysctl net.core.rmem_max   # expect 16777216
+```
+
+These are upper limits, not allocations — no memory is used until a socket asks
+for it. Rationale and the diagnosis command (`ss -u -m`) live as comments in
+`infra/prod/sysctl-pulse.conf`. Containers on host networking (mediamtx,
+livekit) pick the new limits up on their next restart.
+
 ## Updating
 
 - **Code / bug fixes** → just `git push` to `main`. CI builds & pushes the

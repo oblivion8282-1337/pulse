@@ -16,29 +16,35 @@
 //!
 //! **Aufbau.** Die Verbindung ist ein `RTCPeerConnection` mit genau einem
 //! Video-Track. Encodierte Pakete kommen aus dem synchronen Encode-Faden
-//! herein ([`WhipSender::send`]) und gehen ueber `write_sample` hinaus; die
-//! Paketierung in RTP macht webrtc-rs. Ein eigener Faden liest das
-//! zurueckkommende RTCP und ruft bei PLI oder FIR
-//! [`crate::encode::request_keyframe`].
+//! herein ([`WhipSender::send`]), werden dort in RTP-Pakete zerlegt und
+//! gehen — per Vorgabe ueber den Taktgeber [`pacer`] verteilt — als
+//! `write_rtp` hinaus. Ein eigener Faden liest das zurueckkommende RTCP und
+//! ruft bei PLI oder FIR [`crate::encode::request_keyframe`].
 //!
 //! **Nicht-Trickle.** WHIP ist ein einziger POST mit dem fertigen Angebot,
 //! deshalb wird das Sammeln der ICE-Kandidaten abgewartet. Das unterscheidet
 //! diesen Weg von `pulse-remote-webrtc` (Fernsteuerung), das als Answerer mit
 //! Trickle-ICE arbeitet — dieselben Bauteile, andere Form.
 //!
-//! **Zwei Bildspuren, je nach Codec.** H.264 laesst webrtc-rs paketieren. AV1
-//! nicht: dessen `Av1Payloader` schreibt Laengenfelder ab 128 falsch (Nachweis
-//! und Zahlen in [`av1`]). Dafuer gibt es einen eigenen Paketierer, und die
-//! Spur ist dann eine `TrackLocalStaticRTP` — Reihenfolge, Marker-Bit und
-//! Zeitstempel setzt dieser Weg selbst. Der WERT des Zeitstempels kommt dabei
-//! aus dem `pts`, den der Encoder mitgibt, nicht aus einem eigenen Zaehler
-//! (Begruendung an `av1::Av1Zustand::zeitstempel`).
+//! **Eine Bildspur, immer selbst gestempelt.** Die Spur ist fuer beide Codecs
+//! eine `TrackLocalStaticRTP` — Reihenfolge, Marker-Bit und Zeitstempel setzt
+//! dieser Weg selbst, und der WERT des Zeitstempels kommt aus dem `pts`, den
+//! der Encoder mitgibt, nicht aus einem eigenen Zaehler (Begruendung an
+//! `av1::SpurZustand::zeitstempel`). Nur die ZERLEGUNG unterscheidet sich:
+//! AV1 paketiert ein eigener Paketierer (webrtc-rs' `Av1Payloader` schreibt
+//! Laengenfelder ab 128 falsch — Nachweis und Zahlen in [`av1`]), H.264
+//! zerlegt webrtc-rs' `H264Payloader` (Annex-B → FU-A/STAP-A, daran ist
+//! nichts auszusetzen). **Bis 2026-08-14 lief H.264 als Sample-Spur**, bei
+//! der webrtc-rs den Zeitstempel aus einer FESTEN Bilddauer hochzaehlte —
+//! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
+//! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
+//! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
 
 pub mod av1;
 mod pacer;
 mod sdp;
 
-use av1::Av1Zustand;
+use av1::SpurZustand;
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -54,8 +60,10 @@ use webrtc::media::Sample;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::rtp::codecs::h264::H264Payloader;
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
+use webrtc::rtp::packetizer::Payloader;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
@@ -107,7 +115,9 @@ fn runtime() -> &'static Runtime {
 /// sicher auf dem gewuenschten Wert, egal wie die f64-Darstellung faellt, und
 /// die Dauer bleibt zugleich naeher am Soll als jede Aufrundung auf den
 /// naechsten Takt. Der Taktgeber (`pacer`) nimmt weiter die ECHTE Bilddauer;
-/// diese hier ist ausschliesslich die Uebergabe an webrtc-rs.
+/// diese hier ist ausschliesslich die Uebergabe an webrtc-rs. (Seit
+/// 2026-08-14 geht nur noch der TON hier durch — das Bild stempelt selbst,
+/// s. Modulkopf; die Video-Zahlen oben bleiben als Beleg der Falle stehen.)
 fn dauer_fuer_takte(takte: u32, uhr: u32) -> Duration {
     let ns = (f64::from(takte) + 0.5) * 1e9 / f64::from(uhr);
     Duration::from_nanos(ns.round() as u64)
@@ -125,30 +135,26 @@ fn write_to_track(track: &TrackLocalStaticSample, data: &[u8], dauer: Duration) 
 }
 
 
-/// Wie die Bild-Pakete auf die Leitung kommen.
-enum Bildspur {
-    /// H.264 — webrtc-rs paketiert, zaehlt und stempelt selbst.
-    Fremd(Arc<TrackLocalStaticSample>),
-    /// AV1 — eigener Paketierer (s. [`av1`]).
-    Selbst {
-        zustand: Mutex<Av1Zustand>,
-        /// Verteilt die Pakete eines Bildes ueber die Zeit statt sie als
-        /// Schwall zu senden — normalerweise `None`, weil diese Fassung
-        /// gemessen SCHLECHTER ist (Zahlen und Ursache in [`pacer`]).
-        /// `PULSE_WHIP_PACING=1` schaltet sie zum Weitermessen ein.
-        pacer: Option<pacer::Pacer>,
-        track: Arc<TrackLocalStaticRTP>,
-    },
+/// Wie ein encodiertes Bild in RTP-Nutzlasten zerfaellt.
+enum Paketierer {
+    /// Eigener AV1-Paketierer (s. [`av1`]).
+    Av1,
+    /// webrtc-rs' H.264-Zerleger (Annex-B → FU-A/STAP-A). Stateful: er merkt
+    /// sich SPS/PPS und buendelt sie vor jedes Vollbild — deshalb liegt er
+    /// mit im Spur-Zustand unter dem Lock.
+    H264(H264Payloader),
 }
 
-impl Bildspur {
-    /// Dieselbe Spur in der Form, die `add_track` erwartet.
-    fn als_track_local(&self) -> Arc<dyn TrackLocal + Send + Sync> {
-        match self {
-            Bildspur::Fremd(t) => Arc::clone(t) as _,
-            Bildspur::Selbst { track, .. } => Arc::clone(track) as _,
-        }
-    }
+/// Die Bildspur: eigene RTP-Pakete fuer beide Codecs.
+struct Bildspur {
+    /// Zeitstempel-/Sequenz-Zustand + Paketierer unter EINEM Lock — beides
+    /// wird pro Bild in einem Zug gebraucht.
+    zustand: Mutex<(SpurZustand, Paketierer)>,
+    /// Verteilt die Pakete eines Bildes ueber die Zeit statt sie als Schwall
+    /// zu senden (Zahlen in [`pacer`]). `PULSE_WHIP_PACING=0` schaltet die
+    /// Verteilung zum Gegenmessen ab.
+    pacer: Option<pacer::Pacer>,
+    track: Arc<TrackLocalStaticRTP>,
 }
 
 pub struct WhipSender {
@@ -166,11 +172,6 @@ pub struct WhipSender {
     /// Aus dem `Location`-Kopf der Antwort — fuer das abschliessende DELETE.
     resource_url: Option<String>,
     http: reqwest::Client,
-    /// Die Bilddauer, so zurechtgelegt, dass webrtc-rs daraus die RICHTIGE Zahl
-    /// RTP-Takte macht (s. [`dauer_fuer_takte`]). **Nur** fuer die Uebergabe an
-    /// `write_sample`; wer damit rechnet, rechnet falsch — die echte Bilddauer
-    /// bekommt der Taktgeber beim Bau.
-    bild_sample_dauer: Duration,
 }
 
 impl WhipSender {
@@ -183,13 +184,10 @@ impl WhipSender {
     }
 
     async fn connect_async(url: &str, cap: RTCRtpCodecCapability, fps: u32) -> Result<Self> {
-        // Zwei Dauern, und sie sind NICHT dasselbe: `frame_duration` ist der
-        // echte Bildabstand und geht an den Taktgeber, `bild_sample_dauer` ist
-        // die Uebergabe an webrtc-rs (s. `dauer_fuer_takte`). Takte je Bild
-        // ganzzahlig, wie es der AV1-Paketierer auch tut — bei 90000/fps ohne
-        // Rest (24/25/30/50/60...) exakt, sonst der naechstliegende Wert.
+        // Der echte Bildabstand — geht an den Taktgeber (`pacer`). Die
+        // Bild-Zeitstempel selbst kommen aus dem Encoder-`pts`
+        // (`av1::SpurZustand::zeitstempel`), nicht aus einer Dauer.
         let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
-        let bild_sample_dauer = dauer_fuer_takte((90_000 + fps / 2) / fps, 90_000);
 
         // Baut die Media-Engine so, dass im Angebot GENAU unsere beiden
         // Fassungen stehen (Begruendung und Messung im Kopf von [`sdp`]).
@@ -202,33 +200,31 @@ impl WhipSender {
         let config = RTCConfiguration { ice_servers: vec![RTCIceServer::default()], ..Default::default() };
         let pc = Arc::new(api.new_peer_connection(config).await?);
 
-        // Nur AV1 paketieren wir selbst (Grund und Nachweis in [`av1`]).
-        let track = if cap.mime_type == MIME_TYPE_AV1 {
-            let av1_track = Arc::new(TrackLocalStaticRTP::new(
-                cap,
-                "video".to_owned(),
-                "pulse-hq".to_owned(),
-            ));
-            // Reihenfolge der Felder ist hier nicht frei: `pacer` leiht sich die
-            // Spur, `track` gibt sie ab — und Feld-Initialisierer laufen in der
-            // Reihenfolge, in der sie stehen.
-            Bildspur::Selbst {
-                zustand: Mutex::new(Av1Zustand::neu(fps)),
-                // AUS als Vorgabe: gemessen macht die Verteilung es in dieser
-                // Fassung schlechter, nicht besser (s. [`pacer`]).
-                pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() == Ok("1")).then(|| {
-                    pacer::Pacer::start(runtime(), Arc::clone(&av1_track), frame_duration)
-                }),
-                track: av1_track,
-            }
+        // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
+        // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
+        let paketierer = if cap.mime_type == MIME_TYPE_AV1 {
+            Paketierer::Av1
         } else {
-            Bildspur::Fremd(Arc::new(TrackLocalStaticSample::new(
-                cap,
-                "video".to_owned(),
-                "pulse-hq".to_owned(),
-            )))
+            Paketierer::H264(H264Payloader::default())
         };
-        let sender = pc.add_track(track.als_track_local()).await?;
+        let video_track = Arc::new(TrackLocalStaticRTP::new(
+            cap,
+            "video".to_owned(),
+            "pulse-hq".to_owned(),
+        ));
+        let track = Bildspur {
+            zustand: Mutex::new((SpurZustand::neu(fps), paketierer)),
+            // AN als Vorgabe seit dem Neubau mit absoluten Zeitpunkten und
+            // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
+            // Gegenmess-Schalter.
+            pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+            }),
+            track: video_track,
+        };
+        let sender = pc
+            .add_track(Arc::clone(&track.track) as Arc<dyn TrackLocal + Send + Sync>)
+            .await?;
 
         // Ton-Spur IMMER anbieten, auch wenn kein Ton kommt.
         //
@@ -319,7 +315,7 @@ impl WhipSender {
         });
 
         let (resource_url, http) = Self::negotiate(&pc, url).await?;
-        Ok(Self { track, audio, pc, resource_url, http, bild_sample_dauer })
+        Ok(Self { track, audio, pc, resource_url, http })
     }
 
     /// Angebot erzeugen, Kandidaten sammeln, POST, Antwort setzen.
@@ -374,44 +370,50 @@ impl WhipSender {
     /// Ein encodiertes Bild senden.
     ///
     /// `pts` ist der Zeitstempel des Encoder-Pakets in der ENCODER-Zeitbasis
-    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten. Der
-    /// AV1-Weg rechnet ihn selbst um (`av1::Av1Zustand::zeitstempel`); der
-    /// H.264-Weg ignoriert ihn, dort stempelt webrtc-rs aus der Bilddauer.
+    /// (1/fps, ein Takt also ein Bildabstand) — nicht in RTP-Takten. Beide
+    /// Codec-Wege rechnen ihn selbst um (`av1::SpurZustand::zeitstempel`).
     pub fn send(&self, data: &[u8], pts: Option<i64>) -> Result<()> {
-        match &self.track {
-            // H.264: webrtc-rs stempelt selbst aus der Bilddauer, `pts` bleibt
-            // hier ungenutzt.
-            Bildspur::Fremd(t) => {
-                write_to_track(t, data, self.bild_sample_dauer).context("write_sample")
-            }
-            Bildspur::Selbst { zustand, pacer, track } => {
-                let pakete: Vec<Packet> = {
-                    let mut z = zustand.lock().expect("AV1-Zustand vergiftet");
-                    // Alle Pakete eines Bildes tragen denselben Zeitstempel.
-                    let ts = z.zeitstempel(pts);
-                    av1::paketiere(data, av1::MTU)?
-                        .into_iter()
-                        .map(|p| Packet {
-                            header: Header {
-                                version: 2,
-                                marker: p.letztes,
-                                sequence_number: z.naechste_seq(),
-                                timestamp: ts,
-                                ..Default::default()
-                            },
-                            payload: Bytes::from(p.daten),
-                        })
-                        .collect()
-                };
-                match pacer {
-                    Some(p) => p.send(pakete),
-                    None => {
-                        for paket in pakete {
-                            runtime().block_on(track.write_rtp(&paket)).context("write_rtp")?;
-                        }
-                        Ok(())
-                    }
+        let Bildspur { zustand, pacer, track } = &self.track;
+        let pakete: Vec<Packet> = {
+            let mut g = zustand.lock().expect("Spur-Zustand vergiftet");
+            let (z, paketierer) = &mut *g;
+            // Alle Pakete eines Bildes tragen denselben Zeitstempel.
+            let ts = z.zeitstempel(pts);
+            // `letztes` = letztes Paket des Bildes (→ Marker-Bit).
+            let mut paket = |daten: Bytes, letztes: bool| Packet {
+                header: Header {
+                    version: 2,
+                    marker: letztes,
+                    sequence_number: z.naechste_seq(),
+                    timestamp: ts,
+                    ..Default::default()
+                },
+                payload: daten,
+            };
+            match paketierer {
+                Paketierer::Av1 => av1::paketiere(data, av1::MTU)?
+                    .into_iter()
+                    .map(|p| paket(Bytes::from(p.daten), p.letztes))
+                    .collect(),
+                Paketierer::H264(p) => {
+                    let teile = p
+                        .payload(av1::MTU, &Bytes::copy_from_slice(data))
+                        .context("H.264 paketieren")?;
+                    // Leer ist legitim: ein Paket, das nur SPS/PPS trug, wird
+                    // vom Payloader gemerkt und erst vor dem naechsten
+                    // Vollbild ausgegeben.
+                    let n = teile.len();
+                    teile.into_iter().enumerate().map(|(i, b)| paket(b, i + 1 == n)).collect()
                 }
+            }
+        };
+        match pacer {
+            Some(p) => p.send(pakete),
+            None => {
+                for paket in pakete {
+                    runtime().block_on(track.write_rtp(&paket)).context("write_rtp")?;
+                }
+                Ok(())
             }
         }
     }

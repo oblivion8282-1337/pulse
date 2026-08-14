@@ -227,6 +227,16 @@ infra/self-host/
 The recommended mount is `-v pulse-data:/data` — Docker named-volume so the
 host doesn't need a specific UID/GID setup.
 
+## Host-Tuning (VPS-Betrieb)
+
+WebRTC (MediaMTX + LiveKit im Container) profitiert von größeren
+Kernel-UDP-Puffer-Obergrenzen auf dem **Wirt** — `net.core.rmem_max`/`wmem_max`
+sind nicht namespaced, kein Container kann sie selbst setzen. Mit dem
+Debian-Default (~212 KB) kann der Server bei mehreren Zuschauern selbst Pakete
+verlieren, sichtbar als Ruckeln trotz sauberer Leitung. Einmalig auf dem Wirt
+einspielen: `infra/prod/sysctl-pulse.conf` (Begründung steht als Kommentar in
+der Datei) nach `/etc/sysctl.d/99-pulse.conf`, dann `sysctl --system`.
+
 ## Known limitations
 
 - **Restart-gate granularity** — counts only crash, not restart-loop-success;

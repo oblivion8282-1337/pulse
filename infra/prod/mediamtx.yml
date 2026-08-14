@@ -24,6 +24,15 @@
 logLevel: info
 logDestinations: [stdout]
 
+# Write queue per reader, in packets (default 512). A 60 fps stream with
+# FlexFEC parity runs at ~900-1100 packets/s per viewer; with the default a
+# viewer that stalls for half a second (wifi, background tab) overflowed the
+# queue ("reader is too slow"), MediaMTX dropped packets, the viewer NACK/PLI'd
+# — a short hiccup became a visible stutter plus a CBR-softened key frame for
+# everyone. 2048 carries ~2 s of backlog (~3 MB per viewer at 12 Mbit/s):
+# memory traded for smoothness, and memory is the cheap side here.
+writeQueueSize: 2048
+
 # RTMP ingest — RTMPS (TLS) on :1936 only. Plain :1935 has been removed
 # because media-svc only ever issues rtmps:// URLs (otherwise the per-channel
 # publish token would land on the wire in cleartext). `strict` rejects any

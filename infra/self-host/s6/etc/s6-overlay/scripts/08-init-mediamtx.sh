@@ -32,6 +32,11 @@ else
 logLevel: info
 logDestinations: [stdout]
 
+# Schreibpuffer je Leser, in Paketen — wie infra/prod/mediamtx.yml (dort steht
+# die Begruendung: der 512er-Default riss bei 60-fps-Streams mit FlexFEC schon
+# bei halbsekuendigen Zuschauer-Stockern, "reader is too slow" → Ruckler).
+writeQueueSize: 2048
+
 api: yes
 apiAddress: 127.0.0.1:9997
 

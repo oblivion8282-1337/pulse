@@ -27,13 +27,16 @@
 //! darf unter keinen Umstaenden warten, sonst bremst die Verteilung die
 //! Aufnahme aus.
 //!
-//! **AUS als Vorgabe, `PULSE_WHIP_PACING=1` schaltet ein — Messung steht aus.**
-//! Die ERSTE Fassung (relatives `tokio::time::sleep` je Paket) hat es
-//! nachweislich schlechter gemacht: 19,6/16,9 statt 1,6/1,8 Luecken je Sekunde
-//! (2026-07-28, vier Laeufe abwechselnd), weil sie ihr eigenes Ziel um zwei
-//! Drittel verfehlte — Soll 7,9 ms je Bild, tatsaechlich 13,1. `sleep` unter
-//! 2 ms rundete der Zeitgeber grob auf, und je Paket gewartet summierte sich
-//! jeder Rundungsfehler.
+//! **AN als Vorgabe seit 2026-08-14; `PULSE_WHIP_PACING=0` ist der
+//! Gegenmess-Schalter.** Die Leitungs-Gegenmessung (wie 2026-07-28) steht
+//! weiterhin aus — die Soll/Ist-Zeile unten im Log zeigt aber bei jedem Lauf,
+//! ob die Verteilung ihr Ziel haelt, und genau daran war die erste Fassung
+//! messbar gescheitert. Die ERSTE Fassung (relatives `tokio::time::sleep` je
+//! Paket) hat es nachweislich schlechter gemacht: 19,6/16,9 statt 1,6/1,8
+//! Luecken je Sekunde (2026-07-28, vier Laeufe abwechselnd), weil sie ihr
+//! eigenes Ziel um zwei Drittel verfehlte — Soll 7,9 ms je Bild, tatsaechlich
+//! 13,1. `sleep` unter 2 ms rundete der Zeitgeber grob auf, und je Paket
+//! gewartet summierte sich jeder Rundungsfehler.
 //!
 //! Diese Fassung baut genau die beiden Dinge anders, die damals als Lehren
 //! notiert wurden:

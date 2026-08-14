@@ -838,9 +838,19 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     });
 
     let frame_interval = Duration::from_secs_f64(1.0 / params.fps.max(1) as f64);
-    let mut next_tick = Instant::now();
+    // Nachfrist für ein knapp verspätetes Bild, bevor dupliziert wird. Läuft
+    // die Quelle mit DERSELBEN Rate wie der Encode-Takt (60-Hz-Schirm →
+    // 60-fps-Stream, der Normalfall), liegt die Bild-Ankunft irgendwo relativ
+    // zur Slot-Grenze — und wenige ms Jitter kippen dann jedes Bild mal in
+    // diesen, mal in den nächsten Slot: periodische Doppel-/Auslass-Paare,
+    // sichtbar als Mikro-Ruckeln genau bei 60 fps (bei 144-Hz-Schirmen
+    // verdeckt die Überabtastung das). Die halbe Bildlänge Nachfrist fängt
+    // den Jitter ab: dupliziert wird erst, wenn wirklich kein Bild kam.
+    let grace = frame_interval / 2;
+    let mut next_slot = Instant::now() + frame_interval;
     // Nächster erlaubter pts (strikte Monotonie-Untergrenze). Der reale pts wird
-    // pro Tick aus record_start abgeleitet (s. u.), nicht simpel hochgezählt.
+    // pro Bild aus seiner Aufnahmezeit abgeleitet (s. u.), nicht simpel
+    // hochgezählt.
     let mut next_pts: i64 = 0;
     // Referenz-Mitschnitt (Messwerkzeug, s. `encode::raw_dump`). Ein Fehler beim
     // Aufsetzen bricht den Stream NICHT ab — er ist nie der Zweck des Laufs.
@@ -886,25 +896,43 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 Err(TryRecvError::Empty) => {}
             }
 
-            // Neuesten Frame abholen; Err = Capture-Quelle weg (Fenster
-            // geschlossen) → SAUBERES Ende (state:stopped + stopped), kein
-            // roter Fehler: das schlichte Schließen der gestreamten App ist
-            // kein Fehlverhalten. (Der frühere `?` routete das in den
-            // error-Terminalzustand — Widerspruch zum Fenster-zu-Fix.)
-            let taken = match frames.take() {
+            // Bis zum Slot schlafen — die Mailbox sammelt derweil („latest
+            // wins"): ein 144-Hz-Schirm wird hier sauber auf die Stream-Rate
+            // heruntergetastet, weil erst am Slot das dann-neueste Bild zählt.
+            let now = Instant::now();
+            if next_slot > now {
+                thread::sleep(next_slot - now);
+            }
+            // Neuestes Bild abholen — liegt eines, kommt es sofort; liegt
+            // keines, bekommt ein knapp verspätetes noch die Nachfrist,
+            // bevor dupliziert wird. Ob das Bild dabei bis zu einen
+            // Bildabstand alt ist, spielt KEINE Rolle: es ist neuer Inhalt,
+            // und seine pts trägt seine echte Aufnahmezeit. (Ein Zwischen-
+            // stand vom 2026-08-14 wartete bei „altem" Bild auf ein
+            // frischeres — an der Frischegrenze kippte das bistabil zwischen
+            // den Regimen und erzeugte genau die Doppelbild/Klemm-Strecken,
+            // die es verhindern sollte. Gemessen, verworfen.)
+            // Err = Capture-Quelle weg (Fenster geschlossen) → SAUBERES Ende
+            // (state:stopped + stopped), kein roter Fehler: das schlichte
+            // Schließen der gestreamten App ist kein Fehlverhalten. (Der
+            // frühere `?` routete das in den error-Terminalzustand —
+            // Widerspruch zum Fenster-zu-Fix.)
+            let taken = match frames.wait_take(grace) {
                 Ok(t) => t,
                 Err(e) => {
                     emit(Event::Log { line: format!("[stream] {e:#} — Stream endet") });
                     break;
                 }
             };
-            // Kein neues Bild in diesem Takt heisst: das vorige wird ERNEUT
+            // Kein neues Bild trotz Nachfrist heisst: das vorige wird ERNEUT
             // encodiert. Fuer den Zuschauer ist das ein stehendes Bild, obwohl
             // die Bildzahl stimmt — deshalb gezaehlt und gemeldet. Vorher war
             // die Zahl nirgends zu sehen.
             if taken.is_none() {
                 window_duplicates += 1;
             }
+            // Aufnahmezeit dieses Bildes — Duplikate haben keine.
+            let captured = taken.as_ref().map(|f| f.captured_at);
             if let Some(frame) = taken {
                 match importer.import(&frame) {
                     Ok(hw) => {
@@ -937,26 +965,46 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 // frame droppt hier → Plane-fds zu.
             }
 
-            // Video-pts aus DERSELBEN Uhr wie der Audio-Anker ableiten (GSR:
-            // `pts = (now - record_start) * fps`), nicht simpel hochzählen —
-            // sonst driftet das sleep-basierte Pacing gegen die echte
-            // Audio-Zeit. `max(next_pts)` erzwingt strikte Monotonie (falls ein
-            // Tick minimal zu früh kommt).
-            let clock_pts =
-                (record_start.elapsed().as_secs_f64() * params.fps.max(1) as f64).round() as i64;
-            let pts = clock_pts.max(next_pts);
-            // Zwei Stoerungen der Zeitachse, beide sichtbar als Ruckeln bzw.
-            // Springen, beide bisher ungezaehlt:
-            //   * LUECKE: der Takt kam zu spaet, `clock_pts` springt um >1 —
-            //     beim Zuschauer steht ein Bild doppelt so lange.
-            //   * KLEMMUNG: der Takt kam zu frueh, die Monotonie-Untergrenze
-            //     greift — mehrere Bilder mit fast derselben Aufnahmezeit
-            //     landen auf aufeinanderfolgenden Zeitpunkten.
-            if clock_pts > next_pts {
-                window_pts_gaps += 1;
-            } else if clock_pts < next_pts {
-                window_pts_clamps += 1;
-            }
+            // Video-pts: echte Bilder aus ihrer AUFNAHMEZEIT, abgeleitet aus
+            // DERSELBEN Monotonic-Uhr wie der Audio-Anker (GSR-Modell:
+            // `pts = (captured - record_start) * fps`; `saturating` fängt das
+            // allererste Bild ab, das noch VOR record_start entstand). Nicht
+            // die Tick-Zeit des Loops: die liegt bis zu einen Bildabstand
+            // neben der Aufnahme, und der Fehler wandert mit der Phasenlage —
+            // Mikro-Judder trotz sauberer fps-Zahlen.
+            //
+            // Duplikate dagegen kommen aus dem ZÄHLER (`next_pts`): ein
+            // Duplikat steht für „ein Slot verging", mehr weiß niemand. Sie
+            // an der Wanduhr zu verankern mischte zwei Anker — ein einziges
+            // aufgerundetes Duplikat hob den Monotonie-Zähler über die
+            // Bild-Uhr, und weil der Zähler nie sinkt, feuerte die Klemmung
+            // danach DAUERHAFT (Messlauf 2026-08-14: 36-55 pts_clamps/s).
+            //
+            // Zwei echte Störungen der Zeitachse werden gezählt, beide
+            // sichtbar als Ruckeln bzw. Springen:
+            //   * LUECKE: die Bild-Uhr springt um >1 (Stau) — beim Zuschauer
+            //     steht ein Bild doppelt so lange.
+            //   * KLEMMUNG: die Bild-Uhr hängt um MINDESTENS ZWEI Schritte
+            //     hinter dem Zähler. Genau EIN Schritt darunter ist normales
+            //     Runden: liegt die Aufnahme-Phase nahe der Halbslot-Grenze,
+            //     kippt `round` je Bild zufällig zwischen zwei Schritten,
+            //     während die Ausgabe perfekt gleichmäßig bleibt — gezählt
+            //     wäre das eine Schein-Klemmung je Kipp-Bild (Messlauf
+            //     2026-08-14: bis zu 53/s bei fehlerfreier Ausgabe).
+            let pts = match captured {
+                Some(at) => {
+                    let clock_pts = (at.saturating_duration_since(record_start).as_secs_f64()
+                        * params.fps.max(1) as f64)
+                        .round() as i64;
+                    if clock_pts > next_pts {
+                        window_pts_gaps += 1;
+                    } else if clock_pts < next_pts - 1 {
+                        window_pts_clamps += 1;
+                    }
+                    clock_pts.max(next_pts)
+                }
+                None => next_pts,
+            };
             next_pts = pts + 1;
 
             // Aktuelles (ggf. dupliziertes) Bild encodieren.
@@ -1017,12 +1065,15 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                 window_frames = 0;
             }
 
-            next_tick += frame_interval;
+            next_slot += frame_interval;
             let now = Instant::now();
-            if next_tick > now {
-                thread::sleep(next_tick - now);
-            } else {
-                next_tick = now;
+            if now > next_slot + frame_interval {
+                // Echter Stau (Encode/Netz hing länger als ein Bild): Raster
+                // neu aufsetzen statt die verpassten Slots als Duplikat-Burst
+                // nachzuholen. Bei bloßem Jitter bleibt die Phase stehen —
+                // der frühere Reset bei JEDER Verspätung verschob sie dauernd
+                // und machte den Judder launisch.
+                next_slot = now;
             }
         }
         Ok(())

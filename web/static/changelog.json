@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-14",
+      "date": "2026-08-14",
+      "style": "Sachlich",
+      "title": "Bildschirmübertragungen laufen flüssiger, besonders bei 60 fps",
+      "intro": "Mehrere Ursachen für feines Ruckeln beim Zuschauen wurden gefunden und behoben — am Sender, am Server und auf dem Übertragungsweg.",
+      "items": [
+        "Der Sender verschickt die Datenpakete eines Bildes jetzt gleichmäßig verteilt statt in einem Schub. Solche Schübe kamen beim Zuschauer als kleine Aussetzer an.",
+        "Jedes Bild trägt jetzt seinen echten Aufnahmezeitpunkt. Vorher konnten Zeitstempel um bis zu einen Bildabstand danebenliegen — das Bild wirkte unruhig, obwohl alle Zahlen stimmten.",
+        "Unter Linux tastet die Aufnahme den Bildschirm jetzt sauber im Takt der Bildquelle ab — das beseitigt Doppel- und Auslassbilder, die genau bei 60 fps auftreten konnten.",
+        "Ein einzelner Zuschauer mit schlechter Leitung kann das Bild der anderen nicht mehr regelmäßig kurz unscharf machen."
+      ],
+      "outro": "Ein Teil der Verbesserungen erreicht Windows mit dem nächsten Desktop-Update."
+    },
+    {
       "id": "2026-08-13.3",
       "date": "2026-08-13",
       "style": "Sachlich",

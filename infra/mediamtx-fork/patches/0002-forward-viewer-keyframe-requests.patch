@@ -29,7 +29,7 @@
 # 3. peer_connection.go carries that callback and gains RequestKeyFrame(),
 #    which pokes its inbound video tracks.
 # 4. inbound_track.go gains a throttled RequestKeyFrame() (at most one per
-#    300 ms, so a hundred viewers on a lossy minute cost one key frame, not
+#    2 s, so a hundred viewers on a lossy minute cost one key frame, not
 #    a hundred) and reads the ticker period from PULSE_KEYFRAME_INTERVAL.
 #    Unset keeps upstream's 2s behaviour, "0"/"off" disables the ticker.
 # 5. servers/webrtc/session.go wires both ends: the publishing session
@@ -64,11 +64,11 @@ index e6ae29d..6014b80 100644
  	mimeTypeMultiopus = "audio/multiopus"
  	mimeTypeL16       = "audio/L16"
 +
-+	// Pulse: floor between two key frame requests caused by readers. Every
-+	// reader that loses sync asks, so without this a hundred viewers on a
-+	// lossy minute would ask a hundred times and the publisher would answer
-+	// with a hundred key frames — exactly the burst we are removing.
-+	keyFrameRequestMinInterval = 300 * time.Millisecond
++	// Pulse: floor between two key frame requests caused by readers. Keep in
++	// step with the publisher-side suppression (win-hq-sidecar keyframe.rs
++	// ABSTAND_LANGSAM, linux-hq-sidecar encode/mod.rs PULSE_KEYFRAME_SECONDS,
++	// both 2 s) — anything shorter only fired requests into that dead time.
++	keyFrameRequestMinInterval = 2 * time.Second
  )
  
 +// pulseKeyFrameInterval returns the period of the unconditional key frame

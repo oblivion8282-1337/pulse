@@ -22,6 +22,16 @@
 logLevel: info
 logDestinations: [stdout]
 
+# Schreibpuffer je Leser, in Paketen (Default 512). Ein 60-fps-Stream mit
+# FlexFEC-Paritaet liegt bei ~900-1100 Paketen je Sekunde und Zuschauer; ein
+# Zuschauer, der eine halbe Sekunde stockt (WLAN, Tab im Hintergrund), riss
+# mit dem Default die Queue („reader is too slow“ im Log) — MediaMTX verwirft
+# dann Pakete, der Zuschauer fragt per NACK/PLI nach, und aus einem kurzen
+# Stocken wird ein sichtbarer Ruckler samt Vollbild. 2048 traegt rund zwei
+# Sekunden Rueckstand (~3 MB je Zuschauer bei 12 Mbit/s) — Speicher gegen
+# Ruckeln, und der Speicher ist hier billig.
+writeQueueSize: 2048
+
 # RTMP-Ingest — RTMPS-only auf :1936. Plain RTMP :1935 ist aus, weil media-svc
 # nur rtmps://-URLs ausgibt (sonst wäre der Publish-Token im Klartext).
 # Braucht ein self-signed Cert-Pair unter streaming/server/certs/server.{crt,key}
@@ -48,7 +58,8 @@ rtmpServerKey: /certs/server.key
 # `hlsAlwaysRemux: yes` machte es schlimmer: damit baut MediaMTX die Segmente
 # auch dann, wenn niemand zusieht. Wer HLS zurueckholt, sollte zumindest das
 # ausschalten — und wissen, dass es mit Intra-Refresh nicht zusammengeht.
-# Dieselbe Falle wartet auf der Produktion: dort ist HLS an.
+# (Produktion hat HLS seit 2026-08-03 ebenfalls aus — hier stand laenger
+# faelschlich das Gegenteil.)
 hls: no
 hlsAddress: :8888
 hlsAlwaysRemux: yes

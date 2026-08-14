@@ -510,7 +510,7 @@ impl VideoEncoder {
                 // AV1-Weg laeuft ueber `TrackLocalStaticRTP`, und der stempelt
                 // NICHT — dort zaehlte stattdessen ein Bildzaehler, der bei
                 // jedem ausgelassenen Bild hinter der Wanduhr zurueckfiel.
-                // Begruendung in `whip::Av1Zustand::zeitstempel`.
+                // Begruendung in `whip::SpurZustand::zeitstempel`.
                 Ausgabe::Whip(w) => {
                     if let Some(daten) = packet.data() {
                         w.send(daten, packet.pts())?;
