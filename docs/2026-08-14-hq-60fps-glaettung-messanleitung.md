@@ -18,16 +18,21 @@ Stand 2026-08-14, Branch `fix/hq-60fps-glaettung`. Hintergrund: Nutzerbericht
 **Bewusst NICHT geändert** (erst messen):
 - Windows-Aufnahme-Deckel `0.9/max_fps` (`capture/mod.rs`) — Verdacht: drückt
   auf 144/280-Hz-Schirmen die Aufnahme per VSync-Rundung unter 60 fps.
-  Messung 1 unten entscheidet.
+  **Messung 1 hat entschieden: der Verdacht stimmt** (Zahlen unten, mitsamt
+  Gegenprobe). Der Deckel steht trotzdem noch unverändert im Branch — die
+  Änderung ist eine eigene Entscheidung und gehört nicht unangekündigt in einen
+  Branch, der über den Installer an Bestandsclients geht.
 - Browser-Glättungspuffer (`jitterBufferTarget`) und pulse-player-Vorhalt —
   vom Nutzer zurückgestellt.
 
 ## Windows-Verifikation (VOR dem Merge nach main — Auftrag an die KI auf dem Windows-PC)
 
 Der Windows-Sidecar-Anteil dieses Branches (`streaming/win-hq-sidecar/src/whip/`)
-ist auf der Linux-Entwicklungsmaschine **nicht kompilierbar** und darum noch
-unverifiziert; der Code ist wortgleich zum auf Linux end-to-end geprüften Weg.
-Auf dem Windows-PC ist zu tun, in dieser Reihenfolge:
+war auf der Linux-Entwicklungsmaschine **nicht kompilierbar** und darum
+zunächst unverifiziert. **Am 2026-08-14 auf dem Windows-PC nachgeholt — alle
+vier Punkte grün, Zahlen im Abschnitt „Bereits gelaufen — Windows".** Der
+Auftrag bleibt hier stehen, weil er beim nächsten Sender-Umbau erneut zu fahren
+ist. Auf dem Windows-PC ist zu tun, in dieser Reihenfolge:
 
 1. **Bauen:**
    ```
@@ -70,7 +75,7 @@ Lücken im 2-s-Takt = Leitung/Keyframes.
 3. Gegenprobe: denselben Lauf auf dem 60-Hz-Schirm (oder Schirm auf 60 Hz
    stellen) — verschwinden die `dups`, ist die VSync-These belegt.
 
-## Bereits gelaufen (2026-08-14, lokal, AMD 780M, 2560x1440@143 Hz, mpv-Testbild 60 fps)
+## Bereits gelaufen — Linux (2026-08-14, lokal, AMD 780M, 2560x1440@143 Hz, mpv-Testbild 60 fps)
 
 Drei 60-s-Läufe gegen lokales MediaMTX (Anleitung unten):
 
@@ -97,8 +102,98 @@ einer ist normales Runden an der Halbslot-Grenze (sonst bis zu 53
 Schein-Klemmungen/s bei fehlerfreier Ausgabe).
 
 Der Windows-H.264-WHIP-Weg ist Code-identisch zum hier End-to-End geprüften
-Linux-Weg (gleiche webrtc-rs-Fassung, gleiche Zerlegung), aber auf Windows
-selbst noch unkompiliert/ungetestet.
+Linux-Weg (gleiche webrtc-rs-Fassung, gleiche Zerlegung). Er ist seit dem
+2026-08-14 auch auf Windows selbst gebaut, getestet und gegen ein MediaMTX
+gefahren — Abschnitt „Bereits gelaufen — Windows".
+
+## Bereits gelaufen — Windows (2026-08-14, RTX 5080, 2560x1440@143 Hz)
+
+Der Auftrag aus dem Abschnitt oben, Punkt für Punkt.
+
+**1. Bau.** `bootstrap-windows-capture.sh` (windows-capture 2.0.0 + 1 Pulse-Patch),
+dann `cargo build --release` **grün in 1 min 12 s, ohne Warnung**. Die erwarteten
+Compile-Fehler in `src/whip/mod.rs` blieben aus.
+
+**2. Tests.** `cargo test --release`: **184 grün, 0 rot, 2 ignoriert** (die
+beiden fragen echte Hardware ab), darunter `zuschnitt_haelt_die_grenzen` und die
+drei `zeitstempel_tests`.
+
+**3. Messung 1.** Aufbau ohne Netz und ohne zweiten Rechner: eine push_url, die
+nicht mit `http` beginnt, geht an den ffmpeg-Muxer (wie `mitschnitt.ps1`) — der
+Aufnahme-Takt, um den es geht, ist davon unberührt.
+
+**Die Bewegungsquelle muss bei JEDEM Vsync ein neues Bild zeigen**, sonst misst
+der Lauf nichts. Eine Quelle mit 15-ms-Zeitgeber (so zeichnet `bewegung.ps1`)
+passt ohnehin durch den 15,0-ms-Deckel und ergibt ein falsches Grün. Benutzt
+wurde eine Browser-Seite mit `requestAnimationFrame`, nachgemessen **143,9 Hz**
+über die volle Laufzeit.
+
+| Lauf (60 s, 60 fps, H.264, Deckel `0.9/max_fps`) | Ergebnis |
+|---|---|
+| Aufnahmerate | **53,8 Bilder/s** statt 60 — nie 60 |
+| dups | **7,8/s im Mittel**; Sekunde 0–24 **10–12/s**, danach 4–6/s |
+| Lieferabstand Sekunde 0–24 | **20,8 ms = exakt 3 Vsync-Perioden** (143 Hz → 6,993 ms) |
+| pts_delta>1 | **0** |
+| capture_drops / Rückruf-Verlustschranke | **0 / 0** (Rückruf avg 0,009 ms) |
+
+Damit ist die Schwelle des Auftrags („dups > 2/s bei bewegtem Inhalt") um das
+Fünf- bis Sechsfache gerissen, und die **Quantisierung ist direkt sichtbar**:
+`ceil(15,0 ms / 6,993 ms) = 3` Perioden → 47,7 Bilder/s. Genau das steht in den
+ersten 25 Sekunden in der Spur. Die Sender-Uhr ist dabei sauber (0 pts-Lücken) —
+es fehlt schlicht jedes achte Bild an der Quelle.
+
+**Gegenprobe mit `0.5/max_fps`** (gebaut, gemessen, wieder zurückgebaut — der
+Branch trägt die Änderung NICHT):
+
+| Lauf (60 s, sonst identisch) | Aufnahmerate | dups |
+|---|---|---|
+| Deckel `0.9/max_fps` | 53,8/s | 7,8/s |
+| Deckel `0.5/max_fps` | **74,5/s** | **0,00/s über volle 60 s** |
+
+Was die Zahl kostet und was nicht: bei 60 Hz Schirm bleibt alles wie es ist
+(8,33 ms lässt weiter jeden Vsync durch, 60/s), auf diesem 143-Hz-Schirm werden
+**24 % mehr Bilder aufgenommen und verworfen**. Die alte Begründung im Code
+(„der Schirm mit 280 Hz kommt damit auf höchstens ~66 Bilder je Sekunde")
+rechnet ohne die Vsync-Rundung und stimmt nicht — bei 280 Hz sind es 56/s, bei
+143 Hz 47,7/s, beides UNTER 60. Wer den Deckel anfasst, zieht `capture/mod.rs`
+und `capture/rueckruf.rs` gemeinsam mit (dort steht dieselbe Zahl, mit dem
+ausdrücklichen Hinweis darauf).
+
+**4. Der neue Sendeweg selbst** — das eigentlich Unverifizierte. Gegen ein
+lokales MediaMTX (1.20.0 im Docker, Loopback), 30–45 s je Lauf:
+
+- **H.264 über WHIP publiziert**: `stream is available and online, 1 track
+  (H264)`. Ein Browser als WHEP-Zuschauer **dekodiert live** (Sichtprüfung an
+  der Spiegelung: mehrere Ebenen tief, Balken je Ebene versetzt — es läuft
+  wirklich, es steht nicht).
+- **AV1 über WHIP publiziert weiter** — der Umbau der Bildspur (Enum → Struct
+  mit gemeinsamem `SpurZustand`) hat den AV1-Weg nicht beschädigt.
+- **Pacer hält sein Soll**: `soll 8,6–9,2 ms, ist 10,1–10,8 ms` je Bild, also
+  **rund +1,4 ms** — dieselbe Größenordnung wie die +1 ms auf Linux (ein
+  Zeitgeber-Aufwachen). Die alte Fassung lag bei +66 %.
+
+**Verlustbild, und warum es für den Pacer spricht** (2-s-Meldungen von
+MediaMTX, Loopback, je 25–30 s):
+
+| Lauf | Meldungen | Summe |
+|---|---|---|
+| H.264, Pacer an (Vorgabe) | 1, beim Start | ~125 Pakete, danach still |
+| H.264, `PULSE_WHIP_PACING=0` | 1, beim Start | ~142 Pakete, danach still |
+| AV1, Pacer an (Vorgabe) | **1, beim Start** | ~1750 Pakete, danach **still** |
+| AV1, `PULSE_WHIP_PACING=0` | **10, über den ganzen Lauf verteilt** | ~2011 Pakete |
+
+Der laufende Verlust ohne Verteilung ist genau das, wogegen der Pacer gebaut
+ist; die Vorgabe-Umstellung dieses Branches tauscht ihn gegen einen einmaligen
+Startburst. **Der Startburst ist nicht neu:** derselbe Lauf auf `main` mit
+`PULSE_WHIP_PACING=1` ergibt **1749** — auf Windows ist der Pacer-Code zwischen
+`main` und Branch unverändert, der Branch dreht nur die Vorgabe um. Er trifft
+außerdem nur die erste Sekunde des Senders, bevor überhaupt ein Zuschauer da
+sein kann.
+
+**Was hier NICHT geprüft ist** (und auch nicht geprüft werden konnte): echte
+Leitung statt Loopback, zweiter Rechner, HDR/10 bit, Ankunftslücken beim
+Zuschauer — dafür braucht es den Messstand, der seit 2026-08-12 für die
+Fernsteuer-Testinstanz gestoppt ist.
 
 ## Messung 2 — Linux, Duplikat-/PTS-Log
 
