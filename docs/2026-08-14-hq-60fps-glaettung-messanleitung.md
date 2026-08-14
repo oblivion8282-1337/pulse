@@ -45,8 +45,8 @@ Auf dem Windows-PC ist zu tun, in dieser Reihenfolge:
 3. **Messung 1** (nächster Abschnitt) auf dem 280-Hz-Schirm fahren — sie
    verifiziert den Stream real UND beantwortet den offenen Deckel-Verdacht.
 4. Ergebnis (Bau grün/rot, dups-Zahlen) hier im Dokument unter „Bereits
-   gelaufen" nachtragen und auf dem Branch committen — der Merge nach main
-   wartet darauf.
+   gelaufen" nachtragen und auf dem Branch committen + pushen — der Merge
+   nach main wartet darauf.
 
 ## Messung 1 — Windows, 60-fps-Stream auf dem 144/280-Hz-Schirm
 
