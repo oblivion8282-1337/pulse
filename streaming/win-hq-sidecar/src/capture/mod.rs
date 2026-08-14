@@ -270,6 +270,45 @@ pub(crate) fn border_settings(draw_border: bool) -> DrawBorderSettings {
     }
 }
 
+/// Anteil des Bildabstands, unter den die Aufnahme nicht liefern soll —
+/// `DECKEL_ANTEIL / fps` ist der Deckel.
+///
+/// **Die Zahl ist eine Untergrenze, kein Zielwert, und genau darin lag der
+/// Fehler.** Bis 2026-08-14 stand hier 0,9 mit der Begruendung, ein Zehntel
+/// Sicherheitsabstand verhindere, dass ein knapp zu frueh gekommenes Bild
+/// unterdrueckt wird (60 auf 60 Hz). Das stimmt — auf einem 60-Hz-Schirm.
+/// Darueber ist es falsch, weil WGC nur zu den Zeitpunkten des Schirms
+/// liefern KANN: die Drossel wirkt nicht wie ein Ventil, sondern wie ein Tor,
+/// das sich alle `1/wiederholrate` oeffnet. „Mindestens 15,0 ms" trifft bei
+/// 143 Hz (6,95 ms je Takt) keinen erlaubten Zeitpunkt — der naechste liegt
+/// bei 20,8 ms, also bei 48 Bildern je Sekunde statt 60.
+///
+/// **Gemessen am 2026-08-14** (RTX 5080, 2560x1440@143 Hz, Quelle mit
+/// Bildschirmtakt, je 30-60 s), Aufnahmerate und Duplikate je Sekunde:
+///
+/// | Ziel | mit 0,9 | mit 0,5 |
+/// |---|---|---|
+/// | 30 fps | 29,5 — 1,1 dup/s | 48,1 — **0** |
+/// | 60 fps | 53,8 — 7,8 dup/s | 74,5 — **0** |
+/// | 120 fps | 113,6 — 13,2 dup/s | 144,1 — **0** |
+/// | 144 fps | 144,0 — 0 | 172,7 — 0 |
+///
+/// 144 fps war schon vorher heil, und zwar zufaellig: 0,9/144 = 6,25 ms liegt
+/// UNTER einem Schirm-Takt, das Tor steht dann ohnehin bei jedem Takt offen.
+/// Genau das leistet 0,5 fuer jede Zielrate, deren Schirm mindestens so
+/// schnell ist — und der urspruengliche Zweck des Sicherheitsabstands (60 auf
+/// 60 Hz: 8,33 ms laesst jeden 16,7-ms-Takt durch) bleibt erst recht erfuellt.
+///
+/// **Was es kostet:** 15 bis 29 zusaetzlich abgeholte und sofort verworfene
+/// Bilder je Sekunde. Ein Rueckruf kostet gemessene 0,009 ms
+/// ([`rueckruf::RueckrufWacht`]), macht drei hundertstel Prozent Rechenzeit —
+/// bezahlt gegen ein Ruckeln, das jeder sieht.
+///
+/// **Kleiner als 0,5 bringt nichts** und kostet weiter: unterhalb eines
+/// Schirm-Takts drosselt der Deckel ohnehin nicht mehr, er laesst dann nur
+/// noch mehr Bilder durch, die der Encode-Takt wegwirft.
+pub(crate) const DECKEL_ANTEIL: f64 = 0.5;
+
 /// Frame-Takt-Deckel der Capture. `MinUpdateInterval` gibt es erst ab Win11
 /// 24H2 (Build 26100) — davor liefert WGC ungedrosselt und der Pacing-Loop
 /// taktet selbst (das Intervall ist eine Optimierung, keine Korrektheit).
@@ -304,20 +343,7 @@ pub(crate) fn min_interval_settings(max_fps: u32) -> MinimumUpdateIntervalSettin
         eprintln!("[capture] MinUpdateInterval fehlt auf diesem Windows (< 24H2) — Capture ungedrosselt, Pacing-Loop taktet");
         return MinimumUpdateIntervalSettings::Default;
     }
-    // Deckel = 1/fps, ABER mit einem Zehntel Sicherheitsabstand.
-    //
-    // Der Abstand ist noetig, sobald Zielbildrate und Wiederholrate
-    // zusammenfallen (60 auf 60 Hz): traefe der Deckel den Bildabstand exakt,
-    // wuerde ein Bild, das eine Haarspitze zu frueh kommt, unterdrueckt — aus
-    // 60 wuerden 59 mit einem sichtbaren Aussetzer je Sekunde. Das ist der
-    // Grund, warum die Ausnahme oben ueberhaupt plausibel wirkte; sie hat das
-    // Problem nur mit dem Holzhammer geloest.
-    //
-    // Bei 60 sind das 15,0 ms statt 16,7 — der Schirm mit 280 Hz kommt damit
-    // auf hoechstens ~66 Bilder je Sekunde statt 280, und ein 60-Hz-Schirm
-    // verliert keines. Fuer reduzierte Bildraten aendert der Abstand praktisch
-    // nichts (30 fps: 30,0 statt 33,3 ms, die Quelle liefert dort ohnehin
-    // seltener).
-    let deckel = 0.9 / max_fps as f64;
-    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(deckel))
+    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_secs_f64(
+        DECKEL_ANTEIL / max_fps as f64,
+    ))
 }
