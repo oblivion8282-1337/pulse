@@ -29,8 +29,9 @@
 # 3. peer_connection.go carries that callback and gains RequestKeyFrame(),
 #    which pokes its inbound video tracks.
 # 4. inbound_track.go gains a throttled RequestKeyFrame() (at most one per
-#    2 s, so a hundred viewers on a lossy minute cost one key frame, not
-#    a hundred) and reads the ticker period from PULSE_KEYFRAME_INTERVAL.
+#    500 ms, so a hundred viewers on a lossy minute cost a handful of key
+#    frames, not a hundred) and reads the ticker period from
+#    PULSE_KEYFRAME_INTERVAL.
 #    Unset keeps upstream's 2s behaviour, "0"/"off" disables the ticker.
 # 5. servers/webrtc/session.go wires both ends: the publishing session
 #    registers its connection as the path's key frame handler and clears it
@@ -59,16 +60,25 @@ index e6ae29d..6014b80 100644
  	"time"
  
  	"github.com/bluenviron/gortsplib/v5/pkg/rtpreceiver"
-@@ -16,8 +18,43 @@ const (
+@@ -16,8 +18,52 @@ const (
  	keyFrameInterval  = 2 * time.Second
  	mimeTypeMultiopus = "audio/multiopus"
  	mimeTypeL16       = "audio/L16"
 +
-+	// Pulse: floor between two key frame requests caused by readers. Keep in
-+	// step with the publisher-side suppression (win-hq-sidecar keyframe.rs
-+	// ABSTAND_LANGSAM, linux-hq-sidecar encode/mod.rs PULSE_KEYFRAME_SECONDS,
-+	// both 2 s) — anything shorter only fired requests into that dead time.
-+	keyFrameRequestMinInterval = 2 * time.Second
++	// Pulse: floor between two key frame requests caused by readers, so one
++	// viewer on a permanently bad line cannot make every viewer pay a
++	// CBR-softened key frame over and over.
++	//
++	// 500 ms, and the number is a compromise both ways. It was 300 ms until
++	// 2026-08-15, then briefly 2 s — that was too blunt: the publisher-side
++	// suppression is a STAIRCASE (win-hq-sidecar keyframe.rs: first two
++	// requests served at once, then 1 s, then 2 s), not a flat 2 s, so a
++	// second viewer losing a packet shortly after a first would have waited
++	// up to two seconds for a repair it used to get immediately — and a
++	// frozen picture stalls remote control outright. 500 ms keeps the
++	// repeat-abuser in check (the staircase catches what gets through) while
++	// leaving isolated losses fast.
++	keyFrameRequestMinInterval = 500 * time.Millisecond
  )
  
 +// pulseKeyFrameInterval returns the period of the unconditional key frame
@@ -103,7 +113,7 @@ index e6ae29d..6014b80 100644
  func inboundTrackTWCCExtensionID(params webrtc.RTPParameters) uint8 {
  	for _, ext := range params.HeaderExtensions {
  		if ext.URI == twccExtensionURI {
-@@ -256,6 +293,33 @@ type InboundTrack struct {
+@@ -256,6 +302,33 @@ type InboundTrack struct {
  	twccExtID             uint8
  	inboundRTPPacketsLost *counterdumper.Dumper
  	rtpReceiver           *rtpreceiver.Receiver
