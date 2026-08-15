@@ -71,13 +71,6 @@ jobs:
         shell: bash
         run: ./streaming/win-hq-sidecar/scripts/bootstrap-windows-capture.sh
 
-      # Baut pulse-win-hq-sidecar.exe + kopiert die FFmpeg-DLLs daneben
-      # (build.rs). LLVM/libclang für bindgen liegt auf dem Runner unter
-      # C:\Program Files\LLVM — der Pfad in .cargo/config.toml passt.
-      - name: Sidecar bauen (release)
-        shell: pwsh
-        working-directory: streaming/win-hq-sidecar
-        run: cargo build --release
 
       # Der native HQ-Player (`streaming/pulse-player/`). Er braucht zwei Dinge,
       # die der Sidecar nicht braucht:
@@ -99,13 +92,66 @@ jobs:
         shell: bash
         run: ./streaming/pulse-player/scripts/bootstrap-webrtc.sh
 
-      - name: Player bauen (release)
+      # Sidecar UND Player GLEICHZEITIG bauen — zwei unabhaengige Crates, die
+      # sich nur `ffmpeg-dist/` teilen (oben schon geholt).
+      #
+      # **Warum nebenlaeufig im SELBEN Job und nicht als zwei Jobs.** Zwei Jobs
+      # waeren die uebliche Antwort, kosten hier aber mehr, als sie bringen:
+      # jeder braucht Checkout, Toolchain, Cargo-Cache (~45 s) und FFmpeg
+      # (~20 s) erneut, und der Installer-Job muesste die Binaerdateien als
+      # Artefakt durchreichen. Gemessen am warmen Lauf 31907930095 (Sidecar
+      # 2m11s, Player 3m20s) waere die Wanduhr damit von ~8 auf ~7,5 min
+      # gefallen — bei dreifachem Windows-Minutenverbrauch. Nebenlaeufig in
+      # einem Job entfaellt der ganze Zusatzaufwand.
+      #
+      # **Warum die Ausgabe in Dateien geht.** Zwei gleichzeitig laufende
+      # cargo-Prozesse schrieben sonst ineinander, und eine Fehlermeldung
+      # waere nicht mehr zuzuordnen. Die Protokolle werden nach dem Warten
+      # nacheinander ausgegeben — bei Erfolg wie bei Fehlschlag.
+      #
+      # **Wenn das je Aerger macht** (Speicherdruck auf dem Runner, unlesbare
+      # Fehler): die zwei `Start-Job`-Bloecke wieder zu zwei `cargo build`
+      # -Schritten machen, das ist der ganze Rueckweg.
+      - name: Sidecar und Player bauen (release, gleichzeitig)
         shell: pwsh
-        working-directory: streaming/pulse-player
         env:
           FFMPEG_DIR: ${{ github.workspace }}\streaming\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-        run: cargo build --release
+        run: |
+          $ws = "${{ github.workspace }}"
+          $sidecar = Start-Job -Name sidecar -ScriptBlock {
+            Set-Location "$using:ws\streaming\win-hq-sidecar"
+            cargo build --release *>&1
+            exit $LASTEXITCODE
+          }
+          $player = Start-Job -Name player -ScriptBlock {
+            Set-Location "$using:ws\streaming\pulse-player"
+            $env:FFMPEG_DIR = "$using:ws\streaming\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared"
+            $env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+            cargo build --release *>&1
+            exit $LASTEXITCODE
+          }
+          Wait-Job $sidecar, $player | Out-Null
+          $fehler = $false
+          foreach ($j in @($sidecar, $player)) {
+            Write-Host "::group::$($j.Name)"
+            Receive-Job $j
+            Write-Host "::endgroup::"
+            if ($j.State -ne 'Completed') { $fehler = $true; Write-Host "$($j.Name): $($j.State)" }
+          }
+          # `Start-Job` meldet einen cargo-Fehlschlag NICHT ueber den
+          # Job-Status — nur ueber das, was cargo geschrieben hat. Deshalb
+          # zusaetzlich pruefen, ob die Binaerdateien wirklich entstanden sind:
+          # ein stiller Fehlschlag hier liesse den Installer mit dem Stand des
+          # vorigen Laufs (oder ganz ohne Sidecar) durchlaufen.
+          $erwartet = @(
+            "$ws\streaming\win-hq-sidecar\target\release\pulse-win-hq-sidecar.exe",
+            "$ws\streaming\pulse-player\target\release\pulse-player.exe"
+          )
+          foreach ($p in $erwartet) {
+            if (-not (Test-Path $p)) { Write-Host "FEHLT: $p"; $fehler = $true }
+          }
+          if ($fehler) { exit 1 }
 
       - name: pnpm
         uses: pnpm/action-setup@v4
