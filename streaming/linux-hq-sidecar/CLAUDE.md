@@ -219,9 +219,12 @@ Compositor liefert Frames nur bei Damage (statischer Schirm = wenige Frames — 
 
 **StreamController auf echte Capture verdrahtet** (`start`-Op → Portal-Dialog → PipeWire-
 DMABUF → Zero-Copy-NVENC → RTMPS): live über JSON-RPC verifiziert (`start`/`stop`,
-MediaMTX `ready:true`, ~5 MB in 12 s). Getakteter Loop mit **Frame-Duplikation** hält
-**konstante 60 fps** trotz Damage-getakteter Quelle; PTS = monotoner Frame-Zähler in
-Encoder-Timebase 1/fps. `SyntheticSource` wird nicht mehr benutzt (Struct bleibt).
+MediaMTX `ready:true`, ~5 MB in 12 s). Getakteter Loop (Slot-Raster mit Nachfrist,
+`frames.wait_take`) hält die **Ziel-Bildrate** trotz Damage-getakteter Quelle, per
+**Frame-Duplikation** bei Ausbleiben. PTS echter Bilder = ihre Ankunftszeit
+(`DmabufFrame::captured_at`) in Encoder-Timebase **1/90000** (`src/zeitbasis.rs`,
+seit 2026-08-14 — nicht mehr 1/fps); nur Duplikate zählen über
+`last_pts + takte_je_bild(fps)` hoch. `SyntheticSource` wird nicht mehr benutzt (Struct bleibt).
 Streamt in **nativer Auflösung** (Resolution-Override ⇒ später GPU-Scale). Nur NVIDIA;
 AMD/Intel geben klaren Fehler. Bekannt: `stop` während offenem Portal-Dialog blockt bis
 zur Auswahl. Die FLV-"Failed to update header"-Warnings beim Stop sind harmlos (Live-RTMP
@@ -260,8 +263,12 @@ Read-Ops + unknown-op + invalid-json, verifiziert Wire-Protokoll; grün in ~130 
 überschreibt den Bin-Pfad. Kein HEVC-Szenario (nur H264+AV1).
 
 **A/V-Sync über gemeinsame Wanduhr** (GSR-Modell): Video- UND Audio-pts leiten aus
-demselben `record_start`-Instant ab. Video-pts = `round((now-record_start)*fps)` (nicht
-mehr simpler Zähler → kein Sleep-Drift), strikt monoton via `max(next_pts)`. Audio: der
+demselben `record_start`-Instant ab. Video-pts **seit 2026-08-14** (s.
+`src/zeitbasis.rs`): Zeitbasis 1/90000 statt 1/fps, und echte Bilder tragen ihre
+eigene Aufnahmezeit — `zeitbasis::pts_aus_sekunden(captured_at - record_start)`,
+bewusst NICHT die Tick-Zeit des Loops (die liegt bis zu einen Bildabstand daneben
+und wandert mit der Phasenlage). Duplikate zählen dagegen hoch
+(`last_pts + takte_je_bild`), strikt monoton via `.max(last_pts + 1)`. Audio: der
 erste Sample-Batch verankert die Zeitlinie an `(arrival-record_start)*sample_rate` (+
 `av_offset_ms`). Kein fixer Encoder-Delay (wie GSRs `force_no_audio_offset` bei
 Livestream). `av_offset_ms` ist jetzt funktionaler Feinabgleich (positiv = Ton später).

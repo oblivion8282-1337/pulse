@@ -49,7 +49,7 @@ static ANGEFORDERT: AtomicBool = AtomicBool::new(false);
 // Gestaffelt wird deshalb erst die WIEDERHOLUNG.
 //
 // **Warum hier und nicht im MediaMTX-Fork.** Patch 0002 drosselt dort schon auf
-// eine Anforderung je 300 ms — aber PFADWEIT. Eine schaerfere Bremse an dieser
+// eine Anforderung je 2 s — aber PFADWEIT. Eine schaerfere Bremse an dieser
 // Stelle traefe eine echte Zuschauermenge mit: zehn Zuschauer, die nach einem
 // Verlustereignis gleichzeitig anfordern, sind ein berechtigter Fall. Hier
 // unterscheidet die Staffelung nicht nach Zuschauer (das kann der Sender
@@ -140,7 +140,9 @@ static LEITER: Mutex<Leiter> = Mutex::new(Leiter::neu());
 /// zusammen — das ist Absicht: bei mehreren Zuschauern auf schlechter Leitung
 /// waere sonst jede einzelne ein volles Intra-Bild, und das zahlt der Sender
 /// einmal fuer alle. (Die zweite Bremse sitzt server-seitig im
-/// MediaMTX-Patch 0002: hoechstens eine Anforderung je 300 ms.)
+/// MediaMTX-Patch 0002: hoechstens eine Anforderung je 2 s — seit 2026-08-14
+/// derselbe Wert wie [`ABSTAND_LANGSAM`] hier; vorher standen dort 300 ms und
+/// feuerten damit in die Sperrfrist dieser Datei hinein.)
 pub fn request_keyframe() {
     // Eine vergiftete Sperre darf den Rueckkanal nicht stilllegen: lieber die
     // Anforderung durchlassen als den Stream fuer alle Zuschauer einfrieren.
