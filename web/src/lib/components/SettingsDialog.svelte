@@ -12,6 +12,7 @@
     | 'security'
     | 'privacy'
     | 'self-host'
+    | 'standplatz'
     | 'apps'
     | 'experimental';
 </script>
@@ -30,6 +31,7 @@
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import SettingsApps from './settings/SettingsApps.svelte';
   import SettingsExperimental from './settings/SettingsExperimental.svelte';
+  import SettingsStandplatz from './settings/SettingsStandplatz.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
   import PaletteIcon from '@lucide/svelte/icons/palette';
@@ -41,6 +43,7 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import LockIcon from '@lucide/svelte/icons/lock';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import UserIcon from '@lucide/svelte/icons/user';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
@@ -118,6 +121,7 @@
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
+    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true },
     { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
     { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
@@ -208,6 +212,8 @@
           <SettingsAudioVideo />
         {:else if activeTab === 'screen-share'}
           <SettingsScreenShare />
+        {:else if activeTab === 'standplatz'}
+          <SettingsStandplatz />
         {:else if activeTab === 'notifications'}
           <SettingsNotifications />
         {:else if activeTab === 'sounds'}
