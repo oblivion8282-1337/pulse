@@ -153,6 +153,11 @@ contextBridge.exposeInMainWorld('pulse', {
      *  die Zustandsmaschine lebt im Renderer (`$lib/remote/p2p.ts`). */
     transportStatus: (session: number, transport: string) =>
       playerCall('remote_transport', { session, transport }),
+    /** Fernsteuerung: Form des Host-Zeigers auf den lokalen Zeiger setzen
+     *  („text", „ns-resize", …). Ersetzt, was das Cursor-Echo aus dem Bild
+     *  nimmt — Namen aus der CSS-Liste, kein Bild (`$lib/remote/zeigerform.ts`). */
+    pointerShape: (session: number, shape: string) =>
+      playerCall('remote_pointer', { session, shape }),
 
     /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
      *  kommt als `path` in der Antwort zurueck. */

@@ -15,6 +15,7 @@ import { registerWsHandler } from '../handler-registry';
 import { remoteSession } from '$lib/remote/session.svelte';
 import { remoteP2P } from '$lib/remote/p2p';
 import { remoteVorrang } from '$lib/remote/vorrang';
+import { remoteZeigerform } from '$lib/remote/zeigerform';
 import { eingabeEinspielen } from '$lib/remote/sidecarInput';
 import { userCache } from '$lib/stores/users.svelte';
 
@@ -84,6 +85,9 @@ export function register(): void {
     // seinen eigenen Rechner — sie geht an das Modul, das sie anzeigt und das
     // Gehaltene nachzieht (`$lib/remote/vorrang.ts`).
     if (evt.kind === 'vorrang') remoteVorrang._signal(evt.data);
+    // 'zeiger' ebenso: die Form des Host-Zeigers, die das Cursor-Echo aus dem
+    // Bild nimmt (`$lib/remote/zeigerform.ts`).
+    else if (evt.kind === 'zeiger') remoteZeigerform._signal(evt.data);
     else remoteP2P.signal(evt.kind, evt.data);
   });
   // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN

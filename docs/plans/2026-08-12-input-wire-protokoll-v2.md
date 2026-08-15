@@ -399,9 +399,10 @@ Hello in derselben Nachricht ankommt — sonst liefe die nächste Eingabe in
 „Eingabe vor dem Hello-Handschlag" und risse die Sitzung fail-closed ab.
 
 **Der Steuernde erfährt es** — über `remote_signal` mit `kind: "vorrang"` und
-`data: {aktiv, rest_ms}`, die einzige Auskunft, die vom Host zum Steuernden
-fließt (der DataChannel ist eine Einbahnstraße). Ohne sie sieht der Vorrang aus
-wie ein Verbindungsabbruch.
+`data: {aktiv, rest_ms}`. Der DataChannel ist eine Einbahnstraße, also läuft
+alles vom Host zum Steuernden über den Signalweg; neben dem Vorrang tut das nur
+die Zeigerform (s. unten). Ohne diese Meldung sieht der Vorrang aus wie ein
+Verbindungsabbruch.
 
 **Ein geltender Vorrang wird wiederholt gemeldet, einmal je Sekunde.** Der
 Weiterleiter des Gateways verwirft über seinem Sekundendeckel still; geht
@@ -457,6 +458,61 @@ Damit niemand mehr hineinliest, als gebaut ist:
   Sichtschutz allein: auch er gibt beim Host alles frei, ohne dass jemand danach
   nachzieht. Ein allgemeiner „der Host verwirft gerade"-Kanal wäre die saubere
   Antwort und ist nicht gebaut.
+
+## Die Form des Host-Zeigers
+
+Die zweite Auskunft in der Gegenrichtung, und die Gegenbuchung zum Cursor-Echo:
+weil der Host-Zeiger bei absoluter Führung aus dem Bild genommen wird, sieht der
+Steuernde nur noch seinen eigenen — und der ist immer derselbe Pfeil. Alles, was
+ein Zeiger sonst über den fremden Rechner sagt (I-Balken über Text, Doppelpfeil
+an einer Kante, Hand über einem Verweis, Wartekringel), fiel damit weg. Man zieht
+an Kanten ins Leere und rät, ob ein Klick trifft.
+
+**Über die Leitung geht ein Name, kein Bild.** `remote_signal` mit
+`kind: "zeiger"` und `data: {form}`, wobei `form` ein Name aus der
+CSS-Zeigerliste ist (`text`, `pointer`, `wait`, `progress`, `crosshair`, `help`,
+`not-allowed`, `ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`, `move`,
+`default`). Der Steuernde setzt damit die Form seines eigenen, lokal gezeichneten
+Zeigers. Das hat vier Vorteile gegenüber übertragenen Pixeln: es kostet ein paar
+Byte je Wechsel statt eines Bildes, der Zeiger bleibt verzögerungsfrei, er kommt
+in der Zeigergröße und dem Thema des Steuernden an — und es trägt über
+Plattformgrenzen, weil winit dieselbe Namensliste unter Windows auf `IDC_*`,
+unter macOS auf `NSCursor` und unter Linux auf das installierte Zeiger-Thema
+abbildet. Wer von Linux aus einen Windows-Rechner steuert, bekommt seinen
+eigenen I-Balken.
+
+**Der Preis:** nur Standardformen. Ein Spiel, eine Bildbearbeitung oder ein
+Werkzeug mit eigenem Zeiger trifft keinen der System-Zeiger und fällt auf
+`default`. Wer das schließen will, muss die Pixel selbst holen (`GetIconInfo` +
+`GetDIBits`) und als Bitmap samt Hotspot übertragen — eine eigene Stufe mit
+eigenen Sonderfällen (Transparenz, invertierende Zeiger, Animationen).
+
+**Ermittelt wird am Wecker der Wache**, nicht an eingehenden Nachrichten: die
+Form ändert sich, ohne dass jemand etwas sendet (der Zeiger steht über einer
+Kante, die Anwendung lädt fertig). Wer die Hand still hält, erführe sonst nie
+davon. Der Wecker läuft ohnehin genau während einer Fernsteuerung.
+
+**Wiederholt wird je Sekunde**, aus demselben Grund wie beim Vorrang und mit
+derselben Falle: der Sekundendeckel des Gateways verwirft still, und der
+Wechselfilter im Renderer verschluckte eine Wiederholung, die er nicht als
+Auffrischung erkennt. Ginge ein Wechsel verloren, behielte der Steuernde die
+falsche Form für den Rest der Sitzung.
+
+**Bei Vorrang des Hosts wird `default` gemeldet.** Der Host führt dann seinen
+eigenen Zeiger, der wieder im Bild ist; eine Form, die zu dessen Bewegung gehört,
+hätte beim Steuernden nichts zu suchen.
+
+**Ob der Zeiger überhaupt sichtbar ist (`CURSOR_SHOWING`), wird bewusst nicht
+ausgewertet.** Windows blendet ihn beim Tippen aus, Videowiedergaben tun es nach
+ein paar Sekunden Ruhe — das nachzuvollziehen nähme dem Steuernden ständig den
+einzigen Zeiger, den er hat, denn im Bild ist ja auch keiner. Den einen Fall, in
+dem er wirklich verschwinden muss (Spiel), deckt der Zeigerfang des Players
+bereits ab.
+
+**Die Formenliste steht an drei Stellen** — Sidecar
+(`remote_input/zeigerform.rs`), Renderer (`web/src/lib/remote/zeigerform.ts`)
+und Player (`app/eingabe.rs`) — und muss synchron bleiben. Ein hier erfundener
+Name käme drüben wortlos als Standardpfeil an; je ein Test hält die Listen fest.
 
 ## Was sich gegenüber v1 geändert hat
 

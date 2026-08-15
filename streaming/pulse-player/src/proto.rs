@@ -101,6 +101,16 @@ pub struct Request {
     #[serde(default)]
     pub transport: Option<String>,
 
+    // --- remote_pointer ---
+    /// Form des Host-Zeigers als Name aus der CSS-Zeigerliste („text",
+    /// „ns-resize", …). Ersetzt beim Steuernden, was das Cursor-Echo aus dem
+    /// Bild nimmt (`web/src/lib/remote/zeigerform.ts`). Ein **Name** und kein
+    /// Bild: gezeichnet wird der lokale Zeiger, also ohne Verzoegerung und in
+    /// der Zeigergroesse des Steuernden — und winit uebersetzt denselben Namen
+    /// auf jeder Plattform in deren eigene Form.
+    #[serde(default)]
+    pub shape: Option<String>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

@@ -920,7 +920,9 @@ function wireSidecar(): void {
 // Hauptprozess (s. `remoteInput.ts`). Sie laeuft deshalb ueber `player:inputCapture`.
 // `remote_transport` darf ueber den generischen Kanal: es traegt nur den
 // Anzeigetext des Eingabewegs fuers Statistik-Feld (keine Zuordnung, keine
-// Eingabe) — anders als `input_capture`, s. oben.
+// Eingabe) — anders als `input_capture`, s. oben. `remote_pointer` aus
+// demselben Grund: es setzt die FORM des lokalen Zeigers im eigenen Fenster
+// (`$lib/remote/zeigerform.ts`), beruehrt also weder Zuordnung noch Eingabe.
 const ALLOWED_PLAYER_OPS = new Set([
   'health',
   'open',
@@ -929,6 +931,7 @@ const ALLOWED_PLAYER_OPS = new Set([
   'stats',
   'focus',
   'remote_transport',
+  'remote_pointer',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */

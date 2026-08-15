@@ -33,6 +33,7 @@ import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
 import { isWindows } from '$lib/platform/runtime';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
+import { remoteZeigerform } from './zeigerform';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -374,6 +375,12 @@ class RemoteSessionStore {
       (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
       (frames) => void this.sendInput(sessionId, this.targetSlot, frames),
     );
+    // Form des Host-Zeigers (`zeigerform.ts`): I-Balken, Größenpfeile, Hand —
+    // das, was das Cursor-Echo aus dem Bild nimmt. Läuft über denselben
+    // Signalweg und hat dieselben zwei Rollen wie der Vorrang.
+    remoteZeigerform.start(this.role, (kind, data) =>
+      this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+    );
   }
 
   _ended(sessionId: string, reason: string): void {
@@ -429,6 +436,7 @@ class RemoteSessionStore {
     // **Reihenfolge trägt:** der Vorrang gibt eine übernommene Anzeige zurück
     // und braucht dafür den Eingabeweg-Text, den `remoteP2P.stop()` löscht.
     remoteVorrang.stop();
+    remoteZeigerform.stop();
     remoteP2P.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
