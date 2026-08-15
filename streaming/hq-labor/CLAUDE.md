@@ -374,29 +374,24 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
 
 **Blockierend fuer den Flatpak-Sichttest — das Flatpak redet NUR mit der Produktion:**
 
-- [ ] **`infra/prod/docker-compose.yml` pinnt noch `pulse-mediamtx:1.19.1-pulse`.**
-      Das ist der Stand mit NUR Patch 0001. Gebraucht wird ein Image mit 0002-0005
-      (Vollbild-Rueckweg, abschaltbarer Keyframe-Takt, FlexFEC) — lokal existiert
-      es als `pulse-mediamtx:1.19.1-pulse2`, in der Registry noch nicht.
+- [x] **ERLEDIGT 2026-08-15: die Produktion faehrt `pulse-mediamtx:1.19.1-pulse3`**
+      — alle fuenf Patches (0001-0004 plus der vendorierte 0005), aus der
+      Registry, damit ueber das hier urspruenglich genannte Ziel `pulse2`
+      hinaus. Der Wechsel lief zusammen mit dem 60-fps-Glaettungspaket und
+      wartete auf ein Zeitfenster ohne laufenden Stream (der Austausch reisst
+      jede Uebertragung ab). Umgestellt wurde wie geplant erst, als Linux UND
+      Windows gebaut waren.
 
-      **Hier stand „Fehler auf dem Branch, nicht bloss eine offene Aufgabe" —
-      das ist zurueckgenommen** (Nutzer-Entscheidung 2026-08-04). Der alte Pin
-      steht mit Absicht: umgestellt wird, wenn Linux UND Windows fertig gebaut
-      sind, damit Server und Clients gemeinsam wechseln.
-
-      **Was dabei zu wissen ist, und es ist nicht offensichtlich:** die
-      `PULSE_*`-Variablen im Compose stehen **bereits scharf**
-      (`PULSE_KEYFRAME_INTERVAL=0`, `PULSE_FLEXFEC=1` mit 10:2) — das laufende
-      Image kennt sie nur nicht. Das Nachziehen des Images ist deshalb **kein**
-      stilles Bereitstellen einer Faehigkeit, sondern schaltet im selben Moment
-      FlexFEC fuer JEDEN Zuschauer ein: rund 20 Prozent mehr Datenrate, auf
-      jeder Leitung, ob etwas verlorengeht oder nicht. Der Keyframe-Takt-
-      Schalter dagegen ist folgenlos (er betrifft nur WebRTC-Publisher, und die
-      gibt es in Produktion nicht).
-
-      Wer den Serverwechsel isoliert beobachten will, setzt beim Nachziehen
-      `PULSE_FLEXFEC` voruebergehend auf `"0"` und legt ihn erst mit den
-      Clients um.
+      **Damit ist auch der FlexFEC-Umschaltmoment vorbei**, den der folgende
+      Absatz beschreibt — er ist eingetreten, nicht mehr bevorstehend. Die
+      `PULSE_*`-Variablen im Compose standen naemlich **schon vorher scharf**
+      (`PULSE_KEYFRAME_INTERVAL=0`, `PULSE_FLEXFEC=1` mit 10:2), nur kannte das
+      alte Image sie nicht. Mit dem Image-Wechsel ist FlexFEC daher fuer JEDEN
+      Zuschauer aktiv geworden: rund 20 Prozent mehr Datenrate, auf jeder
+      Leitung, ob etwas verlorengeht oder nicht. Der Keyframe-Takt-Schalter
+      blieb folgenlos (er betrifft nur WebRTC-Publisher, und die gibt es in
+      Produktion nicht). Wer die Wirkung isoliert nachmessen will, setzt
+      `PULSE_FLEXFEC` voruebergehend auf `"0"` und vergleicht.
 - [ ] **Die Produktion kennt `protocol=whip` nicht.** `media-svc` und
       `chat-gateway` haben das Feld auf `^rtmp$` festgenagelt; ein WHIP-Token
       endet mit 422. Intra-Refresh ist damit ueber die Produktion nicht startbar.

@@ -335,9 +335,11 @@ einzeln beschrieben.
   Welcher Encoder sie trägt und warum, steht in `src/encode/auffrischung.rs`; die
   Kurzfassung: AMD nur mit AV1 (`av1_amf`), NVIDIA immer, Intel nie, und
   `h264_d3d12va` nimmt die Option an, ohne etwas zu tun.
-- `PULSE_WHIP_PACING=1` — verteilt die RTP-Pakete eines Bildes über die Zeit, statt
-  sie als Schwall zu senden. **Aus als Vorgabe**: in dieser Fassung gemessen
-  schlechter, nicht besser (Zahlen in `src/whip/pacer.rs`).
+- `PULSE_WHIP_PACING=0` — schaltet die Verteilung der RTP-Pakete eines Bildes über
+  die Zeit AB (zurück zum Schwall-Senden). **AN als Vorgabe seit 2026-08-14**, seit
+  dem Neubau mit absoluten Zeitpunkten und Paketgruppen; die erste Fassung war
+  gemessen schlechter und deshalb aus (Zahlen und beide Fassungen in
+  `src/whip/pacer.rs`).
 - `PULSE_LABOR_EINGABE_OHNE_STREAM=1` — lässt die Fernsteuerung **ohne laufenden
   Stream** injizieren; Quell-Rechteck ist dann der primäre Bildschirm. Nur zum
   Messen, ob eine gesendete Koordinate am Host auf dem Punkt ankommt
