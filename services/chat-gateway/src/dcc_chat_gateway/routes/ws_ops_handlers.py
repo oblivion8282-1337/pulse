@@ -38,6 +38,7 @@ from dcc_chat_gateway.presence_status import (
 )
 from dcc_chat_gateway.routes import (
     watch_handoff,
+    ws_device_handlers,
     ws_remote_handlers,
     ws_remote_input,
     ws_remote_teardown,
@@ -276,6 +277,19 @@ async def handle_remote_input(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 @register_ws_op("remote_end")
 async def handle_remote_end(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_remote_teardown.handle_end(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("device_announce")
+async def handle_device_announce(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    # „Dieser Rechner ist das Geraet X." Der Server kann das nicht erraten —
+    # er sieht Verbindungen von Nutzern, nicht von Rechnern (s.
+    # ``ws_device_handlers``).
+    await ws_device_handlers.handle_announce(ctx, msg, session_factory=SessionLocal)
+
+
+@register_ws_op("device_withdraw")
+async def handle_device_withdraw(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_device_handlers.handle_withdraw(ctx, msg, session_factory=SessionLocal)
 
 
 @register_ws_op("ping")

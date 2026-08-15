@@ -34,6 +34,7 @@ from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
 from dcc_chat_gateway.suspend_poller import suspend_poller_loop
 from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
+from dcc_chat_gateway import device_registry
 
 log = logging.getLogger(__name__)
 
@@ -219,6 +220,10 @@ async def lifespan(app: FastAPI):
         await manager.start()
         app.state.redis = redis
         app.state.connection_manager = manager
+        # Das Geraeteregister meldet Zustandswechsel auch aus Stellen ohne
+        # Anwendungskontext (Verbindungsabriss, Ende einer Fernsteuerung) und
+        # braucht die Anwendung deshalb einmal hinterlegt.
+        device_registry.bind_app(app)
         # media-svc HTTP client: shared across all stream-token and WHEP requests
         # to reuse TCP connections instead of creating one per request.
         media_svc_http = httpx.AsyncClient(timeout=settings.media_svc_timeout_s)

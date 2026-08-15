@@ -136,6 +136,15 @@ async def handle_guild_events(
     # Filter wuerde JEDEN Empfaenger verwerfen — auch die, die ihn sehen
     # durften und ihn jetzt aus ihrer Liste nehmen muessen. Das Ereignis traegt
     # ohnehin nur die Kennung, keine Inhalte.
+    # Geraete-Ereignisse: dieselbe Sicht-Schranke wie fuer den Kanal, in dem
+    # das Geraet steht. „Wer die Werkstatt nicht sehen darf, sieht auch das
+    # Geraet nicht, das dort steht" (Entwurf §5) — und das gilt fuer die
+    # Kanalliste wie fuer diesen Weg, sonst waere die Liste nur kosmetisch
+    # gefiltert (DevTools sieht den rohen Rahmen).
+    elif op in ("device_changed", "device_state"):
+        cid = str(payload.get("channel_id", ""))
+        if cid:
+            targets = await manager._filter_by_view_channel(targets, cid)
     elif op in ("channel_created", "channel_updated"):
         cid = str((payload.get("channel") or {}).get("id", ""))
         if cid:

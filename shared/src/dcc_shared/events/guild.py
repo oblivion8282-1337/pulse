@@ -269,6 +269,51 @@ class GuildPluginsChangedEvent(_EventBase):
     enabled: bool
 
 
+# ---- Standplatz-Geraete -----------------------------------------------------
+#
+# Ein Geraet ist ein Rechner, der in einem Sprachkanal STEHT, ohne dort
+# Teilnehmer zu sein (``docs/plans/2026-08-14-fernsteuerung-unbeaufsichtigte-
+# geraete.md``). Beide Ereignisse tragen die Kanal-Kennung an oberster Stelle,
+# weil beide danach gefiltert werden: sichtbar ist ein Geraet genau dem, der
+# seinen Standplatz sehen darf (``VIEW_CHANNEL``) — dieselbe Schranke wie fuer
+# den Kanal selbst.
+
+
+class DeviceChangedEvent(_EventBase):
+    """Ein Geraet wurde eingetragen, umbenannt, umgestellt oder entfernt.
+
+    ``device`` traegt die volle Zeile (wie ``DeviceOut``), damit die Liste im
+    Client ohne Nachladen stimmt. Beim Entfernen steht dort der LETZTE Stand —
+    der Client braucht die Kennung zum Austragen, und der Name macht eine
+    Meldung lesbar.
+    """
+
+    op: Literal["device_changed"] = "device_changed"
+    guild_id: str
+    channel_id: str
+    device: dict
+    removed: bool = False
+
+
+class DeviceStateEvent(_EventBase):
+    """Der Zustand eines Geraets hat sich geaendert: bereit / belegt / offline.
+
+    Getrennt von ``device_changed``, weil es aus einer ganz anderen Quelle
+    kommt: nicht aus der Datenbank, sondern aus lebenden Verbindungen. Ein
+    Geraet meldet sich beim Verbinden an und faellt beim Trennen heraus; eine
+    Spalte dafuer wuerde nach jedem Absturz luegen.
+    """
+
+    op: Literal["device_state"] = "device_state"
+    guild_id: str
+    channel_id: str
+    device_id: str
+    #: ``ready`` | ``busy`` | ``offline``
+    state: str
+    #: Wer gerade steuert (nur bei ``busy``).
+    busy_with: str | None = None
+
+
 # ---- Dropbox / Ablage ------------------------------------------------------
 #
 # Mutationen an Datei-/Ordner-Einträgen. Die ``entry`` dicts sind freiform-

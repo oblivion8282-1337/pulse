@@ -175,9 +175,26 @@ class _RemoteRegistryMixin:
 
     async def remote_end(self, session_id: str) -> RemoteSession | None:
         """Remove the session and return it (or ``None`` if already gone), so
-        the caller can notify the other peer."""
+        the caller can notify the other peer.
+
+        **Der eine Trichter**, durch den jede Sitzung verschwindet — deshalb
+        haengt hier auch die Freigabe des Standplatz-Geraets: war der Host ein
+        eingetragenes Geraet, steht es danach wieder als „bereit" in der Liste.
+        Ausserhalb der Sperre, weil die Meldung an fremde Sockets nichts in der
+        Registry zu suchen hat; und fehlertolerant, weil ein Ende nie an einer
+        Anzeige haengen darf."""
         async with self._lock:
-            return self._remote_sessions.pop(session_id, None)
+            sess = self._remote_sessions.pop(session_id, None)
+        if sess is not None:
+            from dcc_chat_gateway.device_registry import (  # noqa: PLC0415
+                release_for_socket,
+            )
+
+            try:
+                await release_for_socket(sess.host_socket)
+            except Exception:  # noqa: BLE001  # pragma: no cover
+                log.debug("device release failed", exc_info=True)
+        return sess
 
     async def remote_end_if_pending(self, session_id: str) -> RemoteSession | None:
         """Atomically pop a session only if it is still ``pending``. Returns the

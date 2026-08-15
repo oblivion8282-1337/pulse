@@ -32,7 +32,7 @@ from dcc_chat_gateway.db import SessionLocal  # noqa: F401
 # registry is fully populated.
 from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plugin_op
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
-from dcc_chat_gateway.routes import ws_remote_teardown, ws_watch
+from dcc_chat_gateway.routes import ws_device_handlers, ws_remote_teardown, ws_watch
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
 from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -219,6 +219,15 @@ async def run_session_op_loop(
             await ws_remote_teardown.cleanup_remote_on_disconnect(websocket, manager)
         except Exception:  # noqa: BLE001
             log.exception("remote cleanup_on_disconnect failed for user=%s", user.id)
+        # Standplatz-Geraete: eine Verbindung, die faellt, nimmt jedes Geraet
+        # mit, das sie angemeldet hatte. NACH dem Fernsteuer-Abbau, damit die
+        # Sitzung schon beendet ist, wenn das Geraet offline gemeldet wird —
+        # sonst ginge erst „belegt weg", dann „offline", und dazwischen stuende
+        # das Geraet fuer einen Augenblick als frei uebernehmbar in der Liste.
+        try:
+            await ws_device_handlers.on_disconnect(websocket.app, websocket)
+        except Exception:  # noqa: BLE001
+            log.exception("device cleanup_on_disconnect failed for user=%s", user.id)
         await manager.remove_socket(websocket)
         if manager.user_socket_count(user.id) == 0:
             try:

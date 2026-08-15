@@ -53,6 +53,11 @@ from fastapi import WebSocket
 
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.remote_guard import peer_channel_perms
+from dcc_chat_gateway.device_registry import (
+    device_for_socket,
+    notify_state,
+    set_busy,
+)
 from dcc_chat_gateway.remote_registry import send_to_socket
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
@@ -313,6 +318,18 @@ async def handle_respond(
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
+    # Ist der Host ein eingetragenes Standplatz-Geraet, steht es ab jetzt als
+    # „belegt" in der Kanalliste — samt Namen dessen, der steuert. Die Zuordnung
+    # laeuft ueber den SOCKET: die Sitzung kennt ihren Host als Verbindung, und
+    # erst das Geraeteregister weiss, welcher Rechner das ist. Fehlertolerant,
+    # denn eine Zustimmung darf nie an einer Anzeige haengen.
+    geraet = device_for_socket(websocket)
+    if geraet is not None:
+        try:
+            set_busy(geraet, sess.controller_user_id)
+            await notify_state(geraet)
+        except Exception:  # noqa: BLE001  # pragma: no cover
+            log.debug("device busy state not published", exc_info=True)
 
 
 def _signal_data_too_large(data: Any) -> bool:
