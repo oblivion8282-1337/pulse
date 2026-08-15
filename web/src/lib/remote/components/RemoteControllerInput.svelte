@@ -24,7 +24,9 @@
     erfassungAn,
     erfassungAus,
     transportMelden,
+    zeigerformMelden,
   } from '$lib/remote/playerInput';
+  import { remoteZeigerform } from '$lib/remote/zeigerform';
   import { onPlayerWindowRequest } from '$lib/player/client';
 
   const steuernd = $derived(
@@ -82,8 +84,15 @@
     // Übergänge vor dem Fenster-Anschluss (die Verhandlung beginnt mit der
     // Zustimmung) gehen also nicht verloren. Best-effort, reine Diagnose.
     remoteP2P.setStatusSink((transport) => void transportMelden(fenster, transport));
+    // Und die Form des Host-Zeigers auf den lokalen Zeiger im Player-Fenster
+    // (`$lib/remote/zeigerform.ts`). Dieselbe Schiene wie die Transport-Anzeige,
+    // inklusive Nachlieferung des aktuellen Stands beim Setzen — die erste Form
+    // meldet der Host, sobald die Sitzung steht, und das Fenster hängt sich
+    // womöglich erst danach an.
+    remoteZeigerform.setSenke((form) => void zeigerformMelden(fenster, form));
     return () => {
       remoteP2P.setStatusSink(null);
+      remoteZeigerform.setSenke(null);
       // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
       // nach; die gehen über dasselbe Abonnement unten hinaus.
       nacheinander(() => erfassungAus(fenster));

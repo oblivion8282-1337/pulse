@@ -455,6 +455,12 @@ export interface PulsePlayerApi {
    *  Web-App wird remote geladen, eine ältere Shell kennt die Brücke also
    *  nicht — dann bleibt nur die Anzeige aus. */
   transportStatus?(session: number, transport: string): Promise<PulsePlayerResult>;
+  /** Fernsteuerung: Form des Host-Zeigers auf den lokalen Zeiger des Fensters
+   *  setzen („text", „ns-resize", …) — das, was das Cursor-Echo aus dem Bild
+   *  nimmt (`$lib/remote/zeigerform.ts`). Optional aus demselben Grund wie
+   *  `transportStatus`: eine ältere Shell kennt die Brücke nicht, dann bleibt
+   *  es beim Standardpfeil. */
+  pointerShape?(session: number, shape: string): Promise<PulsePlayerResult>;
   setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist

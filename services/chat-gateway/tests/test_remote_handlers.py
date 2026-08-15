@@ -698,6 +698,40 @@ async def test_vorrang_signal_reaches_the_controller(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_zeigerform_signal_reaches_the_controller(ws_app, _auth_signer):
+    """Die zweite Auskunft in der Gegenrichtung: welche FORM der Zeiger des
+    Hosts gerade hat (I-Balken, Groessenpfeil, Hand). Sie ersetzt beim
+    Steuernden das, was das Cursor-Echo aus dem Bild nimmt
+    (``streaming/win-hq-sidecar/src/remote_input/zeigerform.rs``) — steht sie
+    nicht in der Pruefliste, faengt der Host sich je Formwechsel ein 4050 und
+    der Steuernde bleibt beim Standardpfeil, ohne dass irgendwo etwas bricht.
+    Genau deshalb hier ein Test: ein stiller Ausfall faellt sonst niemandem auf.
+    """
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                host_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "zeiger",
+                    "data": {"form": "text"},
+                })
+                sig = _drain_for(ctrl_ws, "remote_signal")
+                assert sig["kind"] == "zeiger"
+                assert sig["data"] == {"form": "text"}
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:

@@ -56,6 +56,7 @@ pub mod rahmen;
 mod vorrang;
 mod wache;
 pub mod ziel;
+mod zeigerform;
 pub mod zuordnung;
 
 #[cfg(test)]
@@ -105,6 +106,10 @@ pub fn fern_aktiv() -> bool {
 fn fern_abschalten() {
     crate::capture::cursorsteuerung::zeigen();
     FERN_AKTIV.store(false, Ordering::Relaxed);
+    // Die gemeldete Zeigerform gehört der Sitzung, die gerade endet — die
+    // nächste beginnt mit leerem Merker und meldet ihre erste Form in jedem
+    // Fall (s. [`zeigerform::zuruecksetzen`]).
+    zeigerform::zuruecksetzen();
     // Die Wache hört systemweit mit; sie hat nur zu stehen, solange wirklich
     // jemand steuert. Wartet NICHT auf ihren Faden — dieser Weg läuft auch
     // unter der Sitzungssperre und beim Prozessende (s. [`wache::stoppen`]).

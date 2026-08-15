@@ -226,6 +226,11 @@ fn wecker_starten() {
                     return;
                 }
                 super::vorrang::tick();
+                // Auf demselben Wecker, weil dieselbe Bedingung gilt: er läuft
+                // genau, solange eine Fernsteuerung läuft. Die Abfrage der
+                // Zeigerform kostet einen Handle-Vergleich und darf deshalb
+                // keinen eigenen Faden bekommen (s. `super::zeigerform`).
+                super::zeigerform::tick();
             }
         });
     if let Err(e) = gebaut {

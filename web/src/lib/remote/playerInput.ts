@@ -12,6 +12,7 @@
  */
 
 import type { PulseRemoteInputNachricht } from '$lib/platform/pulse.d';
+import type { Zeigerform } from './zeigerform';
 
 function player() {
   return typeof window !== 'undefined' ? window.pulse?.player : undefined;
@@ -60,6 +61,25 @@ export async function transportMelden(fensterSitzung: number, transport: string)
     await player()?.transportStatus?.(fensterSitzung, transport);
   } catch (e) {
     console.warn('[remote] Transport-Anzeige warf:', e);
+  }
+}
+
+/**
+ * Die Form des Host-Zeigers ins Player-Fenster melden („text", „ns-resize" …).
+ * Der Player setzt sie auf den lokalen Zeiger des Steuernden — das ersetzt,
+ * was das Cursor-Echo aus dem Bild nimmt (`$lib/remote/zeigerform.ts`).
+ *
+ * Best-effort wie die Transport-Anzeige: eine ausgebliebene Form kostet
+ * Rueckmeldung, keine Eingabe, und darf den Fluss nicht beruehren.
+ */
+export async function zeigerformMelden(
+  fensterSitzung: number,
+  form: Zeigerform,
+): Promise<void> {
+  try {
+    await player()?.pointerShape?.(fensterSitzung, form);
+  } catch (e) {
+    console.warn('[remote] Zeigerform warf:', e);
   }
 }
 
