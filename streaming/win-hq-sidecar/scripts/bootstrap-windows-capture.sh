@@ -55,6 +55,13 @@ rm -rf "$ziel"
 tar -xzf "$tarball" -C "$hier/vendor"
 mv "$hier/vendor/windows-capture-${VERSION}" "$ziel"
 
+# NUR AUF WINDOWS LAUFFAEHIG (Stand 2026-08-15). Das crates.io-Tarball liefert
+# `src/capture.rs` mit CRLF-Zeilenenden, die Patches hier haben LF — `git apply`
+# scheitert deshalb auf Linux/macOS mit „patch does not apply", waehrend es auf
+# Windows (autocrlf) durchgeht. Wer den Zweig auf einer Nicht-Windows-Maschine
+# herstellen will, muss die Zeilenenden angleichen; fuer den Bau des Sidecars
+# selbst ist das ohne Belang, der laeuft ohnehin nur auf Windows.
+#
 # Wegwerf-Repo NUR fürs Anwenden: ohne eigenes `.git` entdeckt `git apply`
 # das umgebende Pulse-Repo, und weil `vendor/` dort gitignored ist,
 # ÜBERSPRINGT es die Dateien wortlos („Skipped patch") — der Lauf sah
@@ -77,6 +84,16 @@ for p in "$patch_dir"/*.patch; do
     anzahl=$((anzahl + 1))
 done
 rm -rf "$ziel/.git"
+
+# Zeitstempel einfrieren — sonst baut die CI den Zweig bei JEDEM Lauf neu.
+#
+# Cargo entscheidet fuer Pfad-Abhaengigkeiten an der mtime, ob eine Kiste neu
+# uebersetzt werden muss. Das frische Auspacken oben (das bleiben MUSS, sonst
+# griffe ein Patch doppelt) setzt sie auf "jetzt" — der Zweig sieht also
+# geaendert aus, obwohl Version und Patches dieselben sind, und windows-capture
+# samt allem, was dagegen linkt, wird neu uebersetzt. Ein fester Zeitpunkt
+# macht das Ergebnis byte- UND zeitgleich; nur der Inhalt entscheidet dann.
+find "$ziel" -exec touch -h -d '2020-01-01T00:00:00Z' {} + 2>/dev/null || true
 
 echo "windows-capture ${VERSION} + ${anzahl} Pulse-Patches liegen in $ziel"
 echo "Gegenprobe:  cd $hier && cargo build --release"

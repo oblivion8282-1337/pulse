@@ -78,4 +78,14 @@ gepatchter_klon() {
         git -C "$ziel" apply "$p"
         echo "  angewandt: $(basename "$p")"
     done
+
+    # Zeitstempel einfrieren — derselbe Grund wie in
+    # `win-hq-sidecar/scripts/bootstrap-windows-capture.sh`: cargo entscheidet
+    # fuer Pfad-Abhaengigkeiten an der mtime. Ein frischer Klon (oder ein
+    # `reset --hard` mit Patch obendrauf) sieht sonst bei jedem CI-Lauf
+    # geaendert aus, und der gepatchte Zweig wird jedes Mal neu uebersetzt —
+    # beim webrtc-Kern sind das 27k Zeilen plus alles, was dagegen linkt.
+    # `.git` bleibt ausgespart: dort haengt kein Uebersetzer dran, und Git
+    # verwirrt es unnoetig.
+    find "$ziel" -path "$ziel/.git" -prune -o -exec touch -h -d '2020-01-01T00:00:00Z' {} + 2>/dev/null || true
 }
