@@ -30,6 +30,32 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:193
 const ICE_GATHERING_TIMEOUT_MS = 2000;
 
 /**
+ * Wieviel Vorlauf der Empfänger sammeln soll, bevor er ein Bild zeichnet.
+ *
+ * **Warum überhaupt etwas gesetzt wird.** Ohne Angabe zielt Chromiums
+ * Jitter-Puffer auf minimale Verzögerung und zeichnet praktisch bei Ankunft.
+ * Bilder kommen aber nie gleichmäßig an — und jede Ankunftsschwankung wird
+ * damit unmittelbar zu sichtbarem Ruckeln. Bei 60 fps ist das Zeitfenster je
+ * Bild nur 16,7 ms; die am 2026-07-28 über die echte Leitung gemessenen
+ * Ankunftslücken lagen bei 25-74 ms, also ein Vielfaches davon. Ein kleiner
+ * Vorrat fängt genau das ab: kommt ein Bild verspätet, ist es trotzdem
+ * rechtzeitig da, weil die Anzeige ohnehin etwas hinterherläuft.
+ *
+ * **Warum 120 ms.** Über der gemessenen NACK-Nachlieferzeit (~61 ms, s.
+ * `pulse-player/src/proto.rs`) — ein per Nachlieferung gerettetes Paket soll
+ * seinen Anzeigetermin noch schaffen, sonst war die Rettung umsonst. Und
+ * klein genug, dass beim Zuschauen niemand die Verzögerung bemerkt.
+ *
+ * **Wo das NICHT gilt:** die Fernsteuerung. Sie läuft über den nativen Player
+ * (`streaming/pulse-player/`), der seinen Vorhalt im Fern-Modus bewusst auf
+ * 5 ms senkt — dort ist jede Millisekunde zwischen Eingabe und Bild spürbar,
+ * und Glätte ist der falsche Tausch. Diese Datei bedient nur die
+ * Zuschauer-Kachel im Browser; wer sie je für einen Steuerweg mitbenutzt,
+ * muss den Wert dort auf 0 setzen.
+ */
+const JITTER_BUFFER_TARGET_MS = 120;
+
+/**
  * Ask for STEREO Opus in the offer's fmtp line.
  *
  * Without this, Chrome offers `a=fmtp:111 minptime=10;useinbandfec=1` — no
@@ -224,6 +250,22 @@ export async function connectWhep(
       throw new WhepError('WHEP answer was not valid SDP');
     }
     await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+    // ERST hier setzen, nicht beim addTransceiver: vor der Antwort trägt der
+    // Receiver noch keinen ausgehandelten Codec, und Chromium verwirft den
+    // Wunsch dann still. Die Eigenschaft ist zudem nicht überall vorhanden
+    // (ältere Browser, Firefox) — sie fehlend zu finden ist kein Fehler,
+    // sondern heißt: dieser Zuschauer bekommt eben das Vorverhalten.
+    for (const r of pc.getReceivers()) {
+      if (r.track?.kind !== 'video') continue;
+      try {
+        if ('jitterBufferTarget' in r) {
+          (r as RTCRtpReceiver & { jitterBufferTarget: number | null }).jitterBufferTarget =
+            JITTER_BUFFER_TARGET_MS;
+        }
+      } catch {
+        /* Browser mag den Wert nicht — Vorverhalten ist gut genug */
+      }
+    }
   } catch (e) {
     await session.close();
     throw e;

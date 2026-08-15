@@ -41,6 +41,7 @@
 //! Strecke, passiert genau das dauernd — dann taktet nichts mehr, und der
 //! Zaehler sagt es.
 
+mod anpassung;
 mod fernsteuerung;
 
 use std::collections::VecDeque;
@@ -175,6 +176,9 @@ pub struct Ausgabetakt {
     /// der Merker, und es kann kein zweites Absenken den ersten Stand
     /// ueberschreiben.
     vorhalt_vor_fern: Option<Duration>,
+    /// Regelt den Vorhalt bei anhaltender Verspaetung nach oben und wieder
+    /// zurueck (s. [`anpassung`]).
+    anpassung: anpassung::Anpassung,
 }
 
 impl Ausgabetakt {
@@ -191,6 +195,9 @@ impl Ausgabetakt {
             letzter_rtp: None,
             gewarnt: false,
             vorhalt_vor_fern: None,
+            anpassung: anpassung::Anpassung::neu(Duration::from_millis(u64::from(
+                vorhalt_ms.min(VORHALT_MAX_MS),
+            ))),
         }
     }
 
@@ -229,12 +236,10 @@ impl Ausgabetakt {
     /// ganze Bilder kostet. Und er macht die Bildrate zu einer Zahl, die man
     /// frei waehlen kann — vorher gab es eine Klippe, die niemand sah.
     pub fn wirksamer_vorhalt(&self) -> Duration {
-        let Some(abstand) = self.bildabstand.filter(|d| !d.is_zero()) else {
-            return self.vorhalt;
-        };
-        // Zwei Plaetze bleiben Reserve fuer Schwankung — dieselben zwei, die
-        // `noetige_plaetze` aufschlaegt.
-        self.vorhalt.min(abstand * (max_wartend() as u32 - 2))
+        match self.tragbarer_vorhalt() {
+            Some(tragbar) => self.vorhalt.min(tragbar),
+            None => self.vorhalt,
+        }
     }
 
     /// Laeuft der Takt ueberhaupt? Bei `0` ist alles hier ein Durchreichen.
@@ -272,9 +277,29 @@ impl Ausgabetakt {
     /// alten Rechnung. Sie werden mit ausgegeben statt verworfen — ein
     /// sichtbarer Sprung ist besser als eine Luecke.
     pub fn setze_vorhalt(&mut self, ms: u32) {
+        if let Some(neu) = self.vorhalt_anwenden(ms) {
+            // NUR auf diesem Weg: ein von Hand gesetzter Wert ist ein neuer
+            // Wunsch und damit die neue Untergrenze der Regelung. Die Regelung
+            // selbst geht an `vorhalt_anwenden` vorbei (s. dort).
+            self.anpassung.basis_setzen(neu);
+        }
+    }
+
+    /// Den Vorhalt tatsaechlich umstellen — ohne die Regelung anzufassen.
+    /// `Some(neu)` = es hat sich etwas geaendert.
+    ///
+    /// **Warum getrennt von [`Self::setze_vorhalt`].** Beide Aufrufer wollen
+    /// dasselbe umstellen, aber Verschiedenes damit sagen: der Nutzer setzt
+    /// eine neue Untergrenze, die Regelung ([`anpassung`]) reagiert nur auf die
+    /// Leitung und muss ihren eigenen Stand behalten. Der erste Anlauf loeste
+    /// das, indem die Regelung ihre Felder um den Aufruf herum sicherte und
+    /// zurueckschrieb — das funktionierte, verlangte aber, dass jedes kuenftige
+    /// Feld in diese Rettung aufgenommen wird. Ein Weg, der gar nichts
+    /// zuruecksetzt, braucht die Rettung nicht.
+    fn vorhalt_anwenden(&mut self, ms: u32) -> Option<Duration> {
         let neu = Duration::from_millis(u64::from(ms.min(VORHALT_MAX_MS)));
         if neu == self.vorhalt {
-            return;
+            return None;
         }
         self.vorhalt = neu;
         self.anker = None;
@@ -285,6 +310,22 @@ impl Ausgabetakt {
         for (ziel, _) in self.warteschlange.iter_mut() {
             *ziel = jetzt;
         }
+        Some(neu)
+    }
+
+    /// Der Vorhalt, den die Warteschlange bei der aktuellen Bildrate wirklich
+    /// tragen kann. `None`, solange die Bildrate unbekannt ist.
+    ///
+    /// Eine Stelle fuer die Rechnung, weil zwei sie brauchen: [`Self::
+    /// wirksamer_vorhalt`] kuerzt den eingestellten Wert darauf, und die
+    /// Regelung hebt nicht darueber hinaus an. Liefen die beiden auseinander,
+    /// regelte die eine gegen eine Wand, die die andere gerade verschoben hat.
+    fn tragbarer_vorhalt(&self) -> Option<Duration> {
+        // Zwei Plaetze bleiben Reserve fuer Schwankung — dieselben zwei, die
+        // `noetige_plaetze` aufschlaegt.
+        self.bildabstand
+            .filter(|d| !d.is_zero())
+            .map(|abstand| abstand * (max_wartend() as u32 - 2))
     }
 
     /// Nichts unterwegs? Der Schnellweg fuer die Fenster-Schleife: solange das
@@ -334,6 +375,9 @@ impl Ausgabetakt {
         if ziel <= jetzt && self.aktiv() {
             self.verspaetet += 1;
         }
+        // Hier und nicht in einem eigenen Zeitgeber: das ist die Stelle, an der
+        // die Verspaetung entsteht, und sie laeuft ohnehin je Bild.
+        self.anpassen(jetzt);
         // Die Reihenfolge muss monoton bleiben, sonst zeigt `faellig` ein Bild
         // vor seinem Vorgaenger. Bei gleichem oder kleinerem Zeitstempel (Sender
         // hat B-Bilder oder wiederholt einen Stempel) wird auf den Vorgaenger

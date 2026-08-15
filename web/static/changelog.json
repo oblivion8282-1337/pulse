@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-15",
+      "date": "2026-08-15",
+      "style": "Sachlich",
+      "title": "Zuschauen wird ruhiger — der Player gleicht Netzschwankungen jetzt aus",
+      "intro": "Nach den Verbesserungen am Sender folgt jetzt die Zuschauer-Seite: Bilder kommen übers Netz nie ganz gleichmäßig an, und bisher wurde jede dieser Schwankungen direkt sichtbar.",
+      "items": [
+        "Die Übertragung im Browser sammelt jetzt einen kleinen Vorrat von etwa einer Zehntelsekunde, bevor sie ein Bild zeigt. Kommt eines verspätet, ist es trotzdem rechtzeitig da — die Bewegung bleibt gleichmäßig statt zu zittern.",
+        "Der mitgelieferte Player unter Windows vergrößert seinen Vorrat jetzt selbsttätig, wenn die Leitung längere Zeit unruhig ist, und nimmt ihn danach wieder zurück. Vorher war er zu knapp, um ein nachgeliefertes Bild noch rechtzeitig zu zeigen.",
+        "Bei der Fernsteuerung bleibt beides bewusst aus: dort zählt jede Millisekunde zwischen Eingabe und Bild mehr als ein ruhiges Bild."
+      ],
+      "outro": "Die Verzögerung wächst dadurch um den Bruchteil einer Sekunde — beim Zuschauen nicht wahrnehmbar."
+    },
+    {
       "id": "2026-08-14",
       "date": "2026-08-14",
       "style": "Sachlich",
