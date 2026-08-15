@@ -43,7 +43,7 @@ wendet **jeden** Patch in `patches/` an, und der Workflow baut daraus das Image,
 das Produktion pinnt.
 
 **Seit 2026-08-04 steht der Patch-Stand im Tag** (`PULSE_REVISION` im
-Dockerfile → `1.19.1-pulse3`). Hier stand vorher, ein Patch lande „in Produktion
+Dockerfile → `1.19.1-pulse4`). Hier stand vorher, ein Patch lande „in Produktion
 — ohne Versionswechsel und ohne dass man es am Tag ablesen könnte". Genau das
 ist jetzt behoben: wer den Satz ändert, ändert den Tag mit, das alte Image
 bleibt in der Registry stehen, und ein Rückweg ist eine Zeile in der
@@ -66,7 +66,7 @@ Testserver von Hand versorgt wird.
 `.github/workflows/mediamtx-fork.yml` rebuilds the image when anything under
 `infra/mediamtx-fork/` changes on `main`. It pushes two tags to GHCR:
 
-- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse3` — version pin (MediaMTX-Fassung + unser Patch-Stand, s. `PULSE_REVISION` im Dockerfile)
+- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse4` — version pin (MediaMTX-Fassung + unser Patch-Stand, s. `PULSE_REVISION` im Dockerfile)
 - `ghcr.io/oblivion8282-1337/pulse-mediamtx:latest`        — rolling
 
 Both compose files reference the version-pinned tag. The labels include

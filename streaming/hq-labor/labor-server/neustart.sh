@@ -19,8 +19,8 @@
 # dasselbe, das der Dev-Stack faehrt und das `infra/prod/docker-compose.yml`
 # pinnt. Neu einspielen von der Entwicklungsmaschine:
 #
-#   docker save pulse-mediamtx:1.19.1-pulse3 | gzip | ssh pulse-test 'gunzip | docker load'
-#   ssh pulse-test 'docker tag localhost/pulse-mediamtx:1.19.1-pulse3 pulse-mediamtx:1.19.1-pulse3'
+#   docker save pulse-mediamtx:1.19.1-pulse4 | gzip | ssh pulse-test 'gunzip | docker load'
+#   ssh pulse-test 'docker tag localhost/pulse-mediamtx:1.19.1-pulse4 pulse-mediamtx:1.19.1-pulse4'
 #
 # Das `localhost/`-Praefix entsteht, weil die Entwicklungsmaschine podman
 # fahrt und dessen `save` den Namen voll qualifiziert. Ohne das Nachtaggen
@@ -30,7 +30,7 @@
 set -e
 cd ~/mediamtx-labor
 
-IMAGE="${PULSE_MEDIAMTX_IMAGE:-pulse-mediamtx:1.19.1-pulse3}"
+IMAGE="${PULSE_MEDIAMTX_IMAGE:-pulse-mediamtx:1.19.1-pulse4}"
 
 ENV_ARGS=(-e PULSE_KEYFRAME_INTERVAL=0 -e PULSE_FLEXFEC=1 -e PULSE_FLEXFEC_MEDIA=10 -e PULSE_FLEXFEC_FEC=2)
 for kv in "$@"; do ENV_ARGS+=(-e "$kv"); done

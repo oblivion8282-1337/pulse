@@ -12,7 +12,7 @@ Stand 2026-08-14, Branch `fix/hq-60fps-glaettung`. Hintergrund: Nutzerbericht
 | Beide Sender | H.264 über WHIP stempelt RTP-Zeit jetzt aus der Encoder-PTS (wie AV1 seit 2026-08-03) statt aus fester Bilddauer | `whip/mod.rs` beider Sidecars |
 | Beide Sender | Paket-Verteilung (Pacer) per Vorgabe AN — Neubau mit absoluten Zeitpunkten und Paketgruppen; `PULSE_WHIP_PACING=0` schaltet ab | `whip/pacer.rs` beider Sidecars |
 | Server | `writeQueueSize: 2048` (Schreibpuffer je Zuschauer, vorher Default 512) | beide `mediamtx.yml` |
-| Server | PLI-Drossle 300 ms → 2 s (ein Zuschauer mit schlechtem WLAN kann nicht mehr fünf Vollbilder je 2 s für alle erzwingen) — Fork-Tag `1.19.1-pulse3` | `infra/mediamtx-fork/` |
+| Server | PLI-Drossle 300 ms → **500 ms** (ein Zuschauer mit schlechtem WLAN kann nicht mehr laufend Vollbilder für alle erzwingen; kurz auf 2 s, s. Korrektur unten) — Fork-Tag `1.19.1-pulse4` | `infra/mediamtx-fork/` |
 | Server (Host) | Kernel-UDP-Puffer-Obergrenze 16 MB (`sysctl-pulse.conf`) — einmalig auf dem VPS einspielen | `infra/prod/DEPLOY.md` |
 
 Zwei Dinge standen hier zunächst als **„bewusst NICHT geändert, erst messen"**.
@@ -345,6 +345,29 @@ und die `totalInterFrameDelay`-Ausschläge sind die Mikroruckler-Signale
 (`web/src/lib/stream/whep-stats.ts`). Vorher/Nachher am selben Inhalt
 vergleichen. Beim nativen Player: Zähler `verspaetet` / `uebersprungen`.
 
+## Korrektur: PLI-Drossel 2 s war zu grob (2026-08-15)
+
+Die Drossel im Fork-Patch 0002 (wie oft eine Zuschauer-Anforderung eines
+Vollbilds an den Sender durchgereicht wird) ging beim ersten Anlauf von 300 ms
+auf **2 s**, mit der Begründung: „der Sender unterdrückt Wiederholungen ohnehin
+2 s lang, kürzer feuert nur in die Sperrfrist".
+
+**Die Begründung war falsch.** Die Sender-Seite ist keine flache Sperrfrist,
+sondern eine **Treppe** (`win-hq-sidecar/src/keyframe.rs`): die ersten zwei
+Anforderungen werden SOFORT bedient, erst danach greifen 1 s und dann 2 s. Bei
+Dauerstörung landet man tatsächlich bei rund einem Vollbild je 2 s — aber der
+Einzelfall wird eben schnell bedient, und genau den hat die 2-s-Drossel
+mitgebremst: verliert ein **zweiter** Zuschauer kurz nach einem ersten ein
+Paket, wartete er auf seine Bildreparatur bis zu zwei Sekunden statt sofort
+bedient zu werden. Bei der **Fernsteuerung** ist das nicht nur hässlich,
+sondern blockierend — ein eingefrorenes Bild heißt dort: keine Steuerung.
+
+**Jetzt 500 ms** (Fork-Tag `1.19.1-pulse4`): bremst den Dauer-Anforderer
+weiterhin wirksam (was durchkommt, fängt die Sender-Treppe ab) und lässt
+isolierte Verluste schnell repariert werden. Wer den Wert erneut anfasst, muss
+die Treppe kennen — sie ist der Grund, warum „gleicher Wert wie der Sender"
+hier keine gute Faustregel ist.
+
 ## Server-Seite nach dem Deploy prüfen
 
 ```sh
@@ -353,6 +376,6 @@ docker logs pulse_mediamtx 2>&1 | grep -i "reader is too slow"   # soll leer sei
 ss -u -m | grep -A1 8189                                          # Drops ansehen
 sysctl net.core.rmem_max                                          # 16777216
 ```
-MediaMTX-Image-Wechsel auf `1.19.1-pulse3` ist ein bewusster Schritt
+MediaMTX-Image-Wechsel auf `1.19.1-pulse4` ist ein bewusster Schritt
 (unterbricht laufende Streams): erst in der API nachsehen, ob jemand streamt,
 dann `docker compose pull mediamtx && docker compose up -d mediamtx`.

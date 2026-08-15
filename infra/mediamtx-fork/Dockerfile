@@ -53,13 +53,13 @@ ARG MEDIAMTX_VERSION=1.19.1
 # gezeigt — ohne dass man es ihm ansieht, und ohne Rueckweg ausser einem
 # Rebuild. Genau davor warnt die README dieses Verzeichnisses.
 #
-# Jetzt steht der Stand im Tag: `1.19.1-pulse3`. Ein Rueckweg ist damit eine
+# Jetzt steht der Stand im Tag: `1.19.1-pulse4`. Ein Rueckweg ist damit eine
 # Zeile in `infra/prod/docker-compose.yml` statt eines Neubaus, und das alte
 # `1.19.1-pulse` bleibt in der Registry unangetastet.
 #
 # **Hochzaehlen, sobald sich der Patch-Satz aendert** — nicht bei einem
 # MediaMTX-Bump, der bewegt `MEDIAMTX_VERSION`.
-ARG PULSE_REVISION=3
+ARG PULSE_REVISION=4
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────
