@@ -511,8 +511,9 @@ bereits ab.
 
 **Die Formenliste steht an drei Stellen** — Sidecar
 (`remote_input/zeigerform.rs`), Renderer (`web/src/lib/remote/zeigerform.ts`)
-und Player (`app/eingabe.rs`) — und muss synchron bleiben. Ein hier erfundener
-Name käme drüben wortlos als Standardpfeil an; je ein Test hält die Listen fest.
+und Player (`app/zeigerform.rs`) — und muss synchron bleiben. Ein hier erfundener
+Name käme drüben wortlos als Standardpfeil an; die beiden Rust-Listen hält je
+ein Test fest, im Renderer trägt sie der Typ `Zeigerform` (kein Vitest im Web).
 
 ## Was sich gegenüber v1 geändert hat
 

@@ -52,6 +52,7 @@
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { remoteP2P } from './p2p';
+import { aufSidecarEreignisse } from './sidecarInput';
 import { WachtSchalter, anfrageFrist } from './wachten';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
@@ -145,9 +146,7 @@ class RemoteVorrang {
     this.#sendSignal = sendSignal;
     this.#sendInput = sendInput;
     if (rolle !== 'host') return;
-    const bruecke = typeof window !== 'undefined' ? window.pulse?.gsr : undefined;
-    if (typeof bruecke?.onEvent !== 'function') return;
-    this.#abmelden = bruecke.onEvent((ev) => this.#vomSidecar(ev));
+    this.#abmelden = aufSidecarEreignisse((ev) => this.#vomSidecar(ev));
   }
 
   /** Sitzungsende — der eine Ausgang, wie bei `remoteP2P.stop`. */
