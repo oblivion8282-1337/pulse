@@ -15,6 +15,7 @@ from dcc_chat_gateway.models.channels import (
     DirectMessageChannel,
 )
 from dcc_chat_gateway.models.community_invites import CommunityInvite
+from dcc_chat_gateway.models.devices import DEVICE_NAME_MAX_LEN, Device
 from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.dropbox import (
     DROPBOX_KIND_FILE,
@@ -72,6 +73,8 @@ __all__ = [
     "Channel",
     "ChannelVoicePull",
     "ChatSettings",
+    "DEVICE_NAME_MAX_LEN",
+    "Device",
     "DirectMessageChannel",
     "DropboxConfig",
     "DropboxFile",

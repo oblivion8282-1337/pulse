@@ -50,6 +50,11 @@ GUILD_MEMBER_SCOPED_OPS = frozenset(
         # ``guild-activation``-Cache invalidieren; Outsider haben gar keinen
         # Slot für die Guild.
         "guild_plugins_changed",
+        # Standplatz-Geraete: Name und Standplatz eines fremden Rechners gehen
+        # nur an Mitglieder — und darunter nur an die, die den Standplatz sehen
+        # duerfen (die zweite Schranke sitzt in ``pubsub_channel_guild``).
+        "device_changed",
+        "device_state",
         # Dropbox / Ablage events carry entry metadata + presigned GET URLs
         # (for files). The bandwidth cost is negligible but the privacy cost
         # matters — a member with ``@everyone`` ``VIEW_CHANNEL`` denied on the
