@@ -72,10 +72,7 @@ export async function transportMelden(fensterSitzung: number, transport: string)
  * Best-effort wie die Transport-Anzeige: eine ausgebliebene Form kostet
  * Rueckmeldung, keine Eingabe, und darf den Fluss nicht beruehren.
  */
-export async function zeigerformMelden(
-  fensterSitzung: number,
-  form: Zeigerform,
-): Promise<void> {
+export async function zeigerformMelden(fensterSitzung: number, form: Zeigerform): Promise<void> {
   try {
     await player()?.pointerShape?.(fensterSitzung, form);
   } catch (e) {

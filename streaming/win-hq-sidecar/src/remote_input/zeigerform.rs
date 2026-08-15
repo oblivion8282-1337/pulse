@@ -39,7 +39,6 @@
 //! muss (Spiel mit Zeigerfang), erledigt der Player schon selbst über den Fang.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSORINFO, GetCursorInfo, HCURSOR, IDC_APPSTARTING, IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_HELP,
@@ -69,17 +68,26 @@ const VORGABE: &str = "default";
 /// fällt gegen den 60/s-Deckel nicht ins Gewicht.
 const WIEDERHOLUNG_TAKTE: u64 = 10;
 
-/// Zuletzt gemeldete Form; `None` = in dieser Sitzung noch nichts gemeldet.
-static GEMELDET: Mutex<Option<&'static str>> = Mutex::new(None);
+/// Was von der letzten Meldung übrig ist. Beides unter **einer** Sperre, weil
+/// es nur zusammen einen Sinn ergibt: die Takte zählen den Abstand zu genau
+/// dieser Form, und jede Meldung setzt beide zugleich.
+struct Merker {
+    /// Zuletzt gemeldete Form; `None` = in dieser Sitzung noch nichts gemeldet.
+    form: Option<&'static str>,
+    /// Wecker seit der letzten Meldung (s. [`WIEDERHOLUNG_TAKTE`]).
+    takte: u64,
+}
 
-/// Wecker seit der letzten Meldung (s. [`WIEDERHOLUNG_TAKTE`]).
-static SEIT_MELDUNG: AtomicU64 = AtomicU64::new(0);
+/// Der leere Anfang — Sitzungsbeginn und [`zuruecksetzen`] gehen von hier aus.
+const LEER: Merker = Merker { form: None, takte: 0 };
+
+static MERKER: Mutex<Merker> = Mutex::new(LEER);
 
 /// Die Sperre nehmen — auch eine vergiftete, aus demselben Grund wie in
 /// [`super::Sitzung::sperre`]: [`zuruecksetzen`] liegt auf jedem Ausstiegsweg
 /// der Sitzung und darf an keiner fremden Panik scheitern.
-fn sperre() -> std::sync::MutexGuard<'static, Option<&'static str>> {
-    GEMELDET.lock().unwrap_or_else(|e| e.into_inner())
+fn sperre() -> std::sync::MutexGuard<'static, Merker> {
+    MERKER.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Die Abbildung Windows-Zeiger → Name. Als Funktion statt als `static`, weil
@@ -117,11 +125,11 @@ fn abbildung() -> [(PCWSTR, &'static str); 13] {
 fn ermitteln() -> &'static str {
     let mut info =
         CURSORINFO { cbSize: std::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
-    if let Err(e) = unsafe { GetCursorInfo(&mut info) } {
+    if unsafe { GetCursorInfo(&mut info) }.is_err() {
         // Kein Grund für mehr als die Vorgabe: die Abfrage ist Beiwerk, und
         // eine Störung darf weder die Sitzung noch das Protokoll fluten (der
-        // Wecker käme 100 ms später mit derselben Zeile wieder).
-        let _ = e;
+        // Wecker käme 100 ms später mit derselben Zeile wieder) — deshalb wird
+        // der Fehler auch nicht ausgegeben.
         return VORGABE;
     }
     zu_name(info.hCursor)
@@ -168,12 +176,11 @@ pub(super) fn tick() {
     let jetzt = if wache::host_regt_sich() { VORGABE } else { ermitteln() };
 
     let faellig = {
-        let mut gemeldet = sperre();
-        let takte = SEIT_MELDUNG.fetch_add(1, Ordering::Relaxed) + 1;
-        let faellig = meldung_faellig(*gemeldet, jetzt, takte);
+        let mut merker = sperre();
+        merker.takte += 1;
+        let faellig = meldung_faellig(merker.form, jetzt, merker.takte);
         if faellig {
-            *gemeldet = Some(jetzt);
-            SEIT_MELDUNG.store(0, Ordering::Relaxed);
+            *merker = Merker { form: Some(jetzt), takte: 0 };
         }
         faellig
     };
@@ -189,8 +196,7 @@ pub(super) fn tick() {
 /// Steuernde wisse noch, was am Ende der vorigen galt — und der hat inzwischen
 /// selbst zurückgesetzt.
 pub(super) fn zuruecksetzen() {
-    *sperre() = None;
-    SEIT_MELDUNG.store(0, Ordering::Relaxed);
+    *sperre() = LEER;
 }
 
 #[cfg(test)]
@@ -235,7 +241,7 @@ mod tests {
     }
 
     /// Jede Form der Tabelle ist ein Name aus der CSS-Liste, den winit auf der
-    /// Gegenseite kennt (`streaming/pulse-player/src/app/eingabe.rs`). Der Test
+    /// Gegenseite kennt (`streaming/pulse-player/src/app/zeigerform.rs`). Der Test
     /// hält die beiden Enden zusammen: ein hier erfundener Name käme drüben
     /// wortlos als Standardpfeil an.
     #[test]

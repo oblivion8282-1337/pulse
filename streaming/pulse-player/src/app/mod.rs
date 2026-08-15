@@ -12,6 +12,7 @@ pub mod diagnose;
 mod eingabe;
 mod requests;
 mod takt;
+mod zeigerform;
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -32,10 +32,14 @@
  * aber was nicht auf der Liste steht, hat auch nichts im IPC zum Hauptprozess
  * verloren. **Die Liste ist an drei Stellen dieselbe** und muss synchron
  * bleiben: hier, im Sidecar (`remote_input/zeigerform.rs::abbildung`) und im
- * Player (`app/eingabe.rs::zeigerform`).
+ * Player (`app/zeigerform.rs`). Die beiden Rust-Enden hält je ein Test
+ * fest; hier gibt es keinen (kein Vitest im Web), dafür stammt der Typ
+ * [`Zeigerform`] aus derselben Liste — ein hier erfundener Name fiele erst beim
+ * Player auf, und zwar als wortloser Standardpfeil.
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
+import { aufSidecarEreignisse } from './sidecarInput';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
 type Senke = (form: Zeigerform) => void;
@@ -100,9 +104,7 @@ class RemoteZeigerform {
     this.#rolle = rolle;
     this.#sendSignal = sendSignal;
     if (rolle !== 'host') return;
-    const bruecke = typeof window !== 'undefined' ? window.pulse?.gsr : undefined;
-    if (typeof bruecke?.onEvent !== 'function') return;
-    this.#abmelden = bruecke.onEvent((ev) => this.#vomSidecar(ev));
+    this.#abmelden = aufSidecarEreignisse((ev) => this.#vomSidecar(ev));
   }
 
   /** Sitzungsende — der eine Ausgang, wie bei `remoteP2P.stop`. */

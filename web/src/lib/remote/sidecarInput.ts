@@ -19,6 +19,22 @@ function gsr() {
   return typeof window !== 'undefined' ? window.pulse?.gsr : undefined;
 }
 
+/**
+ * Ereignisse des Sidecars abonnieren (`remote_state`, `remote_pointer` …).
+ * Liefert den Abmelder, oder `null`, wenn es die Bruecke nicht gibt — im
+ * Browser und in einer aelteren Shell bleibt es dann still, wie ueberall in
+ * dieser Datei.
+ *
+ * Zwei Module hoeren mit, beide nur in der Host-Rolle: `vorrang.ts` und
+ * `zeigerform.ts`. Die Weiche nach Rolle steht dort, die Bruecken-Pruefung
+ * hier — sie ist an beiden Stellen dieselbe.
+ */
+export function aufSidecarEreignisse(cb: (ev: unknown) => void): (() => void) | null {
+  const bruecke = gsr();
+  if (typeof bruecke?.onEvent !== 'function') return null;
+  return bruecke.onEvent(cb);
+}
+
 /** Kann dieser Rechner ueberhaupt ferngesteuert werden? Nur eine Pruefung der
  *  Bruecke — ob ein Stream laeuft und der Sidecar den Platz kennt, entscheidet
  *  der Sidecar zur Injektionszeit. */
