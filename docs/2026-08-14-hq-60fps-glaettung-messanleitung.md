@@ -231,15 +231,10 @@ stand auf anderthalb Bildabständen, hergeleitet aus dem 60-fps-Fall allein. Bei
 fehlerfrei war. Die echte Abtast-Schwankung ist jetzt für alle vier Bildraten
 gemessen und steht als Tabelle am Wert.
 
-> **OFFEN für Linux:** der Linux-Sidecar hat `zeitbasis.rs` als wortgleiche
-> Vorlage übernommen — **mitsamt der falschen `* 3 / 2`**. Zu ändern sind dort
-> genau zwei Dinge: `lueckenschwelle` auf `takte_je_bild(fps) * 2`, und der
-> Test `luecke_trennt_schwankung_von_ausfall`, der die Schwelle aus dem
-> 60-fps-Fall herleitet. Die Messtabelle steht am Windows-Wert; sie gilt für
-> beide, weil sie nur vom Verhältnis Wiederholrate zu Zielrate abhängt. Ohne
-> die Korrektur meldet der Linux-Log bei Zielraten nahe der Wiederholrate
-> Lücken, die keine sind — eine Diagnose, die Phantome zählt, ist schlimmer
-> als keine.
+> **Linux nachgezogen (2026-08-15):** `zeitbasis.rs` ist wieder die wortgleiche
+> Kopie (Schwelle `* 2`, gemessene Tabelle, korrigierte Tests); einzige
+> Abweichung ist der Verweis auf das Linux-Gegenstück der Duplikat-Zählung
+> (`stream_controller.rs` statt `tick_monitor`). 93 Tests grün.
 
 ## Feinere Zeitbasis — der dritte Schritt (Windows, 2026-08-14)
 

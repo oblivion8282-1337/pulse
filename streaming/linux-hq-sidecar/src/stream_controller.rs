@@ -989,9 +989,10 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
             //
             // Zwei echte Störungen der Zeitachse werden gezählt, beide
             // sichtbar als Ruckeln bzw. Springen:
-            //   * LUECKE: die Bild-Uhr springt über die Schwelle (anderthalb
-            //     Bildabstände — die normale Abtast-Schwankung reicht bis
-            //     1,25, ein ausgefallenes Bild bringt mindestens 2).
+            //   * LUECKE: die Bild-Uhr springt über die Schwelle (zwei
+            //     Bildabstände — die echte Abtast-Schwankung reicht gemessen
+            //     bis 2,0, wenn Zielrate und Schirm-Wiederholrate dicht
+            //     beieinanderliegen; Tabelle an `zeitbasis::lueckenschwelle`).
             //   * KLEMMUNG: die Bild-Uhr hängt mehr als einen Bildabstand
             //     hinter dem zuletzt vergebenen pts (nach Duplikat-Strecken
             //     ist bis zu ein Bildabstand Versatz konstruktionsbedingt).

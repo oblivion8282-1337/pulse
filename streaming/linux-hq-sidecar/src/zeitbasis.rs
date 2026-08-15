@@ -82,16 +82,36 @@ pub fn takte_je_bild(fps: u32) -> i64 {
 /// **Diese Zahl gab es im alten Raster nicht**, dort war jeder Sprung ueber
 /// einen Bildplatz eine Luecke, und das war richtig: im Raster konnte es keine
 /// Zwischenwerte geben. Mit ehrlichen Zeitstempeln sind die Zwischenwerte der
-/// Normalfall — auf einem 144-Hz-Schirm schwankt der Abstand bei 60 fps
-/// zwischen 1,25 und 0,83 Bildabstaenden, ohne dass irgendetwas fehlt. Wer
-/// hier weiter bei „mehr als ein Bildabstand" zaehlte, meldete zwanzigmal je
-/// Sekunde eine Luecke, die keine ist.
+/// Normalfall. Wer hier weiter bei „mehr als ein Bildabstand" zaehlte, meldete
+/// zwanzigmal je Sekunde eine Luecke, die keine ist.
 ///
-/// Anderthalb Bildabstaende trennt beides sauber: die Abtast-Schwankung reicht
-/// hoechstens an 1,25 heran (drei Bildschirmtakte bei 60 auf 144 Hz), ein
-/// wirklich ausgefallenes Bild bringt mindestens zwei.
+/// **Wie gross die Schwankung wirklich wird, ist gemessen** — sie haengt am
+/// Verhaeltnis `r = Wiederholrate / fps` und betraegt hoechstens `ceil(r)/r`
+/// Bildabstaende. Am 2026-08-14 ueber je 27 s, fehlerfreie Ausgabe (0
+/// Duplikate, 0 Verwuerfe):
+///
+/// | Ziel | groesster echter Abstand |
+/// |---|---|
+/// | 30 fps | 1,25 Bildabstaende |
+/// | 60 fps | 1,25 |
+/// | 120 fps | **1,67** |
+/// | 144 fps | **2,00** |
+///
+/// **Anderthalb waeren also falsch gewesen** — genau das stand hier zuerst,
+/// hergeleitet aus dem 60-fps-Fall allein, und haette bei 120 fps 640 von 3202
+/// Ticks als Luecke gemeldet. Je naeher die Zielrate an die Wiederholrate
+/// rueckt, desto groesser wird die Schwankung: fuer `r → 1` geht `ceil(r)/r`
+/// gegen 2.
+///
+/// **Was diese Zahl deshalb NICHT mehr kann:** ein EINZELNES ausgefallenes
+/// Bild von der Abtast-Schwankung trennen, wenn Zielrate und Wiederholrate
+/// dicht beieinanderliegen — beide landen dann bei rund zwei Bildabstaenden.
+/// Dafuer ist der `duplicates`-Zaehler im Zeitachse-Log zustaendig
+/// (`stream_controller.rs` — kein neues Bild zum Takt), und der misst es
+/// direkt statt es aus der Zeitachse zu erraten. Diese Schwelle meldet einen
+/// STILLSTAND ueber mehr als zwei Bilder — grob, aber nicht falsch.
 pub fn lueckenschwelle(fps: u32) -> i64 {
-    takte_je_bild(fps) * 3 / 2
+    takte_je_bild(fps) * 2
 }
 
 #[cfg(test)]
@@ -135,14 +155,25 @@ mod tests {
         assert_eq!(takte_je_bild(0), 90_000, "keine Division durch null");
     }
 
-    /// Die Schwelle muss ueber der groessten ECHTEN Abtast-Schwankung liegen
-    /// (drei Bildschirmtakte bei 60 fps auf 144 Hz) und unter einem
-    /// tatsaechlich ausgefallenen Bild (zwei Bildabstaende).
+    /// Die Schwelle muss ueber der groessten ECHTEN Abtast-Schwankung liegen.
+    /// Die Werte sind gemessen (Tabelle an [`lueckenschwelle`]) — 1,67
+    /// Bildabstaende bei 120 fps und 2,00 bei 144 fps auf einem 143,9-Hz-
+    /// Schirm, jeweils bei fehlerfreier Ausgabe. Anderthalb Bildabstaende
+    /// standen hier zuerst und haetten beide als Luecke gezaehlt.
     #[test]
-    fn luecke_trennt_schwankung_von_ausfall() {
-        let schwelle = lueckenschwelle(60);
-        let drei_takte = pts_aus_sekunden(3.0 / 143.9);
-        assert!(drei_takte < schwelle, "1876 < {schwelle} — keine Luecke");
-        assert!(2 * takte_je_bild(60) > schwelle, "ein Ausfall zaehlt");
+    fn echte_abtast_schwankung_zaehlt_nicht_als_luecke() {
+        for (fps, groesste) in [(30u32, 1.25), (60, 1.25), (120, 1.67), (144, 2.00)] {
+            let gemessen = (f64::from(takte_je_bild(fps) as u32) * groesste) as i64;
+            assert!(
+                gemessen <= lueckenschwelle(fps),
+                "{fps} fps: {groesste} Bildabstaende sind normal, wuerden aber zaehlen"
+            );
+        }
+    }
+
+    /// Und ein echter Stillstand ueber mehr als zwei Bilder zaehlt weiterhin.
+    #[test]
+    fn stillstand_ueber_zwei_bilder_zaehlt() {
+        assert!(takte_je_bild(60) * 3 > lueckenschwelle(60));
     }
 }
