@@ -21,8 +21,16 @@
   import { gegenstelle, ort } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { standplatz } from '$lib/remote/standplatz.svelte';
+  import { isElectron } from '$lib/platform/runtime';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
-  let open = $derived(remoteSession.phase === 'incoming');
+  // Nicht bei selbsttätiger Zustimmung: die Dauerfreigabe des Standplatz-Geräts
+  // hat die Frage schon beantwortet (`$lib/remote/standplatz.svelte.ts`). Die
+  // Phase bleibt bis zum Server-Echo auf 'incoming' — ohne diese Bedingung
+  // stünde der Dialog einen Umlauf lang da und verschwände von selbst wieder,
+  // was aussieht wie ein Fehler und zum Klicken einlädt.
+  let open = $derived(remoteSession.phase === 'incoming' && !remoteSession.selbsttaetig);
   let peer = $derived(gegenstelle(remoteSession.peerUserId));
   let herkunft = $derived(ort(remoteSession.channelId));
 
@@ -44,8 +52,37 @@
   let quittiert = $state<string | null>(null);
   let acted = $derived(quittiert !== null && quittiert === remoteSession.sessionId);
 
+  // „Künftig ohne Rückfrage" — der Weg, auf dem die Freigabeliste des Geräts
+  // wächst (`$lib/remote/standplatz.svelte.ts`). Bewusst HIER und nicht nur in
+  // den Einstellungen: dort müsste man Kennungen von Hand eintragen, hier steht
+  // der Betreffende samt Namen und Herkunft vor einem, und die Entscheidung
+  // fällt in dem Moment, in dem man sie ohnehin trifft.
+  //
+  // Nur in der Desktop-App sichtbar: nur dort kann dieser Rechner überhaupt
+  // ferngesteuert werden, und nur dort gibt es den Geräte-Speicher.
+  const desktop = isElectron();
+  let merken = $state(false);
+
+  // Beim Wechsel der Anfrage zurücksetzen: das Kreuz gehört der Anfrage, vor
+  // der es gesetzt wurde, nicht der nächsten.
+  $effect(() => {
+    remoteSession.sessionId;
+    merken = false;
+  });
+
   function accept(): void {
     quittiert = remoteSession.sessionId;
+    // ERST merken, DANN zustimmen: `accept()` kann über `#reset` aufräumen
+    // (Senden fehlgeschlagen), und danach ist die Kennung des Anfragenden weg.
+    // Die Freigabe gilt acht Stunden — dieselbe Spanne wie der absolute
+    // Sitzungsdeckel des Gateways, und lang genug für einen Arbeitstag.
+    if (merken && desktop && remoteSession.peerUserId) {
+      void standplatz.freigeben({
+        nutzer: [...standplatz.nutzer, remoteSession.peerUserId],
+        jeder: standplatz.jeder,
+        geltung: 'acht_stunden',
+      });
+    }
     remoteSession.accept();
   }
   function deny(): void {
@@ -55,6 +92,9 @@
 
   function onOpenChange(next: boolean): void {
     // Über Escape/Backdrop geschlossen, ohne zu entscheiden → ablehnen.
+    // `selbsttaetig` ausgenommen: dort schliesst der Dialog, WEIL schon
+    // zugestimmt wurde — ein `deny()` hinterher schösse die eigene Zustimmung ab.
+    if (remoteSession.selbsttaetig) return;
     if (!next && !acted && remoteSession.phase === 'incoming') remoteSession.deny();
   }
 </script>
@@ -106,6 +146,23 @@
       <ShieldCheckIcon class="mt-0.5 size-4 shrink-0 text-emerald-500" />
       <span>{m.remote_consent_safety()}</span>
     </div>
+
+    {#if desktop}
+      <label class="border-border flex items-start gap-3 rounded-lg border border-dashed p-3">
+        <Checkbox
+          class="mt-0.5 shrink-0"
+          bind:checked={merken}
+          disabled={acted}
+          data-testid="remote-consent-remember"
+        />
+        <span class="flex min-w-0 flex-1 flex-col gap-1">
+          <span class="text-text-bright text-sm font-medium">
+            {m.standplatz_consent_remember()}
+          </span>
+          <span class="text-text-muted text-xs">{m.standplatz_consent_remember_hint()}</span>
+        </span>
+      </label>
+    {/if}
 
     <Dialog.Footer>
       <Button variant="outline" onclick={deny} disabled={acted} data-testid="remote-consent-deny">

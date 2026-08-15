@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-16",
+      "date": "2026-08-16",
+      "style": "Sachlich",
+      "title": "Rechner dauerhaft zur Fernsteuerung freigeben",
+      "intro": "Bisher musste bei jeder Fernsteuer-Anfrage jemand am Rechner sitzen und zustimmen. Für einen Rechner, der nur dazu da ist, aus der Ferne benutzt zu werden, geht das nicht auf.",
+      "items": [
+        "Ein Rechner lässt sich jetzt einmal freigeben und beantwortet Anfragen danach selbst. Der Schalter steht in den Einstellungen unter „Standplatz“.",
+        "Freigeben kann nur, wer körperlich an dem Rechner sitzt — die Zustimmung wird vorverlegt, nicht abgeschafft. Über den Server ist sie nicht setzbar.",
+        "Die Freigabe gilt wahlweise bis zum Neustart, acht Stunden oder dauerhaft, und entweder für einzelne Personen oder für jeden, der ohnehin das Recht zur Fernsteuerung hat.",
+        "Bei einer Anfrage lässt sich mit einem Kreuz „künftig ohne Rückfrage erlauben“ — so wächst die Liste der Freigegebenen dort, wo man die Entscheidung ohnehin trifft.",
+        "Solange ein Rechner freigegeben ist, sagt ein Hinweis oben im Fenster das deutlich, mit einem Knopf zum sofortigen Aufheben.",
+        "Ein Protokoll am Gerät hält fest, wer wann wie lange übernommen hat — und ob dabei jemand zugestimmt hat oder die Dauerfreigabe geantwortet hat."
+      ],
+      "outro": "Die Rechteprüfung bleibt unverändert davor: freigegeben heißt nicht, dass jeder darf."
+    },
+    {
       "id": "2026-08-15",
       "date": "2026-08-15",
       "style": "Sachlich",
