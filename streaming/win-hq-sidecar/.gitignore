@@ -1,5 +1,16 @@
 /target
-/Cargo.lock
+# `Cargo.lock` GEHOERT hier ins Repo (kein Ignore-Eintrag mehr, 2026-08-15).
+#
+# Bis dahin stand hier `/Cargo.lock` — ohne Begruendung und als einzige der
+# Rust-Komponenten (pulse-player, linux-hq-sidecar, hq-labor committen ihres).
+# Zwei Folgen, beide unerwuenscht:
+#   * Der ausgelieferte Installer war nicht reproduzierbar: jeder Bau loeste
+#     die Abhaengigkeiten frisch gegen den Registry-Index auf, ein Nutzer-Bug
+#     liess sich also nicht zuverlaessig auf denselben Stand zurueckfuehren.
+#   * Der CI-Cargo-Cache lief ins Leere — weicht die Aufloesung bei EINER
+#     transitiven Kiste ab, verwirft cargo sie und alles, was auf ihr steht.
+# Faustregel: Binaerkrates pinnen ihr Lockfile, Bibliotheken nicht. Dies ist
+# ein Binaerkrate.
 # Gepatchter windows-capture-Zweig: `scripts/bootstrap-windows-capture.sh`
 # stellt ihn reproduzierbar her (crates.io-Tarball + patches/), wie
 # `pulse-player/vendor/webrtc-rs`.
