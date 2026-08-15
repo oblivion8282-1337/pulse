@@ -2,7 +2,9 @@
 
 **Stand 2026-08-14 — Entwurf, nichts davon ist gebaut.** Festgehalten wird hier
 das Ergebnis eines Entwurfsgesprächs, damit die Begründungen nicht verloren
-gehen. Der Oberflächen-Entwurf liegt daneben als
+gehen. **§6 (Registrierung) kam am 2026-08-16 dazu** und beantwortet die
+Frage, die vorher als offene Entscheidung in §11.1 stand.
+Der Oberflächen-Entwurf liegt daneben als
 `2026-08-14-geraete-standplatz-mockup.html` (in sich geschlossen, im Browser
 öffnen; benutzt die echten Glasshouse-Tokens aus `web/src/app.css` und die
 eingebettete Plus Jakarta Sans).
@@ -151,7 +153,79 @@ das dort steht.
 rund vier Stufen je Pixel. Getrennte Aufnahmen je Monitor bräuchten je einen
 Slot und eine Zuordnung, welcher Slot welchen Schirm meint.
 
-## 6. Dauerfreigabe — die Zustimmung wird vorverlegt, nicht abgeschafft
+## 6. Registrierung: ein Gerät ist ein Ausweis, kein Konto
+
+**Nachtrag 2026-08-16.** Die Frage „wie meldet sich so ein Gerät überhaupt an"
+beantwortet sich weitgehend von selbst, sobald man sieht, dass die Bindung eines
+Rechners an eine Person längst existiert — sie wird heute nur nicht als *Gerät*
+gelesen.
+
+**Was heute schon steht.** Jede Installation erzeugt beim ersten Anmelden ein
+Ed25519-Schlüsselpaar, das den Rechner nie verlässt: `extractable: false` in
+IndexedDB (`web/src/lib/identity/keypair.svelte.ts`) — auch die eigene App kann
+es nicht auslesen. Dafür stellt `POST /credentials/issue` einen Ausweis auf das
+Konto aus (`routes_credentials.py` → Tabelle `issued_credentials`): mit
+Gerätenamen, 365 Tage gültig, höchstens 20 aktive je Konto, drei Ausstellungen
+je Stunde, einzeln widerrufbar. Der Widerruf erreicht auch fremde Self-Hosts
+binnen zehn Sekunden (`crl_poller.py`, `CRL_POLL_INTERVAL`). Ein Gerät ist damit
+heute schon **ein Ausweis, der einer Person gehört**, mit Namen, Liste und
+Not-Aus.
+
+**Die Registrierung in fünf Schritten:**
+
+1. Der Besitzer sitzt **einmal körperlich** an dem Rechner und meldet sich
+   normal an. Der Ausweis entsteht dabei ohnehin — heute namenlos als
+   „irgendein Browser".
+2. Er trägt das Gerät als Standplatz-Gerät ein: Name (`werkstatt-pc`),
+   Community, Standplatz-Kanal. Das ist der einzige wirklich neue Schritt.
+3. **Der Rechner unterschreibt diese Eintragung mit seinem eigenen Schlüssel.**
+   Dieselbe Frage-Antwort-Mechanik wie beim Cert-Login
+   (`routes/cert_login.py`: 32-Byte-Nonce, Ed25519 über die rohen Nonce-Bytes,
+   einmalig verwendbar). **Warum nicht einfach ein Klick im Browser:** ohne die
+   Unterschrift könnte jeder Angemeldete fremde Rechner auf Verdacht eintragen.
+   Erst sie belegt, dass sich *dieser* Rechner einträgt.
+4. Der Server legt die Gerätezeile an: Besitzer, Ausweis-Kennung, Standplatz,
+   Name. Mehr braucht es nicht — die Rechte hängen ab da am Kanal (§3).
+5. Die Dauerfreigabe bleibt auf dem Gerät (§7). Der Server erfährt, **dass** es
+   selbsttätig annimmt; setzen darf er es nie.
+
+**Die körperliche Anwesenheit in Schritt 1 ist kein Umstand, sondern der Ersatz
+für die Zustimmung**, die später wegfällt. Genau einmal muss jemand dort
+gestanden haben — dieselbe Vorverlegung wie in §7, nur eine Stufe früher.
+
+**Der Haken, und wo er zu schließen ist.** Benutzt das Gerät den Ausweis seines
+Besitzers, dann *ist* es in Pulse dieser Besitzer — und damit auch in seinen
+Direktnachrichten (das Dauerleck aus §4). Schließen lässt sich das ohne zweites
+Konto: in einer Self-Host-Sitzung steht bereits, mit welchem Ausweis sie
+zustande kam (`SessionClaims.cert_id`, `shared/src/dcc_shared/session_tokens.py`).
+An dieser einen Stelle kann der Server sagen „diese Verbindung ist ein
+eingetragenes Gerät" und ihr Chat, Verlauf und Direktnachrichten verweigern. Ein
+Gerät darf übertragen und ferngesteuert werden, sonst nichts.
+
+**Die Marke gehört an den Ausweis, nicht an das Konto** — sonst verstummte auch
+der eigene Laptop des Besitzers.
+
+**Ehrliche Lücke:** in der **Cloud** trägt das Zugangs-Token diese Auskunft
+heute nicht. Es kennt nur `sub`, `admin`, `owner`, `email_blocked`
+(`security.py`) — kein Gerät. Auf Self-Hosts trägt der Weg also sofort, für die
+Cloud müsste der Ausweisbezug ins Token nachgezogen werden. Klein, aber es
+gehört benannt statt vorausgesetzt.
+
+**Damit ist §11.1 vorerst entschieden**, mit diesen Abwägungen:
+
+* *An den Ausweis gebunden (dieser Weg):* klein, alles vorhanden; Besitz und
+  Widerruf sind sofort da. Preis: das Chat-Leck muss aktiv verhindert werden,
+  das Gerät lässt sich nur über das Konto des Besitzers weitergeben, und mit
+  ihm fällt es, wenn er die Community verlässt.
+* *Eigenes Geräte-Konto:* das Leck fällt bauartbedingt weg, der Besitzer ist
+  umtragbar, das Gerät überlebt ihn. Preis: ein neuer Kontentyp greift in
+  Registrierung, Mitgliederlisten und Moderation.
+
+Der spätere Umstieg auf ein Geräte-Konto (Stufe 3, §12) tauscht dann nur aus,
+**wem der Ausweis gehört** — die Mechanik darüber bleibt gleich. Deshalb der
+kleine Weg zuerst, und deshalb die Marke am Ausweis.
+
+## 7. Dauerfreigabe — die Zustimmung wird vorverlegt, nicht abgeschafft
 
 Jemand sitzt **einmal** körperlich an dem Rechner und gibt ihn frei. Danach
 beantwortet der Host-Client `remote_request` selbsttätig mit `accept: true`.
@@ -186,7 +260,7 @@ Drei Teile treten an ihre Stelle:
    Rechner setzt, will ihn zurück.
 3. **Sichtbare Anzeige am Gerät selbst**, falls doch jemand hinkommt.
 
-## 7. Aufwecken: zwei Schritte, ein Klick
+## 8. Aufwecken: zwei Schritte, ein Klick
 
 Das Gerät überträgt **erst auf Abruf** — ein Remote-Rechner, der rund um die Uhr
 für niemanden encodiert, ist Verschwendung.
@@ -201,7 +275,7 @@ Deshalb getrennt: wecken → übertragen → **dann** die unveränderte
 `remote_request`. In der Oberfläche darf das ein Klick mit Fortschrittsanzeige
 sein; im Protokoll bleiben es zwei einzeln lesbare Vorgänge.
 
-## 8. Was bereits trägt
+## 9. Was bereits trägt
 
 Der bestehende Schutzapparat passt auf unbeaufsichtigte Geräte erstaunlich gut
 und braucht keine Änderung:
@@ -218,7 +292,7 @@ Der Sitzungsdeckel ist bei einem Gerät unkritisch: mit Dauerfreigabe geht eine
 neue Anfrage wortlos durch, solange der Host-Client von selbst wieder online
 kommt.
 
-## 9. Harte Grenzen unter Windows
+## 10. Harte Grenzen unter Windows
 
 Alle aus derselben Wurzel — der Sidecar ist ein Userland-Prozess:
 
@@ -237,27 +311,29 @@ Desktop tragen — und das ansagen**, statt es stillschweigend halb zu können.
 Dieselbe Linie wie bei Intra-Refresh und HDR (Startverweigerung statt
 Etikettenschwindel).
 
-## 10. Offene Entscheidungen
+## 11. Offene Entscheidungen
 
 1. **Geräte-Konto oder Merkmal am bestehenden Konto.** Ein eigenes Konto ist
    sauberer und schliesst das Chat-Leck aus §4; ein Merkmal wäre schneller
-   gebaut.
+   gebaut. — **Am 2026-08-16 vorerst entschieden zugunsten des Merkmals, und
+   zwar am Ausweis statt am Konto (§6).** Offen bleibt nur noch der Zeitpunkt
+   des Umstiegs auf ein Geräte-Konto (Stufe 3, §12).
 2. **Offline-Geräte sichtbar?** Dagegen spricht Rauschen, dafür, dass man sonst
    nicht sieht, dass das Gerät überhaupt existiert. Entwurf zeigt sie
    abgeblendet.
 3. **„Nur zusehen" ohne Übernahme.** Darf jemand ein Gerät allein zum Zusehen
    wecken? Naheliegend ja — aber dann kann ein Berechtigter den Rechner beliebig
    oft hochfahren lassen, ohne ihn je zu benutzen.
-4. **Vorrang: dämpfen oder beenden** bei unbeaufsichtigten Geräten (§6).
+4. **Vorrang: dämpfen oder beenden** bei unbeaufsichtigten Geräten (§7).
 5. **Mehrere gleichzeitige Zuschauer** bei nur einem Steuernden — die
    Ein-Sitzung-je-Host-Regel betrifft die Steuerung, nicht das Zusehen. Wie das
    in der Oberfläche gezeigt wird, ist offen.
 
-## 11. Stufenplan
+## 12. Stufenplan
 
 1. **Dauerfreigabe am Gerät + selbsttätige Zustimmung im Client.** Klein, kein
    Protokoll-Eingriff, trägt sofort. Übertragung startet noch von Hand.
 2. **Geräte als Grundelement**: Kategorie in der Kanalliste, Abschnitt in der
    Mitgliederliste, Geräteansicht im Hauptbereich, Übertragung auf Abruf.
 3. **Geräte-Konto, Kiosk-Betrieb, Windows-Härtung** (Auto-Anmeldung, kein
-   Sperren, virtueller Monitor) samt ehrlich dokumentierter Grenzen aus §9.
+   Sperren, virtueller Monitor) samt ehrlich dokumentierter Grenzen aus §10.
