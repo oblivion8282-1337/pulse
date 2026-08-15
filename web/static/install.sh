@@ -514,4 +514,29 @@ if [ "$MODE" = "static-docker" ] || [ "$MODE" = "hostproxy" ]; then
 EOF
 fi
 
+# Kernel-UDP-Puffer: NUR ein Hinweis, ausdruecklich kein Eingriff.
+#
+# Warum nicht selbst setzen: der Installer laeuft nicht zwingend als root, und
+# ungefragt am Kernel des WIRTS zu drehen ist etwas anderes, als einen
+# Container hinzustellen — die Grenze gilt fuer jeden Dienst auf der Maschine.
+# Warum ueberhaupt: MediaMTX buendelt alle WebRTC-Sitzungen auf EINEM
+# UDP-Socket, LiveKit fordert von sich aus grosse Puffer an; Debians Vorgabe
+# (~212 KB) klemmt beide still, und der Verlust entsteht dann auf dem Server
+# selbst — keine Fehlerkorrektur der Welt holt ihn zurueck. Volle Begruendung:
+# `infra/prod/sysctl-pulse.conf`, Anleitung `infra/self-host/README.md`.
+cat <<'EOF'
+
+  ----------------------------------------------------------------
+  Optional — only worth it once many people watch at the same time:
+  raising the kernel's UDP buffer limits helps WebRTC (screen share
+  and voice). As root, once:
+
+      printf 'net.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216\n' \
+        > /etc/sysctl.d/99-pulse.conf && sysctl --system
+
+  These are upper limits, not reservations — no memory is used until
+  a socket actually asks for it. Pulse runs fine without this.
+  ----------------------------------------------------------------
+EOF
+
 log "Done."

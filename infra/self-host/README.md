@@ -237,6 +237,13 @@ verlieren, sichtbar als Ruckeln trotz sauberer Leitung. Einmalig auf dem Wirt
 einspielen: `infra/prod/sysctl-pulse.conf` (Begründung steht als Kommentar in
 der Datei) nach `/etc/sysctl.d/99-pulse.conf`, dann `sysctl --system`.
 
+**Optional, nicht Voraussetzung** — ohne die Einstellung läuft alles wie
+bisher; sie zahlt sich erst bei vielen gleichzeitigen Zuschauern aus. Der
+Installer (`web/static/install.sh`) gibt am Ende dieselbe Zeile aus, damit
+niemand sie hier suchen muss; er **setzt sie nicht selbst** (läuft nicht
+zwingend als root, und die Grenze gilt für jeden Dienst auf der Maschine).
+Beim Ändern also beide Stellen mitziehen.
+
 ## Known limitations
 
 - **Restart-gate granularity** — counts only crash, not restart-loop-success;
