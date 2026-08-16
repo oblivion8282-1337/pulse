@@ -1071,10 +1071,6 @@ const ALLOWED_STORE_KEYS = new Set([
   // (window.pulse.store.set), der Main-Prozess liest ihn synchron im
   // Fenster-close-Handler (quitOnClose → wirklich beenden statt Tray).
   'quitOnClose',
-  // Kompatibilitäts-Tab (nur Linux-Desktop): Notbremse zurück auf den älteren
-  // Python/GSR-Sidecar. Default (Key fehlt/false) = Rust. Renderer setzt ihn,
-  // resolveLinuxSpawn() (sidecar.ts) liest ihn beim nächsten Spawn.
-  'useLegacyGsrSidecar',
   // Diagnose-Logs des Linux-Sidecars hochladen. Eigener Opt-in, default aus —
   // hing früher am Rust-Toggle; seit Rust der Standard ist, wäre das eine
   // stille Telemetrie für jeden Linux-Nutzer gewesen.
@@ -1184,16 +1180,6 @@ function wireStore(): void {
     }
     try {
       storeSet(key, value);
-      // Umschalten zwischen Rust- und GSR-Sidecar: Spawn-Cache invalidieren
-      // und laufende (idle) Sidecar-Prozesse neu starten, damit die Umschaltung
-      // beim nächsten Stream greift — ohne Pulse-Neustart. Ein evtl. gerade
-      // laufender Test-Stream endet dabei (bewusste Nutzeraktion).
-      if (key === 'useLegacyGsrSidecar') {
-        resetSpawnTargetCache();
-        void Promise.all(allSidecars().map((m) => m.shutdown())).catch((e) =>
-          console.error('[store] sidecar restart after useLegacyGsrSidecar toggle failed:', e),
-        );
-      }
     } catch (e) {
       console.error('[store] store:set failed:', e);
     }
