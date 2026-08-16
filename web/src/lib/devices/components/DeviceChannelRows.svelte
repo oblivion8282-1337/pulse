@@ -16,6 +16,14 @@
   Anwesenheitsstatus — es hat einen Zustandspunkt, und der beantwortet die eine
   Frage, die zählt: kann ich diesen Rechner jetzt übernehmen.
 
+  **Ziehen stellt den Standplatz um** (seit 2026-08-16) — dieselbe Geste, mit
+  der man einen Nutzer in einen Sprachkanal zieht, und derselbe Mechanismus
+  (`geraetZug.ts` neben `voice/userDrag.ts`). Ziehbar ist die Zeile **nur für
+  den Besitzer**: der Server weist einen Kanalwechsel durch andere ab, auch mit
+  `MANAGE_GUILD` (der Standplatz ist der Rechteanker). Eine Zeile, die sich
+  ziehen lässt und beim Ablegen 403 einfängt, verspräche etwas, das es nicht
+  gibt.
+
   **Zusehen und Übernehmen sind zwei Wege.** Das LIVE-Abzeichen öffnet nur das
   Bild (`onWatch`), der Rest der Zeile führt in die Geräteansicht (`onSelect`),
   wo „Wecken und übernehmen" sitzt. Ohne diese Trennung löste ein Dritter, der
@@ -34,6 +42,8 @@
   import { deviceStore } from '$lib/devices/store.svelte';
   import { punktKlasse, zustandsText } from '$lib/devices/darstellung';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { startGeraetZug } from '$lib/devices/geraetZug';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import type { Device } from '$lib/api/devices';
 
   let {
@@ -42,6 +52,7 @@
     activeDeviceId = null,
     onSelect,
     onWatch,
+    onDragEnd,
   }: {
     guildId: string;
     channelId: string;
@@ -49,6 +60,9 @@
     onSelect: (device: Device) => void;
     /** Klick auf LIVE: nur zusehen. */
     onWatch: (device: Device) => void;
+    /** Der Zug ist vorbei (abgelegt oder abgebrochen). Die Kanalliste räumt
+     *  damit ihre Hervorhebung weg — die Zielzeile gehört ihr, nicht uns. */
+    onDragEnd?: () => void;
   } = $props();
 
   // Beim Betreten der Community einmal laden; die Änderungen danach kommen als
@@ -73,16 +87,25 @@
   function sendet(d: Device): boolean {
     return streamPresence.streamsIn(channelId).some((s) => s.user_id === d.owner_user_id);
   }
+
+  // Die Kennung auf DIESEM Server, nicht die des Kontos: `owner_user_id` ist
+  // serverlokal, und auf einem Self-Host ist die Cloud-Kennung eine andere —
+  // mit `auth.user.id` verglichen wäre dort das eigene Gerät nie das eigene.
+  const meine = $derived(currentServerUserId());
 </script>
 
 {#each geraete as d (d.id)}
   {@const live = sendet(d)}
+  {@const meins = d.owner_user_id === meine}
   <div class="ml-4 flex flex-col" data-testid="device-channel-rows" data-channel-id={channelId}>
     <button
       class="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left
         hover:bg-bg-hover data-[active=true]:bg-bg-hover"
       data-active={activeDeviceId === d.id}
       onclick={() => onSelect(d)}
+      draggable={meins}
+      ondragstart={(e) => startGeraetZug(e, d.id)}
+      ondragend={onDragEnd}
       data-testid={`device-${d.id}`}
       title={zustandsText(d.state)}
     >

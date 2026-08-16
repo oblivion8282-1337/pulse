@@ -9,6 +9,7 @@
       "intro": "Bisher konnte man nur einen Menschen fernsteuern, der gerade überträgt und zustimmt. Jetzt gibt es Geräte: Rechner, die in einem Kanal stehen und dafür da sind, aus der Ferne benutzt zu werden.",
       "items": [
         "Ein Rechner lässt sich als Gerät eintragen — Einstellungen, Reiter „Standplatz“. Er steht danach unter dem Sprachkanal, den du als Standplatz gewählt hast, zwischen den Leuten, die dort sind — so ist ohne Nachlesen klar, wo der Rechner steht.",
+        "Den Standplatz änderst du, indem du die Zeile des Geräts in einen anderen Sprachkanal ziehst — dieselbe Geste wie beim Verschieben einer Person. Das darf nur, wem der Rechner gehört. Wird er in dem Moment ferngesteuert, fragt Pulse vorher nach: der Wechsel beendet die laufende Übernahme.",
         "Wer ein Gerät anklickt, sieht es im Hauptbereich: wem es gehört, wo es steht, ob es bereit, belegt oder offline ist.",
         "Ein Klick weckt ihn, holt das Bild in ein eigenes Fenster und übernimmt. Das Gerät überträgt nur auf Abruf — ein Rechner, der für niemanden überträgt, würde nur Strom verbrauchen.",
         "Überträgt ein Gerät, trägt seine Zeile das LIVE-Abzeichen — nicht die seines Besitzers, der dabei gar nicht im Kanal sein muss. Ein Klick darauf zeigt nur das Bild: Zusehen braucht kein Recht zum Fernsteuern und stört niemanden, der gerade steuert.",
@@ -21,7 +22,10 @@
         "Ein Protokoll am Gerät hält fest, wer wann wie lange übernommen hat — und ob jemand zugestimmt hat oder die Dauerfreigabe geantwortet hat.",
         "Ein geweckter Rechner überträgt mit einem eigenen Profil für den Fernbetrieb (Vorgabe: Hauptbildschirm, native Auflösung, 30 Bilder pro Sekunde, H.264) — Codec, Auflösung, Bildrate, Bitrate und die Art der Auffrischung sind dort einstellbar statt mit den Einstellungen, die sein Besitzer zuletzt für etwas anderes gemacht hat. Fernsteuern braucht lesbare Schrift, Zuschauen flüssige Bewegung — das sind verschiedene Einstellungen.",
         "Hat das Gerät mehrere Bildschirme, öffnet sich zuerst der Hauptbildschirm; die anderen schaltest du einzeln dazu — in der Geräteansicht oder im Menü am Griff im Player-Fenster, ohne dafür herauszuwechseln. Jeder wird erst dann übertragen, wenn du ihn anforderst, und jeder bekommt sein eigenes Fenster; die Eingabe folgt dem Fenster, in dem deine Maus ist.",
-        "Der Ton kommt dabei genau einmal: der erste Bildschirm überträgt den Systemton, die dazugeschalteten sind stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an."
+        "Der Ton kommt dabei genau einmal: der erste Bildschirm überträgt den Systemton, die dazugeschalteten sind stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an.",
+        "Rollen lassen sich wieder umsortieren, auch ohne Besitzer der Community zu sein. Bisher wies der Server jeden Versuch ab, weil die Oberfläche dabei die ganze Liste umnummerierte — samt der eigenen höchsten Rolle, die niemand verschieben darf.",
+        "Beim Löschen einer Rolle rückt die Auswahl nicht mehr still auf die nächste nach. Vorher stand der Papierkorb danach sofort auf einem anderen Ziel scharf, und zweimal Löschen traf zwei verschiedene Rollen.",
+        "Die Farbe einer Rolle lässt sich wieder entfernen. Der Haken sprang bisher von selbst zurück, und gemeldet wurde trotzdem „gespeichert\"."
       ],
       "outro": "Die Rechteprüfung bleibt unverändert davor: eingetragen und freigegeben heißt nicht, dass jeder darf."
     },
