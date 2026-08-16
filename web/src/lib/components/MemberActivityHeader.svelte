@@ -12,6 +12,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { stromGehoertGeraet } from '$lib/devices/darstellung';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import {
     watchPartyPresence,
@@ -46,7 +47,11 @@
       for (const wp of watchPartyPresence.partiesIn(ch.id)) {
         if (presence.isOnline(wp.host_user_id)) out.push({ kind: 'party', channel: ch, state: wp });
       }
-      const hq = streamPresence.streamersIn(ch.id);
+      // Ohne den Filter stuende der Strom eines Standplatz-Geraets hier als
+      // Aktivitaet SEINES BESITZERS — „michael streamt in #werkstatt", obwohl
+      // dort sein Rechner steht und er selbst nichts tut. Das Geraet hat seine
+      // eigene Zeile in der Kanalliste, dort gehoert das Abzeichen hin.
+      const hq = streamPresence.streamersIn(ch.id).filter((uid) => !stromGehoertGeraet(ch.id, uid));
       const ss = voicePresence.streamingIn(ch.id);
       const all = [...new Set([...hq, ...ss])].filter((uid) => presence.isOnline(uid));
       for (const uid of all) out.push({ kind: 'stream', channel: ch, userId: uid });

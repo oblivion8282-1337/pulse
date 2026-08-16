@@ -6,6 +6,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { stromGehoertGeraet } from '$lib/devices/darstellung';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -211,7 +212,10 @@
     const set = new Set<string>();
     for (const c of guildChannels) {
       for (const uid of streamPresence.streamersIn(c.id)) {
-        if (presence.isOnline(uid)) set.add(uid);
+        // Der Strom eines Standplatz-Geraets laeuft unter dem Konto seines
+        // Besitzers — das Abzeichen gehoert an den Rechner (Geraetezeile in der
+        // Kanalliste), nicht an den Menschen, der dabei woanders sitzt.
+        if (presence.isOnline(uid) && !stromGehoertGeraet(c.id, uid)) set.add(uid);
       }
       for (const uid of voicePresence.streamingIn(c.id)) {
         if (presence.isOnline(uid)) set.add(uid);
