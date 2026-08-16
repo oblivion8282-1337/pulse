@@ -43,6 +43,7 @@ SYMBOLE = [
     "external-link",  # zurueck in die Kachel
     "x",              # Kachel schliessen
     "activity",       # Statistik ein/aus
+    "mouse-pointer-click",  # Fernsteuerung anfragen
 ]
 
 KOPF = (

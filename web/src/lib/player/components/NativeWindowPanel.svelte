@@ -12,26 +12,21 @@
   dasselbe Ziel: sie ist die Fernbedienung für den Fall, dass das Fenster gar
   nicht sichtbar ist.
 
-  Die Fernsteuerungs-Anfrage sitzt hier und nirgends sonst: erfasst wird IM
-  Player-Fenster (Zeigerfang, rohe Scancodes), das `<video>`-Element der Kachel
-  kann das nicht. Wo kein Fenster läuft, gibt es also auch nichts anzufragen.
+  **Die Fernsteuerungs-Anfrage sass bis 2026-08-16 hier**, mit der Begründung:
+  erfasst wird IM Player-Fenster, wo keins läuft, gibt es nichts anzufragen. Das
+  war technisch richtig und als Bedienung falsch herum — es zwang jeden, der
+  steuern wollte, erst ein Fenster zu öffnen, dann ins Pulse-Fenster
+  zurückzuwechseln und dort zu klicken. Der Knopf sitzt jetzt in der
+  Bedienleiste der Kachel (`WhepPlayer`), und das Fenster geht auf, sobald der
+  Host zusagt.
 -->
 <script lang="ts">
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import { Button } from '$lib/components/ui/button/index.js';
   import type { NativePlayerSession } from '../store.svelte';
-  import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  let {
-    session,
-    /** Kann der Streamer ueberhaupt ferngesteuert werden? Kommt aus der
-     *  WHEP-Antwort und stammt vom Sidecar des Streamers. Ohne das erschiene
-     *  der Knopf auch bei einem Linux-Streamer: der Gastgeber bekaeme den
-     *  Zustimmungs-Dialog fuer etwas, das nie funktionieren kann, und erst die
-     *  ersten Frames liefen dann in einen Sidecar ohne `remote_input`-Modul. */
-    fernsteuerbar = false
-  }: { session: NativePlayerSession | null; fernsteuerbar?: boolean } = $props();
+  let { session }: { session: NativePlayerSession | null } = $props();
 </script>
 
 <!--
@@ -66,12 +61,5 @@
     >
       {m.native_panel_focus_window()}
     </Button>
-    {#if session && fernsteuerbar}
-      <RemoteRequestButton
-        channelId={session.channelId}
-        hostUserId={session.userId}
-        slot={session.slot}
-      />
-    {/if}
   </div>
 </div>

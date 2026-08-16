@@ -935,6 +935,9 @@ const ALLOWED_PLAYER_OPS = new Set([
   // Bildschirmliste fuers Menue am Griff — reine Anzeige wie `remote_pointer`,
   // beruehrt weder Zuordnung noch Eingabe.
   'remote_screens',
+  // Ob der Anfrage-Knopf in der Bedienleiste erscheint. Ebenfalls reine
+  // Anzeige: der Klick kommt als Ereignis zurueck, angefragt wird im Renderer.
+  'remote_anfragbar',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */

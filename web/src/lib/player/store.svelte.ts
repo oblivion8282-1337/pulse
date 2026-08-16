@@ -433,6 +433,18 @@ export const nativePlayerSessions = {
     );
   },
 
+  /**
+   * Das Fenster zu einer Player-Sitzungsnummer.
+   *
+   * Gebraucht, wenn ein Klick AUS dem Fenster kommt: das Fenster kennt nur
+   * seine eigene Nummer, die App braucht Kanal, Streamer und Platz dazu
+   * (`player:remoteRequest`). Ohne diesen Weg müsste jede Aufrufstelle die
+   * ganze Liste durchsuchen und dabei dieselbe Bedingung nachbauen.
+   */
+  nachFenster(fensterSitzung: number): NativePlayerSession | null {
+    return [...registry.values()].find((s) => s.fensterSitzung === fensterSitzung) ?? null;
+  },
+
   close(channelId: string, userId: string, slot = 0): void {
     // Der Merker „vom Nutzer zugemacht" wird hier ABSICHTLICH nicht geloescht:
     // der Abkoppel-Knopf schliesst die Sitzung, waehrend die Kachel offen

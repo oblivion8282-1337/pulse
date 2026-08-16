@@ -111,6 +111,14 @@ pub struct Request {
     #[serde(default)]
     pub shape: Option<String>,
 
+    // --- remote_anfragbar ---
+    /// Darf dieser Zuschauer eine Fernsteuerung anfragen? Der Player zeigt
+    /// daraufhin einen Knopf in der Bedienleiste und meldet den Klick als
+    /// `player:remoteRequest` — er fragt NICHT selbst an: Rechte, Host und
+    /// Serververbindung kennt allein die App.
+    #[serde(default)]
+    pub anfragbar: Option<bool>,
+
     // --- remote_screens ---
     /// Die Bildschirme des ferngesteuerten Rechners fuers Menue am Griff.
     /// Reine Anzeige — was ein Klick ausloest, entscheidet die App

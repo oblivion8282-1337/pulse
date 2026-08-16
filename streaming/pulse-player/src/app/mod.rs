@@ -1080,6 +1080,16 @@ impl App {
             // abzuschalten und die Meldung nur mitzuschicken waere schneller
             // und falsch: dann liefe die Sitzung beim Gegenueber weiter,
             // waehrend hier schon nichts mehr erfasst wird.
+            // Der Wunsch nach einer Fernsteuerung — mehr nicht. Das Fenster
+            // kennt weder den Host noch die Rechte im Kanal noch den Weg zum
+            // Server; es meldet den Klick, und die App fragt an
+            // (`$lib/player/client.ts` -> `remoteSession.request`).
+            OverlayAction::RemoteRequest => {
+                self.stdout.send(&Event::new(
+                    "player:remoteRequest",
+                    serde_json::json!({ "session": id }),
+                ));
+            }
             OverlayAction::RemoteDisconnect => {
                 self.stdout.send(&Event::new(
                     "player:remoteDisconnect",
