@@ -128,39 +128,37 @@ function resolveSidecarSpawn(): SpawnTarget {
 }
 
 /**
- * Linux hat zwei Sidecars: den Rust-Crate (Standard) und den älteren
- * Python/GSR-Weg als Auffangnetz.
+ * Unter Linux nimmt HQ-Streaming den Rust-Sidecar. Punkt.
  *
- * Reihenfolge:
- *   1. Store-Key `useLegacyGsrSidecar` = true → GSR erzwungen (Notbremse im
- *      Kompatibilitäts-Tab, falls der Rust-Weg zickt).
- *   2. Sonst Rust — der Normalfall.
- *   3. Rust-Binary nicht auffindbar → automatisch GSR. Ohne diesen Rückfall
- *      verschwände HQ-Streaming wortlos, sobald das Binary fehlt (alte
- *      Flatpak-Version, Dev-Rechner ohne gebauten Crate).
+ * **Bis 2026-08-16 gab es zwei Wege**, und der zweite war der ältere
+ * Python/GSR-Sidecar: erzwingbar über einen Schalter im Experimental-Tab, und
+ * automatisch, sobald das Rust-Binary nicht auffindbar war. Beides ist weg:
  *
- * Wirft nur, wenn BEIDE Wege fehlen — dann ist HQ hier wirklich nicht möglich
- * und die UI blendet den Button aus (`stream.gsrAvailable = false`).
+ *  * Der **Schalter** lud zum Ausprobieren ein und beantwortete keine Frage,
+ *    die ein Nutzer hat. Wer ihn einmal umlegte, blieb still auf dem alten Weg
+ *    — samt dessen Eigenheiten, die dann als Fehler des ganzen Programms
+ *    ankamen.
+ *  * Der **automatische Rückfall** war gut gemeint, hat den Fall aber
+ *    verschleiert statt behoben: der Nutzer streamte über ein anderes
+ *    Verfahren, ohne es zu wissen, und jede Fehlersuche begann mit der falschen
+ *    Annahme. Ein fehlendes Rust-Binary ist ein kaputter Einbau — das gehört
+ *    gemeldet, nicht überdeckt. Der Wurf hier führt zu `gsrAvailable = false`,
+ *    die UI blendet den Übertragen-Knopf aus.
+ *
+ * **GSR bleibt im Baum**, nur nicht mehr im Weg eines Nutzers: für Messungen
+ * und Vergleiche schaltet `PULSE_LEGACY_GSR=1` ihn zurück. Ein Umgebungswert
+ * verlangt eine bewusste Handlung und überlebt keinen Doppelklick auf das
+ * Symbol — genau der Unterschied zum alten Schalter.
  */
 function resolveLinuxSpawn(): SpawnTarget {
-  const forced = storeGet('useLegacyGsrSidecar') === true;
-  let fallbackDetail: string | undefined;
-  if (!forced) {
-    try {
-      const binary = resolveLinuxRustBinaryPath();
-      _linuxBackend = { kind: 'rust', reason: 'default' };
-      return { command: binary, args: [] };
-    } catch (e) {
-      fallbackDetail = e instanceof Error ? e.message : String(e);
-    }
+  if (process.env.PULSE_LEGACY_GSR === '1') {
+    const script = resolveScriptPath();
+    _linuxBackend = { kind: 'gsr', reason: 'forced' };
+    return { command: PYTHON_BIN, args: [script] };
   }
-  // Erst auflösen, dann melden — schlägt auch GSR fehl, propagiert der Throw
-  // und `_linuxBackend` bleibt leer, statt einen Sidecar zu behaupten.
-  const script = resolveScriptPath();
-  _linuxBackend = forced
-    ? { kind: 'gsr', reason: 'forced' }
-    : { kind: 'gsr', reason: 'fallback', detail: fallbackDetail };
-  return { command: PYTHON_BIN, args: [script] };
+  const binary = resolveLinuxRustBinaryPath();
+  _linuxBackend = { kind: 'rust', reason: 'default' };
+  return { command: binary, args: [] };
 }
 
 /** Welcher Sidecar läuft (Linux) — für die Anzeige im Kompatibilitäts-Tab.
@@ -176,9 +174,11 @@ export function getLinuxBackend(): LinuxBackendInfo | null {
   return _linuxBackend;
 }
 
-/** Invalidiert das memoisierte Spawn-Target. main.ts ruft das, wenn der
- *  `useLegacyGsrSidecar`-Store-Key umgeschaltet wird, damit der nächste Spawn
- *  das Binary neu auflöst (Rust ↔ Python). */
+/** Invalidiert das memoisierte Spawn-Target.
+ *
+ *  Seit 2026-08-16 gibt es unter Linux nur noch einen Weg, also auch nichts
+ *  mehr umzuschalten — die Tests brauchen es weiterhin, um zwischen zwei
+ *  Umgebungen aufzuloesen. */
 export function resetSpawnTargetCache(): void {
   _cachedSpawnTarget = null;
   _linuxBackend = null;
