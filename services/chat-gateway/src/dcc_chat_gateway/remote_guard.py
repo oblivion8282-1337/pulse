@@ -154,6 +154,38 @@ async def remote_perm_audit_loop(
             log.exception("remote permission audit pass failed")
 
 
+async def remove_devices_for_member(session, manager, guild_id: int, user_id: int) -> int:
+    """Die Standplatz-Geraete eines ausgeschiedenen Mitglieds entfernen.
+
+    **Warum das dazugehoert** (Bughunt 2026-08-16): ein Geraet steht im Kanal
+    einer Community und laesst sich von jedem wecken und uebernehmen, der dort
+    ``REMOTE_CONTROL`` hat — geprueft wird das RECHT DES RUFERS, nicht die
+    Mitgliedschaft des Besitzers. Bliebe die Zeile nach einem Rauswurf oder Bann
+    stehen, stuende der Rechner eines Ex-Mitglieds weiter im Raum und waere
+    weiter benutzbar. Der Besitzer selbst kaeme nicht einmal mehr heran, um ihn
+    auszutragen.
+
+    Die laufende Sitzung raeumt :func:`end_remote_sessions_for_member` ab; hier
+    geht es um die Zeile. Gerufen aus denselben beiden Pfaden.
+    """
+    from dcc_chat_gateway.models import Device  # noqa: PLC0415 - App-Boot-Zirkel
+
+    rows = (
+        await session.execute(
+            select(Device).where(Device.guild_id == guild_id, Device.owner_user_id == user_id)
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+    for device in rows:
+        if manager is not None:
+            await manager.end_remote_sessions_for_device(device.id)
+        await session.delete(device)
+    await session.flush()
+    log.info("devices removed with member: guild=%s count=%d", guild_id, len(rows))
+    return len(rows)
+
+
 async def end_remote_sessions_for_member(
     session, manager, guild_id: int, user_id: int, *, reason: str = "membership_revoked"
 ) -> int:

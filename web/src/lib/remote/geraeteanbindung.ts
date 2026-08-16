@@ -16,8 +16,45 @@
  */
 
 import { gegenstelle } from './gegenstelle';
+import { deviceStore } from '$lib/devices/store.svelte';
+import { dispatchenderServer, herkunftsVerbindung, sendenAuf } from './draht';
+import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+import { wiederEinschlafen } from '$lib/devices/wecken';
 import { remoteProtokoll } from './protokoll.svelte';
 import { standplatz } from './standplatz.svelte';
+
+/**
+ * Welches Standplatz-Gerät steht in diesem Kanal und gehört diesem Nutzer?
+ *
+ * Der Steuernde hängt die Kennung an seine Anfrage, damit sie beim richtigen
+ * Rechner landet. `null` heisst „ein Mensch, kein Gerät" — dann bleibt alles
+ * wie bisher.
+ */
+export function geraetFuerAnfrage(channelId: string, hostUserId: string): string | null {
+  return deviceStore.byChannelOwner(channelId, hostUserId)?.id ?? null;
+}
+
+/**
+ * Eine Anfrage ablehnen, die ein ANDERES Gerät meint.
+ *
+ * **Warum das nötig ist** (Bughunt 2026-08-16): die Einladung geht an alle
+ * Fenster des Hosts — also auch an seinen Laptop, wenn dort dasselbe Konto
+ * angemeldet ist. Stimmte dort jemand zu, sähe der Steuernde den Werkstatt-PC
+ * und bediente den Laptop. Meist fielen die Eingaben dort als „unbekannter
+ * Platz" durch, aber eben nicht zwingend — und „meist" ist bei fremder
+ * Tastatur auf einem fremden Rechner die falsche Zusage.
+ *
+ * Ohne Kennung in der Anfrage gilt sie für jeden: eine Anfrage an einen
+ * MENSCHEN nennt kein Gerät, und die soll unverändert durchgehen.
+ *
+ * Liefert `true`, wenn abgelehnt wurde — der Aufrufer hört dann auf.
+ */
+export function fremdesGeraetAblehnen(sessionId: string, deviceId?: string): boolean {
+  if (!deviceId) return false;
+  if (geraeteAnmeldung.fuerServer(dispatchenderServer())?.deviceId === deviceId) return false;
+  sendenAuf(herkunftsVerbindung(), (c) => c.sendRemoteRespond(sessionId, false));
+  return true;
+}
 
 /**
  * Darf diese Anfrage ohne Dialog angenommen werden?
@@ -32,7 +69,7 @@ export function ohneRueckfrage(vonUserId: string | null): boolean {
   // 'incoming' —, und ein Dialog, der von selbst verschwindet, sieht aus wie
   // ein Fehler), und das Protokoll trennt daran die selbsttätige von der
   // bestätigten Übernahme.
-  return standplatz.darfOhneRueckfrage(vonUserId);
+  return standplatz.darfOhneRueckfrage(dispatchenderServer(), vonUserId);
 }
 
 /**
@@ -71,5 +108,11 @@ export function uebernahmeBeenden(
   rolle: 'controller' | 'host' | null,
   sessionId: string | null,
 ): void {
-  if (rolle === 'host' && sessionId) void remoteProtokoll.beenden(sessionId);
+  if (rolle !== 'host') return;
+  if (sessionId) void remoteProtokoll.beenden(sessionId);
+  // **Und das Gerät schläft wieder ein.** Ein einmal geweckter Rechner überträgt
+  // sonst für immer weiter und verbraucht genau das, was „erst auf Abruf"
+  // einsparen sollte. Nur auf einem eingetragenen Gerät und nur für die
+  // Ströme, die ein Weckruf gestartet hat (`devices/wecken.ts`).
+  if (geraeteAnmeldung.eintragungen.length > 0) void wiederEinschlafen();
 }

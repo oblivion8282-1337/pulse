@@ -104,19 +104,6 @@
     remoteZeigerform.setSenke((form) => {
       for (const f of fenster) void zeigerformMelden(f.nummer, form);
     });
-    // **Die Bildschirmliste ins Menü am Griff.** Nur so lässt sich ein zweiter
-    // Schirm dazuschalten, ohne aus dem Player-Fenster herauszuwechseln — und
-    // dort schaut der Steuernde gerade hin. Läuft mit, sooft sich etwas ändert
-    // (ein Schirm kommt dazu, einer fällt weg): der Ausdruck liest `schirme`,
-    // und das ist ein `$derived` über die laufenden Ströme.
-    const geraet = deviceStore.byChannelOwner(channelId, hostId);
-    if (geraet) {
-      const schirme = schirmeVon(geraet);
-      for (const f of fenster) void bildschirmeMelden(f.nummer, schirme);
-      // Ein angefordertes Bild einlösen, auch wenn die Geräteansicht gar nicht
-      // offen ist — der Wunsch kann aus dem Player-Fenster gekommen sein.
-      schirmWarten.einloesen(geraet);
-    }
     return () => {
       remoteP2P.setStatusSink(null);
       remoteZeigerform.setSenke(null);
@@ -155,15 +142,40 @@
       const channelId = remoteSession.channelId;
       const hostId = remoteSession.peerUserId;
       if (remoteSession.phase !== 'active' || !channelId || !hostId) return;
-      const fenster =
-        nativePlayerSessions.get(channelId, hostId, remoteSession.targetSlot)?.fensterSitzung ??
-        null;
-      // Nur das Fenster, das zu DIESER Sitzung gehört — bei mehreren offenen
-      // Player-Fenstern beendet der Griff sonst die falsche.
-      if (session !== fenster) return;
+      const fenster = nativePlayerSessions
+        .fuerHost(channelId, hostId)
+        .map((s) => s.fensterSitzung)
+        .filter((n): n is number => n !== null);
+      // Aus JEDEM Fenster dieser Sitzung, nicht nur aus dem zuerst
+      // angefragten (Bughunt 2026-08-16): ein Standplatz-Gerät kann mehrere
+      // Bildschirme zeigen, und in allen weiteren verpuffte der Klick auf
+      // „Fernsteuerung beenden" wirkungslos. Fremde Fenster bleiben aussen vor
+      // — die Prüfung ist jetzt „gehört zu diesem Host", nicht „ist genau
+      // dieser eine Platz".
+      if (!fenster.includes(session)) return;
       remoteSession.end();
     })
   );
+
+  // **Die Bildschirmliste in einem EIGENEN Effect** (Bughunt 2026-08-16). Sie
+  // hängt an den laufenden Strömen, und die ändern sich, sooft irgendwer im
+  // Kanal etwas startet oder beendet. Stand sie im Effect oben, riss jede
+  // solche fremde Meldung die Erfassung ab und baute sie neu auf — mit dem
+  // Aufräumen ging dabei alles Gedrückte hoch. Mitten im Steuern.
+  $effect(() => {
+    const channelId = remoteSession.channelId;
+    const hostId = remoteSession.peerUserId;
+    if (!steuernd || !channelId || !hostId) return;
+    const geraet = deviceStore.byChannelOwner(channelId, hostId);
+    if (!geraet) return;
+    const schirme = schirmeVon(geraet);
+    for (const s of nativePlayerSessions.fuerHost(channelId, hostId)) {
+      if (s.fensterSitzung !== null) void bildschirmeMelden(s.fensterSitzung, schirme);
+    }
+    // Ein angefordertes Bild einlösen, auch wenn die Geräteansicht gar nicht
+    // offen ist — der Wunsch kann aus dem Player-Fenster gekommen sein.
+    schirmWarten.einloesen(geraet);
+  });
 
   // Ein Abonnement für die ganze Laufzeit. Es endet NICHT mit der Sitzung: die
   // Hoch-Ereignisse des Abschaltens kommen erst danach, und genau die dürfen

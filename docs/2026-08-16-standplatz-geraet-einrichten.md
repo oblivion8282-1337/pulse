@@ -59,6 +59,16 @@ ist; eine zweite Fernsteuer-Sitzung braucht es dafür nicht.
 **Den Ton trägt genau ein Bildschirm** (der erste), die dazugeschalteten sind
 stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an.
 
+> **Bekannte Grenze:** wird ausgerechnet der erste Bildschirm beendet, bleiben
+> die übrigen stumm — der Ton wandert nicht mit. Er hängt am Start einer
+> Übertragung, und ihn nachträglich umzuhängen hiesse, einen laufenden Strom
+> neu zu starten. Wer den Ton zurück will, beendet die Fernsteuerung und weckt
+> neu.
+
+**Am Ende schläft das Gerät wieder ein:** endet die Fernsteuerung, werden die
+Übertragungen beendet, die ein Weckruf gestartet hat. Was der Besitzer von Hand
+gestartet hat, bleibt unangetastet.
+
 ## Betriebssystem-Einstellungen, die dazugehören
 
 Pulse hält den **Bildschirm** wach, solange sein Fenster sichtbar ist

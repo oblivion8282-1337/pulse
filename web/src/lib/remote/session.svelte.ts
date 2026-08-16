@@ -34,10 +34,11 @@ import { isWindows } from '$lib/platform/runtime';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
 import { remoteZeigerform } from './zeigerform';
-import { ohneRueckfrage, uebernahmeBeenden, uebernahmeBeginnen } from './geraeteanbindung';
+import * as geraet from './geraeteanbindung';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
+import { VerworfeneAnfragen } from './verworfeneAnfragen';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
 export type RemoteRole = 'controller' | 'host';
@@ -94,26 +95,9 @@ class RemoteSessionStore {
    */
   #conn: GatewayConnection | null = null;
 
-  /**
-   * Ziele von Anfragen, die abgebrochen wurden, BEVOR ihre Kennung ankam.
-   *
-   * **Warum es das braucht.** Zwischen `remote_request` und dem `remote_pending`
-   * mit der Kennung liegt ein Serverumlauf. Wer in diesem Fenster abbricht und
-   * sofort erneut anfragt, bekommt die verspätete Kennung der ERSTEN Anfrage —
-   * und `_pending` erkannte die passende Anfrage nur an Ziel und Zustand, hatte
-   * also keine Möglichkeit, sie von der zweiten zu unterscheiden.
-   *
-   * Die Folge war schlimmer als ein hängender Zustand: die alte Kennung wurde
-   * der neuen Anfrage untergeschoben, und die danach eintreffende ECHTE Kennung
-   * galt als fremd — `fremdeSitzungBeenden` beendete damit die gerade erst
-   * entstandene, legitime Sitzung. Der Steuernde lief in „keine Antwort", der
-   * Host blieb in „wird ferngesteuert" stehen.
-   *
-   * Eine Warteschlange und kein Zähler: so wird nur eine Kennung verworfen,
-   * die WIRKLICH zum abgebrochenen Ziel gehört. Die Reihenfolge stimmt, weil
-   * beide Rahmen über dieselbe Verbindung laufen.
-   */
-  readonly #verworfeneAnfragen: { channelId: string; hostUserId: string }[] = [];
+  /** Abgebrochene Anfragen, deren Kennung noch unterwegs ist
+   *  (`verworfeneAnfragen.ts`). */
+  readonly #verworfene = new VerworfeneAnfragen();
 
   // ── Controller-Seite ──────────────────────────────────────────────────────
   request(channelId: string, hostUserId: string, slot = 0): void {
@@ -134,7 +118,9 @@ class RemoteSessionStore {
     // zurückspringt, wäre danach JEDER weitere Klick wirkungslos. Genau so am
     // 2026-08-12 im Zwei-Geräte-Test aufgelaufen: geklickt, während die
     // Verbindung nach einem Gateway-Neustart noch neu aufgebaut wurde.
-    if (!conn.sendRemoteRequest(channelId, hostUserId)) {
+    // Die Gerätekennung mit: sonst landet die Einladung auch auf anderen
+    // Rechnern desselben Kontos (`geraeteanbindung.ts`).
+    if (!conn.sendRemoteRequest(channelId, hostUserId, geraet.geraetFuerAnfrage(channelId, hostUserId))) {
       this.error = m.remote_error_offline();
       return;
     }
@@ -164,11 +150,7 @@ class RemoteSessionStore {
   _pending(sessionId: string, channelId: string, hostUserId: string): void {
     // Zuerst: gehört diese Kennung zu einer Anfrage, die wir längst abgebrochen
     // haben? Dann beenden und NICHT übernehmen (s. `#verworfeneAnfragen`).
-    const i = this.#verworfeneAnfragen.findIndex(
-      (v) => v.channelId === channelId && v.hostUserId === hostUserId,
-    );
-    if (i >= 0) {
-      this.#verworfeneAnfragen.splice(i, 1);
+    if (this.#verworfene.verbrauchen(channelId, hostUserId)) {
       fremdeSitzungBeenden(sessionId);
       return;
     }
@@ -203,10 +185,7 @@ class RemoteSessionStore {
     else if (this.channelId && this.peerUserId) {
       // Kennung noch unterwegs: Ziel merken, damit `_pending` sie gleich
       // verwirft statt sie der nächsten Anfrage unterzuschieben.
-      this.#verworfeneAnfragen.push({
-        channelId: this.channelId,
-        hostUserId: this.peerUserId,
-      });
+      this.#verworfene.merken(this.channelId, this.peerUserId);
     }
     this.#reset();
   }
@@ -303,13 +282,18 @@ class RemoteSessionStore {
    * Socket-Abbau selbst auf (`cleanup_remote_on_disconnect`).
    */
   abmelden(): void {
-    this.#verworfeneAnfragen.length = 0;
+    this.#verworfene.leeren();
     this.#reset();
     this.error = null; // beim Kontowechsel auch keine Fehlermeldung erben
   }
 
   // ── Inbound (vom Handler-Modul `handlers/remote.ts`) ──────────────────────
-  _incomingRequest(sessionId: string, channelId: string, fromUserId: string): void {
+  _incomingRequest(
+    sessionId: string,
+    channelId: string,
+    fromUserId: string,
+    deviceId?: string,
+  ): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
     // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
     // (Browser, Android) oder außerhalb von Windows (der einzige Sidecar mit
@@ -319,6 +303,9 @@ class RemoteSessionStore {
     // brächte sonst den vollen Zustimmungs-Dialog auf einen Rechner, dessen
     // zugestimmte Sitzung beim ersten Frame wortlos stürbe. Ein Dialog, dem
     // man nur zustimmen kann, damit nichts passiert, ist der falsche Dialog.
+    // Meint die Anfrage ein anderes Gerät, lehnt sie dort still ab — sonst
+    // bediente der Steuernde am Ende den falschen Rechner.
+    if (geraet.fremdesGeraetAblehnen(sessionId, deviceId)) return;
     if (!eingabeMoeglich() || !isWindows()) {
       sendenAuf(herkunftsVerbindung(), (c) => c.sendRemoteRespond(sessionId, false));
       return;
@@ -341,7 +328,7 @@ class RemoteSessionStore {
     this.#watchErrors();
     // Dauerfreigabe (`geraeteanbindung.ts`) — NACH den Wachten: ein
     // fehlgeschlagenes `accept()` räumt über `#reset` auf, das sie braucht.
-    if (ohneRueckfrage(fromUserId)) {
+    if (geraet.ohneRueckfrage(fromUserId)) {
       this.selbsttaetig = true;
       this.accept();
     }
@@ -367,7 +354,7 @@ class RemoteSessionStore {
     }
     this.phase = 'active';
     this.#watchVerbindung();
-    uebernahmeBeginnen(this.role, sessionId, this.peerUserId, this.selbsttaetig);
+    geraet.uebernahmeBeginnen(this.role, sessionId, this.peerUserId, this.selbsttaetig);
     // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
     // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert
     // er (NAT), bleibt es wortlos dabei. Die Rolle steht fest: ohne sie ist
@@ -439,7 +426,7 @@ class RemoteSessionStore {
     this.#verbindung.aus();
     this.#frist.aus();
     // Den Protokolleintrag schliessen, bevor die Kennung fällt.
-    uebernahmeBeenden(this.role, this.sessionId);
+    geraet.uebernahmeBeenden(this.role, this.sessionId);
     // Der direkte Kanal endet mit der Sitzung — #reset ist der EINZIGE Ausgang
     // (s. den Kommentar unten), also auch seiner. Der Vorrang-Melder ebenso:
     // er hängt am Sidecar-Ereignisstrom und hätte sonst einen Zuhörer über die

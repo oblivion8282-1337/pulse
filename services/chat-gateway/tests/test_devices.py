@@ -362,3 +362,35 @@ async def test_abmelden_beendet_die_fernsteuerung_dieses_geraets(client, _auth_s
     mgr.end_remote_sessions_for_device = _merken  # type: ignore[method-assign]
     await ws_device_handlers.handle_withdraw(_Ctx(), {"device_id": str(did)})
     assert beendet == [did], "das Abmelden muss die Sitzung dieses Geräts abbauen"
+
+
+@pytest.mark.asyncio
+async def test_rauswurf_entfernt_die_geraete_des_mitglieds(client, _auth_signer, session_factory):
+    """**Der Fund:** ein Gerät lässt sich von jedem wecken, der im Kanal
+    `REMOTE_CONTROL` hat — geprüft wird das Recht des RUFERS, nicht die
+    Mitgliedschaft des Besitzers. Blieb die Zeile nach einem Rauswurf stehen,
+    war der Rechner eines Ex-Mitglieds weiter benutzbar, und der Besitzer kam
+    nicht einmal mehr heran, um ihn auszutragen."""
+    from dcc_chat_gateway.remote_guard import remove_devices_for_member
+
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    cid = await _voice_channel(client, owner_token, gid)
+
+    fremd_token, fremd_uid = await _make_token(_auth_signer)
+    invite = (
+        await client.post(f"/guilds/{gid}/invites", json={}, headers=_auth(owner_token))
+    ).json()
+    await client.post(f"/invites/{invite['code']}/accept", headers=_auth(fremd_token))
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(cid), "name": "fremder-pc"},
+        headers=_auth(fremd_token),
+    )
+    assert r.status_code == 201, r.text
+
+    async with session_factory() as s:
+        entfernt = await remove_devices_for_member(s, _register(client), int(gid), fremd_uid)
+        await s.commit()
+    assert entfernt == 1
+    assert (await client.get(f"/guilds/{gid}/devices", headers=_auth(owner_token))).json() == []

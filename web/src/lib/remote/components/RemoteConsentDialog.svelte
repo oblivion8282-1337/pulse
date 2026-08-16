@@ -22,6 +22,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { standplatz } from '$lib/remote/standplatz.svelte';
+  import { dispatchenderServer } from '$lib/remote/draht';
   import { isElectron } from '$lib/platform/runtime';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
 
@@ -76,9 +77,13 @@
     // (Senden fehlgeschlagen), und danach ist die Kennung des Anfragenden weg.
     // Die Freigabe gilt acht Stunden — dieselbe Spanne wie der absolute
     // Sitzungsdeckel des Gateways, und lang genug für einen Arbeitstag.
-    if (merken && desktop && remoteSession.peerUserId) {
+    const server = dispatchenderServer();
+    if (merken && desktop && remoteSession.peerUserId && server) {
+      // Mit dem Server, von dem die Anfrage kam: Kennungen werden je Instanz
+      // vergeben, und dasselbe Gerät kann auf mehreren eingetragen sein
+      // (`standplatz.svelte.ts::Freigegebener`).
       void standplatz.freigeben({
-        nutzer: [...standplatz.nutzer, remoteSession.peerUserId],
+        nutzer: [...standplatz.nutzer, { serverId: server, userId: remoteSession.peerUserId }],
         jeder: standplatz.jeder,
         geltung: 'acht_stunden',
       });

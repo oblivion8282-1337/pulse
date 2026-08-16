@@ -303,11 +303,6 @@ async def patch_device(
         )
         alter_kanal = device.channel_id
         device.channel_id = body.channel_id
-        # **Der Standplatzwechsel beendet eine laufende Sitzung.** Die Rechte
-        # hingen am alten Kanal; ein stiller Übergang wäre die falsche Art von
-        # bequem (Entwurf §3). Der Abbau läuft über denselben Weg wie
-        # Rauswurf und Bann.
-        await _sitzung_beenden(request, device)
 
     try:
         await session.commit()
@@ -317,6 +312,12 @@ async def patch_device(
             status.HTTP_409_CONFLICT, detail="a device with that name already exists here"
         ) from None
     if alter_kanal is not None:
+        # **Der Standplatzwechsel beendet eine laufende Sitzung.** Die Rechte
+        # hingen am alten Kanal; ein stiller Übergang wäre die falsche Art von
+        # bequem (Entwurf §3). NACH dem Commit (Bughunt 2026-08-16): davor
+        # starb die Sitzung auch dann, wenn die Änderung gleich darauf an einem
+        # Namenskonflikt scheiterte — abgebrochen und trotzdem getrennt.
+        await _sitzung_beenden(request, device)
         # **Den alten Standplatz mitziehen** (Bughunt 2026-08-16): das Register
         # merkt sich den Ort, an den es Zustandsmeldungen schickt. Ohne diese
         # Zeile meldete ein umgestelltes Gerät weiter an den alten Kanal — die

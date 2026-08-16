@@ -95,6 +95,18 @@ function fensterOeffnen(device: Device, slot: number): void {
 class SchirmWarten {
   /** `deviceId` → Bildschirm, auf den gewartet wird. */
   offen = $state<Record<string, DeviceMonitor>>({});
+  /**
+   * `deviceId` → welche Plätze beim Anfordern schon liefen.
+   *
+   * **Der Grund** (Bughunt 2026-08-16): das Netz in [`einloesen`] nahm
+   * irgendeinen Strom dieses Geräts, falls der Name nicht traf — und beim
+   * Dazuschalten eines zweiten Bildschirms lief immer schon einer. Das Netz
+   * griff also sofort, löste den Wunsch mit dem BEREITS offenen Fenster ein und
+   * räumte ihn ab. Der dazugeschaltete Bildschirm bekam nie ein Fenster; der
+   * Knopf sah aus, als hätte er nichts getan. Nur ein Strom, der beim
+   * Anfordern noch nicht lief, kann der gemeinte sein.
+   */
+  readonly #vorher = new Map<string, Set<number>>();
   readonly #wecker = new Map<string, ReturnType<typeof setTimeout>>();
   /** Letzter Fehlschlag je Gerät, für die Anzeige. */
   fehler = $state<Record<string, string>>({});
@@ -124,6 +136,15 @@ class SchirmWarten {
       return;
     }
     this.offen[device.id] = mon;
+    this.#vorher.set(
+      device.id,
+      new Set(
+        streamPresence
+          .streamsIn(device.channel_id)
+          .filter((s) => s.user_id === device.owner_user_id)
+          .map((s) => s.slot),
+      ),
+    );
     const alt = this.#wecker.get(device.id);
     if (alt) clearTimeout(alt);
     this.#wecker.set(
@@ -144,14 +165,16 @@ class SchirmWarten {
   einloesen(device: Device): boolean {
     const ziel = this.offen[device.id];
     if (!ziel) return false;
+    const vorher = this.#vorher.get(device.id) ?? new Set<number>();
     const strom =
       stromFuer(device, ziel) ??
-      // Netz für den Fall, dass der Name nicht trifft: irgendein neuer Strom
-      // dieses Geräts ist besser als gar keiner — der Steuernde wollte ein
-      // Bild, und er bekommt eins.
+      // Netz für den Fall, dass der Name nicht trifft: ein NEUER Strom dieses
+      // Geräts ist besser als gar keiner. Neu heisst: er lief beim Anfordern
+      // noch nicht — sonst löste das Netz den Wunsch sofort mit dem Bildschirm
+      // ein, der ohnehin schon offen war (s. `#vorher`).
       streamPresence
         .streamsIn(device.channel_id)
-        .find((s) => s.user_id === device.owner_user_id);
+        .find((s) => s.user_id === device.owner_user_id && !vorher.has(s.slot));
     if (!strom) return false;
     this.#aufraeumen(device.id);
     fensterOeffnen(device, strom.slot);
@@ -162,6 +185,7 @@ class SchirmWarten {
     const w = this.#wecker.get(deviceId);
     if (w) clearTimeout(w);
     this.#wecker.delete(deviceId);
+    this.#vorher.delete(deviceId);
     delete this.offen[deviceId];
   }
 }

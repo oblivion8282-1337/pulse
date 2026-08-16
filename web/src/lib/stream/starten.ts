@@ -30,10 +30,12 @@ import { stream } from './state.svelte';
 
 export type StartErgebnis =
   | { ok: true }
-  /** `stufe` trennt die beiden Fehlerquellen, weil sie ganz verschiedene
-   *  Ursachen haben: `token` ist der Server (kein Mitglied, kein Sprachkanal,
-   *  media-svc weg), `start` der Sidecar auf diesem Rechner. */
-  | { ok: false; stufe: 'token' | 'start'; fehler: unknown };
+  /** `stufe` trennt die Fehlerquellen: `token` ist der Server (kein Mitglied,
+   *  kein Sprachkanal, media-svc weg), `start` eine Absage des Sidecars,
+   *  `start_wurf` ein geworfener Fehler auf dem Weg dorthin. Die letzten beiden
+   *  trennt nur, dass der Knopf sie unterschiedlich meldet — so war es vor dem
+   *  Herauslösen, und ein Refactor darf das Verhalten nicht ändern. */
+  | { ok: false; stufe: 'token' | 'start' | 'start_wurf'; fehler: unknown };
 
 /**
  * Übertragung in `channelId` auf `slot` beginnen.
@@ -100,6 +102,6 @@ export async function streamStarten(
     recordStreamStart(slot, channelId);
     return { ok: true };
   } catch (fehler) {
-    return { ok: false, stufe: 'start', fehler };
+    return { ok: false, stufe: 'start_wurf', fehler };
   }
 }

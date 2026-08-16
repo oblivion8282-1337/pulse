@@ -348,8 +348,14 @@ export function pushProtokoll(uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
   // WIRKLICH gesendet wird, nicht dem, den der Besitzer für seine eigenen
   // Übertragungen eingestellt hat. Ohne das forderte der Client ein Token für
   // RTMPS an, während der Sidecar H.264 über WHIP schiebt (oder umgekehrt).
-  const codec = (uebersteuerung ?? streamSettings.overrides).codec ?? 'h264';
-  return intraRefreshPossible() || codec === 'h264' ? 'whip' : 'rtmp';
+  const satz = uebersteuerung ?? streamSettings.overrides;
+  const codec = satz.codec ?? 'h264';
+  // Die Betriebsart aus DEMSELBEN Satz lesen, nicht global (Bughunt
+  // 2026-08-16): das Standplatz-Profil setzt sie nicht, der Sidecar fährt dann
+  // ohne — hätte der Besitzer sie für seine eigenen Übertragungen an, wählte
+  // der Weg hier WHIP für einen Strom, der gar keinen Intra-Refresh hat.
+  const intra = satz.intra_refresh === true && stream.intraRefreshAvailable;
+  return intra || codec === 'h264' ? 'whip' : 'rtmp';
 }
 
 /**

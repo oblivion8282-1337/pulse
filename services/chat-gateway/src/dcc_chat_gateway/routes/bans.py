@@ -36,7 +36,10 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
+from dcc_chat_gateway.remote_guard import (
+    end_remote_sessions_for_member,
+    remove_devices_for_member,
+)
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
@@ -276,6 +279,17 @@ async def ban_user(
             guild_id,
             user_id,
             reason="membership_revoked",
+        )
+        # Und die Geraetezeilen: ein Standplatz-Geraet laesst sich von jedem
+        # wecken, der im Kanal ``REMOTE_CONTROL`` hat — geprueft wird das Recht
+        # des RUFERS, nicht die Mitgliedschaft des Besitzers. Bliebe es stehen,
+        # waere der Rechner eines Ex-Mitglieds weiter benutzbar, und der
+        # Besitzer kaeme nicht einmal mehr heran, um ihn auszutragen.
+        await remove_devices_for_member(
+            session,
+            getattr(request.app.state, "connection_manager", None),
+            guild_id,
+            user_id,
         )
         # Und die Lese-Token für laufende Streams: sie sind an Kanal und
         # Streamer gebunden, nicht an die Person, und werden nicht verbraucht —

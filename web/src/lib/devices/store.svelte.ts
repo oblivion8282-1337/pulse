@@ -93,10 +93,12 @@ class DeviceStore {
     if (!removed) liste.push(device);
     liste.sort((a, b) => a.name.localeCompare(b.name));
     this.byGuild.set(guildId, liste);
-    // Auch für eine noch nie geladene Community merken: sonst überschriebe ein
-    // späteres `ensureLoaded` diesen Stand nicht, sondern liesse ihn stehen und
-    // lüde daneben — die Meldung ist hier die frischere Quelle.
-    this.#geladen.add(guildId);
+    // **Nicht als geladen vermerken** (Bughunt 2026-08-16). Eine Meldung trägt
+    // EIN Gerät, keine Liste. Wer die Community noch nie abgerufen hat, hätte
+    // sie danach für vollständig gehalten und nie nachgeladen — in der
+    // Kanalliste stünde genau das eine Gerät, das sich zufällig gerade
+    // geändert hat. Ein späteres `ensureLoaded` ersetzt die Liste ohnehin
+    // durch die des Servers, und die ist die vollständigere.
   }
 
   /** `device_state` — bereit / belegt / offline. */

@@ -100,8 +100,22 @@ export function sendPluginOp(send: SendRaw, op: string, payload?: Record<string,
 }
 
 // ── Fernsteuerung (remote control) — Consent-Handshake ──────────────────────
-export function sendRemoteRequest(send: SendRaw, channelId: string, hostUserId: string): boolean {
-  return send({ op: 'remote_request', channel_id: channelId, host_user_id: hostUserId });
+export function sendRemoteRequest(
+  send: SendRaw,
+  channelId: string,
+  hostUserId: string,
+  deviceId?: string | null,
+): boolean {
+  // `device_id` sagt, welches GERAET gemeint ist. Ohne das ginge die Einladung
+  // an alle Fenster des Hosts, auch an seinen Laptop mit demselben Konto — und
+  // dort zugestimmt, saehe der Steuernde den einen Rechner und bediente den
+  // anderen (`$lib/remote/geraeteanbindung.ts`).
+  return send({
+    op: 'remote_request',
+    channel_id: channelId,
+    host_user_id: hostUserId,
+    ...(deviceId ? { device_id: deviceId } : {}),
+  });
 }
 export function sendRemoteRespond(send: SendRaw, sessionId: string, accept: boolean): boolean {
   return send({ op: 'remote_respond', session_id: sessionId, accept });

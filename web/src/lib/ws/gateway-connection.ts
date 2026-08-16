@@ -689,8 +689,8 @@ export class GatewayConnection {
     senders.sendPluginOp(this._raw, op, payload);
 
   // Fernsteuerung (remote control) — Consent-Handshake.
-  sendRemoteRequest = (channelId: string, hostUserId: string): boolean =>
-    senders.sendRemoteRequest(this._raw, channelId, hostUserId);
+  sendRemoteRequest = (channelId: string, hostUserId: string, deviceId?: string | null): boolean =>
+    senders.sendRemoteRequest(this._raw, channelId, hostUserId, deviceId);
   sendRemoteRespond = (sessionId: string, accept: boolean): boolean =>
     senders.sendRemoteRespond(this._raw, sessionId, accept);
   sendRemoteEnd = (sessionId: string): boolean =>

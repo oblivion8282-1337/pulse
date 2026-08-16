@@ -60,7 +60,12 @@ export function register(): void {
     // rendert nach, sobald er da ist. Gleiche Schiene wie beim
     // Freundschaftsanfrage-Toast (`handlers/friends.ts`).
     userCache.queue(evt.from_user_id);
-    remoteSession._incomingRequest(evt.session_id, evt.channel_id, evt.from_user_id);
+    remoteSession._incomingRequest(
+      evt.session_id,
+      evt.channel_id,
+      evt.from_user_id,
+      evt.device_id,
+    );
   });
   // Nur an den Steuernden: die Kennung seiner gerade angelegten Sitzung.
   registerWsHandler('remote_pending', (evt) =>
