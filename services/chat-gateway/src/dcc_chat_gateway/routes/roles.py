@@ -34,6 +34,7 @@ from dcc_chat_gateway.role_hierarchy import (
     assert_actor_outranks_role,
     highest_role_position,
 )
+from dcc_chat_gateway.role_wire import role_wire_dict
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import (
     RoleIn,
@@ -51,21 +52,6 @@ from dcc_shared.events import (
 )
 
 router = APIRouter()
-
-
-def _role_dict(role: Role) -> dict[str, object]:
-    """Wire shape mirroring ``RoleOut`` for guild:events broadcasts."""
-    return {
-        "id": str(role.id),
-        "guild_id": str(role.guild_id),
-        "name": role.name,
-        "permissions": str(role.permissions),
-        "color": role.color,
-        "position": role.position,
-        "hoist": role.hoist,
-        "mentionable": role.mentionable,
-        "is_everyone": role.is_everyone,
-    }
 
 
 async def _publish(
@@ -148,7 +134,7 @@ async def create_role(
     )
     await session.commit()
     await session.refresh(role)
-    await _publish(request, RoleCreatedEvent(role=_role_dict(role)))
+    await _publish(request, RoleCreatedEvent(role=role_wire_dict(role)))
     return role
 
 
@@ -205,7 +191,13 @@ async def patch_role(
                 403, detail="cannot grant permissions you do not yourself have"
             )
         role.permissions = payload.permissions
-    if payload.color is not None:
+    # ``color`` ist das einzige Feld, bei dem ein gesendetes ``null`` etwas
+    # anderes meint als ein weggelassenes: der Client schickt beim Abwählen
+    # ``color: null`` = „Farbe entfernen". ``is not None`` verwarf das wortlos —
+    # die Oberfläche meldete Erfolg, die Rolle blieb bunt. Gleiches Muster wie
+    # ``name_color`` in routes/channels.py. Die übrigen Felder hier sind in der
+    # DB NOT NULL, dort gäbe es nichts zu leeren.
+    if "color" in payload.model_fields_set:
         role.color = payload.color
     if payload.hoist is not None:
         role.hoist = payload.hoist
@@ -223,7 +215,7 @@ async def patch_role(
     )
     await session.commit()
     await session.refresh(role)
-    await _publish(request, RoleUpdatedEvent(role=_role_dict(role)))
+    await _publish(request, RoleUpdatedEvent(role=role_wire_dict(role)))
     return role
 
 
@@ -341,7 +333,7 @@ async def update_role_positions(
     # new `role_positions_updated` op would silently drop reorder updates on
     # clients until a matching handler ships.
     await asyncio.gather(
-        *[_publish(request, RoleUpdatedEvent(role=_role_dict(role))) for role in rows.values()]
+        *[_publish(request, RoleUpdatedEvent(role=role_wire_dict(role))) for role in rows.values()]
     )
     return list(rows.values())
 

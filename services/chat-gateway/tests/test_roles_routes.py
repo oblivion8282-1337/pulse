@@ -117,6 +117,63 @@ async def test_patch_role_permissions(client, _auth_signer):
     assert int(r.json()["permissions"]) == int(Permissions.MANAGE_MESSAGES)
 
 
+# ---- Farbe: gesendetes null vs. weggelassenes Feld --------------------------
+
+
+async def _bunte_rolle(client, _auth_signer):
+    """Owner + eine Rolle mit gesetzter Farbe. Liefert (t_owner, gid, rolle)."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    rolle = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Bunt", "permissions": "0", "color": 0xFF8800},
+        headers=auth(t_owner),
+    )).json()
+    assert rolle["color"] == 0xFF8800
+    return t_owner, g["id"], rolle
+
+
+@pytest.mark.asyncio
+async def test_patch_role_color_null_entfernt_die_farbe(client, _auth_signer):
+    """Ausdruecklich gesendetes ``color: null`` heisst „Farbe entfernen".
+
+    Der Client schickt beim Abwaehlen genau das. ``if payload.color is not
+    None`` verwarf es wortlos — die Oberflaeche meldete Erfolg, die Rolle blieb
+    bunt (Bughunt 2026-08-16).
+    """
+    t_owner, gid, rolle = await _bunte_rolle(client, _auth_signer)
+    r = await client.patch(
+        f"/guilds/{gid}/roles/{rolle['id']}",
+        json={"color": None},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["color"] is None
+    # Und es haelt auch ueber den Lesepfad.
+    rollen = (await client.get(f"/guilds/{gid}/roles", headers=auth(t_owner))).json()
+    assert next(x for x in rollen if x["id"] == rolle["id"])["color"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_role_ohne_color_feld_laesst_die_farbe_stehen(
+    client, _auth_signer
+):
+    """Gegenprobe: ein weggelassenes ``color`` bleibt „unveraendert".
+
+    Ohne diesen Test koennte man den Fund oben auch „loesen", indem man
+    ``payload.color`` immer zuweist — dann raeumte jede Umbenennung die Farbe
+    mit ab.
+    """
+    t_owner, gid, rolle = await _bunte_rolle(client, _auth_signer)
+    r = await client.patch(
+        f"/guilds/{gid}/roles/{rolle['id']}",
+        json={"name": "Immer noch bunt"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "Immer noch bunt"
+    assert r.json()["color"] == 0xFF8800
+
+
 # ---- Delete + reorder happy paths ------------------------------------------
 
 
@@ -141,6 +198,43 @@ async def test_delete_role_happy_path_as_owner(client, _auth_signer):
         f"/guilds/{g['id']}/roles", headers=auth(t_owner)
     )).json()
     assert mod["id"] not in {r["id"] for r in roles}
+
+
+@pytest.mark.asyncio
+async def test_delete_role_laesst_die_anderen_rollen_stehen(client, _auth_signer):
+    """Gegenprobe zum Loeschen: die Zielrolle ist weg, die uebrigen stehen
+    unveraendert da — samt @everyone.
+
+    Der Test darueber prueft nur die Abwesenheit der geloeschten Rolle. Ein
+    Loeschen, das zu viel mitnimmt (falsches WHERE, Kaskade ueber die ganze
+    Community), saehe dort genauso gruen aus.
+    """
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+
+    async def _rolle(name: str) -> dict:
+        return (await client.post(
+            f"/guilds/{g['id']}/roles",
+            json={"name": name, "permissions": "0"},
+            headers=auth(t_owner),
+        )).json()
+
+    behalten = await _rolle("Behalten")
+    doomed = await _rolle("Doomed")
+
+    r = await client.delete(
+        f"/guilds/{g['id']}/roles/{doomed['id']}", headers=auth(t_owner)
+    )
+    assert r.status_code == 204, r.text
+
+    rollen = (await client.get(
+        f"/guilds/{g['id']}/roles", headers=auth(t_owner)
+    )).json()
+    nach_id = {row["id"]: row for row in rollen}
+    assert doomed["id"] not in nach_id
+    assert behalten["id"] in nach_id
+    assert nach_id[behalten["id"]]["name"] == "Behalten"
+    assert nach_id[behalten["id"]]["position"] == behalten["position"]
+    assert any(row["is_everyone"] for row in rollen)
 
 
 @pytest.mark.asyncio

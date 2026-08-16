@@ -197,6 +197,133 @@ async def test_mod_cannot_remove_deny_for_bits_they_lack(client, _auth_signer):
     assert r.status_code == 403
 
 
+# ---- Rang des Ziels (nicht nur die Bits des Bearbeiters) --------------------
+
+
+async def _rangaufbau(client, _auth_signer):
+    """Privater Kanal mit drei Rollen uebereinander: Junior < Mod < Senior.
+
+    Der Mod haelt MANAGE_PERMISSIONS und sitzt in der Mitte; Junior und Senior
+    haben eine ``allow VIEW_CHANNEL``-Ausnahme, die sie im sonst dichten Kanal
+    ueberhaupt erst drinhaelt — genau das Stueck, um das es geht.
+
+    Liefert (t_owner, t_mod, g, c, junior_id, senior_id).
+    """
+    t_owner, t_mod, uid_mod, g, c = await _make_guild_channel_with_member(
+        client, _auth_signer
+    )
+    sicht = str(int(Permissions.VIEW_CHANNEL))
+
+    async def _rolle(name: str, bits: int) -> dict:
+        return (await client.post(
+            f"/guilds/{g['id']}/roles",
+            json={"name": name, "permissions": str(bits)},
+            headers=auth(t_owner),
+        )).json()
+
+    async def _ausnahme(target_id: str, *, allow: str, deny: str) -> None:
+        r = await client.put(
+            f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{target_id}",
+            json={"allow": allow, "deny": deny},
+            headers=auth(t_owner),
+        )
+        assert r.status_code == 200, r.text
+
+    # Reihenfolge der Anlage = Rangfolge (jede neue Rolle bekommt max+1).
+    junior = await _rolle("Junior", int(Permissions.VIEW_CHANNEL))
+    mod = await _rolle(
+        "Mod", int(Permissions.MANAGE_PERMISSIONS | Permissions.VIEW_CHANNEL)
+    )
+    senior = await _rolle("Senior", int(Permissions.VIEW_CHANNEL))
+    assert junior["position"] < mod["position"] < senior["position"]
+    await _give_role(client, g, uid_mod, mod["id"], t_owner)
+
+    # Kanal dichtmachen, dann die drei Rollen einzeln wieder hereinlassen.
+    everyone_id = await _everyone_id(client, g, t_owner)
+    await _ausnahme(everyone_id, allow="0", deny=sicht)
+    for rolle in (junior, mod, senior):
+        await _ausnahme(rolle["id"], allow=sicht, deny="0")
+    return t_owner, t_mod, g, c, junior["id"], senior["id"]
+
+
+@pytest.mark.asyncio
+async def test_loeschen_einer_ausnahme_prueft_den_rang(client, _auth_signer):
+    """**Der Rang zaehlt auch beim LOESCHEN.**
+
+    Bis 2026-08-16 lud ``delete_overwrite`` die Zielrolle gar nicht. Im privaten
+    Kanal ist die ``allow VIEW_CHANNEL``-Ausnahme das Einzige, was die hoehere
+    Rolle drinhaelt — sie zu loeschen sperrt sie aus, denselben Effekt wies das
+    PUT laengst mit 403 ab. Die Anti-Eskalation daneben greift nicht: der Mod
+    haelt VIEW_CHANNEL ja selbst.
+    """
+    t_owner, t_mod, _g, c, junior_id, senior_id = await _rangaufbau(client, _auth_signer)
+
+    r = await client.delete(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{senior_id}",
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403, r.text
+
+    # Die Ausnahme steht unveraendert da — der Senior behaelt den Kanal.
+    rows = (await client.get(
+        f"/channels/{c['id']}/permissions", headers=auth(t_owner)
+    )).json()
+    assert any(
+        row["target_type"] == OVERWRITE_TARGET_ROLE
+        and row["target_id"] == senior_id
+        and int(row["allow"]) == int(Permissions.VIEW_CHANNEL)
+        for row in rows
+    )
+
+    # Gegenprobe: unterhalb seines Rangs darf der Mod loeschen — die Schranke
+    # ist eine Rangfrage, keine pauschale Sperre.
+    r = await client.delete(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{junior_id}",
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
+async def test_benutzer_ausnahme_prueft_den_rang(client, _auth_signer):
+    """Benutzer-Ausnahmen pruefte bis 2026-08-16 nur die Mitgliedschaft.
+
+    Ein Mod konnte einem ranghoeheren Mitglied ``deny VIEW_CHANNEL`` setzen —
+    und weil ohne VIEW_CHANNEL alles wegfaellt, kam das Opfer an die Sperre
+    nicht mehr heran, um sie selbst zurueckzunehmen.
+    """
+    t_owner, t_mod, g, c, _junior_id, senior_id = await _rangaufbau(client, _auth_signer)
+
+    async def _neues_mitglied() -> int:
+        _t, uid = await _register_user(_auth_signer)
+        await client.post(
+            f"/guilds/{g['id']}/members",
+            json={"user_id": str(uid)},
+            headers=auth(t_owner),
+        )
+        return uid
+
+    uid_opfer = await _neues_mitglied()
+    await _give_role(client, g, uid_opfer, senior_id, t_owner)
+
+    r = await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_USER}/{uid_opfer}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403, r.text
+
+    # Gegenprobe: ein Mitglied ohne ausdrueckliche Rolle steht auf 0 und ist
+    # damit erreichbar.
+    uid_klein = await _neues_mitglied()
+    r = await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_USER}/{uid_klein}",
+        json={"allow": "0", "deny": str(int(Permissions.SEND_MESSAGES))},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 200, r.text
+
+
 # ---- Private-channel pattern + resolution ---------------------------------
 
 

@@ -76,6 +76,7 @@ from dcc_chat_gateway.presence_status import (
     load_durable_status,
     set_presence_status,
 )
+from dcc_chat_gateway.role_wire import role_wire_dict
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.guild_limits import effective_wire_limits
 
@@ -215,19 +216,9 @@ async def build_and_send_ready_frame(
                     "my_permissions": str(my_perms),
                     "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
                     "sound_overrides": sound_overrides_by_guild.get(g.id, []),
-                    "roles": [
-                        {
-                            "id": str(r.id),
-                            "name": r.name,
-                            "permissions": str(r.permissions),
-                            "color": r.color,
-                            "position": r.position,
-                            "hoist": r.hoist,
-                            "mentionable": r.mentionable,
-                            "is_everyone": r.is_everyone,
-                        }
-                        for r in roles_by_guild.get(g.id, [])
-                    ],
+                    # Dieselbe Drahtform wie die Rollen-Routen und die
+                    # ``role_*``-Broadcasts — Begründung in ``role_wire``.
+                    "roles": [role_wire_dict(r) for r in roles_by_guild.get(g.id, [])],
                 }
             )
         voice_channel_ids: list[str] = []
