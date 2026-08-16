@@ -332,11 +332,17 @@ export interface ChannelStreamArg {
  * selbst neu startete, wechselte damit lautlos auf einen Weg, auf dem er nicht
  * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
  */
-export function pushProtokoll(): 'rtmp' | 'whip' {
+export function pushProtokoll(uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
   // Derselbe Rueckgriff auf `'h264'` wie in `tenBitPossible`: ein ungesetzter
   // Codec IST H.264 (s. die Vorgabe in `loadSettings`), und der Fall haette
   // sonst ausgerechnet bei einer frischen Installation gefehlt.
-  const codec = streamSettings.overrides.codec ?? 'h264';
+  //
+  // `uebersteuerung` ist das Standplatz-Profil eines geweckten Geräts
+  // (`$lib/devices/profil.svelte.ts`): der Weg muss dem Codec folgen, mit dem
+  // WIRKLICH gesendet wird, nicht dem, den der Besitzer für seine eigenen
+  // Übertragungen eingestellt hat. Ohne das forderte der Client ein Token für
+  // RTMPS an, während der Sidecar H.264 über WHIP schiebt (oder umgekehrt).
+  const codec = (uebersteuerung ?? streamSettings.overrides).codec ?? 'h264';
   return intraRefreshPossible() || codec === 'h264' ? 'whip' : 'rtmp';
 }
 
@@ -351,8 +357,15 @@ export function pushProtokoll(): 'rtmp' | 'whip' {
  * `ServerProfile.from_channel(...)` from it (per-(channel,user) MediaMTX path,
  * the token used like a stream key, `push_url` taken verbatim when present).
  */
-export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStartArgs {
-  const apply = streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
+export function buildStartArgs(
+  channelArg: ChannelStreamArg,
+  slot = 0,
+  standplatz?: { quelle: string; uebersteuerung: OverrideSet },
+): GsrStartArgs {
+  // Ein geweckter Standplatz-Rechner übersteuert IMMER — das Profil ist ja
+  // gerade dafür da, dass nicht gilt, was zuletzt von Hand eingestellt war
+  // (`$lib/devices/profil.svelte.ts`).
+  const apply = !!standplatz || streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
 
   const args: GsrStartArgs = {
     profile: streamSettings.profile_name,
@@ -363,7 +376,7 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     },
     // Each slot captures its own source (a different monitor); the rest of the
     // settings — profile, audio, overrides — are shared across both streams.
-    capture: captureSourceForSlot(slot),
+    capture: standplatz ? standplatz.quelle : captureSourceForSlot(slot),
     audio: {
       mode: streamSettings.audio_mode,
       excluded_apps: streamSettings.excluded_apps.slice(),
@@ -375,7 +388,7 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
   };
 
   if (apply) {
-    const o = streamSettings.overrides;
+    const o = standplatz ? standplatz.uebersteuerung : streamSettings.overrides;
     const cleaned: OverrideSet = {};
     // Authoritative clamp point: enforce the effective HQ limits here, right
     // before the sidecar call. Effective = this community's per-guild override
@@ -395,7 +408,9 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // 10 bit nur mitschicken, wenn es auch erfüllbar ist (AV1 + passende
     // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
     // gleich wieder verwirft.
-    if (tenBitPossible()) cleaned.bit_depth = 10;
+    // Standplatz: keine 10 bit und kein HDR — Begründung in
+    // `$lib/devices/profil.svelte.ts::alsUebersteuerung`.
+    if (!standplatz && tenBitPossible()) cleaned.bit_depth = 10;
     // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
     // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
     // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine
@@ -423,7 +438,7 @@ export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStart
     // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
     // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
     // Sidecar-Prozesses.
-    if (hdrPossible()) cleaned.hdr = true;
+    if (!standplatz && hdrPossible()) cleaned.hdr = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;
