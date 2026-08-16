@@ -43,8 +43,7 @@ import { gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from './anmeldung.svelte';
 import { HAUPTBILDSCHIRM, standplatzProfil } from './profil.svelte';
 import { streamStarten } from '$lib/stream/starten';
-import { nextFreeStreamSlot } from '$lib/stream/slotControl.svelte';
-import { runningStreamSlots } from '$lib/stream/state.svelte';
+import { MAX_STREAM_SLOTS, runningStreamSlots } from '$lib/stream/state.svelte';
 import { MONITOR_CAPTURE_PREFIX } from '$lib/stream/settingsCatalog';
 import { streamSettings } from '$lib/stream/settingsState.svelte';
 
@@ -58,6 +57,29 @@ import { streamSettings } from '$lib/stream/settingsState.svelte';
  * der nicht mehr läuft, zählt damit von selbst nicht mehr.
  */
 const platzFuerQuelle = new Map<number, string>();
+
+/**
+ * Plätze, die vergeben, aber noch nicht am Laufen sind.
+ *
+ * **Der Grund** (Bughunt 2026-08-16): `nextFreeStreamSlot()` schaut nur, was
+ * schon LÄUFT. Zwei Weckrufe kurz hintereinander — „Monitor 2", eine halbe
+ * Sekunde später „Monitor 3" — bekamen deshalb denselben Platz, bevor der
+ * erste anlief. Einer der beiden Bildschirme blieb aus oder verdrängte den
+ * anderen, und weil beide sich für den ersten hielten, führten auch beide den
+ * Systemton: genau die doppelte, versetzte Tonspur, die dieses Modul verhindern
+ * soll. Ein Platz gilt deshalb ab der Vergabe als belegt, nicht erst ab dem
+ * ersten Bild.
+ */
+const reserviert = new Set<number>();
+
+/** Der nächste Platz, der weder läuft noch vergeben ist. */
+function naechsterPlatz(): number {
+  const belegt = new Set([...runningStreamSlots(), ...reserviert]);
+  for (let i = 0; i < MAX_STREAM_SLOTS; i++) {
+    if (!belegt.has(i)) return i;
+  }
+  return -1;
+}
 
 /**
  * Aufnahmequelle für eine Bildschirmnummer; ohne Nummer die des Profils.
@@ -131,18 +153,29 @@ export async function weckrufBehandeln(
   if (laeuftSchon(quelle)) return;
 
   // Der erste Bildschirm trägt den Ton, jeder weitere ist stumm (s. Modulkopf).
-  // **Mit dem Standplatz-Profil, nicht mit den Einstellungen des Besitzers:**
-  // der Rechner überträgt hier für jemand anderen und zu einem anderen Zweck
-  // als beim Vorführen (Begründung in `profil.svelte.ts`).
-  const erster = runningStreamSlots().length === 0;
-  const slot = nextFreeStreamSlot();
+  // **Vergebene Plätze zählen mit**, sonst hielte sich ein zweiter Weckruf
+  // ebenfalls für den ersten und brächte eine zweite Tonspur mit.
+  const erster = runningStreamSlots().length === 0 && reserviert.size === 0;
+  const slot = naechsterPlatz();
+  if (slot < 0) return;
+  reserviert.add(slot);
   platzFuerQuelle.set(slot, quelle);
-  const r = await streamStarten(channelId, slot, {
-    quelle,
-    uebersteuerung: standplatzProfil.alsUebersteuerung(),
-    ton: erster ? 'Desktop' : 'Aus',
-  });
-  // Scheitert der Start, gehört der Platz nicht diesem Schirm — sonst hielte
-  // die Karte ihn für belegt, und ein zweiter Versuch liefe ins Leere.
-  if (!r.ok) platzFuerQuelle.delete(slot);
+  try {
+    // **Mit dem Standplatz-Profil, nicht mit den Einstellungen des Besitzers:**
+    // der Rechner überträgt hier für jemand anderen und zu einem anderen Zweck
+    // als beim Vorführen (Begründung in `profil.svelte.ts`).
+    const r = await streamStarten(channelId, slot, {
+      quelle,
+      uebersteuerung: standplatzProfil.alsUebersteuerung(),
+      ton: erster ? 'Desktop' : 'Aus',
+    });
+    // Scheitert der Start, gehört der Platz nicht diesem Schirm — sonst hielte
+    // die Karte ihn für belegt, und ein zweiter Versuch liefe ins Leere.
+    if (!r.ok) platzFuerQuelle.delete(slot);
+  } finally {
+    // Die Vergabe endet mit dem Startversuch, egal wie er ausging: läuft der
+    // Strom, hält ihn `runningStreamSlots()`; lief er nicht an, ist der Platz
+    // wieder frei.
+    reserviert.delete(slot);
+  }
 }

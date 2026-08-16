@@ -270,3 +270,95 @@ async def test_standplatz_wechsel_setzt_den_neuen_kanal(client, _auth_signer):
     )
     assert r.status_code == 200, r.text
     assert r.json()["channel_id"] == str(neu)
+
+
+# ── Was der Bughunt vom 2026-08-16 gefunden hat ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_belegung_wird_frei_auch_wenn_der_socket_schon_vergessen_ist(client, _auth_signer):
+    """**Der Fund:** die Freigabe der Belegung suchte ihr Gerät über das
+    Anmelde-Register. Fällt eine von MEHREREN Verbindungen des Geräts, ist der
+    Socket beim Aufräumen schon vergessen — das Gerät stand danach für alle
+    dauerhaft auf „belegt", und bei „belegt" blendet die Oberfläche den
+    Übernahme-Knopf aus. Es war also unbenutzbar, bis seine App neu startete.
+    """
+    mgr = _register(client)
+    gid, cid, did = 10, 20, 30
+    haupt, zweites = object(), object()
+    mgr.device_announce(haupt, did, gid, cid)
+    mgr.device_announce(zweites, did, gid, cid)
+    mgr.device_set_busy(did, "4711", haupt)
+    assert mgr.device_state(did) == ("busy", "4711")
+
+    # Die Verbindung mit der Sitzung fällt — das Gerät bleibt über die zweite
+    # online, wird also NICHT über `device_withdraw` mitgeräumt.
+    assert mgr.device_forget_socket(haupt) == []
+    await mgr.device_release_for_socket(haupt)
+    assert mgr.device_state(did) == ("ready", None)
+
+
+@pytest.mark.asyncio
+async def test_standplatz_wechsel_zieht_den_gemerkten_ort_nach(client, _auth_signer):
+    """**Der Fund:** das Register merkt sich den Ort, an den es Zustands-
+    meldungen schickt. Ohne Nachziehen meldete ein umgestelltes Gerät weiter an
+    den ALTEN Kanal — die Falschen sähen seinen Zustand, die Berechtigten im
+    neuen Kanal nie einen."""
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token)
+    alt = await _voice_channel(client, token, gid, "werkbank")
+    neu = await _voice_channel(client, token, gid, "lager")
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(alt), "name": "werkstatt-pc"},
+            headers=_auth(token),
+        )
+    ).json()
+    did = int(device["id"])
+
+    mgr = _register(client)
+    # Die Hilfsfunktionen liefern die Kennungen als Zeichenkette (so reisen sie
+    # ueber die API); das Register fuehrt sie als Zahl.
+    mgr.device_announce(object(), did, int(gid), int(alt))
+    # Privat gelesen: der gemerkte Ort ist genau das, was hier schiefging, und
+    # er hat sonst keinen Weg nach aussen.
+    assert mgr._device_where[did] == (int(gid), int(alt))
+
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"channel_id": str(neu)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+    assert mgr._device_where[did] == (int(gid), int(neu))
+
+
+@pytest.mark.asyncio
+async def test_abmelden_beendet_die_fernsteuerung_dieses_geraets(client, _auth_signer):
+    """**Der Fund:** trägt der Besitzer sein Gerät aus, während es jemand
+    fernsteuert, lief die Sitzung weiter. Der Client meldet das Gerät ab, bevor
+    er es löscht — und der Abbau suchte die Sitzung über die Verbindungen des
+    Geräts, die dann schon weg waren. Das Abmelden räumt sie deshalb selbst ab.
+    """
+    from dcc_chat_gateway.routes import ws_device_handlers
+
+    gid, cid, did = 11, 21, 31
+    sock = object()
+    mgr = _register(client)
+    mgr.device_announce(sock, did, gid, cid)
+
+    beendet: list[int] = []
+
+    class _Ctx:
+        class websocket:  # noqa: N801 - Test-Attrappe
+            app = type("A", (), {"state": type("S", (), {"connection_manager": mgr})})
+
+        user = type("U", (), {"id": 1})
+
+    async def _merken(device_id: int) -> None:
+        beendet.append(device_id)
+
+    mgr.end_remote_sessions_for_device = _merken  # type: ignore[method-assign]
+    await ws_device_handlers.handle_withdraw(_Ctx(), {"device_id": str(did)})
+    assert beendet == [did], "das Abmelden muss die Sitzung dieses Geräts abbauen"

@@ -62,12 +62,10 @@
   }
 
   async function entfernen(id: string): Promise<void> {
-    const rest = standplatz.nutzer.filter((n) => n !== id);
-    // Über denselben Weg wie das Freigeben: bleibt danach niemand übrig und ist
-    // „jeder" aus, nimmt `freigeben` die Freigabe von selbst zurück — eine
-    // scharfe Freigabe ohne Empfänger wäre eine Anzeige, die lügt.
-    if (standplatz.aktiv) await standplatz.freigeben({ nutzer: rest, jeder, geltung });
-    else await standplatz.freigeben({ nutzer: rest, jeder: false, geltung });
+    // Über `nutzerSetzen`, NICHT über `freigeben`: das würde die Freigabe
+    // scharf schalten, und ein Klick auf das X soll einen Namen streichen und
+    // sonst nichts (Bughunt 2026-08-16).
+    await standplatz.nutzerSetzen(standplatz.nutzer.filter((n) => n !== id));
   }
 
   function dauer(beginn: number, ende: number | null): string {

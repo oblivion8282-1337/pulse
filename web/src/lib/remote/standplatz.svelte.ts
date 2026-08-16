@@ -175,6 +175,28 @@ class StandplatzFreigabe {
     await this.#sichern();
   }
 
+  /**
+   * Nur die Freigabeliste ändern — **ohne den Ein/Aus-Schalter anzufassen**.
+   *
+   * Der Weg für „einen Namen streichen". Über [`freigeben`] zu gehen wäre der
+   * naheliegende Kurzschluss und war ein Loch (Bughunt 2026-08-16): `freigeben`
+   * schaltet die Freigabe ausdrücklich SCHARF, also machte das Streichen eines
+   * von zwei Namen aus einer zurückgenommenen Freigabe wieder eine geltende —
+   * ein Klick, der laut Beschriftung nur einen Namen löscht, hob eine bewusste
+   * Sicherheitsentscheidung auf.
+   *
+   * Bleibt niemand übrig und gilt auch nicht „jeder", wird eine GELTENDE
+   * Freigabe zurückgenommen: scharf ohne Empfänger wäre eine Anzeige, die lügt.
+   */
+  async nutzerSetzen(nutzer: string[]): Promise<void> {
+    this.nutzer = [...new Set(nutzer)];
+    if (this.aktiv && !this.jeder && this.nutzer.length === 0) {
+      await this.zuruecknehmen();
+      return;
+    }
+    await this.#sichern();
+  }
+
   /** Freigabe zurücknehmen. Die Empfängerliste bleibt stehen, damit ein
    *  versehentliches Ausschalten nicht die ganze Einstellung kostet. */
   async zuruecknehmen(): Promise<void> {

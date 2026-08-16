@@ -64,6 +64,18 @@ class _DeviceRegistryMixin:
     _device_by_socket: dict[Any, set[int]]
     #: ``device_id`` → Kennung des Steuernden, solange eine Fernsteuerung läuft.
     _device_busy: dict[int, str]
+    #: ``device_id`` → der Socket, über den die laufende Fernsteuerung geht.
+    #:
+    #: **Warum das gemerkt wird** (Bughunt 2026-08-16): die Freigabe der
+    #: Belegung suchte das Gerät bisher über ``device_for_socket``. Fällt eine
+    #: von MEHREREN Verbindungen des Geräts, ist der Socket beim Aufräumen schon
+    #: vergessen — die Suche lief ins Leere, und das Gerät stand für alle
+    #: dauerhaft auf „belegt". Bei „belegt" blendet die Oberfläche den
+    #: Übernahme-Knopf aus, das Gerät war also unbenutzbar, bis seine App neu
+    #: startete. Über diesen Eintrag findet die Freigabe ihr Gerät unabhängig
+    #: davon, ob der Socket noch im Register steht — und damit auch unabhängig
+    #: von der Reihenfolge der Aufräum-Schritte.
+    _device_busy_socket: dict[int, Any]
     #: ``device_id`` → ``(guild_id, channel_id)``, beim Anmelden mitgegeben.
     #:
     #: **Gemerkt statt nachgeschlagen:** der Zustand ändert sich auch an
@@ -85,10 +97,27 @@ class _DeviceRegistryMixin:
         self._device_sockets = {}
         self._device_by_socket = {}
         self._device_busy = {}
+        self._device_busy_socket = {}
         self._device_where = {}
         self._device_monitors = {}
 
     # ── Abfragen ────────────────────────────────────────────────────────────
+
+    def device_move(self, device_id: int, guild_id: int, channel_id: int) -> None:
+        """Den gemerkten Standplatz eines Geräts nachziehen.
+
+        **Ohne das meldet ein umgestelltes Gerät weiter an den ALTEN Kanal**
+        (Bughunt 2026-08-16): Zustand, Steuernder und Bildschirmnamen gingen an
+        Leute, die den neuen Standplatz nicht sehen dürfen, und die dort
+        Berechtigten bekamen nie eine Meldung — deren Liste behauptete „bereit",
+        während der Rechner längst aus war. Geheilt hätte das erst der nächste
+        Verbindungsabriss.
+
+        Nur für ein angemeldetes Gerät: von einem, das nie verbunden war, gibt
+        es auch nichts zu melden.
+        """
+        if device_id in self._device_where:
+            self._device_where[device_id] = (guild_id, channel_id)
 
     def device_monitors(self, device_id: int) -> list[dict]:
         """Die gemeldeten Bildschirme eines Geräts (leer, wenn es keine
@@ -165,6 +194,7 @@ class _DeviceRegistryMixin:
         # die Belegung stehen und das Gerät käme beim nächsten Anmelden sofort
         # als „belegt" zurück — für eine Sitzung, die es nicht mehr gibt.
         self._device_busy.pop(device_id, None)
+        self._device_busy_socket.pop(device_id, None)
         # Die Bildschirme bleiben stehen: sie sind die letzte bekannte Auskunft
         # über ein Gerät, das gerade offline ist, und beim nächsten Anmelden
         # ohnehin überschrieben. Die Liste zu leeren hiesse, dass die
@@ -182,12 +212,21 @@ class _DeviceRegistryMixin:
             if self.device_withdraw(socket, device_id)
         ]
 
-    def device_set_busy(self, device_id: int, controller_user_id: str | None) -> None:
-        """Belegung setzen oder aufheben. ``None`` = wieder bereit."""
+    def device_set_busy(
+        self, device_id: int, controller_user_id: str | None, socket: Any = None
+    ) -> None:
+        """Belegung setzen oder aufheben. ``None`` = wieder bereit.
+
+        ``socket`` ist die Verbindung, über die die Sitzung läuft — an ihr
+        findet die Freigabe später ihr Gerät wieder (s. ``_device_busy_socket``).
+        """
         if controller_user_id is None:
             self._device_busy.pop(device_id, None)
+            self._device_busy_socket.pop(device_id, None)
         else:
             self._device_busy[device_id] = str(controller_user_id)
+            if socket is not None:
+                self._device_busy_socket[device_id] = socket
 
     # ── Meldungen ───────────────────────────────────────────────────────────
 
@@ -229,18 +268,20 @@ class _DeviceRegistryMixin:
     async def device_release_for_socket(self, socket: Any) -> None:
         """Die Belegung aufheben, die an diesem Socket hing.
 
-        Gerufen aus jedem Ende einer Fernsteuerung. Der Socket ist die einzige
-        Zuordnung, die dort sicher vorliegt: die Sitzung kennt ihren Host als
-        Verbindung, und erst hier wird daraus ein Gerät.
+        Gerufen aus jedem Ende einer Fernsteuerung. Gesucht wird über
+        ``_device_busy_socket`` und **nicht** über das Anmelde-Register: im
+        Abbau einer Verbindung ist der Socket dort schon vergessen, und die
+        Freigabe liefe genau dann ins Leere, wenn sie am nötigsten ist
+        (Bughunt 2026-08-16, Begründung an ``_device_busy_socket``).
 
-        Im Abbau einer Verbindung läuft das ins Leere, und zwar mit Absicht:
-        dort wird das Gerät zuerst vergessen (``ws_ops``), sodass hier kein
-        Gerät mehr zu diesem Socket gehört. Sonst ginge ein „wieder bereit"
-        hinaus, dem eine Millisekunde später „offline" folgt — und dazwischen
-        stünde das Gerät als frei übernehmbar in der Liste.
+        Ist das Gerät mit diesem Socket ganz gegangen, hat ``device_withdraw``
+        die Belegung bereits geräumt — dann findet sich hier nichts mehr, und
+        das ist richtig so: die „offline"-Meldung ist schon unterwegs.
         """
-        device_id = self.device_for_socket(socket)
-        if device_id is None or device_id not in self._device_busy:
+        device_id = next(
+            (d for d, s in self._device_busy_socket.items() if s is socket), None
+        )
+        if device_id is None:
             return
         self.device_set_busy(device_id, None)
         await self.publish_device_state(device_id)
