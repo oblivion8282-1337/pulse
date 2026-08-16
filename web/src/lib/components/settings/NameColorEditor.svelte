@@ -9,6 +9,20 @@
    * Namens-Verlauf — sichtbar in der Live-Vorschau darunter.
    */
   import { gradientTextStyle, NAME_STYLE_PRESETS } from '$lib/utils/nameColor';
+
+  /**
+   * Die Farbauswahl je Farbe.
+   *
+   * Bewusst eine feste, kurze Reihe statt eines Farbrads: Namen sollen auf
+   * beiden Themen lesbar bleiben, und eine offene Auswahl endet zuverlässig bei
+   * Dunkelblau auf Schwarz. Wer eine Zwischenfarbe will, nimmt weiterhin den
+   * Griff in der Leiste darüber — die ist der Feinweg, das hier der schnelle.
+   */
+  const PALETTE = [
+    '#f0f1f3', '#94a3b8', '#ef4444', '#f97316', '#f59e0b', '#facc15',
+    '#22c55e', '#10b981', '#22d3ee', '#3b82f6', '#6366f1', '#a78bfa',
+    '#ec4899', '#f472b6',
+  ];
   import { m } from '$lib/paraglide/messages.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
@@ -97,19 +111,69 @@
       {/if}
     </div>
 
-    <div class="flex flex-wrap gap-1.5" data-testid="name-style-presets">
-      {#each NAME_STYLE_PRESETS as p (p.label)}
-        <button
-          type="button"
-          onclick={() => applyPreset(p)}
-          title={p.label}
-          aria-label={p.label}
-          class="border-border size-6 rounded-md border transition-transform hover:scale-110"
-          style={p.color2
-            ? `background-image: linear-gradient(${p.angle ?? 90}deg, ${p.color1}, ${p.color2});`
-            : `background-color: ${p.color1};`}
-        ></button>
-      {/each}
+    <!-- **Je Farbe eine eigene Palette** (2026-08-16). Vorher gab es genau eine
+         Reihe fertiger Vorlagen, die BEIDE Farben auf einmal setzte — wer nur
+         die erste ändern wollte, musste den kleinen Griff in der Leiste
+         treffen, und die zweite liess sich ohne Vorlage gar nicht bequem
+         wählen. Die Leiste bleibt als Anzeige und für Zwischentöne. -->
+    <div class="flex flex-col gap-1.5">
+      <span class="text-text-muted text-xs">{m.settings_profile_color_first()}</span>
+      <div class="flex flex-wrap gap-1.5" data-testid="name-palette-1">
+        {#each PALETTE as c (c)}
+          <button
+            type="button"
+            onclick={() => (color1 = c)}
+            title={c}
+            aria-label={c}
+            aria-pressed={color1.toLowerCase() === c.toLowerCase()}
+            class="size-6 rounded-md border transition-transform hover:scale-110 {color1.toLowerCase() ===
+            c.toLowerCase()
+              ? 'border-primary ring-primary/60 ring-2'
+              : 'border-border'}"
+            style={`background-color: ${c};`}
+          ></button>
+        {/each}
+      </div>
+    </div>
+
+    {#if useGradient}
+      <div class="flex flex-col gap-1.5">
+        <span class="text-text-muted text-xs">{m.settings_profile_color_second()}</span>
+        <div class="flex flex-wrap gap-1.5" data-testid="name-palette-2">
+          {#each PALETTE as c (c)}
+            <button
+              type="button"
+              onclick={() => (color2 = c)}
+              title={c}
+              aria-label={c}
+              aria-pressed={color2.toLowerCase() === c.toLowerCase()}
+              class="size-6 rounded-md border transition-transform hover:scale-110 {color2.toLowerCase() ===
+              c.toLowerCase()
+                ? 'border-primary ring-primary/60 ring-2'
+                : 'border-border'}"
+              style={`background-color: ${c};`}
+            ></button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <div class="flex flex-col gap-1.5">
+      <span class="text-text-muted text-xs">{m.settings_profile_presets()}</span>
+      <div class="flex flex-wrap gap-1.5" data-testid="name-style-presets">
+        {#each NAME_STYLE_PRESETS as p (p.label)}
+          <button
+            type="button"
+            onclick={() => applyPreset(p)}
+            title={p.label}
+            aria-label={p.label}
+            class="border-border size-6 rounded-md border transition-transform hover:scale-110"
+            style={p.color2
+              ? `background-image: linear-gradient(${p.angle ?? 90}deg, ${p.color1}, ${p.color2});`
+              : `background-color: ${p.color1};`}
+          ></button>
+        {/each}
+      </div>
     </div>
 
     <label class="flex items-center gap-2 text-sm">
