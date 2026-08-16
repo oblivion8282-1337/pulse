@@ -354,7 +354,16 @@ export type ServerEvent =
   // the client tracks a short TTL per (channel, user) and shows "… schreibt".
   | { op: 'typing'; channel_id: string; user_id: string }
   // Fernsteuerung (remote control) — Consent-Handshake über den Serverweg.
-  | { op: 'remote_request'; session_id: string; channel_id: string; from_user_id: string }
+  | {
+      op: 'remote_request';
+      session_id: string;
+      channel_id: string;
+      from_user_id: string;
+      /** Welches Standplatz-Geraet gemeint ist, falls die Anfrage an einer
+       *  Geraete-Kachel gestellt wurde. Wer nicht dieses Geraet ist, lehnt
+       *  still ab (`$lib/remote/geraeteanbindung.ts`). */
+      device_id?: string;
+    }
   // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
   // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
   // `session_id` — vorher konnte er weder serverseitig abbrechen noch eine
@@ -451,7 +460,7 @@ export type ClientEvent =
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
   // Fernsteuerung — Outbound-Ops des Consent-Handshakes (s. ws_remote_handlers.py).
-  | { op: 'remote_request'; channel_id: string; host_user_id: string }
+  | { op: 'remote_request'; channel_id: string; host_user_id: string; device_id?: string }
   | { op: 'remote_respond'; session_id: string; accept: boolean }
   // Eingabe-Frames zum Host. Nur der Steuernde sendet; der Gateway prüft
   // Sitzung, Rolle und Größe und schaut nicht in die Frames hinein.

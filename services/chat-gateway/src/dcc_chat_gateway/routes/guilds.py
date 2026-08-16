@@ -32,7 +32,10 @@ from dcc_chat_gateway.models import (
     Role,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.remote_guard import end_remote_sessions_for_member
+from dcc_chat_gateway.remote_guard import (
+    end_remote_sessions_for_member,
+    remove_devices_for_member,
+)
 from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
@@ -621,6 +624,14 @@ async def _remove_guild_member(
         guild_id,
         user_id,
         reason="membership_revoked",
+    )
+    # Und die Geraetezeilen dieses Mitglieds — Begruendung in
+    # ``remote_guard.remove_devices_for_member``.
+    await remove_devices_for_member(
+        session,
+        getattr(request.app.state, "connection_manager", None),
+        guild_id,
+        user_id,
     )
     # Und die Lese-Token für laufende Streams: sie sind an Kanal und
     # Streamer gebunden, nicht an die Person, und werden nicht verbraucht —

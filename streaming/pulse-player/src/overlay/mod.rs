@@ -474,6 +474,12 @@ impl Overlay {
         self.fernsteuerung = aktiv;
         if !aktiv {
             self.fern_menue_offen = false;
+            // Die Bildschirme gehoeren der beendeten Sitzung. Blieben sie
+            // stehen, boete das Menue beim naechsten Start Schirme eines
+            // fremden Rechners an — genauso, wie `fern_transport` und die
+            // Zeigerform beim Ausschalten zurueckgesetzt werden
+            // (`app/eingabe.rs::input_capture`).
+            self.fern_schirme.clear();
         }
         // **Einen Durchgang anfordern, sonst bleibt der Griff aus.** Der Ruf
         // kommt aus `input_capture`, also ohne Mausbewegung: `visible()` ist

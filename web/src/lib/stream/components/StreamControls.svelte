@@ -135,7 +135,11 @@
           : r.fehler instanceof Error
             ? r.fehler.message
             : m.stream_controls_error_start_failed();
-      toast.error(m.stream_controls_toast_start_failed(), { description: localError });
+      // Nur die Absage des Sidecars bekommt zusätzlich einen Toast; ein
+      // geworfener Fehler blieb hier schon immer allein in der Fehlerzeile.
+      if (r.stufe === 'start') {
+        toast.error(m.stream_controls_toast_start_failed(), { description: localError });
+      }
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);
     } finally {

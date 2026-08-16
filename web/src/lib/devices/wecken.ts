@@ -44,6 +44,7 @@ import { geraeteAnmeldung } from './anmeldung.svelte';
 import { HAUPTBILDSCHIRM, standplatzProfil } from './profil.svelte';
 import { streamStarten } from '$lib/stream/starten';
 import { MAX_STREAM_SLOTS, runningStreamSlots } from '$lib/stream/state.svelte';
+import { stopSlot } from '$lib/stream/slotControl.svelte';
 import { MONITOR_CAPTURE_PREFIX } from '$lib/stream/settingsCatalog';
 import { streamSettings } from '$lib/stream/settingsState.svelte';
 
@@ -129,6 +130,25 @@ export function geraetWecken(
   } catch {
     return false;
   }
+}
+
+/**
+ * Wieder einschlafen: alle Übertragungen beenden, die ein Weckruf gestartet hat.
+ *
+ * **Warum das dazugehört** (Bughunt 2026-08-16): ohne diesen Weg überträgt ein
+ * einmal geweckter Rechner für immer weiter — und verbraucht genau die
+ * Bandbreite und Rechenzeit, die „erst auf Abruf" einsparen sollte. Gerufen am
+ * Ende jeder Fernsteuerung dieses Geräts.
+ *
+ * **Nur die selbst geweckten Plätze.** Was der Besitzer von Hand gestartet hat,
+ * steht nicht in der Karte und bleibt unangetastet — es wäre sein Stream, nicht
+ * unserer.
+ */
+export async function wiederEinschlafen(): Promise<void> {
+  const laufend = new Set(runningStreamSlots());
+  const plaetze = [...platzFuerQuelle.keys()].filter((slot) => laufend.has(slot));
+  platzFuerQuelle.clear();
+  await Promise.all(plaetze.map((slot) => stopSlot(slot)));
 }
 
 /**

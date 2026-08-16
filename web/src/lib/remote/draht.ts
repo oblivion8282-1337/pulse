@@ -20,6 +20,13 @@ import { dispatchingServerId } from '$lib/ws/gateway-connection';
  * dorthin zurück: nach einem Community-Wechsel zeigt der `gateway`-Proxy auf
  * einen Server, der die Sitzung gar nicht kennt.
  */
+/** Der Server, von dem der gerade behandelte Rahmen kam. Dieselbe Quelle wie
+ *  [`herkunftsVerbindung`] — eine Eintragung gehoert einem Server, nicht „dem
+ *  gerade aktiven". */
+export function dispatchenderServer(): string | null {
+  return dispatchingServerId() ?? null;
+}
+
 export function herkunftsVerbindung(): GatewayConnection | null {
   const von = dispatchingServerId();
   return von ? gatewayForServer(von) : null;

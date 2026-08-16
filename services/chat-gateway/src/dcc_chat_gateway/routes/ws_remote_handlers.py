@@ -244,6 +244,17 @@ async def handle_request(
         "channel_id": cid,
         "from_user_id": str(user.id),
     }
+    # **Welches GERAET gemeint ist**, sofern der Rufer es an einer Geraete-Kachel
+    # angefragt hat (Bughunt 2026-08-16). Die Einladung geht an alle Tabs des
+    # Hosts — also auch an seinen Laptop, wenn dort dasselbe Konto laeuft. Ohne
+    # diese Angabe koennte dort jemand zustimmen, und der Steuernde saehe den
+    # Werkstatt-PC, waehrend seine Eingaben an den Laptop gingen (sie fielen dort
+    # zwar meist als „unbekannter Platz" durch, aber eben nicht zwingend).
+    # Weitergereicht und NICHT geprueft: welcher Rechner welches Geraet ist,
+    # weiss nur er selbst — er lehnt still ab, wenn er nicht gemeint ist.
+    geraet = str(msg.get("device_id") or "").strip()
+    if geraet:
+        frame["device_id"] = geraet
     # Zeitgeber VOR der Faecherung scharfstellen. Jedes ``send_to_socket``
     # unten ist ein await: antwortet ein Host-Tab mitten in der Faecherung,
     # loeschte der Accept einen Zeitgeber, den es noch gar nicht gab — und der

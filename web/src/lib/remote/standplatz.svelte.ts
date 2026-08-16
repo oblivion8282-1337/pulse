@@ -53,6 +53,21 @@ import { loadAll, saveAll } from '$lib/stream/persistence';
 /** Wie lange eine erteilte Freigabe gilt. */
 export type Geltung = 'neustart' | 'acht_stunden' | 'dauerhaft';
 
+/**
+ * Ein einzeln Freigegebener.
+ *
+ * **Mit Server, nicht nur mit Nutzerkennung** (Bughunt 2026-08-16): der
+ * Speicher liegt am GERÄT, und dasselbe Gerät kann in der Cloud und auf einem
+ * Self-Host eingetragen sein. Kennungen werden je Instanz vergeben — dieselbe
+ * Zahl kann auf zwei Servern zwei verschiedene Menschen sein. Ohne den Server
+ * daneben gälte eine Freigabe, die jemandem in der Cloud gilt, unter Umständen
+ * einem Fremden auf einem anderen Server.
+ */
+export interface Freigegebener {
+  serverId: string;
+  userId: string;
+}
+
 /** Acht Stunden in Millisekunden — dieselbe Spanne wie der absolute
  *  Sitzungsdeckel des Gateways (`REMOTE_MAX_SESSION_S`), damit ein Gerät nicht
  *  länger scharf steht, als eine Sitzung überhaupt dauern darf. */
@@ -66,9 +81,8 @@ const SPEICHER_SCHLUESSEL = 'remote.standplatz';
  *  wird ausgerechnet. */
 interface Gespeichert {
   aktiv: boolean;
-  /** Nutzer-Kennungen, die ohne Rückfrage übernehmen dürfen (Snowflakes als
-   *  Zeichenketten, wie überall über die API). */
-  nutzer: string[];
+  /** Wer ohne Rückfrage übernehmen darf — je Eintrag Server UND Nutzer. */
+  nutzer: Freigegebener[];
   /** Jeder, der überhaupt anfragen darf. Die Rechteprüfung des Servers bleibt
    *  davor — das hier hebt nur den Dialog auf, nicht die Berechtigung. */
   jeder: boolean;
@@ -85,6 +99,17 @@ const LEER: Gespeichert = {
   gueltigBis: null,
 };
 
+/** Doppelte Einträge entfernen — Server UND Nutzer müssen übereinstimmen. */
+function eindeutig(liste: Freigegebener[]): Freigegebener[] {
+  const gesehen = new Set<string>();
+  return liste.filter((n) => {
+    const k = `${n.serverId}\u0000${n.userId}`;
+    if (gesehen.has(k)) return false;
+    gesehen.add(k);
+    return true;
+  });
+}
+
 function istGeltung(wert: unknown): wert is Geltung {
   return wert === 'neustart' || wert === 'acht_stunden' || wert === 'dauerhaft';
 }
@@ -96,7 +121,14 @@ function ausSpeicher(roh: unknown): Gespeichert {
   if (!roh || typeof roh !== 'object') return { ...LEER };
   const o = roh as Record<string, unknown>;
   const nutzer = Array.isArray(o.nutzer)
-    ? o.nutzer.filter((n): n is string => typeof n === 'string' && n.length > 0)
+    ? o.nutzer.filter(
+        (n): n is Freigegebener =>
+          !!n &&
+          typeof n === 'object' &&
+          typeof (n as Freigegebener).serverId === 'string' &&
+          typeof (n as Freigegebener).userId === 'string' &&
+          (n as Freigegebener).userId.length > 0,
+      )
     : [];
   return {
     aktiv: o.aktiv === true,
@@ -111,7 +143,7 @@ function ausSpeicher(roh: unknown): Gespeichert {
 
 class StandplatzFreigabe {
   aktiv = $state(false);
-  nutzer = $state<string[]>([]);
+  nutzer = $state<Freigegebener[]>([]);
   jeder = $state(false);
   geltung = $state<Geltung>('neustart');
   gueltigBis = $state<number | null>(null);
@@ -158,7 +190,11 @@ class StandplatzFreigabe {
    * Freigabe erteilen. Der eine Weg hinein — bewusst mit allen drei Angaben auf
    * einmal, damit es keinen Zwischenzustand „scharf, aber für niemanden" gibt.
    */
-  async freigeben(opts: { nutzer: string[]; jeder: boolean; geltung: Geltung }): Promise<void> {
+  async freigeben(opts: {
+    nutzer: Freigegebener[];
+    jeder: boolean;
+    geltung: Geltung;
+  }): Promise<void> {
     // Eine Freigabe ohne Empfänger ist keine — sie sähe im Schalterbild nur so
     // aus, als stünde das Gerät bereit, und niemand käme durch.
     if (!opts.jeder && opts.nutzer.length === 0) {
@@ -167,7 +203,7 @@ class StandplatzFreigabe {
     }
     this.#uebernehmen({
       aktiv: true,
-      nutzer: [...new Set(opts.nutzer)],
+      nutzer: eindeutig(opts.nutzer),
       jeder: opts.jeder,
       geltung: opts.geltung,
       gueltigBis: opts.geltung === 'acht_stunden' ? Date.now() + ACHT_STUNDEN_MS : null,
@@ -188,8 +224,8 @@ class StandplatzFreigabe {
    * Bleibt niemand übrig und gilt auch nicht „jeder", wird eine GELTENDE
    * Freigabe zurückgenommen: scharf ohne Empfänger wäre eine Anzeige, die lügt.
    */
-  async nutzerSetzen(nutzer: string[]): Promise<void> {
-    this.nutzer = [...new Set(nutzer)];
+  async nutzerSetzen(nutzer: Freigegebener[]): Promise<void> {
+    this.nutzer = eindeutig(nutzer);
     if (this.aktiv && !this.jeder && this.nutzer.length === 0) {
       await this.zuruecknehmen();
       return;
@@ -212,15 +248,18 @@ class StandplatzFreigabe {
    * abgelaufen, unbekannte Kennung — alles heisst „nein, den Dialog zeigen".
    * Ein „nein" kostet hier eine Rückfrage, ein falsches „ja" den Rechner.
    */
-  darfOhneRueckfrage(vonUserId: string | null | undefined): boolean {
-    if (!this.geladen || !this.aktiv || !vonUserId) return false;
+  darfOhneRueckfrage(serverId: string | null, vonUserId: string | null | undefined): boolean {
+    if (!this.geladen || !this.aktiv || !vonUserId || !serverId) return false;
     if (this.gueltigBis !== null && this.gueltigBis <= Date.now()) {
       // Abgelaufen: still abschalten und ablehnen. Das Zurückschreiben läuft
       // nebenher — die Entscheidung hängt nicht daran.
       void this.zuruecknehmen();
       return false;
     }
-    return this.jeder || this.nutzer.includes(vonUserId);
+    return (
+      this.jeder ||
+      this.nutzer.some((n) => n.serverId === serverId && n.userId === vonUserId)
+    );
   }
 
   /** Wie lange die Freigabe noch gilt (ms), `null` = ohne Ablauf, `0` = nicht

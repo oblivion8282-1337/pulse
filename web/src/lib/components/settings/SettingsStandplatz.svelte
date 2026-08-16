@@ -43,7 +43,7 @@
   // Namen der einzeln Freigegebenen nachladen — sonst steht dort die nackte
   // Kennung, und niemand erkennt, wen er da freigegeben hat.
   $effect(() => {
-    for (const id of standplatz.nutzer) userCache.queue(id);
+    for (const n of standplatz.nutzer) userCache.queue(n.userId);
   });
 
   const restStunden = $derived.by(() => {
@@ -65,7 +65,7 @@
     // Über `nutzerSetzen`, NICHT über `freigeben`: das würde die Freigabe
     // scharf schalten, und ein Klick auf das X soll einen Namen streichen und
     // sonst nichts (Bughunt 2026-08-16).
-    await standplatz.nutzerSetzen(standplatz.nutzer.filter((n) => n !== id));
+    await standplatz.nutzerSetzen(standplatz.nutzer.filter((n) => n.userId !== id));
   }
 
   function dauer(beginn: number, ende: number | null): string {
@@ -151,8 +151,8 @@
           <span class="text-text-muted text-xs italic">{m.standplatz_settings_users_empty()}</span>
         {:else}
           <ul class="flex flex-col gap-1.5">
-            {#each standplatz.nutzer as id (id)}
-              {@const wer = gegenstelle(id)}
+            {#each standplatz.nutzer as n (`${n.serverId}:${n.userId}`)}
+              {@const wer = gegenstelle(n.userId)}
               <li class="flex items-center gap-2">
                 <span class="text-text-base min-w-0 flex-1 truncate text-sm">
                   {wer.anzeige}{wer.benutzername ? ` · @${wer.benutzername}` : ''}
@@ -160,7 +160,7 @@
                 <Button
                   size="sm"
                   variant="ghost"
-                  onclick={() => entfernen(id)}
+                  onclick={() => entfernen(n.userId)}
                   aria-label={m.standplatz_settings_user_remove()}
                 >
                   <XIcon class="size-4" />

@@ -255,6 +255,10 @@ class AuthStore {
       void import('$lib/stores/joinedInvites.svelte').then((mod) =>
         mod.joinedInvites.clear(),
       );
+      // Geräteliste des Vorgängers (Bughunt 2026-08-16): sie ist nach
+      // Community gecacht und hat keinen Bezug zum Konto — der nächste Nutzer
+      // am selben Fenster sähe sonst die Geräte, die der vorige sehen durfte.
+      void import('$lib/devices/store.svelte').then((mod) => mod.deviceStore.reset());
       // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
@@ -333,6 +337,8 @@ class AuthStore {
     void import('$lib/stores/joinedInvites.svelte').then((mod) =>
       mod.joinedInvites.clear(),
     );
+    // Geräteliste des Vorgängers — s. dieselbe Zeile im Kontowechsel oben.
+    void import('$lib/devices/store.svelte').then((mod) => mod.deviceStore.reset());
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();
     stopCertRotation();
