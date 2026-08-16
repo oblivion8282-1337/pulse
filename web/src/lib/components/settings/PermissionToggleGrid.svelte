@@ -1,151 +1,149 @@
 <!--
-  PermissionToggleGrid — a flat list of toggles, one per Permissions bit
-  we surface to admins. Grouped headlines mirror the bit layout in the
-  shared resolver (server admin / member / channel / voice / ADMIN).
+  Die Rechteliste einer Rolle — ein Schalter je Recht, nach Bereich
+  gruppiert, mit Suchfeld darueber.
 
-  Editor-perms gating: each bit is locked off when the *editor* doesn't
-  hold it themselves (anti-escalation). The server-side check is the
-  authoritative one — the frontend gate just keeps the UX honest.
+  Das Suchfeld ist kein Zierrat: die Liste hat 27 Eintraege in sieben
+  Bereichen, und wer sie oeffnet, weiss meist schon, welches Recht er
+  sucht („bannen", „streamen"). Ohne Suche scrollt man an ihm vorbei.
+
+  Zwei Marken heben hervor, was weit traegt — und nur zwei, damit sie
+  etwas bedeuten: `Vollmacht` fuer ADMINISTRATOR (hebt jede andere
+  Pruefung auf) und `weitreichend` fuer alles, was AUF ANDERE MENSCHEN
+  wirkt. Die Zuordnung steht in `roles/rechtekatalog.ts`, nicht hier.
+
+  Anti-Eskalation ist gespiegelt: ein Bit, das der Bearbeiter selbst nicht
+  haelt, bleibt gesperrt. Verbindlich entscheidet das der Server — die
+  Sperre hier haelt nur die Bedienung ehrlich.
 -->
 <script lang="ts">
-  import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import { has, toBitfield, type Permission } from '$lib/permissions/bitfield';
   import { m } from '$lib/paraglide/messages.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
-
-  type Group = { title: string; entries: { perm: Permission; label: string; desc: string }[] };
-
-  const groups: Group[] = [
-    {
-      title: m.permission_toggle_grid_group_community_admin(),
-      entries: [
-        { perm: Perm.MANAGE_GUILD, label: m.permission_toggle_grid_label_manage_guild(), desc: m.permission_toggle_grid_desc_manage_guild() },
-        { perm: Perm.MANAGE_CHANNELS, label: m.permission_toggle_grid_label_manage_channels(), desc: m.permission_toggle_grid_desc_manage_channels() },
-        { perm: Perm.MANAGE_ROLES, label: m.permission_toggle_grid_label_manage_roles(), desc: m.permission_toggle_grid_desc_manage_roles() },
-        { perm: Perm.MANAGE_PERMISSIONS, label: m.permission_toggle_grid_label_manage_permissions(), desc: m.permission_toggle_grid_desc_manage_permissions() },
-        { perm: Perm.MANAGE_INVITES, label: m.permission_toggle_grid_label_manage_invites(), desc: m.permission_toggle_grid_desc_manage_invites() }
-      ]
-    },
-    {
-      title: m.permission_toggle_grid_group_members(),
-      entries: [
-        { perm: Perm.KICK_MEMBERS, label: m.permission_toggle_grid_label_kick_members(), desc: m.permission_toggle_grid_desc_kick_members() },
-        { perm: Perm.BAN_MEMBERS, label: m.permission_toggle_grid_label_ban_members(), desc: m.permission_toggle_grid_desc_ban_members() },
-        { perm: Perm.CHANGE_NICKNAME, label: m.permission_toggle_grid_label_change_nickname(), desc: m.permission_toggle_grid_desc_change_nickname() },
-        { perm: Perm.MANAGE_NICKNAMES, label: m.permission_toggle_grid_label_manage_nicknames(), desc: m.permission_toggle_grid_desc_manage_nicknames() }
-      ]
-    },
-    {
-      title: m.permission_toggle_grid_group_channels(),
-      entries: [
-        { perm: Perm.VIEW_CHANNEL, label: m.permission_toggle_grid_label_view_channel(), desc: m.permission_toggle_grid_desc_view_channel() },
-        { perm: Perm.READ_HISTORY, label: m.permission_toggle_grid_label_read_history(), desc: m.permission_toggle_grid_desc_read_history() },
-        { perm: Perm.SEND_MESSAGES, label: m.permission_toggle_grid_label_send_messages(), desc: m.permission_toggle_grid_desc_send_messages() },
-        { perm: Perm.MANAGE_MESSAGES, label: m.permission_toggle_grid_label_manage_messages(), desc: m.permission_toggle_grid_desc_manage_messages() },
-        { perm: Perm.ATTACH_FILES, label: m.permission_toggle_grid_label_attach_files(), desc: m.permission_toggle_grid_desc_attach_files() },
-        { perm: Perm.ADD_REACTIONS, label: m.permission_toggle_grid_label_add_reactions(), desc: m.permission_toggle_grid_desc_add_reactions() },
-        { perm: Perm.CREATE_INVITES, label: m.permission_toggle_grid_label_create_invites(), desc: m.permission_toggle_grid_desc_create_invites() },
-        { perm: Perm.MENTION_EVERYONE, label: m.permission_toggle_grid_label_mention_everyone(), desc: m.permission_toggle_grid_desc_mention_everyone() }
-      ]
-    },
-    {
-      title: m.permission_toggle_grid_group_voice_stream(),
-      entries: [
-        { perm: Perm.CONNECT, label: m.permission_toggle_grid_label_connect(), desc: m.permission_toggle_grid_desc_connect() },
-        { perm: Perm.SPEAK, label: m.permission_toggle_grid_label_speak(), desc: m.permission_toggle_grid_desc_speak() },
-        { perm: Perm.STREAM, label: m.permission_toggle_grid_label_stream(), desc: m.permission_toggle_grid_desc_stream() },
-        { perm: Perm.USE_VIDEO, label: m.permission_toggle_grid_label_use_video(), desc: m.permission_toggle_grid_desc_use_video() },
-        { perm: Perm.MUTE_MEMBERS, label: m.permission_toggle_grid_label_mute_members(), desc: m.permission_toggle_grid_desc_mute_members() },
-        { perm: Perm.DEAFEN_MEMBERS, label: m.permission_toggle_grid_label_deafen_members(), desc: m.permission_toggle_grid_desc_deafen_members() },
-        { perm: Perm.MOVE_MEMBERS, label: m.permission_toggle_grid_label_move_members(), desc: m.permission_toggle_grid_desc_move_members() }
-      ]
-    },
-    {
-      // Eigene Gruppe, obwohl es nur ein Eintrag ist. Das Recht erlaubt, die
-      // Fernsteuerung eines anderen Mitglieds ANZUFRAGEN — es zwischen
-      // „Mikrofon stummschalten" und „Video senden" zu stellen würde seine
-      // Tragweite verwischen. Der Gesteuerte stimmt jeder Sitzung zusätzlich
-      // zu; dieses Bit ist die Vorabhürde, nicht die Erlaubnis selbst.
-      title: m.permission_toggle_grid_group_remote(),
-      entries: [
-        {
-          perm: Perm.REMOTE_CONTROL,
-          label: m.permission_toggle_grid_label_remote_control(),
-          desc: m.permission_toggle_grid_desc_remote_control()
-        }
-      ]
-    },
-    {
-      title: m.permission_toggle_grid_group_admin_override(),
-      entries: [
-        {
-          perm: Perm.ADMINISTRATOR,
-          label: m.permission_toggle_grid_label_administrator(),
-          desc: m.permission_toggle_grid_desc_administrator()
-        }
-      ]
-    }
-  ];
+  import { Input } from '$lib/components/ui/input/index.js';
+  import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import { rechtekatalog, type Tragweite } from './roles/rechtekatalog';
 
   let {
     value = $bindable('0'),
     editorPermissions,
     disabled = false
   }: {
-    /** Bitfield as wire-string (BigInt-safe). */
+    /** Bitfeld als Wire-String (BigInt-sicher). */
     value: string;
-    /** The editor's resolved guild-wide bitfield. Bits they lack are
-     * locked off so they can't grant what they don't have. */
+    /** Das aufgeloeste Bitfeld des Bearbeiters. Bits, die er nicht haelt,
+     * bleiben gesperrt — er kann nicht vergeben, was er nicht hat. */
     editorPermissions: string;
     disabled?: boolean;
   } = $props();
 
-  function toggle(perm: Permission, on: boolean): void {
-    if (disabled) return;
-    if (!has(toBitfield(editorPermissions), perm)) return;
-    let bf = toBitfield(value);
-    bf = on ? bf | perm : bf & ~perm;
-    value = bf.toString();
+  let suche = $state('');
+  let katalog = $derived(rechtekatalog());
+  let gesetzte = $derived(toBitfield(value));
+  let erlaubte = $derived(toBitfield(editorPermissions));
+
+  let gefiltert = $derived.by(() => {
+    const nadel = suche.trim().toLowerCase();
+    if (!nadel) return katalog;
+    return katalog
+      .map((b) => ({
+        ...b,
+        zeilen: b.zeilen.filter(
+          (z) => z.label.toLowerCase().includes(nadel) || z.kurz.toLowerCase().includes(nadel)
+        )
+      }))
+      .filter((b) => b.zeilen.length > 0);
+  });
+
+  function umlegen(perm: Permission, an: boolean): void {
+    if (disabled || !has(erlaubte, perm)) return;
+    value = (an ? gesetzte | perm : gesetzte & ~perm).toString();
   }
 
-  function isSet(perm: Permission): boolean {
-    return has(toBitfield(value), perm);
+  function markenKlasse(t: Tragweite): string {
+    return t === 'vollmacht'
+      ? 'bg-destructive/15 text-destructive'
+      : 'bg-warning/15 text-warning';
   }
 
-  function isEditorAllowed(perm: Permission): boolean {
-    return has(toBitfield(editorPermissions), perm);
+  function markenText(t: Tragweite): string {
+    return t === 'vollmacht' ? m.rechte_marke_vollmacht() : m.rechte_marke_weitreichend();
   }
 </script>
 
-<div class="space-y-6">
-  {#each groups as g (g.title)}
+<div class="space-y-4">
+  <div class="flex items-center gap-2">
+    <SearchIcon class="text-text-muted size-4 shrink-0" />
+    <Input
+      bind:value={suche}
+      placeholder={m.rechte_suche_platzhalter()}
+      class="h-8 text-sm"
+      data-testid="perm-search"
+    />
+  </div>
+
+  <!-- Die Legende steht EINMAL oben, nicht als Erklaerung an jeder Marke:
+       zwei Begriffe lernt man einmal, und an 27 Zeilen wiederholt waeren
+       sie Rauschen. -->
+  <p class="text-text-muted flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+    <span class="inline-flex items-center gap-1.5">
+      <span class="rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase {markenKlasse('vollmacht')}">
+        {m.rechte_marke_vollmacht()}
+      </span>
+      {m.rechte_legende_vollmacht()}
+    </span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase {markenKlasse('weitreichend')}">
+        {m.rechte_marke_weitreichend()}
+      </span>
+      {m.rechte_legende_weitreichend()}
+    </span>
+  </p>
+
+  {#each gefiltert as bereich (bereich.titel)}
     <section>
-      <h3 class="text-text-muted mb-2 text-xs font-semibold uppercase tracking-wide">{g.title}</h3>
+      <h3 class="text-text-muted mb-2 text-xs font-semibold tracking-wide uppercase">
+        {bereich.titel}
+      </h3>
       <div class="space-y-1">
-        {#each g.entries as e (e.perm)}
-          {@const set = isSet(e.perm)}
-          {@const allowed = isEditorAllowed(e.perm)}
+        {#each bereich.zeilen as z (z.perm)}
+          {@const gesetzt = has(gesetzte, z.perm)}
+          {@const erlaubt = has(erlaubte, z.perm)}
           <label
-            class="bg-bg-hover/40 flex cursor-pointer items-start justify-between gap-4 rounded-md px-3 py-2 hover:bg-bg-hover"
-            class:cursor-not-allowed={!allowed || disabled}
-            class:opacity-50={!allowed || disabled}
+            class="bg-bg-hover/40 hover:bg-bg-hover flex cursor-pointer items-start justify-between gap-4 rounded-md px-3 py-2"
+            class:cursor-not-allowed={!erlaubt || disabled}
+            class:opacity-50={!erlaubt || disabled}
           >
             <div class="min-w-0">
-              <div class="text-text-bright text-sm font-medium">{e.label}</div>
-              <div class="text-text-muted text-xs">{e.desc}</div>
-              {#if !allowed}
-                <div class="mt-0.5 text-xs text-warning">{m.permission_toggle_grid_editor_missing_perm()}</div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-text-bright text-sm font-medium">{z.label}</span>
+                {#if z.tragweite}
+                  <span
+                    class="rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase {markenKlasse(z.tragweite)}"
+                  >
+                    {markenText(z.tragweite)}
+                  </span>
+                {/if}
+              </div>
+              <div class="text-text-muted text-xs">{z.kurz}</div>
+              {#if !erlaubt}
+                <div class="text-warning mt-0.5 text-xs">{m.rechte_gesperrt_hinweis()}</div>
               {/if}
             </div>
             <Checkbox
               class="mt-1"
-              checked={set}
-              disabled={!allowed || disabled}
-              onchange={(ev) => toggle(e.perm, (ev.currentTarget as HTMLInputElement).checked)}
-              data-testid={`perm-toggle-${e.perm.toString()}`}
+              checked={gesetzt}
+              disabled={!erlaubt || disabled}
+              onchange={(ev) => umlegen(z.perm, (ev.currentTarget as HTMLInputElement).checked)}
+              data-testid={`perm-toggle-${z.perm.toString()}`}
             />
           </label>
         {/each}
       </div>
     </section>
   {/each}
+
+  {#if gefiltert.length === 0}
+    <EmptyState message={m.rechte_suche_leer()} testId="perm-search-empty" />
+  {/if}
 </div>

@@ -25,7 +25,14 @@
         "Der Ton kommt dabei genau einmal: der erste Bildschirm überträgt den Systemton, die dazugeschalteten sind stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an.",
         "Rollen lassen sich wieder umsortieren, auch ohne Besitzer der Community zu sein. Bisher wies der Server jeden Versuch ab, weil die Oberfläche dabei die ganze Liste umnummerierte — samt der eigenen höchsten Rolle, die niemand verschieben darf.",
         "Beim Löschen einer Rolle rückt die Auswahl nicht mehr still auf die nächste nach. Vorher stand der Papierkorb danach sofort auf einem anderen Ziel scharf, und zweimal Löschen traf zwei verschiedene Rollen.",
-        "Die Farbe einer Rolle lässt sich wieder entfernen. Der Haken sprang bisher von selbst zurück, und gemeldet wurde trotzdem „gespeichert\"."
+        "Die Farbe einer Rolle lässt sich wieder entfernen. Der Haken sprang bisher von selbst zurück, und gemeldet wurde trotzdem „gespeichert\".",
+        "Die Rollenverwaltung ist neu gebaut. Die Liste ist jetzt eine Rangleiter mit Ziehgriff — oben steht, wer mehr verwalten darf, und eine Rolle kann nur Rollen unter sich anfassen. @everyone steht abgesetzt am Ende, weil sie für alle gilt und sich weder löschen noch umbenennen lässt.",
+        "Rechte einer Rolle stehen nach Bereichen gruppiert, mit Suchfeld und je einem kurzen Satz, was sie tun. Was weit trägt, ist markiert: „Vollmacht\" für Administrator, „weitreichend\" für alles, was auf andere Menschen wirkt.",
+        "Wer eine Rolle hat, steht jetzt in der Rolle — ein eigener Reiter mit Namen und einem Feld zum Hinzufügen. Neue Rollen beginnen wahlweise leer, mit einer Vorlage oder als Kopie einer bestehenden.",
+        "Das Löschen einer Rolle sagt vorher, was es kostet: wie viele Mitglieder sie verlieren und wie viele Kanäle ihre Ausnahme für sie verlieren.",
+        "Die Kanal-Berechtigungen zeigen endlich das Ergebnis. Je Recht stehen drei Möglichkeiten — „Wie in der Rolle\", „Erlauben\", „Verbieten\" — und daneben, was am Ende gilt und woher es kommt: „ja · aus Moderation\" oder „nein · hier verboten über @everyone\".",
+        "Fehlt „Kanal sehen\", grauen die übrigen Zeilen aus und sagen „fällt weg\" — bisher blieben Häkchen gesetzt, die nichts bewirkten.",
+        "Neuer Reiter „Prüfen\" in den Kanal-Berechtigungen: Person auswählen und ablesen, was für sie in diesem Kanal gilt und woher es kommt."
       ],
       "outro": "Die Rechteprüfung bleibt unverändert davor: eingetragen und freigegeben heißt nicht, dass jeder darf."
     },

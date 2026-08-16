@@ -1,28 +1,33 @@
 <!--
-  RolesEditor — list + per-role editor for a guild's roles. Used by the
-  guild-settings page; backend gate is MANAGE_ROLES, which the parent
-  enforces before mounting.
+  Rollenverwaltung einer Community.
 
-  Anti-escalation is mirrored client-side in PermissionToggleGrid: bits
-  the editor doesn't hold themselves are locked off. The server enforces
-  it independently (the UI block is a UX nicety, not security).
+  Links eine Rangleiter, rechts das Detail in drei Reitern. Der
+  Backend-Riegel ist MANAGE_ROLES; das Elternteil prueft ihn, bevor es
+  diese Maske einhaengt. Diese Datei ist nur noch der Dirigent — Leiter,
+  Detail, Anlegen und Loeschen liegen daneben in `roles/`.
+
+  Zwei Dinge, die hier NICHT verlorengehen duerfen (beide teuer erkauft):
+    * Umsortieren schickt nur den bewegten Bereich (`roles/reihenfolge.ts`)
+      — die ganze Liste durchzunummerieren warf jeden Pfeilklick fuer
+      alle ausser Besitzer/Instanz-Admin auf 403.
+    * Nach dem Loeschen wird KEINE Rolle ersatzweise ausgewaehlt. Sonst
+      rueckt die Auswahl still nach und der Loeschbefehl ist an derselben
+      Stelle sofort wieder scharf — zweimal Loeschen traefe zwei Rollen.
 -->
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button/index.js';
+  import { untrack } from 'svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
-  import PlusIcon from '@lucide/svelte/icons/plus';
-  import TrashIcon from '@lucide/svelte/icons/trash-2';
-  import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
-  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { toast } from 'svelte-sonner';
-  import { rolesApi, type Role } from '$lib/api/roles';
+  import { rolesApi, type Role, type RoleCreatePayload } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
-  import PermissionToggleGrid from './PermissionToggleGrid.svelte';
+  import RollenLeiter from './roles/RollenLeiter.svelte';
+  import RolleAnlegenMenu from './roles/RolleAnlegenMenu.svelte';
+  import RolleDetail, { type Reiter } from './roles/RolleDetail.svelte';
+  import { Rollenentwurf } from './roles/entwurf.svelte';
+  import { Traegerliste } from './roles/traeger.svelte';
+  import { bewegterAusschnitt } from './roles/reihenfolge';
   import { m } from '$lib/paraglide/messages.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
-  import Checkbox from '$lib/components/form/Checkbox.svelte';
 
   let {
     guildId,
@@ -32,517 +37,212 @@
   }: {
     guildId: string;
     editorPermissions: string;
-    /** Monotonic counter bumped by the parent to force a buffer-discard
-     * (tab-switch / close confirms). We can't just rely on the parent
-     * clearing `dirty` because our own dirty-effect re-derives it from
-     * buffer ≠ persisted role on the next tick. */
+    /** Zaehler, den das Elternteil hochsetzt, um den Entwurf zu verwerfen
+     * (Reiterwechsel / Schliessen-Rueckfrage). Ein blosses Zuruecksetzen von
+     * `dirty` genuegte nicht: unser Effekt leitete es im naechsten Takt aus
+     * Entwurf ≠ gespeicherter Rolle wieder her. */
     discardSignal?: number;
-    /** Reflects whether the buffer differs from the saved role. The
-     * parent (settings dialog) reads this to gate the close-confirm. */
+    /** Ob der Entwurf von der gespeicherten Rolle abweicht. Das Elternteil
+     * (Einstellungsdialog) haengt seine Schliessen-Rueckfrage daran. */
     dirty?: boolean;
   } = $props();
 
-  let allRoles = $derived(rolesStore.byGuild[guildId] ?? []);
-  let sortedRoles = $derived(
-    [...allRoles].sort((a, b) =>
-      a.is_everyone === b.is_everyone ? b.position - a.position : a.is_everyone ? 1 : -1
-    )
+  const entwurf = new Rollenentwurf();
+  const liste = new Traegerliste();
+
+  let alle = $derived(rolesStore.byGuild[guildId] ?? []);
+  let hoechsteZuerst = $derived(
+    alle.filter((r) => !r.is_everyone).sort((a, b) => b.position - a.position)
   );
-  let nonEveryoneList = $derived(sortedRoles.filter((x) => !x.is_everyone));
-  // id -> index within nonEveryoneList, so the per-row reorder checks below are
-  // O(1) instead of an O(N) findIndex per row (overall O(N²) in the {#each}).
-  let nonEveryoneIdx = $derived(new Map(nonEveryoneList.map((x, i) => [x.id, i])));
+  let everyone = $derived(alle.find((r) => r.is_everyone));
+
   let selectedId = $state<string | null>(null);
   /** Beim ersten Anzeigen darf die oberste Rolle ersatzweise einspringen,
-   * damit die Maske nicht leer aufgeht. Danach nicht mehr: sonst rueckt
-   * die Auswahl nach dem Loeschen still auf die naechste Rolle nach, der
-   * Papierkorb steht unveraendert an derselben Stelle und ist sofort
-   * wieder scharf — zweimal Loeschen traefe zwei verschiedene Rollen,
-   * ohne dass irgendwo stuende, dass sich das Ziel geaendert hat. */
-  let autoSelectTop = $state(true);
+   * damit die Maske nicht leer aufgeht. Danach nicht mehr — siehe die
+   * Loesch-Begruendung im Kopf dieser Datei. */
+  let autoErste = $state(true);
   let selectedRole = $derived(
-    sortedRoles.find((r) => r.id === selectedId) ?? (autoSelectTop ? sortedRoles[0] : undefined)
+    alle.find((r) => r.id === selectedId) ?? (autoErste ? (hoechsteZuerst[0] ?? everyone) : undefined)
   );
+
+  let reiter = $state<Reiter>('rechte');
+
+  let speichert = $state(false);
+  let aenderungen = $derived(entwurf.aenderungen(selectedRole));
+
+  // Traegerzahlen einmal je Community holen. `untrack`, damit der Effekt
+  // nicht an den Zustandsfeldern der Liste haengt, die das Laden selbst
+  // schreibt (sonst laeuft er waehrend seines eigenen Ladevorgangs neu).
+  let geladenFuer = '';
+  $effect(() => {
+    const gid = guildId;
+    if (!gid || gid === geladenFuer) return;
+    geladenFuer = gid;
+    untrack(() => void liste.laden(gid));
+  });
 
   /** Einzige Stelle, an der die Auswahl gesetzt wird — damit der Ersatz
    * oben nie versehentlich wieder greift. `null` = Leerzustand. */
-  function select(id: string | null): void {
+  function waehlen(id: string | null): void {
     selectedId = id;
-    autoSelectTop = false;
+    autoErste = false;
   }
 
-  // Drag-and-drop position state. dragId is the role being moved; dragOver
-  // is the role we'd insert *before*. @everyone is fixed at position 0
-  // and neither draggable nor a drop target.
-  let dragId = $state<string | null>(null);
-  let dragOverId = $state<string | null>(null);
-
-  function onDragStart(e: DragEvent, id: string): void {
-    if (!e.dataTransfer) return;
-    dragId = id;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', id);
-  }
-
-  function onDragOver(e: DragEvent, id: string): void {
-    if (!dragId || dragId === id) return;
-    e.preventDefault();
-    dragOverId = id;
-  }
-
-  /** Reset drag state when a drag ends without a valid drop (released
-   * outside any row, Escape mid-drag). The browser fires `dragend` on the
-   * source element in those cases but no `drop`, so onDrop never clears the
-   * source-row opacity / hover ring. */
-  function onDragEnd(): void {
-    dragId = null;
-    dragOverId = null;
-  }
-
-  /** Push the new order to the server. Top-of-list = highest position
-   * so the visual order matches Discord's "highest role = top" mental
-   * model. Both onDrop and move() funnel through here.
-   *
-   * Es gehen NUR die tatsaechlich bewegten Rollen mit: der Server
-   * (`roles.py::update_role_positions`) lehnt jeden Eintrag ab, dessen
-   * alte ODER neue Position auf oder ueber der Hoechstposition des
-   * Bearbeiters liegt — und dessen eigene hoechste Rolle steckte in der
-   * frueheren Nutzlast (ganze Liste durchnummeriert) immer mit drin, was
-   * jeden Pfeilklick fuer alle ausser Besitzer/Instanz-Admin auf 403
-   * warf. Bewegt ist der zusammenhaengende Bereich zwischen erster und
-   * letzter Abweichung zur alten Reihenfolge; darin werden die BEREITS
-   * VORHANDENEN Positionswerte durchgereicht statt neu vergeben, damit
-   * die Menge der Positionen unveraendert bleibt (keine neuen
-   * Gleichstaende, nichts rutscht ueber die Decke des Bearbeiters). */
-  async function commitOrder(reordered: Role[]): Promise<void> {
-    const before = nonEveryoneList;
-    let lo = 0;
-    while (lo < before.length && before[lo].id === reordered[lo].id) lo++;
-    let hi = before.length - 1;
-    while (hi > lo && before[hi].id === reordered[hi].id) hi--;
-    if (lo >= hi) return; // nichts bewegt
-    const updates: { id: string; position: number }[] = [];
-    for (let i = lo; i <= hi; i++) {
-      const position = before[i].position;
-      if (reordered[i].position !== position) {
-        updates.push({ id: reordered[i].id, position });
-      }
+  // Uebernahme in den Entwurf passiert ausdruecklich beim Wechsel, nicht
+  // laufend: ein Effekt, der die Rolle staendig spiegelt, wuerfe die
+  // Eingabe des Nutzers weg, sobald ein `role_updated` hereinkommt.
+  let zuletztGeladen = $state<string | null>(null);
+  $effect(() => {
+    if (selectedRole && selectedRole.id !== zuletztGeladen) {
+      entwurf.uebernehmen(selectedRole);
+      zuletztGeladen = selectedRole.id;
     }
-    if (updates.length === 0) {
-      // Entartet: alle Positionen im Bereich sind gleich (der Server
-      // erlaubt Gleichstand). Ohne verschiedene Werte laesst sich die
-      // neue Reihenfolge nicht ausdruecken — melden statt still nichts tun.
+  });
+
+  $effect(() => {
+    dirty = aenderungen > 0;
+  });
+
+  let letztesSignal = $state(0);
+  $effect(() => {
+    const sig = discardSignal;
+    if (sig !== letztesSignal) {
+      letztesSignal = sig;
+      entwurf.uebernehmen(selectedRole);
+    }
+  });
+
+  let wechselZiel = $state<string | null>(null);
+  let wechselRueckfrage = $state(false);
+
+  function versuchenZuWechseln(id: string): void {
+    // Bereits gezeigt: nur festnageln, keine Rueckfrage (es wechselt ja
+    // nichts). Ohne das Festnageln stuende die Auswahl beim Ersatz oben
+    // weiter auf `null` und wanderte beim naechsten Umsortieren still mit.
+    if (id === selectedRole?.id) return waehlen(id);
+    if (dirty) {
+      wechselZiel = id;
+      wechselRueckfrage = true;
+      return;
+    }
+    waehlen(id);
+  }
+
+  function wechselBestaetigen(): void {
+    if (wechselZiel) {
+      waehlen(wechselZiel);
+      wechselZiel = null;
+    }
+    wechselRueckfrage = false;
+  }
+
+  async function umsortieren(neu: Role[]): Promise<void> {
+    const zug = bewegterAusschnitt(hoechsteZuerst, neu);
+    if (zug.art === 'unveraendert') return;
+    if (zug.art === 'nicht_darstellbar') {
       toast.error(m.roles_editor_reorder_failed());
       return;
     }
     try {
-      const rows = await rolesApi.setPositions(guildId, updates);
-      for (const r of rows) rolesStore.upsertRole(r);
+      const zeilen = await rolesApi.setPositions(guildId, zug.eintraege);
+      for (const r of zeilen) rolesStore.upsertRole(r);
     } catch (err) {
       toast.error(m.roles_editor_reorder_failed(), { description: (err as Error).message });
     }
   }
 
-  async function onDrop(e: DragEvent, targetId: string): Promise<void> {
-    e.preventDefault();
-    const sourceId = dragId;
-    dragId = null;
-    dragOverId = null;
-    if (!sourceId || sourceId === targetId) return;
-    const fromIdx = nonEveryoneIdx.get(sourceId) ?? -1;
-    const toIdx = nonEveryoneList.findIndex((r) => r.id === targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const reordered = [...nonEveryoneList];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    await commitOrder(reordered);
-  }
-
-  /** Move a role one slot up (-1) or down (+1) in the visual list.
-   * Used by the touch/keyboard fallback buttons — drag-and-drop is
-   * still the primary path on desktop. @everyone is locked at the
-   * bottom; swaps that would cross it are no-ops. */
-  async function move(roleId: string, direction: -1 | 1): Promise<void> {
-    const idx = nonEveryoneIdx.get(roleId) ?? -1;
-    if (idx < 0) return;
-    const target = idx + direction;
-    if (target < 0 || target >= nonEveryoneList.length) return;
-    const reordered = [...nonEveryoneList];
-    [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
-    await commitOrder(reordered);
-  }
-
-  // Local edit buffer — the user changes name/permissions/color before
-  // hitting Save. Cancel reverts. Saved on PATCH success.
-  let editName = $state('');
-  let editPermissions = $state('0');
-  let editColor = $state<string>('#9ca3af'); // gray-400, matches "no colour" default
-  let editColorEnabled = $state(false);
-  let editHoist = $state(false);
-  let editMentionable = $state(false);
-  let editColorInt = $derived(editColorEnabled ? parseInt(editColor.replace('#', ''), 16) : null);
-  let isSaving = $state(false);
-  let deleteConfirm = $state(false);
-  let deleteTarget = $state<Role | undefined>(undefined);
-  let isDeleting = $state(false);
-
-  // Mirror the selected role into the buffer. We *can't* use $effect for
-  // this safely because that would constantly reset the user's pending
-  // edits whenever WS pushes a role_updated for the very role we're
-  // editing. Instead we snapshot manually on switch + after save.
-  function loadIntoBuffer(r: Role | undefined): void {
-    if (!r) return;
-    editName = r.name;
-    editPermissions = r.permissions;
-    editColorEnabled = r.color != null;
-    editColor = r.color != null
-      ? '#' + r.color.toString(16).padStart(6, '0')
-      : '#9ca3af';
-    editHoist = r.hoist;
-    editMentionable = r.mentionable;
-  }
-
-  // Initial load + auto-load on role-list arrival (when no selection yet).
-  let lastLoadedId = $state<string | null>(null);
-  $effect(() => {
-    if (selectedRole && selectedRole.id !== lastLoadedId) {
-      // Only reload when we just switched to a *different* role;
-      // don't trample the buffer on re-render of the same selection.
-      loadIntoBuffer(selectedRole);
-      lastLoadedId = selectedRole.id;
-    }
-  });
-
-  // Dirty = buffer differs from the persisted role. Drives the
-  // "Verwerfen / Speichern"-bar + the parent's close-confirm.
-  $effect(() => {
-    if (!selectedRole) {
-      dirty = false;
-      return;
-    }
-    dirty =
-      editName !== selectedRole.name ||
-      editPermissions !== selectedRole.permissions ||
-      editColorInt !== selectedRole.color ||
-      editHoist !== selectedRole.hoist ||
-      editMentionable !== selectedRole.mentionable;
-  });
-
-  let pendingSwitchId = $state<string | null>(null);
-  let switchConfirmOpen = $state(false);
-
-  function trySelect(id: string): void {
-    if (id === selectedId) return;
-    if (dirty) {
-      pendingSwitchId = id;
-      switchConfirmOpen = true;
-      return;
-    }
-    select(id);
-  }
-
-  function confirmDiscardAndSwitch(): void {
-    if (pendingSwitchId) {
-      select(pendingSwitchId);
-      pendingSwitchId = null;
-    }
-    switchConfirmOpen = false;
-  }
-
-  function discardEdits(): void {
-    if (selectedRole) loadIntoBuffer(selectedRole);
-  }
-
-  // Parent-driven discard (tab-switch / close confirm). The initial
-  // value is captured on mount via untrack so subsequent changes from
-  // the parent trigger the reset.
-  let lastDiscardSignal = $state(0);
-  $effect(() => {
-    const sig = discardSignal;
-    if (sig !== lastDiscardSignal) {
-      lastDiscardSignal = sig;
-      discardEdits();
-    }
-  });
-
-  async function createRole(): Promise<void> {
+  async function anlegen(payload: RoleCreatePayload): Promise<void> {
     try {
-      const r = await rolesApi.create(guildId, { name: m.roles_editor_new_role_default_name(), permissions: '0' });
+      const r = await rolesApi.create(guildId, payload);
       rolesStore.upsertRole(r);
-      select(r.id);
-      // Seed the buffer synchronously and pin lastLoadedId so the
-      // selection-effect won't fire afterwards and trample any
-      // immediate user edit (e.g. typing into the name input right
-      // after pressing "Neue Rolle"). Without this, the effect runs
-      // on the next tick — after a fast `input` event has already
-      // landed — and resets editName back to "Neue Rolle", leaving
-      // dirty=false and the Save button disabled.
-      loadIntoBuffer(r);
-      lastLoadedId = r.id;
+      waehlen(r.id);
+      // Entwurf sofort setzen und `zuletztGeladen` festnageln, damit der
+      // Auswahl-Effekt nicht im naechsten Takt eine bereits getippte
+      // Eingabe ueberschreibt (Name antippen direkt nach dem Anlegen).
+      entwurf.uebernehmen(r);
+      zuletztGeladen = r.id;
+      reiter = 'rechte';
       toast.success(m.roles_editor_role_created());
     } catch (err) {
       toast.error(m.roles_editor_role_create_failed(), { description: (err as Error).message });
     }
   }
 
-  async function saveRole(): Promise<void> {
+  async function speichern(): Promise<void> {
     if (!selectedRole) return;
-    isSaving = true;
+    speichert = true;
     try {
-      // ``color: null`` clears the colour (members fall back to default
-      // text colour). HTML's <input type="color"> only emits "#rrggbb"
-      // strings; editColorInt derives the parsed int reactively.
-      const r = await rolesApi.patch(guildId, selectedRole.id, {
-        name: selectedRole.is_everyone ? undefined : editName,
-        permissions: editPermissions,
-        color: editColorInt,
-        hoist: editHoist,
-        mentionable: editMentionable
-      });
+      const r = await rolesApi.patch(guildId, selectedRole.id, entwurf.alsAenderung(selectedRole));
       rolesStore.upsertRole(r);
-      // Re-snapshot so dirty flips back to false. Without this the new
-      // role state from upsertRole would race with the buffer.
-      loadIntoBuffer(r);
+      // Neu uebernehmen, damit `dirty` zurueckfaellt — sonst raece der
+      // frische Rollenstand aus `upsertRole` mit dem Entwurf.
+      entwurf.uebernehmen(r);
       toast.success(m.roles_editor_role_saved());
     } catch (err) {
       toast.error(m.roles_editor_save_failed(), { description: (err as Error).message });
     } finally {
-      isSaving = false;
+      speichert = false;
     }
   }
 
-  /** Loeschziel beim Oeffnen festhalten: `selectedRole` ist abgeleitet und
-   * kann sich waehrend der Rueckfrage verschieben (WS-Event, Neusortierung)
-   * — so nennt der Bestaetigungstext die Rolle, die auch wirklich faellt.
-   * Wird beim naechsten Oeffnen ueberschrieben statt beim Schliessen
-   * geleert, sonst flackert der Text waehrend des Zuklappens leer. */
-  function askDelete(): void {
-    if (!selectedRole || selectedRole.is_everyone) return;
-    deleteTarget = selectedRole;
-    deleteConfirm = true;
-  }
-
-  async function deleteRole(): Promise<void> {
-    const target = deleteTarget;
-    // isDeleting sperrt zusaetzlich den Knopf: bits-ui schliesst den Dialog
-    // beim Bestaetigen nicht selbst (die Vendor-Action ueberschreibt den
-    // Schliess-Handler), ein zweiter Klick im Flug schickte sonst dasselbe
-    // DELETE erneut -> 404-Toast fuer eine laengst geloeschte Rolle.
-    if (!target || target.is_everyone || isDeleting) return;
-    isDeleting = true;
-    try {
-      await rolesApi.delete(guildId, target.id);
-      rolesStore.removeRole(guildId, target.id);
-      select(null);
-      toast.success(m.roles_editor_role_deleted());
-    } catch (err) {
-      toast.error(m.roles_editor_delete_failed(), { description: (err as Error).message });
-    } finally {
-      isDeleting = false;
-      // Auch im Fehlerfall zu — sonst steht der Dialog offen da, ohne
-      // dass man sieht warum; der Grund steht im Toast.
-      deleteConfirm = false;
-    }
+  function geloescht(roleId: string): void {
+    liste.rolleVergessen(roleId);
+    waehlen(null);
   }
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="roles-editor">
-  <aside class="w-full shrink-0 md:w-64">
+  <aside class="w-full shrink-0 md:w-72">
     <div class="mb-2 flex items-center justify-between">
       <h2 class="text-text-bright text-base font-semibold">{m.roles_editor_roles_heading()}</h2>
-      <Button size="icon-sm" variant="ghost" onclick={createRole} data-testid="role-create">
-        <PlusIcon />
-      </Button>
+      <RolleAnlegenMenu {editorPermissions} auswahl={selectedRole} oncreate={anlegen} />
     </div>
-    <ul class="space-y-1">
-      {#each sortedRoles as r, idx (r.id)}
-        {@const localIdx = nonEveryoneIdx.get(r.id) ?? -1}
-        {@const isFirst = localIdx === 0}
-        {@const isLast = localIdx === nonEveryoneList.length - 1}
-        <li
-          draggable={!r.is_everyone}
-          ondragstart={(e) => !r.is_everyone && onDragStart(e, r.id)}
-          ondragover={(e) => !r.is_everyone && onDragOver(e, r.id)}
-          ondragleave={() => (dragOverId = null)}
-          ondragend={onDragEnd}
-          ondrop={(e) => !r.is_everyone && onDrop(e, r.id)}
-          class="flex items-center gap-1 rounded-xl pr-1 transition-shadow"
-          class:ring-2={dragOverId === r.id}
-          class:ring-primary={dragOverId === r.id}
-          class:opacity-50={dragId === r.id}
-          data-testid={`role-row-${r.id}`}
-        >
-          <button
-            type="button"
-            class="hover:bg-bg-hover flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors"
-            class:bg-bg-hover={selectedRole?.id === r.id}
-            onclick={() => trySelect(r.id)}
-          >
-            <span class="font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
-              {r.name}
-            </span>
-            {#if r.is_everyone}<span class="text-text-muted ml-1 text-xs">({m.roles_editor_implicit()})</span>{/if}
-          </button>
-          {#if !r.is_everyone}
-            <div class="flex flex-col">
-              <button
-                type="button"
-                class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
-                disabled={isFirst}
-                onclick={() => move(r.id, -1)}
-                aria-label={m.roles_editor_move_up()}
-                data-testid={`role-move-up-${r.id}`}
-              >
-                <ChevronUpIcon class="size-3" />
-              </button>
-              <button
-                type="button"
-                class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
-                disabled={isLast}
-                onclick={() => move(r.id, 1)}
-                aria-label={m.roles_editor_move_down()}
-                data-testid={`role-move-down-${r.id}`}
-              >
-                <ChevronDownIcon class="size-3" />
-              </button>
-            </div>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-    <p class="text-text-muted mt-2 text-xs">
-      {m.roles_editor_reorder_hint()}
-    </p>
+    <RollenLeiter
+      rollen={hoechsteZuerst}
+      {everyone}
+      selectedId={selectedRole?.id}
+      anzahl={(r) => liste.anzahl(r.id, r.is_everyone)}
+      onselect={versuchenZuWechseln}
+      onreorder={umsortieren}
+    />
   </aside>
 
-  <section class="min-w-0 flex-1 overflow-y-auto">
+  <section class="flex min-w-0 flex-1 flex-col">
     {#if selectedRole}
-      <div class="mb-4 flex items-end justify-between gap-3">
-        <div class="min-w-0 flex-1 space-y-2">
-          <Label for="role-name">{m.roles_editor_name_label()}</Label>
-          <Input
-            id="role-name"
-            bind:value={editName}
-            disabled={selectedRole.is_everyone}
-            data-testid="role-name-input"
-          />
-          {#if selectedRole.is_everyone}
-            <p class="text-text-muted text-xs">{m.roles_editor_everyone_no_rename()}</p>
-          {/if}
-        </div>
-        {#if !selectedRole.is_everyone}
-          <Button
-            variant="ghost"
-            size="sm"
-            onclick={askDelete}
-            data-testid="role-delete-btn"
-          >
-            <TrashIcon /> {m.roles_editor_delete_btn()}
-          </Button>
-        {/if}
-      </div>
-
-      <div class="mb-4 space-y-2">
-        <Label>{m.roles_editor_color_label()}</Label>
-        <div class="flex items-center gap-3">
-          <label class="flex items-center gap-2 text-sm">
-            <Checkbox
-              bind:checked={editColorEnabled}
-              data-testid="role-color-enabled"
-            />
-            {m.roles_editor_color_use()}
-          </label>
-          <input
-            type="color"
-            bind:value={editColor}
-            disabled={!editColorEnabled}
-            class="h-8 w-16 cursor-pointer rounded border border-border bg-transparent disabled:opacity-40"
-            data-testid="role-color-input"
-            aria-label={m.roles_editor_color_pick()}
-          />
-          <span
-            class="text-sm font-medium"
-            style={editColorEnabled ? `color: ${editColor}` : ''}
-          >
-            {editName || m.roles_editor_role_name_placeholder()}
-          </span>
-        </div>
-        <p class="text-text-muted text-xs">
-          {m.roles_editor_color_hint()}
-        </p>
-      </div>
-
-      <div class="mb-4 flex flex-wrap gap-4">
-        <label class="flex items-center gap-2 text-sm">
-          <Checkbox bind:checked={editHoist} />
-          {m.roles_editor_hoist_label()}
-        </label>
-        <label class="flex items-center gap-2 text-sm">
-          <Checkbox bind:checked={editMentionable} />
-          {m.roles_editor_mentionable_label()}
-        </label>
-      </div>
-
-      <PermissionToggleGrid bind:value={editPermissions} {editorPermissions} disabled={isSaving} />
-
-      <div class="mt-6 flex items-center justify-between gap-2 rounded-xl border border-border bg-bg-input/60 px-3 py-2">
-        <span class="text-text-muted text-xs">
-          {dirty ? m.roles_editor_unsaved_changes() : m.roles_editor_no_changes()}
-        </span>
-        <div class="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onclick={discardEdits}
-            disabled={!dirty || isSaving}
-            data-testid="role-discard"
-          >
-            {m.roles_editor_discard_btn()}
-          </Button>
-          <Button
-            onclick={saveRole}
-            disabled={!dirty || isSaving}
-            data-testid="role-save"
-          >
-            {isSaving ? m.roles_editor_saving() : m.roles_editor_save_btn()}
-          </Button>
-        </div>
-      </div>
+      <RolleDetail
+        {guildId}
+        {editorPermissions}
+        role={selectedRole}
+        {entwurf}
+        {liste}
+        {speichert}
+        {dirty}
+        {aenderungen}
+        bind:reiter
+        onsave={speichern}
+        ondiscard={() => entwurf.uebernehmen(selectedRole)}
+        ondeleted={geloescht}
+      />
     {:else}
       <EmptyState message={m.roles_editor_empty_hint()} />
     {/if}
   </section>
 </div>
 
-<AlertDialog.Root bind:open={switchConfirmOpen}>
+<AlertDialog.Root bind:open={wechselRueckfrage}>
   <AlertDialog.Content data-testid="role-switch-confirm">
     <AlertDialog.Header>
       <AlertDialog.Title>{m.roles_editor_switch_confirm_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {m.roles_editor_switch_confirm_desc({ roleName: selectedRole?.name ?? m.roles_editor_this_role() })}
-      </AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={confirmDiscardAndSwitch}>{m.roles_editor_discard_btn()}</AlertDialog.Action>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>
-
-<AlertDialog.Root bind:open={deleteConfirm}>
-  <AlertDialog.Content data-testid="role-delete-confirm">
-    <AlertDialog.Header>
-      <AlertDialog.Title>{m.roles_editor_delete_confirm_title()}</AlertDialog.Title>
-      <AlertDialog.Description>
-        {m.roles_editor_delete_confirm_desc({
-          roleName: deleteTarget?.name ?? m.roles_editor_this_role()
+        {m.roles_editor_switch_confirm_desc({
+          roleName: selectedRole?.name ?? m.roles_editor_this_role()
         })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={isDeleting}>{m.roles_editor_cancel()}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={deleteRole} disabled={isDeleting} data-testid="role-delete-confirm-btn">
-        {m.roles_editor_delete_btn()}
+      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={wechselBestaetigen}>
+        {m.roles_editor_discard_btn()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
