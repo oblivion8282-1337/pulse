@@ -24,6 +24,21 @@
 
 import { loadAll, saveAll } from '$lib/stream/persistence';
 
+/**
+ * Was für ein Vorgang das war.
+ *
+ * **`weckruf` ist der wichtigere der beiden** (Bughunt 2026-08-16): eine
+ * Übernahme sieht der Besitzer ohnehin am Gerät stehen, aber ein Weckruf, aus
+ * dem NIE eine Sitzung wurde, hinterliess bis dahin keine Spur — obwohl der
+ * Rechner dabei sein Bild in den Kanal überträgt. Genau die Fälle, die keiner
+ * Zustimmung bedürfen (die Anfrage lief ins Leere, der Steuernde hatte kein
+ * `REMOTE_CONTROL`, der Encoder brauchte zu lange), waren damit unsichtbar.
+ *
+ * Fehlt das Feld, ist der Eintrag aus einer älteren Fassung und meint eine
+ * Sitzung — die einzige Art, die es damals gab.
+ */
+export type ProtokollArt = 'sitzung' | 'weckruf';
+
 /** Ein Vorgang: eine Sitzung, von der Zustimmung bis zum Ende. */
 export interface ProtokollEintrag {
   /** Sitzungskennung — zugleich die Zuordnung beim Abschluss. */
@@ -42,6 +57,8 @@ export interface ProtokollEintrag {
    *  der ganze Punkt des Protokolls: eine Übernahme, der niemand zugesehen
    *  hat, muss sich von einer bestätigten unterscheiden lassen. */
   selbsttaetig: boolean;
+  /** Sitzung oder blosser Weckruf (s. [`ProtokollArt`]). Fehlt = Sitzung. */
+  art?: ProtokollArt;
 }
 
 /**
@@ -65,7 +82,9 @@ function istEintrag(roh: unknown): roh is ProtokollEintrag {
     typeof o.name === 'string' &&
     typeof o.beginn === 'number' &&
     (o.ende === null || typeof o.ende === 'number') &&
-    typeof o.selbsttaetig === 'boolean'
+    typeof o.selbsttaetig === 'boolean' &&
+    // Fehlend ist gültig — Einträge aus der Zeit vor der Art (s. dort).
+    (o.art === undefined || o.art === 'sitzung' || o.art === 'weckruf')
   );
 }
 
@@ -109,10 +128,11 @@ class RemoteProtokoll {
     von: string,
     name: string,
     selbsttaetig: boolean,
+    art: ProtokollArt = 'sitzung',
   ): Promise<void> {
     if (!id || this.eintraege.some((e) => e.id === id)) return;
     this.eintraege = [
-      { id, von, name, beginn: Date.now(), ende: null, selbsttaetig },
+      { id, von, name, beginn: Date.now(), ende: null, selbsttaetig, art },
       ...this.eintraege,
     ].slice(0, HOECHSTZAHL);
     await this.#sichern();

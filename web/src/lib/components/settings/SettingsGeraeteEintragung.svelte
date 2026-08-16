@@ -15,6 +15,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { devicesApi } from '$lib/api/devices';
+  import { ApiError } from '$lib/api/client';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -54,7 +55,21 @@
       // der frisch eingetragene Rechner bis zum nächsten Verbindungsaufbau als
       // „offline" in der Liste — direkt nachdem jemand ihn eingetragen hat, ist
       // das die verwirrendste mögliche Auskunft.
-      gatewayForServer(serverId)?.sendDeviceAnnounce(device.id);
+      //
+      // Über `anmelden()` und NICHT direkt über den Sender (Bughunt
+      // 2026-08-16): der Sender lässt die Bildschirmliste sonst leer, und eine
+      // leere Liste übernimmt der Server bewusst nicht. Der Rechner stand
+      // damit bis zum nächsten Verbindungsaufbau — bei einem Standplatz-Gerät
+      // womöglich tagelang — mit einem einzigen „Hauptbildschirm" da, und wer
+      // gleich nach dem Einrichten prüfte, hielt die Mehrschirm-Funktion für
+      // nicht vorhanden.
+      const conn = gatewayForServer(serverId);
+      if (conn) {
+        await geraeteAnmeldung.anmelden(
+          (deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore),
+          { serverId, guildId: device.guild_id, deviceId: device.id, name: device.name },
+        );
+      }
       deviceStore._changed(device.guild_id, device, false);
       geraetName = '';
     } catch (e) {
@@ -77,7 +92,18 @@
       await devicesApi.remove(e.guildId, e.deviceId);
       await geraeteAnmeldung.vergessen(e.deviceId);
     } catch (err) {
-      eintragFehler = err instanceof Error ? err.message : String(err);
+      // **404 heisst fertig, nicht gescheitert** (Bughunt 2026-08-16): die Zeile
+      // ist auf dem Server nicht mehr da — ein anderer Rechner desselben Kontos
+      // oder ein Admin war schneller. Bis hierher blieb die lokale Eintragung
+      // in genau diesem Fall stehen, und der Rechner meldete sich fortan bei
+      // JEDEM Verbindungsaufbau als ein Gerät an, das es nicht gibt; der Server
+      // verwarf das still. Sichtbar war davon nur, dass „Eintragung entfernen"
+      // nichts bewirkt hat.
+      if (err instanceof ApiError && err.status === 404) {
+        await geraeteAnmeldung.vergessen(e.deviceId);
+      } else {
+        eintragFehler = err instanceof Error ? err.message : String(err);
+      }
     } finally {
       eintragBusy = false;
     }

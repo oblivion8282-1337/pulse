@@ -34,6 +34,10 @@ export function register(): void {
       dispatchingServerId(),
       String(evt.device_id),
       String(evt.channel_id),
+      // Wer geweckt hat, kommt mit: der Weckruf ist ein Eingriff an einem
+      // unbeaufsichtigten Rechner und gehoert deshalb ins Geraete-Protokoll —
+      // auch dann, wenn nie eine Uebernahme daraus wird (`wecken.ts`).
+      typeof evt.from_user_id === 'string' ? evt.from_user_id : null,
       typeof evt.monitor === 'number' ? evt.monitor : undefined,
     );
   });

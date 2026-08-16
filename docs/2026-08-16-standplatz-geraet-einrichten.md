@@ -39,7 +39,12 @@ Sprecherliste auf.
    geschlossenes Pulse ist ein offline stehendes Gerät.
 
 Danach steht der Rechner in der Kanalliste unter „Geräte". Ein Klick darauf
-öffnet ihn im Hauptbereich, ein weiterer weckt ihn und holt das Bild.
+öffnet ihn im Hauptbereich, ein weiterer weckt ihn, holt das Bild in ein eigenes
+Player-Fenster **und übernimmt** — der Knopf heisst nicht umsonst „Wecken und
+übernehmen". Ein getrenntes „Fernsteuerung anfragen" gibt es hier nicht mehr:
+die Zustimmung ist als Dauerfreigabe vorverlegt, es gäbe nichts zu fragen. Die
+Anfrage geht trotzdem erst hinaus, **wenn das Bild da ist** — sonst hinge eine
+Sitzungszusage an einer Encoder-Initialisierung.
 
 ## Mehrere Bildschirme
 
