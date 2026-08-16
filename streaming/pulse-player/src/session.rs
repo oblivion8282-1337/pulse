@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::Ordering::Relaxed;
 
 use tokio::sync::mpsc;
 
@@ -302,14 +303,18 @@ pub async fn run(
     let mut assemblers: HashMap<Codec, Assembler> = HashMap::new();
     // Leer, solange `PULSE_PLAYER_DUMP_RTP` nicht gesetzt ist (s. `dump`).
     let mut dumps: HashMap<Codec, Option<crate::dump::RtpDump>> = HashMap::new();
-    let mut decoder: Option<VideoDecoder> = None;
+    let mut decoder: Option<crate::decodefaden::Faden> = None;
+    // Bild-Luecken, die DIESE Schleife gesehen hat — der Decoder-Faden zaehlt
+    // seine unvorzeigbaren Bilder getrennt, beide gehen in `frames_dropped`.
+    let mut luecken: u64 = 0;
     let mut media = MediaSink::new();
     media.apply_options(&options);
     // Gemeinsame Zeitbasis fuer den Mitschnitt: Millisekunden seit Sitzungsstart.
     let started = Instant::now();
     let mut stats =
         SessionStats { jitter_target_ms: target.as_millis() as u64, ..Default::default() };
-    let mut announced_playing = false;
+    // „Es lief schon einmal ein Bild" liegt beim Decoder-Faden
+    // (`decodefaden::Zustand::spielt`) — nur er sieht die Bilder.
     let mut last_stats = Instant::now();
     // Abriss-Erkennung: wie viele Fenster in Folge kein Byte kam, und der
     // Stand, gegen den verglichen wird.
@@ -482,7 +487,7 @@ pub async fn run(
                 // Enden die Tracks, BEVOR je ein Bild kam, ist das ein
                 // gescheiterter Aufbau und kein regulaeres Ende.
                 let Some(arrival) = arrival else {
-                    break 'sitzung ("track beendet".to_string(), !announced_playing);
+                    break 'sitzung ("track beendet".to_string(), !schon_gespielt(&decoder));
                 };
                 let codec = arrival.codec;
                 // Ankunfts-Abstand der VIDEO-Pakete, so früh wie möglich
@@ -555,7 +560,7 @@ pub async fn run(
 
         // Auffangnetz gegen jede Art von haengendem Aufbau. Greift nur bis zum
         // ersten Bild; danach ist ein stiller Strom Sache des Senders.
-        if !announced_playing && started.elapsed() > FIRST_FRAME_TIMEOUT {
+        if !schon_gespielt(&decoder) && started.elapsed() > FIRST_FRAME_TIMEOUT {
             break 'sitzung (
                 format!(
                     "kein Bild nach {} s — Verbindung kam nicht zustande",
@@ -596,8 +601,8 @@ pub async fn run(
                         // aufgefallen, eingebaut wenige Stunden zuvor mit dem
                         // Absturzschutz.
                         if codec.is_video() {
-                            if let Some(d) = decoder.as_mut() {
-                                d.on_gap();
+                            if let Some(f) = decoder.as_ref() {
+                                f.luecke();
                             }
                             // Und beim Sender ein Vollbild anfordern, sonst
                             // dauert das Warten bis zum naechsten regulaeren
@@ -609,7 +614,7 @@ pub async fn run(
                                 }
                             }
                         }
-                        stats.frames_dropped += 1;
+                        luecken += 1;
                         continue;
                     }
                     // Die Ankunftszeit reist mit: sie ist der Startpunkt der
@@ -666,36 +671,27 @@ pub async fn run(
                     continue;
                 }
 
-                let dec = match decoder.as_mut() {
-                    Some(d) => d,
-                    None => match VideoDecoder::new(*codec, options.hwdec, geraet.clone()) {
-                        Ok(d) => decoder.insert(d),
-                        Err(e) => break 'sitzung (format!("Decoder: {e:#}"), true),
-                    },
-                };
-
-                match emit_frames(
-                    dec,
-                    &unit,
+                // Der Decoder sitzt auf einem eigenen Faden (Begruendung in
+                // `crate::decodefaden`): sein Warten auf die Grafikeinheit —
+                // gemessen bis zu zwei Sekunden, bis der Kernel deren Videoring
+                // zuruecksetzt — darf diese Schleife nicht anhalten. Sie holt
+                // waehrenddessen weiter RTP ab und reicht Ton durch.
+                let faden = decoder.get_or_insert_with(|| {
+                    crate::decodefaden::Faden::starten(
+                        *codec,
+                        options.hwdec,
+                        geraet.clone(),
+                        events.clone(),
+                    )
+                });
+                faden.einheit(
+                    unit.clone(),
                     Zeitmarken {
                         arrived: unit_arrived,
                         rtp_ts: unit_rtp_ts,
                         clock_rate: video_clock_rate,
                     },
-                    &mut stats,
-                    &mut announced_playing,
-                    &events,
-                )
-                .await
-                {
-                    Ok(()) => {}
-                    // Der Fenster-Thread ist weg — die Sitzung hat keinen
-                    // Abnehmer mehr. Kein Fehler, nur Ende.
-                    Err(EmitError::NoConsumer) => {
-                        break 'sitzung ("Fenster geschlossen".to_string(), false)
-                    }
-                    Err(EmitError::Decoder(reason)) => break 'sitzung (format!("Decoder: {reason}"), true),
-                }
+                );
 
                 // Zweiter, von der Lueckenmeldung UNABHAENGIGER Weg zur
                 // Rettung des Decoders.
@@ -713,10 +709,14 @@ pub async fn run(
                 // aus wie ein Haenger, deshalb wird der Pruefabstand groesser,
                 // solange sich nichts bewegt. Hier bleibt es bei „melden ->
                 // Decoder neu -> Vollbild anfordern".
-                if decoder.as_mut().is_some_and(VideoDecoder::eingefroren) {
-                    if let Some(d) = decoder.as_mut() {
-                        d.wegen_einfrieren_neu();
-                    }
+                //
+                // Erkannt und behoben wird beides auf dem Decoder-Faden — nur
+                // er besitzt den Decoder. Hier bleibt die Anforderung, denn nur
+                // diese Schleife hat den Rueckkanal.
+                if decoder
+                    .as_ref()
+                    .is_some_and(|f| f.zustand().vollbild_noetig.swap(false, Relaxed))
+                {
                     if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                         last_keyframe_request = Instant::now();
                         whep_session.request_keyframe(ssrc).await;
@@ -736,7 +736,9 @@ pub async fn run(
                 // Eigenes, laengeres Intervall als bei der Luecke: hier ist
                 // noch gar nichts zu retten, und fuenf Anforderungen je Sekunde
                 // waeren nur Last auf dem Rueckkanal.
-                if decoder.as_ref().is_some_and(VideoDecoder::wartet_auf_einstieg)
+                if decoder
+                    .as_ref()
+                    .is_some_and(|f| f.zustand().wartet_auf_einstieg.load(Relaxed))
                     && last_keyframe_request.elapsed() >= EINSTIEG_REQUEST_INTERVAL
                 {
                     if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
@@ -745,6 +747,43 @@ pub async fn run(
                     }
                 }
             }
+        }
+
+        // Die Messwerte des Decoder-Fadens einsammeln. Einmal je Durchlauf und
+        // nicht je Bild: es sind fortlaufende Zaehler, ein Zuweisen genuegt.
+        if let Some(f) = decoder.as_ref() {
+            let z = f.zustand();
+            stats.decode_sum_us = z.decode_sum_us.load(Relaxed);
+            stats.decode_count = z.decode_count.load(Relaxed);
+            stats.decode_max_us = z.decode_max_us.load(Relaxed);
+            stats.frames_decoded = z.frames_decoded.load(Relaxed);
+            stats.frames_skipped = z.uebersprungen.load(Relaxed);
+            // Zwei Quellen, eine Zahl: Luecken zaehlt diese Schleife (sie sieht
+            // sie), unvorzeigbare Bilder der Faden (er dekodiert sie).
+            stats.frames_dropped = luecken + z.verworfen.load(Relaxed);
+            stats.width = z.width.load(Relaxed);
+            stats.height = z.height.load(Relaxed);
+            stats.ten_bit_source = z.ten_bit.load(Relaxed);
+            if let Ok(g) = z.sendeart.lock() {
+                stats.sendeart = *g;
+            }
+
+            // Kommt der Faden nicht mehr nach, endet die Sitzung, statt still
+            // Speicher zu fuellen (s. `decodefaden::SCHLANGE_MAX`).
+            if f.ueberlastet() {
+                break 'sitzung (
+                    "Decoder kommt nicht mehr nach — Rueckstand zu gross".to_string(),
+                    true,
+                );
+            }
+            // Der Faden kann nur ablegen, dass er aufgehoert hat; beenden muss
+            // die Sitzung hier.
+            let ende = z.ende.lock().ok().and_then(|mut g| g.take());
+            if let Some(e) = ende {
+                break 'sitzung (e.grund, e.gescheitert);
+            }
+        } else {
+            stats.frames_dropped = luecken;
         }
 
         media.note_dimensions(stats.width, stats.height);
@@ -899,17 +938,13 @@ pub async fn run(
 }
 
 /// Dekodiert eine Zugriffseinheit und schiebt die fertigen Bilder nach vorne.
-/// `Err(())` heisst: der Fenster-Thread nimmt nichts mehr an, die Sitzung endet.
-/// Warum das Ausliefern von Bildern abgebrochen ist. Die beiden Faelle
-/// verlangen Gegensaetzliches: beim wegfallenden Abnehmer ist die Sitzung
-/// ordnungsgemaess zu Ende (das Fenster wurde geschlossen), beim defekten
-/// Decoder muss ein Fehler nach draussen — sonst haengt die Kachel im
-/// Renderer fuer immer im Zustand "verbinde".
-enum EmitError {
-    /// Der Fenster-Thread nimmt nichts mehr an.
-    NoConsumer,
-    /// Der Decoder ist endgueltig hin (s. `decode::VideoDecoder::decode`).
-    Decoder(String),
+/// Lief in dieser Sitzung schon ein Bild?
+///
+/// Zwei Entscheidungen haengen daran: der Abbruch „kein Bild nach N Sekunden"
+/// und die Frage, ob ein endender Track ein Fehler ist. Die Antwort kommt vom
+/// Decoder-Faden, weil nur er die Bilder sieht.
+fn schon_gespielt(faden: &Option<crate::decodefaden::Faden>) -> bool {
+    faden.as_ref().is_some_and(|f| f.zustand().spielt.load(Relaxed))
 }
 
 /// Die drei Zeitangaben, die eine Zugriffseinheit an ihre Bilder weitergibt.
@@ -917,7 +952,7 @@ enum EmitError {
 /// Zusammen und nicht als drei Parameter: sie gehoeren zusammen, und drei
 /// gleichartige `Option`s in einer Signatur sind die Sorte Stelle, an der zwei
 /// davon irgendwann vertauscht werden.
-struct Zeitmarken {
+pub(crate) struct Zeitmarken {
     /// Ankunft des abschliessenden Pakets — Start der gemessenen Latenz.
     arrived: Option<Instant>,
     /// Entstehungszeit beim Sender, auf dessen Uhr (s. `DecodedFrame::rtp_ts`).
@@ -925,14 +960,25 @@ struct Zeitmarken {
     clock_rate: u32,
 }
 
-async fn emit_frames(
+/// Eine Einheit dekodieren und die fertigen Bilder ans Fenster geben.
+///
+/// **Laeuft auf dem Decoder-Faden**, nicht in der Sitzungsschleife (Begruendung
+/// in [`crate::decodefaden`]). Deshalb schreibt sie ihre Messwerte in den
+/// geteilten [`Zustand`] statt in `SessionStats`, und deshalb ist sie synchron:
+/// auf diesem Faden gibt es keine Tokio-Laufzeit, an die man abgeben koennte —
+/// und genau das ist der Sinn der Sache.
+///
+/// Der Fehlerfall reist als `(Grund, gescheitert)` zurueck, weil der Faden ihn
+/// nur ablegen kann; die Sitzung beendet die Schleife.
+pub(crate) fn bilder_ausgeben(
     dec: &mut VideoDecoder,
     unit: &[u8],
     zeit: Zeitmarken,
-    stats: &mut SessionStats,
+    zustand: &crate::decodefaden::Zustand,
     announced_playing: &mut bool,
     events: &mpsc::Sender<SessionEvent>,
-) -> Result<(), EmitError> {
+) -> Result<(), (String, bool)> {
+    use std::sync::atomic::Ordering::Relaxed;
     // Dauer des Dekodierens getrennt gemessen: sie ist der eine Posten der
     // Latenzkette, den DIESES Programm allein verantwortet. Gemessen wird der
     // ganze Aufruf, also Einspeisen UND Abholen — bei ffmpeg laeuft das
@@ -940,12 +986,12 @@ async fn emit_frames(
     // Aufruf herausfallen. Der Wert ist damit die Verzoegerung der Kette, nicht
     // die reine Rechenzeit eines Bildes; genau das ist die interessante Groesse.
     let before = Instant::now();
-    let frames = dec.decode(unit).map_err(|e| EmitError::Decoder(format!("{e:#}")))?;
+    let frames = dec.decode(unit).map_err(|e| (format!("Decoder: {e:#}"), true))?;
     if !frames.is_empty() {
         let us = before.elapsed().as_micros() as u64;
-        stats.decode_sum_us += us;
-        stats.decode_count += 1;
-        stats.decode_max_us = stats.decode_max_us.max(us);
+        zustand.decode_sum_us.fetch_add(us, Relaxed);
+        zustand.decode_count.fetch_add(1, Relaxed);
+        zustand.decode_max_us.fetch_max(us, Relaxed);
     }
 
     // Waehrend der Reparatur nach einer Luecke rechnet der Decoder auf einem
@@ -956,25 +1002,35 @@ async fn emit_frames(
     let vorzeigbar = dec.ist_sauber();
     // Nach dem Dekodieren abgeholt, nicht davor: `decode` hat die Zaehler
     // gerade fortgeschrieben, wenn diese Einheit ein Vollbild war.
-    stats.sendeart = dec.sendeart();
+    if let Ok(mut g) = zustand.sendeart.lock() {
+        *g = dec.sendeart();
+    }
 
     for mut f in frames {
         f.arrived = zeit.arrived;
         f.rtp_ts = zeit.rtp_ts;
         f.clock_rate = zeit.clock_rate;
-        stats.frames_decoded += 1;
-        stats.width = f.width;
-        stats.height = f.height;
-        stats.ten_bit_source = f.ten_bit;
+        zustand.frames_decoded.fetch_add(1, Relaxed);
+        zustand.width.store(f.width, Relaxed);
+        zustand.height.store(f.height, Relaxed);
+        zustand.ten_bit.store(f.ten_bit, Relaxed);
         if !vorzeigbar {
-            stats.frames_dropped += 1;
+            zustand.verworfen.fetch_add(1, Relaxed);
             continue;
         }
         if !*announced_playing {
             *announced_playing = true;
+            zustand.spielt.store(true, Relaxed);
             let event =
                 SessionEvent::Playing { decoder: dec.name.clone(), hardware: dec.hardware };
-            let _ = events.send(event).await;
+            // `try_send` statt `send().await`: dieser Faden hat keine Tokio-
+            // Laufzeit. Ein voller Kanal kostet nur die Meldung „spielt jetzt",
+            // und die folgt beim naechsten Bild ohnehin nicht mehr — dafuer
+            // bleibt `announced_playing` in dem Fall stehen.
+            match events.try_send(event) {
+                Ok(()) => {}
+                Err(_) => *announced_playing = false,
+            }
         }
         // Bewusst `try_send` statt `send().await`: das hier ist Live-Wiedergabe.
         // Kommt der Fenster-Thread nicht mit, ist das NEUESTE Bild richtig und
@@ -992,8 +1048,9 @@ async fn emit_frames(
             dg::hoechstens(&dg::KANAL_MAX, belegt);
             dg::hoch(&dg::BILDER_LAUFEND, 1);
             let jetzt = Instant::now();
-            // Global und nicht thread-lokal: `emit_frames` ist ein Future und
-            // kann zwischen Tokio-Arbeitern wandern.
+            // Global und nicht faden-lokal: der Player fuehrt mehrere Fenster
+            // mit je eigenem Decoder-Faden, und gemeint ist der Abstand
+            // zwischen zwei ausgelieferten Bildern ueberhaupt.
             static LETZTES: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
             let vorher = LETZTES.lock().map(|mut g| g.replace(jetzt)).unwrap_or(None);
             if let Some(v) = vorher {
@@ -1006,9 +1063,8 @@ async fn emit_frames(
         match events.try_send(SessionEvent::Frame(Box::new(f))) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                stats.frames_skipped += 1;
+                zustand.uebersprungen.fetch_add(1, Relaxed);
                 use crate::app::diagnose as dg;
-                use std::sync::atomic::Ordering::Relaxed;
                 let alter =
                     dg::jetzt_us().saturating_sub(dg::FW_LAUF_US.load(Relaxed));
                 dg::hoechstens(&dg::VERWORFEN_FW_ALTER_MAX_US, alter);
@@ -1018,7 +1074,8 @@ async fn emit_frames(
                 dg::hoechstens(&dg::VERWORFEN_SCHLANGE_MAX, schlange);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                return Err(EmitError::NoConsumer)
+                // Der Fenster-Faden ist weg — kein Fehler, nur Ende.
+                return Err(("Fenster geschlossen".to_string(), false));
             }
         }
     }

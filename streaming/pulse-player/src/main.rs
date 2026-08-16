@@ -20,6 +20,7 @@ mod abriss;
 mod app;
 mod audio;
 mod decode;
+mod decodefaden;
 mod decoderwahl;
 mod depacket;
 mod dump;
