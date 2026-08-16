@@ -195,6 +195,16 @@
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
+    <!-- **Das Thema des Kanals** (2026-08-16). Es liess sich in den
+         Kanal-Einstellungen setzen, wurde aber nur in der Kopfzeile eines
+         TEXTkanals gezeigt (`ChatView.svelte`) — bei einem Sprachkanal stand es
+         nirgends, das Feld war also eine Eingabe ins Nichts. Hinter dem Status,
+         damit „verbunden"/„nicht verbunden" die erste Auskunft bleibt. -->
+    {#if channel.topic}
+      <span class="text-text-muted hidden truncate text-sm md:block" data-testid="voice-channel-topic">
+        · {channel.topic}
+      </span>
+    {/if}
     <div class="ml-auto flex items-center gap-1">
       <Button
         variant="ghost"

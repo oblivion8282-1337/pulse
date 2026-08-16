@@ -180,28 +180,30 @@ impl Overlay {
                                 );
                             },
                         );
-                        // **Die Bildschirme des fernen Rechners.** Nur, wenn
-                        // die App welche gemeldet hat und es mehr als einer
-                        // ist — bei einem einzigen waere die Zeile eine
-                        // Auswahl ohne Wahl.
+                        // **Die Bildschirme des fernen Rechners, die noch NICHT
+                        // laufen.** Das Menue heisst „dazuschalten"; ein Schirm,
+                        // der schon sein Fenster hat, gehoert nicht in eine
+                        // Liste von Dingen, die man holen kann — er stand dort
+                        // bis 2026-08-16 und sah aus wie ein zweiter, den es
+                        // nicht gibt. Wer sein Fenster sucht, findet es ueber
+                        // die Fensterverwaltung des Systems; wer es schliesst,
+                        // bekommt den Eintrag hier von selbst zurueck.
                         //
                         // Warum hier und nicht in der App: wer gerade steuert,
                         // sieht dieses Fenster. Ein Knopf in der App hiesse
                         // hin- und herwechseln, nur um einen zweiten Schirm zu
                         // holen — genau das, was der Griff hier vermeidet.
-                        if self.fern_schirme.len() > 1 {
+                        let zuschaltbar: Vec<_> =
+                            self.fern_schirme.iter().filter(|s| !s.open).cloned().collect();
+                        if !zuschaltbar.is_empty() && self.fern_schirme.len() > 1 {
                             ui.add_space(6.0);
                             ui.label(
                                 egui::RichText::new("Bildschirme")
                                     .font(theme::font_xs())
                                     .color(theme::TEXT_DIM),
                             );
-                            for schirm in &self.fern_schirme.clone() {
-                                let beschriftung = if schirm.open {
-                                    schirm.name.clone()
-                                } else {
-                                    format!("+ {}", schirm.name)
-                                };
+                            for schirm in &zuschaltbar {
+                                let beschriftung = format!("+ {}", schirm.name);
                                 if ui
                                     .add(
                                         egui::Button::new(
