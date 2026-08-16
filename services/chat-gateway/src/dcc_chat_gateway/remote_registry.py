@@ -15,13 +15,15 @@ Single writer (the gateway itself) → no Redis, no TTL: like ``watch_registry``
 this state is only ever read/written on the pod both sockets live on. v1 is
 **single-pod** — both peers must be connected to the same gateway instance
 (guaranteed today; a multi-pod deployment would need a Redis relay to forward
-SDP/ICE and input across pods). Exactly **one** session per host at a time.
+SDP/ICE and input across pods). Exactly **one** session per host *and device*
+at a time (``device_id is None`` = der Mensch selbst, also ebenfalls eine).
 
 ``host_socket`` at ``remote_create`` time is a *representative* of the host's
 sockets (a user may have several tabs open). ``remote_request`` fans the invite
-out to every host socket, and ``remote_respond`` overwrites ``host_socket`` with
-the socket the host actually accepted from — that is the authoritative peer for
-signal forwarding.
+out to every host socket that may see it (``routes.ws_remote_geraet`` sorts die
+Geraete-Verbindungen aus, die nicht gemeint sind), and ``remote_respond``
+overwrites ``host_socket`` with the socket the host actually accepted from —
+that is the authoritative peer for signal forwarding.
 """
 
 from __future__ import annotations
@@ -69,6 +71,13 @@ class RemoteSession:
     host_socket: Any
     controller_user_id: str
     controller_socket: Any
+    #: Das Standplatz-Geraet, dem diese Sitzung gilt (``None`` = ein Mensch).
+    #:
+    #: Traegt zwei Dinge: die Eindeutigkeit (s. ``remote_create``) und den
+    #: Abbau beim Umstellen/Loeschen des Geraets — der fand eine noch WARTENDE
+    #: Sitzung ueber den ``host_socket`` nicht, weil der bis zur Zustimmung nur
+    #: ein Stellvertreter ist (Bughunt 2026-08-16).
+    device_id: str | None = None
     state: str = "pending"  # "pending" until the host accepts, then "active"
     created_at: int = field(default_factory=_now_ms)
 
@@ -111,13 +120,24 @@ class _RemoteRegistryMixin:
         host_socket: Any,
         controller_user_id: str,
         controller_socket: Any,
+        device_id: str | None = None,
     ) -> RemoteSession | None:
-        """Create a pending session. Returns ``None`` when the host already has
-        a pending/active session (v1: exactly one per host)."""
+        """Create a pending session. Returns ``None`` when the same host+device
+        already has a pending/active session.
+
+        **Eindeutig je (Host, Geraet), nicht je Host** (Bughunt 2026-08-16):
+        Standplatz-Geraete haengen alle am Konto ihres Besitzers, und ein
+        Besitzer darf zehn davon je Community haben. Mit „genau eine Sitzung je
+        Host-KONTO" blockierte die Uebernahme des Werkstatt-PCs jede Uebernahme
+        des Lager-PCs desselben Besitzers — mit 4054, waehrend das zweite Geraet
+        in der Liste als „bereit" stand. Fuer einen menschlichen Host
+        (``device_id is None``) bleibt es bei genau einer Sitzung: dort ist es
+        derselbe Bildschirm und dieselbe Tastatur."""
         async with self._lock:
             hid = str(host_user_id)
+            did = str(device_id) if device_id else None
             for sess in self._remote_sessions.values():
-                if sess.host_user_id == hid:
+                if sess.host_user_id == hid and sess.device_id == did:
                     return None
             session_id = secrets.token_hex(8)
             sess = RemoteSession(
@@ -127,6 +147,7 @@ class _RemoteRegistryMixin:
                 host_socket=host_socket,
                 controller_user_id=str(controller_user_id),
                 controller_socket=controller_socket,
+                device_id=did,
             )
             self._remote_sessions[session_id] = sess
             return sess

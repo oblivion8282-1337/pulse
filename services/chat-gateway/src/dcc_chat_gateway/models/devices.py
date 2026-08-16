@@ -84,11 +84,19 @@ class Device(Base):
         # nicht auseinanderzuhalten — und genau dort trifft jemand die
         # Entscheidung, welchen fremden Rechner er übernimmt.
         UniqueConstraint("guild_id", "name", name="uq_devices_guild_name"),
-        # Ein Rechner trägt sich in EINER Community genau einmal ein. Ohne das
-        # entstünden bei einem doppelten Klick zwei Zeilen für denselben
+        # Ein Rechner trägt sich in EINER Community je Konto genau einmal ein.
+        # Ohne das entstünden bei einem doppelten Klick zwei Zeilen für denselben
         # Rechner, und beim Wecken wäre nicht entscheidbar, welche gemeint ist.
         # Nur wirksam, wo der Ausweis bekannt ist (s. Modulkopf).
-        UniqueConstraint("guild_id", "cert_id", name="uq_devices_guild_cert"),
+        #
+        # **Der Besitzer steht mit im Schlüssel** (Bughunt 2026-08-16), weil die
+        # Kennung ungeprüft aus dem Request kommt: ohne ihn besetzt jeder, der
+        # eine fremde Ausweiskennung kennt, deren Platz — und der echte Rechner
+        # bekommt beim Eintragen für immer 409. Gegen den Unfall, für den die
+        # Regel gedacht ist, wirkt sie unverändert (immer dasselbe Konto).
+        UniqueConstraint(
+            "guild_id", "owner_user_id", "cert_id", name="uq_devices_guild_cert"
+        ),
         # Die Liste wird immer je Kanal gelesen (Kanalliste, Mitgliederliste).
         Index("ix_devices_channel", "channel_id"),
     )

@@ -123,6 +123,12 @@ class WSOpContext:
     # eine Anfrage kostet drei DB-Abfragen und legt beim Gegenueber einen
     # modalen Dialog auf — der legitime Takt ist ein Klick, nicht ein Strom.
     last_remote_request: float = 0.0
+    # Dasselbe fuer die beiden Geraete-Ops mit Datenbankzugriff. Getrennt
+    # gefuehrt, weil ein verworfener Weckruf einen Klick kostet, eine
+    # verworfene Anmeldung dagegen „Geraet bleibt offline"
+    # (``ws_device_handlers._takt_frei``).
+    last_device_announce: float = 0.0
+    last_device_wake: float = 0.0
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.

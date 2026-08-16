@@ -10,9 +10,16 @@ Beide Eindeutigkeiten sind Absicht:
 * ``(guild_id, name)`` — zwei gleichnamige Geräte wären in der Kanalliste nicht
   auseinanderzuhalten, und genau dort entscheidet jemand, welchen fremden
   Rechner er übernimmt.
-* ``(guild_id, cert_id)`` — ein Rechner trägt sich je Community einmal ein.
-  ``cert_id`` ist nullable, und NULL kollidiert in Postgres nie mit NULL; die
-  Regel greift also genau dort, wo der Geräteausweis bekannt ist.
+* ``(guild_id, owner_user_id, cert_id)`` — ein Rechner trägt sich je Community
+  und Konto einmal ein. ``cert_id`` ist nullable, und NULL kollidiert in
+  Postgres nie mit NULL; die Regel greift also genau dort, wo der Geräteausweis
+  bekannt ist. **Der Besitzer gehört in den Schlüssel** (Bughunt 2026-08-16):
+  die Kennung kommt heute ungeprüft aus dem Request (die „ehrliche Lücke" aus §6
+  des Entwurfs). Ohne ihn besetzt jeder, der eine fremde Ausweiskennung kennt,
+  deren Platz in seiner eigenen Zeile — und der echte Rechner bekommt beim
+  Eintragen dauerhaft 409, ohne dass sein Besitzer sähe, woran es liegt. Gegen
+  den Unfall, für den die Regel da ist (doppelter Klick, Client trägt bei jedem
+  Start neu ein), wirkt sie unverändert: das ist immer dasselbe Konto.
 
 Revision ID: 0059_devices
 Revises: 0058_backfill_attach_ceilings
@@ -55,7 +62,9 @@ def upgrade() -> None:
             ["channel_id"], [f"{SCHEMA}.channels.id"], ondelete="CASCADE"
         ),
         sa.UniqueConstraint("guild_id", "name", name="uq_devices_guild_name"),
-        sa.UniqueConstraint("guild_id", "cert_id", name="uq_devices_guild_cert"),
+        sa.UniqueConstraint(
+            "guild_id", "owner_user_id", "cert_id", name="uq_devices_guild_cert"
+        ),
         schema=SCHEMA,
     )
     op.create_index(

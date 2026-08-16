@@ -152,7 +152,41 @@ class _DeviceRegistryMixin:
         geraete = self._device_by_socket.get(socket)
         return next(iter(geraete)) if geraete else None
 
+    def device_ids_for_socket(self, socket: Any) -> set[int]:
+        """Alle Geräte, die dieser Socket angemeldet hat (leer = kein Gerät).
+
+        Der Unterschied zu :meth:`device_for_socket` ist nicht kosmetisch: die
+        Fernsteuerung muss wissen, ob eine Verbindung **überhaupt** ein Gerät
+        ist und ob sie das GEMEINTE ist. „Das erste, falls mehrere" beantwortet
+        beides falsch, sobald es ein zweites gibt.
+        """
+        return set(self._device_by_socket.get(socket, ()))
+
+    def device_channel(self, device_id: int) -> int | None:
+        """Der Standplatz-Kanal, den dieses Gerät bei der Anmeldung genannt hat
+        (``None``, wenn es nie angemeldet war).
+
+        Die Fernsteuerung misst die Kanalwahl des Rufers daran: der Standplatz
+        ist der Rechteanker des Geräts, nicht der Kanal, den jemand in seine
+        Anfrage schreibt.
+        """
+        ort = self._device_where.get(device_id)
+        return ort[1] if ort is not None else None
+
     # ── Anmelden und abmelden ───────────────────────────────────────────────
+
+    def _socket_entkoppeln(self, socket: Any, device_id: int) -> None:
+        """Den Rückweg ``socket → Geräte`` um dieses Gerät erleichtern.
+
+        Bleibt dabei nichts übrig, fällt der Eintrag ganz weg — sonst wüchse
+        die Tabelle mit jeder Verbindung, die je ein Gerät angemeldet hat.
+        """
+        geraete = self._device_by_socket.get(socket)
+        if geraete is None:
+            return
+        geraete.discard(device_id)
+        if not geraete:
+            self._device_by_socket.pop(socket, None)
 
     def device_announce(
         self,
@@ -182,25 +216,40 @@ class _DeviceRegistryMixin:
         if socks is None:
             return False
         socks.discard(socket)
-        geraete = self._device_by_socket.get(socket)
-        if geraete is not None:
-            geraete.discard(device_id)
-            if not geraete:
-                self._device_by_socket.pop(socket, None)
+        self._socket_entkoppeln(socket, device_id)
         if socks:
             return False
         self._device_sockets.pop(device_id, None)
         # Ein Gerät, das geht, ist nicht mehr belegt. Ohne diese Zeile bliebe
         # die Belegung stehen und das Gerät käme beim nächsten Anmelden sofort
         # als „belegt" zurück — für eine Sitzung, die es nicht mehr gibt.
-        self._device_busy.pop(device_id, None)
-        self._device_busy_socket.pop(device_id, None)
+        self.device_set_busy(device_id, None)
         # Die Bildschirme bleiben stehen: sie sind die letzte bekannte Auskunft
         # über ein Gerät, das gerade offline ist, und beim nächsten Anmelden
         # ohnehin überschrieben. Die Liste zu leeren hiesse, dass die
         # Geräteansicht nach jedem Aus- und Einschalten kurz „ein Bildschirm"
         # behauptet.
         return True
+
+    def device_forget(self, device_id: int) -> None:
+        """Alles über ein Gerät vergessen, dessen ZEILE es nicht mehr gibt.
+
+        **Warum das eigens nötig ist** (Bughunt 2026-08-16): ``device_withdraw``
+        lässt Standplatz und Bildschirmliste absichtlich stehen — sie sind die
+        letzte bekannte Auskunft über ein Gerät, das gerade nur ausgeschaltet
+        ist. Für ein GELÖSCHTES Gerät ist genau das falsch: die beiden Einträge
+        blieben über die ganze Prozesslaufzeit stehen (ein Leck, das mit jedem
+        entfernten Gerät wächst), und jede spätere Zustandsmeldung ginge an
+        einen Kanal für eine Kennung, die es nicht mehr gibt.
+
+        Nach dem Melden rufen, nicht davor: ``publish_device_state`` findet
+        seinen Kanal über den gemerkten Standplatz.
+        """
+        for socket in self._device_sockets.pop(device_id, set()):
+            self._socket_entkoppeln(socket, device_id)
+        self.device_set_busy(device_id, None)
+        self._device_where.pop(device_id, None)
+        self._device_monitors.pop(device_id, None)
 
     def device_forget_socket(self, socket: Any) -> list[int]:
         """Alles vergessen, was dieser Socket angemeldet hatte. Liefert die
@@ -293,10 +342,17 @@ class _DeviceRegistryMixin:
         Rechte hingen am alten Kanal beziehungsweise an einer Zeile, die es
         nicht mehr gibt. Derselbe Weg wie bei Rauswurf und Bann — beenden,
         nicht weiterlaufen lassen.
+
+        **Gesucht wird über die Kennung an der Sitzung, nicht nur über die
+        Sockets** (Bughunt 2026-08-16): solange eine Sitzung noch auf die
+        Zustimmung wartet, ist ihr ``host_socket`` nur ein Stellvertreter. Eine
+        wartende Einladung blieb damit stehen und wurde gleich darauf mit den
+        Rechten des ALTEN Standplatzes aktiv. Der Socket-Vergleich bleibt
+        daneben stehen: er fängt Sitzungen, die vor dieser Fassung entstanden
+        sind oder deren Host sich erst nachträglich als Gerät gemeldet hat.
         """
-        socks = self._device_sockets.get(device_id)
-        if not socks:
-            return
+        socks = self._device_sockets.get(device_id) or set()
+        kennung = str(device_id)
         for sess in self.remote_sessions_snapshot():
-            if sess.host_socket in socks:
+            if sess.device_id == kennung or sess.host_socket in socks:
                 await self.remote_terminate(sess.session_id, "device_moved")
