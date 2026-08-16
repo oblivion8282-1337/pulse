@@ -408,6 +408,9 @@ export type ServerEvent =
       state: DeviceState;
       busy_with?: string | null;
       monitors?: DeviceMonitor[];
+      /** Plaetze, auf denen dieses Geraet gerade sendet. Fehlt bei aelteren
+       *  Gegenstellen; leere Liste heisst „sendet nicht mehr". */
+      stream_slots?: number[];
     }
   | { op: 'error'; code: number; msg: string };
 
@@ -476,6 +479,10 @@ export type ClientEvent =
       monitors: { index: number; name: string; primary: boolean }[];
     }
   | { op: 'device_wake'; device_id: string; monitor?: number }
+  // „Ich sende gerade auf diesen Plaetzen." Der Server kann es nicht ableiten:
+  // der Strom laeuft unter dem Konto des Besitzers und traegt keine
+  // Geraete-Kennung (`$lib/devices/darstellung.ts`).
+  | { op: 'device_streams'; device_id: string; slots: number[] }
   | { op: 'device_withdraw'; device_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte

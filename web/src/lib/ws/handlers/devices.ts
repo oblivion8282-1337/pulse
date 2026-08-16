@@ -59,6 +59,11 @@ export function register(): void {
       // (die Anmeldung des Geräts). Fehlen sie im Rahmen, bleibt die zuletzt
       // bekannte Liste stehen — eine ältere Gegenstelle soll sie nicht löschen.
       Array.isArray(evt.monitors) ? evt.monitors : undefined,
+      // Dieselbe Lesart wie bei den Bildschirmen: fehlt das Feld im Rahmen,
+      // bleibt der letzte Stand stehen. Eine LEERE Liste ist dagegen eine
+      // Aussage („sendet nicht mehr") und muss durchkommen — sonst bliebe das
+      // LIVE-Abzeichen am Gerät kleben, nachdem es eingeschlafen ist.
+      Array.isArray(evt.stream_slots) ? evt.stream_slots.map(Number) : undefined,
     );
   });
 }

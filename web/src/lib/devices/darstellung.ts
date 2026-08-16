@@ -11,6 +11,7 @@
 
 import type { Device, DeviceState } from '$lib/api/devices';
 import { deviceStore } from '$lib/devices/store.svelte';
+import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { m } from '$lib/paraglide/messages.js';
 
 /**
@@ -51,24 +52,41 @@ export function geraetPfad(device: Device): string {
 }
 
 /**
- * Sendet in diesem Kanal in Wahrheit das **Gerät** dieses Nutzers?
+ * Sendet in diesem Kanal in Wahrheit nur das **Gerät** dieses Nutzers?
  *
  * Der Strom eines Standplatz-Geräts läuft unter dem Konto seines Besitzers — im
  * Streaming-Weg gibt es keine Geräte-Kennung (`stream/starten.ts`). Ungefiltert
  * heisst das: das LIVE-Abzeichen erscheint **zweimal**, einmal am Rechner und
- * einmal am Menschen, der dabei nicht einmal im Kanal sein muss. Zweimal
- * dasselbe anzuzeigen ist nicht nur unsauber, es ist an einer Stelle falsch —
- * gesendet hat der Rechner.
+ * einmal am Menschen, der dabei nicht einmal im Kanal sein muss.
  *
- * Erkannt am Standplatz, nicht am Strom: steht ein Gerät dieses Besitzers in
- * diesem Kanal, gehört ein HQ-Strom dieses Kontos dorthin. Der Grenzfall — der
- * Besitzer überträgt zusätzlich von seinem Laptop in denselben Kanal — endet
- * dann bei einem Abzeichen statt zwei, und zwar am Gerät. Erreichbar bleibt
- * beides: der Klick öffnet die Auswahl, sobald mehr als ein Strom läuft.
+ * **Bis 2026-08-16 wurde das geraten** — *steht ein Gerät dieses Besitzers im
+ * Kanal, gehört ein Strom dieses Kontos dorthin*. Die Vermutung prüfte nur, OB
+ * ein Gerät dort steht, nicht ob es sendet. Klickte der Besitzer an seinem
+ * eigenen Rechner auf „Live", wanderte das Abzeichen an den Standplatz, der
+ * nichts tat, und verschwand bei dem, der wirklich sendete: das falsche
+ * Abzeichen am falschen Ort.
+ *
+ * Jetzt sagt das Gerät selbst, auf welchen Plätzen es sendet
+ * (`device_streams` → `Device.stream_slots`), und hier wird verglichen. Der
+ * Mensch verliert sein Abzeichen nur, wenn **jeder** seiner Ströme in diesem
+ * Kanal von einem seiner Geräte kommt; überträgt er zusätzlich selbst, behält
+ * er es, und beide Abzeichen stimmen.
+ *
+ * Meldet ein Gerät nichts (ältere Fassung), bleibt es beim Abzeichen am
+ * Menschen — der harmlosere der beiden Fehler.
  *
  * **Ein geteilter Bildschirm über Voice ist davon nicht betroffen** — der
  * läuft über LiveKit und wird an den Aufrufstellen getrennt geführt.
  */
 export function stromGehoertGeraet(channelId: string, userId: string): boolean {
-  return deviceStore.byChannelOwner(channelId, userId) !== null;
+  const plaetze = new Set(
+    deviceStore.alleImKanal(channelId, userId).flatMap((d) => d.stream_slots ?? []),
+  );
+  if (plaetze.size === 0) return false;
+  const eigene = streamPresence.streamsIn(channelId).filter((s) => s.user_id === userId);
+  // Kein Strom: nichts zuzuordnen. Ohne diese Zeile gälte „alle gehören dem
+  // Gerät" für die leere Menge — und der Mensch verlöre ein Abzeichen, das er
+  // gar nicht hat.
+  if (eigene.length === 0) return false;
+  return eigene.every((s) => plaetze.has(s.slot));
 }

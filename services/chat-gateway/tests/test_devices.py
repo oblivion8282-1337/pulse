@@ -235,6 +235,36 @@ async def test_zustand_kommt_aus_dem_register_nicht_aus_der_datenbank(client, _a
 
 
 @pytest.mark.asyncio
+async def test_sendende_plaetze_nur_von_angemeldeten_geraeten(client, _auth_signer):
+    """Ein Gerät meldet selbst, auf welchen Plätzen es sendet.
+
+    **Warum es das überhaupt gibt** (2026-08-16): der Strom eines Geräts läuft
+    unter dem Konto seines Besitzers und trägt keine Geräte-Kennung. Ohne diese
+    Meldung muss die Oberfläche raten — und sie hat falsch geraten: klickte der
+    Besitzer an seinem eigenen Rechner auf „Live", wanderte das LIVE-Abzeichen
+    an den unbeteiligten Standplatz.
+    """
+    mgr = _register(client)
+    gid, cid, did = 1, 2, 3
+
+    # Nicht angemeldet: nichts zu melden. Ein Eintrag ohne Verbindung bliebe
+    # stehen, bis ihn zufällig jemand überschreibt.
+    assert mgr.device_streams_set(did, {0}) is False
+    assert mgr.device_streams(did) == []
+
+    mgr.device_announce(object(), did, gid, cid)
+    assert mgr.device_streams(did) == []
+    assert mgr.device_streams_set(did, {1, 0}) is True
+    assert mgr.device_streams(did) == [0, 1]
+    # Dieselbe Menge erneut: keine Meldung, sonst schickte jeder Neustart eines
+    # Streams dieselbe Nachricht ein zweites Mal.
+    assert mgr.device_streams_set(did, {0, 1}) is False
+    # Leer ist eine Aussage („sendet nicht mehr"), keine Nichtmeldung.
+    assert mgr.device_streams_set(did, set()) is True
+    assert mgr.device_streams(did) == []
+
+
+@pytest.mark.asyncio
 async def test_ein_zweites_fenster_nimmt_das_geraet_nicht_offline(client, _auth_signer):
     """Der Client eines Geräts kann mehrere Verbindungen haben; eine zu
     schliessen darf es nicht offline melden."""

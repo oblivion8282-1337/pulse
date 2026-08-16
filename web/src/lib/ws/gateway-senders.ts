@@ -162,6 +162,17 @@ export function sendDeviceAnnounce(
   return send({ op: 'device_announce', device_id: deviceId, monitors });
 }
 
+/** Auf welchen Plaetzen dieser Rechner als GERAET sendet.
+ *
+ *  Der Server kann es nicht ableiten: der Strom laeuft unter dem Konto des
+ *  Besitzers und traegt keine Geraete-Kennung. Ohne diese Meldung muesste die
+ *  Oberflaeche raten, ob ein Strom vom Rechner oder vom Menschen davor kommt —
+ *  und sie hat falsch geraten (LIVE-Abzeichen am unbeteiligten Standplatz,
+ *  behoben 2026-08-16). Leere Liste heisst „sendet nicht". */
+export function sendDeviceStreams(send: SendRaw, deviceId: string, slots: number[]): boolean {
+  return send({ op: 'device_streams', device_id: deviceId, slots });
+}
+
 /** Die Anmeldung ausdruecklich zuruecknehmen (Eintragung entfernt), ohne die
  *  Verbindung zu kappen. */
 export function sendDeviceWithdraw(send: SendRaw, deviceId: string): boolean {

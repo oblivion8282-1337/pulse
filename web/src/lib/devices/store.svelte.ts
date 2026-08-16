@@ -59,6 +59,24 @@ class DeviceStore {
     return null;
   }
 
+  /**
+   * ALLE Geräte eines Besitzers in einem Kanal.
+   *
+   * [`byChannelOwner`] liefert das erste — das genügt für „gehört hier ein
+   * Gerät hin", nicht aber für die Frage, welcher Strom von welchem Rechner
+   * kommt: ein Besitzer kann mehrere Standplätze im selben Kanal haben, und
+   * dann müssen die Plätze aller zusammengelegt werden.
+   */
+  alleImKanal(channelId: string, ownerId: string): Device[] {
+    const treffer: Device[] = [];
+    for (const liste of this.byGuild.values()) {
+      for (const d of liste) {
+        if (d.channel_id === channelId && d.owner_user_id === ownerId) treffer.push(d);
+      }
+    }
+    return treffer;
+  }
+
   byId(guildId: string | null | undefined, deviceId: string): Device | null {
     return this.forGuild(guildId).find((d) => d.id === deviceId) ?? null;
   }
@@ -108,6 +126,7 @@ class DeviceStore {
     state: DeviceState,
     busyWith: string | null,
     monitors?: DeviceMonitor[],
+    streamSlots?: number[],
   ): void {
     const liste = this.forGuild(guildId);
     const i = liste.findIndex((d) => d.id === deviceId);
@@ -116,7 +135,17 @@ class DeviceStore {
     // dann ohnehin mit.
     if (i < 0) return;
     const neu = [...liste];
-    neu[i] = { ...neu[i], state, busy_with: busyWith, ...(monitors ? { monitors } : {}) };
+    neu[i] = {
+      ...neu[i],
+      state,
+      busy_with: busyWith,
+      ...(monitors ? { monitors } : {}),
+      // **`undefined` und leere Liste bedeuten Verschiedenes.** Fehlt das Feld,
+      // bleibt der letzte Stand (ältere Gegenstelle); eine leere Liste ist die
+      // Aussage „sendet nicht mehr" und muss ankommen, sonst klebt das
+      // LIVE-Abzeichen an einem eingeschlafenen Gerät.
+      ...(streamSlots ? { stream_slots: streamSlots } : {}),
+    };
     this.byGuild.set(guildId, neu);
   }
 

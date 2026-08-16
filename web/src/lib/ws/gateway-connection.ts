@@ -721,6 +721,9 @@ export class GatewayConnection {
     monitors: { index: number; name: string; primary: boolean }[] = [],
   ): boolean => senders.sendDeviceAnnounce(this._raw, deviceId, monitors);
 
+  sendDeviceStreams = (deviceId: string, slots: number[]): boolean =>
+    senders.sendDeviceStreams(this._raw, deviceId, slots);
+
   sendDeviceWithdraw = (deviceId: string): boolean =>
     senders.sendDeviceWithdraw(this._raw, deviceId);
 
