@@ -314,7 +314,8 @@ und braucht keine Änderung:
 * **Sofortiger Abbau bei Rauswurf und Bann**
   (`end_remote_sessions_for_member`, gerufen aus `guilds.py` und `bans.py`).
 * **Absoluter Sitzungsdeckel** von 8 Stunden (`REMOTE_MAX_SESSION_S`).
-* **Eine Sitzung je Host** (`remote_create` gibt sonst `None`).
+* **Eine Sitzung je Host und Gerät** (`remote_create` gibt sonst `None`) — je
+  Host allein wäre falsch, sobald derselbe Besitzer zwei Geräte abstellt.
 * **Fail-closed bei unbekanntem Peer-Socket** (`_end_reason`).
 
 Der Sitzungsdeckel ist bei einem Gerät unkritisch: mit Dauerfreigabe geht eine

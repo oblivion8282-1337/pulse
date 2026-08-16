@@ -51,6 +51,8 @@ import { watchPartyPresence } from './watchPartyPresence.svelte';
 import { watchWatchers } from './watchWatchers.svelte';
 import { resetGuildPluginsCache } from '$lib/plugins';
 import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
+import { deviceStore } from '$lib/devices/store.svelte';
+import { schirmWarten } from '$lib/devices/schirme.svelte';
 
 /**
  * Leert die Server-scoped Stores (Guild-Realtime des aktiven Servers).
@@ -88,6 +90,17 @@ export function resetServerScopedStores(): void {
   watchPartyPresence.clear();
   watchWatchers.clear();
   typing.clearAll();
+  // Standplatz-Geräte (Bughunt 2026-08-16): der Store ist server-scoped wie
+  // `guilds`, stand aber nicht in dieser Liste. Folge: A→B→A zeigte die alten
+  // Zeilen samt ihrem alten Zustand („bereit", obwohl der Rechner längst weg
+  // ist), und `byChannelOwner` — der Weg von einer laufenden Fernsteuerung
+  // zurück zum Gerät — suchte über die Communitys ALLER Server. `reset()` statt
+  // `clear()`, weil der Store neben den Zeilen auch seinen Geladen-Merker
+  // fallen lassen muss; sonst lädt die Community nach dem Wechsel nie neu.
+  deviceStore.reset();
+  // Und die Wünsche auf ein Bild dazu: ihre Zeitgeber überlebten den Wechsel
+  // und schrieben danach Fehlermeldungen zu Geräten, die es hier nicht gibt.
+  schirmWarten.reset();
   // Plugin-pro-Guild-Toggle-Cache liegt außerhalb der Store-Klassen.
   resetGuildPluginsCache();
   // Guild-member autocomplete cache — stale after server-switch / sign-out.

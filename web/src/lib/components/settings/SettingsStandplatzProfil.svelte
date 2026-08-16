@@ -44,6 +44,34 @@
   function zuruecksetzen(): void {
     entwurf = { ...VORGABE };
   }
+
+  /**
+   * Eine Zahl aus einem Zahlenfeld, geklemmt — und mit Vorgabe für „nichts".
+   *
+   * **Der Fehlerfall** (Bughunt 2026-08-16): ein geleertes `<input
+   * type="number">` schreibt über `bind:value` ein `null`. Das ging so in den
+   * Speicher, und beim nächsten Start verwarf `profil.svelte.ts` es wieder
+   * (dort gilt nur eine Zahl > 0) — die Einstellung war nach einem Neustart
+   * still auf die Vorgabe zurückgesprungen. Dazwischen ging ein `fps: null` in
+   * die Startargumente eines geweckten Rechners, den niemand beaufsichtigt.
+   *
+   * Geklemmt statt abgelehnt: die Grenzen stehen als `min`/`max` an den
+   * Feldern, aber ein Browser erzwingt sie ausserhalb eines `<form>` nicht.
+   */
+  function zahl(wert: unknown, vorgabe: number, min: number, max: number): number {
+    const n = typeof wert === 'number' ? wert : Number(wert);
+    if (!Number.isFinite(n) || n <= 0) return vorgabe;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  }
+
+  function speichern(): void {
+    entwurf = {
+      ...entwurf,
+      fps: zahl(entwurf.fps, VORGABE.fps, 10, 120),
+      bitrate_kbps: zahl(entwurf.bitrate_kbps, VORGABE.bitrate_kbps, 1000, 10000),
+    };
+    void standplatzProfil.setzen(entwurf);
+  }
 </script>
 
 <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
@@ -121,7 +149,7 @@
       <Button size="sm" variant="ghost" onclick={zuruecksetzen}>
         {m.standplatz_profil_reset()}
       </Button>
-      <Button onclick={() => standplatzProfil.setzen(entwurf)} data-testid="standplatz-profil-save">
+      <Button onclick={speichern} data-testid="standplatz-profil-save">
         {m.standplatz_profil_save()}
       </Button>
     </div>

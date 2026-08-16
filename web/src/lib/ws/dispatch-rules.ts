@@ -16,6 +16,7 @@
 import type { ServerEvent } from './handlers/types';
 import type { GatewayConnection } from './gateway-connection';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 
 /**
  * PURE_SOCIAL — Friend-/Block-/DM-Lifecycle, immer global. Diese Ops haben
@@ -134,4 +135,42 @@ export function setRemoteSessionConnection(conn: GatewayConnection | null): void
 export function remoteSessionEligible(conn: GatewayConnection, evt: ServerEvent): boolean {
   if (sitzungsVerbindung === null || conn !== sitzungsVerbindung) return false;
   return REMOTE_SESSION_OPS.has(evt.op);
+}
+
+/**
+ * Ist dieser Rechner auf `serverId` als Standplatz-Gerät eingetragen?
+ *
+ * Der dritte Grund, warum eine nicht-aktive Verbindung dispatchen darf — und
+ * der einzige, der auch für einen Self-Host gilt: ein Standplatz-Gerät ist
+ * **immer** unbeaufsichtigt, also so gut wie nie auf dem Server, den sein
+ * Fenster gerade anzeigt.
+ */
+export function istGeraetAuf(serverId: string): boolean {
+  return geraeteAnmeldung.fuerServer(serverId) !== null;
+}
+
+/**
+ * Die Ops, die ein eingetragenes Gerät auch im Hintergrund erreichen müssen.
+ *
+ * **Der Fehlerfall** (Bughunt 2026-08-16): ein Gerät auf einem nicht-aktiven
+ * Server war tot. `device_wake` fiel in die Regel oben und wurde verworfen, das
+ * Gerät fing also nie an zu übertragen; und weil auch sein `ready` verworfen
+ * wurde (s. `gateway-connection._handle`), meldete es sich dort gar nicht erst
+ * an — es stand für alle anderen dauerhaft auf „offline". Dass ein Standplatz-
+ * Rechner nebenher irgendeine Community offen hat, ist dabei der Normalfall und
+ * kein Sonderfall: niemand sitzt davor, um auf den richtigen Server zu wechseln.
+ *
+ * **`remote_request` nur, wenn die Anfrage GENAU dieses Gerät nennt.** Der Grund
+ * gegen eine Einladung aus einer Community, die man nicht ansieht, bleibt sonst
+ * unberührt (s. `REMOTE_SESSION_OPS`): eine Anfrage ohne Gerätekennung meint
+ * einen Menschen, und die soll weiterhin nur dort auftauchen, wo er gerade ist.
+ * Eine Anfrage MIT unserer Kennung meint dagegen den Rechner selbst — dort ist
+ * die Zustimmung als Dauerfreigabe längst erteilt, und ohne diesen Weg käme sie
+ * nie an.
+ */
+export function geraeteEligible(conn: GatewayConnection, evt: ServerEvent): boolean {
+  if (evt.op !== 'device_wake' && evt.op !== 'remote_request') return false;
+  const eintrag = geraeteAnmeldung.fuerServer(conn.serverId);
+  if (!eintrag) return false;
+  return evt.op === 'device_wake' || evt.device_id === eintrag.deviceId;
 }

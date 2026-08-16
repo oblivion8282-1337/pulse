@@ -47,6 +47,9 @@ import { MAX_STREAM_SLOTS, runningStreamSlots } from '$lib/stream/state.svelte';
 import { stopSlot } from '$lib/stream/slotControl.svelte';
 import { MONITOR_CAPTURE_PREFIX } from '$lib/stream/settingsCatalog';
 import { streamSettings } from '$lib/stream/settingsState.svelte';
+import { gegenstelle } from '$lib/remote/gegenstelle';
+import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
+import { remoteSession } from '$lib/remote/session.svelte';
 
 /**
  * Welcher Platz welchen Bildschirm überträgt — nur auf dem GERÄT geführt.
@@ -58,6 +61,17 @@ import { streamSettings } from '$lib/stream/settingsState.svelte';
  * der nicht mehr läuft, zählt damit von selbst nicht mehr.
  */
 const platzFuerQuelle = new Map<number, string>();
+
+/**
+ * Welcher Platz zu welchem Protokoll-Eintrag gehört.
+ *
+ * Ein Weckruf ist der Punkt, an dem ein unbeaufsichtigter Rechner anfängt, sein
+ * Bild herzugeben — und bis zum Bughunt 2026-08-16 hinterliess genau der keine
+ * Spur, solange keine Übernahme daraus wurde (`remote/protokoll.svelte.ts`).
+ * Der Eintrag wird beim Start geöffnet und beim Einschlafen geschlossen; seine
+ * Dauer ist damit die Zeit, die der Rechner wirklich übertragen hat.
+ */
+const vorgangFuerPlatz = new Map<number, string>();
 
 /**
  * Plätze, die vergeben, aber noch nicht am Laufen sind.
@@ -73,6 +87,20 @@ const platzFuerQuelle = new Map<number, string>();
  */
 const reserviert = new Set<number>();
 
+/**
+ * Wie lange eine Vergabe höchstens gilt.
+ *
+ * **Der Grund** (Bughunt 2026-08-16): die Vergabe endet im `finally` des
+ * Startversuchs — und damit gar nicht, wenn `streamStarten` nie zurückkommt.
+ * Der Ruf geht über stdio-JSON-RPC in den Sidecar; hängt der (Encoder-Init auf
+ * einer blockierten GPU, Sidecar im Halbtoten), bliebe der Platz für den Rest
+ * der Laufzeit vergeben. Auf einem unbeaufsichtigten Rechner heisst „für den
+ * Rest der Laufzeit" Wochen, und mit jedem hängengebliebenen Versuch wäre ein
+ * Bildschirm weniger weckbar. Grosszügig gewählt: ein langsamer Start soll
+ * nicht in eine zweite Vergabe desselben Schirms laufen.
+ */
+const VERGABE_FRIST_MS = 60_000;
+
 /** Der nächste Platz, der weder läuft noch vergeben ist. */
 function naechsterPlatz(): number {
   const belegt = new Set([...runningStreamSlots(), ...reserviert]);
@@ -84,6 +112,14 @@ function naechsterPlatz(): number {
 
 /**
  * Aufnahmequelle für eine Bildschirmnummer; ohne Nummer die des Profils.
+ *
+ * **Ohne Nummer heisst „nimm den, den du für richtig hältst"** — und das ist
+ * die Quelle aus dem Standplatz-Profil. Der Haupt-Knopf beim Steuernden
+ * („wecken und übernehmen") schickt deshalb bewusst keine Nummer mit; erst die
+ * Bildschirmliste tut es. Bis zum Bughunt 2026-08-16 schickte auch der
+ * Haupt-Knopf die Nummer des gemeldeten Hauptbildschirms, und damit war die
+ * Einstellung im Profil bei jedem online gemeldeten Gerät wirkungslos: sie
+ * wurde nur gelesen, wenn keine Nummer kam, und es kam immer eine.
  *
  * **Der Hauptbildschirm wird dabei auf seine Nummer aufgelöst**, sobald der
  * Rechner seine Schirme kennt. Ohne das hiesse die Quelle schlicht „monitor",
@@ -101,11 +137,21 @@ function quelleFuerMonitor(monitor: number | undefined): string {
   return haupt ? `${MONITOR_CAPTURE_PREFIX}${haupt.index}` : eigene;
 }
 
-/** Läuft diese Quelle schon? */
+/**
+ * Läuft diese Quelle schon — **oder läuft sie gerade an**?
+ *
+ * **Die zweite Hälfte fehlte** (Bughunt 2026-08-16): gefragt wurde nur, was
+ * schon LÄUFT. Zwei Weckrufe für denselben Schirm kurz hintereinander — ein
+ * Doppelklick, oder der Steuernde drückt nochmal, weil das Bild noch nicht da
+ * ist — fielen beide durch, solange der Encoder des ersten hochlief. Danach
+ * übertrugen zwei Plätze denselben Bildschirm: doppelte Rechenzeit, doppelte
+ * Bandbreite, und beim Steuernden zwei gleich aussehende Kacheln. Genau das,
+ * wogegen [`platzFuerQuelle`] gebaut ist.
+ */
 function laeuftSchon(quelle: string): boolean {
-  const laufend = new Set(runningStreamSlots());
+  const belegt = new Set([...runningStreamSlots(), ...reserviert]);
   for (const [slot, q] of platzFuerQuelle) {
-    if (laufend.has(slot) && q === quelle) return true;
+    if (belegt.has(slot) && q === quelle) return true;
   }
   return false;
 }
@@ -138,17 +184,64 @@ export function geraetWecken(
  * **Warum das dazugehört** (Bughunt 2026-08-16): ohne diesen Weg überträgt ein
  * einmal geweckter Rechner für immer weiter — und verbraucht genau die
  * Bandbreite und Rechenzeit, die „erst auf Abruf" einsparen sollte. Gerufen am
- * Ende jeder Fernsteuerung dieses Geräts.
+ * Ende jeder Fernsteuerung dieses Geräts und von der Nachlauf-Wache unten.
  *
  * **Nur die selbst geweckten Plätze.** Was der Besitzer von Hand gestartet hat,
  * steht nicht in der Karte und bleibt unangetastet — es wäre sein Stream, nicht
  * unserer.
  */
 export async function wiederEinschlafen(): Promise<void> {
+  if (nachlaufWecker) clearTimeout(nachlaufWecker);
+  nachlaufWecker = null;
   const laufend = new Set(runningStreamSlots());
   const plaetze = [...platzFuerQuelle.keys()].filter((slot) => laufend.has(slot));
   platzFuerQuelle.clear();
+  for (const [slot, vorgang] of vorgangFuerPlatz) {
+    if (laufend.has(slot)) void remoteProtokoll.beenden(vorgang);
+  }
+  vorgangFuerPlatz.clear();
   await Promise.all(plaetze.map((slot) => stopSlot(slot)));
+}
+
+/**
+ * Wie lange ein geweckter Rechner überträgt, ohne dass eine Fernsteuerung
+ * daraus wird.
+ *
+ * Der reguläre Weg braucht zwei Fristen: bis zu 25 s auf das erste Bild
+ * (`schirme.svelte.ts::WARTEN_MS`) und danach bis zu 40 s auf die Antwort auf
+ * die Anfrage (`remote/session.svelte.ts::ANFRAGE_FRIST_MS`). Darüber, damit
+ * die Wache nie einer Übernahme in den Rücken fällt, die noch zustande kommt.
+ */
+const NACHLAUF_MS = 90_000;
+
+let nachlaufWecker: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Der Gegenruf zum Weckruf: **ein Weckruf ohne folgende Sitzung darf nicht für
+ * immer übertragen.**
+ *
+ * **Der Fehlerfall** (Bughunt 2026-08-16): [`wiederEinschlafen`] hing am Ende
+ * einer Fernsteuer-Sitzung — und nur daran. Es gibt aber mehrere Wege zu einem
+ * Weckruf, aus dem nie eine Sitzung wird: der Encoder braucht länger als die
+ * Wartefrist des Steuernden, dem Steuernden fehlt `REMOTE_CONTROL` (die
+ * Übernahme springt still zurück), oder die Anfrage wird abgelehnt bzw. läuft
+ * ab. In allen dreien lief der Strom weiter, und zwar unbegrenzt. Das ist mehr
+ * als verschwendete Bandbreite: ohne Sitzung greift auch der Sichtschutz nicht,
+ * der unbeaufsichtigte Rechner überträgt also seinen ungeschützten Desktop an
+ * jeden im Kanal.
+ *
+ * Gefragt wird die Sitzung selbst und nicht ein eigener Merker: nur sie weiss,
+ * ob gerade wirklich jemand steuert. Läuft eine, endet die Übertragung über
+ * ihren eigenen Ausgang (`remote/geraeteanbindung.ts`) — dann muss hier nichts
+ * nachgestellt werden.
+ */
+function nachlaufWachen(): void {
+  if (nachlaufWecker) clearTimeout(nachlaufWecker);
+  nachlaufWecker = setTimeout(() => {
+    nachlaufWecker = null;
+    if (remoteSession.phase === 'active' && remoteSession.role === 'host') return;
+    void wiederEinschlafen();
+  }, NACHLAUF_MS);
 }
 
 /**
@@ -164,6 +257,7 @@ export async function weckrufBehandeln(
   serverId: string | null,
   deviceId: string,
   channelId: string,
+  vonUserId: string | null,
   monitor?: number,
 ): Promise<void> {
   const eintrag = geraeteAnmeldung.fuerServer(serverId);
@@ -180,6 +274,8 @@ export async function weckrufBehandeln(
   if (slot < 0) return;
   reserviert.add(slot);
   platzFuerQuelle.set(slot, quelle);
+  // Notbremse für einen Sidecar-Ruf, der nie zurückkommt (s. VERGABE_FRIST_MS).
+  const vergabeFrist = setTimeout(() => reserviert.delete(slot), VERGABE_FRIST_MS);
   try {
     // **Mit dem Standplatz-Profil, nicht mit den Einstellungen des Besitzers:**
     // der Rechner überträgt hier für jemand anderen und zu einem anderen Zweck
@@ -191,11 +287,48 @@ export async function weckrufBehandeln(
     });
     // Scheitert der Start, gehört der Platz nicht diesem Schirm — sonst hielte
     // die Karte ihn für belegt, und ein zweiter Versuch liefe ins Leere.
-    if (!r.ok) platzFuerQuelle.delete(slot);
+    if (!r.ok) {
+      platzFuerQuelle.delete(slot);
+      return;
+    }
+    // Ab hier gibt der Rechner wirklich Bild her — beides hängt genau daran:
+    // die Spur im Protokoll und die Wache, die ihn wieder einschlafen lässt.
+    protokollieren(slot, vonUserId, quelle);
+    nachlaufWachen();
   } finally {
     // Die Vergabe endet mit dem Startversuch, egal wie er ausging: läuft der
     // Strom, hält ihn `runningStreamSlots()`; lief er nicht an, ist der Platz
     // wieder frei.
+    clearTimeout(vergabeFrist);
     reserviert.delete(slot);
   }
+}
+
+/**
+ * Den Weckruf ins Geräte-Protokoll eintragen.
+ *
+ * **Der Name ist der Anzeigename, notfalls die Kennung.** Auf einem Rechner,
+ * vor dem niemand sitzt, ist der Nutzer-Zwischenspeicher meist leer — und
+ * „Unbekannt" wäre in einem Protokoll die nutzloseste aller Auskünfte. Die
+ * Kennung steht ohnehin daneben; sie ist die harte Zuordnung.
+ *
+ * `selbsttaetig: true`, weil ein Weckruf nie bestätigt wird: er kommt herein
+ * und wird ausgeführt. Genau darum gehört er ins Protokoll.
+ */
+function protokollieren(slot: number, vonUserId: string | null, quelle: string): void {
+  const g = gegenstelle(vonUserId);
+  const id = `weckruf:${slot}:${Date.now()}`;
+  // Einen Vorgang, der noch auf diesem Platz offen steht, zuerst schliessen:
+  // hat der Besitzer den Strom von Hand beendet, kam nie ein Einschlafen
+  // dazwischen — und ein überschriebener Eintrag bliebe für immer „läuft noch".
+  const alt = vorgangFuerPlatz.get(slot);
+  if (alt) void remoteProtokoll.beenden(alt);
+  vorgangFuerPlatz.set(slot, id);
+  void remoteProtokoll.beginnen(
+    id,
+    vonUserId ?? '',
+    `${g.bekannt ? g.anzeige : (vonUserId ?? g.anzeige)} · ${quelle}`,
+    true,
+    'weckruf',
+  );
 }

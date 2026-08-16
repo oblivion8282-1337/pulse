@@ -30,7 +30,12 @@ import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
 import { gapFillAll, gapFillChannel } from './gapFill';
-import { backgroundEligible, remoteSessionEligible } from './dispatch-rules';
+import {
+  backgroundEligible,
+  geraeteEligible,
+  istGeraetAuf,
+  remoteSessionEligible,
+} from './dispatch-rules';
 import * as senders from './gateway-senders';
 import { compareVersions } from '$lib/utils/semver';
 import type { ServerEvent, ClientEvent, RemoteSignalKind } from './handlers/types';
@@ -547,10 +552,20 @@ export class GatewayConnection {
       // Sitzung nach einem Community-Wechsel nicht mehr sauber (Begründung in
       // `dispatch-rules.ts`). Gilt für Cloud und Self-Host gleichermaßen: eine
       // Fernsteuerung läuft auf dem Server, auf dem sie zustande kam.
+      //
+      // Dritte Ausnahme: eine Verbindung, auf der dieser Rechner als
+      // Standplatz-Gerät eingetragen ist (`geraeteEligible`). Deren `ready`
+      // gehört ebenfalls durchgelassen — daran hängt die Geräte-Anmeldung
+      // (`handlers/ready.ts`), und ohne sie stünde ein unbeaufsichtigter
+      // Rechner für alle anderen auf „offline", sobald sein Fenster gerade eine
+      // andere Community zeigt. Der ready-Handler wendet über `_isActive` nur
+      // den server-unabhängigen Teil an, überschreibt also keine Stores.
       const allowed =
         evt.op === 'ready'
-          ? this.isCloud
-          : remoteSessionEligible(this, evt) || (this.isCloud && backgroundEligible(evt));
+          ? this.isCloud || istGeraetAuf(this.serverId)
+          : remoteSessionEligible(this, evt) ||
+            geraeteEligible(this, evt) ||
+            (this.isCloud && backgroundEligible(evt));
       if (!allowed) return;
     }
     // Mark this as the dispatching connection so the global handler-context
