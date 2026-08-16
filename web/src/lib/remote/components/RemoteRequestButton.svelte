@@ -19,10 +19,7 @@
   import Loader2Icon from '@lucide/svelte/icons/loader-circle';
   import XIcon from '@lucide/svelte/icons/x';
   import { remoteSession } from '$lib/remote/session.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
-  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
-  import { Perm } from '$lib/permissions/bitfield';
+  import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -32,19 +29,9 @@
     slot = 0
   }: { channelId: string; hostUserId: string; slot?: number } = $props();
 
-  let isSelf = $derived(auth.user?.id === hostUserId);
-
-  // Recht best-effort: Kanal im Store finden → REMOTE_CONTROL prüfen. Ohne
-  // auflösbaren Kanal (z.B. DM) nicht gaten — der Server lehnt sonst ohnehin ab.
-  let canControl = $derived.by(() => {
-    const channel = Object.values(guilds.channelsByGuild)
-      .flat()
-      .find((c) => c.id === channelId);
-    if (!channel) return true;
-    return channelPermissions.hasChannelPermission(channel.guild_id, channel.id, Perm.REMOTE_CONTROL);
-  });
-
-  let visible = $derived(!isSelf && canControl);
+  // Nicht man selbst, und REMOTE_CONTROL im Kanal — dieselbe Vorprüfung, die
+  // das Standplatz-Gerät vor seiner selbsttätigen Übernahme macht (`darfSteuern.ts`).
+  let visible = $derived(darfFernsteuern(channelId, hostUserId));
 
   // Geht es gerade um genau diesen Host — meine Anfrage oder meine Sitzung?
   let meins = $derived(

@@ -6,7 +6,11 @@
  * reine Textarbeit ohne Zustand.
  *
  * Die Codes vergibt `services/chat-gateway/.../ws_remote_handlers.py`
- * (4050–4056) — beim Ändern dort beide Seiten anfassen.
+ * (4050–4056) — beim Ändern dort beide Seiten anfassen. **Seit 2026-08-16
+ * kommt 4056 auch aus `ws_device_handlers.py`**: der Weckruf hat dieselbe
+ * Zwei-Sekunden-Bremse bekommen wie die Anfrage, und er meldet sie mit
+ * demselben Code, weil der Nutzer keinen Unterschied sieht — er hat zu schnell
+ * geklickt.
  */
 
 /**

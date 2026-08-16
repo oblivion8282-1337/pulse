@@ -36,9 +36,13 @@
     remoteSession.phase === 'active' && remoteSession.role === 'controller'
   );
 
-  // Absichtlich KEIN $state: dieser Merker wird im selben Effect gelesen und
-  // geschrieben, der ihn setzt — als Rune wäre das eine Endlosschleife.
+  // Absichtlich KEIN $state: diese Merker werden im selben Effect gelesen und
+  // geschrieben, der sie setzt — als Rune wäre das eine Endlosschleife.
   let hatteFenster = false;
+  /** Fensternummer → Platz, für die die Erfassung gerade LÄUFT. */
+  const erfassend = new Map<number, number>();
+  /** Für welche Sitzung. Wechselt sie, wird alles neu aufgezogen. */
+  let erfassteSitzung: string | null = null;
 
   // Ein- und Ausschalten der Erfassung laufen über EINE Kette, nie nebeneinander.
   // Beide Rufe sind asynchron (IPC in den Hauptprozess und weiter ins
@@ -52,14 +56,42 @@
     kette = kette.then(schritt).catch(() => undefined);
   }
 
+  /** Alles abschalten, was gerade erfasst. Der Weg für „Sitzung vorbei". */
+  function allesAus(): void {
+    const nummern = [...erfassend.keys()];
+    erfassend.clear();
+    erfassteSitzung = null;
+    if (nummern.length === 0) return;
+    nacheinander(async () => {
+      await Promise.all(nummern.map((n) => erfassungAus(n)));
+    });
+  }
+
+  // **Dieser Effect räumt bewusst NICHT hinter sich auf** (Bughunt
+  // 2026-08-16). Er liest `nativePlayerSessions.fuerHost()`, und das läuft über
+  // eine `SvelteMap`: jede Einfügung und jede Löschung IRGENDEINER
+  // Player-Sitzung macht ihn dreckig. Mit einem `return`-Aufräumer schaltete
+  // deshalb das blosse Dazuschalten eines zweiten Bildschirms die Erfassung
+  // ALLER Fenster kurz ab — und mit ihr ging im ersten Fenster alles Gedrückte
+  // hoch, mitten im Steuern. Dieselbe Klasse wie beim Bildschirmlisten-Effect
+  // weiter unten, nur hier im Hauptweg. Stattdessen wird die Fenstermenge
+  // ausserhalb des Effects geführt und nur der Unterschied geschaltet.
   $effect(() => {
     const sessionId = remoteSession.sessionId;
     const channelId = remoteSession.channelId;
     const hostId = remoteSession.peerUserId;
     if (!steuernd || !sessionId || !channelId || !hostId) {
       hatteFenster = false;
+      remoteP2P.setStatusSink(null);
+      remoteZeigerform.setSenke(null);
+      allesAus();
       return;
     }
+    // Andere Sitzung als die erfasste: alles alte fallen lassen. Die
+    // Fensternummern könnten zufällig dieselben sein, die Sitzungskennung im
+    // Sidecar ist es nicht.
+    if (erfassteSitzung !== sessionId) allesAus();
+    erfassteSitzung = sessionId;
     // **Jedes offene Fenster dieses Hosts, nicht nur eines.** Ein
     // Standplatz-Gerät kann mehrere Bildschirme gleichzeitig übertragen; die
     // Eingabe wird in jedem erfasst, und weil der Drahtvertrag die Platznummer
@@ -79,40 +111,66 @@
       // Eingabe mehr, und eine Sitzung, die nichts mehr überträgt, gehört
       // beendet — sonst stünde beim Host das Warnbanner für eine tote
       // Verbindung.
+      allesAus();
       if (hatteFenster) remoteSession.end();
       return;
     }
     hatteFenster = true;
-    // Scheitert das Einschalten ÜBERALL, wird die Sitzung beendet statt
-    // weiterlaufen zu lassen. Ein einzelnes Fenster darf dagegen scheitern —
-    // die übrigen tragen dann weiter, und der Steuernde merkt es daran, dass
-    // ein Bildschirm nicht reagiert. Erneut prüfen: zwischen Ruf und Antwort
-    // kann die Sitzung schon eine andere sein.
-    nacheinander(async () => {
-      const erfolge = await Promise.all(
-        fenster.map((f) => erfassungAn(f.nummer, sessionId, f.slot)),
-      );
-      if (!erfolge.some(Boolean) && remoteSession.sessionId === sessionId) remoteSession.end();
-    });
+
+    // Nur der Unterschied wird geschaltet. Ein Fenster, das schon mit
+    // demselben Platz erfasst, wird NICHT angefasst — genau daran hing der
+    // Fehler oben.
+    const gewollt = new Map(fenster.map((f) => [f.nummer, f.slot]));
+    const abschalten = [...erfassend].filter(([n, s]) => gewollt.get(n) !== s).map(([n]) => n);
+    const einschalten = [...gewollt].filter(([n, s]) => erfassend.get(n) !== s);
+    for (const n of abschalten) erfassend.delete(n);
+    if (abschalten.length > 0) {
+      nacheinander(async () => {
+        // Der Player reicht danach noch die Hoch-Ereignisse für alles
+        // Gedrückte nach; die gehen über dasselbe Abonnement unten hinaus.
+        await Promise.all(abschalten.map((n) => erfassungAus(n)));
+      });
+    }
+    if (einschalten.length > 0) {
+      // Erst bei Erfolg in die Karte: ein Fenster, dessen Erfassung nicht
+      // anging, soll beim nächsten Lauf noch einmal versucht werden. Beendet
+      // wird nur, wenn danach ÜBERHAUPT kein Fenster mehr erfasst — ein
+      // einzelnes darf scheitern, die übrigen tragen weiter, und der Steuernde
+      // merkt es daran, dass ein Bildschirm nicht reagiert. Erneut prüfen:
+      // zwischen Ruf und Antwort kann die Sitzung schon eine andere sein.
+      nacheinander(async () => {
+        const ergebnis = await Promise.all(
+          einschalten.map(
+            async ([n, s]) => [n, s, await erfassungAn(n, sessionId, s)] as const,
+          ),
+        );
+        if (remoteSession.sessionId !== sessionId) return;
+        for (const [n, s, ok] of ergebnis) if (ok) erfassend.set(n, s);
+        if (erfassend.size === 0) remoteSession.end();
+      });
+    }
+
     // Anzeigetext des Eingabewegs und Form des Host-Zeigers in JEDES Fenster —
     // beides gehört zur Sitzung, nicht zu einem einzelnen Bildschirm. Der Sink
     // wird beim Setzen mit dem aktuellen Stand nachbeliefert, Übergänge vor dem
-    // Anschluss gehen also nicht verloren.
+    // Anschluss gehen also nicht verloren. Neu gesetzt statt aufgeräumt: sie
+    // tragen die aktuelle Fensterliste, und abgeräumt wird oben, wenn die
+    // Sitzung endet.
     remoteP2P.setStatusSink((transport) => {
       for (const f of fenster) void transportMelden(f.nummer, transport);
     });
     remoteZeigerform.setSenke((form) => {
       for (const f of fenster) void zeigerformMelden(f.nummer, form);
     });
-    return () => {
-      remoteP2P.setStatusSink(null);
-      remoteZeigerform.setSenke(null);
-      // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
-      // nach; die gehen über dasselbe Abonnement unten hinaus.
-      nacheinander(async () => {
-        await Promise.all(fenster.map((f) => erfassungAus(f.nummer)));
-      });
-    };
+  });
+
+  // Der Aufräumer für den Fall, den der Effect oben nicht sieht: das Ende der
+  // Komponente selbst (Abmelden, Neuaufbau des Layouts). Ohne Abhängigkeiten,
+  // damit er GENAU einmal läuft und sein Rückgabewert am Ende steht.
+  $effect(() => () => {
+    remoteP2P.setStatusSink(null);
+    remoteZeigerform.setSenke(null);
+    allesAus();
   });
 
   // „Fernsteuerung beenden" aus dem Menü am Griff im Player-Fenster. Beendet

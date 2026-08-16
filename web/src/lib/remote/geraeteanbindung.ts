@@ -52,7 +52,14 @@ export function geraetFuerAnfrage(channelId: string, hostUserId: string): string
 export function fremdesGeraetAblehnen(sessionId: string, deviceId?: string): boolean {
   if (!deviceId) return false;
   if (geraeteAnmeldung.fuerServer(dispatchenderServer())?.deviceId === deviceId) return false;
-  sendenAuf(herkunftsVerbindung(), (c) => c.sendRemoteRespond(sessionId, false));
+  // **Schweigen, nicht ablehnen** (Bughunt 2026-08-16). Der Gateway nimmt die
+  // ERSTE Antwort und sperrt den Anfragenden nach einer Ablehnung kurz
+  // (`remote_note_refused`, 4055). Eine Ablehnung von hier wäre ein Wettlauf
+  // gegen das gemeinte Gerät: der Besitzer hat neben dem Werkstatt-PC einen
+  // Browser-Tab offen, beide bekommen die Einladung, und wer gewinnt,
+  // entschiede die Netzlaufzeit — genau in der Lage, für die dieses Feature
+  // gebaut ist. Antwortet niemand, verfällt die Anfrage nach der Frist; das
+  // ist langsamer als eine Absage, aber es ist nie die falsche.
   return true;
 }
 
@@ -62,14 +69,31 @@ export function fremdesGeraetAblehnen(sessionId: string, deviceId?: string): boo
  * Fail-closed an jeder Abzweigung — die Prüfung selbst liegt in
  * `standplatz.svelte.ts`; hier steht nur, wo sie gerufen wird.
  */
-export function ohneRueckfrage(vonUserId: string | null): boolean {
+export function ohneRueckfrage(channelId: string, vonUserId: string | null): boolean {
   // Der Aufrufer merkt sich das Ergebnis als `selbsttaetig`, und daran hängen
   // zwei Dinge: der Zustimmungsdialog bleibt zu (er stünde sonst einen
   // Serverumlauf lang sichtbar da — die Phase bleibt bis zum Echo auf
   // 'incoming' —, und ein Dialog, der von selbst verschwindet, sieht aus wie
   // ein Fehler), und das Protokoll trennt daran die selbsttätige von der
   // bestätigten Übernahme.
-  return standplatz.darfOhneRueckfrage(dispatchenderServer(), vonUserId);
+  const server = dispatchenderServer();
+  return standplatz.darfOhneRueckfrage(server, channelId, vonUserId, standplatzKanal(server));
+}
+
+/**
+ * In welchem Kanal steht dieser Rechner auf diesem Server?
+ *
+ * Die Eintragung kennt nur die Community (`anmeldung.svelte.ts::Eintragung`),
+ * den Kanal weiss allein die Gerätezeile des Servers. `null` heisst „nicht
+ * auflösbar" — dann gilt die Freigabe „jeder" nicht, und die Anfrage geht den
+ * gewöhnlichen Weg über den Dialog. Vorgeladen wird die Liste vom Gerät selbst
+ * (`devices/components/DeviceKiosk.svelte`), damit dieser Fall die Ausnahme
+ * bleibt.
+ */
+function standplatzKanal(serverId: string | null): string | null {
+  const eintrag = geraeteAnmeldung.fuerServer(serverId);
+  if (!eintrag) return null;
+  return deviceStore.byId(eintrag.guildId, eintrag.deviceId)?.channel_id ?? null;
 }
 
 /**
@@ -103,13 +127,22 @@ export function uebernahmeBeginnen(
  * Folgenlos für Anfragen, die es nie bis zur Zustimmung geschafft haben — die
  * haben gar keinen Eintrag. Deshalb darf dieser Ruf am einzigen Ausgang der
  * Sitzung hängen, ohne dort nach dem Zustand zu fragen.
+ *
+ * `zustandeGekommen` sagt, ob es überhaupt eine Übernahme WAR (Phase `active`).
+ * Nur davon hängt das Einschlafen ab (Bughunt 2026-08-16): der Ruf sitzt am
+ * einzigen Ausgang, und der wird auch von einer abgelehnten oder abgelaufenen
+ * Anfrage genommen. Das Gerät legte sich dann schlafen, obwohl der Weckruf
+ * gerade erst gewirkt hatte und womöglich schon jemand zusieht — der
+ * Anfragende sah sein Bild verschwinden, kaum dass es da war.
  */
 export function uebernahmeBeenden(
   rolle: 'controller' | 'host' | null,
   sessionId: string | null,
+  zustandeGekommen: boolean,
 ): void {
   if (rolle !== 'host') return;
   if (sessionId) void remoteProtokoll.beenden(sessionId);
+  if (!zustandeGekommen) return;
   // **Und das Gerät schläft wieder ein.** Ein einmal geweckter Rechner überträgt
   // sonst für immer weiter und verbraucht genau das, was „erst auf Abruf"
   // einsparen sollte. Nur auf einem eingetragenen Gerät und nur für die

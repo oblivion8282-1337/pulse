@@ -27,7 +27,7 @@
 <script lang="ts">
   import { acquireWakeLock } from '$lib/platform/wakeLock';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
-  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { deviceStore } from '$lib/devices/store.svelte';
   import { isElectron } from '$lib/platform/runtime';
 
   const desktop = isElectron();
@@ -35,7 +35,24 @@
   $effect(() => {
     // Nur auf einem eingetragenen Gerät und nur in der Desktop-App: im Browser
     // gibt es keinen Sidecar, den ein wacher Schirm etwas anginge.
-    if (!desktop || !geraeteAnmeldung.fuerServer(activeServer.serverId)) return;
+    //
+    // **Irgendeine Eintragung, nicht die des gerade offenen Servers** (Bughunt
+    // 2026-08-16): der Schirm hing an `activeServer`, und ein Server-Wechsel
+    // liess ihn mitten im Betrieb wieder einschlafen — ausgerechnet dann, wenn
+    // niemand davorsitzt, der ihn weckt. Ob dieser Rechner ein Standplatz ist,
+    // hängt nicht daran, welche Community gerade offen ist.
+    if (!desktop || geraeteAnmeldung.eintragungen.length === 0) return;
     return acquireWakeLock();
+  });
+
+  // Die eigene Gerätezeile vorladen. Sie ist der einzige Weg vom Rechner zu
+  // seinem Standplatz-KANAL — die Eintragung kennt nur die Community —, und an
+  // dem Kanal hängt die Dauerfreigabe „jeder" (`$lib/remote/standplatz.svelte.ts`).
+  // Ohne Vorladen käme die Auflösung erst, wenn jemand die Community ansieht;
+  // auf einem Standplatz-Gerät sieht sie niemand an, und die Freigabe fiele
+  // fail-closed auf den Dialog zurück, den dort niemand beantwortet.
+  $effect(() => {
+    if (!desktop) return;
+    for (const e of geraeteAnmeldung.eintragungen) void deviceStore.ensureLoaded(e.guildId);
   });
 </script>

@@ -19,6 +19,7 @@ import { settings } from '$lib/stores/settings.svelte';
 import { presence } from '$lib/stores/presence.svelte';
 import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { serversStore } from '$lib/api/servers.svelte';
+import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
 
 /** True when the user has set DND — callers should suppress sounds + toasts. */
 export function isDnd(): boolean {
@@ -80,6 +81,15 @@ function shouldFire(input: InPageNotifyInput): boolean {
   const kind = input.kind;
   // DND suppresses both toasts and browser notifications.
   if (presence.myStatus === 'dnd') return false;
+
+  // Sichtschutz: jemand steuert dieses Standplatz-Gerät gerade fern
+  // (`$lib/remote/sichtschutz.ts`). Dieser Weg ist der schlimmste von allen,
+  // weil er das Dokument verlässt: die Betriebssystem-Meldung liegt ausserhalb
+  // jedes Riegels, den der Renderer setzen kann, und bei einer Erwähnung trägt
+  // sie 140 Zeichen Nachrichtentext samt Autor und Kanal nach draussen — vor
+  // die Augen dessen, der gerade den Bildschirm sieht. Die Meldung fällt
+  // ersatzlos aus; ungelesen bleibt sie ohnehin, der Zähler steht in der App.
+  if (sichtschutzAktiv()) return false;
 
   // Per-server notification mode gates GUILD mentions. Discord-like: muting a
   // server silences its guild activity, not personal DMs / friend events (those

@@ -62,6 +62,21 @@ class RemoteSessionStore {
   /** Gegenüber: beim Controller der Host, beim Host der Controller. */
   peerUserId = $state<string | null>(null);
   channelId = $state<string | null>(null);
+  /**
+   * Der Server, auf dem DIESE Sitzung läuft — festgehalten, nicht nachgefragt.
+   *
+   * Wer ihn später braucht (der Zustimmungsdialog beim Merken einer
+   * Dauerfreigabe), darf nicht `dispatchenderServer()` rufen: das ist ein
+   * Modul-Global, das JEDER hereinkommende Rahmen umsetzt und das nie
+   * zurückgesetzt wird. Im Dispatch stimmt es, im Klick-Handler Sekunden später
+   * zeigt es auf die zuletzt zustellende Verbindung — nach einem
+   * `presence_update` etwa auf die Cloud-Hintergrundverbindung. Gespeichert
+   * wurde dann `{serverId: <Cloud>, userId: <Self-Host-Kennung>}`: entweder
+   * wirkungslos oder auf dem anderen Server einem ANDEREN Menschen zugeordnet
+   * — genau das, wogegen `Freigegebener.serverId` gebaut wurde (Bughunt
+   * 2026-08-16). Gesetzt in [`#setConn`], wie `#conn` selbst.
+   */
+  serverId = $state<string | null>(null);
   /** Der Stream, an dem die Anfrage gestellt wurde. Nur beim Steuernden. */
   targetSlot = $state(0);
   /** Zuletzt bedienter Platz. Beim Nachziehen nach einem Vorrang zählt der
@@ -307,7 +322,12 @@ class RemoteSessionStore {
     // bediente der Steuernde am Ende den falschen Rechner.
     if (geraet.fremdesGeraetAblehnen(sessionId, deviceId)) return;
     if (!eingabeMoeglich() || !isWindows()) {
-      sendenAuf(herkunftsVerbindung(), (c) => c.sendRemoteRespond(sessionId, false));
+      // Seit dem Bughunt 2026-08-16 SCHWEIGEND statt mit einer Absage: die
+      // Einladung geht an alle Fenster des Hosts, der Gateway nimmt die erste
+      // Antwort. Ein Browser-Tab desselben Kontos — der hier immer landet —
+      // überholte sonst das Gerät, das gerade zustimmen wollte, und sperrte
+      // den Anfragenden obendrein kurz. Der Dialog bleibt weiterhin aus, und
+      // genau darum ging es hier; die Absage war der entbehrliche Teil.
       return;
     }
     this.error = null;
@@ -328,7 +348,9 @@ class RemoteSessionStore {
     this.#watchErrors();
     // Dauerfreigabe (`geraeteanbindung.ts`) — NACH den Wachten: ein
     // fehlgeschlagenes `accept()` räumt über `#reset` auf, das sie braucht.
-    if (geraet.ohneRueckfrage(fromUserId)) {
+    // Mit dem Kanal: eine Dauerfreigabe gilt am Standplatz, nicht überall
+    // (Begründung in `standplatz.svelte.ts`).
+    if (geraet.ohneRueckfrage(channelId, fromUserId)) {
       this.selbsttaetig = true;
       this.accept();
     }
@@ -418,6 +440,7 @@ class RemoteSessionStore {
    *  mehr an. */
   #setConn(conn: GatewayConnection | null): void {
     this.#conn = conn;
+    this.serverId = conn?.serverId ?? null;
     setRemoteSessionConnection(conn);
   }
 
@@ -425,8 +448,11 @@ class RemoteSessionStore {
     this.#fehler.aus();
     this.#verbindung.aus();
     this.#frist.aus();
-    // Den Protokolleintrag schliessen, bevor die Kennung fällt.
-    geraet.uebernahmeBeenden(this.role, this.sessionId);
+    // Den Protokolleintrag schliessen, bevor die Kennung fällt. `phase` sagt
+    // dabei, ob es je eine Übernahme WAR: nur dann darf das Gerät wieder
+    // einschlafen (s. `geraeteanbindung.ts`). Gelesen, bevor unten auf 'idle'
+    // gesetzt wird.
+    geraet.uebernahmeBeenden(this.role, this.sessionId, this.phase === 'active');
     // Der direkte Kanal endet mit der Sitzung — #reset ist der EINZIGE Ausgang
     // (s. den Kommentar unten), also auch seiner. Der Vorrang-Melder ebenso:
     // er hängt am Sidecar-Ereignisstrom und hätte sonst einen Zuhörer über die

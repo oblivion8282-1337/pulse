@@ -22,7 +22,6 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { standplatz } from '$lib/remote/standplatz.svelte';
-  import { dispatchenderServer } from '$lib/remote/draht';
   import { isElectron } from '$lib/platform/runtime';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
 
@@ -75,17 +74,24 @@
     quittiert = remoteSession.sessionId;
     // ERST merken, DANN zustimmen: `accept()` kann über `#reset` aufräumen
     // (Senden fehlgeschlagen), und danach ist die Kennung des Anfragenden weg.
-    // Die Freigabe gilt acht Stunden — dieselbe Spanne wie der absolute
-    // Sitzungsdeckel des Gateways, und lang genug für einen Arbeitstag.
-    const server = dispatchenderServer();
-    if (merken && desktop && remoteSession.peerUserId && server) {
-      // Mit dem Server, von dem die Anfrage kam: Kennungen werden je Instanz
-      // vergeben, und dasselbe Gerät kann auf mehreren eingetragen sein
-      // (`standplatz.svelte.ts::Freigegebener`).
-      void standplatz.freigeben({
-        nutzer: [...standplatz.nutzer, { serverId: server, userId: remoteSession.peerUserId }],
-        jeder: standplatz.jeder,
-        geltung: 'acht_stunden',
+    // Eine frische Freigabe gilt acht Stunden — dieselbe Spanne wie der
+    // absolute Sitzungsdeckel des Gateways, und lang genug für einen
+    // Arbeitstag; eine schon geltende bleibt, wie sie ist.
+    //
+    // Server und Kanal kommen aus der SITZUNG, nicht aus dem Dispatch-Global
+    // (`remoteSession.serverId` — Begründung dort): hier wird Sekunden nach dem
+    // Eintreffen der Anfrage geklickt, und bis dahin hat längst ein fremder
+    // Rahmen den Zeiger umgesetzt.
+    const server = remoteSession.serverId;
+    const kanal = remoteSession.channelId;
+    if (merken && desktop && remoteSession.peerUserId && server && kanal) {
+      // Über `nutzerErgaenzen`, NICHT über `freigeben`: das schaltet scharf und
+      // reichte dabei `jeder` mit — ein Haken für EINE Person öffnete das Gerät
+      // wieder für alle (`standplatz.svelte.ts::nutzerErgaenzen`).
+      void standplatz.nutzerErgaenzen({
+        serverId: server,
+        channelId: kanal,
+        userId: remoteSession.peerUserId,
       });
     }
     remoteSession.accept();

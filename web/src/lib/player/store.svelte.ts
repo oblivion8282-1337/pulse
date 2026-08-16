@@ -154,6 +154,16 @@ export class NativePlayerSession {
         nativeChatRequests.bump(this.channelId, this.userId, this.slot);
         return;
       }
+      // **Nur `close` schliesst** (Bughunt 2026-08-16). Das Fenster meldet vier
+      // Arten; `remote-disconnect` und `remote-screen` gehoeren
+      // `RemoteControllerInput.svelte`, das sie mit Sitzung und Geraet in der
+      // Hand beantwortet. Hier fielen sie bis dahin in den Schliessen-Zweig:
+      // „Fernsteuerung beenden" im Menue am Griff riss die Kachel und damit den
+      // ganzen Stream mit ab, und wer Bildschirm 2 dazuschaltete, verlor
+      // Bildschirm 1. Der Vertrag im Player sagt ausdruecklich das Gegenteil
+      // („Das Fenster bleibt offen und zeigt weiter das Bild",
+      // `overlay/typen.rs`).
+      if (kind !== 'close') return;
       // Schliessen: Anforderung zuruecknehmen UND die Kachel schliessen. Nur
       // Ersteres wuerde bei erzwungenem Fenster (10 bit) sofort ein neues
       // oeffnen — genau der Zustand, den dieser Knopf beheben soll. Die Kachel

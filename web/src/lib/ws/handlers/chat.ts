@@ -19,6 +19,7 @@ import { userCache } from '$lib/stores/users.svelte';
 import { dispatchingUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
+import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
 import { sounds } from '$lib/sounds/engine';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
@@ -124,7 +125,11 @@ export function register(ctx: HandlerContext): void {
           ? m.chat_handler_dm_sender_label({ sender: '@' + (cached.display_name ?? cached.username) })
           : '';
         const channelId = evt.channel_id;
-        if (!isDnd()) {
+        // Kein Toast, solange der Sichtschutz steht: sonner rendert mit
+        // z-index 999999999 und lag damit ÜBER dem Riegel des ferngesteuerten
+        // Standplatz-Geräts — der Name des Absenders stand mitten auf dem
+        // Bild, das gerade ein Fremder sieht (`$lib/remote/sichtschutz.ts`).
+        if (!isDnd() && !sichtschutzAktiv()) {
           toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
               label: m.chat_handler_dm_open(),
