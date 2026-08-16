@@ -849,6 +849,8 @@
   "device_settings_registered_none": "Dieser Rechner ist nirgends als Gerät eingetragen.",
   "device_settings_registered_remove": "Eintragung entfernen",
   "device_settings_registered_title": "Eingetragen als",
+  "device_sichtschutz_body": "Chat, Verlauf und Direktnachrichten sind währenddessen verdeckt: wer dieses Gerät steuert, sieht den Bildschirm. Sobald die Fernsteuerung endet, ist alles wieder da.",
+  "device_sichtschutz_title": "Sichtschutz — dieses Gerät wird gerade ferngesteuert",
   "device_state_busy": "belegt",
   "device_state_offline": "offline",
   "device_state_ready": "bereit",
