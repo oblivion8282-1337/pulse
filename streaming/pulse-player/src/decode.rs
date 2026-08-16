@@ -316,6 +316,16 @@ const MAX_UNBRAUCHBARE_BILDER: u32 = 60;
 /// kostet nur eine weitere Kaskade Standbild vor demselben Rueckfall.
 const MAX_HARDWARE_ANLAEUFE: u32 = 1;
 
+/// Wie oft eine Sitzung nach einer Fehlerserie neu einsteigen darf, statt zu
+/// enden (s. [`VideoDecoder::aufgeben_oder_neu_einsteigen`]).
+///
+/// Drei: der belegte Fall braucht genau einen (eine Verluststrecke, danach ein
+/// sauberes Vollbild), zwei weitere decken eine Leitung ab, die gleich mehrfach
+/// hintereinander stoert. Wer danach immer noch nicht dekodiert, hat kein
+/// Verluststrecken-Problem mehr — und ein unbegrenzter Zaehler ergaebe ein
+/// Fenster, das ewig auf ein Vollbild wartet, das nie kommt.
+const MAX_EINSTIEGE: u32 = 3;
+
 /// Ab wann „seit langem kein Vollbild" als rollende Auffrischung gilt.
 ///
 /// Der uebliche Vollbild-Abstand liegt bei zwei Sekunden. Fuenf sind reichlich
@@ -1214,6 +1224,9 @@ pub struct VideoDecoder {
     /// Wie oft dieser Strom nach einer Stockung schon einen frischen
     /// Hardware-Decoder bekommen hat (s. [`MAX_HARDWARE_ANLAEUFE`]).
     hardware_anlaeufe: u32,
+    /// Wie oft dieser Strom nach einer Fehlerserie neu eingestiegen ist,
+    /// statt die Sitzung zu beenden (s. [`MAX_EINSTIEGE`]).
+    einstiege: u32,
     /// Bilder in Folge, die der Decoder geliefert hat und [`convert`] nicht
     /// uebersetzen konnte (s. [`MAX_UNBRAUCHBARE_BILDER`]).
     unbrauchbare_bilder: u32,
@@ -1286,6 +1299,7 @@ impl VideoDecoder {
                         bruecke_us: 0,
                         stockungen: crate::stockung::Waechter::default(),
                         hardware_anlaeufe: 0,
+                        einstiege: 0,
                         unbrauchbare_bilder: 0,
                         bruecke: None,
                         zulauf: crate::einfrieren::Zulauf::default(),
@@ -1419,7 +1433,8 @@ impl VideoDecoder {
         // Vollbild WIRKLICH da ist — nicht nach einer geschaetzten Zeit. Der
         // Zeitdeckel in `on_gap` bleibt nur als Notausgang, damit ein
         // ausbleibendes Vollbild das Bild nicht fuer immer sperrt.
-        if crate::recorder::is_keyframe(self.codec, data) {
+        let ist_einstiegspunkt = crate::recorder::is_keyframe(self.codec, data);
+        if ist_einstiegspunkt {
             self.unsauber_bis = None;
             // Abstand der ankommenden Vollbilder melden. Beantwortet zwei
             // Fragen, die man sonst nur raten kann: ob der Sender ueberhaupt
@@ -1441,7 +1456,7 @@ impl VideoDecoder {
             );
         }
         if self.awaiting_keyframe {
-            if !crate::recorder::is_keyframe(self.codec, data) {
+            if !ist_einstiegspunkt {
                 self.skipped_before_keyframe += 1;
                 if self.skipped_before_keyframe > MAX_UNITS_WITHOUT_KEYFRAME {
                     bail!(
@@ -1487,11 +1502,10 @@ impl VideoDecoder {
             match neuaufbau::classify(self.consecutive_errors, self.rebuilds.anzahl()) {
                 ErrorAction::Ignore => {}
                 ErrorAction::Rebuild => self.rebuild(&e.to_string(), uhr)?,
-                ErrorAction::GiveUp => bail!(
-                    "Decoder {} nimmt seit {} Einheiten keine Pakete mehr an ({e})",
-                    self.name,
-                    self.consecutive_errors
-                ),
+                ErrorAction::GiveUp => self.aufgeben_oder_neu_einsteigen(
+                    &e.to_string(),
+                    ist_einstiegspunkt,
+                )?,
             }
             return Ok(Vec::new());
         }
@@ -1533,6 +1547,54 @@ impl VideoDecoder {
             );
         }
         Ok(bilder)
+    }
+
+    /// Nach einer Fehlerserie, die auch der Neuaufbau nicht behoben hat: die
+    /// Sitzung beenden — oder noch einmal von vorn einsteigen?
+    ///
+    /// **Der Fall, der das noetig machte** (Befund 2026-08-16): eine Sitzung
+    /// starb nach 313 s mit „nimmt seit 30 Einheiten keine Pakete mehr an
+    /// (Invalid data found when processing input)". Der Decoder war dabei
+    /// kerngesund; der BITSTROM war beschaedigt, weil kurz zuvor Pakete
+    /// verlorengingen und ueber RTMPS kein Vollbild nachforderbar war. Es gab
+    /// aber gar keinen Weg zwischen „einzelner Fehler" und „Sitzung vorbei" —
+    /// der Zuschauer verlor das Bild endgueltig fuer etwas, das sich beim
+    /// naechsten Vollbild von selbst erledigt haette.
+    ///
+    /// **Getrennt wird an der Sache, nicht an einer Zahl:** ein wirklich toter
+    /// Decoder lehnt AUCH ein Vollbild ab — beide belegten Faelle
+    /// (`av1_cuvid` mit zerschossenem CUDA-Kontext, `av1_qsv` ohne Intel-
+    /// Hardware) taten genau das, vom ersten Paket an. Ein beschaedigter
+    /// Bitstrom nicht: fuer ihn ist ein Vollbild ein sauberer Neuanfang. Wird
+    /// also ein Einstiegspunkt abgelehnt, endet die Sitzung sofort wie bisher;
+    /// wird ein gewoehnliches Bild abgelehnt, wird stattdessen auf den
+    /// naechsten Einstiegspunkt gewartet. Anfordern muss ihn hier niemand —
+    /// `crate::session` pollt [`Self::wartet_auf_einstieg`] und schickt die
+    /// Anforderung von selbst.
+    ///
+    /// [`MAX_EINSTIEGE`] deckelt das trotzdem: ein Sender, der nie wieder ein
+    /// brauchbares Vollbild schickt, darf nicht in eine endlose Wartestellung
+    /// fuehren.
+    fn aufgeben_oder_neu_einsteigen(&mut self, fehler: &str, war_einstiegspunkt: bool) -> Result<()> {
+        if war_einstiegspunkt || self.einstiege >= MAX_EINSTIEGE {
+            bail!(
+                "Decoder {} nimmt seit {} Einheiten keine Pakete mehr an ({fehler})",
+                self.name,
+                self.consecutive_errors
+            );
+        }
+        self.einstiege += 1;
+        eprintln!(
+            "pulse-player: Decoder {} lehnt ab ({fehler}) — neuer Einstieg \
+             {}/{MAX_EINSTIEGE}, warte auf ein Vollbild",
+            self.name, self.einstiege
+        );
+        // Der Decoder bleibt stehen, nur der Strom setzt neu auf. Geleert ist
+        // er bereits (der Aufrufer tut das vor der Einordnung).
+        self.consecutive_errors = 0;
+        self.awaiting_keyframe = true;
+        self.skipped_before_keyframe = 0;
+        Ok(())
     }
 
     /// Auf Software umstellen, weil der Hardware-Weg zwar liefert, aber zu
@@ -2398,6 +2460,49 @@ mod tests {
              {verworfen} ohne Ausgabe"
         );
         assert!(bilder > 0, "kein einziges Bild dekodiert");
+    }
+
+    /// **Der Befund vom 2026-08-16.** Ein beschaedigter Bitstrom (Pakete
+    /// verloren, kein Vollbild nachforderbar) beendete die Sitzung nach 313 s,
+    /// obwohl der Decoder gesund war. Ein abgelehntes GEWOEHNLICHES Bild darf
+    /// die Sitzung deshalb nicht mehr kosten — es fuehrt zurueck in die
+    /// Wartestellung, aus der `crate::session` ein Vollbild nachfordert.
+    #[test]
+    fn abgelehntes_normalbild_beendet_die_sitzung_nicht_mehr() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
+        d.awaiting_keyframe = false;
+        d.consecutive_errors = neuaufbau::ERROR_LIMIT;
+        d.aufgeben_oder_neu_einsteigen("Invalid data found when processing input", false)
+            .expect("ein beschaedigter Strom ist kein toter Decoder");
+        assert!(d.awaiting_keyframe, "es wird auf einen Einstiegspunkt gewartet");
+        assert_eq!(d.consecutive_errors, 0, "die Serie beginnt von vorn");
+        assert_eq!(d.einstiege, 1);
+    }
+
+    /// Die Gegenprobe, an der die beiden Faelle haengen: ein wirklich toter
+    /// Decoder lehnt AUCH ein Vollbild ab — beide belegten Faelle taten das.
+    /// Dann endet die Sitzung sofort, wie vor der Aenderung.
+    #[test]
+    fn abgelehnter_einstiegspunkt_beendet_die_sitzung_weiterhin() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
+        d.consecutive_errors = neuaufbau::ERROR_LIMIT;
+        assert!(
+            d.aufgeben_oder_neu_einsteigen("CUDA_ERROR_UNKNOWN", true).is_err(),
+            "wer ein Vollbild ablehnt, ist hin"
+        );
+        assert_eq!(d.einstiege, 0, "ein toter Decoder verbraucht keinen Einstieg");
+    }
+
+    /// Der Deckel: ein Sender, der nie wieder ein brauchbares Vollbild
+    /// schickt, darf nicht in eine endlose Wartestellung fuehren.
+    #[test]
+    fn nach_drei_einstiegen_endet_die_sitzung() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
+        d.consecutive_errors = neuaufbau::ERROR_LIMIT;
+        for _ in 0..MAX_EINSTIEGE {
+            d.aufgeben_oder_neu_einsteigen("Invalid data", false).expect("noch im Rahmen");
+        }
+        assert!(d.aufgeben_oder_neu_einsteigen("Invalid data", false).is_err());
     }
 
     /// Der Kern des Befunds vom 2026-07-26: eine AV1-Einheit aus Temporal
