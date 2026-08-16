@@ -31,9 +31,11 @@
   import RemoteControllerInput from '$lib/remote/components/RemoteControllerInput.svelte';
   import RemoteStandplatzBanner from '$lib/remote/components/RemoteStandplatzBanner.svelte';
   import DeviceSichtschutz from '$lib/devices/components/DeviceSichtschutz.svelte';
+  import DeviceKiosk from '$lib/devices/components/DeviceKiosk.svelte';
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { loadAll } from '$lib/stream/persistence';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
@@ -142,7 +144,14 @@
     // geladenen Speicher und kostet nichts, und die Reihenfolge ist der ganze
     // Zweck. Zugleich verfällt hier „bis Neustart" — dieser Aufruf IST der
     // Neustart.
-    await Promise.all([standplatz.laden(), remoteProtokoll.laden(), geraeteAnmeldung.laden()]);
+    // EIN Griff in den Geräte-Speicher für alle drei: unter Electron ist jeder
+    // ein IPC-Umlauf über die ganze Datei.
+    const geraeteSpeicher = await loadAll();
+    await Promise.all([
+      standplatz.laden(geraeteSpeicher),
+      remoteProtokoll.laden(geraeteSpeicher),
+      geraeteAnmeldung.laden(geraeteSpeicher),
+    ]);
     void gateway.connect().catch((e) => console.error('gateway connect', e));
     // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle
     // (Freunde/DMs/Requests/Blocks/Freund-Presence) und muss dauerhaft connected
@@ -326,6 +335,7 @@
 <RemoteHostBanner />
 <RemoteStandplatzBanner />
 <DeviceSichtschutz />
+<DeviceKiosk />
 <RemoteErrorToast />
 <RemoteControllerInput />
 

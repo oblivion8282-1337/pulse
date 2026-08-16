@@ -8,6 +8,7 @@
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
   import DeviceView from '$lib/devices/components/DeviceView.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
+  import { geraetPfad } from '$lib/devices/darstellung';
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
@@ -523,7 +524,7 @@
   });
 
   function geraetOeffnen(d: Device): void {
-    void goto(`/app/guilds/${d.guild_id}/channels/${d.channel_id}?device=${d.id}`);
+    void goto(geraetPfad(d));
   }
 </script>
 

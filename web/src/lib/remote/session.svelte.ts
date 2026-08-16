@@ -34,9 +34,7 @@ import { isWindows } from '$lib/platform/runtime';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
 import { remoteZeigerform } from './zeigerform';
-import { standplatz } from './standplatz.svelte';
-import { remoteProtokoll } from './protokoll.svelte';
-import { gegenstelle } from './gegenstelle';
+import { ohneRueckfrage, uebernahmeBeenden, uebernahmeBeginnen } from './geraeteanbindung';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -77,17 +75,7 @@ class RemoteSessionStore {
    * vor dem Mount des Toasts entsteht, noch ankommt.
    */
   error = $state<string | null>(null);
-  /**
-   * Wurde diese Anfrage von der Dauerfreigabe des Geräts beantwortet
-   * (`standplatz.svelte.ts`)? Zwei Verwender, beide brauchen es:
-   *
-   * * Der Zustimmungsdialog bleibt dann zu. Er hinge sonst einen Serverumlauf
-   *   lang sichtbar da — die Phase bleibt bis zum `remote_response`-Echo auf
-   *   'incoming' —, und ein Dialog, der von selbst wieder verschwindet, sieht
-   *   aus wie ein Fehler.
-   * * Das Protokoll unterscheidet daran die selbsttätige von der bestätigten
-   *   Übernahme (`protokoll.svelte.ts`).
-   */
+  /** Hat die Dauerfreigabe des Geräts geantwortet? Folgen: `geraeteanbindung.ts`. */
   selbsttaetig = $state(false);
 
   /** Die drei Wachten der Sitzung (`wachten.ts`), jede in ihrem An/Aus-Halter. */
@@ -352,15 +340,9 @@ class RemoteSessionStore {
     // „Erlauben" holte sich wortlos ein 4053 ab.
     this.#watchFrist('Die Anfrage ist abgelaufen.');
     this.#watchErrors();
-    // **Dauerfreigabe am Standplatz-Gerät.** Steht sie und passt der
-    // Anfragende, wird jetzt zugestimmt statt gefragt — die Zustimmung wurde
-    // vorverlegt, nicht abgeschafft (`standplatz.svelte.ts`).
-    //
-    // NACH den Wachten und nach dem vollständig gesetzten Zustand: `accept()`
-    // verlangt Phase und Kennung, und schlägt das Senden fehl, räumt es über
-    // `#reset` auf — dann müssen die Wachten schon stehen, sonst bliebe eine
-    // hängen.
-    if (standplatz.darfOhneRueckfrage(fromUserId)) {
+    // Dauerfreigabe (`geraeteanbindung.ts`) — NACH den Wachten: ein
+    // fehlgeschlagenes `accept()` räumt über `#reset` auf, das sie braucht.
+    if (ohneRueckfrage(fromUserId)) {
       this.selbsttaetig = true;
       this.accept();
     }
@@ -386,18 +368,7 @@ class RemoteSessionStore {
     }
     this.phase = 'active';
     this.#watchVerbindung();
-    // Das Protokoll des Geräts führt nur der Host: es beantwortet „wer hat
-    // MEINEN Rechner übernommen". Beim Steuernden gäbe es dieselbe Zeile mit
-    // umgekehrtem Vorzeichen, und die gehört nicht in dieselbe Liste.
-    if (this.role === 'host') {
-      const wer = gegenstelle(this.peerUserId);
-      void remoteProtokoll.beginnen(
-        sessionId,
-        this.peerUserId ?? '',
-        wer.anzeige,
-        this.selbsttaetig,
-      );
-    }
+    uebernahmeBeginnen(this.role, sessionId, this.peerUserId, this.selbsttaetig);
     // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
     // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert
     // er (NAT), bleibt es wortlos dabei. Die Rolle steht fest: ohne sie ist
@@ -468,10 +439,8 @@ class RemoteSessionStore {
     this.#fehler.aus();
     this.#verbindung.aus();
     this.#frist.aus();
-    // Den Protokolleintrag schliessen, bevor die Kennung fällt. Folgenlos für
-    // Anfragen, die es nie bis zur Zustimmung geschafft haben — die haben gar
-    // keinen Eintrag (s. `protokoll.svelte.ts::beenden`).
-    if (this.role === 'host' && this.sessionId) void remoteProtokoll.beenden(this.sessionId);
+    // Den Protokolleintrag schliessen, bevor die Kennung fällt.
+    uebernahmeBeenden(this.role, this.sessionId);
     // Der direkte Kanal endet mit der Sitzung — #reset ist der EINZIGE Ausgang
     // (s. den Kommentar unten), also auch seiner. Der Vorrang-Melder ebenso:
     // er hängt am Sidecar-Ereignisstrom und hätte sonst einen Zuhörer über die

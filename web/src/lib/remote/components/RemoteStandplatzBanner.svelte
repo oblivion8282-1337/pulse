@@ -29,17 +29,10 @@
 
   let show = $derived(desktop && standplatz.aktiv && remoteSession.phase !== 'active');
 
-  // Ganze Stunden genügen: die Zahl beantwortet „reicht das noch für heute",
-  // nicht „wie viele Minuten". Eine minutengenaue Anzeige bräuchte einen
-  // Zeitgeber, und Chromium drosselt den in verdeckten Fenstern ohnehin auf
-  // einen Lauf je Minute (dieselbe Falle wie in `wachten.ts`).
-  let restStunden = $derived.by(() => {
-    const rest = standplatz.restMs();
-    return rest === null || rest === 0 ? null : Math.max(1, Math.round(rest / 3_600_000));
-  });
 </script>
 
 {#if show}
+  {@const restStunden = standplatz.restStunden()}
   <div
     class="border-border bg-bg-input/90 fixed left-1/2 top-3 z-[55] flex -translate-x-1/2
       items-center gap-3 rounded-xl border px-4 py-2 shadow-lg backdrop-blur"

@@ -327,6 +327,23 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "entry_id": "1",
         "kind": 0,
     },
+    # Standplatz-Geraete: die Zeile selbst und ihr Zustand. Beide tragen die
+    # Kanal-Kennung an oberster Stelle — daran haengt die Sicht-Schranke.
+    "device_changed": {
+        "op": "device_changed",
+        "guild_id": "1",
+        "channel_id": "2",
+        "device": {"id": "3", "name": "werkstatt-pc"},
+        "removed": False,
+    },
+    "device_state": {
+        "op": "device_state",
+        "guild_id": "1",
+        "channel_id": "2",
+        "device_id": "3",
+        "state": "ready",
+        "busy_with": None,
+    },
     "dropbox_quota_updated": {
         "op": "dropbox_quota_updated",
         "guild_id": "1",

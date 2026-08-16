@@ -284,12 +284,12 @@ async def handle_device_announce(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     # „Dieser Rechner ist das Geraet X." Der Server kann das nicht erraten —
     # er sieht Verbindungen von Nutzern, nicht von Rechnern (s.
     # ``ws_device_handlers``).
-    await ws_device_handlers.handle_announce(ctx, msg, session_factory=SessionLocal)
+    await ws_device_handlers.handle_announce(ctx, msg)
 
 
 @register_ws_op("device_withdraw")
 async def handle_device_withdraw(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await ws_device_handlers.handle_withdraw(ctx, msg, session_factory=SessionLocal)
+    await ws_device_handlers.handle_withdraw(ctx, msg)
 
 
 @register_ws_op("device_wake")
@@ -297,7 +297,7 @@ async def handle_device_wake(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     # „Fang bitte an zu uebertragen." Getrennt von ``remote_request``, damit
     # eine Sitzungszusage nicht an einer Encoder-Initialisierung haengt
     # (Begruendung in ``ws_device_handlers.handle_wake``).
-    await ws_device_handlers.handle_wake(ctx, msg, session_factory=SessionLocal)
+    await ws_device_handlers.handle_wake(ctx, msg)
 
 
 @register_ws_op("ping")

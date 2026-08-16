@@ -35,11 +35,6 @@ class DeviceStore {
     return this.byGuild.get(guildId) ?? [];
   }
 
-  /** Geräte, die in diesem Kanal stehen. */
-  inChannel(guildId: string | null | undefined, channelId: string): Device[] {
-    return this.forGuild(guildId).filter((d) => d.channel_id === channelId);
-  }
-
   byId(guildId: string | null | undefined, deviceId: string): Device | null {
     return this.forGuild(guildId).find((d) => d.id === deviceId) ?? null;
   }
@@ -64,13 +59,6 @@ class DeviceStore {
     })();
     this.#laufend.set(guildId, abruf);
     return abruf;
-  }
-
-  /** Nach einer Änderung neu laden — für die eigene Mutation, deren Antwort
-   *  schon vorliegt, ist `_changed` der schnellere Weg. */
-  async reload(guildId: string): Promise<void> {
-    this.#geladen.delete(guildId);
-    await this.ensureLoaded(guildId);
   }
 
   // ── Vom WS-Handler ────────────────────────────────────────────────────────
