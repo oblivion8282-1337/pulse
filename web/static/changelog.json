@@ -8,9 +8,10 @@
       "title": "Geräte: Rechner, die zum Fernsteuern bereitstehen",
       "intro": "Bisher konnte man nur einen Menschen fernsteuern, der gerade überträgt und zustimmt. Jetzt gibt es Geräte: Rechner, die in einem Kanal stehen und dafür da sind, aus der Ferne benutzt zu werden.",
       "items": [
-        "Ein Rechner lässt sich als Gerät eintragen — Einstellungen, Reiter „Standplatz“. Er steht danach in der gewählten Community in einer eigenen Kategorie neben Text- und Sprachkanälen.",
+        "Ein Rechner lässt sich als Gerät eintragen — Einstellungen, Reiter „Standplatz“. Er steht danach unter dem Sprachkanal, den du als Standplatz gewählt hast, zwischen den Leuten, die dort sind — so ist ohne Nachlesen klar, wo der Rechner steht.",
         "Wer ein Gerät anklickt, sieht es im Hauptbereich: wem es gehört, wo es steht, ob es bereit, belegt oder offline ist.",
-        "Ein Klick weckt es und holt das Bild. Das Gerät überträgt nur auf Abruf — ein Rechner, der für niemanden überträgt, würde nur Strom verbrauchen.",
+        "Ein Klick weckt ihn, holt das Bild in ein eigenes Fenster und übernimmt. Das Gerät überträgt nur auf Abruf — ein Rechner, der für niemanden überträgt, würde nur Strom verbrauchen.",
+        "Überträgt ein Gerät, trägt seine Zeile das LIVE-Abzeichen — nicht die seines Besitzers, der dabei gar nicht im Kanal sein muss. Ein Klick darauf zeigt nur das Bild: Zusehen braucht kein Recht zum Fernsteuern und stört niemanden, der gerade steuert.",
         "Geräte sehen bewusst nicht aus wie Menschen: eckig statt rund, Name in Schreibmaschinenschrift. Sie stehen in keiner Sprecherliste und schreiben nichts.",
         "Wer einen Kanal nicht sehen darf, sieht auch die Geräte nicht, die dort stehen.",
         "Ein Rechner lässt sich einmal freigeben und beantwortet Fernsteuer-Anfragen danach selbst. Freigeben kann nur, wer körperlich davorsitzt — über den Server ist das nicht setzbar.",

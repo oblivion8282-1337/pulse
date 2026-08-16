@@ -25,6 +25,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { stromGehoertGeraet } from '$lib/devices/darstellung';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { chooseHqForUser } from '$lib/stream/hqTile';
@@ -56,7 +57,7 @@
   const CHANNEL_BTN_CLASS =
     'group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary';
 
-  import DeviceCategory from '$lib/devices/components/DeviceCategory.svelte';
+  import DeviceChannelRows from '$lib/devices/components/DeviceChannelRows.svelte';
   import type { Device } from '$lib/api/devices';
 
   let {
@@ -663,8 +664,16 @@
       {@const members = voicePresence.usersIn(c.id)}
       {#if members.length > 0}
         {@const voiceStreamers = voicePresence.streamingIn(c.id)}
+        <!-- HQ-Stroeme, die in Wahrheit vom Standplatz-Geraet kommen, gehoeren
+             NICHT an die Zeile des Menschen: das Abzeichen stuende sonst
+             zweimal da (am Rechner und am Besitzer), und beim Besitzer waere es
+             falsch — der muss nicht einmal im Kanal sein. Ein ueber Voice
+             geteilter Bildschirm (`voiceStreamers`) bleibt unangetastet. -->
         {@const streamers = [
-          ...new Set([...voiceStreamers, ...streamPresence.streamersIn(c.id)]),
+          ...new Set([
+            ...voiceStreamers,
+            ...streamPresence.streamersIn(c.id).filter((uid) => !stromGehoertGeraet(c.id, uid)),
+          ]),
         ]}
         {@const speakers =
           voice.connected && voice.channelId === c.id
@@ -738,17 +747,32 @@
           </div>
         {/if}
       {/if}
+      <!-- Standplatz-Geraete stehen UNTER ihrem Kanal, nicht in einer eigenen
+           Kategorie (Aenderung 2026-08-16, Begruendung in DeviceChannelRows) —
+           und unter ALLEN Menschen des Kanals, nicht ueber ihnen: die
+           Teilnehmerliste ist die bewegliche Groesse (wer kommt, wer geht), die
+           Geraete stehen fest. Als Schlusszeile bleiben sie an derselben
+           Stelle, statt die Namen darunter bei jedem Beitritt zu verschieben.
+           Ausserhalb des `members`-Blocks, denn ein Geraet steht auch in einem
+           Kanal, in dem gerade niemand sitzt — genau der Regelfall bei einem
+           unbeaufsichtigten Rechner. -->
+      {#if guild && onSelectDevice}
+        <DeviceChannelRows
+          guildId={c.guild_id}
+          channelId={c.id}
+          {activeDeviceId}
+          onSelect={onSelectDevice}
+          onWatch={(d) => {
+            chooseHqForUser(c.id, d.owner_user_id);
+            onSelect(c);
+          }}
+        />
+      {/if}
     {/each}
     {:else}
       <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_voice_channels()}</p>
     {/if}
 
-    <!-- Standplatz-Geraete: eigene Kategorie, gleichrangig neben Text- und
-         Sprachkanaelen (Entwurf §5). Sie rendert sich selbst weg, wenn es
-         keine gibt. -->
-    {#if guild && onSelectDevice}
-      <DeviceCategory guildId={guild.id} {activeDeviceId} onSelect={onSelectDevice} />
-    {/if}
   </nav>
 
   <SidebarFooter />

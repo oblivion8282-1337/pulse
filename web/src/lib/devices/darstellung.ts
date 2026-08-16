@@ -10,6 +10,7 @@
  */
 
 import type { Device, DeviceState } from '$lib/api/devices';
+import { deviceStore } from '$lib/devices/store.svelte';
 import { m } from '$lib/paraglide/messages.js';
 
 /**
@@ -47,4 +48,27 @@ export function zustandsText(state: DeviceState, wer?: string | null): string {
  */
 export function geraetPfad(device: Device): string {
   return `/app/guilds/${device.guild_id}/channels/${device.channel_id}?device=${device.id}`;
+}
+
+/**
+ * Sendet in diesem Kanal in Wahrheit das **Gerät** dieses Nutzers?
+ *
+ * Der Strom eines Standplatz-Geräts läuft unter dem Konto seines Besitzers — im
+ * Streaming-Weg gibt es keine Geräte-Kennung (`stream/starten.ts`). Ungefiltert
+ * heisst das: das LIVE-Abzeichen erscheint **zweimal**, einmal am Rechner und
+ * einmal am Menschen, der dabei nicht einmal im Kanal sein muss. Zweimal
+ * dasselbe anzuzeigen ist nicht nur unsauber, es ist an einer Stelle falsch —
+ * gesendet hat der Rechner.
+ *
+ * Erkannt am Standplatz, nicht am Strom: steht ein Gerät dieses Besitzers in
+ * diesem Kanal, gehört ein HQ-Strom dieses Kontos dorthin. Der Grenzfall — der
+ * Besitzer überträgt zusätzlich von seinem Laptop in denselben Kanal — endet
+ * dann bei einem Abzeichen statt zwei, und zwar am Gerät. Erreichbar bleibt
+ * beides: der Klick öffnet die Auswahl, sobald mehr als ein Strom läuft.
+ *
+ * **Ein geteilter Bildschirm über Voice ist davon nicht betroffen** — der
+ * läuft über LiveKit und wird an den Aufrufstellen getrennt geführt.
+ */
+export function stromGehoertGeraet(channelId: string, userId: string): boolean {
+  return deviceStore.byChannelOwner(channelId, userId) !== null;
 }
