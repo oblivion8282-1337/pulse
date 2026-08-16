@@ -92,6 +92,24 @@ class _DeviceRegistryMixin:
     #: Begründung wie beim Zustand. Der Steuernde braucht die Liste, um „Monitor
     #: 2 dazuschalten" überhaupt anbieten zu können.
     _device_monitors: dict[int, list[dict]]
+    #: ``device_id`` → die Stream-Plätze, auf denen dieses Gerät gerade sendet.
+    #:
+    #: **Warum das Gerät es sagen muss und wir es nicht ableiten können:** der
+    #: Strom eines Standplatz-Geräts läuft unter dem Konto seines Besitzers, und
+    #: im Streaming-Weg gibt es keine Geräte-Kennung (`stream/starten.ts`). Für
+    #: jeden anderen Client sieht die Übertragung des Rechners deshalb genauso
+    #: aus wie die des Menschen davor.
+    #:
+    #: Bis 2026-08-16 hat die Oberfläche daraus geraten — *steht ein Gerät
+    #: dieses Besitzers im Kanal, gehört ein Strom dieses Kontos dorthin*. Die
+    #: Vermutung prüfte nur, OB ein Gerät dort steht, nicht ob es sendet: klickte
+    #: der Besitzer an seinem eigenen Rechner auf „Live", wanderte das
+    #: LIVE-Abzeichen an den Standplatz, der gar nichts tat, und verschwand bei
+    #: dem, der wirklich sendete.
+    #:
+    #: Wie Zustand und Bildschirme gehört das in lebende Verbindungen und nicht
+    #: in eine Spalte: nach einem Absturz löge sie, und zwar Richtung „sendet".
+    _device_streams: dict[int, set[int]]
 
     def _init_device_registry(self) -> None:
         self._device_sockets = {}
@@ -100,6 +118,7 @@ class _DeviceRegistryMixin:
         self._device_busy_socket = {}
         self._device_where = {}
         self._device_monitors = {}
+        self._device_streams = {}
 
     # ── Abfragen ────────────────────────────────────────────────────────────
 
@@ -123,6 +142,37 @@ class _DeviceRegistryMixin:
         """Die gemeldeten Bildschirme eines Geräts (leer, wenn es keine
         gemeldet hat — ältere Client-Fassung oder nie angemeldet)."""
         return self._device_monitors.get(device_id, [])
+
+    def device_streams(self, device_id: int) -> list[int]:
+        """Die Plätze, auf denen dieses Gerät gerade sendet (aufsteigend).
+
+        Leer heisst „sendet nicht" — und ebenso „meldet es nicht", also eine
+        ältere Client-Fassung. Beides führt zur alten Anzeige (Abzeichen beim
+        Menschen), was der harmlosere von zwei Fehlern ist: lieber am Menschen
+        als am falschen Rechner.
+        """
+        return sorted(self._device_streams.get(device_id, ()))
+
+    def device_streams_set(self, device_id: int, slots: set[int]) -> bool:
+        """Die sendenden Plätze eines Geräts setzen. ``True`` = geändert.
+
+        Nur für ein angemeldetes Gerät: von einem, das nicht verbunden ist, kann
+        auch kein Strom kommen — und ein Eintrag ohne Verbindung bliebe stehen,
+        bis jemand ihn zufällig überschreibt.
+
+        Der Rückgabewert entscheidet, ob eine Meldung hinausgeht; ohne ihn
+        schickte jeder Neustart eines Streams dieselbe Nachricht erneut.
+        """
+        if device_id not in self._device_where:
+            return False
+        alt = self._device_streams.get(device_id, set())
+        if alt == slots:
+            return False
+        if slots:
+            self._device_streams[device_id] = slots
+        else:
+            self._device_streams.pop(device_id, None)
+        return True
 
     def device_state(self, device_id: int) -> tuple[str, str | None]:
         """``("ready" | "busy" | "offline", wer_steuert)``.
@@ -250,6 +300,7 @@ class _DeviceRegistryMixin:
         self.device_set_busy(device_id, None)
         self._device_where.pop(device_id, None)
         self._device_monitors.pop(device_id, None)
+        self._device_streams.pop(device_id, None)
 
     def device_forget_socket(self, socket: Any) -> list[int]:
         """Alles vergessen, was dieser Socket angemeldet hatte. Liefert die
@@ -311,6 +362,7 @@ class _DeviceRegistryMixin:
                 state=zustand,
                 busy_with=wer,
                 monitors=self.device_monitors(device_id),
+                stream_slots=self.device_streams(device_id),
             )
         )
 

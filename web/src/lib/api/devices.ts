@@ -36,6 +36,9 @@ export interface Device {
    *  Oberfläche zeigt dann nur den Hauptbildschirm an, und das ist ehrlicher
    *  als eine erfundene Liste. */
   monitors: DeviceMonitor[];
+  /** Plätze, auf denen dieses Gerät gerade sendet. Leer heisst „sendet nicht"
+   *  — und ebenso „meldet es nicht" (ältere Client-Fassung). */
+  stream_slots: number[];
 }
 
 export const devicesApi = {

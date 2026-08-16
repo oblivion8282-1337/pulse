@@ -39,6 +39,12 @@ class DeviceOut(BaseModel):
     #: es nie verbunden war — der Steuernde sieht dann nur „ein Bildschirm",
     #: und das ist ehrlicher als eine erfundene Liste.
     monitors: list[dict] = []
+    #: Plätze, auf denen dieses Gerät gerade sendet — leer heisst „sendet
+    #: nicht". Aus dem Verbindungsregister wie der Zustand, nicht aus der
+    #: Datenbank: der Strom eines Geräts läuft unter dem Konto seines
+    #: Besitzers und trägt keine Geräte-Kennung, das Gerät meldet es also
+    #: selbst (``device_streams``).
+    stream_slots: list[int] = []
 
 
 def manager_von(request: Request):
@@ -57,6 +63,7 @@ def device_out(device: Device, mgr) -> DeviceOut:
     # „offline" ist die richtige Antwort auf „ich weiss es nicht".
     zustand, mit = mgr.device_state(device.id) if mgr is not None else ("offline", None)
     schirme = mgr.device_monitors(device.id) if mgr is not None else []
+    plaetze = mgr.device_streams(device.id) if mgr is not None else []
     return DeviceOut(
         id=str(device.id),
         guild_id=str(device.guild_id),
@@ -66,6 +73,7 @@ def device_out(device: Device, mgr) -> DeviceOut:
         state=zustand,
         busy_with=mit,
         monitors=schirme,
+        stream_slots=plaetze,
     )
 
 

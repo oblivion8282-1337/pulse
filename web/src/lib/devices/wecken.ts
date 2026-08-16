@@ -157,6 +157,25 @@ function laeuftSchon(quelle: string): boolean {
 }
 
 /**
+ * Die Plätze, auf denen dieser Rechner **als Gerät** sendet.
+ *
+ * Also nur, was ein Weckruf gestartet hat — was der Besitzer von Hand
+ * überträgt, steht nicht in [`platzFuerQuelle`] und gehört ihm, nicht dem
+ * Gerät. Genau diese Trennung fehlte der Oberfläche bis 2026-08-16: sie hat
+ * aus „hier steht ein Gerät dieses Besitzers" geschlossen, dass jeder Strom
+ * dieses Kontos vom Gerät kommt — und das LIVE-Abzeichen an einen Standplatz
+ * gehängt, der gar nichts tat.
+ *
+ * Gegen die laufenden Ströme gefiltert, nicht bloss aus der Karte gelesen: ein
+ * Strom kann von sich aus enden (Encoder weg, Bildschirm abgesteckt), und die
+ * Karte erfährt davon nichts.
+ */
+export function geraeteSlots(): number[] {
+  const laufend = new Set(runningStreamSlots());
+  return [...platzFuerQuelle.keys()].filter((slot) => laufend.has(slot)).sort();
+}
+
+/**
  * Einen Weckruf absetzen. `false` = nicht hinausgegangen (keine Verbindung);
  * eine Ablehnung des Gateways kommt dagegen als `op:'error'` zurück und wird
  * dort behandelt, wo auch die übrigen Fernsteuer-Fehler landen.

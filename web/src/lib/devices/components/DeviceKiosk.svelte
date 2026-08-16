@@ -26,6 +26,8 @@
 -->
 <script lang="ts">
   import { acquireWakeLock } from '$lib/platform/wakeLock';
+  import { geraeteSlots } from '$lib/devices/wecken';
+  import { gatewayForServer } from '$lib/ws/connection';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { isElectron } from '$lib/platform/runtime';
@@ -43,6 +45,37 @@
     // hängt nicht daran, welche Community gerade offen ist.
     if (!desktop || geraeteAnmeldung.eintragungen.length === 0) return;
     return acquireWakeLock();
+  });
+
+  // Melden, auf welchen Plätzen dieser Rechner ALS GERÄT sendet.
+  //
+  // **Warum als Effekt und nicht am Ende des Weckrufs**: ein Strom kann von
+  // sich aus enden — Encoder weg, Bildschirm abgesteckt, Sidecar gestorben. Am
+  // Weckruf gemeldet stünde das Gerät danach dauerhaft als sendend da, und das
+  // LIVE-Abzeichen bliebe an einem Rechner kleben, der längst still ist. Der
+  // Effekt hängt an den laufenden Strömen und meldet jede Änderung, gleich aus
+  // welchem Anlass.
+  //
+  // Ohne Vergleich mit dem zuletzt Gemeldeten liefe hier bei jeder
+  // Zustandsänderung des Streams eine Nachricht hinaus (Bitrate, Zuschauer);
+  // der Gateway verwirft Doppelte zwar, aber das Nachrichtenaufkommen wäre
+  // trotzdem falsch.
+  let gemeldet = '';
+  $effect(() => {
+    const slots = geraeteSlots();
+    const schluessel = slots.join(',');
+    for (const e of geraeteAnmeldung.eintragungen) {
+      if (schluessel === gemeldet) return;
+      const conn = gatewayForServer(e.serverId);
+      if (!conn) return;
+      try {
+        conn.sendDeviceStreams(e.deviceId, slots);
+        gemeldet = schluessel;
+      } catch {
+        // Keine Verbindung — beim nächsten Wechsel erneut. Der Gateway vergisst
+        // das Gerät beim Abriss ohnehin.
+      }
+    }
   });
 
   // Die eigene Gerätezeile vorladen. Sie ist der einzige Weg vom Rechner zu

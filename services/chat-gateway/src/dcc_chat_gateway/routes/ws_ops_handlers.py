@@ -287,6 +287,14 @@ async def handle_device_announce(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_device_handlers.handle_announce(ctx, msg)
 
 
+@register_ws_op("device_streams")
+async def handle_device_streams(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    # „Ich sende gerade auf diesen Plaetzen." Der Gateway kann es nicht
+    # ableiten: der Strom laeuft unter dem Konto des Besitzers und traegt keine
+    # Geraete-Kennung (s. ``ws_device_handlers.handle_streams``).
+    await ws_device_handlers.handle_streams(ctx, msg)
+
+
 @register_ws_op("device_withdraw")
 async def handle_device_withdraw(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_device_handlers.handle_withdraw(ctx, msg)

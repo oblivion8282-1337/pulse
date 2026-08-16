@@ -316,6 +316,20 @@ class DeviceStateEvent(_EventBase):
     #: Anlass hereinkommen wie der Zustand (die Anmeldung des Geraets) — ein
     #: eigenes Ereignis dafuer waere ein zweiter Rahmen fuer dieselbe Nachricht.
     monitors: list[dict] = []
+    #: Die Plaetze, auf denen dieses Geraet gerade sendet.
+    #:
+    #: Reisen hier mit, obwohl sie einen eigenen Anlass haben (das Geraet
+    #: startet oder beendet einen Strom): der Empfaenger fuehrt beides an
+    #: derselben Stelle zusammen, und ein zweiter Rahmen fuer dieselbe Zeile
+    #: haette nur zwei Wege geschaffen, auf denen dieselbe Anzeige veralten
+    #: kann.
+    #:
+    #: **Wozu:** der Strom eines Geraets laeuft unter dem Konto seines
+    #: Besitzers, im Streaming-Weg gibt es keine Geraete-Kennung. Ohne diese
+    #: Liste muss die Oberflaeche raten, welcher Strom vom Rechner kommt und
+    #: welcher vom Menschen davor — und sie hat falsch geraten (LIVE-Abzeichen
+    #: am unbeteiligten Standplatz).
+    stream_slots: list[int] = []
 
 
 # ---- Dropbox / Ablage ------------------------------------------------------

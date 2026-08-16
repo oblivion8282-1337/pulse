@@ -158,6 +158,56 @@ async def handle_announce(ctx: Any, msg: dict[str, Any]) -> None:
         await mgr.publish_device_state(device_id)
 
 
+def _plaetze(roh: Any) -> set[int]:
+    """Die gemeldeten Stream-Plätze auf Brauchbares eindampfen.
+
+    Plätze sind kleine Zahlen (0, 1, 2 …) — dieselbe Grösse wie die
+    Bildschirmliste, und aus demselben Grund gedeckelt: die Nachricht kommt von
+    einem Client, und ein Client kann alles behaupten. Was nicht durchkommt,
+    wird still verworfen; eine falsche Zahl kostet ein Abzeichen an der
+    falschen Stelle, keine Sitzung.
+    """
+    if not isinstance(roh, list):
+        return set()
+    plaetze: set[int] = set()
+    for eintrag in roh[:MAX_MONITORS]:
+        if isinstance(eintrag, bool) or not isinstance(eintrag, int):
+            continue
+        if 0 <= eintrag < MAX_MONITORS:
+            plaetze.add(eintrag)
+    return plaetze
+
+
+async def handle_streams(ctx: Any, msg: dict[str, Any]) -> None:
+    """``device_streams`` — dieser Rechner sendet gerade auf diesen Plätzen.
+
+    **Warum das Gerät es sagt und der Gateway es nicht ableitet:** der Strom
+    läuft unter dem Konto des Besitzers, und im Streaming-Weg gibt es keine
+    Geräte-Kennung. Für den Gateway sieht die Übertragung des Standplatzes
+    genauso aus wie die des Menschen davor — er könnte beides nur raten, und
+    genau das hat die Oberfläche bis 2026-08-16 getan, mit dem LIVE-Abzeichen am
+    unbeteiligten Rechner als Ergebnis.
+
+    Ohne Bremse: anders als Anmeldung und Weckruf kostet diese Nachricht keine
+    Datenbankabfrage, und sie fällt genau dann an, wenn ein Strom beginnt oder
+    endet. Ein Deckel von zwei Sekunden verschluckte dabei das Ende eines
+    Streams, der kurz nach seinem Start abbricht — und das Gerät stünde
+    dauerhaft als sendend da.
+
+    Melden darf nur eine Verbindung, die dieses Gerät auch angemeldet hat —
+    dieselbe Prüfung wie beim Abmelden. Sonst setzte ein Fremder das Abzeichen
+    eines beliebigen Geräts.
+    """
+    device_id = _int_or_none(msg.get("device_id"))
+    mgr = _manager(ctx)
+    if device_id is None or mgr is None:
+        return
+    if device_id not in mgr.device_ids_for_socket(ctx.websocket):
+        return
+    if mgr.device_streams_set(device_id, _plaetze(msg.get("slots"))):
+        await mgr.publish_device_state(device_id)
+
+
 async def handle_withdraw(ctx: Any, msg: dict[str, Any]) -> None:
     """``device_withdraw`` — dieser Rechner ist kein Gerät mehr (Eintragung
     entfernt).
