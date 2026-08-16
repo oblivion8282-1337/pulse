@@ -51,6 +51,40 @@ def _manager(ctx: Any) -> Any:
     return getattr(ctx.websocket.app.state, "connection_manager", None)
 
 
+#: Wie viele Bildschirme ein Gerät melden darf. Vier 4K-Schirme sind schon eine
+#: sehr grosszügige Arbeitsplatz-Annahme; die Grenze ist kein Schutz vor einem
+#: Angreifer (der Anmeldende ist der Besitzer), sondern gegen eine kaputte
+#: Client-Fassung, die eine endlose Liste schickt.
+MAX_MONITORS = 8
+
+
+def _monitore(roh: Any) -> list[dict]:
+    """Die gemeldete Bildschirmliste auf das Nötige eindampfen.
+
+    Übernommen wird nur, was die Geräteansicht wirklich zeigt — Nummer, Name,
+    ob es der Hauptbildschirm ist. Alles andere (Auflösung, Bildwiederholrate)
+    stünde hier als Zahl, die niemand liest und die beim nächsten Umstecken
+    falsch ist.
+    """
+    if not isinstance(roh, list):
+        return []
+    raus: list[dict] = []
+    for eintrag in roh[:MAX_MONITORS]:
+        if not isinstance(eintrag, dict):
+            continue
+        index = eintrag.get("index")
+        if not isinstance(index, int) or index < 1:
+            continue
+        raus.append(
+            {
+                "index": index,
+                "name": str(eintrag.get("name") or f"Monitor {index}")[:64],
+                "primary": eintrag.get("primary") is True,
+            }
+        )
+    return raus
+
+
 async def handle_announce(ctx: Any, msg: dict[str, Any]) -> None:
     """``device_announce`` — dieser Rechner ist das Gerät ``device_id``."""
     device_id = _int_or_none(msg.get("device_id"))
@@ -66,7 +100,9 @@ async def handle_announce(ctx: Any, msg: dict[str, Any]) -> None:
     # Nur melden, wenn das Gerät damit NEU online ist: ein zweites Fenster
     # desselben Rechners ändert am Zustand nichts, und die Meldung ginge an
     # jedes Mitglied des Kanals.
-    if mgr.device_announce(ctx.websocket, device_id, guild_id, channel_id):
+    if mgr.device_announce(
+        ctx.websocket, device_id, guild_id, channel_id, _monitore(msg.get("monitors"))
+    ):
         await mgr.publish_device_state(device_id)
 
 
@@ -135,6 +171,14 @@ async def handle_wake(ctx: Any, msg: dict[str, Any]) -> None:
         "channel_id": str(channel_id),
         "from_user_id": str(ctx.user.id),
     }
+    # Welcher Bildschirm gemeint ist. Fehlt die Angabe, nimmt das Gerät seinen
+    # Hauptbildschirm — so beginnt jede Sitzung, und die weiteren Schirme
+    # schaltet der Steuernde in der laufenden Sitzung dazu. Nur die NUMMER
+    # reist, nie eine Aufnahmequelle: der Gateway soll nicht entscheiden
+    # können, was ein fremder Rechner aufnimmt.
+    monitor = msg.get("monitor")
+    if isinstance(monitor, int) and 1 <= monitor <= MAX_MONITORS:
+        frame["monitor"] = monitor
     for sock in ziele:
         await send_to_socket(sock, frame)
 

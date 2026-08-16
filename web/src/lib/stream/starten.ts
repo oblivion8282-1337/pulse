@@ -22,8 +22,9 @@
 import { chatApi } from '$lib/api/chat';
 import { gsr } from './gsr';
 import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
-import { resolveSlotLabel } from './label';
-import type { OverrideSet } from './settingsCatalog';
+import { resolveSlotLabel, resolveStreamLabel } from './label';
+import { streamSettings } from './settingsState.svelte';
+import type { AudioMode, OverrideSet } from './settingsCatalog';
 import { recordStreamStart } from './autoRestart';
 import { stream } from './state.svelte';
 
@@ -43,14 +44,30 @@ export type StartErgebnis =
 export async function streamStarten(
   channelId: string,
   slot: number,
-  standplatz?: { quelle: string; uebersteuerung: OverrideSet },
+  standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
 ): Promise<StartErgebnis> {
   let tok;
   try {
     // Den lesbaren Namen (etwa „Monitor 1", „Chrome") einmal beim Start
     // auflösen, damit die Auswahl der Zuschauer den Stream benennen kann, ohne
     // die GSR-Kataloge zu haben.
-    const label = resolveSlotLabel(slot).label;
+    //
+    // **Beim Standplatz-Gerät aus der WIRKLICH aufgenommenen Quelle**, nicht
+    // aus der Slot-Einstellung des Besitzers: der Platz wird beim Wecken frei
+    // vergeben, und `resolveSlotLabel` läse dort die Quelle, die der Besitzer
+    // irgendwann für diesen Platz gewählt hat. Der Steuernde bekäme dann eine
+    // Kachel „Monitor 1", die Monitor 3 zeigt — bei mehreren Schirmen genau die
+    // Verwechslung, die er nicht bemerken würde.
+    const label = standplatz
+      ? resolveStreamLabel(
+          standplatz.quelle,
+          {
+            monitors: streamSettings.available_monitors,
+            windows: streamSettings.available_windows,
+          },
+          slot,
+        ).label
+      : resolveSlotLabel(slot).label;
     tok = await chatApi.getStreamToken(
       channelId,
       // Warum Betriebsart UND Codec den Transport mitentscheiden: s.

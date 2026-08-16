@@ -53,49 +53,62 @@
     const sessionId = remoteSession.sessionId;
     const channelId = remoteSession.channelId;
     const hostId = remoteSession.peerUserId;
-    const slot = remoteSession.targetSlot;
     if (!steuernd || !sessionId || !channelId || !hostId) {
       hatteFenster = false;
       return;
     }
-    // Reaktiv über die SvelteMap-Registry und `fensterSitzung` — das Fenster
-    // geht asynchron auf, dieser Effect läuft dann erneut.
-    const fenster = nativePlayerSessions.get(channelId, hostId, slot)?.fensterSitzung ?? null;
-    if (fenster === null) {
-      // Fenster zu, nachdem es offen war: ohne Fenster fließt keine Eingabe
-      // mehr, und eine Sitzung, die nichts mehr überträgt, gehört beendet —
-      // sonst stünde beim Host das Warnbanner für eine tote Verbindung.
+    // **Jedes offene Fenster dieses Hosts, nicht nur eines.** Ein
+    // Standplatz-Gerät kann mehrere Bildschirme gleichzeitig übertragen; die
+    // Eingabe wird in jedem erfasst, und weil der Drahtvertrag die Platznummer
+    // in JEDER Nachricht trägt, folgt sie von selbst dem Fenster, in dem die
+    // Maus gerade ist. Eine zweite Sitzung braucht es dafür nicht — der Host
+    // rechnet die Anteile in das Rechteck des jeweils gemeinten Schirms
+    // (`remote_input/zuordnung.rs`).
+    //
+    // Reaktiv über die SvelteMap-Registry: geht ein weiteres Fenster auf,
+    // läuft dieser Effect erneut und schaltet dessen Erfassung ein.
+    const fenster = nativePlayerSessions
+      .fuerHost(channelId, hostId)
+      .map((s) => ({ nummer: s.fensterSitzung, slot: s.slot }))
+      .filter((f): f is { nummer: number; slot: number } => f.nummer !== null);
+    if (fenster.length === 0) {
+      // Kein Fenster mehr, nachdem eines offen war: ohne Fenster fließt keine
+      // Eingabe mehr, und eine Sitzung, die nichts mehr überträgt, gehört
+      // beendet — sonst stünde beim Host das Warnbanner für eine tote
+      // Verbindung.
       if (hatteFenster) remoteSession.end();
       return;
     }
     hatteFenster = true;
-    // Scheitert das Einschalten, wird die Sitzung beendet statt weiterlaufen zu
-    // lassen. Sonst steht beim Host das Warnbanner „wird ferngesteuert", der
-    // Steuernde sieht einen „beenden"-Knopf — und es fließt kein einziges
-    // Frame. Genau davor warnt `playerInput.ts::erfassungAn`, wenn es `false`
-    // liefert. Erneut prüfen: zwischen Ruf und Antwort kann die Sitzung schon
-    // eine andere sein, und dann gehörte dieses `end()` einer fremden.
+    // Scheitert das Einschalten ÜBERALL, wird die Sitzung beendet statt
+    // weiterlaufen zu lassen. Ein einzelnes Fenster darf dagegen scheitern —
+    // die übrigen tragen dann weiter, und der Steuernde merkt es daran, dass
+    // ein Bildschirm nicht reagiert. Erneut prüfen: zwischen Ruf und Antwort
+    // kann die Sitzung schon eine andere sein.
     nacheinander(async () => {
-      const ok = await erfassungAn(fenster, sessionId, slot);
-      if (!ok && remoteSession.sessionId === sessionId) remoteSession.end();
+      const erfolge = await Promise.all(
+        fenster.map((f) => erfassungAn(f.nummer, sessionId, f.slot)),
+      );
+      if (!erfolge.some(Boolean) && remoteSession.sessionId === sessionId) remoteSession.end();
     });
-    // Anzeigetext des Eingabewegs ins Statistik-Feld des Player-Fensters.
-    // Der Sink wird beim Setzen mit dem aktuellen Stand nachbeliefert —
-    // Übergänge vor dem Fenster-Anschluss (die Verhandlung beginnt mit der
-    // Zustimmung) gehen also nicht verloren. Best-effort, reine Diagnose.
-    remoteP2P.setStatusSink((transport) => void transportMelden(fenster, transport));
-    // Und die Form des Host-Zeigers auf den lokalen Zeiger im Player-Fenster
-    // (`$lib/remote/zeigerform.ts`). Dieselbe Schiene wie die Transport-Anzeige,
-    // inklusive Nachlieferung des aktuellen Stands beim Setzen — die erste Form
-    // meldet der Host, sobald die Sitzung steht, und das Fenster hängt sich
-    // womöglich erst danach an.
-    remoteZeigerform.setSenke((form) => void zeigerformMelden(fenster, form));
+    // Anzeigetext des Eingabewegs und Form des Host-Zeigers in JEDES Fenster —
+    // beides gehört zur Sitzung, nicht zu einem einzelnen Bildschirm. Der Sink
+    // wird beim Setzen mit dem aktuellen Stand nachbeliefert, Übergänge vor dem
+    // Anschluss gehen also nicht verloren.
+    remoteP2P.setStatusSink((transport) => {
+      for (const f of fenster) void transportMelden(f.nummer, transport);
+    });
+    remoteZeigerform.setSenke((form) => {
+      for (const f of fenster) void zeigerformMelden(f.nummer, form);
+    });
     return () => {
       remoteP2P.setStatusSink(null);
       remoteZeigerform.setSenke(null);
       // Der Player reicht danach noch die Hoch-Ereignisse für alles Gedrückte
       // nach; die gehen über dasselbe Abonnement unten hinaus.
-      nacheinander(() => erfassungAus(fenster));
+      nacheinander(async () => {
+        await Promise.all(fenster.map((f) => erfassungAus(f.nummer)));
+      });
     };
   });
 

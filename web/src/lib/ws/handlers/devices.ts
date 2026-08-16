@@ -30,7 +30,12 @@ export function register(): void {
   // Eintragung gehoert einem Server, nicht „dem gerade aktiven".
   registerWsHandler('device_wake', (evt) => {
     if (!evt.device_id || !evt.channel_id) return;
-    void weckrufBehandeln(dispatchingServerId(), String(evt.device_id), String(evt.channel_id));
+    void weckrufBehandeln(
+      dispatchingServerId(),
+      String(evt.device_id),
+      String(evt.channel_id),
+      typeof evt.monitor === 'number' ? evt.monitor : undefined,
+    );
   });
 
   registerWsHandler('device_changed', (evt) => {
@@ -46,6 +51,10 @@ export function register(): void {
       String(evt.device_id),
       evt.state,
       typeof evt.busy_with === 'string' ? evt.busy_with : null,
+      // Die Bildschirme kommen über denselben Anlass herein wie der Zustand
+      // (die Anmeldung des Geräts). Fehlen sie im Rahmen, bleibt die zuletzt
+      // bekannte Liste stehen — eine ältere Gegenstelle soll sie nicht löschen.
+      Array.isArray(evt.monitors) ? evt.monitors : undefined,
     );
   });
 }

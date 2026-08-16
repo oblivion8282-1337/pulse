@@ -701,13 +701,16 @@ export class GatewayConnection {
     sessionId: string, kind: RemoteSignalKind, data: unknown,
   ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
-  sendDeviceAnnounce = (deviceId: string): boolean =>
-    senders.sendDeviceAnnounce(this._raw, deviceId);
+  sendDeviceAnnounce = (
+    deviceId: string,
+    monitors: { index: number; name: string; primary: boolean }[] = [],
+  ): boolean => senders.sendDeviceAnnounce(this._raw, deviceId, monitors);
 
   sendDeviceWithdraw = (deviceId: string): boolean =>
     senders.sendDeviceWithdraw(this._raw, deviceId);
 
-  sendDeviceWake = (deviceId: string): boolean => senders.sendDeviceWake(this._raw, deviceId);
+  sendDeviceWake = (deviceId: string, monitor?: number): boolean =>
+    senders.sendDeviceWake(this._raw, deviceId, monitor);
 
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);
 

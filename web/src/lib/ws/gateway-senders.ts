@@ -137,8 +137,15 @@ export function sendRemoteSignal(
  *  von Rechnern (Begruendung in `$lib/devices/anmeldung.svelte.ts`). Geht nach
  *  JEDEM `ready` hinaus, auch nach einem Reconnect: die Anmeldung haengt am
  *  Socket und ist mit ihm weg. */
-export function sendDeviceAnnounce(send: SendRaw, deviceId: string): boolean {
-  return send({ op: 'device_announce', device_id: deviceId });
+export function sendDeviceAnnounce(
+  send: SendRaw,
+  deviceId: string,
+  monitors: { index: number; name: string; primary: boolean }[] = [],
+): boolean {
+  // Die Bildschirme reisen mit der Anmeldung, weil nur der Rechner sie kennt —
+  // und weil der Steuernde sie braucht, um „Monitor 2 dazuschalten" ueberhaupt
+  // anbieten zu koennen (`$lib/devices/wecken.ts`).
+  return send({ op: 'device_announce', device_id: deviceId, monitors });
 }
 
 /** Die Anmeldung ausdruecklich zuruecknehmen (Eintragung entfernt), ohne die
@@ -150,6 +157,16 @@ export function sendDeviceWithdraw(send: SendRaw, deviceId: string): boolean {
 /** „Fang bitte an zu uebertragen." Getrennt von der Fernsteuer-Anfrage, damit
  *  eine Sitzungszusage nicht an einer Encoder-Initialisierung haengt
  *  (`$lib/devices/wecken.ts`). */
-export function sendDeviceWake(send: SendRaw, deviceId: string): boolean {
-  return send({ op: 'device_wake', device_id: deviceId });
+export function sendDeviceWake(
+  send: SendRaw,
+  deviceId: string,
+  monitor?: number,
+): boolean {
+  // Ohne Nummer nimmt das Geraet seinen Hauptbildschirm — so beginnt jede
+  // Sitzung, die weiteren Schirme schaltet der Steuernde danach dazu.
+  return send({
+    op: 'device_wake',
+    device_id: deviceId,
+    ...(monitor === undefined ? {} : { monitor }),
+  });
 }

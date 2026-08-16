@@ -14,6 +14,14 @@ import { request } from './client';
 /** Zustand aus dem Verbindungsregister des Gateways, nicht aus der Datenbank. */
 export type DeviceState = 'ready' | 'busy' | 'offline';
 
+/** Ein Bildschirm des Geräts, wie er beim Anmelden gemeldet wurde. */
+export interface DeviceMonitor {
+  /** 1-basiert, passt zur Aufnahmequelle `Monitor: <index>`. */
+  index: number;
+  name: string;
+  primary: boolean;
+}
+
 export interface Device {
   id: string;
   guild_id: string;
@@ -24,6 +32,10 @@ export interface Device {
   state: DeviceState;
   /** Wer gerade steuert (nur bei `busy`). */
   busy_with: string | null;
+  /** Die Bildschirme des Geräts. Leer, solange es nie verbunden war — die
+   *  Oberfläche zeigt dann nur den Hauptbildschirm an, und das ist ehrlicher
+   *  als eine erfundene Liste. */
+  monitors: DeviceMonitor[];
 }
 
 export const devicesApi = {

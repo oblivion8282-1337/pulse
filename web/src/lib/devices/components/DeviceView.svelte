@@ -5,24 +5,32 @@
   das auch. Ein Aufklapper, den man wieder wegklickt, wäre die falsche Form für
   etwas, das man gleich übernimmt.
 
+  ## Mehrere Bildschirme
+
+  Wie bei Parsec: der erste Klick holt den **Hauptbildschirm**, die weiteren
+  Schirme schaltet man hier einzeln dazu. Jeder wird **erst beim Anfordern**
+  übertragen — ein Bildschirm, den niemand sehen will, kostet weder Rechenzeit
+  auf dem fernen Gerät noch Bandbreite. Jeder dazugeschaltete Schirm wird eine
+  eigene Kachel und damit ein eigenes Player-Fenster; die Eingabe folgt dem
+  Fenster, in dem die Maus gerade ist, denn der Drahtvertrag trägt die
+  Platznummer in jeder Nachricht.
+
   Der Knopf macht aus zwei Vorgängen einen Klick, ohne sie zu vermischen:
   wecken → warten, bis das Bild da ist → Kachel öffnen. Die Fernsteuer-Anfrage
-  selbst bleibt der unveränderte, bestehende Weg an der Kachel — sie ist die
-  Stelle, an der die Zustimmung fällt (oder die Dauerfreigabe antwortet), und
-  die gehört nicht in einen Automatismus.
-
-  **Warum nicht gleich mit anfragen** (§8): dann hinge eine Sitzungszusage an
-  einer Encoder-Initialisierung. Scheitert die, stünde eine aktive Sitzung ohne
-  Bild da, und der Fehler wäre nicht lesbar.
+  bleibt der unveränderte, bestehende Weg an der Kachel — sie ist die Stelle, an
+  der die Zustimmung fällt (oder die Dauerfreigabe antwortet), und die gehört
+  nicht in einen Automatismus.
 -->
 <script lang="ts">
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import PlayIcon from '@lucide/svelte/icons/play';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import { Button } from '$lib/components/ui/button/index.js';
-  import type { Device } from '$lib/api/devices';
+  import type { Device, DeviceMonitor } from '$lib/api/devices';
   import { geraetWecken } from '$lib/devices/wecken';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { chooseHqForUser } from '$lib/stream/hqTile';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { hqTileId } from '$lib/stream/hqTile';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -46,7 +54,8 @@
    *  anläuft — der schlechteste Zeitpunkt für eine Absage. */
   const WARTEN_MS = 25_000;
 
-  let laeuft = $state(false);
+  /** Auf welchen Bildschirm gerade gewartet wird (`null` = auf keinen). */
+  let wartetAuf = $state<DeviceMonitor | null>(null);
   let fehler = $state<string | null>(null);
   let wecker: ReturnType<typeof setTimeout> | null = null;
 
@@ -61,21 +70,45 @@
     if (device.busy_with) userCache.queue(device.busy_with);
   });
 
-  // Läuft die Übertragung des Geräts? Der Besitzer ist der Streamer — das Gerät
-  // meldet sich mit dessen Konto an (Stufe 1 des Standplatz-Plans).
-  const uebertraegt = $derived(
-    streamPresence.streamersIn(device.channel_id).includes(device.owner_user_id),
+  /**
+   * Die Bildschirme, die angeboten werden.
+   *
+   * Meldet das Gerät keine (nie verbunden oder ältere Fassung), bleibt genau
+   * ein Eintrag übrig: sein Hauptbildschirm. Das ist ehrlicher als eine
+   * erfundene Liste — und der eine Knopf tut, was er immer getan hat.
+   */
+  const schirme = $derived<DeviceMonitor[]>(
+    device.monitors.length > 0
+      ? device.monitors
+      : [{ index: 0, name: m.device_view_screen_primary(), primary: true }],
   );
 
-  // Sobald das Bild da ist: Kachel öffnen und hinwechseln. Als Effect statt im
-  // Klick-Handler, weil das Bild asynchron erscheint — der Klick weiss noch
-  // nicht, wann.
+  /** Die laufenden Übertragungen dieses Geräts (der Besitzer ist der Streamer). */
+  const stroeme = $derived(
+    streamPresence.streamsIn(device.channel_id).filter((s) => s.user_id === device.owner_user_id),
+  );
+
+  /** Der Strom, der diesen Bildschirm zeigt — erkannt am Namen, den das Gerät
+   *  beim Start mitgeschickt hat (`stream/starten.ts` nimmt ihn aus der wirklich
+   *  aufgenommenen Quelle). `undefined` = dieser Schirm läuft noch nicht. */
+  function stromFuer(mon: DeviceMonitor) {
+    return stroeme.find((s) => s.label === mon.name || s.label === `Monitor ${mon.index}`);
+  }
+
+  const laeuft = $derived(stroeme.length > 0);
+
+  // Sobald das erwartete Bild da ist: Kachel öffnen und hinwechseln. Als Effect
+  // statt im Klick-Handler, weil das Bild asynchron erscheint — der Klick weiss
+  // noch nicht, wann.
   $effect(() => {
-    if (!laeuft || !uebertraegt) return;
-    laeuft = false;
+    const ziel = wartetAuf;
+    if (!ziel) return;
+    const strom = stromFuer(ziel) ?? (stroeme.length > 0 ? stroeme[0] : undefined);
+    if (!strom) return;
+    wartetAuf = null;
     if (wecker) clearTimeout(wecker);
     wecker = null;
-    chooseHqForUser(device.channel_id, device.owner_user_id, device.name);
+    openedTiles.open('hq', device.channel_id, hqTileId(device.owner_user_id, strom.slot));
     onOpenChannel(device.channel_id);
   });
 
@@ -83,19 +116,27 @@
     if (wecker) clearTimeout(wecker);
   });
 
-  function uebernehmen(): void {
+  function holen(mon: DeviceMonitor): void {
     fehler = null;
-    // Läuft die Übertragung schon, ist der Weckruf trotzdem harmlos: das Gerät
-    // verwirft ihn (`wecken.ts`). Das spart hier eine Sonderbehandlung, deren
-    // Bedingung („läuft schon") auf zwei Rechnern verschieden alt wäre.
-    if (!geraetWecken(activeServer.serverId, device.id)) {
+    const offen = stromFuer(mon);
+    if (offen) {
+      // Läuft schon: nur die Kachel holen, keinen zweiten Weckruf. Der wäre
+      // zwar harmlos (das Gerät verwirft ihn), aber der Umweg über „warten"
+      // liesse den Knopf ohne Grund eine Sekunde lang beschäftigt aussehen.
+      openedTiles.open('hq', device.channel_id, hqTileId(device.owner_user_id, offen.slot));
+      onOpenChannel(device.channel_id);
+      return;
+    }
+    // `index: 0` ist der Ersatz-Eintrag ohne Bildschirmliste — dann ohne
+    // Nummer wecken, und das Gerät nimmt seinen Hauptbildschirm.
+    if (!geraetWecken(activeServer.serverId, device.id, mon.index || undefined)) {
       fehler = m.device_view_wake_failed();
       return;
     }
-    laeuft = true;
+    wartetAuf = mon;
     if (wecker) clearTimeout(wecker);
     wecker = setTimeout(() => {
-      laeuft = false;
+      wartetAuf = null;
       fehler = m.device_view_wake_failed();
     }, WARTEN_MS);
   }
@@ -120,20 +161,49 @@
     <p class="text-sm text-amber-500" data-testid="device-view-busy">
       {m.device_view_busy_with({ user: steuernder?.anzeige ?? '' })}
     </p>
-  {:else}
-    <Button size="lg" onclick={uebernehmen} disabled={laeuft} data-testid="device-view-take-over">
+  {:else if !laeuft}
+    <!-- Noch nichts läuft: ein Knopf, und der holt den Hauptbildschirm. -->
+    {@const haupt = schirme.find((s) => s.primary) ?? schirme[0]}
+    <Button
+      size="lg"
+      onclick={() => holen(haupt)}
+      disabled={!!wartetAuf}
+      data-testid="device-view-take-over"
+    >
       <PlayIcon class="size-4" />
-      {laeuft
-        ? m.device_view_waking()
-        : uebertraegt
-          ? m.device_view_take_over()
-          : m.device_view_wake()}
+      {wartetAuf ? m.device_view_waking() : m.device_view_wake()}
     </Button>
     {#if device.state === 'offline'}
       <p class="text-text-muted max-w-sm text-center text-xs">
         {m.device_view_offline_hint()}
       </p>
     {/if}
+  {:else}
+    <!-- Läuft schon: je Bildschirm ein Eintrag. Offene führen zur Kachel,
+         geschlossene werden erst beim Klick übertragen. -->
+    <div class="flex flex-col items-center gap-2" data-testid="device-view-screens">
+      <span class="text-text-muted text-xs">{m.device_view_screens()}</span>
+      <div class="flex flex-wrap justify-center gap-2">
+        {#each schirme as mon (mon.index)}
+          {@const offen = !!stromFuer(mon)}
+          <Button
+            size="sm"
+            variant={offen ? 'default' : 'outline'}
+            onclick={() => holen(mon)}
+            disabled={wartetAuf?.index === mon.index}
+            data-testid={`device-view-screen-${mon.index}`}
+          >
+            {#if !offen}
+              <PlusIcon class="size-4" />
+            {/if}
+            {mon.name}
+          </Button>
+        {/each}
+      </div>
+      <span class="text-text-muted max-w-sm text-center text-xs">
+        {m.device_view_screens_hint()}
+      </span>
+    </div>
   {/if}
 
   {#if fehler}

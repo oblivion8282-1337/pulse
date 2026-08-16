@@ -29,7 +29,13 @@ import { stream } from './state.svelte';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveHqLimits } from '$lib/stream/guildLimits';
-import { applyVideoMode, gpuHasAv1, clampResolution, type OverrideSet } from './settingsCatalog';
+import {
+  applyVideoMode,
+  gpuHasAv1,
+  clampResolution,
+  type AudioMode,
+  type OverrideSet,
+} from './settingsCatalog';
 import { streamSettings, persistSettings, loadPersisted } from './settingsState.svelte';
 import {
   captureSourceForSlot,
@@ -360,7 +366,7 @@ export function pushProtokoll(uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
 export function buildStartArgs(
   channelArg: ChannelStreamArg,
   slot = 0,
-  standplatz?: { quelle: string; uebersteuerung: OverrideSet },
+  standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
 ): GsrStartArgs {
   // Ein geweckter Standplatz-Rechner übersteuert IMMER — das Profil ist ja
   // gerade dafür da, dass nicht gilt, was zuletzt von Hand eingestellt war
@@ -378,7 +384,12 @@ export function buildStartArgs(
     // settings — profile, audio, overrides — are shared across both streams.
     capture: standplatz ? standplatz.quelle : captureSourceForSlot(slot),
     audio: {
-      mode: streamSettings.audio_mode,
+      // **Beim Standplatz-Gerät entscheidet der Rufer über den Ton, nicht die
+      // Einstellung des Besitzers.** Der erste Bildschirm einer Sitzung trägt
+      // den Systemton, jeder dazugeschaltete ist stumm — sonst käme derselbe
+      // Ton zwei- oder dreifach an, leicht gegeneinander versetzt, und das
+      // klingt schlechter als gar keiner (`$lib/devices/wecken.ts`).
+      mode: standplatz ? standplatz.ton : streamSettings.audio_mode,
       excluded_apps: streamSettings.excluded_apps.slice(),
     },
     show_cursor: streamSettings.show_cursor,

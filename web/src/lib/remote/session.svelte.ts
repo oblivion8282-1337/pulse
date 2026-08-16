@@ -61,13 +61,12 @@ class RemoteSessionStore {
   /** Gegenüber: beim Controller der Host, beim Host der Controller. */
   peerUserId = $state<string | null>(null);
   channelId = $state<string | null>(null);
-  /**
-   * Welcher der gleichzeitig laufenden Streams des Hosts gesteuert wird
-   * (Wire-Protokoll v2, „Der `slot`"). Nur beim Steuernden gesetzt: er wählt
-   * ihn mit der Kachel, an der er die Anfrage stellt. Der Host braucht ihn
-   * nicht — dort steht er in jeder einzelnen Nachricht.
-   */
+  /** Der Stream, an dem die Anfrage gestellt wurde. Nur beim Steuernden. */
   targetSlot = $state(0);
+  /** Zuletzt bedienter Platz. Beim Nachziehen nach einem Vorrang zählt der
+   *  Schirm, auf dem der Steuernde WAR — bei mehreren Fenstern nicht der
+   *  zuerst gewählte, und eine Zeigerlage dort wäre ein Klick ins Blaue. */
+  #letzterSlot = 0;
   /**
    * Zuletzt aufgetretener Fehler. Wird von `RemoteErrorToast` **einmal**
    * angezeigt und dabei sofort wieder auf `null` gesetzt — der Store selbst
@@ -78,7 +77,7 @@ class RemoteSessionStore {
   /** Hat die Dauerfreigabe des Geräts geantwortet? Folgen: `geraeteanbindung.ts`. */
   selbsttaetig = $state(false);
 
-  /** Die drei Wachten der Sitzung (`wachten.ts`), jede in ihrem An/Aus-Halter. */
+  /** Die drei Wachten der Sitzung (`wachten.ts`). */
   readonly #fehler = new WachtSchalter();
   readonly #verbindung = new WachtSchalter();
   readonly #frist = new WachtSchalter();
@@ -110,9 +109,8 @@ class RemoteSessionStore {
    * entstandene, legitime Sitzung. Der Steuernde lief in „keine Antwort", der
    * Host blieb in „wird ferngesteuert" stehen.
    *
-   * Eine Warteschlange und kein Zähler: so kann nur eine Kennung verworfen
-   * werden, die WIRKLICH zum abgebrochenen Ziel gehört — eine Anfrage an
-   * jemand anderen wird nicht mitverschluckt. Die Reihenfolge stimmt, weil
+   * Eine Warteschlange und kein Zähler: so wird nur eine Kennung verworfen,
+   * die WIRKLICH zum abgebrochenen Ziel gehört. Die Reihenfolge stimmt, weil
    * beide Rahmen über dieselbe Verbindung laufen.
    */
   readonly #verworfeneAnfragen: { channelId: string; hostUserId: string }[] = [];
@@ -221,6 +219,7 @@ class RemoteSessionStore {
   sendInput(sessionId: string, slot: number, frames: string[]): boolean {
     if (this.phase !== 'active' || this.role !== 'controller') return false;
     if (!this.sessionId || sessionId !== this.sessionId) return false;
+    this.#letzterSlot = slot;
     // Erst der direkte Kanal (`p2p.ts`) — er sagt, ob er getragen hat oder was
     // dem Serverweg noch vorangehen muss (frisches Hello nach Kanal-Ausfall).
     const weg = remoteP2P.senden(sessionId, slot, frames);
@@ -383,7 +382,7 @@ class RemoteSessionStore {
     remoteVorrang.start(
       this.role,
       (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
-      (frames) => void this.sendInput(sessionId, this.targetSlot, frames),
+      (frames) => void this.sendInput(sessionId, this.#letzterSlot, frames),
     );
     // Form des Host-Zeigers (`zeigerform.ts`): I-Balken, Größenpfeile, Hand —
     // das, was das Cursor-Echo aus dem Bild nimmt. Läuft über denselben
@@ -462,6 +461,7 @@ class RemoteSessionStore {
     this.peerUserId = null;
     this.channelId = null;
     this.targetSlot = 0;
+    this.#letzterSlot = 0;
     this.selbsttaetig = false;
     this.#setConn(null);
     // `error` bleibt bewusst stehen: er wird oft im selben Zug gesetzt, in dem

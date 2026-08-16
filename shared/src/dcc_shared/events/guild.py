@@ -312,6 +312,10 @@ class DeviceStateEvent(_EventBase):
     state: str
     #: Wer gerade steuert (nur bei ``busy``).
     busy_with: str | None = None
+    #: Die gemeldeten Bildschirme. Reisen hier mit, weil sie ueber DENSELBEN
+    #: Anlass hereinkommen wie der Zustand (die Anmeldung des Geraets) — ein
+    #: eigenes Ereignis dafuer waere ein zweiter Rahmen fuer dieselbe Nachricht.
+    monitors: list[dict] = []
 
 
 # ---- Dropbox / Ablage ------------------------------------------------------
