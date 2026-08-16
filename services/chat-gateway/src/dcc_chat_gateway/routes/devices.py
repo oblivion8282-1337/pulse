@@ -111,6 +111,10 @@ class DeviceOut(BaseModel):
     state: str
     #: Wer es gerade steuert (nur bei ``busy``), sonst ``None``.
     busy_with: str | None = None
+    #: Die Bildschirme, die das Gerät beim Anmelden gemeldet hat. Leer, solange
+    #: es nie verbunden war — der Steuernde sieht dann nur „ein Bildschirm",
+    #: und das ist ehrlicher als eine erfundene Liste.
+    monitors: list[dict] = []
 
 
 def _normalise_name(name: str) -> str:
@@ -171,6 +175,7 @@ def _to_out(device: Device, mgr) -> DeviceOut:
     # Ohne Manager (Testaufbau ohne WS-Schicht) ist nichts angemeldet — und
     # „offline" ist die richtige Antwort auf „ich weiss es nicht".
     zustand, mit = mgr.device_state(device.id) if mgr is not None else ("offline", None)
+    schirme = mgr.device_monitors(device.id) if mgr is not None else []
     return DeviceOut(
         id=str(device.id),
         guild_id=str(device.guild_id),
@@ -179,6 +184,7 @@ def _to_out(device: Device, mgr) -> DeviceOut:
         name=device.name,
         state=zustand,
         busy_with=mit,
+        monitors=schirme,
     )
 
 

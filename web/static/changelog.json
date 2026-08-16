@@ -18,7 +18,9 @@
         "Bei einer Anfrage lässt sich mit einem Kreuz „künftig ohne Rückfrage erlauben“ — so wächst die Liste dort, wo man die Entscheidung ohnehin trifft.",
         "Solange ein Rechner freigegeben ist, sagt ein Hinweis oben im Fenster das deutlich, mit einem Knopf zum sofortigen Aufheben.",
         "Ein Protokoll am Gerät hält fest, wer wann wie lange übernommen hat — und ob jemand zugestimmt hat oder die Dauerfreigabe geantwortet hat.",
-        "Ein geweckter Rechner überträgt mit einem eigenen Profil für den Fernbetrieb (Vorgabe: Hauptbildschirm, native Auflösung, 30 Bilder pro Sekunde, H.264) statt mit den Einstellungen, die sein Besitzer zuletzt für etwas anderes gemacht hat. Fernsteuern braucht lesbare Schrift, Zuschauen flüssige Bewegung — das sind verschiedene Einstellungen."
+        "Ein geweckter Rechner überträgt mit einem eigenen Profil für den Fernbetrieb (Vorgabe: Hauptbildschirm, native Auflösung, 30 Bilder pro Sekunde, H.264) statt mit den Einstellungen, die sein Besitzer zuletzt für etwas anderes gemacht hat. Fernsteuern braucht lesbare Schrift, Zuschauen flüssige Bewegung — das sind verschiedene Einstellungen.",
+        "Hat das Gerät mehrere Bildschirme, öffnet sich zuerst der Hauptbildschirm; die anderen schaltest du in der Geräteansicht einzeln dazu. Jeder wird erst dann übertragen, wenn du ihn anforderst — und jeder bekommt sein eigenes Fenster, die Eingabe folgt dem Fenster, in dem deine Maus ist.",
+        "Der Ton kommt dabei genau einmal: der erste Bildschirm überträgt den Systemton, die dazugeschalteten sind stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an."
       ],
       "outro": "Die Rechteprüfung bleibt unverändert davor: eingetragen und freigegeben heißt nicht, dass jeder darf."
     },

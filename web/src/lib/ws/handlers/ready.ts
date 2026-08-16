@@ -165,7 +165,13 @@ export function register(ctx: ReadyContext): void {
     // gehoert einem Server, nicht „dem gerade aktiven".
     if (sid) {
       const eintrag = geraeteAnmeldung.fuerServer(sid);
-      if (eintrag) gatewayForServer(sid)?.sendDeviceAnnounce(eintrag.deviceId);
+      const conn = eintrag ? gatewayForServer(sid) : null;
+      if (eintrag && conn) {
+        void geraeteAnmeldung.anmelden(
+          (deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore),
+          eintrag,
+        );
+      }
     }
     ctx.onReadySeeded();
   });

@@ -18,7 +18,7 @@ import type { FriendRequest } from '$lib/stores/friendRequests.svelte';
 import type { CommunityInviteNotification } from '$lib/api/communityInvites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
-import type { Device, DeviceState } from '$lib/api/devices';
+import type { Device, DeviceMonitor, DeviceState } from '$lib/api/devices';
 
 /** Art einer `remote_signal`-Nutzlast: SDP-Angebot, SDP-Antwort, ICE-Kandidat
  *  (`$lib/remote/p2p.ts`) — und die beiden Auskünfte, die vom Host zum
@@ -384,7 +384,13 @@ export type ServerEvent =
       removed?: boolean;
     }
   // Der Weckruf an das Geraet selbst: „fang bitte an zu uebertragen".
-  | { op: 'device_wake'; device_id: string; channel_id: string; from_user_id: string }
+  | {
+      op: 'device_wake';
+      device_id: string;
+      channel_id: string;
+      from_user_id: string;
+      monitor?: number;
+    }
   | {
       op: 'device_state';
       guild_id: string;
@@ -392,6 +398,7 @@ export type ServerEvent =
       device_id: string;
       state: DeviceState;
       busy_with?: string | null;
+      monitors?: DeviceMonitor[];
     }
   | { op: 'error'; code: number; msg: string };
 
@@ -454,8 +461,12 @@ export type ClientEvent =
   // „Dieser Rechner ist das Standplatz-Geraet X" — und die Ruecknahme. Der
   // Server sieht Verbindungen von Nutzern, nicht von Rechnern; nur der Rechner
   // selbst kennt seine Kennung (`$lib/devices/anmeldung.svelte.ts`).
-  | { op: 'device_announce'; device_id: string }
-  | { op: 'device_wake'; device_id: string }
+  | {
+      op: 'device_announce';
+      device_id: string;
+      monitors: { index: number; name: string; primary: boolean }[];
+    }
+  | { op: 'device_wake'; device_id: string; monitor?: number }
   | { op: 'device_withdraw'; device_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte

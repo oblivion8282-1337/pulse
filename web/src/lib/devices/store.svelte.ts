@@ -17,7 +17,12 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { devicesApi, type Device, type DeviceState } from '$lib/api/devices';
+import {
+  devicesApi,
+  type Device,
+  type DeviceMonitor,
+  type DeviceState,
+} from '$lib/api/devices';
 
 class DeviceStore {
   /** `guildId` → Geräte dieser Community, nach Namen sortiert. */
@@ -76,7 +81,13 @@ class DeviceStore {
   }
 
   /** `device_state` — bereit / belegt / offline. */
-  _state(guildId: string, deviceId: string, state: DeviceState, busyWith: string | null): void {
+  _state(
+    guildId: string,
+    deviceId: string,
+    state: DeviceState,
+    busyWith: string | null,
+    monitors?: DeviceMonitor[],
+  ): void {
     const liste = this.forGuild(guildId);
     const i = liste.findIndex((d) => d.id === deviceId);
     // Unbekanntes Gerät: still verwerfen. Das ist der Normalfall, solange die
@@ -84,7 +95,7 @@ class DeviceStore {
     // dann ohnehin mit.
     if (i < 0) return;
     const neu = [...liste];
-    neu[i] = { ...neu[i], state, busy_with: busyWith };
+    neu[i] = { ...neu[i], state, busy_with: busyWith, ...(monitors ? { monitors } : {}) };
     this.byGuild.set(guildId, neu);
   }
 

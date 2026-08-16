@@ -20,6 +20,8 @@
  */
 
 import { loadAll, saveAll } from '$lib/stream/persistence';
+import { refreshMonitors } from '$lib/stream/captureSource';
+import { streamSettings } from '$lib/stream/settingsState.svelte';
 
 const SPEICHER_SCHLUESSEL = 'remote.geraete';
 
@@ -79,6 +81,37 @@ class GeraeteAnmeldung {
       eintrag,
     ];
     await this.#sichern();
+  }
+
+  /**
+   * Sich auf einer Verbindung als Gerät melden — **samt Bildschirmliste**.
+   *
+   * Die Liste holt sich der Rechner frisch beim Sidecar, statt eine gemerkte
+   * zu schicken: Bildschirme werden umgesteckt und abgeschaltet, und der
+   * Steuernde soll nicht „Monitor 3 dazuschalten" angeboten bekommen, den es
+   * seit dem letzten Start nicht mehr gibt. Scheitert die Abfrage, geht die
+   * Anmeldung trotzdem hinaus — ohne Liste ist das Gerät nutzbar, nur eben auf
+   * seinen Hauptbildschirm beschränkt.
+   */
+  async anmelden(
+    senden: (
+      deviceId: string,
+      monitore: { index: number; name: string; primary: boolean }[],
+    ) => void,
+    eintrag: Eintragung,
+  ): Promise<void> {
+    let monitore: { index: number; name: string; primary: boolean }[] = [];
+    try {
+      await refreshMonitors();
+      monitore = streamSettings.available_monitors.map((mon) => ({
+        index: mon.index,
+        name: mon.name,
+        primary: mon.primary,
+      }));
+    } catch {
+      // Ohne Liste anmelden — s. oben.
+    }
+    senden(eintrag.deviceId, monitore);
   }
 
   /** Nach dem Entfernen vergessen. */

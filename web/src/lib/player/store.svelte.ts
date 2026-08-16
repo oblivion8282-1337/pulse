@@ -408,6 +408,21 @@ export const nativePlayerSessions = {
     return registry.get(keyOf(channelId, userId, slot)) ?? null;
   },
 
+  /**
+   * Alle offenen Fenster EINES Streamers in einem Kanal — je Bildschirm eines.
+   *
+   * Gebraucht von der Fernsteuerung: ein Standplatz-Gerät kann mehrere
+   * Bildschirme gleichzeitig übertragen, und die Eingabe muss in JEDEM dieser
+   * Fenster erfasst werden. Welcher Bildschirm gemeint ist, steht danach in
+   * jeder Nachricht (`slot`), sodass die Maus dem Fenster folgt, in dem sie
+   * gerade ist.
+   */
+  fuerHost(channelId: string, userId: string): NativePlayerSession[] {
+    return [...registry.values()].filter(
+      (s) => s.channelId === channelId && s.userId === userId,
+    );
+  },
+
   close(channelId: string, userId: string, slot = 0): void {
     // Der Merker „vom Nutzer zugemacht" wird hier ABSICHTLICH nicht geloescht:
     // der Abkoppel-Knopf schliesst die Sitzung, waehrend die Kachel offen

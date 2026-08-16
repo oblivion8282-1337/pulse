@@ -72,14 +72,28 @@ class _DeviceRegistryMixin:
     #: dort hiesse, dass eine Meldung an einer Datenbank hängt, die vielleicht
     #: gerade nicht antwortet; der Eintrag hier kostet zwei Zahlen je Gerät.
     _device_where: dict[int, tuple[int, int]]
+    #: ``device_id`` → die Bildschirme, die das Gerät beim Anmelden gemeldet hat.
+    #:
+    #: **Warum nicht in der Datenbank:** Bildschirme werden umgesteckt,
+    #: abgeschaltet und dazugehängt. Eine Spalte wäre nach dem ersten
+    #: Umstecken falsch, und zwar ohne dass es jemand merkt — dieselbe
+    #: Begründung wie beim Zustand. Der Steuernde braucht die Liste, um „Monitor
+    #: 2 dazuschalten" überhaupt anbieten zu können.
+    _device_monitors: dict[int, list[dict]]
 
     def _init_device_registry(self) -> None:
         self._device_sockets = {}
         self._device_by_socket = {}
         self._device_busy = {}
         self._device_where = {}
+        self._device_monitors = {}
 
     # ── Abfragen ────────────────────────────────────────────────────────────
+
+    def device_monitors(self, device_id: int) -> list[dict]:
+        """Die gemeldeten Bildschirme eines Geräts (leer, wenn es keine
+        gemeldet hat — ältere Client-Fassung oder nie angemeldet)."""
+        return self._device_monitors.get(device_id, [])
 
     def device_state(self, device_id: int) -> tuple[str, str | None]:
         """``("ready" | "busy" | "offline", wer_steuert)``.
@@ -112,11 +126,21 @@ class _DeviceRegistryMixin:
     # ── Anmelden und abmelden ───────────────────────────────────────────────
 
     def device_announce(
-        self, socket: Any, device_id: int, guild_id: int, channel_id: int
+        self,
+        socket: Any,
+        device_id: int,
+        guild_id: int,
+        channel_id: int,
+        monitors: list[dict] | None = None,
     ) -> bool:
         """Ein Gerät meldet sich an. ``True``, wenn es damit NEU online ist (nur
         dann muss gemeldet werden — ein zweites Fenster ändert nichts)."""
         self._device_where[device_id] = (guild_id, channel_id)
+        # Eine leere Liste NICHT übernehmen: eine ältere Client-Fassung meldet
+        # gar keine Bildschirme, und die zuletzt bekannten sind dann die
+        # bessere Auskunft als „hat keine".
+        if monitors:
+            self._device_monitors[device_id] = monitors
         socks = self._device_sockets.setdefault(device_id, set())
         war_leer = not socks
         socks.add(socket)
@@ -141,6 +165,11 @@ class _DeviceRegistryMixin:
         # die Belegung stehen und das Gerät käme beim nächsten Anmelden sofort
         # als „belegt" zurück — für eine Sitzung, die es nicht mehr gibt.
         self._device_busy.pop(device_id, None)
+        # Die Bildschirme bleiben stehen: sie sind die letzte bekannte Auskunft
+        # über ein Gerät, das gerade offline ist, und beim nächsten Anmelden
+        # ohnehin überschrieben. Die Liste zu leeren hiesse, dass die
+        # Geräteansicht nach jedem Aus- und Einschalten kurz „ein Bildschirm"
+        # behauptet.
         return True
 
     def device_forget_socket(self, socket: Any) -> list[int]:
@@ -193,6 +222,7 @@ class _DeviceRegistryMixin:
                 device_id=str(device_id),
                 state=zustand,
                 busy_with=wer,
+                monitors=self.device_monitors(device_id),
             )
         )
 
