@@ -173,6 +173,21 @@ impl App {
     /// **Nicht an die laufende Erfassung gekoppelt**, aus demselben Grund wie
     /// `remote_pointer`: die App liefert die Liste nach, sobald sich das
     /// Fenster anhaengt, und das kann kurz VOR dem `input_capture` geschehen.
+    /// `remote_anfragbar` — den Anfrage-Knopf in der Bedienleiste zeigen.
+    ///
+    /// Reine Anzeige, wie [`Self::remote_screens`]: das Fenster fragt nichts
+    /// an, es meldet nur den Klick. Ob angefragt werden DARF, entscheidet die
+    /// App aus Rechten im Kanal, Plattform des Streamers und laufender Sitzung.
+    pub(super) fn remote_anfragbar(&mut self, req: &Request) -> Result<(), String> {
+        let session_id = req.session.ok_or("session fehlt")?;
+        let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
+        if let Some(overlay) = session.overlay.as_mut() {
+            overlay.set_fern_anfragbar(req.anfragbar.unwrap_or(false));
+        }
+        session.window.request_redraw();
+        Ok(())
+    }
+
     pub(super) fn remote_screens(&mut self, req: &Request) -> Result<(), String> {
         let session_id = req.session.ok_or("session fehlt")?;
         let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;

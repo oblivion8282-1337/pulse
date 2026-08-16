@@ -465,6 +465,9 @@ export interface PulsePlayerApi {
    *  Optional wie `pointerShape` — eine aeltere Shell kennt den Op nicht, und
    *  dann bleibt das Menue eben ohne Bildschirmliste. */
   screens?(session: number, screens: unknown[]): Promise<PulsePlayerResult>;
+  /** Darf dieser Zuschauer eine Fernsteuerung anfragen? Zeigt den Knopf in der
+   *  Bedienleiste des Fensters; der Klick kommt als `player:remoteRequest`. */
+  anfragbar?(session: number, anfragbar: boolean): Promise<PulsePlayerResult>;
   setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist

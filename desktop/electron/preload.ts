@@ -164,6 +164,11 @@ contextBridge.exposeInMainWorld('pulse', {
      *  (`$lib/devices/schirme.svelte.ts`). */
     screens: (session: number, screens: unknown[]) =>
       playerCall('remote_screens', { session, screens }),
+    /** Fernsteuerung: darf dieser Zuschauer eine anfragen? Zeigt den Knopf in
+     *  der Bedienleiste des Fensters; der Klick kommt als `player:remoteRequest`
+     *  zurueck und wird in der App zur echten Anfrage. */
+    anfragbar: (session: number, anfragbar: boolean) =>
+      playerCall('remote_anfragbar', { session, anfragbar }),
 
     /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
      *  kommt als `path` in der Antwort zurueck. */

@@ -108,6 +108,10 @@ pub struct Overlay {
     /// Ist das Menue am Griff aufgeklappt? Ueberlebt das Ende der Fernsteuerung
     /// nicht — sonst haenge es beim naechsten Mal schon offen da.
     fern_menue_offen: bool,
+    /// Darf dieser Zuschauer eine Fernsteuerung ANFRAGEN? Setzt die App
+    /// (`remote_anfragbar`); sie allein kennt Rechte, Plattform des Streamers
+    /// und ob gerade schon eine Sitzung laeuft. Das Fenster zeigt nur.
+    fern_anfragbar: bool,
     /// Die Bildschirme des ferngesteuerten Rechners (aus `remote_screens`).
     /// Leer, solange die App nichts gemeldet hat — dann zeigt das Menue den
     /// Abschnitt gar nicht, statt einen leeren Kasten zu oeffnen.
@@ -164,6 +168,7 @@ impl Overlay {
             can_reattach: true,
             fernsteuerung: false,
             fern_menue_offen: false,
+            fern_anfragbar: false,
             fern_schirme: Vec::new(),
         })
     }
@@ -467,6 +472,24 @@ impl Overlay {
     /// Beim Ausschalten faellt das Menue zu: es gehoert zum Griff, und der ist
     /// dann weg. Bliebe der Zustand stehen, stuende es beim naechsten Start der
     /// Fernsteuerung ungefragt offen ueber dem Bild.
+    /// „Anfragen" im Bedienbalken zeigen oder nicht (`remote_anfragbar`).
+    ///
+    /// Die App schaltet es aus, sobald eine Sitzung laeuft oder das Recht
+    /// fehlt. Hier wird NICHT selbst geschlossen, dass eine laufende
+    /// Fernsteuerung den Knopf verbietet: der Zustand kommt aus zwei
+    /// unabhaengigen Meldungen (`input_capture` und dieser), und wer sie
+    /// gegeneinander verrechnet, baut die dritte Wahrheit.
+    pub fn set_fern_anfragbar(&mut self, moeglich: bool) {
+        if self.fern_anfragbar == moeglich {
+            return;
+        }
+        self.fern_anfragbar = moeglich;
+        // Wie bei [`Self::set_fernsteuerung`]: der Ruf kommt ohne Mausbewegung,
+        // sonst erschiene der Knopf erst, wenn der Nutzer zufaellig die Maus
+        // bewegt.
+        self.input_pending = true;
+    }
+
     pub fn set_fernsteuerung(&mut self, aktiv: bool) {
         if self.fernsteuerung == aktiv {
             return;

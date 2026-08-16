@@ -12,8 +12,10 @@
      `desktop/electron/remoteInput.ts`), er bündelt nur.
 
   Ohne offenes Player-Fenster gibt es keine Eingabe: das `<video>`-Element kann
-  weder Zeiger fangen noch Scancodes liefern. Deshalb sitzt der Anfrage-Knopf
-  auch genau dort (`$lib/player/components/NativeWindowPanel.svelte`).
+  weder Zeiger fangen noch Scancodes liefern. Angefragt wird trotzdem beim
+  ZUSEHEN — der Knopf sitzt in der Bedienleiste der Kachel und, für den, der
+  schon im Fenster sitzt, auch in dessen Leiste; das Fenster geht bei der Zusage
+  auf (`$lib/remote/fenster.ts`).
 -->
 <script lang="ts">
   import { remoteSession } from '$lib/remote/session.svelte';
@@ -194,6 +196,17 @@
         const geraet = deviceStore.byChannelOwner(channelId, hostId);
         const mon = geraet ? schirmeVon(geraet).find((s) => s.index === monitor) : null;
         if (geraet && mon) schirmWarten.holen(geraet, mon);
+        return;
+      }
+      // „Fernsteuerung anfragen" aus der Bedienleiste des Fensters. Wer schon
+      // im Fenster zusieht, soll nicht erst in die App zurückwechseln müssen —
+      // derselbe Weg wie der Knopf in der Kachel, nur von der anderen Seite
+      // ausgelöst. Das Fenster kennt nur seine eigene Nummer; Kanal, Streamer
+      // und Platz stehen in der Sitzung dahinter.
+      if (kind === 'remote-request') {
+        const fenster = nativePlayerSessions.nachFenster(session);
+        if (!fenster) return;
+        remoteSession.request(fenster.channelId, fenster.userId, fenster.slot);
         return;
       }
       if (kind !== 'remote-disconnect') return;

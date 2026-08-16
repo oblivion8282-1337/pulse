@@ -35,6 +35,7 @@ import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
 import { remoteZeigerform } from './zeigerform';
 import * as geraet from './geraeteanbindung';
+import { fensterZurSitzung } from './fenster';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
@@ -376,6 +377,9 @@ class RemoteSessionStore {
     }
     this.phase = 'active';
     this.#watchVerbindung();
+    // Das Fenster ist die FOLGE der Zusage, nicht ihre Voraussetzung — warum,
+    // steht in `fenster.ts`.
+    fensterZurSitzung(this.role, this.channelId, this.peerUserId, this.targetSlot);
     geraet.uebernahmeBeginnen(this.role, sessionId, this.peerUserId, this.selbsttaetig);
     // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
     // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert

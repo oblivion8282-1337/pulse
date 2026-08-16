@@ -47,6 +47,14 @@ pub enum OverlayAction {
     Chat,
     /// Statistikfeld ein- oder ausblenden.
     ToggleStats,
+    /// Die Fernsteuerung ANFRAGEN — das Fenster fragt nicht selbst, es meldet
+    /// nur den Wunsch. Wer gefragt wird, wie die Zusage aussieht und was bei
+    /// einer Ablehnung geschieht, weiss allein die App (`$lib/remote/`).
+    ///
+    /// **Warum der Knopf hier ueberhaupt sitzt:** wer schon im Fenster zusieht,
+    /// müsste sonst zurueck in die App wechseln, die Kachel suchen und dort
+    /// klicken — fuer etwas, das genau dieses Fenster betrifft.
+    RemoteRequest,
     /// Die Fernsteuerung beenden — NICHT den Stream. Das Fenster bleibt offen
     /// und zeigt weiter das Bild; die App loest die Sitzung auf. Bewusst hier
     /// und nicht nur in der App: wer gerade steuert, sieht das Fenster, nicht

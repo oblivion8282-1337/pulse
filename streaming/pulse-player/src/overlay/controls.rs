@@ -208,6 +208,20 @@ impl Overlay {
             false,
             OverlayAction::Chat,
         );
+        // „Fernsteuerung anfragen" — nur, solange keine laeuft. Waehrend einer
+        // Sitzung sitzt das Gegenstueck (Beenden) im Menue am Griff, und zwei
+        // Knoepfe fuer dieselbe Sache an zwei Stellen waeren eine Einladung,
+        // den falschen zu treffen.
+        if self.fern_anfragbar && !self.fernsteuerung {
+            Self::action_button(
+                ui,
+                actions,
+                theme::icon::remote_request(),
+                "Fernsteuerung anfragen",
+                false,
+                OverlayAction::RemoteRequest,
+            );
+        }
         // Nur wenn es ein Zurueck gibt: bei 10 bit kann die Kachel das Bild
         // nicht darstellen, ein Knopf dafuer waere eine Zusage, die das
         // Programm nicht halten kann.

@@ -26,6 +26,10 @@
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
   import StreamChatPanel from './StreamChatPanel.svelte';
   import TileShell from './TileShell.svelte';
+  import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
+  import { isElectron } from '$lib/platform/runtime';
+  import { remoteSession } from '$lib/remote/session.svelte';
+  import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { detachedStreams } from '../detach.svelte';
   import { openedTiles } from '../openedTiles.svelte';
   import { hqTileId } from '../hqTile';
@@ -80,6 +84,7 @@
   // dann zeigt die Kachel aber das `NativeWindowPanel` mit dem Anfrage-Knopf.
   // Direkt gelesen waere der Wert also immer `false`, und der Knopf erschiene
   // nie. Aendern kann er sich waehrend eines Streams ohnehin nicht.
+  const desktop = isElectron();
   let fernsteuerbarGesehen = $state(false);
   $effect(() => {
     if (mgr?.fernsteuerbar) fernsteuerbarGesehen = true;
@@ -121,6 +126,23 @@
     tenBit: tenBitGesehen
   }));
   const useNative = $derived(native.active);
+
+  // Dem Player-Fenster sagen, ob sein Anfrage-Knopf erscheinen soll.
+  //
+  // **Von hier und nicht aus dem Fenster-Store**: die Antwort braucht drei
+  // Dinge, die genau hier zusammenkommen — ob der Streamer überhaupt
+  // fernsteuerbar ist (aus der WHEP-Antwort), ob dieser Zuschauer darf
+  // (Rechte im Kanal), und ob gerade schon eine Sitzung läuft. Das Fenster
+  // rechnet daraus NICHTS: es zeigt den Knopf oder nicht.
+  $effect(() => {
+    const fenster = native.session?.fensterSitzung;
+    if (typeof fenster !== 'number') return;
+    const moeglich =
+      fernsteuerbarGesehen &&
+      remoteSession.phase === 'idle' &&
+      darfFernsteuern(channelId, userId);
+    void window.pulse?.player?.anfragbar?.(fenster, moeglich);
+  });
 
   // Steht der native Player zur Verfuegung? Ohne Electron, ohne das Binary
   // ODER nach einer gescheiterten Sitzung (`nativeFailed`) fuehrt der
@@ -366,7 +388,7 @@
       <!-- Bild UND Ton laufen im eigenen Fenster (pulse-player). Die Kachel ist
            dann das Cockpit: Lautstaerke/Chat liefert die TileShell, die
            Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
-      <NativeWindowPanel session={native.session} fernsteuerbar={fernsteuerbarGesehen} />
+      <NativeWindowPanel session={native.session} />
     {:else}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
@@ -398,6 +420,26 @@
         <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
         {#if detail}<p class="max-w-sm text-center text-2xs text-destructive/70">{detail}</p>{/if}
       </div>
+    {/if}
+  {/snippet}
+  {#snippet controlsExtra()}
+    <!--
+      „Fernsteuerung anfragen" — in der BEDIENLEISTE der Kachel, nicht in der
+      Platzhalter-Flaeche des Player-Fensters.
+
+      **Hier stand bis 2026-08-16 nichts**, und der Knopf sass im
+      `NativeWindowPanel` — also nur dort, wo das Player-Fenster bereits lief.
+      Der Weg zum Steuern war damit: Fenster oeffnen, zurueck ins Pulse-Fenster
+      wechseln, in der Kachel klicken. Drei Schritte, von denen der erste nichts
+      mit der Absicht zu tun hat: wer steuern will, will nicht erst ein Fenster.
+
+      Jetzt reicht der Klick beim Zusehen; das Fenster geht auf, sobald der Host
+      zusagt (`$lib/remote/fenster.ts`). Nur unter Electron: erfasst wird IM
+      Player-Fenster (Zeigerfang, rohe Scancodes), im Browser gaebe der Knopf
+      eine Zusage, die niemand einloest.
+    -->
+    {#if desktop && fernsteuerbarGesehen}
+      <RemoteRequestButton channelId={channelId} hostUserId={userId} slot={streamSlot} />
     {/if}
   {/snippet}
   {#snippet chatPanel()}

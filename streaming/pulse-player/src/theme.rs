@@ -191,6 +191,11 @@ pub mod icon {
     pub fn stats() -> ImageSource<'static> {
         svg!("activity")
     }
+    /// „Fernsteuerung anfragen" — dasselbe Symbol wie der Knopf in der Kachel
+    /// (`RemoteRequestButton`), damit beide als derselbe Weg lesbar sind.
+    pub fn remote_request() -> ImageSource<'static> {
+        svg!("mouse-pointer-click")
+    }
     /// Die Pulse-Marke — der Griff der Fernbedienung im Fernsteuerungs-Modus.
     ///
     /// Kein Lucide-Symbol wie die uebrigen, sondern die Kopie von
