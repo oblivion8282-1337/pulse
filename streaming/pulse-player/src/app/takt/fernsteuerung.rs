@@ -29,14 +29,38 @@ use super::Ausgabetakt;
 /// den rund 116 ms Netz laesst sich nichts abziehen, von diesen 26 ms fast
 /// alles. Am Bild beurteilt war das Ruckeln dabei nicht wahrnehmbar.
 ///
-/// **Nicht 0.** Auch bei 5 ms bleibt eine Warteschlange, die eine verspaetete
-/// Einheit noch einsortieren kann. Bei 0 faellt die Reihenfolge-Korrektur ganz
-/// weg — das ist ein anderer Zustand, kein „noch etwas schneller".
+/// **Nicht 0.** Auch bei einem kleinen Vorhalt bleibt eine Warteschlange, die
+/// eine verspaetete Einheit noch einsortieren kann. Bei 0 faellt die
+/// Reihenfolge-Korrektur ganz weg — das ist ein anderer Zustand, kein „noch
+/// etwas schneller".
 ///
-/// Wer es ruhiger will, stellt es am Pruefstand ueber
-/// `PULSE_PLAYER_AUSGABETAKT_MS` gegen — dieser Wert hebt einen tiefer
-/// gesetzten nie an.
-pub const FERN_VORHALT_MS: u32 = 5;
+/// ## Zurueck auf 30 ms (2026-08-16)
+///
+/// **Die Messgrundlage der 5 ms gilt auf dieser Strecke nicht.** Sie stammt von
+/// einer Leitung mit bis zu 21 ms Ankunfts-Schwankung. Auf der Testinstanz
+/// wurden 50-100 ms gemessen — der Vorhalt lag damit bei einem Fuenftel bis
+/// einem Zehntel dessen, was er ausgleichen muesste, und der Modulkopf von
+/// [`super`] sagt, was dann passiert: es taktet nichts mehr. In Zahlen aus dem
+/// Lauf vom 2026-08-15: 4784 verspaetete Bilder, also mehr als jedes zweite.
+/// Der Ausgabe-Takt gab dann nur noch durch, statt zu takten — und genau das
+/// sieht man als Ruckeln.
+///
+/// Der Beleg fuer den Wert steht im selben Protokoll: **ohne** Fernsteuerung
+/// regelt der Takt selbst, und er landete auf demselben Weg bei 30, dann bei
+/// 45 ms (`Vorhalt 30 -> 45 ms`). 5 ms waren also nicht nur knapp, sondern
+/// gegen die Richtung, in die die Strecke von sich aus zeigt.
+///
+/// Der Preis ist bekannt und wurde bewusst gezahlt: rund 25 ms mehr im
+/// geschlossenen Kreis aus Eingabe und Bild. Das ist wenig gegen die rund
+/// 116 ms Netz — und ein gleichmaessiges Bild ist beim Steuern mehr wert als
+/// 25 ms, die man nicht spuert. Die 5 ms bleiben oben dokumentiert: auf einer
+/// kurzen, ruhigen Strecke waren sie messbar besser, und dorthin fuehrt der
+/// Weg zurueck ueber einen Wert, der sich an der gemessenen Schwankung
+/// ausrichtet, statt fest zu stehen.
+///
+/// Wer es schneller will, stellt es am Pruefstand ueber
+/// `PULSE_PLAYER_AUSGABETAKT_MS` gegen.
+pub const FERN_VORHALT_MS: u32 = 30;
 
 impl Ausgabetakt {
 /// Vorhalt fuer die Dauer einer Fernsteuerung absenken — und danach genau
