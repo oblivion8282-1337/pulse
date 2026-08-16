@@ -849,6 +849,8 @@
   "device_settings_registered_none": "This machine is not registered as a device anywhere.",
   "device_settings_registered_remove": "Remove registration",
   "device_settings_registered_title": "Registered as",
+  "device_sichtschutz_body": "Chat, history and direct messages stay covered while someone controls this machine — they see the screen. Everything returns as soon as the session ends.",
+  "device_sichtschutz_title": "Privacy screen — this device is being controlled",
   "device_state_busy": "in use",
   "device_state_offline": "offline",
   "device_state_ready": "ready",

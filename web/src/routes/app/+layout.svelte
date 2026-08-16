@@ -30,6 +30,7 @@
   import RemoteErrorToast from '$lib/remote/components/RemoteErrorToast.svelte';
   import RemoteControllerInput from '$lib/remote/components/RemoteControllerInput.svelte';
   import RemoteStandplatzBanner from '$lib/remote/components/RemoteStandplatzBanner.svelte';
+  import DeviceSichtschutz from '$lib/devices/components/DeviceSichtschutz.svelte';
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
@@ -324,6 +325,7 @@
 <RemoteConsentDialog />
 <RemoteHostBanner />
 <RemoteStandplatzBanner />
+<DeviceSichtschutz />
 <RemoteErrorToast />
 <RemoteControllerInput />
 

@@ -195,12 +195,30 @@ gestanden haben — dieselbe Vorverlegung wie in §7, nur eine Stufe früher.
 
 **Der Haken, und wo er zu schließen ist.** Benutzt das Gerät den Ausweis seines
 Besitzers, dann *ist* es in Pulse dieser Besitzer — und damit auch in seinen
-Direktnachrichten (das Dauerleck aus §4). Schließen lässt sich das ohne zweites
-Konto: in einer Self-Host-Sitzung steht bereits, mit welchem Ausweis sie
-zustande kam (`SessionClaims.cert_id`, `shared/src/dcc_shared/session_tokens.py`).
-An dieser einen Stelle kann der Server sagen „diese Verbindung ist ein
-eingetragenes Gerät" und ihr Chat, Verlauf und Direktnachrichten verweigern. Ein
-Gerät darf übertragen und ferngesteuert werden, sonst nichts.
+Direktnachrichten (das Dauerleck aus §4).
+
+*Zuerst gedacht:* der Server schließt es. In einer Self-Host-Sitzung steht
+bereits, mit welchem Ausweis sie zustande kam (`SessionClaims.cert_id`,
+`shared/src/dcc_shared/session_tokens.py`); an dieser einen Stelle könnte er
+sagen „diese Verbindung ist ein eingetragenes Gerät" und ihr Chat, Verlauf und
+Direktnachrichten verweigern.
+
+**Beim Bauen am 2026-08-16 hat sich das als falsch herausgestellt** — es nimmt
+zu viel und schließt zu wenig:
+
+* *Zu wenig:* der Nachrichtenverlauf kommt über REST, und eine REST-Anfrage
+  trägt keine Verbindung. Der Server kann ihr nicht ansehen, dass sie von einem
+  gerade ferngesteuerten Rechner stammt — der Riegel verfehlte genau den Weg,
+  über den ein Steuernder lesen würde.
+* *Zu viel:* ein Riegel, der immer gilt, nähme dem Besitzer den Chat auf seinem
+  eigenen Rechner, auch wenn niemand ihn steuert.
+
+**Gebaut wurde deshalb ein Sichtschutz am Schirm**, der genau so lange gilt, wie
+jemand steuert (`web/src/lib/devices/components/DeviceSichtschutz.svelte`).
+Das ist auch die richtige Ebene: die Gefahr ist eine des **Sehens** — der
+Steuernde sieht Pixel, keine API-Antworten. Und es ist wirksam, weil Pulse auf
+einem Standplatz-Gerät die einzige offene Tür zu diesem Konto ist: die Anmeldung
+liegt im Geräte-Speicher, nicht im Browser.
 
 **Die Marke gehört an den Ausweis, nicht an das Konto** — sonst verstummte auch
 der eigene Laptop des Besitzers.
