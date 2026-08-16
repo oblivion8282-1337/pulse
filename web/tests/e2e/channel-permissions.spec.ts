@@ -1,8 +1,13 @@
 /**
- * E2E for the exclusive-add flow in ChannelOverridesEditor: adding a role
- * to a channel's permissions makes the channel exclusive — the role gets
- * VIEW_CHANNEL allow, @everyone gets VIEW_CHANNEL deny automatically, and
- * members without the role lose the channel from their sidebar.
+ * E2E für den Exklusiv-Weg in ChannelOverridesEditor: „Nur für diese Rolle"
+ * macht den Kanal exklusiv — die Rolle bekommt VIEW_CHANNEL erlaubt, @everyone
+ * verboten, und Mitglieder ohne die Rolle verlieren den Kanal aus der Leiste.
+ *
+ * Nachgezogen mit dem Umbau der Kanalrechte-Ansicht (2026-08-16): die beiden
+ * Auswahlfelder „Rolle/Mitglied hinzufügen" gibt es nicht mehr — links stehen
+ * jetzt alle Ziele, getrennt in „Mit Abweichung" und „Ohne Abweichung", und
+ * gespeichert wird über eine Leiste unten statt je Zeile. Die Testids der
+ * Dreizustands-Knöpfe sind absichtlich gleich geblieben.
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
@@ -57,6 +62,7 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
   let guildId = '';
   let vipChannelId = '';
   let vipRoleId = '';
+  let everyoneRoleId = '';
 
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
@@ -100,6 +106,13 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
       body: { name: 'VIP' }
     });
     vipRoleId = role.id;
+    // @everyone-Id für die Gegenprobe: die Ansicht adressiert Ziele über
+    // `<art>:<id>`, und die implizite Rolle hat keinen festen Namen im DOM.
+    const alleRollen = await api<{ id: string; is_everyone: boolean }[]>(
+      alice,
+      `/guilds/${guildId}/roles`
+    );
+    everyoneRoleId = alleRollen.find((r) => r.is_everyone)!.id;
     const channel = await api<{ id: string }>(alice, `/guilds/${guildId}/channels`, {
       method: 'POST',
       body: { name: 'vip-lounge', type: 0 }
@@ -111,7 +124,7 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
     await expect(bob.getByTestId(`channel-${vipChannelId}`)).toBeVisible({ timeout: 15_000 });
   });
 
-  test('alice adds the VIP role — @everyone is excluded automatically', async () => {
+  test('alice macht den Kanal exklusiv — @everyone wird ausgeschlossen', async () => {
     // The permissions page reads the channel from the client-side guild
     // store, so navigate like a user would: app shell first, then the
     // channel context menu (which is the feature's real entry point).
@@ -121,27 +134,30 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
     await alice.getByTestId(`channel-permissions-${vipChannelId}`).click();
     await expect(alice.getByTestId('channel-overrides')).toBeVisible({ timeout: 15_000 });
 
-    await alice.getByTestId('add-role-select').selectOption(vipRoleId);
-    await alice.getByTestId('add-role-btn').click();
+    // Ziel links wählen, dann „Nur für diese Rolle" — das setzt beide Hälften
+    // als Entwurf (Rolle erlauben, @everyone entziehen).
+    await alice.getByTestId(`perm-target-0:${vipRoleId}`).click({ timeout: 10_000 });
+    await alice.getByTestId('perm-exclusive-btn').click();
 
-    // Both rows appear: the VIP allow row and the auto-created @everyone row.
-    await expect(alice.getByTestId(`override-0:${vipRoleId}`)).toBeVisible({ timeout: 10_000 });
-    // Match on the row heading — every section's permission list contains
-    // the literal "@everyone erwähnen", so a body-text filter is ambiguous.
-    const everyoneRow = alice
-      .locator('[data-testid^="override-0:"]')
-      .filter({ has: alice.locator('h3', { hasText: '@everyone' }) });
-    await expect(everyoneRow).toBeVisible();
-
-    // VIEW_CHANNEL (bit 1<<20) toggles reflect allow-on-VIP / deny-on-everyone.
     const viewBit = (1n << 20n).toString();
     await expect(
       alice.getByTestId(`override-toggle-0:${vipRoleId}-${viewBit}-allow`)
     ).toHaveAttribute('aria-pressed', 'true');
-    const everyoneKey = (await everyoneRow.getAttribute('data-testid'))!.replace('override-', '');
+
+    // Erst Speichern führt es aus; danach ist die Leiste wieder leer.
+    await alice.getByTestId('perm-save').click();
+    await expect(alice.getByText('Kanalrechte gespeichert')).toBeVisible({ timeout: 10_000 });
+    await expect(alice.getByTestId('perm-save')).toBeDisabled();
+
+    // Gegenprobe an @everyone: „Kanal ansehen" steht auf verboten.
+    await alice.getByTestId(`perm-target-0:${everyoneRoleId}`).click();
     await expect(
-      alice.getByTestId(`override-toggle-${everyoneKey}-${viewBit}-deny`)
+      alice.getByTestId(`override-toggle-0:${everyoneRoleId}-${viewBit}-deny`)
     ).toHaveAttribute('aria-pressed', 'true');
+    // Und die Ergebnis-Spalte sagt es in Worten statt nur über einen Schalter.
+    await expect(
+      alice.getByTestId(`perm-result-0:${everyoneRoleId}-${viewBit}`)
+    ).toContainText('hier verboten');
   });
 
   test('bob (without the role) no longer sees the channel', async () => {
