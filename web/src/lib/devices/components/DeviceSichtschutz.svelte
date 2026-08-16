@@ -34,22 +34,59 @@
   Besitzer). Er hält den Steuernden auf, und nur um den geht es: Pulse ist auf
   einem Standplatz-Gerät die einzige offene Tür zu diesem Konto — die Anmeldung
   liegt im Geräte-Speicher, nicht im Browser.
+
+  ## Warum es nicht bei einem Div bleibt
+
+  Ein `fixed inset-0` verdeckt nur, was unter ihm liegt. Drei Wege lagen
+  daneben, alle beim Bughunt 2026-08-16 gefunden: Toasts (z-index 999999999),
+  portalierte Dialoge (z-[60]) und die Betriebssystem-Meldungen, die gar nicht
+  erst im Dokument stehen. Der Riegel dazu steht in
+  `$lib/remote/sichtschutz.ts`: `inert` auf allem ausser diesem Schirm, und ein
+  Merker, den die Melde-Wege abfragen, bevor sie etwas zeigen oder hinausgeben.
 -->
 <script lang="ts">
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import { remoteSession } from '$lib/remote/session.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
-  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { restlicheAppSperren, sichtschutzMelden } from '$lib/remote/sichtschutz';
   import { m } from '$lib/paraglide/messages.js';
 
   // Nur auf einem eingetragenen Gerät, und nur während einer Übernahme. Beides
   // ist nötig: ein gewöhnlicher Rechner, der zehn Minuten hergegeben wird,
   // bleibt die bewusste Entscheidung seines Besitzers — dort wäre ein
   // Sichtschutz Bevormundung.
-  let geraet = $derived(geraeteAnmeldung.fuerServer(activeServer.serverId));
-  let show = $derived(
-    !!geraet && remoteSession.phase === 'active' && remoteSession.role === 'host',
-  );
+  //
+  // **Irgendeine Eintragung, nicht die des gerade offenen Servers** (Bughunt
+  // 2026-08-16): der Schirm hing an `activeServer`, und ein Server-Wechsel
+  // mitten in der Sitzung nahm ihn weg — auslösbar vom Steuernden selbst, denn
+  // die Tastenkürzel kennen die laufende Sitzung nicht. Was der Riegel
+  // verdeckt, entscheidet die SITZUNG; die Eintragung sagt nur, dass dieser
+  // Rechner überhaupt ein Standplatz ist.
+  let geraet = $derived(geraeteAnmeldung.eintragungen.length > 0);
+  let show = $derived(geraet && remoteSession.phase === 'active' && remoteSession.role === 'host');
+
+  let wurzel = $state<HTMLElement | null>(null);
+
+  $effect(() => {
+    if (!show || !wurzel) return;
+    sichtschutzMelden(true);
+    // Den Fokus herüberholen, bevor der Rest stillgelegt wird: lag er in einem
+    // Eingabefeld, säße der Steuernde sonst mit blinkendem Cursor in einem
+    // Feld, dessen Inhalt er nicht sieht — aber weiterschreiben könnte.
+    wurzel.focus();
+    const auf = restlicheAppSperren(wurzel);
+    // Der Toaster wird zusätzlich ausgeblendet, nicht nur stillgelegt: `inert`
+    // nimmt die Bedienbarkeit, nicht die Lesbarkeit, und es gibt Toasts aus
+    // Ecken der App, die den Merker nicht abfragen (Moderations- und
+    // Gildenmeldungen). Ein Riegel, der nur die bekannten Absender kennt, ist
+    // hier der falsche.
+    document.documentElement.dataset.sichtschutz = '';
+    return () => {
+      sichtschutzMelden(false);
+      delete document.documentElement.dataset.sichtschutz;
+      auf();
+    };
+  });
 </script>
 
 {#if show}
@@ -57,8 +94,10 @@
        jederzeit sehen und beenden können, was gerade läuft — der Sichtschutz
        darf die Notbremse nicht verdecken. -->
   <div
+    bind:this={wurzel}
+    tabindex="-1"
     class="bg-bg-base/95 fixed inset-0 z-[50] flex flex-col items-center justify-center gap-4
-      p-8 text-center backdrop-blur-xl"
+      p-8 text-center backdrop-blur-xl outline-none"
     role="status"
     data-testid="device-sichtschutz"
   >
@@ -69,3 +108,11 @@
     <p class="text-text-muted max-w-md text-sm">{m.device_sichtschutz_body()}</p>
   </div>
 {/if}
+
+<style>
+  /* svelte-sonner rendert mit `z-index: 999999999` — kein Sichtschutz der Welt
+     liegt darüber. Weggeblendet statt überdeckt, solange der Schirm steht. */
+  :global(html[data-sichtschutz] [data-sonner-toaster]) {
+    display: none !important;
+  }
+</style>

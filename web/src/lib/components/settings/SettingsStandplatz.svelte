@@ -25,7 +25,11 @@
   import XIcon from '@lucide/svelte/icons/x';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { standplatz, type Geltung } from '$lib/remote/standplatz.svelte';
+  import {
+    standplatz,
+    type Freigegebener,
+    type Geltung,
+  } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
@@ -61,11 +65,24 @@
     await standplatz.freigeben({ nutzer: standplatz.nutzer, jeder, geltung });
   }
 
-  async function entfernen(id: string): Promise<void> {
+  async function entfernen(wen: Freigegebener): Promise<void> {
     // Über `nutzerSetzen`, NICHT über `freigeben`: das würde die Freigabe
     // scharf schalten, und ein Klick auf das X soll einen Namen streichen und
     // sonst nichts (Bughunt 2026-08-16).
-    await standplatz.nutzerSetzen(standplatz.nutzer.filter((n) => n.userId !== id));
+    //
+    // Verglichen wird der GANZE Eintrag, nicht nur die Nutzerkennung: die Liste
+    // ist nach Server und Standplatz aufgeschlüsselt (derselbe Mensch kann in
+    // zwei Kanälen freigegeben sein, und dieselbe Kennung auf zwei Servern zwei
+    // Menschen). Ein Filter auf `userId` allein löschte alle Zeilen auf einmal
+    // — ein X, das drei Freigaben mitnimmt, ohne es zu sagen.
+    await standplatz.nutzerSetzen(
+      standplatz.nutzer.filter(
+        (n) =>
+          n.serverId !== wen.serverId ||
+          n.channelId !== wen.channelId ||
+          n.userId !== wen.userId,
+      ),
+    );
   }
 
   function dauer(beginn: number, ende: number | null): string {
@@ -151,7 +168,7 @@
           <span class="text-text-muted text-xs italic">{m.standplatz_settings_users_empty()}</span>
         {:else}
           <ul class="flex flex-col gap-1.5">
-            {#each standplatz.nutzer as n (`${n.serverId}:${n.userId}`)}
+            {#each standplatz.nutzer as n (`${n.serverId}:${n.channelId}:${n.userId}`)}
               {@const wer = gegenstelle(n.userId)}
               <li class="flex items-center gap-2">
                 <span class="text-text-base min-w-0 flex-1 truncate text-sm">
@@ -160,7 +177,7 @@
                 <Button
                   size="sm"
                   variant="ghost"
-                  onclick={() => entfernen(n.userId)}
+                  onclick={() => entfernen(n)}
                   aria-label={m.standplatz_settings_user_remove()}
                 >
                   <XIcon class="size-4" />

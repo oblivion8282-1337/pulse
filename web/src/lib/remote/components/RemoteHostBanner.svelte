@@ -33,6 +33,7 @@
       border-amber-500/40 bg-amber-500/15 px-4 py-2.5 shadow-lg backdrop-blur"
     role="status"
     data-testid="remote-host-banner"
+    data-sichtschutz-frei
   >
     <span class="grid size-8 place-items-center rounded-lg bg-amber-500/25 text-amber-500">
       <MousePointerIcon class="size-4" />
