@@ -13,6 +13,8 @@
  * fremde Mitglieder statt für sich selbst. Ein zweiter Nachbau der Formel wäre
  * genau die Doppelung, vor der `CLAUDE.md` warnt: der Server ist die Wahrheit,
  * und eine abweichende Kopie fällt erst auf, wenn sie jemandem zu viel erlaubt.
+ * Die Umwandlung Store/Wire → Resolver liegt seit der neuen Kanalrechte-Ansicht
+ * in `permissions/schnappschuesse.ts` und wird von beiden Stellen benutzt.
  *
  * **Was die Zahl NICHT sieht** (und warum sie eine Untergrenze ist): ob ein
  * Mitglied Instanz-Administrator ist, steht nur in dessen eigener Sitzung —
@@ -23,27 +25,8 @@
 
 import { overwritesApi, rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
-import { roles } from '$lib/stores/roles.svelte';
-import {
-  Perm,
-  has,
-  resolveChannelPermissions,
-  toBitfield,
-  type OverwriteSnapshot,
-  type RoleSnapshot,
-} from '$lib/permissions/bitfield';
-
-/** Rollen-Schnappschüsse für EINEN Nutzer: `@everyone` plus seine eigenen. */
-function schnappschuesse(guildId: string, rollenIds: Set<string>): RoleSnapshot[] {
-  return (roles.byGuild[guildId] ?? [])
-    .filter((r) => r.is_everyone || rollenIds.has(r.id))
-    .map((r) => ({
-      id: r.id,
-      position: r.position,
-      permissions: toBitfield(r.permissions),
-      is_everyone: r.is_everyone,
-    }));
-}
+import { Perm, has, resolveChannelPermissions } from '$lib/permissions/bitfield';
+import { benannteRollen, overwriteSchnappschuesse } from '$lib/permissions/schnappschuesse';
 
 /**
  * Wie viele Mitglieder dieser Community dürfen im Kanal fernsteuern?
@@ -61,12 +44,7 @@ export async function anzahlBerechtigte(
     rolesApi.bulkMemberRoles(guildId),
     overwritesApi.list(channelId),
   ]);
-  const overwrites: OverwriteSnapshot[] = roh.map((ow) => ({
-    target_type: ow.target_type,
-    target_id: ow.target_id,
-    allow: toBitfield(ow.allow),
-    deny: toBitfield(ow.deny),
-  }));
+  const overwrites = overwriteSchnappschuesse(roh);
   const besitzer = guilds.byId[guildId]?.owner_id ?? null;
 
   let zahl = 0;
@@ -78,7 +56,7 @@ export async function anzahlBerechtigte(
       isOwner: besitzer === userId,
       isMember: true,
       userId,
-      roles: schnappschuesse(guildId, new Set(bulk[userId] ?? [])),
+      roles: benannteRollen(guildId, new Set(bulk[userId] ?? [])),
       overwrites,
     });
     if (has(wert, Perm.REMOTE_CONTROL)) zahl += 1;

@@ -1,355 +1,241 @@
 <!--
-  ChannelOverridesEditor — per-channel allow/deny overwrites.
+  Kanalrechte — Abweichungen je Rolle und je Mitglied, mit dem Ergebnis daneben.
 
-  Discord-style three-state toggle per permission: Allow (allow bit set),
-  Deny (deny bit set), Neutral (neither). Operates over an arbitrary
-  number of targets — roles + users. Backend enforces anti-escalation
-  (editor must hold every bit they grant or un-deny) independently of
-  this UI, which only locks toggles for visual feedback.
+  **Warum umgebaut.** Zwei Ebenen bestimmen, was jemand darf: die Rollen der
+  Community als Grundlage und die Abweichungen je Kanal darüber. Die alte
+  Ansicht zeigte nur die Abweichungen — man setzte Häkchen und wusste hinterher
+  nicht, was gilt. Jetzt steht neben jeder Zeile, was am Ende herauskommt und
+  woher es kommt („ja · aus Moderation", „nein · hier verboten"), und die
+  revoke-all-Invariante des Servers (ohne „Kanal ansehen" fällt alles weg) ist
+  sichtbar statt geraten.
+
+  Die Rechnung selbst passiert nicht hier, sondern in `lib/permissions/`:
+  `herkunft.ts` (Ergebnis + Herkunft), `entwurf.svelte.ts` (was noch nicht
+  gespeichert ist), `kanalansicht.ts` (Entwurf über den Serverstand legen).
+  Der Server prüft Anti-Eskalation unabhängig; die Sperren hier sind
+  Rückmeldung, keine Sicherung.
 -->
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
-  import PlusIcon from '@lucide/svelte/icons/plus';
-  import TrashIcon from '@lucide/svelte/icons/trash-2';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import { chatApi } from '$lib/api/chat';
-  import { overwritesApi, type Overwrite } from '$lib/api/roles';
-  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
-  import { createOverride, excludeEveryone, owKey } from './channelOverrides';
-  import { roles as rolesStore } from '$lib/stores/roles.svelte';
-  import { userCache } from '$lib/stores/users.svelte';
-  import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
-  import type { Member } from '$lib/api/types';
-  import { m } from '$lib/paraglide/messages.js';
+  import TrashIcon from '@lucide/svelte/icons/trash-2';
+  import LockIcon from '@lucide/svelte/icons/lock';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import type { Member } from '$lib/api/types';
+  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { roles as rollenStore } from '$lib/stores/roles.svelte';
+  import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
+  import { KanalEntwurf, type Zustand } from '$lib/permissions/entwurf.svelte';
+  import { rechtsstaende, type Rechtsstand } from '$lib/permissions/herkunft';
+  import { kanalrechte } from '$lib/permissions/kanalrechte';
+  import {
+    mitgliederUndRollen,
+    wirkendeAbweichungen,
+    zielAufloesung
+  } from '$lib/permissions/kanalansicht';
+  import { zielSchluessel } from '$lib/permissions/schnappschuesse';
+  import { baueZiele } from '$lib/permissions/ziele';
+  import ZielListe from '$lib/permissions/ui/ZielListe.svelte';
+  import ZielAnsicht from '$lib/permissions/ui/ZielAnsicht.svelte';
+  import SpeicherLeiste from '$lib/permissions/ui/SpeicherLeiste.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
     guildId,
+    kanalName,
     editorPermissions
-  }: { channelId: string; guildId: string; editorPermissions: string } = $props();
+  }: { channelId: string; guildId: string; kanalName: string; editorPermissions: string } =
+    $props();
 
-  type Triple = 'allow' | 'neutral' | 'deny';
+  const entwurf = new KanalEntwurf(() => channelId);
 
-  type GridEntry = { perm: Permission; label: string };
+  let mitglieder = $state<Member[]>([]);
+  let rollenIdsJeMitglied = $state<Record<string, string[]>>({});
+  let ausgewaehlt = $state<string | null>(null);
+  let loeschFrage = $state(false);
+  let loescht = $state(false);
 
-  // Compact list of editable bits — matches PermissionToggleGrid order
-  // but keeps the per-channel scope (we omit server-admin / member-admin
-  // bits that don't apply at channel scope; they're guild-wide). Ein Bit
-  // gehört hierher, sobald der Server es channel-scoped auflöst.
-  const channelBits: GridEntry[] = [
-    { perm: Perm.VIEW_CHANNEL, label: m.channel_overrides_perm_view_channel() },
-    { perm: Perm.READ_HISTORY, label: m.channel_overrides_perm_read_history() },
-    { perm: Perm.SEND_MESSAGES, label: m.channel_overrides_perm_send_messages() },
-    { perm: Perm.MANAGE_MESSAGES, label: m.channel_overrides_perm_manage_messages() },
-    { perm: Perm.ATTACH_FILES, label: m.channel_overrides_perm_attach_files() },
-    { perm: Perm.ADD_REACTIONS, label: m.channel_overrides_perm_add_reactions() },
-    { perm: Perm.CREATE_INVITES, label: m.channel_overrides_perm_create_invites() },
-    { perm: Perm.MENTION_EVERYONE, label: m.channel_overrides_perm_mention_everyone() },
-    { perm: Perm.MANAGE_CHANNELS, label: m.channel_overrides_perm_manage_channels() },
-    { perm: Perm.MANAGE_PERMISSIONS, label: m.channel_overrides_perm_manage_permissions() },
-    { perm: Perm.CONNECT, label: m.channel_overrides_perm_connect() },
-    { perm: Perm.SPEAK, label: m.channel_overrides_perm_speak() },
-    { perm: Perm.STREAM, label: m.channel_overrides_perm_stream() },
-    { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() },
-    // Fernsteuerung gehört hierher, obwohl das Recht nicht in
-    // DEFAULT_EVERYONE_PERMISSIONS steht: der Gateway löst es KANALSKOPIERT auf
-    // (`resolve_permissions(..., cid_int)` in `ws_remote_handlers.py`), und der
-    // Anfrage-Knopf tut dasselbe. Ohne diesen Eintrag ließ sich ausgerechnet
-    // das empfindlichste Bit in keinem einzelnen Kanal erlauben oder entziehen
-    // — nur serverweit über die Rolle.
-    { perm: Perm.REMOTE_CONTROL, label: m.channel_overrides_perm_remote_control() }
-  ];
-
-  let overwrites = $derived<Overwrite[]>(channelPermissions.byChannel[channelId] ?? []);
-  let availableRoles = $derived(rolesStore.byGuild[guildId] ?? []);
-
-  // Map target → cached editor buffer (allow/deny). Stored as strings
-  // so the toggles can flip bits without floating bigints into reactive
-  // state. We only snapshot a (target_type, target_id) the *first* time
-  // it lands — re-seeding on every reactive run would silently revert
-  // in-progress edits on rows the user hasn't saved yet (mirrors the
-  // ``lastLoadedId`` pattern in RolesEditor). WS events from other
-  // editors come through `channelPermissions.apply` and re-render the
-  // row, but the local buffer is left alone — the user has to save or
-  // explicitly discard to pick up remote changes.
-  let buffers = $state<Record<string, { allow: string; deny: string }>>({});
-  let seededKeys = $state<Set<string>>(new Set());
-
-  $effect(() => {
-    let next = buffers;
-    let nextSeeded = seededKeys;
-    let mutated = false;
-    for (const ow of overwrites) {
-      const k = owKey(ow);
-      if (nextSeeded.has(k)) continue;
-      if (!mutated) {
-        next = { ...buffers };
-        nextSeeded = new Set(seededKeys);
-        mutated = true;
-      }
-      next[k] = { allow: ow.allow, deny: ow.deny };
-      nextSeeded.add(k);
-    }
-    if (mutated) {
-      buffers = next;
-      seededKeys = nextSeeded;
-    }
+  let rechte = $derived(kanalrechte());
+  let perms = $derived(rechte.map((r) => r.perm));
+  let alleRollen = $derived(rollenStore.byGuild[guildId] ?? []);
+  let overwrites = $derived(channelPermissions.byChannel[channelId] ?? []);
+  let ziele = $derived(baueZiele(alleRollen, mitglieder, (k) => entwurf.gesetzte(k, perms)));
+  let namen = $derived(new Map(ziele.map((z) => [z.key, z.name])));
+  let gewaehlt = $derived(ziele.find((z) => z.key === ausgewaehlt) ?? null);
+  let besitzerId = $derived(
+    guilds.byId[guildId]?.owner_id ?? serverGuilds.findGuild(guildId)?.owner_id ?? null
+  );
+  let abweichungen = $derived(
+    wirkendeAbweichungen(overwrites, entwurf, (k) => namen.get(k) ?? k)
+  );
+  let staende = $derived.by<Map<Permission, Rechtsstand>>(() => {
+    if (!gewaehlt) return new Map();
+    return rechtsstaende(
+      zielAufloesung({
+        key: gewaehlt.key,
+        guildId,
+        rollen: alleRollen,
+        rollenIdsJeMitglied,
+        besitzerId,
+        abweichungen
+      }),
+      perms
+    );
   });
+  let offen = $derived(entwurf.offenGesamt(perms));
+  let editorBits = $derived(toBitfield(editorPermissions));
+  let everyone = $derived(alleRollen.find((r) => r.is_everyone));
+  let hatZeile = $derived(
+    !!gewaehlt && overwrites.some((ow) => zielSchluessel(ow) === gewaehlt.key)
+  );
+  // „Nur für diese Rolle" ergibt nur Sinn, solange @everyone den Kanal noch
+  // sehen darf — sonst ist er längst geschlossen.
+  let everyoneSiehtNoch = $derived(
+    !everyone || !has(entwurf.stand(`0:${everyone.id}`).deny, Perm.VIEW_CHANNEL)
+  );
+  let kannExklusiv = $derived(
+    !!gewaehlt && gewaehlt.art === 0 && !gewaehlt.istEveryone && !!everyone && everyoneSiehtNoch
+  );
 
-  function tripleFor(target: string, perm: Permission): Triple {
-    const b = buffers[target];
-    if (!b) return 'neutral';
-    if (has(toBitfield(b.allow), perm)) return 'allow';
-    if (has(toBitfield(b.deny), perm)) return 'deny';
-    return 'neutral';
-  }
-
-  function flip(target: string, perm: Permission, to: Triple): void {
-    const b = buffers[target] ?? { allow: '0', deny: '0' };
-    let allow = toBitfield(b.allow);
-    let deny = toBitfield(b.deny);
-    allow &= ~perm;
-    deny &= ~perm;
-    if (to === 'allow') allow |= perm;
-    if (to === 'deny') deny |= perm;
-    buffers = { ...buffers, [target]: { allow: allow.toString(), deny: deny.toString() } };
-  }
-
-  function labelFor(ow: Overwrite | { target_type: 0 | 1; target_id: string }): string {
-    if (ow.target_type === 0) {
-      const r = availableRoles.find((r) => r.id === ow.target_id);
-      return r ? m.channel_overrides_label_role({ name: r.name }) : m.channel_overrides_label_role_id({ id: ow.target_id });
+  // Vorauswahl: das erste Ziel mit Abweichung, sonst @everyone. Ein leerer
+  // rechter Bereich beim Öffnen sähe aus, als gäbe es nichts einzustellen.
+  let letzterKanal = $state('');
+  $effect(() => {
+    if (letzterKanal !== channelId) {
+      letzterKanal = channelId;
+      ausgewaehlt = null;
+      entwurf.verwirf();
+      return;
     }
-    const mem = members.find((mem) => mem.user_id === ow.target_id);
-    if (mem) return m.channel_overrides_label_member({ name: memberLabel(mem) });
-    const cached = userCache.displayName(ow.target_id);
-    return m.channel_overrides_label_member({ name: cached });
-  }
-
-  async function save(target: string): Promise<void> {
-    const [tt, tid] = target.split(':');
-    const b = buffers[target];
-    if (!b) return;
-    try {
-      await overwritesApi.set(channelId, Number(tt) as 0 | 1, tid, {
-        allow: b.allow,
-        deny: b.deny
-      });
-      toast.success(m.channel_overrides_toast_saved());
-    } catch (err) {
-      toast.error(m.channel_overrides_toast_save_failed(), {
-        description: (err as Error).message
-      });
-    }
-  }
-
-  async function remove(target: string): Promise<void> {
-    const [tt, tid] = target.split(':');
-    try {
-      await overwritesApi.delete(channelId, Number(tt) as 0 | 1, tid);
-      channelPermissions.apply(
-        channelId,
-        (channelPermissions.byChannel[channelId] ?? []).filter(
-          (ow) => owKey(ow) !== target
-        )
-      );
-      // Forget the seed-once guard for this row so adding the same
-      // target again later re-snapshots the server's reset values.
-      if (seededKeys.has(target)) {
-        const nextSeeded = new Set(seededKeys);
-        nextSeeded.delete(target);
-        seededKeys = nextSeeded;
-        const nextBuffers = { ...buffers };
-        delete nextBuffers[target];
-        buffers = nextBuffers;
-      }
-      toast.success(m.channel_overrides_toast_removed());
-    } catch (err) {
-      toast.error(m.channel_overrides_toast_remove_failed(), {
-        description: (err as Error).message
-      });
-    }
-  }
-
-  let addRoleId = $state('');
-  let addUserId = $state('');
-  let members = $state<Member[]>([]);
+    if (ausgewaehlt || ziele.length === 0) return;
+    ausgewaehlt = (ziele.find((z) => z.gesetzte > 0) ?? ziele[0]).key;
+  });
 
   onMount(async () => {
-    try {
-      members = await chatApi.listMembers(guildId);
-      for (const m of members) userCache.queue(m.user_id);
-    } catch {
-      members = [];
-    }
+    const geladen = await mitgliederUndRollen(guildId);
+    mitglieder = geladen.mitglieder;
+    rollenIdsJeMitglied = geladen.rollenIdsJeMitglied;
   });
 
-  async function addOverride(targetType: 0 | 1, targetId: string): Promise<void> {
-    if (!targetId) return;
-    // Adding a normal role makes the channel exclusive (Discord's
-    // private-channel semantics): the role gets VIEW_CHANNEL allow and
-    // @everyone gets VIEW_CHANNEL deny — "add a group" means "only this
-    // group (and other added targets) can see the channel", with no
-    // manual @everyone bookkeeping.
-    const everyone = availableRoles.find((r) => r.is_everyone);
-    const exclusiveRole =
-      targetType === 0 && everyone && targetId !== everyone.id
-        ? availableRoles.find((r) => r.id === targetId)
-        : undefined;
+  function setze(perm: Permission, zu: Zustand): void {
+    if (ausgewaehlt) entwurf.setze(ausgewaehlt, perm, zu);
+  }
+
+  async function speichern(): Promise<void> {
     try {
-      await createOverride(channelId, targetType, targetId, !!exclusiveRole);
-      if (exclusiveRole && everyone) {
-        const saved = await excludeEveryone(channelId, everyone.id);
-        if (saved) {
-          // Force-sync the row buffer: the seed-once guard would otherwise
-          // keep showing the pre-exclusion state for an already-seeded
-          // @everyone row.
-          buffers = { ...buffers, [owKey(saved)]: { allow: saved.allow, deny: saved.deny } };
-          const nextSeeded = new Set(seededKeys);
-          nextSeeded.add(owKey(saved));
-          seededKeys = nextSeeded;
-        }
-      }
-      if (targetType === 0) addRoleId = '';
-      else addUserId = '';
-      if (exclusiveRole) {
-        toast.success(m.channel_overrides_toast_added_exclusive({ role: exclusiveRole.name }));
-      } else {
-        toast.success(m.channel_overrides_toast_added());
-      }
+      await entwurf.speichern(perms);
+      toast.success(m.kanalrechte_toast_gespeichert());
     } catch (err) {
-      toast.error(m.channel_overrides_toast_add_failed(), {
+      toast.error(m.kanalrechte_toast_speichern_fehler(), {
         description: (err as Error).message
       });
     }
   }
 
-  function memberLabel(m: Member): string {
-    return m.nickname ?? userCache.displayName(m.user_id);
+  async function loeschen(): Promise<void> {
+    const key = ausgewaehlt;
+    // bits-ui schliesst den Dialog beim Bestätigen nicht selbst — ein zweiter
+    // Klick im Flug schickte dasselbe DELETE erneut und holte sich einen 404.
+    if (!key || loescht) return;
+    loescht = true;
+    try {
+      await entwurf.loesche(key);
+      toast.success(m.kanalrechte_toast_geloescht());
+    } catch (err) {
+      toast.error(m.kanalrechte_toast_loeschen_fehler(), {
+        description: (err as Error).message
+      });
+    } finally {
+      loescht = false;
+      loeschFrage = false;
+    }
   }
 
-  const editorBits = $derived(toBitfield(editorPermissions));
-
-  function isEditorAllowed(perm: Permission): boolean {
-    return has(editorBits, perm);
+  function exklusiv(): void {
+    if (!gewaehlt || !everyone) return;
+    entwurf.exklusiv(gewaehlt.id, everyone.id);
+    toast.info(m.kanalrechte_toast_exklusiv());
   }
 </script>
 
-<div class="space-y-6" data-testid="channel-overrides">
-  <header>
-    <h2 class="text-text-bright text-base font-semibold">{m.channel_overrides_heading()}</h2>
-    <p class="text-text-muted text-xs">
-      {m.channel_overrides_order_hint()}
-    </p>
-  </header>
+<div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="channel-overrides">
+  <aside class="w-full shrink-0 md:w-64">
+    <ZielListe {ziele} {ausgewaehlt} onwaehle={(k) => (ausgewaehlt = k)} />
+  </aside>
 
-  <div class="grid gap-3 sm:grid-cols-2">
-    <div class="flex flex-wrap items-end gap-2">
-      <div class="flex-1">
-        <Label for="add-role">{m.channel_overrides_label_role_field()}</Label>
-        <select
-          id="add-role"
-          class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
-          bind:value={addRoleId}
-          data-testid="add-role-select"
+  <section class="flex min-w-0 flex-1 flex-col">
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      {#if gewaehlt}
+        <!-- Festhalten, damit die Rückrufe unten kein `gewaehlt` schliessen,
+             das TypeScript ausserhalb des Blocks wieder für leer hält. -->
+        {@const ziel = gewaehlt}
+        <ZielAnsicht
+          {ziel}
+          {kanalName}
+          {rechte}
+          {staende}
+          zustandFuer={(perm) => entwurf.zustand(ziel.key, perm)}
+          gesperrt={(perm) => !has(editorBits, perm)}
+          onsetze={setze}
         >
-          <option value="">{m.channel_overrides_select_role_placeholder()}</option>
-          {#each availableRoles as r (r.id)}
-            {@const already = overwrites.some(
-              (ow) => ow.target_type === 0 && ow.target_id === r.id
-            )}
-            {#if !already}
-              <option value={r.id}>{r.name}{r.is_everyone ? ' (@everyone)' : ''}</option>
+          {#snippet kopfAktionen()}
+            {#if kannExklusiv}
+              <Button
+                size="sm"
+                variant="ghost"
+                onclick={exklusiv}
+                title={m.kanalrechte_exklusiv_hinweis()}
+                data-testid="perm-exclusive-btn"
+              >
+                <LockIcon /> {m.kanalrechte_btn_exklusiv()}
+              </Button>
             {/if}
-          {/each}
-        </select>
-      </div>
-      <Button onclick={() => addOverride(0, addRoleId)} disabled={!addRoleId} data-testid="add-role-btn">
-        <PlusIcon />
-        {m.channel_overrides_btn_add_role()}
-      </Button>
-      <p class="text-text-muted basis-full text-xs">{m.channel_overrides_role_add_hint()}</p>
+            {#if hatZeile}
+              <Button
+                size="sm"
+                variant="ghost"
+                onclick={() => (loeschFrage = true)}
+                data-testid="perm-delete-btn"
+              >
+                <TrashIcon /> {m.kanalrechte_btn_abweichung_loeschen()}
+              </Button>
+            {/if}
+          {/snippet}
+        </ZielAnsicht>
+      {:else}
+        <EmptyState message={m.kanalrechte_kein_ziel()} />
+      {/if}
     </div>
 
-    <div class="flex flex-wrap items-end gap-2">
-      <div class="flex-1">
-        <Label for="add-user">{m.channel_overrides_label_member_field()}</Label>
-        <select
-          id="add-user"
-          class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
-          bind:value={addUserId}
-          data-testid="add-user-select"
-        >
-          <option value="">{m.channel_overrides_select_member_placeholder()}</option>
-          {#each members as m (m.user_id)}
-            {@const already = overwrites.some(
-              (ow) => ow.target_type === 1 && ow.target_id === m.user_id
-            )}
-            {#if !already}
-              <option value={m.user_id}>{memberLabel(m)}</option>
-            {/if}
-          {/each}
-        </select>
-      </div>
-      <Button onclick={() => addOverride(1, addUserId)} disabled={!addUserId} data-testid="add-user-btn">
-        <PlusIcon />
-        {m.channel_overrides_btn_add_member()}
-      </Button>
-    </div>
-  </div>
-
-  {#if overwrites.length === 0}
-    <EmptyState message={m.channel_overrides_empty()} />
-  {/if}
-
-  {#each overwrites as ow (owKey(ow))}
-    {@const key = owKey(ow)}
-    <section class="rounded-xl border border-border p-4" data-testid={`override-${key}`}>
-      <header class="mb-3 flex items-center justify-between">
-        <h3 class="text-text-bright text-sm font-semibold">{labelFor(ow)}</h3>
-        <div class="flex gap-2">
-          <Button size="sm" onclick={() => save(key)} data-testid={`override-save-${key}`}>
-            {m.channel_overrides_btn_save()}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onclick={() => remove(key)}
-            data-testid={`override-delete-${key}`}
-          >
-            <TrashIcon />
-          </Button>
-        </div>
-      </header>
-      <ul class="divide-border divide-y">
-        {#each channelBits as b (b.perm)}
-          {@const s = tripleFor(key, b.perm)}
-          {@const allowed = isEditorAllowed(b.perm)}
-          <li class="flex items-center justify-between py-1.5">
-            <span class="text-sm" class:opacity-50={!allowed}>{b.label}</span>
-            <div class="flex gap-1">
-              {#each [
-                { v: 'deny', cls: 'text-red-400 hover:bg-red-500/15', sel: 'bg-red-500/20 text-red-300', icon: '✕' },
-                { v: 'neutral', cls: 'text-text-muted hover:bg-bg-hover', sel: 'bg-bg-hover text-text-bright', icon: '/' },
-                { v: 'allow', cls: 'text-green-400 hover:bg-green-500/15', sel: 'bg-green-500/20 text-green-300', icon: '✓' }
-              ] as opt (opt.v)}
-                <button
-                  type="button"
-                  class={`size-7 rounded-md font-mono text-xs transition-colors ${s === opt.v ? opt.sel : opt.cls}`}
-                  onclick={() => flip(key, b.perm, opt.v as Triple)}
-                  disabled={!allowed}
-                  aria-pressed={s === opt.v}
-                  aria-label={opt.v}
-                  data-testid={`override-toggle-${key}-${b.perm}-${opt.v}`}
-                >{opt.icon}</button>
-              {/each}
-            </div>
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/each}
+    <SpeicherLeiste
+      {offen}
+      speichert={entwurf.speichert}
+      onverwerfen={() => entwurf.verwirf()}
+      onspeichern={speichern}
+    />
+  </section>
 </div>
+
+<!-- Rückfrage vor dem Löschen: eine ganze Abweichung fällt damit weg, und das
+     Löschen einer Rolle fragt seit jeher nach — hier fehlte die Frage. -->
+<AlertDialog.Root bind:open={loeschFrage}>
+  <AlertDialog.Content data-testid="perm-delete-confirm">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{m.kanalrechte_loeschen_titel()}</AlertDialog.Title>
+      <AlertDialog.Description>
+        {m.kanalrechte_loeschen_text({ ziel: gewaehlt?.name ?? '' })}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={loescht}>{m.kanalrechte_loeschen_abbrechen()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={loeschen} disabled={loescht} data-testid="perm-delete-confirm-btn">
+        {m.kanalrechte_btn_abweichung_loeschen()}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
