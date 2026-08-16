@@ -163,6 +163,26 @@ impl App {
         Ok(())
     }
 
+    /// `remote_screens` — welche Bildschirme der ferne Rechner hat.
+    ///
+    /// Wie `remote_transport` reine Anzeige: das Fenster zeigt die Liste im
+    /// Menue am Griff und meldet die Wahl zurueck, entscheidet aber nichts. Wer
+    /// welchen Bildschirm anfordert und was dann passiert, weiss nur die App —
+    /// sie kennt Geraet, Sitzung und Server.
+    ///
+    /// **Nicht an die laufende Erfassung gekoppelt**, aus demselben Grund wie
+    /// `remote_pointer`: die App liefert die Liste nach, sobald sich das
+    /// Fenster anhaengt, und das kann kurz VOR dem `input_capture` geschehen.
+    pub(super) fn remote_screens(&mut self, req: &Request) -> Result<(), String> {
+        let session_id = req.session.ok_or("session fehlt")?;
+        let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
+        if let Some(overlay) = session.overlay.as_mut() {
+            overlay.set_fern_schirme(req.screens.clone().unwrap_or_default());
+        }
+        session.window.request_redraw();
+        Ok(())
+    }
+
     /// Das Fenster hat den Tastaturfokus bekommen oder verloren.
     ///
     /// **Windows loest `ClipCursor` beim Fokusverlust auf, und winit stellt es

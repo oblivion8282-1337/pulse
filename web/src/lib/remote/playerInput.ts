@@ -81,6 +81,25 @@ export async function zeigerformMelden(fensterSitzung: number, form: Zeigerform)
 }
 
 /**
+ * Die Bildschirme des fernen Rechners ins Player-Fenster melden — fuers Menue
+ * am Griff (`overlay/fernbedienung.rs`).
+ *
+ * Best-effort wie die Transport-Anzeige: eine ausgebliebene Liste kostet einen
+ * Menuepunkt, keine Eingabe. Eine aeltere Shell kennt den Op nicht; dann bleibt
+ * das Menue schlicht ohne Bildschirme.
+ */
+export async function bildschirmeMelden(
+  fensterSitzung: number,
+  schirme: { index: number; name: string; open: boolean }[],
+): Promise<void> {
+  try {
+    await player()?.screens?.(fensterSitzung, schirme);
+  } catch (e) {
+    console.warn('[remote] Bildschirmliste warf:', e);
+  }
+}
+
+/**
  * Erfassung ausschalten. Der Player reicht danach fuer alles Gedrueckte noch
  * das Hoch-Ereignis nach — die kommen ueber [`aufNachrichten`] und muessen noch
  * abgesetzt werden, sonst klemmt beim Host eine Taste.

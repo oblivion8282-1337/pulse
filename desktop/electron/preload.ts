@@ -158,6 +158,12 @@ contextBridge.exposeInMainWorld('pulse', {
      *  nimmt — Namen aus der CSS-Liste, kein Bild (`$lib/remote/zeigerform.ts`). */
     pointerShape: (session: number, shape: string) =>
       playerCall('remote_pointer', { session, shape }),
+    /** Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das Fenster
+     *  zeigt sie im Menue am Griff und meldet die Wahl als
+     *  `player:remoteScreen` zurueck — angefordert wird in der App
+     *  (`$lib/devices/schirme.svelte.ts`). */
+    screens: (session: number, screens: unknown[]) =>
+      playerCall('remote_screens', { session, screens }),
 
     /** Mitschnitt starten. Der Zielpfad wird im Hauptprozess bestimmt und
      *  kommt als `path` in der Antwort zurueck. */

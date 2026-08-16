@@ -27,14 +27,10 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import { Button } from '$lib/components/ui/button/index.js';
   import type { Device, DeviceMonitor } from '$lib/api/devices';
-  import { geraetWecken } from '$lib/devices/wecken';
-  import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { openedTiles } from '$lib/stream/openedTiles.svelte';
-  import { hqTileId } from '$lib/stream/hqTile';
+  import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
-  import { activeServer } from '$lib/stores/active-server.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -45,19 +41,6 @@
     /** Zum Standplatz wechseln, sobald das Bild da ist. */
     onOpenChannel: (channelId: string) => void;
   } = $props();
-
-  /** Wie lange auf das erste Bild gewartet wird.
-   *
-   *  Grosszügig: der Rechner muss den Encoder hochfahren, und auf einer
-   *  ausgelasteten Maschine dauert das. Zu kurz gewählt hiesse, dass die
-   *  Oberfläche „hat nicht geantwortet" sagt, während der Stream gerade
-   *  anläuft — der schlechteste Zeitpunkt für eine Absage. */
-  const WARTEN_MS = 25_000;
-
-  /** Auf welchen Bildschirm gerade gewartet wird (`null` = auf keinen). */
-  let wartetAuf = $state<DeviceMonitor | null>(null);
-  let fehler = $state<string | null>(null);
-  let wecker: ReturnType<typeof setTimeout> | null = null;
 
   const besitzer = $derived(gegenstelle(device.owner_user_id));
   const kanal = $derived(
@@ -70,76 +53,19 @@
     if (device.busy_with) userCache.queue(device.busy_with);
   });
 
-  /**
-   * Die Bildschirme, die angeboten werden.
-   *
-   * Meldet das Gerät keine (nie verbunden oder ältere Fassung), bleibt genau
-   * ein Eintrag übrig: sein Hauptbildschirm. Das ist ehrlicher als eine
-   * erfundene Liste — und der eine Knopf tut, was er immer getan hat.
-   */
-  const schirme = $derived<DeviceMonitor[]>(
-    device.monitors.length > 0
-      ? device.monitors
-      : [{ index: 0, name: m.device_view_screen_primary(), primary: true }],
-  );
+  const schirme = $derived(schirmeVon(device));
+  const laeuft = $derived(schirme.some((s) => s.open));
+  const wartetAuf = $derived(schirmWarten.wartetAuf(device.id));
+  const fehler = $derived(schirmWarten.fehler[device.id] ?? null);
 
-  /** Die laufenden Übertragungen dieses Geräts (der Besitzer ist der Streamer). */
-  const stroeme = $derived(
-    streamPresence.streamsIn(device.channel_id).filter((s) => s.user_id === device.owner_user_id),
-  );
-
-  /** Der Strom, der diesen Bildschirm zeigt — erkannt am Namen, den das Gerät
-   *  beim Start mitgeschickt hat (`stream/starten.ts` nimmt ihn aus der wirklich
-   *  aufgenommenen Quelle). `undefined` = dieser Schirm läuft noch nicht. */
-  function stromFuer(mon: DeviceMonitor) {
-    return stroeme.find((s) => s.label === mon.name || s.label === `Monitor ${mon.index}`);
-  }
-
-  const laeuft = $derived(stroeme.length > 0);
-
-  // Sobald das erwartete Bild da ist: Kachel öffnen und hinwechseln. Als Effect
-  // statt im Klick-Handler, weil das Bild asynchron erscheint — der Klick weiss
-  // noch nicht, wann.
+  // Sobald das erwartete Bild da ist: Fenster öffnen und hinwechseln. Die
+  // Entscheidung selbst liegt im gemeinsamen Modul — sie muss auch dann
+  // laufen, wenn die Anforderung aus dem Player-Fenster kam und diese Ansicht
+  // gar nicht offen ist (`RemoteControllerInput` prüft dort mit).
   $effect(() => {
-    const ziel = wartetAuf;
-    if (!ziel) return;
-    const strom = stromFuer(ziel) ?? (stroeme.length > 0 ? stroeme[0] : undefined);
-    if (!strom) return;
-    wartetAuf = null;
-    if (wecker) clearTimeout(wecker);
-    wecker = null;
-    openedTiles.open('hq', device.channel_id, hqTileId(device.owner_user_id, strom.slot));
-    onOpenChannel(device.channel_id);
+    if (schirmWarten.einloesen(device)) onOpenChannel(device.channel_id);
   });
 
-  $effect(() => () => {
-    if (wecker) clearTimeout(wecker);
-  });
-
-  function holen(mon: DeviceMonitor): void {
-    fehler = null;
-    const offen = stromFuer(mon);
-    if (offen) {
-      // Läuft schon: nur die Kachel holen, keinen zweiten Weckruf. Der wäre
-      // zwar harmlos (das Gerät verwirft ihn), aber der Umweg über „warten"
-      // liesse den Knopf ohne Grund eine Sekunde lang beschäftigt aussehen.
-      openedTiles.open('hq', device.channel_id, hqTileId(device.owner_user_id, offen.slot));
-      onOpenChannel(device.channel_id);
-      return;
-    }
-    // `index: 0` ist der Ersatz-Eintrag ohne Bildschirmliste — dann ohne
-    // Nummer wecken, und das Gerät nimmt seinen Hauptbildschirm.
-    if (!geraetWecken(activeServer.serverId, device.id, mon.index || undefined)) {
-      fehler = m.device_view_wake_failed();
-      return;
-    }
-    wartetAuf = mon;
-    if (wecker) clearTimeout(wecker);
-    wecker = setTimeout(() => {
-      wartetAuf = null;
-      fehler = m.device_view_wake_failed();
-    }, WARTEN_MS);
-  }
 </script>
 
 <div class="flex h-full flex-col items-center justify-center gap-6 p-8" data-testid="device-view">
@@ -166,7 +92,7 @@
     {@const haupt = schirme.find((s) => s.primary) ?? schirme[0]}
     <Button
       size="lg"
-      onclick={() => holen(haupt)}
+      onclick={() => schirmWarten.holen(device, haupt)}
       disabled={!!wartetAuf}
       data-testid="device-view-take-over"
     >
@@ -185,11 +111,11 @@
       <span class="text-text-muted text-xs">{m.device_view_screens()}</span>
       <div class="flex flex-wrap justify-center gap-2">
         {#each schirme as mon (mon.index)}
-          {@const offen = !!stromFuer(mon)}
+          {@const offen = mon.open}
           <Button
             size="sm"
             variant={offen ? 'default' : 'outline'}
-            onclick={() => holen(mon)}
+            onclick={() => schirmWarten.holen(device, mon)}
             disabled={wartetAuf?.index === mon.index}
             data-testid={`device-view-screen-${mon.index}`}
           >

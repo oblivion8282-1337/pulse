@@ -25,7 +25,10 @@
     erfassungAus,
     transportMelden,
     zeigerformMelden,
+    bildschirmeMelden,
   } from '$lib/remote/playerInput';
+  import { deviceStore } from '$lib/devices/store.svelte';
+  import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
   import { remoteZeigerform } from '$lib/remote/zeigerform';
   import { onPlayerWindowRequest } from '$lib/player/client';
 
@@ -101,6 +104,19 @@
     remoteZeigerform.setSenke((form) => {
       for (const f of fenster) void zeigerformMelden(f.nummer, form);
     });
+    // **Die Bildschirmliste ins Menü am Griff.** Nur so lässt sich ein zweiter
+    // Schirm dazuschalten, ohne aus dem Player-Fenster herauszuwechseln — und
+    // dort schaut der Steuernde gerade hin. Läuft mit, sooft sich etwas ändert
+    // (ein Schirm kommt dazu, einer fällt weg): der Ausdruck liest `schirme`,
+    // und das ist ein `$derived` über die laufenden Ströme.
+    const geraet = deviceStore.byChannelOwner(channelId, hostId);
+    if (geraet) {
+      const schirme = schirmeVon(geraet);
+      for (const f of fenster) void bildschirmeMelden(f.nummer, schirme);
+      // Ein angefordertes Bild einlösen, auch wenn die Geräteansicht gar nicht
+      // offen ist — der Wunsch kann aus dem Player-Fenster gekommen sein.
+      schirmWarten.einloesen(geraet);
+    }
     return () => {
       remoteP2P.setStatusSink(null);
       remoteZeigerform.setSenke(null);
@@ -122,7 +138,19 @@
   // und ein beim Abonnieren eingefrorener Wert ließe den Knopf danach still
   // ins Leere laufen.
   $effect(() =>
-    onPlayerWindowRequest((kind, session) => {
+    onPlayerWindowRequest((kind, session, monitor) => {
+      // Bildschirm aus dem Menü am Griff: dieselbe Entscheidung wie in der
+      // Geräteansicht (`schirme.svelte.ts`) — läuft er schon, kommt sein
+      // Fenster nach vorne; sonst wird er geweckt.
+      if (kind === 'remote-screen') {
+        const channelId = remoteSession.channelId;
+        const hostId = remoteSession.peerUserId;
+        if (remoteSession.phase !== 'active' || !channelId || !hostId) return;
+        const geraet = deviceStore.byChannelOwner(channelId, hostId);
+        const mon = geraet ? schirmeVon(geraet).find((s) => s.index === monitor) : null;
+        if (geraet && mon) schirmWarten.holen(geraet, mon);
+        return;
+      }
       if (kind !== 'remote-disconnect') return;
       const channelId = remoteSession.channelId;
       const hostId = remoteSession.peerUserId;

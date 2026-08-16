@@ -52,6 +52,29 @@ pub enum OverlayAction {
     /// und nicht nur in der App: wer gerade steuert, sieht das Fenster, nicht
     /// die Kachel dahinter.
     RemoteDisconnect,
+    /// Einen weiteren Bildschirm des ferngesteuerten Rechners anfordern (oder
+    /// dessen schon offenes Fenster nach vorne holen). Die Nummer ist die des
+    /// Bildschirms auf dem fernen Rechner.
+    ///
+    /// **Das Fenster tut hier nichts selbst.** Es kennt weder das Geraet noch
+    /// die Sitzung beim Server; anfordern kann nur die App. Dasselbe Muster wie
+    /// bei [`OverlayAction::Chat`] und [`OverlayAction::RemoteDisconnect`].
+    RemoteScreen(u32),
+}
+
+/// Ein Bildschirm des ferngesteuerten Rechners, wie ihn die App ins Fenster
+/// meldet. Reine Anzeige — die Entscheidung, was ein Klick ausloest, faellt in
+/// der App.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Schirm {
+    /// Nummer auf dem fernen Rechner (1-basiert).
+    pub index: u32,
+    /// Lesbarer Name, wie ihn der ferne Rechner gemeldet hat.
+    pub name: String,
+    /// Laeuft dieser Bildschirm schon in einem Fenster? Dann holt der Klick es
+    /// nach vorne, statt eine zweite Uebertragung zu starten.
+    #[serde(default)]
+    pub open: bool,
 }
 
 /// Alles, was das Statistik-Feld anzeigt. Als Kopie herein, damit das Overlay

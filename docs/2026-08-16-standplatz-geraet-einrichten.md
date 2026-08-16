@@ -41,6 +41,24 @@ Sprecherliste auf.
 Danach steht der Rechner in der Kanalliste unter „Geräte". Ein Klick darauf
 öffnet ihn im Hauptbereich, ein weiterer weckt ihn und holt das Bild.
 
+## Mehrere Bildschirme
+
+Der erste Klick holt immer den **Hauptbildschirm**. Hat das Gerät mehrere
+Schirme, schaltet der Steuernde die weiteren einzeln dazu — an zwei Stellen,
+die dasselbe tun:
+
+* in der **Geräteansicht** in der App, bevor man übernimmt,
+* im **Menü am Griff im Player-Fenster**, während man steuert. Dort schaut man
+  ohnehin hin, und man muss nicht aus dem Fenster wechseln.
+
+Jeder Bildschirm wird **erst beim Anfordern** übertragen — einer, den niemand
+sehen will, kostet weder Rechenzeit auf dem Gerät noch Bandbreite. Jeder bekommt
+sein eigenes Fenster, und die Eingabe folgt dem Fenster, in dem die Maus gerade
+ist; eine zweite Fernsteuer-Sitzung braucht es dafür nicht.
+
+**Den Ton trägt genau ein Bildschirm** (der erste), die dazugeschalteten sind
+stumm. Sonst käme derselbe Ton mehrfach leicht versetzt an.
+
 ## Betriebssystem-Einstellungen, die dazugehören
 
 Pulse hält den **Bildschirm** wach, solange sein Fenster sichtbar ist

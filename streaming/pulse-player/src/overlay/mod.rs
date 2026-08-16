@@ -39,7 +39,7 @@ mod controls;
 mod fernbedienung;
 mod typen;
 
-pub use typen::{Ereignisantwort, OverlayAction, StatsView};
+pub use typen::{Ereignisantwort, OverlayAction, Schirm, StatsView};
 use typen::PresentRate;
 
 use std::time::{Duration, Instant};
@@ -108,6 +108,10 @@ pub struct Overlay {
     /// Ist das Menue am Griff aufgeklappt? Ueberlebt das Ende der Fernsteuerung
     /// nicht — sonst haenge es beim naechsten Mal schon offen da.
     fern_menue_offen: bool,
+    /// Die Bildschirme des ferngesteuerten Rechners (aus `remote_screens`).
+    /// Leer, solange die App nichts gemeldet hat — dann zeigt das Menue den
+    /// Abschnitt gar nicht, statt einen leeren Kasten zu oeffnen.
+    fern_schirme: Vec<typen::Schirm>,
 }
 
 impl Overlay {
@@ -160,6 +164,7 @@ impl Overlay {
             can_reattach: true,
             fernsteuerung: false,
             fern_menue_offen: false,
+            fern_schirme: Vec::new(),
         })
     }
 
@@ -477,6 +482,16 @@ impl Overlay {
         // `request_redraw` von dort ins Leere laufen. Bei laufendem Video faellt
         // das nicht auf — bei Standbild, Pause oder abgerissenem Strom bliebe
         // der Griff weg, bis der Nutzer zufaellig die Maus bewegt.
+        self.input_pending = true;
+    }
+
+    /// Die Bildschirme des fernen Rechners setzen (`remote_screens`).
+    ///
+    /// Wie [`Self::set_fernsteuerung`] mit `input_pending`: der Ruf kommt ohne
+    /// Mausbewegung, und bei Standbild oder abgerissenem Strom bliebe das Menue
+    /// sonst auf dem alten Stand, bis der Nutzer zufaellig die Maus bewegt.
+    pub fn set_fern_schirme(&mut self, schirme: Vec<typen::Schirm>) {
+        self.fern_schirme = schirme;
         self.input_pending = true;
     }
 

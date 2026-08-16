@@ -461,6 +461,10 @@ export interface PulsePlayerApi {
    *  `transportStatus`: eine ältere Shell kennt die Brücke nicht, dann bleibt
    *  es beim Standardpfeil. */
   pointerShape?(session: number, shape: string): Promise<PulsePlayerResult>;
+  /** Fernsteuerung: die Bildschirme des fernen Rechners fuers Menue am Griff.
+   *  Optional wie `pointerShape` — eine aeltere Shell kennt den Op nicht, und
+   *  dann bleibt das Menue eben ohne Bildschirmliste. */
+  screens?(session: number, screens: unknown[]): Promise<PulsePlayerResult>;
   setOption(session: number, key: string, value: unknown): Promise<PulsePlayerResult>;
   setOptions(session: number, options: PulsePlayerOptions): Promise<PulsePlayerResult>;
   /** Zaehler plus `decoder`, `hardware_decode`, `surface_format` — damit ist

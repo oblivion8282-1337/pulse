@@ -154,12 +154,17 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
  * Fensterkreuz hiesse dort „zeig es wieder in der App", was nicht geht.
  */
 export function onPlayerWindowRequest(
-  cb: (kind: 'close' | 'chat' | 'remote-disconnect', session: number) => void,
+  cb: (
+    kind: 'close' | 'chat' | 'remote-disconnect' | 'remote-screen',
+    session: number,
+    /** Nur bei `remote-screen`: die Nummer des gewaehlten Bildschirms. */
+    monitor?: number,
+  ) => void,
 ): () => void {
   const p = api();
   if (!p) return () => {};
   return p.onEvent((raw: unknown) => {
-    const ev = raw as { ev?: string; session?: number };
+    const ev = raw as { ev?: string; session?: number; monitor?: number };
     if (typeof ev?.session !== 'number') return;
     if (ev.ev === 'player:closeRequest') cb('close', ev.session);
     else if (ev.ev === 'player:chatRequest') cb('chat', ev.session);
@@ -169,6 +174,12 @@ export function onPlayerWindowRequest(
     // Abschalten der Erfassung kommt anschließend auf dem gewohnten Weg
     // zurück (`RemoteControllerInput.svelte`).
     else if (ev.ev === 'player:remoteDisconnect') cb('remote-disconnect', ev.session);
+    // Bildschirm-Wunsch aus dem Menue am Griff. Das Fenster schaltet nichts
+    // selbst — es kennt weder Geraet noch Sitzung; angefordert wird in der App
+    // (`$lib/devices/schirme.svelte.ts`).
+    else if (ev.ev === 'player:remoteScreen' && typeof ev.monitor === 'number') {
+      cb('remote-screen', ev.session, ev.monitor);
+    }
   });
 }
 

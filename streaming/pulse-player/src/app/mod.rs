@@ -1086,6 +1086,16 @@ impl App {
                     serde_json::json!({ "session": id }),
                 ));
             }
+            // Bildschirm-Wunsch aus dem Menue am Griff. Auch hier schaltet das
+            // Fenster NICHTS selbst: es kennt weder das Geraet noch die Sitzung
+            // beim Server. Die App weckt den Bildschirm und oeffnet sein
+            // Fenster; kommt es, meldet sie die Liste hier neu.
+            OverlayAction::RemoteScreen(monitor) => {
+                self.stdout.send(&Event::new(
+                    "player:remoteScreen",
+                    serde_json::json!({ "session": id, "monitor": monitor }),
+                ));
+            }
         }
     }
 
