@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from dcc_chat_gateway import device_registry
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, PermissionOverwrite
 from dcc_shared.permissions import Permissions
 
@@ -41,13 +40,10 @@ async def _voice_channel(client, token: str, guild_id: int, name: str = "werkban
     return r.json()["id"]
 
 
-@pytest.fixture(autouse=True)
-def _leeres_register():
-    """Das Geräteregister ist prozessweit — ohne Räumen sieht ein Test die
-    Anmeldungen des vorigen."""
-    device_registry.reset()
-    yield
-    device_registry.reset()
+def _register(client):
+    """Das Geräte-Register sitzt am ConnectionManager der Test-App — es ist
+    damit je Test frisch, ohne Aufräum-Fixture."""
+    return client._transport.app.state.connection_manager
 
 
 @pytest.mark.asyncio
@@ -218,12 +214,13 @@ async def test_zustand_kommt_aus_dem_register_nicht_aus_der_datenbank(client, _a
     ).json()
     did = int(device["id"])
 
+    mgr = _register(client)
     sock = object()
-    assert device_registry.announce(sock, did, gid, cid) is True
+    assert mgr.device_announce(sock, did, gid, cid) is True
     r = await client.get(f"/guilds/{gid}/devices", headers=_auth(token))
     assert r.json()[0]["state"] == "ready"
 
-    device_registry.set_busy(did, "4711")
+    mgr.device_set_busy(did, "4711")
     r = await client.get(f"/guilds/{gid}/devices", headers=_auth(token))
     assert r.json()[0]["state"] == "busy"
     assert r.json()[0]["busy_with"] == "4711"
@@ -231,7 +228,7 @@ async def test_zustand_kommt_aus_dem_register_nicht_aus_der_datenbank(client, _a
     # Die Verbindung fällt → offline, und die Belegung fällt mit. Ohne das käme
     # das Gerät beim nächsten Anmelden sofort als „belegt" zurück, für eine
     # Sitzung, die es nicht mehr gibt.
-    assert device_registry.forget_socket(sock) == [did]
+    assert mgr.device_forget_socket(sock) == [did]
     r = await client.get(f"/guilds/{gid}/devices", headers=_auth(token))
     assert r.json()[0]["state"] == "offline"
     assert r.json()[0]["busy_with"] is None
@@ -241,14 +238,15 @@ async def test_zustand_kommt_aus_dem_register_nicht_aus_der_datenbank(client, _a
 async def test_ein_zweites_fenster_nimmt_das_geraet_nicht_offline(client, _auth_signer):
     """Der Client eines Geräts kann mehrere Verbindungen haben; eine zu
     schliessen darf es nicht offline melden."""
+    mgr = _register(client)
     gid, cid, did = 1, 2, 3
     a, b = object(), object()
-    assert device_registry.announce(a, did, gid, cid) is True
-    assert device_registry.announce(b, did, gid, cid) is False
-    assert device_registry.withdraw(a, did) is False
-    assert device_registry.device_state(did)[0] == "ready"
-    assert device_registry.withdraw(b, did) is True
-    assert device_registry.device_state(did)[0] == "offline"
+    assert mgr.device_announce(a, did, gid, cid) is True
+    assert mgr.device_announce(b, did, gid, cid) is False
+    assert mgr.device_withdraw(a, did) is False
+    assert mgr.device_state(did)[0] == "ready"
+    assert mgr.device_withdraw(b, did) is True
+    assert mgr.device_state(did)[0] == "offline"
 
 
 @pytest.mark.asyncio

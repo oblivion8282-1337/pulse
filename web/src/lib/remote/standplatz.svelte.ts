@@ -130,10 +130,14 @@ class StandplatzFreigabe {
    * zu früh erloschene Freigabe kostet einen Gang zum Gerät, eine zu lange
    * gültige den Rechner.
    */
-  async laden(): Promise<void> {
+  async laden(vorgeladen?: Record<string, unknown>): Promise<void> {
+    // `vorgeladen` ist der schon gelesene Speicher: drei Module lesen beim
+    // Start denselben Blob, und unter Electron ist jeder Griff ein eigener
+    // IPC-Umlauf über die ganze Datei. Der Aufrufer liest einmal und reicht
+    // durch (`app/+layout`); ohne Argument liest dieses Modul selbst.
     let stand: Gespeichert;
     try {
-      const alle = await loadAll();
+      const alle = vorgeladen ?? (await loadAll());
       stand = ausSpeicher(alle[SPEICHER_SCHLUESSEL]);
     } catch {
       stand = { ...LEER };
@@ -147,7 +151,7 @@ class StandplatzFreigabe {
     // Zurückschreiben, wenn die Freigabe gerade verfallen ist: sonst behauptet
     // die Datei für immer eine Freigabe, die kein Start je wieder annimmt —
     // und wer sie liest (Support, der Nutzer selbst), liest etwas Falsches.
-    if (verfallen && stand.nutzer.length + Number(stand.jeder) > 0) await this.#sichern();
+    if (verfallen && (stand.jeder || stand.nutzer.length > 0)) await this.#sichern();
   }
 
   /**
@@ -198,11 +202,24 @@ class StandplatzFreigabe {
   }
 
   /** Wie lange die Freigabe noch gilt (ms), `null` = ohne Ablauf, `0` = nicht
-   *  aktiv. Für die Anzeige am Gerät. */
+   *  aktiv. */
   restMs(): number | null {
     if (!this.aktiv) return 0;
     if (this.gueltigBis === null) return null;
     return Math.max(0, this.gueltigBis - Date.now());
+  }
+
+  /**
+   * Dasselbe in ganzen Stunden, `null` = ohne Ablauf oder nicht aktiv.
+   *
+   * Die Rundung gehört zum Wert und nicht in die Ansicht: sie beantwortet
+   * „reicht das noch für heute", nicht „wie viele Minuten". Eine minutengenaue
+   * Anzeige bräuchte einen Zeitgeber, und Chromium drosselt den in verdeckten
+   * Fenstern auf einen Lauf je Minute (dieselbe Falle wie in `wachten.ts`).
+   */
+  restStunden(): number | null {
+    const rest = this.restMs();
+    return rest === null || rest === 0 ? null : Math.max(1, Math.round(rest / 3_600_000));
   }
 
   #uebernehmen(stand: Gespeichert): void {

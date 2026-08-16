@@ -48,10 +48,11 @@ test.describe.serial('attachments E2E', () => {
 
   test.beforeAll(async ({ browser }) => {
     const ctx = await browser.newContext();
-    // Changelog-Toast stummschalten: er steht unten rechts ÜBER dem Senden-
-    // Button und fängt dessen Klick ab (dieser Spec ist der einzige, der
-    // message-send klickt — die anderen senden per Enter). Leere entries →
-    // ChangelogGate feuert nie.
+    // Changelog-Toast stummschalten: er steht unten rechts über dem Senden-
+    // Button und fängt dessen Klick ab. **Nicht der einzige betroffene Spec** —
+    // hier stand einmal, er sei es; am 2026-08-16 fiel `dms.spec` über denselben
+    // Toast, der dort die Mitgliederliste verdeckte. Wer unten rechts klickt,
+    // braucht diese Zeile. Leere entries → ChangelogGate feuert nie.
     await ctx.route('**/changelog.json', (route) =>
       route.fulfill({ json: { entries: [] } })
     );

@@ -27,6 +27,7 @@
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { VList } from 'virtua/svelte';
+  import DeviceMemberSection from '$lib/devices/components/DeviceMemberSection.svelte';
 
   let {
     guildId,
@@ -298,6 +299,11 @@
   </header>
 
   <MemberActivityHeader {guildId} />
+
+  <!-- Standplatz-Geraete: eigener Abschnitt, nicht unter die Menschen gemischt
+       (Entwurf §5). Ausserhalb der virtuellen Liste — es sind wenige, und so
+       koennen sie garantiert nicht dazwischenrutschen. -->
+  <DeviceMemberSection {guildId} {onClose} />
 
   <div class="flex-1 min-h-0 px-2.5 py-1">
     {#if loading}

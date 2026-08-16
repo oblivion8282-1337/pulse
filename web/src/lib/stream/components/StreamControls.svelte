@@ -23,19 +23,14 @@
   import CircleIcon from '@lucide/svelte/icons/circle';
   import AlertCircleIcon from '@lucide/svelte/icons/circle-alert';
   import { toast } from 'svelte-sonner';
-  import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
   import { stream, streamForSlot, markStopped } from '../state.svelte';
   import {
-    buildStartArgs,
     streamSettings,
     isAppAudioMode,
     appFromAudioMode,
-    pushProtokoll,
-    tenBitPossible,
   } from '../settings.svelte';
-  import { resolveSlotLabel } from '../label';
   import { streamStarten } from '../starten';
 
   let {

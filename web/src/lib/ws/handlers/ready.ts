@@ -164,8 +164,8 @@ export function register(ctx: ReadyContext): void {
     // Auf der Verbindung, die diesen Rahmen gebracht hat — eine Eintragung
     // gehoert einem Server, nicht „dem gerade aktiven".
     if (sid) {
-      const conn = gatewayForServer(sid);
-      if (conn) geraeteAnmeldung.beiReady(sid, (deviceId) => conn.sendDeviceAnnounce(deviceId));
+      const eintrag = geraeteAnmeldung.fuerServer(sid);
+      if (eintrag) gatewayForServer(sid)?.sendDeviceAnnounce(eintrag.deviceId);
     }
     ctx.onReadySeeded();
   });

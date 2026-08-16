@@ -44,11 +44,10 @@ import re
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.device_registry import device_state
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     DEVICE_NAME_MAX_LEN,
@@ -164,8 +163,14 @@ async def _require_owner_or_manager(session, user, device: Device) -> None:
     )
 
 
-def _to_out(device: Device) -> DeviceOut:
-    zustand, mit = device_state(device.id)
+def _manager(request: Request):
+    return getattr(request.app.state, "connection_manager", None)
+
+
+def _to_out(device: Device, mgr) -> DeviceOut:
+    # Ohne Manager (Testaufbau ohne WS-Schicht) ist nichts angemeldet — und
+    # „offline" ist die richtige Antwort auf „ich weiss es nicht".
+    zustand, mit = mgr.device_state(device.id) if mgr is not None else ("offline", None)
     return DeviceOut(
         id=str(device.id),
         guild_id=str(device.guild_id),
@@ -179,7 +184,7 @@ def _to_out(device: Device) -> DeviceOut:
 
 @router.get("", response_model=list[DeviceOut])
 async def list_devices(
-    guild_id: SnowflakeId, user: CurrentUser, session: SessionDep
+    guild_id: SnowflakeId, user: CurrentUser, session: SessionDep, request: Request
 ) -> list[DeviceOut]:
     await require_member(session, guild_id, user.id)
     rows = (
@@ -201,7 +206,7 @@ async def list_devices(
             wert = await resolve_permissions(session, user, guild_id, device.channel_id)
             sichtbar[device.channel_id] = has_permission(wert, Permissions.VIEW_CHANNEL)
         if sichtbar[device.channel_id]:
-            ergebnis.append(_to_out(device))
+            ergebnis.append(_to_out(device, _manager(request)))
     return ergebnis
 
 
@@ -227,12 +232,12 @@ async def create_device(
 
     eigene = (
         await session.execute(
-            select(Device.id).where(
-                Device.guild_id == guild_id, Device.owner_user_id == user.id
-            )
+            select(func.count())
+            .select_from(Device)
+            .where(Device.guild_id == guild_id, Device.owner_user_id == user.id)
         )
-    ).scalars()
-    if len(eigene.all()) >= MAX_DEVICES_PER_OWNER:
+    ).scalar_one()
+    if eigene >= MAX_DEVICES_PER_OWNER:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=f"at most {MAX_DEVICES_PER_OWNER} devices per community",
@@ -259,8 +264,9 @@ async def create_device(
             status.HTTP_409_CONFLICT,
             detail="a device with that name (or this same machine) is already parked here",
         ) from None
-    await _melden(request, device)
-    return _to_out(device)
+    stand = _to_out(device, _manager(request))
+    await _melden(request, device, stand)
+    return stand
 
 
 @router.patch("/{device_id}", response_model=DeviceOut)
@@ -302,8 +308,9 @@ async def patch_device(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="a device with that name already exists here"
         ) from None
-    await _melden(request, device)
-    return _to_out(device)
+    stand = _to_out(device, _manager(request))
+    await _melden(request, device, stand)
+    return stand
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -318,10 +325,12 @@ async def delete_device(
     device = await _load_device(session, guild_id, device_id)
     await _require_owner_or_manager(session, user, device)
     await _sitzung_beenden(request, device)
-    entfernt = _to_out(device)
+    # Der letzte Stand VOR dem Löschen: der Client braucht die Kennung zum
+    # Austragen, und der Name macht eine Meldung lesbar.
+    stand = _to_out(device, _manager(request))
     await session.delete(device)
     await session.commit()
-    await _melden(request, device, entfernt=entfernt)
+    await _melden(request, device, stand, entfernt=True)
 
 
 # ── Nebenwirkungen ──────────────────────────────────────────────────────────
@@ -332,17 +341,17 @@ async def delete_device(
 # Plugin-Toggles (`guild_plugins.py`).
 
 
-async def _melden(request: Request, device: Device, *, entfernt: DeviceOut | None = None) -> None:
+async def _melden(request: Request, device: Device, stand: DeviceOut, *, entfernt: bool = False) -> None:
     """``device_changed`` an die Community schicken."""
-    from dcc_chat_gateway.device_registry import publish_device_change  # noqa: PLC0415
-
+    mgr = _manager(request)
+    if mgr is None:
+        return
     try:
-        await publish_device_change(
-            request.app,
+        await mgr.publish_device_change(
             guild_id=device.guild_id,
             channel_id=device.channel_id,
-            device=entfernt.model_dump() if entfernt is not None else _to_out(device).model_dump(),
-            removed=entfernt is not None,
+            device=stand.model_dump(),
+            removed=entfernt,
         )
     except Exception:  # pragma: no cover - Meldung ist nie kritisch
         log.debug("device_changed not published", exc_info=True)
@@ -350,9 +359,10 @@ async def _melden(request: Request, device: Device, *, entfernt: DeviceOut | Non
 
 async def _sitzung_beenden(request: Request, device: Device) -> None:
     """Eine laufende Fernsteuerung dieses Geräts abbauen."""
-    from dcc_chat_gateway.device_registry import end_sessions_for_device  # noqa: PLC0415
-
+    mgr = _manager(request)
+    if mgr is None:
+        return
     try:
-        await end_sessions_for_device(request.app, device.id)
+        await mgr.end_remote_sessions_for_device(device.id)
     except Exception:  # pragma: no cover
         log.debug("device sessions not ended", exc_info=True)

@@ -47,18 +47,16 @@ function istEintragung(roh: unknown): roh is Eintragung {
   );
 }
 
-type Sender = (deviceId: string) => boolean;
-
 class GeraeteAnmeldung {
   eintragungen = $state<Eintragung[]>([]);
   #geladen = false;
 
   /** Beim Start einmal rufen (`app/+layout`), zusammen mit der Dauerfreigabe. */
-  async laden(): Promise<void> {
+  async laden(vorgeladen?: Record<string, unknown>): Promise<void> {
     if (this.#geladen) return;
     this.#geladen = true;
     try {
-      const alle = await loadAll();
+      const alle = vorgeladen ?? (await loadAll());
       const roh = alle[SPEICHER_SCHLUESSEL];
       this.eintragungen = Array.isArray(roh) ? roh.filter(istEintragung) : [];
     } catch {
@@ -87,23 +85,6 @@ class GeraeteAnmeldung {
   async vergessen(deviceId: string): Promise<void> {
     this.eintragungen = this.eintragungen.filter((e) => e.deviceId !== deviceId);
     await this.#sichern();
-  }
-
-  /**
-   * Nach `ready` anmelden.
-   *
-   * **Bei jedem Ready, nicht nur beim ersten.** Die Anmeldung hängt an einem
-   * Socket; nach einem Verbindungsabriss ist sie beim Server weg, und ohne
-   * erneutes Melden stünde das Gerät für alle anderen auf „offline", während
-   * es längst wieder verbunden ist. Der Server nimmt eine doppelte Anmeldung
-   * folgenlos entgegen.
-   *
-   * Still, wenn es für diesen Server keine Eintragung gibt — der Regelfall für
-   * jeden gewöhnlichen Rechner.
-   */
-  beiReady(serverId: string | null | undefined, senden: Sender): void {
-    const eintrag = this.fuerServer(serverId);
-    if (eintrag) senden(eintrag.deviceId);
   }
 
   async #sichern(): Promise<void> {

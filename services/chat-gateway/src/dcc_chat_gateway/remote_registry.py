@@ -186,12 +186,8 @@ class _RemoteRegistryMixin:
         async with self._lock:
             sess = self._remote_sessions.pop(session_id, None)
         if sess is not None:
-            from dcc_chat_gateway.device_registry import (  # noqa: PLC0415
-                release_for_socket,
-            )
-
             try:
-                await release_for_socket(sess.host_socket)
+                await self.device_release_for_socket(sess.host_socket)
             except Exception:  # noqa: BLE001  # pragma: no cover
                 log.debug("device release failed", exc_info=True)
         return sess

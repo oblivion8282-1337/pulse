@@ -23,6 +23,7 @@
 <script lang="ts">
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { deviceStore } from '$lib/devices/store.svelte';
+  import { punktKlasse, zustandsText } from '$lib/devices/darstellung';
   import type { Device } from '$lib/api/devices';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -44,19 +45,6 @@
 
   const geraete = $derived(deviceStore.forGuild(guildId));
 
-  /** Farbe des Zustandspunkts. Bereit ist das einzige Grün — belegt ist kein
-   *  Fehler, aber auch keine Einladung, und offline ist schlicht still. */
-  function punkt(state: Device['state']): string {
-    if (state === 'ready') return 'bg-emerald-500';
-    if (state === 'busy') return 'bg-amber-500';
-    return 'bg-text-muted/40';
-  }
-
-  function titel(d: Device): string {
-    if (d.state === 'ready') return m.device_state_ready();
-    if (d.state === 'busy') return m.device_state_busy();
-    return m.device_state_offline();
-  }
 </script>
 
 {#if geraete.length > 0}
@@ -71,7 +59,7 @@
       data-active={activeDeviceId === d.id}
       onclick={() => onSelect(d)}
       data-testid={`device-${d.id}`}
-      title={titel(d)}
+      title={zustandsText(d.state)}
     >
       <!-- Eckig, nicht rund: das ist der Unterschied, der vor dem Lesen wirkt. -->
       <span class="text-text-muted grid size-[18px] shrink-0 place-items-center rounded-[4px]
@@ -79,7 +67,7 @@
         <MonitorIcon class="size-3" />
       </span>
       <span class="text-text-base truncate font-mono text-sm md:text-xs">{d.name}</span>
-      <span class="ml-auto size-2 shrink-0 rounded-full {punkt(d.state)}" aria-hidden="true"></span>
+      <span class="ml-auto size-2 shrink-0 rounded-full {punktKlasse(d.state)}" aria-hidden="true"></span>
     </button>
   {/each}
 {/if}

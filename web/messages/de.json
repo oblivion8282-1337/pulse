@@ -838,6 +838,7 @@
   "device_management_revoke_failed": "Abmelden fehlgeschlagen",
   "device_management_revoking": "Abmelden…",
   "device_management_title": "Erkannte Geräte",
+  "device_member_busy_with": "belegt von {user}",
   "device_settings_register_channel": "Standplatz (Sprachkanal)",
   "device_settings_register_community": "Community",
   "device_settings_register_failed": "Eintragen fehlgeschlagen",

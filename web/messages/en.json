@@ -838,6 +838,7 @@
   "device_management_revoke_failed": "Sign-out failed",
   "device_management_revoking": "Signing out…",
   "device_management_title": "Recognized Devices",
+  "device_member_busy_with": "in use by {user}",
   "device_settings_register_channel": "Station (voice channel)",
   "device_settings_register_community": "Community",
   "device_settings_register_failed": "Registration failed",

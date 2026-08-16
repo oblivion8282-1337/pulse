@@ -22,6 +22,7 @@ from dcc_shared.permissions import Permissions
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
+from dcc_chat_gateway.device_registry import _DeviceRegistryMixin
 from dcc_chat_gateway.pubsub_channels import (
     ADMIN_EVENTS_CHANNEL,
     CHANNEL_KEY,
@@ -85,6 +86,7 @@ class ConnectionManager(
     _FriendCacheMixin,
     _WatchRegistryMixin,
     _RemoteRegistryMixin,
+    _DeviceRegistryMixin,
 ):
     # Max parallel WebSocket connections per user. Each connection multiplies
     # the fan-out cost of every pub/sub event; a single user with N sockets
@@ -186,6 +188,7 @@ class ConnectionManager(
         self._lock = asyncio.Lock()
         self._init_watch_registry()
         self._init_remote_registry()
+        self._init_device_registry()
         self._started = False
 
     async def start(self) -> None:

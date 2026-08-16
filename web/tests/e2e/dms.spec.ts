@@ -102,6 +102,15 @@ test.describe.serial('DM (direct messages) E2E', () => {
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
     bobCtx = await browser.newContext();
+    // Changelog-Toast stummschalten. Er steht unten rechts — also GENAU über
+    // der Mitgliederliste, deren Zeilen dieser Spec per Rechtsklick anfasst,
+    // und fängt den Klick ab. Das trifft jeden Lauf, in dem `changelog.json`
+    // einen Eintrag trägt, den dieses Profil noch nicht gesehen hat (bei einem
+    // frisch registrierten Nutzer: jeden neuen Eintrag). Leere `entries` →
+    // `ChangelogGate` feuert nie.
+    for (const ctx of [aliceCtx, bobCtx]) {
+      await ctx.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
+    }
     alicePage = await aliceCtx.newPage();
     bobPage = await bobCtx.newPage();
   });

@@ -215,19 +215,21 @@ async def run_session_op_loop(
         # means the input path is dead, and the host must not be left with keys
         # held down. Must also run before remove_socket so the per-user socket
         # set is still intact for the registry lookup.
+        # Standplatz-Geraete: eine Verbindung, die faellt, nimmt jedes Geraet
+        # mit, das sie angemeldet hatte. **VOR dem Fernsteuer-Abbau**, und das
+        # ist der ganze Trick: der Abbau einer Sitzung gibt das Geraet sonst
+        # erst als „wieder bereit" frei und meldet das an alle, bevor eine
+        # Millisekunde spaeter „offline" hinterherkommt. Das Geraet stuende in
+        # dem Fenster als frei uebernehmbar in der Liste. Zuerst vergessen
+        # heisst: eine einzige Meldung, und sie stimmt.
+        try:
+            await ws_device_handlers.on_disconnect(manager, websocket)
+        except Exception:  # noqa: BLE001
+            log.exception("device cleanup_on_disconnect failed for user=%s", user.id)
         try:
             await ws_remote_teardown.cleanup_remote_on_disconnect(websocket, manager)
         except Exception:  # noqa: BLE001
             log.exception("remote cleanup_on_disconnect failed for user=%s", user.id)
-        # Standplatz-Geraete: eine Verbindung, die faellt, nimmt jedes Geraet
-        # mit, das sie angemeldet hatte. NACH dem Fernsteuer-Abbau, damit die
-        # Sitzung schon beendet ist, wenn das Geraet offline gemeldet wird —
-        # sonst ginge erst „belegt weg", dann „offline", und dazwischen stuende
-        # das Geraet fuer einen Augenblick als frei uebernehmbar in der Liste.
-        try:
-            await ws_device_handlers.on_disconnect(websocket.app, websocket)
-        except Exception:  # noqa: BLE001
-            log.exception("device cleanup_on_disconnect failed for user=%s", user.id)
         await manager.remove_socket(websocket)
         if manager.user_socket_count(user.id) == 0:
             try:

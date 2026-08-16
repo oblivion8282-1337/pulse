@@ -75,11 +75,11 @@ class RemoteProtokoll {
   #geladen = false;
 
   /** Beim Start des Clients einmal rufen, zusammen mit der Freigabe. */
-  async laden(): Promise<void> {
+  async laden(vorgeladen?: Record<string, unknown>): Promise<void> {
     if (this.#geladen) return;
     this.#geladen = true;
     try {
-      const alle = await loadAll();
+      const alle = vorgeladen ?? (await loadAll());
       const roh = alle[SPEICHER_SCHLUESSEL];
       this.eintraege = Array.isArray(roh) ? roh.filter(istEintrag).slice(0, HOECHSTZAHL) : [];
     } catch {
@@ -91,10 +91,13 @@ class RemoteProtokoll {
     // Protokoll aus wie eine laufende Fernsteuerung; ihn stillschweigend auf
     // „gerade eben beendet" zu setzen wäre gelogen. Er bekommt deshalb sein
     // Ende auf den Beginn — Dauer unbekannt, und genau das steht dann da.
-    const offen = this.eintraege.filter((e) => e.ende === null);
-    if (offen.length > 0) {
+    if (this.eintraege.some((e) => e.ende === null)) {
       this.eintraege = this.eintraege.map((e) => (e.ende === null ? { ...e, ende: e.beginn } : e));
-      await this.#sichern();
+      // Nicht abwarten: dieser Ruf liegt im Startpfad VOR dem
+      // Verbindungsaufbau, und ein Schreibvorgang über den ganzen Blob wäre
+      // dort spürbar. Der Stand im Speicher gilt sofort, und der nächste
+      // Eintrag trägt die Korrektur ohnehin mit.
+      void this.#sichern();
     }
   }
 
