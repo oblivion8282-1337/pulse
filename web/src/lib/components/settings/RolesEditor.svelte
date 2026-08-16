@@ -53,7 +53,23 @@
   // O(1) instead of an O(N) findIndex per row (overall O(N²) in the {#each}).
   let nonEveryoneIdx = $derived(new Map(nonEveryoneList.map((x, i) => [x.id, i])));
   let selectedId = $state<string | null>(null);
-  let selectedRole = $derived(sortedRoles.find((r) => r.id === selectedId) ?? sortedRoles[0]);
+  /** Beim ersten Anzeigen darf die oberste Rolle ersatzweise einspringen,
+   * damit die Maske nicht leer aufgeht. Danach nicht mehr: sonst rueckt
+   * die Auswahl nach dem Loeschen still auf die naechste Rolle nach, der
+   * Papierkorb steht unveraendert an derselben Stelle und ist sofort
+   * wieder scharf — zweimal Loeschen traefe zwei verschiedene Rollen,
+   * ohne dass irgendwo stuende, dass sich das Ziel geaendert hat. */
+  let autoSelectTop = $state(true);
+  let selectedRole = $derived(
+    sortedRoles.find((r) => r.id === selectedId) ?? (autoSelectTop ? sortedRoles[0] : undefined)
+  );
+
+  /** Einzige Stelle, an der die Auswahl gesetzt wird — damit der Ersatz
+   * oben nie versehentlich wieder greift. `null` = Leerzustand. */
+  function select(id: string | null): void {
+    selectedId = id;
+    autoSelectTop = false;
+  }
 
   // Drag-and-drop position state. dragId is the role being moved; dragOver
   // is the role we'd insert *before*. @everyone is fixed at position 0
@@ -85,12 +101,40 @@
 
   /** Push the new order to the server. Top-of-list = highest position
    * so the visual order matches Discord's "highest role = top" mental
-   * model. Both onDrop and move() funnel through here. */
+   * model. Both onDrop and move() funnel through here.
+   *
+   * Es gehen NUR die tatsaechlich bewegten Rollen mit: der Server
+   * (`roles.py::update_role_positions`) lehnt jeden Eintrag ab, dessen
+   * alte ODER neue Position auf oder ueber der Hoechstposition des
+   * Bearbeiters liegt — und dessen eigene hoechste Rolle steckte in der
+   * frueheren Nutzlast (ganze Liste durchnummeriert) immer mit drin, was
+   * jeden Pfeilklick fuer alle ausser Besitzer/Instanz-Admin auf 403
+   * warf. Bewegt ist der zusammenhaengende Bereich zwischen erster und
+   * letzter Abweichung zur alten Reihenfolge; darin werden die BEREITS
+   * VORHANDENEN Positionswerte durchgereicht statt neu vergeben, damit
+   * die Menge der Positionen unveraendert bleibt (keine neuen
+   * Gleichstaende, nichts rutscht ueber die Decke des Bearbeiters). */
   async function commitOrder(reordered: Role[]): Promise<void> {
-    const updates = reordered.map((r, i) => ({
-      id: r.id,
-      position: reordered.length - i
-    }));
+    const before = nonEveryoneList;
+    let lo = 0;
+    while (lo < before.length && before[lo].id === reordered[lo].id) lo++;
+    let hi = before.length - 1;
+    while (hi > lo && before[hi].id === reordered[hi].id) hi--;
+    if (lo >= hi) return; // nichts bewegt
+    const updates: { id: string; position: number }[] = [];
+    for (let i = lo; i <= hi; i++) {
+      const position = before[i].position;
+      if (reordered[i].position !== position) {
+        updates.push({ id: reordered[i].id, position });
+      }
+    }
+    if (updates.length === 0) {
+      // Entartet: alle Positionen im Bereich sind gleich (der Server
+      // erlaubt Gleichstand). Ohne verschiedene Werte laesst sich die
+      // neue Reihenfolge nicht ausdruecken — melden statt still nichts tun.
+      toast.error(m.roles_editor_reorder_failed());
+      return;
+    }
     try {
       const rows = await rolesApi.setPositions(guildId, updates);
       for (const r of rows) rolesStore.upsertRole(r);
@@ -139,6 +183,8 @@
   let editColorInt = $derived(editColorEnabled ? parseInt(editColor.replace('#', ''), 16) : null);
   let isSaving = $state(false);
   let deleteConfirm = $state(false);
+  let deleteTarget = $state<Role | undefined>(undefined);
+  let isDeleting = $state(false);
 
   // Mirror the selected role into the buffer. We *can't* use $effect for
   // this safely because that would constantly reset the user's pending
@@ -192,12 +238,12 @@
       switchConfirmOpen = true;
       return;
     }
-    selectedId = id;
+    select(id);
   }
 
   function confirmDiscardAndSwitch(): void {
     if (pendingSwitchId) {
-      selectedId = pendingSwitchId;
+      select(pendingSwitchId);
       pendingSwitchId = null;
     }
     switchConfirmOpen = false;
@@ -223,7 +269,7 @@
     try {
       const r = await rolesApi.create(guildId, { name: m.roles_editor_new_role_default_name(), permissions: '0' });
       rolesStore.upsertRole(r);
-      selectedId = r.id;
+      select(r.id);
       // Seed the buffer synchronously and pin lastLoadedId so the
       // selection-effect won't fire afterwards and trample any
       // immediate user edit (e.g. typing into the name input right
@@ -265,16 +311,37 @@
     }
   }
 
-  async function deleteRole(): Promise<void> {
+  /** Loeschziel beim Oeffnen festhalten: `selectedRole` ist abgeleitet und
+   * kann sich waehrend der Rueckfrage verschieben (WS-Event, Neusortierung)
+   * — so nennt der Bestaetigungstext die Rolle, die auch wirklich faellt.
+   * Wird beim naechsten Oeffnen ueberschrieben statt beim Schliessen
+   * geleert, sonst flackert der Text waehrend des Zuklappens leer. */
+  function askDelete(): void {
     if (!selectedRole || selectedRole.is_everyone) return;
+    deleteTarget = selectedRole;
+    deleteConfirm = true;
+  }
+
+  async function deleteRole(): Promise<void> {
+    const target = deleteTarget;
+    // isDeleting sperrt zusaetzlich den Knopf: bits-ui schliesst den Dialog
+    // beim Bestaetigen nicht selbst (die Vendor-Action ueberschreibt den
+    // Schliess-Handler), ein zweiter Klick im Flug schickte sonst dasselbe
+    // DELETE erneut -> 404-Toast fuer eine laengst geloeschte Rolle.
+    if (!target || target.is_everyone || isDeleting) return;
+    isDeleting = true;
     try {
-      await rolesApi.delete(guildId, selectedRole.id);
-      rolesStore.removeRole(guildId, selectedRole.id);
-      selectedId = null;
-      deleteConfirm = false;
+      await rolesApi.delete(guildId, target.id);
+      rolesStore.removeRole(guildId, target.id);
+      select(null);
       toast.success(m.roles_editor_role_deleted());
     } catch (err) {
       toast.error(m.roles_editor_delete_failed(), { description: (err as Error).message });
+    } finally {
+      isDeleting = false;
+      // Auch im Fehlerfall zu — sonst steht der Dialog offen da, ohne
+      // dass man sieht warum; der Grund steht im Toast.
+      deleteConfirm = false;
     }
   }
 </script>
@@ -367,7 +434,7 @@
           <Button
             variant="ghost"
             size="sm"
-            onclick={() => (deleteConfirm = true)}
+            onclick={askDelete}
             data-testid="role-delete-btn"
           >
             <TrashIcon /> {m.roles_editor_delete_btn()}
@@ -463,16 +530,20 @@
 </AlertDialog.Root>
 
 <AlertDialog.Root bind:open={deleteConfirm}>
-  <AlertDialog.Content>
+  <AlertDialog.Content data-testid="role-delete-confirm">
     <AlertDialog.Header>
       <AlertDialog.Title>{m.roles_editor_delete_confirm_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {m.roles_editor_delete_confirm_desc({ roleName: selectedRole?.name ?? '' })}
+        {m.roles_editor_delete_confirm_desc({
+          roleName: deleteTarget?.name ?? m.roles_editor_this_role()
+        })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={deleteRole}>{m.roles_editor_delete_btn()}</AlertDialog.Action>
+      <AlertDialog.Cancel disabled={isDeleting}>{m.roles_editor_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={deleteRole} disabled={isDeleting} data-testid="role-delete-confirm-btn">
+        {m.roles_editor_delete_btn()}
+      </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
