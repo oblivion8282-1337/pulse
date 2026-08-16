@@ -48,7 +48,7 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
-  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
+  import { isCapacitorAndroid, isElectron, isWindows } from '$lib/platform/runtime';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
@@ -69,12 +69,15 @@
   $effect(() => {
     if (open) {
       untrack(() => {
-        // Fallback, wenn der gewünschte Tab hier nicht angeboten wird
-        // (desktopOnly auf Mobil, browserOnly in Electron/Capacitor).
-        const hidden =
-          (viewport.isMobile && tabs.some((t) => t.id === initialTab && t.desktopOnly)) ||
-          (!inBrowser && tabs.some((t) => t.id === initialTab && t.browserOnly));
-        activeTab = hidden ? 'audio-video' : initialTab;
+        // Fallback, wenn der gewünschte Tab hier nicht angeboten wird.
+        //
+        // **Gegen `visibleTabs` geprüft und nicht gegen einzelne Merkmale**:
+        // die frühere Fassung zählte `desktopOnly` und `browserOnly` einzeln
+        // auf, und jedes neue Merkmal (zuletzt `windowsOnly`) fehlte hier
+        // stillschweigend — der Dialog öffnete dann einen Reiter, den seine
+        // eigene Liste gar nicht führt.
+        const sichtbar = visibleTabs.some((t) => t.id === initialTab);
+        activeTab = sichtbar ? initialTab : 'audio-video';
         mobileView = 'list';
         sounds.play('ui.modal_open');
       });
@@ -104,6 +107,9 @@
   // es fehlte allein der Schalter.
   const isDesktopApp = isElectron();
 
+  // Kann dieser Rechner selbst ferngesteuert werden? (s. `windowsOnly` unten)
+  const istWindows = isWindows();
+
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
   // (die Notbremse zurück auf den GSR-Sidecar).
   const isLinuxDesktop =
@@ -116,12 +122,26 @@
     desktopOnly?: true;
     browserOnly?: true;
     electronOnly?: true;
+    /**
+     * Nur dort zeigen, wo dieser Rechner selbst ferngesteuert werden KANN.
+     *
+     * Eingaben einspielen kann heute allein der Windows-Sidecar
+     * (`remote_input/`); unter Linux und macOS gibt es die Gegenstelle nicht.
+     * Der Reiter bietet aber genau das an — Dauerfreigabe, Standplatz-Profil,
+     * Eintragung als Gerät. Wer ihn dort ausfüllt, richtet ein Gerät ein, das
+     * sich niemand holen kann, und sucht den Fehler anschliessend im Server.
+     *
+     * **Betrifft nur das ANBIETEN.** Steuern, zusehen und Geräte in der
+     * Kanalliste sehen bleibt plattformneutral — der Steuernde braucht keinen
+     * Sidecar, und genau das ist der übliche Fall auf einem Linux-Rechner.
+     */
+    windowsOnly?: true;
   }[] = [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true },
+    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, windowsOnly: true },
     { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
     { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
@@ -137,7 +157,8 @@
       (t) =>
         (!t.desktopOnly || !viewport.isMobile) &&
         (!t.browserOnly || inBrowser) &&
-        (!t.electronOnly || isDesktopApp)
+        (!t.electronOnly || isDesktopApp) &&
+        (!t.windowsOnly || istWindows)
     )
   );
 
