@@ -425,9 +425,16 @@ export function buildStartArgs(
     // 10 bit nur mitschicken, wenn es auch erfüllbar ist (AV1 + passende
     // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
     // gleich wieder verwirft.
-    // Standplatz: keine 10 bit und kein HDR — Begründung in
-    // `$lib/devices/profil.svelte.ts::alsUebersteuerung`.
-    if (!standplatz && tenBitPossible()) cleaned.bit_depth = 10;
+    // **Beim Standplatz-Gerät zählt der Wunsch aus dem Profil**, beim Knopf des
+    // Besitzers der aus den Stream-Einstellungen — geprüft wird in beiden Fällen
+    // gegen dieselbe Fähigkeit der Karte (`tenBitPossible` liest die
+    // Einstellungen, hier kommt der Wunsch vom Rufer). Ein nicht erfüllbarer
+    // Wunsch fällt still weg, statt den Start abzubrechen: bei einem Weckruf
+    // sitzt niemand davor, der die Absage läse.
+    const zehnBitGewuenscht = standplatz
+      ? standplatz.uebersteuerung.bit_depth === 10
+      : streamSettings.overrides.bit_depth === 10;
+    if (zehnBitGewuenscht && o.codec === 'av1' && stream.tenBitAvailable) cleaned.bit_depth = 10;
     // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
     // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
     // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine
@@ -463,7 +470,14 @@ export function buildStartArgs(
     // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
     // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
     // Sidecar-Prozesses.
-    if (!standplatz && hdrPossible()) cleaned.hdr = true;
+    // Auch hier zählt beim Gerät der Wunsch aus dem Profil. HDR hängt an
+    // `cleaned.bit_depth` und nicht am Wunsch: was oben durchgefallen ist
+    // (kein AV1, Karte kann es nicht), darf hier nicht doch noch ein `hdr:true`
+    // nach sich ziehen — das bräche den Start.
+    const hdrGewuenscht = standplatz
+      ? standplatz.uebersteuerung.hdr === true
+      : streamSettings.overrides.hdr === true;
+    if (hdrGewuenscht && cleaned.bit_depth === 10 && stream.hdrAvailable) cleaned.hdr = true;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

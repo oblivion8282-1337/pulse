@@ -43,6 +43,15 @@
 
   const monitore = $derived(streamSettings.available_monitors);
 
+  /**
+   * 10 bit gibt es nur mit AV1 und nur, wenn der Sidecar es meldet; HDR nur
+   * obendrauf. Beides hängt am **Entwurf**, nicht am gespeicherten Profil —
+   * wer im Formular auf H.264 stellt, sieht die Kästchen sofort ausgrauen,
+   * statt erst nach dem Speichern zu merken, dass es nicht zusammengeht.
+   */
+  const zehnBitMoeglich = $derived(entwurf.codec === 'av1' && stream.tenBitAvailable);
+  const hdrMoeglich = $derived(zehnBitMoeglich && entwurf.zehn_bit && stream.hdrAvailable);
+
   function zuruecksetzen(): void {
     entwurf = { ...VORGABE };
   }
@@ -81,7 +90,6 @@
     <SlidersIcon class="size-4" />
     {m.standplatz_profil_title()}
   </span>
-  <span class="text-text-muted text-xs">{m.standplatz_profil_hint()}</span>
 
   <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
     <label class="flex flex-col gap-1">
@@ -98,7 +106,6 @@
           </option>
         {/each}
       </select>
-      <span class="text-text-muted text-xs">{m.standplatz_profil_source_hint()}</span>
     </label>
 
     <div class="grid grid-cols-2 gap-2">
@@ -152,19 +159,32 @@
         disabled={!stream.intraRefreshAvailable}
         data-testid="standplatz-profil-intra"
       />
-      <span class="flex min-w-0 flex-1 flex-col gap-1">
-        <span class="text-text-bright text-sm font-medium">
-          {m.standplatz_profil_intra()}
-        </span>
-        <span class="text-text-muted text-xs">
-          {stream.intraRefreshAvailable
-            ? m.standplatz_profil_intra_hint()
-            : m.standplatz_profil_intra_unavailable()}
-        </span>
-      </span>
+      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_intra()}</span>
     </label>
 
-    <span class="text-text-muted text-xs">{m.standplatz_profil_no_hdr()}</span>
+    <!-- 10 bit und HDR: wählbar, aber an AV1 und an die Karte gebunden. Der
+         Wunsch bleibt gespeichert, auch wenn er gerade nicht erfüllbar ist —
+         beim Wecken fällt er dann still weg, statt den Start abzubrechen
+         (`buildStartArgs`). Deshalb hier nur `disabled`, kein Zurücksetzen. -->
+    <label class="flex items-start gap-3">
+      <Checkbox
+        class="mt-0.5 shrink-0"
+        bind:checked={entwurf.zehn_bit}
+        disabled={!zehnBitMoeglich}
+        data-testid="standplatz-profil-zehnbit"
+      />
+      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_ten_bit()}</span>
+    </label>
+
+    <label class="flex items-start gap-3">
+      <Checkbox
+        class="mt-0.5 shrink-0"
+        bind:checked={entwurf.hdr}
+        disabled={!hdrMoeglich}
+        data-testid="standplatz-profil-hdr"
+      />
+      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_hdr()}</span>
+    </label>
 
     <div class="flex justify-end gap-2 pt-1">
       <Button size="sm" variant="ghost" onclick={zuruecksetzen}>
