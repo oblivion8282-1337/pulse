@@ -118,6 +118,13 @@ async def handle_withdraw(ctx: Any, msg: dict[str, Any]) -> None:
     mgr = _manager(ctx)
     if device_id is None or mgr is None:
         return
+    # **Zuerst die Fernsteuerung abbauen, dann abmelden** (Bughunt 2026-08-16).
+    # „Dieser Rechner ist kein Gerät mehr" und „jemand steuert ihn gerade über
+    # eben dieses Gerät" dürfen nicht nebeneinander bestehen bleiben. Und die
+    # Reihenfolge ist nicht beliebig: der Abbau findet die Sitzung über die
+    # Verbindungen des Geräts, und die sind nach dem Abmelden weg — genau daran
+    # scheiterte das Austragen eines Geräts, während es ferngesteuert wurde.
+    await mgr.end_remote_sessions_for_device(device_id)
     if mgr.device_withdraw(ctx.websocket, device_id):
         # Über den gemerkten Standplatz statt über die Datenbank: die Zeile
         # kann in genau diesem Moment gelöscht worden sein (das ist einer der

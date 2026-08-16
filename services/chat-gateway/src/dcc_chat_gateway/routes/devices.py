@@ -290,6 +290,7 @@ async def patch_device(
 
     if body.name is not None:
         device.name = _normalise_name(body.name)
+    alter_kanal: int | None = None
     if body.channel_id is not None and body.channel_id != device.channel_id:
         await _channel_in_guild(session, guild_id, body.channel_id)
         await check_permission(
@@ -300,6 +301,7 @@ async def patch_device(
             channel_id=body.channel_id,
             detail="you need permission to stream in the new channel",
         )
+        alter_kanal = device.channel_id
         device.channel_id = body.channel_id
         # **Der Standplatzwechsel beendet eine laufende Sitzung.** Die Rechte
         # hingen am alten Kanal; ein stiller Übergang wäre die falsche Art von
@@ -314,6 +316,18 @@ async def patch_device(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="a device with that name already exists here"
         ) from None
+    if alter_kanal is not None:
+        # **Den alten Standplatz mitziehen** (Bughunt 2026-08-16): das Register
+        # merkt sich den Ort, an den es Zustandsmeldungen schickt. Ohne diese
+        # Zeile meldete ein umgestelltes Gerät weiter an den alten Kanal — die
+        # Falschen sähen seinen Zustand, die Berechtigten nie einen.
+        mgr = _manager(request)
+        if mgr is not None:
+            mgr.device_move(device.id, guild_id, device.channel_id)
+        # Und aus der Liste des alten Kanals muss es verschwinden. Wer den
+        # neuen nicht sehen darf, behielte sonst einen Eintrag, den es dort
+        # nicht mehr gibt — und könnte ihn wecken wollen.
+        await _melden(request, device, _to_out(device, mgr), entfernt=True, kanal=alter_kanal)
     stand = _to_out(device, _manager(request))
     await _melden(request, device, stand)
     return stand
@@ -347,15 +361,26 @@ async def delete_device(
 # Plugin-Toggles (`guild_plugins.py`).
 
 
-async def _melden(request: Request, device: Device, stand: DeviceOut, *, entfernt: bool = False) -> None:
-    """``device_changed`` an die Community schicken."""
+async def _melden(
+    request: Request,
+    device: Device,
+    stand: DeviceOut,
+    *,
+    entfernt: bool = False,
+    kanal: int | None = None,
+) -> None:
+    """``device_changed`` an die Community schicken.
+
+    ``kanal`` übersteuert den Standplatz — gebraucht beim Umstellen, wo die
+    Meldung „weg hier" an den ALTEN Kanal gehen muss.
+    """
     mgr = _manager(request)
     if mgr is None:
         return
     try:
         await mgr.publish_device_change(
             guild_id=device.guild_id,
-            channel_id=device.channel_id,
+            channel_id=kanal if kanal is not None else device.channel_id,
             device=stand.model_dump(),
             removed=entfernt,
         )
