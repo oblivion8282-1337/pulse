@@ -1082,6 +1082,29 @@ const ALLOWED_STORE_KEYS = new Set([
   // Nativer HQ-Player (`streaming/pulse-player/`) statt des <video>-WHEP-Wegs.
   // Default aus — experimentell, noch ohne Tonausgabe (siehe player.ts).
   'useNativePlayer',
+  // Standplatz-Geräte. Alle vier liegen im selben chmod-600-Tresor wie die
+  // Stream-Einstellungen, und alle vier MÜSSEN hier stehen: die Allowlist
+  // verwirft unbekannte Schlüssel still (nur `console.warn`), der Renderer
+  // behält seinen Stand im Speicher und merkt nichts — bis zum Neuladen. Genau
+  // so gesehen am 2026-08-16: das Gerät stand nach jedem Reload auf „offline"
+  // und musste neu eingetragen werden, weil `remote.geraete` nie geschrieben
+  // wurde. Wer hier eine fünfte Standplatz-Einstellung ergänzt, ergänzt sie
+  // auch in dieser Liste.
+  //
+  // Welche Kennung dieser Rechner auf welchem Server hat — die Antwort auf
+  // „welches der eingetragenen Geräte bin ich" (`devices/anmeldung.svelte.ts`).
+  'remote.geraete',
+  // Die Dauerfreigabe: wer ohne Rückfrage übernehmen darf und wie lange
+  // (`remote/standplatz.svelte.ts`). Ohne Persistenz galt sie nur bis zum
+  // nächsten Neuladen — und ein unbeaufsichtigter Rechner fragte danach
+  // wieder jemanden, der nicht davorsitzt.
+  'remote.standplatz',
+  // Das Protokoll: wer wann wie lange übernommen hat (`remote/protokoll.svelte.ts`).
+  'remote.protokoll',
+  // Womit das Gerät überträgt, wenn es aus der Ferne geweckt wird
+  // (`devices/profil.svelte.ts`) — getrennt von den Stream-Einstellungen des
+  // Besitzers, deshalb ein eigener Schlüssel.
+  'remote.standplatzProfil',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für

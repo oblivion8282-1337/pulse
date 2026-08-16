@@ -65,9 +65,37 @@ export async function loadAll(): Promise<Record<string, unknown>> {
  * whole blob once. Failures are swallowed (the UI keeps the in-memory state
  * regardless of whether persistence succeeded).
  */
+/**
+ * Jeden Wert in ein einfaches, klonbares Objekt überführen — **Pflicht vor der
+ * Electron-IPC**.
+ *
+ * Ein Svelte-5-`$state`-Feld ist ein Proxy, und der structured-clone-Algorithmus
+ * hinter `ipcRenderer.invoke` kann Proxys nicht kopieren („An object could not
+ * be cloned"). Der Wurf landete bisher im `catch` unten, der Renderer behielt
+ * seinen Stand im Speicher und wirkte richtig — bis zum nächsten Start. Am
+ * 2026-08-16 hat das drei Speicher der Standplatz-Geräte gekostet (Eintragung,
+ * Protokoll, Übertragungs-Profil); dass die Dauerfreigabe überlebte, lag allein
+ * daran, dass sie vor dem Speichern zufällig ein einfaches Objekt baut.
+ *
+ * **Hier und nicht bei den Rufern**, obwohl `$state.snapshot()` dasselbe täte:
+ * jeder künftige Rufer fiele sonst in dieselbe Grube, und ein vergessener
+ * Aufruf sieht bis zum Neustart aus wie „funktioniert". Der JSON-Umweg ist
+ * zudem ehrlich zum Ziel — die Datei ist JSON, was ihn nicht übersteht, wäre
+ * ohnehin nicht persistierbar.
+ */
+function klonbar(values: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(values)) as Record<string, unknown>;
+  } catch {
+    // Zyklen oder BigInt — dann lieber das Original versuchen als gar nichts.
+    return values;
+  }
+}
+
 export async function saveAll(values: Record<string, unknown>): Promise<void> {
   const store = electronStore();
   if (store) {
+    values = klonbar(values);
     try {
       // Prefer the atomic batch handler (eliminates parallel rename races).
       // `setAll` is declared on PulseStoreApi; the runtime check keeps older
@@ -80,8 +108,12 @@ export async function saveAll(values: Record<string, unknown>): Promise<void> {
           await store.set(k, v);
         }
       }
-    } catch {
-      // tolerate — settings stay in memory
+    } catch (e) {
+      // Tolerieren — der Stand im Speicher gilt weiter. Aber NICHT stumm: das
+      // stille Schlucken hat die drei verlorenen Standplatz-Speicher oben eine
+      // Fehlersuche gekostet, in der alles richtig aussah. Nur die Schlüssel
+      // nennen, nie die Werte (Stream-Keys, s. Kopf dieser Datei).
+      console.warn('[persistence] saveAll fehlgeschlagen für:', Object.keys(values), e);
     }
     return;
   }
