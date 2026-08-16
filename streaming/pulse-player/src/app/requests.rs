@@ -96,6 +96,14 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das
+            // Fenster zeigt sie im Menue am Griff und meldet die Wahl zurueck
+            // (`player:remoteScreen`) — angefordert wird in der App.
+            "remote_screens" => match self.remote_screens(&req) {
+                Ok(()) => self.stdout.send(&Response::bare(id)),
+                Err(e) => self.stdout.send(&Response::err(id, e)),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),

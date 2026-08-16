@@ -40,6 +40,25 @@ class DeviceStore {
     return this.byGuild.get(guildId) ?? [];
   }
 
+  /**
+   * Das Gerät, das in diesem Kanal steht und diesem Nutzer gehört.
+   *
+   * Der Weg von einer laufenden Fernsteuerung zurück zum Gerät: dort sind nur
+   * Kanal und Host-Nutzer bekannt (`RemoteControllerInput`), und erst hier wird
+   * daraus die Gerätezeile mit ihrer Bildschirmliste. Ohne Community-Kennung,
+   * weil die Sitzung sie nicht führt — die Suche läuft deshalb über alle
+   * geladenen Communitys, und das sind wenige.
+   */
+  byChannelOwner(channelId: string, ownerId: string): Device | null {
+    for (const liste of this.byGuild.values()) {
+      const treffer = liste.find(
+        (d) => d.channel_id === channelId && d.owner_user_id === ownerId,
+      );
+      if (treffer) return treffer;
+    }
+    return null;
+  }
+
   byId(guildId: string | null | undefined, deviceId: string): Device | null {
     return this.forGuild(guildId).find((d) => d.id === deviceId) ?? null;
   }

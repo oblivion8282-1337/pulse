@@ -111,6 +111,13 @@ pub struct Request {
     #[serde(default)]
     pub shape: Option<String>,
 
+    // --- remote_screens ---
+    /// Die Bildschirme des ferngesteuerten Rechners fuers Menue am Griff.
+    /// Reine Anzeige — was ein Klick ausloest, entscheidet die App
+    /// (`web/src/lib/devices/`).
+    #[serde(default)]
+    pub screens: Option<Vec<crate::overlay::Schirm>>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

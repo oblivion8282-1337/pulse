@@ -932,6 +932,9 @@ const ALLOWED_PLAYER_OPS = new Set([
   'focus',
   'remote_transport',
   'remote_pointer',
+  // Bildschirmliste fuers Menue am Griff — reine Anzeige wie `remote_pointer`,
+  // beruehrt weder Zuordnung noch Eingabe.
+  'remote_screens',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */
