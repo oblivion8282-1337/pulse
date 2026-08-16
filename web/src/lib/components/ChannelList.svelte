@@ -22,6 +22,8 @@
   import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { moveIntoVoiceChannel } from '$lib/api/voice';
   import { carriesUser, droppedUserId } from '$lib/voice/userDrag';
+  import { traegtGeraet, gezogenesGeraet } from '$lib/devices/geraetZug';
+  import { geraeteUmzug } from '$lib/devices/umzug.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
@@ -58,6 +60,7 @@
     'group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary';
 
   import DeviceChannelRows from '$lib/devices/components/DeviceChannelRows.svelte';
+  import DeviceUmzugDialog from '$lib/devices/components/DeviceUmzugDialog.svelte';
   import type { Device } from '$lib/api/devices';
 
   let {
@@ -178,11 +181,17 @@
   // share one set of row handlers: a user payload moves a user into the
   // channel, anything else falls through to reorder. `userDragOverId` drives
   // the drop highlight on the voice channel currently under the pointer.
+  //
+  // Ein Standplatz-Gerät (`devices/geraetZug.ts`) läuft über denselben Weg und
+  // dieselbe Hervorhebung — es ist für den Ziehenden dieselbe Geste, und zwei
+  // verschiedene Optiken für „hier lasse ich los" wären eine Erfindung ohne
+  // Anlass. Getrennt sind nur die Nutzlasten, damit das Ablegen weiss, was es
+  // in der Hand hält.
   let userDragOverId = $state<string | null>(null);
 
   function onVoiceDragOver(e: DragEvent, c: Channel) {
-    // ``carriesUser`` already proved ``dataTransfer`` is non-null.
-    if (carriesUser(e)) {
+    // ``carriesUser``/``traegtGeraet`` already proved ``dataTransfer`` is non-null.
+    if (carriesUser(e) || traegtGeraet(e)) {
       e.preventDefault();
       e.dataTransfer!.dropEffect = 'move';
       userDragOverId = c.id;
@@ -203,6 +212,16 @@
   }
 
   async function onVoiceDrop(e: DragEvent, c: Channel) {
+    // Gerät zuerst: die Prüfung ist ein Blick in die Nutzlast, und der Rest der
+    // Funktion gehört dem Nutzer-Fall. Ob umgestellt oder nur nachgefragt wird,
+    // entscheidet `umzug.svelte.ts` — hier endet der Weg der Kanalliste.
+    const geraetId = gezogenesGeraet(e);
+    if (geraetId) {
+      e.preventDefault();
+      userDragOverId = null;
+      geraeteUmzug.anfordern(guild?.id, geraetId, c);
+      return;
+    }
     const uid = droppedUserId(e);
     if (!uid) {
       onChannelDrop(e, c); // not a user drop → channel reorder
@@ -393,6 +412,10 @@
       </AlertDialog.Footer>
     </AlertDialog.Content>
   </AlertDialog.Root>
+
+  <!-- Einmal für die ganze Liste, nicht je Kanalzeile: es kann immer nur EIN
+       Gerät gezogen werden, und der Dialog gehört zum Zug, nicht zum Ziel. -->
+  <DeviceUmzugDialog />
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-3">
     <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
@@ -762,6 +785,7 @@
           channelId={c.id}
           {activeDeviceId}
           onSelect={onSelectDevice}
+          onDragEnd={onChannelDragEnd}
           onWatch={(d) => {
             chooseHqForUser(c.id, d.owner_user_id);
             onSelect(c);
