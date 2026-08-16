@@ -1,0 +1,121 @@
+/**
+ * Standplatz-Geräte — **die Seite des Geräts selbst**.
+ *
+ * Der Server sieht Verbindungen von Nutzern. Welcher RECHNER dahintersteht,
+ * weiss nur der Rechner: er hat sich beim Eintragen die Kennung gemerkt, und
+ * nach jedem Verbindungsaufbau meldet er sich damit an (`device_announce`).
+ * Erst dadurch steht er als „bereit" in der Kanalliste der anderen.
+ *
+ * **Warum die Kennung lokal liegt.** Sie ist die Antwort auf „welches der
+ * eingetragenen Geräte bin ich" — und die kann nur der Rechner beantworten.
+ * Läge sie am Konto, wäre der Laptop des Besitzers plötzlich auch der
+ * Werkstatt-PC; ein Erraten („der erste Socket dieses Nutzers") wäre in dem
+ * Moment falsch, in dem der Besitzer nebenher am Laptop sitzt, und falsch auf
+ * die gefährliche Art: der Laptop stünde als übernehmbarer Rechner im Kanal.
+ *
+ * Gespeichert wird dort, wo auch die Dauerfreigabe liegt: im Geräte-Speicher
+ * der Desktop-App (`pulse-stream.json`, Linux chmod 600), über den vorhandenen
+ * Zwei-Wege-Wrapper. Ein Eintrag je Server, denn dieselbe Maschine kann in der
+ * Cloud und auf einem Self-Host je eine eigene Eintragung haben.
+ */
+
+import { loadAll, saveAll } from '$lib/stream/persistence';
+
+const SPEICHER_SCHLUESSEL = 'remote.geraete';
+
+/** Was dieser Rechner über eine seiner Eintragungen weiss. */
+export interface Eintragung {
+  /** Server (Pulse-Instanz), auf dem die Eintragung liegt. */
+  serverId: string;
+  /** Community, in der das Gerät steht. */
+  guildId: string;
+  /** Die Gerätekennung — die Zahl, die bei `device_announce` hinausgeht. */
+  deviceId: string;
+  /** Name zum Zeitpunkt der Eintragung, nur für die Anzeige in den
+   *  Einstellungen. Die Wahrheit über den Namen steht auf dem Server. */
+  name: string;
+}
+
+function istEintragung(roh: unknown): roh is Eintragung {
+  if (!roh || typeof roh !== 'object') return false;
+  const o = roh as Record<string, unknown>;
+  return (
+    typeof o.serverId === 'string' &&
+    typeof o.guildId === 'string' &&
+    typeof o.deviceId === 'string' &&
+    typeof o.name === 'string'
+  );
+}
+
+type Sender = (deviceId: string) => boolean;
+
+class GeraeteAnmeldung {
+  eintragungen = $state<Eintragung[]>([]);
+  #geladen = false;
+
+  /** Beim Start einmal rufen (`app/+layout`), zusammen mit der Dauerfreigabe. */
+  async laden(): Promise<void> {
+    if (this.#geladen) return;
+    this.#geladen = true;
+    try {
+      const alle = await loadAll();
+      const roh = alle[SPEICHER_SCHLUESSEL];
+      this.eintragungen = Array.isArray(roh) ? roh.filter(istEintragung) : [];
+    } catch {
+      this.eintragungen = [];
+    }
+  }
+
+  /** Die Eintragung dieses Rechners auf einem bestimmten Server. */
+  fuerServer(serverId: string | null | undefined): Eintragung | null {
+    if (!serverId) return null;
+    return this.eintragungen.find((e) => e.serverId === serverId) ?? null;
+  }
+
+  /** Nach dem Eintragen merken. Ersetzt eine bestehende Eintragung desselben
+   *  Servers — ein Rechner steht je Server an genau einem Standplatz, und der
+   *  Server hält das mit derselben Regel fest. */
+  async merken(eintrag: Eintragung): Promise<void> {
+    this.eintragungen = [
+      ...this.eintragungen.filter((e) => e.serverId !== eintrag.serverId),
+      eintrag,
+    ];
+    await this.#sichern();
+  }
+
+  /** Nach dem Entfernen vergessen. */
+  async vergessen(deviceId: string): Promise<void> {
+    this.eintragungen = this.eintragungen.filter((e) => e.deviceId !== deviceId);
+    await this.#sichern();
+  }
+
+  /**
+   * Nach `ready` anmelden.
+   *
+   * **Bei jedem Ready, nicht nur beim ersten.** Die Anmeldung hängt an einem
+   * Socket; nach einem Verbindungsabriss ist sie beim Server weg, und ohne
+   * erneutes Melden stünde das Gerät für alle anderen auf „offline", während
+   * es längst wieder verbunden ist. Der Server nimmt eine doppelte Anmeldung
+   * folgenlos entgegen.
+   *
+   * Still, wenn es für diesen Server keine Eintragung gibt — der Regelfall für
+   * jeden gewöhnlichen Rechner.
+   */
+  beiReady(serverId: string | null | undefined, senden: Sender): void {
+    const eintrag = this.fuerServer(serverId);
+    if (eintrag) senden(eintrag.deviceId);
+  }
+
+  async #sichern(): Promise<void> {
+    try {
+      await saveAll({ [SPEICHER_SCHLUESSEL]: this.eintragungen });
+    } catch {
+      // Wie überall in der Persistenz: der Stand im Speicher gilt weiter. Eine
+      // nicht geschriebene Eintragung heisst, dass sich der Rechner nach einem
+      // Neustart nicht mehr als dieses Gerät meldet — sichtbar als „offline",
+      // und in den Einstellungen wieder eintragbar.
+    }
+  }
+}
+
+export const geraeteAnmeldung = new GeraeteAnmeldung();

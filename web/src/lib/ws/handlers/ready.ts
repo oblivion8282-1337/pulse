@@ -32,6 +32,8 @@ import { registerWsHandler } from '../handler-registry';
 import type { ReadyStamps } from '../gateway-connection';
 import type { ReadyEvent } from './types';
 import type { Guild } from '$lib/api/types';
+import { gatewayForServer } from '$lib/ws/connection';
+import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -153,6 +155,17 @@ export function register(ctx: ReadyContext): void {
       // Servers cachen (greift nur, wenn der User keinen eigenen vergeben hat;
       // s. serverDisplayName). null überschreibt einen stale Namen bewusst.
       serversStore.update(sid, { server_name: evt.instance_name ?? null });
+    }
+    // **Standplatz-Geraet anmelden.** Ist DIESER Rechner auf DIESEM Server als
+    // Geraet eingetragen, meldet er sich jetzt — und zwar nach jedem `ready`,
+    // nicht nur beim ersten: die Anmeldung haengt am Socket und ist nach einem
+    // Abriss beim Server weg. Ohne das erneute Melden staende das Geraet fuer
+    // alle anderen auf „offline", waehrend es laengst wieder verbunden ist.
+    // Auf der Verbindung, die diesen Rahmen gebracht hat — eine Eintragung
+    // gehoert einem Server, nicht „dem gerade aktiven".
+    if (sid) {
+      const conn = gatewayForServer(sid);
+      if (conn) geraeteAnmeldung.beiReady(sid, (deviceId) => conn.sendDeviceAnnounce(deviceId));
     }
     ctx.onReadySeeded();
   });

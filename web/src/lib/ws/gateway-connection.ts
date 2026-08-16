@@ -701,6 +701,14 @@ export class GatewayConnection {
     sessionId: string, kind: RemoteSignalKind, data: unknown,
   ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
+  sendDeviceAnnounce = (deviceId: string): boolean =>
+    senders.sendDeviceAnnounce(this._raw, deviceId);
+
+  sendDeviceWithdraw = (deviceId: string): boolean =>
+    senders.sendDeviceWithdraw(this._raw, deviceId);
+
+  sendDeviceWake = (deviceId: string): boolean => senders.sendDeviceWake(this._raw, deviceId);
+
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);
 
   private _sendRaw(evt: ClientEvent): boolean {

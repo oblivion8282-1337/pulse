@@ -166,6 +166,13 @@ def device_for_socket(socket: Any) -> int | None:
     return next(iter(geraete))
 
 
+def sockets_of(device_id: int) -> set[Any]:
+    """Die Verbindungen eines angemeldeten Geräts — der Weg, auf dem ein
+    Weckruf hinkommt. Eine Kopie, damit der Aufrufer über sie laufen kann,
+    während sich das Register unter ihm ändert (ein Fenster geht zu)."""
+    return set(_sockets.get(device_id, ()))
+
+
 def where(device_id: int) -> tuple[int, int] | None:
     """``(guild_id, channel_id)`` eines angemeldeten Geräts, oder ``None``."""
     return _meta.get(device_id)

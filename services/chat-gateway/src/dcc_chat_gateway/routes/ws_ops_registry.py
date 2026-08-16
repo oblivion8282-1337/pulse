@@ -162,6 +162,7 @@ CORE_OPS: frozenset[str] = frozenset({
     # Standplatz-Geraete: „dieser Rechner ist Geraet X" und die Ruecknahme.
     "device_announce",
     "device_withdraw",
+    "device_wake",
     "remote_request",
     "remote_respond",
     "remote_signal",

@@ -36,7 +36,7 @@
     tenBitPossible,
   } from '../settings.svelte';
   import { resolveSlotLabel } from '../label';
-  import { recordStreamStart } from '../autoRestart';
+  import { streamStarten } from '../starten';
 
   let {
     channelId = null,
@@ -109,25 +109,16 @@
     busy = true;
     localError = null;
     try {
-      let tok;
-      try {
-        // Resolve the human-readable label (e.g. "Monitor 1", "Chrome") once at
-        // start so viewers' picker can name this stream without the GSR catalogs.
-        const label = resolveSlotLabel(slot).label;
-        // Warum Betriebsart UND Codec den Transport mitentscheiden: s. `pushProtokoll`.
-        tok = await chatApi.getStreamToken(
-          channelId,
-          pushProtokoll(),
-          slot,
-          label,
-          tenBitPossible(),
-          // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen
-          // kann — heute allein der Windows-Sidecar. Der Wert reist mit dem
-          // Stream bis zum Zuschauer und entscheidet dort, ob der Anfrage-Knopf
-          // erscheint (`RemoteRequestButton`).
-          stream.fernsteuerbar
-        );
-      } catch (e) {
+      // Der Ablauf selbst steht in `stream/starten.ts` — er ist derselbe, wenn
+      // ein Standplatz-Gerät aus der Ferne geweckt wird. Gedeutet werden die
+      // Fehler weiter HIER: die Texte hängen an diesem Dialog.
+      const r = await streamStarten(channelId, slot);
+      if (r.ok) {
+        onStarted?.();
+        return;
+      }
+      if (r.stufe === 'token') {
+        const e = r.fehler;
         const msg =
           e instanceof ApiError
             ? e.status === 403
@@ -143,24 +134,13 @@
         toast.error(m.stream_controls_toast_start_failed(), { description: msg });
         return;
       }
-      const args = buildStartArgs(
-        {
-          channelId,
-          token: tok.token,
-          pushUrl: tok.push_url,
-        },
-        slot,
-      );
-      const r = await gsr.start(args, slot);
-      if (r && !r.ok) {
-        localError = r.error ?? m.stream_controls_error_start_failed();
-        toast.error(m.stream_controls_toast_start_failed(), { description: localError });
-      } else {
-        // Record the channelId for auto-restart-after-resize-change (autoRestart.ts
-        // has no other way to learn it).
-        recordStreamStart(slot, channelId);
-        onStarted?.();
-      }
+      localError =
+        typeof r.fehler === 'string'
+          ? r.fehler
+          : r.fehler instanceof Error
+            ? r.fehler.message
+            : m.stream_controls_error_start_failed();
+      toast.error(m.stream_controls_toast_start_failed(), { description: localError });
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);
     } finally {

@@ -32,6 +32,7 @@
   import RemoteStandplatzBanner from '$lib/remote/components/RemoteStandplatzBanner.svelte';
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
+  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
@@ -140,7 +141,7 @@
     // geladenen Speicher und kostet nichts, und die Reihenfolge ist der ganze
     // Zweck. Zugleich verfällt hier „bis Neustart" — dieser Aufruf IST der
     // Neustart.
-    await Promise.all([standplatz.laden(), remoteProtokoll.laden()]);
+    await Promise.all([standplatz.laden(), remoteProtokoll.laden(), geraeteAnmeldung.laden()]);
     void gateway.connect().catch((e) => console.error('gateway connect', e));
     // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle
     // (Freunde/DMs/Requests/Blocks/Freund-Presence) und muss dauerhaft connected

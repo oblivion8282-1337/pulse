@@ -292,6 +292,14 @@ async def handle_device_withdraw(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_device_handlers.handle_withdraw(ctx, msg, session_factory=SessionLocal)
 
 
+@register_ws_op("device_wake")
+async def handle_device_wake(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    # „Fang bitte an zu uebertragen." Getrennt von ``remote_request``, damit
+    # eine Sitzungszusage nicht an einer Encoder-Initialisierung haengt
+    # (Begruendung in ``ws_device_handlers.handle_wake``).
+    await ws_device_handlers.handle_wake(ctx, msg, session_factory=SessionLocal)
+
+
 @register_ws_op("ping")
 async def handle_ping(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     """Keepalive ping → immediate ``pong`` reply.

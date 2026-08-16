@@ -56,6 +56,9 @@
   const CHANNEL_BTN_CLASS =
     'group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary';
 
+  import DeviceCategory from '$lib/devices/components/DeviceCategory.svelte';
+  import type { Device } from '$lib/api/devices';
+
   let {
     guild,
     channels,
@@ -63,7 +66,9 @@
     onSelect,
     onCreateClick,
     onChannelDeleted,
-    canCreate = false
+    canCreate = false,
+    activeDeviceId = null,
+    onSelectDevice
   }: {
     guild: Guild | null;
     channels: Channel[];
@@ -72,6 +77,11 @@
     onCreateClick: () => void;
     onChannelDeleted?: (channelId: string) => void;
     canCreate?: boolean;
+    /** Gerade geoeffnetes Standplatz-Geraet (fuer die Hervorhebung). */
+    activeDeviceId?: string | null;
+    /** Ein Geraet wurde angeklickt. Ohne Rueckruf bleibt die Kategorie
+     *  unsichtbar — eine Liste, die auf nichts fuehrt, ist keine. */
+    onSelectDevice?: (device: Device) => void;
   } = $props();
 
   let inviteOpen = $state(false);
@@ -731,6 +741,13 @@
     {/each}
     {:else}
       <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_voice_channels()}</p>
+    {/if}
+
+    <!-- Standplatz-Geraete: eigene Kategorie, gleichrangig neben Text- und
+         Sprachkanaelen (Entwurf §5). Sie rendert sich selbst weg, wenn es
+         keine gibt. -->
+    {#if guild && onSelectDevice}
+      <DeviceCategory guildId={guild.id} {activeDeviceId} onSelect={onSelectDevice} />
     {/if}
   </nav>
 
