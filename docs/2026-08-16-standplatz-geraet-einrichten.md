@@ -29,7 +29,13 @@ Sprecherliste auf.
    „Womit dieser Rechner überträgt, wenn er geweckt wird". Es gilt **nur**,
    wenn jemand das Gerät aus der Ferne weckt; die eigenen Stream-Einstellungen
    des Besitzers bleiben unberührt. Vorgaben: Hauptbildschirm, H.264, native
-   Auflösung, 30 Bilder/s, 8000 kbit/s, kein HDR, periodische Vollbilder.
+   Auflösung, 30 Bilder/s, 8000 kbit/s, periodische Vollbilder, kein HDR und
+   8 bit. **Wählbar ist alles davon**, auch 10 bit und HDR — beides braucht AV1
+   und eine Karte, die es meldet. Ein Wunsch, den der Rechner beim Wecken gerade
+   nicht einlösen kann, fällt still weg, statt den Start abzubrechen; er bleibt
+   gespeichert und greift wieder, sobald die Karte es hergibt. Bedenke beim HDR,
+   dass der Steuernde meist vor einem gewöhnlichen Bildschirm sitzt — dort sieht
+   das Bild ausgewaschen aus.
    **Die rollende Auffrischung ist einen Versuch wert**, wenn dein Rechner sie
    kann: sie verteilt die Auffrischung über viele Bilder, statt alle paar
    Sekunden ein grosses Vollbild zu schicken, das die Leitung kurz dichtmacht —

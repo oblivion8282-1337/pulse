@@ -88,6 +88,30 @@ export interface StandplatzProfil {
    * es einschaltet, hat es vorher an seinem Gerät ausprobiert.
    */
   intra_refresh: boolean;
+  /**
+   * 10 bit Farbtiefe — **nur mit AV1** und nur, wenn die Karte es kann.
+   *
+   * Wählbar seit 2026-08-16, vorher fest aus. Die Begründung dagegen war die
+   * Startverweigerung, und die trägt nicht: sie gilt für die rollende
+   * Auffrischung genauso, und die ist wählbar. Wer ein Gerät einrichtet, sitzt
+   * davor und kann es ausprobieren; entscheiden soll er.
+   *
+   * **Ein nicht erfüllbarer Wunsch stoppt trotzdem keinen Weckruf** — der Wert
+   * geht nur hinaus, wenn er im Moment des Weckens auch einlösbar ist
+   * (`buildStartArgs`). Er bleibt gespeichert, greift also wieder, sobald der
+   * Rechner es kann; ein Treiberwechsel macht das Gerät damit nicht unweckbar.
+   */
+  zehn_bit: boolean;
+  /**
+   * HDR (PQ/BT.2020) — **nur mit AV1 in 10 bit**, nur unter Windows, nur wenn
+   * der Encoder es meldet.
+   *
+   * Dieselbe Linie wie [`zehn_bit`]: die Wahl gehört dem Besitzer, die
+   * Erfüllbarkeit prüft der Weckruf. Zu bedenken bleibt, was HDR beim
+   * Steuernden anrichtet, wenn dessen Bildschirm keines kann — dort sieht das
+   * Bild ausgewaschen aus. Deshalb Vorgabe aus, aber kein Verbot.
+   */
+  hdr: boolean;
 }
 
 /** Die Vorgaben — Begründung im Modulkopf. */
@@ -98,6 +122,8 @@ export const VORGABE: StandplatzProfil = {
   fps: 30,
   bitrate_kbps: 8000,
   intra_refresh: false,
+  zehn_bit: false,
+  hdr: false,
 };
 
 function ausSpeicher(roh: unknown): StandplatzProfil {
@@ -114,6 +140,8 @@ function ausSpeicher(roh: unknown): StandplatzProfil {
         ? o.bitrate_kbps
         : VORGABE.bitrate_kbps,
     intra_refresh: o.intra_refresh === true,
+    zehn_bit: o.zehn_bit === true,
+    hdr: o.hdr === true,
   };
 }
 
@@ -142,10 +170,13 @@ class StandplatzProfilStore {
   /**
    * Das Profil als Übersteuerungs-Satz, wie ihn `buildStartArgs` erwartet.
    *
-   * **HDR und Farbtiefe fehlen hier absichtlich** und nicht aus Versehen: ein
-   * `hdr: true`, das der Rechner gerade nicht einlösen kann, bricht den Start
-   * ab — auf einem Gerät, das niemand beaufsichtigt, wäre das ein Weckruf, der
-   * wortlos ins Leere läuft.
+   * **Farbtiefe und HDR reisen als WUNSCH mit** (seit 2026-08-16), nicht als
+   * Befehl: `buildStartArgs` schickt sie nur hinaus, wenn sie im Moment des
+   * Weckens auch einlösbar sind (AV1, passende Karte, gemeldete Fähigkeit).
+   * Ein `hdr: true`, das der Rechner gerade nicht kann, bräche den Start ab —
+   * und auf einem Gerät, vor dem niemand sitzt, liefe der Weckruf wortlos ins
+   * Leere. Der gespeicherte Wunsch bleibt davon unberührt und greift wieder,
+   * sobald die Karte es hergibt.
    */
   alsUebersteuerung(): OverrideSet {
     const p = this.profil;
@@ -160,6 +191,11 @@ class StandplatzProfilStore {
       // das mehrmals am Tag geweckt wird, wäre das eine Einstellung, die von
       // der Vorgeschichte abhängt statt vom Profil.
       intra_refresh: p.intra_refresh,
+      // Nur der Wunsch. Die Prüfung „kann die Karte das gerade" steht in
+      // `buildStartArgs` — dort ist sie für den Knopf des Besitzers und für den
+      // Weckruf dieselbe, und es gibt sie nur einmal.
+      ...(p.zehn_bit ? { bit_depth: 10 as const } : {}),
+      ...(p.hdr ? { hdr: true } : {}),
     };
   }
 }
