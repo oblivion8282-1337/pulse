@@ -304,6 +304,18 @@ const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
 /// Standbild vor demselben Ende.
 const MAX_UNBRAUCHBARE_BILDER: u32 = 60;
 
+/// Wie oft eine Sitzung nach einer Stockungsserie einen frischen
+/// HARDWARE-Decoder bekommt, bevor sie auf Software geht.
+///
+/// **Einer** (2026-08-16). Die Stockung entsteht am haengenden Videoring der
+/// Grafikeinheit, den der Kernel danach zuruecksetzt — ein frischer Kontext auf
+/// zurueckgesetzter Hardware hat also gute Aussichten, und der Rueckfall auf
+/// Software gilt fuer den REST der Sitzung (`hardware` wird nirgends je wieder
+/// wahr). Ein zweiter Anlauf brachte dagegen nichts: haengt der Ring auch mit
+/// frischem Kontext, liegt es nicht am Kontext, und jeder weitere Versuch
+/// kostet nur eine weitere Kaskade Standbild vor demselben Rueckfall.
+const MAX_HARDWARE_ANLAEUFE: u32 = 1;
+
 /// Ab wann „seit langem kein Vollbild" als rollende Auffrischung gilt.
 ///
 /// Der uebliche Vollbild-Abstand liegt bei zwei Sekunden. Fuenf sind reichlich
@@ -1199,6 +1211,9 @@ pub struct VideoDecoder {
     bruecke_us: u64,
     /// Zaehlt haengende Ruecklesevorgaenge (s. [`crate::stockung::Waechter`]).
     stockungen: crate::stockung::Waechter,
+    /// Wie oft dieser Strom nach einer Stockung schon einen frischen
+    /// Hardware-Decoder bekommen hat (s. [`MAX_HARDWARE_ANLAEUFE`]).
+    hardware_anlaeufe: u32,
     /// Bilder in Folge, die der Decoder geliefert hat und [`convert`] nicht
     /// uebersetzen konnte (s. [`MAX_UNBRAUCHBARE_BILDER`]).
     unbrauchbare_bilder: u32,
@@ -1270,6 +1285,7 @@ impl VideoDecoder {
                         ruecklesen_us: 0,
                         bruecke_us: 0,
                         stockungen: crate::stockung::Waechter::default(),
+                        hardware_anlaeufe: 0,
                         unbrauchbare_bilder: 0,
                         bruecke: None,
                         zulauf: crate::einfrieren::Zulauf::default(),
@@ -1533,6 +1549,36 @@ impl VideoDecoder {
     /// naechste Fehlerserie haette die Sitzung beendet. Genau das, was der
     /// Rueckfall verhindern soll.
     fn auf_software(&mut self, grund: &str) -> Result<()> {
+        // **Erst ein frischer Hardware-Anlauf, dann Software** (Befund
+        // 2026-08-16). Die Stockung entsteht, weil der Videoring der
+        // Grafikeinheit haengt; der Kernel setzt ihn dann zurueck
+        // (`amdgpu ... Ring vcn_unified_0 reset succeeded`) und die Einheit
+        // arbeitet wieder. Ein frischer Decoder-Kontext auf zurueckgesetzter
+        // Hardware hat also gute Aussichten — waehrend Software fuer den Rest
+        // der Sitzung gilt (`hardware` wird nirgends je wieder wahr) und
+        // gemessen 4,3 auf 5,1-11,2 ms je Bild und 30 auf 17-19 gezeichnete
+        // Bilder je Sekunde kostete.
+        //
+        // Genau EIN Versuch: haengt der Ring danach erneut, liegt es nicht am
+        // Kontext, und ein zweiter Anlauf verschoebe den Rueckfall nur um die
+        // naechste Kaskade. Der Zaehler laeuft ueber die ganze Sitzung und
+        // wird nie zurueckgesetzt.
+        if self.hardware_anlaeufe < MAX_HARDWARE_ANLAEUFE {
+            self.hardware_anlaeufe += 1;
+            eprintln!(
+                "pulse-player: Decoder {} stockt: {grund} — frischer Hardware-Anlauf \
+                 {}/{MAX_HARDWARE_ANLAEUFE}",
+                self.name, self.hardware_anlaeufe
+            );
+            if let Ok(fresh) = Self::new(self.codec, Some(true), self.geraet.clone()) {
+                if fresh.hardware {
+                    self.decoder_uebernehmen(fresh);
+                    return Ok(());
+                }
+                // Kein Hardware-Kandidat mehr verfuegbar — dann ist der
+                // Rueckfall ohnehin das, was gleich passiert waere.
+            }
+        }
         eprintln!("pulse-player: Decoder {} wird aufgegeben: {grund} — weiter in Software", self.name);
         self.frischer_software_decoder()
     }
@@ -1575,6 +1621,18 @@ impl VideoDecoder {
     /// und die Meldung ist der Vorgang derselbe.
     fn frischer_software_decoder(&mut self) -> Result<()> {
         let fresh = Self::new(self.codec, Some(false), self.geraet.clone())?;
+        self.decoder_uebernehmen(fresh);
+        Ok(())
+    }
+
+    /// Den frisch gebauten Decoder an die Stelle des laufenden setzen.
+    ///
+    /// Gemeinsamer Rumpf von [`Self::frischer_software_decoder`] und dem
+    /// Hardware-Anlauf in [`Self::auf_software`]. Herausgeloest, weil beide
+    /// dieselben Zaehler zuruecksetzen muessen und ein zweiter Nachbau davon
+    /// genau die Sorte Doppelung waere, bei der irgendwann einer der Zaehler
+    /// stehenbleibt.
+    fn decoder_uebernehmen(&mut self, fresh: Self) {
         self.decoder = fresh.decoder;
         self.name = fresh.name;
         self.hardware = fresh.hardware;
@@ -1586,7 +1644,7 @@ impl VideoDecoder {
         // er braucht denselben Einstiegspunkt wie beim Sitzungsbeginn.
         self.awaiting_keyframe = true;
         self.skipped_before_keyframe = 0;
-        // Der Ersatz ist IMMER Software, liefert also `YUV420P`/`YUV420P10LE`
+        // Ist der Ersatz Software, liefert er `YUV420P`/`YUV420P10LE`
         // — und fuer die ist `crate::zerocopy::bruecke_moeglich` falsch (sie
         // kennt nur `D3D11`, `CUDA` und `VAAPI`). Beide Halden des Hardware-Wegs werden
         // hier also nie wieder angefasst: `hw_ziel` ein volles Bild (1,4 MB bei
@@ -1620,7 +1678,6 @@ impl VideoDecoder {
         // Uebel: 320 MB kosten Speicher, ein geschlossenes Handle kostet den
         // Prozess.
         self.hw_ziel = ffmpeg::util::frame::video::Video::empty();
-        Ok(())
     }
 
     /// Nach einem Paketverlust wieder auf einen Einstiegspunkt warten.

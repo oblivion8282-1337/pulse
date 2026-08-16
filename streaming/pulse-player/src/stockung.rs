@@ -76,17 +76,39 @@ pub fn melden(a: Abschnitte, bilder: usize) {
     );
 }
 
-/// Wie viele Stockungen innerhalb von [`FENSTER`] den Hardware-Weg aufgeben.
+/// Wie viele Stockungs-BUENDEL innerhalb von [`FENSTER`] den Hardware-Weg
+/// aufgeben.
 ///
-/// Drei, nicht eine: eine einzelne Stockung kommt beim Anlauf und beim
-/// Fenster-Vergroessern vor und ist folgenlos. Drei innerhalb von zehn Sekunden
-/// heissen, dass die Grafikeinheit haengt und wieder haengen wird — gemessen am
-/// 2026-08-06 (s. Modulkopf) traten sie in Serien zu Dutzenden auf, nie
-/// vereinzelt.
+/// Drei, nicht eines: ein einzelnes Buendel kommt beim Anlauf und beim
+/// Fenster-Vergroessern vor und ist folgenlos. Drei heissen, dass die
+/// Grafikeinheit haengt und wieder haengen wird — gemessen am 2026-08-06
+/// (s. Modulkopf) traten sie in Serien zu Dutzenden auf, nie vereinzelt.
 const GENUG: u32 = 3;
 
 /// Beobachtungsfenster fuer [`GENUG`].
-const FENSTER: Duration = Duration::from_secs(10);
+///
+/// **Von 10 s auf 60 s erhoeht (2026-08-16).** Zusammen mit [`BUENDEL`] zaehlt
+/// der Waechter jetzt getrennte Zwischenfaelle statt Einzelstockungen, und drei
+/// getrennte Zwischenfaelle in zehn Sekunden gibt es praktisch nicht — das
+/// Fenster war damit zu eng, um noch etwas zu erkennen.
+const FENSTER: Duration = Duration::from_secs(60);
+
+/// Wie dicht zwei Stockungen liegen duerfen, um als EIN Zwischenfall zu gelten.
+///
+/// **Der Grund, aus dem es das gibt** (Befund 2026-08-16, belegt in `dmesg`):
+/// ein haengender Videoring der Grafikeinheit kommt nie einzeln. Der Kernel
+/// setzt ihn zurueck, der naechste Auftrag haengt sofort wieder, zurueck,
+/// wieder — gemessen drei `vcn_unified_0 timeout`-Meldungen in vier Sekunden.
+/// Der Waechter war damit exakt auf die Form EINES einzigen Treiberzwischen-
+/// falls kalibriert: er las die Kaskade als „dreimal haengengeblieben, das
+/// Geraet ist hin" und gab den Hardware-Weg fuer den Rest der Sitzung auf,
+/// obwohl der Kernel den Ring erfolgreich zurueckgesetzt hatte und dieselbe
+/// Maschine unmittelbar davor zwei Stroeme in 4,3 ms je Bild dekodierte.
+///
+/// Eine Sekunde: die Kaskade laeuft in Abstaenden von rund zwei Sekunden, die
+/// Stockungen SELBST dauern aber schon gut zwei Sekunden — gezaehlt wird ab
+/// dem Ende der vorigen, und dort liegen die Nachzuender dicht beieinander.
+const BUENDEL: Duration = Duration::from_secs(1);
 
 /// Zaehlt Stockungen und sagt, wann der Hardware-Decoder aufzugeben ist.
 ///
@@ -100,8 +122,10 @@ const FENSTER: Duration = Duration::from_secs(10);
 /// Absturz, und im Log stand nichts.
 #[derive(Default)]
 pub struct Waechter {
-    /// Zeitpunkte der letzten Stockungen, aelteste zuerst.
+    /// Beginn der letzten Buendel, aeltestes zuerst.
     letzte: Vec<Instant>,
+    /// Die zuletzt gemeldete Stockung — daran haengt die Buendelung.
+    zuletzt: Option<Instant>,
 }
 
 impl Waechter {
@@ -109,7 +133,15 @@ impl Waechter {
     ///
     /// Sagt nur einmal `true`: danach ist der Zaehler leer, und der Aufrufer
     /// hat bereits umgestellt.
+    ///
+    /// Stockungen, die weniger als [`BUENDEL`] auseinanderliegen, zaehlen als
+    /// ein Zwischenfall — Begruendung dort.
     pub fn stockung(&mut self, jetzt: Instant) -> bool {
+        let nachzuender = self.zuletzt.is_some_and(|t| jetzt.duration_since(t) < BUENDEL);
+        self.zuletzt = Some(jetzt);
+        if nachzuender {
+            return false;
+        }
         self.letzte.retain(|t| jetzt.duration_since(*t) < FENSTER);
         self.letzte.push(jetzt);
         if self.letzte.len() < GENUG as usize {
@@ -203,6 +235,23 @@ mod tests {
         assert!(w.stockung(t + Duration::from_secs(2)), "drei in zehn Sekunden sind genug");
         // Danach faengt die Zaehlung von vorn an — der Aufrufer hat umgestellt.
         assert!(!w.stockung(t + Duration::from_secs(3)));
+    }
+
+    /// **Der gemessene Treiberzwischenfall** (2026-08-16): drei Ring-Resets in
+    /// vier Sekunden, dazwischen je eine Stockung. Das ist EIN Zwischenfall und
+    /// darf den Hardware-Weg nicht kosten — die Maschine dekodierte unmittelbar
+    /// davor zwei Stroeme in 4,3 ms je Bild.
+    #[test]
+    fn eine_kernel_kaskade_ist_ein_zwischenfall() {
+        let mut w = Waechter::default();
+        let t = Instant::now();
+        for ms in [0u64, 300, 700, 950] {
+            assert!(!w.stockung(t + Duration::from_millis(ms)), "Nachzuender bei {ms} ms");
+        }
+        // Zwei WEITERE getrennte Zwischenfaelle sind noetig, erst dann ist
+        // Schluss — der erste zaehlt als einer, nicht als vier.
+        assert!(!w.stockung(t + Duration::from_secs(10)));
+        assert!(w.stockung(t + Duration::from_secs(20)));
     }
 
     /// Weit auseinanderliegende Einzelfaelle duerfen sich nicht aufsummieren:
