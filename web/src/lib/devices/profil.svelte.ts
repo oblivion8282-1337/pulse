@@ -68,6 +68,26 @@ export interface StandplatzProfil {
   aufloesung: string;
   fps: number;
   bitrate_kbps: number;
+  /**
+   * Rollender Intra-Refresh statt periodischer Vollbilder.
+   *
+   * **Warum das hier steht und nicht dem Sidecar überlassen bleibt:** ohne
+   * eigenes Feld entschied die Voreinstellung des Sidecars, und der Besitzer
+   * hatte für den Fernbetrieb gar keine Wahl — obwohl gerade dort viel davon
+   * abhängt. Ein periodisches Vollbild ist bei 30 Bildern je Sekunde ein
+   * Brocken, der die Leitung für einen Moment dichtmacht (gemessen: 170–247 KB
+   * alle gut zwei Sekunden bei 2,5 Mbit/s); Intra-Refresh verteilt dieselbe
+   * Auffrischung über viele Bilder und hält den Fluss gleichmässig. Ausserdem
+   * hängt der Sendeweg daran: mit Intra-Refresh geht auch AV1 über WHIP, den
+   * einzigen Weg mit Rückkanal (`pushProtokoll`).
+   *
+   * **Vorgabe ist trotzdem AUS.** Kann der Encoder es nicht, verweigert der
+   * Sidecar den Start, statt heimlich etwas anderes zu fahren
+   * (`encode/auffrischung.rs`) — auf einem Rechner, vor dem niemand sitzt,
+   * wäre ein verweigerter Start ein Weckruf, der wortlos ins Leere läuft. Wer
+   * es einschaltet, hat es vorher an seinem Gerät ausprobiert.
+   */
+  intra_refresh: boolean;
 }
 
 /** Die Vorgaben — Begründung im Modulkopf. */
@@ -77,6 +97,7 @@ export const VORGABE: StandplatzProfil = {
   aufloesung: 'Native',
   fps: 30,
   bitrate_kbps: 8000,
+  intra_refresh: false,
 };
 
 function ausSpeicher(roh: unknown): StandplatzProfil {
@@ -92,6 +113,7 @@ function ausSpeicher(roh: unknown): StandplatzProfil {
       typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0
         ? o.bitrate_kbps
         : VORGABE.bitrate_kbps,
+    intra_refresh: o.intra_refresh === true,
   };
 }
 
@@ -132,6 +154,12 @@ class StandplatzProfilStore {
       resolution: p.aufloesung,
       fps: p.fps,
       bitrate_kbps: p.bitrate_kbps,
+      // **Immer gesetzt, auch als `false`.** Ein fehlendes Feld heisst „der
+      // Sidecar entscheidet", und der behält dann die Betriebsart des vorigen
+      // Laufs (prozessweite Variable, s. `buildStartArgs`). Auf einem Gerät,
+      // das mehrmals am Tag geweckt wird, wäre das eine Einstellung, die von
+      // der Vorgeschichte abhängt statt vom Profil.
+      intra_refresh: p.intra_refresh,
     };
   }
 }
