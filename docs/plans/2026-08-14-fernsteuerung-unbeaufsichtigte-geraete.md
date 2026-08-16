@@ -153,6 +153,17 @@ das dort steht.
 rund vier Stufen je Pixel. Getrennte Aufnahmen je Monitor bräuchten je einen
 Slot und eine Zuordnung, welcher Slot welchen Schirm meint.
 
+> **Nachtrag 2026-08-16: geht auf Windows heute nicht.** Der Aufnahmeweg kennt
+> genau drei Quellen — Hauptbildschirm, ein Monitor über seinen Index, ein
+> Fenster (`win-hq-sidecar/src/ops/start.rs::parse_capture`); Windows Graphics
+> Capture nimmt immer **einen** Schirm auf. Ein Gerät zeigt also einen
+> Bildschirm, und der Steuernde erreicht auch nur diesen. Die beiden Auswege
+> sind genau die, die dieser Absatz vermeiden wollte (ein Stream je Schirm) oder
+> ein virtueller Monitor, der alle Schirme spiegelt — eine Treiber-Frage,
+> keine Pulse-Frage. Bis dahin ist die Vorgabe des Standplatz-Profils der
+> **Hauptbildschirm**, weil ein gemerkter `Monitor: 2` auf einem
+> unbeaufsichtigten Rechner noch schlechter altert.
+
 ## 6. Registrierung: ein Gerät ist ein Ausweis, kein Konto
 
 **Nachtrag 2026-08-16.** Die Frage „wie meldet sich so ein Gerät überhaupt an"

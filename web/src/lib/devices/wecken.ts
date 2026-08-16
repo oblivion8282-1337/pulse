@@ -31,6 +31,7 @@ import { geraeteAnmeldung } from './anmeldung.svelte';
 import { streamStarten } from '$lib/stream/starten';
 import { nextFreeStreamSlot } from '$lib/stream/slotControl.svelte';
 import { runningStreamSlots } from '$lib/stream/state.svelte';
+import { standplatzProfil } from './profil.svelte';
 
 /**
  * Einen Weckruf absetzen. `false` = nicht hinausgegangen (keine Verbindung);
@@ -68,5 +69,11 @@ export async function weckrufBehandeln(
   const eintrag = geraeteAnmeldung.fuerServer(serverId);
   if (!eintrag || eintrag.deviceId !== deviceId) return;
   if (runningStreamSlots().length > 0) return;
-  await streamStarten(channelId, nextFreeStreamSlot());
+  // **Mit dem Standplatz-Profil, nicht mit den Einstellungen des Besitzers.**
+  // Der Rechner überträgt hier für jemand anderen und zu einem anderen Zweck
+  // als beim Vorführen; die Begründung der Vorgaben steht in `profil.svelte.ts`.
+  await streamStarten(channelId, nextFreeStreamSlot(), {
+    quelle: standplatzProfil.profil.quelle,
+    uebersteuerung: standplatzProfil.alsUebersteuerung(),
+  });
 }

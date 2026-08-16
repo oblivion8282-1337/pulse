@@ -35,6 +35,7 @@
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { standplatzProfil } from '$lib/devices/profil.svelte';
   import { loadAll } from '$lib/stream/persistence';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
@@ -151,6 +152,7 @@
       standplatz.laden(geraeteSpeicher),
       remoteProtokoll.laden(geraeteSpeicher),
       geraeteAnmeldung.laden(geraeteSpeicher),
+      standplatzProfil.laden(geraeteSpeicher),
     ]);
     void gateway.connect().catch((e) => console.error('gateway connect', e));
     // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle

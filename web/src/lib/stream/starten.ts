@@ -9,6 +9,10 @@
  * Auto-Neustart merken —, und ein zweiter Nachbau davon wäre die Sorte
  * Doppelung, die irgendwann auseinanderläuft.
  *
+ * **Das Standplatz-Profil reist als Argument mit**, statt hier aus dem Store
+ * gelesen zu werden: dieselbe Funktion trägt beide Anlässe, und nur der Rufer
+ * weiss, welcher es ist (`$lib/devices/wecken.ts` gegen den Knopf).
+ *
  * **Ohne Meldungen.** Die Fehlertexte des Knopfes hängen an seinen eigenen
  * Zuständen (Toast, Fehlerzeile im Dialog); das Wecken meldet ganz anders
  * (der Steuernde sitzt woanders). Deshalb liefert diese Datei den ROHEN Fehler
@@ -19,6 +23,7 @@ import { chatApi } from '$lib/api/chat';
 import { gsr } from './gsr';
 import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
 import { resolveSlotLabel } from './label';
+import type { OverrideSet } from './settingsCatalog';
 import { recordStreamStart } from './autoRestart';
 import { stream } from './state.svelte';
 
@@ -35,7 +40,11 @@ export type StartErgebnis =
  * Wirft nicht — jeder Fehlschlag kommt als Ergebnis zurück. Beide Aufrufer
  * stehen in Pfaden, die danach noch aufräumen oder melden müssen.
  */
-export async function streamStarten(channelId: string, slot: number): Promise<StartErgebnis> {
+export async function streamStarten(
+  channelId: string,
+  slot: number,
+  standplatz?: { quelle: string; uebersteuerung: OverrideSet },
+): Promise<StartErgebnis> {
   let tok;
   try {
     // Den lesbaren Namen (etwa „Monitor 1", „Chrome") einmal beim Start
@@ -44,11 +53,14 @@ export async function streamStarten(channelId: string, slot: number): Promise<St
     const label = resolveSlotLabel(slot).label;
     tok = await chatApi.getStreamToken(
       channelId,
-      // Warum Betriebsart UND Codec den Transport mitentscheiden: s. `pushProtokoll`.
-      pushProtokoll(),
+      // Warum Betriebsart UND Codec den Transport mitentscheiden: s.
+      // `pushProtokoll`. Beim Standplatz-Gerät entscheidet der Codec des
+      // PROFILS — sonst holt der Client ein Token für den falschen Weg.
+      pushProtokoll(standplatz?.uebersteuerung),
       slot,
       label,
-      tenBitPossible(),
+      // 10 bit gibt es im Fernbetrieb nicht (s. `devices/profil.svelte.ts`).
+      standplatz ? false : tenBitPossible(),
       // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen kann —
       // heute allein der Windows-Sidecar. Der Wert reist mit dem Stream bis zum
       // Zuschauer und entscheidet dort, ob der Anfrage-Knopf erscheint.
@@ -59,7 +71,11 @@ export async function streamStarten(channelId: string, slot: number): Promise<St
   }
 
   try {
-    const args = buildStartArgs({ channelId, token: tok.token, pushUrl: tok.push_url }, slot);
+    const args = buildStartArgs(
+      { channelId, token: tok.token, pushUrl: tok.push_url },
+      slot,
+      standplatz,
+    );
     const r = await gsr.start(args, slot);
     if (r && !r.ok) return { ok: false, stufe: 'start', fehler: r.error };
     // Den Kanal für den Auto-Neustart nach einer Auflösungsänderung merken —

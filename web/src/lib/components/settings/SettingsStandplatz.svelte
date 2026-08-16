@@ -19,6 +19,7 @@
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import SettingsGeraeteEintragung from './SettingsGeraeteEintragung.svelte';
+  import SettingsStandplatzProfil from './SettingsStandplatzProfil.svelte';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import XIcon from '@lucide/svelte/icons/x';
@@ -201,6 +202,8 @@
     </div>
 
     <SettingsGeraeteEintragung />
+
+    <SettingsStandplatzProfil />
 
     <!-- Protokoll -->
     <div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
