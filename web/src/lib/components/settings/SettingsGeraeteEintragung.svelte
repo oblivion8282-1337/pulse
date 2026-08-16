@@ -32,6 +32,82 @@
   let eintragBusy = $state(false);
   let eintragFehler = $state<string | null>(null);
 
+  /**
+   * Die eigene Gerätezeile — sie kennt den aktuellen Standplatz, die Eintragung
+   * kennt nur die Community. Vorgeladen, weil auf einem Standplatz-Gerät
+   * niemand die Community ansieht (dieselbe Begründung wie in `DeviceKiosk`).
+   */
+  const geraet = $derived(
+    eintragung ? deviceStore.byId(eintragung.guildId, eintragung.deviceId) : null,
+  );
+  $effect(() => {
+    if (eintragung) void deviceStore.ensureLoaded(eintragung.guildId);
+  });
+
+  const eigeneKanaele = $derived(
+    eintragung ? (guilds.channelsByGuild[eintragung.guildId] ?? []).filter((c) => c.type === 1) : [],
+  );
+
+  /**
+   * Der gewählte Standplatz im Formular.
+   *
+   * `$state` mit Nachführung statt `bind:value` direkt auf die Gerätezeile: die
+   * kommt über die WebSocket und würde eine gerade getroffene Auswahl
+   * überschreiben, sobald irgendein `device_changed` hereinkommt.
+   */
+  let neuerKanal = $state('');
+  $effect(() => {
+    const jetzt = geraet?.channel_id ?? '';
+    if (jetzt && !neuerKanal) neuerKanal = jetzt;
+  });
+
+  /** Der Name im Formular. Wie beim Kanal nachgeführt, nicht gebunden — ein
+   *  `device_changed` von der WebSocket würde sonst mitten im Tippen
+   *  überschreiben. */
+  let neuerName = $state('');
+  $effect(() => {
+    const jetzt = geraet?.name ?? eintragung?.name ?? '';
+    if (jetzt && !neuerName) neuerName = jetzt;
+  });
+
+  async function umbenennen(): Promise<void> {
+    const e = eintragung;
+    const name = neuerName.trim();
+    if (!e || !name || name === (geraet?.name ?? e.name)) return;
+    eintragBusy = true;
+    eintragFehler = null;
+    try {
+      const aktualisiert = await devicesApi.patch(e.guildId, e.deviceId, { name });
+      deviceStore._changed(aktualisiert.guild_id, aktualisiert, false);
+      // Die lokale Eintragung führt den Namen nur für die Anzeige — sie muss
+      // trotzdem mit, sonst steht hier nach dem nächsten Start wieder der alte.
+      await geraeteAnmeldung.merken({ ...e, name: aktualisiert.name });
+    } catch (err) {
+      eintragFehler = err instanceof Error ? err.message : String(err);
+    } finally {
+      eintragBusy = false;
+    }
+  }
+
+  async function umstellen(): Promise<void> {
+    const e = eintragung;
+    if (!e || !neuerKanal || neuerKanal === geraet?.channel_id) return;
+    eintragBusy = true;
+    eintragFehler = null;
+    try {
+      // Der Server beendet dabei laufende Fernsteuerungen und meldet den Wechsel
+      // an beide Kanäle — hier ist nichts nachzustellen (`routes/devices.py`).
+      const aktualisiert = await devicesApi.patch(e.guildId, e.deviceId, {
+        channel_id: neuerKanal,
+      });
+      deviceStore._changed(aktualisiert.guild_id, aktualisiert, false);
+    } catch (err) {
+      eintragFehler = err instanceof Error ? err.message : String(err);
+    } finally {
+      eintragBusy = false;
+    }
+  }
+
   const sprachkanaele = $derived(
     (guilds.channelsByGuild[zielGuild] ?? []).filter((c) => c.type === 1),
   );
@@ -115,13 +191,34 @@
       <MonitorCogIcon class="size-4" />
       {m.device_settings_register_title()}
     </span>
-    <span class="text-text-muted text-xs">{m.device_settings_register_hint()}</span>
 
     {#if eintragung}
-      <div class="border-border/60 flex items-center gap-2 border-t pt-3">
-        <span class="text-text-bright min-w-0 flex-1 truncate font-mono text-sm">
-          {eintragung.name}
-        </span>
+      <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
+        <label class="flex flex-col gap-1">
+          <span class="text-text-muted text-xs">{m.device_settings_register_channel()}</span>
+          <select
+            class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
+            bind:value={neuerKanal}
+            disabled={eintragBusy || eigeneKanaele.length === 0}
+            onchange={() => void umstellen()}
+            data-testid="device-move-channel"
+          >
+            {#each eigeneKanaele as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+      <label class="flex flex-col gap-1">
+        <span class="text-text-muted text-xs">{m.device_settings_register_name()}</span>
+        <Input
+          bind:value={neuerName}
+          disabled={eintragBusy}
+          onblur={() => void umbenennen()}
+          data-testid="device-rename"
+        />
+      </label>
+      <div class="flex items-center gap-2">
         <Button
           size="sm"
           variant="destructive"
@@ -164,7 +261,6 @@
         <label class="flex flex-col gap-1">
           <span class="text-text-muted text-xs">{m.device_settings_register_name()}</span>
           <Input bind:value={geraetName} placeholder="werkstatt-pc" data-testid="device-register-name" />
-          <span class="text-text-muted text-xs">{m.device_settings_register_name_hint()}</span>
         </label>
         <div class="flex justify-end pt-1">
           <Button

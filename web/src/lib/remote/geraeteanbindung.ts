@@ -77,7 +77,15 @@ export function ohneRueckfrage(channelId: string, vonUserId: string | null): boo
   // ein Fehler), und das Protokoll trennt daran die selbsttätige von der
   // bestätigten Übernahme.
   const server = dispatchenderServer();
-  return standplatz.darfOhneRueckfrage(server, channelId, vonUserId, standplatzKanal(server));
+  // Die Eintragung reist als letzte Zusicherung mit: ist der Standplatz gerade
+  // nicht auflösbar, entscheidet sie für „jeder" (Begründung dort).
+  return standplatz.darfOhneRueckfrage(
+    server,
+    channelId,
+    vonUserId,
+    standplatzKanal(server),
+    geraeteAnmeldung.fuerServer(server) !== null,
+  );
 }
 
 /**
@@ -94,6 +102,23 @@ function standplatzKanal(serverId: string | null): string | null {
   const eintrag = geraeteAnmeldung.fuerServer(serverId);
   if (!eintrag) return null;
   return deviceStore.byId(eintrag.guildId, eintrag.deviceId)?.channel_id ?? null;
+}
+
+/**
+ * Der Besitzer hat abgelehnt — der geweckte Rechner hört sofort auf.
+ *
+ * Getrennt von [`uebernahmeBeenden`], weil die Anlässe verschieden sind: dort
+ * endet eine Sitzung (und nur eine zustande gekommene schickt das Gerät
+ * schlafen), hier gab es nie eine. Ohne diesen Weg fiele die Ablehnung an die
+ * Nachlauf-Wache (`devices/wecken.ts`, 90 s) — die ist als Netz für Fälle ohne
+ * Entscheidung gedacht, nicht als Wartezeit nach einem Nein.
+ *
+ * Nur auf einem eingetragenen Gerät und nur für die Ströme, die ein Weckruf
+ * gestartet hat; was der Besitzer von Hand gestartet hat, bleibt unangetastet.
+ */
+export async function abgelehntEingeschlafen(): Promise<void> {
+  if (geraeteAnmeldung.eintragungen.length === 0) return;
+  await wiederEinschlafen();
 }
 
 /**
