@@ -115,20 +115,28 @@ test.describe.serial('Roles + Permissions E2E', () => {
 
   test('alice creates a "Mod" role with MANAGE_MESSAGES + a hoist colour', async () => {
     // The Rollen tab is selected by default for users with MANAGE_ROLES.
+    // "Neu" klappt seit dem Rangleiter-Umbau ein Menü auf (leere Rolle /
+    // drei Vorlagen / "<Rolle> duplizieren") — der Test nimmt die leere.
     await alice.getByTestId('role-create').click();
+    await alice.getByTestId('role-create-empty').click();
 
     // Rename it; the dialog seeds "Neue Rolle".
     const nameInput = alice.getByTestId('role-name-input');
+    await expect(nameInput).toHaveValue('Neue Rolle');
     await nameInput.fill('Mod');
 
-    // Enable colour + hoist for the member-list grouping test below.
+    // Farbe und "hervorheben" leben jetzt im Reiter "Darstellung"; der
+    // Name steht weiterhin über den Reitern und ist immer erreichbar.
+    await alice.getByTestId('role-tab-darstellung').click();
     await alice.getByTestId('role-color-enabled').check();
+    // Make it hoist so we can verify the member-list grouping later.
+    await alice.getByTestId('role-hoist').check();
+
     // MANAGE_MESSAGES bit value is 1<<23. We toggle by clicking the
     // checkbox keyed by the bit value (see perm-toggle-${bit} testid in
     // PermissionToggleGrid).
+    await alice.getByTestId('role-tab-rechte').click();
     await alice.getByTestId(`perm-toggle-${1 << 23}`).check();
-    // Make it hoist so we can verify the member-list grouping later.
-    await alice.locator('input[type=checkbox]').filter({ hasText: '' }).nth(2).check();
 
     await alice.getByTestId('role-save').click();
 
@@ -176,6 +184,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await alice.getByTestId('guild-settings').click();
     await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
     await alice.getByTestId('role-create').click();
+    await alice.getByTestId('role-create-empty').click();
     const nameInput = alice.getByTestId('role-name-input');
     // Wait until the buffer has been re-seeded for the freshly-created
     // role. Without this, fill('Helper') can land on the still-visible
@@ -232,8 +241,12 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
     await alice.getByTestId('guild-settings').click();
     await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
-    // The Mod row is what we'll edit. Click it to select.
-    await alice.getByTestId(`role-row-${modRoleId}`).click();
+    // The Mod row is what we'll edit. Click it to select. Getroffen wird
+    // der Name, nicht die ganze Zeile: die Zeile traegt seit dem
+    // Rangleiter-Umbau links einen Ziehgriff und rechts die Pfeile, und
+    // die tun etwas anderes als „auswaehlen".
+    await alice.getByTestId(`role-name-${modRoleId}`).click();
+    await alice.getByTestId('role-tab-darstellung').click();
     // Enable colour if it isn't already.
     const colourEnabled = alice.getByTestId('role-color-enabled');
     if (!(await colourEnabled.isChecked())) {
@@ -250,10 +263,11 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await alice.getByTestId('role-save').click();
 
     // After save, the row's name span should have an inline color
-    // style — the row template wraps the name in
-    // ``<span style="color: #...">``.
-    const modRow = alice.getByTestId(`role-row-${modRoleId}`);
-    const nameSpan = modRow.locator('span').first();
+    // style. Die Zeile trägt seit dem Rangleiter-Umbau links einen
+    // Farbpunkt, ist also nicht mehr das erste <span> — deshalb hat der
+    // Name jetzt eine eigene Kennung, statt sich auf die Reihenfolge im
+    // Baum zu verlassen.
+    const nameSpan = alice.getByTestId(`role-name-${modRoleId}`);
     await expect
       .poll(
         async () =>
@@ -322,8 +336,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     }
     await rolesTab.click();
     // Make sure the Mod row is selected, then edit its name without saving.
-    const modRow = alice.locator(`[data-testid="role-row-${modRoleId}"]`);
-    await modRow.click();
+    await alice.getByTestId(`role-name-${modRoleId}`).click();
     const nameInput = alice.getByTestId('role-name-input');
     await nameInput.fill('ModDirty');
     // Press Escape — the dialog should NOT close because of the dirty

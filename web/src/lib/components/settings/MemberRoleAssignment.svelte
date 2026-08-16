@@ -13,7 +13,6 @@
   we keep the optimistic state until the API confirms.
 -->
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import SearchIcon from '@lucide/svelte/icons/search';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
@@ -23,14 +22,15 @@
   import { rolesApi, type Role } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import { userCache } from '$lib/stores/users.svelte';
-  import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
+  import { sperreFuer } from './roles/zuweisung';
+  import { passtZurSuche } from './roles/traeger.svelte';
   import type { Member } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
-  function displayName(m: Member): string {
-    return m.nickname ?? userCache.displayName(m.user_id);
+  function displayName(mbr: Member): string {
+    return mbr.nickname ?? userCache.displayName(mbr.user_id);
   }
 
   let { guildId, editorPermissions }: { guildId: string; editorPermissions: string } = $props();
@@ -50,16 +50,13 @@
       .sort((a, b) => b.position - a.position)
   );
 
-  let filteredMembers = $derived(
-    !filter.trim()
-      ? members
-      : members.filter((mbr) => {
-          const needle = filter.trim().toLowerCase();
-          return (mbr.nickname ?? '').toLowerCase().includes(needle)
-            || userCache.displayName(mbr.user_id).toLowerCase().includes(needle)
-            || mbr.user_id.includes(needle);
-        })
-  );
+  // Dieselbe Suchregel wie im Reiter „Mitglieder" — sie liegt in
+  // `roles/traeger.svelte.ts`, damit beide Richtungen dasselbe finden.
+  let filteredMembers = $derived.by(() => {
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return members;
+    return members.filter((mbr) => passtZurSuche(mbr, needle));
+  });
 
   onMount(async () => {
     try {
@@ -90,21 +87,9 @@
     }
   }
 
-  /** Resolved disabled state for one (member, role) toggle. */
-  function locked(role: Role): { locked: boolean; reason: string | null } {
-    // Anti-escalation mirror: the editor must hold every bit the role
-    // grants. ADMINISTRATOR is the most common trap.
-    const rolePerm = toBitfield(role.permissions);
-    const editorPerm = toBitfield(editorPermissions);
-    const missing = rolePerm & ~editorPerm;
-    if (missing !== 0n) {
-      if (has(rolePerm, Perm.ADMINISTRATOR) && !has(editorPerm, Perm.ADMINISTRATOR)) {
-        return { locked: true, reason: m.member_role_assignment_locked_admin() };
-      }
-      return { locked: true, reason: m.member_role_assignment_locked_missing_bits() };
-    }
-    return { locked: false, reason: null };
-  }
+  // Die Anti-Eskalations-Spiegelung liegt in `roles/zuweisung.ts`: die
+  // rollenzentrierte Ansicht (`RolleTraeger`) stellt dieselbe Frage, und
+  // zwei Kopien derselben Regel driften auseinander.
 
   async function toggle(userId: string, role: Role, on: boolean): Promise<void> {
     const key = `${userId}:${role.id}`;
@@ -113,7 +98,11 @@
     // Optimistic update so the checkbox doesn't flicker.
     const existing = memberRoleIds[userId] ?? new Set<string>();
     const next = new Set(existing);
-    on ? next.add(role.id) : next.delete(role.id);
+    if (on) {
+      next.add(role.id);
+    } else {
+      next.delete(role.id);
+    }
     memberRoleIds = { ...memberRoleIds, [userId]: next };
     try {
       if (on) {
@@ -128,7 +117,11 @@
       // (userId,roleId)) würde sonst verworfen. Server-403 (z.B. Hierarchie-
       // Verstoß) macht diesen Pfad realistisch.
       const rollback = new Set(memberRoleIds[userId] ?? existing);
-      on ? rollback.delete(role.id) : rollback.add(role.id);
+      if (on) {
+        rollback.delete(role.id);
+      } else {
+        rollback.add(role.id);
+      }
       memberRoleIds = { ...memberRoleIds, [userId]: rollback };
       toast.error(m.member_role_assignment_toggle_failed(), { description: (err as Error).message });
     } finally {
@@ -196,7 +189,7 @@
       </header>
       <ul class="divide-border divide-y">
         {#each assignableRoles as r (r.id)}
-          {@const lock = locked(r)}
+          {@const lock = sperreFuer(r, editorPermissions)}
           {@const checked = memberRoleIds[selectedUserId]!.has(r.id)}
           {@const key = `${selectedUserId}:${r.id}`}
           <li class="flex items-center justify-between py-2">
@@ -205,13 +198,13 @@
                 {r.name}
               </div>
               <div class="text-text-muted text-xs">{m.member_role_assignment_position({ position: r.position })}</div>
-              {#if lock.locked}
-                <div class="text-xs text-warning">{lock.reason}</div>
+              {#if lock.gesperrt}
+                <div class="text-xs text-warning">{lock.grund}</div>
               {/if}
             </div>
             <Checkbox
               {checked}
-              disabled={lock.locked || busy.has(key)}
+              disabled={lock.gesperrt || busy.has(key)}
               onchange={(ev) =>
                 toggle(selectedUserId!, r, (ev.currentTarget as HTMLInputElement).checked)}
               data-testid={`assign-${selectedUserId}-${r.id}`}
