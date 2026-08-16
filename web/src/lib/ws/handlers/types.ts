@@ -18,6 +18,7 @@ import type { FriendRequest } from '$lib/stores/friendRequests.svelte';
 import type { CommunityInviteNotification } from '$lib/api/communityInvites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
+import type { Device, DeviceState } from '$lib/api/devices';
 
 /** Art einer `remote_signal`-Nutzlast: SDP-Angebot, SDP-Antwort, ICE-Kandidat
  *  (`$lib/remote/p2p.ts`) — und die beiden Auskünfte, die vom Host zum
@@ -371,6 +372,27 @@ export type ServerEvent =
   // Eine andere Host-Tab hat die Anfrage beantwortet → diese Tab schließt ihren
   // offenen Consent-Dialog.
   | { op: 'remote_canceled'; session_id: string }
+  // Standplatz-Geraete (`$lib/devices/`). Beide sind im Gateway schon nach dem
+  // Standplatz gefiltert: wer den Kanal nicht sehen darf, bekommt sie nicht.
+  // `device_changed` traegt die ganze Zeile (auch beim Entfernen — die Kennung
+  // wird zum Austragen gebraucht), `device_state` nur den Zustand.
+  | {
+      op: 'device_changed';
+      guild_id: string;
+      channel_id: string;
+      device: Device;
+      removed?: boolean;
+    }
+  // Der Weckruf an das Geraet selbst: „fang bitte an zu uebertragen".
+  | { op: 'device_wake'; device_id: string; channel_id: string; from_user_id: string }
+  | {
+      op: 'device_state';
+      guild_id: string;
+      channel_id: string;
+      device_id: string;
+      state: DeviceState;
+      busy_with?: string | null;
+    }
   | { op: 'error'; code: number; msg: string };
 
 export type ClientEvent =
@@ -429,6 +451,12 @@ export type ClientEvent =
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
   | { op: 'remote_signal'; session_id: string; kind: RemoteSignalKind; data: unknown }
   | { op: 'remote_end'; session_id: string }
+  // „Dieser Rechner ist das Standplatz-Geraet X" — und die Ruecknahme. Der
+  // Server sieht Verbindungen von Nutzern, nicht von Rechnern; nur der Rechner
+  // selbst kennt seine Kennung (`$lib/devices/anmeldung.svelte.ts`).
+  | { op: 'device_announce'; device_id: string }
+  | { op: 'device_wake'; device_id: string }
+  | { op: 'device_withdraw'; device_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
   // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —

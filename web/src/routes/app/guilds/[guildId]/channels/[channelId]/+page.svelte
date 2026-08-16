@@ -6,6 +6,9 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import DeviceView from '$lib/devices/components/DeviceView.svelte';
+  import { deviceStore } from '$lib/devices/store.svelte';
+  import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
   import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
@@ -508,6 +511,20 @@
       console.error(e);
     }
   }
+
+  // **Das geoeffnete Geraet steht in der Adresse** (`?device=`), nicht in einem
+  // Zustand: so ueberlebt es einen Neuladen, ist verlinkbar und der
+  // Zurueck-Knopf tut, was er soll. Der Kanal in der Adresse bleibt dabei der
+  // Standplatz — das Geraet gehoert dorthin, und die Kanalliste hebt beides
+  // zusammen hervor.
+  const offenesGeraet = $derived.by((): Device | null => {
+    const id = page.url.searchParams.get('device');
+    return id ? deviceStore.byId(guildId, id) : null;
+  });
+
+  function geraetOeffnen(d: Device): void {
+    void goto(`/app/guilds/${d.guild_id}/channels/${d.channel_id}?device=${d.id}`);
+  }
 </script>
 
 <!-- Guild-Rail: immer sichtbar (auch Mobil), Discord-Style. -->
@@ -533,6 +550,8 @@
     onCreateClick={() => (creatingChannel = true)}
     {onChannelDeleted}
     canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
+    activeDeviceId={offenesGeraet?.id ?? null}
+    onSelectDevice={geraetOeffnen}
   />
 {/if}
 
@@ -558,6 +577,17 @@
       onReturnToVoice={() => goto(`/app/guilds/${guildId}/channels/${vc.id}`)}
       chat={chatBody}
     />
+  {:else if offenesGeraet}
+    <!-- Ein Geraet steht IN einem Kanal, ist aber keiner: es hat keine
+         Teilnehmer und keinen Verlauf. Es ersetzt deshalb die Kanalansicht,
+         statt neben ihr zu stehen (Entwurf §5: „Anklicken oeffnet das Geraet im
+         Hauptbereich, wie ein Kanal"). -->
+    {#key offenesGeraet.id}
+      <DeviceView
+        device={offenesGeraet}
+        onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
+      />
+    {/key}
   {:else if isVoiceChannel && activeChannel}
     {#key activeChannel.id}
       <VoiceChannelView channel={activeChannel} />

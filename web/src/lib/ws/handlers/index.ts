@@ -17,6 +17,7 @@ import * as presence from './presence';
 import * as stream from './stream';
 import * as watch from './watch';
 import * as remote from './remote';
+import * as devices from './devices';
 import * as friends from './friends';
 import * as ready from './ready';
 import * as error from './error';
@@ -39,6 +40,7 @@ export function registerAllHandlers(
   stream.register();
   watch.register();
   remote.register();
+  devices.register();
   friends.register();
   error.register();
   admin.register();

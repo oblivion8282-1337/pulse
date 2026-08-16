@@ -130,3 +130,26 @@ export function sendRemoteSignal(
 ): boolean {
   return send({ op: 'remote_signal', session_id: sessionId, kind, data });
 }
+
+/** „Dieser Rechner ist das Standplatz-Geraet X."
+ *
+ *  Der Server kann das nicht erraten — er sieht Verbindungen von Nutzern, nicht
+ *  von Rechnern (Begruendung in `$lib/devices/anmeldung.svelte.ts`). Geht nach
+ *  JEDEM `ready` hinaus, auch nach einem Reconnect: die Anmeldung haengt am
+ *  Socket und ist mit ihm weg. */
+export function sendDeviceAnnounce(send: SendRaw, deviceId: string): boolean {
+  return send({ op: 'device_announce', device_id: deviceId });
+}
+
+/** Die Anmeldung ausdruecklich zuruecknehmen (Eintragung entfernt), ohne die
+ *  Verbindung zu kappen. */
+export function sendDeviceWithdraw(send: SendRaw, deviceId: string): boolean {
+  return send({ op: 'device_withdraw', device_id: deviceId });
+}
+
+/** „Fang bitte an zu uebertragen." Getrennt von der Fernsteuer-Anfrage, damit
+ *  eine Sitzungszusage nicht an einer Encoder-Initialisierung haengt
+ *  (`$lib/devices/wecken.ts`). */
+export function sendDeviceWake(send: SendRaw, deviceId: string): boolean {
+  return send({ op: 'device_wake', device_id: deviceId });
+}

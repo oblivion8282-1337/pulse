@@ -38,11 +38,32 @@ from dcc_chat_gateway.device_registry import (
     forget_socket,
     notify_state,
     publish_device_state,
+    sockets_of as _sockets_of,
     withdraw,
 )
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    has_permission,
+    resolve_permissions,
+)
+from dcc_chat_gateway.remote_registry import send_to_socket
 from dcc_chat_gateway.models import Device
 
 log = logging.getLogger(__name__)
+
+
+async def _fehler(ctx: Any, code: int, msg: str) -> None:
+    """Eine Ablehnung, die der Rufer sieht.
+
+    Anders als bei der Anmeldung wird hier geantwortet: das Wecken ist eine
+    ausdrückliche Handlung eines Menschen, und ein toter Knopf ohne Antwort war
+    im Zwei-Geräte-Test die schlechteste Rückmeldung, die es gab. Die Codes
+    sagen absichtlich wenig — „gibt es nicht" deckt auch „darfst du nicht".
+    """
+    try:
+        await ctx.websocket.send_json({"op": "error", "code": code, "msg": msg})
+    except Exception:  # noqa: BLE001  # pragma: no cover
+        log.debug("device error not sent", exc_info=True)
 
 
 def _device_id(msg: dict[str, Any]) -> int | None:
@@ -95,6 +116,55 @@ async def handle_withdraw(ctx: Any, msg: dict[str, Any], *, session_factory=None
     # denen sich ein Gerät abmeldet), und dann fiele die Meldung aus, die den
     # Eintrag aus den Listen der anderen nimmt.
     await notify_state(device_id)
+
+
+async def handle_wake(ctx: Any, msg: dict[str, Any], *, session_factory=None) -> None:
+    """``device_wake`` — „fang bitte an zu übertragen".
+
+    **Warum das getrennt von ``remote_request`` ist** (Entwurf §8): naheliegend
+    wäre, die Anfrage selbst als Weckruf zu nehmen. Dagegen spricht ein
+    konkreter Fehlerfall — dann hinge eine Sitzungszusage an einer
+    Encoder-Initialisierung. Scheitert die (kein Monitor angeschlossen, Encoder
+    belegt, Startverweigerung wegen HDR oder Intra-Refresh), stünde eine aktive
+    Fernsteuer-Sitzung ohne Bild da, und der Fehler wäre nicht lesbar. Also:
+    wecken → übertragen → **dann** die unveränderte ``remote_request``. In der
+    Oberfläche darf das ein Klick sein; hier bleiben es zwei Vorgänge.
+
+    Geprüft wird ``REMOTE_CONTROL`` am **Standplatz** — dasselbe Recht, das für
+    die Übernahme nötig ist. Wer nicht übernehmen darf, darf auch keinen
+    fremden Rechner zum Encodieren bringen; sonst wäre das Wecken ein Weg,
+    einem Gerät dauerhaft Last aufzuzwingen.
+    """
+    device_id = _device_id(msg)
+    if device_id is None:
+        return
+    factory = session_factory or SessionLocal
+    async with factory() as session:
+        device = await session.get(Device, device_id)
+        if device is None:
+            await _fehler(ctx, 4060, "no such device")
+            return
+        wert = await resolve_permissions(session, ctx.user, device.guild_id, device.channel_id)
+        if not has_permission(wert, Permissions.REMOTE_CONTROL):
+            # Dieselbe Antwort wie „gibt es nicht": wer das Gerät nicht
+            # übernehmen darf, soll aus der Antwort nicht schliessen können,
+            # dass es existiert.
+            await _fehler(ctx, 4060, "no such device")
+            return
+        channel_id = device.channel_id
+
+    ziele = list(_sockets_of(device_id))
+    if not ziele:
+        await _fehler(ctx, 4061, "device offline")
+        return
+    frame = {
+        "op": "device_wake",
+        "device_id": str(device_id),
+        "channel_id": str(channel_id),
+        "from_user_id": str(ctx.user.id),
+    }
+    for sock in ziele:
+        await send_to_socket(sock, frame)
 
 
 async def on_disconnect(app: Any, websocket: Any, *, session_factory=None) -> None:

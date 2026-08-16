@@ -5,17 +5,21 @@
       "id": "2026-08-16",
       "date": "2026-08-16",
       "style": "Sachlich",
-      "title": "Rechner dauerhaft zur Fernsteuerung freigeben",
-      "intro": "Bisher musste bei jeder Fernsteuer-Anfrage jemand am Rechner sitzen und zustimmen. Für einen Rechner, der nur dazu da ist, aus der Ferne benutzt zu werden, geht das nicht auf.",
+      "title": "Geräte: Rechner, die zum Fernsteuern bereitstehen",
+      "intro": "Bisher konnte man nur einen Menschen fernsteuern, der gerade überträgt und zustimmt. Jetzt gibt es Geräte: Rechner, die in einem Kanal stehen und dafür da sind, aus der Ferne benutzt zu werden.",
       "items": [
-        "Ein Rechner lässt sich jetzt einmal freigeben und beantwortet Anfragen danach selbst. Der Schalter steht in den Einstellungen unter „Standplatz“.",
-        "Freigeben kann nur, wer körperlich an dem Rechner sitzt — die Zustimmung wird vorverlegt, nicht abgeschafft. Über den Server ist sie nicht setzbar.",
+        "Ein Rechner lässt sich als Gerät eintragen — Einstellungen, Reiter „Standplatz“. Er steht danach in der gewählten Community in einer eigenen Kategorie neben Text- und Sprachkanälen.",
+        "Wer ein Gerät anklickt, sieht es im Hauptbereich: wem es gehört, wo es steht, ob es bereit, belegt oder offline ist.",
+        "Ein Klick weckt es und holt das Bild. Das Gerät überträgt nur auf Abruf — ein Rechner, der für niemanden überträgt, würde nur Strom verbrauchen.",
+        "Geräte sehen bewusst nicht aus wie Menschen: eckig statt rund, Name in Schreibmaschinenschrift. Sie stehen in keiner Sprecherliste und schreiben nichts.",
+        "Wer einen Kanal nicht sehen darf, sieht auch die Geräte nicht, die dort stehen.",
+        "Ein Rechner lässt sich einmal freigeben und beantwortet Fernsteuer-Anfragen danach selbst. Freigeben kann nur, wer körperlich davorsitzt — über den Server ist das nicht setzbar.",
         "Die Freigabe gilt wahlweise bis zum Neustart, acht Stunden oder dauerhaft, und entweder für einzelne Personen oder für jeden, der ohnehin das Recht zur Fernsteuerung hat.",
-        "Bei einer Anfrage lässt sich mit einem Kreuz „künftig ohne Rückfrage erlauben“ — so wächst die Liste der Freigegebenen dort, wo man die Entscheidung ohnehin trifft.",
+        "Bei einer Anfrage lässt sich mit einem Kreuz „künftig ohne Rückfrage erlauben“ — so wächst die Liste dort, wo man die Entscheidung ohnehin trifft.",
         "Solange ein Rechner freigegeben ist, sagt ein Hinweis oben im Fenster das deutlich, mit einem Knopf zum sofortigen Aufheben.",
-        "Ein Protokoll am Gerät hält fest, wer wann wie lange übernommen hat — und ob dabei jemand zugestimmt hat oder die Dauerfreigabe geantwortet hat."
+        "Ein Protokoll am Gerät hält fest, wer wann wie lange übernommen hat — und ob jemand zugestimmt hat oder die Dauerfreigabe geantwortet hat."
       ],
-      "outro": "Die Rechteprüfung bleibt unverändert davor: freigegeben heißt nicht, dass jeder darf."
+      "outro": "Die Rechteprüfung bleibt unverändert davor: eingetragen und freigegeben heißt nicht, dass jeder darf."
     },
     {
       "id": "2026-08-15",
