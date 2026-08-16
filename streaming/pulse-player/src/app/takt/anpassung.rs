@@ -27,13 +27,26 @@
 //!
 //! ## Wo er NICHT greift
 //!
-//! Waehrend einer **Fernsteuerung** (`vorhalt_vor_fern` gesetzt): dort ist der
-//! Vorhalt bewusst auf [`super::fernsteuerung::FERN_VORHALT_MS`] gesenkt, weil
-//! Latenz im geschlossenen Kreis schwerer wiegt als Glaette. Ein Regler, der
-//! ihn bei Stoerung wieder anhebt, machte genau die Absenkung zunichte — und
-//! zwar dann, wenn die Leitung schlecht ist, also im unguenstigsten Moment.
-//! Ebenso wenig greift er bei ausgeschaltetem Takt (`vorhalt == 0`); dort ist
-//! „aus" eine Ansage und kein Startwert.
+//! Bei ausgeschaltetem Takt (`vorhalt == 0`): dort ist „aus" eine Ansage und
+//! kein Startwert.
+//!
+//! ## Waehrend einer Fernsteuerung greift er — seit 2026-08-16
+//!
+//! **Hier stand das Gegenteil**, und zwar mit guter Begruendung, solange der
+//! Fern-Vorhalt 5 ms betrug: ein Regler, der ihn bei Stoerung anhebt, machte
+//! genau die Absenkung zunichte, auf die es beim Steuern ankommt.
+//!
+//! Mit [`super::fernsteuerung::FERN_VORHALT_MS`] = 30 ms kippt die Abwaegung.
+//! Der Wert ist keine kuenstliche Absenkung mehr, sondern derselbe, den der
+//! Regler beim Zusehen ohnehin als Ausgangspunkt nimmt — und auf der
+//! gemessenen Strecke hat er sich von dort aus selbst auf 45 hochgeregelt. Ihn
+//! ausgerechnet beim Steuern festzunageln hiesse, die Regelung dort
+//! abzuschalten, wo eine unruhige Leitung am meisten stoert.
+//!
+//! Der Fern-Wert ist stattdessen die **Untergrenze**: angehoben werden darf,
+//! unter 30 geht es waehrend des Steuerns nicht zurueck. Was der Regler dabei
+//! anhebt, ist mit dem Ende der Fernsteuerung ohnehin vergessen —
+//! `fernsteuerung(false)` stellt genau den Wert von davor wieder her.
 
 use std::time::{Duration, Instant};
 
@@ -106,11 +119,13 @@ impl Ausgabetakt {
     /// gerufen — also genau dort, wo `verspaetet` hochgezaehlt wird, und ohne
     /// eigenen Zeitgeber.
     pub(super) fn anpassen(&mut self, jetzt: Instant) {
-        // Fernsteuerung und ausgeschalteter Takt: nicht anfassen (Modulkopf).
-        if self.vorhalt_vor_fern.is_some() || !self.aktiv() {
+        // Ausgeschalteter Takt: nicht anfassen — „aus" ist eine Ansage und kein
+        // Startwert (Modulkopf).
+        if !self.aktiv() {
             self.anpassung.fenster_start = None;
             return;
         }
+        let fern = self.vorhalt_vor_fern.is_some();
         let Some(start) = self.anpassung.fenster_start else {
             self.anpassung.fenster_start = Some(jetzt);
             self.anpassung.verspaetet_start = self.verspaetet;
@@ -123,8 +138,17 @@ impl Ausgabetakt {
 
         let zu_spaet = self.verspaetet.saturating_sub(self.anpassung.verspaetet_start);
         let je_sekunde = zu_spaet as f64 / dauer.as_secs_f64();
-        let basis_ms = self.anpassung.basis.as_millis() as u32;
         let ist_ms = self.vorhalt.as_millis() as u32;
+        // Untergrenze des Reglers. Waehrend einer Fernsteuerung ist das der
+        // Fern-Wert und nicht die Basis des Nutzers: der Regler soll bei
+        // Stoerung anheben duerfen, aber danach wieder auf den Wert
+        // zurueckfinden, der fuer das Steuern gedacht ist — und nicht auf eine
+        // Basis, die der Nutzer fuers Zusehen gewaehlt hat.
+        let boden_ms = if fern {
+            super::fernsteuerung::FERN_VORHALT_MS
+        } else {
+            self.anpassung.basis.as_millis() as u32
+        };
 
         let ziel_ms = if je_sekunde >= HOCH_AB as f64 {
             self.anpassung.ruhige_fenster = 0;
@@ -145,7 +169,7 @@ impl Ausgabetakt {
             self.anpassung.ruhige_fenster += 1;
             if self.anpassung.ruhige_fenster >= RUHIG_BIS_RUNTER {
                 self.anpassung.ruhige_fenster = 0;
-                ist_ms.saturating_sub(STUFE_MS).max(basis_ms)
+                ist_ms.saturating_sub(STUFE_MS).max(boden_ms)
             } else {
                 ist_ms
             }
@@ -240,16 +264,36 @@ mod tests {
     /// darf der Regler nicht anheben — und schlechte Leitung ist genau der
     /// Fall, in dem er es sonst taete.
     #[test]
-    fn waehrend_der_fernsteuerung_wird_nicht_angehoben() {
+    fn waehrend_der_fernsteuerung_wird_bei_stoerung_angehoben() {
         let (mut takt, mut jetzt) = neu_mit_fenster(30);
         takt.fernsteuerung(true);
         let fern_ms = takt.vorhalt_ms();
         for _ in 0..5 {
             fenster(&mut takt, &mut jetzt, 40);
         }
-        assert_eq!(takt.vorhalt_ms(), fern_ms, "Fern-Vorhalt bleibt unangetastet");
+        assert!(
+            takt.vorhalt_ms() > fern_ms,
+            "eine gestoerte Leitung muss auch beim Steuern mehr Vorhalt bekommen"
+        );
+        // Und alles Angehobene ist mit dem Ende der Fernsteuerung vergessen.
         takt.fernsteuerung(false);
         assert_eq!(takt.vorhalt_ms(), 30, "danach wieder der Wert von vorher");
+    }
+
+    /// Die Gegenrichtung: unter den Fern-Wert darf der Regler waehrend des
+    /// Steuerns nicht zurueck, auch wenn die Leitung ruhig ist.
+    #[test]
+    fn waehrend_der_fernsteuerung_bleibt_der_fern_wert_die_untergrenze() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(90);
+        takt.fernsteuerung(true);
+        for _ in 0..30 {
+            fenster(&mut takt, &mut jetzt, 0);
+        }
+        assert_eq!(
+            takt.vorhalt_ms(),
+            u64::from(super::super::fernsteuerung::FERN_VORHALT_MS),
+            "bis zum Fern-Wert herunter, aber nicht darunter"
+        );
     }
 
     #[test]
